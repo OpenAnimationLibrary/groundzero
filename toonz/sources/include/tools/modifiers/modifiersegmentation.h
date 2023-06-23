@@ -27,18 +27,21 @@
 class DVAPI TModifierSegmentation: public TInputModifier {
 private:
   TPointD m_step;
+  int m_maxLevel;
   
-  void addSegments(TTrack &track, const TTrackPoint &p0, const TTrackPoint &p1, int level = 0);
+  void addSegments(TTrack &track, const TTrackPoint &p0, const TTrackPoint &p1, int maxLevel);
 
 public:
-  TModifierSegmentation(const TPointD &step = TPointD(1.0, 1.0));
+  TModifierSegmentation(const TPointD &step = TPointD(1.0, 1.0), int level = 10);
 
   void setStep(const TPointD &step);
-  const TPointD& getStep() const { return m_step; }
+  inline const TPointD& getStep() const { return m_step; }
+
+  void setMaxLevel(int maxLevel);
+  inline int getMaxLevel() const { return m_maxLevel; }
   
   void modifyTrack(
     const TTrack &track,
-    const TInputSavePoint::Holder &savePoint,
     TTrackList &outTracks ) override;
 };
 
