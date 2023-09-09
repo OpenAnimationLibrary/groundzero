@@ -24,17 +24,12 @@
 //    TModifierLine definition
 //*****************************************************************************************
 
-class TModifierLine: public TInputModifier {
+class DVAPI TModifierLine: public TInputModifier {
 public:
-  class Modifier: public TTrackModifier {
+  class DVAPI Handler: public TSubTrackHandler {
   public:
-    explicit Modifier(TTrackHandler &handler):
-      TTrackModifier(handler), fixAngle(), maxPressure() { }
-
-    bool fixAngle;
     double maxPressure;
-    
-    TTrackPoint calcPoint(double originalIndex) override;
+    inline Handler(): maxPressure() { }
   };
 
   void modifyTrack(
