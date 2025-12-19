@@ -1210,19 +1210,20 @@ QPixmap StartupScenesList::createScenePreview(const QString &name,
     QPixmap scenePreview(iconPath.getQString());
     if (!scenePreview.isNull()) {
       QPixmap pixmap(m_iconSize);
-      pixmap.fill(Qt::transparent);
+      pixmap.fill(Qt::white);
       QPainter painter(&pixmap);
       QPixmap scaledPixmap =
           scenePreview.scaled(m_iconSize, Qt::AspectRatioMode::KeepAspectRatio);
       painter.drawPixmap((m_iconSize.width() - scaledPixmap.width()) / 2,
                          (m_iconSize.height() - scaledPixmap.height()) / 2,
                          scaledPixmap);
-      QPen pen(Qt::black);
+      QPen pen(palette().text().color());
       pen.setStyle(Qt::DotLine);
       painter.setPen(pen);
       painter.drawRect((m_iconSize.width() - scaledPixmap.width()) / 2,
                        (m_iconSize.height() - scaledPixmap.height()) / 2,
-                       scaledPixmap.width() - 1, scaledPixmap.height() - 1);
+                       scaledPixmap.width() - 1,
+                       scaledPixmap.height() - 1);
       return pixmap;
     }
   }
@@ -1231,13 +1232,15 @@ QPixmap StartupScenesList::createScenePreview(const QString &name,
   return pixmap;
 }
 
-void StartupScenesList::clearScenes() { clear(); }
+void StartupScenesList::clearScenes() {
+    clear();
+}
 
 void StartupScenesList::addScene(const QString &name, const QString &path) {
   QPixmap pixmap;
   if (path == ":")
-    pixmap = createQIcon("new_scene", false)
-                 .pixmap(m_iconSize, QIcon::Normal, QIcon::Off);
+    pixmap =
+        generateIconPixmap("new_scene", 1.0, m_iconSize, Qt::KeepAspectRatio);
   else
     pixmap = createScenePreview(name, TFilePath(path));
   QIcon icon(pixmap);
