@@ -455,6 +455,9 @@ elseif(BUILD_ENV_APPLE)
 
     pkg_check_modules(MYPAINT_LIB REQUIRED libmypaint)
 
+    set(MYPAINT_LIB_LIBRARIES ${MYPAINT_LIB_LIBRARIES} CACHE INTERNAL "") 
+    set(MYPAINT_LIB_INCLUDE_DIRS ${MYPAINT_LIB_INCLUDE_DIRS} CACHE INTERNAL "")
+
     if(PLATFORM EQUAL 64)
         pkg_check_modules(TURBOJPEG REQUIRED libturbojpeg)
         find_library(TURBOJPEG_LIB turbojpeg ${TURBOJPEG_LIBRARY_DIRS})
