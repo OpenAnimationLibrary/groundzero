@@ -20,7 +20,7 @@ on:
       - '!doc/**'
       - '!**/.github/**'
       # Re-include this file so CI changes test themselves.
-      - '.github/workflows/ci.yml'
+      - '.github/workflows/workflow_windows.yml'
   pull_request:
     branches:
       - main
@@ -31,7 +31,7 @@ on:
       - '!doc/**'
       - '!**/.github/**'
       # Re-include this file so CI changes test themselves.
-      - '.github/workflows/ci.yml'
+      - '.github/workflows/workflow_windows.yml'
 
 jobs:
   # Primary supported build. Later jobs are skipped if this fails.
@@ -95,7 +95,7 @@ jobs:
         shell: cmd
 
       - name: Add msbuild to PATH
-        uses: microsoft/setup-msbuild@v2
+        uses: microsoft/setup-msbuild@v3
 
       - name: CMake configuration
         run: |
@@ -316,6 +316,11 @@ jobs:
 
       - name: Clean Python symlinks
         run: |
+          # Runner images may include third-party taps that Homebrew no longer
+          # trusts. OpenToonz does not use aws/tap, so remove it before any brew
+          # command to avoid repeated warnings from every package operation.
+          brew untap aws/tap 2>/dev/null || true
+
           find /usr/local/bin -type l \( -name "python*" -o -name "pip*" -o -name "2to3*" -o -name "idle*" -o -name "pydoc*" \) \
             -exec sh -c 'file -b {} | grep -q "symbolic link to .*Python.framework" && echo "Removing {}" && rm {}' \;
           for py_version in python@3.11 python@3.12 python@3.13 python@3.14; do
