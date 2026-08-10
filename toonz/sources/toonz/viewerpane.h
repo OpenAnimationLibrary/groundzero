@@ -68,10 +68,20 @@ protected:
 
   bool m_isActive = false;
 
-  // Deferred view restore after first sceneSwitched (session persistence)
-  bool m_hasPendingViewRestore        = false;
-  std::array<TAffine, 2> m_pendingViewAffs = {TAffine(), TAffine()};
-  int m_pendingReferenceMode          = -1;
+  struct PendingViewState {
+    bool valid                              = false;
+    std::array<TAffine, 2> viewAffs         = {TAffine(), TAffine()};
+    int referenceMode                       = -1;
+    bool hasCamera3D                        = false;
+    TPointD pan3D;
+    double zoomScale3D                      = 1.0;
+    double phi3D                            = 30.0;
+    double theta3D                          = 20.0;
+  };
+  PendingViewState m_pendingViewState;
+
+  void applyReferenceMode(int mode);
+  void applyPendingViewState();
 
 public:
   BaseViewerPanel(QWidget *parent = 0, Qt::WindowFlags flags = Qt::WindowFlags());
