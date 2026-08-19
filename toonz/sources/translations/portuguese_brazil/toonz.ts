@@ -3438,10 +3438,13 @@ Desmarcado: Somente camadas com Visualização Visível ATIVADA são exportadas<
         <source>The preset file %1 is not valid.</source>
         <translation>O arquivo predefinido %1 não é válido.</translation>
     </message>
-    <message numerus="yes">
-        <source>%n page(s)</source>
-        <translation>%n páginas</translation>
-    </message>
+	<message numerus="yes">
+		<source>%n page(s)</source>
+		<translation>
+			<numerusform>%n página</numerusform>
+			<numerusform>%n páginas</numerusform>
+		</translation>
+	</message>
     <message>
         <source>%1 x %2 pages</source>
         <translation>%1 x %2 páginas</translation>
@@ -11583,10 +11586,13 @@ O que você quer fazer?</translation>
         <source>Deleting %1. Are you sure?</source>
         <translation>Excluindo %1. Tem certeza?</translation>
     </message>
-    <message numerus="yes">
-        <source>Deleting %n files. Are you sure?</source>
-        <translation>Excluindo %n arquivos. Tem certeza?</translation>
-    </message>
+	<message numerus="yes">
+		<source>Deleting %n files. Are you sure?</source>
+		<translation>
+			<numerusform>Excluindo %n arquivo. Tem certeza?</numerusform>
+			<numerusform>Excluindo %n arquivos. Tem certeza?</numerusform>
+		</translation>
+	</message>
     <message>
         <source>Delete</source>
         <translation>Excluir</translation>
