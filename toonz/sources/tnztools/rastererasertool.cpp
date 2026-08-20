@@ -1978,15 +1978,28 @@ void EraserTool::multiAreaSegmentEraserByRows(
   }
 
   std::vector<SegmentFrameTarget> targets;
-  std::set<TFrameId> seenFrames;
+  TFrameId previousFid;
+  bool previousWasTarget = false;
   TXsheet *xsheet = TTool::getApplication()->getCurrentXsheet()->getXsheet();
   for (int row = firstRow; row <= lastRow; ++row) {
     TXshCell cell = xsheet->getCell(row, m_currCell.first);
-    if (cell.isEmpty() || cell.getSimpleLevel() != sl.getPointer()) continue;
+    if (cell.isEmpty() || cell.getSimpleLevel() != sl.getPointer()) {
+      previousWasTarget = false;
+      continue;
+    }
+
     TFrameId fid = cell.getFrameId();
-    if (!seenFrames.insert(fid).second) continue;
+    if (previousWasTarget && fid == previousFid) continue;
+
     TToonzImageP image = (TToonzImageP)cell.getImage(true);
-    if (image) targets.push_back({fid, image});
+    if (!image) {
+      previousWasTarget = false;
+      continue;
+    }
+
+    targets.push_back({fid, image});
+    previousFid       = fid;
+    previousWasTarget = true;
   }
 
   TVectorImageP firstImage = makeStrokeImage(firstStroke);
