@@ -15,7 +15,6 @@
 // STD includes
 #include <vector>
 #include <map>
-#include <string>
 
 // forward declaration
 class TFrameId;
@@ -51,7 +50,7 @@ public:
   bool m_isVertical           = true;
   bool m_showNavigator        = true;
   bool m_showComboBox         = true;
-  bool m_responsiveThumbnails = false;
+  bool m_responsiveThumbnails = true;
 
   void setBGColor(const QColor &color) { m_bgColor = color; }
   QColor getBGColor() const { return m_bgColor; }
@@ -120,8 +119,8 @@ public:
   };
   void select(int index, SelectionMode mode = SIMPLE_SELECT);
 
-  int getOneFrameHeight();
-  int getOneFrameWidth();
+  int getOneFrameHeight() const;
+  int getOneFrameWidth() const;
   void setOrientation(bool isVertical);
   void setNavigator(bool showNavigator);
   void setComboBox(bool showComboBox);
@@ -133,7 +132,7 @@ signals:
   void orientationToggledSignal(bool);
   void comboBoxToggledSignal();
   void navigatorToggledSignal();
-  void responsiveThumbnailsToggledSignal();
+  void responsiveThumbnailsToggledSignal(bool responsive);
   void levelSelectedSignal(int);
 
 protected:
@@ -217,9 +216,8 @@ private:
 
   QTimer *m_responsiveRenderTimer = nullptr;
 
-  void applyCrossAxisDimension();
+  void updateContentConstraints();
   void scheduleResponsiveRenderCommit();
-  static std::string responsiveIconCacheSuffix(const QSize &size);
   static QSize quantizeResponsiveRenderSize(const QSize &layout,
                                             const QSize &pref, bool vertical);
 
@@ -255,7 +253,7 @@ class Filmstrip final : public QWidget, public SaveLoadQSettings {
   bool m_isVertical           = true;
   bool m_showNavigator        = true;
   bool m_showComboBox         = true;
-  bool m_responsiveThumbnails = false;
+  bool m_responsiveThumbnails = true;
 
 public:
   Filmstrip(QWidget *parent = 0, Qt::WindowFlags flags = Qt::WindowFlags());
@@ -291,7 +289,7 @@ public slots:
   void orientationToggled(bool);
   void comboBoxToggled();
   void navigatorToggled();
-  void responsiveThumbnailsToggled();
+  void responsiveThumbnailsToggled(bool responsive);
 
 private:
   void updateWindowTitle();
