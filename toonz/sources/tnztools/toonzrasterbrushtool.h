@@ -196,6 +196,7 @@ public:
 
 private:
   void updateModifiers();
+  void commitPainting();
 
   enum MouseEventType { ME_DOWN, ME_DRAG, ME_UP, ME_MOVE };
   void handleMouseEvent(MouseEventType type, const TPointD &pos,
@@ -314,7 +315,8 @@ protected:
   QElapsedTimer m_brushTimer;
   int m_minCursorThick, m_maxCursorThick;
 
-  bool m_propertyUpdating = false;
+  bool m_propertyUpdating    = false;
+  bool m_skipStrokeUntilDown = false;
 
 protected:
   static void drawLine(const TPointD &point, const TPointD &centre,
