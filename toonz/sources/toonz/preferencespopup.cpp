@@ -1290,6 +1290,8 @@ QString PreferencesPopup::getUIString(PreferencesItemId id) {
       {showIconsInMenu, tr("Show Icons In Menu*")},
       {showRoomBindButtons, tr("Show Room Bind Buttons*")},
       {viewerIndicatorEnabled, tr("Show Viewer Indicators")},
+      {restoreViewerViewFromLastSession,
+       tr("Restore Viewer Zoom and Pan from Last Session")},
 
       // Visualization
       {show0ThickLines, tr("Show Lines with Thickness 0")},
@@ -2330,6 +2332,7 @@ QWidget* PreferencesPopup::createPreviewPage() {
     insertUI(actualPixelViewOnSceneEditingMode, viewerLay);
     insertUI(showRasterImagesDarkenBlendedInViewer, viewerLay);
     insertUI(viewerIndicatorEnabled, viewerLay);
+    insertUI(restoreViewerViewFromLastSession, viewerLay);
   }
   QGridLayout* palyControlLay = insertGroupBox(tr("Play Control"), lay);
   {
