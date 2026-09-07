@@ -818,6 +818,7 @@ class SettingsPage final : public QScrollArea {
   QGridLayout *m_paramsLayout;
 
   QCheckBox *m_autoFillCheckBox;
+  QPushButton *m_revertMyPaintButton;
 
   TColorStyleP m_editedStyle;  //!< A copy of the current style being edited by
                                //! the Style Editor.
@@ -846,6 +847,7 @@ private slots:
   void onAutofillChanged();
   void onValueChanged(bool isDragging = false);
   void onValueReset();
+  void onMyPaintRevert();
 };
 
 //=============================================================================
