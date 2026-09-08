@@ -2528,6 +2528,15 @@ SettingsPage::SettingsPage(QWidget *parent)
   paramsContainerLayout->addLayout(m_paramsLayout);
 
   paramsContainerLayout->addStretch(1);
+
+  m_revertMyPaintButton = new QPushButton(tr("Revert"), this);
+  m_revertMyPaintButton->hide();
+  paramsContainerLayout->addWidget(m_revertMyPaintButton, 0, Qt::AlignRight);
+
+  ret = connect(m_revertMyPaintButton, SIGNAL(clicked(bool)), this,
+                SLOT(onMyPaintRevert())) &&
+        ret;
+  assert(ret);
 }
 
 //-----------------------------------------------------------------------------
@@ -2564,6 +2573,8 @@ void SettingsPage::setStyle(const TColorStyleP &editedStyle) {
       !(m_editedStyle && typeid(*m_editedStyle) == typeid(*editedStyle));
 
   m_editedStyle = editedStyle;
+  m_revertMyPaintButton->setVisible(
+      dynamic_cast<TMyPaintBrushStyle *>(m_editedStyle.getPointer()));
 
   if (clearLayout) locals::clearLayout(m_paramsLayout);
 
@@ -2696,6 +2707,11 @@ void SettingsPage::updateValues() {
   // Deal with the autofill
   m_autoFillCheckBox->setChecked(m_editedStyle->getFlags() & 1);
 
+  TMyPaintBrushStyle *myPaintStyle =
+      dynamic_cast<TMyPaintBrushStyle *>(m_editedStyle.getPointer());
+  if (myPaintStyle)
+    m_revertMyPaintButton->setEnabled(!myPaintStyle->getBaseValues().empty());
+
   int p, pCount = m_editedStyle->getParamCount();
   for (p = 0; p != pCount; ++p) {
     // Update state of "reset to default" button
@@ -2792,8 +2808,23 @@ void SettingsPage::onValueReset() {
 
   assert(0 <= p && p < m_editedStyle->getParamCount());
   m_editedStyle->setParamDefault(p);
+  if (dynamic_cast<TMyPaintBrushStyle *>(m_editedStyle.getPointer()))
+    updateValues();
 
   // Forward the signal to the style editor
+  if (!m_updating) emit paramStyleChanged(false);
+}
+
+//-----------------------------------------------------------------------------
+
+void SettingsPage::onMyPaintRevert() {
+  TMyPaintBrushStyle *myPaintStyle =
+      dynamic_cast<TMyPaintBrushStyle *>(m_editedStyle.getPointer());
+  assert(myPaintStyle);
+
+  myPaintStyle->resetBaseValues();
+  updateValues();
+
   if (!m_updating) emit paramStyleChanged(false);
 }
 
@@ -2833,6 +2864,11 @@ void SettingsPage::onValueChanged(bool isDragging) {
     break;
   }
   }
+
+  TMyPaintBrushStyle *myPaintStyle =
+      dynamic_cast<TMyPaintBrushStyle *>(m_editedStyle.getPointer());
+  if (myPaintStyle)
+    m_revertMyPaintButton->setEnabled(!myPaintStyle->getBaseValues().empty());
 
   // Forward the signal to the style editor
   if (!m_updating) emit paramStyleChanged(isDragging);
