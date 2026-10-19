@@ -285,6 +285,7 @@ set(SOURCES
     addfilmstripframespopup.cpp
     camerasettingspopup.cpp
     convertpopup.cpp
+    convertlinestoareascommand.cpp
     crashhandler.cpp
     autosaverecovery.cpp
     duplicatepopup.cpp
