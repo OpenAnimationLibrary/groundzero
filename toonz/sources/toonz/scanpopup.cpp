@@ -83,7 +83,11 @@ bool defineScanner(const QString &scannerType) {
   bool ret = false;
   QApplication::setOverrideCursor(Qt::WaitCursor);
 
-  TScanner::m_isWia   = (scannerType == "WIA");
+#ifdef _WIN32
+  TScanner::m_isWia = (scannerType == "WIA");
+#else
+  TScanner::m_isWia = false;
+#endif
   TScanner::m_isTwain = (scannerType == "TWAIN");
 
   try {
@@ -101,10 +105,8 @@ indent も腐っておりつらいので後で直す */
       return false;
     }
     TScanner::instance()->selectDevice();
-    if (!TScanner::instance()->isDeviceSelected()) {
-      DVGui::warning(TScanner::m_isWia
-                         ? QObject::tr("No WIA scanner was selected")
-                         : QObject::tr("No scanner was selected"));
+    if (TScanner::m_isWia && !TScanner::instance()->isDeviceSelected()) {
+      DVGui::warning(QObject::tr("No WIA scanner was selected"));
       QApplication::restoreOverrideCursor();
       return false;
     }
@@ -252,13 +254,11 @@ bool getAdHocScanTarget(int &row, int &column) {
   TApp *app         = TApp::instance();
   ToonzScene *scene = app->getCurrentScene()->getScene();
   TXsheet *xsh      = scene ? scene->getXsheet() : nullptr;
-  if (!xsh || r0 < 0 || c0 < 0 || !xsh->getCell(r0, c0).isEmpty())
-    return false;
+  if (!xsh || r0 < 0 || c0 < 0 || !xsh->getCell(r0, c0).isEmpty()) return false;
 
   TXshColumn *xshColumn = xsh->getColumn(c0);
-  if (xshColumn &&
-      (xshColumn->getColumnType() != TXshColumn::eLevelType ||
-       xshColumn->isLocked()))
+  if (xshColumn && (xshColumn->getColumnType() != TXshColumn::eLevelType ||
+                    xshColumn->isLocked()))
     return false;
 
   row    = r0;
@@ -273,6 +273,11 @@ bool appendAdHocScanFrame(ScanList &scanList, int startRow, int column) {
   ToonzScene *scene = app->getCurrentScene()->getScene();
   TXsheet *xsh      = scene ? scene->getXsheet() : nullptr;
   if (!xsh || startRow < 0 || column < 0) return false;
+
+  TXshColumn *xshColumn = xsh->getColumn(column);
+  if (xshColumn && (xshColumn->getColumnType() != TXshColumn::eLevelType ||
+                    xshColumn->isLocked()))
+    return false;
 
   int frameIndex = scanList.getFrameCount();
   int row        = startRow + frameIndex;
@@ -289,15 +294,14 @@ bool appendAdHocScanFrame(ScanList &scanList, int startRow, int column) {
       levelName = nameBuilder->getNext();
       levelPath = scene->getDefaultLevelPath(TZI_XSHLEVEL, levelName);
       if (scene->getLevelSet()->getLevel(levelName)) continue;
-      if (TSystem::doesExistFileOrLevel(
-              scene->decodeFilePath(levelPath)))
+      if (TSystem::doesExistFileOrLevel(scene->decodeFilePath(levelPath)))
         continue;
       break;
     }
 
-    TXshLevel *level = scene->createNewLevel(
-        TZI_XSHLEVEL, levelName, TDimension(), 0, levelPath);
-    sl = level ? level->getSimpleLevel() : nullptr;
+    TXshLevel *level = scene->createNewLevel(TZI_XSHLEVEL, levelName,
+                                             TDimension(), 0, levelPath);
+    sl               = level ? level->getSimpleLevel() : nullptr;
     if (!sl) return false;
     sl->setPath(levelPath, true);
     createdLevel = true;
@@ -308,8 +312,7 @@ bool appendAdHocScanFrame(ScanList &scanList, int startRow, int column) {
   if (!sl) return false;
 
   TFrameId fid(frameIndex + 1);
-  sl->formatFId(fid,
-                scene->getProperties()->formatTemplateFIdForInput());
+  sl->formatFId(fid, scene->getProperties()->formatTemplateFIdForInput());
   if (!xsh->setCell(row, column, TXshCell(sl, fid))) {
     if (createdLevel) scene->getLevelSet()->removeLevel(sl);
     return false;
@@ -808,7 +811,7 @@ void AutocenterPopup::onFieldGuideChanged(const QString &fg) {
 #endif
 
 MyScannerListener::MyScannerListener(const ScanList &scanList, int adHocRow,
-                                         int adHocColumn)
+                                     int adHocColumn)
     : m_current(0)
     , m_inc(+1)
     , m_adHocRow(adHocRow)
@@ -824,8 +827,7 @@ MyScannerListener::MyScannerListener(const ScanList &scanList, int adHocRow,
 
   m_isPreview = parameters->isPreview();
   if (m_isPreview) return;
-  if (parameters->isPaperFeederEnabled() &&
-      m_scanList.getFrameCount() > 0) {
+  if (parameters->isPaperFeederEnabled() && m_scanList.getFrameCount() > 0) {
     int frameCount         = m_scanList.getFrameCount();
     ScanListFrame frame    = m_scanList.getFrame(m_current);
     TXshSimpleLevel *newXl = frame.getLevel();
@@ -834,8 +836,8 @@ MyScannerListener::MyScannerListener(const ScanList &scanList, int adHocRow,
         toQString(levelName.withFrame(frame.getFrameId())) + QString(".tif");
     QString text = tr("Scanning in progress: ") + imageName + " 1/" +
                    QString::number(frameCount);
-    m_progressDialog = new DVGui::ProgressDialog(
-        text, QObject::tr("Cancel"), 0, frameCount);
+    m_progressDialog =
+        new DVGui::ProgressDialog(text, QObject::tr("Cancel"), 0, frameCount);
     connect(m_progressDialog, SIGNAL(canceled()), this,
             SLOT(cancelButtonPressed()));
     m_progressDialog->setWindowModality(Qt::WindowModal);
@@ -858,8 +860,7 @@ void MyScannerListener::onImage(const TRasterImageP &rasImg) {
   if (!m_isPreview && m_adHocRow >= 0 &&
       m_current >= m_scanList.getFrameCount()) {
     if (!appendAdHocScanFrame(m_scanList, m_adHocRow, m_adHocColumn)) {
-      DVGui::warning(
-          tr("Unable to create a scan level at the selected cell."));
+      DVGui::warning(tr("Unable to create a scan level at the selected cell."));
       return;
     }
   }
@@ -873,6 +874,7 @@ void MyScannerListener::onImage(const TRasterImageP &rasImg) {
                                  rasImg.getPointer());
   } else {
 #ifdef LINETEST
+    // Autocenter
     CleanupParameters *cp = TApp::instance()
                                 ->getCurrentScene()
                                 ->getScene()
@@ -882,11 +884,10 @@ void MyScannerListener::onImage(const TRasterImageP &rasImg) {
       bool autocentered;
       TCleanupper *cl = TCleanupper::instance();
       cl->setParameters(cp);
-      TRasterImageP outImg =
-          cl->autocenterOnly(rasImg, false, autocentered);
+      TRasterImageP outImg = cl->autocenterOnly(rasImg, false, autocentered);
       if (!autocentered)
-        DVGui::warning(QObject::tr(
-            "The autocentering failed on the current drawing."));
+        DVGui::warning(
+            QObject::tr("The autocentering failed on the current drawing."));
       else
         rasImg->setRaster(outImg->getRaster());
     }
@@ -900,11 +901,10 @@ void MyScannerListener::onImage(const TRasterImageP &rasImg) {
 
     ScanListFrame frame = m_scanList.getFrame(m_current);
     bool isBW           = false;
-    if (params->getScanType() == TScannerParameters::BW) {
+    if (!TScanner::m_isWia && params->getScanType() == TScannerParameters::BW) {
       isBW = true;
       rasImg->setScanBWFlag(true);
-      Tiio::Writer::setBlackAndWhiteThreshold(
-          params->m_threshold.m_value);
+      Tiio::Writer::setBlackAndWhiteThreshold(params->m_threshold.m_value);
     }
     frame.setRasterImage(rasImg, isBW);
 
@@ -991,8 +991,7 @@ static void doScan() {
     int ret = DVGui::MsgBox(
         QObject::tr("Some of the selected drawings were already scanned. Do "
                     "you want to scan them again?"),
-        QObject::tr("Scan"), QObject::tr("Don't Scan"),
-        QObject::tr("Cancel"));
+        QObject::tr("Scan"), QObject::tr("Don't Scan"), QObject::tr("Cancel"));
     if (ret == 3) return;
     scanList.update(ret == 1);
   } else
@@ -1000,10 +999,11 @@ static void doScan() {
 
   int adHocRow = -1, adHocColumn = -1;
   if (scanList.getFrameCount() == 0 &&
-      !getAdHocScanTarget(adHocRow, adHocColumn)) {
-    DVGui::warning(QObject::tr(
-        "Select one empty cell in an unlocked level column for "
-        "scanning."));
+      (!TScanner::m_isWia || !getAdHocScanTarget(adHocRow, adHocColumn))) {
+    DVGui::warning(TScanner::m_isWia
+                       ? QObject::tr("Select one empty cell in an unlocked "
+                                     "level column for scanning.")
+                       : QObject::tr("There are no frames to scan."));
     return;
   }
 
@@ -1012,12 +1012,9 @@ static void doScan() {
 
     int rc = scanner->isDeviceAvailable();
     if (!rc) {
-      DVGui::warning(
-          TScanner::m_isWia
-              ? QObject::tr("WIA is not available.")
-              : (TScanner::m_isTwain
-                     ? QObject::tr("TWAIN is not available.")
-                     : QObject::tr("The scanner is not available.")));
+      DVGui::warning(TScanner::m_isWia
+                         ? QObject::tr("WIA is not available.")
+                         : QObject::tr("TWAIN is not available."));
       return;
     }
 
@@ -1031,7 +1028,6 @@ static void doScan() {
                                    ->getScanParameters();
       sp->adaptToCurrentScannerIfNeeded();
       int paperCount = scanList.getFrameCount();
-      if (paperCount == 0) paperCount = 1;
       scanner->acquire(*sp, paperCount);
     }
 
@@ -1047,6 +1043,16 @@ static void doScan() {
     DVGui::warning(QString::fromStdWString(e.getMessage()));
   }
 
+  // If some levels were scanned successfully, their renumber table must be
+  // updated.
+
+  // A level's renumber table is usually updated when it is either loaded or
+  // before saving -
+  // this is a similar case, where a level is filled with frames.
+  // An empty renumber table means that a renumbering operation was carried out
+  // with all frames
+  // being eradicated - which may lead to the level being saved with missing
+  // frames.
   int i, frameCount = scanList.getFrameCount();
   TXshSimpleLevel *oldLevel = 0, *level;
   for (i = 0; i < frameCount; ++i) {
