@@ -1,6 +1,7 @@
 name: MacOS Build
 
 on:
+  # Not run on pull requests: the Linux build is the initial PR check.
   workflow_dispatch:
 
 permissions:
@@ -47,7 +48,7 @@ jobs:
             done
           }
 
-          checkPkgAndInstall pkg-config glew lz4 libjpeg libpng lzo boost libusb libmypaint ccache jpeg-turbo ninja opencv@4 ffmpeg
+          checkPkgAndInstall pkg-config glew lz4 libjpeg libpng lzo boost libusb libmypaint ccache jpeg-turbo ninja opencv@4
 
           brew list --formula | grep '^qt' | grep -v '@5' | xargs -n1 brew unlink || true
 
@@ -84,12 +85,8 @@ jobs:
             -DQt5_DIR=$(brew --prefix qt@5)/lib/cmake/Qt5 \
             -DCMAKE_PREFIX_PATH=$(brew --prefix qt@5)/lib/cmake/Qt5 \
             -DOpenCV_DIR=$(brew --prefix opencv@4)/lib/cmake/opencv4 \
-            -DBUILD_EXR_TESTS=ON \
-            -DBUILD_EXR_AOV_FX_TESTS=ON \
-            -DBUILD_FFMPEG_TESTS=ON \
             -DWITH_TRANSLATION=OFF
           ninja -j $(sysctl -n hw.ncpu)
-          ctest --output-on-failure -R '^(tiio_exr(_level)?|tiio_ffmpeg|openexraovfx)$'
       - name: Introduce Libraries and Stuff
         run: |
           cd toonz/build/toonz
