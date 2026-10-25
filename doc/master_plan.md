@@ -136,6 +136,17 @@ anti-aliasing (GPU and 3D scope), and Ember AI (not realistic).
 | E5 | Reference panel: several images, remembered view state, PSD layers | S |
 | E6 | Faster scene save and load (profiling first) | M |
 
+#### Tier 11 status: E3, E4, E5
+
+Built (not yet confirmed by a CI build when this was written); see
+`doc/light_table_extras.md`.
+
+| # | Delivered | Still partial |
+|---|---|---|
+| E3 | Light Table Opacity preference (default 30%) and a per-column exclusion (column-header commands, a bit of the column status word) | The opacity is global; older builds ignore the exclusion bit |
+| E4 | Xsheet > Add Tone / Highlight Shading: a Tone and a Highlight Fx with preset parameters on the selected columns, one undo step | The matte ports are left to connect; no automatic line-art matte |
+| E5 | Reference panel: several images in a list, zoom, pan, flips, rotation and opacity remembered per image, PSD layers as entries | PSD layers shown one at a time, without visibility or blend modes |
+
 ---
 
 ## Order at a glance

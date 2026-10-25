@@ -76,9 +76,6 @@ const double Stage::inch        = 53.33333;
 const double Stage::standardDpi = 120;
 
 namespace {
-// Opacity factor of the columns faded by the light table.
-const double cLightTableOpacity = 0.3;
-
 void updateOnionSkinSize(const PlayerSet &players) {
   assert(Player::m_onionSkinFrontSize == 0 && Player::m_onionSkinBackSize == 0);
   int i;
@@ -222,7 +219,9 @@ public:
   // for guided drawing
   TFrameId m_currentFrameId;
   int m_isGuidedDrawingEnabled;
-  bool m_lightTable       = false;  // see Stage::VisitArgs::m_lightTable
+  bool m_lightTable = false;  // see Stage::VisitArgs::m_lightTable
+  // see Stage::VisitArgs::m_lightTableOpacity
+  double m_lightTableOpacity = 0.3;
   int m_guidedFrontStroke = -1;
   int m_guidedBackStroke  = -1;
   std::vector<TXshColumn *> m_ancestors;
@@ -464,9 +463,10 @@ void StageBuilder::addCell(PlayerSet &players, ToonzScene *scene, TXsheet *xsh,
     player.m_masks               = m_masks;
     player.m_opacity             = column->getOpacity();
     // The light table shows the other columns faded, keeping their relative
-    // opacity.
-    if (m_lightTable && !isCurrent && m_currentColumnIndex >= 0)
-      player.m_opacity = (UCHAR)(player.m_opacity * cLightTableOpacity + 0.5);
+    // opacity. A column excluded from it keeps its own opacity.
+    if (m_lightTable && !isCurrent && m_currentColumnIndex >= 0 &&
+        !column->isLightTableExcluded())
+      player.m_opacity = (UCHAR)(player.m_opacity * m_lightTableOpacity + 0.5);
     player.m_filterColor =
         scene->getProperties()->getColorFilterColor(column->getColorFilterId());
 
@@ -987,6 +987,7 @@ void Stage::visit(Visitor &visitor, const VisitArgs &args) {
   sb.m_guidedFrontStroke      = args.m_guidedFrontStroke;
   sb.m_guidedBackStroke       = args.m_guidedBackStroke;
   sb.m_lightTable             = args.m_lightTable;
+  sb.m_lightTableOpacity      = args.m_lightTableOpacity;
 #if defined(x64)
   if (args.m_liveViewImage) {
     sb.m_liveViewImage  = args.m_liveViewImage;

@@ -357,6 +357,7 @@ set(SOURCES
     viewerpopup.cpp
     cellselectioncommand.cpp
     columncommand.cpp
+    tonehighlightcommand.cpp
     filmstripcommand.cpp
     iocommand.cpp
     levelcommand.cpp

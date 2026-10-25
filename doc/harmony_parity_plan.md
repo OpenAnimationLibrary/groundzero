@@ -52,8 +52,8 @@
 | Morphing | A/P | Partial | Vector Inbetween now accepts **stroke-pairing hints** (`common/tvrender/tinbetween.cpp`, `tnztools/strokeselection.cpp:694`). The old `morphtool.cpp` was removed. | No automatic matching of strokes, no zone or vanishing-point hints, and no velocity curve. |
 | Shift & Trace | A/P | Y | Existing tool. | n/a |
 | Onion skin | E/A/P | Y | Existing. | n/a |
-| Light Table | E/A/P | Y | View > Light Table: every column except the current one at 30% (`toonzlib/stage.cpp`, `toonz/sceneviewer.cpp`). | Fixed at 30%; there is no per-column setting. |
-| Reference view and Mirror (H22/H27) | E/A/P | Y | **Reference panel** with pan, zoom, horizontal and vertical flip, and 90° rotation (`toonz/referencepanel.cpp`). | Shows one image only. 3D models can't be used as references. |
+| Light Table | E/A/P | Y | View > Light Table: every column except the current one faded (`toonzlib/stage.cpp`, `toonz/sceneviewer.cpp`). The opacity is a preference (Onion Skin page, default 30%), and a column can be excluded from it with a column-header command (`TXshColumn::isLightTableExcluded`, see `doc/light_table_extras.md`). | The opacity is global, not per column. The exclusion is saved in the column status word; older builds ignore it. |
+| Reference view and Mirror (H22/H27) | E/A/P | Y | **Reference panel** with pan, zoom, horizontal and vertical flip, 90° rotation and opacity (`toonz/referencepanel.cpp`). It lists several images, remembers the view of each, and shows the layers of a PSD file (see `doc/light_table_extras.md`). | PSD layers are shown one at a time (no visibility or blend modes). 3D models can't be used as references. |
 
 ### 1.3 Animation and timing
 
@@ -74,7 +74,7 @@
 | Feature | Tier | Status | What exists | Gap |
 |---|---|---|---|---|
 | Node compositing | P | Y | FX Schematic with multiple outputs. | No port filtering. |
-| Tone / Highlight | A/P | Y | `ToneHighlightFx` (`stdfx/tonehighlightfx.cpp:91`): matte input, softness, and a correct affine for soft edges. | No preset that drives it with a one-click line-art matte. |
+| Tone / Highlight | A/P | Y | `ToneHighlightFx` (`stdfx/tonehighlightfx.cpp:91`): matte input, softness, and a correct affine for soft edges. **Xsheet > Add Tone / Highlight Shading** inserts a Tone and a Highlight Fx with preset colours on the selected columns, as one undo step (`toonz/tonehighlightcommand.cpp`). | The matte ports are left for you to connect; no automatic line-art matte. |
 | Glow, Blur, Bokeh | A/P | Y | Existing Iwa effects. | n/a |
 | Cutter and Matte | A/P | Y | Matte In and Matte Out. | n/a |
 | Colour Override | P | Partial | `stdfx/colouroverridefx.cpp`, `ColourOverrideFxRenderData` applied in `tcolumnfx.cpp`: up to 8 style → colour pairs on Toonz Vector / Toonz Raster columns, Preview/Render only. | Only main colours (no textures), no viewer display, no palette-swatch picker. |
@@ -175,8 +175,8 @@
 | Q4 | Drawing-substitution slider and controller | S | none | A slider in the viewer or Tool Options that steps through the Drawing Substitution pane's frame list for the current cell. | Low | V |
 | Q5 | Lock Timeline Ruler; port filter in the FX Schematic | S | none | UI-only changes. | Low | V |
 | Q6 | Layered PSD scene export | M | none | One PSD per frame with one layer for each top-level column, written with the existing `TLevelWriterPsd` layer code. | Low | V |
-| Q7 | Light Table opacity and per-column exclusion | S | none | Make the 30% value a preference, and let a column be excluded from the Light Table. | Low | V |
-| Q8 | Tone/Highlight preset macro | S | none | A macro FX that uses the column's Line Art matte as the matte input. | Low | V |
+| Q7 | Light Table opacity and per-column exclusion | S | none | Make the 30% value a preference, and let a column be excluded from the Light Table. | Low | V (done) |
+| Q8 | Tone/Highlight preset macro | S | none | A macro FX that uses the column's Line Art matte as the matte input. | Low | V (done, see `doc/light_table_extras.md`) |
 | Q9 | Retime/Hold/Loop as a time-remap curve | M | none | A per-level-column `TDoubleParam` time map, modelled on the `TXshSoundColumn` volume curve and evaluated in `getCell()`. | Medium: every `getCell` caller | V |
 | Q10 | Script API depth | M | none | Fx, column, cell and Plastic bindings in both `scriptbinding_*` and `pythonbinding.cpp`, with toolbar script buttons. | Low | V |
 

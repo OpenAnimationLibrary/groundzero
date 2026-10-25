@@ -1517,6 +1517,7 @@ QMenuBar *StackedMenuBar::createFullMenuBar() {
   xsheetMenu->addSeparator();
   addMenuItem(xsheetMenu, MI_InsertFx);
   addMenuItem(xsheetMenu, MI_NewOutputFx);
+  addMenuItem(xsheetMenu, MI_ToneHighlightSetup);
   xsheetMenu->addSeparator();
   addMenuItem(xsheetMenu, MI_InsertSceneFrame);
   addMenuItem(xsheetMenu, MI_RemoveSceneFrame);

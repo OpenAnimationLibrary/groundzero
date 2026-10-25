@@ -536,6 +536,8 @@ public:
   bool getOnionSkinDuringPlayback() {
     return getBoolValue(onionSkinDuringPlayback);
   }
+  // Opacity percentage (0-100) of the columns faded by the Light Table
+  int getLightTableOpacity() const { return getIntValue(lightTableOpacity); }
   bool areOnionColorsUsedForShiftAndTraceGhosts() const {
     return getBoolValue(useOnionColorsForShiftAndTraceGhosts);
   }

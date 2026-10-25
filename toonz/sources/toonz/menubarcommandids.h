@@ -154,6 +154,7 @@
 
 #define MI_InsertFx "MI_InsertFx"
 #define MI_NewOutputFx "MI_NewOutputFx"
+#define MI_ToneHighlightSetup "MI_ToneHighlightSetup"
 
 #define MI_PasteNew "MI_PasteNew"
 #define MI_Autorenumber "MI_Autorenumber"
@@ -333,6 +334,11 @@
 #define MI_SelectionLockSelectedColumns "MI_SelectionLockSelectedColumns"
 #define MI_SelectionUnlockSelectedColumns "MI_SelectionUnlockSelectedColumns"
 #define MI_SelectionUnlockAllColumns "MI_SelectionUnlockAllColumns"
+#define MI_LightTableExcludeSelectedColumns                                    \
+  "MI_LightTableExcludeSelectedColumns"
+#define MI_LightTableIncludeSelectedColumns                                    \
+  "MI_LightTableIncludeSelectedColumns"
+#define MI_LightTableIncludeAllColumns "MI_LightTableIncludeAllColumns"
 #define MI_ToggleXSheetToolbar "MI_ToggleXSheetToolbar"
 #define MI_ToggleXsheetBreadcrumbs "MI_ToggleXsheetBreadcrumbs"
 #define MI_FoldColumns "MI_FoldColumns"

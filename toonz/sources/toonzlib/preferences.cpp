@@ -690,6 +690,7 @@ void Preferences::definePreferenceItems() {
   define(onionInksOnly, "onionInksOnly", QMetaType::Bool, false);
   define(onionSkinDuringPlayback, "onionSkinDuringPlayback", QMetaType::Bool,
          false);
+  define(lightTableOpacity, "lightTableOpacity", QMetaType::Int, 30, 0, 100);
   define(useOnionColorsForShiftAndTraceGhosts,
          "useOnionColorsForShiftAndTraceGhosts", QMetaType::Bool, true);
   define(animatedGuidedDrawing, "animatedGuidedDrawing", QMetaType::Int,

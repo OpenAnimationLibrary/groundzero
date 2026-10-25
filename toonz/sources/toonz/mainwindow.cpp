@@ -2595,6 +2595,8 @@ void MainWindow::defineActions() {
                          "fx_logo");
   createMenuXsheetAction(MI_NewOutputFx, QT_TR_NOOP("&New Output"), "Alt+O",
                          "output");
+  createMenuXsheetAction(MI_ToneHighlightSetup,
+                         QT_TR_NOOP("Add Tone / Highlight Shading"), "");
   createMenuXsheetAction(MI_InsertSceneFrame, QT_TR_NOOP("Insert Frame"), "",
                          "insert_frame");
   createMenuXsheetAction(MI_RemoveSceneFrame, QT_TR_NOOP("Remove Frame"), "",
@@ -3195,6 +3197,12 @@ void MainWindow::defineActions() {
   createRightClickMenuAction(MI_SelectionUnlockAllColumns,
                              QT_TR_NOOP("Unlock Selection in Viewer for All"),
                              "");
+  createRightClickMenuAction(MI_LightTableExcludeSelectedColumns,
+                             QT_TR_NOOP("Exclude from Light Table"), "");
+  createRightClickMenuAction(MI_LightTableIncludeSelectedColumns,
+                             QT_TR_NOOP("Include in Light Table"), "");
+  createRightClickMenuAction(MI_LightTableIncludeAllColumns,
+                             QT_TR_NOOP("Include All in Light Table"), "");
   createRightClickMenuAction(MI_DeactivateUpperColumns,
                              QT_TR_NOOP("Hide Upper Columns"), "");
   createRightClickMenuAction(MI_SeparateColors,
