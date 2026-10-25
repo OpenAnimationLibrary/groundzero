@@ -2,6 +2,7 @@
 
 #include "edittoolgadgets.h"
 #include "tgl.h"
+#include "tglbatch.h"
 #include "toonz/tfxhandle.h"
 #include "toonz/tobjecthandle.h"
 #include "toonz/tframehandle.h"
@@ -483,17 +484,13 @@ void PointFxGadget::draw(bool picking) {
   glTranslated(pos.x, pos.y, 0);
   double r = unit * 3;
   double d = unit * 6;
-  glBegin(GL_LINES);
-  glVertex2d(-d, 0);
-  glVertex2d(-r, 0);
-  glVertex2d(d, 0);
-  glVertex2d(r, 0);
-  glVertex2d(0, -d);
-  glVertex2d(0, -r);
-  glVertex2d(0, d);
-  glVertex2d(0, r);
-  glEnd();
-  tglDrawRect(-r, -r, r, r);
+  tgl::Batch batch;
+  batch.line(TPointD(-d, 0), TPointD(-r, 0));
+  batch.line(TPointD(d, 0), TPointD(r, 0));
+  batch.line(TPointD(0, -d), TPointD(0, -r));
+  batch.line(TPointD(0, d), TPointD(0, r));
+  batch.rect(TRectD(-r, -r, r, r));
+  batch.draw();
   glPopMatrix();
   glPopName();
 
@@ -695,14 +692,11 @@ void AngleFxGadget::draw(bool picking) {
   glPushMatrix();
   glTranslated(m_pos.x, m_pos.y, 0);
   glRotated(phi, 0, 0, 1);
-  glBegin(GL_LINES);
-  glVertex2d(0, 0);
-  glVertex2d(r, 0);
-  glVertex2d(r, 0);
-  glVertex2d(r - a, b);
-  glVertex2d(r, 0);
-  glVertex2d(r - a, -b);
-  glEnd();
+  tgl::Batch batch;
+  batch.line(TPointD(0, 0), TPointD(r, 0));
+  batch.line(TPointD(r, 0), TPointD(r - a, b));
+  batch.line(TPointD(r, 0), TPointD(r - a, -b));
+  batch.draw();
   glPopMatrix();
   glPopName();
 
@@ -787,12 +781,16 @@ void AngleRangeFxGadget::draw(bool picking) {
   glPushMatrix();
   glPushName(getId() + StartAngle);
   glRotated(start, 0, 0, 1);
-  glBegin(GL_LINE_STRIP);
-  glVertex2d(0, 0);
-  glVertex2d(r, 0);
-  // expand handle while dragging
-  if (m_handle == StartAngle) glVertex2d(r * 5.0, 0);
-  glEnd();
+  {
+    tgl::Batch batch;
+    batch.begin(tgl::Primitive::LineStrip);
+    batch.vertex(0, 0);
+    batch.vertex(r, 0);
+    // expand handle while dragging
+    if (m_handle == StartAngle) batch.vertex(r * 5.0, 0);
+    batch.end();
+    batch.draw();
+  }
   glPopName();
 
   glPushMatrix();
@@ -808,12 +806,16 @@ void AngleRangeFxGadget::draw(bool picking) {
   glPushMatrix();
   glPushName(getId() + EndAngle);
   glRotated(end, 0, 0, 1);
-  glBegin(GL_LINE_STRIP);
-  glVertex2d(0, 0);
-  glVertex2d(r, 0);
-  // expand handle while dragging
-  if (m_handle == EndAngle) glVertex2d(r * 5.0, 0);
-  glEnd();
+  {
+    tgl::Batch batch;
+    batch.begin(tgl::Primitive::LineStrip);
+    batch.vertex(0, 0);
+    batch.vertex(r, 0);
+    // expand handle while dragging
+    if (m_handle == EndAngle) batch.vertex(r * 5.0, 0);
+    batch.end();
+    batch.draw();
+  }
 
   glPopName();
   glPushMatrix();
@@ -829,17 +831,19 @@ void AngleRangeFxGadget::draw(bool picking) {
   while (end <= start) end += 360.0;
 
   glColor3d(0, 0, 1);
-  glBegin(GL_LINE_STRIP);
+  tgl::Batch arc;
+  arc.begin(tgl::Primitive::LineStrip);
   double angle  = start;
   double dAngle = 5.0;
   while (angle <= end) {
     double rad = angle / M_180_PI;
-    glVertex2d(a * std::cos(rad), a * std::sin(rad));
+    arc.vertex(a * std::cos(rad), a * std::sin(rad));
     angle += dAngle;
   }
   if (angle != end)
-    glVertex2d(a * std::cos(end / M_180_PI), a * std::sin(end / M_180_PI));
-  glEnd();
+    arc.vertex(a * std::cos(end / M_180_PI), a * std::sin(end / M_180_PI));
+  arc.end();
+  arc.draw();
 
   glPopMatrix();
 }
@@ -918,16 +922,12 @@ void DiamondFxGadget::draw(bool picking) {
 
   glLineStipple(1, 0xAAAA);
   glEnable(GL_LINE_STIPPLE);
-  glBegin(GL_LINES);
-  glVertex2d(-size + r, r);
-  glVertex2d(-r, size - r);
-  glVertex2d(r, size - r);
-  glVertex2d(size - r, r);
-  glVertex2d(size - r, -r);
-  glVertex2d(r, -size + r);
-  glVertex2d(-r, -size + r);
-  glVertex2d(-size + r, -r);
-  glEnd();
+  tgl::Batch batch;
+  batch.line(TPointD(-size + r, r), TPointD(-r, size - r));
+  batch.line(TPointD(r, size - r), TPointD(size - r, r));
+  batch.line(TPointD(size - r, -r), TPointD(r, -size + r));
+  batch.line(TPointD(-r, -size + r), TPointD(-size + r, -r));
+  batch.draw();
   glDisable(GL_LINE_STIPPLE);
   drawDot(-size, 0);
   drawDot(size, 0);
@@ -983,16 +983,12 @@ void SizeFxGadget::draw(bool picking) {
 
   glLineStipple(1, 0xCCCC);
   glEnable(GL_LINE_STIPPLE);
-  glBegin(GL_LINES);
-  glVertex2d(0, 0);
-  glVertex2d(lx, 0);
-  glVertex2d(0, 0);
-  glVertex2d(0, ly);
-  glVertex2d(lx, 0);
-  glVertex2d(lx, ly - r);
-  glVertex2d(0, ly);
-  glVertex2d(lx - r, ly);
-  glEnd();
+  tgl::Batch batch;
+  batch.line(TPointD(0, 0), TPointD(lx, 0));
+  batch.line(TPointD(0, 0), TPointD(0, ly));
+  batch.line(TPointD(lx, 0), TPointD(lx, ly - r));
+  batch.line(TPointD(0, ly), TPointD(lx - r, ly));
+  batch.draw();
   glDisable(GL_LINE_STIPPLE);
   drawDot(lx, ly);
 
@@ -1065,16 +1061,12 @@ void RectFxGadget::draw(bool picking) {
 
   glLineStipple(1, 0xCCCC);
   glEnable(GL_LINE_STIPPLE);
-  glBegin(GL_LINES);
-  glVertex2d(-w_2 + r, -h_2);
-  glVertex2d(w_2 - r, -h_2);
-  glVertex2d(-w_2 + r, h_2);
-  glVertex2d(w_2 - r, h_2);
-  glVertex2d(-w_2, -h_2 + r);
-  glVertex2d(-w_2, h_2 - r);
-  glVertex2d(w_2, -h_2 + r);
-  glVertex2d(w_2, h_2 - r);
-  glEnd();
+  tgl::Batch batch;
+  batch.line(TPointD(-w_2 + r, -h_2), TPointD(w_2 - r, -h_2));
+  batch.line(TPointD(-w_2 + r, h_2), TPointD(w_2 - r, h_2));
+  batch.line(TPointD(-w_2, -h_2 + r), TPointD(-w_2, h_2 - r));
+  batch.line(TPointD(w_2, -h_2 + r), TPointD(w_2, h_2 - r));
+  batch.draw();
   glDisable(GL_LINE_STIPPLE);
   drawDot(w_2, h_2);
   drawDot(-w_2, h_2);
@@ -1151,18 +1143,15 @@ public:
     if (rr > 0) {
       glLineStipple(1, 0xAAAA);
       glEnable(GL_LINE_STIPPLE);
-      glBegin(GL_LINE_STRIP);
-      glVertex2d(0, 0);
-      glVertex2d(rr, 0);
-      glEnd();
+      tgl::Batch shaft;
+      shaft.lineStrip({TPointD(0, 0), TPointD(rr, 0)});
+      shaft.draw();
       glDisable(GL_LINE_STIPPLE);
     }
-    glBegin(GL_LINES);
-    glVertex2d(rr, 0);
-    glVertex2d(rr - a, b);
-    glVertex2d(rr, 0);
-    glVertex2d(rr - a, -b);
-    glEnd();
+    tgl::Batch head;
+    head.line(TPointD(rr, 0), TPointD(rr - a, b));
+    head.line(TPointD(rr, 0), TPointD(rr - a, -b));
+    head.draw();
     glTranslated(r, 0, 0);
     glRotated(-phi, 0, 0, 1);
     drawDot(0, 0);
@@ -1336,13 +1325,9 @@ public:
     TPointD bottomLeft  = getValue(m_BL);
     glLineStipple(1, 0xCCCC);
     glEnable(GL_LINE_STIPPLE);
-    glBegin(GL_LINE_STRIP);
-    tglVertex(topLeft);
-    tglVertex(topRight);
-    tglVertex(bottomRight);
-    tglVertex(bottomLeft);
-    tglVertex(topLeft);
-    glEnd();
+    tgl::Batch batch;
+    batch.lineStrip({topLeft, topRight, bottomRight, bottomLeft, topLeft});
+    batch.draw();
     glDisable(GL_LINE_STIPPLE);
     glPopName();
 
@@ -1552,17 +1537,13 @@ void LinearRangeFxGadget::draw(bool picking) {
   auto drawPoint = [&]() {
     double r = getPixelSize() * 3;
     double d = getPixelSize() * 6;
-    glBegin(GL_LINES);
-    glVertex2d(-d, 0);
-    glVertex2d(-r, 0);
-    glVertex2d(d, 0);
-    glVertex2d(r, 0);
-    glVertex2d(0, -d);
-    glVertex2d(0, -r);
-    glVertex2d(0, d);
-    glVertex2d(0, r);
-    glEnd();
-    tglDrawRect(-r, -r, r, r);
+    tgl::Batch batch;
+    batch.line(TPointD(-d, 0), TPointD(-r, 0));
+    batch.line(TPointD(d, 0), TPointD(r, 0));
+    batch.line(TPointD(0, -d), TPointD(0, -r));
+    batch.line(TPointD(0, d), TPointD(0, r));
+    batch.rect(TRectD(-r, -r, r, r));
+    batch.draw();
   };
 
   setPixelSize();
@@ -1583,10 +1564,11 @@ void LinearRangeFxGadget::draw(bool picking) {
     glTranslated(start.x, start.y, 0);
     glRotated(angle, 0, 0, 1);
     if (m_handle == Start) glScaled(5.0, 1.0, 1.0);
-    glBegin(GL_LINES);
-    glVertex2d(-r, 0);
-    glVertex2d(r, 0);
-    glEnd();
+    {
+      tgl::Batch batch;
+      batch.line(TPointD(-r, 0), TPointD(r, 0));
+      batch.draw();
+    }
     glPopMatrix();
     // end
     setColorById(End);
@@ -1594,27 +1576,30 @@ void LinearRangeFxGadget::draw(bool picking) {
     glTranslated(end.x, end.y, 0);
     glRotated(angle, 0, 0, 1);
     if (m_handle == End) glScaled(5.0, 1.0, 1.0);
-    glBegin(GL_LINE_STRIP);
-    glVertex2d(-r, 0);
-    glVertex2d(r, 0);
-    glEnd();
+    {
+      tgl::Batch batch;
+      batch.lineStrip({TPointD(-r, 0), TPointD(r, 0)});
+      batch.draw();
+    }
     glPopMatrix();
 
     // line body
     setColorById(Body);
     glPushName(getId() + Body);
-    glBegin(GL_LINES);
-    glVertex2d(start.x, start.y);
-    glVertex2d(end.x, end.y);
-    glEnd();
+    {
+      tgl::Batch batch;
+      batch.line(start, end);
+      batch.draw();
+    }
     // small dash at the center
     glPushMatrix();
     glTranslated((start.x + end.x) / 2.0, (start.y + end.y) / 2.0, 0);
     glRotated(angle, 0, 0, 1);
-    glBegin(GL_LINES);
-    glVertex2d(-a, 0);
-    glVertex2d(a, 0);
-    glEnd();
+    {
+      tgl::Batch batch;
+      batch.line(TPointD(-a, 0), TPointD(a, 0));
+      batch.draw();
+    }
     glPopMatrix();
     glPopName();
   }
@@ -1752,22 +1737,17 @@ void CompassFxGadget::draw(bool picking) {
     double arrowLength = getPixelSize() * 20;
     double arrowTip    = getPixelSize() * 5;
 
-    glBegin(GL_LINES);
-    glVertex2d(-arrowLength, 0.0);
-    glVertex2d(arrowLength, 0.0);
-
-    glVertex2d(-arrowLength + arrowTip, arrowTip);
-    glVertex2d(-arrowLength, 0.0);
-
-    glVertex2d(-arrowLength + arrowTip, -arrowTip);
-    glVertex2d(-arrowLength, 0.0);
-
-    glVertex2d(arrowLength - arrowTip, arrowTip);
-    glVertex2d(arrowLength, 0.0);
-
-    glVertex2d(arrowLength - arrowTip, -arrowTip);
-    glVertex2d(arrowLength, 0.0);
-    glEnd();
+    tgl::Batch batch;
+    batch.line(TPointD(-arrowLength, 0.0), TPointD(arrowLength, 0.0));
+    batch.line(TPointD(-arrowLength + arrowTip, arrowTip),
+               TPointD(-arrowLength, 0.0));
+    batch.line(TPointD(-arrowLength + arrowTip, -arrowTip),
+               TPointD(-arrowLength, 0.0));
+    batch.line(TPointD(arrowLength - arrowTip, arrowTip),
+               TPointD(arrowLength, 0.0));
+    batch.line(TPointD(arrowLength - arrowTip, -arrowTip),
+               TPointD(arrowLength, 0.0));
+    batch.draw();
   };
 
   setPixelSize();
@@ -1791,10 +1771,12 @@ void CompassFxGadget::draw(bool picking) {
     handleVec = normalize(center) * lineHalf;
     setColorById(Body);
     glPushName(getId() + Body);
-    glBegin(GL_LINES);
-    glVertex2d(handleVec.x * 0.95, handleVec.y * 0.95);
-    glVertex2d(-handleVec.x * 0.95, -handleVec.y * 0.95);
-    glEnd();
+    {
+      tgl::Batch batch;
+      batch.line(TPointD(handleVec.x * 0.95, handleVec.y * 0.95),
+                 TPointD(-handleVec.x * 0.95, -handleVec.y * 0.95));
+      batch.draw();
+    }
     glPopName();
 
     double angle = std::atan2(-center.y, -center.x) * M_180_PI;
@@ -1825,10 +1807,10 @@ void CompassFxGadget::draw(bool picking) {
 
             glPushMatrix();
             glRotated(theta * (double)i + angle, 0, 0, 1);
-            glBegin(GL_LINES);
-            glVertex2d(dCenter - lineHalf, 0.0);
-            glVertex2d(dCenter + lineHalf, 0.0);
-            glEnd();
+            tgl::Batch batch;
+            batch.line(TPointD(dCenter - lineHalf, 0.0),
+                       TPointD(dCenter + lineHalf, 0.0));
+            batch.draw();
             glPopMatrix();
           }
         } else if (areAlmostEqual(e_aspect_ratio, 1.0)) {  // twist case
@@ -1838,16 +1820,18 @@ void CompassFxGadget::draw(bool picking) {
             glPushMatrix();
             glRotated(theta * (double)i + angle, 0, 0, 1);
 
-            glBegin(GL_LINE_STRIP);
+            tgl::Batch batch;
+            batch.begin(tgl::Primitive::LineStrip);
             for (int j = 0; j <= RADIAL_COMPASS_NUMSEGMENTS; j++) {
               double tmp_d = dCenter - lineHalf +
                              (double)j * 2.0 * lineHalf /
                                  (double)RADIAL_COMPASS_NUMSEGMENTS;
               double tmp_tw_radian = twist * (tmp_d - dCenter) / pivot;
-              glVertex2d(tmp_d * std::cos(tmp_tw_radian),
-                         tmp_d * std::sin(tmp_tw_radian));
+              batch.vertex(tmp_d * std::cos(tmp_tw_radian),
+                           tmp_d * std::sin(tmp_tw_radian));
             }
-            glEnd();
+            batch.end();
+            batch.draw();
             glPopMatrix();
           }
         } else {  // elliptical + twist case
@@ -1861,6 +1845,7 @@ void CompassFxGadget::draw(bool picking) {
           QTransform tr =
               QTransform().rotate(e_angle).scale(scale[0], scale[1]).inverted();
 
+          tgl::Batch batch;
           for (int i = -3; i <= 3; i++) {
             if (i == 0) continue;
             double tmp_angle_radian = (theta * (double)i + angle) * M_PI_180;
@@ -1871,7 +1856,7 @@ void CompassFxGadget::draw(bool picking) {
             tmp_angle_radian   = std::atan2(lineCenter.y(), lineCenter.x());
             double dLineCenter = QVector2D(lineCenter).length();
             double tmpLineHalf = lineHalf * dLineCenter / dCenter;
-            glBegin(GL_LINE_STRIP);
+            batch.begin(tgl::Primitive::LineStrip);
             for (int j = 0; j <= RADIAL_COMPASS_NUMSEGMENTS; j++) {
               double tmp_d = dLineCenter - tmpLineHalf +
                              (double)j * 2.0 * tmpLineHalf /
@@ -1880,25 +1865,28 @@ void CompassFxGadget::draw(bool picking) {
 
               QPointF p(tmp_d * std::cos(tmp_angle_radian + tmp_tw_radian),
                         tmp_d * std::sin(tmp_angle_radian + tmp_tw_radian));
-              glVertex2d(p.x(), p.y());
+              batch.vertex(p.x(), p.y());
             }
-            glEnd();
+            batch.end();
           }
+          batch.draw();
           glPopMatrix();
         }
       } else {  // rotational direction
         if (areAlmostEqual(e_aspect_ratio, 1.0)) {
+          tgl::Batch batch;
           for (int i = -2; i <= 2; i++) {
             double tmpRad  = dCenter + (double)i * lineInterval;
             double d_angle = (lineInterval / dCenter) * 6.0 / 10.0;
-            glBegin(GL_LINE_STRIP);
+            batch.begin(tgl::Primitive::LineStrip);
             for (int r = -5; r <= 5; r++) {
               double tmpAngle = (double)r * d_angle + angle * M_PI_180;
-              glVertex2d(tmpRad * std::cos(tmpAngle),
-                         tmpRad * std::sin(tmpAngle));
+              batch.vertex(tmpRad * std::cos(tmpAngle),
+                           tmpRad * std::sin(tmpAngle));
             }
-            glEnd();
+            batch.end();
           }
+          batch.draw();
         } else {  // elliptical case
           double scale[2];
           scale[0] = 2.0 * e_aspect_ratio / (e_aspect_ratio + 1);
@@ -1917,17 +1905,19 @@ void CompassFxGadget::draw(bool picking) {
           angle            = std::atan2(begin.y(), begin.x());
           double distBegin = QVector2D(begin).length();
           double distEnd   = QVector2D(end).length();
+          tgl::Batch batch;
           for (int i = 0; i <= 4; i++) {
             double tmpRad  = distBegin + (double)i * (distEnd - distBegin) / 4.;
             double d_angle = (lineInterval / dCenter) * 6.0 / 10.0;
-            glBegin(GL_LINE_STRIP);
+            batch.begin(tgl::Primitive::LineStrip);
             for (int r = -5; r <= 5; r++) {
               double tmpAngle = (double)r * d_angle + angle;
-              glVertex2d(tmpRad * std::cos(tmpAngle),
-                         tmpRad * std::sin(tmpAngle));
+              batch.vertex(tmpRad * std::cos(tmpAngle),
+                           tmpRad * std::sin(tmpAngle));
             }
-            glEnd();
+            batch.end();
           }
+          batch.draw();
         }
       }
     }
@@ -1952,10 +1942,9 @@ void CompassFxGadget::draw(bool picking) {
     TPointD centerOffset = center - m_targetPos;
     handleVec            = normalize(m_targetPos) * lineHalf;
     glTranslated(centerOffset.x, centerOffset.y, 0);
-    glBegin(GL_LINES);
-    glVertex2d(handleVec.x, handleVec.y);
-    glVertex2d(-handleVec.x, -handleVec.y);
-    glEnd();
+    tgl::Batch batch;
+    batch.line(handleVec, -handleVec);
+    batch.draw();
     glPopMatrix();
   }
   glPopMatrix();
@@ -2234,12 +2223,10 @@ void EllipseFxGadget::draw(bool picking) {
   tglDrawCircle(TPointD(), d);
 
   if (radius > d) {
-    glBegin(GL_LINES);
-    glVertex2d(-d, 0);
-    glVertex2d(d, 0);
-    glVertex2d(0, -d);
-    glVertex2d(0, d);
-    glEnd();
+    tgl::Batch batch;
+    batch.line(TPointD(-d, 0), TPointD(d, 0));
+    batch.line(TPointD(0, -d), TPointD(0, d));
+    batch.draw();
   }
 
   glPopName();
@@ -2256,10 +2243,11 @@ void EllipseFxGadget::draw(bool picking) {
   glPushName(idBase + AngleAndAR);
   glTranslated(qHandleRoot.x(), qHandleRoot.y(), 0.);
   glRotated(angle, 0., 0., 1.);
-  glBegin(GL_LINES);
-  glVertex2d(0., 0.);
-  glVertex2d(handleLength, 0.);
-  glEnd();
+  {
+    tgl::Batch batch;
+    batch.line(TPointD(0., 0.), TPointD(handleLength, 0.));
+    batch.draw();
+  }
   drawDot(TPointD(handleLength, 0.));
 
   glPopMatrix();
@@ -2413,12 +2401,10 @@ void VerticalPosFxGadget::draw(bool picking) {
   glTranslated(0, vPos, 0);
   double r = unit * 3;
   double d = unit * 300;
-  glBegin(GL_LINES);
-  glVertex2d(0, r);
-  glVertex2d(0, -r);
-  glVertex2d(-d, 0);
-  glVertex2d(d, 0);
-  glEnd();
+  tgl::Batch batch;
+  batch.line(TPointD(0, r), TPointD(0, -r));
+  batch.line(TPointD(-d, 0), TPointD(d, 0));
+  batch.draw();
   drawTooltip(TPointD(7, 7) * unit, getLabel());
 
   glPopMatrix();
@@ -2531,15 +2517,17 @@ public:
       } else {
         TPointD p[2][2] = {{pc + vec_h * 0.5, pc + vec_h * 0.5 + vec_v},
                            {pc + vec_v * 0.5, pc + vec_v * 0.5 + vec_h}};
+        tgl::Batch batch;
         for (int k = 0; k < 2; k++) {  // vertical
-          glBegin(GL_LINE_STRIP);
+          batch.begin(tgl::Primitive::LineStrip);
           for (int i = 0; i <= 10; i++) {  // subdivision
             double t = (double)i * 0.1;
-            tglVertex((1.0 - t) * (1.0 - t) * p[k][0] +
-                      2.0 * (1.0 - t) * t * ppivot + t * t * p[k][1]);
+            batch.vertex((1.0 - t) * (1.0 - t) * p[k][0] +
+                         2.0 * (1.0 - t) * t * ppivot + t * t * p[k][1]);
           }
-          glEnd();
+          batch.end();
         }
+        batch.draw();
       }
       glDisable(GL_LINE_STIPPLE);
       glPopName();
@@ -2711,13 +2699,13 @@ public:
       for (int axis = XAxis; axis <= ZAxis; ++axis) {
         setColor(axis);
         glPushName(getId() + axis);
-        glBegin(GL_LINE_LOOP);
-        for (int i = 0; i < Segments; ++i) {
-          const TPointD p = ringPoint(
-              axis, 2.0 * M_PI * double(i) / double(Segments), radius);
-          glVertex2d(p.x, p.y);
-        }
-        glEnd();
+        tgl::Batch batch;
+        batch.begin(tgl::Primitive::LineLoop);
+        for (int i = 0; i < Segments; ++i)
+          batch.vertex(ringPoint(
+              axis, 2.0 * M_PI * double(i) / double(Segments), radius));
+        batch.end();
+        batch.draw();
         glPopName();
       }
     } else {
@@ -2726,20 +2714,15 @@ public:
         const TPointD end = d * length;
         setColor(axis);
         glPushName(getId() + axis);
-        glBegin(GL_LINES);
-        glVertex2d(0.0, 0.0);
-        glVertex2d(end.x, end.y);
+        tgl::Batch batch;
+        batch.line(TPointD(0.0, 0.0), end);
         if (currentMode == 0) {
           const TPointD side(-d.y, d.x);
           const TPointD root = end - d * tip;
-          glVertex2d(end.x, end.y);
-          glVertex2d((root + side * tip * 0.55).x,
-                     (root + side * tip * 0.55).y);
-          glVertex2d(end.x, end.y);
-          glVertex2d((root - side * tip * 0.55).x,
-                     (root - side * tip * 0.55).y);
+          batch.line(end, root + side * tip * 0.55);
+          batch.line(end, root - side * tip * 0.55);
         }
-        glEnd();
+        batch.draw();
         if (currentMode == 2) {
           const double half = 4.0 * unit;
           tglDrawRect(end.x - half, end.y - half, end.x + half, end.y + half);

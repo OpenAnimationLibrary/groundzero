@@ -1,6 +1,7 @@
 
 
 #include "tgl.h"
+#include "tglbatch.h"
 
 #include "tconvert.h"
 #include "tofflinegl.h"
@@ -125,10 +126,9 @@ void tglDrawText(const TPointD &p, const std::wstring &s, void *character) {
 //-----------------------------------------------------------------------------
 
 void tglDrawSegment(const TPointD &p1, const TPointD &p2) {
-  glBegin(GL_LINES);
-  tglVertex(p1);
-  tglVertex(p2);
-  glEnd();
+  tgl::Batch batch;
+  batch.line(p1, p2);
+  batch.draw();
 }
 
 //-----------------------------------------------------------------------------
@@ -139,24 +139,13 @@ void tglDrawCircle(const TPointD &center, double radius) {
   double pixelSize = sqrt( tglGetPixelSize2() );
   int slices = std::max(3, computeSlices(radius, pixelSize));
 
-  double step = M_2PI / (double)slices;
-  double c = cos(step), s = sin(step);
-
+  // The circle is generated around the origin and translated by the matrix
+  // stack, so that the submitted vertices are the same as before.
   glPushMatrix();
   glTranslated(center.x, center.y, 0.0);
-  glBegin(GL_LINE_STRIP);
-
-  double x = radius, y = 0.0;
-  glVertex2d(x, y);
-  for(int i = slices - 1; i; --i) {
-    double xx = x;
-    x = c*xx - s*y;
-    y = s*xx + c*y;
-    glVertex2d(x, y);
-  }
-  glVertex2d(radius, 0.0);
-
-  glEnd();
+  tgl::Batch batch;
+  batch.circle(TPointD(), radius, slices);
+  batch.draw();
   glPopMatrix();
 }
 
@@ -181,23 +170,17 @@ void tglDrawDisk(const TPointD &c, double r) {
 //-----------------------------------------------------------------------------
 
 void tglDrawRect(const TRectD &rect) {
-  glBegin(GL_LINE_LOOP);
-  tglVertex(rect.getP00());
-  tglVertex(rect.getP10());
-  tglVertex(rect.getP11());
-  tglVertex(rect.getP01());
-  glEnd();
+  tgl::Batch batch;
+  batch.rect(rect);
+  batch.draw();
 }
 
 //-----------------------------------------------------------------------------
 
 void tglFillRect(const TRectD &rect) {
-  glBegin(GL_POLYGON);
-  tglVertex(rect.getP00());
-  tglVertex(rect.getP10());
-  tglVertex(rect.getP11());
-  tglVertex(rect.getP01());
-  glEnd();
+  tgl::Batch batch;
+  batch.fillRect(rect);
+  batch.draw();
 }
 //-----------------------------------------------------------------------------
 

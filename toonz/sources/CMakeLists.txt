@@ -776,14 +776,18 @@ option(BUILD_FRAME_STRIPS_TESTS "Build the parallel frame strips render regressi
 option(BUILD_FFMPEG_TESTS "Build the FFmpeg export regression test (needs an ffmpeg executable at configure time)" ${BUILD_TESTS})
 option(BUILD_SCRIPT_TESTS "Build the script engine (QJSEngine bindings) regression test" ${BUILD_TESTS})
 option(BUILD_PSD_TESTS "Build the PSD image writer regression test" ${BUILD_TESTS})
+option(BUILD_TGL_BATCH_TESTS "Build the tgl::Batch vertex generation test" ${BUILD_TESTS})
 option(BUILD_TNZTOOLS_TESTS "Build the tnztools helper regression tests" ${BUILD_TESTS})
 if(BUILD_TESTS OR BUILD_EXR_TESTS OR BUILD_EXR_AOV_FX_TESTS OR
    BUILD_TNZTOOLS_TESTS OR BUILD_PSD_TESTS OR BUILD_SCRIPT_TESTS OR BUILD_FFMPEG_TESTS OR BUILD_FRAME_STRIPS_TESTS OR BUILD_LUT3D_TESTS OR BUILD_GLB_FX_TESTS OR
-   BUILD_FXRENDER_TESTS)
+   BUILD_FXRENDER_TESTS OR BUILD_TGL_BATCH_TESTS)
     enable_testing()
 endif()
 
 add_subdirectory(tnzcore)
+if(BUILD_TGL_BATCH_TESTS)
+    add_subdirectory(common/tgl/tests tglbatchtests)
+endif()
 add_subdirectory(tnzbase)
 add_subdirectory(tnzext)
 add_subdirectory(toonzlib)
