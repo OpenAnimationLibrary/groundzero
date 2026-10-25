@@ -127,6 +127,7 @@
     STD_backlitFx
     STD_bodyHighLightFx
     STD_toneHighlightFx
+    STD_lightShadingFx
     STD_castShadowFx
     STD_colorRaylitFx
     STD_inoFogFx
