@@ -1636,6 +1636,7 @@ QList<ComboBoxItem> PreferencesPopup::getComboItemList(
         {tr("Bender Tool"), T_Bender},
         {tr("Iron Tool"), T_Iron},
         {tr("Cutter Tool"), T_Cutter},
+        {tr("Lasso Cutter Tool"), T_LassoCutter},
         {tr("Hook Tool"), T_Hook},
         {tr("Skeleton Tool"), T_Skeleton},
         {tr("Tracker Tool"), T_Tracker},

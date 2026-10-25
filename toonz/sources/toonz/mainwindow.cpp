@@ -3161,6 +3161,7 @@ void MainWindow::defineActions() {
   createToolAction(T_Iron, "iron", QT_TR_NOOP("Iron Tool"), "");
 
   createToolAction(T_Cutter, "cutter", QT_TR_NOOP("Cutter Tool"), "");
+  createToolAction(T_LassoCutter, "cut", QT_TR_NOOP("Lasso Cutter Tool"), "");
   createToolAction(T_Skeleton, "skeleton", QT_TR_NOOP("Skeleton Tool"), "V");
   createToolAction(T_Tracker, "radar", QT_TR_NOOP("Tracker Tool"), "");
   createToolAction(T_Hook, "hook", QT_TR_NOOP("Hook Tool"), "O");

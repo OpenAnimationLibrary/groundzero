@@ -94,6 +94,7 @@ set(SOURCES
     hookselection.cpp
     imagegrouping.cpp
     irontool.cpp
+    lassocuttertool.cpp
     levelselection.cpp
     magnettool.cpp
     paintbrushtool.cpp

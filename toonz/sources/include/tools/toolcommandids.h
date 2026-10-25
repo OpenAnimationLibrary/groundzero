@@ -21,6 +21,7 @@
 #define T_Bender "T_Bender"
 #define T_Iron "T_Iron"
 #define T_Cutter "T_Cutter"
+#define T_LassoCutter "T_LassoCutter"
 #define T_Hook "T_Hook"
 #define T_Skeleton "T_Skeleton"
 #define T_Tracker "T_Tracker"

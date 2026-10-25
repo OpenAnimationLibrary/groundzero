@@ -345,6 +345,7 @@ QString ToolPropertiesPanel::detectCurrentToolType() {
   if (toolId == T_Bender) return "bender";
   if (toolId == T_Iron) return "iron";
   if (toolId == T_Cutter) return "cutter";
+  if (toolId == T_LassoCutter) return "lassocutter";
   if (toolId == T_Skeleton) return "skeleton";
   if (toolId == T_Tracker) return "tracker";
   if (toolId == T_Hook) return "hook";

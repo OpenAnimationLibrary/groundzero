@@ -695,6 +695,7 @@ QMenuBar *StackedMenuBar::createPltEditMenuBar() {
     addMenuItem(moreToolsMenu, T_Bender);
     addMenuItem(moreToolsMenu, T_Iron);
     addMenuItem(moreToolsMenu, T_Cutter);
+    addMenuItem(moreToolsMenu, T_LassoCutter);
     moreToolsMenu->addSeparator();
     addMenuItem(moreToolsMenu, T_Skeleton);
     addMenuItem(moreToolsMenu, T_Tracker);
@@ -876,6 +877,7 @@ QMenuBar *StackedMenuBar::createInknPaintMenuBar() {
     addMenuItem(moreToolsMenu, T_Bender);
     addMenuItem(moreToolsMenu, T_Iron);
     addMenuItem(moreToolsMenu, T_Cutter);
+    addMenuItem(moreToolsMenu, T_LassoCutter);
     moreToolsMenu->addSeparator();
     addMenuItem(moreToolsMenu, T_Skeleton);
     addMenuItem(moreToolsMenu, T_Tracker);
