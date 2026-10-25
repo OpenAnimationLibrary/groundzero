@@ -2331,6 +2331,9 @@ void MainWindow::defineActions() {
       QT_TRANSLATE_NOOP("MainWindow", "Import Open Cel Animation (OCA)"), "",
       "import_oca");
   createMenuFileAction(
+      MI_ImportAbr,
+      QT_TRANSLATE_NOOP("MainWindow", "Import Photoshop Brushes (ABR)..."), "");
+  createMenuFileAction(
       MI_ExportTvpJson,
       QT_TRANSLATE_NOOP("MainWindow", "Export TVPaint JSON File"), "");
   createMenuFileAction(MI_ExportPDF,

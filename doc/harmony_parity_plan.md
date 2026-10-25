@@ -45,7 +45,7 @@
 | Centerline Editor | E/A/P | Y | Control Point Editor. | n/a |
 | Auto gap closing | E/A/P | Y | Autoclose (`filltool.cpp`, `rastertapetool.cpp`). | n/a |
 | Paint Unpainted / paint behind | E/A/P | Y | Fill tool's Selective mode; Toonz Raster paints behind the ink. | n/a |
-| Brush engines and Photoshop brushes | A/P | Partial | MyPaint and full-colour brushes. | No import of ABR (Photoshop brush) files. |
+| Brush engines and Photoshop brushes | A/P | Partial | MyPaint and full-colour brushes. File > Import > Import Photoshop Brushes (ABR) reads the sampled tips (`toonzlib/abrparser.cpp`, `toonz/abrimport.cpp`) and the full-colour Brush tool stamps them ("Tip:" option, see `doc/abr_brushes.md`). | Tips only: no Photoshop dynamics, no computed brushes; no tips in the MyPaint-style Toonz Raster brush. |
 | Stabilizer | E/A/P | Y | `modifiersmooth.cpp` | n/a |
 | Perspective and guides | A/P | Y | Assistants (`assistantperspective.cpp`, and others). | n/a |
 | Symmetry | ? | Y (ahead) | Replicators. | n/a |

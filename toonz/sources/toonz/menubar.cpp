@@ -1321,6 +1321,7 @@ QMenuBar *StackedMenuBar::createFullMenuBar() {
   {
     addMenuItem(importMenu, MI_ImportMagpieFile);
     addMenuItem(importMenu, MI_ImportOCA);
+    addMenuItem(importMenu, MI_ImportAbr);
   }
   QMenu *exportMenu = fileMenu->addMenu(tr("Export"));
   {

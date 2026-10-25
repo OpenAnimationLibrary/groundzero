@@ -442,6 +442,7 @@ set(SOURCES
     convertfolderpopup.cpp
     exportcameratrackpopup.cpp
     spineexport.cpp
+    abrimport.cpp
     envelopebake.cpp
 # Tracker file
     dummyprocessor.cpp

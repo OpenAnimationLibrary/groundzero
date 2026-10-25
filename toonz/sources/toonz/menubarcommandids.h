@@ -520,6 +520,7 @@
 #define MI_ExportOCA "MI_ExportOCA"
 #define MI_ExportAnimatedSVG "MI_ExportAnimatedSVG"
 #define MI_ImportOCA "MI_ImportOCA"
+#define MI_ImportAbr "MI_ImportAbr"
 #define MI_ExportPDF "MI_ExportPDF"
 #define MI_ExportTvpJson "MI_ExportTvpJson"
 #define MI_ExportXsheetPDF "MI_ExportXsheetPDF"

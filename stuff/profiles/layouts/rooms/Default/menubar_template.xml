@@ -25,6 +25,7 @@
         <menu title="Import">
             <command>MI_ImportMagpieFile</command>
             <command>MI_ImportOCA</command>
+            <command>MI_ImportAbr</command>
         </menu>
         <menu title="Export">
             <command>MI_ExportPDF</command>
