@@ -5,6 +5,7 @@ concurrency:
   cancel-in-progress: ${{ github.head_ref != '' }}
 
 on:
+  # Not run on pull requests: the Linux build is the initial PR check.
   push:
     branches:
       - main
@@ -17,22 +18,6 @@ on:
       - '!**/.github/**'                          # Exclude everything in .github folder
       - '.github/workflows/workflow_windows.yml'  # Include Windows workflow file
       - '.github/ot-dev/**'                       # Include OT-Dev build branding assets
-  pull_request:
-    types: [opened, synchronize, reopened, edited]
-    branches:
-      - main
-      - edition
-      - feat/glb-fx-render  # Run the application gate for the stacked material FX.
-      - feat/three-point-light-fx  # Run the application gate for stacked 3D Material changes.
-      - feature/3d-fx-transformer  # Run the application gate for the stacked 3D Plane FX.
-    paths:
-      - '**/*'
-      - '!appveyor.yml'
-      - '!README.md'
-      - '!doc/**'
-      - '!**/.github/**'
-      - '.github/workflows/workflow_windows.yml'
-      - '.github/ot-dev/**'
   workflow_dispatch:
 
 permissions:
