@@ -9,6 +9,19 @@
 //    of the exported columns, parented as in the Stage Schematic.
 //  - Slots: one per preview visible level column, in column order, with a
 //    region attachment per used drawing (Toonz Vector, Toonz Raster, Raster).
+//  - Mesh attachments: a level column whose parent is a mesh column with a
+//    Plastic skeleton deformation (the setup the Plastic tool builds, which
+//    PlasticDeformerFx renders) gets a mesh attachment instead of a region
+//    one, for the frames where the mesh column has a mesh drawing. The mesh
+//    is the one of the mesh drawing, its texture the rendered drawing of the
+//    column, padded with transparent pixels so that it covers the mesh.
+//    Everything is unweighted: the vertices are in the space of the slot's
+//    bone (the texture column), the mesh vertices in the drawing's order but
+//    for the hull (the outer boundary loop of each connected piece), which
+//    comes first. The Plastic deformation of every frame (the vertices
+//    PlasticDeformerStorage::processOnce() computes) is baked into deform
+//    timelines of per vertex offsets from the setup pose (the undeformed
+//    mesh), keeping only the keys where the offsets change.
 //  - Animation: every frame of the output range is baked into translate,
 //    rotate, scale and shear keys (keys inside runs of equal values are
 //    dropped), relative to the setup pose (the first frame), and into slot
@@ -21,8 +34,21 @@
 // are converted from stage inches to camera pixels (Spine is y-up as the
 // stage).
 //
-// Not exported: Plastic / mesh deformations, sub-xsheets, Z depth and
-// stacking order changes, fxs, column transparency and color filters.
+// Spine 3.8 and 4.x write mesh attachments and deform timelines alike (type,
+// path, uvs, triangles, vertices, hull, width and height; the deform keys
+// have time, offset and vertices), so the version only changes the names of
+// the bone timeline values, as before.
+//
+// Mesh export limits: the faces' stacking order (the "SO" Plastic parameter)
+// is not exported, as meshes are drawn in face order, and neither are meshes
+// with unused vertex slots (not "squeezed"). The texture is meant to keep its
+// placement relative to the mesh column: a placement which is animated moves
+// the exported texture with the mesh, instead of sliding it under the mesh as
+// the render does. Curve bending is exported, as it is part of the vertices
+// the deformer computes.
+//
+// Not exported: sub-xsheets, Z depth and stacking order changes, fxs, column
+// transparency and color filters.
 
 #include "spineexport.h"
 
@@ -54,6 +80,7 @@
 #include "toonz/tstageobjecttree.h"
 #include "toonz/tcamera.h"
 #include "toonz/dpiscale.h"
+#include "toonz/stage.h"
 #include "toutputproperties.h"
 
 // TnzCore includes
@@ -62,6 +89,11 @@
 #include "trop.h"
 #include "trasterimage.h"
 #include "tvectorimage.h"
+#include "tmeshimage.h"
+
+// TnzExt includes
+#include "ext/plasticdeformerstorage.h"
+#include "ext/plasticskeletondeformation.h"
 
 // Qt includes
 #include <QJsonObject>
@@ -83,6 +115,8 @@
 #include <cmath>
 #include <functional>
 #include <map>
+#include <memory>
+#include <tuple>
 #include <vector>
 
 namespace {
@@ -109,6 +143,8 @@ struct SpineSlot {
   QString m_name;
   int m_bone;
   std::vector<int> m_frames;  //!< Image index per frame, -1 when blank
+  std::vector<int> m_meshes;  //!< Mesh attachment index per frame, -1 for a
+                              //!< region attachment or when blank
 };
 
 struct SpineImage {
@@ -118,6 +154,29 @@ struct SpineImage {
   bool m_valid = false;
   int m_width = 0, m_height = 0;
   TPointD m_center;  //!< Image center in the column reference, pixels
+  bool m_hasCover = false;  //!< Whether meshes need the image to cover m_cover
+  TRectD m_cover;           //!< In the column reference, pixels
+};
+
+//! A mesh attachment: a mesh drawing textured with an image, in a slot
+struct SpineMesh {
+  QString m_name;
+  int m_slot = -1;
+  int m_image;
+  TStageObjectId m_columnId;      //!< Texture column, the slot's bone
+  TStageObjectId m_meshColumnId;  //!< Its parent, the mesh column
+  TXshSimpleLevel *m_level;       //!< Mesh level
+  TFrameId m_fid;                 //!< Mesh drawing
+  std::vector<char> m_active;     //!< Per frame, whether the slot shows it
+
+  // Geometry, in the exported vertex order (see SpineExport::meshLayout)
+  bool m_valid = false;
+  std::vector<double> m_meshXy;                //!< Vertex positions, mesh units
+  std::vector<std::pair<int, int>> m_sources;  //!< Mesh and vertex per vertex
+  std::vector<int> m_triangles;
+  int m_hull = 0;
+  TPointD m_meshDpi;
+  std::vector<TPointD> m_setup;  //!< Setup pose vertices, pixels
 };
 
 //-----------------------------------------------------------------------------
@@ -341,6 +400,219 @@ void writeBoneTimelines(QJsonObject &timelines, const SpineBone &bone,
 
 //-----------------------------------------------------------------------------
 
+/*!
+Gathers the geometry of a mesh drawing in \e mesh: its meshes are merged in
+a single one, in the vertex order of a Spine mesh (hull first). Returns false
+for a mesh that can't be exported.
+*/
+bool buildMeshGeometry(const TMeshImageP &mi, SpineMesh &mesh) {
+  std::vector<double> xy;
+  std::vector<std::pair<int, int>> sources;
+  std::vector<int> triangles;
+
+  const std::vector<TTextureMeshP> &meshes = mi->meshes();
+  for (int m = 0; m < (int)meshes.size(); ++m) {
+    if (!meshes[m]) return false;
+    const TTextureMesh &tm = *meshes[m];
+
+    // The deformer indexes the vertices by their position in the mesh
+    if (tm.verticesCount() != (int)tm.vertices().nodesCount() ||
+        tm.facesCount() != (int)tm.faces().nodesCount())
+      return false;
+
+    int offset = (int)sources.size();
+    for (int v = 0; v < tm.verticesCount(); ++v) {
+      const TPointD &p = tm.vertex(v).P();
+      xy.push_back(p.x), xy.push_back(p.y);
+      sources.push_back(std::make_pair(m, v));
+    }
+    for (int f = 0; f < tm.facesCount(); ++f) {
+      int v0, v1, v2;
+      tm.faceVertices(f, v0, v1, v2);
+      triangles.push_back(offset + v0);
+      triangles.push_back(offset + v1);
+      triangles.push_back(offset + v2);
+    }
+  }
+  if (sources.empty() || triangles.empty()) return false;
+
+  int count = (int)sources.size();
+  SpineExport::MeshLayout layout =
+      SpineExport::meshLayout(count, triangles, xy);
+
+  mesh.m_meshXy.resize(2 * count);
+  mesh.m_sources.resize(count);
+  for (int i = 0; i < count; ++i) {
+    int v                    = layout.m_order[i];
+    mesh.m_meshXy[2 * i]     = xy[2 * v];
+    mesh.m_meshXy[2 * i + 1] = xy[2 * v + 1];
+    mesh.m_sources[i]        = sources[v];
+  }
+  mesh.m_triangles.resize(triangles.size());
+  for (size_t i = 0; i < triangles.size(); ++i)
+    mesh.m_triangles[i] = layout.m_remap[triangles[i]];
+  mesh.m_hull = layout.m_hull;
+  return true;
+}
+
+//-----------------------------------------------------------------------------
+
+/*!
+Adds transparent pixels around \e ras so that it covers \e cover, in the
+column reference, in pixels. \e center is the one of \e ras, and is updated.
+The raster is returned as is if it would get too large.
+*/
+TRaster32P padRaster(const TRaster32P &ras, TPointD &center,
+                     const TRectD &cover) {
+  int lx = ras->getLx(), ly = ras->getLy();
+  double left = center.x - 0.5 * lx, bottom = center.y - 0.5 * ly;
+
+  int l, r, b, t;
+  SpineExport::padToCover(left, left + lx, cover.x0, cover.x1, l, r);
+  SpineExport::padToCover(bottom, bottom + ly, cover.y0, cover.y1, b, t);
+  if (!l && !r && !b && !t) return ras;
+
+  int paddedLx = lx + l + r, paddedLy = ly + b + t;
+  if (paddedLx > c_maxImageSize || paddedLy > c_maxImageSize) return ras;
+
+  TRaster32P padded(paddedLx, paddedLy);
+  padded->clear();
+  TRasterP inner = padded->extract(TRect(l, b, l + lx - 1, b + ly - 1));
+  inner->copy(ras);
+
+  center.x += 0.5 * (r - l);
+  center.y += 0.5 * (t - b);
+  return padded;
+}
+
+//-----------------------------------------------------------------------------
+
+/*!
+Returns the per vertex offsets (x and y interleaved, rounded) of the Plastic
+deformation of \e mesh from its setup pose, for every frame it is shown in.
+The other frames are left empty. \e r0 is the row of the first frame.
+*/
+std::vector<std::vector<double>> bakeMeshOffsets(TXsheet *xsh,
+                                                 const SpineMesh &mesh, int r0,
+                                                 const TAffine &stageToPixels) {
+  std::vector<std::vector<double>> frames(mesh.m_active.size());
+
+  TStageObject *meshObj          = xsh->getStageObject(mesh.m_meshColumnId);
+  TStageObject *columnObj        = xsh->getStageObject(mesh.m_columnId);
+  PlasticSkeletonDeformationP sd = meshObj->getPlasticSkeletonDeformation();
+  TMeshImageP mi(mesh.m_level->getFrame(mesh.m_fid, false));
+  if (!sd || !mi) return frames;
+
+  TScale worldMeshToMeshAff(mesh.m_meshDpi.x / Stage::inch,
+                            mesh.m_meshDpi.y / Stage::inch);
+  TScale meshToWorldMeshAff(Stage::inch / mesh.m_meshDpi.x,
+                            Stage::inch / mesh.m_meshDpi.y);
+
+  for (int f = 0; f < (int)frames.size(); ++f) {
+    if (!mesh.m_active[f]) continue;
+    int row = r0 + f;
+
+    // The mesh is deformed in the reference of the mesh column
+    TAffine local = columnObj->getLocalPlacement(row);
+    if (std::abs(local.det()) < 1e-12) continue;
+    TAffine aff = stageToPixels * local.inv() * meshToWorldMeshAff;
+
+    double sdFrame = meshObj->paramsTime(row);
+    std::unique_ptr<const PlasticDeformerDataGroup> group(
+        PlasticDeformerStorage::processOnce(
+            sdFrame, mi.getPointer(), sd.getPointer(), sd->skeletonId(sdFrame),
+            worldMeshToMeshAff));
+    if (!group) continue;
+
+    std::vector<double> &offsets = frames[f];
+    offsets.reserve(2 * mesh.m_sources.size());
+    for (size_t i = 0; i < mesh.m_sources.size(); ++i) {
+      const double *out =
+          group->m_datas[mesh.m_sources[i].first].m_output.get() +
+          2 * mesh.m_sources[i].second;
+      TPointD p = aff * TPointD(out[0], out[1]);
+      offsets.push_back(roundTo(p.x - mesh.m_setup[i].x, c_positionUnit));
+      offsets.push_back(roundTo(p.y - mesh.m_setup[i].y, c_positionUnit));
+    }
+  }
+  return frames;
+}
+
+//-----------------------------------------------------------------------------
+
+/*!
+Returns the keys of a deform timeline from the offsets of every frame (empty
+for a frame the mesh is not shown in, which then holds the value of the
+previous frame, or of the first one it is shown in). As for the bone
+timelines, keys inside runs of equal values are dropped, and there are no
+keys if the mesh is never deformed.
+*/
+QJsonArray bakeDeformKeys(std::vector<std::vector<double>> frames, double fps) {
+  QJsonArray keys;
+
+  int count = (int)frames.size(), first = 0;
+  while (first < count && frames[first].empty()) ++first;
+  if (first == count) return keys;
+
+  for (int f = 0; f < first; ++f) frames[f] = frames[first];
+  for (int f = first + 1; f < count; ++f)
+    if (frames[f].empty()) frames[f] = frames[f - 1];
+
+  bool deformed = false;
+  for (const std::vector<double> &offsets : frames)
+    for (double value : offsets)
+      if (value != 0.0) deformed = true;
+  if (!deformed) return keys;
+
+  for (int f = 0; f < count; ++f) {
+    if (f > 0 && f < count - 1 && frames[f] == frames[f - 1] &&
+        frames[f] == frames[f + 1])
+      continue;
+    QJsonArray vertices;
+    for (double value : frames[f]) vertices.append(value);
+
+    QJsonObject key;
+    key["time"]     = roundTo(f / fps, c_timeUnit);
+    key["offset"]   = 0;
+    key["vertices"] = vertices;
+    keys.append(key);
+  }
+  return keys;
+}
+
+//-----------------------------------------------------------------------------
+
+//! Returns the mesh attachment of \e mesh textured with \e image.
+QJsonObject meshAttachment(const SpineMesh &mesh, const SpineImage &image) {
+  double left   = image.m_center.x - 0.5 * image.m_width;
+  double bottom = image.m_center.y - 0.5 * image.m_height;
+
+  QJsonArray uvs, vertices, triangles;
+  for (const TPointD &p : mesh.m_setup) {
+    double u, v;
+    SpineExport::meshUv(p.x, p.y, left, bottom, image.m_width, image.m_height,
+                        u, v);
+    uvs.append(roundTo(std::min(std::max(u, 0.0), 1.0), 1e-6));
+    uvs.append(roundTo(std::min(std::max(v, 0.0), 1.0), 1e-6));
+    vertices.append(roundTo(p.x, c_positionUnit));
+    vertices.append(roundTo(p.y, c_positionUnit));
+  }
+  for (int v : mesh.m_triangles) triangles.append(v);
+
+  QJsonObject json;
+  json["type"]      = "mesh";
+  json["path"]      = image.m_name;
+  json["uvs"]       = uvs;
+  json["triangles"] = triangles;
+  json["vertices"]  = vertices;
+  json["hull"]      = mesh.m_hull;
+  json["width"]     = image.m_width;
+  json["height"]    = image.m_height;
+  return json;
+}
+
+//-----------------------------------------------------------------------------
+
 QByteArray atlasPage(const QString &fileName, const SpineImage &image) {
   // Spine 3.8 atlas syntax, which Spine 4.x runtimes also read
   QString size = QString("%1, %2").arg(image.m_width).arg(image.m_height);
@@ -414,6 +686,7 @@ void ExportSpineCommand::execute() {
 
   std::vector<SpineSlot> spineSlots;
   std::vector<SpineImage> images;
+  std::vector<SpineMesh> meshes;
   std::map<std::pair<TXshSimpleLevel *, TFrameId>, int> imageIndices;
 
   for (int col = 0; col < xsh->getColumnCount(); ++col) {
@@ -423,12 +696,28 @@ void ExportSpineCommand::execute() {
     TXshLevelColumn *levelColumn = column->getLevelColumn();
     if (!levelColumn) continue;
 
+    TStageObjectId columnId = TStageObjectId::ColumnId(col);
+    TStageObject *columnObj = xsh->getStageObject(columnId);
+
+    // A column whose parent is a mesh column sustains its Plastic deformation
+    // (see FxBuilder::addPlasticDeformerFx())
+    TStageObjectId meshColumnId = columnObj->getParent();
+    PlasticSkeletonDeformationP plastic;
+    if (meshColumnId.isColumn() && columnObj->getParentHandle()[0] != 'H')
+      plastic =
+          xsh->getStageObject(meshColumnId)->getPlasticSkeletonDeformation();
+
+    std::map<std::pair<std::pair<TXshSimpleLevel *, TFrameId>, int>, int>
+        meshIndices;
+    size_t firstMesh = meshes.size();
+
     SpineSlot slot;
     bool used = false;
     for (int r = r0; r <= r1; ++r) {
       const TXshCell &cell = levelColumn->getCell(r);
       TXshSimpleLevel *sl  = cell.getSimpleLevel();
       int imageIndex       = -1;
+      int meshIndex        = -1;
       if (sl && isExportedLevelType(sl->getType())) {
         auto key = std::make_pair(sl, cell.getFrameId());
         auto it  = imageIndices.find(key);
@@ -444,16 +733,44 @@ void ExportSpineCommand::execute() {
         }
         imageIndex = it->second;
         used       = true;
+
+        // Mesh drawing of the mesh column
+        if (plastic) {
+          const TXshCell &meshCell = xsh->getCell(r, meshColumnId.getIndex());
+          TXshSimpleLevel *meshSl  = meshCell.getSimpleLevel();
+          if (meshSl && meshSl->getType() == MESH_XSHLEVEL) {
+            auto meshKey = std::make_pair(
+                std::make_pair(meshSl, meshCell.getFrameId()), imageIndex);
+            auto meshIt = meshIndices.find(meshKey);
+            if (meshIt == meshIndices.end()) {
+              SpineMesh mesh;
+              mesh.m_name     = uniqueName(images[imageIndex].m_name + "_mesh",
+                                           imageNames, true);
+              mesh.m_image    = imageIndex;
+              mesh.m_columnId = columnId;
+              mesh.m_meshColumnId = meshColumnId;
+              mesh.m_level        = meshSl;
+              mesh.m_fid          = meshCell.getFrameId();
+              mesh.m_active.assign(r1 - r0 + 1, 0);
+              meshes.push_back(mesh);
+              meshIt =
+                  meshIndices.insert({meshKey, (int)meshes.size() - 1}).first;
+            }
+            meshIndex                          = meshIt->second;
+            meshes[meshIndex].m_active[r - r0] = 1;
+          }
+        }
       }
       slot.m_frames.push_back(imageIndex);
+      slot.m_meshes.push_back(meshIndex);
     }
     if (!used) continue;
 
-    TStageObjectId columnId = TStageObjectId::ColumnId(col);
-    QString name =
-        QString::fromStdString(xsh->getStageObject(columnId)->getName());
-    slot.m_bone = addBone(columnId);
-    slot.m_name = uniqueName(name, slotNames);
+    QString name = QString::fromStdString(columnObj->getName());
+    slot.m_bone  = addBone(columnId);
+    slot.m_name  = uniqueName(name, slotNames);
+    for (size_t m = firstMesh; m < meshes.size(); ++m)
+      meshes[m].m_slot = (int)spineSlots.size();
     spineSlots.push_back(slot);
   }
 
@@ -508,6 +825,49 @@ void ExportSpineCommand::execute() {
     return;
   }
 
+  // Mesh geometry: the setup pose vertices are in the space of the texture
+  // column's bone, and the images are padded to cover them
+
+  for (SpineMesh &mesh : meshes) {
+    TMeshImageP mi(mesh.m_level->getFrame(mesh.m_fid, false));
+    if (!mi || !buildMeshGeometry(mi, mesh)) continue;
+
+    mesh.m_meshDpi = mesh.m_level->getDpi(mesh.m_fid, 0);
+    if (mesh.m_meshDpi.x <= 0.0 || mesh.m_meshDpi.y <= 0.0)
+      mesh.m_meshDpi = TPointD(Stage::inch, Stage::inch);
+
+    int first = 0;
+    while (!mesh.m_active[first]) ++first;
+    TAffine local =
+        xsh->getStageObject(mesh.m_columnId)->getLocalPlacement(r0 + first);
+    if (std::abs(local.det()) < 1e-12) continue;
+    TAffine aff =
+        stageToPixels * local.inv() *
+        TScale(Stage::inch / mesh.m_meshDpi.x, Stage::inch / mesh.m_meshDpi.y);
+
+    TRectD bbox;
+    for (size_t i = 0; i < mesh.m_meshXy.size(); i += 2) {
+      TPointD p = aff * TPointD(mesh.m_meshXy[i], mesh.m_meshXy[i + 1]);
+      mesh.m_setup.push_back(p);
+      if (i == 0)
+        bbox = TRectD(p, p);
+      else
+        bbox = TRectD(std::min(bbox.x0, p.x), std::min(bbox.y0, p.y),
+                      std::max(bbox.x1, p.x), std::max(bbox.y1, p.y));
+    }
+
+    SpineImage &image = images[mesh.m_image];
+    if (!image.m_hasCover)
+      image.m_cover = bbox;
+    else
+      image.m_cover = TRectD(std::min(image.m_cover.x0, bbox.x0),
+                             std::min(image.m_cover.y0, bbox.y0),
+                             std::max(image.m_cover.x1, bbox.x1),
+                             std::max(image.m_cover.y1, bbox.y1));
+    image.m_hasCover = true;
+    mesh.m_valid     = true;
+  }
+
   // Images
 
   DVGui::ProgressDialog progressDialog("", QObject::tr("Cancel"), 0,
@@ -527,6 +887,7 @@ void ExportSpineCommand::execute() {
     TRaster32P ras = renderDrawing(image.m_level, image.m_fid, camera,
                                    stageToPixels, image.m_center);
     if (!ras) continue;
+    if (image.m_hasCover) ras = padRaster(ras, image.m_center, image.m_cover);
 
     QString fileName = image.m_name + ".png";
     QImage img       = rasterToQImage(ras);
@@ -566,9 +927,16 @@ void ExportSpineCommand::execute() {
     }
   }
 
+  // Bake the Plastic deformation of the meshes of every frame
+
+  std::vector<std::vector<std::vector<double>>> meshOffsets(meshes.size());
+  for (size_t m = 0; m < meshes.size(); ++m)
+    if (meshes[m].m_valid && images[meshes[m].m_image].m_valid)
+      meshOffsets[m] = bakeMeshOffsets(xsh, meshes[m], r0, stageToPixels);
+
   // Skeleton JSON
 
-  QJsonObject bonesTimelines, slotsTimelines;
+  QJsonObject bonesTimelines, slotsTimelines, deformTimelines;
 
   QJsonArray bonesJson;
   for (const SpineBone &bone : bones) {
@@ -601,21 +969,41 @@ void ExportSpineCommand::execute() {
   QJsonArray slotsJson;
   QJsonObject skinAttachments;
   for (const SpineSlot &slot : spineSlots) {
-    std::vector<int> frames;
-    for (int index : slot.m_frames)
-      frames.push_back(index >= 0 && images[index].m_valid ? index : -1);
+    // Image and mesh attachment per frame
+    std::vector<int> frames, meshFrames;
+    std::vector<QString> names;  // empty when blank
+    for (size_t f = 0; f < slot.m_frames.size(); ++f) {
+      int index     = slot.m_frames[f];
+      bool valid    = index >= 0 && images[index].m_valid;
+      int meshIndex = valid ? slot.m_meshes[f] : -1;
+      if (meshIndex >= 0 && !meshes[meshIndex].m_valid) meshIndex = -1;
+      frames.push_back(valid ? index : -1);
+      meshFrames.push_back(meshIndex);
+      names.push_back(!valid           ? QString()
+                      : meshIndex >= 0 ? meshes[meshIndex].m_name
+                                       : images[index].m_name);
+    }
 
     QJsonObject json;
     json["name"] = slot.m_name;
     json["bone"] = bones[slot.m_bone].m_name;
-    if (frames.front() >= 0) json["attachment"] = images[frames.front()].m_name;
+    if (!names.front().isEmpty()) json["attachment"] = names.front();
     slotsJson.append(json);
 
-    // Region attachments
+    // Region and mesh attachments
     QJsonObject attachments;
-    for (int index : frames) {
-      if (index < 0 || attachments.contains(images[index].m_name)) continue;
-      const SpineImage &image = images[index];
+    QJsonObject deform;
+    for (size_t f = 0; f < frames.size(); ++f) {
+      if (frames[f] < 0 || attachments.contains(names[f])) continue;
+      const SpineImage &image = images[frames[f]];
+      if (meshFrames[f] >= 0) {
+        const SpineMesh &mesh    = meshes[meshFrames[f]];
+        attachments[mesh.m_name] = meshAttachment(mesh, image);
+
+        QJsonArray keys = bakeDeformKeys(meshOffsets[meshFrames[f]], fps);
+        if (!keys.isEmpty()) deform[mesh.m_name] = keys;
+        continue;
+      }
       QJsonObject region;
       region["x"]               = roundTo(image.m_center.x, c_positionUnit);
       region["y"]               = roundTo(image.m_center.y, c_positionUnit);
@@ -624,15 +1012,20 @@ void ExportSpineCommand::execute() {
       attachments[image.m_name] = region;
     }
     if (!attachments.isEmpty()) skinAttachments[slot.m_name] = attachments;
+    if (!deform.isEmpty()) {
+      QJsonObject deformSlots    = deformTimelines["default"].toObject();
+      deformSlots[slot.m_name]   = deform;
+      deformTimelines["default"] = deformSlots;
+    }
 
     // Drawing changes
     QJsonArray keys;
-    for (int f = 0; f < (int)frames.size(); ++f) {
-      if (f > 0 && frames[f] == frames[f - 1]) continue;
+    for (int f = 0; f < (int)names.size(); ++f) {
+      if (f > 0 && names[f] == names[f - 1]) continue;
       QJsonObject key;
       key["time"] = roundTo(f / fps, c_timeUnit);
-      key["name"] = (frames[f] >= 0) ? QJsonValue(images[frames[f]].m_name)
-                                     : QJsonValue(QJsonValue::Null);
+      key["name"] = names[f].isEmpty() ? QJsonValue(QJsonValue::Null)
+                                       : QJsonValue(names[f]);
       keys.append(key);
     }
     if (keys.size() > 1) {
@@ -662,6 +1055,7 @@ void ExportSpineCommand::execute() {
   QJsonObject animation;
   if (!bonesTimelines.isEmpty()) animation["bones"] = bonesTimelines;
   if (!slotsTimelines.isEmpty()) animation["slots"] = slotsTimelines;
+  if (!deformTimelines.isEmpty()) animation["deform"] = deformTimelines;
   QString animationName = QString::fromStdWString(scene->getSceneName());
   QJsonObject animations;
   animations[animationName.isEmpty() ? QString("animation") : animationName] =
