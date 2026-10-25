@@ -26,7 +26,27 @@
 // Qt includes
 #include <QCoreApplication>  // For Qt translation support
 
+// STD includes
+#include <map>
+
+#define PUMP_MODE L"Pump"
+#define THICKEN_MODE L"Thicken Brush"
+#define THIN_MODE L"Thin Brush"
+
 using namespace ToolUtils;
+
+namespace {
+
+//! Whether all the control points of \p s have zero thickness. Such strokes
+//! (fill boundaries, gap-closing lines) are hidden by the renderer and must
+//! not be made visible by the thickness brushes.
+bool isZeroThick(const TStroke *s) {
+  for (int i = 0; i < s->getControlPointCount(); ++i)
+    if (s->getControlPoint(i).thick != 0) return false;
+  return true;
+}
+
+}  // namespace
 
 //*****************************************************************************
 //    PumpTool declaration
@@ -69,7 +89,16 @@ class PumpTool final : public TTool {
 
   TDoubleProperty m_toolSize;
   TIntProperty m_accuracy;
+  TEnumProperty m_mode;  //!< Pump, or a brush that thickens or thins lines
+  TDoubleProperty m_strength;  //!< Thickness change of the brush modes
   TPropertyGroup m_prop;
+
+  // Brush modes: strokes touched during the current drag, by index, with the
+  // undo that recorded each one before its first change
+  bool m_brushing;
+  TPointD m_brushLastPos;
+  std::map<int, UndoModifyStroke *> m_brushUndos;
+  std::map<int, TStroke *> m_brushOldStrokes;
 
 public:
   PumpTool()
@@ -88,13 +117,22 @@ public:
       , m_undo(0)
       , m_toolSize("Size:", 1, 100, 20)
       , m_accuracy("Accuracy:", 0, 100, 40)
+      , m_mode("Mode:")
+      , m_strength("Strength:", 1, 100, 20)
+      , m_brushing(false)
       , m_enabled(false) {
     bind(TTool::VectorImage);
 
     m_splitPars.resize(2);
 
+    m_mode.addValue(PUMP_MODE);
+    m_mode.addValue(THICKEN_MODE);
+    m_mode.addValue(THIN_MODE);
+
+    m_prop.bind(m_mode);
     m_prop.bind(m_toolSize);
     m_prop.bind(m_accuracy);
+    m_prop.bind(m_strength);
   }
 
   ToolType getToolType() const override { return TTool::LevelWriteTool; }
@@ -104,6 +142,11 @@ public:
   void updateTranslation() override {
     m_toolSize.setQStringName(tr("Size:"));
     m_accuracy.setQStringName(tr("Accuracy:"));
+    m_mode.setQStringName(tr("Mode:"));
+    m_mode.setItemUIName(PUMP_MODE, tr("Pump"));
+    m_mode.setItemUIName(THICKEN_MODE, tr("Thicken Brush"));
+    m_mode.setItemUIName(THIN_MODE, tr("Thin Brush"));
+    m_strength.setQStringName(tr("Strength:"));
   }
 
   void onEnter() override;
@@ -136,6 +179,11 @@ private:
                                 UINT &strokeIndex, double &dist2,
                                 bool onlyInCurrentGroup = false);
 
+  bool isBrushMode() const { return m_mode.getValue() != PUMP_MODE; }
+  double brushRadius() const { return m_toolSize.getValue() * getPixelSize(); }
+  void brushAt(const TPointD &pos, double moved);
+  void endBrush(bool accept);
+
 } PumpToolInstance;
 
 //*****************************************************************************
@@ -158,6 +206,14 @@ void PumpTool::onEnter() {
 
 void PumpTool::draw() {
   if (!m_draw || !m_enabled) return;
+
+  if (isBrushMode()) {
+    if (m_cursorEnabled) {
+      glColor3d(1.0, 0.0, 1.0);
+      tglDrawCircle(m_cursor, brushRadius());
+    }
+    return;
+  }
 
   TVectorImageP vi = TImageP(getImage(false));
   if (!vi) return;
@@ -280,6 +336,15 @@ void PumpTool::leftButtonDown(const TPointD &pos, const TMouseEvent &e) {
 
   if (m_active || !m_enabled) return;
 
+  if (isBrushMode()) {
+    if (!(TVectorImageP)getImage(true)) return;
+    m_brushing     = true;
+    m_brushLastPos = pos;
+    // A click without moving still makes a small change
+    brushAt(pos, 0.25 * brushRadius());
+    return;
+  }
+
   m_isCtrlPressed = e.isCtrlPressed();
 
   assert(m_undo == 0);
@@ -352,6 +417,13 @@ void PumpTool::leftButtonDown(const TPointD &pos, const TMouseEvent &e) {
 //----------------------------------------------------------------------
 
 void PumpTool::leftButtonDrag(const TPointD &pos, const TMouseEvent &e) {
+  if (m_brushing) {
+    m_cursor = TThickPoint(pos, 0);
+    brushAt(pos, tdistance(pos, m_brushLastPos));
+    m_brushLastPos = pos;
+    return;
+  }
+
   if (!m_active || !m_enabled) return;
 
   TVectorImageP vi(getImage(true));
@@ -410,6 +482,11 @@ void PumpTool::leftButtonDrag(const TPointD &pos, const TMouseEvent &e) {
 //----------------------------------------------------------------------
 
 void PumpTool::leftButtonUp(const TPointD &pos, const TMouseEvent &e) {
+  if (m_brushing) {
+    endBrush(true);
+    return;
+  }
+
   TVectorImageP vi;
 
   if (!m_active || !m_enabled) goto cleanup;
@@ -491,6 +568,14 @@ void PumpTool::invalidateCursorArea() {
 void PumpTool::mouseMove(const TPointD &pos, const TMouseEvent &e) {
   if (m_active || !m_enabled) return;
 
+  if (isBrushMode()) {
+    m_draw          = true;
+    m_cursor        = TThickPoint(pos, 0);
+    m_cursorEnabled = true;
+    invalidate();
+    return;
+  }
+
   m_isCtrlPressed = e.isCtrlPressed();
 
   // Cursor preview updates on 3-pixel steps
@@ -533,6 +618,7 @@ bool PumpTool::moveCursor(const TPointD &pos) {
 
 void PumpTool::onDeactivate() {
   m_draw = false;
+  if (m_brushing) endBrush(true);
   if (m_active) {
     m_active = false;
     TVectorImageP vi(getImage(true));
@@ -572,6 +658,90 @@ void PumpTool::onLeave() {
 //*****************************************************************************
 //    PumpTool privates
 //*****************************************************************************
+
+//! Thickens or thins the control points within the brush radius of every
+//! stroke of the current image, by an amount proportional to the distance
+//! the brush moved and fading toward the brush edge.
+void PumpTool::brushAt(const TPointD &pos, double moved) {
+  TVectorImageP vi(getImage(true));
+  if (!vi) return;
+
+  QMutexLocker lock(vi->getMutex());
+
+  TXshSimpleLevel *sl =
+      TTool::getApplication()->getCurrentLevel()->getSimpleLevel();
+  if (!sl) return;
+  TFrameId fid = getCurrentFid();
+
+  const double radius = brushRadius();
+  const double sign   = (m_mode.getValue() == THIN_MODE) ? -1.0 : 1.0;
+  const double amount = sign * 0.01 * m_strength.getValue() * moved;
+  if (amount == 0.0) return;
+
+  for (UINT i = 0; i < vi->getStrokeCount(); ++i) {
+    // Like picking, only strokes of the entered group can be edited
+    if (!vi->inCurrentGroup(i)) continue;
+    TStroke *stroke = vi->getStroke(i);
+    if (!stroke->getBBox().enlarge(radius).contains(pos)) continue;
+    // Leave hidden zero-thickness strokes alone, as the renderer does
+    if (isZeroThick(stroke)) continue;
+
+    bool changed = false;
+    for (int j = 0; j < stroke->getControlPointCount(); ++j) {
+      TThickPoint cp = stroke->getControlPoint(j);
+      double dist    = tdistance(TPointD(cp.x, cp.y), pos);
+      if (dist >= radius) continue;
+
+      if (!changed && m_brushUndos.count(i) == 0) {
+        // Record the stroke before its first change in this drag
+        m_brushUndos[i]      = new UndoModifyStroke(sl, fid, i);
+        m_brushOldStrokes[i] = new TStroke(*stroke);
+      }
+      changed = true;
+
+      double falloff = 1.0 - dist / radius;
+      double thick   = std::max(0.0, cp.thick + amount * falloff * falloff);
+      stroke->setControlPoint(j, TThickPoint(cp.x, cp.y, thick));
+    }
+    if (changed) stroke->invalidate();
+  }
+
+  invalidate();
+}
+
+//----------------------------------------------------------------------
+
+//! Ends a brush drag: adds one undo for all the strokes it changed.
+void PumpTool::endBrush(bool accept) {
+  m_brushing = false;
+  TVectorImageP vi(getImage(true));
+
+  if (accept && vi && !m_brushUndos.empty()) {
+    std::vector<int> indices;
+    std::vector<TStroke *> oldStrokes;
+    TUndoManager::manager()->beginBlock();
+    for (auto &undo : m_brushUndos) {
+      TUndoManager::manager()->add(undo.second);
+      indices.push_back(undo.first);
+      oldStrokes.push_back(m_brushOldStrokes[undo.first]);
+    }
+    TUndoManager::manager()->endBlock();
+    m_brushUndos.clear();
+
+    {
+      QMutexLocker lock(vi->getMutex());
+      vi->notifyChangedStrokes(indices, oldStrokes);
+    }
+    notifyImageChanged();
+  }
+
+  for (auto &undo : m_brushUndos) delete undo.second;
+  m_brushUndos.clear();
+  for (auto &old : m_brushOldStrokes) delete old.second;
+  m_brushOldStrokes.clear();
+
+  invalidate();
+}
 
 double PumpTool::actionRadius(double strokeLength) {
   double toolSize         = m_toolSize.getValue();

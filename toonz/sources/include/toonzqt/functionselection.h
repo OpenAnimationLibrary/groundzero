@@ -58,6 +58,11 @@ class FunctionSelection final : public QObject, public TSelection {
   int touchCurveIndex(TDoubleParam *curve);
   // as getCurve(); if curve not found then add it
 
+  // returns the first keyframe index of every selected segment, per curve.
+  // if inclusive == true, also the segment overlapping the top selected row
+  QList<QPair<TDoubleParam *, QList<int>>> getSelectedSegments(
+      bool inclusive) const;
+
 public:
   FunctionSelection();
   ~FunctionSelection();
@@ -123,6 +128,12 @@ public:
   int getCommonStep(bool inclusive = true);
 
   void setSegmentType(TDoubleKeyframe::Type type, bool inclusive = true);
+
+  // set every selected segment to Ease In / Ease Out (%) interpolation with
+  // the given percentages of the segment length. easeOut leaves the first key
+  // of the segment and easeIn reaches the next one; their sum is cropped to
+  // 100.
+  void setSegmentEase(double easeOut, double easeIn, bool inclusive = true);
 
   // return TDoubleKeyframe::Type value if the selected segments has the same
   // interpolation type. return -1 if the selection does not overlap any

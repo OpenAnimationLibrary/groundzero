@@ -94,6 +94,9 @@ std::string toString(const PlasticSkeletonDeformationP &sd, double sdFrame) {
     result += " " + toString(sd->vertexDeformation(vt->name()), sdFrame);
   }
 
+  // Added only when enabled, to keep the aliases of other deformations as-is
+  if (sd->curveBending()) result += "; curveBending";
+
   return result;
 }
 

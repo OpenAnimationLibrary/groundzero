@@ -190,6 +190,29 @@ QPixmap scalePixmapKeepingAspectRatio(QPixmap pixmap, QSize size,
 
 //-----------------------------------------------------------------------------
 
+QScreen *screenForRect(const QRect &rect) {
+  QScreen *found = nullptr;
+  qint64 largest = 0;
+  for (QScreen *screen : QGuiApplication::screens()) {
+    const QRect common = screen->geometry().intersected(rect);
+    const qint64 area  = qint64(common.width()) * common.height();
+    if (area > largest) {
+      found   = screen;
+      largest = area;
+    }
+  }
+  return found ? found : QGuiApplication::primaryScreen();
+}
+
+QScreen *screenForWidget(const QWidget *widget) {
+  if (!widget) return QGuiApplication::primaryScreen();
+  QRect frame = widget->frameGeometry();
+  if (!widget->isWindow()) frame.moveTopLeft(widget->mapToGlobal(QPoint()));
+  return screenForRect(frame);
+}
+
+//-----------------------------------------------------------------------------
+
 int getDevicePixelRatio(const QWidget *widget) {
   if (hasScreensWithDifferentDevPixRatio() && widget) {
     return widget->screen()->devicePixelRatio();

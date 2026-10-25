@@ -109,6 +109,7 @@ set(HEADERS
     ../include/toonz/onionskinmask.h
     ../include/toonz/palettecmd.h
     ../include/toonz/plasticdeformerfx.h
+    ../include/toonz/poselibrary.h
     ../include/toonz/rasterbrush.h
     ../include/toonz/rasterstrokegenerator.h
     ../include/toonz/scenefx.h
@@ -217,6 +218,7 @@ set(SOURCES
     onionskinmask.cpp
 	orientation.cpp
     outputproperties.cpp
+    poselibrary.cpp
     preferences.cpp
     rasterbrush.cpp
     rasterstrokegenerator.cpp

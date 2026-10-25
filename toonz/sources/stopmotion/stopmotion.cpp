@@ -32,7 +32,6 @@
 #include <QCamera>
 #include <QCameraInfo>
 #include <QCoreApplication>
-#include <QDesktopWidget>
 #include <QDialog>
 #include <QFile>
 #include <QString>

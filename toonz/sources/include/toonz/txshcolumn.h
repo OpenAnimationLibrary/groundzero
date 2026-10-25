@@ -78,7 +78,8 @@ protected:
     ePreviewVisible        = 0x2,
     eLocked                = 0x8,
     eMasked                = 0x10,
-    eCamstandTransparent43 = 0x20  // obsoleto, solo per retrocompatibilita'
+    eCamstandTransparent43 = 0x20,  // obsoleto, solo per retrocompatibilita'
+    eSelectionLocked       = 0x40   // not picked by clicking in the viewer
   };
 
   TRaster32P m_icon;
@@ -186,6 +187,19 @@ Set column status look to \b on.
 \sa isLocked()
 */
   void lock(bool on);
+
+  /*!
+Return true if the column cannot be picked by clicking in the viewer. Unlike
+isLocked(), it can still be edited once it is selected in the xsheet, the
+timeline or a schematic.
+\sa lockSelection()
+*/
+  bool isSelectionLocked() const;
+  /*!
+Set column status selection lock to \b on.
+\sa isSelectionLocked()
+*/
+  void lockSelection(bool on);
 
   /*!
 Return true if column is a mask.
