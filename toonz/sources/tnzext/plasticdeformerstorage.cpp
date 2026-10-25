@@ -4,6 +4,9 @@
 #include "ext/plasticskeleton.h"
 #include "ext/plasticskeletondeformation.h"
 
+// tcg includes
+#include "tcg/tcg_point_ops.h"
+
 // STD includes
 #include <limits>
 #include <map>
@@ -143,6 +146,141 @@ void transformHandles(std::vector<TPointD> &handles, const TAffine &aff) {
 
 //----------------------------------------------------------------------------------
 
+/*
+  Curve bending
+
+  When curve bending is enabled, the deformation of each skeleton edge is
+  distributed along a smooth curve instead of following the edge rigidly. The
+  curve is a chord-length weighted Catmull-Rom spline through the skeleton's
+  vertex chains: it is tangent-continuous through vertices with exactly one
+  child, while it follows the edge direction at branch and end vertices.
+
+  The same curve is built through both the original and the deformed skeleton.
+  Points sampled at the same parameters on both become additional handles for
+  the mesh deformers - so the original skeleton is still mapped exactly to
+  the original mesh, and the existing deformer bends the mesh smoothly.
+*/
+
+const int l_curveSamplesPerEdge = 3;  //!< Curve handles built for each edge
+
+//----------------------------------------------------------------------------------
+
+//! Returns the only child of the specified vertex, or -1 if it has no or
+//! multiple children.
+int singleChild(const PlasticSkeleton &skeleton, int v) {
+  const PlasticSkeleton::vertex_type &vx = skeleton.vertex(v);
+
+  int child = -1;
+
+  PlasticSkeleton::vertex_type::edges_const_iterator et, eEnd(vx.edgesEnd());
+  for (et = vx.edgesBegin(); et != eEnd; ++et) {
+    int vChild = skeleton.edge(*et).vertex(1);
+    if (vChild == v) continue;
+
+    if (child >= 0) return -1;
+    child = vChild;
+  }
+
+  return child;
+}
+
+//----------------------------------------------------------------------------------
+
+//! Returns the Hermite tangent at a vertex of a chord-length weighted
+//! Catmull-Rom spline, for a curve segment of length len.
+inline TPointD curveTangent(const TPointD &prev, const TPointD &next,
+                            double prevLen, double len) {
+  double den = prevLen + len;
+  return (den > 1e-8) ? (len / den) * (next - prev) : TPointD();
+}
+
+//----------------------------------------------------------------------------------
+
+//! Builds the curve handles of the specified skeleton - a fixed number per
+//! edge, in edge order. Skeletons with the same topology (eg the original and
+//! the deformed skeleton) produce corresponding handles.
+void buildCurveHandles(const PlasticSkeleton &skeleton,
+                       std::vector<PlasticHandle> &handles) {
+  handles.clear();
+  handles.reserve(l_curveSamplesPerEdge * skeleton.edgesCount());
+
+  tcg::list<PlasticSkeleton::edge_type>::const_iterator et,
+      eEnd(skeleton.edges().end());
+  for (et = skeleton.edges().begin(); et != eEnd; ++et) {
+    int v1 = et->vertex(0), v2 = et->vertex(1);  // v1 is v2's parent
+
+    const PlasticSkeleton::vertex_type &vx1 = skeleton.vertex(v1);
+    const PlasticSkeleton::vertex_type &vx2 = skeleton.vertex(v2);
+
+    // Retrieve the chain's previous and next vertices, if any
+    int v0 = (vx1.parent() >= 0 && singleChild(skeleton, v1) == v2)
+                 ? vx1.parent()
+                 : -1;
+    int v3 = singleChild(skeleton, v2);
+
+    const TPointD &p1 = vx1.P(), &p2 = vx2.P();
+    const TPointD p0 = (v0 >= 0) ? skeleton.vertex(v0).P() : 2.0 * p1 - p2;
+    const TPointD p3 = (v3 >= 0) ? skeleton.vertex(v3).P() : 2.0 * p2 - p1;
+
+    double l01 = tcg::point_ops::dist(p0, p1),
+           l12 = tcg::point_ops::dist(p1, p2),
+           l23 = tcg::point_ops::dist(p2, p3);
+
+    const TPointD m1 = ::curveTangent(p0, p2, l01, l12),
+                  m2 = ::curveTangent(p1, p3, l23, l12);
+
+    // Sample the curve segment (Hermite form), excluding its end points
+    for (int s = 1; s <= l_curveSamplesPerEdge; ++s) {
+      double t = s / double(l_curveSamplesPerEdge + 1), t2 = t * t, t3 = t2 * t;
+
+      PlasticHandle handle((2.0 * t3 - 3.0 * t2 + 1.0) * p1 +
+                           (t3 - 2.0 * t2 + t) * m1 +
+                           (3.0 * t2 - 2.0 * t3) * p2 + (t3 - t2) * m2);
+      handle.m_interpolate = vx1.m_interpolate && vx2.m_interpolate;
+
+      handles.push_back(handle);
+    }
+  }
+}
+
+//----------------------------------------------------------------------------------
+
+//! Selects the curve handles to be compiled in a mesh's deformer. Handles are
+//! discarded if outside the mesh, or if their face already contains another
+//! handle - as too many constraints on the same face may make the deformer
+//! fail compilation.
+void selectCurveHandles(const TTextureMesh &mesh,
+                        const std::vector<PlasticHandle> &handles,
+                        const std::vector<int> &faceHints,
+                        const std::vector<PlasticHandle> &curveHandles,
+                        std::vector<int> &selected,
+                        std::vector<int> &selectedFaces) {
+  selected.clear(), selectedFaces.clear();
+
+  int fCount = mesh.facesCount();
+  std::vector<char> usedFaces(fCount, 0);
+
+  int h, hCount = int(handles.size());
+  for (h = 0; h != hCount; ++h) {
+    int f = (h < int(faceHints.size())) ? faceHints[h] : -1;
+    if (f < 0 || f >= fCount || !mesh.faceContains(f, handles[h].m_pos))
+      f = mesh.faceContaining(handles[h].m_pos);
+
+    if (f >= 0) usedFaces[f] = 1;
+  }
+
+  int c, cCount = int(curveHandles.size());
+  for (c = 0; c != cCount; ++c) {
+    int f = mesh.faceContaining(curveHandles[c].m_pos);
+    if (f < 0 || usedFaces[f]) continue;
+
+    usedFaces[f] = 1;
+    selected.push_back(c), selectedFaces.push_back(f);
+  }
+}
+
+//----------------------------------------------------------------------------------
+
 void processHandles(DataGroup *group, double frame, const TMeshImage *meshImage,
                     const SkD *sd, int skelId,
                     const TAffine &deformationAffine) {
@@ -153,6 +291,13 @@ void processHandles(DataGroup *group, double frame, const TMeshImage *meshImage,
   if (!skeleton || skeleton->verticesCount() == 0) {
     group->m_handles.clear();
     group->m_dstHandles.clear();
+
+    if (!group->m_curveHandles.empty()) {
+      // Mesh deformers reference curve handles - they must be recompiled
+      group->m_curveHandles.clear();
+      group->m_compiled &= ~PlasticDeformerStorage::MESH;
+    }
+    group->m_curveDstHandles.clear();
 
     group->m_compiled |= PlasticDeformerStorage::HANDLES;
     group->m_upToDate |= PlasticDeformerStorage::HANDLES;
@@ -173,6 +318,20 @@ void processHandles(DataGroup *group, double frame, const TMeshImage *meshImage,
       for (int m = 0; m != mCount; ++m)
         group->m_datas[m].m_faceHints.resize(group->m_handles.size(), -1);
 
+      // Build curve handles, if required
+      bool hadCurveHandles = !group->m_curveHandles.empty();
+
+      if (sd->curveBending()) {
+        ::buildCurveHandles(*skeleton, group->m_curveHandles);
+        ::transformHandles(group->m_curveHandles, deformationAffine);
+      } else
+        group->m_curveHandles.clear();
+
+      if (hadCurveHandles || !group->m_curveHandles.empty())
+        group->m_compiled &=
+            ~PlasticDeformerStorage::MESH;  // Mesh deformers reference curve
+                                            // handles by index
+
       group->m_compiled |= PlasticDeformerStorage::HANDLES;
     }
 
@@ -185,6 +344,27 @@ void processHandles(DataGroup *group, double frame, const TMeshImage *meshImage,
     group->m_dstHandles = std::vector<TPointD>(
         deformedSkeleton.vertices().begin(), deformedSkeleton.vertices().end());
     ::transformHandles(group->m_dstHandles, deformationAffine);
+
+    // Build destination curve handles, sampling the deformed skeleton's curves
+    group->m_curveDstHandles.clear();
+
+    if (!group->m_curveHandles.empty()) {
+      std::vector<PlasticHandle> curveDstHandles;
+      ::buildCurveHandles(deformedSkeleton, curveDstHandles);
+
+      assert(curveDstHandles.size() == group->m_curveHandles.size());
+      if (curveDstHandles.size() == group->m_curveHandles.size()) {
+        group->m_curveDstHandles.reserve(curveDstHandles.size());
+        for (const PlasticHandle &handle : curveDstHandles)
+          group->m_curveDstHandles.push_back(handle.m_pos);
+
+        ::transformHandles(group->m_curveDstHandles, deformationAffine);
+      } else {
+        // Should not happen - anyway, just deform without curve handles
+        group->m_curveHandles.clear();
+        group->m_compiled &= ~PlasticDeformerStorage::MESH;
+      }
+    }
 
     group->m_upToDate |= PlasticDeformerStorage::HANDLES;
   }
@@ -354,10 +534,46 @@ void processMesh(DataGroup *group, double frame, const TMeshImage *meshImage,
         const TTextureMeshP &mesh = meshImage->meshes()[m];
         PlasticDeformerData &data = group->m_datas[m];
 
+        data.m_curveSamples.clear();
         data.m_deformer.initialize(mesh);
-        data.m_deformer.compile(
-            group->m_handles,
-            data.m_faceHints.empty() ? 0 : &data.m_faceHints.front());
+
+        if (!group->m_curveHandles.empty()) {
+          // Curve bending - compile the curve handles after skeleton ones
+          std::vector<int> curveFaces;
+          ::selectCurveHandles(*mesh, group->m_handles, data.m_faceHints,
+                               group->m_curveHandles, data.m_curveSamples,
+                               curveFaces);
+
+          if (!data.m_curveSamples.empty()) {
+            std::vector<PlasticHandle> handles(group->m_handles);
+            std::vector<int> faceHints(data.m_faceHints);
+
+            faceHints.resize(handles.size(), -1);
+
+            int s, sCount = int(data.m_curveSamples.size());
+            for (s = 0; s != sCount; ++s) {
+              handles.push_back(group->m_curveHandles[data.m_curveSamples[s]]);
+              faceHints.push_back(curveFaces[s]);
+            }
+
+            if (data.m_deformer.compile(handles, &faceHints.front())) {
+              // Keep the skeleton handles' updated face hints
+              std::copy(faceHints.begin(),
+                        faceHints.begin() + data.m_faceHints.size(),
+                        data.m_faceHints.begin());
+            } else {
+              // Fall back to the standard deformation
+              data.m_curveSamples.clear();
+              data.m_deformer.initialize(mesh);
+            }
+          }
+        }
+
+        if (data.m_curveSamples.empty())
+          data.m_deformer.compile(
+              group->m_handles,
+              data.m_faceHints.empty() ? 0 : &data.m_faceHints.front());
+
         data.m_deformer.releaseInitializedData();
       }
 
@@ -369,7 +585,22 @@ void processMesh(DataGroup *group, double frame, const TMeshImage *meshImage,
 
     for (m = 0; m != mCount; ++m) {
       PlasticDeformerData &data = group->m_datas[m];
-      data.m_deformer.deform(dstHandlePos, data.m_output.get());
+
+      if (data.m_curveSamples.empty()) {
+        data.m_deformer.deform(dstHandlePos, data.m_output.get());
+        continue;
+      }
+
+      // Append the destination curve handles compiled in this deformer
+      std::vector<TPointD> &dstHandles = data.m_dstHandlesBuffer;
+      dstHandles.assign(group->m_dstHandles.begin(), group->m_dstHandles.end());
+
+      for (int s : data.m_curveSamples) {
+        assert(s < int(group->m_curveDstHandles.size()));
+        dstHandles.push_back(group->m_curveDstHandles[s]);
+      }
+
+      data.m_deformer.deform(&dstHandles.front(), data.m_output.get());
     }
 
     group->m_upToDate |= PlasticDeformerStorage::MESH;
