@@ -2,9 +2,11 @@
 // Envelope deformer: the mean value mapping, its inverse, and the raster warp;
 // of the deformer stack (TDeformerStack) built on it; and of the free-form
 // lattice deformer (TFreeFormDeformer); and of the curve deformer
-// (TCurveDeformer) and its Bezier chain.
+// (TCurveDeformer) and its Bezier chain; and of the bone deformer
+// (TBoneDeformer).
 
 #include "toonz/tcurvedeformer.h"
+#include "toonz/tbonedeformer.h"
 #include "toonz/tdeformer.h"
 #include "toonz/tdeformerstack.h"
 #include "toonz/tfreeformdeformer.h"
@@ -761,6 +763,249 @@ void testCurveBend() {
 
 //------------------------------------------------------------------
 
+// Joints of a horizontal chain of 2 bones, from -100 to 100
+std::vector<TPointD> chainJoints() {
+  return {TPointD(-100.0, 0.0), TPointD(0.0, 0.0), TPointD(100.0, 0.0)};
+}
+
+// The chain with its second bone turned by degrees about the middle joint
+std::vector<TPointD> bentJoints(double degrees) {
+  double a = degrees * M_PI_180;
+  return {TPointD(-100.0, 0.0), TPointD(0.0, 0.0),
+          TPointD(100.0 * std::cos(a), 100.0 * std::sin(a))};
+}
+
+//------------------------------------------------------------------
+
+void testBoneIdentity() {
+  TBoneDeformer deformer(
+      TBoneDeformer::makeChain(chainJoints(), chainJoints(), 30.0, 80.0));
+  require(deformer.isValid() && deformer.getBoneCount() == 2,
+          "bone identity: not valid");
+  require(deformer.isIdentity(0.0), "bone identity: not identity");
+  require(
+      deformer.getBone(0).m_parent == -1 && deformer.getBone(1).m_parent == 0,
+      "bone identity: wrong parents of a chain");
+
+  for (const TPointD &p : samplePoints()) {
+    TPointD q;
+    require(isClose(deformer.deform(p, 0.0), p, 1e-9),
+            "bone identity: deform moved a point");
+    require(deformer.undeform(p, 0.0, q) && isClose(q, p, 1e-9),
+            "bone identity: undeform moved a point");
+  }
+
+  TBoneDeformer bent(
+      TBoneDeformer::makeChain(chainJoints(), bentJoints(10.0), 30.0, 80.0));
+  require(!bent.isIdentity(1e-6), "bone identity: a bent chain is identity");
+}
+
+//------------------------------------------------------------------
+
+void testBoneInvalid() {
+  std::vector<TPointD> joints = chainJoints();
+
+  // Bones: none, a parent that comes later, a non finite value
+  TBoneDeformer none((std::vector<TBoneDeformer::Bone>()));
+  require(!none.isValid(), "bone invalid: no bone is valid");
+
+  std::vector<TBoneDeformer::Bone> bones =
+      TBoneDeformer::makeChain(joints, bentJoints(30.0), 30.0, 80.0);
+  bones[0].m_parent = 1;
+  TBoneDeformer badParent(bones);
+  require(!badParent.isValid(), "bone invalid: a later parent is valid");
+
+  bones = TBoneDeformer::makeChain(joints, bentJoints(30.0), 30.0, 80.0);
+  bones[1].m_head.x = std::nan("");
+  TBoneDeformer badValue(bones);
+  require(!badValue.isValid(), "bone invalid: a NaN is valid");
+
+  bones = TBoneDeformer::makeChain(joints, bentJoints(30.0), 30.0, 80.0);
+  TBoneDeformer badPlacement(bones, TScale(0.0));
+  require(!badPlacement.isValid(), "bone invalid: a null placement is valid");
+
+  // A deformer that is not valid does not move anything
+  TPointD p(10.0, 20.0), q;
+  require(isClose(badParent.deform(p, 0.0), p, 0.0) &&
+              badParent.undeform(p, 0.0, q) && isClose(q, p, 0.0),
+          "bone invalid: moved a point");
+
+  require(TBoneDeformer::makeChain(joints, std::vector<TPointD>(2), 1.0, 2.0)
+              .empty(),
+          "bone invalid: a chain of mismatched joints");
+
+  // A tree: three bones from the same joint
+  std::vector<TBoneDeformer::Bone> tree;
+  tree.push_back(TBoneDeformer::Bone(TPointD(0.0, 0.0), TPointD(100.0, 0.0),
+                                     TPointD(0.0, 0.0), TPointD(100.0, 0.0),
+                                     20.0, 50.0, -1));
+  tree.push_back(TBoneDeformer::Bone(TPointD(100.0, 0.0), TPointD(200.0, 0.0),
+                                     TPointD(100.0, 0.0), TPointD(200.0, 0.0),
+                                     20.0, 50.0, 0));
+  tree.push_back(TBoneDeformer::Bone(TPointD(100.0, 0.0), TPointD(100.0, 100.0),
+                                     TPointD(100.0, 0.0), TPointD(100.0, 100.0),
+                                     20.0, 50.0, 0));
+  TBoneDeformer treeDeformer(tree);
+  require(treeDeformer.isValid() && treeDeformer.getBone(2).m_parent == 0 &&
+              treeDeformer.isIdentity(0.0),
+          "bone invalid: a tree is not valid");
+}
+
+//------------------------------------------------------------------
+
+void testBoneTranslation() {
+  // A single bone translated rigidly
+  TPointD t(20.0, -10.0);
+  std::vector<TBoneDeformer::Bone> bones(1);
+  bones[0] = TBoneDeformer::Bone(TPointD(-100.0, 0.0), TPointD(100.0, 0.0),
+                                 TPointD(-100.0, 0.0) + t,
+                                 TPointD(100.0, 0.0) + t, 40.0, 100.0);
+  TBoneDeformer deformer(bones);
+
+  // Within the inner radius the points follow exactly
+  const TPointD inside[] = {TPointD(0.0, 30.0),    TPointD(0.0, 0.0),
+                            TPointD(-100.0, 0.0),  TPointD(100.0, -40.0),
+                            TPointD(-130.0, 20.0), TPointD(60.0, -25.0)};
+  for (const TPointD &p : inside) {
+    TPointD q;
+    require(isClose(deformer.deform(p, 0.0), p + t, 1e-9),
+            "bone translation: a point of the inner radius is not moved");
+    require(deformer.undeform(p + t, 0.0, q) && isClose(q, p, 1e-4),
+            "bone translation: wrong undeform");
+  }
+
+  // Beyond the outer radius they stay
+  const TPointD outside[] = {TPointD(0.0, 101.0), TPointD(0.0, -150.0),
+                             TPointD(250.0, 0.0), TPointD(-300.0, 300.0)};
+  for (const TPointD &p : outside) {
+    TPointD q;
+    require(isClose(deformer.deform(p, 0.0), p, 1e-12),
+            "bone translation: a far point is moved");
+    require(deformer.undeform(p, 0.0, q) && isClose(q, p, 1e-9),
+            "bone translation: a far point is moved back");
+  }
+
+  // Halfway of the falloff: the smoothstep is 1/2, so is the displacement
+  TPointD p(0.0, 70.0), q;
+  require(isClose(deformer.deform(p, 0.0), p + t * 0.5, 1e-9),
+          "bone translation: wrong falloff");
+  require(deformer.undeform(p + t * 0.5, 0.0, q) && isClose(q, p, 1e-4),
+          "bone translation: wrong undeform in the falloff");
+
+  std::vector<double> weights;
+  double rest = deformer.weightsAt(p, weights);
+  require(weights.size() == 1 && std::fabs(weights[0] - 0.5) < 1e-12 &&
+              std::fabs(rest - 0.5) < 1e-12,
+          "bone translation: wrong weights");
+
+  // The displacement decreases with the distance
+  double previous = norm(t) + 1e-9;
+  for (double y = 0.0; y <= 120.0; y += 1.0) {
+    TPointD d = deformer.deform(TPointD(0.0, y), 0.0) - TPointD(0.0, y);
+    require(norm(d) <= previous + 1e-12,
+            "bone translation: the falloff is not monotone");
+    previous = norm(d);
+  }
+}
+
+//------------------------------------------------------------------
+
+void testBoneBend() {
+  // Two bones sharing the middle joint, the second one turned by 30 degrees
+  const double a = 30.0 * M_PI_180;
+  TBoneDeformer deformer(
+      TBoneDeformer::makeChain(chainJoints(), bentJoints(30.0), 30.0, 80.0));
+  require(deformer.isValid(), "bone bend: not valid");
+
+  // Out of the second bone's reach, the first one holds
+  TPointD p(-90.0, 0.0);
+  require(isClose(deformer.deform(p, 0.0), p, 1e-9),
+          "bone bend: the first bone moved");
+
+  // Out of the first bone's reach, the second one turns the points about the
+  // joint
+  p = TPointD(90.0, 0.0);
+  require(isClose(deformer.deform(p, 0.0),
+                  TPointD(90.0 * std::cos(a), 90.0 * std::sin(a)), 1e-9),
+          "bone bend: the second bone did not turn");
+
+  // The joint is common to both
+  p = TPointD(0.0, 0.0);
+  require(isClose(deformer.deform(p, 0.0), p, 1e-9),
+          "bone bend: the joint moved");
+
+  // Next to the joint, both bones act with the same weight
+  p = TPointD(0.0, 20.0);
+  TPointD expected =
+      p * 0.5 + TPointD(-20.0 * std::sin(a), 20.0 * std::cos(a)) * 0.5;
+  require(isClose(deformer.deform(p, 0.0), expected, 1e-9),
+          "bone bend: wrong blend at the joint");
+
+  // The bend is smooth: no jump along a line across both bones, and the
+  // weights make a partition of the unity
+  TPointD previous = deformer.deform(TPointD(-90.0, 0.0), 0.0);
+  for (double x = -89.0; x <= 90.0; x += 1.0) {
+    TPointD current = deformer.deform(TPointD(x, 0.0), 0.0);
+    require(norm(current - previous) < 3.0, "bone bend: a jump");
+    previous = current;
+
+    std::vector<double> weights;
+    double rest = deformer.weightsAt(TPointD(x, 0.0), weights), sum = rest;
+    for (double w : weights) {
+      require(w >= 0.0, "bone bend: a negative weight");
+      sum += w;
+    }
+    require(std::fabs(sum - 1.0) < 1e-12, "bone bend: weights do not sum to 1");
+  }
+
+  // A placement by a similarity gives the same bend, seen through it
+  TAffine place = TTranslation(30.0, -10.0) * TRotation(25.0) * TScale(2.0);
+  TBoneDeformer placed(
+      TBoneDeformer::makeChain(chainJoints(), bentJoints(30.0), 30.0, 80.0),
+      place);
+  const TPointD samples[] = {TPointD(0.0, 20.0), TPointD(40.0, 10.0),
+                             TPointD(-60.0, -30.0), TPointD(90.0, 0.0),
+                             TPointD(10.0, 70.0)};
+  for (const TPointD &s : samples)
+    require(isClose(placed.deform(place * s, 0.0),
+                    place * deformer.deform(s, 0.0), 1e-8),
+            "bone bend: the placement changes the bend");
+}
+
+//------------------------------------------------------------------
+
+void testBoneRoundTrip() {
+  // A moderate bend is invertible: map a grid and back
+  TBoneDeformer deformer(
+      TBoneDeformer::makeChain(chainJoints(), bentJoints(15.0), 40.0, 120.0));
+
+  for (double y = -90.0; y <= 90.0; y += 15.0)
+    for (double x = -120.0; x <= 120.0; x += 15.0) {
+      TPointD p(x, y), q = deformer.deform(p, 0.0), r;
+
+      require(deformer.undeform(q, 0.0, r), "bone round trip: undeform failed");
+      require(isClose(deformer.deform(r, 0.0), q, 1e-3),
+              "bone round trip: the result does not map to the point");
+      require(isClose(r, p, 5e-3), "bone round trip: wrong source point");
+    }
+
+  // The bounds hold the deformed corners
+  TRectD source(-120.0, -90.0, 120.0, 90.0);
+  TRectD bounds           = deformer.deformedBounds(source, 0.0);
+  const TPointD corners[] = {source.getP00(), source.getP10(), source.getP11(),
+                             source.getP01()};
+  for (const TPointD &c : corners) {
+    TPointD q = deformer.deform(c, 0.0);
+    require(q.x >= bounds.x0 && q.x <= bounds.x1 && q.y >= bounds.y0 &&
+                q.y <= bounds.y1,
+            "bone round trip: bounds too small");
+  }
+}
+
+}  // namespace
+
+//------------------------------------------------------------------
+
 int main() {
   try {
     testIdentity();
@@ -783,6 +1028,11 @@ int main() {
     testCurveIdentity();
     testCurveTranslation();
     testCurveBend();
+    testBoneIdentity();
+    testBoneInvalid();
+    testBoneTranslation();
+    testBoneBend();
+    testBoneRoundTrip();
   } catch (const std::exception &e) {
     std::cerr << "deformer_test failed: " << e.what() << std::endl;
     return 1;

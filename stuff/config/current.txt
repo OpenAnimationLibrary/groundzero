@@ -359,6 +359,20 @@
   <item>"STD_deformerStackFx.c_rest7"	"C Rest 7"	</item>
   <item>"STD_deformerStackFx.c_rest8"	"C Rest 8"	</item>
 
+  <item>"STD_boneDeformerFx"	"Bone Deformer"	</item>
+  <item>"STD_boneDeformerFx.inner"	"Inner Radius"	</item>
+  <item>"STD_boneDeformerFx.outer"	"Outer Radius"	</item>
+  <item>"STD_boneDeformerFx.point1"	"Joint 1"	</item>
+  <item>"STD_boneDeformerFx.point2"	"Joint 2"	</item>
+  <item>"STD_boneDeformerFx.point3"	"Joint 3"	</item>
+  <item>"STD_boneDeformerFx.point4"	"Joint 4"	</item>
+  <item>"STD_boneDeformerFx.point5"	"Joint 5"	</item>
+  <item>"STD_boneDeformerFx.rest1"	"Rest Joint 1"	</item>
+  <item>"STD_boneDeformerFx.rest2"	"Rest Joint 2"	</item>
+  <item>"STD_boneDeformerFx.rest3"	"Rest Joint 3"	</item>
+  <item>"STD_boneDeformerFx.rest4"	"Rest Joint 4"	</item>
+  <item>"STD_boneDeformerFx.rest5"	"Rest Joint 5"	</item>
+
   <item>"STD_freeFormDeformerFx"	"Free-Form Deformer"	</item>
   <item>"STD_freeFormDeformerFx.center"	"Rest Center"	</item>
   <item>"STD_freeFormDeformerFx.width"	"Rest Width"	</item>

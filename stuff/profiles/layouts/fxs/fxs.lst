@@ -30,6 +30,7 @@
     STD_deformerStackFx
     STD_curveDeformerFx
     STD_envelopeDeformerFx
+    STD_boneDeformerFx
     STD_freeFormDeformerFx
     STD_iwa_GradientWarpFx
     STD_linearWaveFx

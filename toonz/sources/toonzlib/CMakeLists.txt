@@ -128,6 +128,7 @@ set(HEADERS
     ../include/toonz/tapplication.h
     ../include/toonz/targetcolors.h
     ../include/toonz/tbinarizer.h
+    ../include/toonz/tbonedeformer.h
     ../include/toonz/tcamera.h
     ../include/toonz/tcleanupper.h
     ../include/toonz/tcolumnfx.h
@@ -255,6 +256,7 @@ set(SOURCES
     studiopalette.cpp
     stylemanager.cpp
     targetcolors.cpp
+    tbonedeformer.cpp
     tcamera.cpp
     tcenterlineadjustments.cpp
     tcenterlinecolors.cpp

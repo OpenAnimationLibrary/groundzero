@@ -1,0 +1,19 @@
+<fxlayout>
+  <page name="Bone Deformer">
+   <separator label="Region of Influence"/>
+    <control>inner</control>
+    <control>outer</control>
+   <separator label="Joints"/>
+    <control>point1</control>
+    <control>point2</control>
+    <control>point3</control>
+    <control>point4</control>
+    <control>point5</control>
+   <separator label="Rest Pose"/>
+    <control>rest1</control>
+    <control>rest2</control>
+    <control>rest3</control>
+    <control>rest4</control>
+    <control>rest5</control>
+  </page>
+</fxlayout>

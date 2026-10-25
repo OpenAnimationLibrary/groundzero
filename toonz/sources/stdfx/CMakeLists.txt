@@ -109,6 +109,7 @@ set(SOURCES
     blendtzfx.cpp
     blurfx.cpp
     bodyhighlightfx.cpp
+    bonedeformerfx.cpp
     tonehighlightfx.cpp
     bright_contfx.cpp
     calligraphicfx.cpp
