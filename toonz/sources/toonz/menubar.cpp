@@ -1336,6 +1336,11 @@ QMenuBar *StackedMenuBar::createFullMenuBar() {
   {
     addMenuItem(scriptMenu, "MI_RunScript");
     addMenuItem(scriptMenu, "MI_OpenScriptConsole");
+#ifdef WITH_PYTHON
+    scriptMenu->addSeparator();
+    addMenuItem(scriptMenu, "MI_RunPythonScript");
+    addMenuItem(scriptMenu, "MI_OpenPythonConsole");
+#endif
   }
   fileMenu->addSeparator();
   addMenuItem(fileMenu, MI_Preferences);

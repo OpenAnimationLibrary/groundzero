@@ -12,6 +12,9 @@
 #include "filebrowserpopup.h"
 #include "floatingpanelcommand.h"
 #include "scriptconsolepanel.h"
+#ifdef WITH_PYTHON
+#include "pythonconsolepanel.h"
+#endif
 #include "tsystem.h"
 
 #include <QFileDialog>
@@ -69,3 +72,39 @@ TFilePath fp(fileNameStr.toStdWString());
 if(fp.getType()=="") fp = fp.withType("mpath");
 */
 }
+
+#ifdef WITH_PYTHON
+//=============================================================================
+// RunPythonScriptCommand
+//-----------------------------------------------------------------------------
+
+class RunPythonScriptCommand final : public MenuItemHandler {
+public:
+  RunPythonScriptCommand() : MenuItemHandler("MI_RunPythonScript") {}
+  void execute() override;
+} runPythonScriptCommand;
+
+void RunPythonScriptCommand::execute() {
+  static GenericLoadFilePopup *popup = 0;
+  if (popup == 0) {
+    popup        = new GenericLoadFilePopup(QObject::tr("Run Python Script"));
+    TFilePath fp = ToonzFolder::getLibraryFolder() + "scripts";
+    TFileStatus fpStatus(fp);
+    if (!fpStatus.doesExist() || !fpStatus.isDirectory())
+      fp = ToonzFolder::getLibraryFolder();
+
+    popup->setFilterTypes(QStringList() << "py");
+    popup->setFolder(fp);
+  }
+  TFilePath fp = popup->getPath();
+  if (fp == TFilePath()) return;
+
+  // the output is printed in the Python Console
+  TPanel *panel = OpenFloatingPanel::getOrOpenFloatingPanel("PythonConsole");
+  PythonConsolePanel *pythonConsolePanel =
+      dynamic_cast<PythonConsolePanel *>(panel);
+  if (!pythonConsolePanel) return;
+
+  pythonConsolePanel->runFile(QString::fromStdWString(fp.getWideString()));
+}
+#endif

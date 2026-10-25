@@ -110,6 +110,8 @@ option(WITH_TRANSLATION "Generate translation projects as well" ON)
 option(WITH_WINTAB "(Windows only) Build with customized Qt with WinTab support. https://github.com/shun-iwasawa/qt5/releases/tag/v5.15.2_wintab" OFF)
 option(ENABLE_CRASH_REPORTER_TEST
        "Include the intentional crash reporter test command" OFF)
+option(WITH_PYTHON
+       "Build the Python scripting (Python Console, Run Python Script) - Requires Python 3 and pybind11" OFF)
 
 if(ENABLE_CRASH_REPORTER_TEST)
     add_definitions(-DENABLE_CRASH_REPORTER_TEST)
@@ -778,6 +780,27 @@ option(BUILD_SCRIPT_TESTS "Build the script engine (QJSEngine bindings) regressi
 option(BUILD_PSD_TESTS "Build the PSD image writer regression test" ${BUILD_TESTS})
 option(BUILD_TGL_BATCH_TESTS "Build the tgl::Batch vertex generation test" ${BUILD_TESTS})
 option(BUILD_TNZTOOLS_TESTS "Build the tnztools helper regression tests" ${BUILD_TESTS})
+
+# Python scripting: only with WITH_PYTHON, the default build needs neither
+# Python nor pybind11
+if(WITH_PYTHON)
+    find_package(Python3 3.10 REQUIRED COMPONENTS Interpreter Development)
+    # found after Python3, pybind11 uses its targets. With Python >= 3.10
+    # and pybind11 >= 2.11 a failed interpreter start throws an exception
+    # instead of aborting the application.
+    find_package(pybind11 2.11 CONFIG QUIET)
+    if(NOT pybind11_FOUND)
+        message(STATUS "pybind11 not found: using pybind11 v2.13.6 from GitHub")
+        include(FetchContent)
+        FetchContent_Declare(pybind11
+            GIT_REPOSITORY https://github.com/pybind/pybind11.git
+            GIT_TAG v2.13.6
+            GIT_SHALLOW TRUE
+        )
+        FetchContent_MakeAvailable(pybind11)
+    endif()
+    message(STATUS "Python scripting: Python ${Python3_VERSION}")
+endif()
 if(BUILD_TESTS OR BUILD_EXR_TESTS OR BUILD_EXR_AOV_FX_TESTS OR
    BUILD_TNZTOOLS_TESTS OR BUILD_PSD_TESTS OR BUILD_SCRIPT_TESTS OR BUILD_FFMPEG_TESTS OR BUILD_FRAME_STRIPS_TESTS OR BUILD_LUT3D_TESTS OR BUILD_GLB_FX_TESTS OR
    BUILD_FXRENDER_TESTS OR BUILD_TGL_BATCH_TESTS)

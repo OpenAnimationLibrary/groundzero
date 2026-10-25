@@ -84,6 +84,30 @@ public:
   // whose name is name. Returns 0 if there is none.
   static TStageObject *findStageObject(TXsheet *xsh, const QString &name);
 
+  // Helpers that don't use the script engine, shared with the Python
+  // binding. channel is a TStageObject::Channel.
+
+  // Parses the channel name (case insensitive); returns false if it isn't
+  // one of the channels
+  static bool parseChannel(const QString &name, int &channel);
+  // The error message for the bad channel name
+  static QString badChannelMessage(const QString &name);
+  // Column, Pegbar, Camera or Table
+  static QString getTypeName(TStageObject *obj);
+  // Links obj to the stage object named name ("" for none: columns and
+  // pegbars are linked to the table) of xsh, as TStageObjectCmd::setParent()
+  // without undo. Returns the error message, or "" if done.
+  static QString linkToParent(TXsheet *xsh, TStageObject *obj,
+                              const QString &name);
+  // Sets the keyframe as the Function Editor cells and Set Key do (with the
+  // interpolation and step of the preferences, or of the segment it
+  // splits), without undo
+  static void doSetKeyframe(TStageObject *obj, int channel, int frame,
+                            double value);
+  // Removes the keyframe, if any, as KeyframeSetter::removeKeyframeAt()
+  // without undo
+  static void doRemoveKeyframe(TStageObject *obj, int channel, int frame);
+
 private:
   // The wrapped object, or 0 (after making the calling script throw) if it
   // is no longer in the xsheet of the scene (e.g. its column was deleted)

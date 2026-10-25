@@ -165,6 +165,10 @@ else()
     )
 endif()
 
+if(WITH_PYTHON)
+    set(MOC_HEADERS ${MOC_HEADERS} pythonconsolepanel.h)
+endif()
+
 set(HEADERS
     ${MOC_HEADERS}
     celldata.h
@@ -444,6 +448,10 @@ else()
     )
 endif()
 
+if(WITH_PYTHON)
+    set(SOURCES ${SOURCES} pythonconsolepanel.cpp)
+endif()
+
 
 set(OBJCSOURCES filebrowsermodel.cpp)
 
@@ -506,6 +514,10 @@ include_directories(
 
 if (WITH_CANON)
     add_definitions(-DWITH_CANON)
+endif()
+
+if (WITH_PYTHON)
+    add_definitions(-DWITH_PYTHON)
 endif()
 
 if (WITH_WINTAB AND BUILD_TARGET_WIN AND (PLATFORM EQUAL 64))

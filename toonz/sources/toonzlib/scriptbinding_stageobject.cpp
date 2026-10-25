@@ -53,19 +53,12 @@ const struct {
 // and returns false if it isn't valid
 bool getChannel(QJSEngine *engine, const QJSValue &arg,
                 TStageObject::Channel &channel) {
-  QStringList names;
-  if (arg.isString()) {
-    QString name = arg.toString();
-    for (const auto &c : channels) {
-      if (name.compare(QLatin1String(c.m_name), Qt::CaseInsensitive) == 0) {
-        channel = c.m_channel;
-        return true;
-      }
-    }
+  int value = 0;
+  if (arg.isString() && StageObject::parseChannel(arg.toString(), value)) {
+    channel = (TStageObject::Channel)value;
+    return true;
   }
-  for (const auto &c : channels) names.append(QString::fromLatin1(c.m_name));
-  engine->throwError(QObject::tr("Bad channel name (%1): must be one of %2")
-                         .arg(arg.toString(), names.join(", ")));
+  engine->throwError(StageObject::badChannelMessage(arg.toString()));
   return false;
 }
 
@@ -183,6 +176,78 @@ TStageObject *StageObject::findStageObject(TXsheet *xsh, const QString &name) {
   return 0;
 }
 
+bool StageObject::parseChannel(const QString &name, int &channel) {
+  for (const auto &c : channels) {
+    if (name.compare(QLatin1String(c.m_name), Qt::CaseInsensitive) == 0) {
+      channel = c.m_channel;
+      return true;
+    }
+  }
+  return false;
+}
+
+QString StageObject::badChannelMessage(const QString &name) {
+  QStringList names;
+  for (const auto &c : channels) names.append(QString::fromLatin1(c.m_name));
+  return QObject::tr("Bad channel name (%1): must be one of %2")
+      .arg(name, names.join(", "));
+}
+
+QString StageObject::getTypeName(TStageObject *obj) {
+  TStageObjectId id = obj->getId();
+  if (id.isColumn()) return "Column";
+  if (id.isPegbar()) return "Pegbar";
+  if (id.isCamera()) return "Camera";
+  if (id.isTable()) return "Table";
+  return "";
+}
+
+QString StageObject::linkToParent(TXsheet *xsh, TStageObject *obj,
+                                  const QString &name) {
+  TStageObjectId id = obj->getId();
+  if (id.isTable()) return tr("The Table can't have a parent");
+
+  TStageObjectId parentId = TStageObjectId::NoneId;
+  if (!name.isEmpty()) {
+    TStageObject *parent = findStageObject(xsh, name);
+    if (!parent) return tr("Stage object not found: %1").arg(name);
+    parentId = parent->getId();
+    if (parent == obj) return tr("Can't link %1 to itself").arg(idName(id));
+    if (parent->isAncestor(obj))
+      return tr("Can't link %1 to %2: %2 is linked to %1")
+          .arg(idName(id), idName(parentId));
+    if (parentId.isColumn()) {
+      TXshColumn *column = xsh->getColumn(parentId.getIndex());
+      if (column && !column->canBeParent())
+        return tr("%1 can't be a parent").arg(idName(parentId));
+    }
+  }
+
+  // as TStageObjectCmd::setParent(), without undo
+  if (parentId == TStageObjectId::NoneId && (id.isColumn() || id.isPegbar()))
+    parentId = TStageObjectId::TableId;
+  obj->setParent(parentId);
+  obj->setParentHandle("B");
+  return "";
+}
+
+void StageObject::doSetKeyframe(TStageObject *obj, int channel, int frame,
+                                double value) {
+  // As the Function Editor cells and Set Key: the new keyframe gets the
+  // interpolation and the step of the preferences, or of the segment it
+  // splits. No undo: the scene of the script isn't the one of the UI.
+  KeyframeSetter setter(obj->getParam((TStageObject::Channel)channel), -1,
+                        false);
+  setter.createKeyframe(frame);
+  setter.setValue(value);
+}
+
+void StageObject::doRemoveKeyframe(TStageObject *obj, int channel, int frame) {
+  // as KeyframeSetter::removeKeyframeAt(), without undo
+  TDoubleParam *curve = obj->getParam((TStageObject::Channel)channel);
+  if (curve->isKeyframe(frame)) curve->deleteKeyframe(frame);
+}
+
 QString StageObject::toString() {
   TStageObjectTree *tree = getXsheet()->getStageObjectTree();
   if (tree->getStageObject(m_obj->getId(), false) != m_obj)
@@ -202,12 +267,7 @@ QString StageObject::getIdName() const {
 QString StageObject::getType() const {
   TStageObject *obj = getStageObject();
   if (!obj) return QString();
-  TStageObjectId id = obj->getId();
-  if (id.isColumn()) return "Column";
-  if (id.isPegbar()) return "Pegbar";
-  if (id.isCamera()) return "Camera";
-  if (id.isTable()) return "Table";
-  return "";
+  return getTypeName(obj);
 }
 
 QString StageObject::getName() const {
@@ -236,44 +296,8 @@ QString StageObject::getParentName() const {
 void StageObject::setParentName(const QString &name) {
   TStageObject *obj = getStageObject();
   if (!obj) return;
-  TXsheet *xsh      = getXsheet();
-  TStageObjectId id = obj->getId();
-  if (id.isTable()) {
-    throwError(tr("The Table can't have a parent"));
-    return;
-  }
-
-  TStageObjectId parentId = TStageObjectId::NoneId;
-  if (!name.isEmpty()) {
-    TStageObject *parent = findStageObject(xsh, name);
-    if (!parent) {
-      throwError(tr("Stage object not found: %1").arg(name));
-      return;
-    }
-    parentId = parent->getId();
-    if (parent == obj) {
-      throwError(tr("Can't link %1 to itself").arg(idName(id)));
-      return;
-    }
-    if (parent->isAncestor(obj)) {
-      throwError(tr("Can't link %1 to %2: %2 is linked to %1")
-                     .arg(idName(id), idName(parentId)));
-      return;
-    }
-    if (parentId.isColumn()) {
-      TXshColumn *column = xsh->getColumn(parentId.getIndex());
-      if (column && !column->canBeParent()) {
-        throwError(tr("%1 can't be a parent").arg(idName(parentId)));
-        return;
-      }
-    }
-  }
-
-  // as TStageObjectCmd::setParent(), without undo
-  if (parentId == TStageObjectId::NoneId && (id.isColumn() || id.isPegbar()))
-    parentId = TStageObjectId::TableId;
-  obj->setParent(parentId);
-  obj->setParentHandle("B");
+  QString err = linkToParent(getXsheet(), obj, name);
+  if (!err.isEmpty()) throwError(err);
 }
 
 QJSValue StageObject::getValue(const QJSValue &channelArg,
@@ -305,13 +329,7 @@ QJSValue StageObject::setKeyframe(const QJSValue &channelArg,
     return QJSValue();
   TStageObject *obj = getStageObject();
   if (!obj) return QJSValue();
-
-  // As the Function Editor cells and Set Key: the new keyframe gets the
-  // interpolation and the step of the preferences, or of the segment it
-  // splits. No undo: the scene of the script isn't the one of the UI.
-  KeyframeSetter setter(obj->getParam(channel), -1, false);
-  setter.createKeyframe(frame);
-  setter.setValue(value);
+  doSetKeyframe(obj, channel, frame, value);
   return self();
 }
 
@@ -324,10 +342,7 @@ QJSValue StageObject::removeKeyframe(const QJSValue &channelArg,
     return QJSValue();
   TStageObject *obj = getStageObject();
   if (!obj) return QJSValue();
-
-  // as KeyframeSetter::removeKeyframeAt(), without undo
-  TDoubleParam *curve = obj->getParam(channel);
-  if (curve->isKeyframe(frame)) curve->deleteKeyframe(frame);
+  doRemoveKeyframe(obj, channel, frame);
   return self();
 }
 

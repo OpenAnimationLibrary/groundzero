@@ -9,6 +9,9 @@
 #include "viewerpane.h"
 #include "exportpanel.h"
 #include "scriptconsolepanel.h"
+#ifdef WITH_PYTHON
+#include "pythonconsolepanel.h"
+#endif
 #include "brushpresetpanel.h"
 #include "toolpropertiespanel.h"
 
@@ -1386,6 +1389,30 @@ public:
 OpenFloatingPanel openTScriptConsoleCommand("MI_OpenScriptConsole",
                                             "ScriptConsole",
                                             QObject::tr("Script Console"));
+
+#ifdef WITH_PYTHON
+//=============================================================================
+// PythonConsolePanelFactory
+//-----------------------------------------------------------------------------
+
+class PythonConsolePanelFactory final : public TPanelFactory {
+public:
+  PythonConsolePanelFactory() : TPanelFactory("PythonConsole") {}
+
+  TPanel *createPanel(QWidget *parent) override {
+    PythonConsolePanel *panel = new PythonConsolePanel(parent);
+    panel->setObjectName(getPanelType());
+
+    return panel;
+  }
+
+  void initialize(TPanel *panel) override { assert(0); }
+} pythonConsolePanelFactory;
+
+OpenFloatingPanel openPythonConsoleCommand("MI_OpenPythonConsole",
+                                           "PythonConsole",
+                                           QObject::tr("Python Console"));
+#endif
 
 //=============================================================================
 // ComboViewer : Viewer + Toolbar + Tool Options

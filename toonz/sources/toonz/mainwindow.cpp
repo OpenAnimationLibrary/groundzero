@@ -2314,6 +2314,12 @@ void MainWindow::defineActions() {
                        "run_script");
   createMenuFileAction("MI_OpenScriptConsole",
                        QT_TR_NOOP("Open Script Console..."), "", "console");
+#ifdef WITH_PYTHON
+  createMenuFileAction("MI_RunPythonScript", QT_TR_NOOP("Run Python Script..."),
+                       "", "run_script");
+  createMenuFileAction("MI_OpenPythonConsole",
+                       QT_TR_NOOP("Open Python Console..."), "", "console");
+#endif
   createMenuFileAction(MI_Print, QT_TR_NOOP("&Print Current Frame..."),
                        "Ctrl+P", "printer");
   createMenuFileAction(MI_Quit, QT_TR_NOOP("&Quit"), "Ctrl+Q", "quit");

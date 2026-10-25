@@ -348,6 +348,13 @@ if(BUILD_TARGET_WIN)
     )
 endif()
 
+# Python scripting (the embedded interpreter and the opentoonz module)
+if(WITH_PYTHON)
+    set(MOC_HEADERS ${MOC_HEADERS} ../include/toonz/pythonengine.h)
+    set(HEADERS ${HEADERS} ../include/toonz/pythonengine.h pythonbinding.h)
+    set(SOURCES ${SOURCES} pythonbinding.cpp pythonengine.cpp)
+endif()
+
 qt5_wrap_cpp(SOURCES ${MOC_HEADERS})
 
 add_library(toonzlib SHARED ${HEADERS} ${SOURCES})
@@ -411,9 +418,20 @@ endif()
 
 target_link_libraries(toonzlib OpenEXR::OpenEXR)
 
+if(WITH_PYTHON)
+    target_link_libraries(toonzlib pybind11::embed)
+endif()
+
 if(BUILD_SCRIPT_TESTS)
     add_executable(scriptengine_test tests/scriptengine_test.cpp)
     target_link_libraries(scriptengine_test PRIVATE toonzlib tnzcore Qt5::Core Qt5::Qml)
     add_test(NAME scriptengine COMMAND scriptengine_test)
     set_tests_properties(scriptengine PROPERTIES TIMEOUT 300)
+endif()
+
+if(BUILD_SCRIPT_TESTS AND WITH_PYTHON)
+    add_executable(pythonengine_test tests/pythonengine_test.cpp)
+    target_link_libraries(pythonengine_test PRIVATE toonzlib tnzcore Qt5::Core)
+    add_test(NAME pythonengine COMMAND pythonengine_test)
+    set_tests_properties(pythonengine PROPERTIES TIMEOUT 300)
 endif()
