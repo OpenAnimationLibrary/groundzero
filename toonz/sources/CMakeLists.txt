@@ -588,7 +588,13 @@ if(WITH_EXTRA_WARNINGS)
         ADD_CHECK_CXX_COMPILER_FLAG(CXX_WARNINGS CXX_WARN_EXTRA -Wextra)
         ADD_CHECK_CXX_COMPILER_FLAG(CXX_WARNINGS CXX_WARN_NO_UNUSED_PARAMETER -Wno-unused-parameter)
     elseif(BUILD_ENV_MSVC)
-        set(CXX_WARNINGS "${CXX_WARNINGS} /W4")
+        # CMAKE_CXX_FLAGS already holds /W3 and comes later on the command
+        # line, so replace it instead of adding /W4
+        if(CMAKE_CXX_FLAGS MATCHES "/W[0-4]")
+            string(REGEX REPLACE "/W[0-4]" "/W4" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+        else()
+            set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /W4")
+        endif()
     endif()
 endif()
 
