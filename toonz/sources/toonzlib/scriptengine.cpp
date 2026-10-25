@@ -21,7 +21,7 @@
 
 namespace {
 
-void sleep(unsigned long msec) {
+void sleepMs(unsigned long msec) {
   QMutex mutex;
   mutex.lock();
   QWaitCondition waitCondition;
@@ -163,13 +163,13 @@ ScriptEngine::ScriptEngine()
     TScriptBinding::defineFunction(
         engine, "print", [this](QJSEngine *, const QJSValueList &args) {
           emitOutput(ScriptEngine::SimpleText, printArguments(args));
-          sleep(50);
+          sleepMs(50);
           return voidValue();
         });
     TScriptBinding::defineFunction(
         engine, "warning", [this](QJSEngine *, const QJSValueList &args) {
           emitOutput(ScriptEngine::Warning, printArguments(args));
-          sleep(50);
+          sleepMs(50);
           return voidValue();
         });
     TScriptBinding::defineFunction(engine, "run", runFunction);
