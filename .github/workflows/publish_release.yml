@@ -1,0 +1,61 @@
+name: Publish Release
+
+# Attach build artifacts from completed workflow runs to an existing release.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to attach assets to (e.g. v0.0.0)
+        required: true
+      run_ids:
+        description: Space-separated IDs of successful build runs
+        required: true
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish:
+    if: github.repository == 'OpenAnimationLibrary/groundzero'
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ inputs.tag }}
+      RUN_IDS: ${{ inputs.run_ids }}
+    steps:
+      - name: Verify release exists
+        run: gh release view "$TAG" --json tagName
+
+      - name: Download artifacts
+        run: |
+          set -eu
+          mkdir -p dl
+          for id in $RUN_IDS; do
+            gh run download "$id" -D "dl/$id"
+          done
+          find dl -maxdepth 2 -mindepth 2 -type d
+
+      - name: Package assets
+        run: |
+          set -eu
+          mkdir -p out
+          base="OpenToonz-groundzero-${TAG}"
+          for d in dl/*/*/; do
+            name=$(basename "$d")
+            case "$name" in
+              *recorder*) echo "skip helper artifact $name"; continue ;;
+              *Windows*)  (cd "$d" && zip -qr9 "$GITHUB_WORKSPACE/out/${base}-Windows-x64.zip" .) ;;
+              *Linux*)    f=$(find "$d" -maxdepth 1 -name '*.tar.gz' | head -1)
+                          cp "$f" "out/${base}-Linux-x86_64.tar.gz" ;;
+              *macOS*)    f=$(find "$d" -maxdepth 1 -name '*.dmg' | head -1)
+                          cp "$f" "out/${base}-macOS-x86_64.dmg" ;;
+              *)          echo "::warning::unrecognised artifact $name" ;;
+            esac
+          done
+          (cd out && sha256sum * > "${base}-SHA256SUMS.txt")
+          ls -la out
+
+      - name: Upload to release
+        run: gh release upload "$TAG" out/* --clobber
