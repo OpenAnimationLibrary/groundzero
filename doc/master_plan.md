@@ -105,7 +105,7 @@ the stroke data is available.
 | C1 | **Lock Timeline Ruler** | A toggle that keeps the frame ruler from scrolling with the cells. | S | none |
 | C2 | **Port filtering in the node view** | A filter field in the FX and Rig schematic port lists. | S | A2 |
 | C3 | **Compact file format** | An optional compressed scene (zstd over the existing XML), with fast load through lazy level loading. Plain `.tnz` stays the default and is always readable. | M | none |
-| C4 | **Contour Editor** (research) | An outline (brush-shape) stroke model for vector strokes, so the outline can be edited directly. This needs a new stroke representation and is high risk. | XL | none |
+| C4 | **Contour Editor** (research) | Built as an opt-in conversion, not a new stroke model: Level > Optimize > Convert Brush Strokes to Outline Shapes replaces selected variable-width strokes by closed zero-thickness outline strokes (same style, filled), which the Selection and Control Point Editor tools edit. One way, no saved-data change; see `doc/contour_editor.md`. | XL | none |
 | C5 | **Shape-Aware deformer** (research) | Points, bones and a cage together, on the deformer stack. Harmony's algorithm is proprietary; start from published methods (bounded biharmonic weights). | XL | A1, A7, A8 |
 
 Missing items that stay out: OpenFX, Cryptomatte and performance

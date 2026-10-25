@@ -41,7 +41,7 @@
 |---|---|---|---|---|
 | Line Art / Colour Art | E/A/P | Partial | Toonz Raster keeps ink and paint separate natively. On vector levels, strokes of zero thickness act as Colour Art, with "Art Layer:" and "Show Art:" tool options (`include/tools/artlayer.h`, `tnztools/artlayer.cpp`). The file format is unchanged. | No Overlay or Underlay layers, no Art Layer Manager (H25.2), and no "Create Colour Art from Line Art". |
 | Pencil lines: texture, width profile, pressure opacity, Retouch | A/P | Partial | Pressure thickness on vectors. The **Pump** tool gains Thicken and Thin Brush modes (`tnztools/pumptool.cpp:33`). Textured vector styles. | No opacity along a stroke, no Retouch for opacity, and no animated pencil texture. |
-| Contour Editor | E/A/P | N | OpenToonz vectors are centreline strokes. | Needs an outline (brush-shape) stroke model. |
+| Contour Editor | E/A/P | Partial | OpenToonz vectors are centreline strokes. Level > Optimize > Convert Brush Strokes to Outline Shapes turns selected brush strokes into closed, filled, zero-thickness outline strokes that the Control Point Editor edits (`toonzlib/contouroutline.cpp`, doc/contour_editor.md). | One way (no back to a brush stroke, no live outline handles on a brush stroke), closed brush strokes are skipped, and no outline stroke type. |
 | Centerline Editor | E/A/P | Y | Control Point Editor. | n/a |
 | Auto gap closing | E/A/P | Y | Autoclose (`filltool.cpp`, `rastertapetool.cpp`). | n/a |
 | Paint Unpainted / paint behind | E/A/P | Y | Fill tool's Selective mode; Toonz Raster paints behind the ink. | n/a |
@@ -204,7 +204,7 @@
 | D2 | Overlay/Underlay art layers and Art Layer Manager | L | Q3 | Store the four layers as stroke groups with a role tag, which is a format change. The manager panel moves, swaps and merges them. | High: format | MM |
 | D3 | Smarter morphing | L | none | Match strokes automatically (by shape descriptor and position) before the user's hints, and add vanishing-point hints and a velocity curve on top of `TInbetween`. | Medium | V/MM |
 | D4 | Importing ABR (Photoshop) brushes | M | none | Read the sampled-tip ABR format into MyPaint or full-colour brush tips (Krita and GIMP readers are references). Dynamic ABR presets are proprietary and stay partial. | Medium | V |
-| D5 | Contour Editor | XL | none | Needs an outline vector representation next to centreline strokes. Out of scope, unless vector levels gain a "shape" stroke type. | High | X |
+| D5 | Contour Editor | XL | none | Done as an opt-in conversion of brush strokes to closed outline strokes (doc/contour_editor.md). A true outline stroke type stays out of scope. | High | X |
 | D6 | Animated pencil texture | M | D1 | A stroke-style parameter that offsets the texture per frame. | Low | V |
 
 ### Phase 4: Compositing, GPU and 3D: out of scope
@@ -229,7 +229,7 @@ they are.
 
 - **Shape-Aware deformer, Ember AI, Harmony Server/WebCC, Storyboard Pro conform and the Harmony Game SDK** are proprietary or separate products. A behavioural equivalent can be built for some of them (R11, Spine and Godot export), but not for the AI tools or the server.
 - **A full 3D scene graph and USD (G7, G8)** would effectively rewrite the stage model. A volunteer project should stop at G5 and G6, with 3D models as FX or stage children and tilt-based cards.
-- **The Contour Editor (D5)** conflicts with OpenToonz's centreline vector model.
+- **The Contour Editor (D5)** conflicts with OpenToonz's centreline vector model; only the one-way conversion to outline shapes is built (doc/contour_editor.md).
 - **Byte-for-byte compatibility with upstream OpenToonz** cannot hold once D1, D2 or F3 land. The project needs a policy decision: optional tags that upstream ignores, or a declared groundzero format version.
 
 ---

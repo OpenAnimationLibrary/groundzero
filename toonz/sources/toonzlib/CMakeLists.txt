@@ -133,6 +133,7 @@ set(HEADERS
     ../include/toonz/tcleanupper.h
     ../include/toonz/tcolumnfx.h
     ../include/toonz/tcolumnfxset.h
+    ../include/toonz/contouroutline.h
     ../include/toonz/tcurvedeformer.h
     ../include/toonz/tdeformer.h
     ../include/toonz/tdeformerstack.h
@@ -260,6 +261,7 @@ set(SOURCES
     tcamera.cpp
     tcenterlineadjustments.cpp
     tcenterlinecolors.cpp
+    contouroutline.cpp
     tcenterlinepolygonizer.cpp
     tcenterlineskeletonizer.cpp
     tcenterlinetostrokes.cpp
@@ -439,6 +441,15 @@ if(BUILD_DEFORMER_TESTS)
     add_executable(deformer_test tests/deformer_test.cpp)
     target_link_libraries(deformer_test PRIVATE toonzlib tnzcore Qt${QT_VERSION_MAJOR}::Core)
     add_test(NAME deformer COMMAND deformer_test)
+endif()
+
+# Optional regression target for the brush stroke to outline shape conversion
+# (contouroutline.h).
+option(BUILD_CONTOUR_TESTS "Build the contour outline regression test" ${BUILD_TESTS})
+if(BUILD_CONTOUR_TESTS)
+    add_executable(contour_outline_test tests/contour_outline_test.cpp)
+    target_link_libraries(contour_outline_test PRIVATE toonzlib tnzcore Qt${QT_VERSION_MAJOR}::Core)
+    add_test(NAME contour_outline COMMAND contour_outline_test)
 endif()
 
 # Optional regression target for the compressed scene file format (tstream.h).

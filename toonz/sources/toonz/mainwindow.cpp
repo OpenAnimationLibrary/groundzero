@@ -2493,6 +2493,9 @@ void MainWindow::defineActions() {
                         "sort_with_palette_order");
   createMenuLevelAction(MI_PairInbetweenStrokes,
                         QT_TR_NOOP("&Pair Strokes for Inbetween"), "");
+  createMenuLevelAction(MI_ConvertToOutlineShapes,
+                        QT_TR_NOOP("Convert Brush Strokes to &Outline Shapes"),
+                        "");
   createMenuLevelAction(MI_ClearInbetweenStrokePairs,
                         QT_TR_NOOP("&Clear Inbetween Stroke Pairs"), "");
   createMenuLevelAction(MI_AddFrames, QT_TR_NOOP("&Add Frames..."), "",

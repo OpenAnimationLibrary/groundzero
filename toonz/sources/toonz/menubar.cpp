@@ -1456,6 +1456,7 @@ QMenuBar *StackedMenuBar::createFullMenuBar() {
   QMenu *optimizeMenu = levelMenu->addMenu(tr("Optimize"));
   {
     addMenuItem(optimizeMenu, MI_RemoveEndpoints);
+    addMenuItem(optimizeMenu, MI_ConvertToOutlineShapes);
     addMenuItem(optimizeMenu, MI_ConvertVectorToVector);
     addMenuItem(optimizeMenu, MI_FillHoles);
   }

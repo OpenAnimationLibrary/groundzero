@@ -36,6 +36,7 @@
 #include "toonz/toonzscene.h"
 #include "toonz/sceneproperties.h"
 #include "toonz/tframehandle.h"
+#include "toonz/contouroutline.h"
 #include "toonz/customvectorbrushexporter.h"
 #include "toonz/toonzfolders.h"
 #include "toonz/txshlevel.h"
@@ -48,6 +49,7 @@
 #include "tvectorimage.h"
 #include "tcolorstyles.h"
 #include "tpalette.h"
+#include "tregion.h"
 
 // Qt includes
 #include <QApplication>
@@ -475,6 +477,131 @@ public:
 };
 
 //=============================================================================
+// ConvertToOutlineShapesUndo
+//-----------------------------------------------------------------------------
+
+// The strokes are changed in place (same index, id, style and group): only
+// their control points and the self loop flag differ.
+class ConvertToOutlineShapesUndo final : public TUndo {
+public:
+  struct Item {
+    int m_index;
+    std::vector<TThickPoint> m_before, m_after;
+    bool m_selfLoopBefore;
+
+    Item() : m_index(-1), m_selfLoopBefore(false) {}
+  };
+
+private:
+  TXshSimpleLevelP m_level;
+  TFrameId m_frameId;
+  std::vector<Item> m_items;
+  TRectD m_area;  // where the fills are saved
+  std::vector<TFilledRegionInf> m_fillBefore, m_fillAfter;
+
+  // Sets the control points of the strokes, before or after the conversion
+  void reshapeStrokes(const TVectorImageP &vi, bool after) const {
+    std::vector<int> indexes;
+    std::vector<TStroke *> oldStrokes;
+    for (const Item &item : m_items) {
+      if (item.m_index < 0 || item.m_index >= (int)vi->getStrokeCount())
+        continue;
+      TStroke *stroke = vi->getStroke(item.m_index);
+      oldStrokes.push_back(new TStroke(*stroke));
+      indexes.push_back(item.m_index);
+
+      const std::vector<TThickPoint> &points =
+          after ? item.m_after : item.m_before;
+      stroke->reshape(&points[0], (int)points.size());
+      stroke->setSelfLoop(after ? true : item.m_selfLoopBefore);
+    }
+    vi->notifyChangedStrokes(indexes, oldStrokes);
+    for (TStroke *oldStroke : oldStrokes) delete oldStroke;
+    vi->findRegions();
+  }
+
+  void applyFills(const TVectorImageP &vi,
+                  const std::vector<TFilledRegionInf> &fills) const {
+    for (const TFilledRegionInf &fill : fills) {
+      TRegion *region = vi->getRegion(fill.m_regionId);
+      if (region) region->setStyle(fill.m_styleId);
+    }
+  }
+
+  void notify() const {
+    TTool::Application *app    = TTool::getApplication();
+    StrokeSelection *selection = dynamic_cast<StrokeSelection *>(
+        app->getCurrentSelection()->getSelection());
+    if (selection) selection->selectNone();
+    app->getCurrentXsheet()->notifyXsheetChanged();
+    app->getCurrentTool()->getTool()->notifyImageChanged();
+  }
+
+public:
+  ConvertToOutlineShapesUndo(TXshSimpleLevel *level, const TFrameId &frameId,
+                             const std::vector<Item> &items, const TRectD &area,
+                             const std::vector<TFilledRegionInf> &fillBefore)
+      : m_level(level)
+      , m_frameId(frameId)
+      , m_items(items)
+      , m_area(area)
+      , m_fillBefore(fillBefore) {}
+
+  // Does the conversion the first time. The new shapes are filled with the
+  // style of their stroke, as a brush stroke has no fill of its own.
+  void convert() {
+    TVectorImageP vi = m_level->getFrame(m_frameId, true);
+    if (!vi) return;
+    QMutexLocker lock(vi->getMutex());
+    reshapeStrokes(vi, true);
+    for (const Item &item : m_items) {
+      if (item.m_index < 0 || item.m_index >= (int)vi->getStrokeCount())
+        continue;
+      TStroke *stroke = vi->getStroke(item.m_index);
+      std::unique_ptr<TStroke> shape(new TStroke(*stroke));
+      vi->selectFill(stroke->getBBox().enlarge(1, 1), shape.get(),
+                     stroke->getStyle(), true, true, false);
+    }
+    ImageUtils::getFillingInformationOverlappingArea(vi, m_fillAfter, m_area);
+  }
+
+  void undo() const override {
+    TVectorImageP vi = m_level->getFrame(m_frameId, true);
+    if (!vi) return;
+    {
+      QMutexLocker lock(vi->getMutex());
+      reshapeStrokes(vi, false);
+      applyFills(vi, m_fillBefore);
+    }
+    notify();
+  }
+
+  void redo() const override {
+    TVectorImageP vi = m_level->getFrame(m_frameId, true);
+    if (!vi) return;
+    {
+      QMutexLocker lock(vi->getMutex());
+      reshapeStrokes(vi, true);
+      applyFills(vi, m_fillAfter);
+    }
+    notify();
+  }
+
+  int getSize() const override {
+    int points = 0;
+    for (const Item &item : m_items)
+      points += (int)(item.m_before.size() + item.m_after.size());
+    return sizeof(*this) + points * sizeof(TThickPoint) +
+           (m_fillBefore.size() + m_fillAfter.size()) *
+               sizeof(TFilledRegionInf);
+  }
+
+  QString getHistoryString() override {
+    return QObject::tr("Convert Brush Strokes to Outline Shapes");
+  }
+};
+
+//=============================================================================
 // CutStrokesUndo
 //-----------------------------------------------------------------------------
 
@@ -675,6 +802,73 @@ void StrokeSelection::sortWithPaletteOrder() {
           TTool::getApplication()->getCurrentLevel()->getSimpleLevel();
   TUndoManager::manager()->add(new OrderStrokesUndo(
       level, tool->getCurrentFid(), oldIndexes, newIndexes));
+
+  m_updateSelectionBBox = true;
+  tool->notifyImageChanged();
+  m_updateSelectionBBox = false;
+}
+
+//=============================================================================
+//
+// convertToOutlineShapes
+//
+//-----------------------------------------------------------------------------
+
+void StrokeSelection::convertToOutlineShapes() {
+  if (!m_vi) return;
+  if (m_indexes.empty()) return;
+
+  if (!isEditable()) {
+    DVGui::error(
+        QObject::tr("The selection cannot be updated. It is not editable."));
+    return;
+  }
+
+  TTool *tool = TTool::getApplication()->getCurrentTool()->getTool();
+  TXshSimpleLevel *level =
+      TTool::getApplication()->getCurrentLevel()->getSimpleLevel();
+  if (!tool || !level) return;
+
+  // Compute all the outlines first: nothing is changed if none can be
+  std::vector<ConvertToOutlineShapesUndo::Item> items;
+  TRectD area;
+  for (int index : m_indexes) {
+    TStroke *stroke = m_vi->getStroke(index);
+
+    ConvertToOutlineShapesUndo::Item item;
+    if (!ContourOutline::makeOutlineControlPoints(*stroke, item.m_after))
+      continue;
+
+    item.m_index = index;
+    for (int i = 0; i < stroke->getControlPointCount(); i++)
+      item.m_before.push_back(stroke->getControlPoint(i));
+    item.m_selfLoopBefore = stroke->isSelfLoop();
+    items.push_back(item);
+
+    area += stroke->getBBox();
+    TRectD shapeBox(item.m_after[0].x, item.m_after[0].y,
+                    item.m_after[0].x + 1e-3, item.m_after[0].y + 1e-3);
+    for (const TThickPoint &p : item.m_after)
+      shapeBox += TRectD(p.x, p.y, p.x + 1e-3, p.y + 1e-3);
+    area += shapeBox;
+  }
+
+  if (items.empty()) {
+    DVGui::warning(
+        QObject::tr("No selected stroke can be converted. Only open strokes "
+                    "with some thickness can be converted to outline "
+                    "shapes."));
+    return;
+  }
+
+  area = area.enlarge(1.0);
+  std::vector<TFilledRegionInf> fillBefore;
+  ImageUtils::getFillingInformationOverlappingArea(m_vi, fillBefore, area);
+
+  ConvertToOutlineShapesUndo *undo = new ConvertToOutlineShapesUndo(
+      level, tool->getCurrentFid(), items, area, fillBefore);
+  undo->convert();
+  TUndoManager::manager()->add(undo);
 
   m_updateSelectionBBox = true;
   tool->notifyImageChanged();
@@ -1152,6 +1346,8 @@ void StrokeSelection::enableCommands() {
 
   enableCommand(this, MI_RemoveEndpoints, &StrokeSelection::removeEndpoints);
   enableCommand(this, MI_SortWithPaletteOrder, &StrokeSelection::sortWithPaletteOrder);
+  enableCommand(this, MI_ConvertToOutlineShapes,
+                &StrokeSelection::convertToOutlineShapes);
   enableCommand(this, MI_PairInbetweenStrokes,
                 &StrokeSelection::pairStrokesForInbetween);
   enableCommand(this, MI_ClearInbetweenStrokePairs,

@@ -101,6 +101,10 @@ public:
   void removeEndpoints();
   void sortWithPaletteOrder();
 
+  //! Replaces the selected variable-width strokes by closed zero-thickness
+  //! strokes with their outline (see ContourOutline).
+  void convertToOutlineShapes();
+
   // Stroke pairing hints for the Inbetween command. They are kept in memory
   // only, by stroke id, and are never saved with the level.
   void pairStrokesForInbetween();
