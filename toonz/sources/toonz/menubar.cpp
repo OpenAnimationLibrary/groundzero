@@ -1530,6 +1530,13 @@ QMenuBar *StackedMenuBar::createFullMenuBar() {
     addMenuItem(reframeMenu, MI_Reframe4);
     addMenuItem(reframeMenu, MI_ReframeWithEmptyInbetweens);
   }
+  QMenu *timeRemapMenu = cellsMenu->addMenu(tr("Time Remap"));
+  {
+    addMenuItem(timeRemapMenu, MI_ColumnHold);
+    addMenuItem(timeRemapMenu, MI_ColumnLoop);
+    addMenuItem(timeRemapMenu, MI_ColumnReverse);
+    addMenuItem(timeRemapMenu, MI_ColumnTimeRemapClear);
+  }
   QMenu *stepMenu = cellsMenu->addMenu(tr("Step"));
   {
     addMenuItem(stepMenu, MI_IncreaseStep);

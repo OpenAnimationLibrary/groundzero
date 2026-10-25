@@ -65,7 +65,7 @@
 | Interpolation types | E/A/P | Y | Existing. | n/a |
 | Motion paths in the viewer | E/A/P | Y | Animate tool's "Show Trajectory", with draggable markers for position keys (`tnztools/edittool.cpp:66-84`). | No velocity display, and no editing of the path's tangents in the viewer. |
 | Trajectory onion skin | ? | Y | Same feature. | n/a |
-| Sub-timing and Retime / Hold / Loop nodes | A/P | Partial | Xsheet reframe and step tools; symbol timing modes. | No time-remap curve per column. |
+| Sub-timing and Retime / Hold / Loop nodes | A/P | Partial | Xsheet reframe and step tools; symbol timing modes. A per-column **time remap** curve (master plan B7, `doc/time_remap.md`) on the level column fx, shown in the Function Editor, with Hold, Loop and Reverse presets; saved only when used. | The remap is applied at render, preview and in the viewer (not for the current column); the xsheet cells keep showing the original timing. No remap for sound, sub-xsheet-internal timing or non-level columns. |
 | Auto lip-sync | A/P | Y | Rhubarb (`toonz/autolipsyncpopup.cpp`). | n/a |
 | Sound scrubbing and level meter | E/A/P | Y | Scrubbing, plus a `SoundLevelMeter` (`toonzqt/flipconsole.cpp:422`) and an animatable **Volume** curve (`toonzlib/txshsoundcolumn.cpp:159-187`). | n/a |
 

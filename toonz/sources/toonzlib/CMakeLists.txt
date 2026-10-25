@@ -153,6 +153,8 @@ set(HEADERS
     ../include/toonz/tstageobjectkeyframe.h
     ../include/toonz/tstageobjectspline.h
     ../include/toonz/tstageobjecttree.h
+    ../include/toonz/timeremap.h
+    ../include/toonz/timeremapcmd.h
     ../include/toonz/ttilesaver.h
     ../include/toonz/ttileset.h
     ../include/toonz/tvectorimageutils.h
@@ -289,6 +291,7 @@ set(SOURCES
     tstageobject.cpp
     tstageobjectspline.cpp
     tstageobjecttree.cpp
+    timeremapcmd.cpp
     ttilesaver.cpp
     ttileset.cpp
     tvectorimageutils.cpp
@@ -449,6 +452,12 @@ if(BUILD_ABR_TESTS)
     add_executable(abrparser_test tests/abrparser_test.cpp)
     target_link_libraries(abrparser_test PRIVATE toonzlib tnzcore Qt${QT_VERSION_MAJOR}::Core)
     add_test(NAME abrparser COMMAND abrparser_test)
+# Optional regression target for the pure helpers of the time remap (timeremap.h).
+option(BUILD_TIMEREMAP_TESTS "Build the time remap regression test" ${BUILD_TESTS})
+if(BUILD_TIMEREMAP_TESTS)
+    add_executable(timeremap_test tests/timeremap_test.cpp)
+    target_link_libraries(timeremap_test PRIVATE toonzlib tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core)
+    add_test(NAME timeremap COMMAND timeremap_test)
 endif()
 
 if(BUILD_SCRIPT_TESTS)

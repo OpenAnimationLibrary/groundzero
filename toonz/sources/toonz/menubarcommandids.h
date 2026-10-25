@@ -364,6 +364,10 @@
 #define MI_Reframe3 "MI_Reframe3"
 #define MI_Reframe4 "MI_Reframe4"
 #define MI_ReframeWithEmptyInbetweens "MI_ReframeWithEmptyInbetweens"
+#define MI_ColumnHold "MI_ColumnHold"
+#define MI_ColumnLoop "MI_ColumnLoop"
+#define MI_ColumnReverse "MI_ColumnReverse"
+#define MI_ColumnTimeRemapClear "MI_ColumnTimeRemapClear"
 
 #define MI_EditNextMode "MI_EditNextMode"
 #define MI_EditPosition "MI_EditPosition"

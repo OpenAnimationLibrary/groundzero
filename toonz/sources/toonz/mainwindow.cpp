@@ -2693,6 +2693,12 @@ void MainWindow::defineActions() {
   createMenuCellsAction(MI_ReframeWithEmptyInbetweens,
                         QT_TR_NOOP("Reframe with Empty Inbetweens..."), "",
                         "on_with_empty");
+  createMenuCellsAction(MI_ColumnHold, QT_TR_NOOP("Time Remap: Hold"), "", "");
+  createMenuCellsAction(MI_ColumnLoop, QT_TR_NOOP("Time Remap: Loop"), "", "");
+  createMenuCellsAction(MI_ColumnReverse, QT_TR_NOOP("Time Remap: Reverse"), "",
+                        "");
+  createMenuCellsAction(MI_ColumnTimeRemapClear, QT_TR_NOOP("Clear Time Remap"),
+                        "", "");
   createMenuCellsAction(MI_AutoInputCellNumber,
                         QT_TR_NOOP("Auto Input Cell Number..."), "",
                         "auto_input_cell_number");
