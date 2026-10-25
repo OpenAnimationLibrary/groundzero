@@ -222,7 +222,8 @@ if(BUILD_EXR_TESTS)
     add_test(NAME tiio_exr_level COMMAND tiio_exr_level_test)
 endif()
 
-if(BUILD_PSD_TESTS)
+# The test uses TLevelWriterPsd directly, which only non-MSVC builds export
+if(BUILD_PSD_TESTS AND NOT BUILD_ENV_MSVC)
     add_executable(tiio_psd_test tests/tiio_psd_test.cpp)
     target_link_libraries(tiio_psd_test PRIVATE image)
     add_test(NAME tiio_psd COMMAND tiio_psd_test)
