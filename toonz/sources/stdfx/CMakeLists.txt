@@ -358,7 +358,8 @@ if(BUILD_LUT3D_TESTS)
 endif()
 
 # Optional regression targets for the GLB-backed 3D FX framework.
-option(BUILD_GLB_FX_TESTS "Build the 3D FX framework regression executables" ${BUILD_TESTS})
+# Not part of BUILD_TESTS: the GLB/3D features are developed and tested in OT3D.
+option(BUILD_GLB_FX_TESTS "Build the 3D FX framework regression executables" OFF)
 if(BUILD_GLB_FX_TESTS)
     add_executable(glbmodelfx_test tests/glbmodelfx_test.cpp)
     target_link_libraries(glbmodelfx_test otglb toonzqt Qt5::Core Qt5::Gui Qt5::Widgets ${TNZLIBS} ${PTHREAD_LIBRARY})

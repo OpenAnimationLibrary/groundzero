@@ -13,7 +13,8 @@ target_compile_features(otglb PUBLIC cxx_std_17)
 target_include_directories(otglb PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 set_target_properties(otglb PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
-if(GLB_STANDALONE OR BUILD_TESTS)
+# Not part of BUILD_TESTS: the GLB/3D features are developed and tested in OT3D.
+if(GLB_STANDALONE)
     set(GLB_LOADER_TOOLS_DEFAULT ON)
 else()
     set(GLB_LOADER_TOOLS_DEFAULT OFF)
