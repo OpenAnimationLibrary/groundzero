@@ -35,6 +35,9 @@ public:
   bool m_isLastInBlock = true;
   // To be called in the last of the block when redo
   bool m_isLastInRedoBlock = true;
+  // getSize() as measured by TUndoManager once the undo is in the history
+  // (-1 until then), so the history is not measured again on every add
+  int m_cachedSize = -1;
 
 public:
   TUndo() {}
