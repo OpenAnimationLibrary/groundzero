@@ -1927,8 +1927,7 @@ OpenFloatingPanel openDrawingSubstitutionPanelCommand(
 
 class SubstitutionSliderPanelFactory final : public TPanelFactory {
 public:
-  SubstitutionSliderPanelFactory()
-      : TPanelFactory("SubstitutionSliderPanel") {}
+  SubstitutionSliderPanelFactory() : TPanelFactory("SubstitutionSliderPanel") {}
   void initialize(TPanel *panel) override {
     panel->setWidget(new SubstitutionSliderPane(panel));
     panel->setWindowTitle(QObject::tr("Substitution Slider"));
