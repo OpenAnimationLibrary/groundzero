@@ -537,6 +537,13 @@ ArrowToolOptionsBox::ArrowToolOptionsBox(
     m_globalKey =
         new ToolOptionCheckbox(m_tool, globalKeyProp, toolHandle, this);
 
+  TBoolProperty *showTrajectoryProp =
+      dynamic_cast<TBoolProperty *>(m_pg->getProperty("Show Trajectory"));
+  m_showTrajectory =
+      showTrajectoryProp
+          ? new ToolOptionCheckbox(m_tool, showTrajectoryProp, toolHandle, this)
+          : nullptr;
+
   m_lockEWPosCheckbox->setObjectName("EditToolLockButton");
   m_lockNSPosCheckbox->setObjectName("EditToolLockButton");
   m_lockEWCenterCheckbox->setObjectName("EditToolLockButton");
@@ -797,6 +804,10 @@ ArrowToolOptionsBox::ArrowToolOptionsBox(
     }
 
     mainLay->addWidget(m_globalKey, 0);
+    if (m_showTrajectory) {
+      mainLay->addSpacing(ITEM_SPACING);
+      mainLay->addWidget(m_showTrajectory, 0);
+    }
 
     mainLay->addSpacing(ITEM_SPACING);
   }
@@ -956,6 +967,7 @@ void ArrowToolOptionsBox::updateStatus() {
   m_lockNSCenterCheckbox->updateStatus();
 
   m_globalKey->updateStatus();
+  if (m_showTrajectory) m_showTrajectory->updateStatus();
 
   bool splined = isCurrentObjectSplined();
   if (splined != m_splined) setSplined(splined);
