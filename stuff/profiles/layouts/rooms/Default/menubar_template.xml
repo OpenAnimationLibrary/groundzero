@@ -345,6 +345,7 @@
         <command>MI_OpenAlignmentPanel</command>
         <command>MI_OpenPosesPanel</command>
         <command>MI_OpenSymbols</command>
+        <command>MI_OpenReferencePanel</command>
         <command>MI_OpenCustomPanels</command>
         <separator/>
         <command>MI_MaximizePanel</command>

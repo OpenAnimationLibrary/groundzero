@@ -3,6 +3,7 @@
 #include "tpanels.h"
 #include "alignmentpane.h"
 #include "posespane.h"
+#include "referencepanel.h"
 
 // Tnz6 includes
 #include "pane.h"
@@ -1882,3 +1883,20 @@ public:
 
 OpenFloatingPanel openPosesPanelCommand(MI_OpenPosesPanel, "PosesPanel",
                                         QObject::tr("Poses"));
+
+//=============================================================================
+// Reference
+//-----------------------------------------------------------------------------
+
+class ReferencePanelFactory final : public TPanelFactory {
+public:
+  ReferencePanelFactory() : TPanelFactory("ReferencePanel") {}
+  void initialize(TPanel *panel) override {
+    panel->setWidget(new ReferencePanel(panel));
+    panel->setWindowTitle(QObject::tr("Reference"));
+  }
+} referencePanelFactory;
+
+OpenFloatingPanel openReferencePanelCommand(MI_OpenReferencePanel,
+                                            "ReferencePanel",
+                                            QObject::tr("Reference"));

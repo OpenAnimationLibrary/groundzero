@@ -116,6 +116,7 @@ set(MOC_HEADERS
     trackerpopup.h
     alignmentpane.h
     posespane.h
+    referencepanel.h
     symbolspane.h
     vectorguideddrawingpane.h
     vectorizerpopup.h
@@ -326,6 +327,7 @@ set(SOURCES
     trackerpopup.cpp
     alignmentpane.cpp
     posespane.cpp
+    referencepanel.cpp
     symbolspane.cpp
     vectorguideddrawingpane.cpp
     vectorizerpopup.cpp
