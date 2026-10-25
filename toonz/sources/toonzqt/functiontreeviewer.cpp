@@ -23,6 +23,7 @@
 #include "toonz/txsheethandle.h"
 #include "toonz/fxdag.h"
 #include "toonz/txshzeraryfxcolumn.h"
+#include "toonz/txshsoundcolumn.h"
 #include "toonz/tcolumnfx.h"
 #include "toonz/tfxhandle.h"
 #include "toonz/tobjecthandle.h"
@@ -955,6 +956,18 @@ void FunctionTreeModel::refreshStageObjects(TXsheet *xsh) {
 
       pegbarItem->appendChild(channel);
       channel->setChannelGroup(pegbarItem);
+    }
+
+    // Sound columns also have an animatable volume
+    TStageObjectId id = stageObject->getId();
+    if (id.isColumn()) {
+      TXshColumn *column = xsh->getColumn(id.getIndex());
+      if (TXshSoundColumn *soundColumn =
+              column ? column->getSoundColumn() : nullptr) {
+        Channel *channel = new Channel(this, soundColumn->getVolumeCurve());
+        pegbarItem->appendChild(channel);
+        channel->setChannelGroup(pegbarItem);
+      }
     }
 
     pegbarItem->applyShowFilter();
