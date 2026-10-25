@@ -24,6 +24,8 @@
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <thread>
+#include <vector>
 
 namespace {
 void require(bool condition, const char *message) {
@@ -288,6 +290,104 @@ void testRenderingAndReload(const QString &path) {
   require(failed, "Invalid camera did not produce an explicit error");
 }
 
+bool sameScene(const otglb::RenderScene &a, const otglb::RenderScene &b) {
+  if (a.bounds != b.bounds || a.wireframe != b.wireframe ||
+      a.triangles.size() != b.triangles.size())
+    return false;
+  for (std::size_t i = 0; i < a.triangles.size(); ++i) {
+    const auto &s = a.triangles[i], &t = b.triangles[i];
+    if (s.edges != t.edges || s.color != t.color || s.uv != t.uv ||
+        s.textured != t.textured)
+      return false;
+    for (int v = 0; v < 3; ++v)
+      if (s.vertices[v].x != t.vertices[v].x ||
+          s.vertices[v].y != t.vertices[v].y ||
+          s.vertices[v].depth != t.vertices[v].depth)
+        return false;
+  }
+  return true;
+}
+
+void testProjectionCache(const QString &path) {
+  writeModel(path);
+  auto configure = [&](GlbModelFx &fx) {
+    parameter<TStringParam>(fx, "modelFile")->setValue(path.toStdWString());
+    auto *x = parameter<TDoubleParam>(fx, "positionX");
+    for (int frame = 0; frame <= 12; ++frame) x->setValue(frame, frame * .5);
+  };
+  otglb::LightingRig rig;
+  rig.ambient = .25;
+  rig.lights.push_back({});
+  // Separate FX instances own separate caches, so these are uncached results.
+  std::vector<std::shared_ptr<const otglb::RenderScene>> reference;
+  std::shared_ptr<const otglb::RenderScene> litReference;
+  for (int frame = 0; frame <= 12; ++frame) {
+    GlbModelFx fresh;
+    configure(fresh);
+    reference.push_back(fresh.get3DRenderScene(frame, nullptr));
+    require(reference.back() && !reference.back()->triangles.empty(),
+            "Reference projection is empty");
+    if (!frame) litReference = fresh.get3DRenderScene(frame, nullptr, &rig);
+  }
+
+  GlbModelFx fx;
+  configure(fx);
+  // Alternating frames, as rendered by concurrent frame tasks, keep their
+  // prepared projections instead of evicting one another.
+  const auto first  = fx.get3DRenderScene(0, nullptr);
+  const auto second = fx.get3DRenderScene(6, nullptr);
+  require(fx.get3DRenderScene(0, nullptr) == first &&
+              fx.get3DRenderScene(6, nullptr) == second,
+          "Alternating frames did not reuse their projections");
+  require(sameScene(*first, *reference[0]) && sameScene(*second, *reference[6]),
+          "Cached projection differs from a fresh render");
+
+  // The cache is bounded; an evicted frame is prepared again identically.
+  for (int frame = 1; frame <= 12; ++frame) fx.get3DRenderScene(frame, nullptr);
+  const auto again = fx.get3DRenderScene(0, nullptr);
+  require(again != first && sameScene(*again, *reference[0]),
+          "Projection cache is unbounded or re-preparation differs");
+
+  // A downstream lighting node alternates with direct output of one frame.
+  const auto lit = fx.get3DRenderScene(0, nullptr, &rig);
+  require(fx.get3DRenderScene(0, nullptr) == again &&
+              fx.get3DRenderScene(0, nullptr, &rig) == lit &&
+              sameScene(*lit, *litReference),
+          "Downstream lighting evicted or changed the direct projection");
+
+  // Render clones share the cache across threads.
+  std::vector<std::unique_ptr<TFx>> clones;
+  for (int t = 0; t < 4; ++t) clones.emplace_back(fx.clone(false));
+  std::vector<int> failures(clones.size(), 0);
+  std::vector<std::thread> threads;
+  for (int t = 0; t < 4; ++t)
+    threads.emplace_back([&, t] {
+      auto *clone = dynamic_cast<GlbModelFx *>(clones[t].get());
+      if (!clone) {
+        ++failures[t];
+        return;
+      }
+      for (int pass = 0; pass < 3; ++pass)
+        for (int i = 0; i <= 12; ++i) {
+          const int frame = (i * (t + 1) + pass) % 13;
+          try {
+            const auto scene = clone->get3DRenderScene(frame, nullptr);
+            if (!scene || !sameScene(*scene, *reference[frame])) ++failures[t];
+          } catch (...) {
+            ++failures[t];
+          }
+        }
+    });
+  for (auto &thread : threads) thread.join();
+  for (int failed : failures)
+    require(!failed, "Concurrent cached projections differ from fresh renders");
+
+  writeModel(path, 100);  // Changes the file size.
+  const auto reloaded = fx.get3DRenderScene(0, nullptr);
+  require(reloaded && reloaded->bounds != again->bounds,
+          "File replacement reused a stale cached projection");
+}
+
 void testLoadError(const QString &path) {
   GlbModelFx fx;
   parameter<TStringParam>(fx, "modelFile")->setValue(path.toStdWString());
@@ -544,6 +644,7 @@ int main(int argc, char **argv) {
     require(file.readAll() == sentinel, "Framework modified the model file");
     file.close();
     testRenderingAndReload(modelPath);
+    testProjectionCache(dir.filePath("cache.glb"));
     testEmbeddedAnimation(dir.filePath("animated.glb"));
     testMaterialControls(dir.filePath("materials.glb"), dir.filePath("materials.fx"));
     std::cout << "PASS: GLB FX registration, zero inputs, parameter defaults, "

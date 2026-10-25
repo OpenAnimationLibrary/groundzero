@@ -17,6 +17,7 @@ void collapse(std::set<int> &indices, const std::wstring &levelName = L"");
 void collapse(const QList<TStageObjectId> &objects);
 void collapse(const QList<TFxP> &fxs);
 void explode(int index);
+void saveAsTemplate(const std::set<int> &indices);
 }
 
 #endif

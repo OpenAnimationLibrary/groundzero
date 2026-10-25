@@ -66,7 +66,7 @@
 #include <QComboBox>
 #include <QCheckBox>
 #include <QPushButton>
-#include <QDesktopWidget>
+#include <QScreen>
 
 #include <QBitmap>
 
@@ -615,7 +615,31 @@ void ChangeObjectHandle::refresh() {
       addText(QString(char('A' + i)), colorHndNone);
   }
 
+  // Plastic skeleton vertices of the parent column (kinematic output). The
+  // handle is stored in the item, as vertex names are arbitrary.
+  std::vector<std::string> vertexHandles;
+  if (stageObject->getParent().isColumn())
+    xsh->getStageObject(stageObject->getParent())
+        ->getSkeletonVertexHandles(vertexHandles);
+  for (const std::string &vertexHandle : vertexHandles) {
+    QString name = QString::fromStdString(
+        TStageObject::getSkeletonVertexName(vertexHandle));
+    addText(QString::fromStdString(vertexHandle), name);
+    item(count() - 1)->setForeground(colorHndHook);
+    m_width = std::max(m_width, fontMetrics().horizontalAdvance(name) + 16);
+  }
+
   std::string handle = stageObject->getParentHandle();
+  if (TStageObject::isSkeletonVertexHandle(handle)) {
+    clearSelection();
+    for (int row = 0; row < count(); row++)
+      if (item(row)->data(Qt::UserRole).toString() ==
+          QString::fromStdString(handle)) {
+        setCurrentItem(item(row));
+        break;
+      }
+    return;
+  }
   if (handle[0] == 'H' && handle.length() > 1) handle = handle.substr(1);
 
   selectCurrent(QString::fromStdString(handle));
@@ -629,7 +653,11 @@ void ChangeObjectHandle::onItemSelected(QListWidgetItem *item) {
   QString text                   = item->text();
   TStageObjectId currentObjectId = m_objectHandle->getObjectId();
   QString handle                 = text;
-  if (text.toInt() != 0) handle = QString("H") + handle;
+  QVariant vertexHandle          = item->data(Qt::UserRole);
+  if (vertexHandle.isValid())
+    handle = vertexHandle.toString();  // Plastic skeleton vertex
+  else if (text.toInt() != 0)
+    handle = QString("H") + handle;
   if (handle.isEmpty()) return;
   std::vector<TStageObjectId> ids;
   ids.push_back(currentObjectId);
@@ -1062,6 +1090,9 @@ void ColumnArea::DrawHeader::drawLock() const {
   int buttonType = !column->isLocked() ? LOCK_OFF_XSHBUTTON : LOCK_ON_XSHBUTTON;
   m_viewer->getButton(buttonType, bgColor, svgFilePath,
                       !o->isVerticalTimeline());
+  // A selection lock alone shows a faded lock on the unlocked background.
+  bool selectionLockOnly =
+      col >= 0 && !column->isLocked() && column->isSelectionLocked();
 
   QRect lockModeRect = o->rect((col < 0) ? PredefinedRect::CAMERA_LOCK_AREA
                                          : PredefinedRect::LOCK_AREA)
@@ -1087,13 +1118,21 @@ void ColumnArea::DrawHeader::drawLock() const {
   // For Legacy (layout=1), Lock Off button is not displayed in Xsheet mode
   if (o->isVerticalTimeline() &&
       m_viewer->getXsheetLayout() == QString("Classic") &&
-      buttonType == LOCK_OFF_XSHBUTTON)
+      buttonType == LOCK_OFF_XSHBUTTON && !selectionLockOnly)
     return;
+
+  if (selectionLockOnly) {
+    QColor lockOnBgColor;
+    m_viewer->getButton(LOCK_ON_XSHBUTTON, lockOnBgColor, svgFilePath,
+                        !o->isVerticalTimeline());
+  }
 
   QPixmap icon = svgToPixmap(svgFilePath, lockModeImgRect.size(),
                              Qt::KeepAspectRatio, bgColor);
 
+  if (selectionLockOnly) p.setOpacity(0.4);
   p.drawPixmap(lockModeImgRect, icon);
+  if (selectionLockOnly) p.setOpacity(1.0);
 }
 
 void ColumnArea::DrawHeader::drawConfig() const {
@@ -1403,9 +1442,13 @@ void ColumnArea::DrawHeader::drawParentHandleName() const {
   TStageObjectId columnId = m_viewer->getObjectId(col);
   TStageObjectId parentId = xsh->getStageObjectParent(columnId);
   std::string handle      = xsh->getStageObject(columnId)->getParentHandle();
-  if (handle[0] == 'H' && handle.length() > 1) handle = handle.substr(1);
+  bool isVertexHandle     = TStageObject::isSkeletonVertexHandle(handle);
+  if (isVertexHandle)
+    handle = TStageObject::getSkeletonVertexName(handle);
+  else if (handle[0] == 'H' && handle.length() > 1)
+    handle = handle.substr(1);
 
-  if (handle == "B") {  // Default handle
+  if (handle == "B" && !isVertexHandle) {  // Default handle
     QPen pen(m_viewer->getVerticalLineColor());
     pen.setStyle(Qt::PenStyle::DotLine);
     p.setPen(pen);
@@ -1418,9 +1461,13 @@ void ColumnArea::DrawHeader::drawParentHandleName() const {
   p.drawRect(parenthandleRect.adjusted(2, 0, 0, 0));
 
   p.setPen(m_viewer->getTextColor());
+  QString handleText = QString::fromStdString(handle);
+  if (isVertexHandle)  // Plastic skeleton vertex names may be long
+    handleText = p.fontMetrics().elidedText(handleText, Qt::ElideRight,
+                                            parenthandleRect.width() - 2);
   p.drawText(parenthandleRect,
              Qt::AlignHCenter | Qt::AlignVCenter | Qt::TextSingleLine,
-             QString::fromStdString(handle));
+             handleText);
 }
 
 void ColumnArea::DrawHeader::drawFilterColor() const {
@@ -1969,6 +2016,10 @@ m_value->setFont(font);*/
     menu->addAction(cmdManager->getAction("MI_UnlockSelectedColumns"));
     menu->addAction(cmdManager->getAction("MI_UnlockAllColumns"));
     menu->addAction(cmdManager->getAction("MI_ToggleColumnLocks"));
+    menu->addSeparator();
+    menu->addAction(cmdManager->getAction("MI_SelectionLockSelectedColumns"));
+    menu->addAction(cmdManager->getAction("MI_SelectionUnlockSelectedColumns"));
+    menu->addAction(cmdManager->getAction("MI_SelectionUnlockAllColumns"));
     lockExtraBtn->setMenu(menu);
     lockExtraBtn->setFixedSize(20, 20);
   }
@@ -2729,7 +2780,10 @@ void ColumnArea::mouseMoveEvent(QMouseEvent *event) {
     } else
       m_tooltip = tr("Click to select column, double-click to edit");
   } else if (o->rect(PredefinedRect::LOCK_AREA).contains(mouseInCell)) {
-    m_tooltip = tr("Lock Toggle");
+    if (column && !column->isLocked() && column->isSelectionLocked())
+      m_tooltip = tr("Lock Toggle (selection is locked in the viewer)");
+    else
+      m_tooltip = tr("Lock Toggle");
   } else if (o->rect(PredefinedRect::CONFIG_AREA).contains(mouseInCell)) {
     m_tooltip = tr("Additional column settings");
   } else if (o->rect(PredefinedRect::EYE_AREA).contains(mouseInCell)) {
@@ -2815,8 +2869,7 @@ void ColumnArea::mouseReleaseEvent(QMouseEvent *event) {
                                         event->globalPos().y() - y);
 
         // make sure the popup doesn't go off the screen to the right
-        QDesktopWidget *desktop = qApp->desktop();
-        QRect screenRect        = desktop->screenGeometry(app->getMainWindow());
+        QRect screenRect = screenForWidget(app->getMainWindow())->geometry();
 
         int popupLeft  = event->globalPos().x() + x;
         int popupRight = popupLeft + m_columnTransparencyPopup->width();
@@ -3017,6 +3070,13 @@ void ColumnArea::contextMenuEvent(QContextMenuEvent *event) {
     menu.addAction(cmdManager->getAction("MI_UnlockSelectedColumns"));
     menu.addAction(cmdManager->getAction("MI_UnlockAllColumns"));
     menu.addAction(cmdManager->getAction("MI_ToggleColumnLocks"));
+    if (!isCamera) {
+      menu.addSeparator();
+      menu.addAction(cmdManager->getAction("MI_SelectionLockSelectedColumns"));
+      menu.addAction(
+          cmdManager->getAction("MI_SelectionUnlockSelectedColumns"));
+      menu.addAction(cmdManager->getAction("MI_SelectionUnlockAllColumns"));
+    }
   }
   // right clicking another area / right clicking empty column head
   else {
@@ -3049,6 +3109,7 @@ void ColumnArea::contextMenuEvent(QContextMenuEvent *event) {
 
       menu.addAction(cmdManager->getAction(MI_Collapse));
       menu.addAction(cmdManager->getAction(MI_ConvertToSymbol));
+      menu.addAction(cmdManager->getAction(MI_SaveAsTemplate));
       if (cell.m_level && cell.m_level->getChildLevel()) {
         menu.addAction(cmdManager->getAction(MI_Resequence));
         menu.addAction(cmdManager->getAction(MI_CloneChild));

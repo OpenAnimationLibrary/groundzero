@@ -42,6 +42,7 @@ public:
   void insertColumnsAbove();
 
   void collapse();
+  void saveAsTemplate();
   void explodeChild();
   void resequence();
   void cloneChild();

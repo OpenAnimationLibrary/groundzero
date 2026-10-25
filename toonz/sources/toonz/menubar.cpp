@@ -163,6 +163,7 @@ void ensurePanelAction(QMenu *windowsMenu, CommandId id) {
 void ensureNewPanelActions(QMenu *windowsMenu) {
   ensurePanelAction(windowsMenu, MI_OpenAlignmentPanel);
   ensurePanelAction(windowsMenu, MI_OpenSymbols);
+  ensurePanelAction(windowsMenu, MI_OpenPosesPanel);
 }
 
 }  // namespace
@@ -1019,6 +1020,7 @@ QMenuBar *StackedMenuBar::createXsheetMenuBar() {
   addMenuItem(subxsheetMenu, MI_ToggleEditInPlace);
   addMenuItem(subxsheetMenu, MI_Resequence);
   addMenuItem(subxsheetMenu, MI_SaveSubxsheetAs);
+  addMenuItem(subxsheetMenu, MI_SaveAsTemplate);
   addMenuItem(subxsheetMenu, MI_LoadSubSceneFile);
   addMenuItem(subxsheetMenu, MI_CloneChild);
   addMenuItem(subxsheetMenu, MI_ConvertToSymbol);
@@ -1453,6 +1455,7 @@ QMenuBar *StackedMenuBar::createFullMenuBar() {
   addMenuItem(xsheetMenu, MI_OpenChild);
   addMenuItem(xsheetMenu, MI_CloseChild);
   addMenuItem(xsheetMenu, MI_SaveSubxsheetAs);
+  addMenuItem(xsheetMenu, MI_SaveAsTemplate);
   addMenuItem(xsheetMenu, MI_Collapse);
   addMenuItem(xsheetMenu, MI_Resequence);
   addMenuItem(xsheetMenu, MI_CloneChild);
@@ -1570,6 +1573,7 @@ QMenuBar *StackedMenuBar::createFullMenuBar() {
   addMenuItem(viewMenu, MI_ViewCamera);
   addMenuItem(viewMenu, MI_ViewColorcard);
   addMenuItem(viewMenu, MI_ViewBBox);
+  addMenuItem(viewMenu, MI_LightTable);
   viewMenu->addSeparator();
   addMenuItem(viewMenu, MI_SafeArea);
   addMenuItem(viewMenu, MI_FieldGuide);
@@ -1643,6 +1647,7 @@ QMenuBar *StackedMenuBar::createFullMenuBar() {
   addMenuItem(windowsMenu, MI_OpenGuidedDrawingControls);
   addMenuItem(windowsMenu, MI_OpenAlignmentPanel);
   addMenuItem(windowsMenu, MI_OpenSymbols);
+  addMenuItem(windowsMenu, MI_OpenPosesPanel);
   addMenuItem(windowsMenu, MI_OpenCustomPanels);
   // windowsMenu->addSeparator();
   // addMenuItem(windowsMenu, MI_OpenExport);

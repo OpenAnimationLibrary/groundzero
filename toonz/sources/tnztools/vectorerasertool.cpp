@@ -5,6 +5,7 @@
 #include "tools/toolutils.h"
 #include "tools/tool.h"
 #include "tools/cursors.h"
+#include "tools/artlayer.h"
 
 // TnzQt includes
 #include "toonzqt/imageutils.h"
@@ -403,6 +404,7 @@ EraserTool::EraserTool()
   m_interpolation.addValue(EASE_IN_INTERPOLATION);
   m_interpolation.addValue(EASE_OUT_INTERPOLATION);
   m_interpolation.addValue(EASE_IN_OUT_INTERPOLATION);
+  ArtLayer::bindProperties(m_prop);
 
   m_selective.setId("Selective");
   m_invertOption.setId("Invert");
@@ -450,6 +452,7 @@ void EraserTool::updateTranslation() {
   m_interpolation.setItemUIName(EASE_IN_INTERPOLATION, tr("Ease In"));
   m_interpolation.setItemUIName(EASE_OUT_INTERPOLATION, tr("Ease Out"));
   m_interpolation.setItemUIName(EASE_IN_OUT_INTERPOLATION, tr("Ease In/Out"));
+  ArtLayer::updateTranslation();
 }
 
 //-----------------------------------------------------------------------------
@@ -595,7 +598,8 @@ void EraserTool::erase(TVectorImageP vi, const TPointD &pos) {
 
     TStroke *oldStroke = vi->getStroke(i);
     if (!vi->inCurrentGroup(i) ||
-        (m_selective.getValue() && oldStroke->getStyle() != index)) {
+        (m_selective.getValue() && oldStroke->getStyle() != index) ||
+        !ArtLayer::isEditable(*oldStroke)) {
       i++;
       it++;
       continue;
@@ -804,6 +808,7 @@ void EraserTool::erase(TVectorImageP vi, TRectD &rect) {
   for (i = 0; i < (int)vi->getStrokeCount(); i++) {
     if (!vi->inCurrentGroup(i)) continue;
     TStroke *stroke = vi->getStroke(i);
+    if (!ArtLayer::isEditable(*stroke)) continue;
     if (!m_invertOption.getValue()) {
       if ((!m_selective.getValue() || stroke->getStyle() == index) &&
           rect.contains(stroke->getBBox())) {
@@ -1140,6 +1145,10 @@ void EraserTool::mouseMove(const TPointD &pos, const TMouseEvent &e) {
 //----------------------------------------------------------------------
 
 bool EraserTool::onPropertyChanged(std::string propertyName) {
+  if (ArtLayer::onPropertyChanged(propertyName)) {
+    invalidate();  // "Show Art:" changes what the viewer shows
+    return true;
+  }
   EraseVectorType          = ::to_string(m_eraseType.getValue());
   EraseVectorInterpolation = ::to_string(m_interpolation.getValue());
   EraseVectorSize          = m_toolSize.getValue();
@@ -1201,6 +1210,7 @@ void EraserTool::onLeave() {
 //-----------------------------------------------------------------------------
 
 void EraserTool::onActivate() {
+  ArtLayer::loadSettings();
   resetMulti();
   m_polyline.clear();
   onEnter();
@@ -1294,6 +1304,7 @@ void EraserTool::eraseSegments(const TVectorImageP vi, TStroke *eraseStroke) {
     if (m_selective.getValue() && stroke->getStyle() != colorStyle) {
       continue;
     }
+    if (!ArtLayer::isEditable(*stroke)) continue;
 
     intersect(eraseStroke, stroke, intersections, false);
 
@@ -1509,6 +1520,7 @@ void EraserTool::eraseRegion(const TVectorImageP vi, TStroke *stroke) {
          strokeIndex++) {
       if (!vi->inCurrentGroup(strokeIndex)) continue;
       TStroke *currentStroke = vi->getStroke(strokeIndex);
+      if (!ArtLayer::isEditable(*currentStroke)) continue;
       for (regionIndex = 0; regionIndex < (int)eraseImg.getRegionCount();
            regionIndex++) {
         TRegion *region = eraseImg.getRegion(regionIndex);
@@ -1525,7 +1537,8 @@ void EraserTool::eraseRegion(const TVectorImageP vi, TStroke *stroke) {
     for (strokeIndex = 0; strokeIndex < (int)vi->getStrokeCount();
          strokeIndex++) {
       TStroke *currentStroke = vi->getStroke(strokeIndex);
-      bool eraseIt           = false;
+      if (!ArtLayer::isEditable(*currentStroke)) continue;
+      bool eraseIt = false;
       for (regionIndex = 0; regionIndex < (int)eraseImg.getRegionCount();
            regionIndex++) {
         TRegion *region = eraseImg.getRegion(regionIndex);

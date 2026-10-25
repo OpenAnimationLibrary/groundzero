@@ -17,11 +17,14 @@
 #include <iomanip>
 #include <algorithm>
 #include <cmath>
+#include <future>
 #include <limits>
 #include <locale>
+#include <memory>
 #include <sstream>
 #include <stdexcept>
 #include <type_traits>
+#include <vector>
 
 namespace {
 template <class PIXEL>
@@ -68,16 +71,28 @@ class GlbModelFx final : public TStandardZeraryFx,
   TDoubleParamP m_playbackFps, m_timeOffset, m_animationSpeed;
   TIntEnumParamP m_loopMode;
 
+  // A projected scene of the current file. Until its first requester finishes
+  // preparing it, other requesters of the same options wait on the future.
+  struct Projection {
+    otglb::RenderOptions options;
+    std::shared_future<std::shared_ptr<const otglb::RenderScene>> scene;
+    std::size_t bytes = 0;  // Triangle storage once prepared.
+  };
+  // Concurrent frames, preview tiles and downstream 3D nodes request different
+  // options, so keep several scenes. Typical models need a few MiB per scene;
+  // the byte bound keeps large models near one renderer budget per FX.
+  static constexpr std::size_t MaxProjections  = 8;
+  static constexpr std::size_t ProjectionBytes = 256ull * 1024 * 1024;
   struct Cache {
     QMutex mutex;
     QString revision;
     std::string digest;
     otglb::Result loaded;
-    otglb::RenderOptions options;
-    std::shared_ptr<const otglb::RenderScene> projected;
+    std::vector<std::shared_ptr<Projection>> projected;  // Most recent first.
     bool warned = false;
   };
-  // Render clones share owned data, but hold the lock only while preparing it.
+  // Render clones share owned data, but hold the lock only while loading the
+  // file or looking up projections; projection itself runs without the lock.
   std::shared_ptr<Cache> m_cache = std::make_shared<Cache>();
 
   QString fileRevision() const {
@@ -127,7 +142,7 @@ class GlbModelFx final : public TStandardZeraryFx,
       m_cache->loaded = std::move(loaded);
       m_cache->digest = std::move(digest);
       m_cache->revision = revision;
-      m_cache->projected.reset();
+      m_cache->projected.clear();
       m_cache->warned = false;
       for (const auto &warning : m_cache->loaded.warnings)
         qWarning().noquote() << "GLB Model:" << path << QString::fromStdString(warning);
@@ -220,19 +235,81 @@ class GlbModelFx final : public TStandardZeraryFx,
       settings.headlight = false;
     }
     if (transforms) settings.transforms = *transforms;
-    if (!m_cache->projected || !(settings == m_cache->options)) {
-      auto scene = std::make_shared<otglb::RenderScene>(
-          otglb::prepareRender(*m_cache->loaded.asset, settings, canceled));
+
+    auto &entries = m_cache->projected;
+    const auto found =
+        std::find_if(entries.begin(), entries.end(),
+                     [&](const std::shared_ptr<Projection> &entry) {
+                       return entry->options == settings;
+                     });
+    if (found != entries.end()) {
+      std::rotate(entries.begin(), found, found + 1);
+      const auto pending = entries.front()->scene;
+      lock.unlock();
+      // Rethrows the preparing thread's error, which would be identical here.
+      if (auto scene = pending.get()) return scene;
+      // Its preparing render was canceled and removed the entry; retry.
       if (canceled && *canceled) return {};
-      if (!m_cache->warned) {
-        for (const auto &warning : scene->warnings)
-          qWarning().noquote() << "GLB Model:" << QString::fromStdWString(m_modelFile->getValue()) << QString::fromStdString(warning);
-        m_cache->warned = true;
-      }
-      m_cache->projected = std::move(scene);
-      m_cache->options = settings;
+      return projected(frame, canceled, lighting, transforms);
     }
-    return m_cache->projected;
+
+    auto entry     = std::make_shared<Projection>();
+    entry->options = settings;
+    std::promise<std::shared_ptr<const otglb::RenderScene>> promise;
+    entry->scene = promise.get_future().share();
+    entries.insert(entries.begin(), entry);
+    trimProjectionsLocked();
+    const auto asset = m_cache->loaded.asset;
+    lock.unlock();
+
+    std::shared_ptr<const otglb::RenderScene> scene;
+    try {
+      auto prepared = std::make_shared<otglb::RenderScene>(
+          otglb::prepareRender(*asset, settings, canceled));
+      if (!(canceled && *canceled)) scene = std::move(prepared);
+    } catch (...) {
+      lock.relock();
+      eraseProjectionLocked(entry);
+      promise.set_exception(std::current_exception());
+      throw;
+    }
+    // Remove a failed entry before waking its waiters so they cannot retry it.
+    lock.relock();
+    if (!scene) {
+      eraseProjectionLocked(entry);
+      promise.set_value(scene);
+      return {};
+    }
+    entry->bytes = scene->triangles.capacity() * sizeof(otglb::RenderTriangle);
+    promise.set_value(scene);
+    // The file may have been reloaded meanwhile; that cleared this entry.
+    if (asset == m_cache->loaded.asset && !m_cache->warned) {
+      for (const auto &warning : scene->warnings)
+        qWarning().noquote()
+            << "GLB Model:" << QString::fromStdWString(m_modelFile->getValue())
+            << QString::fromStdString(warning);
+      m_cache->warned = true;
+    }
+    trimProjectionsLocked();
+    return scene;
+  }
+
+  void eraseProjectionLocked(const std::shared_ptr<Projection> &entry) const {
+    auto &entries = m_cache->projected;
+    entries.erase(std::remove(entries.begin(), entries.end(), entry),
+                  entries.end());
+  }
+
+  // Keep the most recent entry even if it alone exceeds the byte bound.
+  void trimProjectionsLocked() const {
+    auto &entries     = m_cache->projected;
+    std::size_t bytes = 0;
+    for (const auto &entry : entries) bytes += entry->bytes;
+    while (entries.size() > 1 &&
+           (entries.size() > MaxProjections || bytes > ProjectionBytes)) {
+      bytes -= entries.back()->bytes;
+      entries.pop_back();
+    }
   }
 
 public:

@@ -1478,7 +1478,10 @@ enum {
 
   CMD_ENABLE_CAMSTAND  = 0x0040,
   CMD_DISABLE_CAMSTAND = 0x0080,
-  CMD_TOGGLE_CAMSTAND  = 0x0100
+  CMD_TOGGLE_CAMSTAND  = 0x0100,
+
+  CMD_SELECTION_LOCK   = 0x0200,
+  CMD_SELECTION_UNLOCK = 0x0400
 };
 
 enum {
@@ -1545,6 +1548,9 @@ public:
           column->lock(!column->isLocked());
         viewer_changed = true;
       }
+      // The camera column is never picked in the viewer.
+      if (i >= 0 && (cmd & (CMD_SELECTION_LOCK | CMD_SELECTION_UNLOCK)))
+        column->lockSelection((cmd & CMD_SELECTION_LOCK) != 0);
       if (cmd &
           (CMD_ENABLE_PREVIEW | CMD_DISABLE_PREVIEW | CMD_TOGGLE_PREVIEW)) {
         if (cmd & CMD_ENABLE_PREVIEW)
@@ -1621,7 +1627,12 @@ ColumnsStatusCommand
     c14(MI_LockThisColumnOnly, CMD_LOCK, TARGET_CURRENT),
     c15(MI_ToggleColumnLocks, CMD_TOGGLE_LOCK, TARGET_ALL),
     c16(MI_LockSelectedColumns, CMD_LOCK, TARGET_SELECTED),
-    c17(MI_UnlockSelectedColumns, CMD_UNLOCK, TARGET_SELECTED);
+    c17(MI_UnlockSelectedColumns, CMD_UNLOCK, TARGET_SELECTED),
+
+    c19(MI_SelectionLockSelectedColumns, CMD_SELECTION_LOCK, TARGET_SELECTED),
+    c20(MI_SelectionUnlockSelectedColumns, CMD_SELECTION_UNLOCK,
+        TARGET_SELECTED),
+    c21(MI_SelectionUnlockAllColumns, CMD_SELECTION_UNLOCK, TARGET_ALL);
 }  // namespace
 
 //=============================================================================
