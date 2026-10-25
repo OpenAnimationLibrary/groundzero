@@ -3087,6 +3087,13 @@ void MainWindow::defineActions() {
                              "Ctrl+Alt+Shift+U");
   createRightClickMenuAction(MI_ToggleColumnLocks,
                              QT_TR_NOOP("Swap Lock/Unlock"), "");
+  createRightClickMenuAction(MI_SelectionLockSelectedColumns,
+                             QT_TR_NOOP("Lock Selection in Viewer"), "");
+  createRightClickMenuAction(MI_SelectionUnlockSelectedColumns,
+                             QT_TR_NOOP("Unlock Selection in Viewer"), "");
+  createRightClickMenuAction(MI_SelectionUnlockAllColumns,
+                             QT_TR_NOOP("Unlock Selection in Viewer for All"),
+                             "");
   createRightClickMenuAction(MI_DeactivateUpperColumns,
                              QT_TR_NOOP("Hide Upper Columns"), "");
   createRightClickMenuAction(MI_SeparateColors,
