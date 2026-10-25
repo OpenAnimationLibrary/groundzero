@@ -1271,6 +1271,8 @@ QString PreferencesPopup::getUIString(PreferencesItemId id) {
       {autosavePeriod, tr("Interval (Minutes):")},
       {autosaveSceneEnabled, tr("Automatically Save the Scene File")},
       {autosaveOtherFilesEnabled, tr("Automatically Save Non-Scene Files")},
+      {autosaveToRecoveryFolder,
+       tr("Save to a Recovery Folder instead of Overwriting the Files")},
       {startupPopupEnabled, tr("Show Startup Window when OpenToonz Starts")},
       {undoMemorySize, tr("Undo Memory Size (MB):")},
       {taskchunksize, tr("Render Task Chunk Size:")},
@@ -2087,6 +2089,27 @@ QWidget* PreferencesPopup::createSavingPage() {
     insertUI(autosavePeriod, autoSaveLay);
     insertUI(autosaveSceneEnabled, autoSaveLay);
     insertUI(autosaveOtherFilesEnabled, autoSaveLay);
+    insertUI(autosaveToRecoveryFolder, autoSaveLay);
+
+    // A recovery copy always contains the scene and its unsaved levels, so
+    // the options choosing which files to overwrite do not apply to it
+    CheckBox* recoveryCB = getUI<CheckBox*>(autosaveToRecoveryFolder);
+    CheckBox* sceneCB    = getUI<CheckBox*>(autosaveSceneEnabled);
+    CheckBox* otherCB    = getUI<CheckBox*>(autosaveOtherFilesEnabled);
+    recoveryCB->setToolTip(
+        tr("Autosave writes a copy of the scene and of its levels with unsaved "
+           "changes to a recovery folder in the user profile, and leaves the "
+           "saved files untouched. Untitled scenes are included. The last "
+           "versions of each scene are kept, and if OpenToonz does not shut "
+           "down normally they are offered for recovery at the next launch."));
+    auto updateOverwriteOptions = [sceneCB, otherCB](bool toRecoveryFolder) {
+      sceneCB->setEnabled(!toRecoveryFolder);
+      otherCB->setEnabled(!toRecoveryFolder);
+    };
+    // Only disable here: the group box enables its children when checked,
+    // except those disabled explicitly
+    if (recoveryCB->isChecked()) updateOverwriteOptions(true);
+    connect(recoveryCB, &QCheckBox::toggled, this, updateOverwriteOptions);
   }
   QGridLayout* backupLay = insertGroupBoxUI(backupEnabled, lay);
   { insertUI(backupKeepCount, backupLay); }

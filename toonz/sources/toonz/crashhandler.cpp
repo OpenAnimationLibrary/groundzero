@@ -859,13 +859,18 @@ void CrashHandler::prepareReport() {
 
 //-----------------------------------------------------------------------------
 
-void CrashHandler::showPendingReport() {
+bool CrashHandler::hasPendingReport() { return !s_previousReport.isEmpty(); }
+
+//-----------------------------------------------------------------------------
+
+void CrashHandler::showPendingReport(QWidget *parent) {
   if (s_previousReport.isEmpty()) return;
 
   const QString report = s_previousReport;
   s_previousReport.clear();
 
-  CrashHandler crashdialog(s_parentWindow, s_previousReportFile, report, true);
+  CrashHandler crashdialog(parent ? parent : s_parentWindow,
+                           s_previousReportFile, report, true);
   crashdialog.exec();
 }
 

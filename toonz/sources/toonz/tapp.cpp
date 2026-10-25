@@ -5,6 +5,7 @@
 // Tnz6 includes
 #include "cleanupsettingspopup.h"
 #include "iocommand.h"
+#include "autosaverecovery.h"
 #include "mainwindow.h"
 #include "cellselection.h"
 #include "canvassizepopup.h"
@@ -709,6 +710,12 @@ void TApp::autosave() {
   //     "Autosaving scene..." + toQString(scene->getScenePath()), 0, 0, 1);
 
   Preferences *pref = Preferences::instance();
+  if (pref->isAutosaveToRecoveryFolderEnabled()) {
+    // Leave the user's files untouched and write a recovery copy instead
+    AutosaveRecovery::saveRecoveryCopy();
+    return;
+  }
+
   if (pref->isAutosaveSceneEnabled() && pref->isAutosaveOtherFilesEnabled()) {
     IoCmd::saveAll(IoCmd::AUTO_SAVE);
   } else if (pref->isAutosaveSceneEnabled()) {

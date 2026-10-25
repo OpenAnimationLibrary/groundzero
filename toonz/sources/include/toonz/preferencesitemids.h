@@ -75,6 +75,7 @@ enum PreferencesItemId {
   autosavePeriod,
   autosaveSceneEnabled,
   autosaveOtherFilesEnabled,
+  autosaveToRecoveryFolder,
   replaceAfterSaveLevelAs,
   backupEnabled,
   backupKeepCount,
