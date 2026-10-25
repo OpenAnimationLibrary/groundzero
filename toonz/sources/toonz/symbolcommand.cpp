@@ -116,6 +116,17 @@ TXshChildLevel *getInstanceSymbol(TXsheet *xsh, int r0, int r1, int col) {
   return symbol;
 }
 
+//-----------------------------------------------------------------------------
+
+// Returns true if an instance can be placed in the column as it is: the column
+// does not exist yet, or it is an empty, unlocked level column.
+bool isColumnFree(TXsheet *xsh, int col) {
+  if (!xsh->isColumnEmpty(col)) return false;
+  TXshColumn *column = xsh->getColumn(col);
+  return !column || (column->getColumnType() == TXshColumn::eLevelType &&
+                     !column->isLocked());
+}
+
 //=============================================================================
 // InsertInstanceUndo
 //-----------------------------------------------------------------------------
@@ -123,24 +134,30 @@ TXshChildLevel *getInstanceSymbol(TXsheet *xsh, int r0, int r1, int col) {
 class InsertInstanceUndo final : public TUndo {
   TXshChildLevelP m_symbol;
   int m_row, m_col, m_frameCount;
+  bool m_insertColumn;  //!< a new column is inserted, otherwise m_col is free
 
 public:
-  InsertInstanceUndo(TXshChildLevel *symbol, int row, int col)
+  InsertInstanceUndo(TXshChildLevel *symbol, int row, int col,
+                     bool insertColumn)
       : m_symbol(symbol)
       , m_row(row)
       , m_col(col)
-      , m_frameCount(getSymbolFrameCount(symbol)) {}
+      , m_frameCount(getSymbolFrameCount(symbol))
+      , m_insertColumn(insertColumn) {}
 
   void undo() const override {
     TXsheet *xsh = currentXsheet();
-    xsh->removeColumn(m_col);
+    if (m_insertColumn)
+      xsh->removeColumn(m_col);
+    else
+      xsh->clearCells(m_row, m_col, m_frameCount);
     xsh->updateFrameCount();
     notifyXsheetEdited();
   }
 
   void redo() const override {
     TXsheet *xsh = currentXsheet();
-    xsh->insertColumn(m_col);
+    if (m_insertColumn) xsh->insertColumn(m_col);
     for (int r = 0; r < m_frameCount; r++)
       xsh->setCell(m_row + r, m_col,
                    TXshCell(m_symbol.getPointer(), TFrameId(r + 1)));
@@ -255,7 +272,8 @@ void SymbolCmd::convertToSymbol(std::set<int> &indices) {
 
 //-----------------------------------------------------------------------------
 
-bool SymbolCmd::insertInstance(TXshChildLevel *symbol, int row, int col) {
+bool SymbolCmd::insertInstance(TXshChildLevel *symbol, int row, int &col,
+                               bool insertColumn) {
   if (!symbol) return false;
   TApp *app    = TApp::instance();
   TXsheet *xsh = currentXsheet();
@@ -267,12 +285,19 @@ bool SymbolCmd::insertInstance(TXshChildLevel *symbol, int row, int col) {
     return false;
   }
 
+  // use the column if it is free, otherwise insert a new column there or use
+  // the first free column on its right
+  col               = std::max(0, col);
+  bool insertNewCol = !isColumnFree(xsh, col) && insertColumn;
+  if (!insertNewCol)
+    while (!isColumnFree(xsh, col)) col++;
+
   TUndo *undo =
-      new InsertInstanceUndo(symbol, std::max(0, row), std::max(0, col));
+      new InsertInstanceUndo(symbol, std::max(0, row), col, insertNewCol);
   undo->redo();
   TUndoManager::manager()->add(undo);
 
-  app->getCurrentColumn()->setColumnIndex(std::max(0, col));
+  app->getCurrentColumn()->setColumnIndex(col);
   return true;
 }
 

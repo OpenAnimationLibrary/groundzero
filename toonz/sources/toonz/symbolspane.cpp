@@ -351,7 +351,8 @@ void SymbolsPane::insertInstance() {
   TXshChildLevel *symbol = getCurrentSymbol();
   if (!symbol) return;
 
-  // in the current column if it is empty, otherwise in a new column next to it
+  // in the current column if it is empty, otherwise next to it (in a new
+  // column unless the next one is empty)
   TApp *app    = TApp::instance();
   TXsheet *xsh = app->getCurrentXsheet()->getXsheet();
   int row      = app->getCurrentFrame()->getFrame();
@@ -360,7 +361,7 @@ void SymbolsPane::insertInstance() {
     col = 0;
   else if (!xsh->isColumnEmpty(col))
     col++;
-  SymbolCmd::insertInstance(symbol, row, col);
+  SymbolCmd::insertInstance(symbol, row, col, true);
 }
 
 //-----------------------------------------------------------------------------

@@ -23,10 +23,13 @@ namespace SymbolCmd {
 //! Asks for a name, then collapses the columns into a new symbol (as Collapse).
 void convertToSymbol(std::set<int> &indices);
 
-//! Inserts a new column at \b col in the current xsheet, exposing all the
-//! symbol frames from \b row. Returns false, after telling the user, if the
-//! symbol contains the current xsheet.
-bool insertInstance(TXshChildLevel *symbol, int row, int col);
+//! Exposes all the symbol frames from \b row in column \b col of the current
+//! xsheet if that column is empty. Otherwise a new column is inserted at \b col
+//! if \b insertColumn is true, else the first empty column on the right of
+//! \b col is used; \b col returns the column used. Returns false, after
+//! telling the user, if the symbol contains the current xsheet.
+bool insertInstance(TXshChildLevel *symbol, int row, int &col,
+                    bool insertColumn);
 
 //! Opens the symbol (as Open Sub-Xsheet) from one of its instances in the
 //! current xsheet.

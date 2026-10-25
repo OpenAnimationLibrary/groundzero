@@ -2217,11 +2217,14 @@ public:
           IoCmd::exposeLevel(sl, row, col, fids, insert, overWrite);
         }
     } else if (!m_data->m_symbols.empty()) {
-      // each symbol instance is placed in a new column
+      // Each symbol instance is placed in its own empty column, from the drop
+      // column rightwards. As Shift inserts cells when dropping levels, it
+      // inserts a new column at the drop column when that is not empty.
       TUndoManager::manager()->beginBlock();
-      for (int i = 0; i < (int)m_data->m_symbols.size(); i++)
+      int c = col;
+      for (int i = 0; i < (int)m_data->m_symbols.size(); i++, c++)
         if (!SymbolCmd::insertInstance(m_data->m_symbols[i].getPointer(), row,
-                                       col + i))
+                                       c, insert))
           break;
       TUndoManager::manager()->endBlock();
     }
