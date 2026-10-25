@@ -88,6 +88,14 @@ jobs:
             -DWITH_TRANSLATION=OFF
           ninja -j $(sysctl -n hw.ncpu)
           ctest --output-on-failure
+      # FX renders that are missing or differ from their reference images.
+      - name: Upload FX render results
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: fxrender-output-macos
+          path: toonz/build/stdfx/fxrender-output
+          if-no-files-found: ignore
       - name: Introduce Libraries and Stuff
         run: |
           cd toonz/build/toonz

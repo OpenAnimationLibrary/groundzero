@@ -60,6 +60,15 @@ jobs:
         ninja
         ctest --output-on-failure
 
+    # FX renders that are missing or differ from their reference images.
+    - name: Upload FX render results
+      if: always()
+      uses: actions/upload-artifact@v6
+      with:
+        name: fxrender-output-${{ matrix.compiler }}
+        path: toonz/build/stdfx/fxrender-output
+        if-no-files-found: ignore
+
     - name: Create Artifact
       run: |
         cd toonz/build
