@@ -477,7 +477,8 @@ TRaster32P padRaster(const TRaster32P &ras, TPointD &center,
 
   TRaster32P padded(paddedLx, paddedLy);
   padded->clear();
-  TRasterP inner = padded->extract(TRect(l, b, l + lx - 1, b + ly - 1));
+  TRect innerRect(l, b, l + lx - 1, b + ly - 1);
+  TRasterP inner = padded->extract(innerRect);
   inner->copy(ras);
 
   center.x += 0.5 * (r - l);
