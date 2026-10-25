@@ -1,4 +1,8 @@
 <fxlayout>
   <page name="Auto-Patch">
+    <control>enablePatch</control>
+    <control>jointPoint</control>
+    <control>jointRadius</control>
+    <control>softness</control>
   </page>
 </fxlayout>

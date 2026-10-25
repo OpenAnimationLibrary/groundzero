@@ -432,6 +432,10 @@
   <item>"STD_colourOverrideFx.color8"	"Color 8"	</item>
 
   <item>"STD_autoPatchFx"	"Auto-Patch"	</item>
+  <item>"STD_autoPatchFx.enablePatch"	"Enable Patch"	</item>
+  <item>"STD_autoPatchFx.jointPoint"	"Joint Point X"	</item>
+  <item>"STD_autoPatchFx.jointRadius"	"Joint Radius"	</item>
+  <item>"STD_autoPatchFx.softness"	"Softness"	</item>
 
 
 
