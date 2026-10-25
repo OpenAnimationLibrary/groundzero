@@ -18,6 +18,7 @@
 #include <time.h>
 #include <err.h>
 #include <regex>
+#include <atomic>
 #endif
 
 #include "tgl.h"
@@ -523,8 +524,14 @@ static void writeUtcTime(int fd, time_t t) {
   writeText(fd, " UTC");
 }
 
+// The handler runs on this stack, so that a stack overflow (SIGSEGV) is
+// reported too. SIGSTKSZ may not be a constant, so use a fixed size.
+alignas(16) static char s_signalStack[65536];
+
 void signalHandler(int sig) {
-  static volatile sig_atomic_t handling = 0;
+  // test_and_set() is lock-free and async-signal-safe, and also works when
+  // two threads crash at the same time
+  static std::atomic_flag handling = ATOMIC_FLAG_INIT;
 
   const char *reason = "Unknown";
   switch (sig) {
@@ -549,9 +556,8 @@ void signalHandler(int sig) {
 
   // Only async-signal-safe calls below. Avoid new signals inside the crash
   // handler: a second crash goes straight to the default action.
-  if (!handling && s_pendingReportPath[0]) {
-    handling = 1;
-    int fd   = open(s_pendingReportPath, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+  if (!handling.test_and_set() && s_pendingReportPath[0]) {
+    int fd = open(s_pendingReportPath, O_WRONLY | O_CREAT | O_TRUNC, 0644);
     if (fd >= 0) {
       writeAll(fd, s_reportIntro, s_reportIntroLen);
       writeText(fd, "\nReport Date: ");
@@ -574,7 +580,6 @@ void signalHandler(int sig) {
       close(fd);
     }
   }
-  handling = 1;
 
   // Let the OS perform its normal crash handling (core dump, system crash
   // reporter, exit status)
@@ -769,13 +774,29 @@ void CrashHandler::install() {
   void *frames[1];
   backtrace(frames, 1);
 
-  // SIGINT and SIGTERM are not crashes and keep their default behavior.
-  signal(SIGABRT, signalHandler);
-  signal(SIGFPE, signalHandler);
-  signal(SIGILL, signalHandler);
-  signal(SIGSEGV, signalHandler);
+  // The alternate stack is per thread: it covers the thread calling
+  // install() (the main thread).
+  stack_t ss;
+  memset(&ss, 0, sizeof(ss));
+  ss.ss_sp    = s_signalStack;
+  ss.ss_size  = sizeof(s_signalStack);
+  ss.ss_flags = 0;
+  sigaltstack(&ss, NULL);
+
+  // Same semantics as signal() (BSD: SA_RESTART, the handler stays
+  // installed), plus SA_ONSTACK. SIGINT and SIGTERM are not crashes and keep
+  // their default behavior.
+  struct sigaction sa;
+  memset(&sa, 0, sizeof(sa));
+  sa.sa_handler = signalHandler;
+  sigemptyset(&sa.sa_mask);
+  sa.sa_flags = SA_ONSTACK | SA_RESTART;
+  sigaction(SIGABRT, &sa, NULL);
+  sigaction(SIGFPE, &sa, NULL);
+  sigaction(SIGILL, &sa, NULL);
+  sigaction(SIGSEGV, &sa, NULL);
 #ifdef SIGBUS
-  signal(SIGBUS, signalHandler);
+  sigaction(SIGBUS, &sa, NULL);
 #endif
 #endif
 }
