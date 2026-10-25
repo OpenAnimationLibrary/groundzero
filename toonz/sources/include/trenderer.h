@@ -215,6 +215,17 @@ public:
   void enablePrecomputing(bool on);
   bool isPrecomputingEnabled() const;
 
+  //! Allows a render with fewer frames than threads to split each frame into
+  //! horizontal strips computed on concurrent threads. Disabled by default.
+  //! Strips are used only when precomputing would not subdivide the frame
+  //! (no max tile size, or precomputing disabled) and no fx in the tree is
+  //! known to depend on the tile geometry or on per-thread state; when they
+  //! are used, precomputing is skipped for that render. Strip i of n covers
+  //! the rows [ly * i / n, ly * (i + 1) / n), with n not exceeding the
+  //! threads available to the frame nor ly / 64.
+  void enableFrameStrips(bool on);
+  bool isFrameStripsEnabled() const;
+
   void setThreadsCount(int nThreads);
 
   static TRenderer instance();

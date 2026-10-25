@@ -185,6 +185,7 @@ enum PreferencesItemId {
   previewAlwaysOpenNewFlip,
   fitToFlipbookWhenPreview,
   generatedMovieViewEnabled,
+  renderFrameOnMultipleThreads,
   shortPlayFrameCount,
 
   //----------

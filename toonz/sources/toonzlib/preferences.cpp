@@ -671,6 +671,8 @@ void Preferences::definePreferenceItems() {
          false);
   define(generatedMovieViewEnabled, "generatedMovieViewEnabled",
          QMetaType::Bool, true);
+  define(renderFrameOnMultipleThreads, "renderFrameOnMultipleThreads",
+         QMetaType::Bool, false);
 
   // Onion Skin
   define(onionSkinEnabled, "onionSkinEnabled", QMetaType::Bool, true);
