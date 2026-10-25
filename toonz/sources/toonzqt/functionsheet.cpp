@@ -28,6 +28,13 @@
 #include <QApplication>  //for drag&drop
 #include <QDrag>
 #include <QPushButton>
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QDoubleSpinBox>
+#include <QFormLayout>
+
+// STD includes
+#include <iterator>
 
 //********************************************************************************
 //    Local namespace stuff
@@ -43,6 +50,120 @@ const int cGroupLongNameY = 27;  //!< Same for its long name tabs
 const int cChannelNameY = 50;  //!< Column header's y pos of channel name tabs,
                                //! up to the widget's height
 const int cColHeadersEndY = 87;  //!< End of column headers y pos
+
+// Ease In / Ease Out (%) presets offered for the selected segments.
+// The Ease Out percentage leaves a segment's first key and the Ease In
+// percentage reaches its last key, as in the segment editor.
+struct EasePreset {
+  const char *name;
+  double easeOut, easeIn;
+};
+
+const EasePreset cEasePresets[] = {
+    {QT_TRANSLATE_NOOP("FunctionSheetCellViewer", "Ease In / Ease Out 33%"),
+     100.0 / 3, 100.0 / 3},
+    {QT_TRANSLATE_NOOP("FunctionSheetCellViewer", "Ease In / Ease Out 50%"), 50,
+     50},
+    {QT_TRANSLATE_NOOP("FunctionSheetCellViewer", "Ease Out 50%"), 50, 0},
+    {QT_TRANSLATE_NOOP("FunctionSheetCellViewer", "Ease In 50%"), 0, 50},
+    {QT_TRANSLATE_NOOP("FunctionSheetCellViewer", "Ease Out 100%"), 100, 0},
+    {QT_TRANSLATE_NOOP("FunctionSheetCellViewer", "Ease In 100%"), 0, 100}};
+
+// Breakdown presets: the new key's value as a percentage of the way from the
+// previous key's value to the next one's.
+struct BreakdownPreset {
+  const char *name;
+  double favour;
+};
+
+const BreakdownPreset cBreakdownPresets[] = {
+    {QT_TRANSLATE_NOOP("FunctionSheetCellViewer", "Favor Previous Key 25%"),
+     25},
+    {QT_TRANSLATE_NOOP("FunctionSheetCellViewer", "Favor Previous Key 33%"),
+     100.0 / 3},
+    {QT_TRANSLATE_NOOP("FunctionSheetCellViewer", "Halfway 50%"), 50},
+    {QT_TRANSLATE_NOOP("FunctionSheetCellViewer", "Favor Next Key 66%"),
+     200.0 / 3},
+    {QT_TRANSLATE_NOOP("FunctionSheetCellViewer", "Favor Next Key 75%"), 75},
+    {QT_TRANSLATE_NOOP("FunctionSheetCellViewer", "Anticipation -10%"), -10},
+    {QT_TRANSLATE_NOOP("FunctionSheetCellViewer", "Overshoot 110%"), 110}};
+
+// Asks for a breakdown percentage. Returns false if canceled.
+bool getCustomBreakdown(QWidget *parent, double &favour) {
+  QDialog dialog(parent);
+  dialog.setWindowTitle(QCoreApplication::translate("FunctionSheetCellViewer",
+                                                    "Custom Breakdown"));
+
+  QDoubleSpinBox *favourFld = new QDoubleSpinBox(&dialog);
+  favourFld->setRange(-100.0, 200.0);
+  favourFld->setDecimals(1);
+  favourFld->setSuffix("%");
+  favourFld->setValue(favour);
+  favourFld->setToolTip(QCoreApplication::translate(
+      "FunctionSheetCellViewer",
+      "0% keeps the previous key's value, 100% the next key's. Values below "
+      "0% or above 100% give an anticipation or an overshoot."));
+
+  QDialogButtonBox *buttons = new QDialogButtonBox(
+      QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+  QObject::connect(buttons, SIGNAL(accepted()), &dialog, SLOT(accept()));
+  QObject::connect(buttons, SIGNAL(rejected()), &dialog, SLOT(reject()));
+
+  QFormLayout *layout = new QFormLayout(&dialog);
+  layout->addRow(QCoreApplication::translate("FunctionSheetCellViewer",
+                                             "Position Between Keys:"),
+                 favourFld);
+  layout->addRow(buttons);
+
+  if (dialog.exec() != QDialog::Accepted) return false;
+  favour = favourFld->value();
+  return true;
+}
+
+// Asks for Ease Out and Ease In percentages. The fields keep their sum at
+// 100% or less. Returns false if canceled.
+bool getCustomEase(QWidget *parent, double &easeOut, double &easeIn) {
+  QDialog dialog(parent);
+  dialog.setWindowTitle(
+      QCoreApplication::translate("FunctionSheetCellViewer", "Custom Ease"));
+
+  QDoubleSpinBox *easeOutFld = new QDoubleSpinBox(&dialog);
+  QDoubleSpinBox *easeInFld  = new QDoubleSpinBox(&dialog);
+  for (QDoubleSpinBox *field : {easeOutFld, easeInFld}) {
+    field->setRange(0.0, 100.0);
+    field->setDecimals(1);
+    field->setSuffix("%");
+  }
+  easeOutFld->setValue(easeOut);
+  easeInFld->setMaximum(100.0 - easeOutFld->value());
+  easeInFld->setValue(easeIn);
+  easeOutFld->setMaximum(100.0 - easeInFld->value());
+  QObject::connect(easeOutFld,
+                   QOverload<double>::of(&QDoubleSpinBox::valueChanged),
+                   [easeInFld](double v) { easeInFld->setMaximum(100.0 - v); });
+  QObject::connect(
+      easeInFld, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
+      [easeOutFld](double v) { easeOutFld->setMaximum(100.0 - v); });
+
+  QDialogButtonBox *buttons = new QDialogButtonBox(
+      QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+  QObject::connect(buttons, SIGNAL(accepted()), &dialog, SLOT(accept()));
+  QObject::connect(buttons, SIGNAL(rejected()), &dialog, SLOT(reject()));
+
+  QFormLayout *layout = new QFormLayout(&dialog);
+  layout->addRow(
+      QCoreApplication::translate("FunctionSheetCellViewer", "Ease Out:"),
+      easeOutFld);
+  layout->addRow(
+      QCoreApplication::translate("FunctionSheetCellViewer", "Ease In:"),
+      easeInFld);
+  layout->addRow(buttons);
+
+  if (dialog.exec() != QDialog::Accepted) return false;
+  easeOut = easeOutFld->value();
+  easeIn  = easeInFld->value();
+  return true;
+}
 
 }  // namespace
 
@@ -1088,9 +1209,26 @@ void FunctionSheetCellViewer::openContextMenu(QMouseEvent *e) {
   if (!isKeyframe)  // menu.addAction(&deleteKeyframeAction); else
     menu.addAction(&insertKeyframeAction);
 
+  // breakdown commands, when the clicked row is between two keys
+  QList<QAction *> breakdownActions;
+  QAction *customBreakdownAction = nullptr;
+  if (!isEmpty && !isKeyframe && kIndex >= 0) {
+    QMenu *breakdownMenu = menu.addMenu(tr("Set Breakdown Key"));
+    for (int i = 0; i < (int)std::size(cBreakdownPresets); i++) {
+      QAction *breakdownAction =
+          breakdownMenu->addAction(tr(cBreakdownPresets[i].name));
+      breakdownAction->setData(i);
+      breakdownActions.append(breakdownAction);
+    }
+    breakdownMenu->addSeparator();
+    customBreakdownAction = breakdownMenu->addAction(tr("Custom Breakdown..."));
+  }
+
   // change interpolation commands
   QList<QAction *> interpActions;
-  int interp = selection->getCommonSegmentType();
+  QList<QAction *> easeActions;
+  QAction *customEaseAction = nullptr;
+  int interp                = selection->getCommonSegmentType();
   if (interp != -1) {
     menu.addSeparator();
     QMenu *interpMenu = menu.addMenu(tr("Change Interpolation"));
@@ -1103,6 +1241,15 @@ void FunctionSheetCellViewer::openContextMenu(QMouseEvent *e) {
         interpMenu->addAction(interpAction);
       }
     }
+
+    QMenu *easeMenu = menu.addMenu(tr("Ease Presets"));
+    for (int i = 0; i < (int)std::size(cEasePresets); i++) {
+      QAction *easeAction = easeMenu->addAction(tr(cEasePresets[i].name));
+      easeAction->setData(i);
+      easeActions.append(easeAction);
+    }
+    easeMenu->addSeparator();
+    customEaseAction = easeMenu->addAction(tr("Custom Ease..."));
   }
 
   // change step commands
@@ -1141,6 +1288,22 @@ void FunctionSheetCellViewer::openContextMenu(QMouseEvent *e) {
     KeyframeSetter(curve).createKeyframe(row);
   } else if (interpActions.contains(action)) {
     selection->setSegmentType((TDoubleKeyframe::Type)action->data().toInt());
+  } else if (action && breakdownActions.contains(action)) {
+    selection->insertBreakdowns(
+        row, cBreakdownPresets[action->data().toInt()].favour / 100.0);
+  } else if (action && action == customBreakdownAction) {
+    // remember the last value for the session
+    static double favour = 50.0;
+    if (getCustomBreakdown(this, favour))
+      selection->insertBreakdowns(row, favour / 100.0);
+  } else if (action && easeActions.contains(action)) {
+    const EasePreset &preset = cEasePresets[action->data().toInt()];
+    selection->setSegmentEase(preset.easeOut, preset.easeIn);
+  } else if (action && action == customEaseAction) {
+    // remember the last values for the session
+    static double easeOut = 100.0 / 3, easeIn = 100.0 / 3;
+    if (getCustomEase(this, easeOut, easeIn))
+      selection->setSegmentEase(easeOut, easeIn);
   } else if (action == &activateCycleAction)
     KeyframeSetter::enableCycle(curve, true, sceneHandle);
   else if (action == &deactivateCycleAction)

@@ -649,30 +649,82 @@ int FunctionSelection::getCommonStep(bool inclusive) {
   return step;
 }
 
-void FunctionSelection::setSegmentType(TDoubleKeyframe::Type type,
-                                       bool inclusive) {
-  if (isEmpty()) return;
-  TUndoManager::manager()->beginBlock();
-
+QList<QPair<TDoubleParam *, QList<int>>> FunctionSelection::getSelectedSegments(
+    bool inclusive) const {
+  QList<QPair<TDoubleParam *, QList<int>>> segments;
   int row = getSelectedCells().top();
   for (const auto &col : m_selectedKeyframes) {
     TDoubleParam *curve = col.first;
     // need to have at least one segment
     if (!curve || curve->getKeyframeCount() <= 1) continue;
 
+    QList<int> indices;
     // consider the keyframe just before the top row of the selected cells
     if (inclusive) {
       int topIndex = curve->getPrevKeyframe(row);
       if (topIndex != -1 && topIndex != curve->getKeyframeCount() - 1 &&
           !col.second.contains(topIndex))
-        KeyframeSetter(curve, topIndex).setType(type);
+        indices.append(topIndex);
     }
 
     for (const int &kIndex : col.second) {
       // ignore the last key
       if (kIndex == curve->getKeyframeCount() - 1) continue;
-      KeyframeSetter(curve, kIndex).setType(type);
+      indices.append(kIndex);
     }
+    if (!indices.isEmpty()) segments.append(qMakePair(curve, indices));
+  }
+  return segments;
+}
+
+void FunctionSelection::setSegmentType(TDoubleKeyframe::Type type,
+                                       bool inclusive) {
+  if (isEmpty()) return;
+  TUndoManager::manager()->beginBlock();
+
+  for (const auto &segments : getSelectedSegments(inclusive))
+    for (int kIndex : segments.second)
+      KeyframeSetter(segments.first, kIndex).setType(type);
+
+  TUndoManager::manager()->endBlock();
+}
+
+void FunctionSelection::setSegmentEase(double easeOut, double easeIn,
+                                       bool inclusive) {
+  if (isEmpty()) return;
+  easeOut = tcrop(easeOut, 0.0, 100.0);
+  easeIn  = tcrop(easeIn, 0.0, 100.0 - easeOut);
+  TUndoManager::manager()->beginBlock();
+
+  for (const auto &segments : getSelectedSegments(inclusive)) {
+    TDoubleParam *curve = segments.first;
+    for (int kIndex : segments.second) {
+      // A setter caches its keyframe, so use a new one for each step.
+      KeyframeSetter(curve, kIndex)
+          .setType(TDoubleKeyframe::EaseInOutPercentage);
+      KeyframeSetter(curve, kIndex).setEaseOut(easeOut);
+      KeyframeSetter(curve, kIndex + 1).setEaseIn(-easeIn);
+    }
+  }
+
+  TUndoManager::manager()->endBlock();
+}
+
+void FunctionSelection::insertBreakdowns(int frame, double favour) {
+  if (isEmpty()) return;
+  TUndoManager::manager()->beginBlock();
+
+  for (const auto &col : m_selectedKeyframes) {
+    TDoubleParam *curve = col.first;
+    if (!curve || curve->isKeyframe(frame)) continue;
+    int prevIndex = curve->getPrevKeyframe(frame);
+    int nextIndex = curve->getNextKeyframe(frame);
+    if (prevIndex < 0 || nextIndex < 0) continue;
+
+    double prevValue = curve->getValue(curve->keyframeIndexToFrame(prevIndex));
+    double nextValue = curve->getValue(curve->keyframeIndexToFrame(nextIndex));
+    KeyframeSetter::setValue(curve, frame,
+                             prevValue + (nextValue - prevValue) * favour);
   }
 
   TUndoManager::manager()->endBlock();
