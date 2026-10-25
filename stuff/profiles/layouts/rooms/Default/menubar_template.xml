@@ -166,6 +166,7 @@
         <command>MI_Collapse</command>
         <command>MI_Resequence</command>
         <command>MI_CloneChild</command>
+        <command>MI_ConvertToSymbol</command>
         <command>MI_ExplodeChild</command>
         <command>MI_ToggleEditInPlace</command>
         <separator/>
@@ -234,6 +235,7 @@
         <command>MI_CloneLevel</command>
         <separator/>
         <command>MI_FillEmptyCell</command>
+        <command>MI_SymbolTiming</command>
     </menu>
     <menu title="Play">
         <command>MI_Play</command>
@@ -336,6 +338,7 @@
         <command>MI_StartupPopup</command>
         <command>MI_OpenGuidedDrawingControls</command>
         <command>MI_OpenAlignmentPanel</command>
+        <command>MI_OpenSymbols</command>
         <command>MI_OpenCustomPanels</command>
         <separator/>
         <command>MI_MaximizePanel</command>

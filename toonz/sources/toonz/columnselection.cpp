@@ -4,6 +4,7 @@
 
 // Tnz6 includes
 #include "subscenecommand.h"
+#include "symbolcommand.h"
 #include "menubarcommandids.h"
 #include "columncommand.h"
 #include "tapp.h"
@@ -54,6 +55,7 @@ void TColumnSelection::enableCommands() {
   enableCommand(this, MI_ExplodeChild, &TColumnSelection::explodeChild);
   enableCommand(this, MI_Resequence, &TColumnSelection::resequence);
   enableCommand(this, MI_CloneChild, &TColumnSelection::cloneChild);
+  enableCommand(this, MI_ConvertToSymbol, &TColumnSelection::convertToSymbol);
   enableCommand(this, MI_FoldColumns, &TColumnSelection::hideColumns);
   enableCommand(this, MI_GroupColumns, &TColumnSelection::groupColumns);
   enableCommand(this, MI_UngroupColumns, &TColumnSelection::ungroupColumns);
@@ -332,6 +334,12 @@ void TColumnSelection::groupColumns() { ColumnCmd::groupColumns(m_indices); }
 
 void TColumnSelection::ungroupColumns() {
   ColumnCmd::ungroupColumns(m_indices);
+}
+
+//-----------------------------------------------------------------------------
+
+void TColumnSelection::convertToSymbol() {
+  SymbolCmd::convertToSymbol(m_indices);
 }
 
 // obtain level set contained in the column specified by indices

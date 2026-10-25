@@ -20,6 +20,7 @@
 #include "commandbar.h"
 #include "flipbook.h"
 #include "castviewer.h"
+#include "symbolspane.h"
 #include "filebrowser.h"
 #include "scenebrowser.h"
 #include "filmstrip.h"
@@ -1267,6 +1268,22 @@ public:
     panel->setWindowTitle(QObject::tr("Scene Cast"));
   }
 } castViewerFactory;
+
+//=============================================================================
+// SymbolsFactory
+//-----------------------------------------------------------------------------
+
+class SymbolsFactory final : public TPanelFactory {
+public:
+  SymbolsFactory() : TPanelFactory("Symbols") {}
+  void initialize(TPanel *panel) override {
+    panel->setWidget(new SymbolsPane(panel));
+    panel->setWindowTitle(QObject::tr("Symbols"));
+  }
+} symbolsFactory;
+
+OpenFloatingPanel openSymbolsCommand(MI_OpenSymbols, "Symbols",
+                                     QObject::tr("Symbols"));
 
 //=============================================================================
 // FilmStripFactory
