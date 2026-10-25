@@ -42,6 +42,7 @@
 #include <QGridLayout>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QMainWindow>
 #include <QLineEdit>
 #include <QMutex>
 #include <QMutexLocker>
