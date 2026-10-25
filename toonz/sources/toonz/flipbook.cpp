@@ -1500,7 +1500,7 @@ void FlipBook::playAudioFrame(int frame) {
         }
       }
     }
-    m_flipConsole->showSoundLevels(m_snd, firstSample, lastSample);
+    m_flipConsole->showSoundLevels(m_snd.getPointer(), firstSample, lastSample);
   }
 }
 
