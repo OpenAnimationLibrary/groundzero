@@ -101,14 +101,14 @@ was written). What each one delivered and what is still partial:
 
 | # | Delivered | Still partial |
 |---|---|---|
-| B1 | Underlay/Overlay art layers (stroke role, tag written only when used), Art Layer Manager panel, Create Colour Art from Line Art | Roles are per stroke; no per-layer blend or lock-in-file |
+| B1 | Underlay/Overlay art layers (classified by stacking order, no file format change), Art Layer Manager panel with per-layer show/hide, Create Colour Art from Line Art | Underlay/Overlay exist only when the drawing has a Colour Art stroke |
 | B2 | Per-stroke opacity (outline-options tag, written only when not 1), Pump "Opacity Brush", Selection "Opacity:" field (`doc/pencil_opacity.md`) | Not per point; ignored by pattern, vector-brush and MyPaint styles; no animated texture offset |
 | B3 | ABR parser (v1/v2, v6 to v10), File > Import > Photoshop Brushes, "Tip:" in the full-colour Brush (`doc/abr_brushes.md`) | Tips only: no dynamics or computed brushes; not on Toonz Raster or vector brushes |
 | B4 | Automatic stroke matching (Hungarian assignment), zone hints, custom ease curve in the In-Between dialog (`doc/morphing.md`) | Hints are in memory only; no vanishing-point hints |
-| B5 | Colour Override swatch picker, tint modes, viewer display preference | Style-parameter and texture override not covered |
+| B5 | Colour Override swatch picker, Replace/Multiply/Add modes, "Show Colour Override in the Viewer" preference | Viewer display skips the 3D view, sub-xsheet columns and multi-output columns |
 | B6 | Light Shading FX: radial and directional (volume) modes, bands, softness, line protection (`doc/light_shading_fx.md`) | CPU only; normals from alpha only; no separate specular model |
 | B7 | Per-column time remap curve, Hold / Loop / Reverse presets, saved only when used (`doc/time_remap.md`) | Xsheet cells still show original timing; scene length comes from the cells |
-| B8 | Storyboard: drag reorder, notes, bounded play, camera thumbnails | Notes are in the scene tags (older builds drop them) |
+| B8 | Storyboard: drag reorder, notes, bounded play, camera thumbnails | Older builds cannot open a scene that uses notes |
 | B9 | Lasso Cutter keeps fills with invisible closing strokes; "Paste To" new frame or column | Closing strokes only in the current group; tangential touches add none |
 
 ---
