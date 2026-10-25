@@ -24,6 +24,7 @@
 #include "tools/toolutils.h"
 #include "tools/assistant.h"
 #include "tools/replicator.h"
+#include "tools/artlayer.h"
 
 // TnzQt includes
 #include "toonzqt/icongenerator.h"
@@ -2217,6 +2218,10 @@ void SceneViewer::drawScene() {
     }
 
     m_visualSettings.m_showBBox = viewBBoxToggle.getStatus();
+    m_visualSettings.m_showColourArt =
+        ArtLayer::target() != ArtLayer::TARGET_OFF;
+    m_visualSettings.m_fadeLineArt   = ArtLayer::isFaded(ArtLayer::LINE_ART);
+    m_visualSettings.m_fadeColourArt = ArtLayer::isFaded(ArtLayer::COLOUR_ART);
 
     Stage::RasterPainter painter(viewerSize, viewAff, clipRect,
                                  m_visualSettings, true);

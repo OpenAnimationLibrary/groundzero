@@ -12,6 +12,7 @@
 #include "tcolorstyles.h"
 #include "tpalette.h"
 #include "tools/toolutils.h"
+#include "tools/artlayer.h"
 #include "tstroke.h"
 #include "tmathutil.h"
 #include "tools/cursors.h"
@@ -527,6 +528,7 @@ PrimitiveParam::PrimitiveParam(int targetType)
     m_snapSensitivity.addValue(MEDIUM_WSTR);
     m_snapSensitivity.addValue(HIGH_WSTR);
     m_snapSensitivity.setId("SnapSensitivity");
+    ArtLayer::bindProperties(m_prop[0]);
   }
   if (targetType & TTool::ToonzImage) {
     m_prop[0].bind(m_emptyOnly);
@@ -603,6 +605,7 @@ void PrimitiveParam::updateTranslation() {
     m_snapSensitivity.setItemUIName(LOW_WSTR, tr("Low"));
     m_snapSensitivity.setItemUIName(MEDIUM_WSTR, tr("Med"));
     m_snapSensitivity.setItemUIName(HIGH_WSTR, tr("High"));
+    ArtLayer::updateTranslation();
   }
 }
 
@@ -633,7 +636,9 @@ public:
        ---*/
       if (m_param->m_pencil.getValue()) thick -= 0.5;
       return thick;
-    } else
+    } else if (ArtLayer::target() == ArtLayer::TARGET_COLOUR_ART)
+      return 0.0;  // Colour Art strokes have no thickness
+    else
       return m_param->m_toolSize.getValue() * 0.5 * Stage::inch /
              m_tool->getApplication()
                  ->getCurrentScene()
@@ -1281,6 +1286,7 @@ void GeometricTool::mouseMove(const TPointD &p, const TMouseEvent &e) {
 
 //--------------------------------------------------------------------------------------------------
 void GeometricTool::onActivate() {
+  if (m_targetType & TTool::Vectors) ArtLayer::loadSettings();
   if (m_firstTime) {
     m_param.m_toolSize.setValue(GeometricSize);
     m_param.m_rasterToolSize.setValue(GeometricRasterSize);
@@ -1374,6 +1380,10 @@ bool GeometricTool::onPropertyChanged(std::string propertyName) {
   /*--- Process by changed Property.
           Note: m_toolSize and m_rasterToolSize have the same Name(="Size:"), so
           distinguish by whether the image being handled is raster or not ---*/
+  if (ArtLayer::onPropertyChanged(propertyName)) {
+    invalidate();  // "Show Art:" changes what the viewer shows
+    return true;
+  }
   if (propertyName == m_param.m_toolSize.getName()) {
     TImageP img = getImage(false);
     TToonzImageP ri(img); /*-- Judgment of whether it is raster or not --*/
@@ -1735,6 +1745,7 @@ void GeometricTool::addStroke() {
     } else {
       int styleId = TTool::getApplication()->getCurrentLevelStyleIndex();
       if (styleId >= 0) stroke->setStyle(styleId);
+      ArtLayer::applyTarget(*stroke);
       QMutexLocker lock(vi->getMutex());
       std::vector<TFilledRegionInf> *fillInformation =
           new std::vector<TFilledRegionInf>;
