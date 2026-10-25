@@ -979,6 +979,13 @@ void RasterPainter::onVectorImage(TVectorImage *vi,
   rd.m_show0ThickStrokes     = prefs.getShow0ThickLines();
   rd.m_regionAntialias       = prefs.getRegionAntialias();
   rd.m_animatedGuidedDrawing = prefs.getAnimatedGuidedDrawing();
+  if (player.m_isCurrentColumn &&
+      (player.m_onionSkinDistance == 0 ||
+       player.m_onionSkinDistance == c_noOnionSkin)) {
+    if (m_vs.m_showColourArt) rd.m_show0ThickStrokes = true;
+    rd.m_fadeThickStrokes  = m_vs.m_fadeLineArt;
+    rd.m_fade0ThickStrokes = m_vs.m_fadeColourArt;
+  }
   if (player.m_onionSkinDistance != 0 &&
       (player.m_isCurrentColumn || player.m_isCurrentXsheetLevel)) {
     if (player.m_isGuidedDrawingEnabled == 3         // show guides on all

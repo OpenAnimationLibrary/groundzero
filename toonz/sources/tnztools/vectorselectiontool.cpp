@@ -6,6 +6,7 @@
 #include "tools/toolhandle.h"
 #include "tools/imagegrouping.h"
 #include "tools/cursors.h"
+#include "tools/artlayer.h"
 
 // TnzQt includes
 #include "toonzqt/selectioncommandids.h"
@@ -111,6 +112,11 @@ bool getStrokeIndexFromPos(UINT &index, const TVectorImageP &vi,
     double len         = cursor.thick * pixelSize * sqrt(aff.det());
     checkDist          = std::max(checkDist, (len * len));
   }
+
+  // Line Art / Colour Art: strokes of the other role can't be picked
+  if (dist2 < checkDist && index < vi->getStrokeCount() &&
+      !ArtLayer::isEditable(*vi->getStroke(index)))
+    return false;
 
   return (dist2 < checkDist);
 }
@@ -1332,6 +1338,7 @@ VectorSelectionTool::VectorSelectionTool(int targetType)
   m_prop.bind(m_selectionTarget);
   m_prop.bind(m_includeIntersection);
   m_prop.bind(m_constantThickness);
+  ArtLayer::bindProperties(m_prop);
 
   m_selectionTarget.addValue(NORMAL_TYPE);
   m_selectionTarget.addValue(SELECTED_FRAMES_TYPE);
@@ -1467,6 +1474,7 @@ void VectorSelectionTool::updateTranslation() {
   m_joinStyle.setItemUIName(BEVEL_WSTR, tr("Bevel join"));
 
   m_miterJoinLimit.setQStringName(tr("Miter:"));
+  ArtLayer::updateTranslation();
   SelectionTool::updateTranslation();
 }
 
@@ -1555,6 +1563,19 @@ void VectorSelectionTool::finalizeSelection() {
           getSelectedStrokes(*vi, m_levelSelection);
       std::set<int>(selectedStrokes.begin(), selectedStrokes.end())
           .swap(selection);
+    }
+  }
+
+  // Line Art / Colour Art: keep only the strokes of the edited role
+  if (vi && ArtLayer::target() != ArtLayer::TARGET_OFF) {
+    std::set<int> &selection = m_strokeSelection.getSelection();
+    int strokeCount          = vi->getStrokeCount();
+    for (auto it = selection.begin(); it != selection.end();) {
+      if (*it >= 0 && *it < strokeCount &&
+          !ArtLayer::isEditable(*vi->getStroke(*it)))
+        it = selection.erase(it);
+      else
+        ++it;
     }
   }
 
@@ -2051,6 +2072,8 @@ bool VectorSelectionTool::selectStroke(int index, bool toggle) {
   if (index < 0 || index >= int(vi->getStrokeCount()))  // Should be asserted...
     return false;
 
+  if (!ArtLayer::isEditable(*vi->getStroke(index))) return false;
+
   bool wasSelected = m_strokeSelection.isSelected(index),
        selectState = !(wasSelected && toggle);
 
@@ -2073,7 +2096,8 @@ bool VectorSelectionTool::selectStroke(int index, bool toggle) {
   {
     int s, sCount = vi->getStrokeCount();
     for (s = 0; s != sCount; ++s) {
-      if (vi->selectable(s) && vi->sameSubGroup(index, s))
+      if (vi->selectable(s) && vi->sameSubGroup(index, s) &&
+          ArtLayer::isEditable(*vi->getStroke(s)))
         m_strokeSelection.select(s, selectState);
     }
   } else  // Single stroke selection
@@ -2085,6 +2109,7 @@ bool VectorSelectionTool::selectStroke(int index, bool toggle) {
 //-----------------------------------------------------------------------------
 
 void VectorSelectionTool::onActivate() {
+  ArtLayer::loadSettings();
   if (m_firstTime) {
     m_includeIntersection.setValue(l_strokeSelectIncludeIntersection ? 1 : 0);
     m_constantThickness.setValue(l_strokeSelectConstantThickness ? 1 : 0);
@@ -2183,6 +2208,12 @@ TPropertyGroup *VectorSelectionTool::getProperties(int idx) {
 //-----------------------------------------------------------------------------
 
 bool VectorSelectionTool::onPropertyChanged(std::string propertyName) {
+  if (ArtLayer::onPropertyChanged(propertyName)) {
+    finalizeSelection();  // Drops the strokes of a role no longer edited
+    invalidate();
+    return true;
+  }
+
   if (!m_strokeSelection.isEditable()) return false;
 
   if (SelectionTool::onPropertyChanged(propertyName)) return true;

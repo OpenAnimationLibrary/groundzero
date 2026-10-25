@@ -11,6 +11,7 @@
 #include "tools/toolhandle.h"
 #include "tools/tool.h"
 #include "tools/toolutils.h"
+#include "tools/artlayer.h"
 
 // TnzQt includes
 #include "toonzqt/selectioncommandids.h"
@@ -691,7 +692,7 @@ void StrokeSelection::selectAll() {
   int sCount = int(m_vi->getStrokeCount());
 
   for (int s = 0; s < sCount; ++s) {
-    m_indexes.insert(s);
+    if (ArtLayer::isEditable(*m_vi->getStroke(s))) m_indexes.insert(s);
   }
 
   StrokeSelection *selection = dynamic_cast<StrokeSelection *>(
