@@ -75,6 +75,11 @@ public:
 
   void add(TStageObject::Channel actionId);
 
+  // Adds the optional 3D tilt channels of the edited object if it already
+  // uses them (see TStageObject::isFullKeyframeChannel()), so that global
+  // keyframes keep them in sync. Call once the handles are set.
+  void addTiltChannelsInUse();
+
   void updateValues();                              // this <- current values
   void applyValues(bool undoEnabled = true) const;  // this -> current values;
   // n.b. set undoEnabled=false if you call this method from undo()/redo()
