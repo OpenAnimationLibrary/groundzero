@@ -336,7 +336,7 @@ void ToolPropertyButton::paintEvent(QPaintEvent *) {
   }
 }
 
-void ToolPropertyButton::enterEvent(QEvent *event) {
+void ToolPropertyButton::enterEvent(TEnterEvent *event) {
   if (!isEnabled() || !m_hoverEnabled) return;
   QToolButton::enterEvent(event);
 }
