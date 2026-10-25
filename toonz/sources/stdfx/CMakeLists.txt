@@ -349,14 +349,15 @@ if(OpenCV_FOUND)
 endif()
 
 # Optional regression target for the production LUT parser and raster FX.
-option(BUILD_LUT3D_TESTS "Build the 3D LUT Bake regression executable" OFF)
+option(BUILD_LUT3D_TESTS "Build the 3D LUT Bake regression executable" ${BUILD_TESTS})
 if(BUILD_LUT3D_TESTS)
     add_executable(lut3dbake_test tests/lut3dbake_test.cpp)
     target_link_libraries(lut3dbake_test Qt5::Core Qt5::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME lut3dbake COMMAND lut3dbake_test)
 endif()
 
 # Optional regression targets for the GLB-backed 3D FX framework.
-option(BUILD_GLB_FX_TESTS "Build the 3D FX framework regression executables" OFF)
+option(BUILD_GLB_FX_TESTS "Build the 3D FX framework regression executables" ${BUILD_TESTS})
 if(BUILD_GLB_FX_TESTS)
     add_executable(glbmodelfx_test tests/glbmodelfx_test.cpp)
     target_link_libraries(glbmodelfx_test otglb toonzqt Qt5::Core Qt5::Gui Qt5::Widgets ${TNZLIBS} ${PTHREAD_LIBRARY})
@@ -364,6 +365,13 @@ if(BUILD_GLB_FX_TESTS)
     target_link_libraries(threepointlightfx_test otglb Qt5::Core Qt5::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
     add_executable(transform3dfx_test tests/transform3dfx_test.cpp)
     target_link_libraries(transform3dfx_test otglb Qt5::Core Qt5::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME glbmodelfx COMMAND glbmodelfx_test)
+    add_test(NAME threepointlightfx COMMAND threepointlightfx_test)
+    add_test(NAME transform3dfx COMMAND transform3dfx_test)
+    # glbmodelfx_test creates a QApplication; CI machines have no display.
+    if(NOT WIN32)
+        set_tests_properties(glbmodelfx PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+    endif()
 endif()
 
 # Optional regression target for multipart, tiled, and channel-mapped EXR AOVs.

@@ -260,7 +260,7 @@ jobs:
           msbuild /p:Configuration=RelWithDebInfo /m /verbosity:minimal stdfx\lut3dbake_test.vcxproj
           if %errorlevel% neq 0 exit /b %errorlevel%
           set "PATH=%QT_PATH%\bin;%GITHUB_WORKSPACE%\thirdparty\glut\3.7.6\lib;%GITHUB_WORKSPACE%\thirdparty\glew\glew-1.9.0\bin\64bit;%GITHUB_WORKSPACE%\thirdparty\libmypaint\dist\64;C:\tools\opencv\build\x64\vc16\bin;%PATH%"
-          RelWithDebInfo\lut3dbake_test.exe
+          ctest -C RelWithDebInfo --output-on-failure -R "^lut3dbake$"
           if %errorlevel% neq 0 exit /b %errorlevel%
 
       - name: Build and test 3D FX rendering
@@ -274,11 +274,7 @@ jobs:
           msbuild /p:Configuration=RelWithDebInfo /m /verbosity:minimal stdfx\transform3dfx_test.vcxproj
           if %errorlevel% neq 0 exit /b %errorlevel%
           set "PATH=%QT_PATH%\bin;%GITHUB_WORKSPACE%\thirdparty\glut\3.7.6\lib;%GITHUB_WORKSPACE%\thirdparty\glew\glew-1.9.0\bin\64bit;%GITHUB_WORKSPACE%\thirdparty\libmypaint\dist\64;C:\tools\opencv\build\x64\vc16\bin;%PATH%"
-          RelWithDebInfo\glbmodelfx_test.exe
-          if %errorlevel% neq 0 exit /b %errorlevel%
-          RelWithDebInfo\threepointlightfx_test.exe
-          if %errorlevel% neq 0 exit /b %errorlevel%
-          RelWithDebInfo\transform3dfx_test.exe
+          ctest -C RelWithDebInfo --output-on-failure -R "^(glbmodelfx|threepointlightfx|transform3dfx)$"
           if %errorlevel% neq 0 exit /b %errorlevel%
 
       # Build Opentoonz using MSBuild
