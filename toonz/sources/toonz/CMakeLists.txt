@@ -547,7 +547,8 @@ if (WITH_PYTHON)
     add_definitions(-DWITH_PYTHON)
 endif()
 
-if (WITH_WINTAB AND BUILD_TARGET_WIN AND (PLATFORM EQUAL 64))
+# The WinTab switch exists in the customized Qt 5.15.2 only (not ported to Qt 6)
+if (WITH_WINTAB AND BUILD_TARGET_WIN AND (PLATFORM EQUAL 64) AND (QT_VERSION_MAJOR EQUAL 5))
     add_definitions(-DWITH_WINTAB)
 endif()
 

@@ -140,7 +140,7 @@ QWidget *DvDirTreeViewDelegate::createEditor(QWidget *parent,
   QPixmap px = node->getPixmap(m_treeView->isExpanded(index));
   QRect rect = option.rect;
 
-  if (index.data().canConvert(QMetaType::QString)) {
+  if (index.data().canConvert<QString>()) {
     NodeEditor *editor = new NodeEditor(parent, rect, px.width());
     editor->setText(index.data().toString());
     connect(editor, &NodeEditor::editingFinished, this,
@@ -288,7 +288,7 @@ void DvDirTreeViewDelegate::paint(QPainter *painter,
 
 void DvDirTreeViewDelegate::setEditorData(QWidget *editor,
                                           const QModelIndex &index) const {
-  if (index.data().canConvert(QMetaType::QString)) {
+  if (index.data().canConvert<QString>()) {
     NodeEditor *nodeEditor = qobject_cast<NodeEditor *>(editor);
     if (nodeEditor) {
       nodeEditor->setText(index.data().toString());
@@ -303,7 +303,7 @@ void DvDirTreeViewDelegate::setEditorData(QWidget *editor,
 void DvDirTreeViewDelegate::setModelData(QWidget *editor,
                                          QAbstractItemModel *model,
                                          const QModelIndex &index) const {
-  if (index.data().canConvert(QMetaType::QString)) {
+  if (index.data().canConvert<QString>()) {
     NodeEditor *nodeEditor = qobject_cast<NodeEditor *>(editor);
     if (nodeEditor) {
       model->setData(index, QVariant::fromValue(nodeEditor->getText()));

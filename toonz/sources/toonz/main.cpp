@@ -91,7 +91,10 @@
 #ifndef x64
 #include <float.h>
 #endif
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
+// Qt 6 has no QtPlatformHeaders
 #include <QtPlatformHeaders/QWindowsWindowFunctions>
+#endif
 #endif
 
 using namespace DVGui;
@@ -745,8 +748,9 @@ int main(int argc, char *argv[]) {
   // for the autosave recovery copies
   AutosaveRecovery::initSession();
 
-#ifdef _WIN32
+#if defined(_WIN32) && QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
   // http://doc.qt.io/qt-5/windows-issues.html#fullscreen-opengl-based-windows
+  // (Qt 6 has no QWindowsWindowFunctions)
   if (w.windowHandle())
     QWindowsWindowFunctions::setHasBorderInFullScreen(w.windowHandle(), true);
 #endif

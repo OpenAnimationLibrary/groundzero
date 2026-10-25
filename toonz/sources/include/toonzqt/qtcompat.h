@@ -15,6 +15,8 @@
 #include <QEvent>
 #include <QTouchDevice>
 #endif
+#include <QAction>
+#include <QMenu>
 #include <QTabletEvent>
 
 //! The argument of QWidget::enterEvent(): a QEnterEvent in Qt 6, a QEvent in
@@ -57,6 +59,16 @@ inline bool isKnownTabletPointer(const QTabletEvent *e) {
   return e->pointerType() != QPointingDevice::PointerType::Unknown;
 #else
   return e->pointerType() != QTabletEvent::UnknownPointer;
+#endif
+}
+
+//! The menu of an action, or 0: QAction::menu() returns a QMenu * in Qt 5 but
+//! a QObject * by default in Qt 6 (QAction is in QtGui there).
+inline QMenu *menuOfAction(const QAction *action) {
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+  return action->menu<QMenu *>();
+#else
+  return action->menu();
 #endif
 }
 

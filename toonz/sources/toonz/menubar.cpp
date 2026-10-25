@@ -16,6 +16,7 @@
 #include "toonzqt/dvdialog.h"
 #include "toonzqt/menubarcommand.h"
 #include "toonzqt/gutil.h"
+#include "toonzqt/qtcompat.h"
 
 // TnzLib includes
 #include "toonz/toonzscene.h"
@@ -134,7 +135,8 @@ bool ensureAnimatedSvgAction(QMenu *menu) {
   }
 
   for (QAction *action : actions) {
-    if (action->menu() && ensureAnimatedSvgAction(action->menu())) return true;
+    if (QMenu *subMenu = menuOfAction(action))
+      if (ensureAnimatedSvgAction(subMenu)) return true;
   }
   return false;
 }
@@ -142,8 +144,8 @@ bool ensureAnimatedSvgAction(QMenu *menu) {
 bool menuContainsAction(QMenu *menu, QAction *target) {
   for (QAction *action : menu->actions()) {
     if (action == target) return true;
-    if (action->menu() && menuContainsAction(action->menu(), target))
-      return true;
+    QMenu *subMenu = menuOfAction(action);
+    if (subMenu && menuContainsAction(subMenu, target)) return true;
   }
   return false;
 }
@@ -367,8 +369,9 @@ void StackedMenuBar::createMenuBarByName(const QString &roomName) {
   QMenuBar *menuBar = qobject_cast<QMenuBar *>(widget(count() - 1));
   if (menuBar) {
     for (QAction *action : menuBar->actions()) {
-      if (action->menu() && action->menu()->title() == tr("Windows"))
-        ensureNewPanelActions(action->menu());
+      QMenu *subMenu = menuOfAction(action);
+      if (subMenu && subMenu->title() == tr("Windows"))
+        ensureNewPanelActions(subMenu);
     }
   }
 }
