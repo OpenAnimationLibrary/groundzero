@@ -53,15 +53,29 @@ TLevelWriterFFMov::TLevelWriterFFMov(const TFilePath &path,
   }
   ffmpegWriter = new Ffmpeg();
   ffmpegWriter->setPath(m_path);
+  // mov is always rendered sequentially (isSequencialRequired())
+  ffmpegWriter->enablePipe(true);
   if (TSystem::doesExistFileOrLevel(m_path)) TSystem::deleteFile(m_path);
 }
 
 //-----------------------------------------------------------
 
 TLevelWriterFFMov::~TLevelWriterFFMov() {
-  QStringList preIArgs;
-  QStringList postIArgs;
+  // Streamed frames only need ffmpeg to finish, otherwise encode the
+  // intermediate images
+  if (!ffmpegWriter->finishPipe()) {
+    QStringList preIArgs;
+    QStringList postIArgs;
+    buildFfmpegArgs(preIArgs, postIArgs);
+    ffmpegWriter->runFfmpeg(preIArgs, postIArgs, false, false, true);
+  }
+  ffmpegWriter->cleanUpFiles();
+}
 
+//-----------------------------------------------------------
+
+void TLevelWriterFFMov::buildFfmpegArgs(QStringList &preIArgs,
+                                        QStringList &postIArgs) const {
   int outLx = m_lx;
   int outLy = m_ly;
 
@@ -95,9 +109,6 @@ TLevelWriterFFMov::~TLevelWriterFFMov() {
   postIArgs << QString::number(outLx) + "x" + QString::number(outLy);
   postIArgs << "-b";
   postIArgs << QString::number(finalBitrate) + "k";
-
-  ffmpegWriter->runFfmpeg(preIArgs, postIArgs, false, false, true);
-  ffmpegWriter->cleanUpFiles();
 }
 
 //-----------------------------------------------------------
@@ -125,7 +136,10 @@ void TLevelWriterFFMov::save(const TImageP &img, int frameIndex) {
   TRasterImageP image(img);
   m_lx = image->getRaster()->getLx();
   m_ly = image->getRaster()->getLy();
-  ffmpegWriter->createIntermediateImage(img, frameIndex);
+  ffmpegWriter->saveFrame(
+      img, frameIndex, [this](QStringList &preIArgs, QStringList &postIArgs) {
+        buildFfmpegArgs(preIArgs, postIArgs);
+      });
 }
 
 //===========================================================

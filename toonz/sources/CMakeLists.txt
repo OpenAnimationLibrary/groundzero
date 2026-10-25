@@ -746,7 +746,8 @@ include("${CMAKE_CURRENT_SOURCE_DIR}/../cmake/OpenEXR.cmake")
 
 option(BUILD_EXR_TESTS "Build the OpenEXR image I/O and level source regression tests" OFF)
 option(BUILD_EXR_AOV_FX_TESTS "Build the OpenEXR AOV FX regression test" OFF)
-if(BUILD_EXR_TESTS OR BUILD_EXR_AOV_FX_TESTS)
+option(BUILD_FFMPEG_TESTS "Build the FFmpeg export regression test (needs an ffmpeg executable at configure time)" OFF)
+if(BUILD_EXR_TESTS OR BUILD_EXR_AOV_FX_TESTS OR BUILD_FFMPEG_TESTS)
     enable_testing()
 endif()
 

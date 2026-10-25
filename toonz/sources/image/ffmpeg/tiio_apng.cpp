@@ -55,15 +55,28 @@ TLevelWriterAPng::TLevelWriterAPng(const TFilePath &path, TPropertyGroup *winfo)
 
   ffmpegWriter = new Ffmpeg();
   ffmpegWriter->setPath(m_path);
+  ffmpegWriter->enablePipe();
   if (TSystem::doesExistFileOrLevel(m_path)) TSystem::deleteFile(m_path);
 }
 
 //-----------------------------------------------------------
 
 TLevelWriterAPng::~TLevelWriterAPng() {
-  QStringList preIArgs;
-  QStringList postIArgs;
+  // Streamed frames only need ffmpeg to finish, otherwise encode the
+  // intermediate images
+  if (!ffmpegWriter->finishPipe()) {
+    QStringList preIArgs;
+    QStringList postIArgs;
+    buildFfmpegArgs(preIArgs, postIArgs);
+    ffmpegWriter->runFfmpeg(preIArgs, postIArgs, false, false, true);
+  }
+  ffmpegWriter->cleanUpFiles();
+}
 
+//-----------------------------------------------------------
+
+void TLevelWriterAPng::buildFfmpegArgs(QStringList &preIArgs,
+                                       QStringList &postIArgs) const {
   int outLx = m_lx;
   int outLy = m_ly;
 
@@ -84,9 +97,6 @@ TLevelWriterAPng::~TLevelWriterAPng() {
   postIArgs << "apng";
   postIArgs << "-s";
   postIArgs << QString::number(outLx) + "x" + QString::number(outLy);
-
-  ffmpegWriter->runFfmpeg(preIArgs, postIArgs, false, false, true);
-  ffmpegWriter->cleanUpFiles();
 }
 
 //-----------------------------------------------------------
@@ -114,7 +124,10 @@ void TLevelWriterAPng::save(const TImageP &img, int frameIndex) {
   TRasterImageP image(img);
   m_lx = image->getRaster()->getLx();
   m_ly = image->getRaster()->getLy();
-  ffmpegWriter->createIntermediateImage(img, frameIndex);
+  ffmpegWriter->saveFrame(
+      img, frameIndex, [this](QStringList &preIArgs, QStringList &postIArgs) {
+        buildFfmpegArgs(preIArgs, postIArgs);
+      });
 }
 
 //===========================================================

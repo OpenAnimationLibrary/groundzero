@@ -35,6 +35,8 @@ public:
   }
 
 private:
+  void buildFfmpegArgs(QStringList &preIArgs, QStringList &postIArgs) const;
+
   // FFmpeg writer instance
   Ffmpeg *ffmpegWriter;
 
