@@ -34,7 +34,9 @@
 // Qt includes
 #include <QAction>
 #include <QApplication>
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
 #include <QCameraInfo>
+#endif
 #include <QCheckBox>
 #include <QComboBox>
 #include <QCommonStyle>
@@ -1598,7 +1600,7 @@ void StopMotionController::refreshCameraList(QString activeCamera) {
   m_cameraListCombo->blockSignals(true);
   m_cameraListCombo->clear();
   m_cameraStatusLabel->hide();
-  QList<QCameraInfo> webcams = m_stopMotion->m_webcam->getWebcams();
+  QList<TWebcamInfo> webcams = m_stopMotion->m_webcam->getWebcams();
   int count                  = webcams.count();
 #ifdef WITH_CANON
   count += m_stopMotion->m_canon->getCameraCount();
@@ -1616,7 +1618,7 @@ void StopMotionController::refreshCameraList(QString activeCamera) {
     m_cameraListCombo->addItem(tr("- Select camera -"));
     if (webcams.count() > 0) {
       for (int c = 0; c < webcams.size(); c++) {
-        std::string name = webcams.at(c).deviceName().toStdString();
+        std::string name = Webcam::getDeviceName(webcams.at(c)).toStdString();
         QString camDesc  = webcams.at(c).description();
         m_cameraListCombo->addItem(camDesc);
         maxTextLength = std::max(maxTextLength, fontMetrics().horizontalAdvance(camDesc));
@@ -1932,7 +1934,7 @@ void StopMotionController::refreshPictureStyleList() {
 //-----------------------------------------------------------------------------
 
 void StopMotionController::onCameraListComboActivated(int comboIndex) {
-  QList<QCameraInfo> cameras = QCameraInfo::availableCameras();
+  QList<TWebcamInfo> cameras = Webcam::getAvailableWebcams();
   int cameraCount            = cameras.size();
 #ifdef WITH_CANON
   cameraCount += m_stopMotion->m_canon->getCameraCount();
@@ -2093,9 +2095,9 @@ void StopMotionController::onCaptureFilterSettingsBtnPressed() {
       m_stopMotion->m_webcam->getWebcamDeviceName().isNull())
     return;
 
-  QList<QCameraInfo> cameras = QCameraInfo::availableCameras();
+  QList<TWebcamInfo> cameras = Webcam::getAvailableWebcams();
   for (int c = 0; c < cameras.size(); c++) {
-    if (cameras.at(c).deviceName() ==
+    if (Webcam::getDeviceName(cameras.at(c)) ==
         m_stopMotion->m_webcam->getWebcamDeviceName()) {
 #ifdef _WIN32
       m_stopMotion->m_webcam->openSettingsWindow();

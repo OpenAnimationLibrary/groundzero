@@ -17,6 +17,13 @@
 #include <QMediaPlayer>
 #include <QTimer>
 
+// Qt 6 renamed QMediaPlayer::State to PlaybackState.
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+typedef QMediaPlayer::PlaybackState TMediaPlayerState;
+#else
+typedef QMediaPlayer::State TMediaPlayerState;
+#endif
+
 // Forward declarations
 class QLabel;
 class TXshSimpleLevel;
@@ -132,7 +139,7 @@ public slots:
   void onLevelChanged(int index);
 
   // Media control
-  void onMediaStateChanged(QMediaPlayer::State state);
+  void onMediaStateChanged(TMediaPlayerState state);
   void onAudioTimeout();
 
   // Rhubarb process handling

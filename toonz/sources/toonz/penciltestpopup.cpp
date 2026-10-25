@@ -63,12 +63,19 @@
 
 // Qt includes
 #include <QMainWindow>
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+#include <QCamera>
+#include <QCameraDevice>
+#include <QMediaDevices>
+#include <QSoundEffect>
+#else
 #include <QCameraInfo>
 #include <QCamera>
 #include <QCameraImageCapture>
 #include <QCameraViewfinderSettings>
 #ifdef MACOSX
 #include <QCameraViewfinder>
+#endif
 #endif
 
 #include <QComboBox>
@@ -84,16 +91,22 @@
 #include <QGridLayout>
 #include <QToolButton>
 #include <QDateTime>
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
 #include <QMultimedia>
+#endif
 #include <QPainter>
 #include <QKeyEvent>
 #include <QCommonStyle>
 #include <QTimer>
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
 #include <QSound>
+#endif
 #include <QIntValidator>
 #include <QRegularExpressionValidator>
 
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
 #include <QVideoSurfaceFormat>
+#endif
 #include <QThreadPool>
 #include <QHostInfo>
 #include <QDesktopServices>
@@ -135,6 +148,62 @@ TEnv::StringVar CamCapFileType("CamCapFileType", "jpg");
 TEnv::IntVar CamCapPlayCaptureSound("CamCapPlayCaptureSound", 0);
 
 namespace {
+
+// Qt 6 replaced QCameraInfo with QCameraDevice and QMediaDevices; its id()
+// takes the place of deviceName().
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+typedef QCameraDevice TCameraInfo;
+
+QList<TCameraInfo> availableCameras() { return QMediaDevices::videoInputs(); }
+
+TCameraInfo defaultCamera() { return QMediaDevices::defaultVideoInput(); }
+
+QString cameraDeviceName(const TCameraInfo& camera) {
+  return QString::fromUtf8(camera.id());
+}
+
+// The resolutions of the camera's video formats without duplicates, smallest
+// area first, as Qt 5's QCamera::supportedViewfinderResolutions() returns them.
+QList<QSize> videoResolutions(const TCameraInfo& camera) {
+  QList<QSize> sizes;
+  for (const QCameraFormat& format : camera.videoFormats())
+    if (!sizes.contains(format.resolution()))
+      sizes.push_back(format.resolution());
+  std::stable_sort(sizes.begin(), sizes.end(),
+                   [](const QSize& s1, const QSize& s2) {
+                     return s1.width() * s1.height() < s2.width() * s2.height();
+                   });
+  return sizes;
+}
+#else
+typedef QCameraInfo TCameraInfo;
+
+QList<TCameraInfo> availableCameras() {
+  return QCameraInfo::availableCameras();
+}
+
+TCameraInfo defaultCamera() { return QCameraInfo::defaultCamera(); }
+
+QString cameraDeviceName(const TCameraInfo& camera) {
+  return camera.deviceName();
+}
+#endif
+
+// Qt 6 has no QSound: play the sound with a QSoundEffect kept by the parent.
+void playCaptureSound(QObject* parent) {
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+  QSoundEffect* effect = parent->findChild<QSoundEffect*>(
+      "captureSound", Qt::FindDirectChildrenOnly);
+  if (!effect) {
+    effect = new QSoundEffect(parent);
+    effect->setObjectName("captureSound");
+    effect->setSource(QUrl("qrc:/Resources/camera_snap.wav"));
+  }
+  effect->play();
+#else
+  QSound::play(":Resources/camera_snap.wav");
+#endif
+}
 
 void convertImageToRaster(TRaster32P dstRas, const QImage& srcImg) {
   dstRas->lock();
@@ -2127,9 +2196,9 @@ PencilTestPopup::PencilTestPopup()
       QString::fromStdString(CamCapCameraName.getValue()));
   // If previous camera is not found, then try to activate the connected default
   // camera
-  if (startupCamIndex <= 0 && !QCameraInfo::defaultCamera().isNull()) {
+  if (startupCamIndex <= 0 && !defaultCamera().isNull()) {
     startupCamIndex =
-        m_cameraListCombo->findText(QCameraInfo::defaultCamera().description());
+        m_cameraListCombo->findText(defaultCamera().description());
   }
   if (startupCamIndex > 0) {
     m_cameraListCombo->setCurrentIndex(startupCamIndex);
@@ -2229,7 +2298,7 @@ QMenu* PencilTestPopup::createOptionsMenu() {
 void PencilTestPopup::refreshCameraList() {
   m_cameraListCombo->clear();
 
-  QList<QCameraInfo> cameras = QCameraInfo::availableCameras();
+  QList<TCameraInfo> cameras = availableCameras();
   if (cameras.empty()) {
     m_cameraListCombo->addItem(tr("No camera found"));
     m_cameraListCombo->setMaximumWidth(250);
@@ -2253,7 +2322,7 @@ void PencilTestPopup::refreshCameraList() {
 //-----------------------------------------------------------------------------
 
 void PencilTestPopup::onCameraListComboActivated(int comboIndex) {
-  QList<QCameraInfo> cameras = QCameraInfo::availableCameras();
+  QList<TCameraInfo> cameras = availableCameras();
   if (cameras.size() != m_cameraListCombo->count() - 1) return;
 
   m_cvWebcam.release();
@@ -2271,17 +2340,23 @@ void PencilTestPopup::onCameraListComboActivated(int comboIndex) {
 
   int index = comboIndex - 1;
   // In case the camera is not changed (just click the combobox)
-  if (cameras.at(index).deviceName() == m_deviceName) return;
+  if (cameraDeviceName(cameras.at(index)) == m_deviceName) return;
 
   m_currentCamera = new QCamera(cameras.at(index), this);
-  m_deviceName    = cameras.at(index).deviceName();
+  m_deviceName    = cameraDeviceName(cameras.at(index));
 
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
   // Loading new camera
   m_currentCamera->load();
+#endif
 
   // Refresh resolution
   m_resolutionCombo->clear();
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+  QList<QSize> sizes = videoResolutions(cameras.at(index));
+#else
   QList<QSize> sizes = m_currentCamera->supportedViewfinderResolutions();
+#endif
   // Simple workaround because Qt fails to auto-detect the camera resolutions
   // https://forum.qt.io/topic/68904/how-to-get-the-supported-resolution-of-a-qcamera/5
   if (sizes.size() == 0) {
@@ -2301,7 +2376,9 @@ void PencilTestPopup::onCameraListComboActivated(int comboIndex) {
     sizes.push_back(QSize(3840, 2160));
   }
 
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
   m_currentCamera->unload();
+#endif
   for (const QSize size : sizes) {
     m_resolutionCombo->addItem(
         QString("%1 x %2").arg(size.width()).arg(size.height()), size);
@@ -2679,8 +2756,7 @@ void PencilTestPopup::onFrameCaptured(cv::Mat& image) {
     m_captureCue = false;
 
     if (importImage(qimg)) {
-      if (CamCapPlayCaptureSound != 0)
-        QSound::play(":Resources/camera_snap.wav");
+      if (CamCapPlayCaptureSound != 0) playCaptureSound(this);
       m_videoWidget->setPreviousImage(qimg.copy());
       if (Preferences::instance()->isShowFrameNumberWithLettersEnabled()) {
         TFrameId fId = m_frameNumberEdit->getValue();
@@ -3320,9 +3396,9 @@ bool PencilTestPopup::importImage(QImage image) {
 void PencilTestPopup::onCaptureFilterSettingsBtnPressed() {
   if (!m_currentCamera || m_deviceName.isNull()) return;
 
-  QList<QCameraInfo> cameras = QCameraInfo::availableCameras();
+  QList<TCameraInfo> cameras = availableCameras();
   for (int c = 0; c < cameras.size(); c++) {
-    if (cameras.at(c).deviceName() == m_deviceName) {
+    if (cameraDeviceName(cameras.at(c)) == m_deviceName) {
 #ifdef _WIN32
       openCaptureFilterSettings(this, cameras.at(c).description());
 #endif

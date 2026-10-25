@@ -12,7 +12,14 @@
 #include <QObject>
 
 class QCamera;
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+#include <QCameraDevice>
+// Qt 6 replaced QCameraInfo with QCameraDevice.
+typedef QCameraDevice TWebcamInfo;
+#else
 class QCameraInfo;
+typedef QCameraInfo TWebcamInfo;
+#endif
 
 class Webcam : public QObject {
   Q_OBJECT
@@ -37,7 +44,12 @@ public:
 
   void releaseWebcam();
   void clearWebcam();
-  QList<QCameraInfo> getWebcams();
+  QList<TWebcamInfo> getWebcams();
+  // QCameraInfo::availableCameras() with Qt 5, QMediaDevices::videoInputs()
+  // with Qt 6.
+  static QList<TWebcamInfo> getAvailableWebcams();
+  // QCameraInfo::deviceName() with Qt 5, QCameraDevice::id() with Qt 6.
+  static QString getDeviceName(const TWebcamInfo& webcam);
   QCamera* getWebcam() { return m_webcam; }
   void setWebcam(QCamera* camera);
   bool initWebcam(int index = 0);
@@ -80,7 +92,7 @@ public:
 
 private:
   // Webcam Properties
-  QList<QCameraInfo> m_webcams;
+  QList<TWebcamInfo> m_webcams;
   QCamera* m_webcam;
   cv::VideoCapture m_cvWebcam;
   QList<QSize> m_webcamResolutions;

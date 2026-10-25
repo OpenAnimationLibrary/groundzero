@@ -29,7 +29,14 @@
 
 #include <QObject>
 #include <QThread>
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+#include <QSoundEffect>
+// Qt 6 has no QSound.
+typedef QSoundEffect TCaptureSound;
+#else
 #include <QSound>
+typedef QSound TCaptureSound;
+#endif
 
 class QCamera;
 class QCameraInfo;
@@ -72,7 +79,7 @@ private:
   std::map<int, TRaster32P> m_liveViewImageMap;
 
   bool m_playCaptureSound = false;
-  QSound* m_camSnapSound  = 0;
+  TCaptureSound* m_camSnapSound = 0;
 
 public:
   enum LiveViewStatus {

@@ -14,7 +14,12 @@
 #endif
 
 #include <QCamera>
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+#include <QMediaDevices>
+#include <algorithm>
+#else
 #include <QCameraInfo>
+#endif
 #include <QApplication>
 
 TEnv::IntVar StopMotionUseDirectShow("StopMotionUseDirectShow", 1);
@@ -32,10 +37,30 @@ Webcam::~Webcam() {}
 
 //-----------------------------------------------------------------
 
-QList<QCameraInfo> Webcam::getWebcams() {
+QList<TWebcamInfo> Webcam::getWebcams() {
   m_webcams.clear();
-  m_webcams = QCameraInfo::availableCameras();
+  m_webcams = getAvailableWebcams();
   return m_webcams;
+}
+
+//-----------------------------------------------------------------
+
+QList<TWebcamInfo> Webcam::getAvailableWebcams() {
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+  return QMediaDevices::videoInputs();
+#else
+  return QCameraInfo::availableCameras();
+#endif
+}
+
+//-----------------------------------------------------------------
+
+QString Webcam::getDeviceName(const TWebcamInfo& webcam) {
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+  return QString::fromUtf8(webcam.id());
+#else
+  return webcam.deviceName();
+#endif
 }
 
 //-----------------------------------------------------------------
@@ -178,7 +203,19 @@ void Webcam::clearWebcamResolutions() { m_webcamResolutions.clear(); }
 
 void Webcam::refreshWebcamResolutions() {
   clearWebcamResolutions();
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+  // The resolutions of the video formats without duplicates, smallest area
+  // first, as Qt 5's QCamera::supportedViewfinderResolutions() returns them.
+  for (const QCameraFormat& format : getWebcam()->cameraDevice().videoFormats())
+    if (!m_webcamResolutions.contains(format.resolution()))
+      m_webcamResolutions.push_back(format.resolution());
+  std::stable_sort(m_webcamResolutions.begin(), m_webcamResolutions.end(),
+                   [](const QSize& s1, const QSize& s2) {
+                     return s1.width() * s1.height() < s2.width() * s2.height();
+                   });
+#else
   m_webcamResolutions = getWebcam()->supportedViewfinderResolutions();
+#endif
 }
 
 //-----------------------------------------------------------------

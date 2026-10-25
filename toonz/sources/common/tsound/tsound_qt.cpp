@@ -14,15 +14,60 @@
 #include <QByteArray>
 #include <QAudioFormat>
 #include <QIODevice>
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+#include <QAudioDevice>
+#include <QAudioSink>
+#include <QMediaDevices>
+#include <QTimer>
+#else
 #include <QAudioOutput>
+#endif
 
 using namespace std;
 
 //==============================================================================
 
+namespace {
+
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+// Qt 6 audio is in the native byte order and has no 24-bit, signed 8-bit or
+// unsigned 16/32-bit samples: those are Unknown, so not supported.
+QAudioFormat::SampleFormat toQAudioSampleFormat(int sampleType,
+                                                int bitPerSample) {
+  switch (bitPerSample) {
+  case 8:
+    return sampleType == TSound::UINT ? QAudioFormat::UInt8
+                                      : QAudioFormat::Unknown;
+  case 16:
+    return sampleType == TSound::INT ? QAudioFormat::Int16
+                                     : QAudioFormat::Unknown;
+  case 32:
+    if (sampleType == TSound::INT) return QAudioFormat::Int32;
+    if (sampleType == TSound::FLOAT) return QAudioFormat::Float;
+    break;
+  }
+  return QAudioFormat::Unknown;
+}
+
+typedef QAudioSink TAudioOutput;
+typedef QRecursiveMutex TRecursiveMutex;
+#else
+typedef QAudioOutput TAudioOutput;
+
+// Qt 6 has QRecursiveMutex instead of the recursive mode of QMutex.
+class TRecursiveMutex final : public QMutex {
+public:
+  TRecursiveMutex() : QMutex(QMutex::Recursive) {}
+};
+#endif
+
+}  // namespace
+
+//==============================================================================
+
 class TSoundOutputDeviceImp: public std::enable_shared_from_this<TSoundOutputDeviceImp> {
 private:
-  QMutex m_mutex;
+  TRecursiveMutex m_mutex;
 
   double m_volume;
   bool m_looping;
@@ -31,14 +76,13 @@ private:
   qint64 m_bufferIndex;
 
   QByteArray m_buffer;
-  QPointer<QAudioOutput> m_audioOutput;
+  QPointer<TAudioOutput> m_audioOutput;
   QIODevice *m_audioBuffer;
 
 public:
   std::set<TSoundOutputDeviceListener *> m_listeners;
 
   TSoundOutputDeviceImp():
-    m_mutex(QMutex::Recursive),
     m_volume(0.5),
     m_looping(false),
     m_bytesSent(0),
@@ -152,6 +196,16 @@ public:
   void play(const TSoundTrackP &st, TINT32 s0, TINT32 s1, bool loop, bool scrubbing) {
     QMutexLocker lock(&m_mutex);
 
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    QAudioFormat format;
+    format.setSampleFormat(
+        toQAudioSampleFormat(st->getSampleType(), st->getBitPerSample()));
+    format.setChannelCount(st->getChannelCount());
+    format.setSampleRate(st->getSampleRate());
+
+    QAudioDevice info(QMediaDevices::defaultAudioOutput());
+    if (!info.isFormatSupported(format)) format = info.preferredFormat();
+#else
     QAudioFormat format;
     format.setSampleSize(st->getBitPerSample());
     format.setCodec("audio/pcm");
@@ -173,6 +227,7 @@ public:
     QAudioDeviceInfo info(QAudioDeviceInfo::defaultOutputDevice());
     if (!info.isFormatSupported((format)))
       format = info.nearestFormat(format);
+#endif
 
     qint64 totalPacketCount = s1 - s0;
     qint64 fileByteCount    = (s1 - s0)*st->getSampleSize();
@@ -183,14 +238,27 @@ public:
     m_looping = loop;
     if (!m_audioOutput || m_audioOutput->format() != format) {
       if (m_audioOutput) m_audioOutput->stop();
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+      m_audioOutput = new QAudioSink(info, format);
+#else
       m_audioOutput = new QAudioOutput(format);
+#endif
       m_audioOutput->setVolume(m_volume);
 
       // audio buffer size
       qint64 audioBufferSize = format.bytesForDuration(100000);
       m_audioOutput->setBufferSize(audioBufferSize);
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+      // QAudioSink has no notify() signal: refill from a timer, which the
+      // sink owns, at the same interval.
+      QTimer *notifyTimer = new QTimer(m_audioOutput.data());
+      notifyTimer->setInterval(50);
+      QObject::connect(notifyTimer, &QTimer::timeout, [=]() { sendBuffer(); });
+      notifyTimer->start();
+#else
       m_audioOutput->setNotifyInterval(50);
       QObject::connect(m_audioOutput.data(), &QAudioOutput::notify, [=](){ sendBuffer(); });
+#endif
 
       reset();
     }/* audio buffer too small, so optimization not uses
