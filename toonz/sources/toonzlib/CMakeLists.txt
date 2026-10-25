@@ -132,6 +132,7 @@ set(HEADERS
     ../include/toonz/tcleanupper.h
     ../include/toonz/tcolumnfx.h
     ../include/toonz/tcolumnfxset.h
+    ../include/toonz/tcurvedeformer.h
     ../include/toonz/tdeformer.h
     ../include/toonz/tdeformerstack.h
     ../include/toonz/tfreeformdeformer.h
@@ -264,6 +265,7 @@ set(SOURCES
     tcleanupper.cpp
     tcolumnfx.cpp
     tcolumnfxset.cpp
+    tcurvedeformer.cpp
     tdeformer.cpp
     tdeformerstack.cpp
     tdistort.cpp

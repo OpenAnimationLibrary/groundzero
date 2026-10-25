@@ -1,8 +1,10 @@
 // Regression test of the generic deformer layer (TDeformer) through the
 // Envelope deformer: the mean value mapping, its inverse, and the raster warp;
 // of the deformer stack (TDeformerStack) built on it; and of the free-form
-// lattice deformer (TFreeFormDeformer).
+// lattice deformer (TFreeFormDeformer); and of the curve deformer
+// (TCurveDeformer) and its Bezier chain.
 
+#include "toonz/tcurvedeformer.h"
 #include "toonz/tdeformer.h"
 #include "toonz/tdeformerstack.h"
 #include "toonz/tfreeformdeformer.h"
@@ -560,6 +562,205 @@ void testFreeFormStack() {
 
 //------------------------------------------------------------------
 
+//------------------------------------------------------------------
+// Curve deformer
+
+typedef TBezierChain::Anchor Anchor;
+
+// Anchors at x = -150, -50, 50 and 150, with handles a third of the way to the
+// neighbours, on the curve y = scale * (x + 150)^2 / 1000 (a straight line
+// for scale 0), moved by offset.
+std::vector<Anchor> curveAnchors(double scale, const TPointD &offset) {
+  std::vector<Anchor> anchors;
+  for (int i = 0; i < 4; ++i) {
+    double x     = -150.0 + 100.0 * i;
+    double y     = scale * (x + 150.0) * (x + 150.0) / 1000.0;
+    double slope = scale * 2.0 * (x + 150.0) / 1000.0;
+    TPointD h(100.0 / 3.0, 100.0 / 3.0 * slope);
+    TPointD pos(TPointD(x, y) + offset);
+    anchors.push_back(Anchor(pos, pos - h, pos + h));
+  }
+  return anchors;
+}
+
+//------------------------------------------------------------------
+
+void testBezierChain() {
+  TBezierChain chain(curveAnchors(0.0, TPointD()));
+  require(chain.isValid(), "chain: not valid");
+  require(std::fabs(chain.getLength() - 300.0) < 1e-6,
+          "chain: wrong length of a straight chain");
+  require(isClose(chain.getPoint(0.0), TPointD(-150.0, 0.0), 1e-9) &&
+              isClose(chain.getPoint(0.5), TPointD(0.0, 0.0), 1e-6) &&
+              isClose(chain.getPoint(1.0), TPointD(150.0, 0.0), 1e-9),
+          "chain: wrong points");
+  require(isClose(chain.getPoint(-0.1), TPointD(-180.0, 0.0), 1e-6) &&
+              isClose(chain.getPoint(1.1), TPointD(180.0, 0.0), 1e-6),
+          "chain: wrong extension beyond the ends");
+  require(isClose(chain.getNormal(0.3), TPointD(0.0, 1.0), 1e-9),
+          "chain: the normal is not the tangent rotated counterclockwise");
+
+  TBezierChain::Projection pr;
+  require(chain.project(TPointD(30.0, -20.0), pr), "chain: project failed");
+  require(std::fabs(pr.m_u - 0.6) < 1e-6 && std::fabs(pr.m_d + 20.0) < 1e-6 &&
+              std::fabs(pr.m_distance - 20.0) < 1e-6,
+          "chain: wrong projection");
+  require(chain.project(TPointD(-200.0, 15.0), pr),
+          "chain: project beyond the start failed");
+  require(std::fabs(pr.m_u + 50.0 / 300.0) < 1e-6 &&
+              std::fabs(pr.m_d - 15.0) < 1e-6 &&
+              std::fabs(pr.m_distance - std::sqrt(50.0 * 50.0 + 15.0 * 15.0)) <
+                  1e-6,
+          "chain: wrong projection beyond the start");
+
+  // The projection inverts the parametrization on a bent chain too
+  TBezierChain bent(curveAnchors(1.0, TPointD()));
+  for (double u = -0.2; u <= 1.2; u += 0.1) {
+    for (double d = -30.0; d <= 30.0; d += 15.0) {
+      TPointD p = bent.getPoint(u) + bent.getNormal(u) * d;
+      require(bent.project(p, pr), "chain: bent project failed");
+      require(std::fabs(pr.m_u - u) < 1e-6 && std::fabs(pr.m_d - d) < 1e-5,
+              "chain: the projection does not invert the parametrization");
+    }
+  }
+
+  require(!TBezierChain(std::vector<Anchor>(1)).isValid(),
+          "chain: a single anchor is valid");
+}
+
+//------------------------------------------------------------------
+
+void testCurveIdentity() {
+  TCurveDeformer deformer(curveAnchors(1.0, TPointD()),
+                          curveAnchors(1.0, TPointD()), 40.0, 120.0);
+  require(deformer.isValid(), "curve identity: not valid");
+  require(deformer.isIdentity(0.0), "curve identity: not identity");
+
+  for (const TPointD &p : samplePoints()) {
+    TPointD q;
+    require(deformer.undeform(p, 0.0, q), "curve identity: undeform failed");
+    require(isClose(q, p, 1e-6), "curve identity: undeform moved a point");
+    require(isClose(deformer.deform(p, 0.0), p, 1e-6),
+            "curve identity: deform moved a point");
+  }
+
+  // Different numbers of anchors, or a degenerate curve, are not valid
+  std::vector<Anchor> three = curveAnchors(0.0, TPointD());
+  three.pop_back();
+  require(!TCurveDeformer(three, curveAnchors(0.0, TPointD()), 40.0, 120.0)
+               .isValid(),
+          "curve identity: curves of different sizes are valid");
+  require(!TCurveDeformer(std::vector<Anchor>(4), std::vector<Anchor>(4), 40.0,
+                          120.0)
+               .isValid(),
+          "curve identity: a degenerate curve is valid");
+}
+
+//------------------------------------------------------------------
+
+void testCurveTranslation() {
+  // Moving every anchor and handle translates the points near the curve, as
+  // far as the width, and fades out to the falloff
+  TPointD move(30.0, 20.0);
+  TCurveDeformer deformer(curveAnchors(0.0, TPointD()), curveAnchors(0.0, move),
+                          40.0, 120.0);
+  require(!deformer.isIdentity(1e-6), "curve translation: identity");
+
+  const TPointD nearPoints[] = {TPointD(0.0, 10.0),    TPointD(-80.0, -30.0),
+                                TPointD(120.0, 40.0),  TPointD(-170.0, 10.0),
+                                TPointD(180.0, -10.0), TPointD(150.0, 0.0)};
+  for (const TPointD &p : nearPoints) {
+    require(isClose(deformer.deform(p, 0.0), p + move, 1e-6),
+            "curve translation: a near point is not translated");
+
+    TPointD q;
+    require(deformer.undeform(p + move, 0.0, q) && isClose(q, p, 1e-6),
+            "curve translation: wrong undeform of a near point");
+  }
+
+  // Halfway through the falloff, half of the move
+  TPointD mid(0.0, 80.0);
+  require(isClose(deformer.deform(mid, 0.0), mid + move * 0.5, 1e-6),
+          "curve translation: wrong weight in the falloff");
+
+  // The rest of the plane stays put
+  TPointD farPoint(0.0, 500.0), q;
+  require(isClose(deformer.deform(farPoint, 0.0), farPoint, 0.0),
+          "curve translation: a far point moved");
+  require(deformer.undeform(farPoint, 0.0, q) && isClose(q, farPoint, 0.0),
+          "curve translation: a far point moved back");
+
+  // The width scale multiplies the distances from the curve
+  TCurveDeformer wide(curveAnchors(0.0, TPointD()),
+                      curveAnchors(0.0, TPointD()), 40.0, 120.0, 2.0);
+  require(
+      isClose(wide.deform(TPointD(0.0, 10.0), 0.0), TPointD(0.0, 20.0), 1e-6),
+      "curve translation: wrong width scale");
+  require(wide.undeform(TPointD(0.0, 20.0), 0.0, q) &&
+              isClose(q, TPointD(0.0, 10.0), 1e-6),
+          "curve translation: wrong undeform with a width scale");
+}
+
+//------------------------------------------------------------------
+
+void testCurveBend() {
+  // The curve bends from a straight line: the points follow it, are inverted
+  // on a grid (in full, and in the falloff where the inverse is iterative),
+  // and the bounds contain them
+  TCurveDeformer deformer(curveAnchors(0.0, TPointD()),
+                          curveAnchors(0.5, TPointD()), 40.0, 200.0);
+
+  // A point on the curve goes to the curve
+  TBezierChain bent(curveAnchors(0.5, TPointD()));
+  require(isClose(deformer.deform(TPointD(-150.0, 0.0), 0.0),
+                  bent.getPoint(0.0), 1e-6) &&
+              isClose(deformer.deform(TPointD(0.0, 0.0), 0.0),
+                      bent.getPoint(0.5), 1e-6) &&
+              isClose(deformer.deform(TPointD(150.0, 0.0), 0.0),
+                      bent.getPoint(1.0), 1e-6),
+          "curve bend: points of the curve do not follow it");
+
+  TRectD source(-300.0, -200.0, 300.0, 200.0);
+  TRectD bounds = deformer.deformedBounds(source, 0.0);
+
+  for (int y = -90; y <= 90; y += 30)
+    for (int x = -200; x <= 200; x += 40) {
+      TPointD p(x, y), q;
+      TPointD d = deformer.deform(p, 0.0);
+      require(deformer.undeform(d, 0.0, q), "curve bend: undeform failed");
+
+      // The inverse is direct where the deformation applies in full
+      bool full = x >= -150 && x <= 150 && y >= -30 && y <= 30;
+      require(isClose(q, p, full ? 1e-4 : 1e-3),
+              "curve bend: undeform does not invert deform");
+
+      require(bounds.x0 <= d.x && d.x <= bounds.x1 && bounds.y0 <= d.y &&
+                  d.y <= bounds.y1,
+              "curve bend: the bounds miss a deformed point");
+
+      TRectD around(d.x - 1.0, d.y - 1.0, d.x + 1.0, d.y + 1.0);
+      TRectD srcBounds(deformer.sourceBounds(around, 0.0));
+      require(srcBounds.x0 <= p.x && p.x <= srcBounds.x1 &&
+                  srcBounds.y0 <= p.y && p.y <= srcBounds.y1,
+              "curve bend: the source bounds miss a source point");
+    }
+
+  // Handles shape the curve: moving one handle moves the points near it
+  std::vector<Anchor> handled = curveAnchors(0.0, TPointD());
+  handled[1].m_out += TPointD(0.0, 30.0);
+  TCurveDeformer pulled(curveAnchors(0.0, TPointD()), handled, 40.0, 120.0);
+  require(
+      norm(pulled.deform(TPointD(-30.0, 0.0), 0.0) - TPointD(-30.0, 0.0)) > 1.0,
+      "curve bend: a handle does not bend the curve");
+  require(isClose(pulled.deform(TPointD(150.0, 0.0), 0.0), TPointD(150.0, 0.0),
+                  1e-6),
+          "curve bend: a handle moved the far end");
+}
+
+}  // namespace
+
+//------------------------------------------------------------------
+
 int main() {
   try {
     testIdentity();
@@ -578,6 +779,10 @@ int main() {
     testFreeFormRoundTrip();
     testFreeFormFold();
     testFreeFormStack();
+    testBezierChain();
+    testCurveIdentity();
+    testCurveTranslation();
+    testCurveBend();
   } catch (const std::exception &e) {
     std::cerr << "deformer_test failed: " << e.what() << std::endl;
     return 1;

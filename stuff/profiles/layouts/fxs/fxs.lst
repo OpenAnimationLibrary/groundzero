@@ -28,6 +28,7 @@
   <Distort>
     STD_freeDistortFx
     STD_deformerStackFx
+    STD_curveDeformerFx
     STD_envelopeDeformerFx
     STD_freeFormDeformerFx
     STD_iwa_GradientWarpFx

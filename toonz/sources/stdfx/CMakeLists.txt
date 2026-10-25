@@ -118,6 +118,7 @@ set(SOURCES
     colorembossfx.cpp
     colouroverridefx.cpp
     cornerpinfx.cpp
+    curvedeformerfx.cpp
     deformerstackfx.cpp
     despecklefx.cpp
     diamondgradientfx.cpp

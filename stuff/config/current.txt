@@ -379,6 +379,33 @@
   <item>"STD_freeFormDeformerFx.point14"	"Point 14"	</item>
   <item>"STD_freeFormDeformerFx.point15"	"Point 15"	</item>
   <item>"STD_freeFormDeformerFx.point16"	"Point 16"	</item>
+  <item>"STD_curveDeformerFx"	"Curve Deformer"	</item>
+  <item>"STD_curveDeformerFx.width"	"Width"	</item>
+  <item>"STD_curveDeformerFx.falloff"	"Falloff"	</item>
+  <item>"STD_curveDeformerFx.point1"	"Point 1"	</item>
+  <item>"STD_curveDeformerFx.in1"	"In 1"	</item>
+  <item>"STD_curveDeformerFx.out1"	"Out 1"	</item>
+  <item>"STD_curveDeformerFx.point2"	"Point 2"	</item>
+  <item>"STD_curveDeformerFx.in2"	"In 2"	</item>
+  <item>"STD_curveDeformerFx.out2"	"Out 2"	</item>
+  <item>"STD_curveDeformerFx.point3"	"Point 3"	</item>
+  <item>"STD_curveDeformerFx.in3"	"In 3"	</item>
+  <item>"STD_curveDeformerFx.out3"	"Out 3"	</item>
+  <item>"STD_curveDeformerFx.point4"	"Point 4"	</item>
+  <item>"STD_curveDeformerFx.in4"	"In 4"	</item>
+  <item>"STD_curveDeformerFx.out4"	"Out 4"	</item>
+  <item>"STD_curveDeformerFx.restPoint1"	"Rest Point 1"	</item>
+  <item>"STD_curveDeformerFx.restIn1"	"Rest In 1"	</item>
+  <item>"STD_curveDeformerFx.restOut1"	"Rest Out 1"	</item>
+  <item>"STD_curveDeformerFx.restPoint2"	"Rest Point 2"	</item>
+  <item>"STD_curveDeformerFx.restIn2"	"Rest In 2"	</item>
+  <item>"STD_curveDeformerFx.restOut2"	"Rest Out 2"	</item>
+  <item>"STD_curveDeformerFx.restPoint3"	"Rest Point 3"	</item>
+  <item>"STD_curveDeformerFx.restIn3"	"Rest In 3"	</item>
+  <item>"STD_curveDeformerFx.restOut3"	"Rest Out 3"	</item>
+  <item>"STD_curveDeformerFx.restPoint4"	"Rest Point 4"	</item>
+  <item>"STD_curveDeformerFx.restIn4"	"Rest In 4"	</item>
+  <item>"STD_curveDeformerFx.restOut4"	"Rest Out 4"	</item>
 
   <item>"STD_gammaFx"			"Gamma"		</item>
   <item>"STD_gammaFx.value"		"Value"		</item>
