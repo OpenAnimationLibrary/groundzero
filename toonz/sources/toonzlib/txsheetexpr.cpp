@@ -305,6 +305,10 @@ public:
       return TStageObject::T_ShearX;
     else if (s == "sheary" || s == "shy" || s == "shearv" || s == "shv")
       return TStageObject::T_ShearY;
+    else if (s == "rotx" || s == "angx" || s == "rotationx" || s == "anglex")
+      return TStageObject::T_RotX;
+    else if (s == "roty" || s == "angy" || s == "rotationy" || s == "angley")
+      return TStageObject::T_RotY;
     else
       return TStageObject::T_ChannelCount;
   }

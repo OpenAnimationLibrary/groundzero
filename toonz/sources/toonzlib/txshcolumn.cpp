@@ -682,6 +682,22 @@ void TXshColumn::lock(bool on) {
 
 //-----------------------------------------------------------------------------
 
+bool TXshColumn::isSelectionLocked() const {
+  return (m_status & eSelectionLocked) != 0;
+}
+
+//-----------------------------------------------------------------------------
+
+void TXshColumn::lockSelection(bool on) {
+  const int mask = eSelectionLocked;
+  if (on)
+    m_status |= mask;
+  else
+    m_status &= ~mask;
+}
+
+//-----------------------------------------------------------------------------
+
 bool TXshColumn::isMask() const { return (m_status & eMasked) != 0; }
 
 //-----------------------------------------------------------------------------

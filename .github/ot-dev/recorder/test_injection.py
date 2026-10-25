@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -12,6 +13,28 @@ spec.loader.exec_module(enable)
 
 
 class InjectionTest(unittest.TestCase):
+    def test_cli_repository_and_platform_guard(self):
+        for repository, platform, allowed in (
+                ("OpenAnimationLibrary/opentoonz-dev", "Windows", True),
+                ("OpenAnimationLibrary/groundzero", "Windows", True),
+                ("opentoonz/opentoonz", "Windows", False),
+                ("OpenAnimationLibrary/groundzero", "Linux", False),
+                ("OpenAnimationLibrary/groundzero", "macOS", False)):
+            with self.subTest(repository=repository, platform=platform), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                source, cmake = self.make_checkout(root)
+                original = source.read_bytes(), cmake.read_bytes()
+                environment = dict(os.environ, GITHUB_REPOSITORY=repository, RUNNER_OS=platform)
+                result = subprocess.run(
+                    [sys.executable, str(Path(enable.__file__).resolve()),
+                     "--root", str(root), "--build-id", "test-build-123"],
+                    env=environment, capture_output=True, text=True)
+                self.assertEqual(result.returncode == 0, allowed, result.stdout + result.stderr)
+                if allowed:
+                    self.assertIn("new OtDevRecorder(", source.read_text(encoding="utf-8"))
+                else:
+                    self.assertEqual(original, (source.read_bytes(), cmake.read_bytes()))
+
     def make_checkout(self, root):
         target = root / "toonz/sources/toonz"
         target.mkdir(parents=True)

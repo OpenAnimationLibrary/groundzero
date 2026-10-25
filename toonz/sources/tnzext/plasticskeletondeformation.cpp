@@ -179,6 +179,8 @@ public:
 
   TDoubleParamP m_skelIdsParam;  //!< Curve of skeleton ids by xsheet frame
 
+  bool m_curveBending;  //!< Whether vertex chains are bent along smooth curves
+
   std::set<TParamObserver *>
       m_observers;  //!< Set of the deformation's observers
 
@@ -227,7 +229,7 @@ private:
 //------------------------------------------------------------------
 
 PlasticSkeletonDeformation::Imp::Imp(PlasticSkeletonDeformation *back)
-    : m_back(back), m_skelIdsParam(1.0), m_grammar() {
+    : m_back(back), m_skelIdsParam(1.0), m_curveBending(false), m_grammar() {
   m_skelIdsParam->setName("Skeleton Id");
   m_skelIdsParam->addObserver(this);
 }
@@ -247,7 +249,10 @@ PlasticSkeletonDeformation::Imp::~Imp() {
 
 PlasticSkeletonDeformation::Imp::Imp(PlasticSkeletonDeformation *back,
                                      const Imp &other)
-    : m_back(back), m_skelIdsParam(other.m_skelIdsParam->clone()), m_grammar() {
+    : m_back(back)
+    , m_skelIdsParam(other.m_skelIdsParam->clone())
+    , m_curveBending(other.m_curveBending)
+    , m_grammar() {
   m_skelIdsParam->setGrammar(m_grammar);
   m_skelIdsParam->addObserver(this);
 
@@ -283,6 +288,8 @@ PlasticSkeletonDeformation::Imp &PlasticSkeletonDeformation::Imp::operator=(
     const Imp &other) {
   *m_skelIdsParam = *other.m_skelIdsParam;
   m_skelIdsParam->setGrammar(m_grammar);
+
+  m_curveBending = other.m_curveBending;
 
   // Take in all curves whose name matches one of the stored ones
 
@@ -1019,6 +1026,24 @@ void PlasticSkeletonDeformation::setGrammar(TSyntax::Grammar *grammar) {
 
 //------------------------------------------------------------------
 
+bool PlasticSkeletonDeformation::curveBending() const {
+  return m_imp->m_curveBending;
+}
+
+//------------------------------------------------------------------
+
+void PlasticSkeletonDeformation::setCurveBending(bool on) {
+  if (m_imp->m_curveBending == on) return;
+
+  m_imp->m_curveBending = on;
+
+  // Curve handles are compiled together with the deformers - so, recompile
+  PlasticDeformerStorage::instance()->invalidateDeformation(
+      this, PlasticDeformerStorage::ALL);
+}
+
+//------------------------------------------------------------------
+
 void PlasticSkeletonDeformation::saveData(TOStream &os) {
   // Save skeleton vertex deformations
   os.openChild("VertexDeforms");  // These are saved *before* skeletons
@@ -1037,6 +1062,10 @@ void PlasticSkeletonDeformation::saveData(TOStream &os) {
 
   // Save skeleton ids param
   os.child("SkelIdsParam") << *m_imp->m_skelIdsParam;
+
+  // Save the curve bending option - only when enabled, so that deformations
+  // not using it are saved exactly as before
+  if (m_imp->m_curveBending) os.child("CurveBending") << 1;
 
   // Save skeletons
   os.openChild("Skeletons");
@@ -1085,7 +1114,10 @@ void PlasticSkeletonDeformation::loadData(TIStream &is) {
       is.matchEndTag();
     } else if (tagName == "SkelIdsParam")
       is >> *m_imp->m_skelIdsParam, is.matchEndTag();
-    else if (tagName == "Skeletons") {
+    else if (tagName == "CurveBending") {
+      int val;
+      is >> val, m_imp->m_curveBending = (val != 0), is.matchEndTag();
+    } else if (tagName == "Skeletons") {
       while (is.openChild(tagName)) {
         if (tagName == "SkelId")
           is >> skeletonId, is.matchEndTag();

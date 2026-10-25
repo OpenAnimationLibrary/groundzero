@@ -781,6 +781,13 @@ void PreferencesPopup::onShowXsheetBreadcrumbsClicked() {
 
 //-----------------------------------------------------------------------------
 
+void PreferencesPopup::onShowColumnGroupStripsClicked() {
+  TApp::instance()->getCurrentScene()->notifyPreferenceChanged(
+      "ColumnGroupStrips");
+}
+
+//-----------------------------------------------------------------------------
+
 void PreferencesPopup::onModifyExpressionOnMovingReferencesChanged() {
   TApp::instance()->getCurrentScene()->notifyPreferenceChanged(
       "modifyExpressionOnMovingReferences");
@@ -1302,6 +1309,8 @@ QString PreferencesPopup::getUIString(PreferencesItemId id) {
        tr("Enable Actual Pixel View on Scene Editing Mode")},
       {showRasterImagesDarkenBlendedInViewer,
        tr("Show Raster Images Darken Blended")},
+      {gpuCompositingInViewer,
+       tr("[Experimental Feature] ") + tr("GPU Compositing in the Viewer")},
       {iconSize, tr("Level Strip Thumbnail Size*:")},
       {viewShrink, tr("Viewer Shrink:")},
       {viewStep, tr("Step:")},
@@ -1439,6 +1448,7 @@ QString PreferencesPopup::getUIString(PreferencesItemId id) {
       {showColumnNumbers, tr("Show Column Numbers in Column Headers")},
       {unifyColumnVisibilityToggles,
        tr("Unify Preview and Camstand Visibility Toggles")},
+      {showColumnGroupStrips, tr("Show Column Group Strips in the Xsheet")},
       {parentColorsInXsheetColumn,
        tr("Show Column Parent's Color in the Xsheet")},
       {highlightLineEverySecond, tr("Highlight Line Every Second")},
@@ -2386,6 +2396,7 @@ QWidget* PreferencesPopup::createXsheetPage() {
     insertUI(linkColumnNameWithLevel, xshColHeaderLay);
     insertUI(showColumnNumbers, xshColHeaderLay);
     insertUI(unifyColumnVisibilityToggles, xshColHeaderLay);
+    insertUI(showColumnGroupStrips, xshColHeaderLay);
     insertUI(parentColorsInXsheetColumn, xshColHeaderLay);
     insertUI(currentColumnColor, xshColHeaderLay);
 
@@ -2443,6 +2454,8 @@ QWidget* PreferencesPopup::createXsheetPage() {
       &PreferencesPopup::onUnifyColumnVisibilityTogglesChanged);
   m_onEditedFuncMap.insert(showXsheetBreadcrumbs,
                            &PreferencesPopup::onShowXsheetBreadcrumbsClicked);
+  m_onEditedFuncMap.insert(showColumnGroupStrips,
+                           &PreferencesPopup::onShowColumnGroupStripsClicked);
 
   QCheckBox* linkColumnNameWithLevelCheck =
       getUI<QCheckBox*>(linkColumnNameWithLevel);
@@ -2491,6 +2504,7 @@ QWidget* PreferencesPopup::createPreviewPage() {
     insertUI(ignoreAlphaonColumn1Enabled, viewerLay);
     insertUI(actualPixelViewOnSceneEditingMode, viewerLay);
     insertUI(showRasterImagesDarkenBlendedInViewer, viewerLay);
+    insertUI(gpuCompositingInViewer, viewerLay);
     insertUI(viewerIndicatorEnabled, viewerLay);
     insertUI(restoreViewerViewFromLastSession, viewerLay);
   }

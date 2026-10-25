@@ -3,6 +3,9 @@
 // TnzCore includes
 #include "tconst.h"
 #include "tundo.h"
+#include "tsystem.h"
+#include "timage_io.h"
+#include "tpalette.h"
 
 // TnzBase includes
 #include "tfx.h"
@@ -31,6 +34,12 @@
 #include "toonz/tstageobjectspline.h"
 #include "toonz/tcamera.h"
 #include "toonz/expressionreferencemonitor.h"
+#include "toonz/toonzfolders.h"
+#include "toonz/sceneproperties.h"
+#include "toonz/sceneresources.h"
+#include "toonz/txshsimplelevel.h"
+#include "toonz/txshpalettelevel.h"
+#include "toonz/txshsoundlevel.h"
 
 // TnzQt includes
 #include "toonzqt/menubarcommand.h"
@@ -39,6 +48,7 @@
 #include "toonzqt/selection.h"
 #include "toonzqt/dvdialog.h"
 #include "toonzqt/stageobjectsdata.h"
+#include "toonzqt/gutil.h"
 #include "historytypes.h"
 
 // Toonz includes
@@ -49,8 +59,15 @@
 #include "columnselection.h"
 #include "cellselection.h"
 #include "expressionreferencemanager.h"
+#include "filebrowser.h"
 
 #include "subscenecommand.h"
+
+// Qt includes
+#include <QApplication>
+
+// STD includes
+#include <algorithm>
 
 //*****************************************************************************
 //    Local namespace
@@ -1285,6 +1302,42 @@ void removeFx(TXsheet *xsh, TFx *fx) {
 
 //-----------------------------------------------------------------------------
 
+// copy the camera settings of the parent xsheet into the sub-xsheet
+void copyCamerasToChildXsheet(TXsheet *xsh, TXsheet *childXsh) {
+  TStageObjectTree *parentTree = xsh->getStageObjectTree();
+  TStageObjectTree *childTree  = childXsh->getStageObjectTree();
+
+  int tmpCamId = 0;
+  for (int cam = 0; cam < parentTree->getCameraCount();) {
+    TStageObject *parentCamera =
+        parentTree->getStageObject(TStageObjectId::CameraId(tmpCamId), false);
+    // skip the deleted camera
+    if (!parentCamera) {
+      tmpCamId++;
+      continue;
+    }
+
+    // if the camera exists
+    if (parentCamera->getCamera()) {
+      // obtain the correspondent camera in subxsheet. create it if it does not
+      // exist
+      TCamera *childCamera =
+          childTree->getStageObject(TStageObjectId::CameraId(tmpCamId))
+              ->getCamera();
+      if (parentCamera && childCamera) {
+        childCamera->setRes(parentCamera->getCamera()->getRes());
+        childCamera->setSize(parentCamera->getCamera()->getSize());
+      }
+    }
+    tmpCamId++;
+    cam++;
+  }
+  // sync the current camera
+  childTree->setCurrentCameraId(parentTree->getCurrentCameraId());
+}
+
+//-----------------------------------------------------------------------------
+
 void collapseColumns(std::set<int> indices, bool columnsOnly) {
   // return if there is no selected columns
   if (indices.empty()) return;
@@ -1352,36 +1405,7 @@ void collapseColumns(std::set<int> indices, bool columnsOnly) {
 
   // copy camera info
   // xsh -> childXsh
-  TStageObjectTree *parentTree = xsh->getStageObjectTree();
-  TStageObjectTree *childTree  = childXsh->getStageObjectTree();
-
-  int tmpCamId = 0;
-  for (int cam = 0; cam < parentTree->getCameraCount();) {
-    TStageObject *parentCamera =
-        parentTree->getStageObject(TStageObjectId::CameraId(tmpCamId), false);
-    // skip the deleted camera
-    if (!parentCamera) {
-      tmpCamId++;
-      continue;
-    }
-
-    // if the camera exists
-    if (parentCamera->getCamera()) {
-      // obtain the correspondent camera in subxsheet. create it if it does not
-      // exist
-      TCamera *childCamera =
-          childTree->getStageObject(TStageObjectId::CameraId(tmpCamId))
-              ->getCamera();
-      if (parentCamera && childCamera) {
-        childCamera->setRes(parentCamera->getCamera()->getRes());
-        childCamera->setSize(parentCamera->getCamera()->getSize());
-      }
-    }
-    tmpCamId++;
-    cam++;
-  }
-  // sync the current camera
-  childTree->setCurrentCameraId(parentTree->getCurrentCameraId());
+  copyCamerasToChildXsheet(xsh, childXsh);
 
   app->getCurrentXsheet()->notifyXsheetChanged();
   app->getCurrentScene()->setDirtyFlag(true);
@@ -2642,4 +2666,311 @@ void SubsceneCmd::explode(int index) {
   }
 
   app->getCurrentXsheet()->notifyXsheetChanged();
+}
+
+//=============================================================================
+// saveAsTemplate
+//-----------------------------------------------------------------------------
+
+namespace {
+
+// Templates are stored in this folder of the Library, which the File Browser
+// shows under its "Library" node. A template is loaded back by dragging it
+// from there into the xsheet, or with "Load As Sub-xsheet...".
+TFilePath getTemplatesFolder() {
+  return ToonzFolder::getLibraryFolder() + "templates";
+}
+
+//-----------------------------------------------------------------------------
+
+// Returns the levels whose files must be packaged with the template, i.e. all
+// the levels used by the xsheet (sub-xsheets included) that refer to a file.
+void getTemplateResourceLevels(TXsheet *xsh, std::vector<TXshLevel *> &levels) {
+  std::set<TXshLevel *> usedLevels;
+  xsh->getUsedLevels(usedLevels);
+  for (TXshLevel *level : usedLevels) {
+    if (!level->getSimpleLevel() && !level->getPaletteLevel() &&
+        !level->getSoundLevel())
+      continue;
+    if (level->getPath() == TFilePath()) continue;
+    levels.push_back(level);
+  }
+  // keep the packaged file names independent of the memory layout
+  std::sort(levels.begin(), levels.end(), [](TXshLevel *a, TXshLevel *b) {
+    return a->getName() < b->getName();
+  });
+}
+
+//-----------------------------------------------------------------------------
+
+// Returns the decoded path of the file used by the level. The layer suffix of
+// psd levels ("#...") is removed and returned in psdSuffix.
+TFilePath getLevelFilePath(ToonzScene *scene, TXshLevel *level,
+                           std::string &psdSuffix) {
+  TFilePath path = level->getPath();
+  psdSuffix      = ResourceImporter::extractPsdSuffix(path);
+  return scene->decodeFilePath(path);
+}
+
+//-----------------------------------------------------------------------------
+
+// Levels are packaged by copying their files, so they must be saved on disk.
+bool isLevelSavedOnDisk(ToonzScene *scene, TXshLevel *level) {
+  if (TXshSimpleLevel *sl = level->getSimpleLevel()) {
+    if (sl->getDirtyFlag() ||
+        (sl->getPalette() && sl->getPalette()->getDirtyFlag()))
+      return false;
+  } else if (TXshPaletteLevel *pl = level->getPaletteLevel()) {
+    if (pl->getPalette() && pl->getPalette()->getDirtyFlag()) return false;
+  }
+  std::string psdSuffix;
+  return TSystem::doesExistFileOrLevel(
+      getLevelFilePath(scene, level, psdSuffix));
+}
+
+//-----------------------------------------------------------------------------
+
+void setTemplateLevelPath(TXshLevel *level, const TFilePath &path) {
+  if (TXshSimpleLevel *sil = level->getSimpleLevel())
+    sil->setPath(path, true);
+  else if (TXshPaletteLevel *pal = level->getPaletteLevel())
+    pal->setPath(path);
+  else if (TXshSoundLevel *sol = level->getSoundLevel())
+    sol->setPath(path);
+}
+
+//-----------------------------------------------------------------------------
+
+// Writes the template thumbnail where the File Browser looks for scene icons
+// (see ToonzScene::getIconPath()), rendering the first exposed frame.
+void saveTemplateIcon(ToonzScene *scene, TXsheet *xsh,
+                      const TFilePath &templatePath) {
+  int row = -1;
+  for (int c = 0; c < xsh->getColumnCount(); c++) {
+    int r0, r1;
+    if (xsh->getCellRange(c, r0, r1) && (row < 0 || r0 < row)) row = r0;
+  }
+  if (row < 0) row = 0;
+
+  TDimension cameraSize =
+      xsh->getStageObjectTree()->getCurrentCamera()->getRes();
+  if (cameraSize.lx <= 0 || cameraSize.ly <= 0) return;
+
+  const int maxSize   = 128;
+  TDimension iconSize = cameraSize;
+  if (cameraSize.lx > cameraSize.ly) {
+    iconSize.ly = std::max(1, maxSize * cameraSize.ly / cameraSize.lx);
+    iconSize.lx = maxSize;
+  } else {
+    iconSize.lx = std::max(1, maxSize * cameraSize.lx / cameraSize.ly);
+    iconSize.ly = maxSize;
+  }
+
+  try {
+    TRaster32P ras(iconSize);
+    ras->fill(scene->getProperties()->getBgColor());
+    scene->renderFrame(ras, row, xsh);
+
+    TFilePath iconPath = ToonzScene::getIconPath(templatePath);
+    if (TSystem::touchParentDir(iconPath)) TImageWriter::save(iconPath, ras);
+  } catch (...) {
+  }
+}
+
+}  // namespace
+
+//-----------------------------------------------------------------------------
+
+//! Saves a copy of the specified columns of the current xsheet, with their
+//! pegbars, fxs and levels, as a template scene in the Library.
+void SubsceneCmd::saveAsTemplate(const std::set<int> &indices) {
+  if (indices.empty()) return;
+
+  TApp *app         = TApp::instance();
+  ToonzScene *scene = app->getCurrentScene()->getScene();
+  TXsheet *xsh      = app->getCurrentXsheet()->getXsheet();
+
+  // Ask for the template name
+  QString defaultName = QString::fromStdString(
+      xsh->getStageObject(TStageObjectId::ColumnId(*indices.begin()))
+          ->getName());
+  bool ok;
+  QString name = DVGui::getText(QObject::tr("Save Selection as Template"),
+                                QObject::tr("Template Name:"), defaultName, &ok)
+                     .trimmed();
+  if (!ok) return;
+  if (!isValidFileName_message(name) || isReservedFileName_message(name))
+    return;
+
+  TFilePath templatesFolder = getTemplatesFolder();
+  TFilePath templatePath =
+      templatesFolder + TFilePath(name.toStdWString() + L".tnz");
+  // the levels are copied into a folder named after the template
+  TFilePath levelFolder      = templatesFolder + name.toStdWString();
+  TFilePath codedLevelFolder = TFilePath("$scenefolder") + name.toStdWString();
+
+  if (TFileStatus(templatePath).doesExist()) {
+    QString question = QObject::tr(
+                           "The template %1 already exists.\nDo you want to "
+                           "overwrite it?")
+                           .arg(name);
+    int ret = DVGui::MsgBox(question, QObject::tr("Overwrite"),
+                            QObject::tr("Cancel"), 0);
+    if (ret != 1) return;
+  }
+
+  // Build the template xsheet from a copy of the columns, as Collapse does.
+  // Pegbars are always brought inside since they are part of a rig.
+  TXsheetP templateXshP = new TXsheet();
+  TXsheet *templateXsh  = templateXshP.getPointer();
+  templateXsh->setScene(scene);
+
+  StageObjectsData data;
+  data.storeColumns(indices, xsh, StageObjectsData::eDoClone);
+  data.storeColumnFxs(indices, xsh, StageObjectsData::eDoClone);
+
+  std::set<int> newIndices;
+  std::list<int> restoredSplineIds;
+  QMap<TStageObjectId, TStageObjectId> idTable;
+  QMap<TFx *, TFx *> fxTable;
+  data.restoreObjects(newIndices, restoredSplineIds, templateXsh, 0, idTable,
+                      fxTable);
+  bringPegbarsInsideChildXsheet(xsh, templateXsh, indices, newIndices, idTable);
+
+  ExpressionReferenceManager::instance()->refreshXsheetRefInfo(templateXsh);
+  ExpressionReferenceManager::instance()->transferReference(xsh, templateXsh,
+                                                            idTable, fxTable);
+
+  copyCamerasToChildXsheet(xsh, templateXsh);
+  templateXsh->updateFrameCount();
+
+  if (templateXsh->getFrameCount() <= 0) {
+    DVGui::warning(QObject::tr("The selected columns are empty."));
+    return;
+  }
+
+  std::vector<TXshLevel *> levels;
+  getTemplateResourceLevels(templateXsh, levels);
+
+  // The level files are copied from disk: the scene must have a path and the
+  // levels must be saved.
+  auto needsSaving = [&]() {
+    if (scene->isUntitled()) return true;
+    for (TXshLevel *level : levels)
+      if (!isLevelSavedOnDisk(scene, level)) return true;
+    return false;
+  };
+  if (needsSaving()) {
+    QString question = QObject::tr(
+        "The template is packaged with copies of the saved level files, but "
+        "the scene is untitled or some of the levels used by the selected "
+        "columns have unsaved changes.\nDo you want to save all and "
+        "continue?");
+    int ret = DVGui::MsgBox(question, QObject::tr("Save All and Continue"),
+                            QObject::tr("Cancel"), 0);
+    if (ret != 1) return;
+    CommandManager::instance()->execute(MI_SaveAll);
+    if (needsSaving()) {
+      DVGui::warning(
+          QObject::tr("The template has not been saved because the scene or "
+                      "some of its levels could not be saved."));
+      return;
+    }
+  }
+
+  if (app->isSaveInProgress()) return;
+  app->setSaveInProgress(true);
+  QApplication::setOverrideCursor(Qt::WaitCursor);
+
+  // Copy the level files next to the template and refer to them with the
+  // $scenefolder alias, which is decoded relative to the template file when
+  // it is loaded as a sub-xsheet in any scene or project.
+  std::map<TFilePath, TFilePath> packagedFiles;  // source -> coded path
+  std::set<TFilePath> usedDstPaths;
+  std::vector<std::pair<TXshLevel *, TFilePath>> templatePaths;
+  QStringList failedLevels;
+  for (TXshLevel *level : levels) {
+    std::string psdSuffix;
+    TFilePath srcPath = getLevelFilePath(scene, level, psdSuffix);
+    TFilePath codedPath;
+
+    auto it = packagedFiles.find(srcPath);
+    if (it != packagedFiles.end())
+      codedPath = it->second;
+    else {
+      TFilePath fileName = srcPath.withoutParentDir();
+      TFilePath dstPath  = levelFolder + fileName;
+      for (int i = 2; usedDstPaths.count(dstPath); i++)
+        dstPath = levelFolder + fileName.withName(fileName.getWideName() +
+                                                  L"_" + std::to_wstring(i));
+      usedDstPaths.insert(dstPath);
+      try {
+        if (dstPath != srcPath) {
+          if (TSystem::doesExistFileOrLevel(dstPath))
+            TSystem::removeFileOrLevel(dstPath);
+          TXshSimpleLevel::copyFiles(dstPath, srcPath);
+        }
+        codedPath = codedLevelFolder + dstPath.withoutParentDir();
+      } catch (...) {
+        // keep referring to the original file, with an absolute path
+        failedLevels.append(QString::fromStdWString(level->getName()));
+        codedPath = srcPath;
+      }
+      packagedFiles[srcPath] = codedPath;
+    }
+    if (!psdSuffix.empty())
+      codedPath = ResourceImporter::buildPsd(codedPath, psdSuffix);
+    templatePaths.push_back(std::make_pair(level, codedPath));
+  }
+
+  // Temporarily set the template paths to the levels in order to save them,
+  // then restore the original ones (as Save Sub-xsheet As does).
+  std::vector<TFilePath> orgPaths;
+  for (auto &levelPath : templatePaths) {
+    orgPaths.push_back(levelPath.first->getPath());
+    setTemplateLevelPath(levelPath.first, levelPath.second);
+  }
+
+  TFilePath oldScenePath = scene->getScenePath();
+  QString errorMsg;
+  try {
+    TFilePath savePath = templatePath;
+    TSystem::touchParentDir(savePath);
+    scene->save(savePath, templateXsh, false);
+  } catch (const TException &e) {
+    errorMsg = QString::fromStdWString(e.getMessage());
+    if (errorMsg.isEmpty())
+      errorMsg = QObject::tr("Couldn't save %1").arg(toQString(templatePath));
+  } catch (...) {
+    errorMsg = QObject::tr("Couldn't save %1").arg(toQString(templatePath));
+  }
+  // ToonzScene::save() restores the scene path only on success
+  scene->setScenePath(oldScenePath);
+
+  for (int i = 0; i < (int)templatePaths.size(); i++)
+    setTemplateLevelPath(templatePaths[i].first, orgPaths[i]);
+
+  if (errorMsg.isEmpty()) saveTemplateIcon(scene, templateXsh, templatePath);
+
+  QApplication::restoreOverrideCursor();
+  app->setSaveInProgress(false);
+
+  if (!errorMsg.isEmpty()) {
+    DVGui::warning(errorMsg);
+    return;
+  }
+
+  FileBrowser::refreshFolder(templatesFolder);
+  IconGenerator::instance()->invalidate(templatePath);
+
+  if (!failedLevels.isEmpty())
+    DVGui::warning(
+        QObject::tr("The template %1 has been saved, but the following levels "
+                    "could not be copied into it and are referred to with "
+                    "their original paths:\n%2")
+            .arg(toQString(templatePath))
+            .arg(failedLevels.join("\n")));
+  else
+    DVGui::info(QObject::tr("The template has been saved to %1.")
+                    .arg(toQString(templatePath)));
 }

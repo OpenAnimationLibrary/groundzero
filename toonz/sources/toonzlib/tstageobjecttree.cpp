@@ -557,6 +557,17 @@ TPointD TStageObjectTree::getHandlePos(const TStageObjectId &id,
 
 //-----------------------------------------------------------------------------
 
+TAffine TStageObjectTree::getHandleAffine(const TStageObjectId &id,
+                                          const std::string &handle,
+                                          double frame) const {
+  if (m_imp->m_handleManager)
+    return m_imp->m_handleManager->getHandleAffine(id, handle, frame);
+  else
+    return TAffine();
+}
+
+//-----------------------------------------------------------------------------
+
 int TStageObjectTree::getSplineCount() const { return m_imp->m_splines.size(); }
 
 //-----------------------------------------------------------------------------

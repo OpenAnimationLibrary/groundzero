@@ -42,11 +42,15 @@ public:
   void insertColumnsAbove();
 
   void collapse();
+  void saveAsTemplate();
   void explodeChild();
   void resequence();
   void cloneChild();
 
   void hideColumns();
+
+  void groupColumns();
+  void ungroupColumns();
 
   void reframeCells(int count);
   void reframe1Cells() { reframeCells(1); }
