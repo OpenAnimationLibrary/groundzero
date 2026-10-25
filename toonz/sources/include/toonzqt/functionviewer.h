@@ -120,6 +120,10 @@ public:
   TSceneHandle *getSceneHandle() const { return m_sceneHandle; }
   TXsheetHandle *getXsheetHandle() const { return m_xshHandle; }
 
+  //! Returns the curve of the current channel, or 0 when there is none.
+  //! When \p longName is given it receives the channel's long name.
+  TDoubleParam *getCurrentChannelCurve(QString *longName = 0) const;
+
   // SaveLoadQSettings
   virtual void save(QSettings &settings) const override;
   virtual void load(QSettings &settings) override;

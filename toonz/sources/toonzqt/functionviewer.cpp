@@ -813,6 +813,18 @@ bool FunctionViewer::isExpressionPageActive() {
 
 //----------------------------------------------------------------------------
 
+TDoubleParam *FunctionViewer::getCurrentChannelCurve(QString *longName) const {
+  FunctionTreeModel *ftModel =
+      dynamic_cast<FunctionTreeModel *>(m_treeView->model());
+  if (!ftModel) return 0;
+  FunctionTreeModel::Channel *channel = ftModel->getCurrentChannel();
+  if (!channel) return 0;
+  if (longName) *longName = channel->getLongName();
+  return channel->getParam();
+}
+
+//----------------------------------------------------------------------------
+
 void FunctionViewer::save(QSettings &settings) const {
   settings.setValue("toggleStatus", m_toggleStatus);
   settings.setValue("showIbtwnValuesInSheet",

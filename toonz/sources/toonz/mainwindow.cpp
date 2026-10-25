@@ -2899,6 +2899,8 @@ void MainWindow::defineActions() {
                           QT_TR_NOOP("Drawing Substitution"), "", "");
   createMenuWindowsAction(MI_OpenStoryboardPanel, QT_TR_NOOP("Storyboard"), "",
                           "");
+  createMenuWindowsAction(MI_OpenMasterControllers,
+                          QT_TR_NOOP("Master Controllers"), "", "");
   createMenuWindowsAction(MI_OpenSymbols, QT_TR_NOOP("Symbols"), "", "");
   createMenuWindowsAction(MI_OpenReferencePanel, QT_TR_NOOP("&Reference"), "",
                           "");

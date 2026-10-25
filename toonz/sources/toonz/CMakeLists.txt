@@ -119,6 +119,7 @@ set(MOC_HEADERS
     referencepanel.h
     drawingsubstitutionpane.h
     storyboardpane.h
+    mastercontrollerspane.h
     symbolspane.h
     vectorguideddrawingpane.h
     vectorizerpopup.h
@@ -332,6 +333,7 @@ set(SOURCES
     referencepanel.cpp
     drawingsubstitutionpane.cpp
     storyboardpane.cpp
+    mastercontrollerspane.cpp
     symbolspane.cpp
     vectorguideddrawingpane.cpp
     vectorizerpopup.cpp

@@ -6,6 +6,7 @@
 #include "referencepanel.h"
 #include "drawingsubstitutionpane.h"
 #include "storyboardpane.h"
+#include "mastercontrollerspane.h"
 
 // Tnz6 includes
 #include "pane.h"
@@ -1935,3 +1936,21 @@ public:
 OpenFloatingPanel openStoryboardPanelCommand(MI_OpenStoryboardPanel,
                                              "StoryboardPanel",
                                              QObject::tr("Storyboard"));
+
+//=============================================================================
+// Master Controllers
+//-----------------------------------------------------------------------------
+
+class MasterControllersPanelFactory final : public TPanelFactory {
+public:
+  MasterControllersPanelFactory() : TPanelFactory("MasterControllers") {}
+  void initialize(TPanel *panel) override {
+    panel->setWidget(new MasterControllersPane(panel));
+    panel->setWindowTitle(QObject::tr("Master Controllers"));
+    panel->setIsMaximizable(false);
+  }
+} masterControllersPanelFactory;
+
+OpenFloatingPanel openMasterControllersCommand(
+    MI_OpenMasterControllers, "MasterControllers",
+    QObject::tr("Master Controllers"));
