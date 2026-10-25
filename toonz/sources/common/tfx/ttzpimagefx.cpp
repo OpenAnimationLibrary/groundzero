@@ -1,5 +1,8 @@
 
 
+// TnzCore includes
+#include "tcolorstyles.h"
+
 // TnzBase includes
 #include "trasterfx.h"
 
@@ -83,6 +86,50 @@ bool ExternalPaletteFxRenderData::operator==(
 //------------------------------------------------------------------------------
 
 std::string ExternalPaletteFxRenderData::toString() const { return m_name; }
+
+//**********************************************************************************************
+//    ColourOverrideFxRenderData  implementation
+//**********************************************************************************************
+
+bool ColourOverrideFxRenderData::operator==(
+    const TRasterFxRenderData &data) const {
+  const ColourOverrideFxRenderData *theData =
+      dynamic_cast<const ColourOverrideFxRenderData *>(&data);
+  if (!theData) return false;
+
+  return theData->m_overrides == m_overrides;
+}
+
+//------------------------------------------------------------------------------
+
+std::string ColourOverrideFxRenderData::toString() const {
+  std::string alias("colourOverride");
+  std::vector<std::pair<int, TPixel32>>::const_iterator it;
+  for (it = m_overrides.begin(); it != m_overrides.end(); ++it) {
+    const TPixel32 &color = it->second;
+    alias += "," + std::to_string(it->first) + ":" + std::to_string(color.r) +
+             "-" + std::to_string(color.g) + "-" + std::to_string(color.b) +
+             "-" + std::to_string(color.m);
+  }
+  return alias;
+}
+
+//------------------------------------------------------------------------------
+
+void ColourOverrideFxRenderData::apply(TPalette *palette) const {
+  if (!palette) return;
+
+  int styleCount = palette->getStyleCount();
+  std::vector<std::pair<int, TPixel32>>::const_iterator it;
+  for (it = m_overrides.begin(); it != m_overrides.end(); ++it) {
+    // TPalette::getStyle() returns a shared placeholder style for ids out of
+    // range - which must never be modified
+    if (it->first <= 0 || it->first >= styleCount) continue;
+
+    TColorStyle *style = palette->getStyle(it->first);
+    if (style) style->setMainColor(it->second);
+  }
+}
 
 //**********************************************************************************************
 //    PaletteFilterFxRenderData  implementation

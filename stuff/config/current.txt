@@ -395,6 +395,24 @@
   <item>"STD_paletteFilterFx.keep"	"Action"	</item>
   <item>"STD_paletteFilterFx.type"	"Apply To"	</item>
 
+  <item>"STD_colourOverrideFx"	"Colour Override"	</item>
+  <item>"STD_colourOverrideFx.style1"	"Style 1"	</item>
+  <item>"STD_colourOverrideFx.color1"	"Color 1"	</item>
+  <item>"STD_colourOverrideFx.style2"	"Style 2"	</item>
+  <item>"STD_colourOverrideFx.color2"	"Color 2"	</item>
+  <item>"STD_colourOverrideFx.style3"	"Style 3"	</item>
+  <item>"STD_colourOverrideFx.color3"	"Color 3"	</item>
+  <item>"STD_colourOverrideFx.style4"	"Style 4"	</item>
+  <item>"STD_colourOverrideFx.color4"	"Color 4"	</item>
+  <item>"STD_colourOverrideFx.style5"	"Style 5"	</item>
+  <item>"STD_colourOverrideFx.color5"	"Color 5"	</item>
+  <item>"STD_colourOverrideFx.style6"	"Style 6"	</item>
+  <item>"STD_colourOverrideFx.color6"	"Color 6"	</item>
+  <item>"STD_colourOverrideFx.style7"	"Style 7"	</item>
+  <item>"STD_colourOverrideFx.color7"	"Color 7"	</item>
+  <item>"STD_colourOverrideFx.style8"	"Style 8"	</item>
+  <item>"STD_colourOverrideFx.color8"	"Color 8"	</item>
+
 
 
 

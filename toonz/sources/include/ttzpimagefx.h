@@ -14,6 +14,7 @@
 #include <vector>
 #include <set>
 #include <string>
+#include <utility>
 
 #undef DVAPI
 #undef DVVAR
@@ -41,6 +42,30 @@ public:
 
   bool operator==(const TRasterFxRenderData &data) const override;
   std::string toString() const override;
+};
+
+//**********************************************************************************************
+//    ColourOverrideFxRenderData  declaration
+//**********************************************************************************************
+
+//! Replaces the main color of some styles in the palette that Toonz Vector and
+//! Toonz Raster images are rendered with. The level's own palette is never
+//! modified: the overrides are applied on a copy, at render time.
+class DVAPI ColourOverrideFxRenderData final : public TRasterFxRenderData {
+public:
+  std::vector<std::pair<int, TPixel32>> m_overrides;  //!< (style id, color)
+
+public:
+  ColourOverrideFxRenderData() {}
+
+  float typeIndex() const override { return 0.25f; }
+
+  bool operator==(const TRasterFxRenderData &data) const override;
+  std::string toString() const override;
+
+  //! Sets the overridden styles' main color in the specified palette. Style
+  //! ids that the palette does not contain are skipped.
+  void apply(TPalette *palette) const;
 };
 
 //**********************************************************************************************

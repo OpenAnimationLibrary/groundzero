@@ -114,6 +114,7 @@ set(SOURCES
     channelmixerfx.cpp
     cloudsfx.cpp
     colorembossfx.cpp
+    colouroverridefx.cpp
     cornerpinfx.cpp
     despecklefx.cpp
     diamondgradientfx.cpp

@@ -1,0 +1,28 @@
+<fxlayout>
+  <page name="Colour Override">
+        <control>style1</control>
+        <control>color1</control>
+
+        <control>style2</control>
+        <control>color2</control>
+
+        <control>style3</control>
+        <control>color3</control>
+
+        <control>style4</control>
+        <control>color4</control>
+
+        <control>style5</control>
+        <control>color5</control>
+
+        <control>style6</control>
+        <control>color6</control>
+
+        <control>style7</control>
+        <control>color7</control>
+
+        <control>style8</control>
+        <control>color8</control>
+  </page>
+
+</fxlayout>
