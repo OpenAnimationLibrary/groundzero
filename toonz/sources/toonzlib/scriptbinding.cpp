@@ -34,7 +34,9 @@
 #include "tlevel_io.h"
 
 // Qt includes
-#include <QScriptEngine>
+#include <QJSEngine>
+#include <QCoreApplication>
+#include <QEvent>
 #include <QColor>
 
 namespace TScriptBinding {
@@ -52,33 +54,42 @@ Wrapper::Wrapper() : m_id(++m_count) {}
 Wrapper::~Wrapper() = default;
 
 void Wrapper::print(const QString &msg) {
-  QScriptValueList lst;
+  QJSValueList lst;
   lst << msg;
   print(lst);
 }
 
-void Wrapper::print(const QScriptValueList &lst) {
-  QScriptValue printFunc = engine()->globalObject().property("print");
-  if (printFunc.isFunction()) {
-    printFunc.call(QScriptValue(), lst);
+void Wrapper::print(const QJSValueList &lst) {
+  QJSValue printFunc = engine()->globalObject().property("print");
+  if (printFunc.isCallable()) {
+    printFunc.call(lst);
   }
 }
 
 void Wrapper::warning(const QString &msg) {
-  QScriptValueList lst;
+  QJSValueList lst;
   lst << msg;
-  QScriptValue warningFunc = engine()->globalObject().property("warning");
-  if (warningFunc.isFunction()) {
-    warningFunc.call(QScriptValue(), lst);
+  QJSValue warningFunc = engine()->globalObject().property("warning");
+  if (warningFunc.isCallable()) {
+    warningFunc.call(lst);
   }
+}
+
+QJSValue Wrapper::self() const {
+  return wrap(engine(), const_cast<Wrapper *>(this));
+}
+
+QJSValue Wrapper::throwError(const QString &message) const {
+  engine()->throwError(message);
+  return QJSValue();
 }
 
 //===========================================================================
 
-QScriptValue checkArgumentCount(QScriptContext *context, const QString &name,
-                                int minCount, int maxCount) {
-  int count = context->argumentCount();
-  if (minCount <= count && count <= maxCount) return QScriptValue();
+bool checkArgumentCount(QJSEngine *engine, const QJSValueList &args,
+                        const QString &name, int minCount, int maxCount) {
+  int count = args.size();
+  if (minCount <= count && count <= maxCount) return true;
 
   QString range;
   if (minCount != maxCount) {
@@ -87,110 +98,249 @@ QScriptValue checkArgumentCount(QScriptContext *context, const QString &name,
     range = QObject::tr("%1").arg(minCount);
   }
 
-  return context->throwError(
-      QObject::tr("Expected %1 argument(s) in %2, got %3")
-          .arg(range, name)
-          .arg(count));
+  engine->throwError(QObject::tr("Expected %1 argument(s) in %2, got %3")
+                         .arg(range, name)
+                         .arg(count));
+  return false;
 }
 
-QScriptValue checkArgumentCount(QScriptContext *context, const QString &name,
-                                int count) {
-  return checkArgumentCount(context, name, count, count);
+bool checkArgumentCount(QJSEngine *engine, const QJSValueList &args,
+                        const QString &name, int count) {
+  return checkArgumentCount(engine, args, name, count, count);
 }
 
-QScriptValue checkColor(QScriptContext *context, const QString &colorName,
-                        QColor &color) {
+bool checkColor(QJSEngine *engine, const QString &colorName, QColor &color) {
   color.setNamedColor(colorName);
   if (!color.isValid()) {
-    return context->throwError(
+    engine->throwError(
         QObject::tr("%1 is not a valid color (valid color names are 'red', "
                     "'transparent', '#FF8800', etc.)")
             .arg(colorName));
+    return false;
   }
-  return QScriptValue();
+  return true;
 }
 
 //=============================================================================
 
-template <class T>
-void bindClass(QScriptEngine &engine, const QString &name) {
-  const QMetaObject *metaObj = &T::staticMetaObject;
-  QScriptValue ctor          = engine.newFunction(T::ctor);
-  QScriptValue proto         = engine.newQMetaObject(metaObj, ctor);
-  engine.globalObject().setProperty(name, proto);
-  engine.setDefaultPrototype(qMetaTypeId<T *>(), proto);
-}
+namespace {
 
-template <typename Tp>
-QScriptValue qScriptValueFromQObject(QScriptEngine *engine, Tp const &qobject) {
-  return engine->newQObject(qobject);
-}
+typedef QJSValue (*CtorFunction)(QJSEngine *engine, const QJSValueList &args);
 
-template <typename Tp>
-void qScriptValueToQObject(const QScriptValue &value, Tp &qobject) {
-  qobject = qobject_cast<Tp>(value.toQObject());
-}
-
-template <typename Tp>
-int qScriptRegisterQObjectMetaType(
-    QScriptEngine *engine, const QScriptValue &prototype = QScriptValue()) {
-  return qScriptRegisterMetaType<Tp>(engine, qScriptValueFromQObject,
-                                     qScriptValueToQObject, prototype);
-}
-
-template <class T, QScriptValue (T::*Method)(QScriptContext *, QScriptEngine *)>
-class StaticMethodWrapper {
-public:
-  static QScriptValue wrap(QScriptContext *context, QScriptEngine *engine) {
-    T *obj = qscriptvalue_cast<T *>(context->thisObject());
-    if (!obj) {
-      return engine->undefinedValue();
-    }
-    return (obj->*Method)(context, engine);
-  }
+struct ClassInfo {
+  const char *m_name;
+  const QMetaObject *m_metaObject;
+  CtorFunction m_ctor;
 };
 
-static void setupStaticMethods(QScriptEngine &engine) {
-  // Setup static methods for classes if needed
-  // Example: ToonzRasterConverter::convert
-  QScriptValue convertFunc = engine.newFunction(
-      StaticMethodWrapper<ToonzRasterConverter,
-                          &ToonzRasterConverter::convert>::wrap);
-  engine.globalObject()
-      .property("ToonzRasterConverter")
-      .setProperty("convert", convertFunc);
+template <class T>
+ClassInfo classInfo(const char *name) {
+  return {name, &T::staticMetaObject, &T::ctor};
 }
 
-void bindAll(QScriptEngine &engine) {
+// The script classes: name of the global constructor, C++ class
+const ClassInfo *classes(int &count) {
+  static const ClassInfo infos[] = {
+      classInfo<Image>("Image"),
+      classInfo<Level>("Level"),
+      classInfo<Scene>("Scene"),
+      classInfo<Transform>("Transform"),
+      classInfo<ImageBuilder>("ImageBuilder"),
+      classInfo<OutlineVectorizer>("OutlineVectorizer"),
+      classInfo<CenterlineVectorizer>("CenterlineVectorizer"),
+      classInfo<Rasterizer>("Rasterizer"),
+      classInfo<ToonzRasterConverter>("ToonzRasterConverter"),
+      classInfo<FilePath>("FilePath"),
+      classInfo<Renderer>("Renderer"),
+  };
+  count = sizeof(infos) / sizeof(infos[0]);
+  return infos;
+}
+
+QJSValueList toList(const QJSValue &array) {
+  QJSValueList list;
+  quint32 length = array.property(QStringLiteral("length")).toUInt();
+  for (quint32 i = 0; i < length; ++i) list.append(array.property(i));
+  return list;
+}
+
+// The JavaScript side of the Host (see the comment of the class). It is
+// called with the Host, the global object and the names of the script
+// classes, and returns the functions used by Host to define the classes and
+// the global functions.
+const char *const glueSource = R"JS(
+(function (host, global, classNames) {
+  var slice = Array.prototype.slice;
+
+  // Common prototype of all the script objects of the bound classes: string
+  // conversions ("" + image, String(image), ...) use their C++ toString().
+  var base = {};
+  Object.defineProperty(base, Symbol.toPrimitive, {
+    value: function (hint) { return host.describe(this); }
+  });
+
+  var prototypes = {};
+  classNames.forEach(function (name) {
+    var ctor = function () {
+      return host.construct(name, slice.call(arguments));
+    };
+    ctor.prototype = Object.create(base);
+    Object.defineProperty(ctor.prototype, "constructor",
+                          { value: ctor, writable: true, configurable: true });
+    prototypes[name] = ctor.prototype;
+    global[name] = ctor;
+  });
+
+  function nativeFunction(key) {
+    return function () { return host.call(key, slice.call(arguments)); };
+  }
+
+  return {
+    prototypes: prototypes,
+    defineFunction: function (name) {
+      global[name] = nativeFunction(name);
+    },
+    defineMethod: function (className, name) {
+      var f = nativeFunction(className + "." + name);
+      prototypes[className][name] = f;
+      global[className][name] = f;
+    }
+  };
+})
+)JS";
+
+}  // namespace
+
+//=============================================================================
+
+Host::Host(QJSEngine *engine) : QObject(engine), m_engine(engine) {}
+
+Host::~Host() {}
+
+Host *Host::instance(QJSEngine *engine) {
+  return engine
+             ? engine->findChild<Host *>(QString(), Qt::FindDirectChildrenOnly)
+             : 0;
+}
+
+void Host::install() {
+  int count              = 0;
+  const ClassInfo *infos = classes(count);
+  QJSValue classNames    = m_engine->newArray(count);
+  for (int i = 0; i < count; ++i)
+    classNames.setProperty(i, QString::fromLatin1(infos[i].m_name));
+
+  QJSValue glueFunction =
+      m_engine->evaluate(QString::fromLatin1(glueSource), "scriptbinding.js");
+  Q_ASSERT(glueFunction.isCallable());
+  m_glue = glueFunction.call(QJSValueList()
+                             << m_engine->newQObject(this)
+                             << m_engine->globalObject() << classNames);
+  Q_ASSERT(m_glue.isObject());
+
+  QJSValue prototypes = m_glue.property("prototypes");
+  for (int i = 0; i < count; ++i)
+    m_prototypes.insert(infos[i].m_metaObject,
+                        prototypes.property(infos[i].m_name));
+}
+
+void Host::defineFunction(const QString &name, const NativeFunction &f) {
+  m_functions.insert(name, f);
+  m_glue.property("defineFunction")
+      .callWithInstance(m_glue, QJSValueList() << name);
+}
+
+void Host::defineMethod(const QString &className, const QString &name,
+                        const NativeFunction &f) {
+  m_functions.insert(className + "." + name, f);
+  m_glue.property("defineMethod")
+      .callWithInstance(m_glue, QJSValueList() << className << name);
+}
+
+QJSValue Host::getPrototype(const QMetaObject *metaObject) const {
+  return m_prototypes.value(metaObject);
+}
+
+QJSValue Host::construct(const QString &className, const QJSValue &args) {
+  int count              = 0;
+  const ClassInfo *infos = classes(count);
+  for (int i = 0; i < count; ++i)
+    if (className == QLatin1String(infos[i].m_name))
+      return infos[i].m_ctor(m_engine, toList(args));
+  m_engine->throwError(tr("Unknown class %1").arg(className));
+  return QJSValue();
+}
+
+QJSValue Host::call(const QString &name, const QJSValue &args) {
+  auto it = m_functions.constFind(name);
+  if (it == m_functions.constEnd()) {
+    m_engine->throwError(tr("Unknown function %1").arg(name));
+    return QJSValue();
+  }
+  // copy the function: it could redefine itself
+  NativeFunction f = it.value();
+  return f(m_engine, toList(args));
+}
+
+QString Host::describe(const QJSValue &value) const {
+  // value can also be one of the prototypes (e.g. "" + Image.prototype)
+  if (!value.isQObject()) return QStringLiteral("[object Object]");
+  return TScriptBinding::toString(value);
+}
+
+//=============================================================================
+
+QJSValue wrap(QJSEngine *engine, QObject *obj) {
+  // The objects that the garbage collector finds unreachable are released
+  // with deleteLater(). The script thread doesn't go back to its event loop
+  // until the evaluation ends, so the deletions are done here: otherwise a
+  // long script (e.g. processing all the frames of a level) would keep all
+  // of its images in memory until it ends.
+  QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+
+  QJSValue value = engine->newQObject(obj);
+  if (Host *host = Host::instance(engine)) {
+    QJSValue prototype = host->getPrototype(obj->metaObject());
+    if (prototype.isObject()) value.setPrototype(prototype);
+  }
+  return value;
+}
+
+void bindAll(QJSEngine &engine) {
   // Bind all scriptable classes
-  bindClass<Image>(engine, "Image");
-  bindClass<Level>(engine, "Level");
-  bindClass<Scene>(engine, "Scene");
-  bindClass<Transform>(engine, "Transform");
-  bindClass<ImageBuilder>(engine, "ImageBuilder");
-  bindClass<OutlineVectorizer>(engine, "OutlineVectorizer");
-  bindClass<CenterlineVectorizer>(engine, "CenterlineVectorizer");
-  bindClass<Rasterizer>(engine, "Rasterizer");
-  bindClass<ToonzRasterConverter>(engine, "ToonzRasterConverter");
-  bindClass<FilePath>(engine, "FilePath");
-  bindClass<Renderer>(engine, "Renderer");
+  Host *host = new Host(&engine);
+  host->install();
 
-  // Setup any static methods
-  setupStaticMethods(engine);
-
-  // Register meta types for script binding
-  qScriptRegisterQObjectMetaType<TScriptBinding::Image *>(&engine);
+  // Setup the "static" methods
+  // ToonzRasterConverter.convert() is also a method of the instances
+  host->defineMethod("ToonzRasterConverter", "convert",
+                     &ToonzRasterConverter::convert);
 
   // Set version information in the script environment
-  engine.evaluate("ToonzVersion='7.1'");
+  engine.globalObject().setProperty("ToonzVersion", "7.1");
+}
 
-  // Additional global script setup could go here
-  // Example: engine.evaluate("toonz={version:'7.0'}; script={version:'1.0'};");
-  // engine.globalObject().setProperty("dir","C:\\Users\\gmt\\GMT to
-  // vectorize\\");
-  // QScriptValue test = engine.evaluate("function() { print('ok');
-  // run(dir+'bu.js');}");
-  // engine.globalObject().setProperty("test",test);
+void defineFunction(QJSEngine &engine, const QString &name,
+                    const NativeFunction &f) {
+  Host *host = Host::instance(&engine);
+  Q_ASSERT(host);
+  if (host) host->defineFunction(name, f);
+}
+
+QString toString(const QJSValue &value) {
+  if (QObject *obj = value.toQObject()) {
+    // Note: value.toString() can't be used, the engine would call its own
+    // toString() for QObjects (or describe(), which calls this function)
+    QString result;
+    if (obj->metaObject()->indexOfMethod("toString()") >= 0 &&
+        QMetaObject::invokeMethod(obj, "toString", Qt::DirectConnection,
+                                  Q_RETURN_ARG(QString, result)))
+      return result;
+    return QString("%1(0x%2)")
+        .arg(QString::fromLatin1(obj->metaObject()->className()))
+        .arg((quintptr)obj, 0, 16);
+  }
+  return value.toString();
 }
 
 }  // namespace TScriptBinding

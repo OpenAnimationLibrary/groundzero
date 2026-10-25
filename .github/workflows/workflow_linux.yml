@@ -29,7 +29,7 @@ jobs:
     - name: Install libraries
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential cmake pkg-config ninja-build ccache libboost-all-dev qtbase5-dev qt5-qmake qtscript5-dev qttools5-dev qttools5-dev-tools qtmultimedia5-dev qtwayland5 libqt5svg5-dev libqt5opengl5-dev libqt5multimedia5-plugins libqt5serialport5-dev libsuperlu-dev liblz4-dev libusb-1.0-0-dev liblzo2-dev libpng-dev libjpeg-dev libglew-dev freeglut3-dev libfreetype6-dev libjson-c-dev libmypaint-dev libopencv-dev libturbojpeg-dev libomp-dev libfuse2
+        sudo apt-get install -y build-essential cmake pkg-config ninja-build ccache libboost-all-dev qtbase5-dev qt5-qmake qtdeclarative5-dev qtdeclarative5-dev-tools qttools5-dev qttools5-dev-tools qtmultimedia5-dev qtwayland5 libqt5svg5-dev libqt5opengl5-dev libqt5multimedia5-plugins libqt5serialport5-dev libsuperlu-dev liblz4-dev libusb-1.0-0-dev liblzo2-dev libpng-dev libjpeg-dev libglew-dev freeglut3-dev libfreetype6-dev libjson-c-dev libmypaint-dev libopencv-dev libturbojpeg-dev libomp-dev libfuse2
 
     - name: Set up cache
       run: mkdir -p /home/runner/.ccache
@@ -56,9 +56,9 @@ jobs:
         cd toonz
         mkdir build
         cd build
-        cmake ../sources -G Ninja -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER=${{ matrix.cxx }} -DCMAKE_C_COMPILER=${{ matrix.cc }} -DWITH_TRANSLATION=OFF -DBUILD_EXR_TESTS=ON -DBUILD_EXR_AOV_FX_TESTS=ON
+        cmake ../sources -G Ninja -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER=${{ matrix.cxx }} -DCMAKE_C_COMPILER=${{ matrix.cc }} -DWITH_TRANSLATION=OFF -DBUILD_EXR_TESTS=ON -DBUILD_EXR_AOV_FX_TESTS=ON -DBUILD_SCRIPT_TESTS=ON
         ninja
-        ctest --output-on-failure -R '^(tiio_exr(_level)?|openexraovfx)$'
+        ctest --output-on-failure -R '^(tiio_exr(_level)?|openexraovfx|scriptengine)$'
 
     - name: Create Artifact
       run: |
@@ -166,7 +166,7 @@ jobs:
           libusb1-devel lzo-devel libjpeg-turbo-devel turbojpeg-devel \
           glew glew-devel freeglut freeglut-devel freetype-devel libpng-devel \
           blas blas-devel json-c-devel opencv-devel libmypaint-devel \
-          qt5-qtbase-devel qt5-qtsvg qt5-qtsvg-devel qt5-qtscript qt5-qtscript-devel \
+          qt5-qtbase-devel qt5-qtsvg qt5-qtsvg-devel qt5-qtdeclarative qt5-qtdeclarative-devel \
           qt5-qttools qt5-qttools-devel qt5-qttools-static qt5-qtmultimedia \
           qt5-qtmultimedia-devel qt5-qtserialport-devel qt5-qtwayland \
           pkgconf-pkg-config
@@ -186,6 +186,7 @@ jobs:
         # build with. A missing return is only a warning in our default build,
         # so it survives review and breaks packaging instead (see #6940).
         cmake ../sources -G Ninja -DWITH_TRANSLATION=OFF \
-          -DCMAKE_CXX_FLAGS=-Werror=return-type -DBUILD_EXR_TESTS=ON -DBUILD_EXR_AOV_FX_TESTS=ON
+          -DCMAKE_CXX_FLAGS=-Werror=return-type -DBUILD_EXR_TESTS=ON -DBUILD_EXR_AOV_FX_TESTS=ON \
+          -DBUILD_SCRIPT_TESTS=ON
         ninja
-        ctest --output-on-failure -R '^(tiio_exr(_level)?|openexraovfx)$'
+        ctest --output-on-failure -R '^(tiio_exr(_level)?|openexraovfx|scriptengine)$'
