@@ -53,8 +53,8 @@ typedef struct DVAPI PlasticSkeletonVertexDeformation final : public TPersist {
 
 public:
   enum Params {
-    ANGLE = 0,  //!< Distance from parent vertex (delta)
-    DISTANCE,   //!< Angle with parent edge (delta)
+    ANGLE = 0,  //!< Angle with parent edge (delta)
+    DISTANCE,   //!< Distance from parent vertex (delta)
     SO,         //!< Vertex's stacking order
     PARAMS_COUNT
   };
