@@ -69,6 +69,57 @@ const EasePreset cEasePresets[] = {
     {QT_TRANSLATE_NOOP("FunctionSheetCellViewer", "Ease Out 100%"), 100, 0},
     {QT_TRANSLATE_NOOP("FunctionSheetCellViewer", "Ease In 100%"), 0, 100}};
 
+// Breakdown presets: the new key's value as a percentage of the way from the
+// previous key's value to the next one's.
+struct BreakdownPreset {
+  const char *name;
+  double favour;
+};
+
+const BreakdownPreset cBreakdownPresets[] = {
+    {QT_TRANSLATE_NOOP("FunctionSheetCellViewer", "Favor Previous Key 25%"),
+     25},
+    {QT_TRANSLATE_NOOP("FunctionSheetCellViewer", "Favor Previous Key 33%"),
+     100.0 / 3},
+    {QT_TRANSLATE_NOOP("FunctionSheetCellViewer", "Halfway 50%"), 50},
+    {QT_TRANSLATE_NOOP("FunctionSheetCellViewer", "Favor Next Key 66%"),
+     200.0 / 3},
+    {QT_TRANSLATE_NOOP("FunctionSheetCellViewer", "Favor Next Key 75%"), 75},
+    {QT_TRANSLATE_NOOP("FunctionSheetCellViewer", "Anticipation -10%"), -10},
+    {QT_TRANSLATE_NOOP("FunctionSheetCellViewer", "Overshoot 110%"), 110}};
+
+// Asks for a breakdown percentage. Returns false if canceled.
+bool getCustomBreakdown(QWidget *parent, double &favour) {
+  QDialog dialog(parent);
+  dialog.setWindowTitle(QCoreApplication::translate("FunctionSheetCellViewer",
+                                                    "Custom Breakdown"));
+
+  QDoubleSpinBox *favourFld = new QDoubleSpinBox(&dialog);
+  favourFld->setRange(-100.0, 200.0);
+  favourFld->setDecimals(1);
+  favourFld->setSuffix("%");
+  favourFld->setValue(favour);
+  favourFld->setToolTip(QCoreApplication::translate(
+      "FunctionSheetCellViewer",
+      "0% keeps the previous key's value, 100% the next key's. Values below "
+      "0% or above 100% give an anticipation or an overshoot."));
+
+  QDialogButtonBox *buttons = new QDialogButtonBox(
+      QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+  QObject::connect(buttons, SIGNAL(accepted()), &dialog, SLOT(accept()));
+  QObject::connect(buttons, SIGNAL(rejected()), &dialog, SLOT(reject()));
+
+  QFormLayout *layout = new QFormLayout(&dialog);
+  layout->addRow(QCoreApplication::translate("FunctionSheetCellViewer",
+                                             "Position Between Keys:"),
+                 favourFld);
+  layout->addRow(buttons);
+
+  if (dialog.exec() != QDialog::Accepted) return false;
+  favour = favourFld->value();
+  return true;
+}
+
 // Asks for Ease Out and Ease In percentages. The fields keep their sum at
 // 100% or less. Returns false if canceled.
 bool getCustomEase(QWidget *parent, double &easeOut, double &easeIn) {
@@ -1158,6 +1209,21 @@ void FunctionSheetCellViewer::openContextMenu(QMouseEvent *e) {
   if (!isKeyframe)  // menu.addAction(&deleteKeyframeAction); else
     menu.addAction(&insertKeyframeAction);
 
+  // breakdown commands, when the clicked row is between two keys
+  QList<QAction *> breakdownActions;
+  QAction *customBreakdownAction = nullptr;
+  if (!isEmpty && !isKeyframe && kIndex >= 0) {
+    QMenu *breakdownMenu = menu.addMenu(tr("Set Breakdown Key"));
+    for (int i = 0; i < (int)std::size(cBreakdownPresets); i++) {
+      QAction *breakdownAction =
+          breakdownMenu->addAction(tr(cBreakdownPresets[i].name));
+      breakdownAction->setData(i);
+      breakdownActions.append(breakdownAction);
+    }
+    breakdownMenu->addSeparator();
+    customBreakdownAction = breakdownMenu->addAction(tr("Custom Breakdown..."));
+  }
+
   // change interpolation commands
   QList<QAction *> interpActions;
   QList<QAction *> easeActions;
@@ -1222,6 +1288,14 @@ void FunctionSheetCellViewer::openContextMenu(QMouseEvent *e) {
     KeyframeSetter(curve).createKeyframe(row);
   } else if (interpActions.contains(action)) {
     selection->setSegmentType((TDoubleKeyframe::Type)action->data().toInt());
+  } else if (action && breakdownActions.contains(action)) {
+    selection->insertBreakdowns(
+        row, cBreakdownPresets[action->data().toInt()].favour / 100.0);
+  } else if (action && action == customBreakdownAction) {
+    // remember the last value for the session
+    static double favour = 50.0;
+    if (getCustomBreakdown(this, favour))
+      selection->insertBreakdowns(row, favour / 100.0);
   } else if (action && easeActions.contains(action)) {
     const EasePreset &preset = cEasePresets[action->data().toInt()];
     selection->setSegmentEase(preset.easeOut, preset.easeIn);
