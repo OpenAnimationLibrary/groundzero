@@ -303,7 +303,18 @@ bool PythonEngine::start() {
   try {
     // no signal handlers: Ctrl+C must keep its usual effect on the
     // application
+#if defined(PYBIND11_PYCONFIG_SUPPORT_PY_VERSION_HEX) &&                       \
+    PY_VERSION_HEX >= PYBIND11_PYCONFIG_SUPPORT_PY_VERSION_HEX
+    // with a PyConfig a failed initialization (e.g. no standard library)
+    // throws instead of aborting the application
+    PyConfig config;
+    PyConfig_InitPythonConfig(&config);
+    config.parse_argv              = 0;
+    config.install_signal_handlers = 0;
+    py::initialize_interpreter(&config);
+#else
     py::initialize_interpreter(false);
+#endif
   } catch (const std::exception &e) {
     m_imp->m_failed = true;
     m_imp->m_error  = QString::fromUtf8(e.what());

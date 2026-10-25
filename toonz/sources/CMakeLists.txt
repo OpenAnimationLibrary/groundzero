@@ -754,9 +754,11 @@ option(BUILD_SCRIPT_TESTS "Build the script engine (QJSEngine bindings) regressi
 # Python scripting: only with WITH_PYTHON, the default build needs neither
 # Python nor pybind11
 if(WITH_PYTHON)
-    find_package(Python3 3.8 REQUIRED COMPONENTS Interpreter Development)
-    # found after Python3, pybind11 uses its targets
-    find_package(pybind11 2.6 CONFIG QUIET)
+    find_package(Python3 3.10 REQUIRED COMPONENTS Interpreter Development)
+    # found after Python3, pybind11 uses its targets. With Python >= 3.10
+    # and pybind11 >= 2.11 a failed interpreter start throws an exception
+    # instead of aborting the application.
+    find_package(pybind11 2.11 CONFIG QUIET)
     if(NOT pybind11_FOUND)
         message(STATUS "pybind11 not found: using pybind11 v2.13.6 from GitHub")
         include(FetchContent)

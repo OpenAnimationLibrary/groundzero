@@ -46,6 +46,8 @@
         <menu title="Script">
             <command>MI_RunScript</command>
             <command>MI_OpenScriptConsole</command>
+            <command>MI_RunPythonScript</command>
+            <command>MI_OpenPythonConsole</command>
         </menu>
         <separator/>
         <command>MI_Preferences</command>
