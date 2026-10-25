@@ -2457,6 +2457,10 @@ void MainWindow::defineActions() {
   createMenuLevelAction(MI_SortWithPaletteOrder,
                         QT_TR_NOOP("&Sort Strokes with Palette Order"), "",
                         "sort_with_palette_order");
+  createMenuLevelAction(MI_PairInbetweenStrokes,
+                        QT_TR_NOOP("&Pair Strokes for Inbetween"), "");
+  createMenuLevelAction(MI_ClearInbetweenStrokePairs,
+                        QT_TR_NOOP("&Clear Inbetween Stroke Pairs"), "");
   createMenuLevelAction(MI_AddFrames, QT_TR_NOOP("&Add Frames..."), "",
                         "add_cells");
   createMenuLevelAction(MI_Renumber, QT_TR_NOOP("&Renumber..."), "",
