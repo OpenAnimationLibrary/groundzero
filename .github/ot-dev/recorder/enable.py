@@ -64,6 +64,8 @@ if __name__ == "__main__":
                         help="Directory containing recorder sources, including an external CI checkout")
     parser.add_argument("--build-id", required=True)
     args = parser.parse_args()
-    if os.environ.get("GITHUB_REPOSITORY", "").lower() != "openanimationlibrary/opentoonz-dev" or os.environ.get("RUNNER_OS") != "Windows":
-        raise SystemExit("Only the OT-Dev Windows CI workflow may inject this feature")
+    if (os.environ.get("GITHUB_REPOSITORY", "").lower() not in (
+            "openanimationlibrary/opentoonz-dev", "openanimationlibrary/groundzero")
+            or os.environ.get("RUNNER_OS") != "Windows"):
+        raise SystemExit("Only the OT-Dev or Groundzero Windows CI workflow may inject this feature")
     inject(args.root, args.build_id, args.recorder_dir)
