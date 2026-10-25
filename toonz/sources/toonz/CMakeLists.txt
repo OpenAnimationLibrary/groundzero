@@ -208,6 +208,7 @@ set(HEADERS
     xdtsio.h
     sxfio.h
     levelcommand.h
+    spineexport.h
 # Tracker file
     ObjectTracker.h
     dummyprocessor.h
@@ -408,6 +409,7 @@ set(SOURCES
     custompaneleditorpopup.cpp
     convertfolderpopup.cpp
     exportcameratrackpopup.cpp
+    spineexport.cpp
 # Tracker file
     dummyprocessor.cpp
     metnum.cpp

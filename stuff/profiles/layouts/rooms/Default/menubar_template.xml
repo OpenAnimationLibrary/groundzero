@@ -38,6 +38,7 @@
             <command>MI_ExportTvpJson</command>
             <command>MI_ExportXsheetPDF</command>
             <command>MI_ExportCameraTrack</command>
+            <command>MI_ExportSpine</command>
         </menu>
         <separator/>
         <command>MI_PrintXsheet</command>

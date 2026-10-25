@@ -2330,6 +2330,9 @@ void MainWindow::defineActions() {
                        QT_TR_NOOP("&Export Current Scene"), "");
   createMenuFileAction(MI_ExportCameraTrack, QT_TR_NOOP("&Export Camera Track"),
                        "");
+  createMenuFileAction(
+      MI_ExportSpine,
+      QT_TRANSLATE_NOOP("MainWindow", "Export to Spine JSON..."), "");
 
   // Menu - Edit
 
