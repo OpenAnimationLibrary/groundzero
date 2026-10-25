@@ -413,6 +413,8 @@
   <item>"STD_colourOverrideFx.style8"	"Style 8"	</item>
   <item>"STD_colourOverrideFx.color8"	"Color 8"	</item>
 
+  <item>"STD_autoPatchFx"	"Auto-Patch"	</item>
+
 
 
 

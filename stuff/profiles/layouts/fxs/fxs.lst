@@ -182,6 +182,7 @@
     STD_outBorderFx
     STD_paletteFilterFx
     STD_colourOverrideFx
+    STD_autoPatchFx
     STD_cornerPinFx
     STD_textureFx
   </Toonz_Level>

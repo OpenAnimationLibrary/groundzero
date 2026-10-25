@@ -103,6 +103,7 @@ endif()
 set(SOURCES
     adjustlevelsfx.cpp
     artcontourfx.cpp
+    autopatchfx.cpp
     backlitfx.cpp
     blendtzfx.cpp
     blurfx.cpp
