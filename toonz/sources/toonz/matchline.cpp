@@ -522,6 +522,7 @@ public:
   std::vector<TFrameId> m_fids;
   std::vector<int> m_indexes;
   TPaletteP m_matchlinePalette;
+  TINT64 m_imagesSize = 0;  // bytes of the cached image clones
 
   DeleteMatchlineUndo(
       TXshLevel *xl, TXshSimpleLevel *sl, const std::vector<TFrameId> &fids,
@@ -538,6 +539,7 @@ public:
       TToonzImageP image = sl->getFrame(fids[i], false);
       assert(image);
       TImageCache::instance()->add(id, image->clone());
+      m_imagesSize += getImageMemorySize(image.getPointer());
     }
   }
 
@@ -570,7 +572,9 @@ public:
     TApp::instance()->getCurrentXsheet()->notifyXsheetChanged();
   }
 
-  int getSize() const override { return sizeof(*this); }
+  int getSize() const override {
+    return clampSize((TINT64)sizeof(*this) + m_imagesSize);
+  }
 
   ~DeleteMatchlineUndo() {
     int i;
