@@ -345,6 +345,7 @@
         <command>MI_OpenAlignmentPanel</command>
         <command>MI_OpenPosesPanel</command>
         <command>MI_OpenDrawingSubstitutionPanel</command>
+        <command>MI_OpenStoryboardPanel</command>
         <command>MI_OpenSymbols</command>
         <command>MI_OpenReferencePanel</command>
         <command>MI_OpenCustomPanels</command>

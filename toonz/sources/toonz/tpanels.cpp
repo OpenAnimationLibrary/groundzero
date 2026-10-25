@@ -5,6 +5,7 @@
 #include "posespane.h"
 #include "referencepanel.h"
 #include "drawingsubstitutionpane.h"
+#include "storyboardpane.h"
 
 // Tnz6 includes
 #include "pane.h"
@@ -1918,3 +1919,19 @@ public:
 OpenFloatingPanel openDrawingSubstitutionPanelCommand(
     MI_OpenDrawingSubstitutionPanel, "DrawingSubstitutionPanel",
     QObject::tr("Drawing Substitution"));
+// Storyboard
+//-----------------------------------------------------------------------------
+
+class StoryboardPanelFactory final : public TPanelFactory {
+public:
+  StoryboardPanelFactory() : TPanelFactory("StoryboardPanel") {}
+  void initialize(TPanel *panel) override {
+    panel->setWidget(new StoryboardPane(panel));
+    panel->setWindowTitle(QObject::tr("Storyboard"));
+    panel->setIsMaximizable(false);
+  }
+} storyboardPanelFactory;
+
+OpenFloatingPanel openStoryboardPanelCommand(MI_OpenStoryboardPanel,
+                                             "StoryboardPanel",
+                                             QObject::tr("Storyboard"));

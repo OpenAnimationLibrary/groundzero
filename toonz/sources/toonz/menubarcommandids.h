@@ -543,5 +543,6 @@
 #define MI_OpenSymbols "MI_OpenSymbols"
 #define MI_OpenReferencePanel "MI_OpenReferencePanel"
 #define MI_OpenDrawingSubstitutionPanel "MI_OpenDrawingSubstitutionPanel"
+#define MI_OpenStoryboardPanel "MI_OpenStoryboardPanel"
 
 #endif
