@@ -336,7 +336,7 @@ void testStageObjects(Console &console) {
               "Stage object not found: Nothing");
   expectError(console, "col.getValue('rotation', 0)",
               "Bad channel name (rotation): must be one of x, y, z, so, angle, "
-              "scalex, scaley, scale, shearx, sheary, path");
+              "scalex, scaley, scale, shearx, sheary, path, rotx, roty");
   expectError(console, "col.getKeyframes(3)", "Bad channel name (3)");
   expectError(console, "col.getValue('x', 'a')",
               "Bad frame (a): expected a number");
