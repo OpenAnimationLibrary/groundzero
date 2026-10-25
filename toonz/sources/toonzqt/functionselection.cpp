@@ -720,6 +720,12 @@ void FunctionSelection::insertBreakdowns(int frame, double favour) {
     int prevIndex = curve->getPrevKeyframe(frame);
     int nextIndex = curve->getNextKeyframe(frame);
     if (prevIndex < 0 || nextIndex < 0) continue;
+    // A key created in these segments takes the segment's expression or
+    // data, so the breakdown value would be ignored
+    TDoubleKeyframe::Type type = curve->getKeyframe(prevIndex).m_type;
+    if (type == TDoubleKeyframe::Expression ||
+        type == TDoubleKeyframe::SimilarShape || type == TDoubleKeyframe::File)
+      continue;
 
     double prevValue = curve->getValue(curve->keyframeIndexToFrame(prevIndex));
     double nextValue = curve->getValue(curve->keyframeIndexToFrame(nextIndex));
