@@ -4,6 +4,7 @@
 #define POSESPANE_H
 
 #include "toonz/tstageobjectid.h"
+#include "toonz/poselibrary.h"
 
 #include <QFrame>
 
@@ -14,6 +15,7 @@ class QCheckBox;
 class QLabel;
 class QLineEdit;
 class QVBoxLayout;
+class TXsheet;
 
 //=============================================================================
 // PoseLibraryNotifier
@@ -55,6 +57,18 @@ public:
 
   //! Warns and returns false if poses cannot be used in the current xsheet
   static bool checkTopXsheet();
+  //! Appends the objects of the top-level xsheet that the pose changes in an
+  //! offset layer, i.e. the ones having a channel which a layer can hold.
+  static void getLayerObjects(TXsheet *xsh, const PoseLibrary::Pose &pose,
+                              std::vector<TStageObjectId> &ids);
+  //! Applies the weighted pose at the current frame to the top-level xsheet,
+  //! to the base keys or, if \e offsetLayerName is not empty, to the offset
+  //! layer with that name (added to the objects that don't have it). It opens
+  //! no undo block and notifies nothing: the caller does. Returns false if no
+  //! channel of the pose could be applied.
+  static bool applyPoseKeys(const PoseLibrary::Pose &pose, double weight,
+                            const std::wstring &offsetLayerName);
+
   //! Applies the pose to the base keys of the objects, or to the offset layer
   //! named \e offsetLayerName if it is not empty
   static void applyPose(int index, double weight,

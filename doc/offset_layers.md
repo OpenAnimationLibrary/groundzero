@@ -65,6 +65,36 @@ the base keys: the layer curves get a key at the current frame with (current
 layer value + weight * pose offset). Only the stage object channels are applied
 to layers; Plastic vertex channels and Path are skipped.
 
+## Master Controller widgets
+
+The Master Controllers panel (master plan A4) has, for each controller, a
+widget mode: **Slider**, **2D Pad** or **Pose Blend**. The mode is a property
+of the panel, not of the scene. It is Pose Blend by default for a controller
+that has been bound to poses.
+
+- **2D Pad**: dragging sets the controller (X) and another controller chosen in
+  the **Y** list (Y, upwards), both from 0 to 1 and both keyed at the current
+  frame. A drag is one undo step. The Key button keys both.
+- **Bind Poses...** (panel button, or the row of a Pose Blend controller): picks
+  the poses A (value 0) and B (value 1) of the Poses panel. For every object
+  that either pose changes, it adds the offset layers `<controller>_A` and
+  `<controller>_B` (layers with these names are replaced), applies the poses to
+  them as **Apply as offset layer** does, and sets the weight of A to
+  `1-pegN.rot` and the weight of B to `pegN.rot`. The expressions are written as
+  by Bind Selected Channel, over the scene frames, and everything is one undo
+  step. The effective placement is `base + (1-v)*A + v*B`.
+- **Bake Drawing Swap...**: no animatable channel selects the drawing of a
+  column, so a controller cannot drive the drawing by an expression. The command
+  writes the cells of a level column once, for the frames of the scene, with the
+  drawing `round(value*(n-1))` of the `n` drawings of its level (the value of the
+  controller at each frame, limited to 0..1). It is one undo step, and has to be
+  run again after the controller is changed.
+
+Limits: the poses are bound at the current values of the pose library (editing
+a pose later does not update the layers); a pose that changes the controller
+itself is refused; the weight expressions cover the scene frames and the weights
+stay at their last key after the last frame; the widget modes are not saved.
+
 ## File format and compatibility
 
 Objects with layers get a new child tag of the stage object in the scene file:

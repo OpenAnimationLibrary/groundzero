@@ -389,36 +389,51 @@ void PosesPane::onAddPose() {
 
 //-----------------------------------------------------------------------------
 
-void PosesPane::applyPose(int index, double weight,
-                          const std::wstring &offsetLayerName) {
-  if (!checkTopXsheet()) return;
-  TApp *app                = TApp::instance();
-  ToonzScene *scene        = app->getCurrentScene()->getScene();
-  PoseLibrary *poseLibrary = scene->getPoseLibrary();
-  if (index < 0 || index >= poseLibrary->getPoseCount() || weight == 0) return;
+void PosesPane::getLayerObjects(TXsheet *xsh, const PoseLibrary::Pose &pose,
+                                std::vector<TStageObjectId> &ids) {
+  // The curves of the layer are not there yet: look for the channels of
+  // the pose having an offset curve
+  for (const PoseLibrary::Entry &entry : pose.m_entries) {
+    int channel = PoseLibrary::getStageObjectChannel(entry.m_channel);
+    if (channel < 0 ||
+        !TStageObject::isOffsetChannel((TStageObject::Channel)channel) ||
+        !xsh->getStageObjectTree()->getStageObject(entry.m_objectId, false))
+      continue;
+    if (std::find(ids.begin(), ids.end(), entry.m_objectId) == ids.end())
+      ids.push_back(entry.m_objectId);
+  }
+}
 
-  const PoseLibrary::Pose &pose = poseLibrary->getPose(index);
-  TXsheet *xsh                  = scene->getTopXsheet();
-  int frame                     = app->getCurrentFrame()->getFrame();
+//-----------------------------------------------------------------------------
+
+bool PosesPane::applyPoseKeys(const PoseLibrary::Pose &pose, double weight,
+                              const std::wstring &offsetLayerName) {
+  TApp *app         = TApp::instance();
+  ToonzScene *scene = app->getCurrentScene()->getScene();
+  TXsheet *xsh      = scene->getTopXsheet();
+  int frame         = app->getCurrentFrame()->getFrame();
 
   const bool asLayer = !offsetLayerName.empty();
 
   // Compute every new value before setting any keyframe.
   std::vector<std::pair<TDoubleParam *, double>> keys;
-  // The objects which get the offset layer, if they don't have it yet
-  std::vector<TStageObjectId> layerObjects;
   if (asLayer) {
-    // The curves of the layer are not there yet: look for the channels of
-    // the pose having an offset curve
+    // Add the layer to the objects that don't have it, then compute the values
+    std::vector<TStageObjectId> layerObjects;
+    getLayerObjects(xsh, pose, layerObjects);
+    if (layerObjects.empty()) return false;
+    for (const TStageObjectId &id : layerObjects) {
+      TStageObject *obj = xsh->getStageObjectTree()->getStageObject(id, false);
+      if (obj->findOffsetLayer(offsetLayerName) < 0)
+        TStageObjectCmd::addOffsetLayer(id, offsetLayerName,
+                                        app->getCurrentXsheet());
+    }
     for (const PoseLibrary::Entry &entry : pose.m_entries) {
-      int channel = PoseLibrary::getStageObjectChannel(entry.m_channel);
-      if (channel < 0 ||
-          !TStageObject::isOffsetChannel((TStageObject::Channel)channel) ||
-          !xsh->getStageObjectTree()->getStageObject(entry.m_objectId, false))
-        continue;
-      if (std::find(layerObjects.begin(), layerObjects.end(),
-                    entry.m_objectId) == layerObjects.end())
-        layerObjects.push_back(entry.m_objectId);
+      TDoubleParam *param = PoseLibrary::getOffsetLayerParam(
+          xsh, entry.m_objectId, offsetLayerName, entry.m_channel);
+      if (param)
+        keys.push_back(std::make_pair(
+            param, param->getValue(frame) + weight * entry.m_value));
     }
   } else {
     for (const PoseLibrary::Entry &entry : pose.m_entries) {
@@ -429,7 +444,42 @@ void PosesPane::applyPose(int index, double weight,
             param, param->getValue(frame) + weight * entry.m_value));
     }
   }
-  if (asLayer ? layerObjects.empty() : keys.empty()) {
+  if (keys.empty()) return false;
+
+  for (const auto &key : keys)
+    KeyframeSetter::setValue(key.first, frame, key.second);
+  return true;
+}
+
+//-----------------------------------------------------------------------------
+
+void PosesPane::applyPose(int index, double weight,
+                          const std::wstring &offsetLayerName) {
+  if (!checkTopXsheet()) return;
+  TApp *app                = TApp::instance();
+  ToonzScene *scene        = app->getCurrentScene()->getScene();
+  PoseLibrary *poseLibrary = scene->getPoseLibrary();
+  if (index < 0 || index >= poseLibrary->getPoseCount() || weight == 0) return;
+
+  const PoseLibrary::Pose &pose = poseLibrary->getPose(index);
+  TXsheet *xsh                  = scene->getTopXsheet();
+
+  const bool asLayer = !offsetLayerName.empty();
+
+  bool applicable = false;
+  if (asLayer) {
+    std::vector<TStageObjectId> layerObjects;
+    getLayerObjects(xsh, pose, layerObjects);
+    applicable = !layerObjects.empty();
+  } else {
+    for (const PoseLibrary::Entry &entry : pose.m_entries)
+      if (PoseLibrary::getChannelParam(xsh, entry.m_objectId,
+                                       entry.m_channel)) {
+        applicable = true;
+        break;
+      }
+  }
+  if (!applicable) {
     DVGui::warning(
         asLayer ? tr("None of the channels of this pose can be applied to an "
                      "offset layer.")
@@ -440,27 +490,7 @@ void PosesPane::applyPose(int index, double weight,
   // One click is one undo step.
   TUndoManager::manager()->beginBlock();
   TUndoManager::manager()->add(new ApplyPoseNotifyUndo(pose.m_name, false));
-
-  if (asLayer) {
-    // Add the layer to the objects that don't have it, then compute the values
-    for (const TStageObjectId &id : layerObjects) {
-      TStageObject *obj = xsh->getStageObjectTree()->getStageObject(id, false);
-      if (obj->findOffsetLayer(offsetLayerName) < 0)
-        TStageObjectCmd::addOffsetLayer(id, offsetLayerName,
-                                        app->getCurrentXsheet());
-    }
-    keys.clear();
-    for (const PoseLibrary::Entry &entry : pose.m_entries) {
-      TDoubleParam *param = PoseLibrary::getOffsetLayerParam(
-          xsh, entry.m_objectId, offsetLayerName, entry.m_channel);
-      if (param)
-        keys.push_back(std::make_pair(
-            param, param->getValue(frame) + weight * entry.m_value));
-    }
-  }
-
-  for (const auto &key : keys)
-    KeyframeSetter::setValue(key.first, frame, key.second);
+  applyPoseKeys(pose, weight, offsetLayerName);
   TUndoManager::manager()->add(new ApplyPoseNotifyUndo(pose.m_name, true));
   TUndoManager::manager()->endBlock();
 
