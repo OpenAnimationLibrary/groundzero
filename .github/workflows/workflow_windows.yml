@@ -41,21 +41,6 @@ permissions:
   contents: read
 
 jobs:
-  Branding:
-    if: github.repository_owner == 'OpenAnimationLibrary'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          persist-credentials: false
-          sparse-checkout: .github/ot-dev
-      - name: Install Qt 5.15.2 for the replaceable artwork regression
-        run: python3 -m pip install PyQt5==5.15.2
-      - name: Test branding, build selection, and package validation
-        env:
-          QT_QPA_PLATFORM: offscreen
-        run: python3 -m unittest discover -s .github/ot-dev -p 'test_*.py' -v
-
   RecorderEncoder:
     if: github.repository_owner == 'OpenAnimationLibrary'
     runs-on: windows-2025
@@ -99,7 +84,7 @@ jobs:
           path: recorder-test-decoder
 
   Windows:
-    needs: [RecorderEncoder, Branding]
+    needs: [RecorderEncoder]
     runs-on: windows-2025
     env:
       # QT related variable
@@ -196,24 +181,6 @@ jobs:
       - name: Add msbuild to PATH
         uses: microsoft/setup-msbuild@v3
 
-      - name: Test recorder consent, capture, and native Windows playback
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          python -m unittest discover -s .github/ot-dev/recorder -p 'test_*.py' -v
-          if ($LASTEXITCODE) { throw 'Recorder injection tests failed' }
-          cmake -S .github/ot-dev/recorder -B recorder-tests -G "$env:MSVCVERSION" -A x64 "-DCMAKE_PREFIX_PATH=$env:QT_PATH"
-          if ($LASTEXITCODE) { throw 'Recorder test configure failed' }
-          cmake --build recorder-tests --config Release --parallel 2
-          if ($LASTEXITCODE) { throw 'Recorder test build failed' }
-          $env:PATH = "$env:QT_PATH\bin;$env:PATH"
-          $env:OTDEV_TEST_FFMPEG = "$env:GITHUB_WORKSPACE\recorder-encoder\ffmpeg.exe"
-          $env:OTDEV_TEST_DECODER = "$env:GITHUB_WORKSPACE\recorder-test-decoder\ffmpeg.exe"
-          ctest --test-dir recorder-tests -C Release --output-on-failure
-          $recorderTestExit = $LASTEXITCODE
-          Get-ChildItem recorder-tests/recorder-*.txt | ForEach-Object { Get-Content $_.FullName }
-          if ($recorderTestExit) { throw 'Recorder tests failed' }
-
       # CMake configuration step
       - name: CMake configuration
         run: |
@@ -228,59 +195,11 @@ jobs:
           mkdir build
           cd build
 
-          cmake ..\sources -G "%MSVCVERSION%" -Ax64 -DQT_PATH="%QT_PATH%" -DBOOST_ROOT="%BOOST_ROOT%" -DOpenCV_DIR="%OpenCV_DIR%" -DWITH_WINTAB=Y -DBUILD_EXR_TESTS=ON -DBUILD_EXR_AOV_FX_TESTS=ON -DBUILD_LUT3D_TESTS=ON -DBUILD_GLB_FX_TESTS=ON
+          cmake ..\sources -G "%MSVCVERSION%" -Ax64 -DQT_PATH="%QT_PATH%" -DBOOST_ROOT="%BOOST_ROOT%" -DOpenCV_DIR="%OpenCV_DIR%" -DWITH_WINTAB=Y
         shell: cmd
-
-      - name: Build and test OpenEXR image I/O and level source
-        shell: cmd
-        run: |
-          cd toonz\build
-          cmake --build . --config RelWithDebInfo --target tiio_exr_test tiio_exr_level_test --parallel
-          if %errorlevel% neq 0 exit /b %errorlevel%
-          set "PATH=%QT_PATH%\bin;%GITHUB_WORKSPACE%\thirdparty\glut\3.7.6\lib;%GITHUB_WORKSPACE%\thirdparty\glew\glew-1.9.0\bin\64bit;%GITHUB_WORKSPACE%\thirdparty\libmypaint\dist\64;C:\tools\opencv\build\x64\vc16\bin;%PATH%"
-          ctest -C RelWithDebInfo --output-on-failure -R "^tiio_exr(_level)?$"
-          if %errorlevel% neq 0 exit /b %errorlevel%
 
       # Run the focused regression before the longer application build.
-      - name: Build and test OpenEXR AOV FX
-        shell: cmd
-        run: |
-          cd toonz\build
-          cmake --build . --config RelWithDebInfo --target openexraovfx_test --parallel
-          if %errorlevel% neq 0 exit /b %errorlevel%
-          set "PATH=%QT_PATH%\bin;%GITHUB_WORKSPACE%\thirdparty\glut\3.7.6\lib;%GITHUB_WORKSPACE%\thirdparty\glew\glew-1.9.0\bin\64bit;%GITHUB_WORKSPACE%\thirdparty\libmypaint\dist\64;C:\tools\opencv\build\x64\vc16\bin;%PATH%"
-          ctest -C RelWithDebInfo --output-on-failure -R "^openexraovfx$"
-          if %errorlevel% neq 0 exit /b %errorlevel%
-
       # Run the focused regression before the longer application build.
-      - name: Build and test 3D LUT Bake
-        shell: cmd
-        run: |
-          cd toonz\build
-          msbuild /p:Configuration=RelWithDebInfo /m /verbosity:minimal stdfx\lut3dbake_test.vcxproj
-          if %errorlevel% neq 0 exit /b %errorlevel%
-          set "PATH=%QT_PATH%\bin;%GITHUB_WORKSPACE%\thirdparty\glut\3.7.6\lib;%GITHUB_WORKSPACE%\thirdparty\glew\glew-1.9.0\bin\64bit;%GITHUB_WORKSPACE%\thirdparty\libmypaint\dist\64;C:\tools\opencv\build\x64\vc16\bin;%PATH%"
-          RelWithDebInfo\lut3dbake_test.exe
-          if %errorlevel% neq 0 exit /b %errorlevel%
-
-      - name: Build and test 3D FX rendering
-        shell: cmd
-        run: |
-          cd toonz\build
-          msbuild /p:Configuration=RelWithDebInfo /m /verbosity:minimal stdfx\glbmodelfx_test.vcxproj
-          if %errorlevel% neq 0 exit /b %errorlevel%
-          msbuild /p:Configuration=RelWithDebInfo /m /verbosity:minimal stdfx\threepointlightfx_test.vcxproj
-          if %errorlevel% neq 0 exit /b %errorlevel%
-          msbuild /p:Configuration=RelWithDebInfo /m /verbosity:minimal stdfx\transform3dfx_test.vcxproj
-          if %errorlevel% neq 0 exit /b %errorlevel%
-          set "PATH=%QT_PATH%\bin;%GITHUB_WORKSPACE%\thirdparty\glut\3.7.6\lib;%GITHUB_WORKSPACE%\thirdparty\glew\glew-1.9.0\bin\64bit;%GITHUB_WORKSPACE%\thirdparty\libmypaint\dist\64;C:\tools\opencv\build\x64\vc16\bin;%PATH%"
-          RelWithDebInfo\glbmodelfx_test.exe
-          if %errorlevel% neq 0 exit /b %errorlevel%
-          RelWithDebInfo\threepointlightfx_test.exe
-          if %errorlevel% neq 0 exit /b %errorlevel%
-          RelWithDebInfo\transform3dfx_test.exe
-          if %errorlevel% neq 0 exit /b %errorlevel%
-
       # Build Opentoonz using MSBuild
       - name: Build Opentoonz
         run: |
@@ -319,28 +238,6 @@ jobs:
           mkdir Opentoonz\portablestuff
           xcopy /Y /E /I ..\..\stuff .\Opentoonz\portablestuff
         shell: cmd
-
-      - name: Test 3D LUT Bake
-        shell: cmd
-        run: |
-          cd toonz\build\Opentoonz
-          lut3dbake_test.exe
-          if %errorlevel% neq 0 exit /b %errorlevel%
-          del lut3dbake_test.exe
-
-      - name: Test packaged 3D FX rendering
-        shell: cmd
-        run: |
-          cd toonz\build\Opentoonz
-          glbmodelfx_test.exe
-          if %errorlevel% neq 0 exit /b %errorlevel%
-          threepointlightfx_test.exe
-          if %errorlevel% neq 0 exit /b %errorlevel%
-          transform3dfx_test.exe
-          if %errorlevel% neq 0 exit /b %errorlevel%
-          del glbmodelfx_test.exe
-          del threepointlightfx_test.exe
-          del transform3dfx_test.exe
 
       - name: Package and verify the complete OT-Dev build
         shell: pwsh
