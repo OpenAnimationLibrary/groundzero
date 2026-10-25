@@ -2,6 +2,9 @@ name: MacOS Build
 
 on:
   workflow_dispatch:
+  pull_request:
+    branches:
+      - edition
 
 permissions:
   contents: read
