@@ -76,7 +76,9 @@
 #include <QAbstractNativeEventFilter>
 #include <QByteArray>
 #include <QSplashScreen>
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
 #include <QGLPixelBuffer>
+#endif
 #include <QTranslator>
 #include <QFileInfo>
 #include <QSettings>
@@ -486,10 +488,14 @@ int main(int argc, char *argv[]) {
   a.processEvents();
 
   // OpenGL
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
+  // This default only applies to the QGL* classes, not to QSurfaceFormat, and
+  // Qt 6 has no QGL* classes.
   QGLFormat fmt;
   fmt.setAlpha(true);
   fmt.setStencil(true);
   QGLFormat::setDefaultFormat(fmt);
+#endif
 
 #ifndef __HAIKU__
   glutInit(&argc, argv);

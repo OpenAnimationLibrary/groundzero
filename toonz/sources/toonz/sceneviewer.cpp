@@ -85,7 +85,11 @@
 #include <QApplication>
 #include <QScreen>
 #include <QInputMethod>
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
 #include <QGLContext>
+#else
+#include <QOpenGLContext>
+#endif
 #include <QOpenGLFramebufferObject>
 #include <QMainWindow>
 

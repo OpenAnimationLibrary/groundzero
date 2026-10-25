@@ -9,7 +9,6 @@
 #include <QList>
 #include <QTime>
 #include <QStyleOption>
-#include <QStyleOptionFrameV3>
 #include <QColor>
 #include <QImage>
 

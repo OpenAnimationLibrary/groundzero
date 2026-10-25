@@ -2771,7 +2771,7 @@ QWidget* PreferencesPopup::createAddonsPage() {
   QGroupBox* groupBox =
       new QGroupBox(tr("Windows Explorer Thumbnails (Shell Extension)"));
   QVBoxLayout* gbLayout = new QVBoxLayout(groupBox);
-  gbLayout->setMargin(10);
+  gbLayout->setContentsMargins(10, 10, 10, 10);
 
   QLabel* infoLabel =
       new QLabel(tr("Enable thumbnails for OpenToonz files (.tnz, .pli, .tlv) "

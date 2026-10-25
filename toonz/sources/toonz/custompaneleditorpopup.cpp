@@ -1221,7 +1221,9 @@ void CustomPanelEditorPopup::onRegister() {
   }
 
   QTextStream stream(&file);
-  stream.setCodec("UTF-8");
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
+  stream.setCodec("UTF-8");  // Qt 6 has no setCodec() and writes UTF-8
+#endif
   stream << doc.toString();
   file.close();
 

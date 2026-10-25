@@ -46,6 +46,7 @@
 #include <QRegularExpression>
 #include <QMessageBox>
 #include <QtCore>
+#include <QTextCodec>  // not in <QtCore> in Qt 6 (Core5Compat)
 
 #include "../common/psdlib/psd.h"
 #include "toonz/toonzfolders.h"

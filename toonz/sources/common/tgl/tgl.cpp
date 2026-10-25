@@ -20,7 +20,12 @@
 #endif
 
 #if defined(MACOSX) || defined(LINUX) || defined(FREEBSD) || defined(HAIKU)
+#include <QtGlobal>
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
 #include <QGLContext>
+#else
+#include <QOpenGLContext>
+#endif
 #endif
 
 //#include "tthread.h"
@@ -600,6 +605,30 @@ void tglDoneCurrent(TGlContext) { wglMakeCurrent(NULL, NULL); }
 
 #elif defined(LINUX) || defined(FREEBSD) || defined(__sgi) || defined(MACOSX) || defined(HAIKU)
 
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+
+// Qt 6 has no QGLContext: use the QOpenGLContext that Qt 5's QGLContext wraps.
+
+TGlContext tglGetCurrentContext() {
+  return reinterpret_cast<TGlContext>(QOpenGLContext::currentContext());
+}
+
+void tglMakeCurrent(TGlContext context) {
+  if (context) {
+    // A QOpenGLContext is made current on a surface: use the one it was last
+    // made current on.
+    QOpenGLContext *glContext = reinterpret_cast<QOpenGLContext *>(context);
+    if (glContext->surface()) glContext->makeCurrent(glContext->surface());
+  } else
+    tglDoneCurrent(tglGetCurrentContext());
+}
+
+void tglDoneCurrent(TGlContext context) {
+  if (context) reinterpret_cast<QOpenGLContext *>(context)->doneCurrent();
+}
+
+#else
+
 TGlContext tglGetCurrentContext() {
   return reinterpret_cast<TGlContext>(
       const_cast<QGLContext *>(QGLContext::currentContext()));
@@ -618,6 +647,8 @@ void tglMakeCurrent(TGlContext context) {
 void tglDoneCurrent(TGlContext context) {
   if (context) reinterpret_cast<QGLContext *>(context)->doneCurrent();
 }
+
+#endif  // QT_VERSION
 
 #else
 #error "unknown platform!"

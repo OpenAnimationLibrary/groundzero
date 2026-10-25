@@ -264,7 +264,7 @@ elseif(BUILD_TARGET_UNIX)
     )
 endif()
 
-qt5_wrap_cpp(SOURCES ${MOC_HEADERS})
+ot_qt_wrap_cpp(SOURCES ${MOC_HEADERS})
 
 add_library(tnzcore SHARED ${HEADERS} ${SOURCES})
 
@@ -366,7 +366,7 @@ elseif(BUILD_ENV_UNIXLIKE)
 endif()
 
 target_link_libraries(tnzcore
-    Qt5::Core Qt5::OpenGL Qt5::Network Qt5::Multimedia
+    Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::OpenGL ${OT_QT_OPENGLWIDGETS_LIB} Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::Multimedia
     ${GL_LIB} ${GLUT_LIB} ${QT_LIB} ${Z_LIB} ${JPEG_LIB} ${LZ4_LIB}
     ${EXTRA_LIBS}
 )

@@ -450,14 +450,14 @@ if(BUILD_ENV_MSVC)
     set(RC_FILE toonz.rc)
 endif()
 
-qt5_add_resources(SOURCES ${RESOURCES})
+ot_qt_add_resources(SOURCES ${RESOURCES})
 
 if(BUILD_ENV_APPLE)
     #set_source_files_properties(${OBJCSOURCES} PROPERTIES LANGUAGE OBJCXX)
     set_source_files_properties(${OBJCSOURCES} PROPERTIES COMPILE_FLAGS "-x objective-c++")
 endif()
 
-qt5_wrap_cpp(SOURCES ${MOC_HEADERS})
+ot_qt_wrap_cpp(SOURCES ${MOC_HEADERS})
 
 if(BUILD_ENV_MSVC)
     add_executable(OpenToonz WIN32 ${HEADERS} ${SOURCES} ${OBJCSOURCES} ${RESOURCES} ${RC_FILE})
@@ -530,14 +530,14 @@ if(BUILD_ENV_MSVC)
         target_compile_options(OpenToonz PRIVATE /EHsc) # Enable C++ Exceptions in Debug Mode.
     endif()
     if(PLATFORM EQUAL 64)
-        set(EXTRA_LIBS ${EXTRA_LIBS} Qt5::SerialPort ${TURBOJPEG_LIB} ${OpenCV_LIBS})
+        set(EXTRA_LIBS ${EXTRA_LIBS} Qt${QT_VERSION_MAJOR}::SerialPort ${TURBOJPEG_LIB} ${OpenCV_LIBS})
         if(WITH_CANON)
             set(EXTRA_LIBS ${EXTRA_LIBS} ${CANON_LIB})
         endif()
     endif()
     target_link_libraries(OpenToonz
-        Qt5::WinMain Qt5::Core Qt5::Gui Qt5::Network Qt5::OpenGL Qt5::Svg Qt5::Xml
-        Qt5::Qml Qt5::Widgets Qt5::PrintSupport Qt5::Multimedia Qt5::UiTools
+        ${OT_QT_WINMAIN_LIB} Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::OpenGL ${OT_QT_OPENGLWIDGETS_LIB} Qt${QT_VERSION_MAJOR}::Svg Qt${QT_VERSION_MAJOR}::Xml
+        Qt${QT_VERSION_MAJOR}::Qml Qt${QT_VERSION_MAJOR}::Widgets Qt${QT_VERSION_MAJOR}::PrintSupport Qt${QT_VERSION_MAJOR}::Multimedia Qt${QT_VERSION_MAJOR}::UiTools ${OT_QT_CORE5COMPAT_LIB}
         ${GL_LIB} ${GLUT_LIB}
         ${EXTRA_LIBS} strmiids
         tnzcore tnzbase toonzlib colorfx tnzext image sound toonzqt tnztools tnzstdfx tfarm
@@ -551,7 +551,7 @@ elseif(BUILD_ENV_APPLE)
     set(EXTRA_LIBS ${EXTRA_LIBS} "$<TARGET_FILE:tnzstdfx>" "$<TARGET_FILE:tfarm>")
     set(X64ONLY_LIBS)
     if(PLATFORM EQUAL 64)
-        set(X64ONLY_LIBS ${X64ONLY_LIBS} Qt5::SerialPort ${TURBOJPEG_LIB} ${OpenCV_LIBS})
+        set(X64ONLY_LIBS ${X64ONLY_LIBS} Qt${QT_VERSION_MAJOR}::SerialPort ${TURBOJPEG_LIB} ${OpenCV_LIBS})
         if(WITH_CANON)
             set(X64ONLY_LIBS ${X64ONLY_LIBS} ${CANON_LIB})
         endif()
@@ -560,8 +560,8 @@ elseif(BUILD_ENV_APPLE)
     target_link_directories(OpenToonz PRIVATE ${MYPAINT_LIB_LIBRARY_DIRS})
 
     target_link_libraries(OpenToonz
-        Qt5::Core Qt5::Gui Qt5::Network Qt5::OpenGL Qt5::Svg Qt5::Xml
-        Qt5::Qml Qt5::Widgets Qt5::PrintSupport Qt5::Multimedia Qt5::MultimediaWidgets Qt5::UiTools
+        Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::OpenGL ${OT_QT_OPENGLWIDGETS_LIB} Qt${QT_VERSION_MAJOR}::Svg Qt${QT_VERSION_MAJOR}::Xml
+        Qt${QT_VERSION_MAJOR}::Qml Qt${QT_VERSION_MAJOR}::Widgets Qt${QT_VERSION_MAJOR}::PrintSupport Qt${QT_VERSION_MAJOR}::Multimedia Qt${QT_VERSION_MAJOR}::MultimediaWidgets Qt${QT_VERSION_MAJOR}::UiTools ${OT_QT_CORE5COMPAT_LIB}
         ${GL_LIB} ${GLUT_LIB}
         ${COCOA_LIB} ${EXTRA_LIBS} ${X64ONLY_LIBS} mousedragfilter
         ${MYPAINT_LIB_LIBRARIES}
@@ -588,16 +588,16 @@ elseif(BUILD_ENV_UNIXLIKE)
 
     set(EXTRA_LIBS ${EXTRA_LIBS} ${Boost_LIBRARIES} ${OPENBLAS_LIB} ${EXECINFO_LIBRARY})
     if(PLATFORM EQUAL 64)
-        set(EXTRA_LIBS ${EXTRA_LIBS} Qt5::SerialPort ${TURBOJPEG_LIB} ${OpenCV_LIBS})
+        set(EXTRA_LIBS ${EXTRA_LIBS} Qt${QT_VERSION_MAJOR}::SerialPort ${TURBOJPEG_LIB} ${OpenCV_LIBS})
     endif()
 
     if(BUILD_TARGET_WIN)
-        set(EXTRA_LIBS ${EXTRA_LIBS} Qt5::WinMain -lstrmiids -mwindows)
+        set(EXTRA_LIBS ${EXTRA_LIBS} ${OT_QT_WINMAIN_LIB} -lstrmiids -mwindows)
     endif()
 
     target_link_libraries(
-        OpenToonz Qt5::Core Qt5::Gui Qt5::Network Qt5::OpenGL Qt5::Svg Qt5::Xml
-        Qt5::Qml Qt5::Widgets Qt5::PrintSupport Qt5::Multimedia Qt5::UiTools
+        OpenToonz Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::OpenGL ${OT_QT_OPENGLWIDGETS_LIB} Qt${QT_VERSION_MAJOR}::Svg Qt${QT_VERSION_MAJOR}::Xml
+        Qt${QT_VERSION_MAJOR}::Qml Qt${QT_VERSION_MAJOR}::Widgets Qt${QT_VERSION_MAJOR}::PrintSupport Qt${QT_VERSION_MAJOR}::Multimedia Qt${QT_VERSION_MAJOR}::UiTools ${OT_QT_CORE5COMPAT_LIB}
         ${GL_LIB} ${GLUT_LIB} ${GLU_LIB}
         ${EXTRA_LIBS}
     )
