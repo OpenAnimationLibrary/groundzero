@@ -146,6 +146,7 @@ private:
   void onShowXSheetToolbarClicked();
   void onUnifyColumnVisibilityTogglesChanged();
   void onShowXsheetBreadcrumbsClicked();
+  void onShowColumnGroupStripsClicked();
   // Animation
   void onModifyExpressionOnMovingReferencesChanged();
   // Preview

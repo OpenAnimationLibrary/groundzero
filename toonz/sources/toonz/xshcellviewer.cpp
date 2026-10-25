@@ -4022,6 +4022,7 @@ void CellArea::createCellMenu(QMenu &menu, bool isCellSelected, TXshCell cell,
 
     if (!cell.isEmpty() && cell.m_level && cell.m_level->getChildLevel()) {
       menu.addAction(cmdManager->getAction(MI_OpenChild));
+      menu.addAction(cmdManager->getAction(MI_SymbolTiming));
 
       menu.addSeparator();
     }

@@ -16,6 +16,7 @@
 #include "iocommand.h"
 #include "keyframemover.h"
 #include "xshcellmover.h"
+#include "symbolcommand.h"
 
 // TnzTools includes
 #include "tools/cursors.h"
@@ -46,6 +47,7 @@
 #include "toonz/onionskinmask.h"
 #include "toonz/txshsoundcolumn.h"
 #include "toonz/txshsimplelevel.h"
+#include "toonz/txshchildlevel.h"
 #include "toonz/txshnoteset.h"
 #include "toutputproperties.h"
 #include "toonz/preferences.h"
@@ -2050,6 +2052,8 @@ class DragAndDropData {
 public:
   std::vector<std::pair<TXshSimpleLevelP, std::vector<TFrameId>>> m_levels;
   std::vector<TFilePath> m_paths;
+  // symbols dragged from the Symbols panel
+  std::vector<TXshChildLevelP> m_symbols;
 
   DragAndDropData() {}
 
@@ -2072,6 +2076,9 @@ public:
       int size                   = fids.size();
       if (maxRow < size) maxRow = size;
     }
+    for (const TXshChildLevelP &symbol : m_symbols)
+      maxRow = std::max(maxRow, std::max(1, symbol->getFrameCount()));
+    columnCount += m_symbols.size();
     if (!isVertical) return TRect(0, 0, maxRow - 1, columnCount - 1);
 
     return TRect(0, 0, columnCount - 1, maxRow - 1);
@@ -2124,7 +2131,11 @@ public:
       const CastItems *cast = dynamic_cast<const CastItems *>(e->mimeData());
       int i;
       for (i = 0; i < cast->getItemCount(); i++) {
-        CastItem *item      = cast->getItem(i);
+        CastItem *item = cast->getItem(i);
+        if (TXshChildLevel *symbol = item->getChildLevel()) {
+          m_data->m_symbols.push_back(symbol);
+          continue;
+        }
         TXshSimpleLevel *sl = item->getSimpleLevel();
         if (!sl) continue;
         std::vector<TFrameId> fids;
@@ -2205,6 +2216,17 @@ public:
           if (!sl || fids.empty()) continue;
           IoCmd::exposeLevel(sl, row, col, fids, insert, overWrite);
         }
+    } else if (!m_data->m_symbols.empty()) {
+      // Each symbol instance is placed in its own empty column, from the drop
+      // column rightwards. As Shift inserts cells when dropping levels, it
+      // inserts a new column at the drop column when that is not empty.
+      TUndoManager::manager()->beginBlock();
+      int c = col;
+      for (int i = 0; i < (int)m_data->m_symbols.size(); i++, c++)
+        if (!SymbolCmd::insertInstance(m_data->m_symbols[i].getPointer(), row,
+                                       c, insert))
+          break;
+      TUndoManager::manager()->endBlock();
     }
     refreshCellsArea();
   }

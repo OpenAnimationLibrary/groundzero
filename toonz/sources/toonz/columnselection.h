@@ -46,6 +46,7 @@ public:
   void explodeChild();
   void resequence();
   void cloneChild();
+  void convertToSymbol();
 
   void hideColumns();
 

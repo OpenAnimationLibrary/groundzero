@@ -16,6 +16,7 @@
 #include "levelcommand.h"
 #include "columncommand.h"
 #include "canvassizepopup.h"
+#include "symbolcommand.h"
 
 // TnzTools includes
 #include "tools/toolutils.h"
@@ -1558,6 +1559,7 @@ void TCellSelection::enableCommands() {
   enableCommand(this, MI_PasteInto, &TCellSelection::overWritePasteCells);
 
   enableCommand(this, MI_FillEmptyCell, &TCellSelection::fillEmptyCell);
+  enableCommand(this, MI_SymbolTiming, &TCellSelection::symbolTiming);
   enableCommand(this, MI_Reframe1, &TCellSelection::reframe1Cells);
   enableCommand(this, MI_Reframe2, &TCellSelection::reframe2Cells);
   enableCommand(this, MI_Reframe3, &TCellSelection::reframe3Cells);
@@ -3910,4 +3912,12 @@ void TCellSelection::fillEmptyCell() {
   undoBlock.close();
 
   TApp::instance()->getCurrentXsheet()->notifyXsheetChanged();
+}
+
+//-----------------------------------------------------------------------------
+
+void TCellSelection::symbolTiming() {
+  if (isEmpty()) return;
+  SymbolCmd::openInstanceTimingDialog(m_range.m_r0, m_range.m_c0, m_range.m_r1,
+                                      m_range.m_c1);
 }

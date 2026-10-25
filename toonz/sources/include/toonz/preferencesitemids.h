@@ -160,6 +160,7 @@ enum PreferencesItemId {
   expandFunctionHeader,
   showColumnNumbers,
   unifyColumnVisibilityToggles,
+  showColumnGroupStrips,
   parentColorsInXsheetColumn,
   highlightLineEverySecond,
   syncLevelRenumberWithXsheet,

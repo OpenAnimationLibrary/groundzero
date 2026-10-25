@@ -466,9 +466,11 @@ void XsheetViewer::positionSections() {
     m_breadcrumbScrollArea->setGeometry(0, 0, 0, 0);
   }
 
-  // column group strips above the column headers (xsheet orientation only)
+  // column group strips above the column headers (xsheet orientation only,
+  // optional so that existing Stage Schematic groups do not change the layout)
   m_columnGroupDepth =
-      o->isVerticalTimeline()
+      o->isVerticalTimeline() &&
+              Preferences::instance()->isShowColumnGroupStripsEnabled()
           ? XsheetGUI::ColumnGroupArea::getGroupDepth(getXsheet())
           : 0;
   if (m_columnGroupDepth > 0) {
@@ -1528,6 +1530,8 @@ void XsheetViewer::onPreferenceChanged(const QString &prefName) {
   if (prefName == "XSheetToolbar" || prefName == "XsheetBreadcrumbs") {
     positionSections();
     refreshContentSize(0, 0);
+  } else if (prefName == "ColumnGroupStrips") {
+    updateColumnGroupArea();
   } else if (prefName == "XsheetCamera") {
     refreshContentSize(0, 0);
   } else if (prefName == "CurrentCellColor") {
@@ -1722,7 +1726,8 @@ void XsheetViewer::updateColumnArea() {
 //-----------------------------------------------------------------------------
 
 void XsheetViewer::updateColumnGroupArea() {
-  int depth = orientation()->isVerticalTimeline()
+  int depth = orientation()->isVerticalTimeline() &&
+                      Preferences::instance()->isShowColumnGroupStripsEnabled()
                   ? XsheetGUI::ColumnGroupArea::getGroupDepth(getXsheet())
                   : 0;
   // show, hide or resize the strips when the group nesting depth changes

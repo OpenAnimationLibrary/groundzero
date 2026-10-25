@@ -147,29 +147,23 @@ bool menuContainsAction(QMenu *menu, QAction *target) {
   return false;
 }
 
-void ensureAlignmentPanelAction(QMenu *windowsMenu) {
-  QAction *alignment =
-      CommandManager::instance()->getAction(MI_OpenAlignmentPanel);
-  if (!alignment || menuContainsAction(windowsMenu, alignment)) return;
+void ensurePanelAction(QMenu *windowsMenu, CommandId id) {
+  QAction *panelAction = CommandManager::instance()->getAction(id);
+  if (!panelAction || menuContainsAction(windowsMenu, panelAction)) return;
 
   QAction *customPanels =
       CommandManager::instance()->getAction(MI_OpenCustomPanels);
   if (windowsMenu->actions().contains(customPanels))
-    windowsMenu->insertAction(customPanels, alignment);
+    windowsMenu->insertAction(customPanels, panelAction);
   else
-    windowsMenu->addAction(alignment);
+    windowsMenu->addAction(panelAction);
 }
 
-void ensurePosesPanelAction(QMenu *windowsMenu) {
-  QAction *poses = CommandManager::instance()->getAction(MI_OpenPosesPanel);
-  if (!poses || menuContainsAction(windowsMenu, poses)) return;
-
-  QAction *customPanels =
-      CommandManager::instance()->getAction(MI_OpenCustomPanels);
-  if (windowsMenu->actions().contains(customPanels))
-    windowsMenu->insertAction(customPanels, poses);
-  else
-    windowsMenu->addAction(poses);
+// Panels added after users could save their own menus.
+void ensureNewPanelActions(QMenu *windowsMenu) {
+  ensurePanelAction(windowsMenu, MI_OpenAlignmentPanel);
+  ensurePanelAction(windowsMenu, MI_OpenSymbols);
+  ensurePanelAction(windowsMenu, MI_OpenPosesPanel);
 }
 
 }  // namespace
@@ -365,10 +359,8 @@ void StackedMenuBar::createMenuBarByName(const QString &roomName) {
   QMenuBar *menuBar = qobject_cast<QMenuBar *>(widget(count() - 1));
   if (menuBar) {
     for (QAction *action : menuBar->actions()) {
-      if (action->menu() && action->menu()->title() == tr("Windows")) {
-        ensureAlignmentPanelAction(action->menu());
-        ensurePosesPanelAction(action->menu());
-      }
+      if (action->menu() && action->menu()->title() == tr("Windows"))
+        ensureNewPanelActions(action->menu());
     }
   }
 }
@@ -414,10 +406,7 @@ QMenuBar *StackedMenuBar::loadMenuBar(const TFilePath &fp) {
             // built-in command without replacing the user's customized menu.
             if (title == QStringLiteral("Help")) ensureHelpActions(menu);
             if (title == QStringLiteral("File")) ensureAnimatedSvgAction(menu);
-            if (title == QStringLiteral("Windows")) {
-              ensureAlignmentPanelAction(menu);
-              ensurePosesPanelAction(menu);
-            }
+            if (title == QStringLiteral("Windows")) ensureNewPanelActions(menu);
             menuBar->addMenu(menu);
           } else {
             reader.raiseError(tr("Failed to load menu %1").arg(title));
@@ -1034,6 +1023,7 @@ QMenuBar *StackedMenuBar::createXsheetMenuBar() {
   addMenuItem(subxsheetMenu, MI_SaveAsTemplate);
   addMenuItem(subxsheetMenu, MI_LoadSubSceneFile);
   addMenuItem(subxsheetMenu, MI_CloneChild);
+  addMenuItem(subxsheetMenu, MI_ConvertToSymbol);
   addMenuItem(subxsheetMenu, MI_ExplodeChild);
 
   //----Levels Menu
@@ -1475,6 +1465,7 @@ QMenuBar *StackedMenuBar::createFullMenuBar() {
   addMenuItem(xsheetMenu, MI_Collapse);
   addMenuItem(xsheetMenu, MI_Resequence);
   addMenuItem(xsheetMenu, MI_CloneChild);
+  addMenuItem(xsheetMenu, MI_ConvertToSymbol);
   addMenuItem(xsheetMenu, MI_ExplodeChild);
   addMenuItem(xsheetMenu, MI_ToggleEditInPlace);
   xsheetMenu->addSeparator();
@@ -1548,6 +1539,7 @@ QMenuBar *StackedMenuBar::createFullMenuBar() {
   addMenuItem(cellsMenu, MI_CloneLevel);
   cellsMenu->addSeparator();
   addMenuItem(cellsMenu, MI_FillEmptyCell);
+  addMenuItem(cellsMenu, MI_SymbolTiming);
 
   // Menu' PLAY
   QMenu *playMenu = addMenu(tr("Play"), fullMenuBar);
@@ -1661,6 +1653,7 @@ QMenuBar *StackedMenuBar::createFullMenuBar() {
   addMenuItem(windowsMenu, MI_OpenGuidedDrawingControls);
   addMenuItem(windowsMenu, MI_OpenAlignmentPanel);
   addMenuItem(windowsMenu, MI_OpenPosesPanel);
+  addMenuItem(windowsMenu, MI_OpenSymbols);
   addMenuItem(windowsMenu, MI_OpenCustomPanels);
   // windowsMenu->addSeparator();
   // addMenuItem(windowsMenu, MI_OpenExport);

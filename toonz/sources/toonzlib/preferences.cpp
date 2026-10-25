@@ -627,6 +627,8 @@ void Preferences::definePreferenceItems() {
   define(showColumnNumbers, "showColumnNumbers", QMetaType::Bool, false);
   define(unifyColumnVisibilityToggles, "unifyColumnVisibilityToggles",
          QMetaType::Bool, false);
+  define(showColumnGroupStrips, "showColumnGroupStrips", QMetaType::Bool,
+         false);
   define(parentColorsInXsheetColumn, "parentColorsInXsheetColumn",
          QMetaType::Bool, false);
   define(highlightLineEverySecond, "highlightLineEverySecond", QMetaType::Bool,

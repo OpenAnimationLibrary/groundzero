@@ -116,6 +116,7 @@ set(MOC_HEADERS
     trackerpopup.h
     alignmentpane.h
     posespane.h
+    symbolspane.h
     vectorguideddrawingpane.h
     vectorizerpopup.h
     vectorizerswatch.h
@@ -200,6 +201,7 @@ set(HEADERS
     selectionutils.h
     subcameramanager.h
     subscenecommand.h
+    symbolcommand.h
     tfarmstuff.h
     versioncontrolgui.h
     versioncontrolxmlreader.h
@@ -324,6 +326,7 @@ set(SOURCES
     trackerpopup.cpp
     alignmentpane.cpp
     posespane.cpp
+    symbolspane.cpp
     vectorguideddrawingpane.cpp
     vectorizerpopup.cpp
     rasterizecommand.cpp
@@ -342,6 +345,7 @@ set(SOURCES
     viewercommand.cpp
     print.cpp
     subscenecommand.cpp
+    symbolcommand.cpp
     svncleanupdialog.cpp
     svncommitdialog.cpp
     svndeletedialog.cpp

@@ -2550,6 +2550,8 @@ void MainWindow::defineActions() {
                          "resequence");
   createMenuXsheetAction(MI_CloneChild, QT_TR_NOOP("Clone Sub-Xsheet"), "",
                          "sub_clone");
+  createMenuXsheetAction(MI_ConvertToSymbol, QT_TR_NOOP("Convert to Symbol..."),
+                         "", "");
   createMenuXsheetAction(MI_ApplyMatchLines,
                          QT_TR_NOOP("&Apply Match Lines..."), "",
                          "apply_match_lines");
@@ -2658,6 +2660,8 @@ void MainWindow::defineActions() {
                         "auto_input_cell_number");
   createMenuCellsAction(MI_FillEmptyCell, QT_TR_NOOP("&Fill In Empty Cells"),
                         "", "fill_empty_cells");
+  createMenuCellsAction(MI_SymbolTiming, QT_TR_NOOP("Symbol Timing..."), "",
+                        "");
 
   // Menu - Play
 
@@ -2888,6 +2892,7 @@ void MainWindow::defineActions() {
   createMenuWindowsAction(MI_OpenAlignmentPanel,
                           QT_TR_NOOP("Align and Distribute Panel"), "", "");
   createMenuWindowsAction(MI_OpenPosesPanel, QT_TR_NOOP("&Poses"), "", "");
+  createMenuWindowsAction(MI_OpenSymbols, QT_TR_NOOP("Symbols"), "", "");
   createMenuWindowsAction(MI_OpenGuidedDrawingControls,
                           QT_TR_NOOP("Guided Drawing Controls"), "",
                           "guided_drawing");

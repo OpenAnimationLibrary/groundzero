@@ -131,6 +131,8 @@
 #define MI_SaveAsTemplate "MI_SaveAsTemplate"
 #define MI_Resequence "MI_Resequence"
 #define MI_CloneChild "MI_CloneChild"
+#define MI_ConvertToSymbol "MI_ConvertToSymbol"
+#define MI_SymbolTiming "MI_SymbolTiming"
 #define MI_ApplyMatchLines "MI_ApplyMatchLines"
 #define MI_MergeCmapped "MI_MergeCmapped"
 #define MI_MergeColumns "MI_MergeColumns"
@@ -537,5 +539,6 @@
 #define MI_OpenLocator "MI_OpenLocator"
 #define MI_OpenAlignmentPanel "MI_OpenAlignmentPanel"
 #define MI_OpenPosesPanel "MI_OpenPosesPanel"
+#define MI_OpenSymbols "MI_OpenSymbols"
 
 #endif
