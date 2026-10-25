@@ -97,6 +97,7 @@ class FullColorMyPaintGeometryUndo final
     : public ToolUtils::TFullColorRasterUndo {
   TPoint m_offset;
   QString m_id;
+  TINT64 m_rasSize;  // bytes of the cached "after" raster
 
 public:
   FullColorMyPaintGeometryUndo(TTileSetFullColor *tileSet,
@@ -105,7 +106,8 @@ public:
                                const TPoint &offset)
       : ToolUtils::TFullColorRasterUndo(tileSet, level, frameId, isFrameCreated,
                                         false, 0)
-      , m_offset(offset) {
+      , m_offset(offset)
+      , m_rasSize(getRasterMemorySize(ras.getPointer())) {
     static int counter = 0;
 
     m_id = QString("FullColorMyPaintGeometryUndo") + QString::number(counter++);
@@ -129,7 +131,8 @@ public:
   }
 
   int getSize() const override {
-    return sizeof(*this) + ToolUtils::TFullColorRasterUndo::getSize();
+    return clampSize((TINT64)sizeof(*this) + m_rasSize +
+                     ToolUtils::TFullColorRasterUndo::getSize());
   }
 
   QString getToolName() override { return QString("Geometric Tool"); }
@@ -140,6 +143,7 @@ public:
 class CMappedMyPaintGeometryUndo final : public TRasterUndo {
   TPoint m_offset;
   QString m_id;
+  TINT64 m_rasSize;  // bytes of the cached "after" raster
 
 public:
   CMappedMyPaintGeometryUndo(TTileSetCM32 *tileSet, TXshSimpleLevel *level,
@@ -147,7 +151,8 @@ public:
                              bool isLevelCreated, const TRasterCM32P &ras,
                              const TPoint &offset)
       : TRasterUndo(tileSet, level, frameId, isFrameCreated, isLevelCreated, 0)
-      , m_offset(offset) {
+      , m_offset(offset)
+      , m_rasSize(getRasterMemorySize(ras.getPointer())) {
     static int counter = 0;
     m_id = QString("CMappedMyPaintGeometryUndo") + QString::number(counter++);
     TImageCache::instance()->add(m_id.toStdString(),
@@ -173,7 +178,8 @@ public:
   }
 
   int getSize() const override {
-    return sizeof(*this) + TRasterUndo::getSize();
+    return clampSize((TINT64)sizeof(*this) + m_rasSize +
+                     TRasterUndo::getSize());
   }
 
   QString getToolName() override { return QString("Geometric Tool"); }

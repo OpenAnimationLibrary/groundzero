@@ -646,7 +646,8 @@ public:
   }
 
   int getSize() const override {
-    return sizeof(*this) + sizeof(*m_data) + sizeof(*m_tiles);
+    return clampSize((TINT64)sizeof(*this) + m_data->getMemorySize() +
+                     m_tiles->getMemorySize());
   }
 
   QString getHistoryString() override {

@@ -3188,7 +3188,8 @@ public:
     }
   }
   int getSize() const override {
-    return sizeof(*this) + sizeof(TXshLevel);  // imprecise.
+    return clampSize((TINT64)sizeof(*this) + sizeof(TXshLevel) +  // imprecise.
+                     getImageMemorySize(m_img.getPointer()));
   }
 };
 
@@ -3705,7 +3706,14 @@ public:
     *m_sl->getHookSet() = *m_oldLevelHooks;
   }
 
-  int getSize() const override { return sizeof(*this); }
+  int getSize() const override {
+    TINT64 size = sizeof(*this);
+    for (const TImageP &img : m_oldImages)
+      size += getImageMemorySize(img.getPointer());
+    for (const TImageP &img : m_newImages)
+      size += getImageMemorySize(img.getPointer());
+    return clampSize(size);
+  }
 
   QString getHistoryString() override {
     QString str = QObject::tr("Simplify Vectors : Level %1")
