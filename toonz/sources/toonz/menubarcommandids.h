@@ -322,6 +322,8 @@
 #define MI_ToggleXSheetToolbar "MI_ToggleXSheetToolbar"
 #define MI_ToggleXsheetBreadcrumbs "MI_ToggleXsheetBreadcrumbs"
 #define MI_FoldColumns "MI_FoldColumns"
+#define MI_GroupColumns "MI_GroupColumns"
+#define MI_UngroupColumns "MI_UngroupColumns"
 #define MI_ToggleXsheetCameraColumn "MI_ToggleXsheetCameraColumn"
 #define MI_ToggleCurrentTimeIndicator "MI_ToggleCurrentTimeIndicator"
 

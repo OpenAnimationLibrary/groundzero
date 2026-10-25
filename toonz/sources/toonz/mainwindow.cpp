@@ -3052,6 +3052,9 @@ void MainWindow::defineActions() {
                              QT_TR_NOOP("Constant Interpolation"), "");
   createRightClickMenuAction(MI_FoldColumns, QT_TR_NOOP("Fold Column"), "",
                              "fold_column");
+  createRightClickMenuAction(MI_GroupColumns, QT_TR_NOOP("Group Columns"), "");
+  createRightClickMenuAction(MI_UngroupColumns, QT_TR_NOOP("Ungroup Columns"),
+                             "");
   createRightClickMenuAction(MI_ActivateThisColumnOnly,
                              QT_TR_NOOP("Show This Only"), "");
   createRightClickMenuAction(MI_ActivateSelectedColumns,

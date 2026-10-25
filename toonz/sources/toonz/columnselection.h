@@ -48,6 +48,9 @@ public:
 
   void hideColumns();
 
+  void groupColumns();
+  void ungroupColumns();
+
   void reframeCells(int count);
   void reframe1Cells() { reframeCells(1); }
   void reframe2Cells() { reframeCells(2); }

@@ -7,6 +7,7 @@
 #include "menubarcommandids.h"
 #include "columnselection.h"
 #include "xsheetdragtool.h"
+#include "columncommand.h"
 
 // TnzTools includes
 #include "tools/toolhandle.h"
@@ -2560,6 +2561,7 @@ void ColumnArea::mousePressEvent(QMouseEvent *event) {
         if (xsh->getColumn(m_col)->getSoundTextColumn()) return;
 
         int y = Preferences::instance()->isShowXSheetToolbarEnabled() ? 30 : 0;
+        y += m_viewer->getColumnGroupAreaHeight();
         if (o->rect(PredefinedRect::PEGBAR_NAME)
                 .adjusted(0, 0, -20, 0)
                 .contains(mouseInCell)) {
@@ -3054,6 +3056,14 @@ void ColumnArea::contextMenuEvent(QContextMenuEvent *event) {
       menu.addSeparator();
     }
     menu.addAction(cmdManager->getAction(MI_FoldColumns));
+    // column groups are displayed only in the xsheet orientation
+    if (!isCamera && o->isVerticalTimeline()) {
+      menu.addAction(cmdManager->getAction(MI_GroupColumns));
+      TStageObject *obj = xsh->getStageObjectTree()->getStageObject(
+          TStageObjectId::ColumnId(col), false);
+      if (obj && obj->isGrouped())
+        menu.addAction(cmdManager->getAction(MI_UngroupColumns));
+    }
     if (Preferences::instance()->isShowKeyframesOnXsheetCellAreaEnabled()) {
       QAction *cameraToggle =
           cmdManager->getAction(MI_ToggleXsheetCameraColumn);
@@ -3210,4 +3220,321 @@ void ColumnArea::onSubSampling(QAction *action) {
       ->invalidateAll();
   TApp::instance()->getCurrentScene()->notifySceneChanged();
 }
+
+//=============================================================================
+// RenameColumnGroupField
+//-----------------------------------------------------------------------------
+
+namespace {
+
+QFont getColumnGroupFont() {
+  QString fontName = Preferences::instance()->getInterfaceFont();
+  if (fontName == "") {
+#ifdef _WIN32
+    fontName = "Arial";
+#else
+    fontName = "Helvetica";
+#endif
+  }
+  QFont font(fontName, -1, QFont::Normal);
+  font.setPixelSize(XSHEET_FONT_PX_SIZE);
+  return font;
+}
+
+// level 0 is the outermost group, while the stack starts from the innermost
+int groupIdAtLevel(const QStack<int> &stack, int level) {
+  return (level < stack.size()) ? stack[stack.size() - 1 - level] : -1;
+}
+
+}  // namespace
+
+//-----------------------------------------------------------------------------
+
+RenameColumnGroupField::RenameColumnGroupField(QWidget *parent)
+    : QLineEdit(parent), m_groupId(-1) {
+  connect(this, SIGNAL(returnPressed()), SLOT(renameGroup()));
+}
+
+//-----------------------------------------------------------------------------
+
+void RenameColumnGroupField::show(const QRect &rect, int groupId,
+                                  const QString &name) {
+  move(rect.topLeft());
+  setFixedSize(rect.size());
+  setFont(getColumnGroupFont());
+  m_groupId = groupId;
+  setText(name);
+  selectAll();
+
+  QWidget::show();
+  raise();
+  setFocus();
+}
+
+//-----------------------------------------------------------------------------
+
+void RenameColumnGroupField::renameGroup() {
+  std::wstring newName = text().toStdWString();
+  int groupId          = m_groupId;
+  // reset before hiding, since hiding moves the focus out again
+  m_groupId = -1;
+  setText("");
+  hide();
+  if (groupId >= 0 && !newName.empty())
+    ColumnCmd::renameColumnGroup(groupId, newName);
+}
+
+//-----------------------------------------------------------------------------
+
+void RenameColumnGroupField::focusOutEvent(QFocusEvent *e) {
+  if (m_groupId >= 0) renameGroup();
+  QLineEdit::focusOutEvent(e);
+}
+
+//=============================================================================
+// ColumnGroupArea
+//-----------------------------------------------------------------------------
+
+ColumnGroupArea::ColumnGroupArea(XsheetViewer *parent)
+    : QWidget(parent), m_viewer(parent) {
+  m_renameField = new RenameColumnGroupField(this);
+  m_renameField->hide();
+}
+
+//-----------------------------------------------------------------------------
+
+int ColumnGroupArea::getGroupDepth(TXsheet *xsh) {
+  if (!xsh) return 0;
+  TStageObjectTree *tree = xsh->getStageObjectTree();
+  int depth              = 0;
+  for (int c = 0; c < xsh->getColumnCount(); c++) {
+    TStageObject *obj =
+        tree->getStageObject(TStageObjectId::ColumnId(c), false);
+    if (obj) depth = std::max(depth, (int)obj->getGroupIdStack().size());
+  }
+  return depth;
+}
+
+//-----------------------------------------------------------------------------
+
+void ColumnGroupArea::getStrips(std::vector<GroupStrip> &strips) const {
+  TXsheet *xsh         = m_viewer->getXsheet();
+  const Orientation *o = m_viewer->orientation();
+  if (!xsh || !o->isVerticalTimeline()) return;
+  ColumnFan *fan         = xsh->getColumnFan(o);
+  TStageObjectTree *tree = xsh->getStageObjectTree();
+  int columnCount        = xsh->getColumnCount();
+
+  std::vector<QStack<int>> idStacks(columnCount);
+  std::vector<QStack<std::wstring>> nameStacks(columnCount);
+  int depth = 0;
+  for (int c = 0; c < columnCount; c++) {
+    TStageObject *obj =
+        tree->getStageObject(TStageObjectId::ColumnId(c), false);
+    if (!obj) continue;
+    idStacks[c]   = obj->getGroupIdStack();
+    nameStacks[c] = obj->getGroupNameStack();
+    depth         = std::max(depth, (int)idStacks[c].size());
+  }
+
+  // one strip for each contiguous range of columns of a group, at each level
+  for (int level = 0; level < depth; level++) {
+    for (int c0 = 0; c0 < columnCount;) {
+      int groupId = groupIdAtLevel(idStacks[c0], level);
+      if (groupId < 0) {
+        c0++;
+        continue;
+      }
+      int c1 = c0;
+      while (c1 + 1 < columnCount &&
+             groupIdAtLevel(idStacks[c1 + 1], level) == groupId)
+        c1++;
+
+      int x0 = m_viewer->positionToXY(CellPosition(0, c0)).x();
+      int x1 = m_viewer->positionToXY(CellPosition(0, c1)).x() +
+               (fan->isActive(c1) ? o->cellWidth() : o->foldedCellSize());
+
+      GroupStrip strip;
+      strip.m_groupId = groupId;
+      strip.m_c0      = c0;
+      strip.m_c1      = c1;
+      strip.m_name    = QString::fromStdWString(
+             nameStacks[c0].value(idStacks[c0].size() - 1 - level));
+      strip.m_rect = QRect(x0, level * COLUMN_GROUP_STRIP_HEIGHT, x1 - x0,
+                           COLUMN_GROUP_STRIP_HEIGHT);
+      strips.push_back(strip);
+      c0 = c1 + 1;
+    }
+  }
+}
+
+//-----------------------------------------------------------------------------
+
+bool ColumnGroupArea::findStrip(const QPoint &pos, GroupStrip &strip) const {
+  std::vector<GroupStrip> strips;
+  getStrips(strips);
+  bool found = false;
+  for (const GroupStrip &s : strips)
+    if (s.m_rect.contains(pos)) {
+      strip = s;
+      found = true;
+    }
+  return found;
+}
+
+//-----------------------------------------------------------------------------
+
+bool ColumnGroupArea::isGroupFolded(int groupId) const {
+  TXsheet *xsh = m_viewer->getXsheet();
+  if (!xsh) return false;
+  ColumnFan *fan         = xsh->getColumnFan(m_viewer->orientation());
+  TStageObjectTree *tree = xsh->getStageObjectTree();
+  bool hasColumns        = false;
+  for (int c = 0; c < xsh->getColumnCount(); c++) {
+    TStageObject *obj =
+        tree->getStageObject(TStageObjectId::ColumnId(c), false);
+    if (!obj || !obj->isContainedInGroup(groupId)) continue;
+    if (fan->isActive(c)) return false;
+    hasColumns = true;
+  }
+  return hasColumns;
+}
+
+//-----------------------------------------------------------------------------
+
+void ColumnGroupArea::selectGroupColumns(int groupId) {
+  TXsheet *xsh = m_viewer->getXsheet();
+  if (!xsh) return;
+  TStageObjectTree *tree = xsh->getStageObjectTree();
+  std::vector<int> cols;
+  for (int c = 0; c < xsh->getColumnCount(); c++) {
+    TStageObject *obj =
+        tree->getStageObject(TStageObjectId::ColumnId(c), false);
+    if (obj && obj->isContainedInGroup(groupId)) cols.push_back(c);
+  }
+  if (cols.empty()) return;
+
+  m_viewer->setCurrentColumn(cols[0]);
+  TColumnSelection *selection = m_viewer->getColumnSelection();
+  selection->selectNone();
+  for (int c : cols) selection->selectColumn(c, true);
+  selection->makeCurrent();
+  TSelectionHandle::getCurrent()->notifySelectionChanged();
+  m_viewer->updateAllAree();
+}
+
+//-----------------------------------------------------------------------------
+
+QRect ColumnGroupArea::getToggleRect(const QRect &stripRect) const {
+  return QRect(stripRect.topLeft(),
+               QSize(std::min(stripRect.width(), 14), stripRect.height()));
+}
+
+//-----------------------------------------------------------------------------
+
+void ColumnGroupArea::paintEvent(QPaintEvent *event) {
+  QRect toBeUpdated = event->rect();
+
+  QPainter p(this);
+  p.setClipRect(toBeUpdated);
+  p.fillRect(toBeUpdated, m_viewer->getBGColor());
+
+  std::vector<GroupStrip> strips;
+  getStrips(strips);
+  p.setFont(getColumnGroupFont());
+
+  for (const GroupStrip &strip : strips) {
+    if (!strip.m_rect.intersects(toBeUpdated)) continue;
+    bool folded = isGroupFolded(strip.m_groupId);
+    QRect rect  = strip.m_rect.adjusted(1, 1, -1, -1);
+
+    p.fillRect(rect, folded ? m_viewer->getFoldedColumnBGColor()
+                            : m_viewer->getXsheetColumnNameBgColor());
+    p.setPen(m_viewer->getVerticalLineHeadColor());
+    p.setBrush(Qt::NoBrush);
+    p.drawRect(rect.adjusted(0, 0, -1, -1));
+
+    // fold / unfold arrow
+    QRect toggleRect = getToggleRect(strip.m_rect);
+    if (toggleRect.width() >= 10) {
+      QPoint c = toggleRect.center();
+      QPolygon arrow;
+      if (folded)
+        arrow << QPoint(c.x() - 2, c.y() - 4) << QPoint(c.x() + 2, c.y())
+              << QPoint(c.x() - 2, c.y() + 4);
+      else
+        arrow << QPoint(c.x() - 4, c.y() - 2) << QPoint(c.x() + 4, c.y() - 2)
+              << QPoint(c.x(), c.y() + 2);
+      p.setPen(Qt::NoPen);
+      p.setBrush(m_viewer->getTextColor());
+      p.drawPolygon(arrow);
+      p.setBrush(Qt::NoBrush);
+    }
+
+    // group name
+    QRect nameRect = rect.adjusted(toggleRect.width(), 0, -2, 0);
+    if (nameRect.width() > 8) {
+      p.setPen(m_viewer->getTextColor());
+      QString name = p.fontMetrics().elidedText(strip.m_name, Qt::ElideRight,
+                                                nameRect.width());
+      p.drawText(nameRect, Qt::AlignLeft | Qt::AlignVCenter, name);
+    }
+  }
+}
+
+//-----------------------------------------------------------------------------
+
+void ColumnGroupArea::mousePressEvent(QMouseEvent *event) {
+  if (event->button() != Qt::LeftButton) return;
+  GroupStrip strip;
+  if (!findStrip(event->pos(), strip)) return;
+  // a folded group is unfolded by clicking anywhere on its (thin) strip
+  bool folded = isGroupFolded(strip.m_groupId);
+  if (folded || getToggleRect(strip.m_rect).contains(event->pos()))
+    ColumnCmd::foldColumnGroup(strip.m_groupId, !folded);
+  else
+    selectGroupColumns(strip.m_groupId);
+}
+
+//-----------------------------------------------------------------------------
+
+void ColumnGroupArea::mouseDoubleClickEvent(QMouseEvent *event) {
+  if (event->button() != Qt::LeftButton) return;
+  GroupStrip strip;
+  if (!findStrip(event->pos(), strip) || isGroupFolded(strip.m_groupId)) return;
+  QRect toggleRect = getToggleRect(strip.m_rect);
+  if (toggleRect.contains(event->pos())) return;
+  m_renameField->show(strip.m_rect.adjusted(toggleRect.width(), 0, 0, 0),
+                      strip.m_groupId, strip.m_name);
+}
+
+//-----------------------------------------------------------------------------
+
+void ColumnGroupArea::contextMenuEvent(QContextMenuEvent *event) {
+  GroupStrip strip;
+  if (!findStrip(event->pos(), strip)) return;
+  selectGroupColumns(strip.m_groupId);
+
+  QMenu menu(this);
+  CommandManager *cmdManager = CommandManager::instance();
+  menu.addAction(cmdManager->getAction(MI_GroupColumns));
+  menu.addAction(cmdManager->getAction(MI_UngroupColumns));
+  menu.exec(event->globalPos());
+}
+
+//-----------------------------------------------------------------------------
+
+bool ColumnGroupArea::event(QEvent *event) {
+  if (event->type() == QEvent::ToolTip) {
+    QHelpEvent *helpEvent = static_cast<QHelpEvent *>(event);
+    GroupStrip strip;
+    if (findStrip(helpEvent->pos(), strip))
+      QToolTip::showText(helpEvent->globalPos(), strip.m_name);
+    else
+      QToolTip::hideText();
+    return true;
+  }
+  return QWidget::event(event);
+}
+
 }  // namespace XsheetGUI
