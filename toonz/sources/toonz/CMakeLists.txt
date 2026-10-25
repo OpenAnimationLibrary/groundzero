@@ -294,6 +294,7 @@ set(SOURCES
     camerasettingspopup.cpp
     convertpopup.cpp
     convertlinestoareascommand.cpp
+    rigeasecommand.cpp
     crashhandler.cpp
     autosaverecovery.cpp
     duplicatepopup.cpp

@@ -9,6 +9,7 @@
 #include "cellselection.h"
 #include "mainwindow.h"
 #include "menubarpopup.h"
+#include "rigeasecommand.h"
 
 // TnzQt includes
 #include "toonzqt/tselectionhandle.h"
@@ -1105,6 +1106,22 @@ QMenuBar *StackedMenuBar::createXsheetMenuBar() {
     addMenuItem(eachMenu, MI_Each3);
     addMenuItem(eachMenu, MI_Each4);
   }
+  cellsMenu->addSeparator();
+  QMenu *rigBreakdownMenu = cellsMenu->addMenu(tr("Rig Breakdown"));
+  {
+    for (int i = 0; i < cRigBreakdownPresetCount; i++)
+      addMenuItem(rigBreakdownMenu, cRigBreakdownPresets[i].id);
+    rigBreakdownMenu->addSeparator();
+    addMenuItem(rigBreakdownMenu, MI_RigBreakdownCustom);
+  }
+  QMenu *rigEaseMenu = cellsMenu->addMenu(tr("Rig Ease"));
+  {
+    for (int i = 0; i < cRigEasePresetCount; i++)
+      addMenuItem(rigEaseMenu, cRigEasePresets[i].id);
+    rigEaseMenu->addSeparator();
+    addMenuItem(rigEaseMenu, MI_RigEaseCustom);
+  }
+  addMenuItem(cellsMenu, MI_RigIncludeChildren);
 
   //----Edit Menu
   QMenu *editMenu = addMenu(tr("Edit"), xsheetMenuBar);
@@ -1564,6 +1581,22 @@ QMenuBar *StackedMenuBar::createFullMenuBar() {
   cellsMenu->addSeparator();
   addMenuItem(cellsMenu, MI_FillEmptyCell);
   addMenuItem(cellsMenu, MI_SymbolTiming);
+  cellsMenu->addSeparator();
+  QMenu *rigBreakdownMenu = cellsMenu->addMenu(tr("Rig Breakdown"));
+  {
+    for (int i = 0; i < cRigBreakdownPresetCount; i++)
+      addMenuItem(rigBreakdownMenu, cRigBreakdownPresets[i].id);
+    rigBreakdownMenu->addSeparator();
+    addMenuItem(rigBreakdownMenu, MI_RigBreakdownCustom);
+  }
+  QMenu *rigEaseMenu = cellsMenu->addMenu(tr("Rig Ease"));
+  {
+    for (int i = 0; i < cRigEasePresetCount; i++)
+      addMenuItem(rigEaseMenu, cRigEasePresets[i].id);
+    rigEaseMenu->addSeparator();
+    addMenuItem(rigEaseMenu, MI_RigEaseCustom);
+  }
+  addMenuItem(cellsMenu, MI_RigIncludeChildren);
 
   // Menu' PLAY
   QMenu *playMenu = addMenu(tr("Play"), fullMenuBar);

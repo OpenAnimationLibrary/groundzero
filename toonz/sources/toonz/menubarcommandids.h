@@ -555,4 +555,22 @@
 #define MI_OpenOffsetLayers "MI_OpenOffsetLayers"
 #define MI_OpenRigLibrary "MI_OpenRigLibrary"
 
+// Whole-rig breakdown and ease (Xsheet, Timeline, Cells menu)
+#define MI_RigBreakdown25 "MI_RigBreakdown25"
+#define MI_RigBreakdown33 "MI_RigBreakdown33"
+#define MI_RigBreakdown50 "MI_RigBreakdown50"
+#define MI_RigBreakdown66 "MI_RigBreakdown66"
+#define MI_RigBreakdown75 "MI_RigBreakdown75"
+#define MI_RigBreakdownAnticipate "MI_RigBreakdownAnticipate"
+#define MI_RigBreakdownOvershoot "MI_RigBreakdownOvershoot"
+#define MI_RigBreakdownCustom "MI_RigBreakdownCustom"
+#define MI_RigEaseInOut33 "MI_RigEaseInOut33"
+#define MI_RigEaseInOut50 "MI_RigEaseInOut50"
+#define MI_RigEaseOut50 "MI_RigEaseOut50"
+#define MI_RigEaseIn50 "MI_RigEaseIn50"
+#define MI_RigEaseOut100 "MI_RigEaseOut100"
+#define MI_RigEaseIn100 "MI_RigEaseIn100"
+#define MI_RigEaseCustom "MI_RigEaseCustom"
+#define MI_RigIncludeChildren "MI_RigIncludeChildren"
+
 #endif

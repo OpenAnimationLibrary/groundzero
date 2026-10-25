@@ -6,6 +6,7 @@
 #include "menubarcommandids.h"
 #include "cellselection.h"
 #include "keyframeselection.h"
+#include "rigeasecommand.h"
 #include "filmstripselection.h"
 #include "filmstripcommand.h"
 #include "xsheetdragtool.h"
@@ -3906,6 +3907,30 @@ void CellArea::createCellMenu(QMenu &menu, bool isCellSelected, TXshCell cell,
         eachSubMenu->addAction(cmdManager->getAction(MI_Each4));
       }
       menu.addMenu(eachSubMenu);
+
+      // whole-rig breakdown and ease of the selected columns
+      QMenu *rigBreakdownSubMenu = new QMenu(tr("Rig Breakdown"), this);
+      {
+        for (int i = 0; i < cRigBreakdownPresetCount; i++)
+          rigBreakdownSubMenu->addAction(
+              cmdManager->getAction(cRigBreakdownPresets[i].id));
+        rigBreakdownSubMenu->addSeparator();
+        rigBreakdownSubMenu->addAction(
+            cmdManager->getAction(MI_RigBreakdownCustom));
+        rigBreakdownSubMenu->addAction(
+            cmdManager->getAction(MI_RigIncludeChildren));
+      }
+      menu.addMenu(rigBreakdownSubMenu);
+      QMenu *rigEaseSubMenu = new QMenu(tr("Rig Ease"), this);
+      {
+        for (int i = 0; i < cRigEasePresetCount; i++)
+          rigEaseSubMenu->addAction(
+              cmdManager->getAction(cRigEasePresets[i].id));
+        rigEaseSubMenu->addSeparator();
+        rigEaseSubMenu->addAction(cmdManager->getAction(MI_RigEaseCustom));
+        rigEaseSubMenu->addAction(cmdManager->getAction(MI_RigIncludeChildren));
+      }
+      menu.addMenu(rigEaseSubMenu);
 
       if (!soundTextCellsSelected) {
         QMenu *editCellNumbersMenu = new QMenu(tr("Edit Cell Numbers"), this);

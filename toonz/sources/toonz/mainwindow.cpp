@@ -2,6 +2,7 @@
 
 #include "mainwindow.h"
 #include "convertlinestoareascommand.h"
+#include "rigeasecommand.h"
 #include "customhelplink.h"
 
 // Tnz6 includes
@@ -2695,6 +2696,22 @@ void MainWindow::defineActions() {
                         "", "fill_empty_cells");
   createMenuCellsAction(MI_SymbolTiming, QT_TR_NOOP("Symbol Timing..."), "",
                         "");
+
+  // Whole-rig breakdown and ease. Their presets are listed in
+  // rigeasecommand.h.
+  for (int i = 0; i < cRigBreakdownPresetCount; i++)
+    createMenuCellsAction(cRigBreakdownPresets[i].id,
+                          cRigBreakdownPresets[i].name, "", "");
+  createMenuCellsAction(MI_RigBreakdownCustom,
+                        QT_TR_NOOP("Custom Rig Breakdown..."), "", "");
+  for (int i = 0; i < cRigEasePresetCount; i++)
+    createMenuCellsAction(cRigEasePresets[i].id, cRigEasePresets[i].name, "",
+                          "");
+  createMenuCellsAction(MI_RigEaseCustom, QT_TR_NOOP("Custom Rig Ease..."), "",
+                        "");
+  createToggle(MI_RigIncludeChildren,
+               QT_TR_NOOP("Include Child Objects in Rig Commands"), "", true,
+               MenuCellsCommandType);
 
   // Menu - Play
 

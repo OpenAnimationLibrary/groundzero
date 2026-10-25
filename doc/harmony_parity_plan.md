@@ -31,7 +31,7 @@
 | Drawing substitution and templates | E/A/P | Partial→Y | **Drawing Substitution panel** with an icon grid (`toonz/drawingsubstitutionpane.cpp`). **Save Selection as Template** (`toonz/subscenecommand.cpp`, `columnselection.cpp`). | No substitution slider in the viewer. Templates have no thumbnail browser. |
 | Symbols | E/A/P | Y | Symbols built on `TXshChildLevel`: a Symbols panel, insert by drag, and Once/Loop/Hold timing (`toonz/symbolcommand.h`, `symbolspane.cpp`). | Symbols live only in their own scene; there is no library shared between scenes. |
 | Cut-out character library | E/A/P | Partial | Library browser, rig templates, Poses. | No visual library of rigs and poses that you can drag from. |
-| Breakdown Pose Assistant (H25) | P | Y (narrow) | Breakdown keys with favour presets, including Anticipation -10% and Overshoot 110%, plus a custom value (`toonzqt/functionsheet.cpp:72`, `functionselection.cpp:713`). | Only in the Function Spreadsheet. No whole-rig breakdown from the Timeline, Xsheet or viewer. |
+| Breakdown Pose Assistant (H25) | P | Y (narrow) | Breakdown keys with favour presets, including Anticipation -10% and Overshoot 110%, plus a custom value (`toonzqt/functionsheet.cpp:72`, `functionselection.cpp:713`). | Function Spreadsheet, plus whole-rig Rig Breakdown commands in the Xsheet and Timeline (Cells menu and cell menu; `doc/rig_breakdown_ease.md`). Not in the viewer. |
 | Selection Lock (H27) | ? | Y | `TXshColumn::isSelectionLocked`, the command `MI_SelectionLockSelectedColumns` (`toonz/columncommand.cpp:1632`), and the viewer respects it. | Works per column, not per node. |
 | Nested groups | P | Partial | Nestable column groups in the Xsheet, built on stage-object groups (`toonz/columncommand.cpp`, `xshcolumnviewer.cpp`, an opt-in strip). | No group node with published ports. |
 
@@ -61,7 +61,7 @@
 |---|---|---|---|---|
 | Timeline and Xsheet | E/A/P | Y | Existing. | n/a |
 | Function curves | E/A/P | Y | Function Editor. | No quaternion rotation. |
-| Ease presets | E/A/P | Y | Six presets plus a Custom Ease applied to the selection (`toonzqt/functionsheet.cpp:57-125`). | Not available as Quick Ease buttons in the Timeline. |
+| Ease presets | E/A/P | Y | Six presets plus a Custom Ease applied to the selection (`toonzqt/functionsheet.cpp:57-125`). | Rig Ease commands for the selected columns and their children in the Xsheet and Timeline (`doc/rig_breakdown_ease.md`); no dedicated button strip. |
 | Interpolation types | E/A/P | Y | Existing. | n/a |
 | Motion paths in the viewer | E/A/P | Y | Animate tool's "Show Trajectory", with draggable markers for position keys (`tnztools/edittool.cpp:66-84`). | No velocity display, and no editing of the path's tangents in the viewer. |
 | Trajectory onion skin | ? | Y | Same feature. | n/a |
@@ -170,7 +170,7 @@
 | # | Item | Size | Depends on | Approach | Risk | Realism |
 |---|---|---|---|---|---|---|
 | Q1 | Colour Override FX | M | none | A raster FX with a `TPaletteHandle`-like list of style ID → colour pairs, applied while a Toonz level renders (the External Palette Fx route), so remaps follow paint zones. Show palette swatches in the parameter editor. | Low to medium: needs the style IDs before flattening. | V |
-| Q2 | Whole-rig breakdown and Quick Ease in the Timeline and Xsheet | S | none | Reuse `FunctionSelection::insertBreakdowns(frame, favour)` over every animated channel of the selected columns. Add an Xsheet/Timeline context menu and toolbar buttons. | Low | V |
+| Q2 | Whole-rig breakdown and Quick Ease in the Timeline and Xsheet | S | none | Done in `t10/rig-ease`: `KeyframeSetter::insertBreakdown` / `setSegmentEase` (shared with the Function Spreadsheet) over every animated channel of the selected columns and their children, as Cells-menu and cell-menu commands. Toolbar buttons are available as separate commands to add to a command bar. | Low | V |
 | Q3 | Create Colour Art from Line Art | M | none | Copy closed Line Art stroke loops as zero-thickness strokes (the Colour Art role in `artlayer.h`), then rebuild regions with autoclose. | Low | V |
 | Q4 | Drawing-substitution slider and controller | S | none | A slider in the viewer or Tool Options that steps through the Drawing Substitution pane's frame list for the current cell. | Low | V |
 | Q5 | Lock Timeline Ruler; port filter in the FX Schematic | S | none | UI-only changes. | Low | V |
@@ -238,7 +238,7 @@ they are.
 
 1. **Colour Override FX (Q1): done in `tier6`.** Next for it: a palette-swatch picker in the FX settings and display in the viewer.
 2. **Rebase and merge the Qt 6 build abstraction (F1)**, dual-build, before the branch drifts further. QtScript is already gone.
-3. **Whole-rig breakdown and Quick Ease buttons in the Timeline and Xsheet (Q2).** Small, and it reuses `insertBreakdowns`.
+3. **Whole-rig breakdown and Quick Ease in the Timeline and Xsheet (Q2): done in `t10/rig-ease`.** See `doc/rig_breakdown_ease.md`.
 4. **Offset-layer channels (F5).** They turn the Poses panel into a live, stackable Attribute Controller and unblock R6 and R7.
 5. **Master Controller widgets (R6)** in the viewer, built on F5 and the `tgl::Batch` gadgets.
 6. **The `DeformerStack` interface (F3)**, with Plastic and Curve Bending ported as the first two implementations.
