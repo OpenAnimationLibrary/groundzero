@@ -927,6 +927,8 @@
   <item>W_ShearH		"Shear H"		</item>
   <item>W_ShearV		"Shear V"		</item>
   <item>W_Scale			"Scale"			</item>
+  <item>W_RotationX	"Rotation X"	</item>
+  <item>W_RotationY	"Rotation Y"	</item>
   
 <!------------------------------ Ino FXs ------------------------------------------->
 

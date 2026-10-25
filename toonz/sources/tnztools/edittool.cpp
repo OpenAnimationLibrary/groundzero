@@ -177,6 +177,7 @@ public:
       m_before.add(TStageObject::T_Path);
       m_before.add(TStageObject::T_ShearX);
       m_before.add(TStageObject::T_ShearY);
+      m_before.addTiltChannelsInUse();
     }
     m_after = m_before;
   }
@@ -203,6 +204,7 @@ public:
       m_before.add(TStageObject::T_Path);
       m_before.add(TStageObject::T_ShearX);
       m_before.add(TStageObject::T_ShearY);
+      m_before.addTiltChannelsInUse();
     }
     m_after = m_before;
   }

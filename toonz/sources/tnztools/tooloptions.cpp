@@ -459,6 +459,16 @@ ArrowToolOptionsBox::ArrowToolOptionsBox(
   m_rotationField =
       new PegbarChannelField(m_tool, TStageObject::T_Angle, "field",
                              frameHandle, objHandle, xshHandle, this);
+  m_rotXLabel = new ClickableLabel(tr("Rot X:"), this);
+  m_rotXField = new PegbarChannelField(m_tool, TStageObject::T_RotX, "field",
+                                       frameHandle, objHandle, xshHandle, this);
+  m_rotYLabel = new ClickableLabel(tr("Rot Y:"), this);
+  m_rotYField = new PegbarChannelField(m_tool, TStageObject::T_RotY, "field",
+                                       frameHandle, objHandle, xshHandle, this);
+  m_rotXLabel->setToolTip(
+      tr("Tilt around the horizontal axis (orthographic, no perspective)"));
+  m_rotYLabel->setToolTip(
+      tr("Tilt around the vertical axis (orthographic, no perspective)"));
 
   /* --- Scale --- */
   m_globalScaleField =
@@ -677,6 +687,18 @@ ArrowToolOptionsBox::ArrowToolOptionsBox(
         rotLay->addWidget(m_rightRotateButton);
 
         rotLay->addSpacing(ITEM_SPACING);
+
+        rotLay->addWidget(m_rotXLabel, 0);
+        rotLay->addSpacing(LABEL_SPACING);
+        rotLay->addWidget(m_rotXField, 10);
+
+        rotLay->addSpacing(ITEM_SPACING);
+
+        rotLay->addWidget(m_rotYLabel, 0);
+        rotLay->addSpacing(LABEL_SPACING);
+        rotLay->addWidget(m_rotYField, 10);
+
+        rotLay->addSpacing(ITEM_SPACING);
         rotLay->addWidget(new DVGui::Separator("", this, false));
 
         rotLay->addStretch(1);
@@ -826,6 +848,8 @@ ArrowToolOptionsBox::ArrowToolOptionsBox(
   connectLabelAndField(m_zLabel, m_zField);
   connectLabelAndField(m_soLabel, m_soField);
   connectLabelAndField(m_rotationLabel, m_rotationField);
+  connectLabelAndField(m_rotXLabel, m_rotXField);
+  connectLabelAndField(m_rotYLabel, m_rotYField);
   connectLabelAndField(m_globalScaleLabel, m_globalScaleField);
   connectLabelAndField(m_scaleHLabel, m_scaleHField);
   connectLabelAndField(m_scaleVLabel, m_scaleVField);
@@ -934,6 +958,14 @@ void ArrowToolOptionsBox::updateStatus() {
 
   // Rotation
   m_rotationField->updateStatus();
+  m_rotXField->updateStatus();
+  m_rotYField->updateStatus();
+  // Cameras ignore the 3D tilt channels
+  bool tiltEnabled = !m_objHandle->getObjectId().isCamera();
+  m_rotXLabel->setEnabled(tiltEnabled);
+  m_rotXField->setEnabled(tiltEnabled);
+  m_rotYLabel->setEnabled(tiltEnabled);
+  m_rotYField->setEnabled(tiltEnabled);
 
   // Scale
   m_globalScaleField->updateStatus();
