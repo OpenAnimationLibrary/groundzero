@@ -30,6 +30,7 @@
 #include "toonz/txshpalettecolumn.h"
 #include "toonz/txshpalettelevel.h"
 #include "toonz/toonzfolders.h"
+#include "toonz/poselibrary.h"
 
 // TnzCore includes
 #include "timagecache.h"
@@ -284,7 +285,8 @@ static void deleteAllUntitledScenes() {
 // ToonzScene
 
 ToonzScene::ToonzScene()
-    : m_contentHistory(0)
+    : m_poseLibrary(new PoseLibrary())
+    , m_contentHistory(0)
     , m_isUntitled(true)
     , m_isLoading(false)
     , m_unrecognizedSceneTags()
@@ -300,6 +302,7 @@ ToonzScene::ToonzScene()
 ToonzScene::~ToonzScene() {
   delete m_properties;
   delete m_levelSet;
+  delete m_poseLibrary;
   delete m_childStack;
   delete m_contentHistory;
 }
@@ -322,6 +325,7 @@ void ToonzScene::clear() {
   m_properties                 = new TSceneProperties();
   delete properties;
   m_levelSet->clear();
+  m_poseLibrary->clear();
   m_unrecognizedSceneTags.clear();
   m_loadedSceneGenerator.clear();
 }
@@ -448,6 +452,7 @@ void ToonzScene::loadTnzFile(const TFilePath &fp) {
   bool reading22 = false;
   m_unrecognizedSceneTags.clear();
   m_loadedSceneGenerator.clear();
+  m_poseLibrary->clear();
   TIStream is(fp);
   if (!is) throw TException(fp.getWideString() + L": Can't open file");
   try {
@@ -510,7 +515,9 @@ void ToonzScene::loadTnzFile(const TFilePath &fp) {
           }
           TContentHistory *history = getContentHistory(true);
           history->deserialize(QString::fromStdString(historyData));
-        } else {
+        } else if (tagName == "poses")
+          m_poseLibrary->loadData(is);
+        else {
           // Treat unknown top-level scene entries as optional extension data.
           // The parser already knows how to skip a complete nested tag. Record
           // the tag so a later explicit save can protect the source file from
@@ -759,6 +766,15 @@ void ToonzScene::save(TFilePath &fp, TXsheet *subxsh, bool saveSceneIcon) {
     os.openChild("xsheet");
     os << *xsh;
     os.closeChild();
+
+    // Poses refer to the top-level xsheet, so sub-xsheet saves skip them. The
+    // tag is written only when poses exist, so scenes that do not use them
+    // stay readable by versions that reject unknown top-level tags.
+    if (!subxsh && !m_poseLibrary->isEmpty()) {
+      os.openChild("poses");
+      m_poseLibrary->saveData(os);
+      os.closeChild();
+    }
 
     if (getContentHistory()) {
       os.openChild("history");

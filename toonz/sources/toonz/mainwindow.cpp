@@ -2874,6 +2874,7 @@ void MainWindow::defineActions() {
                           "Alt+S", "opentoonz");
   createMenuWindowsAction(MI_OpenAlignmentPanel,
                           QT_TR_NOOP("Align and Distribute Panel"), "", "");
+  createMenuWindowsAction(MI_OpenPosesPanel, QT_TR_NOOP("&Poses"), "", "");
   createMenuWindowsAction(MI_OpenGuidedDrawingControls,
                           QT_TR_NOOP("Guided Drawing Controls"), "",
                           "guided_drawing");
