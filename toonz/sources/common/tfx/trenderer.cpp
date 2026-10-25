@@ -123,7 +123,10 @@ const char *const c_stripUnsafeFxIds[] = {
     "STD_iwa_PNPerspectiveFx",
     // FFT sizes, hence rounding, depend on the tile size
     "STD_iwa_BokehFx", "STD_iwa_BokehRefFx", "STD_iwa_BokehAdvancedFx",
-    "STD_iwa_GlareFx"};
+    "STD_iwa_GlareFx",
+    // Work on the whole tile without enlarging it by the neighbourhood they
+    // read (region shapes, flow field smoothing, blur along the flow)
+    "STD_iwa_SoapBubbleFx", "STD_iwa_TangentFlowFx", "STD_iwa_FlowBlurFx"};
 
 bool containsStripUnsafeFxId(const std::string &str) {
   for (const char *id : c_stripUnsafeFxIds)
