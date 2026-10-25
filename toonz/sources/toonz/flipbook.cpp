@@ -168,7 +168,7 @@ FlipBook::FlipBook(QWidget *parent, QString viewerTitle,
     , m_levelNames()
     , m_levels()
     , m_playSound(false)
-    , m_snd(0)
+    , m_snd()
     , m_player(0)
     //, m_doCompare(false)
     , m_currentFrameToSave(0)

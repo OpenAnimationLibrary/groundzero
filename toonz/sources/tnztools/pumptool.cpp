@@ -35,6 +35,19 @@
 
 using namespace ToolUtils;
 
+namespace {
+
+//! Whether all the control points of \p s have zero thickness. Such strokes
+//! (fill boundaries, gap-closing lines) are hidden by the renderer and must
+//! not be made visible by the thickness brushes.
+bool isZeroThick(const TStroke *s) {
+  for (int i = 0; i < s->getControlPointCount(); ++i)
+    if (s->getControlPoint(i).thick != 0) return false;
+  return true;
+}
+
+}  // namespace
+
 //*****************************************************************************
 //    PumpTool declaration
 //*****************************************************************************
@@ -670,6 +683,8 @@ void PumpTool::brushAt(const TPointD &pos, double moved) {
     if (!vi->inCurrentGroup(i)) continue;
     TStroke *stroke = vi->getStroke(i);
     if (!stroke->getBBox().enlarge(radius).contains(pos)) continue;
+    // Leave hidden zero-thickness strokes alone, as the renderer does
+    if (isZeroThick(stroke)) continue;
 
     bool changed = false;
     for (int j = 0; j < stroke->getControlPointCount(); ++j) {

@@ -186,7 +186,8 @@ Return true if level range is not empty.*/
   double getVolume() const;
 
   //! The column's animatable volume, a gain from 0.0 to 1.0 over getVolume().
-  //! It is applied when the scene's sound is mixed (playback, export).
+  //! It is applied when the scene's sound is mixed (playback, export) and
+  //! when the column is played or scrubbed on its own.
   TDoubleParam *getVolumeCurve() const { return m_volumeCurve.getPointer(); }
 
   void onChange(const TParamChange &) override;

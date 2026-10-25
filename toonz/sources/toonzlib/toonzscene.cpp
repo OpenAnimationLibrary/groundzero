@@ -689,8 +689,16 @@ void ToonzScene::save(TFilePath &fp, TXsheet *subxsh, bool saveSceneIcon) {
   }
 
   // A sub-xsheet save does not switch the current scene to the saved file, so
-  // its stand-alone state must survive saving outside the scene's project.
-  bool wasStandAlone = m_standAlone;
+  // its stand-alone state must survive saving outside the scene's project,
+  // also when the save throws.
+  struct StandAloneRestorer {
+    bool &m_flag;
+    bool m_value;
+    bool m_enabled;
+    ~StandAloneRestorer() {
+      if (m_enabled) m_flag = m_value;
+    }
+  } standAloneRestorer = {m_standAlone, m_standAlone, subxsh != 0};
   if (newScenePath != oldScenePath)
     TProjectManager::instance()->loadSceneProject(newScenePath, &m_standAlone);
 
@@ -729,7 +737,6 @@ void ToonzScene::save(TFilePath &fp, TXsheet *subxsh, bool saveSceneIcon) {
   if (subxsh) {
     setScenePath(oldScenePath);
     if (wasUntitled) setUntitled();
-    m_standAlone = wasStandAlone;
   } else {
     if (wasUntitled) deleteUntitledScene(oldScenePath.getParentDir());
     if (saveSceneIcon) clearUnrecognizedSceneData();
@@ -800,9 +807,10 @@ void ToonzScene::writeSceneFile(const TFilePath &fp, TXsheet *subxsh) {
   os.closeChild();
 
   // Poses refer to the top-level xsheet, so sub-xsheet saves skip them. The
-  // tag is written only when poses exist, so scenes that do not use them
-  // stay readable by versions that reject unknown top-level tags.
-  if (!subxsh && !m_poseLibrary->isEmpty()) {
+  // tag is written only when at least one pose exists (a base alone is not
+  // enough), so scenes that do not use poses stay readable by versions that
+  // reject unknown top-level tags.
+  if (!subxsh && m_poseLibrary->getPoseCount() > 0) {
     os.openChild("poses");
     m_poseLibrary->saveData(os);
     os.closeChild();
