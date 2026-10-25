@@ -16,7 +16,6 @@ on:
       - '!doc/**'                                 # Exclude documentation
       - '!**/.github/**'                          # Exclude everything in .github folder
       - '.github/workflows/workflow_windows.yml'  # Include Windows workflow file
-      - '.github/workflows/otdev_branding.yml'
       - '.github/ot-dev/**'                       # Include Groundzero build branding assets
   pull_request:
     types: [opened, synchronize, reopened, edited]
@@ -33,7 +32,6 @@ on:
       - '!doc/**'
       - '!**/.github/**'
       - '.github/workflows/workflow_windows.yml'
-      - '.github/workflows/otdev_branding.yml'
       - '.github/ot-dev/**'
   workflow_dispatch:
 
@@ -122,22 +120,6 @@ jobs:
         with:
           name: Groundzero-recorder-test-decoder
           path: recorder-test-decoder
-
-      - name: Brand Groundzero build with PNG artwork and live PR data
-        shell: pwsh
-        run: |
-          $checkoutSha = git rev-parse HEAD
-          if ($LASTEXITCODE) { throw 'Unable to identify the checked-out commit' }
-          python .github/ot-dev/brand_build.py --template .github/ot-dev/splash-template-area10.svg --output "$env:RUNNER_TEMP/otdev-branding/splash.svg" --source-root . --sha $checkoutSha
-          if ($LASTEXITCODE) { throw 'Groundzero branding failed' }
-      - name: Upload populated SVG and PNG for review
-        uses: actions/upload-artifact@v6
-        with:
-          name: Groundzero-branding-${{ github.run_id }}
-          path: |
-            ${{ runner.temp }}/otdev-branding/splash.svg
-            ${{ runner.temp }}/otdev-branding/portablestuff/splash.png
-          if-no-files-found: error
 
       # Cache OpenCV and Boost libraries
       - name: Cache OpenCV and Boost
@@ -237,16 +219,11 @@ jobs:
           xcopy /Y /E /I ..\..\stuff .\Opentoonz\portablestuff
         shell: cmd
 
-      - name: Package and verify the complete Groundzero build
-        shell: pwsh
-        env:
-          OTDEV_SOURCE_SHA: ${{ github.sha }}
-          OTDEV_INFRASTRUCTURE_SHA: ${{ github.sha }}
-          OTDEV_BUILD_ID: ${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Add the recorder encoder to the package
+        shell: cmd
         run: |
-          $ErrorActionPreference = 'Stop'
-          python .github/ot-dev/package_build.py --package toonz/build/Opentoonz --branding-dir "$env:RUNNER_TEMP/otdev-branding" --encoder-dir recorder-encoder --source-sha $env:OTDEV_SOURCE_SHA --infrastructure-sha $env:OTDEV_INFRASTRUCTURE_SHA --build-id $env:OTDEV_BUILD_ID --manifest-output "$env:RUNNER_TEMP/otdev-build.json"
-          if ($LASTEXITCODE) { throw 'Complete Groundzero package verification failed' }
+          xcopy /Y /E /I recorder-encoder toonz\build\Opentoonz\otdev-recorder
+          copy /Y .github\ot-dev\recorder\README.md toonz\build\Opentoonz\otdev-recorder\README.md
 
       # Create artifact from the build
       - name: Create Artifact
@@ -261,11 +238,4 @@ jobs:
         with:
           name: Groundzero-${{ github.event.pull_request.number && format('PR-{0}', github.event.pull_request.number) || 'Branch-build' }}-Windows-${{ github.sha }}-${{ github.run_id }}
           path: artifact
-          if-no-files-found: error
-
-      - name: Publish the verified package manifest
-        uses: actions/upload-artifact@v6
-        with:
-          name: Groundzero-package-manifest-${{ github.run_id }}
-          path: ${{ runner.temp }}/otdev-build.json
           if-no-files-found: error
