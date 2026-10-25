@@ -22,6 +22,7 @@ class TFilmstripSelection;
 class FilmstripFrameHeadGadget;
 class TXshSimpleLevel;
 class QComboBox;
+class QCheckBox;
 class QTimer;
 class QDragEnterEvent;
 class QDragMoveEvent;
@@ -332,6 +333,7 @@ private:
 class InbetweenDialog final : public DVGui::Dialog {
   Q_OBJECT
   QComboBox *m_comboBox;
+  QCheckBox *m_strokePairsCB;
 
 public:
   InbetweenDialog(QWidget *parent);
@@ -340,6 +342,10 @@ public:
   QString getValue();
 
   int getIndex(const QString &text);
+
+  // the stroke pairs option is shown only when there are pairs to use
+  void setStrokePairCount(int count);
+  bool useStrokePairs() const;
 };
 
 #endif  // FILMSTRIP_H

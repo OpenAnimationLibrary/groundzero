@@ -34,6 +34,8 @@
 #define MI_ExitGroup "MI_ExitGroup"
 #define MI_RemoveEndpoints "MI_RemoveEndpoints"
 #define MI_SortWithPaletteOrder "MI_SortWithPaletteOrder"
+#define MI_PairInbetweenStrokes "MI_PairInbetweenStrokes"
+#define MI_ClearInbetweenStrokePairs "MI_ClearInbetweenStrokePairs"
 #define MI_SaveAsCustomVectorBrush "MI_SaveAsCustomVectorBrush"
 
 #define MI_OpenChild "MI_OpenChild"

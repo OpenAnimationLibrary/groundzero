@@ -19,6 +19,9 @@
 #include "toonzqt/tselectionhandle.h"
 #include "toonzqt/dvdialog.h"
 
+// TnzTools includes
+#include "tools/strokeselection.h"
+
 // TnzLib includes
 #include "toonz/txshlevelhandle.h"
 #include "toonz/tcolumnhandle.h"
@@ -39,11 +42,13 @@
 
 // TnzCore includes
 #include "tpalette.h"
+#include "tvectorimage.h"
 
 // Qt includes
 #include <QPainter>
 #include <QScrollBar>
 #include <QComboBox>
+#include <QCheckBox>
 #include <QPushButton>
 #include <QSettings>
 #include <QApplication>
@@ -2023,15 +2028,23 @@ void FilmstripFrames::inbetween() {
   QString currentItem = settings.value(keyName, tr("Linear")).toString();
   int index;
 
+  // stroke pairs set with the Pair Strokes for Inbetween command, if any
+  TVectorImageP img0 = getLevel()->getFrame(range.first, false);
+  TVectorImageP img1 = getLevel()->getFrame(range.second, false);
+  std::vector<std::pair<int, int>> strokePairs =
+      StrokeSelection::getInbetweenStrokePairs(img0, img1);
+
   {
     if (!m_inbetweenDialog) m_inbetweenDialog = new InbetweenDialog(this);
 
     // Default -> l'ultimo valore usato
 
     m_inbetweenDialog->setValue(currentItem);
+    m_inbetweenDialog->setStrokePairCount(int(strokePairs.size()));
 
     int ret = m_inbetweenDialog->exec();
     if (!ret) return;
+    if (!m_inbetweenDialog->useStrokePairs()) strokePairs.clear();
 
     currentItem = m_inbetweenDialog->getValue();
     if (currentItem.isEmpty()) return;
@@ -2050,7 +2063,8 @@ void FilmstripFrames::inbetween() {
   FilmstripCmd::InbetweenInterpolation interpolation = codes[index];
 
   // inbetween
-  FilmstripCmd::inbetween(getLevel(), range.first, range.second, interpolation);
+  FilmstripCmd::inbetween(getLevel(), range.first, range.second, interpolation,
+                          strokePairs);
 }
 
 //-----------------------------------------------------------------------------
@@ -2690,6 +2704,14 @@ InbetweenDialog::InbetweenDialog(QWidget *parent)
   addWidget(tr("Interpolation:"), m_comboBox);
   endHLayout();
 
+  m_strokePairsCB = new QCheckBox(this);
+  m_strokePairsCB->setChecked(true);
+  m_strokePairsCB->setToolTip(
+      tr("Use the stroke pairs set with Pair Strokes for Inbetween to match "
+         "the strokes of the two key drawings."));
+  m_strokePairsCB->hide();
+  addWidget(m_strokePairsCB);
+
   QPushButton *okBtn     = new QPushButton(tr("Inbetween"), this);
   QPushButton *cancelBtn = new QPushButton(tr("Cancel"), this);
   connect(okBtn, SIGNAL(clicked()), this, SLOT(accept()));
@@ -2714,6 +2736,19 @@ void InbetweenDialog::setValue(const QString &value) {
 
 int InbetweenDialog::getIndex(const QString &text) {
   return m_comboBox->findText(text);
+}
+
+//-----------------------------------------------------------------------------
+
+void InbetweenDialog::setStrokePairCount(int count) {
+  m_strokePairsCB->setText(tr("Use Stroke Pairs (%1)").arg(count));
+  m_strokePairsCB->setVisible(count > 0);
+}
+
+//-----------------------------------------------------------------------------
+
+bool InbetweenDialog::useStrokePairs() const {
+  return !m_strokePairsCB->isHidden() && m_strokePairsCB->isChecked();
 }
 
 //=============================================================================

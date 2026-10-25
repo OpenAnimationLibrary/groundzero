@@ -14,6 +14,7 @@
 
 // STD includes
 #include <set>
+#include <utility>
 #include <vector>
 #include "tools/vectoralignment.h"
 
@@ -99,6 +100,16 @@ public:
 
   void removeEndpoints();
   void sortWithPaletteOrder();
+
+  // Stroke pairing hints for the Inbetween command. They are kept in memory
+  // only, by stroke id, and are never saved with the level.
+  void pairStrokesForInbetween();
+  void clearInbetweenStrokePairs();
+  static bool hasInbetweenStrokePairs();
+  //! Returns the hinted (first image index, last image index) stroke pairs
+  //! that can be found in the specified images, for use with TInbetween.
+  static std::vector<std::pair<int, int>> getInbetweenStrokePairs(
+      const TVectorImageP &firstImage, const TVectorImageP &lastImage);
 
   void enableCommands() override;
 
