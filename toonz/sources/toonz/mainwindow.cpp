@@ -2731,6 +2731,8 @@ void MainWindow::defineActions() {
                FieldGuideToggleAction ? 1 : 0, MenuViewCommandType);
   createToggle(MI_ViewBBox, QT_TR_NOOP("&Raster Bounding Box"), "",
                ViewBBoxToggleAction ? 1 : 0, MenuViewCommandType);
+  createToggle(MI_LightTable, QT_TR_NOOP("&Light Table"), "", false,
+               MenuViewCommandType);
   createToggle(MI_SafeArea, QT_TR_NOOP("&Safe Area"), "",
                SafeAreaToggleAction ? 1 : 0, MenuViewCommandType);
   createToggle(MI_ViewColorcard, QT_TR_NOOP("&Camera BG Color"), "",

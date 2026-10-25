@@ -288,6 +288,7 @@ ToggleCommandHandler rasterizePliToggle(MI_RasterizePli, false);
 ToggleCommandHandler viewClcToggle("MI_ViewColorcard", false);
 ToggleCommandHandler viewCameraToggle("MI_ViewCamera", false);
 ToggleCommandHandler viewBBoxToggle("MI_ViewBBox", false);
+ToggleCommandHandler lightTableToggle(MI_LightTable, false);
 ToggleCommandHandler viewGuideToggle("MI_ViewGuide", false);
 ToggleCommandHandler viewRulerToggle("MI_ViewRuler", false);
 
@@ -2243,6 +2244,8 @@ void SceneViewer::drawScene() {
       args.m_osm         = &osm;
       args.m_xsheetLevel = xsheetLevel;
       args.m_isPlaying   = frameHandle->isPlaying();
+      // the light table is for drawing; playback shows the scene as it is
+      args.m_lightTable = lightTableToggle.getStatus() && !args.m_isPlaying;
       if (app->getCurrentLevel() && app->getCurrentLevel()->getLevel() &&
           !app->getCurrentLevel()->getLevel()->getSoundLevel())
         args.m_currentFrameId =

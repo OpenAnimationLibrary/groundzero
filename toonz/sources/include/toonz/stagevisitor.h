@@ -138,6 +138,7 @@ struct DVAPI VisitArgs {
   int m_isGuidedDrawingEnabled;
   int m_guidedFrontStroke;
   int m_guidedBackStroke;
+  bool m_lightTable;  // fade every column but the current one
 #if defined(x64)
   TRasterImageP m_liveViewImage = 0;
   TRasterImageP m_lineupImage   = 0;
@@ -160,6 +161,7 @@ public:
       , m_isGuidedDrawingEnabled(0)
       , m_guidedFrontStroke(-1)
       , m_guidedBackStroke(-1)
+      , m_lightTable(false)
       , m_rasterizePli(false) {}
 };
 
