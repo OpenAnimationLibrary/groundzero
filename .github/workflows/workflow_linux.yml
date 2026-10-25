@@ -56,9 +56,9 @@ jobs:
         cd toonz
         mkdir build
         cd build
-        cmake ../sources -G Ninja -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER=${{ matrix.cxx }} -DCMAKE_C_COMPILER=${{ matrix.cc }} -DWITH_TRANSLATION=OFF -DBUILD_EXR_TESTS=ON -DBUILD_EXR_AOV_FX_TESTS=ON
+        cmake ../sources -G Ninja -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER=${{ matrix.cxx }} -DCMAKE_C_COMPILER=${{ matrix.cc }} -DWITH_TRANSLATION=OFF -DBUILD_EXR_TESTS=ON -DBUILD_EXR_AOV_FX_TESTS=ON -DBUILD_PSD_TESTS=ON
         ninja
-        ctest --output-on-failure -R '^(tiio_exr(_level)?|openexraovfx)$'
+        ctest --output-on-failure -R '^(tiio_exr(_level)?|tiio_psd|openexraovfx)$'
 
     - name: Create Artifact
       run: |
@@ -186,6 +186,6 @@ jobs:
         # build with. A missing return is only a warning in our default build,
         # so it survives review and breaks packaging instead (see #6940).
         cmake ../sources -G Ninja -DWITH_TRANSLATION=OFF \
-          -DCMAKE_CXX_FLAGS=-Werror=return-type -DBUILD_EXR_TESTS=ON -DBUILD_EXR_AOV_FX_TESTS=ON
+          -DCMAKE_CXX_FLAGS=-Werror=return-type -DBUILD_EXR_TESTS=ON -DBUILD_EXR_AOV_FX_TESTS=ON -DBUILD_PSD_TESTS=ON
         ninja
-        ctest --output-on-failure -R '^(tiio_exr(_level)?|openexraovfx)$'
+        ctest --output-on-failure -R '^(tiio_exr(_level)?|tiio_psd|openexraovfx)$'
