@@ -55,6 +55,7 @@
 
 // TnzQt includes
 #include "toonzqt/schematicviewer.h"
+#include "toonzqt/gutil.h"
 #include "toonzqt/paletteviewer.h"
 #include "toonzqt/styleeditor.h"
 #include "toonzqt/studiopaletteviewer.h"
@@ -1660,7 +1661,7 @@ public:
 
   TPanel *createPanel(QWidget *parent) override {
     FxSettingsPanel *panel = new FxSettingsPanel(parent);
-    panel->move(qApp->desktop()->screenGeometry(panel).center());
+    panel->move(screenForWidget(panel)->geometry().center());
     panel->setObjectName(getPanelType());
     panel->setWindowTitle(QObject::tr("Fx Settings"));
     panel->setMinimumSize(390, 85);
@@ -1748,7 +1749,7 @@ public:
 
   TPanel *createPanel(QWidget *parent) override {
     LocatorPanel *panel = new LocatorPanel(parent);
-    panel->move(qApp->desktop()->screenGeometry(panel).center());
+    panel->move(screenForWidget(panel)->geometry().center());
     panel->setObjectName(getPanelType());
     panel->setWindowTitle(QObject::tr("Locator"));
     panel->allowMultipleInstances(false);
@@ -1786,7 +1787,7 @@ public:
 
   TPanel *createPanel(QWidget *parent) override {
     FxBrowserPanel *panel = new FxBrowserPanel(parent);
-    panel->move(qApp->desktop()->screenGeometry(panel).center());
+    panel->move(screenForWidget(panel)->geometry().center());
     panel->setObjectName(getPanelType());
     panel->setWindowTitle(QObject::tr("FX Browser"));
     panel->setMinimumWidth(233);

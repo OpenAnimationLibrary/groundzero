@@ -65,7 +65,7 @@
 #include <QComboBox>
 #include <QCheckBox>
 #include <QPushButton>
-#include <QDesktopWidget>
+#include <QScreen>
 
 #include <QBitmap>
 
@@ -2813,8 +2813,7 @@ void ColumnArea::mouseReleaseEvent(QMouseEvent *event) {
                                         event->globalPos().y() - y);
 
         // make sure the popup doesn't go off the screen to the right
-        QDesktopWidget *desktop = qApp->desktop();
-        QRect screenRect        = desktop->screenGeometry(app->getMainWindow());
+        QRect screenRect = screenForWidget(app->getMainWindow())->geometry();
 
         int popupLeft  = event->globalPos().x() + x;
         int popupRight = popupLeft + m_columnTransparencyPopup->width();
