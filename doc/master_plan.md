@@ -130,7 +130,7 @@ anti-aliasing (GPU and 3D scope), and Ember AI (not realistic).
 | # | Item | Size |
 |---|---|---|
 | E1 | Whole-rig breakdown and Quick Ease in the Timeline and Xsheet (today they are only in the Function spreadsheet). **Built in `t10/rig-ease`**: Rig Breakdown and Rig Ease commands in the Cells menu and the cell menu, over the selected columns and optionally their child objects; see `doc/rig_breakdown_ease.md` | S |
-| E2 | Layered PSD scene export: one layer per column, instead of a flat image per frame | M |
+| E2 | Layered PSD scene export: one layer per column, instead of a flat image per frame (built: File > Export > Export Layered PSD, see doc/layered_psd_export.md) | M |
 | E3 | Light Table opacity setting and per-column exclusion | S |
 | E4 | Tone / Highlight preset macro | S |
 | E5 | Reference panel: several images, remembered view state, PSD layers | S |

@@ -96,7 +96,7 @@
 | Python | P | Y (opt-in) | The `opentoonz` module and a console panel (`toonzlib/pythonbinding.cpp`, `toonz/pythonconsolepanel.cpp`). Built only with the CMake option `WITH_PYTHON`. | Same coverage as the JS API. Not in default builds. |
 | Harmony Server / database | separate product | Partial | SVN version control and the toonzfarm render farm. | Out of scope (see 3.4). |
 | Game export | P | Partial | Spine JSON export. | No mesh deformation export; no Unity or Godot path. |
-| Export formats | E/A/P | Y | Through an ffmpeg **pipe** (`image/ffmpeg/tiio_ffmpeg.cpp`), EXR, the **PSD writer** (one flattened PSD per frame, `image/psd/tiio_psd.cpp`), OCA, XDTS, xsheet PDF, animated SVG. | No layered PSD of a scene, no USD, no SWF. |
+| Export formats | E/A/P | Y | Through an ffmpeg **pipe** (`image/ffmpeg/tiio_ffmpeg.cpp`), EXR, the **PSD writer** (one flattened PSD per frame, `image/psd/tiio_psd.cpp`), the layered PSD scene export (one layer per top-level column, doc/layered_psd_export.md), OCA, XDTS, xsheet PDF, animated SVG. | No USD, no SWF. |
 | Storyboard Pro integration | E/A/P | Partial | XDTS and OCA. | Conforming from Storyboard Pro is proprietary. |
 | Compact file format | all | N | XML `.tnz`. | No binary or compressed scene, and no fast load. |
 | AI (Ember) | add-on | N | Nothing. | Out of scope. |
@@ -174,7 +174,7 @@
 | Q3 | Create Colour Art from Line Art | M | none | Copy closed Line Art stroke loops as zero-thickness strokes (the Colour Art role in `artlayer.h`), then rebuild regions with autoclose. | Low | V |
 | Q4 | Drawing-substitution slider and controller | S | none | A slider in the viewer or Tool Options that steps through the Drawing Substitution pane's frame list for the current cell. | Low | V |
 | Q5 | Lock Timeline Ruler; port filter in the FX Schematic | S | none | UI-only changes. | Low | V |
-| Q6 | Layered PSD scene export | M | none | One PSD per frame with one layer for each top-level column, written with the existing `TLevelWriterPsd` layer code. | Low | V |
+| Q6 | Layered PSD scene export | M | none | One PSD per frame with one layer for each top-level column, written with the existing `TLevelWriterPsd` layer code. **Built** (master plan E2): File > Export > Export Layered PSD renders each top-level column alone with the scene camera and writes `name_0001.psd`, ... with the new `writeLayeredPsd()` (`image/psd/tiio_psd.cpp`, shared with the single layer writer). See doc/layered_psd_export.md. | Low | V |
 | Q7 | Light Table opacity and per-column exclusion | S | none | Make the 30% value a preference, and let a column be excluded from the Light Table. | Low | V (done) |
 | Q8 | Tone/Highlight preset macro | S | none | A macro FX that uses the column's Line Art matte as the matte input. | Low | V (done, see `doc/light_table_extras.md`) |
 | Q9 | Retime/Hold/Loop as a time-remap curve | M | none | A per-level-column `TDoubleParam` time map, modelled on the `TXshSoundColumn` volume curve and evaluated in `getCell()`. | Medium: every `getCell` caller | V |

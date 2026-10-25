@@ -147,6 +147,7 @@ set(MOC_HEADERS
     custompaneleditorpopup.h
     convertfolderpopup.h
     exportcameratrackpopup.h
+    exportlayeredpsdpopup.h
 )
 
 if(PLATFORM EQUAL 64)
@@ -440,6 +441,7 @@ set(SOURCES
     custompaneleditorpopup.cpp
     convertfolderpopup.cpp
     exportcameratrackpopup.cpp
+    exportlayeredpsdpopup.cpp
     spineexport.cpp
     envelopebake.cpp
 # Tracker file

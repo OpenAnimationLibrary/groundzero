@@ -1357,6 +1357,7 @@ QMenuBar *StackedMenuBar::createFullMenuBar() {
     addMenuItem(exportMenu, MI_ExportTvpJson);
     addMenuItem(exportMenu, MI_ExportCameraTrack);
     addMenuItem(exportMenu, MI_ExportSpine);
+    addMenuItem(exportMenu, MI_ExportLayeredPSD);
   }
   fileMenu->addSeparator();
   addMenuItem(fileMenu, MI_PrintXsheet);
