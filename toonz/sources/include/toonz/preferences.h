@@ -223,6 +223,9 @@ public:
   bool isShowRasterImagesDarkenBlendedInViewerEnabled() const {
     return getBoolValue(showRasterImagesDarkenBlendedInViewer);
   }
+  bool isColourOverrideInViewerEnabled() const {
+    return getBoolValue(colourOverrideInViewer);
+  }
   bool isGpuCompositingInViewerEnabled() const {
     return getBoolValue(gpuCompositingInViewer);
   }

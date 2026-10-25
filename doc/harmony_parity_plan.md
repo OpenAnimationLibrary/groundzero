@@ -77,7 +77,7 @@
 | Tone / Highlight | A/P | Y | `ToneHighlightFx` (`stdfx/tonehighlightfx.cpp:91`): matte input, softness, and a correct affine for soft edges. | No preset that drives it with a one-click line-art matte. |
 | Glow, Blur, Bokeh | A/P | Y | Existing Iwa effects. | n/a |
 | Cutter and Matte | A/P | Y | Matte In and Matte Out. | n/a |
-| Colour Override | P | Partial | `stdfx/colouroverridefx.cpp`, `ColourOverrideFxRenderData` applied in `tcolumnfx.cpp`: up to 8 style → colour pairs on Toonz Vector / Toonz Raster columns, Preview/Render only. | Only main colours (no textures), no viewer display, no palette-swatch picker. |
+| Colour Override | P | Partial | `stdfx/colouroverridefx.cpp`, `ColourOverrideFxRenderData` applied in `tcolumnfx.cpp`: up to 8 style → colour pairs on Toonz Vector / Toonz Raster columns, each with a Replace / Multiply / Add mode (`modeN`, default Replace); a palette-swatch picker for the style ids in FX Settings (`IntParamField::enableStyleSwatch`, shows the current level's palette); display in the 2D viewer behind Preferences > Show Colour Override in the Viewer (off by default, `RasterPainter`). Older builds ignore `modeN` and treat every pair as Replace. | Only main colours (no style parameters or textures); the viewer shows only the Fxs that directly follow the column in the Xsheet (not the 3D view, not sub-xsheet columns); the picker shows the current level's palette. |
 | Light Shading, Volume, Glue, Shine | P | Partial | Iwa lighting and gradient effects. | No shading driven by a light inside a shape. |
 | Particles | P | Y | Particles Fx. | No baking. |
 | Multiplane, Z and depth of field | E/A/P | Y | Z, stacking order (SO), camera Z, Bokeh. | n/a |
@@ -236,7 +236,7 @@ they are.
 
 ## 4. First 10 things to build next
 
-1. **Colour Override FX (Q1): done in `tier6`.** Next for it: a palette-swatch picker in the FX settings and display in the viewer.
+1. **Colour Override FX (Q1): done in `tier6`, completed with a palette-swatch picker, Multiply / Add modes and viewer display (opt-in preference).** Next for it: style parameters and textures.
 2. **Rebase and merge the Qt 6 build abstraction (F1)**, dual-build, before the branch drifts further. QtScript is already gone.
 3. **Whole-rig breakdown and Quick Ease buttons in the Timeline and Xsheet (Q2).** Small, and it reuses `insertBreakdowns`.
 4. **Offset-layer channels (F5).** They turn the Poses panel into a live, stackable Attribute Controller and unblock R6 and R7.

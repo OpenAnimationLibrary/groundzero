@@ -2277,6 +2277,10 @@ void SceneViewer::drawScene() {
         Preferences::instance()
             ->isShowRasterImagesDarkenBlendedInViewerEnabled());
 
+    // overrides of the Colour Override Fxs that follow the columns
+    painter.enableColourOverrides(
+        Preferences::instance()->isColourOverrideInViewerEnabled());
+
     // experimental GPU compositing of raster levels
     painter.enableGpuCompositing(
         Preferences::instance()->isGpuCompositingInViewerEnabled());
