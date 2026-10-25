@@ -20,6 +20,8 @@
 #include "toonz/tobjecthandle.h"
 #include "toonz/tonionskinmaskhandle.h"
 #include "toonz/tstageobject.h"
+#include "toonz/tstageobjecttree.h"
+#include "toonz/txsheet.h"
 #include "toonz/doubleparamcmd.h"
 #include "toonz/palettecontroller.h"
 #include "toonz/txshsimplelevel.h"
@@ -1350,6 +1352,9 @@ void PlasticTool::setVertexName(QString &name) {
   const PlasticSkeletonP &skeleton = this->skeleton();
   assert(skeleton && m_svSel.hasSingleObject() && m_svSel > 0);
 
+  const QString oldName =
+      m_sd->skeleton(::skeletonId())->vertex(m_svSel).name();
+
   // Update the selected vertex's name
   while (!m_sd->skeleton(::skeletonId())->setVertexName(m_svSel, name))
     name += "_";
@@ -1365,6 +1370,30 @@ void PlasticTool::setVertexName(QString &name) {
 
   PlasticDeformerStorage::instance()->invalidateSkeleton(
       m_sd.getPointer(), ::skeletonId(), PlasticDeformerStorage::NONE);
+
+  // Columns linked to skeleton vertices refer to them by name: make the
+  // children linked to the renamed vertex follow it. This runs on the
+  // undo/redo of the rename too, keeping the links in sync with it.
+  TStageObject *obj = ::stageObject();
+  if (name != oldName) {
+    const std::string oldHandle =
+        TStageObject::getSkeletonVertexHandle(oldName.toStdString());
+    const std::string newHandle =
+        TStageObject::getSkeletonVertexHandle(name.toStdString());
+
+    TStageObjectTree *tree = TTool::getApplication()
+                                 ->getCurrentXsheet()
+                                 ->getXsheet()
+                                 ->getStageObjectTree();
+    for (int i = 0, count = tree->getStageObjectCount(); i != count; ++i) {
+      TStageObject *child = tree->getStageObject(i);
+      if (child->getParent() == obj->getId() &&
+          child->getParentHandle() == oldHandle)
+        child->setParentHandle(newHandle);
+    }
+  }
+
+  obj->invalidate();
 }
 
 //------------------------------------------------------------------------

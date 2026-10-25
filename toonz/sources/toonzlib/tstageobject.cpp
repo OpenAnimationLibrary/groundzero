@@ -30,6 +30,7 @@
 #include <QMetaObject>
 
 // STD includes
+#include <algorithm>
 #include <fstream>
 #include <set>
 
@@ -788,6 +789,51 @@ void TStageObject::setParentHandle(const std::string &s) {
 
 //-----------------------------------------------------------------------------
 
+bool TStageObject::isSkeletonVertexHandle(const std::string &handle) {
+  return handle.compare(0, 3, "H0:") == 0;
+}
+
+//-----------------------------------------------------------------------------
+
+std::string TStageObject::getSkeletonVertexHandle(
+    const std::string &vertexName) {
+  return "H0:" + vertexName;
+}
+
+//-----------------------------------------------------------------------------
+
+std::string TStageObject::getSkeletonVertexName(const std::string &handle) {
+  return isSkeletonVertexHandle(handle) ? handle.substr(3) : std::string();
+}
+
+//-----------------------------------------------------------------------------
+
+void TStageObject::getSkeletonVertexHandles(
+    std::vector<std::string> &handles) const {
+  if (!m_skeletonDeformation) return;
+
+  // Vertices of different skeletons share their animation by name
+  SkD::skelId_iterator st, sEnd;
+  m_skeletonDeformation->skeletonIds(st, sEnd);
+
+  for (; st != sEnd; ++st) {
+    const PlasticSkeletonP &skeleton = m_skeletonDeformation->skeleton(*st);
+    if (!skeleton) continue;
+
+    const PlasticSkeleton::vertices_container &vertices = skeleton->vertices();
+
+    PlasticSkeleton::vertices_container::const_iterator vt,
+        vEnd = vertices.end();
+    for (vt = vertices.begin(); vt != vEnd; ++vt) {
+      std::string handle = getSkeletonVertexHandle(vt->name().toStdString());
+      if (std::find(handles.begin(), handles.end(), handle) == handles.end())
+        handles.push_back(handle);
+    }
+  }
+}
+
+//-----------------------------------------------------------------------------
+
 TPointD TStageObject::getHandlePos(string handle, int row) const {
   double unit = 8;
   if (handle == "")
@@ -1409,7 +1455,9 @@ TAffine TStageObject::getPlacement(double t) {
   double tt = paramsTime(t);
 
   TAffine place;
-  if (m_parent)
+  if (m_parent && isSkeletonVertexHandle(m_parentHandle))
+    place = getParentPlacement(t) * computeLocalPlacement(tt);
+  else if (m_parent)
     place = m_parent->getPlacement(t) * computeLocalPlacement(tt);
   else
     place = computeLocalPlacement(tt);
@@ -1475,7 +1523,22 @@ void TStageObject::invalidate() { invalidate(m_lazyData(tcg::direct_access)); }
 //-----------------------------------------------------------------------------
 
 TAffine TStageObject::getParentPlacement(double t) const {
+  if (m_parent && isSkeletonVertexHandle(m_parentHandle))
+    // A vertex handle moves its children like a parent does: include it, so
+    // that tools working in the parent's reference work in the bone's one
+    return m_parent->getPlacement(t) * getParentHandleAffine(t);
+
   return m_parent ? m_parent->getPlacement(t) : TAffine();
+}
+
+//-----------------------------------------------------------------------------
+
+TAffine TStageObject::getParentHandleAffine(double t) const {
+  // Expressed in the parent's local coordinates. Its dependency on the
+  // parent's skeleton deformation is tracked by the parent: deformation
+  // changes invalidate the parent (see onChange()), and so its children.
+  assert(m_parent);
+  return m_tree->getHandleAffine(m_parent->getId(), m_parentHandle, t);
 }
 
 //-----------------------------------------------------------------------------
