@@ -393,6 +393,7 @@ public:
   StageSchematicNodePort *getParentPort() { return m_parentDock->getPort(); }
 
   TStageObject *getStageObject() { return m_stageObject; }
+  QString getName() const { return m_name; }
   StageSchematicNodePort *makeChildPort(const QString &label);
   StageSchematicNodePort *makeParentPort(const QString &label);
   virtual void updateChildDockPositions();  // TODO: commento! doxygen

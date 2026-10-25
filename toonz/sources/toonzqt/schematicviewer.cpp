@@ -41,6 +41,7 @@
 #include <QMouseEvent>
 #include <QGraphicsItem>
 #include <QToolBar>
+#include <QLineEdit>
 #include <QToolButton>
 #include <QMenu>
 #include <QIcon>
@@ -1090,6 +1091,27 @@ void SchematicViewer::createActions() {
       connect(switchPort, SIGNAL(toggled(bool)), m_stageScene,
               SLOT(onSwitchPortModeToggled(bool)));
 
+      // Rig view: badges for the deformers, offset layers and master
+      // controllers of the columns, and a node name filter. Off by default.
+      m_rigView = new QAction(tr("&Rig View"), m_stageToolbar);
+      m_rigView->setCheckable(true);
+      m_rigView->setChecked(m_stageScene->isRigViewEnabled());
+      m_rigView->setToolTip(
+          tr("Rig View: show the deformers, offset layers and master "
+             "controllers of the columns"));
+      connect(m_rigView, SIGNAL(toggled(bool)), m_stageScene,
+              SLOT(onRigViewToggled(bool)));
+
+      m_rigFilter = new QLineEdit(m_stageToolbar);
+      m_rigFilter->setLayoutDirection(Qt::LeftToRight);
+      m_rigFilter->setClearButtonEnabled(true);
+      m_rigFilter->setFixedWidth(120);
+      m_rigFilter->setPlaceholderText(tr("Filter nodes"));
+      m_rigFilter->setToolTip(
+          tr("Hide the nodes whose name does not contain this text"));
+      connect(m_rigFilter, SIGNAL(textChanged(const QString &)), m_stageScene,
+              SLOT(onRigFilterChanged(const QString &)));
+
       // InsertFx
       insertFx = CommandManager::instance()->getAction("MI_InsertFx");
       if (insertFx) {
@@ -1142,6 +1164,12 @@ void SchematicViewer::createActions() {
     m_stageToolbar->addAction(addSpline);
     m_stageToolbar->addAction(addCamera);
     m_stageToolbar->addAction(addPegbar);
+    m_stageToolbar->addSeparator();
+    m_stageToolbar->addAction(m_rigView);
+    m_rigFilterAction = m_stageToolbar->addWidget(m_rigFilter);
+    m_rigFilterAction->setVisible(m_rigView->isChecked());
+    connect(m_rigView, &QAction::toggled, m_rigFilterAction,
+            &QAction::setVisible);
 
     m_fxToolbar->addSeparator();
     m_fxToolbar->addAction(iconifyNodes);

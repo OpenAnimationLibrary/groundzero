@@ -6,6 +6,7 @@
 #include "schematicviewer.h"
 #include "tgeometry.h"
 #include <QMap>
+#include <QString>
 
 // forward declaration
 class TStageObject;
@@ -101,6 +102,10 @@ class StageSchematicScene final : public SchematicScene {
 
   bool m_showLetterOnPortFlag;
 
+  // Rig view: display only, off by default and not saved
+  bool m_rigViewEnabled = false;
+  QString m_rigFilter;
+
   SchematicViewer *m_viewer;
 
 public:
@@ -136,6 +141,7 @@ public:
   void resizeNodes(bool maximizedNode);
 
   bool isShowLetterOnPortFlagEnabled() { return m_showLetterOnPortFlag; }
+  bool isRigViewEnabled() const { return m_rigViewEnabled; }
 
   SchematicViewer *getSchematicViewer() { return m_viewer; }
 
@@ -152,6 +158,11 @@ private:
 
   //! Places all nodes in the window
   void placeNodes();
+
+  //! Adds the Rig view badges to the column nodes and applies the filter.
+  void applyRigView();
+  //! Shows only the nodes whose name contains the Rig view filter text.
+  void applyRigFilter();
 
   //! Search nodes in the TStageObjectTree that are roots of a tree.
   //! Roots are placed in the container \b roots
@@ -234,6 +245,11 @@ protected slots:
   void onNodeChangedSize();
 
   void onSwitchPortModeToggled(bool withLetter);
+
+  //! Shows or hides the rig badges of the column nodes (Rig view).
+  void onRigViewToggled(bool enabled);
+  //! Hides the nodes whose name does not contain \b text (Rig view only).
+  void onRigFilterChanged(const QString &text);
 };
 
 #endif  // STAGESCHEMATIC_H

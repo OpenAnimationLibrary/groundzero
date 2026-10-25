@@ -25,6 +25,7 @@
 #include "toonz/tstageobjectcmd.h"
 #include "toonz/tproject.h"
 #include "toonz/childstack.h"
+#include "toonz/fxdag.h"
 
 // TnzCore includes
 #include "tconst.h"
@@ -32,12 +33,26 @@
 #include "tstream.h"
 #include "tstroke.h"
 #include "tenv.h"
+#include "tfx.h"
+#include "tdoubleparam.h"
+#include "tdoublekeyframe.h"
 
 // Qt includes
 #include <QMenu>
 #include <QGraphicsSceneContextMenuEvent>
 #include <QGraphicsSceneMouseEvent>
 #include <QFileDialog>
+#include <QFont>
+#include <QFontMetrics>
+#include <QGraphicsItem>
+#include <QPainter>
+#include <QSet>
+#include <QStringList>
+
+#include <cctype>
+#include <set>
+#include <string>
+#include <vector>
 
 TEnv::IntVar ShowLetterOnOutputPortOfStageNode(
     "ShowLetterOnOutputPortOfStageNode", 0);
@@ -108,6 +123,132 @@ void keepSubgroup(QMap<int, QList<SchematicNode *>> &editedGroup) {
 
 bool resizingNodes = false;
 bool updatingScene = false;
+//==================================================================
+//
+// Rig view
+//
+//==================================================================
+
+//! A small label under a column node (Rig view). It is display only: it does
+//! not take mouse events and only has a tool tip with the whole text.
+class RigBadgeItem final : public QGraphicsItem {
+  QString m_text;
+  QColor m_color;
+  QRectF m_rect;
+
+public:
+  RigBadgeItem(QGraphicsItem *parent, const QString &text,
+               const QString &toolTip, const QColor &color)
+      : QGraphicsItem(parent), m_color(color) {
+    QFontMetrics fm(badgeFont());
+    m_text = fm.elidedText(text, Qt::ElideRight, 150);
+    m_rect = QRectF(0, 0, fm.horizontalAdvance(m_text) + 8, fm.height() + 2);
+    setToolTip(toolTip);
+    setAcceptedMouseButtons(Qt::NoButton);
+    setZValue(1);
+  }
+
+  static QFont badgeFont() {
+    QFont f;
+    f.setPixelSize(9);
+    return f;
+  }
+
+  QRectF boundingRect() const override { return m_rect; }
+
+  void paint(QPainter *painter, const QStyleOptionGraphicsItem *,
+             QWidget *) override {
+    painter->setRenderHint(QPainter::Antialiasing, true);
+    painter->setPen(Qt::NoPen);
+    painter->setBrush(m_color);
+    painter->drawRoundedRect(m_rect, 3, 3);
+    painter->setPen(Qt::white);
+    painter->setFont(badgeFont());
+    painter->drawText(m_rect, Qt::AlignCenter, m_text);
+  }
+};
+
+//------------------------------------------------------------------
+
+//! The label of the deformer fx types shown by the Rig view, or an empty
+//! string for any other fx.
+QString getDeformerLabel(TFx *fx) {
+  std::string type = fx->getFxType();
+  if (type == "deformerStackFx")
+    return StageSchematicScene::tr("Deformer Stack");
+  if (type == "envelopeDeformerFx") return StageSchematicScene::tr("Envelope");
+  if (type == "freeFormDeformerFx") return StageSchematicScene::tr("Free-Form");
+  return QString();
+}
+
+//------------------------------------------------------------------
+
+//! Returns the labels of the deformer fxs in the chain that starts from the fx
+//! of \b column. The chain follows the output connections of the fxs, and
+//! stops at the fxs that combine several inputs (they are not the column's
+//! own) and at the xsheet fx.
+QStringList getColumnDeformers(TXsheet *xsh, TXshColumn *column) {
+  QStringList labels;
+  TFx *columnFx = column ? column->getFx() : 0;
+  if (!columnFx) return labels;
+  TFx *xsheetFx = xsh->getFxDag()->getXsheetFx();
+
+  std::set<TFx *> visited;
+  std::vector<TFx *> toVisit;
+  visited.insert(columnFx);
+  toVisit.push_back(columnFx);
+  while (!toVisit.empty()) {
+    TFx *fx = toVisit.back();
+    toVisit.pop_back();
+    for (int i = 0; i < fx->getOutputConnectionCount(); i++) {
+      TFxPort *outPort = fx->getOutputConnection(i);
+      TFx *next        = outPort ? outPort->getOwnerFx() : 0;
+      if (!next || next == xsheetFx || !visited.insert(next).second) continue;
+      int connected = 0;
+      for (int p = 0; p < next->getInputPortCount(); p++)
+        if (next->getInputPort(p)->isConnected()) connected++;
+      if (connected > 1) continue;
+      QString label = getDeformerLabel(next);
+      if (!label.isEmpty()) labels.append(label);
+      toVisit.push_back(next);
+    }
+  }
+  return labels;
+}
+
+//------------------------------------------------------------------
+
+//! Returns whether \b text, an expression, contains the reference \b ref (for
+//! example "peg3.rot") as a whole word.
+bool expressionRefersTo(const std::string &text, const std::string &ref) {
+  std::string lowerText = text;
+  for (char &c : lowerText) c = (char)tolower((unsigned char)c);
+  size_t pos = 0;
+  while ((pos = lowerText.find(ref, pos)) != std::string::npos) {
+    size_t end   = pos + ref.size();
+    bool startOk = pos == 0 || !(isalnum((unsigned char)lowerText[pos - 1]) ||
+                                 lowerText[pos - 1] == '_');
+    bool endOk =
+        end >= lowerText.size() ||
+        !(isalnum((unsigned char)lowerText[end]) || lowerText[end] == '_');
+    if (startOk && endOk) return true;
+    pos++;
+  }
+  return false;
+}
+
+//! Returns whether an expression keyframe of \b param refers to \b ref.
+bool paramRefersTo(const TDoubleParam *param, const std::string &ref) {
+  if (!param) return false;
+  for (int i = 0; i < param->getKeyframeCount(); i++) {
+    const TDoubleKeyframe &kf = param->getKeyframe(i);
+    if (kf.m_type == TDoubleKeyframe::Expression &&
+        expressionRefersTo(kf.m_expressionText, ref))
+      return true;
+  }
+  return false;
+}
+
 }  // namespace
 
 //==================================================================
@@ -355,6 +496,7 @@ void StageSchematicScene::updateScene() {
     }
   }
   m_nodesToPlace.clear();
+  if (m_rigViewEnabled) applyRigView();
   updatingScene = false;
 }
 
@@ -959,6 +1101,137 @@ void StageSchematicScene::onSwitchPortModeToggled(bool withLetter) {
   m_showLetterOnPortFlag            = withLetter;
   ShowLetterOnOutputPortOfStageNode = (withLetter) ? 1 : 0;
   updateScene();
+}
+
+//------------------------------------------------------------------
+
+void StageSchematicScene::onRigViewToggled(bool enabled) {
+  m_rigViewEnabled = enabled;
+  // updateScene() rebuilds the nodes, with or without the Rig view items
+  if (m_xshHandle) updateScene();
+}
+
+//------------------------------------------------------------------
+
+void StageSchematicScene::onRigFilterChanged(const QString &text) {
+  m_rigFilter = text;
+  if (m_rigViewEnabled && m_xshHandle) applyRigFilter();
+}
+
+//------------------------------------------------------------------
+
+void StageSchematicScene::applyRigView() {
+  TXsheet *xsh = getXsheet();
+  if (!xsh) return;
+  TStageObjectTree *pegTree = xsh->getStageObjectTree();
+
+  // The master controllers are the pegbars named "ctrl_*" (see the Master
+  // Controllers panel). Their value is referred to as "peg<N>.rot".
+  struct Controller {
+    QString m_name;
+    std::string m_ref;
+  };
+  std::vector<Controller> controllers;
+  for (int i = 0; i < pegTree->getStageObjectCount(); i++) {
+    TStageObject *obj = pegTree->getStageObject(i);
+    if (!obj || !obj->getId().isPegbar()) continue;
+    QString name = QString::fromStdString(obj->getName());
+    if (!name.startsWith("ctrl_", Qt::CaseInsensitive)) continue;
+    Controller controller;
+    controller.m_name = name;
+    controller.m_ref =
+        "peg" + std::to_string(obj->getId().getIndex() + 1) + ".rot";
+    controllers.push_back(controller);
+  }
+
+  const QColor deformerColor(140, 80, 190, 210);
+  const QColor offsetColor(40, 140, 140, 210);
+  const QColor controllerColor(190, 120, 30, 210);
+
+  QMap<TStageObjectId, StageSchematicNode *>::iterator it;
+  for (it = m_nodeTable.begin(); it != m_nodeTable.end(); ++it) {
+    StageSchematicColumnNode *node =
+        dynamic_cast<StageSchematicColumnNode *>(it.value());
+    if (!node) continue;
+    TStageObject *obj  = node->getStageObject();
+    TXshColumn *column = xsh->getColumn(obj->getId().getIndex());
+
+    // One badge per kind, stacked under the node
+    qreal y       = node->boundingRect().bottom() + 1;
+    auto addBadge = [&](const QString &title, const QStringList &entries,
+                        const QColor &color) {
+      if (entries.isEmpty()) return;
+      QString full        = title + ": " + entries.join(", ");
+      RigBadgeItem *badge = new RigBadgeItem(node, full, full, color);
+      badge->setPos(0, y);
+      y += badge->boundingRect().height() + 1;
+    };
+
+    // Deformer fxs of the column's fx chain
+    addBadge(tr("Deformers"), getColumnDeformers(xsh, column), deformerColor);
+
+    // Offset layers of the column
+    QStringList layers;
+    for (int i = 0; i < obj->getOffsetLayerCount(); i++) {
+      const TStageObject::OffsetLayer &layer = obj->getOffsetLayer(i);
+      QString name = QString::fromStdWString(layer.m_name);
+      layers.append(layer.m_enabled ? name : name + tr(" (off)"));
+    }
+    addBadge(tr("Offsets"), layers, offsetColor);
+
+    // Master controllers driving a channel or an offset layer weight
+    QStringList bound;
+    for (const Controller &controller : controllers) {
+      bool found = false;
+      for (int ch = 0; ch < TStageObject::T_ChannelCount && !found; ch++) {
+        if (!TStageObject::isOffsetChannel((TStageObject::Channel)ch)) continue;
+        found = paramRefersTo(obj->getParam((TStageObject::Channel)ch),
+                              controller.m_ref);
+      }
+      for (int i = 0; i < obj->getOffsetLayerCount() && !found; i++)
+        found = paramRefersTo(obj->getOffsetLayer(i).m_weight.getPointer(),
+                              controller.m_ref);
+      if (found) bound.append(controller.m_name);
+    }
+    addBadge(tr("Controllers"), bound, controllerColor);
+  }
+
+  applyRigFilter();
+}
+
+//------------------------------------------------------------------
+
+void StageSchematicScene::applyRigFilter() {
+  // Start from all the nodes and links visible
+  QList<StageSchematicNode *> nodes = m_nodeTable.values();
+  for (StageSchematicGroupNode *groupNode : m_GroupTable)
+    if (groupNode) nodes.append(groupNode);
+  QList<QGraphicsItem *> links;
+  for (QGraphicsItem *item : items())
+    if (dynamic_cast<SchematicLink *>(item)) links.append(item);
+
+  for (StageSchematicNode *node : nodes) node->setVisible(true);
+  for (QGraphicsItem *link : links) link->setVisible(true);
+
+  QString filter = m_rigFilter.trimmed();
+  if (filter.isEmpty()) return;
+
+  QSet<SchematicNode *> hidden;
+  for (StageSchematicNode *node : nodes) {
+    if (node->getName().contains(filter, Qt::CaseInsensitive)) continue;
+    node->setSelected(false);
+    node->setVisible(false);
+    hidden.insert(node);
+  }
+  // A link is hidden with any of its two nodes
+  for (QGraphicsItem *item : links) {
+    SchematicLink *link  = static_cast<SchematicLink *>(item);
+    SchematicPort *start = link->getStartPort();
+    SchematicPort *end   = link->getEndPort();
+    if ((start && hidden.contains(start->getNode())) ||
+        (end && hidden.contains(end->getNode())))
+      item->setVisible(false);
+  }
 }
 
 //------------------------------------------------------------------
