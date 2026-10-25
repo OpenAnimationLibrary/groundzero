@@ -781,6 +781,13 @@ void PreferencesPopup::onShowXsheetBreadcrumbsClicked() {
 
 //-----------------------------------------------------------------------------
 
+void PreferencesPopup::onShowColumnGroupStripsClicked() {
+  TApp::instance()->getCurrentScene()->notifyPreferenceChanged(
+      "ColumnGroupStrips");
+}
+
+//-----------------------------------------------------------------------------
+
 void PreferencesPopup::onModifyExpressionOnMovingReferencesChanged() {
   TApp::instance()->getCurrentScene()->notifyPreferenceChanged(
       "modifyExpressionOnMovingReferences");
@@ -1439,6 +1446,7 @@ QString PreferencesPopup::getUIString(PreferencesItemId id) {
       {showColumnNumbers, tr("Show Column Numbers in Column Headers")},
       {unifyColumnVisibilityToggles,
        tr("Unify Preview and Camstand Visibility Toggles")},
+      {showColumnGroupStrips, tr("Show Column Group Strips in the Xsheet")},
       {parentColorsInXsheetColumn,
        tr("Show Column Parent's Color in the Xsheet")},
       {highlightLineEverySecond, tr("Highlight Line Every Second")},
@@ -2383,6 +2391,7 @@ QWidget* PreferencesPopup::createXsheetPage() {
     insertUI(linkColumnNameWithLevel, xshColHeaderLay);
     insertUI(showColumnNumbers, xshColHeaderLay);
     insertUI(unifyColumnVisibilityToggles, xshColHeaderLay);
+    insertUI(showColumnGroupStrips, xshColHeaderLay);
     insertUI(parentColorsInXsheetColumn, xshColHeaderLay);
     insertUI(currentColumnColor, xshColHeaderLay);
 
@@ -2440,6 +2449,8 @@ QWidget* PreferencesPopup::createXsheetPage() {
       &PreferencesPopup::onUnifyColumnVisibilityTogglesChanged);
   m_onEditedFuncMap.insert(showXsheetBreadcrumbs,
                            &PreferencesPopup::onShowXsheetBreadcrumbsClicked);
+  m_onEditedFuncMap.insert(showColumnGroupStrips,
+                           &PreferencesPopup::onShowColumnGroupStripsClicked);
 
   QCheckBox* linkColumnNameWithLevelCheck =
       getUI<QCheckBox*>(linkColumnNameWithLevel);
