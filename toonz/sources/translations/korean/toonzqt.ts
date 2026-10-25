@@ -1261,6 +1261,10 @@ Manually changing any keyframe will clear the warning.</source>
         <translation>이 매개변수의 일부 키가 표현식에서 원래 참조를 잃습니다.
 키프레임을 수동으로 변경하면 경고가 지워집니다.</translation>
     </message>
+    <message>
+        <source>Offset Layers</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 <context>
     <name>FunctionTreeView</name>
@@ -2625,6 +2629,22 @@ The second line should be &quot;Mesh [Input bit depth] [Output bit depth]&quot;<
         <source>&amp;Switch output port display mode</source>
         <translation>&amp;출력 포트 표시 모드 전환</translation>
     </message>
+    <message>
+        <source>&amp;Rig View</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Rig View: show the deformers, offset layers and master controllers of the columns, and the published channels of the objects</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Filter nodes</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Hide the nodes whose name, deformers, offset layers, published channels or controllers do not contain this text</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 <context>
     <name>SchematicWindowEditor</name>
@@ -2755,6 +2775,126 @@ The second line should be &quot;Mesh [Input bit depth] [Output bit depth]&quot;<
     <message>
         <source>&amp;New Camera</source>
         <translation>새로운 카메라(&amp;N)</translation>
+    </message>
+    <message>
+        <source>X</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Y</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Z</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>SO</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Rotation</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Scale H</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Scale V</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Scale</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Shear H</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Shear V</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Rotation X</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Rotation Y</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Deformer Stack</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Envelope</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Free-Form</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Deformers</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Offsets</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Controllers</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Weight</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source> (off)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>%1 (%2): click to select the channel in the Function Editor, double click to set its value at the current frame</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Published Channel</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>%1 at frame %2%3:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Publish Channel...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Unpublish Channel...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Publish Channel</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Channel:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Name:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The channel was not published: the name is empty or already used by another published channel.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Unpublish Channel</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 <context>
