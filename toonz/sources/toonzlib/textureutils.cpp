@@ -13,6 +13,7 @@
 #include "toonz/stage.h"
 #include "toonz/toonzscene.h"
 #include "toonz/imagemanager.h"
+#include "toonz/stagevisitor.h"
 #include "imagebuilders.h"
 
 // TnzCore includes
@@ -141,6 +142,9 @@ void texture_utils::invalidateTexture(const TXshSimpleLevel *sl,
                                       const TFrameId &fid) {
   const std::string &texId = sl->getImageId(fid);
   TTexturesStorage::instance()->unloadTexture(texId);
+
+  // Also drop the viewer's GPU compositing textures of the image
+  Stage::RasterPainter::invalidateGpuTextures(texId);
 }
 
 //-----------------------------------------------------------------------------

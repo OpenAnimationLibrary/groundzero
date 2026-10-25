@@ -59,6 +59,16 @@
 #include <QTransform>
 #include <QThread>
 #include <QGuiApplication>
+#include <QOpenGLContext>
+#include <QMutex>
+#include <QMutexLocker>
+
+// STL includes
+#include <algorithm>
+#include <cstdlib>
+#include <map>
+#include <set>
+#include <tuple>
 
 #include "toonz/stagevisitor.h"
 
@@ -400,7 +410,8 @@ RasterPainter::RasterPainter(const TDimension &dim, const TAffine &viewAff,
     , m_maskLevel(0)
     , m_singleColumnEnabled(false)
     , m_checkFlags(checkFlags)
-    , m_doRasterDarkenBlendedView(false) {}
+    , m_doRasterDarkenBlendedView(false)
+    , m_gpuCompositing(false) {}
 
 //-----------------------------------------------------------------------------
 
@@ -474,6 +485,22 @@ QThreadStorage<std::vector<char> *> threadBuffers;
 }
 
 void RasterPainter::flushRasterImages() {
+  // With GPU compositing off, free the textures cached for the current context
+  // by previous GPU flushes (with the rasters they keep alive), and their
+  // pending invalidations, which are recorded only while a cache exists
+  if (!m_gpuCompositing) releaseGpuTextures();
+
+  if (m_nodes.empty()) return;
+
+  // The experimental GPU path returns false when it did not draw anything
+  if (m_gpuCompositing && flushRasterImagesGpu()) return;
+
+  flushRasterImagesCpu(true);
+}
+
+//-----------------------------------------------------------------------------
+
+void RasterPainter::flushRasterImagesCpu(bool drawBBox) {
   if (m_nodes.empty()) return;
 
   // Build nodes bbox union
@@ -763,7 +790,7 @@ void RasterPainter::flushRasterImages() {
 
   glPopAttrib();  // Restore blending status
 
-  if (m_vs.m_showBBox && current > -1) {
+  if (drawBBox && m_vs.m_showBBox && current > -1) {
     glPushMatrix();
     glLoadIdentity();
     tglColor(TPixel(200, 200, 200));
@@ -774,6 +801,605 @@ void RasterPainter::flushRasterImages() {
   }
 
   m_nodes.clear();
+}
+
+//-----------------------------------------------------------------------------
+//    Experimental GPU compositing
+//-----------------------------------------------------------------------------
+
+/*
+  When enabled (Preferences: "GPU Compositing in the Viewer"), raster nodes are
+  drawn as textured quads blended with GL_ONE, GL_ONE_MINUS_SRC_ALPHA directly
+  on the viewer's framebuffer. Since the premultiplied "over" is associative,
+  this gives the same result as stacking the nodes in a RAM buffer and drawing
+  it with glDrawPixels.
+
+  Each texture is "baked" with the very same TRop::quickPut call used by the
+  CPU path, using an identity affine on a transparent raster: this applies
+  palette, inks-only, color filter / onion skin color, premultiply, white
+  transparency and ignore-alpha exactly like the CPU path does. Only the node
+  opacity is applied at draw time, through glColor4 modulation. Textures are
+  sampled with GL_NEAREST and a half pixel offset, which replicates the
+  closest-pixel sampling of quickPut.
+
+  Nodes that cannot be cached safely or reproduced exactly are composited by
+  the unchanged CPU code, in runs that preserve the stacking order.
+*/
+
+namespace {
+
+// Maximum amount of texture memory kept by the cache of each OpenGL context
+const qint64 c_gpuTextureBudget = qint64(512) << 20;
+
+// Maximum size of a texture tile
+const int c_gpuMaxTileSize = 4096;
+
+enum GpuTextureFlags {
+  eGpuRaster32    = 0x1,
+  eGpuPremultiply = 0x2,
+  eGpuWhiteTransp = 0x4,
+  eGpuIgnoreAlpha = 0x8,
+  eGpuRasterCM32  = 0x10,
+  eGpuInksOnly    = 0x20,
+  eGpuColorScaled = 0x40
+};
+
+struct GpuTextureKey {
+  const TRaster *m_raster;  //!< Source raster (kept alive by the texture)
+  int m_flags;              //!< GpuTextureFlags used to bake the texture
+  unsigned int m_color;     //!< Baked color scale (rgb only)
+  unsigned long long m_paletteHash;  //!< Palette colors (cm32 only)
+  int m_x0, m_y0, m_x1, m_y1;        //!< Baked box of the source raster
+
+  bool operator<(const GpuTextureKey &other) const {
+    return std::tie(m_raster, m_flags, m_color, m_paletteHash, m_x0, m_y0, m_x1,
+                    m_y1) < std::tie(other.m_raster, other.m_flags,
+                                     other.m_color, other.m_paletteHash,
+                                     other.m_x0, other.m_y0, other.m_x1,
+                                     other.m_y1);
+  }
+};
+
+struct GpuTexture {
+  struct Tile {
+    GLuint m_texId;
+    TRect m_rect;  //!< Tile rect, relative to m_box
+  };
+
+  TRasterP m_raster;  //!< Keeps the source alive, so its address is not reused
+  std::string m_imageId;  //!< Base image id, used for invalidation
+  TRect m_box;            //!< Baked box of the source raster
+  std::vector<Tile> m_tiles;
+  qint64 m_bytes         = 0;
+  unsigned int m_lastUse = 0;
+};
+
+typedef std::map<GpuTextureKey, GpuTexture> GpuTextures;
+
+struct GpuTextureCache {
+  GpuTextures m_textures;
+  std::set<std::string> m_invalidIds;  //!< Guarded by gpuCacheMutex()
+  qint64 m_bytes       = 0;
+  unsigned int m_clock = 0;
+  int m_maxTileSize    = 0;
+};
+
+// NOTE: Intentionally leaked, as images may be invalidated during the static
+// objects destruction.
+QMutex &gpuCacheMutex() {
+  static QMutex *mutex = new QMutex;
+  return *mutex;
+}
+
+// Caches by OpenGL context. Guarded by gpuCacheMutex(); the cache contents
+// are only accessed from the main thread, except for the invalidation sets.
+std::map<QOpenGLContext *, GpuTextureCache *> &gpuCaches() {
+  static auto *caches = new std::map<QOpenGLContext *, GpuTextureCache *>;
+  return *caches;
+}
+
+//-----------------------------------------------------------------------------
+
+void releaseGpuTexture(GpuTexture &tex) {
+  for (const GpuTexture::Tile &tile : tex.m_tiles)
+    glDeleteTextures(1, &tile.m_texId);
+  tex.m_tiles.clear();
+}
+
+//-----------------------------------------------------------------------------
+
+GpuTextures::iterator eraseGpuTexture(GpuTextureCache &cache,
+                                      GpuTextures::iterator it) {
+  releaseGpuTexture(it->second);
+  cache.m_bytes -= it->second.m_bytes;
+  return cache.m_textures.erase(it);
+}
+
+//-----------------------------------------------------------------------------
+
+//! Removes the cache of the specified context. Its textures are deleted only
+//! if the context is current - otherwise they go away with the context.
+void dropGpuTextureCache(QOpenGLContext *context) {
+  GpuTextureCache *cache = 0;
+  {
+    QMutexLocker locker(&gpuCacheMutex());
+    auto it = gpuCaches().find(context);
+    if (it == gpuCaches().end()) return;
+    cache = it->second;
+    gpuCaches().erase(it);
+  }
+
+  if (QOpenGLContext::currentContext() == context)
+    for (auto &pair : cache->m_textures) releaseGpuTexture(pair.second);
+  delete cache;
+}
+
+//-----------------------------------------------------------------------------
+
+//! Returns the cache of the current context, or 0 if GPU compositing is not
+//! supported there.
+GpuTextureCache *currentGpuTextureCache(QOpenGLContext *context) {
+  {
+    QMutexLocker locker(&gpuCacheMutex());
+    auto it = gpuCaches().find(context);
+    if (it != gpuCaches().end())
+      return (it->second->m_maxTileSize > 0) ? it->second : 0;
+  }
+
+  GpuTextureCache *cache = new GpuTextureCache;
+
+  // Non power-of-2 textures are required (OpenGL 2.0)
+  const char *version = (const char *)glGetString(GL_VERSION);
+  if (version && std::atoi(version) >= 2) {
+    GLint maxTexSize = 0;
+    glGetIntegerv(GL_MAX_TEXTURE_SIZE, &maxTexSize);
+    cache->m_maxTileSize = std::min((int)maxTexSize, c_gpuMaxTileSize);
+  } else
+    cache->m_maxTileSize = -1;
+
+  {
+    QMutexLocker locker(&gpuCacheMutex());
+    gpuCaches()[context] = cache;
+  }
+
+  // Forget the cache when the context dies, so that a new context allocated
+  // at the same address does not inherit it. The owner of the context should
+  // release the textures first through RasterPainter::releaseGpuTextures().
+  QObject::connect(context, &QOpenGLContext::aboutToBeDestroyed,
+                   [context]() { dropGpuTextureCache(context); });
+
+  return (cache->m_maxTileSize > 0) ? cache : 0;
+}
+
+//-----------------------------------------------------------------------------
+
+//! Whether the player's image may be cached. The current frame of the current
+//! column may be modified in place by tools, without notifications, so it is
+//! never cached. Images without a level are never cached either.
+bool isGpuCacheable(const Stage::Player &player) {
+  if (!player.m_sl) return false;
+  return !(player.m_isCurrentColumn &&
+           (player.m_onionSkinDistance == c_noOnionSkin ||
+            player.m_onionSkinDistance == 0));
+}
+
+//-----------------------------------------------------------------------------
+
+unsigned long long hashPalette(TPalette *palette, int frame) {
+  int oldFrame = palette->getFrame();
+  palette->setFrame(frame);
+
+  // FNV-1a over the colors used by the colormap quickPut
+  unsigned long long hash = 14695981039346656037ULL;
+  auto add                = [&hash](unsigned int value) {
+    hash = (hash ^ value) * 1099511628211ULL;
+  };
+
+  int stylesCount = palette->getStyleCount();
+  add(stylesCount);
+  for (int s = 0; s < stylesCount; ++s) {
+    TPixel32 color = palette->getStyle(s)->getAverageColor();
+    add(color.r), add(color.g), add(color.b), add(color.m);
+  }
+
+  palette->setFrame(oldFrame);
+  return hash;
+}
+
+//-----------------------------------------------------------------------------
+
+//! Builds the premultiplied texture image of a node through the same quickPut
+//! calls of the CPU path, with an identity affine on a transparent raster.
+TRaster32P bakeGpuRaster(const TRasterP &ras, TRect box, TPalette *palette,
+                         int frame, const TPixel32 &colorScale, int flags) {
+  TRaster32P out(box.getLx(), box.getLy());
+  out->clear();
+
+  if (TRaster32P src32 = ras)
+    TRop::quickPut(out, src32->extract(box), TAffine(), colorScale,
+                   flags & eGpuPremultiply, flags & eGpuWhiteTransp,
+                   flags & eGpuIgnoreAlpha, false);
+  else if (TRasterCM32P srcCm = ras) {
+    int oldFrame = palette->getFrame();
+    palette->setFrame(frame);
+
+    TPaletteP plt(palette);
+    TRasterCM32P srcBox = srcCm->extract(box);
+    TRop::quickPut(out, srcBox, plt, TAffine(), colorScale,
+                   flags & eGpuInksOnly);
+
+    palette->setFrame(oldFrame);
+  }
+
+  return out;
+}
+
+//-----------------------------------------------------------------------------
+
+bool uploadGpuTexture(GpuTexture &tex, const TRaster32P &ras, int maxTileSize) {
+  glPushClientAttrib(GL_CLIENT_PIXEL_STORE_BIT);
+  glPushAttrib(GL_TEXTURE_BIT);
+
+  glPixelStorei(GL_UNPACK_ROW_LENGTH, ras->getWrap());
+  glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+  glPixelStorei(GL_UNPACK_SKIP_PIXELS, 0);
+  glPixelStorei(GL_UNPACK_SKIP_ROWS, 0);
+
+  // Discard previous errors, so that only ours are checked below
+  while (glGetError() != GL_NO_ERROR) {
+  }
+
+  ras->lock();
+
+  int lx = ras->getLx(), ly = ras->getLy();
+  for (int y = 0; y < ly; y += maxTileSize) {
+    for (int x = 0; x < lx; x += maxTileSize) {
+      int w = std::min(maxTileSize, lx - x), h = std::min(maxTileSize, ly - y);
+
+      GpuTexture::Tile tile;
+      glGenTextures(1, &tile.m_texId);
+      glBindTexture(GL_TEXTURE_2D, tile.m_texId);
+
+      // Closest pixel sampling, like TRop::quickPut
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
+
+      glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, TGL_FMT, TGL_TYPE,
+                   ras->pixels(y) + x);
+
+      tile.m_rect = TRect(x, y, x + w - 1, y + h - 1);
+      tex.m_tiles.push_back(tile);
+    }
+  }
+
+  ras->unlock();
+
+  bool ok = (glGetError() == GL_NO_ERROR);
+
+  glPopAttrib();
+  glPopClientAttrib();
+
+  if (!ok) releaseGpuTexture(tex);
+  return ok;
+}
+
+}  // namespace
+
+//-----------------------------------------------------------------------------
+
+void RasterPainter::invalidateGpuTextures(const std::string &imageId) {
+  QMutexLocker locker(&gpuCacheMutex());
+  for (auto &pair : gpuCaches())
+    if (pair.second->m_maxTileSize > 0)
+      pair.second->m_invalidIds.insert(imageId);
+}
+
+//-----------------------------------------------------------------------------
+
+void RasterPainter::releaseGpuTextures() {
+  if (QOpenGLContext *context = QOpenGLContext::currentContext())
+    dropGpuTextureCache(context);
+}
+
+//-----------------------------------------------------------------------------
+
+/*! Experimental GPU composition of the stacked nodes. Returns false, without
+    drawing anything, when the whole stack must be composited by the CPU.
+
+    Always composited by the CPU:
+    - the whole stack, with darken blended view, a channel (color mask) view,
+      while drawing a mask, or when the OpenGL context is not suitable;
+    - the current frame of the current column (it may be edited in place by
+      tools) and any node sharing its raster, nodes without a level (e.g. stop
+      motion live view), rasters other than 32-bit and colormap ones (e.g.
+      grayscale);
+    - colormap nodes of the current column when Toonz checks (transparency,
+      ink, paint, gap, autoclose...) apply to them.
+*/
+bool RasterPainter::flushRasterImagesGpu() {
+  if (m_maskLevel > 0 || m_vs.m_colorMask != 0 || m_doRasterDarkenBlendedView)
+    return false;
+
+  if (QThread::currentThread() != qGuiApp->thread()) return false;
+
+  QOpenGLContext *context = QOpenGLContext::currentContext();
+  if (!context) return false;
+
+  int i, nodesCount = m_nodes.size();
+
+  // Build the output rect exactly as the CPU path does
+  double delta = sqrt(fabs(m_nodes[0].m_aff.det()));
+  TRectD bbox  = m_nodes[0].m_bbox.enlarge(delta);
+  for (i = 1; i < nodesCount; ++i) {
+    delta = sqrt(fabs(m_nodes[i].m_aff.det()));
+    bbox += m_nodes[i].m_bbox.enlarge(delta);
+  }
+
+  TRect rect(tfloor(bbox.x0), tfloor(bbox.y0), tceil(bbox.x1), tceil(bbox.y1));
+  rect = rect * TRect(0, 0, m_dim.lx - 1, m_dim.ly - 1);
+  if (rect.isEmpty()) return false;  // CPU-only special cases
+
+  GpuTextureCache *cache = currentGpuTextureCache(context);
+  if (!cache) return false;
+
+  // Release invalidated and orphaned textures. A texture is orphaned when it
+  // holds the only reference to its source raster, which then cannot be
+  // displayed anymore.
+  std::set<std::string> invalidIds;
+  {
+    QMutexLocker locker(&gpuCacheMutex());
+    invalidIds.swap(cache->m_invalidIds);
+  }
+
+  for (auto it = cache->m_textures.begin(); it != cache->m_textures.end();) {
+    if (it->second.m_raster->getRefCount() <= 1 ||
+        invalidIds.count(it->second.m_imageId))
+      it = eraseGpuTexture(*cache, it);
+    else
+      ++it;
+  }
+
+  unsigned int clock = ++cache->m_clock;
+
+  // Rasters of uncacheable nodes may change in place - so any node sharing
+  // them must not be cached either
+  std::set<const TRaster *> volatileRasters;
+  for (i = 0; i < nodesCount; ++i)
+    if (!m_nodes[i].m_gpuCacheable)
+      volatileRasters.insert(m_nodes[i].m_raster.getPointer());
+
+  // Retrieve preferences-related data, as in the CPU path
+  int tc = m_checkFlags ? ToonzCheck::instance()->getChecks() : 0;
+
+  TPixel32 frontOnionColor, backOnionColor;
+  bool onionInksOnly;
+  Preferences::instance()->getOnionData(frontOnionColor, backOnionColor,
+                                        onionInksOnly);
+
+  // Retrieve (or build) the texture of each node that can be drawn on GPU
+  std::vector<const GpuTexture *> textures(nodesCount, 0);
+  std::vector<double> opacities(nodesCount, 1.0), colorFactors(nodesCount, 1.0);
+  int gpuCount = 0;
+
+  for (i = 0; i < nodesCount; ++i) {
+    const Node &node = m_nodes[i];
+    if (!node.m_gpuCacheable ||
+        volatileRasters.count(node.m_raster.getPointer()))
+      continue;
+
+    // Color scale, as in the CPU path
+    TPixel32 colorscale = TPixel32(0, 0, 0, node.m_alpha);
+    bool inksOnly;
+
+    if (node.m_onionMode != Node::eOnionSkinNone) {
+      inksOnly = onionInksOnly;
+
+      if (node.m_onionMode == Node::eOnionSkinFront)
+        colorscale = TPixel32(frontOnionColor.r, frontOnionColor.g,
+                              frontOnionColor.b, node.m_alpha);
+      else if (node.m_onionMode == Node::eOnionSkinBack)
+        colorscale = TPixel32(backOnionColor.r, backOnionColor.g,
+                              backOnionColor.b, node.m_alpha);
+    } else {
+      if (node.m_filterColor != TPixel32::Black) {
+        colorscale   = node.m_filterColor;
+        colorscale.m = (typename TPixel32::Channel)(
+            (int)colorscale.m * (int)node.m_alpha / TPixel32::maxChannelValue);
+      }
+      inksOnly = tc & ToonzCheck::eInksOnly;
+    }
+
+    // The color part of the scale is baked, the matte is applied when drawing
+    TPixel32 bakeScale(colorscale.r, colorscale.g, colorscale.b, 255);
+    bool colorScaled = (bakeScale != TPixel32::Black);
+
+    GpuTextureKey key;
+    key.m_raster      = node.m_raster.getPointer();
+    key.m_flags       = colorScaled ? eGpuColorScaled : 0;
+    key.m_color       = (bakeScale.r << 16) | (bakeScale.g << 8) | bakeScale.b;
+    key.m_paletteHash = 0;
+
+    TRect box = node.m_raster->getBounds();
+
+    if (TRaster32P(node.m_raster)) {
+      key.m_flags |= eGpuRaster32;
+      if (node.m_doPremultiply) key.m_flags |= eGpuPremultiply;
+      if (node.m_whiteTransp) key.m_flags |= eGpuWhiteTransp;
+      if (node.m_isFirstColumn) key.m_flags |= eGpuIgnoreAlpha;
+    } else if (TRasterCM32P(node.m_raster) && node.m_palette) {
+      // Toonz checks on the current column need the CPU path
+      if (tc != 0 && tc != ToonzCheck::eBlackBg && node.m_isCurrentColumn)
+        continue;
+
+      key.m_flags |= eGpuRasterCM32;
+      if (inksOnly) key.m_flags |= eGpuInksOnly;
+      key.m_paletteHash = hashPalette(node.m_palette, node.m_frame);
+
+      // Colormap pixels outside the savebox are transparent
+      box *= node.m_savebox;
+    } else
+      continue;
+
+    if (box.isEmpty()) continue;
+
+    key.m_x0 = box.x0, key.m_y0 = box.y0, key.m_x1 = box.x1, key.m_y1 = box.y1;
+
+    GpuTextures::iterator it = cache->m_textures.find(key);
+    if (it == cache->m_textures.end()) {
+      // Release the textures of other, currently unused variants of the same
+      // raster (e.g. after a palette or a color filter change)
+      for (auto jt = cache->m_textures.begin();
+           jt != cache->m_textures.end();) {
+        if (jt->first.m_raster == key.m_raster && jt->second.m_lastUse != clock)
+          jt = eraseGpuTexture(*cache, jt);
+        else
+          ++jt;
+      }
+
+      TRaster32P baked = bakeGpuRaster(node.m_raster, box, node.m_palette,
+                                       node.m_frame, bakeScale, key.m_flags);
+
+      GpuTexture tex;
+      if (!uploadGpuTexture(tex, baked, cache->m_maxTileSize)) continue;
+
+      tex.m_raster  = node.m_raster;
+      tex.m_imageId = node.m_imageId;
+      tex.m_box     = box;
+      tex.m_bytes   = qint64(box.getLx()) * box.getLy() * sizeof(TPixel32);
+
+      it = cache->m_textures.insert(std::make_pair(key, tex)).first;
+      cache->m_bytes += tex.m_bytes;
+    }
+
+    it->second.m_lastUse = clock;
+    textures[i]          = &it->second;
+
+    // quickPut scales premultiplied pixels by the matte of the color scale.
+    // When premultiplying a color-scaled pixel, it applies it twice.
+    double opacity  = colorscale.m / 255.0;
+    opacities[i]    = opacity;
+    colorFactors[i] = ((key.m_flags & eGpuPremultiply) && colorScaled)
+                          ? opacity * opacity
+                          : opacity;
+    ++gpuCount;
+  }
+
+  if (gpuCount == 0) return false;
+
+  // Clip to the same rect the CPU path draws in
+  TRect scissorRect = rect;
+  if (glIsEnabled(GL_SCISSOR_TEST)) {
+    GLint box[4];
+    glGetIntegerv(GL_SCISSOR_BOX, box);
+    scissorRect *=
+        TRect(box[0], box[1], box[0] + box[2] - 1, box[1] + box[3] - 1);
+  }
+
+  // Draw the nodes in stacking order, alternating GPU and CPU runs
+  std::vector<Node> nodes;
+  nodes.swap(m_nodes);
+
+  int current = -1;
+  for (i = 0; i < nodesCount; ++i)
+    if (nodes[i].m_isCurrentColumn) current = i;
+
+  for (int begin = 0; begin < nodesCount;) {
+    bool gpuRun = (textures[begin] != 0);
+
+    int end = begin + 1;
+    while (end < nodesCount && (textures[end] != 0) == gpuRun) ++end;
+
+    if (!gpuRun) {
+      m_nodes.assign(nodes.begin() + begin, nodes.begin() + end);
+      flushRasterImagesCpu(false);  // clears m_nodes
+    } else if (!scissorRect.isEmpty()) {
+      glPushAttrib(GL_COLOR_BUFFER_BIT | GL_ENABLE_BIT | GL_TEXTURE_BIT |
+                   GL_CURRENT_BIT | GL_SCISSOR_BIT);
+
+      glEnable(GL_BLEND);
+      glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);  // Premultiplied textures
+      glDisable(GL_DEPTH_TEST);
+      glDisable(GL_DITHER);
+      glDisable(GL_LOGIC_OP);
+
+      glEnable(GL_SCISSOR_TEST);
+      glScissor(scissorRect.x0, scissorRect.y0, scissorRect.getLx(),
+                scissorRect.getLy());
+
+      glEnable(GL_TEXTURE_2D);
+      glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+
+      glPushMatrix();
+
+      for (i = begin; i < end; ++i) {
+        const GpuTexture *tex = textures[i];
+
+        double k = colorFactors[i];
+        glColor4d(k, k, k, opacities[i]);
+
+        // The half pixel shift makes GL_NEAREST pick, for each output pixel,
+        // the same source pixel picked by quickPut in the CPU path
+        glLoadIdentity();
+        tglMultMatrix(TTranslation(0.5, 0.5) * nodes[i].m_aff);
+
+        for (const GpuTexture::Tile &tile : tex->m_tiles) {
+          double x0 = tex->m_box.x0 + tile.m_rect.x0,
+                 y0 = tex->m_box.y0 + tile.m_rect.y0,
+                 x1 = tex->m_box.x0 + tile.m_rect.x1 + 1,
+                 y1 = tex->m_box.y0 + tile.m_rect.y1 + 1;
+
+          glBindTexture(GL_TEXTURE_2D, tile.m_texId);
+
+          glBegin(GL_QUADS);
+          glTexCoord2d(0.0, 0.0), glVertex2d(x0, y0);
+          glTexCoord2d(1.0, 0.0), glVertex2d(x1, y0);
+          glTexCoord2d(1.0, 1.0), glVertex2d(x1, y1);
+          glTexCoord2d(0.0, 1.0), glVertex2d(x0, y1);
+          glEnd();
+        }
+      }
+
+      glPopMatrix();
+      glPopAttrib();
+    }
+
+    begin = end;
+  }
+
+  if (m_vs.m_showBBox && current > -1) {
+    glPushMatrix();
+    glLoadIdentity();
+    tglColor(TPixel(200, 200, 200));
+    tglMultMatrix(nodes[current].m_aff);
+    tglDrawRect(TRect(0, 0, nodes[current].m_raster->getLx(),
+                      nodes[current].m_raster->getLy()));
+    glPopMatrix();
+  }
+
+  m_nodes.clear();
+
+  // Keep the cache within its budget, releasing the least recently used
+  // textures first
+  if (cache->m_bytes > c_gpuTextureBudget) {
+    std::vector<GpuTextures::iterator> unused;
+    for (auto it = cache->m_textures.begin(); it != cache->m_textures.end();
+         ++it)
+      if (it->second.m_lastUse != clock) unused.push_back(it);
+
+    std::sort(
+        unused.begin(), unused.end(),
+        [](const GpuTextures::iterator &a, const GpuTextures::iterator &b) {
+          return a->second.m_lastUse < b->second.m_lastUse;
+        });
+
+    for (size_t u = 0; u < unused.size() && cache->m_bytes > c_gpuTextureBudget;
+         ++u)
+      eraseGpuTexture(*cache, unused[u]);
+  }
+
+  return true;
 }
 
 //-----------------------------------------------------------------------------
@@ -1129,6 +1755,11 @@ void RasterPainter::onRasterImage(TRasterImage *ri,
                          player.m_frame, player.m_isCurrentColumn, onionMode,
                          doPremultiply, whiteTransp, ignoreAlpha,
                          player.m_filterColor));
+
+  if (m_gpuCompositing && sl) {
+    m_nodes.back().m_imageId      = sl->getImageId(player.m_fid);
+    m_nodes.back().m_gpuCacheable = isGpuCacheable(player);
+  }
 }
 
 //-----------------------------------------------------------------------------
@@ -1174,6 +1805,11 @@ void RasterPainter::onToonzImage(TToonzImage *ti, const Stage::Player &player) {
   m_nodes.push_back(Node(r, ti->getPalette(), alpha, aff, ti->getSavebox(),
                          bbox, player.m_frame, player.m_isCurrentColumn,
                          onionMode, false, false, false, player.m_filterColor));
+
+  if (m_gpuCompositing && player.m_sl) {
+    m_nodes.back().m_imageId      = player.m_sl->getImageId(player.m_fid);
+    m_nodes.back().m_gpuCacheable = isGpuCacheable(player);
+  }
 }
 
 //**********************************************************************************************

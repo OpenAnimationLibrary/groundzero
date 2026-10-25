@@ -220,6 +220,9 @@ public:
   bool isShowRasterImagesDarkenBlendedInViewerEnabled() const {
     return getBoolValue(showRasterImagesDarkenBlendedInViewer);
   }
+  bool isGpuCompositingInViewerEnabled() const {
+    return getBoolValue(gpuCompositingInViewer);
+  }
   TDimension getIconSize() const { return getSizeValue(iconSize); }
   void getViewValues(int &shrink, int &step) const {
     shrink = getIntValue(viewShrink), step = getIntValue(viewStep);

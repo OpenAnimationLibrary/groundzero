@@ -1313,6 +1313,14 @@ void SceneViewer::initializeGL() {
 
   registerContext();
 
+  // release the textures of the experimental GPU compositing (if any) while
+  // the context can still be made current
+  connect(context(), &QOpenGLContext::aboutToBeDestroyed, this, [this]() {
+    makeCurrent();
+    Stage::RasterPainter::releaseGpuTextures();
+    doneCurrent();
+  });
+
   // to be computed once through the software
   if (m_lutCalibrator && !m_lutCalibrator->isInitialized()) {
     m_lutCalibrator->initialize();
@@ -2218,6 +2226,10 @@ void SceneViewer::drawScene() {
     painter.setRasterDarkenBlendedView(
         Preferences::instance()
             ->isShowRasterImagesDarkenBlendedInViewerEnabled());
+
+    // experimental GPU compositing of raster levels
+    painter.enableGpuCompositing(
+        Preferences::instance()->isGpuCompositingInViewerEnabled());
 
     TFrameHandle *frameHandle = TApp::instance()->getCurrentFrame();
     if (app->getCurrentFrame()->isEditingLevel()) {
