@@ -1,0 +1,80 @@
+<fxlayout>
+  <page name="Layer A">
+   <separator label="Blend"/>
+    <control>a_weight</control>
+    <control>a_falloff</control>
+    <control>a_center</control>
+    <control>a_inner</control>
+    <control>a_outer</control>
+   <separator label="Envelope"/>
+    <control>a_point1</control>
+    <control>a_point2</control>
+    <control>a_point3</control>
+    <control>a_point4</control>
+    <control>a_point5</control>
+    <control>a_point6</control>
+    <control>a_point7</control>
+    <control>a_point8</control>
+   <separator label="Rest Pose"/>
+    <control>a_rest1</control>
+    <control>a_rest2</control>
+    <control>a_rest3</control>
+    <control>a_rest4</control>
+    <control>a_rest5</control>
+    <control>a_rest6</control>
+    <control>a_rest7</control>
+    <control>a_rest8</control>
+  </page>
+  <page name="Layer B">
+   <separator label="Blend"/>
+    <control>b_weight</control>
+    <control>b_falloff</control>
+    <control>b_center</control>
+    <control>b_inner</control>
+    <control>b_outer</control>
+   <separator label="Envelope"/>
+    <control>b_point1</control>
+    <control>b_point2</control>
+    <control>b_point3</control>
+    <control>b_point4</control>
+    <control>b_point5</control>
+    <control>b_point6</control>
+    <control>b_point7</control>
+    <control>b_point8</control>
+   <separator label="Rest Pose"/>
+    <control>b_rest1</control>
+    <control>b_rest2</control>
+    <control>b_rest3</control>
+    <control>b_rest4</control>
+    <control>b_rest5</control>
+    <control>b_rest6</control>
+    <control>b_rest7</control>
+    <control>b_rest8</control>
+  </page>
+  <page name="Layer C">
+   <separator label="Blend"/>
+    <control>c_weight</control>
+    <control>c_falloff</control>
+    <control>c_center</control>
+    <control>c_inner</control>
+    <control>c_outer</control>
+   <separator label="Envelope"/>
+    <control>c_point1</control>
+    <control>c_point2</control>
+    <control>c_point3</control>
+    <control>c_point4</control>
+    <control>c_point5</control>
+    <control>c_point6</control>
+    <control>c_point7</control>
+    <control>c_point8</control>
+   <separator label="Rest Pose"/>
+    <control>c_rest1</control>
+    <control>c_rest2</control>
+    <control>c_rest3</control>
+    <control>c_rest4</control>
+    <control>c_rest5</control>
+    <control>c_rest6</control>
+    <control>c_rest7</control>
+    <control>c_rest8</control>
+  </page>
+</fxlayout>

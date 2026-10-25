@@ -2,6 +2,7 @@ set(HEADERS
     ../include/stdfx/shaderfx.h
     ../include/stdfx/shaderinterface.h
     ../include/stdfx/shadingcontext.h
+    deformerfxcommon.h
     gradients.h
     hsvutil.h
     offscreengl.h
@@ -117,6 +118,7 @@ set(SOURCES
     colorembossfx.cpp
     colouroverridefx.cpp
     cornerpinfx.cpp
+    deformerstackfx.cpp
     despecklefx.cpp
     diamondgradientfx.cpp
     dissolvefx.cpp
