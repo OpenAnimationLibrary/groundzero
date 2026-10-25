@@ -168,6 +168,9 @@ public:
   bool isAutosaveOtherFilesEnabled() const {
     return getBoolValue(autosaveOtherFilesEnabled);
   }
+  bool isAutosaveToRecoveryFolderEnabled() const {
+    return getBoolValue(autosaveToRecoveryFolder);
+  }
   bool isStartupPopupEnabled() { return getBoolValue(startupPopupEnabled); }
   int getUndoMemorySize() const { return getIntValue(undoMemorySize); }
   int getDefaultTaskChunkSize() const { return getIntValue(taskchunksize); }

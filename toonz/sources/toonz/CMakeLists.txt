@@ -7,6 +7,7 @@ set(MOC_HEADERS
     antialiaspopup.h
     audiorecordingpopup.h
     autoinputcellnumberpopup.h
+    autosaverecovery.h
     batches.h
     batchserversviewer.h
     binarizepopup.h
@@ -283,6 +284,7 @@ set(SOURCES
     camerasettingspopup.cpp
     convertpopup.cpp
     crashhandler.cpp
+    autosaverecovery.cpp
     duplicatepopup.cpp
     dvdirtreeview.cpp
     filebrowserpopup.cpp

@@ -2,6 +2,7 @@
 
 // Tnz6 includes
 #include "crashhandler.h"
+#include "autosaverecovery.h"
 #include "mainwindow.h"
 #include "flipbook.h"
 #include "tapp.h"
@@ -733,6 +734,10 @@ int main(int argc, char *argv[]) {
     }
   }
 
+  // Check whether the previous session exited normally, and start this one,
+  // for the autosave recovery copies
+  AutosaveRecovery::initSession();
+
 #ifdef _WIN32
   // http://doc.qt.io/qt-5/windows-issues.html#fullscreen-opengl-based-windows
   if (w.windowHandle())
@@ -887,10 +892,15 @@ int main(int argc, char *argv[]) {
 
   a.installEventFilter(TApp::instance());
 
-  // Show the report of a crash in the previous session, if any
-  CrashHandler::showPendingReport();
+  // Offer to recover the work of a previous session that did not exit
+  // normally; that dialog also gives access to the crash report, if any.
+  // Otherwise show the report of a crash in the previous session, if any.
+  if (!AutosaveRecovery::showRecoveryDialog())
+    CrashHandler::showPendingReport();
 
   int ret = a.exec();
+
+  AutosaveRecovery::endSession();
 
   TUndoManager::manager()->reset();
   PreviewFxManager::instance()->reset();

@@ -26,8 +26,10 @@ public:
   // archive the report of a crash in the previous session. Call once the
   // application and Toonz environment are initialized.
   static void prepareReport();
+  // Whether a report of a crash in the previous session is still to be shown
+  static bool hasPendingReport();
   // Show the report of a crash in the previous session, if any
-  static void showPendingReport();
+  static void showPendingReport(QWidget *parent = 0);
   static void reportProjectInfo(bool enableReport);
   static void attachParentWindow(QWidget *parent);
   static bool trigger(const QString reason, bool showDialog);

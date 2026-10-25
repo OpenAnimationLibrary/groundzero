@@ -500,6 +500,8 @@ void Preferences::definePreferenceItems() {
   define(autosaveSceneEnabled, "autosaveSceneEnabled", QMetaType::Bool, true);
   define(autosaveOtherFilesEnabled, "autosaveOtherFilesEnabled",
          QMetaType::Bool, true);
+  define(autosaveToRecoveryFolder, "autosaveToRecoveryFolder", QMetaType::Bool,
+         false);
   define(replaceAfterSaveLevelAs, "replaceAfterSaveLevelAs", QMetaType::Bool,
          true);
   define(backupEnabled, "backupEnabled", QMetaType::Bool, true);
