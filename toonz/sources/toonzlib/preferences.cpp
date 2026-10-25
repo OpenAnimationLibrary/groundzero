@@ -507,6 +507,7 @@ void Preferences::definePreferenceItems() {
   define(backupEnabled, "backupEnabled", QMetaType::Bool, true);
   define(backupKeepCount, "backupKeepCount", QMetaType::Int, 1, 1,
          std::numeric_limits<int>::max());
+  define(compressSceneFiles, "compressSceneFiles", QMetaType::Bool, false);
   define(rasterBackgroundColor, "rasterBackgroundColor", QMetaType::QColor,
          QColor(Qt::white));
   define(resetUndoOnSavingLevel, "resetUndoOnSavingLevel", QMetaType::Bool,

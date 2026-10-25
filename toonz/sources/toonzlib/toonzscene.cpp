@@ -36,6 +36,7 @@
 #include "timagecache.h"
 #include "tstream.h"
 #include "tstreamexception.h"
+#include "tfilepath_io.h"
 #include "tofflinegl.h"
 #include "tenv.h"
 #include "tsystem.h"
@@ -176,6 +177,28 @@ void deleteUntitledScene(const TFilePath &fp) {
       }
     } else
       assert(0);
+  }
+}
+
+//-----------------------------------------------------------------------------
+
+// A compressed scene is an LZ4 frame of the usual XML behind the 16 byte
+// header of TOStream: "TABc", a byte order mark and the decompressed and
+// compressed sizes. TIStream recognizes it by the magic, so no loader needs to
+// know. TOStream writes the file only when it is destroyed, and cannot report
+// a failure then: check that the temporary file holds the header before it
+// replaces the previous scene, which would otherwise be lost.
+static void checkCompressedSceneFile(const TFilePath &fp) {
+  if (!Preferences::instance()->isCompressSceneFilesEnabled()) return;
+
+  char magic[4] = {0, 0, 0, 0};
+  {
+    Tifstream is(fp);
+    if (is.isOpen()) is.read(magic, 4);
+  }
+  if (std::string(magic, 4) != "TABc") {
+    TSystem::removeFileOrLevel(fp);
+    throw TException("Could not write the compressed scene file");
   }
 }
 
@@ -730,6 +753,7 @@ void ToonzScene::save(TFilePath &fp, TXsheet *subxsh, bool saveSceneIcon) {
   if (saveSceneIcon) makeSceneIcon(this);
 
   writeSceneFile(scenePathTemp, subxsh);
+  checkCompressedSceneFile(scenePathTemp);
 
   if (TFileStatus(scenePathTemp).doesExist())
     TSystem::replaceFile(scenePath, scenePathTemp);
@@ -755,6 +779,7 @@ void ToonzScene::saveCopy(const TFilePath &fp) {
   if (TFileStatus(fpTemp).doesExist()) TSystem::removeFileOrLevel(fpTemp);
 
   writeSceneFile(fpTemp, 0);
+  checkCompressedSceneFile(fpTemp);
 
   if (TFileStatus(fpTemp).doesExist()) TSystem::replaceFile(fp, fpTemp);
 }
@@ -762,9 +787,8 @@ void ToonzScene::saveCopy(const TFilePath &fp) {
 //-----------------------------------------------------------------------------
 
 void ToonzScene::writeSceneFile(const TFilePath &fp, TXsheet *subxsh) {
-  // TOStream os(scenePath, compressionEnabled);
-  //  TOStream os(scenePath, false);
-  TOStream os(fp, false);
+  // Compressed scenes are opt-in: older versions cannot open them
+  TOStream os(fp, Preferences::instance()->isCompressSceneFilesEnabled());
   if (!os.checkStatus()) throw TException("Could not open temporary save file");
 
   TXsheet *xsh = subxsh;

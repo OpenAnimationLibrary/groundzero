@@ -98,7 +98,7 @@
 | Game export | P | Partial | Spine JSON export. | No mesh deformation export; no Unity or Godot path. |
 | Export formats | E/A/P | Y | Through an ffmpeg **pipe** (`image/ffmpeg/tiio_ffmpeg.cpp`), EXR, the **PSD writer** (one flattened PSD per frame, `image/psd/tiio_psd.cpp`), OCA, XDTS, xsheet PDF, animated SVG. | No layered PSD of a scene, no USD, no SWF. |
 | Storyboard Pro integration | E/A/P | Partial | XDTS and OCA. | Conforming from Storyboard Pro is proprietary. |
-| Compact file format | all | N | XML `.tnz`. | No binary or compressed scene, and no fast load. |
+| Compact file format | all | Partial | Optional LZ4-compressed `.tnz` (Preferences > Saving, off by default; doc/compact_scene.md). Levels already load their frames on demand. | No separate binary format; plain XML is parsed on load. |
 | AI (Ember) | add-on | N | Nothing. | Out of scope. |
 
 ### 1.6 UI and workflow

@@ -222,8 +222,12 @@ public:
         status could be invalid. Remember to check the stream validity using
         operator bool().
 
-\warning  Stream compression has been verified to be unsafe.
-        Please consider it \a deprecated.
+\note     A compressed file is an LZ4 frame behind a 16 byte header: the
+        "TABc" magic, a byte order mark (0x0A0B0C0D) and the decompressed
+        and compressed sizes (32 bit each). Nothing is written until the
+        stream is destroyed, and a failure then is silent: check that the
+        file starts with "TABc" afterwards. TIStream reads it transparently.
+        Scenes use it when the "Compress Scene Files" preference is set.
 */
   TOStream(const TFilePath &fp,
            bool compressed = false);  //!< Opens the specified file for write

@@ -441,6 +441,14 @@ if(BUILD_DEFORMER_TESTS)
     add_test(NAME deformer COMMAND deformer_test)
 endif()
 
+# Optional regression target for the compressed scene file format (tstream.h).
+option(BUILD_STREAM_TESTS "Build the compressed stream round-trip test" ${BUILD_TESTS})
+if(BUILD_STREAM_TESTS)
+    add_executable(compressed_stream_test tests/compressed_stream_test.cpp)
+    target_link_libraries(compressed_stream_test PRIVATE tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core)
+    add_test(NAME compressed_stream COMMAND compressed_stream_test)
+endif()
+
 if(BUILD_SCRIPT_TESTS)
     add_executable(scriptengine_test tests/scriptengine_test.cpp)
     target_link_libraries(scriptengine_test PRIVATE toonzlib tnzcore Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Qml)

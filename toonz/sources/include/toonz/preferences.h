@@ -179,6 +179,9 @@ public:
   }
   bool isBackupEnabled() const { return getBoolValue(backupEnabled); }
   int getBackupKeepCount() { return getIntValue(backupKeepCount); }
+  bool isCompressSceneFilesEnabled() const {
+    return getBoolValue(compressSceneFiles);
+  }
   bool isSceneNumberingEnabled() const {
     return getBoolValue(sceneNumberingEnabled);
   }
