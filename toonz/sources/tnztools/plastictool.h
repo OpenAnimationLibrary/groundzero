@@ -119,6 +119,8 @@ private:
       m_globalKey;  //!< Whether animating a vertex will cause EVERY vertex to
   TBoolProperty
       m_keepDistance;  //!< Whether animation editing can alter vertex distances
+  TBoolProperty m_ikMode;  //!< Whether dragging a vertex poses its whole chain
+                           //!< with inverse kinematics
 
   TStringProperty m_minAngle,
       m_maxAngle;  //!< Minimum and maximum angle values allowed
