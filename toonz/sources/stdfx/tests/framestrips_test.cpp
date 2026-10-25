@@ -3,6 +3,10 @@
 // included so that the production fx is tested without linking tnzstdfx.
 #include "../blurfx.cpp"
 
+// blurfx.cpp calls this stdfx.cpp helper; tnzstdfx is not linked, so define
+// it here with the same tolerance.
+bool isAlmostIsotropic(const TAffine &aff) { return aff.isIsotropic(0.001); }
+
 #include "trenderer.h"
 #include "tthread.h"
 #include "tparamcontainer.h"
