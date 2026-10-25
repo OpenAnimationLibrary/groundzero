@@ -1671,6 +1671,7 @@ void RasterPainter::onVectorImage(TVectorImage *vi,
     if (m_vs.m_showColourArt) rd.m_show0ThickStrokes = true;
     rd.m_fadeThickStrokes  = m_vs.m_fadeLineArt;
     rd.m_fade0ThickStrokes = m_vs.m_fadeColourArt;
+    rd.m_hiddenRoleMask    = m_vs.m_hiddenArtRoles;
   }
   if (player.m_onionSkinDistance != 0 &&
       (player.m_isCurrentColumn || player.m_isCurrentXsheetLevel)) {

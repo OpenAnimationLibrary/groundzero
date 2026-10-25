@@ -2550,6 +2550,8 @@ void MainWindow::defineActions() {
   createMenuLevelAction(MI_FillHoles, QT_TR_NOOP("&Fill Holes..."), "",
                         "Fill small holes in Toonz Raster Level");
   createMenuLevelAction(MI_Tracking, QT_TR_NOOP("Tracking..."), "", "focus");
+  createMenuLevelAction(MI_CreateColourArt,
+                        QT_TR_NOOP("Create Colour Art from Line Art"), "");
 
   // Menu - Xsheet
 
@@ -2947,6 +2949,8 @@ void MainWindow::defineActions() {
   createMenuWindowsAction(MI_OpenOffsetLayers, QT_TR_NOOP("Offset Layers"), "",
                           "");
   createMenuWindowsAction(MI_OpenRigLibrary, QT_TR_NOOP("Rig Library"), "", "");
+  createMenuWindowsAction(MI_OpenArtLayerManager,
+                          QT_TR_NOOP("Art Layer Manager"), "", "");
   createMenuWindowsAction(MI_OpenSymbols, QT_TR_NOOP("Symbols"), "", "");
   createMenuWindowsAction(MI_OpenReferencePanel, QT_TR_NOOP("&Reference"), "",
                           "");

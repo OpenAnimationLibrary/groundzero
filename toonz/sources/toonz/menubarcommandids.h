@@ -110,6 +110,7 @@
 #define MI_AdjustLevels "MI_AdjustLevels"
 #define MI_AdjustThickness "MI_AdjustThickness"
 #define MI_BakeEnvelope "MI_BakeEnvelope"
+#define MI_CreateColourArt "MI_CreateColourArt"
 #define MI_Binarize "MI_Binarize"
 #define MI_FillHoles "MI_FillHoles"
 #define MI_LinesFade "MI_LinesFade"
@@ -554,5 +555,6 @@
 #define MI_OpenMasterControllers "MI_OpenMasterControllers"
 #define MI_OpenOffsetLayers "MI_OpenOffsetLayers"
 #define MI_OpenRigLibrary "MI_OpenRigLibrary"
+#define MI_OpenArtLayerManager "MI_OpenArtLayerManager"
 
 #endif

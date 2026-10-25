@@ -115,7 +115,7 @@ bool getStrokeIndexFromPos(UINT &index, const TVectorImageP &vi,
 
   // Line Art / Colour Art: strokes of the other role can't be picked
   if (dist2 < checkDist && index < vi->getStrokeCount() &&
-      !ArtLayer::isEditable(*vi->getStroke(index)))
+      !ArtLayer::Filter(*vi).isEditable(index))
     return false;
 
   return (dist2 < checkDist);
@@ -1570,9 +1570,9 @@ void VectorSelectionTool::finalizeSelection() {
   if (vi && ArtLayer::target() != ArtLayer::TARGET_OFF) {
     std::set<int> &selection = m_strokeSelection.getSelection();
     int strokeCount          = vi->getStrokeCount();
+    ArtLayer::Filter filter(*vi);
     for (auto it = selection.begin(); it != selection.end();) {
-      if (*it >= 0 && *it < strokeCount &&
-          !ArtLayer::isEditable(*vi->getStroke(*it)))
+      if (*it >= 0 && *it < strokeCount && !filter.isEditable(*it))
         it = selection.erase(it);
       else
         ++it;
@@ -2078,7 +2078,8 @@ bool VectorSelectionTool::selectStroke(int index, bool toggle) {
   if (index < 0 || index >= int(vi->getStrokeCount()))  // Should be asserted...
     return false;
 
-  if (!ArtLayer::isEditable(*vi->getStroke(index))) return false;
+  ArtLayer::Filter artFilter(*vi);
+  if (!artFilter.isEditable(index)) return false;
 
   bool wasSelected = m_strokeSelection.isSelected(index),
        selectState = !(wasSelected && toggle);
@@ -2103,7 +2104,7 @@ bool VectorSelectionTool::selectStroke(int index, bool toggle) {
     int s, sCount = vi->getStrokeCount();
     for (s = 0; s != sCount; ++s) {
       if (vi->selectable(s) && vi->sameSubGroup(index, s) &&
-          ArtLayer::isEditable(*vi->getStroke(s)))
+          artFilter.isEditable(s))
         m_strokeSelection.select(s, selectState);
     }
   } else  // Single stroke selection

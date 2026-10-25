@@ -804,8 +804,9 @@ void StrokeSelection::selectAll() {
 
   int sCount = int(m_vi->getStrokeCount());
 
+  ArtLayer::Filter filter(*m_vi);
   for (int s = 0; s < sCount; ++s) {
-    if (ArtLayer::isEditable(*m_vi->getStroke(s))) m_indexes.insert(s);
+    if (filter.isEditable(s)) m_indexes.insert(s);
   }
 
   StrokeSelection *selection = dynamic_cast<StrokeSelection *>(

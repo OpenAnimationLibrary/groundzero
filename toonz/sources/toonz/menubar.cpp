@@ -171,6 +171,7 @@ void ensureNewPanelActions(QMenu *windowsMenu) {
   ensurePanelAction(windowsMenu, MI_OpenMasterControllers);
   ensurePanelAction(windowsMenu, MI_OpenOffsetLayers);
   ensurePanelAction(windowsMenu, MI_OpenRigLibrary);
+  ensurePanelAction(windowsMenu, MI_OpenArtLayerManager);
 }
 
 }  // namespace
@@ -1464,6 +1465,7 @@ QMenuBar *StackedMenuBar::createFullMenuBar() {
     addMenuItem(convertMenu, MI_ConvertToVectors);
     addMenuItem(convertMenu, MI_ConvertToToonzRaster);
   }
+  addMenuItem(levelMenu, MI_CreateColourArt);
   levelMenu->addSeparator();
   addMenuItem(levelMenu, MI_ExposeResource);
   addMenuItem(levelMenu, MI_EditLevel);
@@ -1686,6 +1688,7 @@ QMenuBar *StackedMenuBar::createFullMenuBar() {
   addMenuItem(windowsMenu, MI_OpenMasterControllers);
   addMenuItem(windowsMenu, MI_OpenOffsetLayers);
   addMenuItem(windowsMenu, MI_OpenRigLibrary);
+  addMenuItem(windowsMenu, MI_OpenArtLayerManager);
   addMenuItem(windowsMenu, MI_OpenSymbols);
   addMenuItem(windowsMenu, MI_OpenReferencePanel);
   addMenuItem(windowsMenu, MI_OpenCustomPanels);

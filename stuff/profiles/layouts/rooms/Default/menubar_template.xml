@@ -149,6 +149,7 @@
             <command>MI_ConvertToVectors</command>
             <command>MI_ConvertToToonzRaster</command>
         </menu>
+        <command>MI_CreateColourArt</command>
         <separator/>
         <command>MI_ExposeResource</command>
         <command>MI_EditLevel</command>
@@ -351,6 +352,7 @@
         <command>MI_OpenMasterControllers</command>
         <command>MI_OpenOffsetLayers</command>
         <command>MI_OpenRigLibrary</command>
+        <command>MI_OpenArtLayerManager</command>
         <command>MI_OpenSymbols</command>
         <command>MI_OpenReferencePanel</command>
         <command>MI_OpenCustomPanels</command>

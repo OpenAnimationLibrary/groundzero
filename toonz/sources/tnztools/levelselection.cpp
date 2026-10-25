@@ -178,12 +178,13 @@ std::vector<int> getSelectedStrokes(TVectorImage &vi,
   }
 
   // Line Art / Colour Art: keep only the strokes of the edited role
-  if (ArtLayer::target() != ArtLayer::TARGET_OFF)
+  if (ArtLayer::target() != ArtLayer::TARGET_OFF) {
+    ArtLayer::Filter filter(vi);
     strokes.erase(
-        std::remove_if(
-            strokes.begin(), strokes.end(),
-            [&vi](int s) { return !ArtLayer::isEditable(*vi.getStroke(s)); }),
+        std::remove_if(strokes.begin(), strokes.end(),
+                       [&filter](int s) { return !filter.isEditable(s); }),
         strokes.end());
+  }
 
   return strokes;
 }
