@@ -14,6 +14,7 @@ set(MOC_HEADERS
     ../include/toonz/scriptbinding_rasterizer.h
     ../include/toonz/scriptbinding_renderer.h
     ../include/toonz/scriptbinding_scene.h
+    ../include/toonz/scriptbinding_stageobject.h
     ../include/toonz/scriptbinding_toonz_raster_converter.h
     ../include/toonz/scriptengine.h
     ../include/toonz/stylemanager.h
@@ -233,6 +234,7 @@ set(SOURCES
     scriptbinding_rasterizer.cpp
     scriptbinding_renderer.cpp
     scriptbinding_scene.cpp
+    scriptbinding_stageobject.cpp
     scriptbinding_toonz_raster_converter.cpp
     scriptengine.cpp
     skeleton.cpp
@@ -409,7 +411,7 @@ target_link_libraries(toonzlib OpenEXR::OpenEXR)
 
 if(BUILD_SCRIPT_TESTS)
     add_executable(scriptengine_test tests/scriptengine_test.cpp)
-    target_link_libraries(scriptengine_test PRIVATE toonzlib Qt5::Core Qt5::Qml)
+    target_link_libraries(scriptengine_test PRIVATE toonzlib tnzcore Qt5::Core Qt5::Qml)
     add_test(NAME scriptengine COMMAND scriptengine_test)
     set_tests_properties(scriptengine PROPERTIES TIMEOUT 300)
 endif()

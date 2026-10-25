@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: BSD-3-Clause
 
 // Regression test of the script engine and of the script bindings that don't
-// need a scene or a project: it checks what the Script Console would print
-// for a set of commands.
+// need files (scenes are built in memory, with a temporary stuff folder): it
+// checks what the Script Console would print for a set of commands.
 
 #include "toonz/scriptengine.h"
+#include "toonz/preferences.h"
+#include "tenv.h"
+#include "tfilepath.h"
 
 #include <QCoreApplication>
 #include <QDir>
@@ -244,6 +247,123 @@ void testBindings(Console &console) {
          text, "caught Can't save an empty image");
 }
 
+void testStageObjects(Console &console) {
+  const int result = ScriptEngine::EvaluationResult;
+
+  // a new scene has the camera and the table; frames are xsheet rows from 0
+  expect(console, "var s = new Scene(); s.getStageObjects()", result,
+         "[StageObject(Camera1),StageObject(Table)]");
+  expect(console,
+         "s.insertColumn(0); s.insertColumn(0); "
+         "s.getStageObjects().map(function (o) { return o.id; })",
+         result, "[\"Camera1\",\"Table\",\"Col1\",\"Col2\"]");
+  expect(console, "var col = s.getStageObject('Col1'); col", result,
+         "StageObject(Col1)");
+  expect(console,
+         "[col.id, col.name, col.type, col.parent, col instanceof StageObject]",
+         result, "[\"Col1\",\"Col1\",\"Column\",\"Table\",true]");
+
+  // channels: default values, keyframes, interpolation (linear by default)
+  expect(console,
+         "[col.getValue('x', 10), col.getValue('scale', 3), "
+         "col.getKeyframes('x').length]",
+         result, "[0,1,0]");
+  expect(console, "col.setKeyframe('x', 0, 2).setKeyframe('x', 10, 12)", result,
+         "StageObject(Col1)");
+  expect(
+      console,
+      "[col.getValue('x', 5), col.getValue('x', 2.5), col.getValue('x', 20)]",
+      result, "[7,4.5,12]");
+  expect(console,
+         "[col.getKeyframes('x'), col.isKeyframe('x', 10), "
+         "col.isKeyframe('x', 5), col.isKeyframe('y', 10)]",
+         result, "[[0,10],true,false,false]");
+  expect(console,
+         "col.setValue('Angle', 4, 45); [col.getValue('angle', 4), "
+         "col.getValue('angle', 0), col.getKeyframes('ANGLE')]",
+         result, "[45,45,[4]]");
+  // a key added inside a segment keeps the segment interpolation
+  expect(console,
+         "col.setKeyframe('y', 0, 0).setKeyframe('y', 20, 20)"
+         ".setKeyframe('y', 10, 0); [col.getValue('y', 15), "
+         "col.getKeyframes('y')]",
+         result, "[10,[0,10,20]]");
+  // removing a missing key does nothing
+  expect(console,
+         "col.removeKeyframe('x', 10).removeKeyframe('x', 3); "
+         "[col.getKeyframes('x'), col.getValue('x', 5)]",
+         result, "[[0],2]");
+
+  // names
+  expect(console,
+         "col.name = 'BG'; [col.name, col.id, String(col), "
+         "s.getStageObject('BG').id]",
+         result, "[\"BG\",\"Col1\",\"StageObject(Col1: BG)\",\"Col1\"]");
+  expect(console, "col.name = ''; col.name", result, "\"Col1\"");
+
+  // pegbars and parents
+  expect(console,
+         "var peg = s.newPegbar(); [String(peg), peg.type, peg.parent]", result,
+         "[\"StageObject(Peg1)\",\"Pegbar\",\"Table\"]");
+  expect(console,
+         "col.parent = 'Peg1'; peg.name = 'Rig'; "
+         "[col.parent, s.getStageObject('Rig').id]",
+         result, "[\"Rig\",\"Peg1\"]");
+  expect(console,
+         "s.getStageObject('Col2').parent = 'Col1'; "
+         "s.getStageObject('Col2').parent",
+         result, "\"Col1\"");
+  expect(
+      console,
+      "[s.getStageObject('Camera1').type, s.getStageObject('Camera1').parent, "
+      "s.getStageObject('Table').parent]",
+      result, "[\"Camera\",\"\",\"\"]");
+  expect(console, "col.parent = ''; col.parent", result, "\"Table\"");
+  expect(console, "s.getStageObjects().map(function (o) { return o.name; })",
+         result, "[\"Camera1\",\"Table\",\"Rig\",\"Col1\",\"Col2\"]");
+
+  // center
+  expect(console,
+         "col.setCenter(0, 1, 2); var c = col.getCenter(0); [c.x, c.y]", result,
+         "[1,2]");
+
+  // errors
+  expectError(console, "s.getStageObject('Col3')",
+              "Stage object not found: Col3");
+  expectError(console, "s.getStageObject('Peg2')",
+              "Stage object not found: Peg2");
+  expectError(console, "s.getStageObject('Nothing')",
+              "Stage object not found: Nothing");
+  expectError(console, "col.getValue('rotation', 0)",
+              "Bad channel name (rotation): must be one of x, y, z, so, angle, "
+              "scalex, scaley, scale, shearx, sheary, path");
+  expectError(console, "col.getKeyframes(3)", "Bad channel name (3)");
+  expectError(console, "col.getValue('x', 'a')",
+              "Bad frame (a): expected a number");
+  expectError(console, "col.setKeyframe('x', 1.5, 3)",
+              "Bad frame (1.5): expected an integer >= 0");
+  expectError(console, "col.removeKeyframe('x', -1)",
+              "Bad frame (-1): expected an integer >= 0");
+  expectError(console, "col.setKeyframe('x', 1, 'abc')",
+              "Bad value (abc): expected a number");
+  expectError(console, "col.setCenter(0, 'a', 1)",
+              "Bad x (a): expected a number");
+  expectError(console, "col.parent = 'Nope'", "Stage object not found: Nope");
+  expectError(console, "col.parent = 'Col1'", "Can't link Col1 to itself");
+  expectError(console, "col.parent = 'Peg1'; peg.parent = 'Col1'",
+              "Can't link Peg1 to Col1: Col1 is linked to Peg1");
+  expectError(console, "s.getStageObject('Table').parent = 'Peg1'",
+              "The Table can't have a parent");
+  expectError(console, "new StageObject()",
+              "StageObject can't be created directly");
+  // the object of a deleted column
+  expectError(console,
+              "var col2 = s.getStageObject('Col2'); s.deleteColumn(1); "
+              "col2.getValue('x', 0)",
+              "The stage object Col2 is no longer in the scene");
+  expect(console, "String(col2)", result, "\"StageObject (removed)\"");
+}
+
 void testRun(Console &console, const QString &dirPath) {
   const int result = ScriptEngine::EvaluationResult;
 
@@ -312,11 +432,20 @@ int main(int argc, char *argv[]) {
     QTemporaryDir dir;
     if (!dir.isValid()) throw std::runtime_error("no temporary directory");
 
+    // The scenes need a stuff folder (for the sandbox project and the
+    // preferences): use an empty one, so that the defaults are used
+    QString stuffPath = QDir(dir.path()).filePath("stuff");
+    QDir().mkpath(QDir(stuffPath).filePath("profiles/layouts/rooms/Default"));
+    TEnv::setStuffDir(TFilePath(stuffPath));
+    // created on the main thread, as in the application
+    Preferences::instance();
+
     ScriptEngine engine;
     Console console(engine);
 
     testOutput(console);
     testBindings(console);
+    testStageObjects(console);
     testRun(console, dir.path());
     testInterrupt(engine, console);
     testDefineFunction(engine, console);

@@ -4,6 +4,7 @@
 
 // TnzLib includes
 #include "toonz/scriptbinding_scene.h"
+#include "toonz/scriptbinding_stageobject.h"
 #include "toonz/scriptbinding_image.h"
 #include "toonz/scriptbinding_level.h"
 #include "toonz/scriptbinding_files.h"
@@ -144,6 +145,7 @@ const ClassInfo *classes(int &count) {
       classInfo<Image>("Image"),
       classInfo<Level>("Level"),
       classInfo<Scene>("Scene"),
+      classInfo<StageObject>("StageObject"),
       classInfo<Transform>("Transform"),
       classInfo<ImageBuilder>("ImageBuilder"),
       classInfo<OutlineVectorizer>("OutlineVectorizer"),

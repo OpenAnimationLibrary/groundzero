@@ -3,6 +3,7 @@
 #include "toonz/scriptbinding_scene.h"
 #include "toonz/scriptbinding_level.h"
 #include "toonz/scriptbinding_files.h"
+#include "toonz/scriptbinding_stageobject.h"
 #include "toonz/txshleveltypes.h"
 
 #include "tsystem.h"
@@ -13,6 +14,8 @@
 #include "toonz/txsheet.h"
 #include "toonz/txshcell.h"
 #include "toonz/levelset.h"
+#include "toonz/tstageobject.h"
+#include "toonz/tstageobjecttree.h"
 
 namespace TScriptBinding {
 
@@ -220,6 +223,33 @@ QJSValue Scene::insertColumn(int col) {
 QJSValue Scene::deleteColumn(int col) {
   m_scene->getXsheet()->removeColumn(col);
   return self();
+}
+
+QJSValue Scene::getStageObject(const QString &name) {
+  TStageObject *obj = StageObject::findStageObject(m_scene->getXsheet(), name);
+  if (!obj) return throwError(tr("Stage object not found: %1").arg(name));
+  return create(engine(), new StageObject(self(), this, obj));
+}
+
+QJSValue Scene::getStageObjects() {
+  std::vector<TStageObject *> objs;
+  StageObject::listStageObjects(m_scene->getXsheet(), objs);
+  QJSValue sceneValue = self();
+  QJSValue result     = engine()->newArray((uint)objs.size());
+  for (int i = 0; i < (int)objs.size(); ++i)
+    result.setProperty(
+        i, create(engine(), new StageObject(sceneValue, this, objs[i])));
+  return result;
+}
+
+QJSValue Scene::newPegbar() {
+  // as TStageObjectCmd::addNewPegbar(), without undo
+  TStageObjectTree *tree = m_scene->getXsheet()->getStageObjectTree();
+  int index              = 0;
+  while (tree->getStageObject(TStageObjectId::PegbarId(index), false)) index++;
+  TStageObject *obj =
+      tree->getStageObject(TStageObjectId::PegbarId(index), true);
+  return create(engine(), new StageObject(self(), this, obj));
 }
 
 }  // namespace TScriptBinding

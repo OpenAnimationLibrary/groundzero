@@ -42,6 +42,12 @@ public:
   Q_INVOKABLE QJSValue loadLevel(const QString &name,
                                  const QJSValue &path) const;
 
+  // The stage objects of the xsheet (see StageObject): by id (Col1, Peg1,
+  // Camera1, Table) or by name, all of them, and a new pegbar
+  Q_INVOKABLE QJSValue getStageObject(const QString &name);
+  Q_INVOKABLE QJSValue getStageObjects();
+  Q_INVOKABLE QJSValue newPegbar();
+
   ToonzScene *getToonzScene() const { return m_scene; }
 };
 
