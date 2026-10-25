@@ -17,10 +17,10 @@ class DVAPI OutlineVectorizer final : public Wrapper {
 public:
   OutlineVectorizer();
 
-  Q_INVOKABLE QScriptValue toString();
+  Q_INVOKABLE QString toString();
   WRAPPER_STD_METHODS(OutlineVectorizer)
 
-  Q_INVOKABLE QScriptValue vectorize(QScriptValue img_or_level);
+  Q_INVOKABLE QJSValue vectorize(QJSValue img_or_level);
 
   Q_PROPERTY(int accuracy READ getAccuracy WRITE setAccuracy)
   int getAccuracy() const;

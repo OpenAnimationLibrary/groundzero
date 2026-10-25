@@ -19,18 +19,18 @@ Image::Image(TImage *img) : m_img(img) {}
 
 Image::~Image() {}
 
-QScriptValue Image::ctor(QScriptContext *context, QScriptEngine *engine) {
-  Image *img       = new Image();
-  QScriptValue obj = create(engine, img);
-  QScriptValue err = checkArgumentCount(context, "the Image constructor", 0, 1);
-  if (err.isError()) return err;
-  if (context->argumentCount() == 1) {
-    return obj.property("load").call(obj, context->argumentsObject());
+QJSValue Image::ctor(QJSEngine *engine, const QJSValueList &args) {
+  Image *img   = new Image();
+  QJSValue obj = create(engine, img);
+  if (!checkArgumentCount(engine, args, "the Image constructor", 0, 1))
+    return QJSValue();
+  if (args.size() == 1) {
+    return img->load(args[0]);
   }
   return obj;
 }
 
-QScriptValue Image::toString() {
+QString Image::toString() {
   if (m_img) {
     TImage::Type type = m_img->getType();
     if (type == TImage::RASTER)
@@ -86,20 +86,19 @@ QString Image::getType() const {
     return "Empty";
 }
 
-QScriptValue Image::load(const QScriptValue &fpArg) {
+QJSValue Image::load(const QJSValue &fpArg) {
   // clear the old image (if any)
   m_img = TImageP();
 
   // get the path
   TFilePath fp;
-  QScriptValue err = checkFilePath(context(), fpArg, fp);
-  if (err.isError()) return err;
+  if (!checkFilePath(engine(), fpArg, fp)) return QJSValue();
   QString fpStr = fpArg.toString();
 
   try {
     // check if the file/level does exist
     if (!TSystem::doesExistFileOrLevel(fp)) {
-      return context()->throwError(tr("File %1 doesn't exist").arg(fpStr));
+      return throwError(tr("File %1 doesn't exist").arg(fpStr));
     }
 
     // the file could be a level
@@ -117,7 +116,7 @@ QScriptValue Image::load(const QScriptValue &fpArg) {
 
         m_img = lr->getFrameReader(fid)->load();
         if (!m_img) {
-          return context()->throwError(QString("Could not read %1").arg(fpStr));
+          return throwError(QString("Could not read %1").arg(fpStr));
         }
         m_img->setPalette(level->getPalette());
         if (n > 1 && (fp.getFrame() == TFrameId::EMPTY_FRAME ||
@@ -127,34 +126,31 @@ QScriptValue Image::load(const QScriptValue &fpArg) {
         }
       } else {
         // level contains no frame (not sure it can even happen)
-        return context()->throwError(
-            QString("%1 contains no frames").arg(fpStr));
+        return throwError(QString("%1 contains no frames").arg(fpStr));
       }
     } else {
       // plain image: try to read it
       if (!TImageReader::load(fp, m_img)) {
-        return context()->throwError(
+        return throwError(
             QString("File %1 not found or not readable").arg(fpStr));
       }
     }
     // return a reference to the Image object
-    return context()->thisObject();
+    return self();
   } catch (...) {
-    return context()->throwError(
-        tr("Unexpected error while reading image").arg(fpStr));
+    return throwError(tr("Unexpected error while reading image").arg(fpStr));
   }
 }
 
-QScriptValue Image::save(const QScriptValue &fpArg) {
+QJSValue Image::save(const QJSValue &fpArg) {
   // clear the old image (if any)
   if (!m_img) {
-    return context()->throwError("Can't save an empty image");
+    return throwError("Can't save an empty image");
   }
 
   // get the path
   TFilePath fp;
-  QScriptValue err = checkFilePath(context(), fpArg, fp);
-  if (err.isError()) return err;
+  if (!checkFilePath(engine(), fpArg, fp)) return QJSValue();
   QString fpStr = fpArg.toString();
 
   // handle conversion (if it is needed and possible)
@@ -168,13 +164,12 @@ QScriptValue Image::save(const QScriptValue &fpArg) {
   } else if (fileType & TFileType::CMAPPED_IMAGE) {
     if (m_img->getType() == TImage::TOONZ_RASTER) isCompatible = true;
   } else {
-    return context()->throwError(tr("Unrecognized file type :").arg(fpStr));
+    return throwError(tr("Unrecognized file type :").arg(fpStr));
   }
   if (!isCompatible) {
-    return context()->throwError(
-        tr("Can't save a %1 image to this file type : %2")
-            .arg(getType())
-            .arg(fpStr));
+    return throwError(tr("Can't save a %1 image to this file type : %2")
+                          .arg(getType())
+                          .arg(fpStr));
   }
 
   try {
@@ -190,22 +185,21 @@ QScriptValue Image::save(const QScriptValue &fpArg) {
       iw->save(fp, m_img);
     }
     // return a reference to the Image object
-    return context()->thisObject();
+    return self();
   } catch (...) {
-    return context()->throwError(
-        tr("Unexpected error while writing image").arg(fpStr));
+    return throwError(tr("Unexpected error while writing image").arg(fpStr));
   }
 }
 
-QScriptValue checkImage(QScriptContext *context, const QScriptValue &value,
-                        Image *&img) {
-  img = qscriptvalue_cast<Image *>(value);
-  if (!img || !img->getImg())
-    return context->throwError(
+bool checkImage(QJSEngine *engine, const QJSValue &value, Image *&img) {
+  img = cast<Image>(value);
+  if (!img || !img->getImg()) {
+    engine->throwError(
         QObject::tr("Bad argument (%1): should be an Image (not empty)")
             .arg(value.toString()));
-  else
-    return QScriptValue();
+    return false;
+  } else
+    return true;
 }
 
 }  // namespace TScriptBinding

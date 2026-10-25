@@ -18,10 +18,13 @@
 
 #include <QObject>
 #include <QMetaType>
+#include <QList>
+
+#include <functional>
 
 class Foo;
-class QScriptValue;
-class QScriptEngine;
+class QJSValue;
+class QJSEngine;
 
 class DVAPI ScriptCommand {
 public:
@@ -31,17 +34,31 @@ public:
   virtual void execute() = 0;
 };
 
+//! Runs the toonz scripts (Script Console, "Run Script", -script command
+//! line option).
+/*!
+  The JavaScript engine (a QJSEngine) lives in a worker thread owned by
+  ScriptEngine: it is created there, every evaluation runs there and it is
+  destroyed there, so that long scripts don't freeze the GUI. The output
+  signal is emitted from that thread; evaluationDone() is emitted on the
+  thread of the ScriptEngine.
+*/
 class DVAPI ScriptEngine final : public QObject {
   Q_OBJECT
-  QScriptEngine *m_engine;
+  QJSEngine *m_engine;
   class Executor;
   friend class Executor;
   Executor *m_executor;
-  class MainThreadEvaluationData;
-  MainThreadEvaluationData *m_mainThreadEvaluationData;
-  QScriptValue *m_voidValue;
+  QJSValue *m_voidValue;
 
 public:
+  //! A native script function. It is called on the script thread with the
+  //! script arguments. To make the script throw, call engine->throwError()
+  //! and return QJSValue().
+  typedef std::function<QJSValue(QJSEngine *engine,
+                                 const QList<QJSValue> &args)>
+      Function;
+
   ScriptEngine();
   ~ScriptEngine();
 
@@ -62,21 +79,25 @@ public:
     emit output((int)type, value);
   }
 
-  const QScriptValue &evaluateOnMainThread(const QScriptValue &fun,
-                                           const QScriptValue &arguments);
+  //! Defines (or replaces) the global script function \b name. If a script
+  //! is being evaluated, waits for it to finish.
+  void defineFunction(const QString &name, const Function &f);
 
-  QScriptEngine *getQScriptEngine() const { return m_engine; }
-  const QScriptValue &voidValue() const { return *m_voidValue; }
+  //! Runs f on the thread of this ScriptEngine (the GUI thread) and waits
+  //! for it to return. To be used by script functions that touch the GUI;
+  //! f must not use the QJSEngine.
+  void runOnMainThread(const std::function<void()> &f);
+
+  //! The value returned by functions, like print(), whose result must not
+  //! be printed in the console.
+  const QJSValue &voidValue() const { return *m_voidValue; }
 
 protected slots:
   void onTerminated();
-  void onMainThreadEvaluationPosted();
 
 signals:
   void evaluationDone();
   void output(int type, const QString &);
-
-  void mainThreadEvaluationPosted();
 };
 
 Q_DECLARE_METATYPE(ScriptEngine *)

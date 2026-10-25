@@ -18,17 +18,18 @@ public:
   ToonzRasterConverter();
   ~ToonzRasterConverter();
 
-  Q_INVOKABLE QScriptValue toString();
+  Q_INVOKABLE QString toString();
   WRAPPER_STD_METHODS(ToonzRasterConverter)
 
   Q_PROPERTY(bool flatSource READ getFlatSource WRITE setFlatSource)
   bool getFlatSource() const { return m_flatSource; }
   void setFlatSource(bool v) { m_flatSource = v; }
 
-  // Q_INVOKABLE QScriptValue convert(QScriptValue img);
   Q_INVOKABLE int foo(int x) { return x * 2; }
 
-  QScriptValue convert(QScriptContext *context, QScriptEngine *engine);
+  // ToonzRasterConverter.convert(img_or_level), also callable as a method
+  // of the instances (see bindAll())
+  static QJSValue convert(QJSEngine *engine, const QJSValueList &args);
 };
 
 }  // namespace TScriptBinding
