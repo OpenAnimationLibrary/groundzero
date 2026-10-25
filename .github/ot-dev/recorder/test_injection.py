@@ -15,7 +15,7 @@ spec.loader.exec_module(enable)
 class InjectionTest(unittest.TestCase):
     def test_cli_repository_and_platform_guard(self):
         for repository, platform, allowed in (
-                ("OpenAnimationLibrary/opentoonz-dev", "Windows", True),
+                ("OpenAnimationLibrary/opentoonz-dev", "Windows", False),
                 ("OpenAnimationLibrary/groundzero", "Windows", True),
                 ("opentoonz/opentoonz", "Windows", False),
                 ("OpenAnimationLibrary/groundzero", "Linux", False),
