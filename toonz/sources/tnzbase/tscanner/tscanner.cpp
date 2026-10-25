@@ -379,32 +379,25 @@ TScanner *TScanner::instance() {
     if (!instanceWia) instanceWia = new TScannerWia();
     return instanceWia;
   }
-
+#endif
   if (m_isTwain) {
     if (instanceEpson) {
       TScannerEpson *se = (TScannerEpson *)instanceEpson;
       se->closeIO();
+      // delete m_instanceEpson; //e' singletone, perche' buttarlo? (vinz)
+      // m_instanceEpson=0;
     }
     if (!instanceTwain) instanceTwain = new TScannerTwain();
-    return instanceTwain;
-  }
-
-  if (instanceTwain) TTWAIN_CloseAll(0);
-  if (!instanceEpson) instanceEpson = new TScannerEpson();
-  return instanceEpson;
-#else
-  if (m_isTwain) {
-    if (instanceEpson) {
-      TScannerEpson *se = (TScannerEpson *)instanceEpson;
-      se->closeIO();
+  } else if (!m_isTwain) {
+    if (instanceTwain) {
+      // delete m_instanceTwain;  //e' singletone, perche' buttarlo? (vinz)
+      // m_instanceTwain=0;
+      TTWAIN_CloseAll(0);
     }
-    if (!instanceTwain) instanceTwain = new TScannerTwain();
-  } else {
-    if (instanceTwain) TTWAIN_CloseAll(0);
     if (!instanceEpson) instanceEpson = new TScannerEpson();
   }
+
   return (m_isTwain ? instanceTwain : instanceEpson);
-#endif
 #endif
 }
 
