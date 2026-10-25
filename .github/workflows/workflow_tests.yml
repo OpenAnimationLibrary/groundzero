@@ -1,0 +1,84 @@
+name: Regression Tests
+
+# Builds and runs every regression test (BUILD_TESTS) on Linux. The build
+# workflows only build, so they decide whether a pull request can merge;
+# this workflow reports test results without blocking it.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - edition
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  Linux:
+    runs-on: ubuntu-22.04
+    continue-on-error: true
+    timeout-minutes: 120
+    steps:
+    - uses: actions/checkout@v6
+
+    - name: Install libraries
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential cmake pkg-config ninja-build ccache jq libboost-all-dev qtbase5-dev qt5-qmake qtscript5-dev qttools5-dev qttools5-dev-tools qtmultimedia5-dev qtwayland5 libqt5svg5-dev libqt5opengl5-dev libqt5multimedia5-plugins libqt5serialport5-dev libsuperlu-dev liblz4-dev libusb-1.0-0-dev liblzo2-dev libpng-dev libjpeg-dev libglew-dev freeglut3-dev libfreetype6-dev libjson-c-dev libmypaint-dev libopencv-dev libturbojpeg-dev libomp-dev ffmpeg
+
+    - name: Set up cache
+      run: mkdir -p /home/runner/.ccache
+
+    - uses: actions/cache@v5
+      with:
+        path: /home/runner/.ccache
+        key: ${{ runner.os }}-tests-${{ github.sha }}
+        restore-keys: |
+          ${{ runner.os }}-tests-
+          ${{ runner.os }}-gcc-
+
+    - name: Build libtiff
+      run: |
+        cd thirdparty/tiff-4.0.3
+        CFLAGS='-fPIC' CXXFLAGS='-fPIC' ./configure --disable-jbig
+        make -j $(nproc)
+
+    - name: Configure
+      run: |
+        mkdir -p toonz/build
+        cd toonz/build
+        cmake ../sources -G Ninja -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_C_COMPILER_LAUNCHER=ccache -DWITH_TRANSLATION=OFF -DBUILD_TESTS=ON
+
+    - name: Build the tests
+      run: |
+        export CCACHE_DIR=/home/runner/.ccache
+        cd toonz/build
+        # Each test runs an executable named after its target
+        targets=$(ctest --show-only=json-v1 | jq -r '.tests[].command[0]' | xargs -r -n1 basename | sort -u)
+        if [ -n "$targets" ]; then
+          ninja $targets
+        else
+          ninja
+        fi
+
+    - name: Run the tests
+      env:
+        QT_QPA_PLATFORM: offscreen
+      run: |
+        cd toonz/build
+        ctest --output-on-failure --no-tests=error
+
+    # FX renders that are missing or differ from their reference images
+    - name: Upload test output
+      if: always()
+      uses: actions/upload-artifact@v6
+      with:
+        name: test-output-${{ github.sha }}
+        path: |
+          toonz/build/Testing/Temporary/LastTest.log
+          toonz/build/stdfx/fxrender-output
+        if-no-files-found: ignore
