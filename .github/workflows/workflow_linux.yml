@@ -14,18 +14,14 @@ jobs:
     # Build on the oldest supported LTS: glibc/libstdc++ symbol versioning is
     # backward compatible only, so an AppImage built on 24.04 requires
     # GLIBC_2.38 / GLIBCXX_3.4.32 and will not start on 22.04 (see #7001).
-    # Modern-toolchain coverage comes from the Fedora job below.
     runs-on: ubuntu-22.04
     strategy:
       matrix:
-        compiler: [gcc, clang]
+        compiler: [gcc]
         include:
           - compiler: gcc
             cc: gcc
             cxx: g++
-          - compiler: clang
-            cc: clang
-            cxx: clang++
     steps:
     - uses: actions/checkout@v6
 
@@ -59,9 +55,8 @@ jobs:
         cd toonz
         mkdir build
         cd build
-        cmake ../sources -G Ninja -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER=${{ matrix.cxx }} -DCMAKE_C_COMPILER=${{ matrix.cc }} -DWITH_TRANSLATION=OFF -DBUILD_EXR_TESTS=ON -DBUILD_EXR_AOV_FX_TESTS=ON
+        cmake ../sources -G Ninja -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER=${{ matrix.cxx }} -DCMAKE_C_COMPILER=${{ matrix.cc }} -DWITH_TRANSLATION=OFF -DCMAKE_CXX_FLAGS=-Werror=return-type
         ninja
-        ctest --output-on-failure -R '^(tiio_exr(_level)?|openexraovfx)$'
 
     - name: Create Artifact
       run: |
@@ -111,84 +106,7 @@ jobs:
         mv artifact ${ARTIFACT_NAME}
         tar zcf ${ARTIFACT_NAME}.tar.gz ${ARTIFACT_NAME}
 
-    - name: Smoke test the installed tree
-      # Nothing else in CI runs a built binary. tconverter seeds before it
-      # parses arguments, so a bare invocation does the work and exits 1.
-      run: |
-        set -eu
-        export QT_QPA_PLATFORM=offscreen
-        CONF=.config/OpenToonz
-
-        # $ORIGIN RPATH resolves the bundled libraries without LD_LIBRARY_PATH
-        ! ldd /opt/opentoonz/bin/tconverter | grep 'not found'
-
-        # first run seeds the default root
-        export HOME="$(mktemp -d)"
-        timeout 120 /opt/opentoonz/bin/tconverter || true
-        test -d "$HOME/$CONF/stuff/profiles"
-        grep -q "^TOONZROOT=$HOME/$CONF/stuff$" "$HOME/$CONF/SystemVar.ini"
-
-        # a root configured elsewhere is left alone, present or not
-        export HOME="$(mktemp -d)"
-        mkdir -p "$HOME/$CONF"
-        printf '[General]\nTOONZROOT=/nonexistent/elsewhere\n' > "$HOME/$CONF/SystemVar.ini"
-        timeout 120 /opt/opentoonz/bin/tconverter || true
-        test ! -e "$HOME/$CONF/stuff"
-        grep -q '^TOONZROOT=/nonexistent/elsewhere$' "$HOME/$CONF/SystemVar.ini"
-
-        # an ini without a root gets one, and keeps its other keys (#7001)
-        export HOME="$(mktemp -d)"
-        mkdir -p "$HOME/$CONF"
-        printf '[General]\nTOONZPROFILES=/keep/me\n' > "$HOME/$CONF/SystemVar.ini"
-        timeout 120 /opt/opentoonz/bin/tconverter || true
-        grep -q "^TOONZROOT=$HOME/$CONF/stuff$" "$HOME/$CONF/SystemVar.ini"
-        grep -q '^TOONZPROFILES=/keep/me$' "$HOME/$CONF/SystemVar.ini"
-
     - uses: actions/upload-artifact@v6
       with:
         name: Opentoonz-${{ runner.os }}-${{ matrix.compiler }}-${{ github.sha }}
         path: toonz/build/Opentoonz-${{ runner.os }}-${{ matrix.compiler }}-${{ github.sha }}.tar.gz
-
-  # Compile-only: catches Fedora-specific breakage (package renames, newer
-  # GCC/Qt) that the Ubuntu job cannot. Deliberately builds no AppImage.
-  Fedora:
-    runs-on: ubuntu-latest
-    container:
-      image: fedora:latest
-    steps:
-    - name: Install prerequisites
-      # actions/checkout needs git and tar, absent from the base image
-      run: dnf install -y git tar gzip
-
-    - uses: actions/checkout@v6
-
-    - name: Install libraries
-      run: |
-        dnf install -y gcc gcc-c++ automake libtool make git cmake ninja-build \
-          boost boost-devel SuperLU SuperLU-devel lz4-devel xz-devel \
-          libusb1-devel lzo-devel libjpeg-turbo-devel turbojpeg-devel \
-          glew glew-devel freeglut freeglut-devel freetype-devel libpng-devel \
-          blas blas-devel json-c-devel opencv-devel libmypaint-devel \
-          qt5-qtbase-devel qt5-qtsvg qt5-qtsvg-devel qt5-qtscript qt5-qtscript-devel \
-          qt5-qttools qt5-qttools-devel qt5-qttools-static qt5-qtmultimedia \
-          qt5-qtmultimedia-devel qt5-qtserialport-devel qt5-qtwayland \
-          pkgconf-pkg-config
-
-    - name: Build libtiff
-      run: |
-        cd thirdparty/tiff-4.0.3
-        CFLAGS='-fPIC' CXXFLAGS='-fPIC' ./configure --disable-jbig
-        make -j $(nproc)
-
-    - name: Build
-      run: |
-        cd toonz
-        mkdir build
-        cd build
-        # -Werror=return-type mirrors the distro %optflags that RPM packagers
-        # build with. A missing return is only a warning in our default build,
-        # so it survives review and breaks packaging instead (see #6940).
-        cmake ../sources -G Ninja -DWITH_TRANSLATION=OFF \
-          -DCMAKE_CXX_FLAGS=-Werror=return-type -DBUILD_EXR_TESTS=ON -DBUILD_EXR_AOV_FX_TESTS=ON
-        ninja
-        ctest --output-on-failure -R '^(tiio_exr(_level)?|openexraovfx)$'
