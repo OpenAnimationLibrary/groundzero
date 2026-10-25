@@ -53,6 +53,18 @@
 #include <climits>
 
 namespace {
+// QDropEvent::pos() is deprecated in Qt 6, position() does not exist in Qt 5.
+template <class Event>
+QPoint dropEventPos(const Event *e) {
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+  return e->position().toPoint();
+#else
+  return e->pos();
+#endif
+}
+}  // namespace
+
+namespace {
 
 //-----------------------------------------------------------------------------
 /*! Removes the tag at \b frame, then adds \b tag if not null. The tag color
@@ -834,7 +846,7 @@ bool StoryboardPane::eventFilter(QObject *obj, QEvent *e) {
     if (!de->mimeData()->hasFormat(panelMime)) return false;
     int index;
     bool after;
-    if (dropTarget(de->position().toPoint(), index, after)) {
+    if (dropTarget(dropEventPos(de), index, after)) {
       de->acceptProposedAction();
       m_infoLabel->setText(
           after ? tr("Move the panel after \"%1\"").arg(panelCaption(index))
@@ -854,7 +866,7 @@ bool StoryboardPane::eventFilter(QObject *obj, QEvent *e) {
     updateInfoLabel();
     int index;
     bool after;
-    if (!dropTarget(de->position().toPoint(), index, after)) return true;
+    if (!dropTarget(dropEventPos(de), index, after)) return true;
     de->setDropAction(Qt::MoveAction);
     de->accept();
     movePanel(de->mimeData()->data(panelMime).toInt(), index, after);

@@ -22,6 +22,7 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QImage>
+#include <QMainWindow>
 #include <QSet>
 #include <QStringList>
 

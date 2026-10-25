@@ -21,6 +21,7 @@
 // so that they can be checked by tnztools/tests/artlayer_test.cpp.
 
 #include "tcommon.h"
+#include "tstroke.h"
 
 #include <string>
 
