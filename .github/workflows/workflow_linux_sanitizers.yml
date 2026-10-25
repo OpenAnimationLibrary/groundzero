@@ -1,0 +1,152 @@
+name: Linux Sanitizers
+
+# Builds the regression tests with AddressSanitizer and
+# UndefinedBehaviorSanitizer and runs them. Report-only: findings are listed in
+# the job summary and the uploaded logs, but never block a pull request.
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [edition]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  Sanitizers:
+    runs-on: ubuntu-22.04
+    continue-on-error: true
+    timeout-minutes: 120
+    env:
+      CCACHE_DIR: /home/runner/.ccache
+    steps:
+    - uses: actions/checkout@v6
+
+    # Same packages as the Ubuntu job in workflow_linux.yml, plus jq.
+    - name: Install libraries
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential cmake pkg-config ninja-build ccache libboost-all-dev qtbase5-dev qt5-qmake qtscript5-dev qttools5-dev qttools5-dev-tools qtmultimedia5-dev qtwayland5 libqt5svg5-dev libqt5opengl5-dev libqt5multimedia5-plugins libqt5serialport5-dev libsuperlu-dev liblz4-dev libusb-1.0-0-dev liblzo2-dev libpng-dev libjpeg-dev libglew-dev freeglut3-dev libfreetype6-dev libjson-c-dev libmypaint-dev libopencv-dev libturbojpeg-dev libomp-dev libfuse2 jq
+
+    - name: Set up cache
+      run: mkdir -p /home/runner/.ccache
+
+    - uses: actions/cache@v5
+      with:
+        path: /home/runner/.ccache
+        key: ${{ runner.os }}-sanitizers-${{ github.sha }}
+        restore-keys: |
+          ${{ runner.os }}-sanitizers-
+
+    # Not instrumented; it is linked in as a plain static library.
+    - name: Build libtiff
+      run: |
+        cd thirdparty/tiff-4.0.3
+        CFLAGS='-fPIC' CXXFLAGS='-fPIC' ./configure --disable-jbig
+        make -j $(nproc)
+
+    - name: Configure
+      run: |
+        cd toonz
+        mkdir build
+        cd build
+        cmake ../sources -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+          -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++ \
+          -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+          -DWITH_TRANSLATION=OFF -DBUILD_TESTS=ON \
+          -DWITH_SANITIZERS="address;undefined"
+
+    # Build only what ctest runs, not the application. Each test's executable
+    # is named after its target; anything that does not map to a target is
+    # left for ctest to report as missing.
+    - name: Build test targets
+      shell: bash
+      run: |
+        set -euo pipefail
+        cd toonz/build
+        mapfile -t tests < <(ctest --show-only=json-v1 |
+          jq -r '.tests[].command[0] // empty' | xargs -r -n1 basename | sort -u)
+        known=$(ninja -t targets all | cut -d: -f1)
+        targets=()
+        for t in "${tests[@]}"; do
+          if grep -qxF "$t" <<<"$known"; then
+            targets+=("$t")
+          else
+            echo "::warning::No build target for test executable '$t'"
+          fi
+        done
+        if [ ${#targets[@]} -eq 0 ]; then
+          echo "::warning::Could not list the test targets; building everything"
+          cmake --build .
+        else
+          echo "Building: ${targets[*]}"
+          cmake --build . --target "${targets[@]}"
+        fi
+
+    # The ASan runtime of GCC 11 can crash at startup with the 32 bits of mmap
+    # randomization that newer Ubuntu kernels default to. Harmless if the
+    # runner image already lowered it.
+    - name: Limit mmap randomization
+      run: sudo sysctl -w vm.mmap_rnd_bits=28
+
+    # detect_leaks=0: Qt and our global singletons are never freed by design,
+    # so LeakSanitizer would flag every test. Turn it on once those are
+    # suppressed.
+    # detect_odr_violation=1: OpenEXR is linked statically into several of our
+    # shared libraries and the tests, so the same globals exist in more than
+    # one module; only report copies whose sizes disagree.
+    # The large output limits keep every report in LastTest.log, where ctest
+    # otherwise cuts the output of passing tests to 1 KB.
+    - name: Run tests
+      shell: bash
+      env:
+        QT_QPA_PLATFORM: offscreen
+        ASAN_OPTIONS: detect_leaks=0:abort_on_error=0:detect_odr_violation=1
+        UBSAN_OPTIONS: print_stacktrace=1:report_error_type=1
+      run: |
+        set -o pipefail
+        cd toonz/build
+        ctest --output-on-failure --timeout 1200 \
+          --test-output-size-passed 10485760 --test-output-size-failed 10485760 \
+          2>&1 | tee ctest.log
+
+    - name: Summarize sanitizer reports
+      if: always()
+      shell: bash
+      run: |
+        log=toonz/build/Testing/Temporary/LastTest.log
+        {
+          echo "## Sanitizer reports"
+          echo
+          if [ ! -f "$log" ]; then
+            echo "No test log was written; the build or ctest did not run."
+            exit 0
+          fi
+          grep -ho 'SUMMARY: [A-Za-z]*Sanitizer: [^ ]*' "$log" |
+            awk '{ sub(/:$/, "", $3); print $2 " " $3 }' |
+            sort | uniq -c | sort -rn > reports.txt || true
+          if [ -s reports.txt ]; then
+            echo "| Sanitizer | Type | Reports |"
+            echo "| --- | --- | ---: |"
+            awk '{ sub(/:$/, "", $2); print "| " $2 " | " $3 " | " $1 " |" }' reports.txt
+          else
+            echo "No sanitizer reports."
+          fi
+          echo
+          grep -h 'tests passed' toonz/build/ctest.log || true
+        } >> "$GITHUB_STEP_SUMMARY"
+        if [ -s reports.txt ]; then
+          echo "::warning::$(awk '{ n += $1 } END { print n }' reports.txt) sanitizer report(s); see the job summary and the sanitizer-logs artifact"
+        fi
+
+    - uses: actions/upload-artifact@v6
+      if: always()
+      with:
+        name: sanitizer-logs-${{ github.sha }}
+        path: |
+          toonz/build/Testing/Temporary/LastTest.log
+          toonz/build/ctest.log
+        if-no-files-found: warn

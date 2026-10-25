@@ -742,6 +742,31 @@ endif()
 set(CMAKE_C_FLAGS "${C_WARNINGS} ${CMAKE_C_FLAGS}")
 set(CMAKE_CXX_FLAGS "${CXX_WARNINGS} ${CMAKE_CXX_FLAGS}")
 
+# Optional sanitizer instrumentation for CI and local debugging, e.g.
+# -DWITH_SANITIZERS="address;undefined". Every target configured below gets
+# it, the pinned OpenEXR included; configure checks do not. UBSan reports and
+# continues (the compiler default) so one run lists every finding; ASan stops
+# at its first report. Empty by default, which leaves the build unchanged.
+set(WITH_SANITIZERS "" CACHE STRING
+    "Sanitizers to build with (GCC/Clang only), e.g. \"address;undefined\"")
+if(WITH_SANITIZERS)
+    if(BUILD_ENV_MSVC OR NOT CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        message(FATAL_ERROR
+                "WITH_SANITIZERS is supported with GCC and Clang only")
+    endif()
+    string(REPLACE "," ";" _sanitizer_list "${WITH_SANITIZERS}")
+    if("address" IN_LIST _sanitizer_list AND "thread" IN_LIST _sanitizer_list)
+        message(FATAL_ERROR
+                "WITH_SANITIZERS: address and thread cannot be combined")
+    endif()
+    string(REPLACE ";" "," _sanitizers "${_sanitizer_list}")
+    add_compile_options(-fsanitize=${_sanitizers} -fno-omit-frame-pointer)
+    add_link_options(-fsanitize=${_sanitizers})
+    message(STATUS "Building with sanitizers: ${_sanitizers}")
+    unset(_sanitizer_list)
+    unset(_sanitizers)
+endif()
+
 include("${CMAKE_CURRENT_SOURCE_DIR}/../cmake/OpenEXR.cmake")
 
 # BUILD_TESTS turns on every regression test below and in the subdirectories

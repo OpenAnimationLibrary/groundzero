@@ -158,6 +158,21 @@ $ LANG=C make VERBOSE=1
 #### Debug Build
 If you need to debug the application, you should be able to use `cmake -DCMAKE_BUILD_TYPE=Debug`.
 
+#### Sanitizer Build
+`WITH_SANITIZERS` builds every target with GCC or Clang sanitizers. It takes
+the `-fsanitize=` list, separated by `;` or `,`, and is empty (off) by default.
+MSVC is not supported. To run the regression tests with AddressSanitizer and
+UndefinedBehaviorSanitizer, as the `Linux Sanitizers` workflow does:
+```
+$ cmake ../sources -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBUILD_TESTS=ON -DWITH_SANITIZERS="address;undefined"
+$ make -j$(nproc)
+$ QT_QPA_PLATFORM=offscreen ASAN_OPTIONS=detect_leaks=0:detect_odr_violation=1 UBSAN_OPTIONS=print_stacktrace=1 ctest --output-on-failure
+```
+UndefinedBehaviorSanitizer reports each finding and carries on; add
+`halt_on_error=1` to `UBSAN_OPTIONS` to stop at the first one instead.
+AddressSanitizer always stops at its first report. Leak detection is off
+because Qt and the global singletons are intentionally never freed.
+
 
 ### Running OpenToonz
 
