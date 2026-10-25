@@ -165,6 +165,7 @@ void ensureNewPanelActions(QMenu *windowsMenu) {
   ensurePanelAction(windowsMenu, MI_OpenSymbols);
   ensurePanelAction(windowsMenu, MI_OpenPosesPanel);
   ensurePanelAction(windowsMenu, MI_OpenReferencePanel);
+  ensurePanelAction(windowsMenu, MI_OpenDrawingSubstitutionPanel);
 }
 
 }  // namespace
@@ -1655,6 +1656,7 @@ QMenuBar *StackedMenuBar::createFullMenuBar() {
   addMenuItem(windowsMenu, MI_OpenGuidedDrawingControls);
   addMenuItem(windowsMenu, MI_OpenAlignmentPanel);
   addMenuItem(windowsMenu, MI_OpenPosesPanel);
+  addMenuItem(windowsMenu, MI_OpenDrawingSubstitutionPanel);
   addMenuItem(windowsMenu, MI_OpenSymbols);
   addMenuItem(windowsMenu, MI_OpenReferencePanel);
   addMenuItem(windowsMenu, MI_OpenCustomPanels);

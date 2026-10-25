@@ -220,6 +220,7 @@
     <command>MI_OpenCustomPanels</command>
     <command>MI_OpenAlignmentPanel</command>
     <command>MI_OpenPosesPanel</command>
+    <command>MI_OpenDrawingSubstitutionPanel</command>
     <separator/>
     <command>MI_ResetRoomLayout</command>
   </menu>

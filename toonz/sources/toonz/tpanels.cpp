@@ -4,6 +4,7 @@
 #include "alignmentpane.h"
 #include "posespane.h"
 #include "referencepanel.h"
+#include "drawingsubstitutionpane.h"
 
 // Tnz6 includes
 #include "pane.h"
@@ -1900,3 +1901,20 @@ public:
 OpenFloatingPanel openReferencePanelCommand(MI_OpenReferencePanel,
                                             "ReferencePanel",
                                             QObject::tr("Reference"));
+// Drawing Substitution
+//-----------------------------------------------------------------------------
+
+class DrawingSubstitutionPanelFactory final : public TPanelFactory {
+public:
+  DrawingSubstitutionPanelFactory()
+      : TPanelFactory("DrawingSubstitutionPanel") {}
+  void initialize(TPanel *panel) override {
+    panel->setWidget(new DrawingSubstitutionPane(panel));
+    panel->setWindowTitle(QObject::tr("Drawing Substitution"));
+    panel->setIsMaximizable(false);
+  }
+} drawingSubstitutionPanelFactory;
+
+OpenFloatingPanel openDrawingSubstitutionPanelCommand(
+    MI_OpenDrawingSubstitutionPanel, "DrawingSubstitutionPanel",
+    QObject::tr("Drawing Substitution"));

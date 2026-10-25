@@ -117,6 +117,7 @@ set(MOC_HEADERS
     alignmentpane.h
     posespane.h
     referencepanel.h
+    drawingsubstitutionpane.h
     symbolspane.h
     vectorguideddrawingpane.h
     vectorizerpopup.h
@@ -328,6 +329,7 @@ set(SOURCES
     alignmentpane.cpp
     posespane.cpp
     referencepanel.cpp
+    drawingsubstitutionpane.cpp
     symbolspane.cpp
     vectorguideddrawingpane.cpp
     vectorizerpopup.cpp

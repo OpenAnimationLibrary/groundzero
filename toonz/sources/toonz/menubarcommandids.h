@@ -542,5 +542,6 @@
 #define MI_OpenPosesPanel "MI_OpenPosesPanel"
 #define MI_OpenSymbols "MI_OpenSymbols"
 #define MI_OpenReferencePanel "MI_OpenReferencePanel"
+#define MI_OpenDrawingSubstitutionPanel "MI_OpenDrawingSubstitutionPanel"
 
 #endif

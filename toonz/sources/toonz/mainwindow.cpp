@@ -2895,6 +2895,8 @@ void MainWindow::defineActions() {
   createMenuWindowsAction(MI_OpenAlignmentPanel,
                           QT_TR_NOOP("Align and Distribute Panel"), "", "");
   createMenuWindowsAction(MI_OpenPosesPanel, QT_TR_NOOP("&Poses"), "", "");
+  createMenuWindowsAction(MI_OpenDrawingSubstitutionPanel,
+                          QT_TR_NOOP("Drawing Substitution"), "", "");
   createMenuWindowsAction(MI_OpenSymbols, QT_TR_NOOP("Symbols"), "", "");
   createMenuWindowsAction(MI_OpenReferencePanel, QT_TR_NOOP("&Reference"), "",
                           "");
