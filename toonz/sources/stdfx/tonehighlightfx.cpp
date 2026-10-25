@@ -137,7 +137,8 @@ public:
   }
 
   bool canHandle(const TRenderSettings &info, double frame) override {
-    return true;
+    // The matte blur is isotropic, as in BlurFx
+    return m_softness->getValue(frame) == 0 || isAlmostIsotropic(info.m_affine);
   }
 
   int getSoftnessRadius(double frame, const TRenderSettings &info) {
