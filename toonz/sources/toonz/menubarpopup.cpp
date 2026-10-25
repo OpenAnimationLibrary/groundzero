@@ -107,14 +107,14 @@ void MenuBarTree::loadMenuTree(const TFilePath& fp) {
   QXmlStreamReader reader(&file);
 
   if (reader.readNextStartElement()) {
-    if (reader.name() == "menubar") {
+    if (reader.name().toString() == "menubar") {
       while (reader.readNextStartElement()) {
-        if (reader.name() == "menu") {
+        if (reader.name().toString() == "menu") {
           QString title = reader.attributes().value("title").toString();
           auto* menu    = new MenuBarSubmenuItem(nullptr, title);  // use auto
           addTopLevelItem(menu);
           loadMenuRecursive(reader, menu);
-        } else if (reader.name() == "command") {
+        } else if (reader.name().toString() == "command") {
           QString cmdName = reader.readElementText();
           QAction* action = CommandManager::instance()->getAction(
               cmdName.toStdString().c_str());  // keep as is
@@ -139,11 +139,11 @@ void MenuBarTree::loadMenuTree(const TFilePath& fp) {
 void MenuBarTree::loadMenuRecursive(QXmlStreamReader& reader,
                                     QTreeWidgetItem* parentItem) {
   while (reader.readNextStartElement()) {
-    if (reader.name() == "menu") {
+    if (reader.name().toString() == "menu") {
       QString title = reader.attributes().value("title").toString();
       auto* subMenu = new MenuBarSubmenuItem(parentItem, title);
       loadMenuRecursive(reader, subMenu);
-    } else if (reader.name() == "command") {
+    } else if (reader.name().toString() == "command") {
       QString cmdName = reader.readElementText();
       QAction* action =
           CommandManager::instance()->getAction(cmdName.toStdString().c_str());
@@ -152,7 +152,7 @@ void MenuBarTree::loadMenuRecursive(QXmlStreamReader& reader,
         // added to parent
         new CommandItem(parentItem, action);
       }
-    } else if (reader.name() == "command_debug") {
+    } else if (reader.name().toString() == "command_debug") {
 #ifndef NDEBUG
       QString cmdName = reader.readElementText();
       QAction* action =
@@ -163,7 +163,7 @@ void MenuBarTree::loadMenuRecursive(QXmlStreamReader& reader,
 #else
       reader.skipCurrentElement();
 #endif
-    } else if (reader.name() == "separator") {
+    } else if (reader.name().toString() == "separator") {
       new SeparatorItem(parentItem);
       reader.skipCurrentElement();
     } else

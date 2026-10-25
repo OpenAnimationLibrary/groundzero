@@ -25,7 +25,6 @@
 #include <array>
 #include <QColor>
 #include <QMatrix4x4>
-#include <QTouchDevice>
 
 //=====================================================================
 
@@ -91,7 +90,7 @@ class SceneViewer final : public TToolViewer, public Previewer::Listener {
   bool m_shownOnce                       = false;
   bool m_gestureActive                   = false;
   bool m_touchActive                     = false;
-  QTouchDevice::DeviceType m_touchDevice = QTouchDevice::TouchScreen;
+  TTouchDeviceType m_touchDevice         = TTouchDeviceType::TouchScreen;
   bool m_rotating                        = false;
   bool m_zooming                         = false;
   bool m_panning                         = false;

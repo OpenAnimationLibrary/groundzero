@@ -1996,11 +1996,11 @@ bool StopMotion::loadXmlFile() {
   xmlReader.readNext();
   while (!xmlReader.atEnd()) {
     if (xmlReader.isStartElement()) {
-      if (xmlReader.name() == "Webcam") {
+      if (xmlReader.name().toString() == "Webcam") {
         text = xmlReader.readElementText();
         if (text == "yes") webcam = true;
       }
-      if (xmlReader.name() == "CameraName") {
+      if (xmlReader.name().toString() == "CameraName") {
         text = xmlReader.readElementText();
         if (webcam) {
           QList<QCameraInfo> cameras = QCameraInfo::availableCameras();
@@ -2028,11 +2028,11 @@ bool StopMotion::loadXmlFile() {
 #endif
         }
       }
-      if (xmlReader.name() == "CameraResolutionX") {
+      if (xmlReader.name().toString() == "CameraResolutionX") {
         text = xmlReader.readElementText();
         x    = text.toInt();
       }
-      if (xmlReader.name() == "CameraResolutionY") {
+      if (xmlReader.name().toString() == "CameraResolutionY") {
         text = xmlReader.readElementText();
         y    = text.toInt();
         if (foundCamera == true && webcam == true) {
@@ -2041,59 +2041,59 @@ bool StopMotion::loadXmlFile() {
         }
       }
 #ifdef WITH_CANON
-      if (xmlReader.name() == "Aperture") {
+      if (xmlReader.name().toString() == "Aperture") {
         text = xmlReader.readElementText();
         if (foundCamera == true && webcam == false) {
           m_canon->setAperture(text);
         }
       }
-      if (xmlReader.name() == "ShutterSpeed") {
+      if (xmlReader.name().toString() == "ShutterSpeed") {
         text = xmlReader.readElementText();
         if (foundCamera == true && webcam == false) {
           m_canon->setShutterSpeed(text);
         }
       }
-      if (xmlReader.name() == "ISO") {
+      if (xmlReader.name().toString() == "ISO") {
         text = xmlReader.readElementText();
         if (foundCamera == true && webcam == false) {
           m_canon->setIso(text);
         }
       }
-      if (xmlReader.name() == "PictureStyle") {
+      if (xmlReader.name().toString() == "PictureStyle") {
         text = xmlReader.readElementText();
         if (foundCamera == true && webcam == false) {
           m_canon->setPictureStyle(text);
         }
       }
-      if (xmlReader.name() == "ImageQuality") {
+      if (xmlReader.name().toString() == "ImageQuality") {
         text = xmlReader.readElementText();
         if (foundCamera == true && webcam == false) {
           m_canon->setImageQuality(text);
         }
       }
-      if (xmlReader.name() == "WhiteBalance") {
+      if (xmlReader.name().toString() == "WhiteBalance") {
         text = xmlReader.readElementText();
         if (foundCamera == true && webcam == false) {
           m_canon->setWhiteBalance(text);
         }
       }
-      if (xmlReader.name() == "ColorTemperature") {
+      if (xmlReader.name().toString() == "ColorTemperature") {
         text = xmlReader.readElementText();
         if (foundCamera == true && webcam == false) {
           m_canon->setColorTemperature(text);
         }
       }
-      if (xmlReader.name() == "ExposureCompensation") {
+      if (xmlReader.name().toString() == "ExposureCompensation") {
         text = xmlReader.readElementText();
         if (foundCamera == true && webcam == false) {
           m_canon->setExposureCompensation(text);
         }
       }
-      if (xmlReader.name() == "FocusCheckLocationX") {
+      if (xmlReader.name().toString() == "FocusCheckLocationX") {
         text                        = xmlReader.readElementText();
         m_canon->m_finalZoomPoint.x = text.toInt();
       }
-      if (xmlReader.name() == "FocusCheckLocationY") {
+      if (xmlReader.name().toString() == "FocusCheckLocationY") {
         text                        = xmlReader.readElementText();
         m_canon->m_finalZoomPoint.y = text.toInt();
       }

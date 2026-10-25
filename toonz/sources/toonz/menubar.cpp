@@ -397,9 +397,9 @@ QMenuBar *StackedMenuBar::loadMenuBar(const TFilePath &fp) {
   QMenuBar *menuBar = new QMenuBar(this);
 
   if (reader.readNextStartElement()) {
-    if (reader.name() == "menubar") {
+    if (reader.name().toString() == "menubar") {
       while (reader.readNextStartElement()) {
-        if (reader.name() == "menu") {
+        if (reader.name().toString() == "menu") {
           QString title = reader.attributes().value("title").toString();
           /*- Menu title will be translated if the title is registered in
            * translation file -*/
@@ -416,7 +416,7 @@ QMenuBar *StackedMenuBar::loadMenuBar(const TFilePath &fp) {
             reader.raiseError(tr("Failed to load menu %1").arg(title));
             delete menu;
           }
-        } else if (reader.name() == "command") {
+        } else if (reader.name().toString() == "command") {
           // Read the optional 'label' attribute for display
           QString displayLabel = reader.attributes().value("label").toString();
           QString cmdName      = reader.readElementText();
@@ -454,7 +454,7 @@ QMenuBar *StackedMenuBar::loadMenuBar(const TFilePath &fp) {
 
 bool StackedMenuBar::readMenuRecursive(QXmlStreamReader &reader, QMenu *menu) {
   while (reader.readNextStartElement()) {
-    if (reader.name() == "menu") {
+    if (reader.name().toString() == "menu") {
       QString title  = reader.attributes().value("title").toString();
       QMenu *subMenu = new QMenu(tr(title.toStdString().c_str()));
 
@@ -465,7 +465,7 @@ bool StackedMenuBar::readMenuRecursive(QXmlStreamReader &reader, QMenu *menu) {
         delete subMenu;
         return false;
       }
-    } else if (reader.name() == "command") {
+    } else if (reader.name().toString() == "command") {
       QString displayLabel = reader.attributes().value("label").toString();
       QString cmdName      = reader.readElementText();
       QAction *action =
@@ -476,7 +476,7 @@ bool StackedMenuBar::readMenuRecursive(QXmlStreamReader &reader, QMenu *menu) {
         }
         menu->addAction(action);
       }
-    } else if (reader.name() == "command_debug") {
+    } else if (reader.name().toString() == "command_debug") {
 #ifndef NDEBUG
       QString displayLabel = reader.attributes().value("label").toString();
       QString cmdName      = reader.readElementText();
@@ -491,7 +491,7 @@ bool StackedMenuBar::readMenuRecursive(QXmlStreamReader &reader, QMenu *menu) {
 #else
       reader.skipCurrentElement();
 #endif
-    } else if (reader.name() == "separator") {
+    } else if (reader.name().toString() == "separator") {
       menu->addSeparator();
       reader.skipCurrentElement();
     } else {
