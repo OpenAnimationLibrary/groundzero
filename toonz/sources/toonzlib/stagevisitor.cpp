@@ -8,6 +8,7 @@
 #include "tvectorgl.h"
 #include "tvectorrenderdata.h"
 #include "tcolorfunctions.h"
+#include "tfxattributes.h"
 #include "tpalette.h"
 #include "tropcm.h"
 #include "trasterimage.h"

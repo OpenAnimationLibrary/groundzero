@@ -5,6 +5,8 @@
 
 #include <set>
 
+#include "tcommon.h"
+
 #undef DVAPI
 #undef DVVAR
 #ifdef TOONZLIB_EXPORTS
