@@ -129,4 +129,35 @@ private:
   TUndoScopedBlock &operator=(const TUndoScopedBlock &);
 };
 
+//************************************************************************
+//    TUndoLazyBlock  class
+//************************************************************************
+
+//! Opens an undo block on the first call to open() and closes it when it
+//! goes out of scope, so every return path leaves the undo stack balanced.
+class TUndoLazyBlock {
+  bool m_open = false;
+
+public:
+  TUndoLazyBlock() {}
+  ~TUndoLazyBlock() { close(); }
+
+  void open() {
+    if (m_open) return;
+    TUndoManager::manager()->beginBlock();
+    m_open = true;
+  }
+  void close() {
+    if (!m_open) return;
+    TUndoManager::manager()->endBlock();
+    m_open = false;
+  }
+  bool isOpen() const { return m_open; }
+
+private:
+  // Noncopyable
+  TUndoLazyBlock(const TUndoLazyBlock &);
+  TUndoLazyBlock &operator=(const TUndoLazyBlock &);
+};
+
 #endif  // T_UNDO_INCLUDED
