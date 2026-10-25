@@ -528,5 +528,6 @@
 
 #define MI_OpenLocator "MI_OpenLocator"
 #define MI_OpenAlignmentPanel "MI_OpenAlignmentPanel"
+#define MI_OpenPosesPanel "MI_OpenPosesPanel"
 
 #endif

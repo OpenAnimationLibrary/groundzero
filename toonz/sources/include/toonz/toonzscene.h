@@ -36,6 +36,7 @@ class TXshLevel;
 class TXshSoundColumn;
 class TContentHistory;
 class LevelOptions;
+class PoseLibrary;
 
 //========================================================================
 
@@ -98,6 +99,9 @@ public:
   TLevelSet *getLevelSet() const {
     return m_levelSet;
   }  //!< Returns a pointer to the scene's <I>Level Set</I>.
+
+  //! Returns the scene's library of additive rig poses.
+  PoseLibrary *getPoseLibrary() const { return m_poseLibrary; }
 
   void clear();  //!< Clears the scene.
 
@@ -293,6 +297,7 @@ private:
   ChildStack *m_childStack;  //!< Xsheet hierarchy.
   TSceneProperties *m_properties;
   TLevelSet *m_levelSet;
+  PoseLibrary *m_poseLibrary;
   std::shared_ptr<TProject> m_project;
   TContentHistory *m_contentHistory;
   bool m_isUntitled;              //!< Whether the scene is untitled.
