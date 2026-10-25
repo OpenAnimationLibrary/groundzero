@@ -79,6 +79,7 @@ namespace {
 class FullColorBrushUndo final : public ToolUtils::TFullColorRasterUndo {
   TPoint m_offset;
   QString m_id;
+  TINT64 m_rasSize;  // bytes of the cached "after" raster
 
 public:
   FullColorBrushUndo(TTileSetFullColor *tileSet, TXshSimpleLevel *level,
@@ -86,7 +87,8 @@ public:
                      const TRasterP &ras, const TPoint &offset)
       : ToolUtils::TFullColorRasterUndo(tileSet, level, frameId, isFrameCreated,
                                         false, 0)
-      , m_offset(offset) {
+      , m_offset(offset)
+      , m_rasSize(getRasterMemorySize(ras.getPointer())) {
     static int counter = 0;
 
     m_id = QString("FullColorBrushUndo") + QString::number(counter++);
@@ -110,7 +112,8 @@ public:
   }
 
   int getSize() const override {
-    return sizeof(*this) + ToolUtils::TFullColorRasterUndo::getSize();
+    return clampSize((TINT64)sizeof(*this) + m_rasSize +
+                     ToolUtils::TFullColorRasterUndo::getSize());
   }
 
   QString getToolName() override { return QString("Raster Brush Tool"); }
