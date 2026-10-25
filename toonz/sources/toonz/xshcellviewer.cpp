@@ -4359,13 +4359,14 @@ void CellArea::onStepChanged(QAction *act) {
   }
   param         = stageObject->getParam(TStageObject::T_RotX);
   keyFrameIndex = param->getClosestKeyframe(frame);
-  if (keyFrameIndex >= 0) {
+  // The tilt channels may not be part of the key: step only a key at frame
+  if (keyFrameIndex >= 0 && param->isKeyframe(frame)) {
     setParamStep(keyFrameIndex, step,
                  stageObject->getParam(TStageObject::T_RotX));
   }
   param         = stageObject->getParam(TStageObject::T_RotY);
   keyFrameIndex = param->getClosestKeyframe(frame);
-  if (keyFrameIndex >= 0) {
+  if (keyFrameIndex >= 0 && param->isKeyframe(frame)) {
     setParamStep(keyFrameIndex, step,
                  stageObject->getParam(TStageObject::T_RotY));
   }
