@@ -7,6 +7,9 @@
 #include "toonz/toonzfolders.h"
 #include <QJSEngine>
 #include <QJSValue>
+#include <QCoreApplication>
+#include <QEvent>
+#include <QSemaphore>
 #include <QFile>
 #include <QTextStream>
 #include <QThread>
@@ -15,6 +18,7 @@
 #include <QDeadlineTimer>
 #include <QtGlobal>
 
+#include <atomic>
 #include <climits>
 
 //=========================================================
@@ -113,16 +117,37 @@ public:
   QWaitCondition m_evaluationDone;
   bool m_evaluating;
 
-  Executor() : m_evaluating(false) { m_context.moveToThread(&m_thread); }
+  // set when the ScriptEngine is being destroyed: runOnMainThread() then
+  // doesn't run its function any more
+  std::atomic<bool> m_stopping;
+
+  Executor() : m_evaluating(false), m_stopping(false) {
+    m_context.moveToThread(&m_thread);
+  }
 
   bool isScriptThread() const { return QThread::currentThread() == &m_thread; }
 
-  // runs f on the script thread and waits for it
-  void runOnScriptThread(const std::function<void()> &f) {
+  // runs f on the script thread and waits for it. When called on the thread
+  // of owner, the calls the script queues to owner (see runOnMainThread())
+  // are delivered while waiting, so that the two threads can't wait for
+  // each other.
+  void runOnScriptThread(QObject *owner, const std::function<void()> &f) {
     if (isScriptThread())
       f();
-    else
+    else if (QThread::currentThread() != owner->thread())
       QMetaObject::invokeMethod(&m_context, f, Qt::BlockingQueuedConnection);
+    else {
+      QSemaphore done;
+      QMetaObject::invokeMethod(
+          &m_context,
+          [&f, &done]() {
+            f();
+            done.release();
+          },
+          Qt::QueuedConnection);
+      while (!done.tryAcquire(1, 20))
+        QCoreApplication::sendPostedEvents(owner, QEvent::MetaCall);
+    }
   }
 };
 
@@ -146,7 +171,7 @@ ScriptEngine::ScriptEngine()
       Qt::DirectConnection);
   m_executor->m_thread.start();
 
-  m_executor->runOnScriptThread([this]() {
+  m_executor->runOnScriptThread(this, [this]() {
     m_engine          = new QJSEngine();
     QJSEngine &engine = *m_engine;
 
@@ -178,15 +203,19 @@ ScriptEngine::ScriptEngine()
 
 ScriptEngine::~ScriptEngine() {
   // stop the running script (if any), then the thread: when it ends it
-  // destroys the engine
+  // destroys the engine. The script could be waiting for a call queued to
+  // this thread (see runOnMainThread()): keep delivering them, while
+  // m_stopping makes them return without running.
+  m_executor->m_stopping = true;
   interrupt();
   m_executor->m_thread.quit();
-  m_executor->m_thread.wait();
+  while (!m_executor->m_thread.wait(20))
+    QCoreApplication::sendPostedEvents(this, QEvent::MetaCall);
   delete m_executor;
 }
 
 void ScriptEngine::defineFunction(const QString &name, const Function &f) {
-  m_executor->runOnScriptThread([this, name, f]() {
+  m_executor->runOnScriptThread(this, [this, name, f]() {
     TScriptBinding::defineFunction(*m_engine, name, f);
   });
 }
@@ -194,8 +223,13 @@ void ScriptEngine::defineFunction(const QString &name, const Function &f) {
 void ScriptEngine::runOnMainThread(const std::function<void()> &f) {
   if (QThread::currentThread() == thread())
     f();
-  else
-    QMetaObject::invokeMethod(this, f, Qt::BlockingQueuedConnection);
+  else if (!m_executor->m_stopping)
+    QMetaObject::invokeMethod(
+        this,
+        [this, &f]() {
+          if (!m_executor->m_stopping) f();
+        },
+        Qt::BlockingQueuedConnection);
 }
 
 void ScriptEngine::evaluate(const QString &cmd) {
@@ -259,4 +293,6 @@ void ScriptEngine::interrupt() {
   if (m_executor->m_evaluating && m_engine) m_engine->setInterrupted(true);
 }
 
-void ScriptEngine::onTerminated() { emit evaluationDone(); }
+void ScriptEngine::onTerminated() {
+  if (!m_executor->m_stopping) emit evaluationDone();
+}
