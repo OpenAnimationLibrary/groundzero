@@ -198,8 +198,6 @@ jobs:
           cmake ..\sources -G "%MSVCVERSION%" -Ax64 -DQT_PATH="%QT_PATH%" -DBOOST_ROOT="%BOOST_ROOT%" -DOpenCV_DIR="%OpenCV_DIR%" -DWITH_WINTAB=Y
         shell: cmd
 
-      # Run the focused regression before the longer application build.
-      # Run the focused regression before the longer application build.
       # Build Opentoonz using MSBuild
       - name: Build Opentoonz
         run: |
