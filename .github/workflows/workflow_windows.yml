@@ -42,7 +42,7 @@ permissions:
 
 jobs:
   Branding:
-    if: github.repository == 'OpenAnimationLibrary/opentoonz-dev'
+    if: github.repository_owner == 'OpenAnimationLibrary'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -57,7 +57,7 @@ jobs:
         run: python3 -m unittest discover -s .github/ot-dev -p 'test_*.py' -v
 
   RecorderEncoder:
-    if: github.repository == 'OpenAnimationLibrary/opentoonz-dev'
+    if: github.repository_owner == 'OpenAnimationLibrary'
     runs-on: windows-2025
     steps:
       - uses: actions/checkout@v6
