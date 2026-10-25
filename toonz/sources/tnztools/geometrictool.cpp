@@ -1374,7 +1374,10 @@ bool GeometricTool::onPropertyChanged(std::string propertyName) {
   /*--- Process by changed Property.
           Note: m_toolSize and m_rasterToolSize have the same Name(="Size:"), so
           distinguish by whether the image being handled is raster or not ---*/
-  if (ArtLayer::onPropertyChanged(propertyName)) return true;
+  if (ArtLayer::onPropertyChanged(propertyName)) {
+    invalidate();  // "Show Art:" changes what the viewer shows
+    return true;
+  }
   if (propertyName == m_param.m_toolSize.getName()) {
     TImageP img = getImage(false);
     TToonzImageP ri(img); /*-- Judgment of whether it is raster or not --*/

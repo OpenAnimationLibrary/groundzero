@@ -1145,7 +1145,10 @@ void EraserTool::mouseMove(const TPointD &pos, const TMouseEvent &e) {
 //----------------------------------------------------------------------
 
 bool EraserTool::onPropertyChanged(std::string propertyName) {
-  if (ArtLayer::onPropertyChanged(propertyName)) return true;
+  if (ArtLayer::onPropertyChanged(propertyName)) {
+    invalidate();  // "Show Art:" changes what the viewer shows
+    return true;
+  }
   EraseVectorType          = ::to_string(m_eraseType.getValue());
   EraseVectorInterpolation = ::to_string(m_interpolation.getValue());
   EraseVectorSize          = m_toolSize.getValue();

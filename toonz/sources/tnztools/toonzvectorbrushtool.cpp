@@ -1865,7 +1865,10 @@ void ToonzVectorBrushTool::resetFrameRange() {
 
 bool ToonzVectorBrushTool::onPropertyChanged(std::string propertyName) {
   if (m_propertyUpdating) return true;
-  if (ArtLayer::onPropertyChanged(propertyName)) return true;
+  if (ArtLayer::onPropertyChanged(propertyName)) {
+    invalidate();  // "Show Art:" changes what the viewer shows
+    return true;
+  }
 
   // Set the following to true whenever a different piece of interface must
   // be refreshed - done once at the end.
