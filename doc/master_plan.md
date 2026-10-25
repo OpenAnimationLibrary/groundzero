@@ -147,6 +147,24 @@ Built (not yet confirmed by a CI build when this was written); see
 | E4 | Xsheet > Add Tone / Highlight Shading: a Tone and a Highlight Fx with preset parameters on the selected columns, one undo step | The matte ports are left to connect; no automatic line-art matte |
 | E5 | Reference panel: several images in a list, zoom, pan, flips, rotation and opacity remembered per image, PSD layers as entries | PSD layers shown one at a time, without visibility or blend modes |
 
+### Tier 10 and 11 status
+
+Built, not yet confirmed by a CI build on Linux when this was written:
+
+| # | Delivered | Still open |
+|---|---|---|
+| D1 | Static Qt 6 audit: `menuOfAction`, `canConvert<T>`, Windows-only header and tablet code guarded, debug-only code (`doc/qt6_port_status.md`) | The compiler's findings from one run of the manual Qt 6 workflow; Windows Ink under Qt 6 untested |
+| D2 | Bounds and overflow fixes in the PSD, PLI and EXR readers, fuzz seeds, known-issues list (`doc/loader_known_issues.md`) | Fuzz harnesses never run; a few leaks and wrong-output cases listed in the doc |
+| D3 | Not done: needs reference images from a CI run | Take the PNGs from the first successful render-test run |
+| D4 | JS and Python: image pixels, level frames, scene columns, render a frame, current UI scene (`doc/script_api.md`); fixes `Renderer.onRenderFinished` never overriding the port | Pixel access on Raster images only |
+| D5 | 270 entries added to each of 11 languages' `.ts` files, marked unfinished (`doc/translations_status.md`) | FX names in `current.txt`; strings outside Tiers 2 to 6 |
+| E1 | Rig Breakdown and Rig Ease commands in the Cells menu and cell menu (`doc/rig_breakdown_ease.md`) | No toolbar button; Plastic and offset-layer curves not edited |
+| E2 | File > Export > Export Layered PSD, one layer per top-level column (`doc/layered_psd_export.md`) | Top-level columns only; no blend modes |
+| E3 | Light Table Opacity preference, per-column exclusion (`doc/light_table_extras.md`) | Opacity is global |
+| E4 | Add Tone / Highlight Shading command | Matte ports are left unconnected |
+| E5 | Reference panel: several images, remembered view state, PSD layers | One PSD layer at a time |
+| E6 | Not done: needs profiling first (C3 gives compressed scenes) | Profile a large scene save and load |
+
 ---
 
 ## Order at a glance
