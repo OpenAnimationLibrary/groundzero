@@ -30,6 +30,7 @@ enum PreferencesItemId {
   moveCurrentFrameByClickCellArea,
   actualPixelViewOnSceneEditingMode,
   showRasterImagesDarkenBlendedInViewer,
+  gpuCompositingInViewer,
   iconSize,
   viewShrink,
   viewStep,
