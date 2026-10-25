@@ -7,6 +7,7 @@
 #include "tfilepath.h"
 
 #include <set>
+#include <utility>
 #include <vector>
 
 // Forward declarations
@@ -71,11 +72,17 @@ void moveToScene(TXshSoundLevel *sl);
 // Inbetween interpolation types and functions
 enum InbetweenInterpolation { II_Linear, II_EaseIn, II_EaseOut, II_EaseInOut };
 
+// strokePairs optionally forces the (fid0 stroke index, fid1 stroke index)
+// matching of the strokes; see TInbetween::StrokeCorrespondence
 void inbetweenWithoutUndo(TXshSimpleLevel *sl, const TFrameId &fid0,
                           const TFrameId &fid1,
-                          InbetweenInterpolation interpolation);
+                          InbetweenInterpolation interpolation,
+                          const std::vector<std::pair<int, int>> &strokePairs =
+                              std::vector<std::pair<int, int>>());
 void inbetween(TXshSimpleLevel *sl, const TFrameId &fid0, const TFrameId &fid1,
-               InbetweenInterpolation interpolation);
+               InbetweenInterpolation interpolation,
+               const std::vector<std::pair<int, int>> &strokePairs =
+                   std::vector<std::pair<int, int>>());
 
 // Renumber a single drawing
 void renumberDrawing(TXshSimpleLevel *sl, const TFrameId &oldFid,

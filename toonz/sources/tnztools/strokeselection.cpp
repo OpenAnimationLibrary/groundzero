@@ -4,6 +4,7 @@
 #include "vectorselectiontool.h"
 #include "toonz/tcolumnhandle.h"
 #include "toonz/tcamera.h"
+#include <algorithm>
 #include <cmath>
 
 // TnzTools includes
@@ -681,6 +682,118 @@ void StrokeSelection::sortWithPaletteOrder() {
 
 //=============================================================================
 //
+// Inbetween stroke pairs
+//
+//-----------------------------------------------------------------------------
+
+namespace {
+
+// Strokes are identified by id, which is unique in the session, so the hints
+// silently stop applying when the paired strokes no longer exist.
+struct InbetweenStrokePairs {
+  const TVectorImage *m_markedImage = nullptr;  // only compared
+  std::vector<int> m_markedIds;
+  std::vector<std::pair<int, int>> m_pairs;
+};
+
+InbetweenStrokePairs &inbetweenStrokePairs() {
+  static InbetweenStrokePairs pairs;
+  return pairs;
+}
+
+}  // namespace
+
+//-----------------------------------------------------------------------------
+
+void StrokeSelection::pairStrokesForInbetween() {
+  if (!m_vi || m_indexes.empty()) return;
+
+  std::vector<int> ids;
+  for (int index : selectionOrder())
+    ids.push_back(m_vi->getStroke(index)->getId());
+
+  InbetweenStrokePairs &data = inbetweenStrokePairs();
+
+  // first step: remember the strokes selected in the first key drawing
+  if (data.m_markedIds.empty() || data.m_markedImage == m_vi.getPointer()) {
+    data.m_markedImage = m_vi.getPointer();
+    data.m_markedIds   = ids;
+    DVGui::info(
+        QObject::tr("%1 stroke(s) marked for Inbetween. Select the matching "
+                    "strokes in the other key drawing, in the same order, "
+                    "and use Pair Strokes for Inbetween again.")
+            .arg((int)ids.size()));
+    return;
+  }
+
+  // second step: pair them with the strokes selected in this key drawing
+  if (ids.size() != data.m_markedIds.size()) {
+    DVGui::warning(
+        QObject::tr("The number of selected strokes (%1) does not match the "
+                    "number of marked strokes (%2).")
+            .arg((int)ids.size())
+            .arg((int)data.m_markedIds.size()));
+    return;
+  }
+
+  for (int i = 0; i < (int)ids.size(); i++) {
+    int id0 = data.m_markedIds[i], id1 = ids[i];
+    // a new pair replaces the previous pairs of the same strokes
+    data.m_pairs.erase(
+        std::remove_if(data.m_pairs.begin(), data.m_pairs.end(),
+                       [id0, id1](const std::pair<int, int> &pair) {
+                         return pair.first == id0 || pair.second == id0 ||
+                                pair.first == id1 || pair.second == id1;
+                       }),
+        data.m_pairs.end());
+    data.m_pairs.push_back(std::make_pair(id0, id1));
+  }
+  data.m_markedImage = nullptr;
+  data.m_markedIds.clear();
+
+  DVGui::info(
+      QObject::tr("%1 stroke pair(s) set for Inbetween.").arg((int)ids.size()));
+}
+
+//-----------------------------------------------------------------------------
+
+void StrokeSelection::clearInbetweenStrokePairs() {
+  InbetweenStrokePairs &data = inbetweenStrokePairs();
+  data.m_markedImage         = nullptr;
+  data.m_markedIds.clear();
+  data.m_pairs.clear();
+}
+
+//-----------------------------------------------------------------------------
+
+bool StrokeSelection::hasInbetweenStrokePairs() {
+  const InbetweenStrokePairs &data = inbetweenStrokePairs();
+  return !data.m_pairs.empty() || !data.m_markedIds.empty();
+}
+
+//-----------------------------------------------------------------------------
+
+std::vector<std::pair<int, int>> StrokeSelection::getInbetweenStrokePairs(
+    const TVectorImageP &firstImage, const TVectorImageP &lastImage) {
+  std::vector<std::pair<int, int>> indexPairs;
+  if (!firstImage || !lastImage) return indexPairs;
+
+  for (const std::pair<int, int> &pair : inbetweenStrokePairs().m_pairs) {
+    // pairs can be set from either key drawing
+    int index0 = firstImage->getStrokeIndexById(pair.first);
+    int index1 = lastImage->getStrokeIndexById(pair.second);
+    if (index0 < 0 || index1 < 0) {
+      index0 = firstImage->getStrokeIndexById(pair.second);
+      index1 = lastImage->getStrokeIndexById(pair.first);
+    }
+    if (index0 >= 0 && index1 >= 0)
+      indexPairs.push_back(std::make_pair(index0, index1));
+  }
+  return indexPairs;
+}
+
+//=============================================================================
+//
 // selectAll
 //
 //-----------------------------------------------------------------------------
@@ -1038,6 +1151,10 @@ void StrokeSelection::enableCommands() {
 
   enableCommand(this, MI_RemoveEndpoints, &StrokeSelection::removeEndpoints);
   enableCommand(this, MI_SortWithPaletteOrder, &StrokeSelection::sortWithPaletteOrder);
+  enableCommand(this, MI_PairInbetweenStrokes,
+                &StrokeSelection::pairStrokesForInbetween);
+  enableCommand(this, MI_ClearInbetweenStrokePairs,
+                &StrokeSelection::clearInbetweenStrokePairs);
   enableCommand(this, MI_SelectAll, &StrokeSelection::selectAll);
   enableCommand(this, MI_AlignLeft, &StrokeSelection::alignStrokes,
                 VectorAlignment::ALIGN_LEFT);

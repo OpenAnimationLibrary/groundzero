@@ -1799,6 +1799,12 @@ void VectorSelectionTool::addContextMenuItems(QMenu *menu) {
   menu->addAction(CommandManager::instance()->getAction(MI_RemoveEndpoints));
   menu->addAction(
       CommandManager::instance()->getAction(MI_SortWithPaletteOrder));
+  if (!m_strokeSelection.isEmpty())
+    menu->addAction(
+        CommandManager::instance()->getAction(MI_PairInbetweenStrokes));
+  if (StrokeSelection::hasInbetweenStrokePairs())
+    menu->addAction(
+        CommandManager::instance()->getAction(MI_ClearInbetweenStrokePairs));
   menu->addSeparator();
 
   m_strokeSelection.getGroupCommand()->addMenuItems(menu);
