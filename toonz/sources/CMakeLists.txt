@@ -577,6 +577,21 @@ if(CMAKE_COMPILER_IS_GNUCC)
     ADD_CHECK_CXX_COMPILER_FLAG(CXX_WARNINGS CXX_WARN_MISSING_DECLARATIONS -Wmissing-declarations)
 endif()
 
+# Extra compiler warnings, off by default. They are only reported: no warning
+# is turned into an error. Qt 5.15 already warns about deprecated Qt APIs.
+option(WITH_EXTRA_WARNINGS "Report extra compiler warnings (-Wall -Wextra, /W4)" OFF)
+if(WITH_EXTRA_WARNINGS)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        ADD_CHECK_C_COMPILER_FLAG(C_WARNINGS C_WARN_ALL -Wall)
+        ADD_CHECK_C_COMPILER_FLAG(C_WARNINGS C_WARN_EXTRA -Wextra)
+        ADD_CHECK_CXX_COMPILER_FLAG(CXX_WARNINGS CXX_WARN_ALL -Wall)
+        ADD_CHECK_CXX_COMPILER_FLAG(CXX_WARNINGS CXX_WARN_EXTRA -Wextra)
+        ADD_CHECK_CXX_COMPILER_FLAG(CXX_WARNINGS CXX_WARN_NO_UNUSED_PARAMETER -Wno-unused-parameter)
+    elseif(BUILD_ENV_MSVC)
+        set(CXX_WARNINGS "${CXX_WARNINGS} /W4")
+    endif()
+endif()
+
 
 include_directories(
     SYSTEM
