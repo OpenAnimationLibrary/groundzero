@@ -780,6 +780,12 @@ option(BUILD_SCRIPT_TESTS "Build the script engine (QJSEngine bindings) regressi
 option(BUILD_PSD_TESTS "Build the PSD image writer regression test" ${BUILD_TESTS})
 option(BUILD_TGL_BATCH_TESTS "Build the tgl::Batch vertex generation test" ${BUILD_TESTS})
 option(BUILD_TNZTOOLS_TESTS "Build the tnztools helper regression tests" ${BUILD_TESTS})
+option(BUILD_FUZZ_TESTS "Build the file loader robustness tests (corrupt TIStream, PLI and PSD files)" ${BUILD_TESTS})
+# libFuzzer binaries of the same harnesses, run by hand (see fuzz/CMakeLists.txt)
+option(WITH_LIBFUZZER "Also build libFuzzer binaries of the file loader robustness tests (Clang only, not run by ctest)" OFF)
+if(WITH_LIBFUZZER AND NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+    message(FATAL_ERROR "WITH_LIBFUZZER needs Clang (found ${CMAKE_CXX_COMPILER_ID})")
+endif()
 
 # Python scripting: only with WITH_PYTHON, the default build needs neither
 # Python nor pybind11
@@ -803,7 +809,7 @@ if(WITH_PYTHON)
 endif()
 if(BUILD_TESTS OR BUILD_EXR_TESTS OR BUILD_EXR_AOV_FX_TESTS OR
    BUILD_TNZTOOLS_TESTS OR BUILD_PSD_TESTS OR BUILD_SCRIPT_TESTS OR BUILD_FFMPEG_TESTS OR BUILD_FRAME_STRIPS_TESTS OR BUILD_LUT3D_TESTS OR BUILD_GLB_FX_TESTS OR
-   BUILD_FXRENDER_TESTS OR BUILD_TGL_BATCH_TESTS)
+   BUILD_FXRENDER_TESTS OR BUILD_TGL_BATCH_TESTS OR BUILD_FUZZ_TESTS)
     enable_testing()
 endif()
 
@@ -830,6 +836,10 @@ add_subdirectory(tcleanupper)
 add_subdirectory(tcomposer)
 add_subdirectory(tconverter)
 add_subdirectory(toonzfarm)
+
+if(BUILD_FUZZ_TESTS OR WITH_LIBFUZZER)
+    add_subdirectory(fuzz)
+endif()
 
 if(BUILD_TARGET_WIN)
     add_subdirectory(toonzpreview)
