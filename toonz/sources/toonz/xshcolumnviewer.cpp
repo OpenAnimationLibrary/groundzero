@@ -1061,6 +1061,9 @@ void ColumnArea::DrawHeader::drawLock() const {
   int buttonType = !column->isLocked() ? LOCK_OFF_XSHBUTTON : LOCK_ON_XSHBUTTON;
   m_viewer->getButton(buttonType, bgColor, svgFilePath,
                       !o->isVerticalTimeline());
+  // A selection lock alone shows a faded lock on the unlocked background.
+  bool selectionLockOnly =
+      col >= 0 && !column->isLocked() && column->isSelectionLocked();
 
   QRect lockModeRect = o->rect((col < 0) ? PredefinedRect::CAMERA_LOCK_AREA
                                          : PredefinedRect::LOCK_AREA)
@@ -1086,13 +1089,21 @@ void ColumnArea::DrawHeader::drawLock() const {
   // For Legacy (layout=1), Lock Off button is not displayed in Xsheet mode
   if (o->isVerticalTimeline() &&
       m_viewer->getXsheetLayout() == QString("Classic") &&
-      buttonType == LOCK_OFF_XSHBUTTON)
+      buttonType == LOCK_OFF_XSHBUTTON && !selectionLockOnly)
     return;
+
+  if (selectionLockOnly) {
+    QColor lockOnBgColor;
+    m_viewer->getButton(LOCK_ON_XSHBUTTON, lockOnBgColor, svgFilePath,
+                        !o->isVerticalTimeline());
+  }
 
   QPixmap icon = svgToPixmap(svgFilePath, lockModeImgRect.size(),
                              Qt::KeepAspectRatio, bgColor);
 
+  if (selectionLockOnly) p.setOpacity(0.4);
   p.drawPixmap(lockModeImgRect, icon);
+  if (selectionLockOnly) p.setOpacity(1.0);
 }
 
 void ColumnArea::DrawHeader::drawConfig() const {
@@ -1968,6 +1979,10 @@ m_value->setFont(font);*/
     menu->addAction(cmdManager->getAction("MI_UnlockSelectedColumns"));
     menu->addAction(cmdManager->getAction("MI_UnlockAllColumns"));
     menu->addAction(cmdManager->getAction("MI_ToggleColumnLocks"));
+    menu->addSeparator();
+    menu->addAction(cmdManager->getAction("MI_SelectionLockSelectedColumns"));
+    menu->addAction(cmdManager->getAction("MI_SelectionUnlockSelectedColumns"));
+    menu->addAction(cmdManager->getAction("MI_SelectionUnlockAllColumns"));
     lockExtraBtn->setMenu(menu);
     lockExtraBtn->setFixedSize(20, 20);
   }
@@ -2727,7 +2742,10 @@ void ColumnArea::mouseMoveEvent(QMouseEvent *event) {
     } else
       m_tooltip = tr("Click to select column, double-click to edit");
   } else if (o->rect(PredefinedRect::LOCK_AREA).contains(mouseInCell)) {
-    m_tooltip = tr("Lock Toggle");
+    if (column && !column->isLocked() && column->isSelectionLocked())
+      m_tooltip = tr("Lock Toggle (selection is locked in the viewer)");
+    else
+      m_tooltip = tr("Lock Toggle");
   } else if (o->rect(PredefinedRect::CONFIG_AREA).contains(mouseInCell)) {
     m_tooltip = tr("Additional column settings");
   } else if (o->rect(PredefinedRect::EYE_AREA).contains(mouseInCell)) {
@@ -3014,6 +3032,13 @@ void ColumnArea::contextMenuEvent(QContextMenuEvent *event) {
     menu.addAction(cmdManager->getAction("MI_UnlockSelectedColumns"));
     menu.addAction(cmdManager->getAction("MI_UnlockAllColumns"));
     menu.addAction(cmdManager->getAction("MI_ToggleColumnLocks"));
+    if (!isCamera) {
+      menu.addSeparator();
+      menu.addAction(cmdManager->getAction("MI_SelectionLockSelectedColumns"));
+      menu.addAction(
+          cmdManager->getAction("MI_SelectionUnlockSelectedColumns"));
+      menu.addAction(cmdManager->getAction("MI_SelectionUnlockAllColumns"));
+    }
   }
   // right clicking another area / right clicking empty column head
   else {

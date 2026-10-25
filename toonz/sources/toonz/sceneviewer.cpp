@@ -80,6 +80,9 @@
 #include "ttoonzimage.h"
 #include "tenv.h"
 
+// STD includes
+#include <algorithm>
+
 // Qt includes
 #include <QMenu>
 #include <QApplication>
@@ -3339,6 +3342,14 @@ includeInvisible);
 
   TXshSimpleLevel::m_rasterizePli = oldRasterizePli;
   picker.getColumnIndexes(indexes);
+
+  // Selection-locked columns are skipped, so a click picks what is below them.
+  indexes.erase(std::remove_if(indexes.begin(), indexes.end(),
+                               [xsh](int index) {
+                                 TXshColumn *column = xsh->getColumn(index);
+                                 return column && column->isSelectionLocked();
+                               }),
+                indexes.end());
 }
 
 //-----------------------------------------------------------------------------
