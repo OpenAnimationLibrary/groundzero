@@ -1500,22 +1500,32 @@ bool EditTool::canDragTrajectoryKeys() {
 //-----------------------------------------------------------------------------
 
 // Returns the frame of the keyframe marker under \b pos (tool space), or -1.
+// Only keys of both position channels can be dragged, as the drag sets T_X and
+// T_Y and would add them to a key of other channels. The marker of the current
+// frame is skipped: it lies under the center and main handles, which edit the
+// current frame anyway.
 int EditTool::pickTrajectoryKey(const TPointD &pos) {
   int r0, r1;
   if (!canDragTrajectoryKeys() || !getTrajectoryRange(r0, r1)) return -1;
 
   TXsheet *xsh         = getXsheet();
   TStageObjectId objId = getObjectId();
+  TStageObject *obj    = xsh->getStageObject(objId);
   int frame            = getFrame();
   TAffine parentAffInv = xsh->getParentPlacement(objId, frame).inv();
 
   TStageObject::KeyframeMap keyframes;
-  xsh->getStageObject(objId)->getKeyframes(keyframes);
+  obj->getKeyframes(keyframes);
+  TDoubleParam *xParam = obj->getParam(TStageObject::T_X);
+  TDoubleParam *yParam = obj->getParam(TStageObject::T_Y);
 
   int picked      = -1;
   double maxDist2 = sq(getPixelSize() * TrajectoryKeyPickRadius);
   for (auto it = keyframes.lower_bound(r0);
        it != keyframes.end() && it->first <= r1; ++it) {
+    if (it->first == frame || !xParam->isKeyframe(it->first) ||
+        !yParam->isKeyframe(it->first))
+      continue;
     double dist2 = tdistance2(pos, getTrajectoryPos(it->first, parentAffInv));
     if (dist2 <= maxDist2) {
       maxDist2 = dist2;

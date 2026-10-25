@@ -3,6 +3,7 @@
 #include "toonz/txshsoundcolumn.h"
 #include "toonz/levelset.h"
 #include "toonz/txsheet.h"
+#include "toonz/tstageobjecttree.h"
 #include "toonz/toonzscene.h"
 #include "toonz/tproject.h"
 #include "toonz/sceneproperties.h"
@@ -301,6 +302,8 @@ void TXshSoundColumn::loadData(TIStream &is) {
       throw TException("TXshLevelColumn, unknown tag: " + tagName);
     is.closeChild();
   }
+  // Let Expression and Similar Shape segments of the volume curve evaluate
+  if (getXsheet()) getXsheet()->getStageObjectTree()->setGrammar(m_volumeCurve);
 }
 
 //-----------------------------------------------------------------------------
@@ -748,6 +751,9 @@ bool TXshSoundColumn::getLevelRangeWithoutOffset(int row, int &r0,
 
 void TXshSoundColumn::setXsheet(TXsheet *xsheet) {
   TXshColumn::setXsheet(xsheet);
+  // Expressions in the volume curve use the xsheet's grammar, like the stage
+  // object channels
+  if (xsheet) xsheet->getStageObjectTree()->setGrammar(m_volumeCurve);
   ToonzScene *scene = xsheet->getScene();
   if (!scene || m_levels.empty()) return;
 
@@ -854,6 +860,11 @@ void TXshSoundColumn::play(int currentFrame) {
     TSoundTrackP soundTrack = getOverallSoundTrack(currentFrame);
 
     if (!soundTrack) return;
+    // Scale by the volume curve, as when the scene's sound is mixed
+    if (m_volumeCurve->hasKeyframes())
+      applyVolumeCurve(soundTrack, m_volumeCurve.getPointer(),
+                       currentFrame == -1 ? getFirstRow() : currentFrame,
+                       m_levels.at(0)->getSoundLevel()->getFrameRate());
 
     int spf        = m_levels.at(0)->getSoundLevel()->getSamplePerFrame();
     int startFrame = (currentFrame - getFirstRow());
@@ -959,6 +970,11 @@ void TXshSoundColumn::scrub(int fromFrame, int toFrame) {
   try {
     TSoundTrackP soundTrack = getOverallSoundTrack(fromFrame, toFrame + 1);
     if (!soundTrack) return;
+    // Scale by the volume curve, as when the scene's sound is mixed
+    if (m_volumeCurve->hasKeyframes())
+      applyVolumeCurve(soundTrack, m_volumeCurve.getPointer(),
+                       fromFrame == -1 ? getFirstRow() : fromFrame,
+                       m_levels.at(0)->getSoundLevel()->getFrameRate());
     play(soundTrack, 0, soundTrack->getSampleCount(), false);
   } catch (TSoundDeviceException &e) {
     if (e.getType() == TSoundDeviceException::NoDevice) {

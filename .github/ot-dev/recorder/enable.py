@@ -32,7 +32,7 @@ def inject(root: Path, build_id: str, recorder_dir=None):
             or "otdevrecorder" in text.lower()
             or "otdevrecorder" in cmake_text.lower()):
         raise RuntimeError("Recorder injection anchors changed or already patched")
-    hook = f'''  // Groundzero Windows CI only; not present in normal source builds.
+    hook = f'''  // OT-Dev or Groundzero Windows CI only; not present in normal source builds.
   auto *otDevRecorder = new OtDevRecorder(
       &w, (ToonzFolder::getMyModuleDir() + TFilePath("preferences.ini")).getQString(),
       QStringLiteral("{build_id}"),
@@ -44,9 +44,9 @@ def inject(root: Path, build_id: str, recorder_dir=None):
     patched_source = (text.replace(include, include + '\n#include "otdevrecorder.h"\n#include <QTimer>')
                       .replace(anchor, hook + anchor))
     patched_cmake = cmake_text + f'''
-# Injected only by .github/ot-dev/recorder/enable.py in Groundzero Windows CI.
+# Injected only by .github/ot-dev/recorder/enable.py in OT-Dev or Groundzero Windows CI.
 if(NOT WIN32)
-    message(FATAL_ERROR "The Groundzero recorder injection is Windows CI only")
+    message(FATAL_ERROR "The OT-Dev or Groundzero recorder injection is Windows CI only")
 endif()
 target_sources(OpenToonz PRIVATE {cmake_path(recorder_dir / "otdevrecorder.cpp")})
 target_include_directories(OpenToonz PRIVATE {cmake_path(recorder_dir)})
@@ -64,6 +64,8 @@ if __name__ == "__main__":
                         help="Directory containing recorder sources, including an external CI checkout")
     parser.add_argument("--build-id", required=True)
     args = parser.parse_args()
-    if os.environ.get("GITHUB_REPOSITORY", "").lower() != "openanimationlibrary/groundzero" or os.environ.get("RUNNER_OS") != "Windows":
-        raise SystemExit("Only the Groundzero Windows CI workflow may inject this feature")
+    if (os.environ.get("GITHUB_REPOSITORY", "").lower() not in (
+            "openanimationlibrary/opentoonz-dev", "openanimationlibrary/groundzero")
+            or os.environ.get("RUNNER_OS") != "Windows"):
+        raise SystemExit("Only the OT-Dev or Groundzero Windows CI workflow may inject this feature")
     inject(args.root, args.build_id, args.recorder_dir)
