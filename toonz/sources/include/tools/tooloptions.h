@@ -254,6 +254,7 @@ class ArrowToolOptionsBox final : public ToolOptionsBox {
   ToolOptionCheckbox *m_lockNSCenterCheckbox;
 
   ToolOptionCheckbox *m_globalKey;
+  ToolOptionCheckbox *m_showTrajectory;
 
   // Flip buttons
   QPushButton *m_hFlipButton, *m_vFlipButton, *m_leftRotateButton,

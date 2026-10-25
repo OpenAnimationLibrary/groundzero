@@ -64,6 +64,7 @@ TEnv::IntVar ShowGlobalScale("EditToolShowGlobalScale", 1);
 TEnv::IntVar ShowHVscale("EditToolShowHVscale", 1);
 TEnv::IntVar ShowShear("EditToolShowShear", 0);
 TEnv::IntVar ShowCenterPosition("EditToolShowCenterPosition", 0);
+TEnv::IntVar EditToolShowTrajectory("EditToolShowTrajectory", 0);
 TEnv::StringVar Active("EditToolActiveAxis", "Position");
 
 //=============================================================================
@@ -74,6 +75,14 @@ using EditToolGadgets::DragTool;
 
 // Keep fixed-size labels visible until the handle drops below 5%.
 constexpr double MinTextVisibilityScale = 0.05;
+
+// Trajectory display: maximum number of frames whose position is evaluated
+// and screen sizes (in pixels) of its markers.
+constexpr int MaxTrajectoryFrames        = 1000;
+constexpr double TrajectoryDotRadius     = 1.5;
+constexpr double TrajectoryKeyRadius     = 4.0;
+constexpr double TrajectoryCurrentRadius = 3.5;
+constexpr double TrajectoryKeyPickRadius = 7.0;
 
 //=============================================================================
 // DragCenterTool
@@ -209,6 +218,12 @@ public:
 
   void enableGlobalKeyframes(bool enabled) override {
     m_globalKeyframesEnabled = enabled;
+  }
+
+  // Make the tool edit the channels at the frame of \b frameHandle instead
+  // of the current frame. Must be called before leftButtonDown().
+  void setFrameHandle(TFrameHandle *frameHandle) {
+    m_before.setFrameHandle(frameHandle);
   }
 
   void start() {
@@ -671,10 +686,14 @@ EditTool::EditTool()
     , m_showHVscale("Horizontal and Vertical Scale", true)
     , m_showShear("Shear", true)
     , m_showCenterPosition("Center Position", true)
+    , m_showTrajectory("Show Trajectory", false)
     , m_dragTool(0)
     , m_firstTime(true)
     , m_activeAxis("Active Axis")
-    , m_isAltPressed(false) {
+    , m_isAltPressed(false)
+    , m_trajectoryKeyHighlighted(-1)
+    , m_trajectoryKeyDragged(-1)
+    , m_trajectoryFrameHandle(nullptr) {
   bind(TTool::AllTargets);
   m_prop.bind(m_scaleConstraint);
   m_prop.bind(m_autoSelect);
@@ -699,6 +718,8 @@ EditTool::EditTool()
   m_prop.bind(m_showHVscale);
   m_prop.bind(m_showShear);
   m_prop.bind(m_showCenterPosition);
+
+  m_prop.bind(m_showTrajectory);
 
   m_scaleConstraint.addValue(L"None");
   m_scaleConstraint.addValue(L"A/R");
@@ -730,6 +751,7 @@ EditTool::EditTool()
 EditTool::~EditTool() {
   delete m_dragTool;
   delete m_fxGadgetController;
+  delete m_trajectoryFrameHandle;
 }
 
 //-----------------------------------------------------------------------------
@@ -764,6 +786,7 @@ void EditTool::updateTranslation() {
   m_showHVscale.setQStringName(tr("Horizontal and Vertical Scale"));
   m_showShear.setQStringName(tr("Shear"));
   m_showCenterPosition.setQStringName(tr("Center Position"));
+  m_showTrajectory.setQStringName(tr("Show Trajectory"));
 
   m_activeAxis.setQStringName(tr("Active Axis"));
   m_activeAxis.setItemUIName(L"Position", tr("Position"));
@@ -811,14 +834,22 @@ const TStroke *EditTool::getSpline() const {
 
 //-----------------------------------------------------------------------------
 
-void EditTool::mouseMove(const TPointD &, const TMouseEvent &e) {
+void EditTool::mouseMove(const TPointD &pos, const TMouseEvent &e) {
   /*-- return while left dragging --*/
   if (e.isLeftButtonPressed()) return;
+
+  /*-- Keyframe markers of the trajectory have priority over the gadgets --*/
+  int trajectoryKey = pickTrajectoryKey(pos);
+  if (trajectoryKey != m_trajectoryKeyHighlighted) {
+    m_trajectoryKeyHighlighted = trajectoryKey;
+    invalidate();
+  }
 
   /*-- Pick screen only when the FxGadget is displayed or
        when the "All" axis is selected. --*/
   int selectedDevice = -1;
-  if (m_fxGadgetController->hasGadget() || m_activeAxis.getValue() == L"All")
+  if (trajectoryKey < 0 &&
+      (m_fxGadgetController->hasGadget() || m_activeAxis.getValue() == L"All"))
     selectedDevice = pick(e.m_pos);
 
   if (selectedDevice <= 0) {
@@ -854,6 +885,15 @@ void EditTool::leftButtonDown(const TPointD &ppos, const TMouseEvent &e) {
   TPointD pos = ppos;
   /*-- Do nothing for Sound column --*/
   if (!doesApply()) return;
+
+  /*-- Drag a keyframe marker of the trajectory (Ctrl keeps Z translation) --*/
+  if (!e.isCtrlPressed()) {
+    int keyFrame = pickTrajectoryKey(pos);
+    if (keyFrame >= 0 && startTrajectoryKeyDrag(keyFrame, pos, e)) {
+      invalidate();
+      return;
+    }
+  }
 
   if (m_activeAxis.getValue() == L"Position")
     if (e.isCtrlPressed())
@@ -986,7 +1026,10 @@ void EditTool::onEditAllLeftButtonDown(TPointD &pos, const TMouseEvent &e) {
 
 void EditTool::leftButtonDrag(const TPointD &pos, const TMouseEvent &e) {
   if (!m_dragTool) return;
-  m_dragTool->leftButtonDrag(pos, e);
+  if (m_trajectoryKeyDragged >= 0)
+    m_dragTool->leftButtonDrag(m_trajectoryDragAff * pos, e);
+  else
+    m_dragTool->leftButtonDrag(pos, e);
   TTool::getApplication()->getCurrentObject()->notifyObjectIdChanged(true);
   invalidate();
 }
@@ -995,13 +1038,17 @@ void EditTool::leftButtonDrag(const TPointD &pos, const TMouseEvent &e) {
 
 void EditTool::leftButtonUp(const TPointD &pos, const TMouseEvent &e) {
   if (m_dragTool) {
-    m_dragTool->leftButtonUp(pos, e);
+    if (m_trajectoryKeyDragged >= 0)
+      m_dragTool->leftButtonUp(m_trajectoryDragAff * pos, e);
+    else
+      m_dragTool->leftButtonUp(pos, e);
     TUndoManager::manager()->endBlock();
     delete m_dragTool;
     m_dragTool = 0;
     TTool::getApplication()->getCurrentObject()->notifyObjectIdChanged(false);
   }
-  m_keyFrameAdded = false;
+  m_trajectoryKeyDragged = -1;
+  m_keyFrameAdded        = false;
 }
 
 //-----------------------------------------------------------------------------
@@ -1142,6 +1189,18 @@ void drawZArrow() {
   glVertex2i(5, 4);
   glVertex2i(3, 1);
   glVertex2i(5, 1);
+  glEnd();
+}
+
+//-----------------------------------------------------------------------------
+
+void drawTrajectoryDot(const TPointD &p, double r) {
+  const int slices = 8;
+  glBegin(GL_POLYGON);
+  for (int i = 0; i < slices; i++) {
+    double ang = 2.0 * M_PI * i / slices;
+    glVertex2d(p.x + r * cos(ang), p.y + r * sin(ang));
+  }
   glEnd();
 }
 
@@ -1331,6 +1390,175 @@ void EditTool::drawMainHandle() {
   glPopMatrix();
 }
 //-----------------------------------------------------------------------------
+// Trajectory ("Show Trajectory" option): position of the current object at
+// every frame of its animated range, with draggable keyframe markers.
+//-----------------------------------------------------------------------------
+
+// Returns the frame range of the trajectory: from the first to the last
+// keyframe of the current object, clamped to the xsheet frame count and to
+// MaxTrajectoryFrames frames around the current frame.
+// Only columns and pegbars are handled: the camera defines the view instead of
+// moving in it, and the table is the root of the whole stage.
+bool EditTool::getTrajectoryRange(int &r0, int &r1) {
+  if (!m_showTrajectory.getValue()) return false;
+  TStageObjectId objId = getObjectId();
+  if (!objId.isColumn() && !objId.isPegbar()) return false;
+  TXsheet *xsh      = getXsheet();
+  TStageObject *obj = xsh->getStageObject(objId);
+  if (!obj || !obj->getKeyframeRange(r0, r1)) return false;
+  r0 = std::max(r0, 0);
+  r1 = std::min(r1, xsh->getFrameCount() - 1);
+  if (r0 > r1) return false;
+  if (r1 - r0 + 1 > MaxTrajectoryFrames) {
+    int first = std::min(getFrame() - MaxTrajectoryFrames / 2,
+                         r1 - MaxTrajectoryFrames + 1);
+    r0        = std::max(r0, first);
+    r1        = r0 + MaxTrajectoryFrames - 1;
+  }
+  return true;
+}
+
+//-----------------------------------------------------------------------------
+
+// Returns the position of the center of the current object at \b frame (the
+// point of the center gadget), in the tool space of the current frame.
+// \b parentAffInv is the inverse of the parent placement at the current frame.
+TPointD EditTool::getTrajectoryPos(int frame, const TAffine &parentAffInv) {
+  TXsheet *xsh         = getXsheet();
+  TStageObjectId objId = getObjectId();
+  TPointD center       = Stage::inch * xsh->getCenter(objId, frame);
+  return parentAffInv * (xsh->getPlacement(objId, frame) * center);
+}
+
+//-----------------------------------------------------------------------------
+
+void EditTool::drawTrajectory() {
+  int r0, r1;
+  if (isPicking() || !getTrajectoryRange(r0, r1)) return;
+
+  const TPixel32 normalColor = Preferences::instance()->getAnimateToolColor();
+  const TPixel32 highlightedColor = TPixel32(150, 255, 140);
+  const double unit               = getPixelSize();
+
+  TXsheet *xsh         = getXsheet();
+  TStageObjectId objId = getObjectId();
+  TStageObject *obj    = xsh->getStageObject(objId);
+  int frame            = getFrame();
+  TAffine parentAffInv = xsh->getParentPlacement(objId, frame).inv();
+
+  std::vector<TPointD> points;
+  points.reserve(r1 - r0 + 1);
+  for (int f = r0; f <= r1; f++)
+    points.push_back(getTrajectoryPos(f, parentAffInv));
+  // the placement cache holds a single frame: restore the current one
+  xsh->getPlacement(objId, frame);
+
+  // path
+  tglColor(normalColor);
+  glBegin(GL_LINE_STRIP);
+  for (const TPointD &p : points) tglVertex(p);
+  glEnd();
+
+  // frames and keyframes
+  for (int f = r0; f <= r1; f++) {
+    const TPointD &p = points[f - r0];
+    if (obj->isKeyframe(f)) {
+      double r = unit * TrajectoryKeyRadius;
+      tglColor(f == frame ? highlightedColor : normalColor);
+      tglFillRect(p.x - r, p.y - r, p.x + r, p.y + r);
+      if (f == m_trajectoryKeyHighlighted || f == m_trajectoryKeyDragged) {
+        r += unit * 2;
+        tglColor(highlightedColor);
+        tglDrawRect(p.x - r, p.y - r, p.x + r, p.y + r);
+      }
+    } else if (f == frame) {
+      tglColor(highlightedColor);
+      drawTrajectoryDot(p, unit * TrajectoryCurrentRadius);
+    } else {
+      tglColor(normalColor);
+      drawTrajectoryDot(p, unit * TrajectoryDotRadius);
+    }
+  }
+}
+
+//-----------------------------------------------------------------------------
+
+// Keyframe markers can be dragged where the position can be edited with the
+// X/Y channels (not on a motion path spline).
+bool EditTool::canDragTrajectoryKeys() {
+  if (!m_showTrajectory.getValue()) return false;
+  if (m_activeAxis.getValue() != L"Position" &&
+      m_activeAxis.getValue() != L"All")
+    return false;
+  if (!m_viewer || m_viewer->is3DView()) return false;
+  if (TTool::getApplication()->getCurrentFrame()->isEditingLevel())
+    return false;
+  return doesApply() && transformEnabled() && !getSpline();
+}
+
+//-----------------------------------------------------------------------------
+
+// Returns the frame of the keyframe marker under \b pos (tool space), or -1.
+int EditTool::pickTrajectoryKey(const TPointD &pos) {
+  int r0, r1;
+  if (!canDragTrajectoryKeys() || !getTrajectoryRange(r0, r1)) return -1;
+
+  TXsheet *xsh         = getXsheet();
+  TStageObjectId objId = getObjectId();
+  int frame            = getFrame();
+  TAffine parentAffInv = xsh->getParentPlacement(objId, frame).inv();
+
+  TStageObject::KeyframeMap keyframes;
+  xsh->getStageObject(objId)->getKeyframes(keyframes);
+
+  int picked      = -1;
+  double maxDist2 = sq(getPixelSize() * TrajectoryKeyPickRadius);
+  for (auto it = keyframes.lower_bound(r0);
+       it != keyframes.end() && it->first <= r1; ++it) {
+    double dist2 = tdistance2(pos, getTrajectoryPos(it->first, parentAffInv));
+    if (dist2 <= maxDist2) {
+      maxDist2 = dist2;
+      picked   = it->first;
+    }
+  }
+  xsh->getPlacement(objId, frame);
+  return picked;
+}
+
+//-----------------------------------------------------------------------------
+
+// Starts dragging the keyframe marker at \b keyFrame with the position drag
+// tool, editing T_X / T_Y at that frame. The mouse positions given to the drag
+// tool are mapped by m_trajectoryDragAff, so that their deltas are expressed
+// in the parent space at keyFrame and the marker follows the mouse.
+bool EditTool::startTrajectoryKeyDrag(int keyFrame, const TPointD &pos,
+                                      const TMouseEvent &e) {
+  assert(m_dragTool == 0);
+  TXsheet *xsh         = getXsheet();
+  TStageObjectId objId = getObjectId();
+  TAffine keyParentAff = xsh->getParentPlacement(objId, keyFrame);
+  TAffine curParentAff = xsh->getParentPlacement(objId, getFrame());
+  if (fabs(keyParentAff.det()) < 1e-8) return false;
+
+  m_trajectoryDragAff     = keyParentAff.inv() * curParentAff;
+  m_trajectoryDragAff.a13 = m_trajectoryDragAff.a23 = 0;
+
+  if (!m_trajectoryFrameHandle) m_trajectoryFrameHandle = new TFrameHandle();
+  m_trajectoryFrameHandle->setFrame(keyFrame);
+
+  DragPositionTool *dragTool = new DragPositionTool(
+      m_lockPositionX.getValue(), m_lockPositionY.getValue(),
+      m_globalKeyframes.getValue());
+  dragTool->setFrameHandle(m_trajectoryFrameHandle);
+  m_dragTool             = dragTool;
+  m_trajectoryKeyDragged = keyFrame;
+
+  TUndoManager::manager()->beginBlock();
+  m_dragTool->leftButtonDown(m_trajectoryDragAff * pos, e);
+  return true;
+}
+
+//-----------------------------------------------------------------------------
 
 void EditTool::draw() {
   // the tool is using the coordinate system of the parent object
@@ -1376,6 +1604,9 @@ void EditTool::draw() {
     glPopMatrix();
     return;
   }
+
+  /*-- Trajectory of the current object, below the handles --*/
+  if (m_showTrajectory.getValue()) drawTrajectory();
 
   // Edit-all
   if (m_activeAxis.getValue() == L"All") {
@@ -1517,6 +1748,8 @@ void EditTool::onActivate() {
     m_showShear.setValue(ShowShear ? 1 : 0);
     m_showCenterPosition.setValue(ShowCenterPosition ? 1 : 0);
 
+    m_showTrajectory.setValue(EditToolShowTrajectory ? 1 : 0);
+
     m_fxGadgetController = new FxGadgetController(this);
 
     /*
@@ -1548,6 +1781,8 @@ void EditTool::onDeactivate() {
     delete m_dragTool;
     m_dragTool = nullptr;
   }
+  m_trajectoryKeyDragged     = -1;
+  m_trajectoryKeyHighlighted = -1;
 }
 
 //-----------------------------------------------------------------------------
@@ -1607,6 +1842,12 @@ bool EditTool::onPropertyChanged(std::string propertyName) {
   else if (propertyName == m_showCenterPosition.getName())
     ShowCenterPosition = (int)m_showCenterPosition.getValue();
 
+  else if (propertyName == m_showTrajectory.getName()) {
+    EditToolShowTrajectory     = (int)m_showTrajectory.getValue();
+    m_trajectoryKeyHighlighted = -1;
+    invalidate();
+  }
+
   /*-- Active Axis change --*/
   else if (propertyName == m_activeAxis.getName()) {
     std::wstring activeAxis = m_activeAxis.getValue();
@@ -1631,8 +1872,10 @@ bool EditTool::onPropertyChanged(std::string propertyName) {
 
 int EditTool::getCursorId() const {
   int ret;
+  // cursor for dragging a keyframe marker of the trajectory
+  if (m_trajectoryKeyHighlighted >= 0) ret = ToolCursor::MoveCursor;
   // cursor for controlling the fx gadget
-  if (m_highlightedDevice >= 1000)
+  else if (m_highlightedDevice >= 1000)
     ret = ToolCursor::FxGadgetCursor;
   else if (transformEnabled()) {
     // switch cursors depending on the active axis
