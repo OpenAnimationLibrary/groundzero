@@ -140,7 +140,9 @@ bool readSnapshot(const QString &folder, Snapshot &s) {
   if (!QFileInfo::exists(manifest)) return false;
 
   QSettings ini(manifest, QSettings::IniFormat);
-  ini.setIniCodec("UTF-8");
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
+  ini.setIniCodec("UTF-8");  // Qt 6 reads and writes UTF-8
+#endif
   ini.beginGroup("Recovery");
   // Only a file name: the copy is always inside its recovery folder
   const QString sceneFile =
@@ -373,7 +375,9 @@ bool writeManifest(const QString &folder, const QString &sceneFile,
                    const QString &projectPath, const QDateTime &savedAt,
                    const QList<QPair<QString, QString>> &copiedLevels) {
   QSettings ini(QDir(folder).filePath(ManifestFileName), QSettings::IniFormat);
-  ini.setIniCodec("UTF-8");
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
+  ini.setIniCodec("UTF-8");  // Qt 6 reads and writes UTF-8
+#endif
   ini.beginGroup("Recovery");
   ini.setValue("version", 1);
   ini.setValue("application",

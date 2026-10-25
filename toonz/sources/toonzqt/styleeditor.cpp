@@ -4281,12 +4281,12 @@ void StyleEditor::save(QSettings &settings) const {
 }
 void StyleEditor::load(QSettings &settings) {
   QVariant isVertical = settings.value("isVertical");
-  if (isVertical.canConvert(QVariant::Bool)) {
+  if (isVertical.canConvert<bool>()) {
     m_colorPageIsVertical = isVertical.toBool();
     m_plainColorPage->setIsVertical(m_colorPageIsVertical);
   }
   QVariant visibleParts = settings.value("visibleParts");
-  if (visibleParts.canConvert(QVariant::Int)) {
+  if (visibleParts.canConvert<int>()) {
     int visiblePartsInt = visibleParts.toInt();
 
     if (visiblePartsInt & 0x01)
@@ -4315,17 +4315,17 @@ void StyleEditor::load(QSettings &settings) {
       m_searchAction->setChecked(false);
   }
   QVariant splitterState = settings.value("splitterState");
-  if (splitterState.canConvert(QVariant::ByteArray))
+  if (splitterState.canConvert<QByteArray>())
     m_plainColorPage->setSplitterState(splitterState.toByteArray());
   if (Preferences::instance()->isRestoreStyleEditorTabEnabled()) {
     QVariant currentPage = settings.value("currentPage");
-    if (currentPage.canConvert(QVariant::Int)) {
+    if (currentPage.canConvert<int>()) {
       int page = currentPage.toInt();
       if (page >= 0 && page < m_styleChooser->count() - 1)
         m_currentPageIndex = page;
     }
     QVariant vectorParts = settings.value("vectorParts");
-    if (vectorParts.canConvert(QVariant::Int) && m_specialButton) {
+    if (vectorParts.canConvert<int>() && m_specialButton) {
       int v = vectorParts.toInt();
       m_specialButton->setChecked(v & 0x01);
       m_customButton->setChecked(v & 0x02);

@@ -24,6 +24,7 @@
 #include "toonzqt/icongenerator.h"
 #include "toonzqt/gutil.h"
 #include "toonzqt/pluginloader.h"
+#include "toonzqt/qtcompat.h"
 
 // TnzStdfx includes
 #include "stdfx/shaderfx.h"
@@ -352,7 +353,7 @@ int main(int argc, char *argv[]) {
 
   public:
     bool nativeEventFilter(const QByteArray &eventType, void *message,
-                           long *) Q_DECL_OVERRIDE {
+                           TNativeEventResult *) Q_DECL_OVERRIDE {
       if (IsLeftMouseDown(message)) {
         leftButtonPressed = true;
       }
@@ -471,7 +472,7 @@ int main(int argc, char *argv[]) {
   QFont font("Helvetica", -1);
 #endif
   font.setPixelSize(13);
-  font.setWeight(50);
+  font.setWeight(QFont::Normal);
   a.setFont(font);
 
   QString offsetStr("\n\n\n\n\n\n\n\n");

@@ -25,6 +25,14 @@ typedef QEnterEvent TEnterEvent;
 typedef QEvent TEnterEvent;
 #endif
 
+//! The result argument of QAbstractNativeEventFilter::nativeEventFilter() and
+//! QWidget::nativeEvent(): a long in Qt 5, a qintptr in Qt 6.
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+typedef qintptr TNativeEventResult;
+#else
+typedef long TNativeEventResult;
+#endif
+
 //! The type of the device of a QTouchEvent: QTouchDevice::DeviceType in Qt 5,
 //! QInputDevice::DeviceType in Qt 6. Name the values through the type, as in
 //! TTouchDeviceType::TouchScreen, which both versions accept.

@@ -699,7 +699,7 @@ bool tipc::writeShMemBuffer(Stream& stream, Message& msg, int bufSize,
       shmem.lock();
       remainingData -= chunkData =
           dataWriter->write(reinterpret_cast<char*>(shmem.data()),
-                            std::min(shmem.size(), remainingData));
+                            std::min((int)shmem.size(), remainingData));
       shmem.unlock();
       tipc_debug(qDebug() << "exchange time:" << xchTime.elapsed());
 

@@ -7,6 +7,7 @@
 #include "tfilepath.h"
 
 #include "tcacheresource.h"
+#include "tthreadmessage.h"
 
 #include <QString>
 #include <QSettings>
@@ -38,7 +39,7 @@ class DVAPI TCacheResourcePool final : public QObject {
 
   typedef std::map<std::string, TCacheResource *> MemResources;
   MemResources m_memResources;
-  QMutex m_memMutex;
+  TThread::Mutex m_memMutex;
 
   unsigned int m_searchCount;
   bool m_foundIterator;

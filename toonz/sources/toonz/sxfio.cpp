@@ -266,7 +266,7 @@ void SxfCell::write(QDataStream& stream) {
     QString frameIndexStr = QString::number(frameIndex);
     QByteArray asciiData  = frameIndexStr.toLocal8Bit();
 
-    int bytesToWrite = qMin(asciiData.length(), 8);
+    int bytesToWrite = qMin((int)asciiData.length(), 8);
     memcpy(buffer.data(), asciiData.constData(), bytesToWrite);
   }
 

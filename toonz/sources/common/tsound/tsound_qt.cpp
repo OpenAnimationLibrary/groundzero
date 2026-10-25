@@ -50,15 +50,8 @@ QAudioFormat::SampleFormat toQAudioSampleFormat(int sampleType,
 }
 
 typedef QAudioSink TAudioOutput;
-typedef QRecursiveMutex TRecursiveMutex;
 #else
 typedef QAudioOutput TAudioOutput;
-
-// Qt 6 has QRecursiveMutex instead of the recursive mode of QMutex.
-class TRecursiveMutex final : public QMutex {
-public:
-  TRecursiveMutex() : QMutex(QMutex::Recursive) {}
-};
 #endif
 
 }  // namespace
@@ -67,7 +60,7 @@ public:
 
 class TSoundOutputDeviceImp: public std::enable_shared_from_this<TSoundOutputDeviceImp> {
 private:
-  TRecursiveMutex m_mutex;
+  TThread::Mutex m_mutex;  // recursive
 
   double m_volume;
   bool m_looping;

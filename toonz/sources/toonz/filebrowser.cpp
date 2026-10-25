@@ -55,7 +55,9 @@
 #include <QDateTime>
 #include <QInputDialog>
 #include <QDesktopServices>
-#include <QDirModel>
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
+#include <QDirModel>  // not in Qt 6 (and unused)
+#endif
 #include <QDir>
 #include <QPixmap>
 #include <QUrl>
