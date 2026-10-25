@@ -602,7 +602,7 @@ void SchematicSceneViewer::showEvent(QShowEvent *se) {
 
 //------------------------------------------------------------------
 
-void SchematicSceneViewer::enterEvent(QEvent *e) {
+void SchematicSceneViewer::enterEvent(TEnterEvent *e) {
   switch (m_cursorMode) {
   case CursorMode::Hand:
     setToolCursor(this, ToolCursor::PanCursor);

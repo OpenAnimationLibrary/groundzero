@@ -9,6 +9,7 @@
 
 // TnzBase includes
 #include "tfx.h"
+#include "toonzqt/qtcompat.h"
 
 // Qt includes
 #include <QGraphicsScene>
@@ -168,7 +169,7 @@ protected:
   void keyPressEvent(QKeyEvent *ke) override;
   void wheelEvent(QWheelEvent *me) override;
   void showEvent(QShowEvent *se) override;
-  void enterEvent(QEvent *e) override;
+  void enterEvent(TEnterEvent *e) override;
   void leaveEvent(QEvent *e) override;
   void mouseDoubleClickEvent(QMouseEvent *event) override;
 

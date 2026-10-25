@@ -281,7 +281,7 @@ void SeparateSwatchArea::setTranspColor(TPixel32 &lineColor, bool showAlpha) {
 //-------------------------------------------------------------------------------
 // focus on mouse enter
 
-void SeparateSwatchArea::enterEvent(QEvent *event) {
+void SeparateSwatchArea::enterEvent(TEnterEvent *event) {
   setFocus();
   event->accept();
 }

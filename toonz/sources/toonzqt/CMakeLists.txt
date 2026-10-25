@@ -97,6 +97,7 @@ set(HEADERS
     ../include/toonzqt/lutcalibrator.h
     ../include/toonzqt/multipleselection.h
     ../include/toonzqt/pickrgbutils.h
+    ../include/toonzqt/qtcompat.h
     ../include/toonzqt/rasterimagedata.h
     ../include/toonzqt/selection.h
     ../include/toonzqt/selectioncommandids.h

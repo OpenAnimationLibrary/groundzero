@@ -278,7 +278,7 @@ bool CustomPanelUIField::setCommand(const QString& commandId) {
   return true;
 }
 
-void CustomPanelUIField::enterEvent(QEvent* event) {
+void CustomPanelUIField::enterEvent(TEnterEvent* event) {
   Q_UNUSED(event);
   emit highlight(m_id);
 }

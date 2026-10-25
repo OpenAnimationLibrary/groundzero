@@ -1577,7 +1577,7 @@ void BrushPresetPanel::hideEvent(QHideEvent *e) {
   disconnectSignals();
 }
 
-void BrushPresetPanel::enterEvent(QEvent *e) {
+void BrushPresetPanel::enterEvent(TEnterEvent *e) {
   TPanel::enterEvent(e);
   
   // Check if tool type changed (e.g., level switched while panel wasn't focused)

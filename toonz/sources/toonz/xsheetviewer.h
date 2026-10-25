@@ -15,6 +15,7 @@
 #include "cellkeyframeselection.h"
 #include "saveloadqsettings.h"
 #include "toonzqt/spreadsheetviewer.h"
+#include "toonzqt/qtcompat.h"
 #include "orientation.h"
 #include "xshbreadcrumbs.h"
 #include <boost/optional.hpp>
@@ -1418,7 +1419,7 @@ protected:
   void keyPressEvent(QKeyEvent *event) override;
   // display the upper-directional smart tab only when the ctrl key is pressed
   void keyReleaseEvent(QKeyEvent *event) override;
-  void enterEvent(QEvent *) override;
+  void enterEvent(TEnterEvent *) override;
   void wheelEvent(QWheelEvent *event) override;
   void timerEvent(QTimerEvent *) override;
 

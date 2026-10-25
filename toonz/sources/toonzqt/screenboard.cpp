@@ -7,6 +7,7 @@
 #include <QPainter>
 
 #include "toonzqt/screenboard.h"
+#include "toonzqt/qtcompat.h"
 
 using namespace DVGui;
 
@@ -102,7 +103,7 @@ protected:
     if (screenBoard->m_grabbing) screenBoard->ensureMouseOnAScreen();
   }
 
-  void enterEvent(QEvent *e) override {
+  void enterEvent(TEnterEvent *e) override {
     m_mouseOnScreen                           = true;
     ScreenBoard::instance()->m_mouseOnAScreen = true;
   }

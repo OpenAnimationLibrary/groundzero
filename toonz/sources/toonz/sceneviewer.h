@@ -13,6 +13,7 @@
 // TnzQt includes
 #include "toonzqt/menubarcommand.h"
 #include "toonzqt/flipconsole.h"
+#include "toonzqt/qtcompat.h"
 
 // TnzTools includes
 #include "tools/tool.h"
@@ -362,7 +363,7 @@ protected:
   void touchEvent(QTouchEvent *e, int type);
   void tabletEvent(QTabletEvent *) override;
   void leaveEvent(QEvent *) override;
-  void enterEvent(QEvent *) override;
+  void enterEvent(TEnterEvent *) override;
   void mouseMoveEvent(QMouseEvent *event) override;
   void mousePressEvent(QMouseEvent *event) override;
   void mouseReleaseEvent(QMouseEvent *event) override;
