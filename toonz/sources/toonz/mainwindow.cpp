@@ -2531,6 +2531,8 @@ void MainWindow::defineActions() {
   createMenuXsheetAction(MI_SaveSubxsheetAs,
                          QT_TR_NOOP("&Save Sub-Xsheet As..."), "",
                          "sub_xsheet_saveas");
+  createMenuXsheetAction(MI_SaveAsTemplate,
+                         QT_TR_NOOP("Save Selection as Template..."), "");
   createMenuXsheetAction(MI_Resequence, QT_TR_NOOP("Resequence"), "",
                          "resequence");
   createMenuXsheetAction(MI_CloneChild, QT_TR_NOOP("Clone Sub-Xsheet"), "",
