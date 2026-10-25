@@ -1,10 +1,8 @@
 name: MacOS Build
 
 on:
+  # Not run on pull requests: the Linux build is the initial PR check.
   workflow_dispatch:
-  pull_request:
-    branches:
-      - edition
 
 permissions:
   contents: read
