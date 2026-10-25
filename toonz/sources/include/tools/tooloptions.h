@@ -225,6 +225,9 @@ class ArrowToolOptionsBox final : public ToolOptionsBox {
   // Rotation
   ClickableLabel *m_rotationLabel;
   PegbarChannelField *m_rotationField;
+  // 3D tilt (rotation around the object's horizontal / vertical axis)
+  ClickableLabel *m_rotXLabel, *m_rotYLabel;
+  PegbarChannelField *m_rotXField, *m_rotYField;
 
   // Scale
   ClickableLabel *m_globalScaleLabel;
