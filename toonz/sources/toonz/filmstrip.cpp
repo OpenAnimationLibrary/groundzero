@@ -49,6 +49,9 @@
 #include <QScrollBar>
 #include <QComboBox>
 #include <QCheckBox>
+#include <QSlider>
+#include <QLabel>
+#include <QGridLayout>
 #include <QPushButton>
 #include <QSettings>
 #include <QApplication>
@@ -2033,6 +2036,9 @@ void FilmstripFrames::inbetween() {
   TVectorImageP img1 = getLevel()->getFrame(range.second, false);
   std::vector<std::pair<int, int>> strokePairs =
       StrokeSelection::getInbetweenStrokePairs(img0, img1);
+  FilmstripCmd::InbetweenOptions options;
+  std::vector<std::pair<TRectD, TRectD>> zoneHints =
+      StrokeSelection::getInbetweenZoneHints(img0, img1);
 
   {
     if (!m_inbetweenDialog) m_inbetweenDialog = new InbetweenDialog(this);
@@ -2040,11 +2046,23 @@ void FilmstripFrames::inbetween() {
     // Default -> l'ultimo valore usato
 
     m_inbetweenDialog->setValue(currentItem);
+    m_inbetweenDialog->setEase(settings.value("InbetweenSlowStart", 0).toInt(),
+                               settings.value("InbetweenSlowEnd", 0).toInt());
+    m_inbetweenDialog->setAutoMatch(
+        settings.value("InbetweenAutoMatch", false).toBool());
     m_inbetweenDialog->setStrokePairCount(int(strokePairs.size()));
+    m_inbetweenDialog->setZoneHintCount(int(zoneHints.size()));
 
     int ret = m_inbetweenDialog->exec();
     if (!ret) return;
     if (!m_inbetweenDialog->useStrokePairs()) strokePairs.clear();
+    if (m_inbetweenDialog->useZoneHints()) options.m_zoneHints = zoneHints;
+    options.m_autoMatch = m_inbetweenDialog->autoMatch();
+    options.m_slowStart = m_inbetweenDialog->slowStart() / 100.0;
+    options.m_slowEnd   = m_inbetweenDialog->slowEnd() / 100.0;
+    settings.setValue("InbetweenSlowStart", m_inbetweenDialog->slowStart());
+    settings.setValue("InbetweenSlowEnd", m_inbetweenDialog->slowEnd());
+    settings.setValue("InbetweenAutoMatch", options.m_autoMatch);
 
     currentItem = m_inbetweenDialog->getValue();
     if (currentItem.isEmpty()) return;
@@ -2058,13 +2076,14 @@ void FilmstripFrames::inbetween() {
   // lo converto nella notazione di FilmstripCmd
   const FilmstripCmd::InbetweenInterpolation codes[] = {
       FilmstripCmd::II_Linear, FilmstripCmd::II_EaseIn,
-      FilmstripCmd::II_EaseOut, FilmstripCmd::II_EaseInOut};
+      FilmstripCmd::II_EaseOut, FilmstripCmd::II_EaseInOut,
+      FilmstripCmd::II_Custom};
 
   FilmstripCmd::InbetweenInterpolation interpolation = codes[index];
 
   // inbetween
   FilmstripCmd::inbetween(getLevel(), range.first, range.second, interpolation,
-                          strokePairs);
+                          strokePairs, options);
 }
 
 //-----------------------------------------------------------------------------
@@ -2696,13 +2715,57 @@ InbetweenDialog::InbetweenDialog(QWidget *parent)
   QString easeOut(tr("Ease Out"));
   QString easeInOut(tr("Ease In / Ease Out"));
   QStringList items;
-  items << linear << easeIn << easeOut << easeInOut;
+  QString custom(tr("Custom"));
+  items << linear << easeIn << easeOut << easeInOut << custom;
 
   beginHLayout();
   m_comboBox = new QComboBox(this);
   m_comboBox->addItems(items);
   addWidget(tr("Interpolation:"), m_comboBox);
   endHLayout();
+
+  // strengths of the Custom interpolation: 0 is linear, 100 is the gentlest
+  m_customEaseWidget = new QWidget(this);
+  {
+    QGridLayout *layout = new QGridLayout(m_customEaseWidget);
+    layout->setContentsMargins(0, 0, 0, 0);
+    auto addSlider = [&](int row, const QString &name, const QString &toolTip,
+                         QSlider *&slider, QLabel *&valueLabel) {
+      slider = new QSlider(Qt::Horizontal, m_customEaseWidget);
+      slider->setRange(0, 100);
+      slider->setToolTip(toolTip);
+      valueLabel = new QLabel("0%", m_customEaseWidget);
+      valueLabel->setMinimumWidth(40);
+      QLabel *valueLabelPtr = valueLabel;
+      connect(slider, &QSlider::valueChanged, valueLabelPtr,
+              [valueLabelPtr](int value) {
+                valueLabelPtr->setText(QString("%1%").arg(value));
+              });
+      layout->addWidget(new QLabel(name, m_customEaseWidget), row, 0);
+      layout->addWidget(slider, row, 1);
+      layout->addWidget(valueLabel, row, 2);
+    };
+    addSlider(0, tr("Slow Start:"),
+              tr("How gently the motion starts: 0% is linear, 100% is the "
+                 "gentlest start."),
+              m_slowStartSlider, m_slowStartLabel);
+    addSlider(1, tr("Slow End:"),
+              tr("How gently the motion ends: 0% is linear, 100% is the "
+                 "gentlest end."),
+              m_slowEndSlider, m_slowEndLabel);
+  }
+  m_customEaseWidget->hide();
+  addWidget(m_customEaseWidget);
+  connect(m_comboBox, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+          [this](int) { updateCustomEaseVisibility(); });
+
+  m_autoMatchCB = new QCheckBox(tr("Match Strokes Automatically"), this);
+  m_autoMatchCB->setChecked(false);
+  m_autoMatchCB->setToolTip(
+      tr("Match the strokes of the two key drawings by position, size, "
+         "length and style instead of by their order. Strokes paired "
+         "manually keep their pairing."));
+  addWidget(m_autoMatchCB);
 
   m_strokePairsCB = new QCheckBox(this);
   m_strokePairsCB->setChecked(true);
@@ -2711,6 +2774,15 @@ InbetweenDialog::InbetweenDialog(QWidget *parent)
          "the strokes of the two key drawings."));
   m_strokePairsCB->hide();
   addWidget(m_strokePairsCB);
+
+  m_zoneHintsCB = new QCheckBox(this);
+  m_zoneHintsCB->setChecked(true);
+  m_zoneHintsCB->setToolTip(
+      tr("Use the zones set with Add Inbetween Zone Hint from Selection: "
+         "strokes in a zone of the first key drawing are matched with the "
+         "strokes in the corresponding zone of the other key drawing."));
+  m_zoneHintsCB->hide();
+  addWidget(m_zoneHintsCB);
 
   QPushButton *okBtn     = new QPushButton(tr("Inbetween"), this);
   QPushButton *cancelBtn = new QPushButton(tr("Cancel"), this);
@@ -2749,6 +2821,50 @@ void InbetweenDialog::setStrokePairCount(int count) {
 
 bool InbetweenDialog::useStrokePairs() const {
   return !m_strokePairsCB->isHidden() && m_strokePairsCB->isChecked();
+}
+
+//-----------------------------------------------------------------------------
+
+void InbetweenDialog::setZoneHintCount(int count) {
+  m_zoneHintsCB->setText(tr("Use Zone Hints (%1)").arg(count));
+  m_zoneHintsCB->setVisible(count > 0);
+}
+
+//-----------------------------------------------------------------------------
+
+bool InbetweenDialog::useZoneHints() const {
+  return !m_zoneHintsCB->isHidden() && m_zoneHintsCB->isChecked();
+}
+
+//-----------------------------------------------------------------------------
+
+bool InbetweenDialog::autoMatch() const { return m_autoMatchCB->isChecked(); }
+
+//-----------------------------------------------------------------------------
+
+void InbetweenDialog::setAutoMatch(bool on) { m_autoMatchCB->setChecked(on); }
+
+//-----------------------------------------------------------------------------
+
+int InbetweenDialog::slowStart() const { return m_slowStartSlider->value(); }
+
+//-----------------------------------------------------------------------------
+
+int InbetweenDialog::slowEnd() const { return m_slowEndSlider->value(); }
+
+//-----------------------------------------------------------------------------
+
+void InbetweenDialog::setEase(int slowStart, int slowEnd) {
+  m_slowStartSlider->setValue(slowStart);
+  m_slowEndSlider->setValue(slowEnd);
+}
+
+//-----------------------------------------------------------------------------
+
+// Custom is the last item of the interpolation list
+void InbetweenDialog::updateCustomEaseVisibility() {
+  m_customEaseWidget->setVisible(m_comboBox->currentIndex() ==
+                                 m_comboBox->count() - 1);
 }
 
 //=============================================================================

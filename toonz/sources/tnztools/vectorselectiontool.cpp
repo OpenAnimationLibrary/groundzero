@@ -1827,6 +1827,9 @@ void VectorSelectionTool::addContextMenuItems(QMenu *menu) {
   if (!m_strokeSelection.isEmpty())
     menu->addAction(
         CommandManager::instance()->getAction(MI_PairInbetweenStrokes));
+  if (!m_strokeSelection.isEmpty())
+    menu->addAction(
+        CommandManager::instance()->getAction(MI_AddInbetweenZoneHint));
   if (StrokeSelection::hasInbetweenStrokePairs())
     menu->addAction(
         CommandManager::instance()->getAction(MI_ClearInbetweenStrokePairs));

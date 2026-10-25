@@ -2496,6 +2496,9 @@ void MainWindow::defineActions() {
                         "sort_with_palette_order");
   createMenuLevelAction(MI_PairInbetweenStrokes,
                         QT_TR_NOOP("&Pair Strokes for Inbetween"), "");
+  createMenuLevelAction(MI_AddInbetweenZoneHint,
+                        QT_TR_NOOP("&Add Inbetween Zone Hint from Selection"),
+                        "");
   createMenuLevelAction(MI_ClearInbetweenStrokePairs,
                         QT_TR_NOOP("&Clear Inbetween Stroke Pairs"), "");
   createMenuLevelAction(MI_AddFrames, QT_TR_NOOP("&Add Frames..."), "",

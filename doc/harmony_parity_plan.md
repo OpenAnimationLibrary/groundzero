@@ -49,7 +49,7 @@
 | Stabilizer | E/A/P | Y | `modifiersmooth.cpp` | n/a |
 | Perspective and guides | A/P | Y | Assistants (`assistantperspective.cpp`, and others). | n/a |
 | Symmetry | ? | Y (ahead) | Replicators. | n/a |
-| Morphing | A/P | Partial | Vector Inbetween now accepts **stroke-pairing hints** (`common/tvrender/tinbetween.cpp`, `tnztools/strokeselection.cpp:694`). The old `morphtool.cpp` was removed. | No automatic matching of strokes, no zone or vanishing-point hints, and no velocity curve. |
+| Morphing | A/P | Partial | Vector Inbetween now accepts **stroke-pairing hints** (`common/tvrender/tinbetween.cpp`, `tnztools/strokeselection.cpp:694`). The old `morphtool.cpp` was removed. | Automatic stroke matching, zone hints and a custom velocity curve are in the Inbetween dialog (`doc/morphing.md`). No vanishing-point hints. |
 | Shift & Trace | A/P | Y | Existing tool. | n/a |
 | Onion skin | E/A/P | Y | Existing. | n/a |
 | Light Table | E/A/P | Y | View > Light Table: every column except the current one at 30% (`toonzlib/stage.cpp`, `toonz/sceneviewer.cpp`). | Fixed at 30%; there is no per-column setting. |
