@@ -178,7 +178,7 @@ elseif(BUILD_ENV_APPLE)
         set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -F ${OSX_10_6_SDK_PATH}")
     endif()
     set(EXTRA_LIBS
-        Qt5::Widgets
+        Qt${QT_VERSION_MAJOR}::Widgets
         ${TNZLIBS}
         ${QT_LIB}
         ${CARBON_LIB}
@@ -200,9 +200,10 @@ target_link_libraries(image
     PRIVATE
     OpenEXR::OpenEXR
     PUBLIC
-    Qt5::Core
-    Qt5::Gui
-    Qt5::Network
+    Qt${QT_VERSION_MAJOR}::Core
+    Qt${QT_VERSION_MAJOR}::Gui
+    Qt${QT_VERSION_MAJOR}::Network
+    ${OT_QT_CORE5COMPAT_LIB}
     ${Z_LIB}
     ${GLUT_LIB}
     ${GL_LIB}

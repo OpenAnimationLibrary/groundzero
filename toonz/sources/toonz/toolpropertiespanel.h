@@ -13,6 +13,7 @@
 #include <QComboBox>
 #include <QToolButton>
 #include <QMouseEvent>
+#include "toonzqt/qtcompat.h"
 #include <QPushButton>
 #include <QList>
 #include <QMap>
@@ -57,7 +58,7 @@ public:
 
 protected:
   void paintEvent(QPaintEvent *event) override;
-  void enterEvent(QEvent *event) override;
+  void enterEvent(TEnterEvent *event) override;
   void mouseMoveEvent(QMouseEvent *event) override;
 };
 

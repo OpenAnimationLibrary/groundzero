@@ -97,6 +97,7 @@ set(HEADERS
     ../include/toonzqt/lutcalibrator.h
     ../include/toonzqt/multipleselection.h
     ../include/toonzqt/pickrgbutils.h
+    ../include/toonzqt/qtcompat.h
     ../include/toonzqt/rasterimagedata.h
     ../include/toonzqt/selection.h
     ../include/toonzqt/selectioncommandids.h
@@ -213,18 +214,18 @@ set(SOURCES
 
 set(RESOURCES toonzqt.qrc)
 
-get_target_property(QW_LOC Qt5::Widgets INTERFACE_INCLUDE_DIRECTORIES)
+get_target_property(QW_LOC Qt${QT_VERSION_MAJOR}::Widgets INTERFACE_INCLUDE_DIRECTORIES)
 
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
 
 set(incs)
-foreach(dir ${Qt5Widgets_INCLUDE_DIRS})
+foreach(dir ${Qt${QT_VERSION_MAJOR}Widgets_INCLUDE_DIRS})
     set(incs ${incs} -I${dir})
 endforeach()
 
-qt5_add_resources(SOURCES ${RESOURCES})
+ot_qt_add_resources(SOURCES ${RESOURCES})
 
-qt5_wrap_cpp(SOURCES ${MOC_HEADERS} OPTIONS ${incs})
+ot_qt_wrap_cpp(SOURCES ${MOC_HEADERS} OPTIONS ${incs})
 
 add_library(toonzqt SHARED ${HEADERS} ${SOURCES} ${RESOURCES})
 
@@ -261,4 +262,4 @@ elseif(BUILD_ENV_UNIXLIKE)
     endif()
 endif()
 
-target_link_libraries(toonzqt Qt5::Core Qt5::Gui Qt5::Widgets Qt5::Network Qt5::OpenGL Qt5::Svg ${EXTRA_LIBS} ${GL_LIB})
+target_link_libraries(toonzqt Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Widgets Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::OpenGL ${OT_QT_OPENGLWIDGETS_LIB} Qt${QT_VERSION_MAJOR}::Svg ${EXTRA_LIBS} ${GL_LIB})

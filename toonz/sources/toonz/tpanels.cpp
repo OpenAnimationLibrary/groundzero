@@ -3,6 +3,10 @@
 #include "tpanels.h"
 #include "alignmentpane.h"
 #include "posespane.h"
+#include "referencepanel.h"
+#include "drawingsubstitutionpane.h"
+#include "storyboardpane.h"
+#include "mastercontrollerspane.h"
 
 // Tnz6 includes
 #include "pane.h"
@@ -1882,3 +1886,71 @@ public:
 
 OpenFloatingPanel openPosesPanelCommand(MI_OpenPosesPanel, "PosesPanel",
                                         QObject::tr("Poses"));
+
+//=============================================================================
+// Reference
+//-----------------------------------------------------------------------------
+
+class ReferencePanelFactory final : public TPanelFactory {
+public:
+  ReferencePanelFactory() : TPanelFactory("ReferencePanel") {}
+  void initialize(TPanel *panel) override {
+    panel->setWidget(new ReferencePanel(panel));
+    panel->setWindowTitle(QObject::tr("Reference"));
+  }
+} referencePanelFactory;
+
+OpenFloatingPanel openReferencePanelCommand(MI_OpenReferencePanel,
+                                            "ReferencePanel",
+                                            QObject::tr("Reference"));
+// Drawing Substitution
+//-----------------------------------------------------------------------------
+
+class DrawingSubstitutionPanelFactory final : public TPanelFactory {
+public:
+  DrawingSubstitutionPanelFactory()
+      : TPanelFactory("DrawingSubstitutionPanel") {}
+  void initialize(TPanel *panel) override {
+    panel->setWidget(new DrawingSubstitutionPane(panel));
+    panel->setWindowTitle(QObject::tr("Drawing Substitution"));
+    panel->setIsMaximizable(false);
+  }
+} drawingSubstitutionPanelFactory;
+
+OpenFloatingPanel openDrawingSubstitutionPanelCommand(
+    MI_OpenDrawingSubstitutionPanel, "DrawingSubstitutionPanel",
+    QObject::tr("Drawing Substitution"));
+// Storyboard
+//-----------------------------------------------------------------------------
+
+class StoryboardPanelFactory final : public TPanelFactory {
+public:
+  StoryboardPanelFactory() : TPanelFactory("StoryboardPanel") {}
+  void initialize(TPanel *panel) override {
+    panel->setWidget(new StoryboardPane(panel));
+    panel->setWindowTitle(QObject::tr("Storyboard"));
+    panel->setIsMaximizable(false);
+  }
+} storyboardPanelFactory;
+
+OpenFloatingPanel openStoryboardPanelCommand(MI_OpenStoryboardPanel,
+                                             "StoryboardPanel",
+                                             QObject::tr("Storyboard"));
+
+//=============================================================================
+// Master Controllers
+//-----------------------------------------------------------------------------
+
+class MasterControllersPanelFactory final : public TPanelFactory {
+public:
+  MasterControllersPanelFactory() : TPanelFactory("MasterControllers") {}
+  void initialize(TPanel *panel) override {
+    panel->setWidget(new MasterControllersPane(panel));
+    panel->setWindowTitle(QObject::tr("Master Controllers"));
+    panel->setIsMaximizable(false);
+  }
+} masterControllersPanelFactory;
+
+OpenFloatingPanel openMasterControllersCommand(
+    MI_OpenMasterControllers, "MasterControllers",
+    QObject::tr("Master Controllers"));

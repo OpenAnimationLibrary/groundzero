@@ -681,8 +681,13 @@ ExportScenePopup::ExportScenePopup(std::vector<TFilePath> scenes)
          "standalone scene while keeping the exported folder."));
   layout->addWidget(m_createZipCheckBox);
 
+#if QT_VERSION >= QT_VERSION_CHECK(5, 15, 0)
+  ret = ret &&
+        connect(group, SIGNAL(idClicked(int)), this, SLOT(switchMode(int)));
+#else
   ret = ret &&
         connect(group, SIGNAL(buttonClicked(int)), this, SLOT(switchMode(int)));
+#endif
 
   addLayout(layout, false);
 

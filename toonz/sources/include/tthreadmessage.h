@@ -80,6 +80,21 @@ public:
   ~MutexLocker() { ReleaseMutex(m_mutex); }
 };
 
+#elif QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+
+// Qt 6 has QRecursiveMutex instead of the recursive mode of QMutex.
+class DVAPI Mutex final : public QRecursiveMutex {
+public:
+  Mutex() {}
+
+private:
+  // not implemented
+  Mutex(const Mutex &);
+  Mutex &operator=(const Mutex &);
+};
+
+typedef QMutexLocker<QRecursiveMutex> MutexLocker;
+
 #else
 
 class DVAPI Mutex final : public QMutex {

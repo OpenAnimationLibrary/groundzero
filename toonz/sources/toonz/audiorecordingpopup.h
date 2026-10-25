@@ -5,11 +5,26 @@
 
 #include "toonzqt/dvdialog.h"
 #include "tsystem.h"
+#include <QtGlobal>
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+#include <QAudioSource>
+#else
 #include <QAudioInput>
+#endif
 #include <QObject>
 #include <QLabel>
 #include <QMediaPlayer>
 #include <QIcon>
+
+// Qt 6 records with QAudioSource (its QAudioInput is a capture session's
+// input) and renamed QMediaPlayer::State to PlaybackState.
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+typedef QAudioSource TAudioInput;
+typedef QMediaPlayer::PlaybackState TMediaPlayerState;
+#else
+typedef QAudioInput TAudioInput;
+typedef QMediaPlayer::State TMediaPlayerState;
+#endif
 
 // forward decl.
 class QComboBox;
@@ -33,7 +48,7 @@ class AudioRecordingPopup : public DVGui::Dialog {
   QPushButton *m_recordButton, *m_refreshDevicesButton, *m_playButton,
       *m_pauseRecordingButton, *m_pausePlaybackButton, *m_saveButton;
   QComboBox *m_deviceListCB;
-  QAudioInput *m_audioInput;
+  TAudioInput *m_audioInput;
   AudioWriterWAV *m_audioWriterWAV;
   QLabel *m_duration, *m_playDuration;
   QCheckBox *m_playXSheetCB;
@@ -90,7 +105,7 @@ private slots:
   void onPausePlaybackButtonPressed();
   void onPlayStateChanged(bool playing);
   void onPlayXSheetCBChanged(int status);
-  void onMediaStateChanged(QMediaPlayer::State state);
+  void onMediaStateChanged(TMediaPlayerState state);
   void onInputDeviceChanged();
   void onRefreshButtonPressed();
   void onAudioSettingChanged();

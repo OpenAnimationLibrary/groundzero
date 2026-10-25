@@ -47,11 +47,24 @@
 #include <QTextEdit>
 #include <QIcon>
 #include <QAudio>
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+#include <QAudioOutput>
+#endif
 #include <QTimer>
 #include <QStackedWidget>
 #include <QSizePolicy>
 #include <QFileInfo>
 #include <QDir>
+
+namespace {
+TMediaPlayerState playerState(const QMediaPlayer *player) {
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+  return player->playbackState();
+#else
+  return player->state();
+#endif
+}
+}  // namespace
 
 //=============================================================================
 /*! \class AutoLipSyncPopup
@@ -708,7 +721,7 @@ void AutoLipSyncPopup::playSound() {
       }
     }
   } else {  // level < 0
-    if (m_player->state() == QMediaPlayer::StoppedState) {
+    if (playerState(m_player) == QMediaPlayer::StoppedState) {
       // Check null pointer
       if (!m_audioFile) {
         DVGui::warning(tr("Audio file field is not available."));
@@ -730,16 +743,30 @@ void AutoLipSyncPopup::playSound() {
         return;
       }
 
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+      // A Qt 6 player is silent without an audio output, and has no notify
+      // interval.
+      if (!m_player->audioOutput())
+        m_player->setAudioOutput(new QAudioOutput(m_player));
+      m_player->setSource(QUrl::fromLocalFile(tempPath.getQString()));
+      m_player->audioOutput()->setVolume(0.5f);
+#else
       m_player->setMedia(QUrl::fromLocalFile(tempPath.getQString()));
       m_player->setVolume(50);
       m_player->setNotifyInterval(20);
+#endif
 
       // TODO: Real-time lip sync preview (not implemented)
       // The positionChanged signal emits the current playback position in
       // milliseconds. connect(m_player, &QMediaPlayer::positionChanged, this,
       //         &AutoLipSyncPopup::updatePlaybackPosition);
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+      connect(m_player, &QMediaPlayer::playbackStateChanged, this,
+              &AutoLipSyncPopup::onMediaStateChanged);
+#else
       connect(m_player, &QMediaPlayer::stateChanged, this,
               &AutoLipSyncPopup::onMediaStateChanged);
+#endif
 
       m_player->play();
     } else {
@@ -762,7 +789,7 @@ void AutoLipSyncPopup::stopAllSound() {
     }
   }
 
-  if (m_player->state() != QMediaPlayer::StoppedState) {
+  if (playerState(m_player) != QMediaPlayer::StoppedState) {
     m_player->stop();
   }
 
@@ -772,7 +799,7 @@ void AutoLipSyncPopup::stopAllSound() {
 
 //-----------------------------------------------------------------------------
 
-void AutoLipSyncPopup::onMediaStateChanged(QMediaPlayer::State state) {
+void AutoLipSyncPopup::onMediaStateChanged(TMediaPlayerState state) {
   // Stopping can happen through the stop button or the file ending
   if (state == QMediaPlayer::StoppedState) {
     m_playButton->setIcon(m_playIcon);

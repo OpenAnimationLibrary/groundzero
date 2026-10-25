@@ -1,0 +1,22 @@
+<fxlayout>
+  <page name="Envelope Deformer">
+   <separator label="Envelope"/>
+    <control>point1</control>
+    <control>point2</control>
+    <control>point3</control>
+    <control>point4</control>
+    <control>point5</control>
+    <control>point6</control>
+    <control>point7</control>
+    <control>point8</control>
+   <separator label="Rest Pose"/>
+    <control>rest1</control>
+    <control>rest2</control>
+    <control>rest3</control>
+    <control>rest4</control>
+    <control>rest5</control>
+    <control>rest6</control>
+    <control>rest7</control>
+    <control>rest8</control>
+  </page>
+</fxlayout>

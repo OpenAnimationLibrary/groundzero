@@ -1439,8 +1439,13 @@ CleanupPopup::OverwriteDialog::OverwriteDialog()
     : DVGui::ValidatedChoiceDialog(TApp::instance()->getMainWindow()) {
   setWindowTitle(tr("Warning!"));
 
+#if QT_VERSION >= QT_VERSION_CHECK(5, 15, 0)
+  bool ret = connect(m_buttonGroup, SIGNAL(idClicked(int)),
+                     SLOT(onButtonClicked(int)));
+#else
   bool ret = connect(m_buttonGroup, SIGNAL(buttonClicked(int)),
                      SLOT(onButtonClicked(int)));
+#endif
   assert(ret);
 
   // Option 1: OVERWRITE

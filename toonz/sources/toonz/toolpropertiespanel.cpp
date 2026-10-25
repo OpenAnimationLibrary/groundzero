@@ -336,7 +336,7 @@ void ToolPropertyButton::paintEvent(QPaintEvent *) {
   }
 }
 
-void ToolPropertyButton::enterEvent(QEvent *event) {
+void ToolPropertyButton::enterEvent(TEnterEvent *event) {
   if (!isEnabled() || !m_hoverEnabled) return;
   QToolButton::enterEvent(event);
 }
@@ -414,7 +414,7 @@ void ToolPropertiesPanel::hideEvent(QHideEvent *e) {
 void ToolPropertiesPanel::initializeUI() {
   QWidget *mainWidget     = new QWidget(this);
   QVBoxLayout *mainLayout = new QVBoxLayout(mainWidget);
-  mainLayout->setMargin(5);
+  mainLayout->setContentsMargins(5, 5, 5, 5);
   mainLayout->setSpacing(5);
 
   // Tool name label (header) - Normal style like "Size" property
@@ -442,7 +442,7 @@ void ToolPropertiesPanel::initializeUI() {
   m_propertiesContainer->setObjectName("toolOptionsPanel");
 
   m_propertiesLayout = new QVBoxLayout(m_propertiesContainer);
-  m_propertiesLayout->setMargin(8);
+  m_propertiesLayout->setContentsMargins(8, 8, 8, 8);
   m_propertiesLayout->setSpacing(20);  // Significant spacing between properties
   m_propertiesLayout->setAlignment(Qt::AlignTop);
 
@@ -591,6 +591,7 @@ QString ToolPropertiesPanel::detectCurrentToolType() {
   if (toolId == T_Bender) return "bender";
   if (toolId == T_Iron) return "iron";
   if (toolId == T_Cutter) return "cutter";
+  if (toolId == T_LassoCutter) return "lassocutter";
   if (toolId == T_Skeleton) return "skeleton";
   if (toolId == T_Tracker) return "tracker";
   if (toolId == T_Hook) return "hook";
@@ -1167,7 +1168,7 @@ void ToolPropertiesPanel::createSizeProperty() {
         // Create widget
         QWidget *container  = new QWidget(this);
         QVBoxLayout *layout = new QVBoxLayout(container);
-        layout->setMargin(0);
+        layout->setContentsMargins(0, 0, 0, 0);
         layout->setSpacing(3);
 
         // Label + value display
@@ -1223,7 +1224,7 @@ void ToolPropertiesPanel::createSizeProperty() {
         // Create widget
         QWidget *container  = new QWidget(this);
         QVBoxLayout *layout = new QVBoxLayout(container);
-        layout->setMargin(0);
+        layout->setContentsMargins(0, 0, 0, 0);
         layout->setSpacing(3);
 
         // Label + value display
@@ -1969,7 +1970,7 @@ void ToolPropertiesPanel::createMyPaintSizeProperty() {
         container->setProperty("valueDecimals", 2);  // Display 2 decimal places
 
         QVBoxLayout *layout = new QVBoxLayout(container);
-        layout->setMargin(0);
+        layout->setContentsMargins(0, 0, 0, 0);
         layout->setSpacing(3);
 
         // Label (respect m_showLabels) + value display
@@ -1988,7 +1989,7 @@ void ToolPropertiesPanel::createMyPaintSizeProperty() {
 
         // Slider + numeric field layout
         QHBoxLayout *sliderLayout = new QHBoxLayout();
-        sliderLayout->setMargin(0);
+        sliderLayout->setContentsMargins(0, 0, 0, 0);
         sliderLayout->setSpacing(5);
 
         // Numeric field (respect m_showNumericFields)
@@ -2094,7 +2095,7 @@ void ToolPropertiesPanel::createMyPaintOpacityProperty() {
         container->setProperty("valueDecimals", 0);  // Display as integer
 
         QVBoxLayout *layout = new QVBoxLayout(container);
-        layout->setMargin(0);
+        layout->setContentsMargins(0, 0, 0, 0);
         layout->setSpacing(3);
 
         // Label (respect m_showLabels) + value display
@@ -2113,7 +2114,7 @@ void ToolPropertiesPanel::createMyPaintOpacityProperty() {
 
         // Slider + numeric field layout
         QHBoxLayout *sliderLayout = new QHBoxLayout();
-        sliderLayout->setMargin(0);
+        sliderLayout->setContentsMargins(0, 0, 0, 0);
         sliderLayout->setSpacing(5);
 
         // Numeric field (respect m_showNumericFields)
@@ -2382,7 +2383,7 @@ public:
 namespace {
 
 void applyCollapsibleContentLayout(QVBoxLayout *contentLayout) {
-  contentLayout->setMargin(0);
+  contentLayout->setContentsMargins(0, 0, 0, 0);
   contentLayout->setContentsMargins(
       CollapsibleStyle::kContentLeftIndent, CollapsibleStyle::kHeaderMarginV,
       CollapsibleStyle::kContentRightMargin, CollapsibleStyle::kHeaderMarginV);
@@ -2603,7 +2604,7 @@ QWidget *ToolPropertiesPanel::createSliderWithLabel(
   container->setProperty("propGroup", 0);
 
   QVBoxLayout *layout = new QVBoxLayout(container);
-  layout->setMargin(0);
+  layout->setContentsMargins(0, 0, 0, 0);
   layout->setSpacing(3);
 
   // Label (respect m_showLabels)
@@ -2613,7 +2614,7 @@ QWidget *ToolPropertiesPanel::createSliderWithLabel(
 
   // Slider with numeric fields
   QHBoxLayout *sliderLayout = new QHBoxLayout();
-  sliderLayout->setMargin(0);
+  sliderLayout->setContentsMargins(0, 0, 0, 0);
   sliderLayout->setSpacing(5);
 
   // Numeric field (QLineEdit to avoid arrows, respect m_showNumericFields)
@@ -2671,7 +2672,7 @@ QWidget *ToolPropertiesPanel::createDoubleSliderWithLabel(
   container->setProperty("valueDecimals", kTppDoubleSliderDecimals);
 
   QVBoxLayout *layout = new QVBoxLayout(container);
-  layout->setMargin(0);
+  layout->setContentsMargins(0, 0, 0, 0);
   layout->setSpacing(3);
 
   // Label (respect m_showLabels)
@@ -2681,7 +2682,7 @@ QWidget *ToolPropertiesPanel::createDoubleSliderWithLabel(
 
   // Slider with numeric field
   QHBoxLayout *sliderLayout = new QHBoxLayout();
-  sliderLayout->setMargin(0);
+  sliderLayout->setContentsMargins(0, 0, 0, 0);
   sliderLayout->setSpacing(5);
 
   const int sliderMin =
@@ -2835,7 +2836,7 @@ QWidget *ToolPropertiesPanel::createCollapsibleEnum(
   QWidget *container =
       new QWidget(parentWidget ? parentWidget : static_cast<QWidget *>(this));
   QVBoxLayout *mainLayout = new QVBoxLayout(container);
-  mainLayout->setMargin(0);
+  mainLayout->setContentsMargins(0, 0, 0, 0);
   mainLayout->setSpacing(CollapsibleStyle::kItemSpacing);
 
   // Header with toggle button
@@ -2986,7 +2987,7 @@ QWidget *ToolPropertiesPanel::createCollapsibleIntSlider(
   container->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
 
   QVBoxLayout *mainLayout = new QVBoxLayout(container);
-  mainLayout->setMargin(0);
+  mainLayout->setContentsMargins(0, 0, 0, 0);
   mainLayout->setSpacing(CollapsibleStyle::kItemSpacing);
 
   QWidget *header = new QWidget(container);
@@ -3031,7 +3032,7 @@ QWidget *ToolPropertiesPanel::createCollapsibleIntSlider(
   applyCollapsibleContentLayout(contentLayout);
 
   QHBoxLayout *sliderLayout = new QHBoxLayout();
-  sliderLayout->setMargin(0);
+  sliderLayout->setContentsMargins(0, 0, 0, 0);
   sliderLayout->setSpacing(CollapsibleStyle::kHeaderSpacing);
 
   QLineEdit *lineEdit = new QLineEdit(content);
@@ -3101,7 +3102,7 @@ QWidget *ToolPropertiesPanel::createCollapsiblePicker(
   container->setProperty("pickerStorageKey", storageKey);
 
   QVBoxLayout *mainLayout = new QVBoxLayout(container);
-  mainLayout->setMargin(0);
+  mainLayout->setContentsMargins(0, 0, 0, 0);
   mainLayout->setSpacing(CollapsibleStyle::kItemSpacing);
 
   QWidget *header = new QWidget(container);
@@ -3200,7 +3201,7 @@ QWidget *ToolPropertiesPanel::createCollapsibleTextField(
   container->setProperty("propGroup", propGroup);
 
   QVBoxLayout *mainLayout = new QVBoxLayout(container);
-  mainLayout->setMargin(0);
+  mainLayout->setContentsMargins(0, 0, 0, 0);
   mainLayout->setSpacing(CollapsibleStyle::kItemSpacing);
 
   QWidget *header = new QWidget(container);
@@ -3275,7 +3276,7 @@ QWidget *ToolPropertiesPanel::createCollapsibleSection(
   container->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
 
   QVBoxLayout *mainLayout = new QVBoxLayout(container);
-  mainLayout->setMargin(0);
+  mainLayout->setContentsMargins(0, 0, 0, 0);
   mainLayout->setSpacing(CollapsibleStyle::kItemSpacing);
 
   QWidget *header = new QWidget(container);
@@ -3430,12 +3431,12 @@ QWidget *ToolPropertiesPanel::createCollapsibleEnumWithIcons(
   container->setProperty("propGroup", 0);
 
   QVBoxLayout *mainLayout = new QVBoxLayout(container);
-  mainLayout->setMargin(0);
+  mainLayout->setContentsMargins(0, 0, 0, 0);
   mainLayout->setSpacing(2);
 
   // Header row with toggle button, label, and current value
   QHBoxLayout *headerLayout = new QHBoxLayout();
-  headerLayout->setMargin(0);
+  headerLayout->setContentsMargins(0, 0, 0, 0);
   headerLayout->setSpacing(5);
 
   // Collapsible toggle button (triangle)
@@ -3478,7 +3479,7 @@ QWidget *ToolPropertiesPanel::createCollapsibleEnumWithIcons(
   QWidget *content = new QWidget(container);
   content->setVisible(isExpanded);
   QVBoxLayout *contentLayout = new QVBoxLayout(content);
-  contentLayout->setMargin(0);
+  contentLayout->setContentsMargins(0, 0, 0, 0);
   contentLayout->setContentsMargins(20, 0, 0, 0);  // Indent content
   contentLayout->setSpacing(2);
 
@@ -3506,7 +3507,7 @@ QWidget *ToolPropertiesPanel::createCollapsibleEnumWithIcons(
     // For buttons with custom layout, we need to override the paintEvent text
     // drawing Create layout for button content: text on left, icon on right
     QHBoxLayout *btnLayout = new QHBoxLayout(optionButton);
-    btnLayout->setMargin(4);
+    btnLayout->setContentsMargins(4, 4, 4, 4);
     btnLayout->setSpacing(5);
 
     QLabel *textLabel = new QLabel(items[i], optionButton);
@@ -7055,7 +7056,7 @@ void ToolPropertiesPanel::createDoublePairSlider(const QString &label,
   storeTppPropertyPtr(container, prop);
 
   QVBoxLayout *layout = new QVBoxLayout(container);
-  layout->setMargin(0);
+  layout->setContentsMargins(0, 0, 0, 0);
   layout->setSpacing(3);
 
   // Label (respect m_showLabels)
@@ -7102,7 +7103,7 @@ void ToolPropertiesPanel::createDoublePairSlider(const QString &label,
     container->setProperty("isLinearSlider", isLinear);
 
     QHBoxLayout *sliderLayout = new QHBoxLayout();
-    sliderLayout->setMargin(0);
+    sliderLayout->setContentsMargins(0, 0, 0, 0);
     sliderLayout->setSpacing(5);
 
     QLineEdit *lineEdit = new QLineEdit(container);
@@ -7216,7 +7217,7 @@ void ToolPropertiesPanel::createIntPairSlider(const QString &label,
   storeTppPropertyPtr(container, prop);
 
   QVBoxLayout *layout = new QVBoxLayout(container);
-  layout->setMargin(0);
+  layout->setContentsMargins(0, 0, 0, 0);
   layout->setSpacing(3);
 
   // Label (respect m_showLabels)
@@ -7256,7 +7257,7 @@ void ToolPropertiesPanel::createIntPairSlider(const QString &label,
 
     // Slider layout with numeric field on the left
     QHBoxLayout *sliderLayout = new QHBoxLayout();
-    sliderLayout->setMargin(0);
+    sliderLayout->setContentsMargins(0, 0, 0, 0);
     sliderLayout->setSpacing(5);
 
     // Numeric field (QLineEdit to avoid arrows, respect m_showNumericFields)

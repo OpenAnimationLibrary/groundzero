@@ -9,11 +9,11 @@
 
 // TnzBase includes
 #include "tfx.h"
+#include "toonzqt/qtcompat.h"
 
 // Qt includes
 #include <QGraphicsScene>
 #include <QGraphicsView>
-#include <QTouchDevice>
 
 #include <QIcon>
 
@@ -141,7 +141,7 @@ class DVAPI SchematicSceneViewer final : public QGraphicsView {
   bool m_touchActive = false;
 
   bool m_gestureActive                   = false;
-  QTouchDevice::DeviceType m_touchDevice = QTouchDevice::TouchScreen;
+  TTouchDeviceType m_touchDevice         = TTouchDeviceType::TouchScreen;
   bool m_zooming                         = false;
   bool m_panning                         = false;
   double m_scaleFactor;  // used for zoom gesture
@@ -168,7 +168,7 @@ protected:
   void keyPressEvent(QKeyEvent *ke) override;
   void wheelEvent(QWheelEvent *me) override;
   void showEvent(QShowEvent *se) override;
-  void enterEvent(QEvent *e) override;
+  void enterEvent(TEnterEvent *e) override;
   void leaveEvent(QEvent *e) override;
   void mouseDoubleClickEvent(QMouseEvent *event) override;
 

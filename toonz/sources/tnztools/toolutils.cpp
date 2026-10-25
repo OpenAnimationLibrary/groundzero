@@ -48,7 +48,6 @@
 
 #include <QPainter>
 #include <QPainterPath>
-#include <QGLWidget>  // for QGLWidget::convertToGLFormat
 #include <QFont>
 #include <QFontMetrics>
 
@@ -1645,7 +1644,7 @@ void ToolUtils::drawBalloon(const TPointD &pos, std::string text,
   p.setFont(font);
   p.drawText(textRect, Qt::AlignCenter | Qt::TextDontClip, qText);
 
-  QImage texture = QGLWidget::convertToGLFormat(label);
+  QImage texture = ToolUtils::convertToGLFormat(label);
 
   glRasterPos2f(pos.x, pos.y);
   glBitmap(0, 0, 0, 0, 0, -size.height() + (y + delta.y), NULL);  //
@@ -1699,7 +1698,7 @@ void ToolUtils::drawHook(const TPointD &pos, ToolUtils::HookType type,
     painter.drawLine(r, 0, r, d);
   }
 
-  QImage texture = QGLWidget::convertToGLFormat(image);
+  QImage texture = ToolUtils::convertToGLFormat(image);
   glRasterPos2f(pos.x, pos.y);
   glBitmap(0, 0, 0, 0, -r * devPixRatio, -r * devPixRatio, NULL);
   glEnable(GL_BLEND);
@@ -1707,6 +1706,15 @@ void ToolUtils::drawHook(const TPointD &pos, ToolUtils::HookType type,
   glDrawPixels(texture.width(), texture.height(), GL_RGBA, GL_UNSIGNED_BYTE,
                texture.bits());
   glDisable(GL_BLEND);
+}
+
+//---------------------------------------------------------------------------------------------
+
+QImage ToolUtils::convertToGLFormat(const QImage &image) {
+  // ARGB32 to RGBA8888 only reorders the bytes
+  return image.convertToFormat(QImage::Format_ARGB32)
+      .convertToFormat(QImage::Format_RGBA8888)
+      .mirrored();
 }
 
 //---------------------------------------------------------------------------------------------

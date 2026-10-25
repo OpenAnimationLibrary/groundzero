@@ -46,7 +46,8 @@ const struct {
     {"angle", TStageObject::T_Angle},   {"scalex", TStageObject::T_ScaleX},
     {"scaley", TStageObject::T_ScaleY}, {"scale", TStageObject::T_Scale},
     {"shearx", TStageObject::T_ShearX}, {"sheary", TStageObject::T_ShearY},
-    {"path", TStageObject::T_Path},
+    {"path", TStageObject::T_Path},     {"rotx", TStageObject::T_RotX},
+    {"roty", TStageObject::T_RotY},
 };
 
 // Parses the channel name (case insensitive); makes the calling script throw

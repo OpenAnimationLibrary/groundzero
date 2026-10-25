@@ -28,6 +28,7 @@
 #include "tdoubleparam.h"
 #include "toonz/tfxhandle.h"
 #include "historytypes.h"
+#include "toonzqt/qtcompat.h"
 
 #undef DVAPI
 #undef DVVAR
@@ -168,7 +169,7 @@ public:
 protected:
   void paintEvent(QPaintEvent *) override;
   void mousePressEvent(QMouseEvent *) override;
-  void enterEvent(QEvent *) override;
+  void enterEvent(TEnterEvent *) override;
   void leaveEvent(QEvent *) override;
 
   // keyframe colors

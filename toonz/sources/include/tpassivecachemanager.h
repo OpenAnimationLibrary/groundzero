@@ -3,7 +3,18 @@
 #ifndef TPASSIVECACHEMANAGER_INCLUDED
 #define TPASSIVECACHEMANAGER_INCLUDED
 
+#include "tthreadmessage.h"
 #include "tfxcachemanager.h"
+
+#undef DVAPI
+#undef DVVAR
+#ifdef TFX_EXPORTS
+#define DVAPI DV_EXPORT_API
+#define DVVAR DV_EXPORT_VAR
+#else
+#define DVAPI DV_IMPORT_API
+#define DVVAR DV_IMPORT_VAR
+#endif
 
 //=========================================================================
 
@@ -56,7 +67,7 @@ void clear();*/
   class ResourcesContainer;
 
 private:
-  QMutex m_mutex;
+  TThread::Mutex m_mutex;
 
   std::vector<FxData> m_fxDataVector;
   std::set<std::string> m_invalidatedLevels;

@@ -850,8 +850,10 @@ ExportPanel::ExportPanel(QWidget *parent, Qt::WindowFlags flags)
 
   m_fileFormat->addItems(formats);
   m_fileFormat->setFixedHeight(DVGui::WidgetHeight + 2);
-  connect(m_fileFormat, SIGNAL(currentIndexChanged(const QString &)),
-          SLOT(onFormatChanged(const QString &)));
+  connect(m_fileFormat, QOverload<int>::of(&QComboBox::currentIndexChanged),
+          this, [this, combo = m_fileFormat](int index) {
+            onFormatChanged(combo->itemText(index));
+          });
   // m_fileFormat->setCurrentIndex(formats.indexOf("mov"));
 
   QPushButton *fileFormatButton = new QPushButton(QString(tr("Options")));

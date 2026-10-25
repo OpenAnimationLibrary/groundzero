@@ -192,7 +192,7 @@ void TDockWidget::setFloatingAppearance() {
   if (m_titlebar) {
     // If has a custom title bar, impose a margin to the layout
     // to provide a frame.
-    layout()->setMargin(m_margin);
+    layout()->setContentsMargins(m_margin, m_margin, m_margin, m_margin);
 
     if (!m_floating)  // was docked
     {
@@ -212,7 +212,7 @@ void TDockWidget::setFloatingAppearance() {
 
 void TDockWidget::setDockedAppearance() {
   // No layout margin is visible when docked
-  layout()->setMargin(0);
+  layout()->setContentsMargins(0, 0, 0, 0);
 
   if (m_floating)  // was floating
   {

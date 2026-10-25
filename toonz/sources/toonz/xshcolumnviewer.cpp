@@ -3094,6 +3094,7 @@ void ColumnArea::contextMenuEvent(QContextMenuEvent *event) {
       menu.addSeparator();
       menu.addAction(cmdManager->getAction(MI_InsertFx));
       menu.addAction(cmdManager->getAction(MI_NewNoteLevel));
+      menu.addAction(cmdManager->getAction(MI_NewAnnotationColumn));
       menu.addAction(cmdManager->getAction(MI_RemoveEmptyColumns));
       menu.addSeparator();
       if (m_viewer->getXsheet()->isColumnEmpty(col) ||

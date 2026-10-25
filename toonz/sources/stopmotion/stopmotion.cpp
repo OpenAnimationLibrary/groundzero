@@ -30,7 +30,9 @@
 
 #include <QApplication>
 #include <QCamera>
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
 #include <QCameraInfo>
+#endif
 #include <QCoreApplication>
 #include <QDialog>
 #include <QFile>
@@ -229,7 +231,12 @@ StopMotion::StopMotion() {
   m_intervalTimer      = new QTimer(this);
   m_countdownTimer     = new QTimer(this);
   m_webcamOverlayTimer = new QTimer(this);
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+  m_camSnapSound = new QSoundEffect();
+  m_camSnapSound->setSource(QUrl("qrc:/Resources/camera_snap.wav"));
+#else
   m_camSnapSound       = new QSound(":Resources/camera_snap.wav");
+#endif
 
   // Make the interval timer single-shot. When the capture finished, restart
   // timer for next frame.
@@ -1996,14 +2003,14 @@ bool StopMotion::loadXmlFile() {
   xmlReader.readNext();
   while (!xmlReader.atEnd()) {
     if (xmlReader.isStartElement()) {
-      if (xmlReader.name() == "Webcam") {
+      if (xmlReader.name().toString() == "Webcam") {
         text = xmlReader.readElementText();
         if (text == "yes") webcam = true;
       }
-      if (xmlReader.name() == "CameraName") {
+      if (xmlReader.name().toString() == "CameraName") {
         text = xmlReader.readElementText();
         if (webcam) {
-          QList<QCameraInfo> cameras = QCameraInfo::availableCameras();
+          QList<TWebcamInfo> cameras = Webcam::getAvailableWebcams();
           if (cameras.size() > 0) {
             for (int i = 0; i < cameras.size(); i++) {
               if (cameras.at(i).description() == text) {
@@ -2028,11 +2035,11 @@ bool StopMotion::loadXmlFile() {
 #endif
         }
       }
-      if (xmlReader.name() == "CameraResolutionX") {
+      if (xmlReader.name().toString() == "CameraResolutionX") {
         text = xmlReader.readElementText();
         x    = text.toInt();
       }
-      if (xmlReader.name() == "CameraResolutionY") {
+      if (xmlReader.name().toString() == "CameraResolutionY") {
         text = xmlReader.readElementText();
         y    = text.toInt();
         if (foundCamera == true && webcam == true) {
@@ -2041,59 +2048,59 @@ bool StopMotion::loadXmlFile() {
         }
       }
 #ifdef WITH_CANON
-      if (xmlReader.name() == "Aperture") {
+      if (xmlReader.name().toString() == "Aperture") {
         text = xmlReader.readElementText();
         if (foundCamera == true && webcam == false) {
           m_canon->setAperture(text);
         }
       }
-      if (xmlReader.name() == "ShutterSpeed") {
+      if (xmlReader.name().toString() == "ShutterSpeed") {
         text = xmlReader.readElementText();
         if (foundCamera == true && webcam == false) {
           m_canon->setShutterSpeed(text);
         }
       }
-      if (xmlReader.name() == "ISO") {
+      if (xmlReader.name().toString() == "ISO") {
         text = xmlReader.readElementText();
         if (foundCamera == true && webcam == false) {
           m_canon->setIso(text);
         }
       }
-      if (xmlReader.name() == "PictureStyle") {
+      if (xmlReader.name().toString() == "PictureStyle") {
         text = xmlReader.readElementText();
         if (foundCamera == true && webcam == false) {
           m_canon->setPictureStyle(text);
         }
       }
-      if (xmlReader.name() == "ImageQuality") {
+      if (xmlReader.name().toString() == "ImageQuality") {
         text = xmlReader.readElementText();
         if (foundCamera == true && webcam == false) {
           m_canon->setImageQuality(text);
         }
       }
-      if (xmlReader.name() == "WhiteBalance") {
+      if (xmlReader.name().toString() == "WhiteBalance") {
         text = xmlReader.readElementText();
         if (foundCamera == true && webcam == false) {
           m_canon->setWhiteBalance(text);
         }
       }
-      if (xmlReader.name() == "ColorTemperature") {
+      if (xmlReader.name().toString() == "ColorTemperature") {
         text = xmlReader.readElementText();
         if (foundCamera == true && webcam == false) {
           m_canon->setColorTemperature(text);
         }
       }
-      if (xmlReader.name() == "ExposureCompensation") {
+      if (xmlReader.name().toString() == "ExposureCompensation") {
         text = xmlReader.readElementText();
         if (foundCamera == true && webcam == false) {
           m_canon->setExposureCompensation(text);
         }
       }
-      if (xmlReader.name() == "FocusCheckLocationX") {
+      if (xmlReader.name().toString() == "FocusCheckLocationX") {
         text                        = xmlReader.readElementText();
         m_canon->m_finalZoomPoint.x = text.toInt();
       }
-      if (xmlReader.name() == "FocusCheckLocationY") {
+      if (xmlReader.name().toString() == "FocusCheckLocationY") {
         text                        = xmlReader.readElementText();
         m_canon->m_finalZoomPoint.y = text.toInt();
       }
@@ -2599,7 +2606,7 @@ void StopMotion::refreshCameraList() {
   }
 #endif
   if (m_usingWebcam) {
-    QList<QCameraInfo> cameras = QCameraInfo::availableCameras();
+    QList<TWebcamInfo> cameras = Webcam::getAvailableWebcams();
     if (m_usingWebcam && cameras.size() > 0) {
       for (int i = 0; i < cameras.size(); i++) {
         if (cameras.at(i).description() == m_webcam->getWebcamDescription()) {
@@ -2619,7 +2626,7 @@ void StopMotion::refreshCameraList() {
 void StopMotion::changeCameras(int index) {
   // note: index is negative if this is called to load DSLR from load settings
 
-  QList<QCameraInfo> cameras = QCameraInfo::availableCameras();
+  QList<TWebcamInfo> cameras = Webcam::getAvailableWebcams();
 
   // if selected the non-connected state, then disconnect the current camera
   if (index == 0) {
@@ -2633,7 +2640,8 @@ void StopMotion::changeCameras(int index) {
 
   // first see if the index didn't actually change
   if (cameras.size() > 0 && index < cameras.size() && index >= 0) {
-    if (cameras.at(index).deviceName() == m_webcam->getWebcamDeviceName()) {
+    if (Webcam::getDeviceName(cameras.at(index)) ==
+        m_webcam->getWebcamDeviceName()) {
       return;
     }
   }
@@ -2665,11 +2673,13 @@ void StopMotion::changeCameras(int index) {
 #endif
 
     m_webcam->setWebcam(new QCamera(cameras.at(index)));
-    m_webcam->setWebcamDeviceName(cameras.at(index).deviceName());
+    m_webcam->setWebcamDeviceName(Webcam::getDeviceName(cameras.at(index)));
     m_webcam->setWebcamDescription(cameras.at(index).description());
 
     // loading new camera
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
     m_webcam->getWebcam()->load();
+#endif
 
     m_webcam->refreshWebcamResolutions();
 
@@ -2694,7 +2704,9 @@ void StopMotion::changeCameras(int index) {
       sizeCount = webcamResolutions.indexOf(QSize(res.lx, res.ly));
     }
 
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
     m_webcam->getWebcam()->unload();
+#endif
 
     setWebcamResolution(
         QString(QString::number(width) + " x " + QString::number(height)));

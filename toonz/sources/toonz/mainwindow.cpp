@@ -58,7 +58,11 @@
 #include <QStackedWidget>
 #include <QSettings>
 #include <QApplication>
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
 #include <QGLPixelBuffer>
+#else
+#include <QOpenGLContext>
+#endif
 #include <QDebug>
 #include <QDesktopServices>
 #include <QButtonGroup>
@@ -107,6 +111,23 @@ namespace {
 std::string layoutsFileName           = "layouts.txt";
 const std::string currentRoomFileName = "currentRoom.txt";
 bool scrambledRooms                   = false;
+
+//=============================================================================
+
+// Whether "Visualize Vector As Raster" can render offscreen. Qt 5's
+// QGLPixelBuffer::hasOpenGLPbuffers() only tells whether the platform supports
+// OpenGL; Qt 6 has no public equivalent, so try creating a context.
+bool hasOpenGLPbuffers() {
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
+  return QGLPixelBuffer::hasOpenGLPbuffers();
+#else
+  static const bool canCreateContext = [] {
+    QOpenGLContext context;
+    return context.create();
+  }();
+  return canCreateContext;
+#endif
+}
 
 //=============================================================================
 
@@ -374,7 +395,7 @@ void Room::load(const TFilePath &fp, RoomLoadParams &params) {
 
     // Retrieve panel name
     QVariant name = m_settings->value("name");
-    if (name.canConvert(QVariant::String)) {
+    if (name.canConvert<QString>()) {
       // Allocate panel
       paneObjectName          = name.toString();
       std::string paneStrName = paneObjectName.toStdString();
@@ -1743,7 +1764,7 @@ void MainWindow::onMenuCheckboxChanged() {
   else if (cm->getAction(MI_FieldGuide) == action)
     FieldGuideToggleAction = isChecked;
   else if (cm->getAction(MI_RasterizePli) == action) {
-    if (!QGLPixelBuffer::hasOpenGLPbuffers()) isChecked = 0;
+    if (!hasOpenGLPbuffers()) isChecked = 0;
     RasterizePliToggleAction = isChecked;
   } else if (cm->getAction(MI_SafeArea) == action)
     SafeAreaToggleAction = isChecked;
@@ -2584,6 +2605,9 @@ void MainWindow::defineActions() {
   createMenuXsheetAction(MI_RemoveGlobalKeyframe,
                          QT_TR_NOOP("Remove Multiple Keys"), "",
                          "remove_multiple_keys");
+  createMenuXsheetAction(MI_NewAnnotationColumn,
+                         QT_TR_NOOP("New Annotation Column"), "",
+                         "new_note_level");
   createMenuXsheetAction(MI_RemoveEmptyColumns,
                          QT_TR_NOOP("Remove Empty Columns"), "",
                          "remove_empty_columns");
@@ -2820,7 +2844,7 @@ void MainWindow::defineActions() {
   createToggle(MI_VectorGuidedDrawing, QT_TR_NOOP("Vector Guided Drawing"), "",
                Preferences::instance()->isGuidedDrawingEnabled(),
                MenuViewCommandType, "view_guided_drawing");
-  if (QGLPixelBuffer::hasOpenGLPbuffers())
+  if (hasOpenGLPbuffers())
     createToggle(MI_RasterizePli, QT_TR_NOOP("&Visualize Vector As Raster"), "",
                  RasterizePliToggleAction ? 1 : 0, MenuViewCommandType,
                  "view_vector_as_raster");
@@ -2910,7 +2934,15 @@ void MainWindow::defineActions() {
   createMenuWindowsAction(MI_OpenAlignmentPanel,
                           QT_TR_NOOP("Align and Distribute Panel"), "", "");
   createMenuWindowsAction(MI_OpenPosesPanel, QT_TR_NOOP("&Poses"), "", "");
+  createMenuWindowsAction(MI_OpenDrawingSubstitutionPanel,
+                          QT_TR_NOOP("Drawing Substitution"), "", "");
+  createMenuWindowsAction(MI_OpenStoryboardPanel, QT_TR_NOOP("Storyboard"), "",
+                          "");
+  createMenuWindowsAction(MI_OpenMasterControllers,
+                          QT_TR_NOOP("Master Controllers"), "", "");
   createMenuWindowsAction(MI_OpenSymbols, QT_TR_NOOP("Symbols"), "", "");
+  createMenuWindowsAction(MI_OpenReferencePanel, QT_TR_NOOP("&Reference"), "",
+                          "");
   createMenuWindowsAction(MI_OpenGuidedDrawingControls,
                           QT_TR_NOOP("Guided Drawing Controls"), "",
                           "guided_drawing");
@@ -3173,6 +3205,7 @@ void MainWindow::defineActions() {
   createToolAction(T_Iron, "iron", QT_TR_NOOP("Iron Tool"), "");
 
   createToolAction(T_Cutter, "cutter", QT_TR_NOOP("Cutter Tool"), "");
+  createToolAction(T_LassoCutter, "cut", QT_TR_NOOP("Lasso Cutter Tool"), "");
   createToolAction(T_Skeleton, "skeleton", QT_TR_NOOP("Skeleton Tool"), "V");
   createToolAction(T_Tracker, "radar", QT_TR_NOOP("Tracker Tool"), "");
   createToolAction(T_Hook, "hook", QT_TR_NOOP("Hook Tool"), "O");

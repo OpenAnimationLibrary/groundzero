@@ -13,7 +13,7 @@
 
 // Qt includes
 #include <QOpenGLWidget>
-#include <QTouchDevice>
+#include "toonzqt/qtcompat.h"
 
 #undef DVAPI
 #undef DVVAR
@@ -67,7 +67,7 @@ class DVAPI PlaneViewer : public GLWidgetForHighDpi {
   Q_OBJECT
   bool m_touchActive                     = false;
   bool m_gestureActive                   = false;
-  QTouchDevice::DeviceType m_touchDevice = QTouchDevice::TouchScreen;
+  TTouchDeviceType m_touchDevice         = TTouchDeviceType::TouchScreen;
   bool m_zooming                         = false;
   bool m_panning                         = false;
   double m_scaleFactor;  // used for zoom gesture

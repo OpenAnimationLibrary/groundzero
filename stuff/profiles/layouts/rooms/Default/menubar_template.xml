@@ -190,6 +190,7 @@
         <command>MI_RemoveGlobalKeyframe</command>
         <separator/>
         <command>MI_LipSyncPopup</command>
+        <command>MI_NewAnnotationColumn</command>
         <separator/>
         <command>MI_RemoveEmptyColumns</command>
     </menu>
@@ -343,7 +344,11 @@
         <command>MI_OpenGuidedDrawingControls</command>
         <command>MI_OpenAlignmentPanel</command>
         <command>MI_OpenPosesPanel</command>
+        <command>MI_OpenDrawingSubstitutionPanel</command>
+        <command>MI_OpenStoryboardPanel</command>
+        <command>MI_OpenMasterControllers</command>
         <command>MI_OpenSymbols</command>
+        <command>MI_OpenReferencePanel</command>
         <command>MI_OpenCustomPanels</command>
         <separator/>
         <command>MI_MaximizePanel</command>

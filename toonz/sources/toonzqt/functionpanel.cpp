@@ -1451,7 +1451,7 @@ void FunctionPanel::keyPressEvent(QKeyEvent *e) {
 
 //-----------------------------------------------------------------------------
 
-void FunctionPanel::enterEvent(QEvent *) {
+void FunctionPanel::enterEvent(TEnterEvent *) {
   m_cursor.visible = true;
   update();
 }

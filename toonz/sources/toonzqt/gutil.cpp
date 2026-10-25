@@ -32,7 +32,9 @@
 #include <QKeyEvent>
 #include <QUrl>
 #include <QFileInfo>
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
 #include <QDesktopWidget>
+#endif
 #include <QSvgRenderer>
 #include <QRegularExpression>
 #include <QScreen>
@@ -42,11 +44,20 @@
 using namespace DVGui;
 
 namespace {
+// Qt 6 has no desktop widget. Qt 5's reports the primary screen's ratio.
+int desktopDevicePixelRatio() {
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
+  return QApplication::desktop()->devicePixelRatio();
+#else
+  return (int)QGuiApplication::primaryScreen()->devicePixelRatio();
+#endif
+}
+
 inline bool hasScreensWithDifferentDevPixRatio() {
   static bool ret     = false;
   static bool checked = false;
   if (!checked) {  // check once
-    int dpr = QApplication::desktop()->devicePixelRatio();
+    int dpr = desktopDevicePixelRatio();
     for (auto screen : QGuiApplication::screens()) {
       if ((int)screen->devicePixelRatio() != dpr) {
         ret = true;
@@ -217,7 +228,7 @@ int getDevicePixelRatio(const QWidget *widget) {
   if (hasScreensWithDifferentDevPixRatio() && widget) {
     return widget->screen()->devicePixelRatio();
   }
-  static int devPixRatio = QApplication::desktop()->devicePixelRatio();
+  static int devPixRatio = desktopDevicePixelRatio();
   return devPixRatio;
 }
 

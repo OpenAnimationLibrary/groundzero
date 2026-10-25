@@ -414,9 +414,20 @@ static TImageP applyCmappedFx(TToonzImageP &ti,
         dynamic_cast<ExternalPaletteFxRenderData *>((*it).getPointer());
     PaletteFilterFxRenderData *PaletteFilterData =
         dynamic_cast<PaletteFilterFxRenderData *>((*it).getPointer());
+    ColourOverrideFxRenderData *colourOverrideData =
+        dynamic_cast<ColourOverrideFxRenderData *>((*it).getPointer());
     if (extpltData && extpltData->m_palette) {
       filteredPalette = extpltData->m_palette->clone();
       filteredPalette->setFrame(frame);
+    } else if (colourOverrideData) {
+      if (!filteredPalette) filteredPalette = inPalette->clone();
+
+      // Bring animated styles to the frame first, so that the setFrame() below
+      // does not overwrite the overridden colors
+      filteredPalette->setFrame(frame);
+      colourOverrideData->apply(filteredPalette.getPointer());
+
+      inPalette = filteredPalette.getPointer();
     } else if (PaletteFilterData &&
                PaletteFilterData->m_type == eApplyToInksAndPaints) {
       bool keep = PaletteFilterData->m_keep;
@@ -688,6 +699,7 @@ static void applyCmappedFx(TVectorImageP &vi,
   bool keep = false;
   TPaletteP modPalette;
   std::set<int> colors;
+  std::vector<const ColourOverrideFxRenderData *> colourOverrides;
   std::vector<TRasterFxRenderDataP>::const_iterator it = fxs.begin();
 
   // prima tutti gli effetti che agiscono sulla paletta....
@@ -696,9 +708,13 @@ static void applyCmappedFx(TVectorImageP &vi,
         dynamic_cast<ExternalPaletteFxRenderData *>((*it).getPointer());
     PaletteFilterFxRenderData *pltFilterData =
         dynamic_cast<PaletteFilterFxRenderData *>((*it).getPointer());
+    ColourOverrideFxRenderData *colourOverrideData =
+        dynamic_cast<ColourOverrideFxRenderData *>((*it).getPointer());
 
     if (extpltData && extpltData->m_palette)
       modPalette = extpltData->m_palette->clone();
+    else if (colourOverrideData)
+      colourOverrides.push_back(colourOverrideData);
     else if (pltFilterData) {
       assert(
           pltFilterData->m_type ==
@@ -707,6 +723,23 @@ static void applyCmappedFx(TVectorImageP &vi,
       keep = pltFilterData->m_keep;
       colors.insert(pltFilterData->m_colors.begin(),
                     pltFilterData->m_colors.end());
+    }
+  }
+
+  // Colour overrides come before the palette filters, so that filtered styles
+  // stay hidden. The outermost fx's data come first in fxs: start from the
+  // innermost override, so that the outer ones win.
+  if (!colourOverrides.empty()) {
+    if (!modPalette && vi->getPalette()) modPalette = vi->getPalette()->clone();
+
+    if (modPalette) {
+      // Bring animated styles to the frame first, so that the later
+      // setFrame() does not overwrite the overridden colors
+      modPalette->setFrame(frame);
+
+      std::vector<const ColourOverrideFxRenderData *>::reverse_iterator ot;
+      for (ot = colourOverrides.rbegin(); ot != colourOverrides.rend(); ++ot)
+        (*ot)->apply(modPalette.getPointer());
     }
   }
 

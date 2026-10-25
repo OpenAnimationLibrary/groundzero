@@ -278,8 +278,8 @@ OutputSettingsPopup::OutputSettingsPopup(bool isPreview)
                        SLOT(onAddPresetButtonPressed()));
   ret = ret && connect(removePresetButton, SIGNAL(pressed()), this,
                        SLOT(onRemovePresetButtonPressed()));
-  ret = ret && connect(m_presetCombo, SIGNAL(activated(const QString &)), this,
-                       SLOT(onPresetSelected(const QString &)));
+  ret = ret && connect(m_presetCombo, SIGNAL(textActivated(const QString &)),
+                       this, SLOT(onPresetSelected(const QString &)));
   ret = ret && connect(categoryList, SIGNAL(itemClicked(QListWidgetItem *)),
                        this, SLOT(onCategoryActivated(QListWidgetItem *)));
   assert(ret);
@@ -470,9 +470,11 @@ QFrame *OutputSettingsPopup::createCameraSettingsBox(bool isPreview) {
   //-----
 
   bool ret = true;
-  ret      = ret &&
-        connect(m_outputCameraOm, SIGNAL(currentIndexChanged(const QString &)),
-                SLOT(onCameraChanged(const QString &)));
+  ret      = ret && connect(m_outputCameraOm,
+                            QOverload<int>::of(&QComboBox::currentIndexChanged),
+                            this, [this, combo = m_outputCameraOm](int index) {
+                         onCameraChanged(combo->itemText(index));
+                       });
   ret = ret && connect(m_startFld, SIGNAL(editingFinished()),
                        SLOT(onFrameFldEditFinished()));
   ret = ret && connect(m_endFld, SIGNAL(editingFinished()),
@@ -688,9 +690,11 @@ QFrame *OutputSettingsPopup::createFileSettingsBox(bool isPreview) {
                          SLOT(onPathChanged()));
     ret = ret && connect(m_fileNameFld, SIGNAL(editingFinished()),
                          SLOT(onNameChanged()));
-    ret = ret &&
-          connect(m_fileFormat, SIGNAL(currentIndexChanged(const QString &)),
-                  SLOT(onFormatChanged(const QString &)));
+    ret = ret && connect(m_fileFormat,
+                         QOverload<int>::of(&QComboBox::currentIndexChanged),
+                         this, [this, combo = m_fileFormat](int index) {
+                           onFormatChanged(combo->itemText(index));
+                         });
     ret = ret && connect(m_fileFormatButton, SIGNAL(pressed()), this,
                          SLOT(openSettingsPopup()));
   }

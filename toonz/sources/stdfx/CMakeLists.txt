@@ -103,6 +103,7 @@ endif()
 set(SOURCES
     adjustlevelsfx.cpp
     artcontourfx.cpp
+    autopatchfx.cpp
     backlitfx.cpp
     blendtzfx.cpp
     blurfx.cpp
@@ -114,11 +115,13 @@ set(SOURCES
     channelmixerfx.cpp
     cloudsfx.cpp
     colorembossfx.cpp
+    colouroverridefx.cpp
     cornerpinfx.cpp
     despecklefx.cpp
     diamondgradientfx.cpp
     dissolvefx.cpp
     embossfx.cpp
+    envelopedeformerfx.cpp
     erodilatefx.cpp
     externalpalettefx.cpp
     fourpointsgradientfx.cpp
@@ -343,7 +346,7 @@ include_directories(
 
 _find_toonz_library(TNZLIBS "tnzcore;tnzbase;toonzlib")
 
-target_link_libraries(tnzstdfx otglb OpenEXR::OpenEXR Qt5::Core Qt5::Gui Qt5::OpenGL ${GL_LIB} ${GLEW_LIB} ${TNZLIBS} ${PTHREAD_LIBRARY})
+target_link_libraries(tnzstdfx otglb OpenEXR::OpenEXR Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::OpenGL ${OT_QT_OPENGLWIDGETS_LIB} ${GL_LIB} ${GLEW_LIB} ${TNZLIBS} ${PTHREAD_LIBRARY})
 
 if(OpenCV_FOUND)
     target_link_libraries(tnzstdfx ${OpenCV_LIBS})
@@ -353,7 +356,7 @@ endif()
 option(BUILD_LUT3D_TESTS "Build the 3D LUT Bake regression executable" ${BUILD_TESTS})
 if(BUILD_LUT3D_TESTS)
     add_executable(lut3dbake_test tests/lut3dbake_test.cpp)
-    target_link_libraries(lut3dbake_test Qt5::Core Qt5::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
+    target_link_libraries(lut3dbake_test Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
     add_test(NAME lut3dbake COMMAND lut3dbake_test)
 endif()
 
@@ -362,11 +365,11 @@ endif()
 option(BUILD_GLB_FX_TESTS "Build the 3D FX framework regression executables" OFF)
 if(BUILD_GLB_FX_TESTS)
     add_executable(glbmodelfx_test tests/glbmodelfx_test.cpp)
-    target_link_libraries(glbmodelfx_test otglb toonzqt Qt5::Core Qt5::Gui Qt5::Widgets ${TNZLIBS} ${PTHREAD_LIBRARY})
+    target_link_libraries(glbmodelfx_test otglb toonzqt Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Widgets ${TNZLIBS} ${PTHREAD_LIBRARY})
     add_executable(threepointlightfx_test tests/threepointlightfx_test.cpp)
-    target_link_libraries(threepointlightfx_test otglb Qt5::Core Qt5::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
+    target_link_libraries(threepointlightfx_test otglb Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
     add_executable(transform3dfx_test tests/transform3dfx_test.cpp)
-    target_link_libraries(transform3dfx_test otglb Qt5::Core Qt5::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
+    target_link_libraries(transform3dfx_test otglb Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
     add_test(NAME glbmodelfx COMMAND glbmodelfx_test)
     add_test(NAME threepointlightfx COMMAND threepointlightfx_test)
     add_test(NAME transform3dfx COMMAND transform3dfx_test)
@@ -381,7 +384,7 @@ endif()
 option(BUILD_FXRENDER_TESTS "Build the FX render regression test" ${BUILD_TESTS})
 if(BUILD_FXRENDER_TESTS)
     add_executable(fxrender_test tests/fxrender_test.cpp)
-    target_link_libraries(fxrender_test tnzstdfx Qt5::Core Qt5::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
+    target_link_libraries(fxrender_test tnzstdfx Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
     add_test(NAME fxrender
              COMMAND fxrender_test ${CMAKE_CURRENT_SOURCE_DIR}/tests/fxrender
                      ${CMAKE_CURRENT_BINARY_DIR}/fxrender-output)
@@ -390,13 +393,13 @@ endif()
 # Optional regression target for multipart, tiled, and channel-mapped EXR AOVs.
 if(BUILD_EXR_AOV_FX_TESTS)
     add_executable(openexraovfx_test tests/openexraovfx_test.cpp)
-    target_link_libraries(openexraovfx_test OpenEXR::OpenEXR Qt5::Core Qt5::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
+    target_link_libraries(openexraovfx_test OpenEXR::OpenEXR Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
     add_test(NAME openexraovfx COMMAND openexraovfx_test)
 endif()
 
 # Optional regression target for frames rendered as parallel strips.
 if(BUILD_FRAME_STRIPS_TESTS)
     add_executable(framestrips_test tests/framestrips_test.cpp)
-    target_link_libraries(framestrips_test Qt5::Core Qt5::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
+    target_link_libraries(framestrips_test Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
     add_test(NAME framestrips COMMAND framestrips_test)
 endif()

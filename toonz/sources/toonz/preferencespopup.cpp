@@ -1637,6 +1637,7 @@ QList<ComboBoxItem> PreferencesPopup::getComboItemList(
         {tr("Bender Tool"), T_Bender},
         {tr("Iron Tool"), T_Iron},
         {tr("Cutter Tool"), T_Cutter},
+        {tr("Lasso Cutter Tool"), T_LassoCutter},
         {tr("Hook Tool"), T_Hook},
         {tr("Skeleton Tool"), T_Skeleton},
         {tr("Tracker Tool"), T_Tracker},
@@ -2815,7 +2816,7 @@ QWidget* PreferencesPopup::createAddonsPage() {
   QGroupBox* groupBox =
       new QGroupBox(tr("Windows Explorer Thumbnails (Shell Extension)"));
   QVBoxLayout* gbLayout = new QVBoxLayout(groupBox);
-  gbLayout->setMargin(10);
+  gbLayout->setContentsMargins(10, 10, 10, 10);
 
   QLabel* infoLabel =
       new QLabel(tr("Enable thumbnails for OpenToonz files (.tnz, .pli, .tlv) "

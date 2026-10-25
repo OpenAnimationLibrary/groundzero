@@ -132,6 +132,7 @@ set(HEADERS
     ../include/toonz/tcleanupper.h
     ../include/toonz/tcolumnfx.h
     ../include/toonz/tcolumnfxset.h
+    ../include/toonz/tdeformer.h
     ../include/toonz/tdistort.h
     ../include/toonz/textureutils.h
     ../include/toonz/tlog.h
@@ -261,6 +262,7 @@ set(SOURCES
     tcleanupper.cpp
     tcolumnfx.cpp
     tcolumnfxset.cpp
+    tdeformer.cpp
     tdistort.cpp
     texturemanager.cpp
     thirdparty.cpp
@@ -356,7 +358,7 @@ if(WITH_PYTHON)
     set(SOURCES ${SOURCES} pythonbinding.cpp pythonengine.cpp)
 endif()
 
-qt5_wrap_cpp(SOURCES ${MOC_HEADERS})
+ot_qt_wrap_cpp(SOURCES ${MOC_HEADERS})
 
 add_library(toonzlib SHARED ${HEADERS} ${SOURCES})
 
@@ -393,7 +395,7 @@ include_directories(
 
 if(BUILD_ENV_MSVC)
     target_link_libraries(toonzlib
-        Qt5::Core Qt5::Gui Qt5::OpenGL Qt5::Qml Qt5::Multimedia
+        Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::OpenGL ${OT_QT_OPENGLWIDGETS_LIB} Qt${QT_VERSION_MAJOR}::Qml Qt${QT_VERSION_MAJOR}::Multimedia ${OT_QT_CORE5COMPAT_LIB}
         ${GLUT_LIB} ${GL_LIB} ${MYPAINT_LIB_LDFLAGS} ${GLEW_LIB} vfw32.lib
         tnzcore tnzbase tnzext
     )
@@ -406,7 +408,7 @@ elseif(BUILD_ENV_APPLE)
         ${MYPAINT_LIB_LDFLAGS}
     )
 
-    target_link_libraries(toonzlib Qt5::Core Qt5::Gui Qt5::OpenGL Qt5::Qml Qt5::Multimedia ${GLUT_LIB} ${GL_LIB} ${GLEW_LIB} ${EXTRA_LIBS})
+    target_link_libraries(toonzlib Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::OpenGL ${OT_QT_OPENGLWIDGETS_LIB} Qt${QT_VERSION_MAJOR}::Qml Qt${QT_VERSION_MAJOR}::Multimedia ${OT_QT_CORE5COMPAT_LIB} ${GLUT_LIB} ${GL_LIB} ${GLEW_LIB} ${EXTRA_LIBS})
 elseif(BUILD_ENV_UNIXLIKE)
     _find_toonz_library(EXTRA_LIBS "tnzcore;tnzbase;tnzext")
 
@@ -414,7 +416,7 @@ elseif(BUILD_ENV_UNIXLIKE)
         set(EXTRA_LIBS ${EXTRA_LIBS} -lvfw32)
     endif()
 
-    target_link_libraries(toonzlib Qt5::Core Qt5::Gui Qt5::OpenGL Qt5::Qml Qt5::Multimedia ${GLUT_LIB} ${GL_LIB} ${GLEW_LIB} ${EXTRA_LIBS} ${MYPAINT_LIB_LDFLAGS})
+    target_link_libraries(toonzlib Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::OpenGL ${OT_QT_OPENGLWIDGETS_LIB} Qt${QT_VERSION_MAJOR}::Qml Qt${QT_VERSION_MAJOR}::Multimedia ${OT_QT_CORE5COMPAT_LIB} ${GLUT_LIB} ${GL_LIB} ${GLEW_LIB} ${EXTRA_LIBS} ${MYPAINT_LIB_LDFLAGS})
 endif()
 
 target_link_libraries(toonzlib OpenEXR::OpenEXR)
@@ -423,16 +425,24 @@ if(WITH_PYTHON)
     target_link_libraries(toonzlib pybind11::embed)
 endif()
 
+# Optional regression target for the generic deformers (tdeformer.h).
+option(BUILD_DEFORMER_TESTS "Build the deformer regression test" ${BUILD_TESTS})
+if(BUILD_DEFORMER_TESTS)
+    add_executable(deformer_test tests/deformer_test.cpp)
+    target_link_libraries(deformer_test PRIVATE toonzlib tnzcore Qt${QT_VERSION_MAJOR}::Core)
+    add_test(NAME deformer COMMAND deformer_test)
+endif()
+
 if(BUILD_SCRIPT_TESTS)
     add_executable(scriptengine_test tests/scriptengine_test.cpp)
-    target_link_libraries(scriptengine_test PRIVATE toonzlib tnzcore Qt5::Core Qt5::Qml)
+    target_link_libraries(scriptengine_test PRIVATE toonzlib tnzcore Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Qml)
     add_test(NAME scriptengine COMMAND scriptengine_test)
     set_tests_properties(scriptengine PROPERTIES TIMEOUT 300)
 endif()
 
 if(BUILD_SCRIPT_TESTS AND WITH_PYTHON)
     add_executable(pythonengine_test tests/pythonengine_test.cpp)
-    target_link_libraries(pythonengine_test PRIVATE toonzlib tnzcore Qt5::Core)
+    target_link_libraries(pythonengine_test PRIVATE toonzlib tnzcore Qt${QT_VERSION_MAJOR}::Core)
     add_test(NAME pythonengine COMMAND pythonengine_test)
     set_tests_properties(pythonengine PROPERTIES TIMEOUT 300)
 endif()

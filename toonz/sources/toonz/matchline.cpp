@@ -468,8 +468,13 @@ MatchlinesDialog::MatchlinesDialog()
           SLOT(onChooseInkClicked(bool)));
   connect(okBtn, SIGNAL(clicked()), this, SLOT(accept()));
   connect(cancelBtn, SIGNAL(clicked()), this, SLOT(reject()));
+#if QT_VERSION >= QT_VERSION_CHECK(5, 15, 0)
+  connect(lineStackButtonGroup, SIGNAL(idPressed(int)),
+          SLOT(onLineStackButtonPressed(int)));
+#else
   connect(lineStackButtonGroup, SIGNAL(buttonPressed(int)),
           SLOT(onLineStackButtonPressed(int)));
+#endif
   connect(m_inkPrevalence, SIGNAL(valueChanged(bool)),
           SLOT(onInkPrevalenceChanged(bool)));
 }

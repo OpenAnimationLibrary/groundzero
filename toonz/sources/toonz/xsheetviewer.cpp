@@ -1459,7 +1459,7 @@ void XsheetViewer::keyReleaseEvent(QKeyEvent *event) {
   }
 }
 
-void XsheetViewer::enterEvent(QEvent *) {
+void XsheetViewer::enterEvent(TEnterEvent *) {
   m_cellArea->onControlPressed(false);
   m_columnArea->onControlPressed(false);
   TApp *app = TApp::instance();
@@ -1950,12 +1950,12 @@ void XsheetViewer::load(QSettings &settings) {
   QVariant zoomFactor = settings.value("frameZoomFactor");
   QVariant name       = settings.value("orientation");
 
-  if (zoomFactor.canConvert(QVariant::Int)) {
+  if (zoomFactor.canConvert<int>()) {
     m_frameZoomFactor = zoomFactor.toInt();
     m_layerFooterPanel->setZoomSliderValue(m_frameZoomFactor);
   }
 
-  if (name.canConvert(QVariant::String)) {
+  if (name.canConvert<QString>()) {
     m_orientation = Orientations::byName(name.toString());
     emit orientationChanged(orientation());
   }

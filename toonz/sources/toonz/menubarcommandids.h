@@ -42,6 +42,7 @@
 #define MI_LoadColorModel "MI_LoadColorModel"
 #define MI_ImportMagpieFile "MI_ImportMagpieFile"
 #define MI_NewNoteLevel "MI_NewNoteLevel"
+#define MI_NewAnnotationColumn "MI_NewAnnotationColumn"
 #define MI_RemoveEmptyColumns "MI_RemoveEmptyColumns"
 #define MI_NewProject "MI_NewProject"
 #define MI_ProjectSettings "MI_ProjectSettings"
@@ -545,5 +546,9 @@
 #define MI_OpenAlignmentPanel "MI_OpenAlignmentPanel"
 #define MI_OpenPosesPanel "MI_OpenPosesPanel"
 #define MI_OpenSymbols "MI_OpenSymbols"
+#define MI_OpenReferencePanel "MI_OpenReferencePanel"
+#define MI_OpenDrawingSubstitutionPanel "MI_OpenDrawingSubstitutionPanel"
+#define MI_OpenStoryboardPanel "MI_OpenStoryboardPanel"
+#define MI_OpenMasterControllers "MI_OpenMasterControllers"
 
 #endif

@@ -17,6 +17,7 @@
 #include <QTimer>
 
 #include "toonzqt/flipconsoleowner.h"
+#include "toonzqt/qtcompat.h"
 
 class QPoint;
 class TPalette;
@@ -284,7 +285,7 @@ protected:
   void focusInEvent(QFocusEvent *e) override;
   void resizeEvent(QResizeEvent *e) override;
 
-  void enterEvent(QEvent *e) override { m_flipConsole->makeCurrent(); }
+  void enterEvent(TEnterEvent *e) override { m_flipConsole->makeCurrent(); }
 
 signals:
 

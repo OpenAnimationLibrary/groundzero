@@ -42,7 +42,6 @@
 #include <QStyle>
 #include <QStylePainter>
 #include <QStyleOption>
-#include <QStyleOptionFrameV3>
 #include <QSettings>
 #include <QPushButton>
 #include <QScrollBar>

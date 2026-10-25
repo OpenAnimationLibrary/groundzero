@@ -2,6 +2,7 @@
 
 // TnzCore includes
 #include "tgl.h"
+#include "tthreadmessage.h"
 
 // TnzExt includes
 #include "ext/meshtexturizer.h"
@@ -40,8 +41,8 @@ private:
 
 namespace {
 
-QMutex l_mutex(QMutex::Recursive);  // A mutex is needed to synchronize access
-                                    // to the following objects
+TThread::Mutex l_mutex;  // A mutex is needed to synchronize access
+                         // to the following objects
 
 std::map<int, TexturesContainer *>
     l_texturesContainers;  // Texture Containers by display lists space id

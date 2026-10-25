@@ -17,7 +17,12 @@
 #include <algorithm>
 
 #include <QAudioFormat>
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+#include <QAudioDevice>
+#include <QMediaDevices>
+#else
 #include <QAudioDeviceInfo>
+#endif
 
 //=============================================================================
 
@@ -172,6 +177,29 @@ void applyVolumeCurve(const TSoundTrackP &track, const TDoubleParam *curve,
     track->copy(TSop::mix(part, part, gain, 0.0), s0);
   }
 }
+
+//-----------------------------------------------------------------------------
+
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0) && !defined(_WIN32)
+// Qt 6 audio is in the native byte order and has no 24-bit, signed 8-bit or
+// unsigned 16/32-bit samples: those are Unknown, so not supported.
+QAudioFormat::SampleFormat toQAudioSampleFormat(int sampleType,
+                                                int bitPerSample) {
+  switch (bitPerSample) {
+  case 8:
+    return sampleType == TSound::UINT ? QAudioFormat::UInt8
+                                      : QAudioFormat::Unknown;
+  case 16:
+    return sampleType == TSound::INT ? QAudioFormat::Int16
+                                     : QAudioFormat::Unknown;
+  case 32:
+    if (sampleType == TSound::INT) return QAudioFormat::Int32;
+    if (sampleType == TSound::FLOAT) return QAudioFormat::Float;
+    break;
+  }
+  return QAudioFormat::Unknown;
+}
+#endif
 
 //-----------------------------------------------------------------------------
 }  // namespace
@@ -1038,6 +1066,45 @@ TSoundTrackP TXshSoundColumn::getOverallSoundTrack(int fromFrame, int toFrame,
 
 #ifdef _WIN32
   if (format.m_sampleRate > 48000) format.m_sampleRate = 48000;
+#elif QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+  QAudioDevice info(QMediaDevices::defaultAudioOutput());
+  if (info.isNull())
+    throw TSoundDeviceException(TSoundDeviceException::NoDevice,
+                                "No device found, check QAudio backends");
+  // Qt 6 gives the range of the sample rates instead of a list.
+  if ((int)format.m_sampleRate < info.minimumSampleRate() ||
+      (int)format.m_sampleRate > info.maximumSampleRate())
+    format.m_sampleRate = 44100;
+  QAudioFormat qFormat;
+  qFormat.setSampleRate(format.m_sampleRate);
+  qFormat.setSampleFormat(
+      toQAudioSampleFormat(format.m_sampleType, format.m_bitPerSample));
+  qFormat.setChannelCount(format.m_channelCount);
+  if (!info.isFormatSupported(qFormat)) {
+    qFormat = info.preferredFormat();
+    format.m_channelCount = qFormat.channelCount();
+    format.m_sampleRate = qFormat.sampleRate();
+    switch (qFormat.sampleFormat()) {
+    case QAudioFormat::UInt8:
+      format.m_bitPerSample = 8;
+      format.m_sampleType = TSound::UINT;
+      break;
+    case QAudioFormat::Int16:
+      format.m_bitPerSample = 16;
+      format.m_sampleType = TSound::INT;
+      break;
+    case QAudioFormat::Int32:
+      format.m_bitPerSample = 32;
+      format.m_sampleType = TSound::INT;
+      break;
+    case QAudioFormat::Float:
+      format.m_bitPerSample = 32;
+      format.m_sampleType = TSound::FLOAT;
+      break;
+    default:
+      break;
+    }
+  }
 #else
   QAudioDeviceInfo info(QAudioDeviceInfo::defaultOutputDevice());
   if (info.deviceName().length() == 0)

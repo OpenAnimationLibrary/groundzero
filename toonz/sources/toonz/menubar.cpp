@@ -164,6 +164,10 @@ void ensureNewPanelActions(QMenu *windowsMenu) {
   ensurePanelAction(windowsMenu, MI_OpenAlignmentPanel);
   ensurePanelAction(windowsMenu, MI_OpenSymbols);
   ensurePanelAction(windowsMenu, MI_OpenPosesPanel);
+  ensurePanelAction(windowsMenu, MI_OpenReferencePanel);
+  ensurePanelAction(windowsMenu, MI_OpenDrawingSubstitutionPanel);
+  ensurePanelAction(windowsMenu, MI_OpenStoryboardPanel);
+  ensurePanelAction(windowsMenu, MI_OpenMasterControllers);
 }
 
 }  // namespace
@@ -393,9 +397,9 @@ QMenuBar *StackedMenuBar::loadMenuBar(const TFilePath &fp) {
   QMenuBar *menuBar = new QMenuBar(this);
 
   if (reader.readNextStartElement()) {
-    if (reader.name() == "menubar") {
+    if (reader.name().toString() == "menubar") {
       while (reader.readNextStartElement()) {
-        if (reader.name() == "menu") {
+        if (reader.name().toString() == "menu") {
           QString title = reader.attributes().value("title").toString();
           /*- Menu title will be translated if the title is registered in
            * translation file -*/
@@ -412,7 +416,7 @@ QMenuBar *StackedMenuBar::loadMenuBar(const TFilePath &fp) {
             reader.raiseError(tr("Failed to load menu %1").arg(title));
             delete menu;
           }
-        } else if (reader.name() == "command") {
+        } else if (reader.name().toString() == "command") {
           // Read the optional 'label' attribute for display
           QString displayLabel = reader.attributes().value("label").toString();
           QString cmdName      = reader.readElementText();
@@ -450,7 +454,7 @@ QMenuBar *StackedMenuBar::loadMenuBar(const TFilePath &fp) {
 
 bool StackedMenuBar::readMenuRecursive(QXmlStreamReader &reader, QMenu *menu) {
   while (reader.readNextStartElement()) {
-    if (reader.name() == "menu") {
+    if (reader.name().toString() == "menu") {
       QString title  = reader.attributes().value("title").toString();
       QMenu *subMenu = new QMenu(tr(title.toStdString().c_str()));
 
@@ -461,7 +465,7 @@ bool StackedMenuBar::readMenuRecursive(QXmlStreamReader &reader, QMenu *menu) {
         delete subMenu;
         return false;
       }
-    } else if (reader.name() == "command") {
+    } else if (reader.name().toString() == "command") {
       QString displayLabel = reader.attributes().value("label").toString();
       QString cmdName      = reader.readElementText();
       QAction *action =
@@ -472,7 +476,7 @@ bool StackedMenuBar::readMenuRecursive(QXmlStreamReader &reader, QMenu *menu) {
         }
         menu->addAction(action);
       }
-    } else if (reader.name() == "command_debug") {
+    } else if (reader.name().toString() == "command_debug") {
 #ifndef NDEBUG
       QString displayLabel = reader.attributes().value("label").toString();
       QString cmdName      = reader.readElementText();
@@ -487,7 +491,7 @@ bool StackedMenuBar::readMenuRecursive(QXmlStreamReader &reader, QMenu *menu) {
 #else
       reader.skipCurrentElement();
 #endif
-    } else if (reader.name() == "separator") {
+    } else if (reader.name().toString() == "separator") {
       menu->addSeparator();
       reader.skipCurrentElement();
     } else {
@@ -701,6 +705,7 @@ QMenuBar *StackedMenuBar::createPltEditMenuBar() {
     addMenuItem(moreToolsMenu, T_Bender);
     addMenuItem(moreToolsMenu, T_Iron);
     addMenuItem(moreToolsMenu, T_Cutter);
+    addMenuItem(moreToolsMenu, T_LassoCutter);
     moreToolsMenu->addSeparator();
     addMenuItem(moreToolsMenu, T_Skeleton);
     addMenuItem(moreToolsMenu, T_Tracker);
@@ -883,6 +888,7 @@ QMenuBar *StackedMenuBar::createInknPaintMenuBar() {
     addMenuItem(moreToolsMenu, T_Bender);
     addMenuItem(moreToolsMenu, T_Iron);
     addMenuItem(moreToolsMenu, T_Cutter);
+    addMenuItem(moreToolsMenu, T_LassoCutter);
     moreToolsMenu->addSeparator();
     addMenuItem(moreToolsMenu, T_Skeleton);
     addMenuItem(moreToolsMenu, T_Tracker);
@@ -1497,6 +1503,7 @@ QMenuBar *StackedMenuBar::createFullMenuBar() {
   addMenuItem(xsheetMenu, MI_RemoveGlobalKeyframe);
   xsheetMenu->addSeparator();
   addMenuItem(xsheetMenu, MI_LipSyncPopup);
+  addMenuItem(xsheetMenu, MI_NewAnnotationColumn);
   xsheetMenu->addSeparator();
   addMenuItem(xsheetMenu, MI_RemoveEmptyColumns);
 
@@ -1669,7 +1676,11 @@ QMenuBar *StackedMenuBar::createFullMenuBar() {
   addMenuItem(windowsMenu, MI_OpenGuidedDrawingControls);
   addMenuItem(windowsMenu, MI_OpenAlignmentPanel);
   addMenuItem(windowsMenu, MI_OpenPosesPanel);
+  addMenuItem(windowsMenu, MI_OpenDrawingSubstitutionPanel);
+  addMenuItem(windowsMenu, MI_OpenStoryboardPanel);
+  addMenuItem(windowsMenu, MI_OpenMasterControllers);
   addMenuItem(windowsMenu, MI_OpenSymbols);
+  addMenuItem(windowsMenu, MI_OpenReferencePanel);
   addMenuItem(windowsMenu, MI_OpenCustomPanels);
   // windowsMenu->addSeparator();
   // addMenuItem(windowsMenu, MI_OpenExport);

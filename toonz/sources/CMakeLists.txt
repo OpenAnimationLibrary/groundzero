@@ -117,6 +117,14 @@ if(ENABLE_CRASH_REPORTER_TEST)
     add_definitions(-DENABLE_CRASH_REPORTER_TEST)
 endif()
 
+# Qt 5 is the supported default. Qt 6 only configures for now (the sources do
+# not build with it yet, see .github/workflows/workflow_linux_qt6.yml).
+set(OT_QT_MAJOR_VERSION 5 CACHE STRING "Qt major version to build against: 5, or 6 (experimental)")
+set_property(CACHE OT_QT_MAJOR_VERSION PROPERTY STRINGS 5 6)
+if(NOT OT_QT_MAJOR_VERSION STREQUAL "5" AND NOT OT_QT_MAJOR_VERSION STREQUAL "6")
+    message(FATAL_ERROR "OT_QT_MAJOR_VERSION must be 5 or 6, not '${OT_QT_MAJOR_VERSION}'")
+endif()
+
 # avoid using again
 option_defaults_clear()
 
@@ -194,19 +202,24 @@ if(BUILD_ENV_MSVC)
 elseif(BUILD_ENV_APPLE)
     # Try to find Qt from Homebrew if not explicitly set
     if(NOT DEFINED QT_PATH)
+        if(OT_QT_MAJOR_VERSION EQUAL 6)
+            set(HOMEBREW_QT_FORMULA qt)
+        else()
+            set(HOMEBREW_QT_FORMULA qt@5)
+        endif()
         execute_process(
-            COMMAND brew --prefix qt@5
+            COMMAND brew --prefix ${HOMEBREW_QT_FORMULA}
             OUTPUT_VARIABLE HOMEBREW_QT_PREFIX
             OUTPUT_STRIP_TRAILING_WHITESPACE
             RESULT_VARIABLE BREW_RESULT
           )
         if(NOT BREW_RESULT EQUAL 0)
-            message(FATAL_ERROR "Homebrew 'qt@5' not found. Install with 'brew install qt@5' or set QT_PATH manually.")
+            message(FATAL_ERROR "Homebrew '${HOMEBREW_QT_FORMULA}' not found. Install with 'brew install ${HOMEBREW_QT_FORMULA}' or set QT_PATH manually.")
         endif()
         set(QT_PATH "${HOMEBREW_QT_PREFIX}/lib" CACHE PATH "Qt installation directory (from Homebrew)")
         message(STATUS "Auto-detected Qt path: ${QT_PATH}")
         set(QT_LIB_PATH "${QT_PATH}")
-        list(APPEND CMAKE_PREFIX_PATH "${HOMEBREW_QT_PREFIX}/lib/cmake/Qt5")  # More precise for find_package(Qt5)
+        list(APPEND CMAKE_PREFIX_PATH "${HOMEBREW_QT_PREFIX}/lib/cmake/Qt${OT_QT_MAJOR_VERSION}")  # More precise for find_package(Qt5)
         # Conventional usage: if the QT_PATH is explicitly set
     else()
         set(QT_LIB_PATH "${QT_PATH}/")
@@ -253,7 +266,7 @@ elseif(BUILD_ENV_UNIXLIKE)
 
     set(CMAKE_CXX_STANDARD 17)
 
-    find_package(Qt5Widgets)
+    find_package(Qt${OT_QT_MAJOR_VERSION}Widgets)
 
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
     if (NOT (CMAKE_CXX_COMPILER_ID STREQUAL "Clang"))
@@ -288,8 +301,19 @@ include_directories(
     include
   )
 
+# QT_VERSION_MAJOR names the Qt${QT_VERSION_MAJOR}::Foo targets used by all
+# the CMakeLists. It is set directly rather than with find_package(QT NAMES
+# ...), which ignores Qt5_DIR / Qt6_DIR.
+set(QT_VERSION_MAJOR ${OT_QT_MAJOR_VERSION})
+
+set(OT_QT_EXTRA_COMPONENTS)
+if(QT_VERSION_MAJOR EQUAL 6)
+    # Qt 6 moved QOpenGLWidget to OpenGLWidgets, and QTextCodec to Core5Compat
+    set(OT_QT_EXTRA_COMPONENTS OpenGLWidgets Core5Compat)
+endif()
+
 # Find the QtWidgets library
-find_package(Qt5 REQUIRED
+find_package(Qt${QT_VERSION_MAJOR} REQUIRED
     Core
     Gui
     Network
@@ -304,20 +328,63 @@ find_package(Qt5 REQUIRED
     MultimediaWidgets
     SerialPort
     UiTools
+    ${OT_QT_EXTRA_COMPONENTS}
   )
+unset(OT_QT_EXTRA_COMPONENTS)
 
-if(NOT Qt5Core_FOUND)
-    message(FATAL_ERROR "Qt5Core not found check paths")
+if(NOT Qt${QT_VERSION_MAJOR}Core_FOUND)
+    message(FATAL_ERROR "Qt${QT_VERSION_MAJOR}Core not found check paths")
 endif()
-message(STATUS "Qt5 Modules: ${Qt5Core_VERSION}")
+message(STATUS "Qt${QT_VERSION_MAJOR} Modules: ${Qt${QT_VERSION_MAJOR}Core_VERSION}")
 
 # 5.14: QJSEngine::setInterrupted() (script console interruption)
 set(QT_MINIMUM_VERSION 5.14.0)
-if(Qt5Core_VERSION VERSION_LESS QT_MINIMUM_VERSION)
+if(Qt${QT_VERSION_MAJOR}Core_VERSION VERSION_LESS QT_MINIMUM_VERSION)
     MESSAGE(FATAL_ERROR "Minimum supported Qt version: ${QT_MINIMUM_VERSION}.
-    Installed version: ${Qt5Core_VERSION}")
+    Installed version: ${Qt${QT_VERSION_MAJOR}Core_VERSION}")
 endif()
 unset(QT_MINIMUM_VERSION)
+
+# Libraries that only Qt 6 needs, empty with Qt 5. Qt 6's OpenGL module no
+# longer has QOpenGLWidget nor depends on Widgets as Qt 5's does, so every
+# target linking Qt${QT_VERSION_MAJOR}::OpenGL also links
+# ${OT_QT_OPENGLWIDGETS_LIB}. ${OT_QT_CORE5COMPAT_LIB} is for the QTextCodec
+# users. Qt 6 links the Windows entry point itself, so it has no WinMain.
+set(OT_QT_OPENGLWIDGETS_LIB)
+set(OT_QT_CORE5COMPAT_LIB)
+if(QT_VERSION_MAJOR EQUAL 6)
+    set(OT_QT_OPENGLWIDGETS_LIB Qt6::OpenGLWidgets)
+    set(OT_QT_CORE5COMPAT_LIB Qt6::Core5Compat)
+    set(OT_QT_WINMAIN_LIB)
+else()
+    set(OT_QT_WINMAIN_LIB Qt${QT_VERSION_MAJOR}::WinMain)
+endif()
+
+# Qt-version-independent names for the Qt CMake commands: the versionless
+# qt_wrap_cpp() etc. need Qt 5.15, the minimum is 5.14.
+macro(ot_qt_wrap_cpp)
+    if(QT_VERSION_MAJOR EQUAL 6)
+        qt6_wrap_cpp(${ARGV})
+    else()
+        qt5_wrap_cpp(${ARGV})
+    endif()
+endmacro()
+
+macro(ot_qt_add_resources)
+    if(QT_VERSION_MAJOR EQUAL 6)
+        qt6_add_resources(${ARGV})
+    else()
+        qt5_add_resources(${ARGV})
+    endif()
+endmacro()
+
+macro(ot_qt_create_translation)
+    if(QT_VERSION_MAJOR EQUAL 6)
+        qt6_create_translation(${ARGV})
+    else()
+        qt5_create_translation(${ARGV})
+    endif()
+endmacro()
 
 if(BUILD_ENV_MSVC)
     include_directories(
@@ -349,8 +416,8 @@ if(PLATFORM EQUAL 64)
     endif()
 endif()
 
-get_target_property(QtCore_location Qt5::Core LOCATION)
-get_target_property(QtWidget_location Qt5::Widgets LOCATION)
+get_target_property(QtCore_location Qt${QT_VERSION_MAJOR}::Core LOCATION)
+get_target_property(QtWidget_location Qt${QT_VERSION_MAJOR}::Widgets LOCATION)
 message(STATUS "Qt Core Location:" ${QtCore_location})
 
 macro(_find_toonz_library OUT_LIB_LIST IN_LIB_LIST)
@@ -701,6 +768,13 @@ if(WITH_TRANSLATION)
     "日本語" "Italiano" "Français" "Español" "中文" "Deutsch" "Русский" "한국어" "Čeština" "Portuguese"
       )
 
+    # Qt 6's LinguistTools has no Qt6_LRELEASE_EXECUTABLE, only the target
+    if(QT_VERSION_MAJOR EQUAL 6)
+        set(OT_QT_LRELEASE_EXECUTABLE Qt6::lrelease)
+    else()
+        set(OT_QT_LRELEASE_EXECUTABLE ${Qt5_LRELEASE_EXECUTABLE})
+    endif()
+
     list(LENGTH LANG_CODES CODE_COUNT)
     list(LENGTH LANG_DISPLAY_NAMES DISPLAY_COUNT)
     if(NOT CODE_COUNT EQUAL DISPLAY_COUNT)
@@ -720,7 +794,7 @@ if(WITH_TRANSLATION)
             )
         endforeach()
 
-        qt5_create_translation(message ${translation} ${ARGN})
+        ot_qt_create_translation(message ${translation} ${ARGN})
 
         add_custom_target("translate_update_${module}" DEPENDS ${message})
         set_target_properties("translate_update_${module}" PROPERTIES
@@ -751,7 +825,7 @@ if(WITH_TRANSLATION)
             if(EXISTS "${ts_file}")
                 add_custom_command(
                     TARGET "${module}" POST_BUILD 
-                    COMMAND ${Qt5_LRELEASE_EXECUTABLE} "${ts_file}" -qm "${qm_tmp_file}"
+                    COMMAND ${OT_QT_LRELEASE_EXECUTABLE} "${ts_file}" -qm "${qm_tmp_file}"
                     COMMAND ${CMAKE_COMMAND} -E rename ${qm_tmp_file} ${qm_file}
                     DEPENDS "${ts_file}"
                     BYPRODUCTS "${qm_file}"
@@ -780,6 +854,12 @@ option(BUILD_SCRIPT_TESTS "Build the script engine (QJSEngine bindings) regressi
 option(BUILD_PSD_TESTS "Build the PSD image writer regression test" ${BUILD_TESTS})
 option(BUILD_TGL_BATCH_TESTS "Build the tgl::Batch vertex generation test" ${BUILD_TESTS})
 option(BUILD_TNZTOOLS_TESTS "Build the tnztools helper regression tests" ${BUILD_TESTS})
+option(BUILD_FUZZ_TESTS "Build the file loader robustness tests (corrupt TIStream, PLI and PSD files)" ${BUILD_TESTS})
+# libFuzzer binaries of the same harnesses, run by hand (see fuzz/CMakeLists.txt)
+option(WITH_LIBFUZZER "Also build libFuzzer binaries of the file loader robustness tests (Clang only, not run by ctest)" OFF)
+if(WITH_LIBFUZZER AND NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+    message(FATAL_ERROR "WITH_LIBFUZZER needs Clang (found ${CMAKE_CXX_COMPILER_ID})")
+endif()
 
 # Python scripting: only with WITH_PYTHON, the default build needs neither
 # Python nor pybind11
@@ -803,7 +883,7 @@ if(WITH_PYTHON)
 endif()
 if(BUILD_TESTS OR BUILD_EXR_TESTS OR BUILD_EXR_AOV_FX_TESTS OR
    BUILD_TNZTOOLS_TESTS OR BUILD_PSD_TESTS OR BUILD_SCRIPT_TESTS OR BUILD_FFMPEG_TESTS OR BUILD_FRAME_STRIPS_TESTS OR BUILD_LUT3D_TESTS OR BUILD_GLB_FX_TESTS OR
-   BUILD_FXRENDER_TESTS OR BUILD_TGL_BATCH_TESTS)
+   BUILD_FXRENDER_TESTS OR BUILD_TGL_BATCH_TESTS OR BUILD_FUZZ_TESTS)
     enable_testing()
 endif()
 
@@ -830,6 +910,10 @@ add_subdirectory(tcleanupper)
 add_subdirectory(tcomposer)
 add_subdirectory(tconverter)
 add_subdirectory(toonzfarm)
+
+if(BUILD_FUZZ_TESTS OR WITH_LIBFUZZER)
+    add_subdirectory(fuzz)
+endif()
 
 if(BUILD_TARGET_WIN)
     add_subdirectory(toonzpreview)

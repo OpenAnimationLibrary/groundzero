@@ -6,9 +6,11 @@
 #include <memory>
 
 #include <QtOpenGL>
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
 #include <QGLFormat>
 #include <QGLContext>
 #include <QGLPixelBuffer>
+#endif
 #include <QOpenGLFramebufferObject>
 
 #include "tofflinegl.h"
@@ -36,6 +38,9 @@ public:
 
 //-----------------------------------------------------------------------------
 
+// Unused. Qt 6 has no QGLPixelBuffer, and no replacement is needed: QtOfflineGL
+// already renders to a QOpenGLFramebufferObject.
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
 class QtOfflineGLPBuffer final : public TOfflineGL::Imp {
 public:
   std::shared_ptr<QGLPixelBuffer> m_context;
@@ -49,5 +54,6 @@ public:
 
   void getRaster(TRaster32P raster) override;
 };
+#endif
 
 #endif
