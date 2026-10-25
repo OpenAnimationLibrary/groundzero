@@ -543,7 +543,12 @@ void MovieRenderer::Imp::doRenderRasterCompleted(const RenderData &renderData) {
   // is that of a movie.
   if (m_firstCompletedRaster) {
     if (m_movieType && !m_st) {
-      int boardDuration = addBoard();
+      // The soundtrack is saved before the clapperboard frames: writers that
+      // stream frames to ffmpeg start it, audio input included, on the first
+      // frame
+      BoardSettings *bs =
+          m_scene->getProperties()->getOutputProperties()->getBoardSettings();
+      int boardDuration = (bs->isActive()) ? bs->getDuration() : 0;
 
       int from, to;
       getRange(m_scene, false, from, to);
@@ -564,6 +569,8 @@ void MovieRenderer::Imp::doRenderRasterCompleted(const RenderData &renderData) {
         if (m_levelUpdaterB.get())
           m_levelUpdaterB->getLevelWriter()->saveSoundTrack(m_st.getPointer());
       }
+
+      addBoard();
     } else {  // !m_movieType
       saveBoardFrame();
     }

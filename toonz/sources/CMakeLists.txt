@@ -750,9 +750,10 @@ option(BUILD_TESTS "Build all regression tests and register them with ctest" OFF
 option(BUILD_EXR_TESTS "Build the OpenEXR image I/O and level source regression tests" ${BUILD_TESTS})
 option(BUILD_EXR_AOV_FX_TESTS "Build the OpenEXR AOV FX regression test" ${BUILD_TESTS})
 option(BUILD_FRAME_STRIPS_TESTS "Build the parallel frame strips render regression test" ${BUILD_TESTS})
+option(BUILD_FFMPEG_TESTS "Build the FFmpeg export regression test (needs an ffmpeg executable at configure time)" ${BUILD_TESTS})
 option(BUILD_TNZTOOLS_TESTS "Build the tnztools helper regression tests" ${BUILD_TESTS})
 if(BUILD_TESTS OR BUILD_EXR_TESTS OR BUILD_EXR_AOV_FX_TESTS OR
-   BUILD_TNZTOOLS_TESTS OR BUILD_FRAME_STRIPS_TESTS OR BUILD_LUT3D_TESTS OR BUILD_GLB_FX_TESTS OR
+   BUILD_TNZTOOLS_TESTS OR BUILD_FFMPEG_TESTS OR BUILD_FRAME_STRIPS_TESTS OR BUILD_LUT3D_TESTS OR BUILD_GLB_FX_TESTS OR
    BUILD_FXRENDER_TESTS)
     enable_testing()
 endif()
