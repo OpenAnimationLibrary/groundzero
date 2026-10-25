@@ -298,6 +298,38 @@ public:
 
 //========================================================================
 
+class SetCurveBendingUndo final : public TUndo {
+  int m_row, m_col;  //!< Xsheet coordinates
+  bool m_on;         //!< The new curve bending option value
+
+public:
+  SetCurveBendingUndo(bool on) : m_row(::row()), m_col(::column()), m_on(on) {}
+
+  int getSize() const override { return sizeof(*this); }
+
+  void redo() const override { setCurveBending(m_on); }
+  void undo() const override { setCurveBending(!m_on); }
+
+  QString getHistoryString() override {
+    return QObject::tr("Curve Bending %1")
+        .arg(m_on ? QObject::tr("On") : QObject::tr("Off"));
+  }
+
+private:
+  void setCurveBending(bool on) const {
+    PlasticTool::TemporaryActivation tempActivate(m_row, m_col);
+
+    const SkDP &sd = l_plasticTool.deformation();
+    TCG_ASSERT(sd, return );
+
+    sd->setCurveBending(on);
+
+    ::invalidateXsheet();
+  }
+};
+
+//========================================================================
+
 class PasteDeformationUndo final : public TUndo {
   int m_col;              //!< Affected column
   SkDP m_oldSd, m_newSd;  //!< The skeleton deformations
@@ -631,6 +663,7 @@ PlasticTool::PlasticTool()
     , m_ikMode("inverseKinematics", false)
     , m_minAngle("minAngle", L"")
     , m_maxAngle("maxAngle", L"")
+    , m_curveBending("curveBending", false)
     , m_distanceRelay("distanceRelay")
     , m_angleRelay("angleRelay")
     , m_soRelay("soRelay")
@@ -668,6 +701,7 @@ PlasticTool::PlasticTool()
   m_propGroup[ANIMATE_IDX].bind(m_ikMode);
   m_propGroup[ANIMATE_IDX].bind(m_minAngle);
   m_propGroup[ANIMATE_IDX].bind(m_maxAngle);
+  m_propGroup[ANIMATE_IDX].bind(m_curveBending);
 
   m_relayGroup.bind(m_distanceRelay);
   m_relayGroup.bind(m_angleRelay);
@@ -684,6 +718,7 @@ PlasticTool::PlasticTool()
   m_ikMode.setId("InverseKinematics");
   m_minAngle.setId("MinAngle");
   m_maxAngle.setId("MaxAngle");
+  m_curveBending.setId("CurveBending");
   m_distanceRelay.setId("DistanceRelay");
   m_angleRelay.setId("AngleRelay");
   m_soRelay.setId("SoRelay");
@@ -743,6 +778,7 @@ void PlasticTool::updateTranslation() {
   m_ikMode.setQStringName(tr("IK"));
   m_minAngle.setQStringName(tr("Angle Bounds"));
   m_maxAngle.setQStringName("");
+  m_curveBending.setQStringName(tr("Curve Bending"));
 }
 
 //-------------------------------------------------------------------------------------------------------
@@ -818,6 +854,13 @@ void PlasticTool::storeDeformation() {
     }
 
     m_skelIdRelay.notifyListeners();
+  }
+
+  // Update the deformation options
+  bool curveBending = m_sd && m_sd->curveBending();
+  if (m_curveBending.getValue() != curveBending) {
+    m_curveBending.setValue(curveBending);
+    m_curveBending.notifyListeners();
   }
 
   storeSkeletonId();
@@ -1680,6 +1723,21 @@ bool PlasticTool::onPropertyChanged(std::string propertyName) {
 
       m_maxAngle.notifyListeners();  // NOTE: This should NOT invoke this
                                      // function recursively
+    }
+  } else if (propertyName == "curveBending") {
+    bool curveBending = m_curveBending.getValue();
+
+    if (m_sd) {
+      if (m_sd->curveBending() != curveBending) {
+        TUndo *undo = new SetCurveBendingUndo(curveBending);
+        TUndoManager::manager()->add(undo);
+
+        undo->redo();
+      }
+    } else if (curveBending) {
+      // No deformation to apply the option to
+      m_curveBending.setValue(false);
+      m_curveBending.notifyListeners();
     }
   }
 

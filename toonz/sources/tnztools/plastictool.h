@@ -125,6 +125,9 @@ private:
   TStringProperty m_minAngle,
       m_maxAngle;  //!< Minimum and maximum angle values allowed
 
+  TBoolProperty m_curveBending;  //!< Whether m_sd bends vertex chains along
+                                 //!< smooth curves
+
   TPropertyGroup m_relayGroup;  //!< Group for each vertex parameter relay
 
   TDoubleParamRelayProperty
