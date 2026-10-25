@@ -5,9 +5,19 @@ on:
   pull_request:
     branches:
       - edition
+  # Also check edition itself after each merge: pull requests that each build
+  # on their own can still break the build together.
+  push:
+    branches:
+      - edition
 
 permissions:
   contents: read
+
+# A new push to a pull request cancels its older, superseded run
+concurrency:
+  group: linux-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   Ubuntu:
@@ -55,8 +65,36 @@ jobs:
         cd toonz
         mkdir build
         cd build
-        cmake ../sources -G Ninja -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER=${{ matrix.cxx }} -DCMAKE_C_COMPILER=${{ matrix.cc }} -DWITH_TRANSLATION=OFF -DCMAKE_CXX_FLAGS=-Werror=return-type
-        ninja
+        set -o pipefail
+        cmake ../sources -G Ninja -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER=${{ matrix.cxx }} -DCMAKE_C_COMPILER=${{ matrix.cc }} -DWITH_TRANSLATION=OFF -DCMAKE_CXX_FLAGS=-Werror=return-type 2>&1 | tee "$GITHUB_WORKSPACE/build.log"
+        # -k 0: keep going, so one run reports every file that fails
+        ninja -k 0 2>&1 | tee -a "$GITHUB_WORKSPACE/build.log"
+
+    # Show the errors on the pull request (summary and annotations) without
+    # having to open the full log
+    - name: Report build errors
+      if: failure()
+      run: |
+        log="$GITHUB_WORKSPACE/build.log"
+        [ -f "$log" ] || exit 0
+        grep -E ': (fatal )?error:|CMake Error|undefined reference|ld returned|^FAILED:' "$log" | sort -u | head -60 > errors.txt || true
+        {
+          echo "## Linux build errors"
+          echo '```'
+          cat errors.txt
+          echo '```'
+        } >> "$GITHUB_STEP_SUMMARY"
+        prefix="$GITHUB_WORKSPACE/"
+        grep -E ': (fatal )?error:' errors.txt | head -40 | while IFS= read -r line; do
+          file=${line%%:*}; rest=${line#*:}; lineno=${rest%%:*}
+          msg=${line#*error: }
+          file=${file#$prefix}; file=${file#../sources/}
+          case "$file" in /*|toonz/*) ;; *) file="toonz/sources/$file" ;; esac
+          echo "::error file=${file},line=${lineno}::${msg}"
+        done
+        grep -vE ': (fatal )?error:' errors.txt | head -10 | while IFS= read -r line; do
+          echo "::error::${line}"
+        done
 
     - name: Create Artifact
       run: |
