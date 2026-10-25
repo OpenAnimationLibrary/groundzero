@@ -166,8 +166,11 @@ void ensureNewPanelActions(QMenu *windowsMenu) {
   ensurePanelAction(windowsMenu, MI_OpenPosesPanel);
   ensurePanelAction(windowsMenu, MI_OpenReferencePanel);
   ensurePanelAction(windowsMenu, MI_OpenDrawingSubstitutionPanel);
+  ensurePanelAction(windowsMenu, MI_OpenSubstitutionSlider);
   ensurePanelAction(windowsMenu, MI_OpenStoryboardPanel);
   ensurePanelAction(windowsMenu, MI_OpenMasterControllers);
+  ensurePanelAction(windowsMenu, MI_OpenOffsetLayers);
+  ensurePanelAction(windowsMenu, MI_OpenRigLibrary);
 }
 
 }  // namespace
@@ -1445,6 +1448,7 @@ QMenuBar *StackedMenuBar::createFullMenuBar() {
     addMenuItem(adjustMenu, MI_BrightnessAndContrast);
     addMenuItem(adjustMenu, MI_AdjustLevels);
     addMenuItem(adjustMenu, MI_AdjustThickness);
+    addMenuItem(adjustMenu, MI_BakeEnvelope);
     addMenuItem(adjustMenu, MI_Antialias);
     addMenuItem(adjustMenu, MI_Binarize);
     addMenuItem(adjustMenu, MI_LinesFade);
@@ -1677,8 +1681,11 @@ QMenuBar *StackedMenuBar::createFullMenuBar() {
   addMenuItem(windowsMenu, MI_OpenAlignmentPanel);
   addMenuItem(windowsMenu, MI_OpenPosesPanel);
   addMenuItem(windowsMenu, MI_OpenDrawingSubstitutionPanel);
+  addMenuItem(windowsMenu, MI_OpenSubstitutionSlider);
   addMenuItem(windowsMenu, MI_OpenStoryboardPanel);
   addMenuItem(windowsMenu, MI_OpenMasterControllers);
+  addMenuItem(windowsMenu, MI_OpenOffsetLayers);
+  addMenuItem(windowsMenu, MI_OpenRigLibrary);
   addMenuItem(windowsMenu, MI_OpenSymbols);
   addMenuItem(windowsMenu, MI_OpenReferencePanel);
   addMenuItem(windowsMenu, MI_OpenCustomPanels);

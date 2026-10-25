@@ -166,6 +166,30 @@ TDoubleParam *PoseLibrary::getChannelParam(TXsheet *xsh,
 
 //-----------------------------------------------------------------------------
 
+int PoseLibrary::getStageObjectChannel(const std::string &channel) {
+  for (const auto &soChannel : stageObjectChannels)
+    if (channel == soChannel.m_name) return (int)soChannel.m_channel;
+  return -1;
+}
+
+//-----------------------------------------------------------------------------
+
+TDoubleParam *PoseLibrary::getOffsetLayerParam(TXsheet *xsh,
+                                               const TStageObjectId &id,
+                                               const std::wstring &layerName,
+                                               const std::string &channel) {
+  if (!xsh) return 0;
+  TStageObject *obj = xsh->getStageObjectTree()->getStageObject(id, false);
+  if (!obj) return 0;
+
+  int stageChannel = getStageObjectChannel(channel);
+  if (stageChannel < 0) return 0;
+  return obj->getOffsetParam(obj->findOffsetLayer(layerName),
+                             (TStageObject::Channel)stageChannel);
+}
+
+//-----------------------------------------------------------------------------
+
 void PoseLibrary::captureValues(TXsheet *xsh,
                                 const std::vector<TStageObjectId> &ids,
                                 double frame, std::vector<Entry> &values) {

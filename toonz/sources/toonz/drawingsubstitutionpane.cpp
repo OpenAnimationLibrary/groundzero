@@ -1,4 +1,5 @@
 #include "drawingsubstitutionpane.h"
+#include "drawingsubstitutionundo.h"
 
 // Tnz6 includes
 #include "tapp.h"
@@ -36,66 +37,6 @@
 
 // STD includes
 #include <algorithm>
-
-namespace {
-
-//=============================================================================
-// SubstituteDrawingUndo
-//-----------------------------------------------------------------------------
-/*! Exposes one drawing in a set of cells, remembering their previous
-    content.                                                              */
-
-class SubstituteDrawingUndo final : public TUndo {
-  struct CellEntry {
-    int m_row, m_col;
-    TXshCell m_oldCell;
-  };
-  std::vector<CellEntry> m_cells;
-  TXshCell m_newCell;
-
-public:
-  SubstituteDrawingUndo(const TXshCell &newCell) : m_newCell(newCell) {}
-
-  void addCell(int row, int col, const TXshCell &oldCell) {
-    CellEntry entry = {row, col, oldCell};
-    m_cells.push_back(entry);
-  }
-  bool isEmpty() const { return m_cells.empty(); }
-
-  void undo() const override {
-    TXsheet *xsh = TApp::instance()->getCurrentXsheet()->getXsheet();
-    for (const CellEntry &entry : m_cells)
-      xsh->setCell(entry.m_row, entry.m_col, entry.m_oldCell);
-    notify();
-  }
-
-  void redo() const override {
-    TXsheet *xsh = TApp::instance()->getCurrentXsheet()->getXsheet();
-    for (const CellEntry &entry : m_cells)
-      xsh->setCell(entry.m_row, entry.m_col, m_newCell);
-    notify();
-  }
-
-  int getSize() const override {
-    return sizeof(*this) + m_cells.size() * sizeof(CellEntry);
-  }
-
-  QString getHistoryString() override {
-    return QObject::tr("Drawing Substitution  Level : %1  Frame : %2")
-        .arg(QString::fromStdWString(m_newCell.m_level->getName()))
-        .arg(QString::fromStdString(
-            m_newCell.m_frameId.expand(TFrameId::NO_PAD)));
-  }
-  int getHistoryType() override { return HistoryType::Xsheet; }
-
-private:
-  static void notify() {
-    TApp::instance()->getCurrentXsheet()->notifyXsheetChanged();
-    TApp::instance()->getCurrentScene()->setDirtyFlag(true);
-  }
-};
-
-}  // namespace
 
 //=============================================================================
 // DrawingSubstitutionPane
@@ -198,34 +139,11 @@ void DrawingSubstitutionPane::hideEvent(QHideEvent *) {
 }
 
 //-----------------------------------------------------------------------------
-/*! Returns the level and the frame id exposed in the current cell, or a null
-    level if the cell does not hold a drawing level or a sub-xsheet.       */
-
-void DrawingSubstitutionPane::getCurrentCell(TXshLevelP &level,
-                                             TFrameId &fid) const {
-  level = TXshLevelP();
-  fid   = TFrameId();
-
-  TApp *app    = TApp::instance();
-  TXsheet *xsh = app->getCurrentXsheet()->getXsheet();
-  int row      = app->getCurrentFrame()->getFrame();
-  int col      = app->getCurrentColumn()->getColumnIndex();
-  if (!xsh || row < 0 || col < 0) return;
-
-  TXshCell cell = xsh->getCell(row, col);
-  if (cell.isEmpty() || !cell.m_level) return;
-  if (!cell.m_level->getSimpleLevel() && !cell.m_level->getChildLevel()) return;
-
-  level = cell.m_level;
-  fid   = cell.m_frameId;
-}
-
-//-----------------------------------------------------------------------------
 
 void DrawingSubstitutionPane::refresh() {
   TXshLevelP level;
   TFrameId currentFid;
-  getCurrentCell(level, currentFid);
+  getSubstitutionCurrentCell(level, currentFid);
 
   std::vector<TFrameId> fids;
   if (level) level->getFids(fids);
@@ -312,46 +230,9 @@ void DrawingSubstitutionPane::onItemClicked(QListWidgetItem *item) {
     other levels and locked columns are left untouched.                   */
 
 void DrawingSubstitutionPane::substitute(const TFrameId &fid) {
-  TApp *app    = TApp::instance();
-  TXsheet *xsh = app->getCurrentXsheet()->getXsheet();
-  if (!xsh || !m_level) return;
-
-  int r0 = app->getCurrentFrame()->getFrame();
-  int c0 = app->getCurrentColumn()->getColumnIndex();
-  int r1 = r0, c1 = c0;
-
-  TCellSelection *selection = dynamic_cast<TCellSelection *>(
-      app->getCurrentSelection()->getSelection());
-  if (selection) {
-    TCellSelection::Range range = selection->getSelectedCells();
-    if (!range.isEmpty()) {
-      r0 = std::min(range.m_r0, range.m_r1);
-      r1 = std::max(range.m_r0, range.m_r1);
-      c0 = std::min(range.m_c0, range.m_c1);
-      c1 = std::max(range.m_c0, range.m_c1);
-    }
-  }
-  r0 = std::max(r0, 0);
-  c0 = std::max(c0, 0);
-
   SubstituteDrawingUndo *undo =
-      new SubstituteDrawingUndo(TXshCell(m_level, fid));
-  for (int c = c0; c <= c1; c++) {
-    TXshColumn *column = xsh->getColumn(c);
-    if (!column || column->isLocked()) continue;
-    for (int r = r0; r <= r1; r++) {
-      TXshCell cell = xsh->getCell(r, c);
-      if (cell.isEmpty() || cell.m_level.getPointer() != m_level.getPointer() ||
-          cell.m_frameId == fid)
-        continue;
-      undo->addCell(r, c, cell);
-    }
-  }
-
-  if (undo->isEmpty()) {
-    delete undo;
-    return;
-  }
+      SubstituteDrawingUndo::create(m_level, fid, true);
+  if (!undo) return;
   TUndoManager::manager()->add(undo);
   undo->redo();
 }

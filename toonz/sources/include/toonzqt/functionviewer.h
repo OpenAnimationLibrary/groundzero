@@ -124,6 +124,10 @@ public:
   //! When \p longName is given it receives the channel's long name.
   TDoubleParam *getCurrentChannelCurve(QString *longName = 0) const;
 
+  //! Makes the channel of a stage object having \p curve the current one, and
+  //! shows it. Returns false if the channel is not in the function editor.
+  bool selectStageObjectCurve(TDoubleParam *curve);
+
   // SaveLoadQSettings
   virtual void save(QSettings &settings) const override;
   virtual void load(QSettings &settings) override;

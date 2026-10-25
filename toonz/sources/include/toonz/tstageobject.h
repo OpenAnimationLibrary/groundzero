@@ -21,6 +21,11 @@
 // Qt includes
 #include <QStack>
 
+// STD includes
+#include <memory>
+#include <string>
+#include <vector>
+
 #undef DVAPI
 #undef DVVAR
 #ifdef TOONZLIB_EXPORTS
@@ -154,6 +159,83 @@ other frames,
    Its purpose is the indexing of the object's keyframes.
 */
   typedef std::map<int, Keyframe> KeyframeMap;
+
+  /*!
+An \e offset \e layer keeps animation that is added to the base animation of
+a stage object apart from it. It has a name, an animatable weight (1 by
+default) and an additive curve for each animatable channel (all of them but
+T_Path). The effective value of a channel is
+
+\code
+  effective = base + sum over the enabled layers of (weight * layer curve)
+\endcode
+
+The layer curves are all zero by default. The scale channels (T_ScaleX,
+T_ScaleY and T_Scale) are no exception: their offsets are added to the scale
+\e factors (so a layer of 0.5 over a base of 1 makes 1.5), and the effective
+factors are multiplied as usual.
+
+A stage object has no layers unless the user creates some, and then all of
+its values, placements and saved data are the same as without the feature.
+Only the effective value is seen by placements (viewers and renders), by
+getZ(), getSO(), getParam(Channel, double) and by expressions referring to the
+object's channels. The base curves, the keyframes of the object and the
+tools that edit them are not affected.
+
+The curves of a layer are ordinary TDoubleParams, so they can be edited by
+the Function Editor. The curves are returned by getOffsetParam().
+*/
+  struct OffsetLayer {
+    std::wstring m_name;
+    bool m_enabled;
+    TDoubleParamP m_weight;
+    TDoubleParamP m_channels[T_ChannelCount];  //!< The T_Path one is null
+
+    OffsetLayer() : m_enabled(true) {}
+  };
+
+  /*!
+The offset layers of a stage object. It is held by a shared pointer, so that
+the expressions referring to the object's channels can evaluate the layers
+(see getOffsetLayers()).
+*/
+  struct OffsetLayers {
+    std::vector<OffsetLayer> m_layers;
+
+    //! Returns the sum of the weighted offsets of the enabled layers for the
+    //! specified channel and frame.
+    double getOffset(Channel channel, double frame) const {
+      double sum = 0.0;
+      for (const OffsetLayer &layer : m_layers) {
+        const TDoubleParamP &curve = layer.m_channels[channel];
+        if (!layer.m_enabled || !curve) continue;
+        double weight = layer.m_weight->getValue(frame);
+        if (weight != 0.0) sum += weight * curve->getValue(frame);
+      }
+      return sum;
+    }
+  };
+
+  /*!
+A \e published \e channel exposes a channel of a stage object as a named port
+of its node in the Rig view of the Stage Schematic. It is either an offset
+channel (m_channel, the base curve of the object), or the weight of the offset
+layer named m_layer (m_channel is then T_ChannelCount). The curve is looked
+up by name when it is needed, so a port whose layer does not exist (any more)
+has no curve.
+
+An object has no published channels unless the user publishes some. They are
+saved, cloned and restored by undo with the object, and the scene file only
+has a tag for them when there is at least one.
+*/
+  struct PublishedChannel {
+    std::wstring m_name;
+    Channel m_channel;
+    std::wstring m_layer;  //!< Used by the weights only
+
+    PublishedChannel() : m_channel(T_X) {}
+    bool isLayerWeight() const { return m_channel == T_ChannelCount; }
+  };
 
 public:
   /*! Initializes a stage object in his \e tree with an unique id.
@@ -316,7 +398,84 @@ cannot match an existing hook ("H" followed by digits only).
   void setParam(Channel type, double frame, double val);
 
   //! Returns the \b TStageObject::Channel value associated with the \e frame.
+  //! It is the effective value: the base value plus the weighted offsets of
+  //! the offset layers, if any.
   double getParam(Channel type, double frame) const;
+
+  //! \name Offset layers
+  //! See OffsetLayer.
+  //@{
+
+  //! Returns whether channel can have offsets in the offset layers.
+  static bool isOffsetChannel(Channel channel) {
+    return 0 <= channel && channel < T_ChannelCount && channel != T_Path;
+  }
+
+  bool hasOffsetLayers() const { return !m_offsets->m_layers.empty(); }
+  int getOffsetLayerCount() const { return (int)m_offsets->m_layers.size(); }
+  const OffsetLayer &getOffsetLayer(int index) const {
+    return m_offsets->m_layers[index];
+  }
+
+  //! Returns the index of the layer with the specified name, or -1.
+  int findOffsetLayer(const std::wstring &name) const;
+
+  //! Returns the shared evaluation data of the offset layers. The data is the
+  //! same for the whole life of this object, though its content changes.
+  std::shared_ptr<const OffsetLayers> getOffsetLayers() const {
+    return m_offsets;
+  }
+
+  //! Returns the curve of the layer for the channel, or 0 if the index is
+  //! not valid or the channel can't have offsets.
+  TDoubleParam *getOffsetParam(int layerIndex, Channel channel) const;
+
+  //! Returns the weighted sum of the offsets of the layers for the channel.
+  double getOffsetValue(Channel channel, double frame) const;
+
+  //! Creates the layer with all the curves, but does not add it to the object.
+  OffsetLayer createOffsetLayer(const std::wstring &name) const;
+
+  //! Returns a layer with copies of the curves of \e src.
+  OffsetLayer cloneOffsetLayer(const OffsetLayer &src) const;
+
+  //! Adds the layer at \e index (at the end if it is not valid), and makes
+  //! the object observe its curves.
+  void insertOffsetLayer(int index, const OffsetLayer &layer);
+
+  //! Removes the layer, and returns it.
+  OffsetLayer removeOffsetLayer(int index);
+
+  void renameOffsetLayer(int index, const std::wstring &name);
+  void setOffsetLayerEnabled(int index, bool enabled);
+
+  //@}
+
+  //! \name Published channels
+  //! See PublishedChannel.
+  //@{
+
+  bool hasPublishedChannels() const { return !m_published.empty(); }
+  int getPublishedChannelCount() const { return (int)m_published.size(); }
+  const PublishedChannel &getPublishedChannel(int index) const {
+    return m_published[index];
+  }
+
+  //! Returns the index of the published channel with the specified name, or
+  //! -1.
+  int findPublishedChannel(const std::wstring &name) const;
+
+  //! Returns the curve of the published channel, or 0 if the index is not
+  //! valid or the layer of a weight does not exist.
+  TDoubleParam *getPublishedParam(int index) const;
+
+  //! Adds the published channel at \e index (at the end if it is not valid).
+  void insertPublishedChannel(int index, const PublishedChannel &port);
+
+  //! Removes the published channel, and returns it.
+  PublishedChannel removePublishedChannel(int index);
+
+  //@}
 
   //! Sets the center of the \e frame to \e center.
   void setCenter(double frame, const TPointD &center);
@@ -562,6 +721,9 @@ private:
   PlasticSkeletonDeformationP
       m_skeletonDeformation;  //!< Deformation curves for a plastic skeleton
 
+  std::shared_ptr<OffsetLayers> m_offsets;  //!< Never null
+  std::vector<PublishedChannel> m_published;
+
   TPointD m_center;
   TPointD m_offset;
 
@@ -593,6 +755,12 @@ private:
   TPointD getHandlePos(std::string handle, int row) const;
   TAffine getParentHandleAffine(double t) const;
   TAffine computeLocalPlacement(double frame);
+  double getValueWithOffsets(const TDoubleParamP &param, Channel channel,
+                             double frame) const;
+  void attachOffsetLayer(OffsetLayer &layer);
+  void detachOffsetLayer(OffsetLayer &layer);
+  void setOffsetLayerLabels(OffsetLayer &layer) const;
+  void propagateOffsetChange(const TParamChange &c);
   TStageObject *findRoot(double frame) const;
   TStageObject *getPinnedDescendant(int frame);
 
@@ -645,6 +813,9 @@ public:
       m_posPath, m_shearx, m_sheary, m_rotx, m_roty;
   PlasticSkeletonDeformationP
       m_skeletonDeformation;  //!< Deformation curves for a plastic skeleton
+  std::vector<TStageObject::OffsetLayer> m_offsetLayers;  //!< Offset layers
+  std::vector<TStageObject::PublishedChannel>
+      m_publishedChannels;  //!< Published channels
   double m_noScaleZ;
   TPointD m_center, m_offset;
   std::string m_name;

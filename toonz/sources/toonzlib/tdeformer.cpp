@@ -2,6 +2,8 @@
 
 #include "traster.h"
 #include "tpixel.h"
+#include "tstroke.h"
+#include "tvectorimage.h"
 
 #include <algorithm>
 #include <cassert>
@@ -373,4 +375,67 @@ TPointD TEnvelopeDeformer::deform(const TPointD &p, double frame) const {
   }
 
   return q;
+}
+
+//---------------------------------------------------------------------------------
+
+void TEnvelopeDeformer::sampleClosedSpline(const std::vector<TPointD> &anchors,
+                                           int samplesPerEdge,
+                                           std::vector<TPointD> &samples) {
+  int n = (int)anchors.size();
+  samples.clear();
+  if (n == 0) return;
+
+  if (samplesPerEdge < 1) samplesPerEdge = 1;
+  if (n < 3) {
+    samples = anchors;
+    return;
+  }
+
+  samples.reserve(n * samplesPerEdge);
+  for (int i = 0; i < n; ++i) {
+    // Bezier control points of the edge from anchor i to anchor i + 1, from
+    // the Catmull-Rom tangents
+    const TPointD &p0 = anchors[(i + n - 1) % n], &p1 = anchors[i],
+                  &p2 = anchors[(i + 1) % n], &p3 = anchors[(i + 2) % n];
+    TPointD b1(p1 + (p2 - p0) * (1.0 / 6.0)), b2(p2 - (p3 - p1) * (1.0 / 6.0));
+
+    for (int k = 0; k < samplesPerEdge; ++k) {
+      double t = double(k) / samplesPerEdge, u = 1.0 - t;
+      samples.push_back(p1 * (u * u * u) + b1 * (3.0 * u * u * t) +
+                        b2 * (3.0 * u * t * t) + p2 * (t * t * t));
+    }
+  }
+}
+
+//****************************************************************************************
+//    Vector images
+//****************************************************************************************
+
+void deformVectorImage(TVectorImage &vi, const TDeformer &deformer,
+                       double frame) {
+  std::vector<int> changedIdxs;
+  std::vector<TStroke *> oldStrokes;
+
+  std::vector<TThickPoint> points;
+  for (UINT i = 0; i < vi.getStrokeCount(); ++i) {
+    TStroke *stroke = vi.getStroke(i);
+
+    // Keep the stroke as it was, for the regions' update
+    oldStrokes.push_back(new TStroke(*stroke));
+    changedIdxs.push_back((int)i);
+
+    points.clear();
+    stroke->getControlPoints(points);
+    for (TThickPoint &p : points) {
+      TPointD q = deformer.deform(TPointD(p.x, p.y), frame);
+      p.x       = q.x;
+      p.y       = q.y;
+    }
+    stroke->reshape(points.data(), (int)points.size());
+  }
+
+  if (!changedIdxs.empty()) vi.notifyChangedStrokes(changedIdxs, oldStrokes);
+
+  for (TStroke *stroke : oldStrokes) delete stroke;
 }

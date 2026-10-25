@@ -118,8 +118,11 @@ set(MOC_HEADERS
     posespane.h
     referencepanel.h
     drawingsubstitutionpane.h
+    substitutionsliderpane.h
     storyboardpane.h
     mastercontrollerspane.h
+    offsetlayerspane.h
+    riglibrarypane.h
     symbolspane.h
     vectorguideddrawingpane.h
     vectorizerpopup.h
@@ -186,6 +189,7 @@ set(HEADERS
     customhelplink.h
     curveio.h
     drawingdata.h
+    drawingsubstitutionundo.h
     exportlevelcommand.h
     filedata.h
     fileselection.h
@@ -333,8 +337,12 @@ set(SOURCES
     posespane.cpp
     referencepanel.cpp
     drawingsubstitutionpane.cpp
+    drawingsubstitutionundo.cpp
+    substitutionsliderpane.cpp
     storyboardpane.cpp
     mastercontrollerspane.cpp
+    offsetlayerspane.cpp
+    riglibrarypane.cpp
     symbolspane.cpp
     vectorguideddrawingpane.cpp
     vectorizerpopup.cpp
@@ -431,6 +439,7 @@ set(SOURCES
     convertfolderpopup.cpp
     exportcameratrackpopup.cpp
     spineexport.cpp
+    envelopebake.cpp
 # Tracker file
     dummyprocessor.cpp
     metnum.cpp

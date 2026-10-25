@@ -5,8 +5,11 @@
 #include "posespane.h"
 #include "referencepanel.h"
 #include "drawingsubstitutionpane.h"
+#include "substitutionsliderpane.h"
 #include "storyboardpane.h"
 #include "mastercontrollerspane.h"
+#include "offsetlayerspane.h"
+#include "riglibrarypane.h"
 
 // Tnz6 includes
 #include "pane.h"
@@ -1920,6 +1923,24 @@ public:
 OpenFloatingPanel openDrawingSubstitutionPanelCommand(
     MI_OpenDrawingSubstitutionPanel, "DrawingSubstitutionPanel",
     QObject::tr("Drawing Substitution"));
+
+// Substitution Slider
+//-----------------------------------------------------------------------------
+
+class SubstitutionSliderPanelFactory final : public TPanelFactory {
+public:
+  SubstitutionSliderPanelFactory() : TPanelFactory("SubstitutionSliderPanel") {}
+  void initialize(TPanel *panel) override {
+    panel->setWidget(new SubstitutionSliderPane(panel));
+    panel->setWindowTitle(QObject::tr("Substitution Slider"));
+    panel->setIsMaximizable(false);
+  }
+} substitutionSliderPanelFactory;
+
+OpenFloatingPanel openSubstitutionSliderCommand(
+    MI_OpenSubstitutionSlider, "SubstitutionSliderPanel",
+    QObject::tr("Substitution Slider"));
+
 // Storyboard
 //-----------------------------------------------------------------------------
 
@@ -1954,3 +1975,37 @@ public:
 OpenFloatingPanel openMasterControllersCommand(
     MI_OpenMasterControllers, "MasterControllers",
     QObject::tr("Master Controllers"));
+
+//=============================================================================
+// Offset Layers
+//-----------------------------------------------------------------------------
+
+class OffsetLayersPanelFactory final : public TPanelFactory {
+public:
+  OffsetLayersPanelFactory() : TPanelFactory("OffsetLayers") {}
+  void initialize(TPanel *panel) override {
+    panel->setWidget(new OffsetLayersPane(panel));
+    panel->setWindowTitle(QObject::tr("Offset Layers"));
+    panel->setIsMaximizable(false);
+  }
+} offsetLayersPanelFactory;
+
+OpenFloatingPanel openOffsetLayersCommand(MI_OpenOffsetLayers, "OffsetLayers",
+                                          QObject::tr("Offset Layers"));
+
+//=============================================================================
+// Rig Library
+//-----------------------------------------------------------------------------
+
+class RigLibraryPanelFactory final : public TPanelFactory {
+public:
+  RigLibraryPanelFactory() : TPanelFactory("RigLibrary") {}
+  void initialize(TPanel *panel) override {
+    panel->setWidget(new RigLibraryPane(panel));
+    panel->setWindowTitle(QObject::tr("Rig Library"));
+    panel->setIsMaximizable(false);
+  }
+} rigLibraryPanelFactory;
+
+OpenFloatingPanel openRigLibraryCommand(MI_OpenRigLibrary, "RigLibrary",
+                                        QObject::tr("Rig Library"));

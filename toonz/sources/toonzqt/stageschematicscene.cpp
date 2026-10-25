@@ -9,6 +9,8 @@
 #include "toonzqt/schematicgroupeditor.h"
 #include "stageobjectselection.h"
 #include "toonzqt/icongenerator.h"
+#include "toonzqt/functionviewer.h"
+#include "toonzqt/menubarcommand.h"
 
 // TnzLib includes
 #include "toonz/txsheet.h"
@@ -25,6 +27,9 @@
 #include "toonz/tstageobjectcmd.h"
 #include "toonz/tproject.h"
 #include "toonz/childstack.h"
+#include "toonz/fxdag.h"
+#include "toonz/tfxhandle.h"
+#include "toonz/doubleparamcmd.h"
 
 // TnzCore includes
 #include "tconst.h"
@@ -32,12 +37,37 @@
 #include "tstream.h"
 #include "tstroke.h"
 #include "tenv.h"
+#include "tfx.h"
+#include "tdoubleparam.h"
+#include "tdoublekeyframe.h"
+#include "tunit.h"
 
 // Qt includes
+#include <QApplication>
+#include <QComboBox>
+#include <QCursor>
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QFormLayout>
+#include <QInputDialog>
+#include <QLineEdit>
+#include <QTimer>
 #include <QMenu>
 #include <QGraphicsSceneContextMenuEvent>
 #include <QGraphicsSceneMouseEvent>
 #include <QFileDialog>
+#include <QFont>
+#include <QFontMetrics>
+#include <QGraphicsItem>
+#include <QPainter>
+#include <QSet>
+#include <QStringList>
+
+#include <cctype>
+#include <functional>
+#include <set>
+#include <string>
+#include <vector>
 
 TEnv::IntVar ShowLetterOnOutputPortOfStageNode(
     "ShowLetterOnOutputPortOfStageNode", 0);
@@ -108,6 +138,234 @@ void keepSubgroup(QMap<int, QList<SchematicNode *>> &editedGroup) {
 
 bool resizingNodes = false;
 bool updatingScene = false;
+//==================================================================
+//
+// Rig view
+//
+//==================================================================
+
+//! A small label under a node (Rig view). It only has a tool tip, unless it
+//! is given a click handler (and a double click one): then it takes the left
+//! button. The handlers run once the mouse event is over, as they usually
+//! rebuild the scene, and with it this item.
+class RigBadgeItem final : public QGraphicsItem {
+  QString m_text;
+  QColor m_color;
+  QRectF m_rect;
+  bool m_ignoreRelease = false;
+  std::function<void()> m_onClick, m_onDoubleClick;
+  std::function<QString()> m_textFn;  //!< Gives the text again, see refresh()
+
+  void fire(const std::function<void()> &handler) {
+    if (!handler || !scene()) return;
+    QTimer::singleShot(0, scene(), [handler]() { handler(); });
+  }
+
+public:
+  RigBadgeItem(QGraphicsItem *parent, const QString &text,
+               const QString &toolTip, const QColor &color)
+      : QGraphicsItem(parent), m_color(color) {
+    setText(text);
+    setToolTip(toolTip);
+    setAcceptedMouseButtons(Qt::NoButton);
+    setZValue(1);
+  }
+
+  static QFont badgeFont() {
+    QFont f;
+    f.setPixelSize(9);
+    return f;
+  }
+
+  void setText(const QString &text) {
+    QFontMetrics fm(badgeFont());
+    prepareGeometryChange();
+    m_text = fm.elidedText(text, Qt::ElideRight, 150);
+    m_rect = QRectF(0, 0, fm.horizontalAdvance(m_text) + 8, fm.height() + 2);
+    update();
+  }
+
+  //! The item makes its text with \b textFn when it is refreshed.
+  void setTextFunction(const std::function<QString()> &textFn) {
+    m_textFn = textFn;
+  }
+  void refresh() {
+    if (m_textFn) setText(m_textFn());
+  }
+
+  void setClickHandlers(
+      const std::function<void()> &onClick,
+      const std::function<void()> &onDoubleClick = std::function<void()>()) {
+    m_onClick       = onClick;
+    m_onDoubleClick = onDoubleClick;
+    setAcceptedMouseButtons(Qt::LeftButton);
+    setCursor(Qt::PointingHandCursor);
+  }
+
+  QRectF boundingRect() const override { return m_rect; }
+
+  void paint(QPainter *painter, const QStyleOptionGraphicsItem *,
+             QWidget *) override {
+    painter->setRenderHint(QPainter::Antialiasing, true);
+    painter->setPen(Qt::NoPen);
+    painter->setBrush(m_color);
+    painter->drawRoundedRect(m_rect, 3, 3);
+    painter->setPen(Qt::white);
+    painter->setFont(badgeFont());
+    painter->drawText(m_rect, Qt::AlignCenter, m_text);
+  }
+
+protected:
+  void mousePressEvent(QGraphicsSceneMouseEvent *event) override {
+    if (event->button() == Qt::LeftButton) {
+      m_ignoreRelease = false;
+      event->accept();
+    } else
+      event->ignore();
+  }
+  void mouseReleaseEvent(QGraphicsSceneMouseEvent *event) override {
+    if (m_ignoreRelease) {
+      m_ignoreRelease = false;
+      return;
+    }
+    if (event->button() == Qt::LeftButton && m_rect.contains(event->pos()))
+      fire(m_onClick);
+  }
+  void mouseDoubleClickEvent(QGraphicsSceneMouseEvent *event) override {
+    event->accept();
+    m_ignoreRelease = true;
+    fire(m_onDoubleClick);
+  }
+};
+
+//------------------------------------------------------------------
+
+//! The channels offered by Publish Channel..., as for the offset layers
+const struct {
+  TStageObject::Channel m_channel;
+  const char *m_label;
+} rigChannels[] = {
+    {TStageObject::T_X, QT_TR_NOOP("X")},
+    {TStageObject::T_Y, QT_TR_NOOP("Y")},
+    {TStageObject::T_Z, QT_TR_NOOP("Z")},
+    {TStageObject::T_SO, QT_TR_NOOP("SO")},
+    {TStageObject::T_Angle, QT_TR_NOOP("Rotation")},
+    {TStageObject::T_ScaleX, QT_TR_NOOP("Scale H")},
+    {TStageObject::T_ScaleY, QT_TR_NOOP("Scale V")},
+    {TStageObject::T_Scale, QT_TR_NOOP("Scale")},
+    {TStageObject::T_ShearX, QT_TR_NOOP("Shear H")},
+    {TStageObject::T_ShearY, QT_TR_NOOP("Shear V")},
+    {TStageObject::T_RotX, QT_TR_NOOP("Rotation X")},
+    {TStageObject::T_RotY, QT_TR_NOOP("Rotation Y")},
+};
+
+//------------------------------------------------------------------
+
+//! Returns the value of the curve at \b frame in the units shown to the user,
+//! and their name in \b unitName.
+double getDisplayValue(TDoubleParam *param, double frame,
+                       QString *unitName = 0) {
+  double value      = param->getValue(frame);
+  TMeasure *measure = param->getMeasure();
+  const TUnit *unit = measure ? measure->getCurrentUnit() : 0;
+  if (unit) {
+    value = unit->convertTo(value);
+    if (unitName)
+      *unitName = QString::fromStdWString(unit->getDefaultExtension());
+  }
+  return value;
+}
+
+//------------------------------------------------------------------
+
+//! Returns a visible Function Editor, or 0.
+FunctionViewer *findVisibleFunctionViewer() {
+  for (QWidget *widget : QApplication::topLevelWidgets())
+    for (FunctionViewer *viewer : widget->findChildren<FunctionViewer *>())
+      if (viewer->isVisible()) return viewer;
+  return 0;
+}
+
+//------------------------------------------------------------------
+
+//! The label of the deformer fx types shown by the Rig view, or an empty
+//! string for any other fx.
+QString getDeformerLabel(TFx *fx) {
+  std::string type = fx->getFxType();
+  if (type == "deformerStackFx")
+    return StageSchematicScene::tr("Deformer Stack");
+  if (type == "envelopeDeformerFx") return StageSchematicScene::tr("Envelope");
+  if (type == "freeFormDeformerFx") return StageSchematicScene::tr("Free-Form");
+  return QString();
+}
+
+//------------------------------------------------------------------
+
+//! Returns the deformer fxs in the chain that starts from the fx of
+//! \b column. The chain follows the output connections of the fxs, and
+//! stops at the fxs that combine several inputs (they are not the column's
+//! own) and at the xsheet fx.
+std::vector<TFx *> getColumnDeformers(TXsheet *xsh, TXshColumn *column) {
+  std::vector<TFx *> deformers;
+  TFx *columnFx = column ? column->getFx() : 0;
+  if (!columnFx) return deformers;
+  TFx *xsheetFx = xsh->getFxDag()->getXsheetFx();
+
+  std::set<TFx *> visited;
+  std::vector<TFx *> toVisit;
+  visited.insert(columnFx);
+  toVisit.push_back(columnFx);
+  while (!toVisit.empty()) {
+    TFx *fx = toVisit.back();
+    toVisit.pop_back();
+    for (int i = 0; i < fx->getOutputConnectionCount(); i++) {
+      TFxPort *outPort = fx->getOutputConnection(i);
+      TFx *next        = outPort ? outPort->getOwnerFx() : 0;
+      if (!next || next == xsheetFx || !visited.insert(next).second) continue;
+      int connected = 0;
+      for (int p = 0; p < next->getInputPortCount(); p++)
+        if (next->getInputPort(p)->isConnected()) connected++;
+      if (connected > 1) continue;
+      if (!getDeformerLabel(next).isEmpty()) deformers.push_back(next);
+      toVisit.push_back(next);
+    }
+  }
+  return deformers;
+}
+
+//------------------------------------------------------------------
+
+//! Returns whether \b text, an expression, contains the reference \b ref (for
+//! example "peg3.rot") as a whole word.
+bool expressionRefersTo(const std::string &text, const std::string &ref) {
+  std::string lowerText = text;
+  for (char &c : lowerText) c = (char)tolower((unsigned char)c);
+  size_t pos = 0;
+  while ((pos = lowerText.find(ref, pos)) != std::string::npos) {
+    size_t end   = pos + ref.size();
+    bool startOk = pos == 0 || !(isalnum((unsigned char)lowerText[pos - 1]) ||
+                                 lowerText[pos - 1] == '_');
+    bool endOk =
+        end >= lowerText.size() ||
+        !(isalnum((unsigned char)lowerText[end]) || lowerText[end] == '_');
+    if (startOk && endOk) return true;
+    pos++;
+  }
+  return false;
+}
+
+//! Returns whether an expression keyframe of \b param refers to \b ref.
+bool paramRefersTo(const TDoubleParam *param, const std::string &ref) {
+  if (!param) return false;
+  for (int i = 0; i < param->getKeyframeCount(); i++) {
+    const TDoubleKeyframe &kf = param->getKeyframe(i);
+    if (kf.m_type == TDoubleKeyframe::Expression &&
+        expressionRefersTo(kf.m_expressionText, ref))
+      return true;
+  }
+  return false;
+}
+
 }  // namespace
 
 //==================================================================
@@ -183,6 +441,7 @@ void StageSchematicScene::setColumnHandle(TColumnHandle *colHandle) {
 //------------------------------------------------------------------
 
 void StageSchematicScene::setFxHandle(TFxHandle *fxHandle) {
+  m_fxHandle = fxHandle;
   m_selection->setFxHandle(fxHandle);
 }
 
@@ -355,6 +614,7 @@ void StageSchematicScene::updateScene() {
     }
   }
   m_nodesToPlace.clear();
+  if (m_rigViewEnabled) applyRigView();
   updatingScene = false;
 }
 
@@ -959,6 +1219,471 @@ void StageSchematicScene::onSwitchPortModeToggled(bool withLetter) {
   m_showLetterOnPortFlag            = withLetter;
   ShowLetterOnOutputPortOfStageNode = (withLetter) ? 1 : 0;
   updateScene();
+}
+
+//------------------------------------------------------------------
+
+void StageSchematicScene::onRigViewToggled(bool enabled) {
+  m_rigViewEnabled = enabled;
+  // The values of the published channels follow the current frame
+  if (m_frameHandle) {
+    if (enabled)
+      connect(m_frameHandle, SIGNAL(frameSwitched()), this,
+              SLOT(onRigFrameSwitched()), Qt::UniqueConnection);
+    else
+      disconnect(m_frameHandle, SIGNAL(frameSwitched()), this,
+                 SLOT(onRigFrameSwitched()));
+  }
+  // updateScene() rebuilds the nodes, with or without the Rig view items
+  if (m_xshHandle) updateScene();
+}
+
+//------------------------------------------------------------------
+
+void StageSchematicScene::onRigFilterChanged(const QString &text) {
+  m_rigFilter = text;
+  if (m_rigViewEnabled && m_xshHandle) applyRigFilter();
+}
+
+//------------------------------------------------------------------
+
+void StageSchematicScene::onRigFrameSwitched() {
+  if (m_rigViewEnabled) refreshRigPorts();
+}
+
+//------------------------------------------------------------------
+
+void StageSchematicScene::refreshRigPorts() {
+  QMap<TStageObjectId, StageSchematicNode *>::iterator it;
+  for (it = m_nodeTable.begin(); it != m_nodeTable.end(); ++it)
+    for (QGraphicsItem *child : it.value()->childItems())
+      if (RigBadgeItem *item = dynamic_cast<RigBadgeItem *>(child))
+        item->refresh();
+}
+
+//------------------------------------------------------------------
+
+void StageSchematicScene::applyRigView() {
+  TXsheet *xsh = getXsheet();
+  if (!xsh) return;
+  TStageObjectTree *pegTree = xsh->getStageObjectTree();
+  m_rigSearchText.clear();
+
+  // The master controllers are the pegbars named "ctrl_*" (see the Master
+  // Controllers panel). Their value is referred to as "peg<N>.rot".
+  struct Controller {
+    QString m_name;
+    std::string m_ref;
+  };
+  std::vector<Controller> controllers;
+  for (int i = 0; i < pegTree->getStageObjectCount(); i++) {
+    TStageObject *obj = pegTree->getStageObject(i);
+    if (!obj || !obj->getId().isPegbar()) continue;
+    QString name = QString::fromStdString(obj->getName());
+    if (!name.startsWith("ctrl_", Qt::CaseInsensitive)) continue;
+    Controller controller;
+    controller.m_name = name;
+    controller.m_ref =
+        "peg" + std::to_string(obj->getId().getIndex() + 1) + ".rot";
+    controllers.push_back(controller);
+  }
+
+  const QColor deformerColor(140, 80, 190, 210);
+  const QColor offsetColor(40, 140, 140, 210);
+  const QColor controllerColor(190, 120, 30, 210);
+  const QColor portColor(50, 100, 170, 220);
+
+  QMap<TStageObjectId, StageSchematicNode *>::iterator it;
+  for (it = m_nodeTable.begin(); it != m_nodeTable.end(); ++it) {
+    StageSchematicNode *node = it.value();
+    if (!node) continue;
+    TStageObject *obj   = node->getStageObject();
+    TStageObjectId id   = obj->getId();
+    QStringList &search = m_rigSearchText[it.key()];
+
+    // The badges and the port rows are stacked under the node
+    qreal y = node->boundingRect().bottom() + 1;
+
+    // One badge per kind, for the column nodes. The badge can be clicked: it
+    // opens the editor of what it lists.
+    // The names listed are what the filter looks for.
+    auto addBadge = [&](const QString &title, const QStringList &entries,
+                        const QStringList &names, const QColor &color,
+                        const std::function<void()> &open) {
+      if (entries.isEmpty()) return;
+      QString full        = title + ": " + entries.join(", ");
+      RigBadgeItem *badge = new RigBadgeItem(node, full, full, color);
+      badge->setClickHandlers(open);
+      badge->setPos(0, y);
+      y += badge->boundingRect().height() + 1;
+      search.append(names);
+    };
+
+    if (id.isColumn()) {
+      TXshColumn *column = xsh->getColumn(id.getIndex());
+
+      // Deformer fxs of the column's fx chain
+      std::vector<TFx *> deformerFxs = getColumnDeformers(xsh, column);
+      QStringList deformers;
+      std::vector<TFxP> deformerPtrs;
+      for (TFx *fx : deformerFxs) {
+        deformers.append(getDeformerLabel(fx));
+        deformerPtrs.push_back(TFxP(fx));
+      }
+      addBadge(tr("Deformers"), deformers, deformers, deformerColor,
+               [this, deformerPtrs]() { openRigDeformer(deformerPtrs); });
+
+      // Offset layers of the column
+      QStringList layers, layerNames;
+      for (int i = 0; i < obj->getOffsetLayerCount(); i++) {
+        const TStageObject::OffsetLayer &layer = obj->getOffsetLayer(i);
+        QString name = QString::fromStdWString(layer.m_name);
+        layerNames.append(name);
+        layers.append(layer.m_enabled ? name : name + tr(" (off)"));
+      }
+      addBadge(tr("Offsets"), layers, layerNames, offsetColor,
+               [this, id]() { openRigPanel(id, "MI_OpenOffsetLayers"); });
+
+      // Master controllers driving a channel or an offset layer weight
+      QStringList bound;
+      for (const Controller &controller : controllers) {
+        bool found = false;
+        for (int ch = 0; ch < TStageObject::T_ChannelCount && !found; ch++) {
+          if (!TStageObject::isOffsetChannel((TStageObject::Channel)ch))
+            continue;
+          found = paramRefersTo(obj->getParam((TStageObject::Channel)ch),
+                                controller.m_ref);
+        }
+        for (int i = 0; i < obj->getOffsetLayerCount() && !found; i++)
+          found = paramRefersTo(obj->getOffsetLayer(i).m_weight.getPointer(),
+                                controller.m_ref);
+        if (found) bound.append(controller.m_name);
+      }
+      addBadge(tr("Controllers"), bound, bound, controllerColor,
+               [this, id]() { openRigPanel(id, "MI_OpenMasterControllers"); });
+    }
+
+    // The published channels of any stage object, one row each: its name and
+    // its value at the current frame. A click selects the channel in the
+    // Function Editor, a double click edits the value.
+    for (int i = 0; i < obj->getPublishedChannelCount(); i++) {
+      const TStageObject::PublishedChannel &port = obj->getPublishedChannel(i);
+      QString name = QString::fromStdWString(port.m_name);
+      QString channelName;
+      if (port.isLayerWeight())
+        channelName =
+            QString::fromStdWString(port.m_layer) + "/" + tr("Weight");
+      else
+        for (const auto &info : rigChannels)
+          if (info.m_channel == port.m_channel) channelName = tr(info.m_label);
+      QString toolTip = tr("%1 (%2): click to select the channel in the "
+                           "Function Editor, double click to set its value "
+                           "at the current frame")
+                            .arg(name)
+                            .arg(channelName);
+      RigBadgeItem *row = new RigBadgeItem(node, getPublishedChannelText(id, i),
+                                           toolTip, portColor);
+      row->setTextFunction(
+          [this, id, i]() { return getPublishedChannelText(id, i); });
+      row->setClickHandlers([this, id, i]() { selectPublishedChannel(id, i); },
+                            [this, id, i]() { editPublishedChannel(id, i); });
+      row->setPos(0, y);
+      y += row->boundingRect().height() + 1;
+      search.append(name);
+    }
+  }
+
+  applyRigFilter();
+}
+
+//------------------------------------------------------------------
+
+void StageSchematicScene::applyRigFilter() {
+  // Start from all the nodes and links visible
+  QList<StageSchematicNode *> nodes = m_nodeTable.values();
+  for (StageSchematicGroupNode *groupNode : m_GroupTable)
+    if (groupNode) nodes.append(groupNode);
+  QList<QGraphicsItem *> links;
+  for (QGraphicsItem *item : items())
+    if (dynamic_cast<SchematicLink *>(item)) links.append(item);
+
+  for (StageSchematicNode *node : nodes) node->setVisible(true);
+  for (QGraphicsItem *link : links) link->setVisible(true);
+
+  QString filter = m_rigFilter.trimmed();
+  if (filter.isEmpty()) return;
+
+  // The nodes having a badge or a published channel that matches
+  QSet<SchematicNode *> matching;
+  QMap<TStageObjectId, StageSchematicNode *>::iterator it;
+  for (it = m_nodeTable.begin(); it != m_nodeTable.end(); ++it)
+    for (const QString &text : m_rigSearchText.value(it.key()))
+      if (text.contains(filter, Qt::CaseInsensitive)) {
+        matching.insert(it.value());
+        break;
+      }
+
+  QSet<SchematicNode *> hidden;
+  for (StageSchematicNode *node : nodes) {
+    if (node->getName().contains(filter, Qt::CaseInsensitive) ||
+        matching.contains(node))
+      continue;
+    node->setSelected(false);
+    node->setVisible(false);
+    hidden.insert(node);
+  }
+  // A link is hidden with any of its two nodes
+  for (QGraphicsItem *item : links) {
+    SchematicLink *link  = static_cast<SchematicLink *>(item);
+    SchematicPort *start = link->getStartPort();
+    SchematicPort *end   = link->getEndPort();
+    if ((start && hidden.contains(start->getNode())) ||
+        (end && hidden.contains(end->getNode())))
+      item->setVisible(false);
+  }
+}
+
+//------------------------------------------------------------------
+
+QString StageSchematicScene::getPublishedChannelText(const TStageObjectId &id,
+                                                     int index) {
+  TXsheet *xsh = m_xshHandle ? m_xshHandle->getXsheet() : 0;
+  TStageObject *obj =
+      xsh ? xsh->getStageObjectTree()->getStageObject(id, false) : 0;
+  if (!obj || index < 0 || index >= obj->getPublishedChannelCount())
+    return QString();
+
+  QString text =
+      QString::fromStdWString(obj->getPublishedChannel(index).m_name);
+  TDoubleParam *param = obj->getPublishedParam(index);
+  if (!param) return text + ": -";
+
+  int frame = (m_frameHandle &&
+               m_frameHandle->getFrameType() == TFrameHandle::SceneFrame)
+                  ? m_frameHandle->getFrame()
+                  : 0;
+  QString unitName;
+  double value = getDisplayValue(param, frame, &unitName);
+  text += ": " + QString::number(value, 'f', 2);
+  if (!unitName.isEmpty()) text += " " + unitName;
+  return text;
+}
+
+//------------------------------------------------------------------
+
+void StageSchematicScene::selectPublishedChannel(const TStageObjectId &id,
+                                                 int index) {
+  TXsheet *xsh = m_xshHandle ? m_xshHandle->getXsheet() : 0;
+  TStageObject *obj =
+      xsh ? xsh->getStageObjectTree()->getStageObject(id, false) : 0;
+  TDoubleParam *param = obj ? obj->getPublishedParam(index) : 0;
+  if (!param) return;
+
+  // The Function Editor is opened if there is none shown
+  FunctionViewer *viewer = findVisibleFunctionViewer();
+  if (!viewer) {
+    QAction *open =
+        CommandManager::instance()->getAction("MI_OpenFunctionEditor");
+    if (open) open->trigger();
+    viewer = findVisibleFunctionViewer();
+  }
+  if (viewer) viewer->selectStageObjectCurve(param);
+}
+
+//------------------------------------------------------------------
+
+void StageSchematicScene::editPublishedChannel(const TStageObjectId &id,
+                                               int index) {
+  TXsheet *xsh = m_xshHandle ? m_xshHandle->getXsheet() : 0;
+  TStageObject *obj =
+      xsh ? xsh->getStageObjectTree()->getStageObject(id, false) : 0;
+  TDoubleParam *param = obj ? obj->getPublishedParam(index) : 0;
+  if (!param || !m_frameHandle ||
+      m_frameHandle->getFrameType() != TFrameHandle::SceneFrame)
+    return;
+
+  int frame                           = m_frameHandle->getFrame();
+  TStageObject::PublishedChannel port = obj->getPublishedChannel(index);
+  QString name                        = QString::fromStdWString(port.m_name);
+  QString unitName;
+  double value = getDisplayValue(param, frame, &unitName);
+
+  bool ok         = false;
+  QWidget *parent = views().isEmpty() ? 0 : views()[0];
+  double newValue = QInputDialog::getDouble(
+      parent, tr("Published Channel"),
+      tr("%1 at frame %2%3:")
+          .arg(name)
+          .arg(frame + 1)
+          .arg(unitName.isEmpty() ? QString() : " (" + unitName + ")"),
+      value, -1000000.0, 1000000.0, 3, &ok);
+  if (!ok) return;
+
+  // Back to the internal units. The scene may have changed while the dialog
+  // was open, so the channel is looked for again.
+  xsh = m_xshHandle->getXsheet();
+  obj = xsh ? xsh->getStageObjectTree()->getStageObject(id, false) : 0;
+  if (!obj || index >= obj->getPublishedChannelCount() ||
+      obj->getPublishedParam(index) != param)
+    return;
+  TMeasure *measure = param->getMeasure();
+  const TUnit *unit = measure ? measure->getCurrentUnit() : 0;
+  if (unit) newValue = unit->convertFrom(newValue);
+
+  if (port.isLayerWeight())
+    // The weight of a layer is keyed only if it is animated, as in the
+    // Offset Layers panel
+    TStageObjectCmd::setOffsetLayerWeight(
+        id, obj->findOffsetLayer(port.m_layer), newValue, frame, m_xshHandle);
+  else {
+    KeyframeSetter::setValue(param, frame, newValue);
+    m_xshHandle->notifyXsheetChanged();
+  }
+}
+
+//------------------------------------------------------------------
+
+void StageSchematicScene::addRigMenuActions(QMenu &menu,
+                                            const TStageObjectId &id) {
+  if (!m_rigViewEnabled) return;
+  TXsheet *xsh = m_xshHandle ? m_xshHandle->getXsheet() : 0;
+  TStageObject *obj =
+      xsh ? xsh->getStageObjectTree()->getStageObject(id, false) : 0;
+  if (!obj) return;
+
+  // The dialogs are opened once the menu is closed
+  menu.addSeparator();
+  QAction *publish = menu.addAction(tr("Publish Channel..."));
+  connect(publish, &QAction::triggered, this, [this, id]() {
+    QTimer::singleShot(0, this, [this, id]() { publishChannelDialog(id); });
+  });
+  if (obj->hasPublishedChannels()) {
+    QAction *unpublish = menu.addAction(tr("Unpublish Channel..."));
+    connect(unpublish, &QAction::triggered, this, [this, id]() {
+      QTimer::singleShot(0, this, [this, id]() { unpublishChannelDialog(id); });
+    });
+  }
+}
+
+//------------------------------------------------------------------
+
+void StageSchematicScene::publishChannelDialog(const TStageObjectId &id) {
+  TXsheet *xsh = m_xshHandle ? m_xshHandle->getXsheet() : 0;
+  TStageObject *obj =
+      xsh ? xsh->getStageObjectTree()->getStageObject(id, false) : 0;
+  if (!obj) return;
+
+  QDialog dialog(views().isEmpty() ? 0 : views()[0]);
+  dialog.setWindowTitle(tr("Publish Channel"));
+  QFormLayout *layout = new QFormLayout(&dialog);
+
+  // The animatable channels of the object, and the weights of its offset
+  // layers. The user data is the channel (T_ChannelCount for a weight) and
+  // the name of the layer.
+  QComboBox *channelCombo = new QComboBox(&dialog);
+  for (const auto &info : rigChannels) {
+    // Cameras ignore the 3D tilt channels
+    if (id.isCamera() && (info.m_channel == TStageObject::T_RotX ||
+                          info.m_channel == TStageObject::T_RotY))
+      continue;
+    channelCombo->addItem(tr(info.m_label), (int)info.m_channel);
+  }
+  for (int i = 0; i < obj->getOffsetLayerCount(); i++) {
+    QString layerName = QString::fromStdWString(obj->getOffsetLayer(i).m_name);
+    channelCombo->addItem(layerName + "/" + tr("Weight"),
+                          (int)TStageObject::T_ChannelCount);
+    channelCombo->setItemData(channelCombo->count() - 1, layerName,
+                              Qt::UserRole + 1);
+  }
+  layout->addRow(tr("Channel:"), channelCombo);
+
+  // The name proposed is the one of the channel, until the user edits it
+  QLineEdit *nameEdit  = new QLineEdit(channelCombo->currentText(), &dialog);
+  QString proposedName = channelCombo->currentText();
+  connect(channelCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+          &dialog, [&](int) {
+            if (nameEdit->text() == proposedName) {
+              proposedName = channelCombo->currentText();
+              nameEdit->setText(proposedName);
+            }
+          });
+  layout->addRow(tr("Name:"), nameEdit);
+
+  QDialogButtonBox *buttons = new QDialogButtonBox(
+      QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+  connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+  connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+  layout->addRow(buttons);
+
+  if (dialog.exec() != QDialog::Accepted) return;
+
+  int index = TStageObjectCmd::publishChannel(
+      id, nameEdit->text().trimmed().toStdWString(),
+      channelCombo->currentData().toInt(),
+      channelCombo->currentData(Qt::UserRole + 1).toString().toStdWString(),
+      m_xshHandle);
+  if (index < 0)
+    DVGui::warning(
+        tr("The channel was not published: the name is empty or "
+           "already used by another published channel."));
+}
+
+//------------------------------------------------------------------
+
+void StageSchematicScene::unpublishChannelDialog(const TStageObjectId &id) {
+  TXsheet *xsh = m_xshHandle ? m_xshHandle->getXsheet() : 0;
+  TStageObject *obj =
+      xsh ? xsh->getStageObjectTree()->getStageObject(id, false) : 0;
+  if (!obj || !obj->hasPublishedChannels()) return;
+
+  QStringList names;
+  for (int i = 0; i < obj->getPublishedChannelCount(); i++)
+    names.append(QString::fromStdWString(obj->getPublishedChannel(i).m_name));
+
+  bool ok         = false;
+  QWidget *parent = views().isEmpty() ? 0 : views()[0];
+  QString chosen  = QInputDialog::getItem(parent, tr("Unpublish Channel"),
+                                          tr("Channel:"), names, 0, false, &ok);
+  if (!ok) return;
+  TStageObjectCmd::unpublishChannel(id, names.indexOf(chosen), m_xshHandle);
+}
+
+//------------------------------------------------------------------
+
+void StageSchematicScene::openRigDeformer(const std::vector<TFxP> &fxs) {
+  if (!m_fxHandle || fxs.empty()) return;
+
+  TFx *fx = fxs[0].getPointer();
+  if (fxs.size() > 1) {
+    QMenu menu(views().isEmpty() ? 0 : views()[0]);
+    for (size_t i = 0; i < fxs.size(); i++) {
+      QAction *action =
+          menu.addAction(getDeformerLabel(fxs[i].getPointer()) + " (" +
+                         QString::fromStdWString(fxs[i]->getFxId()) + ")");
+      action->setData((int)i);
+    }
+    QAction *chosen = menu.exec(QCursor::pos());
+    if (!chosen) return;
+    fx = fxs[chosen->data().toInt()].getPointer();
+  }
+
+  m_fxHandle->setFx(fx);
+  QAction *fxSettings =
+      CommandManager::instance()->getAction("MI_FxParamEditor");
+  if (fxSettings) fxSettings->trigger();
+}
+
+//------------------------------------------------------------------
+
+void StageSchematicScene::openRigPanel(const TStageObjectId &id,
+                                       const char *commandId) {
+  // The panel of the offset layers shows the layers of the current object
+  if (m_objHandle && m_objHandle->getObjectId() != id) {
+    onCurrentObjectChanged(id, false);
+    if (id.isColumn()) onCurrentColumnChanged(id.getIndex());
+  }
+  QAction *action = CommandManager::instance()->getAction(commandId);
+  if (action) action->trigger();
 }
 
 //------------------------------------------------------------------

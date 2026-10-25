@@ -128,11 +128,15 @@ set(HEADERS
     ../include/toonz/tapplication.h
     ../include/toonz/targetcolors.h
     ../include/toonz/tbinarizer.h
+    ../include/toonz/tbonedeformer.h
     ../include/toonz/tcamera.h
     ../include/toonz/tcleanupper.h
     ../include/toonz/tcolumnfx.h
     ../include/toonz/tcolumnfxset.h
+    ../include/toonz/tcurvedeformer.h
     ../include/toonz/tdeformer.h
+    ../include/toonz/tdeformerstack.h
+    ../include/toonz/tfreeformdeformer.h
     ../include/toonz/tdistort.h
     ../include/toonz/textureutils.h
     ../include/toonz/tlog.h
@@ -252,6 +256,7 @@ set(SOURCES
     studiopalette.cpp
     stylemanager.cpp
     targetcolors.cpp
+    tbonedeformer.cpp
     tcamera.cpp
     tcenterlineadjustments.cpp
     tcenterlinecolors.cpp
@@ -262,8 +267,11 @@ set(SOURCES
     tcleanupper.cpp
     tcolumnfx.cpp
     tcolumnfxset.cpp
+    tcurvedeformer.cpp
     tdeformer.cpp
+    tdeformerstack.cpp
     tdistort.cpp
+    tfreeformdeformer.cpp
     texturemanager.cpp
     thirdparty.cpp
     tlog.cpp

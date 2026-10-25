@@ -2515,6 +2515,8 @@ void MainWindow::defineActions() {
                         "histograms");
   createMenuLevelAction(MI_AdjustThickness, QT_TR_NOOP("Adjust Thickness..."),
                         "", "thickness");
+  createMenuLevelAction(MI_BakeEnvelope,
+                        QT_TR_NOOP("Bake Envelope into Vector Level..."), "");
   createMenuLevelAction(MI_Antialias, QT_TR_NOOP("&Antialias..."), "",
                         "antialias");
   createMenuLevelAction(MI_Binarize, QT_TR_NOOP("&Binarize..."), "",
@@ -2936,10 +2938,15 @@ void MainWindow::defineActions() {
   createMenuWindowsAction(MI_OpenPosesPanel, QT_TR_NOOP("&Poses"), "", "");
   createMenuWindowsAction(MI_OpenDrawingSubstitutionPanel,
                           QT_TR_NOOP("Drawing Substitution"), "", "");
+  createMenuWindowsAction(MI_OpenSubstitutionSlider,
+                          QT_TR_NOOP("Substitution Slider"), "", "");
   createMenuWindowsAction(MI_OpenStoryboardPanel, QT_TR_NOOP("Storyboard"), "",
                           "");
   createMenuWindowsAction(MI_OpenMasterControllers,
                           QT_TR_NOOP("Master Controllers"), "", "");
+  createMenuWindowsAction(MI_OpenOffsetLayers, QT_TR_NOOP("Offset Layers"), "",
+                          "");
+  createMenuWindowsAction(MI_OpenRigLibrary, QT_TR_NOOP("Rig Library"), "", "");
   createMenuWindowsAction(MI_OpenSymbols, QT_TR_NOOP("Symbols"), "", "");
   createMenuWindowsAction(MI_OpenReferencePanel, QT_TR_NOOP("&Reference"), "",
                           "");

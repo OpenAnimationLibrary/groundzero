@@ -294,6 +294,169 @@
   <item>"STD_envelopeDeformerFx.rest7"	"Rest 7"	</item>
   <item>"STD_envelopeDeformerFx.rest8"	"Rest 8"	</item>
 
+  <item>"STD_envelopeDeformerPlusFx"	"Envelope Deformer Plus"	</item>
+  <item>"STD_envelopeDeformerPlusFx.pointCount"	"Point Count"	</item>
+  <item>"STD_envelopeDeformerPlusFx.smooth"	"Smooth Edges"	</item>
+  <item>"STD_envelopeDeformerPlusFx.point1"	"Point 1"	</item>
+  <item>"STD_envelopeDeformerPlusFx.point2"	"Point 2"	</item>
+  <item>"STD_envelopeDeformerPlusFx.point3"	"Point 3"	</item>
+  <item>"STD_envelopeDeformerPlusFx.point4"	"Point 4"	</item>
+  <item>"STD_envelopeDeformerPlusFx.point5"	"Point 5"	</item>
+  <item>"STD_envelopeDeformerPlusFx.point6"	"Point 6"	</item>
+  <item>"STD_envelopeDeformerPlusFx.point7"	"Point 7"	</item>
+  <item>"STD_envelopeDeformerPlusFx.point8"	"Point 8"	</item>
+  <item>"STD_envelopeDeformerPlusFx.point9"	"Point 9"	</item>
+  <item>"STD_envelopeDeformerPlusFx.point10"	"Point 10"	</item>
+  <item>"STD_envelopeDeformerPlusFx.point11"	"Point 11"	</item>
+  <item>"STD_envelopeDeformerPlusFx.point12"	"Point 12"	</item>
+  <item>"STD_envelopeDeformerPlusFx.point13"	"Point 13"	</item>
+  <item>"STD_envelopeDeformerPlusFx.point14"	"Point 14"	</item>
+  <item>"STD_envelopeDeformerPlusFx.point15"	"Point 15"	</item>
+  <item>"STD_envelopeDeformerPlusFx.point16"	"Point 16"	</item>
+  <item>"STD_envelopeDeformerPlusFx.rest1"	"Rest 1"	</item>
+  <item>"STD_envelopeDeformerPlusFx.rest2"	"Rest 2"	</item>
+  <item>"STD_envelopeDeformerPlusFx.rest3"	"Rest 3"	</item>
+  <item>"STD_envelopeDeformerPlusFx.rest4"	"Rest 4"	</item>
+  <item>"STD_envelopeDeformerPlusFx.rest5"	"Rest 5"	</item>
+  <item>"STD_envelopeDeformerPlusFx.rest6"	"Rest 6"	</item>
+  <item>"STD_envelopeDeformerPlusFx.rest7"	"Rest 7"	</item>
+  <item>"STD_envelopeDeformerPlusFx.rest8"	"Rest 8"	</item>
+  <item>"STD_envelopeDeformerPlusFx.rest9"	"Rest 9"	</item>
+  <item>"STD_envelopeDeformerPlusFx.rest10"	"Rest 10"	</item>
+  <item>"STD_envelopeDeformerPlusFx.rest11"	"Rest 11"	</item>
+  <item>"STD_envelopeDeformerPlusFx.rest12"	"Rest 12"	</item>
+  <item>"STD_envelopeDeformerPlusFx.rest13"	"Rest 13"	</item>
+  <item>"STD_envelopeDeformerPlusFx.rest14"	"Rest 14"	</item>
+  <item>"STD_envelopeDeformerPlusFx.rest15"	"Rest 15"	</item>
+  <item>"STD_envelopeDeformerPlusFx.rest16"	"Rest 16"	</item>
+
+  <item>"STD_deformerStackFx"	"Deformer Stack"	</item>
+  <item>"STD_deformerStackFx.a_weight"	"A Weight"	</item>
+  <item>"STD_deformerStackFx.a_falloff"	"A Falloff"	</item>
+  <item>"STD_deformerStackFx.a_center"	"A Falloff Center"	</item>
+  <item>"STD_deformerStackFx.a_inner"	"A Inner Radius"	</item>
+  <item>"STD_deformerStackFx.a_outer"	"A Outer Radius"	</item>
+  <item>"STD_deformerStackFx.a_point1"	"A Point 1"	</item>
+  <item>"STD_deformerStackFx.a_point2"	"A Point 2"	</item>
+  <item>"STD_deformerStackFx.a_point3"	"A Point 3"	</item>
+  <item>"STD_deformerStackFx.a_point4"	"A Point 4"	</item>
+  <item>"STD_deformerStackFx.a_point5"	"A Point 5"	</item>
+  <item>"STD_deformerStackFx.a_point6"	"A Point 6"	</item>
+  <item>"STD_deformerStackFx.a_point7"	"A Point 7"	</item>
+  <item>"STD_deformerStackFx.a_point8"	"A Point 8"	</item>
+  <item>"STD_deformerStackFx.a_rest1"	"A Rest 1"	</item>
+  <item>"STD_deformerStackFx.a_rest2"	"A Rest 2"	</item>
+  <item>"STD_deformerStackFx.a_rest3"	"A Rest 3"	</item>
+  <item>"STD_deformerStackFx.a_rest4"	"A Rest 4"	</item>
+  <item>"STD_deformerStackFx.a_rest5"	"A Rest 5"	</item>
+  <item>"STD_deformerStackFx.a_rest6"	"A Rest 6"	</item>
+  <item>"STD_deformerStackFx.a_rest7"	"A Rest 7"	</item>
+  <item>"STD_deformerStackFx.a_rest8"	"A Rest 8"	</item>
+  <item>"STD_deformerStackFx.b_weight"	"B Weight"	</item>
+  <item>"STD_deformerStackFx.b_falloff"	"B Falloff"	</item>
+  <item>"STD_deformerStackFx.b_center"	"B Falloff Center"	</item>
+  <item>"STD_deformerStackFx.b_inner"	"B Inner Radius"	</item>
+  <item>"STD_deformerStackFx.b_outer"	"B Outer Radius"	</item>
+  <item>"STD_deformerStackFx.b_point1"	"B Point 1"	</item>
+  <item>"STD_deformerStackFx.b_point2"	"B Point 2"	</item>
+  <item>"STD_deformerStackFx.b_point3"	"B Point 3"	</item>
+  <item>"STD_deformerStackFx.b_point4"	"B Point 4"	</item>
+  <item>"STD_deformerStackFx.b_point5"	"B Point 5"	</item>
+  <item>"STD_deformerStackFx.b_point6"	"B Point 6"	</item>
+  <item>"STD_deformerStackFx.b_point7"	"B Point 7"	</item>
+  <item>"STD_deformerStackFx.b_point8"	"B Point 8"	</item>
+  <item>"STD_deformerStackFx.b_rest1"	"B Rest 1"	</item>
+  <item>"STD_deformerStackFx.b_rest2"	"B Rest 2"	</item>
+  <item>"STD_deformerStackFx.b_rest3"	"B Rest 3"	</item>
+  <item>"STD_deformerStackFx.b_rest4"	"B Rest 4"	</item>
+  <item>"STD_deformerStackFx.b_rest5"	"B Rest 5"	</item>
+  <item>"STD_deformerStackFx.b_rest6"	"B Rest 6"	</item>
+  <item>"STD_deformerStackFx.b_rest7"	"B Rest 7"	</item>
+  <item>"STD_deformerStackFx.b_rest8"	"B Rest 8"	</item>
+  <item>"STD_deformerStackFx.c_weight"	"C Weight"	</item>
+  <item>"STD_deformerStackFx.c_falloff"	"C Falloff"	</item>
+  <item>"STD_deformerStackFx.c_center"	"C Falloff Center"	</item>
+  <item>"STD_deformerStackFx.c_inner"	"C Inner Radius"	</item>
+  <item>"STD_deformerStackFx.c_outer"	"C Outer Radius"	</item>
+  <item>"STD_deformerStackFx.c_point1"	"C Point 1"	</item>
+  <item>"STD_deformerStackFx.c_point2"	"C Point 2"	</item>
+  <item>"STD_deformerStackFx.c_point3"	"C Point 3"	</item>
+  <item>"STD_deformerStackFx.c_point4"	"C Point 4"	</item>
+  <item>"STD_deformerStackFx.c_point5"	"C Point 5"	</item>
+  <item>"STD_deformerStackFx.c_point6"	"C Point 6"	</item>
+  <item>"STD_deformerStackFx.c_point7"	"C Point 7"	</item>
+  <item>"STD_deformerStackFx.c_point8"	"C Point 8"	</item>
+  <item>"STD_deformerStackFx.c_rest1"	"C Rest 1"	</item>
+  <item>"STD_deformerStackFx.c_rest2"	"C Rest 2"	</item>
+  <item>"STD_deformerStackFx.c_rest3"	"C Rest 3"	</item>
+  <item>"STD_deformerStackFx.c_rest4"	"C Rest 4"	</item>
+  <item>"STD_deformerStackFx.c_rest5"	"C Rest 5"	</item>
+  <item>"STD_deformerStackFx.c_rest6"	"C Rest 6"	</item>
+  <item>"STD_deformerStackFx.c_rest7"	"C Rest 7"	</item>
+  <item>"STD_deformerStackFx.c_rest8"	"C Rest 8"	</item>
+
+  <item>"STD_boneDeformerFx"	"Bone Deformer"	</item>
+  <item>"STD_boneDeformerFx.inner"	"Inner Radius"	</item>
+  <item>"STD_boneDeformerFx.outer"	"Outer Radius"	</item>
+  <item>"STD_boneDeformerFx.point1"	"Joint 1"	</item>
+  <item>"STD_boneDeformerFx.point2"	"Joint 2"	</item>
+  <item>"STD_boneDeformerFx.point3"	"Joint 3"	</item>
+  <item>"STD_boneDeformerFx.point4"	"Joint 4"	</item>
+  <item>"STD_boneDeformerFx.point5"	"Joint 5"	</item>
+  <item>"STD_boneDeformerFx.rest1"	"Rest Joint 1"	</item>
+  <item>"STD_boneDeformerFx.rest2"	"Rest Joint 2"	</item>
+  <item>"STD_boneDeformerFx.rest3"	"Rest Joint 3"	</item>
+  <item>"STD_boneDeformerFx.rest4"	"Rest Joint 4"	</item>
+  <item>"STD_boneDeformerFx.rest5"	"Rest Joint 5"	</item>
+
+  <item>"STD_freeFormDeformerFx"	"Free-Form Deformer"	</item>
+  <item>"STD_freeFormDeformerFx.center"	"Rest Center"	</item>
+  <item>"STD_freeFormDeformerFx.width"	"Rest Width"	</item>
+  <item>"STD_freeFormDeformerFx.height"	"Rest Height"	</item>
+  <item>"STD_freeFormDeformerFx.point1"	"Point 1"	</item>
+  <item>"STD_freeFormDeformerFx.point2"	"Point 2"	</item>
+  <item>"STD_freeFormDeformerFx.point3"	"Point 3"	</item>
+  <item>"STD_freeFormDeformerFx.point4"	"Point 4"	</item>
+  <item>"STD_freeFormDeformerFx.point5"	"Point 5"	</item>
+  <item>"STD_freeFormDeformerFx.point6"	"Point 6"	</item>
+  <item>"STD_freeFormDeformerFx.point7"	"Point 7"	</item>
+  <item>"STD_freeFormDeformerFx.point8"	"Point 8"	</item>
+  <item>"STD_freeFormDeformerFx.point9"	"Point 9"	</item>
+  <item>"STD_freeFormDeformerFx.point10"	"Point 10"	</item>
+  <item>"STD_freeFormDeformerFx.point11"	"Point 11"	</item>
+  <item>"STD_freeFormDeformerFx.point12"	"Point 12"	</item>
+  <item>"STD_freeFormDeformerFx.point13"	"Point 13"	</item>
+  <item>"STD_freeFormDeformerFx.point14"	"Point 14"	</item>
+  <item>"STD_freeFormDeformerFx.point15"	"Point 15"	</item>
+  <item>"STD_freeFormDeformerFx.point16"	"Point 16"	</item>
+  <item>"STD_curveDeformerFx"	"Curve Deformer"	</item>
+  <item>"STD_curveDeformerFx.width"	"Width"	</item>
+  <item>"STD_curveDeformerFx.falloff"	"Falloff"	</item>
+  <item>"STD_curveDeformerFx.point1"	"Point 1"	</item>
+  <item>"STD_curveDeformerFx.in1"	"In 1"	</item>
+  <item>"STD_curveDeformerFx.out1"	"Out 1"	</item>
+  <item>"STD_curveDeformerFx.point2"	"Point 2"	</item>
+  <item>"STD_curveDeformerFx.in2"	"In 2"	</item>
+  <item>"STD_curveDeformerFx.out2"	"Out 2"	</item>
+  <item>"STD_curveDeformerFx.point3"	"Point 3"	</item>
+  <item>"STD_curveDeformerFx.in3"	"In 3"	</item>
+  <item>"STD_curveDeformerFx.out3"	"Out 3"	</item>
+  <item>"STD_curveDeformerFx.point4"	"Point 4"	</item>
+  <item>"STD_curveDeformerFx.in4"	"In 4"	</item>
+  <item>"STD_curveDeformerFx.out4"	"Out 4"	</item>
+  <item>"STD_curveDeformerFx.restPoint1"	"Rest Point 1"	</item>
+  <item>"STD_curveDeformerFx.restIn1"	"Rest In 1"	</item>
+  <item>"STD_curveDeformerFx.restOut1"	"Rest Out 1"	</item>
+  <item>"STD_curveDeformerFx.restPoint2"	"Rest Point 2"	</item>
+  <item>"STD_curveDeformerFx.restIn2"	"Rest In 2"	</item>
+  <item>"STD_curveDeformerFx.restOut2"	"Rest Out 2"	</item>
+  <item>"STD_curveDeformerFx.restPoint3"	"Rest Point 3"	</item>
+  <item>"STD_curveDeformerFx.restIn3"	"Rest In 3"	</item>
+  <item>"STD_curveDeformerFx.restOut3"	"Rest Out 3"	</item>
+  <item>"STD_curveDeformerFx.restPoint4"	"Rest Point 4"	</item>
+  <item>"STD_curveDeformerFx.restIn4"	"Rest In 4"	</item>
+  <item>"STD_curveDeformerFx.restOut4"	"Rest Out 4"	</item>
+
   <item>"STD_gammaFx"			"Gamma"		</item>
   <item>"STD_gammaFx.value"		"Value"		</item>
 
@@ -432,6 +595,10 @@
   <item>"STD_colourOverrideFx.color8"	"Color 8"	</item>
 
   <item>"STD_autoPatchFx"	"Auto-Patch"	</item>
+  <item>"STD_autoPatchFx.enablePatch"	"Enable Patch"	</item>
+  <item>"STD_autoPatchFx.jointPoint"	"Joint Point X"	</item>
+  <item>"STD_autoPatchFx.jointRadius"	"Joint Radius"	</item>
+  <item>"STD_autoPatchFx.softness"	"Softness"	</item>
 
 
 

@@ -2,6 +2,7 @@ set(HEADERS
     ../include/stdfx/shaderfx.h
     ../include/stdfx/shaderinterface.h
     ../include/stdfx/shadingcontext.h
+    deformerfxcommon.h
     gradients.h
     hsvutil.h
     offscreengl.h
@@ -108,6 +109,7 @@ set(SOURCES
     blendtzfx.cpp
     blurfx.cpp
     bodyhighlightfx.cpp
+    bonedeformerfx.cpp
     tonehighlightfx.cpp
     bright_contfx.cpp
     calligraphicfx.cpp
@@ -117,15 +119,19 @@ set(SOURCES
     colorembossfx.cpp
     colouroverridefx.cpp
     cornerpinfx.cpp
+    curvedeformerfx.cpp
+    deformerstackfx.cpp
     despecklefx.cpp
     diamondgradientfx.cpp
     dissolvefx.cpp
     embossfx.cpp
     envelopedeformerfx.cpp
+    envelopedeformerplusfx.cpp
     erodilatefx.cpp
     externalpalettefx.cpp
     fourpointsgradientfx.cpp
     freedistortfx.cpp
+    freeformdeformerfx.cpp
     gammafx.cpp
     glbmodelfx.cpp
     imageplanefx.cpp

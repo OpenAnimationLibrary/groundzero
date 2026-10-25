@@ -1,0 +1,41 @@
+<fxlayout>
+  <page name="Envelope Deformer Plus">
+   <separator label="Shape"/>
+    <control>pointCount</control>
+    <control>smooth</control>
+   <separator label="Envelope"/>
+    <control>point1</control>
+    <control>point2</control>
+    <control>point3</control>
+    <control>point4</control>
+    <control>point5</control>
+    <control>point6</control>
+    <control>point7</control>
+    <control>point8</control>
+    <control>point9</control>
+    <control>point10</control>
+    <control>point11</control>
+    <control>point12</control>
+    <control>point13</control>
+    <control>point14</control>
+    <control>point15</control>
+    <control>point16</control>
+   <separator label="Rest Pose"/>
+    <control>rest1</control>
+    <control>rest2</control>
+    <control>rest3</control>
+    <control>rest4</control>
+    <control>rest5</control>
+    <control>rest6</control>
+    <control>rest7</control>
+    <control>rest8</control>
+    <control>rest9</control>
+    <control>rest10</control>
+    <control>rest11</control>
+    <control>rest12</control>
+    <control>rest13</control>
+    <control>rest14</control>
+    <control>rest15</control>
+    <control>rest16</control>
+  </page>
+</fxlayout>

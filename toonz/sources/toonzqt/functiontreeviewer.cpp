@@ -264,7 +264,7 @@ void FunctionTreeModel::ChannelGroup::setChildrenAllActive(bool active) {
 //-----------------------------------------------------------------------------
 
 StageObjectChannelGroup::StageObjectChannelGroup(TStageObject *stageObject)
-    : m_stageObject(stageObject), m_plasticGroup() {
+    : m_stageObject(stageObject), m_plasticGroup(), m_offsetGroup() {
   m_stageObject->addRef();
 }
 
@@ -710,6 +710,11 @@ QString FunctionTreeModel::Channel::getExprRefName() const {
   // The expression token registry does not yet register dynamic material paths.
   // Do not advertise a reference made from a display name that cannot resolve.
   if (material && !material->m_materialCaption.isEmpty()) return QString();
+  // The curves of the offset layers of a stage object are not referred to by
+  // expressions, their tree parent is not the stage object group
+  StageObjectChannelGroup *ownerGroup =
+      dynamic_cast<StageObjectChannelGroup *>(m_group);
+  if (ownerGroup && getParent() != ownerGroup) return QString();
   QString tmpName;
   if (m_param->hasUILabel())
     tmpName = QString::fromStdString(m_param->getUILabel());
@@ -986,6 +991,60 @@ void FunctionTreeModel::refreshStageObjects(TXsheet *xsh) {
   // As plastic deformations are stored in stage objects, refresh them if
   // necessary
   refreshPlasticDeformations();
+
+  // The same holds for the offset layers
+  refreshOffsetLayers();
+}
+
+//-----------------------------------------------------------------------------
+
+void FunctionTreeModel::refreshOffsetLayers() {
+  // Refresh ALL stage object items (including OLD ones)
+  int i, iCount = m_stageObjects->getChildCount();
+  for (i = 0; i < iCount; ++i) {
+    StageObjectChannelGroup *stageItem =
+        static_cast<StageObjectChannelGroup *>(m_stageObjects->getChild(i));
+
+    TStageObject *stageObject                     = stageItem->getStageObject();
+    FunctionTreeModel::ChannelGroup *&offsetGroup = stageItem->m_offsetGroup;
+
+    if (!stageObject->hasOffsetLayers() && !offsetGroup) continue;
+
+    if (!offsetGroup) {
+      // Add a group, just under the stage object
+      offsetGroup = new ChannelGroup(tr("Offset Layers"));
+      stageItem->appendChild(offsetGroup);
+    }
+
+    // Prepare the channels of each layer, as "<layer>/<channel>". Channels
+    // already in the group (found by their curve) are reused by setChildren().
+    QList<TreeModel::Item *> offsetItems;
+    for (int l = 0; l < stageObject->getOffsetLayerCount(); ++l) {
+      const TStageObject::OffsetLayer &layer = stageObject->getOffsetLayer(l);
+
+      std::vector<TDoubleParam *> params;
+      params.push_back(layer.m_weight.getPointer());
+      for (int c = 0; c < TStageObject::T_ChannelCount; ++c) {
+        // Cameras ignore the 3D tilt channels, as for the base ones
+        if (stageObject->getId().isCamera() &&
+            (c == TStageObject::T_RotX || c == TStageObject::T_RotY))
+          continue;
+        if (layer.m_channels[c])
+          params.push_back(layer.m_channels[c].getPointer());
+      }
+
+      for (TDoubleParam *param : params) {
+        Channel *channel = new Channel(this, param);
+        channel->setChannelGroup(stageItem);
+        offsetItems.push_back(channel);
+      }
+    }
+
+    if (offsetItems.empty()) offsetGroup->setIsOpen(false);
+
+    offsetGroup->setChildren(offsetItems);
+    offsetGroup->setShowFilter(stageItem->getShowFilter());
+  }
 }
 
 //-----------------------------------------------------------------------------
@@ -1253,6 +1312,32 @@ int FunctionTreeModel::getColumnIndexByCurve(TDoubleParam *param) const {
     if (m_activeChannels[i]->getParam() == param) return i;
   }
   return -1;
+}
+
+//-----------------------------------------------------------------------------
+
+namespace {
+
+FunctionTreeModel::Channel *findChannelByCurve(TreeModel::Item *item,
+                                               const TDoubleParam *param) {
+  for (int i = 0; i < item->getChildCount(); i++) {
+    TreeModel::Item *child = item->getChild(i);
+    FunctionTreeModel::Channel *channel =
+        dynamic_cast<FunctionTreeModel::Channel *>(child);
+    if (channel) {
+      if (channel->getParam() == param) return channel;
+    } else if (FunctionTreeModel::Channel *found =
+                   findChannelByCurve(child, param))
+      return found;
+  }
+  return 0;
+}
+
+}  // namespace
+
+FunctionTreeModel::Channel *FunctionTreeModel::findStageObjectChannel(
+    const TDoubleParam *param) const {
+  return param ? findChannelByCurve(m_stageObjects, param) : 0;
 }
 
 //-----------------------------------------------------------------------------

@@ -81,6 +81,18 @@ public:
   static TDoubleParam *getChannelParam(TXsheet *xsh, const TStageObjectId &id,
                                        const std::string &channel);
 
+  //! Returns the TStageObject::Channel (as an int) of a pose channel name, or
+  //! -1 if it is not a stage object channel ("plasticAngle:..." ones).
+  static int getStageObjectChannel(const std::string &channel);
+
+  //! Returns the curve of the pose channel in the offset layer of the object
+  //! (see TStageObject::OffsetLayer), or 0 if the object, the layer or the
+  //! channel do not exist. The Path channel has no offset curve.
+  static TDoubleParam *getOffsetLayerParam(TXsheet *xsh,
+                                           const TStageObjectId &id,
+                                           const std::wstring &layerName,
+                                           const std::string &channel);
+
   //! Appends the current values of every pose channel of the specified
   //! objects at the given frame.
   static void captureValues(TXsheet *xsh,

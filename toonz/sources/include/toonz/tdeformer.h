@@ -9,6 +9,8 @@
 
 #include <vector>
 
+class TVectorImage;
+
 #undef DVAPI
 #undef DVVAR
 #ifdef TOONZLIB_EXPORTS
@@ -108,6 +110,9 @@ class DVAPI TEnvelopeDeformer final : public TDeformer {
   double m_scale;  //!< Size of the envelopes, for the tolerances
 
 public:
+  //! Samples per edge used by the Envelope Deformer Plus for smooth edges.
+  enum { SPLINE_SAMPLES = 8 };
+
   //! Builds the deformer from the envelope's vertices in rest pose and in
   //! deformed pose. Both lists must have the same number of points.
   TEnvelopeDeformer(const std::vector<TPointD> &restEnvelope,
@@ -130,6 +135,37 @@ public:
   static bool mapThrough(const std::vector<TPointD> &from,
                          const std::vector<TPointD> &to, const TPointD &p,
                          TPointD &result);
+
+  //! Samples the closed Catmull-Rom spline through the anchors (a closed
+  //! chain of cubic Bezier edges, whose tangents at an anchor are parallel to
+  //! the line joining its neighbours), with samplesPerEdge samples on each
+  //! edge, the first one on the edge's start anchor. With one sample per edge
+  //! the result is the anchors themselves. Each sample is a combination of
+  //! four anchors with weights that sum to one and do not depend on the
+  //! anchors' positions, so sampling commutes with any affine map: an
+  //! envelope built on the samples of the rest and the deformed anchors still
+  //! reproduces affine changes of the anchors exactly.
+  static void sampleClosedSpline(const std::vector<TPointD> &anchors,
+                                 int samplesPerEdge,
+                                 std::vector<TPointD> &samples);
 };
+
+//================================================================================================
+//
+// Vector images
+//
+//================================================================================================
+
+//! Deforms the strokes of the vector image: the control points of every
+//! stroke are mapped through deformer.deform(), keeping their thickness, and
+//! the regions of the image are updated (the regions' fill colors follow the
+//! strokes that bound them). The image is modified in place.
+/*!
+  A stroke is a chain of quadratic curves: mapping its control points through
+  a smooth deformation approximates the deformed curve, closely enough when
+  the deformation varies little along a curve's span.
+*/
+DVAPI void deformVectorImage(TVectorImage &vi, const TDeformer &deformer,
+                             double frame);
 
 #endif  // TDEFORMER_H

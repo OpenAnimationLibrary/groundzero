@@ -13,8 +13,10 @@
 #include "toonz/tcamera.h"
 #include "toonz/tcolumnfxset.h"
 #include "toonz/fxdag.h"
+#include "toonz/doubleparamcmd.h"
 
 // TnzBase includes
+#include "tdoubleparam.h"
 #include "tdoublekeyframe.h"
 #include "tfx.h"
 
@@ -27,6 +29,9 @@
 // Qt includes
 #include <QMap>
 #include <QString>
+
+// STD includes
+#include <set>
 
 namespace {
 
@@ -1663,4 +1668,564 @@ void TStageObjectCmd::enableSplineUppk(TStageObject *obj, bool toggled,
   UndoStatusChange *undo = new UndoStatusChange(obj, xshHandle);
   obj->enableUppk(toggled);
   TUndoManager::manager()->add(undo);
+}
+
+//===================================================================
+//
+// Offset layers
+//
+//-------------------------------------------------------------------
+
+namespace {
+
+TStageObject *getOffsetLayerOwner(const TStageObjectId &id,
+                                  TXsheetHandle *xshHandle) {
+  TXsheet *xsh = xshHandle->getXsheet();
+  if (!xsh) return 0;
+  return xsh->getStageObjectTree()->getStageObject(id, false);
+}
+
+//-------------------------------------------------------------------
+
+//! Returns a name which is not used by the layers of the object, starting
+//! from the specified one ("Layer 1", "Layer 2"... if it is empty).
+std::wstring makeUniqueOffsetLayerName(const TStageObject *obj,
+                                       const std::wstring &name) {
+  if (!name.empty() && obj->findOffsetLayer(name) < 0) return name;
+  std::wstring base = name.empty() ? L"Layer" : name;
+  for (int i = name.empty() ? 1 : 2;; ++i) {
+    std::wstring candidate = base + L" " + std::to_wstring(i);
+    if (obj->findOffsetLayer(candidate) < 0) return candidate;
+  }
+}
+
+//-------------------------------------------------------------------
+
+//! What changes of a curve: its default value, cycle and keyframes. They are
+//! restored by setting the keyframes (not by TDoubleParam::copy()), so the
+//! expressions of the restored keys refer to the curve as their owner.
+struct CurveState {
+  double m_defaultValue;
+  bool m_cycleEnabled;
+  std::vector<TDoubleKeyframe> m_keyframes;
+
+  CurveState() : m_defaultValue(0.0), m_cycleEnabled(false) {}
+  explicit CurveState(const TDoubleParam *param)
+      : m_defaultValue(param->getDefaultValue())
+      , m_cycleEnabled(param->isCycleEnabled()) {
+    for (int k = 0; k < param->getKeyframeCount(); ++k)
+      m_keyframes.push_back(param->getKeyframe(k));
+  }
+
+  void restore(TDoubleParam *param) const {
+    param->clearKeyframes();
+    param->setDefaultValue(m_defaultValue);
+    param->enableCycle(m_cycleEnabled);
+    for (const TDoubleKeyframe &keyframe : m_keyframes)
+      param->setKeyframe(keyframe);
+  }
+};
+
+//-------------------------------------------------------------------
+//
+// Undo of the addition (or the removal, in the reverse order) of a layer
+//
+//-------------------------------------------------------------------
+
+class OffsetLayerListUndo final : public TUndo {
+  TStageObjectId m_id;
+  TXsheetHandle *m_xshHandle;
+  int m_index;
+  TStageObject::OffsetLayer m_layer;
+  bool m_added;
+  std::wstring m_name;
+
+public:
+  OffsetLayerListUndo(const TStageObjectId &id, TXsheetHandle *xshHandle,
+                      int index, const TStageObject::OffsetLayer &layer,
+                      bool added)
+      : m_id(id)
+      , m_xshHandle(xshHandle)
+      , m_index(index)
+      , m_layer(layer)
+      , m_added(added)
+      , m_name(layer.m_name) {}
+
+  void insertLayer() const {
+    if (TStageObject *obj = getOffsetLayerOwner(m_id, m_xshHandle))
+      obj->insertOffsetLayer(m_index, m_layer);
+    m_xshHandle->notifyXsheetChanged();
+  }
+  void removeLayer() const {
+    if (TStageObject *obj = getOffsetLayerOwner(m_id, m_xshHandle))
+      obj->removeOffsetLayer(m_index);
+    m_xshHandle->notifyXsheetChanged();
+  }
+
+  void undo() const override {
+    if (m_added)
+      removeLayer();
+    else
+      insertLayer();
+  }
+  void redo() const override {
+    if (m_added)
+      insertLayer();
+    else
+      removeLayer();
+  }
+  int getSize() const override { return sizeof(*this); }
+
+  int getHistoryType() override { return HistoryType::Xsheet; }
+  QString getHistoryString() override {
+    return QObject::tr("%1 Offset Layer  %2 : %3")
+        .arg(m_added ? QObject::tr("New") : QObject::tr("Delete"))
+        .arg(QString::fromStdString(m_id.toString()))
+        .arg(QString::fromStdWString(m_name));
+  }
+};
+
+//-------------------------------------------------------------------
+//
+// Undo of the rename or the enabling of a layer
+//
+//-------------------------------------------------------------------
+
+class OffsetLayerAttributeUndo final : public TUndo {
+  TStageObjectId m_id;
+  TXsheetHandle *m_xshHandle;
+  int m_index;
+  bool m_rename;
+  std::wstring m_oldName, m_newName;
+  bool m_oldEnabled, m_newEnabled;
+
+public:
+  OffsetLayerAttributeUndo(const TStageObjectId &id, TXsheetHandle *xshHandle,
+                           int index, const std::wstring &oldName,
+                           const std::wstring &newName)
+      : m_id(id)
+      , m_xshHandle(xshHandle)
+      , m_index(index)
+      , m_rename(true)
+      , m_oldName(oldName)
+      , m_newName(newName)
+      , m_oldEnabled(true)
+      , m_newEnabled(true) {}
+  OffsetLayerAttributeUndo(const TStageObjectId &id, TXsheetHandle *xshHandle,
+                           int index, const std::wstring &name, bool oldEnabled,
+                           bool newEnabled)
+      : m_id(id)
+      , m_xshHandle(xshHandle)
+      , m_index(index)
+      , m_rename(false)
+      , m_oldName(name)
+      , m_newName(name)
+      , m_oldEnabled(oldEnabled)
+      , m_newEnabled(newEnabled) {}
+
+  void apply(const std::wstring &name, bool enabled) const {
+    if (TStageObject *obj = getOffsetLayerOwner(m_id, m_xshHandle)) {
+      if (m_rename)
+        obj->renameOffsetLayer(m_index, name);
+      else
+        obj->setOffsetLayerEnabled(m_index, enabled);
+    }
+    m_xshHandle->notifyXsheetChanged();
+  }
+
+  void undo() const override { apply(m_oldName, m_oldEnabled); }
+  void redo() const override { apply(m_newName, m_newEnabled); }
+  int getSize() const override { return sizeof(*this); }
+
+  int getHistoryType() override { return HistoryType::Xsheet; }
+  QString getHistoryString() override {
+    if (m_rename)
+      return QObject::tr("Rename Offset Layer  %1 : %2 -> %3")
+          .arg(QString::fromStdString(m_id.toString()))
+          .arg(QString::fromStdWString(m_oldName))
+          .arg(QString::fromStdWString(m_newName));
+    return QObject::tr("%1 Offset Layer  %2 : %3")
+        .arg(m_newEnabled ? QObject::tr("Enable") : QObject::tr("Disable"))
+        .arg(QString::fromStdString(m_id.toString()))
+        .arg(QString::fromStdWString(m_oldName));
+  }
+};
+
+//-------------------------------------------------------------------
+//
+// Undo of the edit of some curves, by copies of them before and after
+//
+//-------------------------------------------------------------------
+
+class OffsetParamsUndo final : public TUndo {
+  struct Item {
+    TDoubleParamP m_param;
+    CurveState m_before, m_after;
+  };
+  std::vector<Item> m_items;
+  TXsheetHandle *m_xshHandle;
+  QString m_name;
+
+public:
+  OffsetParamsUndo(TXsheetHandle *xshHandle, const QString &name)
+      : m_xshHandle(xshHandle), m_name(name) {}
+
+  //! Call it before editing the curve
+  void addParam(TDoubleParam *param) {
+    for (const Item &item : m_items)
+      if (item.m_param.getPointer() == param) return;
+    Item item;
+    item.m_param  = param;
+    item.m_before = CurveState(param);
+    m_items.push_back(item);
+  }
+  //! Call it when all the curves have been edited
+  void storeResult() {
+    for (Item &item : m_items)
+      item.m_after = CurveState(item.m_param.getPointer());
+  }
+  bool isEmpty() const { return m_items.empty(); }
+
+  void undo() const override {
+    for (const Item &item : m_items)
+      item.m_before.restore(item.m_param.getPointer());
+    m_xshHandle->notifyXsheetChanged();
+  }
+  void redo() const override {
+    for (const Item &item : m_items)
+      item.m_after.restore(item.m_param.getPointer());
+    m_xshHandle->notifyXsheetChanged();
+  }
+  int getSize() const override {
+    int size = sizeof(*this);
+    for (const Item &item : m_items)
+      size +=
+          (item.m_before.m_keyframes.size() + item.m_after.m_keyframes.size()) *
+          sizeof(TDoubleKeyframe);
+    return size;
+  }
+
+  int getHistoryType() override { return HistoryType::Xsheet; }
+  QString getHistoryString() override { return m_name; }
+};
+
+//-------------------------------------------------------------------
+//
+// Undo of the publication (or the removal, in the reverse order) of a channel
+//
+//-------------------------------------------------------------------
+
+class PublishedChannelUndo final : public TUndo {
+  TStageObjectId m_id;
+  TXsheetHandle *m_xshHandle;
+  int m_index;
+  TStageObject::PublishedChannel m_port;
+  bool m_added;
+
+public:
+  PublishedChannelUndo(const TStageObjectId &id, TXsheetHandle *xshHandle,
+                       int index, const TStageObject::PublishedChannel &port,
+                       bool added)
+      : m_id(id)
+      , m_xshHandle(xshHandle)
+      , m_index(index)
+      , m_port(port)
+      , m_added(added) {}
+
+  void insertPort() const {
+    if (TStageObject *obj = getOffsetLayerOwner(m_id, m_xshHandle))
+      obj->insertPublishedChannel(m_index, m_port);
+    m_xshHandle->notifyXsheetChanged();
+  }
+  void removePort() const {
+    if (TStageObject *obj = getOffsetLayerOwner(m_id, m_xshHandle))
+      obj->removePublishedChannel(m_index);
+    m_xshHandle->notifyXsheetChanged();
+  }
+
+  void undo() const override {
+    if (m_added)
+      removePort();
+    else
+      insertPort();
+  }
+  void redo() const override {
+    if (m_added)
+      insertPort();
+    else
+      removePort();
+  }
+  int getSize() const override { return sizeof(*this); }
+
+  int getHistoryType() override { return HistoryType::Xsheet; }
+  QString getHistoryString() override {
+    return QObject::tr("%1 Published Channel  %2 : %3")
+        .arg(m_added ? QObject::tr("Publish") : QObject::tr("Unpublish"))
+        .arg(QString::fromStdString(m_id.toString()))
+        .arg(QString::fromStdWString(m_port.m_name));
+  }
+};
+
+}  // namespace
+
+//-------------------------------------------------------------------
+
+int TStageObjectCmd::addOffsetLayer(const TStageObjectId &id,
+                                    const std::wstring &name,
+                                    TXsheetHandle *xshHandle) {
+  TStageObject *obj = getOffsetLayerOwner(id, xshHandle);
+  if (!obj) return -1;
+
+  TStageObject::OffsetLayer layer =
+      obj->createOffsetLayer(makeUniqueOffsetLayerName(obj, name));
+  int index = obj->getOffsetLayerCount();
+  obj->insertOffsetLayer(index, layer);
+  TUndoManager::manager()->add(
+      new OffsetLayerListUndo(id, xshHandle, index, layer, true));
+  xshHandle->notifyXsheetChanged();
+  return index;
+}
+
+//-------------------------------------------------------------------
+
+void TStageObjectCmd::removeOffsetLayer(const TStageObjectId &id, int index,
+                                        TXsheetHandle *xshHandle) {
+  TStageObject *obj = getOffsetLayerOwner(id, xshHandle);
+  if (!obj || index < 0 || index >= obj->getOffsetLayerCount()) return;
+
+  TStageObject::OffsetLayer layer = obj->removeOffsetLayer(index);
+  TUndoManager::manager()->add(
+      new OffsetLayerListUndo(id, xshHandle, index, layer, false));
+  xshHandle->notifyXsheetChanged();
+}
+
+//-------------------------------------------------------------------
+
+bool TStageObjectCmd::renameOffsetLayer(const TStageObjectId &id, int index,
+                                        const std::wstring &name,
+                                        TXsheetHandle *xshHandle) {
+  TStageObject *obj = getOffsetLayerOwner(id, xshHandle);
+  if (!obj || index < 0 || index >= obj->getOffsetLayerCount() || name.empty())
+    return false;
+
+  std::wstring oldName = obj->getOffsetLayer(index).m_name;
+  if (oldName == name) return true;
+  int other = obj->findOffsetLayer(name);
+  if (other >= 0 && other != index) return false;
+
+  obj->renameOffsetLayer(index, name);
+  TUndoManager::manager()->add(
+      new OffsetLayerAttributeUndo(id, xshHandle, index, oldName, name));
+  xshHandle->notifyXsheetChanged();
+  return true;
+}
+
+//-------------------------------------------------------------------
+
+void TStageObjectCmd::setOffsetLayerEnabled(const TStageObjectId &id, int index,
+                                            bool enabled,
+                                            TXsheetHandle *xshHandle) {
+  TStageObject *obj = getOffsetLayerOwner(id, xshHandle);
+  if (!obj || index < 0 || index >= obj->getOffsetLayerCount()) return;
+
+  const TStageObject::OffsetLayer &layer = obj->getOffsetLayer(index);
+  if (layer.m_enabled == enabled) return;
+
+  std::wstring name = layer.m_name;
+  obj->setOffsetLayerEnabled(index, enabled);
+  TUndoManager::manager()->add(new OffsetLayerAttributeUndo(
+      id, xshHandle, index, name, !enabled, enabled));
+  xshHandle->notifyXsheetChanged();
+}
+
+//-------------------------------------------------------------------
+
+void TStageObjectCmd::setOffsetLayerWeight(const TStageObjectId &id, int index,
+                                           double weight, int frame,
+                                           TXsheetHandle *xshHandle) {
+  TStageObject *obj = getOffsetLayerOwner(id, xshHandle);
+  if (!obj || index < 0 || index >= obj->getOffsetLayerCount()) return;
+
+  const TStageObject::OffsetLayer &layer = obj->getOffsetLayer(index);
+  TDoubleParam *param                    = layer.m_weight.getPointer();
+
+  OffsetParamsUndo *undo = new OffsetParamsUndo(
+      xshHandle, QObject::tr("Offset Layer Weight  %1 : %2")
+                     .arg(QString::fromStdString(id.toString()))
+                     .arg(QString::fromStdWString(layer.m_name)));
+  undo->addParam(param);
+
+  // An animated weight gets a key, the other ones just change
+  if (param->hasKeyframes()) {
+    KeyframeSetter setter(param, -1, false);
+    setter.createKeyframe(frame);
+    setter.setValue(weight);
+  } else
+    param->setDefaultValue(weight);
+
+  undo->storeResult();
+  TUndoManager::manager()->add(undo);
+  xshHandle->notifyXsheetChanged();
+}
+
+//-------------------------------------------------------------------
+
+bool TStageObjectCmd::bakeOffsetLayer(const TStageObjectId &id, int index,
+                                      TXsheetHandle *xshHandle) {
+  TStageObject *obj = getOffsetLayerOwner(id, xshHandle);
+  if (!obj || index < 0 || index >= obj->getOffsetLayerCount()) return false;
+
+  const TStageObject::OffsetLayer &layer = obj->getOffsetLayer(index);
+  TDoubleParam *weight                   = layer.m_weight.getPointer();
+
+  OffsetParamsUndo *undo = new OffsetParamsUndo(
+      xshHandle, QObject::tr("Bake Offset Layer  %1 : %2")
+                     .arg(QString::fromStdString(id.toString()))
+                     .arg(QString::fromStdWString(layer.m_name)));
+
+  for (int c = 0; c != TStageObject::T_ChannelCount; ++c) {
+    TDoubleParam *curve = obj->getOffsetParam(index, (TStageObject::Channel)c);
+    if (!curve || (!curve->hasKeyframes() && curve->getDefaultValue() == 0.0))
+      continue;
+    TDoubleParam *base = obj->getParam((TStageObject::Channel)c);
+
+    // Where the sum has to be written: at the keys of the base, of the layer
+    // and of the weight. The sum is exact there only.
+    std::set<double> frames;
+    base->getKeyframes(frames);
+    curve->getKeyframes(frames);
+    weight->getKeyframes(frames);
+
+    // Compute every new value before changing any curve
+    std::vector<std::pair<double, double>> values;
+    for (double f : frames)
+      values.push_back(std::make_pair(
+          f, base->getValue(f) + weight->getValue(f) * curve->getValue(f)));
+
+    undo->addParam(base);
+    undo->addParam(curve);
+
+    if (frames.empty()) {
+      // Nothing is animated: the offset is a constant
+      base->setDefaultValue(base->getDefaultValue() +
+                            weight->getDefaultValue() *
+                                curve->getDefaultValue());
+    } else {
+      for (const auto &value : values) {
+        if (base->isKeyframe(value.first))
+          base->setValue(value.first, value.second);
+        else {
+          KeyframeSetter setter(base, -1, false);
+          setter.createKeyframe(value.first);
+          setter.setValue(value.second);
+        }
+      }
+    }
+
+    // The layer must not be added once more
+    curve->clearKeyframes();
+    curve->setDefaultValue(0.0);
+  }
+
+  if (undo->isEmpty()) {
+    delete undo;
+    return false;
+  }
+  undo->storeResult();
+  TUndoManager::manager()->add(undo);
+  xshHandle->notifyXsheetChanged();
+  return true;
+}
+
+//-------------------------------------------------------------------
+
+int TStageObjectCmd::trainOffsetLayerFromKeys(const TStageObjectId &id,
+                                              const std::wstring &name,
+                                              TXsheetHandle *xshHandle) {
+  TStageObject *obj = getOffsetLayerOwner(id, xshHandle);
+  if (!obj) return -1;
+
+  TStageObject::OffsetLayer layer =
+      obj->createOffsetLayer(makeUniqueOffsetLayerName(obj, name));
+  // The layer repeats the animation, so it does nothing until its weight is
+  // raised
+  layer.m_weight->setDefaultValue(0.0);
+
+  bool trained = false;
+  for (int c = 0; c != TStageObject::T_ChannelCount; ++c) {
+    TDoubleParam *curve = layer.m_channels[c].getPointer();
+    TDoubleParam *base  = obj->getParam((TStageObject::Channel)c);
+    if (!curve || !base->hasKeyframes()) continue;
+
+    // The curve starts from zero at the first frame
+    double startValue = base->getValue(0);
+
+    curve->enableCycle(base->isCycleEnabled());
+    for (int k = 0; k < base->getKeyframeCount(); ++k) {
+      TDoubleKeyframe keyframe = base->getKeyframe(k);
+      keyframe.m_value         = base->getValue(keyframe.m_frame) - startValue;
+      if (!TDoubleKeyframe::isKeyframeBased(keyframe.m_type)) {
+        // Expressions, files and shapes can't be offset: their values at the
+        // keys are used
+        keyframe.m_type           = TDoubleKeyframe::Linear;
+        keyframe.m_expressionText = "";
+        keyframe.m_fileParams     = TDoubleKeyframe::FileParams();
+      }
+      curve->setKeyframe(keyframe);
+    }
+    trained = true;
+  }
+  if (!trained) return -1;
+
+  int index = obj->getOffsetLayerCount();
+  obj->insertOffsetLayer(index, layer);
+  TUndoManager::manager()->add(
+      new OffsetLayerListUndo(id, xshHandle, index, layer, true));
+  xshHandle->notifyXsheetChanged();
+  return index;
+}
+
+//===================================================================
+//
+// Published channels
+//
+//-------------------------------------------------------------------
+
+int TStageObjectCmd::publishChannel(const TStageObjectId &id,
+                                    const std::wstring &name, int channel,
+                                    const std::wstring &layer,
+                                    TXsheetHandle *xshHandle) {
+  TStageObject *obj = getOffsetLayerOwner(id, xshHandle);
+  if (!obj || name.empty() || obj->findPublishedChannel(name) >= 0) return -1;
+
+  TStageObject::PublishedChannel port;
+  port.m_name = name;
+  if (channel == TStageObject::T_ChannelCount) {
+    if (obj->findOffsetLayer(layer) < 0) return -1;
+    port.m_channel = TStageObject::T_ChannelCount;
+    port.m_layer   = layer;
+  } else if (TStageObject::isOffsetChannel((TStageObject::Channel)channel))
+    port.m_channel = (TStageObject::Channel)channel;
+  else
+    return -1;
+
+  int index = obj->getPublishedChannelCount();
+  obj->insertPublishedChannel(index, port);
+  TUndoManager::manager()->add(
+      new PublishedChannelUndo(id, xshHandle, index, port, true));
+  xshHandle->notifyXsheetChanged();
+  return index;
+}
+
+//-------------------------------------------------------------------
+
+void TStageObjectCmd::unpublishChannel(const TStageObjectId &id, int index,
+                                       TXsheetHandle *xshHandle) {
+  TStageObject *obj = getOffsetLayerOwner(id, xshHandle);
+  if (!obj || index < 0 || index >= obj->getPublishedChannelCount()) return;
+
+  TStageObject::PublishedChannel port = obj->removePublishedChannel(index);
+  TUndoManager::manager()->add(
+      new PublishedChannelUndo(id, xshHandle, index, port, false));
+  xshHandle->notifyXsheetChanged();
 }

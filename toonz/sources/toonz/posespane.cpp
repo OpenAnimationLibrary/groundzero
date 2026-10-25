@@ -19,6 +19,9 @@
 #include "toonz/tframehandle.h"
 #include "toonz/tobjecthandle.h"
 #include "toonz/doubleparamcmd.h"
+#include "toonz/tstageobject.h"
+#include "toonz/tstageobjecttree.h"
+#include "toonz/tstageobjectcmd.h"
 
 // TnzCore includes
 #include "tdoubleparam.h"
@@ -27,8 +30,10 @@
 #include "historytypes.h"
 
 // Qt includes
+#include <QCheckBox>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QLineEdit>
 #include <QPushButton>
 #include <QScrollArea>
 #include <QSlider>
@@ -87,6 +92,15 @@ public:
 }  // namespace
 
 //=============================================================================
+// PoseLibraryNotifier
+//-----------------------------------------------------------------------------
+
+PoseLibraryNotifier *PoseLibraryNotifier::instance() {
+  static PoseLibraryNotifier theInstance;
+  return &theInstance;
+}
+
+//=============================================================================
 // PosesPane
 //-----------------------------------------------------------------------------
 
@@ -104,6 +118,16 @@ PosesPane::PosesPane(QWidget *parent, Qt::WindowFlags flags)
          "as a new pose"));
 
   m_baseLabel = new QLabel(this);
+
+  // Poses can be applied to an offset layer instead of the base keys
+  m_asLayerCheck = new QCheckBox(tr("Apply as offset layer"), this);
+  m_asLayerCheck->setToolTip(
+      tr("Apply the poses to the offset layer with this name, which is added "
+         "to the objects that don't have it, instead of the base keys. "
+         "Only the channels of the stage objects can be applied."));
+  m_layerNameEdit = new QLineEdit(tr("Pose Layer"), this);
+  m_layerNameEdit->setToolTip(tr("Name of the offset layer"));
+  m_layerNameEdit->setEnabled(false);
 
   QScrollArea *scrollArea = new QScrollArea(this);
   scrollArea->setWidgetResizable(true);
@@ -136,6 +160,14 @@ PosesPane::PosesPane(QWidget *parent, Qt::WindowFlags flags)
       buttonLayout->addStretch(1);
     }
     mainLayout->addLayout(buttonLayout);
+    QHBoxLayout *layerLayout = new QHBoxLayout();
+    layerLayout->setContentsMargins(0, 0, 0, 0);
+    layerLayout->setSpacing(5);
+    {
+      layerLayout->addWidget(m_asLayerCheck);
+      layerLayout->addWidget(m_layerNameEdit, 1);
+    }
+    mainLayout->addLayout(layerLayout);
     mainLayout->addWidget(m_baseLabel);
     mainLayout->addWidget(scrollArea, 1);
   }
@@ -143,6 +175,8 @@ PosesPane::PosesPane(QWidget *parent, Qt::WindowFlags flags)
 
   connect(setBaseButton, SIGNAL(clicked()), this, SLOT(onSetBase()));
   connect(addPoseButton, SIGNAL(clicked()), this, SLOT(onAddPose()));
+  connect(m_asLayerCheck, &QCheckBox::toggled, m_layerNameEdit,
+          &QLineEdit::setEnabled);
 }
 
 //-----------------------------------------------------------------------------
@@ -221,8 +255,17 @@ void PosesPane::refresh() {
             [valueLabel](int value) {
               valueLabel->setText(QString("%1%").arg(value));
             });
-    connect(applyButton, &QPushButton::clicked, this,
-            [this, i, slider]() { applyPose(i, slider->value() / 100.0); });
+    connect(applyButton, &QPushButton::clicked, this, [this, i, slider]() {
+      std::wstring layerName;
+      if (m_asLayerCheck->isChecked()) {
+        layerName = m_layerNameEdit->text().trimmed().toStdWString();
+        if (layerName.empty()) {
+          DVGui::warning(tr("Enter the name of the offset layer."));
+          return;
+        }
+      }
+      applyPose(i, slider->value() / 100.0, layerName);
+    });
     connect(deleteButton, &QPushButton::clicked, this,
             [this, i]() { deletePose(i); });
   }
@@ -230,7 +273,7 @@ void PosesPane::refresh() {
 
 //-----------------------------------------------------------------------------
 
-bool PosesPane::checkTopXsheet() const {
+bool PosesPane::checkTopXsheet() {
   ToonzScene *scene = TApp::instance()->getCurrentScene()->getScene();
   if (!scene) return false;
   if (scene->getChildStack()->getAncestorCount() > 0) {
@@ -340,12 +383,78 @@ void PosesPane::onAddPose() {
   pose.m_name = name;
   poseLibrary->addPose(pose);
   app->getCurrentScene()->setDirtyFlag(true);
+  PoseLibraryNotifier::instance()->notifyChanged();
   refresh();
 }
 
 //-----------------------------------------------------------------------------
 
-void PosesPane::applyPose(int index, double weight) {
+void PosesPane::getLayerObjects(TXsheet *xsh, const PoseLibrary::Pose &pose,
+                                std::vector<TStageObjectId> &ids) {
+  // The curves of the layer are not there yet: look for the channels of
+  // the pose having an offset curve
+  for (const PoseLibrary::Entry &entry : pose.m_entries) {
+    int channel = PoseLibrary::getStageObjectChannel(entry.m_channel);
+    if (channel < 0 ||
+        !TStageObject::isOffsetChannel((TStageObject::Channel)channel) ||
+        !xsh->getStageObjectTree()->getStageObject(entry.m_objectId, false))
+      continue;
+    if (std::find(ids.begin(), ids.end(), entry.m_objectId) == ids.end())
+      ids.push_back(entry.m_objectId);
+  }
+}
+
+//-----------------------------------------------------------------------------
+
+bool PosesPane::applyPoseKeys(const PoseLibrary::Pose &pose, double weight,
+                              const std::wstring &offsetLayerName) {
+  TApp *app         = TApp::instance();
+  ToonzScene *scene = app->getCurrentScene()->getScene();
+  TXsheet *xsh      = scene->getTopXsheet();
+  int frame         = app->getCurrentFrame()->getFrame();
+
+  const bool asLayer = !offsetLayerName.empty();
+
+  // Compute every new value before setting any keyframe.
+  std::vector<std::pair<TDoubleParam *, double>> keys;
+  if (asLayer) {
+    // Add the layer to the objects that don't have it, then compute the values
+    std::vector<TStageObjectId> layerObjects;
+    getLayerObjects(xsh, pose, layerObjects);
+    if (layerObjects.empty()) return false;
+    for (const TStageObjectId &id : layerObjects) {
+      TStageObject *obj = xsh->getStageObjectTree()->getStageObject(id, false);
+      if (obj->findOffsetLayer(offsetLayerName) < 0)
+        TStageObjectCmd::addOffsetLayer(id, offsetLayerName,
+                                        app->getCurrentXsheet());
+    }
+    for (const PoseLibrary::Entry &entry : pose.m_entries) {
+      TDoubleParam *param = PoseLibrary::getOffsetLayerParam(
+          xsh, entry.m_objectId, offsetLayerName, entry.m_channel);
+      if (param)
+        keys.push_back(std::make_pair(
+            param, param->getValue(frame) + weight * entry.m_value));
+    }
+  } else {
+    for (const PoseLibrary::Entry &entry : pose.m_entries) {
+      TDoubleParam *param =
+          PoseLibrary::getChannelParam(xsh, entry.m_objectId, entry.m_channel);
+      if (param)
+        keys.push_back(std::make_pair(
+            param, param->getValue(frame) + weight * entry.m_value));
+    }
+  }
+  if (keys.empty()) return false;
+
+  for (const auto &key : keys)
+    KeyframeSetter::setValue(key.first, frame, key.second);
+  return true;
+}
+
+//-----------------------------------------------------------------------------
+
+void PosesPane::applyPose(int index, double weight,
+                          const std::wstring &offsetLayerName) {
   if (!checkTopXsheet()) return;
   TApp *app                = TApp::instance();
   ToonzScene *scene        = app->getCurrentScene()->getScene();
@@ -354,27 +463,34 @@ void PosesPane::applyPose(int index, double weight) {
 
   const PoseLibrary::Pose &pose = poseLibrary->getPose(index);
   TXsheet *xsh                  = scene->getTopXsheet();
-  int frame                     = app->getCurrentFrame()->getFrame();
 
-  // Compute every new value before setting any keyframe.
-  std::vector<std::pair<TDoubleParam *, double>> keys;
-  for (const PoseLibrary::Entry &entry : pose.m_entries) {
-    TDoubleParam *param =
-        PoseLibrary::getChannelParam(xsh, entry.m_objectId, entry.m_channel);
-    if (param)
-      keys.push_back(std::make_pair(
-          param, param->getValue(frame) + weight * entry.m_value));
+  const bool asLayer = !offsetLayerName.empty();
+
+  bool applicable = false;
+  if (asLayer) {
+    std::vector<TStageObjectId> layerObjects;
+    getLayerObjects(xsh, pose, layerObjects);
+    applicable = !layerObjects.empty();
+  } else {
+    for (const PoseLibrary::Entry &entry : pose.m_entries)
+      if (PoseLibrary::getChannelParam(xsh, entry.m_objectId,
+                                       entry.m_channel)) {
+        applicable = true;
+        break;
+      }
   }
-  if (keys.empty()) {
-    DVGui::warning(tr("None of the channels of this pose exist in the scene."));
+  if (!applicable) {
+    DVGui::warning(
+        asLayer ? tr("None of the channels of this pose can be applied to an "
+                     "offset layer.")
+                : tr("None of the channels of this pose exist in the scene."));
     return;
   }
 
   // One click is one undo step.
   TUndoManager::manager()->beginBlock();
   TUndoManager::manager()->add(new ApplyPoseNotifyUndo(pose.m_name, false));
-  for (const auto &key : keys)
-    KeyframeSetter::setValue(key.first, frame, key.second);
+  applyPoseKeys(pose, weight, offsetLayerName);
   TUndoManager::manager()->add(new ApplyPoseNotifyUndo(pose.m_name, true));
   TUndoManager::manager()->endBlock();
 
@@ -396,5 +512,6 @@ void PosesPane::deletePose(int index) {
 
   poseLibrary->removePose(index);
   TApp::instance()->getCurrentScene()->setDirtyFlag(true);
+  PoseLibraryNotifier::instance()->notifyChanged();
   refresh();
 }

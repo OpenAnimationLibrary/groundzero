@@ -6,9 +6,14 @@
 #include "schematicviewer.h"
 #include "tgeometry.h"
 #include <QMap>
+#include <QString>
+#include <QStringList>
+#include <vector>
 
 // forward declaration
+class QMenu;
 class TStageObject;
+class TFxHandle;
 class TXsheetHandle;
 class TObjectHandle;
 class TColumnHandle;
@@ -88,6 +93,7 @@ class StageSchematicScene final : public SchematicScene {
   TColumnHandle *m_colHandle;
   TSceneHandle *m_sceneHandle;
   TFrameHandle *m_frameHandle;
+  TFxHandle *m_fxHandle = nullptr;
   TPointD m_nextNodePos;
   TPointD m_firstPos;
   QMap<TStageObjectId, StageSchematicNode *> m_nodeTable;
@@ -100,6 +106,12 @@ class StageSchematicScene final : public SchematicScene {
   QMap<TStageObjectId, QList<StageSchematicNode *>> m_nodesToPlace;
 
   bool m_showLetterOnPortFlag;
+
+  // Rig view: display only, off by default and not saved
+  bool m_rigViewEnabled = false;
+  QString m_rigFilter;
+  //! The texts of the Rig view items of each node, matched by the filter
+  QMap<TStageObjectId, QStringList> m_rigSearchText;
 
   SchematicViewer *m_viewer;
 
@@ -136,6 +148,12 @@ public:
   void resizeNodes(bool maximizedNode);
 
   bool isShowLetterOnPortFlagEnabled() { return m_showLetterOnPortFlag; }
+  bool isRigViewEnabled() const { return m_rigViewEnabled; }
+
+  //! Adds the Rig view commands of the object (Publish Channel...,
+  //! Unpublish Channel...) to the context menu of its node. It does nothing
+  //! when the Rig view is off.
+  void addRigMenuActions(QMenu &menu, const TStageObjectId &id);
 
   SchematicViewer *getSchematicViewer() { return m_viewer; }
 
@@ -152,6 +170,31 @@ private:
 
   //! Places all nodes in the window
   void placeNodes();
+
+  //! Adds the Rig view badges to the column nodes and applies the filter.
+  void applyRigView();
+  //! Shows only the nodes whose name, or the text of one of their Rig view
+  //! items, contains the Rig view filter text.
+  void applyRigFilter();
+  //! Refreshes the values of the published channel rows (Rig view).
+  void refreshRigPorts();
+
+  //! Returns the text of a published channel row: its name and the value of
+  //! the channel at the current frame.
+  QString getPublishedChannelText(const TStageObjectId &id, int index);
+  //! Makes the channel the current one of the Function Editor, which is
+  //! opened if needed, so that it can be keyed there.
+  void selectPublishedChannel(const TStageObjectId &id, int index);
+  //! Asks a value for the channel, and keys it at the current frame (or sets
+  //! the weight of the layer) as a single undo.
+  void editPublishedChannel(const TStageObjectId &id, int index);
+  //! Dialogs of the commands Publish Channel... and Unpublish Channel...
+  void publishChannelDialog(const TStageObjectId &id);
+  void unpublishChannelDialog(const TStageObjectId &id);
+  //! Rig view badge clicks: selects a deformer fx and opens the FX settings,
+  //! or opens the panel of the offset layers or of the master controllers.
+  void openRigDeformer(const std::vector<TFxP> &fxs);
+  void openRigPanel(const TStageObjectId &id, const char *commandId);
 
   //! Search nodes in the TStageObjectTree that are roots of a tree.
   //! Roots are placed in the container \b roots
@@ -234,6 +277,13 @@ protected slots:
   void onNodeChangedSize();
 
   void onSwitchPortModeToggled(bool withLetter);
+
+  //! Shows or hides the rig badges of the column nodes (Rig view).
+  void onRigViewToggled(bool enabled);
+  //! Hides the nodes that do not match \b text (Rig view only).
+  void onRigFilterChanged(const QString &text);
+  //! Refreshes the published channel values on the frame change (Rig view).
+  void onRigFrameSwitched();
 };
 
 #endif  // STAGESCHEMATIC_H

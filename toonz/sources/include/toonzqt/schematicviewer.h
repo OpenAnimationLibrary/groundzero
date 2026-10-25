@@ -51,6 +51,7 @@ class TLevel;
 class TSelection;
 class TApplication;
 class QToolBar;
+class QLineEdit;
 class QToolButton;
 class QAction;
 class QTouchEvent;
@@ -640,6 +641,10 @@ private:
 
   QAction *m_fitSchematic, *m_centerOn, *m_reorder, *m_normalize, *m_nodeSize,
       *m_changeScene, *m_selectMode, *m_zoomMode, *m_handMode;
+  // Rig view toggle, and the filter field with its toolbar action
+  QAction *m_rigView         = nullptr;
+  QAction *m_rigFilterAction = nullptr;
+  QLineEdit *m_rigFilter     = nullptr;
 
   bool m_fullSchematic, m_maximizedNode;
 

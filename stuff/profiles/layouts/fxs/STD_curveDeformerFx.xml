@@ -1,0 +1,29 @@
+<fxlayout>
+  <page name="Curve Deformer">
+   <separator label="Influence"/>
+    <control>width</control>
+    <control>falloff</control>
+   <separator label="Curve"/>
+    <control>point1</control>
+    <control>out1</control>
+    <control>in2</control>
+    <control>point2</control>
+    <control>out2</control>
+    <control>in3</control>
+    <control>point3</control>
+    <control>out3</control>
+    <control>in4</control>
+    <control>point4</control>
+   <separator label="Rest Pose"/>
+    <control>restPoint1</control>
+    <control>restOut1</control>
+    <control>restIn2</control>
+    <control>restPoint2</control>
+    <control>restOut2</control>
+    <control>restIn3</control>
+    <control>restPoint3</control>
+    <control>restOut3</control>
+    <control>restIn4</control>
+    <control>restPoint4</control>
+  </page>
+</fxlayout>

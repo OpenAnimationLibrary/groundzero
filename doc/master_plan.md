@@ -70,6 +70,32 @@ partials needs them.
 
 ---
 
+### Tier 7 status
+
+All twelve items are built (not yet confirmed by a CI build on Linux when
+this was written). What each one delivered and what is still partial:
+
+| # | Delivered | Still partial |
+|---|---|---|
+| A1 | `TDeformerStack` with uniform and distance weights; Deformer Stack FX (3 envelope layers) | Raster warp only; weights are not painted; not a per-column stack |
+| A2 | Rig view in the Stage Schematic: badges, filter, published channels with ports, clickable badges | Deformers are not graph nodes; ports have no links |
+| A3 | Offset layers on stage objects, panel, Function Editor channels, Train from Keys, pose "apply as layer" | No Plastic / Path / sound channels; no Setup Mode |
+| A4 | 2D pad, pose blend through offset layers, drawing-swap bake in Master Controllers | No viewer gadgets; widget modes are not saved |
+| A5 | `TCurveDeformer` and Curve Deformer FX | Fixed 4 anchors; raster warp |
+| A6 | Envelope Deformer Plus (3 to 16 points, smooth edges) and a vector bake command | Stroke deformation is a bake, not live |
+| A7 | `TFreeFormDeformer` and Free-Form Deformer FX (4x4 lattice) | No free cage; not a stack layer yet |
+| A8 | `TBoneDeformer` and Bone Deformer FX (4-bone chain, no mesh) | Raster warp; not a stack layer yet |
+| A9 | Spine mesh attachments and Plastic deform timelines | Unweighted meshes; no stacking order |
+| A10 | Substitution Slider panel; template thumbnails already existed | No separate template browser |
+| A11 | Rig Library panel (rigs and poses) | Pose thumbnails are name badges |
+| A12 | Auto-Patch joint region and Enable Patch switch | Circle only; no automatic joint detection |
+
+Follow-ups that Tier 7 opened: add the Curve, Free-Form and Bone deformers
+as Deformer Stack layers, and move the deformer FX to vector strokes where
+the stroke data is available.
+
+---
+
 ## Part B: build the missing features
 
 ### Tier 9: missing features

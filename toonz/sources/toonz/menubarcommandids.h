@@ -109,6 +109,7 @@
 #define MI_Antialias "MI_Antialias"
 #define MI_AdjustLevels "MI_AdjustLevels"
 #define MI_AdjustThickness "MI_AdjustThickness"
+#define MI_BakeEnvelope "MI_BakeEnvelope"
 #define MI_Binarize "MI_Binarize"
 #define MI_FillHoles "MI_FillHoles"
 #define MI_LinesFade "MI_LinesFade"
@@ -548,7 +549,10 @@
 #define MI_OpenSymbols "MI_OpenSymbols"
 #define MI_OpenReferencePanel "MI_OpenReferencePanel"
 #define MI_OpenDrawingSubstitutionPanel "MI_OpenDrawingSubstitutionPanel"
+#define MI_OpenSubstitutionSlider "MI_OpenSubstitutionSlider"
 #define MI_OpenStoryboardPanel "MI_OpenStoryboardPanel"
 #define MI_OpenMasterControllers "MI_OpenMasterControllers"
+#define MI_OpenOffsetLayers "MI_OpenOffsetLayers"
+#define MI_OpenRigLibrary "MI_OpenRigLibrary"
 
 #endif
