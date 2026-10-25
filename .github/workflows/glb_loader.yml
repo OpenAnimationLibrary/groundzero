@@ -9,7 +9,7 @@ on:
       - 'doc/glb_model_fx.md'
       - '.github/workflows/glb_loader.yml'
   push:
-    branches: [main]
+    branches: [main, edition]
     paths:
       - 'toonz/sources/glb/**'
       - 'thirdparty/cgltf/**'
