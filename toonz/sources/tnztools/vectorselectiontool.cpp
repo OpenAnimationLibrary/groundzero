@@ -1331,6 +1331,7 @@ VectorSelectionTool::VectorSelectionTool(int targetType)
     , m_capStyle("Cap")
     , m_joinStyle("Join")
     , m_miterJoinLimit("Miter:", 0, 100, 4)
+    , m_opacity("Opacity:", 0, 100, 100)
     , m_selectionCount(0)
     , m_canEnterGroup(true)
     , m_resetCenter(true) {
@@ -1368,10 +1369,12 @@ VectorSelectionTool::VectorSelectionTool(int targetType)
   m_joinStyle.setId("Join");
 
   m_miterJoinLimit.setId("Miter");
+  m_opacity.setId("Opacity");
 
   m_outlineProps.bind(m_capStyle);
   m_outlineProps.bind(m_joinStyle);
   m_outlineProps.bind(m_miterJoinLimit);
+  m_outlineProps.bind(m_opacity);
 }
 
 //------------------------------------------------------------------------------
@@ -1474,6 +1477,7 @@ void VectorSelectionTool::updateTranslation() {
   m_joinStyle.setItemUIName(BEVEL_WSTR, tr("Bevel join"));
 
   m_miterJoinLimit.setQStringName(tr("Miter:"));
+  m_opacity.setQStringName(tr("Opacity:"));
   ArtLayer::updateTranslation();
   SelectionTool::updateTranslation();
 }
@@ -2314,6 +2318,37 @@ bool VectorSelectionTool::onPropertyChanged(std::string propertyName) {
       TStroke *stroke = vi->getStroke(*it);
 
       stroke->outlineOptions().m_miterUpper = upper;
+      stroke->invalidate();
+    }
+
+    computeBBox();
+    invalidate();
+
+    level->setDirtyFlag(true);
+
+    undo->registerStrokes();
+    TUndoManager::manager()->add(undo);
+
+    notifyImageChanged();
+  } else if (propertyName == m_opacity.getName()) {
+    if (m_strokeSelection.isEmpty()) return true;
+
+    TXshSimpleLevel *level =
+        TTool::getApplication()->getCurrentLevel()->getSimpleLevel();
+    UndoChangeOutlineStyle *undo =
+        new UndoChangeOutlineStyle(level, getCurrentFid(), this);
+
+    const double opacity = 0.01 * m_opacity.getValue();
+
+    TVectorImageP vi = m_strokeSelection.getImage();
+
+    const std::set<int> &indices = m_strokeSelection.getSelection();
+
+    std::set<int>::iterator it;
+    for (it = indices.begin(); it != indices.end(); ++it) {
+      TStroke *stroke = vi->getStroke(*it);
+
+      stroke->setOpacity(opacity);
       stroke->invalidate();
     }
 

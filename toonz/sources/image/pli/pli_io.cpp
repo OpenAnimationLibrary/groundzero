@@ -1462,6 +1462,14 @@ PliTag *ParsedPliImp::readOutlineOptionsTag() {
     readDynamicData(frameStep, bufOffs);
     options.m_patternFrameOffset = frameOffset;
     options.m_patternFrameStep   = frameStep;
+
+    // The stroke opacity (in permille) follows the pattern fields. Readers
+    // that predate it ignore this last field too.
+    if (m_tagLength >= baseLength + 3 * m_currDynamicTypeBytesNum) {
+      TINT32 opacity;
+      readDynamicData(opacity, bufOffs);
+      options.m_opacity = std::min(1000, std::max(0, (int)opacity)) / 1000.0;
+    }
   }
 
   return new StrokeOutlineOptionsTag(options);
@@ -2454,6 +2462,9 @@ TUINT32 ParsedPliImp::writeOutlineOptionsTag(StrokeOutlineOptionsTag *tag) {
   TINT32 miterUpper = scale * tag->m_options.m_miterUpper;
   TINT32 frameOffset             = tag->m_options.m_patternFrameOffset;
   TINT32 frameStep               = tag->m_options.m_patternFrameStep;
+  const TINT32 opacity           = std::min(
+                1000, std::max(0, (int)tround(scale * tag->m_options.m_opacity)));
+  const bool hasOpacityData      = opacity != 1000;
   const bool hasPatternFrameData = frameOffset != 0 || frameStep != 1;
 
   int minValue = std::min(miterLower, miterUpper);
@@ -2462,9 +2473,16 @@ TUINT32 ParsedPliImp::writeOutlineOptionsTag(StrokeOutlineOptionsTag *tag) {
     minValue = std::min({minValue, (int)frameOffset, (int)frameStep});
     maxValue = std::max({maxValue, (int)frameOffset, (int)frameStep});
   }
+  if (hasOpacityData) {
+    minValue = std::min(minValue, (int)opacity);
+    maxValue = std::max(maxValue, (int)opacity);
+  }
   setDynamicTypeBytesNum(minValue, maxValue);
 
-  int tagLength = 2 + (hasPatternFrameData ? 4 : 2) * m_currDynamicTypeBytesNum;
+  // The pattern fields and then the opacity are optional trailing fields that
+  // older readers ignore. The opacity needs the pattern fields before it.
+  const int fieldCount = hasOpacityData ? 5 : (hasPatternFrameData ? 4 : 2);
+  int tagLength        = 2 + fieldCount * m_currDynamicTypeBytesNum;
   int offset =
       (int)writeTagHeader((UCHAR)PliTag::OUTLINE_OPTIONS_GOBJ, tagLength);
 
@@ -2472,10 +2490,11 @@ TUINT32 ParsedPliImp::writeOutlineOptionsTag(StrokeOutlineOptionsTag *tag) {
   *m_oChan << (UCHAR)tag->m_options.m_joinStyle;
   writeDynamicData(miterLower);
   writeDynamicData(miterUpper);
-  if (hasPatternFrameData) {
+  if (hasPatternFrameData || hasOpacityData) {
     writeDynamicData(frameOffset);
     writeDynamicData(frameStep);
   }
+  if (hasOpacityData) writeDynamicData(opacity);
 
   return offset;
 }
