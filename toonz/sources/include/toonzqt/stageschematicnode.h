@@ -12,7 +12,6 @@ class StageSchematicColumnNode;
 class StageSchematicNodeDock;
 class TStageObject;
 class QPixmap;
-class QRegExpValidator;
 class TStageObjectId;
 class TStageObjectSpline;
 class StageSchematicSplineDock;
