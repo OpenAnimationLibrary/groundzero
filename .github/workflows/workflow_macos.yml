@@ -87,11 +87,18 @@ jobs:
             -DQt5_DIR=$(brew --prefix qt@5)/lib/cmake/Qt5 \
             -DCMAKE_PREFIX_PATH=$(brew --prefix qt@5)/lib/cmake/Qt5 \
             -DOpenCV_DIR=$(brew --prefix opencv@4)/lib/cmake/opencv4 \
-            -DBUILD_EXR_TESTS=ON \
-            -DBUILD_EXR_AOV_FX_TESTS=ON \
+            -DBUILD_TESTS=ON \
             -DWITH_TRANSLATION=OFF
           ninja -j $(sysctl -n hw.ncpu)
-          ctest --output-on-failure -R '^(tiio_exr(_level)?|openexraovfx)$'
+          ctest --output-on-failure
+      # FX renders that are missing or differ from their reference images.
+      - name: Upload FX render results
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: fxrender-output-macos
+          path: toonz/build/stdfx/fxrender-output
+          if-no-files-found: ignore
       - name: Introduce Libraries and Stuff
         run: |
           cd toonz/build/toonz
