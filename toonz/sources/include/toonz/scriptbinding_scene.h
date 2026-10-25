@@ -36,6 +36,24 @@ public:
   Q_INVOKABLE QJSValue insertColumn(int col);
   Q_INVOKABLE QJSValue deleteColumn(int col);
 
+  // The columns of the xsheet: an array of objects with the attributes
+  // index, id (Col1), name, type (Level, Sound, SoundText, Zerary, Palette,
+  // Mesh or Empty), firstRow and lastRow (the rows of the first and of the
+  // last cell, from 0; -1 for the columns without cells)
+  Q_INVOKABLE QJSValue getColumns();
+
+  // Renders the row (from 0) with the output settings of the scene; returns
+  // an Image
+  Q_INVOKABLE QJSValue renderFrame(int frame);
+
+  struct ColumnInfo {
+    int m_index;
+    QString m_id, m_name, m_type;
+    int m_firstRow, m_lastRow;
+  };
+  // The description of the column col (shared with the Python binding)
+  static ColumnInfo getColumnInfo(ToonzScene *scene, int col);
+
   Q_INVOKABLE QJSValue getLevels() const;
   Q_INVOKABLE QJSValue getLevel(const QString &name) const;
   Q_INVOKABLE QJSValue newLevel(const QString &type, const QString &name) const;

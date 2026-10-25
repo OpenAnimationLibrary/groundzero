@@ -122,7 +122,7 @@ anti-aliasing (GPU and 3D scope), and Ember AI (not realistic).
 | D1 | **Finish Qt 6** | Make the manual Qt 6 build green: the Windows-only tablet and window code, qsizetype narrowing, QFlags zero literals. Then build Qt 6 in CI next to Qt 5, and make it the default once it is stable. | L |
 | D2 | **Fix what the loader tests find** | Run the Tier 6 damaged-file tests once with `BUILD_TESTS`. Fix the crashes they report (the PSD reader is expected to have some), and record any known issues. | M |
 | D3 | **FX render references** | Add the reference images for the FX render test from a CI run, so render changes are caught. | S |
-| D4 | **Script API depth** | Images, levels and frames, rendering, and the current UI scene, in both JavaScript and Python. Python in default builds where packaging allows. | M |
+| D4 | **Script API depth** | Images, levels and frames, rendering, and the current UI scene, in both JavaScript and Python. Python in default builds where packaging allows. **Built (not yet confirmed by a CI build):** Image pixels, fill, clone and dpi; Level `hasFrame`, `removeFrame` and `appendFrame`, and `getFrame`, `getFrameByIndex` and `setFrame` in Python; `Scene.getColumns()` and `Scene.renderFrame()`; `currentSceneInfo()`, `setCurrentFrame()` and `setCurrentColumn()` for the UI scene; a Python `Image` class. See `doc/script_api.md`. **Still open:** Python in default builds (packaging), Fx / node / Plastic bindings, a writable UI scene. | M |
 | D5 | **Translations** | Add the strings from Tiers 2 to 6 to the `.ts` files. | S |
 
 ### Tier 11: workflow polish (the parity plan's quick wins not covered above)
