@@ -46,6 +46,7 @@
 #include <QGraphicsSceneDragDropEvent>
 #include <QMimeData>
 #include <QStack>
+#include <QSet>
 
 TEnv::IntVar IconifyFxSchematicNodes("IconifyFxSchematicNodes", 0);
 
@@ -381,6 +382,7 @@ void FxSchematicScene::updateScene() {
   clearDropHighlights();
   clearSelection();
   clearAllItems();
+  m_portFilterHidden.clear();
 
   m_table.clear();
   m_groupedTable.clear();
@@ -508,6 +510,7 @@ void FxSchematicScene::updateScene() {
   updateEditedMacros(editedMacro);
   updateLink();
   m_nodesToPlace.clear();
+  applyPortFilter();
   updatingScene = false;
 }
 
@@ -1595,6 +1598,94 @@ void FxSchematicScene::onIconifyNodesToggled(bool iconified) {
   m_isNormalIconView      = !iconified;
   IconifyFxSchematicNodes = (iconified) ? 1 : 0;
   updateScene();
+}
+
+//------------------------------------------------------------------
+
+void FxSchematicScene::onPortFilterChanged(const QString &text) {
+  m_portFilter = text;
+  applyPortFilter();
+}
+
+//------------------------------------------------------------------
+
+void FxSchematicScene::applyPortFilter() {
+  QList<FxSchematicNode *> nodes;
+  for (FxSchematicNode *node : m_table.values())
+    if (node) nodes.append(node);
+  for (FxGroupNode *groupNode : m_groupedTable.values())
+    if (groupNode) nodes.append(groupNode);
+  QList<QGraphicsItem *> links;
+  for (QGraphicsItem *item : items())
+    if (dynamic_cast<SchematicLink *>(item)) links.append(item);
+
+  // Show again what a previous filter has hidden (only that: the items hidden
+  // by anything else are left alone)
+  if (!m_portFilterHidden.isEmpty()) {
+    for (FxSchematicNode *node : nodes) {
+      if (m_portFilterHidden.contains(node)) node->setVisible(true);
+      for (int i = 0; i < node->getInputPortCount(); i++) {
+        FxSchematicDock *dock = node->getInputDock(i);
+        if (dock && m_portFilterHidden.contains(dock)) dock->setVisible(true);
+      }
+    }
+    for (QGraphicsItem *link : links)
+      if (m_portFilterHidden.contains(link)) link->setVisible(true);
+    m_portFilterHidden.clear();
+  }
+
+  QString filter = m_portFilter.trimmed();
+  if (filter.isEmpty()) return;
+
+  auto hide = [this](QGraphicsItem *item) {
+    if (!item->isVisible()) return;
+    item->setVisible(false);
+    m_portFilterHidden.insert(item);
+  };
+
+  // A node stays with its name or with a port name that matches. A node that
+  // matches by its name keeps all its ports; otherwise only the ports that
+  // match are kept. The ports with no name (Output node) are never filtered.
+  QSet<SchematicNode *> hiddenNodes;
+  QSet<SchematicPort *> hiddenPorts;
+  for (FxSchematicNode *node : nodes) {
+    bool nameMatches = node->getName().contains(filter, Qt::CaseInsensitive);
+    bool portMatches = false;
+    for (int i = 0; i < node->getInputPortCount(); i++) {
+      FxSchematicDock *dock = node->getInputDock(i);
+      if (dock && dock->getName().contains(filter, Qt::CaseInsensitive)) {
+        portMatches = true;
+        break;
+      }
+    }
+    if (!nameMatches && !portMatches) {
+      node->setSelected(false);
+      hide(node);
+      hiddenNodes.insert(node);
+      continue;
+    }
+    if (nameMatches) continue;
+    for (int i = 0; i < node->getInputPortCount(); i++) {
+      FxSchematicDock *dock = node->getInputDock(i);
+      if (!dock || dock->getName().isEmpty() ||
+          dock->getName().contains(filter, Qt::CaseInsensitive))
+        continue;
+      hide(dock);
+      hiddenPorts.insert(dock->getPort());
+    }
+  }
+
+  // A link is hidden with any of its two nodes or ports
+  for (QGraphicsItem *item : links) {
+    SchematicLink *link  = static_cast<SchematicLink *>(item);
+    SchematicPort *start = link->getStartPort();
+    SchematicPort *end   = link->getEndPort();
+    if ((start && (hiddenNodes.contains(start->getNode()) ||
+                   hiddenPorts.contains(start))) ||
+        (end &&
+         (hiddenNodes.contains(end->getNode()) || hiddenPorts.contains(end))))
+      hide(item);
+  }
 }
 
 //------------------------------------------------------------------

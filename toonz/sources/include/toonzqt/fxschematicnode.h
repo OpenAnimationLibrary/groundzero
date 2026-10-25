@@ -257,6 +257,7 @@ public:
              QWidget *widget = 0) override;
   FxSchematicNode *getNode();
   FxSchematicPort *getPort() { return m_port; }
+  QString getName() const { return m_name; }
 };
 
 //*****************************************************
@@ -315,6 +316,7 @@ public:
   void setHeight(const qreal &height) { m_height = height; }
   void setSchematicNodePos(const QPointF &pos) const override;
 
+  QString getName() const { return m_name; }
   TFx *getFx() const { return m_fx.getPointer(); }
   bool isA(eFxType type) { return m_type == type; }
 
@@ -324,6 +326,7 @@ public:
   FxSchematicPort *getInputPort(int i) {
     return m_inDocks[i] ? m_inDocks[i]->getPort() : 0;
   }
+  FxSchematicDock *getInputDock(int i) const { return m_inDocks[i]; }
   FxSchematicPort *getOutputPort() {
     return m_outDock ? m_outDock->getPort() : 0;
   }

@@ -645,6 +645,8 @@ private:
   QAction *m_rigView         = nullptr;
   QAction *m_rigFilterAction = nullptr;
   QLineEdit *m_rigFilter     = nullptr;
+  // Port filter of the FX Schematic
+  QLineEdit *m_fxPortFilter = nullptr;
 
   bool m_fullSchematic, m_maximizedNode;
 
