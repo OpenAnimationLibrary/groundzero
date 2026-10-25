@@ -92,6 +92,15 @@ public:
 }  // namespace
 
 //=============================================================================
+// PoseLibraryNotifier
+//-----------------------------------------------------------------------------
+
+PoseLibraryNotifier *PoseLibraryNotifier::instance() {
+  static PoseLibraryNotifier theInstance;
+  return &theInstance;
+}
+
+//=============================================================================
 // PosesPane
 //-----------------------------------------------------------------------------
 
@@ -264,7 +273,7 @@ void PosesPane::refresh() {
 
 //-----------------------------------------------------------------------------
 
-bool PosesPane::checkTopXsheet() const {
+bool PosesPane::checkTopXsheet() {
   ToonzScene *scene = TApp::instance()->getCurrentScene()->getScene();
   if (!scene) return false;
   if (scene->getChildStack()->getAncestorCount() > 0) {
@@ -374,6 +383,7 @@ void PosesPane::onAddPose() {
   pose.m_name = name;
   poseLibrary->addPose(pose);
   app->getCurrentScene()->setDirtyFlag(true);
+  PoseLibraryNotifier::instance()->notifyChanged();
   refresh();
 }
 
@@ -472,5 +482,6 @@ void PosesPane::deletePose(int index) {
 
   poseLibrary->removePose(index);
   TApp::instance()->getCurrentScene()->setDirtyFlag(true);
+  PoseLibraryNotifier::instance()->notifyChanged();
   refresh();
 }

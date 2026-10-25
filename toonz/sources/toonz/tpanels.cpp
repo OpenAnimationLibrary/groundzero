@@ -9,6 +9,7 @@
 #include "storyboardpane.h"
 #include "mastercontrollerspane.h"
 #include "offsetlayerspane.h"
+#include "riglibrarypane.h"
 
 // Tnz6 includes
 #include "pane.h"
@@ -1991,3 +1992,20 @@ public:
 
 OpenFloatingPanel openOffsetLayersCommand(MI_OpenOffsetLayers, "OffsetLayers",
                                           QObject::tr("Offset Layers"));
+
+//=============================================================================
+// Rig Library
+//-----------------------------------------------------------------------------
+
+class RigLibraryPanelFactory final : public TPanelFactory {
+public:
+  RigLibraryPanelFactory() : TPanelFactory("RigLibrary") {}
+  void initialize(TPanel *panel) override {
+    panel->setWidget(new RigLibraryPane(panel));
+    panel->setWindowTitle(QObject::tr("Rig Library"));
+    panel->setIsMaximizable(false);
+  }
+} rigLibraryPanelFactory;
+
+OpenFloatingPanel openRigLibraryCommand(MI_OpenRigLibrary, "RigLibrary",
+                                        QObject::tr("Rig Library"));

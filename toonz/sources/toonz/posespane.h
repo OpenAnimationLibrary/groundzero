@@ -16,6 +16,25 @@ class QLineEdit;
 class QVBoxLayout;
 
 //=============================================================================
+// PoseLibraryNotifier
+//-----------------------------------------------------------------------------
+/*! Tells the panels showing the pose library of the scene (see PoseLibrary)
+    that poses have been added or deleted.                                 */
+
+class PoseLibraryNotifier final : public QObject {
+  Q_OBJECT
+
+  PoseLibraryNotifier() {}
+
+public:
+  static PoseLibraryNotifier *instance();
+  void notifyChanged() { emit changed(); }
+
+signals:
+  void changed();
+};
+
+//=============================================================================
 // PosesPane
 //-----------------------------------------------------------------------------
 /*! Stores rig poses as channel offsets from a base pose and applies them
@@ -34,13 +53,15 @@ class PosesPane final : public QFrame {
 public:
   PosesPane(QWidget *parent = 0, Qt::WindowFlags flags = Qt::WindowFlags());
 
-private:
-  bool checkTopXsheet() const;
-  void getTargetObjects(std::vector<TStageObjectId> &ids) const;
+  //! Warns and returns false if poses cannot be used in the current xsheet
+  static bool checkTopXsheet();
   //! Applies the pose to the base keys of the objects, or to the offset layer
   //! named \e offsetLayerName if it is not empty
-  void applyPose(int index, double weight,
-                 const std::wstring &offsetLayerName = std::wstring());
+  static void applyPose(int index, double weight,
+                        const std::wstring &offsetLayerName = std::wstring());
+
+private:
+  void getTargetObjects(std::vector<TStageObjectId> &ids) const;
   void deletePose(int index);
 
 protected:
