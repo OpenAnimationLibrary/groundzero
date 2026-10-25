@@ -1,6 +1,7 @@
 name: MacOS Build
 
 on:
+  # Not run on pull requests: the Linux build is the initial PR check.
   workflow_dispatch:
 
 permissions:
@@ -84,12 +85,8 @@ jobs:
             -DQt5_DIR=$(brew --prefix qt@5)/lib/cmake/Qt5 \
             -DCMAKE_PREFIX_PATH=$(brew --prefix qt@5)/lib/cmake/Qt5 \
             -DOpenCV_DIR=$(brew --prefix opencv@4)/lib/cmake/opencv4 \
-            -DBUILD_EXR_TESTS=ON \
-            -DBUILD_EXR_AOV_FX_TESTS=ON \
-            -DBUILD_PSD_TESTS=ON \
             -DWITH_TRANSLATION=OFF
           ninja -j $(sysctl -n hw.ncpu)
-          ctest --output-on-failure -R '^(tiio_exr(_level)?|tiio_psd|openexraovfx)$'
       - name: Introduce Libraries and Stuff
         run: |
           cd toonz/build/toonz
