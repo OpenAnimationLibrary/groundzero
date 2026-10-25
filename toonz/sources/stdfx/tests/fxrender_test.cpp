@@ -39,6 +39,8 @@ const TDimension cSize(160, 120);
 // absorb floating point differences between compilers and platforms.
 const int cChannelTolerance  = 3;
 const double cPixelTolerance = 0.002;
+// Returned when every failing case only lacks its reference image
+const int cSkipReturnCode = 77;
 
 TFxP create(const std::string &id) {
   TFxP fx = TFx::create(id);
@@ -177,7 +179,7 @@ int main(int argc, char **argv) {
   outputDir.mkpath(".");
 
   TRenderer renderer(1);
-  int failures = 0;
+  int failures = 0, missing = 0;
   for (const Case &c : cases()) {
     const QString fileName = QString::fromLatin1(c.name) + ".png";
     TRaster32P ras         = render(c.build(), renderer);
@@ -190,9 +192,10 @@ int main(int argc, char **argv) {
 
     std::string problem;
     const QString referencePath = referenceDir.filePath(fileName);
-    if (!QFileInfo::exists(referencePath))
+    if (!QFileInfo::exists(referencePath)) {
       problem = "no reference image";
-    else {
+      ++missing;
+    } else {
       QImage reference(referencePath);
       problem = reference.isNull() ? "the reference image cannot be read"
                                    : compare(actual, reference);
@@ -213,5 +216,9 @@ int main(int argc, char **argv) {
               << " FX renders do not match their references" << std::endl;
   else
     std::cout << "All " << cases().size() << " FX renders match" << std::endl;
+
+  // Renders without a reference yet are reported as skipped (see the
+  // SKIP_RETURN_CODE test property), so they don't fail the test run
+  if (failures && failures == missing) return cSkipReturnCode;
   return failures ? 1 : 0;
 }

@@ -12,3 +12,7 @@ here.
 The PNG files hold the renderer's premultiplied pixel values stored as
 straight RGBA, so semi-transparent areas look slightly darker in an image
 viewer than they render in OpenToonz.
+
+Cases without a reference image are reported as skipped, not failed, as
+long as every other case matches. The output image of each such case is
+still written, ready to be checked and copied here.

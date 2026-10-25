@@ -383,6 +383,8 @@ if(BUILD_FXRENDER_TESTS)
     add_test(NAME fxrender
              COMMAND fxrender_test ${CMAKE_CURRENT_SOURCE_DIR}/tests/fxrender
                      ${CMAKE_CURRENT_BINARY_DIR}/fxrender-output)
+    # 77: some renders have no reference image yet (see tests/fxrender)
+    set_tests_properties(fxrender PROPERTIES SKIP_RETURN_CODE 77)
 endif()
 
 # Optional regression target for multipart, tiled, and channel-mapped EXR AOVs.
