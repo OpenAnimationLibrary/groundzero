@@ -1302,6 +1302,8 @@ QString PreferencesPopup::getUIString(PreferencesItemId id) {
        tr("Enable Actual Pixel View on Scene Editing Mode")},
       {showRasterImagesDarkenBlendedInViewer,
        tr("Show Raster Images Darken Blended")},
+      {gpuCompositingInViewer,
+       tr("[Experimental Feature] ") + tr("GPU Compositing in the Viewer")},
       {iconSize, tr("Level Strip Thumbnail Size*:")},
       {viewShrink, tr("Viewer Shrink:")},
       {viewStep, tr("Step:")},
@@ -2491,6 +2493,7 @@ QWidget* PreferencesPopup::createPreviewPage() {
     insertUI(ignoreAlphaonColumn1Enabled, viewerLay);
     insertUI(actualPixelViewOnSceneEditingMode, viewerLay);
     insertUI(showRasterImagesDarkenBlendedInViewer, viewerLay);
+    insertUI(gpuCompositingInViewer, viewerLay);
     insertUI(viewerIndicatorEnabled, viewerLay);
     insertUI(restoreViewerViewFromLastSession, viewerLay);
   }

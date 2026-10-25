@@ -228,6 +228,10 @@ private:
 
     TPixel32 m_filterColor;
 
+    // Experimental GPU compositing data (see flushRasterImagesGpu())
+    std::string m_imageId;        //!< Base image id of the node's level frame
+    bool m_gpuCacheable = false;  //!< Whether the node's texture may be cached
+
   public:
     Node(const TRasterP &raster, TPalette *palette, int alpha,
          const TAffine &aff, const TRect &savebox, const TRectD &bbox,
@@ -268,6 +272,9 @@ private:
   // darken blended view mode for viewing the non-cleanuped and stacked drawings
   bool m_doRasterDarkenBlendedView;
 
+  // experimental GPU compositing of raster nodes (opt-in, see preferences)
+  bool m_gpuCompositing;
+
   std::vector<TStroke *> m_guidedStrokes;
 
 public:
@@ -293,12 +300,30 @@ public:
   void flushRasterImages();
   void drawRasterImages(QPainter &p, QPolygon cameraRect);
 
+  //! Enables the experimental GPU compositing path. When enabled, raster nodes
+  //! that can be drawn exactly as cached textured quads are drawn that way,
+  //! while every other node keeps using the CPU composition.
+  void enableGpuCompositing(bool on) { m_gpuCompositing = on; }
+
+  //! Drops the GPU compositing textures built from the image with the
+  //! specified (base) id. Thread-safe; actual release happens on next flush.
+  static void invalidateGpuTextures(const std::string &imageId);
+
+  //! Releases the GPU compositing textures of the current OpenGL context.
+  //! Must be called while the context is still alive (e.g. on
+  //! QOpenGLContext::aboutToBeDestroyed, after making it current).
+  static void releaseGpuTextures();
+
   void enableSingleColumn(bool on) { m_singleColumnEnabled = on; }
   bool isSingleColumnEnabled() const { return m_singleColumnEnabled; }
 
   void setRasterDarkenBlendedView(bool on) { m_doRasterDarkenBlendedView = on; }
   void setCurrentImageId(std::string id) { m_currentImageId = id; }
   std::vector<TStroke *> &getGuidedStrokes() { return m_guidedStrokes; }
+
+private:
+  void flushRasterImagesCpu(bool drawBBox);
+  bool flushRasterImagesGpu();
 };
 
 //=============================================================================
