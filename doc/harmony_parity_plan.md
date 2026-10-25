@@ -160,7 +160,7 @@
 | # | Item | Size | Depends on | Approach | Risk | Realism |
 |---|---|---|---|---|---|---|
 | F1 | Qt 6 port | L | none | Rebase `otdev/qt6-build-abstraction` onto `tier6` and keep a dual Qt5/Qt6 build behind `OT_QT_MAJOR_VERSION`. Replace `QRegExp` with `QRegularExpression`, `QTextCodec` with `QStringConverter`, `QDesktopWidget` with `QScreen`, and `QGLWidget` with `QOpenGLWidget`. Add CI jobs for both Qt versions. | Medium: tablet input, high-DPI and docking regressions. | MM |
-| F2 | Modern GL renderer | XL | F1 (preferred) | Finish `tgl::Batch`: triangulate quads and polygons, then add a shader pipeline with a matrix stack. Port the `glBegin` sites in order viewer → stagevisitor → tools → schematic. Move the GPU compositing path from experimental to default, then draw vector regions and strokes from tessellated VBOs. Target GL 3.3 core. | High: pixel-exact parity with the CPU render; old Intel and macOS drivers. | MM |
+| F2 | (Dropped with Phase 4.) Only the parts Qt 6 needs (`QGLWidget` → `QOpenGLWidget`, context handling) are kept, as part of F1. | | | | | |
 | F3 | Generic deformer framework | XL | none (F2 for GPU) | Add a `TDeformer` interface that returns handle constraints or displacements on a `TTextureMesh`, and a per-column ordered `DeformerStack` that stores the blend weights per vertex. Port Plastic skeleton and Curve Bending first, as the reference implementations. Generalise `PlasticDeformerFx` into a `DeformerStackFx`. Keep Plastic serialisation unchanged and store new stacks in optional tags. | High: performance and caching (`PlasticDeformerStorage` keys); keeping scenes open in upstream. | MM |
 | F4 | Rig node view | L | F3 | Add a "Rig" schematic mode on the `SchematicScene` base, with stage objects, deformers and column nodes in one graph, plus port filtering. Initially it edits the existing data (parent, handle and deformer stack), so no new data model is needed. | Medium: two schematic views with overlapping editing. | MM |
 | F5 | Offset layers (Attribute Controller runtime) | L | none | Add an optional additive offset channel to each `TStageObject` channel, evaluated as the base value plus the sum of weight × offset. The pose library writes these layers instead of baking keys. This is the core of the H27 model. | Medium: expressions and IK that read the "value" need defined semantics. | V/MM |
@@ -207,19 +207,13 @@
 | D5 | Contour Editor | XL | none | Needs an outline vector representation next to centreline strokes. Out of scope, unless vector levels gain a "shape" stroke type. | High | X |
 | D6 | Animated pencil texture | M | D1 | A stroke-style parameter that offsets the texture per frame. | Low | V |
 
-### Phase 4: Compositing, GPU and 3D
+### Phase 4: Compositing, GPU and 3D: out of scope
 
-| # | Item | Size | Depends on | Approach | Risk | Realism |
-|---|---|---|---|---|---|---|
-| G1 | GPU deformation preview | L | F2, F3 | Draw deformed meshes with vertex buffers; the `meshtexturizer` textures already exist. | Medium | MM |
-| G2 | GPU FX preview for common nodes | XL | F2 | GLSL versions of Blur, Glow, Matte, Tone/Highlight and Colour Override for the viewer, using Shader Fx as a base. The CPU result stays the final reference. | High: two implementations of every FX | MM |
-| G3 | OpenFX host | L | none | Wrap OFX image effects as `TRasterFx`, with parameters mapped into `TParamContainer`. Start with CPU-only, non-interactive effects. | Medium: plugin ABI and threading | MM |
-| G4 | Cryptomatte and multi-pass EXR output | L | none | A render-pass mode that writes per-column IDs (MurmurHash3 of the name) into extra EXR layers. | Medium | MM |
-| G5 | More 3D formats | M | none | An assimp loader behind the GLB loader interface for FBX and OBJ. | Low to medium: dependency size | V |
-| G6 | 3D models as scene objects and GPU 3D | L | F2, G5 | Render the GLB/assimp models with GL in the viewer and make them stage-object children. | Medium | MM |
-| G7 | True 3D camera and scene graph | XL | F2, G6 | Change stage objects from 2D affines plus Z to 4×4 matrices, and give `stagevisitor` depth sorting by 3D position. | Very high: it touches every tool | X/MM |
-| G8 | USD/USDZ import and export | XL | G7 | OpenUSD is a heavy dependency, so make it optional. Export cameras and transforms first. | High | X/MM |
-| G9 | Blender render bridge | M | G5 | An FX that runs Blender in the background on a `.blend` file per frame and caches the result. | Low to medium | V |
+Dropped by decision (2026-10-25): no GPU deformation or FX preview, OpenFX
+host, Cryptomatte or multi-pass EXR output, extra 3D formats, 3D scene
+objects, true 3D camera, USD or Blender bridge. The existing CPU paths (GLB
+model FX, Transform3D, the experimental GPU viewer compositing) stay as
+they are.
 
 ### Phase 5: Pipeline
 
