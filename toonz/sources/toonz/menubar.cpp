@@ -1563,6 +1563,7 @@ QMenuBar *StackedMenuBar::createFullMenuBar() {
   addMenuItem(viewMenu, MI_ViewCamera);
   addMenuItem(viewMenu, MI_ViewColorcard);
   addMenuItem(viewMenu, MI_ViewBBox);
+  addMenuItem(viewMenu, MI_LightTable);
   viewMenu->addSeparator();
   addMenuItem(viewMenu, MI_SafeArea);
   addMenuItem(viewMenu, MI_FieldGuide);

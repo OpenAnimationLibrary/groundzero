@@ -178,6 +178,7 @@
 
 #define MI_ViewCamera "MI_ViewCamera"
 #define MI_ViewBBox "MI_ViewBBox"
+#define MI_LightTable "MI_LightTable"
 #define MI_ViewTable "MI_ViewTable"
 #define MI_FieldGuide "MI_FieldGuide"
 #define MI_RasterizePli "MI_RasterizePli"
