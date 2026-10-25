@@ -1,6 +1,6 @@
-# OT-Dev Windows session recorder (experimental)
+# Groundzero Windows session recorder (experimental)
 
-Only the OpenAnimationLibrary/opentoonz-dev Windows CI workflow injects this
+Only the OpenAnimationLibrary/groundzero Windows CI workflow injects this
 feature. Normal source builds and upstream source files are unchanged. This is
 not an OpenToonz movie renderer or a desktop recorder.
 

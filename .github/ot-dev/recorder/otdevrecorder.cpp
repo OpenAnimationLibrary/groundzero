@@ -302,13 +302,13 @@ OtDevRecorder::OtDevRecorder(QMainWindow *window,
     , m_portableRoot(portableRoot)
     , m_encoderPath(encoder) {
   m_outputDir = QDir(portableRoot).filePath("recordings");
-  auto *bar   = new QToolBar(tr("OT-Dev Session Recording"), window);
+  auto *bar   = new QToolBar(tr("Groundzero Session Recording"), window);
   bar->setObjectName("OtDevSessionRecorder");
   bar->setMovable(false);
   window->addToolBar(Qt::BottomToolBarArea, bar);
   // Do not allow the recorder controls to be hidden while capture is enabled.
   bar->toggleViewAction()->setEnabled(false);
-  m_toggle = bar->addAction(tr("Record OT-Dev Session"));
+  m_toggle = bar->addAction(tr("Record Groundzero Session"));
   m_toggle->setCheckable(true);
   m_status = new QLabel(tr("Recording off"), bar);
   bar->addWidget(m_status);
@@ -417,7 +417,7 @@ void OtDevRecorder::updateStatus(const QString &text) {
   const QSignalBlocker blocker(m_toggle);
   m_toggle->setChecked(m_enabled);
   m_toggle->setText(m_enabled ? tr("Stop Recording")
-                              : tr("Record OT-Dev Session"));
+                              : tr("Record Groundzero Session"));
 }
 
 void OtDevRecorder::initialize() {
@@ -462,11 +462,11 @@ void OtDevRecorder::requestRecording() {
   m_prompting = true;
   QMessageBox dialog(m_window);
   dialog.setProperty("otdevNoCapture", true);
-  dialog.setWindowTitle(tr("OT-Dev Session Recording"));
+  dialog.setWindowTitle(tr("Groundzero Session Recording"));
   dialog.setIcon(QMessageBox::Information);
-  dialog.setText(tr("Record this OpenToonz session?"));
+  dialog.setText(tr("Record this Groundzero session?"));
   dialog.setInformativeText(
-      tr("This experimental build records the OpenToonz main UI and its owned "
+      tr("This experimental build records the Groundzero main UI and its owned "
          "Qt "
          "panels and dialogs. Visible artwork, names and paths in that UI can "
          "appear "
@@ -636,7 +636,7 @@ void OtDevRecorder::fail(const QString &message) {
   m_errorReported = true;
   // Non-blocking error window, excluded from subsequent capture.
   auto *dialog =
-      new QMessageBox(QMessageBox::Warning, tr("OT-Dev Session Recording"),
+      new QMessageBox(QMessageBox::Warning, tr("Groundzero Session Recording"),
                       message, QMessageBox::Ok, m_window);
   dialog->setAttribute(Qt::WA_DeleteOnClose);
   dialog->setProperty("otdevNoCapture", true);

@@ -51,7 +51,7 @@ class BrandingTest(unittest.TestCase):
         template = '<svg><title>{{BUILD_LABEL}}</title><desc>{{DESCRIPTION}}</desc></svg>'
         root = ET.fromstring(render(template, fields))
         self.assertEqual(root.findtext("desc"), "Fix Keep fills & {{SHORT_SHA}}")
-        self.assertIn("OT-Dev PR #260", root.findtext("title"))
+        self.assertIn("Groundzero PR #260", root.findtext("title"))
         self.assertIn("<brush>", fields["PR_HEADING"])
 
     def test_long_text_fits_the_template_fields(self):
@@ -67,20 +67,20 @@ class BrandingTest(unittest.TestCase):
                             "pull_request", "abcdef123456", "260/merge")
         self.assertIn("pull-request build", fields["DESCRIPTION"])
         push = fields_for({}, "push", "abcdef123456", "edition")
-        self.assertEqual(push["BUILD_LABEL"], "OT-Dev edition @ abcdef1")
+        self.assertEqual(push["BUILD_LABEL"], "Groundzero edition @ abcdef1")
         self.assertIn("edition build", push["PR_HEADING"])
 
     def test_window_overlay_fails_when_the_source_anchor_changes(self):
-        self.assertIn('[OT-Dev PR #260]', brand_window(TITLE_ANCHOR, "OT-Dev PR #260"))
-        patched = brand_window(TITLE_ANCHOR * 2, "OT-Dev PR #260")
-        self.assertEqual(patched.count("[OT-Dev PR #260]"), 2)
+        self.assertIn('[Groundzero PR #260]', brand_window(TITLE_ANCHOR, "Groundzero PR #260"))
+        patched = brand_window(TITLE_ANCHOR * 2, "Groundzero PR #260")
+        self.assertEqual(patched.count("[Groundzero PR #260]"), 2)
         with self.assertRaises(ValueError):
-            brand_window("changed source", "OT-Dev PR #260")
+            brand_window("changed source", "Groundzero PR #260")
 
     def test_real_svg_template_renders_without_missing_fields(self):
         template = Path(__file__).with_name(TEMPLATE_NAME).read_text(encoding="utf-8")
         for event, kind, ref in (({}, "push", "edition"),
-                                ({"pull_request": {"number": 260, "title": "Restore OT-Dev branding",
+                                ({"pull_request": {"number": 260, "title": "Restore Groundzero branding",
                                                    "body": "Show the current PR and its build metadata."}},
                                  "pull_request", "260/merge")):
             svg = render(template, fields_for(event, kind, "abcdef123456", ref))

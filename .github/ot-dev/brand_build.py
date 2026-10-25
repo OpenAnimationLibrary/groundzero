@@ -1,4 +1,4 @@
-"""OT-Dev CI branding only; never include this overlay in upstream proposals."""
+"""Groundzero CI branding only; never include this overlay in upstream proposals."""
 
 import argparse
 import base64
@@ -46,19 +46,19 @@ def fields_for(event, event_name, sha, ref_name, built_at=None):
         window_title = re.sub(r"[^A-Za-z0-9 ._#()+-]", " ", title)
         window_title = " ".join(window_title.split())
         window_title = textwrap.shorten(window_title, width=48, placeholder="...")
-        label = f"OT-Dev PR #{number}"
+        label = f"Groundzero PR #{number}"
         if window_title:
             label += " - " + window_title
         heading = f"PR #{number} — {textwrap.shorten(title, width=58, placeholder='...')}"
         description = plain_text(pr.get("body", ""))
         if not description:
-            description = "Experimental OT-Dev pull-request build for review and testing."
+            description = "Experimental Groundzero pull-request build for review and testing."
     else:
         ref = re.sub(r"[^A-Za-z0-9._/-]", "-", ref_name) or "build"
         ref = textwrap.shorten(ref, width=48, placeholder="...")
-        label = f"OT-Dev {ref} @ {short_sha}"
+        label = f"Groundzero {ref} @ {short_sha}"
         heading = f"{ref} build @ {short_sha}"
-        description = f"Experimental OT-Dev build from the {ref} ref for review and testing."
+        description = f"Experimental Groundzero build from the {ref} ref for review and testing."
     heading_lines = two_lines(heading, 37)
     description_lines = two_lines(description, 47)
     built_at = built_at or datetime.now(timezone.utc)
@@ -156,7 +156,7 @@ def main():
         if artwork.resolve() != packaged_artwork.resolve():
             shutil.copyfile(artwork, packaged_artwork)
     print("Window title branding:", fields["BUILD_LABEL"])
-    print("Generated OT-Dev splash:", args.output)
+    print("Generated Groundzero splash:", args.output)
 
 
 if __name__ == "__main__":

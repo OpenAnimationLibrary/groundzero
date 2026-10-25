@@ -162,6 +162,8 @@ static void initToonzEnv(QHash<QString, QString> &argPathValues) {
     ++i;
   }
 
+  TEnv::setApplicationFullName("OAL Groundzero " + TEnv::getApplicationVersion());
+
   QCoreApplication::setOrganizationName("OpenToonz");
   QCoreApplication::setOrganizationDomain("");
   QGuiApplication::setDesktopFileName("io.github.OpenToonz");

@@ -1,4 +1,4 @@
-"""Finish and verify a complete OT-Dev Windows package before publication."""
+"""Finish and verify a complete Groundzero Windows package before publication."""
 
 import argparse
 from datetime import datetime, timezone
@@ -78,7 +78,7 @@ def build_package(package, branding_dir, encoder_dir, source_sha, infrastructure
     binary = executable.read_bytes()
     if not binary.startswith(b"MZ"):
         raise ValueError("The packaged OpenToonz executable is not a Windows binary")
-    for marker in ("OT-Dev Session Recording", build_id, "[" + fields["BUILD_LABEL"] + "]"):
+    for marker in ("Groundzero Session Recording", build_id, "[" + fields["BUILD_LABEL"] + "]"):
         if marker.encode("ascii") not in binary and marker.encode("utf-16-le") not in binary:
             raise ValueError(f"The compiled OpenToonz executable is missing: {marker}")
     for name in ENCODER_FILES:
@@ -156,7 +156,7 @@ def main():
     event_path = args.pop("event_path")
     args["event"] = json.loads(event_path.read_text(encoding="utf-8-sig")) if event_path else {}
     manifest = build_package(**args)
-    print("Verified complete OT-Dev package:", manifest["branding"]["BUILD_LABEL"])
+    print("Verified complete Groundzero package:", manifest["branding"]["BUILD_LABEL"])
 
 
 if __name__ == "__main__":

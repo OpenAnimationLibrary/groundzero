@@ -1111,7 +1111,7 @@ void MainWindow::onAbout() {
   label->setPixmap(pixmap);
 
   DVGui::Dialog *dialog = new DVGui::Dialog(this, true);
-  dialog->setWindowTitle(tr("About OpenToonz"));
+  dialog->setWindowTitle(tr("About Groundzero"));
   dialog->setTopMargin(0);
   dialog->addWidget(label);
   QHBoxLayout *hLay = new QHBoxLayout();
@@ -2865,7 +2865,7 @@ void MainWindow::defineActions() {
   createMenuWindowsAction(MI_SeeThroughWindow,
                           QT_TR_NOOP("Toggle Main Window's See Through Mode"),
                           "Alt+`", "toggle_seethroughwin_on");
-  createMenuHelpAction(MI_About, QT_TR_NOOP("&About OpenToonz..."), "", "info");
+  createMenuHelpAction(MI_About, QT_TR_NOOP("&About Groundzero..."), "", "info");
   createMenuWindowsAction(MI_StartupPopup, QT_TR_NOOP("&Startup Popup..."),
                           "Alt+S", "opentoonz");
   createMenuWindowsAction(MI_OpenAlignmentPanel,
