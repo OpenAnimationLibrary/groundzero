@@ -8,6 +8,7 @@
 #include "trasterimage.h"
 #include "traster.h"
 #include "tpixel.h"
+#include "tpixelutils.h"
 #include "tfiletype.h"
 #include "timage_io.h"
 #include "tlevel_io.h"
@@ -145,7 +146,7 @@ QString Image::readPixel(const TImageP &img, int x, int y, QColor &color) {
     ras32->unlock();
   } else if (TRaster64P ras64 = ras) {
     ras64->lock();
-    pix = TPixel32::from(ras64->pixels(y)[x]);
+    pix = toPixel32(ras64->pixels(y)[x]);
     ras64->unlock();
   } else {
     return tr("Unsupported raster format");
@@ -169,7 +170,7 @@ QString Image::writePixel(const TImageP &img, int x, int y,
     ras32->unlock();
   } else if (TRaster64P ras64 = ras) {
     ras64->lock();
-    ras64->pixels(y)[x] = TPixel64::from(pix);
+    ras64->pixels(y)[x] = toPixel64(pix);
     ras64->unlock();
   } else {
     return tr("Unsupported raster format");
@@ -186,7 +187,7 @@ QString Image::fillImage(const TImageP &img, const QColor &color) {
   if (TRaster32P ras32 = ras)
     ras32->fill(pix);
   else if (TRaster64P ras64 = ras)
-    ras64->fill(TPixel64::from(pix));
+    ras64->fill(toPixel64(pix));
   else
     return tr("Unsupported raster format");
   return "";
