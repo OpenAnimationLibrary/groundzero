@@ -22,6 +22,9 @@
 #define DVVAR DV_IMPORT_VAR
 #endif
 
+class TRaster;
+class TImage;
+
 //************************************************************************
 //    TUndo  class
 //************************************************************************
@@ -32,12 +35,24 @@ public:
   bool m_isLastInBlock = true;
   // To be called in the last of the block when redo
   bool m_isLastInRedoBlock = true;
+  // getSize() as measured by TUndoManager once the undo is in the history
+  // (-1 until then), so the history is not measured again on every add
+  int m_cachedSize = -1;
 
 public:
   TUndo() {}
   virtual ~TUndo() {}
 
+  //! Returns the approximate memory (in bytes) kept alive by this undo; the
+  //! undo manager uses it to enforce the undo memory limit.
   virtual int getSize() const = 0;
+
+  //! Helpers for getSize(): bytes of pixel data held by \b ras, or of pixel
+  //! or stroke data held by \b img (0 when null), as uncompressed sizes.
+  static TINT64 getRasterMemorySize(const TRaster *ras);
+  static TINT64 getImageMemorySize(const TImage *img);
+  //! Clamps a byte count to the range of getSize().
+  static int clampSize(TINT64 bytes);
 
   virtual void undo() const = 0;
   virtual void redo() const = 0;
@@ -127,6 +142,37 @@ private:
   // Noncopyable
   TUndoScopedBlock(const TUndoScopedBlock &);
   TUndoScopedBlock &operator=(const TUndoScopedBlock &);
+};
+
+//************************************************************************
+//    TUndoLazyBlock  class
+//************************************************************************
+
+//! Opens an undo block on the first call to open() and closes it when it
+//! goes out of scope, so every return path leaves the undo stack balanced.
+class TUndoLazyBlock {
+  bool m_open = false;
+
+public:
+  TUndoLazyBlock() {}
+  ~TUndoLazyBlock() { close(); }
+
+  void open() {
+    if (m_open) return;
+    TUndoManager::manager()->beginBlock();
+    m_open = true;
+  }
+  void close() {
+    if (!m_open) return;
+    TUndoManager::manager()->endBlock();
+    m_open = false;
+  }
+  bool isOpen() const { return m_open; }
+
+private:
+  // Noncopyable
+  TUndoLazyBlock(const TUndoLazyBlock &);
+  TUndoLazyBlock &operator=(const TUndoLazyBlock &);
 };
 
 #endif  // T_UNDO_INCLUDED

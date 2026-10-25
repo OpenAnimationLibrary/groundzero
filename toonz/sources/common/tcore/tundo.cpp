@@ -1,7 +1,43 @@
 
 
 #include "tundo.h"
+#include "traster.h"
+#include "timage.h"
+#include "tvectorimage.h"
+#include "tstroke.h"
+#include <algorithm>
+#include <climits>
 #include <deque>
+
+//-----------------------------------------------------------------------------
+
+TINT64 TUndo::getRasterMemorySize(const TRaster *ras) {
+  if (!ras) return 0;
+  return (TINT64)ras->getLx() * ras->getLy() * ras->getPixelSize();
+}
+
+//-----------------------------------------------------------------------------
+
+TINT64 TUndo::getImageMemorySize(const TImage *img) {
+  if (!img) return 0;
+  if (const TVectorImage *vi = dynamic_cast<const TVectorImage *>(img)) {
+    TINT64 size = 0;
+    for (UINT i = 0; i < vi->getStrokeCount(); i++)
+      size +=
+          sizeof(TStroke) + (TINT64)vi->getStroke(i)->getControlPointCount() *
+                                sizeof(TThickPoint);
+    return size;
+  }
+  TRasterP ras = img->raster();
+  return getRasterMemorySize(ras.getPointer());
+}
+
+//-----------------------------------------------------------------------------
+
+int TUndo::clampSize(TINT64 bytes) {
+  if (bytes <= 0) return 0;
+  return bytes < INT_MAX ? (int)bytes : INT_MAX;
+}
 
 //-----------------------------------------------------------------------------
 
@@ -11,6 +47,13 @@ void deleteUndo(const TUndo *undo) { delete undo; }
 void callUndo(const TUndo *undo) { undo->undo(); }
 void callRedo(const TUndo *undo) { undo->redo(); }
 // void callRepeat(const TUndo* undo) {undo->repeat(); }
+
+// getSize() can be expensive (vector images are measured stroke by stroke),
+// so each undo of the history is measured only once.
+int getCachedSize(TUndo *undo) {
+  if (undo->m_cachedSize < 0) undo->m_cachedSize = std::max(0, undo->getSize());
+  return undo->m_cachedSize;
+}
 
 class TUndoBlock final : public TUndo {
   std::vector<TUndo *> m_undos;
@@ -29,11 +72,11 @@ public:
   }
 
   int getSize() const override {
-    int size = sizeof(*this);
+    TINT64 size = sizeof(*this);
     for (Iterator cit = m_undos.begin(); cit != m_undos.end(); ++cit)
       size += (*cit)->getSize();
     size += (m_undos.capacity() - m_undos.size()) * sizeof(TUndo *);
-    return size;
+    return clampSize(size);
   }
   int getUndoCount() const { return (int)m_undos.size(); }
   void setLast() {
@@ -203,16 +246,21 @@ void TUndoManager::TUndoManagerImp::discardRedoHistory() {
 void TUndoManager::TUndoManagerImp::doAdd(TUndo *undo) {
   discardRedoHistory();
 
-  int i, memorySize = 0, count = m_undoList.size();
-  for (i = 0; i < count; i++) memorySize += m_undoList[i]->getSize();
+  // The undos already in the history are measured once and their size is
+  // cached. The new undo is measured here only for the trimming, and cached
+  // on the next add: its onAdd() has not stored its data yet.
+  int i, count = m_undoList.size();
+  TINT64 memorySize = 0;  // 64-bit: undo sizes can add up past INT_MAX
+  for (i = 0; i < count; i++) memorySize += getCachedSize(m_undoList[i]);
 
-  while (count > 100 || (count != 0 && memorySize + undo->getSize() >
-                                           m_undoMemorySize))  // 20MB
+  TINT64 undoSize = undo->getSize();
+  while (count > 100 ||
+         (count != 0 && memorySize + undoSize > m_undoMemorySize))  // 20MB
   {
     --count;
     TUndo *undo = m_undoList.front();
     m_undoList.pop_front();
-    memorySize -= undo->getSize();
+    memorySize -= getCachedSize(undo);
     delete undo;
   }
 

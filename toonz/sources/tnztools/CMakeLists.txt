@@ -38,6 +38,7 @@ set(HEADERS
     assistants/assistantline.h
     assistants/assistantvanishingpoint.h
     ../include/tools/RGBpicker.h
+    ../include/tools/artlayer.h
     ../include/tools/cursormanager.h
     ../include/tools/cursors.h
     ../include/tools/levelselection.h
@@ -70,6 +71,7 @@ set(HEADERS
 )
 
 set(SOURCES
+    artlayer.cpp
     autofillpli.cpp
     autofilltlv.cpp
     cursormanager.cpp
@@ -94,7 +96,6 @@ set(SOURCES
     irontool.cpp
     levelselection.cpp
     magnettool.cpp
-    morphtool.cpp
     paintbrushtool.cpp
     pinchtool.cpp
     plastictool.cpp

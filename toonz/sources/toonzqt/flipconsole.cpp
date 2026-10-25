@@ -21,6 +21,7 @@
 #include "tconvert.h"
 #include "timagecache.h"
 #include "trop.h"
+#include "tsound.h"
 
 #include <time.h>
 
@@ -45,6 +46,11 @@
 #include <QSettings>
 #include <QPushButton>
 #include <QScrollBar>
+#include <QTimer>
+
+// STD includes
+#include <algorithm>
+#include <cmath>
 
 using namespace DVGui;
 
@@ -408,6 +414,74 @@ void FlipSlider::mouseReleaseEvent(QMouseEvent *me) {
 }
 
 //=============================================================================
+// SoundLevelMeter
+//-----------------------------------------------------------------------------
+
+// Two thin bars for the left and right peak levels in dBFS. A level rises at
+// once and falls back at a fixed rate, as in common audio meters.
+class SoundLevelMeter final : public QWidget {
+  static constexpr double cFloorDb       = -60.0;
+  static constexpr double cFallDbPerTick = 1.5;
+  double m_db[2]                         = {cFloorDb, cFloorDb};
+  QTimer m_fallTimer;
+
+  int dbToX(double db, int width) const {
+    return int(width * (db - cFloorDb) / -cFloorDb + 0.5);
+  }
+
+public:
+  SoundLevelMeter(QWidget *parent) : QWidget(parent) {
+    setFixedSize(48, 14);
+    setToolTip(FlipConsole::tr("Soundtrack Level"));
+    m_fallTimer.setInterval(40);
+    connect(&m_fallTimer, &QTimer::timeout, this, [this]() {
+      bool falling = false;
+      for (double &db : m_db) {
+        db = std::max(cFloorDb, db - cFallDbPerTick);
+        if (db > cFloorDb) falling = true;
+      }
+      if (!falling) m_fallTimer.stop();
+      update();
+    });
+  }
+
+  void setLevels(double left, double right) {
+    const double levels[2] = {left, right};
+    for (int i = 0; i < 2; i++) {
+      double db = (levels[i] > 0.0) ? 20.0 * std::log10(levels[i]) : cFloorDb;
+      m_db[i]   = std::max(m_db[i], tcrop(db, cFloorDb, 0.0));
+    }
+    if (!m_fallTimer.isActive()) m_fallTimer.start();
+    update();
+  }
+
+protected:
+  void paintEvent(QPaintEvent *) override {
+    QPainter p(this);
+    QRect area = rect().adjusted(0, 2, 0, -2);
+    p.fillRect(area, palette().color(QPalette::Window).darker(160));
+
+    int barHeight = std::max(1, (area.height() - 1) / 2);
+    int width     = area.width();
+    // green, then yellow from -12 dBFS and red from -3 dBFS
+    const int yellowX = dbToX(-12.0, width), redX = dbToX(-3.0, width);
+    for (int i = 0; i < 2; i++) {
+      int length = dbToX(m_db[i], width);
+      if (length <= 0) continue;
+      int y = area.top() + i * (barHeight + 1);
+      p.fillRect(area.left(), y, std::min(length, yellowX), barHeight,
+                 QColor(70, 190, 70));
+      if (length > yellowX)
+        p.fillRect(area.left() + yellowX, y, std::min(length, redX) - yellowX,
+                   barHeight, QColor(220, 200, 40));
+      if (length > redX)
+        p.fillRect(area.left() + redX, y, length - redX, barHeight,
+                   QColor(220, 60, 50));
+    }
+  }
+};
+
+//=============================================================================
 
 enum {
   eShowCompare         = 0x001,
@@ -467,6 +541,8 @@ FlipConsole::FlipConsole(QVBoxLayout *mainLayout, std::vector<int> gadgetsMask,
     , m_fpsField(nullptr)
     , m_customizeId(customizeId)
     , m_histoSep(nullptr)
+    , m_soundMeter(nullptr)
+    , m_soundMeterAction(nullptr)
     , m_filledRasterSep(nullptr)
     , m_viewerSep(nullptr)
     , m_bgSep(nullptr)
@@ -687,8 +763,10 @@ void FlipConsole::enableButton(UINT button, bool enable, bool doShowHide) {
       if (button == eSound) {
         if (doShowHide) {
           m_soundSep->setVisible(enable);
+          if (m_soundMeterAction) m_soundMeterAction->setVisible(enable);
         } else {
           m_soundSep->setEnabled(enable);
+          if (m_soundMeterAction) m_soundMeterAction->setEnabled(enable);
         }
       }
       if (button == eHisto) {
@@ -1314,7 +1392,9 @@ void FlipConsole::createPlayToolBar(QWidget *customWidget) {
       hasButton(m_gadgetsMask, eLocator)) {
     if (hasButton(m_gadgetsMask, eSound)) {
       createButton(eSound, "sound", tr("&Soundtrack "), true);
-      m_soundSep = m_playToolBar->addSeparator();
+      m_soundMeter       = new SoundLevelMeter(this);
+      m_soundMeterAction = m_playToolBar->addWidget(m_soundMeter);
+      m_soundSep         = m_playToolBar->addSeparator();
     }
     if (hasButton(m_gadgetsMask, eHisto))
       createButton(eHisto, "histograms", tr("&Histogram"), false);
@@ -2141,3 +2221,27 @@ createToggleAction(parent, "A_Flip_Pause", "Pause", FlipConsole::ePause);
 createToggleAction(parent, "A_Flip_Loop",  "Loop",  FlipConsole::eLoop);*/
   }
 } flipConsoleActionsCreator;
+
+//--------------------------------------------------------------------
+
+void FlipConsole::showSoundLevels(const TSoundTrack *sound, double s0,
+                                  double s1) {
+  if (!m_soundMeter || !sound) return;
+  // peak level of a channel as a fraction of full scale
+  auto peakLevel = [&](TSound::Channel chan) {
+    TINT32 first = std::max<TINT32>(0, TINT32(s0));
+    TINT32 last  = std::min<TINT32>(sound->getSampleCount(), TINT32(s1)) - 1;
+    if (last <= first) return 0.0;
+    double minPressure, maxPressure;
+    sound->getMinMaxPressure(first, last, chan, minPressure, maxPressure);
+    double fullScale = (sound->getSampleType() == TSound::FLOAT)
+                           ? 1.0
+                           : double(1 << (sound->getBitPerSample() - 1));
+    return std::min(
+        1.0,
+        std::max(std::abs(minPressure), std::abs(maxPressure)) / fullScale);
+  };
+  double left = peakLevel(TSound::LEFT);
+  m_soundMeter->setLevels(
+      left, (sound->getChannelCount() > 1) ? peakLevel(TSound::RIGHT) : left);
+}

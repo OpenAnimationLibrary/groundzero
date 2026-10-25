@@ -4,6 +4,8 @@
 #define TINBETWEEN_H
 
 #include <memory>
+#include <utility>
+#include <vector>
 #include "tcommon.h"
 
 class TVectorImageP;
@@ -31,9 +33,21 @@ public:
     EaseInOutInterpolation
   };
 
+  //! Stroke correspondence hints: each pair forces the stroke at index
+  //! \b first of the first image to be inbetweened with the stroke at index
+  //! \b second of the last image.
+  typedef std::vector<std::pair<int, int>> StrokeCorrespondence;
+
   static double interpolation(double t, enum TweenAlgorithm);
 
   TInbetween(const TVectorImageP firstImage, const TVectorImageP lastImage);
+
+  //! Same as above, but the strokes listed in \b correspondence are paired as
+  //! specified. The other strokes keep the default index order matching where
+  //! possible; out of range or conflicting pairs are ignored. An empty
+  //! correspondence gives exactly the same result as the constructor above.
+  TInbetween(const TVectorImageP firstImage, const TVectorImageP lastImage,
+             const StrokeCorrespondence &correspondence);
 
   virtual ~TInbetween();
 

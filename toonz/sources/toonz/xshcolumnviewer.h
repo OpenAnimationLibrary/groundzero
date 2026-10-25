@@ -404,6 +404,75 @@ protected slots:
   void onSetMask(int);
 };
 
+//=============================================================================
+// RenameColumnGroupField
+//-----------------------------------------------------------------------------
+
+class RenameColumnGroupField final : public QLineEdit {
+  Q_OBJECT
+
+  int m_groupId;
+
+public:
+  RenameColumnGroupField(QWidget *parent);
+  ~RenameColumnGroupField() {}
+
+  void show(const QRect &rect, int groupId, const QString &name);
+
+protected:
+  void focusOutEvent(QFocusEvent *) override;
+
+protected slots:
+  void renameGroup();
+};
+
+//=============================================================================
+// ColumnGroupArea
+//-----------------------------------------------------------------------------
+
+const int COLUMN_GROUP_STRIP_HEIGHT = 16;
+
+//! The strips above the column headers showing the column groups, one row of
+//! strips for each nesting level (Xsheet orientation only).
+/*! Column groups are the stage object groups (also shown by the Stage
+    Schematic). A strip is drawn for each contiguous range of columns of a
+    group: clicking it selects the group columns, clicking its arrow folds or
+    unfolds them, double-clicking it renames the group.
+*/
+class ColumnGroupArea final : public QWidget {
+  Q_OBJECT
+
+  struct GroupStrip {
+    int m_groupId;
+    int m_c0, m_c1;  //!< the contiguous column range shown by the strip
+    QString m_name;
+    QRect m_rect;
+  };
+
+  XsheetViewer *m_viewer;
+  RenameColumnGroupField *m_renameField;
+
+  void getStrips(std::vector<GroupStrip> &strips) const;
+  bool findStrip(const QPoint &pos, GroupStrip &strip) const;
+  bool isGroupFolded(int groupId) const;
+  void selectGroupColumns(int groupId);
+  QRect getToggleRect(const QRect &stripRect) const;
+
+public:
+  ColumnGroupArea(XsheetViewer *parent);
+  ~ColumnGroupArea() {}
+
+  //! Returns the number of nested group levels of the xsheet columns.
+  static int getGroupDepth(TXsheet *xsh);
+
+protected:
+  void paintEvent(QPaintEvent *) override;
+  void mousePressEvent(QMouseEvent *event) override;
+  void mouseDoubleClickEvent(QMouseEvent *event) override;
+  void contextMenuEvent(QContextMenuEvent *event) override;
+  bool event(QEvent *event) override;
+};
+
 //-----------------------------------------------------------------------------
 }  // namespace XsheetGUI
 //-----------------------------------------------------------------------------

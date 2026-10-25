@@ -669,7 +669,15 @@ rdRegions.m_alphaChannel = rdRegions.m_antiAliasing = false;*/
       CurrStrokeIndex = strokeIndex;
       CurrVimg        = vim;
 #endif
-      bool isGuided = tglDoDraw(rd, vim->getStroke(strokeIndex));
+      const TStroke *stroke = vim->getStroke(strokeIndex);
+      bool isGuided;
+      if ((rd.m_fadeThickStrokes || rd.m_fade0ThickStrokes) &&
+          (isOThick(stroke) ? rd.m_fade0ThickStrokes : rd.m_fadeThickStrokes)) {
+        TVectorRenderData rdFaded(rd);
+        rdFaded.m_cf = fade;
+        isGuided     = tglDoDraw(rdFaded, stroke);
+      } else
+        isGuided = tglDoDraw(rd, stroke);
       if (isGuided && guidedStroke) *guidedStroke = vim->getStroke(strokeIndex);
       strokeIndex++;
     }
