@@ -68,6 +68,11 @@ public:
   bool m_useChecks;  //!< whether to consider  paint check and ink check
   bool m_forSceneIcon = false;  // whether it is rendered for the scene icons
 
+  // Line Art / Colour Art editing aids for the current column (viewer only)
+  bool m_showColourArt = false;  //!< Show 0 thickness strokes anyway
+  bool m_fadeLineArt   = false;  //!< Fade strokes with thickness
+  bool m_fadeColourArt = false;  //!< Fade strokes with 0 thickness
+
   int m_gainStep;
 
 public:

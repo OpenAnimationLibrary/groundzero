@@ -45,6 +45,8 @@ class FlipSlider;
 class FlipConsole;
 class ToolBarContainer;
 class FlipConsoleOwner;
+class SoundLevelMeter;
+class TSoundTrack;
 class TFrameHandle;
 //-----------------------------------------------------------------------------
 
@@ -329,6 +331,10 @@ public:
   QColor getFpsFieldColor() const { return m_fpsFieldColor; }
 
   void resetGain(bool forceInit = false);
+
+  // shows the peak levels of samples [s0, s1) of the soundtrack being played
+  // next to the Soundtrack button, if the console has one
+  void showSoundLevels(const TSoundTrack *sound, double s0, double s1);
 signals:
 
   void buttonPressed(FlipConsole::EGadget button);
@@ -345,6 +351,9 @@ private:
   QAction *m_customSep, *m_rateSep, *m_histoSep, *m_bgSep, *m_vcrSep,
       *m_compareSep, *m_saveSep, *m_colorFilterSep, *m_soundSep, *m_subcamSep,
       *m_filledRasterSep, *m_viewerSep, *m_gainSep;
+
+  SoundLevelMeter *m_soundMeter;
+  QAction *m_soundMeterAction;
 
   QToolBar *m_playToolBar;
   QActionGroup *m_colorFilterGroup;

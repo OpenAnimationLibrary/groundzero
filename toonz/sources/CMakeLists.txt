@@ -580,6 +580,27 @@ if(CMAKE_COMPILER_IS_GNUCC)
     ADD_CHECK_CXX_COMPILER_FLAG(CXX_WARNINGS CXX_WARN_MISSING_DECLARATIONS -Wmissing-declarations)
 endif()
 
+# Extra compiler warnings, off by default. They are only reported: no warning
+# is turned into an error. Qt 5.15 already warns about deprecated Qt APIs.
+option(WITH_EXTRA_WARNINGS "Report extra compiler warnings (-Wall -Wextra, /W4)" OFF)
+if(WITH_EXTRA_WARNINGS)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        ADD_CHECK_C_COMPILER_FLAG(C_WARNINGS C_WARN_ALL -Wall)
+        ADD_CHECK_C_COMPILER_FLAG(C_WARNINGS C_WARN_EXTRA -Wextra)
+        ADD_CHECK_CXX_COMPILER_FLAG(CXX_WARNINGS CXX_WARN_ALL -Wall)
+        ADD_CHECK_CXX_COMPILER_FLAG(CXX_WARNINGS CXX_WARN_EXTRA -Wextra)
+        ADD_CHECK_CXX_COMPILER_FLAG(CXX_WARNINGS CXX_WARN_NO_UNUSED_PARAMETER -Wno-unused-parameter)
+    elseif(BUILD_ENV_MSVC)
+        # CMAKE_CXX_FLAGS already holds /W3 and comes later on the command
+        # line, so replace it instead of adding /W4
+        if(CMAKE_CXX_FLAGS MATCHES "/W[0-4]")
+            string(REGEX REPLACE "/W[0-4]" "/W4" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+        else()
+            set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /W4")
+        endif()
+    endif()
+endif()
+
 
 include_directories(
     SYSTEM
@@ -749,6 +770,7 @@ include("${CMAKE_CURRENT_SOURCE_DIR}/../cmake/OpenEXR.cmake")
 
 option(BUILD_EXR_TESTS "Build the OpenEXR image I/O and level source regression tests" OFF)
 option(BUILD_EXR_AOV_FX_TESTS "Build the OpenEXR AOV FX regression test" OFF)
+option(BUILD_PSD_TESTS "Build the PSD image writer regression test" ${BUILD_TESTS})
 option(BUILD_SCRIPT_TESTS "Build the script engine (QJSEngine bindings) regression test" ${BUILD_TESTS})
 
 # Python scripting: only with WITH_PYTHON, the default build needs neither
@@ -771,7 +793,7 @@ if(WITH_PYTHON)
     endif()
     message(STATUS "Python scripting: Python ${Python3_VERSION}")
 endif()
-if(BUILD_EXR_TESTS OR BUILD_EXR_AOV_FX_TESTS OR BUILD_SCRIPT_TESTS)
+if(BUILD_EXR_TESTS OR BUILD_EXR_AOV_FX_TESTS OR BUILD_PSD_TESTS OR BUILD_SCRIPT_TESTS)
     enable_testing()
 endif()
 

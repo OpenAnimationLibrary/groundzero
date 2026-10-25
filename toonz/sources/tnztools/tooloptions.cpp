@@ -459,6 +459,16 @@ ArrowToolOptionsBox::ArrowToolOptionsBox(
   m_rotationField =
       new PegbarChannelField(m_tool, TStageObject::T_Angle, "field",
                              frameHandle, objHandle, xshHandle, this);
+  m_rotXLabel = new ClickableLabel(tr("Rot X:"), this);
+  m_rotXField = new PegbarChannelField(m_tool, TStageObject::T_RotX, "field",
+                                       frameHandle, objHandle, xshHandle, this);
+  m_rotYLabel = new ClickableLabel(tr("Rot Y:"), this);
+  m_rotYField = new PegbarChannelField(m_tool, TStageObject::T_RotY, "field",
+                                       frameHandle, objHandle, xshHandle, this);
+  m_rotXLabel->setToolTip(
+      tr("Tilt around the horizontal axis (orthographic, no perspective)"));
+  m_rotYLabel->setToolTip(
+      tr("Tilt around the vertical axis (orthographic, no perspective)"));
 
   /* --- Scale --- */
   m_globalScaleField =
@@ -536,6 +546,13 @@ ArrowToolOptionsBox::ArrowToolOptionsBox(
   if (globalKeyProp)
     m_globalKey =
         new ToolOptionCheckbox(m_tool, globalKeyProp, toolHandle, this);
+
+  TBoolProperty *showTrajectoryProp =
+      dynamic_cast<TBoolProperty *>(m_pg->getProperty("Show Trajectory"));
+  m_showTrajectory =
+      showTrajectoryProp
+          ? new ToolOptionCheckbox(m_tool, showTrajectoryProp, toolHandle, this)
+          : nullptr;
 
   m_lockEWPosCheckbox->setObjectName("EditToolLockButton");
   m_lockNSPosCheckbox->setObjectName("EditToolLockButton");
@@ -677,6 +694,18 @@ ArrowToolOptionsBox::ArrowToolOptionsBox(
         rotLay->addWidget(m_rightRotateButton);
 
         rotLay->addSpacing(ITEM_SPACING);
+
+        rotLay->addWidget(m_rotXLabel, 0);
+        rotLay->addSpacing(LABEL_SPACING);
+        rotLay->addWidget(m_rotXField, 10);
+
+        rotLay->addSpacing(ITEM_SPACING);
+
+        rotLay->addWidget(m_rotYLabel, 0);
+        rotLay->addSpacing(LABEL_SPACING);
+        rotLay->addWidget(m_rotYField, 10);
+
+        rotLay->addSpacing(ITEM_SPACING);
         rotLay->addWidget(new DVGui::Separator("", this, false));
 
         rotLay->addStretch(1);
@@ -797,6 +826,10 @@ ArrowToolOptionsBox::ArrowToolOptionsBox(
     }
 
     mainLay->addWidget(m_globalKey, 0);
+    if (m_showTrajectory) {
+      mainLay->addSpacing(ITEM_SPACING);
+      mainLay->addWidget(m_showTrajectory, 0);
+    }
 
     mainLay->addSpacing(ITEM_SPACING);
   }
@@ -826,6 +859,8 @@ ArrowToolOptionsBox::ArrowToolOptionsBox(
   connectLabelAndField(m_zLabel, m_zField);
   connectLabelAndField(m_soLabel, m_soField);
   connectLabelAndField(m_rotationLabel, m_rotationField);
+  connectLabelAndField(m_rotXLabel, m_rotXField);
+  connectLabelAndField(m_rotYLabel, m_rotYField);
   connectLabelAndField(m_globalScaleLabel, m_globalScaleField);
   connectLabelAndField(m_scaleHLabel, m_scaleHField);
   connectLabelAndField(m_scaleVLabel, m_scaleVField);
@@ -934,6 +969,14 @@ void ArrowToolOptionsBox::updateStatus() {
 
   // Rotation
   m_rotationField->updateStatus();
+  m_rotXField->updateStatus();
+  m_rotYField->updateStatus();
+  // Cameras ignore the 3D tilt channels
+  bool tiltEnabled = !m_objHandle->getObjectId().isCamera();
+  m_rotXLabel->setEnabled(tiltEnabled);
+  m_rotXField->setEnabled(tiltEnabled);
+  m_rotYLabel->setEnabled(tiltEnabled);
+  m_rotYField->setEnabled(tiltEnabled);
 
   // Scale
   m_globalScaleField->updateStatus();
@@ -956,6 +999,7 @@ void ArrowToolOptionsBox::updateStatus() {
   m_lockNSCenterCheckbox->updateStatus();
 
   m_globalKey->updateStatus();
+  if (m_showTrajectory) m_showTrajectory->updateStatus();
 
   bool splined = isCurrentObjectSplined();
   if (splined != m_splined) setSplined(splined);

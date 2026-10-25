@@ -12,6 +12,7 @@
 #include <utility>
 #include <limits>
 #include <list>
+#include <algorithm>
 
 #include "../tvectorimage/tvectorimageP.h"
 
@@ -652,16 +653,22 @@ public:
 
   TVectorImageP m_firstImage, m_lastImage;
 
+  // (first image stroke index, last image stroke index), sorted by the first
+  StrokeCorrespondence m_strokePairs;
+
   std::vector<StrokeTransform> m_transformation;
 
+  void computeStrokePairs(const StrokeCorrespondence &correspondence);
   void computeTransformation();
 
   void transferColor(const TVectorImageP &destination) const;
 
   TVectorImageP tween(double t) const;
 
-  Imp(const TVectorImageP firstImage, const TVectorImageP lastImage)
+  Imp(const TVectorImageP firstImage, const TVectorImageP lastImage,
+      const StrokeCorrespondence &correspondence)
       : m_firstImage(firstImage), m_lastImage(lastImage) {
+    computeStrokePairs(correspondence);
     computeTransformation();
   }
 };
@@ -669,11 +676,72 @@ public:
 
 TInbetween::TInbetween(const TVectorImageP firstImage,
                        const TVectorImageP lastImage)
-    : m_imp(new TInbetween::Imp(firstImage, lastImage)) {}
+    : m_imp(
+          new TInbetween::Imp(firstImage, lastImage, StrokeCorrespondence())) {}
+
+//-------------------------------------------------------------------
+
+TInbetween::TInbetween(const TVectorImageP firstImage,
+                       const TVectorImageP lastImage,
+                       const StrokeCorrespondence &correspondence)
+    : m_imp(new TInbetween::Imp(firstImage, lastImage, correspondence)) {}
 
 //-------------------------------------------------------------------
 
 TInbetween::~TInbetween() {}
+
+//-------------------------------------------------------------------
+
+void TInbetween::Imp::computeStrokePairs(
+    const StrokeCorrespondence &correspondence) {
+  int strokeCount1 = m_firstImage->getStrokeCount();
+  int strokeCount2 = m_lastImage->getStrokeCount();
+
+  m_strokePairs.clear();
+
+  if (correspondence.empty()) {
+    // default: strokes are matched by index order
+    int count = std::min(strokeCount1, strokeCount2);
+    m_strokePairs.reserve(count);
+    for (int i = 0; i < count; i++)
+      m_strokePairs.push_back(std::make_pair(i, i));
+    return;
+  }
+
+  std::vector<int> partner(strokeCount1, -1);
+  std::vector<bool> used(strokeCount2, false);
+
+  // forced pairs first; out of range or already paired strokes are ignored
+  for (const std::pair<int, int> &hint : correspondence) {
+    if (hint.first < 0 || hint.first >= strokeCount1 || hint.second < 0 ||
+        hint.second >= strokeCount2)
+      continue;
+    if (partner[hint.first] >= 0 || used[hint.second]) continue;
+    partner[hint.first] = hint.second;
+    used[hint.second]   = true;
+  }
+
+  // then keep the index order matching wherever both strokes are still free
+  for (int i = 0; i < strokeCount1 && i < strokeCount2; i++) {
+    if (partner[i] >= 0 || used[i]) continue;
+    partner[i] = i;
+    used[i]    = true;
+  }
+
+  // finally match the remaining strokes in index order, so that the stroke
+  // count of the inbetweens is the same as without hints
+  int j = 0;
+  for (int i = 0; i < strokeCount1; i++) {
+    if (partner[i] >= 0) continue;
+    while (j < strokeCount2 && used[j]) j++;
+    if (j >= strokeCount2) break;
+    partner[i] = j;
+    used[j]    = true;
+  }
+
+  for (int i = 0; i < strokeCount1; i++)
+    if (partner[i] >= 0) m_strokePairs.push_back(std::make_pair(i, partner[i]));
+}
 
 //-------------------------------------------------------------------
 
@@ -692,9 +760,7 @@ void TInbetween::Imp::computeTransformation() {
   std::vector<double> ratioSampling, weights, subStrokeXScaling,
       subStrokeYScaling;
 
-  UINT strokeCount1 = m_firstImage->getStrokeCount();
-  UINT strokeCount2 = m_lastImage->getStrokeCount();
-  if (strokeCount1 > strokeCount2) strokeCount1 = strokeCount2;
+  UINT strokeCount1 = m_strokePairs.size();
 
   m_transformation.clear();
   m_transformation.reserve(strokeCount1);
@@ -704,8 +770,8 @@ void TInbetween::Imp::computeTransformation() {
   UINT j, p;
 
   for (UINT i = 0; i < strokeCount1; i++) {
-    stroke1 = m_firstImage->getStroke(i);
-    stroke2 = m_lastImage->getStroke(i);
+    stroke1 = m_firstImage->getStroke(m_strokePairs[i].first);
+    stroke2 = m_lastImage->getStroke(m_strokePairs[i].second);
 
     // check if the strokes are equal
     cpCount1 = stroke1->getControlPointCount();
@@ -1380,10 +1446,8 @@ TVectorImageP TInbetween::Imp::tween(double t) const {
 
   TVectorImageP vi = new TVectorImage;
 
-  UINT strokeCount1 = m_firstImage->getStrokeCount();
-  UINT strokeCount2 = m_lastImage->getStrokeCount();
+  UINT strokeCount1 = m_strokePairs.size();
   vi->setPalette(m_firstImage->getPalette());
-  if (strokeCount1 > strokeCount2) strokeCount1 = strokeCount2;
 
   assert(m_transformation.size() == strokeCount1);
 
@@ -1396,8 +1460,8 @@ TVectorImageP TInbetween::Imp::tween(double t) const {
   UINT i, j, cp, cpSize;
 
   for (i = 0; i < strokeCount1; i++) {
-    stroke1 = m_firstImage->getStroke(i);
-    stroke2 = m_lastImage->getStroke(i);
+    stroke1 = m_firstImage->getStroke(m_strokePairs[i].first);
+    stroke2 = m_lastImage->getStroke(m_strokePairs[i].second);
 
     if (m_transformation[i].m_type == StrokeTransform::EQUAL) {
       stroke = new TStroke(*stroke1);
@@ -1520,8 +1584,8 @@ TVectorImageP TInbetween::Imp::tween(double t) const {
 
     stroke->setStyle(stroke1->getStyle());
     stroke->outlineOptions() = stroke1->outlineOptions();
-    VIStroke *vs =
-        new VIStroke(stroke, m_firstImage->getVIStroke(i)->m_groupId);
+    VIStroke *firstVs = m_firstImage->getVIStroke(m_strokePairs[i].first);
+    VIStroke *vs      = new VIStroke(stroke, firstVs->m_groupId);
     vi->m_imp->m_strokes.push_back(vs);
 
   }  // end for each stroke
@@ -1540,12 +1604,14 @@ void TInbetween::Imp::transferColor(const TVectorImageP &destination) const {
   destination->findRegions();
 
   if (destination->getRegionCount()) {
-    UINT strokeCount1 = original->getStrokeCount();
+    // destination stroke i comes from the original stroke m_strokePairs[i]
+    UINT strokeCount1 = m_strokePairs.size();
     UINT strokeCount2 = destination->getStrokeCount();
     if (strokeCount1 > strokeCount2) strokeCount1 = strokeCount2;
 
     for (UINT i = 0; i < strokeCount1; i++) {
-      TVectorImage::transferStrokeColors(original, i, destination, i);
+      TVectorImage::transferStrokeColors(original, m_strokePairs[i].first,
+                                         destination, i);
     }
   }
 }
