@@ -147,6 +147,7 @@ set(HEADERS
     ../include/toonz/tpinnedrangeset.h
     ../include/toonz/tproject.h
     ../include/toonz/trasterimageutils.h
+    ../include/toonz/tshapeawaredeformer.h
     ../include/toonz/tstageobject.h
     ../include/toonz/tstageobjectcmd.h
     ../include/toonz/tstageobjectid.h
@@ -284,6 +285,7 @@ set(SOURCES
     toutlinevectorizer.cpp
     tpinnedrangeset.cpp
     tproject.cpp
+    tshapeawaredeformer.cpp
     trasterimageutils.cpp
     trastercentroid.cpp
     tstageobject.cpp

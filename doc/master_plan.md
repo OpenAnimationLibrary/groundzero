@@ -104,9 +104,9 @@ the stroke data is available.
 |---|---|---|---|---|
 | C1 | **Lock Timeline Ruler** | A toggle that keeps the frame ruler from scrolling with the cells. | S | none |
 | C2 | **Port filtering in the node view** | A filter field in the FX and Rig schematic port lists. | S | A2 |
-| C3 | **Compact file format** | An optional compressed scene (zstd over the existing XML), with fast load through lazy level loading. Plain `.tnz` stays the default and is always readable. | M | none |
+| C3 | **Compact file format** | An optional compressed scene (LZ4 over the existing XML, `doc/compact_scene.md`), with fast load through lazy level loading. Plain `.tnz` stays the default and is always readable. | M | none |
 | C4 | **Contour Editor** (research) | Built as an opt-in conversion, not a new stroke model: Level > Optimize > Convert Brush Strokes to Outline Shapes replaces selected variable-width strokes by closed zero-thickness outline strokes (same style, filled), which the Selection and Control Point Editor tools edit. One way, no saved-data change; see `doc/contour_editor.md`. | XL | none |
-| C5 | **Shape-Aware deformer** (research) | Points, bones and a cage together, on the deformer stack. Harmony's algorithm is proprietary; start from published methods (bounded biharmonic weights). | XL | A1, A7, A8 |
+| C5 | **Shape-Aware deformer** (research) | Points, bones and a cage together, on the deformer stack. Harmony's algorithm is proprietary; start from published methods (bounded biharmonic weights). **Done as `TShapeAwareDeformer` and the Shape Aware Deformer FX** (4 pins, 2 bones, a 4-corner cage; clamped biharmonic-style weights on a grid, see `doc/shape_aware_deformer.md`). Raster warp only, and the class is a stack layer in code but the Deformer Stack FX is not changed. | XL | A1, A7, A8 |
 
 Missing items that stay out: OpenFX, Cryptomatte and performance
 anti-aliasing (GPU and 3D scope), and Ember AI (not realistic).

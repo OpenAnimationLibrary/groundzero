@@ -132,6 +132,7 @@ set(SOURCES
     fourpointsgradientfx.cpp
     freedistortfx.cpp
     freeformdeformerfx.cpp
+    shapeawaredeformerfx.cpp
     gammafx.cpp
     glbmodelfx.cpp
     imageplanefx.cpp
