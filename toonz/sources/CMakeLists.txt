@@ -744,10 +744,14 @@ set(CMAKE_CXX_FLAGS "${CXX_WARNINGS} ${CMAKE_CXX_FLAGS}")
 
 include("${CMAKE_CURRENT_SOURCE_DIR}/../cmake/OpenEXR.cmake")
 
-option(BUILD_EXR_TESTS "Build the OpenEXR image I/O and level source regression tests" OFF)
-option(BUILD_EXR_AOV_FX_TESTS "Build the OpenEXR AOV FX regression test" OFF)
-option(BUILD_TNZTOOLS_TESTS "Build the tnztools helper regression tests" OFF)
-if(BUILD_EXR_TESTS OR BUILD_EXR_AOV_FX_TESTS OR BUILD_TNZTOOLS_TESTS)
+# BUILD_TESTS turns on every regression test below and in the subdirectories
+# (stdfx, glb). Each suite keeps its own option and can still be set alone.
+option(BUILD_TESTS "Build all regression tests and register them with ctest" OFF)
+option(BUILD_EXR_TESTS "Build the OpenEXR image I/O and level source regression tests" ${BUILD_TESTS})
+option(BUILD_EXR_AOV_FX_TESTS "Build the OpenEXR AOV FX regression test" ${BUILD_TESTS})
+option(BUILD_TNZTOOLS_TESTS "Build the tnztools helper regression tests" ${BUILD_TESTS})
+if(BUILD_TESTS OR BUILD_EXR_TESTS OR BUILD_EXR_AOV_FX_TESTS OR
+   BUILD_TNZTOOLS_TESTS OR BUILD_LUT3D_TESTS OR BUILD_GLB_FX_TESTS)
     enable_testing()
 endif()
 
