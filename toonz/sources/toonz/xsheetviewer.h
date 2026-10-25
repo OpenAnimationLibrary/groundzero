@@ -624,6 +624,7 @@ class XsheetViewer final : public QFrame, public SaveLoadQSettings {
   XsheetScrollArea *m_noteScrollArea;
   XsheetScrollArea *m_toolbarScrollArea;
   XsheetScrollArea *m_breadcrumbScrollArea;
+  XsheetScrollArea *m_columnGroupScrollArea;
 
   XsheetGUI::ColumnArea *m_columnArea;
   XsheetGUI::RowArea *m_rowArea;
@@ -631,7 +632,8 @@ class XsheetViewer final : public QFrame, public SaveLoadQSettings {
   XsheetGUI::NoteArea *m_noteArea;
   XsheetGUI::XSheetToolbar *m_toolbar;
   XsheetGUI::BreadcrumbArea *m_breadcrumbArea;
-  
+  XsheetGUI::ColumnGroupArea *m_columnGroupArea;
+
   LayerFooterPanel *m_layerFooterPanel;
 
   Spreadsheet::FrameScroller m_frameScroller;
@@ -662,6 +664,8 @@ class XsheetViewer final : public QFrame, public SaveLoadQSettings {
   QString m_xsheetLayout;
 
   int m_frameZoomFactor;
+
+  int m_columnGroupDepth;  // number of column group strip rows displayed
 
 public:
   enum FrameDisplayStyle { Frame = 0, SecAndFrame, SixSecSheet, ThreeSecSheet };
@@ -734,6 +738,10 @@ public:
 
   void scroll(QPoint delta);
   int getColumnScrollValue();
+  //! Height of the column group strips above the column headers (0 if none)
+  int getColumnGroupAreaHeight() const {
+    return m_columnGroupDepth * XsheetGUI::COLUMN_GROUP_STRIP_HEIGHT;
+  }
 
   void setAutoPanSpeed(const QPoint &speed);
   void setAutoPanSpeed(const QRect &widgetBounds, const QPoint &mousePos);
@@ -1435,6 +1443,7 @@ public slots:
 
   void updateAllAree(bool isDragging = false);
   void updateColumnArea();
+  void updateColumnGroupArea();
   void updateCellColumnAree();
   void updateCellRowAree();
 

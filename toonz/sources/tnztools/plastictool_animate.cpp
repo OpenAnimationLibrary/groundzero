@@ -5,8 +5,12 @@
 
 // TnzLib includes
 #include "toonz/tobjecthandle.h"
+#include "toonz/ikengine.h"
 
 #include "plastictool.h"
+
+// STD includes
+#include <algorithm>
 
 using namespace PlasticToolLocals;
 
@@ -61,6 +65,24 @@ public:
     l_plasticTool.onChange();
   }
 };
+
+//------------------------------------------------------------------------
+
+//! Returns the vertexes posed by an IK drag of \b v: from its nearest
+//! ancestor that is the root or a branching vertex, which stays fixed, down
+//! to \b v.
+std::vector<int> ikChain(const PlasticSkeleton &skeleton, int v) {
+  std::vector<int> chain(1, v);
+  for (int p = skeleton.vertex(v).parent(); p >= 0;
+       p     = skeleton.vertex(p).parent()) {
+    chain.push_back(p);
+    const PlasticSkeletonVertex &vx = skeleton.vertex(p);
+    int childrenCount = vx.edgesCount() - (vx.parent() >= 0 ? 1 : 0);
+    if (vx.parent() < 0 || childrenCount > 1) break;
+  }
+  std::reverse(chain.begin(), chain.end());
+  return chain;
+}
 
 }  // namespace
 
@@ -124,7 +146,28 @@ void PlasticTool::leftButtonDrag_animate(const TPointD &pos,
     assert(vd);
 
     // Move selected branch
-    if (m_keepDistance.getValue()) {
+    if (m_ikMode.getValue()) {
+      // Solve the chain ending at the vertex, then rotate each of its
+      // vertexes toward the solved position from the top down. Each rotation
+      // respects the vertex's angle bounds and moves the rest of the branch.
+      PlasticSkeleton &deformed = deformedSkeleton();
+      std::vector<int> chain    = ikChain(deformed, m_svSel);
+
+      IKEngine engine;
+      engine.setRoot(deformed.vertex(chain[0]).P());
+      for (int i = 1; i < (int)chain.size(); ++i)
+        engine.addJoint(deformed.vertex(chain[i]).P(), i - 1);
+      TPointD target = pos;
+      engine.drag(target);
+
+      for (int i = 1; i < (int)chain.size(); ++i) {
+        SkVD *chainVd = m_sd->vertexDeformation(::skeletonId(), chain[i]);
+        assert(chainVd);
+        ::setKeyframe(chainVd->m_params[SkVD::ANGLE], frame);
+        m_sd->updateAngle(*skeleton(), deformed, frame, chain[i],
+                          engine.getJoint(i));
+      }
+    } else if (m_keepDistance.getValue()) {
       ::setKeyframe(vd->m_params[SkVD::ANGLE],
                     frame);  // Set a keyframe for it. It must be done
                              // to set the correct function interpolation

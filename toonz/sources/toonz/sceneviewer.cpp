@@ -24,6 +24,7 @@
 #include "tools/toolutils.h"
 #include "tools/assistant.h"
 #include "tools/replicator.h"
+#include "tools/artlayer.h"
 
 // TnzQt includes
 #include "toonzqt/icongenerator.h"
@@ -79,6 +80,9 @@
 #include "tstroke.h"
 #include "ttoonzimage.h"
 #include "tenv.h"
+
+// STD includes
+#include <algorithm>
 
 // Qt includes
 #include <QMenu>
@@ -285,6 +289,7 @@ ToggleCommandHandler rasterizePliToggle(MI_RasterizePli, false);
 ToggleCommandHandler viewClcToggle("MI_ViewColorcard", false);
 ToggleCommandHandler viewCameraToggle("MI_ViewCamera", false);
 ToggleCommandHandler viewBBoxToggle("MI_ViewBBox", false);
+ToggleCommandHandler lightTableToggle(MI_LightTable, false);
 ToggleCommandHandler viewGuideToggle("MI_ViewGuide", false);
 ToggleCommandHandler viewRulerToggle("MI_ViewRuler", false);
 
@@ -1309,6 +1314,14 @@ void SceneViewer::initializeGL() {
 
   registerContext();
 
+  // release the textures of the experimental GPU compositing (if any) while
+  // the context can still be made current
+  connect(context(), &QOpenGLContext::aboutToBeDestroyed, this, [this]() {
+    makeCurrent();
+    Stage::RasterPainter::releaseGpuTextures();
+    doneCurrent();
+  });
+
   // to be computed once through the software
   if (m_lutCalibrator && !m_lutCalibrator->isInitialized()) {
     m_lutCalibrator->initialize();
@@ -2205,6 +2218,10 @@ void SceneViewer::drawScene() {
     }
 
     m_visualSettings.m_showBBox = viewBBoxToggle.getStatus();
+    m_visualSettings.m_showColourArt =
+        ArtLayer::target() != ArtLayer::TARGET_OFF;
+    m_visualSettings.m_fadeLineArt   = ArtLayer::isFaded(ArtLayer::LINE_ART);
+    m_visualSettings.m_fadeColourArt = ArtLayer::isFaded(ArtLayer::COLOUR_ART);
 
     Stage::RasterPainter painter(viewerSize, viewAff, clipRect,
                                  m_visualSettings, true);
@@ -2214,6 +2231,10 @@ void SceneViewer::drawScene() {
     painter.setRasterDarkenBlendedView(
         Preferences::instance()
             ->isShowRasterImagesDarkenBlendedInViewerEnabled());
+
+    // experimental GPU compositing of raster levels
+    painter.enableGpuCompositing(
+        Preferences::instance()->isGpuCompositingInViewerEnabled());
 
     TFrameHandle *frameHandle = TApp::instance()->getCurrentFrame();
     if (app->getCurrentFrame()->isEditingLevel()) {
@@ -2240,6 +2261,8 @@ void SceneViewer::drawScene() {
       args.m_osm         = &osm;
       args.m_xsheetLevel = xsheetLevel;
       args.m_isPlaying   = frameHandle->isPlaying();
+      // the light table is for drawing; playback shows the scene as it is
+      args.m_lightTable = lightTableToggle.getStatus() && !args.m_isPlaying;
       if (app->getCurrentLevel() && app->getCurrentLevel()->getLevel() &&
           !app->getCurrentLevel()->getLevel()->getSoundLevel())
         args.m_currentFrameId =
@@ -3339,6 +3362,14 @@ includeInvisible);
 
   TXshSimpleLevel::m_rasterizePli = oldRasterizePli;
   picker.getColumnIndexes(indexes);
+
+  // Selection-locked columns are skipped, so a click picks what is below them.
+  indexes.erase(std::remove_if(indexes.begin(), indexes.end(),
+                               [xsh](int index) {
+                                 TXshColumn *column = xsh->getColumn(index);
+                                 return column && column->isSelectionLocked();
+                               }),
+                indexes.end());
 }
 
 //-----------------------------------------------------------------------------

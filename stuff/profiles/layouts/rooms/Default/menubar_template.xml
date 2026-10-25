@@ -164,6 +164,7 @@
         <command>MI_OpenChild</command>
         <command>MI_CloseChild</command>
         <command>MI_SaveSubxsheetAs</command>
+        <command>MI_SaveAsTemplate</command>
         <command>MI_Collapse</command>
         <command>MI_Resequence</command>
         <command>MI_CloneChild</command>
@@ -337,6 +338,7 @@
         <command>MI_StartupPopup</command>
         <command>MI_OpenGuidedDrawingControls</command>
         <command>MI_OpenAlignmentPanel</command>
+        <command>MI_OpenPosesPanel</command>
         <command>MI_OpenCustomPanels</command>
         <separator/>
         <command>MI_MaximizePanel</command>

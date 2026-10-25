@@ -160,6 +160,18 @@ void ensureAlignmentPanelAction(QMenu *windowsMenu) {
     windowsMenu->addAction(alignment);
 }
 
+void ensurePosesPanelAction(QMenu *windowsMenu) {
+  QAction *poses = CommandManager::instance()->getAction(MI_OpenPosesPanel);
+  if (!poses || menuContainsAction(windowsMenu, poses)) return;
+
+  QAction *customPanels =
+      CommandManager::instance()->getAction(MI_OpenCustomPanels);
+  if (windowsMenu->actions().contains(customPanels))
+    windowsMenu->insertAction(customPanels, poses);
+  else
+    windowsMenu->addAction(poses);
+}
+
 }  // namespace
 
 //======================================================================// RoomTabWidget
@@ -353,8 +365,10 @@ void StackedMenuBar::createMenuBarByName(const QString &roomName) {
   QMenuBar *menuBar = qobject_cast<QMenuBar *>(widget(count() - 1));
   if (menuBar) {
     for (QAction *action : menuBar->actions()) {
-      if (action->menu() && action->menu()->title() == tr("Windows"))
+      if (action->menu() && action->menu()->title() == tr("Windows")) {
         ensureAlignmentPanelAction(action->menu());
+        ensurePosesPanelAction(action->menu());
+      }
     }
   }
 }
@@ -400,8 +414,10 @@ QMenuBar *StackedMenuBar::loadMenuBar(const TFilePath &fp) {
             // built-in command without replacing the user's customized menu.
             if (title == QStringLiteral("Help")) ensureHelpActions(menu);
             if (title == QStringLiteral("File")) ensureAnimatedSvgAction(menu);
-            if (title == QStringLiteral("Windows"))
+            if (title == QStringLiteral("Windows")) {
               ensureAlignmentPanelAction(menu);
+              ensurePosesPanelAction(menu);
+            }
             menuBar->addMenu(menu);
           } else {
             reader.raiseError(tr("Failed to load menu %1").arg(title));
@@ -1015,6 +1031,7 @@ QMenuBar *StackedMenuBar::createXsheetMenuBar() {
   addMenuItem(subxsheetMenu, MI_ToggleEditInPlace);
   addMenuItem(subxsheetMenu, MI_Resequence);
   addMenuItem(subxsheetMenu, MI_SaveSubxsheetAs);
+  addMenuItem(subxsheetMenu, MI_SaveAsTemplate);
   addMenuItem(subxsheetMenu, MI_LoadSubSceneFile);
   addMenuItem(subxsheetMenu, MI_CloneChild);
   addMenuItem(subxsheetMenu, MI_ExplodeChild);
@@ -1449,6 +1466,7 @@ QMenuBar *StackedMenuBar::createFullMenuBar() {
   addMenuItem(xsheetMenu, MI_OpenChild);
   addMenuItem(xsheetMenu, MI_CloseChild);
   addMenuItem(xsheetMenu, MI_SaveSubxsheetAs);
+  addMenuItem(xsheetMenu, MI_SaveAsTemplate);
   addMenuItem(xsheetMenu, MI_Collapse);
   addMenuItem(xsheetMenu, MI_Resequence);
   addMenuItem(xsheetMenu, MI_CloneChild);
@@ -1564,6 +1582,7 @@ QMenuBar *StackedMenuBar::createFullMenuBar() {
   addMenuItem(viewMenu, MI_ViewCamera);
   addMenuItem(viewMenu, MI_ViewColorcard);
   addMenuItem(viewMenu, MI_ViewBBox);
+  addMenuItem(viewMenu, MI_LightTable);
   viewMenu->addSeparator();
   addMenuItem(viewMenu, MI_SafeArea);
   addMenuItem(viewMenu, MI_FieldGuide);
@@ -1636,6 +1655,7 @@ QMenuBar *StackedMenuBar::createFullMenuBar() {
   addMenuItem(windowsMenu, MI_StartupPopup);
   addMenuItem(windowsMenu, MI_OpenGuidedDrawingControls);
   addMenuItem(windowsMenu, MI_OpenAlignmentPanel);
+  addMenuItem(windowsMenu, MI_OpenPosesPanel);
   addMenuItem(windowsMenu, MI_OpenCustomPanels);
   // windowsMenu->addSeparator();
   // addMenuItem(windowsMenu, MI_OpenExport);

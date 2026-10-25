@@ -947,6 +947,8 @@ PegbarChannelField::PegbarChannelField(TTool *tool,
     setMeasure("shear");
     break;
   case TStageObject::T_Angle:
+  case TStageObject::T_RotX:
+  case TStageObject::T_RotY:
     setMeasure("angle");
     break;
   case TStageObject::T_ScaleX:
@@ -1008,6 +1010,7 @@ void PegbarChannelField::onChange(TMeasuredValue *fld, bool addToUndo) {
       m_before.add(TStageObject::T_Path);
       m_before.add(TStageObject::T_ShearX);
       m_before.add(TStageObject::T_ShearY);
+      m_before.addTiltChannelsInUse();
     }
     m_before.updateValues();
   }

@@ -131,6 +131,8 @@ The default value is XY.
              //! of the spline
     T_ShearX,  //!< Shear along x-axis
     T_ShearY,  //!< Shear along y-axis
+    T_RotX,    //!< Rotation (tilt) around the object's horizontal axis
+    T_RotY,    //!< Rotation (tilt) around the object's vertical axis
     T_ChannelCount
   };
 
@@ -338,6 +340,14 @@ cannot match an existing hook ("H" followed by digits only).
 
   //! Returns true if \e frame is a keyframe for all channels.
   bool isFullKeyframe(int frame) const;
+
+  /*!
+Returns whether \e channel takes part in full (global) keyframes.
+The optional 3D tilt channels (T_RotX, T_RotY) only do once they are
+in use, ie animated or set to a non-default value, so that objects which
+are never tilted keep the same keyframes (and saved data) as before.
+*/
+  bool isFullKeyframeChannel(Channel channel) const;
 
   //! Returns true if \e frame is a keyframe for all channels with exception of
   //! global scale channel.
@@ -547,7 +557,7 @@ private:
   Status m_status;
 
   TDoubleParamP m_x, m_y, m_z, m_so, m_rot, m_scalex, m_scaley, m_scale,
-      m_posPath, m_shearx, m_sheary;
+      m_posPath, m_shearx, m_sheary, m_rotx, m_roty;
 
   PlasticSkeletonDeformationP
       m_skeletonDeformation;  //!< Deformation curves for a plastic skeleton
@@ -632,7 +642,7 @@ public:
   std::string m_handle, m_parentHandle;
   TPinnedRangeSet *m_pinnedRangeSet;
   TDoubleParamP m_x, m_y, m_z, m_so, m_rot, m_scalex, m_scaley, m_scale,
-      m_posPath, m_shearx, m_sheary;
+      m_posPath, m_shearx, m_sheary, m_rotx, m_roty;
   PlasticSkeletonDeformationP
       m_skeletonDeformation;  //!< Deformation curves for a plastic skeleton
   double m_noScaleZ;

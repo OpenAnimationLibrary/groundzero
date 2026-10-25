@@ -2460,6 +2460,10 @@ void MainWindow::defineActions() {
   createMenuLevelAction(MI_SortWithPaletteOrder,
                         QT_TR_NOOP("&Sort Strokes with Palette Order"), "",
                         "sort_with_palette_order");
+  createMenuLevelAction(MI_PairInbetweenStrokes,
+                        QT_TR_NOOP("&Pair Strokes for Inbetween"), "");
+  createMenuLevelAction(MI_ClearInbetweenStrokePairs,
+                        QT_TR_NOOP("&Clear Inbetween Stroke Pairs"), "");
   createMenuLevelAction(MI_AddFrames, QT_TR_NOOP("&Add Frames..."), "",
                         "add_cells");
   createMenuLevelAction(MI_Renumber, QT_TR_NOOP("&Renumber..."), "",
@@ -2534,6 +2538,8 @@ void MainWindow::defineActions() {
   createMenuXsheetAction(MI_SaveSubxsheetAs,
                          QT_TR_NOOP("&Save Sub-Xsheet As..."), "",
                          "sub_xsheet_saveas");
+  createMenuXsheetAction(MI_SaveAsTemplate,
+                         QT_TR_NOOP("Save Selection as Template..."), "");
   createMenuXsheetAction(MI_Resequence, QT_TR_NOOP("Resequence"), "",
                          "resequence");
   createMenuXsheetAction(MI_CloneChild, QT_TR_NOOP("Clone Sub-Xsheet"), "",
@@ -2734,6 +2740,8 @@ void MainWindow::defineActions() {
                FieldGuideToggleAction ? 1 : 0, MenuViewCommandType);
   createToggle(MI_ViewBBox, QT_TR_NOOP("&Raster Bounding Box"), "",
                ViewBBoxToggleAction ? 1 : 0, MenuViewCommandType);
+  createToggle(MI_LightTable, QT_TR_NOOP("&Light Table"), "", false,
+               MenuViewCommandType);
   createToggle(MI_SafeArea, QT_TR_NOOP("&Safe Area"), "",
                SafeAreaToggleAction ? 1 : 0, MenuViewCommandType);
   createToggle(MI_ViewColorcard, QT_TR_NOOP("&Camera BG Color"), "",
@@ -2873,6 +2881,7 @@ void MainWindow::defineActions() {
                           "Alt+S", "opentoonz");
   createMenuWindowsAction(MI_OpenAlignmentPanel,
                           QT_TR_NOOP("Align and Distribute Panel"), "", "");
+  createMenuWindowsAction(MI_OpenPosesPanel, QT_TR_NOOP("&Poses"), "", "");
   createMenuWindowsAction(MI_OpenGuidedDrawingControls,
                           QT_TR_NOOP("Guided Drawing Controls"), "",
                           "guided_drawing");
@@ -3055,6 +3064,9 @@ void MainWindow::defineActions() {
                              QT_TR_NOOP("Constant Interpolation"), "");
   createRightClickMenuAction(MI_FoldColumns, QT_TR_NOOP("Fold Column"), "",
                              "fold_column");
+  createRightClickMenuAction(MI_GroupColumns, QT_TR_NOOP("Group Columns"), "");
+  createRightClickMenuAction(MI_UngroupColumns, QT_TR_NOOP("Ungroup Columns"),
+                             "");
   createRightClickMenuAction(MI_ActivateThisColumnOnly,
                              QT_TR_NOOP("Show This Only"), "");
   createRightClickMenuAction(MI_ActivateSelectedColumns,
@@ -3088,6 +3100,13 @@ void MainWindow::defineActions() {
                              "Ctrl+Alt+Shift+U");
   createRightClickMenuAction(MI_ToggleColumnLocks,
                              QT_TR_NOOP("Swap Lock/Unlock"), "");
+  createRightClickMenuAction(MI_SelectionLockSelectedColumns,
+                             QT_TR_NOOP("Lock Selection in Viewer"), "");
+  createRightClickMenuAction(MI_SelectionUnlockSelectedColumns,
+                             QT_TR_NOOP("Unlock Selection in Viewer"), "");
+  createRightClickMenuAction(MI_SelectionUnlockAllColumns,
+                             QT_TR_NOOP("Unlock Selection in Viewer for All"),
+                             "");
   createRightClickMenuAction(MI_DeactivateUpperColumns,
                              QT_TR_NOOP("Hide Upper Columns"), "");
   createRightClickMenuAction(MI_SeparateColors,
