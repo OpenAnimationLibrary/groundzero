@@ -40,9 +40,6 @@ Notes:
 
 ### Installing Dependencies on Fedora
 
-This is the same dependency set used by the `Fedora` job in
-`.github/workflows/workflow_linux.yml`, so it is verified on every push.
-
 ```
 $ sudo dnf install gcc gcc-c++ automake libtool make git cmake ninja-build boost boost-devel SuperLU SuperLU-devel lz4-devel xz-devel libusb1-devel lzo-devel libjpeg-turbo-devel turbojpeg-devel glew glew-devel freeglut freeglut-devel freetype-devel libpng-devel blas blas-devel json-c-devel opencv-devel libmypaint-devel qt5-qtbase-devel qt5-qtsvg qt5-qtsvg-devel qt5-qtscript qt5-qtscript-devel qt5-qttools qt5-qttools-devel qt5-qttools-static qt5-qtmultimedia qt5-qtmultimedia-devel qt5-qtserialport-devel qt5-qtwayland pkgconf-pkg-config
 ```
