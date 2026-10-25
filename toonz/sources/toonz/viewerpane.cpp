@@ -826,8 +826,8 @@ void BaseViewerPanel::playAudioFrame(int frame) {
 //-----------------------------------------------------------------------------
 
 bool BaseViewerPanel::hasSoundtrack() {
-  if (m_sound != NULL) {
-    m_sound         = NULL;
+  if (m_sound) {
+    m_sound         = TSoundTrackP();
     m_hasSoundtrack = false;
     m_first         = true;
   }
@@ -843,7 +843,7 @@ bool BaseViewerPanel::hasSoundtrack() {
       throw TSoundDeviceException(e.getType(), e.getMessage());
     }
   }
-  if (m_sound == NULL) {
+  if (!m_sound) {
     m_hasSoundtrack = false;
     return false;
   } else {
