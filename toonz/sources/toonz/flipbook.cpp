@@ -1501,6 +1501,7 @@ void FlipBook::playAudioFrame(int frame) {
         }
       }
     }
+    m_flipConsole->showSoundLevels(m_snd, firstSample, lastSample);
   }
 }
 

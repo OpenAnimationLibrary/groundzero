@@ -821,6 +821,7 @@ void BaseViewerPanel::playAudioFrame(int frame) {
     TApp::instance()->getCurrentXsheet()->getXsheet()->stopScrub();
   TApp::instance()->getCurrentXsheet()->getXsheet()->play(m_sound, s0, s1,
                                                           false);
+  m_flipConsole->showSoundLevels(m_sound, s0, s1);
 }
 
 //-----------------------------------------------------------------------------
