@@ -2,6 +2,7 @@
 
 #include "tpanels.h"
 #include "alignmentpane.h"
+#include "posespane.h"
 
 // Tnz6 includes
 #include "pane.h"
@@ -1820,3 +1821,20 @@ public:
 OpenFloatingPanel openVectorAlignmentPanelCommand(
     MI_OpenAlignmentPanel, "AlignmentPanel",
     QObject::tr("Align and Distribute"));
+
+//=============================================================================
+// Poses
+//-----------------------------------------------------------------------------
+
+class PosesPanelFactory final : public TPanelFactory {
+public:
+  PosesPanelFactory() : TPanelFactory("PosesPanel") {}
+  void initialize(TPanel *panel) override {
+    panel->setWidget(new PosesPane(panel));
+    panel->setWindowTitle(QObject::tr("Poses"));
+    panel->setIsMaximizable(false);
+  }
+} posesPanelFactory;
+
+OpenFloatingPanel openPosesPanelCommand(MI_OpenPosesPanel, "PosesPanel",
+                                        QObject::tr("Poses"));
