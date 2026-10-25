@@ -101,7 +101,7 @@ To run the program with Canon DSLR camera support, you will need to copy the .dl
     - `Qt5Network.dll`
     - `Qt5OpenGL.dll`
     - `Qt5PrintSupport.dll`
-    - `Qt5Script.dll`
+    - `Qt5Qml.dll`
     - `Qt5SerialPort.dll`
     - `Qt5Svg.dll`
     - `Qt5Widgets.dll`

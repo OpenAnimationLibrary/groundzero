@@ -4,11 +4,13 @@
 #define SCRIPTBINDING_H
 
 #include <QObject>
-#include <QScriptable>
-#include <QScriptValue>
-#include <QScriptEngine>
+#include <QJSValue>
+#include <QJSEngine>
+#include <QHash>
 #include <QMetaType>
 #include <QColor>
+
+#include <functional>
 
 #include "timage.h"
 #include "toonz/vectorizerparameters.h"
@@ -29,19 +31,17 @@
 #endif
 
 // Macro for standard wrapper methods
+//
+// ctor() implements the script constructor of the class (e.g. new Image()).
+// It receives the arguments of the script call; to make the script throw it
+// calls engine->throwError() and returns QJSValue().
 #define WRAPPER_STD_METHODS(T)                                                 \
-  static QScriptValue ctor(QScriptContext *context, QScriptEngine *engine);    \
-  static QScriptValue toScriptValue(QScriptEngine *engine, T *const &in) {     \
-    return engine->newQObject(in);                                             \
-  }                                                                            \
-  static void fromScriptValue(const QScriptValue &object, T *&out) {           \
-    out = qobject_cast<T *>(object.toQObject());                               \
-  }
+  static QJSValue ctor(QJSEngine *engine, const QJSValueList &args);
 
 // Macro for standard constructor implementation
 #define WRAPPER_STD_CTOR_IMPL(T)                                               \
-  QScriptValue T::ctor(QScriptContext *context, QScriptEngine *engine) {       \
-    return engine->newQObject(new T(), QScriptEngine::AutoOwnership);          \
+  QJSValue T::ctor(QJSEngine *engine, const QJSValueList &args) {              \
+    return TScriptBinding::wrap(engine, new T());                              \
   }
 
 // Forward declarations
@@ -52,13 +52,29 @@ class TFilePath;
 
 namespace TScriptBinding {
 
+// A native script function (see Host::defineFunction()).
+typedef std::function<QJSValue(QJSEngine *engine, const QJSValueList &args)>
+    NativeFunction;
+
+// Returns the script value of obj, which becomes owned by the engine (unless
+// it has a parent). Script objects of the bound classes get the prototype of
+// their script constructor, so that e.g. "" + image calls Image::toString()
+// and image instanceof Image is true.
+DVAPI QJSValue wrap(QJSEngine *engine, QObject *obj);
+
+// Returns the object wrapped by value, if it is a T (else 0)
+template <class T>
+T *cast(const QJSValue &value) {
+  return qobject_cast<T *>(value.toQObject());
+}
+
 class DVAPI Void final : public QObject {
   Q_OBJECT
 public:
   WRAPPER_STD_METHODS(Void)
 };
 
-class DVAPI Wrapper : public QObject, protected QScriptable {
+class DVAPI Wrapper : public QObject {
   Q_OBJECT
 
   static int m_count;
@@ -72,43 +88,103 @@ public:
   int getId() const { return m_id; }
 
   void print(const QString &msg);
-  void print(const QScriptValueList &lst);
+  void print(const QJSValueList &lst);
 
   void warning(const QString &msg);
 
   template <class T>
-  QScriptValue create(QScriptEngine *engine) {
+  QJSValue create(QJSEngine *engine) {
     return create(engine, static_cast<T *>(this));
   }
 
   template <class T>
-  static QScriptValue create(QScriptEngine *engine, T *obj) {
-    return engine->newQObject(obj, QScriptEngine::AutoOwnership,
-                              QScriptEngine::ExcludeSuperClassContents |
-                                  QScriptEngine::ExcludeChildObjects);
+  static QJSValue create(QJSEngine *engine, T *obj) {
+    return wrap(engine, obj);
   }
 
 protected:
   template <class T>
-  QScriptValue create(T *obj) {
+  QJSValue create(T *obj) const {
     return create(engine(), obj);
   }
+
+  // The engine running the script that is calling this object (the object
+  // must have been wrapped, see wrap())
+  QJSEngine *engine() const { return qjsEngine(this); }
+
+  // The script value of this object (what the script methods return to
+  // allow chaining, e.g. image.load(path).save(otherPath))
+  QJSValue self() const;
+
+  // Makes the calling script throw an Error with the given message. Returns
+  // QJSValue() (undefined): methods can simply "return throwError(...)".
+  // Nothing (e.g. QJSValue::toString()) must be called on the engine after
+  // it in the same native call.
+  QJSValue throwError(const QString &message) const;
+};
+
+// Native side of the JavaScript glue installed by bindAll(). QJSEngine can't
+// wrap C++ function pointers as script functions, so the global constructors
+// (Image, Level, ...) and functions (print, run, ...) are small JavaScript
+// closures that pass their arguments, as an array, to the Q_INVOKABLE methods
+// of the Host. Scripts never get a reference to the Host itself.
+class Host final : public QObject {
+  Q_OBJECT
+  QJSEngine *m_engine;
+  QJSValue m_glue;
+  QHash<const QMetaObject *, QJSValue> m_prototypes;
+  QHash<QString, NativeFunction> m_functions;
+
+public:
+  explicit Host(QJSEngine *engine);
+  ~Host();
+
+  // The Host of engine (created by bindAll()), or 0
+  static Host *instance(QJSEngine *engine);
+
+  void install();
+
+  // Defines (or replaces) the global script function name
+  void defineFunction(const QString &name, const NativeFunction &f);
+  // Defines className.prototype.name, and className.name with the same
+  // function
+  void defineMethod(const QString &className, const QString &name,
+                    const NativeFunction &f);
+
+  // The prototype of the script objects wrapping a metaObject instance
+  QJSValue getPrototype(const QMetaObject *metaObject) const;
+
+  Q_INVOKABLE QJSValue construct(const QString &className,
+                                 const QJSValue &args);
+  Q_INVOKABLE QJSValue call(const QString &name, const QJSValue &args);
+  Q_INVOKABLE QString describe(const QJSValue &value) const;
 };
 
 // Initialize all script bindings
-void bindAll(QScriptEngine &engine);
+DVAPI void bindAll(QJSEngine &engine);
+
+// Defines (or replaces) the global script function name (bindAll() must have
+// been called)
+DVAPI void defineFunction(QJSEngine &engine, const QString &name,
+                          const NativeFunction &f);
+
+// The string printed for value: for the bound classes it is the result of
+// their toString() method
+DVAPI QString toString(const QJSValue &value);
 
 // Helper functions
+// They make the calling script throw an Error and return false if the check
+// fails
 
-// Check the number of arguments: if it is out of range returns an error object
-QScriptValue checkArgumentCount(QScriptContext *context, const QString &name,
-                                int minCount, int maxCount);
-QScriptValue checkArgumentCount(QScriptContext *context, const QString &name,
-                                int count);
+// Check the number of arguments
+DVAPI bool checkArgumentCount(QJSEngine *engine, const QJSValueList &args,
+                              const QString &name, int minCount, int maxCount);
+DVAPI bool checkArgumentCount(QJSEngine *engine, const QJSValueList &args,
+                              const QString &name, int count);
 
-// Check the color. if colorName is not valid then an error is returned
-QScriptValue checkColor(QScriptContext *context, const QString &colorName,
-                        QColor &color);
+// Check the color. if colorName is not valid then an error is thrown
+DVAPI bool checkColor(QJSEngine *engine, const QString &colorName,
+                      QColor &color);
 
 }  // namespace TScriptBinding
 

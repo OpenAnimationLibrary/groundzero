@@ -21,23 +21,26 @@ namespace TScriptBinding {
 
 //=======================================================
 
-static QScriptValue getScene(QScriptContext *context,
-                             const QScriptValue &sceneArg, Scene *&scene) {
-  scene = qscriptvalue_cast<Scene *>(sceneArg);
-  if (!scene)
-    return context->throwError(
-        QObject::tr("First argument must be a scene : %1")
-            .arg(sceneArg.toString()));
-  if (scene->getToonzScene() == 0)
-    return context->throwError(QObject::tr("Can't render empty scene"));
-  return QScriptValue();
+static bool getScene(QJSEngine *engine, const QJSValue &sceneArg,
+                     Scene *&scene) {
+  scene = cast<Scene>(sceneArg);
+  if (!scene) {
+    engine->throwError(QObject::tr("First argument must be a scene : %1")
+                           .arg(sceneArg.toString()));
+    return false;
+  }
+  if (scene->getToonzScene() == 0) {
+    engine->throwError(QObject::tr("Can't render empty scene"));
+    return false;
+  }
+  return true;
 }
 
-static void valueToIntList(const QScriptValue &arr, QList<int> &list) {
+static void valueToIntList(const QJSValue &arr, QList<int> &list) {
   list.clear();
   if (arr.isArray()) {
-    int length = arr.property("length").toInteger();
-    for (int i = 0; i < length; i++) list.append(arr.property(i).toInteger());
+    int length = arr.property("length").toInt();
+    for (int i = 0; i < length; i++) list.append(arr.property(i).toInt());
   }
 }
 
@@ -187,23 +190,22 @@ Renderer::Renderer() : m_imp(new Imp()) {}
 
 Renderer::~Renderer() {}
 
-QScriptValue Renderer::ctor(QScriptContext *context, QScriptEngine *engine) {
-  QScriptValue r = create(engine, new Renderer());
+QJSValue Renderer::ctor(QJSEngine *engine, const QJSValueList &args) {
+  QJSValue r = create(engine, new Renderer());
   r.setProperty("frames", engine->newArray());
   r.setProperty("columns", engine->newArray());
   return r;
 }
 
-QScriptValue Renderer::toString() { return "Renderer"; }
+QString Renderer::toString() { return "Renderer"; }
 
-QScriptValue Renderer::renderScene(const QScriptValue &sceneArg) {
-  QScriptValue obj = context()->thisObject();
+QJSValue Renderer::renderScene(const QJSValue &sceneArg) {
+  QJSValue obj = self();
   valueToIntList(obj.property("frames"), m_imp->m_frameList);
   valueToIntList(obj.property("columns"), m_imp->m_columnList);
 
-  Scene *scene     = 0;
-  QScriptValue err = getScene(context(), sceneArg, scene);
-  if (err.isError()) return err;
+  Scene *scene = 0;
+  if (!getScene(engine(), sceneArg, scene)) return QJSValue();
 
   Level *outputLevel = new Level();
   // engine()->collectGarbage();
@@ -229,14 +231,13 @@ return newLevel;
 */
 }
 
-Q_INVOKABLE QScriptValue Renderer::renderFrame(const QScriptValue &sceneArg,
-                                               int frame) {
-  QScriptValue obj = context()->thisObject();
+Q_INVOKABLE QJSValue Renderer::renderFrame(const QJSValue &sceneArg,
+                                           int frame) {
+  QJSValue obj = self();
   valueToIntList(obj.property("columns"), m_imp->m_columnList);
 
-  Scene *scene     = 0;
-  QScriptValue err = getScene(context(), sceneArg, scene);
-  if (err.isError()) return err;
+  Scene *scene = 0;
+  if (!getScene(engine(), sceneArg, scene)) return QJSValue();
 
   Image *outputImage = new Image();
   engine()->collectGarbage();

@@ -294,7 +294,7 @@ find_package(Qt5 REQUIRED
     OpenGL
     Svg
     Xml
-    Script
+    Qml
     Widgets
     PrintSupport
     LinguistTools
@@ -309,7 +309,8 @@ if(NOT Qt5Core_FOUND)
 endif()
 message(STATUS "Qt5 Modules: ${Qt5Core_VERSION}")
 
-set(QT_MINIMUM_VERSION 5.5.0)
+# 5.14: QJSEngine::setInterrupted() (script console interruption)
+set(QT_MINIMUM_VERSION 5.14.0)
 if(Qt5Core_VERSION VERSION_LESS QT_MINIMUM_VERSION)
     MESSAGE(FATAL_ERROR "Minimum supported Qt version: ${QT_MINIMUM_VERSION}.
     Installed version: ${Qt5Core_VERSION}")
@@ -751,9 +752,10 @@ option(BUILD_EXR_TESTS "Build the OpenEXR image I/O and level source regression 
 option(BUILD_EXR_AOV_FX_TESTS "Build the OpenEXR AOV FX regression test" ${BUILD_TESTS})
 option(BUILD_FRAME_STRIPS_TESTS "Build the parallel frame strips render regression test" ${BUILD_TESTS})
 option(BUILD_FFMPEG_TESTS "Build the FFmpeg export regression test (needs an ffmpeg executable at configure time)" ${BUILD_TESTS})
+option(BUILD_SCRIPT_TESTS "Build the script engine (QJSEngine bindings) regression test" ${BUILD_TESTS})
 option(BUILD_TNZTOOLS_TESTS "Build the tnztools helper regression tests" ${BUILD_TESTS})
 if(BUILD_TESTS OR BUILD_EXR_TESTS OR BUILD_EXR_AOV_FX_TESTS OR
-   BUILD_TNZTOOLS_TESTS OR BUILD_FFMPEG_TESTS OR BUILD_FRAME_STRIPS_TESTS OR BUILD_LUT3D_TESTS OR BUILD_GLB_FX_TESTS OR
+   BUILD_TNZTOOLS_TESTS OR BUILD_SCRIPT_TESTS OR BUILD_FFMPEG_TESTS OR BUILD_FRAME_STRIPS_TESTS OR BUILD_LUT3D_TESTS OR BUILD_GLB_FX_TESTS OR
    BUILD_FXRENDER_TESTS)
     enable_testing()
 endif()

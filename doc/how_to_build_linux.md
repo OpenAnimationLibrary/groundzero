@@ -24,7 +24,7 @@ configure with `-DOT_USE_SYSTEM_OPENEXR=ON`.
 ### Installing Dependencies on Debian / Ubuntu
 
 ```
-$sudo apt-get install build-essential git cmake pkg-config libboost-all-dev qtbase5-dev libqt5svg5-dev qtscript5-dev qttools5-dev qttools5-dev-tools libqt5opengl5-dev qtmultimedia5-dev libqt5multimedia5-plugins libqt5serialport5-dev libsuperlu-dev liblz4-dev libusb-1.0-0-dev liblzo2-dev libpng-dev libjpeg-dev libglew-dev freeglut3-dev libfreetype6-dev libjson-c-dev qtwayland5 libmypaint-dev libopencv-dev libturbojpeg-dev
+$sudo apt-get install build-essential git cmake pkg-config libboost-all-dev qtbase5-dev libqt5svg5-dev qtdeclarative5-dev qttools5-dev qttools5-dev-tools libqt5opengl5-dev qtmultimedia5-dev libqt5multimedia5-plugins libqt5serialport5-dev libsuperlu-dev liblz4-dev libusb-1.0-0-dev liblzo2-dev libpng-dev libjpeg-dev libglew-dev freeglut3-dev libfreetype6-dev libjson-c-dev qtwayland5 libmypaint-dev libopencv-dev libturbojpeg-dev
 ```
 
 For newest versions of OS you may install libmypaint from repository and don't need to build it from source:
@@ -44,7 +44,7 @@ This is the same dependency set used by the `Fedora` job in
 `.github/workflows/workflow_linux.yml`, so it is verified on every push.
 
 ```
-$ sudo dnf install gcc gcc-c++ automake libtool make git cmake ninja-build boost boost-devel SuperLU SuperLU-devel lz4-devel xz-devel libusb1-devel lzo-devel libjpeg-turbo-devel turbojpeg-devel glew glew-devel freeglut freeglut-devel freetype-devel libpng-devel blas blas-devel json-c-devel opencv-devel libmypaint-devel qt5-qtbase-devel qt5-qtsvg qt5-qtsvg-devel qt5-qtscript qt5-qtscript-devel qt5-qttools qt5-qttools-devel qt5-qttools-static qt5-qtmultimedia qt5-qtmultimedia-devel qt5-qtserialport-devel qt5-qtwayland pkgconf-pkg-config
+$ sudo dnf install gcc gcc-c++ automake libtool make git cmake ninja-build boost boost-devel SuperLU SuperLU-devel lz4-devel xz-devel libusb1-devel lzo-devel libjpeg-turbo-devel turbojpeg-devel glew glew-devel freeglut freeglut-devel freetype-devel libpng-devel blas blas-devel json-c-devel opencv-devel libmypaint-devel qt5-qtbase-devel qt5-qtsvg qt5-qtsvg-devel qt5-qtdeclarative qt5-qtdeclarative-devel qt5-qttools qt5-qttools-devel qt5-qttools-static qt5-qtmultimedia qt5-qtmultimedia-devel qt5-qtserialport-devel qt5-qtwayland pkgconf-pkg-config
 ```
 
 `libmypaint-devel` is included above, so there is no need to build libmypaint
@@ -54,7 +54,7 @@ from source on Fedora.
 ### Installing Dependencies on ArchLinux
 
 ```
-$ sudo pacman -S base-devel git cmake boost boost-libs qt5-base qt5-svg qt5-script qt5-tools qt5-multimedia lz4 libusb lzo libjpeg-turbo glew freeglut freetype2
+$ sudo pacman -S base-devel git cmake boost boost-libs qt5-base qt5-svg qt5-declarative qt5-tools qt5-multimedia lz4 libusb lzo libjpeg-turbo glew freeglut freetype2
 $ sudo pacman -S blas cblas
 ```
 From AUR, using eg. yaourt:
@@ -68,7 +68,7 @@ Notes:
 ### Installing Dependencies on openSUSE
 
 ```
-$ zypper in boost-devel cmake freeglut-devel freetype2-devel gcc-c++ glew-devel libQt5OpenGL-devel libjpeg-devel liblz4-devel libpng16-compat-devel libqt5-linguist-devel libqt5-qtbase-devel libqt5-qtmultimedia-devel libqt5-qtscript-devel libqt5-qtsvg-devel libtiff-devel libusb-devel lzo-devel openblas-devel pkgconfig sed superlu-devel zlib-devel json-c-devel libqt5-qtmultimedia
+$ zypper in boost-devel cmake freeglut-devel freetype2-devel gcc-c++ glew-devel libQt5OpenGL-devel libjpeg-devel liblz4-devel libpng16-compat-devel libqt5-linguist-devel libqt5-qtbase-devel libqt5-qtmultimedia-devel libqt5-qtdeclarative-devel libqt5-qtsvg-devel libtiff-devel libusb-devel lzo-devel openblas-devel pkgconfig sed superlu-devel zlib-devel json-c-devel libqt5-qtmultimedia
 ```
 
 For newest versions of OS you may install libmypaint from repository and don't need to build it from source:

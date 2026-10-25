@@ -96,7 +96,7 @@ Visual Studio 2019构建的工程文件可以使用2022版本打开。
   - `Qt5Network.dll`
   - `Qt5OpenGL.dll`
   - `Qt5PrintSupport.dll`
-  - `Qt5Script.dll`
+  - `Qt5Qml.dll`
   - `Qt5SerialPort.dll`
   - `Qt5Svg.dll`
   - `Qt5Widgets.dll`

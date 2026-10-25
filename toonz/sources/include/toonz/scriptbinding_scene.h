@@ -16,32 +16,37 @@ public:
   ~Scene();
 
   WRAPPER_STD_METHODS(Scene)
-  Q_INVOKABLE QScriptValue toString();
+  Q_INVOKABLE QString toString();
 
   Q_PROPERTY(int frameCount READ getFrameCount)
   Q_PROPERTY(int columnCount READ getColumnCount)
   int getFrameCount();
   int getColumnCount();
 
-  Q_INVOKABLE QScriptValue load(const QScriptValue &fpArg);
-  Q_INVOKABLE QScriptValue save(const QScriptValue &fpArg);
+  Q_INVOKABLE QJSValue load(const QJSValue &fpArg);
+  Q_INVOKABLE QJSValue save(const QJSValue &fpArg);
 
-  QString doSetCell(int row, int col, const QScriptValue &level,
-                    const QScriptValue &fid);
-  Q_INVOKABLE QScriptValue setCell(int row, int col, const QScriptValue &level,
-                                   const QScriptValue &fid);
-  Q_INVOKABLE QScriptValue setCell(int row, int col, const QScriptValue &cell);
-  Q_INVOKABLE QScriptValue getCell(int row, int col);
+  QString doSetCell(int row, int col, const QJSValue &level,
+                    const QJSValue &fid);
+  Q_INVOKABLE QJSValue setCell(int row, int col, const QJSValue &level,
+                               const QJSValue &fid);
+  Q_INVOKABLE QJSValue setCell(int row, int col, const QJSValue &cell);
+  Q_INVOKABLE QJSValue getCell(int row, int col);
 
-  Q_INVOKABLE QScriptValue insertColumn(int col);
-  Q_INVOKABLE QScriptValue deleteColumn(int col);
+  Q_INVOKABLE QJSValue insertColumn(int col);
+  Q_INVOKABLE QJSValue deleteColumn(int col);
 
-  Q_INVOKABLE QScriptValue getLevels() const;
-  Q_INVOKABLE QScriptValue getLevel(const QString &name) const;
-  Q_INVOKABLE QScriptValue newLevel(const QString &type,
-                                    const QString &name) const;
-  Q_INVOKABLE QScriptValue loadLevel(const QString &name,
-                                     const QScriptValue &path) const;
+  Q_INVOKABLE QJSValue getLevels() const;
+  Q_INVOKABLE QJSValue getLevel(const QString &name) const;
+  Q_INVOKABLE QJSValue newLevel(const QString &type, const QString &name) const;
+  Q_INVOKABLE QJSValue loadLevel(const QString &name,
+                                 const QJSValue &path) const;
+
+  // The stage objects of the xsheet (see StageObject): by id (Col1, Peg1,
+  // Camera1, Table) or by name, all of them, and a new pegbar
+  Q_INVOKABLE QJSValue getStageObject(const QString &name);
+  Q_INVOKABLE QJSValue getStageObjects();
+  Q_INVOKABLE QJSValue newPegbar();
 
   ToonzScene *getToonzScene() const { return m_scene; }
 };

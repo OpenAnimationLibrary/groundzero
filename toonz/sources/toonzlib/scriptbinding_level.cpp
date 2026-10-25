@@ -30,7 +30,6 @@
 #include "tsystem.h"
 
 // Qt includes
-#include <QScriptEngine>
 #include <QRegularExpression>
 #include <QColor>
 
@@ -63,18 +62,18 @@ Level::~Level() {
   }
 }
 
-QScriptValue Level::ctor(QScriptContext *context, QScriptEngine *engine) {
-  Level *level     = new Level();
-  QScriptValue obj = engine->newQObject(level, QScriptEngine::AutoOwnership);
+QJSValue Level::ctor(QJSEngine *engine, const QJSValueList &args) {
+  Level *level = new Level();
+  QJSValue obj = create(engine, level);
 
-  if (context->argumentCount() == 1) {
-    return obj.property("load").call(obj, context->argumentsObject());
+  if (args.size() == 1) {
+    return level->load(args[0]);
   }
 
   return obj;
 }
 
-QScriptValue Level::toString() {
+QString Level::toString() {
   QString info = "(";
   QString comma;
 
@@ -127,31 +126,30 @@ void Level::setName(const QString &name) {
   }
 }
 
-QScriptValue Level::getPath() const {
+QJSValue Level::getPath() const {
   if (m_sl) {
     FilePath *result = new FilePath(m_sl->getPath());
     return result->create<FilePath>(engine());
   }
-  return QScriptValue();
+  return QJSValue();
 }
 
-void Level::setPath(const QScriptValue &pathArg) {
+void Level::setPath(const QJSValue &pathArg) {
   if (!m_sl) {
-    context()->throwError(tr("Cannot set path on empty level"));
+    throwError(tr("Cannot set path on empty level"));
     return;
   }
 
   TFilePath fp;
-  FilePath *filePath = qscriptvalue_cast<FilePath *>(pathArg);
+  FilePath *filePath = cast<FilePath>(pathArg);
 
   if (filePath) {
     fp = filePath->getToonzFilePath();
   } else if (pathArg.isString()) {
     fp = TFilePath(pathArg.toString().toStdString());
   } else {
-    context()->throwError(
-        tr("Bad argument (%1). It should be FilePath or string")
-            .arg(pathArg.toString()));
+    throwError(tr("Bad argument (%1). It should be FilePath or string")
+                   .arg(pathArg.toString()));
     return;
   }
 
@@ -159,13 +157,12 @@ void Level::setPath(const QScriptValue &pathArg) {
   try {
     m_sl->load();
   } catch (...) {
-    context()->throwError(
-        tr("Exception loading level (%1)")
-            .arg(QString::fromStdWString(fp.getWideString())));
+    throwError(tr("Exception loading level (%1)")
+                   .arg(QString::fromStdWString(fp.getWideString())));
   }
 }
 
-QScriptValue Level::load(const QScriptValue &fpArg) {
+QJSValue Level::load(const QJSValue &fpArg) {
   // Clean up existing level if any
   if (m_sl) {
     if (m_scene) {
@@ -177,16 +174,15 @@ QScriptValue Level::load(const QScriptValue &fpArg) {
 
   // Get the path
   TFilePath fp;
-  QScriptValue err = checkFilePath(context(), fpArg, fp);
-  if (err.isError()) {
-    return err;
+  if (!checkFilePath(engine(), fpArg, fp)) {
+    return QJSValue();
   }
 
   QString fpStr = fpArg.toString();
 
   try {
     if (!TSystem::doesExistFileOrLevel(fp)) {
-      return context()->throwError(tr("File %1 doesn't exist").arg(fpStr));
+      return throwError(tr("File %1 doesn't exist").arg(fpStr));
     }
 
     TFileType::Type fileType = TFileType::getInfo(fp);
@@ -197,7 +193,7 @@ QScriptValue Level::load(const QScriptValue &fpArg) {
     } else if (0 != (fileType & TFileType::RASTER_IMAGE)) {
       m_type = OVL_XSHLEVEL;
     } else {
-      return context()->throwError(tr("File %1 is unsupported").arg(fpStr));
+      return throwError(tr("File %1 is unsupported").arg(fpStr));
     }
 
     TXshLevel *xl = m_scene->loadLevel(fp);
@@ -206,22 +202,21 @@ QScriptValue Level::load(const QScriptValue &fpArg) {
       m_sl->addRef();
     }
 
-    return context()->thisObject();
+    return self();
   } catch (...) {
-    return context()->throwError(tr("Exception reading %1").arg(fpStr));
+    return throwError(tr("Exception reading %1").arg(fpStr));
   }
 }
 
-QScriptValue Level::save(const QScriptValue &fpArg) {
+QJSValue Level::save(const QJSValue &fpArg) {
   if (getFrameCount() == 0) {
-    return context()->throwError(tr("Can't save an empty level"));
+    return throwError(tr("Can't save an empty level"));
   }
 
   // Get the path
   TFilePath fp;
-  QScriptValue err = checkFilePath(context(), fpArg, fp);
-  if (err.isError()) {
-    return err;
+  if (!checkFilePath(engine(), fpArg, fp)) {
+    return QJSValue();
   }
 
   QString fpStr = fpArg.toString();
@@ -237,27 +232,25 @@ QScriptValue Level::save(const QScriptValue &fpArg) {
   } else if (fileType & TFileType::CMAPPED_IMAGE) {
     if (m_sl->getType() == TZP_XSHLEVEL) isCompatible = true;
   } else {
-    return context()->throwError(tr("Unrecognized file type: %1").arg(fpStr));
+    return throwError(tr("Unrecognized file type: %1").arg(fpStr));
   }
 
   if (!isCompatible) {
-    return context()->throwError(
-        tr("Can't save a %1 level to this file type: %2")
-            .arg(getType(), fpStr));
+    return throwError(tr("Can't save a %1 level to this file type: %2")
+                          .arg(getType(), fpStr));
   }
 
   try {
     m_sl->save(fp);
   } catch (TSystemException &se) {
-    return context()->throwError(
-        tr("Exception writing %1")
-            .arg(QString::fromStdWString(se.getMessage())));
+    return throwError(tr("Exception writing %1")
+                          .arg(QString::fromStdWString(se.getMessage())));
   }
 
-  return context()->thisObject();
+  return self();
 }
 
-TFrameId Level::getFid(const QScriptValue &arg, QString &err) {
+TFrameId Level::getFid(const QJSValue &arg, QString &err) {
   if (arg.isNumber() || arg.isString()) {
     QString s = arg.toString();
     QRegularExpression re(R"(^(-?\d+)(\w?)$)");
@@ -288,15 +281,15 @@ TImageP Level::getImg(const TFrameId &fid) {
   return m_sl ? m_sl->getFrame(fid, false) : TImageP();
 }
 
-QScriptValue Level::getFrame(const QScriptValue &fidArg) {
+QJSValue Level::getFrame(const QJSValue &fidArg) {
   if (getFrameCount() == 0) {
-    return context()->throwError("An empty level has no frames");
+    return throwError("An empty level has no frames");
   }
 
   QString err;
   TFrameId fid = getFid(fidArg, err);
   if (!err.isEmpty()) {
-    return context()->throwError(err);
+    return throwError(err);
   }
 
   TImageP content = m_sl->getFrame(fid, false);
@@ -305,24 +298,24 @@ QScriptValue Level::getFrame(const QScriptValue &fidArg) {
     return create(img);
   }
 
-  return QScriptValue();
+  return QJSValue();
 }
 
-QScriptValue Level::getFrameByIndex(const QScriptValue &indexArg) {
+QJSValue Level::getFrameByIndex(const QJSValue &indexArg) {
   if (getFrameCount() == 0) {
-    return context()->throwError("An empty level has no frames");
+    return throwError("An empty level has no frames");
   }
 
   if (!indexArg.isNumber()) {
-    return context()->throwError(
+    return throwError(
         tr("frame index (%1) must be a number").arg(indexArg.toString()));
   }
 
-  int index = indexArg.toInteger();
+  int index = indexArg.toInt();
   if (index < 0 || index >= getFrameCount()) {
-    return context()->throwError(tr("frame index (%1) is out of range (0-%2)")
-                                     .arg(index)
-                                     .arg(getFrameCount() - 1));
+    return throwError(tr("frame index (%1) is out of range (0-%2)")
+                          .arg(index)
+                          .arg(getFrameCount() - 1));
   }
 
   TFrameId fid    = m_sl->index2fid(index);
@@ -333,20 +326,19 @@ QScriptValue Level::getFrameByIndex(const QScriptValue &indexArg) {
     return create(img);
   }
 
-  return QScriptValue();
+  return QJSValue();
 }
 
-QScriptValue Level::setFrame(const QScriptValue &fidArg,
-                             const QScriptValue &imageArg) {
+QJSValue Level::setFrame(const QJSValue &fidArg, const QJSValue &imageArg) {
   QString err;
   TFrameId fid = getFid(fidArg, err);
   if (!err.isEmpty()) {
-    return context()->throwError(err);
+    return throwError(err);
   }
 
-  Image *img = qscriptvalue_cast<Image *>(imageArg);
+  Image *img = cast<Image>(imageArg);
   if (!img) {
-    return context()->throwError(
+    return throwError(
         tr("second argument (%1) is not an image").arg(imageArg.toString()));
   }
 
@@ -360,8 +352,7 @@ QScriptValue Level::setFrame(const QScriptValue &fidArg,
   } else if (imgType == "Vector") {
     levelType = PLI_XSHLEVEL;
   } else {
-    return context()->throwError(
-        tr("cannot insert a %1 image into a level").arg(imgType));
+    return throwError(tr("cannot insert a %1 image into a level").arg(imgType));
   }
 
   // Handle empty level case
@@ -385,7 +376,7 @@ QScriptValue Level::setFrame(const QScriptValue &fidArg,
       lprop->setImageRes(TDimension(xres, yres));
     }
   } else if (m_type != levelType) {
-    return context()->throwError(
+    return throwError(
         tr("cannot insert a %1 image to a %2 level").arg(imgType, getType()));
   }
 
@@ -395,14 +386,14 @@ QScriptValue Level::setFrame(const QScriptValue &fidArg,
 
   m_sl->setFrame(fid, img->getImg());
   m_sl->setDirtyFlag(true);
-  return context()->thisObject();
+  return self();
 }
 
-QScriptValue Level::getFrameIds() {
+QJSValue Level::getFrameIds() {
   QList<TFrameId> fids;
   getFrameIds(fids);
 
-  QScriptValue result = engine()->newArray();
+  QJSValue result     = engine()->newArray();
   quint32 index       = 0;
 
   for (const TFrameId &fid : fids) {

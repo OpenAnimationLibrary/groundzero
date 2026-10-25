@@ -21,10 +21,10 @@ public:
   Rasterizer();
   ~Rasterizer();
 
-  Q_INVOKABLE QScriptValue toString();
+  Q_INVOKABLE QString toString();
   WRAPPER_STD_METHODS(Rasterizer)
 
-  Q_INVOKABLE QScriptValue rasterize(QScriptValue img);
+  Q_INVOKABLE QJSValue rasterize(QJSValue img);
 
   Q_PROPERTY(bool colorMapped READ getColorMapped WRITE setColorMapped)
   bool getColorMapped() const;

@@ -44,7 +44,7 @@ configure with `-DOT_USE_SYSTEM_OPENEXR=ON`.
 
 NOTE: This will install the latest version of QT v5.x which may not be compatible with older OS versions.
 
-If you cannot use the most recent version, download the online installer from https://www.qt.io/download and install the appropriate `macOS` version (min 5.15).  If installing via this method, be sure to install the `Qt Script (Deprecated)` libraries.
+If you cannot use the most recent version, download the online installer from https://www.qt.io/download and install the appropriate `macOS` version (min 5.15).
 
 ### Remove incompatible symbolic directory
 Check to see if this symbolic glew directory exists. If so, remove it:

@@ -19,39 +19,37 @@
 #include "flipbook.h"
 #include "tvectorimage.h"
 
-#include <QScriptEngine>
+#include <QJSEngine>
+#include <QJSValue>
 #include <QFile>
 #include <QTextStream>
 
-static QScriptValue loadSceneFun(QScriptContext *context,
-                                 QScriptEngine *engine) {
-  if (context->argumentCount() > 0) {
-    QString fpArg = context->argument(0).toString();
+static QJSValue loadSceneFun(QJSEngine *engine, const QJSValueList &args) {
+  if (args.size() > 0) {
+    QString fpArg = args[0].toString();
     TFilePath fp(fpArg.toStdWString());
     IoCmd::loadScene(fp);
   }
-  return QScriptValue();
+  return QJSValue();
 }
 
-static QScriptValue saveSceneFun(QScriptContext *context,
-                                 QScriptEngine *engine) {
-  if (context->argumentCount() > 0) {
-    QString fpArg = context->argument(0).toString();
+static QJSValue saveSceneFun(QJSEngine *engine, const QJSValueList &args) {
+  if (args.size() > 0) {
+    QString fpArg = args[0].toString();
     TFilePath fp(fpArg.toStdWString());
     IoCmd::saveScene(fp, IoCmd::SILENTLY_OVERWRITE);
   }
-  return QScriptValue();
+  return QJSValue();
 }
 
-static QScriptValue loadLevelFun(QScriptContext *context,
-                                 QScriptEngine *engine) {
-  if (context->argumentCount() > 0) {
-    QString fpArg = context->argument(0).toString();
+static QJSValue loadLevelFun(QJSEngine *engine, const QJSValueList &args) {
+  if (args.size() > 0) {
+    QString fpArg = args[0].toString();
     TFilePath fp(fpArg.toStdWString());
     int row = 0, col = 0;
-    if (context->argumentCount() == 3) {
-      row = context->argument(1).toInteger();
-      col = context->argument(1).toInteger();
+    if (args.size() == 3) {
+      row = args[1].toInt();
+      col = args[1].toInt();
     }
 
     TApp *app         = TApp::instance();
@@ -67,60 +65,59 @@ static QScriptValue loadLevelFun(QScriptContext *context,
     app->getCurrentScene()->notifySceneChanged();
     app->getCurrentXsheet()->notifyXsheetChanged();
   }
-  return QScriptValue();
+  return QJSValue();
 }
 
-static QScriptValue dummyFun(QScriptContext *context, QScriptEngine *engine) {
-  return QScriptValue(engine, 0);
+static QJSValue dummyFun(QJSEngine *engine, const QJSValueList &args) {
+  return QJSValue(0);
 }
 
-static QScriptValue viewFun(QScriptContext *context, QScriptEngine *engine) {
+static QJSValue viewFun(ScriptEngine *teng, QJSEngine *engine,
+                        const QJSValueList &args) {
   TScriptBinding::Image *image = 0;
   TScriptBinding::Level *level = 0;
 
-  if (context->argumentCount() == 1) {
-    image = qscriptvalue_cast<TScriptBinding::Image *>(context->argument(0));
-    level = qscriptvalue_cast<TScriptBinding::Level *>(context->argument(0));
+  if (args.size() == 1) {
+    image = TScriptBinding::cast<TScriptBinding::Image>(args[0]);
+    level = TScriptBinding::cast<TScriptBinding::Level>(args[0]);
   }
+  QString err;
   if (image) {
-    if (!image->getImg())
-      return context->throwError("Can't view an empty image");
+    if (!image->getImg()) err = "Can't view an empty image";
   } else if (level) {
-    if (!level->getSimpleLevel())
-      return context->throwError("Can't view an empty level");
+    if (!level->getSimpleLevel()) err = "Can't view an empty level";
   } else {
-    return context->throwError("expected one argument : an image or a level");
+    err = "expected one argument : an image or a level";
+  }
+  if (!err.isEmpty()) {
+    engine->throwError(err);
+    return QJSValue();
   }
 
-  FlipBook *flipBook;
-  flipBook = FlipBookPool::instance()->pop();
-  if (image) {
-    ImageViewer *imageViewer = flipBook->getImageViewer();
-    imageViewer->setImage(image->getImg());
-  } else {
-    flipBook->setLevel(level->getSimpleLevel());
-  }
-  return engine->globalObject().property("void");
+  // the flipbook must be used by the main thread
+  teng->runOnMainThread([image, level]() {
+    FlipBook *flipBook;
+    flipBook = FlipBookPool::instance()->pop();
+    if (image) {
+      ImageViewer *imageViewer = flipBook->getImageViewer();
+      imageViewer->setImage(image->getImg());
+    } else {
+      flipBook->setLevel(level->getSimpleLevel());
+    }
+  });
+  return teng->voidValue();
 }
 
-static QScriptValue evaluateOnMainThread(QScriptContext *context,
-                                         QScriptEngine *engine) {
-  QScriptValue fun = context->callee().data();
-  QObject *obj     = fun.data().toQObject();
-  QString s        = fun.toString();
-  ScriptEngine *se = qobject_cast<ScriptEngine *>(obj);
-  return se->evaluateOnMainThread(fun, context->argumentsObject());
-}
-
+// Defines a script function that runs on the main thread (while the script
+// waits for it). fun must not use the engine.
 static void def(ScriptEngine *teng, const QString &name,
-                QScriptEngine::FunctionSignature fun) {
-  QScriptEngine *eng  = teng->getQScriptEngine();
-  QScriptValue funVal = eng->newFunction(fun);
-  funVal.setData(eng->newQObject(teng));
-
-  QScriptValue evalFun = eng->newFunction(evaluateOnMainThread);
-  evalFun.setData(funVal);
-  eng->globalObject().setProperty(name, evalFun);
+                QJSValue (*fun)(QJSEngine *, const QJSValueList &)) {
+  teng->defineFunction(
+      name, [teng, fun](QJSEngine *engine, const QJSValueList &args) {
+        QJSValue result;
+        teng->runOnMainThread([&]() { result = fun(engine, args); });
+        return result;
+      });
 }
 
 ScriptConsolePanel::ScriptConsolePanel(QWidget *parent, Qt::WindowFlags flags)
@@ -139,7 +136,10 @@ def(teng, "loadScene", loadSceneFun);
 def(teng, "loadLevel", loadLevelFun);
 */
 
-  def(teng, "view", viewFun);
+  teng->defineFunction("view",
+                       [teng](QJSEngine *engine, const QJSValueList &args) {
+                         return viewFun(teng, engine, args);
+                       });
   def(teng, "dummy", dummyFun);
 
   // teng->getQScriptEngine()->evaluate("console={version:'1.0'};function

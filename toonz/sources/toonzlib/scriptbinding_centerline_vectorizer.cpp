@@ -2,7 +2,6 @@
 
 #include "toonz/scriptbinding_centerline_vectorizer.h"
 #include "toonz/scriptbinding_level.h"
-#include <QScriptEngine>
 #include "toonz/tcenterlinevectorizer.h"
 #include "toonz/stage.h"
 #include "toonz/Naa2TlvConverter.h"
@@ -16,17 +15,15 @@ namespace TScriptBinding {
 CenterlineVectorizer::CenterlineVectorizer()
     : m_parameters(std::make_unique<CenterlineConfiguration>()) {}
 //----------------------------------------------------------
-QScriptValue CenterlineVectorizer::toString() {
-  return "Centerline Vectorizer";
-}
+QString CenterlineVectorizer::toString() { return "Centerline Vectorizer"; }
 //----------------------------------------------------------
-QScriptValue CenterlineVectorizer::ctor(QScriptContext *context,
-                                        QScriptEngine *engine) {
+QJSValue CenterlineVectorizer::ctor(QJSEngine *engine,
+                                    const QJSValueList &args) {
   return create(engine, new CenterlineVectorizer());
 }
 //----------------------------------------------------------
-QScriptValue CenterlineVectorizer::vectorizeImage(const TImageP &src,
-                                                  TPalette *palette) {
+QJSValue CenterlineVectorizer::vectorizeImage(const TImageP &src,
+                                              TPalette *palette) {
   VectorizerCore vc;
   TAffine dpiAff;
   double factor = Stage::inch;
@@ -40,7 +37,7 @@ QScriptValue CenterlineVectorizer::vectorizeImage(const TImageP &src,
     ti->getDpi(dpix, dpiy);
     center = ti->getRaster()->getCenterD();
   } else {
-    return context()->throwError(QObject::tr("Vectorization failed"));
+    return throwError(QObject::tr("Vectorization failed"));
   }
 
   if (dpix != 0.0 && dpiy != 0.0) dpiAff = TScale(factor / dpix, factor / dpiy);
@@ -55,34 +52,32 @@ QScriptValue CenterlineVectorizer::vectorizeImage(const TImageP &src,
       vc.vectorize(src, *m_parameters, paletteHolder.getPointer());
   vi->setPalette(paletteHolder.getPointer());
 
-  return engine()->newQObject(new Image(vi), QScriptEngine::AutoOwnership);
+  return create(engine(), new Image(vi));
 }
 //----------------------------------------------------------
-QScriptValue CenterlineVectorizer::vectorize(QScriptValue arg) {
-  Level *level = qscriptvalue_cast<Level *>(arg);
-  Image *img   = qscriptvalue_cast<Image *>(arg);
+QJSValue CenterlineVectorizer::vectorize(QJSValue arg) {
+  Level *level = cast<Level>(arg);
+  Image *img   = cast<Image>(arg);
   QString type;
   TPaletteP palette;
 
   if (level) {
     type = level->getType();
     if (type != "Raster" && type != "ToonzRaster")
-      return context()->throwError(tr("Can't vectorize a %1 level").arg(type));
+      return throwError(tr("Can't vectorize a %1 level").arg(type));
     if (level->getFrameCount() <= 0)
-      return context()->throwError(
-          tr("Can't vectorize a level with no frames"));
+      return throwError(tr("Can't vectorize a level with no frames"));
     palette = level->getSimpleLevel()->getPalette();  // may be null
   } else if (img) {
     type = img->getType();
     if (type != "Raster" && type != "ToonzRaster")
-      return context()->throwError(tr("Can't vectorize a %1 image").arg(type));
+      return throwError(tr("Can't vectorize a %1 image").arg(type));
     if (TToonzImageP ti = img->getImg()) {
       palette = ti->getPalette();
     }
   } else {
-    return context()->throwError(
-        tr("Bad argument (%1): should be an Image or a Level")
-            .arg(arg.toString()));
+    return throwError(tr("Bad argument (%1): should be an Image or a Level")
+                          .arg(arg.toString()));
   }
 
   // If no palette was provided, create a new one.
@@ -91,26 +86,25 @@ QScriptValue CenterlineVectorizer::vectorize(QScriptValue arg) {
   if (img) {
     return vectorizeImage(img->getImg(), palette.getPointer());
   } else if (level) {
-    QScriptValue newLevel = create(engine(), new Level());
+    Level *outputLevel = new Level();
+    QJSValue newLevel  = create(engine(), outputLevel);
     QList<TFrameId> fids;
     level->getFrameIds(fids);
     for (const TFrameId &fid : fids) {
       TImageP srcImg = level->getImg(fid);
       if (srcImg && (srcImg->getType() == TImage::RASTER ||
                      srcImg->getType() == TImage::TOONZ_RASTER)) {
-        QScriptValue newFrame = vectorizeImage(srcImg, palette.getPointer());
-        if (newFrame.isError()) {
-          return newFrame;  // palette is automatically cleaned up
+        QJSValue newFrame = vectorizeImage(srcImg, palette.getPointer());
+        if (newFrame.isUndefined()) {
+          return QJSValue();  // the error has been thrown
         }
-        QScriptValueList args;
-        args << QString::fromStdString(fid.expand()) << newFrame;
-        newLevel.property("setFrame").call(newLevel, args);
+        outputLevel->setFrame(QString::fromStdString(fid.expand()), newFrame);
       }
     }
     return newLevel;
   }
   // Unreachable
-  return QScriptValue();
+  return QJSValue();
 }
 //----------------------------------------------------------
 int CenterlineVectorizer::getThreshold() const {
