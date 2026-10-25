@@ -6,6 +6,9 @@
 
 #include "psdutils.h"
 
+#include <algorithm>
+#include <new>
+
 void readrow(FILE *psd, TPSDChannelInfo *chan,
              psdPixel row,             // row index
              unsigned char *inbuffer,  // dest buffer for the uncompressed row
@@ -17,6 +20,13 @@ void readrow(FILE *psd, TPSDChannelInfo *chan,
 
   int seekres = 0;
 
+  // A row outside the channel, or a channel without data (a damaged file),
+  // is read as a row of zeros.
+  if (row < 0 || row >= chan->rows) {
+    memset(inbuffer, 0, chan->rowbytes);
+    return;
+  }
+
   switch (chan->comptype) {
   case RAWDATA: /* uncompressed */
     pos     = chan->filepos + chan->rowbytes * row;
@@ -24,16 +34,20 @@ void readrow(FILE *psd, TPSDChannelInfo *chan,
     if (seekres != -1) n = (psdPixel)fread(inbuffer, 1, chan->rowbytes, psd);
     break;
   case RLECOMP:
+    if (!chan->rowpos) break;
     pos     = chan->rowpos[row];
     seekres = fseek(psd, pos, SEEK_SET);
     if (seekres != -1) {
-      rlebytes =
-          (psdPixel)fread(tmpbuffer, 1, chan->rowpos[row + 1] - pos, psd);
-      n = unpackrow(inbuffer, tmpbuffer, chan->rowbytes, rlebytes);
+      // tmpbuffer holds 2 * rowbytes (see readImageData())
+      psdPixel rlesize =
+          std::min(chan->rowpos[row + 1] - pos, (psdPixel)(2 * chan->rowbytes));
+      rlebytes = (psdPixel)fread(tmpbuffer, 1, rlesize > 0 ? rlesize : 0, psd);
+      n        = unpackrow(inbuffer, tmpbuffer, chan->rowbytes, rlebytes);
     }
     break;
   case ZIPWITHPREDICTION:
   case ZIPWITHOUTPREDICTION:
+    if (!chan->unzipdata) break;
     memcpy(inbuffer, chan->unzipdata + chan->rowbytes * row, chan->rowbytes);
     return;
   }
@@ -82,7 +96,8 @@ int unpackrow(unsigned char *out, unsigned char *in, psdPixel outlen,
           in += len;
           inlen -= len;
         } else {
-          memcpy(out, in, outlen - i);  // copy to complete row
+          // copy to complete row, but not past the end of the input
+          memcpy(out, in, std::min(outlen - i, inlen));
           len = 0;
         }
       }
@@ -98,7 +113,8 @@ int unpackrow(unsigned char *out, unsigned char *in, psdPixel outlen,
 
 void skipBlock(FILE *f) {
   psdByte n = read4Bytes(f);
-  if (n) {
+  // a negative length (a damaged file) would seek backwards
+  if (n > 0) {
     fseek(f, n, SEEK_CUR);
   } else {
   }
@@ -127,24 +143,20 @@ long read4Bytes(FILE *f) {
   return n | fgetc(f);
 }
 
+// The callers do not check the result, so a failed allocation (or a size
+// that comes from a damaged file) is reported by an exception.
 void *mymalloc(long n) {
-  void *p = malloc(n);
-  if (p)
-    return p;
-  else {
-    // ALLOCATION ERROR
-  }
-  return NULL;
+  if (n < 0) throw std::bad_alloc();
+  void *p = malloc(n ? n : 1);
+  if (p) return p;
+  throw std::bad_alloc();
 }
 
 void *mycalloc(long n, int size) {
-  void *p = calloc(n, size);
-  if (p)
-    return p;
-  else {
-    // ALLOCATION ERROR
-  }
-  return NULL;
+  if (n < 0 || size < 0) throw std::bad_alloc();
+  void *p = calloc(n ? n : 1, size ? size : 1);
+  if (p) return p;
+  throw std::bad_alloc();
 }
 // ZIP COMPRESSION
 
@@ -171,6 +183,7 @@ int psdUnzipWithoutPrediction(unsigned char *src_buf, int src_len,
     if (state == Z_DATA_ERROR || state != Z_OK) break;
   } while (stream.avail_out > 0);
 
+  inflateEnd(&stream);
   if (state != Z_STREAM_END && state != Z_OK) return 0;
 
   return 1;
@@ -188,8 +201,15 @@ int psdUnzipWithPrediction(unsigned char *src_buf, int src_len,
   status = psdUnzipWithoutPrediction(src_buf, src_len, dst_buf, dst_len);
   if (!status) return status;
 
+  // A row of pixels that is not a whole number of rows of the buffer (a bit
+  // depth or width of a damaged file) is left as it is, instead of running
+  // past the end of the buffer.
+  if (row_size <= 0) return 1;
+  const int row_bytes = color_depth == 16 ? row_size * 2 : row_size;
+  if (row_bytes <= 0) return 1;
+
   buf = dst_buf;
-  do {
+  while (dst_len >= row_bytes) {
     len = row_size;
     if (color_depth == 16) {
       while (--len) {
@@ -198,16 +218,15 @@ int psdUnzipWithPrediction(unsigned char *src_buf, int src_len,
         buf += 2;
       }
       buf += 2;
-      dst_len -= row_size * 2;
     } else {
       while (--len) {
         *(buf + 1) += *buf;
         buf++;
       }
       buf++;
-      dst_len -= row_size;
     }
-  } while (dst_len > 0);
+    dst_len -= row_bytes;
+  }
 
   return 1;
 }

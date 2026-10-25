@@ -13,6 +13,7 @@
 #include <QTemporaryDir>
 
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -353,6 +354,76 @@ void testUnicodeName(const TFilePath &dir) {
           "Unicode layer name mismatch");
 }
 
+// An image one pixel wide and high made the reader divide by a shrink of 0.
+void testSinglePixel(const TFilePath &dir) {
+  TRaster32P ras(1, 1);
+  ras->fill(TPixel32(10, 20, 30, 255));
+  const TFilePath path =
+      saveFrame(dir + TFilePath("dot..psd"), TFrameId(1), ras);
+  TPSDReader reader(path);
+  checkHeader(reader, 1, 1, 8);
+  for (int layerId = 0; layerId <= 1; ++layerId) {
+    TRaster32P loaded = loadLayer(reader, layerId, 1, 1);
+    require(loaded->pixels(0)[0] == TPixel32(10, 20, 30, 255),
+            "Single pixel PSD mismatch");
+  }
+}
+
+void writeFile(const TFilePath &path, const std::vector<unsigned char> &data) {
+  FILE *file = fopen(path, "wb");
+  require(file != nullptr, "Cannot write the damaged PSD file");
+  if (!data.empty()) std::fwrite(data.data(), 1, data.size(), file);
+  std::fclose(file);
+}
+
+// Loading a damaged file may fail, but it must not crash or hang.
+void loadDamaged(const TFilePath &path) {
+  try {
+    TPSDReader reader(path);
+    for (int layerId = 0; layerId <= 1; ++layerId) {
+      try {
+        TRasterImageP image;
+        reader.load(image, layerId);
+      } catch (...) {
+      }
+    }
+  } catch (...) {
+  }
+}
+
+void testDamagedFiles(const TFilePath &dir) {
+  TRaster32P ras(40, 5);
+  for (int y = 0; y < 5; ++y)
+    for (int x = 0; x < 40; ++x)
+      ras->pixels(y)[x] = premultiply(straightColor(x, y, 10, 20));
+  const TFilePath path =
+      saveFrame(dir + TFilePath("damaged..psd"), TFrameId(1), ras);
+  const std::vector<unsigned char> data = readFile(path);
+  require(data.size() > 32, "The written PSD file is too short");
+  const TFilePath damaged = dir + TFilePath("cut.psd");
+
+  // cut short, in the header area and then in steps
+  for (size_t size = 0; size < data.size(); size += size < 160 ? 1 : 13) {
+    writeFile(damaged, std::vector<unsigned char>(
+                           data.begin(), data.begin() + (std::ptrdiff_t)size));
+    loadDamaged(damaged);
+  }
+
+  // a size or count field set to an extreme value: the height, the width and
+  // the channel count of the header
+  const size_t offsets[]      = {14, 18, 12};
+  const std::uint32_t sizes[] = {0, 1, 40000, 0x7fffffff, 0xffffffff};
+  for (size_t offset : offsets)
+    for (std::uint32_t value : sizes) {
+      std::vector<unsigned char> copy = data;
+      const int bytes                 = offset == 12 ? 2 : 4;
+      for (int i = 0; i < bytes; ++i)
+        copy[offset + i] = (unsigned char)(value >> (8 * (bytes - 1 - i)));
+      writeFile(damaged, copy);
+      loadDamaged(damaged);
+    }
+}
+
 void testUnsupportedImage(const TFilePath &dir) {
   TLevelWriterP writer(dir + TFilePath("empty..psd"));
   bool thrown = false;
@@ -381,6 +452,8 @@ int main(int argc, char *argv[]) {
     test8Bit(dir);
     test16Bit(dir);
     testUnicodeName(dir);
+    testSinglePixel(dir);
+    testDamagedFiles(dir);
     testUnsupportedImage(dir);
     std::cout << "PSD writer tests passed\n";
     return 0;
