@@ -35,7 +35,6 @@ public:
                           Qt::WindowFlags flags = Qt::WindowFlags());
 
 private:
-  void getCurrentCell(TXshLevelP &level, TFrameId &fid) const;
   void rebuildList();
   void substitute(const TFrameId &fid);
 

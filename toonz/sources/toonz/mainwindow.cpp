@@ -2936,6 +2936,8 @@ void MainWindow::defineActions() {
   createMenuWindowsAction(MI_OpenPosesPanel, QT_TR_NOOP("&Poses"), "", "");
   createMenuWindowsAction(MI_OpenDrawingSubstitutionPanel,
                           QT_TR_NOOP("Drawing Substitution"), "", "");
+  createMenuWindowsAction(MI_OpenSubstitutionSlider,
+                          QT_TR_NOOP("Substitution Slider"), "", "");
   createMenuWindowsAction(MI_OpenStoryboardPanel, QT_TR_NOOP("Storyboard"), "",
                           "");
   createMenuWindowsAction(MI_OpenMasterControllers,

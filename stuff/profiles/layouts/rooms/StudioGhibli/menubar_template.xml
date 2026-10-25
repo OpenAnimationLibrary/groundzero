@@ -221,6 +221,7 @@
     <command>MI_OpenAlignmentPanel</command>
     <command>MI_OpenPosesPanel</command>
     <command>MI_OpenDrawingSubstitutionPanel</command>
+    <command>MI_OpenSubstitutionSlider</command>
     <command>MI_OpenMasterControllers</command>
     <separator/>
     <command>MI_ResetRoomLayout</command>

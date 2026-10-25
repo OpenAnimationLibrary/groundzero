@@ -118,6 +118,7 @@ set(MOC_HEADERS
     posespane.h
     referencepanel.h
     drawingsubstitutionpane.h
+    substitutionsliderpane.h
     storyboardpane.h
     mastercontrollerspane.h
     symbolspane.h
@@ -186,6 +187,7 @@ set(HEADERS
     customhelplink.h
     curveio.h
     drawingdata.h
+    drawingsubstitutionundo.h
     exportlevelcommand.h
     filedata.h
     fileselection.h
@@ -333,6 +335,8 @@ set(SOURCES
     posespane.cpp
     referencepanel.cpp
     drawingsubstitutionpane.cpp
+    drawingsubstitutionundo.cpp
+    substitutionsliderpane.cpp
     storyboardpane.cpp
     mastercontrollerspane.cpp
     symbolspane.cpp

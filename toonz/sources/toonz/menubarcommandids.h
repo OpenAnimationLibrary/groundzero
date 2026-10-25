@@ -548,6 +548,7 @@
 #define MI_OpenSymbols "MI_OpenSymbols"
 #define MI_OpenReferencePanel "MI_OpenReferencePanel"
 #define MI_OpenDrawingSubstitutionPanel "MI_OpenDrawingSubstitutionPanel"
+#define MI_OpenSubstitutionSlider "MI_OpenSubstitutionSlider"
 #define MI_OpenStoryboardPanel "MI_OpenStoryboardPanel"
 #define MI_OpenMasterControllers "MI_OpenMasterControllers"
 

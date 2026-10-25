@@ -5,6 +5,7 @@
 #include "posespane.h"
 #include "referencepanel.h"
 #include "drawingsubstitutionpane.h"
+#include "substitutionsliderpane.h"
 #include "storyboardpane.h"
 #include "mastercontrollerspane.h"
 
@@ -1920,6 +1921,25 @@ public:
 OpenFloatingPanel openDrawingSubstitutionPanelCommand(
     MI_OpenDrawingSubstitutionPanel, "DrawingSubstitutionPanel",
     QObject::tr("Drawing Substitution"));
+
+// Substitution Slider
+//-----------------------------------------------------------------------------
+
+class SubstitutionSliderPanelFactory final : public TPanelFactory {
+public:
+  SubstitutionSliderPanelFactory()
+      : TPanelFactory("SubstitutionSliderPanel") {}
+  void initialize(TPanel *panel) override {
+    panel->setWidget(new SubstitutionSliderPane(panel));
+    panel->setWindowTitle(QObject::tr("Substitution Slider"));
+    panel->setIsMaximizable(false);
+  }
+} substitutionSliderPanelFactory;
+
+OpenFloatingPanel openSubstitutionSliderCommand(
+    MI_OpenSubstitutionSlider, "SubstitutionSliderPanel",
+    QObject::tr("Substitution Slider"));
+
 // Storyboard
 //-----------------------------------------------------------------------------
 
