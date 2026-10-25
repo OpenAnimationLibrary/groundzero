@@ -1506,6 +1506,7 @@ QString PreferencesPopup::getUIString(PreferencesItemId id) {
 
       // Colors
       {viewerBGColor, tr("Viewer BG Color:")},
+      {tableColor, tr("Table Color:")},
       {previewBGColor, tr("Preview BG Color:")},
       {levelEditorBoxColor, tr("Level Editor Box Color:")},
       {chessboardColor1, tr("Chessboard Color 1:")},
@@ -2618,6 +2619,7 @@ QWidget* PreferencesPopup::createColorsPage() {
   setupLayout(lay);
 
   insertUI(viewerBGColor, lay);
+  insertUI(tableColor, lay);
   insertUI(previewBGColor, lay);
   insertUI(levelEditorBoxColor, lay);
   insertUI(chessboardColor1, lay);
@@ -2641,6 +2643,7 @@ QWidget* PreferencesPopup::createColorsPage() {
 
   m_onEditedFuncMap.insert(viewerBGColor,
                            &PreferencesPopup::notifySceneChanged);
+  m_onEditedFuncMap.insert(tableColor, &PreferencesPopup::notifySceneChanged);
   m_onEditedFuncMap.insert(previewBGColor,
                            &PreferencesPopup::notifySceneChanged);
   m_onEditedFuncMap.insert(levelEditorBoxColor,
@@ -2909,6 +2912,9 @@ void PreferencesPopup::onChange() {
     return;
 
   if (m_onEditedFuncMap.contains(id)) (this->*m_onEditedFuncMap[id])();
+  if (id == DefLevelType || id == EnableAutocreation)
+    TApp::instance()->getCurrentScene()->notifyPreferenceChanged(
+        id == DefLevelType ? "DefLevelType" : "EnableAutocreation");
 }
 
 //-----------------------------------------------------------------------------

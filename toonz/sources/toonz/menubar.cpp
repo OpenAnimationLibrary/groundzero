@@ -499,6 +499,14 @@ bool StackedMenuBar::readMenuRecursive(QXmlStreamReader &reader, QMenu *menu) {
     }
   }
 
+  QAction *safeArea  = CommandManager::instance()->getAction(MI_SafeArea);
+  QAction *guide     = CommandManager::instance()->getAction(MI_CenterCutGuide);
+  const auto actions = menu->actions();
+  const int index    = actions.indexOf(safeArea);
+  if (guide && index >= 0 && !actions.contains(guide))
+    menu->insertAction(
+        index + 1 < actions.size() ? actions.at(index + 1) : nullptr, guide);
+
   return !reader.hasError();
 }
 
@@ -615,6 +623,7 @@ QMenuBar *StackedMenuBar::createCleanupMenuBar() {
     addMenuItem(viewPartsMenu, MI_ViewTable);
     addMenuItem(viewPartsMenu, MI_FieldGuide);
     addMenuItem(viewPartsMenu, MI_SafeArea);
+    addMenuItem(viewPartsMenu, MI_CenterCutGuide);
     addMenuItem(viewPartsMenu, MI_ViewBBox);
     addMenuItem(viewPartsMenu, MI_ViewColorcard);
   }
@@ -791,6 +800,7 @@ QMenuBar *StackedMenuBar::createPltEditMenuBar() {
     addMenuItem(viewPartsMenu, MI_ViewTable);
     addMenuItem(viewPartsMenu, MI_FieldGuide);
     addMenuItem(viewPartsMenu, MI_SafeArea);
+    addMenuItem(viewPartsMenu, MI_CenterCutGuide);
     addMenuItem(viewPartsMenu, MI_ViewColorcard);
   }
   customizeMenu->addSeparator();
@@ -976,6 +986,7 @@ QMenuBar *StackedMenuBar::createInknPaintMenuBar() {
     addMenuItem(viewPartsMenu, MI_ViewTable);
     addMenuItem(viewPartsMenu, MI_FieldGuide);
     addMenuItem(viewPartsMenu, MI_SafeArea);
+    addMenuItem(viewPartsMenu, MI_CenterCutGuide);
     addMenuItem(viewPartsMenu, MI_ViewColorcard);
   }
   customizeMenu->addSeparator();
@@ -1168,6 +1179,7 @@ QMenuBar *StackedMenuBar::createXsheetMenuBar() {
     addMenuItem(viewPartsMenu, MI_ViewTable);
     addMenuItem(viewPartsMenu, MI_FieldGuide);
     addMenuItem(viewPartsMenu, MI_SafeArea);
+    addMenuItem(viewPartsMenu, MI_CenterCutGuide);
     addMenuItem(viewPartsMenu, MI_ViewBBox);
     addMenuItem(viewPartsMenu, MI_ViewColorcard);
   }
@@ -1541,6 +1553,7 @@ QMenuBar *StackedMenuBar::createFullMenuBar() {
   cellsMenu->addSeparator();
   addMenuItem(cellsMenu, MI_Autorenumber);
   addMenuItem(cellsMenu, MI_CreateBlankDrawing);
+  addMenuItem(cellsMenu, MI_InsertBlankDrawing);
   addMenuItem(cellsMenu, MI_Duplicate);
   addMenuItem(cellsMenu, MI_MergeFrames);
   addMenuItem(cellsMenu, MI_CloneLevel);
@@ -1558,6 +1571,8 @@ QMenuBar *StackedMenuBar::createFullMenuBar() {
   addMenuItem(playMenu, MI_LastFrame);
   addMenuItem(playMenu, MI_PrevFrame);
   addMenuItem(playMenu, MI_NextFrame);
+  addMenuItem(playMenu, MI_PrevFramePastEnd);
+  addMenuItem(playMenu, MI_NextFramePastEnd);
   addMenuItem(playMenu, MI_PrevStep);
   addMenuItem(playMenu, MI_NextStep);
   playMenu->addSeparator();
@@ -1589,6 +1604,7 @@ QMenuBar *StackedMenuBar::createFullMenuBar() {
   addMenuItem(viewMenu, MI_LightTable);
   viewMenu->addSeparator();
   addMenuItem(viewMenu, MI_SafeArea);
+  addMenuItem(viewMenu, MI_CenterCutGuide);
   addMenuItem(viewMenu, MI_FieldGuide);
   addMenuItem(viewMenu, MI_ViewRuler);
   addMenuItem(viewMenu, MI_ViewGuide);
