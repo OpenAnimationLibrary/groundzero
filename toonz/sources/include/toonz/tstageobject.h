@@ -287,6 +287,29 @@ object.
   //! Sets the name of the pegbar parent handle name.
   void setParentHandle(const std::string &s);
 
+  /*!
+Returns whether \e handle is a Plastic skeleton vertex handle, ie
+"H0:<vertex name>" (vertex name in UTF-8). Linking a child to the vertex handle
+of a column with a Plastic skeleton deformation makes the child follow the
+bone ending at that vertex, in position and rotation ("kinematic output"); see
+HandleManager::getHandleAffine(). As for hooks, the handle starts with 'H',
+so the child is never deformed as a texture of the parent mesh column. It
+cannot match an existing hook ("H" followed by digits only).
+*/
+  static bool isSkeletonVertexHandle(const std::string &handle);
+
+  //! Returns the Plastic skeleton vertex handle of the specified vertex name
+  //! (UTF-8).
+  static std::string getSkeletonVertexHandle(const std::string &vertexName);
+
+  //! Returns the vertex name (UTF-8) of a Plastic skeleton vertex handle, or
+  //! an empty string if \e handle is not such a handle.
+  static std::string getSkeletonVertexName(const std::string &handle);
+
+  //! Appends the vertex handles this object offers to its children: one per
+  //! vertex name of its Plastic skeletons (none without a deformation).
+  void getSkeletonVertexHandles(std::vector<std::string> &handles) const;
+
   //! Sets the channel \e type to the value \e val
   void setParam(Channel type, double frame, double val);
 
@@ -558,6 +581,7 @@ private:
   TStageObject &operator=(const TStageObject &);
 
   TPointD getHandlePos(std::string handle, int row) const;
+  TAffine getParentHandleAffine(double t) const;
   TAffine computeLocalPlacement(double frame);
   TStageObject *findRoot(double frame) const;
   TStageObject *getPinnedDescendant(int frame);

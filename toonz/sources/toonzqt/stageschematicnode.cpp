@@ -46,6 +46,10 @@
 #include <QMenu>
 #include <QTextCursor>
 #include <QSet>
+#include <QFontMetrics>
+
+// STD includes
+#include <algorithm>
 
 #include "toonzqt/stageschematicnode.h"
 
@@ -766,7 +770,14 @@ void StageSchematicNodePort::paint(QPainter *painter,
     painter->setFont(font);
     QTextOption textOption(Qt::AlignCenter);
     QString text = m_handle;
-    if (text.size() > 1 && text.at(0) == 'H') text.remove("H");
+    std::string handle = m_handle.toStdString();
+    if (TStageObject::isSkeletonVertexHandle(handle))
+      // Plastic skeleton vertex: the full name is in the tooltip
+      text = QFontMetrics(font).elidedText(
+          QString::fromStdString(TStageObject::getSkeletonVertexName(handle)),
+          Qt::ElideRight, boundingRect().width());
+    else if (text.size() > 1 && text.at(0) == 'H')
+      text.remove("H");
     painter->drawText(boundingRect(), text, textOption);
   } else {
     QRect imgRect(2, 2, 14, 14);
@@ -791,6 +802,19 @@ void StageSchematicNodePort::paint(QPainter *painter,
     }
   }
 }
+//--------------------------------------------------------
+
+void StageSchematicNodePort::setHandle(const QString &value) {
+  m_handle = value;
+
+  // Plastic skeleton vertex names do not fit in the port
+  std::string handle = value.toStdString();
+  setToolTip(
+      TStageObject::isSkeletonVertexHandle(handle)
+          ? QString::fromStdString(TStageObject::getSkeletonVertexName(handle))
+          : QString());
+}
+
 //--------------------------------------------------------
 
 bool StageSchematicNodePort::linkTo(SchematicPort *port, bool checkOnly) {
@@ -1153,8 +1177,17 @@ void StageSchematicNodeDock::onModifyHandle(int increase) {
       dynamic_cast<StageSchematicScene *>(scene());
   std::string handle(getPort()->getHandle().toStdString());
 
+  // The Plastic skeleton vertices of a column follow its letter handles
+  std::vector<std::string> vertexHandles;
+  if (!m_isParentPort && getPort()->getType() == eStageChildPort)
+    getNode()->getStageObject()->getSkeletonVertexHandles(vertexHandles);
+
   int index;
-  if (handle[0] == 'H' && handle.length() > 1)
+  if (TStageObject::isSkeletonVertexHandle(handle))
+    index =
+        26 + int(std::find(vertexHandles.begin(), vertexHandles.end(), handle) -
+                 vertexHandles.begin());
+  else if (handle[0] == 'H' && handle.length() > 1)
     index = -(std::stoi(handle.substr(1)));
   else
     index = handle[0] - 'A';
@@ -1163,9 +1196,11 @@ void StageSchematicNodeDock::onModifyHandle(int increase) {
   int min = (getNode()->getStageObject()->getId().isColumn())
                 ? -HookSet::maxHooksCount
                 : 0;
-  index   = tcrop(index, min, 25);
+  index   = tcrop(index, min, 25 + int(vertexHandles.size()));
 
-  if (index >= 0)
+  if (index > 25)
+    handle = vertexHandles[index - 26];
+  else if (index >= 0)
     handle = std::string(1, (char)('A' + index));
   else
     handle = "H" + std::to_string(-index);

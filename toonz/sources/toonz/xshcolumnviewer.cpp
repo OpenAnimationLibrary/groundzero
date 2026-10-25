@@ -614,7 +614,31 @@ void ChangeObjectHandle::refresh() {
       addText(QString(char('A' + i)), colorHndNone);
   }
 
+  // Plastic skeleton vertices of the parent column (kinematic output). The
+  // handle is stored in the item, as vertex names are arbitrary.
+  std::vector<std::string> vertexHandles;
+  if (stageObject->getParent().isColumn())
+    xsh->getStageObject(stageObject->getParent())
+        ->getSkeletonVertexHandles(vertexHandles);
+  for (const std::string &vertexHandle : vertexHandles) {
+    QString name = QString::fromStdString(
+        TStageObject::getSkeletonVertexName(vertexHandle));
+    addText(QString::fromStdString(vertexHandle), name);
+    item(count() - 1)->setForeground(colorHndHook);
+    m_width = std::max(m_width, fontMetrics().horizontalAdvance(name) + 16);
+  }
+
   std::string handle = stageObject->getParentHandle();
+  if (TStageObject::isSkeletonVertexHandle(handle)) {
+    clearSelection();
+    for (int row = 0; row < count(); row++)
+      if (item(row)->data(Qt::UserRole).toString() ==
+          QString::fromStdString(handle)) {
+        setCurrentItem(item(row));
+        break;
+      }
+    return;
+  }
   if (handle[0] == 'H' && handle.length() > 1) handle = handle.substr(1);
 
   selectCurrent(QString::fromStdString(handle));
@@ -628,7 +652,11 @@ void ChangeObjectHandle::onItemSelected(QListWidgetItem *item) {
   QString text                   = item->text();
   TStageObjectId currentObjectId = m_objectHandle->getObjectId();
   QString handle                 = text;
-  if (text.toInt() != 0) handle = QString("H") + handle;
+  QVariant vertexHandle          = item->data(Qt::UserRole);
+  if (vertexHandle.isValid())
+    handle = vertexHandle.toString();  // Plastic skeleton vertex
+  else if (text.toInt() != 0)
+    handle = QString("H") + handle;
   if (handle.isEmpty()) return;
   std::vector<TStageObjectId> ids;
   ids.push_back(currentObjectId);
@@ -1402,9 +1430,13 @@ void ColumnArea::DrawHeader::drawParentHandleName() const {
   TStageObjectId columnId = m_viewer->getObjectId(col);
   TStageObjectId parentId = xsh->getStageObjectParent(columnId);
   std::string handle      = xsh->getStageObject(columnId)->getParentHandle();
-  if (handle[0] == 'H' && handle.length() > 1) handle = handle.substr(1);
+  bool isVertexHandle     = TStageObject::isSkeletonVertexHandle(handle);
+  if (isVertexHandle)
+    handle = TStageObject::getSkeletonVertexName(handle);
+  else if (handle[0] == 'H' && handle.length() > 1)
+    handle = handle.substr(1);
 
-  if (handle == "B") {  // Default handle
+  if (handle == "B" && !isVertexHandle) {  // Default handle
     QPen pen(m_viewer->getVerticalLineColor());
     pen.setStyle(Qt::PenStyle::DotLine);
     p.setPen(pen);
@@ -1417,9 +1449,13 @@ void ColumnArea::DrawHeader::drawParentHandleName() const {
   p.drawRect(parenthandleRect.adjusted(2, 0, 0, 0));
 
   p.setPen(m_viewer->getTextColor());
+  QString handleText = QString::fromStdString(handle);
+  if (isVertexHandle)  // Plastic skeleton vertex names may be long
+    handleText = p.fontMetrics().elidedText(handleText, Qt::ElideRight,
+                                            parenthandleRect.width() - 2);
   p.drawText(parenthandleRect,
              Qt::AlignHCenter | Qt::AlignVCenter | Qt::TextSingleLine,
-             QString::fromStdString(handle));
+             handleText);
 }
 
 void ColumnArea::DrawHeader::drawFilterColor() const {
