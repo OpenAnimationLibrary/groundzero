@@ -444,6 +444,9 @@ public:
   bool isUnifyColumnVisibilityTogglesEnabled() const {
     return getBoolValue(unifyColumnVisibilityToggles);
   }
+  bool isShowColumnGroupStripsEnabled() const {
+    return getBoolValue(showColumnGroupStrips);
+  }
   bool isParentColorsInXsheetColumnEnabled() const {
     return getBoolValue(parentColorsInXsheetColumn);
   }
