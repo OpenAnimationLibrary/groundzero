@@ -12,6 +12,8 @@
 
 using EditToolGadgets::DragTool;
 
+class TFrameHandle;
+
 //=============================================================================
 // EditTool
 //-----------------------------------------------------------------------------
@@ -79,12 +81,33 @@ class EditTool final : public QObject, public TTool {
   TBoolProperty m_showShear;
   TBoolProperty m_showCenterPosition;
 
+  TBoolProperty m_showTrajectory;
+
   TEnumProperty m_activeAxis;
 
   TPropertyGroup m_prop;
 
+  // Trajectory ("Show Trajectory" option): frames of the hovered and of the
+  // dragged keyframe markers (-1 if none)
+  int m_trajectoryKeyHighlighted;
+  int m_trajectoryKeyDragged;
+  // maps tool-space mouse positions into the parent space of the object at
+  // the dragged keyframe (linear part only)
+  TAffine m_trajectoryDragAff;
+  // private frame handle used to make the position drag tool edit the dragged
+  // keyframe instead of the current frame
+  TFrameHandle* m_trajectoryFrameHandle;
+
   void drawMainHandle();
   void onEditAllLeftButtonDown(TPointD& pos, const TMouseEvent& e);
+
+  bool getTrajectoryRange(int& r0, int& r1);
+  TPointD getTrajectoryPos(int frame, const TAffine& parentAffInv);
+  void drawTrajectory();
+  bool canDragTrajectoryKeys();
+  int pickTrajectoryKey(const TPointD& pos);
+  bool startTrajectoryKeyDrag(int keyFrame, const TPointD& pos,
+                              const TMouseEvent& e);
 
 public:
   EditTool();

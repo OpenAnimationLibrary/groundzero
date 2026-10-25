@@ -1864,7 +1864,7 @@ void TCellSelection::pasteCells() {
   XsheetViewer *viewer      = TApp::instance()->getCurrentXsheetViewer();
   ToolHandle *toolHandle    = TApp::instance()->getCurrentTool();
 
-  bool initUndo = false;
+  TUndoLazyBlock undoBlock;
   const TCellKeyframeData *cellKeyframeData =
       dynamic_cast<const TCellKeyframeData *>(mimeData);
 
@@ -1945,8 +1945,7 @@ void TCellSelection::pasteCells() {
     }
     if (!isPaste) return;
 
-    initUndo = true;
-    TUndoManager::manager()->beginBlock();
+    undoBlock.open();
 
     // make sure that the pasting levels are registered in the scene cast
     // it may rename the level if there is another level with the same name
@@ -2004,10 +2003,7 @@ void TCellSelection::pasteCells() {
           c1 = std::max(c1, it->second);
       }
     }
-    if (!initUndo) {
-      initUndo = true;
-      TUndoManager::manager()->beginBlock();
-    }
+    undoBlock.open();
     selection.pasteKeyframesWithShift(r0, r1, c0, c1);
   }
 
@@ -2021,10 +2017,7 @@ void TCellSelection::pasteCells() {
     TXshSimpleLevel *level = drawingData->getLevel();
     if (level && !frameIds.empty())
       pasteDrawingsInCellWithoutUndo(xsh, level, frameIds, r0, c0);
-    if (!initUndo) {
-      initUndo = true;
-      TUndoManager::manager()->beginBlock();
-    }
+    undoBlock.open();
     TUndoManager::manager()->add(
         new PasteDrawingsInCellUndo(level, frameIds, r0, c0));
   }
@@ -2040,10 +2033,7 @@ void TCellSelection::pasteCells() {
                  xl->getPath().getFrame() != TFrameId::NO_FRAME))
         img = cell.getImage(false);
     }
-    if (!initUndo) {
-      initUndo = true;
-      TUndoManager::manager()->beginBlock();
-    }
+    undoBlock.open();
     RasterImageData *rasterImageData = 0;
     if (TToonzImageP ti = img) {
       rasterImageData = strokesData->toToonzImageData(ti);
@@ -2125,10 +2115,7 @@ void TCellSelection::pasteCells() {
       return;
     }
     // Convert non-plain raster data to strokes data
-    if (!initUndo) {
-      initUndo = true;
-      TUndoManager::manager()->beginBlock();
-    }
+    undoBlock.open();
     if (vi && clipImage.isNull()) {
       // Vector stuff
       TXshSimpleLevel *sl = xsh->getCell(r0, c0).getSimpleLevel();
@@ -2169,7 +2156,6 @@ void TCellSelection::pasteCells() {
 
         if (cancel) {
           // Cancel or dialog closed
-          if (initUndo) TUndoManager::manager()->endBlock();
           return;
         }
 
@@ -2225,8 +2211,7 @@ void TCellSelection::pasteCells() {
             toolHandle->getTool()->onDeactivate();
             toolHandle->getTool()->onActivate();
             rs->pasteSelection();
-            assert(initUndo);
-            TUndoManager::manager()->endBlock();
+            assert(undoBlock.isOpen());
             return;
           }
         }
@@ -2235,13 +2220,13 @@ void TCellSelection::pasteCells() {
 
     }  // end of full raster stuff
   }    // end of raster stuff
-  if (!initUndo) {
+  if (!undoBlock.isOpen()) {
     DVGui::error(QObject::tr(
         "It is not possible to paste data: there is nothing to paste."));
     return;
   }
   TApp::instance()->getCurrentXsheet()->notifyXsheetChanged();
-  TUndoManager::manager()->endBlock();
+  undoBlock.close();
 }
 
 //-----------------------------------------------------------------------------
@@ -2256,7 +2241,7 @@ void TCellSelection::pasteDuplicateCells() {
   TXsheet *xsh         = TApp::instance()->getCurrentXsheet()->getXsheet();
   XsheetViewer *viewer = TApp::instance()->getCurrentXsheetViewer();
 
-  bool initUndo = false;
+  TUndoLazyBlock undoBlock;
   const TCellKeyframeData *cellKeyframeData =
       dynamic_cast<const TCellKeyframeData *>(mimeData);
 
@@ -2365,8 +2350,7 @@ void TCellSelection::pasteDuplicateCells() {
     // now we do the work of duplicating cells
 
     // start a undo block first
-    initUndo = true;
-    TUndoManager::manager()->beginBlock();
+    undoBlock.open();
 
     // Turn on sync level strip changes with xsheet if it is off
     bool syncXsheetOn = true;
@@ -2497,7 +2481,7 @@ void TCellSelection::pasteDuplicateCells() {
     }
 
     if (!isPaste) {
-      TUndoManager::manager()->endBlock();
+      undoBlock.close();
       if (cellPairs.size() > 0) {
         TUndoManager::manager()->undo();
         TUndoManager::manager()->popUndo(1);
@@ -2559,19 +2543,16 @@ void TCellSelection::pasteDuplicateCells() {
           c1 = std::max(c1, it->second);
       }
     }
-    if (!initUndo) {
-      initUndo = true;
-      TUndoManager::manager()->beginBlock();
-    }
+    undoBlock.open();
     selection.pasteKeyframesWithShift(r0, r1, c0, c1);
   }
 
-  if (!initUndo) {
+  if (!undoBlock.isOpen()) {
     DVGui::error(QObject::tr("There are no copied cells to duplicate."));
     return;
   }
   TApp::instance()->getCurrentXsheet()->notifyXsheetChanged();
-  TUndoManager::manager()->endBlock();
+  undoBlock.close();
   clipboard->clear();
 }
 
@@ -3207,7 +3188,8 @@ public:
     }
   }
   int getSize() const override {
-    return sizeof(*this) + sizeof(TXshLevel);  // imprecise.
+    return clampSize((TINT64)sizeof(*this) + sizeof(TXshLevel) +  // imprecise.
+                     getImageMemorySize(m_img.getPointer()));
   }
 };
 
@@ -3724,7 +3706,14 @@ public:
     *m_sl->getHookSet() = *m_oldLevelHooks;
   }
 
-  int getSize() const override { return sizeof(*this); }
+  int getSize() const override {
+    TINT64 size = sizeof(*this);
+    for (const TImageP &img : m_oldImages)
+      size += getImageMemorySize(img.getPointer());
+    for (const TImageP &img : m_newImages)
+      size += getImageMemorySize(img.getPointer());
+    return clampSize(size);
+  }
 
   QString getHistoryString() override {
     QString str = QObject::tr("Simplify Vectors : Level %1")
@@ -3869,7 +3858,7 @@ void TCellSelection::fillEmptyCell() {
   if (isEmpty()) return;
 
   // set up basics
-  bool initUndo = false;
+  TUndoLazyBlock undoBlock;
   TXsheet *xsh  = TApp::instance()->getCurrentXsheet()->getXsheet();
   int r, r0, c0, c, r1, c1;
 
@@ -3907,10 +3896,7 @@ void TCellSelection::fillEmptyCell() {
       int startR = prevR + 1;
       int endR   = startR + fillCount - 1;
 
-      if (!initUndo) {
-        initUndo = true;
-        TUndoManager::manager()->beginBlock();
-      }
+      undoBlock.open();
 
       FillEmptyCellUndo *undo = new FillEmptyCellUndo(startR, endR, c, cell);
       TUndoManager::manager()->add(undo);
@@ -3921,7 +3907,7 @@ void TCellSelection::fillEmptyCell() {
     }
   }
 
-  if (initUndo) TUndoManager::manager()->endBlock();
+  undoBlock.close();
 
   TApp::instance()->getCurrentXsheet()->notifyXsheetChanged();
 }

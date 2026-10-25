@@ -160,10 +160,14 @@ Only absolute or ordinary filesystem-relative paths are supported. Relative
 paths use the application's working directory; project aliases and dependency
 collection are not implemented. Use Browse for an unambiguous saved reference.
 
-Immutable loaded data and the most recently projected pose/frame are shared by
-render clones. A mutex protects preparation; rasterization runs without holding
-that mutex. Clip index and evaluated source time are part of the projected-scene
-cache identity. Changing file path, modification time, size or availability
+Immutable loaded data and up to eight recently projected poses/frames are
+shared by render clones, so concurrent frames, preview tiles and downstream 3D
+nodes do not evict one another. Least recently used projections are dropped
+first, and older ones also when their geometry exceeds 256 MiB in total. A
+mutex protects file loading and cache lookup; projection and rasterization run
+without holding it, and requests for a projection that another thread is
+preparing wait for that result. Clip index and evaluated source time are part
+of the projected-scene cache identity. Changing file path, modification time, size or availability
 invalidates the loader and raster cache keys on the next render request.
 Replacing a file while preserving both its timestamp and size is not detected;
 use a different filename in that case. There is no background file watcher, so

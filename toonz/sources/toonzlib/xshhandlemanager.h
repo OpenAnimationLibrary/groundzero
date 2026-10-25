@@ -26,6 +26,8 @@ public:
 
   TPointD getHandlePos(const TStageObjectId &id, const std::string &handle,
                        int row) const override;
+  TAffine getHandleAffine(const TStageObjectId &id, const std::string &handle,
+                          double frame) const override;
 };
 
 #endif

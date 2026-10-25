@@ -51,10 +51,13 @@ void TColumnSelection::enableCommands() {
   enableCommand(this, MI_InsertAbove, &TColumnSelection::insertColumnsAbove);
   enableCommand(this, MI_Insert, &TColumnSelection::insertColumns);
   enableCommand(this, MI_Collapse, &TColumnSelection::collapse);
+  enableCommand(this, MI_SaveAsTemplate, &TColumnSelection::saveAsTemplate);
   enableCommand(this, MI_ExplodeChild, &TColumnSelection::explodeChild);
   enableCommand(this, MI_Resequence, &TColumnSelection::resequence);
   enableCommand(this, MI_CloneChild, &TColumnSelection::cloneChild);
   enableCommand(this, MI_FoldColumns, &TColumnSelection::hideColumns);
+  enableCommand(this, MI_GroupColumns, &TColumnSelection::groupColumns);
+  enableCommand(this, MI_UngroupColumns, &TColumnSelection::ungroupColumns);
   enableCommand(this, MI_Reframe1, &TColumnSelection::reframe1Cells);
   enableCommand(this, MI_Reframe2, &TColumnSelection::reframe2Cells);
   enableCommand(this, MI_Reframe3, &TColumnSelection::reframe3Cells);
@@ -178,6 +181,14 @@ void TColumnSelection::collapse() {
   m_indices.erase(-1);  // Ignore camera column
   if (m_indices.empty()) return;
   SubsceneCmd::collapse(m_indices);
+}
+
+//-----------------------------------------------------------------------------
+
+void TColumnSelection::saveAsTemplate() {
+  m_indices.erase(-1);  // Ignore camera column
+  if (m_indices.empty()) return;
+  SubsceneCmd::saveAsTemplate(m_indices);
 }
 
 //-----------------------------------------------------------------------------
@@ -320,6 +331,16 @@ void TColumnSelection::hideColumns() {
   // colonne)
   //  TApp::instance()->->notify(TColumnHeadChange());
   app->getCurrentScene()->setDirtyFlag(true);
+}
+
+//-----------------------------------------------------------------------------
+
+void TColumnSelection::groupColumns() { ColumnCmd::groupColumns(m_indices); }
+
+//-----------------------------------------------------------------------------
+
+void TColumnSelection::ungroupColumns() {
+  ColumnCmd::ungroupColumns(m_indices);
 }
 
 // obtain level set contained in the column specified by indices

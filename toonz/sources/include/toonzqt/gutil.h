@@ -27,6 +27,8 @@ class QMouseEvent;
 class QTabletEvent;
 class QKeyEvent;
 class QUrl;
+class QScreen;
+class QRect;
 class TFilePath;
 
 //=============================================================================
@@ -120,6 +122,14 @@ svgToImage(const QString &svgFilePath, QSize size = QSize(),
 // ratio) for high DPI monitors. Setting "Display > Set custom text size(DPI)"
 // for Windows corresponds to this ratio.
 int DVAPI getDevicePixelRatio(const QWidget *widget = nullptr);
+
+//-----------------------------------------------------------------------------
+
+// Returns the screen showing the largest part of \b rect (global coordinates),
+// or the primary screen if \b rect is on no screen. This is the screen that
+// QDesktopWidget::screenGeometry() and availableGeometry() used to pick.
+QScreen DVAPI *screenForRect(const QRect &rect);
+QScreen DVAPI *screenForWidget(const QWidget *widget);
 
 //-----------------------------------------------------------------------------
 

@@ -38,7 +38,6 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QCommonStyle>
-#include <QDesktopWidget>
 #include <QGridLayout>
 #include <QGroupBox>
 #include <QHBoxLayout>
