@@ -121,6 +121,7 @@ set(SOURCES
     diamondgradientfx.cpp
     dissolvefx.cpp
     embossfx.cpp
+    envelopedeformerfx.cpp
     erodilatefx.cpp
     externalpalettefx.cpp
     fourpointsgradientfx.cpp

@@ -131,6 +131,7 @@ set(HEADERS
     ../include/toonz/tcleanupper.h
     ../include/toonz/tcolumnfx.h
     ../include/toonz/tcolumnfxset.h
+    ../include/toonz/tdeformer.h
     ../include/toonz/tdistort.h
     ../include/toonz/textureutils.h
     ../include/toonz/tlog.h
@@ -260,6 +261,7 @@ set(SOURCES
     tcleanupper.cpp
     tcolumnfx.cpp
     tcolumnfxset.cpp
+    tdeformer.cpp
     tdistort.cpp
     texturemanager.cpp
     thirdparty.cpp
@@ -420,6 +422,14 @@ target_link_libraries(toonzlib OpenEXR::OpenEXR)
 
 if(WITH_PYTHON)
     target_link_libraries(toonzlib pybind11::embed)
+endif()
+
+# Optional regression target for the generic deformers (tdeformer.h).
+option(BUILD_DEFORMER_TESTS "Build the deformer regression test" ${BUILD_TESTS})
+if(BUILD_DEFORMER_TESTS)
+    add_executable(deformer_test tests/deformer_test.cpp)
+    target_link_libraries(deformer_test PRIVATE toonzlib tnzcore Qt5::Core)
+    add_test(NAME deformer COMMAND deformer_test)
 endif()
 
 if(BUILD_SCRIPT_TESTS)

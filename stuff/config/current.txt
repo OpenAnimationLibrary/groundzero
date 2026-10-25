@@ -276,6 +276,24 @@
   <item>"STD_freeDistortFx.top_left_b"	"Top Left  X"		</item>
   <item>"STD_freeDistortFx.deactivate"	" Deactivate"	</item>
 
+  <item>"STD_envelopeDeformerFx"	"Envelope Deformer"	</item>
+  <item>"STD_envelopeDeformerFx.point1"	"Point 1"	</item>
+  <item>"STD_envelopeDeformerFx.point2"	"Point 2"	</item>
+  <item>"STD_envelopeDeformerFx.point3"	"Point 3"	</item>
+  <item>"STD_envelopeDeformerFx.point4"	"Point 4"	</item>
+  <item>"STD_envelopeDeformerFx.point5"	"Point 5"	</item>
+  <item>"STD_envelopeDeformerFx.point6"	"Point 6"	</item>
+  <item>"STD_envelopeDeformerFx.point7"	"Point 7"	</item>
+  <item>"STD_envelopeDeformerFx.point8"	"Point 8"	</item>
+  <item>"STD_envelopeDeformerFx.rest1"	"Rest 1"	</item>
+  <item>"STD_envelopeDeformerFx.rest2"	"Rest 2"	</item>
+  <item>"STD_envelopeDeformerFx.rest3"	"Rest 3"	</item>
+  <item>"STD_envelopeDeformerFx.rest4"	"Rest 4"	</item>
+  <item>"STD_envelopeDeformerFx.rest5"	"Rest 5"	</item>
+  <item>"STD_envelopeDeformerFx.rest6"	"Rest 6"	</item>
+  <item>"STD_envelopeDeformerFx.rest7"	"Rest 7"	</item>
+  <item>"STD_envelopeDeformerFx.rest8"	"Rest 8"	</item>
+
   <item>"STD_gammaFx"			"Gamma"		</item>
   <item>"STD_gammaFx.value"		"Value"		</item>
 

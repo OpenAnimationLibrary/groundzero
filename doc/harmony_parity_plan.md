@@ -2,7 +2,7 @@
 
 **What was audited:** `/home/user/gz-mirror` at branch `tier6` (HEAD `1b03738ffd`, "Add a Drawing Substitution panel"). I only read code and git history; nothing was built or run. Paths below are relative to `toonz/sources/`.
 
-**Baseline:** the earlier Harmony catalogue (`harmony-catalogue.md`, Harmony 22 to 27). I checked every feature added since that catalogue against the code; section 1 gives the details. The Colour Override FX was added to `tier6` after this audit (`stdfx/colouroverridefx.cpp`).
+**Baseline:** the earlier Harmony catalogue (`harmony-catalogue.md`, Harmony 22 to 27). I checked every feature added since that catalogue against the code; section 1 gives the details. The Colour Override FX was added to `tier6` after this audit (`stdfx/colouroverridefx.cpp`), and so was a first Envelope Deformer FX on a raster-level `TDeformer` layer (`stdfx/envelopedeformerfx.cpp`, `include/toonz/tdeformer.h`).
 
 **Status codes:** Y = has it, Partial = some of it, N = no. **Tiers:** E/A/P = Essentials/Advanced/Premium.
 
@@ -19,7 +19,7 @@
 | Bone deformer | P | Partial | Plastic mesh and skeleton with rigidity painting (`tnzext/plasticdeformer.cpp`, `plasticdeformerstorage.cpp`). The Plastic tool now has IK (`tnztools/plastictool_animate.cpp:156`, which uses `IKEngine`). | The mesh has to be built first. There is no per-bone region of influence and no bone that works without a mesh. |
 | Game Bone | P | Partial | Spine JSON export maps the peg and column hierarchy, the "H0:" vertex links and drawing swaps to bones, slots and attachments (`toonz/spineexport.cpp`). | Mesh and Plastic deformation are not exported (`spineexport.cpp:24`). There is no rigid game-bone deformer type. |
 | Curve deformer | P | Partial | Plastic **Curve Bending**: the skeleton's vertex chains bend along a Catmull-Rom spline (`tnzext/plasticdeformerstorage.cpp:202` `buildCurveHandles`, `plasticskeletondeformation.h:283`). | No Bézier tangent handles of its own, no animatable handle length, and no curve that works without a mesh. |
-| Envelope deformer | P | N | Nothing. | No closed outline chain. |
+| Envelope deformer | P | Partial | Distort > Envelope Deformer (`stdfx/envelopedeformerfx.cpp`): 8 animatable envelope points and their rest pose, with viewer gadgets. It warps the rendered Source with the mean value coordinates of the envelope, through the raster `TDeformer` layer (`include/toonz/tdeformer.h`). | Straight edges (no Bézier tangents) and a fixed point count. The warp resamples the rendered raster, so vector lines are not deformed as strokes, and it is not part of a deformation chain or of the Plastic mesh path. |
 | Kinematic Output | P | Y | A column's parent handle can be `H0:<vertex>`, so the column follows a Plastic vertex (`toonzlib/xshhandlemanager.cpp:164`, `tstageobject.cpp:1609`). Renaming the vertex keeps the link. | Only Plastic vertices can drive it, because no other deformer types exist. |
 | Free-Form deformer | P | Partial | Plastic mesh vertices. Pinch, Bender and Magnet edit the drawing destructively. | No cage or lattice of free control points that can be animated without a skeleton. |
 | Weighted multi-deformer | P | Partial | One Plastic deformation per object, with rigidity weights. | Several deformers cannot be stacked on one drawing with per-point blend weights. |

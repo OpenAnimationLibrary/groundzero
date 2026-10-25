@@ -27,6 +27,7 @@
   </Blur>
   <Distort>
     STD_freeDistortFx
+    STD_envelopeDeformerFx
     STD_iwa_GradientWarpFx
     STD_linearWaveFx
     STD_perlinNoiseFx
