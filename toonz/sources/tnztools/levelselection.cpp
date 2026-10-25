@@ -5,6 +5,7 @@
 // TnzTools includes
 #include "tools/tool.h"
 #include "tools/toolhandle.h"
+#include "tools/artlayer.h"
 
 // TnzCore includes
 #include "tfilepath.h"
@@ -175,6 +176,14 @@ std::vector<int> getSelectedStrokes(TVectorImage &vi,
     getBoundaries(vi, strokes);
     break;
   }
+
+  // Line Art / Colour Art: keep only the strokes of the edited role
+  if (ArtLayer::target() != ArtLayer::TARGET_OFF)
+    strokes.erase(
+        std::remove_if(
+            strokes.begin(), strokes.end(),
+            [&vi](int s) { return !ArtLayer::isEditable(*vi.getStroke(s)); }),
+        strokes.end());
 
   return strokes;
 }

@@ -92,6 +92,10 @@ public:
                             // drawing
       m_highLightNow;       // Show highlight on active stroke
   bool m_animatedGuidedDrawing = false;
+  // Line Art / Colour Art editing in the viewer: draws faded either the strokes
+  // with thickness or the strokes with 0 thickness. Never set when rendering.
+  bool m_fadeThickStrokes  = false;
+  bool m_fade0ThickStrokes = false;
   //!  \deprecated  Use the above individual options instead.
   //!  \todo  Remove it ASAP.
 public:
