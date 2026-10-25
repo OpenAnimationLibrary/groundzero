@@ -22,4 +22,8 @@ set_tests_properties(typetooltext PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscr
 
 add_executable(vectoralignment_test vectoralignment_test.cpp)
 target_include_directories(vectoralignment_test PRIVATE ../../include)
+if(NOT CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+    # The geometry headers import TRectT/TPointT from tnzcore (needed by MSVC)
+    target_link_libraries(vectoralignment_test PRIVATE tnzcore)
+endif()
 add_test(NAME vectoralignment COMMAND vectoralignment_test)
