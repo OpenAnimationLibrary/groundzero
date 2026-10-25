@@ -7,6 +7,7 @@
 
 class QFileSystemWatcher;
 class QListWidget;
+class QListWidgetItem;
 class QPushButton;
 class QLabel;
 class QTimer;

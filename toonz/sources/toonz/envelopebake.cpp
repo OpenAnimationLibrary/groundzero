@@ -25,6 +25,7 @@
 #include "tfx.h"
 #include "tfxparam.h"
 #include "tparamcontainer.h"
+#include "tparamset.h"
 
 // TnzCore includes
 #include "tundo.h"
@@ -104,7 +105,7 @@ public:
 
 private:
   void setImage(const TVectorImageP &image) const {
-    m_level->setFrame(m_fid, image);
+    m_level->setFrame(m_fid, TImageP(image.getPointer()));
     m_level->setDirtyFlag(true);
     IconGenerator::instance()->invalidate(m_level.getPointer(), m_fid);
     TApp::instance()->getCurrentLevel()->notifyLevelChange();
