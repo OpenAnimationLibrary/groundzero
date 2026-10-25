@@ -109,6 +109,7 @@
 #define MI_Antialias "MI_Antialias"
 #define MI_AdjustLevels "MI_AdjustLevels"
 #define MI_AdjustThickness "MI_AdjustThickness"
+#define MI_BakeEnvelope "MI_BakeEnvelope"
 #define MI_Binarize "MI_Binarize"
 #define MI_FillHoles "MI_FillHoles"
 #define MI_LinesFade "MI_LinesFade"

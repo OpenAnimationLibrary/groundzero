@@ -2515,6 +2515,8 @@ void MainWindow::defineActions() {
                         "histograms");
   createMenuLevelAction(MI_AdjustThickness, QT_TR_NOOP("Adjust Thickness..."),
                         "", "thickness");
+  createMenuLevelAction(MI_BakeEnvelope,
+                        QT_TR_NOOP("Bake Envelope into Vector Level..."), "");
   createMenuLevelAction(MI_Antialias, QT_TR_NOOP("&Antialias..."), "",
                         "antialias");
   createMenuLevelAction(MI_Binarize, QT_TR_NOOP("&Binarize..."), "",

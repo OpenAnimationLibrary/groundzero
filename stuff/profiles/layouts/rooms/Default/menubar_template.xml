@@ -135,6 +135,7 @@
             <command>MI_BrightnessAndContrast</command>
             <command>MI_AdjustLevels</command>
             <command>MI_AdjustThickness</command>
+            <command>MI_BakeEnvelope</command>
             <command>MI_Antialias</command>
             <command>MI_Binarize</command>
             <command>MI_LinesFade</command>

@@ -294,6 +294,42 @@
   <item>"STD_envelopeDeformerFx.rest7"	"Rest 7"	</item>
   <item>"STD_envelopeDeformerFx.rest8"	"Rest 8"	</item>
 
+  <item>"STD_envelopeDeformerPlusFx"	"Envelope Deformer Plus"	</item>
+  <item>"STD_envelopeDeformerPlusFx.pointCount"	"Point Count"	</item>
+  <item>"STD_envelopeDeformerPlusFx.smooth"	"Smooth Edges"	</item>
+  <item>"STD_envelopeDeformerPlusFx.point1"	"Point 1"	</item>
+  <item>"STD_envelopeDeformerPlusFx.point2"	"Point 2"	</item>
+  <item>"STD_envelopeDeformerPlusFx.point3"	"Point 3"	</item>
+  <item>"STD_envelopeDeformerPlusFx.point4"	"Point 4"	</item>
+  <item>"STD_envelopeDeformerPlusFx.point5"	"Point 5"	</item>
+  <item>"STD_envelopeDeformerPlusFx.point6"	"Point 6"	</item>
+  <item>"STD_envelopeDeformerPlusFx.point7"	"Point 7"	</item>
+  <item>"STD_envelopeDeformerPlusFx.point8"	"Point 8"	</item>
+  <item>"STD_envelopeDeformerPlusFx.point9"	"Point 9"	</item>
+  <item>"STD_envelopeDeformerPlusFx.point10"	"Point 10"	</item>
+  <item>"STD_envelopeDeformerPlusFx.point11"	"Point 11"	</item>
+  <item>"STD_envelopeDeformerPlusFx.point12"	"Point 12"	</item>
+  <item>"STD_envelopeDeformerPlusFx.point13"	"Point 13"	</item>
+  <item>"STD_envelopeDeformerPlusFx.point14"	"Point 14"	</item>
+  <item>"STD_envelopeDeformerPlusFx.point15"	"Point 15"	</item>
+  <item>"STD_envelopeDeformerPlusFx.point16"	"Point 16"	</item>
+  <item>"STD_envelopeDeformerPlusFx.rest1"	"Rest 1"	</item>
+  <item>"STD_envelopeDeformerPlusFx.rest2"	"Rest 2"	</item>
+  <item>"STD_envelopeDeformerPlusFx.rest3"	"Rest 3"	</item>
+  <item>"STD_envelopeDeformerPlusFx.rest4"	"Rest 4"	</item>
+  <item>"STD_envelopeDeformerPlusFx.rest5"	"Rest 5"	</item>
+  <item>"STD_envelopeDeformerPlusFx.rest6"	"Rest 6"	</item>
+  <item>"STD_envelopeDeformerPlusFx.rest7"	"Rest 7"	</item>
+  <item>"STD_envelopeDeformerPlusFx.rest8"	"Rest 8"	</item>
+  <item>"STD_envelopeDeformerPlusFx.rest9"	"Rest 9"	</item>
+  <item>"STD_envelopeDeformerPlusFx.rest10"	"Rest 10"	</item>
+  <item>"STD_envelopeDeformerPlusFx.rest11"	"Rest 11"	</item>
+  <item>"STD_envelopeDeformerPlusFx.rest12"	"Rest 12"	</item>
+  <item>"STD_envelopeDeformerPlusFx.rest13"	"Rest 13"	</item>
+  <item>"STD_envelopeDeformerPlusFx.rest14"	"Rest 14"	</item>
+  <item>"STD_envelopeDeformerPlusFx.rest15"	"Rest 15"	</item>
+  <item>"STD_envelopeDeformerPlusFx.rest16"	"Rest 16"	</item>
+
   <item>"STD_deformerStackFx"	"Deformer Stack"	</item>
   <item>"STD_deformerStackFx.a_weight"	"A Weight"	</item>
   <item>"STD_deformerStackFx.a_falloff"	"A Falloff"	</item>

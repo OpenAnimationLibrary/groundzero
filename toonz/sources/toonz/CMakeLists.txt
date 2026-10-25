@@ -439,6 +439,7 @@ set(SOURCES
     convertfolderpopup.cpp
     exportcameratrackpopup.cpp
     spineexport.cpp
+    envelopebake.cpp
 # Tracker file
     dummyprocessor.cpp
     metnum.cpp

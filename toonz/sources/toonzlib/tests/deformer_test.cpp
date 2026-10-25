@@ -12,6 +12,8 @@
 #include "toonz/tfreeformdeformer.h"
 #include "traster.h"
 
+#include "tstroke.h"
+#include "tvectorimage.h"
 #include <cmath>
 #include <iostream>
 #include <memory>
@@ -1006,6 +1008,114 @@ void testBoneRoundTrip() {
 
 //------------------------------------------------------------------
 
+//------------------------------------------------------------------
+
+void testSplineSamples() {
+  std::vector<TPointD> anchors = square(), samples;
+
+  // One sample per edge gives the anchors back
+  TEnvelopeDeformer::sampleClosedSpline(anchors, 1, samples);
+  require(samples.size() == anchors.size(), "spline: wrong sample count");
+  for (size_t i = 0; i < anchors.size(); ++i)
+    require(isClose(samples[i], anchors[i], 1e-12),
+            "spline: a single sample is not the anchor");
+
+  // The curve goes through the anchors, which start each edge
+  TEnvelopeDeformer::sampleClosedSpline(anchors, 8, samples);
+  require(samples.size() == 8 * anchors.size(), "spline: wrong sample count");
+  for (size_t i = 0; i < anchors.size(); ++i)
+    require(isClose(samples[8 * i], anchors[i], 1e-12),
+            "spline: the curve misses an anchor");
+}
+
+//------------------------------------------------------------------
+
+void testSmoothIdentity() {
+  TEnvelopeDeformer deformer = makeEnvelope(square(), square(), 8);
+  require(deformer.isValid(), "smooth identity: not valid");
+  require(deformer.isIdentity(0.0), "smooth identity: not identity");
+
+  for (const TPointD &p : samplePoints())
+    require(isClose(deformer.deform(p, 0.0), p, 1e-9),
+            "smooth identity: deform moved a point");
+}
+
+//------------------------------------------------------------------
+
+void testTriangleAffine() {
+  // With 3 anchors the envelope is a triangle, or a rounded one when smooth;
+  // either way an affine change of the anchors is reproduced exactly
+  std::vector<TPointD> rest = {TPointD(-80.0, -60.0), TPointD(90.0, -50.0),
+                               TPointD(10.0, 100.0)};
+  TAffine aff = TTranslation(12.0, -7.0) * TRotation(30.0) * TScale(1.5, 0.75);
+  std::vector<TPointD> deformed = rest;
+  for (TPointD &p : deformed) p = aff * p;
+
+  const TPointD points[] = {TPointD(0.0, 0.0),     TPointD(20.0, 10.0),
+                            TPointD(-30.0, -20.0), TPointD(150.0, 80.0),
+                            TPointD(-120.0, 90.0), TPointD(10.0, -150.0)};
+
+  for (int samples : {1, 8}) {
+    TEnvelopeDeformer deformer = makeEnvelope(rest, deformed, samples);
+    require(deformer.isValid(), "triangle: not valid");
+
+    for (const TPointD &p : points) {
+      TPointD q;
+      require(deformer.undeform(aff * p, 0.0, q), "triangle: undeform failed");
+      require(isClose(q, p, 1e-6), "triangle: wrong undeform");
+      require(isClose(deformer.deform(p, 0.0), aff * p, 1e-4),
+              "triangle: wrong deform");
+    }
+  }
+}
+
+//------------------------------------------------------------------
+
+void testSmoothBend() {
+  // Moving an anchor moves the curve through it, and bends the plane smoothly
+  std::vector<TPointD> rest = square(), deformed = square();
+  deformed[2] += TPointD(40.0, 30.0);
+
+  TEnvelopeDeformer deformer = makeEnvelope(rest, deformed, 8);
+  require(!deformer.isIdentity(1.0), "smooth bend: identity");
+  require(isClose(deformer.deform(rest[2], 0.0), deformed[2], 1e-3),
+          "smooth bend: an anchor is not moved to its deformed position");
+  require(
+      isClose(deformer.deform(TPointD(0.0, 0.0), 0.0), TPointD(0.0, 0.0), 30.0),
+      "smooth bend: the center moved too much");
+}
+
+//------------------------------------------------------------------
+
+void testVectorImage() {
+  TVectorImageP vi(new TVectorImage());
+  std::vector<TThickPoint> points = {TThickPoint(0.0, 0.0, 2.0),
+                                     TThickPoint(10.0, 20.0, 3.0),
+                                     TThickPoint(30.0, 0.0, 4.0)};
+  vi->addStroke(new TStroke(points));
+
+  // A translation of the plane translates the control points
+  std::vector<TPointD> moved = square();
+  for (TPointD &p : moved) p += TPointD(5.0, -3.0);
+  TEnvelopeDeformer deformer(square(), moved);
+
+  deformVectorImage(*vi, deformer, 0.0);
+
+  require(vi->getStrokeCount() == 1, "vector: wrong stroke count");
+  TStroke *stroke = vi->getStroke(0);
+  require(stroke->getControlPointCount() == 3, "vector: wrong point count");
+  for (int i = 0; i < 3; ++i) {
+    TThickPoint p = stroke->getControlPoint(i);
+    require(isClose(TPointD(p.x, p.y),
+                    TPointD(points[i].x + 5.0, points[i].y - 3.0), 1e-4),
+            "vector: a control point is not translated");
+    require(std::fabs(p.thick - points[i].thick) < 1e-9,
+            "vector: the thickness changed");
+  }
+}
+
+//------------------------------------------------------------------
+
 int main() {
   try {
     testIdentity();
@@ -1033,6 +1143,11 @@ int main() {
     testBoneTranslation();
     testBoneBend();
     testBoneRoundTrip();
+    testSplineSamples();
+    testSmoothIdentity();
+    testTriangleAffine();
+    testSmoothBend();
+    testVectorImage();
   } catch (const std::exception &e) {
     std::cerr << "deformer_test failed: " << e.what() << std::endl;
     return 1;

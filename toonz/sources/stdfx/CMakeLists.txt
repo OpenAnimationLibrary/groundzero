@@ -126,6 +126,7 @@ set(SOURCES
     dissolvefx.cpp
     embossfx.cpp
     envelopedeformerfx.cpp
+    envelopedeformerplusfx.cpp
     erodilatefx.cpp
     externalpalettefx.cpp
     fourpointsgradientfx.cpp
