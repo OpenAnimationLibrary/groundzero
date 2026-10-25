@@ -12,6 +12,10 @@
 #include <execinfo.h>
 #include <signal.h>
 #include <unistd.h>
+#include <fcntl.h>
+#include <errno.h>
+#include <string.h>
+#include <time.h>
 #include <err.h>
 #include <regex>
 #endif
@@ -33,6 +37,9 @@
 #include <QByteArray>
 #include <QClipboard>
 #include <QDate>
+#include <QDateTime>
+#include <QFile>
+#include <QFileInfo>
 #include <QThread>
 #include <QMainWindow>
 #include <QMessageBox>
@@ -48,6 +55,8 @@
 
 static QWidget *s_parentWindow = NULL;
 static bool s_reportProjInfo   = false;
+static QString s_previousReport;
+static TFilePath s_previousReportFile;
 #ifdef ENABLE_CRASH_REPORTER_TEST
 static volatile sig_atomic_t s_intentionalCrashTest = 0;
 #endif
@@ -432,8 +441,90 @@ static void printBacktrace(std::string &out) {
   free(bts);
 }
 
+//-----------------------------------------------------------------------------
+// Async-signal-safe crash report
+//
+// After a crash the heap, stdio and Qt may be corrupted, so the signal handler
+// only writes data prepared by CrashHandler::prepareReport() plus a raw
+// backtrace into a pending report file. The report is shown on next launch by
+// CrashHandler::showPendingReport().
+
+static char s_pendingReportPath[4096] = {0};
+static char s_reportIntro[1024]       = {0};
+static size_t s_reportIntroLen        = 0;
+static char s_reportSysInfo[8192]     = {0};
+static size_t s_reportSysInfoLen      = 0;
+
+static size_t copyToBuffer(char *dst, size_t capacity, const char *src,
+                           size_t len) {
+  if (len > capacity - 1) len = capacity - 1;
+  memcpy(dst, src, len);
+  dst[len] = 0;
+  return len;
+}
+
+static void writeAll(int fd, const char *data, size_t len) {
+  while (len > 0) {
+    ssize_t n = write(fd, data, len);
+    if (n <= 0) {
+      if (n < 0 && errno == EINTR) continue;
+      return;
+    }
+    data += n;
+    len -= (size_t)n;
+  }
+}
+
+static void writeText(int fd, const char *text) {
+  writeAll(fd, text, strlen(text));
+}
+
+static void writeNumber(int fd, unsigned long long value, int minDigits) {
+  char buf[24];
+  int pos = sizeof(buf);
+  do {
+    buf[--pos] = (char)('0' + value % 10);
+    value /= 10;
+    --minDigits;
+  } while (pos > 0 && (value > 0 || minDigits > 0));
+  writeAll(fd, buf + pos, sizeof(buf) - pos);
+}
+
+// localtime() and strftime() are not async-signal-safe, so convert to a UTC
+// date with plain arithmetic (days-to-civil algorithm by Howard Hinnant).
+static void writeUtcTime(int fd, time_t t) {
+  long long days = (long long)t / 86400;
+  long long secs = (long long)t % 86400;
+  if (secs < 0) {
+    secs += 86400;
+    --days;
+  }
+  days += 719468;
+  const long long era  = (days >= 0 ? days : days - 146096) / 146097;
+  const unsigned doe   = (unsigned)(days - era * 146097);
+  const unsigned yoe   = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+  const unsigned doy   = doe - (365 * yoe + yoe / 4 - yoe / 100);
+  const unsigned mp    = (5 * doy + 2) / 153;
+  const unsigned day   = doy - (153 * mp + 2) / 5 + 1;
+  const unsigned month = mp < 10 ? mp + 3 : mp - 9;
+  const long long year = (long long)yoe + era * 400 + (month <= 2 ? 1 : 0);
+
+  writeNumber(fd, (unsigned long long)year, 4);
+  writeText(fd, "-");
+  writeNumber(fd, month, 2);
+  writeText(fd, "-");
+  writeNumber(fd, day, 2);
+  writeText(fd, " ");
+  writeNumber(fd, (unsigned long long)(secs / 3600), 2);
+  writeText(fd, ":");
+  writeNumber(fd, (unsigned long long)(secs / 60 % 60), 2);
+  writeText(fd, ":");
+  writeNumber(fd, (unsigned long long)(secs % 60), 2);
+  writeText(fd, " UTC");
+}
+
 void signalHandler(int sig) {
-  static volatile bool handling = false;
+  static volatile sig_atomic_t handling = 0;
 
   const char *reason = "Unknown";
   switch (sig) {
@@ -446,23 +537,49 @@ void signalHandler(int sig) {
   case SIGILL:
     reason = "(SIGILL) Illegal instruction";
     break;
-  case SIGINT:
-    reason = "(SIGINT) Interactive attention signal, (usually ctrl+c)";
-    break;
   case SIGSEGV:
     reason = "(SIGSEGV) Segmentation Fault";
     break;
-  case SIGTERM:
-    reason = "(SIGTERM) A termination request was sent to the program";
+#ifdef SIGBUS
+  case SIGBUS:
+    reason = "(SIGBUS) Bus error, such as an invalid memory access";
     break;
+#endif
   }
 
-  // Avoid new signals inside the crash handler
-  if (handling) return;
+  // Only async-signal-safe calls below. Avoid new signals inside the crash
+  // handler: a second crash goes straight to the default action.
+  if (!handling && s_pendingReportPath[0]) {
+    handling = 1;
+    int fd   = open(s_pendingReportPath, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (fd >= 0) {
+      writeAll(fd, s_reportIntro, s_reportIntroLen);
+      writeText(fd, "\nReport Date: ");
+      writeUtcTime(fd, time(NULL));
+      writeText(fd, "\nCrash Reason: ");
+      writeText(fd, reason);
+#ifdef ENABLE_CRASH_REPORTER_TEST
+      if (s_intentionalCrashTest)
+        writeText(fd, "\nCrash Test: Intentional (Help > Test Crash Reporter)");
+#endif
+      writeText(fd, "\n\n");
+      writeAll(fd, s_reportSysInfo, s_reportSysInfoLen);
 
-  handling = true;
-  if (CrashHandler::trigger(reason, true)) _Exit(1);
-  handling = false;
+      // Raw frames; the first one is this handler
+      writeText(fd, "\n==== Backtrace ====\n");
+      void *frames[256];
+      int nptrs = backtrace(frames, 256);
+      if (nptrs > 1) backtrace_symbols_fd(frames + 1, nptrs - 1, fd);
+      writeText(fd, "==== End ====\n");
+      close(fd);
+    }
+  }
+  handling = 1;
+
+  // Let the OS perform its normal crash handling (core dump, system crash
+  // reporter, exit status)
+  signal(sig, SIG_DFL);
+  raise(sig);
 }
 
 #endif
@@ -534,16 +651,23 @@ static void printUpdateGuidance(std::string &out) {
 
 //-----------------------------------------------------------------------------
 
-CrashHandler::CrashHandler(QWidget *parent, TFilePath crashFile, QString crashReport)
-    : QDialog(parent), m_crashFile(crashFile), m_crashReport(crashReport) {
+CrashHandler::CrashHandler(QWidget *parent, TFilePath crashFile,
+                           QString crashReport, bool previousSession)
+    : QDialog(parent)
+    , m_crashFile(crashFile)
+    , m_crashReport(crashReport)
+    , m_previousSession(previousSession) {
   setWindowFlag(Qt::WindowContextHelpButtonHint, false);
 
   QStringList sl;
-  sl.append(tr("<b>OpenToonz crashed unexpectedly.</b>"));
+  if (previousSession)
+    sl.append(tr("<b>OpenToonz crashed during the previous session.</b>"));
+  else
+    sl.append(tr("<b>OpenToonz crashed unexpectedly.</b>"));
   sl.append("");
   sl.append(tr("A crash report has been generated."));
   sl.append(
-      tr("To report, click 'Open Issue Webpage' to access OpenToonz's Issues "
+      tr("To report, click 'Open Issue Webpage' to access the OT-Dev Issues "
          "page on GitHub."));
   sl.append(tr("Click on the 'New issue' button and fill out the form."));
   sl.append("");
@@ -565,7 +689,8 @@ CrashHandler::CrashHandler(QWidget *parent, TFilePath crashFile, QString crashRe
   QPushButton *copyBtn   = new QPushButton(tr("Copy to Clipboard"));
   QPushButton *webBtn    = new QPushButton(tr("Open Issue Webpage"));
   QPushButton *folderBtn = new QPushButton(tr("Open Reports Folder"));
-  QPushButton *closeBtn  = new QPushButton(tr("Close Application"));
+  QPushButton *closeBtn =
+      new QPushButton(previousSession ? tr("Close") : tr("Close Application"));
   buttonsLay->addWidget(copyBtn);
   buttonsLay->addWidget(webBtn);
   buttonsLay->addWidget(folderBtn);
@@ -581,11 +706,18 @@ CrashHandler::CrashHandler(QWidget *parent, TFilePath crashFile, QString crashRe
   ret = ret && connect(closeBtn, SIGNAL(clicked()), this, SLOT(accept()));
   if (!ret) throw TException();
 
-  setWindowTitle(tr("OpenToonz crashed!"));
+  setWindowTitle(previousSession ? tr("OpenToonz Crash Report")
+                                 : tr("OpenToonz crashed!"));
   setLayout(mainLayout);
 }
 
 void CrashHandler::reject() {
+  // The application was restarted already, nothing to resume
+  if (m_previousSession) {
+    QDialog::reject();
+    return;
+  }
+
   QStringList sl;
   sl.append(tr("Application is in unstable state and must be restarted."));
   sl.append(tr("Resuming is not recommended and may lead to an unrecoverable crash."));
@@ -609,7 +741,9 @@ void CrashHandler::copyClipboard() {
 //-----------------------------------------------------------------------------
 
 void CrashHandler::openWebpage() {
-  QDesktopServices::openUrl(QUrl("https://github.com/opentoonz/opentoonz/issues"));
+  // OT-Dev is unofficial: its crash reports must not go to upstream OpenToonz
+  QDesktopServices::openUrl(
+      QUrl("https://github.com/OpenAnimationLibrary/opentoonz-dev/issues"));
 }  
 
 //-----------------------------------------------------------------------------
@@ -630,13 +764,88 @@ void CrashHandler::install() {
   assert(handler != NULL);
   //RemoveVectoredExceptionHandler(handler);
 #else
+  // backtrace() may allocate while loading the unwinder on its first call,
+  // which is not safe inside a signal handler, so preload it now.
+  void *frames[1];
+  backtrace(frames, 1);
+
+  // SIGINT and SIGTERM are not crashes and keep their default behavior.
   signal(SIGABRT, signalHandler);
   signal(SIGFPE, signalHandler);
   signal(SIGILL, signalHandler);
-  signal(SIGINT, signalHandler);
   signal(SIGSEGV, signalHandler);
-  signal(SIGTERM, signalHandler);
+#ifdef SIGBUS
+  signal(SIGBUS, signalHandler);
 #endif
+#endif
+}
+
+//-----------------------------------------------------------------------------
+
+void CrashHandler::prepareReport() {
+#ifndef _WIN32
+  // Everything the signal handler writes besides the backtrace is gathered
+  // here, while it is still safe to use Qt and the heap.
+  TFilePath folder = ToonzFolder::getCrashReportFolder();
+  if (folder.isEmpty()) return;
+
+  std::string intro;
+  std::string sysInfo;
+  try {
+    intro.append("Application Version: " + TEnv::getApplicationFullName() +
+                 "\n");
+    intro.append("Build Date: " __DATE__ "\n");
+    printSysInfo(sysInfo);
+    printUpdateGuidance(sysInfo);
+    sysInfo.append(
+        "\nReport Type: Written at crash time with async-signal-safe calls "
+        "only; GPU and project details are not included\n");
+  } catch (...) {
+  }
+  s_reportIntroLen   = copyToBuffer(s_reportIntro, sizeof(s_reportIntro),
+                                    intro.c_str(), intro.size());
+  s_reportSysInfoLen = copyToBuffer(s_reportSysInfo, sizeof(s_reportSysInfo),
+                                    sysInfo.c_str(), sysInfo.size());
+
+  // Take over the report of a crash in the previous session before a new
+  // crash can overwrite it. It is kept with the others under its crash time
+  // and shown once by showPendingReport().
+  const TFilePath fpPending = folder + "PendingCrashReport.log";
+  const QString pendingPath = fpPending.getQString();
+  QFile file(pendingPath);
+  if (file.exists()) {
+    if (file.open(QIODevice::ReadOnly)) {
+      s_previousReport = QString::fromUtf8(file.readAll());
+      file.close();
+    }
+    const QDateTime crashTime = QFileInfo(pendingPath).lastModified();
+    s_previousReportFile =
+        folder + ("Crash-" + crashTime.toString("yyyyMMdd-HHmmss") + ".log")
+                     .toStdString();
+    if (!QFile::rename(pendingPath, s_previousReportFile.getQString())) {
+      QFile::remove(pendingPath);
+      s_previousReportFile = TFilePath();
+    }
+  }
+
+  // Set the path last: the handler writes nothing while it is empty
+  const QByteArray path = QFile::encodeName(pendingPath);
+  if (path.size() < (int)sizeof(s_pendingReportPath))
+    copyToBuffer(s_pendingReportPath, sizeof(s_pendingReportPath),
+                 path.constData(), path.size());
+#endif
+}
+
+//-----------------------------------------------------------------------------
+
+void CrashHandler::showPendingReport() {
+  if (s_previousReport.isEmpty()) return;
+
+  const QString report = s_previousReport;
+  s_previousReport.clear();
+
+  CrashHandler crashdialog(s_parentWindow, s_previousReportFile, report, true);
+  crashdialog.exec();
 }
 
 //-----------------------------------------------------------------------------

@@ -506,6 +506,9 @@ int main(int argc, char *argv[]) {
   // Toonz environment
   initToonzEnv(argumentPathValues);
 
+  // The crash report folder is known only now
+  CrashHandler::prepareReport();
+
   // Read the saved preference only after the Toonz environment is initialized.
   // Preserve existing platform defaults when enabled; disabling also prevents
   // tablet compression, which depends on high-frequency event compression.
@@ -881,6 +884,9 @@ int main(int argc, char *argv[]) {
 #endif
 
   a.installEventFilter(TApp::instance());
+
+  // Show the report of a crash in the previous session, if any
+  CrashHandler::showPendingReport();
 
   int ret = a.exec();
 
