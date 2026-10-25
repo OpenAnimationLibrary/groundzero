@@ -190,6 +190,7 @@
         <command>MI_RemoveGlobalKeyframe</command>
         <separator/>
         <command>MI_LipSyncPopup</command>
+        <command>MI_NewAnnotationColumn</command>
         <separator/>
         <command>MI_RemoveEmptyColumns</command>
     </menu>

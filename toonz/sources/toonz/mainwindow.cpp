@@ -2580,6 +2580,9 @@ void MainWindow::defineActions() {
   createMenuXsheetAction(MI_RemoveGlobalKeyframe,
                          QT_TR_NOOP("Remove Multiple Keys"), "",
                          "remove_multiple_keys");
+  createMenuXsheetAction(MI_NewAnnotationColumn,
+                         QT_TR_NOOP("New Annotation Column"), "",
+                         "new_note_level");
   createMenuXsheetAction(MI_RemoveEmptyColumns,
                          QT_TR_NOOP("Remove Empty Columns"), "",
                          "remove_empty_columns");

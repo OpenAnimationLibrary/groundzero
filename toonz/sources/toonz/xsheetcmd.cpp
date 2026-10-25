@@ -1013,13 +1013,15 @@ class NewNoteLevelUndo final : public TUndo {
   TXshSoundTextColumnP m_soundtextColumn;
   int m_col;
   QString m_columnName;
+  QString m_historyString;
 
 public:
   NewNoteLevelUndo(TXshSoundTextColumn *soundtextColumn, int col,
-                   QString columnName)
+                   QString columnName, QString historyString)
       : m_soundtextColumn(soundtextColumn)
       , m_col(col)
-      , m_columnName(columnName) {}
+      , m_columnName(columnName)
+      , m_historyString(historyString) {}
 
   void undo() const override {
     TApp *app    = TApp::instance();
@@ -1042,14 +1044,18 @@ public:
 
   int getSize() const override { return sizeof(*this); }
 
-  QString getHistoryString() override { return QObject::tr("New Note Level"); }
+  QString getHistoryString() override { return m_historyString; }
 
   int getHistoryType() override { return HistoryType::Xsheet; }
 };
 
 //============================================================
+// Inserts a sound text (note) column at the current column, named with a
+// unique "<prefix><number>". When numberFirst is false, the first such
+// column is named just "<prefix>" (e.g. "Notes", then "Notes2", ...).
 
-static void newNoteLevel() {
+static void insertNoteColumn(const std::string &prefix, bool numberFirst,
+                             const QString &historyString) {
   TTool::Application *app = TTool::getApplication();
   TXsheet *xsh            = app->getCurrentScene()->getScene()->getXsheet();
   int col = TTool::getApplication()->getCurrentColumn()->getColumnIndex();
@@ -1063,31 +1069,43 @@ static void newNoteLevel() {
   textSoundCol->createSoundTextLevel(0, textList);
   xsh->insertColumn(col, textSoundCol);
 
-  // name the level a unique NoteLevel number
+  // name the level a unique number
   TStageObjectTree *objects = xsh->getStageObjectTree();
   int objectCount           = objects->getStageObjectCount();
   int maxTextColumns        = 1;
   for (int i = 0; i < objectCount; i++) {
     TStageObject *object = objects->getStageObject(i);
     std::string objName  = object->getName();
-    int pos              = objName.find("NoteLevel");
-    if (pos != std::string::npos && pos == 0) {
-      std::string currStrCount = objName.substr(9);
+    if (objName.compare(0, prefix.size(), prefix) == 0) {
+      std::string currStrCount = objName.substr(prefix.size());
       bool ok;
       int currCount = QString::fromStdString(currStrCount).toInt(&ok);
+      // the bare prefix counts as the first one
+      if (!numberFirst && currStrCount.empty()) {
+        ok        = true;
+        currCount = 1;
+      }
       if (ok && currCount >= maxTextColumns) {
         maxTextColumns = currCount + 1;
       }
     }
   }
   TStageObject *obj = xsh->getStageObject(TStageObjectId::ColumnId(col));
-  QString str       = "NoteLevel" + QString::number(maxTextColumns);
+  QString str       = QString::fromStdString(prefix);
+  if (numberFirst || maxTextColumns > 1) str += QString::number(maxTextColumns);
   obj->setName(str.toStdString());
 
-  TUndoManager::manager()->add(new NewNoteLevelUndo(textSoundCol, col, str));
+  TUndoManager::manager()->add(
+      new NewNoteLevelUndo(textSoundCol, col, str, historyString));
 
   TXsheetHandle *xshHandle = app->getCurrentXsheet();
   xshHandle->notifyXsheetChanged();
+}
+
+//============================================================
+
+static void newNoteLevel() {
+  insertNoteColumn("NoteLevel", true, QObject::tr("New Note Level"));
 }
 
 //============================================================
@@ -1097,6 +1115,19 @@ public:
   NewNoteLevelCommand() : MenuItemHandler(MI_NewNoteLevel) {}
   void execute() override { XshCmd::newNoteLevel(); }
 } NewNoteLevelCommand;
+
+//============================================================
+// Annotation column: a note column for per-frame director / animator notes.
+// Its cells are edited by double-clicking them (see RenameCellField).
+
+class NewAnnotationColumnCommand final : public MenuItemHandler {
+public:
+  NewAnnotationColumnCommand() : MenuItemHandler(MI_NewAnnotationColumn) {}
+  void execute() override {
+    XshCmd::insertNoteColumn("Notes", false,
+                             QObject::tr("New Annotation Column"));
+  }
+} NewAnnotationColumnCommand;
 
 //============================================================
 
