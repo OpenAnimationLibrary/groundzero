@@ -128,6 +128,7 @@ set(SOURCES
     externalpalettefx.cpp
     fourpointsgradientfx.cpp
     freedistortfx.cpp
+    freeformdeformerfx.cpp
     gammafx.cpp
     glbmodelfx.cpp
     imageplanefx.cpp

@@ -1,0 +1,25 @@
+<fxlayout>
+  <page name="Free-Form Deformer">
+   <separator label="Rest Rectangle"/>
+    <control>center</control>
+    <control>width</control>
+    <control>height</control>
+   <separator label="Lattice (bottom row first)"/>
+    <control>point1</control>
+    <control>point2</control>
+    <control>point3</control>
+    <control>point4</control>
+    <control>point5</control>
+    <control>point6</control>
+    <control>point7</control>
+    <control>point8</control>
+    <control>point9</control>
+    <control>point10</control>
+    <control>point11</control>
+    <control>point12</control>
+    <control>point13</control>
+    <control>point14</control>
+    <control>point15</control>
+    <control>point16</control>
+  </page>
+</fxlayout>

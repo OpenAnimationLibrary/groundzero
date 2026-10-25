@@ -134,6 +134,7 @@ set(HEADERS
     ../include/toonz/tcolumnfxset.h
     ../include/toonz/tdeformer.h
     ../include/toonz/tdeformerstack.h
+    ../include/toonz/tfreeformdeformer.h
     ../include/toonz/tdistort.h
     ../include/toonz/textureutils.h
     ../include/toonz/tlog.h
@@ -266,6 +267,7 @@ set(SOURCES
     tdeformer.cpp
     tdeformerstack.cpp
     tdistort.cpp
+    tfreeformdeformer.cpp
     texturemanager.cpp
     thirdparty.cpp
     tlog.cpp

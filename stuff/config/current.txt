@@ -359,6 +359,27 @@
   <item>"STD_deformerStackFx.c_rest7"	"C Rest 7"	</item>
   <item>"STD_deformerStackFx.c_rest8"	"C Rest 8"	</item>
 
+  <item>"STD_freeFormDeformerFx"	"Free-Form Deformer"	</item>
+  <item>"STD_freeFormDeformerFx.center"	"Rest Center"	</item>
+  <item>"STD_freeFormDeformerFx.width"	"Rest Width"	</item>
+  <item>"STD_freeFormDeformerFx.height"	"Rest Height"	</item>
+  <item>"STD_freeFormDeformerFx.point1"	"Point 1"	</item>
+  <item>"STD_freeFormDeformerFx.point2"	"Point 2"	</item>
+  <item>"STD_freeFormDeformerFx.point3"	"Point 3"	</item>
+  <item>"STD_freeFormDeformerFx.point4"	"Point 4"	</item>
+  <item>"STD_freeFormDeformerFx.point5"	"Point 5"	</item>
+  <item>"STD_freeFormDeformerFx.point6"	"Point 6"	</item>
+  <item>"STD_freeFormDeformerFx.point7"	"Point 7"	</item>
+  <item>"STD_freeFormDeformerFx.point8"	"Point 8"	</item>
+  <item>"STD_freeFormDeformerFx.point9"	"Point 9"	</item>
+  <item>"STD_freeFormDeformerFx.point10"	"Point 10"	</item>
+  <item>"STD_freeFormDeformerFx.point11"	"Point 11"	</item>
+  <item>"STD_freeFormDeformerFx.point12"	"Point 12"	</item>
+  <item>"STD_freeFormDeformerFx.point13"	"Point 13"	</item>
+  <item>"STD_freeFormDeformerFx.point14"	"Point 14"	</item>
+  <item>"STD_freeFormDeformerFx.point15"	"Point 15"	</item>
+  <item>"STD_freeFormDeformerFx.point16"	"Point 16"	</item>
+
   <item>"STD_gammaFx"			"Gamma"		</item>
   <item>"STD_gammaFx.value"		"Value"		</item>
 
