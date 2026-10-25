@@ -1365,6 +1365,9 @@ void PlasticTool::setVertexName(QString &name) {
 
   PlasticDeformerStorage::instance()->invalidateSkeleton(
       m_sd.getPointer(), ::skeletonId(), PlasticDeformerStorage::NONE);
+
+  // Columns linked to skeleton vertices refer to them by name
+  ::stageObject()->invalidate();
 }
 
 //------------------------------------------------------------------------
