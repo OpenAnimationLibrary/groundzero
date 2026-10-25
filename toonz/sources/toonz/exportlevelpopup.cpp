@@ -334,8 +334,11 @@ ExportLevelPopup::ExportLevelPopup()
   bool ret = true;
   ret      = connect(tabBar, SIGNAL(currentChanged(int)), stackedWidget,
                      SLOT(setCurrentIndex(int)));
-  ret      = connect(m_format, SIGNAL(currentIndexChanged(const QString &)),
-                     SLOT(onformatChanged(const QString &))) &&
+  ret = connect(m_format, QOverload<int>::of(&QComboBox::currentIndexChanged),
+                this,
+                [this, combo = m_format](int index) {
+                  onformatChanged(combo->itemText(index));
+                }) &&
         ret;
   ret = connect(m_retas, SIGNAL(stateChanged(int)), SLOT(onRetas(int))) && ret;
   ret = connect(m_formatOptions, SIGNAL(clicked()), SLOT(onOptionsClicked())) &&

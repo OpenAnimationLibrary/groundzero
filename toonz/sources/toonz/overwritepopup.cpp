@@ -55,8 +55,13 @@ OverwriteDialog::OverwriteDialog()
 
   QButtonGroup *buttonGroup = new QButtonGroup(this);
   buttonGroup->setExclusive(true);
+#if QT_VERSION >= QT_VERSION_CHECK(5, 15, 0)
+  bool ret = connect(buttonGroup, SIGNAL(idClicked(int)), this,
+                     SLOT(onButtonClicked(int)));
+#else
   bool ret = connect(buttonGroup, SIGNAL(buttonClicked(int)), this,
                      SLOT(onButtonClicked(int)));
+#endif
 
   beginVLayout();
 

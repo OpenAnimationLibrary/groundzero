@@ -15,8 +15,8 @@ using namespace DVGui;
 
 PropertyComboBox::PropertyComboBox(QWidget *parent, TEnumProperty *prop)
     : QComboBox(parent), PropertyWidget(prop) {
-  connect(this, SIGNAL(currentIndexChanged(const QString &)), this,
-          SLOT(onCurrentIndexChanged(const QString &)));
+  connect(this, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+          [this](int index) { onCurrentIndexChanged(itemText(index)); });
   setMaximumHeight(WidgetHeight);
 }
 

@@ -493,15 +493,20 @@ ConvertPopup::ConvertPopup(bool specifyInput)
   qRegisterMetaType<TFilePath>("TFilePath");
 
   bool ret = true;
-  ret = ret && connect(m_tlvMode, SIGNAL(currentIndexChanged(const QString &)),
-                       this, SLOT(onTlvModeSelected(const QString &)));
+  ret      = ret &&
+        connect(m_tlvMode, QOverload<int>::of(&QComboBox::currentIndexChanged),
+                this, [this, combo = m_tlvMode](int index) {
+                  onTlvModeSelected(combo->itemText(index));
+                });
   ret = ret && connect(m_fromFld, SIGNAL(editingFinished()), this,
                        SLOT(onRangeChanged()));
   ret = ret && connect(m_toFld, SIGNAL(editingFinished()), this,
                        SLOT(onRangeChanged()));
-  ret =
-      ret && connect(m_fileFormat, SIGNAL(currentIndexChanged(const QString &)),
-                     this, SLOT(onFormatSelected(const QString &)));
+  ret = ret && connect(m_fileFormat,
+                       QOverload<int>::of(&QComboBox::currentIndexChanged),
+                       this, [this, combo = m_fileFormat](int index) {
+                         onFormatSelected(combo->itemText(index));
+                       });
   ret = ret && connect(m_formatOptions, SIGNAL(clicked()), this,
                        SLOT(onOptionsClicked()));
   ret = ret && connect(m_okBtn, SIGNAL(clicked()), this, SLOT(apply()));

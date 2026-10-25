@@ -1802,7 +1802,7 @@ PencilTestPopup::PencilTestPopup()
                             SLOT(refreshCameraList()));
   ret      = ret && connect(m_cameraListCombo, SIGNAL(activated(int)), this,
                             SLOT(onCameraListComboActivated(int)));
-  ret = ret && connect(m_resolutionCombo, SIGNAL(activated(const QString&)),
+  ret = ret && connect(m_resolutionCombo, SIGNAL(textActivated(const QString&)),
                        this, SLOT(onResolutionComboActivated(const QString&)));
   ret = ret && connect(m_fileFormatOptionButton, SIGNAL(pressed()), this,
                        SLOT(onFileFormatOptionButtonPressed()));

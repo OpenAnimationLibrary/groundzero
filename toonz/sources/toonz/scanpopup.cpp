@@ -472,9 +472,11 @@ void ScanSettingsPopup::hideEvent(QHideEvent *event) {
 
 void ScanSettingsPopup::connectAll() {
   bool ret = true;
-  ret      = ret &&
-        connect(m_paperFormatOm, SIGNAL(currentIndexChanged(const QString &)),
-                SLOT(onPaperChanged(const QString &)));
+  ret      = ret && connect(m_paperFormatOm,
+                            QOverload<int>::of(&QComboBox::currentIndexChanged),
+                            this, [this, combo = m_paperFormatOm](int index) {
+                         onPaperChanged(combo->itemText(index));
+                       });
   ret = ret && connect(m_reverseOrderCB, SIGNAL(stateChanged(int)),
                        SLOT(onToggle(int)));
   ret = ret && connect(m_paperFeederCB, SIGNAL(stateChanged(int)),
@@ -485,8 +487,11 @@ void ScanSettingsPopup::connectAll() {
                        SLOT(onValueChanged(bool)));
   ret = ret && connect(m_threshold, SIGNAL(valueChanged(bool)),
                        SLOT(onValueChanged(bool)));
-  ret = ret && connect(m_modeOm, SIGNAL(currentIndexChanged(const QString &)),
-                       SLOT(onModeChanged(const QString &)));
+  ret = ret &&
+        connect(m_modeOm, QOverload<int>::of(&QComboBox::currentIndexChanged),
+                this, [this, combo = m_modeOm](int index) {
+                  onModeChanged(combo->itemText(index));
+                });
   ret = ret && connect(TApp::instance()->getCurrentScene(),
                        SIGNAL(sceneSwitched()), SLOT(updateUI()));
   assert(ret);
@@ -622,8 +627,10 @@ void ScanSettingsPopup::updateUI() {
 
   disconnect(m_modeOm);
   fillOutputType(m_modeOm, params);
-  connect(m_modeOm, SIGNAL(currentIndexChanged(const QString &)),
-          SLOT(onModeChanged(const QString &)));
+  connect(m_modeOm, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+          [this, combo = m_modeOm](int index) {
+            onModeChanged(combo->itemText(index));
+          });
 
   m_modeOm->setEnabled(true);
   switch (params->getScanType()) {
@@ -724,12 +731,16 @@ AutocenterPopup::AutocenterPopup() : DVGui::Dialog(0, false, true) {
   bool ret = true;
   ret      = ret && connect(m_autocenter, SIGNAL(toggled(bool)), this,
                             SLOT(onAutocenterToggled(bool)));
-  ret      = ret &&
-        connect(m_pegbarHoles, SIGNAL(currentIndexChanged(const QString &)),
-                this, SLOT(onPegbarHolesChanged(const QString &)));
-  ret =
-      ret && connect(m_fieldGuide, SIGNAL(currentIndexChanged(const QString &)),
-                     this, SLOT(onFieldGuideChanged(const QString &)));
+  ret      = ret && connect(m_pegbarHoles,
+                            QOverload<int>::of(&QComboBox::currentIndexChanged),
+                            this, [this, combo = m_pegbarHoles](int index) {
+                         onPegbarHolesChanged(combo->itemText(index));
+                       });
+  ret      = ret && connect(m_fieldGuide,
+                            QOverload<int>::of(&QComboBox::currentIndexChanged),
+                            this, [this, combo = m_fieldGuide](int index) {
+                         onFieldGuideChanged(combo->itemText(index));
+                       });
   assert(ret);
 }
 

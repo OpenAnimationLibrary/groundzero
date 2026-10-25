@@ -225,11 +225,16 @@ PsdSettingsPopup::PsdSettingsPopup()
   folderOptLayout->addStretch();
   addLayout(folderOptLayout, false);
 
-  ret = ret && connect(m_loadMode, SIGNAL(currentIndexChanged(const QString &)),
+  ret = ret && connect(m_loadMode, SIGNAL(currentIndexChanged(int)),
                        SLOT(onModeChanged()));
   assert(ret);
+#if QT_VERSION >= QT_VERSION_CHECK(5, 15, 0)
+  ret = ret && connect(m_psdFolderOptions, SIGNAL(idClicked(int)), this,
+                       SLOT(onFolderOptionChange(int)));
+#else
   ret = ret && connect(m_psdFolderOptions, SIGNAL(buttonClicked(int)), this,
                        SLOT(onFolderOptionChange(int)));
+#endif
   assert(ret);
   m_okBtn     = new QPushButton(tr("OK"), this);
   m_cancelBtn = new QPushButton(tr("Cancel"), this);
