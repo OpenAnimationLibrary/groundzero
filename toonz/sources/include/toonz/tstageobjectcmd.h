@@ -100,6 +100,20 @@ DVAPI bool bakeOffsetLayer(const TStageObjectId &id, int index,
 DVAPI int trainOffsetLayerFromKeys(const TStageObjectId &id,
                                    const std::wstring &name,
                                    TXsheetHandle *xshHandle);
+
+// Published channels (see TStageObject::PublishedChannel). Each command is one
+// undo.
+
+//! Publishes a channel of the object under the name. \e channel is a
+//! TStageObject::Channel having offsets (not T_Path), or T_ChannelCount for
+//! the weight of the offset layer named \e layer. Returns the index of the
+//! port, or -1 and does nothing if the name is empty or used, or the channel
+//! or the layer is not valid.
+DVAPI int publishChannel(const TStageObjectId &id, const std::wstring &name,
+                         int channel, const std::wstring &layer,
+                         TXsheetHandle *xshHandle);
+DVAPI void unpublishChannel(const TStageObjectId &id, int index,
+                            TXsheetHandle *xshHandle);
 }
 
 #endif

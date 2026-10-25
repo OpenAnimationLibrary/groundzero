@@ -110,6 +110,14 @@ const struct {
     {TStageObject::T_RotY, "W_RotationY", "angle", "Rotation Y", "roty"},
 };
 
+//! Returns the tag of the channel in the scene file (the one of the base
+//! channel), or 0 if it can't be published.
+const char *getChannelTag(TStageObject::Channel channel) {
+  for (const auto &info : offsetChannels)
+    if (info.m_channel == channel) return info.m_tag;
+  return 0;
+}
+
 //! Returns a copy of the curve. Unlike TDoubleParam::copy(), the expressions of
 //! the keys of the copy refer to it (not to the source) as their owner.
 TDoubleParam *cloneCurve(const TDoubleParam *src) {
@@ -158,6 +166,7 @@ TStageObjectParams::TStageObjectParams(TStageObjectParams *data)
     , m_roty(data->m_roty)
     , m_skeletonDeformation(data->m_skeletonDeformation)
     , m_offsetLayers(data->m_offsetLayers)
+    , m_publishedChannels(data->m_publishedChannels)
     , m_noScaleZ(data->m_noScaleZ)
     , m_center(data->m_center)
     , m_offset(data->m_offset)
@@ -1467,7 +1476,11 @@ TStageObject::OffsetLayer TStageObject::removeOffsetLayer(int index) {
 void TStageObject::renameOffsetLayer(int index, const std::wstring &name) {
   if (index < 0 || index >= getOffsetLayerCount()) return;
   OffsetLayer &layer = m_offsets->m_layers[index];
-  layer.m_name       = name;
+  // The published weights follow the layer
+  for (PublishedChannel &port : m_published)
+    if (port.isLayerWeight() && port.m_layer == layer.m_name)
+      port.m_layer = name;
+  layer.m_name = name;
   setOffsetLayerLabels(layer);
 }
 
@@ -1480,6 +1493,47 @@ void TStageObject::setOffsetLayerEnabled(int index, bool enabled) {
   layer.m_enabled = enabled;
   invalidate();
   notifyChannelObservers(this, getOffsetChannelMask(layer), 0, 0, false, false);
+}
+
+//-----------------------------------------------------------------------------
+
+int TStageObject::findPublishedChannel(const std::wstring &name) const {
+  for (int i = 0; i < (int)m_published.size(); ++i)
+    if (m_published[i].m_name == name) return i;
+  return -1;
+}
+
+//-----------------------------------------------------------------------------
+
+TDoubleParam *TStageObject::getPublishedParam(int index) const {
+  if (index < 0 || index >= (int)m_published.size()) return 0;
+  const PublishedChannel &port = m_published[index];
+  if (port.isLayerWeight()) {
+    int layerIndex = findOffsetLayer(port.m_layer);
+    return layerIndex < 0
+               ? 0
+               : m_offsets->m_layers[layerIndex].m_weight.getPointer();
+  }
+  return isOffsetChannel(port.m_channel) ? getParam(port.m_channel) : 0;
+}
+
+//-----------------------------------------------------------------------------
+
+void TStageObject::insertPublishedChannel(int index,
+                                          const PublishedChannel &port) {
+  if (!port.isLayerWeight() && !isOffsetChannel(port.m_channel)) return;
+  if (index < 0 || index > (int)m_published.size())
+    index = (int)m_published.size();
+  m_published.insert(m_published.begin() + index, port);
+}
+
+//-----------------------------------------------------------------------------
+
+TStageObject::PublishedChannel TStageObject::removePublishedChannel(int index) {
+  if (index < 0 || index >= (int)m_published.size()) return PublishedChannel();
+  PublishedChannel port = m_published[index];
+  m_published.erase(m_published.begin() + index);
+  return port;
 }
 
 //-----------------------------------------------------------------------------
@@ -1580,6 +1634,7 @@ TStageObject *TStageObject::clone() {
 
   for (const OffsetLayer &layer : m_offsets->m_layers)
     cloned->insertOffsetLayer(-1, cloneOffsetLayer(layer));
+  cloned->m_published = m_published;
 
   if (m_skeletonDeformation)
     cloned->m_skeletonDeformation =
@@ -2045,6 +2100,22 @@ void TStageObject::saveData(TOStream &os) {
     os.closeChild();
   }
 
+  // Published channels (Rig view). Like the offset layers, the tag is written
+  // only when the object has some, and older builds refuse to load it.
+  if (!m_published.empty()) {
+    os.openChild("publishedChannels");
+    for (const PublishedChannel &port : m_published) {
+      os.openChild("port");
+      os.child("name") << port.m_name;
+      if (port.isLayerWeight())
+        os.child("layerWeight") << port.m_layer;
+      else if (const char *tag = getChannelTag(port.m_channel))
+        os.child("channel") << std::string(tag);
+      os.closeChild();
+    }
+    os.closeChild();
+  }
+
   os.child("nodePos") << m_dagNodePos.x << m_dagNodePos.y;
 
   if (getId().isCamera()) {
@@ -2219,6 +2290,36 @@ void TStageObject::loadData(TIStream &is) {
         insertOffsetLayer(-1, layer);
         is.matchEndTag();
       }
+    } else if (tagName == "publishedChannels") {
+      while (is.matchTag(tagName)) {
+        if (tagName != "port")
+          throw TException("TStageObject::loadData. unexpected tag: " +
+                           tagName);
+        PublishedChannel port;
+        while (is.matchTag(tagName)) {
+          if (tagName == "name")
+            is >> port.m_name;
+          else if (tagName == "layerWeight") {
+            is >> port.m_layer;
+            port.m_channel = T_ChannelCount;
+          } else if (tagName == "channel") {
+            std::string tag;
+            is >> tag;
+            const auto *found = std::find_if(
+                std::begin(offsetChannels), std::end(offsetChannels),
+                [&tag](const auto &info) { return tag == info.m_tag; });
+            if (found == std::end(offsetChannels))
+              throw TException("TStageObject::loadData. unexpected channel: " +
+                               tag);
+            port.m_channel = found->m_channel;
+          } else
+            throw TException("TStageObject::loadData. unexpected tag: " +
+                             tagName);
+          is.matchEndTag();
+        }
+        m_published.push_back(port);
+        is.matchEndTag();
+      }
     } else
       throw TException("TStageObject::loadData. unexpected tag: " + tagName);
     is.matchEndTag();
@@ -2288,6 +2389,7 @@ TStageObjectParams *TStageObject::getParams() const {
 
   data->m_skeletonDeformation = m_skeletonDeformation;
   data->m_offsetLayers        = m_offsets->m_layers;
+  data->m_publishedChannels   = m_published;
 
   data->m_cycleEnabled = m_cycleEnabled;
   data->m_spline       = m_spline;
@@ -2373,6 +2475,8 @@ void TStageObject::assignParams(const TStageObjectParams *src,
       attachOffsetLayer(m_offsets->m_layers.back());
     }
   }
+
+  m_published = src->m_publishedChannels;
 
   m_handle       = src->m_handle;
   m_parentHandle = src->m_parentHandle;

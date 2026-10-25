@@ -825,6 +825,20 @@ TDoubleParam *FunctionViewer::getCurrentChannelCurve(QString *longName) const {
 
 //----------------------------------------------------------------------------
 
+bool FunctionViewer::selectStageObjectCurve(TDoubleParam *curve) {
+  FunctionTreeModel *ftModel =
+      dynamic_cast<FunctionTreeModel *>(m_treeView->model());
+  if (!ftModel) return false;
+  FunctionTreeModel::Channel *channel = ftModel->findStageObjectChannel(curve);
+  if (!channel) return false;
+  channel->setIsActive(true);
+  channel->setIsCurrent(true);
+  m_treeView->update();
+  return true;
+}
+
+//----------------------------------------------------------------------------
+
 void FunctionViewer::save(QSettings &settings) const {
   settings.setValue("toggleStatus", m_toggleStatus);
   settings.setValue("showIbtwnValuesInSheet",

@@ -248,6 +248,7 @@ void ColumnPainter::contextMenuEvent(QGraphicsSceneContextMenuEvent *cme) {
   menu.addSeparator();
 
   menu.addAction(group);
+  stageScene->addRigMenuActions(menu, m_parent->getStageObject()->getId());
   menu.exec(cme->screenPos());
 }
 
@@ -442,6 +443,7 @@ void PegbarPainter::contextMenuEvent(QGraphicsSceneContextMenuEvent *cme) {
   menu.addAction(paste);
   menu.addSeparator();
   menu.addAction(group);
+  stageScene->addRigMenuActions(menu, m_parent->getStageObject()->getId());
   menu.exec(cme->screenPos());
 }
 
@@ -545,6 +547,7 @@ void CameraPainter::contextMenuEvent(QGraphicsSceneContextMenuEvent *cme) {
   if (isDeactivated && cut) menu.addAction(cut);
   if (paste) menu.addAction(paste);
 
+  stageScene->addRigMenuActions(menu, m_parent->getStageObject()->getId());
   menu.exec(cme->screenPos());
 }
 
@@ -616,6 +619,7 @@ void TablePainter::contextMenuEvent(QGraphicsSceneContextMenuEvent *cme) {
           &StageSchematicScene::onResetCenterPublic);
 
   menu.addAction(resetCenter);
+  stageScene->addRigMenuActions(menu, m_parent->getStageObject()->getId());
   menu.exec(cme->screenPos());
 }
 

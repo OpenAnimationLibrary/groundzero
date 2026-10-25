@@ -1316,6 +1316,32 @@ int FunctionTreeModel::getColumnIndexByCurve(TDoubleParam *param) const {
 
 //-----------------------------------------------------------------------------
 
+namespace {
+
+FunctionTreeModel::Channel *findChannelByCurve(TreeModel::Item *item,
+                                               const TDoubleParam *param) {
+  for (int i = 0; i < item->getChildCount(); i++) {
+    TreeModel::Item *child = item->getChild(i);
+    FunctionTreeModel::Channel *channel =
+        dynamic_cast<FunctionTreeModel::Channel *>(child);
+    if (channel) {
+      if (channel->getParam() == param) return channel;
+    } else if (FunctionTreeModel::Channel *found =
+                   findChannelByCurve(child, param))
+      return found;
+  }
+  return 0;
+}
+
+}  // namespace
+
+FunctionTreeModel::Channel *FunctionTreeModel::findStageObjectChannel(
+    const TDoubleParam *param) const {
+  return param ? findChannelByCurve(m_stageObjects, param) : 0;
+}
+
+//-----------------------------------------------------------------------------
+
 FunctionTreeModel::ChannelGroup *FunctionTreeModel::getStageObjectChannel(
     int index) const {
   if (index < 0 || index >= (int)m_stageObjects->getChildCount())

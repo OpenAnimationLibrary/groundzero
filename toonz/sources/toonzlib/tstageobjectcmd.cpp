@@ -1909,6 +1909,63 @@ public:
   QString getHistoryString() override { return m_name; }
 };
 
+//-------------------------------------------------------------------
+//
+// Undo of the publication (or the removal, in the reverse order) of a channel
+//
+//-------------------------------------------------------------------
+
+class PublishedChannelUndo final : public TUndo {
+  TStageObjectId m_id;
+  TXsheetHandle *m_xshHandle;
+  int m_index;
+  TStageObject::PublishedChannel m_port;
+  bool m_added;
+
+public:
+  PublishedChannelUndo(const TStageObjectId &id, TXsheetHandle *xshHandle,
+                       int index, const TStageObject::PublishedChannel &port,
+                       bool added)
+      : m_id(id)
+      , m_xshHandle(xshHandle)
+      , m_index(index)
+      , m_port(port)
+      , m_added(added) {}
+
+  void insertPort() const {
+    if (TStageObject *obj = getOffsetLayerOwner(m_id, m_xshHandle))
+      obj->insertPublishedChannel(m_index, m_port);
+    m_xshHandle->notifyXsheetChanged();
+  }
+  void removePort() const {
+    if (TStageObject *obj = getOffsetLayerOwner(m_id, m_xshHandle))
+      obj->removePublishedChannel(m_index);
+    m_xshHandle->notifyXsheetChanged();
+  }
+
+  void undo() const override {
+    if (m_added)
+      removePort();
+    else
+      insertPort();
+  }
+  void redo() const override {
+    if (m_added)
+      insertPort();
+    else
+      removePort();
+  }
+  int getSize() const override { return sizeof(*this); }
+
+  int getHistoryType() override { return HistoryType::Xsheet; }
+  QString getHistoryString() override {
+    return QObject::tr("%1 Published Channel  %2 : %3")
+        .arg(m_added ? QObject::tr("Publish") : QObject::tr("Unpublish"))
+        .arg(QString::fromStdString(m_id.toString()))
+        .arg(QString::fromStdWString(m_port.m_name));
+  }
+};
+
 }  // namespace
 
 //-------------------------------------------------------------------
@@ -2126,4 +2183,49 @@ int TStageObjectCmd::trainOffsetLayerFromKeys(const TStageObjectId &id,
       new OffsetLayerListUndo(id, xshHandle, index, layer, true));
   xshHandle->notifyXsheetChanged();
   return index;
+}
+
+//===================================================================
+//
+// Published channels
+//
+//-------------------------------------------------------------------
+
+int TStageObjectCmd::publishChannel(const TStageObjectId &id,
+                                    const std::wstring &name, int channel,
+                                    const std::wstring &layer,
+                                    TXsheetHandle *xshHandle) {
+  TStageObject *obj = getOffsetLayerOwner(id, xshHandle);
+  if (!obj || name.empty() || obj->findPublishedChannel(name) >= 0) return -1;
+
+  TStageObject::PublishedChannel port;
+  port.m_name = name;
+  if (channel == TStageObject::T_ChannelCount) {
+    if (obj->findOffsetLayer(layer) < 0) return -1;
+    port.m_channel = TStageObject::T_ChannelCount;
+    port.m_layer   = layer;
+  } else if (TStageObject::isOffsetChannel((TStageObject::Channel)channel))
+    port.m_channel = (TStageObject::Channel)channel;
+  else
+    return -1;
+
+  int index = obj->getPublishedChannelCount();
+  obj->insertPublishedChannel(index, port);
+  TUndoManager::manager()->add(
+      new PublishedChannelUndo(id, xshHandle, index, port, true));
+  xshHandle->notifyXsheetChanged();
+  return index;
+}
+
+//-------------------------------------------------------------------
+
+void TStageObjectCmd::unpublishChannel(const TStageObjectId &id, int index,
+                                       TXsheetHandle *xshHandle) {
+  TStageObject *obj = getOffsetLayerOwner(id, xshHandle);
+  if (!obj || index < 0 || index >= obj->getPublishedChannelCount()) return;
+
+  TStageObject::PublishedChannel port = obj->removePublishedChannel(index);
+  TUndoManager::manager()->add(
+      new PublishedChannelUndo(id, xshHandle, index, port, false));
+  xshHandle->notifyXsheetChanged();
 }

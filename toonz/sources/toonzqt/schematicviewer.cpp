@@ -1098,7 +1098,8 @@ void SchematicViewer::createActions() {
       m_rigView->setChecked(m_stageScene->isRigViewEnabled());
       m_rigView->setToolTip(
           tr("Rig View: show the deformers, offset layers and master "
-             "controllers of the columns"));
+             "controllers of the columns, and the published channels of the "
+             "objects"));
       connect(m_rigView, SIGNAL(toggled(bool)), m_stageScene,
               SLOT(onRigViewToggled(bool)));
 
@@ -1108,7 +1109,8 @@ void SchematicViewer::createActions() {
       m_rigFilter->setFixedWidth(120);
       m_rigFilter->setPlaceholderText(tr("Filter nodes"));
       m_rigFilter->setToolTip(
-          tr("Hide the nodes whose name does not contain this text"));
+          tr("Hide the nodes whose name, deformers, offset layers, published "
+             "channels or controllers do not contain this text"));
       connect(m_rigFilter, SIGNAL(textChanged(const QString &)), m_stageScene,
               SLOT(onRigFilterChanged(const QString &)));
 

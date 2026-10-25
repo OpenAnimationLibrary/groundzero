@@ -216,6 +216,27 @@ the expressions referring to the object's channels can evaluate the layers
     }
   };
 
+  /*!
+A \e published \e channel exposes a channel of a stage object as a named port
+of its node in the Rig view of the Stage Schematic. It is either an offset
+channel (m_channel, the base curve of the object), or the weight of the offset
+layer named m_layer (m_channel is then T_ChannelCount). The curve is looked
+up by name when it is needed, so a port whose layer does not exist (any more)
+has no curve.
+
+An object has no published channels unless the user publishes some. They are
+saved, cloned and restored by undo with the object, and the scene file only
+has a tag for them when there is at least one.
+*/
+  struct PublishedChannel {
+    std::wstring m_name;
+    Channel m_channel;
+    std::wstring m_layer;  //!< Used by the weights only
+
+    PublishedChannel() : m_channel(T_X) {}
+    bool isLayerWeight() const { return m_channel == T_ChannelCount; }
+  };
+
 public:
   /*! Initializes a stage object in his \e tree with an unique id.
 \n The constructor is called by \b TStageObjectTree  to create a new column in
@@ -427,6 +448,32 @@ cannot match an existing hook ("H" followed by digits only).
 
   void renameOffsetLayer(int index, const std::wstring &name);
   void setOffsetLayerEnabled(int index, bool enabled);
+
+  //@}
+
+  //! \name Published channels
+  //! See PublishedChannel.
+  //@{
+
+  bool hasPublishedChannels() const { return !m_published.empty(); }
+  int getPublishedChannelCount() const { return (int)m_published.size(); }
+  const PublishedChannel &getPublishedChannel(int index) const {
+    return m_published[index];
+  }
+
+  //! Returns the index of the published channel with the specified name, or
+  //! -1.
+  int findPublishedChannel(const std::wstring &name) const;
+
+  //! Returns the curve of the published channel, or 0 if the index is not
+  //! valid or the layer of a weight does not exist.
+  TDoubleParam *getPublishedParam(int index) const;
+
+  //! Adds the published channel at \e index (at the end if it is not valid).
+  void insertPublishedChannel(int index, const PublishedChannel &port);
+
+  //! Removes the published channel, and returns it.
+  PublishedChannel removePublishedChannel(int index);
 
   //@}
 
@@ -675,6 +722,7 @@ private:
       m_skeletonDeformation;  //!< Deformation curves for a plastic skeleton
 
   std::shared_ptr<OffsetLayers> m_offsets;  //!< Never null
+  std::vector<PublishedChannel> m_published;
 
   TPointD m_center;
   TPointD m_offset;
@@ -766,6 +814,8 @@ public:
   PlasticSkeletonDeformationP
       m_skeletonDeformation;  //!< Deformation curves for a plastic skeleton
   std::vector<TStageObject::OffsetLayer> m_offsetLayers;  //!< Offset layers
+  std::vector<TStageObject::PublishedChannel>
+      m_publishedChannels;  //!< Published channels
   double m_noScaleZ;
   TPointD m_center, m_offset;
   std::string m_name;
