@@ -94,7 +94,6 @@ set(SOURCES
     irontool.cpp
     levelselection.cpp
     magnettool.cpp
-    morphtool.cpp
     paintbrushtool.cpp
     pinchtool.cpp
     plastictool.cpp
