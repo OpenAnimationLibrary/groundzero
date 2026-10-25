@@ -374,6 +374,17 @@ if(BUILD_GLB_FX_TESTS)
     endif()
 endif()
 
+# Optional regression target that renders standard FX graphs and compares
+# them with the reference images in tests/fxrender.
+option(BUILD_FXRENDER_TESTS "Build the FX render regression test" ${BUILD_TESTS})
+if(BUILD_FXRENDER_TESTS)
+    add_executable(fxrender_test tests/fxrender_test.cpp)
+    target_link_libraries(fxrender_test tnzstdfx Qt5::Core Qt5::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME fxrender
+             COMMAND fxrender_test ${CMAKE_CURRENT_SOURCE_DIR}/tests/fxrender
+                     ${CMAKE_CURRENT_BINARY_DIR}/fxrender-output)
+endif()
+
 # Optional regression target for multipart, tiled, and channel-mapped EXR AOVs.
 if(BUILD_EXR_AOV_FX_TESTS)
     add_executable(openexraovfx_test tests/openexraovfx_test.cpp)
