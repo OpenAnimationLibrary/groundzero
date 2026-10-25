@@ -3,9 +3,9 @@ add_executable(tcomposer
 )
 
 target_link_libraries(tcomposer
-    Qt5::Core
-    Qt5::Gui
-    Qt5::Widgets
+    Qt${QT_VERSION_MAJOR}::Core
+    Qt${QT_VERSION_MAJOR}::Gui
+    Qt${QT_VERSION_MAJOR}::Widgets
     toonzlib
     tfarm
     tnzstdfx

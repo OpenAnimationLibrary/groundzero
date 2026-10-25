@@ -58,7 +58,11 @@
 #include <QStackedWidget>
 #include <QSettings>
 #include <QApplication>
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
 #include <QGLPixelBuffer>
+#else
+#include <QOpenGLContext>
+#endif
 #include <QDebug>
 #include <QDesktopServices>
 #include <QButtonGroup>
@@ -107,6 +111,23 @@ namespace {
 std::string layoutsFileName           = "layouts.txt";
 const std::string currentRoomFileName = "currentRoom.txt";
 bool scrambledRooms                   = false;
+
+//=============================================================================
+
+// Whether "Visualize Vector As Raster" can render offscreen. Qt 5's
+// QGLPixelBuffer::hasOpenGLPbuffers() only tells whether the platform supports
+// OpenGL; Qt 6 has no public equivalent, so try creating a context.
+bool hasOpenGLPbuffers() {
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
+  return QGLPixelBuffer::hasOpenGLPbuffers();
+#else
+  static const bool canCreateContext = [] {
+    QOpenGLContext context;
+    return context.create();
+  }();
+  return canCreateContext;
+#endif
+}
 
 //=============================================================================
 
@@ -1743,7 +1764,7 @@ void MainWindow::onMenuCheckboxChanged() {
   else if (cm->getAction(MI_FieldGuide) == action)
     FieldGuideToggleAction = isChecked;
   else if (cm->getAction(MI_RasterizePli) == action) {
-    if (!QGLPixelBuffer::hasOpenGLPbuffers()) isChecked = 0;
+    if (!hasOpenGLPbuffers()) isChecked = 0;
     RasterizePliToggleAction = isChecked;
   } else if (cm->getAction(MI_SafeArea) == action)
     SafeAreaToggleAction = isChecked;
@@ -2823,7 +2844,7 @@ void MainWindow::defineActions() {
   createToggle(MI_VectorGuidedDrawing, QT_TR_NOOP("Vector Guided Drawing"), "",
                Preferences::instance()->isGuidedDrawingEnabled(),
                MenuViewCommandType, "view_guided_drawing");
-  if (QGLPixelBuffer::hasOpenGLPbuffers())
+  if (hasOpenGLPbuffers())
     createToggle(MI_RasterizePli, QT_TR_NOOP("&Visualize Vector As Raster"), "",
                  RasterizePliToggleAction ? 1 : 0, MenuViewCommandType,
                  "view_vector_as_raster");

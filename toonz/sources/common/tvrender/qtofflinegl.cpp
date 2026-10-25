@@ -125,40 +125,8 @@ void QtOfflineGL::createContext(TDimension rasterSize,
 
 */
 
-  QGLFormat fmt;
-
-#if defined(_WIN32)
-  fmt.setAlphaBufferSize(8);
-  fmt.setAlpha(true);
-  fmt.setRgba(true);
-  fmt.setDepthBufferSize(32);
-  fmt.setDepth(true);
-  fmt.setStencilBufferSize(32);
-  fmt.setStencil(true);
-  fmt.setAccum(false);
-  fmt.setPlane(0);
-#elif defined(MACOSX)
-  fmt = QGLFormat::defaultFormat();
-  // printf("GL Version: %s\n",glGetString(GL_VERSION));
-  fmt.setVersion(2, 1); /* 3.2 might not work on OSX10.8 */
-#if 0
-  fmt.setAlphaBufferSize(8);
-  fmt.setAlpha(true);
-  fmt.setRgba(true);
-  fmt.setDepthBufferSize(32);
-  fmt.setDepth(true);
-  fmt.setStencilBufferSize(8);
-  fmt.setStencil(true);
-  fmt.setAccum(false);
-  fmt.setPlane(0);
-  fmt.setDirectRendering(false);
-#endif
-#elif defined(LINUX) || defined(FREEBSD)
-  fmt = QGLFormat::defaultFormat();
-  // printf("GL Version: %s\n",glGetString(GL_VERSION));
-  fmt.setVersion(2, 1); /* XXX? */
-#endif
-
+  // A QGLFormat used to be set up here, but it was never used: the context
+  // only gets the QSurfaceFormat below.
   QSurfaceFormat format;
   format.setProfile(QSurfaceFormat::CompatibilityProfile);
 
@@ -236,6 +204,8 @@ void QtOfflineGL::getRaster(TRaster32P raster) {
 //=============================================================================
 // QtOfflineGLPBuffer : implem. offlineGL usando QT e PBuffer
 //-----------------------------------------------------------------------------
+
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)  // see qtofflinegl.h
 
 QtOfflineGLPBuffer::QtOfflineGLPBuffer(TDimension rasterSize)
     : TOfflineGL::Imp(rasterSize.lx, rasterSize.ly), m_context(0) {
@@ -372,3 +342,5 @@ void QtOfflineGLPBuffer::getRaster(TRaster32P raster) {
   }
   raster->unlock();
 }
+
+#endif  // QT_VERSION < 6

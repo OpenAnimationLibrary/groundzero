@@ -26,6 +26,7 @@
 // Qt includes
 #include <QString>
 #include <QMenu>
+#include <QImage>
 
 #undef DVAPI
 #undef DVVAR
@@ -145,6 +146,13 @@ void drawBalloon(
 enum HookType { NormalHook, PassHookA, PassHookB, OtherLevelHook };
 void drawHook(const TPointD &p, HookType type, bool highlighted = false,
               bool onionSkin = false);
+
+//-----------------------------------------------------------------------------
+
+//! Returns \b image as non-premultiplied RGBA bytes, bottom row first, for
+//! glDrawPixels(GL_RGBA, GL_UNSIGNED_BYTE): the same pixels as
+//! QGLWidget::convertToGLFormat(), which Qt 6 removed.
+QImage convertToGLFormat(const QImage &image);
 
 //-----------------------------------------------------------------------------
 

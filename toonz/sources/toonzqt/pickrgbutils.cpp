@@ -6,7 +6,9 @@
 #include <QPixmap>
 #include <QImage>
 #include <QOpenGLWidget>
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
 #include <QDesktopWidget>
+#endif
 #include <QApplication>
 #include <QScreen>
 
@@ -56,7 +58,9 @@ QRgb pickRGB(QWidget *widget, const QRect &rect) {
 //------------------------------------------------------------------------------
 
 QRgb pickScreenRGB(const QRect &rect) {
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
   QWidget *widget = QApplication::desktop();
+#endif
 
 #ifdef MACOSX
 
@@ -68,7 +72,11 @@ QRgb pickScreenRGB(const QRect &rect) {
   // the workaround is to trivially grab the smallest rect including the
   // requested one and a part of the primary screen.
 
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
   const QRect &screen0Geom = QApplication::desktop()->screenGeometry(0);
+#else
+  const QRect screen0Geom = QGuiApplication::primaryScreen()->geometry();
+#endif
 
   int left   = std::min(rect.left(), screen0Geom.right());
   int top    = std::min(rect.top(), screen0Geom.bottom());
@@ -83,10 +91,28 @@ QRgb pickScreenRGB(const QRect &rect) {
 
 #endif
 
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
   QImage img(widget->screen()
                  ->grabWindow(widget->winId(), theRect.x(), theRect.y(),
                               theRect.width(), theRect.height())
                  .toImage());
+#else
+  // No desktop widget: grab the screen itself (window 0), whose coordinates
+  // are relative to the screen. On MACOSX theRect includes part of the primary
+  // screen, see above.
+  QScreen *screen = QGuiApplication::primaryScreen();
+#ifndef MACOSX
+  if (QScreen *rectScreen = QGuiApplication::screenAt(rect.center()))
+    screen = rectScreen;
+#endif
+
+  const QPoint screenOrigin = screen->geometry().topLeft();
+  QImage img(screen
+                 ->grabWindow(0, theRect.x() - screenOrigin.x(),
+                              theRect.y() - screenOrigin.y(), theRect.width(),
+                              theRect.height())
+                 .toImage());
+#endif
   return meanColor(
       img, QRect(rect.left() - theRect.left(), rect.top() - theRect.top(),
                  rect.width(), rect.height()));
