@@ -41,6 +41,7 @@ public:
 
 class TXshLevel;
 class TXshSimpleLevel;
+class TXshChildLevel;
 
 class CastItem {
 public:
@@ -53,6 +54,8 @@ public:
   virtual TXshSimpleLevel *getSimpleLevel() const { return 0; }
   virtual TXshSoundLevel *getSoundLevel() const { return 0; }
   virtual TXshPaletteLevel *getPaletteLevel() const { return 0; }
+  //! The symbol (sub-xsheet level) dragged from the Symbols panel, if any.
+  virtual TXshChildLevel *getChildLevel() const { return 0; }
   virtual CastItem *clone() const = 0;
   virtual bool exists() const     = 0;
 };

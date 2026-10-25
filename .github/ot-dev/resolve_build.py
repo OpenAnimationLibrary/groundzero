@@ -1,4 +1,4 @@
-"""Resolve an OT-Dev Windows source without changing branches or source runs."""
+"""Resolve a Groundzero Windows source without changing branches or source runs."""
 
 import json
 import os
@@ -7,7 +7,7 @@ import re
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
-REPOSITORY = "OpenAnimationLibrary/opentoonz-dev"
+REPOSITORY = "OpenAnimationLibrary/groundzero"
 WORKFLOWS = {
     ".github/workflows/workflow_windows.yml": "Windows Build",
     ".github/workflows/otdev_branding.yml": "OT-Dev Branded PR Build",
@@ -17,8 +17,8 @@ SHA = r"[0-9a-f]{40}"
 BUILD_BRANCH = re.compile(r"otdev-build/pr-([1-9][0-9]*)(?:-.*)?")
 APPLICATION = re.compile(
     rf"(?:Opentoonz-Windows-({SHA})|"
-    rf"OT-Dev-PR-([1-9][0-9]*)-Windows-({SHA})(?:-([1-9][0-9]*))?|"
-    rf"OT-Dev-Branch-[A-Za-z0-9._-]+-Windows-({SHA})-([1-9][0-9]*))")
+    rf"Groundzero-PR-([1-9][0-9]*)-Windows-({SHA})(?:-([1-9][0-9]*))?|"
+    rf"Groundzero-Branch-[A-Za-z0-9._-]+-Windows-({SHA})-([1-9][0-9]*))")
 
 
 class SkipBuild(Exception):
@@ -69,14 +69,14 @@ def artifact_source(artifacts, run_id):
             candidates.append((generic or pr_sha or branch_sha, number or "",
                                bool(package_run) and not artifact.get("expired", False)))
         elif (name.startswith("Opentoonz-Windows-") or
-              re.match(r"OT-Dev-(?:PR-[^/]+|Branch-[^/]+)-Windows-", name)):
+              re.match(r"Groundzero-(?:PR-[^/]+|Branch-[^/]+)-Windows-", name)):
             raise SkipBuild("Unrecognized Windows application artifact name")
     if len({item[0] for item in candidates}) > 1 or len(
             {item[1] for item in candidates if item[1]}) > 1:
         raise SkipBuild("Ambiguous Windows application artifacts")
     if not candidates:
         return "", "", False
-    marker = f"OT-Dev-package-manifest-{run_id}"
+    marker = f"Groundzero-package-manifest-{run_id}"
     complete = any(item[2] for item in candidates) and any(
         item["name"] == marker and not item.get("expired", False)
         for item in artifacts)
@@ -88,7 +88,7 @@ def resolve_pr(get, number, source_sha="", trigger_head="", trigger_base=""):
         raise ValueError("Expected a positive PR number")
     pr = get(f"pulls/{number}")
     if pr["number"] != int(number) or pr["base"]["repo"]["full_name"] != REPOSITORY:
-        raise ValueError("PR must target the OT-Dev repository")
+        raise ValueError("PR must target the Groundzero repository")
     if pr["state"] != "open":
         raise SkipBuild("PR is no longer open")
     head = commit_sha(pr["head"]["sha"])
@@ -167,11 +167,11 @@ def resolve(event_name, event, get, *, build_run_id, infrastructure_sha,
             ref = str(source_ref or inputs.get("ref") or "").strip()
             if event_name in ("create", "push"):
                 if event.get("deleted") or event.get("ref_type", "branch") != "branch":
-                    raise SkipBuild("Not an active OT-Dev PR build branch")
+                    raise SkipBuild("Not an active Groundzero PR build branch")
                 if not number and not ref:
                     match = BUILD_BRANCH.fullmatch(ref_name)
                     if not match:
-                        raise SkipBuild("Not an OT-Dev PR build branch")
+                        raise SkipBuild("Not a Groundzero PR build branch")
                     number = match[1]
             elif event_name not in ("workflow_dispatch", "workflow_call") and not (number or ref):
                 raise SkipBuild("Unsupported build request event")
@@ -186,14 +186,14 @@ def resolve(event_name, event, get, *, build_run_id, infrastructure_sha,
                 head = commit_sha(commit["sha"])
                 values = head, head, ref, "", {}
         if complete:
-            raise SkipBuild("Source run already published a complete OT-Dev Windows package")
+            raise SkipBuild("Source run already published a complete Groundzero Windows package")
         source, head, ref, number, source_event = values
         slug = re.sub(r"[^A-Za-z0-9._-]+", "-", ref).strip("-.")[:60] or "commit"
         identity = f"PR-{number}" if number else f"Branch-{slug}"
         outputs = {"build": "true", "skip_reason": "", "source_sha": source,
                    "head_sha": head, "source_ref": ref, "pr_number": number,
                    "event_name": "pull_request" if number else "push",
-                   "artifact_name": f"OT-Dev-{identity}-Windows-{source}-{build_run_id}"}
+                   "artifact_name": f"Groundzero-{identity}-Windows-{source}-{build_run_id}"}
         manifest = dict(outputs, repository=REPOSITORY, infrastructure_sha=infrastructure_sha,
                         build_run_id=str(build_run_id), **origin)
         return dict(outputs, source_event=source_event, manifest=manifest)
@@ -203,7 +203,7 @@ def resolve(event_name, event, get, *, build_run_id, infrastructure_sha,
 
 def main():
     if os.environ["GITHUB_REPOSITORY"] != REPOSITORY:
-        raise ValueError("This resolver is only for the OT-Dev repository")
+        raise ValueError("This resolver is only for the Groundzero repository")
     event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8-sig"))
     result = resolve(os.environ["GITHUB_EVENT_NAME"], event,
                      api_reader(os.getenv("GH_TOKEN") or os.getenv("GITHUB_TOKEN")),

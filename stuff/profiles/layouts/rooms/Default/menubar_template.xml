@@ -38,6 +38,7 @@
             <command>MI_ExportTvpJson</command>
             <command>MI_ExportXsheetPDF</command>
             <command>MI_ExportCameraTrack</command>
+            <command>MI_ExportSpine</command>
         </menu>
         <separator/>
         <command>MI_PrintXsheet</command>
@@ -46,6 +47,8 @@
         <menu title="Script">
             <command>MI_RunScript</command>
             <command>MI_OpenScriptConsole</command>
+            <command>MI_RunPythonScript</command>
+            <command>MI_OpenPythonConsole</command>
         </menu>
         <separator/>
         <command>MI_Preferences</command>
@@ -167,6 +170,7 @@
         <command>MI_Collapse</command>
         <command>MI_Resequence</command>
         <command>MI_CloneChild</command>
+        <command>MI_ConvertToSymbol</command>
         <command>MI_ExplodeChild</command>
         <command>MI_ToggleEditInPlace</command>
         <separator/>
@@ -235,6 +239,7 @@
         <command>MI_CloneLevel</command>
         <separator/>
         <command>MI_FillEmptyCell</command>
+        <command>MI_SymbolTiming</command>
     </menu>
     <menu title="Play">
         <command>MI_Play</command>
@@ -338,6 +343,7 @@
         <command>MI_OpenGuidedDrawingControls</command>
         <command>MI_OpenAlignmentPanel</command>
         <command>MI_OpenPosesPanel</command>
+        <command>MI_OpenSymbols</command>
         <command>MI_OpenCustomPanels</command>
         <separator/>
         <command>MI_MaximizePanel</command>

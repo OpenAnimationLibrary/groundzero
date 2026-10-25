@@ -1,84 +1,39 @@
-# How to contribute
+# Contributing to OAL Groundzero
 
-This document describes some points about the contribution process for OpenToonz.
+Groundzero is Open Animation Library's environment for animation feature
+exploration, integration, and testing. See [core planning](doc/core_planning.md)
+for its relationship to OT-Dev and official OpenToonz and the current work areas.
 
-## Contributing to OpenAnimationLibrary/OT-Dev
+## Groundzero proposals
 
-OT-Dev develops focused changes for official OpenToonz. Accepted changes return
-through OT-Master synchronization. OT-Dev Edition is assembled separately.
+1. Create a focused feature branch from `edition`, the current default and
+   integration branch. Document any dependency on another proposal.
+2. Open a PR in `OpenAnimationLibrary/groundzero` with base `edition`. Keep
+   existing proposal branches and bases intact.
+3. Preserve original authors, co-authors, and license notices. Follow the
+   [development checklist](doc/development_checklist.md) and, where applicable,
+   the [AI-assisted checklist](doc/ai_assisted_development_checklist.md).
+4. Record the behavior changed, relevant checks, and outstanding application
+   testing. Link related Groundzero, OT-Dev, and OpenToonz issues or PRs.
+5. Select changes for integration individually after review and testing.
 
-| Branch | Purpose |
-| --- | --- |
-| `upstream/master` | Exact mirror of `opentoonz/opentoonz:master`; new upstream-based proposals |
-| `main` | Retained base for existing explorations and PRs |
-| `edition` | Edition integration, packaging, and workflow guidance |
-| `preserve/otdev-main-2026-10-18` | Preserved Edition source before this transition |
+## Candidates for official OpenToonz
 
-### New work
+Extract the focused change onto current `opentoonz/opentoonz:master` and review
+it through [OT-Dev](https://github.com/OpenAnimationLibrary/opentoonz-dev) using
+[its contribution workflow](https://github.com/OpenAnimationLibrary/opentoonz-dev/blob/edition/CONTRIBUTING.md).
+Keep Groundzero branding, OAL build infrastructure, unrelated experimental
+changes, and CI test workflows out of the upstream patch. Retain contributor
+history and keep the description brief.
 
-1. Fetch official upstream and OT-Dev. Create a feature branch from official
-   `master` or OT-Dev's `upstream/master`. Keep unrelated Edition changes out.
-2. Open the OT-Dev proposal with **base: `upstream/master`**. Choose the base
-   explicitly; the repository default may differ during the transition.
-3. Keep the change focused, retain authors and co-authors, and validate the
-   affected behavior. Virtual checks are preferred when they provide useful
-   evidence. State any remaining application-testing limit briefly.
-4. Submit the reviewed change to `opentoonz/opentoonz:master`. An OT-Dev PR does
-   not submit it to official OpenToonz automatically.
-5. After upstream acceptance, let the mirror inherit the change. Feature PRs
-   are not merged into the mirror or `main` to make them available downstream.
+Submitting a Groundzero PR does not submit anything to OT-Dev or official
+OpenToonz. Existing PRs are not merged or retargeted as part of this planning
+update. An upstream proposal is a separate, explicit action.
 
-For an existing clone, inspect `git remote -v` first and add only missing
-remotes. The example uses `upstream` for official OpenToonz and `oal` for OT-Dev:
+## Upstream reference
 
-```sh
-git remote add upstream https://github.com/opentoonz/opentoonz.git
-git remote add oal https://github.com/OpenAnimationLibrary/opentoonz-dev.git
-git fetch upstream
-git fetch oal
-git switch -c fix/example oal/upstream/master
-```
-
-Before submission, inspect `git diff --stat oal/upstream/master...HEAD` and the
-commit list. Submit the same focused feature branch upstream when possible.
-
-### Existing explorations and dependencies
-
-Keep current PR head branches, base branches, and discussion intact. The
-[preservation inventory](.github/ot-dev/preservation-2026-10-18.json) records the
-83 open PRs observed at the transition. Their full Git histories are retained
-as separate branches in the preservation release bundle.
-
-Continue an existing exploration on its established base. When it is ready for
-upstream review, extract its focused commits to a new branch from the mirror;
-preserve original authors and co-author trailers. Check the resulting diff
-before changing any PR base. Retargeting alone can expose unrelated changes.
-
-Prefer independent PRs. A genuinely dependent exploration may remain a draft
-with its prerequisite identified, but the prerequisite should land in
-OT-Master first. Do not merge it into OT-Dev merely to unblock the next PR.
-Existing stacks remain intact while they are evaluated individually.
-
-### Synchronization and Edition assembly
-
-A scheduled task checks the clean mirror each morning in America/Chicago.
-Only fast-forward updates from official `master` are allowed. Read the current
-heads, verify ancestry, update with an expected-head guard, and verify the
-resulting ref. A divergent mirror requires investigation; do not force it.
-The task leaves `main`, `edition`, preservation refs, and all PR heads/bases alone.
-
-Edition updates are deliberate integration work. Merge accepted upstream
-changes from the mirror when preparing the next Edition build, resolve Edition
-conflicts there, and generate the release patch against the exact upstream
-commit. Keep experimental dependencies separate until their inclusion is
-explicitly chosen. Preserve the original contribution history and build both
-clean proposals and the Edition as applicable.
-
-The preservation release includes the current Windows build, source patches,
-full histories for the observed open PRs, and SHA-256 checksums. Release
-publication remains an explicitly initiated operation.
-
-The remaining instructions describe the official OpenToonz contribution process.
+The remaining sections describe the inherited official OpenToonz process.
+Use Groundzero's issue tracker for Groundzero-specific reports.
 
 ## Pull-requests
 

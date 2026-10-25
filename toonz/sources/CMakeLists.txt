@@ -110,6 +110,8 @@ option(WITH_TRANSLATION "Generate translation projects as well" ON)
 option(WITH_WINTAB "(Windows only) Build with customized Qt with WinTab support. https://github.com/shun-iwasawa/qt5/releases/tag/v5.15.2_wintab" OFF)
 option(ENABLE_CRASH_REPORTER_TEST
        "Include the intentional crash reporter test command" OFF)
+option(WITH_PYTHON
+       "Build the Python scripting (Python Console, Run Python Script) - Requires Python 3 and pybind11" OFF)
 
 if(ENABLE_CRASH_REPORTER_TEST)
     add_definitions(-DENABLE_CRASH_REPORTER_TEST)
@@ -294,7 +296,7 @@ find_package(Qt5 REQUIRED
     OpenGL
     Svg
     Xml
-    Script
+    Qml
     Widgets
     PrintSupport
     LinguistTools
@@ -309,7 +311,8 @@ if(NOT Qt5Core_FOUND)
 endif()
 message(STATUS "Qt5 Modules: ${Qt5Core_VERSION}")
 
-set(QT_MINIMUM_VERSION 5.5.0)
+# 5.14: QJSEngine::setInterrupted() (script console interruption)
+set(QT_MINIMUM_VERSION 5.14.0)
 if(Qt5Core_VERSION VERSION_LESS QT_MINIMUM_VERSION)
     MESSAGE(FATAL_ERROR "Minimum supported Qt version: ${QT_MINIMUM_VERSION}.
     Installed version: ${Qt5Core_VERSION}")
@@ -765,14 +768,49 @@ set(CMAKE_CXX_FLAGS "${CXX_WARNINGS} ${CMAKE_CXX_FLAGS}")
 
 include("${CMAKE_CURRENT_SOURCE_DIR}/../cmake/OpenEXR.cmake")
 
-option(BUILD_EXR_TESTS "Build the OpenEXR image I/O and level source regression tests" OFF)
-option(BUILD_EXR_AOV_FX_TESTS "Build the OpenEXR AOV FX regression test" OFF)
+# BUILD_TESTS turns on every regression test below and in the subdirectories,
+# except the GLB/3D suites (tested in OT3D). Each suite keeps its own option
+# and can still be set alone.
+option(BUILD_TESTS "Build all regression tests and register them with ctest" OFF)
+option(BUILD_EXR_TESTS "Build the OpenEXR image I/O and level source regression tests" ${BUILD_TESTS})
+option(BUILD_EXR_AOV_FX_TESTS "Build the OpenEXR AOV FX regression test" ${BUILD_TESTS})
+option(BUILD_FRAME_STRIPS_TESTS "Build the parallel frame strips render regression test" ${BUILD_TESTS})
+option(BUILD_FFMPEG_TESTS "Build the FFmpeg export regression test (needs an ffmpeg executable at configure time)" ${BUILD_TESTS})
+option(BUILD_SCRIPT_TESTS "Build the script engine (QJSEngine bindings) regression test" ${BUILD_TESTS})
 option(BUILD_PSD_TESTS "Build the PSD image writer regression test" ${BUILD_TESTS})
-if(BUILD_EXR_TESTS OR BUILD_EXR_AOV_FX_TESTS OR BUILD_PSD_TESTS)
+option(BUILD_TGL_BATCH_TESTS "Build the tgl::Batch vertex generation test" ${BUILD_TESTS})
+option(BUILD_TNZTOOLS_TESTS "Build the tnztools helper regression tests" ${BUILD_TESTS})
+
+# Python scripting: only with WITH_PYTHON, the default build needs neither
+# Python nor pybind11
+if(WITH_PYTHON)
+    find_package(Python3 3.10 REQUIRED COMPONENTS Interpreter Development)
+    # found after Python3, pybind11 uses its targets. With Python >= 3.10
+    # and pybind11 >= 2.11 a failed interpreter start throws an exception
+    # instead of aborting the application.
+    find_package(pybind11 2.11 CONFIG QUIET)
+    if(NOT pybind11_FOUND)
+        message(STATUS "pybind11 not found: using pybind11 v2.13.6 from GitHub")
+        include(FetchContent)
+        FetchContent_Declare(pybind11
+            GIT_REPOSITORY https://github.com/pybind/pybind11.git
+            GIT_TAG v2.13.6
+            GIT_SHALLOW TRUE
+        )
+        FetchContent_MakeAvailable(pybind11)
+    endif()
+    message(STATUS "Python scripting: Python ${Python3_VERSION}")
+endif()
+if(BUILD_TESTS OR BUILD_EXR_TESTS OR BUILD_EXR_AOV_FX_TESTS OR
+   BUILD_TNZTOOLS_TESTS OR BUILD_PSD_TESTS OR BUILD_SCRIPT_TESTS OR BUILD_FFMPEG_TESTS OR BUILD_FRAME_STRIPS_TESTS OR BUILD_LUT3D_TESTS OR BUILD_GLB_FX_TESTS OR
+   BUILD_FXRENDER_TESTS OR BUILD_TGL_BATCH_TESTS)
     enable_testing()
 endif()
 
 add_subdirectory(tnzcore)
+if(BUILD_TGL_BATCH_TESTS)
+    add_subdirectory(common/tgl/tests tglbatchtests)
+endif()
 add_subdirectory(tnzbase)
 add_subdirectory(tnzext)
 add_subdirectory(toonzlib)

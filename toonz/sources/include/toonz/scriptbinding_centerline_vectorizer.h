@@ -17,10 +17,10 @@ class DVAPI CenterlineVectorizer final : public Wrapper {
 public:
   CenterlineVectorizer();
 
-  Q_INVOKABLE QScriptValue toString();
+  Q_INVOKABLE QString toString();
   WRAPPER_STD_METHODS(CenterlineVectorizer)
 
-  Q_INVOKABLE QScriptValue vectorize(QScriptValue img_or_level);
+  Q_INVOKABLE QJSValue vectorize(QJSValue img_or_level);
 
   Q_PROPERTY(int threshold READ getThreshold WRITE setThreshold)
   int getThreshold() const;
@@ -57,7 +57,7 @@ public:
   void setEir(bool v);
 
 private:
-  QScriptValue vectorizeImage(const TImageP &src, TPalette *palette);
+  QJSValue vectorizeImage(const TImageP &src, TPalette *palette);
 };
 
 }  // namespace TScriptBinding

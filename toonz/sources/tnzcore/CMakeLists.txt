@@ -71,6 +71,7 @@ set(HEADERS ${MOC_HEADERS}
     ../include/tsweepboundary.h
     ../include/tvectorimage.h
     ../include/tgl.h
+    ../include/tglbatch.h
     ../include/tstencilcontrol.h
     ../include/tsop.h
     ../include/tsound.h
@@ -170,6 +171,7 @@ set(SOURCES
     ../common/tvectorimage/tsweepboundary.cpp
     ../common/tvectorimage/tvectorimage.cpp
     ../common/tgl/tgl.cpp
+    ../common/tgl/tglbatch.cpp
     ../common/tgl/tstencilcontrol.cpp
     ../common/tgl/tgldisplaylistsmanager.cpp
     ../common/tsound/tsop.cpp

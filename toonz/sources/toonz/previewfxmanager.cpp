@@ -950,6 +950,10 @@ void PreviewFxInstance::startRender(bool rebuild) {
   int index = properties->getThreadIndex();
   m_renderer.setThreadsCount(threadCounts[index]);
 
+  // Let frames use the threads left idle by the frames to render
+  m_renderer.enableFrameStrips(
+      Preferences::instance()->isRenderFrameOnMultipleThreadsEnabled());
+
   // Build raster granularity size
   index = properties->getMaxTileSizeIndex();
 

@@ -17,17 +17,15 @@ OutlineVectorizer::OutlineVectorizer()
   m_parameters->m_transparentColor = TPixel32::Transparent;
 }
 //----------------------------------------------------------
-QScriptValue OutlineVectorizer::toString() { return "Outline Vectorizer"; }
+QString OutlineVectorizer::toString() { return "Outline Vectorizer"; }
 //----------------------------------------------------------
-QScriptValue OutlineVectorizer::ctor(QScriptContext *context,
-                                     QScriptEngine *engine) {
+QJSValue OutlineVectorizer::ctor(QJSEngine *engine, const QJSValueList &args) {
   return create(engine, new OutlineVectorizer());
 }
 //----------------------------------------------------------
-static QScriptValue vectorizeImage(QScriptContext *context,
-                                   QScriptEngine *engine, const TImageP &src,
-                                   TPalette *palette,
-                                   NewOutlineConfiguration *parameters) {
+static QJSValue vectorizeImage(QJSEngine *engine, const TImageP &src,
+                               TPalette *palette,
+                               NewOutlineConfiguration *parameters) {
   VectorizerCore vc;
   TAffine dpiAff;
   double factor = Stage::inch;
@@ -41,7 +39,8 @@ static QScriptValue vectorizeImage(QScriptContext *context,
     ti->getDpi(dpix, dpiy);
     center = ti->getRaster()->getCenterD();
   } else {
-    return context->throwError(QObject::tr("Vectorization failed"));
+    engine->throwError(QObject::tr("Vectorization failed"));
+    return QJSValue();
   }
 
   if (dpix != 0.0 && dpiy != 0.0) dpiAff = TScale(factor / dpix, factor / dpiy);
@@ -55,66 +54,62 @@ static QScriptValue vectorizeImage(QScriptContext *context,
   TVectorImageP vi = vc.vectorize(src, *parameters, paletteHolder.getPointer());
   vi->setPalette(paletteHolder.getPointer());
 
-  return engine->newQObject(new Image(vi), QScriptEngine::AutoOwnership);
+  return Wrapper::create(engine, new Image(vi));
 }
 //----------------------------------------------------------
-QScriptValue OutlineVectorizer::vectorize(QScriptValue arg) {
-  Level *level = qscriptvalue_cast<Level *>(arg);
-  Image *img   = qscriptvalue_cast<Image *>(arg);
+QJSValue OutlineVectorizer::vectorize(QJSValue arg) {
+  Level *level = cast<Level>(arg);
+  Image *img   = cast<Image>(arg);
   QString type;
   TPaletteP palette;  // Smart pointer – automatic release
 
   if (level) {
     type = level->getType();
     if (type != "Raster" && type != "ToonzRaster")
-      return context()->throwError(tr("Can't vectorize a %1 level").arg(type));
+      return throwError(tr("Can't vectorize a %1 level").arg(type));
     if (level->getFrameCount() <= 0)
-      return context()->throwError(
-          tr("Can't vectorize a level with no frames"));
+      return throwError(tr("Can't vectorize a level with no frames"));
     palette = level->getSimpleLevel()->getPalette();  // may be null
   } else if (img) {
     type = img->getType();
     if (type != "Raster" && type != "ToonzRaster")
-      return context()->throwError(tr("Can't vectorize a %1 image").arg(type));
+      return throwError(tr("Can't vectorize a %1 image").arg(type));
     if (TToonzImageP ti = img->getImg()) {
       palette = ti->getPalette();
     }
   } else {
-    return context()->throwError(
-        tr("Bad argument (%1): should be an Image or a Level")
-            .arg(arg.toString()));
+    return throwError(tr("Bad argument (%1): should be an Image or a Level")
+                          .arg(arg.toString()));
   }
 
   // If no palette was provided, create a new one.
   if (!palette) palette = new TPalette();
 
   if (img) {
-    return vectorizeImage(context(), engine(), img->getImg(),
-                          palette.getPointer(), m_parameters.get());
+    return vectorizeImage(engine(), img->getImg(), palette.getPointer(),
+                          m_parameters.get());
   } else if (level) {
-    QScriptValue newLevel = create(engine(), new Level());
+    Level *outputLevel = new Level();
+    QJSValue newLevel  = create(engine(), outputLevel);
     QList<TFrameId> fids;
     level->getFrameIds(fids);
     for (const TFrameId &fid : fids) {
       TImageP srcImg = level->getImg(fid);
       if (srcImg && (srcImg->getType() == TImage::RASTER ||
                      srcImg->getType() == TImage::TOONZ_RASTER)) {
-        QScriptValue newFrame =
-            vectorizeImage(context(), engine(), srcImg, palette.getPointer(),
-                           m_parameters.get());
-        if (newFrame.isError()) {
-          return newFrame;  // palette is automatically cleaned up
+        QJSValue newFrame = vectorizeImage(
+            engine(), srcImg, palette.getPointer(), m_parameters.get());
+        if (newFrame.isUndefined()) {
+          return QJSValue();  // the error has been thrown
         }
-        QScriptValueList args;
-        args << QString::fromStdString(fid.expand()) << newFrame;
-        newLevel.property("setFrame").call(newLevel, args);
+        outputLevel->setFrame(QString::fromStdString(fid.expand()), newFrame);
       }
     }
     return newLevel;
   }
 
   // Unreachable
-  return QScriptValue();
+  return QJSValue();
 }
 //----------------------------------------------------------
 int OutlineVectorizer::getAccuracy() const {
@@ -179,7 +174,7 @@ void OutlineVectorizer::setTransparentColor(const QString &colorName) {
         TPixel32(color.red(), color.green(), color.blue(), color.alpha());
   } else {
     // Throw error and abort
-    context()->throwError(tr("Invalid color: %1").arg(colorName));
+    throwError(tr("Invalid color: %1").arg(colorName));
     return;
   }
 }

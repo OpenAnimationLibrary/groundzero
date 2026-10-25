@@ -21,9 +21,9 @@ Rasterizer::Rasterizer()
 
 Rasterizer::~Rasterizer() {}
 
-QScriptValue Rasterizer::toString() { return "Rasterizer"; }
+QString Rasterizer::toString() { return "Rasterizer"; }
 
-QScriptValue Rasterizer::ctor(QScriptContext *context, QScriptEngine *engine) {
+QJSValue Rasterizer::ctor(QJSEngine *engine, const QJSValueList &args) {
   return create(engine, new Rasterizer());
 }
 
@@ -59,35 +59,32 @@ static TImageP renderVectorImage(TOfflineGL *glContext,
   return rimg;
 }
 
-static void setFrame(QScriptEngine *engine, QScriptValue &level,
-                     const TFrameId &fid, const TImageP &drawing) {
-  QScriptValueList args;
-  args << QString::fromStdString(fid.expand())
-       << Wrapper::create(engine, new Image(drawing.getPointer()));
-  level.property("setFrame").call(level, args);
+static void setFrame(QJSEngine *engine, QJSValue &level, const TFrameId &fid,
+                     const TImageP &drawing) {
+  cast<Level>(level)->setFrame(
+      QString::fromStdString(fid.expand()),
+      Wrapper::create(engine, new Image(drawing.getPointer())));
 }
 
-Q_INVOKABLE QScriptValue Rasterizer::rasterize(QScriptValue arg) {
-  Image *img        = qscriptvalue_cast<Image *>(arg);
-  Level *level      = qscriptvalue_cast<Level *>(arg);
+Q_INVOKABLE QJSValue Rasterizer::rasterize(QJSValue arg) {
+  Image *img        = cast<Image>(arg);
+  Level *level      = cast<Level>(arg);
   TPalette *palette = 0;
   if (img) {
     if (img->getType() != "Vector")
-      return context()->throwError(
-          tr("Expected a vector image: %1").arg(arg.toString()));
+      return throwError(tr("Expected a vector image: %1").arg(arg.toString()));
     palette = !!img->getImg() ? img->getImg()->getPalette() : 0;
   } else if (level) {
     if (level->getType() != "Vector")
-      return context()->throwError(
-          tr("Expected a vector level: %1").arg(arg.toString()));
+      return throwError(tr("Expected a vector level: %1").arg(arg.toString()));
     palette =
         level->getSimpleLevel() ? level->getSimpleLevel()->getPalette() : 0;
   } else {
-    return context()->throwError(
+    return throwError(
         tr("Argument must be a vector level or image : ").arg(arg.toString()));
   }
   if (!palette) {
-    return context()->throwError(tr("%1 has no palette").arg(arg.toString()));
+    return throwError(tr("%1 has no palette").arg(arg.toString()));
   }
 
   TDimension res(m_xres, m_yres);
@@ -97,7 +94,7 @@ Q_INVOKABLE QScriptValue Rasterizer::rasterize(QScriptValue arg) {
   TPointD dpi = camera.getDpi();
   TAffine aff = camera.getStageToCameraRef();
 
-  QScriptValue result;
+  QJSValue result;
   int n               = 0;
   TXshSimpleLevel *sl = 0;
   if (level) {

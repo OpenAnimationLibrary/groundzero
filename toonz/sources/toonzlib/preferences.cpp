@@ -500,6 +500,8 @@ void Preferences::definePreferenceItems() {
   define(autosaveSceneEnabled, "autosaveSceneEnabled", QMetaType::Bool, true);
   define(autosaveOtherFilesEnabled, "autosaveOtherFilesEnabled",
          QMetaType::Bool, true);
+  define(autosaveToRecoveryFolder, "autosaveToRecoveryFolder", QMetaType::Bool,
+         false);
   define(replaceAfterSaveLevelAs, "replaceAfterSaveLevelAs", QMetaType::Bool,
          true);
   define(backupEnabled, "backupEnabled", QMetaType::Bool, true);
@@ -675,6 +677,8 @@ void Preferences::definePreferenceItems() {
          false);
   define(generatedMovieViewEnabled, "generatedMovieViewEnabled",
          QMetaType::Bool, true);
+  define(renderFrameOnMultipleThreads, "renderFrameOnMultipleThreads",
+         QMetaType::Bool, false);
 
   // Onion Skin
   define(onionSkinEnabled, "onionSkinEnabled", QMetaType::Bool, true);

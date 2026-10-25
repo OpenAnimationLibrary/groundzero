@@ -9,6 +9,7 @@
 #include "timageinfo.h"
 #include "timagecache.h"
 #include "tgl.h"
+#include "tglbatch.h"
 
 #include "toonz/txsheethandle.h"
 #include "toonz/tframehandle.h"
@@ -179,13 +180,10 @@ void ToolUtils::drawRect(const TRectD &rect, const TPixel32 &color,
     glEnable(GL_LINE_STIPPLE);
   }
 
-  glBegin(GL_LINE_STRIP);
-  tglVertex(rect.getP00());
-  tglVertex(rect.getP01());
-  tglVertex(rect.getP11());
-  tglVertex(rect.getP10());
-  tglVertex(rect.getP00());
-  glEnd();
+  tgl::Batch batch;
+  batch.lineStrip({rect.getP00(), rect.getP01(), rect.getP11(), rect.getP10(),
+                   rect.getP00()});
+  batch.draw();
   glDisable(GL_LINE_STIPPLE);
   if (doContrast) {
     if (!isEnabled) glDisable(GL_BLEND);
@@ -197,48 +195,37 @@ void ToolUtils::drawRect(const TRectD &rect, const TPixel32 &color,
 
 void ToolUtils::fillRect(const TRectD &rect, const TPixel32 &color) {
   tglColor(color);
-  glBegin(GL_QUADS);
-  tglVertex(rect.getP00());
-  tglVertex(rect.getP01());
-  tglVertex(rect.getP11());
-  tglVertex(rect.getP10());
-  tglVertex(rect.getP00());
-  glEnd();
+  tgl::Batch batch;
+  batch.quad(rect.getP00(), rect.getP01(), rect.getP11(), rect.getP10());
+  batch.draw();
 }
 
 //-----------------------------------------------------------------------------
 
 void ToolUtils::drawPoint(const TPointD &q, double pixelSize) {
   double size = pixelSize * 2.0;
-  glBegin(GL_QUADS);
-  glVertex2d(q.x - size, q.y - size);
-  glVertex2d(q.x - size, q.y + size);
-  glVertex2d(q.x + size, q.y + size);
-  glVertex2d(q.x + size, q.y - size);
-  glEnd();
+  tgl::Batch batch;
+  batch.quad(TPointD(q.x - size, q.y - size), TPointD(q.x - size, q.y + size),
+             TPointD(q.x + size, q.y + size), TPointD(q.x + size, q.y - size));
+  batch.draw();
 }
 
 //-----------------------------------------------------------------------------
 
 void ToolUtils::drawCross(const TPointD &q, double pixelSize) {
   double size = pixelSize;
-  glBegin(GL_LINES);
-  glVertex2d(q.x - size, q.y);
-  glVertex2d(q.x + size, q.y);
-  glEnd();
-  glBegin(GL_LINES);
-  glVertex2d(q.x, q.y - size);
-  glVertex2d(q.x, q.y + size);
-  glEnd();
+  tgl::Batch batch;
+  batch.line(TPointD(q.x - size, q.y), TPointD(q.x + size, q.y));
+  batch.line(TPointD(q.x, q.y - size), TPointD(q.x, q.y + size));
+  batch.draw();
 }
 
 
 //-----------------------------------------------------------------------------
 void ToolUtils::drawLine(const TPointD &p0, const TPointD p1) {
-  glBegin(GL_LINE_STRIP);
-  glVertex2d(p0.x, p0.y);
-  glVertex2d(p1.x, p1.y);
-  glEnd();
+  tgl::Batch batch;
+  batch.lineStrip({p0, p1});
+  batch.draw();
 }
     //-----------------------------------------------------------------------------
 
@@ -253,24 +240,16 @@ void ToolUtils::drawArrow(const TSegment &s, double pixelSize) {
   vn = v;
 
   TPointD p1 = s.getP0() + v * length;
-  glBegin(GL_LINES);
-  tglVertex(s.getP0());
-  tglVertex(p1);
-  glEnd();
+  tgl::Batch batch;
+  batch.line(s.getP0(), p1);
 
   v = v * length * 0.7;
 
   vn = vn * length * 0.2;
 
-  TPointD p;
-
-  glBegin(GL_TRIANGLES);
-  p = s.getP0() + v + rotate90(vn);
-  tglVertex(p);
-  tglVertex(p1);
-  p = s.getP0() + v + rotate270(vn);
-  tglVertex(p);
-  glEnd();
+  batch.triangle(s.getP0() + v + rotate90(vn), p1,
+                 s.getP0() + v + rotate270(vn));
+  batch.draw();
 }
 
 //-----------------------------------------------------------------------------
@@ -279,13 +258,10 @@ void ToolUtils::drawSquare(const TPointD &pos, double r,
                            const TPixel32 &color) {
   TRectD rect(pos - TPointD(r, r), pos + TPointD(r, r));
   tglColor(color);
-  glBegin(GL_LINE_STRIP);
-  tglVertex(rect.getP00());
-  tglVertex(rect.getP01());
-  tglVertex(rect.getP11());
-  tglVertex(rect.getP10());
-  tglVertex(rect.getP00());
-  glEnd();
+  tgl::Batch batch;
+  batch.lineStrip({rect.getP00(), rect.getP01(), rect.getP11(), rect.getP10(),
+                   rect.getP00()});
+  batch.draw();
 }
 
 //-----------------------------------------------------------------------------
@@ -293,13 +269,9 @@ void ToolUtils::drawSquare(const TPointD &pos, double r,
 void ToolUtils::drawRectWhitArrow(const TPointD &pos, double r) {
   if (TTool::getApplication()->getCurrentObject()->isSpline()) return;
   TRectD rect(pos - TPointD(14 * r, 2 * r), pos + TPointD(14 * r, 2 * r));
-  tglColor(TPixel32::Black);
-  glBegin(GL_POLYGON);
-  tglVertex(rect.getP00());
-  tglVertex(rect.getP10());
-  tglVertex(rect.getP11());
-  tglVertex(rect.getP01());
-  glEnd();
+  tgl::Batch batch;
+  batch.color(TPixel32::Black);
+  batch.fillRect(rect);
 
   double par = 5 * r;
 
@@ -307,25 +279,15 @@ void ToolUtils::drawRectWhitArrow(const TPointD &pos, double r) {
   TPointD p02 = 0.5 * (rect.getP01() + rect.getP11());
   TPointD p11 = TPointD(p01.x, p01.y - par);
   TPointD p12 = TPointD(p02.x, p02.y + par);
-  TPointD p;
 
-  tglColor(TPixel32(130, 130, 130));
+  batch.color(TPixel32(130, 130, 130));
 
-  glBegin(GL_TRIANGLES);
-  p = p11 + rotate90(TPointD(0, par));
-  tglVertex(p);
-  tglVertex(p01);
-  p = p11 + rotate270(TPointD(0, par));
-  tglVertex(p);
-  glEnd();
+  batch.triangle(p11 + rotate90(TPointD(0, par)), p01,
+                 p11 + rotate270(TPointD(0, par)));
 
-  glBegin(GL_TRIANGLES);
-  p = p12 + rotate90(TPointD(0, -par));
-  tglVertex(p);
-  tglVertex(p02);
-  p = p12 + rotate270(TPointD(0, -par));
-  tglVertex(p);
-  glEnd();
+  batch.triangle(p12 + rotate90(TPointD(0, -par)), p02,
+                 p12 + rotate270(TPointD(0, -par)));
+  batch.draw();
 }
 
 //-----------------------------------------------------------------------------
@@ -1639,12 +1601,9 @@ void ToolUtils::drawBalloon(const TPointD &pos, std::string text,
       TPointD w3(viewer->winToWorld(p3));
       TPointD w4(viewer->winToWorld(p4));
 
-      glBegin(GL_QUADS);
-      glVertex2d(w1.x, w1.y);
-      glVertex2d(w2.x, w2.y);
-      glVertex2d(w4.x, w4.y);
-      glVertex2d(w3.x, w3.y);
-      glEnd();
+      tgl::Batch batch;
+      batch.quad(w1, w2, w4, w3);
+      batch.draw();
     }
 
     return;

@@ -40,6 +40,7 @@
 #include "toonz/txsheet.h"
 #include "toonz/tcamera.h"
 #include "toonz/palettecontroller.h"
+#include "toonz/preferences.h"
 
 // Toonz-qt stuff
 #include "toonzqt/gutil.h"
@@ -561,6 +562,8 @@ void Previewer::Imp::refreshFrame(int frame) {
                                                    contextName);
 
   // Start the render
+  m_renderer.enableFrameStrips(
+      Preferences::instance()->isRenderFrameOnMultipleThreadsEnabled());
   m_renderer.startRendering(frame, m_renderSettings, fxPair);
 }
 
@@ -1057,6 +1060,8 @@ void Previewer::Imp::addFramesToRenderQueue(const std::vector<int> &frames) {
   // Only start rendering if we have data to render
   if (!renderDatas->empty()) {
     // release() transfers ownership to m_renderer
+    m_renderer.enableFrameStrips(
+        Preferences::instance()->isRenderFrameOnMultipleThreadsEnabled());
     m_renderer.startRendering(renderDatas.release());
   }
   // else: unique_ptr automatically deletes renderDatas on scope exit

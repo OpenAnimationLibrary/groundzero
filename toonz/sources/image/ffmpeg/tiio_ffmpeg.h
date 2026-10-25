@@ -10,11 +10,14 @@
 #include "tfilepath.h"
 #include "tgeometry.h"
 
+#include <QByteArray>
 #include <QFile>
+#include <QMutex>
 #include <QString>
 #include <QStringList>
 #include <QVector>
 #include <QProcess>
+#include <functional>
 #include <limits>
 
 // Struct to hold video file information.
@@ -43,13 +46,38 @@ struct FfmpegTempFileGuard {
   FfmpegTempFileGuard &operator=(const FfmpegTempFileGuard &) = delete;
 };
 
+class FfmpegPipeWriter;
+
 class Ffmpeg {
 public:
+  // Builds a writer's ffmpeg arguments (before and after the video input)
+  typedef std::function<void(QStringList &preInputArgs,
+                             QStringList &postInputArgs)>
+      ArgsBuilder;
+
   Ffmpeg();
   ~Ffmpeg();
 
   // Creates optimized intermediate PNG image (used in the old flow)
   void createIntermediateImage(const TImageP &image, int frameIndex);
+
+  // Streams the frames of an export to ffmpeg's standard input (raw video)
+  // instead of writing intermediate images. Call it before the first frame.
+  // It has no effect when frames may be saved concurrently or out of order.
+  // alwaysSequential: the format is always rendered one frame at a time and
+  // in order (isSequencialRequired()).
+  void enablePipe(bool alwaysSequential = false);
+
+  // Saves a frame of an export: when the pipe is enabled, starts ffmpeg on
+  // the first frame (with the arguments from buildArgs) and streams the
+  // frame to it; otherwise calls createIntermediateImage().
+  void saveFrame(const TImageP &image, int frameIndex,
+                 const ArgsBuilder &buildArgs);
+
+  // Closes ffmpeg's standard input and waits for it to finish encoding,
+  // reporting errors. Returns false if no frame was streamed, in which case
+  // the caller runs ffmpeg over the intermediate images as before.
+  bool finishPipe();
 
   // Executes ffmpeg with custom arguments
   void runFfmpeg(const QStringList &preInputArgs,
@@ -120,8 +148,17 @@ private:
   // Unique identifier for temporary files (based on full path hash)
   QString m_tempBaseName;
 
+  // Raw video pipe state (see enablePipe())
+  bool m_pipeEnabled       = false;
+  int m_pipeNextFrame      = 0;
+  FfmpegPipeWriter *m_pipe = nullptr;
+  QByteArray m_pipeLastFrame;  // repeated to fill gaps
+  QString m_pipeLogPath;
+  QMutex m_pipeMutex;
+
   QString cleanPathSymbols() const;
   bool waitFfmpeg(QProcess &process, bool async) const;
+  void startPipe(int lx, int ly, const ArgsBuilder &buildArgs);
 
   // not allow copy of temporary files
   Ffmpeg(const Ffmpeg &)            = delete;

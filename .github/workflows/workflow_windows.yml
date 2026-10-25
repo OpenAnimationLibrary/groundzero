@@ -17,7 +17,7 @@ on:
       - '!doc/**'                                 # Exclude documentation
       - '!**/.github/**'                          # Exclude everything in .github folder
       - '.github/workflows/workflow_windows.yml'  # Include Windows workflow file
-      - '.github/ot-dev/**'                       # Include OT-Dev build branding assets
+      - '.github/ot-dev/**'                       # Include Groundzero build branding assets
   workflow_dispatch:
 
 permissions:
@@ -25,7 +25,7 @@ permissions:
 
 jobs:
   RecorderEncoder:
-    if: github.repository_owner == 'OpenAnimationLibrary'
+    if: github.repository == 'OpenAnimationLibrary/groundzero'
     runs-on: windows-2025
     steps:
       - uses: actions/checkout@v6
@@ -59,11 +59,11 @@ jobs:
         run: bash .github/ot-dev/recorder/build-ffmpeg.sh
       - uses: actions/upload-artifact@v6
         with:
-          name: OT-Dev-recorder-encoder
+          name: Groundzero-recorder-encoder
           path: recorder-encoder
       - uses: actions/upload-artifact@v6
         with:
-          name: OT-Dev-recorder-test-decoder
+          name: Groundzero-recorder-test-decoder
           path: recorder-test-decoder
 
   Windows:
@@ -91,7 +91,7 @@ jobs:
           lfs: false
           persist-credentials: false
 
-      - name: Inject OT-Dev recorder (Windows CI only)
+      - name: Inject Groundzero recorder (Windows CI only)
         shell: pwsh
         env:
           OTDEV_BUILD_ID: ${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
@@ -99,11 +99,11 @@ jobs:
 
       - uses: actions/download-artifact@v6
         with:
-          name: OT-Dev-recorder-encoder
+          name: Groundzero-recorder-encoder
           path: recorder-encoder
       - uses: actions/download-artifact@v6
         with:
-          name: OT-Dev-recorder-test-decoder
+          name: Groundzero-recorder-test-decoder
           path: recorder-test-decoder
 
       # Cache OpenCV and Boost libraries
@@ -221,6 +221,6 @@ jobs:
       - name: Upload Artifact
         uses: actions/upload-artifact@v6
         with:
-          name: OT-Dev-${{ github.event.pull_request.number && format('PR-{0}', github.event.pull_request.number) || 'Branch-build' }}-Windows-${{ github.sha }}-${{ github.run_id }}
+          name: Groundzero-${{ github.event.pull_request.number && format('PR-{0}', github.event.pull_request.number) || 'Branch-build' }}-Windows-${{ github.sha }}-${{ github.run_id }}
           path: artifact
           if-no-files-found: error

@@ -10,9 +10,15 @@
 #include "toonz/stage.h"
 #include "trop.h"
 
+#include <QAbstractEventDispatcher>
+#include <QDebug>
+#include <QEventLoop>
 #include <QImage>
 #include <QProcess>
+#include <QQueue>
 #include <QRegularExpression>
+#include <QThread>
+#include <QWaitCondition>
 #include <QUuid>
 #include <QDir>
 #include <QFile>
@@ -34,7 +40,10 @@ Ffmpeg::Ffmpeg() {
   m_sampleRate = m_channelCount = m_bitsPerSample = 0;
 }
 
-Ffmpeg::~Ffmpeg() { cleanUpFiles(); }
+Ffmpeg::~Ffmpeg() {
+  finishPipe();
+  cleanUpFiles();
+}
 
 bool Ffmpeg::checkFormat(std::string format) {
   // Cache with reload every hour (avoids becoming outdated if ffmpeg changes)
@@ -282,8 +291,378 @@ bool Ffmpeg::waitFfmpeg(QProcess &process, bool async) const {
   return false;
 }
 
+//===========================================================
+//
+//  Raw video pipe
+//
+//===========================================================
+
+namespace {
+
+// Frames waiting for the pipe thread, besides the one it is writing
+const int kPipeMaxQueuedFrames = 2;
+// Bytes handed to QProcess at once: its write buffer holds at most twice this
+const qint64 kPipeChunkBytes = 1 << 20;
+// Time given to ffmpeg to exit by itself after a failed write
+const int kPipeExitGraceMs = 3000;
+
+// ffmpeg name of the in-memory TPixel32 channel order (see tpixel.h)
+const char *pipePixelFormat() {
+#if defined(TNZ_MACHINE_CHANNEL_ORDER_BGRM)
+  return "bgra";
+#elif defined(TNZ_MACHINE_CHANNEL_ORDER_MBGR)
+  return "abgr";
+#elif defined(TNZ_MACHINE_CHANNEL_ORDER_RGBM)
+  return "rgba";
+#else  // TNZ_MACHINE_CHANNEL_ORDER_MRGB
+  return "argb";
+#endif
+}
+
+// Converts a frame to the layout ffmpeg reads from the pipe: lx * ly pixels
+// in TPixel32 memory order, rows from top to bottom (OpenToonz rasters are
+// bottom-up). Pixel values are passed through: like the intermediate PNG
+// path (a QImage::Format_ARGB32 over the same premultiplied pixels), ffmpeg
+// receives them as straight alpha. A frame of another size is centered on a
+// transparent frame of the stream size.
+QByteArray makePipeFrame(const TRasterP &raster, int lx, int ly) {
+  TRaster32P raster32 = raster;
+  if (!raster32) {
+    raster32 = TRaster32P(raster->getLx(), raster->getLy());
+    // float (16 bytes/pixel), clamp like createIntermediateImage()
+    if (raster->getPixelSize() == 16) {
+      TRasterPT<TPixelF> rasterFloat(raster);
+      if (rasterFloat) {
+        rasterFloat->lock();
+        for (int y = 0; y < rasterFloat->getLy(); ++y) {
+          TPixelF *pix = rasterFloat->pixels(y);
+          for (int x = 0; x < rasterFloat->getLx(); ++x, ++pix) {
+            pix->r = tcrop(pix->r, 0.0f, 1.0f);
+            pix->g = tcrop(pix->g, 0.0f, 1.0f);
+            pix->b = tcrop(pix->b, 0.0f, 1.0f);
+            pix->m = tcrop(pix->m, 0.0f, 1.0f);
+          }
+        }
+        rasterFloat->unlock();
+      }
+    }
+    try {
+      TRop::convert(raster32, raster);
+    } catch (...) {
+      DVGui::warning(
+          QObject::tr("Failed to convert raster to 32-bit ARGB (after clamp)"));
+      return QByteArray();
+    }
+  }
+
+  if (raster32->getLx() != lx || raster32->getLy() != ly) {
+    qWarning() << "FFmpeg pipe: frame size" << raster32->getLx() << "x"
+               << raster32->getLy() << "differs from the stream size" << lx
+               << "x" << ly;
+    TRaster32P canvas(lx, ly);
+    canvas->clear();
+    canvas->copy(raster32, TPoint((lx - raster32->getLx()) / 2,
+                                  (ly - raster32->getLy()) / 2));
+    raster32 = canvas;
+  }
+
+  const int rowBytes = lx * 4;
+  QByteArray frame(rowBytes * ly, Qt::Uninitialized);
+  char *dst = frame.data();
+  raster32->lock();
+  for (int y = ly - 1; y >= 0; --y, dst += rowBytes)
+    memcpy(dst, raster32->pixels(y), rowBytes);
+  raster32->unlock();
+  return frame;
+}
+
+}  // namespace
+
+// Runs ffmpeg for a raw video pipe on a thread of its own. QProcess must be
+// driven by a single thread (on Windows its pipe I/O completes on the thread
+// that issued it), while frames are saved from rendering threads: this thread
+// starts ffmpeg, writes the queued frames to its standard input, closes it and
+// waits for ffmpeg to exit. It needs no event loop: QProcess::waitFor*() work
+// without one.
+class FfmpegPipeWriter final : public QThread {
+public:
+  enum Result { Running, Succeeded, Failed, TimedOut };
+
+  FfmpegPipeWriter(const QStringList &args, int timeoutMs,
+                   const QString &logPath)
+      : m_args(args), m_timeoutMs(timeoutMs), m_logPath(logPath) {}
+
+  // Queues a frame (QByteArray is shared, not copied). Blocks while the
+  // backlog is full, so memory stays bounded when ffmpeg is slower than the
+  // renderer. Returns false, dropping the frame, once ffmpeg has stopped.
+  bool push(const QByteArray &frame) {
+    QMutexLocker locker(&m_mutex);
+    while (!m_stopped && m_queue.size() >= kPipeMaxQueuedFrames)
+      m_frameTaken.wait(&m_mutex);
+    if (m_stopped) return false;
+    m_queue.enqueue(frame);
+    m_frameQueued.wakeOne();
+    return true;
+  }
+
+  // No more frames: standard input is closed once the backlog is written.
+  void finish() {
+    QMutexLocker locker(&m_mutex);
+    m_finishing = true;
+    m_frameQueued.wakeOne();
+  }
+
+  // Valid once the thread has finished
+  Result result() const { return m_result; }
+  int exitCode() const { return m_exitCode; }  // -1 if ffmpeg crashed
+
+protected:
+  void run() override {
+    QProcess process;
+    // No output pipes: nothing has to read them while frames are written, so
+    // ffmpeg cannot block on a full stdout/stderr pipe. Its log goes to a file.
+    process.setStandardOutputFile(QProcess::nullDevice());
+    process.setStandardErrorFile(m_logPath);
+    ThirdParty::runFFmpeg(process, m_args);
+
+    Result result = process.waitForStarted(m_timeoutMs) ? Running : Failed;
+    while (result == Running) {
+      QByteArray frame;
+      {
+        QMutexLocker locker(&m_mutex);
+        while (m_queue.isEmpty() && !m_finishing) m_frameQueued.wait(&m_mutex);
+        if (m_queue.isEmpty()) break;  // finishing, every frame written
+        frame = m_queue.dequeue();
+        m_frameTaken.wakeAll();
+      }
+      result = writeFrame(process, frame);
+    }
+
+    if (result == Running) result = drain(process, 0);
+    if (result == Running) {
+      // EOF makes ffmpeg flush its encoders and finalize the file
+      process.closeWriteChannel();
+      if (!process.waitForFinished(m_timeoutMs) &&
+          process.state() != QProcess::NotRunning)
+        result = TimedOut;
+    }
+    if (process.state() != QProcess::NotRunning &&
+        (result == TimedOut || !process.waitForFinished(kPipeExitGraceMs))) {
+      process.kill();
+      process.waitForFinished(kPipeExitGraceMs);
+    }
+
+    const bool normalExit = process.exitStatus() == QProcess::NormalExit;
+    if (result == Running)
+      result = (normalExit && process.exitCode() == 0) ? Succeeded : Failed;
+
+    QMutexLocker locker(&m_mutex);
+    m_result   = result;
+    m_exitCode = normalExit ? process.exitCode() : -1;
+    m_stopped  = true;
+    m_queue.clear();
+    m_frameTaken.wakeAll();
+  }
+
+private:
+  // Waits until at most maxPending bytes are left in QProcess' write buffer
+  Result drain(QProcess &process, qint64 maxPending) {
+    while (process.bytesToWrite() > maxPending) {
+      if (!process.waitForBytesWritten(m_timeoutMs))
+        return (process.state() != QProcess::NotRunning &&
+                process.error() == QProcess::Timedout)
+                   ? TimedOut
+                   : Failed;
+    }
+    return Running;
+  }
+
+  Result writeFrame(QProcess &process, const QByteArray &frame) {
+    for (qint64 offset = 0; offset < frame.size();) {
+      const qint64 size = qMin<qint64>(kPipeChunkBytes, frame.size() - offset);
+      if (process.write(frame.constData() + offset, size) != size)
+        return Failed;
+      offset += size;
+      // QProcess buffers whatever ffmpeg has not read yet: keep it bounded
+      Result result = drain(process, kPipeChunkBytes);
+      if (result != Running) return result;
+    }
+    return Running;
+  }
+
+  const QStringList m_args;
+  const int m_timeoutMs;
+  const QString m_logPath;
+
+  QMutex m_mutex;
+  QWaitCondition m_frameQueued;
+  QWaitCondition m_frameTaken;
+  QQueue<QByteArray> m_queue;
+  bool m_finishing = false;
+  bool m_stopped   = false;
+  Result m_result  = Running;
+  int m_exitCode   = 0;
+};
+
+void Ffmpeg::enablePipe(bool alwaysSequential) {
+  // MovieRenderer saves movie frames one at a time and in order, unless the
+  // "FFmpeg multithread" preference lets it save them concurrently (formats
+  // that do not require sequential saving). OTDEV_FFMPEG_NO_PIPE=1 keeps the
+  // intermediate images, e.g. to compare both paths.
+  m_pipeEnabled =
+      (alwaysSequential || !Preferences::instance()->getFfmpegMultiThread()) &&
+      qEnvironmentVariableIntValue("OTDEV_FFMPEG_NO_PIPE") == 0;
+}
+
+void Ffmpeg::startPipe(int lx, int ly, const ArgsBuilder &buildArgs) {
+  m_lx = lx;
+  m_ly = ly;
+
+  QStringList preInputArgs;
+  QStringList postInputArgs;
+  buildArgs(preInputArgs, postInputArgs);
+
+  // Same layout as runFfmpeg(), with the video input read from stdin
+  QStringList args;
+  args << "-f"
+       << "rawvideo"
+       << "-pix_fmt" << pipePixelFormat() << "-video_size"
+       << QString("%1x%2").arg(lx).arg(ly);
+  args << preInputArgs << "-i"
+       << "-";
+  if (m_hasSoundTrack) args << m_audioArgs;
+  args << postInputArgs << "-y" << m_path.getQString();
+
+  m_pipeLogPath = getFfmpegCache().getQString() + QDir::separator() +
+                  m_tempBaseName + "_pipe.log";
+  m_pipe = new FfmpegPipeWriter(args, m_ffmpegTimeoutMs, m_pipeLogPath);
+  m_pipe->start();
+}
+
+void Ffmpeg::saveFrame(const TImageP &img, int frameIndex,
+                       const ArgsBuilder &buildArgs) {
+  // m_pipeEnabled only changes before the first streamed frame, and frames
+  // are then saved one at a time
+  if (!m_pipeEnabled) {
+    createIntermediateImage(img, frameIndex);
+    return;
+  }
+
+  QMutexLocker locker(&m_pipeMutex);
+
+  TRasterImageP rasterImage(img);
+  if (!rasterImage) {
+    DVGui::warning(QObject::tr("Cannot save non-raster image to FFmpeg"));
+    return;
+  }
+  TRasterP raster = rasterImage->getRaster();
+  if (!raster || raster->getLx() <= 0 || raster->getLy() <= 0) {
+    DVGui::warning(QObject::tr("Invalid or empty raster for FFmpeg"));
+    return;
+  }
+
+  if (!m_pipe) {
+    if (qint64(raster->getLx()) * raster->getLy() * 4 >
+        std::numeric_limits<int>::max()) {
+      // Too large for one QByteArray: use intermediate images
+      m_pipeEnabled = false;
+      locker.unlock();
+      createIntermediateImage(img, frameIndex);
+      return;
+    }
+    startPipe(raster->getLx(), raster->getLy(), buildArgs);
+    m_pipeNextFrame = frameIndex;
+  }
+
+  // Frames already streamed cannot be revisited
+  if (frameIndex < m_pipeNextFrame) {
+    qWarning() << "FFmpeg pipe: frame" << frameIndex
+               << "arrived out of order and was dropped from"
+               << m_path.getQString();
+    return;
+  }
+
+  QByteArray frame = makePipeFrame(raster, m_lx, m_ly);
+  if (frame.isEmpty()) return;
+
+  // A gap (e.g. a render step) repeats the previous frame, keeping the timing.
+  // (The image sequence read by the intermediate image path ends at the first
+  // missing image instead.) push() returns false once ffmpeg failed, which
+  // finishPipe() reports.
+  for (; m_pipeNextFrame < frameIndex && !m_pipeLastFrame.isEmpty();
+       ++m_pipeNextFrame)
+    m_pipe->push(m_pipeLastFrame);
+  m_pipeNextFrame = frameIndex + 1;
+  m_pipeLastFrame = frame;
+  m_frameCount++;
+  m_pipe->push(frame);
+}
+
+bool Ffmpeg::finishPipe() {
+  FfmpegPipeWriter *pipe = nullptr;
+  {
+    QMutexLocker locker(&m_pipeMutex);
+    pipe   = m_pipe;
+    m_pipe = nullptr;
+    m_pipeLastFrame.clear();
+  }
+  if (!pipe) return false;
+
+  pipe->finish();
+  // Keep the event loop running while ffmpeg encodes the last frames, as
+  // waitFfmpeg() does for the intermediate image path
+  if (QAbstractEventDispatcher::instance()) {
+    QEventLoop eloop;
+    QObject::connect(pipe, &QThread::finished, &eloop, &QEventLoop::quit);
+    if (!pipe->isFinished()) eloop.exec();
+  }
+  pipe->wait();
+
+  const FfmpegPipeWriter::Result result = pipe->result();
+  const int exitCode                    = pipe->exitCode();
+  delete pipe;
+
+  if (result == FfmpegPipeWriter::Succeeded) {
+    m_cleanUpList.push_back(m_pipeLogPath);
+    return true;
+  }
+
+  if (result == FfmpegPipeWriter::TimedOut) {
+    DVGui::warning(
+        QObject::tr("FFmpeg timed out.\n"
+                    "Please check the file for errors.\n"
+                    "If the file doesn't play or is incomplete, \n"
+                    "Please try raising the FFmpeg timeout in Preferences."));
+  } else if (exitCode > 0) {
+    DVGui::warning(QObject::tr("FFmpeg returned error-code: %1").arg(exitCode));
+  }
+  DVGui::warning(
+      QObject::tr("FFmpeg process failed for: %1").arg(m_path.getQString()));
+
+  // The log is kept in the FFmpeg cache folder for inspection
+  QFile log(m_pipeLogPath);
+  if (log.open(QIODevice::ReadOnly)) {
+    if (log.size() > 4096) log.seek(log.size() - 4096);
+    qWarning().noquote() << "FFmpeg pipe failed, end of" << m_pipeLogPath
+                         << ":\n"
+                         << QString::fromUtf8(log.readAll());
+  }
+  return true;
+}
+
 void Ffmpeg::saveSoundTrack(TSoundTrack *soundTrack) {
   if (!soundTrack) return;
+
+  {
+    // The audio input is part of the command started on the first frame
+    QMutexLocker locker(&m_pipeMutex);
+    if (m_pipe) {
+      qWarning() << "FFmpeg pipe: sound track saved after the first frame is "
+                    "not included in"
+                 << m_path.getQString();
+      return;
+    }
+  }
 
   m_sampleRate        = soundTrack->getSampleRate();
   m_channelCount      = soundTrack->getChannelCount();

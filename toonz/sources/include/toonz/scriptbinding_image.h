@@ -19,7 +19,7 @@ public:
   ~Image();
 
   WRAPPER_STD_METHODS(Image)
-  Q_INVOKABLE QScriptValue toString();
+  Q_INVOKABLE QString toString();
 
   Q_PROPERTY(QString type READ getType)
   QString getType() const;
@@ -34,12 +34,13 @@ public:
   int getHeight();
   double getDpi();
 
-  Q_INVOKABLE QScriptValue load(const QScriptValue &fp);
-  Q_INVOKABLE QScriptValue save(const QScriptValue &fp);
+  Q_INVOKABLE QJSValue load(const QJSValue &fp);
+  Q_INVOKABLE QJSValue save(const QJSValue &fp);
 };
 
-QScriptValue checkImage(QScriptContext *context, const QScriptValue &value,
-                        Image *&img);
+// if value is not an Image (or the image is empty) it makes the calling script
+// throw an error and returns false
+DVAPI bool checkImage(QJSEngine *engine, const QJSValue &value, Image *&img);
 
 }  // namespace TScriptBinding
 

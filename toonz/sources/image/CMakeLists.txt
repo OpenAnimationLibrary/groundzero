@@ -222,6 +222,21 @@ if(BUILD_EXR_TESTS)
     add_test(NAME tiio_exr_level COMMAND tiio_exr_level_test)
 endif()
 
+# The test uses the writer classes directly, which only non-MSVC builds export
+if(BUILD_FFMPEG_TESTS AND NOT BUILD_ENV_MSVC)
+    find_program(FFMPEG_TEST_EXECUTABLE ffmpeg)
+    if(FFMPEG_TEST_EXECUTABLE)
+        get_filename_component(FFMPEG_TEST_DIR "${FFMPEG_TEST_EXECUTABLE}" DIRECTORY)
+        add_executable(tiio_ffmpeg_test tests/tiio_ffmpeg_test.cpp)
+        target_link_libraries(tiio_ffmpeg_test PRIVATE image toonzlib)
+        target_compile_definitions(tiio_ffmpeg_test PRIVATE
+            TIIO_FFMPEG_TEST_DIR="${FFMPEG_TEST_DIR}")
+        add_test(NAME tiio_ffmpeg COMMAND tiio_ffmpeg_test)
+    else()
+        message(STATUS "No ffmpeg executable found: tiio_ffmpeg test skipped")
+    endif()
+endif()
+
 # The test uses TLevelWriterPsd directly, which only non-MSVC builds export
 if(BUILD_PSD_TESTS AND NOT BUILD_ENV_MSVC)
     add_executable(tiio_psd_test tests/tiio_psd_test.cpp)

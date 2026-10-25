@@ -350,13 +350,15 @@ if(OpenCV_FOUND)
 endif()
 
 # Optional regression target for the production LUT parser and raster FX.
-option(BUILD_LUT3D_TESTS "Build the 3D LUT Bake regression executable" OFF)
+option(BUILD_LUT3D_TESTS "Build the 3D LUT Bake regression executable" ${BUILD_TESTS})
 if(BUILD_LUT3D_TESTS)
     add_executable(lut3dbake_test tests/lut3dbake_test.cpp)
     target_link_libraries(lut3dbake_test Qt5::Core Qt5::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME lut3dbake COMMAND lut3dbake_test)
 endif()
 
 # Optional regression targets for the GLB-backed 3D FX framework.
+# Not part of BUILD_TESTS: the GLB/3D features are developed and tested in OT3D.
 option(BUILD_GLB_FX_TESTS "Build the 3D FX framework regression executables" OFF)
 if(BUILD_GLB_FX_TESTS)
     add_executable(glbmodelfx_test tests/glbmodelfx_test.cpp)
@@ -365,6 +367,24 @@ if(BUILD_GLB_FX_TESTS)
     target_link_libraries(threepointlightfx_test otglb Qt5::Core Qt5::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
     add_executable(transform3dfx_test tests/transform3dfx_test.cpp)
     target_link_libraries(transform3dfx_test otglb Qt5::Core Qt5::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME glbmodelfx COMMAND glbmodelfx_test)
+    add_test(NAME threepointlightfx COMMAND threepointlightfx_test)
+    add_test(NAME transform3dfx COMMAND transform3dfx_test)
+    # glbmodelfx_test creates a QApplication; CI machines have no display.
+    if(NOT WIN32)
+        set_tests_properties(glbmodelfx PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+    endif()
+endif()
+
+# Optional regression target that renders standard FX graphs and compares
+# them with the reference images in tests/fxrender.
+option(BUILD_FXRENDER_TESTS "Build the FX render regression test" ${BUILD_TESTS})
+if(BUILD_FXRENDER_TESTS)
+    add_executable(fxrender_test tests/fxrender_test.cpp)
+    target_link_libraries(fxrender_test tnzstdfx Qt5::Core Qt5::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME fxrender
+             COMMAND fxrender_test ${CMAKE_CURRENT_SOURCE_DIR}/tests/fxrender
+                     ${CMAKE_CURRENT_BINARY_DIR}/fxrender-output)
 endif()
 
 # Optional regression target for multipart, tiled, and channel-mapped EXR AOVs.
@@ -372,4 +392,11 @@ if(BUILD_EXR_AOV_FX_TESTS)
     add_executable(openexraovfx_test tests/openexraovfx_test.cpp)
     target_link_libraries(openexraovfx_test OpenEXR::OpenEXR Qt5::Core Qt5::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
     add_test(NAME openexraovfx COMMAND openexraovfx_test)
+endif()
+
+# Optional regression target for frames rendered as parallel strips.
+if(BUILD_FRAME_STRIPS_TESTS)
+    add_executable(framestrips_test tests/framestrips_test.cpp)
+    target_link_libraries(framestrips_test Qt5::Core Qt5::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME framestrips COMMAND framestrips_test)
 endif()

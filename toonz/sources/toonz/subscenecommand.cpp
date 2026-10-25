@@ -1338,7 +1338,8 @@ void copyCamerasToChildXsheet(TXsheet *xsh, TXsheet *childXsh) {
 
 //-----------------------------------------------------------------------------
 
-void collapseColumns(std::set<int> indices, bool columnsOnly) {
+void collapseColumns(std::set<int> indices, bool columnsOnly,
+                     const std::wstring &levelName = L"") {
   // return if there is no selected columns
   if (indices.empty()) return;
 
@@ -1356,7 +1357,7 @@ void collapseColumns(std::set<int> indices, bool columnsOnly) {
   // ExpressionReferenceMonitor *monitor = xsh->getExpRefMonitor()->clone();
 
   ToonzScene *scene = app->getCurrentScene()->getScene();
-  TXshLevel *xl     = scene->createNewLevel(CHILD_XSHLEVEL);
+  TXshLevel *xl     = scene->createNewLevel(CHILD_XSHLEVEL, levelName);
   assert(xl);
 
   TXshChildLevel *childLevel = xl->getChildLevel();
@@ -2305,7 +2306,8 @@ public:
 //-----------------------------------------------------------------------------
 
 //! Collapses the specified column indices in current XSheet.
-void SubsceneCmd::collapse(std::set<int> &indices) {
+void SubsceneCmd::collapse(std::set<int> &indices,
+                           const std::wstring &levelName) {
   if (indices.empty()) return;
 
   TXsheet *xsh     = TApp::instance()->getCurrentXsheet()->getXsheet();
@@ -2346,7 +2348,7 @@ void SubsceneCmd::collapse(std::set<int> &indices) {
   getParents(indices, parents);
 
   // Perform the collapse
-  collapseColumns(indices, onlyColumns);
+  collapseColumns(indices, onlyColumns, levelName);
   setColumnOutputConnections(columnOutputConnections);
 
   // Retrieve current status to backup it in the REDO

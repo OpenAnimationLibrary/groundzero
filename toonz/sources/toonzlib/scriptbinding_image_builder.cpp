@@ -14,11 +14,11 @@ Transform::Transform(const TAffine &aff) : m_affine(aff) {}
 
 Transform::~Transform() {}
 
-QScriptValue Transform::ctor(QScriptContext *context, QScriptEngine *engine) {
+QJSValue Transform::ctor(QJSEngine *engine, const QJSValueList &args) {
   return create(engine, new Transform());
 }
 
-QScriptValue Transform::toString() {
+QString Transform::toString() {
   if (m_affine.isIdentity())
     return tr("Identity");
   else if (m_affine.isTranslation())
@@ -61,19 +61,19 @@ QScriptValue Transform::toString() {
   }
 }
 
-QScriptValue Transform::translate(double x, double y) {
+QJSValue Transform::translate(double x, double y) {
   return create(engine(), new Transform(TTranslation(x, y) * m_affine));
 }
 
-QScriptValue Transform::rotate(double degrees) {
+QJSValue Transform::rotate(double degrees) {
   return create(engine(), new Transform(TRotation(degrees) * m_affine));
 }
 
-QScriptValue Transform::scale(double s) {
+QJSValue Transform::scale(double s) {
   return create(engine(), new Transform(TScale(s) * m_affine));
 }
 
-QScriptValue Transform::scale(double sx, double sy) {
+QJSValue Transform::scale(double sx, double sy) {
   return create(engine(), new Transform(TScale(sx, sy) * m_affine));
 }
 
@@ -83,23 +83,28 @@ ImageBuilder::ImageBuilder() : m_width(0), m_height(0) {}
 
 ImageBuilder::~ImageBuilder() {}
 
-QScriptValue ImageBuilder::ctor(QScriptContext *context,
-                                QScriptEngine *engine) {
+QJSValue ImageBuilder::ctor(QJSEngine *engine, const QJSValueList &args) {
   ImageBuilder *imageBuilder = 0;
-  if (context->argumentCount() == 2 || context->argumentCount() == 3) {
-    if (!context->argument(0).isNumber() || !context->argument(1).isNumber())
-      return context->throwError("Bad arguments: expected width,height[,type]");
-    int width  = (int)(context->argument(0).toNumber());
-    int height = (int)(context->argument(1).toNumber());
-    if (width <= 0 || height <= 0) return context->throwError("Bad size");
+  if (args.size() == 2 || args.size() == 3) {
+    if (!args[0].isNumber() || !args[1].isNumber()) {
+      engine->throwError("Bad arguments: expected width,height[,type]");
+      return QJSValue();
+    }
+    int width  = (int)(args[0].toNumber());
+    int height = (int)(args[1].toNumber());
+    if (width <= 0 || height <= 0) {
+      engine->throwError("Bad size");
+      return QJSValue();
+    }
     QString type;
-    if (context->argumentCount() == 3) {
-      if (context->argument(2).isString())
-        type = context->argument(2).toString();
-      if (type != "Raster" && type != "ToonzRaster")
-        return context->throwError(
+    if (args.size() == 3) {
+      if (args[2].isString()) type = args[2].toString();
+      if (type != "Raster" && type != "ToonzRaster") {
+        engine->throwError(
             tr("Bad argument (%1): should be 'Raster' or ToonzRaster'")
-                .arg(context->argument(2).toString()));
+                .arg(args[2].toString()));
+        return QJSValue();
+      }
     }
     imageBuilder           = new ImageBuilder();
     imageBuilder->m_width  = width;
@@ -111,19 +116,16 @@ QScriptValue ImageBuilder::ctor(QScriptContext *context,
                                             TRect(0, 0, width, height));
     }
   } else {
-    if (context->argumentCount() != 0)
-      return context->throwError(
-          "Bad argument count. expected: width,height[,type]");
+    if (args.size() != 0) {
+      engine->throwError("Bad argument count. expected: width,height[,type]");
+      return QJSValue();
+    }
     imageBuilder = new ImageBuilder();
   }
-  QScriptValue obj =
-      engine->newQObject(imageBuilder, QScriptEngine::AutoOwnership,
-                         QScriptEngine::ExcludeSuperClassContents |
-                             QScriptEngine::ExcludeSuperClassMethods);
-  return obj;
+  return create(engine, imageBuilder);
 }
 
-QScriptValue ImageBuilder::toString() {
+QString ImageBuilder::toString() {
   QString type = "Empty";
   if (m_img) {
     if (m_img->getType() == TImage::RASTER)
@@ -138,18 +140,15 @@ QScriptValue ImageBuilder::toString() {
   return tr("ImageBuilder(%1 image)").arg(type);
 }
 
-QScriptValue ImageBuilder::getImage() {
-  return create(engine(), new Image(m_img));
-}
+QJSValue ImageBuilder::getImage() { return create(engine(), new Image(m_img)); }
 
-QScriptValue ImageBuilder::fill(const QString &colorName) {
+QJSValue ImageBuilder::fill(const QString &colorName) {
   QColor color;
-  QScriptValue err = checkColor(context(), colorName, color);
-  if (err.isError()) return err;
+  if (!checkColor(engine(), colorName, color)) return QJSValue();
   TPixel32 pix(color.red(), color.green(), color.blue(), color.alpha());
   if (m_img) {
     if (m_img->getType() != TImage::RASTER)
-      context()->throwError("Can't fill a non-'Raster' image");
+      return throwError("Can't fill a non-'Raster' image");
     TRaster32P ras = m_img->raster();
     if (ras) ras->fill(pix);
   } else if (m_width > 0 && m_height > 0) {
@@ -157,7 +156,7 @@ QScriptValue ImageBuilder::fill(const QString &colorName) {
     ras->fill(pix);
     m_img = TRasterImageP(ras);
   }
-  return context()->thisObject();
+  return self();
 }
 
 void ImageBuilder::clear() { m_img = TImageP(); }
@@ -255,36 +254,30 @@ QString ImageBuilder::add(const TImageP &img, const TAffine &aff) {
   return context()->thisObject();
   */
 
-QScriptValue ImageBuilder::add(QScriptValue imgArg) {
-  Image *simg      = 0;
-  QScriptValue err = checkImage(context(), imgArg, simg);
-  if (err.isError()) return err;
+QJSValue ImageBuilder::add(QJSValue imgArg) {
+  Image *simg = 0;
+  if (!checkImage(engine(), imgArg, simg)) return QJSValue();
   QString errStr = add(simg->getImg(), TAffine());
   if (errStr != "")
-    return context()->throwError(
-        tr("%1 : %2").arg(errStr).arg(imgArg.toString()));
+    return throwError(tr("%1 : %2").arg(errStr).arg(imgArg.toString()));
   else
-    return context()->thisObject();
+    return self();
 }
 
-QScriptValue ImageBuilder::add(QScriptValue imgArg,
-                               QScriptValue transformationArg) {
-  Image *simg      = 0;
-  QScriptValue err = checkImage(context(), imgArg, simg);
-  if (err.isError()) return err;
-  Transform *transformation = qscriptvalue_cast<Transform *>(transformationArg);
+QJSValue ImageBuilder::add(QJSValue imgArg, QJSValue transformationArg) {
+  Image *simg = 0;
+  if (!checkImage(engine(), imgArg, simg)) return QJSValue();
+  Transform *transformation = cast<Transform>(transformationArg);
   if (!transformation) {
-    return context()->throwError(
-        tr("Bad argument (%1): should be a Transformation")
-            .arg(transformationArg.toString()));
+    return throwError(tr("Bad argument (%1): should be a Transformation")
+                          .arg(transformationArg.toString()));
   }
   TAffine aff    = transformation->getAffine();
   QString errStr = add(simg->getImg(), aff);
   if (errStr != "")
-    return context()->throwError(
-        tr("%1 : %2").arg(errStr).arg(imgArg.toString()));
+    return throwError(tr("%1 : %2").arg(errStr).arg(imgArg.toString()));
   else
-    return context()->thisObject();
+    return self();
 }
 
 }  // namespace TScriptBinding

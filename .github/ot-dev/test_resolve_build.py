@@ -56,7 +56,7 @@ class ResolverTest(unittest.TestCase):
             self.assertEqual(result["manifest"]["infrastructure_sha"], INFRA)
             self.assertEqual(result["manifest"]["source_run_attempt"], 2)
             self.assertEqual(result["source_event"]["pull_request"]["title"], PR["title"])
-            self.assertEqual(result["artifact_name"], f"OT-Dev-PR-280-Windows-{MERGE}-123")
+            self.assertEqual(result["artifact_name"], f"Groundzero-PR-280-Windows-{MERGE}-123")
 
     def test_stale_pr_head_or_base_is_not_relabelled_as_current(self):
         for field in ("head", "base"):
@@ -75,7 +75,7 @@ class ResolverTest(unittest.TestCase):
         self.event["workflow_run"].update(
             event="create", path=".github/workflows/otdev_branding.yml",
             name="OT-Dev Branded PR Build", head_sha=INFRA, pull_requests=[])
-        self.artifacts = [{"name": f"OT-Dev-PR-280-Windows-{MERGE}"}]
+        self.artifacts = [{"name": f"Groundzero-PR-280-Windows-{MERGE}"}]
         result = self.run_resolver()
         self.assertEqual(result["source_sha"], MERGE)
         self.assertEqual(result["build"], "true")
@@ -87,25 +87,25 @@ class ResolverTest(unittest.TestCase):
         self.assertIn(f"commits/{HEAD}/pulls?per_page=100", self.calls)
 
     def test_artifact_cannot_select_another_pr(self):
-        self.artifacts = [{"name": f"OT-Dev-PR-281-Windows-{MERGE}"}]
+        self.artifacts = [{"name": f"Groundzero-PR-281-Windows-{MERGE}"}]
         self.assertEqual(self.run_resolver()["build"], "false")
         self.assertNotIn("pulls/281", self.calls)
 
     def test_malformed_and_ambiguous_application_names_are_rejected(self):
         for names in (["Opentoonz-Windows-1234567"],
                       ["Opentoonz-Windows-" + MERGE, "Opentoonz-Windows-" + HEAD],
-                      [f"OT-Dev-PR-280-Windows-{MERGE}-98"]):
+                      [f"Groundzero-PR-280-Windows-{MERGE}-98"]):
             with self.subTest(names=names):
                 self.artifacts = [{"name": name} for name in names]
                 self.assertEqual(self.run_resolver()["build"], "false")
 
     def test_pr_without_source_artifact_does_not_build_head_instead(self):
-        self.artifacts = [{"name": "OT-Dev-recorder-encoder"}]
+        self.artifacts = [{"name": "Groundzero-recorder-encoder"}]
         self.assertEqual(self.run_resolver()["build"], "false")
 
     def test_marker_requires_matching_new_package_and_does_not_skip_old_branding(self):
-        self.artifacts = [{"name": f"OT-Dev-PR-280-Windows-{MERGE}"},
-                          {"name": "OT-Dev-package-manifest-99"}]
+        self.artifacts = [{"name": f"Groundzero-PR-280-Windows-{MERGE}"},
+                          {"name": "Groundzero-package-manifest-99"}]
         self.assertEqual(self.run_resolver()["build"], "true")
         self.artifacts[0]["name"] += "-99"
         self.assertEqual(self.run_resolver()["build"], "false")
@@ -113,7 +113,7 @@ class ResolverTest(unittest.TestCase):
         self.assertEqual(self.run_resolver()["build"], "true")
 
     def test_wrong_workflow_or_new_worker_cannot_start_a_loop(self):
-        for change in ({"name": "OT-Dev Windows Package"},
+        for change in ({"name": "Groundzero Windows Package"},
                        {"path": ".github/workflows/arbitrary.yml"},
                        {"conclusion": "failure"}):
             with self.subTest(change=change):
@@ -127,7 +127,7 @@ class ResolverTest(unittest.TestCase):
             event="workflow_dispatch", path=".github/workflows/channel_stack_preview.yml",
             name="Channel Stack Preview (Windows)", head_branch="build/channel-stack-143-145",
             pull_requests=[])
-        self.artifacts = [{"name": "OT-Dev-Windows-PR143-PR145"}]
+        self.artifacts = [{"name": "Groundzero-Windows-PR143-PR145"}]
         result = self.run_resolver()
         self.assertEqual(result["source_sha"], HEAD)
         self.assertEqual(result["source_ref"], "build/channel-stack-143-145")

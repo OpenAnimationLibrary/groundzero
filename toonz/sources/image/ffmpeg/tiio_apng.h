@@ -30,6 +30,8 @@ public:
   }
 
 private:
+  void buildFfmpegArgs(QStringList &preIArgs, QStringList &postIArgs) const;
+
   Ffmpeg *ffmpegWriter;
   int m_lx, m_ly;
   int m_scale;

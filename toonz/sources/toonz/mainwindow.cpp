@@ -1111,7 +1111,7 @@ void MainWindow::onAbout() {
   label->setPixmap(pixmap);
 
   DVGui::Dialog *dialog = new DVGui::Dialog(this, true);
-  dialog->setWindowTitle(tr("About OpenToonz"));
+  dialog->setWindowTitle(tr("About Groundzero"));
   dialog->setTopMargin(0);
   dialog->addWidget(label);
   QHBoxLayout *hLay = new QHBoxLayout();
@@ -2314,6 +2314,12 @@ void MainWindow::defineActions() {
                        "run_script");
   createMenuFileAction("MI_OpenScriptConsole",
                        QT_TR_NOOP("Open Script Console..."), "", "console");
+#ifdef WITH_PYTHON
+  createMenuFileAction("MI_RunPythonScript", QT_TR_NOOP("Run Python Script..."),
+                       "", "run_script");
+  createMenuFileAction("MI_OpenPythonConsole",
+                       QT_TR_NOOP("Open Python Console..."), "", "console");
+#endif
   createMenuFileAction(MI_Print, QT_TR_NOOP("&Print Current Frame..."),
                        "Ctrl+P", "printer");
   createMenuFileAction(MI_Quit, QT_TR_NOOP("&Quit"), "Ctrl+Q", "quit");
@@ -2330,6 +2336,9 @@ void MainWindow::defineActions() {
                        QT_TR_NOOP("&Export Current Scene"), "");
   createMenuFileAction(MI_ExportCameraTrack, QT_TR_NOOP("&Export Camera Track"),
                        "");
+  createMenuFileAction(
+      MI_ExportSpine,
+      QT_TRANSLATE_NOOP("MainWindow", "Export to Spine JSON..."), "");
 
   // Menu - Edit
 
@@ -2541,6 +2550,8 @@ void MainWindow::defineActions() {
                          "resequence");
   createMenuXsheetAction(MI_CloneChild, QT_TR_NOOP("Clone Sub-Xsheet"), "",
                          "sub_clone");
+  createMenuXsheetAction(MI_ConvertToSymbol, QT_TR_NOOP("Convert to Symbol..."),
+                         "", "");
   createMenuXsheetAction(MI_ApplyMatchLines,
                          QT_TR_NOOP("&Apply Match Lines..."), "",
                          "apply_match_lines");
@@ -2649,6 +2660,8 @@ void MainWindow::defineActions() {
                         "auto_input_cell_number");
   createMenuCellsAction(MI_FillEmptyCell, QT_TR_NOOP("&Fill In Empty Cells"),
                         "", "fill_empty_cells");
+  createMenuCellsAction(MI_SymbolTiming, QT_TR_NOOP("Symbol Timing..."), "",
+                        "");
 
   // Menu - Play
 
@@ -2873,12 +2886,13 @@ void MainWindow::defineActions() {
   createMenuWindowsAction(MI_SeeThroughWindow,
                           QT_TR_NOOP("Toggle Main Window's See Through Mode"),
                           "Alt+`", "toggle_seethroughwin_on");
-  createMenuHelpAction(MI_About, QT_TR_NOOP("&About OpenToonz..."), "", "info");
+  createMenuHelpAction(MI_About, QT_TR_NOOP("&About Groundzero..."), "", "info");
   createMenuWindowsAction(MI_StartupPopup, QT_TR_NOOP("&Startup Popup..."),
                           "Alt+S", "opentoonz");
   createMenuWindowsAction(MI_OpenAlignmentPanel,
                           QT_TR_NOOP("Align and Distribute Panel"), "", "");
   createMenuWindowsAction(MI_OpenPosesPanel, QT_TR_NOOP("&Poses"), "", "");
+  createMenuWindowsAction(MI_OpenSymbols, QT_TR_NOOP("Symbols"), "", "");
   createMenuWindowsAction(MI_OpenGuidedDrawingControls,
                           QT_TR_NOOP("Guided Drawing Controls"), "",
                           "guided_drawing");

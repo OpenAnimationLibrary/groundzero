@@ -118,6 +118,10 @@ public:
     TFilePath mutablePath(path);
     save(mutablePath, subxsheet, saveSceneIcon);
   }
+  //! Writes the scene file to \b path without changing the scene: its path,
+  //! project, untitled state, icon, backups and version stay as they are.
+  //! Level paths are written exactly as the levels hold them.
+  void saveCopy(const TFilePath &path);
   void loadTnzFile(
       const TFilePath &path);  //!< Loads scene data from file, \a excluding the
                                //!  associated project and the scene resources.
@@ -318,6 +322,9 @@ private:
   std::string m_loadedSceneGenerator;
 
 private:
+  // Writes the .tnz data of the scene (or of a sub-xsheet) to path
+  void writeSceneFile(const TFilePath &path, TXsheet *subxsheet);
+
   // noncopyable
   ToonzScene(const ToonzScene &);
   ToonzScene &operator=(const ToonzScene &);
