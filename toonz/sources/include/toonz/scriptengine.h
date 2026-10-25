@@ -85,7 +85,8 @@ public:
 
   //! Runs f on the thread of this ScriptEngine (the GUI thread) and waits
   //! for it to return. To be used by script functions that touch the GUI;
-  //! f must not use the QJSEngine.
+  //! f must not use the QJSEngine. While the ScriptEngine is being
+  //! destroyed, f is not run.
   void runOnMainThread(const std::function<void()> &f);
 
   //! The value returned by functions, like print(), whose result must not
