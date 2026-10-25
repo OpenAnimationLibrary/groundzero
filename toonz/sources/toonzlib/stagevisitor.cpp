@@ -485,6 +485,11 @@ QThreadStorage<std::vector<char> *> threadBuffers;
 }
 
 void RasterPainter::flushRasterImages() {
+  // With GPU compositing off, free the textures cached for the current context
+  // by previous GPU flushes (with the rasters they keep alive), and their
+  // pending invalidations, which are recorded only while a cache exists
+  if (!m_gpuCompositing) releaseGpuTextures();
+
   if (m_nodes.empty()) return;
 
   // The experimental GPU path returns false when it did not draw anything
