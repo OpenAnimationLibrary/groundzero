@@ -39,6 +39,8 @@
 #include "toonz/fxcommand.h"
 #include "toonz/preferences.h"
 #include "toonz/tstageobjectid.h"
+#include "toonz/columnfan.h"
+#include "orientation.h"
 
 // TnzBase includes
 #include "tfx.h"
@@ -57,7 +59,9 @@
 #include <QClipboard>
 #include <QSet>
 
+#include <algorithm>
 #include <memory>
+#include <vector>
 
 //*************************************************************************
 //    Local Namespace  stuff
@@ -1474,7 +1478,10 @@ enum {
 
   CMD_ENABLE_CAMSTAND  = 0x0040,
   CMD_DISABLE_CAMSTAND = 0x0080,
-  CMD_TOGGLE_CAMSTAND  = 0x0100
+  CMD_TOGGLE_CAMSTAND  = 0x0100,
+
+  CMD_SELECTION_LOCK   = 0x0200,
+  CMD_SELECTION_UNLOCK = 0x0400
 };
 
 enum {
@@ -1541,6 +1548,9 @@ public:
           column->lock(!column->isLocked());
         viewer_changed = true;
       }
+      // The camera column is never picked in the viewer.
+      if (i >= 0 && (cmd & (CMD_SELECTION_LOCK | CMD_SELECTION_UNLOCK)))
+        column->lockSelection((cmd & CMD_SELECTION_LOCK) != 0);
       if (cmd &
           (CMD_ENABLE_PREVIEW | CMD_DISABLE_PREVIEW | CMD_TOGGLE_PREVIEW)) {
         if (cmd & CMD_ENABLE_PREVIEW)
@@ -1617,7 +1627,12 @@ ColumnsStatusCommand
     c14(MI_LockThisColumnOnly, CMD_LOCK, TARGET_CURRENT),
     c15(MI_ToggleColumnLocks, CMD_TOGGLE_LOCK, TARGET_ALL),
     c16(MI_LockSelectedColumns, CMD_LOCK, TARGET_SELECTED),
-    c17(MI_UnlockSelectedColumns, CMD_UNLOCK, TARGET_SELECTED);
+    c17(MI_UnlockSelectedColumns, CMD_UNLOCK, TARGET_SELECTED),
+
+    c19(MI_SelectionLockSelectedColumns, CMD_SELECTION_LOCK, TARGET_SELECTED),
+    c20(MI_SelectionUnlockSelectedColumns, CMD_SELECTION_UNLOCK,
+        TARGET_SELECTED),
+    c21(MI_SelectionUnlockAllColumns, CMD_SELECTION_UNLOCK, TARGET_ALL);
 }  // namespace
 
 //=============================================================================
@@ -1637,4 +1652,351 @@ public:
 
 void ColumnCmd::addConvertToVectorUndo(std::set<int> &newColumnIndices) {
   TUndoManager::manager()->add(new ConvertToVectorUndo(newColumnIndices));
+}
+
+//=============================================================================
+// Column groups
+//-----------------------------------------------------------------------------
+// Column groups are the stage object groups also used by the Stage Schematic:
+// each TStageObject keeps a stack of group ids (index 0 is the innermost
+// group) with a parallel stack of group names, and both are saved with the
+// scene. A group is identified by its id; its members are the stage objects
+// whose stack contains it.
+
+namespace {
+
+TStageObject *getColumnObject(TXsheet *xsh, int col) {
+  return xsh->getStageObjectTree()->getStageObject(
+      TStageObjectId::ColumnId(col), false);
+}
+
+//-----------------------------------------------------------------------------
+
+// Returns true if all the stage objects in group groupId are columns
+// contained in cols.
+bool isGroupContainedIn(TXsheet *xsh, int groupId, const std::set<int> &cols) {
+  TStageObjectTree *tree = xsh->getStageObjectTree();
+  for (int i = 0; i < tree->getStageObjectCount(); i++) {
+    TStageObject *obj = tree->getStageObject(i);
+    if (!obj || !obj->isContainedInGroup(groupId)) continue;
+    TStageObjectId id = obj->getId();
+    if (!id.isColumn() || cols.count(id.getIndex()) == 0) return false;
+  }
+  return true;
+}
+
+//-----------------------------------------------------------------------------
+
+bool isGroupIdUsed(TXsheet *xsh, int groupId) {
+  TStageObjectTree *tree = xsh->getStageObjectTree();
+  for (int i = 0; i < tree->getStageObjectCount(); i++) {
+    TStageObject *obj = tree->getStageObject(i);
+    if (obj && obj->isContainedInGroup(groupId)) return true;
+  }
+  return false;
+}
+
+//=============================================================================
+// ColumnGroupUndo
+//-----------------------------------------------------------------------------
+// Inserts (group) or removes (ungroup) the group m_groupId at the given stack
+// positions of the given stage objects.
+
+class ColumnGroupUndo final : public TUndo {
+  bool m_isGroup;
+  int m_groupId;
+  QList<TStageObjectId> m_ids;
+  QList<int> m_positions;
+  QList<std::wstring> m_names;
+
+  void insertGroup() const {
+    TXsheet *xsh           = TApp::instance()->getCurrentXsheet()->getXsheet();
+    TStageObjectTree *tree = xsh->getStageObjectTree();
+    for (int i = 0; i < m_ids.size(); i++) {
+      TStageObject *obj = tree->getStageObject(m_ids[i], false);
+      if (!obj || m_positions[i] > obj->getGroupIdStack().size()) continue;
+      obj->setGroupId(m_groupId, m_positions[i]);
+      obj->setGroupName(m_names[i], m_positions[i]);
+    }
+  }
+
+  void removeGroup() const {
+    TXsheet *xsh           = TApp::instance()->getCurrentXsheet()->getXsheet();
+    TStageObjectTree *tree = xsh->getStageObjectTree();
+    for (int i = 0; i < m_ids.size(); i++) {
+      TStageObject *obj = tree->getStageObject(m_ids[i], false);
+      if (!obj || obj->getGroupIdStack().value(m_positions[i], -1) != m_groupId)
+        continue;
+      obj->removeGroupName(m_positions[i]);
+      obj->removeGroupId(m_positions[i]);
+    }
+  }
+
+public:
+  ColumnGroupUndo(bool isGroup, int groupId, const QList<TStageObjectId> &ids,
+                  const QList<int> &positions, const QList<std::wstring> &names)
+      : m_isGroup(isGroup)
+      , m_groupId(groupId)
+      , m_ids(ids)
+      , m_positions(positions)
+      , m_names(names) {}
+
+  void undo() const override {
+    if (m_isGroup)
+      removeGroup();
+    else
+      insertGroup();
+    TApp::instance()->getCurrentXsheet()->notifyXsheetChanged();
+  }
+
+  void redo() const override {
+    if (m_isGroup)
+      insertGroup();
+    else
+      removeGroup();
+    TApp::instance()->getCurrentXsheet()->notifyXsheetChanged();
+  }
+
+  int getSize() const override {
+    return sizeof(*this) + m_ids.size() * (sizeof(TStageObjectId) +
+                                           sizeof(int) + sizeof(std::wstring));
+  }
+
+  QString getHistoryString() override {
+    return m_isGroup ? QObject::tr("Group Columns")
+                     : QObject::tr("Ungroup Columns");
+  }
+
+  int getHistoryType() override { return HistoryType::Xsheet; }
+};
+
+//=============================================================================
+// RenameColumnGroupUndo
+//-----------------------------------------------------------------------------
+
+class RenameColumnGroupUndo final : public TUndo {
+  int m_groupId;
+  QList<TStageObjectId> m_ids;
+  QList<std::wstring> m_oldNames;
+  std::wstring m_newName;
+
+  void setName(int index, const std::wstring &name) const {
+    TXsheet *xsh = TApp::instance()->getCurrentXsheet()->getXsheet();
+    TStageObject *obj =
+        xsh->getStageObjectTree()->getStageObject(m_ids[index], false);
+    if (!obj) return;
+    int pos = obj->getGroupIdStack().indexOf(m_groupId);
+    if (pos < 0 || pos >= obj->getGroupNameStack().size()) return;
+    obj->removeGroupName(pos);
+    obj->setGroupName(name, pos);
+  }
+
+public:
+  RenameColumnGroupUndo(int groupId, const QList<TStageObjectId> &ids,
+                        const QList<std::wstring> &oldNames,
+                        const std::wstring &newName)
+      : m_groupId(groupId)
+      , m_ids(ids)
+      , m_oldNames(oldNames)
+      , m_newName(newName) {}
+
+  void undo() const override {
+    for (int i = 0; i < m_ids.size(); i++) setName(i, m_oldNames[i]);
+    TApp::instance()->getCurrentXsheet()->notifyXsheetChanged();
+  }
+
+  void redo() const override {
+    for (int i = 0; i < m_ids.size(); i++) setName(i, m_newName);
+    TApp::instance()->getCurrentXsheet()->notifyXsheetChanged();
+  }
+
+  int getSize() const override {
+    return sizeof(*this) +
+           m_ids.size() * (sizeof(TStageObjectId) + sizeof(std::wstring));
+  }
+
+  QString getHistoryString() override {
+    return QObject::tr("Rename Column Group :  %1")
+        .arg(QString::fromStdWString(m_newName));
+  }
+
+  int getHistoryType() override { return HistoryType::Xsheet; }
+};
+
+}  // namespace
+
+//=============================================================================
+// groupColumns
+//-----------------------------------------------------------------------------
+
+bool ColumnCmd::groupColumns(const std::set<int> &indices) {
+  TXsheet *xsh = TApp::instance()->getCurrentXsheet()->getXsheet();
+  std::set<int> cols(indices.lower_bound(0), indices.end());  // no camera
+  if (cols.empty()) return false;
+  int c0 = *cols.begin(), c1 = *cols.rbegin();
+  if (c1 - c0 + 1 != (int)cols.size()) {
+    DVGui::warning(QObject::tr("Only contiguous columns can be grouped."));
+    return false;
+  }
+
+  std::vector<QStack<int>> stacks;
+  for (int c : cols) {
+    TStageObject *obj = getColumnObject(xsh, c);
+    if (xsh->isColumnEmpty(c) || !obj) {
+      DVGui::warning(QObject::tr("Empty columns cannot be grouped."));
+      return false;
+    }
+    stacks.push_back(obj->getGroupIdStack());
+  }
+
+  // count the outermost groups shared by all the columns
+  int common = stacks[0].size();
+  for (const QStack<int> &stack : stacks)
+    common = std::min(common, (int)stack.size());
+  for (int k = 0; k < common; k++) {
+    int groupId = stacks[0][stacks[0].size() - 1 - k];
+    bool shared = true;
+    for (const QStack<int> &stack : stacks)
+      if (stack[stack.size() - 1 - k] != groupId) shared = false;
+    if (!shared) {
+      common = k;
+      break;
+    }
+  }
+  // a shared group made only of the selected columns gets wrapped by the new
+  // group, instead of containing it
+  while (common > 0 &&
+         isGroupContainedIn(xsh, stacks[0][stacks[0].size() - common], cols))
+    common--;
+
+  // the groups that will be inside the new one must not have other members
+  for (const QStack<int> &stack : stacks)
+    for (int i = 0; i < stack.size() - common; i++)
+      if (!isGroupContainedIn(xsh, stack[i], cols)) {
+        DVGui::warning(
+            QObject::tr("The selected columns cannot be grouped because they "
+                        "contain only a part of an existing group."));
+        return false;
+      }
+
+  TStageObjectTree *tree = xsh->getStageObjectTree();
+  int groupId;
+  do {
+    groupId = tree->getNewGroupId();
+  } while (isGroupIdUsed(xsh, groupId));
+
+  std::wstring name = L"Group " + std::to_wstring(groupId);
+  QList<TStageObjectId> ids;
+  QList<int> positions;
+  QList<std::wstring> names;
+  int i = 0;
+  for (int c : cols) {
+    ids.append(TStageObjectId::ColumnId(c));
+    positions.append(stacks[i++].size() - common);
+    names.append(name);
+  }
+
+  ColumnGroupUndo *undo =
+      new ColumnGroupUndo(true, groupId, ids, positions, names);
+  undo->redo();
+  TUndoManager::manager()->add(undo);
+  TApp::instance()->getCurrentScene()->setDirtyFlag(true);
+  return true;
+}
+
+//=============================================================================
+// ungroupColumns
+//-----------------------------------------------------------------------------
+
+bool ColumnCmd::ungroupColumns(const std::set<int> &indices) {
+  TXsheet *xsh = TApp::instance()->getCurrentXsheet()->getXsheet();
+  std::set<int> cols(indices.lower_bound(0), indices.end());  // no camera
+  if (cols.empty()) return false;
+
+  // find the innermost group containing all the columns
+  TStageObject *firstObj = getColumnObject(xsh, *cols.begin());
+  if (!firstObj) return false;
+  QStack<int> firstStack = firstObj->getGroupIdStack();
+  int groupId            = -1;
+  for (int i = 0; i < firstStack.size() && groupId < 0; i++) {
+    bool shared = true;
+    for (int c : cols) {
+      TStageObject *obj = getColumnObject(xsh, c);
+      if (!obj || !obj->isContainedInGroup(firstStack[i])) shared = false;
+    }
+    if (shared) groupId = firstStack[i];
+  }
+  if (groupId < 0) return false;
+
+  // remove the group from all its members, including the non-column ones
+  TStageObjectTree *tree = xsh->getStageObjectTree();
+  QList<TStageObjectId> ids;
+  QList<int> positions;
+  QList<std::wstring> names;
+  for (int i = 0; i < tree->getStageObjectCount(); i++) {
+    TStageObject *obj = tree->getStageObject(i);
+    if (!obj) continue;
+    int pos = obj->getGroupIdStack().indexOf(groupId);
+    if (pos < 0) continue;
+    ids.append(obj->getId());
+    positions.append(pos);
+    names.append(obj->getGroupNameStack().value(pos));
+  }
+
+  ColumnGroupUndo *undo =
+      new ColumnGroupUndo(false, groupId, ids, positions, names);
+  undo->redo();
+  TUndoManager::manager()->add(undo);
+  TApp::instance()->getCurrentScene()->setDirtyFlag(true);
+  return true;
+}
+
+//=============================================================================
+// renameColumnGroup
+//-----------------------------------------------------------------------------
+
+void ColumnCmd::renameColumnGroup(int groupId, const std::wstring &name) {
+  TXsheet *xsh           = TApp::instance()->getCurrentXsheet()->getXsheet();
+  TStageObjectTree *tree = xsh->getStageObjectTree();
+  QList<TStageObjectId> ids;
+  QList<std::wstring> oldNames;
+  for (int i = 0; i < tree->getStageObjectCount(); i++) {
+    TStageObject *obj = tree->getStageObject(i);
+    if (!obj) continue;
+    int pos = obj->getGroupIdStack().indexOf(groupId);
+    if (pos < 0) continue;
+    ids.append(obj->getId());
+    oldNames.append(obj->getGroupNameStack().value(pos));
+  }
+  if (ids.isEmpty() || oldNames[0] == name) return;
+
+  RenameColumnGroupUndo *undo =
+      new RenameColumnGroupUndo(groupId, ids, oldNames, name);
+  undo->redo();
+  TUndoManager::manager()->add(undo);
+  TApp::instance()->getCurrentScene()->setDirtyFlag(true);
+}
+
+//=============================================================================
+// foldColumnGroup
+//-----------------------------------------------------------------------------
+// Same as the Fold Columns command (no undo): the folded state is the one of
+// the column fans, saved with the scene.
+
+void ColumnCmd::foldColumnGroup(int groupId, bool fold) {
+  TApp *app    = TApp::instance();
+  TXsheet *xsh = app->getCurrentXsheet()->getXsheet();
+  for (int c = 0; c < xsh->getColumnCount(); c++) {
+    TStageObject *obj = getColumnObject(xsh, c);
+    if (!obj || !obj->isContainedInGroup(groupId)) continue;
+    for (auto o : Orientations::all()) {
+      ColumnFan *fan = xsh->getColumnFan(o);
+      if (fold)
+        fan->deactivate(c);
+      else
+        fan->activate(c);
+    }
+  }
+  app->getCurrentXsheet()->notifyXsheetChanged();
+  app->getCurrentScene()->setDirtyFlag(true);
 }

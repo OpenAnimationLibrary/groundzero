@@ -60,6 +60,19 @@ void TStageObjectValues::add(TStageObject::Channel actionId) {
 
 //-----------------------------------------------------------------------------
 
+void TStageObjectValues::addTiltChannelsInUse() {
+  TStageObjectId id = m_objectId;
+  if (id == TStageObjectId::NoneId) id = m_objectHandle->getObjectId();
+  TStageObject *obj = m_xsheetHandle->getXsheet()->getStageObject(id);
+  if (!obj) return;
+  if (obj->isFullKeyframeChannel(TStageObject::T_RotX))
+    add(TStageObject::T_RotX);
+  if (obj->isFullKeyframeChannel(TStageObject::T_RotY))
+    add(TStageObject::T_RotY);
+}
+
+//-----------------------------------------------------------------------------
+
 void TStageObjectValues::updateValues() {
   TXsheet *xsh = m_xsheetHandle->getXsheet();
   if (m_objectId == TStageObjectId::NoneId)
@@ -192,6 +205,12 @@ QString TStageObjectValues::getStringForHistory() {
       break;
     case TStageObject::T_ShearY:
       channelStr = QObject::tr("Edit Shear Y");
+      break;
+    case TStageObject::T_RotX:
+      channelStr = QObject::tr("Edit Rotation X");
+      break;
+    case TStageObject::T_RotY:
+      channelStr = QObject::tr("Edit Rotation Y");
       break;
     default:
       channelStr = QObject::tr("Move");

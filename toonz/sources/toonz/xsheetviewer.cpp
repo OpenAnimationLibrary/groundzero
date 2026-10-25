@@ -243,7 +243,8 @@ XsheetViewer::XsheetViewer(QWidget *parent, Qt::WindowFlags flags)
     , m_frameDisplayStyle(to_enum(FrameDisplayStyleInXsheetRowArea))
     , m_orientation(nullptr)
     , m_xsheetLayout("Classic")
-    , m_frameZoomFactor(100) {
+    , m_frameZoomFactor(100)
+    , m_columnGroupDepth(0) {
   m_xsheetLayout = Preferences::instance()->getLoadedXsheetLayout();
 
   setFocusPolicy(Qt::StrongFocus);
@@ -288,6 +289,14 @@ XsheetViewer::XsheetViewer(QWidget *parent, Qt::WindowFlags flags)
   m_columnScrollArea->setWidget(m_columnArea);
   m_columnScrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
   m_columnScrollArea->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+
+  m_columnGroupArea       = new XsheetGUI::ColumnGroupArea(this);
+  m_columnGroupScrollArea = new XsheetScrollArea(this);
+  m_columnGroupScrollArea->setObjectName("xsheetArea");
+  m_columnGroupScrollArea->setWidget(m_columnGroupArea);
+  m_columnGroupScrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+  m_columnGroupScrollArea->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+  m_columnGroupScrollArea->setGeometry(0, 0, 0, 0);
 
   m_rowArea       = new XsheetGUI::RowArea(this);
   m_rowScrollArea = new XsheetScrollArea(this);
@@ -457,6 +466,26 @@ void XsheetViewer::positionSections() {
     m_breadcrumbScrollArea->setGeometry(0, 0, 0, 0);
   }
 
+  // column group strips above the column headers (xsheet orientation only,
+  // optional so that existing Stage Schematic groups do not change the layout)
+  m_columnGroupDepth =
+      o->isVerticalTimeline() &&
+              Preferences::instance()->isShowColumnGroupStripsEnabled()
+          ? XsheetGUI::ColumnGroupArea::getGroupDepth(getXsheet())
+          : 0;
+  if (m_columnGroupDepth > 0) {
+    int h = getColumnGroupAreaHeight();
+    m_columnGroupArea->setFixedSize(m_columnArea->width(), h);
+    m_columnGroupScrollArea->setGeometry(o->frameLayerRect(
+        NumberRange(headerFrame.from() - 1, headerFrame.from() + h - 2),
+        bodyLayer.adjusted(0, -XsheetGUI::SCROLLBAR_WIDTH)));
+    m_columnGroupScrollArea->horizontalScrollBar()->setValue(
+        m_cellScrollArea->horizontalScrollBar()->value());
+    headerFrame = headerFrame.adjusted(h, h);
+    bodyFrame   = bodyFrame.adjusted(h, 0);
+  } else
+    m_columnGroupScrollArea->setGeometry(0, 0, 0, 0);
+
   m_noteScrollArea->setGeometry(o->frameLayerRect(headerFrame, headerLayer));
   m_cellScrollArea->setGeometry(o->frameLayerRect(bodyFrame, bodyLayer));
   m_columnScrollArea->setGeometry(
@@ -504,6 +533,11 @@ void XsheetViewer::connectOrDisconnectScrollBars(bool toConnect) {
       m_cellScrollArea->horizontalScrollBar(), SLOT(setValue(int)));
   connectOrDisconnect(toConnect, m_cellScrollArea->horizontalScrollBar(),
                       SIGNAL(valueChanged(int)), scrolledHorizontally,
+                      SLOT(setValue(int)));
+  // the column group strips follow the columns (hidden in timeline mode)
+  connectOrDisconnect(toConnect, m_cellScrollArea->horizontalScrollBar(),
+                      SIGNAL(valueChanged(int)),
+                      m_columnGroupScrollArea->horizontalScrollBar(),
                       SLOT(setValue(int)));
 
   connectOrDisconnect(
@@ -789,6 +823,7 @@ bool XsheetViewer::refreshContentSize(int dx, int dy) {
     m_cellArea->setFixedSize(actualSize);
     m_rowArea->setFixedSize(o->frameLayerRect(allFrame, headerLayer).size());
     m_columnArea->setFixedSize(o->frameLayerRect(headerFrame, allLayer).size());
+    m_columnGroupArea->setFixedWidth(m_columnArea->width());
     m_isComputingSize = false;
     return true;
   }
@@ -835,6 +870,7 @@ void XsheetViewer::updateAreeSize() {
   m_cellArea->setFixedSize(viewArea.size());
   m_rowArea->setFixedSize(o->frameLayerRect(allFrame, headerLayer).size());
   m_columnArea->setFixedSize(o->frameLayerRect(headerFrame, allLayer).size());
+  m_columnGroupArea->setFixedWidth(m_columnArea->width());
 }
 
 //-----------------------------------------------------------------------------
@@ -1110,6 +1146,8 @@ void XsheetViewer::showEvent(QShowEvent *) {
                        SLOT(updateAllAree()));
   ret = ret && connect(xsheetHandle, SIGNAL(xsheetSwitched()), this,
                        SLOT(resetXsheetNotes()));
+  ret = ret && connect(xsheetHandle, SIGNAL(xsheetSwitched()), this,
+                       SLOT(updateColumnGroupArea()));
   ret = ret && connect(xsheetHandle, SIGNAL(xsheetChanged()), this,
                        SLOT(onXsheetChanged()));
   ret = ret && connect(xsheetHandle, SIGNAL(xsheetChanged()), this,
@@ -1132,6 +1170,7 @@ void XsheetViewer::showEvent(QShowEvent *) {
                        SLOT(updateColumnArea()));
 
   assert(ret);
+  updateColumnGroupArea();
   refreshContentSize(0, 0);
   changeWindowTitle();
 
@@ -1164,6 +1203,8 @@ void XsheetViewer::hideEvent(QHideEvent *) {
   TXsheetHandle *xsheetHandle = app->getCurrentXsheet();
   disconnect(xsheetHandle, SIGNAL(xsheetSwitched()), this,
              SLOT(updateAllAree()));
+  disconnect(xsheetHandle, SIGNAL(xsheetSwitched()), this,
+             SLOT(updateColumnGroupArea()));
   disconnect(xsheetHandle, SIGNAL(xsheetChanged()), this,
              SLOT(onXsheetChanged()));
   disconnect(xsheetHandle, SIGNAL(xsheetChanged()), this,
@@ -1455,6 +1496,7 @@ void XsheetViewer::scrollTo(int row, int col) {
 //-----------------------------------------------------------------------------
 
 void XsheetViewer::onSceneSwitched() {
+  updateColumnGroupArea();
   refreshContentSize(0, 0);
   updateAreeSize();
   updateAllAree();
@@ -1465,6 +1507,7 @@ void XsheetViewer::onSceneSwitched() {
 //-----------------------------------------------------------------------------
 
 void XsheetViewer::onXsheetChanged() {
+  updateColumnGroupArea();
   refreshContentSize(0, 0);
   updateAllAree();
 
@@ -1487,6 +1530,8 @@ void XsheetViewer::onPreferenceChanged(const QString &prefName) {
   if (prefName == "XSheetToolbar" || prefName == "XsheetBreadcrumbs") {
     positionSections();
     refreshContentSize(0, 0);
+  } else if (prefName == "ColumnGroupStrips") {
+    updateColumnGroupArea();
   } else if (prefName == "XsheetCamera") {
     refreshContentSize(0, 0);
   } else if (prefName == "CurrentCellColor") {
@@ -1667,6 +1712,7 @@ void XsheetViewer::updateAllAree(bool isDragging) {
   if (!isDragging) {
     m_rowArea->update(m_rowArea->visibleRegion());
     m_columnArea->update(m_columnArea->visibleRegion());
+    m_columnGroupArea->update(m_columnGroupArea->visibleRegion());
   }
   m_toolbar->update(m_toolbar->visibleRegion());
 }
@@ -1675,6 +1721,21 @@ void XsheetViewer::updateAllAree(bool isDragging) {
 
 void XsheetViewer::updateColumnArea() {
   m_columnArea->update(m_columnArea->visibleRegion());
+}
+
+//-----------------------------------------------------------------------------
+
+void XsheetViewer::updateColumnGroupArea() {
+  int depth = orientation()->isVerticalTimeline() &&
+                      Preferences::instance()->isShowColumnGroupStripsEnabled()
+                  ? XsheetGUI::ColumnGroupArea::getGroupDepth(getXsheet())
+                  : 0;
+  // show, hide or resize the strips when the group nesting depth changes
+  if (depth != m_columnGroupDepth) {
+    positionSections();
+    refreshContentSize(0, 0);
+  }
+  m_columnGroupArea->update();
 }
 
 //-----------------------------------------------------------------------------

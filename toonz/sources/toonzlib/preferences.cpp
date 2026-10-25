@@ -422,6 +422,8 @@ void Preferences::definePreferenceItems() {
          QMetaType::Bool, false);
   define(showRasterImagesDarkenBlendedInViewer,
          "showRasterImagesDarkenBlendedInViewer", QMetaType::Bool, false);
+  define(gpuCompositingInViewer, "gpuCompositingInViewer", QMetaType::Bool,
+         false);
   define(iconSize, "iconSize", QMetaType::QSize, QSize(80, 45), QSize(10, 10),
          QSize(400, 400));
   define(viewShrink, "viewShrink", QMetaType::Int, 1, 1, 20);
@@ -625,6 +627,8 @@ void Preferences::definePreferenceItems() {
   define(showColumnNumbers, "showColumnNumbers", QMetaType::Bool, false);
   define(unifyColumnVisibilityToggles, "unifyColumnVisibilityToggles",
          QMetaType::Bool, false);
+  define(showColumnGroupStrips, "showColumnGroupStrips", QMetaType::Bool,
+         false);
   define(parentColorsInXsheetColumn, "parentColorsInXsheetColumn",
          QMetaType::Bool, false);
   define(highlightLineEverySecond, "highlightLineEverySecond", QMetaType::Bool,

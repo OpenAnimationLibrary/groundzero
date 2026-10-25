@@ -223,6 +223,9 @@ public:
   bool isShowRasterImagesDarkenBlendedInViewerEnabled() const {
     return getBoolValue(showRasterImagesDarkenBlendedInViewer);
   }
+  bool isGpuCompositingInViewerEnabled() const {
+    return getBoolValue(gpuCompositingInViewer);
+  }
   TDimension getIconSize() const { return getSizeValue(iconSize); }
   void getViewValues(int &shrink, int &step) const {
     shrink = getIntValue(viewShrink), step = getIntValue(viewStep);
@@ -446,6 +449,9 @@ public:
   }
   bool isUnifyColumnVisibilityTogglesEnabled() const {
     return getBoolValue(unifyColumnVisibilityToggles);
+  }
+  bool isShowColumnGroupStripsEnabled() const {
+    return getBoolValue(showColumnGroupStrips);
   }
   bool isParentColorsInXsheetColumnEnabled() const {
     return getBoolValue(parentColorsInXsheetColumn);

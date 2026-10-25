@@ -387,6 +387,13 @@ bool isGlobalKeyFrameWithSameTypeDiffFromLinear(TStageObject *stageObject,
                   ->getKeyframeAt(frame)
                   .m_type)
     return false;
+  // The optional tilt channels are part of the global key only when in use
+  for (TStageObject::Channel channel :
+       {TStageObject::T_RotX, TStageObject::T_RotY}) {
+    if (stageObject->isFullKeyframeChannel(channel) &&
+        type != stageObject->getParam(channel)->getKeyframeAt(frame).m_type)
+      return false;
+  }
   return true;
 }
 
@@ -439,6 +446,13 @@ bool isGlobalKeyFrameWithSamePrevTypeDiffFromLinear(TStageObject *stageObject,
                   ->getKeyframeAt(frame)
                   .m_prevType)
     return false;
+  // The optional tilt channels are part of the global key only when in use
+  for (TStageObject::Channel channel :
+       {TStageObject::T_RotX, TStageObject::T_RotY}) {
+    if (stageObject->isFullKeyframeChannel(channel) &&
+        type != stageObject->getParam(channel)->getKeyframeAt(frame).m_prevType)
+      return false;
+  }
   return true;
 }
 
@@ -4342,6 +4356,19 @@ void CellArea::onStepChanged(QAction *act) {
   if (keyFrameIndex >= 0) {
     setParamStep(keyFrameIndex, step,
                  stageObject->getParam(TStageObject::T_ShearY));
+  }
+  param         = stageObject->getParam(TStageObject::T_RotX);
+  keyFrameIndex = param->getClosestKeyframe(frame);
+  // The tilt channels may not be part of the key: step only a key at frame
+  if (keyFrameIndex >= 0 && param->isKeyframe(frame)) {
+    setParamStep(keyFrameIndex, step,
+                 stageObject->getParam(TStageObject::T_RotX));
+  }
+  param         = stageObject->getParam(TStageObject::T_RotY);
+  keyFrameIndex = param->getClosestKeyframe(frame);
+  if (keyFrameIndex >= 0 && param->isKeyframe(frame)) {
+    setParamStep(keyFrameIndex, step,
+                 stageObject->getParam(TStageObject::T_RotY));
   }
 
   TUndoManager::manager()->endBlock();

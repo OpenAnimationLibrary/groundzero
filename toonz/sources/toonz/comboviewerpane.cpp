@@ -134,6 +134,7 @@ void ComboViewerPanel::addShowHideContextMenu(QMenu *menu) {
   showHideMenu->addAction(CommandManager::instance()->getAction(MI_FieldGuide));
   showHideMenu->addAction(CommandManager::instance()->getAction(MI_SafeArea));
   showHideMenu->addAction(CommandManager::instance()->getAction(MI_ViewBBox));
+  showHideMenu->addAction(CommandManager::instance()->getAction(MI_LightTable));
   showHideMenu->addAction(
       CommandManager::instance()->getAction(MI_ViewColorcard));
   showHideMenu->addAction(CommandManager::instance()->getAction(MI_ViewRuler));
