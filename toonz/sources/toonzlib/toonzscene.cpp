@@ -681,6 +681,17 @@ void ToonzScene::save(TFilePath &fp, TXsheet *subxsh, bool saveSceneIcon) {
     }
   }
 
+  // A sub-xsheet save does not switch the current scene to the saved file, so
+  // its stand-alone state must survive saving outside the scene's project,
+  // also when the save throws.
+  struct StandAloneRestorer {
+    bool &m_flag;
+    bool m_value;
+    bool m_enabled;
+    ~StandAloneRestorer() {
+      if (m_enabled) m_flag = m_value;
+    }
+  } standAloneRestorer = {m_standAlone, m_standAlone, subxsh != 0};
   if (newScenePath != oldScenePath)
     TProjectManager::instance()->loadSceneProject(newScenePath, &m_standAlone);
 
