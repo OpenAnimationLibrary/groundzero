@@ -39,7 +39,7 @@ class PackageTest(unittest.TestCase):
         (self.branding / ARTWORK_RELATIVE_PATH).write_bytes(PNG)
         (self.package / ARTWORK_RELATIVE_PATH).write_bytes(b"older stuff artwork")
         self.executable = self.package / "OpenToonz.exe"
-        self.binary = (b"MZ\0OT-Dev Session Recording\0"
+        self.binary = (b"MZ\0Groundzero Session Recording\0"
                        + self.build_id.encode("utf-16-le") + b"\0"
                        + ("[" + self.fields["BUILD_LABEL"] + "]").encode("ascii"))
         self.executable.write_bytes(self.binary)
@@ -113,7 +113,7 @@ class PackageTest(unittest.TestCase):
         self.run.assert_not_called()
 
     def test_branding_only_or_wrong_build_executable_prevents_publication(self):
-        for marker in (b"OT-Dev Session Recording", self.build_id.encode("utf-16-le"),
+        for marker in (b"Groundzero Session Recording", self.build_id.encode("utf-16-le"),
                        ("[" + self.fields["BUILD_LABEL"] + "]").encode("ascii")):
             with self.subTest(marker=marker):
                 self.executable.write_bytes(self.binary.replace(marker, b"omitted"))

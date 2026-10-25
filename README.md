@@ -1,59 +1,51 @@
-# OpenToonz
+# Groundzero
 
-## ⚠️ **Important**
+**Open Animation Library (OAL)** · Experimental animation development based on
+OpenToonz.
 
-**OFFICIAL SOURCE ONLY:** The only official websites for OpenToonz are [**opentoonz.github.io**](https://opentoonz.github.io/) and this [GitHub repository](https://github.com/opentoonz/opentoonz). To ensure your security, please avoid downloading OpenToonz from any other domain, as there are no other official mirrors or partner sites.
+Groundzero brings feature exploration, integration, and testing into OAL's core
+planning alongside [OT-Dev](https://github.com/OpenAnimationLibrary/opentoonz-dev)
+and [official OpenToonz](https://github.com/opentoonz/opentoonz). Groundzero is
+maintained independently by Open Animation Library.
 
-[日本語](./doc/README_ja.md) [简体中文](./doc/README_chs.md)
+## Planning and development
 
-[![](https://ci.appveyor.com/api/projects/status/oa5l5pc964h8fv49/branch/master?svg=true)](https://ci.appveyor.com/project/opentoonz/opentoonz)
-[![Build Windows](https://github.com/opentoonz/opentoonz/actions/workflows/workflow_windows.yml/badge.svg?branch=master)](https://github.com/opentoonz/opentoonz/actions/workflows/workflow_windows.yml)
-[![Build macOS](https://github.com/opentoonz/opentoonz/actions/workflows/workflow_macos.yml/badge.svg?branch=master)](https://github.com/opentoonz/opentoonz/actions/workflows/workflow_macos.yml)
-[![Build Linux](https://github.com/opentoonz/opentoonz/actions/workflows/workflow_linux.yml/badge.svg?branch=master)](https://github.com/opentoonz/opentoonz/actions/workflows/workflow_linux.yml)
-[![Translation status](https://hosted.weblate.org/widgets/opentoonz/-/svg-badge.svg)](https://hosted.weblate.org/engage/opentoonz/)
+- [Core planning and current work](doc/core_planning.md)
+- [Contributing](CONTRIBUTING.md)
+- [Development checklist](doc/development_checklist.md)
+- [AI-assisted development checklist](doc/ai_assisted_development_checklist.md)
+- [Open proposals](https://github.com/OpenAnimationLibrary/groundzero/pulls)
+- [Contributors](https://github.com/OpenAnimationLibrary/groundzero/issues/8)
 
-## What is OpenToonz?
+The default integration branch is `edition`. Features under review are separate
+proposals; check each PR's tests and application-testing notes before using it.
+Upstream submission is an explicit step after review through OT-Dev.
 
-OpenToonz is a 2D animation software published by 
-[DWANGO](http://dwango.co.jp/english/). It is based on **Toonz Studio
-Ghibli Version**, originally developed in Italy by
-[Digital Video, Inc.](http://www.toonz.com/), and customized by
-[Studio Ghibli](http://www.ghibli.jp/) over many years of production.
+## Builds
 
-## Program Requirements
+[Groundzero Actions](https://github.com/OpenAnimationLibrary/groundzero/actions)
+provides build runs and available artifacts. Windows CI packages identify the
+Groundzero PR or branch, source commit, and build date. Replace
+`portablestuff/splash.png` to customize the artwork without changing the SVG.
+See [Windows build branding](.github/ot-dev/BRANDING.md) for package details.
 
-Please refer to the OpenToonz site at <https://opentoonz.github.io/e/index.html>.
+Local build instructions inherited from OpenToonz:
+[Windows](doc/how_to_build_win.md), [macOS](doc/how_to_build_macosx.md),
+[Linux](doc/how_to_build_linux.md), and [BSD](doc/how_to_build_bsd.md).
+Technical target and executable names still use OpenToonz.
 
-## Installation
+## OpenToonz ancestry
 
-Please download and install OpenToonz from the latest installer at <https://opentoonz.github.io/e/index.html>.
+OpenToonz is a 2D animation application published by [DWANGO](https://dwango.co.jp/).
+It is based on Toonz Studio Ghibli Version, originally developed by Digital Video
+and customized by Studio Ghibli. Groundzero retains that source ancestry,
+licensing, and contributor history.
 
-Older versions and unstable nightly builds are also available at <https://github.com/opentoonz/opentoonz/releases>.
-
-## Development
-
-- [Development checklist (draft)](./doc/development_checklist.md)
-- [AI-assisted development checklist (draft)](./doc/ai_assisted_development_checklist.md)
-
-## How to Build Locally
-
-- [Windows](./doc/how_to_build_win.md)
-- [macOS](./doc/how_to_build_macosx.md)
-- [Linux](./doc/how_to_build_linux.md)
-- [BSD](./doc/how_to_build_bsd.md)
-
-For instructions on how to build stylesheets, please [see here](./doc/how_to_stylesheet.md).
-
-Can't develop but still want to help? Help us test individual Pull Requests before they are merged with [these steps](./doc/how_to_test_prs.md).
-
-## Community
-
-- To share tips or to troubleshoot, join the [Google OpenToonz Users forum](https://groups.google.com/forum/#!forum/opentoonz_en)
-- If you found a bug with the software after troubleshooting, or are a developer, search the [Github issues](https://github.com/opentoonz/opentoonz/issues) and post there.
-
-## Documentation
-
-- For general documentation, please [look here](https://github.com/opentoonz/opentoonz_docs).
+For official OpenToonz downloads and documentation, use
+[opentoonz.github.io](https://opentoonz.github.io/) and
+[opentoonz/opentoonz](https://github.com/opentoonz/opentoonz).
+Report Groundzero-specific problems in
+[this repository](https://github.com/OpenAnimationLibrary/groundzero/issues).
 
 ## Licensing
 

@@ -2,7 +2,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
      width="1440" height="1320" viewBox="0 0 1440 1320"
      role="img" aria-labelledby="title desc" data-otdev-artwork="area10">
-  <!-- OT-Dev infrastructure only. Artwork supplied by Rodney Baker.
+  <!-- Groundzero infrastructure only. Artwork supplied by Rodney Baker.
        Replace portablestuff/splash.png to update the local artwork without editing
        this SVG. The renderer embeds the PNG into the compiled fallback and retains
        this fixed link in the runtime SVG. -->
@@ -13,8 +13,8 @@
          preserveAspectRatio="xMidYMid meet" xlink:href="portablestuff/splash.png"/>
   <path d="M0 1080 H1440" stroke="#efc762" stroke-width="6"/>
   <g font-family="DejaVu Sans, Segoe UI, sans-serif">
-    <text x="40" y="1152" fill="#fff4d8" font-size="70" font-weight="700">OT-DEV</text>
-    <text x="44" y="1185" fill="#b7ceda" font-size="18" letter-spacing="2">DEVELOPMENT BUILD</text>
+    <text x="40" y="1152" fill="#fff4d8" font-size="42" font-weight="700">GROUNDZERO</text>
+    <text x="44" y="1185" fill="#b7ceda" font-size="18" letter-spacing="1">OPEN ANIMATION LIBRARY</text>
     <rect x="40" y="1213" width="270" height="40" rx="20" fill="#1f4053"/>
     <circle cx="60" cy="1233" r="5" fill="#efc762"/>
     <text x="77" y="1239" fill="#efc762" font-size="17" letter-spacing="1">WORK IN PROGRESS</text>

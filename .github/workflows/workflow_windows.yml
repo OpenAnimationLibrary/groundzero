@@ -17,7 +17,7 @@ on:
       - '!**/.github/**'                          # Exclude everything in .github folder
       - '.github/workflows/workflow_windows.yml'  # Include Windows workflow file
       - '.github/workflows/otdev_branding.yml'
-      - '.github/ot-dev/**'                       # Include OT-Dev build branding assets
+      - '.github/ot-dev/**'                       # Include Groundzero build branding assets
   pull_request:
     types: [opened, synchronize, reopened, edited]
     branches:
@@ -42,7 +42,7 @@ permissions:
 
 jobs:
   Branding:
-    if: github.repository_owner == 'OpenAnimationLibrary'
+    if: github.repository == 'OpenAnimationLibrary/groundzero'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -57,7 +57,7 @@ jobs:
         run: python3 -m unittest discover -s .github/ot-dev -p 'test_*.py' -v
 
   RecorderEncoder:
-    if: github.repository_owner == 'OpenAnimationLibrary'
+    if: github.repository == 'OpenAnimationLibrary/groundzero'
     runs-on: windows-2025
     steps:
       - uses: actions/checkout@v6
@@ -91,11 +91,11 @@ jobs:
         run: bash .github/ot-dev/recorder/build-ffmpeg.sh
       - uses: actions/upload-artifact@v6
         with:
-          name: OT-Dev-recorder-encoder
+          name: Groundzero-recorder-encoder
           path: recorder-encoder
       - uses: actions/upload-artifact@v6
         with:
-          name: OT-Dev-recorder-test-decoder
+          name: Groundzero-recorder-test-decoder
           path: recorder-test-decoder
 
   Windows:
@@ -123,7 +123,7 @@ jobs:
           lfs: false
           persist-credentials: false
 
-      - name: Inject OT-Dev recorder (Windows CI only)
+      - name: Inject Groundzero recorder (Windows CI only)
         shell: pwsh
         env:
           OTDEV_BUILD_ID: ${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
@@ -131,24 +131,24 @@ jobs:
 
       - uses: actions/download-artifact@v6
         with:
-          name: OT-Dev-recorder-encoder
+          name: Groundzero-recorder-encoder
           path: recorder-encoder
       - uses: actions/download-artifact@v6
         with:
-          name: OT-Dev-recorder-test-decoder
+          name: Groundzero-recorder-test-decoder
           path: recorder-test-decoder
 
-      - name: Brand OT-Dev build with PNG artwork and live PR data
+      - name: Brand Groundzero build with PNG artwork and live PR data
         shell: pwsh
         run: |
           $checkoutSha = git rev-parse HEAD
           if ($LASTEXITCODE) { throw 'Unable to identify the checked-out commit' }
           python .github/ot-dev/brand_build.py --template .github/ot-dev/splash-template-area10.svg --output "$env:RUNNER_TEMP/otdev-branding/splash.svg" --source-root . --sha $checkoutSha
-          if ($LASTEXITCODE) { throw 'OT-Dev branding failed' }
+          if ($LASTEXITCODE) { throw 'Groundzero branding failed' }
       - name: Upload populated SVG and PNG for review
         uses: actions/upload-artifact@v6
         with:
-          name: OT-Dev-branding-${{ github.run_id }}
+          name: Groundzero-branding-${{ github.run_id }}
           path: |
             ${{ runner.temp }}/otdev-branding/splash.svg
             ${{ runner.temp }}/otdev-branding/portablestuff/splash.png
@@ -342,7 +342,7 @@ jobs:
           del threepointlightfx_test.exe
           del transform3dfx_test.exe
 
-      - name: Package and verify the complete OT-Dev build
+      - name: Package and verify the complete Groundzero build
         shell: pwsh
         env:
           OTDEV_SOURCE_SHA: ${{ github.sha }}
@@ -351,7 +351,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           python .github/ot-dev/package_build.py --package toonz/build/Opentoonz --branding-dir "$env:RUNNER_TEMP/otdev-branding" --encoder-dir recorder-encoder --source-sha $env:OTDEV_SOURCE_SHA --infrastructure-sha $env:OTDEV_INFRASTRUCTURE_SHA --build-id $env:OTDEV_BUILD_ID --manifest-output "$env:RUNNER_TEMP/otdev-build.json"
-          if ($LASTEXITCODE) { throw 'Complete OT-Dev package verification failed' }
+          if ($LASTEXITCODE) { throw 'Complete Groundzero package verification failed' }
 
       # Create artifact from the build
       - name: Create Artifact
@@ -364,13 +364,13 @@ jobs:
       - name: Upload Artifact
         uses: actions/upload-artifact@v6
         with:
-          name: OT-Dev-${{ github.event.pull_request.number && format('PR-{0}', github.event.pull_request.number) || 'Branch-build' }}-Windows-${{ github.sha }}-${{ github.run_id }}
+          name: Groundzero-${{ github.event.pull_request.number && format('PR-{0}', github.event.pull_request.number) || 'Branch-build' }}-Windows-${{ github.sha }}-${{ github.run_id }}
           path: artifact
           if-no-files-found: error
 
       - name: Publish the verified package manifest
         uses: actions/upload-artifact@v6
         with:
-          name: OT-Dev-package-manifest-${{ github.run_id }}
+          name: Groundzero-package-manifest-${{ github.run_id }}
           path: ${{ runner.temp }}/otdev-build.json
           if-no-files-found: error

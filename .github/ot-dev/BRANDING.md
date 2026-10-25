@@ -1,121 +1,66 @@
-# OT-Dev Windows build branding
+# OAL Groundzero Windows build branding
 
-OT-Dev Windows application packages include the splash, live PR/build information
-in the title bar, and the session recorder. The overlay applies only in Windows
-CI; Linux, macOS, clean upstream source, and standalone CLI/test builds keep
-their existing behavior.
+Groundzero Windows CI packages include the splash, live PR/build information
+in the title bar, and the opt-in session recorder. This infrastructure belongs
+to `OpenAnimationLibrary/groundzero` and stays out of upstream proposals.
 
-## Replace the artwork without editing the SVG
+The application display name is **OAL Groundzero**. Local and non-Windows builds
+use the compiled Groundzero splash and About text; the live build overlay and
+session recorder apply only to Windows CI packages.
+
+## Replace the artwork
 
 | Package path | Purpose |
 | --- | --- |
-| `OpenToonz.exe` | Application with the title-bar label and recorder |
-| `splash.svg` | Stable layout with populated PR/build text |
-| `portablestuff/splash.png` | Replaceable artwork at the root of `portablestuff` |
+| `OpenToonz.exe` | Groundzero application; executable name retained for compatibility |
+| `splash.svg` | Stable layout with populated Groundzero PR/build text |
+| `portablestuff/splash.png` | Replaceable artwork |
 | `otdev-recorder/` | Encoder, matching sources, licenses, and README |
-| `otdev-build.json` | Verified source, infrastructure, and package identity |
+| `otdev-build.json` | Source, infrastructure, and package identity |
 
-Replace **`portablestuff/splash.png`** with a valid PNG and restart OpenToonz.
-No SVG edit or rebuild is needed. The fixed image reference in `splash.svg` is
-`portablestuff/splash.png`, resolved relative to the SVG beside the executable.
-The launch working directory does not affect it. CI copies the PNG after the
-ordinary `stuff` files so those files cannot overwrite the selected artwork.
+Replace `portablestuff/splash.png` with a valid PNG and restart the application.
+No SVG edit or rebuild is needed. Both external assets resolve from the
+executable directory. The compiled splash embeds the same artwork and build
+metadata as a fallback when either external file is missing.
 
-For future builds, replace `.github/ot-dev/ot-dev-splash-artwork.png`; CI installs
-it as `portablestuff/splash.png`. Edit `splash-template-area10.svg` only when
-changing the layout or templating. The original artwork was supplied by Rodney
-Baker. It appears above the metadata footer without cropping, within 610 by 480
-logical pixels.
+For future builds, replace `.github/ot-dev/ot-dev-splash-artwork.png`.
+Edit `splash-template-area10.svg` only to change its layout or templating.
+The original artwork was supplied by Rodney Baker. The preserved legacy SVG
+layouts remain reference assets; they are not the active Groundzero template.
 
-CI populates the PR number/title, description, UTC date, and actual compiled
-checkout commit. Branch builds identify their ref. All seven original fields
-and the two wrapped heading fields remain available. XML escaping happens once.
-The compiled splash embeds the same PNG and metadata as a self-contained
-fallback when either external file is missing. Replacing the external PNG
-retains the SVG's build information. Older downloads need a fresh build to
-acquire this layout.
+## Build coverage
 
-Preserved designs remain in `splash-template-assembly-line.svg` and
-`splash-template-legacy.svg`, renderable explicitly with `--template` for
-reference. Complete Windows packages require the active template and fixed PNG
-location. Keep these OT-Dev assets out of upstream feature proposals.
+`workflow_windows.yml` builds PRs targeting `edition` and builds pushed to
+`edition`. It applies and verifies the complete Groundzero package directly.
 
-## Automatic Windows coverage
+**Groundzero Windows Package** (`otdev_branding.yml`) also follows successful
+`Windows Build` runs. It resolves the exact application source and uses separate
+infrastructure from the default `edition` branch. It skips source runs that
+already published a complete verified package, and rejects stale or ambiguous
+PR sources. Its own worker name is excluded from the source workflows to avoid
+loops. The workflow must exist on the default branch to receive `workflow_run`
+events; a PR alone does not activate that listener.
 
-`workflow_windows.yml` applies the full overlay directly when its branch
-contains this infrastructure. Existing PR-specific tests still run. After
-copying the application and `stuff`, `package_build.py` verifies the compiled
-title, build ID, recorder, SVG/PNG, and encoder distribution before publication.
+Complete application artifacts are named:
 
-**OT-Dev Windows Package** (`otdev_branding.yml`) also follows successful
-completion of the existing application workflows:
+- `Groundzero-PR-N-Windows-SOURCE_SHA-RUN_ID`
+- `Groundzero-Branch-REF-Windows-SOURCE_SHA-RUN_ID`
 
-| Source workflow | Coverage |
-| --- | --- |
-| `Windows Build` (`workflow_windows.yml`) | Clean upstream-based PRs, older main/Edition PRs, and branch builds |
-| `OT-Dev Branded PR Build` (`otdev_branding.yml`, older revisions) | Existing dedicated PR build refs |
-| `Channel Stack Preview (Windows)` (`channel_stack_preview.yml`) | The existing combined channel preview |
+The source workflow uses `Branch-build` and records the actual ref in the
+manifest. Supporting encoder/branding artifacts are not complete applications.
+The **Groundzero Windows package** commit status links to the follow-up result.
 
-The source workflow performs its own validation first. If it publishes both a
-new-format complete application package and
-`OT-Dev-package-manifest-SOURCE_RUN_ID`, the follow-up skips the duplicate build.
-Otherwise it builds a complete OT-Dev package from that successful run's exact
-application source, with build infrastructure checked out separately. Old
-splash-only artifact names do not count as completion.
+For manual requests, use **Actions → Groundzero Windows Package → Run workflow**
+and supply exactly one of `pr_number` or `ref`. The inherited
+`otdev-build/pr-NUMBER` branch route also remains available.
 
-For PRs, the resolver checks the artifact's source SHA against the current test
-merge and its exact base/head parents. Closed, conflicted, stale, or ambiguous
-PR runs are skipped. A fresh source run or manual request builds the current PR.
-Branch and channel-stack builds retain their source ref and commit instead of
-being presented as a single PR. The **OT-Dev Windows package** commit status
-links to the follow-up result.
+## Compatibility and verification
 
-Download the complete application artifact:
-
-- `OT-Dev-PR-N-Windows-SOURCE_SHA-RUN_ID`
-- `OT-Dev-Branch-REF-Windows-SOURCE_SHA-RUN_ID`
-
-Ordinary branch builds use `Branch-build` in the name and record the actual ref
-in `otdev-build.json`. Encoder, branding, and manifest artifacts are supporting
-files. Original source-validation runs and artifacts remain available;
-historical downloads are not rewritten. Existing PR heads, bases, and
-specialized tests are preserved.
-
-### Default-branch requirement
-
-Maintain this infrastructure on `edition` and make `edition` the repository
-default **after merging and validating the workflow**. GitHub starts a
-[`workflow_run` listener](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_run)
-only when its file exists on the default branch. Merging it into a non-default
-branch alone does not activate automatic coverage.
-
-Keep `upstream/master` an exact upstream mirror. New feature proposals still
-choose `upstream/master` explicitly as their base, as described in
-`CONTRIBUTING.md`; changing the default does not retarget existing PRs. Updating
-`main` with this infrastructure avoids a follow-up rebuild, but the listener
-also covers its older workflows.
-
-Compilation and recorder-test jobs use read-only repository permissions,
-persist no checkout credentials, and receive no repository secrets. They run
-separately from jobs that publish status. The new worker name differs from the
-observed source names, preventing a loop.
-
-## Manual requests and infrastructure validation
-
-Use **Actions → OT-Dev Windows Package → Run workflow**, select the infrastructure
-branch, and supply exactly one input: `pr_number` for an open OT-Dev PR, or `ref`
-for a branch/commit.
-
-The existing build-ref route also works. Create a branch from the desired
-infrastructure revision named `otdev-build/pr-NUMBER`, optionally with a suffix
-such as `otdev-build/pr-279-branding-test`. Creation and pushes resolve the PR's
-current merge separately from the build-ref commit. This tests unmerged
-infrastructure without changing PR source. The unused reusable-workflow entry
-point is removed; use these explicit request routes.
-
-## Verification
-
-Run the tests with Qt 5.15.2 and CMake available:
+Internal paths, `OTDEV_*` environment variables, recorder settings keys, and the
+manifest's `full_otdev_build` compatibility field retain their existing names.
+Product labels and repository routing use Groundzero. This avoids a migration
+of preferences, recordings, executable paths, or consumers of existing metadata.
+Recording still requires the existing user choice; no capture behavior changes.
 
 ```sh
 python -m pip install PyQt5==5.15.2
@@ -124,17 +69,7 @@ python -m unittest discover -s .github/ot-dev/recorder -p 'test_*.py' -v
 actionlint .github/workflows/workflow_windows.yml .github/workflows/otdev_branding.yml
 ```
 
-The Qt regression renders from an unrelated working directory, replaces only
-the PNG, and verifies that the artwork changes while the SVG bytes and rendered
-metadata stay unchanged. It also renders the embedded fallback without the
-external PNG. Resolver tests cover source identity, stale merges, pagination,
-and duplicate prevention. Package tests reject incomplete branding/recorder
-distributions. Recorder tests check external paths with the real CMake parser.
-
-Windows CI additionally compiles and tests recorder consent, capture, encoding,
-and native playback, builds OpenToonz, checks its compiled markers, and launches
-the packaged encoder. Recording retains its existing consent behavior.
-
-Artwork and requirements: Rodney Baker. Existing SVG/build work: OpenAI Codex
-assistance. This Windows coverage and replaceable-PNG update: GPT-6 Astra Pro
-assistance.
+Checks cover SVG rendering and replaceable artwork, source identity, package
+completeness, and recorder injection. Windows CI additionally compiles the
+recorder and application and tests native playback. Application workflow testing
+and a real Windows package remain necessary before release publication.

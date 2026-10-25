@@ -1,7 +1,7 @@
-# OT-Dev Windows packages. Keep this infrastructure out of upstream proposals.
+# Groundzero Windows packages. Keep this infrastructure out of upstream proposals.
 # workflow_run must be installed on the repository default branch (edition).
-name: OT-Dev Windows Package
-run-name: OT-Dev Windows package ${{ github.event.workflow_run.id || inputs.pr_number || inputs.ref || github.ref_name }}
+name: Groundzero Windows Package
+run-name: Groundzero Windows package ${{ github.event.workflow_run.id || inputs.pr_number || inputs.ref || github.ref_name }}
 on:
   workflow_run:
     workflows:
@@ -13,7 +13,7 @@ on:
   workflow_dispatch:
     inputs:
       pr_number:
-        description: Open OT-Dev PR number (leave ref empty)
+        description: Open Groundzero PR number (leave ref empty)
         type: string
         required: false
         default: ''
@@ -33,7 +33,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   Resolve:
-    if: github.repository == 'OpenAnimationLibrary/opentoonz-dev' && (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion
+    if: github.repository == 'OpenAnimationLibrary/groundzero' && (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion
       == 'success')
     runs-on: ubuntu-latest
     permissions:
@@ -75,7 +75,7 @@ jobs:
       if: steps.source.outputs.build == 'true'
       uses: actions/upload-artifact@v6
       with:
-        name: OT-Dev-build-request-${{ github.run_id }}
+        name: Groundzero-build-request-${{ github.run_id }}
         path: |
           ${{ runner.temp }}/source-event.json
           ${{ runner.temp }}/source-manifest.json
@@ -86,7 +86,7 @@ jobs:
         GH_TOKEN: ${{ github.token }}
         SOURCE_HEAD: ${{ steps.source.outputs.head_sha }}
       run: |
-        gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$SOURCE_HEAD" -f state=pending -f context="OT-Dev Windows package" -f description="Building the complete OT-Dev Windows package" -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+        gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$SOURCE_HEAD" -f state=pending -f context="Groundzero Windows package" -f description="Building the complete Groundzero Windows package" -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
   RecorderEncoder:
     if: needs.Resolve.outputs.build == 'true'
     runs-on: windows-2025
@@ -116,11 +116,11 @@ jobs:
       run: bash .github/ot-dev/recorder/build-ffmpeg.sh
     - uses: actions/upload-artifact@v6
       with:
-        name: OT-Dev-recorder-encoder
+        name: Groundzero-recorder-encoder
         path: recorder-encoder
     - uses: actions/upload-artifact@v6
       with:
-        name: OT-Dev-recorder-test-decoder
+        name: Groundzero-recorder-test-decoder
         path: recorder-test-decoder
     needs: Resolve
   Windows:
@@ -152,7 +152,7 @@ jobs:
         ref: ${{ needs.Resolve.outputs.source_sha }}
         lfs: false
         persist-credentials: false
-    - name: Check out trusted OT-Dev build infrastructure
+    - name: Check out trusted Groundzero build infrastructure
       uses: actions/checkout@v6
       with:
         ref: ${{ github.sha }}
@@ -163,28 +163,28 @@ jobs:
     - name: Download the selected source metadata
       uses: actions/download-artifact@v6
       with:
-        name: OT-Dev-build-request-${{ github.run_id }}
+        name: Groundzero-build-request-${{ github.run_id }}
         path: ${{ runner.temp }}/otdev-request
     - uses: actions/download-artifact@v6
       with:
-        name: OT-Dev-recorder-encoder
+        name: Groundzero-recorder-encoder
         path: recorder-encoder
     - uses: actions/download-artifact@v6
       with:
-        name: OT-Dev-recorder-test-decoder
+        name: Groundzero-recorder-test-decoder
         path: recorder-test-decoder
-    - name: Apply the complete Windows-only OT-Dev overlay
+    - name: Apply the complete Windows-only Groundzero overlay
       shell: pwsh
       run: |
         $ErrorActionPreference = 'Stop'
         python .otdev-infrastructure/.github/ot-dev/recorder/enable.py --root . --build-id $env:OTDEV_BUILD_ID
-        if ($LASTEXITCODE) { throw 'OT-Dev recorder injection failed' }
+        if ($LASTEXITCODE) { throw 'Groundzero recorder injection failed' }
         python .otdev-infrastructure/.github/ot-dev/brand_build.py --output "$env:RUNNER_TEMP/otdev-branding/splash.svg" --source-root . --event-path "$env:RUNNER_TEMP/otdev-request/source-event.json" --event-name $env:OTDEV_EVENT_NAME --ref-name $env:OTDEV_SOURCE_REF --sha $env:OTDEV_SOURCE_SHA
-        if ($LASTEXITCODE) { throw 'OT-Dev branding failed' }
+        if ($LASTEXITCODE) { throw 'Groundzero branding failed' }
     - name: Upload the populated SVG and replaceable PNG
       uses: actions/upload-artifact@v6
       with:
-        name: OT-Dev-branding-${{ github.run_id }}
+        name: Groundzero-branding-${{ github.run_id }}
         path: |
           ${{ runner.temp }}/otdev-branding/splash.svg
           ${{ runner.temp }}/otdev-branding/portablestuff/splash.png
@@ -290,12 +290,12 @@ jobs:
         mkdir Opentoonz\portablestuff
         xcopy /Y /E /I ..\..\stuff .\Opentoonz\portablestuff
       shell: cmd
-    - name: Package and verify the complete OT-Dev build
+    - name: Package and verify the complete Groundzero build
       shell: pwsh
       run: |
         $ErrorActionPreference = 'Stop'
         python .otdev-infrastructure/.github/ot-dev/package_build.py --package toonz/build/Opentoonz --branding-dir "$env:RUNNER_TEMP/otdev-branding" --encoder-dir recorder-encoder --source-sha $env:OTDEV_SOURCE_SHA --infrastructure-sha $env:OTDEV_INFRASTRUCTURE_SHA --build-id $env:OTDEV_BUILD_ID --event-path "$env:RUNNER_TEMP/otdev-request/source-event.json" --event-name $env:OTDEV_EVENT_NAME --ref-name $env:OTDEV_SOURCE_REF --request-manifest "$env:RUNNER_TEMP/otdev-request/source-manifest.json" --manifest-output "$env:RUNNER_TEMP/otdev-build.json"
-        if ($LASTEXITCODE) { throw 'Complete OT-Dev package verification failed' }
+        if ($LASTEXITCODE) { throw 'Complete Groundzero package verification failed' }
     - name: Upload the complete Windows package
       uses: actions/upload-artifact@v6
       with:
@@ -305,15 +305,15 @@ jobs:
     - name: Publish the verified package manifest
       uses: actions/upload-artifact@v6
       with:
-        name: OT-Dev-package-manifest-${{ github.run_id }}
+        name: Groundzero-package-manifest-${{ github.run_id }}
         path: ${{ runner.temp }}/otdev-build.json
         if-no-files-found: error
     - name: Explain the replaceable artwork layout
       shell: pwsh
       run: |
         @'
-        ## Complete OT-Dev Windows package
-        The application artifact includes OT-Dev title and build information, the session recorder, and the replaceable splash artwork.
+        ## Complete Groundzero Windows package
+        The application artifact includes Groundzero title and build information, the session recorder, and the replaceable splash artwork.
         Replace `portablestuff/splash.png` to change the artwork. `splash.svg` stays unchanged and retains the PR/build metadata.
         The package's `otdev-build.json` records the application and infrastructure revisions.
         '@ >> $env:GITHUB_STEP_SUMMARY
@@ -333,16 +333,16 @@ jobs:
         BUILD_RESULT: ${{ needs.Windows.result }}
       run: |
         run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
-        current_url=$(gh api "repos/$GITHUB_REPOSITORY/commits/$SOURCE_HEAD/status" --jq '.statuses[] | select(.context == "OT-Dev Windows package") | .target_url')
+        current_url=$(gh api "repos/$GITHUB_REPOSITORY/commits/$SOURCE_HEAD/status" --jq '.statuses[] | select(.context == "Groundzero Windows package") | .target_url')
         if [ "$current_url" != "$run_url" ]; then
           echo "A newer package request owns the commit status; keeping its result."
           exit 0
         fi
         if [ "$BUILD_RESULT" = success ]; then
           state=success
-          description="Complete OT-Dev Windows package available"
+          description="Complete Groundzero Windows package available"
         else
           state=failure
-          description="OT-Dev Windows package did not complete"
+          description="Groundzero Windows package did not complete"
         fi
-        gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$SOURCE_HEAD" -f state="$state" -f context="OT-Dev Windows package" -f description="$description" -f target_url="$run_url"
+        gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$SOURCE_HEAD" -f state="$state" -f context="Groundzero Windows package" -f description="$description" -f target_url="$run_url"
