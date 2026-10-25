@@ -299,9 +299,10 @@ include_directories(
     include
   )
 
-# Find Qt. The first call sets QT_VERSION_MAJOR, which names the
-# Qt${QT_VERSION_MAJOR}::Foo targets used by all the CMakeLists.
-find_package(QT NAMES Qt${OT_QT_MAJOR_VERSION} REQUIRED COMPONENTS Core)
+# QT_VERSION_MAJOR names the Qt${QT_VERSION_MAJOR}::Foo targets used by all
+# the CMakeLists. It is set directly rather than with find_package(QT NAMES
+# ...), which ignores Qt5_DIR / Qt6_DIR.
+set(QT_VERSION_MAJOR ${OT_QT_MAJOR_VERSION})
 
 set(OT_QT_EXTRA_COMPONENTS)
 if(QT_VERSION_MAJOR EQUAL 6)
