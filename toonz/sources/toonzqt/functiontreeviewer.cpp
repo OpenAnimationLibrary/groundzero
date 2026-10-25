@@ -23,6 +23,7 @@
 #include "toonz/txsheethandle.h"
 #include "toonz/fxdag.h"
 #include "toonz/txshzeraryfxcolumn.h"
+#include "toonz/txshsoundcolumn.h"
 #include "toonz/tcolumnfx.h"
 #include "toonz/tfxhandle.h"
 #include "toonz/tobjecthandle.h"
@@ -736,6 +737,10 @@ QString FunctionTreeModel::Channel::getExprRefName() const {
       tmpName = "shx";
     else if (tmpName == "Shear V")
       tmpName = "shy";
+    else if (tmpName == "Rotation X")
+      tmpName = "rotx";
+    else if (tmpName == "Rotation Y")
+      tmpName = "roty";
     else if (tmpName == "posPath")
       tmpName = "path";
     else if (tmpName == "Scale")
@@ -914,11 +919,11 @@ void FunctionTreeModel::refreshData(TXsheet *xsh) {
 
 void FunctionTreeModel::refreshStageObjects(TXsheet *xsh) {
   static const int channelIds[TStageObject::T_ChannelCount] = {
-      TStageObject::T_X,      TStageObject::T_Y,      TStageObject::T_Z,
-      TStageObject::T_SO,     TStageObject::T_Path,   TStageObject::T_Angle,
-      TStageObject::T_ScaleX, TStageObject::T_ScaleY, TStageObject::T_Scale,
-      TStageObject::T_ShearX, TStageObject::T_ShearY};  // Explicitly ordered
-                                                        // channels
+      TStageObject::T_X,      TStageObject::T_Y,     TStageObject::T_Z,
+      TStageObject::T_SO,     TStageObject::T_Path,  TStageObject::T_Angle,
+      TStageObject::T_RotX,   TStageObject::T_RotY,  TStageObject::T_ScaleX,
+      TStageObject::T_ScaleY, TStageObject::T_Scale, TStageObject::T_ShearX,
+      TStageObject::T_ShearY};  // Explicitly ordered channels
 
   // Retrieve all (not-empty) root stage objects, and add them in the tree model
   QList<TreeModel::Item *> newItems;
@@ -949,12 +954,30 @@ void FunctionTreeModel::refreshStageObjects(TXsheet *xsh) {
     int j, jCount = TStageObject::T_ChannelCount;
     // making each channel of pegbar
     for (j = 0; j < jCount; ++j) {
+      // Cameras ignore the 3D tilt channels (see
+      // TStageObject::computeLocalPlacement()), so do not list them
+      if (stageObject->getId().isCamera() &&
+          (channelIds[j] == TStageObject::T_RotX ||
+           channelIds[j] == TStageObject::T_RotY))
+        continue;
       TDoubleParam *param =
           stageObject->getParam((TStageObject::Channel)channelIds[j]);
       Channel *channel = new Channel(this, param);
 
       pegbarItem->appendChild(channel);
       channel->setChannelGroup(pegbarItem);
+    }
+
+    // Sound columns also have an animatable volume
+    TStageObjectId id = stageObject->getId();
+    if (id.isColumn()) {
+      TXshColumn *column = xsh->getColumn(id.getIndex());
+      if (TXshSoundColumn *soundColumn =
+              column ? column->getSoundColumn() : nullptr) {
+        Channel *channel = new Channel(this, soundColumn->getVolumeCurve());
+        pegbarItem->appendChild(channel);
+        channel->setChannelGroup(pegbarItem);
+      }
     }
 
     pegbarItem->applyShowFilter();

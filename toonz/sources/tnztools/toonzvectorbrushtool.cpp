@@ -7,6 +7,7 @@
 #include "tools/toolutils.h"
 #include "tools/tooloptions.h"
 #include "tools/replicator.h"
+#include "tools/artlayer.h"
 #include "bluredbrush.h"
 
 // TnzQt includes
@@ -686,7 +687,8 @@ void addStrokeToImage(TTool::Application *application, const TVectorImageP &vi,
 
 double computeThickness(double pressure, const TDoublePairProperty &property,
                         bool enablePressure, bool isPath ) {
-  if (isPath) return 0.0;
+  // Colour Art strokes, like motion paths, have no thickness
+  if (isPath || ArtLayer::target() == ArtLayer::TARGET_COLOUR_ART) return 0.0;
   if (!enablePressure) return property.getValue().second * 0.5;
   double t      = pressure * pressure * pressure;
   double thick0 = property.getValue().first;
@@ -774,6 +776,7 @@ ToonzVectorBrushTool::ToonzVectorBrushTool(std::string name, int targetType)
   m_prop[0].bind(m_autoClose);
   m_prop[0].bind(m_autoGroup);
   m_prop[0].bind(m_autoFill);
+  ArtLayer::bindProperties(m_prop[0]);
 
   m_prop[0].bind(m_preset);
   m_preset.addValue(CUSTOM_WSTR);
@@ -882,11 +885,13 @@ void ToonzVectorBrushTool::updateTranslation() {
   m_joinStyle.setItemUIName(MITER_WSTR, tr("Miter join"));
   m_joinStyle.setItemUIName(ROUNDJ_WSTR, tr("Round join"));
   m_joinStyle.setItemUIName(BEVEL_WSTR, tr("Bevel join"));
+  ArtLayer::updateTranslation();
 }
 
 //---------------------------------------------------------------------------------------------------
 
 void ToonzVectorBrushTool::onActivate() {
+  ArtLayer::loadSettings();
   if (m_firstTime) {
     m_firstTime = false;
 
@@ -1138,7 +1143,8 @@ void ToonzVectorBrushTool::inputSetBusy(bool busy) {
     TStroke *stroke = track.makeStroke(error);
     
     stroke->setStyle(m_styleId);
-    
+    ArtLayer::applyTarget(*stroke);
+
     TStroke::OutlineOptions &options = stroke->outlineOptions();
     options.m_capStyle   = m_capStyle.getIndex();
     options.m_joinStyle  = m_joinStyle.getIndex();
@@ -1859,6 +1865,10 @@ void ToonzVectorBrushTool::resetFrameRange() {
 
 bool ToonzVectorBrushTool::onPropertyChanged(std::string propertyName) {
   if (m_propertyUpdating) return true;
+  if (ArtLayer::onPropertyChanged(propertyName)) {
+    invalidate();  // "Show Art:" changes what the viewer shows
+    return true;
+  }
 
   // Set the following to true whenever a different piece of interface must
   // be refreshed - done once at the end.

@@ -8,6 +8,7 @@
 #include "toonzqt/keyframenavigator.h"
 #include "toonzqt/flipconsoleowner.h"
 #include "saveloadqsettings.h"
+#include "tsound.h"
 
 #include <QFrame>
 #include <array>
@@ -64,7 +65,8 @@ protected:
   int m_viewerFps;
   double m_samplesPerFrame;
   bool m_first         = true;
-  TSoundTrack *m_sound = NULL;
+  // Holds a reference: the xsheet drops its mixed sound when it is invalidated
+  TSoundTrackP m_sound;
 
   bool m_isActive = false;
 

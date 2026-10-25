@@ -128,6 +128,7 @@
 #define MI_CameraSettings "MI_CameraSettings"
 #define MI_CameraStage "MI_CameraStage"
 #define MI_SaveSubxsheetAs "MI_SaveSubxsheetAs"
+#define MI_SaveAsTemplate "MI_SaveAsTemplate"
 #define MI_Resequence "MI_Resequence"
 #define MI_CloneChild "MI_CloneChild"
 #define MI_ApplyMatchLines "MI_ApplyMatchLines"
@@ -178,6 +179,7 @@
 
 #define MI_ViewCamera "MI_ViewCamera"
 #define MI_ViewBBox "MI_ViewBBox"
+#define MI_LightTable "MI_LightTable"
 #define MI_ViewTable "MI_ViewTable"
 #define MI_FieldGuide "MI_FieldGuide"
 #define MI_RasterizePli "MI_RasterizePli"
@@ -319,9 +321,14 @@
 #define MI_UnlockSelectedColumns "MI_UnlockSelectedColumns"
 #define MI_UnlockAllColumns "MI_UnlockAllColumns"
 #define MI_ToggleColumnLocks "MI_ToggleColumnLocks"
+#define MI_SelectionLockSelectedColumns "MI_SelectionLockSelectedColumns"
+#define MI_SelectionUnlockSelectedColumns "MI_SelectionUnlockSelectedColumns"
+#define MI_SelectionUnlockAllColumns "MI_SelectionUnlockAllColumns"
 #define MI_ToggleXSheetToolbar "MI_ToggleXSheetToolbar"
 #define MI_ToggleXsheetBreadcrumbs "MI_ToggleXsheetBreadcrumbs"
 #define MI_FoldColumns "MI_FoldColumns"
+#define MI_GroupColumns "MI_GroupColumns"
+#define MI_UngroupColumns "MI_UngroupColumns"
 #define MI_ToggleXsheetCameraColumn "MI_ToggleXsheetCameraColumn"
 #define MI_ToggleCurrentTimeIndicator "MI_ToggleCurrentTimeIndicator"
 
@@ -528,5 +535,6 @@
 
 #define MI_OpenLocator "MI_OpenLocator"
 #define MI_OpenAlignmentPanel "MI_OpenAlignmentPanel"
+#define MI_OpenPosesPanel "MI_OpenPosesPanel"
 
 #endif

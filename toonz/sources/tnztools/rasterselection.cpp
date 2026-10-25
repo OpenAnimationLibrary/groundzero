@@ -467,6 +467,7 @@ class UndoDeleteSelection final : public TUndo {
   TPoint m_erasePoint;
   std::vector<TStroke> m_strokes;
   TTool *m_tool;
+  TINT64 m_erasedSize = 0;  // bytes of the cached erased image
 
 public:
   UndoDeleteSelection(RasterSelection *selection, TXshSimpleLevel *level)
@@ -488,6 +489,7 @@ public:
     else if (TRaster32P fullColorRas = (TRaster32P)(erasedRas))
       erasedImage = TRasterImageP(fullColorRas);
     TImageCache::instance()->add(m_erasedImageId, erasedImage, false);
+    m_erasedSize = getImageMemorySize(erasedImage.getPointer());
     m_erasePoint = selection->getStartPosition();
     m_tool       = TTool::getApplication()->getCurrentTool()->getTool();
   }
@@ -526,7 +528,9 @@ public:
     m_tool->invalidate();
   }
 
-  int getSize() const override { return sizeof(*this); }
+  int getSize() const override {
+    return clampSize((TINT64)sizeof(*this) + m_erasedSize);
+  }
 };
 
 int UndoDeleteSelection::m_id = 0;
@@ -595,6 +599,10 @@ class UndoPasteFloatingSelection final : public ToolUtils::TToolUndo {
   TTool *m_tool;
   TFrameId m_frameId;
 
+  // Bytes of the cached floating and "undo" images, which this undo owns.
+  // m_imageId refers to the level's own frame, so it is not counted.
+  TINT64 m_cachedSize = 0;
+
 public:
   UndoPasteFloatingSelection(RasterSelection *currentSelection,
                              TXshSimpleLevel *sl, TPalette *oldPalette,
@@ -629,6 +637,7 @@ public:
     else if (TRasterGR8P grRas = (TRasterGR8P)(floatingRas))
       floatingImage = TRasterImageP(grRas);
     TImageCache::instance()->add(m_floatingImageId, floatingImage, false);
+    m_cachedSize += getImageMemorySize(floatingImage.getPointer());
 
     m_oldFloatingImageId =
         "UndoPasteFloatingSelection_oldFloating_" + std::to_string(m_id);
@@ -659,6 +668,7 @@ public:
       else if (TRasterGR8P grRas = (TRasterGR8P)(undoRas))
         undoImage = TRasterImageP(grRas);
       TImageCache::instance()->add(m_undoImageId, undoImage, false);
+      m_cachedSize += getImageMemorySize(undoImage.getPointer());
     }
     m_startPos = currentSelection->getStartPosition();
     m_id++;
@@ -746,7 +756,9 @@ public:
     m_tool->invalidate();
   }
 
-  int getSize() const override { return sizeof(*this); }
+  int getSize() const override {
+    return clampSize((TINT64)sizeof(*this) + m_cachedSize);
+  }
 
   QString getHistoryString() override { return QObject::tr("Paste"); }
 };

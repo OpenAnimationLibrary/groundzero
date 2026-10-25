@@ -311,6 +311,7 @@ class RevertToCommandUndo final : public TUndo {
   std::vector<QString> m_replacedImgsId;
   std::set<TFrameId> m_selectedFids;
   bool m_isCleanedUp;
+  TINT64 m_imagesSize = 0;  // bytes of the cached image clones
 
 public:
   RevertToCommandUndo(TXshSimpleLevel *sl, std::set<TFrameId> &selectedFids,
@@ -326,6 +327,7 @@ public:
                            QString::number(fid.getNumber());
       TImageCache::instance()->add(newImageId, image->cloneImage());
       m_replacedImgsId.push_back(newImageId);
+      m_imagesSize += getImageMemorySize(image.getPointer());
     }
     revertToCommandCount++;
   }
@@ -358,7 +360,8 @@ public:
   }
 
   int getSize() const override {
-    return sizeof(*this) + m_selectedFids.size() * sizeof(TFrameId);
+    return clampSize((TINT64)sizeof(*this) +
+                     m_selectedFids.size() * sizeof(TFrameId) + m_imagesSize);
   }
 
   QString getHistoryString() override {

@@ -7,6 +7,8 @@
 #include "toonz/txshcell.h"
 #include "toonz/txshsoundlevel.h"
 #include "tsound.h"
+#include "tdoubleparam.h"
+#include "tparamchange.h"
 
 #include <QList>
 #include <QTimer>
@@ -93,7 +95,9 @@ public:
 /*!Inherits \b TXshCellColumn. */
 //=============================================================================
 
-class DVAPI TXshSoundColumn final : public QObject, public TXshCellColumn {
+class DVAPI TXshSoundColumn final : public QObject,
+                                    public TXshCellColumn,
+                                    public TParamObserver {
   Q_OBJECT
 
   PERSIST_DECLARATION(TXshSoundColumn)
@@ -106,6 +110,8 @@ class DVAPI TXshSoundColumn final : public QObject, public TXshCellColumn {
 
   //! From 0.0 to 1.0
   double m_volume;
+  //! Animatable gain applied over m_volume, from 0.0 to 1.0
+  TDoubleParamP m_volumeCurve;
   bool m_isOldVersion;
 
   QTimer m_timer;
@@ -178,6 +184,13 @@ Return true if level range is not empty.*/
   //! From 0.0 to 1.0
   void setVolume(double value);
   double getVolume() const;
+
+  //! The column's animatable volume, a gain from 0.0 to 1.0 over getVolume().
+  //! It is applied when the scene's sound is mixed (playback, export) and
+  //! when the column is played or scrubbed on its own.
+  TDoubleParam *getVolumeCurve() const { return m_volumeCurve.getPointer(); }
+
+  void onChange(const TParamChange &) override;
 
   TSoundTrackP getCurrentPlaySoundTruck() { return m_currentPlaySoundTrack; }
 

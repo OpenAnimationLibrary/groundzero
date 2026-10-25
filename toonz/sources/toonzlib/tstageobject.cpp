@@ -30,6 +30,7 @@
 #include <QMetaObject>
 
 // STD includes
+#include <algorithm>
 #include <fstream>
 #include <set>
 
@@ -47,6 +48,25 @@ static TAffine makeRotation(double ang) { return TRotation(ang); }
 #ifdef _MSC_VER
 #pragma optimize("", on)
 #endif
+
+//-----------------------------------------------------------------------------
+
+/*!
+Returns the orthographic projection onto the XY plane of a planar object
+rotated in 3D by \e angX degrees around its horizontal axis and then by
+\e angY degrees around its vertical axis (the X, Y order of the Transform3D
+FX). The result is a 2D affine, so it fits the affine stage placements used
+by viewers and renders alike; it has no perspective foreshortening. Edge-on
+tilts are clamped to a tiny non-zero thickness to keep the affine invertible.
+*/
+static TAffine makeTilt(double angX, double angY) {
+  const double eps = 1.e-8;
+  double cx = cos(angX * M_PI_180), sx = sin(angX * M_PI_180);
+  double cy = cos(angY * M_PI_180), sy = sin(angY * M_PI_180);
+  if (fabs(cx) < eps) cx = cx < 0 ? -eps : eps;
+  if (fabs(cy) < eps) cy = cy < 0 ? -eps : eps;
+  return TAffine(cy, sx * sy, 0, 0, cx, 0);
+}
 
 DEFINE_CLASS_CODE(TStageObject, 102)
 
@@ -99,6 +119,8 @@ TStageObjectParams::TStageObjectParams(TStageObjectParams *data)
     , m_posPath(data->m_posPath)
     , m_shearx(data->m_shearx)
     , m_sheary(data->m_sheary)
+    , m_rotx(data->m_rotx)
+    , m_roty(data->m_roty)
     , m_skeletonDeformation(data->m_skeletonDeformation)
     , m_noScaleZ(data->m_noScaleZ)
     , m_center(data->m_center)
@@ -372,6 +394,8 @@ TStageObject::TStageObject(TStageObjectTree *tree, TStageObjectId id)
     , m_posPath(new TDoubleParam())
     , m_shearx(new TDoubleParam())
     , m_sheary(new TDoubleParam())
+    , m_rotx(new TDoubleParam())
+    , m_roty(new TDoubleParam())
     , m_center()
     , m_offset()
     , m_cycleEnabled(false)
@@ -424,6 +448,14 @@ TStageObject::TStageObject(TStageObjectTree *tree, TStageObjectId id)
   m_sheary->setMeasureName("shear");
   m_sheary->addObserver(this);
 
+  m_rotx->setName("W_RotationX");
+  m_rotx->setMeasureName("angle");
+  m_rotx->addObserver(this);
+
+  m_roty->setName("W_RotationY");
+  m_roty->setMeasureName("angle");
+  m_roty->addObserver(this);
+
   m_posPath->setName("posPath");
   m_posPath->setMeasureName("percentage2");
   m_posPath->addObserver(this);
@@ -438,6 +470,8 @@ TStageObject::TStageObject(TStageObjectTree *tree, TStageObjectId id)
   m_tree->setGrammar(m_scale);
   m_tree->setGrammar(m_shearx);
   m_tree->setGrammar(m_sheary);
+  m_tree->setGrammar(m_rotx);
+  m_tree->setGrammar(m_roty);
   m_tree->setGrammar(m_posPath);
 
   if (id.isCamera()) m_camera = new TCamera();
@@ -463,6 +497,8 @@ TStageObject::~TStageObject() {
   if (m_scale) m_scale->removeObserver(this);
   if (m_shearx) m_shearx->removeObserver(this);
   if (m_sheary) m_sheary->removeObserver(this);
+  if (m_rotx) m_rotx->removeObserver(this);
+  if (m_roty) m_roty->removeObserver(this);
   if (m_posPath) m_posPath->removeObserver(this);
 
   if (m_skeletonDeformation) {
@@ -788,6 +824,51 @@ void TStageObject::setParentHandle(const std::string &s) {
 
 //-----------------------------------------------------------------------------
 
+bool TStageObject::isSkeletonVertexHandle(const std::string &handle) {
+  return handle.compare(0, 3, "H0:") == 0;
+}
+
+//-----------------------------------------------------------------------------
+
+std::string TStageObject::getSkeletonVertexHandle(
+    const std::string &vertexName) {
+  return "H0:" + vertexName;
+}
+
+//-----------------------------------------------------------------------------
+
+std::string TStageObject::getSkeletonVertexName(const std::string &handle) {
+  return isSkeletonVertexHandle(handle) ? handle.substr(3) : std::string();
+}
+
+//-----------------------------------------------------------------------------
+
+void TStageObject::getSkeletonVertexHandles(
+    std::vector<std::string> &handles) const {
+  if (!m_skeletonDeformation) return;
+
+  // Vertices of different skeletons share their animation by name
+  SkD::skelId_iterator st, sEnd;
+  m_skeletonDeformation->skeletonIds(st, sEnd);
+
+  for (; st != sEnd; ++st) {
+    const PlasticSkeletonP &skeleton = m_skeletonDeformation->skeleton(*st);
+    if (!skeleton) continue;
+
+    const PlasticSkeleton::vertices_container &vertices = skeleton->vertices();
+
+    PlasticSkeleton::vertices_container::const_iterator vt,
+        vEnd = vertices.end();
+    for (vt = vertices.begin(); vt != vEnd; ++vt) {
+      std::string handle = getSkeletonVertexHandle(vt->name().toStdString());
+      if (std::find(handles.begin(), handles.end(), handle) == handles.end())
+        handles.push_back(handle);
+    }
+  }
+}
+
+//-----------------------------------------------------------------------------
+
 TPointD TStageObject::getHandlePos(string handle, int row) const {
   double unit = 8;
   if (handle == "")
@@ -827,7 +908,22 @@ bool TStageObject::isFullKeyframe(int frame) const {
          m_so->isKeyframe(frame) && m_posPath->isKeyframe(frame) &&
          m_scalex->isKeyframe(frame) && m_scaley->isKeyframe(frame) &&
          m_scale->isKeyframe(frame) && m_shearx->isKeyframe(frame) &&
-         m_sheary->isKeyframe(frame);
+         m_sheary->isKeyframe(frame) &&
+         (!isFullKeyframeChannel(T_RotX) || m_rotx->isKeyframe(frame)) &&
+         (!isFullKeyframeChannel(T_RotY) || m_roty->isKeyframe(frame));
+}
+
+//-----------------------------------------------------------------------------
+
+bool TStageObject::isFullKeyframeChannel(Channel channel) const {
+  switch (channel) {
+  case T_RotX:
+    return !m_rotx->isDefault();
+  case T_RotY:
+    return !m_roty->isDefault();
+  default:
+    return channel >= 0 && channel < T_ChannelCount;
+  }
 }
 
 //-----------------------------------------------------------------------------
@@ -850,6 +946,8 @@ TStageObject::Keyframe TStageObject::getKeyframe(int frame) const {
     k.m_channels[TStageObject::T_Path]   = m_posPath->getValue(frame);
     k.m_channels[TStageObject::T_ShearX] = m_shearx->getValue(frame);
     k.m_channels[TStageObject::T_ShearY] = m_sheary->getValue(frame);
+    k.m_channels[TStageObject::T_RotX]   = m_rotx->getValue(frame);
+    k.m_channels[TStageObject::T_RotY]   = m_roty->getValue(frame);
 
     if (m_skeletonDeformation)
       m_skeletonDeformation->getKeyframeAt(frame, k.m_skeletonKeyframe);
@@ -900,6 +998,12 @@ void TStageObject::setKeyframeWithoutUndo(int frame,
   keyWasSet = ::setKeyframe(m_sheary, k.m_channels[TStageObject::T_ShearY],
                             frame, k.m_easeIn, k.m_easeOut) ||
               keyWasSet;
+  keyWasSet = ::setKeyframe(m_rotx, k.m_channels[TStageObject::T_RotX], frame,
+                            k.m_easeIn, k.m_easeOut) ||
+              keyWasSet;
+  keyWasSet = ::setKeyframe(m_roty, k.m_channels[TStageObject::T_RotY], frame,
+                            k.m_easeIn, k.m_easeOut) ||
+              keyWasSet;
 
   if (m_skeletonDeformation)
     keyWasSet = m_skeletonDeformation->setKeyframe(k.m_skeletonKeyframe, frame,
@@ -927,6 +1031,9 @@ void TStageObject::setKeyframeWithoutUndo(int frame) {
   setkey(m_scale, frame);
   setkey(m_shearx, frame);
   setkey(m_sheary, frame);
+  // The optional tilt channels are keyed only once they are in use.
+  if (isFullKeyframeChannel(T_RotX)) setkey(m_rotx, frame);
+  if (isFullKeyframeChannel(T_RotY)) setkey(m_roty, frame);
 
   // Plastic keys are currently not *created* by xsheet commands.
 
@@ -968,6 +1075,8 @@ void TStageObject::removeKeyframeWithoutUndo(int frame) {
   m_posPath->deleteKeyframe(frame);
   m_shearx->deleteKeyframe(frame);
   m_sheary->deleteKeyframe(frame);
+  m_rotx->deleteKeyframe(frame);
+  m_roty->deleteKeyframe(frame);
 
   if (m_skeletonDeformation) m_skeletonDeformation->deleteKeyframe(frame);
 
@@ -1101,6 +1210,10 @@ double TStageObject::getParam(Channel type, double frame) const {
     return m_shearx->getValue(frame);
   case T_ShearY:
     return m_sheary->getValue(frame);
+  case T_RotX:
+    return m_rotx->getValue(frame);
+  case T_RotY:
+    return m_roty->getValue(frame);
 
   default:
     assert(false);
@@ -1134,6 +1247,10 @@ TDoubleParam *TStageObject::getParam(Channel channel) const {
     return m_shearx.getPointer();
   case T_ShearY:
     return m_sheary.getPointer();
+  case T_RotX:
+    return m_rotx.getPointer();
+  case T_RotY:
+    return m_roty.getPointer();
   default:
     return 0;
   }
@@ -1232,6 +1349,8 @@ TStageObject *TStageObject::clone() {
   cloned->m_posPath = static_cast<TDoubleParam *>(m_posPath->clone());
   cloned->m_shearx  = static_cast<TDoubleParam *>(m_shearx->clone());
   cloned->m_sheary  = static_cast<TDoubleParam *>(m_sheary->clone());
+  cloned->m_rotx    = static_cast<TDoubleParam *>(m_rotx->clone());
+  cloned->m_roty    = static_cast<TDoubleParam *>(m_roty->clone());
 
   if (m_skeletonDeformation)
     cloned->m_skeletonDeformation =
@@ -1379,6 +1498,15 @@ TAffine TStageObject::computeLocalPlacement(double frame) {
 
     TAffine shear(1, shx, 0, shy, 1, 0);
 
+    // 3D tilt of the object's plane around its center. Cameras are left
+    // out: tilting an orthographic camera would stretch rather than
+    // foreshorten the scene.
+    if (!m_id.isCamera()) {
+      double angX = m_rotx->getValue(frame);
+      double angY = m_roty->getValue(frame);
+      if (angX != 0.0 || angY != 0.0) shear = makeTilt(angX, angY) * shear;
+    }
+
     TPointD handlePos = getHandlePos(m_handle, (int)frame);
     TPointD center    = (m_center + handlePos) * Stage::inch;
 
@@ -1409,7 +1537,9 @@ TAffine TStageObject::getPlacement(double t) {
   double tt = paramsTime(t);
 
   TAffine place;
-  if (m_parent)
+  if (m_parent && isSkeletonVertexHandle(m_parentHandle))
+    place = getParentPlacement(t) * computeLocalPlacement(tt);
+  else if (m_parent)
     place = m_parent->getPlacement(t) * computeLocalPlacement(tt);
   else
     place = computeLocalPlacement(tt);
@@ -1475,7 +1605,22 @@ void TStageObject::invalidate() { invalidate(m_lazyData(tcg::direct_access)); }
 //-----------------------------------------------------------------------------
 
 TAffine TStageObject::getParentPlacement(double t) const {
+  if (m_parent && isSkeletonVertexHandle(m_parentHandle))
+    // A vertex handle moves its children like a parent does: include it, so
+    // that tools working in the parent's reference work in the bone's one
+    return m_parent->getPlacement(t) * getParentHandleAffine(t);
+
   return m_parent ? m_parent->getPlacement(t) : TAffine();
+}
+
+//-----------------------------------------------------------------------------
+
+TAffine TStageObject::getParentHandleAffine(double t) const {
+  // Expressed in the parent's local coordinates. Its dependency on the
+  // parent's skeleton deformation is tracked by the parent: deformation
+  // changes invalidate the parent (see onChange()), and so its children.
+  assert(m_parent);
+  return m_tree->getHandleAffine(m_parent->getId(), m_parentHandle, t);
 }
 
 //-----------------------------------------------------------------------------
@@ -1505,6 +1650,8 @@ void TStageObject::updateKeyframes(LazyData &ld) const {
   params.push_back(m_scale.getPointer());
   params.push_back(m_shearx.getPointer());
   params.push_back(m_sheary.getPointer());
+  params.push_back(m_rotx.getPointer());
+  params.push_back(m_roty.getPointer());
 
   if (m_skeletonDeformation) {
     params.push_back(m_skeletonDeformation->skeletonIdsParam().getPointer());
@@ -1554,6 +1701,8 @@ void TStageObject::updateKeyframes(LazyData &ld) const {
     stageKf.m_channels[TStageObject::T_Path]   = m_posPath->getKeyframeAt(f);
     stageKf.m_channels[TStageObject::T_ShearX] = m_shearx->getKeyframeAt(f);
     stageKf.m_channels[TStageObject::T_ShearY] = m_sheary->getKeyframeAt(f);
+    stageKf.m_channels[TStageObject::T_RotX]   = m_rotx->getKeyframeAt(f);
+    stageKf.m_channels[TStageObject::T_RotY]   = m_roty->getKeyframeAt(f);
 
     if (m_skeletonDeformation)
       m_skeletonDeformation->getKeyframeAt(f, stageKf.m_skeletonKeyframe);
@@ -1640,6 +1789,8 @@ void TStageObject::saveData(TOStream &os) {
   if (!m_posPath->isDefault()) os.child("pos") << *m_posPath;
   if (!m_shearx->isDefault()) os.child("shx") << *m_shearx;
   if (!m_sheary->isDefault()) os.child("shy") << *m_sheary;
+  if (!m_rotx->isDefault()) os.child("rotx") << *m_rotx;
+  if (!m_roty->isDefault()) os.child("roty") << *m_roty;
   if (m_cycleEnabled) os.child("cycle") << 1;
 
   if (m_skeletonDeformation) os.child("plasticSD") << *m_skeletonDeformation;
@@ -1717,6 +1868,10 @@ void TStageObject::loadData(TIStream &is) {
       is >> *m_shearx;
     else if (tagName == "shy")
       is >> *m_sheary;
+    else if (tagName == "rotx")
+      is >> *m_rotx;
+    else if (tagName == "roty")
+      is >> *m_roty;
     else if (tagName == "pos")
       is >> *m_posPath;
     else if (tagName == "posCP") {
@@ -1849,6 +2004,8 @@ TStageObjectParams *TStageObject::getParams() const {
   data->m_posPath = m_posPath;
   data->m_shearx  = m_shearx;
   data->m_sheary  = m_sheary;
+  data->m_rotx    = m_rotx;
+  data->m_roty    = m_roty;
 
   data->m_skeletonDeformation = m_skeletonDeformation;
 
@@ -1887,6 +2044,8 @@ void TStageObject::assignParams(const TStageObjectParams *src,
     m_posPath->copy(src->m_posPath.getPointer());
     m_shearx->copy(src->m_shearx.getPointer());
     m_sheary->copy(src->m_sheary.getPointer());
+    m_rotx->copy(src->m_rotx.getPointer());
+    m_roty->copy(src->m_roty.getPointer());
 
     if (src->m_skeletonDeformation)
       setPlasticSkeletonDeformation(
@@ -1914,6 +2073,10 @@ void TStageObject::assignParams(const TStageObjectParams *src,
     m_shearx->addObserver(this);
     m_sheary = src->m_sheary.getPointer();
     m_sheary->addObserver(this);
+    m_rotx = src->m_rotx.getPointer();
+    m_rotx->addObserver(this);
+    m_roty = src->m_roty.getPointer();
+    m_roty->addObserver(this);
 
     m_skeletonDeformation = src->m_skeletonDeformation;
     if (m_skeletonDeformation) m_skeletonDeformation->addObserver(this);

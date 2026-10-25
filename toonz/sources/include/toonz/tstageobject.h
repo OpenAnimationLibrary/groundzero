@@ -131,6 +131,8 @@ The default value is XY.
              //! of the spline
     T_ShearX,  //!< Shear along x-axis
     T_ShearY,  //!< Shear along y-axis
+    T_RotX,    //!< Rotation (tilt) around the object's horizontal axis
+    T_RotY,    //!< Rotation (tilt) around the object's vertical axis
     T_ChannelCount
   };
 
@@ -287,6 +289,29 @@ object.
   //! Sets the name of the pegbar parent handle name.
   void setParentHandle(const std::string &s);
 
+  /*!
+Returns whether \e handle is a Plastic skeleton vertex handle, ie
+"H0:<vertex name>" (vertex name in UTF-8). Linking a child to the vertex handle
+of a column with a Plastic skeleton deformation makes the child follow the
+bone ending at that vertex, in position and rotation ("kinematic output"); see
+HandleManager::getHandleAffine(). As for hooks, the handle starts with 'H',
+so the child is never deformed as a texture of the parent mesh column. It
+cannot match an existing hook ("H" followed by digits only).
+*/
+  static bool isSkeletonVertexHandle(const std::string &handle);
+
+  //! Returns the Plastic skeleton vertex handle of the specified vertex name
+  //! (UTF-8).
+  static std::string getSkeletonVertexHandle(const std::string &vertexName);
+
+  //! Returns the vertex name (UTF-8) of a Plastic skeleton vertex handle, or
+  //! an empty string if \e handle is not such a handle.
+  static std::string getSkeletonVertexName(const std::string &handle);
+
+  //! Appends the vertex handles this object offers to its children: one per
+  //! vertex name of its Plastic skeletons (none without a deformation).
+  void getSkeletonVertexHandles(std::vector<std::string> &handles) const;
+
   //! Sets the channel \e type to the value \e val
   void setParam(Channel type, double frame, double val);
 
@@ -315,6 +340,14 @@ object.
 
   //! Returns true if \e frame is a keyframe for all channels.
   bool isFullKeyframe(int frame) const;
+
+  /*!
+Returns whether \e channel takes part in full (global) keyframes.
+The optional 3D tilt channels (T_RotX, T_RotY) only do once they are
+in use, ie animated or set to a non-default value, so that objects which
+are never tilted keep the same keyframes (and saved data) as before.
+*/
+  bool isFullKeyframeChannel(Channel channel) const;
 
   //! Returns true if \e frame is a keyframe for all channels with exception of
   //! global scale channel.
@@ -524,7 +557,7 @@ private:
   Status m_status;
 
   TDoubleParamP m_x, m_y, m_z, m_so, m_rot, m_scalex, m_scaley, m_scale,
-      m_posPath, m_shearx, m_sheary;
+      m_posPath, m_shearx, m_sheary, m_rotx, m_roty;
 
   PlasticSkeletonDeformationP
       m_skeletonDeformation;  //!< Deformation curves for a plastic skeleton
@@ -558,6 +591,7 @@ private:
   TStageObject &operator=(const TStageObject &);
 
   TPointD getHandlePos(std::string handle, int row) const;
+  TAffine getParentHandleAffine(double t) const;
   TAffine computeLocalPlacement(double frame);
   TStageObject *findRoot(double frame) const;
   TStageObject *getPinnedDescendant(int frame);
@@ -608,7 +642,7 @@ public:
   std::string m_handle, m_parentHandle;
   TPinnedRangeSet *m_pinnedRangeSet;
   TDoubleParamP m_x, m_y, m_z, m_so, m_rot, m_scalex, m_scaley, m_scale,
-      m_posPath, m_shearx, m_sheary;
+      m_posPath, m_shearx, m_sheary, m_rotx, m_roty;
   PlasticSkeletonDeformationP
       m_skeletonDeformation;  //!< Deformation curves for a plastic skeleton
   double m_noScaleZ;

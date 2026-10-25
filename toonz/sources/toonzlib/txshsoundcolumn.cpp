@@ -3,6 +3,7 @@
 #include "toonz/txshsoundcolumn.h"
 #include "toonz/levelset.h"
 #include "toonz/txsheet.h"
+#include "toonz/tstageobjecttree.h"
 #include "toonz/toonzscene.h"
 #include "toonz/tproject.h"
 #include "toonz/sceneproperties.h"
@@ -12,6 +13,8 @@
 #include "tsop.h"
 #include "tconvert.h"
 #include "toonz/preferences.h"
+
+#include <algorithm>
 
 #include <QAudioFormat>
 #include <QAudioDeviceInfo>
@@ -149,14 +152,42 @@ bool lessThan(const ColumnLevel *s1, const ColumnLevel *s2) {
 }
 
 //-----------------------------------------------------------------------------
+
+// Scales a column's sound by its volume curve. The track starts at fromFrame;
+// the curve is sampled once per block of samples, short enough to sound like
+// a continuous change.
+void applyVolumeCurve(const TSoundTrackP &track, const TDoubleParam *curve,
+                      int fromFrame, double fps) {
+  const TINT32 count = track->getSampleCount();
+  const TINT32 block = 256;
+  if (count <= 0 || fps <= 0) return;
+  const double samplesPerFrame = track->getSampleRate() / fps;
+
+  for (TINT32 s0 = 0; s0 < count; s0 += block) {
+    TINT32 s1    = std::min(count, s0 + block) - 1;
+    double frame = fromFrame + 0.5 * (s0 + s1) / samplesPerFrame;
+    double gain  = tcrop(curve->getValue(frame), 0.0, 1.0);
+    if (gain == 1.0) continue;
+    TSoundTrackP part = track->extract(s0, s1);
+    track->copy(TSop::mix(part, part, gain, 0.0), s0);
+  }
+}
+
+//-----------------------------------------------------------------------------
 }  // namespace
 //=============================================================================
 
 TXshSoundColumn::TXshSoundColumn()
     : m_player(0)
     , m_volume(0.4)
+    , m_volumeCurve(new TDoubleParam(1.0))
     , m_currentPlaySoundTrack(0)
     , m_isOldVersion(false) {
+  m_volumeCurve->setName("Volume");
+  m_volumeCurve->setMeasureName("percentage");
+  m_volumeCurve->setValueRange(0.0, 1.0);
+  m_volumeCurve->addObserver(this);
+
   m_timer.setInterval(500);
   m_timer.setSingleShot(true);
   m_timer.stop();
@@ -167,6 +198,7 @@ TXshSoundColumn::TXshSoundColumn()
 //-----------------------------------------------------------------------------
 
 TXshSoundColumn::~TXshSoundColumn() {
+  m_volumeCurve->removeObserver(this);
   clear();
   if (m_timer.isActive()) {
     m_timer.stop();
@@ -191,6 +223,7 @@ bool TXshSoundColumn::canSetCell(const TXshCell &cell) const {
 TXshColumn *TXshSoundColumn::clone() const {
   TXshSoundColumn *column = new TXshSoundColumn();
   column->setVolume(m_volume);
+  column->m_volumeCurve->copy(m_volumeCurve.getPointer());
   column->setXsheet(getXsheet());
   int i;
   for (i = 0; i < m_levels.size(); i++)
@@ -263,10 +296,14 @@ void TXshSoundColumn::loadData(TIStream &is) {
 
   std::string tagName;
   while (is.openChild(tagName)) {
-    if (!loadCellMarks(tagName, is))
+    if (tagName == "volumeCurve")
+      is >> *m_volumeCurve;
+    else if (!loadCellMarks(tagName, is))
       throw TException("TXshLevelColumn, unknown tag: " + tagName);
     is.closeChild();
   }
+  // Let Expression and Similar Shape segments of the volume curve evaluate
+  if (getXsheet()) getXsheet()->getStageObjectTree()->setGrammar(m_volumeCurve);
 }
 
 //-----------------------------------------------------------------------------
@@ -281,6 +318,16 @@ void TXshSoundColumn::saveData(TOStream &os) {
   os << getStatusWord();
   // cell marks
   saveCellMarks(os);
+  // Written only when animated, so scenes without volume keys still load in
+  // versions that do not know the tag.
+  if (m_volumeCurve->hasKeyframes()) os.child("volumeCurve") << *m_volumeCurve;
+}
+
+//-----------------------------------------------------------------------------
+
+void TXshSoundColumn::onChange(const TParamChange &) {
+  // The scene's mixed sound depends on the volume curve
+  if (getXsheet()) getXsheet()->invalidateSound();
 }
 
 //-----------------------------------------------------------------------------
@@ -704,6 +751,9 @@ bool TXshSoundColumn::getLevelRangeWithoutOffset(int row, int &r0,
 
 void TXshSoundColumn::setXsheet(TXsheet *xsheet) {
   TXshColumn::setXsheet(xsheet);
+  // Expressions in the volume curve use the xsheet's grammar, like the stage
+  // object channels
+  if (xsheet) xsheet->getStageObjectTree()->setGrammar(m_volumeCurve);
   ToonzScene *scene = xsheet->getScene();
   if (!scene || m_levels.empty()) return;
 
@@ -810,6 +860,11 @@ void TXshSoundColumn::play(int currentFrame) {
     TSoundTrackP soundTrack = getOverallSoundTrack(currentFrame);
 
     if (!soundTrack) return;
+    // Scale by the volume curve, as when the scene's sound is mixed
+    if (m_volumeCurve->hasKeyframes())
+      applyVolumeCurve(soundTrack, m_volumeCurve.getPointer(),
+                       currentFrame == -1 ? getFirstRow() : currentFrame,
+                       m_levels.at(0)->getSoundLevel()->getFrameRate());
 
     int spf        = m_levels.at(0)->getSoundLevel()->getSamplePerFrame();
     int startFrame = (currentFrame - getFirstRow());
@@ -915,6 +970,11 @@ void TXshSoundColumn::scrub(int fromFrame, int toFrame) {
   try {
     TSoundTrackP soundTrack = getOverallSoundTrack(fromFrame, toFrame + 1);
     if (!soundTrack) return;
+    // Scale by the volume curve, as when the scene's sound is mixed
+    if (m_volumeCurve->hasKeyframes())
+      applyVolumeCurve(soundTrack, m_volumeCurve.getPointer(),
+                       fromFrame == -1 ? getFirstRow() : fromFrame,
+                       m_levels.at(0)->getSoundLevel()->getFrameRate());
     play(soundTrack, 0, soundTrack->getSampleCount(), false);
   } catch (TSoundDeviceException &e) {
     if (e.getType() == TSoundDeviceException::NoDevice) {
@@ -1112,13 +1172,23 @@ TSoundTrackP TXshSoundColumn::mixingTogether(
   if (!soundLevel->getSoundTrack()) return mix;
   TSoundTrackFormat format = soundLevel->getSoundTrack()->getFormat();
 
+  // A column's sound over the range, scaled by its volume curve if animated
+  auto columnTrack = [&](TXshSoundColumn *column) {
+    TSoundTrackP track =
+        column->getOverallSoundTrack(fromFrame, toFrame, fps, format);
+    if (track && column->m_volumeCurve->hasKeyframes())
+      applyVolumeCurve(track, column->m_volumeCurve.getPointer(), fromFrame,
+                       fps);
+    return track;
+  };
+
   TXshSoundColumn *c = 0;
   int j;
   for (j = 0; j < size; ++j) {
     TXshSoundColumn *oldC = c;
     c                     = vect[j];
     if (j == 0) {
-      mix = c->getOverallSoundTrack(fromFrame, toFrame, fps, format);
+      mix = columnTrack(c);
       TSoundTrackP mixedTrack =
           TSoundTrack::create(mix->getFormat(), mix->getSampleCount());
       mix = TSop::mix(mixedTrack, mix, 1.0, c->getVolume());
@@ -1129,9 +1199,7 @@ TSoundTrackP TXshSoundColumn::mixingTogether(
       c = oldC;
       continue;
     }
-    mix =
-        TSop::mix(mix, c->getOverallSoundTrack(fromFrame, toFrame, fps, format),
-                  1.0, c->getVolume());
+    mix = TSop::mix(mix, columnTrack(c), 1.0, c->getVolume());
   }
 
   // Per ora perche mov vuole solo 16 bit
