@@ -5,6 +5,7 @@
 
 #include "tcommon.h"
 #include <QPair>
+#include <string>
 #include <QPointF>
 
 #undef DVAPI
@@ -68,6 +69,37 @@ DVAPI void enableSplineAim(TStageObject *obj, int state,
                            TXsheetHandle *xshHandle);
 DVAPI void enableSplineUppk(TStageObject *obj, bool toggled,
                             TXsheetHandle *xshHandle);
+
+// Offset layers (see TStageObject::OffsetLayer). Each command is one undo.
+
+//! Adds a layer, with a name made unique if it is used (or empty). Returns the
+//! index of the layer, or -1 on failure.
+DVAPI int addOffsetLayer(const TStageObjectId &id, const std::wstring &name,
+                         TXsheetHandle *xshHandle);
+DVAPI void removeOffsetLayer(const TStageObjectId &id, int index,
+                             TXsheetHandle *xshHandle);
+//! Returns false, and does nothing, if the name is empty or used by another
+//! layer.
+DVAPI bool renameOffsetLayer(const TStageObjectId &id, int index,
+                             const std::wstring &name,
+                             TXsheetHandle *xshHandle);
+DVAPI void setOffsetLayerEnabled(const TStageObjectId &id, int index,
+                                 bool enabled, TXsheetHandle *xshHandle);
+//! Sets a key at \e frame if the weight is animated, and its value otherwise.
+DVAPI void setOffsetLayerWeight(const TStageObjectId &id, int index,
+                                double weight, int frame,
+                                TXsheetHandle *xshHandle);
+//! Adds the layer to the base curves, at the keys of the base curve, of the
+//! layer and of its weight, and clears the curves of the layer. The result
+//! is exact at those keys only. Returns false if the layer has nothing to bake.
+DVAPI bool bakeOffsetLayer(const TStageObjectId &id, int index,
+                           TXsheetHandle *xshHandle);
+//! Adds a layer, with weight 0, whose curves are the base keyframed curves
+//! minus their value at the frame 0. Returns the index of the layer, or -1
+//! if no channel is animated.
+DVAPI int trainOffsetLayerFromKeys(const TStageObjectId &id,
+                                   const std::wstring &name,
+                                   TXsheetHandle *xshHandle);
 }
 
 #endif

@@ -2942,6 +2942,8 @@ void MainWindow::defineActions() {
                           "");
   createMenuWindowsAction(MI_OpenMasterControllers,
                           QT_TR_NOOP("Master Controllers"), "", "");
+  createMenuWindowsAction(MI_OpenOffsetLayers, QT_TR_NOOP("Offset Layers"), "",
+                          "");
   createMenuWindowsAction(MI_OpenSymbols, QT_TR_NOOP("Symbols"), "", "");
   createMenuWindowsAction(MI_OpenReferencePanel, QT_TR_NOOP("&Reference"), "",
                           "");

@@ -121,6 +121,7 @@ set(MOC_HEADERS
     substitutionsliderpane.h
     storyboardpane.h
     mastercontrollerspane.h
+    offsetlayerspane.h
     symbolspane.h
     vectorguideddrawingpane.h
     vectorizerpopup.h
@@ -339,6 +340,7 @@ set(SOURCES
     substitutionsliderpane.cpp
     storyboardpane.cpp
     mastercontrollerspane.cpp
+    offsetlayerspane.cpp
     symbolspane.cpp
     vectorguideddrawingpane.cpp
     vectorizerpopup.cpp

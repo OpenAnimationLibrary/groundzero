@@ -169,6 +169,7 @@ void ensureNewPanelActions(QMenu *windowsMenu) {
   ensurePanelAction(windowsMenu, MI_OpenSubstitutionSlider);
   ensurePanelAction(windowsMenu, MI_OpenStoryboardPanel);
   ensurePanelAction(windowsMenu, MI_OpenMasterControllers);
+  ensurePanelAction(windowsMenu, MI_OpenOffsetLayers);
 }
 
 }  // namespace
@@ -1681,6 +1682,7 @@ QMenuBar *StackedMenuBar::createFullMenuBar() {
   addMenuItem(windowsMenu, MI_OpenSubstitutionSlider);
   addMenuItem(windowsMenu, MI_OpenStoryboardPanel);
   addMenuItem(windowsMenu, MI_OpenMasterControllers);
+  addMenuItem(windowsMenu, MI_OpenOffsetLayers);
   addMenuItem(windowsMenu, MI_OpenSymbols);
   addMenuItem(windowsMenu, MI_OpenReferencePanel);
   addMenuItem(windowsMenu, MI_OpenCustomPanels);

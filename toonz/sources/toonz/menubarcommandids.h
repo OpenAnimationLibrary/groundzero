@@ -551,5 +551,6 @@
 #define MI_OpenSubstitutionSlider "MI_OpenSubstitutionSlider"
 #define MI_OpenStoryboardPanel "MI_OpenStoryboardPanel"
 #define MI_OpenMasterControllers "MI_OpenMasterControllers"
+#define MI_OpenOffsetLayers "MI_OpenOffsetLayers"
 
 #endif

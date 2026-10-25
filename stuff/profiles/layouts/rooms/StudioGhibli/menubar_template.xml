@@ -223,6 +223,7 @@
     <command>MI_OpenDrawingSubstitutionPanel</command>
     <command>MI_OpenSubstitutionSlider</command>
     <command>MI_OpenMasterControllers</command>
+    <command>MI_OpenOffsetLayers</command>
     <separator/>
     <command>MI_ResetRoomLayout</command>
   </menu>

@@ -106,17 +106,50 @@ class ParamCalculatorNode : public CalculatorNode,
 protected:
   TDoubleParamP m_param;
 
+  // For a channel of a stage object: the offset layers of the object, whose
+  // weighted offsets are part of the value of the channel. See
+  // TStageObject::OffsetLayer.
+  std::shared_ptr<const TStageObject::OffsetLayers> m_offsets;
+  TStageObject::Channel m_channel;
+
 public:
-  ParamCalculatorNode(Calculator *calculator, const TDoubleParamP &param,
-                      std::unique_ptr<CalculatorNode> frame)
-      : CalculatorNode(calculator), m_param(param), m_frame(std::move(frame)) {
+  ParamCalculatorNode(
+      Calculator *calculator, const TDoubleParamP &param,
+      std::unique_ptr<CalculatorNode> frame,
+      const std::shared_ptr<const TStageObject::OffsetLayers> &offsets =
+          nullptr,
+      TStageObject::Channel channel = TStageObject::T_ChannelCount)
+      : CalculatorNode(calculator)
+      , m_param(param)
+      , m_frame(std::move(frame))
+      , m_offsets(offsets)
+      , m_channel(channel) {
     param->addObserver(this);
   }
 
   ~ParamCalculatorNode() { m_param->removeObserver(this); }
 
+  // The curves of the offset layers are part of the value of the channel, so
+  // the expressions in them are dependencies too
+  void acceptOffsets(ParamDependencyFinder &pdf,
+                     TSyntax::CalculatorNodeVisitor &visitor) {
+    if (!m_offsets) return;
+    for (const TStageObject::OffsetLayer &layer : m_offsets->m_layers) {
+      TDoubleParam *curves[] = {layer.m_weight.getPointer(),
+                                layer.m_channels[m_channel].getPointer()};
+      for (TDoubleParam *curve : curves) {
+        if (!curve || pdf.found()) continue;
+        pdf.check(curve);
+        if (!pdf.found()) curve->accept(visitor);
+      }
+    }
+  }
+
   double compute(double vars[3]) const override {
-    double value      = m_param->getValue(m_frame->compute(vars) - 1);
+    double frame = m_frame->compute(vars) - 1;
+    double value = m_param->getValue(frame);
+    if (m_offsets && !m_offsets->m_layers.empty())
+      value += m_offsets->getOffset(m_channel, frame);
     TMeasure *measure = m_param->getMeasure();
     if (measure) {
       const TUnit *unit = measure->getCurrentUnit();
@@ -137,6 +170,7 @@ public:
     if (pdf) {
       pdf->check(m_param.getPointer());
       if (!pdf->found()) m_param->accept(visitor);
+      acceptOffsets(*pdf, visitor);
     }
   }
 
@@ -168,10 +202,14 @@ class ColumnParamCalculatorNode final : public ParamCalculatorNode {
   int m_columnIndex;
 
 public:
-  ColumnParamCalculatorNode(Calculator *calculator, const TDoubleParamP &param,
-                            std::unique_ptr<CalculatorNode> frame,
-                            int columnIndex)
-      : ParamCalculatorNode(calculator, param, std::move(frame))
+  ColumnParamCalculatorNode(
+      Calculator *calculator, const TDoubleParamP &param,
+      std::unique_ptr<CalculatorNode> frame, int columnIndex,
+      const std::shared_ptr<const TStageObject::OffsetLayers> &offsets =
+          nullptr,
+      TStageObject::Channel channel = TStageObject::T_ChannelCount)
+      : ParamCalculatorNode(calculator, param, std::move(frame), offsets,
+                            channel)
       , m_columnIndex(columnIndex) {}
 
   void accept(TSyntax::CalculatorNodeVisitor &visitor) override {
@@ -187,6 +225,7 @@ public:
     if (pdf) {
       pdf->check(m_param.getPointer());
       if (!pdf->found()) m_param->accept(visitor);
+      acceptOffsets(*pdf, visitor);
     }
   }
 };
@@ -377,12 +416,17 @@ public:
       TStageObject::Channel channelName = matchChannelName(tokens[2]);
       TDoubleParam *channel             = object->getParam(channelName);
       if (channel) {
+        // The expression sees the effective value of the channel
+        std::shared_ptr<const TStageObject::OffsetLayers> offsets;
+        if (TStageObject::isOffsetChannel(channelName))
+          offsets = object->getOffsetLayers();
         if (objectId.isColumn())
           stack.push_back(new ColumnParamCalculatorNode(
-              calc, channel, std::move(frameNode), objectId.getIndex()));
+              calc, channel, std::move(frameNode), objectId.getIndex(), offsets,
+              channelName));
         else
-          stack.push_back(
-              new ParamCalculatorNode(calc, channel, std::move(frameNode)));
+          stack.push_back(new ParamCalculatorNode(
+              calc, channel, std::move(frameNode), offsets, channelName));
       }
     }
   }

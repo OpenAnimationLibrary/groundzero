@@ -304,6 +304,7 @@ private:
   void refreshStageObjects(TXsheet *xsh);
   void refreshFxs(TXsheet *xsh);
   void refreshPlasticDeformations();
+  void refreshOffsetLayers();
   void addActiveChannels(TreeModel::Item *item);
 
 public:
@@ -347,6 +348,8 @@ public:
   TStageObject *m_stageObject;  //!< (not owned) Referenced stage object
   FunctionTreeModel::ChannelGroup
       *m_plasticGroup;  //!< (not owned) Eventual plastic channels group
+  FunctionTreeModel::ChannelGroup
+      *m_offsetGroup;  //!< (not owned) Eventual offset layers channels group
 
 public:
   StageObjectChannelGroup(TStageObject *pegbar);

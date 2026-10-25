@@ -88,6 +88,41 @@ const int StageObjectTypeShift = 28;
 const int StageObjectMaxIndex  = ((1 << StageObjectTypeShift) - 1);
 const int StageObjectIndexMask = ((1 << StageObjectTypeShift) - 1);
 
+//! The channels having an offset curve in the offset layers of a stage object.
+const struct {
+  TStageObject::Channel m_channel;
+  const char *m_paramName;  //!< Same as the base channel
+  const char *m_measure;    //!< Same as the base channel
+  const char *m_label;      //!< Name shown by the Function Editor
+  const char *m_tag;        //!< Tag in the scene file, same as the base channel
+} offsetChannels[] = {
+    {TStageObject::T_X, "W_X", "length.x", "X", "x"},
+    {TStageObject::T_Y, "W_Y", "length.y", "Y", "y"},
+    {TStageObject::T_Z, "W_Z", "zdepth", "Z", "z"},
+    {TStageObject::T_SO, "W_SO", "", "SO", "so"},
+    {TStageObject::T_Angle, "W_Rotation", "angle", "Rotation", "rot"},
+    {TStageObject::T_ScaleX, "W_ScaleH", "scale", "Scale H", "sx"},
+    {TStageObject::T_ScaleY, "W_ScaleV", "scale", "Scale V", "sy"},
+    {TStageObject::T_Scale, "W_Scale", "scale", "Scale", "sc"},
+    {TStageObject::T_ShearX, "W_ShearH", "shear", "Shear H", "shx"},
+    {TStageObject::T_ShearY, "W_ShearV", "shear", "Shear V", "shy"},
+    {TStageObject::T_RotX, "W_RotationX", "angle", "Rotation X", "rotx"},
+    {TStageObject::T_RotY, "W_RotationY", "angle", "Rotation Y", "roty"},
+};
+
+//! Returns a copy of the curve. Unlike TDoubleParam::copy(), the expressions of
+//! the keys of the copy refer to it (not to the source) as their owner.
+TDoubleParam *cloneCurve(const TDoubleParam *src) {
+  TDoubleParam *dst = new TDoubleParam(src->getDefaultValue());
+  dst->setName(src->getName());
+  dst->setMeasureName(src->getMeasureName());
+  dst->setGrammar(src->getGrammar());
+  dst->enableCycle(src->isCycleEnabled());
+  for (int k = 0; k < src->getKeyframeCount(); ++k)
+    dst->setKeyframe(src->getKeyframe(k));
+  return dst;
+}
+
 }  // namespace
 
 //************************************************************************************************
@@ -122,6 +157,7 @@ TStageObjectParams::TStageObjectParams(TStageObjectParams *data)
     , m_rotx(data->m_rotx)
     , m_roty(data->m_roty)
     , m_skeletonDeformation(data->m_skeletonDeformation)
+    , m_offsetLayers(data->m_offsetLayers)
     , m_noScaleZ(data->m_noScaleZ)
     , m_center(data->m_center)
     , m_offset(data->m_offset)
@@ -407,7 +443,8 @@ TStageObject::TStageObject(TStageObjectTree *tree, TStageObjectId id)
     , m_noScaleZ(0)
     , m_pinnedRangeSet(0)
     , m_ikflag(0)
-    , m_groupSelector(-1) {
+    , m_groupSelector(-1)
+    , m_offsets(std::make_shared<OffsetLayers>()) {
   // NOTA: per le unita' di misura controlla anche tooloptions.cpp
   m_x->setName("W_X");
   m_x->setMeasureName("length.x");
@@ -501,6 +538,8 @@ TStageObject::~TStageObject() {
   if (m_roty) m_roty->removeObserver(this);
   if (m_posPath) m_posPath->removeObserver(this);
 
+  for (OffsetLayer &layer : m_offsets->m_layers) detachOffsetLayer(layer);
+
   if (m_skeletonDeformation) {
     PlasticDeformerStorage::instance()->releaseDeformationData(
         m_skeletonDeformation.getPointer());
@@ -549,6 +588,10 @@ void TStageObject::onChange(const class TParamChange &c) {
     m_lazyData.invalidate();  // Both invalidate placement AND keyframes
   else
     invalidate();  // Invalidate placement only
+
+  // The change of a curve of an offset layer is a change of the effective
+  // value of its channel for whoever observes the channel (expressions)
+  if (!m_offsets->m_layers.empty()) propagateOffsetChange(c);
 }
 
 //-----------------------------------------------------------------------------
@@ -1187,38 +1230,14 @@ void TStageObject::setParam(Channel type, double frame, double val) {
 //-----------------------------------------------------------------------------
 
 double TStageObject::getParam(Channel type, double frame) const {
-  switch (type) {
-  case T_Angle:
-    return m_rot->getValue(frame);
-  case T_X:
-    return m_x->getValue(frame);
-  case T_Y:
-    return m_y->getValue(frame);
-  case T_Z:
-    return m_z->getValue(frame);
-  case T_SO:
-    return m_so->getValue(frame);
-  case T_ScaleX:
-    return m_scalex->getValue(frame);
-  case T_ScaleY:
-    return m_scaley->getValue(frame);
-  case T_Scale:
-    return m_scale->getValue(frame);
-  case T_Path:
-    return m_posPath->getValue(frame);
-  case T_ShearX:
-    return m_shearx->getValue(frame);
-  case T_ShearY:
-    return m_sheary->getValue(frame);
-  case T_RotX:
-    return m_rotx->getValue(frame);
-  case T_RotY:
-    return m_roty->getValue(frame);
-
-  default:
+  const TDoubleParam *param = getParam(type);
+  if (!param) {
     assert(false);
     return 0;
   }
+  double value = param->getValue(frame);
+  if (!m_offsets->m_layers.empty()) value += getOffsetValue(type, frame);
+  return value;
 }
 
 //-----------------------------------------------------------------------------
@@ -1254,6 +1273,213 @@ TDoubleParam *TStageObject::getParam(Channel channel) const {
   default:
     return 0;
   }
+}
+
+//-----------------------------------------------------------------------------
+//
+// Offset layers
+//
+//-----------------------------------------------------------------------------
+
+double TStageObject::getValueWithOffsets(const TDoubleParamP &param,
+                                         Channel channel, double frame) const {
+  double value = param->getValue(frame);
+  if (!m_offsets->m_layers.empty())
+    value += m_offsets->getOffset(channel, frame);
+  return value;
+}
+
+//-----------------------------------------------------------------------------
+
+int TStageObject::findOffsetLayer(const std::wstring &name) const {
+  const std::vector<OffsetLayer> &layers = m_offsets->m_layers;
+  for (int i = 0; i < (int)layers.size(); ++i)
+    if (layers[i].m_name == name) return i;
+  return -1;
+}
+
+//-----------------------------------------------------------------------------
+
+TDoubleParam *TStageObject::getOffsetParam(int layerIndex,
+                                           Channel channel) const {
+  if (layerIndex < 0 || layerIndex >= getOffsetLayerCount() ||
+      !isOffsetChannel(channel))
+    return 0;
+  return m_offsets->m_layers[layerIndex].m_channels[channel].getPointer();
+}
+
+//-----------------------------------------------------------------------------
+
+double TStageObject::getOffsetValue(Channel channel, double frame) const {
+  if (!isOffsetChannel(channel)) return 0.0;
+  return m_offsets->getOffset(channel, frame);
+}
+
+//-----------------------------------------------------------------------------
+
+TStageObject::OffsetLayer TStageObject::createOffsetLayer(
+    const std::wstring &name) const {
+  OffsetLayer layer;
+  layer.m_name   = name;
+  layer.m_weight = new TDoubleParam(1.0);
+  layer.m_weight->setName("W_OffsetWeight");
+  m_tree->setGrammar(layer.m_weight);
+
+  for (const auto &info : offsetChannels) {
+    TDoubleParamP param = new TDoubleParam(0.0);
+    param->setName(info.m_paramName);
+    if (info.m_channel == T_Z && m_id.isCamera())
+      param->setMeasureName("zdepth.cam");
+    else if (info.m_measure[0] != '\0')
+      param->setMeasureName(info.m_measure);
+    m_tree->setGrammar(param);
+    layer.m_channels[info.m_channel] = param;
+  }
+  return layer;
+}
+
+//-----------------------------------------------------------------------------
+
+TStageObject::OffsetLayer TStageObject::cloneOffsetLayer(
+    const OffsetLayer &src) const {
+  OffsetLayer layer;
+  layer.m_name    = src.m_name;
+  layer.m_enabled = src.m_enabled;
+  if (src.m_weight) layer.m_weight = cloneCurve(src.m_weight.getPointer());
+  for (int c = 0; c != T_ChannelCount; ++c)
+    if (src.m_channels[c])
+      layer.m_channels[c] = cloneCurve(src.m_channels[c].getPointer());
+  return layer;
+}
+
+//-----------------------------------------------------------------------------
+
+void TStageObject::setOffsetLayerLabels(OffsetLayer &layer) const {
+  // The Function Editor shows the curves of the layers as "<layer>/<channel>"
+  std::string prefix = ::to_string(layer.m_name) + "/";
+  if (layer.m_weight) layer.m_weight->setUILabel(prefix + "Weight");
+  for (const auto &info : offsetChannels)
+    if (layer.m_channels[info.m_channel])
+      layer.m_channels[info.m_channel]->setUILabel(prefix + info.m_label);
+}
+
+//-----------------------------------------------------------------------------
+
+void TStageObject::attachOffsetLayer(OffsetLayer &layer) {
+  setOffsetLayerLabels(layer);
+  if (layer.m_weight) {
+    layer.m_weight->addObserver(this);
+    m_tree->setGrammar(layer.m_weight);
+  }
+  for (int c = 0; c != T_ChannelCount; ++c)
+    if (layer.m_channels[c]) {
+      layer.m_channels[c]->addObserver(this);
+      m_tree->setGrammar(layer.m_channels[c]);
+    }
+}
+
+//-----------------------------------------------------------------------------
+
+void TStageObject::detachOffsetLayer(OffsetLayer &layer) {
+  if (layer.m_weight) layer.m_weight->removeObserver(this);
+  for (int c = 0; c != T_ChannelCount; ++c)
+    if (layer.m_channels[c]) layer.m_channels[c]->removeObserver(this);
+}
+
+//-----------------------------------------------------------------------------
+
+namespace {
+
+//! Notifies the observers of the base curves of the channels in the mask
+//! (the expressions referring to them, among the others), as the effective
+//! value of the channels is not the one of the base curve alone.
+void notifyChannelObservers(const TStageObject *obj, unsigned int channelMask,
+                            double firstFrame, double lastFrame, bool dragging,
+                            bool undoing) {
+  for (int c = 0; c != TStageObject::T_ChannelCount; ++c) {
+    if (!(channelMask & (1u << c))) continue;
+    TDoubleParam *param = obj->getParam((TStageObject::Channel)c);
+    if (!param) continue;
+
+    TParamChange change(param, firstFrame, lastFrame, false, dragging, undoing);
+    // The observers may change while being notified
+    const std::set<TParamObserver *> observers = param->observers();
+    for (TParamObserver *observer : observers)
+      if (param->observers().count(observer)) observer->onChange(change);
+  }
+}
+
+//! Returns the mask of the channels having a curve in the layer.
+unsigned int getOffsetChannelMask(const TStageObject::OffsetLayer &layer) {
+  unsigned int mask = 0;
+  for (int c = 0; c != TStageObject::T_ChannelCount; ++c)
+    if (layer.m_channels[c]) mask |= (1u << c);
+  return mask;
+}
+
+}  // namespace
+
+//-----------------------------------------------------------------------------
+
+void TStageObject::propagateOffsetChange(const TParamChange &c) {
+  unsigned int channelMask = 0;
+  for (const OffsetLayer &layer : m_offsets->m_layers) {
+    if (layer.m_weight.getPointer() == c.m_param)
+      // The weight affects all the channels of the layer
+      channelMask |= getOffsetChannelMask(layer);
+    else
+      for (int ch = 0; ch != T_ChannelCount; ++ch)
+        if (layer.m_channels[ch].getPointer() == c.m_param)
+          channelMask |= (1u << ch);
+  }
+  if (channelMask)
+    notifyChannelObservers(this, channelMask, c.m_firstAffectedFrame,
+                           c.m_lastAffectedFrame, c.m_dragging, c.m_undoing);
+}
+
+//-----------------------------------------------------------------------------
+
+void TStageObject::insertOffsetLayer(int index, const OffsetLayer &layer) {
+  std::vector<OffsetLayer> &layers = m_offsets->m_layers;
+  if (index < 0 || index > (int)layers.size()) index = (int)layers.size();
+  layers.insert(layers.begin() + index, layer);
+  attachOffsetLayer(layers[index]);
+  invalidate();
+  notifyChannelObservers(this, getOffsetChannelMask(layer), 0, 0, false, false);
+}
+
+//-----------------------------------------------------------------------------
+
+TStageObject::OffsetLayer TStageObject::removeOffsetLayer(int index) {
+  std::vector<OffsetLayer> &layers = m_offsets->m_layers;
+  if (index < 0 || index >= (int)layers.size()) return OffsetLayer();
+
+  OffsetLayer layer = layers[index];
+  detachOffsetLayer(layer);
+  layers.erase(layers.begin() + index);
+  invalidate();
+  notifyChannelObservers(this, getOffsetChannelMask(layer), 0, 0, false, false);
+  return layer;
+}
+
+//-----------------------------------------------------------------------------
+
+void TStageObject::renameOffsetLayer(int index, const std::wstring &name) {
+  if (index < 0 || index >= getOffsetLayerCount()) return;
+  OffsetLayer &layer = m_offsets->m_layers[index];
+  layer.m_name       = name;
+  setOffsetLayerLabels(layer);
+}
+
+//-----------------------------------------------------------------------------
+
+void TStageObject::setOffsetLayerEnabled(int index, bool enabled) {
+  if (index < 0 || index >= getOffsetLayerCount()) return;
+  OffsetLayer &layer = m_offsets->m_layers[index];
+  if (layer.m_enabled == enabled) return;
+  layer.m_enabled = enabled;
+  invalidate();
+  notifyChannelObservers(this, getOffsetChannelMask(layer), 0, 0, false, false);
 }
 
 //-----------------------------------------------------------------------------
@@ -1351,6 +1577,9 @@ TStageObject *TStageObject::clone() {
   cloned->m_sheary  = static_cast<TDoubleParam *>(m_sheary->clone());
   cloned->m_rotx    = static_cast<TDoubleParam *>(m_rotx->clone());
   cloned->m_roty    = static_cast<TDoubleParam *>(m_roty->clone());
+
+  for (const OffsetLayer &layer : m_offsets->m_layers)
+    cloned->insertOffsetLayer(-1, cloneOffsetLayer(layer));
 
   if (m_skeletonDeformation)
     cloned->m_skeletonDeformation =
@@ -1459,19 +1688,21 @@ TAffine TStageObject::computeLocalPlacement(double frame) {
   frame = paramsTime(frame);
 
   if (lazyData().m_time != frame) {
-    double sc  = m_scale->getValue(frame);
-    double sx  = sc * m_scalex->getValue(frame);
-    double sy  = sc * m_scaley->getValue(frame);
-    double ang = m_rot->getValue(frame);
-    double shx = m_shearx->getValue(frame);
-    double shy = m_sheary->getValue(frame);
+    // Channels are read through getValueWithOffsets(), ie they are the same
+    // as the base ones when there are no offset layers
+    double sc  = getValueWithOffsets(m_scale, T_Scale, frame);
+    double sx  = sc * getValueWithOffsets(m_scalex, T_ScaleX, frame);
+    double sy  = sc * getValueWithOffsets(m_scaley, T_ScaleY, frame);
+    double ang = getValueWithOffsets(m_rot, T_Angle, frame);
+    double shx = getValueWithOffsets(m_shearx, T_ShearX, frame);
+    double shy = getValueWithOffsets(m_sheary, T_ShearY, frame);
 
     TPointD position;
     double posPath = 0;
     switch (m_status & STATUS_MASK) {
     case XY:
-      position.x = m_x->getValue(frame) * Stage::inch;
-      position.y = m_y->getValue(frame) * Stage::inch;
+      position.x = getValueWithOffsets(m_x, T_X, frame) * Stage::inch;
+      position.y = getValueWithOffsets(m_y, T_Y, frame) * Stage::inch;
       break;
     case PATH:
       assert(m_spline);
@@ -1502,8 +1733,8 @@ TAffine TStageObject::computeLocalPlacement(double frame) {
     // out: tilting an orthographic camera would stretch rather than
     // foreshorten the scene.
     if (!m_id.isCamera()) {
-      double angX = m_rotx->getValue(frame);
-      double angY = m_roty->getValue(frame);
+      double angX = getValueWithOffsets(m_rotx, T_RotX, frame);
+      double angY = getValueWithOffsets(m_roty, T_RotY, frame);
       if (angX != 0.0 || angY != 0.0) shear = makeTilt(angX, angY) * shear;
     }
 
@@ -1553,9 +1784,9 @@ TAffine TStageObject::getPlacement(double t) {
 double TStageObject::getZ(double t) {
   double tt = paramsTime(t);
   if (m_parent)
-    return m_parent->getZ(t) + m_z->getValue(tt);
+    return m_parent->getZ(t) + getValueWithOffsets(m_z, T_Z, tt);
   else
-    return m_z->getValue(tt);
+    return getValueWithOffsets(m_z, T_Z, tt);
 }
 
 //-----------------------------------------------------------------------------
@@ -1563,9 +1794,9 @@ double TStageObject::getZ(double t) {
 double TStageObject::getSO(double t) {
   double tt = paramsTime(t);
   if (m_parent)
-    return m_parent->getSO(t) + m_so->getValue(tt);
+    return m_parent->getSO(t) + getValueWithOffsets(m_so, T_SO, tt);
   else
-    return m_so->getValue(tt);
+    return getValueWithOffsets(m_so, T_SO, tt);
 }
 
 //-----------------------------------------------------------------------------
@@ -1795,6 +2026,25 @@ void TStageObject::saveData(TOStream &os) {
 
   if (m_skeletonDeformation) os.child("plasticSD") << *m_skeletonDeformation;
 
+  // Offset layers. This tag is written only for objects having layers, and
+  // builds without offset layers refuse to load it ("unexpected tag"), so
+  // the scenes not using the feature stay readable by them.
+  if (!m_offsets->m_layers.empty()) {
+    os.openChild("offsetLayers");
+    for (const OffsetLayer &layer : m_offsets->m_layers) {
+      os.openChild("layer");
+      os.child("name") << layer.m_name;
+      if (!layer.m_enabled) os.child("enabled") << 0;
+      os.child("weight") << *layer.m_weight;
+      for (const auto &info : offsetChannels) {
+        const TDoubleParamP &param = layer.m_channels[info.m_channel];
+        if (param && !param->isDefault()) os.child(info.m_tag) << *param;
+      }
+      os.closeChild();
+    }
+    os.closeChild();
+  }
+
   os.child("nodePos") << m_dagNodePos.x << m_dagNodePos.y;
 
   if (getId().isCamera()) {
@@ -1940,6 +2190,35 @@ void TStageObject::loadData(TIStream &is) {
       PlasticSkeletonDeformation *sd = new PlasticSkeletonDeformation;
       is >> *sd;
       setPlasticSkeletonDeformation(sd);
+    } else if (tagName == "offsetLayers") {
+      while (is.matchTag(tagName)) {
+        if (tagName != "layer")
+          throw TException("TStageObject::loadData. unexpected tag: " +
+                           tagName);
+        OffsetLayer layer = createOffsetLayer(L"");
+        while (is.matchTag(tagName)) {
+          if (tagName == "name")
+            is >> layer.m_name;
+          else if (tagName == "enabled") {
+            int v = 1;
+            is >> v;
+            layer.m_enabled = (v != 0);
+          } else if (tagName == "weight")
+            is >> *layer.m_weight;
+          else {
+            const auto *found = std::find_if(
+                std::begin(offsetChannels), std::end(offsetChannels),
+                [&tagName](const auto &info) { return tagName == info.m_tag; });
+            if (found == std::end(offsetChannels))
+              throw TException("TStageObject::loadData. unexpected tag: " +
+                               tagName);
+            is >> *layer.m_channels[found->m_channel];
+          }
+          is.matchEndTag();
+        }
+        insertOffsetLayer(-1, layer);
+        is.matchEndTag();
+      }
     } else
       throw TException("TStageObject::loadData. unexpected tag: " + tagName);
     is.matchEndTag();
@@ -2008,6 +2287,7 @@ TStageObjectParams *TStageObject::getParams() const {
   data->m_roty    = m_roty;
 
   data->m_skeletonDeformation = m_skeletonDeformation;
+  data->m_offsetLayers        = m_offsets->m_layers;
 
   data->m_cycleEnabled = m_cycleEnabled;
   data->m_spline       = m_spline;
@@ -2080,6 +2360,18 @@ void TStageObject::assignParams(const TStageObjectParams *src,
 
     m_skeletonDeformation = src->m_skeletonDeformation;
     if (m_skeletonDeformation) m_skeletonDeformation->addObserver(this);
+  }
+
+  // The offset layers are cloned like the other parameters, or shared with src
+  // when the parameters are not cloned
+  if (!m_offsets->m_layers.empty() || !src->m_offsetLayers.empty()) {
+    for (OffsetLayer &layer : m_offsets->m_layers) detachOffsetLayer(layer);
+    m_offsets->m_layers.clear();
+    for (const OffsetLayer &layer : src->m_offsetLayers) {
+      m_offsets->m_layers.push_back(doParametersClone ? cloneOffsetLayer(layer)
+                                                      : layer);
+      attachOffsetLayer(m_offsets->m_layers.back());
+    }
   }
 
   m_handle       = src->m_handle;

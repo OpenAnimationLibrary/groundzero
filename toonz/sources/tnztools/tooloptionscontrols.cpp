@@ -1097,7 +1097,9 @@ void PegbarChannelField::updateStatus() {
   if (m_actionId == TStageObject::T_Z)
     setMeasure(objId.isCamera() ? "zdepth.cam" : "zdepth");
 
-  double v = xsh->getStageObject(objId)->getParam(m_actionId, frame);
+  // The field edits the base animation, so it shows the base value (not the
+  // one of the offset layers, if any)
+  double v = xsh->getStageObject(objId)->getParam(m_actionId)->getValue(frame);
 
   if (getValue() == v) return;
   setValue(v);

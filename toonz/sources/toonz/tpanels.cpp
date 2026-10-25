@@ -8,6 +8,7 @@
 #include "substitutionsliderpane.h"
 #include "storyboardpane.h"
 #include "mastercontrollerspane.h"
+#include "offsetlayerspane.h"
 
 // Tnz6 includes
 #include "pane.h"
@@ -1973,3 +1974,20 @@ public:
 OpenFloatingPanel openMasterControllersCommand(
     MI_OpenMasterControllers, "MasterControllers",
     QObject::tr("Master Controllers"));
+
+//=============================================================================
+// Offset Layers
+//-----------------------------------------------------------------------------
+
+class OffsetLayersPanelFactory final : public TPanelFactory {
+public:
+  OffsetLayersPanelFactory() : TPanelFactory("OffsetLayers") {}
+  void initialize(TPanel *panel) override {
+    panel->setWidget(new OffsetLayersPane(panel));
+    panel->setWindowTitle(QObject::tr("Offset Layers"));
+    panel->setIsMaximizable(false);
+  }
+} offsetLayersPanelFactory;
+
+OpenFloatingPanel openOffsetLayersCommand(MI_OpenOffsetLayers, "OffsetLayers",
+                                          QObject::tr("Offset Layers"));

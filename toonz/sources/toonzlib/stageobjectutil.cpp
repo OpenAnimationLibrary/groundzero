@@ -421,6 +421,15 @@ void insertFrame(TStageObject *obj, int frame) {
   for (int channel = 0; channel != TStageObject::T_ChannelCount; ++channel)
     insertFrame(obj->getParam((TStageObject::Channel)channel), frame);
 
+  // Move the curves of the offset layers too
+  for (int l = 0; l != obj->getOffsetLayerCount(); ++l) {
+    const TStageObject::OffsetLayer &layer = obj->getOffsetLayer(l);
+    insertFrame(layer.m_weight.getPointer(), frame);
+    for (int channel = 0; channel != TStageObject::T_ChannelCount; ++channel)
+      if (layer.m_channels[channel])
+        insertFrame(layer.m_channels[channel].getPointer(), frame);
+  }
+
   if (const SkDP &sd = obj->getPlasticSkeletonDeformation()) {
     // Move Plastic channels
     insertFrame(sd->skeletonIdsParam().getPointer(), frame);
@@ -465,6 +474,14 @@ void removeFrame(TDoubleParam *param, int frame) {
 void removeFrame(TStageObject *obj, int frame) {
   for (int channel = 0; channel != TStageObject::T_ChannelCount; ++channel)
     removeFrame(obj->getParam((TStageObject::Channel)channel), frame);
+
+  for (int l = 0; l != obj->getOffsetLayerCount(); ++l) {
+    const TStageObject::OffsetLayer &layer = obj->getOffsetLayer(l);
+    removeFrame(layer.m_weight.getPointer(), frame);
+    for (int channel = 0; channel != TStageObject::T_ChannelCount; ++channel)
+      if (layer.m_channels[channel])
+        removeFrame(layer.m_channels[channel].getPointer(), frame);
+  }
 
   // Plastic keys can be removed through xsheet commands - do so
 
