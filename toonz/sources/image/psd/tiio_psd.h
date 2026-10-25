@@ -42,9 +42,12 @@ public:
   ~TLevelWriterPsd();
   TImageWriterP getFrameWriter(TFrameId fid) override;
 
-  void save(const TImageP &img, int layerId);
+  // Writes img as a flattened RGBA PSD with one layer plus the merged image.
+  void save(const TImageP &img, const TFilePath &path);
 
 private:
+  TFilePath getFramePath(TFrameId fid) const;
+
 public:
   static TLevelWriter *create(const TFilePath &f, TPropertyGroup *winfo) {
     return new TLevelWriterPsd(f, winfo);

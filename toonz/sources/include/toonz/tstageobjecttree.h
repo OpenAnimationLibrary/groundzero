@@ -32,6 +32,17 @@ class HandleManager {
 public:
   virtual TPointD getHandlePos(const TStageObjectId &id,
                                const std::string &handle, int row) const = 0;
+
+  //! Returns the transform a child linked to the specified handle of object
+  //! \b id undergoes at \b frame, in the object's local coordinates (see
+  //! TStageObject::isSkeletonVertexHandle()). Handles that only displace
+  //! their children (see getHandlePos()) return the identity.
+  virtual TAffine getHandleAffine(const TStageObjectId &id,
+                                  const std::string &handle,
+                                  double frame) const {
+    return TAffine();
+  }
+
   virtual ~HandleManager() {}
 };
 
@@ -198,6 +209,14 @@ Returns the numbers of the objects in the tree.
   */
   TPointD getHandlePos(const TStageObjectId &id, std::string handle,
                        int row) const;
+  /*!
+          Returns the transform a child linked to the handle \b \e handle
+     undergoes at \b \e frame (see HandleManager::getHandleAffine()).
+          If an Handle Manager has not been implemented this method returns
+     the identity.
+  */
+  TAffine getHandleAffine(const TStageObjectId &id, const std::string &handle,
+                          double frame) const;
   /*!
           Returns the number of the spline's objects in the tree.
   */

@@ -4,6 +4,7 @@
 #define COLUMN_COMMAND_INCLUDED
 
 #include <set>
+#include <string>
 #include <QList>
 
 #include "toonz/tstageobjectid.h"
@@ -57,6 +58,18 @@ bool checkExpressionReferences(const QList<TStageObjectId> &objects);
 // Check if any column has visibility toggles with different states and the
 // "unify visibility toggles" option is enabled
 void unifyColumnVisibilityToggles();
+
+// Column groups. They are the stage object groups (see
+// TStageObject::getGroupIdStack()) also shown by the Stage Schematic.
+
+//! Groups the selected contiguous columns into a new group, nested inside the
+//! innermost existing group they all share. Returns false if not possible.
+bool groupColumns(const std::set<int> &indices);
+//! Removes the innermost group containing all the selected columns.
+bool ungroupColumns(const std::set<int> &indices);
+void renameColumnGroup(int groupId, const std::wstring &name);
+//! Folds (or unfolds) all the columns of the group in all orientations.
+void foldColumnGroup(int groupId, bool fold);
 
 }  // namespace ColumnCmd
 

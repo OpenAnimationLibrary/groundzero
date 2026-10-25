@@ -43,6 +43,13 @@ struct DVAPI PlasticDeformerData {
 
   std::vector<int> m_faceHints;  //!< Handles' face hints
 
+  std::vector<int>
+      m_curveSamples;  //!< Indices of the group's curve handles compiled in
+                       //!< m_deformer after the skeleton handles. Empty unless
+                       //!< curve bending is enabled.
+  std::vector<TPointD> m_dstHandlesBuffer;  //!< Destination handles buffer
+                                            //!< used with curve samples
+
 public:
   PlasticDeformerData();
   ~PlasticDeformerData();
@@ -65,6 +72,12 @@ struct DVAPI PlasticDeformerDataGroup {
       m_handles;  //!< Source handles (emanated from skeleton vertices).
   std::vector<TPointD>
       m_dstHandles;  //!< Corresponding destination handle positions
+
+  std::vector<PlasticHandle>
+      m_curveHandles;  //!< Source handles sampled along the skeleton's smooth
+                       //!< curves (curve bending only, otherwise empty)
+  std::vector<TPointD>
+      m_curveDstHandles;  //!< Corresponding destination handle positions
 
   int m_compiled;  //!< Whether compiled data is present about a certain
                    //! datatype.

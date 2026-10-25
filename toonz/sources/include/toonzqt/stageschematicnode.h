@@ -12,7 +12,6 @@ class StageSchematicColumnNode;
 class StageSchematicNodeDock;
 class TStageObject;
 class QPixmap;
-class QRegExpValidator;
 class TStageObjectId;
 class TStageObjectSpline;
 class StageSchematicSplineDock;
@@ -217,7 +216,7 @@ public:
   QRectF boundingRect() const override;
   void paint(QPainter *painter, const QStyleOptionGraphicsItem *option,
              QWidget *widget = 0) override;
-  void setHandle(const QString &value) { m_handle = value; }
+  void setHandle(const QString &value);
   QString getHandle() { return m_handle; }
 
   bool linkTo(SchematicPort *port, bool checkOnly = false) override;

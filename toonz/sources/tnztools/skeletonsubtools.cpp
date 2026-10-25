@@ -97,6 +97,7 @@ DragChannelTool::DragChannelTool(SkeletonTool *tool, TStageObject::Channel a0)
     m_before.add(TStageObject::T_Path);
     m_before.add(TStageObject::T_ShearX);
     m_before.add(TStageObject::T_ShearY);
+    m_before.addTiltChannelsInUse();
   }
   m_after   = m_before;
   m_dragged = false;
@@ -125,6 +126,7 @@ DragChannelTool::DragChannelTool(SkeletonTool *tool, TStageObject::Channel a0,
     m_before.add(TStageObject::T_Path);
     m_before.add(TStageObject::T_ShearX);
     m_before.add(TStageObject::T_ShearY);
+    m_before.addTiltChannelsInUse();
   }
   m_after   = m_before;
   m_dragged = false;
@@ -987,6 +989,7 @@ void IKTool::storeOldValues() {
     TTool::Application *app = TTool::getApplication();
     values.setFrameHandle(app->getCurrentFrame());
     values.setXsheetHandle(app->getCurrentXsheet());
+    if (getTool()->isGlobalKeyframesEnabled()) values.addTiltChannelsInUse();
     values.updateValues();
     m_joints[i].m_oldValues = values;
   }

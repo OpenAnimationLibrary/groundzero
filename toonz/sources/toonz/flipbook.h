@@ -167,7 +167,7 @@ protected:
   bool m_playSound;
   std::vector<std::string> m_addedInCache;
   TSoundOutputDevice *m_player;
-  TSoundTrack *m_snd;
+  TSoundTrackP m_snd;
 
   // bool m_doCompare;
 

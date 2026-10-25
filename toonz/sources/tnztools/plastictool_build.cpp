@@ -653,6 +653,9 @@ void PlasticTool::moveVertex_build(const std::vector<TPointD> &origVxsPos,
     PlasticDeformerStorage::instance()->invalidateSkeleton(
         m_sd.getPointer(), ::skeletonId(), PlasticDeformerStorage::ALL);
 
+    // Columns linked to skeleton vertices depend on the rest pose too
+    ::stageObject()->invalidate();
+
     if (m_mode.getIndex() == ANIMATE_IDX)
       storeDeformation();  // Rebuild deformed skeleton - default values have
                            // changed
