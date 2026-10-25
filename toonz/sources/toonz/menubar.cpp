@@ -1015,6 +1015,7 @@ QMenuBar *StackedMenuBar::createXsheetMenuBar() {
   addMenuItem(subxsheetMenu, MI_ToggleEditInPlace);
   addMenuItem(subxsheetMenu, MI_Resequence);
   addMenuItem(subxsheetMenu, MI_SaveSubxsheetAs);
+  addMenuItem(subxsheetMenu, MI_SaveAsTemplate);
   addMenuItem(subxsheetMenu, MI_LoadSubSceneFile);
   addMenuItem(subxsheetMenu, MI_CloneChild);
   addMenuItem(subxsheetMenu, MI_ExplodeChild);
@@ -1448,6 +1449,7 @@ QMenuBar *StackedMenuBar::createFullMenuBar() {
   addMenuItem(xsheetMenu, MI_OpenChild);
   addMenuItem(xsheetMenu, MI_CloseChild);
   addMenuItem(xsheetMenu, MI_SaveSubxsheetAs);
+  addMenuItem(xsheetMenu, MI_SaveAsTemplate);
   addMenuItem(xsheetMenu, MI_Collapse);
   addMenuItem(xsheetMenu, MI_Resequence);
   addMenuItem(xsheetMenu, MI_CloneChild);

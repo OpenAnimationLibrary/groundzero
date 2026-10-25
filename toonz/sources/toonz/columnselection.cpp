@@ -51,6 +51,7 @@ void TColumnSelection::enableCommands() {
   enableCommand(this, MI_InsertAbove, &TColumnSelection::insertColumnsAbove);
   enableCommand(this, MI_Insert, &TColumnSelection::insertColumns);
   enableCommand(this, MI_Collapse, &TColumnSelection::collapse);
+  enableCommand(this, MI_SaveAsTemplate, &TColumnSelection::saveAsTemplate);
   enableCommand(this, MI_ExplodeChild, &TColumnSelection::explodeChild);
   enableCommand(this, MI_Resequence, &TColumnSelection::resequence);
   enableCommand(this, MI_CloneChild, &TColumnSelection::cloneChild);
@@ -180,6 +181,14 @@ void TColumnSelection::collapse() {
   m_indices.erase(-1);  // Ignore camera column
   if (m_indices.empty()) return;
   SubsceneCmd::collapse(m_indices);
+}
+
+//-----------------------------------------------------------------------------
+
+void TColumnSelection::saveAsTemplate() {
+  m_indices.erase(-1);  // Ignore camera column
+  if (m_indices.empty()) return;
+  SubsceneCmd::saveAsTemplate(m_indices);
 }
 
 //-----------------------------------------------------------------------------

@@ -3108,6 +3108,7 @@ void ColumnArea::contextMenuEvent(QContextMenuEvent *event) {
       }
 
       menu.addAction(cmdManager->getAction(MI_Collapse));
+      menu.addAction(cmdManager->getAction(MI_SaveAsTemplate));
       if (cell.m_level && cell.m_level->getChildLevel()) {
         menu.addAction(cmdManager->getAction(MI_Resequence));
         menu.addAction(cmdManager->getAction(MI_CloneChild));

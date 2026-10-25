@@ -128,6 +128,7 @@
 #define MI_CameraSettings "MI_CameraSettings"
 #define MI_CameraStage "MI_CameraStage"
 #define MI_SaveSubxsheetAs "MI_SaveSubxsheetAs"
+#define MI_SaveAsTemplate "MI_SaveAsTemplate"
 #define MI_Resequence "MI_Resequence"
 #define MI_CloneChild "MI_CloneChild"
 #define MI_ApplyMatchLines "MI_ApplyMatchLines"
