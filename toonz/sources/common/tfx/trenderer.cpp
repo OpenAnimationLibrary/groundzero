@@ -17,6 +17,7 @@
 // TnzBase includes
 #include "trenderresourcemanager.h"
 #include "tpredictivecachemanager.h"
+#include "tmacrofx.h"
 
 // Qt includes
 #include <QEventLoop>
@@ -25,6 +26,9 @@
 #include <QReadLocker>
 #include <QWriteLocker>
 #include <QThreadStorage>
+#include <QThreadPool>
+#include <QRunnable>
+#include <QSemaphore>
 
 // Debug
 // #define DIAGNOSTICS
@@ -32,6 +36,11 @@
 
 #include <queue>
 #include <functional>
+#include <algorithm>
+#include <atomic>
+#include <exception>
+#include <limits>
+#include <memory>
 
 #include <QOffscreenSurface>
 #include <QSurfaceFormat>
@@ -86,6 +95,65 @@ inline void interlace(TRasterP f0, const TRasterP &f1, int field) {
 
   f1->unlock();
   f0->unlock();
+}
+
+//-------------------------------------------------------------------------------
+
+// Frame strips (see TRenderer::enableFrameStrips)
+
+//! Minimum height of a frame strip. Fxs enlarge every strip by their own
+//! margins (e.g. a blur radius, above and below), so thin strips mostly
+//! recompute margins; strips are also never more than the available threads.
+const int c_minFrameStripHeight = 64;
+
+//! Fx ids whose result depends on the tile they are computed on, or on
+//! per-thread state, and that therefore prevent splitting frames into strips.
+const char *const c_stripUnsafeFxIds[] = {
+    // Per-thread particle simulation state (ParticlesManager)
+    "STD_particlesFx", "STD_iwa_TiledParticlesFx",
+    // Share the render settings' QOffscreenSurface created on the GUI thread
+    "plasticDeformerFx", "STD_iwa_FlowPaintBrushFx",
+    // Derive the camera area from the tile size
+    "STD_inoLevelAutoFx", "STD_inohlsNoiseFx", "STD_inohsvNoiseFx",
+    // Restart their random sequence on every tile
+    "STD_dissolveFx", "STD_noiseFx", "STD_saltpepperNoiseFx",
+    // Place their content using the tile center as the camera center
+    "STD_iwa_TextFx", "STD_iwa_TimeCodeFx", "STD_iwa_PerspectiveDistortFx",
+    "STD_iwa_FloorBumpFx", "STD_iwa_BarrelDistortFx", "STD_iwa_TileFx",
+    "STD_iwa_PNPerspectiveFx",
+    // FFT sizes, hence rounding, depend on the tile size
+    "STD_iwa_BokehFx", "STD_iwa_BokehRefFx", "STD_iwa_BokehAdvancedFx",
+    "STD_iwa_GlareFx"};
+
+bool containsStripUnsafeFxId(const std::string &str) {
+  for (const char *id : c_stripUnsafeFxIds)
+    if (str.find(id) != std::string::npos) return true;
+  return false;
+}
+
+//! Returns whether the passed tree can be computed on frame strips. The alias
+//! names each fx of the tree (including zerary column and sub-xsheet
+//! contents) except those inside macros, which are inspected separately.
+bool canComputeOnStrips(const std::string &alias, const TFxPair &fxs) {
+  if (containsStripUnsafeFxId(alias)) return false;
+
+  const TRasterFxP roots[] = {fxs.m_frameA, fxs.m_frameB};
+  for (const TRasterFxP &root : roots) {
+    if (!root) continue;
+
+    for (const TFx *fx : calculateSortedFxs(root)) {
+      const TMacroFx *macro = dynamic_cast<const TMacroFx *>(fx);
+      if (!macro) continue;
+
+      for (const TFxP &innerFx : macro->getFxs()) {
+        const TPersistDeclaration *decl =
+            innerFx ? innerFx->getDeclaration() : 0;
+        if (decl && containsStripUnsafeFxId(decl->getId())) return false;
+      }
+    }
+  }
+
+  return true;
 }
 }  // anonymous namespace
 
@@ -317,7 +385,11 @@ public:
   Executor m_executor;
 
   bool m_precomputingEnabled;
+  bool m_frameStripsEnabled;
   RasterPool m_rasterPool;
+
+  //! Helper threads computing frame strips (see RenderTask::computeTile()).
+  QThreadPool m_stripsPool;
 
   std::vector<TRenderResourceManager *> m_managers;
 
@@ -352,7 +424,13 @@ public:
   void enablePrecomputing(bool on) { m_precomputingEnabled = on; }
   bool isPrecomputingEnabled() const { return m_precomputingEnabled; }
 
-  void setThreadsCount(int nThreads) { m_executor.setMaxActiveTasks(nThreads); }
+  void enableFrameStrips(bool on) { m_frameStripsEnabled = on; }
+  bool isFrameStripsEnabled() const { return m_frameStripsEnabled; }
+
+  void setThreadsCount(int nThreads) {
+    m_executor.setMaxActiveTasks(nThreads);
+    m_stripsPool.setMaxThreadCount(std::max(1, nThreads - 1));
+  }
 
   inline void declareRenderStart(unsigned long renderId);
   inline void declareRenderEnd(unsigned long renderId);
@@ -369,6 +447,103 @@ template class DVAPI TSmartPointerT<TRendererImp>;
 #endif
 
 typedef TSmartPointerT<TRendererImp> TRendererImpP;
+
+//================================================================================
+
+//======================
+//    FrameStripsJob
+//----------------------
+
+//! Shared state of a frame tile computed as a set of horizontal strips by
+//! concurrent threads. Each strip has a raster of its own, so that strips are
+//! computed exactly as unrelated tiles (sub-rasters of a common raster would
+//! share its linear color space flag). Threads pick strips in order until none
+//! is left, the render is aborted or a strip fails.
+
+class FrameStripsJob {
+  TRendererImp *m_rendererImp;
+  unsigned long m_renderId;
+
+  TRasterFxP m_fx;
+  double m_frame;
+  const TRenderSettings &m_info;
+
+  TTile *m_strips;
+  int m_stripsCount;
+
+  std::atomic<int> m_nextStrip;
+
+  QMutex m_errorMutex;
+  std::exception_ptr m_error;
+
+public:
+  FrameStripsJob(TRendererImp *rendererImp, unsigned long renderId,
+                 const TRasterFxP &fx, double frame,
+                 const TRenderSettings &info, TTile *strips, int stripsCount)
+      : m_rendererImp(rendererImp)
+      , m_renderId(renderId)
+      , m_fx(fx)
+      , m_frame(frame)
+      , m_info(info)
+      , m_strips(strips)
+      , m_stripsCount(stripsCount)
+      , m_nextStrip(0) {}
+
+  TRendererImp *rendererImp() const { return m_rendererImp; }
+  unsigned long renderId() const { return m_renderId; }
+
+  //! Computes strips until none is left. Must be invoked on a thread where
+  //! the render is installed.
+  void computeStrips() {
+    for (;;) {
+      int s = m_nextStrip++;
+      if (s >= m_stripsCount || m_rendererImp->hasToDie(m_renderId)) return;
+
+      try {
+        m_fx->compute(m_strips[s], m_frame, m_info);
+      } catch (...) {
+        QMutexLocker locker(&m_errorMutex);
+        if (!m_error) m_error = std::current_exception();
+        m_nextStrip = m_stripsCount;  // Make the other threads quit
+        return;
+      }
+    }
+  }
+
+  //! Rethrows the first exception raised by a strip, if any.
+  void rethrowError() {
+    if (m_error) std::rethrow_exception(m_error);
+  }
+};
+
+//================================================================================
+
+//=========================
+//    FrameStripsWorker
+//-------------------------
+
+class FrameStripsWorker final : public QRunnable {
+  FrameStripsJob *m_job;
+  QSemaphore *m_done;
+
+public:
+  FrameStripsWorker(FrameStripsJob *job, QSemaphore *done)
+      : m_job(job), m_done(done) {}
+
+  void run() override {
+    // Install the render on this thread just like RenderTask::run() does:
+    // fxs and render resource managers retrieve it from thread-local storage.
+    rendererStorage.setLocalData(new (TRendererImp *)(m_job->rendererImp()));
+    renderIdsStorage.setLocalData(new unsigned long(m_job->renderId()));
+
+    m_job->computeStrips();
+
+    rendererStorage.setLocalData(0);
+    renderIdsStorage.setLocalData(0);
+
+    m_done->release();  // The job may be destroyed from now on
+  }
+};
 
 unsigned long TRendererImp::m_rendererIdCounter = 0;
 unsigned long TRendererImp::m_renderIdCounter   = 0;
@@ -394,6 +569,8 @@ class RenderTask final : public TThread::Runnable {
 
   bool m_fieldRender, m_stereoscopic;
 
+  int m_maxStrips;  // Max strips each frame may be split into; 1 = no split
+
   Mutex m_rasterGuard;
   TTile m_tileA;  // in normal and field rendering, Rendered at given frame; in
                   // stereoscopic, rendered left frame
@@ -409,9 +586,13 @@ public:
   ~RenderTask() {}
 
   void addFrame(double frame) { m_frames.push_back(frame); }
+  void setMaxStrips(int maxStrips) { m_maxStrips = maxStrips; }
 
   void buildTile(TTile &tile);
   void releaseTiles();
+
+  int stripsCount(int frameLy) const;
+  void computeTile(const TRasterFxP &fx, TTile &tile, double frame);
 
   void onFrameStarted();
   void onFrameCompleted();
@@ -608,6 +789,16 @@ bool TRenderer::isPrecomputingEnabled() const {
 
 //---------------------------------------------------------
 
+void TRenderer::enableFrameStrips(bool on) { m_imp->enableFrameStrips(on); }
+
+//---------------------------------------------------------
+
+bool TRenderer::isFrameStripsEnabled() const {
+  return m_imp->isFrameStripsEnabled();
+}
+
+//---------------------------------------------------------
+
 void TRenderer::setThreadsCount(int nThreads) {
   m_imp->setThreadsCount(nThreads);
 }
@@ -689,8 +880,10 @@ TRendererImp::TRendererImp(int nThreads)
     : m_executor()
     , m_undoneTasks()
     , m_rendererId(m_rendererIdCounter++)
-    , m_precomputingEnabled(true) {
+    , m_precomputingEnabled(true)
+    , m_frameStripsEnabled(false) {
   m_executor.setMaxActiveTasks(nThreads);
+  m_stripsPool.setMaxThreadCount(std::max(1, nThreads - 1));
 
   std::vector<TRenderResourceManagerGenerator *> &generators =
       TRenderResourceManagerGenerator::generators(false);
@@ -930,7 +1123,8 @@ RenderTask::RenderTask(unsigned long renderId, unsigned long taskId,
     , m_framePos(framePos)
     , m_rendererImp(rendererImp)
     , m_fieldRender(ri.m_fieldPrevalence != TRenderSettings::NoField)
-    , m_stereoscopic(ri.m_stereoscopic) {
+    , m_stereoscopic(ri.m_stereoscopic)
+    , m_maxStrips(1) {
   m_frames.push_back(frame);
 
   // Connect the onFinished slot
@@ -992,31 +1186,31 @@ void RenderTask::run() {
       // Common case - just build the first tile
       buildTile(m_tileA);
       /*-- Normally, Fx rendering process is performed here --*/
-      m_fx.m_frameA->compute(m_tileA, t, m_info);
+      computeTile(m_fx.m_frameA, m_tileA, t);
     } else {
       assert(!(m_stereoscopic && m_fieldRender));
       // Field rendering  or stereoscopic case
       if (m_stereoscopic) {
         buildTile(m_tileA);
-        m_fx.m_frameA->compute(m_tileA, t, m_info);
+        computeTile(m_fx.m_frameA, m_tileA, t);
 
         buildTile(m_tileB);
-        m_fx.m_frameB->compute(m_tileB, t, m_info);
+        computeTile(m_fx.m_frameB, m_tileB, t);
       }
       // if fieldPrevalence, Decide the rendering frames depending on field
       // prevalence
       else if (m_info.m_fieldPrevalence == TRenderSettings::EvenField) {
         buildTile(m_tileA);
-        m_fx.m_frameA->compute(m_tileA, t, m_info);
+        computeTile(m_fx.m_frameA, m_tileA, t);
 
         buildTile(m_tileB);
-        m_fx.m_frameB->compute(m_tileB, t + 0.5, m_info);
+        computeTile(m_fx.m_frameB, m_tileB, t + 0.5);
       } else {
         buildTile(m_tileB);
-        m_fx.m_frameA->compute(m_tileB, t, m_info);
+        computeTile(m_fx.m_frameA, m_tileB, t);
 
         buildTile(m_tileA);
-        m_fx.m_frameB->compute(m_tileA, t + 0.5, m_info);
+        computeTile(m_fx.m_frameB, m_tileA, t + 0.5);
       }
     }
 
@@ -1050,6 +1244,72 @@ void RenderTask::buildTile(TTile &tile) {
       m_rendererImp->m_rasterPool.getRaster(m_frameSize, m_info.m_bpp));
   // set the linear flag
   tile.getRaster()->setLinear(m_info.m_linearColorSpace);
+}
+
+//---------------------------------------------------------
+
+//! Returns the number of strips a frame with the passed height is split into.
+int RenderTask::stripsCount(int frameLy) const {
+  if (m_maxStrips < 2) return 1;
+
+  // Share the threads with the other frames queued or rendering now
+  long busyTasks = m_rendererImp->m_undoneTasks;
+  int threads =
+      int(m_rendererImp->m_executor.maxActiveTasks() / std::max(1L, busyTasks));
+
+  return std::max(
+      1, std::min({m_maxStrips, threads, frameLy / c_minFrameStripHeight}));
+}
+
+//---------------------------------------------------------
+
+//! Computes the passed fx on the frame tile, either directly or as horizontal
+//! strips computed concurrently by this thread and the strips pool's.
+void RenderTask::computeTile(const TRasterFxP &fx, TTile &tile, double frame) {
+  TRasterP ras(tile.getRaster());
+  int lx = ras->getLx(), ly = ras->getLy();
+
+  int stripsCount = this->stripsCount(ly);
+  if (stripsCount < 2) {
+    fx->compute(tile, frame, m_info);
+    return;
+  }
+
+  std::unique_ptr<TTile[]> strips(new TTile[stripsCount]);
+  for (int s = 0; s < stripsCount; ++s) {
+    int y0 = ly * s / stripsCount, y1 = ly * (s + 1) / stripsCount;
+
+    TRasterP stripRas(ras->create(lx, y1 - y0));
+    stripRas->setLinear(ras->isLinear());
+    stripRas->clear();
+
+    strips[s].m_pos = tile.m_pos + TPointD(0, y0);
+    strips[s].setRaster(stripRas);
+  }
+
+  FrameStripsJob job(m_rendererImp.getPointer(), m_renderId, fx, frame, m_info,
+                     strips.get(), stripsCount);
+
+  // Only idle pool threads are used: this thread computes the rest itself
+  QSemaphore done;
+  int workersCount = 0;
+  for (int w = 1; w < stripsCount; ++w) {
+    FrameStripsWorker *worker = new FrameStripsWorker(&job, &done);
+    if (!m_rendererImp->m_stripsPool.tryStart(worker)) {
+      delete worker;  // Not started - still owned here
+      break;
+    }
+    ++workersCount;
+  }
+
+  job.computeStrips();
+  done.acquire(workersCount);
+  job.rethrowError();
+
+  for (int s = 0; s < stripsCount; ++s)
+    ras->copy(strips[s].getRaster(), TPoint(0, ly * s / stripsCount));
+
+  ras->setLinear(strips[0].getRaster()->isLinear());
 }
 
 //---------------------------------------------------------
@@ -1397,6 +1657,7 @@ void TRendererImp::startRendering(
   std::map<std::string, RenderTask *>::iterator jt;
 
   bool forcePreComputation = false;
+  bool stripsAllowed       = m_frameStripsEnabled;
 
   for (it = renderDatas.begin(); it != renderDatas.end(); ++it) {
     // Check for user cancels
@@ -1447,6 +1708,9 @@ void TRendererImp::startRendering(
 
       tasksVector.push_back(newTask);
       clusters.insert(std::make_pair(alias, newTask));
+
+      if (stripsAllowed && !canComputeOnStrips(alias, renderData.m_fxRoot))
+        stripsAllowed = false;
     } else
       jt->second->addFrame(renderData.m_frame);
 
@@ -1456,6 +1720,28 @@ void TRendererImp::startRendering(
 
   // Release the clusters - we'll just need the tasks vector from now on
   clusters.clear();
+
+  // Decide whether frames are split into strips computed on concurrent threads
+  // (see TRenderer::enableFrameStrips). Precomputing would declare each strip
+  // to the predictive cache, which would then compute every shared node once
+  // for all strips, under the node's resource lock - so it is skipped when
+  // strips are used. A max tile size disables strips instead: concurrent
+  // tiles would multiply the memory it is meant to bound.
+  int maxStrips = 1;
+  {
+    int threadsCount = m_executor.maxActiveTasks();
+    int tasksCount   = int(tasksVector.size());
+    bool tilingRequested =
+        m_precomputingEnabled &&
+        info.m_maxTileSize != (std::numeric_limits<int>::max)();
+
+    if (stripsAllowed && !forcePreComputation && !tilingRequested &&
+        tasksCount > 0 && tasksCount < threadsCount)
+      maxStrips = std::max(1, std::min(threadsCount / tasksCount,
+                                       frameSize.ly / c_minFrameStripHeight));
+
+    for (RenderTask *task : tasksVector) task->setMaxStrips(maxStrips);
+  }
 
   std::vector<RenderTask *>::iterator kt, kEnd = tasksVector.end();
   {
@@ -1469,7 +1755,7 @@ void TRendererImp::startRendering(
     //    Precomputing
     //----------------------------------------------------------------------
 
-    if (m_precomputingEnabled || forcePreComputation) {
+    if ((m_precomputingEnabled && maxStrips < 2) || forcePreComputation) {
       // Set current maxTileSize for cache manager precomputation
       const TRenderSettings &rs = renderDatas[0].m_info;
       TPredictiveCacheManager::instance()->setMaxTileSize(rs.m_maxTileSize);

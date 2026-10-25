@@ -1477,6 +1477,9 @@ QString PreferencesPopup::getUIString(PreferencesItemId id) {
       {previewAlwaysOpenNewFlip, tr("Always Open New Flipbook Window ")},
       {fitToFlipbookWhenPreview,
        tr("Fit to Flipbook when Flipbook Window Open")},
+      {renderFrameOnMultipleThreads,
+       tr("[Experimental Feature] ") +
+           tr("Render a Single Frame on Multiple Threads")},
 
       // Onion Skin
       {onionSkinEnabled, tr("Onion Skin ON")},
@@ -2505,6 +2508,7 @@ QWidget* PreferencesPopup::createPreviewPage() {
     insertUI(fitToFlipbookWhenPreview, previewLay);
     insertUI(previewAlwaysOpenNewFlip, previewLay);
     insertUI(defaultViewerEnabled, previewLay);
+    insertUI(renderFrameOnMultipleThreads, previewLay);
   }
   QGridLayout* renderLay = insertGroupBox(tr("Render"), lay);
   {

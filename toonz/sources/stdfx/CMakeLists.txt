@@ -372,3 +372,10 @@ if(BUILD_EXR_AOV_FX_TESTS)
     target_link_libraries(openexraovfx_test OpenEXR::OpenEXR Qt5::Core Qt5::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
     add_test(NAME openexraovfx COMMAND openexraovfx_test)
 endif()
+
+# Optional regression target for frames rendered as parallel strips.
+if(BUILD_FRAME_STRIPS_TESTS)
+    add_executable(framestrips_test tests/framestrips_test.cpp)
+    target_link_libraries(framestrips_test Qt5::Core Qt5::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME framestrips COMMAND framestrips_test)
+endif()

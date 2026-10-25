@@ -508,6 +508,9 @@ public:
   bool isGeneratedMovieViewEnabled() const {
     return getBoolValue(generatedMovieViewEnabled);
   }
+  bool isRenderFrameOnMultipleThreadsEnabled() const {
+    return getBoolValue(renderFrameOnMultipleThreads);
+  }
 
   // Onion Skin  tab
   bool isOnionSkinEnabled() const { return getBoolValue(onionSkinEnabled); }
