@@ -135,6 +135,13 @@ public:
   // 100.
   void setSegmentEase(double easeOut, double easeIn, bool inclusive = true);
 
+  // on every selected curve with keys before and after \b frame, set a key at
+  // \b frame whose value is \b favour of the way from the previous key's
+  // value to the next one's (0 = previous, 1 = next). Values outside [0, 1]
+  // give an anticipation or an overshoot. Curves with a key at frame are left
+  // unchanged.
+  void insertBreakdowns(int frame, double favour);
+
   // return TDoubleKeyframe::Type value if the selected segments has the same
   // interpolation type. return -1 if the selection does not overlap any
   // segments return 0 (TDoubleKeyframe::None) if the interpolation is not

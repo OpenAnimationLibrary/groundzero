@@ -710,6 +710,26 @@ void FunctionSelection::setSegmentEase(double easeOut, double easeIn,
   TUndoManager::manager()->endBlock();
 }
 
+void FunctionSelection::insertBreakdowns(int frame, double favour) {
+  if (isEmpty()) return;
+  TUndoManager::manager()->beginBlock();
+
+  for (const auto &col : m_selectedKeyframes) {
+    TDoubleParam *curve = col.first;
+    if (!curve || curve->isKeyframe(frame)) continue;
+    int prevIndex = curve->getPrevKeyframe(frame);
+    int nextIndex = curve->getNextKeyframe(frame);
+    if (prevIndex < 0 || nextIndex < 0) continue;
+
+    double prevValue = curve->getValue(curve->keyframeIndexToFrame(prevIndex));
+    double nextValue = curve->getValue(curve->keyframeIndexToFrame(nextIndex));
+    KeyframeSetter::setValue(curve, frame,
+                             prevValue + (nextValue - prevValue) * favour);
+  }
+
+  TUndoManager::manager()->endBlock();
+}
+
 int FunctionSelection::getCommonSegmentType(bool inclusive) {
   if (isEmpty()) return -1;
 
