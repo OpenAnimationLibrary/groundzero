@@ -91,6 +91,31 @@ each one are named on the right.
 | `toonzlib/fxdag.cpp:264`, `:298` | The loaded FX sets are indexed with `TFxSet::getFx(i)`, which walks the `std::set` from the start (`tcolumnfxset.cpp:66`): quadratic in the number of FX nodes | `load plain` (small with 200 nodes; grows with `--columns`) |
 | `toonzlib/txshcolumn.cpp:159` | `setCell` on a column appends one cell at a time (fine); on the overwrite path it calls `checkColumn()` (`:223`) even in release builds, which scans the column twice | not on the load path (cells are appended) |
 
+## Results
+
+Scene of 200 columns x 500 rows (100000 cells, 200 levels, 20 pegbars, 17500
+keyframes, 200 FX nodes), medians of 3 runs on the GitHub-hosted Ubuntu 22.04
+runner. The two runs ran on machines of different speed (building the scene
+in memory took 50.6 ms and 103.2 ms), so compare within a run as well as
+across runs.
+
+| Phase | Before (run 2) | After (run 3) |
+|---|---|---|
+| build scene (machine speed) | 50.6 ms | 103.2 ms |
+| save plain (7.25 MB) | 146.7 ms | 111.6 ms |
+| save compressed (0.57 MB) | 58.1 ms | 105.9 ms |
+| load plain | 483.6 ms | 210.8 ms |
+| load compressed | 485.9 ms | 210.8 ms |
+
+Before, a plain save took 2.5 times as long as a compressed one, which writes
+to memory: the time went into the flush per line. After `TOStream::cr` stopped
+flushing, the two take the same time. Loading took 2.3 times less time on a
+machine about twice as slow: the frame id regular expression compiled per
+`<cell>` (the `cell frame id regex` phase, which still replays the old
+behaviour, takes 616 ms for 34814 cells on the slower machine) was most of the
+load. After both changes, parsing the XML (`parse plain`, 163 ms) is most of
+what is left of a load, and building the xsheet in memory most of a save.
+
 ## Not measured
 
 - The scene icon: `ToonzScene::save` renders frame 0 at every explicit save

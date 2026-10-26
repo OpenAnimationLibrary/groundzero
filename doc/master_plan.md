@@ -204,6 +204,20 @@ Built, not yet confirmed by a CI build on Linux when this was written:
 
 ---
 
+### Tier 12: tests, references and deformer follow-ups
+
+Built on the `tier12` branch, which merges Tiers 8 to 11:
+
+| # | Delivered | Still open |
+|---|---|---|
+| Tests | A Linux Tests workflow (pushes to `tier12` and `ci-tests/*`, never pull requests) builds with `BUILD_TESTS=ON`, runs ctest and reports each failure as an annotation; the unwired tests are registered. The first runs found 7 failures: the fuzz hangs and crashes in the PLI and palette loaders, a free-form deformer placement bug, three wrong test expectations, and a test start-up crash; all are fixed. | Confirm on the next run |
+| D1 | A non-blocking Qt 6 job in the same workflow; the first two distinct errors are fixed | The errors behind them |
+| D3 | The workflow commits the FX render references that do not exist yet | Review the first images |
+| E6 | `scenebench` benchmark (`doc/scene_io_profile.md`); no flush per line when saving, the frame id expression compiled once when loading: plain saves now take as long as compressed ones, and loads take less than half the time | XML parsing is most of what is left |
+| A1/A5/A7/A8/C5 | Curve, Free-Form, Bone and Shape-Aware layers in the Deformer Stack FX (`doc/deformer_stack.md`) | Fixed point counts per layer type |
+| A6 | Bake Deformers into Vector Level for every deformer FX (`doc/deformer_bake.md`) | A bake, not a live stroke deformation |
+| C2 | Port filter in the Stage Schematic Rig view | Matches published names only |
+
 ## Order at a glance
 
 1. **Tier 7**, rigging partials. Start with A1 (deformer stack) and A3
