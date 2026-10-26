@@ -473,7 +473,9 @@ TOStream &TOStream::operator<<(const TPixel64 &v) {
 //---------------------------------------------------------------
 
 void TOStream::cr() {
-  *(m_imp->m_os) << std::endl;
+  // '\n', not std::endl: a flush per line made saving a scene one write call
+  // per line (doc/scene_io_profile.md). The stream is flushed when it closes.
+  *(m_imp->m_os) << '\n';
   for (int i = 0; i < m_imp->m_tab; i++) *(m_imp->m_os) << "  ";
   m_imp->m_justStarted = false;
 }
