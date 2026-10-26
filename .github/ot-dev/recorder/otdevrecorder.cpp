@@ -10,12 +10,14 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QLabel>
+#include <QKeyEvent>
 #include <QMainWindow>
 #include <QMessageBox>
+#include <QMouseEvent>
 #include <QOpenGLWidget>
 #include <QPainter>
 #include <QPushButton>
-#include <QSignalBlocker>
+#include <QRubberBand>
 #include <QStorageInfo>
 #include <QTemporaryFile>
 #include <QToolBar>
@@ -149,7 +151,7 @@ void paintCursor(QPainter &painter, const QImage &frame,
           clients += QRect(window->mapToGlobal(QPoint()), window->size());
         painter.save();
         painter.resetTransform();
-        painter.setClipRegion(transform.map(clients));
+        painter.setClipRegion(transform.map(clients), Qt::IntersectClip);
         painter.drawImage(area.topLeft(), patch);
         painter.restore();
       }
@@ -215,9 +217,20 @@ QStringList OtDevRecorder::encoderArguments(const QSize &size,
 }
 
 QImage OtDevRecorder::capture(QMainWindow *window, const QSize &size,
-                              bool includeCursor) {
+                              bool includeCursor, QWidget *regionWindow,
+                              const QRect &region) {
+  if (!regionWindow && !region.isNull()) return {};
+  if (regionWindow &&
+      (!regionWindow->isWindow() || !regionWindow->isVisible() ||
+       regionWindow->isMinimized() || excluded(regionWindow) ||
+       !ownedBy(regionWindow, window) ||
+       region.intersected(regionWindow->rect()).isEmpty()))
+    return {};
   QList<QWidget *> windows{window};
-  QRect bounds(window->mapToGlobal(QPoint()), window->size());
+  QRect bounds =
+      regionWindow
+          ? QRect(regionWindow->mapToGlobal(region.topLeft()), region.size())
+          : QRect(window->mapToGlobal(QPoint()), window->size());
   QWidget *active = QApplication::activeWindow();
   QWidget *popup  = QApplication::activePopupWidget();
   auto candidates = QApplication::topLevelWidgets();
@@ -237,7 +250,8 @@ QImage OtDevRecorder::capture(QMainWindow *window, const QSize &size,
         excluded(widget) || !ownedBy(widget, window))
       continue;
     if (widget != active && widget != popup) windows.append(widget);
-    bounds |= QRect(widget->mapToGlobal(QPoint()), widget->size());
+    if (!regionWindow)
+      bounds |= QRect(widget->mapToGlobal(QPoint()), widget->size());
   }
   if (active && active != window && !excluded(active) &&
       ownedBy(active, window) && active->isVisible())
@@ -256,9 +270,16 @@ QImage OtDevRecorder::capture(QMainWindow *window, const QSize &size,
   painter.scale(double(fitted.width()) / bounds.width(),
                 double(fitted.height()) / bounds.height());
   painter.translate(-bounds.topLeft());
-  for (auto *widget : windows)
-    painter.drawImage(QRect(widget->mapToGlobal(QPoint()), widget->size()),
-                      widgetImage(widget));
+  painter.setClipRect(bounds);
+  if (regionWindow)
+    painter.setClipRect(
+        QRect(regionWindow->mapToGlobal(QPoint()), regionWindow->size()),
+        Qt::IntersectClip);
+  for (auto *widget : windows) {
+    const QRect client(widget->mapToGlobal(QPoint()), widget->size());
+    if (client.intersects(bounds))
+      painter.drawImage(client, widgetImage(widget));
+  }
 #ifdef Q_OS_WIN
   if (includeCursor) paintCursor(painter, frame, windows);
 #else
@@ -278,15 +299,30 @@ OtDevRecorder::OtDevRecorder(QMainWindow *window,
     , m_encoderPath(encoder) {
   m_outputDir = QDir(portableRoot).filePath("recordings");
   auto *bar   = new QToolBar(tr("Groundzero Session Recording"), window);
+  m_toolbar   = bar;
   bar->setObjectName("OtDevSessionRecorder");
   bar->setMovable(false);
   window->addToolBar(Qt::BottomToolBarArea, bar);
   // Do not allow the recorder controls to be hidden while capture is enabled.
   bar->toggleViewAction()->setEnabled(false);
-  m_toggle = bar->addAction(tr("Start Recording"));
-  m_toggle->setCheckable(true);
-  m_toggle->setToolTip(tr("Start or stop recording during this session."));
+  m_start = bar->addAction(tr("Start Recording"));
+  m_start->setObjectName("OtDevRecordStart");
+  m_pause = bar->addAction(tr("Pause"));
+  m_pause->setObjectName("OtDevRecordPause");
+  m_pause->setToolTip(tr("Pause capture without ending the current clip."));
+  m_stop = bar->addAction(tr("Stop Recording"));
+  m_stop->setObjectName("OtDevRecordStop");
+  bar->addSeparator();
+  m_selectRegion = bar->addAction(tr("Select Region..."));
+  m_selectRegion->setObjectName("OtDevRecordSelectRegion");
+  m_clearRegion = bar->addAction(tr("Clear Region"));
+  m_clearRegion->setObjectName("OtDevRecordClearRegion");
+  m_regionStatus = new QLabel(bar);
+  m_regionStatus->setObjectName("OtDevRecordRegionStatus");
+  bar->addWidget(m_regionStatus);
+  bar->addSeparator();
   m_status = new QLabel(tr("Recording off"), bar);
+  m_status->setObjectName("OtDevRecordStatus");
   bar->addWidget(m_status);
   auto *open = bar->addAction(tr("Open Recordings Folder"));
   connect(open, &QAction::triggered, this, [this] {
@@ -297,11 +333,17 @@ OtDevRecorder::OtDevRecorder(QMainWindow *window,
     }
     QDesktopServices::openUrl(QUrl::fromLocalFile(m_outputDir));
   });
-  connect(m_toggle, &QAction::triggered, this, [this](bool checked) {
-    if (checked)
-      requestRecording();
-    else
-      stop();
+  connect(m_start, &QAction::triggered, this, &OtDevRecorder::requestRecording);
+  connect(m_pause, &QAction::triggered, this, [this] { setPaused(!m_paused); });
+  connect(m_stop, &QAction::triggered, this, &OtDevRecorder::stop);
+  connect(m_selectRegion, &QAction::triggered, this,
+          &OtDevRecorder::selectRegion);
+  connect(m_clearRegion, &QAction::triggered, this, [this] {
+    if (m_enabled) setPaused(true);
+    m_hasRegion = false;
+    m_regionWindow.clear();
+    m_region = QRect();
+    updateStatus(m_enabled ? tr("Recording armed") : tr("Recording off"));
   });
   m_timer.setInterval(1000 / frameRate);
   connect(&m_timer, &QTimer::timeout, this, &OtDevRecorder::tick);
@@ -349,9 +391,12 @@ OtDevRecorder::OtDevRecorder(QMainWindow *window,
         updateStatus(m_enabled ? tr("Recording armed") : tr("Recording off"));
       });
   connect(qApp, &QCoreApplication::aboutToQuit, this, &OtDevRecorder::stop);
+  updateStatus(tr("Recording off"));
 }
 
 OtDevRecorder::~OtDevRecorder() {
+  // The main window may already have destroyed the toolbar during shutdown.
+  if (m_selecting) finishSelection(false, false);
   m_timer.stop();
   m_finishTimer.stop();
   m_encoder.disconnect(this);
@@ -385,16 +430,39 @@ bool OtDevRecorder::publishClip() {
 }
 
 void OtDevRecorder::updateStatus(const QString &text) {
-  m_status->setText(text);
+  QString status = text;
+  if (m_selecting)
+    status = tr("Drag a region in an OpenToonz window; Esc cancels");
+  else if (m_enabled && !m_finishing) {
+    if (m_paused)
+      status = tr("Recording paused");
+    else if (!regionAvailable())
+      status = tr("Recording paused (selected window unavailable)");
+  }
+  m_status->setText(status);
   m_status->setToolTip(m_outputFile.isEmpty() ? m_outputDir : m_outputFile);
-  const QSignalBlocker blocker(m_toggle);
-  m_toggle->setChecked(m_enabled);
-  m_toggle->setEnabled(!m_prompting && (m_enabled || !m_finishing));
-  m_toggle->setText(m_enabled ? tr("Stop Recording") : tr("Start Recording"));
+  m_start->setEnabled(!m_enabled && !m_finishing && !m_prompting &&
+                      !m_selecting);
+  m_pause->setEnabled(m_enabled && !m_prompting && !m_selecting);
+  m_pause->setText(m_paused ? tr("Resume") : tr("Pause"));
+  m_stop->setEnabled(m_enabled);
+  m_selectRegion->setEnabled(!m_prompting);
+  m_selectRegion->setText(m_selecting ? tr("Cancel Selection")
+                                      : tr("Select Region..."));
+  m_clearRegion->setEnabled(m_hasRegion && !m_selecting && !m_prompting);
+  m_regionStatus->setText(
+      m_hasRegion
+          ? tr("Region: %1 x %2").arg(m_region.width()).arg(m_region.height())
+          : tr("All OpenToonz Windows"));
+  m_regionStatus->setToolTip(
+      m_hasRegion ? (m_regionWindow ? m_regionWindow->windowTitle()
+                                    : tr("Selected window is unavailable. "
+                                         "Select another region or clear it."))
+                  : tr("Capture all eligible OpenToonz windows."));
 }
 
 void OtDevRecorder::requestRecording() {
-  if (m_prompting || m_enabled || m_finishing) return;
+  if (m_prompting || m_enabled || m_finishing || m_selecting) return;
   m_errorReported = false;
   if (m_consented) {
     begin();
@@ -425,7 +493,7 @@ void OtDevRecorder::requestRecording() {
          "No desktop, other applications, microphone or system audio is "
          "recorded. "
          "Nothing is uploaded.\n\nRecordings are saved to:\n%1\n\n"
-         "Use the recording toolbar to stop or resume at any time.")
+         "Use the recording toolbar to pause, resume or stop at any time.")
           .arg(QDir::toNativeSeparators(m_outputDir)));
   auto *yes = dialog.addButton(tr("Start Recording"), QMessageBox::AcceptRole);
   auto *no  = dialog.addButton(tr("Do Not Record"), QMessageBox::RejectRole);
@@ -475,9 +543,125 @@ void OtDevRecorder::begin() {
     return;
   }
   m_enabled = true;
+  m_paused  = false;
   m_diskCheck.invalidate();
   m_timer.start();
   updateStatus(tr("Recording armed"));
+}
+
+void OtDevRecorder::setPaused(bool paused) {
+  if (!m_enabled || m_selecting) return;
+  m_paused = paused;
+  m_backpressure.invalidate();
+  updateStatus(m_finishing ? tr("Preparing recording for playback...")
+                           : tr("Recording armed"));
+}
+
+bool OtDevRecorder::regionAvailable() const {
+  return !m_hasRegion ||
+         (m_regionWindow && m_regionWindow->isVisible() &&
+          !m_regionWindow->isMinimized() && !excluded(m_regionWindow) &&
+          ownedBy(m_regionWindow, m_window) &&
+          !m_region.intersected(m_regionWindow->rect()).isEmpty());
+}
+
+void OtDevRecorder::selectRegion() {
+  if (m_selecting) {
+    finishSelection(false);
+    return;
+  }
+  if (m_prompting) return;
+  if (m_enabled) setPaused(true);
+  m_selecting = true;
+  qApp->installEventFilter(this);
+  QApplication::setOverrideCursor(Qt::CrossCursor);
+  updateStatus(QString());
+}
+
+void OtDevRecorder::finishSelection(bool accept, bool updateControls) {
+  if (!m_selecting) return;
+  // Keep the previous region on cancellation or a click without a useful drag.
+  if (accept && m_selectionWindow && m_selectionBand) {
+    const QRect region =
+        m_selectionBand->geometry().intersected(m_selectionWindow->rect());
+    if (region.width() >= 8 && region.height() >= 8) {
+      m_region       = region;
+      m_regionWindow = m_selectionWindow;
+      m_hasRegion    = true;
+    }
+  }
+  m_selecting = false;
+  qApp->removeEventFilter(this);
+  QApplication::restoreOverrideCursor();
+  if (m_selectionWindow && QWidget::mouseGrabber() == m_selectionWindow)
+    m_selectionWindow->releaseMouse();
+  delete m_selectionBand.data();
+  m_selectionBand.clear();
+  m_selectionWindow.clear();
+  if (updateControls)
+    updateStatus(m_finishing ? tr("Preparing recording for playback...")
+                 : m_enabled ? tr("Recording armed")
+                             : tr("Recording off"));
+}
+
+bool OtDevRecorder::eventFilter(QObject *watched, QEvent *event) {
+  if (!m_selecting) return QObject::eventFilter(watched, event);
+  if (event->type() == QEvent::ApplicationDeactivate ||
+      (watched == m_selectionWindow &&
+       (event->type() == QEvent::Hide || event->type() == QEvent::Close))) {
+    finishSelection(false);
+    return false;
+  }
+  if (event->type() == QEvent::ShortcutOverride) {
+    event->accept();
+    return true;
+  }
+  if (event->type() == QEvent::KeyPress) {
+    if (static_cast<QKeyEvent *>(event)->key() == Qt::Key_Escape)
+      finishSelection(false);
+    return true;
+  }
+  if (event->type() == QEvent::KeyRelease || event->type() == QEvent::Wheel)
+    return true;
+  if (event->type() != QEvent::MouseButtonPress &&
+      event->type() != QEvent::MouseButtonRelease &&
+      event->type() != QEvent::MouseMove &&
+      event->type() != QEvent::MouseButtonDblClick)
+    return QObject::eventFilter(watched, event);
+
+  auto *widget = qobject_cast<QWidget *>(watched);
+  if (!widget || ownedBy(widget, m_toolbar)) return false;
+  auto *mouse = static_cast<QMouseEvent *>(event);
+  if (event->type() == QEvent::MouseButtonPress) {
+    if (mouse->button() == Qt::RightButton) {
+      finishSelection(false);
+      return true;
+    }
+    auto *window = widget->window();
+    if (mouse->button() != Qt::LeftButton || excluded(window) ||
+        !ownedBy(window, m_window))
+      return true;
+    m_selectionWindow = window;
+    m_selectionOrigin = window->mapFromGlobal(mouse->globalPos());
+    if (!window->rect().contains(m_selectionOrigin)) return true;
+    // This child is never recorded: tick() remains paused until selection
+    // finishes and the band has been removed. No desktop overlay is needed.
+    m_selectionBand = new QRubberBand(QRubberBand::Rectangle, window);
+    m_selectionBand->setGeometry(QRect(m_selectionOrigin, QSize()));
+    m_selectionBand->show();
+    window->grabMouse();
+  } else if (m_selectionWindow && m_selectionBand) {
+    const QRect region =
+        QRect(m_selectionOrigin,
+              m_selectionWindow->mapFromGlobal(mouse->globalPos()))
+            .normalized()
+            .intersected(m_selectionWindow->rect());
+    m_selectionBand->setGeometry(region);
+    if (event->type() == QEvent::MouseButtonRelease &&
+        mouse->button() == Qt::LeftButton)
+      finishSelection(true);
+  }
+  return true;
 }
 
 bool OtDevRecorder::captureAllowed() const {
@@ -503,7 +687,11 @@ bool OtDevRecorder::captureAllowed() const {
 }
 
 void OtDevRecorder::tick() {
-  if (!m_enabled || m_finishing) return;
+  if (!m_enabled || m_finishing || m_paused || m_selecting) return;
+  if (!regionAvailable()) {
+    updateStatus(tr("Recording paused (selected window unavailable)"));
+    return;
+  }
   if (!captureAllowed()) {
     updateStatus(tr("Recording paused (inactive or native dialog)"));
     return;
@@ -542,7 +730,9 @@ void OtDevRecorder::tick() {
     return;
   }
   m_backpressure.invalidate();
-  const QImage frame = capture(m_window, frameSize);
+  const QImage frame =
+      capture(m_window, frameSize, true,
+              m_hasRegion ? m_regionWindow.data() : nullptr, m_region);
   if (frame.isNull()) {
     fail(tr("Unable to allocate a recording frame."));
     return;
@@ -565,7 +755,9 @@ void OtDevRecorder::finishClip() {
 }
 
 void OtDevRecorder::stop() {
+  if (m_selecting) finishSelection(false);
   m_enabled = false;
+  m_paused  = false;
   m_timer.stop();
   finishClip();
   if (!m_finishing) updateStatus(tr("Recording off"));
