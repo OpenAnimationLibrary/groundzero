@@ -4,7 +4,8 @@
 #define DEFORMERFXCOMMON_H
 
 // Parts shared by the fxs built on the generic deformers (toonz/tdeformer.h):
-// Envelope Deformer and Deformer Stack.
+// Envelope Deformer and Deformer Stack. The parameters of the other deformer
+// types, shared with the layers of the Deformer Stack, are in deformerparams.h.
 
 #include "trasterfx.h"
 #include "tfxparam.h"

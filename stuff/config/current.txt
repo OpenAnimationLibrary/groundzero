@@ -406,6 +406,210 @@
   <item>"STD_deformerStackFx.c_rest6"	"C Rest 6"	</item>
   <item>"STD_deformerStackFx.c_rest7"	"C Rest 7"	</item>
   <item>"STD_deformerStackFx.c_rest8"	"C Rest 8"	</item>
+  <item>"STD_deformerStackFx.a_type"	"A Type"	</item>
+  <item>"STD_deformerStackFx.a_curve_width"	"A Curve Width"	</item>
+  <item>"STD_deformerStackFx.a_curve_falloff"	"A Curve Falloff"	</item>
+  <item>"STD_deformerStackFx.a_curve_point1"	"A Curve Point 1"	</item>
+  <item>"STD_deformerStackFx.a_curve_in1"	"A Curve In 1"	</item>
+  <item>"STD_deformerStackFx.a_curve_out1"	"A Curve Out 1"	</item>
+  <item>"STD_deformerStackFx.a_curve_point2"	"A Curve Point 2"	</item>
+  <item>"STD_deformerStackFx.a_curve_in2"	"A Curve In 2"	</item>
+  <item>"STD_deformerStackFx.a_curve_out2"	"A Curve Out 2"	</item>
+  <item>"STD_deformerStackFx.a_curve_point3"	"A Curve Point 3"	</item>
+  <item>"STD_deformerStackFx.a_curve_in3"	"A Curve In 3"	</item>
+  <item>"STD_deformerStackFx.a_curve_out3"	"A Curve Out 3"	</item>
+  <item>"STD_deformerStackFx.a_curve_restPoint1"	"A Curve Rest Point 1"	</item>
+  <item>"STD_deformerStackFx.a_curve_restIn1"	"A Curve Rest In 1"	</item>
+  <item>"STD_deformerStackFx.a_curve_restOut1"	"A Curve Rest Out 1"	</item>
+  <item>"STD_deformerStackFx.a_curve_restPoint2"	"A Curve Rest Point 2"	</item>
+  <item>"STD_deformerStackFx.a_curve_restIn2"	"A Curve Rest In 2"	</item>
+  <item>"STD_deformerStackFx.a_curve_restOut2"	"A Curve Rest Out 2"	</item>
+  <item>"STD_deformerStackFx.a_curve_restPoint3"	"A Curve Rest Point 3"	</item>
+  <item>"STD_deformerStackFx.a_curve_restIn3"	"A Curve Rest In 3"	</item>
+  <item>"STD_deformerStackFx.a_curve_restOut3"	"A Curve Rest Out 3"	</item>
+  <item>"STD_deformerStackFx.a_freeForm_center"	"A Lattice Rest Center"	</item>
+  <item>"STD_deformerStackFx.a_freeForm_width"	"A Lattice Rest Width"	</item>
+  <item>"STD_deformerStackFx.a_freeForm_height"	"A Lattice Rest Height"	</item>
+  <item>"STD_deformerStackFx.a_freeForm_point1"	"A Lattice Point 1"	</item>
+  <item>"STD_deformerStackFx.a_freeForm_point2"	"A Lattice Point 2"	</item>
+  <item>"STD_deformerStackFx.a_freeForm_point3"	"A Lattice Point 3"	</item>
+  <item>"STD_deformerStackFx.a_freeForm_point4"	"A Lattice Point 4"	</item>
+  <item>"STD_deformerStackFx.a_freeForm_point5"	"A Lattice Point 5"	</item>
+  <item>"STD_deformerStackFx.a_freeForm_point6"	"A Lattice Point 6"	</item>
+  <item>"STD_deformerStackFx.a_freeForm_point7"	"A Lattice Point 7"	</item>
+  <item>"STD_deformerStackFx.a_freeForm_point8"	"A Lattice Point 8"	</item>
+  <item>"STD_deformerStackFx.a_freeForm_point9"	"A Lattice Point 9"	</item>
+  <item>"STD_deformerStackFx.a_bone_inner"	"A Bone Inner Radius"	</item>
+  <item>"STD_deformerStackFx.a_bone_outer"	"A Bone Outer Radius"	</item>
+  <item>"STD_deformerStackFx.a_bone_point1"	"A Joint 1"	</item>
+  <item>"STD_deformerStackFx.a_bone_point2"	"A Joint 2"	</item>
+  <item>"STD_deformerStackFx.a_bone_point3"	"A Joint 3"	</item>
+  <item>"STD_deformerStackFx.a_bone_rest1"	"A Rest Joint 1"	</item>
+  <item>"STD_deformerStackFx.a_bone_rest2"	"A Rest Joint 2"	</item>
+  <item>"STD_deformerStackFx.a_bone_rest3"	"A Rest Joint 3"	</item>
+  <item>"STD_deformerStackFx.a_shapeAware_resolution"	"A Resolution"	</item>
+  <item>"STD_deformerStackFx.a_shapeAware_margin"	"A Margin"	</item>
+  <item>"STD_deformerStackFx.a_shapeAware_stretch"	"A Stretch Bones"	</item>
+  <item>"STD_deformerStackFx.a_shapeAware_pinOn1"	"A Pin 1 On"	</item>
+  <item>"STD_deformerStackFx.a_shapeAware_pin1"	"A Pin 1"	</item>
+  <item>"STD_deformerStackFx.a_shapeAware_pinRest1"	"A Rest Pin 1"	</item>
+  <item>"STD_deformerStackFx.a_shapeAware_pinAngle1"	"A Pin 1 Angle"	</item>
+  <item>"STD_deformerStackFx.a_shapeAware_pinScale1"	"A Pin 1 Scale"	</item>
+  <item>"STD_deformerStackFx.a_shapeAware_pinOn2"	"A Pin 2 On"	</item>
+  <item>"STD_deformerStackFx.a_shapeAware_pin2"	"A Pin 2"	</item>
+  <item>"STD_deformerStackFx.a_shapeAware_pinRest2"	"A Rest Pin 2"	</item>
+  <item>"STD_deformerStackFx.a_shapeAware_pinAngle2"	"A Pin 2 Angle"	</item>
+  <item>"STD_deformerStackFx.a_shapeAware_pinScale2"	"A Pin 2 Scale"	</item>
+  <item>"STD_deformerStackFx.a_shapeAware_boneOn1"	"A Bone On"	</item>
+  <item>"STD_deformerStackFx.a_shapeAware_boneHead1"	"A Bone Head"	</item>
+  <item>"STD_deformerStackFx.a_shapeAware_boneTail1"	"A Bone Tail"	</item>
+  <item>"STD_deformerStackFx.a_shapeAware_boneRestHead1"	"A Rest Bone Head"	</item>
+  <item>"STD_deformerStackFx.a_shapeAware_boneRestTail1"	"A Rest Bone Tail"	</item>
+  <item>"STD_deformerStackFx.a_shapeAware_cageOn"	"A Cage On"	</item>
+  <item>"STD_deformerStackFx.a_shapeAware_cage1"	"A Cage 1"	</item>
+  <item>"STD_deformerStackFx.a_shapeAware_cageRest1"	"A Rest Cage 1"	</item>
+  <item>"STD_deformerStackFx.a_shapeAware_cage2"	"A Cage 2"	</item>
+  <item>"STD_deformerStackFx.a_shapeAware_cageRest2"	"A Rest Cage 2"	</item>
+  <item>"STD_deformerStackFx.a_shapeAware_cage3"	"A Cage 3"	</item>
+  <item>"STD_deformerStackFx.a_shapeAware_cageRest3"	"A Rest Cage 3"	</item>
+  <item>"STD_deformerStackFx.a_shapeAware_cage4"	"A Cage 4"	</item>
+  <item>"STD_deformerStackFx.a_shapeAware_cageRest4"	"A Rest Cage 4"	</item>
+  <item>"STD_deformerStackFx.b_type"	"B Type"	</item>
+  <item>"STD_deformerStackFx.b_curve_width"	"B Curve Width"	</item>
+  <item>"STD_deformerStackFx.b_curve_falloff"	"B Curve Falloff"	</item>
+  <item>"STD_deformerStackFx.b_curve_point1"	"B Curve Point 1"	</item>
+  <item>"STD_deformerStackFx.b_curve_in1"	"B Curve In 1"	</item>
+  <item>"STD_deformerStackFx.b_curve_out1"	"B Curve Out 1"	</item>
+  <item>"STD_deformerStackFx.b_curve_point2"	"B Curve Point 2"	</item>
+  <item>"STD_deformerStackFx.b_curve_in2"	"B Curve In 2"	</item>
+  <item>"STD_deformerStackFx.b_curve_out2"	"B Curve Out 2"	</item>
+  <item>"STD_deformerStackFx.b_curve_point3"	"B Curve Point 3"	</item>
+  <item>"STD_deformerStackFx.b_curve_in3"	"B Curve In 3"	</item>
+  <item>"STD_deformerStackFx.b_curve_out3"	"B Curve Out 3"	</item>
+  <item>"STD_deformerStackFx.b_curve_restPoint1"	"B Curve Rest Point 1"	</item>
+  <item>"STD_deformerStackFx.b_curve_restIn1"	"B Curve Rest In 1"	</item>
+  <item>"STD_deformerStackFx.b_curve_restOut1"	"B Curve Rest Out 1"	</item>
+  <item>"STD_deformerStackFx.b_curve_restPoint2"	"B Curve Rest Point 2"	</item>
+  <item>"STD_deformerStackFx.b_curve_restIn2"	"B Curve Rest In 2"	</item>
+  <item>"STD_deformerStackFx.b_curve_restOut2"	"B Curve Rest Out 2"	</item>
+  <item>"STD_deformerStackFx.b_curve_restPoint3"	"B Curve Rest Point 3"	</item>
+  <item>"STD_deformerStackFx.b_curve_restIn3"	"B Curve Rest In 3"	</item>
+  <item>"STD_deformerStackFx.b_curve_restOut3"	"B Curve Rest Out 3"	</item>
+  <item>"STD_deformerStackFx.b_freeForm_center"	"B Lattice Rest Center"	</item>
+  <item>"STD_deformerStackFx.b_freeForm_width"	"B Lattice Rest Width"	</item>
+  <item>"STD_deformerStackFx.b_freeForm_height"	"B Lattice Rest Height"	</item>
+  <item>"STD_deformerStackFx.b_freeForm_point1"	"B Lattice Point 1"	</item>
+  <item>"STD_deformerStackFx.b_freeForm_point2"	"B Lattice Point 2"	</item>
+  <item>"STD_deformerStackFx.b_freeForm_point3"	"B Lattice Point 3"	</item>
+  <item>"STD_deformerStackFx.b_freeForm_point4"	"B Lattice Point 4"	</item>
+  <item>"STD_deformerStackFx.b_freeForm_point5"	"B Lattice Point 5"	</item>
+  <item>"STD_deformerStackFx.b_freeForm_point6"	"B Lattice Point 6"	</item>
+  <item>"STD_deformerStackFx.b_freeForm_point7"	"B Lattice Point 7"	</item>
+  <item>"STD_deformerStackFx.b_freeForm_point8"	"B Lattice Point 8"	</item>
+  <item>"STD_deformerStackFx.b_freeForm_point9"	"B Lattice Point 9"	</item>
+  <item>"STD_deformerStackFx.b_bone_inner"	"B Bone Inner Radius"	</item>
+  <item>"STD_deformerStackFx.b_bone_outer"	"B Bone Outer Radius"	</item>
+  <item>"STD_deformerStackFx.b_bone_point1"	"B Joint 1"	</item>
+  <item>"STD_deformerStackFx.b_bone_point2"	"B Joint 2"	</item>
+  <item>"STD_deformerStackFx.b_bone_point3"	"B Joint 3"	</item>
+  <item>"STD_deformerStackFx.b_bone_rest1"	"B Rest Joint 1"	</item>
+  <item>"STD_deformerStackFx.b_bone_rest2"	"B Rest Joint 2"	</item>
+  <item>"STD_deformerStackFx.b_bone_rest3"	"B Rest Joint 3"	</item>
+  <item>"STD_deformerStackFx.b_shapeAware_resolution"	"B Resolution"	</item>
+  <item>"STD_deformerStackFx.b_shapeAware_margin"	"B Margin"	</item>
+  <item>"STD_deformerStackFx.b_shapeAware_stretch"	"B Stretch Bones"	</item>
+  <item>"STD_deformerStackFx.b_shapeAware_pinOn1"	"B Pin 1 On"	</item>
+  <item>"STD_deformerStackFx.b_shapeAware_pin1"	"B Pin 1"	</item>
+  <item>"STD_deformerStackFx.b_shapeAware_pinRest1"	"B Rest Pin 1"	</item>
+  <item>"STD_deformerStackFx.b_shapeAware_pinAngle1"	"B Pin 1 Angle"	</item>
+  <item>"STD_deformerStackFx.b_shapeAware_pinScale1"	"B Pin 1 Scale"	</item>
+  <item>"STD_deformerStackFx.b_shapeAware_pinOn2"	"B Pin 2 On"	</item>
+  <item>"STD_deformerStackFx.b_shapeAware_pin2"	"B Pin 2"	</item>
+  <item>"STD_deformerStackFx.b_shapeAware_pinRest2"	"B Rest Pin 2"	</item>
+  <item>"STD_deformerStackFx.b_shapeAware_pinAngle2"	"B Pin 2 Angle"	</item>
+  <item>"STD_deformerStackFx.b_shapeAware_pinScale2"	"B Pin 2 Scale"	</item>
+  <item>"STD_deformerStackFx.b_shapeAware_boneOn1"	"B Bone On"	</item>
+  <item>"STD_deformerStackFx.b_shapeAware_boneHead1"	"B Bone Head"	</item>
+  <item>"STD_deformerStackFx.b_shapeAware_boneTail1"	"B Bone Tail"	</item>
+  <item>"STD_deformerStackFx.b_shapeAware_boneRestHead1"	"B Rest Bone Head"	</item>
+  <item>"STD_deformerStackFx.b_shapeAware_boneRestTail1"	"B Rest Bone Tail"	</item>
+  <item>"STD_deformerStackFx.b_shapeAware_cageOn"	"B Cage On"	</item>
+  <item>"STD_deformerStackFx.b_shapeAware_cage1"	"B Cage 1"	</item>
+  <item>"STD_deformerStackFx.b_shapeAware_cageRest1"	"B Rest Cage 1"	</item>
+  <item>"STD_deformerStackFx.b_shapeAware_cage2"	"B Cage 2"	</item>
+  <item>"STD_deformerStackFx.b_shapeAware_cageRest2"	"B Rest Cage 2"	</item>
+  <item>"STD_deformerStackFx.b_shapeAware_cage3"	"B Cage 3"	</item>
+  <item>"STD_deformerStackFx.b_shapeAware_cageRest3"	"B Rest Cage 3"	</item>
+  <item>"STD_deformerStackFx.b_shapeAware_cage4"	"B Cage 4"	</item>
+  <item>"STD_deformerStackFx.b_shapeAware_cageRest4"	"B Rest Cage 4"	</item>
+  <item>"STD_deformerStackFx.c_type"	"C Type"	</item>
+  <item>"STD_deformerStackFx.c_curve_width"	"C Curve Width"	</item>
+  <item>"STD_deformerStackFx.c_curve_falloff"	"C Curve Falloff"	</item>
+  <item>"STD_deformerStackFx.c_curve_point1"	"C Curve Point 1"	</item>
+  <item>"STD_deformerStackFx.c_curve_in1"	"C Curve In 1"	</item>
+  <item>"STD_deformerStackFx.c_curve_out1"	"C Curve Out 1"	</item>
+  <item>"STD_deformerStackFx.c_curve_point2"	"C Curve Point 2"	</item>
+  <item>"STD_deformerStackFx.c_curve_in2"	"C Curve In 2"	</item>
+  <item>"STD_deformerStackFx.c_curve_out2"	"C Curve Out 2"	</item>
+  <item>"STD_deformerStackFx.c_curve_point3"	"C Curve Point 3"	</item>
+  <item>"STD_deformerStackFx.c_curve_in3"	"C Curve In 3"	</item>
+  <item>"STD_deformerStackFx.c_curve_out3"	"C Curve Out 3"	</item>
+  <item>"STD_deformerStackFx.c_curve_restPoint1"	"C Curve Rest Point 1"	</item>
+  <item>"STD_deformerStackFx.c_curve_restIn1"	"C Curve Rest In 1"	</item>
+  <item>"STD_deformerStackFx.c_curve_restOut1"	"C Curve Rest Out 1"	</item>
+  <item>"STD_deformerStackFx.c_curve_restPoint2"	"C Curve Rest Point 2"	</item>
+  <item>"STD_deformerStackFx.c_curve_restIn2"	"C Curve Rest In 2"	</item>
+  <item>"STD_deformerStackFx.c_curve_restOut2"	"C Curve Rest Out 2"	</item>
+  <item>"STD_deformerStackFx.c_curve_restPoint3"	"C Curve Rest Point 3"	</item>
+  <item>"STD_deformerStackFx.c_curve_restIn3"	"C Curve Rest In 3"	</item>
+  <item>"STD_deformerStackFx.c_curve_restOut3"	"C Curve Rest Out 3"	</item>
+  <item>"STD_deformerStackFx.c_freeForm_center"	"C Lattice Rest Center"	</item>
+  <item>"STD_deformerStackFx.c_freeForm_width"	"C Lattice Rest Width"	</item>
+  <item>"STD_deformerStackFx.c_freeForm_height"	"C Lattice Rest Height"	</item>
+  <item>"STD_deformerStackFx.c_freeForm_point1"	"C Lattice Point 1"	</item>
+  <item>"STD_deformerStackFx.c_freeForm_point2"	"C Lattice Point 2"	</item>
+  <item>"STD_deformerStackFx.c_freeForm_point3"	"C Lattice Point 3"	</item>
+  <item>"STD_deformerStackFx.c_freeForm_point4"	"C Lattice Point 4"	</item>
+  <item>"STD_deformerStackFx.c_freeForm_point5"	"C Lattice Point 5"	</item>
+  <item>"STD_deformerStackFx.c_freeForm_point6"	"C Lattice Point 6"	</item>
+  <item>"STD_deformerStackFx.c_freeForm_point7"	"C Lattice Point 7"	</item>
+  <item>"STD_deformerStackFx.c_freeForm_point8"	"C Lattice Point 8"	</item>
+  <item>"STD_deformerStackFx.c_freeForm_point9"	"C Lattice Point 9"	</item>
+  <item>"STD_deformerStackFx.c_bone_inner"	"C Bone Inner Radius"	</item>
+  <item>"STD_deformerStackFx.c_bone_outer"	"C Bone Outer Radius"	</item>
+  <item>"STD_deformerStackFx.c_bone_point1"	"C Joint 1"	</item>
+  <item>"STD_deformerStackFx.c_bone_point2"	"C Joint 2"	</item>
+  <item>"STD_deformerStackFx.c_bone_point3"	"C Joint 3"	</item>
+  <item>"STD_deformerStackFx.c_bone_rest1"	"C Rest Joint 1"	</item>
+  <item>"STD_deformerStackFx.c_bone_rest2"	"C Rest Joint 2"	</item>
+  <item>"STD_deformerStackFx.c_bone_rest3"	"C Rest Joint 3"	</item>
+  <item>"STD_deformerStackFx.c_shapeAware_resolution"	"C Resolution"	</item>
+  <item>"STD_deformerStackFx.c_shapeAware_margin"	"C Margin"	</item>
+  <item>"STD_deformerStackFx.c_shapeAware_stretch"	"C Stretch Bones"	</item>
+  <item>"STD_deformerStackFx.c_shapeAware_pinOn1"	"C Pin 1 On"	</item>
+  <item>"STD_deformerStackFx.c_shapeAware_pin1"	"C Pin 1"	</item>
+  <item>"STD_deformerStackFx.c_shapeAware_pinRest1"	"C Rest Pin 1"	</item>
+  <item>"STD_deformerStackFx.c_shapeAware_pinAngle1"	"C Pin 1 Angle"	</item>
+  <item>"STD_deformerStackFx.c_shapeAware_pinScale1"	"C Pin 1 Scale"	</item>
+  <item>"STD_deformerStackFx.c_shapeAware_pinOn2"	"C Pin 2 On"	</item>
+  <item>"STD_deformerStackFx.c_shapeAware_pin2"	"C Pin 2"	</item>
+  <item>"STD_deformerStackFx.c_shapeAware_pinRest2"	"C Rest Pin 2"	</item>
+  <item>"STD_deformerStackFx.c_shapeAware_pinAngle2"	"C Pin 2 Angle"	</item>
+  <item>"STD_deformerStackFx.c_shapeAware_pinScale2"	"C Pin 2 Scale"	</item>
+  <item>"STD_deformerStackFx.c_shapeAware_boneOn1"	"C Bone On"	</item>
+  <item>"STD_deformerStackFx.c_shapeAware_boneHead1"	"C Bone Head"	</item>
+  <item>"STD_deformerStackFx.c_shapeAware_boneTail1"	"C Bone Tail"	</item>
+  <item>"STD_deformerStackFx.c_shapeAware_boneRestHead1"	"C Rest Bone Head"	</item>
+  <item>"STD_deformerStackFx.c_shapeAware_boneRestTail1"	"C Rest Bone Tail"	</item>
+  <item>"STD_deformerStackFx.c_shapeAware_cageOn"	"C Cage On"	</item>
+  <item>"STD_deformerStackFx.c_shapeAware_cage1"	"C Cage 1"	</item>
+  <item>"STD_deformerStackFx.c_shapeAware_cageRest1"	"C Rest Cage 1"	</item>
+  <item>"STD_deformerStackFx.c_shapeAware_cage2"	"C Cage 2"	</item>
+  <item>"STD_deformerStackFx.c_shapeAware_cageRest2"	"C Rest Cage 2"	</item>
+  <item>"STD_deformerStackFx.c_shapeAware_cage3"	"C Cage 3"	</item>
+  <item>"STD_deformerStackFx.c_shapeAware_cageRest3"	"C Rest Cage 3"	</item>
+  <item>"STD_deformerStackFx.c_shapeAware_cage4"	"C Cage 4"	</item>
+  <item>"STD_deformerStackFx.c_shapeAware_cageRest4"	"C Rest Cage 4"	</item>
 
   <item>"STD_boneDeformerFx"	"Bone Deformer"	</item>
   <item>"STD_boneDeformerFx.inner"	"Inner Radius"	</item>

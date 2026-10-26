@@ -105,17 +105,18 @@ the render affine (`deform = A D A^-1`), as for the Bone Deformer.
   and seconds at 128 (not measured), paid when the rest geometry or the settings
   change. Rendering costs a few
   Newton steps per pixel, each linear in the number of handles.
-- Not a layer of the Deformer Stack FX, which has envelope layers only (see
-  below).
+- In the Deformer Stack FX a Shape-Aware layer has fewer handles (2 pins, 1
+  bone and a cage of 4 corners; see below).
 
 ## Deformer stack
 
 `TShapeAwareDeformer` is a plain `TDeformer`, so it can be added as a layer
 of a `TDeformerStack` in code (`stack.addLayer(std::make_shared<...>(...),
-weightMap)`), and the unit test does this. The Deformer Stack FX is not
-changed: its layers are three fixed envelopes, and a layer of another kind
-would need its own parameters. That is left for the stack's generalisation
-(master plan A1).
+weightMap)`), and the unit test does this. A layer of the Deformer Stack FX
+can be of the Shape-Aware type: it has 2 pins, 1 bone and a cage of 4
+corners, with their own Resolution, Margin and Stretch, built by the same
+code as this FX (`deformerfx::ShapeAwareParams` in `stdfx/deformerparams.h`,
+which keeps the cache of the weights). See `doc/deformer_stack.md`.
 
 ## Compatibility
 

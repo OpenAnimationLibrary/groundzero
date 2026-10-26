@@ -3,6 +3,7 @@ set(HEADERS
     ../include/stdfx/shaderinterface.h
     ../include/stdfx/shadingcontext.h
     deformerfxcommon.h
+    deformerparams.h
     gradients.h
     hsvutil.h
     offscreengl.h
