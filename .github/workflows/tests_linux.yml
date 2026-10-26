@@ -172,6 +172,9 @@ jobs:
         # images
         echo 'set man-db/auto-update false' | sudo debconf-communicate >/dev/null || true
         sudo rm -f /var/lib/man-db/auto-update
+        # The runner's Azure mirror stalled the downloads on several runs: use
+        # the main archive
+        sudo sed -i 's|http://azure.archive.ubuntu.com/ubuntu|http://archive.ubuntu.com/ubuntu|g' /etc/apt/sources.list.d/*.sources /etc/apt/sources.list 2>/dev/null || true
         timeout 300 sudo apt-get update -q || echo '::warning title=Qt 6 packages::apt-get update failed or timed out'
         # Report where it stops if it hangs again. A stalled download of the
         # large recommended packages (gstreamer, ROCm through OpenCV) hung it
