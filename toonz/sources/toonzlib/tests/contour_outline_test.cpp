@@ -100,7 +100,9 @@ Box boundingBox(const std::vector<TPointD> &points) {
 
 void requireClosedZeroThickness(const TStroke &outline, int maxControlPoints) {
   require(outline.isSelfLoop(), "outline is not a self loop");
-  require(!outline.isCenterLine(), "outline is a centerline stroke");
+  // TStroke counts every control point with thickness <= 0 as a centerline
+  // point, so a zero-thickness outline is a centerline stroke for it.
+  require(outline.isCenterLine(), "outline has thickness");
   const int count = outline.getControlPointCount();
   require(count >= 5, "outline has too few control points");
   require(count <= maxControlPoints, "outline has too many control points");

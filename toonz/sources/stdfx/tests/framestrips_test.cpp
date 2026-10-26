@@ -265,6 +265,17 @@ void testBlurStrips() {
   TFx *checkBoard = TFx::create("checkBoardFx");
   require(checkBoard, "checkBoardFx is not registered");
 
+  // TRop::checkBoard finds the square of a row from the phase of the tile's
+  // origin, in floating point: with the default size of 50 the row on a
+  // square's side can get either colour depending on that origin (the input
+  // tile at y -82 puts y -50 below the side, the one at y -146 above it),
+  // and the blur then spreads the swapped row over 35 rows by up to 15. With
+  // a power of two size the phase is exact for every origin, and the sides
+  // fall on the strips' seams, where the margin of each strip matters most.
+  TDoubleParamP size = TParamP(checkBoard->getParams()->getParam("size"));
+  require(bool(size), "Missing check board size parameter");
+  size->setDefaultValue(64.0);
+
   TRasterFxP blur(new BlurFx);
   require(blur->connect("Source", checkBoard), "Could not connect the blur");
 
