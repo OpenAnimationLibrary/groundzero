@@ -63,6 +63,7 @@
 
 // TnzCore includes
 #include "tconvert.h"
+#include "toonzqt/qtcompat.h"
 
 // Qt includes
 #include <QPainter>
@@ -1057,7 +1058,7 @@ bool RenameCellField::eventFilter(QObject *obj, QEvent *e) {
 
   QKeyEvent *ke = (QKeyEvent *)e;
   std::string keyStr =
-      QKeySequence(ke->key() + ke->modifiers()).toString().toStdString();
+      keySequenceOf(ke->key(), ke->modifiers()).toString().toStdString();
   QAction *action = CommandManager::instance()->getActionFromShortcut(keyStr);
   if (!action) return QLineEdit::eventFilter(obj, e);
 

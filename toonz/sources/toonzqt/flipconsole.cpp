@@ -46,6 +46,7 @@
 #include <QPushButton>
 #include <QScrollBar>
 #include <QTimer>
+#include <QActionGroup>
 
 // STD includes
 #include <algorithm>

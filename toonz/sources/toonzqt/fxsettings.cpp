@@ -47,6 +47,7 @@
 #include <QUrl>
 #include <QGuiApplication>
 #include <QScreen>
+#include <QActionGroup>
 
 using namespace DVGui;
 
@@ -964,8 +965,8 @@ QSize ParamsPage::getPreferredSize() {
   const int pinColumnWidth = m_macroFxIndex >= 0 ? 20 : 0;
   return QSize(maxLabelWidth + maxWidgetWidth + pinColumnWidth +
                    m_mainLayout->horizontalSpacing() +
-                   2 * m_mainLayout->margin(),
-               fieldsHeight + 2 * m_mainLayout->margin() +
+                   2 * m_mainLayout->contentsMargins().left(),
+               fieldsHeight + 2 * m_mainLayout->contentsMargins().top() +
                    31 /* spacing for the swatch */);
 }
 

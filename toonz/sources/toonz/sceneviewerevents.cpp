@@ -58,6 +58,7 @@
 #include "trasterimage.h"
 #include "tvectorimage.h"
 #include "tpalette.h"
+#include "toonzqt/qtcompat.h"
 
 // Qt includes
 #include <QUrl>
@@ -1304,7 +1305,7 @@ bool SceneViewer::event(QEvent *e) {
       TApp::instance()->getCurrentTool()->storeTool();
     }
 
-    std::string keyStr = QKeySequence(keyEvent->key() + keyEvent->modifiers())
+    std::string keyStr = keySequenceOf(keyEvent->key(), keyEvent->modifiers())
                              .toString()
                              .toStdString();
     QAction *action = CommandManager::instance()->getActionFromShortcut(keyStr);

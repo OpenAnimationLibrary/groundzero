@@ -21,6 +21,7 @@
 #include "tfxcachemanager.h"
 #include "tcacheresourcepool.h"
 #include "tpassivecachemanager.h"
+#include "toonzqt/qtcompat.h"
 
 #include <QEventLoop>
 #include <QCoreApplication>
@@ -797,7 +798,7 @@ void SwatchViewer::wheelEvent(QWheelEvent *event) {
 void SwatchViewer::keyPressEvent(QKeyEvent *event) {
   int key = event->key();
   std::string keyStr =
-      QKeySequence(key + event->modifiers()).toString().toStdString();
+      keySequenceOf(key, event->modifiers()).toString().toStdString();
   QAction *action = CommandManager::instance()->getActionFromShortcut(keyStr);
   if (action) {
     std::string actionId = CommandManager::instance()->getIdFromAction(action);

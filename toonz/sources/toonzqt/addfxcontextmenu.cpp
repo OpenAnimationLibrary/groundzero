@@ -33,6 +33,7 @@
 #include <QMenu>
 #include <QAction>
 #include <QStack>
+#include <QActionGroup>
 
 #include "pluginhost.h"
 #include <map>
