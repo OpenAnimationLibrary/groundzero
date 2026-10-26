@@ -88,7 +88,7 @@ there the FXs work in the mesh's space, on the Plastic-deformed image
 
 - `include/toonz/tdeformer.h`: `TDeformerSource`, the interface of the FXs that
   deform their Source with a `TDeformer`:
-  `std::unique_ptr<TDeformer> makeDeformer(double frame, const TAffine
+  `std::shared_ptr<const TDeformer> makeDeformer(double frame, const TAffine
   &placement) const`, which returns the deformer the FX applies at the frame
   (built as for a render whose affine is `placement`), or null when the FX
   leaves the Source unchanged. It is in toonzlib, which stdfx already links

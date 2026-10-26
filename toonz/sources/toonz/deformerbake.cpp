@@ -361,11 +361,11 @@ void bakeDeformers() {
     for (int i = 0; i < (int)fxs.size(); ++i) {
       const TDeformerSource *source =
           dynamic_cast<const TDeformerSource *>(fxs[i]);
-      std::unique_ptr<TDeformer> deformer(
-          source->makeDeformer(target.m_row, TAffine()));
+      std::shared_ptr<const TDeformer> deformer =
+          source->makeDeformer(target.m_row, TAffine());
       if (!deformer) continue;
 
-      stack->addLayer(std::shared_ptr<const TDeformer>(std::move(deformer)));
+      stack->addLayer(deformer);
       used[i] = true;
     }
 

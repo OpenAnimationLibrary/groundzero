@@ -95,11 +95,10 @@ private:
 public:
   // The deformer of the bones at frame, for Bake Deformers into Vector Level
   // (see TDeformerSource)
-  std::unique_ptr<TDeformer> makeDeformer(
+  std::shared_ptr<const TDeformer> makeDeformer(
       double frame, const TAffine &placement) const override {
-    if (isPassThrough(frame)) return nullptr;
-    return std::unique_ptr<TDeformer>(
-        new TBoneDeformer(getDeformer(frame, placement)));
+    std::vector<TPointD> rest;
+    return m_chain.buildDeformer(frame, placement, rest);
   }
 };
 

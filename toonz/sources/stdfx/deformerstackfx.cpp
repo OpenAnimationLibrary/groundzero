@@ -280,12 +280,12 @@ public:
   // The deformer of the layers at frame, for Bake Deformers into Vector
   // Level (see TDeformerSource): whatever layers buildStack() makes, which
   // are the envelope layers for now
-  std::unique_ptr<TDeformer> makeDeformer(
+  std::shared_ptr<const TDeformer> makeDeformer(
       double frame, const TAffine &placement) const override {
-    std::unique_ptr<TDeformerStack> stack(new TDeformerStack);
+    std::shared_ptr<TDeformerStack> stack = std::make_shared<TDeformerStack>();
     std::vector<TPointD> rest;
     if (!buildStack(frame, placement, *stack, rest)) return nullptr;
-    return std::unique_ptr<TDeformer>(stack.release());
+    return stack;
   }
 };
 

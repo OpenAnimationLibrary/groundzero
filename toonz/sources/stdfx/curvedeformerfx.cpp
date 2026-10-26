@@ -89,12 +89,10 @@ private:
 public:
   // The deformer of the curve at frame, for Bake Deformers into Vector Level
   // (see TDeformerSource)
-  std::unique_ptr<TDeformer> makeDeformer(
+  std::shared_ptr<const TDeformer> makeDeformer(
       double frame, const TAffine &placement) const override {
-    std::unique_ptr<TCurveDeformer> deformer;
     std::vector<TPointD> rest;
-    if (!buildDeformer(frame, placement, deformer, rest)) return nullptr;
-    return std::unique_ptr<TDeformer>(deformer.release());
+    return m_curve.buildDeformer(frame, placement, rest);
   }
 };
 

@@ -98,7 +98,7 @@ public:
   //! fx's space (that of the Source column's drawings) to the deformer's
   //! plane, and the identity gives the deformer in the fx's space. Returns
   //! null when the fx leaves its Source unchanged at frame.
-  virtual std::unique_ptr<TDeformer> makeDeformer(
+  virtual std::shared_ptr<const TDeformer> makeDeformer(
       double frame, const TAffine &placement) const = 0;
 };
 
