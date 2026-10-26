@@ -172,8 +172,12 @@ jobs:
         # images
         echo 'set man-db/auto-update false' | sudo debconf-communicate >/dev/null || true
         sudo rm -f /var/lib/man-db/auto-update
-        sudo apt-get update
-        sudo apt-get install -y build-essential cmake pkg-config ninja-build ccache libboost-all-dev qt6-base-dev qt6-base-dev-tools qt6-declarative-dev qt6-declarative-dev-tools qt6-5compat-dev qt6-tools-dev qt6-tools-dev-tools qt6-l10n-tools qt6-multimedia-dev qt6-wayland qt6-svg-dev qt6-serialport-dev libsuperlu-dev liblz4-dev libusb-1.0-0-dev liblzo2-dev libpng-dev libjpeg-dev libglew-dev freeglut3-dev libfreetype-dev libjson-c-dev libmypaint-dev libopencv-dev libturbojpeg0-dev libomp-dev
+        timeout 300 sudo apt-get update -q || echo '::warning title=Qt 6 packages::apt-get update failed or timed out'
+        # Report where it stops if it hangs again
+        if ! timeout 1200 sudo apt-get install -y -q -o Dpkg::Use-Pty=0 build-essential cmake pkg-config ninja-build ccache libboost-all-dev qt6-base-dev qt6-base-dev-tools qt6-declarative-dev qt6-declarative-dev-tools qt6-5compat-dev qt6-tools-dev qt6-tools-dev-tools qt6-l10n-tools qt6-multimedia-dev qt6-wayland qt6-svg-dev qt6-serialport-dev libsuperlu-dev liblz4-dev libusb-1.0-0-dev liblzo2-dev libpng-dev libjpeg-dev libglew-dev freeglut3-dev libfreetype-dev libjson-c-dev libmypaint-dev libopencv-dev libturbojpeg0-dev libomp-dev > apt.log 2>&1; then
+          echo "::error title=Qt 6 packages::$(tail -n 15 apt.log | sed -e ':a;N;$!ba;s/\n/%0A/g')"
+          exit 1
+        fi
 
     - name: Set up cache
       run: mkdir -p /home/runner/.ccache
