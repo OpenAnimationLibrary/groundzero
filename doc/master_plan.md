@@ -133,7 +133,7 @@ was written):
 | # | Delivered | Still partial |
 |---|---|---|
 | C1 | Already satisfied; no code | none |
-| C2 | Port filter field in the FX Schematic toolbar | Rig view port rows are not filtered |
+| C2 | "Filter ports" field in the FX Schematic toolbar (input ports) and in the Stage Schematic toolbar while the Rig view is on (published channel rows, packed again; `doc/rig_view.md`) | FX output ports and group/macro editors not filtered; hidden FX port rows leave a gap |
 | C3 | "Compress Scene Files" preference (LZ4, default off), save-safety check, hardened compressed reader, round-trip test (`doc/compact_scene.md`) | Whole-file compression, no separate binary format; older builds cannot open compressed scenes |
 | C4 | Convert Brush Strokes to Outline Shapes (`doc/contour_editor.md`) | One way; closed brush strokes skipped; no new stroke model |
 | C5 | `TShapeAwareDeformer` and Shape Aware Deformer FX (`doc/shape_aware_deformer.md`) | Raster warp only; fixed handle counts in the FX; not a Deformer Stack FX layer |

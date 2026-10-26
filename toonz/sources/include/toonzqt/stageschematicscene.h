@@ -110,6 +110,8 @@ class StageSchematicScene final : public SchematicScene {
   // Rig view: display only, off by default and not saved
   bool m_rigViewEnabled = false;
   QString m_rigFilter;
+  //! The port filter: the published channel rows it keeps (in memory only)
+  QString m_rigPortFilter;
   //! The texts of the Rig view items of each node, matched by the filter
   QMap<TStageObjectId, QStringList> m_rigSearchText;
 
@@ -176,6 +178,10 @@ private:
   //! Shows only the nodes whose name, or the text of one of their Rig view
   //! items, contains the Rig view filter text.
   void applyRigFilter();
+  //! Shows only the published channel rows whose name contains the Rig view
+  //! port filter text, and stacks the rows of each node again with no gap.
+  //! The nodes are not hidden.
+  void applyRigPortFilter();
   //! Refreshes the values of the published channel rows (Rig view).
   void refreshRigPorts();
 
@@ -282,6 +288,9 @@ protected slots:
   void onRigViewToggled(bool enabled);
   //! Hides the nodes that do not match \b text (Rig view only).
   void onRigFilterChanged(const QString &text);
+  //! Hides the published channel rows that do not match \b text (Rig view
+  //! only).
+  void onRigPortFilterChanged(const QString &text);
   //! Refreshes the published channel values on the frame change (Rig view).
   void onRigFrameSwitched();
 };

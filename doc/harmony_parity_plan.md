@@ -14,7 +14,7 @@
 
 | Feature | Tier | Status | What exists (file refs) | Gap |
 |---|---|---|---|---|
-| Rigs built in a node view | P | Partial | Peg hierarchy in the Stage Schematic (`toonzqt/stageschematicscene.cpp`). Compositing in the FX Schematic. A Plastic deformation hangs off a stage object (`TStageObject::getPlasticSkeletonDeformation`, `include/toonz/tstageobject.h:419`) and reaches the render through an internal `PlasticDeformerFx` (`include/toonz/plasticdeformerfx.h`). | Deformers are not nodes. There is no single graph with pegs, deformers, drawings and composites, and no port filtering. |
+| Rigs built in a node view | P | Partial | Peg hierarchy in the Stage Schematic (`toonzqt/stageschematicscene.cpp`). Compositing in the FX Schematic. A Plastic deformation hangs off a stage object (`TStageObject::getPlasticSkeletonDeformation`, `include/toonz/tstageobject.h:419`) and reaches the render through an internal `PlasticDeformerFx` (`include/toonz/plasticdeformerfx.h`). | Deformers are not nodes. There is no single graph with pegs, deformers, drawings and composites. |
 | Pegs, with X/Y/Z and 3D path | E/A/P | Y | Pegbars, the Animate tool, spline paths (`T_Path`). Two new tilt channels, `T_RotX`/`T_RotY` (`tstageobject.h:134`), which scripts can also reach. | 3D rotation is only card-style tilt. There is no quaternion 3D path. |
 | Bone deformer | P | Partial | Plastic mesh and skeleton with rigidity painting (`tnzext/plasticdeformer.cpp`, `plasticdeformerstorage.cpp`). The Plastic tool now has IK (`tnztools/plastictool_animate.cpp:156`, which uses `IKEngine`). Distort > Bone Deformer (`stdfx/bonedeformerfx.cpp`) needs no mesh: a chain of 4 bones through 5 animatable joints and their rest pose, each bone with a capsule region of influence (inner and outer radius, smoothstep falloff), blended by linear blend skinning through `TBoneDeformer` (`include/toonz/tbonedeformer.h`) on the raster `TDeformer` layer. | The FX has a fixed chain of 4 bones (the class takes any tree, parents before children). Bones are rigid, with no stretch, and a strong bend collapses the joint as in any linear blend skinning. The warp resamples the rendered raster, not the strokes. Weights come from the radii, not from painting, and it is not a layer of the Deformer Stack FX yet. Plastic stays the mesh path. |
 | Game Bone | P | Partial | Spine JSON export maps the peg and column hierarchy, the "H0:" vertex links and drawing swaps to bones, slots and attachments (`toonz/spineexport.cpp`). A column whose parent is a mesh column with a Plastic deformation is exported as an unweighted mesh attachment (hull first, uvs over the padded drawing), with `deform` timelines of the per vertex offsets of the baked Plastic deformation. | Mesh weights (bone skinning) are not exported, only the baked vertex offsets, and neither is the faces' stacking order. An animated texture placement relative to the mesh column moves the texture with the mesh instead of sliding it. `TBoneDeformer` is a rigid bone deformer with parents and regions of influence that a game export can read, but nothing exports it yet (master plan A9). |
@@ -73,7 +73,7 @@
 
 | Feature | Tier | Status | What exists | Gap |
 |---|---|---|---|---|
-| Node compositing | P | Y | FX Schematic with multiple outputs. | No port filtering. |
+| Node compositing | P | Y | FX Schematic with multiple outputs. | The output ports are not filtered (the input ports are, master plan C2). |
 | Tone / Highlight | A/P | Y | `ToneHighlightFx` (`stdfx/tonehighlightfx.cpp:91`): matte input, softness, and a correct affine for soft edges. **Xsheet > Add Tone / Highlight Shading** inserts a Tone and a Highlight Fx with preset colours on the selected columns, as one undo step (`toonz/tonehighlightcommand.cpp`). | The matte ports are left for you to connect; no automatic line-art matte. |
 | Glow, Blur, Bokeh | A/P | Y | Existing Iwa effects. | n/a |
 | Cutter and Matte | A/P | Y | Matte In and Matte Out. | n/a |
@@ -108,11 +108,11 @@
 | Autosave and backup | Y | Recovery folder plus crash recovery on next launch (`toonz/autosaverecovery.cpp`). | n/a |
 | Annotation column | Y | "New Annotation Column" makes a Note Level column (`toonz/xsheetcmd.cpp:1128`). | No drawing directly in the annotation cells. |
 | Lock Timeline Ruler (H25) | N | Nothing. | Small. |
-| Port filtering in the node view (H24) | N | Nothing. | Small once 2.4 exists. |
+| Port filtering in the node view (H24) | Y | "Filter ports" field in the FX Schematic toolbar (input ports) and in the Stage Schematic Rig view (published channel rows), in memory only (`doc/rig_view.md`, master plan C2). | FX output ports and group/macro editors are not filtered. |
 | Performance anti-aliasing (H25) | N | Nothing. | Needs the GL renderer (item F2). |
 | Rooms and workspaces | Y | Existing. | n/a |
 
-**Overall count** over the 73 rows above: about 38 Y, 23 Partial and 12 N. The N count includes 3 new UI rows the catalogue did not rate. At the time of the catalogue it was about 22 Y, 28 Partial and 25 N. Nearly every remaining Partial is in rigging, GPU and 3D, and each of those depends on one of the foundations in section 3.
+**Overall count** over the 73 rows above: about 39 Y, 23 Partial and 11 N. The N count includes 3 new UI rows the catalogue did not rate. At the time of the catalogue it was about 22 Y, 28 Partial and 25 N. Nearly every remaining Partial is in rigging, GPU and 3D, and each of those depends on one of the foundations in section 3.
 
 ---
 
