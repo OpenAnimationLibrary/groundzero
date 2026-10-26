@@ -1,15 +1,18 @@
 // The classes of the opentoonz Python module (built only with the CMake
-// option WITH_PYTHON): Scene, Level and StageObject, with the API of the
-// JavaScript classes of the same name (see scriptbinding_scene.h,
-// scriptbinding_level.h and scriptbinding_stageobject.h), on the same toonzlib
-// calls. As in the JavaScript binding, the scenes of the scripts aren't the
-// one of the UI, and their changes are not undoable.
+// option WITH_PYTHON): Image, Scene, Level and StageObject, with the API of
+// the JavaScript classes of the same name (see scriptbinding_image.h,
+// scriptbinding_scene.h, scriptbinding_level.h and
+// scriptbinding_stageobject.h), on the same toonzlib calls. As in the
+// JavaScript binding, the scenes of the scripts aren't the one of the UI, and
+// their changes are not undoable.
 
 // must be the first include (see pythonbinding.h)
 #include "pythonbinding.h"
 
 // TnzLib includes
+#include "toonz/scriptbinding_image.h"
 #include "toonz/scriptbinding_level.h"
+#include "toonz/scriptbinding_renderer.h"
 #include "toonz/scriptbinding_scene.h"
 #include "toonz/scriptbinding_stageobject.h"
 #include "toonz/toonzscene.h"
@@ -29,6 +32,9 @@
 #include "tfiletype.h"
 #include "tfilepath.h"
 #include "tsystem.h"
+#include "traster.h"
+#include "trasterimage.h"
+#include "ttoonzimage.h"
 
 // Qt includes
 #include <QJSValue>
@@ -50,6 +56,7 @@ namespace PythonBinding {
 namespace {
 
 typedef std::shared_ptr<ToonzScene> ScenePtr;
+typedef TScriptBinding::Image JsImage;
 typedef TScriptBinding::Scene JsScene;
 typedef TScriptBinding::Level JsLevel;
 typedef TScriptBinding::StageObject JsStageObject;
@@ -165,6 +172,113 @@ TFrameId getFid(const py::handle &arg, QString &err) {
 QString getIdName(const TStageObjectId &id) {
   return QString::fromStdString(id.toString());
 }
+
+//=============================================================================
+// Image
+
+class ImageWrapper {
+public:
+  TImageP m_img;
+
+  ImageWrapper() {}
+  explicit ImageWrapper(const TImageP &img) : m_img(img) {}
+
+  // the JavaScript Image gives the same descriptions of the image
+  QString toString() const { return JsImage(m_img).toString(); }
+  QString getType() const { return JsImage::getTypeName(m_img); }
+  int getWidth() const { return JsImage(m_img).getWidth(); }
+  int getHeight() const { return JsImage(m_img).getHeight(); }
+  double getDpi() const { return JsImage(m_img).getDpi(); }
+
+  void setDpi(double dpi) {
+    QString err = JsImage::changeDpi(m_img, dpi);
+    if (!err.isEmpty()) raiseError(PyExc_ValueError, err);
+  }
+
+  static QColor getColor(const py::handle &arg) {
+    QColor color;
+    QString name = toQString(arg);
+    color.setNamedColor(name);
+    if (!color.isValid())
+      raiseError(PyExc_ValueError,
+                 QObject::tr("%1 is not a valid color (valid color names are "
+                             "'red', 'transparent', '#FF8800', etc.)")
+                     .arg(name));
+    return color;
+  }
+
+  std::string getPixel(int x, int y) const {
+    QColor color;
+    QString err = JsImage::readPixel(m_img, x, y, color);
+    if (!err.isEmpty()) raiseError(PyExc_ValueError, err);
+    return toStd(color.name(QColor::HexArgb));
+  }
+
+  void setPixel(int x, int y, const py::handle &colorArg) {
+    QColor color = getColor(colorArg);
+    QString err  = JsImage::writePixel(m_img, x, y, color);
+    if (!err.isEmpty()) raiseError(PyExc_ValueError, err);
+  }
+
+  void fill(const py::handle &colorArg) {
+    QColor color = getColor(colorArg);
+    QString err  = JsImage::fillImage(m_img, color);
+    if (!err.isEmpty()) raiseError(PyExc_ValueError, err);
+  }
+
+  ImageWrapper clone() const {
+    if (!m_img)
+      raiseError(PyExc_RuntimeError, JsImage::tr("Can't clone an empty image"));
+    return ImageWrapper(TImageP(m_img->cloneImage()));
+  }
+
+  void load(const py::handle &arg) {
+    // as Image.load() of the JavaScript binding
+    m_img         = TImageP();
+    QString fpStr = getPathText(arg);
+    TFilePath fp(fpStr.toStdWString());
+    if (!doesExist(fp))
+      raiseError(PyExc_FileNotFoundError,
+                 JsImage::tr("File %1 doesn't exist").arg(fpStr));
+    QString warningText;
+    QString err = JsImage::loadImage(fp, fpStr, m_img, warningText);
+    if (!err.isEmpty()) raiseError(PyExc_OSError, err);
+    if (!warningText.isEmpty() &&
+        PyErr_WarnEx(PyExc_UserWarning, warningText.toUtf8().constData(), 1) <
+            0)
+      throw py::error_already_set();
+  }
+
+  void save(const py::handle &arg) {
+    if (!m_img)
+      raiseError(PyExc_RuntimeError, JsImage::tr("Can't save an empty image"));
+    QString fpStr = getPathText(arg);
+    TFilePath fp(fpStr.toStdWString());
+    QString err = JsImage::saveImage(m_img, fp, fpStr);
+    if (!err.isEmpty()) raiseError(PyExc_OSError, err);
+  }
+
+  // an empty (transparent) Raster or ToonzRaster image
+  static ImageWrapper create(int width, int height, const QString &type) {
+    if (width <= 0 || height <= 0)
+      raiseError(PyExc_ValueError,
+                 QString("Bad size (%1 x %2)").arg(width).arg(height));
+    if (type == "Raster") {
+      TRaster32P ras(width, height);
+      ras->clear();
+      return ImageWrapper(TRasterImageP(ras));
+    } else if (type == "ToonzRaster") {
+      TRasterCM32P ras(width, height);
+      ras->clear();
+      return ImageWrapper(
+          TToonzImageP(ras, TRect(0, 0, width - 1, height - 1)));
+    }
+    raiseError(PyExc_ValueError,
+               JsImage::tr("Bad image type (%1): should be 'Raster' or "
+                           "'ToonzRaster'")
+                   .arg(type));
+  }
+};
 
 //=============================================================================
 // Level
@@ -325,6 +439,99 @@ public:
     }
     if (!err.isEmpty())
       raiseError(PyExc_OSError, JsLevel::tr("Exception writing %1").arg(err));
+  }
+
+  // The image of a frame (the image of the level itself: after changing it,
+  // setFrame() marks the level as modified)
+  py::object getFrame(const py::handle &fidArg) {
+    if (getFrameCount() == 0)
+      raiseError(PyExc_RuntimeError, "An empty level has no frames");
+    QString err;
+    TFrameId fid = getFid(fidArg, err);
+    if (!err.isEmpty()) raiseError(PyExc_ValueError, err);
+    TImageP img = getSimpleLevel()->getFrame(fid, false);
+    if (!img) return py::none();
+    return py::cast(ImageWrapper(img));
+  }
+
+  py::object getFrameByIndex(int index) {
+    if (getFrameCount() == 0)
+      raiseError(PyExc_RuntimeError, "An empty level has no frames");
+    if (index < 0 || index >= getFrameCount())
+      raiseError(PyExc_IndexError,
+                 JsLevel::tr("frame index (%1) is out of range (0-%2)")
+                     .arg(index)
+                     .arg(getFrameCount() - 1));
+    TImageP img =
+        getSimpleLevel()->getFrame(getSimpleLevel()->index2fid(index), false);
+    if (!img) return py::none();
+    return py::cast(ImageWrapper(img));
+  }
+
+  // as Level.setFrame() of the JavaScript binding, but the level can't be
+  // empty (it has to belong to a scene: see Scene.newLevel())
+  void setFrame(const py::handle &fidArg, const py::handle &imageArg) {
+    QString err;
+    TFrameId fid = getFid(fidArg, err);
+    if (!err.isEmpty()) raiseError(PyExc_ValueError, err);
+    if (!py::isinstance<ImageWrapper>(imageArg))
+      raiseError(PyExc_TypeError,
+                 JsLevel::tr("second argument (%1) is not an image")
+                     .arg(describe(imageArg)));
+    TImageP img = imageArg.cast<ImageWrapper &>().m_img;
+    if (!img) raiseError(PyExc_ValueError, "Can't insert an empty image");
+
+    QString imgType = JsImage::getTypeName(img);
+    int levelType   = NO_XSHLEVEL;
+    if (imgType == "ToonzRaster")
+      levelType = TZP_XSHLEVEL;
+    else if (imgType == "Raster")
+      levelType = OVL_XSHLEVEL;
+    else if (imgType == "Vector")
+      levelType = PLI_XSHLEVEL;
+    else
+      raiseError(
+          PyExc_ValueError,
+          JsLevel::tr("cannot insert a %1 image into a level").arg(imgType));
+    TXshSimpleLevel *sl = getSimpleLevel();
+    if (!sl)
+      raiseError(PyExc_RuntimeError,
+                 "Can't add frames to an empty level: create the level with "
+                 "Scene.newLevel()");
+    if (m_type != levelType)
+      raiseError(PyExc_ValueError,
+                 JsLevel::tr("cannot insert a %1 image to a %2 level")
+                     .arg(imgType, getType()));
+
+    if (sl->getFrameCount() == 0) sl->setPalette(img->getPalette());
+    sl->setFrame(fid, img);
+    sl->setDirtyFlag(true);
+  }
+
+  bool hasFrame(const py::handle &fidArg) const {
+    QString err;
+    TFrameId fid = getFid(fidArg, err);
+    if (!err.isEmpty()) raiseError(PyExc_ValueError, err);
+    return getSimpleLevel() && getSimpleLevel()->isFid(fid);
+  }
+
+  // does nothing if the level has not the frame; the cells of the scenes
+  // that use it are not changed
+  void removeFrame(const py::handle &fidArg) {
+    QString err;
+    TFrameId fid = getFid(fidArg, err);
+    if (!err.isEmpty()) raiseError(PyExc_ValueError, err);
+    if (getSimpleLevel() && getSimpleLevel()->isFid(fid)) {
+      getSimpleLevel()->eraseFrame(fid);
+      getSimpleLevel()->setDirtyFlag(true);
+    }
+  }
+
+  // returns the id of the new frame
+  std::string appendFrame(const py::handle &imageArg) {
+    TFrameId fid = JsLevel::nextFrameId(getSimpleLevel());
+    setFrame(py::int_(fid.getNumber()), imageArg);
+    return fid.expand();
   }
 };
 
@@ -640,6 +847,36 @@ public:
     getXsheet()->removeColumn(col);
   }
 
+  py::list getColumns() const {
+    py::list result;
+    for (int i = 0; i < getXsheet()->getColumnCount(); ++i) {
+      JsScene::ColumnInfo info = JsScene::getColumnInfo(m_scene.get(), i);
+      py::dict column;
+      column["index"]    = py::int_(info.m_index);
+      column["id"]       = py::str(toStd(info.m_id));
+      column["name"]     = py::str(toStd(info.m_name));
+      column["type"]     = py::str(toStd(info.m_type));
+      column["firstRow"] = py::int_(info.m_firstRow);
+      column["lastRow"]  = py::int_(info.m_lastRow);
+      result.append(column);
+    }
+    return result;
+  }
+
+  ImageWrapper renderFrame(int frame) {
+    int count = m_scene->getFrameCount();
+    if (frame < 0 || frame >= count)
+      raiseError(PyExc_ValueError,
+                 JsScene::tr("Frame %1 is out of range: the scene has %2 "
+                             "frames (the first is 0)")
+                     .arg(frame)
+                     .arg(count));
+    TImageP img =
+        TScriptBinding::Renderer::renderFrameImage(m_scene.get(), frame);
+    if (!img) raiseError(PyExc_RuntimeError, JsScene::tr("Render failed"));
+    return ImageWrapper(img);
+  }
+
   StageObjectWrapper getStageObject(const QString &name) {
     TStageObject *obj = JsStageObject::findStageObject(getXsheet(), name);
     if (!obj)
@@ -687,6 +924,59 @@ std::function<py::object(py::object, Args...)> chain(
 void bindClasses(py::module_ &m) {
   typedef const py::handle &Arg;
 
+  py::class_<ImageWrapper>(
+      m, "Image",
+      "An image: Image() is empty, Image(path) loads the file, "
+      "Image.create(width, height) makes a transparent Raster image. The "
+      "images of a Level are given by Level.getFrame() and "
+      "getFrameByIndex(), the ones of a rendering by Scene.renderFrame(). "
+      "The pixels are in the Raster images only, with the colors as strings "
+      "(\"red\", \"#ff8800\", and \"#AARRGGBB\" when alpha is not 255); "
+      "(0, 0) is the lower left corner.")
+      .def(py::init([](const py::object &path) {
+             std::unique_ptr<ImageWrapper> image(new ImageWrapper());
+             if (!path.is_none()) image->load(path);
+             return image;
+           }),
+           py::arg("path") = py::none())
+      .def_static(
+          "create",
+          [](int width, int height, const std::string &type) {
+            return ImageWrapper::create(width, height,
+                                        QString::fromStdString(type));
+          },
+          py::arg("width"), py::arg("height"), py::arg("type") = "Raster",
+          "A transparent image (type: Raster or ToonzRaster)")
+      .def("__str__", [](const ImageWrapper &i) { return toStd(i.toString()); })
+      .def(
+          "__repr__",
+          [](const ImageWrapper &i) { return toStd("<" + i.toString() + ">"); })
+      .def_property_readonly(
+          "type", [](const ImageWrapper &i) { return toStd(i.getType()); },
+          "Empty, Vector, ToonzRaster or Raster")
+      .def_property_readonly("width", &ImageWrapper::getWidth)
+      .def_property_readonly("height", &ImageWrapper::getHeight)
+      .def_property("dpi", &ImageWrapper::getDpi, &ImageWrapper::setDpi,
+                    "The dpi of the Raster and ToonzRaster images")
+      .def("getPixel", &ImageWrapper::getPixel, py::arg("x"), py::arg("y"),
+           "The color of a pixel of a Raster image, as a string")
+      .def(
+          "setPixel",
+          [](py::object self, int x, int y, Arg color) {
+            self.cast<ImageWrapper &>().setPixel(x, y, color);
+            return self;
+          },
+          py::arg("x"), py::arg("y"), py::arg("color"),
+          "Sets the color of a pixel of a Raster image; returns the image")
+      .def("fill", chain(&ImageWrapper::fill), py::arg("color"),
+           "Fills a Raster image with the color; returns the image")
+      .def("clone", &ImageWrapper::clone, "A copy of the image")
+      .def("load", chain(&ImageWrapper::load), py::arg("path"),
+           "Loads the image file; returns the image")
+      .def("save", chain(&ImageWrapper::save), py::arg("path"),
+           "Saves the image to a file of a compatible type; returns the "
+           "image");
+
   py::class_<LevelWrapper>(
       m, "Level",
       "A level: Level() is empty, Level(path) loads the file. The levels of a "
@@ -715,6 +1005,20 @@ void bindClasses(py::module_ &m) {
                              "The path of the level file (None if empty)")
       .def("getFrameIds", &LevelWrapper::getFrameIds,
            "The frame ids, as strings")
+      .def("getFrame", &LevelWrapper::getFrame, py::arg("fid"),
+           "The image of the frame (e.g. 1 or \"1a\"), or None. After "
+           "changing it, give it to setFrame()")
+      .def("getFrameByIndex", &LevelWrapper::getFrameByIndex, py::arg("index"),
+           "The image of the frame at the index (from 0)")
+      .def("setFrame", chain(&LevelWrapper::setFrame), py::arg("fid"),
+           py::arg("image"),
+           "Sets the image of a frame, which is added if the level has not "
+           "it; returns the level")
+      .def("hasFrame", &LevelWrapper::hasFrame, py::arg("fid"))
+      .def("removeFrame", chain(&LevelWrapper::removeFrame), py::arg("fid"),
+           "Removes the frame, if the level has it; returns the level")
+      .def("appendFrame", &LevelWrapper::appendFrame, py::arg("image"),
+           "Adds the image after the last frame; returns the frame id")
       .def("load", chain(&LevelWrapper::load), py::arg("path"),
            "Loads the level file; returns the level")
       .def("save", chain(&LevelWrapper::save), py::arg("path"),
@@ -861,6 +1165,13 @@ void bindClasses(py::module_ &m) {
       .def("getCell", &SceneWrapper::getCell, py::arg("row"), py::arg("col"),
            "The cell as a dict {\"level\": Level, \"fid\": int or str}, or "
            "None if empty")
+      .def("getColumns", &SceneWrapper::getColumns,
+           "The columns, as dicts with the keys index, id, name, type "
+           "(Level, Sound, SoundText, Zerary, Palette, Mesh or Empty), "
+           "firstRow and lastRow (-1 if the column has no cells)")
+      .def("renderFrame", &SceneWrapper::renderFrame, py::arg("frame"),
+           "Renders the frame (from 0) with the output settings of the "
+           "scene; returns an Image")
       .def("insertColumn", chain(&SceneWrapper::insertColumn), py::arg("col"))
       .def("deleteColumn", chain(&SceneWrapper::deleteColumn), py::arg("col"))
       .def(

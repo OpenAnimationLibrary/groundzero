@@ -242,6 +242,53 @@ void testStageObjects(Console &console) {
   expect(console, "str(col2)", "'StageObject (removed)'\n");
 }
 
+void testImagesLevelsScene(Console &console) {
+  run(console, "im = opentoonz.Image.create(4, 3)");
+  expect(console, "print(im, im.type, im.width, im.height)",
+         "Raster image ( 4 x 3 ) Raster 4 3\n");
+  run(console, "_ = im.fill('#336699').setPixel(1, 1, 'red')");
+  expect(console, "[im.getPixel(0, 0), im.getPixel(1, 1)]",
+         "['#ff336699', '#ffff0000']\n");
+  run(console, "im2 = im.clone(); _ = im2.fill('#00000000')");
+  expect(console, "[im.getPixel(1, 1), im2.getPixel(1, 1)]",
+         "['#ffff0000', '#00000000']\n");
+  run(console, "im.dpi = 120");
+  expect(console, "im.dpi", "120.0\n");
+
+  run(console, "s = opentoonz.Scene(); lv = s.newLevel('Raster', 'L')");
+  expect(console,
+         "print(lv.hasFrame(1), lv.appendFrame(im), lv.appendFrame(im2), "
+         "lv.hasFrame(1), lv.frameCount)",
+         "False 0001 0002 True 2\n");
+  expect(console,
+         "print(lv.getFrame(1).getPixel(1, 1), "
+         "lv.getFrameByIndex(1).getPixel(1, 1))",
+         "#ffff0000 #00000000\n");
+  run(console, "_ = lv.removeFrame(1)");
+  expect(console, "print(lv.getFrameIds(), lv.frameCount)", "['0002'] 1\n");
+  run(console, "_ = s.setCell(1, 0, lv, 2)");
+  expect(console, "s.getColumns()",
+         "[{'index': 0, 'id': 'Col1', 'name': 'Col1', 'type': 'Level', "
+         "'firstRow': 1, 'lastRow': 1}]\n");
+
+  expectError(console, "im.getPixel(4, 0)",
+              "ValueError: Pixel (4, 0) is outside the image (4 x 3)");
+  expectError(console, "opentoonz.Image().getPixel(0, 0)",
+              "Pixels can be accessed only in Raster images, not in Empty "
+              "images");
+  expectError(console,
+              "opentoonz.Image.create(2, 2, 'ToonzRaster').fill('red')",
+              "not in ToonzRaster images");
+  expectError(console, "im.fill('notacolor')",
+              "notacolor is not a valid color");
+  expectError(console, "lv.appendFrame(42)",
+              "TypeError: second argument (42) is not an image");
+  expectError(console, "opentoonz.Level().setFrame(1, im)",
+              "RuntimeError: Can't add frames to an empty level");
+  expectError(console, "opentoonz.Scene().renderFrame(0)",
+              "ValueError: Frame 0 is out of range");
+}
+
 void testRunFile(Console &console, const QString &dirPath) {
   QString path = QDir(dirPath).filePath("test.py");
   {
@@ -332,6 +379,7 @@ int main(int argc, char *argv[]) {
     testFunctions(console);
     testScene(console);
     testStageObjects(console);
+    testImagesLevelsScene(console);
     testRunFile(console, dir.path());
   } catch (const std::exception &e) {
     std::cerr << "FAIL: " << e.what() << std::endl;

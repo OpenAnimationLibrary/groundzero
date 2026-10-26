@@ -2,6 +2,8 @@
 
 #include "toonz/scriptbinding_scene.h"
 #include "toonz/scriptbinding_level.h"
+#include "toonz/scriptbinding_image.h"
+#include "toonz/scriptbinding_renderer.h"
 #include "toonz/scriptbinding_files.h"
 #include "toonz/scriptbinding_stageobject.h"
 #include "toonz/txshleveltypes.h"
@@ -13,6 +15,7 @@
 #include "toonz/toonzscene.h"
 #include "toonz/txsheet.h"
 #include "toonz/txshcell.h"
+#include "toonz/txshcolumn.h"
 #include "toonz/levelset.h"
 #include "toonz/tstageobject.h"
 #include "toonz/tstageobjecttree.h"
@@ -223,6 +226,80 @@ QJSValue Scene::insertColumn(int col) {
 QJSValue Scene::deleteColumn(int col) {
   m_scene->getXsheet()->removeColumn(col);
   return self();
+}
+
+Scene::ColumnInfo Scene::getColumnInfo(ToonzScene *scene, int col) {
+  TXsheet *xsh = scene->getXsheet();
+  ColumnInfo info;
+  info.m_index = col;
+
+  TStageObjectId id = TStageObjectId::ColumnId(col);
+  info.m_id         = QString::fromStdString(id.toString());
+  TStageObject *obj = xsh->getStageObjectTree()->getStageObject(id, false);
+  info.m_name       = obj ? QString::fromStdString(obj->getName()) : info.m_id;
+
+  info.m_type        = "Empty";
+  TXshColumn *column = xsh->getColumn(col);
+  if (column) {
+    switch (column->getColumnType()) {
+    case TXshColumn::eLevelType:
+      info.m_type = "Level";
+      break;
+    case TXshColumn::eSoundType:
+      info.m_type = "Sound";
+      break;
+    case TXshColumn::eSoundTextType:
+      info.m_type = "SoundText";
+      break;
+    case TXshColumn::eZeraryFxType:
+      info.m_type = "Zerary";
+      break;
+    case TXshColumn::ePaletteType:
+      info.m_type = "Palette";
+      break;
+    case TXshColumn::eMeshType:
+      info.m_type = "Mesh";
+      break;
+    default:
+      info.m_type = "Unknown";
+      break;
+    }
+  }
+
+  int r0 = 0, r1 = -1;
+  xsh->getCellRange(col, r0, r1);
+  info.m_firstRow = r1 < r0 ? -1 : r0;
+  info.m_lastRow  = r1 < r0 ? -1 : r1;
+  return info;
+}
+
+QJSValue Scene::getColumns() {
+  int count       = getColumnCount();
+  QJSValue result = engine()->newArray((uint)count);
+  for (int i = 0; i < count; ++i) {
+    ColumnInfo info = getColumnInfo(m_scene, i);
+    QJSValue column = engine()->newObject();
+    column.setProperty("index", info.m_index);
+    column.setProperty("id", info.m_id);
+    column.setProperty("name", info.m_name);
+    column.setProperty("type", info.m_type);
+    column.setProperty("firstRow", info.m_firstRow);
+    column.setProperty("lastRow", info.m_lastRow);
+    result.setProperty(i, column);
+  }
+  return result;
+}
+
+QJSValue Scene::renderFrame(int frame) {
+  if (frame < 0 || frame >= getFrameCount())
+    return throwError(
+        tr("Frame %1 is out of range: the scene has %2 frames (the first "
+           "is 0)")
+            .arg(frame)
+            .arg(getFrameCount()));
+  TImageP img = Renderer::renderFrameImage(m_scene, frame);
+  if (!img) return throwError(tr("Render failed"));
+  return create(engine(), new Image(img));
 }
 
 QJSValue Scene::getStageObject(const QString &name) {

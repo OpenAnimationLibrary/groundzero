@@ -181,7 +181,9 @@ public:
     }
   }
   void onRenderFailure(const RenderData &renderData, TException &e) override {}
-  void onRenderFinished() { m_completed = true; }
+  void onRenderFinished(bool isCanceled = false) override {
+    m_completed = true;
+  }
 };  // class RenderEngine
 
 //=======================================================
@@ -337,6 +339,16 @@ return context()->throwError(tr("Render failed"));
 
 void Renderer::dumpCache() {
   TImageCache::instance()->outputMap(0, "C:\\Users\\gmt\\PLI\\cache.log");
+}
+
+TImageP Renderer::renderFrameImage(ToonzScene *scene, int row,
+                                   const QList<int> &columns) {
+  Imp imp;
+  imp.m_columnList = columns;
+  Image output;
+  imp.renderFrame(scene, row, &output);
+  imp.m_renderer.removePort(&imp);
+  return output.getImg();
 }
 
 }  // namespace TScriptBinding

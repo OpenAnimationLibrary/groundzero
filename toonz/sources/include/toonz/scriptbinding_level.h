@@ -48,6 +48,13 @@ public:
   Q_INVOKABLE QJSValue getFrame(const QJSValue &fid);
   Q_INVOKABLE QJSValue getFrameByIndex(const QJSValue &index);
   Q_INVOKABLE QJSValue setFrame(const QJSValue &fid, const QJSValue &image);
+  // True if the level has the frame fid
+  Q_INVOKABLE QJSValue hasFrame(const QJSValue &fid);
+  // Removes the frame fid, if the level has it (the cells of the scenes that
+  // use it are not changed)
+  Q_INVOKABLE QJSValue removeFrame(const QJSValue &fid);
+  // Adds the image after the last frame; returns the id of the new frame
+  Q_INVOKABLE QJSValue appendFrame(const QJSValue &image);
 
   // Level operations
   Q_INVOKABLE QJSValue getFrameIds();
@@ -62,7 +69,10 @@ public:
   // Accessor for underlying simple level
   TXshSimpleLevel *getSimpleLevel() const { return m_sl; }
 
-  // Static helper for parsing frame IDs
+  // Static helpers (shared with the Python binding). getFid() parses a frame
+  // id; nextFrameId() is the id of the frame appended after the last one of
+  // the level (sl can be 0)
+  static TFrameId nextFrameId(const TXshSimpleLevel *sl);
   static TFrameId getFid(const QJSValue &arg, QString &err);
 
 private:

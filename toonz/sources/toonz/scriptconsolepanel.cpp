@@ -10,7 +10,10 @@
 #include "toonz/toonzscene.h"
 #include "toonz/tproject.h"
 #include "toonz/tscenehandle.h"
+#include "toonz/txsheet.h"
 #include "toonz/txsheethandle.h"
+#include "toonz/tcolumnhandle.h"
+#include "toonz/tframehandle.h"
 #include "toonz/txshlevel.h"
 #include "toonz/txshsimplelevel.h"
 #include "toonzqt/selection.h"
@@ -23,6 +26,9 @@
 #include <QJSValue>
 #include <QFile>
 #include <QTextStream>
+
+#include <climits>
+#include <cmath>
 
 static QJSValue loadSceneFun(QJSEngine *engine, const QJSValueList &args) {
   if (args.size() > 0) {
@@ -66,6 +72,53 @@ static QJSValue loadLevelFun(QJSEngine *engine, const QJSValueList &args) {
     app->getCurrentXsheet()->notifyXsheetChanged();
   }
   return QJSValue();
+}
+
+QVariantMap getCurrentSceneInfo() {
+  TApp *app         = TApp::instance();
+  ToonzScene *scene = app->getCurrentScene()->getScene();
+  QVariantMap info;
+  if (!scene) return info;
+  info["name"] = QString::fromStdWString(scene->getSceneName());
+  info["path"] = QString::fromStdWString(
+      scene->decodeFilePath(scene->getScenePath()).getWideString());
+  info["untitled"]    = scene->isUntitled();
+  info["dirty"]       = app->getCurrentScene()->getDirtyFlag();
+  info["frameCount"]  = scene->getFrameCount();
+  info["columnCount"] = scene->getXsheet()->getColumnCount();
+  // 0-based, as the frames of the scripts
+  info["currentFrame"]  = app->getCurrentFrame()->getFrame();
+  info["currentColumn"] = app->getCurrentColumn()->getColumnIndex();
+  return info;
+}
+
+QString setCurrentSceneFrame(int frame) {
+  if (frame < 0)
+    return QObject::tr("Bad frame (%1): expected an integer >= 0").arg(frame);
+  TApp::instance()->getCurrentFrame()->setFrame(frame);
+  return "";
+}
+
+QString setCurrentSceneColumn(int column) {
+  TApp *app    = TApp::instance();
+  TXsheet *xsh = app->getCurrentXsheet()->getXsheet();
+  int count    = xsh ? xsh->getColumnCount() : 0;
+  if (column < 0 || column >= count)
+    return QObject::tr("Bad column (%1): the xsheet has %2 columns")
+        .arg(column)
+        .arg(count);
+  app->getCurrentColumn()->setColumnIndex(column);
+  return "";
+}
+
+// A non negative integer argument of a script function
+static bool getIndexArgument(const QJSValueList &args, int &value) {
+  if (args.size() != 1 || !args[0].isNumber()) return false;
+  double d = args[0].toNumber();
+  if (!std::isfinite(d) || d != std::floor(d) || d < 0 || d > INT_MAX)
+    return false;
+  value = (int)d;
+  return true;
 }
 
 static QJSValue dummyFun(QJSEngine *engine, const QJSValueList &args) {
@@ -141,6 +194,59 @@ def(teng, "loadLevel", loadLevelFun);
                          return viewFun(teng, engine, args);
                        });
   def(teng, "dummy", dummyFun);
+
+  // The scene open in the UI (see getCurrentSceneInfo()). The UI is used
+  // by the main thread, while the script waits.
+  teng->defineFunction(
+      "currentSceneInfo",
+      [teng](QJSEngine *engine, const QJSValueList &args) -> QJSValue {
+        if (!args.isEmpty()) {
+          engine->throwError(
+              QObject::tr("currentSceneInfo() takes no arguments"));
+          return QJSValue();
+        }
+        QVariantMap info;
+        teng->runOnMainThread([&info]() { info = getCurrentSceneInfo(); });
+        return engine->toScriptValue(info);
+      });
+  teng->defineFunction(
+      "setCurrentFrame",
+      [teng](QJSEngine *engine, const QJSValueList &args) -> QJSValue {
+        int frame = 0;
+        if (!getIndexArgument(args, frame)) {
+          engine->throwError(
+              QObject::tr("setCurrentFrame() expects a frame (an integer >= "
+                          "0, the first frame is 0)"));
+          return QJSValue();
+        }
+        QString err;
+        teng->runOnMainThread(
+            [&err, frame]() { err = setCurrentSceneFrame(frame); });
+        if (!err.isEmpty()) {
+          engine->throwError(err);
+          return QJSValue();
+        }
+        return teng->voidValue();
+      });
+  teng->defineFunction(
+      "setCurrentColumn",
+      [teng](QJSEngine *engine, const QJSValueList &args) -> QJSValue {
+        int column = 0;
+        if (!getIndexArgument(args, column)) {
+          engine->throwError(
+              QObject::tr("setCurrentColumn() expects a column (an integer "
+                          ">= 0, the first column is 0)"));
+          return QJSValue();
+        }
+        QString err;
+        teng->runOnMainThread(
+            [&err, column]() { err = setCurrentSceneColumn(column); });
+        if (!err.isEmpty()) {
+          engine->throwError(err);
+          return QJSValue();
+        }
+        return teng->voidValue();
+      });
 
   // teng->getQScriptEngine()->evaluate("console={version:'1.0'};function
   // version() {print('Toonz '+toonz.version+'\nscript '+script.version);};");

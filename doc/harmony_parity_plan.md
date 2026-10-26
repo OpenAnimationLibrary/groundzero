@@ -31,7 +31,7 @@
 | Drawing substitution and templates | E/A/P | Partial→Y | **Drawing Substitution panel** with an icon grid (`toonz/drawingsubstitutionpane.cpp`). **Save Selection as Template** (`toonz/subscenecommand.cpp`, `columnselection.cpp`). | No substitution slider in the viewer. Templates have no thumbnail browser. |
 | Symbols | E/A/P | Y | Symbols built on `TXshChildLevel`: a Symbols panel, insert by drag, and Once/Loop/Hold timing (`toonz/symbolcommand.h`, `symbolspane.cpp`). | Symbols live only in their own scene; there is no library shared between scenes. |
 | Cut-out character library | E/A/P | Partial | Library browser, rig templates, Poses. | No visual library of rigs and poses that you can drag from. |
-| Breakdown Pose Assistant (H25) | P | Y (narrow) | Breakdown keys with favour presets, including Anticipation -10% and Overshoot 110%, plus a custom value (`toonzqt/functionsheet.cpp:72`, `functionselection.cpp:713`). | Only in the Function Spreadsheet. No whole-rig breakdown from the Timeline, Xsheet or viewer. |
+| Breakdown Pose Assistant (H25) | P | Y (narrow) | Breakdown keys with favour presets, including Anticipation -10% and Overshoot 110%, plus a custom value (`toonzqt/functionsheet.cpp:72`, `functionselection.cpp:713`). | Function Spreadsheet, plus whole-rig Rig Breakdown commands in the Xsheet and Timeline (Cells menu and cell menu; `doc/rig_breakdown_ease.md`). Not in the viewer. |
 | Selection Lock (H27) | ? | Y | `TXshColumn::isSelectionLocked`, the command `MI_SelectionLockSelectedColumns` (`toonz/columncommand.cpp:1632`), and the viewer respects it. | Works per column, not per node. |
 | Nested groups | P | Partial | Nestable column groups in the Xsheet, built on stage-object groups (`toonz/columncommand.cpp`, `xshcolumnviewer.cpp`, an opt-in strip). | No group node with published ports. |
 
@@ -52,8 +52,8 @@
 | Morphing | A/P | Partial | Vector Inbetween now accepts **stroke-pairing hints** (`common/tvrender/tinbetween.cpp`, `tnztools/strokeselection.cpp:694`). The old `morphtool.cpp` was removed. | Automatic stroke matching, zone hints and a custom velocity curve are in the Inbetween dialog (`doc/morphing.md`). No vanishing-point hints. |
 | Shift & Trace | A/P | Y | Existing tool. | n/a |
 | Onion skin | E/A/P | Y | Existing. | n/a |
-| Light Table | E/A/P | Y | View > Light Table: every column except the current one at 30% (`toonzlib/stage.cpp`, `toonz/sceneviewer.cpp`). | Fixed at 30%; there is no per-column setting. |
-| Reference view and Mirror (H22/H27) | E/A/P | Y | **Reference panel** with pan, zoom, horizontal and vertical flip, and 90° rotation (`toonz/referencepanel.cpp`). | Shows one image only. 3D models can't be used as references. |
+| Light Table | E/A/P | Y | View > Light Table: every column except the current one faded (`toonzlib/stage.cpp`, `toonz/sceneviewer.cpp`). The opacity is a preference (Onion Skin page, default 30%), and a column can be excluded from it with a column-header command (`TXshColumn::isLightTableExcluded`, see `doc/light_table_extras.md`). | The opacity is global, not per column. The exclusion is saved in the column status word; older builds ignore it. |
+| Reference view and Mirror (H22/H27) | E/A/P | Y | **Reference panel** with pan, zoom, horizontal and vertical flip, 90° rotation and opacity (`toonz/referencepanel.cpp`). It lists several images, remembers the view of each, and shows the layers of a PSD file (see `doc/light_table_extras.md`). | PSD layers are shown one at a time (no visibility or blend modes). 3D models can't be used as references. |
 
 ### 1.3 Animation and timing
 
@@ -61,7 +61,7 @@
 |---|---|---|---|---|
 | Timeline and Xsheet | E/A/P | Y | Existing. | n/a |
 | Function curves | E/A/P | Y | Function Editor. | No quaternion rotation. |
-| Ease presets | E/A/P | Y | Six presets plus a Custom Ease applied to the selection (`toonzqt/functionsheet.cpp:57-125`). | Not available as Quick Ease buttons in the Timeline. |
+| Ease presets | E/A/P | Y | Six presets plus a Custom Ease applied to the selection (`toonzqt/functionsheet.cpp:57-125`). | Rig Ease commands for the selected columns and their children in the Xsheet and Timeline (`doc/rig_breakdown_ease.md`); no dedicated button strip. |
 | Interpolation types | E/A/P | Y | Existing. | n/a |
 | Motion paths in the viewer | E/A/P | Y | Animate tool's "Show Trajectory", with draggable markers for position keys (`tnztools/edittool.cpp:66-84`). | No velocity display, and no editing of the path's tangents in the viewer. |
 | Trajectory onion skin | ? | Y | Same feature. | n/a |
@@ -74,7 +74,7 @@
 | Feature | Tier | Status | What exists | Gap |
 |---|---|---|---|---|
 | Node compositing | P | Y | FX Schematic with multiple outputs. | No port filtering. |
-| Tone / Highlight | A/P | Y | `ToneHighlightFx` (`stdfx/tonehighlightfx.cpp:91`): matte input, softness, and a correct affine for soft edges. | No preset that drives it with a one-click line-art matte. |
+| Tone / Highlight | A/P | Y | `ToneHighlightFx` (`stdfx/tonehighlightfx.cpp:91`): matte input, softness, and a correct affine for soft edges. **Xsheet > Add Tone / Highlight Shading** inserts a Tone and a Highlight Fx with preset colours on the selected columns, as one undo step (`toonz/tonehighlightcommand.cpp`). | The matte ports are left for you to connect; no automatic line-art matte. |
 | Glow, Blur, Bokeh | A/P | Y | Existing Iwa effects. | n/a |
 | Cutter and Matte | A/P | Y | Matte In and Matte Out. | n/a |
 | Colour Override | P | Partial | `stdfx/colouroverridefx.cpp`, `ColourOverrideFxRenderData` applied in `tcolumnfx.cpp`: up to 8 style → colour pairs on Toonz Vector / Toonz Raster columns, each with a Replace / Multiply / Add mode (`modeN`, default Replace); a palette-swatch picker for the style ids in FX Settings (`IntParamField::enableStyleSwatch`, shows the current level's palette); display in the 2D viewer behind Preferences > Show Colour Override in the Viewer (off by default, `RasterPainter`). Older builds ignore `modeN` and treat every pair as Replace. | Only main colours (no style parameters or textures); the viewer shows only the Fxs that directly follow the column in the Xsheet (not the 3D view, not sub-xsheet columns); the picker shows the current level's palette. |
@@ -96,7 +96,7 @@
 | Python | P | Y (opt-in) | The `opentoonz` module and a console panel (`toonzlib/pythonbinding.cpp`, `toonz/pythonconsolepanel.cpp`). Built only with the CMake option `WITH_PYTHON`. | Same coverage as the JS API. Not in default builds. |
 | Harmony Server / database | separate product | Partial | SVN version control and the toonzfarm render farm. | Out of scope (see 3.4). |
 | Game export | P | Partial | Spine JSON export. | No mesh deformation export; no Unity or Godot path. |
-| Export formats | E/A/P | Y | Through an ffmpeg **pipe** (`image/ffmpeg/tiio_ffmpeg.cpp`), EXR, the **PSD writer** (one flattened PSD per frame, `image/psd/tiio_psd.cpp`), OCA, XDTS, xsheet PDF, animated SVG. | No layered PSD of a scene, no USD, no SWF. |
+| Export formats | E/A/P | Y | Through an ffmpeg **pipe** (`image/ffmpeg/tiio_ffmpeg.cpp`), EXR, the **PSD writer** (one flattened PSD per frame, `image/psd/tiio_psd.cpp`), the layered PSD scene export (one layer per top-level column, doc/layered_psd_export.md), OCA, XDTS, xsheet PDF, animated SVG. | No USD, no SWF. |
 | Storyboard Pro integration | E/A/P | Partial | XDTS and OCA. | Conforming from Storyboard Pro is proprietary. |
 | Compact file format | all | Partial | Optional LZ4-compressed `.tnz` (Preferences > Saving, off by default; doc/compact_scene.md). Levels already load their frames on demand. | No separate binary format; plain XML is parsed on load. |
 | AI (Ember) | add-on | N | Nothing. | Out of scope. |
@@ -170,13 +170,13 @@
 | # | Item | Size | Depends on | Approach | Risk | Realism |
 |---|---|---|---|---|---|---|
 | Q1 | Colour Override FX | M | none | A raster FX with a `TPaletteHandle`-like list of style ID → colour pairs, applied while a Toonz level renders (the External Palette Fx route), so remaps follow paint zones. Show palette swatches in the parameter editor. | Low to medium: needs the style IDs before flattening. | V |
-| Q2 | Whole-rig breakdown and Quick Ease in the Timeline and Xsheet | S | none | Reuse `FunctionSelection::insertBreakdowns(frame, favour)` over every animated channel of the selected columns. Add an Xsheet/Timeline context menu and toolbar buttons. | Low | V |
+| Q2 | Whole-rig breakdown and Quick Ease in the Timeline and Xsheet | S | none | Done in `t10/rig-ease`: `KeyframeSetter::insertBreakdown` / `setSegmentEase` (shared with the Function Spreadsheet) over every animated channel of the selected columns and their children, as Cells-menu and cell-menu commands. Toolbar buttons are available as separate commands to add to a command bar. | Low | V |
 | Q3 | Create Colour Art from Line Art | M | none | Copy closed Line Art stroke loops as zero-thickness strokes (the Colour Art role in `artlayer.h`), then rebuild regions with autoclose. | Low | V |
 | Q4 | Drawing-substitution slider and controller | S | none | A slider in the viewer or Tool Options that steps through the Drawing Substitution pane's frame list for the current cell. | Low | V |
 | Q5 | Lock Timeline Ruler; port filter in the FX Schematic | S | none | UI-only changes. | Low | V |
-| Q6 | Layered PSD scene export | M | none | One PSD per frame with one layer for each top-level column, written with the existing `TLevelWriterPsd` layer code. | Low | V |
-| Q7 | Light Table opacity and per-column exclusion | S | none | Make the 30% value a preference, and let a column be excluded from the Light Table. | Low | V |
-| Q8 | Tone/Highlight preset macro | S | none | A macro FX that uses the column's Line Art matte as the matte input. | Low | V |
+| Q6 | Layered PSD scene export | M | none | One PSD per frame with one layer for each top-level column, written with the existing `TLevelWriterPsd` layer code. **Built** (master plan E2): File > Export > Export Layered PSD renders each top-level column alone with the scene camera and writes `name_0001.psd`, ... with the new `writeLayeredPsd()` (`image/psd/tiio_psd.cpp`, shared with the single layer writer). See doc/layered_psd_export.md. | Low | V |
+| Q7 | Light Table opacity and per-column exclusion | S | none | Make the 30% value a preference, and let a column be excluded from the Light Table. | Low | V (done) |
+| Q8 | Tone/Highlight preset macro | S | none | A macro FX that uses the column's Line Art matte as the matte input. | Low | V (done, see `doc/light_table_extras.md`) |
 | Q9 | Retime/Hold/Loop as a time-remap curve | M | none | A per-level-column `TDoubleParam` time map, modelled on the `TXshSoundColumn` volume curve and evaluated in `getCell()`. | Medium: every `getCell` caller | V |
 | Q10 | Script API depth | M | none | Fx, column, cell and Plastic bindings in both `scriptbinding_*` and `pythonbinding.cpp`, with toolbar script buttons. | Low | V |
 
@@ -238,7 +238,7 @@ they are.
 
 1. **Colour Override FX (Q1): done in `tier6`, completed with a palette-swatch picker, Multiply / Add modes and viewer display (opt-in preference).** Next for it: style parameters and textures.
 2. **Rebase and merge the Qt 6 build abstraction (F1)**, dual-build, before the branch drifts further. QtScript is already gone.
-3. **Whole-rig breakdown and Quick Ease buttons in the Timeline and Xsheet (Q2).** Small, and it reuses `insertBreakdowns`.
+3. **Whole-rig breakdown and Quick Ease in the Timeline and Xsheet (Q2): done in `t10/rig-ease`.** See `doc/rig_breakdown_ease.md`.
 4. **Offset-layer channels (F5).** They turn the Poses panel into a live, stackable Attribute Controller and unblock R6 and R7.
 5. **Master Controller widgets (R6)** in the viewer, built on F5 and the `tgl::Batch` gadgets.
 6. **The `DeformerStack` interface (F3)**, with Plastic and Curve Bending ported as the first two implementations.

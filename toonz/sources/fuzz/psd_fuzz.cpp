@@ -10,8 +10,11 @@
 // viewer does. The seeds are written byte by byte here, since the PSD writer
 // of the image library is not exported on Windows.
 //
-// No known issues are listed yet: inputs that crash the reader are reported
-// as failures, with the commands that reproduce them.
+// No known issues are listed: inputs that crash the reader are reported as
+// failures, with the commands that reproduce them. The seeds include the
+// shapes that crashed it before (see doc/loader_known_issues.md): a one pixel
+// image, a 1 bit image of any width, fewer channels than the color mode
+// needs, and ZIP compressed layer channels.
 
 #include "fuzzdriver.h"
 
@@ -43,7 +46,7 @@ using otfuzz::Writer;
 //-----------------------------------------------------------------------------
 // Seeds
 
-const int kRaw = 0, kRle = 1;
+const int kRaw = 0, kRle = 1, kZip = 2, kZipPrediction = 3;
 
 //! Sample values; the right half of each row is a run, so that the RLE
 //! seeds hold both kinds of packet.
@@ -252,6 +255,29 @@ std::vector<Seed> makeSeeds(const QString &) {
   // A flat 16-bit grayscale image without layers.
   PsdSpec flat = {1, 4, 5, 16, ModeGrayScale, kRaw, false, {}};
   seeds.push_back(makePsd("gray16-flat", flat));
+
+  // One pixel: the shrink of a load is reduced to the image size.
+  PsdSpec dot = {4, 1, 1, 8, ModeRGBColor, kRaw, true, {}};
+  dot.m_layers.push_back({0, 0, 1, 1, rgba, "dot", 0, 0});
+  seeds.push_back(makePsd("rgba-1x1", dot));
+
+  // A 1 bit image whose width is not a multiple of 8.
+  PsdSpec bitmap = {1, 3, 13, 1, ModeBitmap, kRaw, false, {}};
+  seeds.push_back(makePsd("bitmap-odd-width", bitmap));
+
+  // An RGB image and layer with fewer channels than the mode needs.
+  PsdSpec thin = {1, 4, 5, 8, ModeRGBColor, kRaw, false, {}};
+  thin.m_layers.push_back({0, 0, 4, 5, {0}, "thin", 0, 0});
+  seeds.push_back(makePsd("rgb-one-channel", thin));
+
+  // Layer channels that claim to be ZIP compressed (2: without, 3: with
+  // prediction) but hold the row data of the other compressions.
+  for (int zip = kZip; zip <= kZipPrediction; ++zip) {
+    PsdSpec packed = {4, 3, 4, 8, ModeRGBColor, zip, true, {}};
+    packed.m_layers.push_back({0, 0, 3, 4, rgba, "zip", 0, 0});
+    seeds.push_back(
+        makePsd(zip == kZip ? "layer-zip" : "layer-zip-prediction", packed));
+  }
   return seeds;
 }
 

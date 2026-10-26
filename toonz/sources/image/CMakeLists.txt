@@ -14,6 +14,7 @@ set(HEADERS
     svg/tiio_svg.h
     tzl/tiio_tzl.h
     ../include/tnzimage.h
+    ../include/tpsdlayerwriter.h
     mov/tiio_mov_proxy.h
     3gp/tiio_3gp_proxy.h
     ffmpeg/tiio_gif.h

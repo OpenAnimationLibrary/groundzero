@@ -174,7 +174,23 @@ public:
   // void seekg(TUINT32 pos, ios_base::seek_dir type);
   void seekg(TUINT32 pos, int type);
   void read(char *m_buf, int length) {
-    fread((void *)m_buf, sizeof(char), length, m_fp);
+    if (length < 0)
+      throw TException("corrupted pli file: invalid length of data");
+    if (length == 0) return;
+    size_t count = fread((void *)m_buf, sizeof(char), length, m_fp);
+    if (count < (size_t)length)
+      throw TException("corrupted pli file: unexpected end of file");
+  }
+  // Throws if the file has fewer than length more bytes. Used before
+  // allocating a buffer of a size that the file states.
+  void require(TUINT32 length) {
+    long pos = ftell(m_fp);
+    if (pos < 0 || fseek(m_fp, 0, SEEK_END) != 0)
+      throw TException("corrupted pli file: unexpected end of file");
+    long end = ftell(m_fp);
+    fseek(m_fp, pos, SEEK_SET);
+    if (end < pos || (unsigned long long)(end - pos) < length)
+      throw TException("corrupted pli file: unexpected end of file");
   }
 };
 
@@ -195,9 +211,15 @@ void MyIfstream::open(const TFilePath &filename) {
 void MyIfstream::seekg(TUINT32 pos, int type) {
   if (type == ios_base::beg)
     fseek(m_fp, pos, SEEK_SET);
-  else if (type == ios_base::cur)
-    fseek(m_fp, pos, SEEK_CUR);
-  else
+  else if (type == ios_base::cur) {
+    // a tag length can exceed what a (32 bit) long holds; do not let it
+    // become a negative offset that goes back over the tags just read
+    while (pos > 0x7fffffff) {
+      fseek(m_fp, 0x7fffffff, SEEK_CUR);
+      pos -= 0x7fffffff;
+    }
+    fseek(m_fp, (long)pos, SEEK_CUR);
+  } else
     assert(false);
 }
 
@@ -422,6 +444,13 @@ public:
   ImageTag *loadFrame(const TFrameId &frameNumber);
 
   TagElem *readTag();
+  TagElem *readTagOnce(bool &isControlTag);
+  int m_readDepth = 0;  // nesting of readTag()
+  // Throws if the tag that was read is shorter than what a reader needs.
+  void requireTagLength(unsigned long long length) {
+    if (m_tagLength < length)
+      throw TException("corrupted pli file: invalid tag length");
+  }
   void writeTag(TagElem *tag);
 
   bool addTag(PliTag *tag, bool addFront = false);
@@ -677,6 +706,7 @@ void ParsedPliImp::loadInfo(bool readPlt, TPalette *&palette,
         TUINT32 suffixLength;
         m_iChan >> suffixLength;
         if ((int)suffixLength > 0) {
+          m_iChan.require(suffixLength);
           suffix.resize(suffixLength);
           m_iChan.read(suffix.data(), suffixLength);
         }
@@ -692,7 +722,12 @@ void ParsedPliImp::loadInfo(bool readPlt, TPalette *&palette,
           m_iChan.tellg();
 
       // m_iChan.seekg(m_tagLength, ios::cur);
-      if (m_majorVersionNumber < 150) m_iChan.seekg(m_tagLength - 2, ios::cur);
+      if (m_majorVersionNumber < 150) {
+        // the frame number is part of the tag length
+        if (m_tagLength < 2)
+          throw TException("corrupted pli file: invalid frame tag");
+        m_iChan.seekg(m_tagLength - 2, ios::cur);
+      }
     } else if (type == PliTag::STYLE_NGOBJ) {
       m_iChan.seekg(pos, ios::beg);
       TagElem *tagElem = readTag();
@@ -840,8 +875,9 @@ ImageTag *ParsedPliImp::loadFrame(const TFrameId &frameNumber) {
         if (m_majorVersionNumber >= 150) {
           TUINT32 suffixLength;
           m_iChan >> suffixLength;
-          suffix.resize(suffixLength);
-          m_iChan.read(suffix.data(), suffixLength);
+          if ((int)suffixLength > 0) m_iChan.require(suffixLength);
+          suffix.resize((int)suffixLength > 0 ? suffixLength : 0);
+          m_iChan.read(suffix.data(), (int)suffix.size());
         } else {
           char letter = 0;
           if (m_majorVersionNumber > 6 ||
@@ -882,7 +918,31 @@ ImageTag *ParsedPliImp::loadFrame(const TFrameId &frameNumber) {
 
 /*=====================================================================*/
 
+// Reads the next tag that is an object. A tag that refers to others reads them
+// through readTag() again, so a damaged file could nest without end.
 TagElem *ParsedPliImp::readTag() {
+  const int maxDepth = 500;
+  if (m_readDepth >= maxDepth)
+    throw TException("corrupted pli file: tags nested too deeply");
+  struct DepthGuard {
+    int &m_depth;
+    DepthGuard(int &depth) : m_depth(depth) { ++m_depth; }
+    ~DepthGuard() { --m_depth; }
+  } guard(m_readDepth);
+
+  // Control tags that set the data size have no object: go on with the next
+  // tag, in a loop as a file can hold any number of them.
+  bool isControlTag;
+  for (;;) {
+    isControlTag  = false;
+    TagElem *elem = readTagOnce(isControlTag);
+    if (elem || !isControlTag) return elem;
+  }
+}
+
+/*=====================================================================*/
+
+TagElem *ParsedPliImp::readTagOnce(bool &isControlTag) {
   UCHAR ucharTagType, tagLengthId;
   USHORT tagType;
 
@@ -925,9 +985,12 @@ TagElem *ParsedPliImp::readTag() {
     assert(false);
   }
 
-  if (m_bufLength < m_tagLength) {
-    m_bufLength = m_tagLength;
-    m_buf.reset(new UCHAR[m_bufLength]);
+  // do not allocate a buffer larger than the rest of the file
+  if (m_tagLength > 0x10000) m_iChan.require(m_tagLength);
+
+  if (m_bufLength < m_tagLength || !m_buf) {
+    m_bufLength = m_tagLength > 0 ? m_tagLength : 1;
+    m_buf.reset(new UCHAR[m_bufLength]());
   }
 
   if (m_tagLength) {
@@ -998,10 +1061,10 @@ TagElem *ParsedPliImp::readTag() {
     return 0;
   }
 
-  if (newTag)
-    return new TagElem(newTag, tagOffset);
-  else
-    return readTag();
+  if (newTag) return new TagElem(newTag, tagOffset);
+
+  isControlTag = true;
+  return 0;
 }
 
 /*=====================================================================*/
@@ -1130,7 +1193,8 @@ PliTag *ParsedPliImp::readPaletteTag() {
 
   plt = new TPixelRGBM32[m_tagLength / 3];
 
-  for (unsigned int i = 0; i < m_tagLength; i += 3, numColors++) {
+  // a length that is not a multiple of 3 leaves the last bytes unused
+  for (unsigned int i = 0; i + 3 <= m_tagLength; i += 3, numColors++) {
     plt[numColors].r = m_buf[i];
     plt[numColors].g = m_buf[i + 1];
     plt[numColors].b = m_buf[i + 2];
@@ -1151,7 +1215,8 @@ PliTag *ParsedPliImp::readPaletteWithAlphaTag() {
 
   plt = new TPixelRGBM32[m_tagLength / 4];
 
-  for (unsigned int i = 0; i < m_tagLength; i += 4, numColors++) {
+  // a length that is not a multiple of 4 leaves the last bytes unused
+  for (unsigned int i = 0; i + 4 <= m_tagLength; i += 4, numColors++) {
     plt[numColors].r = m_buf[i];
     plt[numColors].g = m_buf[i + 1];
     plt[numColors].b = m_buf[i + 2];
@@ -1178,6 +1243,10 @@ PliTag *ParsedPliImp::readThickQuadraticChainTag(bool isLoop) {
   bool newThicknessWriteMethod =
       ((m_majorVersionNumber == 5 && m_minorVersionNumber >= 7) ||
        (m_majorVersionNumber > 5));
+
+  // the first point: the thickness limit (new files), x, y and the thickness
+  requireTagLength(2 * m_currDynamicTypeBytesNum +
+                   (newThicknessWriteMethod ? 2 : 1));
 
   scale = 1.0 / (double)m_precisionScale;
   int maxThickness;
@@ -1336,6 +1405,7 @@ PliTag *ParsedPliImp::readColorTag() {
   ColorTag::attributeType attribute;
   TUINT32 bufOffs = 0;
 
+  requireTagLength(2);
   style     = (ColorTag::styleType)m_buf[bufOffs++];
   attribute = (ColorTag::attributeType)m_buf[bufOffs++];
 
@@ -1370,25 +1440,36 @@ PliTag *ParsedPliImp::readStyleTag() {
   UCHAR currDynamicTypeBytesNumSaved = m_currDynamicTypeBytesNum;
   m_currDynamicTypeBytesNum          = 2;
 
+  // Every read below stays inside the tag, whatever the parameters say.
+  auto need = [&](unsigned long long count) {
+    if ((unsigned long long)bufOffs + count > m_tagLength)
+      throw TException("corrupted pli file: invalid style tag");
+  };
+
+  need(2);
   readUShortData(id, bufOffs);
   length -= 2;
   if (m_majorVersionNumber > 5 ||
       (m_majorVersionNumber == 5 && m_minorVersionNumber >= 6)) {
+    need(2);
     readUShortData(pageIndex, bufOffs);
     length -= 2;
   }
   while (length > 0) {
     TStyleParam param;
 
+    need(1);
     param.m_type = (enum TStyleParam::Type)m_buf[bufOffs++];
     length--;
     switch (param.m_type) {
     case TStyleParam::SP_BYTE:
+      need(1);
       param.m_numericVal = m_buf[bufOffs++];
       length--;
       break;
     case TStyleParam::SP_USHORT: {
       USHORT val;
+      need(2);
       readUShortData(val, bufOffs);
       param.m_numericVal = val;
       length -= 2;
@@ -1396,6 +1477,7 @@ PliTag *ParsedPliImp::readStyleTag() {
     }
     case TStyleParam::SP_INT:
     case TStyleParam::SP_DOUBLE:
+      need(4);
       readFloatData(param.m_numericVal, bufOffs);
       length -= 4;
       break;
@@ -1404,8 +1486,10 @@ PliTag *ParsedPliImp::readStyleTag() {
       break;
     case TStyleParam::SP_STRING: {
       USHORT strLen;
+      need(2);
       readUShortData(strLen, bufOffs);
       // bufOffs+=2;
+      need(strLen);
       param.m_string = "";
       for (i = 0; i < strLen; i++) {
         param.m_string.append(1, m_buf[bufOffs++]);
@@ -1414,7 +1498,8 @@ PliTag *ParsedPliImp::readStyleTag() {
       break;
     }
     default:
-      assert(false);
+      // the size of an unknown parameter is not known
+      throw TException("corrupted pli file: invalid style parameter");
     }
     paramArray.push_back(param);
   }
@@ -1480,8 +1565,11 @@ PliTag *ParsedPliImp::readOutlineOptionsTag() {
 PliTag *ParsedPliImp::readPrecisionScaleTag() {
   TUINT32 bufOffs = 0;
 
+  requireTagLength(m_currDynamicTypeBytesNum);
   TINT32 d;
   readDynamicData(d, bufOffs);
+  // the scale divides the coordinates of the strokes
+  if (d <= 0) throw TException("corrupted pli file: invalid precision scale");
   m_precisionScale = d;
 
   return new PrecisionScaleTag(m_precisionScale);
@@ -1492,6 +1580,7 @@ PliTag *ParsedPliImp::readPrecisionScaleTag() {
 PliTag *ParsedPliImp::readAutoCloseToleranceTag() {
   TUINT32 bufOffs = 0;
 
+  requireTagLength(m_currDynamicTypeBytesNum);
   TINT32 d;
   readDynamicData(d, bufOffs);
 
@@ -1522,14 +1611,23 @@ void ParsedPliImp::readFloatData(double &val, TUINT32 &bufOffs) {
 
 UINT ParsedPliImp::readRasterData(TRaster32P &r, TUINT32 &bufOffs) {
   USHORT lx, ly;
+  if ((unsigned long long)bufOffs + 4 > m_tagLength)
+    throw TException("corrupted pli file: invalid raster size");
   readUShortData(lx, bufOffs);
   readUShortData(ly, bufOffs);
 
   // readUShortData((USHORT&)lx, bufOffs);
   // readUShortData((USHORT&)ly, bufOffs);
 
+  // the pixels must be in the tag; the product is done in 64 bits, as
+  // 65535 * 65535 * 4 does not fit an int
+  if (lx == 0 || ly == 0 ||
+      (unsigned long long)bufOffs + (unsigned long long)lx * ly * 4 >
+          m_tagLength)
+    throw TException("corrupted pli file: invalid raster size");
+
   r.create((int)lx, (int)ly);
-  UINT size = lx * ly * 4;
+  UINT size = (UINT)lx * ly * 4;
   r->lock();
   memcpy(r->getRawData(), m_buf.get() + bufOffs, size);
   r->unlock();
@@ -1585,6 +1683,9 @@ PliTag *ParsedPliImp::readGeometricTransformationTag() {
   TUINT32 bufOffs = 0;
   TAffine affine;
 
+  // six numbers of two values each, and the offset of the object
+  requireTagLength(13 * m_currDynamicTypeBytesNum);
+
   readFloatData(affine.a11, bufOffs);
   readFloatData(affine.a12, bufOffs);
   readFloatData(affine.a13, bufOffs);
@@ -1596,14 +1697,19 @@ PliTag *ParsedPliImp::readGeometricTransformationTag() {
   readDynamicData(tagOffs, bufOffs);
 
   TagElem *elem;
-  PliObjectTag *object = NULL;
-  if (tagOffs != 0)
-    while (!(object = (PliObjectTag *)findTagFromOffset(tagOffs)))
+  PliGeometricTag *object = NULL;
+  if (tagOffs != 0) {
+    PliTag *child;
+    while (!(child = findTagFromOffset(tagOffs))) {
       if ((elem = readTag()))
         addTag(*elem);
       else
-        assert(false);
-  else
+        throw TException("corrupted pli file: missing transformed object");
+    }
+    object = dynamic_cast<PliGeometricTag *>(child);
+    if (!object)
+      throw TException("corrupted pli file: invalid transformed object");
+  } else
     m_affine = affine;
 
   /*int realScale = tround(log10(1.0/m_affine.a11));
@@ -1611,7 +1717,7 @@ PliTag *ParsedPliImp::readGeometricTransformationTag() {
 m_affine = TScale(1.0/pow(10.0, realScale));*/
 
   GeometricTransformationTag *tag =
-      new GeometricTransformationTag(affine, (PliGeometricTag *)object);
+      new GeometricTransformationTag(affine, object);
 
   return tag;
 }
@@ -1621,6 +1727,9 @@ m_affine = TScale(1.0/pow(10.0, realScale));*/
 PliTag *ParsedPliImp::readDoublePairTag() {
   TUINT32 bufOffs = 0;
   double first, second;
+
+  // two numbers of two values each
+  requireTagLength(4 * m_currDynamicTypeBytesNum);
 
   readFloatData(first, bufOffs);
   readFloatData(second, bufOffs);
@@ -1660,14 +1769,21 @@ PliTag *ParsedPliImp::readBitmapTag() {
   USHORT lx, ly;
   TUINT32 bufOffs = 0;
 
+  requireTagLength(4);
   readUShortData(lx, bufOffs);
   readUShortData(ly, bufOffs);
+
+  // the pixels must be in the tag; the product is done in 64 bits
+  if (lx == 0 || ly == 0 ||
+      (unsigned long long)bufOffs + (unsigned long long)lx * ly * 4 >
+          m_tagLength)
+    throw TException("corrupted pli file: invalid bitmap size");
 
   TRaster32P r;
 
   r.create(lx, ly);
   r->lock();
-  memcpy(r->getRawData(), m_buf.get() + bufOffs, lx * ly * 4);
+  memcpy(r->getRawData(), m_buf.get() + bufOffs, (size_t)lx * ly * 4);
   r->unlock();
   BitmapTag *tag = new BitmapTag(r);
 
@@ -1680,6 +1796,7 @@ PliTag *ParsedPliImp::readImageTag() {
   USHORT frame;
   TUINT32 bufOffs = 0;
 
+  requireTagLength(2);
   if (m_isIrixEndian)
     frame = m_buf[bufOffs + 1] | (m_buf[bufOffs] << 8);
   else
@@ -1687,14 +1804,17 @@ PliTag *ParsedPliImp::readImageTag() {
 
   bufOffs += 2;
 
-  int headerLength = 2;
+  // 64 bits, as the suffix length comes from the file
+  unsigned long long headerLength = 2;
 
   QByteArray suffix;
   if (m_majorVersionNumber >= 150) {
     TUINT32 suffixLength;
+    requireTagLength(headerLength + 4);
     readTUINT32Data(suffixLength, bufOffs);
     headerLength += 4;
     if (suffixLength > 0) {
+      requireTagLength(headerLength + suffixLength);
       suffix = QByteArray((char *)m_buf.get() + bufOffs, suffixLength);
       bufOffs += suffixLength;
       headerLength += suffixLength;
@@ -1703,6 +1823,7 @@ PliTag *ParsedPliImp::readImageTag() {
     char letter = 0;
     if (m_majorVersionNumber > 6 ||
         (m_majorVersionNumber == 6 && m_minorVersionNumber >= 6)) {
+      requireTagLength(headerLength + 1);
       letter = (char)m_buf[bufOffs++];
       ++headerLength;
       if (letter > 0) suffix = QByteArray(&letter, 1);
@@ -1718,12 +1839,18 @@ PliTag *ParsedPliImp::readImageTag() {
   }
 
   TagElem *elem;
-  for (TUINT32 i = 0; i < numObjects; i++)
-    while (!(object[i] = (PliObjectTag *)findTagFromOffset(tagOffs[i])))
+  for (TUINT32 i = 0; i < numObjects; i++) {
+    PliTag *child;
+    while (!(child = findTagFromOffset(tagOffs[i]))) {
       if ((elem = readTag()))
         addTag(*elem);
       else
-        assert(false);
+        throw TException("corrupted pli file: missing image object");
+    }
+    object[i] = dynamic_cast<PliObjectTag *>(child);
+    if (!object[i])
+      throw TException("corrupted pli file: invalid image object");
+  }
 
   std::unique_ptr<ImageTag[]> tag(
       new ImageTag(TFrameId(frame, QString::fromUtf8(suffix)), numObjects,
@@ -1774,13 +1901,24 @@ PliTag *ParsedPliImp::readIntersectionDataTag() {
   TUINT32 bufOffs = 0;
   TUINT32 branchCount;
 
+  requireTagLength(4);
   readTUINT32Data(branchCount, bufOffs);
+
+  // A branch is at least 3 values, the style and a one byte parameter. The
+  // count is bounded by the tag before it sizes an array.
+  const unsigned long long minBranchLength =
+      3ULL * m_currDynamicTypeBytesNum + 3;
+  if (branchCount > (m_tagLength - 4) / minBranchLength)
+    throw TException("corrupted pli file: invalid intersection count");
 
   std::unique_ptr<IntersectionBranch[]> branchArray(
       new IntersectionBranch[branchCount]);
 
   UINT i;
   for (i = 0; i < branchCount; i++) {
+    // the values and style of the branch, and the first byte of the parameter
+    requireTagLength((unsigned long long)bufOffs +
+                     3ULL * m_currDynamicTypeBytesNum + 3);
     TINT32 currInter;
     readDynamicData((TINT32 &)branchArray[i].m_strokeIndex, bufOffs);
     readDynamicData(currInter, bufOffs);
@@ -1799,6 +1937,7 @@ PliTag *ParsedPliImp::readIntersectionDataTag() {
       bufOffs++;
     } else {
       TUINT32 hi, lo;
+      requireTagLength((unsigned long long)bufOffs + 8);  // two 32 bit values
       hi = m_buf[bufOffs + 3] | (m_buf[bufOffs + 2] << 8) |
            (m_buf[bufOffs + 1] << 16) | (m_buf[bufOffs] << 24);
       bufOffs += 4;

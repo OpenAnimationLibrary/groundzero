@@ -149,22 +149,51 @@ anti-aliasing (GPU and 3D scope), and Ember AI (not realistic).
 
 | # | Item | Approach | Size |
 |---|---|---|---|
-| D1 | **Finish Qt 6** | Make the manual Qt 6 build green: the Windows-only tablet and window code, qsizetype narrowing, QFlags zero literals. Then build Qt 6 in CI next to Qt 5, and make it the default once it is stable. | L |
-| D2 | **Fix what the loader tests find** | Run the Tier 6 damaged-file tests once with `BUILD_TESTS`. Fix the crashes they report (the PSD reader is expected to have some), and record any known issues. | M |
+| D1 | **Finish Qt 6** | Make the manual Qt 6 build green: the Windows-only tablet and window code, qsizetype narrowing, QFlags zero literals. Then build Qt 6 in CI next to Qt 5, and make it the default once it is stable. **Status:** a second static audit of all of `toonz/sources` is done (nothing was built): the Windows-only code no longer uses `QtPlatformHeaders` or the Qt 5 Windows Ink filter under Qt 6, `QAction::menu()` and `QVariant::canConvert` are fixed, and the other removed-API categories were searched and found clean. The categories checked, the deprecated-only uses and the 32-bit-only files left alone are in `doc/qt6_port_status.md`. **Still open:** run the manual Qt 6 workflow and fix what its log reports, test Windows Ink and full screen under Qt 6 on Windows, then add the Qt 6 job next to Qt 5 and make it the default. | L |
+| D2 | **Fix what the loader tests find** | Run the Tier 6 damaged-file tests once with `BUILD_TESTS`. Fix the crashes they report (the PSD reader is expected to have some), and record any known issues. **Status:** done by code audit, not by a run (no build was possible): the PSD reader and the PLI tag readers were fixed, the EXR and GLB loaders were already bounded, the compressed-stream (LZ4) header code is left to its own branch. The PSD and PLI fuzz harnesses and the PSD test have new cases; run them once with `BUILD_TESTS` and `BUILD_FUZZ_TESTS`. What was fixed and what is left: `doc/loader_known_issues.md`. | M |
 | D3 | **FX render references** | Add the reference images for the FX render test from a CI run, so render changes are caught. | S |
-| D4 | **Script API depth** | Images, levels and frames, rendering, and the current UI scene, in both JavaScript and Python. Python in default builds where packaging allows. | M |
-| D5 | **Translations** | Add the strings from Tiers 2 to 6 to the `.ts` files. | S |
+| D4 | **Script API depth** | Images, levels and frames, rendering, and the current UI scene, in both JavaScript and Python. Python in default builds where packaging allows. **Built (not yet confirmed by a CI build):** Image pixels, fill, clone and dpi; Level `hasFrame`, `removeFrame` and `appendFrame`, and `getFrame`, `getFrameByIndex` and `setFrame` in Python; `Scene.getColumns()` and `Scene.renderFrame()`; `currentSceneInfo()`, `setCurrentFrame()` and `setCurrentColumn()` for the UI scene; a Python `Image` class. See `doc/script_api.md`. **Still open:** Python in default builds (packaging), Fx / node / Plastic bindings, a writable UI scene. | M |
+| D5 | **Translations** | Add the strings from Tiers 2 to 6 to the `.ts` files. **Status:** done by reading the sources, not with `lupdate` (nothing could be run): 270 entries per language (panels, menu commands, tool options, preferences, rig view, history texts) were added to `toonz.ts`, `toonzqt.ts`, `tnztools.ts` and `toonzlib.ts` of all 11 languages, as unfinished. FX names are in `stuff/config/current.txt`, not in the `.ts` files, and were not touched. What was added, what was left out, and how to run `lupdate`: `doc/translations_status.md`. | S |
 
 ### Tier 11: workflow polish (the parity plan's quick wins not covered above)
 
 | # | Item | Size |
 |---|---|---|
-| E1 | Whole-rig breakdown and Quick Ease in the Timeline and Xsheet (today they are only in the Function spreadsheet) | S |
-| E2 | Layered PSD scene export: one layer per column, instead of a flat image per frame | M |
+| E1 | Whole-rig breakdown and Quick Ease in the Timeline and Xsheet (today they are only in the Function spreadsheet). **Built in `t10/rig-ease`**: Rig Breakdown and Rig Ease commands in the Cells menu and the cell menu, over the selected columns and optionally their child objects; see `doc/rig_breakdown_ease.md` | S |
+| E2 | Layered PSD scene export: one layer per column, instead of a flat image per frame (built: File > Export > Export Layered PSD, see doc/layered_psd_export.md) | M |
 | E3 | Light Table opacity setting and per-column exclusion | S |
 | E4 | Tone / Highlight preset macro | S |
 | E5 | Reference panel: several images, remembered view state, PSD layers | S |
 | E6 | Faster scene save and load (profiling first) | M |
+
+#### Tier 11 status: E3, E4, E5
+
+Built (not yet confirmed by a CI build when this was written); see
+`doc/light_table_extras.md`.
+
+| # | Delivered | Still partial |
+|---|---|---|
+| E3 | Light Table Opacity preference (default 30%) and a per-column exclusion (column-header commands, a bit of the column status word) | The opacity is global; older builds ignore the exclusion bit |
+| E4 | Xsheet > Add Tone / Highlight Shading: a Tone and a Highlight Fx with preset parameters on the selected columns, one undo step | The matte ports are left to connect; no automatic line-art matte |
+| E5 | Reference panel: several images in a list, zoom, pan, flips, rotation and opacity remembered per image, PSD layers as entries | PSD layers shown one at a time, without visibility or blend modes |
+
+### Tier 10 and 11 status
+
+Built, not yet confirmed by a CI build on Linux when this was written:
+
+| # | Delivered | Still open |
+|---|---|---|
+| D1 | Static Qt 6 audit: `menuOfAction`, `canConvert<T>`, Windows-only header and tablet code guarded, debug-only code (`doc/qt6_port_status.md`) | The compiler's findings from one run of the manual Qt 6 workflow; Windows Ink under Qt 6 untested |
+| D2 | Bounds and overflow fixes in the PSD, PLI and EXR readers, fuzz seeds, known-issues list (`doc/loader_known_issues.md`) | Fuzz harnesses never run; a few leaks and wrong-output cases listed in the doc |
+| D3 | Not done: needs reference images from a CI run | Take the PNGs from the first successful render-test run |
+| D4 | JS and Python: image pixels, level frames, scene columns, render a frame, current UI scene (`doc/script_api.md`); fixes `Renderer.onRenderFinished` never overriding the port | Pixel access on Raster images only |
+| D5 | 270 entries added to each of 11 languages' `.ts` files, marked unfinished (`doc/translations_status.md`) | FX names in `current.txt`; strings outside Tiers 2 to 6 |
+| E1 | Rig Breakdown and Rig Ease commands in the Cells menu and cell menu (`doc/rig_breakdown_ease.md`) | No toolbar button; Plastic and offset-layer curves not edited |
+| E2 | File > Export > Export Layered PSD, one layer per top-level column (`doc/layered_psd_export.md`) | Top-level columns only; no blend modes |
+| E3 | Light Table Opacity preference, per-column exclusion (`doc/light_table_extras.md`) | Opacity is global |
+| E4 | Add Tone / Highlight Shading command | Matte ports are left unconnected |
+| E5 | Reference panel: several images, remembered view state, PSD layers | One PSD layer at a time |
+| E6 | Not done: needs profiling first (C3 gives compressed scenes) | Profile a large scene save and load |
 
 ---
 

@@ -79,7 +79,8 @@ protected:
     eLocked                = 0x8,
     eMasked                = 0x10,
     eCamstandTransparent43 = 0x20,  // obsoleto, solo per retrocompatibilita'
-    eSelectionLocked       = 0x40   // not picked by clicking in the viewer
+    eSelectionLocked       = 0x40,  // not picked by clicking in the viewer
+    eLightTableExcluded    = 0x80   // not faded by the light table
   };
 
   TRaster32P m_icon;
@@ -200,6 +201,18 @@ Set column status selection lock to \b on.
 \sa isSelectionLocked()
 */
   void lockSelection(bool on);
+
+  /*!
+Return true if column is not faded by the light table. The flag is saved only
+when it is set.
+\sa setLightTableExcluded()
+*/
+  bool isLightTableExcluded() const;
+  /*!
+Set column status light table exclusion to \b on.
+\sa isLightTableExcluded()
+*/
+  void setLightTableExcluded(bool on);
 
   /*!
 Return true if column is a mask.

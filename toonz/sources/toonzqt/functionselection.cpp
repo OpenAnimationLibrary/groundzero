@@ -692,20 +692,11 @@ void FunctionSelection::setSegmentType(TDoubleKeyframe::Type type,
 void FunctionSelection::setSegmentEase(double easeOut, double easeIn,
                                        bool inclusive) {
   if (isEmpty()) return;
-  easeOut = tcrop(easeOut, 0.0, 100.0);
-  easeIn  = tcrop(easeIn, 0.0, 100.0 - easeOut);
   TUndoManager::manager()->beginBlock();
 
-  for (const auto &segments : getSelectedSegments(inclusive)) {
-    TDoubleParam *curve = segments.first;
-    for (int kIndex : segments.second) {
-      // A setter caches its keyframe, so use a new one for each step.
-      KeyframeSetter(curve, kIndex)
-          .setType(TDoubleKeyframe::EaseInOutPercentage);
-      KeyframeSetter(curve, kIndex).setEaseOut(easeOut);
-      KeyframeSetter(curve, kIndex + 1).setEaseIn(-easeIn);
-    }
-  }
+  for (const auto &segments : getSelectedSegments(inclusive))
+    for (int kIndex : segments.second)
+      KeyframeSetter::setSegmentEase(segments.first, kIndex, easeOut, easeIn);
 
   TUndoManager::manager()->endBlock();
 }
@@ -714,24 +705,8 @@ void FunctionSelection::insertBreakdowns(int frame, double favour) {
   if (isEmpty()) return;
   TUndoManager::manager()->beginBlock();
 
-  for (const auto &col : m_selectedKeyframes) {
-    TDoubleParam *curve = col.first;
-    if (!curve || curve->isKeyframe(frame)) continue;
-    int prevIndex = curve->getPrevKeyframe(frame);
-    int nextIndex = curve->getNextKeyframe(frame);
-    if (prevIndex < 0 || nextIndex < 0) continue;
-    // A key created in these segments takes the segment's expression or
-    // data, so the breakdown value would be ignored
-    TDoubleKeyframe::Type type = curve->getKeyframe(prevIndex).m_type;
-    if (type == TDoubleKeyframe::Expression ||
-        type == TDoubleKeyframe::SimilarShape || type == TDoubleKeyframe::File)
-      continue;
-
-    double prevValue = curve->getValue(curve->keyframeIndexToFrame(prevIndex));
-    double nextValue = curve->getValue(curve->keyframeIndexToFrame(nextIndex));
-    KeyframeSetter::setValue(curve, frame,
-                             prevValue + (nextValue - prevValue) * favour);
-  }
+  for (const auto &col : m_selectedKeyframes)
+    KeyframeSetter::insertBreakdown(col.first, frame, favour);
 
   TUndoManager::manager()->endBlock();
 }

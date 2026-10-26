@@ -31,9 +31,9 @@
   only from the GUI thread (the thread of the first instance() call): the
   scripts run there and block it while they run.
 
-  The scripts can import the opentoonz module, which has the Scene, Level and
-  StageObject classes of the JavaScript binding (see pythonbinding.cpp), and
-  the functions given to defineFunction().
+  The scripts can import the opentoonz module, which has the Image, Scene,
+  Level and StageObject classes of the JavaScript binding (see
+  pythonbinding.cpp), and the functions given to defineFunction().
 
   sys.stdout and sys.stderr are redirected to the output() signal (also when
   a Python thread writes to them: the signal is then emitted from that

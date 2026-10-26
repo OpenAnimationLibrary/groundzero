@@ -41,6 +41,8 @@
 #ifndef KIS_TABLET_SUPPORT_WIN8_H
 #define KIS_TABLET_SUPPORT_WIN8_H
 
+#include "toonzqt/qtcompat.h"
+
 #include <QAbstractNativeEventFilter>
 
 #ifdef _WIN32
@@ -65,7 +67,7 @@ public:
   bool init();
   // void registerPointerDeviceNotifications();
   virtual bool nativeEventFilter(const QByteArray &eventType, void *message,
-                                 long *result) override;
+                                 TNativeEventResult *result) override;
 };
 
 #endif  // _WIN32

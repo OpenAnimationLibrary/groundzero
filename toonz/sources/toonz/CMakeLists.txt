@@ -148,6 +148,7 @@ set(MOC_HEADERS
     custompaneleditorpopup.h
     convertfolderpopup.h
     exportcameratrackpopup.h
+    exportlayeredpsdpopup.h
 )
 
 if(PLATFORM EQUAL 64)
@@ -295,6 +296,7 @@ set(SOURCES
     camerasettingspopup.cpp
     convertpopup.cpp
     convertlinestoareascommand.cpp
+    rigeasecommand.cpp
     crashhandler.cpp
     autosaverecovery.cpp
     duplicatepopup.cpp
@@ -359,6 +361,7 @@ set(SOURCES
     viewerpopup.cpp
     cellselectioncommand.cpp
     columncommand.cpp
+    tonehighlightcommand.cpp
     filmstripcommand.cpp
     iocommand.cpp
     levelcommand.cpp
@@ -441,6 +444,7 @@ set(SOURCES
     custompaneleditorpopup.cpp
     convertfolderpopup.cpp
     exportcameratrackpopup.cpp
+    exportlayeredpsdpopup.cpp
     spineexport.cpp
     abrimport.cpp
     envelopebake.cpp
@@ -549,7 +553,8 @@ if (WITH_PYTHON)
     add_definitions(-DWITH_PYTHON)
 endif()
 
-if (WITH_WINTAB AND BUILD_TARGET_WIN AND (PLATFORM EQUAL 64))
+# The WinTab switch exists in the customized Qt 5.15.2 only (not ported to Qt 6)
+if (WITH_WINTAB AND BUILD_TARGET_WIN AND (PLATFORM EQUAL 64) AND (QT_VERSION_MAJOR EQUAL 5))
     add_definitions(-DWITH_WINTAB)
 endif()
 

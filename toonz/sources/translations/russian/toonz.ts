@@ -1599,6 +1599,14 @@ Do you want to crop the canvas?</source>
         <source>Delete Memo</source>
         <translation type="vanished">Удалить заметку</translation>
     </message>
+    <message>
+        <source>Rig Breakdown</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Rig Ease</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 <context>
     <name>CellMarksPopup</name>
@@ -9757,6 +9765,154 @@ We welcome your feedback and assistance with its development!</source>
         <source>Toggle FX/Stage schematic</source>
         <translation>Переключение Схемы Fx</translation>
     </message>
+    <message>
+        <source>Favor Previous Key 25%</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Favor Previous Key 33%</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Halfway 50%</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Favor Next Key 66%</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Favor Next Key 75%</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Anticipation -10%</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Overshoot 110%</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Ease In / Ease Out 33%</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Ease In / Ease Out 50%</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Ease Out 50%</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Ease In 50%</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Ease Out 100%</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Ease In 100%</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Custom Rig Breakdown...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Custom Rig Ease...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Include Child Objects in Rig Commands</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Bake Envelope into Vector Level...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Add Tone / Highlight Shading</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>New Annotation Column</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Drawing Substitution</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Substitution Slider</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Storyboard</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Master Controllers</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Offset Layers</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Rig Library</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>&amp;Reference</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Exclude from Light Table</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Include in Light Table</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Include All in Light Table</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Lasso Cutter Tool</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>&amp;Insert Blank Drawing</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Previous Frame Past End</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Next Frame Past End</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Convert Lines to Areas</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Convert Areas to Lines</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>4:3 Center-Cut Guide</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Save As Default Raster Palette...</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 <context>
     <name>MatchlinesDialog</name>
@@ -13352,6 +13508,18 @@ but a random crash might occur, use at your own risk.</source>
         <location filename="../../toonz/preferencespopup.cpp" line="2517"/>
         <source>Enable Touch Gesture Controls</source>
         <translation>Включить сенсорные жесты</translation>
+    </message>
+    <message>
+        <source>Light Table Opacity:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Lasso Cutter Tool</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Table Color:</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 <context>
@@ -17452,6 +17620,126 @@ Do you want to import them or load from their original location?</source>
         <source>Converting %1 to tlv format...</source>
         <translation type="unfinished"></translation>
     </message>
+    <message>
+        <source>Layer %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Reference</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Drawing Substitution</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Drawing Substitution  Level : %1  Frame : %2</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Substitution Slider</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Storyboard</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>New Storyboard Panel  Frame : %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Delete Storyboard Panel  Frame : %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Rename Storyboard Panel  Frame : %1  %2 &gt; %3</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Master Controllers</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Bake Drawing Swap</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Offset Layers</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Rig Library</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>No preview</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>%1 channels</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Select one or more level columns to add the Tone / Highlight shading to.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The Tone / Highlight Fx is not available.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>New Annotation Column</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Convert Lines to Areas</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Convert Areas to Lines</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Bake Envelope into Vector Level  : %1 (%2)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Select an Envelope Deformer Plus fx, applied to a vector level column, in the Schematic.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The Source of the Envelope Deformer Plus must be a level column directly.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Go to a frame of the scene first.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The current frame of the column is not a Toonz Vector level drawing.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The drawing could not be loaded.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The fx has no envelope parameters.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The envelope does not deform at this frame: there is nothing to bake.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The envelope of the current frame will be applied to the strokes of the drawing %1 of the level %2. The fx will still warp the result again unless you set its points back on the rest ones.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Bake</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 <context>
     <name>ReframePopup</name>
@@ -20567,6 +20855,14 @@ Assign shortcut sequence anyway?</source>
         <source>Failed to create menubar</source>
         <translation>Не удалось создать меню</translation>
     </message>
+    <message>
+        <source>Rig Breakdown</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Rig Ease</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 <context>
     <name>StartupPopup</name>
@@ -23626,6 +23922,615 @@ Hold F3 Key on the Viewer to Show This Frame Only</source>
     <message>
         <source>Scene Folder</source>
         <translation>Папка сцены</translation>
+    </message>
+</context>
+<context>
+    <name>ReferencePanel</name>
+    <message>
+        <source>Load Image...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Flip Horizontally</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Flip Vertically</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Rotate Left</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Rotate Right</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Fit to Panel</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Loaded Images</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Remove</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Remove the Image from the List</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>PSD Layer</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Opacity</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Flattened image</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Unable to load the image %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Load Reference Image</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Images</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>All Files</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Unable to load the layer of %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>ReferenceImageView</name>
+    <message>
+        <source>Load an image, or drop an image file here.</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>DrawingSubstitutionPane</name>
+    <message>
+        <source>Previous</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Next</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Expose the previous drawing of the level (Drawing Substitution Backward)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Expose the next drawing of the level (Drawing Substitution Forward)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>No level in the current cell</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>SubstitutionSliderPane</name>
+    <message>
+        <source>Drag to swap the drawing of the current cell (or of the selected cells) live</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>No level in the current cell</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>%1  Frame : %2  (%3 drawings)</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>StoryboardPane</name>
+    <message>
+        <source>Caption of the current panel (the navigation tag label)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>New Panel at Current Frame</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Start a new panel at the current frame by adding a navigation tag</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Delete Panel</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Remove the navigation tag starting the current panel</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Play Animatic</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Play the scene in the viewer from the start of the current panel</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Caption:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Panel %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>%1 fr</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source> (%1 s)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>%1
+Frames %2 - %3</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>No panels: add a navigation tag with "New Panel at Current Frame".</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>%1 panels</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>MasterControllersPane</name>
+    <message>
+        <source>New Controller...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Create a master controller: a pegbar named "ctrl_&lt;name&gt;" whose Rotation channel holds the controller value</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Bind Selected Channel...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Drive the current channel of the Function Editor from a master controller through an expression</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Bind Poses...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Blend two poses of the Poses panel with a master controller, using two offset layers whose weights the controller drives</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Bake Drawing Swap...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Write the cells of a column over the scene frames, choosing its drawing from the value of a master controller</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>No master controllers in the current xsheet.
+Pegbars whose name starts with "ctrl_" are listed here.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Key</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>%1
+Reference it in expressions as %2</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Slider</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>2D Pad</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Pose Blend</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Widget of the controller: a slider, a 2D pad also setting a second controller, or a slider blending two poses</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Controller value from 0 to 1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Controller value (may exceed the slider range)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Set or remove a key at the current frame</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Pick the poses at the values 0 and 1 of this controller</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Controller set by the vertical position</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Y:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Set Master Controller</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Master Controller Key</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>New Master Controller</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Controller name:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>A master controller named %1 already exists.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>New Master Controller  %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Select the channel to drive in the Function Editor first.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>There are no master controllers in the current xsheet. Create one with New Controller first.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Bind Channel to Master Controller</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Channel:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Controller:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Multiplier:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Offset:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Expression:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The expression replaces the interpolation of every segment of the channel over the scene frames. The result is read in %1.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>the channel&apos;s unit</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The selected channel cannot reference the controller. Only channels of the current xsheet can be bound.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>There is a circular reference in the definition of the interpolation.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Bind to Master Controller  %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Poses can be used only in the top-level xsheet.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Two poses are needed. Add them in the Poses panel first.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Bind Poses to Master Controller</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Pose A (value 0):</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Pose B (value 1):</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The poses are applied to the offset layers &lt;controller&gt;_A and &lt;controller&gt;_B of the objects they change, which replace the layers with these names. Their weights are driven by the controller, over the scene frames.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Choose two different poses.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>None of the channels of the poses can be applied to an offset layer.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>A pose changes the controller itself, which would make its weights depend on themselves.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Bind Poses to Master Controller  %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>There are no columns of drawings in the xsheet.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Bake Drawing Swap</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>%1 (%2, %3 drawings)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Column:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>No channel can select the drawing of a column, so the cells of the column are written once for the frames 1 to %1 of the scene: the drawing number is round(value * (n - 1)) of the n drawings of the level, in their order, with the value of the controller limited to 0..1. The existing cells of these frames are replaced. Bake again after changing the controller.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The column is locked.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Bake Drawing Swap  %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>OffsetLayersPane</name>
+    <message>
+        <source>New Layer</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Add an empty offset layer to the current object. Key its channels in the Function Editor.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Train from Keys</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Add a layer, with weight 0, whose curves are the keyframed curves of the object minus their value at the first frame, so that the animation can be repeated scaled by the weight</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>No offset layers. An offset layer adds weighted, separate curves to the animation of the object, and is saved in the scene only when it exists.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Object: %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>No current object.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Bake into Base</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Delete</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Enable the layer</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Layer name</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Weight of the layer. It is the value of the weight curve if it has no keys, and a key at the current frame otherwise.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Add the weighted layer to the keys of the base animation and clear the curves of the layer. The result is exact at the keys only.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Delete the layer</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The name of a layer can&apos;t be empty or the one of another layer of the object.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Select an object first.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Trained</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The object has no animated channels to train from.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The layer has nothing to bake.</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>RigLibraryPane</name>
+    <message>
+        <source>Double-click a rig, or drag it into the xsheet, to insert it as a sub-xsheet</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>No rig templates. Select columns and use "Save Selection as Template" to add one.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Insert</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Insert the rig as a sub-xsheet at the current frame</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Double-click a pose to apply it at the current frame</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The scene has no poses. Create them in the Poses panel.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Apply</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Add the pose to the current values and set keyframes at the current frame</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Apply as Offset Layer</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Apply the pose to an offset layer named after the pose, which is added to the objects that don&apos;t have it</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Refresh</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Rigs</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Poses</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>%1 (%2 channels)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The template %1 does not exist anymore.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Pose Layer</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>PosesPane</name>
+    <message>
+        <source>Apply as offset layer</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Apply the poses to the offset layer with this name, which is added to the objects that don&apos;t have it, instead of the base keys. Only the channels of the stage objects can be applied.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Pose Layer</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Name of the offset layer</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Enter the name of the offset layer.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>None of the channels of this pose can be applied to an offset layer.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>None of the channels of this pose exist in the scene.</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>RigEaseCommand</name>
+    <message>
+        <source>Custom Rig Breakdown</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Position Between Keys (0% keeps the previous key, 100% reaches the next):</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Custom Rig Ease</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Ease Out:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Ease In:</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 </TS>

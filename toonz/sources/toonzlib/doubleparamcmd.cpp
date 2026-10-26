@@ -800,6 +800,40 @@ void KeyframeSetter::setAllParams(
 
 //=============================================================================
 
+bool KeyframeSetter::insertBreakdown(TDoubleParam *curve, int frame,
+                                     double favour) {
+  if (!curve || curve->isKeyframe(frame)) return false;
+  int prevIndex = curve->getPrevKeyframe(frame);
+  int nextIndex = curve->getNextKeyframe(frame);
+  if (prevIndex < 0 || nextIndex < 0) return false;
+  // A key created in these segments takes the segment's expression or data,
+  // so the breakdown value would be ignored
+  TDoubleKeyframe::Type type = curve->getKeyframe(prevIndex).m_type;
+  if (type == TDoubleKeyframe::Expression ||
+      type == TDoubleKeyframe::SimilarShape || type == TDoubleKeyframe::File)
+    return false;
+
+  double prevValue = curve->getValue(curve->keyframeIndexToFrame(prevIndex));
+  double nextValue = curve->getValue(curve->keyframeIndexToFrame(nextIndex));
+  setValue(curve, frame, prevValue + (nextValue - prevValue) * favour);
+  return true;
+}
+
+//-----------------------------------------------------------------------------
+
+void KeyframeSetter::setSegmentEase(TDoubleParam *curve, int kIndex,
+                                    double easeOut, double easeIn) {
+  if (!curve || kIndex < 0 || kIndex + 1 >= curve->getKeyframeCount()) return;
+  easeOut = tcrop(easeOut, 0.0, 100.0);
+  easeIn  = tcrop(easeIn, 0.0, 100.0 - easeOut);
+  // A setter caches its keyframe, so use a new one for each step.
+  KeyframeSetter(curve, kIndex).setType(TDoubleKeyframe::EaseInOutPercentage);
+  KeyframeSetter(curve, kIndex).setEaseOut(easeOut);
+  KeyframeSetter(curve, kIndex + 1).setEaseIn(-easeIn);
+}
+
+//=============================================================================
+
 class RemoveKeyframeUndo final : public TUndo {
   TDoubleParam *m_param;
   TDoubleKeyframe m_keyframe;

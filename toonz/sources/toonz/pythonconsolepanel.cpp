@@ -2,6 +2,7 @@
 
 // Tnz6 includes
 #include "tapp.h"
+#include "scriptconsolepanel.h"
 
 // TnzLib includes
 #include "toonz/pythonengine.h"
@@ -26,7 +27,10 @@
 #include <QUrl>
 #include <QVariantMap>
 
+#include <climits>
+#include <cmath>
 #include <stdexcept>
+#include <string>
 
 namespace {
 
@@ -43,21 +47,40 @@ QTextCharFormat textFormat(const QColor &color) {
 QVariant currentSceneInfo(const QVariantList &args) {
   if (!args.isEmpty())
     throw std::invalid_argument("currentSceneInfo() takes no arguments");
-  TApp *app         = TApp::instance();
-  ToonzScene *scene = app->getCurrentScene()->getScene();
-  QVariantMap info;
-  if (!scene) return info;
-  info["name"] = QString::fromStdWString(scene->getSceneName());
-  info["path"] = QString::fromStdWString(
-      scene->decodeFilePath(scene->getScenePath()).getWideString());
-  info["untitled"]    = scene->isUntitled();
-  info["dirty"]       = app->getCurrentScene()->getDirtyFlag();
-  info["frameCount"]  = scene->getFrameCount();
-  info["columnCount"] = scene->getXsheet()->getColumnCount();
-  // 0-based, as the frames of the scripts
-  info["currentFrame"]  = app->getCurrentFrame()->getFrame();
-  info["currentColumn"] = app->getCurrentColumn()->getColumnIndex();
-  return info;
+  return getCurrentSceneInfo();
+}
+
+// An integer >= 0 (not a bool or a str) argument
+int getIndexArgument(const QVariantList &args, const char *name,
+                     const char *what) {
+  if (args.size() == 1) {
+    int type      = args[0].userType();
+    bool isNumber = type == QMetaType::Int || type == QMetaType::LongLong ||
+                    type == QMetaType::UInt || type == QMetaType::ULongLong ||
+                    type == QMetaType::Double;
+    double value = isNumber ? args[0].toDouble() : -1;
+    if (isNumber && value >= 0 && value == std::floor(value) &&
+        value <= INT_MAX)
+      return (int)value;
+  }
+  throw std::invalid_argument(std::string(name) + "() expects " + what +
+                              " (an integer >= 0, the first one is 0)");
+}
+
+// opentoonz.setCurrentFrame(frame) and setCurrentColumn(column): make the
+// frame or the column current in the UI
+QVariant setCurrentFrame(const QVariantList &args) {
+  QString err = setCurrentSceneFrame(
+      getIndexArgument(args, "setCurrentFrame", "a frame"));
+  if (!err.isEmpty()) throw std::invalid_argument(err.toStdString());
+  return QVariant();
+}
+
+QVariant setCurrentColumn(const QVariantList &args) {
+  QString err = setCurrentSceneColumn(
+      getIndexArgument(args, "setCurrentColumn", "a column"));
+  if (!err.isEmpty()) throw std::invalid_argument(err.toStdString());
+  return QVariant();
 }
 
 // The functions of the opentoonz module that need the application
@@ -70,6 +93,14 @@ void defineAppFunctions() {
       "currentSceneInfo() -> dict\n\nThe scene open in the application "
       "(read only): name, path, untitled, dirty, frameCount, columnCount "
       "(of the current xsheet), currentFrame and currentColumn (from 0).");
+  PythonEngine::instance()->defineFunction(
+      "setCurrentFrame", setCurrentFrame,
+      "setCurrentFrame(frame)\n\nMakes the frame (from 0) current in the "
+      "application.");
+  PythonEngine::instance()->defineFunction(
+      "setCurrentColumn", setCurrentColumn,
+      "setCurrentColumn(column)\n\nMakes the column (from 0) current in the "
+      "application.");
 }
 
 }  // namespace

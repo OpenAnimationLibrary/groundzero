@@ -1503,6 +1503,7 @@ QString PreferencesPopup::getUIString(PreferencesItemId id) {
       {frontOnionColor, tr("Following Frames Correction:")},
       {onionInksOnly, tr("Display Lines Only")},
       {onionSkinDuringPlayback, tr("Show Onion Skin During Playback")},
+      {lightTableOpacity, tr("Light Table Opacity:")},
       {useOnionColorsForShiftAndTraceGhosts,
        tr("Use Onion Skin Colors for Reference Drawings of Shift and Trace")},
       {animatedGuidedDrawing, tr("Vector Guided Style:")},
@@ -2593,6 +2594,7 @@ QWidget* PreferencesPopup::createOnionSkinPage() {
   insertUI(frontOnionColor, lay);
   insertUI(onionInksOnly, lay);
   insertUI(onionSkinDuringPlayback, lay);
+  insertUI(lightTableOpacity, lay);
   insertUI(useOnionColorsForShiftAndTraceGhosts, lay);
   insertUI(animatedGuidedDrawing, lay, getComboItemList(animatedGuidedDrawing));
 
@@ -2608,6 +2610,8 @@ QWidget* PreferencesPopup::createOnionSkinPage() {
   m_onEditedFuncMap.insert(frontOnionColor,
                            &PreferencesPopup::onOnionColorChanged);
   m_onEditedFuncMap.insert(onionInksOnly,
+                           &PreferencesPopup::notifySceneChanged);
+  m_onEditedFuncMap.insert(lightTableOpacity,
                            &PreferencesPopup::notifySceneChanged);
 
   bool onionActive = m_pref->getBoolValue(onionSkinEnabled);

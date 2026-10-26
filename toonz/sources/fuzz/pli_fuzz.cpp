@@ -267,10 +267,6 @@ const KnownIssue *scanPli(const Bytes &data, std::vector<Field> *fields) {
   return issue;
 }
 
-const KnownIssue *knownIssue(const Bytes &data) {
-  return scanPli(data, nullptr);
-}
-
 //-----------------------------------------------------------------------------
 // Seeds
 
@@ -398,8 +394,10 @@ void load(const QString &path) {
   if (!error.empty()) throw std::runtime_error(error);
 }
 
+// The issues above are fixed in the reader (see doc/loader_known_issues.md),
+// so no input is skipped any more; scanPli() only finds the length fields.
 const otfuzz::Harness kHarness = {"pli",     "pli", false,
-                                  makeSeeds, load,  knownIssue};
+                                  makeSeeds, load,  nullptr};
 
 }  // namespace
 

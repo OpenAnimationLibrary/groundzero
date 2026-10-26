@@ -9,6 +9,11 @@
 #include "trop.h"
 #include "tpixelutils.h"
 
+#include <algorithm>
+#include <cstdint>
+#include <new>
+#include <vector>
+
 /*
   The entire content of this file is ridden with LEAKS. A bug has been filed,
   will hopefully
@@ -41,6 +46,12 @@ void readKey(FILE *f, struct dictentry *parent, TPSDLayerInfo *li);
 void readLayer16(FILE *f, struct dictentry *parent, TPSDLayerInfo *li);
 //----end forward declarations
 
+// A layer or the canvas of a PSD (version 1) is at most 30000 pixels wide or
+// high. The coordinates of the layers are kept well inside the range of int,
+// so that the sums done with them cannot overflow.
+static const long kMaxPsdSize  = 30000;
+static const long kMaxPsdCoord = 0x0FFFFFFF;
+
 static char swapByte(unsigned char src) {
   unsigned char out = 0;
   for (int i = 0; i < 8; ++i) {
@@ -53,7 +64,9 @@ static char swapByte(unsigned char src) {
 
 TPSDReader::TPSDReader(const TFilePath &path)
     : m_shrinkX(1), m_shrinkY(1), m_region(TRect()) {
-  m_layerId    = 0;
+  m_layerId = 0;
+  m_lx = m_ly = 0;
+  memset(&m_headerInfo, 0, sizeof(m_headerInfo));
   QString name = path.getName().c_str();
   name.append(path.getDottedType().c_str());
   int sepPos = name.indexOf("#");
@@ -63,7 +76,18 @@ TPSDReader::TPSDReader(const TFilePath &path)
   // m_path = path;
   QMutexLocker sl(&m_mutex);
   openFile();
-  if (!doInfo()) {
+  bool ok = false;
+  try {
+    ok = doInfo();
+  } catch (const std::bad_alloc &) {
+    // a size read from a damaged file that cannot be allocated
+    fclose(m_file);
+    throw TImageException(m_path, "Do PSD INFO ERROR");
+  } catch (...) {
+    fclose(m_file);
+    throw;
+  }
+  if (!ok) {
     fclose(m_file);
     throw TImageException(m_path, "Do PSD INFO ERROR");
   }
@@ -132,8 +156,9 @@ bool TPSDReader::doHeaderInfo() {
   if (!feof(m_file) && !memcmp(m_headerInfo.sig, "8BPS", 4)) {
     if (m_headerInfo.version == 1) {
       if (m_headerInfo.channels <= 0 || m_headerInfo.channels > 64 ||
-          m_headerInfo.rows <= 0 || m_headerInfo.cols <= 0 ||
-          m_headerInfo.depth < 0 || m_headerInfo.depth > 32 ||
+          m_headerInfo.rows <= 0 || m_headerInfo.rows > kMaxPsdSize ||
+          m_headerInfo.cols <= 0 || m_headerInfo.cols > kMaxPsdSize ||
+          m_headerInfo.depth <= 0 || m_headerInfo.depth > 32 ||
           m_headerInfo.mode < 0) {
         throw TImageException(m_path, "Reading PSD Header Info error");
         return false;
@@ -165,9 +190,11 @@ bool TPSDReader::doImageResources() {
     fread(type, 1, 4, m_file);
     id      = read2Bytes(m_file);
     namelen = fgetc(m_file);
+    if (namelen < 0) return false;  // end of file
     fread(name, 1, NEXT2(1 + namelen) - 1, m_file);
     name[namelen] = 0;
     size          = read4Bytes(m_file);
+    if (feof(m_file) || size < 0) return false;
     if (id == 1005)  // ResolutionInfo
     {
       psdByte savepos = ftell(m_file);
@@ -239,16 +266,28 @@ bool TPSDReader::readLayerInfo(int i) {
   li->left     = read4Bytes(m_file);
   li->bottom   = read4Bytes(m_file);
   li->right    = read4Bytes(m_file);
-  li->channels = read2UBytes(m_file);
+  unsigned channelCount = read2UBytes(m_file);
+  li->channels          = channelCount > 64 ? 0 : (short)channelCount;
 
-  if (li->bottom < li->top || li->right < li->left ||
-      li->channels > 64)  // sanity ck
+  if (li->bottom < li->top || li->right < li->left || channelCount > 64 ||
+      li->top < -kMaxPsdCoord || li->top > kMaxPsdCoord ||
+      li->left < -kMaxPsdCoord || li->left > kMaxPsdCoord ||
+      li->bottom - li->top > kMaxPsdSize ||
+      li->right - li->left > kMaxPsdSize || feof(m_file))  // sanity ck
   {
     // qualcosa è andato storto, skippo il livello
-    fseek(m_file, 6 * li->channels + 12, SEEK_CUR);
+    fseek(m_file, 6 * (long)channelCount + 12, SEEK_CUR);
     skipBlock(m_file);  // skip  "layer info: extra data";
+    // The layer has no channels and no data. It still gets a name and an id,
+    // as the code that lists the layers needs them.
+    li->channels = 0;
+    li->nameno   = (char *)mymalloc(16);
+    snprintf(li->nameno, 16, "layer%d", i + 1);
+    li->name    = (char *)mymalloc(1);
+    li->name[0] = 0;
+    li->layerId = i + 1;
   } else {
-    li->chan    = (TPSDChannelInfo *)mymalloc(li->channels *
+    li->chan    = (TPSDChannelInfo *)mycalloc(li->channels,
                                               sizeof(struct TPSDChannelInfo));
     li->chindex = (int *)mymalloc((li->channels + 2) * sizeof(int));
     li->chindex += 2;  //
@@ -285,9 +324,14 @@ bool TPSDReader::readLayerInfo(int i) {
       li->mask.right          = read4Bytes(m_file);
       li->mask.default_colour = fgetc(m_file);
       li->mask.flags          = fgetc(m_file);
-      fseek(m_file, li->mask.size - 18, SEEK_CUR);  // skip remainder
+      if (li->mask.size > 18)
+        fseek(m_file, li->mask.size - 18, SEEK_CUR);  // skip remainder
       li->mask.rows = li->mask.bottom - li->mask.top;
       li->mask.cols = li->mask.right - li->mask.left;
+      // a damaged mask has no pixels
+      if (li->mask.rows < 0 || li->mask.rows > kMaxPsdSize ||
+          li->mask.cols < 0 || li->mask.cols > kMaxPsdSize)
+        li->mask.rows = li->mask.cols = 0;
     } else {
       // no layer mask data
     }
@@ -295,9 +339,10 @@ bool TPSDReader::readLayerInfo(int i) {
     skipBlock(m_file);  // skip "layer blending ranges";
 
     // layer name
-    li->nameno = (char *)malloc(16);
+    li->nameno = (char *)mymalloc(16);
     snprintf(li->nameno, 16, "layer%d", i + 1);
-    namelen  = fgetc(m_file);
+    namelen = fgetc(m_file);
+    if (namelen < 0) namelen = 0;  // end of file
     li->name = (char *)mymalloc(NEXT4(namelen + 1));
     fread(li->name, 1, NEXT4(namelen + 1) - 1, m_file);
     li->name[namelen] = 0;
@@ -323,6 +368,11 @@ void TPSDReader::doImage(TRasterP &rasP, int layerId) {
   m_layerId         = layerId;
   int layerIndex    = getLayerInfoIndexById(layerId);
   TPSDLayerInfo *li = getLayerInfo(layerIndex);
+  // a layer that was skipped as damaged has no channels to read
+  if (li && (!li->chan || !li->chindex || li->channels <= 0))
+    throw TImageException(m_path, "Invalid PSD layer");
+  // forget the savebox of an earlier load, in case this one stops early
+  m_layersSavebox[layerId] = TRect();
   psdByte imageDataEnd;
   // retrieve start data pos
   psdByte startPos = ftell(m_file);
@@ -352,17 +402,6 @@ void TPSDReader::doImage(TRasterP &rasP, int layerId) {
   psdPixel cols = pixw;
 
   int ch = 0;
-  psdByte **rowpos;
-
-  rowpos = (psdByte **)mymalloc(channels * sizeof(psdByte *));
-
-  for (ch = 0; ch < channels; ++ch) {
-    psdPixel chrows =
-        li && !m_headerInfo.linfoBlockEmpty && li->chan[ch].id == -2
-            ? li->mask.rows
-            : rows;
-    rowpos[ch] = (psdByte *)mymalloc((chrows + 1) * sizeof(psdByte));
-  }
 
   int tnzchannels = 0;
 
@@ -399,11 +438,18 @@ void TPSDReader::doImage(TRasterP &rasP, int layerId) {
 
   if (!li || m_headerInfo.linfoBlockEmpty) {  // merged channel
     TPSDChannelInfo *mergedChans =
-        (TPSDChannelInfo *)mymalloc(channels * sizeof(struct TPSDChannelInfo));
+        (TPSDChannelInfo *)mycalloc(channels, sizeof(struct TPSDChannelInfo));
 
     readChannel(m_file, NULL, mergedChans, channels, &m_headerInfo);
     imageDataEnd = ftell(m_file);
-    readImageData(rasP, NULL, mergedChans, tnzchannels, rows, cols);
+    try {
+      readImageData(rasP, NULL, mergedChans, tnzchannels, rows, cols);
+    } catch (...) {
+      for (ch = 0; ch < channels; ++ch) free(mergedChans[ch].rowpos);
+      free(mergedChans);
+      throw;
+    }
+    for (ch = 0; ch < channels; ++ch) free(mergedChans[ch].rowpos);
     free(mergedChans);
   } else {
     for (ch = 0; ch < channels; ++ch) {
@@ -413,9 +459,6 @@ void TPSDReader::doImage(TRasterP &rasP, int layerId) {
     readImageData(rasP, li, li->chan, tnzchannels, rows, cols);
   }
   fseek(m_file, imageDataEnd, SEEK_SET);
-
-  for (ch = 0; ch < channels; ++ch) free(rowpos[ch]);
-  free(rowpos);
 }
 
 void TPSDReader::load(TRasterImageP &img, int layerId) {
@@ -524,15 +567,16 @@ void TPSDReader::readImageData(TRasterP &rasP, TPSDLayerInfo *li,
   if (rows == 0 || cols == 0) return;
   psdPixel j;
 
-  unsigned char *inrows[4], *rledata;
+  // inrows and map hold at most the 4 channels of an RGBA image
+  if (chancount < 1 || chancount > 4 || channels < 1 || !chan)
+    throw TImageException(
+        m_path, "Unable to read image with this depth and channels values");
 
   int ch, map[4];
 
-  rledata = (unsigned char *)mymalloc(chan->rowbytes * 2);
-
   for (ch = 0; ch < chancount; ++ch) {
-    inrows[ch] = (unsigned char *)mymalloc(chan->rowbytes);
-    map[ch]    = li && chancount > 1 ? li->chindex[ch] : ch;
+    // the channels of the file that the image channels are read from
+    map[ch] = li && chancount > 1 ? (ch < channels ? li->chindex[ch] : -1) : ch;
   }
 
   // find the alpha channel, if needed
@@ -541,6 +585,25 @@ void TPSDReader::readImageData(TRasterP &rasP, TPSDLayerInfo *li,
       // WARNING no alpha found?;
     } else
       map[chancount - 1] = li->chindex[-1];
+  }
+
+  // The row buffers are as wide as the channels they are read from. A
+  // channel that does not exist is read as zeros.
+  psdPixel rowbytes = 0;
+  for (ch = 0; ch < chancount; ++ch)
+    if (map[ch] >= 0 && map[ch] < channels)
+      rowbytes = std::max(rowbytes, chan[map[ch]].rowbytes);
+  if (rowbytes <= 0) rowbytes = chan->rowbytes;
+  if (rowbytes <= 0)
+    throw TImageException(
+        m_path, "Unable to read image with this depth and channels values");
+
+  std::vector<unsigned char> rledataBuffer(rowbytes * 2);
+  std::vector<unsigned char> inrowsBuffer[4];
+  unsigned char *inrows[4], *rledata = rledataBuffer.data();
+  for (ch = 0; ch < chancount; ++ch) {
+    inrowsBuffer[ch].assign(rowbytes, 0);
+    inrows[ch] = inrowsBuffer[ch].data();
   }
 
   // region dimensions with shrink
@@ -553,25 +616,23 @@ void TPSDReader::readImageData(TRasterP &rasP, TPSDLayerInfo *li,
   if (!m_region.isEmpty()) {
     x0 = m_region.getP00().x;
     // se x0 è fuori dalle dimensioni dell'immagine ritorna un'immagine vuota
-    if (x0 >= m_headerInfo.cols) {
-      free(rledata);
-      return;
-    }
+    if (x0 >= m_headerInfo.cols) return;
     x1 = x0 + m_region.getLx() - 1;
     // controllo che x1 rimanga all'interno dell'immagine
     if (x1 >= m_headerInfo.cols) x1 = m_headerInfo.cols - 1;
     y0 = m_region.getP00().y;
     // se y0 è fuori dalle dimensioni dell'immagine ritorna un'immagine vuota
-    if (y0 >= m_headerInfo.rows) {
-      free(rledata);
-      return;
-    }
+    if (y0 >= m_headerInfo.rows) return;
     y1 = y0 + m_region.getLy() - 1;
     // controllo che y1 rimanga all'interno dell'immagine
     if (y1 >= m_headerInfo.rows) y1 = m_headerInfo.rows - 1;
   }
   if (m_shrinkX > x1 - x0) m_shrinkX = x1 - x0;
   if (m_shrinkY > y1 - y0) m_shrinkY = y1 - y0;
+  // an image or region one pixel wide (or high) leaves 0 here, and the
+  // shrink is a divisor below
+  if (m_shrinkX < 1) m_shrinkX = 1;
+  if (m_shrinkY < 1) m_shrinkY = 1;
   assert(m_shrinkX > 0 && m_shrinkY > 0);
   if (m_shrinkX > 1) {
     x1 -= (x1 - x0) % m_shrinkX;
@@ -582,6 +643,13 @@ void TPSDReader::readImageData(TRasterP &rasP, TPSDLayerInfo *li,
   assert(x0 <= x1 && y0 <= y1);
 
   TDimension imgSize((x1 - x0) / m_shrinkX + 1, (y1 - y0) / m_shrinkY + 1);
+  // the size in bytes of the raster must fit an int
+  const bool grayRaster =
+      chancount == 1 &&
+      (depth == 1 || depth == 8 || (depth == 16 && m_headerInfo.mergedalpha));
+  const int rasterPixelSize = grayRaster ? 1 : (depth == 16 ? 8 : 4);
+  if ((int64_t)imgSize.lx * imgSize.ly * rasterPixelSize > 0x7fffffffLL)
+    throw TImageException(m_path, "PSD image too large");
   if (depth == 1 && chancount == 1) {
     rasP = TRasterGR8P(imgSize);
   } else if (depth == 8 && chancount > 1) {
@@ -594,6 +662,10 @@ void TPSDReader::readImageData(TRasterP &rasP, TPSDLayerInfo *li,
   } else if (m_headerInfo.depth == 16) {
     rasP = TRaster64P(imgSize);
   }
+  // other depths (2, 4, 32...) and bitmaps with an alpha channel cannot be read
+  if (!rasP)
+    throw TImageException(
+        m_path, "Unable to read image with this depth and channels values");
 
   // do savebox
   // calcolo la savebox in coordinate dell'immagine
@@ -616,10 +688,7 @@ void TPSDReader::readImageData(TRasterP &rasP, TPSDLayerInfo *li,
   // Se è tutta fuori restutuisco TRasterImageP()
   layerSaveBox *= imageRect;
 
-  if (layerSaveBox == TRect() || layerSaveBox.isEmpty()) {
-    free(rledata);
-    return;
-  }
+  if (layerSaveBox == TRect() || layerSaveBox.isEmpty()) return;
   // Estraggo da rasP solo il rettangolo che si interseca con il livello
   // corrente
   // stando attento a prendere i pixel giusti.
@@ -660,6 +729,17 @@ void TPSDReader::readImageData(TRasterP &rasP, TPSDLayerInfo *li,
     rowCount += m_shrinkY;
   }
   // if(m_shrinkY==3) rowCount--;
+
+  // The column of the row buffers that a pixel is read from. It comes from
+  // the geometry of the layer and of the region; keep it inside the buffer
+  // whatever the file says.
+  const long maxColumn =
+      std::max<long>(0, (depth == 16 ? rowbytes / 2 : rowbytes) - 1);
+  auto colAt = [&](int colCount) -> long {
+    long c = layerSaveBox.getP00().x - sbx0 + colCount;
+    return c < 0 ? 0 : (c > maxColumn ? maxColumn : c);
+  };
+
   for (j = 0; j < smallRas->getLy(); j++) {
     // If the current line is not within the image, skip copying it.
     if (sby1 - rowCount < 0) {
@@ -668,16 +748,16 @@ void TPSDReader::readImageData(TRasterP &rasP, TPSDLayerInfo *li,
     }
     for (ch = 0; ch < chancount; ++ch) {
       /* get row data */
-      if (map[ch] < 0 || map[ch] > chancount) {
+      if (map[ch] < 0 || map[ch] >= channels) {
         // warn("bad map[%d]=%d, skipping a channel", i, map[i]);
-        memset(inrows[ch], 0, chan->rowbytes);  // zero out the row
+        memset(inrows[ch], 0, rowbytes);  // zero out the row
       } else
         readrow(m_file, chan + map[ch], rowCount, inrows[ch], rledata);
     }
     if (depth == 1 && chancount == 1) {
       if (!(layerSaveBox.getP00().x - sbx0 >= 0 &&
             layerSaveBox.getP00().x - sbx0 + smallRas->getLx() / 8 - 1 <
-                chan->rowbytes))
+                rowbytes))
         throw TImageException(
             m_path, "Unable to read image with this depth and channels values");
       smallRas->lock();
@@ -686,22 +766,16 @@ void TPSDReader::readImageData(TRasterP &rasP, TPSDLayerInfo *li,
       TPixelGR8 *pix = (TPixelGR8 *)rawdata;
       int colCount   = colOffset;
       for (int k = 0; k < smallRas->getLx(); k += 8) {
-        char value = ~inrows[0][layerSaveBox.getP00().x - sbx0 + colCount];
-        pix[k].setValue(value);
-        pix[k + 1].setValue(value);
-        pix[k + 2].setValue(value);
-        pix[k + 3].setValue(value);
-        pix[k + 4].setValue(value);
-        pix[k + 5].setValue(value);
-        pix[k + 6].setValue(value);
-        pix[k + 7].setValue(value);
+        char value = ~inrows[0][colAt(colCount)];
+        // the last group may be shorter than 8 pixels
+        for (int p = k; p < k + 8 && p < smallRas->getLx(); p++)
+          pix[p].setValue(value);
         colCount += m_shrinkX;
       }
       smallRas->unlock();
     } else if (depth == 8 && chancount > 1) {
       if (!(layerSaveBox.getP00().x - sbx0 >= 0 &&
-            layerSaveBox.getP00().x - sbx0 + smallRas->getLx() - 1 <
-                chan->rowbytes))
+            layerSaveBox.getP00().x - sbx0 + smallRas->getLx() - 1 < rowbytes))
         throw TImageException(
             m_path, "Unable to read image with this depth and channels values");
       smallRas->lock();
@@ -711,20 +785,20 @@ void TPSDReader::readImageData(TRasterP &rasP, TPSDLayerInfo *li,
       int colCount  = colOffset;
       for (int k = 0; k < smallRas->getLx(); k++) {
         if (chancount >= 3) {
-          pix[k].r = inrows[0][layerSaveBox.getP00().x - sbx0 + colCount];
-          pix[k].g = inrows[1][layerSaveBox.getP00().x - sbx0 + colCount];
-          pix[k].b = inrows[2][layerSaveBox.getP00().x - sbx0 + colCount];
+          pix[k].r = inrows[0][colAt(colCount)];
+          pix[k].g = inrows[1][colAt(colCount)];
+          pix[k].b = inrows[2][colAt(colCount)];
           if (chancount == 4)  // RGB + alpha
-            pix[k].m = inrows[3][layerSaveBox.getP00().x - sbx0 + colCount];
+            pix[k].m = inrows[3][colAt(colCount)];
           else
             pix[k].m = 255;
         } else if (chancount <= 2)  // gray + alpha
         {
-          pix[k].r = inrows[0][layerSaveBox.getP00().x - sbx0 + colCount];
-          pix[k].g = inrows[0][layerSaveBox.getP00().x - sbx0 + colCount];
-          pix[k].b = inrows[0][layerSaveBox.getP00().x - sbx0 + colCount];
+          pix[k].r = inrows[0][colAt(colCount)];
+          pix[k].g = inrows[0][colAt(colCount)];
+          pix[k].b = inrows[0][colAt(colCount)];
           if (chancount == 2)
-            pix[k].m = inrows[1][layerSaveBox.getP00().x - sbx0 + colCount];
+            pix[k].m = inrows[1][colAt(colCount)];
           else
             pix[k].m = 255;
         }
@@ -734,8 +808,7 @@ void TPSDReader::readImageData(TRasterP &rasP, TPSDLayerInfo *li,
       smallRas->unlock();
     } else if (m_headerInfo.depth == 8 && chancount == 1) {
       if (!(layerSaveBox.getP00().x - sbx0 >= 0 &&
-            layerSaveBox.getP00().x - sbx0 + smallRas->getLx() - 1 <
-                chan->rowbytes))
+            layerSaveBox.getP00().x - sbx0 + smallRas->getLx() - 1 < rowbytes))
         throw TImageException(
             m_path, "Unable to read image with this depth and channels values");
       smallRas->lock();
@@ -745,7 +818,7 @@ void TPSDReader::readImageData(TRasterP &rasP, TPSDLayerInfo *li,
       TPixelGR8 *pix = (TPixelGR8 *)rawdata;
       int colCount   = colOffset;
       for (int k = 0; k < smallRas->getLx(); k++) {
-        pix[k].setValue(inrows[0][layerSaveBox.getP00().x - sbx0 + colCount]);
+        pix[k].setValue(inrows[0][colAt(colCount)]);
         colCount += m_shrinkX;
       }
       smallRas->unlock();
@@ -753,8 +826,7 @@ void TPSDReader::readImageData(TRasterP &rasP, TPSDLayerInfo *li,
                m_headerInfo.mergedalpha)  // mergedChannels
     {
       if (!(layerSaveBox.getP00().x - sbx0 >= 0 &&
-            layerSaveBox.getP00().x - sbx0 + smallRas->getLx() - 1 <
-                chan->rowbytes))
+            layerSaveBox.getP00().x - sbx0 + smallRas->getLx() - 1 < rowbytes))
         throw TImageException(
             m_path, "Unable to read image with this depth and channels values");
       smallRas->lock();
@@ -763,14 +835,13 @@ void TPSDReader::readImageData(TRasterP &rasP, TPSDLayerInfo *li,
       TPixelGR8 *pix = (TPixelGR8 *)rawdata;
       int colCount   = colOffset;
       for (int k = 0; k < smallRas->getLx(); k++) {
-        pix[k].setValue(inrows[0][layerSaveBox.getP00().x - sbx0 + colCount]);
+        pix[k].setValue(inrows[0][colAt(colCount)]);
         colCount += m_shrinkX;
       }
       smallRas->unlock();
     } else if (m_headerInfo.depth == 16) {
       if (!(layerSaveBox.getP00().x - sbx0 >= 0 &&
-            layerSaveBox.getP00().x - sbx0 + smallRas->getLx() - 1 <
-                chan->rowbytes))
+            layerSaveBox.getP00().x - sbx0 + smallRas->getLx() - 1 < rowbytes))
         throw TImageException(
             m_path, "Unable to read image with this depth and channels values");
       smallRas->lock();
@@ -780,34 +851,18 @@ void TPSDReader::readImageData(TRasterP &rasP, TPSDLayerInfo *li,
       int colCount  = colOffset;
       for (int k = 0; k < smallRas->getLx(); k++) {
         if (chancount >= 3) {
-          pix[k].r = swapShort(
-              ((psdUint16 *)
-                   inrows[0])[layerSaveBox.getP00().x - sbx0 + colCount]);
-          pix[k].g = swapShort(
-              ((psdUint16 *)
-                   inrows[1])[layerSaveBox.getP00().x - sbx0 + colCount]);
-          pix[k].b = swapShort(
-              ((psdUint16 *)
-                   inrows[2])[layerSaveBox.getP00().x - sbx0 + colCount]);
+          pix[k].r = swapShort(((psdUint16 *)inrows[0])[colAt(colCount)]);
+          pix[k].g = swapShort(((psdUint16 *)inrows[1])[colAt(colCount)]);
+          pix[k].b = swapShort(((psdUint16 *)inrows[2])[colAt(colCount)]);
         } else if (chancount <= 2) {
-          pix[k].r = swapShort(
-              ((psdUint16 *)
-                   inrows[0])[layerSaveBox.getP00().x - sbx0 + colCount]);
-          pix[k].g = swapShort(
-              ((psdUint16 *)
-                   inrows[0])[layerSaveBox.getP00().x - sbx0 + colCount]);
-          pix[k].b = swapShort(
-              ((psdUint16 *)
-                   inrows[0])[layerSaveBox.getP00().x - sbx0 + colCount]);
+          pix[k].r = swapShort(((psdUint16 *)inrows[0])[colAt(colCount)]);
+          pix[k].g = swapShort(((psdUint16 *)inrows[0])[colAt(colCount)]);
+          pix[k].b = swapShort(((psdUint16 *)inrows[0])[colAt(colCount)]);
           if (chancount == 2)
-            pix[k].m = swapShort(
-                ((psdUint16 *)
-                     inrows[1])[layerSaveBox.getP00().x - sbx0 + colCount]);
+            pix[k].m = swapShort(((psdUint16 *)inrows[1])[colAt(colCount)]);
         }
         if (chancount == 4) {
-          pix[k].m = swapShort(
-              ((psdUint16 *)
-                   inrows[3])[layerSaveBox.getP00().x - sbx0 + colCount]);
+          pix[k].m = swapShort(((psdUint16 *)inrows[3])[colAt(colCount)]);
         } else
           pix[k].m = 0xffff;
         colCount += m_shrinkX;
@@ -820,9 +875,6 @@ void TPSDReader::readImageData(TRasterP &rasP, TPSDLayerInfo *li,
     rowCount += m_shrinkY;
   }
   fseek(m_file, savepos, SEEK_SET);  // restoring filepos
-
-  free(rledata);
-  for (ch = 0; ch < chancount; ++ch) free(inrows[ch]);
 }
 
 void TPSDReader::doExtraData(TPSDLayerInfo *li, psdByte length) {
@@ -919,8 +971,10 @@ struct dictentry *TPSDReader::findbykey(FILE *f, struct dictentry *parent,
         // int oneline = d->tag[0] == '-';
         // char *tagname = d->tag + oneline;
         if (memcmp(key, "Lr16", 4) == 0) {
-          doLayersInfo();
-        } else
+          // The layers of a 16 bit file are read from the extra data of the
+          // file; one in the extra data of a layer would nest without end.
+          if (!li) doLayersInfo();
+        } else if (li)        // the readers set the fields of the layer
           d->func(f, d, li);  // parse contents of this datum
         fseek(f, savepos, SEEK_SET);
       } else {
@@ -935,13 +989,15 @@ struct dictentry *TPSDReader::findbykey(FILE *f, struct dictentry *parent,
 
 int TPSDReader::sigkeyblock(FILE *f, struct dictentry *dict,
                             TPSDLayerInfo *li) {
-  char sig[4], key[4];
+  char sig[4] = {0, 0, 0, 0}, key[4] = {0, 0, 0, 0};
   long len;
   struct dictentry *d;
 
   fread(sig, 1, 4, f);
   fread(key, 1, 4, f);
   len = read4Bytes(f);
+  // a negative length would send the caller back over the same blocks
+  if (len < 0) return 0;
   if (!memcmp(sig, "8BIM", 4)) {
     if (dict && (d = findbykey(f, dict, key, li)) && !d->func) {
       // there is no function to parse this block
@@ -1017,6 +1073,12 @@ void readChannel(FILE *f, TPSDLayerInfo *li,
     chan[ch].cols     = chan->cols;
     chan[ch].filepos  = pos;
 
+    // the data of an earlier load of this channel
+    free(chan[ch].rowpos);
+    chan[ch].rowpos = NULL;
+    free(chan[ch].unzipdata);
+    chan[ch].unzipdata = NULL;
+
     if (!chan->rows) continue;
 
     // For RLE, we read the row count array and compute file positions.
@@ -1050,25 +1112,38 @@ void readChannel(FILE *f, TPSDLayerInfo *li,
     case ZIPWITHOUTPREDICTION:
     case ZIPWITHPREDICTION:
       if (li) {
-        pos += chan->length - 2;
+        if (chan->length > 2) pos += chan->length - 2;
 
-        zipdata = (unsigned char *)mymalloc(chan->length);
-        count   = fread(zipdata, 1, chan->length - 2, f);
-        // if(count < chan->length - 2)
-        //	alwayswarn("ZIP data short: wanted %d bytes, got %d",
-        // chan->length, count);
+        // The length of the channel comes from the file: read no more than
+        // the file has, and decode only into a buffer that an int can size.
+        psdByte datalen = chan->length - 2;
+        long here       = ftell(f);
+        if (here >= 0 && fseek(f, 0, SEEK_END) == 0) {
+          long fileEnd = ftell(f);
+          fseek(f, here, SEEK_SET);
+          if (datalen > fileEnd - here) datalen = fileEnd - here;
+        }
+        if (datalen > 0x7fffffff) datalen = 0x7fffffff;
+        if (datalen < 0) datalen = 0;
+        const int64_t unzipsize = (int64_t)chan->rows * chan->rowbytes;
 
-        chan->unzipdata =
-            (unsigned char *)mymalloc(chan->rows * chan->rowbytes);
-        if (comp == ZIPWITHOUTPREDICTION)
-          psdUnzipWithoutPrediction(zipdata, count, chan->unzipdata,
-                                    chan->rows * chan->rowbytes);
-        else
-          psdUnzipWithPrediction(zipdata, count, chan->unzipdata,
-                                 chan->rows * chan->rowbytes, chan->cols,
-                                 h->depth);
+        if (datalen > 0 && unzipsize <= 0x7fffffff) {
+          zipdata = (unsigned char *)mymalloc(datalen);
+          count   = fread(zipdata, 1, datalen, f);
+          // if(count < chan->length - 2)
+          //	alwayswarn("ZIP data short: wanted %d bytes, got %d",
+          // chan->length, count);
 
-        free(zipdata);
+          chan->unzipdata = (unsigned char *)mycalloc((long)unzipsize, 1);
+          if (comp == ZIPWITHOUTPREDICTION)
+            psdUnzipWithoutPrediction(zipdata, count, chan->unzipdata,
+                                      (int)unzipsize);
+          else
+            psdUnzipWithPrediction(zipdata, count, chan->unzipdata,
+                                   (int)unzipsize, chan->cols, h->depth);
+
+          free(zipdata);
+        }
       } else {
         // WARNING cannot process ZIP compression outside layer
       }
@@ -1186,6 +1261,13 @@ void TPSDParser::doLevels() {
       if (list.at(2) == "group") {
         int folderTagOpen = 0;
         int scavenge      = 0;
+        // The level that the layers read now belong to. A damaged file can
+        // close more folders than it opened.
+        auto openLevel = [&]() -> Level * {
+          int index = (int)m_levels.size() - 1 - (scavenge - folderTagOpen);
+          if (index < 0 || index >= (int)m_levels.size()) return nullptr;
+          return &m_levels[index];
+        };
         for (int i = 0; i < psdheader.layersCount; i++) {
           TPSDLayerInfo *li = m_psdreader->getLayerInfo(i);
           long width        = li->right - li->left;
@@ -1198,8 +1280,7 @@ void TPSDParser::doLevels() {
             scavenge = 0;
           } else {
             if (width != 0 && height != 0) {
-              m_levels[m_levels.size() - 1 - (scavenge - folderTagOpen)]
-                  .addFrame(li->layerId);
+              if (Level *level = openLevel()) level->addFrame(li->layerId);
             } else {
               if (strcmp(li->name, "</Layer group>") == 0 ||
                   strcmp(li->name, "</Layer set>") == 0) {
@@ -1212,14 +1293,14 @@ void TPSDParser::doLevels() {
                          li->section <= 3)  // vedi specifiche psd
               {
                 assert(li->layerId >= 0);
-                m_levels[m_levels.size() - 1 - (scavenge - folderTagOpen)]
-                    .setName(li->name);
-                m_levels[m_levels.size() - 1 - (scavenge - folderTagOpen)]
-                    .setLayerId(li->layerId);
+                if (Level *level = openLevel()) {
+                  level->setName(li->name);
+                  level->setLayerId(li->layerId);
+                }
                 folderTagOpen--;
                 if (folderTagOpen > 0)
-                  m_levels[m_levels.size() - 1 - (scavenge - folderTagOpen)]
-                      .addFrame(li->layerId, true);
+                  if (Level *level = openLevel())
+                    level->addFrame(li->layerId, true);
               }
             }
           }
@@ -1281,6 +1362,9 @@ int TPSDParser::getLevelIndexById(int layerId) {
   }
   if (layerId == 0 && layerIndex < 0) layerIndex = 0;
   if (layerIndex < 0 && layerId != 0)
+    throw TImageException(m_path, "Layer ID not exists");
+  // there is no level at all when the file has no layer to import
+  if (layerIndex >= (int)m_levels.size())
     throw TImageException(m_path, "Layer ID not exists");
   return layerIndex;
 }
