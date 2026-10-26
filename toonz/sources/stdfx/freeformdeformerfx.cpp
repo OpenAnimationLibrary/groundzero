@@ -7,6 +7,7 @@
 #include "toonz/tdeformer.h"
 #include "toonz/tfreeformdeformer.h"
 
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -56,7 +57,8 @@ TPointD restPoint(const TPointD &center, double width, double height, int i,
 
 //==============================================================================
 
-class FreeFormDeformerFx final : public TStandardRasterFx {
+class FreeFormDeformerFx final : public TStandardRasterFx,
+                                 public TDeformerSource {
   FX_PLUGIN_DECLARATION(FreeFormDeformerFx)
 
   TRasterFxPort m_input;
@@ -131,6 +133,16 @@ private:
   // in the space of ri; empty when nothing of the Source shows in rect.
   TRectD getSourceRect(double frame, const TRectD &rect,
                        const TRenderSettings &ri);
+
+public:
+  // The deformer of the lattice at frame, for Bake Deformers into Vector
+  // Level (see TDeformerSource)
+  std::unique_ptr<TDeformer> makeDeformer(
+      double frame, const TAffine &placement) const override {
+    if (isPassThrough(frame)) return nullptr;
+    return std::unique_ptr<TDeformer>(
+        new TFreeFormDeformer(getDeformer(frame, placement)));
+  }
 };
 
 //-------------------------------------------------------------------

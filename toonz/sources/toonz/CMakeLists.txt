@@ -447,7 +447,7 @@ set(SOURCES
     exportlayeredpsdpopup.cpp
     spineexport.cpp
     abrimport.cpp
-    envelopebake.cpp
+    deformerbake.cpp
 # Tracker file
     dummyprocessor.cpp
     metnum.cpp

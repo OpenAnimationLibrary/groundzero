@@ -82,7 +82,7 @@ this was written). What each one delivered and what is still partial:
 | A3 | Offset layers on stage objects, panel, Function Editor channels, Train from Keys, pose "apply as layer" | No Plastic / Path / sound channels; no Setup Mode |
 | A4 | 2D pad, pose blend through offset layers, drawing-swap bake in Master Controllers | No viewer gadgets; widget modes are not saved |
 | A5 | `TCurveDeformer` and Curve Deformer FX | Fixed 4 anchors; raster warp |
-| A6 | Envelope Deformer Plus (3 to 16 points, smooth edges) and a vector bake command | Stroke deformation is a bake, not live |
+| A6 | Envelope Deformer Plus (3 to 16 points, smooth edges) and a vector bake command, generalised to every deformer FX (Bake Deformers into Vector Level, `doc/deformer_bake.md`) | Stroke deformation is a bake, not live; the bake covers deformer FXs only, not other warping FXs |
 | A7 | `TFreeFormDeformer` and Free-Form Deformer FX (4x4 lattice) | No free cage; not a stack layer yet |
 | A8 | `TBoneDeformer` and Bone Deformer FX (4-bone chain, no mesh) | Raster warp; not a stack layer yet |
 | A9 | Spine mesh attachments and Plastic deform timelines | Unweighted meshes; no stacking order |
@@ -92,7 +92,14 @@ this was written). What each one delivered and what is still partial:
 
 Follow-ups that Tier 7 opened: add the Curve, Free-Form and Bone deformers
 as Deformer Stack layers, and move the deformer FX to vector strokes where
-the stroke data is available.
+the stroke data is available. The second one is done as a bake (tier12 branch):
+Level > Adjust > Bake Deformers into Vector Level applies every enabled
+deformer FX on a vector column's FX chain (Envelope, Envelope Plus, Curve,
+Free-Form, Bone, Shape Aware and Deformer Stack) to the strokes of the
+selected drawings, each at its frame, with one undo step, and can disable
+the baked FX. The FXs give their deformer through the `TDeformerSource`
+interface (`include/toonz/tdeformer.h`); see `doc/deformer_bake.md`. The
+FXs themselves still warp the raster: a live stroke deformation is not done.
 
 ### Tier 8 status
 

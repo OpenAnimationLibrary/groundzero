@@ -7,6 +7,7 @@
 #include "toonz/tdeformer.h"
 #include "toonz/tbonedeformer.h"
 
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -47,7 +48,7 @@ enum { BONE_COUNT = 4, JOINT_COUNT = BONE_COUNT + 1 };
 
 //==============================================================================
 
-class BoneDeformerFx final : public TStandardRasterFx {
+class BoneDeformerFx final : public TStandardRasterFx, public TDeformerSource {
   FX_PLUGIN_DECLARATION(BoneDeformerFx)
 
   TRasterFxPort m_input;
@@ -124,6 +125,16 @@ private:
   // in the space of ri; empty when nothing of the Source shows in rect.
   TRectD getSourceRect(double frame, const TRectD &rect,
                        const TRenderSettings &ri);
+
+public:
+  // The deformer of the bones at frame, for Bake Deformers into Vector Level
+  // (see TDeformerSource)
+  std::unique_ptr<TDeformer> makeDeformer(
+      double frame, const TAffine &placement) const override {
+    if (isPassThrough(frame)) return nullptr;
+    return std::unique_ptr<TDeformer>(
+        new TBoneDeformer(getDeformer(frame, placement)));
+  }
 };
 
 //-------------------------------------------------------------------

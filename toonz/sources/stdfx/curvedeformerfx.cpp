@@ -159,7 +159,7 @@ void mapAnchors(const TAffine &aff,
 
 //==============================================================================
 
-class CurveDeformerFx final : public TStandardRasterFx {
+class CurveDeformerFx final : public TStandardRasterFx, public TDeformerSource {
   FX_PLUGIN_DECLARATION(CurveDeformerFx)
 
   TRasterFxPort m_input;
@@ -220,6 +220,17 @@ private:
   // in the space of ri; empty when nothing of the Source shows in rect.
   TRectD getSourceRect(double frame, const TRectD &rect,
                        const TRenderSettings &ri);
+
+public:
+  // The deformer of the curve at frame, for Bake Deformers into Vector Level
+  // (see TDeformerSource)
+  std::unique_ptr<TDeformer> makeDeformer(
+      double frame, const TAffine &placement) const override {
+    std::unique_ptr<TCurveDeformer> deformer;
+    std::vector<TPointD> rest;
+    if (!buildDeformer(frame, placement, deformer, rest)) return nullptr;
+    return std::unique_ptr<TDeformer>(deformer.release());
+  }
 };
 
 //-------------------------------------------------------------------

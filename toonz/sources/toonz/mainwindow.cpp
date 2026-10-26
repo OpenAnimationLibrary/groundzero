@@ -2532,6 +2532,8 @@ void MainWindow::defineActions() {
                         "", "thickness");
   createMenuLevelAction(MI_BakeEnvelope,
                         QT_TR_NOOP("Bake Envelope into Vector Level..."), "");
+  createMenuLevelAction(MI_BakeDeformers,
+                        QT_TR_NOOP("Bake Deformers into Vector Level..."), "");
   createMenuLevelAction(MI_Antialias, QT_TR_NOOP("&Antialias..."), "",
                         "antialias");
   createMenuLevelAction(MI_Binarize, QT_TR_NOOP("&Binarize..."), "",

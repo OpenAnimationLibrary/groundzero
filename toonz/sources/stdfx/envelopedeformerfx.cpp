@@ -6,6 +6,7 @@
 
 #include "toonz/tdeformer.h"
 
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -24,7 +25,8 @@
 // (deformerfxcommon.h).
 //==============================================================================
 
-class EnvelopeDeformerFx final : public TStandardRasterFx {
+class EnvelopeDeformerFx final : public TStandardRasterFx,
+                                 public TDeformerSource {
   FX_PLUGIN_DECLARATION(EnvelopeDeformerFx)
 
   TRasterFxPort m_input;
@@ -66,6 +68,20 @@ private:
   // in the space of ri; empty when nothing of the Source shows in rect.
   TRectD getSourceRect(double frame, const TRectD &rect,
                        const TRenderSettings &ri);
+
+public:
+  // The deformer of the envelope at frame, for Bake Deformers into Vector
+  // Level (see TDeformerSource)
+  std::unique_ptr<TDeformer> makeDeformer(
+      double frame, const TAffine &placement) const override {
+    std::vector<TPointD> rest, deformed;
+    m_envelope.getEnvelopes(frame, rest, deformed);
+    if (deformerfx::isPassThrough(rest, deformed)) return nullptr;
+
+    deformerfx::mapPoints(placement, rest);
+    deformerfx::mapPoints(placement, deformed);
+    return std::unique_ptr<TDeformer>(new TEnvelopeDeformer(rest, deformed));
+  }
 };
 
 //-------------------------------------------------------------------

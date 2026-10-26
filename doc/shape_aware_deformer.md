@@ -83,7 +83,8 @@ the render affine (`deform = A D A^-1`), as for the Bone Deformer.
 ## Limits
 
 - Raster warp only: the rendered Source is resampled, vector strokes are not
-  deformed (use the vector bake of the Envelope Deformer Plus for that).
+  deformed (Level > Adjust > Bake Deformers into Vector Level bakes the
+  deformation into the strokes once, see `doc/deformer_bake.md`).
 - The handle counts of the FX are fixed (4 pins, 2 bones, 4 cage corners).
   The class takes up to 64 handles and any number of cage corners (3 or more
   make a polygon; fewer count as pins).

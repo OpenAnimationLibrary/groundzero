@@ -65,6 +65,10 @@ By feature:
   `QWidget` context at run time, and `lupdate` would file it under
   `MasterControllerPad`. It was left out; add `Q_OBJECT` (or a
   `Q_DECLARE_TR_FUNCTIONS`) to the class first.
+- Bake Deformers into Vector Level (`toonz/deformerbake.cpp`), which was added
+  after this update: its menu command, dialog, messages and undo text have no
+  entries yet. The Bake Envelope menu command entry still matches the alias
+  command; the old envelope bake messages are no longer used.
 - The strings of the script bindings and the Spine export, and most of the
   other changes made since the last catalog update, were not read through; only
   the features of the list above were.

@@ -81,7 +81,8 @@ TPointParamP makePoint(const TPointD &p) {
 
 //==============================================================================
 
-class ShapeAwareDeformerFx final : public TStandardRasterFx {
+class ShapeAwareDeformerFx final : public TStandardRasterFx,
+                                   public TDeformerSource {
   FX_PLUGIN_DECLARATION(ShapeAwareDeformerFx)
 
   TRasterFxPort m_input;
@@ -214,6 +215,16 @@ private:
   // in the space of ri; empty when nothing of the Source shows in rect.
   TRectD getSourceRect(double frame, const TRectD &rect,
                        const TRenderSettings &ri);
+
+public:
+  // The deformer of the handles at frame, for Bake Deformers into Vector
+  // Level (see TDeformerSource)
+  std::unique_ptr<TDeformer> makeDeformer(
+      double frame, const TAffine &placement) const override {
+    if (isPassThrough(frame)) return nullptr;
+    return std::unique_ptr<TDeformer>(
+        new TShapeAwareDeformer(getDeformer(frame, placement)));
+  }
 };
 
 //-------------------------------------------------------------------

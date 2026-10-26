@@ -1471,7 +1471,7 @@ QMenuBar *StackedMenuBar::createFullMenuBar() {
     addMenuItem(adjustMenu, MI_BrightnessAndContrast);
     addMenuItem(adjustMenu, MI_AdjustLevels);
     addMenuItem(adjustMenu, MI_AdjustThickness);
-    addMenuItem(adjustMenu, MI_BakeEnvelope);
+    addMenuItem(adjustMenu, MI_BakeDeformers);
     addMenuItem(adjustMenu, MI_Antialias);
     addMenuItem(adjustMenu, MI_Binarize);
     addMenuItem(adjustMenu, MI_LinesFade);
