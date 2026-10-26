@@ -4,20 +4,22 @@ Only the OpenAnimationLibrary/groundzero Windows CI workflow injects this
 feature. Normal source builds and upstream source files are unchanged. This is
 not an OpenToonz movie renderer or a desktop recorder.
 
-On startup choose **Start Recording** or **Do Not Record**. Escape/close means
-no recording. **Remember my choice for this build** stores `BuildId` and `Choice`
-under `[OtDevRecorder]` in the active portable `preferences.ini`. A new CI build
-(including a rerun) asks again. `OTDEV_RECORD=off` suppresses startup recording
-even after remembered consent; the toolbar can still be used to opt in later.
-There is intentionally no command-line switch that bypasses consent.
+Every session starts with **Recording off**, without a startup prompt. Use
+**Start Recording** on the bottom toolbar whenever recording is needed. The
+first start in each session asks for consent; **Do Not Record**, Escape or close
+leaves recording off. After consent, use **Stop Recording** and **Start Recording**
+throughout the session without another prompt. Consent is not saved for future
+launches; old `[OtDevRecorder]` choices are ignored. `OTDEV_RECORD=off` is no longer
+needed to suppress startup recording. There is no automatic or command-line start.
 
 After opt-in, continuous capture saves clips under
 `<OpenToonz executable directory>/portablestuff/recordings/`. The bottom recording
 toolbar shows actual recording/paused/error state, stops/resumes capture, and
-opens the folder. Stopping updates a remembered choice to off. Nothing is
-uploaded and no recordings are automatically deleted. The recorder stops with
-a visible error when free space falls below 1 GiB. Files have collision-resistant
-UTC names and are split every 10 minutes of encoded frames.
+opens the folder. Stopping finishes the current clip; Start is unavailable while
+the clip is prepared for playback. Starting again creates a separate clip.
+Nothing is uploaded and no recordings are automatically deleted. The recorder
+stops with a visible error when free space falls below 1 GiB. Files have
+collision-resistant UTC names and are split every 10 minutes of encoded frames.
 
 ## Capture boundary and limitations
 
@@ -65,8 +67,9 @@ UTC names and are split every 10 minutes of encoded frames.
 
 `python -m unittest discover -s .github/ot-dev/recorder -p 'test_*.py' -v`
 
-The standalone CMake/QtTest target in this directory tests consent persistence,
-escape/opt-out, capture ownership/resize, and real encoder output. Set
+The standalone CMake/QtTest target in this directory tests startup-off behavior
+(including legacy saved choices), on-demand consent, escape/opt-out, repeated
+start/stop, capture ownership/resize, and real encoder output. Set
 `OTDEV_TEST_FFMPEG` to the packaged encoder and `OTDEV_TEST_DECODER` to a separate
 FFmpeg decoder before running CTest. CI builds a test-only decoder from the same
 pinned sources with assembly disabled; it is never included in the application.

@@ -62,6 +62,8 @@ class InjectionTest(unittest.TestCase):
             self.assertIn('filePath("portablestuff")', result)
             self.assertIn('TFilePath("preferences.ini")', result)
             self.assertIn('filePath("otdev-recorder/ffmpeg.exe")', result)
+            self.assertNotIn("->initialize()", result)
+            self.assertNotIn("QTimer::singleShot", result)
             with self.assertRaises(RuntimeError):
                 enable.inject(root, "test-build-123")
             self.assertEqual(result, source.read_text(encoding="utf-8"))
