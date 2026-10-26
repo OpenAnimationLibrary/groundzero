@@ -397,6 +397,7 @@ if(BUILD_FXRENDER_TESTS)
     add_test(NAME fxrender
              COMMAND fxrender_test ${CMAKE_CURRENT_SOURCE_DIR}/tests/fxrender
                      ${CMAKE_CURRENT_BINARY_DIR}/fxrender-output)
+    set_tests_properties(fxrender PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endif()
 
 # Optional regression target for the pure helpers of the Light Shading FX

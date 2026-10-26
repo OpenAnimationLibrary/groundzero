@@ -113,10 +113,10 @@ jobs:
             echo "::error title=test ${name} failed::${out}"
           done
         fi
+        # All benchmark lines in one notice: a step shows at most 10 notices
         cd toonz/build
-        ctest -V --timeout 900 -R '^(scenebench)$' 2>/dev/null | grep -o 'NOTICE:.*' | head -40 | while IFS= read -r line; do
-          echo "::notice title=benchmark::${line#NOTICE: }"
-        done || true
+        bench=$(ctest -V --timeout 900 -R '^(scenebench)$' 2>/dev/null | grep -o 'NOTICE:.*' | sed 's/^NOTICE: //' | head -60 | enc)
+        [ -n "$bench" ] && echo "::notice title=benchmark::${bench}" || true
 
     - name: Commit new FX render references
       if: always() && github.event_name == 'push'

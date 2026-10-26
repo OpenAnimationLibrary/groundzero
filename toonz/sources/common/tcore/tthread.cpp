@@ -738,7 +738,11 @@ void Executor::shutdown() {
     }
 
     // Finally, deal with the global queue tasks
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    QMutableMultiMapIterator<int, RunnableP> jt(globalImp->m_tasks);
+#else
     QMutableMapIterator<int, RunnableP> jt(globalImp->m_tasks);
+#endif
     while (jt.hasNext()) {
       jt.next();
       RunnableP task = jt.value();
