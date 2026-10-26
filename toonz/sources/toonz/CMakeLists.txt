@@ -122,6 +122,7 @@ set(MOC_HEADERS
     storyboardpane.h
     mastercontrollerspane.h
     offsetlayerspane.h
+    artlayermanagerpane.h
     riglibrarypane.h
     symbolspane.h
     vectorguideddrawingpane.h
@@ -342,6 +343,8 @@ set(SOURCES
     storyboardpane.cpp
     mastercontrollerspane.cpp
     offsetlayerspane.cpp
+    artlayermanagerpane.cpp
+    createcolourartcommand.cpp
     riglibrarypane.cpp
     symbolspane.cpp
     vectorguideddrawingpane.cpp
@@ -439,6 +442,7 @@ set(SOURCES
     convertfolderpopup.cpp
     exportcameratrackpopup.cpp
     spineexport.cpp
+    abrimport.cpp
     envelopebake.cpp
 # Tracker file
     dummyprocessor.cpp

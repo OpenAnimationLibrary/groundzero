@@ -87,6 +87,7 @@ set(HEADERS ${MOC_HEADERS}
     ../include/tcolorstyles.h
     ../include/tfont.h
     ../include/tinbetween.h
+    ../include/tinbetweenmatch.h
     ../include/tofflinegl.h
     ../include/qtofflinegl.h
     ../include/tpalette.h

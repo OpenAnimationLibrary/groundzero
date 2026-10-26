@@ -22,6 +22,8 @@
 #include "tzeraryfx.h"
 #include "trenderer.h"
 #include "tfxcachemanager.h"
+#include "tfxparam.h"
+#include "tparamcontainer.h"
 
 // TnzLib includes
 #include "toonz/toonzscene.h"
@@ -48,6 +50,7 @@
 #include "toonz/tvectorimageutils.h"
 #include "toonz/preferences.h"
 #include "toonz/dpiscale.h"
+#include "toonz/timeremap.h"
 #include "imagebuilders.h"
 
 // 4.6 compatibility - sandor fxs
@@ -849,15 +852,60 @@ public:
 //****************************************************************************************
 
 TLevelColumnFx::TLevelColumnFx()
-    : m_levelColumn(0), m_isCachable(true), m_mutex(), m_offlineContext(0) {
+    : m_levelColumn(0)
+    , m_isCachable(true)
+    , m_mutex()
+    , m_offlineContext(0)
+    , m_timeRemap(1.0)
+    , m_timeRemapEnabled(false) {
   setName(L"LevelColumn");
   enableComputeInFloat(true);
+  // Time remap: the parameters are written to the scene file only when used
+  // (see isParamSaved), the flag is not shown in the fx settings.
+  bindParam(this, "timeRemap", m_timeRemap);
+  bindParam(this, "timeRemapEnabled", m_timeRemapEnabled, true);
+  m_timeRemap->setUILabel("Time Remap");
 }
 
 //--------------------------------------------------
 
 TLevelColumnFx::~TLevelColumnFx() {
   if (m_offlineContext) delete m_offlineContext;
+}
+
+//-------------------------------------------------------------------
+
+bool TLevelColumnFx::isTimeRemapActive() const {
+  return m_timeRemapEnabled->getValue() && m_timeRemap->hasKeyframes();
+}
+
+//-------------------------------------------------------------------
+
+bool TLevelColumnFx::isTimeRemapUsed() const {
+  return m_timeRemapEnabled->getValue() || m_timeRemap->hasKeyframes() ||
+         m_timeRemap->isCycleEnabled();
+}
+
+//-------------------------------------------------------------------
+
+int TLevelColumnFx::getRemappedRow(int row) const {
+  if (!isTimeRemapActive()) return row;
+
+  int keyCount = m_timeRemap->getKeyframeCount();
+  return TimeRemap::remapRow(
+      row, keyCount, m_timeRemap->keyframeIndexToFrame(0),
+      m_timeRemap->keyframeIndexToFrame(keyCount - 1),
+      m_timeRemap->isCycleEnabled(), m_timeRemap->getValue(row));
+}
+
+//-------------------------------------------------------------------
+
+bool TLevelColumnFx::isParamSaved(const TParamVar *paramVar) const {
+  // The time remap leaves the saved scene unchanged until it is used
+  const std::string name = paramVar->getName();
+  if (name == "timeRemap" || name == "timeRemapEnabled")
+    return isTimeRemapUsed();
+  return true;
 }
 
 //-------------------------------------------------------------------
@@ -922,7 +970,7 @@ TAffine TLevelColumnFx::handledAffine(const TRenderSettings &info,
 TFilePath TLevelColumnFx::getPalettePath(int frame) const {
   if (!m_levelColumn) return TFilePath();
 
-  TXshCell cell = m_levelColumn->getCell(frame);
+  TXshCell cell = m_levelColumn->getRemappedCell(frame);
   if (cell.isEmpty()) return TFilePath();
 
   TXshSimpleLevel *sl = cell.m_level->getSimpleLevel();
@@ -943,7 +991,7 @@ TFilePath TLevelColumnFx::getPalettePath(int frame) const {
 TPalette *TLevelColumnFx::getPalette(int frame) const {
   if (!m_levelColumn) return 0;
 
-  TXshCell cell = m_levelColumn->getCell(frame);
+  TXshCell cell = m_levelColumn->getRemappedCell(frame);
   if (cell.isEmpty()) return 0;
 
   TXshSimpleLevel *sl = cell.m_level->getSimpleLevel();
@@ -970,7 +1018,7 @@ void TLevelColumnFx::doDryCompute(TRectD &rect, double frame,
   if (!m_levelColumn) return;
 
   int row       = (int)frame;
-  TXshCell cell = m_levelColumn->getCell(row);
+  TXshCell cell = m_levelColumn->getRemappedCell(row);
   if (cell.isEmpty()) return;
 
   TXshSimpleLevel *sl = cell.m_level->getSimpleLevel();
@@ -1020,7 +1068,7 @@ void TLevelColumnFx::doCompute(TTile &tile, double frame,
 
   // Ensure that a corresponding cell and level exists
   int row       = (int)frame;
-  TXshCell cell = m_levelColumn->getCell(row);
+  TXshCell cell = m_levelColumn->getRemappedCell(row);
 
   if (cell.isEmpty()) return;
 
@@ -1451,7 +1499,7 @@ bool TLevelColumnFx::doGetBBox(double frame, TRectD &bBox,
   if (!m_levelColumn) return false;
 
   int row              = (int)frame;
-  const TXshCell &cell = m_levelColumn->getCell(row);
+  const TXshCell &cell = m_levelColumn->getRemappedCell(row);
   if (cell.isEmpty()) return false;
 
   TXshLevelP xshl = cell.m_level;
@@ -1483,7 +1531,7 @@ bool TLevelColumnFx::doGetBBox(double frame, TRectD &bBox,
     }
     dpi = imageInfo.m_dpix / Stage::inch;
   } else {
-    TImageP img = m_levelColumn->getCell(row).getImage(false);
+    TImageP img = m_levelColumn->getRemappedCell(row).getImage(false);
     if (!img) return false;
     bBox = img->getBBox();
   }
@@ -1549,10 +1597,10 @@ std::wstring TLevelColumnFx::getColumnName() const {
 
 std::string TLevelColumnFx::getAlias(double frame,
                                      const TRenderSettings &info) const {
-  if (!m_levelColumn || m_levelColumn->getCell((int)frame).isEmpty())
+  if (!m_levelColumn || m_levelColumn->getRemappedCell((int)frame).isEmpty())
     return std::string();
 
-  const TXshCell &cell = m_levelColumn->getCell((int)frame);
+  const TXshCell &cell = m_levelColumn->getRemappedCell((int)frame);
 
   TFilePath fp;
   TXshSimpleLevel *sl = cell.getSimpleLevel();
@@ -1612,7 +1660,7 @@ TXshColumn *TLevelColumnFx::getXshColumn() const { return m_levelColumn; }
 TAffine TLevelColumnFx::getDpiAff(int frame) {
   if (!m_levelColumn) return TAffine();
 
-  TXshCell cell = m_levelColumn->getCell(frame);
+  TXshCell cell = m_levelColumn->getRemappedCell(frame);
   if (cell.isEmpty()) return TAffine();
 
   TXshSimpleLevel *sl = cell.m_level->getSimpleLevel();

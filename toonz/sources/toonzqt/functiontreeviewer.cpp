@@ -23,6 +23,7 @@
 #include "toonz/txsheethandle.h"
 #include "toonz/fxdag.h"
 #include "toonz/txshzeraryfxcolumn.h"
+#include "toonz/txshlevelcolumn.h"
 #include "toonz/txshsoundcolumn.h"
 #include "toonz/tcolumnfx.h"
 #include "toonz/tfxhandle.h"
@@ -1053,6 +1054,10 @@ void FunctionTreeModel::refreshFxs(TXsheet *xsh) {
   std::vector<TFx *> fxs;
   xsh->getFxDag()->getFxs(fxs);
   for (int i = 0; i < xsh->getColumnCount(); i++) {
+    // The level columns that use the time remap list its curve
+    TXshLevelColumn *lc = dynamic_cast<TXshLevelColumn *>(xsh->getColumn(i));
+    if (lc && lc->isTimeRemapUsed()) fxs.push_back(lc->getLevelColumnFx());
+
     TXshZeraryFxColumn *zc =
         dynamic_cast<TXshZeraryFxColumn *>(xsh->getColumn(i));
     if (!zc) continue;

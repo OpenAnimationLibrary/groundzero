@@ -60,7 +60,7 @@ partials needs them.
 |---|---|---|---|---|---|
 | B1 | **Line Art / Colour Art** | No Overlay or Underlay layers, no Art Layer Manager, no "Create Colour Art from Line Art". | Four art layers per drawing, stored as stroke roles with a role tag written only when used. A manager panel. "Create Colour Art" copies the line strokes as 0-thickness colour-art strokes. | L | none |
 | B2 | **Pencil lines** | No opacity along a stroke, no Retouch for opacity, no animated texture. | Per-point opacity in the stroke's thick points, saved only when not 1. The Pump/Retouch tool edits opacity. The texture offset can be animated per frame. | L | none |
-| B3 | **Brushes** | No import of ABR (Photoshop brush) files. | An ABR parser for sampled brushes, mapped to the raster brush engine. | M | none |
+| B3 | **Brushes** | No import of ABR (Photoshop brush) files. | An ABR parser for sampled brushes, mapped to the raster brush engine. Built: the parser, File > Import > Import Photoshop Brushes (ABR) and a "Tip:" option in the full-colour Brush tool (`doc/abr_brushes.md`). | M | none |
 | B4 | **Morphing** | No automatic stroke matching, no zone or vanishing-point hints, no velocity curve. | Automatic matching by shape and position (on top of the Tier 5 pairing hints), zone hints, and an ease curve for the in-betweens. | L | none |
 | B5 | **Colour Override** | Only main colours, no viewer display, no palette-swatch picker. | A swatch picker in FX Settings, an option to override style parameters and textures, and viewer display through the column palette override. | M | none |
 | B6 | **Light Shading, Volume, Glue, Shine** | No shading driven by a light inside a shape. | CPU FX on the Tone/Highlight model. A light position (a point gadget) drives tone and highlight shapes clipped to the colour-art regions. Volume and Shine are variants. | L | B1 |
@@ -93,6 +93,23 @@ this was written). What each one delivered and what is still partial:
 Follow-ups that Tier 7 opened: add the Curve, Free-Form and Bone deformers
 as Deformer Stack layers, and move the deformer FX to vector strokes where
 the stroke data is available.
+
+### Tier 8 status
+
+All nine items are built (not yet confirmed by a CI build on Linux when this
+was written). What each one delivered and what is still partial:
+
+| # | Delivered | Still partial |
+|---|---|---|
+| B1 | Underlay/Overlay art layers (classified by stacking order, no file format change), Art Layer Manager panel with per-layer show/hide, Create Colour Art from Line Art | Underlay/Overlay exist only when the drawing has a Colour Art stroke |
+| B2 | Per-stroke opacity (outline-options tag, written only when not 1), Pump "Opacity Brush", Selection "Opacity:" field (`doc/pencil_opacity.md`) | Not per point; ignored by pattern, vector-brush and MyPaint styles; no animated texture offset |
+| B3 | ABR parser (v1/v2, v6 to v10), File > Import > Photoshop Brushes, "Tip:" in the full-colour Brush (`doc/abr_brushes.md`) | Tips only: no dynamics or computed brushes; not on Toonz Raster or vector brushes |
+| B4 | Automatic stroke matching (Hungarian assignment), zone hints, custom ease curve in the In-Between dialog (`doc/morphing.md`) | Hints are in memory only; no vanishing-point hints |
+| B5 | Colour Override swatch picker, Replace/Multiply/Add modes, "Show Colour Override in the Viewer" preference | Viewer display skips the 3D view, sub-xsheet columns and multi-output columns |
+| B6 | Light Shading FX: radial and directional (volume) modes, bands, softness, line protection (`doc/light_shading_fx.md`) | CPU only; normals from alpha only; no separate specular model |
+| B7 | Per-column time remap curve, Hold / Loop / Reverse presets, saved only when used (`doc/time_remap.md`) | Xsheet cells still show original timing; scene length comes from the cells |
+| B8 | Storyboard: drag reorder, notes, bounded play, camera thumbnails | Older builds cannot open a scene that uses notes |
+| B9 | Lasso Cutter keeps fills with invisible closing strokes; "Paste To" new frame or column | Closing strokes only in the current group; tangential touches add none |
 
 ---
 

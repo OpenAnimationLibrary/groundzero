@@ -1,6 +1,7 @@
 
 
 #include "tinbetween.h"
+#include "tinbetweenmatch.h"
 #include "tcurves.h"
 #include "tstroke.h"
 #include "tpalette.h"
@@ -13,6 +14,7 @@
 #include <limits>
 #include <list>
 #include <algorithm>
+#include <cmath>
 
 #include "../tvectorimage/tvectorimageP.h"
 
@@ -629,6 +631,157 @@ static void sample(const TStroke *stroke, int samplingSize,
 
 //--------------------------------------------------------------------------------------
 
+namespace {
+
+// Shape descriptor used by the automatic matching and the zone hints.
+TInbetweenMatch::StrokeInfo strokeInfo(const TStroke *stroke) {
+  TInbetweenMatch::StrokeInfo info;
+  int count = stroke->getControlPointCount();
+  if (count > 0) {
+    double sumX = 0, sumY = 0;
+    for (int i = 0; i < count; i++) {
+      TThickPoint p = stroke->getControlPoint(i);
+      sumX += p.x;
+      sumY += p.y;
+    }
+    info.m_cx = sumX / count;
+    info.m_cy = sumY / count;
+  }
+  TRectD box     = stroke->getBBox();
+  info.m_width   = box.getLx();
+  info.m_height  = box.getLy();
+  info.m_length  = stroke->getLength();
+  info.m_styleId = stroke->getStyle();
+  return info;
+}
+
+std::vector<TInbetweenMatch::StrokeInfo> strokeInfos(
+    const TVectorImageP &image) {
+  std::vector<TInbetweenMatch::StrokeInfo> infos;
+  int count = image->getStrokeCount();
+  infos.reserve(count);
+  for (int i = 0; i < count; i++)
+    infos.push_back(strokeInfo(image->getStroke(i)));
+  return infos;
+}
+
+TInbetweenMatch::Rect toMatchRect(const TRectD &r) {
+  TInbetweenMatch::Rect rect;
+  rect.x0 = r.x0;
+  rect.y0 = r.y0;
+  rect.x1 = r.x1;
+  rect.y1 = r.y1;
+  return rect;
+}
+
+// Zone hints: returns the pairs found, flagging the strokes used
+TInbetween::StrokeCorrespondence zonePairs(
+    const TVectorImageP &first, const TVectorImageP &last,
+    const std::vector<TInbetween::ZoneHint> &zoneHints,
+    std::vector<bool> &usedFirst, std::vector<bool> &usedLast) {
+  TInbetween::StrokeCorrespondence pairs;
+  if (zoneHints.empty()) return pairs;
+
+  std::vector<TInbetweenMatch::StrokeInfo> infos1 = strokeInfos(first),
+                                           infos2 = strokeInfos(last);
+  std::vector<TInbetweenMatch::Point> centroids1(infos1.size()),
+      centroids2(infos2.size());
+  for (size_t i = 0; i < infos1.size(); i++) {
+    centroids1[i].x = infos1[i].m_cx;
+    centroids1[i].y = infos1[i].m_cy;
+  }
+  for (size_t i = 0; i < infos2.size(); i++) {
+    centroids2[i].x = infos2[i].m_cx;
+    centroids2[i].y = infos2[i].m_cy;
+  }
+
+  for (const TInbetween::ZoneHint &hint : zoneHints) {
+    std::vector<std::pair<int, int>> found = TInbetweenMatch::zoneMatch(
+        centroids1, centroids2, toMatchRect(hint.m_first),
+        toMatchRect(hint.m_last), usedFirst, usedLast);
+    pairs.insert(pairs.end(), found.begin(), found.end());
+  }
+  return pairs;
+}
+
+// Automatic matching of the strokes not flagged as used (flags are updated)
+TInbetween::StrokeCorrespondence autoPairs(const TVectorImageP &first,
+                                           const TVectorImageP &last,
+                                           std::vector<bool> &usedFirst,
+                                           std::vector<bool> &usedLast) {
+  TInbetween::StrokeCorrespondence pairs;
+
+  std::vector<int> free1, free2;
+  for (int i = 0; i < (int)usedFirst.size(); i++)
+    if (!usedFirst[i]) free1.push_back(i);
+  for (int j = 0; j < (int)usedLast.size(); j++)
+    if (!usedLast[j]) free2.push_back(j);
+  if (free1.empty() || free2.empty()) return pairs;
+
+  std::vector<TInbetweenMatch::StrokeInfo> infos1 = strokeInfos(first),
+                                           infos2 = strokeInfos(last);
+
+  // the scale of the drawing: diagonal of the bounding box of both images
+  TRectD box      = first->getBBox() + last->getBBox();
+  double diagonal = std::hypot(box.getLx(), box.getLy());
+
+  int rows = (int)free1.size(), cols = (int)free2.size();
+  std::vector<double> cost(size_t(rows) * cols);
+  for (int r = 0; r < rows; r++)
+    for (int c = 0; c < cols; c++)
+      cost[size_t(r) * cols + c] = TInbetweenMatch::matchCost(
+          infos1[free1[r]], infos2[free2[c]], diagonal);
+
+  std::vector<int> assignment =
+      TInbetweenMatch::assignMinCost(cost, rows, cols);
+  for (int r = 0; r < rows; r++) {
+    if (assignment[r] < 0) continue;
+    int i = free1[r], j = free2[assignment[r]];
+    usedFirst[i] = true;
+    usedLast[j]  = true;
+    pairs.push_back(std::make_pair(i, j));
+  }
+  return pairs;
+}
+
+// Completes \b correspondence with the pairs coming from the match options.
+// Priority: the given pairs, the zone hints, the automatic matching.
+TInbetween::StrokeCorrespondence completeCorrespondence(
+    const TVectorImageP &first, const TVectorImageP &last,
+    const TInbetween::StrokeCorrespondence &correspondence,
+    const TInbetween::MatchOptions &options) {
+  if (!options.m_autoMatch && options.m_zoneHints.empty())
+    return correspondence;
+
+  int count1 = first->getStrokeCount(), count2 = last->getStrokeCount();
+  std::vector<bool> usedFirst(count1, false), usedLast(count2, false);
+
+  // same validity rules as TInbetween::Imp::computeStrokePairs
+  TInbetween::StrokeCorrespondence result;
+  for (const std::pair<int, int> &pair : correspondence) {
+    if (pair.first < 0 || pair.first >= count1 || pair.second < 0 ||
+        pair.second >= count2)
+      continue;
+    if (usedFirst[pair.first] || usedLast[pair.second]) continue;
+    usedFirst[pair.first] = true;
+    usedLast[pair.second] = true;
+    result.push_back(pair);
+  }
+
+  TInbetween::StrokeCorrespondence zones =
+      zonePairs(first, last, options.m_zoneHints, usedFirst, usedLast);
+  result.insert(result.end(), zones.begin(), zones.end());
+
+  if (options.m_autoMatch) {
+    TInbetween::StrokeCorrespondence autos =
+        autoPairs(first, last, usedFirst, usedLast);
+    result.insert(result.end(), autos.begin(), autos.end());
+  }
+  return result;
+}
+
+}  // namespace
+
 class TInbetween::Imp {
 public:
   //----------------------
@@ -666,9 +819,10 @@ public:
   TVectorImageP tween(double t) const;
 
   Imp(const TVectorImageP firstImage, const TVectorImageP lastImage,
-      const StrokeCorrespondence &correspondence)
+      const StrokeCorrespondence &correspondence, const MatchOptions &options)
       : m_firstImage(firstImage), m_lastImage(lastImage) {
-    computeStrokePairs(correspondence);
+    computeStrokePairs(
+        completeCorrespondence(firstImage, lastImage, correspondence, options));
     computeTransformation();
   }
 };
@@ -676,15 +830,46 @@ public:
 
 TInbetween::TInbetween(const TVectorImageP firstImage,
                        const TVectorImageP lastImage)
-    : m_imp(
-          new TInbetween::Imp(firstImage, lastImage, StrokeCorrespondence())) {}
+    : m_imp(new TInbetween::Imp(firstImage, lastImage, StrokeCorrespondence(),
+                                MatchOptions())) {}
 
 //-------------------------------------------------------------------
 
 TInbetween::TInbetween(const TVectorImageP firstImage,
                        const TVectorImageP lastImage,
                        const StrokeCorrespondence &correspondence)
-    : m_imp(new TInbetween::Imp(firstImage, lastImage, correspondence)) {}
+    : m_imp(new TInbetween::Imp(firstImage, lastImage, correspondence,
+                                MatchOptions())) {}
+
+//-------------------------------------------------------------------
+
+TInbetween::TInbetween(const TVectorImageP firstImage,
+                       const TVectorImageP lastImage,
+                       const StrokeCorrespondence &correspondence,
+                       const MatchOptions &options)
+    : m_imp(new TInbetween::Imp(firstImage, lastImage, correspondence,
+                                options)) {}
+
+//-------------------------------------------------------------------
+
+TInbetween::StrokeCorrespondence TInbetween::autoCorrespondence(
+    const TVectorImageP &first, const TVectorImageP &last) {
+  if (!first || !last) return StrokeCorrespondence();
+  std::vector<bool> usedFirst(first->getStrokeCount(), false),
+      usedLast(last->getStrokeCount(), false);
+  return autoPairs(first, last, usedFirst, usedLast);
+}
+
+//-------------------------------------------------------------------
+
+TInbetween::StrokeCorrespondence TInbetween::zoneCorrespondence(
+    const TVectorImageP &first, const TVectorImageP &last,
+    const std::vector<ZoneHint> &zoneHints) {
+  if (!first || !last) return StrokeCorrespondence();
+  std::vector<bool> usedFirst(first->getStrokeCount(), false),
+      usedLast(last->getStrokeCount(), false);
+  return zonePairs(first, last, zoneHints, usedFirst, usedLast);
+}
 
 //-------------------------------------------------------------------
 
@@ -1632,9 +1817,17 @@ double TInbetween::interpolation(double t, enum TweenAlgorithm algorithm) {
   case EaseInOutInterpolation:  // s'(0) = s'(1) = 0
     return t * t * (3 - 2 * t);
   case LinearInterpolation:
+  case CustomEaseInterpolation:  // needs the strengths, see below
   default:
     return t;
   }
+}
+
+//-------------------------------------------------------------------
+
+double TInbetween::customEaseInterpolation(double t, double slowStart,
+                                           double slowEnd) {
+  return TInbetweenMatch::customEase(t, slowStart, slowEnd);
 }
 
 //-------------------------------------------------------------------

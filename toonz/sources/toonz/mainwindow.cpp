@@ -2331,6 +2331,9 @@ void MainWindow::defineActions() {
       QT_TRANSLATE_NOOP("MainWindow", "Import Open Cel Animation (OCA)"), "",
       "import_oca");
   createMenuFileAction(
+      MI_ImportAbr,
+      QT_TRANSLATE_NOOP("MainWindow", "Import Photoshop Brushes (ABR)..."), "");
+  createMenuFileAction(
       MI_ExportTvpJson,
       QT_TRANSLATE_NOOP("MainWindow", "Export TVPaint JSON File"), "");
   createMenuFileAction(MI_ExportPDF,
@@ -2493,6 +2496,9 @@ void MainWindow::defineActions() {
                         "sort_with_palette_order");
   createMenuLevelAction(MI_PairInbetweenStrokes,
                         QT_TR_NOOP("&Pair Strokes for Inbetween"), "");
+  createMenuLevelAction(MI_AddInbetweenZoneHint,
+                        QT_TR_NOOP("&Add Inbetween Zone Hint from Selection"),
+                        "");
   createMenuLevelAction(MI_ClearInbetweenStrokePairs,
                         QT_TR_NOOP("&Clear Inbetween Stroke Pairs"), "");
   createMenuLevelAction(MI_AddFrames, QT_TR_NOOP("&Add Frames..."), "",
@@ -2550,6 +2556,8 @@ void MainWindow::defineActions() {
   createMenuLevelAction(MI_FillHoles, QT_TR_NOOP("&Fill Holes..."), "",
                         "Fill small holes in Toonz Raster Level");
   createMenuLevelAction(MI_Tracking, QT_TR_NOOP("Tracking..."), "", "focus");
+  createMenuLevelAction(MI_CreateColourArt,
+                        QT_TR_NOOP("Create Colour Art from Line Art"), "");
 
   // Menu - Xsheet
 
@@ -2688,6 +2696,12 @@ void MainWindow::defineActions() {
   createMenuCellsAction(MI_ReframeWithEmptyInbetweens,
                         QT_TR_NOOP("Reframe with Empty Inbetweens..."), "",
                         "on_with_empty");
+  createMenuCellsAction(MI_ColumnHold, QT_TR_NOOP("Time Remap: Hold"), "", "");
+  createMenuCellsAction(MI_ColumnLoop, QT_TR_NOOP("Time Remap: Loop"), "", "");
+  createMenuCellsAction(MI_ColumnReverse, QT_TR_NOOP("Time Remap: Reverse"), "",
+                        "");
+  createMenuCellsAction(MI_ColumnTimeRemapClear, QT_TR_NOOP("Clear Time Remap"),
+                        "", "");
   createMenuCellsAction(MI_AutoInputCellNumber,
                         QT_TR_NOOP("Auto Input Cell Number..."), "",
                         "auto_input_cell_number");
@@ -2947,6 +2961,8 @@ void MainWindow::defineActions() {
   createMenuWindowsAction(MI_OpenOffsetLayers, QT_TR_NOOP("Offset Layers"), "",
                           "");
   createMenuWindowsAction(MI_OpenRigLibrary, QT_TR_NOOP("Rig Library"), "", "");
+  createMenuWindowsAction(MI_OpenArtLayerManager,
+                          QT_TR_NOOP("Art Layer Manager"), "", "");
   createMenuWindowsAction(MI_OpenSymbols, QT_TR_NOOP("Symbols"), "", "");
   createMenuWindowsAction(MI_OpenReferencePanel, QT_TR_NOOP("&Reference"), "",
                           "");

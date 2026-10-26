@@ -48,12 +48,33 @@ public:
 //    ColourOverrideFxRenderData  declaration
 //**********************************************************************************************
 
-//! Replaces the main color of some styles in the palette that Toonz Vector and
+//! Changes the main color of some styles in the palette that Toonz Vector and
 //! Toonz Raster images are rendered with. The level's own palette is never
 //! modified: the overrides are applied on a copy, at render time.
 class DVAPI ColourOverrideFxRenderData final : public TRasterFxRenderData {
 public:
-  std::vector<std::pair<int, TPixel32>> m_overrides;  //!< (style id, color)
+  //! How an override combines its color with the style's main color
+  enum Mode {
+    eReplace  = 0,  //!< The color replaces the main color
+    eMultiply = 1,  //!< Channels are multiplied (including the matte)
+    eAdd      = 2   //!< The color, weighted by its matte, is added to the RGB
+  };
+
+  struct Entry {
+    int m_styleId;
+    TPixel32 m_color;
+    int m_mode;  //!< A Mode value
+
+    Entry(int styleId, const TPixel32 &color, int mode = eReplace)
+        : m_styleId(styleId), m_color(color), m_mode(mode) {}
+
+    bool operator==(const Entry &other) const {
+      return m_styleId == other.m_styleId && m_color == other.m_color &&
+             m_mode == other.m_mode;
+    }
+  };
+
+  std::vector<Entry> m_overrides;
 
 public:
   ColourOverrideFxRenderData() {}
@@ -66,6 +87,22 @@ public:
   //! Sets the overridden styles' main color in the specified palette. Style
   //! ids that the palette does not contain are skipped.
   void apply(TPalette *palette) const;
+};
+
+//**********************************************************************************************
+//    TColourOverrideSource  declaration
+//**********************************************************************************************
+
+//! Implemented by the Colour Override Fx, so that the code that shows the
+//! columns in the viewer can read its overrides without knowing the Fx.
+class DVAPI TColourOverrideSource {
+public:
+  virtual ~TColourOverrideSource();
+
+  //! Adds the overrides in use at the specified frame to data. Returns false
+  //! if there are none.
+  virtual bool getColourOverrides(double frame,
+                                  ColourOverrideFxRenderData &data) const = 0;
 };
 
 //**********************************************************************************************

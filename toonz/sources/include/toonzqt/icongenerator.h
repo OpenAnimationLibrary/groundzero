@@ -37,6 +37,7 @@
 
 class TFilePath;
 class TXshLevel;
+class TXsheet;
 class TStageObjectSpline;
 class ToonzScene;
 class TOfflineGL;
@@ -125,6 +126,12 @@ public:
   void invalidate(const TFilePath &path,
                   const TFrameId &fid = TFrameId::NO_FRAME);
   void remove(const TFilePath &path, const TFrameId &fid = TFrameId::NO_FRAME);
+
+  // camera-stand render of a frame of an xsheet (e.g. storyboard thumbnails);
+  // returns a null pixmap until the icon is generated
+  QPixmap getXsheetFrameIcon(TXsheet *xsh, int row, const TDimension &dim,
+                             bool onDemand = false);
+  void removeXsheetFrameIcons(TXsheet *xsh);
 
   QPixmap getSceneIcon(ToonzScene *scene);  // Unused in Toonz
   void invalidateSceneIcon();

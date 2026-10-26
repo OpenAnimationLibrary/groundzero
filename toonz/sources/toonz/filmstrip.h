@@ -24,6 +24,8 @@ class FilmstripFrameHeadGadget;
 class TXshSimpleLevel;
 class QComboBox;
 class QCheckBox;
+class QSlider;
+class QLabel;
 class QTimer;
 class QDragEnterEvent;
 class QDragMoveEvent;
@@ -335,6 +337,13 @@ class InbetweenDialog final : public DVGui::Dialog {
   Q_OBJECT
   QComboBox *m_comboBox;
   QCheckBox *m_strokePairsCB;
+  QCheckBox *m_zoneHintsCB;
+  QCheckBox *m_autoMatchCB;
+  QWidget *m_customEaseWidget;  // shown with the Custom interpolation only
+  QSlider *m_slowStartSlider, *m_slowEndSlider;
+  QLabel *m_slowStartLabel, *m_slowEndLabel;
+
+  void updateCustomEaseVisibility();
 
 public:
   InbetweenDialog(QWidget *parent);
@@ -347,6 +356,19 @@ public:
   // the stroke pairs option is shown only when there are pairs to use
   void setStrokePairCount(int count);
   bool useStrokePairs() const;
+
+  // same for the zone hints set with Add Inbetween Zone Hint from Selection
+  void setZoneHintCount(int count);
+  bool useZoneHints() const;
+
+  // opt-in automatic matching of the strokes that are not paired
+  bool autoMatch() const;
+  void setAutoMatch(bool on);
+
+  // strengths (0-100) of the Custom interpolation
+  int slowStart() const;
+  int slowEnd() const;
+  void setEase(int slowStart, int slowEnd);
 };
 
 #endif  // FILMSTRIP_H

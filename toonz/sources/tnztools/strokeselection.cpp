@@ -702,6 +702,26 @@ InbetweenStrokePairs &inbetweenStrokePairs() {
   return pairs;
 }
 
+// Zone hints for the Inbetween command. A hint is a pair of zones, one on each
+// key drawing. As for the stroke pairs, the drawings are identified through the
+// id of a stroke they contain (the first selected one), so a hint stops
+// applying when that stroke is gone.
+struct InbetweenZoneHints {
+  struct Hint {
+    int m_idA, m_idB;
+    TRectD m_rectA, m_rectB;
+  };
+
+  int m_markedId = -1;  // -1: nothing marked yet
+  TRectD m_markedRect;
+  std::vector<Hint> m_hints;
+};
+
+InbetweenZoneHints &inbetweenZoneHints() {
+  static InbetweenZoneHints hints;
+  return hints;
+}
+
 }  // namespace
 
 //-----------------------------------------------------------------------------
@@ -763,13 +783,20 @@ void StrokeSelection::clearInbetweenStrokePairs() {
   data.m_markedImage         = nullptr;
   data.m_markedIds.clear();
   data.m_pairs.clear();
+
+  InbetweenZoneHints &zones = inbetweenZoneHints();
+  zones.m_markedId          = -1;
+  zones.m_markedRect        = TRectD();
+  zones.m_hints.clear();
 }
 
 //-----------------------------------------------------------------------------
 
 bool StrokeSelection::hasInbetweenStrokePairs() {
   const InbetweenStrokePairs &data = inbetweenStrokePairs();
-  return !data.m_pairs.empty() || !data.m_markedIds.empty();
+  const InbetweenZoneHints &zones  = inbetweenZoneHints();
+  return !data.m_pairs.empty() || !data.m_markedIds.empty() ||
+         !zones.m_hints.empty() || zones.m_markedId >= 0;
 }
 
 //-----------------------------------------------------------------------------
@@ -795,6 +822,68 @@ std::vector<std::pair<int, int>> StrokeSelection::getInbetweenStrokePairs(
 
 //=============================================================================
 //
+// Inbetween zone hints
+//
+//-----------------------------------------------------------------------------
+
+void StrokeSelection::addInbetweenZoneHint() {
+  if (!m_vi || m_indexes.empty()) return;
+
+  std::vector<int> order = selectionOrder();
+  if (order.empty()) return;
+  TRectD box;
+  for (int index : order) box += m_vi->getStroke(index)->getBBox();
+  int anchorId = m_vi->getStroke(order.front())->getId();
+
+  InbetweenZoneHints &data = inbetweenZoneHints();
+
+  // first step: remember the zone in the first key drawing (the call is
+  // repeated on the same drawing: replace the zone)
+  if (data.m_markedId < 0 || m_vi->getStrokeIndexById(data.m_markedId) >= 0) {
+    data.m_markedId   = anchorId;
+    data.m_markedRect = box;
+    DVGui::info(QObject::tr(
+        "Zone marked for Inbetween. Select the strokes of the "
+        "matching zone in the other key drawing and use Add Inbetween "
+        "Zone Hint from Selection again."));
+    return;
+  }
+
+  // second step: the zone of this key drawing is the target
+  InbetweenZoneHints::Hint hint;
+  hint.m_idA   = data.m_markedId;
+  hint.m_idB   = anchorId;
+  hint.m_rectA = data.m_markedRect;
+  hint.m_rectB = box;
+  data.m_hints.push_back(hint);
+  data.m_markedId   = -1;
+  data.m_markedRect = TRectD();
+
+  DVGui::info(QObject::tr("%1 zone hint(s) set for Inbetween.")
+                  .arg((int)data.m_hints.size()));
+}
+
+//-----------------------------------------------------------------------------
+
+std::vector<std::pair<TRectD, TRectD>> StrokeSelection::getInbetweenZoneHints(
+    const TVectorImageP &firstImage, const TVectorImageP &lastImage) {
+  std::vector<std::pair<TRectD, TRectD>> rects;
+  if (!firstImage || !lastImage) return rects;
+
+  for (const InbetweenZoneHints::Hint &hint : inbetweenZoneHints().m_hints) {
+    // hints can be set from either key drawing
+    if (firstImage->getStrokeIndexById(hint.m_idA) >= 0 &&
+        lastImage->getStrokeIndexById(hint.m_idB) >= 0)
+      rects.push_back(std::make_pair(hint.m_rectA, hint.m_rectB));
+    else if (firstImage->getStrokeIndexById(hint.m_idB) >= 0 &&
+             lastImage->getStrokeIndexById(hint.m_idA) >= 0)
+      rects.push_back(std::make_pair(hint.m_rectB, hint.m_rectA));
+  }
+  return rects;
+}
+
+//=============================================================================
+//
 // selectAll
 //
 //-----------------------------------------------------------------------------
@@ -804,8 +893,9 @@ void StrokeSelection::selectAll() {
 
   int sCount = int(m_vi->getStrokeCount());
 
+  ArtLayer::Filter filter(*m_vi);
   for (int s = 0; s < sCount; ++s) {
-    if (ArtLayer::isEditable(*m_vi->getStroke(s))) m_indexes.insert(s);
+    if (filter.isEditable(s)) m_indexes.insert(s);
   }
 
   StrokeSelection *selection = dynamic_cast<StrokeSelection *>(
@@ -1154,6 +1244,8 @@ void StrokeSelection::enableCommands() {
   enableCommand(this, MI_SortWithPaletteOrder, &StrokeSelection::sortWithPaletteOrder);
   enableCommand(this, MI_PairInbetweenStrokes,
                 &StrokeSelection::pairStrokesForInbetween);
+  enableCommand(this, MI_AddInbetweenZoneHint,
+                &StrokeSelection::addInbetweenZoneHint);
   enableCommand(this, MI_ClearInbetweenStrokePairs,
                 &StrokeSelection::clearInbetweenStrokePairs);
   enableCommand(this, MI_SelectAll, &StrokeSelection::selectAll);

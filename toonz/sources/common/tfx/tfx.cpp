@@ -887,6 +887,8 @@ void TFx::saveData(TOStream &os) {
         const TParamVar *paramVar = getParams()->getParamVar(i);
         // Skip saving for obsolete parameters
         if (paramVar->isObsolete()) continue;
+        // Skip saving for parameters that the fx does not want to be saved
+        if (!isParamSaved(paramVar)) continue;
         os.openChild(paramName);
         paramVar->getParam()->saveData(os);
         os.closeChild();

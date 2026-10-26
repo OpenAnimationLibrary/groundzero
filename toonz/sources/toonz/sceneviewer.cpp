@@ -2264,7 +2264,9 @@ void SceneViewer::drawScene() {
 
     m_visualSettings.m_showBBox = viewBBoxToggle.getStatus();
     m_visualSettings.m_showColourArt =
-        ArtLayer::target() != ArtLayer::TARGET_OFF;
+        ArtLayer::target() != ArtLayer::TARGET_OFF ||
+        ArtLayer::colourArtShown();
+    m_visualSettings.m_hiddenArtRoles = ArtLayer::hiddenRoles();
     m_visualSettings.m_fadeLineArt   = ArtLayer::isFaded(ArtLayer::LINE_ART);
     m_visualSettings.m_fadeColourArt = ArtLayer::isFaded(ArtLayer::COLOUR_ART);
 
@@ -2276,6 +2278,10 @@ void SceneViewer::drawScene() {
     painter.setRasterDarkenBlendedView(
         Preferences::instance()
             ->isShowRasterImagesDarkenBlendedInViewerEnabled());
+
+    // overrides of the Colour Override Fxs that follow the columns
+    painter.enableColourOverrides(
+        Preferences::instance()->isColourOverrideInViewerEnabled());
 
     // experimental GPU compositing of raster levels
     painter.enableGpuCompositing(

@@ -52,6 +52,8 @@
 
 // Qt includes
 #include <QCoreApplication>  // Qt translation support
+#include <QDir>
+#include <QDirIterator>
 
 //----------------------------------------------------------------------------------
 
@@ -67,14 +69,24 @@ TEnv::IntVar FullcolorModifierEraser("FullcolorModifierEraser", 0);
 TEnv::IntVar FullcolorModifierLockAlpha("FullcolorModifierLockAlpha", 0);
 TEnv::IntVar FullcolorAssistants("FullcolorAssistants", 1);
 TEnv::StringVar FullcolorBrushPreset("FullcolorBrushPreset", "<custom>");
+TEnv::StringVar FullcolorBrushTip("FullcolorBrushTip", "<round>");
 
 //----------------------------------------------------------------------------------
 
 #define CUSTOM_WSTR L"<custom>"
+#define ROUND_TIP_WSTR L"<round>"
 
 //----------------------------------------------------------------------------------
 
 namespace {
+
+// Images of the brush tips: <library>/brushtips/[<folder>/]<name>.png, the
+// folders being made by the import of Photoshop brushes (.abr).
+QString brushTipsFolder() {
+  return ToonzFolder::getLibraryFolder().getQString() + "/brushtips";
+}
+
+const int c_maxTips = 2000;
 
 class FullColorBrushUndo final : public ToolUtils::TFullColorRasterUndo {
   TPoint m_offset;
@@ -137,6 +149,7 @@ FullColorBrushTool::FullColorBrushTool(std::string name)
     , m_modifierEraser("ModifierEraser", false)
     , m_modifierLockAlpha("Lock Alpha", false)
     , m_assistants("Assistants", true)
+    , m_tip("Tip:")
     , m_preset("Preset:")
     , m_enabledPressure(false)
     , m_minCursorThick(0)
@@ -145,6 +158,7 @@ FullColorBrushTool::FullColorBrushTool(std::string name)
     , m_tileSaver(0)
     , m_notifier(0)
     , m_presetsLoaded(false)
+    , m_tipsLoaded(false)
     , m_firstTime(true)
     , m_started(false)
     , m_strokeFrameId()
@@ -161,6 +175,7 @@ FullColorBrushTool::FullColorBrushTool(std::string name)
   m_prop.bind(m_modifierLockAlpha);
   m_prop.bind(m_pressure);
   m_prop.bind(m_assistants);
+  m_prop.bind(m_tip);
   m_prop.bind(m_preset);
 
   m_inputmanager.setHandler(this);
@@ -177,6 +192,8 @@ FullColorBrushTool::FullColorBrushTool(std::string name)
 
   m_thickness.setNonLinearSlider();
   m_preset.setId("BrushPreset");
+  m_tip.addValue(ROUND_TIP_WSTR);
+  m_tip.setItemUIName(ROUND_TIP_WSTR, tr("Round"));
   m_modifierEraser.setId("RasterEraser");
   m_modifierLockAlpha.setId("LockAlpha");
   m_pressure.setId("PressureSensitivity");
@@ -224,6 +241,7 @@ void FullColorBrushTool::updateTranslation() {
   m_opacity.setQStringName(tr("Opacity"));
   m_hardness.setQStringName(tr("Hardness:"));
   m_preset.setQStringName(tr("Preset:"));
+  m_tip.setQStringName(tr("Tip:"));
   m_modifierSize.setQStringName(tr("Size"));
   m_modifierOpacity.setQStringName(tr("Opacity"));
   m_modifierEraser.setQStringName(tr("Eraser"));
@@ -254,6 +272,7 @@ void FullColorBrushTool::onActivate() {
       loadLastBrush();
   }
 
+  initTips();  // picks up the tips imported since the last time
   setWorkAndBackupImages();
   onColorStyleChanged();
   updateModifiers();
@@ -574,6 +593,7 @@ void FullColorBrushTool::inputPaintTrackPoint(const TTrackPoint &point,
     mypaint::Brush mypaintBrush;
     applyToonzBrushSettings(mypaintBrush);
     handler = new TrackHandler(m_workRaster, *this, mypaintBrush);
+    handler->brush.setTip(m_tipImage);
     handler->brush.beginStroke();
     track.handler = handler;
   }
@@ -671,6 +691,7 @@ void FullColorBrushTool::onLeave() {
 
 TPropertyGroup *FullColorBrushTool::getProperties(int targetType) {
   if (!m_presetsLoaded) initPresets();
+  if (!m_tipsLoaded) initTips();
   return &m_prop;
 }
 
@@ -753,6 +774,13 @@ bool FullColorBrushTool::onPropertyChanged(std::string propertyName) {
 
   updateCurrentStyle();
 
+  if (propertyName == "Tip:") {
+    // the tip is not a part of the presets
+    FullcolorBrushTip = QString::fromStdWString(m_tip.getValue()).toStdString();
+    updateTip();
+    return true;
+  }
+
   if (propertyName == "Preset:") {
     if (m_preset.getValue() != CUSTOM_WSTR)
       loadPreset();
@@ -807,6 +835,58 @@ void FullColorBrushTool::initPresets() {
 
   std::set<BrushData>::const_iterator it, end = presets.end();
   for (it = presets.begin(); it != end; ++it) m_preset.addValue(it->m_name);
+}
+
+//----------------------------------------------------------------------------------------------------------
+
+// Lists the tip images of the library into the "Tip:" property. The tip of
+// the last session is selected the first time.
+void FullColorBrushTool::initTips() {
+  QString folder = brushTipsFolder();
+  QStringList files;
+  QDirIterator it(folder, QStringList() << "*.png", QDir::Files,
+                  QDirIterator::Subdirectories);
+  while (it.hasNext() && files.size() < c_maxTips) {
+    it.next();
+    files << QDir(folder).relativeFilePath(it.filePath());
+  }
+  files.sort(Qt::CaseInsensitive);
+
+  bool first   = !m_tipsLoaded;
+  m_tipsLoaded = true;
+  if (!first && files == m_tipFiles) return;
+  m_tipFiles = files;
+
+  std::wstring current =
+      first
+          ? QString::fromStdString(FullcolorBrushTip.getValue()).toStdWString()
+          : m_tip.getValue();
+
+  m_tip.deleteAllValues();
+  m_tip.addValue(ROUND_TIP_WSTR);
+  m_tip.setItemUIName(ROUND_TIP_WSTR, tr("Round"));
+  for (const QString &file : files) {
+    QString name = file;
+    if (name.endsWith(".png", Qt::CaseInsensitive)) name.chop(4);
+    m_tip.addValueWithUIName(file.toStdWString(), name);
+  }
+  if (!m_tip.isValue(current)) current = ROUND_TIP_WSTR;
+  m_tip.setValue(current);
+  updateTip();
+
+  if (!first && getApplication() && getApplication()->getCurrentTool())
+    getApplication()->getCurrentTool()->notifyToolComboBoxListChanged("Tip:");
+}
+
+//----------------------------------------------------------------------------------------------------------
+
+// Loads the image of the selected tip (none for the round dab).
+void FullColorBrushTool::updateTip() {
+  m_tipImage.reset();
+  std::wstring id = m_tip.getValue();
+  if (id.empty() || id == ROUND_TIP_WSTR) return;
+  m_tipImage =
+      MyPaintTip::load(brushTipsFolder() + "/" + QString::fromStdWString(id));
 }
 
 //----------------------------------------------------------------------------------------------------------
@@ -1159,6 +1239,10 @@ void FullColorBrushTool::applyClassicToonzBrushSettings(
                             5.0 + hardness * 10.0);
   mypaintBrush.setBaseValue(MYPAINT_BRUSH_SETTING_DABS_PER_BASIC_RADIUS, 0.0);
   mypaintBrush.setBaseValue(MYPAINT_BRUSH_SETTING_DABS_PER_SECOND, 0.0);
+  // a tip image is stamped every 20% of its size, as Photoshop does by default
+  if (m_tipImage)
+    mypaintBrush.setBaseValue(MYPAINT_BRUSH_SETTING_DABS_PER_ACTUAL_RADIUS,
+                              2.5);
 
   // thickness may be dynamic
   if (minThickness + precision >= maxThickness) {

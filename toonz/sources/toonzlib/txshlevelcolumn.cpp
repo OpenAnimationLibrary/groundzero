@@ -9,6 +9,11 @@
 #include "toonz/tcolumnfx.h"
 #include "toonz/txshleveltypes.h"
 
+// TnzBase includes
+#include "tparamcontainer.h"
+#include "tdoubleparam.h"
+#include "tnotanimatableparam.h"
+
 // TnzCore includes
 #include "tstream.h"
 
@@ -90,6 +95,49 @@ TLevelColumnFx *TXshLevelColumn::getLevelColumnFx() const { return m_fx; }
 TFx *TXshLevelColumn::getFx() const { return m_fx; }
 
 //-----------------------------------------------------------------------------
+// Time remap: the curve and its flag belong to the column fx
+
+TDoubleParam *TXshLevelColumn::getTimeRemapParam() const {
+  return m_fx->getTimeRemapParam();
+}
+
+//-----------------------------------------------------------------------------
+
+bool TXshLevelColumn::isTimeRemapEnabled() const {
+  return m_fx->getTimeRemapEnabledParam()->getValue();
+}
+
+//-----------------------------------------------------------------------------
+
+void TXshLevelColumn::setTimeRemapEnabled(bool enabled) {
+  m_fx->getTimeRemapEnabledParam()->setValue(enabled);
+}
+
+//-----------------------------------------------------------------------------
+
+bool TXshLevelColumn::isTimeRemapActive() const {
+  return m_fx->isTimeRemapActive();
+}
+
+//-----------------------------------------------------------------------------
+
+bool TXshLevelColumn::isTimeRemapUsed() const {
+  return m_fx->isTimeRemapUsed();
+}
+
+//-----------------------------------------------------------------------------
+
+int TXshLevelColumn::getRemappedRow(int row) const {
+  return m_fx->getRemappedRow(row);
+}
+
+//-----------------------------------------------------------------------------
+
+TXshCell TXshLevelColumn::getRemappedCell(int row) const {
+  return getCell(getRemappedRow(row));
+}
+
+//-----------------------------------------------------------------------------
 
 TXshColumn *TXshLevelColumn::clone() const {
   TXshLevelColumn *column = new TXshLevelColumn;
@@ -99,6 +147,7 @@ TXshColumn *TXshLevelColumn::clone() const {
   column->m_first = m_first;
   column->setColorTag(getColorTag());
   column->setColorFilterId(getColorFilterId());
+  if (isTimeRemapUsed()) column->m_fx->getParams()->copy(m_fx->getParams());
 
   return column;
 }

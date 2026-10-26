@@ -3161,6 +3161,17 @@ void ColumnArea::contextMenuEvent(QContextMenuEvent *event) {
       }
       menu.addMenu(reframeSubMenu);
       menu.addAction(cmdManager->getAction(MI_AutoInputCellNumber));
+
+      // retime the column at render/preview time with its time remap curve
+      QMenu *timeRemapSubMenu = new QMenu(tr("Time Remap"), this);
+      {
+        timeRemapSubMenu->addAction(cmdManager->getAction(MI_ColumnHold));
+        timeRemapSubMenu->addAction(cmdManager->getAction(MI_ColumnLoop));
+        timeRemapSubMenu->addAction(cmdManager->getAction(MI_ColumnReverse));
+        timeRemapSubMenu->addAction(
+            cmdManager->getAction(MI_ColumnTimeRemapClear));
+      }
+      menu.addMenu(timeRemapSubMenu);
     }
 
     if (containsRasterLevel(m_viewer->getColumnSelection())) {

@@ -110,6 +110,7 @@
 #define MI_AdjustLevels "MI_AdjustLevels"
 #define MI_AdjustThickness "MI_AdjustThickness"
 #define MI_BakeEnvelope "MI_BakeEnvelope"
+#define MI_CreateColourArt "MI_CreateColourArt"
 #define MI_Binarize "MI_Binarize"
 #define MI_FillHoles "MI_FillHoles"
 #define MI_LinesFade "MI_LinesFade"
@@ -363,6 +364,10 @@
 #define MI_Reframe3 "MI_Reframe3"
 #define MI_Reframe4 "MI_Reframe4"
 #define MI_ReframeWithEmptyInbetweens "MI_ReframeWithEmptyInbetweens"
+#define MI_ColumnHold "MI_ColumnHold"
+#define MI_ColumnLoop "MI_ColumnLoop"
+#define MI_ColumnReverse "MI_ColumnReverse"
+#define MI_ColumnTimeRemapClear "MI_ColumnTimeRemapClear"
 
 #define MI_EditNextMode "MI_EditNextMode"
 #define MI_EditPosition "MI_EditPosition"
@@ -519,6 +524,7 @@
 #define MI_ExportOCA "MI_ExportOCA"
 #define MI_ExportAnimatedSVG "MI_ExportAnimatedSVG"
 #define MI_ImportOCA "MI_ImportOCA"
+#define MI_ImportAbr "MI_ImportAbr"
 #define MI_ExportPDF "MI_ExportPDF"
 #define MI_ExportTvpJson "MI_ExportTvpJson"
 #define MI_ExportXsheetPDF "MI_ExportXsheetPDF"
@@ -554,5 +560,6 @@
 #define MI_OpenMasterControllers "MI_OpenMasterControllers"
 #define MI_OpenOffsetLayers "MI_OpenOffsetLayers"
 #define MI_OpenRigLibrary "MI_OpenRigLibrary"
+#define MI_OpenArtLayerManager "MI_OpenArtLayerManager"
 
 #endif
