@@ -16,6 +16,7 @@
 #define DVVAR DV_IMPORT_VAR
 #endif
 
+#include <climits>
 #include <QObject>
 #include <QMetaType>
 #include <QList>

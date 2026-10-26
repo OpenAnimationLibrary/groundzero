@@ -4,6 +4,7 @@
 #include "trop.h"
 #include "tparamcontainer.h"
 
+#include <climits>
 #include <array>
 
 #include <QSet>

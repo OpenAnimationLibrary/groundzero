@@ -213,6 +213,9 @@ jobs:
         [ -f "$log" ] || exit 0
         echo "::notice title=Qt 6::failed steps: $(grep -c '^FAILED: ' "$log"), errors: $(grep -c ' error: ' "$log")"
         grep -E ': (fatal )?error:|CMake Error|undefined reference' "$log" | sort -u > errors.txt || true
+        # Every distinct error in one annotation: a step shows at most 10
+        all=$(grep -E ': (fatal )?error:' errors.txt | sed -e "s|$GITHUB_WORKSPACE/||; s|^.*\.\./sources/|toonz/sources/|" | awk -F'error: ' '!seen[$2]++' | head -150 | sed -e 's/%/%25/g' | sed -e ':a;N;$!ba;s/\n/%0A/g')
+        [ -n "$all" ] && echo "::error title=Qt 6 errors (all distinct)::${all}"
         prefix="$GITHUB_WORKSPACE/"
         grep -E ': (fatal )?error:' errors.txt | awk -F'error: ' '!seen[$2]++' | head -45 | while IFS= read -r line; do
           file=${line%%:*}; rest=${line#*:}; lineno=${rest%%:*}

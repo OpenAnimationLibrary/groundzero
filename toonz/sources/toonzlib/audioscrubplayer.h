@@ -3,8 +3,15 @@
 #include "tsound.h"
 #include "tsop.h"
 
+#include <QtGlobal>
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+#include <QAudioDevice>
+#include <QAudioSink>
+#include <QMediaDevices>
+#else
 #include <QAudioDeviceInfo>
 #include <QAudioOutput>
+#endif
 #include <QBuffer>
 #include <limits>
 #include <memory>
@@ -13,9 +20,17 @@
 // QAudioOutput must never retain a stream backed by a modified/deleted buffer.
 // Continuous playback deliberately does not use this player.
 class AudioScrubPlayer final {
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+  typedef QAudioDevice Device;
+  typedef QAudioSink Output;
+#else
+  typedef QAudioDeviceInfo Device;
+  typedef QAudioOutput Output;
+#endif
+
   QBuffer m_buffer;
-  QAudioDeviceInfo m_device;
-  std::unique_ptr<QAudioOutput> m_output;
+  Device m_device;
+  std::unique_ptr<Output> m_output;
 
 public:
   ~AudioScrubPlayer() { stop(); }
@@ -30,7 +45,11 @@ public:
     stop();
     if (!source || source->getSampleCount() <= 0) return;
 
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    const QAudioDevice device = QMediaDevices::defaultAudioOutput();
+#else
     const QAudioDeviceInfo device = QAudioDeviceInfo::defaultOutputDevice();
+#endif
     if (device.isNull())
       throw TSoundDeviceException(TSoundDeviceException::NoDevice,
                                   "No audio output device for scrubbing");
@@ -38,9 +57,24 @@ public:
     // Use a conservative audition format. This changes only the temporary
     // snippet, never the scene's stored audio or export format.
     QAudioFormat format;
-    format.setCodec("audio/pcm");
     format.setSampleRate(source->getSampleRate());
     format.setChannelCount(source->getChannelCount());
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    // Qt 6 has no nearestFormat(): keep 16-bit samples and take the device's
+    // preferred rate and channel count
+    format.setSampleFormat(QAudioFormat::Int16);
+    if (!device.isFormatSupported(format)) {
+      const QAudioFormat preferred = device.preferredFormat();
+      format.setSampleRate(preferred.sampleRate());
+      format.setChannelCount(preferred.channelCount());
+    }
+    if (!format.isValid() || !device.isFormatSupported(format) ||
+        format.sampleFormat() != QAudioFormat::Int16 ||
+        format.channelCount() < 1 || format.channelCount() > 2)
+      throw TSoundDeviceException(TSoundDeviceException::UnsupportedFormat,
+                                  "Audio scrubbing requires 16-bit PCM output");
+#else
+    format.setCodec("audio/pcm");
     format.setSampleSize(16);
     format.setSampleType(QAudioFormat::SignedInt);
     format.setByteOrder(QAudioFormat::LittleEndian);
@@ -53,6 +87,7 @@ public:
         format.channelCount() < 1 || format.channelCount() > 2)
       throw TSoundDeviceException(TSoundDeviceException::UnsupportedFormat,
                                   "Audio scrubbing requires 16-bit PCM output");
+#endif
 
     const TSoundTrackFormat target(format.sampleRate(), 16,
                                    format.channelCount(), TSound::INT);
@@ -63,7 +98,7 @@ public:
     if (bytes <= 0 || bytes > std::numeric_limits<int>::max()) return;
 
     if (!m_output || m_device != device || m_output->format() != format) {
-      m_output.reset(new QAudioOutput(device, format));
+      m_output.reset(new Output(device, format));
       m_device = device;
       // Preserve the existing TXsheet playback gain on each platform.
 #ifndef _WIN32
