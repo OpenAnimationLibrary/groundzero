@@ -30,6 +30,7 @@ jobs:
     timeout-minutes: 240
     env:
       QT_QPA_PLATFORM: offscreen
+      DEBIAN_FRONTEND: noninteractive
     steps:
     - uses: actions/checkout@v6
 
@@ -56,6 +57,7 @@ jobs:
         make -j $(nproc)
 
     - name: Build
+      id: build
       run: |
         export CCACHE_DIR=/home/runner/.ccache
         mkdir -p toonz/build
@@ -82,8 +84,11 @@ jobs:
           echo "::error::${line}"
         done
 
+    # Also when some targets failed to build: ctest then reports their tests
+    # as not run, and every other test still runs
     - name: Run tests
       id: ctest
+      if: ${{ !cancelled() }}
       continue-on-error: true
       run: |
         cd toonz/build
@@ -136,17 +141,21 @@ jobs:
         echo "::notice title=fxrender::Committed $added new reference images"
 
     - name: Fail if tests failed
-      if: steps.ctest.outcome == 'failure'
+      if: ${{ !cancelled() && steps.ctest.outcome == 'failure' }}
       run: exit 1
 
   Qt6:
     runs-on: ubuntu-24.04
     continue-on-error: true
     timeout-minutes: 180
+    env:
+      DEBIAN_FRONTEND: noninteractive
     steps:
     - uses: actions/checkout@v6
 
+    # A first run hung here for two hours: no prompts, and a time limit
     - name: Install libraries
+      timeout-minutes: 25
       run: |
         sudo apt-get update
         sudo apt-get install -y build-essential cmake pkg-config ninja-build ccache libboost-all-dev qt6-base-dev qt6-base-dev-tools qt6-declarative-dev qt6-declarative-dev-tools qt6-5compat-dev qt6-tools-dev qt6-tools-dev-tools qt6-l10n-tools qt6-multimedia-dev qt6-wayland qt6-svg-dev qt6-serialport-dev libsuperlu-dev liblz4-dev libusb-1.0-0-dev liblzo2-dev libpng-dev libjpeg-dev libglew-dev freeglut3-dev libfreetype-dev libjson-c-dev libmypaint-dev libopencv-dev libturbojpeg0-dev libomp-dev
