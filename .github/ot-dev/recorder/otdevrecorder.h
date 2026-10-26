@@ -9,10 +9,11 @@
 #include <QTimer>
 
 class QAction;
+class QDockWidget;
+class QGridLayout;
 class QLabel;
 class QMainWindow;
 class QRubberBand;
-class QToolBar;
 class QWidget;
 
 // Built and installed only by the OT-Dev Windows CI injection step.
@@ -24,6 +25,9 @@ public:
   void requestRecording();
   void setPaused(bool paused);
   void stop();
+  void setPanelVisible(bool visible);
+  void registerCommands();  // Application adapter; not needed by Qt-only tests.
+  static void addInterfacePreference(QGridLayout *layout);
 
   static QImage capture(QMainWindow *window, const QSize &size,
                         bool includeCursor    = true,
@@ -42,6 +46,8 @@ private:
   bool regionAvailable() const;
   void selectRegion();
   void finishSelection(bool accept, bool updateControls = true);
+  void savePanelState();
+  void createCommands();
   bool eventFilter(QObject *watched, QEvent *event) override;
 
   QPointer<QMainWindow> m_window;
@@ -49,7 +55,9 @@ private:
   QString m_outputDir, m_outputFile, m_encoderError;
   QAction *m_start, *m_pause, *m_stop, *m_selectRegion, *m_clearRegion;
   QLabel *m_status, *m_regionStatus;
-  QToolBar *m_toolbar;
+  QPointer<QDockWidget> m_panel;
+  QAction *m_togglePanel, *m_openFolder;
+  QList<QAction *> m_commands;
   QPointer<QWidget> m_regionWindow, m_selectionWindow;
   QPointer<QRubberBand> m_selectionBand;
   QRect m_region;
@@ -59,6 +67,7 @@ private:
   QElapsedTimer m_diskCheck, m_backpressure;
   bool m_enabled = false, m_finishing = false, m_prompting = false;
   bool m_paused = false, m_selecting = false, m_hasRegion = false;
+  bool m_panelVisible  = true;
   bool m_consented     = false;
   bool m_errorReported = false;
   int m_frames         = 0;

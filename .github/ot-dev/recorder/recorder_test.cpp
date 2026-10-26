@@ -3,6 +3,10 @@
 #include <QAction>
 #include <QApplication>
 #include <QCursor>
+#include <QCheckBox>
+#include <QDockWidget>
+#include <QGridLayout>
+#include <QToolButton>
 #include <QDialog>
 #include <QDir>
 #include <QFile>
@@ -219,8 +223,95 @@ private slots:
     QVERIFY(!bar->actions().at(1)->isEnabled());
     QCOMPARE(window.findChild<QLabel *>("OtDevRecordRegionStatus")->text(),
              QString("All OpenToonz Windows"));
-    QCOMPARE(bar->findChild<QLabel *>("OtDevRecordStatus")->text(),
+    QCOMPARE(window.findChild<QLabel *>("OtDevRecordStatus")->text(),
              QString("Recording off"));
+  }
+
+  void panelPreferenceAndShortcuts() {
+    QTemporaryDir dir;
+    const QString prefs = dir.filePath("preferences.ini");
+    {
+      QMainWindow window;
+      window.resize(600, 400);
+      OtDevRecorder recorder(&window, prefs, dir.path(), "missing");
+      window.show();
+      window.activateWindow();
+      QTest::qWait(100);
+      auto *panel = window.findChild<QDockWidget *>("OtDevRecordingPanel");
+      auto *toggle =
+          window.findChild<QAction *>("MI_ToggleSessionRecordingPanel");
+      QVERIFY(panel);
+      QVERIFY(panel->isVisible());
+      QVERIFY(panel->features().testFlag(QDockWidget::DockWidgetMovable));
+      QVERIFY(panel->features().testFlag(QDockWidget::DockWidgetFloatable));
+      QWidget preferences;
+      auto *layout = new QGridLayout(&preferences);
+      OtDevRecorder::addInterfacePreference(layout);
+      auto *check =
+          preferences.findChild<QCheckBox *>("OtDevShowRecordingPanel");
+      QVERIFY(check);
+      QVERIFY(check->isChecked());
+      check->click();
+      QVERIFY(panel->isHidden());
+      QVERIFY(!toggle->isChecked());
+      QSettings settings(prefs, QSettings::IniFormat);
+      QCOMPARE(settings.value("OtDevRecorder/ShowPanel").toBool(), false);
+      toggle->setShortcut(QKeySequence("Ctrl+Alt+F9"));
+      QTest::keyClick(&window, Qt::Key_F9,
+                      Qt::ControlModifier | Qt::AltModifier);
+      QTRY_VERIFY(panel->isVisible());
+      QVERIFY(check->isChecked());
+      panel->setFloating(true);
+      panel->resize(480, 180);
+      panel->move(100, 100);
+      window.activateWindow();
+      auto *select = window.findChild<QAction *>("MI_SelectRecordingRegion");
+      auto *cancel = window.findChild<QAction *>("MI_CancelRecordingRegion");
+      select->setShortcut(QKeySequence("Ctrl+Alt+F10"));
+      cancel->setShortcut(QKeySequence("Ctrl+Alt+F11"));
+      QTest::keyClick(&window, Qt::Key_F10,
+                      Qt::ControlModifier | Qt::AltModifier);
+      QTRY_VERIFY(window.findChild<QLabel *>("OtDevRecordStatus")
+                      ->text()
+                      .contains("Drag a region"));
+      QTest::keyClick(&window, Qt::Key_F11,
+                      Qt::ControlModifier | Qt::AltModifier);
+      QTRY_COMPARE(window.findChild<QLabel *>("OtDevRecordStatus")->text(),
+                   QString("Recording off"));
+      QVERIFY(!QApplication::overrideCursor());
+      panel->close();
+      QVERIFY(!check->isChecked());
+      QVERIFY(!toggle->isChecked());
+      // Hiding the application must not overwrite the user's panel preference.
+      toggle->trigger();
+      window.hide();
+      settings.sync();
+      QVERIFY(settings.value("OtDevRecorder/ShowPanel").toBool());
+      window.show();
+      panel->close();
+    }
+    QMainWindow window;
+    OtDevRecorder recorder(&window, prefs, dir.path(), "missing");
+    window.show();
+    auto *panel = window.findChild<QDockWidget *>("OtDevRecordingPanel");
+    QVERIFY(panel->isHidden());
+    QVERIFY(panel->isFloating());
+    window.findChild<QAction *>("MI_ToggleSessionRecordingPanel")->trigger();
+    QVERIFY(panel->isVisible());
+    QVERIFY(!QFileInfo::exists(dir.filePath("recordings")));
+    // Every recording control has a separate command with a stable label.
+    for (const char *id :
+         {"MI_StartSessionRecording", "MI_StopSessionRecording",
+          "MI_ToggleSessionRecordingPause", "MI_PauseSessionRecording",
+          "MI_ResumeSessionRecording", "MI_SelectRecordingRegion",
+          "MI_ClearRecordingRegion", "MI_CancelRecordingRegion",
+          "MI_OpenSessionRecordingsFolder"}) {
+      auto *command = window.findChild<QAction *>(id);
+      QVERIFY(command);
+      QVERIFY(window.actions().contains(command));
+      QCOMPARE(command->shortcutContext(), Qt::ApplicationShortcut);
+      QVERIFY(command->shortcut().isEmpty());
+    }
   }
 
   void escapeIsOptOut() {
@@ -309,7 +400,7 @@ private slots:
     QVERIFY(!bar->actions().first()->isEnabled());
     QVERIFY(!bar->actions().at(2)->isEnabled());
     QTRY_COMPARE_WITH_TIMEOUT(
-        bar->findChild<QLabel *>("OtDevRecordStatus")->text(),
+        window.findChild<QLabel *>("OtDevRecordStatus")->text(),
         QString("Recording off"), 10000);
     const auto files =
         QDir(dir.filePath("recordings")).entryList({"*.mp4"}, QDir::Files);
@@ -329,12 +420,12 @@ private slots:
     bar->actions().first()->trigger();
     QVERIFY(!QApplication::activeModalWidget());
     QTRY_COMPARE_WITH_TIMEOUT(
-        bar->findChild<QLabel *>("OtDevRecordStatus")->text(),
+        window.findChild<QLabel *>("OtDevRecordStatus")->text(),
         QString("RECORDING"), 10000);
     QTest::qWait(500);
     bar->actions().at(2)->trigger();
     QTRY_COMPARE_WITH_TIMEOUT(
-        bar->findChild<QLabel *>("OtDevRecordStatus")->text(),
+        window.findChild<QLabel *>("OtDevRecordStatus")->text(),
         QString("Recording off"), 10000);
     const auto restarted =
         QDir(dir.filePath("recordings")).entryList({"*.mp4"}, QDir::Files);
@@ -365,7 +456,7 @@ private slots:
       recorder.requestRecording();
       auto *bar = window.findChild<QToolBar *>("OtDevSessionRecorder");
       QTRY_COMPARE_WITH_TIMEOUT(
-          bar->findChild<QLabel *>("OtDevRecordStatus")->text(),
+          window.findChild<QLabel *>("OtDevRecordStatus")->text(),
           QString("RECORDING"), 10000);
       QTest::qWait(500);
       recorder.stop();  // aboutToQuit; no further event processing before
@@ -410,6 +501,19 @@ private slots:
     QCOMPARE(pause->text(), QString("Resume"));
     QVERIFY(!start->isEnabled());
     QVERIFY(stop->isEnabled());
+    auto *panel = window.findChild<QDockWidget *>("OtDevRecordingPanel");
+    // Resume, close the panel while recording, then resume through its command.
+    pause->trigger();
+    panel->close();
+    QCOMPARE(status->text(), QString("Recording paused"));
+    QVERIFY(panel->isHidden());
+    auto *resume = window.findChild<QAction *>("MI_ResumeSessionRecording");
+    resume->setShortcut(QKeySequence("Ctrl+Alt+F8"));
+    window.activateWindow();
+    QTest::qWait(50);
+    QTest::keyClick(&window, Qt::Key_F8, Qt::ControlModifier | Qt::AltModifier);
+    QTRY_VERIFY(panel->isVisible());
+    pause->trigger();
     // Blue is displayed only while paused and must never reach the encoder.
     window.setStyleSheet("background: rgb(0,0,255)");
     QTest::qWait(400);
@@ -427,13 +531,13 @@ private slots:
 
     selectRecordingRegion(window, window, QRect(50, 40, 80, 60));
     QCOMPARE(status->text(), QString("Recording paused"));
-    auto *panel = new QDialog(&window);
-    panel->resize(160, 120);
-    panel->setStyleSheet("background: rgb(0,0,255)");
-    panel->show();
-    selectRecordingRegion(window, *panel, QRect(10, 10, 80, 60));
+    auto *floating = new QDialog(&window);
+    floating->resize(160, 120);
+    floating->setStyleSheet("background: rgb(0,0,255)");
+    floating->show();
+    selectRecordingRegion(window, *floating, QRect(10, 10, 80, 60));
     QCOMPARE(status->text(), QString("Recording paused"));
-    delete panel;
+    delete floating;
     window.activateWindow();
     pause->trigger();
     QTRY_COMPARE_WITH_TIMEOUT(

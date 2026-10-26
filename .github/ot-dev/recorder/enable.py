@@ -19,39 +19,53 @@ def inject(root: Path, build_id: str, recorder_dir=None):
         raise ValueError("Invalid CI build identity")
     recorder_dir = (Path(recorder_dir) if recorder_dir is not None
                     else Path(__file__).parent).resolve(strict=True)
-    for name in ("otdevrecorder.cpp", "otdevrecorder.h"):
+    for name in ("otdevrecorder.cpp", "otdevrecorder.h", "otdevrecorderapp.cpp"):
         if not (recorder_dir / name).is_file():
             raise FileNotFoundError(f"Recorder source not found: {recorder_dir / name}")
     source = root / "toonz/sources/toonz/main.cpp"
     cmake = root / "toonz/sources/toonz/CMakeLists.txt"
+    preferences = root / "toonz/sources/toonz/preferencespopup.cpp"
     text = source.read_text(encoding="utf-8")
     cmake_text = cmake.read_text(encoding="utf-8")
+    preferences_text = preferences.read_text(encoding="utf-8")
     anchor = "  int ret = a.exec();"
     include = '#include "mainwindow.h"'
+    preferences_include = '#include "preferencespopup.h"'
+    preferences_anchor = '  insertUI(togglePanelWithShortcut, lay);'
     if (text.count(anchor) != 1 or text.count(include) != 1
             or "otdevrecorder" in text.lower()
-            or "otdevrecorder" in cmake_text.lower()):
+            or "otdevrecorder" in cmake_text.lower()
+            or preferences_text.count(preferences_include) != 1
+            or preferences_text.count(preferences_anchor) != 1
+            or "otdevrecorder" in preferences_text.lower()):
         raise RuntimeError("Recorder injection anchors changed or already patched")
-    hook = '''  // Groundzero Windows CI only; recording starts from the toolbar.
-  new OtDevRecorder(
+    hook = '''  // Groundzero Windows CI only; recording starts from the panel.
+  auto *otDevRecorder = new OtDevRecorder(
       &w, (ToonzFolder::getMyModuleDir() + TFilePath("preferences.ini")).getQString(),
       QDir(QCoreApplication::applicationDirPath()).filePath("portablestuff"),
       QDir(QCoreApplication::applicationDirPath()).filePath("otdev-recorder/ffmpeg.exe"));
+  otDevRecorder->registerCommands();
 
 '''
     patched_source = (text.replace(include, include + '\n#include "otdevrecorder.h"')
                       .replace(anchor, hook + anchor))
+    patched_preferences = preferences_text.replace(
+        preferences_include, preferences_include + '\n#include "otdevrecorder.h"').replace(
+        preferences_anchor,
+        preferences_anchor + '\n  OtDevRecorder::addInterfacePreference(lay);')
     patched_cmake = cmake_text + f'''
 # Injected only by .github/ot-dev/recorder/enable.py in Groundzero Windows CI.
 if(NOT WIN32)
     message(FATAL_ERROR "The Groundzero recorder injection is Windows CI only")
 endif()
 target_sources(OpenToonz PRIVATE {cmake_path(recorder_dir / "otdevrecorder.cpp")})
+target_sources(OpenToonz PRIVATE {cmake_path(recorder_dir / "otdevrecorderapp.cpp")})
 target_include_directories(OpenToonz PRIVATE {cmake_path(recorder_dir)})
 target_link_libraries(OpenToonz user32 gdi32)
 '''
     source.write_text(patched_source, encoding="utf-8")
     cmake.write_text(patched_cmake, encoding="utf-8")
+    preferences.write_text(patched_preferences, encoding="utf-8")
 
 
 if __name__ == "__main__":

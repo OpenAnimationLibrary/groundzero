@@ -42,6 +42,9 @@ class InjectionTest(unittest.TestCase):
         source.write_text('#include "mainwindow.h"\n  int ret = a.exec();', encoding="utf-8")
         cmake = target / "CMakeLists.txt"
         cmake.write_text("# existing build\n", encoding="utf-8")
+        (target / "preferencespopup.cpp").write_text(
+            '#include "preferencespopup.h"\n  insertUI(togglePanelWithShortcut, lay);\n',
+            encoding="utf-8")
         return source, cmake
 
     def make_external_recorder(self, root):
@@ -49,6 +52,7 @@ class InjectionTest(unittest.TestCase):
         recorder.mkdir()
         (recorder / "otdevrecorder.cpp").write_text("// recorder source\n", encoding="utf-8")
         (recorder / "otdevrecorder.h").write_text("// recorder header\n", encoding="utf-8")
+        (recorder / "otdevrecorderapp.cpp").write_text("// application adapter\n", encoding="utf-8")
         return recorder
 
     def test_inject_once_and_fail_closed(self):
@@ -62,6 +66,9 @@ class InjectionTest(unittest.TestCase):
             self.assertIn('filePath("portablestuff")', result)
             self.assertIn('TFilePath("preferences.ini")', result)
             self.assertIn('filePath("otdev-recorder/ffmpeg.exe")', result)
+            self.assertIn('otDevRecorder->registerCommands();', result)
+            preferences = (root / "toonz/sources/toonz/preferencespopup.cpp").read_text(encoding="utf-8")
+            self.assertIn('OtDevRecorder::addInterfacePreference(lay);', preferences)
             self.assertNotIn("->initialize()", result)
             self.assertNotIn("QTimer::singleShot", result)
             with self.assertRaises(RuntimeError):
@@ -94,7 +101,8 @@ class InjectionTest(unittest.TestCase):
             harness.write_text('''
 set(WIN32 TRUE)
 function(target_sources target visibility path)
-  if(NOT path STREQUAL "$ENV{OTDEV_EXPECTED_SOURCE}" OR NOT EXISTS "${path}")
+  if((NOT path STREQUAL "$ENV{OTDEV_EXPECTED_SOURCE}" AND
+      NOT path STREQUAL "$ENV{OTDEV_EXPECTED_ADAPTER}") OR NOT EXISTS "${path}")
     message(FATAL_ERROR "Injected source path was expanded or split")
   endif()
   set(source_checked TRUE PARENT_SCOPE)
@@ -115,6 +123,7 @@ endif()
             environment = os.environ.copy()
             environment.update({
                 "OTDEV_EXPECTED_SOURCE": (recorder / "otdevrecorder.cpp").resolve().as_posix(),
+                "OTDEV_EXPECTED_ADAPTER": (recorder / "otdevrecorderapp.cpp").resolve().as_posix(),
                 "OTDEV_EXPECTED_INCLUDE": recorder.resolve().as_posix(),
                 "OTDEV_INJECTED_CMAKE": cmake.resolve().as_posix(),
             })
@@ -158,6 +167,18 @@ endif()
         with tempfile.TemporaryDirectory() as temporary:
             with self.assertRaises(ValueError):
                 enable.inject(Path(temporary), 'bad"identity')
+
+    def test_interface_anchor_failure_leaves_all_sources_unchanged(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source, cmake = self.make_checkout(root)
+            preferences = source.with_name("preferencespopup.cpp")
+            preferences.write_text('// Interface page changed\n', encoding="utf-8")
+            paths = (source, cmake, preferences)
+            before = [path.read_bytes() for path in paths]
+            with self.assertRaises(RuntimeError):
+                enable.inject(root, "test-build")
+            self.assertEqual(before, [path.read_bytes() for path in paths])
 
 
 if __name__ == "__main__":
