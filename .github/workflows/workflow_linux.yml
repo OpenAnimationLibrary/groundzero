@@ -2,6 +2,7 @@ name: Linux Build
 
 on:
   workflow_dispatch:
+  workflow_call:
   pull_request:
     branches:
       - edition
@@ -16,7 +17,7 @@ permissions:
 
 # A new push to a pull request cancels its older, superseded run
 concurrency:
-  group: linux-${{ github.event.pull_request.number || github.ref }}
+  group: ${{ github.workflow }}-linux-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -148,3 +149,4 @@ jobs:
       with:
         name: Opentoonz-${{ runner.os }}-${{ matrix.compiler }}-${{ github.sha }}
         path: toonz/build/Opentoonz-${{ runner.os }}-${{ matrix.compiler }}-${{ github.sha }}.tar.gz
+

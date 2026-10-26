@@ -19,6 +19,7 @@ on:
       - '.github/workflows/workflow_windows.yml'  # Include Windows workflow file
       - '.github/ot-dev/**'                       # Include Groundzero build branding assets
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
@@ -224,3 +225,4 @@ jobs:
           name: Groundzero-${{ github.event.pull_request.number && format('PR-{0}', github.event.pull_request.number) || 'Branch-build' }}-Windows-${{ github.sha }}-${{ github.run_id }}
           path: artifact
           if-no-files-found: error
+
