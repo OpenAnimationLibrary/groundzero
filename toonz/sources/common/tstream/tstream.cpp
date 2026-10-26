@@ -102,6 +102,10 @@ bool lz4decompress(LZ4F_decompressionContext_t lz4dctx, char *out,
 
     if (LZ4F_isError(res)) return false;
 
+    // No progress: the output buffer is full but the data goes on, which
+    // happens on corrupted files whose declared size is too small
+    if (in_read == 0 && out_written == 0) return false;
+
     *out_len_res += out_written;
 
     out += out_written;
@@ -283,7 +287,7 @@ TOStream::~TOStream() {
         std::string tmp = m_imp->m_ostringstream.str();
         const void *in  = (const void *)tmp.c_str();
 
-        size_t in_len = strlen((char *)in);
+        size_t in_len = tmp.size();
 
         size_t out_len = LZ4F_compressFrameBound(in_len, NULL);
         void *out      = malloc(out_len);
@@ -851,7 +855,6 @@ TIStream::TIStream(const TFilePath &fp) : m_imp(new Imp) {
     } else if (magic == "TABc") {
       TINT32 v;
       is->read((char *)&v, sizeof v);
-      printf("magic = %08X\n", v);
 
       if (v == 0x0A0B0C0D)
         swapForEndianness = false;
@@ -874,6 +877,11 @@ TIStream::TIStream(const TFilePath &fp) : m_imp(new Imp) {
             100000000)  // 100M of tnzfile (compressed) seems really excessive
       throw TException("Corrupted file");
 
+    // A header cut short, or a declared decompressed size that LZ4 cannot
+    // reach from the compressed one (it expands at most ~255 times)
+    if (is->fail() || out_len > in_len * 256 + 1024)
+      throw TException("Corrupted file");
+
     LZ4F_decompressionContext_t lz4dctx;
 
     LZ4F_errorCode_t err =
@@ -882,6 +890,11 @@ TIStream::TIStream(const TFilePath &fp) : m_imp(new Imp) {
 
     char *in = (char *)malloc(in_len);
     is->read((char *)in, in_len);
+    if ((size_t)is->gcount() != in_len) {  // payload cut short
+      free(in);
+      LZ4F_freeDecompressionContext(lz4dctx);
+      throw TException("Corrupted file");
+    }
 
     m_imp->m_strbuffer.resize(out_len + 1000);  // for safety
     char *out = (char *)m_imp->m_strbuffer.c_str();

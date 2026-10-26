@@ -63,6 +63,7 @@
     <command>MI_InvertSelection</command>
     <separator/>
     <command>MI_RemoveEndpoints</command>
+    <command>MI_ConvertToOutlineShapes</command>
     <separator/>
     <command>MI_Group</command>
     <command>MI_Ungroup</command>

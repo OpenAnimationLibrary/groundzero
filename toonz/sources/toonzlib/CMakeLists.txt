@@ -134,6 +134,7 @@ set(HEADERS
     ../include/toonz/tcleanupper.h
     ../include/toonz/tcolumnfx.h
     ../include/toonz/tcolumnfxset.h
+    ../include/toonz/contouroutline.h
     ../include/toonz/tcurvedeformer.h
     ../include/toonz/tdeformer.h
     ../include/toonz/tdeformerstack.h
@@ -147,6 +148,7 @@ set(HEADERS
     ../include/toonz/tpinnedrangeset.h
     ../include/toonz/tproject.h
     ../include/toonz/trasterimageutils.h
+    ../include/toonz/tshapeawaredeformer.h
     ../include/toonz/tstageobject.h
     ../include/toonz/tstageobjectcmd.h
     ../include/toonz/tstageobjectid.h
@@ -264,6 +266,7 @@ set(SOURCES
     tcamera.cpp
     tcenterlineadjustments.cpp
     tcenterlinecolors.cpp
+    contouroutline.cpp
     tcenterlinepolygonizer.cpp
     tcenterlineskeletonizer.cpp
     tcenterlinetostrokes.cpp
@@ -286,6 +289,7 @@ set(SOURCES
     toutlinevectorizer.cpp
     tpinnedrangeset.cpp
     tproject.cpp
+    tshapeawaredeformer.cpp
     trasterimageutils.cpp
     trastercentroid.cpp
     tstageobject.cpp
@@ -460,6 +464,23 @@ if(BUILD_TIMEREMAP_TESTS)
     add_executable(timeremap_test tests/timeremap_test.cpp)
     target_link_libraries(timeremap_test PRIVATE toonzlib tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core)
     add_test(NAME timeremap COMMAND timeremap_test)
+endif()
+
+# Optional regression target for the brush stroke to outline shape conversion
+# (contouroutline.h).
+option(BUILD_CONTOUR_TESTS "Build the contour outline regression test" ${BUILD_TESTS})
+if(BUILD_CONTOUR_TESTS)
+    add_executable(contour_outline_test tests/contour_outline_test.cpp)
+    target_link_libraries(contour_outline_test PRIVATE toonzlib tnzcore Qt${QT_VERSION_MAJOR}::Core)
+    add_test(NAME contour_outline COMMAND contour_outline_test)
+endif()
+
+# Optional regression target for the compressed scene file format (tstream.h).
+option(BUILD_STREAM_TESTS "Build the compressed stream round-trip test" ${BUILD_TESTS})
+if(BUILD_STREAM_TESTS)
+    add_executable(compressed_stream_test tests/compressed_stream_test.cpp)
+    target_link_libraries(compressed_stream_test PRIVATE tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core)
+    add_test(NAME compressed_stream COMMAND compressed_stream_test)
 endif()
 
 if(BUILD_SCRIPT_TESTS)

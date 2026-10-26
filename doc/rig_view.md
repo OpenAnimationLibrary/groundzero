@@ -124,4 +124,42 @@ The code is in `toonzlib/tstageobject.cpp` (`TStageObject::PublishedChannel`),
 - A binding made with an expression that is not in a key of the curve, or with
   an expression that builds the reference otherwise (`peg3 .rot`, a different
   channel), is not found.
-- The filter does not apply to the ports of the FX Schematic.
+- The Rig view filter does not apply to the FX Schematic; it has its own port
+  filter (see below).
+
+## Port filter in the FX Schematic
+
+The toolbar of the FX Schematic has a **Filter ports** field, next to the
+Stage Schematic's Rig view filter. The text is matched without regard to case:
+
+- a node stays visible when its name or the name of one of its input ports
+  contains the text;
+- a node that stays only because of its ports shows only the matching ports
+  (the other port rows are hidden); a node that matches by its name keeps all
+  its ports;
+- the nodes that match neither are hidden, and so is every link that ends on
+  a hidden node or a hidden port.
+
+An empty field leaves the schematic exactly as before. The filter is in
+memory only (not saved with the scene or the preferences). It is applied again
+whenever the schematic is rebuilt, and clearing the text shows everything
+back. The code is `FxSchematicScene::applyPortFilter` (`toonzqt/
+fxschematicscene.cpp`), modeled on `StageSchematicScene::applyRigFilter`.
+
+Limits: the rows of the hidden ports are not packed (a gap stays in the
+node), the ports without a name (the Output node's) are never filtered, and
+the output ports, the group editors and the macro editors are not filtered.
+
+## Lock Timeline Ruler
+
+Nothing was added: the Timeline already behaves like this. In the Timeline
+orientation the frame ruler (`RowArea`) lives in its own scroll area
+(`XsheetViewer::m_rowScrollArea`, positioned over the header-layer range and
+the body-frame range in `XsheetViewer::positionSections`). Its vertical
+scroll bar is not connected to the cells (`connectOrDisconnectScrollBars`
+links the row area to the cells along the frame axis only, and the layer axis
+goes to the column area), so scrolling the layers never moves the ruler; the
+ruler follows the cells horizontally, which it must, to keep the frame
+numbers aligned. The same holds in the Xsheet orientation, where the column
+headers stay put when the rows scroll vertically. A separate "lock" toggle
+would therefore have no behaviour to switch.
