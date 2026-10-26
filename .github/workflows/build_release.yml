@@ -1,0 +1,107 @@
+name: Build and Release
+
+on:
+  schedule:
+    - cron: '17 8 * * *' # Daily at 08:17 UTC.
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish a prerelease after all three builds succeed
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+# Queue a new release build without interrupting the current one.
+concurrency:
+  group: groundzero-build-release
+  cancel-in-progress: false
+
+jobs:
+  windows:
+    if: github.repository == 'OpenAnimationLibrary/groundzero'
+    uses: ./.github/workflows/workflow_windows.yml
+
+  macos:
+    if: github.repository == 'OpenAnimationLibrary/groundzero'
+    uses: ./.github/workflows/workflow_macos.yml
+
+  linux:
+    if: github.repository == 'OpenAnimationLibrary/groundzero'
+    uses: ./.github/workflows/workflow_linux.yml
+
+  release:
+    needs: [windows, macos, linux]
+    if: github.event_name == 'schedule' || inputs.publish
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      BUILD_SHA: ${{ github.sha }}
+    steps:
+      - name: Download Windows package
+        uses: actions/download-artifact@v6
+        with:
+          name: Groundzero-Branch-build-Windows-${{ github.sha }}-${{ github.run_id }}
+          path: artifacts/windows
+
+      - name: Download macOS package
+        uses: actions/download-artifact@v6
+        with:
+          name: Opentoonz-macOS-${{ github.sha }}
+          path: artifacts/macos
+
+      - name: Download Linux package
+        uses: actions/download-artifact@v6
+        with:
+          name: Opentoonz-Linux-gcc-${{ github.sha }}
+          path: artifacts/linux
+
+      - name: Package release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          # A unique tag preserves earlier builds; reruns reuse the same tag.
+          tag="build-${GITHUB_RUN_ID}"
+          base="OpenToonz-groundzero-${tag}"
+          echo "RELEASE_TAG=$tag" >> "$GITHUB_ENV"
+          mkdir out
+          test -s artifacts/windows/OpenToonz.exe
+          (cd artifacts/windows && zip -qr9 "$GITHUB_WORKSPACE/out/${base}-Windows-x64.zip" .)
+          cp artifacts/macos/OpenToonz.dmg "out/${base}-macOS-x86_64.dmg"
+          cp "artifacts/linux/Opentoonz-Linux-gcc-${BUILD_SHA}.tar.gz" "out/${base}-Linux-x86_64.tar.gz"
+          test -s "out/${base}-Windows-x64.zip"
+          test -s "out/${base}-macOS-x86_64.dmg"
+          test -s "out/${base}-Linux-x86_64.tar.gz"
+          (cd out && sha256sum ./*.zip ./*.dmg ./*.tar.gz > "${base}-SHA256SUMS.txt")
+          {
+            echo "Groundzero development build from commit ${BUILD_SHA}."
+            echo
+            echo "Windows x64, macOS Intel x86_64, and Linux x86_64."
+            echo
+            echo "Build: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          } > release-notes.md
+
+      - name: Publish prerelease
+        shell: bash
+        run: |
+          set -euo pipefail
+          if draft=$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft); then
+            if [ "$draft" != true ]; then
+              echo "Release $RELEASE_TAG is already published."
+              exit 0
+            fi
+          else
+            gh release create "$RELEASE_TAG" --draft --prerelease --latest=false \
+              --target "$BUILD_SHA" --title "Groundzero ${RELEASE_TAG}" \
+              --notes-file release-notes.md
+          fi
+          # Keep the release unpublished until every asset has uploaded successfully.
+          gh release upload "$RELEASE_TAG" out/* --clobber
+          gh release edit "$RELEASE_TAG" --draft=false --latest=false
+          echo "Release: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/${RELEASE_TAG}" >> "$GITHUB_STEP_SUMMARY"
+
