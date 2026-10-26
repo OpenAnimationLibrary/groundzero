@@ -164,6 +164,17 @@ jobs:
     steps:
     - uses: actions/checkout@v6
 
+    # The downloaded packages, so that a run after a successful one does not
+    # depend on the mirror
+    # (restore and save as separate steps: this job fails until the port is
+    # done, and a failed job does not save its caches)
+    - uses: actions/cache/restore@v5
+      with:
+        path: /home/runner/apt-archives
+        key: ${{ runner.os }}-qt6-apt-${{ github.run_id }}
+        restore-keys: |
+          ${{ runner.os }}-qt6-apt-
+
     # A first run hung here for two hours: no prompts, and a time limit
     - name: Install libraries
       timeout-minutes: 30
@@ -174,7 +185,8 @@ jobs:
         sudo rm -f /var/lib/man-db/auto-update
         # The runner's Azure mirror stalled the downloads on several runs: use
         # the main archive
-        sudo sed -i 's|http://azure.archive.ubuntu.com/ubuntu|http://archive.ubuntu.com/ubuntu|g' /etc/apt/sources.list.d/*.sources /etc/apt/sources.list 2>/dev/null || true
+        # (the hosted images list it in apt-mirrors.txt)
+        sudo sed -i 's|http://azure.archive.ubuntu.com/ubuntu|http://archive.ubuntu.com/ubuntu|g' /etc/apt/apt-mirrors.txt /etc/apt/sources.list.d/*.sources /etc/apt/sources.list 2>/dev/null || true
         timeout 300 sudo apt-get update -q || echo '::warning title=Qt 6 packages::apt-get update failed or timed out'
         # Report where it stops if it hangs again. A stalled download of the
         # large recommended packages (gstreamer, ROCm through OpenCV) hung it
@@ -183,7 +195,7 @@ jobs:
         # what it already fetched
         ok=0
         for attempt in 1 2 3; do
-          if timeout 480 sudo apt-get install -y -q --no-install-recommends -o Dpkg::Use-Pty=0 -o Acquire::http::Timeout=30 -o Acquire::Retries=5 build-essential cmake pkg-config ninja-build ccache libboost-all-dev qt6-base-dev qt6-base-dev-tools qt6-declarative-dev qt6-declarative-dev-tools qt6-5compat-dev qt6-tools-dev qt6-tools-dev-tools qt6-l10n-tools qt6-multimedia-dev qt6-wayland qt6-svg-dev qt6-serialport-dev libsuperlu-dev liblz4-dev libusb-1.0-0-dev liblzo2-dev libpng-dev libjpeg-dev libglew-dev freeglut3-dev libfreetype-dev libjson-c-dev libmypaint-dev libopencv-dev libturbojpeg0-dev libomp-dev > apt.log 2>&1; then ok=1; break; fi
+          if mkdir -p /home/runner/apt-archives/partial && timeout 480 sudo apt-get install -o Dir::Cache::archives=/home/runner/apt-archives -y -q --no-install-recommends -o Dpkg::Use-Pty=0 -o Acquire::http::Timeout=30 -o Acquire::Retries=5 build-essential cmake pkg-config ninja-build ccache libboost-all-dev qt6-base-dev qt6-base-dev-tools qt6-declarative-dev qt6-declarative-dev-tools qt6-5compat-dev qt6-tools-dev qt6-tools-dev-tools qt6-l10n-tools qt6-multimedia-dev qt6-wayland qt6-svg-dev qt6-serialport-dev libsuperlu-dev liblz4-dev libusb-1.0-0-dev liblzo2-dev libpng-dev libjpeg-dev libglew-dev freeglut3-dev libfreetype-dev libjson-c-dev libmypaint-dev libopencv-dev libturbojpeg0-dev libomp-dev > apt.log 2>&1; then ok=1; break; fi
           echo "::warning title=Qt 6 packages::attempt $attempt failed: $(tail -n 2 apt.log | tr '\n' ' ')"
           sudo dpkg --configure -a > /dev/null 2>&1 || true
         done
@@ -191,6 +203,12 @@ jobs:
           echo "::error title=Qt 6 packages::$(tail -n 15 apt.log | sed -e ':a;N;$!ba;s/\n/%0A/g')"
           exit 1
         fi
+        sudo chown -R "$(id -u)" /home/runner/apt-archives
+
+    - uses: actions/cache/save@v5
+      with:
+        path: /home/runner/apt-archives
+        key: ${{ runner.os }}-qt6-apt-${{ github.run_id }}
 
     - name: Set up cache
       run: mkdir -p /home/runner/.ccache
