@@ -5,9 +5,9 @@ feature. Normal source builds and upstream source files are unchanged. This is
 not an OpenToonz movie renderer or a desktop recorder.
 
 Every session starts with **Recording off**, without a startup prompt. Use
-**Start Recording** on the bottom toolbar whenever recording is needed. The
+**Start Recording** on the recording panel whenever recording is needed. The
 first start in each session asks for consent; **Do Not Record**, Escape or close
-leaves recording off. The toolbar has separate **Start Recording**, **Pause** /
+leaves recording off. The panel has separate **Start Recording**, **Pause** /
 **Resume**, and **Stop Recording** buttons, in that order. After consent, recording
 can be restarted throughout the session without another prompt. Consent is not
 saved for future launches; old `[OtDevRecorder]` choices are ignored.
@@ -15,13 +15,38 @@ saved for future launches; old `[OtDevRecorder]` choices are ignored.
 automatic or command-line start.
 
 After opt-in, continuous capture saves clips under
-`<OpenToonz executable directory>/portablestuff/recordings/`. The bottom recording
-toolbar shows actual recording/paused/error state, stops/resumes capture, and
+`<OpenToonz executable directory>/portablestuff/recordings/`. The recording
+panel shows actual recording/paused/error state, stops/resumes capture, and
 opens the folder. Stopping finishes the current clip; Start is unavailable while
 the clip is prepared for playback. Starting again creates a separate clip.
 Nothing is uploaded and no recordings are automatically deleted. The recorder
 stops with a visible error when free space falls below 1 GiB. Files have
 collision-resistant UTC names and are split every 10 minutes of encoded frames.
+
+## Panel and shortcuts
+
+**Preferences > Interface > Show Session Recording Panel** controls visibility and
+is on by default. The panel initially docks at the bottom. Drag its title bar to
+another dock edge or double-click it to float it anywhere on screen. Its title-bar
+close button hides it. Visibility, dock area and floating geometry are remembered
+in the active portable `preferences.ini`; reopening a panel does not start capture.
+
+Closing or hiding the panel pauses an active recording without ending the clip.
+Starting or resuming through a shortcut shows the controls again. Minimizing or
+hiding the application does not change the visibility preference.
+
+Use **Configure Shortcuts** to assign keys. **Toggle Session Recording Panel** is
+under **Menu Commands > Windows**; these commands are under **Misc**:
+
+- Start Session Recording; Stop Session Recording.
+- Pause / Resume Session Recording; Pause Session Recording; Resume Session Recording.
+- Select Recording Region; Clear Recording Region; Cancel Recording Region Selection.
+- Open Session Recordings Folder.
+
+No keys are assigned by default. Assignments use OpenToonz's existing shortcut
+storage and conflict handling, and work while the panel is hidden or floating.
+Assigned recording shortcuts remain available during region selection; other
+application shortcuts remain suppressed until selection finishes.
 
 ## Pause and region selection
 
@@ -32,7 +57,7 @@ collision-resistant UTC names and are split every 10 minutes of encoded frames.
   application windows as before. Region selections are not saved between launches.
 - Choose **Select Region...**, then drag a rectangle inside the main window or an
   eligible floating panel. Selection pauses an active recording and temporarily
-  intercepts application mouse/keyboard input. The bottom recording toolbar remains
+  intercepts application mouse/keyboard input. The recording panel remains
   usable. **Escape**, right-click or **Cancel Selection** keeps the previous region;
   clicks and drags smaller than 8 x 8 logical pixels are ignored.
 - An active recording stays paused after selecting or cancelling. Press **Resume**
@@ -74,7 +99,7 @@ collision-resistant UTC names and are split every 10 minutes of encoded frames.
   Working files end in `.recording.mp4`. FFmpeg's `hybrid_fragmented` mode keeps
   completed fragments readable during capture, then writes the normal MP4 index
   at EOF without re-encoding. Stop, clip rotation and orderly shutdown prepare
-  the video automatically, then rename it to `.mp4`. The toolbar shows
+  the video automatically, then rename it to `.mp4`. The panel shows
   **Preparing recording for playback...** while finishing (up to 15 seconds).
   Interrupted or failed files retain the working suffix for recovery; the last
   fragment may be lost. Existing recordings are never overwritten.
@@ -95,12 +120,12 @@ collision-resistant UTC names and are split every 10 minutes of encoded frames.
 `python -m unittest discover -s .github/ot-dev/recorder -p 'test_*.py' -v`
 
 The standalone CMake/QtTest target in this directory tests startup-off behavior
-(including legacy saved choices), on-demand consent, escape/opt-out, repeated
-start/stop, manual pause/resume, region selection/cancellation, window-relative
+(including legacy saved choices), on-demand consent, escape/opt-out, panel visibility
+and placement persistence, Interface checkbox synchronization, hidden/floating-panel
+shortcuts, repeated start/stop, manual pause/resume, region selection/cancellation, window-relative
 cropping and resize boundaries, capture ownership, and real encoder output. The
 pause test decodes a clip to verify that content displayed only while paused is
-absent. Set
-`OTDEV_TEST_FFMPEG` to the packaged encoder and `OTDEV_TEST_DECODER` to a separate
+absent. Set `OTDEV_TEST_FFMPEG` to the packaged encoder and `OTDEV_TEST_DECODER` to a separate
 FFmpeg decoder before running CTest. CI builds a test-only decoder from the same
 pinned sources with assembly disabled; it is never included in the application.
 The encoder test round-trips changing color bars and neutral tones at both 64x64
