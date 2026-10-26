@@ -483,6 +483,17 @@ if(BUILD_STREAM_TESTS)
     add_test(NAME compressed_stream COMMAND compressed_stream_test)
 endif()
 
+# Optional benchmark of scene save and load (master plan E6, see
+# doc/scene_io_profile.md). It prints "NOTICE:" lines with the timings and
+# fails only when a loaded scene differs from the saved one.
+option(BUILD_SCENEBENCH_TESTS "Build the scene save and load benchmark" ${BUILD_TESTS})
+if(BUILD_SCENEBENCH_TESTS)
+    add_executable(scenebench_test tests/scenebench_test.cpp)
+    target_link_libraries(scenebench_test PRIVATE toonzlib tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
+    add_test(NAME scenebench COMMAND scenebench_test --repeat 3)
+    set_tests_properties(scenebench PROPERTIES TIMEOUT 900)
+endif()
+
 if(BUILD_SCRIPT_TESTS)
     add_executable(scriptengine_test tests/scriptengine_test.cpp)
     target_link_libraries(scriptengine_test PRIVATE toonzlib tnzcore Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Qml)

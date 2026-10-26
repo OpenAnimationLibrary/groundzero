@@ -171,7 +171,7 @@ anti-aliasing (GPU and 3D scope), and Ember AI (not realistic).
 | E3 | Light Table opacity setting and per-column exclusion | S |
 | E4 | Tone / Highlight preset macro | S |
 | E5 | Reference panel: several images, remembered view state, PSD layers | S |
-| E6 | Faster scene save and load (profiling first) | M |
+| E6 | Faster scene save and load (profiling first). **Profiling harness added in `t12/scene-bench`**: the `scenebench` ctest (`toonzlib/tests/scenebench_test.cpp`, option `BUILD_SCENEBENCH_TESTS`) times the save and load of a large synthetic scene, plain and compressed, and their sub-phases, as CI notices; the hot spots found by reading the code are in `doc/scene_io_profile.md`. Nothing is optimised yet | M |
 
 #### Tier 11 status: E3, E4, E5
 
@@ -200,7 +200,7 @@ Built, not yet confirmed by a CI build on Linux when this was written:
 | E3 | Light Table Opacity preference, per-column exclusion (`doc/light_table_extras.md`) | Opacity is global |
 | E4 | Add Tone / Highlight Shading command | Matte ports are left unconnected |
 | E5 | Reference panel: several images, remembered view state, PSD layers | One PSD layer at a time |
-| E6 | Not done: needs profiling first (C3 gives compressed scenes) | Profile a large scene save and load |
+| E6 | Profiling harness: the `scenebench` ctest times save and load of a large synthetic scene, plain and compressed, with sub-phases; likely hot spots listed in `doc/scene_io_profile.md` | Read the numbers from a CI run, then optimise the hot spots they confirm |
 
 ---
 
