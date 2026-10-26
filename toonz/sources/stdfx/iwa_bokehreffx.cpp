@@ -5,6 +5,7 @@
 #include <QReadWriteLock>
 #include <QSet>
 #include <QMap>
+#include <climits>
 #include <math.h>
 
 namespace {
