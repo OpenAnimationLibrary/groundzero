@@ -839,3 +839,12 @@ elseif(BUILD_ENV_UNIXLIKE AND NOT BUILD_TARGET_WIN)
     )
 
 endif()
+
+# Optional regression target for the Spine export math (spineexport.h,
+# header-only helpers).
+option(BUILD_SPINE_EXPORT_TESTS "Build the Spine export math test" ${BUILD_TESTS})
+if(BUILD_SPINE_EXPORT_TESTS)
+    add_executable(spineexport_test tests/spineexport_test.cpp)
+    target_include_directories(spineexport_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    add_test(NAME spineexport COMMAND spineexport_test)
+endif()

@@ -398,6 +398,14 @@ if(BUILD_FXRENDER_TESTS)
                      ${CMAKE_CURRENT_BINARY_DIR}/fxrender-output)
 endif()
 
+# Optional regression target for the pure helpers of the Light Shading FX
+# (lightshading.h, header-only).
+option(BUILD_LIGHTSHADING_TESTS "Build the Light Shading FX helper test" ${BUILD_TESTS})
+if(BUILD_LIGHTSHADING_TESTS)
+    add_executable(lightshading_test tests/lightshading_test.cpp)
+    add_test(NAME lightshading COMMAND lightshading_test)
+endif()
+
 # Optional regression target for multipart, tiled, and channel-mapped EXR AOVs.
 if(BUILD_EXR_AOV_FX_TESTS)
     add_executable(openexraovfx_test tests/openexraovfx_test.cpp)
