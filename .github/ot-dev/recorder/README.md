@@ -7,10 +7,12 @@ not an OpenToonz movie renderer or a desktop recorder.
 Every session starts with **Recording off**, without a startup prompt. Use
 **Start Recording** on the bottom toolbar whenever recording is needed. The
 first start in each session asks for consent; **Do Not Record**, Escape or close
-leaves recording off. After consent, use **Stop Recording** and **Start Recording**
-throughout the session without another prompt. Consent is not saved for future
-launches; old `[OtDevRecorder]` choices are ignored. `OTDEV_RECORD=off` is no longer
-needed to suppress startup recording. There is no automatic or command-line start.
+leaves recording off. The toolbar has separate **Start Recording**, **Pause** /
+**Resume**, and **Stop Recording** buttons, in that order. After consent, recording
+can be restarted throughout the session without another prompt. Consent is not
+saved for future launches; old `[OtDevRecorder]` choices are ignored.
+`OTDEV_RECORD=off` is no longer needed to suppress startup recording. There is no
+automatic or command-line start.
 
 After opt-in, continuous capture saves clips under
 `<OpenToonz executable directory>/portablestuff/recordings/`. The bottom recording
@@ -20,6 +22,31 @@ the clip is prepared for playback. Starting again creates a separate clip.
 Nothing is uploaded and no recordings are automatically deleted. The recorder
 stops with a visible error when free space falls below 1 GiB. Files have
 collision-resistant UTC names and are split every 10 minutes of encoded frames.
+
+## Pause and region selection
+
+- **Pause** keeps the current clip open but captures no new frames. **Resume**
+  continues that clip; paused time is omitted. **Stop Recording** finishes the clip
+  even while paused. Pause is also available before the first frame is captured.
+- The default on every launch is **All OpenToonz Windows**, using the same eligible
+  application windows as before. Region selections are not saved between launches.
+- Choose **Select Region...**, then drag a rectangle inside the main window or an
+  eligible floating panel. Selection pauses an active recording and temporarily
+  intercepts application mouse/keyboard input. The bottom recording toolbar remains
+  usable. **Escape**, right-click or **Cancel Selection** keeps the previous region;
+  clicks and drags smaller than 8 x 8 logical pixels are ignored.
+- An active recording stays paused after selecting or cancelling. Press **Resume**
+  when ready. The selection outline is removed before capture can resume.
+- The region follows its selected window when it moves, retaining its size and
+  position within that window. Resizing clips unavailable portions to black rather
+  than expanding the selection. If the window is hidden, minimized or closed,
+  capture pauses; it never falls back to recording all windows automatically.
+- **Clear Region** returns to **All OpenToonz Windows** and pauses an active
+  recording until **Resume**. Existing native-dialog/inactive-app pauses still apply.
+- The recorder crops the application composition before fitting it into the fixed
+  1920x1080 video, preserving proportions with black margins. Eligible popups inside
+  the region can still appear. Desktop pixels and unrelated applications remain
+  excluded; no FFmpeg capture device or new encoder filter is required.
 
 ## Capture boundary and limitations
 
@@ -69,7 +96,10 @@ collision-resistant UTC names and are split every 10 minutes of encoded frames.
 
 The standalone CMake/QtTest target in this directory tests startup-off behavior
 (including legacy saved choices), on-demand consent, escape/opt-out, repeated
-start/stop, capture ownership/resize, and real encoder output. Set
+start/stop, manual pause/resume, region selection/cancellation, window-relative
+cropping and resize boundaries, capture ownership, and real encoder output. The
+pause test decodes a clip to verify that content displayed only while paused is
+absent. Set
 `OTDEV_TEST_FFMPEG` to the packaged encoder and `OTDEV_TEST_DECODER` to a separate
 FFmpeg decoder before running CTest. CI builds a test-only decoder from the same
 pinned sources with assembly disabled; it is never included in the application.
@@ -84,8 +114,9 @@ kill a live encoder to confirm earlier fragments remain decodable. On Windows,
 the actual encoded clips must also decode all frames and seek through the native
 Media Foundation H.264 decoder, without using FFmpeg or a third-party codec pack.
 Windows cursor tests cover movement, shape changes, hotspots, inversion masks,
-hidden cursors, floating panels and clipping/exclusion. They run at normal and
-200% DPI with two video sizes.
+hidden cursors, floating panels, selected-region transforms and clipping/exclusion.
+They run at normal and 200% DPI with two video sizes. Region selection and resize
+tests also run at 200% DPI.
 
 Windows CI builds and runs these tests before building OpenToonz. Interactive
 acceptance in the extracted artifact must additionally check the Viewer, Style
