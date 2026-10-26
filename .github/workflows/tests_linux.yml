@@ -36,6 +36,10 @@ jobs:
 
     - name: Install libraries
       run: |
+        # Processing the man-db trigger can take most of an hour on the hosted
+        # images
+        echo 'set man-db/auto-update false' | sudo debconf-communicate >/dev/null || true
+        sudo rm -f /var/lib/man-db/auto-update
         sudo apt-get update
         sudo apt-get install -y build-essential cmake pkg-config ninja-build ccache libboost-all-dev qtbase5-dev qt5-qmake qtdeclarative5-dev qtdeclarative5-dev-tools qttools5-dev qttools5-dev-tools qtmultimedia5-dev qtwayland5 libqt5svg5-dev libqt5opengl5-dev libqt5multimedia5-plugins libqt5serialport5-dev libsuperlu-dev liblz4-dev libusb-1.0-0-dev liblzo2-dev libpng-dev libjpeg-dev libglew-dev freeglut3-dev libfreetype6-dev libjson-c-dev libmypaint-dev libopencv-dev libturbojpeg-dev libomp-dev ffmpeg
 
@@ -135,10 +139,17 @@ jobs:
         git config user.name "github-actions[bot]"
         git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
         git add "$ref"/*.png
-        git commit -m "Add $added FX render reference images from a CI run"
-        git pull --rebase origin "${GITHUB_REF_NAME}"
-        git push origin "HEAD:${GITHUB_REF_NAME}"
-        echo "::notice title=fxrender::Committed $added new reference images"
+        git commit -q -m "Add $added FX render reference images from a CI run"
+        if git push origin "HEAD:${GITHUB_REF_NAME}" > push.log 2>&1; then
+          echo "::notice title=fxrender::Committed $added new reference images"
+        else
+          # The push can be refused (token permissions, or the branch moved):
+          # hand the images over in the annotation instead
+          err=$(tail -n 5 push.log | sed -e ':a;N;$!ba;s/\n/%0A/g')
+          echo "::warning title=fxrender push failed::${err}"
+          blob=$(cd "$ref" && git show --name-only --format= HEAD | xargs -n1 basename | tar czf - -C . -T - | base64 -w0)
+          echo "::notice title=fxrender references (tar.gz, base64)::${blob}"
+        fi
 
     - name: Fail if tests failed
       if: ${{ !cancelled() && steps.ctest.outcome == 'failure' }}
@@ -157,6 +168,10 @@ jobs:
     - name: Install libraries
       timeout-minutes: 25
       run: |
+        # Processing the man-db trigger can take most of an hour on the hosted
+        # images
+        echo 'set man-db/auto-update false' | sudo debconf-communicate >/dev/null || true
+        sudo rm -f /var/lib/man-db/auto-update
         sudo apt-get update
         sudo apt-get install -y build-essential cmake pkg-config ninja-build ccache libboost-all-dev qt6-base-dev qt6-base-dev-tools qt6-declarative-dev qt6-declarative-dev-tools qt6-5compat-dev qt6-tools-dev qt6-tools-dev-tools qt6-l10n-tools qt6-multimedia-dev qt6-wayland qt6-svg-dev qt6-serialport-dev libsuperlu-dev liblz4-dev libusb-1.0-0-dev liblzo2-dev libpng-dev libjpeg-dev libglew-dev freeglut3-dev libfreetype-dev libjson-c-dev libmypaint-dev libopencv-dev libturbojpeg0-dev libomp-dev
 
