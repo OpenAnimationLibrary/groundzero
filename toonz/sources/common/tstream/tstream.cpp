@@ -1184,6 +1184,10 @@ bool TIStream::matchEndTag() {
 //---------------------------------------------------------------
 
 bool TIStream::eos() {
+  // Nothing can be read after a failed read. A begin tag matched before it
+  // stays pending, and loops like "while (!is.eos()) is >> value;" never
+  // ended on a damaged file.
+  if (!*m_imp->m_is) return true;
   if (m_imp->matchTag())
     return m_imp->m_currentTag.m_type == StreamTag::EndTag;
   else

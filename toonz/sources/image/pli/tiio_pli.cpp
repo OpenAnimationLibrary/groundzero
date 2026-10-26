@@ -857,7 +857,14 @@ TPalette *readPalette(GroupTag *paletteTag, int majorVersion,
     } else {
       assert(frame ==
              -1);  // uno stile animato, ci deve gia' essere nella paletta!
-      while (palette->getStyleCount() < id) palette->addStyle(TPixel32::Red);
+      while (palette->getStyleCount() < id)
+        // the palette refuses styles past its limit (TPalette::addStyle), so
+        // a damaged style id never ends this loop
+        if (palette->addStyle(TPixel32::Red) < 0) {
+          delete style;
+          delete palette;
+          throw TException("corrupted pli file: invalid style id");
+        }
       if (page)
         page->addStyle(palette->addStyle(style));
       else

@@ -44,6 +44,8 @@ const TColorStyle::PickedPosition stringToPoint(const std::string &string) {
   std::vector<std::string> result;
   while (std::getline(ss, buffer, ','))  // split with comma
     result.push_back(buffer);
+  // a damaged file can hold fewer than the two coordinates
+  if (result.size() < 2) throw TException("palette, invalid picked position");
 
   int x     = std::stoi(result[0]);
   int y     = std::stoi(result[1]);
