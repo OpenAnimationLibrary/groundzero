@@ -2,7 +2,6 @@
 
 #include <QAction>
 #include <QApplication>
-#include <QCheckBox>
 #include <QCursor>
 #include <QDialog>
 #include <QDir>
@@ -54,6 +53,20 @@ QList<QByteArray> mp4Boxes(const QByteArray &video) {
     offset += size;
   }
   return boxes;
+}
+
+void acceptRecordingPrompt() {
+  QTimer::singleShot(50, [] {
+    auto *dialog =
+        qobject_cast<QMessageBox *>(QApplication::activeModalWidget());
+    QVERIFY(dialog);
+    for (auto *button : dialog->buttons())
+      if (dialog->buttonRole(button) == QMessageBox::AcceptRole) {
+        button->click();
+        return;
+      }
+    QFAIL("Start Recording button missing");
+  });
 }
 
 void verifyPlaybackFile(const QString &path) {
@@ -157,91 +170,79 @@ protected:
 class RecorderTest final : public QObject {
   Q_OBJECT
 private slots:
-  void choicesArePerBuild() {
+  void startupIsOff_data() {
+    QTest::addColumn<int>("choice");
+    QTest::newRow("fresh-preferences") << -2;
+    QTest::newRow("old-build") << -1;
+    QTest::newRow("remembered-off") << 0;
+    QTest::newRow("remembered-on") << 1;
+  }
+
+  void startupIsOff() {
+    QFETCH(int, choice);
     QTemporaryDir dir;
-    const QString path = dir.filePath("preferences.ini");
-    QCOMPARE(OtDevRecorder::rememberedChoice(path, "build-1"), -1);
-    QVERIFY(OtDevRecorder::saveChoice(path, "build-1", 1));
-    QCOMPARE(OtDevRecorder::rememberedChoice(path, "build-1"), 1);
-    QCOMPARE(OtDevRecorder::rememberedChoice(path, "build-2"), -1);
-    QVERIFY(OtDevRecorder::saveChoice(path, "build-1", 0));
-    QCOMPARE(OtDevRecorder::rememberedChoice(path, "build-1"), 0);
-    QVERIFY(OtDevRecorder::saveChoice(path, "build-1", -1));
-    QCOMPARE(OtDevRecorder::rememberedChoice(path, "build-1"), -1);
-    QSettings settings(path, QSettings::IniFormat);
-    settings.setValue("OtDevRecorder/Choice", "invalid");
-    settings.sync();
-    QCOMPARE(OtDevRecorder::rememberedChoice(path, "build-1"), -1);
+    const QString prefs = dir.filePath("preferences.ini");
+    if (choice != -2) {
+      QSettings settings(prefs, QSettings::IniFormat);
+      settings.setValue("OtDevRecorder/BuildId", "old-build");
+      settings.setValue("OtDevRecorder/Choice", choice);
+      settings.sync();
+    }
+    QMainWindow window;
+    OtDevRecorder recorder(&window, prefs, dir.path(), "missing");
+    window.show();
+    QTest::qWait(100);
+    QVERIFY(window.findChildren<QMessageBox *>().isEmpty());
+    QVERIFY(!QFileInfo::exists(dir.filePath("recordings")));
+    auto *bar = window.findChild<QToolBar *>("OtDevSessionRecorder");
+    QVERIFY(bar);
+    QVERIFY(bar->isVisible());
+    QVERIFY(bar->actions().first()->isEnabled());
+    QVERIFY(!bar->actions().first()->isChecked());
+    QCOMPARE(bar->actions().first()->text(), QString("Start Recording"));
+    QCOMPARE(bar->findChild<QLabel *>()->text(), QString("Recording off"));
   }
 
   void escapeIsOptOut() {
     QTemporaryDir dir;
-    QVERIFY(OtDevRecorder::saveChoice(dir.filePath("preferences.ini"),
-                                      "old-build", 0));
+    const QString prefs = dir.filePath("preferences.ini");
+    QFile file(prefs);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.close();
     QMainWindow window;
     window.show();
-    OtDevRecorder recorder(&window, dir.filePath("preferences.ini"),
-                           "test-build", dir.path(),
-                           dir.filePath("missing-ffmpeg.exe"));
+    OtDevRecorder recorder(&window, prefs, dir.path(), "missing");
+    auto *bar = window.findChild<QToolBar *>("OtDevSessionRecorder");
+    QVERIFY(bar);
     QTimer::singleShot(50, [] {
       auto *dialog =
           qobject_cast<QMessageBox *>(QApplication::activeModalWidget());
       QVERIFY(dialog);
+      QVERIFY(!dialog->checkBox());
       QTest::keyClick(dialog, Qt::Key_Escape);
     });
-    recorder.initialize();
+    bar->actions().first()->trigger();
     QVERIFY(!QFileInfo::exists(dir.filePath("recordings")));
-    auto *bar = window.findChild<QToolBar *>("OtDevSessionRecorder");
-    QVERIFY(bar);
     QVERIFY(!bar->actions().first()->isChecked());
-  }
-
-  void rememberedOptOutNeverCreatesOutput() {
-    QTemporaryDir dir;
-    const QString prefs = dir.filePath("preferences.ini");
-    QVERIFY(OtDevRecorder::saveChoice(prefs, "test-build", 0));
-    QMainWindow window;
-    OtDevRecorder recorder(&window, prefs, "test-build", dir.path(), "missing");
-    recorder.initialize();
-    QVERIFY(!QFileInfo::exists(dir.filePath("recordings")));
-    QVERIFY(!QApplication::activeModalWidget());
-  }
-
-  void startupOverrideWinsOverRememberedOptIn() {
-    QTemporaryDir dir;
-    const QString prefs = dir.filePath("preferences.ini");
-    QVERIFY(OtDevRecorder::saveChoice(prefs, "test-build", 1));
-    QMainWindow window;
-    OtDevRecorder recorder(&window, prefs, "test-build", dir.path(), "missing");
-    qputenv("OTDEV_RECORD", "off");
-    recorder.initialize();
-    qunsetenv("OTDEV_RECORD");
-    QVERIFY(!QFileInfo::exists(dir.filePath("recordings")));
-    QVERIFY(!QApplication::activeModalWidget());
+    QVERIFY(bar->actions().first()->isEnabled());
+    QVERIFY(window.findChildren<QMessageBox *>().isEmpty());
   }
 
   void optInReportsMissingEncoder() {
     QTemporaryDir dir;
     const QString prefs = dir.filePath("preferences.ini");
-    QVERIFY(OtDevRecorder::saveChoice(prefs, "test-build", -1));
+    QFile file(prefs);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.close();
     QMainWindow window;
     window.show();
-    OtDevRecorder recorder(&window, prefs, "test-build", dir.path(), "missing");
-    QTimer::singleShot(50, [] {
-      auto *dialog =
-          qobject_cast<QMessageBox *>(QApplication::activeModalWidget());
-      QVERIFY(dialog);
-      dialog->checkBox()->setChecked(true);
-      for (auto *button : dialog->buttons())
-        if (dialog->buttonRole(button) == QMessageBox::AcceptRole) {
-          button->click();
-          return;
-        }
-      QFAIL("Start Recording button missing");
-    });
-    recorder.initialize();
-    QCOMPARE(OtDevRecorder::rememberedChoice(prefs, "test-build"), 1);
+    OtDevRecorder recorder(&window, prefs, dir.path(), "missing");
+    acceptRecordingPrompt();
+    auto *bar = window.findChild<QToolBar *>("OtDevSessionRecorder");
+    QVERIFY(bar);
+    bar->actions().first()->trigger();
     QVERIFY(!QFileInfo::exists(dir.filePath("recordings")));
+    QVERIFY(!bar->actions().first()->isChecked());
     auto *error = window.findChild<QMessageBox *>();
     QVERIFY(error);
     QVERIFY(error->text().contains("FFmpeg not found"));
@@ -251,15 +252,27 @@ private slots:
   void controllerCreatesAndFinalizesClip() {
     QTemporaryDir dir;
     const QString prefs = dir.filePath("preferences.ini");
-    QVERIFY(OtDevRecorder::saveChoice(prefs, "test-build", 1));
+    QFile file(prefs);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.close();
     QMainWindow window;
     window.resize(320, 240);
     window.show();
     window.activateWindow();
     QTest::qWait(100);
-    OtDevRecorder recorder(&window, prefs, "test-build", dir.path(),
+    OtDevRecorder recorder(&window, prefs, dir.path(),
                            qEnvironmentVariable("OTDEV_TEST_FFMPEG"));
-    recorder.initialize();
+    auto *bar = window.findChild<QToolBar *>("OtDevSessionRecorder");
+    QVERIFY(bar);
+    acceptRecordingPrompt();
+    bar->actions().first()->trigger();
+    // Stop before the first capture tick, then start again in this session.
+    bar->actions().first()->trigger();
+    QVERIFY(!bar->actions().first()->isChecked());
+    QVERIFY(QDir(dir.filePath("recordings"))
+                .entryList({"*.mp4"}, QDir::Files)
+                .isEmpty());
+    bar->actions().first()->trigger();
     QTRY_VERIFY_WITH_TIMEOUT(!QDir(dir.filePath("recordings"))
                                   .entryList({"*.mp4"}, QDir::Files)
                                   .isEmpty(),
@@ -269,10 +282,10 @@ private slots:
                  .entryList({"*.recording.mp4"}, QDir::Files)
                  .size(),
              1);
-    auto *bar = window.findChild<QToolBar *>("OtDevSessionRecorder");
     QVERIFY(bar->actions().first()->isChecked());
     bar->actions().first()->trigger();
-    QCOMPARE(OtDevRecorder::rememberedChoice(prefs, "test-build"), 0);
+    QVERIFY(!bar->actions().first()->isEnabled());
+    QVERIFY(!bar->actions().first()->isChecked());
     QTRY_COMPARE_WITH_TIMEOUT(bar->findChild<QLabel *>()->text(),
                               QString("Recording off"), 10000);
     const auto files =
@@ -280,21 +293,51 @@ private slots:
     QCOMPARE(files.size(), 1);
     QVERIFY(!files.first().endsWith(".recording.mp4"));
     verifyPlaybackFile(dir.filePath("recordings/" + files.first()));
+    QVERIFY(bar->actions().first()->isEnabled());
+
+    QTimer::singleShot(50, [] {
+      auto *dialog =
+          qobject_cast<QMessageBox *>(QApplication::activeModalWidget());
+      if (dialog) {
+        dialog->reject();
+        QFAIL("Consent was repeated within one session");
+      }
+    });
+    bar->actions().first()->trigger();
+    QVERIFY(!QApplication::activeModalWidget());
+    QTRY_COMPARE_WITH_TIMEOUT(bar->findChild<QLabel *>()->text(),
+                              QString("RECORDING"), 10000);
+    QTest::qWait(500);
+    bar->actions().first()->trigger();
+    QTRY_COMPARE_WITH_TIMEOUT(bar->findChild<QLabel *>()->text(),
+                              QString("Recording off"), 10000);
+    const auto restarted =
+        QDir(dir.filePath("recordings")).entryList({"*.mp4"}, QDir::Files);
+    QCOMPARE(restarted.size(), 2);
+    for (const auto &name : restarted) {
+      QVERIFY(!name.endsWith(".recording.mp4"));
+      verifyPlaybackFile(dir.filePath("recordings/" + name));
+    }
+    QSettings settings(prefs, QSettings::IniFormat);
+    QVERIFY(!settings.contains("OtDevRecorder/Choice"));
   }
 
   void shutdownFinalizesWithoutEventLoop() {
     QTemporaryDir dir;
     const QString prefs = dir.filePath("preferences.ini");
-    QVERIFY(OtDevRecorder::saveChoice(prefs, "test-build", 1));
+    QFile file(prefs);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.close();
     QMainWindow window;
     window.resize(320, 240);
     window.show();
     window.activateWindow();
     QTest::qWait(100);
     {
-      OtDevRecorder recorder(&window, prefs, "test-build", dir.path(),
+      OtDevRecorder recorder(&window, prefs, dir.path(),
                              qEnvironmentVariable("OTDEV_TEST_FFMPEG"));
-      recorder.initialize();
+      acceptRecordingPrompt();
+      recorder.requestRecording();
       auto *bar = window.findChild<QToolBar *>("OtDevSessionRecorder");
       QTRY_COMPARE_WITH_TIMEOUT(bar->findChild<QLabel *>()->text(),
                                 QString("RECORDING"), 10000);

@@ -56,11 +56,13 @@ and supply exactly one of `pr_number` or `ref`. The inherited
 
 ## Compatibility and verification
 
-Internal paths, `OTDEV_*` environment variables, recorder settings keys, and the
+Internal paths, build `OTDEV_*` environment variables, and the
 manifest's `full_otdev_build` compatibility field retain their existing names.
 Product labels and repository routing use Groundzero. This avoids a migration
 of preferences, recordings, executable paths, or consumers of existing metadata.
-Recording still requires the existing user choice; no capture behavior changes.
+Recording starts off on every launch. Users can start and stop from the bottom
+toolbar, with consent requested on the first start of each session. Legacy saved
+recording choices no longer start capture automatically.
 
 ```sh
 python -m pip install PyQt5==5.15.2

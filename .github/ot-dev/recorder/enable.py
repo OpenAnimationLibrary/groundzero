@@ -32,16 +32,14 @@ def inject(root: Path, build_id: str, recorder_dir=None):
             or "otdevrecorder" in text.lower()
             or "otdevrecorder" in cmake_text.lower()):
         raise RuntimeError("Recorder injection anchors changed or already patched")
-    hook = f'''  // Groundzero Windows CI only; not present in normal source builds.
-  auto *otDevRecorder = new OtDevRecorder(
+    hook = '''  // Groundzero Windows CI only; recording starts from the toolbar.
+  new OtDevRecorder(
       &w, (ToonzFolder::getMyModuleDir() + TFilePath("preferences.ini")).getQString(),
-      QStringLiteral("{build_id}"),
       QDir(QCoreApplication::applicationDirPath()).filePath("portablestuff"),
       QDir(QCoreApplication::applicationDirPath()).filePath("otdev-recorder/ffmpeg.exe"));
-  QTimer::singleShot(0, otDevRecorder, [otDevRecorder] {{ otDevRecorder->initialize(); }});
 
 '''
-    patched_source = (text.replace(include, include + '\n#include "otdevrecorder.h"\n#include <QTimer>')
+    patched_source = (text.replace(include, include + '\n#include "otdevrecorder.h"')
                       .replace(anchor, hook + anchor))
     patched_cmake = cmake_text + f'''
 # Injected only by .github/ot-dev/recorder/enable.py in Groundzero Windows CI.

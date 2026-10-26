@@ -2,7 +2,6 @@
 
 #include <QAction>
 #include <QApplication>
-#include <QCheckBox>
 #include <QCursor>
 #include <QDateTime>
 #include <QDesktopServices>
@@ -16,7 +15,6 @@
 #include <QOpenGLWidget>
 #include <QPainter>
 #include <QPushButton>
-#include <QSettings>
 #include <QSignalBlocker>
 #include <QStorageInfo>
 #include <QTemporaryFile>
@@ -164,27 +162,6 @@ void paintCursor(QPainter &painter, const QImage &frame,
 #endif
 }  // namespace
 
-int OtDevRecorder::rememberedChoice(const QString &path,
-                                    const QString &buildId) {
-  QSettings settings(path, QSettings::IniFormat);
-  settings.beginGroup("OtDevRecorder");
-  if (buildId.isEmpty() || settings.value("BuildId").toString() != buildId)
-    return -1;
-  bool valid = false;
-  int choice = settings.value("Choice", -1).toInt(&valid);
-  return valid && (choice == 0 || choice == 1) ? choice : -1;
-}
-
-bool OtDevRecorder::saveChoice(const QString &path, const QString &buildId,
-                               int choice) {
-  QSettings settings(path, QSettings::IniFormat);
-  settings.beginGroup("OtDevRecorder");
-  settings.setValue("BuildId", buildId);
-  settings.setValue("Choice", choice);
-  settings.sync();
-  return settings.status() == QSettings::NoError;
-}
-
 QStringList OtDevRecorder::encoderArguments(const QSize &size,
                                             const QString &output) {
   // The minimal FFmpeg build disables external x86 assembly. Its default
@@ -292,13 +269,11 @@ QImage OtDevRecorder::capture(QMainWindow *window, const QSize &size,
 
 OtDevRecorder::OtDevRecorder(QMainWindow *window,
                              const QString &preferencesPath,
-                             const QString &buildId,
                              const QString &portableRoot,
                              const QString &encoder)
     : QObject(window)
     , m_window(window)
     , m_preferencesPath(preferencesPath)
-    , m_buildId(buildId)
     , m_portableRoot(portableRoot)
     , m_encoderPath(encoder) {
   m_outputDir = QDir(portableRoot).filePath("recordings");
@@ -308,8 +283,9 @@ OtDevRecorder::OtDevRecorder(QMainWindow *window,
   window->addToolBar(Qt::BottomToolBarArea, bar);
   // Do not allow the recorder controls to be hidden while capture is enabled.
   bar->toggleViewAction()->setEnabled(false);
-  m_toggle = bar->addAction(tr("Record Groundzero Session"));
+  m_toggle = bar->addAction(tr("Start Recording"));
   m_toggle->setCheckable(true);
+  m_toggle->setToolTip(tr("Start or stop recording during this session."));
   m_status = new QLabel(tr("Recording off"), bar);
   bar->addWidget(m_status);
   auto *open = bar->addAction(tr("Open Recordings Folder"));
@@ -324,11 +300,8 @@ OtDevRecorder::OtDevRecorder(QMainWindow *window,
   connect(m_toggle, &QAction::triggered, this, [this](bool checked) {
     if (checked)
       requestRecording();
-    else {
+    else
       stop();
-      if (m_remember && !saveChoice(m_preferencesPath, m_buildId, 0))
-        fail(tr("Unable to save the recording choice."));
-    }
   });
   m_timer.setInterval(1000 / frameRate);
   connect(&m_timer, &QTimer::timeout, this, &OtDevRecorder::tick);
@@ -416,39 +389,17 @@ void OtDevRecorder::updateStatus(const QString &text) {
   m_status->setToolTip(m_outputFile.isEmpty() ? m_outputDir : m_outputFile);
   const QSignalBlocker blocker(m_toggle);
   m_toggle->setChecked(m_enabled);
-  m_toggle->setText(m_enabled ? tr("Stop Recording")
-                              : tr("Record Groundzero Session"));
-}
-
-void OtDevRecorder::initialize() {
-  // No encoder process, directory or video is created before consent.
-  // An opt-out always overrides even a remembered opt-in.
-  if (qEnvironmentVariable("OTDEV_RECORD")
-          .compare("off", Qt::CaseInsensitive) == 0) {
-    updateStatus(tr("Recording off (OTDEV_RECORD=off)"));
-    return;
-  }
-  const QString root = QFileInfo(m_portableRoot).canonicalFilePath() + "/";
-  if (!QFileInfo(m_portableRoot).isDir() ||
-      !QFileInfo(m_preferencesPath)
-           .canonicalFilePath()
-           .startsWith(root, Qt::CaseInsensitive)) {
-    fail(
-        tr("Recording requires preferences.ini inside this build's "
-           "portablestuff."));
-    return;
-  }
-  const int choice = rememberedChoice(m_preferencesPath, m_buildId);
-  m_remember       = choice != -1;
-  if (choice == 1)
-    begin();
-  else if (choice == -1)
-    requestRecording();
+  m_toggle->setEnabled(!m_prompting && (m_enabled || !m_finishing));
+  m_toggle->setText(m_enabled ? tr("Stop Recording") : tr("Start Recording"));
 }
 
 void OtDevRecorder::requestRecording() {
-  if (m_prompting || m_enabled) return;
-  m_errorReported    = false;
+  if (m_prompting || m_enabled || m_finishing) return;
+  m_errorReported = false;
+  if (m_consented) {
+    begin();
+    return;
+  }
   const QString root = QFileInfo(m_portableRoot).canonicalFilePath() + "/";
   if (!QFileInfo(m_portableRoot).isDir() ||
       !QFileInfo(m_preferencesPath)
@@ -480,22 +431,13 @@ void OtDevRecorder::requestRecording() {
   auto *no  = dialog.addButton(tr("Do Not Record"), QMessageBox::RejectRole);
   dialog.setDefaultButton(yes);
   dialog.setEscapeButton(no);
-  auto *remember =
-      new QCheckBox(tr("Remember my choice for this build"), &dialog);
-  remember->setChecked(m_remember);
-  dialog.setCheckBox(remember);
   dialog.exec();
   const bool enabled = dialog.clickedButton() == yes;
-  m_remember         = remember->isChecked();
   m_prompting        = false;
-  if (!saveChoice(m_preferencesPath, m_buildId,
-                  m_remember ? (enabled ? 1 : 0) : -1)) {
-    fail(tr("Unable to save the recording choice. Recording remains off."));
-    return;
-  }
-  if (enabled)
+  if (enabled) {
+    m_consented = true;
     begin();
-  else
+  } else
     stop();
 }
 
