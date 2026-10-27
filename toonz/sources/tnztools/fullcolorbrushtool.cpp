@@ -52,6 +52,7 @@
 
 // Qt includes
 #include <QCoreApplication>  // Qt translation support
+#include <algorithm>
 #include <QDir>
 #include <QDirIterator>
 
@@ -854,7 +855,11 @@ void FullColorBrushTool::initTips() {
 
   bool first   = !m_tipsLoaded;
   m_tipsLoaded = true;
-  if (!first && files == m_tipFiles) return;
+  // Compared item by item: QList::operator== of Qt 5.15 uses
+  // stdext::make_checked_array_iterator on MSVC, which recent MSVC removed
+  if (!first && files.size() == m_tipFiles.size() &&
+      std::equal(files.begin(), files.end(), m_tipFiles.begin()))
+    return;
   m_tipFiles = files;
 
   std::wstring current =
