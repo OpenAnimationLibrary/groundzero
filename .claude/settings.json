@@ -1,0 +1,19 @@
+{
+  "attribution": {
+    "sessionUrl": false
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/ci-scripts/no_pii.py\" hook",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}
