@@ -6,6 +6,7 @@
 #include "tapp.h"
 #include "mainwindow.h"
 #include "menubarcommandids.h"
+#include "aspectguides.h"
 #include "toonzqt/menubarcommand.h"
 #include "tenv.h"
 #include "saveloadqsettings.h"
