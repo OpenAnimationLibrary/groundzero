@@ -43,7 +43,6 @@ set(MOC_HEADERS
     filebrowser.h
     filebrowsermodel.h
     filebrowserpopup.h
-    fileinfopopup.h
     filmstrip.h
     flipbook.h
     formatsettingspopups.h
