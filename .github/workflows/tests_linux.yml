@@ -225,7 +225,11 @@ jobs:
           echo "::error title=Compat::no compat_regression block in toonz/sources/toonzlib/CMakeLists.txt"
           exit 1
         fi
-        printf '\n%s\n' "$block" >> base/toonz/sources/toonzlib/CMakeLists.txt
+        # edition has the block since Tier 12 was merged: add it only to an
+        # older tree, or the target is defined twice
+        if ! grep -q '^# compat_regression: begin$' base/toonz/sources/toonzlib/CMakeLists.txt; then
+          printf '\n%s\n' "$block" >> base/toonz/sources/toonzlib/CMakeLists.txt
+        fi
 
     - name: Build libtiff
       run: |
