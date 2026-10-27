@@ -7,7 +7,7 @@
 #include "viewerpane.h"
 #include "onionskinmaskgui.h"
 #include "viewerdraw.h"
-#include "toonz/cameraguide.h"
+#include "aspectguides.h"
 #include "menubarcommandids.h"
 #include "ruler.h"
 #include "locatorpopup.h"
@@ -1836,12 +1836,10 @@ void SceneViewer::drawOverlay() {
       glPopMatrix();
     }
 
-    if (centerCutGuideToggle.getStatus() && !m_drawEditingLevel &&
-        !is3DView()) {
+    if (AspectGuides::anyActive() && !m_drawEditingLevel && !is3DView()) {
       glPushMatrix();
       tglMultMatrix(m_drawCameraAff);
-      ViewerDraw::drawCameraGuide(
-          CameraGuide::centeredRect(ViewerDraw::getCameraRect(), 4.0 / 3.0));
+      AspectGuides::draw(ViewerDraw::getCameraRect());
       glPopMatrix();
     }
 
