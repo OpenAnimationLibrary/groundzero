@@ -65,7 +65,8 @@ the Line Art of a drawing.
 - **Several images.** Load Image... takes several files, and dropping files on
   the panel adds them. The loaded images are listed in a combo box (up to 20;
   the oldest is dropped beyond that) and **Remove** takes the current one out
-  of the list. Loading an image already in the list shows it again.
+  of the list. Loading (or dropping) an image already in the list reads the
+  file again, so that changes made to it are shown, and keeps its view.
 - **Remembered view.** The zoom, pan, flips, rotation and a new **opacity**
   slider (0 to 100%) are stored for each image, and restored when the image is
   selected and when the application starts. Images that no longer exist are

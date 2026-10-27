@@ -1459,11 +1459,17 @@ DVAPI TFxP buildPartialSceneFx(ToonzScene *scene, TXsheet *xsheet, double row,
 */
 DVAPI TFxP buildPostSceneFx(ToonzScene *scene, double frame, int shrink,
                             bool isPreview) {
+  return buildPostSceneFx(scene, scene->getXsheet(), frame, shrink, isPreview);
+}
+
+//===================================================================
+
+DVAPI TFxP buildPostSceneFx(ToonzScene *scene, TXsheet *xsh, double frame,
+                            int shrink, bool isPreview) {
   // NOTE: Should whichLevels access output AND PREVIEW settings?
   int whichLevels =
       scene->getProperties()->getOutputProperties()->getWhichLevels();
 
-  TXsheet *xsh = scene->getXsheet();
   if (!xsh) xsh = scene->getXsheet();
 
   // Do not expand the xsheet node
