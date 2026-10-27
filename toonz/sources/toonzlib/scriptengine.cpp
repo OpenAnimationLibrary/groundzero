@@ -66,7 +66,7 @@ QString printArguments(const QJSValueList &args) {
 
 QJSValue runFunction(QJSEngine *engine, const QJSValueList &args) {
   if (args.size() != 1) {
-    engine->throwError("expected one parameter");
+    engine->throwError(QString("expected one parameter"));
     return QJSValue();
   }
   TFilePath fp;

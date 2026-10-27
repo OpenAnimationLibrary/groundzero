@@ -9,6 +9,7 @@
 
 // Qt includes
 #include <QString>
+#include <QStringList>  // a class in Qt 5, a typedef in Qt 6: no forward declaration
 
 #undef DVAPI
 #undef DVVAR
@@ -33,7 +34,6 @@ class TVectorRenderData;
 class TInputStreamInterface;
 class TOutputStreamInterface;
 class TRasterStyleFx;
-class QStringList;
 
 //=================================================
 

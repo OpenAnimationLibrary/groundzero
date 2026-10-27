@@ -60,12 +60,17 @@ TFreeFormDeformer::TFreeFormDeformer(const TRectD &restRect, int nx, int ny,
   // The negated tests also reject NaNs
   if (!(lx > 0.0 && ly > 0.0) || !(std::fabs(placement.det()) > 1e-18)) return;
 
-  m_fromGrid = placement * TTranslation(restRect.x0, restRect.y0) *
-               TScale(lx / nx, ly / ny);
-  m_toGrid = m_fromGrid.inv();
+  // The grid of the lattice's own space; the placement maps it to the plane.
+  const TAffine gridToLattice =
+      TTranslation(restRect.x0, restRect.y0) * TScale(lx / nx, ly / ny);
+  m_fromGrid = placement * gridToLattice;
+  m_toGrid   = m_fromGrid.inv();
 
-  // Displacements of the control points, in grid units
-  const int w = nx + 3;
+  // Displacements of the control points, in grid units. The deformed points
+  // are in the lattice's space, like the rect: they go to the grid without
+  // the placement, which the grid space already includes.
+  const TAffine latticeToGrid = gridToLattice.inv();
+  const int w                 = nx + 3;
   m_coefs.assign((size_t)w * (ny + 3), TPointD());
   auto coef = [&](int i, int j) -> TPointD & {
     return m_coefs[(size_t)(j + 1) * w + (i + 1)];
@@ -73,8 +78,8 @@ TFreeFormDeformer::TFreeFormDeformer(const TRectD &restRect, int nx, int ny,
 
   for (int j = 0; j <= ny; ++j)
     for (int i = 0; i <= nx; ++i)
-      coef(i, j) =
-          m_toGrid * deformedPoints[(size_t)j * (nx + 1) + i] - TPointD(i, j);
+      coef(i, j) = latticeToGrid * deformedPoints[(size_t)j * (nx + 1) + i] -
+                   TPointD(i, j);
 
   // Pad with a linear extrapolation, which makes the spline reproduce linear
   // displacements and interpolate the corners.

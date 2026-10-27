@@ -17,7 +17,7 @@
 #include "traster.h"
 #include "tthread.h"
 
-#include <QCoreApplication>
+#include <QGuiApplication>
 #include <QDir>
 #include <QFileInfo>
 #include <QImage>
@@ -168,7 +168,9 @@ int main(int argc, char **argv) {
               << std::endl;
     return 2;
   }
-  QCoreApplication app(argc, argv);
+  // A QGuiApplication: some FX render through an offscreen OpenGL surface,
+  // which needs a screen (QT_QPA_PLATFORM=offscreen when headless)
+  QGuiApplication app(argc, argv);
   TThread::init();
   initStdFx();
 

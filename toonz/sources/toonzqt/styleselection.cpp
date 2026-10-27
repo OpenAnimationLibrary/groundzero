@@ -1266,7 +1266,7 @@ public:
     for (UINT i = 0; i < m_colorStyles.size(); i++) {
       TColorStyle *st = page->getStyle(m_colorStyles[i].first);
       QString gname   = QString::fromStdWString(st->getGlobalName());
-      if (!gname.isEmpty() && gname[0] != L'-') continue;
+      if (!gname.isEmpty() && gname[0] != QLatin1Char('-')) continue;
       m_palette->setStyle(page->getStyleId(m_colorStyles[i].first),
                           m_colorStyles[i].second->clone());
       m_colorStyles[i].second->invalidateIcon();
@@ -1284,7 +1284,7 @@ public:
     for (UINT i = 0; i < m_colorStyles.size(); i++) {
       TColorStyle *cs = page->getStyle(m_colorStyles[i].first);
       QString gname   = QString::fromStdWString(cs->getGlobalName());
-      if (!gname.isEmpty() && gname[0] != L'-') continue;
+      if (!gname.isEmpty() && gname[0] != QLatin1Char('-')) continue;
       assert(cs);
       if (!cs) continue;
       cs->setMainColor(
@@ -1343,7 +1343,7 @@ void TStyleSelection::blendStyles() {
   int i;
   for (i = 1; i < n - 1; i++) {
     QString gname = QString::fromStdWString(styles[i]->getGlobalName());
-    if (!gname.isEmpty() && gname[0] != L'-') continue;
+    if (!gname.isEmpty() && gname[0] != QLatin1Char('-')) continue;
     areAllStyleLincked = false;
     styles[i]->setMainColor(blend(c0, c1, (double)i / (double)(n - 1)));
     styles[i]->invalidateIcon();
@@ -1747,7 +1747,7 @@ public:
     int n = std::min(styles.size(), colors.size());
     for (int i = 0; i < n; i++) {
       QString gname = QString::fromStdWString(styles[i]->getGlobalName());
-      if (!gname.isEmpty() && gname[0] != L'-') continue;
+      if (!gname.isEmpty() && gname[0] != QLatin1Char('-')) continue;
       styles[i]->setMainColor(colors[i]);
       styles[i]->setIsEditedFlag(flags[i]);
       styles[i]->invalidateIcon();

@@ -1114,6 +1114,19 @@ void SchematicViewer::createActions() {
       connect(m_rigFilter, SIGNAL(textChanged(const QString &)), m_stageScene,
               SLOT(onRigFilterChanged(const QString &)));
 
+      // Port filter of the Rig view: as the one of the FX Schematic, on the
+      // published channel rows
+      m_rigPortFilter = new QLineEdit(m_stageToolbar);
+      m_rigPortFilter->setLayoutDirection(Qt::LeftToRight);
+      m_rigPortFilter->setClearButtonEnabled(true);
+      m_rigPortFilter->setFixedWidth(120);
+      m_rigPortFilter->setPlaceholderText(tr("Filter ports"));
+      m_rigPortFilter->setToolTip(
+          tr("Hide the published channel rows whose name does not contain "
+             "this text (the nodes stay visible)"));
+      connect(m_rigPortFilter, SIGNAL(textChanged(const QString &)),
+              m_stageScene, SLOT(onRigPortFilterChanged(const QString &)));
+
       m_fxPortFilter = new QLineEdit(m_fxToolbar);
       m_fxPortFilter->setLayoutDirection(Qt::LeftToRight);
       m_fxPortFilter->setClearButtonEnabled(true);
@@ -1182,6 +1195,10 @@ void SchematicViewer::createActions() {
     m_rigFilterAction = m_stageToolbar->addWidget(m_rigFilter);
     m_rigFilterAction->setVisible(m_rigView->isChecked());
     connect(m_rigView, &QAction::toggled, m_rigFilterAction,
+            &QAction::setVisible);
+    m_rigPortFilterAction = m_stageToolbar->addWidget(m_rigPortFilter);
+    m_rigPortFilterAction->setVisible(m_rigView->isChecked());
+    connect(m_rigView, &QAction::toggled, m_rigPortFilterAction,
             &QAction::setVisible);
 
     m_fxToolbar->addSeparator();

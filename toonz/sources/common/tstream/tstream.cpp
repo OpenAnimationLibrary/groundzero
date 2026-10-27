@@ -473,7 +473,9 @@ TOStream &TOStream::operator<<(const TPixel64 &v) {
 //---------------------------------------------------------------
 
 void TOStream::cr() {
-  *(m_imp->m_os) << std::endl;
+  // '\n', not std::endl: a flush per line made saving a scene one write call
+  // per line (doc/scene_io_profile.md). The stream is flushed when it closes.
+  *(m_imp->m_os) << '\n';
   for (int i = 0; i < m_imp->m_tab; i++) *(m_imp->m_os) << "  ";
   m_imp->m_justStarted = false;
 }
@@ -1182,6 +1184,10 @@ bool TIStream::matchEndTag() {
 //---------------------------------------------------------------
 
 bool TIStream::eos() {
+  // Nothing can be read after a failed read. A begin tag matched before it
+  // stays pending, and loops like "while (!is.eos()) is >> value;" never
+  // ended on a damaged file.
+  if (!*m_imp->m_is) return true;
   if (m_imp->matchTag())
     return m_imp->m_currentTag.m_type == StreamTag::EndTag;
   else

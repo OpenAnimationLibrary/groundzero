@@ -110,6 +110,7 @@
 #define MI_AdjustLevels "MI_AdjustLevels"
 #define MI_AdjustThickness "MI_AdjustThickness"
 #define MI_BakeEnvelope "MI_BakeEnvelope"
+#define MI_BakeDeformers "MI_BakeDeformers"
 #define MI_CreateColourArt "MI_CreateColourArt"
 #define MI_Binarize "MI_Binarize"
 #define MI_FillHoles "MI_FillHoles"

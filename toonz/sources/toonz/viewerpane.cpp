@@ -65,6 +65,7 @@
 #include <QMainWindow>
 #include <QSettings>
 #include <QTimer>
+#include <QActionGroup>
 
 #include "viewerpane.h"
 

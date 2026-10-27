@@ -71,6 +71,7 @@
 #include <QLabel>
 #include <QMessageBox>
 #include <QTimer>
+#include <QActionGroup>
 #if defined(_WIN32) && QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
 // Qt 6 has no QtPlatformHeaders
 #include <QtPlatformHeaders/QWindowsWindowFunctions>
@@ -2532,6 +2533,8 @@ void MainWindow::defineActions() {
                         "", "thickness");
   createMenuLevelAction(MI_BakeEnvelope,
                         QT_TR_NOOP("Bake Envelope into Vector Level..."), "");
+  createMenuLevelAction(MI_BakeDeformers,
+                        QT_TR_NOOP("Bake Deformers into Vector Level..."), "");
   createMenuLevelAction(MI_Antialias, QT_TR_NOOP("&Antialias..."), "",
                         "antialias");
   createMenuLevelAction(MI_Binarize, QT_TR_NOOP("&Binarize..."), "",

@@ -100,7 +100,9 @@ Box boundingBox(const std::vector<TPointD> &points) {
 
 void requireClosedZeroThickness(const TStroke &outline, int maxControlPoints) {
   require(outline.isSelfLoop(), "outline is not a self loop");
-  require(!outline.isCenterLine(), "outline is a centerline stroke");
+  // TStroke counts every control point with thickness <= 0 as a centerline
+  // point, so a zero-thickness outline is a centerline stroke for it.
+  require(outline.isCenterLine(), "outline has thickness");
   const int count = outline.getControlPointCount();
   require(count >= 5, "outline has too few control points");
   require(count <= maxControlPoints, "outline has too many control points");
@@ -348,7 +350,9 @@ void testNotConvertible() {
                                   TThickPoint(5, 5, 3)};
   TStroke dotStroke(dot);
   std::vector<TPointD> polygon;
-  require(ContourOutline::computeOutlinePolygon(dotStroke, polygon),
+  // At the default error of 0.05 the disc of radius 3 is an 18-gon, 2% short
+  // of its area; at 0.01 it is a 40-gon, 0.4% short
+  require(ContourOutline::computeOutlinePolygon(dotStroke, polygon, 0.01),
           "dot: no polygon");
   require(std::abs(ContourOutline::polygonArea(polygon) - c_pi * 9.0) /
                   (c_pi * 9.0) <

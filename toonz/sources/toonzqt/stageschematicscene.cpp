@@ -155,6 +155,9 @@ class RigBadgeItem final : public QGraphicsItem {
   bool m_ignoreRelease = false;
   std::function<void()> m_onClick, m_onDoubleClick;
   std::function<QString()> m_textFn;  //!< Gives the text again, see refresh()
+  QString m_portName;  //!< The name of a published channel row, matched by
+                       //!< the port filter (empty for the badges)
+  bool m_isPortRow = false;
 
   void fire(const std::function<void()> &handler) {
     if (!handler || !scene()) return;
@@ -192,6 +195,14 @@ public:
   void refresh() {
     if (m_textFn) setText(m_textFn());
   }
+
+  //! Makes the item the row of the published channel \b name
+  void setPortName(const QString &name) {
+    m_portName  = name;
+    m_isPortRow = true;
+  }
+  bool isPortRow() const { return m_isPortRow; }
+  const QString &getPortName() const { return m_portName; }
 
   void setClickHandlers(
       const std::function<void()> &onClick,
@@ -1247,6 +1258,13 @@ void StageSchematicScene::onRigFilterChanged(const QString &text) {
 
 //------------------------------------------------------------------
 
+void StageSchematicScene::onRigPortFilterChanged(const QString &text) {
+  m_rigPortFilter = text;
+  if (m_rigViewEnabled && m_xshHandle) applyRigPortFilter();
+}
+
+//------------------------------------------------------------------
+
 void StageSchematicScene::onRigFrameSwitched() {
   if (m_rigViewEnabled) refreshRigPorts();
 }
@@ -1387,6 +1405,7 @@ void StageSchematicScene::applyRigView() {
           [this, id, i]() { return getPublishedChannelText(id, i); });
       row->setClickHandlers([this, id, i]() { selectPublishedChannel(id, i); },
                             [this, id, i]() { editPublishedChannel(id, i); });
+      row->setPortName(name);
       row->setPos(0, y);
       y += row->boundingRect().height() + 1;
       search.append(name);
@@ -1394,6 +1413,37 @@ void StageSchematicScene::applyRigView() {
   }
 
   applyRigFilter();
+  applyRigPortFilter();
+}
+
+//------------------------------------------------------------------
+
+void StageSchematicScene::applyRigPortFilter() {
+  QString filter = m_rigPortFilter.trimmed();
+  QMap<TStageObjectId, StageSchematicNode *>::iterator it;
+  for (it = m_nodeTable.begin(); it != m_nodeTable.end(); ++it) {
+    StageSchematicNode *node = it.value();
+    if (!node) continue;
+    // The badges and rows of the node are stacked again from the place of the
+    // first one (which never moves), in the order they were made, so that the
+    // hidden rows leave no gap. The badges are never hidden.
+    bool first = true;
+    qreal y    = 0;
+    for (QGraphicsItem *child : node->childItems()) {
+      RigBadgeItem *item = dynamic_cast<RigBadgeItem *>(child);
+      if (!item) continue;
+      if (first) {
+        y     = item->pos().y();
+        first = false;
+      }
+      bool shown = !item->isPortRow() || filter.isEmpty() ||
+                   item->getPortName().contains(filter, Qt::CaseInsensitive);
+      item->setVisible(shown);
+      if (!shown) continue;
+      item->setPos(item->pos().x(), y);
+      y += item->boundingRect().height() + 1;
+    }
+  }
 }
 
 //------------------------------------------------------------------

@@ -23,7 +23,7 @@ QJSValue ToonzRasterConverter::convert(QJSEngine *engine,
   QString err;
   if (args.size() != 1) {
     engine->throwError(
-        "Expected one argument (a raster Level or a raster Image)");
+        QString("Expected one argument (a raster Level or a raster Image)"));
     return QJSValue();
   }
   QJSValue arg = args[0];

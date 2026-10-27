@@ -1265,8 +1265,8 @@ void PreferencesPopup::insertFootNote(QGridLayout* layout) {
 
 QString PreferencesPopup::getUIString(PreferencesItemId id) {
   auto CtrlAltStr = []() {
-    QString str =
-        QKeySequence(Qt::CTRL + Qt::ALT).toString(QKeySequence::NativeText);
+    QString str = QKeySequence(int(Qt::CTRL) | int(Qt::ALT))
+                      .toString(QKeySequence::NativeText);
     if (str.endsWith("+")) str.chop(1);
     return str;
   };

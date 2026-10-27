@@ -77,22 +77,29 @@ this was written). What each one delivered and what is still partial:
 
 | # | Delivered | Still partial |
 |---|---|---|
-| A1 | `TDeformerStack` with uniform and distance weights; Deformer Stack FX (3 envelope layers) | Raster warp only; weights are not painted; not a per-column stack |
+| A1 | `TDeformerStack` with uniform and distance weights; Deformer Stack FX with 3 layers, each of type Envelope, Curve, Free-Form, Bone or Shape-Aware (`doc/deformer_stack.md`) | Raster warp only; weights are not painted; not a per-column stack; fixed point counts per layer type |
 | A2 | Rig view in the Stage Schematic: badges, filter, published channels with ports, clickable badges | Deformers are not graph nodes; ports have no links |
 | A3 | Offset layers on stage objects, panel, Function Editor channels, Train from Keys, pose "apply as layer" | No Plastic / Path / sound channels; no Setup Mode |
 | A4 | 2D pad, pose blend through offset layers, drawing-swap bake in Master Controllers | No viewer gadgets; widget modes are not saved |
-| A5 | `TCurveDeformer` and Curve Deformer FX | Fixed 4 anchors; raster warp |
-| A6 | Envelope Deformer Plus (3 to 16 points, smooth edges) and a vector bake command | Stroke deformation is a bake, not live |
-| A7 | `TFreeFormDeformer` and Free-Form Deformer FX (4x4 lattice) | No free cage; not a stack layer yet |
-| A8 | `TBoneDeformer` and Bone Deformer FX (4-bone chain, no mesh) | Raster warp; not a stack layer yet |
+| A5 | `TCurveDeformer` and Curve Deformer FX; Curve layers in the Deformer Stack FX (3 anchors) | Fixed anchor counts; raster warp |
+| A6 | Envelope Deformer Plus (3 to 16 points, smooth edges) and a vector bake command, generalised to every deformer FX (Bake Deformers into Vector Level, `doc/deformer_bake.md`) | Stroke deformation is a bake, not live; the bake covers deformer FXs only, not other warping FXs |
+| A7 | `TFreeFormDeformer` and Free-Form Deformer FX (4x4 lattice); Free-Form layers in the Deformer Stack FX (3x3) | No free cage |
+| A8 | `TBoneDeformer` and Bone Deformer FX (4-bone chain, no mesh); Bone layers in the Deformer Stack FX (2-bone chain) | Raster warp |
 | A9 | Spine mesh attachments and Plastic deform timelines | Unweighted meshes; no stacking order |
 | A10 | Substitution Slider panel; template thumbnails already existed | No separate template browser |
 | A11 | Rig Library panel (rigs and poses) | Pose thumbnails are name badges |
 | A12 | Auto-Patch joint region and Enable Patch switch | Circle only; no automatic joint detection |
 
-Follow-ups that Tier 7 opened: add the Curve, Free-Form and Bone deformers
-as Deformer Stack layers, and move the deformer FX to vector strokes where
-the stroke data is available.
+Follow-ups that Tier 7 opened, both done on the tier12 branch: the Curve,
+Free-Form and Bone deformers (and the Shape-Aware deformer, C5) are Deformer
+Stack layer types (`doc/deformer_stack.md`), and Level > Adjust > Bake
+Deformers into Vector Level applies every enabled deformer FX on a vector
+column's FX chain (Envelope, Envelope Plus, Curve, Free-Form, Bone, Shape
+Aware and Deformer Stack) to the strokes of the selected drawings, each at
+its frame, with one undo step, and can disable the baked FX. The FXs give
+their deformer through the `TDeformerSource` interface
+(`include/toonz/tdeformer.h`); see `doc/deformer_bake.md`. The FXs
+themselves still warp the raster: a live stroke deformation is not done.
 
 ### Tier 8 status
 
@@ -123,7 +130,7 @@ was written). What each one delivered and what is still partial:
 | C2 | **Port filtering in the node view** | A filter field in the FX and Rig schematic port lists. | S | A2 |
 | C3 | **Compact file format** | An optional compressed scene (LZ4 over the existing XML, `doc/compact_scene.md`), with fast load through lazy level loading. Plain `.tnz` stays the default and is always readable. | M | none |
 | C4 | **Contour Editor** (research) | Built as an opt-in conversion, not a new stroke model: Level > Optimize > Convert Brush Strokes to Outline Shapes replaces selected variable-width strokes by closed zero-thickness outline strokes (same style, filled), which the Selection and Control Point Editor tools edit. One way, no saved-data change; see `doc/contour_editor.md`. | XL | none |
-| C5 | **Shape-Aware deformer** (research) | Points, bones and a cage together, on the deformer stack. Harmony's algorithm is proprietary; start from published methods (bounded biharmonic weights). **Done as `TShapeAwareDeformer` and the Shape Aware Deformer FX** (4 pins, 2 bones, a 4-corner cage; clamped biharmonic-style weights on a grid, see `doc/shape_aware_deformer.md`). Raster warp only, and the class is a stack layer in code but the Deformer Stack FX is not changed. | XL | A1, A7, A8 |
+| C5 | **Shape-Aware deformer** (research) | Points, bones and a cage together, on the deformer stack. Harmony's algorithm is proprietary; start from published methods (bounded biharmonic weights). **Done as `TShapeAwareDeformer` and the Shape Aware Deformer FX** (4 pins, 2 bones, a 4-corner cage; clamped biharmonic-style weights on a grid, see `doc/shape_aware_deformer.md`). Raster warp only. It is also a layer type of the Deformer Stack FX (2 pins, 1 bone, a 4-corner cage; `doc/deformer_stack.md`). | XL | A1, A7, A8 |
 
 ### Tier 9 status
 
@@ -133,10 +140,10 @@ was written):
 | # | Delivered | Still partial |
 |---|---|---|
 | C1 | Already satisfied; no code | none |
-| C2 | Port filter field in the FX Schematic toolbar | Rig view port rows are not filtered |
+| C2 | "Filter ports" field in the FX Schematic toolbar (input ports) and in the Stage Schematic toolbar while the Rig view is on (published channel rows, packed again; `doc/rig_view.md`) | FX output ports and group/macro editors not filtered; hidden FX port rows leave a gap |
 | C3 | "Compress Scene Files" preference (LZ4, default off), save-safety check, hardened compressed reader, round-trip test (`doc/compact_scene.md`) | Whole-file compression, no separate binary format; older builds cannot open compressed scenes |
 | C4 | Convert Brush Strokes to Outline Shapes (`doc/contour_editor.md`) | One way; closed brush strokes skipped; no new stroke model |
-| C5 | `TShapeAwareDeformer` and Shape Aware Deformer FX (`doc/shape_aware_deformer.md`) | Raster warp only; fixed handle counts in the FX; not a Deformer Stack FX layer |
+| C5 | `TShapeAwareDeformer` and Shape Aware Deformer FX (`doc/shape_aware_deformer.md`) | Raster warp only; fixed handle counts in the FX and in its Deformer Stack layer type |
 
 Missing items that stay out: OpenFX, Cryptomatte and performance
 anti-aliasing (GPU and 3D scope), and Ember AI (not realistic).
@@ -164,7 +171,7 @@ anti-aliasing (GPU and 3D scope), and Ember AI (not realistic).
 | E3 | Light Table opacity setting and per-column exclusion | S |
 | E4 | Tone / Highlight preset macro | S |
 | E5 | Reference panel: several images, remembered view state, PSD layers | S |
-| E6 | Faster scene save and load (profiling first) | M |
+| E6 | Faster scene save and load (profiling first). **Profiling harness added in `t12/scene-bench`**: the `scenebench` ctest (`toonzlib/tests/scenebench_test.cpp`, option `BUILD_SCENEBENCH_TESTS`) times the save and load of a large synthetic scene, plain and compressed, and their sub-phases, as CI notices; the hot spots found by reading the code are in `doc/scene_io_profile.md`. Nothing is optimised yet | M |
 
 #### Tier 11 status: E3, E4, E5
 
@@ -193,9 +200,23 @@ Built, not yet confirmed by a CI build on Linux when this was written:
 | E3 | Light Table Opacity preference, per-column exclusion (`doc/light_table_extras.md`) | Opacity is global |
 | E4 | Add Tone / Highlight Shading command | Matte ports are left unconnected |
 | E5 | Reference panel: several images, remembered view state, PSD layers | One PSD layer at a time |
-| E6 | Not done: needs profiling first (C3 gives compressed scenes) | Profile a large scene save and load |
+| E6 | Profiling harness: the `scenebench` ctest times save and load of a large synthetic scene, plain and compressed, with sub-phases; likely hot spots listed in `doc/scene_io_profile.md` | Read the numbers from a CI run, then optimise the hot spots they confirm |
 
 ---
+
+### Tier 12: tests, references and deformer follow-ups
+
+Built on the `tier12` branch, which merges Tiers 8 to 11:
+
+| # | Delivered | Still open |
+|---|---|---|
+| Tests | A Linux Tests workflow (pushes to `tier12` and `ci-tests/*`, never pull requests) builds with `BUILD_TESTS=ON`, runs ctest and reports each failure as an annotation; the unwired tests are registered. The first runs found 7 failures: the fuzz hangs and crashes in the PLI and palette loaders, a free-form deformer placement bug, three wrong test expectations, and a test start-up crash; all are fixed. | Confirm on the next run |
+| D1 | A non-blocking Qt 6 job in the same workflow; **the whole tree now builds and links with Qt 6 on Linux** after about ten rounds of fixes (`doc/qt6_port_status.md`) | Runtime untested; tests with Qt 6; Windows and macOS with Qt 6 |
+| D3 | The workflow commits the FX render references that do not exist yet | Review the first images |
+| E6 | `scenebench` benchmark (`doc/scene_io_profile.md`); no flush per line when saving, the frame id expression compiled once when loading: plain saves now take as long as compressed ones, and loads take less than half the time | XML parsing is most of what is left |
+| A1/A5/A7/A8/C5 | Curve, Free-Form, Bone and Shape-Aware layers in the Deformer Stack FX (`doc/deformer_stack.md`) | Fixed point counts per layer type |
+| A6 | Bake Deformers into Vector Level for every deformer FX (`doc/deformer_bake.md`) | A bake, not a live stroke deformation |
+| C2 | Port filter in the Stage Schematic Rig view | Matches published names only |
 
 ## Order at a glance
 

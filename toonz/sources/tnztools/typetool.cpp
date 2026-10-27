@@ -37,6 +37,7 @@
 
 #include "tfont.h"
 #include "typetooltext.h"
+#include "toonzqt/qtcompat.h"
 
 // For Qt translation support
 #include <QCoreApplication>
@@ -2663,7 +2664,7 @@ bool TypeTool::keyDown(QKeyEvent *event) {
   QString text = event->text();
   if ((event->modifiers() & Qt::ShiftModifier)) text = text.toUpper();
 
-  if (QKeySequence(event->key() + event->modifiers()) == QKeySequence::Paste) {
+  if (keySequenceOf(event->key(), event->modifiers()) == QKeySequence::Paste) {
     QClipboard *clipboard     = QApplication::clipboard();
     const QMimeData *mimeData = clipboard->mimeData();
     if (!mimeData->hasText()) return true;

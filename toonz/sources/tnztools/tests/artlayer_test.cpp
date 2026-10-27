@@ -84,8 +84,11 @@ int main() {
   require(drawn.setCount == 2, "Points already at 0 are left untouched");
   require(drawn.points[1].x == 1 && drawn.points[1].y == 1,
           "Geometry must be preserved");
-  applyTarget(TARGET_COLOUR_ART, centerline);
-  require(roleOf(centerline) == COLOUR_ART, "Centerline becomes Colour Art");
+  // On a copy: centerline is used below as a Line Art stroke.
+  Stroke centerlineDrawn = centerline;
+  applyTarget(TARGET_COLOUR_ART, centerlineDrawn);
+  require(roleOf(centerlineDrawn) == COLOUR_ART,
+          "Centerline becomes Colour Art");
 
   // Underlay and Overlay: the place of Line Art among the Colour Art strokes.
   Stroke bottom = line, middle = line, top = line;

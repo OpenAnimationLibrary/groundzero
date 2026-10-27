@@ -6,24 +6,112 @@
     <control>a_center</control>
     <control>a_inner</control>
     <control>a_outer</control>
-   <separator label="Envelope"/>
-    <control>a_point1</control>
-    <control>a_point2</control>
-    <control>a_point3</control>
-    <control>a_point4</control>
-    <control>a_point5</control>
-    <control>a_point6</control>
-    <control>a_point7</control>
-    <control>a_point8</control>
-   <separator label="Rest Pose"/>
-    <control>a_rest1</control>
-    <control>a_rest2</control>
-    <control>a_rest3</control>
-    <control>a_rest4</control>
-    <control>a_rest5</control>
-    <control>a_rest6</control>
-    <control>a_rest7</control>
-    <control>a_rest8</control>
+   <separator label="Type"/>
+    <control>a_type</control>
+    <vbox modeSensitive="a_type" mode="0">
+     <separator label="Envelope"/>
+      <control>a_point1</control>
+      <control>a_point2</control>
+      <control>a_point3</control>
+      <control>a_point4</control>
+      <control>a_point5</control>
+      <control>a_point6</control>
+      <control>a_point7</control>
+      <control>a_point8</control>
+     <separator label="Rest Pose"/>
+      <control>a_rest1</control>
+      <control>a_rest2</control>
+      <control>a_rest3</control>
+      <control>a_rest4</control>
+      <control>a_rest5</control>
+      <control>a_rest6</control>
+      <control>a_rest7</control>
+      <control>a_rest8</control>
+    </vbox>
+    <vbox modeSensitive="a_type" mode="1">
+     <separator label="Influence"/>
+      <control>a_curve_width</control>
+      <control>a_curve_falloff</control>
+     <separator label="Curve"/>
+      <control>a_curve_point1</control>
+      <control>a_curve_out1</control>
+      <control>a_curve_in2</control>
+      <control>a_curve_point2</control>
+      <control>a_curve_out2</control>
+      <control>a_curve_in3</control>
+      <control>a_curve_point3</control>
+     <separator label="Rest Pose"/>
+      <control>a_curve_restPoint1</control>
+      <control>a_curve_restOut1</control>
+      <control>a_curve_restIn2</control>
+      <control>a_curve_restPoint2</control>
+      <control>a_curve_restOut2</control>
+      <control>a_curve_restIn3</control>
+      <control>a_curve_restPoint3</control>
+    </vbox>
+    <vbox modeSensitive="a_type" mode="2">
+     <separator label="Rest Rectangle"/>
+      <control>a_freeForm_center</control>
+      <control>a_freeForm_width</control>
+      <control>a_freeForm_height</control>
+     <separator label="Lattice (bottom row first)"/>
+      <control>a_freeForm_point1</control>
+      <control>a_freeForm_point2</control>
+      <control>a_freeForm_point3</control>
+      <control>a_freeForm_point4</control>
+      <control>a_freeForm_point5</control>
+      <control>a_freeForm_point6</control>
+      <control>a_freeForm_point7</control>
+      <control>a_freeForm_point8</control>
+      <control>a_freeForm_point9</control>
+    </vbox>
+    <vbox modeSensitive="a_type" mode="3">
+     <separator label="Region of Influence"/>
+      <control>a_bone_inner</control>
+      <control>a_bone_outer</control>
+     <separator label="Joints"/>
+      <control>a_bone_point1</control>
+      <control>a_bone_point2</control>
+      <control>a_bone_point3</control>
+     <separator label="Rest Pose"/>
+      <control>a_bone_rest1</control>
+      <control>a_bone_rest2</control>
+      <control>a_bone_rest3</control>
+    </vbox>
+    <vbox modeSensitive="a_type" mode="4">
+     <separator label="Weights"/>
+      <control>a_shapeAware_resolution</control>
+      <control>a_shapeAware_margin</control>
+      <control>a_shapeAware_stretch</control>
+     <separator label="Pin 1"/>
+      <control>a_shapeAware_pinOn1</control>
+      <control>a_shapeAware_pin1</control>
+      <control>a_shapeAware_pinRest1</control>
+      <control>a_shapeAware_pinAngle1</control>
+      <control>a_shapeAware_pinScale1</control>
+     <separator label="Pin 2"/>
+      <control>a_shapeAware_pinOn2</control>
+      <control>a_shapeAware_pin2</control>
+      <control>a_shapeAware_pinRest2</control>
+      <control>a_shapeAware_pinAngle2</control>
+      <control>a_shapeAware_pinScale2</control>
+     <separator label="Bone"/>
+      <control>a_shapeAware_boneOn1</control>
+      <control>a_shapeAware_boneHead1</control>
+      <control>a_shapeAware_boneTail1</control>
+      <control>a_shapeAware_boneRestHead1</control>
+      <control>a_shapeAware_boneRestTail1</control>
+     <separator label="Cage"/>
+      <control>a_shapeAware_cageOn</control>
+      <control>a_shapeAware_cage1</control>
+      <control>a_shapeAware_cage2</control>
+      <control>a_shapeAware_cage3</control>
+      <control>a_shapeAware_cage4</control>
+      <control>a_shapeAware_cageRest1</control>
+      <control>a_shapeAware_cageRest2</control>
+      <control>a_shapeAware_cageRest3</control>
+      <control>a_shapeAware_cageRest4</control>
+    </vbox>
   </page>
   <page name="Layer B">
    <separator label="Blend"/>
@@ -32,24 +120,112 @@
     <control>b_center</control>
     <control>b_inner</control>
     <control>b_outer</control>
-   <separator label="Envelope"/>
-    <control>b_point1</control>
-    <control>b_point2</control>
-    <control>b_point3</control>
-    <control>b_point4</control>
-    <control>b_point5</control>
-    <control>b_point6</control>
-    <control>b_point7</control>
-    <control>b_point8</control>
-   <separator label="Rest Pose"/>
-    <control>b_rest1</control>
-    <control>b_rest2</control>
-    <control>b_rest3</control>
-    <control>b_rest4</control>
-    <control>b_rest5</control>
-    <control>b_rest6</control>
-    <control>b_rest7</control>
-    <control>b_rest8</control>
+   <separator label="Type"/>
+    <control>b_type</control>
+    <vbox modeSensitive="b_type" mode="0">
+     <separator label="Envelope"/>
+      <control>b_point1</control>
+      <control>b_point2</control>
+      <control>b_point3</control>
+      <control>b_point4</control>
+      <control>b_point5</control>
+      <control>b_point6</control>
+      <control>b_point7</control>
+      <control>b_point8</control>
+     <separator label="Rest Pose"/>
+      <control>b_rest1</control>
+      <control>b_rest2</control>
+      <control>b_rest3</control>
+      <control>b_rest4</control>
+      <control>b_rest5</control>
+      <control>b_rest6</control>
+      <control>b_rest7</control>
+      <control>b_rest8</control>
+    </vbox>
+    <vbox modeSensitive="b_type" mode="1">
+     <separator label="Influence"/>
+      <control>b_curve_width</control>
+      <control>b_curve_falloff</control>
+     <separator label="Curve"/>
+      <control>b_curve_point1</control>
+      <control>b_curve_out1</control>
+      <control>b_curve_in2</control>
+      <control>b_curve_point2</control>
+      <control>b_curve_out2</control>
+      <control>b_curve_in3</control>
+      <control>b_curve_point3</control>
+     <separator label="Rest Pose"/>
+      <control>b_curve_restPoint1</control>
+      <control>b_curve_restOut1</control>
+      <control>b_curve_restIn2</control>
+      <control>b_curve_restPoint2</control>
+      <control>b_curve_restOut2</control>
+      <control>b_curve_restIn3</control>
+      <control>b_curve_restPoint3</control>
+    </vbox>
+    <vbox modeSensitive="b_type" mode="2">
+     <separator label="Rest Rectangle"/>
+      <control>b_freeForm_center</control>
+      <control>b_freeForm_width</control>
+      <control>b_freeForm_height</control>
+     <separator label="Lattice (bottom row first)"/>
+      <control>b_freeForm_point1</control>
+      <control>b_freeForm_point2</control>
+      <control>b_freeForm_point3</control>
+      <control>b_freeForm_point4</control>
+      <control>b_freeForm_point5</control>
+      <control>b_freeForm_point6</control>
+      <control>b_freeForm_point7</control>
+      <control>b_freeForm_point8</control>
+      <control>b_freeForm_point9</control>
+    </vbox>
+    <vbox modeSensitive="b_type" mode="3">
+     <separator label="Region of Influence"/>
+      <control>b_bone_inner</control>
+      <control>b_bone_outer</control>
+     <separator label="Joints"/>
+      <control>b_bone_point1</control>
+      <control>b_bone_point2</control>
+      <control>b_bone_point3</control>
+     <separator label="Rest Pose"/>
+      <control>b_bone_rest1</control>
+      <control>b_bone_rest2</control>
+      <control>b_bone_rest3</control>
+    </vbox>
+    <vbox modeSensitive="b_type" mode="4">
+     <separator label="Weights"/>
+      <control>b_shapeAware_resolution</control>
+      <control>b_shapeAware_margin</control>
+      <control>b_shapeAware_stretch</control>
+     <separator label="Pin 1"/>
+      <control>b_shapeAware_pinOn1</control>
+      <control>b_shapeAware_pin1</control>
+      <control>b_shapeAware_pinRest1</control>
+      <control>b_shapeAware_pinAngle1</control>
+      <control>b_shapeAware_pinScale1</control>
+     <separator label="Pin 2"/>
+      <control>b_shapeAware_pinOn2</control>
+      <control>b_shapeAware_pin2</control>
+      <control>b_shapeAware_pinRest2</control>
+      <control>b_shapeAware_pinAngle2</control>
+      <control>b_shapeAware_pinScale2</control>
+     <separator label="Bone"/>
+      <control>b_shapeAware_boneOn1</control>
+      <control>b_shapeAware_boneHead1</control>
+      <control>b_shapeAware_boneTail1</control>
+      <control>b_shapeAware_boneRestHead1</control>
+      <control>b_shapeAware_boneRestTail1</control>
+     <separator label="Cage"/>
+      <control>b_shapeAware_cageOn</control>
+      <control>b_shapeAware_cage1</control>
+      <control>b_shapeAware_cage2</control>
+      <control>b_shapeAware_cage3</control>
+      <control>b_shapeAware_cage4</control>
+      <control>b_shapeAware_cageRest1</control>
+      <control>b_shapeAware_cageRest2</control>
+      <control>b_shapeAware_cageRest3</control>
+      <control>b_shapeAware_cageRest4</control>
+    </vbox>
   </page>
   <page name="Layer C">
    <separator label="Blend"/>
@@ -58,23 +234,111 @@
     <control>c_center</control>
     <control>c_inner</control>
     <control>c_outer</control>
-   <separator label="Envelope"/>
-    <control>c_point1</control>
-    <control>c_point2</control>
-    <control>c_point3</control>
-    <control>c_point4</control>
-    <control>c_point5</control>
-    <control>c_point6</control>
-    <control>c_point7</control>
-    <control>c_point8</control>
-   <separator label="Rest Pose"/>
-    <control>c_rest1</control>
-    <control>c_rest2</control>
-    <control>c_rest3</control>
-    <control>c_rest4</control>
-    <control>c_rest5</control>
-    <control>c_rest6</control>
-    <control>c_rest7</control>
-    <control>c_rest8</control>
+   <separator label="Type"/>
+    <control>c_type</control>
+    <vbox modeSensitive="c_type" mode="0">
+     <separator label="Envelope"/>
+      <control>c_point1</control>
+      <control>c_point2</control>
+      <control>c_point3</control>
+      <control>c_point4</control>
+      <control>c_point5</control>
+      <control>c_point6</control>
+      <control>c_point7</control>
+      <control>c_point8</control>
+     <separator label="Rest Pose"/>
+      <control>c_rest1</control>
+      <control>c_rest2</control>
+      <control>c_rest3</control>
+      <control>c_rest4</control>
+      <control>c_rest5</control>
+      <control>c_rest6</control>
+      <control>c_rest7</control>
+      <control>c_rest8</control>
+    </vbox>
+    <vbox modeSensitive="c_type" mode="1">
+     <separator label="Influence"/>
+      <control>c_curve_width</control>
+      <control>c_curve_falloff</control>
+     <separator label="Curve"/>
+      <control>c_curve_point1</control>
+      <control>c_curve_out1</control>
+      <control>c_curve_in2</control>
+      <control>c_curve_point2</control>
+      <control>c_curve_out2</control>
+      <control>c_curve_in3</control>
+      <control>c_curve_point3</control>
+     <separator label="Rest Pose"/>
+      <control>c_curve_restPoint1</control>
+      <control>c_curve_restOut1</control>
+      <control>c_curve_restIn2</control>
+      <control>c_curve_restPoint2</control>
+      <control>c_curve_restOut2</control>
+      <control>c_curve_restIn3</control>
+      <control>c_curve_restPoint3</control>
+    </vbox>
+    <vbox modeSensitive="c_type" mode="2">
+     <separator label="Rest Rectangle"/>
+      <control>c_freeForm_center</control>
+      <control>c_freeForm_width</control>
+      <control>c_freeForm_height</control>
+     <separator label="Lattice (bottom row first)"/>
+      <control>c_freeForm_point1</control>
+      <control>c_freeForm_point2</control>
+      <control>c_freeForm_point3</control>
+      <control>c_freeForm_point4</control>
+      <control>c_freeForm_point5</control>
+      <control>c_freeForm_point6</control>
+      <control>c_freeForm_point7</control>
+      <control>c_freeForm_point8</control>
+      <control>c_freeForm_point9</control>
+    </vbox>
+    <vbox modeSensitive="c_type" mode="3">
+     <separator label="Region of Influence"/>
+      <control>c_bone_inner</control>
+      <control>c_bone_outer</control>
+     <separator label="Joints"/>
+      <control>c_bone_point1</control>
+      <control>c_bone_point2</control>
+      <control>c_bone_point3</control>
+     <separator label="Rest Pose"/>
+      <control>c_bone_rest1</control>
+      <control>c_bone_rest2</control>
+      <control>c_bone_rest3</control>
+    </vbox>
+    <vbox modeSensitive="c_type" mode="4">
+     <separator label="Weights"/>
+      <control>c_shapeAware_resolution</control>
+      <control>c_shapeAware_margin</control>
+      <control>c_shapeAware_stretch</control>
+     <separator label="Pin 1"/>
+      <control>c_shapeAware_pinOn1</control>
+      <control>c_shapeAware_pin1</control>
+      <control>c_shapeAware_pinRest1</control>
+      <control>c_shapeAware_pinAngle1</control>
+      <control>c_shapeAware_pinScale1</control>
+     <separator label="Pin 2"/>
+      <control>c_shapeAware_pinOn2</control>
+      <control>c_shapeAware_pin2</control>
+      <control>c_shapeAware_pinRest2</control>
+      <control>c_shapeAware_pinAngle2</control>
+      <control>c_shapeAware_pinScale2</control>
+     <separator label="Bone"/>
+      <control>c_shapeAware_boneOn1</control>
+      <control>c_shapeAware_boneHead1</control>
+      <control>c_shapeAware_boneTail1</control>
+      <control>c_shapeAware_boneRestHead1</control>
+      <control>c_shapeAware_boneRestTail1</control>
+     <separator label="Cage"/>
+      <control>c_shapeAware_cageOn</control>
+      <control>c_shapeAware_cage1</control>
+      <control>c_shapeAware_cage2</control>
+      <control>c_shapeAware_cage3</control>
+      <control>c_shapeAware_cage4</control>
+      <control>c_shapeAware_cageRest1</control>
+      <control>c_shapeAware_cageRest2</control>
+      <control>c_shapeAware_cageRest3</control>
+      <control>c_shapeAware_cageRest4</control>
+    </vbox>
   </page>
 </fxlayout>

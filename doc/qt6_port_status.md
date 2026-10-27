@@ -9,10 +9,11 @@ configures with that option and runs `ninja -k 0`. It is expected to fail
 until the port is done; its job summary and uploaded `build.log` give the
 error counts.
 
-Nothing was built or run when this was written. The audit below was done by
-reading and grepping `toonz/sources`, so every fix still needs one run of the
-Qt 6 workflow (and of the normal Qt 5 workflows, which must not change).
-Third-party code is not touched.
+**Status: the whole tree builds and links with Qt 6 on Linux** (Ubuntu 24.04,
+Qt 6.4, the Qt 6 job of `.github/workflows/tests_linux.yml` on the `tier12`
+branch). The Qt 5 build and its 25 tests are unchanged. The fixes came from a
+static audit first, then from about ten CI rounds; the rounds are listed under
+"Fixed from the CI build" below.
 
 ## How the code stays valid for both versions
 
@@ -120,30 +121,34 @@ expected before they are changed.
   6 branch (`QMediaDevices`, `QCameraDevice`) that was written from the
   documentation only.
 
-## What remains unknown (read from the Qt 6 CI run)
+## Fixed from the CI build
 
-A static audit cannot find these, so they come from the workflow's
-`build.log`:
+Each round fixed every distinct error the Qt 6 job reported:
 
-- Compile errors that need the Qt 6 headers: overload ambiguities (an `int`
-  and a `qsizetype` in the same call, `QString::arg`, `qMin` of mixed types
-  in code that was not searched by text, such as multi-line calls),
-  `QVariant` conversions, deleted copy constructors of Qt types, implicit
-  conversions Qt 6 made explicit.
-- Brace initialization narrowing a `qsizetype` into an `int` (a hard error,
-  only found by the compiler).
-- Link errors: a library missing a Qt 6 module (`Qt6::OpenGL`,
-  `Qt6::Multimedia`, `Qt6::Core5Compat`, `Qt6::UiTools`, `Qt6::Qml`) because
-  the classes moved between modules.
-- `moc` problems with the Qt 6 version of the macros (`Q_ENUM`, signals with
-  new overloads).
-- Runtime behaviour: string-based `connect()` calls whose signal changed
-  (they compile, and fail with a console warning), high DPI scaling,
-  tablet input, the stop motion camera, `QOpenGLWidget` context sharing and
-  the offscreen render context that replaces `QGLPixelBuffer`.
-- Whether the unit tests (`BUILD_TESTS`) pass.
+- tnzcore: `QStringList` forward declaration (a typedef in Qt 6), the
+  `QMultiMap` iterators in `tthread.cpp`.
+- toonzlib and stdfx: the audio scrub player (`QMediaDevices`,
+  `QAudioDevice`, `QAudioSink`), the movie renderer's `QMutexLocker` (a
+  template), `QJSEngine::throwError` with a string literal (now ambiguous),
+  `QList` comparison needing a `const operator==`, `QAssociativeIterable`,
+  `<climits>` for the `*_MAX` constants, `QChar` against `QLatin1Char`.
+- toonzqt: `QActionGroup` includes (a QtGui class), `contentsMargins()`
+  instead of `margin()`, `keySequenceOf()` in `qtcompat.h` (no `operator+`
+  between a key and its modifiers), explicit `QFileInfo` and `QChar`
+  conversions.
+- toonz: float audio formats (`isFloatAudio`), `TThread::MutexLocker`, the
+  Ctrl+Alt key sequence, `AdjustToMinimumContentsLengthWithIcon`,
+  `QStandardPaths`, the tracker error string; and the unused
+  `fileinfopopup.h`, whose missing constructor only Qt 6's moc refers to.
 
-Next steps: run the Qt 6 workflow, fix the most frequent errors first (the
-summary lists them), repeat until it builds, then add a Qt 6 job next to the
-Qt 5 one that runs on pull requests, and make Qt 6 the default only when the
-tests pass and the Windows tablet and full-screen behaviour has been tried.
+## What remains
+
+- **The Qt 6 build has not been run.** Runtime behaviour is untested:
+  string-based `connect()` calls whose signal changed (they compile, and fail
+  with a console warning), high DPI scaling, tablet input, the stop motion
+  camera, `QOpenGLWidget` context sharing and the offscreen render context.
+- The unit tests run with Qt 5 only. Running them with Qt 6 is the next step.
+- Windows and macOS have not been built with Qt 6; the Windows tablet and
+  full-screen code is Qt 5 only (see "Not ported").
+- Qt 5 stays the default. Make Qt 6 the default only after the tests pass
+  with it and the application has been tried on each platform.

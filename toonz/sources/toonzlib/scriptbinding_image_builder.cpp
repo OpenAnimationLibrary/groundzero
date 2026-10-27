@@ -87,13 +87,14 @@ QJSValue ImageBuilder::ctor(QJSEngine *engine, const QJSValueList &args) {
   ImageBuilder *imageBuilder = 0;
   if (args.size() == 2 || args.size() == 3) {
     if (!args[0].isNumber() || !args[1].isNumber()) {
-      engine->throwError("Bad arguments: expected width,height[,type]");
+      engine->throwError(
+          QString("Bad arguments: expected width,height[,type]"));
       return QJSValue();
     }
     int width  = (int)(args[0].toNumber());
     int height = (int)(args[1].toNumber());
     if (width <= 0 || height <= 0) {
-      engine->throwError("Bad size");
+      engine->throwError(QString("Bad size"));
       return QJSValue();
     }
     QString type;
@@ -117,7 +118,8 @@ QJSValue ImageBuilder::ctor(QJSEngine *engine, const QJSValueList &args) {
     }
   } else {
     if (args.size() != 0) {
-      engine->throwError("Bad argument count. expected: width,height[,type]");
+      engine->throwError(
+          QString("Bad argument count. expected: width,height[,type]"));
       return QJSValue();
     }
     imageBuilder = new ImageBuilder();

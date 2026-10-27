@@ -76,7 +76,7 @@ void getFFmpegAudioSupported(QStringList &exts) {
 
 bool findFFmpeg(QString dir) {
   // Relative path
-  if (dir.isEmpty() || dir.at(0) == ".") {
+  if (dir.isEmpty() || dir.at(0) == QLatin1Char('.')) {
     dir = QCoreApplication::applicationDirPath() + "/" + dir;
   }
 
@@ -375,7 +375,7 @@ bool findRhubarb(QString dir) {
   // Rhubarb executable
 
   // Relative path
-  if (dir.isEmpty() || dir.at(0) == ".") {
+  if (dir.isEmpty() || dir.at(0) == QLatin1Char('.')) {
     dir = QCoreApplication::applicationDirPath() + "/" + dir;
   }
 

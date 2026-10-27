@@ -3,10 +3,11 @@
 #include "tparamset.h"
 #include "tparamuiconcept.h"
 #include "deformerfxcommon.h"
+#include "deformerparams.h"
 
 #include "toonz/tdeformer.h"
-#include "toonz/tfreeformdeformer.h"
 
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -36,63 +37,34 @@
 // non-invertible there, which gives smeared pixels.
 //
 // The warp is made on the rendered Source raster, so vector art is resampled
-// rather than deformed as strokes.
+// rather than deformed as strokes. The parameters and the deformer are made by
+// deformerfx::FreeFormParams, which a Free-Form layer of the Deformer Stack Fx
+// shares.
 //==============================================================================
 
 namespace {
 
 // Cells of the lattice along each side
-enum { CELLS = 3, POINT_COUNT = (CELLS + 1) * (CELLS + 1) };
-
-//! Returns the rest position, in the fx's space, of the control point (i, j) of
-//! the lattice over the rect of the passed center and size.
-TPointD restPoint(const TPointD &center, double width, double height, int i,
-                  int j) {
-  return TPointD(center.x - 0.5 * width + width * i / CELLS,
-                 center.y - 0.5 * height + height * j / CELLS);
-}
+enum { CELLS = 3 };
 
 }  // namespace
 
 //==============================================================================
 
-class FreeFormDeformerFx final : public TStandardRasterFx {
+class FreeFormDeformerFx final : public TStandardRasterFx,
+                                 public TDeformerSource {
   FX_PLUGIN_DECLARATION(FreeFormDeformerFx)
 
   TRasterFxPort m_input;
-  TPointParamP m_center;  // Rest rectangle
-  TDoubleParamP m_width, m_height;
-  TPointParamP m_point[POINT_COUNT];  // The lattice, deformed
+  deformerfx::FreeFormParams m_lattice;
 
 public:
   FreeFormDeformerFx() {
     addInputPort("Source", m_input);
 
-    m_center = TPointParamP(TPointD(0.0, 0.0));
-    m_center->getX()->setMeasureName("fxLength");
-    m_center->getY()->setMeasureName("fxLength");
-    bindParam(this, "center", m_center);
-
-    m_width = TDoubleParamP(400.0);
-    m_width->setMeasureName("fxLength");
-    m_width->setValueRange(0.0, 1e6);
-    bindParam(this, "width", m_width);
-
-    m_height = TDoubleParamP(400.0);
-    m_height->setMeasureName("fxLength");
-    m_height->setValueRange(0.0, 1e6);
-    bindParam(this, "height", m_height);
-
-    // By default, the points are on the rest lattice
-    for (int j = 0; j <= CELLS; ++j)
-      for (int i = 0; i <= CELLS; ++i) {
-        int n = j * (CELLS + 1) + i;
-
-        m_point[n] = TPointParamP(restPoint(TPointD(), 400.0, 400.0, i, j));
-        m_point[n]->getX()->setMeasureName("fxLength");
-        m_point[n]->getY()->setMeasureName("fxLength");
-        bindParam(this, "point" + std::to_string(n + 1), m_point[n]);
-      }
+    // By default, the rest rectangle is a square of side 400 around the
+    // origin, and the points are on the rest lattice
+    m_lattice.bind(this, "", CELLS, 400.0);
 
     enableComputeInFloat(true);
   }
@@ -118,55 +90,20 @@ public:
   void getParamUIs(TParamUIConcept *&concepts, int &length) override;
 
 private:
-  // Returns the deformer at frame, in the space that aff maps the fx's space
-  // to, and its rest rectangle's corners in that space.
-  TFreeFormDeformer getDeformer(double frame, const TAffine &aff,
-                                std::vector<TPointD> *restCorners = 0) const;
-
-  // Returns whether the Source passes through unchanged at frame: the points
-  // are on the rest lattice, or the rest rectangle is degenerate.
-  bool isPassThrough(double frame) const;
-
   // Returns the pixel-aligned rect of the Source needed to render rect,
   // in the space of ri; empty when nothing of the Source shows in rect.
   TRectD getSourceRect(double frame, const TRectD &rect,
                        const TRenderSettings &ri);
-};
 
-//-------------------------------------------------------------------
-
-TFreeFormDeformer FreeFormDeformerFx::getDeformer(
-    double frame, const TAffine &aff, std::vector<TPointD> *restCorners) const {
-  TPointD center(m_center->getValue(frame));
-  double width = m_width->getValue(frame), height = m_height->getValue(frame);
-
-  std::vector<TPointD> points(POINT_COUNT);
-  for (int n = 0; n < POINT_COUNT; ++n) points[n] = m_point[n]->getValue(frame);
-
-  TRectD rect(center.x - 0.5 * width, center.y - 0.5 * height,
-              center.x + 0.5 * width, center.y + 0.5 * height);
-
-  // The rest lattice and the points are in the fx's space: the deformer maps
-  // them to the render's space, which differs from it by a similarity (see
-  // canHandle()).
-  TFreeFormDeformer deformer(rect, CELLS, CELLS, points, aff);
-
-  if (restCorners) {
-    restCorners->clear();
-    restCorners->push_back(aff * TPointD(rect.x0, rect.y0));
-    restCorners->push_back(aff * TPointD(rect.x1, rect.y0));
-    restCorners->push_back(aff * TPointD(rect.x1, rect.y1));
-    restCorners->push_back(aff * TPointD(rect.x0, rect.y1));
+public:
+  // The deformer of the lattice at frame, for Bake Deformers into Vector
+  // Level (see TDeformerSource)
+  std::shared_ptr<const TDeformer> makeDeformer(
+      double frame, const TAffine &placement) const override {
+    std::vector<TPointD> rest;
+    return m_lattice.buildDeformer(frame, placement, rest);
   }
-  return deformer;
-}
-
-//-------------------------------------------------------------------
-
-bool FreeFormDeformerFx::isPassThrough(double frame) const {
-  TFreeFormDeformer deformer(getDeformer(frame, TAffine()));
-  return !deformer.isValid() || deformer.isIdentity(1e-6);
-}
+};
 
 //-------------------------------------------------------------------
 
@@ -178,11 +115,14 @@ bool FreeFormDeformerFx::doGetBBox(double frame, TRectD &bBox,
   }
 
   bool ret = m_input->doGetBBox(frame, bBox, info);
-  if (isPassThrough(frame)) return ret;
+
+  std::vector<TPointD> rest;
+  std::shared_ptr<const TDeformer> deformer =
+      m_lattice.buildDeformer(frame, TAffine(), rest);
+  if (!deformer) return ret;
 
   // An infinite bbox stays infinite
-  TFreeFormDeformer deformer(getDeformer(frame, TAffine()));
-  bBox = deformer.deformedBounds(bBox, frame);
+  bBox = deformer->deformedBounds(bBox, frame);
   return ret;
 }
 
@@ -191,14 +131,15 @@ bool FreeFormDeformerFx::doGetBBox(double frame, TRectD &bBox,
 TRectD FreeFormDeformerFx::getSourceRect(double frame, const TRectD &rect,
                                          const TRenderSettings &ri) {
   if (rect.isEmpty()) return TRectD();
-  if (isPassThrough(frame)) return rect;
 
   std::vector<TPointD> rest;
-  TFreeFormDeformer deformer(getDeformer(frame, ri.m_affine, &rest));
+  std::shared_ptr<const TDeformer> deformer =
+      m_lattice.buildDeformer(frame, ri.m_affine, rest);
+  if (!deformer) return rect;
 
   TRectD inBBox;
   m_input->getBBox(frame, inBBox, ri);
-  return deformerfx::getSourceRect(deformer, rest, frame, rect, inBBox);
+  return deformerfx::getSourceRect(*deformer, rest, frame, rect, inBBox);
 }
 
 //-------------------------------------------------------------------
@@ -227,7 +168,12 @@ void FreeFormDeformerFx::doCompute(TTile &tile, double frame,
                                    const TRenderSettings &ri) {
   if (!m_input.isConnected()) return;
 
-  if (isPassThrough(frame)) {
+  // The deformer is built in the render's space, which differs from the fx's
+  // by a similarity (see canHandle()).
+  std::vector<TPointD> rest;
+  std::shared_ptr<const TDeformer> deformer =
+      m_lattice.buildDeformer(frame, ri.m_affine, rest);
+  if (!deformer) {
     m_input->compute(tile, frame, ri);
     return;
   }
@@ -235,31 +181,19 @@ void FreeFormDeformerFx::doCompute(TTile &tile, double frame,
   TRasterP tileRas(tile.getRaster());
   TRectD tileRect(tile.m_pos, TDimensionD(tileRas->getLx(), tileRas->getLy()));
 
-  TRectD inRect = getSourceRect(frame, tileRect, ri);
+  TRectD inBBox;
+  m_input->getBBox(frame, inBBox, ri);
+  TRectD inRect =
+      deformerfx::getSourceRect(*deformer, rest, frame, tileRect, inBBox);
 
-  TFreeFormDeformer deformer(getDeformer(frame, ri.m_affine));
-  deformerfx::warpSourceTile(m_input, deformer, inRect, tile, frame, ri);
+  deformerfx::warpSourceTile(m_input, *deformer, inRect, tile, frame, ri);
 }
 
 //-------------------------------------------------------------------
 
 void FreeFormDeformerFx::getParamUIs(TParamUIConcept *&concepts, int &length) {
-  concepts = new TParamUIConcept[length = 1 + POINT_COUNT];
-
-  // The rest rectangle comes first: the viewer picks the gadget drawn last, so
-  // the points are dragged where they lie on its sides.
-  concepts[0].m_type  = TParamUIConcept::RECT;
-  concepts[0].m_label = "Rest";
-  concepts[0].m_params.push_back(m_width);
-  concepts[0].m_params.push_back(m_height);
-  concepts[0].m_params.push_back(m_center);
-
-  for (int n = 0; n < POINT_COUNT; ++n) {
-    TParamUIConcept &point = concepts[1 + n];
-    point.m_type           = TParamUIConcept::POINT;
-    point.m_label          = "Point " + std::to_string(n + 1);
-    point.m_params.push_back(m_point[n]);
-  }
+  concepts = new TParamUIConcept[m_lattice.conceptCount()];
+  length   = m_lattice.getParamUIs(concepts, "");
 }
 
 //==============================================================================

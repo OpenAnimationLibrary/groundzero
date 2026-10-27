@@ -106,7 +106,7 @@
     <separator/>
     <command>MI_AdjustLevels</command>
     <command>MI_AdjustThickness</command>
-    <command>MI_BakeEnvelope</command>
+    <command>MI_BakeDeformers</command>
     <command>MI_CreateColourArt</command>
     <command>MI_Antialias</command>
     <command>MI_Binarize</command>

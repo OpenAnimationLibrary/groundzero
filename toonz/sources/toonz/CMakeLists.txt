@@ -43,7 +43,6 @@ set(MOC_HEADERS
     filebrowser.h
     filebrowsermodel.h
     filebrowserpopup.h
-    fileinfopopup.h
     filmstrip.h
     flipbook.h
     formatsettingspopups.h
@@ -447,7 +446,7 @@ set(SOURCES
     exportlayeredpsdpopup.cpp
     spineexport.cpp
     abrimport.cpp
-    envelopebake.cpp
+    deformerbake.cpp
 # Tracker file
     dummyprocessor.cpp
     metnum.cpp
@@ -838,4 +837,13 @@ elseif(BUILD_ENV_UNIXLIKE AND NOT BUILD_TARGET_WIN)
         DESTINATION share/opentoonz
     )
 
+endif()
+
+# Optional regression target for the Spine export math (spineexport.h,
+# header-only helpers).
+option(BUILD_SPINE_EXPORT_TESTS "Build the Spine export math test" ${BUILD_TESTS})
+if(BUILD_SPINE_EXPORT_TESTS)
+    add_executable(spineexport_test tests/spineexport_test.cpp)
+    target_include_directories(spineexport_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    add_test(NAME spineexport COMMAND spineexport_test)
 endif()

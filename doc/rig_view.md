@@ -12,8 +12,9 @@ compatibility"); everything else reads the scene.
 ## Use
 
 The bottom toolbar of the Stage Schematic has a **Rig View** toggle (left of
-the New Pegbar button). When it is on, a **Filter nodes** field appears next to
-it, and the nodes get small badges and port rows under them.
+the New Pegbar button). When it is on, a **Filter nodes** and a **Filter
+ports** field appear next to it, and the nodes get small badges and port rows
+under them.
 
 ### Badges (column nodes)
 
@@ -71,8 +72,24 @@ The filter hides the nodes (and their links) that do not match the text,
 ignoring the case; an empty field shows everything. A node matches by its
 name, or by the content of its badges and rows: the deformer labels, the
 names of its offset layers (not their "(off)" mark), the names of the
-controllers, and the names of its published channels. It is the "port
-filtering" of master plan C2 in as far as the stage nodes are concerned.
+controllers, and the names of its published channels.
+
+### Port filter
+
+The **Filter ports** field is the "port filtering" of master plan C2 on the
+published channel rows, and looks like the field of the FX Schematic (see
+"Port filter in the FX Schematic"). It hides the published channel rows whose
+name does not contain the text, ignoring the case; the nodes, their links and
+their badges always stay visible. The rows that remain are stacked again under
+the badges, so the hidden ones leave no gap (the rows hang under the node and
+are not part of its size, so the nodes keep their size and place). An empty
+field shows every row.
+
+The two filters work together: the node filter decides which nodes are shown,
+the port filter which rows of the shown nodes. Both are in memory only, are
+kept while the Rig view is off, and are applied again whenever the schematic
+is rebuilt. The code is `StageSchematicScene::applyRigPortFilter`
+(`toonzqt/stageschematicscene.cpp`).
 
 ## File format and compatibility
 
@@ -100,7 +117,7 @@ Scenes that do not use published channels are saved byte for byte as before.
 loading with "unexpected tag", as they do for offset layers. The ports are
 carried by cloning, duplicating and copying objects, by the sub-xsheet
 commands, and by undo, like the offset layers. The Rig view itself (toggle,
-filter) is not saved.
+filters) is not saved.
 
 The code is in `toonzlib/tstageobject.cpp` (`TStageObject::PublishedChannel`),
 `toonzlib/tstageobjectcmd.cpp` (`publishChannel`, `unpublishChannel`) and
@@ -124,13 +141,15 @@ The code is in `toonzlib/tstageobject.cpp` (`TStageObject::PublishedChannel`),
 - A binding made with an expression that is not in a key of the curve, or with
   an expression that builds the reference otherwise (`peg3 .rot`, a different
   channel), is not found.
-- The Rig view filter does not apply to the FX Schematic; it has its own port
+- The Rig view filters do not apply to the FX Schematic; it has its own port
   filter (see below).
+- The port filter matches the name of the published channel only, not the
+  channel it stands for (the "Rotation" of the tool tip) or its value.
 
 ## Port filter in the FX Schematic
 
-The toolbar of the FX Schematic has a **Filter ports** field, next to the
-Stage Schematic's Rig view filter. The text is matched without regard to case:
+The toolbar of the FX Schematic has a **Filter ports** field, like the one of
+the Stage Schematic's Rig view. The text is matched without regard to case:
 
 - a node stays visible when its name or the name of one of its input ports
   contains the text;

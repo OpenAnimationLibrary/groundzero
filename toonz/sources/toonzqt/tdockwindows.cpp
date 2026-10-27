@@ -244,7 +244,7 @@ int TDockWidget::isResizeGrip(QPoint p) {
 
   int marginType = 0;
   QRect geom(QPoint(0, 0), QPoint(width(), height()));
-  int margin = layout()->margin();
+  int margin = layout()->contentsMargins().left();
   QRect contGeom(geom.adjusted(margin, margin, -margin, -margin));
 
   if (geom.contains(p) && !contGeom.contains(p)) {

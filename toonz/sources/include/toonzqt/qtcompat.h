@@ -16,6 +16,7 @@
 #include <QTouchDevice>
 #endif
 #include <QAction>
+#include <QKeySequence>
 #include <QMenu>
 #include <QTabletEvent>
 
@@ -69,6 +70,16 @@ inline QMenu *menuOfAction(const QAction *action) {
   return action->menu<QMenu *>();
 #else
   return action->menu();
+#endif
+}
+
+//! The key sequence of a key event's key and modifiers: Qt 6 has no
+//! operator+ between a key and the modifiers.
+inline QKeySequence keySequenceOf(int key, Qt::KeyboardModifiers modifiers) {
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+  return QKeySequence(QKeyCombination(modifiers, Qt::Key(key)));
+#else
+  return QKeySequence(key + modifiers);
 #endif
 }
 

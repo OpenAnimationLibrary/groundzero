@@ -7,6 +7,7 @@
 #include "tgeometry.h"
 #include "traster.h"
 
+#include <memory>
 #include <vector>
 
 class TVectorImage;
@@ -76,6 +77,29 @@ public:
   void warpRaster(const TRasterP &outRas, const TPointD &outPos,
                   const TRasterP &inRas, const TPointD &inPos,
                   double frame) const;
+};
+
+//================================================================================================
+//
+// TDeformerSource
+//
+//================================================================================================
+
+//! Implemented by the fxs that deform their Source with a TDeformer (the
+//! Envelope, Envelope Plus, Curve, Free-Form, Bone, Shape Aware and Deformer
+//! Stack fxs), so that the code that bakes their deformation into the strokes
+//! of a vector level can build it without knowing the fxs' classes.
+class DVAPI TDeformerSource {
+public:
+  virtual ~TDeformerSource();
+
+  //! Returns the deformer that the fx applies at frame, built as the fx
+  //! builds it for a render whose affine is placement: placement maps the
+  //! fx's space (that of the Source column's drawings) to the deformer's
+  //! plane, and the identity gives the deformer in the fx's space. Returns
+  //! null when the fx leaves its Source unchanged at frame.
+  virtual std::shared_ptr<const TDeformer> makeDeformer(
+      double frame, const TAffine &placement) const = 0;
 };
 
 //================================================================================================

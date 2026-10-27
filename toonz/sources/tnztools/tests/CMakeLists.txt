@@ -34,3 +34,11 @@ add_test(NAME vectoralignment COMMAND vectoralignment_test)
 add_executable(tinbetweenmatch_test tinbetweenmatch_test.cpp)
 target_include_directories(tinbetweenmatch_test PRIVATE ../../include)
 add_test(NAME tinbetweenmatch COMMAND tinbetweenmatch_test)
+
+# artlayer.h needs TStroke, so only in the full build
+if(TARGET tnzcore)
+    add_executable(artlayer_test artlayer_test.cpp)
+    target_include_directories(artlayer_test PRIVATE ../../include)
+    target_link_libraries(artlayer_test PRIVATE tnzcore ${TEST_QT_LIBS})
+    add_test(NAME artlayer COMMAND artlayer_test)
+endif()

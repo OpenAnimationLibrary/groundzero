@@ -645,6 +645,9 @@ private:
   QAction *m_rigView         = nullptr;
   QAction *m_rigFilterAction = nullptr;
   QLineEdit *m_rigFilter     = nullptr;
+  // Port filter of the Rig view (published channel rows), and its action
+  QAction *m_rigPortFilterAction = nullptr;
+  QLineEdit *m_rigPortFilter     = nullptr;
   // Port filter of the FX Schematic
   QLineEdit *m_fxPortFilter = nullptr;
 

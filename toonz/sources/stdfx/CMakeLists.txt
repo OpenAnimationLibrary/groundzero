@@ -3,6 +3,7 @@ set(HEADERS
     ../include/stdfx/shaderinterface.h
     ../include/stdfx/shadingcontext.h
     deformerfxcommon.h
+    deformerparams.h
     gradients.h
     hsvutil.h
     offscreengl.h
@@ -396,6 +397,15 @@ if(BUILD_FXRENDER_TESTS)
     add_test(NAME fxrender
              COMMAND fxrender_test ${CMAKE_CURRENT_SOURCE_DIR}/tests/fxrender
                      ${CMAKE_CURRENT_BINARY_DIR}/fxrender-output)
+    set_tests_properties(fxrender PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endif()
+
+# Optional regression target for the pure helpers of the Light Shading FX
+# (lightshading.h, header-only).
+option(BUILD_LIGHTSHADING_TESTS "Build the Light Shading FX helper test" ${BUILD_TESTS})
+if(BUILD_LIGHTSHADING_TESTS)
+    add_executable(lightshading_test tests/lightshading_test.cpp)
+    add_test(NAME lightshading COMMAND lightshading_test)
 endif()
 
 # Optional regression target for multipart, tiled, and channel-mapped EXR AOVs.

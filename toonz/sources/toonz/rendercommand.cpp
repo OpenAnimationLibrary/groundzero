@@ -54,6 +54,7 @@
 #include <QObject>
 #include <QDesktopServices>
 #include <QUrl>
+#include <QStandardPaths>
 #include <QRegularExpression>  // Added to replace QRegExp
 
 //---------------------------------------------------------

@@ -3,7 +3,8 @@
 // of the deformer stack (TDeformerStack) built on it; and of the free-form
 // lattice deformer (TFreeFormDeformer); and of the curve deformer
 // (TCurveDeformer) and its Bezier chain; and of the bone deformer
-// (TBoneDeformer).
+// (TBoneDeformer); and of stacks of layers of the other types, as the
+// Deformer Stack Fx builds them.
 
 #include "toonz/tcurvedeformer.h"
 #include "toonz/tbonedeformer.h"
@@ -569,6 +570,8 @@ void testFreeFormStack() {
 //------------------------------------------------------------------
 // Curve deformer
 
+namespace {
+
 typedef TBezierChain::Anchor Anchor;
 
 // Anchors at x = -150, -50, 50 and 150, with handles a third of the way to the
@@ -764,6 +767,9 @@ void testCurveBend() {
 }  // namespace
 
 //------------------------------------------------------------------
+// Bone deformer
+
+namespace {
 
 // Joints of a horizontal chain of 2 bones, from -100 to 100
 std::vector<TPointD> chainJoints() {
@@ -1007,6 +1013,22 @@ void testBoneRoundTrip() {
 }  // namespace
 
 //------------------------------------------------------------------
+// Envelope with smooth edges (Envelope Deformer Plus)
+
+namespace {
+
+// The envelope deformer of the anchors with samplesPerEdge samples on each
+// edge of their closed spline, as the Envelope Deformer Plus builds it (1
+// gives the straight edges between the anchors).
+TEnvelopeDeformer makeEnvelope(const std::vector<TPointD> &rest,
+                               const std::vector<TPointD> &deformed,
+                               int samplesPerEdge) {
+  std::vector<TPointD> restSamples, deformedSamples;
+  TEnvelopeDeformer::sampleClosedSpline(rest, samplesPerEdge, restSamples);
+  TEnvelopeDeformer::sampleClosedSpline(deformed, samplesPerEdge,
+                                        deformedSamples);
+  return TEnvelopeDeformer(restSamples, deformedSamples);
+}
 
 //------------------------------------------------------------------
 
@@ -1113,6 +1135,8 @@ void testVectorImage() {
             "vector: the thickness changed");
   }
 }
+
+}  // namespace
 
 //------------------------------------------------------------------
 // Shape Aware deformer (TShapeAwareDeformer)
@@ -1402,6 +1426,92 @@ void testShapeAware() {
 
 }  // namespace
 
+//------------------------------------------------------------------
+// Layers of other types in a stack (the Deformer Stack Fx's Curve, Free-Form,
+// Bone and Shape-Aware layers)
+
+namespace {
+
+void testStackCurveAndBone() {
+  // At weight 1, a stack of a curve and a bone layer is the two deformers
+  // applied in order, both ways
+  auto curve = std::make_shared<TCurveDeformer>(
+      curveAnchors(0.0, TPointD()), curveAnchors(0.2, TPointD()), 40.0, 120.0);
+  auto bone = std::make_shared<TBoneDeformer>(
+      TBoneDeformer::makeChain(chainJoints(), bentJoints(30.0), 30.0, 80.0));
+  require(curve->isValid() && bone->isValid(),
+          "curve and bone stack: not valid");
+
+  TDeformerStack stack;
+  stack.setScale(300.0);
+  stack.addLayer(curve, TDeformerWeightMap::makeUniform(1.0));
+  stack.addLayer(bone, TDeformerWeightMap::makeUniform(1.0));
+  require(stack.getLayerCount() == 2, "curve and bone stack: wrong count");
+
+  std::vector<TPointD> points = samplePoints();
+  points.push_back(TPointD(-60.0, 10.0));
+  points.push_back(TPointD(70.0, -15.0));
+
+  bool moved = false;
+  for (const TPointD &p : points) {
+    TPointD expected = bone->deform(curve->deform(p, 0.0), 0.0);
+    require(isClose(stack.deform(p, 0.0), expected, 1e-9),
+            "curve and bone stack: wrong deform");
+    if (!isClose(expected, p, 1.0)) moved = true;
+
+    // The inverse is the layers' own inverses, from the last layer
+    TPointD mid, back, q;
+    bool layersOk =
+        bone->undeform(expected, 0.0, mid) && curve->undeform(mid, 0.0, back);
+    bool stackOk = stack.undeform(expected, 0.0, q);
+    require(stackOk == layersOk, "curve and bone stack: undeform differs");
+    require(!stackOk || isClose(q, back, 1e-9),
+            "curve and bone stack: wrong undeform");
+  }
+  require(moved, "curve and bone stack: nothing moved");
+}
+
+//------------------------------------------------------------------
+
+void testStackIdentityLayers() {
+  // Layers of every type on their rest pose leave points where they are, at
+  // any weight
+  TRectD rect(-120.0, -120.0, 120.0, 120.0);
+  std::vector<SaHandle> handles;
+  handles.push_back(
+      SaHandle::makePin(TPointD(-40.0, 30.0), TPointD(-40.0, 30.0)));
+  handles.push_back(
+      SaHandle::makeBone(TPointD(-60.0, -50.0), TPointD(20.0, -50.0),
+                         TPointD(-60.0, -50.0), TPointD(20.0, -50.0)));
+
+  TDeformerStack stack;
+  stack.setScale(300.0);
+  stack.addLayer(std::make_shared<TCurveDeformer>(curveAnchors(1.0, TPointD()),
+                                                  curveAnchors(1.0, TPointD()),
+                                                  40.0, 120.0),
+                 TDeformerWeightMap::makeUniform(1.0));
+  stack.addLayer(std::make_shared<TFreeFormDeformer>(
+                     rect, 2, 2, latticeMapped(rect, 2, 2, TAffine())),
+                 TDeformerWeightMap::makeUniform(0.5));
+  stack.addLayer(
+      std::make_shared<TBoneDeformer>(
+          TBoneDeformer::makeChain(chainJoints(), chainJoints(), 30.0, 80.0)),
+      TDeformerWeightMap::makeDistance(1.0, TPointD(0.0, 0.0), 50.0, 150.0));
+  stack.addLayer(std::make_shared<TShapeAwareDeformer>(handles),
+                 TDeformerWeightMap::makeUniform(1.0));
+  require(stack.getLayerCount() == 4, "identity layers: wrong count");
+
+  for (const TPointD &p : samplePoints()) {
+    TPointD q;
+    require(isClose(stack.deform(p, 0.0), p, 1e-5),
+            "identity layers: deform moved a point");
+    require(stack.undeform(p, 0.0, q) && isClose(q, p, 1e-4),
+            "identity layers: undeform moved a point");
+  }
+}
+
+}  // namespace
+
 int main() {
   try {
     testIdentity();
@@ -1435,6 +1545,8 @@ int main() {
     testSmoothBend();
     testVectorImage();
     testShapeAware();
+    testStackCurveAndBone();
+    testStackIdentityLayers();
   } catch (const std::exception &e) {
     std::cerr << "deformer_test failed: " << e.what() << std::endl;
     return 1;

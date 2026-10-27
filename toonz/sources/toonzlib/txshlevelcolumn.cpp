@@ -32,8 +32,15 @@ TFrameId qstringToFrameId(const QString &str) {
     return TFrameId::NO_FRAME;
   }
 
+  // Called for every cell of a loaded scene: compile the expression only when
+  // the frame id format (a preference) changes
+  thread_local QString cachedRegExpStr;
+  thread_local QRegularExpression rx;
   QString regExpStr = QString("^%1$").arg(TFilePath::fidRegExpStr());
-  QRegularExpression rx(regExpStr);
+  if (regExpStr != cachedRegExpStr) {
+    rx.setPattern(regExpStr);
+    cachedRegExpStr = regExpStr;
+  }
   QRegularExpressionMatch match = rx.match(str);
 
   if (!match.hasMatch()) {

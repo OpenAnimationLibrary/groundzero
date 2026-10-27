@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -63,7 +64,8 @@ TPointD defaultPoint(int slot, double size) {
 
 //==============================================================================
 
-class EnvelopeDeformerPlusFx final : public TStandardRasterFx {
+class EnvelopeDeformerPlusFx final : public TStandardRasterFx,
+                                     public TDeformerSource {
   FX_PLUGIN_DECLARATION(EnvelopeDeformerPlusFx)
 
   TRasterFxPort m_input;
@@ -133,6 +135,20 @@ private:
   // in the space of ri; empty when nothing of the Source shows in rect.
   TRectD getSourceRect(double frame, const TRectD &rect,
                        const TRenderSettings &ri);
+
+public:
+  // The deformer of the envelope at frame, for Bake Deformers into Vector
+  // Level (see TDeformerSource)
+  std::shared_ptr<const TDeformer> makeDeformer(
+      double frame, const TAffine &placement) const override {
+    std::vector<TPointD> rest, deformed;
+    getEnvelopes(frame, rest, deformed);
+    if (deformerfx::isPassThrough(rest, deformed)) return nullptr;
+
+    deformerfx::mapPoints(placement, rest);
+    deformerfx::mapPoints(placement, deformed);
+    return std::make_shared<TEnvelopeDeformer>(rest, deformed);
+  }
 };
 
 //-------------------------------------------------------------------

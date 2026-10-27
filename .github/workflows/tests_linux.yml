@@ -1,0 +1,522 @@
+name: Linux Tests
+
+# Builds with BUILD_TESTS=ON, runs every registered test with ctest, and builds
+# the Qt 6 port next to it. It never runs on pull requests, so pull requests
+# keep the single Linux Build check: it runs on pushes to the tier12 and
+# ci-tests/* branches, or by hand. Failures are reported as annotations of the
+# run (the log host is not reachable from every environment).
+#
+# On a push, FX render references that do not exist yet are taken from the
+# render test's output and committed back to the branch (D3 in
+# doc/master_plan.md). Differing references are never replaced: they fail the
+# test and are left for review.
+#
+# The Compat job builds the compat_regression tool from edition and from this
+# branch and fails if their outputs differ (doc/compat_regression.md).
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - tier12
+      - 'ci-tests/**'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  Tests:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 240
+    env:
+      QT_QPA_PLATFORM: offscreen
+      DEBIAN_FRONTEND: noninteractive
+    steps:
+    - uses: actions/checkout@v6
+
+    - name: Install libraries
+      run: |
+        # Processing the man-db trigger can take most of an hour on the hosted
+        # images
+        echo 'set man-db/auto-update false' | sudo debconf-communicate >/dev/null || true
+        sudo rm -f /var/lib/man-db/auto-update
+        # The runner's Azure mirror has stalled the downloads for an hour: use
+        # the main archive (the hosted images list it in apt-mirrors.txt)
+        sudo sed -i 's|http://azure.archive.ubuntu.com/ubuntu|http://archive.ubuntu.com/ubuntu|g' /etc/apt/apt-mirrors.txt /etc/apt/sources.list.d/*.sources /etc/apt/sources.list 2>/dev/null || true
+        sudo apt-get update
+        sudo apt-get install -y -o Acquire::http::Timeout=30 -o Acquire::Retries=5 build-essential cmake pkg-config ninja-build ccache libboost-all-dev qtbase5-dev qt5-qmake qtdeclarative5-dev qtdeclarative5-dev-tools qttools5-dev qttools5-dev-tools qtmultimedia5-dev qtwayland5 libqt5svg5-dev libqt5opengl5-dev libqt5multimedia5-plugins libqt5serialport5-dev libsuperlu-dev liblz4-dev libusb-1.0-0-dev liblzo2-dev libpng-dev libjpeg-dev libglew-dev freeglut3-dev libfreetype6-dev libjson-c-dev libmypaint-dev libopencv-dev libturbojpeg-dev libomp-dev ffmpeg
+
+    - name: Set up cache
+      run: mkdir -p /home/runner/.ccache
+
+    - uses: actions/cache@v5
+      with:
+        path: /home/runner/.ccache
+        key: ${{ runner.os }}-tests-${{ github.sha }}
+        restore-keys: |
+          ${{ runner.os }}-tests-
+          ${{ runner.os }}-gcc-
+
+    - name: Build libtiff
+      run: |
+        cd thirdparty/tiff-4.0.3
+        CFLAGS='-fPIC' CXXFLAGS='-fPIC' ./configure --disable-jbig
+        make -j $(nproc)
+
+    - name: Build
+      id: build
+      run: |
+        export CCACHE_DIR=/home/runner/.ccache
+        mkdir -p toonz/build
+        cd toonz/build
+        set -o pipefail
+        cmake ../sources -G Ninja -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DWITH_TRANSLATION=OFF -DBUILD_TESTS=ON -DCMAKE_CXX_FLAGS=-Werror=return-type 2>&1 | tee "$GITHUB_WORKSPACE/build.log"
+        ninja -k 0 2>&1 | tee -a "$GITHUB_WORKSPACE/build.log"
+
+    - name: Report build errors
+      if: failure()
+      run: |
+        log="$GITHUB_WORKSPACE/build.log"
+        [ -f "$log" ] || exit 0
+        grep -E ': (fatal )?error:|CMake Error|undefined reference|ld returned|^FAILED:' "$log" | sort -u | head -60 > errors.txt || true
+        prefix="$GITHUB_WORKSPACE/"
+        grep -E ': (fatal )?error:' errors.txt | head -40 | while IFS= read -r line; do
+          file=${line%%:*}; rest=${line#*:}; lineno=${rest%%:*}
+          msg=${line#*error: }
+          file=${file#$prefix}; file=${file#../sources/}
+          case "$file" in /*|toonz/*) ;; *) file="toonz/sources/$file" ;; esac
+          echo "::error file=${file},line=${lineno}::${msg}"
+        done
+        grep -vE ': (fatal )?error:' errors.txt | head -10 | while IFS= read -r line; do
+          echo "::error::${line}"
+        done
+
+    # Also when some targets failed to build: ctest then reports their tests
+    # as not run, and every other test still runs
+    - name: Run tests
+      id: ctest
+      if: ${{ !cancelled() }}
+      continue-on-error: true
+      run: |
+        cd toonz/build
+        set -o pipefail
+        ctest --output-on-failure --timeout 900 2>&1 | tee "$GITHUB_WORKSPACE/ctest.log"
+
+    # One annotation per failed test with the end of its output, and one with
+    # the totals. Tests print lines starting with "NOTICE:" (benchmarks, for
+    # example) to have them shown as notices.
+    - name: Report test results
+      if: always()
+      run: |
+        log="$GITHUB_WORKSPACE/ctest.log"
+        [ -f "$log" ] || exit 0
+        enc() { sed -e 's/%/%25/g' | sed -e ':a;N;$!ba;s/\r/%0D/g;s/\n/%0A/g'; }
+        total=$(grep -E 'tests passed, [0-9]+ tests failed' "$log" || true)
+        echo "::notice title=ctest::${total:-no summary}"
+        failed="toonz/build/Testing/Temporary/LastTestsFailed.log"
+        if [ -f "$failed" ]; then
+          cut -d: -f2 "$failed" | while IFS= read -r name; do
+            out=$(cd toonz/build && ctest -R "^${name}\$" --output-on-failure --timeout 900 2>&1 | tail -n 40 | enc)
+            echo "::error title=test ${name} failed::${out}"
+          done
+        fi
+        # All benchmark lines in one notice: a step shows at most 10 notices
+        cd toonz/build
+        bench=$(ctest -V --timeout 900 -R '^(scenebench)$' 2>/dev/null | grep -o 'NOTICE:.*' | sed 's/^NOTICE: //' | head -60 | enc)
+        [ -n "$bench" ] && echo "::notice title=benchmark::${bench}" || true
+
+    - name: Commit new FX render references
+      if: always() && github.event_name == 'push'
+      run: |
+        out=toonz/build/stdfx/fxrender-output
+        ref=toonz/sources/stdfx/tests/fxrender
+        [ -d "$out" ] || exit 0
+        added=0
+        for f in "$out"/*.png; do
+          [ -f "$f" ] || continue
+          name=$(basename "$f")
+          case "$name" in *-diff.png|*-actual.png) continue ;; esac
+          if [ ! -f "$ref/$name" ]; then cp "$f" "$ref/$name"; added=$((added+1)); fi
+        done
+        [ "$added" -gt 0 ] || { echo "No new references"; exit 0; }
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        git add "$ref"/*.png
+        git commit -q -m "Add $added FX render reference images from a CI run"
+        if git push origin "HEAD:${GITHUB_REF_NAME}" > push.log 2>&1; then
+          echo "::notice title=fxrender::Committed $added new reference images"
+        else
+          # The push can be refused (token permissions, or the branch moved):
+          # hand the images over in the annotation instead
+          err=$(tail -n 5 push.log | sed -e ':a;N;$!ba;s/\n/%0A/g')
+          echo "::warning title=fxrender push failed::${err}"
+          blob=$(cd "$ref" && git show --name-only --format= HEAD | xargs -n1 basename | tar czf - -C . -T - | base64 -w0)
+          echo "::notice title=fxrender references (tar.gz, base64)::${blob}"
+        fi
+
+    - name: Fail if tests failed
+      if: ${{ !cancelled() && steps.ctest.outcome == 'failure' }}
+      run: exit 1
+
+  # Shows that the unmerged tiers do not change the behaviour for existing
+  # content (doc/compat_regression.md): the compat_regression tool is built
+  # from edition (base/, with the tool's source and CMake block copied in) and
+  # from this branch (new/), each one runs on its own checkout, each one loads
+  # the scene the other saved, and every output must be the same.
+  Compat:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 240
+    env:
+      QT_QPA_PLATFORM: offscreen
+      # The same software OpenGL for both tools
+      LIBGL_ALWAYS_SOFTWARE: 1
+      DEBIAN_FRONTEND: noninteractive
+    steps:
+    - uses: actions/checkout@v6
+      with:
+        path: new
+
+    - uses: actions/checkout@v6
+      with:
+        ref: edition
+        path: base
+
+    - name: Install libraries
+      run: |
+        # Processing the man-db trigger can take most of an hour on the hosted
+        # images
+        echo 'set man-db/auto-update false' | sudo debconf-communicate >/dev/null || true
+        sudo rm -f /var/lib/man-db/auto-update
+        # The runner's Azure mirror has stalled the downloads for an hour: use
+        # the main archive (the hosted images list it in apt-mirrors.txt)
+        sudo sed -i 's|http://azure.archive.ubuntu.com/ubuntu|http://archive.ubuntu.com/ubuntu|g' /etc/apt/apt-mirrors.txt /etc/apt/sources.list.d/*.sources /etc/apt/sources.list 2>/dev/null || true
+        sudo apt-get update
+        # xvfb: a display for the OpenGL contexts of the vector renderer;
+        # imagemagick: the pixel differences of the PNG files
+        sudo apt-get install -y -o Acquire::http::Timeout=30 -o Acquire::Retries=5 build-essential cmake pkg-config ninja-build ccache libboost-all-dev qtbase5-dev qt5-qmake qtdeclarative5-dev qtdeclarative5-dev-tools qttools5-dev qttools5-dev-tools qtmultimedia5-dev qtwayland5 libqt5svg5-dev libqt5opengl5-dev libqt5multimedia5-plugins libqt5serialport5-dev libsuperlu-dev liblz4-dev libusb-1.0-0-dev liblzo2-dev libpng-dev libjpeg-dev libglew-dev freeglut3-dev libfreetype6-dev libjson-c-dev libmypaint-dev libopencv-dev libturbojpeg-dev libomp-dev ffmpeg xvfb xauth imagemagick
+
+    - name: Set up caches
+      run: mkdir -p /home/runner/.ccache-base /home/runner/.ccache-new
+
+    - uses: actions/cache@v5
+      with:
+        path: /home/runner/.ccache-base
+        key: ${{ runner.os }}-compat-base-${{ github.sha }}
+        restore-keys: |
+          ${{ runner.os }}-compat-base-
+
+    - uses: actions/cache@v5
+      with:
+        path: /home/runner/.ccache-new
+        key: ${{ runner.os }}-compat-new-${{ github.sha }}
+        restore-keys: |
+          ${{ runner.os }}-compat-new-
+
+    # The same source and CMake block in both trees: the tool uses only the API
+    # that edition has
+    - name: Add the tool to the edition tree
+      run: |
+        cp new/toonz/sources/toonzlib/tests/compat_regression.cpp base/toonz/sources/toonzlib/tests/
+        block=$(sed -n '/^# compat_regression: begin$/,/^# compat_regression: end$/p' new/toonz/sources/toonzlib/CMakeLists.txt)
+        if [ -z "$block" ]; then
+          echo "::error title=Compat::no compat_regression block in toonz/sources/toonzlib/CMakeLists.txt"
+          exit 1
+        fi
+        printf '\n%s\n' "$block" >> base/toonz/sources/toonzlib/CMakeLists.txt
+
+    - name: Build libtiff
+      run: |
+        for tree in base new; do
+          (cd "$tree/thirdparty/tiff-4.0.3" && CFLAGS='-fPIC' CXXFLAGS='-fPIC' ./configure --disable-jbig && make -j $(nproc))
+        done
+
+    - name: Build
+      run: |
+        set -o pipefail
+        status=0
+        for tree in base new; do
+          export CCACHE_DIR=/home/runner/.ccache-$tree
+          mkdir -p "$tree/toonz/build"
+          if ! (cd "$tree/toonz/build" &&
+                cmake ../sources -G Ninja -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DWITH_TRANSLATION=OFF -DBUILD_TESTS=OFF -DBUILD_COMPAT_REGRESSION=ON -DCMAKE_CXX_FLAGS=-Werror=return-type &&
+                ninja compat_regression) 2>&1 | tee "$GITHUB_WORKSPACE/build-$tree.log"; then
+            status=1
+          fi
+        done
+        exit $status
+
+    # One annotation per tree with its distinct errors: an error in the base
+    # tree only means that the tool uses an API that edition does not have
+    - name: Report build errors
+      if: failure()
+      run: |
+        for tree in base new; do
+          log="$GITHUB_WORKSPACE/build-$tree.log"
+          [ -f "$log" ] || continue
+          errors=$(grep -E ': (fatal )?error:|CMake Error|undefined reference|^FAILED:' "$log" | sed -e "s|$GITHUB_WORKSPACE/||g" | awk '!seen[$0]++' | head -n 40 | sed -e 's/%/%25/g' | sed -e ':a;N;$!ba;s/\n/%0A/g' || true)
+          if [ -n "$errors" ]; then echo "::error title=Compat build of ${tree}::${errors}"; fi
+        done
+
+    # Each tool on its own checkout, then each one loading the scene of the
+    # other. A run that fails is reported here and fails the job at the end;
+    # the comparison still runs.
+    - name: Run the tools
+      id: run
+      run: |
+        rm -rf out_base out_new cross_base cross_new
+        failed=0
+        run() {  # name, tree, arguments
+          name=$1; tree=$2; shift 2
+          bin="$GITHUB_WORKSPACE/$tree/toonz/build/bin/compat_regression"
+          [ -x "$bin" ] || bin=$(find "$GITHUB_WORKSPACE/$tree/toonz/build" -type f -name compat_regression -perm -u+x | head -n 1)
+          if [ -z "$bin" ]; then
+            echo "::error title=Compat ${name}::the ${tree} tool was not built"
+            failed=1
+            return
+          fi
+          # xvfb-run gives the platform plugin a display for its GLX contexts
+          if timeout 3600 xvfb-run -a -s '-screen 0 1280x1024x24' "$bin" "$@" > "run-$name.log" 2>&1; then
+            echo "$name: ok"
+          else
+            code=$?
+            out=$(tail -n 40 "run-$name.log" | sed -e 's/%/%25/g' | sed -e ':a;N;$!ba;s/\n/%0A/g')
+            echo "::error title=Compat ${name} failed (exit ${code})::${out}"
+            failed=1
+          fi
+        }
+        run base base "$GITHUB_WORKSPACE/base" "$GITHUB_WORKSPACE/out_base"
+        run new new "$GITHUB_WORKSPACE/new" "$GITHUB_WORKSPACE/out_new"
+        run cross_new new --load "$GITHUB_WORKSPACE/out_base/scene.tnz" "$GITHUB_WORKSPACE/cross_new"
+        run cross_base base --load "$GITHUB_WORKSPACE/out_new/scene.tnz" "$GITHUB_WORKSPACE/cross_base"
+        echo "failed=$failed" >> "$GITHUB_OUTPUT"
+
+    # Every output of the two tools byte for byte (scene files after sorting
+    # the terminal FX block, see norm), and the dumps of the cross loads
+    # against the dumps of the scenes they loaded. One error per differing
+    # file, for the first 10.
+    - name: Compare the outputs
+      id: compare
+      run: |
+        enc() { sed -e 's/%/%25/g' | sed -e ':a;N;$!ba;s/\r/%0D/g;s/\n/%0A/g'; }
+        # A scene file lists the FX nodes of the terminal set in the order of
+        # their addresses (TFxSet holds a std::set of pointers), which differs
+        # between builds: the lines of that block are sorted, and so are the
+        # levels of a cast folder
+        norm() {
+          awk '
+            /^[ \t]*<terminal>[ \t]*$/ { print; inside = 1; n = 0; next }
+            inside && /^[ \t]*<\/terminal>[ \t]*$/ {
+              for (i = 2; i <= n; i++) {
+                v = line[i]
+                for (j = i - 1; j >= 1 && line[j] > v; j--) line[j + 1] = line[j]
+                line[j + 1] = v
+              }
+              for (i = 1; i <= n; i++) print line[i]
+              print; inside = 0; next
+            }
+            inside { line[++n] = $0; next }
+            # The levels of a cast folder are listed in the order of their
+            # addresses too (TLevelSet::m_folderTable is a std::map keyed by
+            # TXshLevel *): sort the <level id=.../> items of such a line
+            /^[ \t]*(<level id=\x27[0-9]+\x27\/>)+[ \t]*$/ {
+              match($0, /^[ \t]*/); pre = substr($0, 1, RLENGTH)
+              rest = substr($0, RLENGTH + 1); sub(/[ \t]*$/, "", rest)
+              m = split(rest, item, "/>"); k = 0
+              for (i = 1; i <= m; i++) if (item[i] != "") lv[++k] = item[i] "/>"
+              for (i = 2; i <= k; i++) {
+                v = lv[i]
+                for (j = i - 1; j >= 1 && lv[j] > v; j--) lv[j + 1] = lv[j]
+                lv[j + 1] = v
+              }
+              out = pre; for (i = 1; i <= k; i++) out = out lv[i]
+              print out; next
+            }
+            { print }' "$1"
+        }
+        compared=0; identical=0; different=0; shown=0; pngs=0
+        : > differing.txt
+        differs() {  # name, details
+          different=$((different + 1))
+          echo "$1" >> differing.txt
+          if [ "$shown" -lt 10 ]; then
+            shown=$((shown + 1))
+            echo "::error title=Compat: $1 differs::$(printf '%s\n' "$2" | enc)"
+          fi
+        }
+        same() { identical=$((identical + 1)); }
+        check() {  # name, base file, new file
+          compared=$((compared + 1))
+          case "$1" in *.png) pngs=$((pngs + 1)) ;; esac
+          if [ ! -f "$2" ] || [ ! -f "$3" ]; then
+            differs "$1" "missing:$([ -f "$2" ] || echo " $2")$([ -f "$3" ] || echo " $3")"
+            return
+          fi
+          case "$1" in
+          *.tnz)
+            norm "$2" > norm-base.tnz
+            norm "$3" > norm-new.tnz
+            if cmp -s norm-base.tnz norm-new.tnz; then same; else
+              differs "$1" "$(diff -u --label "$2" --label "$3" norm-base.tnz norm-new.tnz | head -n 40)"
+            fi ;;
+          *.png)
+            if cmp -s "$2" "$3"; then same; else
+              ae=$(compare -metric AE "$2" "$3" null: 2>&1 || true)
+              pae=$(compare -metric PAE "$2" "$3" null: 2>&1 || true)
+              differs "$1" "differing pixels: ${ae}; maximum channel difference: ${pae}"
+            fi ;;
+          *.txt)
+            if cmp -s "$2" "$3"; then same; else
+              differs "$1" "$(diff -u --label "$2" --label "$3" "$2" "$3" | head -n 40)"
+            fi ;;
+          *)
+            if cmp -s "$2" "$3"; then same; else
+              differs "$1" "$(cmp "$2" "$3" | head -n 1); $(cmp -l "$2" "$3" 2>/dev/null | wc -l) bytes differ; sizes $(stat -c %s "$2") and $(stat -c %s "$3")"
+            fi ;;
+          esac
+        }
+        if [ ! -d out_base ] || [ ! -d out_new ]; then
+          echo "::error title=Compat::a tool wrote no output"
+          exit 1
+        fi
+        { (cd out_base && find . -type f); (cd out_new && find . -type f); } | sed -e 's|^\./||' | LC_ALL=C sort -u > files.txt
+        while IFS= read -r rel; do
+          check "$rel" "out_base/$rel" "out_new/$rel"
+        done < files.txt
+        check cross_new/scene_dump.txt out_base/scene_dump.txt cross_new/scene_dump.txt
+        check cross_base/scene_dump.txt out_new/scene_dump.txt cross_base/scene_dump.txt
+        if ! grep -qs '^opengl yes' out_base/manifest.txt || ! grep -qs '^opengl yes' out_new/manifest.txt; then
+          echo "::warning title=Compat::no OpenGL context: the PNG renders were skipped, only the dumps and the saved files were compared"
+        fi
+        {
+          echo "compared=$compared"
+          echo "identical=$identical"
+          echo "different=$different"
+          echo "pngs=$pngs"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Report the comparison
+      if: ${{ !cancelled() && steps.compare.outcome != 'skipped' }}
+      run: |
+        different='${{ steps.compare.outputs.different }}'
+        echo "::notice title=Compat::${{ steps.compare.outputs.compared }} files compared (${{ steps.compare.outputs.pngs }} PNG), ${{ steps.compare.outputs.identical }} identical, ${different:-?} different"
+        if [ -s differing.txt ]; then
+          echo "::error title=Compat: ${different} differing files::$(sed -e 's/%/%25/g' differing.txt | sed -e ':a;N;$!ba;s/\n/%0A/g')"
+        fi
+        [ "$different" = 0 ] && [ '${{ steps.run.outputs.failed }}' = 0 ] || exit 1
+
+    - uses: actions/upload-artifact@v6
+      if: failure()
+      with:
+        name: compat-outputs
+        path: |
+          out_base
+          out_new
+          cross_base
+          cross_new
+          run-*.log
+        if-no-files-found: ignore
+
+  Qt6:
+    runs-on: ubuntu-24.04
+    continue-on-error: true
+    timeout-minutes: 180
+    env:
+      DEBIAN_FRONTEND: noninteractive
+    steps:
+    - uses: actions/checkout@v6
+
+    # The downloaded packages, so that a run after a successful one does not
+    # depend on the mirror
+    # (restore and save as separate steps: this job fails until the port is
+    # done, and a failed job does not save its caches)
+    - uses: actions/cache/restore@v5
+      with:
+        path: /home/runner/apt-archives
+        key: ${{ runner.os }}-qt6-apt-${{ github.run_id }}
+        restore-keys: |
+          ${{ runner.os }}-qt6-apt-
+
+    # A first run hung here for two hours: no prompts, and a time limit
+    - name: Install libraries
+      timeout-minutes: 30
+      run: |
+        # Processing the man-db trigger can take most of an hour on the hosted
+        # images
+        echo 'set man-db/auto-update false' | sudo debconf-communicate >/dev/null || true
+        sudo rm -f /var/lib/man-db/auto-update
+        # The runner's Azure mirror stalled the downloads on several runs: use
+        # the main archive
+        # (the hosted images list it in apt-mirrors.txt)
+        sudo sed -i 's|http://azure.archive.ubuntu.com/ubuntu|http://archive.ubuntu.com/ubuntu|g' /etc/apt/apt-mirrors.txt /etc/apt/sources.list.d/*.sources /etc/apt/sources.list 2>/dev/null || true
+        timeout 300 sudo apt-get update -q || echo '::warning title=Qt 6 packages::apt-get update failed or timed out'
+        # Report where it stops if it hangs again. A stalled download of the
+        # large recommended packages (gstreamer, ROCm through OpenCV) hung it
+        # three times: no recommends, retries, and a timeout per request.
+        # The mirror sometimes stalls on a large download: retry, apt keeps
+        # what it already fetched
+        ok=0
+        for attempt in 1 2 3; do
+          if mkdir -p /home/runner/apt-archives/partial && timeout 480 sudo apt-get install -o Dir::Cache::archives=/home/runner/apt-archives -y -q --no-install-recommends -o Dpkg::Use-Pty=0 -o Acquire::http::Timeout=30 -o Acquire::Retries=5 build-essential cmake pkg-config ninja-build ccache libboost-all-dev qt6-base-dev qt6-base-dev-tools qt6-declarative-dev qt6-declarative-dev-tools qt6-5compat-dev qt6-tools-dev qt6-tools-dev-tools qt6-l10n-tools qt6-multimedia-dev qt6-wayland qt6-svg-dev qt6-serialport-dev libsuperlu-dev liblz4-dev libusb-1.0-0-dev liblzo2-dev libpng-dev libjpeg-dev libglew-dev freeglut3-dev libfreetype-dev libjson-c-dev libmypaint-dev libopencv-dev libturbojpeg0-dev libomp-dev > apt.log 2>&1; then ok=1; break; fi
+          echo "::warning title=Qt 6 packages::attempt $attempt failed: $(tail -n 2 apt.log | tr '\n' ' ')"
+          sudo dpkg --configure -a > /dev/null 2>&1 || true
+        done
+        if [ "$ok" != 1 ]; then
+          echo "::error title=Qt 6 packages::$(tail -n 15 apt.log | sed -e ':a;N;$!ba;s/\n/%0A/g')"
+          exit 1
+        fi
+        sudo chown -R "$(id -u)" /home/runner/apt-archives
+
+    - uses: actions/cache/save@v5
+      with:
+        path: /home/runner/apt-archives
+        key: ${{ runner.os }}-qt6-apt-${{ github.run_id }}
+
+    - name: Set up cache
+      run: mkdir -p /home/runner/.ccache
+
+    - uses: actions/cache@v5
+      with:
+        path: /home/runner/.ccache
+        key: ${{ runner.os }}-qt6-${{ github.sha }}
+        restore-keys: |
+          ${{ runner.os }}-qt6-
+
+    - name: Build libtiff
+      run: |
+        cd thirdparty/tiff-4.0.3
+        CFLAGS='-fPIC' CXXFLAGS='-fPIC' ./configure --disable-jbig
+        make -j $(nproc)
+
+    - name: Build with Qt 6
+      run: |
+        export CCACHE_DIR=/home/runner/.ccache
+        mkdir -p toonz/build
+        cd toonz/build
+        set -o pipefail
+        cmake ../sources -G Ninja -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DOT_QT_MAJOR_VERSION=6 -DWITH_TRANSLATION=OFF 2>&1 | tee "$GITHUB_WORKSPACE/build.log"
+        ninja -k 0 2>&1 | tee -a "$GITHUB_WORKSPACE/build.log"
+
+    - name: Report Qt 6 build errors
+      if: failure()
+      run: |
+        log="$GITHUB_WORKSPACE/build.log"
+        [ -f "$log" ] || exit 0
+        echo "::notice title=Qt 6::failed steps: $(grep -c '^FAILED: ' "$log"), errors: $(grep -c ' error: ' "$log")"
+        grep -E ': (fatal )?error:|CMake Error|undefined reference' "$log" | sort -u > errors.txt || true
+        # Every distinct error in one annotation: a step shows at most 10
+        all=$(grep -E ': (fatal )?error:' errors.txt | sed -e "s|$GITHUB_WORKSPACE/||; s|^.*\.\./sources/|toonz/sources/|" | awk -F'error: ' '!seen[$2]++' | head -150 | sed -e 's/%/%25/g' | sed -e ':a;N;$!ba;s/\n/%0A/g')
+        [ -n "$all" ] && echo "::error title=Qt 6 errors (all distinct)::${all}"
+        prefix="$GITHUB_WORKSPACE/"
+        grep -E ': (fatal )?error:' errors.txt | awk -F'error: ' '!seen[$2]++' | head -45 | while IFS= read -r line; do
+          file=${line%%:*}; rest=${line#*:}; lineno=${rest%%:*}
+          msg=${line#*error: }
+          file=${file#$prefix}; file=${file#../sources/}
+          case "$file" in /*|toonz/*) ;; *) file="toonz/sources/$file" ;; esac
+          echo "::error file=${file},line=${lineno}::${msg}"
+        done
+        grep -E 'CMake Error|undefined reference' errors.txt | head -5 | while IFS= read -r line; do
+          echo "::error::${line}"
+        done

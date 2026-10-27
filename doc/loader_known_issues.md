@@ -53,6 +53,19 @@ These were the known issues listed by `pli_fuzz` (`pli-short-tag`,
 | A precision scale of 0 or less (a divisor of the stroke coordinates) is refused. | `readPrecisionScaleTag` |
 | Style parameters were read past the end of the parameter list when a style tag had fewer than the style type reads; a color tag without color and a stroke tag without curves were dereferenced. | `PliInputStream`, `createGroup`, `createStroke`, `doLoad` |
 
+### Found by the first run of the fuzz tests
+
+The first CI run of `pli_fuzz_test` and `tstream_fuzz_test` (tier12) reported
+3 hangs in the PLI reader and 2 hangs and 2 crashes in the palette loading.
+They come from three causes, found by working out which field of the seed
+each mutation damages. They were fixed without a new run.
+
+| Cases | What | Where |
+|---|---|---|
+| `one-stroke@flip:104:6`, `two-frames@flip:134:5`, `suffixes-v150@set:134:127` | The mutated byte is the high byte of the id of the first style tag in the palette group (16385, 8193 and 32513). The reader adds placeholder styles up to the id, but `TPalette::addStyle` refuses styles from id 4096 on, so the loop never ended. The load now fails. | `readPalette` (`image/pli/tiio_pli.cpp`) |
+| `studio-palette@ins:595:3c613e`, `level-palette@del:595:4` | A tag inside `<indices>` of a palette page (`<a>` inserted after the last index, or `</indices>` cut to `<ices>`). `eos()` matched it as a pending begin tag and returned false; `is >> index` then failed on the `<` and consumed nothing, so `while (!is.eos())` never ended. `eos()` now returns true once the stream has failed (the old code already did when no tag was pending), and the load fails on the missing end tag. This covers every `while (!is.eos()) is >> value;` loop of the loaders. | `TIStream::eos` (`common/tstream/tstream.cpp`) |
+| `studio-palette@rep:258:1:`, `compressed-palette@set:193:1` | The `pickedpos="3,4"` attribute of a style lost its second coordinate (the `4` deleted, or the `,` set to 0x01 through a literal of the LZ4 block). `stringToPoint` read the second part of the split string without checking there was one. The load now fails with a `TException`. | `stringToPoint` (`common/tvrender/tpalette.cpp`) |
+
 ### EXR (`toonzlib/exrlevelsource.cpp`)
 
 The data and display windows were already checked for size. The raster of the
@@ -73,7 +86,8 @@ window with a huge display window made `TRasterFP` overflow its size).
 
 | What | Where | Why |
 |---|---|---|
-| Compressed `TIStream` (LZ4): size wrap, unbounded size, short size, truncated header | `common/tstream/tstream.cpp` | Another branch edits this code; the `tstream_fuzz` known issues stay as they are. |
+| Compressed `TIStream` (LZ4): size wrap, unbounded size, short size, truncated header | `common/tstream/tstream.cpp` | The checks added for compressed scenes (C3, `doc/compact_scene.md`) look like they reject all four: the header and payload reads are checked, the declared size is bounded by the compressed one, and `lz4decompress` stops when it makes no progress. `tstream_fuzz` still skips these inputs; run `tstream_fuzz_test --only-known` once and remove the known issues if it passes. |
+| A `pickedpos` style attribute that is not a number makes `std::stoi` throw `std::invalid_argument`; a palette load that fails inside a style leaks that style | `stringToPoint`, `TPalette::loadData` | Not a crash: the load fails with a `std::exception` instead of a `TException`. |
 | A failed raster allocation (null buffer) is not detected before writing pixels | `TRaster` constructor, used by all loaders | A change in the core raster class, outside a loader fix. The PSD and EXR loaders now refuse sizes that overflow an int. |
 | A PSD load that throws leaves the file open (`TPSDReader::load` catches everything) and the reader destructor frees nothing | `common/psdlib/psd.cpp` | A leak, not a memory-safety problem. A rewrite with smart pointers (see the comment at the top of the file) is the right fix. |
 | `TLevelReaderPsd::loadInfo` never deletes its `TPSDParser` | `image/psd/tiio_psd.cpp` | A leak. |
