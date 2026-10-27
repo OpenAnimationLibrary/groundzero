@@ -46,11 +46,13 @@ void readKey(FILE *f, struct dictentry *parent, TPSDLayerInfo *li);
 void readLayer16(FILE *f, struct dictentry *parent, TPSDLayerInfo *li);
 //----end forward declarations
 
-// A layer or the canvas of a PSD (version 1) is at most 30000 pixels wide or
-// high. The coordinates of the layers are kept well inside the range of int,
-// so that the sums done with them cannot overflow.
-static const long kMaxPsdSize  = 30000;
-static const long kMaxPsdCoord = 0x0FFFFFFF;
+// The canvas of a PSD (version 1) is at most 30000 pixels wide or high. A
+// layer can extend beyond the canvas: it is read up to the size limit of the
+// large document format (PSB). The coordinates of the layers are kept well
+// inside the range of int, so that the sums done with them cannot overflow.
+static const long kMaxPsdSize      = 30000;
+static const long kMaxPsdLayerSize = 300000;
+static const long kMaxPsdCoord     = 0x0FFFFFFF;
 
 static char swapByte(unsigned char src) {
   unsigned char out = 0;
@@ -262,18 +264,23 @@ bool TPSDReader::readLayerInfo(int i) {
   TPSDLayerInfo *li = m_headerInfo.linfo + i;
 
   // process layer record
-  li->top      = read4Bytes(m_file);
-  li->left     = read4Bytes(m_file);
-  li->bottom   = read4Bytes(m_file);
-  li->right    = read4Bytes(m_file);
+  li->top               = read4Bytes(m_file);
+  li->left              = read4Bytes(m_file);
+  li->bottom            = read4Bytes(m_file);
+  li->right             = read4Bytes(m_file);
   unsigned channelCount = read2UBytes(m_file);
   li->channels          = channelCount > 64 ? 0 : (short)channelCount;
 
-  if (li->bottom < li->top || li->right < li->left || channelCount > 64 ||
-      li->top < -kMaxPsdCoord || li->top > kMaxPsdCoord ||
-      li->left < -kMaxPsdCoord || li->left > kMaxPsdCoord ||
-      li->bottom - li->top > kMaxPsdSize ||
-      li->right - li->left > kMaxPsdSize || feof(m_file))  // sanity ck
+  // A layer with bounds that cannot be read is not loaded, but its record is
+  // still read: the data of the next layers is found by summing the channel
+  // lengths of the earlier ones (see doImage())
+  const bool badBounds = li->bottom < li->top || li->right < li->left ||
+                         li->top < -kMaxPsdCoord || li->top > kMaxPsdCoord ||
+                         li->left < -kMaxPsdCoord || li->left > kMaxPsdCoord ||
+                         li->bottom - li->top > kMaxPsdLayerSize ||
+                         li->right - li->left > kMaxPsdLayerSize;
+
+  if (channelCount > 64 || feof(m_file))  // sanity ck
   {
     // qualcosa è andato storto, skippo il livello
     fseek(m_file, 6 * (long)channelCount + 12, SEEK_CUR);
@@ -360,6 +367,12 @@ bool TPSDReader::readLayerInfo(int i) {
 
     // leave file positioned at end of layer's data
     fseek(m_file, extrastart + extralen, SEEK_SET);
+
+    // without a channel index, doImage() refuses to load the layer
+    if (badBounds) {
+      free(li->chindex - 2);
+      li->chindex = NULL;
+    }
   }
   return true;
 }

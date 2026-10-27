@@ -15,6 +15,8 @@
 #include <QEventLoop>
 #include <QWaitCondition>
 
+#include <atomic>
+
 #include "timagecache.h"
 
 namespace TScriptBinding {
@@ -52,7 +54,7 @@ public:
   TScriptBinding::Level *m_outputLevel;
   TPointD m_cameraDpi;
 
-  bool m_completed;
+  std::atomic<bool> m_completed;  // set by the render thread
   TRenderer m_renderer;
 
   QList<int> m_columnList;
@@ -127,8 +129,11 @@ public:
     m_renderer.startRendering(rds);
 
     while (!m_completed) {
+      // User input is left queued: on the GUI thread (Python) it could run a
+      // new command, or a script, during the render. The JavaScript engine
+      // runs on its own thread, which gets no user input.
       QEventLoop loop;
-      loop.processEvents();
+      loop.processEvents(QEventLoop::ExcludeUserInputEvents);
       QWaitCondition waitCondition;
       waitCondition.wait(&mutex, 100);
     }

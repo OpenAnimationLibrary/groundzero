@@ -702,6 +702,38 @@ void testLayered8Bit(const TFilePath &dir) {
     if (name == "Background" || name == "Hidden") ++found;
   }
   require(found == 2, "TPSDReader layer names mismatch");
+
+  // A layer too large to load (the bottom of the first record set beyond the
+  // limit) is not loaded, and the next layer is still read from its own data
+  Bytes big = readFile(path);
+  {
+    ByteReader in(big);
+    in.skip(26);         // header
+    in.skip(in.u32());   // color mode data
+    in.skip(in.u32());   // image resources
+    in.skip(4 + 4 + 2);  // section lengths, layer count
+    const std::uint64_t bottom   = in.pos() + 8;
+    const std::uint32_t tooLarge = 400000;
+    for (int i = 0; i < 4; ++i)
+      big[bottom + i] = (unsigned char)(tooLarge >> (8 * (3 - i)));
+  }
+  const TFilePath bigPath = dir + TFilePath("layered8_big.psd");
+  writeFile(bigPath, big);
+  TPSDReader bigReader(bigPath);
+  require(bigReader.getPSDHeaderInfo().layersCount == 3,
+          "TPSDReader layer count mismatch with a layer too large");
+  TRasterImageP skipped;
+  bigReader.load(skipped, bigReader.getLayerInfo(0)->layerId);
+  require(!skipped, "A layer too large to load was loaded");
+  TRaster32P loaded =
+      loadLayer(bigReader, bigReader.getLayerInfo(1)->layerId, lx, ly);
+  for (int y = 0; y < ly; ++y)
+    for (int x = 0; x < lx; ++x) {
+      TPixel32 expected = middle->pixels(y)[x];
+      if (expected.m != 0) depremult(expected);
+      require(loaded->pixels(y)[x] == expected,
+              pixelMessage("Layer after a layer too large mismatch", x, y));
+    }
 }
 
 void testLayered16Bit(const TFilePath &dir) {

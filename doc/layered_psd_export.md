@@ -26,11 +26,16 @@ dialog with a Cancel button is shown; the files already written are kept.
 ## What a file contains
 
 - The **layers**, bottom to top in column order (column 1 is the bottom
-  layer). Each layer is the column rendered alone with the scene camera and the
-  size of the camera (not the output settings' shrink), so the fxs connected to
-  the column, its transforms and the xsheet-level fxs apply, and all layers are
-  registered with each other. A column which has no drawing in a frame gives a
-  transparent layer, so every file has the same layers.
+  layer). Each layer is the column's own fx chain: the column and the fxs
+  after it which take no other input, up to the fx connected to the xsheet
+  node. It is rendered with the column transforms, under the fxs between the
+  xsheet node and the output, with the scene camera and the size of the camera
+  (not the output settings' shrink), so all layers are registered with each
+  other. The layers are transparent where the column has nothing: the scene
+  background color (Camera BG Color) is only in the merged image. A column
+  which has no drawing in a frame, or whose fx chain leads nowhere (so that
+  it is not rendered), gives a transparent layer, so every file has the same
+  layers.
 - The layer **name** is the column name (the stage object name, `Col1` ...).
 - A layer is **hidden** (Photoshop's eye off) when the column's render toggle is
   off, which is only possible with Include Hidden Columns.
@@ -48,8 +53,8 @@ so the files are large).
 ## Compatibility
 
 - Opt-in: a new command; no existing behaviour, scene or file format changes.
-  The columns' render toggles are switched during the render and restored
-  afterwards, as the script Renderer does.
+  With Include Hidden Columns, the render toggle of a hidden column is
+  switched on while its render tree is built, and restored right after.
 - The PSD files use the same structure as those of the single layer writer
   (version 1, RGB with alpha, normal blend mode, layer names in ASCII and
   Unicode); only the layer count differs. They are ordinary PSD files, which
@@ -70,7 +75,11 @@ so the files are large).
   rendered a few at a time (as many as the render threads), once for the whole
   scene and once for each column, with a `TRenderer` and a `TRenderPort` as the
   animated SVG export and the script Renderer do, then written, so only a few
-  frames of rasters are in memory.
+  frames of rasters are in memory. A layer's tree is built as the multimedia
+  render builds its column trees: `buildSceneFx()` with the column's chain as
+  the root and only the column transforms, put in place of the xsheet node in
+  a clone of the post-xsheet tree (`buildPostSceneFx()`, with a new overload
+  taking the xsheet, for a sub-xsheet being edited).
 - The command is `MI_ExportLayeredPSD`, in the File > Export menu and in the
   default `menubar_template.xml`. Menu files which were customized in an older
   profile do not get it automatically; add `MI_ExportLayeredPSD` to the Export
@@ -87,9 +96,12 @@ so the files are large).
   renders them (Scene Settings: Enable Column Color Filter and Transparency
   for Rendering). The layer opacity in the file is always 100%, so that the
   layers composite to the render.
-- A column which is only an input of another fx is rendered alone, as if it
-  were connected to the xsheet. Blend modes of Add, Multiply and the like are
-  not stored as PSD blend modes; the layers are normal.
+- A column which is an input of an fx that also takes other inputs (Matte In,
+  Matte Out, Add, Multiply, a particles fx and the like) is rendered with its
+  own chain only, as if that chain were connected to the xsheet: the combining
+  fx is only in the merged image. A column whose output goes to several fxs
+  is rendered without the fxs after it. Blend modes are not stored as PSD
+  blend modes; the layers are normal.
 - Layers are full size (no cropping to the drawing), which RLE compression
   keeps small for 8 bit files. A PSD file is limited to 30000 pixels per side.
 - Vector columns are rasterized with the render settings; there is no vector

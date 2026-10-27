@@ -161,7 +161,9 @@ if (!info.untitled && !info.dirty) {
 - `getFrame` shares the image with the level (see above); there is no
   `getFrameCopy`, use `getFrame(fid).clone()`.
 - `Scene.renderFrame` renders one frame at a time with the scene's settings.
-  It blocks the script, and in Python the application, while it renders.
+  It blocks the script, and in Python the application, while it renders:
+  the application repaints, but keyboard and mouse input (in the Python
+  Console too) waits until the render ends.
 - The scene open in the application cannot be changed by scripts, only
   inspected, and its current frame and column set. Python scripts block the
   application while they run.

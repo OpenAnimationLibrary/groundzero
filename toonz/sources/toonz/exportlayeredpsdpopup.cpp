@@ -11,7 +11,10 @@
 
 // TnzLib includes
 #include "toonz/tcamera.h"
+#include "toonz/fxdag.h"
 #include "toonz/scenefx.h"
+#include "toonz/tcolumnfx.h"
+#include "toonz/tcolumnfxset.h"
 #include "toonz/sceneproperties.h"
 #include "toonz/toonzscene.h"
 #include "toonz/tscenehandle.h"
@@ -24,6 +27,7 @@
 #include "trasterfx.h"
 #include "trenderer.h"
 #include "toutputproperties.h"
+#include "tzeraryfx.h"
 
 // TnzCore includes
 #include "tconvert.h"
@@ -53,6 +57,7 @@
 #include <algorithm>
 #include <atomic>
 #include <map>
+#include <set>
 #include <vector>
 
 namespace {
@@ -67,6 +72,7 @@ struct LayerJob {
   int m_column;
   QString m_name;
   bool m_visible;  // false for a column which the render does not show
+  TFxP m_root;     // the top of the column's own fx chain, see getChainRoot()
 };
 
 //-----------------------------------------------------------------------------
@@ -81,8 +87,9 @@ QString getColumnName(TXsheet *xsh, int col) {
 
 //-----------------------------------------------------------------------------
 
-// Isolates the columns for the render by switching the 'preview visible' eye
-// flag (as the script Renderer does), and restores it when going out of scope.
+// Switches the 'preview visible' eye flag of the hidden columns which are
+// exported, so that their fx trees are built, and restores the flags when
+// going out of scope.
 class ColumnVisibilityGuard {
   TXsheet *m_xsh;
   std::vector<bool> m_states;
@@ -100,72 +107,116 @@ public:
         column->setPreviewVisible(m_states[i]);
   }
 
-  void showOnly(int index) {
-    for (int i = 0; i < (int)m_states.size(); ++i)
-      if (TXshColumn *column = m_xsh->getColumn(i))
-        column->setPreviewVisible(i == index);
+  void setVisible(int index, bool visible) {
+    if (TXshColumn *column = m_xsh->getColumn(index))
+      column->setPreviewVisible(visible);
   }
 };
 
 //-----------------------------------------------------------------------------
 
-// Collects the rendered rasters of a set of frames
-class FrameRenderPort final : public TRenderPort {
-  QMutex m_mutex;
+// The top of the fx chain which belongs to a column alone: from the column fx
+// up through the fxs which have no other input, to the fx connected to the
+// xsheet node, or to the last fx before a branch or before an fx which also
+// takes other inputs (as Matte In does). Null when the chain is not rendered
+// (connected neither to the xsheet nor to the output nor to another fx).
+TFx *getChainRoot(TXsheet *xsh, TFx *fx) {
+  FxDag *dag = xsh->getFxDag();
+  std::set<TFx *> dagFxs;
+  dag->getInternalFxs()->getFxs(dagFxs);
+  while (fx) {
+    if (dag->getTerminalFxs()->containsFx(fx)) return fx;
 
-public:
-  std::atomic<bool> m_finished;
-  std::atomic<bool> m_failed;
-  std::map<int, TRasterP> m_rasters;  // by frame
-
-  FrameRenderPort(const TDimension &resolution)
-      : m_finished(false), m_failed(false) {
-    double rx = resolution.lx * 0.5;
-    double ry = resolution.ly * 0.5;
-    setRenderArea(TRectD(-rx, -ry, rx, ry));
-  }
-
-  void onRenderRasterCompleted(const RenderData &renderData) override {
-    if (!renderData.m_rasA) {
-      m_failed = true;
-      return;
+    // The fxs which take fx as an input. The fxs of the dag only: the render
+    // trees built for previews have clones connected to it too.
+    int links = 0;
+    TFx *next = 0;
+    for (TFx *dagFx : dagFxs)
+      for (int p = 0; p < dagFx->getInputPortCount(); ++p)
+        if (dagFx->getInputPort(p)->getFx() == fx) {
+          ++links;
+          next = dagFx;
+        }
+    for (int o = 0; o < dag->getOutputFxCount(); ++o) {
+      TFx *outputFx = dag->getOutputFx(o);
+      if (outputFx && outputFx->getInputPortCount() > 0 &&
+          outputFx->getInputPort(0)->getFx() == fx) {
+        ++links;
+        next = 0;
+      }
     }
-    TRasterP ras = renderData.m_rasA->clone();
-    QMutexLocker locker(&m_mutex);
-    for (double frame : renderData.m_frames) m_rasters[qRound(frame)] = ras;
-  }
+    // the inputs of a particles column are ports of its zerary fx
+    for (int c = 0; c < xsh->getColumnCount(); ++c) {
+      TXshColumn *column = xsh->getColumn(c);
+      TZeraryColumnFx *zcfx =
+          column ? dynamic_cast<TZeraryColumnFx *>(column->getFx()) : 0;
+      TFx *zeraryFx = zcfx ? zcfx->getZeraryFx() : 0;
+      if (!zeraryFx) continue;
+      for (int p = 0; p < zeraryFx->getInputPortCount(); ++p)
+        if (zeraryFx->getInputPort(p)->getFx() == fx) {
+          ++links;
+          next = 0;
+        }
+    }
+    if (links == 0) return 0;
+    if (links > 1 || !next) return fx;
 
-  void onRenderFailure(const RenderData &, TException &) override {
-    m_failed = true;
+    for (int p = 0; p < next->getInputPortCount(); ++p) {
+      TFx *input = next->getInputPort(p)->getFx();
+      if (input && input != fx) return fx;
+    }
+    fx = next;
   }
-
-  void onRenderFinished(bool isCanceled = false) override {
-    if (isCanceled) m_failed = true;
-    m_finished = true;
-  }
-};
-
-//-----------------------------------------------------------------------------
-
-// A transparent raster for a column without a drawing in the frame
-TRasterP makeTransparentRaster(const TDimension &resolution, int bpp) {
-  if (bpp >= 64) {
-    TRaster64P ras(resolution);
-    ras->fill(TPixel64(0, 0, 0, 0));
-    return ras;
-  }
-  TRaster32P ras(resolution);
-  ras->fill(TPixel32(0, 0, 0, 0));
-  return ras;
+  return 0;
 }
 
 //-----------------------------------------------------------------------------
 
-QString safeFileName(QString name) {
-  const QString invalid = QStringLiteral("\\/:*?\"<>|");
-  for (QChar &ch : name)
-    if (invalid.contains(ch) || ch.unicode() < 0x20) ch = QLatin1Char('_');
-  return name.trimmed();
+// Connects fx in place of the xsheet node in tree. Returns false when tree has
+// no xsheet node.
+bool replaceXsheetNode(TFx *tree, TFx *fx) {
+  bool replaced = false;
+  for (int i = 0; i < tree->getInputPortCount(); ++i) {
+    TFxPort *port = tree->getInputPort(i);
+    TFx *input    = port->getFx();
+    if (!input) continue;
+    if (dynamic_cast<TXsheetFx *>(input)) {
+      port->setFx(fx);
+      replaced = true;
+    } else if (replaceXsheetNode(input, fx))
+      replaced = true;
+  }
+  return replaced;
+}
+
+//-----------------------------------------------------------------------------
+
+// The render tree of a layer: the fx chain of a column (root), with the column
+// placement, under the fxs between the xsheet node and the output (postFx,
+// built by buildPostSceneFx()), as if the chain were alone connected to the
+// xsheet node. Unlike buildSceneFx(), it has no background color card.
+TFxP buildLayerFx(ToonzScene *scene, TXsheet *xsh, int row, const TFxP &root,
+                  const TFxP &postFx) {
+  if (!root || !postFx) return TFxP();  // nothing is rendered
+
+  // The chain alone, with the camera transforms: when there are no fxs after
+  // the xsheet node, or when the chain is connected to the output itself
+  FxDag *dag     = xsh->getFxDag();
+  TFx *outputFx  = dag->getOutputFxCount() > 0 ? dag->getOutputFx(0) : 0;
+  bool chainOnly = dynamic_cast<TXsheetFx *>(postFx.getPointer()) ||
+                   (outputFx && outputFx->getInputPortCount() > 0 &&
+                    outputFx->getInputPort(0)->getFx() == root.getPointer());
+  if (chainOnly)
+    return ::buildSceneFx(scene, (double)row, xsh, root, BSFX_DEFAULT_TR, false,
+                          TOutputProperties::AllLevels, 1);
+
+  TFxP fx = ::buildSceneFx(scene, (double)row, xsh, root, BSFX_COLUMN_TR, false,
+                           TOutputProperties::AllLevels, 1);
+  if (!fx) return fx;
+  // The post-xsheet tree is cloned, as the multimedia render does
+  TFxP tree(postFx->clone(true));
+  if (replaceXsheetNode(tree.getPointer(), fx.getPointer())) return tree;
+  return TFxP();  // the output does not take the xsheet node
 }
 
 }  // namespace
@@ -319,7 +370,8 @@ void ExportLayeredPsdPopup::onExport() {
       continue;
     const bool visible = column->isPreviewVisible();
     if (!visible && !includeHidden) continue;
-    jobs.push_back({col, getColumnName(xsh, col), visible});
+    jobs.push_back({col, getColumnName(xsh, col), visible,
+                    getChainRoot(xsh, column->getFx())});
   }
   if (jobs.empty()) {
     DVGui::error(tr("No columns can be exported."));
@@ -394,11 +446,15 @@ void ExportLayeredPsdPopup::onExport() {
       for (int i = 0; i < n; ++i)
         fxs[0][i] = ::buildSceneFx(scene, xsh, c0 + i,
                                    TOutputProperties::AllLevels, 1, false);
+      std::vector<TFxP> postFxs(n);
+      for (int i = 0; i < n; ++i)
+        postFxs[i] = ::buildPostSceneFx(scene, xsh, c0 + i, 1, false);
       for (int j = 0; j < layerCount; ++j) {
-        guard.showOnly(jobs[j].m_column);
+        if (!jobs[j].m_visible) guard.setVisible(jobs[j].m_column, true);
         for (int i = 0; i < n; ++i)
-          fxs[j + 1][i] = ::buildSceneFx(
-              scene, xsh, c0 + i, TOutputProperties::AllLevels, 1, false);
+          fxs[j + 1][i] =
+              buildLayerFx(scene, xsh, c0 + i, jobs[j].m_root, postFxs[i]);
+        if (!jobs[j].m_visible) guard.setVisible(jobs[j].m_column, false);
       }
     }
 

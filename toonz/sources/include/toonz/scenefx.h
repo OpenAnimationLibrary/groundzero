@@ -40,6 +40,9 @@ DVAPI TFxP buildPartialSceneFx(ToonzScene *scene, TXsheet *xsh, double row,
                                const TFxP &root, int shrink, bool isPreview);
 DVAPI TFxP buildPostSceneFx(ToonzScene *scene, double row, int shrink,
                             bool isPreview);
+//! As above, for the given xsheet instead of the scene's top xsheet
+DVAPI TFxP buildPostSceneFx(ToonzScene *scene, TXsheet *xsh, double row,
+                            int shrink, bool isPreview);
 
 //-------------------------------------------------------------------------------------------------------------------------
 

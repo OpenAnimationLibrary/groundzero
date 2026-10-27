@@ -610,10 +610,10 @@ void ReferencePanel::loadEntries() {
 //-----------------------------------------------------------------------------
 
 bool ReferencePanel::loadImage(const QString &path) {
-  // An image already in the list is shown again, with its view
+  // An image already in the list is read again (the file may have changed) and
+  // shown with its view
   for (int i = 0; i < (int)m_entries.size(); i++) {
     if (m_entries[i].path != path) continue;
-    if (i == m_current) return true;
     if (showEntry(i)) return true;
     DVGui::warning(tr("Unable to load the image %1").arg(path));
     return false;
