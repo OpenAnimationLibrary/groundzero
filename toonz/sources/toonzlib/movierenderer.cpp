@@ -871,7 +871,7 @@ int MovieRenderer::Imp::addBoard() {
   TDimension cameraResI(cameraRes.lx, cameraRes.ly);
 
   // the board at the size of the written frames
-  const TDimension outputSize =
+  TDimension outputSize =
       m_scene->getProperties()->getOutputProperties()->getOutputSize(
           cameraResI);
   TRaster32P boardRas =
@@ -912,7 +912,7 @@ void MovieRenderer::Imp::saveBoardFrame() {
   TDimension cameraResI(cameraRes.lx, cameraRes.ly);
 
   // the board at the size of the written frames
-  const TDimension outputSize =
+  TDimension outputSize =
       m_scene->getProperties()->getOutputProperties()->getOutputSize(
           cameraResI);
   TRaster32P boardRas =

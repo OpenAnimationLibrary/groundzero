@@ -95,7 +95,7 @@ void load(TSceneProperties &props, const TFilePath &fp) {
 }
 
 QByteArray contents(const TFilePath &fp) {
-  QFile file(toQString(fp));
+  QFile file(QString::fromStdWString(fp.getWideString()));
   require(file.open(QIODevice::ReadOnly), "read: open");
   return file.readAll();
 }
