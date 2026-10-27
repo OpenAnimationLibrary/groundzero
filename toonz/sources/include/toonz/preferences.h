@@ -555,6 +555,11 @@ public:
   TPixel getViewerBgColor() const { return getColorValue(viewerBGColor); }
   TPixel getTableColor() const { return getColorValue(tableColor); }
   TPixel getPreviewBgColor() const { return getColorValue(previewBGColor); }
+  // The colour of the area outside the camera in Camera view, with opacity
+  TPixel getCameraMaskColor() const {
+    return getBoolValue(cameraMaskCustomColor) ? getColorValue(cameraMaskColor)
+                                               : getPreviewBgColor();
+  }
   TPixel getLevelEditorBoxColor() const {
     return getColorValue(levelEditorBoxColor);
   }
