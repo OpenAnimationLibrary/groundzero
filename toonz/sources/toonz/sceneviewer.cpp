@@ -8,6 +8,7 @@
 #include "onionskinmaskgui.h"
 #include "viewerdraw.h"
 #include "aspectguides.h"
+#include "pegbarguides.h"
 #include "menubarcommandids.h"
 #include "ruler.h"
 #include "locatorpopup.h"
@@ -291,6 +292,7 @@ void ToggleCommandHandler::execute() {
 ToggleCommandHandler viewTableToggle(MI_ViewTable, false);
 ToggleCommandHandler editInPlaceToggle(MI_ToggleEditInPlace, false);
 ToggleCommandHandler fieldGuideToggle(MI_FieldGuide, false);
+ToggleCommandHandler pegbarGuideToggle(MI_PegbarGuide, false);
 ToggleCommandHandler safeAreaToggle(MI_SafeArea, false);
 ToggleCommandHandler centerCutGuideToggle(MI_CenterCutGuide, false);
 ToggleCommandHandler rasterizePliToggle(MI_RasterizePli, false);
@@ -1757,6 +1759,14 @@ void SceneViewer::drawOverlay() {
     glPushMatrix();
     tglMultMatrix(m_drawTableAff);
     ViewerDraw::drawFieldGuide();
+    glPopMatrix();
+  }
+
+  // draw the Pegbar Guide, on the table as the Field Guide
+  if (pegbarGuideToggle.getStatus() && !m_drawEditingLevel && !is3DView()) {
+    glPushMatrix();
+    tglMultMatrix(m_drawTableAff);
+    PegbarGuides::draw();
     glPopMatrix();
   }
 

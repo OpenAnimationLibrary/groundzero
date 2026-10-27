@@ -216,6 +216,7 @@ set(HEADERS
     versioncontrolxmlreader.h
     viewerdraw.h
     aspectguides.h
+    pegbarguides.h
     viewerpopup.h
     xshcellmover.h
     xsheetdragtool.h
@@ -286,6 +287,7 @@ set(SOURCES
     sceneviewerevents.cpp
     viewerdraw.cpp
     aspectguides.cpp
+    pegbarguides.cpp
     viewerpane.cpp
     castselection.cpp
     cellselection.cpp

@@ -9,8 +9,8 @@ requests; display-only parts come first, the render change last.
 |---|---|---|
 | 1 | Aspect ratio guides in the Viewer and the Flipbook | This pull request |
 | 2 | Letterbox overlay outside the guides | This pull request |
-| 3 | Outside-camera colour and opacity | Planned |
-| 4 | Pegbar alignment guides from the `.fdg` peg-hole files | Planned |
+| 3 | Outside-camera colour and opacity | Separate pull request |
+| 4 | Pegbar alignment guides from the `.fdg` peg-hole files | Pull request on top of parts 1 and 2 |
 | 5 | Export to an aspect ratio: letterbox or crop | Planned |
 
 ## 1 and 2: guides and letterbox
@@ -51,14 +51,27 @@ at full opacity. A new **Outside Camera** colour and opacity in Preferences >
 Colors, so the table and the art outside the frame can show through dimmed.
 The table disc keeps its own **Table Color**.
 
-## 4: pegbar alignment guides (planned)
+## 4: pegbar alignment guides
 
-A Viewer overlay of the field boundary and the registration holes (the centre
-round hole and the two side slots), drawn to size from the peg-hole files the
-clean-up already ships in `stuff/config/fdg` (Acme and Oxberry 10/12/15/16
-field, Japanese TV and film). Fixed to the table like the Field Guide, top or
-bottom pegs, any `.fdg` file added to the folder shows up in the list. Toonz
-4.6 (on SGI IRIX) used these same Acme and Oxberry standards.
+**View > Pegbar Guide** draws, on the table like the Field Guide:
+
+- the field boundary: the field size of the file (`fld_12_...` is 12 field)
+  or, for a file without one, the Field Guide size of the Scene Settings, at
+  the Field Guide aspect ratio;
+- the registration holes to size: the round centre hole and the two slots;
+- the paper edge behind the pegs, dashed;
+- the name of the file by the centre hole.
+
+**View > Pegbar Guide Settings...** picks the field guide file (every `.fdg`
+in `stuff/config/fdg`: Acme and Oxberry 10, 12, 15 and 16 field, Japanese TV
+and film; a file a studio adds shows up too), the side of the pegs (top,
+bottom, left, right) and the colour. They are kept in the user's settings;
+scenes are unchanged.
+
+The holes come from the same files and values as the clean-up autocenter,
+so the guide matches what the clean-up registers to. Toonz 4.6 (on SGI IRIX)
+used these Acme and Oxberry standards. The layout math
+(`include/toonz/pegbarguide.h`) has a regression test, `pegbarguide_test`.
 
 ## 5: export to an aspect ratio (planned)
 

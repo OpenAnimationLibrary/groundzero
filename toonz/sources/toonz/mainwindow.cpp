@@ -82,6 +82,7 @@
 TEnv::IntVar ViewCameraToggleAction("ViewCameraToggleAction", 1);
 TEnv::IntVar ViewTableToggleAction("ViewTableToggleAction", 1);
 TEnv::IntVar FieldGuideToggleAction("FieldGuideToggleAction", 0);
+TEnv::IntVar PegbarGuideToggleAction("PegbarGuideToggleAction", 0);
 TEnv::IntVar ViewBBoxToggleAction("ViewBBoxToggleAction1", 1);
 TEnv::IntVar EditInPlaceToggleAction("EditInPlaceToggleAction", 0);
 TEnv::IntVar RasterizePliToggleAction("RasterizePliToggleAction", 0);
@@ -1768,6 +1769,8 @@ void MainWindow::onMenuCheckboxChanged() {
     ViewBBoxToggleAction = isChecked;
   else if (cm->getAction(MI_FieldGuide) == action)
     FieldGuideToggleAction = isChecked;
+  else if (cm->getAction(MI_PegbarGuide) == action)
+    PegbarGuideToggleAction = isChecked;
   else if (cm->getAction(MI_RasterizePli) == action) {
     if (!hasOpenGLPbuffers()) isChecked = 0;
     RasterizePliToggleAction = isChecked;
@@ -2835,6 +2838,10 @@ void MainWindow::defineActions() {
                ViewTableToggleAction ? 1 : 0, MenuViewCommandType);
   createToggle(MI_FieldGuide, QT_TR_NOOP("&Field Guide"), "Shift+G",
                FieldGuideToggleAction ? 1 : 0, MenuViewCommandType);
+  createToggle(MI_PegbarGuide, QT_TR_NOOP("Pegbar Guide"), "",
+               PegbarGuideToggleAction ? 1 : 0, MenuViewCommandType);
+  createMenuViewAction(MI_PegbarGuideSettings,
+                       QT_TR_NOOP("Pegbar Guide Settings..."), "");
   createToggle(MI_ViewBBox, QT_TR_NOOP("&Raster Bounding Box"), "",
                ViewBBoxToggleAction ? 1 : 0, MenuViewCommandType);
   createToggle(MI_LightTable, QT_TR_NOOP("&Light Table"), "", false,
