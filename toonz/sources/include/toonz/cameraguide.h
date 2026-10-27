@@ -5,6 +5,7 @@
 
 #include "tgeometry.h"
 
+#include <algorithm>
 #include <cmath>
 #include <string>
 #include <vector>
@@ -69,6 +70,28 @@ inline std::vector<TRectD> letterboxBars(const TRectD &frame,
   if (frame.x0 < in.x0) bars.push_back(TRectD(frame.x0, in.y0, in.x0, in.y1));
   if (in.x1 < frame.x1) bars.push_back(TRectD(in.x1, in.y0, frame.x1, in.y1));
   return bars;
+}
+
+// The pixels of a frame of the given size that an aspect ratio keeps,
+// centred, as a TRect (inclusive bounds). even rounds the sizes down to even
+// numbers, as the movie encoders need. The whole frame for a bad ratio.
+inline TRect aspectPixelRect(const TDimension &size, double aspectRatio,
+                             bool even) {
+  const TRect full(0, 0, size.lx - 1, size.ly - 1);
+  if (size.lx <= 0 || size.ly <= 0 || !std::isfinite(aspectRatio) ||
+      aspectRatio <= 0.0)
+    return full;
+  int lx = size.lx, ly = size.ly;
+  if ((double)lx / ly > aspectRatio)
+    lx = std::max(1, (int)std::lround(ly * aspectRatio));
+  else
+    ly = std::max(1, (int)std::lround(lx / aspectRatio));
+  if (even) {
+    if (lx > 1) lx -= lx % 2;
+    if (ly > 1) ly -= ly % 2;
+  }
+  const int x0 = (size.lx - lx) / 2, y0 = (size.ly - ly) / 2;
+  return TRect(x0, y0, x0 + lx - 1, y0 + ly - 1);
 }
 
 }  // namespace CameraGuide

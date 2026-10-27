@@ -24,6 +24,8 @@
 #include "tproperty.h"
 #include "tiio.h"
 
+#include <algorithm>
+
 namespace {
 const QList<TSceneProperties::CellMark> getDefaultCellMarks() {
   return QList<TSceneProperties::CellMark>{
@@ -268,6 +270,13 @@ void TSceneProperties::saveData(TOStream &os) const {
     os.child("threadsIndex") << out.getThreadIndex();
     os.child("maxTileSizeIndex") << out.getMaxTileSizeIndex();
     os.child("subcameraPrev") << (out.isSubcameraPreview() ? 1 : 0);
+    // Only when used: OpenToonz builds without it reject the tag
+    if (out.getAspectMode() != TOutputProperties::NoAspectExport) {
+      const TPixel32 color = out.getAspectColor();
+      os.child("aspectExport")
+          << out.getAspectMode() << out.getAspectRatio() << (int)color.r
+          << (int)color.g << (int)color.b << (int)color.m;
+    }
     os.child("stereoscopic")
         << (rs.m_stereoscopic ? 1 : 0) << rs.m_stereoscopicShift;
 
@@ -611,6 +620,17 @@ void TSceneProperties::loadData(TIStream &is, bool isLoadingProject) {
               int j;
               is >> j;
               out.setSubcameraPreview(j != 0);
+            } else if (tagName == "aspectExport") {
+              int mode = 0, r = 0, g = 0, b = 0, m = 255;
+              double ratio = 0;
+              is >> mode >> ratio >> r >> g >> b >> m;
+              out.setAspectMode(mode);
+              out.setAspectRatio(ratio);
+              auto channel = [](int v) {
+                return (TPixel32::Channel)std::min(std::max(v, 0), 255);
+              };
+              out.setAspectColor(
+                  TPixel32(channel(r), channel(g), channel(b), channel(m)));
             } else if (tagName == "resquality") {
               int j;
               is >> j;

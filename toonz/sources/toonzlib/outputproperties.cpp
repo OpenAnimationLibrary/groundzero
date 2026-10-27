@@ -4,6 +4,7 @@
 
 // TnzLib includes
 #include "toonz/boardsettings.h"
+#include "toonz/cameraguide.h"
 
 // TnzBase includes
 #include "trasterfx.h"
@@ -43,7 +44,10 @@ TOutputProperties::TOutputProperties()
     , m_subcameraPreview(false)
     , m_boardSettings(new BoardSettings())
     , m_formatTemplateFId()
-    , m_syncColorSettings(true) {
+    , m_syncColorSettings(true)
+    , m_aspectMode(NoAspectExport)
+    , m_aspectRatio(1.85)
+    , m_aspectColor(TPixel32::Black) {
   m_renderSettings = new TRenderSettings();
   m_nonlinearBpp   = m_renderSettings->m_bpp;
 }
@@ -67,7 +71,10 @@ TOutputProperties::TOutputProperties(const TOutputProperties &src)
     , m_boardSettings(new BoardSettings(*src.m_boardSettings))
     , m_formatTemplateFId(src.m_formatTemplateFId)
     , m_syncColorSettings(src.m_syncColorSettings)
-    , m_nonlinearBpp(src.m_nonlinearBpp) {
+    , m_nonlinearBpp(src.m_nonlinearBpp)
+    , m_aspectMode(src.m_aspectMode)
+    , m_aspectRatio(src.m_aspectRatio)
+    , m_aspectColor(src.m_aspectColor) {
   std::map<std::string, TPropertyGroup *>::iterator ft,
       fEnd = m_formatProperties.end();
   for (ft = m_formatProperties.begin(); ft != fEnd; ++ft) {
@@ -116,7 +123,33 @@ TOutputProperties &TOutputProperties::operator=(const TOutputProperties &src) {
 
   m_formatTemplateFId = src.m_formatTemplateFId;
 
+  m_aspectMode  = src.m_aspectMode;
+  m_aspectRatio = src.m_aspectRatio;
+  m_aspectColor = src.m_aspectColor;
+
   return *this;
+}
+
+//-------------------------------------------------------------------
+
+void TOutputProperties::setAspectMode(int mode) {
+  m_aspectMode =
+      mode == AspectLetterbox || mode == AspectCrop ? mode : NoAspectExport;
+}
+
+//-------------------------------------------------------------------
+
+void TOutputProperties::setAspectRatio(double ratio) {
+  if (std::isfinite(ratio) && ratio > 0.0) m_aspectRatio = ratio;
+}
+
+//-------------------------------------------------------------------
+
+TDimension TOutputProperties::getOutputSize(
+    const TDimension &renderSize) const {
+  if (m_aspectMode != AspectCrop) return renderSize;
+  return CameraGuide::aspectPixelRect(renderSize, m_aspectRatio, true)
+      .getSize();
 }
 
 //-------------------------------------------------------------------

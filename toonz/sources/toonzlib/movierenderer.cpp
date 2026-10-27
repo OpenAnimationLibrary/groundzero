@@ -12,6 +12,7 @@
 #include "tsop.h"
 
 #include "tiio.h"
+#include "tpixelutils.h"
 
 // TnzLib includes
 #include "toonz/toonzscene.h"
@@ -23,6 +24,7 @@
 #include "toonz/levelupdater.h"
 #include "toutputproperties.h"
 #include "toonz/boardsettings.h"
+#include "toonz/cameraguide.h"
 
 // tcg includes
 #include "tcg/tcg_macros.h"
@@ -96,6 +98,61 @@ void getRange(ToonzScene *scene, bool isPreview, int &from, int &to) {
 
 QString getPreviewName(unsigned long renderSessionId) {
   return "previewed" + QString::number(renderSessionId) + ".noext";
+}
+
+//---------------------------------------------------------------------
+
+// Fills the part of ras outside keep, in the pixel type of the raster; color
+// is converted to linear for a raster written in linear color space.
+void fillOutside(const TRasterP &ras, const TRect &keep, const TPixel32 &color,
+                 double linearGamma) {
+  const TRect bounds = ras->getBounds();
+  std::vector<TRect> bars;
+  if (keep.y1 < bounds.y1)
+    bars.push_back(TRect(bounds.x0, keep.y1 + 1, bounds.x1, bounds.y1));
+  if (bounds.y0 < keep.y0)
+    bars.push_back(TRect(bounds.x0, bounds.y0, bounds.x1, keep.y0 - 1));
+  if (bounds.x0 < keep.x0)
+    bars.push_back(TRect(bounds.x0, keep.y0, keep.x0 - 1, keep.y1));
+  if (keep.x1 < bounds.x1)
+    bars.push_back(TRect(keep.x1 + 1, keep.y0, bounds.x1, keep.y1));
+
+  const bool linear  = ras->isLinear();
+  const TPixel32 pix = premultiply(color);
+  for (TRect bar : bars) {
+    TRasterP sub = ras->extract(bar);
+    if (TRaster32P ras32 = sub)
+      ras32->fill(linear ? toLinear(pix, linearGamma) : pix);
+    else if (TRaster64P ras64 = sub) {
+      const TPixel64 pix64 = toPixel64(pix);
+      ras64->fill(linear ? toLinear(pix64, linearGamma) : pix64);
+    } else if (TRasterFP rasF = sub) {
+      const TPixelF pixF = toPixelF(pix);
+      rasF->fill(linear ? toLinear(pixF, linearGamma) : pixF);
+    }
+  }
+}
+
+//---------------------------------------------------------------------
+
+// Fits a rendered frame to the export aspect ratio of the output settings:
+// crops it, or puts bars outside the ratio.
+void applyAspectExport(const TOutputProperties &out, TRasterImageP img,
+                       double linearGamma) {
+  const int mode = out.getAspectMode();
+  if (mode == TOutputProperties::NoAspectExport) return;
+  TRasterP ras = img->getRaster();
+  if (!ras) return;
+  const bool crop = mode == TOutputProperties::AspectCrop;
+  TRect keep =
+      CameraGuide::aspectPixelRect(ras->getSize(), out.getAspectRatio(), crop);
+  if (keep == ras->getBounds()) return;
+  if (crop) {
+    TRasterP cropped = ras->extract(keep)->clone();
+    cropped->setLinear(ras->isLinear());
+    img->setRaster(cropped);
+  } else
+    fillOutside(ras, keep, out.getAspectColor(), linearGamma);
 }
 
 }  // namespace
@@ -289,7 +346,8 @@ void MovieRenderer::Imp::prepareForStart() {
     {    // could throw). But due to backward compatibility this function is
          // assumed to be non-throwing.
       if (!m_renderSettings.m_stereoscopic) {
-        locals::eraseUncompatibleExistingLevel(m_fp, cameraResI);
+        locals::eraseUncompatibleExistingLevel(
+            m_fp, oprop->getOutputSize(cameraResI));
 
         m_levelUpdaterA.reset(new LevelUpdater(
             m_fp, oprop->getFileFormatProperties(m_fp.getType()),
@@ -300,8 +358,10 @@ void MovieRenderer::Imp::prepareForStart() {
         TFilePath leftFp  = m_fp.withName(m_fp.getName() + "_l");
         TFilePath rightFp = m_fp.withName(m_fp.getName() + "_r");
 
-        locals::eraseUncompatibleExistingLevel(leftFp, cameraResI);
-        locals::eraseUncompatibleExistingLevel(rightFp, cameraResI);
+        locals::eraseUncompatibleExistingLevel(
+            leftFp, oprop->getOutputSize(cameraResI));
+        locals::eraseUncompatibleExistingLevel(
+            rightFp, oprop->getOutputSize(cameraResI));
 
         m_levelUpdaterA.reset(new LevelUpdater(
             leftFp, oprop->getFileFormatProperties(leftFp.getType()),
@@ -412,6 +472,11 @@ void MovieRenderer::Imp::postProcessImage(const TRasterImageP &img,
       TRop::toLinearRGB(img->getRaster(), writingGamma);
     }
   }
+
+  // After the color space conversion, which is done in place once for the
+  // frames that share a raster: the crop makes a copy.
+  applyAspectExport(*m_scene->getProperties()->getOutputProperties(), img,
+                    writingGamma);
 
   if (mark) addMark(mark, img);
 
@@ -860,8 +925,12 @@ int MovieRenderer::Imp::addBoard() {
                         double(m_frameSize.ly) / shrinkY);
   TDimension cameraResI(cameraRes.lx, cameraRes.ly);
 
+  // the board at the size of the written frames
+  const TDimension outputSize =
+      m_scene->getProperties()->getOutputProperties()->getOutputSize(
+          cameraResI);
   TRaster32P boardRas =
-      boardSettings->getBoardRaster(cameraResI, shrinkX, m_scene);
+      boardSettings->getBoardRaster(outputSize, shrinkX, m_scene);
 
   if (m_levelUpdaterA.get()) {
     // Flush images
@@ -897,8 +966,12 @@ void MovieRenderer::Imp::saveBoardFrame() {
                         double(m_frameSize.ly) / shrinkY);
   TDimension cameraResI(cameraRes.lx, cameraRes.ly);
 
+  // the board at the size of the written frames
+  const TDimension outputSize =
+      m_scene->getProperties()->getOutputProperties()->getOutputSize(
+          cameraResI);
   TRaster32P boardRas =
-      boardSettings->getBoardRaster(cameraResI, shrinkX, m_scene);
+      boardSettings->getBoardRaster(outputSize, shrinkX, m_scene);
 
   if (m_levelUpdaterA.get()) {
     // Flush images

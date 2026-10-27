@@ -108,6 +108,35 @@ void testLetterboxBars() {
           "bars: no frame");
 }
 
+//------------------------------------------------------------------
+
+void testAspectPixelRect() {
+  const TDimension hd(1920, 1080);
+  // Letterbox: centred rows, exact size
+  TRect r = CameraGuide::aspectPixelRect(hd, 2.39, false);
+  require(r.getLx() == 1920 && r.getLy() == 803, "pixels: 2.39 size");
+  require(r.y0 == 138 && r.y1 == 940, "pixels: 2.39 centred");
+  // Crop: even sizes
+  r = CameraGuide::aspectPixelRect(hd, 2.39, true);
+  require(r.getLy() == 802, "pixels: 2.39 even");
+  r = CameraGuide::aspectPixelRect(hd, 1.85, true);
+  require(r.getLx() == 1920 && r.getLy() == 1038, "pixels: 1.85");
+  // Pillarbox
+  r = CameraGuide::aspectPixelRect(hd, 4.0 / 3.0, true);
+  require(r.getLx() == 1440 && r.x0 == 240 && r.x1 == 1679,
+          "pixels: 4:3 centred columns");
+  // Same ratio and bad ratios: the whole frame
+  require(CameraGuide::aspectPixelRect(hd, 16.0 / 9.0, true) ==
+              TRect(0, 0, 1919, 1079),
+          "pixels: same ratio");
+  require(
+      CameraGuide::aspectPixelRect(hd, 0.0, true) == TRect(0, 0, 1919, 1079),
+      "pixels: zero ratio");
+  // Tiny frames keep at least a pixel
+  r = CameraGuide::aspectPixelRect(TDimension(3, 1), 100.0, true);
+  require(r.getLx() == 2 && r.getLy() == 1, "pixels: tiny frame");
+}
+
 }  // namespace
 
 int main() {
@@ -115,6 +144,7 @@ int main() {
     testCenteredRect();
     testParseRatio();
     testLetterboxBars();
+    testAspectPixelRect();
   } catch (const std::exception &e) {
     std::cerr << "cameraguide_test failed: " << e.what() << std::endl;
     return 1;

@@ -11,6 +11,7 @@
 // forward declaration
 class ToonzScene;
 class QComboBox;
+class QLineEdit;
 class QScrollArea;
 class QListWidgetItem;
 
@@ -20,6 +21,7 @@ class LineEdit;
 class IntLineEdit;
 class CheckBox;
 class DoubleLineEdit;
+class ColorField;
 }  // namespace DVGui
 
 class CameraSettingsPopup;
@@ -79,6 +81,12 @@ class OutputSettingsPopup : public DVGui::Dialog {
   // clapperboard
   DVGui::CheckBox *m_addBoard;
   QPushButton *m_boardSettingsBtn;
+
+  // export to an aspect ratio
+  QComboBox *m_aspectRatioOm          = nullptr;
+  QLineEdit *m_aspectRatioFld         = nullptr;
+  QComboBox *m_aspectModeOm           = nullptr;
+  DVGui::ColorField *m_aspectColorFld = nullptr;
 
   QScrollArea *m_scrollArea;
   AnimatedLabel *m_cameraLabel, *m_colorLabel, *m_fileLabel, *m_moreLabel;
@@ -144,6 +152,7 @@ protected slots:
   // clapperboard
   void onAddBoardChecked(int state);
   void onBoardSettingsBtnClicked();
+  void onAspectExportChanged();
 
   void onCategoryActivated(QListWidgetItem *);
 };
