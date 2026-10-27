@@ -108,7 +108,7 @@ was written). What each one delivered and what is still partial:
 | B5 | Colour Override swatch picker, Replace/Multiply/Add modes, "Show Colour Override in the Viewer" preference | Viewer display skips the 3D view, sub-xsheet columns and multi-output columns |
 | B6 | Light Shading FX: radial and directional (volume) modes, bands, softness, line protection (`doc/light_shading_fx.md`) | CPU only; normals from alpha only; no separate specular model |
 | B7 | Per-column time remap curve, Hold / Loop / Reverse presets, saved only when used (`doc/time_remap.md`) | Xsheet cells still show original timing; scene length comes from the cells |
-| B8 | Storyboard: drag reorder, notes, bounded play, camera thumbnails | Older builds cannot open a scene that uses notes |
+| B8 | Storyboard: drag reorder, notes, bounded play, camera thumbnails (opt-in) | Older builds cannot open a scene that uses notes |
 | B9 | Lasso Cutter keeps fills with invisible closing strokes; "Paste To" new frame or column | Closing strokes only in the current group; tangential touches add none |
 
 ---

@@ -28,6 +28,7 @@
 
 // TnzCore includes
 #include "tundo.h"
+#include "tenv.h"
 #include "historytypes.h"
 
 // Qt includes
@@ -53,6 +54,9 @@
 #include <climits>
 
 namespace {
+// remembers the "Camera Thumbnails" option, off by default
+TEnv::IntVar StoryboardCameraThumbnails("StoryboardCameraThumbnails", 0);
+
 // QDropEvent::pos() is deprecated in Qt 6, position() does not exist in Qt 5.
 template <class Event>
 QPoint dropEventPos(const Event *e) {
@@ -272,7 +276,7 @@ StoryboardPane::StoryboardPane(QWidget *parent, Qt::WindowFlags flags)
   m_cameraCheck->setToolTip(
       tr("Show a camera render of the first frame of each panel instead of one "
          "drawing"));
-  m_cameraCheck->setChecked(true);
+  m_cameraCheck->setChecked(StoryboardCameraThumbnails != 0);
 
   m_thumbTimer = new QTimer(this);
   m_thumbTimer->setSingleShot(true);
@@ -355,13 +359,13 @@ void StoryboardPane::showEvent(QShowEvent *) {
   TApp *app = TApp::instance();
   connect(app->getCurrentScene(), SIGNAL(sceneSwitched()), this,
           SLOT(refresh()), Qt::UniqueConnection);
+  connect(app->getCurrentScene(), SIGNAL(sceneSwitched()), this,
+          SLOT(scheduleThumbnails()), Qt::UniqueConnection);
   connect(app->getCurrentXsheet(), SIGNAL(xsheetSwitched()), this,
           SLOT(refresh()), Qt::UniqueConnection);
   connect(app->getCurrentXsheet(), SIGNAL(xsheetChanged()), this,
           SLOT(refresh()), Qt::UniqueConnection);
   connect(app->getCurrentXsheet(), SIGNAL(xsheetChanged()), this,
-          SLOT(scheduleThumbnails()), Qt::UniqueConnection);
-  connect(app->getCurrentLevel(), SIGNAL(xshLevelChanged()), this,
           SLOT(scheduleThumbnails()), Qt::UniqueConnection);
   connect(app->getCurrentFrame(), SIGNAL(frameSwitched()), this,
           SLOT(onFrameSwitched()), Qt::UniqueConnection);
@@ -376,13 +380,13 @@ void StoryboardPane::hideEvent(QHideEvent *) {
   TApp *app = TApp::instance();
   disconnect(app->getCurrentScene(), SIGNAL(sceneSwitched()), this,
              SLOT(refresh()));
+  disconnect(app->getCurrentScene(), SIGNAL(sceneSwitched()), this,
+             SLOT(scheduleThumbnails()));
   disconnect(app->getCurrentXsheet(), SIGNAL(xsheetSwitched()), this,
              SLOT(refresh()));
   disconnect(app->getCurrentXsheet(), SIGNAL(xsheetChanged()), this,
              SLOT(refresh()));
   disconnect(app->getCurrentXsheet(), SIGNAL(xsheetChanged()), this,
-             SLOT(scheduleThumbnails()));
-  disconnect(app->getCurrentLevel(), SIGNAL(xshLevelChanged()), this,
              SLOT(scheduleThumbnails()));
   m_thumbTimer->stop();
   disconnect(app->getCurrentFrame(), SIGNAL(frameSwitched()), this,
@@ -762,13 +766,16 @@ void StoryboardPane::onPlayAnimatic() {
 //-----------------------------------------------------------------------------
 
 void StoryboardPane::onCameraThumbsToggled() {
+  StoryboardCameraThumbnails = m_cameraCheck->isChecked() ? 1 : 0;
   rebuildList();
   scheduleThumbnails();
 }
 
 //-----------------------------------------------------------------------------
 /*! The thumbnails are regenerated 500 ms after the last change of the xsheet
-    or of its levels.                                                     */
+    or a scene switch. Drawing edits (level changes) do not regenerate them,
+    so that a camera render per panel is not queued after every stroke:
+    toggling the option off and on regenerates them on demand.          */
 
 void StoryboardPane::scheduleThumbnails() {
   if (m_cameraCheck->isChecked() && isVisible()) m_thumbTimer->start();

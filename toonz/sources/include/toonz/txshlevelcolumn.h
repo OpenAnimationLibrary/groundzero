@@ -70,6 +70,9 @@ public:
   TLevelColumnFx *getLevelColumnFx() const;
   TFx *getFx() const override;
 
+  // Also gives the time remap curve the expression grammar of the xsheet
+  void setXsheet(TXsheet *xsheet) override;
+
   // Cell operations
   // Used in TCellData::getNumbers
   // reservedLevel can be nonzero if the preferences option

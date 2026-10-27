@@ -706,13 +706,17 @@ InbetweenStrokePairs &inbetweenStrokePairs() {
 // key drawing. As for the stroke pairs, the drawings are identified through the
 // id of a stroke they contain (the first selected one), so a hint stops
 // applying when that stroke is gone.
+// The drawings are also remembered by pointer, because a key drawing
+// duplicated from the other one holds the same stroke ids.
 struct InbetweenZoneHints {
   struct Hint {
     int m_idA, m_idB;
     TRectD m_rectA, m_rectB;
+    const TVectorImage *m_imageA, *m_imageB;  // only compared
   };
 
-  int m_markedId = -1;  // -1: nothing marked yet
+  int m_markedId                    = -1;       // -1: nothing marked yet
+  const TVectorImage *m_markedImage = nullptr;  // only compared
   TRectD m_markedRect;
   std::vector<Hint> m_hints;
 };
@@ -786,6 +790,7 @@ void StrokeSelection::clearInbetweenStrokePairs() {
 
   InbetweenZoneHints &zones = inbetweenZoneHints();
   zones.m_markedId          = -1;
+  zones.m_markedImage       = nullptr;
   zones.m_markedRect        = TRectD();
   zones.m_hints.clear();
 }
@@ -839,9 +844,10 @@ void StrokeSelection::addInbetweenZoneHint() {
 
   // first step: remember the zone in the first key drawing (the call is
   // repeated on the same drawing: replace the zone)
-  if (data.m_markedId < 0 || m_vi->getStrokeIndexById(data.m_markedId) >= 0) {
-    data.m_markedId   = anchorId;
-    data.m_markedRect = box;
+  if (data.m_markedId < 0 || data.m_markedImage == m_vi.getPointer()) {
+    data.m_markedId    = anchorId;
+    data.m_markedImage = m_vi.getPointer();
+    data.m_markedRect  = box;
     DVGui::info(QObject::tr(
         "Zone marked for Inbetween. Select the strokes of the "
         "matching zone in the other key drawing and use Add Inbetween "
@@ -851,13 +857,16 @@ void StrokeSelection::addInbetweenZoneHint() {
 
   // second step: the zone of this key drawing is the target
   InbetweenZoneHints::Hint hint;
-  hint.m_idA   = data.m_markedId;
-  hint.m_idB   = anchorId;
-  hint.m_rectA = data.m_markedRect;
-  hint.m_rectB = box;
+  hint.m_idA    = data.m_markedId;
+  hint.m_idB    = anchorId;
+  hint.m_rectA  = data.m_markedRect;
+  hint.m_rectB  = box;
+  hint.m_imageA = data.m_markedImage;
+  hint.m_imageB = m_vi.getPointer();
   data.m_hints.push_back(hint);
-  data.m_markedId   = -1;
-  data.m_markedRect = TRectD();
+  data.m_markedId    = -1;
+  data.m_markedImage = nullptr;
+  data.m_markedRect  = TRectD();
 
   DVGui::info(QObject::tr("%1 zone hint(s) set for Inbetween.")
                   .arg((int)data.m_hints.size()));
@@ -872,11 +881,18 @@ std::vector<std::pair<TRectD, TRectD>> StrokeSelection::getInbetweenZoneHints(
 
   for (const InbetweenZoneHints::Hint &hint : inbetweenZoneHints().m_hints) {
     // hints can be set from either key drawing
-    if (firstImage->getStrokeIndexById(hint.m_idA) >= 0 &&
-        lastImage->getStrokeIndexById(hint.m_idB) >= 0)
+    bool idsAB = firstImage->getStrokeIndexById(hint.m_idA) >= 0 &&
+                 lastImage->getStrokeIndexById(hint.m_idB) >= 0;
+    bool idsBA = firstImage->getStrokeIndexById(hint.m_idB) >= 0 &&
+                 lastImage->getStrokeIndexById(hint.m_idA) >= 0;
+    // a key drawing duplicated from the other holds the same stroke ids: the
+    // drawings the hint was set on decide then
+    if (idsAB && idsBA && hint.m_imageA == lastImage.getPointer() &&
+        hint.m_imageB == firstImage.getPointer())
+      idsAB = false;
+    if (idsAB)
       rects.push_back(std::make_pair(hint.m_rectA, hint.m_rectB));
-    else if (firstImage->getStrokeIndexById(hint.m_idB) >= 0 &&
-             lastImage->getStrokeIndexById(hint.m_idA) >= 0)
+    else if (idsBA)
       rects.push_back(std::make_pair(hint.m_rectB, hint.m_rectA));
   }
   return rects;

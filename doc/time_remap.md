@@ -12,8 +12,8 @@ reads, renders and saves exactly as before.
 
 - The curve is the parameter **Time Remap** of the column fx of a level column
   (`TLevelColumnFx`), next to a hidden on/off flag. It is listed in the
-  Function Editor under the column fx (for example `Col1`), only for the
-  columns that use the remap.
+  Function Editor under the column fx, named by its column (for example
+  `Col1`), only for the columns that use the remap.
 - The **value** of the curve at a frame is the number of the xsheet frame whose
   cell is shown at that frame, as numbered in the xsheet (1 is the first row).
   The identity is therefore the line that goes through (frame 1, value 1),
@@ -24,8 +24,11 @@ reads, renders and saves exactly as before.
   indefinitely, which is what Loop uses. A remap without keys, or switched off,
   does nothing.
 - Any interpolation of the Function Editor can be used (linear, ease, speed,
-  expression, ...), so a column can be slowed down, accelerated or played with
-  a custom timing.
+  expression, similar shape, ...), so a column can be slowed down, accelerated
+  or played with a custom timing. Expression and Similar Shape segments use the
+  grammar of the xsheet, like the stage object channels: the column gets it
+  when it is inserted in an xsheet or loaded with the scene
+  (`TXshLevelColumn::setXsheet`).
 
 ## Presets
 

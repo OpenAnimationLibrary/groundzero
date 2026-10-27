@@ -18,13 +18,17 @@ describes the follow-ups of master plan item B8.
   cells of the panel (every column) move together with its navigation tag, so
   the panel keeps its caption, color and notes. The move is a single undo
   step ("Move Storyboard Panel"). Notes edits are undoable too.
-- **Camera Thumbnails** (on by default, not saved): each card shows a small
-  camera render of the first frame of the panel, made by the icon generator
-  (`IconGenerator::getXsheetFrameIcon`, the same renderer as the sub-xsheet
-  icons, drawn by the camera stand with the scene background). The renders are
-  cached and regenerated 500 ms after the last change of the xsheet or of a
-  level. Turning the option off shows the drawing of the first frame as
-  before.
+- **Camera Thumbnails** (off by default; the choice is remembered in the
+  user settings, `StoryboardCameraThumbnails`, not in the scene): each card
+  shows a small camera render of the first frame of the panel, made by the
+  icon generator (`IconGenerator::getXsheetFrameIcon`, the same renderer as
+  the sub-xsheet icons, drawn by the camera stand with the scene background).
+  The renders are cached and regenerated 500 ms after the last change of the
+  xsheet (cells, columns, tags) or a scene switch. Drawing edits do not
+  regenerate them, so painting with the pane open does not queue a camera
+  render per panel after every stroke: toggle the option off and on to
+  refresh the thumbnails after drawing. With the option off each card shows
+  the drawing of the first frame as before.
 
 ## File format and compatibility
 
