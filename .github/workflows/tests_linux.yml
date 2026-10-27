@@ -163,6 +163,101 @@ jobs:
   # from edition (base/, with the tool's source and CMake block copied in) and
   # from this branch (new/), each one runs on its own checkout, each one loads
   # the scene the other saved, and every output must be the same.
+  # The unit tests and the file loader robustness tests again, in a debug
+  # build with AddressSanitizer and UndefinedBehaviorSanitizer: memory errors
+  # that do not crash a normal build fail here.
+  Sanitizers:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 300
+    env:
+      QT_QPA_PLATFORM: offscreen
+      DEBIAN_FRONTEND: noninteractive
+      ASAN_OPTIONS: detect_leaks=0:abort_on_error=1:allocator_may_return_null=1
+      UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+    steps:
+    - uses: actions/checkout@v6
+
+    - name: Install libraries
+      run: |
+        # Processing the man-db trigger can take most of an hour on the hosted
+        # images
+        echo 'set man-db/auto-update false' | sudo debconf-communicate >/dev/null || true
+        sudo rm -f /var/lib/man-db/auto-update
+        sudo apt-get update
+        sudo apt-get install -y build-essential cmake pkg-config ninja-build ccache libboost-all-dev qtbase5-dev qt5-qmake qtdeclarative5-dev qtdeclarative5-dev-tools qttools5-dev qttools5-dev-tools qtmultimedia5-dev qtwayland5 libqt5svg5-dev libqt5opengl5-dev libqt5multimedia5-plugins libqt5serialport5-dev libsuperlu-dev liblz4-dev libusb-1.0-0-dev liblzo2-dev libpng-dev libjpeg-dev libglew-dev freeglut3-dev libfreetype6-dev libjson-c-dev libmypaint-dev libopencv-dev libturbojpeg-dev libomp-dev ffmpeg
+
+    - name: Set up cache
+      run: mkdir -p /home/runner/.ccache
+
+    - uses: actions/cache@v5
+      with:
+        path: /home/runner/.ccache
+        key: ${{ runner.os }}-asan-${{ github.sha }}
+        restore-keys: |
+          ${{ runner.os }}-asan-
+
+    - name: Build libtiff
+      run: |
+        cd thirdparty/tiff-4.0.3
+        CFLAGS='-fPIC' CXXFLAGS='-fPIC' ./configure --disable-jbig
+        make -j $(nproc)
+
+    - name: Build the tests with sanitizers
+      run: |
+        export CCACHE_DIR=/home/runner/.ccache
+        mkdir -p toonz/build
+        cd toonz/build
+        set -o pipefail
+        san="-fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=undefined"
+        cmake ../sources -G Ninja -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_BUILD_TYPE=Debug -DWITH_TRANSLATION=OFF -DBUILD_TESTS=ON \
+          "-DCMAKE_CXX_FLAGS=$san -Werror=return-type" "-DCMAKE_C_FLAGS=$san" \
+          "-DCMAKE_EXE_LINKER_FLAGS=-fsanitize=address,undefined" "-DCMAKE_SHARED_LINKER_FLAGS=-fsanitize=address,undefined" 2>&1 | tee "$GITHUB_WORKSPACE/build.log"
+        # Only the test executables and what they link
+        targets=$(ninja -t targets all | sed -n 's/^\([A-Za-z0-9_]*_test\): .*/\1/p' | sort -u | tr '\n' ' ')
+        echo "targets: $targets"
+        ninja -k 0 $targets 2>&1 | tee -a "$GITHUB_WORKSPACE/build.log"
+
+    - name: Report build errors
+      if: failure()
+      run: |
+        grep -E ': (fatal )?error:|undefined reference|^FAILED:' "$GITHUB_WORKSPACE/build.log" | sort -u | head -20 | while IFS= read -r line; do
+          echo "::error title=Sanitizer build::${line}"
+        done
+
+    # The fuzz harnesses run each case in a child process: a sanitizer report
+    # aborts the child and the case counts as a crash. Cases get more time,
+    # since the sanitized build is slower.
+    - name: Run the tests
+      id: run
+      continue-on-error: true
+      run: |
+        cd toonz/build
+        failed=0
+        enc() { sed -e 's/%/%25/g' | sed -e ':a;N;$!ba;s/\r/%0D/g;s/\n/%0A/g'; }
+        ctest -E '^fuzz_' --timeout 1800 > "$GITHUB_WORKSPACE/ctest.log" 2>&1 || failed=1
+        grep -E 'tests passed|tests failed' "$GITHUB_WORKSPACE/ctest.log" | tail -1 | while IFS= read -r l; do echo "::notice title=Sanitizers ctest::$l"; done
+        if [ -f Testing/Temporary/LastTestsFailed.log ]; then
+          cut -d: -f2 Testing/Temporary/LastTestsFailed.log | while IFS= read -r name; do
+            out=$(ctest -R "^${name}\$" --output-on-failure --timeout 1800 2>&1 | grep -v '^ *Start\|Test project' | tail -n 45 | enc)
+            echo "::error title=Sanitizers: ${name}::${out}"
+          done
+        fi
+        for exe in $(find . -name '*_fuzz_test' -type f -perm -u+x | sort); do
+          name=$(basename "$exe")
+          if "$exe" --timeout 120 > "$GITHUB_WORKSPACE/$name.log" 2>&1; then
+            echo "::notice title=Sanitizers: ${name}::$(grep -E 'cases from' "$GITHUB_WORKSPACE/$name.log" | head -1)"
+          else
+            failed=1
+            out=$(grep -vE '^varName:' "$GITHUB_WORKSPACE/$name.log" | grep -E 'cases from|FAILED|known issue|ERROR: AddressSanitizer|runtime error|SUMMARY' | head -n 60 | enc)
+            echo "::error title=Sanitizers: ${name}::${out}"
+          fi
+        done
+        exit $failed
+
+    - name: Fail if a test failed
+      if: ${{ !cancelled() && steps.run.outcome == 'failure' }}
+      run: exit 1
+
   Compat:
     runs-on: ubuntu-22.04
     timeout-minutes: 240
