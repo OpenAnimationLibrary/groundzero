@@ -47,6 +47,9 @@ source zone are matched with strokes of the other whose centroid is in the
 target zone, nearest first (distance measured from the center of each zone).
 **Clear Inbetween Stroke Pairs** clears the zone hints too. A hint stops
 applying when the selected stroke it was recorded on is deleted.
+The two steps are told apart by the drawing (not by its stroke ids), so a key
+drawing duplicated from the other one, which keeps the same stroke ids, works
+too; the hint then also remembers which drawing each zone was recorded on.
 
 ## Velocity curve
 

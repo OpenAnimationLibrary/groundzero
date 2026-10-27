@@ -1,6 +1,7 @@
 #include "stdfx.h"
 #include "tfxparam.h"
 #include "tparamset.h"
+#include "tparamcontainer.h"
 #include "ttzpimagefx.h"
 #include "globalcontrollablefx.h"
 
@@ -80,6 +81,15 @@ public:
   }
 
   bool allowUserCacheOnPort(int port) override { return false; }
+
+  // A mode is saved only when it is not Replace, so that the Fx of older
+  // scenes saves as before
+  bool isParamSaved(const TParamVar *paramVar) const override {
+    for (int i = 0; i < PAIR_COUNT; ++i)
+      if (paramVar->getParam() == m_mode[i].getPointer())
+        return m_mode[i]->getValue() != ColourOverrideFxRenderData::eReplace;
+    return true;
+  }
 
 private:
   // Adds the pairs in use at frame to the render data for the columns

@@ -102,6 +102,17 @@ public:
   QVariant data(int role) const override;
 };
 
+//=============================================================================
+
+// The id an fx is listed with. The column fxs of the level columns that use
+// the time remap have no fx id: they are listed by their column ("Col1").
+std::wstring fxGroupId(const TFx *fx) {
+  if (fx->getFxId().empty())
+    if (const TColumnFx *columnFx = dynamic_cast<const TColumnFx *>(fx))
+      return columnFx->getColumnId();
+  return fx->getFxId();
+}
+
 }  // namespace
 
 //=============================================================================
@@ -338,13 +349,13 @@ FxChannelGroup::~FxChannelGroup() {
 //-----------------------------------------------------------------------------
 
 QString FxChannelGroup::getShortName() const {
-  return QString::fromStdWString(m_fx->getFxId());
+  return QString::fromStdWString(fxGroupId(m_fx));
 }
 
 //-----------------------------------------------------------------------------
 
 QString FxChannelGroup::getLongName() const {
-  return QString::fromStdWString(m_fx->getFxId());
+  return QString::fromStdWString(fxGroupId(m_fx));
 }
 
 //-----------------------------------------------------------------------------
@@ -391,9 +402,10 @@ QVariant FxChannelGroup::data(int role) const {
     }
   } else if (role == Qt::DisplayRole) {
     std::wstring name = m_fx->getName();
-    std::wstring id   = m_fx->getFxId();
-    if (name == id)
-      return QString::fromStdWString(name);
+    std::wstring id   = fxGroupId(m_fx);
+    // a column fx is listed by its column only
+    if (name == id || dynamic_cast<const TColumnFx *>(m_fx))
+      return QString::fromStdWString(id);
     else
       return QString::fromStdWString(id + L" (" + name + L")");
   } else if (role == Qt::ForegroundRole) {
@@ -411,7 +423,7 @@ QVariant FxChannelGroup::data(int role) const {
 //-----------------------------------------------------------------------------
 
 QString FxChannelGroup::getIdName() const {
-  return QString::fromStdWString(m_fx->getFxId()).toLower();
+  return QString::fromStdWString(fxGroupId(m_fx)).toLower();
 }
 
 //-----------------------------------------------------------------------------
@@ -768,6 +780,9 @@ QString FunctionTreeModel::Channel::getExprRefName() const {
   FunctionTreeModel::ChannelGroup *parentGroup =
       dynamic_cast<FunctionTreeModel::ChannelGroup *>(getParent());
   if (parentGroup) {
+    // the column fxs (time remap) are not registered in the expression grammar
+    FxChannelGroup *fxGroup = dynamic_cast<FxChannelGroup *>(parentGroup);
+    if (fxGroup && dynamic_cast<TColumnFx *>(fxGroup->getFx())) return "";
     return QString("fx.") + parentGroup->getIdName() + QString(".") + tmpName;
   } else
     return "";
@@ -1069,8 +1084,8 @@ void FunctionTreeModel::refreshFxs(TXsheet *xsh) {
     int index = j;
     while (index > 0 &&
            QString::localeAwareCompare(
-               QString::fromStdWString(fxs[index - 1]->getFxId()),
-               QString::fromStdWString(fxs[index]->getFxId())) > 0) {
+               QString::fromStdWString(fxGroupId(fxs[index - 1])),
+               QString::fromStdWString(fxGroupId(fxs[index]))) > 0) {
       std::swap(fxs[index - 1], fxs[index]);
       index = index - 1;
     }

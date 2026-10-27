@@ -8,6 +8,8 @@
 #include "toonz/tcolumnfxset.h"
 #include "toonz/tcolumnfx.h"
 #include "toonz/txshleveltypes.h"
+#include "toonz/txsheet.h"
+#include "toonz/tstageobjecttree.h"
 
 // TnzBase includes
 #include "tparamcontainer.h"
@@ -100,6 +102,20 @@ TLevelColumnFx *TXshLevelColumn::getLevelColumnFx() const { return m_fx; }
 //-----------------------------------------------------------------------------
 
 TFx *TXshLevelColumn::getFx() const { return m_fx; }
+
+//-----------------------------------------------------------------------------
+
+void TXshLevelColumn::setXsheet(TXsheet *xsheet) {
+  TXshCellColumn::setXsheet(xsheet);
+  // Let Expression and Similar Shape segments of the time remap curve
+  // evaluate, like the stage object channels. setXsheet() is called on every
+  // cell change, so the keys are parsed again only when the grammar changes.
+  if (!xsheet) return;
+  const TSyntax::Grammar *grammar = xsheet->getStageObjectTree()->getGrammar();
+  TDoubleParam *timeRemap         = getTimeRemapParam();
+  if (grammar && timeRemap->getGrammar() != grammar)
+    timeRemap->setGrammar(grammar);
+}
 
 //-----------------------------------------------------------------------------
 // Time remap: the curve and its flag belong to the column fx
