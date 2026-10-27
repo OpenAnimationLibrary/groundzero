@@ -726,6 +726,7 @@ void ParamsPage::setFx(const TFxP &currentFx, const TFxP &actualFx, int frame) {
   assert(currentFx);
   assert(actualFx);
   m_indexedCurrentFx = currentFx;
+  m_indexedActualFx = actualFx;
   m_indexedFrame = frame;
   for (int i = 0; i < (int)m_fields.size(); i++) {
     ParamField *field = m_fields[i];
@@ -857,6 +858,15 @@ void ParamsPage::setPointValue(int index, const TPointD &p) {
 
 void ParamsPage::update(int frame) {
   m_indexedFrame = frame;
+  // Restore the preview count's curves after undo or a frame change. Native
+  // numeric fields can leave a temporary preview key when editing a default.
+  if (m_indexedCurrentFx && m_indexedActualFx) {
+    for (const IndexedColors &group : m_indexedColors) {
+      TParam *current = m_indexedCurrentFx->getParams()->getParam(group.m_countName);
+      TParam *actual = m_indexedActualFx->getParams()->getParam(group.m_countName);
+      if (current && actual && current != actual) current->copy(actual);
+    }
+  }
   int i;
   for (i = 0; i < (int)m_fields.size(); i++) {
     ParamField *field = m_fields[i];

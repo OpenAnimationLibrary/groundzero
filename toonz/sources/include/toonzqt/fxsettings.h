@@ -100,6 +100,7 @@ class DVAPI ParamsPage final : public QFrame {
   };
   std::vector<IndexedColors> m_indexedColors;
   TFxP m_indexedCurrentFx;
+  TFxP m_indexedActualFx;
   int m_indexedFrame = 0;
 
   void addIndexedColors(TIStream &is, const TFxP &fx);

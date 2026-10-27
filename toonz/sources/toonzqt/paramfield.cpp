@@ -1140,10 +1140,8 @@ void PixelParamField::update(int frame) {
   m_frame = frame;
   if (!m_currentParam || !m_actualParam) return;
   const TPixelD value = m_actualParam->getValueD(frame);
-  if (m_actualParam->isKeyframe(frame))
-    m_currentParam->setValueD(frame, value);
-  else if (!m_actualParam->hasKeyframes())
-    setDefaultPixelD(m_currentParam, value);
+  if (m_actualParam->isKeyframe(frame) || !m_actualParam->hasKeyframes())
+    m_currentParam->copy(m_actualParam.getPointer());
   updateField(m_actualParam->getValue(frame));
   m_keyToggle->setStatus(m_actualParam->hasKeyframes(),
                         m_actualParam->isKeyframe(frame),
@@ -1169,7 +1167,10 @@ void PixelParamField::onChange(const TPixel32 &value, bool isDragging) {
                               m_actualParam, m_interfaceName, m_frame,
                               ParamField::m_fxHandleStat)
                         : nullptr;
-    m_currentParam->setValueD(m_frame, preciseValue);
+    if (!m_actualParam->hasKeyframes())
+      setDefaultPixelD(m_currentParam, preciseValue);
+    else
+      m_currentParam->setValueD(m_frame, preciseValue);
     if (m_actualParam->isKeyframe(m_frame))
       m_actualParam->setValueD(m_frame, preciseValue);
     else if (!m_actualParam->hasKeyframes())
