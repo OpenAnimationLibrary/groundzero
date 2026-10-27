@@ -1,6 +1,7 @@
 #include "stdfx.h"
 #include "tfxparam.h"
 #include "tparamset.h"
+#include "tstream.h"
 
 #include <algorithm>
 #include <array>
@@ -97,6 +98,15 @@ public:
   }
 
   bool canHandle(const TRenderSettings &, double) override { return false; }
+
+  void saveData(TOStream &stream) override {
+    struct RestorePrecision {
+      TOStream &stream;
+      bool previous;
+      ~RestorePrecision() { stream.setFullPrecision(previous); }
+    } restore{stream, stream.setFullPrecision(true)};
+    TStandardRasterFx::saveData(stream);
+  }
 
   bool toBeComputedInLinearColorSpace(bool, bool) const override {
     return false;

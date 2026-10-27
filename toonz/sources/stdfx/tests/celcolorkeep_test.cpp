@@ -140,12 +140,13 @@ void testFloat() {
   require(output->pixels(0)[1] == TPixelF::Transparent, "Sub-8-bit key merged");
 }
 
-void testPrecisionAndPersistence(const QString &path) {
+void testPrecisionAndPersistence(const QString &path, bool compressed) {
   CelColorKeepFx fx;
   count(fx)->setValue(0, 1);
   count(fx)->setValue(10, 100);
   color(fx, 0)->setValueD(0, TPixelD(0.1234567, 0.5, 0.75, 1));
   color(fx, 99)->setValueD(10, TPixelD(0.7654321, 0.5, 0.75, 1));
+  setColor(fx, 50, TPixelD(1.23456789123e-12, 3.5, -0.15, 1));
   TRenderSettings settings;
   const std::string before = fx.getAlias(0, settings);
   color(fx, 0)->getRed()->setValue(0, 0.1234568);
@@ -155,8 +156,9 @@ void testPrecisionAndPersistence(const QString &path) {
           "Clone lost the last color");
   require(count(*clone)->isKeyframe(10), "Clone lost count animation");
   {
-    TOStream stream(TFilePath(path.toStdWString()));
+    TOStream stream(TFilePath(path.toStdWString()), compressed);
     stream << &fx;
+    require(!stream.setFullPrecision(false), "Effect leaked its stream mode");
   }
   TIStream stream(TFilePath(path.toStdWString()));
   TPersist *loaded = nullptr;
@@ -205,7 +207,8 @@ int main(int argc, char **argv) {
     testInteger<TPixel32>();
     testInteger<TPixel64>();
     testFloat();
-    testPrecisionAndPersistence(temp.filePath("colors.fx"));
+    testPrecisionAndPersistence(temp.filePath("colors.fx"), false);
+    testPrecisionAndPersistence(temp.filePath("colors-compressed.fx"), true);
     testTilesAndThreads();
     std::cout << "PASS: color capacity, precision, alpha, persistence and tiles\n";
     return 0;
