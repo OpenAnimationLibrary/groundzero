@@ -58,9 +58,11 @@ TOfflineGL *currentOfflineGL = 0;
 #include <QStringList>
 
 #include <algorithm>
+#include <cstring>
 
 #if defined(MACOSX) || defined(LINUX) || defined(FREEBSD)
 #include <QSurfaceFormat>
+#include <QFileInfo>
 #include <QOffscreenSurface>
 #include <QOpenGLContext>
 #include <QOpenGLFramebufferObject>
@@ -186,17 +188,30 @@ void deleteUntitledScene(const TFilePath &fp) {
 // header of TOStream: "TABc", a byte order mark and the decompressed and
 // compressed sizes. TIStream recognizes it by the magic, so no loader needs to
 // know. TOStream writes the file only when it is destroyed, and cannot report
-// a failure then: check that the temporary file holds the header before it
-// replaces the previous scene, which would otherwise be lost.
+// a failure then: check that the temporary file holds the whole of it (the
+// header, and as many bytes as the header announces) before it replaces the
+// previous scene, which would otherwise be lost, for example when the disk
+// fills up during the write.
 static void checkCompressedSceneFile(const TFilePath &fp) {
   if (!Preferences::instance()->isCompressSceneFilesEnabled()) return;
 
-  char magic[4] = {0, 0, 0, 0};
+  char header[16] = {0};
+  bool complete   = false;
   {
     Tifstream is(fp);
-    if (is.isOpen()) is.read(magic, 4);
+    if (is.isOpen()) {
+      is.read(header, sizeof header);
+      if (is && std::string(header, 4) == "TABc") {
+        qint32 byteOrder, compressedSize;
+        memcpy(&byteOrder, header + 4, sizeof byteOrder);
+        memcpy(&compressedSize, header + 12, sizeof compressedSize);
+        qint64 fileSize = QFileInfo(fp.getQString()).size();
+        complete        = byteOrder == 0x0A0B0C0D && compressedSize > 0 &&
+                   fileSize == qint64(sizeof header) + compressedSize;
+      }
+    }
   }
-  if (std::string(magic, 4) != "TABc") {
+  if (!complete) {
     TSystem::removeFileOrLevel(fp);
     throw TException("Could not write the compressed scene file");
   }
