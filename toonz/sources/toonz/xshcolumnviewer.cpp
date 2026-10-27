@@ -69,6 +69,7 @@
 #include <QScreen>
 
 #include <QBitmap>
+#include <QActionGroup>
 
 //=============================================================================
 

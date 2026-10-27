@@ -44,6 +44,7 @@
 #include <QMenu>
 #include <QListView>
 #include <QContextMenuEvent>
+#include <QActionGroup>
 
 #include "tooloptionscontrols.h"
 

@@ -71,6 +71,7 @@
 #include <QLabel>
 #include <QMessageBox>
 #include <QTimer>
+#include <QActionGroup>
 #if defined(_WIN32) && QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
 // Qt 6 has no QtPlatformHeaders
 #include <QtPlatformHeaders/QWindowsWindowFunctions>

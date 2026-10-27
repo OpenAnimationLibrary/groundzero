@@ -74,6 +74,7 @@
 #include <QApplication>
 #include <QClipboard>
 #include <QRegularExpression>
+#include <QActionGroup>
 
 namespace {
 

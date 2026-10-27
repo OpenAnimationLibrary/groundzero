@@ -34,6 +34,7 @@
 #include <QPainterPath>
 #include <QPixmap>
 #include <QPolygonF>
+#include <QActionGroup>
 #include <algorithm>  // For std::min, std::max
 #include <cmath>      // For sin, pow, log, exp
 
