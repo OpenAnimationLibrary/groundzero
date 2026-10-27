@@ -211,7 +211,7 @@ Built on the `tier12` branch, which merges Tiers 8 to 11:
 | # | Delivered | Still open |
 |---|---|---|
 | Tests | A Linux Tests workflow (pushes to `tier12` and `ci-tests/*`, never pull requests) builds with `BUILD_TESTS=ON`, runs ctest and reports each failure as an annotation; the unwired tests are registered. The first runs found 7 failures: the fuzz hangs and crashes in the PLI and palette loaders, a free-form deformer placement bug, three wrong test expectations, and a test start-up crash; all are fixed. | Confirm on the next run |
-| D1 | A non-blocking Qt 6 job in the same workflow; the first two distinct errors are fixed | The errors behind them |
+| D1 | A non-blocking Qt 6 job in the same workflow; **the whole tree now builds and links with Qt 6 on Linux** after about ten rounds of fixes (`doc/qt6_port_status.md`) | Runtime untested; tests with Qt 6; Windows and macOS with Qt 6 |
 | D3 | The workflow commits the FX render references that do not exist yet | Review the first images |
 | E6 | `scenebench` benchmark (`doc/scene_io_profile.md`); no flush per line when saving, the frame id expression compiled once when loading: plain saves now take as long as compressed ones, and loads take less than half the time | XML parsing is most of what is left |
 | A1/A5/A7/A8/C5 | Curve, Free-Form, Bone and Shape-Aware layers in the Deformer Stack FX (`doc/deformer_stack.md`) | Fixed point counts per layer type |
