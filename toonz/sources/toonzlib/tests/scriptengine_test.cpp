@@ -199,6 +199,14 @@ void testBindings(Console &console) {
   expect(console, "b.fill('blue') === b", result, "true");
   expect(console, "b.tag = 'mine'; b.fill('green').tag", result, "\"mine\"");
   expect(console, "b.image", result, "Raster image ( 4 x 3 )");
+  expect(console,
+         "var tb = new ImageBuilder(4, 3, 'ToonzRaster'); "
+         "[tb.image.type, tb.image.width, tb.image.height]",
+         result, "[\"ToonzRaster\",4,3]");
+  expect(console,
+         "var tiny = new ImageBuilder(1, 1, 'ToonzRaster'); "
+         "[tiny.image.width, tiny.image.height]",
+         result, "[1,1]");
   expect(console, "new ImageBuilder().add(b.image).add(b.image).image.width",
          result, "4");
   expect(console, "new ImageBuilder().add(b.image, new Transform())", result,
