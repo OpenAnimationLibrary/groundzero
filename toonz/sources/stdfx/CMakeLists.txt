@@ -167,6 +167,7 @@ set(SOURCES
     radialblurfx.cpp
     randomwavefx.cpp
     raylitfx.cpp
+    celcolorkeepfx.cpp
     rgbkeyfx.cpp
     rgbmcutfx.cpp
     rgbmfadefx.cpp
@@ -420,4 +421,17 @@ if(BUILD_FRAME_STRIPS_TESTS)
     add_executable(framestrips_test tests/framestrips_test.cpp)
     target_link_libraries(framestrips_test Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
     add_test(NAME framestrips COMMAND framestrips_test)
+endif()
+
+# Cel effects use production renderers and native parameter widgets.
+if(BUILD_CELFX_TESTS)
+    add_executable(celcolorkeep_test tests/celcolorkeep_test.cpp)
+    target_link_libraries(celcolorkeep_test Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME celfx_colorkeep COMMAND celcolorkeep_test)
+    add_executable(celcolorkeep_ui_test tests/celcolorkeep_ui_test.cpp)
+    target_link_libraries(celcolorkeep_ui_test toonzqt Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Widgets ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME celfx_colorkeep_ui COMMAND celcolorkeep_ui_test
+             ${CMAKE_CURRENT_SOURCE_DIR}/../../../stuff/profiles/layouts/fxs/STD_celColorKeepFx.xml)
+    set_tests_properties(celfx_colorkeep celfx_colorkeep_ui PROPERTIES
+                         ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
 endif()
