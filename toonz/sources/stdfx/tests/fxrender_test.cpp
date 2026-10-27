@@ -8,6 +8,9 @@
 //
 // To add or update a reference, copy the PNG from the output folder (for
 // example from the "fxrender-output" CI artifact) into the reference folder.
+// A case without a reference yet is written there and reported, but does not
+// fail: the Linux Tests workflow commits it as the new reference. A render
+// that differs from its reference fails.
 // The PNG files store the raw premultiplied pixel values as if they were
 // straight RGBA, so they compare exactly.
 
@@ -179,7 +182,7 @@ int main(int argc, char **argv) {
   outputDir.mkpath(".");
 
   TRenderer renderer(1);
-  int failures = 0;
+  int failures = 0, missing = 0;
   for (const Case &c : cases()) {
     const QString fileName = QString::fromLatin1(c.name) + ".png";
     TRaster32P ras         = render(c.build(), renderer);
@@ -192,9 +195,13 @@ int main(int argc, char **argv) {
 
     std::string problem;
     const QString referencePath = referenceDir.filePath(fileName);
-    if (!QFileInfo::exists(referencePath))
-      problem = "no reference image";
-    else {
+    if (!QFileInfo::exists(referencePath)) {
+      ++missing;
+      actual.save(outputDir.filePath(fileName), "PNG");
+      std::cout << c.name << ": no reference image yet, wrote "
+                << outputDir.filePath(fileName).toStdString() << std::endl;
+      continue;
+    } else {
       QImage reference(referencePath);
       problem = reference.isNull() ? "the reference image cannot be read"
                                    : compare(actual, reference);
@@ -210,10 +217,14 @@ int main(int argc, char **argv) {
               << outputDir.filePath(fileName).toStdString() << std::endl;
   }
 
+  if (missing)
+    std::cout << missing << " of " << cases().size()
+              << " FX renders have no reference image yet" << std::endl;
   if (failures)
     std::cerr << failures << " of " << cases().size()
               << " FX renders do not match their references" << std::endl;
   else
-    std::cout << "All " << cases().size() << " FX renders match" << std::endl;
+    std::cout << "All " << cases().size() - missing
+              << " FX renders with a reference match" << std::endl;
   return failures ? 1 : 0;
 }
