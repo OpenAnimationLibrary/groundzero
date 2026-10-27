@@ -49,7 +49,7 @@ jobs:
     - name: Set up cache
       run: mkdir -p /home/runner/.ccache
 
-    - uses: actions/cache@v5
+    - uses: actions/cache/restore@v5
       with:
         path: /home/runner/.ccache
         key: ${{ runner.os }}-${{ matrix.compiler }}-${{ github.sha }}
@@ -78,11 +78,21 @@ jobs:
 
     - name: Test cel effects
       working-directory: toonz/build
-      run: ctest --output-on-failure --output-junit cel-tests.xml --no-tests=error -R '^celfx_'
+      run: |
+        set -o pipefail
+        ctest --output-on-failure --output-junit cel-tests.xml --no-tests=error -R '^celfx_' 2>&1 | tee cel-tests-output.txt
 
     - name: Report cel test failures
       if: failure()
-      run: python3 ci-scripts/report_cel_tests.py toonz/build/cel-tests.xml
+      run: python3 ci-scripts/report_cel_tests.py toonz/build/cel-tests-output.txt
+
+    # Keep successfully compiled objects even when a regression test fails.
+    - name: Save compiler cache
+      if: always()
+      uses: actions/cache/save@v5
+      with:
+        path: /home/runner/.ccache
+        key: ${{ runner.os }}-${{ matrix.compiler }}-${{ github.sha }}
 
     # Show the errors on the pull request (summary and annotations) without
     # having to open the full log

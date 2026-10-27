@@ -109,6 +109,14 @@ void testInteger() {
   output = render<Pixel>(fx, 2);
   require(output->pixels(0)[0] == input->pixels(0)[0], "Partial alpha changed");
   require(output->pixels(0)[1] == Pixel::Transparent, "Integer key gained tolerance");
+
+  // A mixed color exercises the host's depth-specific coverage rounding.
+  setColor(fx, 0, TPixelD(123.0 / 255, 65.0 / 255, 211.0 / 255, 1));
+  const Pixel selected(max * 123 / 255, max * 65 / 255, max * 211 / 255, alpha);
+  input->pixels(0)[0] = premultiply(selected);
+  output = render<Pixel>(fx, 1);
+  require(output->pixels(0)[0] == input->pixels(0)[0],
+          "Native premultiplication did not match the selected color");
 }
 
 void testFloat() {
@@ -246,12 +254,19 @@ int main(int argc, char **argv) {
   QTemporaryDir temp;
   try {
     require(temp.isValid(), "Temporary directory unavailable");
+    std::cout << "Checking 8-bit colors" << std::endl;
     testInteger<TPixel32>();
+    std::cout << "Checking 16-bit colors" << std::endl;
     testInteger<TPixel64>();
+    std::cout << "Checking float colors" << std::endl;
     testFloat();
+    std::cout << "Checking scene precision" << std::endl;
     testPrecisionAndPersistence(temp.filePath("colors.fx"), false);
+    std::cout << "Checking compressed scene precision" << std::endl;
     testPrecisionAndPersistence(temp.filePath("colors-compressed.fx"), true);
+    std::cout << "Checking tiles and threads" << std::endl;
     testTilesAndThreads();
+    std::cout << "Checking presets and macros" << std::endl;
     testPresetAndMacro(temp.filePath("colors.preset"), temp.filePath("colors.macro"));
     std::cout << "PASS: color capacity, precision, alpha, persistence and tiles\n";
     return 0;

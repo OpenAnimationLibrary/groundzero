@@ -224,11 +224,14 @@ jobs:
         run: |
           set "PATH=%CD%\toonz\build\Opentoonz;%QT_PATH%\bin;%PATH%"
           cd toonz\build
-          ctest -C RelWithDebInfo --output-on-failure --output-junit cel-tests.xml --no-tests=error -R "^celfx_"
+          ctest -C RelWithDebInfo --output-on-failure --output-junit cel-tests.xml --no-tests=error -R "^celfx_" > cel-tests-output.txt 2>&1
+          set "CEL_TEST_EXIT=%ERRORLEVEL%"
+          type cel-tests-output.txt
+          exit /b %CEL_TEST_EXIT%
 
       - name: Report cel test failures
         if: failure()
-        run: python ci-scripts/report_cel_tests.py toonz/build/cel-tests.xml
+        run: python ci-scripts/report_cel_tests.py toonz/build/cel-tests-output.txt
 
       - name: Add the recorder encoder to the package
         shell: cmd

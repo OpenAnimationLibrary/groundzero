@@ -1,6 +1,7 @@
 #include "stdfx.h"
 #include "tfxparam.h"
 #include "tparamset.h"
+#include "tpixelutils.h"
 #include "tstream.h"
 
 #include <algorithm>
@@ -26,22 +27,30 @@ std::string colorSlotName(int index) {
   return name.str();
 }
 
-// Compare in the source's channel precision. Multiplying the selected straight
-// RGB by source alpha avoids division/rounding errors on premultiplied cels.
-template <class Pixel>
-bool matchesColor(const Pixel &pixel, const TPixelD &color) {
-  const double alpha = double(pixel.m);
-  auto channelMatches = [alpha](double channel, double selected) {
-    if (!std::isfinite(selected) || selected < 0.0 || selected > 1.0)
-      return false;
-    return channel == std::floor(selected * alpha + 0.5);
-  };
-  return channelMatches(pixel.r, color.r) &&
-         channelMatches(pixel.g, color.g) &&
-         channelMatches(pixel.b, color.b);
+bool boundedColor(const TPixelD &color) {
+  return std::isfinite(color.r) && std::isfinite(color.g) &&
+         std::isfinite(color.b) && color.r >= 0 && color.r <= 1 &&
+         color.g >= 0 && color.g <= 1 && color.b >= 0 && color.b <= 1;
 }
 
-template <>
+// Quantize the selected straight RGB, then use the same coverage operation as
+// the host. Native 8-bit premultiplication rounds; its 16-bit helper truncates.
+bool matchesColor(const TPixel32 &pixel, const TPixelD &color) {
+  if (!boundedColor(color)) return false;
+  TPixel32 selected = toPixel32(TPixelD(color.r, color.g, color.b, 1));
+  selected.m = pixel.m;
+  selected = premultiply(selected);
+  return pixel.r == selected.r && pixel.g == selected.g && pixel.b == selected.b;
+}
+
+bool matchesColor(const TPixel64 &pixel, const TPixelD &color) {
+  if (!boundedColor(color)) return false;
+  TPixel64 selected = toPixel64(TPixelD(color.r, color.g, color.b, 1));
+  selected.m = pixel.m;
+  selected = premultiply(selected);
+  return pixel.r == selected.r && pixel.g == selected.g && pixel.b == selected.b;
+}
+
 bool matchesColor(const TPixelF &pixel, const TPixelD &color) {
   // Floating RGB remains unclamped, including finite HDR values. The tolerance
   // is fixed in straight RGB, so partial coverage does not broaden the key.
