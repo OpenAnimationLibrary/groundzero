@@ -219,7 +219,6 @@ TFxP buildLayerFx(ToonzScene *scene, TXsheet *xsh, int row, const TFxP &root,
   return TFxP();  // the output does not take the xsheet node
 }
 
-
 //-----------------------------------------------------------------------------
 
 // Collects the rendered rasters of a set of frames
