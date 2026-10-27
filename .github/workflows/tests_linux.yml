@@ -297,7 +297,8 @@ jobs:
         enc() { sed -e 's/%/%25/g' | sed -e ':a;N;$!ba;s/\r/%0D/g;s/\n/%0A/g'; }
         # A scene file lists the FX nodes of the terminal set in the order of
         # their addresses (TFxSet holds a std::set of pointers), which differs
-        # between builds: the lines of that block are sorted
+        # between builds: the lines of that block are sorted, and so are the
+        # levels of a cast folder
         norm() {
           awk '
             /^[ \t]*<terminal>[ \t]*$/ { print; inside = 1; n = 0; next }
@@ -311,6 +312,22 @@ jobs:
               print; inside = 0; next
             }
             inside { line[++n] = $0; next }
+            # The levels of a cast folder are listed in the order of their
+            # addresses too (TLevelSet::m_folderTable is a std::map keyed by
+            # TXshLevel *): sort the <level id=.../> items of such a line
+            /^[ \t]*(<level id=\x27[0-9]+\x27\/>)+[ \t]*$/ {
+              match($0, /^[ \t]*/); pre = substr($0, 1, RLENGTH)
+              rest = substr($0, RLENGTH + 1); sub(/[ \t]*$/, "", rest)
+              m = split(rest, item, "/>"); k = 0
+              for (i = 1; i <= m; i++) if (item[i] != "") lv[++k] = item[i] "/>"
+              for (i = 2; i <= k; i++) {
+                v = lv[i]
+                for (j = i - 1; j >= 1 && lv[j] > v; j--) lv[j + 1] = lv[j]
+                lv[j + 1] = v
+              }
+              out = pre; for (i = 1; i <= k; i++) out = out lv[i]
+              print out; next
+            }
             { print }' "$1"
         }
         compared=0; identical=0; different=0; shown=0; pngs=0
