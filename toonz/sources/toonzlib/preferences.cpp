@@ -422,6 +422,8 @@ void Preferences::definePreferenceItems() {
          QMetaType::Bool, false);
   define(showRasterImagesDarkenBlendedInViewer,
          "showRasterImagesDarkenBlendedInViewer", QMetaType::Bool, false);
+  define(colourOverrideInViewer, "colourOverrideInViewer", QMetaType::Bool,
+         false);
   define(gpuCompositingInViewer, "gpuCompositingInViewer", QMetaType::Bool,
          false);
   define(iconSize, "iconSize", QMetaType::QSize, QSize(80, 45), QSize(10, 10),
@@ -507,6 +509,7 @@ void Preferences::definePreferenceItems() {
   define(backupEnabled, "backupEnabled", QMetaType::Bool, true);
   define(backupKeepCount, "backupKeepCount", QMetaType::Int, 1, 1,
          std::numeric_limits<int>::max());
+  define(compressSceneFiles, "compressSceneFiles", QMetaType::Bool, false);
   define(rasterBackgroundColor, "rasterBackgroundColor", QMetaType::QColor,
          QColor(Qt::white));
   define(resetUndoOnSavingLevel, "resetUndoOnSavingLevel", QMetaType::Bool,

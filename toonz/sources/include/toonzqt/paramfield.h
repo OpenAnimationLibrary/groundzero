@@ -45,6 +45,7 @@ class QString;
 class QComboBox;
 class QHBoxLayout;
 class TFxHandle;
+class TXshLevelHandle;
 class QFontComboBox;
 
 namespace DVGui {
@@ -72,6 +73,7 @@ protected:
   QString m_paramName;
 
   static TFxHandle *m_fxHandleStat;
+  static TXshLevelHandle *m_levelHandleStat;
   QString m_interfaceName;
   QString m_description;
 
@@ -101,6 +103,8 @@ public:
   virtual QSize getPreferredSize() { return QSize(200, 28); }
 
   static void setFxHandle(TFxHandle *fxHandle);
+  //! The current level, whose palette the style swatch of IntParamField shows
+  static void setLevelHandle(TXshLevelHandle *levelHandle);
   static TFxHandle* getFxHandle() { return m_fxHandleStat; }
 
   virtual void setPrecision(int precision) {}
@@ -597,6 +601,7 @@ class DVAPI IntParamField final : public ParamField {
 
   TIntParamP m_currentParam, m_actualParam;
   DVGui::IntField *m_intField;
+  QPushButton *m_swatch = nullptr;
   typedef IntParamField This;
 
 public:
@@ -607,10 +612,21 @@ public:
                 int frame) override;
   void update(int frame) override;
 
-  QSize getPreferredSize() override { return QSize(50, 19); }
+  //! Treats the value as the id of a style of the current level's palette:
+  //! shows a swatch of the style's color, and a click on it opens a chooser
+  //! with the palette's styles.
+  void enableStyleSwatch();
+
+  QSize getPreferredSize() override {
+    return m_swatch ? QSize(80, 22) : QSize(50, 19);
+  }
 
 protected slots:
   void onChange(bool isDragging = false);
+  void onSwatchClicked();
+
+private:
+  void updateSwatch();
 };
 
 //=============================================================================

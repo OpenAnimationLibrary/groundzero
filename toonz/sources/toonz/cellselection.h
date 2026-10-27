@@ -119,6 +119,13 @@ public:
   void convertVectortoVector();
 
   void reframeWithEmptyInbetweens();
+
+  // Time remap of the level columns of the selection (master plan B7)
+  void timeRemapPreset(int preset);
+  void columnHold() { timeRemapPreset(0); }
+  void columnLoop() { timeRemapPreset(1); }
+  void columnReverse() { timeRemapPreset(2); }
+  void columnTimeRemapClear();
   void duplicateFrame(int row, int col, bool multiple);
   void duplicateFrames();
 

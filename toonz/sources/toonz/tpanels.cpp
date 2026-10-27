@@ -9,6 +9,7 @@
 #include "storyboardpane.h"
 #include "mastercontrollerspane.h"
 #include "offsetlayerspane.h"
+#include "artlayermanagerpane.h"
 #include "riglibrarypane.h"
 
 // Tnz6 includes
@@ -1992,6 +1993,24 @@ public:
 
 OpenFloatingPanel openOffsetLayersCommand(MI_OpenOffsetLayers, "OffsetLayers",
                                           QObject::tr("Offset Layers"));
+
+//=============================================================================
+// Art Layer Manager
+//-----------------------------------------------------------------------------
+
+class ArtLayerManagerPanelFactory final : public TPanelFactory {
+public:
+  ArtLayerManagerPanelFactory() : TPanelFactory("ArtLayerManager") {}
+  void initialize(TPanel *panel) override {
+    panel->setWidget(new ArtLayerManagerPane(panel));
+    panel->setWindowTitle(QObject::tr("Art Layer Manager"));
+    panel->setIsMaximizable(false);
+  }
+} artLayerManagerPanelFactory;
+
+OpenFloatingPanel openArtLayerManagerCommand(MI_OpenArtLayerManager,
+                                             "ArtLayerManager",
+                                             QObject::tr("Art Layer Manager"));
 
 //=============================================================================
 // Rig Library

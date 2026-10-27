@@ -189,6 +189,9 @@ void NavigationTags::saveData(TOStream &os) {
     os << tag.m_color.red();
     os << tag.m_color.green();
     os << tag.m_color.blue();
+    // Written only when used: scenes with no notes save as before. Builds
+    // that do not know the notes cannot read the tag.
+    if (!tag.m_notes.isEmpty()) os << tag.m_notes;
     os.closeChild();
   }
   os.closeChild();
@@ -215,6 +218,12 @@ void NavigationTags::loadData(TIStream &is) {
               is >> g;
               is >> b;
               tag.m_color = QColor(r, g, b);
+              // optional notes, following the color
+              if (!is.eos()) {
+                std::wstring notes;
+                is >> notes;
+                tag.m_notes = QString::fromStdWString(notes);
+              }
               m_tags.push_back(tag);
             }
           } else

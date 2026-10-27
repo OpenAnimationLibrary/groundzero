@@ -115,7 +115,7 @@ bool getStrokeIndexFromPos(UINT &index, const TVectorImageP &vi,
 
   // Line Art / Colour Art: strokes of the other role can't be picked
   if (dist2 < checkDist && index < vi->getStrokeCount() &&
-      !ArtLayer::isEditable(*vi->getStroke(index)))
+      !ArtLayer::Filter(*vi).isEditable(index))
     return false;
 
   return (dist2 < checkDist);
@@ -1331,6 +1331,7 @@ VectorSelectionTool::VectorSelectionTool(int targetType)
     , m_capStyle("Cap")
     , m_joinStyle("Join")
     , m_miterJoinLimit("Miter:", 0, 100, 4)
+    , m_opacity("Opacity:", 0, 100, 100)
     , m_selectionCount(0)
     , m_canEnterGroup(true)
     , m_resetCenter(true) {
@@ -1368,10 +1369,12 @@ VectorSelectionTool::VectorSelectionTool(int targetType)
   m_joinStyle.setId("Join");
 
   m_miterJoinLimit.setId("Miter");
+  m_opacity.setId("Opacity");
 
   m_outlineProps.bind(m_capStyle);
   m_outlineProps.bind(m_joinStyle);
   m_outlineProps.bind(m_miterJoinLimit);
+  m_outlineProps.bind(m_opacity);
 }
 
 //------------------------------------------------------------------------------
@@ -1474,6 +1477,7 @@ void VectorSelectionTool::updateTranslation() {
   m_joinStyle.setItemUIName(BEVEL_WSTR, tr("Bevel join"));
 
   m_miterJoinLimit.setQStringName(tr("Miter:"));
+  m_opacity.setQStringName(tr("Opacity:"));
   ArtLayer::updateTranslation();
   SelectionTool::updateTranslation();
 }
@@ -1570,9 +1574,9 @@ void VectorSelectionTool::finalizeSelection() {
   if (vi && ArtLayer::target() != ArtLayer::TARGET_OFF) {
     std::set<int> &selection = m_strokeSelection.getSelection();
     int strokeCount          = vi->getStrokeCount();
+    ArtLayer::Filter filter(*vi);
     for (auto it = selection.begin(); it != selection.end();) {
-      if (*it >= 0 && *it < strokeCount &&
-          !ArtLayer::isEditable(*vi->getStroke(*it)))
+      if (*it >= 0 && *it < strokeCount && !filter.isEditable(*it))
         it = selection.erase(it);
       else
         ++it;
@@ -1819,10 +1823,15 @@ void VectorSelectionTool::leftButtonUp(const TPointD &pos,
 void VectorSelectionTool::addContextMenuItems(QMenu *menu) {
   menu->addAction(CommandManager::instance()->getAction(MI_RemoveEndpoints));
   menu->addAction(
+      CommandManager::instance()->getAction(MI_ConvertToOutlineShapes));
+  menu->addAction(
       CommandManager::instance()->getAction(MI_SortWithPaletteOrder));
   if (!m_strokeSelection.isEmpty())
     menu->addAction(
         CommandManager::instance()->getAction(MI_PairInbetweenStrokes));
+  if (!m_strokeSelection.isEmpty())
+    menu->addAction(
+        CommandManager::instance()->getAction(MI_AddInbetweenZoneHint));
   if (StrokeSelection::hasInbetweenStrokePairs())
     menu->addAction(
         CommandManager::instance()->getAction(MI_ClearInbetweenStrokePairs));
@@ -2078,7 +2087,8 @@ bool VectorSelectionTool::selectStroke(int index, bool toggle) {
   if (index < 0 || index >= int(vi->getStrokeCount()))  // Should be asserted...
     return false;
 
-  if (!ArtLayer::isEditable(*vi->getStroke(index))) return false;
+  ArtLayer::Filter artFilter(*vi);
+  if (!artFilter.isEditable(index)) return false;
 
   bool wasSelected = m_strokeSelection.isSelected(index),
        selectState = !(wasSelected && toggle);
@@ -2103,7 +2113,7 @@ bool VectorSelectionTool::selectStroke(int index, bool toggle) {
     int s, sCount = vi->getStrokeCount();
     for (s = 0; s != sCount; ++s) {
       if (vi->selectable(s) && vi->sameSubGroup(index, s) &&
-          ArtLayer::isEditable(*vi->getStroke(s)))
+          artFilter.isEditable(s))
         m_strokeSelection.select(s, selectState);
     }
   } else  // Single stroke selection
@@ -2313,6 +2323,37 @@ bool VectorSelectionTool::onPropertyChanged(std::string propertyName) {
       TStroke *stroke = vi->getStroke(*it);
 
       stroke->outlineOptions().m_miterUpper = upper;
+      stroke->invalidate();
+    }
+
+    computeBBox();
+    invalidate();
+
+    level->setDirtyFlag(true);
+
+    undo->registerStrokes();
+    TUndoManager::manager()->add(undo);
+
+    notifyImageChanged();
+  } else if (propertyName == m_opacity.getName()) {
+    if (m_strokeSelection.isEmpty()) return true;
+
+    TXshSimpleLevel *level =
+        TTool::getApplication()->getCurrentLevel()->getSimpleLevel();
+    UndoChangeOutlineStyle *undo =
+        new UndoChangeOutlineStyle(level, getCurrentFid(), this);
+
+    const double opacity = 0.01 * m_opacity.getValue();
+
+    TVectorImageP vi = m_strokeSelection.getImage();
+
+    const std::set<int> &indices = m_strokeSelection.getSelection();
+
+    std::set<int>::iterator it;
+    for (it = indices.begin(); it != indices.end(); ++it) {
+      TStroke *stroke = vi->getStroke(*it);
+
+      stroke->setOpacity(opacity);
       stroke->invalidate();
     }
 

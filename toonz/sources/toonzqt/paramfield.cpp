@@ -14,6 +14,10 @@
 #include "toonzqt/dvdialog.h"
 #include "toonzqt/fontstyletranslation.h"
 #include "toonz/preferences.h"
+#include "toonz/txshlevelhandle.h"
+#include "toonz/txshsimplelevel.h"
+#include "tpalette.h"
+#include "tcolorstyles.h"
 
 #include "tdoubleparam.h"
 #include "tnotanimatableparam.h"
@@ -32,7 +36,14 @@
 #include <QFileInfo>
 #include <QInputDialog>
 #include <QVBoxLayout>
+#include <QGridLayout>
+#include <QFrame>
+#include <QScrollArea>
+#include <QToolButton>
+#include <QIcon>
+#include <QPixmap>
 #include <QTimer>
+#include <functional>
 #include <stdexcept>
 
 using namespace DVGui;
@@ -658,6 +669,11 @@ ParamField::~ParamField() {}
 //-----------------------------------------------------------------------------
 
 TFxHandle *ParamField::m_fxHandleStat = 0;
+TXshLevelHandle *ParamField::m_levelHandleStat = 0;
+void ParamField::setLevelHandle(TXshLevelHandle *levelHandle) {
+  ParamField::m_levelHandleStat = levelHandle;
+}
+
 void ParamField::setFxHandle(TFxHandle *fxHandle) {
   ParamField::m_fxHandleStat = fxHandle;
 }
@@ -1523,6 +1539,165 @@ IntParamField::IntParamField(QWidget *parent, QString name,
 
 //-----------------------------------------------------------------------------
 
+namespace {
+
+TPalette *levelPalette(TXshLevelHandle *levelHandle) {
+  TXshSimpleLevel *sl = levelHandle ? levelHandle->getSimpleLevel() : nullptr;
+  return sl ? sl->getPalette() : nullptr;
+}
+
+//-----------------------------------------------------------------------------
+
+// A swatch with the main color of the style, or a crossed one without a style
+QIcon styleSwatchIcon(TColorStyle *style, const QSize &size) {
+  QPixmap pix(size);
+  pix.fill(Qt::white);
+  QPainter p(&pix);
+  if (style) {
+    TPixel32 c = style->getMainColor();
+    p.fillRect(pix.rect(), QColor(c.r, c.g, c.b, c.m));
+  } else {
+    p.setPen(Qt::gray);
+    p.drawLine(0, size.height() - 1, size.width() - 1, 0);
+  }
+  p.setPen(Qt::darkGray);
+  p.drawRect(pix.rect().adjusted(0, 0, -1, -1));
+  p.end();
+  return QIcon(pix);
+}
+
+//-----------------------------------------------------------------------------
+
+// The chooser of IntParamField::enableStyleSwatch(): a popup with a swatch for
+// each style of the palette pages, plus one to clear the style id.
+class StylePickerPopup final : public QFrame {
+  std::function<void(int)> m_onPicked;
+
+  void pick(int styleId) {
+    // The callback may destroy the popup (with the field that owns it): leave
+    // it as the last thing to do, on a copy
+    std::function<void(int)> onPicked = m_onPicked;
+    close();
+    onPicked(styleId);
+  }
+
+public:
+  StylePickerPopup(QWidget *parent, TPalette *palette, int currentId,
+                   std::function<void(int)> onPicked)
+      : QFrame(parent, Qt::Popup), m_onPicked(onPicked) {
+    setFrameStyle(QFrame::StyledPanel | QFrame::Raised);
+    setAttribute(Qt::WA_DeleteOnClose);
+    setFixedSize(300, 240);
+
+    QVBoxLayout *mainLayout = new QVBoxLayout(this);
+    mainLayout->setContentsMargins(4, 4, 4, 4);
+    mainLayout->setSpacing(4);
+
+    QPushButton *noneButton = new QPushButton(QObject::tr("None (0)"), this);
+    noneButton->setIcon(styleSwatchIcon(nullptr, QSize(22, 16)));
+    connect(noneButton, &QPushButton::clicked, this, [this]() { pick(0); });
+    mainLayout->addWidget(noneButton);
+
+    QScrollArea *scroll = new QScrollArea(this);
+    scroll->setWidgetResizable(true);
+    scroll->setFrameShape(QFrame::NoFrame);
+    QWidget *content        = new QWidget();
+    QVBoxLayout *contentLay = new QVBoxLayout(content);
+    contentLay->setContentsMargins(0, 0, 0, 0);
+    contentLay->setSpacing(2);
+
+    const int columns = 8;
+    for (int p = 0; p < palette->getPageCount(); ++p) {
+      TPalette::Page *page = palette->getPage(p);
+      if (!page || page->getStyleCount() == 0) continue;
+
+      contentLay->addWidget(
+          new QLabel(QString::fromStdWString(page->getName()), content));
+      QGridLayout *grid = new QGridLayout();
+      grid->setContentsMargins(0, 0, 0, 0);
+      grid->setSpacing(2);
+      for (int s = 0; s < page->getStyleCount(); ++s) {
+        int styleId        = page->getStyleId(s);
+        TColorStyle *style = page->getStyle(s);
+        if (!style) continue;
+
+        QToolButton *button = new QToolButton(content);
+        button->setIcon(styleSwatchIcon(style, QSize(22, 16)));
+        button->setIconSize(QSize(22, 16));
+        button->setFixedSize(30, 24);
+        button->setToolTip(QString("%1: %2").arg(styleId).arg(
+            QString::fromStdWString(style->getName())));
+        if (styleId == currentId)
+          button->setStyleSheet("QToolButton { border: 2px solid #3399ff; }");
+        connect(button, &QToolButton::clicked, this,
+                [this, styleId]() { pick(styleId); });
+        grid->addWidget(button, s / columns, s % columns);
+      }
+      contentLay->addLayout(grid);
+    }
+    contentLay->addStretch();
+
+    scroll->setWidget(content);
+    mainLayout->addWidget(scroll);
+  }
+};
+
+}  // namespace
+
+//-----------------------------------------------------------------------------
+
+void IntParamField::enableStyleSwatch() {
+  if (m_swatch) return;
+
+  m_swatch = new QPushButton(this);
+  m_swatch->setFixedSize(48, 22);
+  m_swatch->setIconSize(QSize(40, 14));
+  m_layout->insertWidget(m_layout->indexOf(m_intField) + 1, m_swatch);
+  connect(m_swatch, &QPushButton::clicked, this,
+          &IntParamField::onSwatchClicked);
+  updateSwatch();
+}
+
+//-----------------------------------------------------------------------------
+
+void IntParamField::updateSwatch() {
+  if (!m_swatch) return;
+
+  int styleId       = m_intField->getValue();
+  TPalette *palette = levelPalette(m_levelHandleStat);
+  TColorStyle *style =
+      (palette && styleId > 0 && styleId < palette->getStyleCount())
+          ? palette->getStyle(styleId)
+          : nullptr;
+  m_swatch->setIcon(styleSwatchIcon(style, QSize(40, 14)));
+  m_swatch->setToolTip(
+      style ? tr("%1: %2").arg(styleId).arg(
+                  QString::fromStdWString(style->getName()))
+            : tr("Choose a style of the current level's palette"));
+}
+
+//-----------------------------------------------------------------------------
+
+void IntParamField::onSwatchClicked() {
+  TPalette *palette = levelPalette(m_levelHandleStat);
+  if (!palette) {
+    DVGui::warning(
+        tr("The current level has no palette to choose a style "
+           "from. Type the style id instead."));
+    return;
+  }
+
+  StylePickerPopup *popup = new StylePickerPopup(
+      this, palette, m_intField->getValue(), [this](int id) {
+        m_intField->setValue(id);
+        onChange(false);
+      });
+  popup->move(m_swatch->mapToGlobal(QPoint(0, m_swatch->height())));
+  popup->show();
+}
+
+//-----------------------------------------------------------------------------
+
 void IntParamField::onChange(bool isDragging) {
   if (isDragging) return;
 
@@ -1546,6 +1721,8 @@ void IntParamField::onChange(bool isDragging) {
   m_currentParam->setValue(value);
   emit actualParamChanged();
 
+  updateSwatch();
+
   if (undo) TUndoManager::manager()->add(undo);
 }
 
@@ -1565,8 +1742,8 @@ void IntParamField::setParam(const TParamP &current, const TParamP &actual,
 void IntParamField::update(int frame) {
   if (!m_actualParam || !m_currentParam) return;
   int value = m_actualParam->getValue();
-  if (m_intField->getValue() == value) return;
-  m_intField->setValue(value);
+  if (m_intField->getValue() != value) m_intField->setValue(value);
+  updateSwatch();
 }
 
 //=============================================================================

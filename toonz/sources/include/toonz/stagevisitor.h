@@ -6,6 +6,7 @@
 // TnzCore includes
 #include "timage.h"
 #include "trastercm.h"
+#include "tpalette.h"
 #include "tgl.h"
 #include <string>
 
@@ -217,6 +218,7 @@ private:
 
     TRasterP m_raster;    //!< The raster to be rendered
     TPalette *m_palette;  //!< Its palette for colormap rasters
+    TPaletteP m_ownedPalette;  //!< Keeps m_palette alive if it is a copy
     TAffine m_aff;        //!< Affine which must transform the raster
     TRectD m_bbox;        //!< The clipping rect (on output)
     TRect m_savebox;      //!< The clipping rect (on input)
@@ -277,6 +279,9 @@ private:
   // experimental GPU compositing of raster nodes (opt-in, see preferences)
   bool m_gpuCompositing;
 
+  // show the overrides of the Colour Override Fx that follow the columns
+  bool m_colourOverrides;
+
   std::vector<TStroke *> m_guidedStrokes;
 
 public:
@@ -315,6 +320,10 @@ public:
   //! Must be called while the context is still alive (e.g. on
   //! QOpenGLContext::aboutToBeDestroyed, after making it current).
   static void releaseGpuTextures();
+
+  //! Enables the display of the overrides of the Colour Override Fxs that
+  //! follow the columns (Toonz Vector and Toonz Raster levels only).
+  void enableColourOverrides(bool on) { m_colourOverrides = on; }
 
   void enableSingleColumn(bool on) { m_singleColumnEnabled = on; }
   bool isSingleColumnEnabled() const { return m_singleColumnEnabled; }

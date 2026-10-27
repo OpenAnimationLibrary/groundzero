@@ -635,6 +635,16 @@ void doDraw(const TVectorImage *vim, const TVectorRenderData &_rd,
 
   TVectorRenderData rdRegions = rd;
 
+  // Strokes of hidden art layers (Art Layer Manager): the stacking order tells
+  // the Underlay and Overlay strokes from the Line Art ones
+  int firstColour = -1, lastColour = -1;
+  if (rd.m_hiddenRoleMask)
+    for (int i = 0; i < (int)vim->getStrokeCount(); i++)
+      if (isOThick(vim->getStroke(i))) {
+        if (firstColour < 0) firstColour = i;
+        lastColour = i;
+      }
+
   /*if (rd.m_drawRegions && rd.m_isImagePattern)// the image patterns need
 antialiasing for lines, but on the areas there would be a lot of asserts
 rdRegions.m_alphaChannel = rdRegions.m_antiAliasing = false;*/
@@ -670,6 +680,19 @@ rdRegions.m_alphaChannel = rdRegions.m_antiAliasing = false;*/
       CurrVimg        = vim;
 #endif
       const TStroke *stroke = vim->getStroke(strokeIndex);
+      if (rd.m_hiddenRoleMask) {
+        int role = 0;  // Line Art
+        if (isOThick(stroke))
+          role = 1;  // Colour Art
+        else if (firstColour >= 0 && (int)strokeIndex < firstColour)
+          role = 2;  // Underlay
+        else if (firstColour >= 0 && (int)strokeIndex > lastColour)
+          role = 3;  // Overlay
+        if (rd.m_hiddenRoleMask & (1 << role)) {
+          strokeIndex++;
+          continue;
+        }
+      }
       bool isGuided;
       if ((rd.m_fadeThickStrokes || rd.m_fade0ThickStrokes) &&
           (isOThick(stroke) ? rd.m_fade0ThickStrokes : rd.m_fadeThickStrokes)) {

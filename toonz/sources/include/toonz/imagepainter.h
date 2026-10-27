@@ -72,6 +72,7 @@ public:
   bool m_showColourArt = false;  //!< Show 0 thickness strokes anyway
   bool m_fadeLineArt   = false;  //!< Fade strokes with thickness
   bool m_fadeColourArt = false;  //!< Fade strokes with 0 thickness
+  int m_hiddenArtRoles = 0;      //!< Roles not drawn (ArtLayer::roleBit() mask)
 
   int m_gainStep;
 

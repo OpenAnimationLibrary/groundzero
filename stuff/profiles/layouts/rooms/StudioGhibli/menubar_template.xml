@@ -63,6 +63,7 @@
     <command>MI_InvertSelection</command>
     <separator/>
     <command>MI_RemoveEndpoints</command>
+    <command>MI_ConvertToOutlineShapes</command>
     <separator/>
     <command>MI_Group</command>
     <command>MI_Ungroup</command>
@@ -106,6 +107,7 @@
     <command>MI_AdjustLevels</command>
     <command>MI_AdjustThickness</command>
     <command>MI_BakeEnvelope</command>
+    <command>MI_CreateColourArt</command>
     <command>MI_Antialias</command>
     <command>MI_Binarize</command>
     <command>MI_BrightnessAndContrast</command>
@@ -226,6 +228,7 @@
     <command>MI_OpenMasterControllers</command>
     <command>MI_OpenOffsetLayers</command>
     <command>MI_OpenRigLibrary</command>
+    <command>MI_OpenArtLayerManager</command>
     <separator/>
     <command>MI_ResetRoomLayout</command>
   </menu>

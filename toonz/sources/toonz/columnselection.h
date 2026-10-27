@@ -60,6 +60,13 @@ public:
   void reframe4Cells() { reframeCells(4); }
 
   void reframeWithEmptyInbetweens();
+
+  // Time remap of the level columns of the selection (master plan B7)
+  void timeRemapPreset(int preset);
+  void columnHold() { timeRemapPreset(0); }
+  void columnLoop() { timeRemapPreset(1); }
+  void columnReverse() { timeRemapPreset(2); }
+  void columnTimeRemapClear();
   static void getLevelSetFromColumnIndices(const std::set<int>& indices,
       std::set<TXshLevel*>& levelSet);
 };

@@ -60,7 +60,7 @@ partials needs them.
 |---|---|---|---|---|---|
 | B1 | **Line Art / Colour Art** | No Overlay or Underlay layers, no Art Layer Manager, no "Create Colour Art from Line Art". | Four art layers per drawing, stored as stroke roles with a role tag written only when used. A manager panel. "Create Colour Art" copies the line strokes as 0-thickness colour-art strokes. | L | none |
 | B2 | **Pencil lines** | No opacity along a stroke, no Retouch for opacity, no animated texture. | Per-point opacity in the stroke's thick points, saved only when not 1. The Pump/Retouch tool edits opacity. The texture offset can be animated per frame. | L | none |
-| B3 | **Brushes** | No import of ABR (Photoshop brush) files. | An ABR parser for sampled brushes, mapped to the raster brush engine. | M | none |
+| B3 | **Brushes** | No import of ABR (Photoshop brush) files. | An ABR parser for sampled brushes, mapped to the raster brush engine. Built: the parser, File > Import > Import Photoshop Brushes (ABR) and a "Tip:" option in the full-colour Brush tool (`doc/abr_brushes.md`). | M | none |
 | B4 | **Morphing** | No automatic stroke matching, no zone or vanishing-point hints, no velocity curve. | Automatic matching by shape and position (on top of the Tier 5 pairing hints), zone hints, and an ease curve for the in-betweens. | L | none |
 | B5 | **Colour Override** | Only main colours, no viewer display, no palette-swatch picker. | A swatch picker in FX Settings, an option to override style parameters and textures, and viewer display through the column palette override. | M | none |
 | B6 | **Light Shading, Volume, Glue, Shine** | No shading driven by a light inside a shape. | CPU FX on the Tone/Highlight model. A light position (a point gadget) drives tone and highlight shapes clipped to the colour-art regions. Volume and Shine are variants. | L | B1 |
@@ -94,6 +94,23 @@ Follow-ups that Tier 7 opened: add the Curve, Free-Form and Bone deformers
 as Deformer Stack layers, and move the deformer FX to vector strokes where
 the stroke data is available.
 
+### Tier 8 status
+
+All nine items are built (not yet confirmed by a CI build on Linux when this
+was written). What each one delivered and what is still partial:
+
+| # | Delivered | Still partial |
+|---|---|---|
+| B1 | Underlay/Overlay art layers (classified by stacking order, no file format change), Art Layer Manager panel with per-layer show/hide, Create Colour Art from Line Art | Underlay/Overlay exist only when the drawing has a Colour Art stroke |
+| B2 | Per-stroke opacity (outline-options tag, written only when not 1), Pump "Opacity Brush", Selection "Opacity:" field (`doc/pencil_opacity.md`) | Not per point; ignored by pattern, vector-brush and MyPaint styles; no animated texture offset |
+| B3 | ABR parser (v1/v2, v6 to v10), File > Import > Photoshop Brushes, "Tip:" in the full-colour Brush (`doc/abr_brushes.md`) | Tips only: no dynamics or computed brushes; not on Toonz Raster or vector brushes |
+| B4 | Automatic stroke matching (Hungarian assignment), zone hints, custom ease curve in the In-Between dialog (`doc/morphing.md`) | Hints are in memory only; no vanishing-point hints |
+| B5 | Colour Override swatch picker, Replace/Multiply/Add modes, "Show Colour Override in the Viewer" preference | Viewer display skips the 3D view, sub-xsheet columns and multi-output columns |
+| B6 | Light Shading FX: radial and directional (volume) modes, bands, softness, line protection (`doc/light_shading_fx.md`) | CPU only; normals from alpha only; no separate specular model |
+| B7 | Per-column time remap curve, Hold / Loop / Reverse presets, saved only when used (`doc/time_remap.md`) | Xsheet cells still show original timing; scene length comes from the cells |
+| B8 | Storyboard: drag reorder, notes, bounded play, camera thumbnails (opt-in) | Older builds cannot open a scene that uses notes |
+| B9 | Lasso Cutter keeps fills with invisible closing strokes; "Paste To" new frame or column | Closing strokes only in the current group; tangential touches add none |
+
 ---
 
 ## Part B: build the missing features
@@ -104,9 +121,22 @@ the stroke data is available.
 |---|---|---|---|---|
 | C1 | **Lock Timeline Ruler** | A toggle that keeps the frame ruler from scrolling with the cells. | S | none |
 | C2 | **Port filtering in the node view** | A filter field in the FX and Rig schematic port lists. | S | A2 |
-| C3 | **Compact file format** | An optional compressed scene (zstd over the existing XML), with fast load through lazy level loading. Plain `.tnz` stays the default and is always readable. | M | none |
-| C4 | **Contour Editor** (research) | An outline (brush-shape) stroke model for vector strokes, so the outline can be edited directly. This needs a new stroke representation and is high risk. | XL | none |
-| C5 | **Shape-Aware deformer** (research) | Points, bones and a cage together, on the deformer stack. Harmony's algorithm is proprietary; start from published methods (bounded biharmonic weights). | XL | A1, A7, A8 |
+| C3 | **Compact file format** | An optional compressed scene (LZ4 over the existing XML, `doc/compact_scene.md`), with fast load through lazy level loading. Plain `.tnz` stays the default and is always readable. | M | none |
+| C4 | **Contour Editor** (research) | Built as an opt-in conversion, not a new stroke model: Level > Optimize > Convert Brush Strokes to Outline Shapes replaces selected variable-width strokes by closed zero-thickness outline strokes (same style, filled), which the Selection and Control Point Editor tools edit. One way, no saved-data change; see `doc/contour_editor.md`. | XL | none |
+| C5 | **Shape-Aware deformer** (research) | Points, bones and a cage together, on the deformer stack. Harmony's algorithm is proprietary; start from published methods (bounded biharmonic weights). **Done as `TShapeAwareDeformer` and the Shape Aware Deformer FX** (4 pins, 2 bones, a 4-corner cage; clamped biharmonic-style weights on a grid, see `doc/shape_aware_deformer.md`). Raster warp only, and the class is a stack layer in code but the Deformer Stack FX is not changed. | XL | A1, A7, A8 |
+
+### Tier 9 status
+
+All five items are built (not yet confirmed by a CI build on Linux when this
+was written):
+
+| # | Delivered | Still partial |
+|---|---|---|
+| C1 | Already satisfied; no code | none |
+| C2 | Port filter field in the FX Schematic toolbar | Rig view port rows are not filtered |
+| C3 | "Compress Scene Files" preference (LZ4, default off), save-safety check, hardened compressed reader, round-trip test (`doc/compact_scene.md`) | Whole-file compression, no separate binary format; older builds cannot open compressed scenes |
+| C4 | Convert Brush Strokes to Outline Shapes (`doc/contour_editor.md`) | One way; closed brush strokes skipped; no new stroke model |
+| C5 | `TShapeAwareDeformer` and Shape Aware Deformer FX (`doc/shape_aware_deformer.md`) | Raster warp only; fixed handle counts in the FX; not a Deformer Stack FX layer |
 
 Missing items that stay out: OpenFX, Cryptomatte and performance
 anti-aliasing (GPU and 3D scope), and Ember AI (not realistic).

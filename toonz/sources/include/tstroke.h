@@ -382,6 +382,12 @@ Take from \b curves the control points used to create the stroke
 
   OutlineOptions &outlineOptions();
   const OutlineOptions &outlineOptions() const;
+
+  //! Opacity of the whole stroke, from 0 (invisible) to 1 (default). It is
+  //! multiplied to the alpha of the stroke style color when drawing, and it is
+  //! saved in the stroke outline options only when it is not 1.
+  double getOpacity() const;
+  void setOpacity(double opacity);
 };
 
 //-----------------------------------------------------------------------------
@@ -447,10 +453,15 @@ struct DVAPI TStroke::OutlineOptions {
   int m_patternFrameOffset;
   int m_patternFrameStep;
 
+  // Opacity of the stroke, 0 to 1. Pencil lines with a faded look use it; the
+  // PLI writer stores it only when it is not 1 (see doc/pencil_opacity.md).
+  double m_opacity;
+
 public:
   OutlineOptions();
   OutlineOptions(UCHAR capStyle, UCHAR JoinStyle, double lower, double upper,
-                 int patternFrameOffset = 0, int patternFrameStep = 1);
+                 int patternFrameOffset = 0, int patternFrameStep = 1,
+                 double opacity = 1.0);
 };
 
 //***************************************************************************

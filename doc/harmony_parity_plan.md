@@ -23,7 +23,7 @@
 | Kinematic Output | P | Y | A column's parent handle can be `H0:<vertex>`, so the column follows a Plastic vertex (`toonzlib/xshhandlemanager.cpp:164`, `tstageobject.cpp:1609`). Renaming the vertex keeps the link. | Only Plastic vertices can drive it, because no other deformer types exist. |
 | Free-Form deformer | P | Partial | Plastic mesh vertices. Pinch, Bender and Magnet edit the drawing destructively. Distort > Free-Form Deformer (`stdfx/freeformdeformerfx.cpp`) moves a 4x4 lattice of 16 animatable points over an animatable rest rectangle and warps the rendered Source with the cubic B-spline of their displacement, through `TFreeFormDeformer` (`include/toonz/tfreeformdeformer.h`) on the raster `TDeformer` layer. | The lattice of the FX is fixed at 4x4 (the class takes any N x M), and only the corner points are reached exactly. Outside the rest rectangle the displacement is held at the border's value. The warp resamples the rendered raster, not the strokes. It is not a layer of the Deformer Stack FX yet, and there is no cage with free polygon vertices. |
 | Weighted multi-deformer | P | Partial | One Plastic deformation per object, with rigidity weights. Distort > Deformer Stack (`stdfx/deformerstackfx.cpp`) stacks up to 3 envelope layers, each with an animatable weight and an optional distance falloff, on the raster `TDeformer` layer (`TDeformerStack`, `include/toonz/tdeformerstack.h`). | The stack is an FX on the rendered raster, with envelope layers only and at most 3. Weights are uniform or distance based, not painted per point. Plastic, Bone, Curve and Free-Form layers, and a stack per column outside the FX chain, are not there yet. |
-| Shape-Aware deformer (H24) | P | N | Nothing. | Points, bones and cage together. A proprietary algorithm; see 3.4. |
+| Shape-Aware deformer (H24) | P | Partial | Distort > Shape Aware Deformer (`stdfx/shapeawaredeformerfx.cpp`): 4 pins, 2 bones and a 4-corner cage act together through `TShapeAwareDeformer` (`include/toonz/tshapeawaredeformer.h`), a linear blend of per-handle transforms with smooth weights from a clamped biharmonic-style solve on a grid (after bounded biharmonic weights, Jacobson et al. 2011). See `doc/shape_aware_deformer.md`. | A different, published algorithm: it will not match Harmony's results. Raster warp only; fixed handle counts; the weights are clamped and normalised after the solve rather than solved as a bounded problem; close handles compete for grid nodes; not a layer of the Deformer Stack FX yet. |
 | Auto-Patch | P | N | Nothing. | No masking of line art at the overlap of joints. |
 | Master Controller and wizards | P | Partial | **Poses panel**: additive poses, each with a weight from -100% to 100% (`toonzlib/poselibrary.cpp`, `toonz/posespane.cpp`). It covers stage channels and Plastic vertex angle and distance. **Master Controllers panel** (`toonz/mastercontrollerspane.cpp`): a controller is a pegbar named `ctrl_<name>` whose Rotation channel is the value, animated by a slider with keys and undo. "Bind Selected Channel" writes an expression such as `peg3.rot*30+5` into the Function Editor's current channel, so it is a live control saved as plain pegbars and expressions. | No widgets in the viewer (slider, 2D pad, grid). No pose interpolation from a controller. Poses can't drive drawing swaps. |
 | Attribute Controller (H27) | P | Partial | The pose library is already offset-based and stackable. **Offset layers** (`TStageObject::OffsetLayer`, `toonz/offsetlayerspane.cpp`, see `doc/offset_layers.md`): per-object named layers with an animatable weight and additive curves for the stage channels, shown in the Function Editor and the Offset Layers panel, saved only when used. Poses can be applied to a layer instead of baking keys, a layer can be baked into the base, and **Train from Keys** copies the existing keys into a layer. | No Setup Mode. Training copies the keys; it does not fit weights. Layers do not cover Plastic vertex parameters or the Path channel. |
@@ -39,17 +39,17 @@
 
 | Feature | Tier | Status | What exists | Gap |
 |---|---|---|---|---|
-| Line Art / Colour Art | E/A/P | Partial | Toonz Raster keeps ink and paint separate natively. On vector levels, strokes of zero thickness act as Colour Art, with "Art Layer:" and "Show Art:" tool options (`include/tools/artlayer.h`, `tnztools/artlayer.cpp`). The file format is unchanged. | No Overlay or Underlay layers, no Art Layer Manager (H25.2), and no "Create Colour Art from Line Art". |
+| Line Art / Colour Art | E/A/P | Partial | Toonz Raster keeps ink and paint separate natively. On vector levels, strokes of zero thickness act as Colour Art, with "Art Layer:" and "Show Art:" tool options (`include/tools/artlayer.h`, `tnztools/artlayer.cpp`). Underlay and Overlay are Line Art strokes below the first and above the last Colour Art stroke in the stacking order, with matching "Art Layer:" entries that only edit those strokes (they act as Line Art while the drawing has no Colour Art). Windows > Art Layer Manager (`toonz/artlayermanagerpane.cpp`) counts the strokes of the current drawing per layer and shows or hides each layer in the viewer. Level > Create Colour Art from Line Art (`toonz/createcolourartcommand.cpp`) appends a zero-thickness copy of every Line Art stroke below the others, for the selected drawings or the current one, with one undo step per drawing. The file format is unchanged. | New strokes are added on top of the stacking order, so the Underlay target cannot place them below the Colour Art. The Manager hides strokes, not the fills of their regions, and does not move, swap or merge layers. Create Colour Art does not close open strokes. |
 | Pencil lines: texture, width profile, pressure opacity, Retouch | A/P | Partial | Pressure thickness on vectors. The **Pump** tool gains Thicken and Thin Brush modes (`tnztools/pumptool.cpp:33`). Textured vector styles. | No opacity along a stroke, no Retouch for opacity, and no animated pencil texture. |
-| Contour Editor | E/A/P | N | OpenToonz vectors are centreline strokes. | Needs an outline (brush-shape) stroke model. |
+| Contour Editor | E/A/P | Partial | OpenToonz vectors are centreline strokes. Level > Optimize > Convert Brush Strokes to Outline Shapes turns selected brush strokes into closed, filled, zero-thickness outline strokes that the Control Point Editor edits (`toonzlib/contouroutline.cpp`, doc/contour_editor.md). | One way (no back to a brush stroke, no live outline handles on a brush stroke), closed brush strokes are skipped, and no outline stroke type. |
 | Centerline Editor | E/A/P | Y | Control Point Editor. | n/a |
 | Auto gap closing | E/A/P | Y | Autoclose (`filltool.cpp`, `rastertapetool.cpp`). | n/a |
 | Paint Unpainted / paint behind | E/A/P | Y | Fill tool's Selective mode; Toonz Raster paints behind the ink. | n/a |
-| Brush engines and Photoshop brushes | A/P | Partial | MyPaint and full-colour brushes. | No import of ABR (Photoshop brush) files. |
+| Brush engines and Photoshop brushes | A/P | Partial | MyPaint and full-colour brushes. File > Import > Import Photoshop Brushes (ABR) reads the sampled tips (`toonzlib/abrparser.cpp`, `toonz/abrimport.cpp`) and the full-colour Brush tool stamps them ("Tip:" option, see `doc/abr_brushes.md`). | Tips only: no Photoshop dynamics, no computed brushes; no tips in the MyPaint-style Toonz Raster brush. |
 | Stabilizer | E/A/P | Y | `modifiersmooth.cpp` | n/a |
 | Perspective and guides | A/P | Y | Assistants (`assistantperspective.cpp`, and others). | n/a |
 | Symmetry | ? | Y (ahead) | Replicators. | n/a |
-| Morphing | A/P | Partial | Vector Inbetween now accepts **stroke-pairing hints** (`common/tvrender/tinbetween.cpp`, `tnztools/strokeselection.cpp:694`). The old `morphtool.cpp` was removed. | No automatic matching of strokes, no zone or vanishing-point hints, and no velocity curve. |
+| Morphing | A/P | Partial | Vector Inbetween now accepts **stroke-pairing hints** (`common/tvrender/tinbetween.cpp`, `tnztools/strokeselection.cpp:694`). The old `morphtool.cpp` was removed. | Automatic stroke matching, zone hints and a custom velocity curve are in the Inbetween dialog (`doc/morphing.md`). No vanishing-point hints. |
 | Shift & Trace | A/P | Y | Existing tool. | n/a |
 | Onion skin | E/A/P | Y | Existing. | n/a |
 | Light Table | E/A/P | Y | View > Light Table: every column except the current one faded (`toonzlib/stage.cpp`, `toonz/sceneviewer.cpp`). The opacity is a preference (Onion Skin page, default 30%), and a column can be excluded from it with a column-header command (`TXshColumn::isLightTableExcluded`, see `doc/light_table_extras.md`). | The opacity is global, not per column. The exclusion is saved in the column status word; older builds ignore it. |
@@ -65,7 +65,7 @@
 | Interpolation types | E/A/P | Y | Existing. | n/a |
 | Motion paths in the viewer | E/A/P | Y | Animate tool's "Show Trajectory", with draggable markers for position keys (`tnztools/edittool.cpp:66-84`). | No velocity display, and no editing of the path's tangents in the viewer. |
 | Trajectory onion skin | ? | Y | Same feature. | n/a |
-| Sub-timing and Retime / Hold / Loop nodes | A/P | Partial | Xsheet reframe and step tools; symbol timing modes. | No time-remap curve per column. |
+| Sub-timing and Retime / Hold / Loop nodes | A/P | Partial | Xsheet reframe and step tools; symbol timing modes. A per-column **time remap** curve (master plan B7, `doc/time_remap.md`) on the level column fx, shown in the Function Editor, with Hold, Loop and Reverse presets; saved only when used. | The remap is applied at render, preview and in the viewer (not for the current column); the xsheet cells keep showing the original timing. No remap for sound, sub-xsheet-internal timing or non-level columns. |
 | Auto lip-sync | A/P | Y | Rhubarb (`toonz/autolipsyncpopup.cpp`). | n/a |
 | Sound scrubbing and level meter | E/A/P | Y | Scrubbing, plus a `SoundLevelMeter` (`toonzqt/flipconsole.cpp:422`) and an animatable **Volume** curve (`toonzlib/txshsoundcolumn.cpp:159-187`). | n/a |
 
@@ -77,8 +77,8 @@
 | Tone / Highlight | A/P | Y | `ToneHighlightFx` (`stdfx/tonehighlightfx.cpp:91`): matte input, softness, and a correct affine for soft edges. **Xsheet > Add Tone / Highlight Shading** inserts a Tone and a Highlight Fx with preset colours on the selected columns, as one undo step (`toonz/tonehighlightcommand.cpp`). | The matte ports are left for you to connect; no automatic line-art matte. |
 | Glow, Blur, Bokeh | A/P | Y | Existing Iwa effects. | n/a |
 | Cutter and Matte | A/P | Y | Matte In and Matte Out. | n/a |
-| Colour Override | P | Partial | `stdfx/colouroverridefx.cpp`, `ColourOverrideFxRenderData` applied in `tcolumnfx.cpp`: up to 8 style → colour pairs on Toonz Vector / Toonz Raster columns, Preview/Render only. | Only main colours (no textures), no viewer display, no palette-swatch picker. |
-| Light Shading, Volume, Glue, Shine | P | Partial | Iwa lighting and gradient effects. | No shading driven by a light inside a shape. |
+| Colour Override | P | Partial | `stdfx/colouroverridefx.cpp`, `ColourOverrideFxRenderData` applied in `tcolumnfx.cpp`: up to 8 style → colour pairs on Toonz Vector / Toonz Raster columns, each with a Replace / Multiply / Add mode (`modeN`, default Replace, saved only when not Replace); a palette-swatch picker for the style ids in FX Settings (`IntParamField::enableStyleSwatch`, shows the current level's palette); display in the 2D viewer behind Preferences > Show Colour Override in the Viewer (off by default, `RasterPainter`). Older builds ignore `modeN` and treat every pair as Replace. | Only main colours (no style parameters or textures); the viewer shows only the Fxs that directly follow the column in the Xsheet (not the 3D view, not sub-xsheet columns); the picker shows the current level's palette. |
+| Light Shading, Volume, Glue, Shine | P | Partial | Iwa lighting and gradient effects, and the **Light Shading FX** (`stdfx/lightshadingfx.cpp`, `doc/light_shading_fx.md`): a radial or directional light, flat cel bands, a Matte to limit the region. | CPU only; normals come from the alpha of the image, with no depth information; Shine is a highlight band. |
 | Particles | P | Y | Particles Fx. | No baking. |
 | Multiplane, Z and depth of field | E/A/P | Y | Z, stacking order (SO), camera Z, Bokeh. | n/a |
 | 3D model import | P | Partial | **GLB Model FX** with a CPU rasterizer (`glb/glbloader.cpp`, `glb/glbrenderer.cpp`, `stdfx/glbmodelfx.cpp`), plus **Transform3D** and **ThreePointLight** FX. | GLB only: no FBX, OBJ or USD. No PBR, no shadows, no GPU. Models are FX sources, not scene objects. |
@@ -98,7 +98,7 @@
 | Game export | P | Partial | Spine JSON export. | No mesh deformation export; no Unity or Godot path. |
 | Export formats | E/A/P | Y | Through an ffmpeg **pipe** (`image/ffmpeg/tiio_ffmpeg.cpp`), EXR, the **PSD writer** (one flattened PSD per frame, `image/psd/tiio_psd.cpp`), the layered PSD scene export (one layer per top-level column, doc/layered_psd_export.md), OCA, XDTS, xsheet PDF, animated SVG. | No USD, no SWF. |
 | Storyboard Pro integration | E/A/P | Partial | XDTS and OCA. | Conforming from Storyboard Pro is proprietary. |
-| Compact file format | all | N | XML `.tnz`. | No binary or compressed scene, and no fast load. |
+| Compact file format | all | Partial | Optional LZ4-compressed `.tnz` (Preferences > Saving, off by default; doc/compact_scene.md). Levels already load their frames on demand. | No separate binary format; plain XML is parsed on load. |
 | AI (Ember) | add-on | N | Nothing. | Out of scope. |
 
 ### 1.6 UI and workflow
@@ -204,7 +204,7 @@
 | D2 | Overlay/Underlay art layers and Art Layer Manager | L | Q3 | Store the four layers as stroke groups with a role tag, which is a format change. The manager panel moves, swaps and merges them. | High: format | MM |
 | D3 | Smarter morphing | L | none | Match strokes automatically (by shape descriptor and position) before the user's hints, and add vanishing-point hints and a velocity curve on top of `TInbetween`. | Medium | V/MM |
 | D4 | Importing ABR (Photoshop) brushes | M | none | Read the sampled-tip ABR format into MyPaint or full-colour brush tips (Krita and GIMP readers are references). Dynamic ABR presets are proprietary and stay partial. | Medium | V |
-| D5 | Contour Editor | XL | none | Needs an outline vector representation next to centreline strokes. Out of scope, unless vector levels gain a "shape" stroke type. | High | X |
+| D5 | Contour Editor | XL | none | Done as an opt-in conversion of brush strokes to closed outline strokes (doc/contour_editor.md). A true outline stroke type stays out of scope. | High | X |
 | D6 | Animated pencil texture | M | D1 | A stroke-style parameter that offsets the texture per frame. | Low | V |
 
 ### Phase 4: Compositing, GPU and 3D: out of scope
@@ -229,14 +229,14 @@ they are.
 
 - **Shape-Aware deformer, Ember AI, Harmony Server/WebCC, Storyboard Pro conform and the Harmony Game SDK** are proprietary or separate products. A behavioural equivalent can be built for some of them (R11, Spine and Godot export), but not for the AI tools or the server.
 - **A full 3D scene graph and USD (G7, G8)** would effectively rewrite the stage model. A volunteer project should stop at G5 and G6, with 3D models as FX or stage children and tilt-based cards.
-- **The Contour Editor (D5)** conflicts with OpenToonz's centreline vector model.
+- **The Contour Editor (D5)** conflicts with OpenToonz's centreline vector model; only the one-way conversion to outline shapes is built (doc/contour_editor.md).
 - **Byte-for-byte compatibility with upstream OpenToonz** cannot hold once D1, D2 or F3 land. The project needs a policy decision: optional tags that upstream ignores, or a declared groundzero format version.
 
 ---
 
 ## 4. First 10 things to build next
 
-1. **Colour Override FX (Q1): done in `tier6`.** Next for it: a palette-swatch picker in the FX settings and display in the viewer.
+1. **Colour Override FX (Q1): done in `tier6`, completed with a palette-swatch picker, Multiply / Add modes and viewer display (opt-in preference).** Next for it: style parameters and textures.
 2. **Rebase and merge the Qt 6 build abstraction (F1)**, dual-build, before the branch drifts further. QtScript is already gone.
 3. **Whole-rig breakdown and Quick Ease in the Timeline and Xsheet (Q2): done in `t10/rig-ease`.** See `doc/rig_breakdown_ease.md`.
 4. **Offset-layer channels (F5).** They turn the Poses panel into a live, stackable Attribute Controller and unblock R6 and R7.

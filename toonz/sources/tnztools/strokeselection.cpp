@@ -36,6 +36,7 @@
 #include "toonz/toonzscene.h"
 #include "toonz/sceneproperties.h"
 #include "toonz/tframehandle.h"
+#include "toonz/contouroutline.h"
 #include "toonz/customvectorbrushexporter.h"
 #include "toonz/toonzfolders.h"
 #include "toonz/txshlevel.h"
@@ -48,6 +49,7 @@
 #include "tvectorimage.h"
 #include "tcolorstyles.h"
 #include "tpalette.h"
+#include "tregion.h"
 
 // Qt includes
 #include <QApplication>
@@ -475,6 +477,169 @@ public:
 };
 
 //=============================================================================
+// ConvertToOutlineShapesUndo
+//-----------------------------------------------------------------------------
+
+// The strokes are changed in place (same index, id, style and group): only
+// their control points and the self loop flag differ.
+class ConvertToOutlineShapesUndo final : public TUndo {
+public:
+  struct Item {
+    int m_index;
+    std::vector<TThickPoint> m_before, m_after;
+    bool m_selfLoopBefore;
+
+    Item() : m_index(-1), m_selfLoopBefore(false) {}
+  };
+
+private:
+  TXshSimpleLevelP m_level;
+  TFrameId m_frameId;
+  std::vector<Item> m_items;
+  TRectD m_area;  // where the fills are saved
+  std::vector<TFilledRegionInf> m_fillBefore, m_fillAfter;
+
+  // Sets the control points of the strokes, before or after the conversion
+  void reshapeStrokes(const TVectorImageP &vi, bool after) const {
+    std::vector<int> indexes;
+    std::vector<TStroke *> oldStrokes;
+    for (const Item &item : m_items) {
+      if (item.m_index < 0 || item.m_index >= (int)vi->getStrokeCount())
+        continue;
+      TStroke *stroke = vi->getStroke(item.m_index);
+      oldStrokes.push_back(new TStroke(*stroke));
+      indexes.push_back(item.m_index);
+
+      const std::vector<TThickPoint> &points =
+          after ? item.m_after : item.m_before;
+      stroke->reshape(&points[0], (int)points.size());
+      stroke->setSelfLoop(after ? true : item.m_selfLoopBefore);
+    }
+    vi->notifyChangedStrokes(indexes, oldStrokes);
+    for (TStroke *oldStroke : oldStrokes) delete oldStroke;
+    vi->findRegions();
+  }
+
+  void applyFills(const TVectorImageP &vi,
+                  const std::vector<TFilledRegionInf> &fills) const {
+    for (const TFilledRegionInf &fill : fills) {
+      TRegion *region = vi->getRegion(fill.m_regionId);
+      if (region) region->setStyle(fill.m_styleId);
+    }
+  }
+
+  void notify() const {
+    TTool::Application *app    = TTool::getApplication();
+    StrokeSelection *selection = dynamic_cast<StrokeSelection *>(
+        app->getCurrentSelection()->getSelection());
+    if (selection) selection->selectNone();
+    app->getCurrentXsheet()->notifyXsheetChanged();
+    app->getCurrentTool()->getTool()->notifyImageChanged();
+  }
+
+public:
+  ConvertToOutlineShapesUndo(TXshSimpleLevel *level, const TFrameId &frameId,
+                             const std::vector<Item> &items, const TRectD &area,
+                             const std::vector<TFilledRegionInf> &fillBefore)
+      : m_level(level)
+      , m_frameId(frameId)
+      , m_items(items)
+      , m_area(area)
+      , m_fillBefore(fillBefore) {}
+
+  // Fills, with style, the unfilled regions whose inside lies within the
+  // closed outline stroke. Each region is tested at one of its internal points
+  // against a polygon sampled along the stroke: testing the regions against
+  // a copy of the stroke itself (selectFill) compares points that lie on the
+  // outline, where the answer depends on rounding.
+  static void fillInside(const TVectorImageP &vi, const TStroke &outline,
+                         int style) {
+    const int samples = std::max(64, 8 * outline.getChunkCount());
+    std::vector<TPointD> polygon;
+    polygon.reserve(samples);
+    for (int i = 0; i < samples; i++)
+      polygon.push_back(outline.getPoint((double)i / samples));
+
+    auto inside = [&polygon](const TPointD &p) {
+      bool in = false;
+      for (size_t i = 0, j = polygon.size() - 1; i < polygon.size(); j = i++) {
+        const TPointD &a = polygon[i], &b = polygon[j];
+        if ((a.y > p.y) != (b.y > p.y) &&
+            p.x < (b.x - a.x) * (p.y - a.y) / (b.y - a.y) + a.x)
+          in = !in;
+      }
+      return in;
+    };
+
+    const TRectD bbox = outline.getBBox();
+    std::vector<TRegion *> regions;
+    for (UINT i = 0; i < vi->getRegionCount(); i++)
+      regions.push_back(vi->getRegion(i));
+    while (!regions.empty()) {
+      TRegion *region = regions.back();
+      regions.pop_back();
+      if (!region || !bbox.overlaps(region->getBBox())) continue;
+      for (UINT i = 0; i < region->getSubregionCount(); i++)
+        regions.push_back(region->getSubregion(i));
+      TPointD p;
+      if (region->getStyle() == 0 && region->getInternalPoint(p) && inside(p))
+        region->setStyle(style);
+    }
+  }
+
+  // Does the conversion the first time. The new shapes are filled with the
+  // style of their stroke, as a brush stroke has no fill of its own.
+  void convert() {
+    TVectorImageP vi = m_level->getFrame(m_frameId, true);
+    if (!vi) return;
+    QMutexLocker lock(vi->getMutex());
+    reshapeStrokes(vi, true);
+    for (const Item &item : m_items) {
+      if (item.m_index < 0 || item.m_index >= (int)vi->getStrokeCount())
+        continue;
+      TStroke *stroke = vi->getStroke(item.m_index);
+      fillInside(vi, *stroke, stroke->getStyle());
+    }
+    ImageUtils::getFillingInformationOverlappingArea(vi, m_fillAfter, m_area);
+  }
+
+  void undo() const override {
+    TVectorImageP vi = m_level->getFrame(m_frameId, true);
+    if (!vi) return;
+    {
+      QMutexLocker lock(vi->getMutex());
+      reshapeStrokes(vi, false);
+      applyFills(vi, m_fillBefore);
+    }
+    notify();
+  }
+
+  void redo() const override {
+    TVectorImageP vi = m_level->getFrame(m_frameId, true);
+    if (!vi) return;
+    {
+      QMutexLocker lock(vi->getMutex());
+      reshapeStrokes(vi, true);
+      applyFills(vi, m_fillAfter);
+    }
+    notify();
+  }
+
+  int getSize() const override {
+    int points = 0;
+    for (const Item &item : m_items)
+      points += (int)(item.m_before.size() + item.m_after.size());
+    return sizeof(*this) + points * sizeof(TThickPoint) +
+           (m_fillBefore.size() + m_fillAfter.size()) *
+               sizeof(TFilledRegionInf);
+  }
+
+  QString getHistoryString() override {
+    return QObject::tr("Convert Brush Strokes to Outline Shapes");
+  }
+};
+
+//=============================================================================
 // CutStrokesUndo
 //-----------------------------------------------------------------------------
 
@@ -683,6 +848,73 @@ void StrokeSelection::sortWithPaletteOrder() {
 
 //=============================================================================
 //
+// convertToOutlineShapes
+//
+//-----------------------------------------------------------------------------
+
+void StrokeSelection::convertToOutlineShapes() {
+  if (!m_vi) return;
+  if (m_indexes.empty()) return;
+
+  if (!isEditable()) {
+    DVGui::error(
+        QObject::tr("The selection cannot be updated. It is not editable."));
+    return;
+  }
+
+  TTool *tool = TTool::getApplication()->getCurrentTool()->getTool();
+  TXshSimpleLevel *level =
+      TTool::getApplication()->getCurrentLevel()->getSimpleLevel();
+  if (!tool || !level) return;
+
+  // Compute all the outlines first: nothing is changed if none can be
+  std::vector<ConvertToOutlineShapesUndo::Item> items;
+  TRectD area;
+  for (int index : m_indexes) {
+    TStroke *stroke = m_vi->getStroke(index);
+
+    ConvertToOutlineShapesUndo::Item item;
+    if (!ContourOutline::makeOutlineControlPoints(*stroke, item.m_after))
+      continue;
+
+    item.m_index = index;
+    for (int i = 0; i < stroke->getControlPointCount(); i++)
+      item.m_before.push_back(stroke->getControlPoint(i));
+    item.m_selfLoopBefore = stroke->isSelfLoop();
+    items.push_back(item);
+
+    area += stroke->getBBox();
+    TRectD shapeBox(item.m_after[0].x, item.m_after[0].y,
+                    item.m_after[0].x + 1e-3, item.m_after[0].y + 1e-3);
+    for (const TThickPoint &p : item.m_after)
+      shapeBox += TRectD(p.x, p.y, p.x + 1e-3, p.y + 1e-3);
+    area += shapeBox;
+  }
+
+  if (items.empty()) {
+    DVGui::warning(
+        QObject::tr("No selected stroke can be converted. Only open strokes "
+                    "with some thickness can be converted to outline "
+                    "shapes."));
+    return;
+  }
+
+  area = area.enlarge(1.0);
+  std::vector<TFilledRegionInf> fillBefore;
+  ImageUtils::getFillingInformationOverlappingArea(m_vi, fillBefore, area);
+
+  ConvertToOutlineShapesUndo *undo = new ConvertToOutlineShapesUndo(
+      level, tool->getCurrentFid(), items, area, fillBefore);
+  undo->convert();
+  TUndoManager::manager()->add(undo);
+
+  m_updateSelectionBBox = true;
+  tool->notifyImageChanged();
+  m_updateSelectionBBox = false;
+}
+
+//=============================================================================
+//
 // Inbetween stroke pairs
 //
 //-----------------------------------------------------------------------------
@@ -700,6 +932,30 @@ struct InbetweenStrokePairs {
 InbetweenStrokePairs &inbetweenStrokePairs() {
   static InbetweenStrokePairs pairs;
   return pairs;
+}
+
+// Zone hints for the Inbetween command. A hint is a pair of zones, one on each
+// key drawing. As for the stroke pairs, the drawings are identified through the
+// id of a stroke they contain (the first selected one), so a hint stops
+// applying when that stroke is gone.
+// The drawings are also remembered by pointer, because a key drawing
+// duplicated from the other one holds the same stroke ids.
+struct InbetweenZoneHints {
+  struct Hint {
+    int m_idA, m_idB;
+    TRectD m_rectA, m_rectB;
+    const TVectorImage *m_imageA, *m_imageB;  // only compared
+  };
+
+  int m_markedId                    = -1;       // -1: nothing marked yet
+  const TVectorImage *m_markedImage = nullptr;  // only compared
+  TRectD m_markedRect;
+  std::vector<Hint> m_hints;
+};
+
+InbetweenZoneHints &inbetweenZoneHints() {
+  static InbetweenZoneHints hints;
+  return hints;
 }
 
 }  // namespace
@@ -763,13 +1019,21 @@ void StrokeSelection::clearInbetweenStrokePairs() {
   data.m_markedImage         = nullptr;
   data.m_markedIds.clear();
   data.m_pairs.clear();
+
+  InbetweenZoneHints &zones = inbetweenZoneHints();
+  zones.m_markedId          = -1;
+  zones.m_markedImage       = nullptr;
+  zones.m_markedRect        = TRectD();
+  zones.m_hints.clear();
 }
 
 //-----------------------------------------------------------------------------
 
 bool StrokeSelection::hasInbetweenStrokePairs() {
   const InbetweenStrokePairs &data = inbetweenStrokePairs();
-  return !data.m_pairs.empty() || !data.m_markedIds.empty();
+  const InbetweenZoneHints &zones  = inbetweenZoneHints();
+  return !data.m_pairs.empty() || !data.m_markedIds.empty() ||
+         !zones.m_hints.empty() || zones.m_markedId >= 0;
 }
 
 //-----------------------------------------------------------------------------
@@ -795,6 +1059,79 @@ std::vector<std::pair<int, int>> StrokeSelection::getInbetweenStrokePairs(
 
 //=============================================================================
 //
+// Inbetween zone hints
+//
+//-----------------------------------------------------------------------------
+
+void StrokeSelection::addInbetweenZoneHint() {
+  if (!m_vi || m_indexes.empty()) return;
+
+  std::vector<int> order = selectionOrder();
+  if (order.empty()) return;
+  TRectD box;
+  for (int index : order) box += m_vi->getStroke(index)->getBBox();
+  int anchorId = m_vi->getStroke(order.front())->getId();
+
+  InbetweenZoneHints &data = inbetweenZoneHints();
+
+  // first step: remember the zone in the first key drawing (the call is
+  // repeated on the same drawing: replace the zone)
+  if (data.m_markedId < 0 || data.m_markedImage == m_vi.getPointer()) {
+    data.m_markedId    = anchorId;
+    data.m_markedImage = m_vi.getPointer();
+    data.m_markedRect  = box;
+    DVGui::info(QObject::tr(
+        "Zone marked for Inbetween. Select the strokes of the "
+        "matching zone in the other key drawing and use Add Inbetween "
+        "Zone Hint from Selection again."));
+    return;
+  }
+
+  // second step: the zone of this key drawing is the target
+  InbetweenZoneHints::Hint hint;
+  hint.m_idA    = data.m_markedId;
+  hint.m_idB    = anchorId;
+  hint.m_rectA  = data.m_markedRect;
+  hint.m_rectB  = box;
+  hint.m_imageA = data.m_markedImage;
+  hint.m_imageB = m_vi.getPointer();
+  data.m_hints.push_back(hint);
+  data.m_markedId    = -1;
+  data.m_markedImage = nullptr;
+  data.m_markedRect  = TRectD();
+
+  DVGui::info(QObject::tr("%1 zone hint(s) set for Inbetween.")
+                  .arg((int)data.m_hints.size()));
+}
+
+//-----------------------------------------------------------------------------
+
+std::vector<std::pair<TRectD, TRectD>> StrokeSelection::getInbetweenZoneHints(
+    const TVectorImageP &firstImage, const TVectorImageP &lastImage) {
+  std::vector<std::pair<TRectD, TRectD>> rects;
+  if (!firstImage || !lastImage) return rects;
+
+  for (const InbetweenZoneHints::Hint &hint : inbetweenZoneHints().m_hints) {
+    // hints can be set from either key drawing
+    bool idsAB = firstImage->getStrokeIndexById(hint.m_idA) >= 0 &&
+                 lastImage->getStrokeIndexById(hint.m_idB) >= 0;
+    bool idsBA = firstImage->getStrokeIndexById(hint.m_idB) >= 0 &&
+                 lastImage->getStrokeIndexById(hint.m_idA) >= 0;
+    // a key drawing duplicated from the other holds the same stroke ids: the
+    // drawings the hint was set on decide then
+    if (idsAB && idsBA && hint.m_imageA == lastImage.getPointer() &&
+        hint.m_imageB == firstImage.getPointer())
+      idsAB = false;
+    if (idsAB)
+      rects.push_back(std::make_pair(hint.m_rectA, hint.m_rectB));
+    else if (idsBA)
+      rects.push_back(std::make_pair(hint.m_rectB, hint.m_rectA));
+  }
+  return rects;
+}
+
+//=============================================================================
+//
 // selectAll
 //
 //-----------------------------------------------------------------------------
@@ -804,8 +1141,9 @@ void StrokeSelection::selectAll() {
 
   int sCount = int(m_vi->getStrokeCount());
 
+  ArtLayer::Filter filter(*m_vi);
   for (int s = 0; s < sCount; ++s) {
-    if (ArtLayer::isEditable(*m_vi->getStroke(s))) m_indexes.insert(s);
+    if (filter.isEditable(s)) m_indexes.insert(s);
   }
 
   StrokeSelection *selection = dynamic_cast<StrokeSelection *>(
@@ -1152,8 +1490,12 @@ void StrokeSelection::enableCommands() {
 
   enableCommand(this, MI_RemoveEndpoints, &StrokeSelection::removeEndpoints);
   enableCommand(this, MI_SortWithPaletteOrder, &StrokeSelection::sortWithPaletteOrder);
+  enableCommand(this, MI_ConvertToOutlineShapes,
+                &StrokeSelection::convertToOutlineShapes);
   enableCommand(this, MI_PairInbetweenStrokes,
                 &StrokeSelection::pairStrokesForInbetween);
+  enableCommand(this, MI_AddInbetweenZoneHint,
+                &StrokeSelection::addInbetweenZoneHint);
   enableCommand(this, MI_ClearInbetweenStrokePairs,
                 &StrokeSelection::clearInbetweenStrokePairs);
   enableCommand(this, MI_SelectAll, &StrokeSelection::selectAll);

@@ -32,6 +32,14 @@ struct Stroke {
     ++setCount;
   }
 };
+
+// Minimal stand-in for TVectorImage: strokes in stacking order.
+struct Image {
+  std::vector<Stroke> strokes;
+
+  unsigned getStrokeCount() const { return (unsigned)strokes.size(); }
+  const Stroke *getStroke(unsigned n) const { return &strokes[n]; }
+};
 }  // namespace
 
 int main() {
@@ -78,6 +86,85 @@ int main() {
           "Geometry must be preserved");
   applyTarget(TARGET_COLOUR_ART, centerline);
   require(roleOf(centerline) == COLOUR_ART, "Centerline becomes Colour Art");
+
+  // Underlay and Overlay: the place of Line Art among the Colour Art strokes.
+  Stroke bottom = line, middle = line, top = line;
+  Image image{{bottom, bottom, colour, middle, colour, top}};
+  ColourRange range = colourRange(image);
+  require(range.first == 2 && range.last == 4, "Colour Art range");
+  require(!range.isEmpty(), "Colour Art range is not empty");
+  require(roleInStack(range, 0, false) == UNDERLAY, "Below is Underlay");
+  require(roleInStack(range, 1, false) == UNDERLAY, "Below is Underlay");
+  require(roleInStack(range, 2, true) == COLOUR_ART, "Colour Art stays");
+  require(roleInStack(range, 3, false) == LINE_ART, "Between is Line Art");
+  require(roleInStack(range, 4, true) == COLOUR_ART, "Colour Art stays");
+  require(roleInStack(range, 5, false) == OVERLAY, "Above is Overlay");
+
+  int counts[RoleCount];
+  countRoles(image, counts);
+  require(counts[UNDERLAY] == 2 && counts[COLOUR_ART] == 2 &&
+              counts[LINE_ART] == 1 && counts[OVERLAY] == 1,
+          "Strokes per role");
+
+  // Without Colour Art there are no Underlay and Overlay strokes.
+  Image lines{{line, line, centerline}};
+  ColourRange none = colourRange(lines);
+  require(none.isEmpty(), "No Colour Art range");
+  for (int i = 0; i < 3; ++i)
+    require(roleInStack(none, i, false) == LINE_ART, "All Line Art");
+  countRoles(lines, counts);
+  require(counts[LINE_ART] == 3 && counts[UNDERLAY] == 0 &&
+              counts[OVERLAY] == 0 && counts[COLOUR_ART] == 0,
+          "Line Art only");
+  Image empty;
+  require(colourRange(empty).isEmpty(), "Empty image");
+
+  // The targets: Underlay and Overlay need Colour Art, else act as Line Art.
+  require(effectiveTarget(TARGET_UNDERLAY, none) == TARGET_LINE_ART,
+          "Underlay without Colour Art");
+  require(effectiveTarget(TARGET_OVERLAY, none) == TARGET_LINE_ART,
+          "Overlay without Colour Art");
+  require(effectiveTarget(TARGET_UNDERLAY, range) == TARGET_UNDERLAY,
+          "Underlay with Colour Art");
+  require(effectiveTarget(TARGET_OVERLAY, range) == TARGET_OVERLAY,
+          "Overlay with Colour Art");
+  require(effectiveTarget(TARGET_OFF, none) == TARGET_OFF, "Off is kept");
+  require(effectiveTarget(TARGET_COLOUR_ART, none) == TARGET_COLOUR_ART,
+          "Colour Art target is kept");
+
+  require(isEditable(TARGET_UNDERLAY, UNDERLAY), "Underlay target");
+  require(!isEditable(TARGET_UNDERLAY, OVERLAY), "Underlay target");
+  require(!isEditable(TARGET_UNDERLAY, LINE_ART), "Underlay target");
+  require(!isEditable(TARGET_UNDERLAY, COLOUR_ART), "Underlay target");
+  require(isEditable(TARGET_OVERLAY, OVERLAY), "Overlay target");
+  require(!isEditable(TARGET_OVERLAY, UNDERLAY), "Overlay target");
+  require(!isEditable(TARGET_OVERLAY, COLOUR_ART), "Overlay target");
+
+  // The Line Art target covers every stroke with thickness; Off is unchanged.
+  require(isEditable(TARGET_LINE_ART, UNDERLAY), "Line Art edits Underlay");
+  require(isEditable(TARGET_LINE_ART, OVERLAY), "Line Art edits Overlay");
+  require(!isEditable(TARGET_COLOUR_ART, UNDERLAY), "Colour Art only");
+  require(!isEditable(TARGET_COLOUR_ART, OVERLAY), "Colour Art only");
+  for (Role r : {LINE_ART, COLOUR_ART, UNDERLAY, OVERLAY})
+    require(isEditable(TARGET_OFF, r), "Off must edit every role");
+
+  // Underlay and Overlay are Line Art for the display options.
+  require(!isFaded(TARGET_LINE_ART, SHOW_LINE_ART, UNDERLAY), "Show Line");
+  require(!isFaded(TARGET_LINE_ART, SHOW_LINE_ART, OVERLAY), "Show Line");
+  require(isFaded(TARGET_COLOUR_ART, SHOW_COLOUR_ART, UNDERLAY), "Show Col");
+  require(isFaded(TARGET_COLOUR_ART, SHOW_COLOUR_ART, OVERLAY), "Show Col");
+
+  // Hidden role masks use one bit per role.
+  int mask = roleBit(UNDERLAY) | roleBit(OVERLAY);
+  require(mask == 12, "Role bits");
+  require(roleBit(LINE_ART) == 1 && roleBit(COLOUR_ART) == 2, "Role bits");
+
+  // New strokes of the Underlay and Overlay targets keep their thickness.
+  Stroke underlayDrawn = line;
+  applyTarget(TARGET_UNDERLAY, underlayDrawn);
+  applyTarget(TARGET_OVERLAY, underlayDrawn);
+  require(underlayDrawn.setCount == 0 && roleOf(underlayDrawn) == LINE_ART,
+          "Underlay and Overlay must not change strokes");
 
   std::cout << "Art layer role checks passed\n";
 }

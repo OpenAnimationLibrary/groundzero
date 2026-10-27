@@ -4,20 +4,74 @@ Only the OpenAnimationLibrary/groundzero Windows CI workflow injects this
 feature. Normal source builds and upstream source files are unchanged. This is
 not an OpenToonz movie renderer or a desktop recorder.
 
-On startup choose **Start Recording** or **Do Not Record**. Escape/close means
-no recording. **Remember my choice for this build** stores `BuildId` and `Choice`
-under `[OtDevRecorder]` in the active portable `preferences.ini`. A new CI build
-(including a rerun) asks again. `OTDEV_RECORD=off` suppresses startup recording
-even after remembered consent; the toolbar can still be used to opt in later.
-There is intentionally no command-line switch that bypasses consent.
+Every session starts with **Recording off**, without a startup prompt. Use
+**Start Recording** on the recording panel whenever recording is needed. The
+first start in each session asks for consent; **Do Not Record**, Escape or close
+leaves recording off. The panel has separate **Start Recording**, **Pause** /
+**Resume**, and **Stop Recording** buttons, in that order. After consent, recording
+can be restarted throughout the session without another prompt. Consent is not
+saved for future launches; old `[OtDevRecorder]` choices are ignored.
+`OTDEV_RECORD=off` is no longer needed to suppress startup recording. There is no
+automatic or command-line start.
 
 After opt-in, continuous capture saves clips under
-`<OpenToonz executable directory>/portablestuff/recordings/`. The bottom recording
-toolbar shows actual recording/paused/error state, stops/resumes capture, and
-opens the folder. Stopping updates a remembered choice to off. Nothing is
-uploaded and no recordings are automatically deleted. The recorder stops with
-a visible error when free space falls below 1 GiB. Files have collision-resistant
-UTC names and are split every 10 minutes of encoded frames.
+`<OpenToonz executable directory>/portablestuff/recordings/`. The recording
+panel shows actual recording/paused/error state, stops/resumes capture, and
+opens the folder. Stopping finishes the current clip; Start is unavailable while
+the clip is prepared for playback. Starting again creates a separate clip.
+Nothing is uploaded and no recordings are automatically deleted. The recorder
+stops with a visible error when free space falls below 1 GiB. Files have
+collision-resistant UTC names and are split every 10 minutes of encoded frames.
+
+## Panel and shortcuts
+
+**Preferences > Interface > Show Session Recording Panel** controls visibility and
+is on by default. The panel initially docks at the bottom. Drag its title bar to
+another dock edge or double-click it to float it anywhere on screen. Its title-bar
+close button hides it. Visibility, dock area and floating geometry are remembered
+in the active portable `preferences.ini`; reopening a panel does not start capture.
+
+Closing or hiding the panel pauses an active recording without ending the clip.
+Starting or resuming through a shortcut shows the controls again. Minimizing or
+hiding the application does not change the visibility preference.
+
+Use **Configure Shortcuts** to assign keys. **Toggle Session Recording Panel** is
+under **Menu Commands > Windows**; these commands are under **Misc**:
+
+- Start Session Recording; Stop Session Recording.
+- Pause / Resume Session Recording; Pause Session Recording; Resume Session Recording.
+- Select Recording Region; Clear Recording Region; Cancel Recording Region Selection.
+- Open Session Recordings Folder.
+
+No keys are assigned by default. Assignments use OpenToonz's existing shortcut
+storage and conflict handling, and work while the panel is hidden or floating.
+Assigned recording shortcuts remain available during region selection; other
+application shortcuts remain suppressed until selection finishes.
+
+## Pause and region selection
+
+- **Pause** keeps the current clip open but captures no new frames. **Resume**
+  continues that clip; paused time is omitted. **Stop Recording** finishes the clip
+  even while paused. Pause is also available before the first frame is captured.
+- The default on every launch is **All OpenToonz Windows**, using the same eligible
+  application windows as before. Region selections are not saved between launches.
+- Choose **Select Region...**, then drag a rectangle inside the main window or an
+  eligible floating panel. Selection pauses an active recording and temporarily
+  intercepts application mouse/keyboard input. The recording panel remains
+  usable. **Escape**, right-click or **Cancel Selection** keeps the previous region;
+  clicks and drags smaller than 8 x 8 logical pixels are ignored.
+- An active recording stays paused after selecting or cancelling. Press **Resume**
+  when ready. The selection outline is removed before capture can resume.
+- The region follows its selected window when it moves, retaining its size and
+  position within that window. Resizing clips unavailable portions to black rather
+  than expanding the selection. If the window is hidden, minimized or closed,
+  capture pauses; it never falls back to recording all windows automatically.
+- **Clear Region** returns to **All OpenToonz Windows** and pauses an active
+  recording until **Resume**. Existing native-dialog/inactive-app pauses still apply.
+- The recorder crops the application composition before fitting it into the fixed
+  1920x1080 video, preserving proportions with black margins. Eligible popups inside
+  the region can still appear. Desktop pixels and unrelated applications remain
+  excluded; no FFmpeg capture device or new encoder filter is required.
 
 ## Capture boundary and limitations
 
@@ -45,7 +99,7 @@ UTC names and are split every 10 minutes of encoded frames.
   Working files end in `.recording.mp4`. FFmpeg's `hybrid_fragmented` mode keeps
   completed fragments readable during capture, then writes the normal MP4 index
   at EOF without re-encoding. Stop, clip rotation and orderly shutdown prepare
-  the video automatically, then rename it to `.mp4`. The toolbar shows
+  the video automatically, then rename it to `.mp4`. The panel shows
   **Preparing recording for playback...** while finishing (up to 15 seconds).
   Interrupted or failed files retain the working suffix for recovery; the last
   fragment may be lost. Existing recordings are never overwritten.
@@ -65,9 +119,13 @@ UTC names and are split every 10 minutes of encoded frames.
 
 `python -m unittest discover -s .github/ot-dev/recorder -p 'test_*.py' -v`
 
-The standalone CMake/QtTest target in this directory tests consent persistence,
-escape/opt-out, capture ownership/resize, and real encoder output. Set
-`OTDEV_TEST_FFMPEG` to the packaged encoder and `OTDEV_TEST_DECODER` to a separate
+The standalone CMake/QtTest target in this directory tests startup-off behavior
+(including legacy saved choices), on-demand consent, escape/opt-out, panel visibility
+and placement persistence, Interface checkbox synchronization, hidden/floating-panel
+shortcuts, repeated start/stop, manual pause/resume, region selection/cancellation, window-relative
+cropping and resize boundaries, capture ownership, and real encoder output. The
+pause test decodes a clip to verify that content displayed only while paused is
+absent. Set `OTDEV_TEST_FFMPEG` to the packaged encoder and `OTDEV_TEST_DECODER` to a separate
 FFmpeg decoder before running CTest. CI builds a test-only decoder from the same
 pinned sources with assembly disabled; it is never included in the application.
 The encoder test round-trips changing color bars and neutral tones at both 64x64
@@ -81,8 +139,9 @@ kill a live encoder to confirm earlier fragments remain decodable. On Windows,
 the actual encoded clips must also decode all frames and seek through the native
 Media Foundation H.264 decoder, without using FFmpeg or a third-party codec pack.
 Windows cursor tests cover movement, shape changes, hotspots, inversion masks,
-hidden cursors, floating panels and clipping/exclusion. They run at normal and
-200% DPI with two video sizes.
+hidden cursors, floating panels, selected-region transforms and clipping/exclusion.
+They run at normal and 200% DPI with two video sizes. Region selection and resize
+tests also run at 200% DPI.
 
 Windows CI builds and runs these tests before building OpenToonz. Interactive
 acceptance in the extracted artifact must additionally check the Viewer, Style

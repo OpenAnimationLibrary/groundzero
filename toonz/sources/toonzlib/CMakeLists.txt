@@ -74,6 +74,7 @@ set(HEADERS
     ../include/thirdparty.h
     ../include/orientation.h
     ../include/toonz/Naa2TlvConverter.h
+    ../include/toonz/abrparser.h
     ../include/toonz/autoclose.h
     ../include/toonz/boardsettings.h
     ../include/toonz/captureparameters.h
@@ -133,6 +134,7 @@ set(HEADERS
     ../include/toonz/tcleanupper.h
     ../include/toonz/tcolumnfx.h
     ../include/toonz/tcolumnfxset.h
+    ../include/toonz/contouroutline.h
     ../include/toonz/tcurvedeformer.h
     ../include/toonz/tdeformer.h
     ../include/toonz/tdeformerstack.h
@@ -146,12 +148,15 @@ set(HEADERS
     ../include/toonz/tpinnedrangeset.h
     ../include/toonz/tproject.h
     ../include/toonz/trasterimageutils.h
+    ../include/toonz/tshapeawaredeformer.h
     ../include/toonz/tstageobject.h
     ../include/toonz/tstageobjectcmd.h
     ../include/toonz/tstageobjectid.h
     ../include/toonz/tstageobjectkeyframe.h
     ../include/toonz/tstageobjectspline.h
     ../include/toonz/tstageobjecttree.h
+    ../include/toonz/timeremap.h
+    ../include/toonz/timeremapcmd.h
     ../include/toonz/ttilesaver.h
     ../include/toonz/ttileset.h
     ../include/toonz/tvectorimageutils.h
@@ -181,6 +186,7 @@ set(HEADERS
 )
 
 set(SOURCES
+    abrparser.cpp
     autoadjust.cpp
     autoclose.cpp
     autopos.cpp
@@ -260,6 +266,7 @@ set(SOURCES
     tcamera.cpp
     tcenterlineadjustments.cpp
     tcenterlinecolors.cpp
+    contouroutline.cpp
     tcenterlinepolygonizer.cpp
     tcenterlineskeletonizer.cpp
     tcenterlinetostrokes.cpp
@@ -282,11 +289,13 @@ set(SOURCES
     toutlinevectorizer.cpp
     tpinnedrangeset.cpp
     tproject.cpp
+    tshapeawaredeformer.cpp
     trasterimageutils.cpp
     trastercentroid.cpp
     tstageobject.cpp
     tstageobjectspline.cpp
     tstageobjecttree.cpp
+    timeremapcmd.cpp
     ttilesaver.cpp
     ttileset.cpp
     tvectorimageutils.cpp
@@ -439,6 +448,39 @@ if(BUILD_DEFORMER_TESTS)
     add_executable(deformer_test tests/deformer_test.cpp)
     target_link_libraries(deformer_test PRIVATE toonzlib tnzcore Qt${QT_VERSION_MAJOR}::Core)
     add_test(NAME deformer COMMAND deformer_test)
+endif()
+
+# Optional regression target for the Photoshop brush (ABR) reader.
+option(BUILD_ABR_TESTS "Build the ABR brush reader test" ${BUILD_TESTS})
+if(BUILD_ABR_TESTS)
+    add_executable(abrparser_test tests/abrparser_test.cpp)
+    target_link_libraries(abrparser_test PRIVATE toonzlib tnzcore Qt${QT_VERSION_MAJOR}::Core)
+    add_test(NAME abrparser COMMAND abrparser_test)
+endif()
+
+# Optional regression target for the pure helpers of the time remap (timeremap.h).
+option(BUILD_TIMEREMAP_TESTS "Build the time remap regression test" ${BUILD_TESTS})
+if(BUILD_TIMEREMAP_TESTS)
+    add_executable(timeremap_test tests/timeremap_test.cpp)
+    target_link_libraries(timeremap_test PRIVATE toonzlib tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core)
+    add_test(NAME timeremap COMMAND timeremap_test)
+endif()
+
+# Optional regression target for the brush stroke to outline shape conversion
+# (contouroutline.h).
+option(BUILD_CONTOUR_TESTS "Build the contour outline regression test" ${BUILD_TESTS})
+if(BUILD_CONTOUR_TESTS)
+    add_executable(contour_outline_test tests/contour_outline_test.cpp)
+    target_link_libraries(contour_outline_test PRIVATE toonzlib tnzcore Qt${QT_VERSION_MAJOR}::Core)
+    add_test(NAME contour_outline COMMAND contour_outline_test)
+endif()
+
+# Optional regression target for the compressed scene file format (tstream.h).
+option(BUILD_STREAM_TESTS "Build the compressed stream round-trip test" ${BUILD_TESTS})
+if(BUILD_STREAM_TESTS)
+    add_executable(compressed_stream_test tests/compressed_stream_test.cpp)
+    target_link_libraries(compressed_stream_test PRIVATE tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core)
+    add_test(NAME compressed_stream COMMAND compressed_stream_test)
 endif()
 
 if(BUILD_SCRIPT_TESTS)

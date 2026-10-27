@@ -19,6 +19,7 @@
 class TLevelColumnFx;
 class TXshCell;
 class TXshLevel;
+class TDoubleParam;
 
 //=============================================================================
 //! The TXshLevelColumn class provides a column of levels in xsheet and allows
@@ -69,6 +70,9 @@ public:
   TLevelColumnFx *getLevelColumnFx() const;
   TFx *getFx() const override;
 
+  // Also gives the time remap curve the expression grammar of the xsheet
+  void setXsheet(TXsheet *xsheet) override;
+
   // Cell operations
   // Used in TCellData::getNumbers
   // reservedLevel can be nonzero if the preferences option
@@ -76,6 +80,22 @@ public:
   // level in the scene cast.
   bool setNumbers(int row, int rowCount, const TXshCell cells[],
                   TXshLevel *reservedLevel = nullptr);
+
+  // Time remap (master plan B7, doc/time_remap.md). The curve and its flag
+  // belong to the column fx. The remap is applied at render and preview time
+  // only: getCell() is not affected, the xsheet shows the original timing.
+  TDoubleParam *getTimeRemapParam() const;
+  bool isTimeRemapEnabled() const;
+  void setTimeRemapEnabled(bool enabled);
+  //! True if the cells are looked up through the remap curve
+  bool isTimeRemapActive() const;
+  //! True if the remap has been used (enabled, or its curve has keys or is
+  //! cycled); only then it is saved with the scene.
+  bool isTimeRemapUsed() const;
+  //! The row of the cell shown at \b row of the output
+  int getRemappedRow(int row) const;
+  //! The cell shown at \b row of the output, i.e. getCell() through the remap
+  TXshCell getRemappedCell(int row) const;
 
   // Disable copying and moving
   TXshLevelColumn(const TXshLevelColumn &)            = delete;

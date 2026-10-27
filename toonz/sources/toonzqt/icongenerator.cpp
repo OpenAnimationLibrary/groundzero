@@ -48,6 +48,7 @@
 
 #include <QCoreApplication>
 #include <algorithm>
+#include <cstdint>
 #include <deque>
 #include <map>
 #include <vector>
@@ -943,6 +944,12 @@ public:
     return "sub:" + ::to_string(level->getName()) + std::to_string(row);
   }
 
+  // common prefix of the ids of the frames of an xsheet
+  static std::string xsheetFramePrefix(const TXsheet *xsheet) {
+    return "xshframe:" + std::to_string(reinterpret_cast<uintptr_t>(xsheet)) +
+           ":";
+  }
+
   TRaster32P generateRaster(const TDimension &iconSize) const;
   void run() override;
 };
@@ -952,6 +959,7 @@ public:
 TRaster32P XsheetIconRenderer::generateRaster(
     const TDimension &iconSize) const {
   ToonzScene *scene = m_xsheet->getScene();
+  if (!scene) return TRaster32P();
   TDimension res    = iconSize;
   if (QCoreApplication::applicationName() == "ToonzPreview") {
     res = scene->getCurrentCamera()->getRes();
@@ -1812,6 +1820,38 @@ void IconGenerator::invalidate(const TFilePath &path, const TFrameId &fid) {
 
 void IconGenerator::remove(const TFilePath &path, const TFrameId &fid) {
   removeIcon(FileIconRenderer::getId(path, fid));
+}
+
+//-----------------------------------------------------------------------------
+
+QPixmap IconGenerator::getXsheetFrameIcon(TXsheet *xsh, int row,
+                                          const TDimension &dim,
+                                          bool onDemand) {
+  if (!xsh || row < 0 || dim.lx <= 0 || dim.ly <= 0) return QPixmap();
+
+  std::string id = XsheetIconRenderer::xsheetFramePrefix(xsh) +
+                   std::to_string(row) + "_" + std::to_string(dim.lx) + "x" +
+                   std::to_string(dim.ly);
+
+  QPixmap pix;
+  if (::getIcon(id, pix) || onDemand) return pix;
+
+  addTask(id, new XsheetIconRenderer(id, dim, xsh, row));
+  return QPixmap();
+}
+
+//-----------------------------------------------------------------------------
+
+void IconGenerator::removeXsheetFrameIcons(TXsheet *xsh) {
+  if (!xsh) return;
+
+  // iconsMap is sorted: the ids of the xsheet are contiguous
+  const std::string prefix = XsheetIconRenderer::xsheetFramePrefix(xsh);
+  std::vector<std::string> ids;
+  for (IconIterator it = iconsMap.lower_bound(prefix);
+       it != iconsMap.end() && it->compare(0, prefix.size(), prefix) == 0; ++it)
+    ids.push_back(*it);
+  for (const std::string &id : ids) removeIcon(id);
 }
 
 //-----------------------------------------------------------------------------

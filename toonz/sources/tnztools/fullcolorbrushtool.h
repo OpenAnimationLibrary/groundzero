@@ -18,6 +18,9 @@
 #include "mypainttoonzbrush.h"
 #include "toonz/mypaintbrushstyle.h"
 #include <QElapsedTimer>
+#include <QStringList>
+
+#include <memory>
 
 //==============================================================
 
@@ -102,6 +105,8 @@ public:
   void updateWorkAndBackupRasters(const TRect &rect);
 
   void initPresets();
+  void initTips();
+  void updateTip();
   void loadPreset();
   void addPreset(QString name);
   void removePreset();
@@ -143,6 +148,7 @@ protected:
   TBoolProperty m_modifierEraser;
   TBoolProperty m_modifierLockAlpha;
   TBoolProperty m_assistants;
+  TEnumProperty m_tip;  //!< Brush tip: round dab or an image of the library
   TEnumProperty m_preset;
 
   TPixel32 m_currentColor;
@@ -165,6 +171,9 @@ protected:
   FullColorBrushToolNotifier *m_notifier;
 
   bool m_presetsLoaded;
+  bool m_tipsLoaded;
+  QStringList m_tipFiles;  //!< Tip images found in the library, relative paths
+  std::shared_ptr<const MyPaintTip> m_tipImage;  //!< 0 for the round dab
   bool m_firstTime;
 
   bool m_started;

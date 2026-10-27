@@ -31,6 +31,7 @@ enum PreferencesItemId {
   actualPixelViewOnSceneEditingMode,
   showRasterImagesDarkenBlendedInViewer,
   gpuCompositingInViewer,
+  colourOverrideInViewer,
   iconSize,
   viewShrink,
   viewStep,
@@ -80,6 +81,7 @@ enum PreferencesItemId {
   replaceAfterSaveLevelAs,
   backupEnabled,
   backupKeepCount,
+  compressSceneFiles,
   rasterBackgroundColor,
   resetUndoOnSavingLevel,
 

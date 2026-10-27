@@ -8,6 +8,8 @@
 #include "schematicviewer.h"
 #include "tgeometry.h"
 #include <QMap>
+#include <QSet>
+#include <QString>
 #include <tfx.h>
 #include <set>
 
@@ -20,6 +22,7 @@ class FxSchematicNode;
 class TXsheet;
 class TSceneHandle;
 class QMenu;
+class QGraphicsItem;
 class SchematicLink;
 class FxGroupNode;
 class FxSchematicGroupEditor;
@@ -118,6 +121,10 @@ class FxSchematicScene final : public SchematicScene {
   FxSchematicLink *m_litLink;
   FxSchematicNode *m_litNode;
 
+  // port filter of the toolbar (in memory only), and the items it hides
+  QString m_portFilter;
+  QSet<QGraphicsItem *> m_portFilterHidden;
+
 public:
   FxSchematicScene(QWidget *parent);
   ~FxSchematicScene();
@@ -179,6 +186,9 @@ protected:
 
 private:
   void clearDropHighlights();
+
+  //! Hides the nodes, ports and links that do not match the port filter.
+  void applyPortFilter();
 
   FxSchematicNode *addFxSchematicNode(TFx *fx);
   FxSchematicNode *addGroupedFxSchematicNode(int groupId,
@@ -272,6 +282,9 @@ protected slots:
   void onEditGroup();
 
   void onIconifyNodesToggled(bool iconified);
+
+  //! Hides the input ports and the nodes that do not match \b text.
+  void onPortFilterChanged(const QString &text);
 
   void onNodeChangedSize();
 

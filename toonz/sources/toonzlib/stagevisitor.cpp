@@ -8,6 +8,7 @@
 #include "tvectorgl.h"
 #include "tvectorrenderdata.h"
 #include "tcolorfunctions.h"
+#include "tfxattributes.h"
 #include "tpalette.h"
 #include "tropcm.h"
 #include "trasterimage.h"
@@ -32,6 +33,9 @@
 #include "toonz/stage.h"
 #include "toonz/stage2.h"
 #include "toonz/tcolumnfx.h"
+#include "toonz/tcolumnfxset.h"
+#include "toonz/fxdag.h"
+#include "ttzpimagefx.h"
 #include "toonz/txsheet.h"
 #include "toonz/txshsimplelevel.h"
 #include "toonz/txshchildlevel.h"
@@ -104,6 +108,54 @@ double getOnionSkinOpacity(const Stage::Player &player) {
   if (player.m_onionSkinOpacity >= 0.0) return player.m_onionSkinOpacity;
   return 1.0 -
          OnionSkinMask::getOnionSkinFade(player.m_onionSkinDistance);
+}
+
+//----------------------------------------------------------------
+
+// Returns a copy of the specified palette with the overrides of the Colour
+// Override Fxs that follow the player's column, or 0 if there are none. The Fxs
+// are looked for like the render does for a column that goes through a chain of
+// Fxs: the column must have a single output connection, and the chain stops at
+// the first Fx that has more of them, at the Xsheet and at the Fxs that take
+// the column in a port other than the first.
+TPaletteP overriddenPalette(const Stage::Player &player, TPalette *palette) {
+  if (!palette || !player.m_xsh || player.m_column < 0) return TPaletteP();
+
+  TXshColumn *column = player.m_xsh->getColumn(player.m_column);
+  TFx *fx            = column ? column->getFx() : 0;
+  if (!fx) return TPaletteP();
+
+  TFxSet *terminalFxs = player.m_xsh->getFxDag()->getTerminalFxs();
+
+  // The data of the innermost Fx come first, so that the outer ones win
+  ColourOverrideFxRenderData data;
+  for (int depth = 0; fx && depth < 64; ++depth) {
+    // A terminal Fx is also rendered as it is, in the Xsheet
+    if (fx->getOutputConnectionCount() != 1 || terminalFxs->containsFx(fx))
+      break;
+
+    TFxPort *port = fx->getOutputConnection(0);
+    TFx *next     = port ? port->getOwnerFx() : 0;
+    if (!next || dynamic_cast<TXsheetFx *>(next) ||
+        next->getInputPortCount() == 0 || next->getInputPort(0) != port)
+      break;
+
+    if (next->getAttributes()->isEnabled()) {
+      const TColourOverrideSource *source =
+          dynamic_cast<const TColourOverrideSource *>(next);
+      if (source) source->getColourOverrides(player.m_frame, data);
+    }
+    fx = next;
+  }
+
+  if (data.m_overrides.empty()) return TPaletteP();
+
+  TPaletteP overridden = palette->clone();
+  // Bring animated styles to the frame first, so that the setFrame() of the
+  // painters does not overwrite the overridden colors
+  overridden->setFrame(player.m_frame);
+  data.apply(overridden.getPointer());
+  return overridden;
 }
 
 //----------------------------------------------------------------
@@ -411,7 +463,8 @@ RasterPainter::RasterPainter(const TDimension &dim, const TAffine &viewAff,
     , m_singleColumnEnabled(false)
     , m_checkFlags(checkFlags)
     , m_doRasterDarkenBlendedView(false)
-    , m_gpuCompositing(false) {}
+    , m_gpuCompositing(false)
+    , m_colourOverrides(false) {}
 
 //-----------------------------------------------------------------------------
 
@@ -1553,6 +1606,14 @@ void RasterPainter::onVectorImage(TVectorImage *vi,
   TPalette *vPalette = vi->getPalette();
   TPixel32 bgColor   = TPixel32::White;
 
+  // Show the overrides of the Colour Override Fxs that follow the column, on a
+  // copy of the palette that lives until the end of the function
+  TPaletteP overridden;
+  if (m_colourOverrides) {
+    overridden = overriddenPalette(player, vPalette);
+    if (overridden) vPalette = overridden.getPointer();
+  }
+
   int tc        = (m_checkFlags && player.m_isCurrentColumn)
                       ? ToonzCheck::instance()->getChecks()
                       : 0;
@@ -1611,6 +1672,7 @@ void RasterPainter::onVectorImage(TVectorImage *vi,
     if (m_vs.m_showColourArt) rd.m_show0ThickStrokes = true;
     rd.m_fadeThickStrokes  = m_vs.m_fadeLineArt;
     rd.m_fade0ThickStrokes = m_vs.m_fadeColourArt;
+    rd.m_hiddenRoleMask    = m_vs.m_hiddenArtRoles;
   }
   if (player.m_onionSkinDistance != 0 &&
       (player.m_isCurrentColumn || player.m_isCurrentXsheetLevel)) {
@@ -1809,9 +1871,19 @@ void RasterPainter::onToonzImage(TToonzImage *ti, const Stage::Player &player) {
   } else if (player.m_opacity < 255)
     alpha = player.m_opacity;
 
-  m_nodes.push_back(Node(r, ti->getPalette(), alpha, aff, ti->getSavebox(),
-                         bbox, player.m_frame, player.m_isCurrentColumn,
-                         onionMode, false, false, false, player.m_filterColor));
+  // Show the overrides of the Colour Override Fxs that follow the column; the
+  // node keeps the copy of the palette alive
+  TPalette *palette = ti->getPalette();
+  TPaletteP overridden;
+  if (m_colourOverrides) {
+    overridden = overriddenPalette(player, palette);
+    if (overridden) palette = overridden.getPointer();
+  }
+
+  m_nodes.push_back(Node(r, palette, alpha, aff, ti->getSavebox(), bbox,
+                         player.m_frame, player.m_isCurrentColumn, onionMode,
+                         false, false, false, player.m_filterColor));
+  m_nodes.back().m_ownedPalette = overridden;
 
   if (m_gpuCompositing && player.m_sl) {
     m_nodes.back().m_imageId      = player.m_sl->getImageId(player.m_fid);

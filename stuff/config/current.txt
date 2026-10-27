@@ -160,6 +160,18 @@
   <item>"STD_toneHighlightFx.invertMatte" 	"Invert Matte" 		</item>
   <item>"STD_toneHighlightFx.protectLines" 	"Protect Lines" 		</item>
   <item>"STD_toneHighlightFx.lineThreshold" 	"Line Darkness" 		</item>
+  <item>"STD_lightShadingFx" 	"Light Shading" 		</item>
+  <item>"STD_lightShadingFx.mode" 	"Mode" 			</item>
+  <item>"STD_lightShadingFx.lightPoint" 	"Light Point" 		</item>
+  <item>"STD_lightShadingFx.lightRadius" 	"Light Radius" 		</item>
+  <item>"STD_lightShadingFx.lightAngle" 	"Light Angle" 		</item>
+  <item>"STD_lightShadingFx.shadeColor" 	"Shade Color" 		</item>
+  <item>"STD_lightShadingFx.highlightColor" 	"Highlight Color" 		</item>
+  <item>"STD_lightShadingFx.shadeAmount" 	"Shade Amount" 		</item>
+  <item>"STD_lightShadingFx.highlightAmount" 	"Highlight Amount" 		</item>
+  <item>"STD_lightShadingFx.bands" 	"Bands" 		</item>
+  <item>"STD_lightShadingFx.softness" 	"Softness" 		</item>
+  <item>"STD_lightShadingFx.protectLines" 	"Protect Lines" 		</item>
 
 
  <item>"STD_castShadowFx"			"Cast Shadow"	</item>
@@ -429,6 +441,50 @@
   <item>"STD_freeFormDeformerFx.point14"	"Point 14"	</item>
   <item>"STD_freeFormDeformerFx.point15"	"Point 15"	</item>
   <item>"STD_freeFormDeformerFx.point16"	"Point 16"	</item>
+
+  <item>"STD_shapeAwareDeformerFx"	"Shape Aware Deformer"	</item>
+  <item>"STD_shapeAwareDeformerFx.resolution"	"Resolution"	</item>
+  <item>"STD_shapeAwareDeformerFx.margin"	"Margin"	</item>
+  <item>"STD_shapeAwareDeformerFx.stretch"	"Stretch Bones"	</item>
+  <item>"STD_shapeAwareDeformerFx.pinOn1"	"Pin 1 On"	</item>
+  <item>"STD_shapeAwareDeformerFx.pin1"	"Pin 1"	</item>
+  <item>"STD_shapeAwareDeformerFx.pinRest1"	"Rest Pin 1"	</item>
+  <item>"STD_shapeAwareDeformerFx.pinAngle1"	"Pin 1 Angle"	</item>
+  <item>"STD_shapeAwareDeformerFx.pinScale1"	"Pin 1 Scale"	</item>
+  <item>"STD_shapeAwareDeformerFx.pinOn2"	"Pin 2 On"	</item>
+  <item>"STD_shapeAwareDeformerFx.pin2"	"Pin 2"	</item>
+  <item>"STD_shapeAwareDeformerFx.pinRest2"	"Rest Pin 2"	</item>
+  <item>"STD_shapeAwareDeformerFx.pinAngle2"	"Pin 2 Angle"	</item>
+  <item>"STD_shapeAwareDeformerFx.pinScale2"	"Pin 2 Scale"	</item>
+  <item>"STD_shapeAwareDeformerFx.pinOn3"	"Pin 3 On"	</item>
+  <item>"STD_shapeAwareDeformerFx.pin3"	"Pin 3"	</item>
+  <item>"STD_shapeAwareDeformerFx.pinRest3"	"Rest Pin 3"	</item>
+  <item>"STD_shapeAwareDeformerFx.pinAngle3"	"Pin 3 Angle"	</item>
+  <item>"STD_shapeAwareDeformerFx.pinScale3"	"Pin 3 Scale"	</item>
+  <item>"STD_shapeAwareDeformerFx.pinOn4"	"Pin 4 On"	</item>
+  <item>"STD_shapeAwareDeformerFx.pin4"	"Pin 4"	</item>
+  <item>"STD_shapeAwareDeformerFx.pinRest4"	"Rest Pin 4"	</item>
+  <item>"STD_shapeAwareDeformerFx.pinAngle4"	"Pin 4 Angle"	</item>
+  <item>"STD_shapeAwareDeformerFx.pinScale4"	"Pin 4 Scale"	</item>
+  <item>"STD_shapeAwareDeformerFx.boneOn1"	"Bone 1 On"	</item>
+  <item>"STD_shapeAwareDeformerFx.boneHead1"	"Bone Head 1"	</item>
+  <item>"STD_shapeAwareDeformerFx.boneTail1"	"Bone Tail 1"	</item>
+  <item>"STD_shapeAwareDeformerFx.boneRestHead1"	"Rest Bone Head 1"	</item>
+  <item>"STD_shapeAwareDeformerFx.boneRestTail1"	"Rest Bone Tail 1"	</item>
+  <item>"STD_shapeAwareDeformerFx.boneOn2"	"Bone 2 On"	</item>
+  <item>"STD_shapeAwareDeformerFx.boneHead2"	"Bone Head 2"	</item>
+  <item>"STD_shapeAwareDeformerFx.boneTail2"	"Bone Tail 2"	</item>
+  <item>"STD_shapeAwareDeformerFx.boneRestHead2"	"Rest Bone Head 2"	</item>
+  <item>"STD_shapeAwareDeformerFx.boneRestTail2"	"Rest Bone Tail 2"	</item>
+  <item>"STD_shapeAwareDeformerFx.cageOn"	"Cage On"	</item>
+  <item>"STD_shapeAwareDeformerFx.cage1"	"Cage 1"	</item>
+  <item>"STD_shapeAwareDeformerFx.cageRest1"	"Rest Cage 1"	</item>
+  <item>"STD_shapeAwareDeformerFx.cage2"	"Cage 2"	</item>
+  <item>"STD_shapeAwareDeformerFx.cageRest2"	"Rest Cage 2"	</item>
+  <item>"STD_shapeAwareDeformerFx.cage3"	"Cage 3"	</item>
+  <item>"STD_shapeAwareDeformerFx.cageRest3"	"Rest Cage 3"	</item>
+  <item>"STD_shapeAwareDeformerFx.cage4"	"Cage 4"	</item>
+  <item>"STD_shapeAwareDeformerFx.cageRest4"	"Rest Cage 4"	</item>
   <item>"STD_curveDeformerFx"	"Curve Deformer"	</item>
   <item>"STD_curveDeformerFx.width"	"Width"	</item>
   <item>"STD_curveDeformerFx.falloff"	"Falloff"	</item>
@@ -578,20 +634,28 @@
 
   <item>"STD_colourOverrideFx"	"Colour Override"	</item>
   <item>"STD_colourOverrideFx.style1"	"Style 1"	</item>
+  <item>"STD_colourOverrideFx.mode1"	"Mode 1"	</item>
   <item>"STD_colourOverrideFx.color1"	"Color 1"	</item>
   <item>"STD_colourOverrideFx.style2"	"Style 2"	</item>
+  <item>"STD_colourOverrideFx.mode2"	"Mode 2"	</item>
   <item>"STD_colourOverrideFx.color2"	"Color 2"	</item>
   <item>"STD_colourOverrideFx.style3"	"Style 3"	</item>
+  <item>"STD_colourOverrideFx.mode3"	"Mode 3"	</item>
   <item>"STD_colourOverrideFx.color3"	"Color 3"	</item>
   <item>"STD_colourOverrideFx.style4"	"Style 4"	</item>
+  <item>"STD_colourOverrideFx.mode4"	"Mode 4"	</item>
   <item>"STD_colourOverrideFx.color4"	"Color 4"	</item>
   <item>"STD_colourOverrideFx.style5"	"Style 5"	</item>
+  <item>"STD_colourOverrideFx.mode5"	"Mode 5"	</item>
   <item>"STD_colourOverrideFx.color5"	"Color 5"	</item>
   <item>"STD_colourOverrideFx.style6"	"Style 6"	</item>
+  <item>"STD_colourOverrideFx.mode6"	"Mode 6"	</item>
   <item>"STD_colourOverrideFx.color6"	"Color 6"	</item>
   <item>"STD_colourOverrideFx.style7"	"Style 7"	</item>
+  <item>"STD_colourOverrideFx.mode7"	"Mode 7"	</item>
   <item>"STD_colourOverrideFx.color7"	"Color 7"	</item>
   <item>"STD_colourOverrideFx.style8"	"Style 8"	</item>
+  <item>"STD_colourOverrideFx.mode8"	"Mode 8"	</item>
   <item>"STD_colourOverrideFx.color8"	"Color 8"	</item>
 
   <item>"STD_autoPatchFx"	"Auto-Patch"	</item>

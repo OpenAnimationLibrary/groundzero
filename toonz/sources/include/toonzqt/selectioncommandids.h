@@ -38,6 +38,8 @@
 #define MI_SortWithPaletteOrder "MI_SortWithPaletteOrder"
 #define MI_PairInbetweenStrokes "MI_PairInbetweenStrokes"
 #define MI_ClearInbetweenStrokePairs "MI_ClearInbetweenStrokePairs"
+#define MI_AddInbetweenZoneHint "MI_AddInbetweenZoneHint"
+#define MI_ConvertToOutlineShapes "MI_ConvertToOutlineShapes"
 #define MI_SaveAsCustomVectorBrush "MI_SaveAsCustomVectorBrush"
 
 #define MI_OpenChild "MI_OpenChild"

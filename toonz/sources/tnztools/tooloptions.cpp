@@ -1995,6 +1995,14 @@ BrushToolOptionsBox::BrushToolOptionsBox(QWidget *parent, TTool *tool,
             m_presetCombo, SLOT(reloadComboBoxList(std::string)));
   }
 
+  // The Tip combo (full color brush) lists the imported brush tips
+  ToolOptionCombo *tipCombo =
+      dynamic_cast<ToolOptionCombo *>(m_controls.value("Tip:"));
+  if (tipCombo && toolHandle) {
+    connect(toolHandle, SIGNAL(toolComboBoxListChanged(std::string)), tipCombo,
+            SLOT(reloadComboBoxList(std::string)));
+  }
+
   // Preset +/- buttons
   m_addPresetButton    = new QPushButton(QString("+"));
   m_removePresetButton = new QPushButton(QString("-"));
@@ -2074,7 +2082,7 @@ void BrushToolOptionsBox::filterControls() {
     bool isModifier = (it.key().substr(0, 8) == "Modifier");
     bool isCommon   = (it.key() == "Lock Alpha" || it.key() == "Pressure" ||
                      it.key() == "Assistants" || it.key() == "Preset:" ||
-                     it.key() == "Smooth:");
+                     it.key() == "Tip:" || it.key() == "Smooth:");
     bool visible    = isCommon || (isModifier == showModifiers);
     it.value()->setVisible(visible);
   }
@@ -2084,7 +2092,7 @@ void BrushToolOptionsBox::filterControls() {
     bool isModifier = (it.key().substr(0, 8) == "Modifier");
     bool isCommon   = (it.key() == "Lock Alpha" || it.key() == "Pressure" ||
                      it.key() == "Assistants" || it.key() == "Preset:" ||
-                     it.key() == "Smooth:");
+                     it.key() == "Tip:" || it.key() == "Smooth:");
     bool visible    = isCommon || (isModifier == showModifiers);
     if (QWidget *widget = dynamic_cast<QWidget *>(it.value()))
       widget->setVisible(visible);

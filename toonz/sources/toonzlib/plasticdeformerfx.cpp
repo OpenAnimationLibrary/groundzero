@@ -194,7 +194,7 @@ bool PlasticDeformerFx::buildTextureDataSl(double frame, TRenderSettings &info,
   TLevelColumnFx *lcfx       = (TLevelColumnFx *)m_port.getFx();
   TXshLevelColumn *texColumn = lcfx->getColumn();
 
-  const TXshCell &texCell = texColumn->getCell(row);
+  const TXshCell &texCell = texColumn->getRemappedCell(row);
 
   TXshSimpleLevel *texSl = texCell.getSimpleLevel();
   const TFrameId &texFid = texCell.getFrameId();

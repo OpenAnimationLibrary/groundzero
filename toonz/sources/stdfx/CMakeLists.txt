@@ -111,6 +111,7 @@ set(SOURCES
     bodyhighlightfx.cpp
     bonedeformerfx.cpp
     tonehighlightfx.cpp
+    lightshadingfx.cpp
     bright_contfx.cpp
     calligraphicfx.cpp
     changecolorfx.cpp
@@ -132,6 +133,7 @@ set(SOURCES
     fourpointsgradientfx.cpp
     freedistortfx.cpp
     freeformdeformerfx.cpp
+    shapeawaredeformerfx.cpp
     gammafx.cpp
     glbmodelfx.cpp
     imageplanefx.cpp
