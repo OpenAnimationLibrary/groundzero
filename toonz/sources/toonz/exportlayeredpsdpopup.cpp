@@ -219,6 +219,68 @@ TFxP buildLayerFx(ToonzScene *scene, TXsheet *xsh, int row, const TFxP &root,
   return TFxP();  // the output does not take the xsheet node
 }
 
+
+//-----------------------------------------------------------------------------
+
+// Collects the rendered rasters of a set of frames
+class FrameRenderPort final : public TRenderPort {
+  QMutex m_mutex;
+
+public:
+  std::atomic<bool> m_finished;
+  std::atomic<bool> m_failed;
+  std::map<int, TRasterP> m_rasters;  // by frame
+
+  FrameRenderPort(const TDimension &resolution)
+      : m_finished(false), m_failed(false) {
+    double rx = resolution.lx * 0.5;
+    double ry = resolution.ly * 0.5;
+    setRenderArea(TRectD(-rx, -ry, rx, ry));
+  }
+
+  void onRenderRasterCompleted(const RenderData &renderData) override {
+    if (!renderData.m_rasA) {
+      m_failed = true;
+      return;
+    }
+    TRasterP ras = renderData.m_rasA->clone();
+    QMutexLocker locker(&m_mutex);
+    for (double frame : renderData.m_frames) m_rasters[qRound(frame)] = ras;
+  }
+
+  void onRenderFailure(const RenderData &, TException &) override {
+    m_failed = true;
+  }
+
+  void onRenderFinished(bool isCanceled = false) override {
+    if (isCanceled) m_failed = true;
+    m_finished = true;
+  }
+};
+
+//-----------------------------------------------------------------------------
+
+// A transparent raster for a column without a drawing in the frame
+TRasterP makeTransparentRaster(const TDimension &resolution, int bpp) {
+  if (bpp >= 64) {
+    TRaster64P ras(resolution);
+    ras->fill(TPixel64(0, 0, 0, 0));
+    return ras;
+  }
+  TRaster32P ras(resolution);
+  ras->fill(TPixel32(0, 0, 0, 0));
+  return ras;
+}
+
+//-----------------------------------------------------------------------------
+
+QString safeFileName(QString name) {
+  const QString invalid = QStringLiteral("\\/:*?\"<>|");
+  for (QChar &ch : name)
+    if (invalid.contains(ch) || ch.unicode() < 0x20) ch = QLatin1Char('_');
+  return name.trimmed();
+}
+
 }  // namespace
 
 //*********************************************************************************
