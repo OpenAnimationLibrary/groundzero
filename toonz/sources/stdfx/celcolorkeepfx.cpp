@@ -99,13 +99,8 @@ public:
 
   bool canHandle(const TRenderSettings &, double) override { return false; }
 
-  void saveData(TOStream &stream) override {
-    struct RestorePrecision {
-      TOStream &stream;
-      bool previous;
-      ~RestorePrecision() { stream.setFullPrecision(previous); }
-    } restore{stream, stream.setFullPrecision(true)};
-    TStandardRasterFx::saveData(stream);
+  bool requiresFullPrecisionSerialization() const override {
+    return true;
   }
 
   bool toBeComputedInLinearColorSpace(bool, bool) const override {

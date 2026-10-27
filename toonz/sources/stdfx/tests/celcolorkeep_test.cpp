@@ -4,6 +4,7 @@
 #include "tparamcontainer.h"
 #include "tpixelutils.h"
 #include "tstream.h"
+#include "tmacrofx.h"
 
 #include <QCoreApplication>
 #include <QTemporaryDir>
@@ -197,6 +198,47 @@ void testTilesAndThreads() {
   auto empty = render<TPixel32>(disconnected, 2);
   require(empty->pixels(0)[0] == TPixel32::Transparent, "Missing input not clear");
 }
+
+void testPresetAndMacro(const QString &presetPath, const QString &macroPath) {
+  TFxP first = new CelColorKeepFx;
+  TFxP second = new CelColorKeepFx;
+  first->setFxId(L"CelColorKeep1");
+  second->setFxId(L"CelColorKeep2");
+  count(*first)->setDefaultValue(100);
+  color(*first, 99)->setValueD(5, TPixelD(0.123456789123, 2.5, 0.25, 1));
+  {
+    TOStream stream(TFilePath(presetPath.toStdWString()));
+    first->savePreset(stream);
+    require(!stream.setFullPrecision(false), "Preset leaked its stream mode");
+  }
+  CelColorKeepFx restoredPreset;
+  {
+    TIStream stream(TFilePath(presetPath.toStdWString()));
+    restoredPreset.loadPreset(stream);
+  }
+  require(color(restoredPreset, 99)->getValueD(5) == color(*first, 99)->getValueD(5),
+          "Preset lost high-precision color");
+  require(count(restoredPreset)->getValue(5) == 100, "Preset lost enabled count");
+  second->getInputPort(0)->setFx(first.getPointer());
+  TFxP macroOwner = TMacroFx::create({first, second});
+  auto *macro = dynamic_cast<TMacroFx *>(macroOwner.getPointer());
+  require(macro != nullptr, "Could not build macro");
+  macro->setParamExposed(first.getPointer(), "color100", true);
+  {
+    TOStream stream(TFilePath(macroPath.toStdWString()));
+    stream << macro;
+  }
+  TIStream stream(TFilePath(macroPath.toStdWString()));
+  TFxP restored;
+  stream >> restored;
+  auto *loadedMacro = dynamic_cast<TMacroFx *>(restored.getPointer());
+  require(loadedMacro != nullptr, "Macro failed to reload");
+  TFx *member = loadedMacro->getFxById(L"CelColorKeep1");
+  require(member && loadedMacro->isParamExposed(member, "color100"),
+          "Macro lost exposed color");
+  require(color(*member, 99)->getValueD(5) == color(*first, 99)->getValueD(5),
+          "Macro changed saved color precision");
+}
 }  // namespace
 
 int main(int argc, char **argv) {
@@ -210,6 +252,7 @@ int main(int argc, char **argv) {
     testPrecisionAndPersistence(temp.filePath("colors.fx"), false);
     testPrecisionAndPersistence(temp.filePath("colors-compressed.fx"), true);
     testTilesAndThreads();
+    testPresetAndMacro(temp.filePath("colors.preset"), temp.filePath("colors.macro"));
     std::cout << "PASS: color capacity, precision, alpha, persistence and tiles\n";
     return 0;
   } catch (const TException &error) {
