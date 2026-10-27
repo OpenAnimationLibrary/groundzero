@@ -96,6 +96,10 @@ public:
   // with thickness or the strokes with 0 thickness. Never set when rendering.
   bool m_fadeThickStrokes  = false;
   bool m_fade0ThickStrokes = false;
+  // Strokes not drawn by the viewer, by role (see ArtLayer in
+  // tools/artlayer.h): bit 0 Line Art, 1 Colour Art, 2 Underlay, 3 Overlay.
+  // Never set when rendering.
+  int m_hiddenRoleMask = 0;
   //!  \deprecated  Use the above individual options instead.
   //!  \todo  Remove it ASAP.
 public:

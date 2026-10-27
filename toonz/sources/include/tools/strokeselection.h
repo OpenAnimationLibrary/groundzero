@@ -114,6 +114,15 @@ public:
   //! that can be found in the specified images, for use with TInbetween.
   static std::vector<std::pair<int, int>> getInbetweenStrokePairs(
       const TVectorImageP &firstImage, const TVectorImageP &lastImage);
+  //! Zone hints for the Inbetween command: the first call records the
+  //! bounding box of the selection on the first key drawing, the second call
+  //! (on the other key drawing) records the target box. Also kept in memory
+  //! only, and cleared by clearInbetweenStrokePairs().
+  void addInbetweenZoneHint();
+  //! Returns the hinted (rect in first image, rect in last image) pairs that
+  //! can be found in the specified images, for use with TInbetween.
+  static std::vector<std::pair<TRectD, TRectD>> getInbetweenZoneHints(
+      const TVectorImageP &firstImage, const TVectorImageP &lastImage);
 
   void enableCommands() override;
 

@@ -31,6 +31,7 @@ enum PreferencesItemId {
   actualPixelViewOnSceneEditingMode,
   showRasterImagesDarkenBlendedInViewer,
   gpuCompositingInViewer,
+  colourOverrideInViewer,
   iconSize,
   viewShrink,
   viewStep,

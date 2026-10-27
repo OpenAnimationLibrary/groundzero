@@ -171,6 +171,7 @@ void ensureNewPanelActions(QMenu *windowsMenu) {
   ensurePanelAction(windowsMenu, MI_OpenMasterControllers);
   ensurePanelAction(windowsMenu, MI_OpenOffsetLayers);
   ensurePanelAction(windowsMenu, MI_OpenRigLibrary);
+  ensurePanelAction(windowsMenu, MI_OpenArtLayerManager);
 }
 
 }  // namespace
@@ -1320,6 +1321,7 @@ QMenuBar *StackedMenuBar::createFullMenuBar() {
   {
     addMenuItem(importMenu, MI_ImportMagpieFile);
     addMenuItem(importMenu, MI_ImportOCA);
+    addMenuItem(importMenu, MI_ImportAbr);
   }
   QMenu *exportMenu = fileMenu->addMenu(tr("Export"));
   {
@@ -1465,6 +1467,7 @@ QMenuBar *StackedMenuBar::createFullMenuBar() {
     addMenuItem(convertMenu, MI_ConvertToVectors);
     addMenuItem(convertMenu, MI_ConvertToToonzRaster);
   }
+  addMenuItem(levelMenu, MI_CreateColourArt);
   levelMenu->addSeparator();
   addMenuItem(levelMenu, MI_ExposeResource);
   addMenuItem(levelMenu, MI_EditLevel);
@@ -1527,6 +1530,13 @@ QMenuBar *StackedMenuBar::createFullMenuBar() {
     addMenuItem(reframeMenu, MI_Reframe3);
     addMenuItem(reframeMenu, MI_Reframe4);
     addMenuItem(reframeMenu, MI_ReframeWithEmptyInbetweens);
+  }
+  QMenu *timeRemapMenu = cellsMenu->addMenu(tr("Time Remap"));
+  {
+    addMenuItem(timeRemapMenu, MI_ColumnHold);
+    addMenuItem(timeRemapMenu, MI_ColumnLoop);
+    addMenuItem(timeRemapMenu, MI_ColumnReverse);
+    addMenuItem(timeRemapMenu, MI_ColumnTimeRemapClear);
   }
   QMenu *stepMenu = cellsMenu->addMenu(tr("Step"));
   {
@@ -1687,6 +1697,7 @@ QMenuBar *StackedMenuBar::createFullMenuBar() {
   addMenuItem(windowsMenu, MI_OpenMasterControllers);
   addMenuItem(windowsMenu, MI_OpenOffsetLayers);
   addMenuItem(windowsMenu, MI_OpenRigLibrary);
+  addMenuItem(windowsMenu, MI_OpenArtLayerManager);
   addMenuItem(windowsMenu, MI_OpenSymbols);
   addMenuItem(windowsMenu, MI_OpenReferencePanel);
   addMenuItem(windowsMenu, MI_OpenCustomPanels);

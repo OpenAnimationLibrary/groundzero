@@ -3,6 +3,7 @@ name: MacOS Build
 on:
   # Not run on pull requests: the Linux build is the initial PR check.
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
@@ -130,3 +131,4 @@ jobs:
         with:
           name: Opentoonz-${{ runner.os }}-${{ github.sha }}
           path: toonz/build/toonz/OpenToonz.dmg
+

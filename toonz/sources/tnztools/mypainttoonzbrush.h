@@ -9,12 +9,59 @@
 #include "tcurves.h"
 #include <QPainter>
 #include <QImage>
+#include <QString>
+
+#include <memory>
+#include <vector>
 
 class RasterController {
 public:
   virtual ~RasterController() {}
   virtual bool askRead(const TRect &rect) { return true; }
   virtual bool askWrite(const TRect &rect) { return true; }
+};
+
+//=======================================================
+//
+// MyPaintTip
+//
+//=======================================================
+
+//! A brush tip image, which the dabs of a brush stamp in place of the round
+//! dab (the hardness of the dab is not used then). The tip is a coverage mask
+//! (0 is no paint, 255 is full paint) whose longer side spans the diameter of
+//! the dab. It keeps a chain of half size copies to be sampled without
+//! aliasing when it is drawn small.
+class MyPaintTip {
+  struct Level {
+    int lx, ly;
+    std::vector<unsigned char> pixels;
+  };
+  std::vector<Level> m_levels;
+
+  float texel(const Level &level, int x, int y) const {
+    if (x < 0 || y < 0 || x >= level.lx || y >= level.ly) return 0.f;
+    return level.pixels[(size_t)y * level.lx + x];
+  }
+
+public:
+  //! \b coverage holds lx * ly values, top row first.
+  MyPaintTip(int lx, int ly, const std::vector<unsigned char> &coverage);
+
+  //! Loads a tip from an image file. An image with transparency gives its
+  //! alpha channel as coverage; an opaque one gives the inverse of its
+  //! luminance (black is paint, as in the brush tip images of other
+  //! programs). Returns 0 if the file cannot be read.
+  static std::shared_ptr<const MyPaintTip> load(const QString &path);
+
+  int getLx() const { return m_levels[0].lx; }
+  int getLy() const { return m_levels[0].ly; }
+
+  //! Coverage (0 to 1) at the point (x, y) of the full size tip, in pixels
+  //! with the origin at the top left corner. \b pixelSize is the size, in
+  //! tip pixels, of the area which is drawn on one output pixel: it selects
+  //! the size of the copy to sample.
+  float sample(float x, float y, float pixelSize) const;
 };
 
 //=======================================================
@@ -27,9 +74,12 @@ class Raster32PMyPaintSurface : public mypaint::Surface {
 private:
   class Internal;
 
+  bool drawTipDab(const mypaint::Dab &dab);
+
   TRaster32P ras;
   RasterController *controller;
   Internal *internal;
+  std::shared_ptr<const MyPaintTip> tip;
 
   inline static void readPixel(const void *pixelPtr, float &colorR,
                                float &colorG, float &colorB, float &colorA) {
@@ -77,6 +127,11 @@ public:
                 float &colorB, float &colorA) override;
 
   bool drawDab(const mypaint::Dab &dab) override;
+
+  //! Makes the dabs stamp \b tip instead of the round dab. A null tip
+  //! restores the round dab.
+  void setTip(const std::shared_ptr<const MyPaintTip> &newTip) { tip = newTip; }
+  const std::shared_ptr<const MyPaintTip> &getTip() const { return tip; }
 
   bool getAntialiasing() const;
   void setAntialiasing(bool value);
@@ -146,6 +201,11 @@ public:
     return *m_mypaintSurface.getController();
   }
   const mypaint::Brush &getBrush() const { return m_brush; }
+
+  //! See Raster32PMyPaintSurface::setTip().
+  void setTip(const std::shared_ptr<const MyPaintTip> &tip) {
+    m_mypaintSurface.setTip(tip);
+  }
 };
 
 #endif  // T_BLUREDBRUSH

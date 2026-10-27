@@ -39,17 +39,17 @@
 
 | Feature | Tier | Status | What exists | Gap |
 |---|---|---|---|---|
-| Line Art / Colour Art | E/A/P | Partial | Toonz Raster keeps ink and paint separate natively. On vector levels, strokes of zero thickness act as Colour Art, with "Art Layer:" and "Show Art:" tool options (`include/tools/artlayer.h`, `tnztools/artlayer.cpp`). The file format is unchanged. | No Overlay or Underlay layers, no Art Layer Manager (H25.2), and no "Create Colour Art from Line Art". |
+| Line Art / Colour Art | E/A/P | Partial | Toonz Raster keeps ink and paint separate natively. On vector levels, strokes of zero thickness act as Colour Art, with "Art Layer:" and "Show Art:" tool options (`include/tools/artlayer.h`, `tnztools/artlayer.cpp`). Underlay and Overlay are Line Art strokes below the first and above the last Colour Art stroke in the stacking order, with matching "Art Layer:" entries that only edit those strokes (they act as Line Art while the drawing has no Colour Art). Windows > Art Layer Manager (`toonz/artlayermanagerpane.cpp`) counts the strokes of the current drawing per layer and shows or hides each layer in the viewer. Level > Create Colour Art from Line Art (`toonz/createcolourartcommand.cpp`) appends a zero-thickness copy of every Line Art stroke below the others, for the selected drawings or the current one, with one undo step per drawing. The file format is unchanged. | New strokes are added on top of the stacking order, so the Underlay target cannot place them below the Colour Art. The Manager hides strokes, not the fills of their regions, and does not move, swap or merge layers. Create Colour Art does not close open strokes. |
 | Pencil lines: texture, width profile, pressure opacity, Retouch | A/P | Partial | Pressure thickness on vectors. The **Pump** tool gains Thicken and Thin Brush modes (`tnztools/pumptool.cpp:33`). Textured vector styles. | No opacity along a stroke, no Retouch for opacity, and no animated pencil texture. |
 | Contour Editor | E/A/P | Partial | OpenToonz vectors are centreline strokes. Level > Optimize > Convert Brush Strokes to Outline Shapes turns selected brush strokes into closed, filled, zero-thickness outline strokes that the Control Point Editor edits (`toonzlib/contouroutline.cpp`, doc/contour_editor.md). | One way (no back to a brush stroke, no live outline handles on a brush stroke), closed brush strokes are skipped, and no outline stroke type. |
 | Centerline Editor | E/A/P | Y | Control Point Editor. | n/a |
 | Auto gap closing | E/A/P | Y | Autoclose (`filltool.cpp`, `rastertapetool.cpp`). | n/a |
 | Paint Unpainted / paint behind | E/A/P | Y | Fill tool's Selective mode; Toonz Raster paints behind the ink. | n/a |
-| Brush engines and Photoshop brushes | A/P | Partial | MyPaint and full-colour brushes. | No import of ABR (Photoshop brush) files. |
+| Brush engines and Photoshop brushes | A/P | Partial | MyPaint and full-colour brushes. File > Import > Import Photoshop Brushes (ABR) reads the sampled tips (`toonzlib/abrparser.cpp`, `toonz/abrimport.cpp`) and the full-colour Brush tool stamps them ("Tip:" option, see `doc/abr_brushes.md`). | Tips only: no Photoshop dynamics, no computed brushes; no tips in the MyPaint-style Toonz Raster brush. |
 | Stabilizer | E/A/P | Y | `modifiersmooth.cpp` | n/a |
 | Perspective and guides | A/P | Y | Assistants (`assistantperspective.cpp`, and others). | n/a |
 | Symmetry | ? | Y (ahead) | Replicators. | n/a |
-| Morphing | A/P | Partial | Vector Inbetween now accepts **stroke-pairing hints** (`common/tvrender/tinbetween.cpp`, `tnztools/strokeselection.cpp:694`). The old `morphtool.cpp` was removed. | No automatic matching of strokes, no zone or vanishing-point hints, and no velocity curve. |
+| Morphing | A/P | Partial | Vector Inbetween now accepts **stroke-pairing hints** (`common/tvrender/tinbetween.cpp`, `tnztools/strokeselection.cpp:694`). The old `morphtool.cpp` was removed. | Automatic stroke matching, zone hints and a custom velocity curve are in the Inbetween dialog (`doc/morphing.md`). No vanishing-point hints. |
 | Shift & Trace | A/P | Y | Existing tool. | n/a |
 | Onion skin | E/A/P | Y | Existing. | n/a |
 | Light Table | E/A/P | Y | View > Light Table: every column except the current one at 30% (`toonzlib/stage.cpp`, `toonz/sceneviewer.cpp`). | Fixed at 30%; there is no per-column setting. |
@@ -65,7 +65,7 @@
 | Interpolation types | E/A/P | Y | Existing. | n/a |
 | Motion paths in the viewer | E/A/P | Y | Animate tool's "Show Trajectory", with draggable markers for position keys (`tnztools/edittool.cpp:66-84`). | No velocity display, and no editing of the path's tangents in the viewer. |
 | Trajectory onion skin | ? | Y | Same feature. | n/a |
-| Sub-timing and Retime / Hold / Loop nodes | A/P | Partial | Xsheet reframe and step tools; symbol timing modes. | No time-remap curve per column. |
+| Sub-timing and Retime / Hold / Loop nodes | A/P | Partial | Xsheet reframe and step tools; symbol timing modes. A per-column **time remap** curve (master plan B7, `doc/time_remap.md`) on the level column fx, shown in the Function Editor, with Hold, Loop and Reverse presets; saved only when used. | The remap is applied at render, preview and in the viewer (not for the current column); the xsheet cells keep showing the original timing. No remap for sound, sub-xsheet-internal timing or non-level columns. |
 | Auto lip-sync | A/P | Y | Rhubarb (`toonz/autolipsyncpopup.cpp`). | n/a |
 | Sound scrubbing and level meter | E/A/P | Y | Scrubbing, plus a `SoundLevelMeter` (`toonzqt/flipconsole.cpp:422`) and an animatable **Volume** curve (`toonzlib/txshsoundcolumn.cpp:159-187`). | n/a |
 
@@ -77,8 +77,8 @@
 | Tone / Highlight | A/P | Y | `ToneHighlightFx` (`stdfx/tonehighlightfx.cpp:91`): matte input, softness, and a correct affine for soft edges. | No preset that drives it with a one-click line-art matte. |
 | Glow, Blur, Bokeh | A/P | Y | Existing Iwa effects. | n/a |
 | Cutter and Matte | A/P | Y | Matte In and Matte Out. | n/a |
-| Colour Override | P | Partial | `stdfx/colouroverridefx.cpp`, `ColourOverrideFxRenderData` applied in `tcolumnfx.cpp`: up to 8 style → colour pairs on Toonz Vector / Toonz Raster columns, Preview/Render only. | Only main colours (no textures), no viewer display, no palette-swatch picker. |
-| Light Shading, Volume, Glue, Shine | P | Partial | Iwa lighting and gradient effects. | No shading driven by a light inside a shape. |
+| Colour Override | P | Partial | `stdfx/colouroverridefx.cpp`, `ColourOverrideFxRenderData` applied in `tcolumnfx.cpp`: up to 8 style → colour pairs on Toonz Vector / Toonz Raster columns, each with a Replace / Multiply / Add mode (`modeN`, default Replace, saved only when not Replace); a palette-swatch picker for the style ids in FX Settings (`IntParamField::enableStyleSwatch`, shows the current level's palette); display in the 2D viewer behind Preferences > Show Colour Override in the Viewer (off by default, `RasterPainter`). Older builds ignore `modeN` and treat every pair as Replace. | Only main colours (no style parameters or textures); the viewer shows only the Fxs that directly follow the column in the Xsheet (not the 3D view, not sub-xsheet columns); the picker shows the current level's palette. |
+| Light Shading, Volume, Glue, Shine | P | Partial | Iwa lighting and gradient effects, and the **Light Shading FX** (`stdfx/lightshadingfx.cpp`, `doc/light_shading_fx.md`): a radial or directional light, flat cel bands, a Matte to limit the region. | CPU only; normals come from the alpha of the image, with no depth information; Shine is a highlight band. |
 | Particles | P | Y | Particles Fx. | No baking. |
 | Multiplane, Z and depth of field | E/A/P | Y | Z, stacking order (SO), camera Z, Bokeh. | n/a |
 | 3D model import | P | Partial | **GLB Model FX** with a CPU rasterizer (`glb/glbloader.cpp`, `glb/glbrenderer.cpp`, `stdfx/glbmodelfx.cpp`), plus **Transform3D** and **ThreePointLight** FX. | GLB only: no FBX, OBJ or USD. No PBR, no shadows, no GPU. Models are FX sources, not scene objects. |
@@ -236,7 +236,7 @@ they are.
 
 ## 4. First 10 things to build next
 
-1. **Colour Override FX (Q1): done in `tier6`.** Next for it: a palette-swatch picker in the FX settings and display in the viewer.
+1. **Colour Override FX (Q1): done in `tier6`, completed with a palette-swatch picker, Multiply / Add modes and viewer display (opt-in preference).** Next for it: style parameters and textures.
 2. **Rebase and merge the Qt 6 build abstraction (F1)**, dual-build, before the branch drifts further. QtScript is already gone.
 3. **Whole-rig breakdown and Quick Ease buttons in the Timeline and Xsheet (Q2).** Small, and it reuses `insertBreakdowns`.
 4. **Offset-layer channels (F5).** They turn the Poses panel into a live, stackable Attribute Controller and unblock R6 and R7.

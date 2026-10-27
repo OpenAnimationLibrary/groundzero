@@ -56,11 +56,18 @@ and supply exactly one of `pr_number` or `ref`. The inherited
 
 ## Compatibility and verification
 
-Internal paths, `OTDEV_*` environment variables, recorder settings keys, and the
+Internal paths, build `OTDEV_*` environment variables, and the
 manifest's `full_otdev_build` compatibility field retain their existing names.
 Product labels and repository routing use Groundzero. This avoids a migration
 of preferences, recordings, executable paths, or consumers of existing metadata.
-Recording still requires the existing user choice; no capture behavior changes.
+Recording starts off on every launch. Users can start and stop from the movable
+recording panel, with consent requested on the first start of each session. Legacy saved
+recording choices no longer start capture automatically.
+The movable, closable recording panel appears by default and is controlled from
+Preferences > Interface. All recorder commands support shortcut assignment.
+Separate Start, Pause/Resume and Stop controls allow recording throughout a session.
+Users can also select a window-relative region; selecting or clearing it pauses
+capture until Resume. The default remains all eligible OpenToonz windows.
 
 ```sh
 python -m pip install PyQt5==5.15.2

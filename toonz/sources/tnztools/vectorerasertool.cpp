@@ -599,7 +599,7 @@ void EraserTool::erase(TVectorImageP vi, const TPointD &pos) {
     TStroke *oldStroke = vi->getStroke(i);
     if (!vi->inCurrentGroup(i) ||
         (m_selective.getValue() && oldStroke->getStyle() != index) ||
-        !ArtLayer::isEditable(*oldStroke)) {
+        !ArtLayer::Filter(*vi).isEditable(i)) {  // Strokes shift as they split
       i++;
       it++;
       continue;
@@ -805,10 +805,11 @@ void EraserTool::erase(TVectorImageP vi, TRectD &rect) {
     m_undo = nullptr;
   }
   m_undo = new UndoEraser(level, getCurrentFid());
+  ArtLayer::Filter artFilter(*vi);
   for (i = 0; i < (int)vi->getStrokeCount(); i++) {
     if (!vi->inCurrentGroup(i)) continue;
     TStroke *stroke = vi->getStroke(i);
-    if (!ArtLayer::isEditable(*stroke)) continue;
+    if (!artFilter.isEditable(i)) continue;
     if (!m_invertOption.getValue()) {
       if ((!m_selective.getValue() || stroke->getStyle() == index) &&
           rect.contains(stroke->getBBox())) {
@@ -1293,6 +1294,7 @@ void EraserTool::eraseSegments(const TVectorImageP vi, TStroke *eraseStroke) {
   std::vector<int> touchedStrokeIndex;
   std::vector<std::vector<double>> touchedStrokeW;
   std::vector<std::vector<DoublePair>> touchedStrokeRanges;
+  ArtLayer::Filter artFilter(*vi);
 
   // find all touched strokes and where it is touched
   for (int i = 0; i < strokeNumber; ++i) {
@@ -1304,7 +1306,7 @@ void EraserTool::eraseSegments(const TVectorImageP vi, TStroke *eraseStroke) {
     if (m_selective.getValue() && stroke->getStyle() != colorStyle) {
       continue;
     }
-    if (!ArtLayer::isEditable(*stroke)) continue;
+    if (!artFilter.isEditable(i)) continue;
 
     intersect(eraseStroke, stroke, intersections, false);
 
@@ -1515,12 +1517,13 @@ void EraserTool::eraseRegion(const TVectorImageP vi, TStroke *stroke) {
   }
   m_undo = new UndoEraser(level, getCurrentFid());
 
+  ArtLayer::Filter artFilter(*vi);
   if (!m_invertOption.getValue()) {
     for (strokeIndex = 0; strokeIndex < (int)vi->getStrokeCount();
          strokeIndex++) {
       if (!vi->inCurrentGroup(strokeIndex)) continue;
       TStroke *currentStroke = vi->getStroke(strokeIndex);
-      if (!ArtLayer::isEditable(*currentStroke)) continue;
+      if (!artFilter.isEditable(strokeIndex)) continue;
       for (regionIndex = 0; regionIndex < (int)eraseImg.getRegionCount();
            regionIndex++) {
         TRegion *region = eraseImg.getRegion(regionIndex);
@@ -1537,7 +1540,7 @@ void EraserTool::eraseRegion(const TVectorImageP vi, TStroke *stroke) {
     for (strokeIndex = 0; strokeIndex < (int)vi->getStrokeCount();
          strokeIndex++) {
       TStroke *currentStroke = vi->getStroke(strokeIndex);
-      if (!ArtLayer::isEditable(*currentStroke)) continue;
+      if (!artFilter.isEditable(strokeIndex)) continue;
       bool eraseIt = false;
       for (regionIndex = 0; regionIndex < (int)eraseImg.getRegionCount();
            regionIndex++) {

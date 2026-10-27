@@ -23,6 +23,8 @@
 #include "toonz/preferences.h"
 #include "toonz/txshchildlevel.h"
 #include "toonz/tcolumnhandle.h"
+#include "toonz/tframehandle.h"
+#include "toonz/timeremapcmd.h"
 
 // TnzCore includes
 #include "tvectorimage.h"
@@ -66,6 +68,11 @@ void TColumnSelection::enableCommands() {
   enableCommand(this, MI_Reframe4, &TColumnSelection::reframe4Cells);
   enableCommand(this, MI_ReframeWithEmptyInbetweens,
                 &TColumnSelection::reframeWithEmptyInbetweens);
+  enableCommand(this, MI_ColumnHold, &TColumnSelection::columnHold);
+  enableCommand(this, MI_ColumnLoop, &TColumnSelection::columnLoop);
+  enableCommand(this, MI_ColumnReverse, &TColumnSelection::columnReverse);
+  enableCommand(this, MI_ColumnTimeRemapClear,
+                &TColumnSelection::columnTimeRemapClear);
 }
 //-----------------------------------------------------------------------------
 
@@ -315,6 +322,34 @@ void TColumnSelection::resequence() {
 
 void TColumnSelection::cloneChild() {
   if (m_indices.size() == 1) ColumnCmd::cloneChild(*m_indices.begin());
+}
+
+//-----------------------------------------------------------------------------
+// Time remap (master plan B7): the level columns of the selection are held,
+// looped or reversed through their time remap. Looping and reversing take the
+// cells of each column; holding holds the cell at the current row to the end of
+// the cells of each column.
+
+void TColumnSelection::timeRemapPreset(int preset) {
+  std::set<int> columns = m_indices;
+  columns.erase(-1);  // Ignore camera column
+  if (columns.empty()) return;
+
+  TApp* app = TApp::instance();
+  int r0    = -1;
+  if (preset == TimeRemapCmd::Hold) r0 = app->getCurrentFrame()->getFrame();
+  TimeRemapCmd::applyPreset((TimeRemapCmd::Preset)preset, columns, r0, -1,
+                            app->getCurrentXsheet());
+}
+
+//-----------------------------------------------------------------------------
+
+void TColumnSelection::columnTimeRemapClear() {
+  std::set<int> columns = m_indices;
+  columns.erase(-1);  // Ignore camera column
+  if (columns.empty()) return;
+
+  TimeRemapCmd::clear(columns, TApp::instance()->getCurrentXsheet());
 }
 
 //-----------------------------------------------------------------------------

@@ -7,6 +7,7 @@
 #include "tgl.h"
 //#include "tcolorfunctions.h"
 #include "tvectorrenderdata.h"
+#include "tcolorfunctions.h"
 #include "tmathutil.h"
 //#include "tcurves.h"
 //#include "tstrokeutil.h"
@@ -65,9 +66,19 @@ void TSimpleStrokeProp::draw(
     if (cs && cs->getParamValue(TColorStyle::double_tag(), 0) == 0) return;
   }
 
+  // The stroke opacity multiplies the alpha of the style color
+  const double opacity = m_stroke->getOpacity();
+  if (opacity <= 0.0) return;
+  std::unique_ptr<TStrokeOpacityFunction> opacityCf;
+  const TColorFunction *cf = rd.m_cf;
+  if (opacity < 1.0) {
+    opacityCf.reset(new TStrokeOpacityFunction(rd.m_cf, opacity));
+    cf = opacityCf.get();
+  }
+
   glPushMatrix();
   tglMultMatrix(rd.m_aff);
-  m_colorStyle->drawStroke(rd.m_cf, m_stroke);
+  m_colorStyle->drawStroke(cf, m_stroke);
 
   glPopMatrix();
 }
@@ -215,6 +226,16 @@ void OutlineStrokeProp::draw(const TVectorRenderData &rd) {
       !convert(rd.m_aff * m_stroke->getBBox()).overlaps(rd.m_clippingRect))
     return;
 
+  // The stroke opacity multiplies the alpha of the style color
+  const double opacity = m_stroke->getOpacity();
+  if (opacity <= 0.0) return;
+  std::unique_ptr<TStrokeOpacityFunction> opacityCf;
+  const TColorFunction *cf = rd.m_cf;
+  if (opacity < 1.0) {
+    opacityCf.reset(new TStrokeOpacityFunction(rd.m_cf, opacity));
+    cf = opacityCf.get();
+  }
+
   glPushMatrix();
   tglMultMatrix(rd.m_aff);
 
@@ -228,7 +249,7 @@ void OutlineStrokeProp::draw(const TVectorRenderData &rd) {
   {
     TCenterLineStrokeStyle *appStyle =
         new TCenterLineStrokeStyle(m_colorStyle->getAverageColor(), 0, 0);
-    appStyle->drawStroke(rd.m_cf, m_stroke);
+    appStyle->drawStroke(cf, m_stroke);
     delete appStyle;
   } else {
     if (!isAlmostZero(pixelSize - m_outlinePixelSize, 1e-5) ||
@@ -250,9 +271,9 @@ void OutlineStrokeProp::draw(const TVectorRenderData &rd) {
     }
 
     if (rd.m_antiAliasing)
-      m_colorStyle->drawStroke(rd.m_cf, &m_outline, m_stroke);
+      m_colorStyle->drawStroke(cf, &m_outline, m_stroke);
     else
-      m_colorStyle->drawAliasedStroke(rd.m_cf, &m_outline, m_stroke);
+      m_colorStyle->drawAliasedStroke(cf, &m_outline, m_stroke);
   }
 
   glPopMatrix();

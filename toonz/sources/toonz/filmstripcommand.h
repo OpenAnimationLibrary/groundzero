@@ -5,6 +5,7 @@
 
 #include "tcommon.h"
 #include "tfilepath.h"
+#include "tgeometry.h"
 
 #include <set>
 #include <utility>
@@ -70,7 +71,23 @@ void moveToScene(TXshPaletteLevel *pl);
 void moveToScene(TXshSoundLevel *sl);
 
 // Inbetween interpolation types and functions
-enum InbetweenInterpolation { II_Linear, II_EaseIn, II_EaseOut, II_EaseInOut };
+enum InbetweenInterpolation {
+  II_Linear,
+  II_EaseIn,
+  II_EaseOut,
+  II_EaseInOut,
+  II_Custom  // uses InbetweenOptions::m_slowStart / m_slowEnd
+};
+
+// Smarter morphing options; the default ones give the plain inbetween.
+// See TInbetween::MatchOptions and TInbetween::customEaseInterpolation.
+struct InbetweenOptions {
+  bool m_autoMatch = false;  // match the strokes not paired by shape/position
+  // (zone in the first drawing, zone in the last drawing)
+  std::vector<std::pair<TRectD, TRectD>> m_zoneHints;
+  double m_slowStart = 0;  // II_Custom ease strengths, 0..1
+  double m_slowEnd   = 0;
+};
 
 // strokePairs optionally forces the (fid0 stroke index, fid1 stroke index)
 // matching of the strokes; see TInbetween::StrokeCorrespondence
@@ -78,11 +95,13 @@ void inbetweenWithoutUndo(TXshSimpleLevel *sl, const TFrameId &fid0,
                           const TFrameId &fid1,
                           InbetweenInterpolation interpolation,
                           const std::vector<std::pair<int, int>> &strokePairs =
-                              std::vector<std::pair<int, int>>());
+                              std::vector<std::pair<int, int>>(),
+                          const InbetweenOptions &options = InbetweenOptions());
 void inbetween(TXshSimpleLevel *sl, const TFrameId &fid0, const TFrameId &fid1,
                InbetweenInterpolation interpolation,
                const std::vector<std::pair<int, int>> &strokePairs =
-                   std::vector<std::pair<int, int>>());
+                   std::vector<std::pair<int, int>>(),
+               const InbetweenOptions &options = InbetweenOptions());
 
 // Renumber a single drawing
 void renumberDrawing(TXshSimpleLevel *sl, const TFrameId &oldFid,

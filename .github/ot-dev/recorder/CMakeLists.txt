@@ -15,4 +15,9 @@ if(WIN32)
     add_test(NAME recorder_cursor_hidpi COMMAND recorder_test cursorCapture -o recorder-cursor-hidpi.txt,txt)
     set_tests_properties(recorder_cursor_hidpi PROPERTIES
         ENVIRONMENT "QT_SCALE_FACTOR=2;QT_ENABLE_HIGHDPI_SCALING=1" TIMEOUT 30)
+    add_test(NAME recorder_region_hidpi COMMAND recorder_test
+        panelPreferenceAndShortcuts regionCropFollowsWindowAndKeepsBoundary cancelRegionSelection
+        -o recorder-region-hidpi.txt,txt)
+    set_tests_properties(recorder_region_hidpi PROPERTIES
+        ENVIRONMENT "QT_SCALE_FACTOR=2;QT_ENABLE_HIGHDPI_SCALING=1" TIMEOUT 30)
 endif()

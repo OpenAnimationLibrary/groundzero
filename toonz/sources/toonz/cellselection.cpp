@@ -38,6 +38,7 @@
 #include "toonz/preferences.h"
 #include "toonz/tpalettehandle.h"
 #include "toonz/txsheethandle.h"
+#include "toonz/timeremapcmd.h"
 #include "toonz/txshlevelhandle.h"
 #include "toonz/tcolumnhandle.h"
 #include "toonz/tscenehandle.h"
@@ -1568,6 +1569,11 @@ void TCellSelection::enableCommands() {
                 &TCellSelection::convertVectortoVector);
   enableCommand(this, MI_ReframeWithEmptyInbetweens,
                 &TCellSelection::reframeWithEmptyInbetweens);
+  enableCommand(this, MI_ColumnHold, &TCellSelection::columnHold);
+  enableCommand(this, MI_ColumnLoop, &TCellSelection::columnLoop);
+  enableCommand(this, MI_ColumnReverse, &TCellSelection::columnReverse);
+  enableCommand(this, MI_ColumnTimeRemapClear,
+                &TCellSelection::columnTimeRemapClear);
 
   enableCommand(this, MI_PasteNumbers, &TCellSelection::overwritePasteNumbers);
   enableCommand(this, MI_PasteCellContent, &TCellSelection::pasteCells);
@@ -1626,6 +1632,10 @@ bool TCellSelection::isEnabledCommand(
                                         MI_Reframe3,
                                         MI_Reframe4,
                                         MI_ReframeWithEmptyInbetweens,
+                                        MI_ColumnHold,
+                                        MI_ColumnLoop,
+                                        MI_ColumnReverse,
+                                        MI_ColumnTimeRemapClear,
                                         MI_Undo,
                                         MI_Redo,
                                         MI_PasteNumbers,
@@ -1634,6 +1644,37 @@ bool TCellSelection::isEnabledCommand(
                                         MI_CreateBlankDrawing,
                                         MI_FillEmptyCell};
   return commands.contains(commandId);
+}
+
+//-----------------------------------------------------------------------------
+// Time remap (master plan B7): the selected rows of the columns of the
+// selection are held, looped or reversed through the time remap of the columns
+
+void TCellSelection::timeRemapPreset(int preset) {
+  if (isEmpty()) return;
+
+  int r0, c0, r1, c1;
+  getSelectedCells(r0, c0, r1, c1);
+
+  std::set<int> columns;
+  for (int c = c0; c <= c1; c++) columns.insert(c);
+
+  TimeRemapCmd::applyPreset((TimeRemapCmd::Preset)preset, columns, r0, r1,
+                            TApp::instance()->getCurrentXsheet());
+}
+
+//-----------------------------------------------------------------------------
+
+void TCellSelection::columnTimeRemapClear() {
+  if (isEmpty()) return;
+
+  int r0, c0, r1, c1;
+  getSelectedCells(r0, c0, r1, c1);
+
+  std::set<int> columns;
+  for (int c = c0; c <= c1; c++) columns.insert(c);
+
+  TimeRemapCmd::clear(columns, TApp::instance()->getCurrentXsheet());
 }
 
 //-----------------------------------------------------------------------------

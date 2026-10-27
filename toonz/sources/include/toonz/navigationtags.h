@@ -27,6 +27,8 @@ public:
     int m_frame;
     QString m_label;
     QColor m_color;
+    // Free text (e.g. the storyboard panel notes). Saved only when not empty.
+    QString m_notes;
     Tag() : m_frame(-1), m_label(), m_color(Qt::magenta) {}
     Tag(int frame) : m_frame(frame), m_label(), m_color(Qt::magenta) {}
     Tag(int frame, QString label)

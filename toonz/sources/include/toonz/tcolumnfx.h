@@ -10,6 +10,8 @@
 // TnzBase includes
 #include "trasterfx.h"
 #include "tbasefx.h"
+#include "tdoubleparam.h"
+#include "tnotanimatableparam.h"
 
 #undef DVAPI
 #undef DVVAR
@@ -66,6 +68,12 @@ class TLevelColumnFx : public TColumnFx {
   TThread::Mutex m_mutex;
   TOfflineGL *m_offlineContext;
 
+  // Time remap (master plan B7, see toonz/timeremap.h). The parameters are
+  // saved only when the remap is used, so the scenes that do not use it are
+  // saved as before.
+  TDoubleParamP m_timeRemap;
+  TBoolParamP m_timeRemapEnabled;
+
 public:
   TLevelColumnFx();
   ~TLevelColumnFx();
@@ -77,6 +85,22 @@ public:
 
   void setColumn(TXshLevelColumn *column);
   TXshLevelColumn *getColumn() const { return m_levelColumn; }
+
+  //! The curve that tells, for each row of the output, the (1-based) xsheet
+  //! frame whose cell is shown there. It is ignored when the remap is
+  //! disabled or the curve has no keys.
+  TDoubleParam *getTimeRemapParam() const { return m_timeRemap.getPointer(); }
+  TBoolParam *getTimeRemapEnabledParam() const {
+    return m_timeRemapEnabled.getPointer();
+  }
+  //! True if the column is shown with a retimed cell lookup.
+  bool isTimeRemapActive() const;
+  //! True if the remap has been used: it is enabled, or its curve has keys or
+  //! is cycled. Only then the remap parameters are saved.
+  bool isTimeRemapUsed() const;
+  //! The row of the xsheet whose cell is shown at the row \b row of the output;
+  //! \b row itself if the remap is not active.
+  int getRemappedRow(int row) const;
 
   std::wstring getColumnName() const override;
   std::wstring getColumnId() const override;
@@ -107,6 +131,8 @@ public:
 
   const TPersistDeclaration *getDeclaration() const override;
   std::string getPluginId() const override;
+
+  bool isParamSaved(const TParamVar *paramVar) const override;
 
 private:
   void getImageInfo(TImageInfo &imageInfo, TXshSimpleLevel *sl,

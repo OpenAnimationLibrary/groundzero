@@ -2,8 +2,11 @@
 
 #include <QAction>
 #include <QApplication>
-#include <QCheckBox>
 #include <QCursor>
+#include <QCheckBox>
+#include <QDockWidget>
+#include <QGridLayout>
+#include <QToolButton>
 #include <QDialog>
 #include <QDir>
 #include <QFile>
@@ -15,6 +18,7 @@
 #include <QOpenGLWidget>
 #include <QPainter>
 #include <QPushButton>
+#include <QRubberBand>
 #include <QSettings>
 #include <QTemporaryDir>
 #include <QTest>
@@ -54,6 +58,33 @@ QList<QByteArray> mp4Boxes(const QByteArray &video) {
     offset += size;
   }
   return boxes;
+}
+
+void acceptRecordingPrompt() {
+  QTimer::singleShot(50, [] {
+    auto *dialog =
+        qobject_cast<QMessageBox *>(QApplication::activeModalWidget());
+    QVERIFY(dialog);
+    for (auto *button : dialog->buttons())
+      if (dialog->buttonRole(button) == QMessageBox::AcceptRole) {
+        button->click();
+        return;
+      }
+    QFAIL("Start Recording button missing");
+  });
+}
+
+void selectRecordingRegion(QMainWindow &window, QWidget &target,
+                           const QRect &region) {
+  auto *select = window.findChild<QAction *>("OtDevRecordSelectRegion");
+  QVERIFY(select);
+  select->trigger();
+  QTest::mousePress(&target, Qt::LeftButton, Qt::NoModifier, region.topLeft());
+  QTest::mouseMove(&target, region.bottomRight());
+  QTest::mouseRelease(&target, Qt::LeftButton, Qt::NoModifier,
+                      region.bottomRight());
+  QVERIFY(target.findChildren<QRubberBand *>().isEmpty());
+  QCOMPARE(select->text(), QString("Select Region..."));
 }
 
 void verifyPlaybackFile(const QString &path) {
@@ -157,91 +188,172 @@ protected:
 class RecorderTest final : public QObject {
   Q_OBJECT
 private slots:
-  void choicesArePerBuild() {
+  void startupIsOff_data() {
+    QTest::addColumn<int>("choice");
+    QTest::newRow("fresh-preferences") << -2;
+    QTest::newRow("old-build") << -1;
+    QTest::newRow("remembered-off") << 0;
+    QTest::newRow("remembered-on") << 1;
+  }
+
+  void startupIsOff() {
+    QFETCH(int, choice);
     QTemporaryDir dir;
-    const QString path = dir.filePath("preferences.ini");
-    QCOMPARE(OtDevRecorder::rememberedChoice(path, "build-1"), -1);
-    QVERIFY(OtDevRecorder::saveChoice(path, "build-1", 1));
-    QCOMPARE(OtDevRecorder::rememberedChoice(path, "build-1"), 1);
-    QCOMPARE(OtDevRecorder::rememberedChoice(path, "build-2"), -1);
-    QVERIFY(OtDevRecorder::saveChoice(path, "build-1", 0));
-    QCOMPARE(OtDevRecorder::rememberedChoice(path, "build-1"), 0);
-    QVERIFY(OtDevRecorder::saveChoice(path, "build-1", -1));
-    QCOMPARE(OtDevRecorder::rememberedChoice(path, "build-1"), -1);
-    QSettings settings(path, QSettings::IniFormat);
-    settings.setValue("OtDevRecorder/Choice", "invalid");
-    settings.sync();
-    QCOMPARE(OtDevRecorder::rememberedChoice(path, "build-1"), -1);
+    const QString prefs = dir.filePath("preferences.ini");
+    if (choice != -2) {
+      QSettings settings(prefs, QSettings::IniFormat);
+      settings.setValue("OtDevRecorder/BuildId", "old-build");
+      settings.setValue("OtDevRecorder/Choice", choice);
+      settings.sync();
+    }
+    QMainWindow window;
+    OtDevRecorder recorder(&window, prefs, dir.path(), "missing");
+    window.show();
+    QTest::qWait(100);
+    QVERIFY(window.findChildren<QMessageBox *>().isEmpty());
+    QVERIFY(!QFileInfo::exists(dir.filePath("recordings")));
+    auto *bar = window.findChild<QToolBar *>("OtDevSessionRecorder");
+    QVERIFY(bar);
+    QVERIFY(bar->isVisible());
+    QVERIFY(bar->actions().first()->isEnabled());
+    QVERIFY(!bar->actions().at(2)->isEnabled());
+    QCOMPARE(bar->actions().at(0)->text(), QString("Start Recording"));
+    QCOMPARE(bar->actions().at(1)->text(), QString("Pause"));
+    QCOMPARE(bar->actions().at(2)->text(), QString("Stop Recording"));
+    QVERIFY(!bar->actions().at(1)->isEnabled());
+    QCOMPARE(window.findChild<QLabel *>("OtDevRecordRegionStatus")->text(),
+             QString("All OpenToonz Windows"));
+    QCOMPARE(window.findChild<QLabel *>("OtDevRecordStatus")->text(),
+             QString("Recording off"));
+  }
+
+  void panelPreferenceAndShortcuts() {
+    QTemporaryDir dir;
+    const QString prefs = dir.filePath("preferences.ini");
+    {
+      QMainWindow window;
+      window.resize(600, 400);
+      OtDevRecorder recorder(&window, prefs, dir.path(), "missing");
+      window.show();
+      window.activateWindow();
+      QTest::qWait(100);
+      auto *panel = window.findChild<QDockWidget *>("OtDevRecordingPanel");
+      auto *toggle =
+          window.findChild<QAction *>("MI_ToggleSessionRecordingPanel");
+      QVERIFY(panel);
+      QVERIFY(panel->isVisible());
+      QVERIFY(panel->features().testFlag(QDockWidget::DockWidgetMovable));
+      QVERIFY(panel->features().testFlag(QDockWidget::DockWidgetFloatable));
+      QWidget preferences;
+      auto *layout = new QGridLayout(&preferences);
+      OtDevRecorder::addInterfacePreference(layout);
+      auto *check =
+          preferences.findChild<QCheckBox *>("OtDevShowRecordingPanel");
+      QVERIFY(check);
+      QVERIFY(check->isChecked());
+      check->click();
+      QVERIFY(panel->isHidden());
+      QVERIFY(!toggle->isChecked());
+      QSettings settings(prefs, QSettings::IniFormat);
+      QCOMPARE(settings.value("OtDevRecorder/ShowPanel").toBool(), false);
+      toggle->setShortcut(QKeySequence("Ctrl+Alt+F9"));
+      QTest::keyClick(&window, Qt::Key_F9,
+                      Qt::ControlModifier | Qt::AltModifier);
+      QTRY_VERIFY(panel->isVisible());
+      QVERIFY(check->isChecked());
+      panel->setFloating(true);
+      panel->resize(480, 180);
+      panel->move(100, 100);
+      window.activateWindow();
+      auto *select = window.findChild<QAction *>("MI_SelectRecordingRegion");
+      auto *cancel = window.findChild<QAction *>("MI_CancelRecordingRegion");
+      select->setShortcut(QKeySequence("Ctrl+Alt+F10"));
+      cancel->setShortcut(QKeySequence("Ctrl+Alt+F11"));
+      QTest::keyClick(&window, Qt::Key_F10,
+                      Qt::ControlModifier | Qt::AltModifier);
+      QTRY_VERIFY(window.findChild<QLabel *>("OtDevRecordStatus")
+                      ->text()
+                      .contains("Drag a region"));
+      QTest::keyClick(&window, Qt::Key_F11,
+                      Qt::ControlModifier | Qt::AltModifier);
+      QTRY_COMPARE(window.findChild<QLabel *>("OtDevRecordStatus")->text(),
+                   QString("Recording off"));
+      QVERIFY(!QApplication::overrideCursor());
+      panel->close();
+      QVERIFY(!check->isChecked());
+      QVERIFY(!toggle->isChecked());
+      // Hiding the application must not overwrite the user's panel preference.
+      toggle->trigger();
+      window.hide();
+      settings.sync();
+      QVERIFY(settings.value("OtDevRecorder/ShowPanel").toBool());
+      window.show();
+      panel->close();
+    }
+    QMainWindow window;
+    OtDevRecorder recorder(&window, prefs, dir.path(), "missing");
+    window.show();
+    auto *panel = window.findChild<QDockWidget *>("OtDevRecordingPanel");
+    QVERIFY(panel->isHidden());
+    QVERIFY(panel->isFloating());
+    window.findChild<QAction *>("MI_ToggleSessionRecordingPanel")->trigger();
+    QVERIFY(panel->isVisible());
+    QVERIFY(!QFileInfo::exists(dir.filePath("recordings")));
+    // Every recording control has a separate command with a stable label.
+    for (const char *id :
+         {"MI_StartSessionRecording", "MI_StopSessionRecording",
+          "MI_ToggleSessionRecordingPause", "MI_PauseSessionRecording",
+          "MI_ResumeSessionRecording", "MI_SelectRecordingRegion",
+          "MI_ClearRecordingRegion", "MI_CancelRecordingRegion",
+          "MI_OpenSessionRecordingsFolder"}) {
+      auto *command = window.findChild<QAction *>(id);
+      QVERIFY(command);
+      QVERIFY(window.actions().contains(command));
+      QCOMPARE(command->shortcutContext(), Qt::ApplicationShortcut);
+      QVERIFY(command->shortcut().isEmpty());
+    }
   }
 
   void escapeIsOptOut() {
     QTemporaryDir dir;
-    QVERIFY(OtDevRecorder::saveChoice(dir.filePath("preferences.ini"),
-                                      "old-build", 0));
+    const QString prefs = dir.filePath("preferences.ini");
+    QFile file(prefs);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.close();
     QMainWindow window;
     window.show();
-    OtDevRecorder recorder(&window, dir.filePath("preferences.ini"),
-                           "test-build", dir.path(),
-                           dir.filePath("missing-ffmpeg.exe"));
+    OtDevRecorder recorder(&window, prefs, dir.path(), "missing");
+    auto *bar = window.findChild<QToolBar *>("OtDevSessionRecorder");
+    QVERIFY(bar);
     QTimer::singleShot(50, [] {
       auto *dialog =
           qobject_cast<QMessageBox *>(QApplication::activeModalWidget());
       QVERIFY(dialog);
+      QVERIFY(!dialog->checkBox());
       QTest::keyClick(dialog, Qt::Key_Escape);
     });
-    recorder.initialize();
+    bar->actions().first()->trigger();
     QVERIFY(!QFileInfo::exists(dir.filePath("recordings")));
-    auto *bar = window.findChild<QToolBar *>("OtDevSessionRecorder");
-    QVERIFY(bar);
-    QVERIFY(!bar->actions().first()->isChecked());
-  }
-
-  void rememberedOptOutNeverCreatesOutput() {
-    QTemporaryDir dir;
-    const QString prefs = dir.filePath("preferences.ini");
-    QVERIFY(OtDevRecorder::saveChoice(prefs, "test-build", 0));
-    QMainWindow window;
-    OtDevRecorder recorder(&window, prefs, "test-build", dir.path(), "missing");
-    recorder.initialize();
-    QVERIFY(!QFileInfo::exists(dir.filePath("recordings")));
-    QVERIFY(!QApplication::activeModalWidget());
-  }
-
-  void startupOverrideWinsOverRememberedOptIn() {
-    QTemporaryDir dir;
-    const QString prefs = dir.filePath("preferences.ini");
-    QVERIFY(OtDevRecorder::saveChoice(prefs, "test-build", 1));
-    QMainWindow window;
-    OtDevRecorder recorder(&window, prefs, "test-build", dir.path(), "missing");
-    qputenv("OTDEV_RECORD", "off");
-    recorder.initialize();
-    qunsetenv("OTDEV_RECORD");
-    QVERIFY(!QFileInfo::exists(dir.filePath("recordings")));
-    QVERIFY(!QApplication::activeModalWidget());
+    QVERIFY(!bar->actions().at(2)->isEnabled());
+    QVERIFY(bar->actions().first()->isEnabled());
+    QVERIFY(window.findChildren<QMessageBox *>().isEmpty());
   }
 
   void optInReportsMissingEncoder() {
     QTemporaryDir dir;
     const QString prefs = dir.filePath("preferences.ini");
-    QVERIFY(OtDevRecorder::saveChoice(prefs, "test-build", -1));
+    QFile file(prefs);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.close();
     QMainWindow window;
     window.show();
-    OtDevRecorder recorder(&window, prefs, "test-build", dir.path(), "missing");
-    QTimer::singleShot(50, [] {
-      auto *dialog =
-          qobject_cast<QMessageBox *>(QApplication::activeModalWidget());
-      QVERIFY(dialog);
-      dialog->checkBox()->setChecked(true);
-      for (auto *button : dialog->buttons())
-        if (dialog->buttonRole(button) == QMessageBox::AcceptRole) {
-          button->click();
-          return;
-        }
-      QFAIL("Start Recording button missing");
-    });
-    recorder.initialize();
-    QCOMPARE(OtDevRecorder::rememberedChoice(prefs, "test-build"), 1);
+    OtDevRecorder recorder(&window, prefs, dir.path(), "missing");
+    acceptRecordingPrompt();
+    auto *bar = window.findChild<QToolBar *>("OtDevSessionRecorder");
+    QVERIFY(bar);
+    bar->actions().first()->trigger();
     QVERIFY(!QFileInfo::exists(dir.filePath("recordings")));
+    QVERIFY(!bar->actions().at(2)->isEnabled());
     auto *error = window.findChild<QMessageBox *>();
     QVERIFY(error);
     QVERIFY(error->text().contains("FFmpeg not found"));
@@ -251,15 +363,29 @@ private slots:
   void controllerCreatesAndFinalizesClip() {
     QTemporaryDir dir;
     const QString prefs = dir.filePath("preferences.ini");
-    QVERIFY(OtDevRecorder::saveChoice(prefs, "test-build", 1));
+    QFile file(prefs);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.close();
     QMainWindow window;
     window.resize(320, 240);
     window.show();
     window.activateWindow();
     QTest::qWait(100);
-    OtDevRecorder recorder(&window, prefs, "test-build", dir.path(),
+    OtDevRecorder recorder(&window, prefs, dir.path(),
                            qEnvironmentVariable("OTDEV_TEST_FFMPEG"));
-    recorder.initialize();
+    auto *bar = window.findChild<QToolBar *>("OtDevSessionRecorder");
+    QVERIFY(bar);
+    acceptRecordingPrompt();
+    bar->actions().first()->trigger();
+    // Pause before the first capture tick, then stop and start again.
+    bar->actions().at(1)->trigger();
+    QTest::qWait(150);
+    bar->actions().at(2)->trigger();
+    QVERIFY(!bar->actions().at(2)->isEnabled());
+    QVERIFY(QDir(dir.filePath("recordings"))
+                .entryList({"*.mp4"}, QDir::Files)
+                .isEmpty());
+    bar->actions().first()->trigger();
     QTRY_VERIFY_WITH_TIMEOUT(!QDir(dir.filePath("recordings"))
                                   .entryList({"*.mp4"}, QDir::Files)
                                   .isEmpty(),
@@ -269,35 +395,69 @@ private slots:
                  .entryList({"*.recording.mp4"}, QDir::Files)
                  .size(),
              1);
-    auto *bar = window.findChild<QToolBar *>("OtDevSessionRecorder");
-    QVERIFY(bar->actions().first()->isChecked());
-    bar->actions().first()->trigger();
-    QCOMPARE(OtDevRecorder::rememberedChoice(prefs, "test-build"), 0);
-    QTRY_COMPARE_WITH_TIMEOUT(bar->findChild<QLabel *>()->text(),
-                              QString("Recording off"), 10000);
+    QVERIFY(bar->actions().at(2)->isEnabled());
+    bar->actions().at(2)->trigger();
+    QVERIFY(!bar->actions().first()->isEnabled());
+    QVERIFY(!bar->actions().at(2)->isEnabled());
+    QTRY_COMPARE_WITH_TIMEOUT(
+        window.findChild<QLabel *>("OtDevRecordStatus")->text(),
+        QString("Recording off"), 10000);
     const auto files =
         QDir(dir.filePath("recordings")).entryList({"*.mp4"}, QDir::Files);
     QCOMPARE(files.size(), 1);
     QVERIFY(!files.first().endsWith(".recording.mp4"));
     verifyPlaybackFile(dir.filePath("recordings/" + files.first()));
+    QVERIFY(bar->actions().first()->isEnabled());
+
+    QTimer::singleShot(50, [] {
+      auto *dialog =
+          qobject_cast<QMessageBox *>(QApplication::activeModalWidget());
+      if (dialog) {
+        dialog->reject();
+        QFAIL("Consent was repeated within one session");
+      }
+    });
+    bar->actions().first()->trigger();
+    QVERIFY(!QApplication::activeModalWidget());
+    QTRY_COMPARE_WITH_TIMEOUT(
+        window.findChild<QLabel *>("OtDevRecordStatus")->text(),
+        QString("RECORDING"), 10000);
+    QTest::qWait(500);
+    bar->actions().at(2)->trigger();
+    QTRY_COMPARE_WITH_TIMEOUT(
+        window.findChild<QLabel *>("OtDevRecordStatus")->text(),
+        QString("Recording off"), 10000);
+    const auto restarted =
+        QDir(dir.filePath("recordings")).entryList({"*.mp4"}, QDir::Files);
+    QCOMPARE(restarted.size(), 2);
+    for (const auto &name : restarted) {
+      QVERIFY(!name.endsWith(".recording.mp4"));
+      verifyPlaybackFile(dir.filePath("recordings/" + name));
+    }
+    QSettings settings(prefs, QSettings::IniFormat);
+    QVERIFY(!settings.contains("OtDevRecorder/Choice"));
   }
 
   void shutdownFinalizesWithoutEventLoop() {
     QTemporaryDir dir;
     const QString prefs = dir.filePath("preferences.ini");
-    QVERIFY(OtDevRecorder::saveChoice(prefs, "test-build", 1));
+    QFile file(prefs);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.close();
     QMainWindow window;
     window.resize(320, 240);
     window.show();
     window.activateWindow();
     QTest::qWait(100);
     {
-      OtDevRecorder recorder(&window, prefs, "test-build", dir.path(),
+      OtDevRecorder recorder(&window, prefs, dir.path(),
                              qEnvironmentVariable("OTDEV_TEST_FFMPEG"));
-      recorder.initialize();
+      acceptRecordingPrompt();
+      recorder.requestRecording();
       auto *bar = window.findChild<QToolBar *>("OtDevSessionRecorder");
-      QTRY_COMPARE_WITH_TIMEOUT(bar->findChild<QLabel *>()->text(),
-                                QString("RECORDING"), 10000);
+      QTRY_COMPARE_WITH_TIMEOUT(
+          window.findChild<QLabel *>("OtDevRecordStatus")->text(),
+          QString("RECORDING"), 10000);
       QTest::qWait(500);
       recorder.stop();  // aboutToQuit; no further event processing before
                         // destruction.
@@ -307,6 +467,224 @@ private slots:
     QCOMPARE(files.size(), 1);
     QVERIFY(!files.first().endsWith(".recording.mp4"));
     verifyPlaybackFile(dir.filePath("recordings/" + files.first()));
+  }
+
+  void selectedRegionAndManualPause() {
+    QTemporaryDir dir;
+    const QString prefs = dir.filePath("preferences.ini");
+    QFile file(prefs);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.close();
+    QMainWindow window;
+    window.setStyleSheet("background: rgb(255,0,0)");
+    window.resize(400, 300);
+    window.show();
+    window.activateWindow();
+    QTest::qWait(100);
+    OtDevRecorder recorder(&window, prefs, dir.path(),
+                           qEnvironmentVariable("OTDEV_TEST_FFMPEG"));
+    auto *start  = window.findChild<QAction *>("OtDevRecordStart");
+    auto *pause  = window.findChild<QAction *>("OtDevRecordPause");
+    auto *stop   = window.findChild<QAction *>("OtDevRecordStop");
+    auto *status = window.findChild<QLabel *>("OtDevRecordStatus");
+    auto *region = window.findChild<QLabel *>("OtDevRecordRegionStatus");
+    selectRecordingRegion(window, window, QRect(40, 30, 80, 60));
+    QCOMPARE(region->text(), QString("Region: 80 x 60"));
+    QVERIFY(!QFileInfo::exists(dir.filePath("recordings")));
+
+    acceptRecordingPrompt();
+    start->trigger();
+    QTRY_COMPARE_WITH_TIMEOUT(status->text(), QString("RECORDING"), 10000);
+    QTest::qWait(350);
+    pause->trigger();
+    QCOMPARE(status->text(), QString("Recording paused"));
+    QCOMPARE(pause->text(), QString("Resume"));
+    QVERIFY(!start->isEnabled());
+    QVERIFY(stop->isEnabled());
+    auto *panel = window.findChild<QDockWidget *>("OtDevRecordingPanel");
+    // Resume, close the panel while recording, then resume through its command.
+    pause->trigger();
+    panel->close();
+    QCOMPARE(status->text(), QString("Recording paused"));
+    QVERIFY(panel->isHidden());
+    auto *resume = window.findChild<QAction *>("MI_ResumeSessionRecording");
+    resume->setShortcut(QKeySequence("Ctrl+Alt+F8"));
+    window.activateWindow();
+    QTest::qWait(50);
+    QTest::keyClick(&window, Qt::Key_F8, Qt::ControlModifier | Qt::AltModifier);
+    QTRY_VERIFY(panel->isVisible());
+    pause->trigger();
+    // Blue is displayed only while paused and must never reach the encoder.
+    window.setStyleSheet("background: rgb(0,0,255)");
+    QTest::qWait(400);
+    auto *select = window.findChild<QAction *>("OtDevRecordSelectRegion");
+    select->trigger();
+    QTest::keyClick(&window, Qt::Key_Escape);
+    QCOMPARE(status->text(), QString("Recording paused"));
+    QCOMPARE(region->text(), QString("Region: 80 x 60"));
+    selectRecordingRegion(window, window, QRect(50, 40, 80, 60));
+    QCOMPARE(status->text(), QString("Recording paused"));
+    window.setStyleSheet("background: rgb(0,255,0)");
+    pause->trigger();
+    QTRY_COMPARE_WITH_TIMEOUT(status->text(), QString("RECORDING"), 10000);
+    QTest::qWait(350);
+
+    selectRecordingRegion(window, window, QRect(50, 40, 80, 60));
+    QCOMPARE(status->text(), QString("Recording paused"));
+    auto *floating = new QDialog(&window);
+    floating->resize(160, 120);
+    floating->setStyleSheet("background: rgb(0,0,255)");
+    floating->show();
+    selectRecordingRegion(window, *floating, QRect(10, 10, 80, 60));
+    QCOMPARE(status->text(), QString("Recording paused"));
+    delete floating;
+    window.activateWindow();
+    pause->trigger();
+    QTRY_COMPARE_WITH_TIMEOUT(
+        status->text(),
+        QString("Recording paused (selected window unavailable)"), 10000);
+    QCOMPARE(region->text(), QString("Region: 80 x 60"));
+    window.findChild<QAction *>("OtDevRecordClearRegion")->trigger();
+    QCOMPARE(region->text(), QString("All OpenToonz Windows"));
+    QCOMPARE(status->text(), QString("Recording paused"));
+    pause->trigger();
+    QTRY_COMPARE_WITH_TIMEOUT(status->text(), QString("RECORDING"), 10000);
+    QTest::qWait(250);
+    pause->trigger();
+    select->trigger();
+    QTest::mousePress(&window, Qt::LeftButton, Qt::NoModifier, QPoint(10, 10));
+    stop->trigger();  // Stop must also finalize a manually paused clip.
+    QVERIFY(window.findChildren<QRubberBand *>().isEmpty());
+    QVERIFY(!QApplication::overrideCursor());
+    QTRY_COMPARE_WITH_TIMEOUT(status->text(), QString("Recording off"), 10000);
+    const auto files =
+        QDir(dir.filePath("recordings")).entryList({"*.mp4"}, QDir::Files);
+    QCOMPARE(files.size(), 1);
+    const QString output = dir.filePath("recordings/" + files.first());
+    verifyPlaybackFile(output);
+    QProcess decoder;
+    decoder.start(
+        qEnvironmentVariable("OTDEV_TEST_DECODER"),
+        {"-v", "error", "-nostdin", "-i", output, "-an", "-vf", "scale=16:16",
+         "-c:v", "rawvideo", "-pix_fmt", "bgra", "-f", "rawvideo", "pipe:1"});
+    QVERIFY(decoder.waitForFinished(15000));
+    QVERIFY2(decoder.exitCode() == 0,
+             decoder.readAllStandardError().constData());
+    const QByteArray frames = decoder.readAllStandardOutput();
+    QVERIFY(frames.size() >= 4 * 16 * 16 * 4);
+    QCOMPARE(frames.size() % (16 * 16 * 4), 0);
+    bool red = false, green = false;
+    for (int offset = 0; offset < frames.size(); offset += 16 * 16 * 4) {
+      const QImage frame(
+          reinterpret_cast<const uchar *>(frames.constData() + offset), 16, 16,
+          QImage::Format_RGB32);
+      const QColor color = frame.pixelColor(8, 8);
+      QVERIFY2(color.blue() < 40,
+               "Paused/selection frames leaked into the clip");
+      red |= color.red() > 200;
+      green |= color.green() > 200;
+    }
+    QVERIFY(red);
+    QVERIFY(green);
+  }
+
+  void regionCropFollowsWindowAndKeepsBoundary() {
+    QMainWindow window;
+    window.setStyleSheet("background: rgb(255,0,0)");
+    window.setGeometry(100, 100, 320, 240);
+    QWidget blue(&window);
+    blue.setStyleSheet("background: rgb(0,0,255)");
+    blue.setGeometry(60, 40, 80, 60);
+    window.show();
+    QTest::qWait(50);
+    const QRect region(60, 40, 80, 60);
+    auto cropped = [&] {
+      return OtDevRecorder::capture(&window, QSize(320, 240), false, &window,
+                                    region);
+    };
+    const QImage original = cropped();
+    QCOMPARE(original.pixelColor(0, 0), QColor(Qt::blue));
+    QCOMPARE(original.pixelColor(319, 239), QColor(Qt::blue));
+    window.move(150, 170);
+    QCOMPARE(cropped(), original);
+    // An eligible panel outside the selection must not shrink/reframe it.
+    QDialog panel(&window);
+    panel.setStyleSheet("background: rgb(255,255,0)");
+    panel.setGeometry(600, 100, 160, 120);
+    panel.show();
+    QTest::qWait(50);
+    QCOMPARE(cropped(), original);
+    const QImage floating = OtDevRecorder::capture(
+        &window, QSize(320, 240), false, &panel, QRect(10, 10, 80, 60));
+    QCOMPARE(floating.pixelColor(160, 120), QColor(Qt::yellow));
+    panel.setProperty("otdevNoCapture", true);
+    QVERIFY(
+        OtDevRecorder::capture(&window, QSize(320, 240), false, &panel, region)
+            .isNull());
+    panel.hide();
+    QWidget foreign;
+    foreign.setStyleSheet("background: rgb(0,255,0)");
+    foreign.setGeometry(window.geometry());
+    foreign.show();
+    foreign.raise();
+    QTest::qWait(50);
+    QCOMPARE(cropped(), original);
+    QVERIFY(OtDevRecorder::capture(&window, QSize(320, 240), false, &foreign,
+                                   region)
+                .isNull());
+    QVERIFY(
+        OtDevRecorder::capture(&window, QSize(320, 240), false, nullptr, region)
+            .isNull());
+    foreign.hide();
+    const QImage letterboxed = OtDevRecorder::capture(
+        &window, QSize(320, 240), false, &window, QRect(60, 40, 80, 40));
+    QCOMPARE(letterboxed.pixelColor(160, 0), QColor(Qt::black));
+    QCOMPARE(letterboxed.pixelColor(160, 120), QColor(Qt::blue));
+    window.resize(100, 90);
+    const QImage clipped = cropped();
+    QCOMPARE(clipped.pixelColor(40, 40), QColor(Qt::blue));
+    QCOMPARE(clipped.pixelColor(300, 40), QColor(Qt::black));
+    QCOMPARE(clipped.pixelColor(40, 230), QColor(Qt::black));
+    window.hide();
+    QVERIFY(cropped().isNull());
+  }
+
+  void cancelRegionSelection() {
+    QTemporaryDir dir;
+    QMainWindow window;
+    window.resize(400, 300);
+    window.show();
+    OtDevRecorder recorder(&window, dir.filePath("preferences.ini"), dir.path(),
+                           "missing");
+    selectRecordingRegion(window, window, QRect(30, 20, 80, 60));
+    auto *select = window.findChild<QAction *>("OtDevRecordSelectRegion");
+    auto *region = window.findChild<QLabel *>("OtDevRecordRegionStatus");
+    select->trigger();
+    QTest::mousePress(&window, Qt::LeftButton, Qt::NoModifier, QPoint(10, 10));
+    QTest::mouseMove(&window, QPoint(150, 100));
+    QTest::keyClick(&window, Qt::Key_Escape);
+    QVERIFY(window.findChildren<QRubberBand *>().isEmpty());
+    QCOMPARE(region->text(), QString("Region: 80 x 60"));
+    select->trigger();
+    select->trigger();  // Cancel Selection on the toolbar.
+    QCOMPARE(select->text(), QString("Select Region..."));
+    QCOMPARE(region->text(), QString("Region: 80 x 60"));
+    selectRecordingRegion(window, window, QRect(5, 5, 1, 1));
+    QCOMPARE(region->text(), QString("Region: 80 x 60"));
+    QVERIFY(!QFileInfo::exists(dir.filePath("recordings")));
+    QVERIFY(!QApplication::overrideCursor());
+  }
+
+  void shutdownCancelsSelection() {
+    QTemporaryDir dir;
+    auto *window = new QMainWindow;
+    new OtDevRecorder(window, dir.filePath("preferences.ini"), dir.path(),
+                      "missing");
+    window->show();
+    window->findChild<QAction *>("OtDevRecordSelectRegion")->trigger();
+    QVERIFY(QApplication::overrideCursor());
+    delete window;
+    QVERIFY(!QApplication::overrideCursor());
   }
 
   void openGLFramebuffer() {
@@ -323,6 +701,9 @@ private slots:
     const QImage frame =
         OtDevRecorder::capture(&window, QSize(320, 240), false);
     QCOMPARE(frame.pixelColor(160, 120), QColor(Qt::green));
+    const QImage cropped = OtDevRecorder::capture(
+        &window, QSize(320, 240), false, &window, QRect(20, 20, 80, 60));
+    QCOMPARE(cropped.pixelColor(160, 120), QColor(Qt::green));
   }
 
   void pipeOnlyEncoderArguments() {
@@ -519,6 +900,33 @@ private slots:
     QCOMPARE(OtDevRecorder::capture(&window, size),
              OtDevRecorder::capture(&window, size, false));
     panel.hide();
+    // Cropping introduces a different scale and letterbox. The native cursor
+    // must follow that transform without painting beyond the selected region.
+    const QRect crop(60, 50, 80, 40);
+    QVERIFY(move(&window, crop.bottomRight()));
+    const QImage cropPlain =
+        OtDevRecorder::capture(&window, size, false, &window, crop);
+    const QImage cropCursor =
+        OtDevRecorder::capture(&window, size, true, &window, crop);
+    const qreal cropScale = size.width() / 80.0;
+    const int top         = (size.height() - size.width() / 2) / 2;
+    QRect changed;
+    for (int y = 0; y < size.height(); ++y)
+      for (int x = 0; x < size.width(); ++x) {
+        if (cropPlain.pixelColor(x, y) == QColor(Qt::black))
+          QCOMPARE(cropCursor.pixelColor(x, y), QColor(Qt::black));
+        if (cropPlain.pixel(x, y) != cropCursor.pixel(x, y))
+          changed |= QRect(x, y, 1, 1);
+      }
+    const QRect expected(
+        QPoint(qRound((79 - 8 / dpi) * cropScale),
+               top + qRound((39 - 12 / dpi) * cropScale)),
+        QSize(qRound(32 * cropScale / dpi), qRound(32 * cropScale / dpi)));
+    QCOMPARE(changed, expected.intersected(
+                          QRect(0, top, size.width(), size.width() / 2)));
+    QVERIFY(move(&window, QPoint(240, 180)));
+    QCOMPARE(OtDevRecorder::capture(&window, size, true, &window, crop),
+             OtDevRecorder::capture(&window, size, false, &window, crop));
     QWidget foreign;
     foreign.setGeometry(
         QRect(window.mapToGlobal(QPoint(40, 40)), QSize(100, 80)));

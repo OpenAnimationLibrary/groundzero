@@ -25,6 +25,7 @@
 #include "toonz/txshsimplelevel.h"
 #include "toonz/txshchildlevel.h"
 #include "toonz/txshcolumn.h"
+#include "toonz/txshlevelcolumn.h"
 #include "toonz/txshcell.h"
 #include "toonz/onionskinmask.h"
 #include "toonz/dpiscale.h"
@@ -386,6 +387,16 @@ void StageBuilder::addCell(PlayerSet &players, ToonzScene *scene, TXsheet *xsh,
   double columnNoScaleZ = pegbar->getGlobalNoScaleZ();
 
   TXshCell cell = xsh->getCell(row, col);
+  // The time remap of a level column retimes what is shown, as in the render
+  // (master plan B7). The current column is always shown as it is in the
+  // xsheet, so that what is drawn is what is seen.
+  if (TXshLevelColumn *levelColumn = column->getLevelColumn()) {
+    bool isCurrentColumn = (subSheetColIndex >= 0)
+                               ? (subSheetColIndex == m_currentColumnIndex)
+                               : (col == m_currentColumnIndex);
+    if (!isCurrentColumn && levelColumn->isTimeRemapActive())
+      cell = levelColumn->getRemappedCell(row);
+  }
   TXshLevel *xl = cell.m_level.getPointer();
 
 #if defined(x64)

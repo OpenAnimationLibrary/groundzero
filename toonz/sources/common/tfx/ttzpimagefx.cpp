@@ -8,6 +8,8 @@
 
 #include "ttzpimagefx.h"
 
+#include <algorithm>
+
 //**********************************************************************************************
 //    Global  functions
 //**********************************************************************************************
@@ -104,12 +106,14 @@ bool ColourOverrideFxRenderData::operator==(
 
 std::string ColourOverrideFxRenderData::toString() const {
   std::string alias("colourOverride");
-  std::vector<std::pair<int, TPixel32>>::const_iterator it;
+  std::vector<Entry>::const_iterator it;
   for (it = m_overrides.begin(); it != m_overrides.end(); ++it) {
-    const TPixel32 &color = it->second;
-    alias += "," + std::to_string(it->first) + ":" + std::to_string(color.r) +
-             "-" + std::to_string(color.g) + "-" + std::to_string(color.b) +
-             "-" + std::to_string(color.m);
+    const TPixel32 &color = it->m_color;
+    alias += "," + std::to_string(it->m_styleId) + ":" +
+             std::to_string(color.r) + "-" + std::to_string(color.g) + "-" +
+             std::to_string(color.b) + "-" + std::to_string(color.m);
+    // Replace is left out, so that the alias of the older overrides is kept
+    if (it->m_mode != eReplace) alias += "/" + std::to_string(it->m_mode);
   }
   return alias;
 }
@@ -120,16 +124,35 @@ void ColourOverrideFxRenderData::apply(TPalette *palette) const {
   if (!palette) return;
 
   int styleCount = palette->getStyleCount();
-  std::vector<std::pair<int, TPixel32>>::const_iterator it;
+  std::vector<Entry>::const_iterator it;
   for (it = m_overrides.begin(); it != m_overrides.end(); ++it) {
     // TPalette::getStyle() returns a shared placeholder style for ids out of
     // range - which must never be modified
-    if (it->first <= 0 || it->first >= styleCount) continue;
+    if (it->m_styleId <= 0 || it->m_styleId >= styleCount) continue;
 
-    TColorStyle *style = palette->getStyle(it->first);
-    if (style) style->setMainColor(it->second);
+    TColorStyle *style = palette->getStyle(it->m_styleId);
+    if (!style) continue;
+
+    const TPixel32 &c = it->m_color;
+    if (it->m_mode == eMultiply) {
+      TPixel32 o = style->getMainColor();
+      style->setMainColor(
+          TPixel32((o.r * c.r + 127) / 255, (o.g * c.g + 127) / 255,
+                   (o.b * c.b + 127) / 255, (o.m * c.m + 127) / 255));
+    } else if (it->m_mode == eAdd) {
+      TPixel32 o = style->getMainColor();
+      style->setMainColor(TPixel32(std::min(255, o.r + (c.r * c.m + 127) / 255),
+                                   std::min(255, o.g + (c.g * c.m + 127) / 255),
+                                   std::min(255, o.b + (c.b * c.m + 127) / 255),
+                                   o.m));
+    } else
+      style->setMainColor(c);
   }
 }
+
+//------------------------------------------------------------------------------
+
+TColourOverrideSource::~TColourOverrideSource() {}
 
 //**********************************************************************************************
 //    PaletteFilterFxRenderData  implementation

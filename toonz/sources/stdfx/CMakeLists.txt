@@ -111,6 +111,7 @@ set(SOURCES
     bodyhighlightfx.cpp
     bonedeformerfx.cpp
     tonehighlightfx.cpp
+    lightshadingfx.cpp
     bright_contfx.cpp
     calligraphicfx.cpp
     changecolorfx.cpp
