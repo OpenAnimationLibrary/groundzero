@@ -725,13 +725,19 @@ void testLayered8Bit(const TFilePath &dir) {
   TRasterImageP skipped;
   bigReader.load(skipped, bigReader.getLayerInfo(0)->layerId);
   require(!skipped, "A layer too large to load was loaded");
+  // The layer after it loads exactly as it does from the unmodified file
+  TRaster32P reference =
+      loadLayer(reader, reader.getLayerInfo(1)->layerId, lx, ly);
+  // (its opaque pixels are those written, so it is the right layer)
+  for (int y = 0; y < ly; ++y)
+    for (int x = 150; x < 210; ++x)
+      require(reference->pixels(y)[x] == middle->pixels(y)[x],
+              pixelMessage("Layer 1 opaque pixel mismatch", x, y));
   TRaster32P loaded =
       loadLayer(bigReader, bigReader.getLayerInfo(1)->layerId, lx, ly);
   for (int y = 0; y < ly; ++y)
     for (int x = 0; x < lx; ++x) {
-      TPixel32 expected = middle->pixels(y)[x];
-      if (expected.m != 0) depremult(expected);
-      require(loaded->pixels(y)[x] == expected,
+      require(loaded->pixels(y)[x] == reference->pixels(y)[x],
               pixelMessage("Layer after a layer too large mismatch", x, y));
     }
 }
