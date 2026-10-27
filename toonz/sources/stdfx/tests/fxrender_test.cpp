@@ -19,6 +19,7 @@
 #include "trenderer.h"
 #include "traster.h"
 #include "tthread.h"
+#include "toutputproperties.h"
 
 #include <QGuiApplication>
 #include <QDir>
@@ -78,7 +79,21 @@ TFxP binary(const std::string &id, const TFxP &input0, const TFxP &input1) {
 struct Case {
   const char *name;
   std::function<TFxP()> build;
+  // Applied to the render before the comparison, if any
+  std::function<TRasterP(const TRasterP &)> fit = nullptr;
 };
+
+// The export to an aspect ratio of Output Settings, as written by a render
+std::function<TRasterP(const TRasterP &)> aspectFit(int mode, double ratio,
+                                                    const TPixel32 &color) {
+  return [mode, ratio, color](const TRasterP &ras) {
+    TOutputProperties out;
+    out.setAspectMode(mode);
+    out.setAspectRatio(ratio);
+    out.setAspectColor(color);
+    return out.fitToAspectRatio(ras, 2.2);
+  };
+}
 
 const std::vector<Case> &cases() {
   static const std::vector<Case> list = {
@@ -95,10 +110,19 @@ const std::vector<Case> &cases() {
          return binary("overFx", create("STD_radialGradientFx"),
                        create("checkBoardFx"));
        }},
-      {"glow_gradient", [] {
+      {"glow_gradient",
+       [] {
          return binary("STD_glowFx", create("STD_radialGradientFx"),
                        create("checkBoardFx"));
-       }}};
+       }},
+      // Letterbox at 2.39:1 with half transparent red bars: the frame size
+      // kept, the bars premultiplied
+      {"aspect_letterbox_239", [] { return create("checkBoardFx"); },
+       aspectFit(TOutputProperties::AspectLetterbox, 2.39,
+                 TPixel32(255, 0, 0, 128))},
+      // Crop at 1.85:1: the centred 160x86 rows of a 160x120 render
+      {"aspect_crop_185", [] { return create("STD_radialGradientFx"); },
+       aspectFit(TOutputProperties::AspectCrop, 1.85, TPixel32::Black)}};
   return list;
 }
 
@@ -186,6 +210,7 @@ int main(int argc, char **argv) {
   for (const Case &c : cases()) {
     const QString fileName = QString::fromLatin1(c.name) + ".png";
     TRaster32P ras         = render(c.build(), renderer);
+    if (ras && c.fit) ras = TRaster32P(c.fit(ras));
     if (!ras) {
       std::cerr << c.name << ": the FX produced no 32-bit raster" << std::endl;
       ++failures;

@@ -99,5 +99,9 @@ uses it opens only in builds that have it; OpenToonz builds without it reject
 the unknown tag.
 
 Tests: `aspectexport_test` (the written size, the copy of the settings, the
-scene file with and without the setting) and the pixel rect cases of
-`cameraguide_test`.
+scene file with and without the setting), the pixel rect cases of
+`cameraguide_test`, and two reference images of `fxrender_test`
+(`stdfx/tests/fxrender`): `aspect_letterbox_239`, a checkerboard render with
+half transparent red bars at 2.39:1, and `aspect_crop_185`, a radial gradient
+render cropped to 1.85:1. Both go through `TOutputProperties::fitToAspectRatio`,
+the function the renderer calls when it writes a frame.

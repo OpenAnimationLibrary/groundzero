@@ -6,6 +6,7 @@
 #include "tfilepath.h"
 #include "tgeometry.h"
 #include "tpixel.h"
+#include "traster.h"
 
 #undef DVAPI
 #undef DVVAR
@@ -265,6 +266,11 @@ machine's CPU).
 
   //! The size of the written frames, for frames rendered at renderSize.
   TDimension getOutputSize(const TDimension &renderSize) const;
+
+  //! Fits a rendered frame to the export aspect ratio: returns a cropped
+  //! copy, or ras itself with the bars filled. For a raster in linear color
+  //! space, the bar color is converted with linearGamma.
+  TRasterP fitToAspectRatio(const TRasterP &ras, double linearGamma) const;
 };
 
 //--------------------------------------------

@@ -12,6 +12,10 @@
 // TnzCore includes
 #include "tiio.h"
 #include "tproperty.h"
+#include "tpixelutils.h"
+
+#include <algorithm>
+#include <vector>
 
 //**********************************************************************************
 //    Local namespace  stuff
@@ -21,6 +25,37 @@ namespace {
 
 inline void deleteValue(const std::pair<std::string, TPropertyGroup *> &p) {
   delete p.second;
+}
+
+// Fills the part of ras outside keep, in the pixel type of the raster; color
+// is converted to linear for a raster in linear color space.
+void fillOutside(const TRasterP &ras, const TRect &keep, const TPixel32 &color,
+                 double linearGamma) {
+  const TRect bounds = ras->getBounds();
+  std::vector<TRect> bars;
+  if (keep.y1 < bounds.y1)
+    bars.push_back(TRect(bounds.x0, keep.y1 + 1, bounds.x1, bounds.y1));
+  if (bounds.y0 < keep.y0)
+    bars.push_back(TRect(bounds.x0, bounds.y0, bounds.x1, keep.y0 - 1));
+  if (bounds.x0 < keep.x0)
+    bars.push_back(TRect(bounds.x0, keep.y0, keep.x0 - 1, keep.y1));
+  if (keep.x1 < bounds.x1)
+    bars.push_back(TRect(keep.x1 + 1, keep.y0, bounds.x1, keep.y1));
+
+  const bool linear  = ras->isLinear();
+  const TPixel32 pix = premultiply(color);
+  for (TRect bar : bars) {
+    TRasterP sub = ras->extract(bar);
+    if (TRaster32P ras32 = sub)
+      ras32->fill(linear ? toLinear(pix, linearGamma) : pix);
+    else if (TRaster64P ras64 = sub) {
+      const TPixel64 pix64 = toPixel64(pix);
+      ras64->fill(linear ? toLinear(pix64, linearGamma) : pix64);
+    } else if (TRasterFP rasF = sub) {
+      const TPixelF pixF = toPixelF(pix);
+      rasF->fill(linear ? toLinear(pixF, linearGamma) : pixF);
+    }
+  }
 }
 
 }  // namespace
@@ -141,6 +176,24 @@ void TOutputProperties::setAspectMode(int mode) {
 
 void TOutputProperties::setAspectRatio(double ratio) {
   if (std::isfinite(ratio) && ratio > 0.0) m_aspectRatio = ratio;
+}
+
+//-------------------------------------------------------------------
+
+TRasterP TOutputProperties::fitToAspectRatio(const TRasterP &ras,
+                                             double linearGamma) const {
+  if (m_aspectMode == NoAspectExport || !ras) return ras;
+  const bool crop = m_aspectMode == AspectCrop;
+  TRect keep =
+      CameraGuide::aspectPixelRect(ras->getSize(), m_aspectRatio, crop);
+  if (keep == ras->getBounds()) return ras;
+  if (!crop) {
+    fillOutside(ras, keep, m_aspectColor, linearGamma);
+    return ras;
+  }
+  TRasterP cropped = ras->extract(keep)->clone();
+  cropped->setLinear(ras->isLinear());
+  return cropped;
 }
 
 //-------------------------------------------------------------------
