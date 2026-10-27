@@ -507,3 +507,16 @@ if(BUILD_SCRIPT_TESTS AND WITH_PYTHON)
     add_test(NAME pythonengine COMMAND pythonengine_test)
     set_tests_properties(pythonengine PROPERTIES TIMEOUT 300)
 endif()
+
+# compat_regression: begin
+# Runtime compatibility tool (see doc/compat_regression.md): it writes what
+# it loads, saves and renders, and the Compat CI job compares its outputs with
+# those of the same tool built from edition. Not a ctest test. The CI job
+# appends this block, up to the end marker, to the CMakeLists.txt of the
+# edition tree, so it must stay valid there.
+option(BUILD_COMPAT_REGRESSION "Build the compat_regression comparison tool" ${BUILD_TESTS})
+if(BUILD_COMPAT_REGRESSION)
+    add_executable(compat_regression tests/compat_regression.cpp)
+    target_link_libraries(compat_regression PRIVATE toonzlib tnzbase tnzcore tnzext image tnzstdfx colorfx Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
+endif()
+# compat_regression: end
