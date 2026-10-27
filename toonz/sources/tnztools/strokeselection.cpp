@@ -547,6 +547,46 @@ public:
       , m_area(area)
       , m_fillBefore(fillBefore) {}
 
+  // Fills, with style, the unfilled regions whose inside lies within the
+  // closed outline stroke. Each region is tested at one of its internal points
+  // against a polygon sampled along the stroke: testing the regions against
+  // a copy of the stroke itself (selectFill) compares points that lie on the
+  // outline, where the answer depends on rounding.
+  static void fillInside(const TVectorImageP &vi, const TStroke &outline,
+                         int style) {
+    const int samples = std::max(64, 8 * outline.getChunkCount());
+    std::vector<TPointD> polygon;
+    polygon.reserve(samples);
+    for (int i = 0; i < samples; i++)
+      polygon.push_back(outline.getPoint((double)i / samples));
+
+    auto inside = [&polygon](const TPointD &p) {
+      bool in = false;
+      for (size_t i = 0, j = polygon.size() - 1; i < polygon.size(); j = i++) {
+        const TPointD &a = polygon[i], &b = polygon[j];
+        if ((a.y > p.y) != (b.y > p.y) &&
+            p.x < (b.x - a.x) * (p.y - a.y) / (b.y - a.y) + a.x)
+          in = !in;
+      }
+      return in;
+    };
+
+    const TRectD bbox = outline.getBBox();
+    std::vector<TRegion *> regions;
+    for (UINT i = 0; i < vi->getRegionCount(); i++)
+      regions.push_back(vi->getRegion(i));
+    while (!regions.empty()) {
+      TRegion *region = regions.back();
+      regions.pop_back();
+      if (!region || !bbox.overlaps(region->getBBox())) continue;
+      for (UINT i = 0; i < region->getSubregionCount(); i++)
+        regions.push_back(region->getSubregion(i));
+      TPointD p;
+      if (region->getStyle() == 0 && region->getInternalPoint(p) && inside(p))
+        region->setStyle(style);
+    }
+  }
+
   // Does the conversion the first time. The new shapes are filled with the
   // style of their stroke, as a brush stroke has no fill of its own.
   void convert() {
@@ -558,9 +598,7 @@ public:
       if (item.m_index < 0 || item.m_index >= (int)vi->getStrokeCount())
         continue;
       TStroke *stroke = vi->getStroke(item.m_index);
-      std::unique_ptr<TStroke> shape(new TStroke(*stroke));
-      vi->selectFill(stroke->getBBox().enlarge(1, 1), shape.get(),
-                     stroke->getStyle(), true, true, false);
+      fillInside(vi, *stroke, stroke->getStyle());
     }
     ImageUtils::getFillingInformationOverlappingArea(vi, m_fillAfter, m_area);
   }

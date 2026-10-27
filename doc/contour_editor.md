@@ -106,6 +106,11 @@ failure paths that were never exercised.
   give a few hundred control points.
 - The fill uses the style of the stroke as the style of the region, whatever
   kind of style it is.
+- **Stacking.** A Toonz Vector drawing paints the fills of a group before its
+  strokes, so a converted shape (a fill) is drawn under every other stroke of
+  its group, also under strokes that were below the brush stroke. A brush
+  stroke painted to cover a line no longer covers it after the conversion.
+  Regions inside the outline that already had a fill keep it.
 - Not a new tool: there is no live outline editing of a still-brush stroke,
   no width handles, and no "Convert Back".
 
