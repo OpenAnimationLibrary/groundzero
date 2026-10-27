@@ -1,0 +1,38 @@
+name: No PII
+
+# Fails a pull request whose title, description, commit messages or added
+# lines carry personal data or a private Claude Code session link.
+# The rule and the patterns are in CLAUDE.md and ci-scripts/no_pii.py.
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Scan pull request
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/pii"
+          cd "$RUNNER_TEMP/pii"
+          printf '%s\n\n%s\n' "$PR_TITLE" "$PR_BODY" > description
+          git -C "$GITHUB_WORKSPACE" log --format='%B' "$BASE_SHA..$HEAD_SHA" > commit-messages
+          git -C "$GITHUB_WORKSPACE" diff --no-color -U0 "$BASE_SHA...$HEAD_SHA" |
+            grep '^+' | grep -v '^+++' | cut -c2- > added-lines || true
+          if ! python3 "$GITHUB_WORKSPACE/ci-scripts/no_pii.py" scan description commit-messages added-lines > hits; then
+            while IFS= read -r hit; do echo "::error title=Personal data or session link::$hit"; done < hits
+            exit 1
+          fi

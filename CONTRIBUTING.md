@@ -94,3 +94,10 @@ See [Contributing and maintaining translations](toonz/sources/translations/READM
 for the two workflows: sharing translations, and reviewing/merging/updating them.
 The guide includes existing Qt Linguist, shell-script, and CMake/Visual Studio
 processes, validation, runtime paths, and packaging checks.
+
+## Keep personal data out
+
+Don't put e-mail addresses (other than no-reply ones), private links such as AI
+assistant session links, tokens, or local paths and hostnames in commits, pull
+requests, issues or files. The `No PII` check fails pull requests that do; see
+[CLAUDE.md](CLAUDE.md) for the details.
