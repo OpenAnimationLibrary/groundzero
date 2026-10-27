@@ -4,6 +4,8 @@
 // OpenToonz builds reject the tag).
 
 #include "toonz/sceneproperties.h"
+#include "toonz/toonzscene.h"
+#include "toonz/tproject.h"
 #include "toonz/preferences.h"
 #include "toutputproperties.h"
 #include "tstream.h"
@@ -11,14 +13,23 @@
 #include "tenv.h"
 #include "texception.h"
 #include "tconvert.h"
+#include "toonz/preferencesitemids.h"
 
 #include <QCoreApplication>
 #include <QDir>
 #include <QFile>
 #include <QTemporaryDir>
 
+#ifdef __linux__
+#include <execinfo.h>
+#endif
+
 #include <cmath>
+#include <csignal>
+#include <cstdio>
+#include <cstdlib>
 #include <iostream>
+#include <memory>
 #include <stdexcept>
 #include <string>
 
@@ -27,6 +38,19 @@ namespace {
 void require(bool condition, const char *message) {
   if (!condition) throw std::runtime_error(message);
 }
+
+// Progress lines, so that a crash shows how far the test got
+void step(const char *what) { std::cout << "ok: " << what << std::endl; }
+
+#ifdef __linux__
+void onCrash(int sig) {
+  void *frames[64];
+  const int count = backtrace(frames, 64);
+  std::fprintf(stderr, "aspectexport_test: signal %d, backtrace:\n", sig);
+  backtrace_symbols_fd(frames, count, 2);
+  std::_Exit(128 + sig);
+}
+#endif
 
 //------------------------------------------------------------------
 
@@ -79,65 +103,73 @@ void testCopy() {
 
 //------------------------------------------------------------------
 
-void save(const TSceneProperties &props, const TFilePath &fp) {
-  TOStream os(fp);
-  os.openChild("properties");
-  props.saveData(os);
-  os.closeChild();
-}
+TFilePath toPath(const QString &path) { return TFilePath(path.toStdWString()); }
 
-void load(TSceneProperties &props, const TFilePath &fp) {
-  TIStream is(fp);
-  std::string tag;
-  require(is.matchTag(tag) && tag == "properties", "load: properties tag");
-  props.loadData(is, false);
-  require(is.matchEndTag(), "load: end tag");
-}
-
-QByteArray contents(const TFilePath &fp) {
-  QFile file(QString::fromStdWString(fp.getWideString()));
+QByteArray contents(const QString &path) {
+  QFile file(path);
   require(file.open(QIODevice::ReadOnly), "read: open");
   return file.readAll();
 }
 
+// A scene saved and loaded as the application does (ToonzScene::saveCopy and
+// loadTnzFile, as scenebench_test does).
 void testSceneFile(const QString &dir) {
+  Preferences::instance()->setValue(compressSceneFiles, false, false);
+
   // Not used: nothing written, so the scene opens in any build
-  const TFilePath plain(QDir(dir).filePath("plain.xml").toStdWString());
-  TSceneProperties defaults;
-  save(defaults, plain);
+  const QString plain = QDir(dir).filePath("plain.tnz");
+  {
+    ToonzScene scene;
+    TProjectManager::instance()->initializeScene(&scene);
+    scene.saveCopy(toPath(plain));
+  }
   require(!contents(plain).contains("aspectExport"),
           "scene: no tag when not used");
+  step("scene without the setting saved");
 
   // Used: written, and read back
-  const TFilePath used(QDir(dir).filePath("used.xml").toStdWString());
-  TSceneProperties props;
-  TOutputProperties &out = *props.getOutputProperties();
-  out.setAspectMode(TOutputProperties::AspectCrop);
-  out.setAspectRatio(2.39);
-  out.setAspectColor(TPixel32(255, 0, 0, 200));
-  save(props, used);
+  const QString used = QDir(dir).filePath("used.tnz");
+  {
+    ToonzScene scene;
+    TProjectManager::instance()->initializeScene(&scene);
+    TOutputProperties &out = *scene.getProperties()->getOutputProperties();
+    out.setAspectMode(TOutputProperties::AspectCrop);
+    out.setAspectRatio(2.39);
+    out.setAspectColor(TPixel32(255, 0, 0, 200));
+    scene.saveCopy(toPath(used));
+  }
   require(contents(used).contains("aspectExport"), "scene: tag when used");
+  step("scene with the setting saved");
 
-  TSceneProperties loaded;
-  load(loaded, used);
-  const TOutputProperties &back = *loaded.getOutputProperties();
-  require(back.getAspectMode() == TOutputProperties::AspectCrop,
-          "scene: mode read back");
-  require(std::abs(back.getAspectRatio() - 2.39) < 1e-9,
-          "scene: ratio read back");
-  require(back.getAspectColor() == TPixel32(255, 0, 0, 200),
-          "scene: color read back");
-
-  // Loading a scene without it resets it
-  load(loaded, plain);
-  require(loaded.getOutputProperties()->getAspectMode() ==
-              TOutputProperties::NoAspectExport,
-          "scene: reset when absent");
+  {
+    std::unique_ptr<ToonzScene> loaded(new ToonzScene());
+    loaded->loadTnzFile(toPath(used));
+    const TOutputProperties &back =
+        *loaded->getProperties()->getOutputProperties();
+    require(back.getAspectMode() == TOutputProperties::AspectCrop,
+            "scene: mode read back");
+    require(std::abs(back.getAspectRatio() - 2.39) < 1e-9,
+            "scene: ratio read back");
+    require(back.getAspectColor() == TPixel32(255, 0, 0, 200),
+            "scene: color read back");
+  }
+  {
+    std::unique_ptr<ToonzScene> loaded(new ToonzScene());
+    loaded->loadTnzFile(toPath(plain));
+    require(loaded->getProperties()->getOutputProperties()->getAspectMode() ==
+                TOutputProperties::NoAspectExport,
+            "scene: none when absent");
+  }
+  step("scenes read back");
 }
 
 }  // namespace
 
 int main(int argc, char *argv[]) {
+#ifdef __linux__
+  std::signal(SIGSEGV, onCrash);
+  std::signal(SIGABRT, onCrash);
+#endif
   QCoreApplication app(argc, argv);
   try {
     QTemporaryDir dir;
@@ -147,9 +179,12 @@ int main(int argc, char *argv[]) {
     QDir().mkpath(QDir(stuffPath).filePath("profiles/layouts/rooms/Default"));
     TEnv::setStuffDir(TFilePath(stuffPath.toStdWString()));
     Preferences::instance();
+    step("environment set up");
 
     testOutputSize();
+    step("written sizes");
     testCopy();
+    step("copies");
     testSceneFile(dir.path());
   } catch (const TException &e) {
     std::cerr << "aspectexport_test failed: " << ::to_string(e.getMessage())
