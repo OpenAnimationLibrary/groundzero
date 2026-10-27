@@ -180,7 +180,7 @@ private:
 
 private:
   std::deque<StrokeThicknesses> m_thicknessesBackup;
-  QMutexLocker m_mutexLocker;
+  TThread::MutexLocker m_mutexLocker;
 };
 
 //---------------------------------------------------------------------------

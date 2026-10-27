@@ -371,7 +371,8 @@ ReferencePanel::ReferencePanel(QWidget *parent)
 
   // The list of the loaded images, and the layers of a PSD file
   m_imageCombo = new QComboBox(this);
-  m_imageCombo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLength);
+  m_imageCombo->setSizeAdjustPolicy(
+      QComboBox::AdjustToMinimumContentsLengthWithIcon);
   m_imageCombo->setMinimumContentsLength(8);
   m_imageCombo->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
   m_imageCombo->setToolTip(tr("Loaded Images"));
@@ -381,7 +382,8 @@ ReferencePanel::ReferencePanel(QWidget *parent)
   removeButton->setAutoRaise(true);
 
   m_layerCombo = new QComboBox(this);
-  m_layerCombo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLength);
+  m_layerCombo->setSizeAdjustPolicy(
+      QComboBox::AdjustToMinimumContentsLengthWithIcon);
   m_layerCombo->setMinimumContentsLength(8);
   m_layerCombo->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
   m_layerCombo->setToolTip(tr("PSD Layer"));
