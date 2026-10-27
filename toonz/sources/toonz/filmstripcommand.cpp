@@ -2442,15 +2442,18 @@ class UndoInbetween final : public TUndo {
   std::vector<TVectorImageP> m_images;
   FilmstripCmd::InbetweenInterpolation m_interpolation;
   std::vector<std::pair<int, int>> m_strokePairs;
+  FilmstripCmd::InbetweenOptions m_options;
 
 public:
   UndoInbetween(TXshSimpleLevel *xl, std::vector<TFrameId> fids,
                 FilmstripCmd::InbetweenInterpolation interpolation,
-                const std::vector<std::pair<int, int>> &strokePairs)
+                const std::vector<std::pair<int, int>> &strokePairs,
+                const FilmstripCmd::InbetweenOptions &options)
       : m_level(xl)
       , m_fids(std::move(fids))
       , m_interpolation(interpolation)
-      , m_strokePairs(strokePairs) {
+      , m_strokePairs(strokePairs)
+      , m_options(options) {
     for (const TFrameId &fid : m_fids) {
       m_images.push_back(m_level->getFrame(
           fid, false));  // no clone, level releases these images
@@ -2471,7 +2474,8 @@ public:
     TFrameId fid0 = m_fids.front();
     TFrameId fid1 = m_fids.back();
     FilmstripCmd::inbetweenWithoutUndo(m_level.getPointer(), fid0, fid1,
-                                       m_interpolation, m_strokePairs);
+                                       m_interpolation, m_strokePairs,
+                                       m_options);
   }
 
   int getSize() const override {
@@ -2495,8 +2499,13 @@ public:
     case FilmstripCmd::II_EaseInOut:
       str += QString("Ease In-Out Interpolation");
       break;
+    case FilmstripCmd::II_Custom:
+      str += QString("Custom Ease Interpolation");
+      break;
     }
     if (!m_strokePairs.empty()) str += QString(",  Stroke Pairs");
+    if (m_options.m_autoMatch) str += QString(",  Auto Match");
+    if (!m_options.m_zoneHints.empty()) str += QString(",  Zone Hints");
     return str;
   }
   int getHistoryType() override { return HistoryType::FilmStrip; }
@@ -2514,7 +2523,8 @@ private:
 void FilmstripCmd::inbetweenWithoutUndo(
     TXshSimpleLevel *sl, const TFrameId &fid0, const TFrameId &fid1,
     FilmstripCmd::InbetweenInterpolation interpolation,
-    const std::vector<std::pair<int, int>> &strokePairs) {
+    const std::vector<std::pair<int, int>> &strokePairs,
+    const FilmstripCmd::InbetweenOptions &options) {
   if (!sl) return;
   std::vector<TFrameId> fids;
   sl->getFids(fids);
@@ -2544,12 +2554,24 @@ void FilmstripCmd::inbetweenWithoutUndo(
   case II_EaseInOut:
     algorithm = TInbetween::EaseInOutInterpolation;
     break;
+  case II_Custom:
+    algorithm = TInbetween::CustomEaseInterpolation;
+    break;
   }
 
-  TInbetween inbetween(img0, img1, strokePairs);
+  TInbetween::MatchOptions matchOptions;
+  matchOptions.m_autoMatch = options.m_autoMatch;
+  for (const std::pair<TRectD, TRectD> &zone : options.m_zoneHints)
+    matchOptions.m_zoneHints.push_back(
+        TInbetween::ZoneHint(zone.first, zone.second));
+
+  TInbetween inbetween(img0, img1, strokePairs, matchOptions);
   for (int i = ia + 1; i < ib; ++i) {
     double t         = double(i - ia) / double(ib - ia);
-    double s         = TInbetween::interpolation(t, algorithm);
+    double s         = algorithm == TInbetween::CustomEaseInterpolation
+                           ? TInbetween::customEaseInterpolation(t, options.m_slowStart,
+                                                                 options.m_slowEnd)
+                           : TInbetween::interpolation(t, algorithm);
     TVectorImageP vi = inbetween.tween(s);
     sl->setFrame(fids[i], vi);
     IconGenerator::instance()->invalidate(sl, fids[i]);
@@ -2563,7 +2585,8 @@ void FilmstripCmd::inbetweenWithoutUndo(
 void FilmstripCmd::inbetween(
     TXshSimpleLevel *sl, const TFrameId &fid0, const TFrameId &fid1,
     FilmstripCmd::InbetweenInterpolation interpolation,
-    const std::vector<std::pair<int, int>> &strokePairs) {
+    const std::vector<std::pair<int, int>> &strokePairs,
+    const FilmstripCmd::InbetweenOptions &options) {
   std::vector<TFrameId> fids;
   std::vector<TFrameId> levelFids;
   sl->getFids(levelFids);
@@ -2574,9 +2597,9 @@ void FilmstripCmd::inbetween(
   }
 
   TUndoManager::manager()->add(
-      new UndoInbetween(sl, fids, interpolation, strokePairs));
+      new UndoInbetween(sl, fids, interpolation, strokePairs, options));
 
-  inbetweenWithoutUndo(sl, fid0, fid1, interpolation, strokePairs);
+  inbetweenWithoutUndo(sl, fid0, fid1, interpolation, strokePairs, options);
   TApp::instance()->getCurrentScene()->setDirtyFlag(true);
 }
 

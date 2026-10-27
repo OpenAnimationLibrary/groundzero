@@ -503,6 +503,13 @@ public:
   // parameter is loaded. Do nothing by default.
   virtual void onObsoleteParamLoaded(const std::string &paramName) {}
 
+  // This function is called in TFx::saveData for each parameter: a parameter
+  // for which it returns false is not written. Used by the fxs that add
+  // parameters which must leave the saved file unchanged while they are unused
+  // (e.g. the time remap of the level column fx). All parameters are saved by
+  // default.
+  virtual bool isParamSaved(const TParamVar *paramVar) const { return true; }
+
   void setFxVersion(int);
   int getFxVersion() const;
   virtual void onFxVersionSet() {}

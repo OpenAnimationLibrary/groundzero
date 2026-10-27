@@ -422,6 +422,8 @@ void Preferences::definePreferenceItems() {
          QMetaType::Bool, false);
   define(showRasterImagesDarkenBlendedInViewer,
          "showRasterImagesDarkenBlendedInViewer", QMetaType::Bool, false);
+  define(colourOverrideInViewer, "colourOverrideInViewer", QMetaType::Bool,
+         false);
   define(gpuCompositingInViewer, "gpuCompositingInViewer", QMetaType::Bool,
          false);
   define(iconSize, "iconSize", QMetaType::QSize, QSize(80, 45), QSize(10, 10),

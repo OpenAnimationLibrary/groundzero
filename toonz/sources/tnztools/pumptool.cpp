@@ -17,6 +17,7 @@
 // Toonz includes
 #include "toonz/tobjecthandle.h"
 #include "toonz/txshlevelhandle.h"
+#include "toonz/txshsimplelevel.h"
 
 // TnzTools includes
 #include "tools/tool.h"
@@ -27,11 +28,14 @@
 #include <QCoreApplication>  // For Qt translation support
 
 // STD includes
+#include <algorithm>
+#include <cmath>
 #include <map>
 
 #define PUMP_MODE L"Pump"
 #define THICKEN_MODE L"Thicken Brush"
 #define THIN_MODE L"Thin Brush"
+#define OPACITY_MODE L"Opacity Brush"
 
 using namespace ToolUtils;
 
@@ -46,6 +50,44 @@ bool isZeroThick(const TStroke *s) {
   return true;
 }
 
+//! Undo of an Opacity Brush drag: the opacity of some strokes of one frame.
+class UndoStrokeOpacity final : public TToolUndo {
+  std::vector<int> m_indices;
+  std::vector<double> m_before, m_after;
+
+  void apply(const std::vector<double> &opacities) const {
+    TVectorImageP image = m_level->getFrame(m_frameId, true);
+    if (!image) return;
+    {
+      QMutexLocker lock(image->getMutex());
+      for (size_t i = 0; i < m_indices.size(); ++i) {
+        if (m_indices[i] >= (int)image->getStrokeCount()) continue;
+        image->getStroke(m_indices[i])->setOpacity(opacities[i]);
+      }
+    }
+    m_level->setDirtyFlag(true);
+    notifyImageChanged();
+  }
+
+public:
+  UndoStrokeOpacity(TXshSimpleLevel *level, const TFrameId &frameId)
+      : TToolUndo(level, frameId) {}
+
+  void add(int index, double before, double after) {
+    m_indices.push_back(index);
+    m_before.push_back(before);
+    m_after.push_back(after);
+  }
+  bool isEmpty() const { return m_indices.empty(); }
+
+  void undo() const override { apply(m_before); }
+  void redo() const override { apply(m_after); }
+  int getSize() const override {
+    return sizeof(*this) +
+           m_indices.size() * (sizeof(int) + 2 * sizeof(double));
+  }
+  QString getToolName() override { return QObject::tr("Pump Tool Opacity"); }
+};
 }  // namespace
 
 //*****************************************************************************
@@ -91,6 +133,7 @@ class PumpTool final : public TTool {
   TIntProperty m_accuracy;
   TEnumProperty m_mode;  //!< Pump, or a brush that thickens or thins lines
   TDoubleProperty m_strength;  //!< Thickness change of the brush modes
+  TIntProperty m_opacity;      //!< Target stroke opacity (%) of Opacity Brush
   TPropertyGroup m_prop;
 
   // Brush modes: strokes touched during the current drag, by index, with the
@@ -99,6 +142,7 @@ class PumpTool final : public TTool {
   TPointD m_brushLastPos;
   std::map<int, UndoModifyStroke *> m_brushUndos;
   std::map<int, TStroke *> m_brushOldStrokes;
+  std::map<int, double> m_brushOldOpacity;  //!< Opacity Brush: before the drag
 
 public:
   PumpTool()
@@ -119,6 +163,7 @@ public:
       , m_accuracy("Accuracy:", 0, 100, 40)
       , m_mode("Mode:")
       , m_strength("Strength:", 1, 100, 20)
+      , m_opacity("Opacity:", 0, 100, 50)
       , m_brushing(false)
       , m_enabled(false) {
     bind(TTool::VectorImage);
@@ -128,11 +173,13 @@ public:
     m_mode.addValue(PUMP_MODE);
     m_mode.addValue(THICKEN_MODE);
     m_mode.addValue(THIN_MODE);
+    m_mode.addValue(OPACITY_MODE);
 
     m_prop.bind(m_mode);
     m_prop.bind(m_toolSize);
     m_prop.bind(m_accuracy);
     m_prop.bind(m_strength);
+    m_prop.bind(m_opacity);
   }
 
   ToolType getToolType() const override { return TTool::LevelWriteTool; }
@@ -146,7 +193,9 @@ public:
     m_mode.setItemUIName(PUMP_MODE, tr("Pump"));
     m_mode.setItemUIName(THICKEN_MODE, tr("Thicken Brush"));
     m_mode.setItemUIName(THIN_MODE, tr("Thin Brush"));
+    m_mode.setItemUIName(OPACITY_MODE, tr("Opacity Brush"));
     m_strength.setQStringName(tr("Strength:"));
+    m_opacity.setQStringName(tr("Opacity:"));
   }
 
   void onEnter() override;
@@ -183,6 +232,8 @@ private:
   double brushRadius() const { return m_toolSize.getValue() * getPixelSize(); }
   void brushAt(const TPointD &pos, double moved);
   void endBrush(bool accept);
+  void opacityBrushAt(const TPointD &pos, double moved);
+  void endOpacityBrush(bool accept);
 
 } PumpToolInstance;
 
@@ -663,6 +714,11 @@ void PumpTool::onLeave() {
 //! stroke of the current image, by an amount proportional to the distance
 //! the brush moved and fading toward the brush edge.
 void PumpTool::brushAt(const TPointD &pos, double moved) {
+  if (m_mode.getValue() == OPACITY_MODE) {
+    opacityBrushAt(pos, moved);
+    return;
+  }
+
   TVectorImageP vi(getImage(true));
   if (!vi) return;
 
@@ -713,6 +769,7 @@ void PumpTool::brushAt(const TPointD &pos, double moved) {
 
 //! Ends a brush drag: adds one undo for all the strokes it changed.
 void PumpTool::endBrush(bool accept) {
+  endOpacityBrush(accept);
   m_brushing = false;
   TVectorImageP vi(getImage(true));
 
@@ -742,6 +799,84 @@ void PumpTool::endBrush(bool accept) {
 
   invalidate();
 }
+
+//! Moves the opacity of the strokes within the brush radius toward the
+//! Opacity value, faster near the brush center. Opacity is a per-stroke value
+//! (see doc/pencil_opacity.md), so a stroke is touched when any part of it is
+//! under the brush.
+void PumpTool::opacityBrushAt(const TPointD &pos, double moved) {
+  TVectorImageP vi(getImage(true));
+  if (!vi) return;
+
+  QMutexLocker lock(vi->getMutex());
+
+  const double radius = brushRadius();
+  const double target = 0.01 * m_opacity.getValue();
+  const double rate =
+      std::min(1.0, 0.04 * m_strength.getValue() * moved / radius);
+  if (rate <= 0.0) return;
+
+  for (UINT i = 0; i < vi->getStrokeCount(); ++i) {
+    // Like picking, only strokes of the entered group can be edited
+    if (!vi->inCurrentGroup(i)) continue;
+    TStroke *stroke = vi->getStroke(i);
+    if (!stroke->getBBox().enlarge(radius).contains(pos)) continue;
+    // Leave hidden zero-thickness strokes alone, as the renderer does
+    if (isZeroThick(stroke)) continue;
+
+    double w, dist2;
+    if (!stroke->getNearestW(pos, w, dist2, false)) continue;
+    double dist =
+        std::max(0.0, std::sqrt(dist2) - stroke->getThickPoint(w).thick);
+    if (dist >= radius) continue;
+
+    const double old = stroke->getOpacity();
+    // Record the stroke before its first change in this drag
+    if (m_brushOldOpacity.count(i) == 0) m_brushOldOpacity[i] = old;
+
+    double falloff = 1.0 - dist / radius;
+    stroke->setOpacity(old + (target - old) * std::min(1.0, rate * falloff));
+  }
+
+  invalidate();
+}
+
+//----------------------------------------------------------------------
+
+//! Ends an Opacity Brush drag: adds one undo for all the strokes it changed.
+void PumpTool::endOpacityBrush(bool accept) {
+  if (m_brushOldOpacity.empty()) return;
+
+  TVectorImageP vi(getImage(true));
+  TXshSimpleLevel *sl =
+      TTool::getApplication()->getCurrentLevel()->getSimpleLevel();
+
+  if (accept && vi && sl) {
+    UndoStrokeOpacity *undo = new UndoStrokeOpacity(sl, getCurrentFid());
+    for (const auto &old : m_brushOldOpacity) {
+      if (old.first >= (int)vi->getStrokeCount()) continue;
+      double after = vi->getStroke(old.first)->getOpacity();
+      if (after != old.second) undo->add(old.first, old.second, after);
+    }
+    if (undo->isEmpty())
+      delete undo;
+    else {
+      TUndoManager::manager()->add(undo);
+      sl->setDirtyFlag(true);
+      notifyImageChanged();
+    }
+  } else if (vi) {
+    // Not accepted: restore the opacities
+    for (const auto &old : m_brushOldOpacity)
+      if (old.first < (int)vi->getStrokeCount())
+        vi->getStroke(old.first)->setOpacity(old.second);
+  }
+
+  m_brushOldOpacity.clear();
+  invalidate();
+}
+
+//----------------------------------------------------------------------
 
 double PumpTool::actionRadius(double strokeLength) {
   double toolSize         = m_toolSize.getValue();

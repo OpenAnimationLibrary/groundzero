@@ -1,6 +1,7 @@
 #include "stdfx.h"
 #include "tfxparam.h"
 #include "tparamset.h"
+#include "tparamcontainer.h"
 #include "ttzpimagefx.h"
 #include "globalcontrollablefx.h"
 
@@ -13,19 +14,22 @@
 // Changes the color of some styles of the Toonz Vector and Toonz Raster
 // levels in the Source without editing their palettes - e.g. for a night-time
 // version of a scene, or for one instance of a character in another outfit.
-// Each pair maps a style index to the color that replaces the style's main
-// color; index 0 leaves the pair unused. The replacement is made on a copy of
-// the palette when the column is rendered, so it works on the style ids of
-// the drawings. Other kinds of levels pass through unchanged.
+// Each pair maps a style index to a color; index 0 leaves the pair unused. The
+// color replaces the style's main color, or - with the Multiply and Add modes
+// - tints it. The change is made on a copy of the palette when the column is
+// rendered, so it works on the style ids of the drawings. Other kinds of
+// levels pass through unchanged.
 //==============================================================================
 
-class ColourOverrideFx final : public GlobalControllableFx {
+class ColourOverrideFx final : public GlobalControllableFx,
+                               public TColourOverrideSource {
   FX_PLUGIN_DECLARATION(ColourOverrideFx)
 
   enum { PAIR_COUNT = 8 };
 
   TRasterFxPort m_input;
   TIntParamP m_styleId[PAIR_COUNT];
+  TIntEnumParamP m_mode[PAIR_COUNT];
   TPixelParamP m_color[PAIR_COUNT];
 
 public:
@@ -42,8 +46,20 @@ public:
       m_color[i] = TPixelParamP(TPixel32::Red);
       m_color[i]->enableMatte(true);
       bindParam(this, "color" + suffix, m_color[i]);
+
+      // Replace is the default, so that the Fx of older scenes is unchanged
+      m_mode[i] = TIntEnumParamP(
+          new TIntEnumParam(ColourOverrideFxRenderData::eReplace, "Replace"));
+      m_mode[i]->addItem(ColourOverrideFxRenderData::eMultiply, "Multiply");
+      m_mode[i]->addItem(ColourOverrideFxRenderData::eAdd, "Add");
+      bindParam(this, "mode" + suffix, m_mode[i]);
     }
   }
+
+  // Used by the viewer, which shows the overrides of the Fx that follow a
+  // column when the preference for it is on
+  bool getColourOverrides(double frame,
+                          ColourOverrideFxRenderData &data) const override;
 
   bool doGetBBox(double frame, TRectD &bBox,
                  const TRenderSettings &info) override {
@@ -66,6 +82,15 @@ public:
 
   bool allowUserCacheOnPort(int port) override { return false; }
 
+  // A mode is saved only when it is not Replace, so that the Fx of older
+  // scenes saves as before
+  bool isParamSaved(const TParamVar *paramVar) const override {
+    for (int i = 0; i < PAIR_COUNT; ++i)
+      if (paramVar->getParam() == m_mode[i].getPointer())
+        return m_mode[i]->getValue() != ColourOverrideFxRenderData::eReplace;
+    return true;
+  }
+
 private:
   // Adds the pairs in use at frame to the render data for the columns
   // upstream. Without any pair in use, the Source renders as it is.
@@ -74,19 +99,26 @@ private:
 
 //-------------------------------------------------------------------
 
-void ColourOverrideFx::addOverrides(TRenderSettings &ri, double frame) {
-  ColourOverrideFxRenderData *data = new ColourOverrideFxRenderData;
-  TRasterFxRenderDataP dataP(data);
-
+bool ColourOverrideFx::getColourOverrides(
+    double frame, ColourOverrideFxRenderData &data) const {
   for (int i = 0; i < PAIR_COUNT; ++i) {
     int styleId = m_styleId[i]->getValue();
     if (styleId <= 0) continue;
 
-    data->m_overrides.push_back(
-        std::make_pair(styleId, m_color[i]->getValue(frame)));
+    data.m_overrides.push_back(ColourOverrideFxRenderData::Entry(
+        styleId, m_color[i]->getValue(frame), m_mode[i]->getValue()));
   }
 
-  if (data->m_overrides.empty()) return;
+  return !data.m_overrides.empty();
+}
+
+//-------------------------------------------------------------------
+
+void ColourOverrideFx::addOverrides(TRenderSettings &ri, double frame) {
+  ColourOverrideFxRenderData *data = new ColourOverrideFxRenderData;
+  TRasterFxRenderDataP dataP(data);
+
+  if (!getColourOverrides(frame, *data)) return;
 
   ri.m_data.push_back(dataP);
   ri.m_userCachable = false;

@@ -5,6 +5,8 @@
 
 #include "tpixel.h"
 
+#include <memory>
+
 #undef DVAPI
 #undef DVVAR
 #ifdef TCOLOR_EXPORTS
@@ -125,6 +127,40 @@ public:
 
   TPixel32 operator()(const TPixel32 &color) const override;
   bool getParameters(Parameters &p) const override;
+};
+
+//-----------------------------------------------------------------------------
+
+//! Multiplies the alpha of the colors by an opacity, after having applied an
+//! optional \p inner color function (which is cloned). Used to draw a stroke
+//! with its own opacity (TStroke::getOpacity()). Fully inline.
+class TStrokeOpacityFunction final : public TColorFunction {
+  std::unique_ptr<TColorFunction> m_inner;
+  double m_opacity;
+
+public:
+  TStrokeOpacityFunction(const TColorFunction *inner, double opacity)
+      : m_inner(inner ? inner->clone() : nullptr), m_opacity(opacity) {}
+
+  TColorFunction *clone() const override {
+    return new TStrokeOpacityFunction(m_inner.get(), m_opacity);
+  }
+
+  TPixel32 operator()(const TPixel32 &color) const override {
+    TPixel32 c = m_inner ? (*m_inner)(color) : color;
+    c.m        = (UCHAR)(c.m * m_opacity + 0.5);
+    return c;
+  }
+
+  bool getParameters(Parameters &p) const override {
+    if (m_inner) {
+      if (!m_inner->getParameters(p)) return false;
+    } else
+      p = Parameters();
+    p.m_mM *= m_opacity;
+    p.m_cM *= m_opacity;
+    return true;
+  }
 };
 
 #endif

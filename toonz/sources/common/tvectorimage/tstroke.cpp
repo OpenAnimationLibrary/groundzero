@@ -2508,6 +2508,18 @@ const TStroke::OutlineOptions &TStroke::outlineOptions() const {
 }
 
 //-----------------------------------------------------------------------------
+
+double TStroke::getOpacity() const { return m_imp->m_outlineOptions.m_opacity; }
+
+//-----------------------------------------------------------------------------
+
+void TStroke::setOpacity(double opacity) {
+  // Written as permille in the PLI file, so keep it in range and finite
+  if (!(opacity == opacity)) opacity = 1.0;
+  m_imp->m_outlineOptions.m_opacity = std::min(1.0, std::max(0.0, opacity));
+}
+
+//-----------------------------------------------------------------------------
 //  End Of File
 //-----------------------------------------------------------------------------
 
@@ -3778,17 +3790,19 @@ TStroke::OutlineOptions::OutlineOptions()
     , m_miterLower(0.0)
     , m_miterUpper(4.0)
     , m_patternFrameOffset(0)
-    , m_patternFrameStep(1) {}
+    , m_patternFrameStep(1)
+    , m_opacity(1.0) {}
 
 //-----------------------------------------------------------------------------
 
 TStroke::OutlineOptions::OutlineOptions(UCHAR capStyle, UCHAR joinStyle,
                                         double lower, double upper,
                                         int patternFrameOffset,
-                                        int patternFrameStep)
+                                        int patternFrameStep, double opacity)
     : m_capStyle(capStyle)
     , m_joinStyle(joinStyle)
     , m_miterLower(lower)
     , m_miterUpper(upper)
     , m_patternFrameOffset(patternFrameOffset)
-    , m_patternFrameStep(patternFrameStep) {}
+    , m_patternFrameStep(patternFrameStep)
+    , m_opacity(opacity) {}

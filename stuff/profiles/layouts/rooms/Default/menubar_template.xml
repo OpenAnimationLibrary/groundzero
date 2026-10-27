@@ -25,6 +25,7 @@
         <menu title="Import">
             <command>MI_ImportMagpieFile</command>
             <command>MI_ImportOCA</command>
+            <command>MI_ImportAbr</command>
         </menu>
         <menu title="Export">
             <command>MI_ExportPDF</command>
@@ -149,6 +150,7 @@
             <command>MI_ConvertToVectors</command>
             <command>MI_ConvertToToonzRaster</command>
         </menu>
+        <command>MI_CreateColourArt</command>
         <separator/>
         <command>MI_ExposeResource</command>
         <command>MI_EditLevel</command>
@@ -208,6 +210,12 @@
             <command>MI_Reframe3</command>
             <command>MI_Reframe4</command>
             <command>MI_ReframeWithEmptyInbetweens</command>
+        </menu>
+        <menu title="Time Remap">
+            <command>MI_ColumnHold</command>
+            <command>MI_ColumnLoop</command>
+            <command>MI_ColumnReverse</command>
+            <command>MI_ColumnTimeRemapClear</command>
         </menu>
         <menu title="Step">
             <command>MI_IncreaseStep</command>
@@ -351,6 +359,7 @@
         <command>MI_OpenMasterControllers</command>
         <command>MI_OpenOffsetLayers</command>
         <command>MI_OpenRigLibrary</command>
+        <command>MI_OpenArtLayerManager</command>
         <command>MI_OpenSymbols</command>
         <command>MI_OpenReferencePanel</command>
         <command>MI_OpenCustomPanels</command>

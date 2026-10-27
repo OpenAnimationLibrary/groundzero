@@ -160,6 +160,18 @@
   <item>"STD_toneHighlightFx.invertMatte" 	"Invert Matte" 		</item>
   <item>"STD_toneHighlightFx.protectLines" 	"Protect Lines" 		</item>
   <item>"STD_toneHighlightFx.lineThreshold" 	"Line Darkness" 		</item>
+  <item>"STD_lightShadingFx" 	"Light Shading" 		</item>
+  <item>"STD_lightShadingFx.mode" 	"Mode" 			</item>
+  <item>"STD_lightShadingFx.lightPoint" 	"Light Point" 		</item>
+  <item>"STD_lightShadingFx.lightRadius" 	"Light Radius" 		</item>
+  <item>"STD_lightShadingFx.lightAngle" 	"Light Angle" 		</item>
+  <item>"STD_lightShadingFx.shadeColor" 	"Shade Color" 		</item>
+  <item>"STD_lightShadingFx.highlightColor" 	"Highlight Color" 		</item>
+  <item>"STD_lightShadingFx.shadeAmount" 	"Shade Amount" 		</item>
+  <item>"STD_lightShadingFx.highlightAmount" 	"Highlight Amount" 		</item>
+  <item>"STD_lightShadingFx.bands" 	"Bands" 		</item>
+  <item>"STD_lightShadingFx.softness" 	"Softness" 		</item>
+  <item>"STD_lightShadingFx.protectLines" 	"Protect Lines" 		</item>
 
 
  <item>"STD_castShadowFx"			"Cast Shadow"	</item>
@@ -578,20 +590,28 @@
 
   <item>"STD_colourOverrideFx"	"Colour Override"	</item>
   <item>"STD_colourOverrideFx.style1"	"Style 1"	</item>
+  <item>"STD_colourOverrideFx.mode1"	"Mode 1"	</item>
   <item>"STD_colourOverrideFx.color1"	"Color 1"	</item>
   <item>"STD_colourOverrideFx.style2"	"Style 2"	</item>
+  <item>"STD_colourOverrideFx.mode2"	"Mode 2"	</item>
   <item>"STD_colourOverrideFx.color2"	"Color 2"	</item>
   <item>"STD_colourOverrideFx.style3"	"Style 3"	</item>
+  <item>"STD_colourOverrideFx.mode3"	"Mode 3"	</item>
   <item>"STD_colourOverrideFx.color3"	"Color 3"	</item>
   <item>"STD_colourOverrideFx.style4"	"Style 4"	</item>
+  <item>"STD_colourOverrideFx.mode4"	"Mode 4"	</item>
   <item>"STD_colourOverrideFx.color4"	"Color 4"	</item>
   <item>"STD_colourOverrideFx.style5"	"Style 5"	</item>
+  <item>"STD_colourOverrideFx.mode5"	"Mode 5"	</item>
   <item>"STD_colourOverrideFx.color5"	"Color 5"	</item>
   <item>"STD_colourOverrideFx.style6"	"Style 6"	</item>
+  <item>"STD_colourOverrideFx.mode6"	"Mode 6"	</item>
   <item>"STD_colourOverrideFx.color6"	"Color 6"	</item>
   <item>"STD_colourOverrideFx.style7"	"Style 7"	</item>
+  <item>"STD_colourOverrideFx.mode7"	"Mode 7"	</item>
   <item>"STD_colourOverrideFx.color7"	"Color 7"	</item>
   <item>"STD_colourOverrideFx.style8"	"Style 8"	</item>
+  <item>"STD_colourOverrideFx.mode8"	"Mode 8"	</item>
   <item>"STD_colourOverrideFx.color8"	"Color 8"	</item>
 
   <item>"STD_autoPatchFx"	"Auto-Patch"	</item>

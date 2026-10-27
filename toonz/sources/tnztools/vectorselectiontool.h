@@ -381,6 +381,7 @@ private:
   TEnumProperty m_capStyle;       //!< Style of stroke caps.
   TEnumProperty m_joinStyle;      //!< Style of stroke joins.
   TIntProperty m_miterJoinLimit;  //!< Stroke joins threshold value.
+  TIntProperty m_opacity;  //!< Opacity (percent) of the selected strokes.
 
   TPropertyGroup m_outlineProps;
 

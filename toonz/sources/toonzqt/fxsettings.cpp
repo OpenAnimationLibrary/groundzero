@@ -268,6 +268,11 @@ void ParamsPage::setPageField(TIStream &is, const TFxP &fx, bool isVertical) {
         QString str =
             QString::fromStdWString(TStringTable::translate(paramName));
         ParamField *field = ParamField::create(this, str, param);
+        // The style ids of the Colour Override Fx are picked from the palette
+        if (paramName.rfind("STD_colourOverrideFx.style", 0) == 0) {
+          if (auto intField = dynamic_cast<IntParamField *>(field))
+            intField->enableStyleSwatch();
+        }
         if (paramName == "STD_lut3DBakeFx.lutFile") {
           if (auto stringField = dynamic_cast<StringParamField *>(field))
             stringField->enableLutFileControls();
@@ -1665,6 +1670,7 @@ void FxSettings::setSceneHandle(TSceneHandle *sceneHandle) {
 
 void FxSettings::setLevelHandle(TXshLevelHandle *levelHandle) {
   m_levelHandle = levelHandle;
+  ParamField::setLevelHandle(levelHandle);
 }
 
 //-----------------------------------------------------------------------------
