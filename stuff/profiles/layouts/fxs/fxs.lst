@@ -33,6 +33,7 @@
     STD_boneDeformerFx
     STD_envelopeDeformerPlusFx
     STD_freeFormDeformerFx
+    STD_shapeAwareDeformerFx
     STD_iwa_GradientWarpFx
     STD_linearWaveFx
     STD_perlinNoiseFx

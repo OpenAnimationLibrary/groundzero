@@ -1115,6 +1115,292 @@ void testVectorImage() {
 }
 
 //------------------------------------------------------------------
+// Shape Aware deformer (TShapeAwareDeformer)
+
+#include "toonz/tshapeawaredeformer.h"
+
+namespace {
+
+typedef TShapeAwareDeformer::Handle SaHandle;
+
+// A pin, a bone and a cage, on their rest geometry
+std::vector<SaHandle> saRestHandles() {
+  std::vector<SaHandle> handles;
+  handles.push_back(
+      SaHandle::makePin(TPointD(-40.0, 30.0), TPointD(-40.0, 30.0)));
+  handles.push_back(
+      SaHandle::makePin(TPointD(60.0, -20.0), TPointD(60.0, -20.0)));
+  handles.push_back(
+      SaHandle::makeBone(TPointD(-60.0, -50.0), TPointD(20.0, -50.0),
+                         TPointD(-60.0, -50.0), TPointD(20.0, -50.0)));
+  const TPointD cage[4] = {TPointD(-80.0, -80.0), TPointD(80.0, -80.0),
+                           TPointD(80.0, 80.0), TPointD(-80.0, 80.0)};
+  for (const TPointD &c : cage)
+    handles.push_back(SaHandle::makeCageVertex(c, c));
+  return handles;
+}
+
+//------------------------------------------------------------------
+
+void testShapeAwareWeights() {
+  std::vector<SaHandle> handles = saRestHandles();
+  TShapeAwareDeformer deformer(handles);
+  require(deformer.isValid(), "shape aware: not valid");
+  require(deformer.getHandleCount() == (int)handles.size(),
+          "shape aware: wrong handle count");
+
+  // Non-negative, bounded and summing to 1, inside and outside the grid
+  const TRectD domain = deformer.getDomain().enlarge(30.0);
+  const int n         = 40;
+  for (int j = 0; j <= n; ++j)
+    for (int i = 0; i <= n; ++i) {
+      TPointD p(domain.x0 + domain.getLx() * i / n,
+                domain.y0 + domain.getLy() * j / n);
+      std::vector<double> w;
+      double anchor = deformer.weightsAt(p, w);
+      require((int)w.size() == deformer.getHandleCount(),
+              "shape aware: wrong weight count");
+
+      double sum = anchor;
+      require(anchor >= 0.0 && anchor <= 1.0,
+              "shape aware: anchor out of [0, 1]");
+      for (double v : w) {
+        require(v >= 0.0 && v <= 1.0, "shape aware: weight out of [0, 1]");
+        sum += v;
+      }
+      require(std::fabs(sum - 1.0) < 1e-9,
+              "shape aware: weights do not sum to 1");
+    }
+
+  // The plane far from the handles is held by the anchor
+  std::vector<double> w;
+  require(deformer.weightsAt(TPointD(1000.0, 1000.0), w) == 1.0,
+          "shape aware: the anchor does not hold the far plane");
+
+  // The handles dominate their own place
+  deformer.weightsAt(TPointD(-40.0, 30.0), w);
+  require(w[0] > 0.9, "shape aware: a pin has a weak weight at its position");
+  deformer.weightsAt(TPointD(60.0, -20.0), w);
+  require(w[1] > 0.9, "shape aware: a pin has a weak weight at its position");
+  deformer.weightsAt(TPointD(-20.0, -50.0), w);
+  require(w[2] > 0.9, "shape aware: a bone has a weak weight on its segment");
+
+  // The weights depend on the rest geometry only, and can be shared
+  std::vector<SaHandle> moved = handles;
+  moved[0] =
+      SaHandle::makePin(TPointD(-40.0, 30.0), TPointD(-30.0, 35.0), 20.0, 1.2);
+  require(TShapeAwareDeformer::makeWeightsKey(
+              handles, TShapeAwareDeformer::Settings()) ==
+              TShapeAwareDeformer::makeWeightsKey(
+                  moved, TShapeAwareDeformer::Settings()),
+          "shape aware: the weights key depends on the pose");
+
+  TShapeAwareDeformer shared(moved, TShapeAwareDeformer::Settings(), TAffine(),
+                             deformer.getWeights());
+  TShapeAwareDeformer own(moved);
+  for (const TPointD &p : {TPointD(-35.0, 30.0), TPointD(0.0, 0.0),
+                           TPointD(50.0, -30.0), TPointD(-70.0, 70.0)})
+    require(isClose(shared.deform(p, 0.0), own.deform(p, 0.0), 1e-9),
+            "shape aware: shared weights give another deformation");
+
+  // Invalid input
+  require(!TShapeAwareDeformer::computeWeights(std::vector<SaHandle>(),
+                                               TShapeAwareDeformer::Settings()),
+          "shape aware: weights of no handle");
+  TShapeAwareDeformer invalid((std::vector<SaHandle>()));
+  require(!invalid.isValid() && invalid.isIdentity(0.0) &&
+              isClose(invalid.deform(TPointD(3.0, 4.0), 0.0), TPointD(3.0, 4.0),
+                      0.0),
+          "shape aware: an invalid deformer moves points");
+}
+
+//------------------------------------------------------------------
+
+void testShapeAwareIdentity() {
+  std::vector<SaHandle> handles = saRestHandles();
+  TShapeAwareDeformer deformer(handles);
+  require(deformer.isIdentity(1e-9), "shape aware identity: not identity");
+
+  for (const TPointD &p : {TPointD(0.0, 0.0), TPointD(-40.0, 30.0),
+                           TPointD(75.0, 75.0), TPointD(-200.0, 10.0)}) {
+    TPointD q;
+    require(isClose(deformer.deform(p, 0.0), p, 1e-9),
+            "shape aware identity: deform moved a point");
+    require(deformer.undeform(p, 0.0, q) && isClose(q, p, 1e-6),
+            "shape aware identity: undeform moved a point");
+  }
+
+  // The raster is unchanged
+  const int size = 48;
+  TRaster32P in(size, size), out(size, size);
+  for (int y = 0; y < size; ++y)
+    for (int x = 0; x < size; ++x)
+      in->pixels(y)[x] = TPixel32(5 * x, 5 * y, 100, 255);
+
+  TPointD pos(-24.0, -24.0);
+  deformer.warpRaster(out, pos, in, pos, 0.0);
+  for (int y = 0; y < size; ++y)
+    for (int x = 0; x < size; ++x)
+      require(out->pixels(y)[x] == in->pixels(y)[x],
+              "shape aware identity: the raster changed");
+}
+
+//------------------------------------------------------------------
+
+void testShapeAwareMovedPin() {
+  // A pin is moved, another one holds the plane at 100 units from it
+  const TPointD t(6.0, 2.0);
+  std::vector<SaHandle> handles;
+  handles.push_back(SaHandle::makePin(TPointD(0.0, 0.0), t));
+  handles.push_back(
+      SaHandle::makePin(TPointD(100.0, 0.0), TPointD(100.0, 0.0)));
+  TShapeAwareDeformer deformer(handles,
+                               TShapeAwareDeformer::Settings(48, 30.0));
+  require(!deformer.isIdentity(1e-6), "shape aware pin: identity");
+
+  // The pin carries its place
+  require(norm(deformer.deform(TPointD(0.0, 0.0), 0.0) - t) < 0.15 * norm(t),
+          "shape aware pin: the pin does not reach its position");
+
+  // The nearer to the pin, the more a point moves
+  auto moveAt = [&](double x) {
+    TPointD p(x, 0.0);
+    return norm(deformer.deform(p, 0.0) - p);
+  };
+  require(moveAt(10.0) > moveAt(40.0),
+          "shape aware pin: 10 does not move more than 40");
+  require(moveAt(40.0) > moveAt(75.0),
+          "shape aware pin: 40 does not move more than 75");
+  require(moveAt(10.0) > 0.25 * norm(t),
+          "shape aware pin: a near point hardly moves");
+  require(moveAt(75.0) < 0.5 * norm(t),
+          "shape aware pin: a far point moves much");
+
+  // The held pin stays, and the plane beyond the grid does not move
+  require(isClose(deformer.deform(TPointD(100.0, 0.0), 0.0),
+                  TPointD(100.0, 0.0), 0.15 * norm(t)),
+          "shape aware pin: the held pin moves");
+  require(isClose(deformer.deform(TPointD(500.0, 50.0), 0.0),
+                  TPointD(500.0, 50.0), 0.0),
+          "shape aware pin: a point beyond the grid moves");
+
+  // A moved pin moves the same way whatever the placement
+  TAffine placement =
+      TTranslation(30.0, -20.0) * TRotation(30.0) * TScale(2.0, 2.0);
+  TShapeAwareDeformer placed(handles, TShapeAwareDeformer::Settings(48, 30.0),
+                             placement, deformer.getWeights());
+  for (const TPointD &p :
+       {TPointD(0.0, 0.0), TPointD(20.0, 10.0), TPointD(70.0, -10.0)})
+    require(isClose(placed.deform(placement * p, 0.0),
+                    placement * deformer.deform(p, 0.0), 1e-9),
+            "shape aware pin: wrong placement");
+
+  // deform() and undeform() are inverse
+  for (const TPointD &p :
+       {TPointD(0.0, 0.0), TPointD(15.0, -5.0), TPointD(-30.0, 20.0),
+        TPointD(60.0, 10.0), TPointD(120.0, 0.0)}) {
+    TPointD q;
+    require(deformer.undeform(deformer.deform(p, 0.0), 0.0, q) &&
+                isClose(q, p, 1e-3),
+            "shape aware pin: undeform is not the inverse of deform");
+  }
+
+  // The bounds hold the deformed points
+  TRectD source(-60.0, -60.0, 160.0, 60.0);
+  TRectD bounds = deformer.deformedBounds(source, 0.0);
+  for (double x = source.x0; x <= source.x1; x += 10.0)
+    for (double y = source.y0; y <= source.y1; y += 10.0) {
+      TPointD q = deformer.deform(TPointD(x, y), 0.0);
+      require(q.x >= bounds.x0 && q.x <= bounds.x1 && q.y >= bounds.y0 &&
+                  q.y <= bounds.y1,
+              "shape aware pin: bounds too small");
+    }
+
+  // The raster follows the pin: pixels beyond the grid are as they were
+  const int size = 64;
+  TRaster32P in(size, size), out(size, size);
+  for (int y = 0; y < size; ++y)
+    for (int x = 0; x < size; ++x)
+      in->pixels(y)[x] = TPixel32(3 * x, 3 * y, 100, 255);
+
+  std::vector<SaHandle> lone(
+      1, SaHandle::makePin(TPointD(0.0, 0.0), TPointD(4.0, 0.0)));
+  TShapeAwareDeformer loneDeformer(lone,
+                                   TShapeAwareDeformer::Settings(48, 20.0));
+  TPointD pos(-32.0, -32.0);
+  loneDeformer.warpRaster(out, pos, in, pos, 0.0);
+  require(out->pixels(32)[32] != in->pixels(32)[32],
+          "shape aware pin: the raster did not move at the pin");
+  require(out->pixels(0)[0] == in->pixels(0)[0] &&
+              out->pixels(size - 1)[size - 1] == in->pixels(size - 1)[size - 1],
+          "shape aware pin: the raster moved beyond the grid");
+
+  // As a layer of the deformer stack
+  TDeformerStack stack;
+  stack.setScale(200.0);
+  stack.addLayer(std::make_shared<TShapeAwareDeformer>(
+                     handles, TShapeAwareDeformer::Settings(48, 30.0)),
+                 TDeformerWeightMap::makeUniform(0.5));
+  TPointD p(10.0, 0.0), q = deformer.deform(p, 0.0);
+  require(isClose(stack.deform(p, 0.0), p + (q - p) * 0.5, 1e-9),
+          "shape aware pin: wrong stack blend");
+}
+
+//------------------------------------------------------------------
+
+void testShapeAwareBoneAndCage() {
+  const TPointD t(8.0, 4.0);
+
+  // A bone translated
+  std::vector<SaHandle> handles;
+  handles.push_back(SaHandle::makeBone(TPointD(-50.0, 0.0), TPointD(50.0, 0.0),
+                                       TPointD(-50.0, 0.0) + t,
+                                       TPointD(50.0, 0.0) + t));
+  TShapeAwareDeformer bone(handles);
+  for (double x = -50.0; x <= 50.0; x += 25.0) {
+    TPointD p(x, 0.0);
+    require(norm(bone.deform(p, 0.0) - (p + t)) < 0.15 * norm(t),
+            "shape aware bone: the bone does not carry its segment");
+  }
+  TPointD above(0.0, 12.0), far(0.0, 90.0);
+  require(
+      norm(bone.deform(above, 0.0) - above) > norm(bone.deform(far, 0.0) - far),
+      "shape aware bone: the influence does not fall with the distance");
+
+  // A bone turned by 90 degrees about its head
+  handles[0] = SaHandle::makeBone(TPointD(0.0, 0.0), TPointD(60.0, 0.0),
+                                  TPointD(0.0, 0.0), TPointD(0.0, 60.0));
+  TShapeAwareDeformer turned(handles);
+  require(
+      isClose(turned.deform(TPointD(30.0, 0.0), 0.0), TPointD(0.0, 30.0), 3.0),
+      "shape aware bone: the turned bone is not turned");
+
+  // A cage translated: its inside and edges follow
+  handles.clear();
+  const TPointD corners[4] = {TPointD(-50.0, -50.0), TPointD(50.0, -50.0),
+                              TPointD(50.0, 50.0), TPointD(-50.0, 50.0)};
+  for (const TPointD &c : corners)
+    handles.push_back(SaHandle::makeCageVertex(c, c + t));
+  TShapeAwareDeformer cage(handles);
+  for (const TPointD &p :
+       {TPointD(0.0, 0.0), TPointD(20.0, -30.0), TPointD(50.0, 0.0)})
+    require(norm(cage.deform(p, 0.0) - (p + t)) < 0.15 * norm(t),
+            "shape aware cage: the cage does not carry its inside");
+  require(
+      isClose(cage.deform(TPointD(400.0, 0.0), 0.0), TPointD(400.0, 0.0), 0.0),
+      "shape aware cage: a far point moves");
+}
+
+//------------------------------------------------------------------
+
+void testShapeAware() {
+  testShapeAwareWeights();
+  testShapeAwareIdentity();
+  testShapeAwareMovedPin();
+  testShapeAwareBoneAndCage();
+}
+
+}  // namespace
 
 int main() {
   try {
@@ -1148,6 +1434,7 @@ int main() {
     testTriangleAffine();
     testSmoothBend();
     testVectorImage();
+    testShapeAware();
   } catch (const std::exception &e) {
     std::cerr << "deformer_test failed: " << e.what() << std::endl;
     return 1;

@@ -1114,6 +1114,17 @@ void SchematicViewer::createActions() {
       connect(m_rigFilter, SIGNAL(textChanged(const QString &)), m_stageScene,
               SLOT(onRigFilterChanged(const QString &)));
 
+      m_fxPortFilter = new QLineEdit(m_fxToolbar);
+      m_fxPortFilter->setLayoutDirection(Qt::LeftToRight);
+      m_fxPortFilter->setClearButtonEnabled(true);
+      m_fxPortFilter->setFixedWidth(120);
+      m_fxPortFilter->setPlaceholderText(tr("Filter ports"));
+      m_fxPortFilter->setToolTip(
+          tr("Hide the input ports and the nodes whose name or port names do "
+             "not contain this text"));
+      connect(m_fxPortFilter, SIGNAL(textChanged(const QString &)), m_fxScene,
+              SLOT(onPortFilterChanged(const QString &)));
+
       // InsertFx
       insertFx = CommandManager::instance()->getAction("MI_InsertFx");
       if (insertFx) {
@@ -1178,6 +1189,8 @@ void SchematicViewer::createActions() {
     m_fxToolbar->addSeparator();
     m_fxToolbar->addAction(addOutputFx);
     m_fxToolbar->addAction(insertFx);
+    m_fxToolbar->addSeparator();
+    m_fxToolbar->addWidget(m_fxPortFilter);
 
     if (m_changeScene) m_swapToolbar->addAction(m_changeScene);
   }

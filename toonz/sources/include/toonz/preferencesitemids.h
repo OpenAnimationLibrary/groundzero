@@ -81,6 +81,7 @@ enum PreferencesItemId {
   replaceAfterSaveLevelAs,
   backupEnabled,
   backupKeepCount,
+  compressSceneFiles,
   rasterBackgroundColor,
   resetUndoOnSavingLevel,
 

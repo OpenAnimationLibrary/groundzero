@@ -1287,6 +1287,8 @@ QString PreferencesPopup::getUIString(PreferencesItemId id) {
        tr("Replace Toonz Level after SaveLevelAs command")},
       {backupEnabled, tr("Backup Scene and Animation Levels when Saving")},
       {backupKeepCount, tr("# of backups to keep:")},
+      {compressSceneFiles, tr("Compress Scene Files (smaller, loads faster; "
+                              "older versions can't open them)")},
       {sceneNumberingEnabled, tr("Add Info water mark in Rendered Frames")},
       {watchFileSystemEnabled,
        tr("Watch File System and Update File Browser Automatically")},
@@ -2129,6 +2131,12 @@ QWidget* PreferencesPopup::createSavingPage() {
   }
   QGridLayout* backupLay = insertGroupBoxUI(backupEnabled, lay);
   { insertUI(backupKeepCount, backupLay); }
+  insertUI(compressSceneFiles, lay);
+  getUI<CheckBox*>(compressSceneFiles)
+      ->setToolTip(
+          tr("Writes the scene file (.tnz) as an LZ4 compressed version of the "
+             "usual XML. OpenToonz opens both kinds. Versions of OpenToonz "
+             "without this option cannot open a compressed scene."));
 
   insertUI(replaceAfterSaveLevelAs, lay);
   insertUI(resetUndoOnSavingLevel, lay);

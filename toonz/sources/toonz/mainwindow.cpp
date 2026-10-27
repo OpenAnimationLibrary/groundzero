@@ -2499,6 +2499,9 @@ void MainWindow::defineActions() {
   createMenuLevelAction(MI_AddInbetweenZoneHint,
                         QT_TR_NOOP("&Add Inbetween Zone Hint from Selection"),
                         "");
+  createMenuLevelAction(MI_ConvertToOutlineShapes,
+                        QT_TR_NOOP("Convert Brush Strokes to &Outline Shapes"),
+                        "");
   createMenuLevelAction(MI_ClearInbetweenStrokePairs,
                         QT_TR_NOOP("&Clear Inbetween Stroke Pairs"), "");
   createMenuLevelAction(MI_AddFrames, QT_TR_NOOP("&Add Frames..."), "",
