@@ -96,9 +96,8 @@ there the FXs work in the mesh's space, on the Plastic-deformed image
 - Each deformer FX in `stdfx` implements it with its existing builder: the
   envelopes of the Envelope and Envelope Plus FXs, `buildDeformer()` of the
   Curve FX, `getDeformer()` of the Free-Form, Bone and Shape Aware FXs, and
-  `buildStack()` of the Deformer Stack FX, which today makes envelope layers
-  only (the stack's other layer types will be baked as soon as `buildStack()`
-  makes them).
+  `buildStack()` of the Deformer Stack FX, which makes every layer type
+  (Envelope, Curve, Free-Form, Bone and Shape-Aware).
 - `toonz/deformerbake.cpp` (was `envelopebake.cpp`): the command, the chain
   walk and the undo. The deformers of a drawing are composed in a
   `TDeformerStack` of full-weight layers, and the strokes are mapped once with

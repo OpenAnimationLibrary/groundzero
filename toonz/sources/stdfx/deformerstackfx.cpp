@@ -278,8 +278,8 @@ private:
 
 public:
   // The deformer of the layers at frame, for Bake Deformers into Vector
-  // Level (see TDeformerSource): whatever layers buildStack() makes, which
-  // are the envelope layers for now
+  // Level (see TDeformerSource): whatever layers buildStack() makes, of
+  // every layer type
   std::shared_ptr<const TDeformer> makeDeformer(
       double frame, const TAffine &placement) const override {
     std::shared_ptr<TDeformerStack> stack = std::make_shared<TDeformerStack>();

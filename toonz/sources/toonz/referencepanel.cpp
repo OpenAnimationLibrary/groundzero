@@ -35,6 +35,17 @@
 #include <algorithm>
 #include <cmath>
 
+namespace {
+// AdjustToMinimumContentsLength is gone in Qt 6; its replacement also
+// reserves room for an icon, so Qt 5 keeps the original value
+const QComboBox::SizeAdjustPolicy c_comboSizePolicy =
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    QComboBox::AdjustToMinimumContentsLengthWithIcon;
+#else
+    QComboBox::AdjustToMinimumContentsLength;
+#endif
+}  // namespace
+
 // The path of the image shown last, kept for the older builds.
 TEnv::FilePathVar ReferencePanelLastImage("ReferencePanelLastImage",
                                           TFilePath());
@@ -371,8 +382,7 @@ ReferencePanel::ReferencePanel(QWidget *parent)
 
   // The list of the loaded images, and the layers of a PSD file
   m_imageCombo = new QComboBox(this);
-  m_imageCombo->setSizeAdjustPolicy(
-      QComboBox::AdjustToMinimumContentsLengthWithIcon);
+  m_imageCombo->setSizeAdjustPolicy(c_comboSizePolicy);
   m_imageCombo->setMinimumContentsLength(8);
   m_imageCombo->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
   m_imageCombo->setToolTip(tr("Loaded Images"));
@@ -382,8 +392,7 @@ ReferencePanel::ReferencePanel(QWidget *parent)
   removeButton->setAutoRaise(true);
 
   m_layerCombo = new QComboBox(this);
-  m_layerCombo->setSizeAdjustPolicy(
-      QComboBox::AdjustToMinimumContentsLengthWithIcon);
+  m_layerCombo->setSizeAdjustPolicy(c_comboSizePolicy);
   m_layerCombo->setMinimumContentsLength(8);
   m_layerCombo->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
   m_layerCombo->setToolTip(tr("PSD Layer"));
