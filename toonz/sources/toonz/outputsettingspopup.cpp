@@ -58,6 +58,23 @@
 #include <QEvent>
 
 #include <cmath>
+
+namespace {
+
+// The export aspect ratios of the Aspect Ratio menu, after None; the last
+// item is Custom.
+const struct {
+  const char *label;
+  double ratio;
+} aspectPresets[]           = {{QT_TR_NOOP("4:3 (1.33:1)"), 4.0 / 3.0},
+                               {QT_TR_NOOP("1.66:1 (European Widescreen)"), 1.66},
+                               {QT_TR_NOOP("16:9 (1.78:1)"), 16.0 / 9.0},
+                               {QT_TR_NOOP("1.85:1 (Theatrical Widescreen)"), 1.85},
+                               {QT_TR_NOOP("2.39:1 (Scope, DCI)"), 2.39},
+                               {QT_TR_NOOP("2.40:1 (Anamorphic Scope)"), 2.40}};
+const int aspectPresetCount = sizeof(aspectPresets) / sizeof(aspectPresets[0]);
+
+}  // namespace
 //-----------------------------------------------------------------------------
 namespace {
 
@@ -885,25 +902,6 @@ QFrame *OutputSettingsPopup::createMoreSettingsBox() {
   assert(ret);
   return moreSettingsBox;
 }
-
-//-----------------------------------------------------------------------------
-
-namespace {
-
-// The export aspect ratios of the Aspect Ratio menu, after None; the last
-// item is Custom.
-const struct {
-  const char *label;
-  double ratio;
-} aspectPresets[]           = {{QT_TR_NOOP("4:3 (1.33:1)"), 4.0 / 3.0},
-                               {QT_TR_NOOP("1.66:1 (European Widescreen)"), 1.66},
-                               {QT_TR_NOOP("16:9 (1.78:1)"), 16.0 / 9.0},
-                               {QT_TR_NOOP("1.85:1 (Theatrical Widescreen)"), 1.85},
-                               {QT_TR_NOOP("2.39:1 (Scope, DCI)"), 2.39},
-                               {QT_TR_NOOP("2.40:1 (Anamorphic Scope)"), 2.40}};
-const int aspectPresetCount = sizeof(aspectPresets) / sizeof(aspectPresets[0]);
-
-}  // namespace
 
 //-----------------------------------------------------------------------------
 /*! Return current \b ToonzScene scene.
