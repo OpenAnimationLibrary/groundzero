@@ -698,6 +698,22 @@ void TXshColumn::lockSelection(bool on) {
 
 //-----------------------------------------------------------------------------
 
+bool TXshColumn::isLightTableExcluded() const {
+  return (m_status & eLightTableExcluded) != 0;
+}
+
+//-----------------------------------------------------------------------------
+
+void TXshColumn::setLightTableExcluded(bool on) {
+  const int mask = eLightTableExcluded;
+  if (on)
+    m_status |= mask;
+  else
+    m_status &= ~mask;
+}
+
+//-----------------------------------------------------------------------------
+
 bool TXshColumn::isMask() const { return (m_status & eMasked) != 0; }
 
 //-----------------------------------------------------------------------------

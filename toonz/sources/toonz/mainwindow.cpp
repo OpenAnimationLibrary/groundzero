@@ -2,6 +2,7 @@
 
 #include "mainwindow.h"
 #include "convertlinestoareascommand.h"
+#include "rigeasecommand.h"
 #include "customhelplink.h"
 
 // Tnz6 includes
@@ -70,7 +71,8 @@
 #include <QLabel>
 #include <QMessageBox>
 #include <QTimer>
-#ifdef _WIN32
+#if defined(_WIN32) && QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
+// Qt 6 has no QtPlatformHeaders
 #include <QtPlatformHeaders/QWindowsWindowFunctions>
 #endif
 #include <docklayout.h>
@@ -1289,8 +1291,9 @@ void MainWindow::fullScreenWindow() {
     else
       showNormal();
   } else {
-#if defined(_WIN32)
+#if defined(_WIN32) && QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
     // http://doc.qt.io/qt-5/windows-issues.html#fullscreen-opengl-based-windows
+    // (Qt 6 has no QWindowsWindowFunctions)
     this->winId();
     QWindowsWindowFunctions::setHasBorderInFullScreen(this->windowHandle(),
                                                       true);
@@ -2367,6 +2370,9 @@ void MainWindow::defineActions() {
   createMenuFileAction(
       MI_ExportSpine,
       QT_TRANSLATE_NOOP("MainWindow", "Export to Spine JSON..."), "");
+  createMenuFileAction(MI_ExportLayeredPSD,
+                       QT_TRANSLATE_NOOP("MainWindow", "Export Layered PSD..."),
+                       "");
 
   // Menu - Edit
 
@@ -2605,6 +2611,8 @@ void MainWindow::defineActions() {
                          "fx_logo");
   createMenuXsheetAction(MI_NewOutputFx, QT_TR_NOOP("&New Output"), "Alt+O",
                          "output");
+  createMenuXsheetAction(MI_ToneHighlightSetup,
+                         QT_TR_NOOP("Add Tone / Highlight Shading"), "");
   createMenuXsheetAction(MI_InsertSceneFrame, QT_TR_NOOP("Insert Frame"), "",
                          "insert_frame");
   createMenuXsheetAction(MI_RemoveSceneFrame, QT_TR_NOOP("Remove Frame"), "",
@@ -2712,6 +2720,22 @@ void MainWindow::defineActions() {
                         "", "fill_empty_cells");
   createMenuCellsAction(MI_SymbolTiming, QT_TR_NOOP("Symbol Timing..."), "",
                         "");
+
+  // Whole-rig breakdown and ease. Their presets are listed in
+  // rigeasecommand.h.
+  for (int i = 0; i < cRigBreakdownPresetCount; i++)
+    createMenuCellsAction(cRigBreakdownPresets[i].id,
+                          cRigBreakdownPresets[i].name, "", "");
+  createMenuCellsAction(MI_RigBreakdownCustom,
+                        QT_TR_NOOP("Custom Rig Breakdown..."), "", "");
+  for (int i = 0; i < cRigEasePresetCount; i++)
+    createMenuCellsAction(cRigEasePresets[i].id, cRigEasePresets[i].name, "",
+                          "");
+  createMenuCellsAction(MI_RigEaseCustom, QT_TR_NOOP("Custom Rig Ease..."), "",
+                        "");
+  createToggle(MI_RigIncludeChildren,
+               QT_TR_NOOP("Include Child Objects in Rig Commands"), "", true,
+               MenuCellsCommandType);
 
   // Menu - Play
 
@@ -3197,6 +3221,12 @@ void MainWindow::defineActions() {
   createRightClickMenuAction(MI_SelectionUnlockAllColumns,
                              QT_TR_NOOP("Unlock Selection in Viewer for All"),
                              "");
+  createRightClickMenuAction(MI_LightTableExcludeSelectedColumns,
+                             QT_TR_NOOP("Exclude from Light Table"), "");
+  createRightClickMenuAction(MI_LightTableIncludeSelectedColumns,
+                             QT_TR_NOOP("Include in Light Table"), "");
+  createRightClickMenuAction(MI_LightTableIncludeAllColumns,
+                             QT_TR_NOOP("Include All in Light Table"), "");
   createRightClickMenuAction(MI_DeactivateUpperColumns,
                              QT_TR_NOOP("Hide Upper Columns"), "");
   createRightClickMenuAction(MI_SeparateColors,

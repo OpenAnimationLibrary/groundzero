@@ -1,4 +1,5 @@
 #include "tiio_psd.h"
+#include "tpsdlayerwriter.h"
 #include "trasterimage.h"
 #include "timageinfo.h"
 #include "trop.h"
@@ -266,50 +267,52 @@ void packBits(const unsigned char *src, int count,
   }
 }
 
-}  // namespace
-
+//-----------------------------------------------------------
+//  Shared by TLevelWriterPsd::save() and writeLayeredPsd()
 //-----------------------------------------------------------
 
-void TLevelWriterPsd::save(const TImageP &img, const TFilePath &path) {
-  TRasterImageP ri = img;
-  if (!ri)
-    throw TImageException(path, "Only raster images can be saved as PSD");
+const int PsdChannelCount = 4;
 
-  TRasterP ras     = ri->getRaster();
-  TRaster32P ras32 = ras;
-  TRaster64P ras64 = ras;
-  if (!ras32 && !ras64) {
-    // Convert the other raster types like TImageWriter::save() does
-    if (TRasterFP rasF = ras) {
-      ras64 = TRaster64P(ras->getSize());
-      TRop::convert(ras64, rasF);
-    } else if (TRasterGR8P rasGr = ras) {
-      ras32 = TRaster32P(ras->getSize());
-      TRop::convert(ras32, rasGr);
-    } else
-      throw TImageException(path, "unsupported raster type");
-  }
+// PSD channel ids of a layer record (alpha comes first), and the matching
+// R, G, B, A plane
+const int PsdLayerChannelIds[PsdChannelCount]    = {-1, 0, 1, 2};
+const int PsdLayerChannelPlanes[PsdChannelCount] = {3, 0, 1, 2};
+
+// Gets ras as an 8 bit (TRaster32) or 16 bit (TRaster64) raster, converting
+// the other raster types like TImageWriter::save() does. Returns false if the
+// raster type is not supported.
+bool toPsdRaster(const TRasterP &ras, TRaster32P &ras32, TRaster64P &ras64) {
+  ras32 = TRaster32P(ras);
+  ras64 = TRaster64P(ras);
+  if (ras32 || ras64) return true;
+  if (TRasterFP rasF = ras) {
+    ras64 = TRaster64P(ras->getSize());
+    TRop::convert(ras64, rasF);
+  } else if (TRasterGR8P rasGr = ras) {
+    ras32 = TRaster32P(ras->getSize());
+    TRop::convert(ras32, rasGr);
+  } else
+    return false;
+  return true;
+}
+
+// Encodes the four channel planes (R, G, B, A) of a raster. 8 bit channels
+// are RLE (PackBits) compressed (compression 1), 16 bit ones are stored raw
+// (compression 0).
+void encodePsdChannels(const TRaster32P &ras32, const TRaster64P &ras64,
+                       int compression, PsdChannelData *channels) {
+  TRasterP ras;
   if (ras32)
     ras = ras32;
   else
     ras = ras64;
-
-  const int lx = ras->getLx();
-  const int ly = ras->getLy();
-  if (lx <= 0 || ly <= 0 || lx > 30000 || ly > 30000)
-    throw TImageException(path, "Image size not supported by PSD files");
-
-  // 8 bit channels are RLE (PackBits) compressed, 16 bit ones are stored raw
-  const bool is16Bit     = !ras32;
-  const int depth        = is16Bit ? 16 : 8;
-  const int compression  = is16Bit ? 0 : 1;
-  const int rowBytes     = is16Bit ? 2 * lx : lx;
-  const int channelCount = 4;
+  const int lx       = ras->getLx();
+  const int ly       = ras->getLy();
+  const int rowBytes = ras32 ? lx : 2 * lx;
 
   // Channel planes in R, G, B, A order
-  PsdChannelData channels[channelCount];
-  std::vector<unsigned char> rowData[channelCount];
-  for (int c = 0; c < channelCount; ++c) rowData[c].resize(rowBytes);
+  std::vector<unsigned char> rowData[PsdChannelCount];
+  for (int c = 0; c < PsdChannelCount; ++c) rowData[c].resize(rowBytes);
 
   ras->lock();
   for (int y = 0; y < ly; ++y) {
@@ -331,15 +334,15 @@ void TLevelWriterPsd::save(const TImageP &img, const TFilePath &path) {
       for (int x = 0; x < lx; ++x) {
         TPixel64 p = pix[x];
         if (p.m != 0) depremult(p);
-        const unsigned int values[channelCount] = {p.r, p.g, p.b, p.m};
-        for (int c = 0; c < channelCount; ++c) {
+        const unsigned int values[PsdChannelCount] = {p.r, p.g, p.b, p.m};
+        for (int c = 0; c < PsdChannelCount; ++c) {
           rowData[c][2 * x]     = (unsigned char)(values[c] >> 8);
           rowData[c][2 * x + 1] = (unsigned char)(values[c] & 0xff);
         }
       }
     }
 
-    for (int c = 0; c < channelCount; ++c) {
+    for (int c = 0; c < PsdChannelCount; ++c) {
       PsdChannelData &channel = channels[c];
       if (compression == 1) {
         const size_t start = channel.rows.size();
@@ -353,39 +356,102 @@ void TLevelWriterPsd::save(const TImageP &img, const TFilePath &path) {
     }
   }
   ras->unlock();
+}
 
-  double dpix = 0.0, dpiy = 0.0;
-  ri->getDpi(dpix, dpiy);
+void sanitizeDpi(double &dpix, double &dpiy) {
   if (!(dpix > 0.0)) dpix = 72.0;
   if (!(dpiy > 0.0)) dpiy = dpix;
   dpix = std::min(dpix, 30000.0);
   dpiy = std::min(dpiy, 30000.0);
+}
 
-  // The layer is named after the frame file, e.g. "name.0001". The legacy
-  // Pascal name is kept ASCII; the 'luni' block holds the real name.
-  QString layerName = QFileInfo(QString::fromStdWString(path.getWideString()))
-                          .completeBaseName()
-                          .left(255);
-  if (layerName.isEmpty()) layerName = "Layer 1";
-  std::string pascalName;
-  for (const QChar &ch : layerName) {
-    const ushort code = ch.unicode();
-    pascalName.push_back(code >= 0x20 && code < 0x7f ? (char)code : '_');
+// The name of a layer. The legacy Pascal name is kept ASCII; the 'luni'
+// block holds the real name.
+struct PsdLayerName {
+  QString m_name;
+  std::string m_pascal;
+  std::uint64_t m_pascalSize  = 0;
+  std::uint64_t m_unicodeSize = 0;
+
+  explicit PsdLayerName(const QString &name) : m_name(name.left(255)) {
+    if (m_name.isEmpty()) m_name = "Layer 1";
+    for (const QChar &ch : m_name) {
+      const ushort code = ch.unicode();
+      m_pascal.push_back(code >= 0x20 && code < 0x7f ? (char)code : '_');
+    }
+    m_pascalSize  = padTo4(1 + m_pascal.size());
+    m_unicodeSize = padTo4(4 + 2 * (std::uint64_t)m_name.size());
   }
-  const std::uint64_t pascalSize = padTo4(1 + pascalName.size());
-  const std::uint64_t unicodeSize =
-      padTo4(4 + 2 * (std::uint64_t)layerName.size());
-
-  // PSD channel ids of the layer record, and the matching plane
-  const int layerChannelIds[channelCount]    = {-1, 0, 1, 2};
-  const int layerChannelPlanes[channelCount] = {3, 0, 1, 2};
 
   // Layer mask data, blending ranges, name, 'luni' additional info
-  const std::uint64_t extraSize = 4 + (4 + 40) + pascalSize + 12 + unicodeSize;
-  std::uint64_t layerInfoContent =
-      2 + 16 + 2 + 6 * channelCount + 16 + extraSize;
-  for (int c = 0; c < channelCount; ++c)
-    layerInfoContent += 2 + channels[c].size();
+  std::uint64_t extraSize() const {
+    return 4 + (4 + 40) + m_pascalSize + 12 + m_unicodeSize;
+  }
+};
+
+struct PsdLayerData {
+  PsdLayerName m_name;
+  PsdChannelData m_channels[PsdChannelCount];
+  int m_opacity  = 255;
+  bool m_visible = true;
+
+  explicit PsdLayerData(const QString &name) : m_name(name) {}
+
+  // Size of the layer record, plus the layer's channel image data
+  std::uint64_t size() const {
+    std::uint64_t size = 16 + 2 + 6 * PsdChannelCount + 16 + m_name.extraSize();
+    for (int c = 0; c < PsdChannelCount; ++c) size += 2 + m_channels[c].size();
+    return size;
+  }
+};
+
+void writePsdLayerRecord(PsdOutput &out, int lx, int ly,
+                         const PsdLayerData &layer) {
+  const PsdLayerName &name = layer.m_name;
+  out.put32(0);   // top
+  out.put32(0);   // left
+  out.put32(ly);  // bottom
+  out.put32(lx);  // right
+  out.put16(PsdChannelCount);
+  for (int i = 0; i < PsdChannelCount; ++i) {
+    out.put16(PsdLayerChannelIds[i] & 0xffff);
+    out.put32(
+        (std::uint32_t)(2 + layer.m_channels[PsdLayerChannelPlanes[i]].size()));
+  }
+  out.putBytes("8BIMnorm", 8);
+  out.put8(layer.m_opacity);
+  out.put8(0);  // clipping: base
+  // bit 3: pixel data relevant, bit 1: hidden
+  out.put8(layer.m_visible ? 0x08 : 0x0a);
+  out.put8(0);  // filler
+  out.put32((std::uint32_t)name.extraSize());
+  out.put32(0);  // no layer mask
+  // Blending ranges: gray and the 4 channels, source and destination, all
+  // with the full 0-255 range
+  out.put32(40);
+  for (int i = 0; i < 10; ++i) {
+    out.put16(0x0000);
+    out.put16(0xffff);
+  }
+  out.put8((unsigned int)name.m_pascal.size());
+  out.putBytes(name.m_pascal.data(), name.m_pascal.size());
+  out.putZeros(name.m_pascalSize - 1 - name.m_pascal.size());
+  out.putBytes("8BIMluni", 8);
+  out.put32((std::uint32_t)name.m_unicodeSize);
+  out.put32(name.m_name.size());
+  for (const QChar &ch : name.m_name) out.put16(ch.unicode());
+  out.putZeros(name.m_unicodeSize - 4 - 2 * (std::uint64_t)name.m_name.size());
+}
+
+// Writes a PSD file whose merged image is made of the channels `merged`, with
+// `layers` (bottom to top) in the layer section.
+void writePsdFile(const TFilePath &path, int lx, int ly, int depth,
+                  int compression, double dpix, double dpiy,
+                  const PsdChannelData *merged,
+                  const std::vector<PsdLayerData> &layers) {
+  // 2: layer count
+  std::uint64_t layerInfoContent = 2;
+  for (const PsdLayerData &layer : layers) layerInfoContent += layer.size();
   const std::uint64_t layerInfoSize = padTo4(layerInfoContent);
   const std::uint64_t layerMaskSize = 4 + layerInfoSize + 4;
   if (layerMaskSize > 0x7fffffffULL)
@@ -399,7 +465,7 @@ void TLevelWriterPsd::save(const TImageP &img, const TFilePath &path) {
   out.putBytes("8BPS", 4);
   out.put16(1);  // version
   out.putZeros(6);
-  out.put16(channelCount);
+  out.put16(PsdChannelCount);
   out.put32(ly);
   out.put32(lx);
   out.put16(depth);
@@ -424,49 +490,22 @@ void TLevelWriterPsd::save(const TImageP &img, const TFilePath &path) {
   // Layer and mask information
   out.put32((std::uint32_t)layerMaskSize);
   out.put32((std::uint32_t)layerInfoSize);
-  // -1: one layer, and the merged image data has an alpha channel
-  out.put16(0xffff);
+  // A negative count: the merged image data has an alpha channel
+  out.put16((unsigned int)(-(int)layers.size()) & 0xffff);
 
-  // Layer record
-  out.put32(0);   // top
-  out.put32(0);   // left
-  out.put32(ly);  // bottom
-  out.put32(lx);  // right
-  out.put16(channelCount);
-  for (int i = 0; i < channelCount; ++i) {
-    out.put16(layerChannelIds[i] & 0xffff);
-    out.put32((std::uint32_t)(2 + channels[layerChannelPlanes[i]].size()));
-  }
-  out.putBytes("8BIMnorm", 8);
-  out.put8(255);   // opacity
-  out.put8(0);     // clipping: base
-  out.put8(0x08);  // visible, pixel data relevant
-  out.put8(0);     // filler
-  out.put32((std::uint32_t)extraSize);
-  out.put32(0);  // no layer mask
-  // Blending ranges: gray and the 4 channels, source and destination, all
-  // with the full 0-255 range
-  out.put32(40);
-  for (int i = 0; i < 10; ++i) {
-    out.put16(0x0000);
-    out.put16(0xffff);
-  }
-  out.put8((unsigned int)pascalName.size());
-  out.putBytes(pascalName.data(), pascalName.size());
-  out.putZeros(pascalSize - 1 - pascalName.size());
-  out.putBytes("8BIMluni", 8);
-  out.put32((std::uint32_t)unicodeSize);
-  out.put32(layerName.size());
-  for (const QChar &ch : layerName) out.put16(ch.unicode());
-  out.putZeros(unicodeSize - 4 - 2 * (std::uint64_t)layerName.size());
+  // Layer records
+  for (const PsdLayerData &layer : layers)
+    writePsdLayerRecord(out, lx, ly, layer);
 
-  // Layer channel image data, in the order of the layer record
-  for (int i = 0; i < channelCount; ++i) {
-    const PsdChannelData &channel = channels[layerChannelPlanes[i]];
-    out.put16(compression);
-    out.putBytes(channel.rowCounts);
-    out.putBytes(channel.rows);
-  }
+  // Layer channel image data, in the order of the layer records
+  for (const PsdLayerData &layer : layers)
+    for (int i = 0; i < PsdChannelCount; ++i) {
+      const PsdChannelData &channel =
+          layer.m_channels[PsdLayerChannelPlanes[i]];
+      out.put16(compression);
+      out.putBytes(channel.rowCounts);
+      out.putBytes(channel.rows);
+    }
   out.putZeros(layerInfoSize - layerInfoContent);
 
   // Global layer mask info
@@ -475,12 +514,114 @@ void TLevelWriterPsd::save(const TImageP &img, const TFilePath &path) {
   // Merged image data: one compression field, then all the row counts, then
   // all the rows
   out.put16(compression);
-  for (int c = 0; c < channelCount; ++c) out.putBytes(channels[c].rowCounts);
-  for (int c = 0; c < channelCount; ++c) out.putBytes(channels[c].rows);
+  for (int c = 0; c < PsdChannelCount; ++c) out.putBytes(merged[c].rowCounts);
+  for (int c = 0; c < PsdChannelCount; ++c) out.putBytes(merged[c].rows);
 
   bool failed = ferror(file) != 0;
   if (fclose(file) != 0) failed = true;
   if (failed) throw TImageException(path, "Can't write file");
+}
+
+}  // namespace
+
+//-----------------------------------------------------------
+
+void TLevelWriterPsd::save(const TImageP &img, const TFilePath &path) {
+  TRasterImageP ri = img;
+  if (!ri)
+    throw TImageException(path, "Only raster images can be saved as PSD");
+
+  TRaster32P ras32;
+  TRaster64P ras64;
+  if (!toPsdRaster(ri->getRaster(), ras32, ras64))
+    throw TImageException(path, "unsupported raster type");
+  TRasterP ras;
+  if (ras32)
+    ras = ras32;
+  else
+    ras = ras64;
+
+  const int lx = ras->getLx();
+  const int ly = ras->getLy();
+  if (lx <= 0 || ly <= 0 || lx > 30000 || ly > 30000)
+    throw TImageException(path, "Image size not supported by PSD files");
+
+  // 8 bit channels are RLE (PackBits) compressed, 16 bit ones are stored raw
+  const bool is16Bit    = !ras32;
+  const int depth       = is16Bit ? 16 : 8;
+  const int compression = is16Bit ? 0 : 1;
+
+  // The layer is named after the frame file, e.g. "name.0001"
+  std::vector<PsdLayerData> layers;
+  layers.emplace_back(QFileInfo(QString::fromStdWString(path.getWideString()))
+                          .completeBaseName());
+  encodePsdChannels(ras32, ras64, compression, layers[0].m_channels);
+
+  double dpix = 0.0, dpiy = 0.0;
+  ri->getDpi(dpix, dpiy);
+  sanitizeDpi(dpix, dpiy);
+
+  // The layer is also the merged image
+  writePsdFile(path, lx, ly, depth, compression, dpix, dpiy,
+               layers[0].m_channels, layers);
+}
+
+//-----------------------------------------------------------
+
+void writeLayeredPsd(const TFilePath &path, const TRasterP &merged,
+                     const std::vector<TLayeredPsdLayer> &layers, double dpiX,
+                     double dpiY) {
+  if (layers.empty() || layers.size() > 32767)
+    throw TImageException(path, "Layer count not supported by PSD files");
+
+  TRaster32P merged32;
+  TRaster64P merged64;
+  if (!toPsdRaster(merged, merged32, merged64))
+    throw TImageException(path, "unsupported raster type");
+  TRasterP mergedRas;
+  if (merged32)
+    mergedRas = merged32;
+  else
+    mergedRas = merged64;
+
+  const int lx = mergedRas->getLx();
+  const int ly = mergedRas->getLy();
+  if (lx <= 0 || ly <= 0 || lx > 30000 || ly > 30000)
+    throw TImageException(path, "Image size not supported by PSD files");
+
+  const bool is16Bit    = !merged32;
+  const int depth       = is16Bit ? 16 : 8;
+  const int compression = is16Bit ? 0 : 1;
+
+  PsdChannelData mergedChannels[PsdChannelCount];
+  encodePsdChannels(merged32, merged64, compression, mergedChannels);
+
+  std::vector<PsdLayerData> layerData;
+  layerData.reserve(layers.size());
+  for (const TLayeredPsdLayer &layer : layers) {
+    TRaster32P ras32;
+    TRaster64P ras64;
+    if (!toPsdRaster(layer.m_raster, ras32, ras64))
+      throw TImageException(path, "unsupported raster type");
+    if ((!ras32) != is16Bit)
+      throw TImageException(path, "PSD layers must have the same bit depth");
+    TRasterP ras;
+    if (ras32)
+      ras = ras32;
+    else
+      ras = ras64;
+    if (ras->getLx() != lx || ras->getLy() != ly)
+      throw TImageException(path, "PSD layers must have the image size");
+
+    layerData.emplace_back(QString::fromStdWString(layer.m_name));
+    layerData.back().m_opacity = std::max(0, std::min(255, layer.m_opacity));
+    layerData.back().m_visible = layer.m_visible;
+    encodePsdChannels(ras32, ras64, compression, layerData.back().m_channels);
+  }
+
+  sanitizeDpi(dpiX, dpiY);
+  writePsdFile(path, lx, ly, depth, compression, dpiX, dpiY, mergedChannels,
+               layerData);
 }
 
 //-----------------------------------------------------------

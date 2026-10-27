@@ -1991,7 +1991,7 @@ QPointF SSDebugger::winToWorldF(int x, int y) {
 
 void SSDebugger::wheelEvent(QWheelEvent *event) {
   QPoint w_coords;
-  double zoom_par = 1 + event->delta() * 0.001;
+  double zoom_par = 1 + event->angleDelta().y() * 0.001;
 
   m_scale *= zoom_par;
 

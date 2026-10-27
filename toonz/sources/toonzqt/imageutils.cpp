@@ -46,7 +46,8 @@
 
 // TnzQt includes
 #include <QApplication>
-#ifdef _WIN32
+#if defined(_WIN32) && QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
+// Qt 6 has no QtPlatformHeaders
 #include <QtPlatformHeaders/QWindowsWindowFunctions>
 #endif
 
@@ -1205,10 +1206,13 @@ bool FullScreenWidget::toggleFullScreen(
             this->setWindowFlags(this->windowFlags() | Qt::Window);
             this->window()->windowHandle()->setScreen(ptrScreenThisWindowIsOn);
 
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
             // http://doc.qt.io/qt-5/windows-issues.html#fullscreen-opengl-based-windows
+            // (Qt 6 has no QWindowsWindowFunctions)
             this->winId();
             QWindowsWindowFunctions::setHasBorderInFullScreen(
                 this->windowHandle(), true);
+#endif
 
             this->showFullScreen();
 #endif

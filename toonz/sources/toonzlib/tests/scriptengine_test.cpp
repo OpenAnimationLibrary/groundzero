@@ -364,6 +364,79 @@ void testStageObjects(Console &console) {
   expect(console, "String(col2)", result, "\"StageObject (removed)\"");
 }
 
+void testImagesLevelsScene(Console &console) {
+  const int result = ScriptEngine::EvaluationResult;
+
+  // pixels of the Raster images: (0, 0) is the lower left corner
+  expect(console,
+         "var im = new ImageBuilder(4, 3, 'Raster').fill('#336699').image; "
+         "[im.getPixel(0, 0), im.getPixel(3, 2)]",
+         result, "[\"#ff336699\",\"#ff336699\"]");
+  expect(console, "im.setPixel(1, 1, 'red') === im", result, "true");
+  expect(console, "[im.getPixel(1, 1), im.getPixel(0, 1), im.getPixel(1, 0)]",
+         result, "[\"#ffff0000\",\"#ff336699\",\"#ff336699\"]");
+  expect(console, "im.setPixel(2, 2, '#80ff8800').getPixel(2, 2)", result,
+         "\"#80ff8800\"");
+  expect(console,
+         "var im2 = im.clone(); im2.fill('#00000000'); "
+         "[im.getPixel(1, 1), im2.getPixel(1, 1), im2.type, im2.width]",
+         result, "[\"#ffff0000\",\"#00000000\",\"Raster\",4]");
+  expect(console, "im.dpi = 120; im.dpi", result, "120");
+
+  // levels: frames are added, tested, read and removed
+  expect(console,
+         "var sc = new Scene(); var lv = sc.newLevel('Raster', 'L'); "
+         "[lv.hasFrame(1), lv.appendFrame(im), lv.appendFrame(im2), "
+         "lv.hasFrame(1), lv.frameCount]",
+         result, "[false,\"0001\",\"0002\",true,2]");
+  expect(console,
+         "[lv.getFrame(1).getPixel(1, 1), lv.getFrame('2').getPixel(1, 1), "
+         "lv.getFrameIds()]",
+         result, "[\"#ffff0000\",\"#00000000\",[\"0001\",\"0002\"]]");
+  expect(console,
+         "lv.removeFrame(1).removeFrame(7) === lv; [lv.hasFrame(1), "
+         "lv.frameCount, lv.getFrameIds(), lv.appendFrame(im)]",
+         result, "[false,1,[\"0002\"],\"0003\"]");
+
+  // the columns of a scene
+  expect(console, "new Scene().getColumns().length", result, "0");
+  expect(console,
+         "sc.setCell(1, 0, lv, 2).setCell(3, 0, 'L', 3); "
+         "sc.getColumns().map(function (c) { return [c.index, c.id, c.name, "
+         "c.type, c.firstRow, c.lastRow].join(' '); })",
+         result, "[\"0 Col1 Col1 Level 1 3\"]");
+
+  // errors
+  expectError(console, "im.getPixel(4, 0)",
+              "Pixel (4, 0) is outside the image (4 x 3)");
+  expectError(console, "im.setPixel(0, -1, 'red')",
+              "Pixel (0, -1) is outside the image (4 x 3)");
+  expectError(console, "im.getPixel(0.5, 0)",
+              "Bad pixel coordinates (0.5, 0): expected integers");
+  expectError(console, "im.setPixel(0, 0, 'notacolor')",
+              "notacolor is not a valid color");
+  expectError(console, "im.dpi = -1", "Bad dpi (-1): expected a number > 0");
+  expectError(console, "new Image().getPixel(0, 0)",
+              "Pixels can be accessed only in Raster images, not in Empty "
+              "images");
+  expectError(console,
+              "new ImageBuilder(2, 2, 'ToonzRaster').image.fill('red')",
+              "not in ToonzRaster images");
+  expectError(console, "new Image().clone()", "Can't clone an empty image");
+  expectError(console, "lv.appendFrame(42)",
+              "second argument (42) is not an image");
+  expectError(console, "lv.hasFrame('x')",
+              "Argument 'x' does not look like a FrameId");
+  expectError(console,
+              "lv.appendFrame(new ImageBuilder(2, 2, 'ToonzRaster').image)",
+              "cannot insert a ToonzRaster image to a Raster level");
+  expectError(console, "new Scene().renderFrame(0)",
+              "Frame 0 is out of range: the scene has 0 frames");
+  expectError(console, "sc.renderFrame(4)",
+              "Frame 4 is out of range: the scene has 4 frames");
+  expectError(console, "sc.renderFrame(-1)", "Frame -1 is out of range");
+}
+
 void testRun(Console &console, const QString &dirPath) {
   const int result = ScriptEngine::EvaluationResult;
 
@@ -446,6 +519,7 @@ int main(int argc, char *argv[]) {
     testOutput(console);
     testBindings(console);
     testStageObjects(console);
+    testImagesLevelsScene(console);
     testRun(console, dir.path());
     testInterrupt(engine, console);
     testDefineFunction(engine, console);

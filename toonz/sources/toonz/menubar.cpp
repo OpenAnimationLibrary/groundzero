@@ -9,12 +9,14 @@
 #include "cellselection.h"
 #include "mainwindow.h"
 #include "menubarpopup.h"
+#include "rigeasecommand.h"
 
 // TnzQt includes
 #include "toonzqt/tselectionhandle.h"
 #include "toonzqt/dvdialog.h"
 #include "toonzqt/menubarcommand.h"
 #include "toonzqt/gutil.h"
+#include "toonzqt/qtcompat.h"
 
 // TnzLib includes
 #include "toonz/toonzscene.h"
@@ -133,7 +135,8 @@ bool ensureAnimatedSvgAction(QMenu *menu) {
   }
 
   for (QAction *action : actions) {
-    if (action->menu() && ensureAnimatedSvgAction(action->menu())) return true;
+    if (QMenu *subMenu = menuOfAction(action))
+      if (ensureAnimatedSvgAction(subMenu)) return true;
   }
   return false;
 }
@@ -141,8 +144,8 @@ bool ensureAnimatedSvgAction(QMenu *menu) {
 bool menuContainsAction(QMenu *menu, QAction *target) {
   for (QAction *action : menu->actions()) {
     if (action == target) return true;
-    if (action->menu() && menuContainsAction(action->menu(), target))
-      return true;
+    QMenu *subMenu = menuOfAction(action);
+    if (subMenu && menuContainsAction(subMenu, target)) return true;
   }
   return false;
 }
@@ -367,8 +370,9 @@ void StackedMenuBar::createMenuBarByName(const QString &roomName) {
   QMenuBar *menuBar = qobject_cast<QMenuBar *>(widget(count() - 1));
   if (menuBar) {
     for (QAction *action : menuBar->actions()) {
-      if (action->menu() && action->menu()->title() == tr("Windows"))
-        ensureNewPanelActions(action->menu());
+      QMenu *subMenu = menuOfAction(action);
+      if (subMenu && subMenu->title() == tr("Windows"))
+        ensureNewPanelActions(subMenu);
     }
   }
 }
@@ -1106,6 +1110,22 @@ QMenuBar *StackedMenuBar::createXsheetMenuBar() {
     addMenuItem(eachMenu, MI_Each3);
     addMenuItem(eachMenu, MI_Each4);
   }
+  cellsMenu->addSeparator();
+  QMenu *rigBreakdownMenu = cellsMenu->addMenu(tr("Rig Breakdown"));
+  {
+    for (int i = 0; i < cRigBreakdownPresetCount; i++)
+      addMenuItem(rigBreakdownMenu, cRigBreakdownPresets[i].id);
+    rigBreakdownMenu->addSeparator();
+    addMenuItem(rigBreakdownMenu, MI_RigBreakdownCustom);
+  }
+  QMenu *rigEaseMenu = cellsMenu->addMenu(tr("Rig Ease"));
+  {
+    for (int i = 0; i < cRigEasePresetCount; i++)
+      addMenuItem(rigEaseMenu, cRigEasePresets[i].id);
+    rigEaseMenu->addSeparator();
+    addMenuItem(rigEaseMenu, MI_RigEaseCustom);
+  }
+  addMenuItem(cellsMenu, MI_RigIncludeChildren);
 
   //----Edit Menu
   QMenu *editMenu = addMenu(tr("Edit"), xsheetMenuBar);
@@ -1339,6 +1359,7 @@ QMenuBar *StackedMenuBar::createFullMenuBar() {
     addMenuItem(exportMenu, MI_ExportTvpJson);
     addMenuItem(exportMenu, MI_ExportCameraTrack);
     addMenuItem(exportMenu, MI_ExportSpine);
+    addMenuItem(exportMenu, MI_ExportLayeredPSD);
   }
   fileMenu->addSeparator();
   addMenuItem(fileMenu, MI_PrintXsheet);
@@ -1504,6 +1525,7 @@ QMenuBar *StackedMenuBar::createFullMenuBar() {
   xsheetMenu->addSeparator();
   addMenuItem(xsheetMenu, MI_InsertFx);
   addMenuItem(xsheetMenu, MI_NewOutputFx);
+  addMenuItem(xsheetMenu, MI_ToneHighlightSetup);
   xsheetMenu->addSeparator();
   addMenuItem(xsheetMenu, MI_InsertSceneFrame);
   addMenuItem(xsheetMenu, MI_RemoveSceneFrame);
@@ -1575,6 +1597,22 @@ QMenuBar *StackedMenuBar::createFullMenuBar() {
   cellsMenu->addSeparator();
   addMenuItem(cellsMenu, MI_FillEmptyCell);
   addMenuItem(cellsMenu, MI_SymbolTiming);
+  cellsMenu->addSeparator();
+  QMenu *rigBreakdownMenu = cellsMenu->addMenu(tr("Rig Breakdown"));
+  {
+    for (int i = 0; i < cRigBreakdownPresetCount; i++)
+      addMenuItem(rigBreakdownMenu, cRigBreakdownPresets[i].id);
+    rigBreakdownMenu->addSeparator();
+    addMenuItem(rigBreakdownMenu, MI_RigBreakdownCustom);
+  }
+  QMenu *rigEaseMenu = cellsMenu->addMenu(tr("Rig Ease"));
+  {
+    for (int i = 0; i < cRigEasePresetCount; i++)
+      addMenuItem(rigEaseMenu, cRigEasePresets[i].id);
+    rigEaseMenu->addSeparator();
+    addMenuItem(rigEaseMenu, MI_RigEaseCustom);
+  }
+  addMenuItem(cellsMenu, MI_RigIncludeChildren);
 
   // Menu' PLAY
   QMenu *playMenu = addMenu(tr("Play"), fullMenuBar);

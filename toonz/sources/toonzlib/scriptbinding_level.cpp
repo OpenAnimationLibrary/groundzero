@@ -389,6 +389,46 @@ QJSValue Level::setFrame(const QJSValue &fidArg, const QJSValue &imageArg) {
   return self();
 }
 
+TFrameId Level::nextFrameId(const TXshSimpleLevel *sl) {
+  if (!sl || sl->getFrameCount() == 0) return TFrameId(1);
+  // the frames are sorted: the last one has the greatest number
+  std::vector<TFrameId> fids;
+  sl->getFids(fids);
+  return TFrameId(fids.back().getNumber() + 1);
+}
+
+QJSValue Level::hasFrame(const QJSValue &fidArg) {
+  QString err;
+  TFrameId fid = getFid(fidArg, err);
+  if (!err.isEmpty()) {
+    return throwError(err);
+  }
+  return QJSValue(m_sl && m_sl->isFid(fid));
+}
+
+QJSValue Level::removeFrame(const QJSValue &fidArg) {
+  QString err;
+  TFrameId fid = getFid(fidArg, err);
+  if (!err.isEmpty()) {
+    return throwError(err);
+  }
+  if (m_sl && m_sl->isFid(fid)) {
+    m_sl->eraseFrame(fid);
+    m_sl->setDirtyFlag(true);
+  }
+  return self();
+}
+
+QJSValue Level::appendFrame(const QJSValue &imageArg) {
+  TFrameId fid = nextFrameId(m_sl);
+  // an error is thrown by setFrame(), which then returns undefined
+  QJSValue result = setFrame(QJSValue(fid.getNumber()), imageArg);
+  if (result.isUndefined()) {
+    return result;
+  }
+  return QJSValue(QString::fromStdString(fid.expand()));
+}
+
 QJSValue Level::getFrameIds() {
   QList<TFrameId> fids;
   getFrameIds(fids);

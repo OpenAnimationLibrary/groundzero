@@ -155,6 +155,7 @@
 
 #define MI_InsertFx "MI_InsertFx"
 #define MI_NewOutputFx "MI_NewOutputFx"
+#define MI_ToneHighlightSetup "MI_ToneHighlightSetup"
 
 #define MI_PasteNew "MI_PasteNew"
 #define MI_Autorenumber "MI_Autorenumber"
@@ -334,6 +335,11 @@
 #define MI_SelectionLockSelectedColumns "MI_SelectionLockSelectedColumns"
 #define MI_SelectionUnlockSelectedColumns "MI_SelectionUnlockSelectedColumns"
 #define MI_SelectionUnlockAllColumns "MI_SelectionUnlockAllColumns"
+#define MI_LightTableExcludeSelectedColumns                                    \
+  "MI_LightTableExcludeSelectedColumns"
+#define MI_LightTableIncludeSelectedColumns                                    \
+  "MI_LightTableIncludeSelectedColumns"
+#define MI_LightTableIncludeAllColumns "MI_LightTableIncludeAllColumns"
 #define MI_ToggleXSheetToolbar "MI_ToggleXSheetToolbar"
 #define MI_ToggleXsheetBreadcrumbs "MI_ToggleXsheetBreadcrumbs"
 #define MI_FoldColumns "MI_FoldColumns"
@@ -530,6 +536,7 @@
 #define MI_ExportXsheetPDF "MI_ExportXsheetPDF"
 #define MI_ExportCameraTrack "MI_ExportCameraTrack"
 #define MI_ExportSpine "MI_ExportSpine"
+#define MI_ExportLayeredPSD "MI_ExportLayeredPSD"
 
 // mark id is added for each actual command (i.g. MI_SetCellMark1)
 #define MI_SetCellMark "MI_SetCellMark"
@@ -561,5 +568,23 @@
 #define MI_OpenOffsetLayers "MI_OpenOffsetLayers"
 #define MI_OpenRigLibrary "MI_OpenRigLibrary"
 #define MI_OpenArtLayerManager "MI_OpenArtLayerManager"
+
+// Whole-rig breakdown and ease (Xsheet, Timeline, Cells menu)
+#define MI_RigBreakdown25 "MI_RigBreakdown25"
+#define MI_RigBreakdown33 "MI_RigBreakdown33"
+#define MI_RigBreakdown50 "MI_RigBreakdown50"
+#define MI_RigBreakdown66 "MI_RigBreakdown66"
+#define MI_RigBreakdown75 "MI_RigBreakdown75"
+#define MI_RigBreakdownAnticipate "MI_RigBreakdownAnticipate"
+#define MI_RigBreakdownOvershoot "MI_RigBreakdownOvershoot"
+#define MI_RigBreakdownCustom "MI_RigBreakdownCustom"
+#define MI_RigEaseInOut33 "MI_RigEaseInOut33"
+#define MI_RigEaseInOut50 "MI_RigEaseInOut50"
+#define MI_RigEaseOut50 "MI_RigEaseOut50"
+#define MI_RigEaseIn50 "MI_RigEaseIn50"
+#define MI_RigEaseOut100 "MI_RigEaseOut100"
+#define MI_RigEaseIn100 "MI_RigEaseIn100"
+#define MI_RigEaseCustom "MI_RigEaseCustom"
+#define MI_RigIncludeChildren "MI_RigIncludeChildren"
 
 #endif

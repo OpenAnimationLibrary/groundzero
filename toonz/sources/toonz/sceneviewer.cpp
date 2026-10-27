@@ -97,6 +97,7 @@
 #include <QOpenGLContext>
 #endif
 #include <QOpenGLFramebufferObject>
+#include <QElapsedTimer>
 #include <QMainWindow>
 #include <QStyle>
 
@@ -2106,7 +2107,7 @@ void SceneViewer::paintGL() {
 #endif
 
 #ifdef FPS_HISTOGRAM
-  QTime time;
+  QElapsedTimer time;
   time.start();
 #endif
 
@@ -2314,6 +2315,8 @@ void SceneViewer::drawScene() {
       args.m_isPlaying   = frameHandle->isPlaying();
       // the light table is for drawing; playback shows the scene as it is
       args.m_lightTable = lightTableToggle.getStatus() && !args.m_isPlaying;
+      args.m_lightTableOpacity =
+          Preferences::instance()->getLightTableOpacity() / 100.0;
       if (app->getCurrentLevel() && app->getCurrentLevel()->getLevel() &&
           !app->getCurrentLevel()->getLevel()->getSoundLevel())
         args.m_currentFrameId =

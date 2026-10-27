@@ -40,6 +40,7 @@
             <command>MI_ExportXsheetPDF</command>
             <command>MI_ExportCameraTrack</command>
             <command>MI_ExportSpine</command>
+            <command>MI_ExportLayeredPSD</command>
         </menu>
         <separator/>
         <command>MI_PrintXsheet</command>
@@ -251,6 +252,29 @@
         <separator/>
         <command>MI_FillEmptyCell</command>
         <command>MI_SymbolTiming</command>
+        <separator/>
+        <menu title="Rig Breakdown">
+            <command>MI_RigBreakdown25</command>
+            <command>MI_RigBreakdown33</command>
+            <command>MI_RigBreakdown50</command>
+            <command>MI_RigBreakdown66</command>
+            <command>MI_RigBreakdown75</command>
+            <command>MI_RigBreakdownAnticipate</command>
+            <command>MI_RigBreakdownOvershoot</command>
+            <separator/>
+            <command>MI_RigBreakdownCustom</command>
+        </menu>
+        <menu title="Rig Ease">
+            <command>MI_RigEaseInOut33</command>
+            <command>MI_RigEaseInOut50</command>
+            <command>MI_RigEaseOut50</command>
+            <command>MI_RigEaseIn50</command>
+            <command>MI_RigEaseOut100</command>
+            <command>MI_RigEaseIn100</command>
+            <separator/>
+            <command>MI_RigEaseCustom</command>
+        </menu>
+        <command>MI_RigIncludeChildren</command>
     </menu>
     <menu title="Play">
         <command>MI_Play</command>

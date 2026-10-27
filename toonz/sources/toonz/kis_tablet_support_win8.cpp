@@ -75,6 +75,25 @@
 #error This file must not be compiled for non-Windows systems
 #endif
 
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+
+// Qt 6 handles the Windows pointer messages (Windows Ink) itself, and builds
+// its tablet events from QPointingDevice objects that this filter cannot make.
+// So with Qt 6 the filter is never available and never installed.
+
+bool KisTabletSupportWin8::isAvailable() { return false; }
+
+bool KisTabletSupportWin8::isPenDeviceAvailable() { return false; }
+
+bool KisTabletSupportWin8::init() { return false; }
+
+bool KisTabletSupportWin8::nativeEventFilter(const QByteArray &, void *,
+                                             TNativeEventResult *) {
+  return false;
+}
+
+#else  // Qt 5
+
 namespace {
 
 class Win8PointerInputApi {
@@ -388,7 +407,8 @@ bool KisTabletSupportWin8::init() { return api.init(); }
 // }
 
 bool KisTabletSupportWin8::nativeEventFilter(const QByteArray &eventType,
-                                             void *message, long *result) {
+                                             void *message,
+                                             TNativeEventResult *result) {
   if (!result) {
     // I don't know why this even happens, but it actually does
     // And the same event is sent in again with result != nullptr
@@ -1228,5 +1248,7 @@ bool handlePointerMsg(const MSG &msg) {
 }
 
 }  // namespace
+
+#endif  // Qt 5
 
 #endif  // _WIN32

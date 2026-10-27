@@ -69,38 +69,54 @@ public:
                  int minorVersion)
       : m_stream(stream), m_version(majorVersion, minorVersion), m_count(0) {}
 
+  // The next parameter. A style tag of a damaged file can hold fewer
+  // parameters than the style reads.
+  const TStyleParam &next() {
+    if (m_count < 0 || m_count >= int(m_stream->size()))
+      throw TException("corrupted pli file: too few style parameters");
+    return (*m_stream)[m_count++];
+  }
+
   TInputStreamInterface &operator>>(double &x) override {
-    assert((*m_stream)[m_count].m_type == TStyleParam::SP_DOUBLE);
-    x = (*m_stream)[m_count++].m_numericVal;
+    const TStyleParam &param = next();
+    assert(param.m_type == TStyleParam::SP_DOUBLE);
+    x = param.m_numericVal;
     return *this;
   }
   TInputStreamInterface &operator>>(int &x) override {
-    assert((*m_stream)[m_count].m_type == TStyleParam::SP_INT);
-    x = (int)(*m_stream)[m_count++].m_numericVal;
+    const TStyleParam &param = next();
+    assert(param.m_type == TStyleParam::SP_INT);
+    x = (int)param.m_numericVal;
     return *this;
   }
   TInputStreamInterface &operator>>(std::string &x) override {
-    if ((*m_stream)[m_count].m_type == TStyleParam::SP_INT)
-      x = std::to_string(static_cast<int>((*m_stream)[m_count++].m_numericVal));
+    const TStyleParam &param = next();
+    if (param.m_type == TStyleParam::SP_INT)
+      x = std::to_string(static_cast<int>(param.m_numericVal));
     else {
-      assert((*m_stream)[m_count].m_type == TStyleParam::SP_STRING);
-      x = (*m_stream)[m_count++].m_string;
+      assert(param.m_type == TStyleParam::SP_STRING);
+      x = param.m_string;
     }
     return *this;
   }
   TInputStreamInterface &operator>>(BYTE &x) override {
-    assert((*m_stream)[m_count].m_type == TStyleParam::SP_BYTE);
-    x = (BYTE)(*m_stream)[m_count++].m_numericVal;
+    const TStyleParam &param = next();
+    assert(param.m_type == TStyleParam::SP_BYTE);
+    x = (BYTE)param.m_numericVal;
     return *this;
   }
   TInputStreamInterface &operator>>(USHORT &x) override {
-    assert((*m_stream)[m_count].m_type == TStyleParam::SP_USHORT);
-    x = (USHORT)(*m_stream)[m_count++].m_numericVal;
+    const TStyleParam &param = next();
+    assert(param.m_type == TStyleParam::SP_USHORT);
+    x = (USHORT)param.m_numericVal;
     return *this;
   }
   TInputStreamInterface &operator>>(TRaster32P &x) override {
-    assert((*m_stream)[m_count].m_type == TStyleParam::SP_RASTER);
-    x = (*m_stream)[m_count++].m_r;
+    const TStyleParam &param = next();
+    assert(param.m_type == TStyleParam::SP_RASTER);
+    // the style uses the raster; a parameter of another type has none
+    if (!param.m_r) throw TException("corrupted pli file: invalid raster");
+    x = param.m_r;
     return *this;
   }
 
@@ -356,6 +372,8 @@ void createStroke(ThickQuadraticChainTag *quadTag, TVectorImage *outVectImage,
     chunks[k] = &quadTag->m_curve[k];
 
   TStroke *stroke = TStroke::create(chunks);
+  // there is no stroke without curves
+  if (!stroke) throw TException("corrupted pli file: invalid stroke");
 
   assert(data.m_styleId != -1);
   stroke->setStyle(data.m_styleId);
@@ -377,9 +395,12 @@ static void createGroup(GroupTag *groupTag, TVectorImage *vi,
 
   int count = vi->getStrokeCount();
   for (int j = 0; j < groupTag->m_numObjects; j++) {
-    if (groupTag->m_object[j]->m_type == PliTag::COLOR_NGOBJ)
-      data.m_styleId = ((ColorTag *)groupTag->m_object[j])->m_color[0];
-    else if (groupTag->m_object[j]->m_type == PliTag::OUTLINE_OPTIONS_GOBJ)
+    if (groupTag->m_object[j]->m_type == PliTag::COLOR_NGOBJ) {
+      ColorTag *colorTag = (ColorTag *)groupTag->m_object[j];
+      if (colorTag->m_numColors < 1)
+        throw TException("corrupted pli file: invalid color");
+      data.m_styleId = colorTag->m_color[0];
+    } else if (groupTag->m_object[j]->m_type == PliTag::OUTLINE_OPTIONS_GOBJ)
       data.m_options =
           ((StrokeOutlineOptionsTag *)groupTag->m_object[j])->m_options;
     else if (groupTag->m_object[j]->m_type == PliTag::GROUP_GOBJ)
@@ -446,6 +467,8 @@ TImageP TImageReaderPli::doLoad() {
       ColorTag *colorTag = (ColorTag *)imageTag->m_object[i];
 
       assert(colorTag->m_numColors == 1);
+      if (colorTag->m_numColors < 1)
+        throw TException("corrupted pli file: invalid color");
       strokeData.m_styleId = colorTag->m_color[0];
       // isSketch=(colorTag->m_color[0] < c_maxSketchColorNum);
       // isSketch=(colorTag->m_color[0] < c_maxSketchColorNum);

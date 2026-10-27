@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: BSD-3-Clause
 
 #include "../psd/tiio_psd.h"
+#include "tpsdlayerwriter.h"
 
 #include "texception.h"
 #include "tfilepath_io.h"
@@ -13,6 +14,7 @@
 #include <QTemporaryDir>
 
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -353,6 +355,76 @@ void testUnicodeName(const TFilePath &dir) {
           "Unicode layer name mismatch");
 }
 
+// An image one pixel wide and high made the reader divide by a shrink of 0.
+void testSinglePixel(const TFilePath &dir) {
+  TRaster32P ras(1, 1);
+  ras->fill(TPixel32(10, 20, 30, 255));
+  const TFilePath path =
+      saveFrame(dir + TFilePath("dot..psd"), TFrameId(1), ras);
+  TPSDReader reader(path);
+  checkHeader(reader, 1, 1, 8);
+  for (int layerId = 0; layerId <= 1; ++layerId) {
+    TRaster32P loaded = loadLayer(reader, layerId, 1, 1);
+    require(loaded->pixels(0)[0] == TPixel32(10, 20, 30, 255),
+            "Single pixel PSD mismatch");
+  }
+}
+
+void writeFile(const TFilePath &path, const std::vector<unsigned char> &data) {
+  FILE *file = fopen(path, "wb");
+  require(file != nullptr, "Cannot write the damaged PSD file");
+  if (!data.empty()) std::fwrite(data.data(), 1, data.size(), file);
+  std::fclose(file);
+}
+
+// Loading a damaged file may fail, but it must not crash or hang.
+void loadDamaged(const TFilePath &path) {
+  try {
+    TPSDReader reader(path);
+    for (int layerId = 0; layerId <= 1; ++layerId) {
+      try {
+        TRasterImageP image;
+        reader.load(image, layerId);
+      } catch (...) {
+      }
+    }
+  } catch (...) {
+  }
+}
+
+void testDamagedFiles(const TFilePath &dir) {
+  TRaster32P ras(40, 5);
+  for (int y = 0; y < 5; ++y)
+    for (int x = 0; x < 40; ++x)
+      ras->pixels(y)[x] = premultiply(straightColor(x, y, 10, 20));
+  const TFilePath path =
+      saveFrame(dir + TFilePath("damaged..psd"), TFrameId(1), ras);
+  const std::vector<unsigned char> data = readFile(path);
+  require(data.size() > 32, "The written PSD file is too short");
+  const TFilePath damaged = dir + TFilePath("cut.psd");
+
+  // cut short, in the header area and then in steps
+  for (size_t size = 0; size < data.size(); size += size < 160 ? 1 : 13) {
+    writeFile(damaged, std::vector<unsigned char>(
+                           data.begin(), data.begin() + (std::ptrdiff_t)size));
+    loadDamaged(damaged);
+  }
+
+  // a size or count field set to an extreme value: the height, the width and
+  // the channel count of the header
+  const size_t offsets[]      = {14, 18, 12};
+  const std::uint32_t sizes[] = {0, 1, 40000, 0x7fffffff, 0xffffffff};
+  for (size_t offset : offsets)
+    for (std::uint32_t value : sizes) {
+      std::vector<unsigned char> copy = data;
+      const int bytes                 = offset == 12 ? 2 : 4;
+      for (int i = 0; i < bytes; ++i)
+        copy[offset + i] = (unsigned char)(value >> (8 * (bytes - 1 - i)));
+      writeFile(damaged, copy);
+      loadDamaged(damaged);
+    }
+}
+
 void testUnsupportedImage(const TFilePath &dir) {
   TLevelWriterP writer(dir + TFilePath("empty..psd"));
   bool thrown = false;
@@ -365,6 +437,374 @@ void testUnsupportedImage(const TFilePath &dir) {
   FILE *file = fopen(dir + TFilePath("empty.0001.psd"), "rb");
   if (file) std::fclose(file);
   require(file == nullptr, "A file was written for a non-raster image");
+}
+
+//-----------------------------------------------------------------------------
+// Layered files (writeLayeredPsd)
+//-----------------------------------------------------------------------------
+
+typedef std::vector<unsigned char> Bytes;
+
+struct ParsedLayer {
+  std::string pascalName;
+  QString unicodeName;
+  unsigned int opacity = 0;
+  unsigned int flags   = 0;
+  Bytes planes[4];  // R, G, B, A, top-down rows of big-endian samples
+};
+
+struct ParsedPsd {
+  int depth = 0;
+  std::vector<ParsedLayer> layers;
+  Bytes merged[4];
+  int compression = -1;
+};
+
+// Decodes the PackBits rows of one plane
+Bytes unpackRows(ByteReader &in, const std::vector<unsigned int> &counts,
+                 int rowBytes) {
+  Bytes result;
+  for (unsigned int count : counts) {
+    const std::uint64_t end = in.pos() + count;
+    const size_t rowStart   = result.size();
+    while (in.pos() < end) {
+      const unsigned int n = in.u8();
+      if (n < 128)
+        for (unsigned int i = 0; i <= n; ++i) result.push_back(in.u8());
+      else if (n > 128) {
+        const unsigned char value = (unsigned char)in.u8();
+        for (unsigned int i = 0; i < 257 - n; ++i) result.push_back(value);
+      }
+    }
+    require(in.pos() == end, "RLE row overruns its byte count");
+    require(result.size() - rowStart == (size_t)rowBytes,
+            "RLE row length mismatch");
+  }
+  return result;
+}
+
+// Reads one layer channel (compression field included), `length` bytes long
+Bytes readLayerChannel(ByteReader &in, std::uint64_t length, int ly,
+                       int rowBytes) {
+  const std::uint64_t start = in.pos();
+  const int compression     = in.u16();
+  Bytes result;
+  if (compression == 0) {
+    for (std::uint64_t i = 0; i < (std::uint64_t)ly * rowBytes; ++i)
+      result.push_back((unsigned char)in.u8());
+  } else {
+    require(compression == 1, "Unexpected layer compression");
+    std::vector<unsigned int> counts;
+    for (int y = 0; y < ly; ++y) counts.push_back(in.u16());
+    result = unpackRows(in, counts, rowBytes);
+  }
+  require(in.pos() == start + length, "Layer channel length mismatch");
+  return result;
+}
+
+ParsedPsd parseLayeredPsd(const Bytes &data, int lx, int ly, int depth,
+                          int layerCount) {
+  const int rowBytes = lx * depth / 8;
+  ParsedPsd psd;
+  psd.depth = depth;
+  ByteReader in(data);
+
+  require(in.str(4) == "8BPS", "PSD signature mismatch");
+  require(in.u16() == 1, "PSD version mismatch");
+  in.skip(6);
+  require(in.u16() == 4, "PSD header channel count mismatch");
+  require(in.u32() == (std::uint32_t)ly, "PSD height mismatch");
+  require(in.u32() == (std::uint32_t)lx, "PSD width mismatch");
+  require(in.u16() == (unsigned int)depth, "PSD depth mismatch");
+  require(in.u16() == 3, "PSD color mode is not RGB");
+  in.skip(in.u32());  // color mode data
+  in.skip(in.u32());  // image resources
+
+  const std::uint32_t layerMask = in.u32();
+  require(layerMask % 2 == 0, "Layer and mask section length is odd");
+  const std::uint64_t layerMaskEnd = in.pos() + layerMask;
+  const std::uint32_t layerInfo    = in.u32();
+  require(layerInfo % 2 == 0, "Layer info length is odd");
+  const std::uint64_t layerInfoEnd = in.pos() + layerInfo;
+  require(in.s16() == -layerCount, "Layer count mismatch");
+
+  // Layer records, bottom layer first
+  std::vector<std::vector<std::uint32_t>> channelLengths;
+  for (int l = 0; l < layerCount; ++l) {
+    ParsedLayer layer;
+    require(in.u32() == 0 && in.u32() == 0, "Layer top/left mismatch");
+    require(in.u32() == (std::uint32_t)ly, "Layer bottom mismatch");
+    require(in.u32() == (std::uint32_t)lx, "Layer right mismatch");
+    require(in.u16() == 4, "Layer channel count mismatch");
+    const int channelIds[4] = {-1, 0, 1, 2};
+    std::vector<std::uint32_t> lengths;
+    for (int i = 0; i < 4; ++i) {
+      require(in.s16() == channelIds[i], "Layer channel id mismatch");
+      lengths.push_back(in.u32());
+    }
+    channelLengths.push_back(lengths);
+    require(in.str(4) == "8BIM", "Blend mode signature mismatch");
+    require(in.str(4) == "norm", "Blend mode is not normal");
+    layer.opacity = in.u8();
+    in.skip(1);  // clipping
+    layer.flags = in.u8();
+    in.skip(1);  // filler
+    const std::uint32_t extra    = in.u32();
+    const std::uint64_t extraEnd = in.pos() + extra;
+    require(in.u32() == 0, "Unexpected layer mask data");
+    in.skip(in.u32());  // blending ranges
+    const std::uint64_t nameStart = in.pos();
+    const unsigned int nameLength = in.u8();
+    layer.pascalName              = in.str(nameLength);
+    in.seek(nameStart + ((1 + nameLength + 3) & ~3u));
+    while (in.pos() < extraEnd) {
+      require(in.str(4) == "8BIM", "Additional layer info signature mismatch");
+      const std::string key        = in.str(4);
+      const std::uint32_t length   = in.u32();
+      const std::uint64_t blockEnd = in.pos() + length;
+      if (key == "luni") {
+        const std::uint32_t count = in.u32();
+        for (std::uint32_t i = 0; i < count; ++i)
+          layer.unicodeName += QChar((ushort)in.u16());
+      }
+      in.seek(blockEnd);
+    }
+    require(in.pos() == extraEnd, "Layer extra data length mismatch");
+    psd.layers.push_back(layer);
+  }
+
+  // Layer channel image data
+  const int planeOfChannel[4] = {3, 0, 1, 2};
+  for (int l = 0; l < layerCount; ++l)
+    for (int i = 0; i < 4; ++i)
+      psd.layers[l].planes[planeOfChannel[i]] =
+          readLayerChannel(in, channelLengths[l][i], ly, rowBytes);
+  require(in.pos() <= layerInfoEnd && layerInfoEnd - in.pos() < 4,
+          "Layer info length mismatch");
+  in.seek(layerInfoEnd);
+  in.skip(in.u32());  // global layer mask info
+  require(in.pos() == layerMaskEnd, "Layer and mask section length mismatch");
+
+  // Merged image data
+  psd.compression = in.u16();
+  if (psd.compression == 0) {
+    for (int c = 0; c < 4; ++c)
+      for (std::uint64_t i = 0; i < (std::uint64_t)ly * rowBytes; ++i)
+        psd.merged[c].push_back((unsigned char)in.u8());
+  } else {
+    require(psd.compression == 1, "Unexpected merged compression");
+    std::vector<unsigned int> counts;
+    for (int i = 0; i < 4 * ly; ++i) counts.push_back(in.u16());
+    for (int c = 0; c < 4; ++c)
+      psd.merged[c] =
+          unpackRows(in,
+                     std::vector<unsigned int>(counts.begin() + c * ly,
+                                               counts.begin() + (c + 1) * ly),
+                     rowBytes);
+  }
+  require(in.pos() == in.size(), "Merged image data size mismatch");
+  return psd;
+}
+
+// The straight-alpha planes (R, G, B, A, top-down) the file must hold
+void expectedPlanes(const TRasterP &ras, Bytes planes[4]) {
+  const int lx = ras->getLx(), ly = ras->getLy();
+  TRaster32P ras32 = ras;
+  TRaster64P ras64 = ras;
+  for (int y = 0; y < ly; ++y) {
+    const int rasY = ly - 1 - y;
+    for (int x = 0; x < lx; ++x) {
+      if (ras32) {
+        TPixel32 p = ras32->pixels(rasY)[x];
+        if (p.m != 0) depremult(p);
+        const unsigned int values[4] = {p.r, p.g, p.b, p.m};
+        for (int c = 0; c < 4; ++c)
+          planes[c].push_back((unsigned char)values[c]);
+      } else {
+        TPixel64 p = ras64->pixels(rasY)[x];
+        if (p.m != 0) depremult(p);
+        const unsigned int values[4] = {p.r, p.g, p.b, p.m};
+        for (int c = 0; c < 4; ++c) {
+          planes[c].push_back((unsigned char)(values[c] >> 8));
+          planes[c].push_back((unsigned char)(values[c] & 0xff));
+        }
+      }
+    }
+  }
+}
+
+void checkPlanes(const Bytes actual[4], const TRasterP &ras,
+                 const std::string &what) {
+  Bytes expected[4];
+  expectedPlanes(ras, expected);
+  for (int c = 0; c < 4; ++c)
+    require(actual[c] == expected[c], what + " plane " + std::to_string(c) +
+                                          " does not match the raster");
+}
+
+TRaster32P makeLayer32(int lx, int ly, int opaqueStart, int gradientStart) {
+  TRaster32P ras(lx, ly);
+  for (int y = 0; y < ly; ++y)
+    for (int x = 0; x < lx; ++x)
+      ras->pixels(y)[x] =
+          premultiply(straightColor(x, y, opaqueStart, gradientStart));
+  return ras;
+}
+
+void testLayered8Bit(const TFilePath &dir) {
+  const int lx = 300, ly = 4;
+  TRaster32P bottom = makeLayer32(lx, ly, 20, 100);
+  TRaster32P middle = makeLayer32(lx, ly, 150, 210);
+  TRaster32P top(lx, ly);  // fully transparent
+  top->fill(TPixel32(0, 0, 0, 0));
+  TRaster32P merged = makeLayer32(lx, ly, 60, 180);
+
+  std::vector<TLayeredPsdLayer> layers(3);
+  layers[0].m_name    = L"Background";
+  layers[0].m_raster  = bottom;
+  layers[1].m_name    = L"Aé col";
+  layers[1].m_raster  = middle;
+  layers[1].m_opacity = 128;
+  layers[2].m_name    = L"Hidden";
+  layers[2].m_raster  = top;
+  layers[2].m_visible = false;
+
+  const TFilePath path = dir + TFilePath("layered8.psd");
+  writeLayeredPsd(path, merged, layers, 150.0, 150.0);
+
+  const ParsedPsd psd = parseLayeredPsd(readFile(path), lx, ly, 8, 3);
+  require(psd.compression == 1, "8 bit layered PSD is not RLE compressed");
+  require(psd.layers[0].pascalName == "Background", "Layer 0 name mismatch");
+  require(psd.layers[1].pascalName == "A_ col", "Layer 1 ASCII name mismatch");
+  require(psd.layers[1].unicodeName == QString::fromUtf8("A\xC3\xA9 col"),
+          "Layer 1 Unicode name mismatch");
+  require(psd.layers[2].pascalName == "Hidden", "Layer 2 name mismatch");
+  require(psd.layers[0].opacity == 255 && psd.layers[1].opacity == 128 &&
+              psd.layers[2].opacity == 255,
+          "Layer opacity mismatch");
+  require((psd.layers[0].flags & 2) == 0 && (psd.layers[1].flags & 2) == 0 &&
+              (psd.layers[2].flags & 2) != 0,
+          "Layer visibility flag mismatch");
+  checkPlanes(psd.layers[0].planes, bottom, "Layer 0");
+  checkPlanes(psd.layers[1].planes, middle, "Layer 1");
+  checkPlanes(psd.layers[2].planes, top, "Layer 2");
+  checkPlanes(psd.merged, merged, "Merged image");
+
+  // TPSDReader sees the layers (the ASCII names, in any order)
+  TPSDReader reader(path);
+  const TPSDHeaderInfo header = reader.getPSDHeaderInfo();
+  require(header.layersCount == 3 && header.mergedalpha,
+          "TPSDReader layer count mismatch");
+  require(header.cols == lx && header.rows == ly, "TPSDReader size mismatch");
+  int found = 0;
+  for (int i = 0; i < header.layersCount; ++i) {
+    const std::string name = reader.getLayerInfo(i)->name;
+    if (name == "Background" || name == "Hidden") ++found;
+  }
+  require(found == 2, "TPSDReader layer names mismatch");
+
+  // A layer too large to load (the bottom of the first record set beyond the
+  // limit) is not loaded, and the next layer is still read from its own data
+  Bytes big = readFile(path);
+  {
+    ByteReader in(big);
+    in.skip(26);         // header
+    in.skip(in.u32());   // color mode data
+    in.skip(in.u32());   // image resources
+    in.skip(4 + 4 + 2);  // section lengths, layer count
+    const std::uint64_t bottom   = in.pos() + 8;
+    const std::uint32_t tooLarge = 400000;
+    for (int i = 0; i < 4; ++i)
+      big[bottom + i] = (unsigned char)(tooLarge >> (8 * (3 - i)));
+  }
+  const TFilePath bigPath = dir + TFilePath("layered8_big.psd");
+  writeFile(bigPath, big);
+  TPSDReader bigReader(bigPath);
+  require(bigReader.getPSDHeaderInfo().layersCount == 3,
+          "TPSDReader layer count mismatch with a layer too large");
+  TRasterImageP skipped;
+  bigReader.load(skipped, bigReader.getLayerInfo(0)->layerId);
+  require(!skipped, "A layer too large to load was loaded");
+  // The layer after it loads exactly as it does from the unmodified file
+  TRaster32P reference =
+      loadLayer(reader, reader.getLayerInfo(1)->layerId, lx, ly);
+  // (its opaque pixels are those written, so it is the right layer)
+  for (int y = 0; y < ly; ++y)
+    for (int x = 150; x < 210; ++x)
+      require(reference->pixels(y)[x] == middle->pixels(y)[x],
+              pixelMessage("Layer 1 opaque pixel mismatch", x, y));
+  TRaster32P loaded =
+      loadLayer(bigReader, bigReader.getLayerInfo(1)->layerId, lx, ly);
+  for (int y = 0; y < ly; ++y)
+    for (int x = 0; x < lx; ++x) {
+      require(loaded->pixels(y)[x] == reference->pixels(y)[x],
+              pixelMessage("Layer after a layer too large mismatch", x, y));
+    }
+}
+
+void testLayered16Bit(const TFilePath &dir) {
+  const int lx = 129, ly = 3;
+  TRaster64P first(lx, ly), second(lx, ly), merged(lx, ly);
+  for (int y = 0; y < ly; ++y)
+    for (int x = 0; x < lx; ++x) {
+      first->pixels(y)[x]  = premultiply(straightColor64(x, y));
+      second->pixels(y)[x] = premultiply(straightColor64(lx - 1 - x, y + 1));
+      merged->pixels(y)[x] = premultiply(straightColor64(x + 5, y));
+    }
+
+  std::vector<TLayeredPsdLayer> layers(2);
+  layers[0].m_name   = L"One";
+  layers[0].m_raster = first;
+  layers[1].m_name   = L"Two";
+  layers[1].m_raster = second;
+
+  const TFilePath path = dir + TFilePath("layered16.psd");
+  writeLayeredPsd(path, merged, layers, 72.0, 72.0);
+
+  const ParsedPsd psd = parseLayeredPsd(readFile(path), lx, ly, 16, 2);
+  require(psd.compression == 0, "16 bit layered PSD is not stored raw");
+  checkPlanes(psd.layers[0].planes, first, "16 bit layer 0");
+  checkPlanes(psd.layers[1].planes, second, "16 bit layer 1");
+  checkPlanes(psd.merged, merged, "16 bit merged image");
+}
+
+void testLayeredErrors(const TFilePath &dir) {
+  TRaster32P small(4, 4), big(5, 5);
+  small->fill(TPixel32(1, 2, 3, 255));
+  big->fill(TPixel32(1, 2, 3, 255));
+  TRaster64P deep(4, 4);
+  deep->fill(TPixel64(1, 2, 3, 65535));
+
+  struct Case {
+    const char *message;
+    TRasterP merged;
+    TRasterP layer;
+    bool noLayers;
+  } cases[] = {
+      {"A layer of another size was accepted", small, big, false},
+      {"A layer of another bit depth was accepted", small, deep, false},
+      {"A null layer raster was accepted", small, TRasterP(), false},
+      {"No layers were accepted", small, small, true}};
+  for (const Case &c : cases) {
+    std::vector<TLayeredPsdLayer> layers;
+    if (!c.noLayers) {
+      TLayeredPsdLayer layer;
+      layer.m_name   = L"L";
+      layer.m_raster = c.layer;
+      layers.push_back(layer);
+    }
+    bool thrown = false;
+    try {
+      writeLayeredPsd(dir + TFilePath("layered_bad.psd"), c.merged, layers,
+                      72.0, 72.0);
+    } catch (const TImageException &) {
+      thrown = true;
+    }
+    require(thrown, c.message);
+  }
+  FILE *file = fopen(dir + TFilePath("layered_bad.psd"), "rb");
+  if (file) std::fclose(file);
+  require(file == nullptr, "A file was written for invalid layers");
 }
 }  // namespace
 
@@ -381,7 +821,12 @@ int main(int argc, char *argv[]) {
     test8Bit(dir);
     test16Bit(dir);
     testUnicodeName(dir);
+    testSinglePixel(dir);
+    testDamagedFiles(dir);
     testUnsupportedImage(dir);
+    testLayered8Bit(dir);
+    testLayered16Bit(dir);
+    testLayeredErrors(dir);
     std::cout << "PSD writer tests passed\n";
     return 0;
   } catch (const TException &error) {

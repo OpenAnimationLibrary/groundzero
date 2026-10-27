@@ -1481,7 +1481,10 @@ enum {
   CMD_TOGGLE_CAMSTAND  = 0x0100,
 
   CMD_SELECTION_LOCK   = 0x0200,
-  CMD_SELECTION_UNLOCK = 0x0400
+  CMD_SELECTION_UNLOCK = 0x0400,
+
+  CMD_LIGHTTABLE_EXCLUDE = 0x0800,
+  CMD_LIGHTTABLE_INCLUDE = 0x1000
 };
 
 enum {
@@ -1551,6 +1554,9 @@ public:
       // The camera column is never picked in the viewer.
       if (i >= 0 && (cmd & (CMD_SELECTION_LOCK | CMD_SELECTION_UNLOCK)))
         column->lockSelection((cmd & CMD_SELECTION_LOCK) != 0);
+      // Light Table exclusion; the camera column is never faded.
+      if (i >= 0 && (cmd & (CMD_LIGHTTABLE_EXCLUDE | CMD_LIGHTTABLE_INCLUDE)))
+        column->setLightTableExcluded((cmd & CMD_LIGHTTABLE_EXCLUDE) != 0);
       if (cmd &
           (CMD_ENABLE_PREVIEW | CMD_DISABLE_PREVIEW | CMD_TOGGLE_PREVIEW)) {
         if (cmd & CMD_ENABLE_PREVIEW)
@@ -1632,7 +1638,13 @@ ColumnsStatusCommand
     c19(MI_SelectionLockSelectedColumns, CMD_SELECTION_LOCK, TARGET_SELECTED),
     c20(MI_SelectionUnlockSelectedColumns, CMD_SELECTION_UNLOCK,
         TARGET_SELECTED),
-    c21(MI_SelectionUnlockAllColumns, CMD_SELECTION_UNLOCK, TARGET_ALL);
+    c21(MI_SelectionUnlockAllColumns, CMD_SELECTION_UNLOCK, TARGET_ALL),
+
+    c22(MI_LightTableExcludeSelectedColumns, CMD_LIGHTTABLE_EXCLUDE,
+        TARGET_SELECTED),
+    c23(MI_LightTableIncludeSelectedColumns, CMD_LIGHTTABLE_INCLUDE,
+        TARGET_SELECTED),
+    c24(MI_LightTableIncludeAllColumns, CMD_LIGHTTABLE_INCLUDE, TARGET_ALL);
 }  // namespace
 
 //=============================================================================

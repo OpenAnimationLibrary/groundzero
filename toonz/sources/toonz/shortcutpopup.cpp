@@ -151,7 +151,7 @@ void ShortcutViewer::keyPressEvent(QKeyEvent *event) {
     // If "Use Numpad and Tab keys for Switching Styles" option is activated,
     // then prevent to assign such keys
     if (Preferences::instance()->isUseNumpadForSwitchingStylesEnabled() &&
-        modifiers == 0 && (key >= Qt::Key_0 && key <= Qt::Key_9)) {
+        modifiers == Qt::NoModifier && (key >= Qt::Key_0 && key <= Qt::Key_9)) {
       event->ignore();
       return;
     }

@@ -15,6 +15,8 @@
 #include <QEventLoop>
 #include <QWaitCondition>
 
+#include <atomic>
+
 #include "timagecache.h"
 
 namespace TScriptBinding {
@@ -52,7 +54,7 @@ public:
   TScriptBinding::Level *m_outputLevel;
   TPointD m_cameraDpi;
 
-  bool m_completed;
+  std::atomic<bool> m_completed;  // set by the render thread
   TRenderer m_renderer;
 
   QList<int> m_columnList;
@@ -127,8 +129,11 @@ public:
     m_renderer.startRendering(rds);
 
     while (!m_completed) {
+      // User input is left queued: on the GUI thread (Python) it could run a
+      // new command, or a script, during the render. The JavaScript engine
+      // runs on its own thread, which gets no user input.
       QEventLoop loop;
-      loop.processEvents();
+      loop.processEvents(QEventLoop::ExcludeUserInputEvents);
       QWaitCondition waitCondition;
       waitCondition.wait(&mutex, 100);
     }
@@ -181,7 +186,9 @@ public:
     }
   }
   void onRenderFailure(const RenderData &renderData, TException &e) override {}
-  void onRenderFinished() { m_completed = true; }
+  void onRenderFinished(bool isCanceled = false) override {
+    m_completed = true;
+  }
 };  // class RenderEngine
 
 //=======================================================
@@ -337,6 +344,16 @@ return context()->throwError(tr("Render failed"));
 
 void Renderer::dumpCache() {
   TImageCache::instance()->outputMap(0, "C:\\Users\\gmt\\PLI\\cache.log");
+}
+
+TImageP Renderer::renderFrameImage(ToonzScene *scene, int row,
+                                   const QList<int> &columns) {
+  Imp imp;
+  imp.m_columnList = columns;
+  Image output;
+  imp.renderFrame(scene, row, &output);
+  imp.m_renderer.removePort(&imp);
+  return output.getImg();
 }
 
 }  // namespace TScriptBinding

@@ -102,6 +102,19 @@ public:
   }
   static void removeKeyframeAt(TDoubleParam *curve, double frame);
 
+  // Sets a key at frame whose value is favour of the way from the previous
+  // key's value to the next one's (0 = previous, 1 = next; values outside
+  // [0, 1] give an anticipation or an overshoot). Returns false, changing
+  // nothing, if the curve has a key at frame, has no key before or after it,
+  // or the segment there is an Expression, Similar Shape or File one.
+  static bool insertBreakdown(TDoubleParam *curve, int frame, double favour);
+
+  // Sets the segment starting at the key kIndex to Ease In / Ease Out (%)
+  // interpolation. easeOut leaves the first key and easeIn reaches the next
+  // one, as percentages of the segment length; their sum is cropped to 100.
+  static void setSegmentEase(TDoubleParam *curve, int kIndex, double easeOut,
+                             double easeIn);
+
   static void enableCycle(TDoubleParam *curve, bool enabled,
                           TSceneHandle *sceneHandle = nullptr);
 };

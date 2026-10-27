@@ -421,6 +421,14 @@ TRasterImageP load(const TFilePath &path, const Selection &selection,
   const PartInfo part = resolve(document.parts(), selection);
   LayerPlanes planes  = readLayer(document, part, selection.layer);
 
+  // The raster buffer is sized in an int; the display window is not bounded
+  // by the data of the file.
+  if (static_cast<std::int64_t>(part.displayWindow.width()) *
+          part.displayWindow.height() *
+          static_cast<std::int64_t>(sizeof(TPixelF)) >
+      std::numeric_limits<int>::max())
+    throw std::runtime_error("EXR display window is too large");
+
   TRasterFP raster(part.displayWindow.width(), part.displayWindow.height());
   raster->lock();
   raster->clear();
