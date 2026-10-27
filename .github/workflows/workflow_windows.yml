@@ -171,8 +171,22 @@ jobs:
         run: |
           @echo on
           cd toonz\build
-          msbuild /p:Configuration=RelWithDebInfo /m /verbosity:minimal ALL_BUILD.vcxproj
+          msbuild /p:Configuration=RelWithDebInfo /m /verbosity:minimal "/flp:logfile=msbuild-errors.log;errorsonly" ALL_BUILD.vcxproj
         shell: cmd
+
+      # Show the compile and link errors on the run (annotations), since the
+      # full log is not always reachable
+      - name: Report build errors
+        if: failure()
+        shell: bash
+        run: |
+          log=toonz/build/msbuild-errors.log
+          [ -f "$log" ] || exit 0
+          sort -u "$log" | grep -E ': (fatal )?error ' | head -60 > errors.txt || true
+          echo "::notice title=Windows build::$(wc -l < errors.txt) distinct errors"
+          all=$(sed -e 's/%/%25/g' errors.txt | sed -e 's/\r//' | sed -e ':a;N;$!ba;s/\n/%0A/g')
+          [ -n "$all" ] && echo "::error title=Windows build errors::${all}"
+          head -10 errors.txt | while IFS= read -r line; do echo "::error::${line}"; done
 
       # Create the package
       - name: Create Package
