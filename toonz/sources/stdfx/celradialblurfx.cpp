@@ -222,6 +222,22 @@ bool readImage(const TRasterPT<Pixel> &raster, const TRectD &domain,
   return true;
 }
 
+void allocateClearedTile(TTile &tile, const TPointD &origin, const TDimension &size,
+                         const TRasterP &prototype) {
+  TRasterP raster;
+  const TRaster32P depth8(prototype);
+  const TRaster64P depth16(prototype);
+  const TRasterFP depthFloat(prototype);
+  if (depth8) raster = TRaster32P(size);
+  else if (depth16) raster = TRaster64P(size);
+  else if (depthFloat) raster = TRasterFP(size);
+  else throw TException("Cel Radial Blur: unsupported raster type");
+  raster->setLinear(prototype->isLinear());
+  raster->clear();
+  tile.setRaster(raster);
+  tile.m_pos = origin;
+}
+
 bool readAnyImage(const TRasterP &raster, const TRectD &domain,
                   CelMotion::Image &image, const int *cancel) {
   if (TRaster32P value = raster) return readImage<TPixel32>(value, domain, image, cancel);
@@ -357,8 +373,8 @@ void CelRadialBlurFx::doCompute(TTile &tile, double frame,
   const TDimension size{int(domain.getLx()), int(domain.getLy())};
   CelMotion::checkedArea(size.lx, size.ly);
   TTile sourceTile;
-  m_source->allocateAndCompute(sourceTile, domain.getP00(), size,
-                               tile.getRaster(), frame, settings);
+  allocateClearedTile(sourceTile, domain.getP00(), size, tile.getRaster());
+  m_source->compute(sourceTile, frame, settings);
   if (isCanceled(settings.m_isCanceled)) return;
   CelMotion::Image source;
   if (!readAnyImage(sourceTile.getRaster(), domain, source, settings.m_isCanceled)) return;
@@ -391,7 +407,8 @@ void CelRadialBlurFx::doCompute(TTile &tile, double frame,
   const CelMotion::Image *noisePtr = nullptr;
   if (params.noise.type == CelNoise::Layer && m_noise.isConnected()) {
     TTile noiseTile;
-    m_noise->allocateAndCompute(noiseTile, domain.getP00(), size, tile.getRaster(), frame, settings);
+    allocateClearedTile(noiseTile, domain.getP00(), size, tile.getRaster());
+    m_noise->compute(noiseTile, frame, settings);
     if (!readAnyImage(noiseTile.getRaster(), domain, noise, settings.m_isCanceled)) return;
     noisePtr = &noise;
   }

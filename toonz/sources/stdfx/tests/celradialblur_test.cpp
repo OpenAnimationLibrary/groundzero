@@ -24,9 +24,11 @@ class Source final : public TStandardRasterFx {
   TRasterP m_raster;
   TPointD m_origin;
   int *m_cancel;
+  bool m_expectCleared;
 public:
-  explicit Source(const TRasterP &raster, TPointD origin = TPointD(), int *cancel = nullptr)
-      : m_raster(raster), m_origin(origin), m_cancel(cancel) {}
+  explicit Source(const TRasterP &raster, TPointD origin = TPointD(), int *cancel = nullptr,
+                  bool expectCleared = false)
+      : m_raster(raster), m_origin(origin), m_cancel(cancel), m_expectCleared(expectCleared) {}
   const TPersistDeclaration *getDeclaration() const override { return nullptr; }
   bool canHandle(const TRenderSettings &, double) override { return true; }
   bool doGetBBox(double, TRectD &box, const TRenderSettings &) override {
@@ -34,6 +36,14 @@ public:
   }
   std::string getAlias(double, const TRenderSettings &) const override { return "radial-test-source"; }
   void compute(TTile &tile, double, const TRenderSettings &) override {
+    if (m_expectCleared) {
+      TRaster32P raster = tile.getRaster();
+      require(bool(raster), "Expected an 8-bit initialization fixture");
+      for (int y = 0; y < raster->getLy(); ++y)
+        for (int x = 0; x < raster->getLx(); ++x)
+          require(raster->pixels(y)[x] == TPixel32::Transparent,
+                  "Upstream raster was not cleared before partial computation");
+    }
     tile.getRaster()->clear();
     tile.getRaster()->copy(m_raster, TPoint(-int(tile.m_pos.x - m_origin.x), -int(tile.m_pos.y - m_origin.y)));
     if (m_cancel) ++*m_cancel;
@@ -237,6 +247,17 @@ void precisionAndPersistence(const QString &path) {
           "Scene loading lost animated choice metadata");
 }
 
+void initializedInputs() {
+  TRaster32P source(5, 1); source->fill(TPixel32::White);
+  TRaster32P noise(5, 1); noise->fill(TPixel32::White);
+  CelRadialBlurFx fx;
+  fx.getInputPort(0)->setFx(new Source(source, TPointD(), nullptr, true));
+  fx.getInputPort(1)->setFx(new Source(noise, TPointD(), nullptr, true));
+  set(fx, "noiseType", 2); set(fx, "noiseVariation", 100);
+  require(render<TPixel32>(fx, 5, 1)->pixels(0)[0] == TPixel32::White,
+          "Cleared upstream inputs did not render correctly");
+}
+
 void cancellation() {
   TRaster32P input(2, 2); input->fill(TPixel32::White);
   int canceled = 1; CelRadialBlurFx fx; fx.getInputPort(0)->setFx(new Source(input, TPointD(), &canceled));
@@ -257,7 +278,7 @@ int main(int argc, char **argv) {
     rotationAndBorders<TPixel32>(); rotationAndBorders<TPixel64>(); rotationAndBorders<TPixelF>();
     shapeAndNoise(); noiseModes(); QTemporaryDir temp; require(temp.isValid(), "Cannot create scene fixture");
     precisionAndPersistence(temp.filePath("radial.fx"));
-    presetAndMacro(temp.filePath("radial.preset"), temp.filePath("radial.macro")); cancellation();
+    presetAndMacro(temp.filePath("radial.preset"), temp.filePath("radial.macro")); initializedInputs(); cancellation();
     std::cout << "PASS: radial geometry, controls, precision, tiles and cancellation\n"; return 0;
   } catch (const TException &error) {
     std::cerr << QString::fromStdWString(error.getMessage()).toStdString() << '\n';
