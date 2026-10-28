@@ -15,6 +15,11 @@ permissions:
   contents: write
   actions: read
 
+# Serialize both publication routes while selecting a changelog baseline.
+concurrency:
+  group: groundzero-build-release
+  cancel-in-progress: false
+
 jobs:
   publish:
     if: github.repository == 'OpenAnimationLibrary/groundzero'
@@ -25,8 +30,24 @@ jobs:
       TAG: ${{ inputs.tag }}
       RUN_IDS: ${{ inputs.run_ids }}
     steps:
+      - name: Check out release tooling
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
       - name: Verify release exists
         run: gh release view "$TAG" --json tagName
+
+      - name: Add changelog to draft release
+        shell: bash
+        run: |
+          set -euo pipefail
+          draft=$(gh release view "$TAG" --json isDraft --jq .isDraft)
+          if [ "$draft" = true ]; then
+            python3 .github/scripts/release_notes.py \
+              --tag "$TAG" --existing-only --output release-notes.md
+            gh release edit "$TAG" --notes-file release-notes.md
+          fi
 
       - name: Download artifacts
         run: |
@@ -59,3 +80,4 @@ jobs:
 
       - name: Upload to release
         run: gh release upload "$TAG" out/* --clobber
+

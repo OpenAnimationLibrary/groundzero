@@ -1,0 +1,32 @@
+name: Release Changelog Checks
+
+on:
+  pull_request:
+    branches: [edition]
+    paths:
+      - '.github/scripts/release_notes.py'
+      - '.github/scripts/test_release_notes.py'
+      - '.github/workflows/build_release.yml'
+      - '.github/workflows/publish_release.yml'
+      - '.github/workflows/release_changelog.yml'
+  push:
+    branches: [edition]
+    paths:
+      - '.github/scripts/release_notes.py'
+      - '.github/scripts/test_release_notes.py'
+      - '.github/workflows/build_release.yml'
+      - '.github/workflows/publish_release.yml'
+      - '.github/workflows/release_changelog.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  notes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Test release range and retry behavior
+        run: python3 -m unittest discover -s .github/scripts -p 'test_release_notes.py' -v
