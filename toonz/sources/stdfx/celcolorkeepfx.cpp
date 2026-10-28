@@ -155,6 +155,9 @@ public:
       tile.getRaster()->clear();
       return;
     }
+    // An upstream effect may render only its bounding box, leaving the
+    // remainder untouched. Start from transparent pixels in that case.
+    tile.getRaster()->clear();
     m_source->compute(tile, frame, settings);
     const int count = activeColorCount(m_enabledColors->getValue(frame));
     if (count == 0) {
