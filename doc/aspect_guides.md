@@ -11,7 +11,7 @@ requests; display-only parts come first, the render change last.
 | 2 | Letterbox overlay outside the guides | This pull request |
 | 3 | Outside-camera colour and opacity | Separate pull request |
 | 4 | Pegbar alignment guides from the `.fdg` peg-hole files | Pull request on top of parts 1 and 2 |
-| 5 | Export to an aspect ratio: letterbox or crop | Planned |
+| 5 | Export to an aspect ratio: letterbox or crop | Pull request on top of part 4 |
 
 ## 1 and 2: guides and letterbox
 
@@ -73,13 +73,35 @@ so the guide matches what the clean-up registers to. Toonz 4.6 (on SGI IRIX)
 used these Acme and Oxberry standards. The layout math
 (`include/toonz/pegbarguide.h`) has a regression test, `pegbarguide_test`.
 
-## 5: export to an aspect ratio (planned)
+## 5: export to an aspect ratio
 
-Output Settings gets **Aspect Ratio** (None, the presets above, Custom) and
-**Mode**: **Letterbox** keeps the frame size and adds bars of a chosen colour;
-**Crop** outputs only the guide area (1920x1080 at 1.85:1 gives 1920x1038),
-rounded to even sizes for the movie encoders. The camera and the framing do
-not change. It applies to Render, batch render and the Flipbook preview, and
-is saved in the scene only when it is used. Tests: the size math, a save and
-reload of the setting, a render reference image of each mode, and the
-compatibility check of the existing scenes.
+Output Settings > More Settings:
+
+- **Aspect Ratio**: None (the default), 4:3, 1.66:1, 16:9, 1.85:1, 2.39:1,
+  2.40:1 or Custom (typed as `2.2`, `2.2:1` or `21:9`).
+- **Fit**: **Letterbox** keeps the frame size and fills outside the ratio
+  with the **Bar Color** (with opacity, so the bars can be transparent in a
+  PNG); **Crop** writes only the part inside the ratio, centred, its sizes
+  rounded down to even numbers for the movie encoders (1920x1080 at 1.85:1
+  gives 1920x1038, at 2.39:1 1920x802).
+
+The camera and the framing do not change: the frames are rendered as before
+and fitted when they are written, after the color space conversion and before
+the frame numbering, so the numbers stay in the picture. It applies to every
+render written to a file (Render, Fast Render, batch and farm renders through
+`tcomposer`), to both eyes of a stereoscopic render, and the clapperboard is
+drawn at the written size. The Preview (to the Flipbook) is not fitted; use
+the guides and the letterbox overlay of parts 1 and 2 to see the result.
+
+The setting is saved in the scene, in the output settings, **only when it is
+used**: scenes that do not use it are saved exactly as before. A scene that
+uses it opens only in builds that have it; OpenToonz builds without it reject
+the unknown tag.
+
+Tests: `aspectexport_test` (the written size, the copy of the settings, the
+scene file with and without the setting), the pixel rect cases of
+`cameraguide_test`, and two reference images of `fxrender_test`
+(`stdfx/tests/fxrender`): `aspect_letterbox_239`, a checkerboard render with
+half transparent red bars at 2.39:1, and `aspect_crop_185`, a radial gradient
+render cropped to 1.85:1. Both go through `TOutputProperties::fitToAspectRatio`,
+the function the renderer calls when it writes a frame.

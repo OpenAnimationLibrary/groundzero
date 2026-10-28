@@ -289,7 +289,8 @@ void MovieRenderer::Imp::prepareForStart() {
     {    // could throw). But due to backward compatibility this function is
          // assumed to be non-throwing.
       if (!m_renderSettings.m_stereoscopic) {
-        locals::eraseUncompatibleExistingLevel(m_fp, cameraResI);
+        locals::eraseUncompatibleExistingLevel(
+            m_fp, oprop->getOutputSize(cameraResI));
 
         m_levelUpdaterA.reset(new LevelUpdater(
             m_fp, oprop->getFileFormatProperties(m_fp.getType()),
@@ -300,8 +301,10 @@ void MovieRenderer::Imp::prepareForStart() {
         TFilePath leftFp  = m_fp.withName(m_fp.getName() + "_l");
         TFilePath rightFp = m_fp.withName(m_fp.getName() + "_r");
 
-        locals::eraseUncompatibleExistingLevel(leftFp, cameraResI);
-        locals::eraseUncompatibleExistingLevel(rightFp, cameraResI);
+        locals::eraseUncompatibleExistingLevel(
+            leftFp, oprop->getOutputSize(cameraResI));
+        locals::eraseUncompatibleExistingLevel(
+            rightFp, oprop->getOutputSize(cameraResI));
 
         m_levelUpdaterA.reset(new LevelUpdater(
             leftFp, oprop->getFileFormatProperties(leftFp.getType()),
@@ -412,6 +415,13 @@ void MovieRenderer::Imp::postProcessImage(const TRasterImageP &img,
       TRop::toLinearRGB(img->getRaster(), writingGamma);
     }
   }
+
+  // After the color space conversion, which is done in place once for the
+  // frames that share a raster: the crop makes a copy.
+  const TOutputProperties &out =
+      *m_scene->getProperties()->getOutputProperties();
+  if (out.getAspectMode() != TOutputProperties::NoAspectExport)
+    img->setRaster(out.fitToAspectRatio(img->getRaster(), writingGamma));
 
   if (mark) addMark(mark, img);
 
@@ -860,8 +870,12 @@ int MovieRenderer::Imp::addBoard() {
                         double(m_frameSize.ly) / shrinkY);
   TDimension cameraResI(cameraRes.lx, cameraRes.ly);
 
+  // the board at the size of the written frames
+  TDimension outputSize =
+      m_scene->getProperties()->getOutputProperties()->getOutputSize(
+          cameraResI);
   TRaster32P boardRas =
-      boardSettings->getBoardRaster(cameraResI, shrinkX, m_scene);
+      boardSettings->getBoardRaster(outputSize, shrinkX, m_scene);
 
   if (m_levelUpdaterA.get()) {
     // Flush images
@@ -897,8 +911,12 @@ void MovieRenderer::Imp::saveBoardFrame() {
                         double(m_frameSize.ly) / shrinkY);
   TDimension cameraResI(cameraRes.lx, cameraRes.ly);
 
+  // the board at the size of the written frames
+  TDimension outputSize =
+      m_scene->getProperties()->getOutputProperties()->getOutputSize(
+          cameraResI);
   TRaster32P boardRas =
-      boardSettings->getBoardRaster(cameraResI, shrinkX, m_scene);
+      boardSettings->getBoardRaster(outputSize, shrinkX, m_scene);
 
   if (m_levelUpdaterA.get()) {
     // Flush images

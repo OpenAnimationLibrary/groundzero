@@ -482,6 +482,15 @@ if(BUILD_PEGBARGUIDE_TESTS)
     add_test(NAME pegbarguide COMMAND pegbarguide_test)
 endif()
 
+# Optional regression target for the export to an aspect ratio
+# (TOutputProperties and its scene file tag).
+option(BUILD_ASPECTEXPORT_TESTS "Build the aspect ratio export regression test" ${BUILD_TESTS})
+if(BUILD_ASPECTEXPORT_TESTS)
+    add_executable(aspectexport_test tests/aspectexport_test.cpp)
+    target_link_libraries(aspectexport_test PRIVATE toonzlib tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
+    add_test(NAME aspectexport COMMAND aspectexport_test)
+endif()
+
 # Optional regression target for the brush stroke to outline shape conversion
 # (contouroutline.h).
 option(BUILD_CONTOUR_TESTS "Build the contour outline regression test" ${BUILD_TESTS})

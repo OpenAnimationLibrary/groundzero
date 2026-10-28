@@ -4,6 +4,9 @@
 #define OUTPUT_PROPERTIES_INCLUDED
 
 #include "tfilepath.h"
+#include "tgeometry.h"
+#include "tpixel.h"
+#include "traster.h"
 
 #undef DVAPI
 #undef DVVAR
@@ -71,6 +74,13 @@ Can set in output to all levels, only selectecd levels or only animated levels.
 
   enum MaxTileSizeValues { LargeVal = 50, MediumVal = 10, SmallVal = 2 };
 
+  //! How the rendered frames are fitted to the export aspect ratio.
+  enum AspectExportMode {
+    NoAspectExport,   //!< The frames as rendered.
+    AspectLetterbox,  //!< The frame size kept, bars outside the ratio.
+    AspectCrop        //!< Only the part inside the ratio, at even sizes.
+  };
+
 private:
   TFilePath m_path;
 
@@ -103,6 +113,11 @@ private:
   bool m_syncColorSettings;
   // for restoring bpp when setting the color space back to nonlinear
   int m_nonlinearBpp;
+
+  // export to an aspect ratio
+  int m_aspectMode;
+  double m_aspectRatio;
+  TPixel32 m_aspectColor;
 
 public:
   /*!
@@ -239,6 +254,23 @@ machine's CPU).
   void syncColorSettings(bool sync) { m_syncColorSettings = sync; }
   int getNonlinearBpp() { return m_nonlinearBpp; }
   void setNonlinearBpp(int bpp) { m_nonlinearBpp = bpp; }
+
+  //! The export aspect ratio: an AspectExportMode, the ratio (width over
+  //! height) and the colour of the letterbox bars.
+  int getAspectMode() const { return m_aspectMode; }
+  void setAspectMode(int mode);
+  double getAspectRatio() const { return m_aspectRatio; }
+  void setAspectRatio(double ratio);
+  TPixel32 getAspectColor() const { return m_aspectColor; }
+  void setAspectColor(const TPixel32 &color) { m_aspectColor = color; }
+
+  //! The size of the written frames, for frames rendered at renderSize.
+  TDimension getOutputSize(const TDimension &renderSize) const;
+
+  //! Fits a rendered frame to the export aspect ratio: returns a cropped
+  //! copy, or ras itself with the bars filled. For a raster in linear color
+  //! space, the bar color is converted with linearGamma.
+  TRasterP fitToAspectRatio(const TRasterP &ras, double linearGamma) const;
 };
 
 //--------------------------------------------

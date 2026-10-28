@@ -16,6 +16,7 @@
 #include "toonzqt/filefield.h"
 #include "toonzqt/doublefield.h"
 #include "toonzqt/checkbox.h"
+#include "toonzqt/colorfield.h"
 
 // TnzLib includes
 #include "toonz/tscenehandle.h"
@@ -27,6 +28,7 @@
 #include "toutputproperties.h"
 #include "toonz/tcamera.h"
 #include "toonz/boardsettings.h"
+#include "toonz/cameraguide.h"
 
 // TnzBase includes
 #include "trasterfx.h"
@@ -43,6 +45,8 @@
 #include <QLabel>
 #include <QPushButton>
 #include <QComboBox>
+#include <QSignalBlocker>
+#include <QLineEdit>
 #include <QMainWindow>
 #include <QFrame>
 #include <QMessageBox>
@@ -52,6 +56,25 @@
 #include <QPropertyAnimation>
 #include <QSpacerItem>
 #include <QEvent>
+
+#include <cmath>
+
+namespace {
+
+// The export aspect ratios of the Aspect Ratio menu, after None; the last
+// item is Custom.
+const struct {
+  const char *label;
+  double ratio;
+} aspectPresets[]           = {{QT_TR_NOOP("4:3 (1.33:1)"), 4.0 / 3.0},
+                               {QT_TR_NOOP("1.66:1 (European Widescreen)"), 1.66},
+                               {QT_TR_NOOP("16:9 (1.78:1)"), 16.0 / 9.0},
+                               {QT_TR_NOOP("1.85:1 (Theatrical Widescreen)"), 1.85},
+                               {QT_TR_NOOP("2.39:1 (Scope, DCI)"), 2.39},
+                               {QT_TR_NOOP("2.40:1 (Anamorphic Scope)"), 2.40}};
+const int aspectPresetCount = sizeof(aspectPresets) / sizeof(aspectPresets[0]);
+
+}  // namespace
 //-----------------------------------------------------------------------------
 namespace {
 
@@ -758,6 +781,25 @@ QFrame *OutputSettingsPopup::createMoreSettingsBox() {
   m_multimediaOm->installEventFilter(this);
   m_stereoShift->setEnabled(false);
 
+  // Export to an aspect ratio
+  m_aspectRatioOm = new QComboBox(this);
+  m_aspectRatioOm->addItem(tr("None"));
+  for (int i = 0; i < aspectPresetCount; i++)
+    m_aspectRatioOm->addItem(tr(aspectPresets[i].label));
+  m_aspectRatioOm->addItem(tr("Custom"));
+  m_aspectRatioOm->setFocusPolicy(Qt::StrongFocus);
+  m_aspectRatioOm->installEventFilter(this);
+  m_aspectRatioFld = new QLineEdit(this);
+  m_aspectRatioFld->setToolTip(tr("A ratio such as 2.2, 2.2:1 or 21:9"));
+  m_aspectRatioFld->setMaximumWidth(80);
+  m_aspectModeOm = new QComboBox(this);
+  m_aspectModeOm->addItem(tr("Letterbox (keep the frame size)"));
+  m_aspectModeOm->addItem(tr("Crop (output only the ratio)"));
+  m_aspectModeOm->setFocusPolicy(Qt::StrongFocus);
+  m_aspectModeOm->installEventFilter(this);
+  m_aspectColorFld =
+      new DVGui::ColorField(this, true, TPixel32::Black, 24, false);
+
   //-----
 
   QGridLayout *lay = new QGridLayout();
@@ -803,6 +845,21 @@ QFrame *OutputSettingsPopup::createMoreSettingsBox() {
     lay->addWidget(new QLabel(tr("Camera Shift:")), 6, 1, 1, 2,
                    Qt::AlignRight | Qt::AlignVCenter);
     lay->addWidget(m_stereoShift, 6, 3, Qt::AlignLeft | Qt::AlignVCenter);
+
+    // Export to an aspect ratio
+    lay->addWidget(new QLabel(tr("Aspect Ratio:"), this), 7, 0,
+                   Qt::AlignRight | Qt::AlignVCenter);
+    lay->addWidget(m_aspectRatioOm, 7, 1, 1, 2,
+                   Qt::AlignLeft | Qt::AlignVCenter);
+    lay->addWidget(m_aspectRatioFld, 7, 3, Qt::AlignLeft | Qt::AlignVCenter);
+    lay->addWidget(new QLabel(tr("Fit:"), this), 8, 0,
+                   Qt::AlignRight | Qt::AlignVCenter);
+    lay->addWidget(m_aspectModeOm, 8, 1, 1, 3,
+                   Qt::AlignLeft | Qt::AlignVCenter);
+    lay->addWidget(new QLabel(tr("Bar Color:"), this), 9, 0,
+                   Qt::AlignRight | Qt::AlignVCenter);
+    lay->addWidget(m_aspectColorFld, 9, 1, 1, 3,
+                   Qt::AlignLeft | Qt::AlignVCenter);
   }
   lay->setColumnStretch(4, 1);
 
@@ -833,6 +890,15 @@ QFrame *OutputSettingsPopup::createMoreSettingsBox() {
                        SLOT(onStereoChecked(int)));
   ret = ret && connect(m_stereoShift, SIGNAL(editingFinished()),
                        SLOT(onStereoChanged()));
+  ret = ret && connect(m_aspectRatioOm, SIGNAL(currentIndexChanged(int)), this,
+                       SLOT(onAspectExportChanged()));
+  ret = ret && connect(m_aspectRatioFld, SIGNAL(editingFinished()), this,
+                       SLOT(onAspectExportChanged()));
+  ret = ret && connect(m_aspectModeOm, SIGNAL(currentIndexChanged(int)), this,
+                       SLOT(onAspectExportChanged()));
+  ret = ret &&
+        connect(m_aspectColorFld, SIGNAL(colorChanged(const TPixel32 &, bool)),
+                this, SLOT(onAspectExportChanged()));
   assert(ret);
   return moreSettingsBox;
 }
@@ -1097,6 +1163,27 @@ void OutputSettingsPopup::updateField() {
   BoardSettings *boardSettings = prop->getBoardSettings();
   m_addBoard->setChecked(boardSettings->isActive());
   m_boardSettingsBtn->setEnabled(m_addBoard->isChecked());
+
+  // export to an aspect ratio
+  if (m_aspectRatioOm) {
+    QSignalBlocker blockRatio(m_aspectRatioOm), blockMode(m_aspectModeOm),
+        blockColor(m_aspectColorFld);
+    const int mode     = prop->getAspectMode();
+    const double ratio = prop->getAspectRatio();
+    int index          = aspectPresetCount + 1;  // Custom
+    for (int i = 0; i < aspectPresetCount; i++)
+      if (std::abs(aspectPresets[i].ratio - ratio) < 1e-3) index = i + 1;
+    m_aspectRatioOm->setCurrentIndex(
+        mode == TOutputProperties::NoAspectExport ? 0 : index);
+    m_aspectRatioFld->setText(QString::number(ratio, 'f', 2));
+    m_aspectModeOm->setCurrentIndex(mode == TOutputProperties::AspectCrop ? 1
+                                                                          : 0);
+    m_aspectColorFld->setColor(prop->getAspectColor());
+    const bool active = mode != TOutputProperties::NoAspectExport;
+    m_aspectRatioFld->setEnabled(active);
+    m_aspectModeOm->setEnabled(active);
+    m_aspectColorFld->setEnabled(mode == TOutputProperties::AspectLetterbox);
+  }
 }
 
 //-----------------------------------------------------------------------------
@@ -2028,6 +2115,41 @@ void OutputSettingsPopup::onAddBoardChecked(int state) {
   boardSettings->setActive(state == Qt::Checked);
 
   m_boardSettingsBtn->setEnabled(state == Qt::Checked);
+}
+
+void OutputSettingsPopup::onAspectExportChanged() {
+  if (!getCurrentScene() || !m_aspectRatioOm) return;
+  TOutputProperties *prop = getProperties();
+  const int index         = m_aspectRatioOm->currentIndex();
+
+  int mode = TOutputProperties::NoAspectExport;
+  if (index > 0)
+    mode = m_aspectModeOm->currentIndex() == 1
+               ? TOutputProperties::AspectCrop
+               : TOutputProperties::AspectLetterbox;
+
+  // a preset sets the ratio; Custom reads the typed one
+  double ratio = prop->getAspectRatio();
+  if (index >= 1 && index <= aspectPresetCount)
+    ratio = aspectPresets[index - 1].ratio;
+  else if (index == aspectPresetCount + 1) {
+    const double typed =
+        CameraGuide::parseRatio(m_aspectRatioFld->text().toStdString());
+    if (typed > 0.0) ratio = typed;
+  }
+
+  if (mode != prop->getAspectMode() || ratio != prop->getAspectRatio() ||
+      m_aspectColorFld->getColor() != prop->getAspectColor()) {
+    prop->setAspectMode(mode);
+    prop->setAspectRatio(ratio);
+    prop->setAspectColor(m_aspectColorFld->getColor());
+    TApp::instance()->getCurrentScene()->setDirtyFlag(true);
+  }
+  m_aspectRatioFld->setEnabled(mode != TOutputProperties::NoAspectExport);
+  m_aspectModeOm->setEnabled(mode != TOutputProperties::NoAspectExport);
+  m_aspectColorFld->setEnabled(mode == TOutputProperties::AspectLetterbox);
+  if (index >= 1 && index <= aspectPresetCount)
+    m_aspectRatioFld->setText(QString::number(ratio, 'f', 2));
 }
 
 void OutputSettingsPopup::onBoardSettingsBtnClicked() {
