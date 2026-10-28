@@ -43,6 +43,12 @@ jobs:
       GH_REPO: ${{ github.repository }}
       BUILD_SHA: ${{ github.sha }}
     steps:
+      - name: Check out release tooling
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
       - name: Download Windows package
         uses: actions/download-artifact@v6
         with:
@@ -96,12 +102,22 @@ jobs:
               exit 0
             fi
           else
+            python3 .github/scripts/release_notes.py \
+              --tag "$RELEASE_TAG" --target "$BUILD_SHA" \
+              --intro-file release-notes.md --output release-notes.md
             gh release create "$RELEASE_TAG" --draft --prerelease --latest=false \
               --target "$BUILD_SHA" --title "Groundzero ${RELEASE_TAG}" \
               --notes-file release-notes.md
           fi
+          # Resume drafts with their original generated notes and baseline. Legacy
+          # drafts receive a changelog once, preserving their existing introduction.
+          python3 .github/scripts/release_notes.py \
+            --tag "$RELEASE_TAG" --target "$BUILD_SHA" --existing-only \
+            --output release-notes.md
+          gh release edit "$RELEASE_TAG" --notes-file release-notes.md
           # Keep the release unpublished until every asset has uploaded successfully.
           gh release upload "$RELEASE_TAG" out/* --clobber
           gh release edit "$RELEASE_TAG" --draft=false --latest=false
           echo "Release: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/${RELEASE_TAG}" >> "$GITHUB_STEP_SUMMARY"
+
 
