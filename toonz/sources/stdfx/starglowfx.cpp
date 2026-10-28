@@ -19,6 +19,11 @@ double limit(double value, double minimum, double maximum) {
   return std::isfinite(value) ? std::max(minimum, std::min(maximum, value)) : minimum;
 }
 int mode(double value, int maximum) { return int(std::floor(limit(value, 0, maximum) + 0.5)); }
+bool rasterSizeSupported(int width, int height, int bytesPerPixel) {
+  return width > 0 && height > 0 && bytesPerPixel > 0 &&
+         static_cast<unsigned long long>(width) * static_cast<unsigned long long>(height) <=
+             static_cast<unsigned long long>(std::numeric_limits<int>::max()) / bytesPerPixel;
+}
 struct Vec {
   double r = 0, g = 0, b = 0, a = 0;
   Vec &operator+=(const Vec &v) { r += v.r; g += v.g; b += v.b; a += v.a; return *this; }
@@ -358,8 +363,12 @@ void StarGlowFx::doCompute(TTile &tile, double frame, const TRenderSettings &set
   if (!std::isfinite(input.getLx()) || !std::isfinite(input.getLy()) || input.getLx() <= 0 || input.getLy() <= 0 ||
       input.getLx() > std::numeric_limits<int>::max() || input.getLy() > std::numeric_limits<int>::max())
     throw TException("Star Glow: invalid input dimensions");
+  const int width = int(input.getLx()), height = int(input.getLy());
+  const int bytesPerPixel = tile.getRaster()->getPixelSize();
+  if (!rasterSizeSupported(width, height, bytesPerPixel))
+    throw TException("Star Glow: input raster exceeds the supported allocation size");
   TTile source;
-  m_source->allocateAndCompute(source, input.getP00(), TDimension(int(input.getLx()), int(input.getLy())), tile.getRaster(), frame, settings);
+  m_source->allocateAndCompute(source, input.getP00(), TDimension(width, height), tile.getRaster(), frame, settings);
   if (settings.m_isCanceled && *settings.m_isCanceled) return;
   const Settings values = snapshot(frame);
   const int dx = int(std::llround(tile.m_pos.x - input.x0)), dy = int(std::llround(tile.m_pos.y - input.y0));

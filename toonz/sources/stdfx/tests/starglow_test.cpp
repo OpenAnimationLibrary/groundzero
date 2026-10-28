@@ -111,6 +111,8 @@ void testFloatAndTiles() {
 }
 
 void testHighlightAndMerge() {
+  require(rasterSizeSupported(3, 3, 16) && !rasterSizeSupported(100000, 100000, 16) &&
+              !rasterSizeSupported(0, 1, 4), "Oversized raster arithmetic was not rejected");
   StarGlowFx fx; settings(fx);
   TRasterFP input(3, 3); input->clear(); input->pixels(1)[1] = TPixelF(1, 1, 1, 1);
   fx.getInputPort(0)->setFx(new Source(input));
