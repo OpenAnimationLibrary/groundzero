@@ -328,7 +328,12 @@ bool renderRadial(const CelMotion::Image &source, const CelMotion::Image *noiseI
             else { totalWeight += fade / settings.quality; continue; }
           }
           const size_t index = dominantPixel(source, shapes, sx, sy);
-          if (index == size_t(-1)) continue;
+          if (index == size_t(-1)) {
+            // Without edge fade, fully transparent samples are ignored. With
+            // fade, uncovered samples soften the trail at internal holes too.
+            totalWeight += fade / settings.quality;
+            continue;
+          }
           const auto label = shapes.labels[index];
           const auto &component = shapes.groups[label - 1];
           const double sizeFactor = CelMotion::sizeFactor(component, shapes, settings.sizeVariation);

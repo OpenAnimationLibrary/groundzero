@@ -96,6 +96,11 @@ void directionsAndTiles() {
   auto outer = render<Pixel>(fx, 9, 1);
   require(outer->pixels(0)[3].m > 0 && outer->pixels(0)[1].m == 0,
           "Outward zoom did not move in the expected direction");
+  set(fx, "outerFade", 100);
+  auto fadedOuter = render<Pixel>(fx, 9, 1);
+  require(fadedOuter->pixels(0)[3].m > 0 && fadedOuter->pixels(0)[3].m < outer->pixels(0)[3].m,
+          "Outer Edge Fade did not soften the transparent border");
+  set(fx, "outerFade", 0);
   set(fx, "quality", 1);
   require(render<Pixel>(fx, 9, 1)->pixels(0)[3].m == 0, "Quality did not change trajectory sampling");
   set(fx, "quality", 4);
@@ -103,6 +108,11 @@ void directionsAndTiles() {
   auto inner = render<Pixel>(fx, 9, 1);
   require(inner->pixels(0)[1].m > 0 && inner->pixels(0)[3].m == 0,
           "Inward zoom did not move in the expected direction");
+  set(fx, "innerFade", 100);
+  auto fadedInner = render<Pixel>(fx, 9, 1);
+  require(fadedInner->pixels(0)[1].m > 0 && fadedInner->pixels(0)[1].m < inner->pixels(0)[1].m,
+          "Inner Edge Fade did not soften the transparent border");
+  set(fx, "innerFade", 0);
   set(fx, "outerStrength", 2);
   auto both = render<Pixel>(fx, 9, 1);
   require(both->pixels(0)[1].m > 0 && both->pixels(0)[3].m > 0,
