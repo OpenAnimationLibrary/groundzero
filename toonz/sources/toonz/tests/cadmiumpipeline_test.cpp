@@ -1,5 +1,6 @@
 #include "cadmiumcodec.h"
 #include "cadmiumcolor.h"
+#include "cadmiumconsensus.h"
 #include "cadmiumruntime.h"
 #include "tregion.h"
 #include "trasterimage.h"
@@ -313,6 +314,121 @@ void distinctRegionPipeline(CadmiumRuntime *runtime) {
   rasterMetadata(TImageP(target.getPointer()), TImageP(result.getPointer()));
 }
 
+TToonzImageP consensusDrawing(int paint) {
+  TToonzImageP image = toonzDrawing(false);
+  image->getPalette()->addStyle(
+      TPixel32(blue.red(), blue.green(), blue.blue(), blue.alpha()));
+  if (paint > 0)
+    for (int y = 0; y < 256; ++y)
+      for (int x = 0; x < 256; ++x)
+        if (interiorPixel(x, y))
+          image->getRaster()->pixels(y)[x] = TPixelCM32(0, paint, 255);
+  return image;
+}
+
+void toonzReferenceConsensus(CadmiumRuntime *runtime) {
+  const TToonzImageP redReference = consensusDrawing(2);
+  const TToonzImageP agreeingReference = consensusDrawing(2);
+  const TToonzImageP blueReference = consensusDrawing(3);
+  const TToonzImageP target = consensusDrawing(0);
+  Cadmium::Frame first, agreeing, conflicting, frame;
+  QString error;
+  require(Cadmium::snapshotToonzRaster(TImageP(redReference.getPointer()), first, error), error);
+  require(Cadmium::snapshotToonzRaster(TImageP(agreeingReference.getPointer()), agreeing, error), error);
+  require(Cadmium::snapshotToonzRaster(TImageP(blueReference.getPointer()), conflicting, error), error);
+  require(Cadmium::snapshotToonzRaster(TImageP(target.getPointer()), frame, error), error);
+  require(first.regionColors.size() == 2 && agreeing.regionColors.size() == 2 &&
+              conflicting.regionColors.size() == 2 && frame.regionColors.size() == 2,
+          "The multiple-reference fixture needs one enclosed native region.");
+
+  QVector<Cadmium::RegionProposal> firstPrediction, agreeingPrediction, bluePrediction;
+  require(Cadmium::parseReferenceProposals(
+      infer(runtime, requestFor(first, frame, false)), first, frame, 0,
+      firstPrediction, error), error);
+  require(Cadmium::parseReferenceProposals(
+      infer(runtime, requestFor(agreeing, frame, false)), agreeing, frame, 1,
+      agreeingPrediction, error), error);
+  require(Cadmium::parseReferenceProposals(
+      infer(runtime, requestFor(conflicting, frame, false)), conflicting, frame, 1,
+      bluePrediction, error), error);
+
+  QVector<Cadmium::RegionProposal> unanimous;
+  require(Cadmium::mergeReferenceProposals(unanimous, firstPrediction,
+                                          frame.kind, error), error);
+  require(Cadmium::mergeReferenceProposals(unanimous, agreeingPrediction,
+                                          frame.kind, error), error);
+  require(unanimous.size() == 2 && unanimous[0].protectedRegion &&
+              unanimous[1].selected >= 0 && unanimous[1].candidates.size() == 1,
+          "Two agreeing model references did not produce one accepted native fill.");
+  const Cadmium::ProposalCandidate &agreed =
+      unanimous[1].candidates[unanimous[1].selected];
+  require(agreed.style == 2 && agreed.color == red &&
+              agreed.supportingReferences.size() == 2 &&
+              agreed.supportingReferences.contains(0) &&
+              agreed.supportingReferences.contains(1),
+          "Reference agreement lost native style identity or supporting references.");
+
+  QVector<Cadmium::RegionProposal> conflict;
+  require(Cadmium::mergeReferenceProposals(conflict, firstPrediction,
+                                          frame.kind, error), error);
+  require(Cadmium::mergeReferenceProposals(conflict, bluePrediction,
+                                          frame.kind, error), error);
+  require(conflict.size() == 2 && conflict[1].selected == -1 &&
+              conflict[1].candidates.size() == 2,
+          "Disagreeing model references selected an arbitrary native fill.");
+  const TToonzImageP unresolved(Cadmium::applyToonzRaster(
+      frame, QVector<int>(2, -1), QVector<QColor>(2), false, error));
+  require(bool(unresolved), error);
+  for (int y = 0; y < 256; ++y)
+    for (int x = 0; x < 256; ++x)
+      require(unresolved->getRaster()->pixels(y)[x] ==
+                  target->getRaster()->pixels(y)[x],
+              "An unresolved reference conflict changed native paint.");
+  int blueChoice = -1;
+  for (int choice = 0; choice < conflict[1].candidates.size(); ++choice)
+    if (conflict[1].candidates[choice].style == 3 &&
+        conflict[1].candidates[choice].color == blue)
+      blueChoice = choice;
+  require(blueChoice >= 0 && Cadmium::chooseProposal(conflict[1], blueChoice),
+          "The artist could not choose the conflicting blue reference fill.");
+
+  QVector<Cadmium::RegionProposal> laterPrediction;
+  require(Cadmium::parseReferenceProposals(
+      infer(runtime, requestFor(first, frame, false)), first, frame, 2,
+      laterPrediction, error), error);
+  require(Cadmium::mergeReferenceProposals(conflict, laterPrediction,
+                                          frame.kind, error), error);
+  require(conflict[1].locked && conflict[1].selected >= 0 &&
+              conflict[1].candidates[conflict[1].selected].style == 3,
+          "Another reference replaced the artist's locked native fill.");
+
+  QVector<int> styles(2, -1);
+  QVector<QColor> colors(2);
+  const Cadmium::ProposalCandidate &chosen =
+      conflict[1].candidates[conflict[1].selected];
+  styles[1] = chosen.style;
+  colors[1] = chosen.color;
+  const TToonzImageP result(Cadmium::applyToonzRaster(
+      frame, styles, colors, false, error));
+  require(bool(result), error);
+  for (int y = 0; y < 256; ++y)
+    for (int x = 0; x < 256; ++x) {
+      const TPixelCM32 original = linePixel(x, y) ? TPixelCM32(1, 0, 0)
+                                                 : TPixelCM32(0, 0, 255);
+      const TPixelCM32 painted = interiorPixel(x, y) ? TPixelCM32(0, 3, 255) : original;
+      require(target->getRaster()->pixels(y)[x] == original &&
+                  result->getRaster()->pixels(y)[x] == painted,
+              "Multiple-reference application changed source pixels, ink or exterior paint.");
+      const TPixelCM32 redBefore = interiorPixel(x, y) ? TPixelCM32(0, 2, 255) : original;
+      const TPixelCM32 blueBefore = interiorPixel(x, y) ? TPixelCM32(0, 3, 255) : original;
+      require(redReference->getRaster()->pixels(y)[x] == redBefore &&
+                  agreeingReference->getRaster()->pixels(y)[x] == redBefore &&
+                  blueReference->getRaster()->pixels(y)[x] == blueBefore,
+              "Multiple-reference inference modified a painted reference.");
+    }
+  rasterMetadata(TImageP(target.getPointer()), TImageP(result.getPointer()));
+}
+
 void vectorPipeline(CadmiumRuntime *runtime) {
   const TVectorImageP reference = vectorDrawing(true), target = vectorDrawing(false);
   Cadmium::Frame ref, frame;
@@ -446,6 +562,91 @@ void nativeFullColorPipeline(CadmiumRuntime *runtime, const Pixel &fill,
           "Native full-color inference modified its painted reference.");
   rasterMetadata(TImageP(target.getPointer()), TImageP(result.getPointer()));
 }
+
+void hdrReferenceConsensus(CadmiumRuntime *runtime) {
+  const TPixelF firstFill(2.345678f, 0.1234567f, -0.1251234f, 1.f);
+  const TPixelF secondFill(3.456789f, 0.1234567f, -0.2251234f, 1.f);
+  const auto drawing = [&](const TPixelF &fill, bool painted) {
+    TRasterFP raster(256, 256);
+    raster->setLinear(true);
+    for (int y = 0; y < 256; ++y)
+      for (int x = 0; x < 256; ++x)
+        raster->pixels(y)[x] = linePixel(x, y) ? TPixelF::Black
+            : painted && interiorPixel(x, y) ? fill : TPixelF::Transparent;
+    TRasterImageP image(raster);
+    image->setDpi(120.0, 144.0);
+    image->setOffset(TPoint(3, -7));
+    return image;
+  };
+  const TRasterImageP target = drawing(firstFill, false);
+  const TRasterImageP firstReference = drawing(firstFill, true);
+  const TRasterImageP secondReference = drawing(secondFill, true);
+  Cadmium::Frame frame, first, second;
+  for (Cadmium::Frame *reference : {&first, &second}) {
+    reference->rasterSource = Cadmium::RasterSource::LinkedLines;
+    reference->lineSource = TImageP(target.getPointer());
+  }
+  QString error;
+  require(Cadmium::snapshotFullColor(TImageP(target.getPointer()), frame, error), error);
+  require(Cadmium::snapshotFullColor(TImageP(firstReference.getPointer()), first, error), error);
+  require(Cadmium::snapshotFullColor(TImageP(secondReference.getPointer()), second, error), error);
+  require(frame.regionColors.size() == 2 && first.regionColors.size() == 2 &&
+              second.regionColors.size() == 2 &&
+              first.regionColors[1] == second.regionColors[1] &&
+              first.nativeRegionColors[1].valid && second.nativeRegionColors[1].valid &&
+              first.nativeRegionColors[1] != second.nativeRegionColors[1],
+          "The HDR references must have distinct native fills sharing one model color.");
+
+  QVector<Cadmium::RegionProposal> firstPrediction, secondPrediction, proposals;
+  require(Cadmium::parseReferenceProposals(
+      infer(runtime, requestFor(first, frame, false)), first, frame, 0,
+      firstPrediction, error), error);
+  require(Cadmium::parseReferenceProposals(
+      infer(runtime, requestFor(second, frame, false)), second, frame, 1,
+      secondPrediction, error), error);
+  require(Cadmium::mergeReferenceProposals(proposals, firstPrediction,
+                                          frame.kind, error), error);
+  require(Cadmium::mergeReferenceProposals(proposals, secondPrediction,
+                                          frame.kind, error), error);
+  require(proposals.size() == 2 && proposals[1].selected == -1 &&
+              proposals[1].candidates.size() == 2,
+          "Different HDR reference fills were collapsed by their identical model proxy.");
+  int secondChoice = -1;
+  for (int choice = 0; choice < proposals[1].candidates.size(); ++choice)
+    if (proposals[1].candidates[choice].nativeColor == second.nativeRegionColors[1])
+      secondChoice = choice;
+  require(secondChoice >= 0 && Cadmium::chooseProposal(proposals[1], secondChoice),
+          "The artist could not choose the exact HDR reference fill.");
+  const Cadmium::ProposalCandidate &chosen =
+      proposals[1].candidates[proposals[1].selected];
+  require(chosen.referenceIndex == 1 && chosen.referenceRegion == 1,
+          "The exact HDR decision lost its reference provenance.");
+  QVector<int> styles(2, -1);
+  QVector<QColor> colors(2);
+  QVector<Cadmium::NativeColor> nativeColors(2);
+  styles[1] = chosen.style;
+  colors[1] = chosen.color;
+  nativeColors[1] = chosen.nativeColor;
+  const TRasterImageP result(Cadmium::applyFullColor(
+      frame, styles, colors, false, error, nativeColors));
+  require(bool(result), error);
+  const TRasterFP after = result->getRaster(), before = target->getRaster();
+  const TRasterFP firstPixels = firstReference->getRaster();
+  const TRasterFP secondPixels = secondReference->getRaster();
+  require(bool(after) && after->isLinear(),
+          "HDR reference consensus changed the native sample format or color space.");
+  for (int y = 0; y < 256; ++y)
+    for (int x = 0; x < 256; ++x) {
+      const TPixelF original = linePixel(x, y) ? TPixelF::Black : TPixelF::Transparent;
+      require(before->pixels(y)[x] == original &&
+                  after->pixels(y)[x] == (interiorPixel(x, y) ? secondFill : original),
+              "HDR reference consensus changed protected pixels or lost the exact chosen fill.");
+      require(firstPixels->pixels(y)[x] == (interiorPixel(x, y) ? firstFill : original) &&
+                  secondPixels->pixels(y)[x] == (interiorPixel(x, y) ? secondFill : original),
+              "HDR consensus modified an original painted reference.");
+    }
+  rasterMetadata(TImageP(target.getPointer()), TImageP(result.getPointer()));
+}
 }  // namespace
 
 int main(int argc, char **argv) {
@@ -482,6 +683,10 @@ int main(int argc, char **argv) {
     nativeFullColorPipeline<TRasterFP>(
         runtime, TPixelF(2.345678f, 0.1234567f, -0.1251234f, 1.f), true);
     std::cout << "Real-model float HDR native reference transfer passed.\n";
+    toonzReferenceConsensus(runtime);
+    std::cout << "Real-model multiple-reference native agreement and correction passed.\n";
+    hdrReferenceConsensus(runtime);
+    std::cout << "Real-model multiple-reference HDR conflict review passed.\n";
     runtime->stop();
     return 0;
   } catch (const std::exception &error) {

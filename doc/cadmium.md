@@ -40,13 +40,15 @@ Painting
 2. Mark already painted reference drawings in the reference gutter or context
    menu. Reference marks are independent of selection and onion skin.
 3. Select target drawings and open Cadmium Assisted Paint.
-4. Check the reference assigned to each target. Each target uses one reference.
+4. Check the painted references assigned to each target. Select one or several
+   marked drawings and choose which reference to display during review.
 5. For full-color artwork, choose transparent line art, approved paper extraction,
    or a linked clean-line level. Inspect extraction before approving it. Painted
    flattened references generally need clean-line input or approved extraction.
 6. Generate proposals. Generation does not modify drawings.
-7. Inspect each result, resolve palette ambiguities or skip regions, and mark the
-   result reviewed before applying a reviewed batch.
+7. Inspect each result, select regions directly in the comparison view, resolve
+   conflicting fills, and protect or skip regions. Mark the result reviewed
+   before applying a reviewed batch.
 8. Apply accepted proposals or discard them. Correct paint using existing tools.
 
 Repeated exposures of a drawing are processed once. Editing a target, reference,
@@ -69,6 +71,71 @@ reference-fill choice. References without a dominant flat native fill need
 another reference or an explicit skip.
 Undo and redo replay stored accepted results without
 running the model again.
+
+Review and corrections
+----------------------
+
+The comparison view provides synchronized before/after inspection, a draggable
+wipe, and a reference overlay with adjustable opacity. Zoom, pan, fit, and
+full-size inspection use the same drawing coordinates in each comparison.
+Click a paint region to select its decision in the region table. The context
+menu offers fill choices, skip, protection, and unlocking for regeneration.
+Selected and protected regions are highlighted in the comparison view.
+
+Choosing a fill or explicitly skipping a region locks that decision. Protecting
+a region keeps its existing artwork and its decision while other regions are
+generated. Unlock a decision when it should receive another prediction. Native
+palette drawings also support choosing a supported existing palette style.
+Full-color choices retain the exact reference samples, including values that
+look identical in the model's display-color proxy.
+
+Using several references
+------------------------
+
+Each checked reference is processed separately by the existing pretrained model.
+Fills supported by every contributing reference can be selected automatically.
+Disagreement, missing support, or multiple exact native fills remain unresolved
+until the artist chooses a fill or skips the region. The workflow does not
+silently average native colors or replace different palette styles with one
+display color. Manual locked choices and protected regions remain under artist
+control while references are combined.
+
+Adding references increases inference time and may expose additional conflicts.
+The reference set is limited to 32 drawings per target. Use a smaller reference
+set or batch when the proposal memory budget is reached.
+
+Selective regeneration
+----------------------
+
+Generation can target the drawing being inspected, unresolved regions, or the
+selected regions. Accepted locked decisions and protected regions are retained
+when their region geometry is unchanged. Unlock a region before requesting a
+new prediction for it. Regeneration clears the drawing's reviewed status when
+its decisions change; inspect it again before applying a reviewed batch.
+
+Region numbers alone do not establish identity after artwork edits. If a
+selected region changed or disappeared, generate a new drawing proposal and
+select the current region. Vector geometry changes can require whole-drawing
+regeneration. Changing reference assignments or native palette information can
+also invalidate decisions even when the drawing still looks similar.
+
+Saving review sessions
+----------------------
+
+Save the scene before retaining a painting session across application restarts.
+Session controls save, restore, and clear reference assignments, proposals,
+locked and protected decisions, and review progress. Completed decisions and
+generation progress are also autosaved. Recovery uses the last completed
+atomic save; an interrupted write does not replace the previous saved session.
+Unfinished generation can continue after reopening the saved scene.
+
+Review sessions are stored in local application data and do not embed source
+artwork or pretrained models. Scene reference marks remain part of the scene.
+A local session does not automatically travel with a scene copied to another
+computer. Restoring a session checks its target drawings, references, native
+regions, palette, and input settings against the current scene before enabling
+application of the proposals. Changed or unavailable inputs require fresh
+generation rather than applying stale decisions.
 
 Input limits
 ------------

@@ -5,6 +5,7 @@ set(MOC_HEADERS
     cadmiumpopup.h
     cadmiumsettingswidget.h
     cadmiuminstaller.h
+    cadmiumreviewview.h
     addfilmstripframespopup.h
     adjustlevelspopup.h
     adjustthicknesspopup.h
@@ -187,6 +188,9 @@ set(HEADERS
     cadmiumtypes.h
     cadmiumsource.h
     cadmiumcolor.h
+    cadmiumconsensus.h
+    cadmiumregeneration.h
+    cadmiumsession.h
     cadmiumdestination.h
     ${MOC_HEADERS}
     celldata.h
@@ -249,6 +253,11 @@ set(SOURCES
     cadmiumruntime.cpp
     cadmiumdestination.cpp
     cadmiumpopup.cpp
+    cadmiumpopupui.cpp
+    cadmiumreviewview.cpp
+    cadmiumconsensus.cpp
+    cadmiumregeneration.cpp
+    cadmiumsession.cpp
     cadmiumsettingswidget.cpp
     cadmiuminstaller.cpp
     cadmiumtoonzraster.cpp
@@ -901,7 +910,7 @@ endif()
 
 if(BUILD_CADMIUM_TESTS)
     add_executable(cadmium_pipeline_test tests/cadmiumpipeline_test.cpp
-        cadmiumruntime.cpp cadmiumtoonzraster.cpp cadmiumvector.cpp cadmiumfullcolor.cpp
+        cadmiumruntime.cpp cadmiumtoonzraster.cpp cadmiumvector.cpp cadmiumfullcolor.cpp cadmiumconsensus.cpp
         ${CMAKE_CURRENT_BINARY_DIR}/moc_cadmiumruntime.cpp)
     target_include_directories(cadmium_pipeline_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(cadmium_pipeline_test PRIVATE
@@ -963,6 +972,32 @@ if(BUILD_CADMIUM_TESTS)
 endif()
 
 if(BUILD_CADMIUM_TESTS)
+    foreach(workflow consensus regeneration session workflow)
+        set(cadmium_workflow_sources cadmiumconsensus.cpp)
+        if(NOT workflow STREQUAL "consensus")
+            list(APPEND cadmium_workflow_sources cadmiumregeneration.cpp)
+        endif()
+        if(workflow STREQUAL "session" OR workflow STREQUAL "workflow")
+            list(APPEND cadmium_workflow_sources cadmiumsession.cpp)
+        endif()
+        add_executable(cadmium_${workflow}_test tests/cadmium${workflow}_test.cpp ${cadmium_workflow_sources})
+        target_include_directories(cadmium_${workflow}_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+        target_link_libraries(cadmium_${workflow}_test PRIVATE
+            Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui
+            tnzcore tnzbase tnzext toonzlib image)
+        add_test(NAME cadmium_${workflow} COMMAND cadmium_${workflow}_test)
+        add_dependencies(cadmium_tests cadmium_${workflow}_test)
+        set_tests_properties(cadmium_${workflow} PROPERTIES TIMEOUT 120)
+    endforeach()
+    add_executable(cadmium_reviewview_test tests/cadmiumreviewview_test.cpp cadmiumreviewview.cpp
+        ${CMAKE_CURRENT_BINARY_DIR}/moc_cadmiumreviewview.cpp)
+    target_include_directories(cadmium_reviewview_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(cadmium_reviewview_test PRIVATE
+        Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Widgets)
+    add_test(NAME cadmium_reviewview COMMAND cadmium_reviewview_test)
+    add_dependencies(cadmium_tests cadmium_reviewview_test)
+    set_tests_properties(cadmium_reviewview PROPERTIES TIMEOUT 120)
+
     set_tests_properties(
         cadmium_toonzraster cadmium_fullcolor cadmium_vector cadmium_codec
         cadmium_settings cadmium_metadata cadmium_save cadmium_destination cadmium_color

@@ -4,6 +4,13 @@
 #include "cadmiumdestination.h"
 #include "cadmiumcodec.h"
 #include "cadmiumcolor.h"
+#include "cadmiumreviewview.h"
+#include <QFileInfo>
+#include <QStandardPaths>
+#include <QSignalBlocker>
+#include <QItemSelectionModel>
+#include <QCryptographicHash>
+#include <QDir>
 #include "trop.h"
 #include "tropcm.h"
 #include <cmath>
@@ -54,6 +61,15 @@ QString frameName(const TFrameId &fid) {
 
 using Cadmium::labelUri;
 
+QByteArray stableSourceKey(ToonzScene *scene, TXshSimpleLevel *level) {
+  QString resource = QDir::cleanPath(QFileInfo(scene->decodeFilePath(level->getPath()).getQString()).absoluteFilePath());
+#ifdef Q_OS_WIN
+  resource = resource.toCaseFolded();
+#endif
+  return QCryptographicHash::hash((resource + QChar(0) +
+      QString::fromStdWString(level->getName())).toUtf8(), QCryptographicHash::Sha256);
+}
+
 TImageP captureImage(const TImageP &source) {
   if (!source) return TImageP();
   TImageP captured(source->cloneImage());
@@ -66,29 +82,64 @@ TImageP captureImage(const TImageP &source) {
   return captured;
 }
 
+Cadmium::RegionProposal manualDecision(const Cadmium::RegionProposal &previous,
+                                       const Cadmium::Frame &target) {
+  Cadmium::RegionProposal result;
+  result.protectedRegion = previous.protectedRegion;
+  if (!previous.locked) return result;
+  if (previous.selected == -2) {
+    result.selected = -2; result.locked = true; return result;
+  }
+  if (previous.selected < 0 || previous.selected >= previous.candidates.size()) return result;
+  Cadmium::ProposalCandidate candidate = previous.candidates[previous.selected];
+  bool valid = target.kind == Cadmium::Kind::FullColor;
+  if (!valid && target.palette && candidate.style >= 0 && candidate.style < target.palette->getStyleCount()) {
+    const TPixel32 color = target.palette->getStyle(candidate.style)->getMainColor();
+    valid = candidate.color == QColor(color.r, color.g, color.b, color.m);
+  }
+  if (!valid) return result;
+  candidate.referenceIndex = -1; candidate.referenceRegion = -1; candidate.supportingReferences.clear();
+  result.candidates.append(candidate); result.selected = 0; result.locked = true;
+  return result;
+}
+
 QImage displayImage(const TImageP &, const Cadmium::Frame &);
 
 class CadmiumRasterTask final : public QThread {
 public:
-  Cadmium::Frame target, reference;
+  Cadmium::Frame target;
+  QVector<Cadmium::Frame> references;
+  QVector<QImage> previews;
   QString error;
   bool success = false;
-  bool single = false;
-  QImage before;
   void run() override {
     try {
       auto prepare = [this](Cadmium::Frame &frame) {
         const TImageP image = frame.original;
-        if (frame.kind == Cadmium::Kind::ToonzRaster)
-          return Cadmium::snapshotToonzRaster(image, frame, error);
-        return Cadmium::snapshotFullColor(image, frame, error);
+        return frame.kind == Cadmium::Kind::ToonzRaster
+            ? Cadmium::snapshotToonzRaster(image, frame, error)
+            : Cadmium::snapshotFullColor(image, frame, error);
       };
-      success = prepare(target) && (single || prepare(reference));
-      if (success && single)
-        before = displayImage(target.original, target).scaled(320, 260, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+      if (!prepare(target)) return;
+      for (Cadmium::Frame &reference : references) {
+        if (!prepare(reference)) return;
+        previews.append(displayImage(reference.original, reference));
+      }
+      success = true;
     } catch (...) {
       error = QObject::tr("The drawing analysis could not be completed. Try a smaller batch.");
     }
+  }
+};
+
+class CadmiumSessionTask final : public QThread {
+public:
+  QString cacheRoot, scene, error;
+  QByteArray sourceKey;
+  Cadmium::Session session;
+  bool success = false;
+  void run() override {
+    success = Cadmium::saveSessionWithAlias(cacheRoot, scene, sourceKey, session, error);
   }
 };
 
@@ -115,10 +166,6 @@ QImage preview(const Cadmium::Frame &frame, const QVector<QColor> &colors) {
   return image;
 }
 
-QVector<int> acceptedStyles(QVector<int> styles) {
-  for (int &style : styles) if (style == -2) style = -1;
-  return styles;
-}
 
 QImage displayImage(const TImageP &image, const Cadmium::Frame &analysis) {
   TRasterP raster;
@@ -261,209 +308,865 @@ void CadmiumPopup::open(TXshSimpleLevel *level,
                         const std::set<TFrameId> &selection, QWidget *parent) {
   static QPointer<CadmiumPopup> popup;
   if (!popup) popup = new CadmiumPopup(parent);
-  if (popup->m_generating) {
-    popup->show(); popup->raise(); popup->activateWindow();
-    return;
-  }
-  popup->initialize(level, selection);
+  if (!popup->m_generating && !popup->m_restoring)
+    popup->initialize(level, selection);
   popup->show(); popup->raise(); popup->activateWindow();
 }
 
-CadmiumPopup::CadmiumPopup(QWidget *parent) : QDialog(parent) {
-  setWindowTitle(tr("Cadmium Assisted Paint"));
-  resize(940, 720);
-  auto *layout = new QVBoxLayout(this);
-  auto *intro = new QLabel(tr("Mark painted references in the Level Strip, then select target drawings. "
-                              "Review proposals before applying. Full-color results are created as a new level."), this);
-  intro->setWordWrap(true);
-  layout->addWidget(intro);
-  auto *setup = new QHBoxLayout;
-  auto *executable = new QPushButton(tr("Choose Worker…"), this);
-  auto *models = new QPushButton(tr("Choose Models Folder…"), this);
-  auto *unload = new QPushButton(tr("Unload Models"), this);
-  setup->addWidget(executable); setup->addWidget(models); setup->addWidget(unload);
-  layout->addLayout(setup);
-  connect(executable, &QPushButton::clicked, this, [this] {
-    const QString path = QFileDialog::getOpenFileName(this, tr("Choose Cadmium Worker"));
-    if (!path.isEmpty()) CadmiumRuntime::instance()->setExecutablePath(path);
-  });
-  connect(models, &QPushButton::clicked, this, [this] {
-    const QString path = QFileDialog::getExistingDirectory(this, tr("Choose Model Folder"));
-    if (!path.isEmpty()) CadmiumRuntime::instance()->setModelsDirectory(path);
-  });
-  connect(unload, &QPushButton::clicked, CadmiumRuntime::instance(),
-          &CadmiumRuntime::stop);
-
-  auto *splitter = new QSplitter(this);
-  m_list = new QListWidget(splitter);
-  auto *details = new QWidget(splitter);
-  auto *detailLayout = new QVBoxLayout(details);
-  auto *form = new QFormLayout;
-  m_reference = new QComboBox(details);
-  form->addRow(tr("Reference drawing:"), m_reference);
-  m_rasterSource = new QComboBox(details);
-  m_rasterSource->addItems({tr("Transparent line artwork"), tr("Opaque paper scan"), tr("Linked clean-line level")});
-  form->addRow(tr("Raster source:"), m_rasterSource);
-  m_lineLevel = new QComboBox(details);
-  form->addRow(tr("Clean-line level:"), m_lineLevel);
-  m_paperThreshold = new QDoubleSpinBox(details);
-  m_paperThreshold->setRange(0.0, 1.0); m_paperThreshold->setSingleStep(0.01);
-  m_paperThreshold->setValue(0.92);
-  form->addRow(tr("Paper threshold:"), m_paperThreshold);
-  m_lineThreshold = new QDoubleSpinBox(details);
-  m_lineThreshold->setRange(0.0, 1.0); m_lineThreshold->setSingleStep(0.01);
-  m_lineThreshold->setValue(0.2);
-  form->addRow(tr("Line threshold:"), m_lineThreshold);
-  detailLayout->addLayout(form);
-  m_extraction = new QCheckBox(tr("I reviewed and approve the extracted line mask"), details);
-  detailLayout->addWidget(m_extraction);
-  m_repaint = new QCheckBox(tr("Replace existing paint on selected targets"), details);
-  detailLayout->addWidget(m_repaint);
-  auto *previews = new QHBoxLayout;
-  m_before = new QLabel(details); m_after = new QLabel(details);
-  for (QLabel *label : {m_before, m_after}) {
-    label->setMinimumSize(200, 200); label->setAlignment(Qt::AlignCenter);
-    label->setStyleSheet(QStringLiteral("background-color: #808080;"));
-    previews->addWidget(label);
-  }
-  detailLayout->addLayout(previews);
-  m_regions = new QTableWidget(details);
-  m_regions->setColumnCount(3);
-  m_regions->setHorizontalHeaderLabels({tr("Region"), tr("Prediction"), tr("Native style / decision")});
-  m_regions->horizontalHeader()->setStretchLastSection(true);
-  detailLayout->addWidget(m_regions);
-  splitter->setStretchFactor(1, 1);
-  layout->addWidget(splitter, 1);
-  m_status = new QLabel(this); m_status->setWordWrap(true);
-  layout->addWidget(m_status);
-  auto *buttons = new QHBoxLayout;
-  m_generate = new QPushButton(tr("Generate Selected Drawings"), this);
-  m_apply = new QPushButton(tr("Apply Drawing"), this);
-  m_applyAll = new QPushButton(tr("Apply Reviewed Batch"), this);
-  m_review = new QPushButton(tr("Include Drawing in Reviewed Batch"), this);
-  m_cancel = new QPushButton(tr("Cancel Processing"), this);
-  auto *discard = new QPushButton(tr("Discard Proposals"), this);
-  buttons->addWidget(m_generate); buttons->addWidget(m_apply);
-  buttons->addWidget(m_review);
-  buttons->addWidget(m_applyAll); buttons->addWidget(m_cancel); buttons->addWidget(discard);
-  layout->addLayout(buttons);
-  connect(m_generate, &QPushButton::clicked, this, &CadmiumPopup::generate);
-  connect(m_apply, &QPushButton::clicked, this, [this] { apply(false); });
-  connect(m_applyAll, &QPushButton::clicked, this, [this] { apply(true); });
-  connect(m_review, &QPushButton::clicked, this, [this] {
-    const int row = m_list->currentRow();
-    if (row >= 0 && row < int(m_drawings.size()) && m_drawings[row].ready) {
-      m_drawings[row].reviewed = true; refresh();
-    }
-  });
-  connect(m_cancel, &QPushButton::clicked, this, &CadmiumPopup::cancel);
-  connect(discard, &QPushButton::clicked, this, [this] {
-    cancel();
-    for (Drawing &drawing : m_drawings) {
-      drawing.ready = false; drawing.colors.clear(); drawing.styles.clear();
-      drawing.nativeColors.clear();
-      drawing.target = Cadmium::Frame(); drawing.reference = Cadmium::Frame();
-    }
-    refresh(); refreshPreview();
-  });
-  connect(m_list, &QListWidget::currentRowChanged, this, [this] { refreshPreview(); });
-  connect(m_reference, QOverload<int>::of(&QComboBox::activated), this,
-          [this] { assignReference(); });
-  connect(m_rasterSource, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
-          [this] {
-    ++m_snapshotEpoch;
-    m_extraction->setChecked(false);
-    for (Drawing &drawing : m_drawings) { drawing.ready = false; drawing.reviewed = false; drawing.target = Cadmium::Frame(); }
-    refresh(); refreshPreview();
-  });
-  connect(m_lineLevel, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
-          [this] {
-    ++m_snapshotEpoch;
-    m_extraction->setChecked(false);
-    for (Drawing &drawing : m_drawings) { drawing.ready = false; drawing.reviewed = false; drawing.target = Cadmium::Frame(); }
-    refresh(); refreshPreview();
-  });
-  auto thresholdChanged = [this] {
-    ++m_snapshotEpoch;
-    m_extraction->setChecked(false);
-    for (Drawing &drawing : m_drawings) { drawing.ready = false; drawing.reviewed = false; drawing.target = Cadmium::Frame(); }
-    refresh(); refreshPreview();
-  };
-  connect(m_paperThreshold, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, thresholdChanged);
-  connect(m_lineThreshold, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, thresholdChanged);
-  connect(m_repaint, &QCheckBox::toggled, this, [this] {
-    for (Drawing &drawing : m_drawings) drawing.reviewed = false;
-    updateProposalPreview(); refresh();
-  });
-  CadmiumRuntime *runtime = CadmiumRuntime::instance();
-  connect(runtime, &CadmiumRuntime::resultReady, this, &CadmiumPopup::received);
-  connect(runtime, &CadmiumRuntime::failed, this, &CadmiumPopup::failed);
-  connect(runtime, &CadmiumRuntime::workerStopped, this, [this] {
-    if (!m_generating && !m_backgroundTasks) return;
-    ++m_snapshotEpoch;
-    m_cancelled = true;
-    m_generating = false;
-    m_running = -1;
-    refresh();
-    m_status->setText(tr("The worker was unloaded. Pending processing was cancelled."));
-  });
-  connect(runtime, &CadmiumRuntime::statusChanged, this, [this] {
-    m_status->setText(CadmiumRuntime::instance()->statusText());
-  });
+QImage CadmiumPopup::imagePreview(const TImageP &image, const Cadmium::Frame &frame) {
+  return displayImage(image, frame);
 }
 
 bool CadmiumPopup::currentScene() const {
   return m_scene && TApp::instance()->getCurrentScene()->getScene() == m_scene &&
-         m_level && m_scene->getLevelSet()->getLevel(m_level->getName()) == m_level.getPointer();
+      m_level && m_scene->getLevelSet()->getLevel(m_level->getName()) == m_level.getPointer();
 }
 
 void CadmiumPopup::initialize(TXshSimpleLevel *level,
                               const std::set<TFrameId> &selection) {
-  m_level = level;
-  m_selectionRenumberCount = level ? level->getRenumberCount() : -1;
+  if (m_sessionDirty) flushSession();
+  m_saveTimer.stop();
   ++m_snapshotEpoch;
+  m_refreshing = true;
+  m_level = level;
   m_scene = TApp::instance()->getCurrentScene()->getScene();
-  m_drawings.clear(); m_references.clear(); m_list->clear();
-  m_reference->clear(); m_lineLevel->clear();
-  m_running = -1; m_generating = false; m_cancelled = false;
-  if (!level || !currentScene()) { refresh(); return; }
+  m_selectionRenumberCount = level ? level->getRenumberCount() : -1;
+  m_drawings.clear(); m_references.clear(); m_jobs.clear(); m_recovery.clear();
+  m_savedSession = Cadmium::Session();
+  m_pendingSession = Cadmium::Session(); m_pendingScene.clear(); ++m_sessionRevision;
+  m_list->clear(); m_referenceList->clear(); m_lineLevel->clear();
+  m_running = -1; m_jobPosition = -1; m_runningReference = 0;
+  m_generating = false; m_restoring = false; m_cancelled = false;
+  m_sessionDirty = false;
+  if (!level || !currentScene()) {
+    m_refreshing = false; refresh(); return;
+  }
+  m_level->cadmiumLevelId();
+  TApp::instance()->getCurrentScene()->setDirtyFlag(true);
+  m_sessionScene = sceneIdentity();
+  m_sessionSourceKey = stableSourceKey(m_scene, level);
   std::vector<TFrameId> ordered;
   level->getFids(ordered);
   for (const TFrameId &fid : ordered)
-    if (level->getCadmiumReferences().count(fid)) {
-      m_references.push_back(fid);
-      m_reference->addItem(frameName(fid));
-    }
+    if (level->getCadmiumReferences().count(fid)) m_references.push_back(fid);
+  m_lineLevel->addItem(tr("Choose a clean-line level"), QVariant::fromValue<qulonglong>(0));
   std::vector<TXshLevel *> levels;
   m_scene->getLevelSet()->listLevels(levels);
   for (TXshLevel *candidate : levels)
-    if (candidate->getSimpleLevel() && candidate != level &&
-        candidate->getType() == OVL_XSHLEVEL)
+    if (candidate != level && candidate->getSimpleLevel() && candidate->getType() == OVL_XSHLEVEL)
       m_lineLevel->addItem(QString::fromStdWString(candidate->getName()),
-                          QVariant::fromValue<qulonglong>(reinterpret_cast<qulonglong>(candidate)));
+          QVariant::fromValue<qulonglong>(reinterpret_cast<qulonglong>(candidate)));
   for (const TFrameId &fid : selection) {
-    if (level->getCadmiumReferences().count(fid) || level->fid2index(fid) < 0) continue;
+    if (level->getCadmiumReferences().count(fid) || !level->isFid(fid)) continue;
     Drawing drawing; drawing.fid = fid;
     int bestDistance = INT_MAX;
     for (const TFrameId &reference : m_references) {
       const int distance = std::abs(level->fid2index(fid) - level->fid2index(reference));
       if (distance < bestDistance) {
-        drawing.referenceId = reference; bestDistance = distance;
+        drawing.referenceIds = QVector<TFrameId>{reference}; bestDistance = distance;
       }
     }
-    m_drawings.push_back(drawing);
-    m_list->addItem(frameName(fid));
+    m_drawings.push_back(drawing); m_list->addItem(frameName(fid));
   }
-  const bool fullColor = level->getType() == OVL_XSHLEVEL;
-  m_rasterSource->setVisible(fullColor); m_lineLevel->setVisible(fullColor);
-  m_extraction->setVisible(fullColor);
-  m_paperThreshold->setVisible(fullColor); m_lineThreshold->setVisible(fullColor);
   m_extraction->setChecked(false); m_repaint->setChecked(false);
+  if (!m_drawings.empty()) {
+    m_list->selectAll(); m_list->setCurrentRow(0, QItemSelectionModel::NoUpdate);
+  }
+  m_refreshing = false;
   refresh();
-  if (!m_drawings.empty()) m_list->setCurrentRow(0);
   m_status->setText(m_references.empty()
       ? tr("Mark at least one painted reference drawing in the Level Strip.")
-      : tr("Ready to generate proposals for %1 unique drawings.").arg(m_drawings.size()));
+      : tr("Choose references, generate proposals, and review native region decisions."));
+  if (!sceneIdentity().isEmpty() &&
+      (QFileInfo::exists(Cadmium::sessionFilePath(sessionCacheRoot(), sceneIdentity(), level->cadmiumLevelId())) ||
+       QFileInfo::exists(Cadmium::sessionAliasPath(sessionCacheRoot(), sceneIdentity(), m_sessionSourceKey))))
+    QTimer::singleShot(0, this, [this, epoch = m_snapshotEpoch] {
+      if (epoch == m_snapshotEpoch && currentScene() && !m_generating && !m_backgroundTasks) {
+        restoreSession();
+        if (!m_restoring) refreshPreview();
+      }
+    });
+  else refreshPreview();
+}
+
+void CadmiumPopup::optionsChanged() {
+  if (m_refreshing || m_generating || m_restoring) return;
+  ++m_snapshotEpoch;
+  for (Drawing &drawing : m_drawings) {
+    drawing.ready = false; drawing.reviewed = false;
+    drawing.target = Cadmium::Frame(); drawing.proposals.clear();
+    drawing.references.clear(); drawing.referencePreviews.clear();
+    drawing.selectedRegions.clear();
+  }
+  autosave(); refresh(); refreshPreview();
+  m_status->setText(tr("Input settings changed. Inspect the new line mask and regenerate decisions before applying."));
+}
+
+void CadmiumPopup::assignReferences() {
+  if (m_refreshing || m_generating || m_restoring) return;
+  const int row = m_list->currentRow();
+  if (row < 0 || row >= int(m_drawings.size())) return;
+  QVector<TFrameId> references;
+  for (int i = 0; i < m_referenceList->count() && i < int(m_references.size()); ++i)
+    if (m_referenceList->item(i)->checkState() == Qt::Checked)
+      references.append(m_references[i]);
+  if (references.size() > Cadmium::MaximumProposalReferences) {
+    m_status->setText(tr("Choose at most %1 references per drawing.").arg(Cadmium::MaximumProposalReferences));
+    refreshPreview(); return;
+  }
+  Drawing &drawing = m_drawings[row];
+  if (references.size() == drawing.referenceIds.size() &&
+      std::equal(references.cbegin(), references.cend(), drawing.referenceIds.cbegin())) return;
+  drawing.referenceIds = references;
+  drawing.references.clear(); drawing.referenceBuilders.clear(); drawing.referencePreviews.clear();
+  // Reference indices in candidates are local to the checked reference list.
+  // A changed assignment cannot reuse old provenance.
+  for (int region = 1; region < drawing.proposals.size(); ++region)
+    drawing.proposals[region] = manualDecision(drawing.proposals[region], drawing.target);
+  if (!drawing.proposals.isEmpty()) drawing.proposals[0].selected = -2;
+  drawing.ready = false; drawing.reviewed = false; drawing.error.clear();
+  autosave(); refresh(); refreshPreview();
+}
+
+void CadmiumPopup::inspectDrawing() {
+  const int row = m_list->currentRow();
+  if (m_generating || m_restoring || m_backgroundTasks || !currentScene() ||
+      row < 0 || row >= int(m_drawings.size()) || !m_drawings[row].target.lines.isNull()) return;
+  auto *task = new CadmiumRasterTask;
+  QString error;
+  m_inspecting = true;
+  const bool captured = snapshot(m_drawings[row].fid, task->target, error,
+                                 m_level->getType() != PLI_XSHLEVEL);
+  m_inspecting = false;
+  if (!captured) { delete task; m_status->setText(error); return; }
+  const quint64 epoch = m_snapshotEpoch;
+  if (m_level->getType() == PLI_XSHLEVEL) {
+    m_drawings[row].target = task->target; delete task;
+    m_drawings[row].proposals.resize(m_drawings[row].target.regionColors.size());
+    if (!m_drawings[row].proposals.isEmpty()) {
+      m_drawings[row].proposals[0].protectedRegion = true;
+      m_drawings[row].proposals[0].selected = -2;
+    }
+    refreshPreview(); return;
+  }
+  ++m_backgroundTasks;
+  connect(task, &QThread::finished, this, [this, task, row, epoch] {
+    --m_backgroundTasks;
+    if (epoch != m_snapshotEpoch || !currentScene() || row >= int(m_drawings.size())) {
+      refresh();
+      if (currentScene() && isVisible() && !m_cancelled) refreshPreview();
+      return;
+    }
+    if (task->success) {
+      m_drawings[row].target = task->target;
+      m_drawings[row].proposals.resize(task->target.regionColors.size());
+      if (!m_drawings[row].proposals.isEmpty()) {
+        m_drawings[row].proposals[0].protectedRegion = true;
+        m_drawings[row].proposals[0].selected = -2;
+      }
+    } else m_drawings[row].error = task->error;
+    refresh();
+    if (row == m_list->currentRow()) {
+      if (task->success) refreshPreview(); else m_view->clear(task->error);
+    }
+  });
+  connect(task, &QThread::finished, task, &QObject::deleteLater);
+  connect(qApp, &QCoreApplication::aboutToQuit, task, [task] { task->wait(); });
+  task->start();
+}
+
+void CadmiumPopup::generate() {
+  if (m_generating || m_restoring || m_backgroundTasks || !currentScene() || m_drawings.empty()) return;
+  if (m_selectionRenumberCount != m_level->getRenumberCount()) {
+    QMessageBox::warning(this, tr("Cadmium"), tr("The drawings were renumbered. Reopen Assisted Paint with the intended selection.")); return;
+  }
+  if (CadmiumRuntime::instance()->startupMode() == CadmiumRuntime::Off || CadmiumRuntime::instance()->busy()) {
+    QMessageBox::information(this, tr("Cadmium"), tr("Enable an available Cadmium worker in Preferences before generating.")); return;
+  }
+  if (m_level->getType() == OVL_XSHLEVEL &&
+      m_rasterSource->currentIndex() == int(Cadmium::RasterSource::PaperScan) && !m_extraction->isChecked()) {
+    QMessageBox::information(this, tr("Cadmium"), tr("Inspect the extracted line mask and approve extraction before generating.")); return;
+  }
+  m_generation = static_cast<Cadmium::RegenerationMode>(m_generationMode->currentData().toInt());
+  m_jobs.clear();
+  const bool currentOnly = m_generation == Cadmium::RegenerationMode::CurrentDrawing ||
+                           m_generation == Cadmium::RegenerationMode::SelectedRegions;
+  for (int i = 0; i < int(m_drawings.size()); ++i) {
+    if (m_drawings[i].applied) continue;
+    if (currentOnly ? i != m_list->currentRow() :
+        (!m_list->selectedItems().isEmpty() && !m_list->item(i)->isSelected())) continue;
+    if (m_drawings[i].referenceIds.isEmpty()) {
+      m_status->setText(tr("Choose at least one reference for every drawing to generate.")); return;
+    }
+    m_jobs.append(i);
+  }
+  if (m_jobs.isEmpty()) { m_status->setText(tr("Select an unapplied drawing to regenerate.")); return; }
+  ++m_snapshotEpoch; m_cancelled = false; m_generating = true; m_jobPosition = -1;
+  m_running = -1; m_runningReference = 0;
+  for (int index : m_jobs) m_drawings[index].error.clear();
+  next();
+}
+
+void CadmiumPopup::next() {
+  if (!m_generating || m_cancelled || !currentScene()) { if (m_generating) cancel(); return; }
+  if (++m_jobPosition >= m_jobs.size()) {
+    m_running = -1; m_generating = false;
+    autosave(); refresh(); refreshPreview();
+    m_status->setText(tr("Generation finished. Review agreements, conflicts, and protected regions before applying."));
+    return;
+  }
+  m_running = m_jobs[m_jobPosition];
+  prepareDrawing(m_running, false);
+}
+
+void CadmiumPopup::scheduleNext() {
+  const quint64 epoch = m_snapshotEpoch;
+  QTimer::singleShot(0, this, [this, epoch] {
+    if (epoch == m_snapshotEpoch && m_generating && !m_cancelled) next();
+  });
+}
+
+void CadmiumPopup::prepareDrawing(int index, bool restoring) {
+  if (!currentScene() || index < 0 || index >= int(m_drawings.size())) return;
+  Drawing &drawing = m_drawings[index];
+  QString error;
+  if (m_level->getRenumberCount() != m_selectionRenumberCount) {
+    error = tr("The drawings were renumbered. Reopen Assisted Paint before continuing.");
+  }
+  const qint64 budget = 512LL * 1024 * 1024;
+  auto memory = [](const Cadmium::Frame &frame) {
+    return TUndo::getImageMemorySize(frame.original.getPointer()) +
+        TUndo::getImageMemorySize(frame.lineSource.getPointer()) + qint64(frame.lines.sizeInBytes()) +
+        qint64(frame.labels.size()) * qint64(sizeof(int)) +
+        qint64(frame.nativeRegionColors.size()) * qint64(sizeof(Cadmium::NativeColor));
+  };
+  qint64 bytes = 0;
+  for (const Drawing &cached : m_drawings) {
+    bytes += memory(cached.target) + Cadmium::proposalMemoryBytes(cached.proposals);
+    for (const Cadmium::Frame &reference : cached.references) bytes += memory(reference);
+    for (const QImage &image : cached.referencePreviews) bytes += image.sizeInBytes();
+  }
+  QVector<TFrameId> captureIds = drawing.referenceIds;
+  captureIds.prepend(drawing.fid);
+  for (const TFrameId &fid : captureIds) {
+    if (!m_level->isFid(fid) || (fid != drawing.fid && !m_level->getCadmiumReferences().count(fid))) {
+      error = tr("A target or marked reference is no longer available."); break;
+    }
+    TImageP image = Cadmium::loadDrawing(m_level.getPointer(), fid);
+    bytes += std::max<qint64>(16LL * 1024 * 1024, TUndo::getImageMemorySize(image.getPointer()) * 4);
+    if (m_level->getType() == OVL_XSHLEVEL &&
+        m_rasterSource->currentIndex() == int(Cadmium::RasterSource::LinkedLines)) {
+      auto *line = reinterpret_cast<TXshSimpleLevel *>(m_lineLevel->currentData().toULongLong());
+      std::vector<TXshLevel *> levels; m_scene->getLevelSet()->listLevels(levels);
+      if (line && std::find(levels.begin(), levels.end(), line) != levels.end())
+        bytes += TUndo::getImageMemorySize(Cadmium::loadDrawing(line, fid).getPointer()) * 4;
+    }
+  }
+  if (bytes > budget) error = tr("The proposal cache reached its memory budget. Apply or discard results and use a smaller batch or fewer references.");
+  if (!error.isEmpty()) {
+    drawing.error = error;
+    if (restoring) { refresh(); QTimer::singleShot(0, this, &CadmiumPopup::restoreNext); }
+    else { refresh(); scheduleNext(); }
+    return;
+  }
+  drawing.pendingRenumberCount = m_level->getRenumberCount();
+  drawing.pendingTargetBuilder = ImageManager::instance()->getBuilder(m_level->getImageId(drawing.fid));
+  drawing.pendingReferenceBuilders.clear();
+  for (const TFrameId &fid : drawing.referenceIds)
+    drawing.pendingReferenceBuilders.append(ImageManager::instance()->getBuilder(m_level->getImageId(fid)));
+  auto *task = new CadmiumRasterTask;
+  const bool raster = m_level->getType() != PLI_XSHLEVEL;
+  bool captured = snapshot(drawing.fid, task->target, error, raster);
+  if (captured) for (const TFrameId &fid : drawing.referenceIds) {
+    Cadmium::Frame reference;
+    if (!snapshot(fid, reference, error, raster)) { captured = false; break; }
+    task->references.append(reference);
+    if (!raster) task->previews.append(imagePreview(reference.original, reference));
+  }
+  const quint64 epoch = m_snapshotEpoch;
+  if (!captured || !raster) {
+    analysisFinished(index, task->target, task->references, task->previews,
+                     captured ? QString() : error, restoring, epoch);
+    delete task; return;
+  }
+  ++m_backgroundTasks;
+  connect(task, &QThread::finished, this, [this, task, index, restoring, epoch] {
+    --m_backgroundTasks;
+    analysisFinished(index, task->target, task->references, task->previews,
+        task->success ? QString() : task->error, restoring, epoch);
+  });
+  connect(task, &QThread::finished, task, &QObject::deleteLater);
+  connect(qApp, &QCoreApplication::aboutToQuit, task, [task] { task->wait(); });
+  m_status->setText(restoring ? tr("Validating saved drawing and reference fingerprints…") : tr("Analyzing target and reference regions…"));
+  refresh(); task->start();
+}
+
+void CadmiumPopup::analysisFinished(int index, Cadmium::Frame target,
+    QVector<Cadmium::Frame> references, QVector<QImage> previews, QString error,
+    bool restoring, quint64 epoch) {
+  if (epoch != m_snapshotEpoch || !currentScene() || m_cancelled ||
+      index < 0 || index >= int(m_drawings.size()) ||
+      (restoring ? !m_restoring : !m_generating)) { refresh(); return; }
+  Drawing &drawing = m_drawings[index];
+  if (error.isEmpty())
+    for (const Cadmium::Frame &reference : references)
+      if (reference.lines.size() != target.lines.size()) {
+        error = tr("Reference and target analysis canvases must have matching dimensions."); break;
+      }
+  if (!error.isEmpty()) {
+    drawing.error = error;
+    if (restoring) QTimer::singleShot(0, this, &CadmiumPopup::restoreNext);
+    else scheduleNext();
+    refresh(); return;
+  }
+  if (restoring) {
+    const Cadmium::SessionDrawing saved = m_recovery.value(drawing.fid);
+    drawing.target = target; drawing.references = references; drawing.referencePreviews = previews;
+    drawing.targetBuilder = drawing.pendingTargetBuilder;
+    drawing.referenceBuilders = drawing.pendingReferenceBuilders;
+    drawing.renumberCount = drawing.pendingRenumberCount;
+    drawing.selectedRegions.clear();
+    if (saved.applied) {
+      drawing.applied = true; drawing.ready = false; drawing.reviewed = false;
+      drawing.proposals.clear();
+      drawing.error = tr("Previously applied session entry. Clear the saved session to start a new proposal after scene undo or output changes.");
+    } else if (saved.targetFingerprint.isEmpty()) {
+      drawing.proposals.clear(); drawing.proposals.resize(target.regionColors.size());
+      if (!drawing.proposals.isEmpty()) {
+        drawing.proposals[0].protectedRegion = true; drawing.proposals[0].selected = -2;
+      }
+      drawing.ready = false; drawing.reviewed = false; drawing.applied = false; drawing.error.clear();
+    } else if (Cadmium::validateSessionAgainstFrames(saved, target, references, target.kind, error)) {
+      drawing.proposals = saved.regions;
+      drawing.ready = saved.ready; drawing.reviewed = saved.ready && saved.reviewed;
+      drawing.applied = false; drawing.error.clear();
+    } else {
+      drawing.proposals.clear(); drawing.proposals.resize(target.regionColors.size());
+      if (!drawing.proposals.isEmpty()) {
+        drawing.proposals[0].protectedRegion = true; drawing.proposals[0].selected = -2;
+      }
+      drawing.ready = false; drawing.reviewed = false; drawing.error = error;
+    }
+    for (Cadmium::Frame &reference : drawing.references) {
+      reference.original = TImageP(); reference.lineSource = TImageP();
+      reference.labels.clear();
+    }
+    refresh(); refreshPreview();
+    QTimer::singleShot(0, this, &CadmiumPopup::restoreNext);
+    return;
+  }
+  bool sameReferences = drawing.references.size() == references.size();
+  if (sameReferences) for (int ref = 0; ref < references.size(); ++ref)
+    if (drawing.references[ref].fingerprint != references[ref].fingerprint) sameReferences = false;
+  QVector<Cadmium::RegionProposal> previous = drawing.proposals;
+  if (!sameReferences) for (int region = 1; region < previous.size(); ++region)
+    previous[region] = manualDecision(previous[region], target);
+  Cadmium::invalidateIncompleteConsensus(previous, references.size());
+  const Cadmium::RegenerationPlan plan = Cadmium::regenerationPlan(
+      drawing.target, target, previous, drawing.selectedRegions, m_generation, drawing.applied);
+  if (!plan.valid()) { drawing.error = plan.error; refresh(); scheduleNext(); return; }
+  drawing.targetBuilder = drawing.pendingTargetBuilder;
+  drawing.referenceBuilders = drawing.pendingReferenceBuilders;
+  drawing.renumberCount = drawing.pendingRenumberCount;
+  drawing.target = target; drawing.references = references; drawing.referencePreviews = previews;
+  drawing.proposals = plan.regions; drawing.requestedRegions = plan.requested;
+  QSet<int> mappedSelection;
+  for (int selected : drawing.selectedRegions)
+    if (plan.previousToCurrent.contains(selected)) mappedSelection.insert(plan.previousToCurrent.value(selected));
+  drawing.selectedRegions = mappedSelection;
+  drawing.ready = false;
+  if (plan.invalidateReview) drawing.reviewed = false;
+  drawing.error.clear();
+  m_runningReference = 0;
+  autosave();
+  if (drawing.requestedRegions.isEmpty()) { finishDrawing(); return; }
+  submit();
+}
+
+void CadmiumPopup::submit() {
+  if (!m_generating || m_cancelled || !currentScene() || m_running < 0) return;
+  Drawing &drawing = m_drawings[m_running];
+  if (m_runningReference >= drawing.references.size()) { finishDrawing(); return; }
+  const Cadmium::Frame &reference = drawing.references[m_runningReference];
+  const QString targetLabels = Cadmium::labelUri(drawing.target), refLabels = Cadmium::labelUri(reference);
+  if (targetLabels.isEmpty() || refLabels.isEmpty()) { failed(tr("The native region labels are incomplete.")); return; }
+  QJsonArray palette;
+  QSet<QRgb> colors;
+  bool nullColor = false;
+  for (const QColor &color : reference.regionColors) {
+    if (color.isValid()) {
+      palette.append(QJsonArray{color.red(), color.green(), color.blue(), color.alpha()}); colors.insert(color.rgba());
+    } else { palette.append(QJsonArray{-100, 0, 0, 0}); nullColor = true; }
+  }
+  if (colors.isEmpty() || colors.size() + int(nullColor) > 512) {
+    failed(tr("Every reference needs between 1 and 512 model palette entries.")); return;
+  }
+  QJsonObject ref{{"seg_map_uri", refLabels}, {"line_image_uri", Cadmium::lineImageUri(reference.lines)}, {"colors_rgba", palette}};
+  QJsonObject request{{"target_seg_map_uri", targetLabels},
+      {"target_line_image_uri", Cadmium::lineImageUri(drawing.target.lines)},
+      {"references", QJsonArray{ref}}, {"return_colorized", false}, {"verbose", false}};
+  refresh();
+  m_status->setText(tr("Drawing %1 of %2 — reference %3 of %4")
+      .arg(m_jobPosition + 1).arg(m_jobs.size()).arg(m_runningReference + 1).arg(drawing.references.size()));
+  CadmiumRuntime::instance()->colorize(request);
+}
+
+void CadmiumPopup::received(const QJsonObject &response) {
+  if (!m_generating || m_cancelled || m_running < 0 || !currentScene()) return;
+  Drawing &drawing = m_drawings[m_running];
+  if (m_runningReference < 0 || m_runningReference >= drawing.references.size()) return;
+  QString error;
+  QVector<Cadmium::RegionProposal> incoming;
+  if (!Cadmium::parseReferenceProposals(response, drawing.references[m_runningReference],
+      drawing.target, m_runningReference, incoming, error)) { failed(error); return; }
+  QVector<Cadmium::RegionProposal> merged = drawing.proposals;
+  // Unrequested automatic regions already contain prior reference votes. Shield
+  // them during this merge and restore their exact state afterwards.
+  for (int region = 1; region < merged.size(); ++region)
+    if (!drawing.requestedRegions.contains(region)) merged[region].protectedRegion = true;
+  if (!Cadmium::mergeReferenceProposals(merged, incoming, drawing.target.kind, error)) { failed(error); return; }
+  for (int region = 1; region < merged.size(); ++region)
+    if (!drawing.requestedRegions.contains(region)) merged[region] = drawing.proposals[region];
+  drawing.proposals = merged;
+  ++m_runningReference;
+  autosave();
+  if (m_runningReference == drawing.references.size()) finishDrawing(); else submit();
+}
+
+void CadmiumPopup::finishDrawing() {
+  if (m_running < 0 || m_running >= int(m_drawings.size())) return;
+  Drawing &drawing = m_drawings[m_running];
+  Cadmium::invalidateIncompleteConsensus(drawing.proposals, drawing.references.size());
+  drawing.ready = true; drawing.error.clear();
+  for (Cadmium::Frame &reference : drawing.references) {
+    reference.original = TImageP(); reference.lineSource = TImageP();
+    reference.labels.clear();
+  }
+  autosave(); refresh(); refreshPreview(); scheduleNext();
+}
+
+void CadmiumPopup::failed(const QString &error) {
+  if (!m_generating || m_running < 0 || m_running >= int(m_drawings.size())) return;
+  m_drawings[m_running].error = error; m_drawings[m_running].ready = false;
+  autosave();
+  if (!CadmiumRuntime::instance()->isReady()) {
+    m_generating = false; m_running = -1; m_status->setText(error); refresh(); return;
+  }
+  refresh(); scheduleNext();
+}
+
+TImageP CadmiumPopup::composeProposal(const Drawing &drawing, QString &error) const {
+  if (!Cadmium::validateProposals(drawing.proposals, drawing.target.kind, error)) return TImageP();
+  QVector<int> styles(drawing.proposals.size(), -1);
+  QVector<QColor> colors(drawing.proposals.size());
+  QVector<Cadmium::NativeColor> native(drawing.proposals.size());
+  for (int region = 1; region < drawing.proposals.size(); ++region) {
+    const Cadmium::RegionProposal &proposal = drawing.proposals[region];
+    if (proposal.protectedRegion || proposal.selected < 0) continue;
+    const Cadmium::ProposalCandidate &candidate = proposal.candidates[proposal.selected];
+    styles[region] = candidate.style; colors[region] = candidate.color; native[region] = candidate.nativeColor;
+  }
+  switch (drawing.target.kind) {
+  case Cadmium::Kind::ToonzRaster: return Cadmium::applyToonzRaster(drawing.target, styles, colors, m_repaint->isChecked(), error);
+  case Cadmium::Kind::Vector: return Cadmium::applyVector(drawing.target, styles, colors, m_repaint->isChecked(), error);
+  case Cadmium::Kind::FullColor: return Cadmium::applyFullColor(drawing.target, styles, colors, m_repaint->isChecked(), error, native);
+  }
+  error = tr("The drawing format is unsupported."); return TImageP();
+}
+
+void CadmiumPopup::setRegionDecision(int region, int candidate) {
+  const int row = m_list->currentRow();
+  if (m_generating || m_restoring || row < 0 || row >= int(m_drawings.size())) return;
+  Drawing &drawing = m_drawings[row];
+  if (!drawing.ready || region <= 0 || region >= drawing.proposals.size()) return;
+  if (!Cadmium::chooseProposal(drawing.proposals[region], candidate)) return;
+  drawing.reviewed = false; autosave(); refresh(); refreshPreview();
+}
+
+void CadmiumPopup::setRegionProtected(int region, bool protect) {
+  setRegionsProtected(QSet<int>{region}, protect);
+}
+
+void CadmiumPopup::setRegionLocked(int region, bool lock) {
+  const int row = m_list->currentRow();
+  if (m_generating || m_restoring || row < 0 || row >= int(m_drawings.size())) return;
+  Drawing &drawing = m_drawings[row];
+  if (region <= 0 || region >= drawing.proposals.size()) return;
+  Cadmium::RegionProposal &proposal = drawing.proposals[region];
+  if (lock && proposal.selected == -1) return;
+  proposal.locked = lock; drawing.reviewed = false;
+  autosave(); refresh(); refreshPreview();
+}
+
+void CadmiumPopup::setRegionsSkipped(const QSet<int> &regions) {
+  const int row = m_list->currentRow();
+  if (m_generating || m_restoring || row < 0 || row >= int(m_drawings.size())) return;
+  Drawing &drawing = m_drawings[row];
+  for (int region : regions)
+    if (region > 0 && region < drawing.proposals.size()) Cadmium::chooseProposal(drawing.proposals[region], -2);
+  drawing.reviewed = false; autosave(); refresh(); refreshPreview();
+}
+
+void CadmiumPopup::setRegionsProtected(const QSet<int> &regions, bool protect) {
+  const int row = m_list->currentRow();
+  if (m_generating || m_restoring || row < 0 || row >= int(m_drawings.size())) return;
+  Drawing &drawing = m_drawings[row];
+  for (int region : regions)
+    if (region > 0 && region < drawing.proposals.size()) Cadmium::protectProposal(drawing.proposals[region], protect);
+  drawing.reviewed = false; autosave(); refresh(); refreshPreview();
+}
+
+void CadmiumPopup::addPaletteDecision(int region, int style) {
+  const int row = m_list->currentRow();
+  if (m_generating || m_restoring || row < 0 || row >= int(m_drawings.size())) return;
+  Drawing &drawing = m_drawings[row];
+  if (!drawing.ready || drawing.target.kind == Cadmium::Kind::FullColor || !drawing.target.palette ||
+      region <= 0 || region >= drawing.proposals.size() || style < 0 ||
+      style >= drawing.target.palette->getStyleCount() || drawing.proposals[region].protectedRegion) return;
+  const TColorStyle *colorStyle = drawing.target.palette->getStyle(style);
+  if (!dynamic_cast<const TSolidColorStyle *>(colorStyle)) {
+    m_status->setText(tr("Choose a solid native palette style.")); return;
+  }
+  const TPixel32 pixel = colorStyle->getMainColor();
+  Cadmium::ProposalCandidate candidate;
+  candidate.style = style; candidate.color = QColor(pixel.r, pixel.g, pixel.b, pixel.m);
+  Cadmium::RegionProposal &proposal = drawing.proposals[region];
+  int selected = -1;
+  for (int i = 0; i < proposal.candidates.size(); ++i)
+    if (Cadmium::sameCandidate(candidate, proposal.candidates[i], drawing.target.kind)) selected = i;
+  if (selected < 0) {
+    if (proposal.candidates.size() >= Cadmium::MaximumRegionCandidates) return;
+    proposal.candidates.append(candidate); selected = proposal.candidates.size() - 1;
+  }
+  Cadmium::chooseProposal(proposal, selected);
+  drawing.reviewed = false; autosave(); refresh(); refreshPreview();
+}
+
+void CadmiumPopup::apply(bool all) {
+  if (m_generating || m_restoring || m_backgroundTasks || !currentScene() ||
+      !Cadmium::canPaintLevel(m_level.getPointer())) return;
+  std::map<TFrameId, TImageP> before, after;
+  QVector<int> accepted;
+  QString error;
+  for (int index = 0; index < int(m_drawings.size()); ++index) {
+    Drawing &drawing = m_drawings[index];
+    if ((all ? !drawing.reviewed : index != m_list->currentRow()) || !drawing.ready || drawing.applied) continue;
+    if ((m_level->getType() != OVL_XSHLEVEL && m_level->isFrameReadOnly(drawing.fid)) ||
+        m_level->getCadmiumReferences().count(drawing.fid) ||
+        drawing.references.size() != drawing.referenceIds.size() ||
+        drawing.referenceBuilders.size() != drawing.referenceIds.size() ||
+        m_level->getRenumberCount() != drawing.renumberCount ||
+        !drawing.targetBuilder || ImageManager::instance()->getBuilder(m_level->getImageId(drawing.fid)) != drawing.targetBuilder.getPointer()) {
+      error = tr("A drawing was replaced, renumbered, protected, or changed. Regenerate before applying."); break;
+    }
+    auto fresh = [this, &error](const TFrameId &fid, const Cadmium::Frame &saved, Cadmium::Frame &now) {
+      if (m_level->getType() == PLI_XSHLEVEL)
+        return snapshot(fid, now, error) && now.fingerprint == saved.fingerprint;
+      if (!snapshot(fid, now, error, true)) return false;
+      return saved.kind == Cadmium::Kind::ToonzRaster
+          ? Cadmium::matchesToonzRaster(now.original, saved, error)
+          : Cadmium::matchesFullColor(now.original, now, saved, error);
+    };
+    Cadmium::Frame targetNow;
+    if (!fresh(drawing.fid, drawing.target, targetNow)) {
+      if (error.isEmpty()) error = tr("The target or its input settings changed. Regenerate before applying."); break;
+    }
+    for (int ref = 0; ref < drawing.referenceIds.size(); ++ref) {
+      Cadmium::Frame referenceNow;
+      const TFrameId &fid = drawing.referenceIds[ref];
+      if (!m_level->getCadmiumReferences().count(fid) || !drawing.referenceBuilders[ref] ||
+          ImageManager::instance()->getBuilder(m_level->getImageId(fid)) != drawing.referenceBuilders[ref].getPointer() ||
+          !fresh(fid, drawing.references[ref], referenceNow)) {
+        if (error.isEmpty()) error = tr("A chosen reference changed or was replaced. Regenerate before applying."); break;
+      }
+    }
+    if (!error.isEmpty()) break;
+    for (int region = 1; region < drawing.proposals.size(); ++region)
+      if (!drawing.proposals[region].protectedRegion && drawing.proposals[region].selected == -1) {
+        error = tr("Choose a fill, explicitly skip, or protect every unresolved region before applying."); break;
+      }
+    if (!error.isEmpty()) break;
+    TImageP result = composeProposal(drawing, error);
+    if (!result) { if (error.isEmpty()) error = tr("The native proposal could not be prepared."); break; }
+    before[drawing.fid] = targetNow.original; after[drawing.fid] = result; accepted.append(index);
+  }
+  if (!error.isEmpty()) { QMessageBox::warning(this, tr("Cadmium"), error); return; }
+  if (after.empty()) return;
+  TXshSimpleLevelP destination = m_level;
+  const bool sourceWasDirty = m_level->getDirtyFlag();
+  const bool newLevel = m_level->getType() == OVL_XSHLEVEL;
+  TXshLevel *created = nullptr;
+  try {
+    if (newLevel) {
+      created = Cadmium::createResultLevel(m_scene, m_level.getPointer(), error);
+      if (!created || !created->getSimpleLevel()) {
+        if (created) m_scene->getLevelSet()->removeLevel(created);
+        QMessageBox::warning(this, tr("Cadmium"), error.isEmpty() ? tr("Could not create the result level.") : error); return;
+      }
+      destination = created->getSimpleLevel();
+      destination->setCadmiumSourceLevelId(m_level->cadmiumLevelId());
+      destination->set16BitChannelLevel(m_level->is16BitChannelLevel());
+      destination->setFloatChannelLevel(m_level->isFloatChannelLevel());
+      destination->getProperties()->options() = m_level->getProperties()->options();
+      destination->getProperties()->setIsStopMotion(false);
+      destination->getProperties()->setImageRes(m_level->getProperties()->getImageRes());
+      destination->getProperties()->setImageDpi(m_level->getProperties()->getImageDpi());
+      destination->getProperties()->setBpp(m_level->getProperties()->getBpp());
+    }
+    auto undo = std::unique_ptr<CadmiumPaintUndo>(new CadmiumPaintUndo(
+        destination.getPointer(), before, after, newLevel, m_level.getPointer(), m_scene));
+    notifyDrawings(destination.getPointer(), after);
+    TUndoManager::manager()->add(undo.release());
+  } catch (...) {
+    if (newLevel) { if (created) m_scene->getLevelSet()->removeLevel(created); }
+    else {
+      for (const auto &entry : before) {
+        destination->setFrame(entry.first, entry.second);
+        IconGenerator::instance()->invalidate(destination.getPointer(), entry.first);
+      }
+      destination->setDirtyFlag(sourceWasDirty);
+      TApp::instance()->getCurrentLevel()->notifyLevelChange();
+    }
+    QMessageBox::warning(this, tr("Cadmium"), tr("The paint batch could not be committed. Its original drawings were restored."));
+    return;
+  }
+  for (int index : accepted) m_drawings[index].applied = true;
+  autosave(); refresh(); refreshPreview();
+  m_status->setText(newLevel
+      ? tr("Created result level %1. Original drawings were preserved.").arg(QString::fromStdWString(destination->getName()))
+      : tr("Applied %1 drawings. Undo restores their original paint.").arg(after.size()));
+}
+
+QString CadmiumPopup::sessionCacheRoot() const {
+  return QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
+}
+
+QString CadmiumPopup::sceneIdentity() const {
+  return currentScene() && !m_scene->isUntitled() ? m_scene->getScenePath().getQString() : QString();
+}
+
+Cadmium::SessionOptions CadmiumPopup::sessionOptions() const {
+  Cadmium::SessionOptions options;
+  options.source = static_cast<Cadmium::RasterSource>(m_rasterSource->currentIndex());
+  options.paperThreshold = m_paperThreshold->value(); options.lineThreshold = m_lineThreshold->value();
+  options.extractionApproved = m_extraction->isChecked(); options.repaint = m_repaint->isChecked();
+  auto *line = reinterpret_cast<TXshSimpleLevel *>(m_lineLevel->currentData().toULongLong());
+  if (currentScene() && line && options.source == Cadmium::RasterSource::LinkedLines) {
+    std::vector<TXshLevel *> levels; m_scene->getLevelSet()->listLevels(levels);
+    if (std::find(levels.begin(), levels.end(), line) != levels.end()) {
+      options.lineLevelId = line->cadmiumLevelId(); options.lineSourceKey = stableSourceKey(m_scene, line);
+    }
+  }
+  return options;
+}
+
+Cadmium::Session CadmiumPopup::makeSession() const {
+  Cadmium::Session session;
+  if (!currentScene()) return session;
+  session.levelId = m_level->cadmiumLevelId();
+  session.kind = m_level->getType() == PLI_XSHLEVEL ? Cadmium::Kind::Vector :
+      m_level->getType() == OVL_XSHLEVEL ? Cadmium::Kind::FullColor : Cadmium::Kind::ToonzRaster;
+  session.options = sessionOptions();
+  QMap<TFrameId, Cadmium::SessionDrawing> records;
+  if (m_savedSession.levelId == session.levelId &&
+      Cadmium::sessionOptionsDigest(m_savedSession.options) == Cadmium::sessionOptionsDigest(session.options))
+    for (const Cadmium::SessionDrawing &drawing : m_savedSession.drawings)
+      if (m_level->isFid(drawing.fid)) records.insert(drawing.fid, drawing);
+  const TFrameId selected = m_list->currentRow() >= 0 && m_list->currentRow() < int(m_drawings.size())
+      ? m_drawings[m_list->currentRow()].fid : TFrameId();
+  for (const Drawing &drawing : m_drawings) {
+    Cadmium::SessionDrawing record;
+    record.fid = drawing.fid; record.ready = drawing.ready; record.applied = drawing.applied;
+    record.reviewed = drawing.reviewed && drawing.ready;
+    if (drawing.applied) {
+      record.ready = false; record.reviewed = false;
+      for (const TFrameId &fid : drawing.referenceIds) {
+        Cadmium::SessionReference reference; reference.fid = fid;
+        record.references.append(reference);
+      }
+      records.insert(record.fid, record);
+      continue;
+    }
+    record.targetFingerprint = drawing.target.fingerprint;
+    if (!drawing.target.lines.isNull()) {
+      record.canvas = drawing.target.lines.size(); record.labelsFingerprint = Cadmium::sessionLabelsDigest(drawing.target);
+    }
+    record.regions = drawing.proposals;
+    for (int ref = 0; ref < drawing.referenceIds.size(); ++ref) {
+      Cadmium::SessionReference reference; reference.fid = drawing.referenceIds[ref];
+      if (ref < drawing.references.size()) {
+        reference.fingerprint = drawing.references[ref].fingerprint;
+        reference.regionCount = drawing.references[ref].regionColors.size();
+      }
+      record.references.append(reference);
+    }
+    records.insert(record.fid, record);
+  }
+  for (auto record = records.cbegin(); record != records.cend(); ++record) {
+    if (record.key() == selected) session.selectedDrawing = session.drawings.size();
+    session.drawings.append(record.value());
+  }
+  return session;
+}
+
+void CadmiumPopup::autosave() {
+  if (m_refreshing || !currentScene()) return;
+  ++m_sessionRevision; m_sessionDirty = true;
+  m_pendingSession = makeSession(); m_pendingScene = sceneIdentity();
+  m_saveTimer.start();
+}
+
+void CadmiumPopup::saveSession(bool explicitSave) {
+  const QString scene = currentScene() ? sceneIdentity() : m_pendingScene;
+  if (scene.isEmpty()) {
+    if (explicitSave) m_status->setText(tr("Save the scene first to keep this painting session across restarts."));
+    return;
+  }
+  if (m_sessionWrites) { m_saveTimer.start(); return; }
+  if (!m_sessionDirty && !explicitSave) return;
+  Cadmium::Session session = currentScene() ? makeSession() : m_pendingSession;
+  QString error;
+  if (!Cadmium::validateSession(session, error)) { m_status->setText(error); return; }
+  if (!m_sessionScene.isEmpty() && m_sessionScene != scene) {
+    if (!Cadmium::copySession(sessionCacheRoot(), m_sessionScene, scene, session.levelId, error))
+      error.clear(); // A new complete snapshot can create the Save As entry.
+  }
+  m_sessionScene = scene;
+  if (currentScene()) m_savedSession = session;
+  m_pendingSession = session; m_pendingScene = scene;
+  auto *task = new CadmiumSessionTask;
+  task->cacheRoot = sessionCacheRoot(); task->scene = scene; task->session = session;
+  task->sourceKey = m_sessionSourceKey;
+  const quint64 revision = m_sessionRevision;
+  const quint64 epoch = m_snapshotEpoch;
+  const QString levelId = session.levelId;
+  ++m_sessionWrites; m_sessionWriter = task;
+  connect(task, &QThread::finished, this, [this, task, revision, epoch, levelId, scene, explicitSave] {
+    --m_sessionWrites;
+    if (m_sessionWriter == task) m_sessionWriter = nullptr;
+    if (task->success && revision == m_sessionRevision &&
+        m_pendingSession.levelId == levelId && m_pendingScene == scene) m_sessionDirty = false;
+    if (currentScene() && m_level->cadmiumLevelId() == levelId && sceneIdentity() == scene && epoch == m_snapshotEpoch) {
+      if (!task->success) m_status->setText(task->error);
+      else if (explicitSave) m_status->setText(tr("Painting session saved. Source drawings were not modified."));
+    }
+    if (m_sessionDirty) m_saveTimer.start();
+    refresh();
+  });
+  connect(task, &QThread::finished, task, &QObject::deleteLater);
+  task->start();
+}
+
+void CadmiumPopup::flushSession() {
+  m_saveTimer.stop();
+  if (m_sessionWriter) m_sessionWriter->wait();
+  if (!m_sessionDirty) return;
+  const QString scene = currentScene() ? sceneIdentity() : m_pendingScene;
+  if (scene.isEmpty()) return;
+  QString error;
+  const Cadmium::Session session = currentScene() ? makeSession() : m_pendingSession;
+  if (Cadmium::saveSessionWithAlias(sessionCacheRoot(), scene, m_sessionSourceKey, session, error)) m_sessionDirty = false;
+}
+
+void CadmiumPopup::restoreSession() {
+  if (m_generating || m_restoring || m_backgroundTasks || !currentScene()) return;
+  if (m_sessionWriter) m_sessionWriter->wait();
+  Cadmium::Session saved;
+  QString error;
+  m_saveTimer.stop();
+  if (!Cadmium::loadSessionWithAlias(sessionCacheRoot(), sceneIdentity(), m_level->cadmiumLevelId(), m_sessionSourceKey, saved, error)) {
+    m_status->setText(error); return;
+  }
+  const Cadmium::Kind kind = m_level->getType() == PLI_XSHLEVEL ? Cadmium::Kind::Vector :
+      m_level->getType() == OVL_XSHLEVEL ? Cadmium::Kind::FullColor : Cadmium::Kind::ToonzRaster;
+  if (saved.kind != kind) { m_status->setText(tr("The saved session belongs to another native drawing format.")); return; }
+  m_refreshing = true;
+  m_rasterSource->setCurrentIndex(int(saved.options.source));
+  m_paperThreshold->setValue(saved.options.paperThreshold); m_lineThreshold->setValue(saved.options.lineThreshold);
+  m_extraction->setChecked(saved.options.extractionApproved); m_repaint->setChecked(saved.options.repaint);
+  m_lineLevel->setCurrentIndex(0);
+  if (!saved.options.lineLevelId.isEmpty()) for (int i = 1; i < m_lineLevel->count(); ++i) {
+    auto *line = reinterpret_cast<TXshSimpleLevel *>(m_lineLevel->itemData(i).toULongLong());
+    std::vector<TXshLevel *> levels; m_scene->getLevelSet()->listLevels(levels);
+    if (std::find(levels.begin(), levels.end(), line) != levels.end() &&
+        (line->cadmiumLevelId() == saved.options.lineLevelId ||
+         (!saved.options.lineSourceKey.isEmpty() && stableSourceKey(m_scene, line) == saved.options.lineSourceKey))) {
+      m_lineLevel->setCurrentIndex(i); saved.options.lineLevelId = line->cadmiumLevelId();
+    }
+  }
+  m_refreshing = false;
+  if (Cadmium::sessionOptionsDigest(saved.options) != Cadmium::sessionOptionsDigest(sessionOptions())) {
+    m_status->setText(tr("The saved clean-line source or painting settings are no longer available.")); return;
+  }
+  m_jobs.clear(); m_recovery.clear();
+  for (const Cadmium::SessionDrawing &record : saved.drawings) {
+    for (int index = 0; index < int(m_drawings.size()); ++index) if (m_drawings[index].fid == record.fid) {
+      bool validReferences = true;
+      for (const Cadmium::SessionReference &reference : record.references)
+        if (!m_level->isFid(reference.fid) || !m_level->getCadmiumReferences().count(reference.fid)) validReferences = false;
+      if (!validReferences) { m_drawings[index].error = tr("A saved marked reference is no longer available."); continue; }
+      Drawing &drawing = m_drawings[index];
+      drawing.referenceIds.clear();
+      for (const Cadmium::SessionReference &reference : record.references) drawing.referenceIds.append(reference.fid);
+      drawing.ready = false; drawing.reviewed = false; drawing.error.clear();
+      m_recovery.insert(record.fid, record); m_jobs.append(index);
+    }
+  }
+  m_savedSession = saved; m_sessionScene = sceneIdentity(); m_sessionDirty = false;
+  m_pendingSession = saved; m_pendingScene = sceneIdentity(); ++m_sessionRevision;
+  ++m_snapshotEpoch; m_cancelled = false; m_restoring = true; m_jobPosition = -1; m_running = -1;
+  refresh(); restoreNext();
+}
+
+void CadmiumPopup::restoreNext() {
+  if (!m_restoring || m_cancelled || !currentScene()) return;
+  if (++m_jobPosition >= m_jobs.size()) {
+    m_restoring = false; m_running = -1;
+    if (m_savedSession.selectedDrawing >= 0 && m_savedSession.selectedDrawing < m_savedSession.drawings.size()) {
+      const TFrameId selected = m_savedSession.drawings[m_savedSession.selectedDrawing].fid;
+      for (int i = 0; i < int(m_drawings.size()); ++i)
+        if (m_drawings[i].fid == selected) m_list->setCurrentRow(i, QItemSelectionModel::NoUpdate);
+    }
+    refresh(); refreshPreview();
+    m_status->setText(tr("Saved session checked against current artwork. Stale entries require regeneration; previously applied entries remain history."));
+    return;
+  }
+  m_running = m_jobs[m_jobPosition]; prepareDrawing(m_running, true);
+}
+
+void CadmiumPopup::clearSession() {
+  if (m_generating || m_restoring || !currentScene()) return;
+  m_saveTimer.stop();
+  if (m_sessionWriter) m_sessionWriter->wait();
+  ++m_sessionRevision; m_sessionDirty = false;
+  QString error;
+  if (!sceneIdentity().isEmpty() && !Cadmium::removeSessionWithAlias(sessionCacheRoot(), sceneIdentity(), m_level->cadmiumLevelId(), m_sessionSourceKey, error)) {
+    m_status->setText(error); return;
+  }
+  m_savedSession = Cadmium::Session(); m_recovery.clear();
+  m_pendingSession = Cadmium::Session(); m_pendingScene.clear();
+  for (Drawing &drawing : m_drawings) {
+    drawing.ready = false; drawing.reviewed = false; drawing.applied = false;
+    drawing.proposals.clear(); drawing.target = Cadmium::Frame();
+    drawing.references.clear(); drawing.referencePreviews.clear(); drawing.selectedRegions.clear(); drawing.error.clear();
+  }
+  ++m_snapshotEpoch; refresh(); refreshPreview();
+  m_status->setText(tr("Saved proposals and review decisions cleared. Scene artwork and undo history were preserved."));
+}
+
+void CadmiumPopup::cancel() {
+  ++m_snapshotEpoch; m_cancelled = true;
+  const bool processing = m_generating;
+  m_generating = false; m_restoring = false; m_running = -1;
+  if (processing) CadmiumRuntime::instance()->stop();
+  autosave(); refresh();
+  m_status->setText(tr("Processing stopped. Completed proposals and manual decisions are retained."));
+}
+
+void CadmiumPopup::closeEvent(QCloseEvent *event) {
+  if (m_generating || m_restoring) cancel();
+  if (m_sessionDirty) saveSession();
+  QDialog::closeEvent(event);
 }
 
 bool CadmiumPopup::snapshot(const TFrameId &fid, Cadmium::Frame &frame, QString &error, bool captureOnly) {
@@ -514,551 +1217,4 @@ bool CadmiumPopup::snapshot(const TFrameId &fid, Cadmium::Frame &frame, QString 
     return Cadmium::snapshotFullColor(image, frame, error);
   default: error = tr("This level does not support cel painting."); return false;
   }
-}
-
-void CadmiumPopup::generate() {
-  if (m_generating || m_backgroundTasks || m_drawings.empty() || m_references.empty() || !currentScene()) return;
-  if (m_level->getRenumberCount() != m_selectionRenumberCount) {
-    QMessageBox::information(this, tr("Cadmium"), tr("The drawings were renumbered. Reopen Assisted Paint with the intended selection.")); return;
-  }
-  if (CadmiumRuntime::instance()->startupMode() == CadmiumRuntime::Off) {
-    QMessageBox::information(this, tr("Cadmium"), tr("Enable Cadmium in Preferences before generating paint.")); return;
-  }
-  if (CadmiumRuntime::instance()->busy()) {
-    QMessageBox::information(this, tr("Cadmium"), tr("The worker is already processing another request.")); return;
-  }
-  if (m_level->getType() == OVL_XSHLEVEL &&
-      m_rasterSource->currentIndex() == int(Cadmium::RasterSource::PaperScan) &&
-      !m_extraction->isChecked()) {
-    refreshPreview();
-    QMessageBox::information(this, tr("Cadmium"),
-      tr("Review the extracted line mask in the preview, then approve extraction before generating."));
-    return;
-  }
-  ++m_snapshotEpoch;
-  m_cancelled = false; m_generating = true; m_running = -1;
-  m_regions->setRowCount(0);
-  m_regions->setEnabled(false);
-  for (Drawing &drawing : m_drawings) {
-    drawing.ready = false; drawing.applied = false; drawing.reviewed = false; drawing.error.clear();
-    drawing.target = Cadmium::Frame(); drawing.reference = Cadmium::Frame();
-    drawing.colors.clear(); drawing.styles.clear(); drawing.nativeColors.clear();
-  }
-  next();
-}
-
-void CadmiumPopup::next() {
-  if (!m_generating) return;
-  if (m_cancelled || !currentScene()) { cancel(); return; }
-  if (m_level->getRenumberCount() != m_selectionRenumberCount) {
-    cancel();
-    m_status->setText(tr("The drawings were renumbered. Reopen Assisted Paint with the intended selection."));
-    return;
-  }
-  if (++m_running >= int(m_drawings.size())) {
-    m_running = -1; m_generating = false;
-    m_status->setText(tr("Generation finished. Review each result before applying."));
-    refresh(); refreshPreview(); return;
-  }
-  Drawing &drawing = m_drawings[m_running];
-  QString error;
-  constexpr qint64 budget = 512LL * 1024 * 1024;
-  auto memory = [](const Cadmium::Frame &frame) {
-    return TUndo::getImageMemorySize(frame.original.getPointer()) +
-           TUndo::getImageMemorySize(frame.lineSource.getPointer()) +
-           qint64(frame.lines.sizeInBytes()) +
-           qint64(frame.labels.size() + frame.regionStyles.size() +
-                  frame.nativeRegionIndices.size()) * qint64(sizeof(int)) +
-           qint64(frame.regionColors.size()) * qint64(sizeof(QColor)) +
-           qint64(frame.nativeRegionColors.size()) * qint64(sizeof(Cadmium::NativeColor));
-  };
-  qint64 held = 0;
-  for (const Drawing &cached : m_drawings)
-    held += memory(cached.target) + memory(cached.reference) +
-            qint64(cached.styles.size()) * qint64(sizeof(int)) +
-            qint64(cached.colors.size()) * qint64(sizeof(QColor)) +
-            qint64(cached.nativeColors.size()) * qint64(sizeof(Cadmium::NativeColor));
-  for (const TFrameId &fid : {drawing.fid, drawing.referenceId}) {
-    const TImageP image = Cadmium::loadDrawing(m_level.getPointer(), fid);
-    held += std::max<qint64>(16LL * 1024 * 1024,
-                            TUndo::getImageMemorySize(image.getPointer()) * 4);
-    if (m_level->getType() == OVL_XSHLEVEL &&
-        m_rasterSource->currentIndex() == int(Cadmium::RasterSource::LinkedLines)) {
-      auto *line = reinterpret_cast<TXshSimpleLevel *>(m_lineLevel->currentData().toULongLong());
-      std::vector<TXshLevel *> levels;
-      m_scene->getLevelSet()->listLevels(levels);
-      if (line && std::find(levels.begin(), levels.end(), line) != levels.end()) {
-        const TImageP lineImage = Cadmium::loadDrawing(line, fid);
-        held += TUndo::getImageMemorySize(lineImage.getPointer()) * 4;
-      }
-    }
-  }
-  if (held > budget) {
-    drawing.error = tr("The proposal cache reached its memory budget. Apply or discard completed results, then select a smaller batch.");
-    m_generating = false; m_running = -1;
-    m_status->setText(drawing.error); refresh(); return;
-  }
-  drawing.renumberCount = m_level->getRenumberCount();
-  drawing.targetBuilder = ImageManager::instance()->getBuilder(m_level->getImageId(drawing.fid));
-  drawing.referenceBuilder = ImageManager::instance()->getBuilder(m_level->getImageId(drawing.referenceId));
-  if (m_level->getType() != PLI_XSHLEVEL) {
-    auto *task = new CadmiumRasterTask;
-    if (!snapshot(drawing.fid, task->target, error, true) ||
-        !snapshot(drawing.referenceId, task->reference, error, true)) {
-      delete task; drawing.error = error; refresh();
-      scheduleNext(); return;
-    }
-    const quint64 epoch = m_snapshotEpoch;
-    const int index = m_running;
-    ++m_backgroundTasks;
-    connect(task, &QThread::finished, this, [this, task, epoch, index] {
-      --m_backgroundTasks;
-      if (epoch != m_snapshotEpoch || m_cancelled || !m_generating ||
-          m_running != index || !currentScene()) { refresh(); return; }
-      Drawing &completed = m_drawings[index];
-      if (task->success) {
-        completed.target = task->target; completed.reference = task->reference;
-        submit();
-      } else {
-        completed.error = task->error; refresh();
-        scheduleNext();
-      }
-    });
-    connect(task, &QThread::finished, task, &QObject::deleteLater);
-    connect(qApp, &QCoreApplication::aboutToQuit, task, [task] { task->wait(); });
-    m_status->setText(tr("Analyzing drawing %1 of %2…").arg(m_running + 1).arg(m_drawings.size()));
-    refresh(); task->start(); return;
-  }
-  if (!snapshot(drawing.fid, drawing.target, error) ||
-      !snapshot(drawing.referenceId, drawing.reference, error)) {
-    drawing.error = error; refresh();
-    scheduleNext(); return;
-  }
-  submit();
-}
-
-void CadmiumPopup::scheduleNext() {
-  const quint64 epoch = m_snapshotEpoch;
-  const int index = m_running;
-  QTimer::singleShot(0, this, [this, epoch, index] {
-    if (epoch != m_snapshotEpoch || index != m_running ||
-        !m_generating || m_cancelled) return;
-    next();
-  });
-}
-
-void CadmiumPopup::submit() {
-  if (!m_generating || m_cancelled || !currentScene() || m_running < 0 ||
-      m_running >= int(m_drawings.size())) return;
-  Drawing &drawing = m_drawings[m_running];
-  if (drawing.target.lines.size() != drawing.reference.lines.size()) {
-    drawing.error = tr("Reference and target analysis canvases must have matching dimensions.");
-    refresh(); scheduleNext(); return;
-  }
-  const QString targetLabels = labelUri(drawing.target), refLabels = labelUri(drawing.reference);
-  if (targetLabels.isEmpty() || refLabels.isEmpty()) {
-    drawing.error = tr("Invalid or incomplete native region labels.");
-    refresh(); scheduleNext(); return;
-  }
-  QJsonArray palette;
-  QSet<QRgb> uniqueColors;
-  bool hasNullColor = false;
-  for (const QColor &color : drawing.reference.regionColors) {
-    if (color.isValid()) {
-      uniqueColors.insert(color.rgba());
-      palette.append(QJsonArray{color.red(), color.green(), color.blue(), color.alpha()});
-    } else {
-      hasNullColor = true; palette.append(QJsonArray{-100, 0, 0, 0});
-    }
-  }
-  if (uniqueColors.isEmpty() || uniqueColors.size() + int(hasNullColor) > 512) {
-    drawing.error = tr("The reference needs between 1 and 512 model palette entries.");
-    refresh(); scheduleNext(); return;
-  }
-  QJsonObject reference{{"seg_map_uri", refLabels},
-                        {"line_image_uri", Cadmium::lineImageUri(drawing.reference.lines)},
-                        {"colors_rgba", palette}};
-  QJsonObject request{{"target_seg_map_uri", targetLabels},
-                      {"target_line_image_uri", Cadmium::lineImageUri(drawing.target.lines)},
-                      {"references", QJsonArray{reference}},
-                      {"return_colorized", false}, {"verbose", false}};
-  refresh();
-  m_status->setText(tr("Processing drawing %1 of %2…").arg(m_running + 1).arg(m_drawings.size()));
-  CadmiumRuntime::instance()->colorize(request);
-}
-
-void CadmiumPopup::received(const QJsonObject &response) {
-  if (!m_generating || m_cancelled || m_running < 0 || m_running >= int(m_drawings.size())) return;
-  Drawing &drawing = m_drawings[m_running];
-  const QJsonArray colors = response.value("target_colors_rgba").toArray();
-  const QJsonArray ids = response.value("target_color_ids").toArray();
-  if (colors.size() != drawing.target.regionColors.size() || ids.size() != colors.size()) {
-    failed(tr("Worker returned the wrong number of region predictions.")); return;
-  }
-  drawing.styles.fill(-1, colors.size()); drawing.colors.resize(colors.size());
-  drawing.nativeColors.fill(Cadmium::NativeColor(), colors.size());
-  QVector<QColor> palette;
-  for (const QColor &color : drawing.reference.regionColors)
-    if (!palette.contains(color)) palette.append(color);
-  QHash<QRgb, QVector<int>> nativeChoices;
-  for (int i = 0; i < colors.size(); ++i) {
-    if (!ids[i].isDouble() || ids[i].toDouble() != ids[i].toInt()) {
-      failed(tr("Worker returned a malformed palette index.")); return;
-    }
-    const QJsonArray rgba = colors[i].toArray();
-    if (rgba.size() != 4) { failed(tr("Worker returned malformed region colors.")); return; }
-    bool nullColor = true;
-    for (const QJsonValue &channel : rgba) if (channel.toInt() != -100) nullColor = false;
-    if (ids[i].toInt() == -100 || nullColor) continue;
-    const int predictedId = ids[i].toInt();
-    if (predictedId < 0 || predictedId >= palette.size()) {
-      failed(tr("Worker returned an out-of-range palette index.")); return;
-    }
-    for (const QJsonValue &channel : rgba)
-      if (!channel.isDouble() || channel.toDouble() != channel.toInt() ||
-          channel.toInt() < 0 || channel.toInt() > 255) {
-        failed(tr("Worker returned a color outside the supported range.")); return;
-      }
-    const QColor color(rgba[0].toInt(), rgba[1].toInt(), rgba[2].toInt(), rgba[3].toInt());
-    if (color != palette[predictedId]) {
-      failed(tr("Worker palette indices and predicted colors do not agree.")); return;
-    }
-    drawing.colors[i] = color;
-    if (drawing.target.kind == Cadmium::Kind::FullColor) {
-      if (!nativeChoices.contains(color.rgba()))
-        nativeChoices.insert(color.rgba(), Cadmium::matchingNativeRegions(drawing.reference, color));
-      const QVector<int> &candidates = nativeChoices[color.rgba()];
-      if (candidates.size() == 1) {
-        drawing.styles[i] = candidates.front();
-        drawing.nativeColors[i] = drawing.reference.nativeRegionColors[candidates.front()];
-      }
-      continue;
-    }
-    QSet<int> styles;
-    for (int region = 0; region < drawing.reference.regionColors.size(); ++region)
-      if (drawing.reference.regionColors[region] == color &&
-          region < drawing.reference.regionStyles.size() && drawing.reference.regionStyles[region] >= 0)
-        styles.insert(drawing.reference.regionStyles[region]);
-    if (styles.size() == 1) drawing.styles[i] = *styles.begin();
-  }
-  drawing.ready = true;
-  drawing.reference.original = TImageP();
-  drawing.reference.lineSource = TImageP();
-  drawing.reference.lines = QImage();
-  drawing.reference.labels.clear();
-  refresh(); refreshPreview();
-  scheduleNext();
-}
-
-void CadmiumPopup::failed(const QString &error) {
-  if (!m_generating || m_running < 0 || m_running >= int(m_drawings.size())) return;
-  m_drawings[m_running].error = error;
-  m_drawings[m_running].ready = false;
-  if (!CadmiumRuntime::instance()->isReady()) {
-    m_generating = false;
-    m_running = -1;
-    m_status->setText(error);
-    refresh();
-    return;
-  }
-  refresh();
-  scheduleNext();
-}
-
-void CadmiumPopup::refresh() {
-  bool ready = false;
-  for (int i = 0; i < int(m_drawings.size()); ++i) {
-    const Drawing &drawing = m_drawings[i];
-    ready |= drawing.ready && !drawing.applied;
-    const QString state = drawing.applied ? tr("Applied") : !drawing.error.isEmpty() ? tr("Failed") :
-        drawing.ready ? (drawing.reviewed ? tr("Reviewed") : tr("Review")) : m_generating && i == m_running ? tr("Processing") : tr("Queued");
-    m_list->item(i)->setText(tr("%1 — %2").arg(frameName(drawing.fid), state));
-    m_list->item(i)->setToolTip(drawing.error);
-  }
-  m_generate->setEnabled(!m_generating && !m_backgroundTasks && !m_drawings.empty() && !m_references.empty());
-  m_apply->setEnabled(!m_generating && ready);
-  m_applyAll->setEnabled(!m_generating && ready);
-  m_review->setEnabled(!m_generating && ready);
-  m_cancel->setEnabled(m_generating);
-  m_reference->setEnabled(!m_generating);
-  m_rasterSource->setEnabled(!m_generating);
-  m_lineLevel->setEnabled(!m_generating);
-  m_extraction->setEnabled(!m_generating);
-  m_paperThreshold->setEnabled(!m_generating);
-  m_lineThreshold->setEnabled(!m_generating);
-  m_repaint->setEnabled(!m_generating);
-  m_regions->setEnabled(!m_generating);
-}
-
-void CadmiumPopup::refreshPreview() {
-  m_regions->setRowCount(0); m_before->clear(); m_after->clear();
-  const int index = m_list->currentRow();
-  if (index < 0 || index >= int(m_drawings.size())) return;
-  Drawing &drawing = m_drawings[index];
-  const auto found = std::find(m_references.begin(), m_references.end(), drawing.referenceId);
-  m_reference->setCurrentIndex(found == m_references.end() ? -1 : int(found - m_references.begin()));
-  if (drawing.target.lines.isNull()) {
-    if (m_level && m_level->getType() != PLI_XSHLEVEL) {
-      if (m_backgroundTasks) { m_after->setText(tr("Analyzing line mask…")); return; }
-      auto *task = new CadmiumRasterTask;
-      QString error;
-      m_inspecting = true;
-      const bool captured = snapshot(drawing.fid, task->target, error, true);
-      m_inspecting = false;
-      if (!captured) { delete task; m_before->setText(error); return; }
-      task->single = true;
-      const quint64 epoch = m_snapshotEpoch;
-      ++m_backgroundTasks;
-      connect(task, &QThread::finished, this, [this, task, epoch, index] {
-        --m_backgroundTasks;
-        if (!currentScene() || !isVisible()) { refresh(); return; }
-        if (epoch != m_snapshotEpoch || index != m_list->currentRow()) {
-          refresh(); refreshPreview(); return;
-        }
-        if (task->success) {
-          m_before->setPixmap(QPixmap::fromImage(task->before));
-          m_after->setPixmap(QPixmap::fromImage(task->target.lines).scaled(320, 260, Qt::KeepAspectRatio, Qt::SmoothTransformation));
-          m_after->setToolTip(tr("Extracted line mask for inspection"));
-        } else m_before->setText(task->error);
-        refresh();
-      });
-      connect(task, &QThread::finished, task, &QObject::deleteLater);
-      connect(qApp, &QCoreApplication::aboutToQuit, task, [task] { task->wait(); });
-      m_after->setText(tr("Analyzing line mask…"));
-      refresh(); task->start(); return;
-    }
-    Cadmium::Frame probe; QString error;
-    m_inspecting = true;
-    const bool inspected = snapshot(drawing.fid, probe, error);
-    m_inspecting = false;
-    if (inspected) {
-      m_before->setPixmap(QPixmap::fromImage(preview(probe, probe.regionColors)).scaled(320, 260, Qt::KeepAspectRatio, Qt::SmoothTransformation));
-      m_after->setPixmap(QPixmap::fromImage(probe.lines).scaled(320, 260, Qt::KeepAspectRatio, Qt::SmoothTransformation));
-      m_after->setToolTip(tr("Extracted line mask for inspection"));
-    }
-    else m_before->setText(error);
-    return;
-  }
-  m_before->setPixmap(QPixmap::fromImage(displayImage(drawing.target.original, drawing.target)).scaled(320, 260, Qt::KeepAspectRatio, Qt::SmoothTransformation));
-  if (!drawing.ready) { m_after->setText(drawing.error); return; }
-  updateProposalPreview();
-  if (!drawing.target.warnings.isEmpty())
-    m_status->setText(drawing.target.warnings.join(QStringLiteral("\n")));
-  const bool fullColor = drawing.target.kind == Cadmium::Kind::FullColor;
-  QHash<QRgb, QVector<int>> nativeChoices;
-  m_regions->setRowCount(drawing.colors.size());
-  for (int region = 0; region < drawing.colors.size(); ++region) {
-    m_regions->setItem(region, 0, new QTableWidgetItem(QString::number(region)));
-    const QColor color = drawing.colors[region];
-    auto *prediction = new QTableWidgetItem(color.isValid() ? color.name(QColor::HexArgb) : tr("Unmatched"));
-    if (color.isValid()) prediction->setBackground(color);
-    m_regions->setItem(region, 1, prediction);
-    auto *decision = new QComboBox(m_regions);
-    decision->addItem(tr("Unresolved"), -1);
-    decision->addItem(tr("Skip region"), -2);
-    if (fullColor) {
-      if (color.isValid() && !nativeChoices.contains(color.rgba()))
-        nativeChoices.insert(color.rgba(), Cadmium::matchingNativeRegions(drawing.reference, color));
-      const QVector<int> candidates = color.isValid() ? nativeChoices.value(color.rgba()) : QVector<int>();
-      for (int candidate : candidates) {
-        const Cadmium::NativeColor &native = drawing.reference.nativeRegionColors[candidate];
-        decision->addItem(tr("Reference fill %1: %2, %3, %4; alpha %5")
-            .arg(candidate).arg(native.r, 0, 'g', 9).arg(native.g, 0, 'g', 9)
-            .arg(native.b, 0, 'g', 9).arg(native.a, 0, 'g', 9), candidate);
-      }
-      if (color.isValid() && candidates.isEmpty())
-        prediction->setToolTip(tr("No exact flat native reference fill is available. Skip this region or use another reference."));
-      else if (candidates.size() > 1)
-        prediction->setToolTip(tr("Different native reference fills share this model color. Choose the exact reference fill or skip the region."));
-    } else if (drawing.target.palette) {
-      for (int style = 0; style < drawing.target.palette->getStyleCount(); ++style)
-        decision->addItem(tr("Style %1").arg(style), style);
-    }
-    decision->setCurrentIndex(decision->findData(drawing.styles.value(region, -1)));
-    m_regions->setCellWidget(region, 2, decision);
-    if (region == 0) {
-      decision->setEnabled(false);
-      decision->setToolTip(tr("Background and line pixels are protected."));
-    }
-    connect(decision, QOverload<int>::of(&QComboBox::activated), this,
-            [this, index, region, decision, fullColor] {
-      if (m_generating || index < 0 || index >= int(m_drawings.size())) return;
-      Drawing &selected = m_drawings[index];
-      if (!selected.ready || region < 0 || region >= selected.styles.size() ||
-          region >= selected.colors.size()) return;
-      const int style = decision->currentData().toInt();
-      selected.styles[region] = style;
-      selected.reviewed = false;
-      if (fullColor) {
-        selected.nativeColors[region] = style >= 0 &&
-            style < selected.reference.nativeRegionColors.size()
-            ? selected.reference.nativeRegionColors[style] : Cadmium::NativeColor();
-      } else if (selected.target.palette && style >= 0) {
-        const TPixel32 pixel = selected.target.palette->getStyle(style)->getMainColor();
-        selected.colors[region] = QColor(pixel.r, pixel.g, pixel.b, pixel.m);
-      }
-      updateProposalPreview(); refresh();
-    });
-  }
-}
-
-void CadmiumPopup::updateProposalPreview() {
-  const int row = m_list->currentRow();
-  if (row < 0 || row >= int(m_drawings.size())) return;
-  const Drawing &drawing = m_drawings[row];
-  if (!drawing.ready) return;
-  QVector<QColor> colors = drawing.colors;
-  for (int region = 0; region < colors.size(); ++region)
-    if (drawing.styles.value(region, -1) < 0) colors[region] = QColor();
-  const QVector<int> styles = acceptedStyles(drawing.styles);
-  QString error;
-  TImageP result;
-  switch (drawing.target.kind) {
-  case Cadmium::Kind::ToonzRaster:
-    result = Cadmium::applyToonzRaster(drawing.target, styles, colors, m_repaint->isChecked(), error); break;
-  case Cadmium::Kind::Vector:
-    result = Cadmium::applyVector(drawing.target, styles, colors, m_repaint->isChecked(), error); break;
-  case Cadmium::Kind::FullColor:
-    result = Cadmium::applyFullColor(drawing.target, styles, colors, m_repaint->isChecked(), error, drawing.nativeColors); break;
-  }
-  if (!result) { m_after->setText(error); return; }
-  m_after->setPixmap(QPixmap::fromImage(displayImage(result, drawing.target)).scaled(320, 260, Qt::KeepAspectRatio, Qt::SmoothTransformation));
-}
-
-void CadmiumPopup::assignReference() {
-  const int row = m_list->currentRow(), reference = m_reference->currentIndex();
-  if (m_generating || row < 0 || row >= int(m_drawings.size()) ||
-      reference < 0 || reference >= int(m_references.size())) return;
-  Drawing &drawing = m_drawings[row];
-  drawing.referenceId = m_references[reference]; drawing.ready = false;
-  drawing.colors.clear(); drawing.styles.clear(); drawing.nativeColors.clear();
-  refresh(); refreshPreview();
-}
-
-void CadmiumPopup::apply(bool all) {
-  if (m_generating || !currentScene() || !Cadmium::canPaintLevel(m_level.getPointer())) return;
-  std::map<TFrameId, TImageP> before, after;
-  QString error;
-  std::vector<int> accepted;
-  for (int i = 0; i < int(m_drawings.size()); ++i) {
-    Drawing &drawing = m_drawings[i];
-    if ((!all && i != m_list->currentRow()) || (all && !drawing.reviewed) || !drawing.ready || drawing.applied) continue;
-    if ((m_level->getType() != OVL_XSHLEVEL && m_level->isFrameReadOnly(drawing.fid)) ||
-        m_level->getCadmiumReferences().count(drawing.fid) ||
-        !m_level->getCadmiumReferences().count(drawing.referenceId)) {
-      error = tr("A target became read-only or its reference assignment changed."); break;
-    }
-    if (m_level->getRenumberCount() != drawing.renumberCount ||
-        !drawing.targetBuilder || !drawing.referenceBuilder ||
-        ImageManager::instance()->getBuilder(m_level->getImageId(drawing.fid)) != drawing.targetBuilder.getPointer() ||
-        ImageManager::instance()->getBuilder(m_level->getImageId(drawing.referenceId)) != drawing.referenceBuilder.getPointer()) {
-      error = tr("A drawing was replaced or renumbered. Generate a new proposal before applying."); break;
-    }
-    Cadmium::Frame targetNow, referenceNow;
-    auto fresh = [this, &error](const TFrameId &fid, const Cadmium::Frame &saved,
-                                Cadmium::Frame &now) {
-      if (m_level->getType() == PLI_XSHLEVEL) {
-        return snapshot(fid, now, error) && now.fingerprint == saved.fingerprint;
-      }
-      if (!snapshot(fid, now, error, true)) return false;
-      if (saved.kind == Cadmium::Kind::ToonzRaster)
-        return Cadmium::matchesToonzRaster(now.original, saved, error);
-      return Cadmium::matchesFullColor(now.original, now, saved, error);
-    };
-    if (!fresh(drawing.fid, drawing.target, targetNow) ||
-        !fresh(drawing.referenceId, drawing.reference, referenceNow)) {
-      if (error.isEmpty())
-        error = tr("A drawing, palette, or input changed. Generate a new proposal before applying.");
-      break;
-    }
-    QVector<QColor> colors = drawing.colors;
-    for (int r = 1; r < colors.size(); ++r) {
-      if (colors[r].isValid() && drawing.styles.value(r, -1) == -1) {
-        error = tr("Resolve or explicitly skip ambiguous regions before applying."); break;
-      }
-    }
-    if (!error.isEmpty()) break;
-    for (int r = 0; r < colors.size(); ++r)
-      if (drawing.styles.value(r, -1) == -2 ||
-          (drawing.target.kind != Cadmium::Kind::FullColor && drawing.styles.value(r, -1) < 0))
-        colors[r] = QColor();
-    TImageP result;
-    const QVector<int> styles = acceptedStyles(drawing.styles);
-    switch (drawing.target.kind) {
-    case Cadmium::Kind::ToonzRaster:
-      result = Cadmium::applyToonzRaster(drawing.target, styles, colors, m_repaint->isChecked(), error); break;
-    case Cadmium::Kind::Vector:
-      result = Cadmium::applyVector(drawing.target, styles, colors, m_repaint->isChecked(), error); break;
-    case Cadmium::Kind::FullColor:
-      result = Cadmium::applyFullColor(drawing.target, styles, colors, m_repaint->isChecked(), error, drawing.nativeColors); break;
-    }
-    if (!result) { if (error.isEmpty()) error = tr("The proposal could not be applied."); break; }
-    before[drawing.fid] = targetNow.original;
-    after[drawing.fid] = result;
-    accepted.push_back(i);
-  }
-  if (!error.isEmpty()) {
-    QMessageBox::warning(this, tr("Cadmium"), error); return;
-  }
-  if (after.empty()) return;
-  TXshSimpleLevelP destination = m_level;
-  const bool sourceWasDirty = m_level->getDirtyFlag();
-  const bool newLevel = m_level->getType() == OVL_XSHLEVEL;
-  TXshLevel *created = nullptr;
-  try {
-  if (newLevel) {
-    created = Cadmium::createResultLevel(m_scene, m_level.getPointer(), error);
-    if (!created || !created->getSimpleLevel()) {
-      if (created) m_scene->getLevelSet()->removeLevel(created);
-      QMessageBox::warning(this, tr("Cadmium"), error.isEmpty() ? tr("Could not create the result level.") : error); return;
-    }
-    destination = created->getSimpleLevel();
-    destination->setCadmiumSourceLevelId(m_level->cadmiumLevelId());
-    destination->set16BitChannelLevel(m_level->is16BitChannelLevel());
-    destination->setFloatChannelLevel(m_level->isFloatChannelLevel());
-    destination->getProperties()->options() = m_level->getProperties()->options();
-    destination->getProperties()->setIsStopMotion(false);
-    destination->getProperties()->setImageRes(m_level->getProperties()->getImageRes());
-    destination->getProperties()->setImageDpi(m_level->getProperties()->getImageDpi());
-    destination->getProperties()->setBpp(m_level->getProperties()->getBpp());
-  }
-    auto undo = std::unique_ptr<CadmiumPaintUndo>(new CadmiumPaintUndo(
-        destination.getPointer(), before, after, newLevel, m_level.getPointer(), m_scene));
-    notifyDrawings(destination.getPointer(), after);
-    TUndoManager::manager()->add(undo.release());
-  } catch (...) {
-    if (newLevel) {
-      if (created) m_scene->getLevelSet()->removeLevel(created);
-    }
-    else {
-      for (const auto &entry : before) {
-        destination->setFrame(entry.first, entry.second);
-        IconGenerator::instance()->invalidate(destination.getPointer(), entry.first);
-      }
-      destination->setDirtyFlag(sourceWasDirty);
-      TApp::instance()->getCurrentLevel()->notifyLevelChange();
-    }
-    QMessageBox::warning(this, tr("Cadmium"),
-      tr("The paint batch could not be committed. Its drawings were restored."));
-    return;
-  }
-  for (int index : accepted) m_drawings[index].applied = true;
-  refresh();
-  m_status->setText(newLevel
-      ? tr("Created result level %1. Original drawings were preserved.").arg(QString::fromStdWString(destination->getName()))
-      : tr("Applied %1 drawings. Undo restores their original paint.").arg(after.size()));
-}
-
-void CadmiumPopup::cancel() {
-  ++m_snapshotEpoch;
-  m_cancelled = true;
-  if (m_generating) CadmiumRuntime::instance()->stop();
-  m_generating = false; m_running = -1;
-  refresh();
-  m_status->setText(tr("Processing stopped. Accepted drawings are unchanged."));
-}
-
-void CadmiumPopup::closeEvent(QCloseEvent *event) {
-  if (m_generating) cancel();
-  QDialog::closeEvent(event);
 }
