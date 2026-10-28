@@ -9,6 +9,14 @@
 #include <sstream>
 
 namespace CelSmootherLocal {
+inline void checkInputSize(int width, int height, int pixelSize) {
+  const std::size_t count = CelSmoothing::pixelCount(width, height);
+  // The host allocator forms width * height * pixelSize in signed int.
+  // Check that product before entering the allocator or constructing buffers.
+  if (pixelSize <= 0 || count >
+      std::size_t(std::numeric_limits<int>::max()) / std::size_t(pixelSize))
+    throw TException("Cel Smoother: source exceeds the raster allocation limit");
+}
 inline int smoothRange(double value) {
   return std::isfinite(value)
              ? int(std::floor(std::max(0.0, std::min(255.0, value)) + .5))
@@ -204,6 +212,8 @@ public:
     const int range = CelSmootherLocal::smoothRange(m_smoothRange->getValue(frame));
     const bool useKey = m_useColorKey->getValue(frame) >= .5;
     const TPixelD key = m_colorKey->getValueD(frame);
+    CelSmootherLocal::checkInputSize(int(box.getLx()), int(box.getLy()),
+                                    tile.getRaster()->getPixelSize());
     TTile input;
     m_source->allocateAndCompute(input, box.getP00(),
                                  TDimension(int(box.getLx()), int(box.getLy())),

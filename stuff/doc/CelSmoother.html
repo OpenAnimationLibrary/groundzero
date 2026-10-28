@@ -46,5 +46,7 @@ working storage is about 68, 72 or 80 bytes per source pixel for 8-bit, 16-bit
 or float input, plus the output tile and upstream rendering. Small output tiles
 still analyze the full source, so very large canvases require more memory and
 rendering time. No persistent image-analysis cache retains canceled results.</p>
+<p>Source rasters exceeding the host's signed allocation limit are rejected
+before allocation, with an explicit size error.</p>
 </body>
 </html>

@@ -146,6 +146,27 @@ void testKernel() {
           "Mid-pass cancellation published partial output");
 }
 
+void testAllocationBounds() {
+  // Exercise the exact signed-int product boundary without allocating images.
+  for (int bytes : {4,8,16}) {
+    const int last = std::numeric_limits<int>::max() / bytes;
+    CelSmootherLocal::checkInputSize(last,1,bytes);
+    bool rejected = false;
+    try { CelSmootherLocal::checkInputSize(last+1,1,bytes); }
+    catch (const TException &) { rejected = true; }
+    require(rejected,"Raster product overflow was not rejected before allocation");
+  }
+  CelSmootherLocal::checkInputSize(16383,8192,16);
+  bool rejected = false;
+  try { CelSmootherLocal::checkInputSize(16384,8192,16); }
+  catch (const TException &) { rejected = true; }
+  require(rejected,"Two-dimensional raster byte overflow was not rejected");
+  rejected = false;
+  try { CelSmootherLocal::checkInputSize(1,1,0); }
+  catch (const TException &) { rejected = true; }
+  require(rejected,"Invalid pixel size reached allocation");
+}
+
 void testTilesAndDomain() {
   TRasterFP input(23, 17);
   for (int y = 0; y < 17; ++y)
@@ -315,7 +336,7 @@ int main(int argc, char **argv) {
   try {
     require(temp.isValid(), "Temporary storage unavailable");
     testPrecision<TPixel32>(); testPrecision<TPixel64>(); testPrecision<TPixelF>();
-    testKernel(); testTilesAndDomain(); testHostTransforms();
+    testKernel(); testAllocationBounds(); testTilesAndDomain(); testHostTransforms();
     testPersistence(temp.filePath("smoother.fx"), false);
     testPersistence(temp.filePath("smoother-compressed.fx"), true);
     reportCost();
