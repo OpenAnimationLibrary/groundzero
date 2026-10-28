@@ -220,6 +220,7 @@ void testSliderRanges(const QString &layout) {
   require(!numeric(actual, "threshold")->getUISliderRange(minimum, maximum),
           "Ordinary parameter acquired optional slider bounds");
   DVGui::MeasuredDoubleField ordinary;
+  ordinary.setDecimals(3);
   ordinary.setRange(-250.0, 250.0);
   auto *slider = ordinary.findChild<QSlider *>();
   slider->setValue(slider->maximum());
