@@ -4,7 +4,12 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <locale>
+#include <memory>
+#include <mutex>
+#include <sstream>
 #include <stdexcept>
+#include <string>
 #include <type_traits>
 
 namespace {
@@ -29,11 +34,38 @@ void copyPixels(TRasterPT<PIXEL> raster,
   }
   raster->unlock();
 }
+// Premultiplied colours of a raster, rows from the bottom
+template <class PIXEL>
+void readColorPixels(const TRasterPT<PIXEL> &raster,
+                     std::vector<otglb::ColorPixel> &pixels) {
+  const float maximum = float(PIXEL::maxChannelValue);
+  const int w = raster->getLx(), h = raster->getLy();
+  raster->lock();
+  for (int y = 0; y < h; ++y) {
+    const PIXEL *row = raster->pixels(y);
+    for (int x = 0; x < w; ++x) {
+      const PIXEL &p = row[x];
+      pixels[std::size_t(y) * w + x] = {p.r / maximum, p.g / maximum,
+                                        p.b / maximum, p.m / maximum};
+    }
+  }
+  raster->unlock();
+}
 }  // namespace
 
 class ImagePlaneFx final : public TStandardRasterFx, public T3DRenderSource {
   FX_PLUGIN_DECLARATION(ImagePlaneFx)
   TRasterFxPort m_input;
+
+  // The input rendered last: the tiles of a frame, and the 3D nodes
+  // downstream, all ask for the same texture, which would otherwise be
+  // rendered again for each of them
+  struct Texture {
+    std::string key;
+    std::shared_ptr<const std::vector<otglb::ColorPixel>> pixels;
+  };
+  mutable std::mutex m_textureMutex;
+  mutable Texture m_texture;
 
   std::shared_ptr<const otglb::RenderScene> scene(
       double frame, const int *canceled,
@@ -42,7 +74,9 @@ class ImagePlaneFx final : public TStandardRasterFx, public T3DRenderSource {
     if (!m_input.isConnected()) return {};
     TRenderSettings neutral = settings ? *settings : TRenderSettings();
     neutral.m_affine = TAffine();
-    neutral.m_bpp = 32;
+    // 16 bits per channel for a deeper output, not to band its gradients
+    const bool deep = neutral.m_bpp > 32;
+    neutral.m_bpp = deep ? 64 : 32;
     neutral.m_linearColorSpace = false;
     auto *input = static_cast<TRasterFx *>(m_input.getFx());
     TRectD bbox;
@@ -57,25 +91,44 @@ class ImagePlaneFx final : public TStandardRasterFx, public T3DRenderSource {
           width * height <= 16.0 * 1024 * 1024))
       throw std::runtime_error("Image Plane input exceeds the 16 megapixel limit.");
     const int w = int(width), h = int(height);
-    TRaster32P raster(w, h);
-    raster->clear();
-    TTile source(raster, TPointD(x0, y0));
-    input->compute(source, frame, neutral);
-    if (canceled && *canceled) return {};
-    auto pixels = std::make_shared<std::vector<otglb::ColorPixel>>(
-        std::size_t(w) * h);
-    raster->lock();
-    for (int y = 0; y < h; ++y) {
-      const auto *row = raster->pixels(y);
-      for (int x = 0; x < w; ++x) {
-        const auto &p = row[x];
-        (*pixels)[std::size_t(y) * w + x] =
-            {p.r / 255.0f, p.g / 255.0f, p.b / 255.0f, p.m / 255.0f};
+
+    std::ostringstream key;
+    key.imbue(std::locale::classic());
+    key.precision(17);
+    key << frame << ' ' << neutral.m_bpp << ' ' << x0 << ' ' << y0 << ' ' << w
+        << ' ' << h << ' ' << input->getAlias(frame, neutral);
+
+    std::shared_ptr<const std::vector<otglb::ColorPixel>> texture;
+    {
+      // Held while rendering: the other tiles wait for this texture
+      std::lock_guard<std::mutex> lock(m_textureMutex);
+      if (m_texture.pixels && m_texture.key == key.str())
+        texture = m_texture.pixels;
+      else {
+        auto pixels = std::make_shared<std::vector<otglb::ColorPixel>>(
+            std::size_t(w) * h);
+        if (deep) {
+          TRaster64P raster(w, h);
+          raster->clear();
+          TTile source(raster, TPointD(x0, y0));
+          input->compute(source, frame, neutral);
+          if (canceled && *canceled) return {};
+          readColorPixels(raster, *pixels);
+        } else {
+          TRaster32P raster(w, h);
+          raster->clear();
+          TTile source(raster, TPointD(x0, y0));
+          input->compute(source, frame, neutral);
+          if (canceled && *canceled) return {};
+          readColorPixels(raster, *pixels);
+        }
+        m_texture.key    = key.str();
+        m_texture.pixels = pixels;
+        texture          = pixels;
       }
     }
-    raster->unlock();
     return std::make_shared<otglb::RenderScene>(otglb::prepareImagePlane(
-        w, h, std::move(pixels),
+        w, h, std::move(texture),
         transforms ? *transforms : std::vector<otglb::ModelTransform>{}));
   }
 

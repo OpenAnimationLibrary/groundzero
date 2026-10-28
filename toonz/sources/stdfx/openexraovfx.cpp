@@ -429,10 +429,14 @@ class OpenExrAovFx final : public TStandardZeraryFx, public TFxAovSource {
   };
   std::array<CompositeSlot, 4> m_slots;
 
+  // Render clones and duplicates share this. It keeps a few documents, most
+  // recent first: a duplicate using another file, or concurrent frames of a
+  // sequence, would otherwise release each other's document and have it
+  // reopened and decoded again on every request.
+  static constexpr std::size_t MaxDocuments = 4;
   struct Cache {
     QMutex mutex;
-    QString revision;
-    std::shared_ptr<ExrDocument> document;
+    std::vector<std::pair<QString, std::shared_ptr<ExrDocument>>> documents;
   };
   mutable std::shared_ptr<Cache> m_cache = std::make_shared<Cache>();
 
@@ -474,14 +478,22 @@ class OpenExrAovFx final : public TStandardZeraryFx, public TFxAovSource {
     const QString path     = resolvedPath(frame);
     const QString revision = fileRevision(frame);
     QMutexLocker lock(&m_cache->mutex);
-    if (revision != m_cache->revision || !m_cache->document) {
-      auto loaded = sharedDocument(revision, path);
-      if (fileRevision(frame) != revision)
-        throw std::runtime_error("EXR changed while loading; retry the render");
-      m_cache->document = std::move(loaded);
-      m_cache->revision = revision;
+    auto &documents  = m_cache->documents;
+    const auto found = std::find_if(
+        documents.begin(), documents.end(),
+        [&](const std::pair<QString, std::shared_ptr<ExrDocument>> &entry) {
+          return entry.first == revision;
+        });
+    if (found != documents.end()) {
+      std::rotate(documents.begin(), found, found + 1);
+      return documents.front().second;
     }
-    return m_cache->document;
+    auto loaded = sharedDocument(revision, path);
+    if (fileRevision(frame) != revision)
+      throw std::runtime_error("EXR changed while loading; retry the render");
+    documents.insert(documents.begin(), std::make_pair(revision, loaded));
+    if (documents.size() > MaxDocuments) documents.resize(MaxDocuments);
+    return loaded;
   }
 
   int selectedPart(const ExrDocument &document) const {
