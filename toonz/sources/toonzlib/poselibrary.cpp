@@ -81,6 +81,54 @@ void PoseLibrary::removePose(int index) {
 }
 
 //-----------------------------------------------------------------------------
+
+namespace {
+
+// Applies f to the column index of every entry; f returns the new index, or
+// -1 to remove the entry
+template <class F>
+void remapColumns(std::vector<PoseLibrary::Entry> &entries, F f) {
+  std::vector<PoseLibrary::Entry> kept;
+  kept.reserve(entries.size());
+  for (PoseLibrary::Entry &entry : entries) {
+    if (entry.m_objectId.isColumn()) {
+      const int index = f(entry.m_objectId.getIndex());
+      if (index < 0) continue;
+      entry.m_objectId = TStageObjectId::ColumnId(index);
+    }
+    kept.push_back(entry);
+  }
+  entries.swap(kept);
+}
+
+template <class F>
+void remapAllColumns(std::vector<PoseLibrary::Entry> &base,
+                     std::vector<PoseLibrary::Pose> &poses, F f) {
+  remapColumns(base, f);
+  for (PoseLibrary::Pose &pose : poses) remapColumns(pose.m_entries, f);
+}
+
+}  // namespace
+
+
+void PoseLibrary::insertColumn(int index) {
+  remapAllColumns(m_base, m_poses,
+                  [index](int c) { return c >= index ? c + 1 : c; });
+}
+
+void PoseLibrary::removeColumn(int index) {
+  remapAllColumns(m_base, m_poses, [index](int c) {
+    return c == index ? -1 : c > index ? c - 1 : c;
+  });
+}
+
+void PoseLibrary::swapColumns(int i, int j) {
+  if (i == j) return;
+  remapAllColumns(m_base, m_poses,
+                  [i, j](int c) { return c == i ? j : c == j ? i : c; });
+}
+
+//-----------------------------------------------------------------------------
 /*! Writes the library as:
     <base> id channel value ... </base>
     <pose> <name> "name" </name> <entries> id channel offset ... </entries>
