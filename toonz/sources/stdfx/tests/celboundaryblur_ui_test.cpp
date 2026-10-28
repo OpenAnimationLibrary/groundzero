@@ -9,6 +9,7 @@
 
 #include <QApplication>
 #include <QComboBox>
+#include <QCheckBox>
 #include <QDir>
 #include <QTemporaryDir>
 #include <iostream>
@@ -32,7 +33,19 @@ void pageTest(const QString &layout) {
   page.setFx(preview, actual, 0);
   require(page.findChildren<MeasuredDoubleParamField *>().size() == 3,
           "A blur parameter has no native numeric editor");
-  auto *field = page.findChild<AnimatedChoiceParamField *>();
+  const auto choices = page.findChildren<AnimatedChoiceParamField *>();
+  require(choices.size() == 2, "An animated mode editor is missing");
+  AnimatedChoiceParamField *field = nullptr, *legacy = nullptr;
+  for (auto *choice : choices) {
+    if (choice->findChild<QComboBox *>("animatedChoice")) field = choice;
+    if (choice->findChild<QCheckBox *>("animatedCheckbox")) legacy = choice;
+  }
+  require(legacy != nullptr, "Legacy checkbox is missing");
+  require(QMetaObject::invokeMethod(legacy, "onChoiceChanged", Qt::DirectConnection,
+                                  Q_ARG(int, 1)), "Legacy change unavailable");
+  require(parameter(actual, "legacy")->getValue(0) == 1, "Legacy checkbox did not bind");
+  TUndoManager::manager()->undo(); page.update(0);
+  require(parameter(actual, "legacy")->getValue(0) == 0, "Legacy undo failed");
   auto *combo = page.findChild<QComboBox *>("animatedChoice");
   require(field && combo && combo->count() == 2, "Bias choices are incomplete");
   require(parameter(actual, "bias")->getValue(0) == 0, "Opening UI changed bias");

@@ -133,6 +133,7 @@
   <item>"STD_celBoundaryBlurFx.smoothness" "Blur Smoothness" </item>
   <item>"STD_celBoundaryBlurFx.repeats" "Number of Repeat" </item>
   <item>"STD_celBoundaryBlurFx.bias" "Bias Direction" </item>
+  <item>"STD_celBoundaryBlurFx.legacy" "Legacy" </item>
   <item>"STD_blurFx"		"Blur"			</item>
   <item>"STD_blurFx.value"		"Value"			</item>
   <item>"STD_blurFx.spread"		"Spread"			</item>

@@ -39,8 +39,14 @@ std::vector<CelBlur::Pixel> reference(std::vector<CelBlur::Pixel> pixels,
             const int sx = x + (vertical ? 0 : step);
             const int sy = y + (vertical ? step : 0);
             if (sx < 0 || sx >= width || sy < 0 || sy >= height) continue;
-            const double weight = std::max(0.0, settings.radius + 1 - std::abs(step));
-            for (int c = 0; c < 4; ++c) sum[c] += pixels[sy * width + sx][c] * weight;
+            auto pixel = pixels[sy * width + sx];
+            if (settings.legacy && pixel[3] > 0) {
+              for (int c = 0; c < 3; ++c) pixel[c] /= pixel[3];
+              pixel[3] = 1;
+            }
+            const double weight = settings.legacy ? 1 :
+                std::max(0.0, settings.radius + 1 - std::abs(step));
+            for (int c = 0; c < 4; ++c) sum[c] += pixel[c] * weight;
           }
           for (int c = 0; c < 3; ++c)
             result[at][c] = pixels[at][c] * (1 - settings.blend) +
@@ -61,15 +67,17 @@ void kernelTests() {
       image[y * 9 + x] = {{alpha * (x < 4 ? 2.0 : 0.1), alpha * y / 7,
                            alpha * -0.25, alpha}};
     }
-  for (double radius : {1.0, 3.25, 100.0})
+  for (double radius : {1.0, 3.25, 100.0, 1000.0})
     for (double blend : {0.01, 1.0})
       for (int repeats : {0, 1, 10})
-        for (bool vertical : {false, true}) {
+        for (bool vertical : {false, true})
+          for (bool legacy : {false, true}) {
           CelBlur::Settings settings;
           settings.radius = radius;
           settings.blend = blend;
           settings.repeats = repeats;
           settings.vertical = vertical;
+          settings.legacy = legacy;
           auto actual = image;
           const auto expected = reference(image, 9, 7, settings);
           require(CelBlur::filter(actual, 9, 7, settings), "Unexpected cancellation");
@@ -97,10 +105,16 @@ void kernelTests() {
   require(difference > 0.01, "Bias direction has no effect on an asymmetric mask");
   int canceled = 1;
   require(!CelBlur::filter(horizontal, 9, 7, settings, &canceled), "Cancellation ignored");
+  require(CelBlur::checkedArea(4096, 4096) == std::size_t(4096) * 4096,
+          "A 4K square image was rejected before allocation");
   bool limited = false;
   try { CelBlur::checkedArea(std::numeric_limits<int>::max(), 10); }
   catch (const std::runtime_error &) { limited = true; }
   require(limited, "Unchecked working-image allocation");
+  limited = false;
+  try { CelBlur::checkedArea(134217728, 1); }
+  catch (const std::runtime_error &) { limited = true; }
+  require(limited, "Signed-int raster allocation boundary was accepted");
 }
 
 class BlurSource final : public TStandardRasterFx {
@@ -148,8 +162,9 @@ void renderTests() {
   auto *source = new BlurSource(image);
   fx.getInputPort(0)->setFx(source);
   value(fx, "amount", 2.25); value(fx, "smoothness", 70); value(fx, "repeats", 3);
-  for (int bias : {0, 1}) {
-    value(fx, "bias", bias);
+  for (int bias : {0, 1})
+    for (int legacy : {0, 1}) {
+    value(fx, "bias", bias); value(fx, "legacy", legacy);
     auto full = render<Pixel>(fx, 23, 15, TPointD(-2, -2));
     std::vector<std::future<void>> jobs;
     for (int y = 0; y < 15; ++y)
@@ -170,10 +185,14 @@ void renderTests() {
   TRenderSettings inputInfo, scaled; scaled.m_affine = TScale(2);
   TRectD request;
   fx.transform(0, 0, TRectD(0, 0, 4, 3), scaled, request, inputInfo);
-  require(request == TRectD(-15, -15, 19, 18), "Repeated scaled support is wrong");
+  require(request == TRectD(0, 0, 19, 18), "Repeated scaled support is wrong");
   TRectD outputRect(0, 0, 4, 3);
   fx.doDryCompute(outputRect, 0, scaled);
   require(source->dryRequest == request, "Predictive and actual input support differ");
+  value(fx, "amount", 1000); value(fx, "repeats", 10);
+  const auto maximum = render<Pixel>(fx, 19, 11);
+  require(maximum->pixels(0)[1].m == image->pixels(0)[1].m,
+          "Maximum typed amount and repeats changed coverage");
   value(fx, "repeats", 0);
   auto identity = render<Pixel>(fx, 19, 11);
   for (int y = 0; y < 11; ++y)
@@ -197,14 +216,14 @@ void renderTests() {
 
 void persistenceTests(const QTemporaryDir &temp) {
   TFxP fx = new CelBoundaryBlurFx;
-  for (const std::string name : {"amount", "smoothness", "repeats", "bias"}) {
+  for (const std::string name : {"amount", "smoothness", "repeats", "bias", "legacy"}) {
     auto p = parameter(*fx, name);
-    p->setValue(0, name == "bias" ? 0 : 1);
-    p->setValue(10, name == "bias" ? 1 : 2);
+    p->setValue(0, (name == "bias" || name == "legacy") ? 0 : 1);
+    p->setValue(10, (name == "bias" || name == "legacy") ? 1 : 2);
   }
   value(*fx, "amount", 12.34567890123);
   auto clone = fx->clone(false);
-  for (const std::string name : {"amount", "smoothness", "repeats", "bias"})
+  for (const std::string name : {"amount", "smoothness", "repeats", "bias", "legacy"})
     require(parameter(*clone, name)->getValue(10) == parameter(*fx, name)->getValue(10),
             "Cloning lost an animated parameter");
   const TFilePath path(temp.filePath("boundary.fx").toStdWString());
