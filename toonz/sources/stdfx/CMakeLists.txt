@@ -180,6 +180,7 @@ set(SOURCES
     celdirectionalmath.cpp
     celdirectionalblurfx.cpp
     celsmootherfx.cpp
+    celsmoother2fx.cpp
     rgbkeyfx.cpp
     rgbmcutfx.cpp
     rgbmfadefx.cpp
@@ -524,4 +525,17 @@ if(BUILD_CELFX_TESTS)
              ${CMAKE_CURRENT_SOURCE_DIR}/../../../stuff/profiles/layouts/fxs/STD_alphaDistanceGradientFx.xml)
     add_dependencies(celfx_tests alphadistancegradient_test alphadistancegradient_ui_test)
     set_tests_properties(celfx_distancegradient celfx_distancegradient_ui PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
+endif()
+
+if(BUILD_CELFX_TESTS)
+    add_executable(celsmoother2_test tests/celsmoother2_test.cpp)
+    target_link_libraries(celsmoother2_test Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME celfx_smoother2 COMMAND celsmoother2_test)
+    add_executable(celsmoother2_ui_test tests/celsmoother2_ui_test.cpp)
+    target_link_libraries(celsmoother2_ui_test toonzqt Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Widgets ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME celfx_smoother2_ui COMMAND celsmoother2_ui_test
+             ${CMAKE_CURRENT_SOURCE_DIR}/../../../stuff/profiles/layouts/fxs/STD_celSmoother2Fx.xml)
+    add_dependencies(celfx_tests celsmoother2_test celsmoother2_ui_test)
+    set_tests_properties(celfx_smoother2 celfx_smoother2_ui PROPERTIES
+                         ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
 endif()
