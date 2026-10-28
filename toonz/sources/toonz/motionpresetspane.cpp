@@ -68,7 +68,13 @@ const int UserPresetRole  = Qt::UserRole + 2;  // saved by the user
 //-----------------------------------------------------------------------------
 
 bool isTarget(const TStageObjectId &id) {
-  return id.isColumn() || id.isPegbar() || id.isTable() || id.isCamera();
+  if (id.isPegbar() || id.isTable() || id.isCamera()) return true;
+  if (!id.isColumn()) return false;
+  // Columns without drawings (sound, sound text, palette) do not move
+  TXsheet *xsh       = TApp::instance()->getCurrentXsheet()->getXsheet();
+  TXshColumn *column = xsh->getColumn(id.getIndex());
+  return column && !column->isEmpty() && !column->getSoundColumn() &&
+         !column->getSoundTextColumn() && !column->getPaletteColumn();
 }
 
 //-----------------------------------------------------------------------------
@@ -82,14 +88,17 @@ void getTargetObjects(std::vector<TStageObjectId> &ids) {
   if (TColumnSelection *columnSelection =
           dynamic_cast<TColumnSelection *>(selection)) {
     for (int index : columnSelection->getIndices())
-      ids.push_back(TStageObjectId::ColumnId(index));
+      if (isTarget(TStageObjectId::ColumnId(index)))
+        ids.push_back(TStageObjectId::ColumnId(index));
   } else if (TCellSelection *cellSelection =
                  dynamic_cast<TCellSelection *>(selection)) {
     if (!cellSelection->isEmpty()) {
       const TCellSelection::Range range = cellSelection->getSelectedCells();
       const int c0 = std::max(0, std::min(range.m_c0, range.m_c1));
       const int c1 = std::max(range.m_c0, range.m_c1);
-      for (int c = c0; c <= c1; ++c) ids.push_back(TStageObjectId::ColumnId(c));
+      for (int c = c0; c <= c1; ++c)
+        if (isTarget(TStageObjectId::ColumnId(c)))
+          ids.push_back(TStageObjectId::ColumnId(c));
     }
   } else if (StageObjectSelection *objectSelection =
                  dynamic_cast<StageObjectSelection *>(selection)) {

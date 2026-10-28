@@ -132,6 +132,9 @@ Redo does it all again.
   source column are not copied.
 - Column settings that are not listed above, such as a lock or a mask, are not
   copied to the new columns.
+- A column with an active time remap is refused, with a message: its cells are
+  not the rows it shows, and the new columns would not follow the remap. Turn
+  the time remap off first.
 - A menu bar loaded from a saved menu file does not have the commands until
   they are added with the menu customisation; the shortcut editor and the viewer
   menu always have them.

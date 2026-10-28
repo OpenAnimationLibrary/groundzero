@@ -1657,30 +1657,32 @@ ColumnsStatusCommand
 namespace {
 
 class ColumnOutlineViewUndo final : public TUndo {
-  std::vector<int> m_columns;
+  // The columns themselves, not their indices: the undo may run while another
+  // xsheet (a sub-xsheet) is the current one
+  std::vector<TXshColumnP> m_columns;
   std::vector<bool> m_oldStates;  // the state of each column before the command
   bool m_newState;                // the state they all get from the command
 
   void apply(bool isUndo) const {
-    TXsheet *xsh = TApp::instance()->getCurrentXsheet()->getXsheet();
-    for (size_t i = 0; i < m_columns.size(); i++) {
-      TXshColumn *column = xsh->getColumn(m_columns[i]);
-      if (column) column->setOutlineView(isUndo ? m_oldStates[i] : m_newState);
-    }
+    for (size_t i = 0; i < m_columns.size(); i++)
+      if (m_columns[i])
+        m_columns[i]->setOutlineView(isUndo ? m_oldStates[i] : m_newState);
     TApp::instance()->getCurrentXsheet()->notifyXsheetChanged();
     TApp::instance()->getCurrentScene()->setDirtyFlag(true);
   }
 
 public:
-  ColumnOutlineViewUndo(const std::vector<int> &columns,
+  ColumnOutlineViewUndo(TXsheet *xsh, const std::vector<int> &columns,
                         const std::vector<bool> &oldStates, bool newState)
-      : m_columns(columns), m_oldStates(oldStates), m_newState(newState) {}
+      : m_oldStates(oldStates), m_newState(newState) {
+    for (int index : columns) m_columns.push_back(xsh->getColumn(index));
+  }
 
   void undo() const override { apply(true); }
   void redo() const override { apply(false); }
 
   int getSize() const override {
-    return sizeof(*this) + m_columns.size() * (sizeof(int) + 1);
+    return sizeof(*this) + m_columns.size() * (sizeof(TXshColumnP) + 1);
   }
 
   QString getHistoryString() override {
@@ -1729,7 +1731,7 @@ public:
     if (columns.empty()) return;
 
     ColumnOutlineViewUndo *undo =
-        new ColumnOutlineViewUndo(columns, oldStates, !allOutlined);
+        new ColumnOutlineViewUndo(xsh, columns, oldStates, !allOutlined);
     undo->redo();
     TUndoManager::manager()->add(undo);
   }

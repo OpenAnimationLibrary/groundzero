@@ -263,9 +263,15 @@ void StrokeSelection::saveWidthProfile() {
         parent, QObject::tr("Save Width Profile"), QObject::tr("Profile name:"),
         QLineEdit::Normal, QString(), &accepted);
     if (!accepted) return;
-    name = input.trimmed();
+    // A tab separates the fields of a saved line, and a line starting with
+    // '#' is read as a comment: neither may come from the name
+    name = input.trimmed().replace('\t', ' ');
     if (name.isEmpty())
       DVGui::warning(QObject::tr("Please enter a profile name."));
+    else if (name.startsWith('#')) {
+      DVGui::warning(QObject::tr("A profile name cannot start with \"#\"."));
+      name.clear();
+    }
   }
   if (name.size() > 64) name.truncate(64);
   profile.name = name.toUtf8().toStdString();

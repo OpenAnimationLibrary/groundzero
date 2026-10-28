@@ -41,6 +41,7 @@
 #include "toonz/txshchildlevel.h"
 #include "toonz/txshcolumn.h"
 #include "toonz/txshlevel.h"
+#include "toonz/txshlevelcolumn.h"
 #include "toonz/txshlevelhandle.h"
 #include "toonz/txshleveltypes.h"
 #include "toonz/txshsimplelevel.h"
@@ -148,6 +149,16 @@ bool getEditableTarget(Target &target) {
   if (!target.m_selection->isEditable()) {
     DVGui::error(
         QObject::tr("The selection cannot be changed. It is not editable."));
+    return false;
+  }
+  // The cells of a column with a time remap are not the rows it shows, and the
+  // new columns would not follow the remap
+  TXshColumn *column           = currentXsheet()->getColumn(target.m_col);
+  TXshLevelColumn *levelColumn = column ? column->getLevelColumn() : nullptr;
+  if (levelColumn && levelColumn->isTimeRemapActive()) {
+    DVGui::error(QObject::tr(
+        "The column has a time remap. Turn the time remap off before "
+        "distributing its drawing."));
     return false;
   }
   return true;
