@@ -224,7 +224,7 @@ void testChannelAndCompositingValues() {
   parameter(fx, "profile")->setDefaultValue(0);
   parameter(fx, "sourceOpacity")->setDefaultValue(0);
   auto center = [&]() { return renderFx<TPixelF>(fx, 3, 3)->pixels(1)[1]; };
-  auto near = [](float value, double expected) { return std::abs(value - expected) < 1e-6; };
+  auto closeTo = [](float value, double expected) { return std::abs(value - expected) < 1e-6; };
 
   // Straight RGB is (0.4, 0.2, 0.1); Luminance uses the documented
   // native coefficients, and non-alpha modes are premultiplied by 0.5.
@@ -237,8 +237,8 @@ void testChannelAndCompositingValues() {
   for (int mode = 0; mode < 4; ++mode) {
     parameter(fx, "channel")->setDefaultValue(mode);
     const TPixelF p = center();
-    require(near(p.r, expected[mode][0]) && near(p.g, expected[mode][1]) &&
-                near(p.b, expected[mode][2]) && near(p.m, expected[mode][3]),
+    require(closeTo(p.r, expected[mode][0]) && closeTo(p.g, expected[mode][1]) &&
+                closeTo(p.b, expected[mode][2]) && closeTo(p.m, expected[mode][3]),
             "Partially transparent color produced the wrong channel extraction");
   }
 
@@ -250,14 +250,14 @@ void testChannelAndCompositingValues() {
   parameter(fx, "channel")->setDefaultValue(1);
   const double excess = luma - 0.1;
   const double fadedLuma = excess * (excess / 0.2) * 2 * 0.5 / 3;
-  require(near(center().r, fadedLuma), "Luminance threshold and fade have incorrect weight");
+  require(closeTo(center().r, fadedLuma), "Luminance threshold and fade have incorrect weight");
   parameter(fx, "channel")->setDefaultValue(3);
-  require(near(center().r, 0.1), "Brightness threshold and fade have incorrect weight");
+  require(closeTo(center().r, 0.1), "Brightness threshold and fade have incorrect weight");
   parameter(fx, "channel")->setDefaultValue(0);
-  require(near(center().m, 0.8 / 3), "Alpha channel incorrectly applies fade");
+  require(closeTo(center().m, 0.8 / 3), "Alpha channel incorrectly applies fade");
   parameter(fx, "channel")->setDefaultValue(2);
   const TPixelF rgb = center();
-  require(near(rgb.r, 0.1) && near(rgb.g, 0.05) && near(rgb.b, 0.025) && near(rgb.m, 0.1),
+  require(closeTo(rgb.r, 0.1) && closeTo(rgb.g, 0.05) && closeTo(rgb.b, 0.025) && closeTo(rgb.m, 0.1),
           "RGB channel incorrectly applies fade or loses color");
 
   // The source contribution is 75%; the glow contribution and its alpha
@@ -271,11 +271,11 @@ void testChannelAndCompositingValues() {
   parameter(fx, "sourceOpacity")->setDefaultValue(75);
   parameter(fx, "merge")->setDefaultValue(0);
   const TPixelF add = center();
-  require(near(add.r, 0.25) && near(add.g, 0.175) && near(add.b, 0.1375) && near(add.m, 0.475),
+  require(closeTo(add.r, 0.25) && closeTo(add.g, 0.175) && closeTo(add.b, 0.1375) && closeTo(add.m, 0.475),
           "Add did not apply independent source and glow opacity");
   parameter(fx, "merge")->setDefaultValue(1);
   const TPixelF over = center();
-  require(near(over.r, 0.235) && near(over.g, 0.1675) && near(over.b, 0.13375) && near(over.m, 0.4375),
+  require(closeTo(over.r, 0.235) && closeTo(over.g, 0.1675) && closeTo(over.b, 0.13375) && closeTo(over.m, 0.4375),
           "Premultiply did not apply glow coverage and opacity");
 }
 
