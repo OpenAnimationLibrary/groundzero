@@ -66,9 +66,11 @@ bool writeDirectional(const CelMotion::Image &image, const TRasterPT<Pixel> &ras
     for (int x = 0; x < image.width; ++x) {
       const auto &p = image.pixels[std::size_t(y) * image.width + x];
       auto channel = [=](double v) {
-        return scale == 1 ? v : std::floor(directionalValue(v, 0, 1) * scale + 0.5);
+        return scale == 1 ? directionalValue(v, -std::numeric_limits<float>::max(),
+                                                  std::numeric_limits<float>::max()) : std::floor(directionalValue(v, 0, 1) * scale + 0.5);
       };
-      row[x] = Pixel(channel(p[0]), channel(p[1]), channel(p[2]), channel(p[3]));
+      auto rgb = [&](double v) { return channel(scale == 1 ? v : std::min(v, p[3])); };
+      row[x] = Pixel(rgb(p[0]), rgb(p[1]), rgb(p[2]), channel(p[3]));
     }
   }
   raster->unlock(); return true;
@@ -159,25 +161,34 @@ public:
                  box.y1 + std::max(-back * y, front * y) + 1);
     return true;
   }
-  void transform(double frame, int port, const TRectD &,
+  void transform(double frame, int port, const TRectD &output,
                  const TRenderSettings &info, TRectD &input,
                  TRenderSettings &inputInfo) override {
     inputInfo = info;
     const auto values = parameters(frame, info);
+    if (values.front.strength == 0 && values.back.strength == 0) {
+      input = port == 0 ? output : TRectD(); return;
+    }
     input = (port == 1 && (values.noise.type != CelNoise::Layer || values.noiseVariation == 0))
                 ? TRectD() : sourceDomain(frame, info);
   }
-  void doDryCompute(TRectD &, double frame, const TRenderSettings &info) override {
+  void doDryCompute(TRectD &rect, double frame, const TRenderSettings &info) override {
     if (!m_source.isConnected() || (info.m_isCanceled && *info.m_isCanceled)) return;
+    const auto values = parameters(frame, info);
+    if (values.front.strength == 0 && values.back.strength == 0) {
+      m_source->dryCompute(rect, frame, info); return;
+    }
     TRectD domain = sourceDomain(frame, info);
     if (domain.isEmpty()) return;
     m_source->dryCompute(domain, frame, info);
-    const auto values = parameters(frame, info);
     if (values.noiseVariation > 0 && values.noise.type == CelNoise::Layer && m_noise.isConnected()) {
       domain = sourceDomain(frame, info); m_noise->dryCompute(domain, frame, info);
     }
   }
   int getMemoryRequirement(const TRectD &rect, double frame, const TRenderSettings &info) override {
+    const auto values = parameters(frame, info);
+    if (values.front.strength == 0 && values.back.strength == 0)
+      return memorySize(rect, 48 * 8);
     return memorySize(sourceDomain(frame, info), 160 * 8) + memorySize(rect, 48 * 8);
   }
   std::string getAlias(double frame, const TRenderSettings &info) const override {
@@ -194,17 +205,40 @@ public:
     tile.getRaster()->clear();
     if (!m_source.isConnected() || (info.m_isCanceled && *info.m_isCanceled)) return;
     const auto values = parameters(frame, info);
+    if (values.front.strength == 0 && values.back.strength == 0) {
+      m_source->compute(tile, frame, info);
+      if (info.m_isCanceled && *info.m_isCanceled) { tile.getRaster()->clear(); return; }
+      if (values.gain == 1) return;
+      CelMotion::Image image;
+      if (!readDirectional(tile, image, info.m_isCanceled)) { tile.getRaster()->clear(); return; }
+      for (auto &pixel : image.pixels)
+        for (int c = 0; c < 3; ++c) pixel[c] *= values.gain;
+      bool complete = false;
+      if (TRaster32P raster = tile.getRaster()) complete = writeDirectional<TPixel32>(image, raster, info.m_isCanceled);
+      else if (TRaster64P raster = tile.getRaster()) complete = writeDirectional<TPixel64>(image, raster, info.m_isCanceled);
+      else if (TRasterFP raster = tile.getRaster()) complete = writeDirectional<TPixelF>(image, raster, info.m_isCanceled);
+      if (!complete) tile.getRaster()->clear();
+      return;
+    }
     const auto domain = sourceDomain(frame, info);
     if (domain.isEmpty()) return;
     TTile inputTile;
     const TDimension dimensions(int(domain.getLx()), int(domain.getLy()));
-    m_source->allocateAndCompute(inputTile, domain.getP00(), dimensions, tile.getRaster(), frame, info);
+    inputTile.setRaster(tile.getRaster()->create(dimensions.lx, dimensions.ly));
+    inputTile.m_pos = domain.getP00();
+    inputTile.getRaster()->setLinear(tile.getRaster()->isLinear());
+    inputTile.getRaster()->clear();
+    m_source->compute(inputTile, frame, info);
     CelMotion::Image source, noise, output;
     if (!readDirectional(inputTile, source, info.m_isCanceled)) return;
     const bool useNoise = values.noiseVariation > 0 && values.noise.type == CelNoise::Layer && m_noise.isConnected();
     if (useNoise) {
       TTile noiseTile;
-      m_noise->allocateAndCompute(noiseTile, domain.getP00(), dimensions, tile.getRaster(), frame, info);
+      noiseTile.setRaster(tile.getRaster()->create(dimensions.lx, dimensions.ly));
+      noiseTile.m_pos = domain.getP00();
+      noiseTile.getRaster()->setLinear(tile.getRaster()->isLinear());
+      noiseTile.getRaster()->clear();
+      m_noise->compute(noiseTile, frame, info);
       if (!readDirectional(noiseTile, noise, info.m_isCanceled)) return;
     }
     CelMotion::Shapes shapes;

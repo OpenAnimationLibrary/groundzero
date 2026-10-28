@@ -9,7 +9,8 @@ namespace CelMotion {
 std::size_t checkedArea(int width, int height) {
   constexpr std::size_t maxPixels = std::size_t(8) * 1024 * 1024 * 1024 / 160;
   if (width <= 0 || height <= 0) return 0;
-  if (std::size_t(width) > maxPixels / std::size_t(height))
+  const auto allocatorPixels = std::size_t(std::numeric_limits<int>::max()) / 16;
+  if (std::size_t(width) > std::min(maxPixels, allocatorPixels) / std::size_t(height))
     throw std::runtime_error("Cel motion: canonical image exceeds memory limit");
   return std::size_t(width) * height;
 }
@@ -23,7 +24,8 @@ bool analyze(const Image &image, Shapes &shapes, const int *canceled) {
   std::vector<std::size_t> pending;
   for (std::size_t start = 0; start < count; ++start) {
     if (canceled && *canceled) { shapes = Shapes(); return false; }
-    if (shapes.labels[start] || image.pixels[start][3] <= 0) continue;
+    if (shapes.labels[start] || image.pixels[start][3] <= 0 ||
+        !std::isfinite(image.pixels[start][3])) continue;
     if (shapes.groups.size() >= std::numeric_limits<std::uint32_t>::max() - 1)
       throw std::runtime_error("Cel motion: too many connected shapes");
     const auto label = std::uint32_t(shapes.groups.size() + 1);
@@ -43,7 +45,8 @@ bool analyze(const Image &image, Shapes &shapes, const int *canceled) {
       for (int sy = std::max(0, y - 1); sy <= std::min(image.height - 1, y + 1); ++sy)
         for (int sx = std::max(0, x - 1); sx <= std::min(image.width - 1, x + 1); ++sx) {
           const auto neighbor = std::size_t(sy) * image.width + sx;
-          if (!shapes.labels[neighbor] && image.pixels[neighbor][3] > 0) {
+          if (!shapes.labels[neighbor] && image.pixels[neighbor][3] > 0 &&
+              std::isfinite(image.pixels[neighbor][3])) {
             shapes.labels[neighbor] = label; pending.push_back(neighbor);
           }
         }
@@ -81,7 +84,8 @@ Pixel sample(const Image &image, double x, double y) {
       if (sx < 0 || sy < 0 || sx >= image.width || sy >= image.height) continue;
       const double weight = (dx ? tx : 1 - tx) * (dy ? ty : 1 - ty);
       const auto &pixel = image.pixels[std::size_t(sy) * image.width + sx];
-      for (int c = 0; c < 4; ++c) result[c] += pixel[c] * weight;
+      if (pixel[3] > 0)
+        for (int c = 0; c < 4; ++c) result[c] += pixel[c] * weight;
     }
   return result;
 }

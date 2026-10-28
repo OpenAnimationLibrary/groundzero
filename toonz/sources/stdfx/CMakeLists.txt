@@ -455,7 +455,14 @@ if(BUILD_CELFX_TESTS)
     target_link_libraries(celboundaryblur_ui_test toonzqt Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Widgets ${TNZLIBS} ${PTHREAD_LIBRARY})
     add_test(NAME celfx_boundaryblur_ui COMMAND celboundaryblur_ui_test
              ${CMAKE_CURRENT_SOURCE_DIR}/../../../stuff/profiles/layouts/fxs/STD_celBoundaryBlurFx.xml)
-    add_custom_target(celfx_tests DEPENDS celcolorkeep_test celcolorkeep_ui_test celcolorkey_test celcolorkey_ui_test celcolorkeymath_test celboundaryblur_test celboundaryblur_ui_test)
-    set_tests_properties(celfx_colorkeep celfx_colorkeep_ui celfx_colorkey celfx_colorkey_ui celfx_colorkey_math celfx_boundaryblur celfx_boundaryblur_ui PROPERTIES
+    add_executable(celdirectionalblur_test tests/celdirectionalblur_test.cpp celmotion.cpp celnoise.cpp celdirectionalmath.cpp)
+    target_link_libraries(celdirectionalblur_test Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME celfx_directionalblur COMMAND celdirectionalblur_test)
+    add_executable(celdirectionalblur_ui_test tests/celdirectionalblur_ui_test.cpp celmotion.cpp celnoise.cpp celdirectionalmath.cpp)
+    target_link_libraries(celdirectionalblur_ui_test toonzqt Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Widgets ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME celfx_directionalblur_ui COMMAND celdirectionalblur_ui_test
+             ${CMAKE_CURRENT_SOURCE_DIR}/../../../stuff/profiles/layouts/fxs/STD_celDirectionalBlurFx.xml)
+    add_custom_target(celfx_tests DEPENDS celcolorkeep_test celcolorkeep_ui_test celcolorkey_test celcolorkey_ui_test celcolorkeymath_test celboundaryblur_test celboundaryblur_ui_test celdirectionalblur_test celdirectionalblur_ui_test)
+    set_tests_properties(celfx_colorkeep celfx_colorkeep_ui celfx_colorkey celfx_colorkey_ui celfx_colorkey_math celfx_boundaryblur celfx_boundaryblur_ui celfx_directionalblur celfx_directionalblur_ui PROPERTIES
                          ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
 endif()

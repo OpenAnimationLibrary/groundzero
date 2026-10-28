@@ -8,6 +8,7 @@
 </Background>
   <Blur>
     STD_celBoundaryBlurFx
+    STD_celDirectionalBlurFx
     STD_blurFx 
     STD_inoBlurFx
     STD_directionalBlurFx
