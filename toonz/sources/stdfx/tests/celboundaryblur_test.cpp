@@ -2,7 +2,9 @@
 #include "../celcolorkeepfx.cpp"
 #include "tmacrofx.h"
 #include "tparamcontainer.h"
+#include "trenderer.h"
 #include "tstream.h"
+#include "tthread.h"
 
 #include <QCoreApplication>
 #include <QTemporaryDir>
@@ -274,6 +276,23 @@ void persistenceTests(const QTemporaryDir &temp) {
 }
 
 void workflowTest() {
+  // Chaining production effects enters TRasterFx::compute and its resource
+  // cache, unlike the direct source fixtures. Install the same render/frame
+  // lifecycle as the application before evaluating the connected graph.
+  struct RenderContext {
+    TRenderer renderer;
+    unsigned long id;
+    RenderContext() : renderer(1), id(TRenderer::buildRenderId()) {
+      renderer.install(id);
+      renderer.declareRenderStart(id);
+      renderer.declareFrameStart(0);
+    }
+    ~RenderContext() {
+      renderer.declareFrameEnd(0);
+      renderer.declareRenderEnd(id);
+      renderer.uninstall();
+    }
+  } context;
   TRaster32P image(3, 1);
   image->pixels(0)[0] = TPixel32(255, 0, 0);
   image->pixels(0)[1] = TPixel32(0, 0, 255);
@@ -297,7 +316,10 @@ void workflowTest() {
 
 int main(int argc, char **argv) {
   QCoreApplication app(argc, argv);
+  TThread::init();
+  TRenderer::initialize();
   QTemporaryDir temp;
+  int result = 1;
   try {
     require(temp.isValid(), "Temporary directory unavailable");
     std::cout << "Checking boundary kernel" << std::endl;
@@ -308,9 +330,10 @@ int main(int argc, char **argv) {
     std::cout << "Checking color selection workflow" << std::endl;
     workflowTest();
     std::cout << "PASS: boundary math, all controls, precision, support, tiles, cancellation and persistence\n";
-    return 0;
+    result = 0;
   } catch (const TException &error) {
     std::cerr << QString::fromStdWString(error.getMessage()).toStdString() << '\n';
   } catch (const std::exception &error) { std::cerr << error.what() << '\n'; }
-  return 1;
+  TThread::shutdown();
+  return result;
 }
