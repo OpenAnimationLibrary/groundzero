@@ -153,6 +153,15 @@ template <class Pixel> void checkTilesAndCancellation() {
   }
 }
 void checkCanvasAndFloat() {
+  const TPixelD huge(std::numeric_limits<double>::max(), -100, 0.25, 0.5);
+  const auto integer8 = gradientPixel(huge, static_cast<TPixel32 *>(nullptr));
+  const auto integer16 = gradientPixel(huge, static_cast<TPixel64 *>(nullptr));
+  require(integer8.r == integer8.m && integer8.g == 0 &&
+              integer16.r == integer16.m && integer16.g == 0,
+          "Integer HDR conversion violated premultiplied coverage");
+  const auto floating = gradientPixel(huge, static_cast<TPixelF *>(nullptr));
+  require(std::isfinite(floating.r) && floating.r == std::numeric_limits<float>::max() &&
+              floating.g == -100, "Float output overflowed or clamped signed HDR");
   TRasterFP input(1, 1); input->pixels(0)[0] = TPixelF(1, -0.25f, 0.125f, 0.5f);
   AlphaDistanceGradientFx fx; fx.getInputPort(0)->setFx(new Source(input, false, nullptr, true));
   set(fx, "renderMode", 1);

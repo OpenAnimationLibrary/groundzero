@@ -132,10 +132,20 @@ template <class Pixel> TPixelD gradientStraight(const Pixel &p) {
   return gradientSeed(p) ? TPixelD(double(p.r) / p.m, double(p.g) / p.m,
                                    double(p.b) / p.m, 1) : TPixelD(0, 0, 0, 1);
 }
-TPixel32 gradientPixel(const TPixelD &p, TPixel32 *) { return toPixel32(p); }
-TPixel64 gradientPixel(const TPixelD &p, TPixel64 *) { return toPixel64(p); }
+TPixelD gradientInteger(const TPixelD &p) {
+  const double alpha = std::max(0.0, std::min(1.0, p.m));
+  return TPixelD(std::max(0.0, std::min(alpha, p.r)),
+                  std::max(0.0, std::min(alpha, p.g)),
+                  std::max(0.0, std::min(alpha, p.b)), alpha);
+}
+TPixel32 gradientPixel(const TPixelD &p, TPixel32 *) { return toPixel32(gradientInteger(p)); }
+TPixel64 gradientPixel(const TPixelD &p, TPixel64 *) { return toPixel64(gradientInteger(p)); }
+float gradientFloat(double value) {
+  const double limit = std::numeric_limits<float>::max();
+  return std::isnan(value) ? 0.0f : float(std::max(-limit, std::min(limit, value)));
+}
 TPixelF gradientPixel(const TPixelD &p, TPixelF *) {
-  return TPixelF(float(p.r), float(p.g), float(p.b), float(p.m));
+  return TPixelF(gradientFloat(p.r), gradientFloat(p.g), gradientFloat(p.b), float(p.m));
 }
 template <class Pixel>
 void gradientRender(const TRasterPT<Pixel> &source, const TRasterPT<Pixel> &output,
