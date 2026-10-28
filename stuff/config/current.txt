@@ -128,11 +128,27 @@
   <item>"STD_backlitFx.fade"		"Fade"			</item>
 
  
+  <item>"STD_celDirectionalBlurFx" "Cel Directional Blur" </item>
+  <item>"STD_celDirectionalBlurFx.angle" "Angle" </item>
+  <item>"STD_celDirectionalBlurFx.gain" "Brightness Gain" </item>
+  <item>"STD_celDirectionalBlurFx.sizeVariation" "Size Variation" </item>
+  <item>"STD_celDirectionalBlurFx.frontStrength" "Front Blur Strength" </item>
+  <item>"STD_celDirectionalBlurFx.frontFade" "Front Edge Fade" </item>
+  <item>"STD_celDirectionalBlurFx.frontSharp" "Front Sharp Tail" </item>
+  <item>"STD_celDirectionalBlurFx.backStrength" "Back Blur Strength" </item>
+  <item>"STD_celDirectionalBlurFx.backFade" "Back Edge Fade" </item>
+  <item>"STD_celDirectionalBlurFx.backSharp" "Back Sharp Tail" </item>
+  <item>"STD_celDirectionalBlurFx.noiseVariation" "Noise Variation" </item>
+  <item>"STD_celDirectionalBlurFx.noiseType" "Noise Type" </item>
+  <item>"STD_celDirectionalBlurFx.noiseSeed" "Seed" </item>
+  <item>"STD_celDirectionalBlurFx.noiseOffset" "Offset" </item>
+  <item>"STD_celDirectionalBlurFx.noiseThickness" "Thickness" </item>
   <item>"STD_celBoundaryBlurFx" "Cel Boundary Blur" </item>
   <item>"STD_celBoundaryBlurFx.amount" "Blur Amount" </item>
   <item>"STD_celBoundaryBlurFx.smoothness" "Blur Smoothness" </item>
   <item>"STD_celBoundaryBlurFx.repeats" "Number of Repeat" </item>
   <item>"STD_celBoundaryBlurFx.bias" "Bias Direction" </item>
+  <item>"STD_celBoundaryBlurFx.legacy" "Legacy" </item>
   <item>"STD_blurFx"		"Blur"			</item>
   <item>"STD_blurFx.value"		"Value"			</item>
   <item>"STD_blurFx.spread"		"Spread"			</item>

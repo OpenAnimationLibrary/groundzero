@@ -29,6 +29,12 @@ int discrete(double value, int maximum) {
 double bounded(double value, double minimum, double maximum) {
   return std::isfinite(value) ? std::max(minimum, std::min(maximum, value)) : 0.0;
 }
+void checkInputSize(int width, int height, int pixelSize) {
+  const size_t area = CelDistance::checkedArea(width, height);
+  // The host raster allocator multiplies dimensions in signed int.
+  if (pixelSize <= 0 || area > size_t(std::numeric_limits<int>::max()) / size_t(pixelSize))
+    throw TException("Cel Color Key: source tile exceeds the raster size limit");
+}
 }
 
 class CelColorKeyFx final : public TStandardRasterFx {
@@ -222,7 +228,12 @@ bool applyKey(const TRasterPT<Pixel> &source, const TRasterPT<Pixel> &output,
       if (keep && replace && selectedIndex >= 0 && entries[selectedIndex].replace) {
         const CelKey::RGB &color = entries[selectedIndex].replacement;
         if (!CelKey::finite(color)) { dest[x] = Pixel::Transparent; continue; }
-        pixel.r = color[0] * pixel.m; pixel.g = color[1] * pixel.m; pixel.b = color[2] * pixel.m;
+        // Integer rasters require RGB to stay within the alpha coverage.
+        // Float rasters retain finite HDR replacement colors.
+        const bool isFloat = std::is_same<Pixel, TPixelF>::value;
+        pixel.r = (isFloat ? color[0] : bounded(color[0], 0, 1)) * pixel.m;
+        pixel.g = (isFloat ? color[1] : bounded(color[1], 0, 1)) * pixel.m;
+        pixel.b = (isFloat ? color[2] : bounded(color[2], 0, 1)) * pixel.m;
       } else {
         pixel.r *= alphaFactor; pixel.g *= alphaFactor; pixel.b *= alphaFactor;
       }
@@ -242,10 +253,19 @@ void CelColorKeyFx::doCompute(TTile &tile, double frame, const TRenderSettings &
   if (!std::isfinite(input.getLx()) || !std::isfinite(input.getLy()) || input.getLx() <= 0 || input.getLy() <= 0 ||
       input.getLx() > std::numeric_limits<int>::max() || input.getLy() > std::numeric_limits<int>::max())
     throw TException("Cel Color Key: invalid input dimensions");
-  CelDistance::checkedArea(int(input.getLx()), int(input.getLy()));
+  checkInputSize(int(input.getLx()), int(input.getLy()), tile.getRaster()->getPixelSize());
+  const TDimension size(int(input.getLx()), int(input.getLy()));
+  TRasterP sourceRaster;
+  if (TRaster32P(tile.getRaster())) sourceRaster = TRaster32P(size);
+  else if (TRaster64P(tile.getRaster())) sourceRaster = TRaster64P(size);
+  else if (TRasterFP(tile.getRaster())) sourceRaster = TRasterFP(size);
+  else throw TException("Cel Color Key: unsupported pixel type");
+  sourceRaster->setLinear(tile.getRaster()->isLinear());
+  sourceRaster->clear();
   TTile source;
-  m_source->allocateAndCompute(source, input.getP00(), TDimension(int(input.getLx()), int(input.getLy())),
-                               tile.getRaster(), frame, settings);
+  source.m_pos = input.getP00();
+  source.setRaster(sourceRaster);
+  m_source->compute(source, frame, settings);
   if (settings.m_isCanceled && *settings.m_isCanceled) return;
   std::array<CelKey::Entry, colorCapacity> entries;
   const int count = discrete(m_enabledColors->getValue(frame), colorCapacity);

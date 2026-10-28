@@ -13,6 +13,7 @@ struct Settings {
   double blend = 0.5;
   int repeats = 1;
   bool vertical = true;  // The named axis is the last pass of each iteration.
+  bool legacy = false;   // Uniform straight-color weights for covered samples.
 };
 
 std::size_t checkedArea(int width, int height);

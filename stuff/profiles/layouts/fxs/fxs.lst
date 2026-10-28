@@ -9,6 +9,7 @@
   <Blur>
     STD_celBoundaryBlurFx
     STD_celRadialBlurFx
+    STD_celDirectionalBlurFx
     STD_blurFx 
     STD_inoBlurFx
     STD_directionalBlurFx

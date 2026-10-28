@@ -72,7 +72,7 @@ bool render(const CelMotion::Image &source, const CelMotion::Shapes &shapes,
       const auto &extent = extents[label - 1];
       const double shapeScale = CelMotion::sizeFactor(shapes.groups[label - 1], shapes, settings.sizeVariation);
       const double px = x + source.originX, py = y + source.originY;
-      const double noiseValue = CelNoise::sample(settings.noise,
+      const double noiseValue = settings.noiseVariation == 0 ? 1 : CelNoise::sample(settings.noise,
           px / settings.scale, py / settings.scale,
           noise ? CelMotion::luminance(*noise, px, py) : 0);
       const double noiseScale = 1 - settings.noiseVariation * (1 - noiseValue);

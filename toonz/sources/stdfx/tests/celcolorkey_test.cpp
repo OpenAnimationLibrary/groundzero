@@ -19,8 +19,10 @@ TPixelParamP color(TFx &fx, const std::string &name) {
 }
 class Source final : public TStandardRasterFx {
   TRasterP m_raster;
+  bool *m_observedClean;
 public:
-  explicit Source(const TRasterP &raster) : m_raster(raster) {}
+  explicit Source(const TRasterP &raster, bool *observedClean = nullptr)
+      : m_raster(raster), m_observedClean(observedClean) {}
   const TPersistDeclaration *getDeclaration() const override { return nullptr; }
   bool canHandle(const TRenderSettings &, double) override { return true; }
   bool doGetBBox(double, TRectD &box, const TRenderSettings &) override {
@@ -28,7 +30,14 @@ public:
   }
   std::string getAlias(double, const TRenderSettings &) const override { return "key-test-source"; }
   void compute(TTile &tile, double, const TRenderSettings &) override {
-    tile.getRaster()->clear();
+    if (m_observedClean) {
+      TRaster32P raster = tile.getRaster();
+      *m_observedClean = bool(raster);
+      if (raster)
+        for (int y = 0; y < raster->getLy(); ++y)
+          for (int x = 0; x < raster->getLx(); ++x)
+            *m_observedClean = *m_observedClean && raster->pixels(y)[x] == TPixel32::Transparent;
+    } else tile.getRaster()->clear();
     tile.getRaster()->copy(m_raster, TPoint(-int(tile.m_pos.x), -int(tile.m_pos.y)));
   }
   void doCompute(TTile &tile, double frame, const TRenderSettings &settings) override { compute(tile, frame, settings); }
@@ -60,6 +69,16 @@ void testRaster() {
   color(fx, "replacement001")->setDefaultValue(TPixel32(255, 255, 255));
   auto replaced = render<Pixel>(fx, 3);
   require(replaced->pixels(0)[1] == Pixel::White, "Replacement color was not applied");
+  source->pixels(0)[1] = PixelConverter<Pixel>::from(TPixelD(0, 0.5, 0, 0.5));
+  color(fx, "replacement001")->getRed()->setDefaultValue(2.0);
+  color(fx, "replacement001")->getGreen()->setDefaultValue(0.0);
+  color(fx, "replacement001")->getBlue()->setDefaultValue(0.0);
+  const TPixelD highReplacement = toPixelD(render<Pixel>(fx, 3)->pixels(0)[1]);
+  if (std::is_same<Pixel, TPixelF>::value)
+    require(highReplacement.r > highReplacement.m, "Float replacement lost HDR range");
+  else
+    require(highReplacement.r <= highReplacement.m, "Integer replacement exceeds alpha");
+  source->pixels(0)[1] = PixelConverter<Pixel>::from(TPixelD(0, 1, 0, 1));
   number(fx, "enableReplace")->setDefaultValue(0);
   number(fx, "thin")->setDefaultValue(1);
   auto expanded = render<Pixel>(fx, 3);
@@ -85,6 +104,18 @@ void testRaster() {
   fx.doCompute(tile, 0, settings);
   require(output->pixels(0)[0] == Pixel::Transparent, "Canceled output was not cleared");
 }
+void testPartiallyWrittenSource() {
+  CelColorKeyFx fx;
+  TRaster32P pixels(1, 1); pixels->pixels(0)[0] = TPixel32::White;
+  bool observedClean = false;
+  fx.getInputPort(0)->setFx(new Source(pixels, &observedClean));
+  auto output = render<TPixel32>(fx, 3, TPointD(-1, 0));
+  require(observedClean, "Source tile was not initialized before upstream rendering");
+  require(output->pixels(0)[0] == TPixel32::Transparent &&
+              output->pixels(0)[1] == TPixel32::White &&
+              output->pixels(0)[2] == TPixel32::Transparent,
+          "Partial upstream output changed transparent pixels");
+}
 void testPersistence(const QString &path) {
   CelColorKeyFx fx;
   number(fx, "enabledColors")->setDefaultValue(25);
@@ -103,6 +134,12 @@ int main(int argc, char **argv) {
   QCoreApplication app(argc, argv);
   try {
     testRaster<TPixel32>(); testRaster<TPixel64>(); testRaster<TPixelF>();
+    testPartiallyWrittenSource();
+    checkInputSize(2, 3, 16);
+    bool tooLarge = false;
+    try { checkInputSize(16005, 16005, 16); }
+    catch (const TException &) { tooLarge = true; }
+    require(tooLarge, "Oversized raster dimensions were not rejected");
     QTemporaryDir directory; require(directory.isValid(), "Cannot create temporary files");
     testPersistence(directory.filePath("color-key.fx"));
     std::cout << "PASS: color key raster modes, entries and persistence\n";
