@@ -50,6 +50,15 @@ This software can be built using Visual Studio 2019 and Qt 5.x
 - In order to prevent this, please change the following setting in git so that it will preserve the proper endline characters:
 - `git config core.safecrlf true`
 - Execute `git lfs pull` after `git clone` by using the lfs client.
+- Groundzero: the `lib` and `dll` files of `thirdparty` are not mirrored in
+  this repository. Each one is a short text file saying "Git LFS object not
+  mirrored in groundzero", and `git lfs pull` does not replace them. Take the
+  real files from `OpenAnimationLibrary/opentoonz-dev` (clone it with
+  Git LFS and copy its `thirdparty` `lib` and `dll` files over these), or
+  extract the archive the Windows CI uses at the root of the repository:
+  `https://github.com/andeon/opentoonz-thirdparty-libs/releases/download/prebuilt-libs-v1/thirdparty-libs.zip`
+  (see `.github/workflows/workflow_windows.yml`). Without them the build
+  fails to link.
 
 ### Using CMake to Create a Visual Studio Project
 - Launch CMake

@@ -882,11 +882,9 @@ if(WITH_PYTHON)
     endif()
     message(STATUS "Python scripting: Python ${Python3_VERSION}")
 endif()
-if(BUILD_TESTS OR BUILD_CELFX_TESTS OR BUILD_EXR_TESTS OR BUILD_EXR_AOV_FX_TESTS OR
-   BUILD_TNZTOOLS_TESTS OR BUILD_PSD_TESTS OR BUILD_SCRIPT_TESTS OR BUILD_FFMPEG_TESTS OR BUILD_FRAME_STRIPS_TESTS OR BUILD_LUT3D_TESTS OR BUILD_GLB_FX_TESTS OR
-   BUILD_FXRENDER_TESTS OR BUILD_TGL_BATCH_TESTS OR BUILD_FUZZ_TESTS)
-    enable_testing()
-endif()
+# Always: each test has its own BUILD_*_TESTS option, and a test configured
+# without BUILD_TESTS must still be found by ctest
+enable_testing()
 
 add_subdirectory(tnzcore)
 if(BUILD_TGL_BATCH_TESTS)
