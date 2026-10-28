@@ -112,6 +112,76 @@ double getOnionSkinOpacity(const Stage::Player &player) {
 
 //----------------------------------------------------------------
 
+// Whether the player is drawn with the Color Effect of its column: the onion
+// skin and Shift and Trace ghosts are not (as for the color filter).
+bool showsColorEffect(const Stage::Player &player) {
+  return (player.m_onionSkinDistance == c_noOnionSkin ||
+          player.m_onionSkinDistance == 0) &&
+         !player.m_colorEffect.isIdentity();
+}
+
+//----------------------------------------------------------------
+
+// The color function of a vector drawing with a Color Effect: what the column
+// already does (opacity, color filter, current frame fade with onion skin),
+// then the effect. Style colors are straight (not premultiplied), as the
+// effect expects.
+class ColorEffectFunction final : public TColorFunction {
+  std::unique_ptr<TColorFunction> m_inner;
+  ColumnColorEffect::Transform m_effect;
+
+public:
+  ColorEffectFunction(const TColorFunction *inner,
+                      const ColumnColorEffect::Transform &effect)
+      : m_inner(inner ? inner->clone() : nullptr), m_effect(effect) {}
+
+  TColorFunction *clone() const override {
+    return new ColorEffectFunction(m_inner.get(), m_effect);
+  }
+
+  TPixel32 operator()(const TPixel32 &color) const override {
+    const TPixel32 in = m_inner ? (*m_inner)(color) : color;
+    double rgba[4] = {(double)in.r, (double)in.g, (double)in.b, (double)in.m};
+    m_effect.applyStraight(rgba);
+    return TPixel32((int)(rgba[0] + 0.5), (int)(rgba[1] + 0.5),
+                    (int)(rgba[2] + 0.5), (int)(rgba[3] + 0.5));
+  }
+
+  // Only describes the effect: not all the inner functions (color filter,
+  // fader) support getParameters()
+  bool getParameters(Parameters &p) const override {
+    p.m_mR = m_effect.m[0], p.m_mG = m_effect.m[1], p.m_mB = m_effect.m[2],
+    p.m_mM = m_effect.m[3];
+    p.m_cR = m_effect.c[0], p.m_cG = m_effect.c[1], p.m_cB = m_effect.c[2],
+    p.m_cM = m_effect.c[3];
+    return true;
+  }
+};
+
+//----------------------------------------------------------------
+
+// Applies a Color Effect to the premultiplied pixels of a raster
+void applyColorEffect(const TRaster32P &ras,
+                      const ColumnColorEffect::Transform &effect) {
+  ras->lock();
+  for (int y = 0; y < ras->getLy(); ++y) {
+    TPixel32 *pix = ras->pixels(y), *endPix = pix + ras->getLx();
+    for (; pix != endPix; ++pix) {
+      if (pix->m == 0) continue;
+      double rgba[4] = {(double)pix->r, (double)pix->g, (double)pix->b,
+                        (double)pix->m};
+      effect.applyPremultiplied(rgba, 255.0);
+      pix->r = (TPixel32::Channel)(rgba[0] + 0.5);
+      pix->g = (TPixel32::Channel)(rgba[1] + 0.5);
+      pix->b = (TPixel32::Channel)(rgba[2] + 0.5);
+      pix->m = (TPixel32::Channel)(rgba[3] + 0.5);
+    }
+  }
+  ras->unlock();
+}
+
+//----------------------------------------------------------------
+
 // Returns a copy of the specified palette with the overrides of the Colour
 // Override Fxs that follow the player's column, or 0 if there are none. The Fxs
 // are looked for like the render does for a column that goes through a chain of
@@ -673,12 +743,22 @@ void RasterPainter::flushRasterImagesCpu(bool drawBBox) {
     // Outline View shows the inks only
     if (m_nodes[i].m_outlineView) inksOnly = true;
 
+    // A node with a Color Effect is put on a transparent layer of its own,
+    // which gets the effect (on its premultiplied pixels) and is then put over
+    // the buffer
+    const bool colorEffect = !m_nodes[i].m_colorEffect.isIdentity();
+    TRaster32P target      = viewedRaster;
+    if (colorEffect) {
+      target = TRaster32P(viewedRaster->getSize());
+      target->clear();
+    }
+
     if (TRaster32P src32 = m_nodes[i].m_raster)
-      TRop::quickPut(viewedRaster, src32, aff, colorscale,
-                     m_nodes[i].m_doPremultiply, m_nodes[i].m_whiteTransp,
-                     m_nodes[i].m_isFirstColumn, m_doRasterDarkenBlendedView);
+      TRop::quickPut(target, src32, aff, colorscale, m_nodes[i].m_doPremultiply,
+                     m_nodes[i].m_whiteTransp, m_nodes[i].m_isFirstColumn,
+                     m_doRasterDarkenBlendedView && !colorEffect);
     else if (TRasterGR8P srcGr8 = m_nodes[i].m_raster)
-      TRop::quickPut(viewedRaster, srcGr8, aff, colorscale);
+      TRop::quickPut(target, srcGr8, aff, colorscale);
     else if (TRasterCM32P srcCm = m_nodes[i].m_raster) {
       assert(m_nodes[i].m_palette);
       int oldframe = m_nodes[i].m_palette->getFrame();
@@ -747,7 +827,7 @@ void RasterPainter::flushRasterImagesCpu(bool drawBBox) {
 
       if (tc == 0 || tc == ToonzCheck::eBlackBg ||
           !m_nodes[i].m_isCurrentColumn) {
-        TRop::quickPut(viewedRaster, srcCm, plt, aff, colorscale, inksOnly);
+        TRop::quickPut(target, srcCm, plt, aff, colorscale, inksOnly);
       } else {
         TRop::CmappedQuickputSettings settings;
 
@@ -797,7 +877,7 @@ void RasterPainter::flushRasterImagesCpu(bool drawBBox) {
         }
 
         // Final render using original OpenToonz quickPut behavior
-        TRop::quickPut(viewedRaster, rasterToUse, plt, aff, settings);
+        TRop::quickPut(target, rasterToUse, plt, aff, settings);
         // Temporary clone automatically destroyed when leaving scope
       }
 
@@ -807,6 +887,11 @@ void RasterPainter::flushRasterImagesCpu(bool drawBBox) {
       m_nodes[i].m_palette->setFrame(oldframe);
     } else {
       assert(!"Cannot use quickput with this raster combination!");
+    }
+
+    if (colorEffect) {
+      applyColorEffect(target, m_nodes[i].m_colorEffect);
+      TRop::over(viewedRaster, target);
     }
   }
   if (m_vs.m_colorMask != 0) {
@@ -1192,7 +1277,8 @@ void RasterPainter::releaseGpuTextures() {
       motion live view), rasters other than 32-bit and colormap ones (e.g.
       grayscale);
     - colormap nodes of the current column when Toonz checks (transparency,
-      ink, paint, gap, autoclose...) apply to them.
+      ink, paint, gap, autoclose...) apply to them;
+    - nodes with a column Color Effect.
 */
 bool RasterPainter::flushRasterImagesGpu() {
   if (m_maskLevel > 0 || m_vs.m_colorMask != 0 || m_doRasterDarkenBlendedView)
@@ -1264,6 +1350,10 @@ bool RasterPainter::flushRasterImagesGpu() {
     if (!node.m_gpuCacheable ||
         volatileRasters.count(node.m_raster.getPointer()))
       continue;
+
+    // The Color Effect of a column is applied by the CPU path only, so no
+    // texture is ever baked with an effect (and none can be stale)
+    if (!node.m_colorEffect.isIdentity()) continue;
 
     // Color scale, as in the CPU path
     TPixel32 colorscale = TPixel32(0, 0, 0, node.m_alpha);
@@ -1690,6 +1780,14 @@ void RasterPainter::onVectorImage(TVectorImage *vi,
   } else if (player.m_opacity < 255)
     cf = new TTranspFader(player.m_opacity / 255.0);
 
+  // The Color Effect of the column comes after what the column already does
+  if (showsColorEffect(player)) {
+    TColorFunction *effectCf =
+        new ColorEffectFunction(cf, player.m_colorEffect);
+    delete cf;
+    cf = effectCf;
+  }
+
   TVectorRenderData rd(m_viewAff * player.m_placement, TRect(), vPalette, cf,
                        true  // alpha enabled
   );
@@ -1865,6 +1963,8 @@ void RasterPainter::onRasterImage(TRasterImage *ri,
                          player.m_frame, player.m_isCurrentColumn, onionMode,
                          doPremultiply, whiteTransp, ignoreAlpha,
                          player.m_filterColor));
+  if (showsColorEffect(player))
+    m_nodes.back().m_colorEffect = player.m_colorEffect;
 
   if (m_gpuCompositing && sl) {
     m_nodes.back().m_imageId      = sl->getImageId(player.m_fid);
@@ -1933,6 +2033,8 @@ void RasterPainter::onToonzImage(TToonzImage *ti, const Stage::Player &player) {
                          false, false, false, filterColor));
   m_nodes.back().m_ownedPalette = overridden;
   m_nodes.back().m_outlineView  = player.m_outlineView;
+  if (showsColorEffect(player))
+    m_nodes.back().m_colorEffect = player.m_colorEffect;
 
   if (m_gpuCompositing && player.m_sl) {
     m_nodes.back().m_imageId      = player.m_sl->getImageId(player.m_fid);

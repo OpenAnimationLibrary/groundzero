@@ -12,6 +12,10 @@
 #include "tbasefx.h"
 #include "tdoubleparam.h"
 #include "tnotanimatableparam.h"
+#include "tparamset.h"
+
+// TnzLib includes
+#include "toonz/columncoloreffect.h"
 
 #undef DVAPI
 #undef DVVAR
@@ -74,6 +78,13 @@ class TLevelColumnFx : public TColumnFx {
   TDoubleParamP m_timeRemap;
   TBoolParamP m_timeRemapEnabled;
 
+  // Color Effect (doc/animate_color_effect.md, see toonz/columncoloreffect.h):
+  // Brightness, Tint, Alpha and Advanced. Each parameter is saved only when it
+  // is not at its default, so the scenes that do not use it are saved as
+  // before.
+  TDoubleParamP m_colorEffect[ColumnColorEffect::ParamCount];
+  TPixelParamP m_tintColor;
+
 public:
   TLevelColumnFx();
   ~TLevelColumnFx();
@@ -101,6 +112,18 @@ public:
   //! The row of the xsheet whose cell is shown at the row \b row of the output;
   //! \b row itself if the remap is not active.
   int getRemappedRow(int row) const;
+
+  //! The parameter \b p (a ColumnColorEffect::Param) of the Color Effect.
+  TDoubleParam *getColorEffectParam(int p) const;
+  //! The tint color of the Color Effect (its alpha is not used).
+  TPixelParam *getTintColorParam() const { return m_tintColor.getPointer(); }
+  //! True if a parameter of the Color Effect is not at its default (it has
+  //! keys, or another value). Only such parameters are saved.
+  bool isColorEffectUsed() const;
+  //! The values of the Color Effect parameters at \b frame.
+  ColumnColorEffect::Values getColorEffectValues(double frame) const;
+  //! The Color Effect at \b frame, as a multiply and an offset per channel.
+  ColumnColorEffect::Transform getColorEffect(double frame) const;
 
   std::wstring getColumnName() const override;
   std::wstring getColumnId() const override;

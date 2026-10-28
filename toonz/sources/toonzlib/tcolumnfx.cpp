@@ -865,6 +865,21 @@ TLevelColumnFx::TLevelColumnFx()
   bindParam(this, "timeRemap", m_timeRemap);
   bindParam(this, "timeRemapEnabled", m_timeRemapEnabled, true);
   m_timeRemap->setUILabel("Time Remap");
+
+  // Color Effect: each parameter is written to the scene file only when it is
+  // not at its default (see isParamSaved)
+  for (int p = 0; p < ColumnColorEffect::ParamCount; ++p) {
+    double minValue = 0.0, maxValue = 0.0;
+    ColumnColorEffect::valueRange(p, minValue, maxValue);
+    m_colorEffect[p] = TDoubleParamP(ColumnColorEffect::defaultValue(p));
+    m_colorEffect[p]->setValueRange(minValue, maxValue);
+    m_colorEffect[p]->setUILabel(ColumnColorEffect::paramLabel(p));
+    bindParam(this, ColumnColorEffect::paramName(p), m_colorEffect[p]);
+  }
+  m_tintColor = TPixelParamP(TPixel32::Black);
+  m_tintColor->enableMatte(false);
+  m_tintColor->setUILabel("Tint Color");
+  bindParam(this, ColumnColorEffect::tintColorParamName(), m_tintColor);
 }
 
 //--------------------------------------------------
@@ -900,11 +915,70 @@ int TLevelColumnFx::getRemappedRow(int row) const {
 
 //-------------------------------------------------------------------
 
+namespace {
+
+// Whether a parameter of the Color Effect is not at its default
+bool isColorEffectParamUsed(const TDoubleParam *param, double defaultValue) {
+  return param->hasKeyframes() || param->isCycleEnabled() ||
+         param->getDefaultValue() != defaultValue;
+}
+
+bool isTintColorUsed(const TPixelParam *param) {
+  return param->hasKeyframes() || param->getDefaultValue() != TPixel32::Black;
+}
+
+}  // namespace
+
+//-------------------------------------------------------------------
+
+TDoubleParam *TLevelColumnFx::getColorEffectParam(int p) const {
+  if (p < 0 || p >= ColumnColorEffect::ParamCount) return 0;
+  return m_colorEffect[p].getPointer();
+}
+
+//-------------------------------------------------------------------
+
+bool TLevelColumnFx::isColorEffectUsed() const {
+  for (int p = 0; p < ColumnColorEffect::ParamCount; ++p)
+    if (isColorEffectParamUsed(m_colorEffect[p].getPointer(),
+                               ColumnColorEffect::defaultValue(p)))
+      return true;
+  return isTintColorUsed(m_tintColor.getPointer());
+}
+
+//-------------------------------------------------------------------
+
+ColumnColorEffect::Values TLevelColumnFx::getColorEffectValues(
+    double frame) const {
+  ColumnColorEffect::Values values;
+  for (int p = 0; p < ColumnColorEffect::ParamCount; ++p)
+    values.set(p, m_colorEffect[p]->getValue(frame));
+  const TPixelD tint = m_tintColor->getValueD(frame);
+  values.setTint(tint.r * 255.0, tint.g * 255.0, tint.b * 255.0);
+  return values;
+}
+
+//-------------------------------------------------------------------
+
+ColumnColorEffect::Transform TLevelColumnFx::getColorEffect(
+    double frame) const {
+  return ColumnColorEffect::compose(getColorEffectValues(frame));
+}
+
+//-------------------------------------------------------------------
+
 bool TLevelColumnFx::isParamSaved(const TParamVar *paramVar) const {
   // The time remap leaves the saved scene unchanged until it is used
   const std::string name = paramVar->getName();
   if (name == "timeRemap" || name == "timeRemapEnabled")
     return isTimeRemapUsed();
+  // So do the parameters of the Color Effect, each on its own
+  const int p = ColumnColorEffect::paramIndex(name.c_str());
+  if (p >= 0)
+    return isColorEffectParamUsed(m_colorEffect[p].getPointer(),
+                                  ColumnColorEffect::defaultValue(p));
+  if (name == ColumnColorEffect::tintColorParamName())
+    return isTintColorUsed(m_tintColor.getPointer());
   return true;
 }
 

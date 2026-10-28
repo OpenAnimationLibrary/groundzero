@@ -240,6 +240,10 @@ private:
     std::string m_imageId;        //!< Base image id of the node's level frame
     bool m_gpuCacheable = false;  //!< Whether the node's texture may be cached
 
+    //! The column's Color Effect, applied after the color scale (identity for
+    //! none). Nodes with an effect are composited by the CPU path.
+    ColumnColorEffect::Transform m_colorEffect;
+
   public:
     Node(const TRasterP &raster, TPalette *palette, int alpha,
          const TAffine &aff, const TRect &savebox, const TRectD &bbox,

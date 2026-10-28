@@ -11,6 +11,9 @@
 // TnzExt includes
 #include "ext/ttexturesstorage.h"
 
+// TnzLib includes
+#include "toonz/columncoloreffect.h"
+
 #undef DVAPI
 #undef DVVAR
 #ifdef TOONZLIB_EXPORTS
@@ -119,6 +122,9 @@ public:
   //! column). Used by the viewer painter for vector and Toonz raster images.
   bool m_outlineView = false;
   TPixel32 m_outlineColor;  //!< The outline colour, if m_outlineView
+  //! The Color Effect of the column (and of the sub-xsheet columns holding
+  //! it) at the player's frame; the identity if there is none.
+  ColumnColorEffect::Transform m_colorEffect;
 
 public:
   Player();
