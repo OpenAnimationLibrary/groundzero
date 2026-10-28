@@ -223,6 +223,9 @@ jobs:
         shell: cmd
         run: |
           set "PATH=%CD%\toonz\build\Opentoonz;%QT_PATH%\bin;%PATH%"
+          set "QT_PLUGIN_PATH=%QT_PATH%\plugins"
+          set "QT_QPA_PLATFORM_PLUGIN_PATH=%QT_PATH%\plugins\platforms"
+          set "QT_DEBUG_PLUGINS=1"
           cd toonz\build
           ctest -C RelWithDebInfo --output-on-failure --output-junit cel-tests.xml --no-tests=error -R "^celfx_" > cel-tests-output.txt 2>&1
           set "CEL_TEST_EXIT=%ERRORLEVEL%"
