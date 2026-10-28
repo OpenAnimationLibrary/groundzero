@@ -231,8 +231,10 @@ int StarGlowFx::getMemoryRequirement(const TRectD &rect, double frame, const TRe
   // Calculate in wide floating point: the host helper multiplies unsigned
   // long values, which can overflow at 32 bits on Windows.
   if (input.isEmpty()) return 0;
-  const long double bytes = (static_cast<long double>(input.getLx()) + 1) *
-                            (static_cast<long double>(input.getLy()) + 1) * 96;
+  const long double inputWidth = static_cast<long double>(input.getLx()) + 1;
+  const long double inputHeight = static_cast<long double>(input.getLy()) + 1;
+  const long double outputWidth = static_cast<long double>(rect.getLx()) + 1;
+  const long double bytes = inputWidth * inputHeight * 80 + outputWidth * inputHeight * 32;
   const long double megabytes = bytes / (1024 * 1024);
   if (!std::isfinite(megabytes) || megabytes >= std::numeric_limits<int>::max())
     return std::numeric_limits<int>::max();
@@ -318,14 +320,26 @@ bool render(const TRasterPT<Pixel> &source, const TRasterPT<Pixel> &output,
   }
   // The highlight is a separable two-axis blur, reusing the selected profile.
   std::vector<Vec> horizontal;
+  int horizontalStart = 0, horizontalWidth = 0;
   if (s.highlightRadius > 0) {
-    horizontal.resize(extracted.size());
+    const long long radius = static_cast<long long>(std::ceil(s.highlightRadius));
+    const long long start = std::max(0LL, -static_cast<long long>(offsetX) - radius - 1);
+    const long long end = std::min(static_cast<long long>(output->getLx()),
+                                   static_cast<long long>(w) - offsetX + radius + 1);
+    if (end > start) {
+      horizontalStart = int(start);
+      horizontalWidth = int(end - start);
+      if (size_t(horizontalWidth) > std::numeric_limits<size_t>::max() / size_t(h) / sizeof(Vec))
+        throw TException("Star Glow: invalid highlight dimensions");
+      horizontal.resize(size_t(horizontalWidth) * size_t(h));
+    }
     Direction white; white.length = s.highlightRadius; white.color = TPixelD(1, 1, 1, 1);
     for (int y = 0; y < h; ++y) {
       if (canceled && *canceled) return false;
-      for (int x = 0; x < w; ++x) {
+      for (int x = 0; x < horizontalWidth; ++x) {
         if ((x & 31) == 0 && canceled && *canceled) return false;
-        horizontal[size_t(y) * size_t(w) + size_t(x)] = streak(extracted, w, h, x, y, 0, white, s.profile, s.approximate);
+        horizontal[size_t(y) * size_t(horizontalWidth) + size_t(x)] =
+            streak(extracted, w, h, x + horizontalStart + offsetX, y, 0, white, s.profile, s.approximate);
       }
     }
   }
@@ -341,9 +355,9 @@ bool render(const TRasterPT<Pixel> &source, const TRasterPT<Pixel> &output,
       glow += streak(extracted, w, h, sx, sy, rotation, s.directions[1], s.profile, s.approximate);
       glow += streak(extracted, w, h, sx, sy, rotation + pi / 4, s.directions[2], s.profile, s.approximate);
       glow += streak(extracted, w, h, sx, sy, rotation + 3 * pi / 4, s.directions[2], s.profile, s.approximate);
-      if (s.highlightRadius > 0) {
+      if (s.highlightRadius > 0 && x >= horizontalStart && x < horizontalStart + horizontalWidth) {
         Direction highlight; highlight.length = s.highlightRadius; highlight.color = s.highlightColor;
-        glow += streak(horizontal, w, h, sx, sy, pi / 2, highlight, s.profile, s.approximate);
+        glow += streak(horizontal, horizontalWidth, h, x - horizontalStart, sy, pi / 2, highlight, s.profile, s.approximate);
       }
       TPixelD original(0, 0, 0, 0);
       if (sx >= 0 && sy >= 0 && sx < w && sy < h) original = toPixelD(source->pixels(sy)[sx]);

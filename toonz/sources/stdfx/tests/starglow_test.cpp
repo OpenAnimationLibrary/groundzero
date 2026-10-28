@@ -208,6 +208,11 @@ void testPartialUpstream() {
     require(std::abs(output->pixels(y)[1].m - 1.0 / 3.0) < 1e-6,
             "Partial upstream highlight was not rendered correctly");
   }
+  parameter(fx, "verticalLength")->setDefaultValue(0);
+  parameter(fx, "highlightRadius")->setDefaultValue(3);
+  auto outside = renderFx<TPixelF>(fx, 7, 7, TPointD(-3, -3));
+  require(std::abs(outside->pixels(3)[0].m - 1.0 / 49.0) < 1e-6,
+          "Highlight did not reach outside the source bounding box");
 }
 void testFractionalOrigins() {
   StarGlowFx fx; settings(fx);
