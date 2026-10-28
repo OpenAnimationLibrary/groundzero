@@ -32,11 +32,14 @@ class VectorSelectionTool;
 // Constants / Defines
 //-----------------------------------------------------------------------------
 
-enum SelectionTarget         //! Possible selection targets in a SelectionTool.
-{ NORMAL_TYPE_IDX,           //!< Normal selection (strokes at current frame).
-  SELECTED_FRAMES_TYPE_IDX,  //!< Selection of whole frames.
-  ALL_LEVEL_TYPE_IDX,        //!< Selection of an entire level.
-  SAME_STYLE_TYPE_IDX,       //!< Selected styles at current frame.
+enum SelectionTarget  //! Possible selection targets in a SelectionTool.
+{
+  NORMAL_TYPE_IDX,             //!< Normal selection (strokes at current frame).
+  SELECTED_FRAMES_TYPE_IDX,    //!< Selection of whole frames.
+  ONION_SKIN_FRAMES_TYPE_IDX,  //!< Whole frames shown by the onion skin (and
+                               //!  the current one).
+  ALL_LEVEL_TYPE_IDX,          //!< Selection of an entire level.
+  SAME_STYLE_TYPE_IDX,         //!< Selected styles at current frame.
   STYLE_SELECTED_FRAMES_TYPE_IDX,  //!< Selected styles at selected frames.
   STYLE_LEVEL_TYPE_IDX,  //!< Selected styles at current frame on the whole
                          //! level.
@@ -47,6 +50,7 @@ enum SelectionTarget         //! Possible selection targets in a SelectionTool.
 
 #define NORMAL_TYPE L"Standard"
 #define SELECTED_FRAMES_TYPE L"Selected Frames"
+#define ONION_SKIN_FRAMES_TYPE L"Onion Skin Frames"
 #define ALL_LEVEL_TYPE L"Whole Level"
 #define SAME_STYLE_TYPE L"Same Style"
 #define STYLE_SELECTED_FRAMES_TYPE L"Same Style on Selected Frames"
@@ -288,7 +292,16 @@ public:
     return m_constantThickness.getValue();
   }
   bool isLevelType() const override;
+  /*! True when the tool works on a set of frames: the selected ones (frame
+          strip) or the ones shown by the onion skin. The set is returned by
+          getTargetFrames(). */
   bool isSelectedFramesType() const override;
+  bool isOnionSkinFramesType() const;
+
+  /*! The frames the tool works on in the modes where isSelectedFramesType()
+          is true. The current frame is always in the set in the onion skin
+          mode. */
+  const std::set<TFrameId> &getTargetFrames() const;
   bool isSameStyleType() const override;
   bool isModifiableSelectionType() const override;
 
@@ -390,7 +403,13 @@ private:
   //!               but rather to bboxes count - and even that is deprecated.
   bool m_canEnterGroup;  //!< \deprecated  Used in Manga and Kids
 
+  std::set<TFrameId> m_onionFrames;  //!< Frames of the onion skin mode. Taken
+                                     //!  again each time the selection is
+                                     //!  made consistent, so that the bboxes
+                                     //!  and the free deformers agree.
+
 private:
+  bool refreshOnionFrames();  //!< Updates m_onionFrames. True if they changed.
   void modifySelectionOnClick(TImageP image, const TPointD &pos,
                               const TMouseEvent &e) override;
   bool selectStroke(int index, bool toggle);
