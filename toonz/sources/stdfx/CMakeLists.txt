@@ -432,6 +432,7 @@ if(BUILD_CELFX_TESTS)
     target_link_libraries(celcolorkeep_ui_test toonzqt Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Widgets ${TNZLIBS} ${PTHREAD_LIBRARY})
     add_test(NAME celfx_colorkeep_ui COMMAND celcolorkeep_ui_test
              ${CMAKE_CURRENT_SOURCE_DIR}/../../../stuff/profiles/layouts/fxs/STD_celColorKeepFx.xml)
+    add_custom_target(celfx_tests DEPENDS celcolorkeep_test celcolorkeep_ui_test)
     set_tests_properties(celfx_colorkeep celfx_colorkeep_ui PROPERTIES
                          ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
 endif()

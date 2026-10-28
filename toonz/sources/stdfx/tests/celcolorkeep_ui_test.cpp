@@ -1,11 +1,15 @@
 #include "../celcolorkeepfx.cpp"
+#include "tenv.h"
 #include "tparamcontainer.h"
 #include "tstream.h"
+#include "toonz/toonzfolders.h"
 #include "toonzqt/fxsettings.h"
 #include "toonzqt/paramfield.h"
 
 #include <QApplication>
 #include <QComboBox>
+#include <QDir>
+#include <QTemporaryDir>
 #include <iostream>
 #include <stdexcept>
 
@@ -106,6 +110,17 @@ int main(int argc, char **argv) {
   QApplication app(argc, argv);
   try {
     require(argc == 2, "Expected the installed effect layout");
+    // Native color widgets load preferences. Give them an isolated settings
+    // tree just as the application does before constructing its widgets.
+    QTemporaryDir environment;
+    require(environment.isValid(), "Cannot create the test environment");
+    const QString stuff = environment.filePath("stuff");
+    require(QDir().mkpath(stuff + "/profiles/layouts/rooms/Default") &&
+                QDir().mkpath(stuff + "/config"),
+            "Cannot create test resource directories");
+    TEnv::setStuffDir(TFilePath(stuff.toStdWString()));
+    require(QDir().mkpath(ToonzFolder::getMyModuleDir().getQString()),
+            "Cannot create test settings directory");
     testPage(QString::fromLocal8Bit(argv[1]));
     std::cout << "PASS: full color list, sampling, undo, keys and precision\n";
     return 0;
