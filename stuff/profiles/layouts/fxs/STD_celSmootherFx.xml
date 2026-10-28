@@ -1,0 +1,7 @@
+<fxlayout help_file="CelSmoother.html">
+  <page name="Cel Smoother">
+    <control>useColorKey</control>
+    <control>colorKey</control>
+    <control decimals="0">smoothRange</control>
+  </page>
+</fxlayout>

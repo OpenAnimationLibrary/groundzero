@@ -1223,6 +1223,10 @@
   <item>"STD_alphaDistanceGradientFx.blurSize" "Blur Size" </item>
   <item>"STD_celColorExpandFx" "Cel Color Expand" </item>
   <item>"STD_celColorExpandFx.radius" "Search Radius" </item>
+  <item>"STD_celSmootherFx" "Cel Smoother" </item>
+  <item>"STD_celSmootherFx.useColorKey" "Use Color Key" </item>
+  <item>"STD_celSmootherFx.colorKey" "Color Key" </item>
+  <item>"STD_celSmootherFx.smoothRange" "Do Smooth Range" </item>
   <item>"STD_celColorKeepFx" "Cel Color Keep" </item>
   <item>"STD_celColorKeepFx.enabledColors" "Enabled Colors" </item>
   <item>"STD_celColorKeepFx.color001" "Color 1" </item>
