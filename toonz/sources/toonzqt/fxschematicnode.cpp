@@ -1528,6 +1528,16 @@ bool FxSchematicPort::linkTo(SchematicPort *port, bool checkOnly) {
   if (!fxScene) return false;
   FxDag *fxDag = fxScene->getXsheet()->getFxDag();
   if (fxDag->checkLoop(inputFx, fx)) return false;
+
+  // Refuse a link the input port does not accept (an ordinary fx on a 3D
+  // source port): connecting it would throw from the port
+  TFx *portOwner = fx;
+  if (TZeraryColumnFx *zcfx = dynamic_cast<TZeraryColumnFx *>(fx))
+    if (zcfx->getZeraryFx()) portOwner = zcfx->getZeraryFx();
+  if (portIndex >= 0 && portIndex < portOwner->getInputPortCount() &&
+      !portOwner->getInputPort(portIndex)->accepts(inputFx))
+    return false;
+
   if (!checkOnly) linkEffects(inputFx, fx, portIndex);
   return true;
 }
