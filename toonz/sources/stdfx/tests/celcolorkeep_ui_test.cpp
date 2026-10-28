@@ -2,6 +2,7 @@
 #include "tenv.h"
 #include "tparamcontainer.h"
 #include "tstream.h"
+#include "tthread.h"
 #include "toonz/toonzfolders.h"
 #include "toonzqt/fxsettings.h"
 #include "toonzqt/paramfield.h"
@@ -108,6 +109,10 @@ void testPage(const QString &layout) {
 int main(int argc, char **argv) {
   std::cout << "Initializing Qt application" << std::endl;
   QApplication app(argc, argv);
+  // ParamsPage owns a histogram renderer, whose executor requires the same
+  // main-thread initialization used by the application and render tests.
+  TThread::init();
+  int result = 1;
   try {
     require(argc == 2, "Expected the installed effect layout");
     // Native color widgets load preferences. Give them an isolated settings
@@ -123,11 +128,12 @@ int main(int argc, char **argv) {
             "Cannot create test settings directory");
     testPage(QString::fromLocal8Bit(argv[1]));
     std::cout << "PASS: full color list, sampling, undo, keys and precision\n";
-    return 0;
+    result = 0;
   } catch (const TException &error) {
     std::cerr << QString::fromStdWString(error.getMessage()).toStdString() << '\n';
   } catch (const std::exception &error) {
     std::cerr << error.what() << '\n';
   }
-  return 1;
+  TThread::shutdown();
+  return result;
 }
