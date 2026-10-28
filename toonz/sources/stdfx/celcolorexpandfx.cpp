@@ -1,6 +1,7 @@
 #include "stdfx.h"
 #include "tfxparam.h"
 #include "celdistance.h"
+#include "celfxsourcegrid.h"
 
 #include <algorithm>
 #include <cmath>
@@ -76,8 +77,11 @@ class CelColorExpandFx final : public TStandardRasterFx {
   TRasterFxPort m_source;
   TDoubleParamP m_radius;
   double pixelRadius(double frame, const TRenderSettings &settings) const {
+    const TAffine drawing = settings.m_affine *
+                            CelFxSourceGrid::nativeToWorld(m_source.getFx(), frame);
+    const double scale = std::sqrt(std::abs(drawing.det()));
     return expandRadius(m_radius->getValue(frame)) *
-           std::sqrt(std::abs(settings.m_affine.det()));
+           (std::abs(scale - 1) < 1e-10 ? 1 : scale);
   }
 public:
   CelColorExpandFx() : m_radius(4.0) {
@@ -87,9 +91,13 @@ public:
     m_radius->setMeasureName("fxLength");
     enableComputeInFloat(true);
   }
-  bool canHandle(const TRenderSettings &settings, double frame) override {
-    return expandRadius(m_radius->getValue(frame)) == 0 ||
-           settings.m_affine.isIsotropic(0.001);
+  bool usesCustomRenderGrid() const override { return true; }
+  bool canHandle(const TRenderSettings &, double frame) override {
+    return expandRadius(m_radius->getValue(frame)) == 0;
+  }
+  TAffine handledAffine(const TRenderSettings &settings, double frame) override {
+    return expandRadius(m_radius->getValue(frame)) == 0 ? settings.m_affine :
+           CelFxSourceGrid::renderAffine(m_source.getFx(), frame);
   }
   bool requiresFullPrecisionSerialization() const override { return true; }
   bool toBeComputedInLinearColorSpace(bool, bool) const override { return false; }
@@ -98,7 +106,13 @@ public:
     box = TRectD();
     if (!m_source.isConnected() || !m_source->doGetBBox(frame, box, settings))
       return false;
-    if (!box.isEmpty()) box = box.enlarge(expandRadius(m_radius->getValue(frame)));
+    if (!box.isEmpty() && box != TConsts::infiniteRectD) {
+      const TAffine placement = CelFxSourceGrid::nativeToWorld(m_source.getFx(), frame);
+      const double radius = expandRadius(m_radius->getValue(frame));
+      const double dx = radius * std::hypot(placement.a11, placement.a12);
+      const double dy = radius * std::hypot(placement.a21, placement.a22);
+      box = TRectD(box.x0 - dx, box.y0 - dy, box.x1 + dx, box.y1 + dy);
+    }
     return !box.isEmpty();
   }
   void transform(double frame, int, const TRectD &output,
@@ -127,9 +141,13 @@ public:
   std::string getAlias(double frame, const TRenderSettings &settings) const override {
     std::ostringstream alias;
     alias.imbue(std::locale::classic());
-    alias << TRasterFx::getAlias(frame, settings) << "[celExpand:1:"
+    alias << TRasterFx::getAlias(frame, settings) << "[celExpand:2:"
           << std::setprecision(std::numeric_limits<double>::max_digits10)
-          << expandRadius(m_radius->getValue(frame)) << ']';
+          << expandRadius(m_radius->getValue(frame));
+    const TAffine grid = CelFxSourceGrid::renderAffine(m_source.getFx(), frame);
+    for (double value : {grid.a11, grid.a12, grid.a13, grid.a21, grid.a22, grid.a23})
+      alias << ',' << value;
+    alias << ']';
     return alias.str();
   }
   void doCompute(TTile &tile, double frame,
