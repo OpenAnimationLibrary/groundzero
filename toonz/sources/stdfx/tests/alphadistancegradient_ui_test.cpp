@@ -1,5 +1,6 @@
 #include "../alphadistancegradientfx.cpp"
 #include "tenv.h"
+#include "tdoublekeyframe.h"
 #include "tparamcontainer.h"
 #include "tstream.h"
 #include "tthread.h"

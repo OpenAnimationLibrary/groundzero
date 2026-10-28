@@ -1,5 +1,6 @@
 #include "stdfx.h"
 #include "tfxparam.h"
+#include "tparamset.h"
 #include "celdistance.h"
 #include "tpixelutils.h"
 
@@ -217,7 +218,7 @@ class AlphaDistanceGradientFx final : public TStandardRasterFx {
             gradientColor(m_color->getValueD(frame)), gradientColor(m_bg->getValueD(frame))};
   }
   bool sourceCanvas(double frame, const TRenderSettings &settings,
-                    TRectD &box, bool transformed) const {
+                    TRectD &box, bool transformed) {
     TRenderSettings full(settings); full.m_getFullSizeBBox = true;
     bool result = transformed ? m_source->getBBox(frame, box, full)
                               : m_source->doGetBBox(frame, box, full);
@@ -229,7 +230,7 @@ class AlphaDistanceGradientFx final : public TStandardRasterFx {
     }
     return result && !box.isEmpty();
   }
-  TRectD analysisBox(double frame, const TRenderSettings &settings, TRectD &canvas) const {
+  TRectD analysisBox(double frame, const TRenderSettings &settings, TRectD &canvas) {
     if (!sourceCanvas(frame, settings, canvas, true)) return TRectD();
     canvas = TRectD(std::floor(canvas.x0), std::floor(canvas.y0),
                     std::ceil(canvas.x1), std::ceil(canvas.y1));
@@ -237,8 +238,8 @@ class AlphaDistanceGradientFx final : public TStandardRasterFx {
   }
 public:
   AlphaDistanceGradientFx()
-      : m_region(0), m_inside(128), m_outside(128), m_mode(0), m_background(0),
-        m_invert(0), m_interpolation(0), m_power(1), m_blur(0), m_blurSize(0),
+      : m_region(0.0), m_inside(128.0), m_outside(128.0), m_mode(0.0), m_background(0.0),
+        m_invert(0.0), m_interpolation(0.0), m_power(1.0), m_blur(0.0), m_blurSize(0.0),
         m_color(TPixel32::White), m_bg(TPixel32::Black) {
     addInputPort("Source", m_source);
     bindParam(this, "region", m_region); bindParam(this, "insideThreshold", m_inside);
