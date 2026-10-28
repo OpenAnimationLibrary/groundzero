@@ -33,16 +33,16 @@ struct GradientSettings {
   TPixelD color, bg;
 };
 bool gradientCanceled(const int *canceled) { return canceled && *canceled; }
-int gradientBlurRadius(const GradientSettings &p) {
+int gradientBlurSupport(const GradientSettings &p) {
   if (!p.blur || p.blurSize <= 0) return 0;
-  const double radius = std::ceil(p.blurSize / 3.0);
+  const double radius = std::ceil(p.blurSize);
   if (!std::isfinite(radius) || radius > (std::numeric_limits<int>::max() - 1) / 6)
     throw TException("Alpha Distance Gradient: blur exceeds raster dimensions");
   return int(radius);
 }
 int gradientMargin(const GradientSettings &p) {
   const double distance = p.region == 0 ? 0 : std::ceil(p.outside) + 1;
-  const double margin = distance + 3.0 * gradientBlurRadius(p);
+  const double margin = distance + gradientBlurSupport(p);
   if (!std::isfinite(margin) || margin > (std::numeric_limits<int>::max() - 1) / 2)
     throw TException("Alpha Distance Gradient: support exceeds raster dimensions");
   return int(margin);
@@ -51,11 +51,11 @@ bool gradientFiniteBox(const TRectD &box) {
   return box != TConsts::infiniteRectD && std::isfinite(box.x0) &&
          std::isfinite(box.y0) && std::isfinite(box.x1) && std::isfinite(box.y1);
 }
-TDimension gradientSize(const TRectD &box) {
+TDimension gradientSize(const TRectD &box, int pixelBytes = sizeof(TPixelF)) {
   const double w = box.getLx(), h = box.getLy();
   if (!gradientFiniteBox(box) || w < 1 || h < 1 ||
       w > std::numeric_limits<int>::max() || h > std::numeric_limits<int>::max() ||
-      w * h > std::numeric_limits<int>::max())
+      pixelBytes <= 0 || w * h > std::numeric_limits<int>::max() / pixelBytes)
     throw TException("Alpha Distance Gradient: requested canvas is too large");
   return TDimension(int(w), int(h));
 }
@@ -95,12 +95,13 @@ bool gradientBoxPass(const std::vector<double> &input, std::vector<double> &outp
   }
   return true;
 }
-bool gradientBlur(std::vector<double> &values, int w, int h, int radius,
+bool gradientBlur(std::vector<double> &values, int w, int h, int support,
                   bool preservePeak, const int *canceled) {
-  if (!radius) return !gradientCanceled(canceled);
+  if (!support) return !gradientCanceled(canceled);
   const double originalPeak = *std::max_element(values.begin(), values.end());
   std::vector<double> temporary;
   for (int pass = 0; pass < 3; ++pass) {
+    const int radius = (support + pass) / 3;
     if (!gradientBoxPass(values, temporary, w, h, radius, false, canceled) ||
         !gradientBoxPass(temporary, values, w, h, radius, true, canceled)) return false;
   }
@@ -164,7 +165,7 @@ void gradientRender(const TRasterPT<Pixel> &source, const TRasterPT<Pixel> &outp
     else if (!mask[i] && p.region != 0)
       weights[i] = gradientWeight(outside.distance[i], p.outside, p.interpolation, p.power);
   }
-  if (!gradientBlur(weights, w, h, gradientBlurRadius(p), p.blur == 2, canceled)) return;
+  if (!gradientBlur(weights, w, h, gradientBlurSupport(p), p.blur == 2, canceled)) return;
   GradientRasterLock outputLock(output);
   const int64_t offsetX = int64_t(std::llround(outputPosition.x - sourcePosition.x));
   const int64_t offsetY = int64_t(std::llround(outputPosition.y - sourcePosition.y));
@@ -261,7 +262,12 @@ public:
     enableComputeInFloat(true);
   }
   bool canHandle(const TRenderSettings &settings, double) override {
-    return isAlmostIsotropic(settings.m_affine);
+    return settings.m_affine == TAffine();
+  }
+  TAffine handledAffine(const TRenderSettings &, double) override {
+    // Whole-shape analysis and peak rescaling use one native pixel grid. Let
+    // the host transform the completed result, including preview reduction.
+    return TAffine();
   }
   bool requiresFullPrecisionSerialization() const override { return true; }
   bool toBeComputedInLinearColorSpace(bool, bool) const override { return false; }
@@ -309,7 +315,8 @@ public:
     if (box.isEmpty()) return;
     const TRectD requested(tile.m_pos, TDimensionD(tile.getRaster()->getLx(), tile.getRaster()->getLy()));
     if ((requested * box).isEmpty()) return;
-    const TDimension canvasSize = gradientSize(canvas), size = gradientSize(box);
+    const int bytes = tile.getRaster()->getPixelSize();
+    const TDimension canvasSize = gradientSize(canvas, bytes), size = gradientSize(box, bytes);
     TTile source;
     m_source->allocateAndCompute(source, canvas.getP00(), canvasSize, tile.getRaster(), frame, settings);
     if (gradientCanceled(settings.m_isCanceled)) return;

@@ -106,8 +106,8 @@ template <class Pixel> void checkModes() {
 void checkBlur() {
   std::vector<double> impulse(25 * 25, 0); impulse[12 * 25 + 12] = 1;
   auto plain = impulse, scaled = impulse;
-  require(gradientBlur(plain, 25, 25, 1, false, nullptr) &&
-              gradientBlur(scaled, 25, 25, 1, true, nullptr), "Blur failed");
+  require(gradientBlur(plain, 25, 25, 3, false, nullptr) &&
+              gradientBlur(scaled, 25, 25, 3, true, nullptr), "Blur failed");
   require(std::abs(plain[12 * 25 + 12] - 49.0 / 729) < 1e-12,
           "Three-pass blur differs from analytic kernel");
   require(scaled[12 * 25 + 12] == 1 && plain[12 * 25 + 12] < 0.1,
@@ -172,6 +172,20 @@ void checkCanvasAndFloat() {
   try { gradientSize(TRectD(0, 0, 1000000, 1000000)); }
   catch (const TException &) { threw = true; }
   require(threw, "Canvas index overflow was accepted");
+  for (int bytes : {4, 8, 16}) {
+    const int width = std::numeric_limits<int>::max() / bytes;
+    require(gradientSize(TRectD(0, 0, width, 1), bytes).lx == width,
+            "Safe canvas byte-count boundary was rejected");
+    bool overflow = false;
+    try { gradientSize(TRectD(0, 0, width + 1, 1), bytes); }
+    catch (const TException &) { overflow = true; }
+    require(overflow, "Canvas allocation would overflow signed byte count");
+  }
+  for (double scale : {0.25, 0.5, 1.1, 2.0}) {
+    settings.m_affine = TScale(scale);
+    require(!fx.canHandle(settings, 0) && fx.handledAffine(settings, 0) == TAffine(),
+            "Preview must transform one canonical native-space result");
+  }
   AlphaDistanceGradientFx missing;
   require(render<TPixel32>(missing, 1, 1)->pixels(0)[0] == TPixel32::Transparent,
           "Missing source retained output");

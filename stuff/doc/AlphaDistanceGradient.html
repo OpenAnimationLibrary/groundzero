@@ -45,8 +45,8 @@ strength to preserve the original peak, keeping narrow features brighter.
 Rescaling uses the entire canonical canvas, so rendering separate tiles produces
 the same result. These are distinct processing modes.</p>
 <p>Blur Size ranges from 0 to 4096 effect pixels. Zero bypasses either blur mode.
-The native filter uses three separable box averages, each with a radius of
-ceil(Blur Size / 3), producing a Gaussian-like soft profile in linear time.
+The native filter distributes a total radius of ceil(Blur Size) across three
+separable box averages, producing a Gaussian-like soft profile in linear time.
 Samples beyond the canvas are transparent. The output bounds include the full
 three-pass blur support.</p>
 <h2>Canvas, animation and precision</h2>
@@ -63,7 +63,9 @@ require substantial memory; dimensions that cannot be represented are rejected.<
 cloning, linked parameters and macro exposure. Choice and checkbox keys use
 constant interpolation when inserted by their native editors. 8-bit, 16-bit and
 float rendering are supported; finite HDR source colors are preserved in float.
-Nonfinite source channels are treated as transparent. The host handles rotation,
-reflection and nonuniform transforms through its normal effect pipeline.</p>
+Nonfinite source channels are treated as transparent. The effect evaluates the
+whole shape on its native pixel grid; the host then resamples the completed
+gradient for preview scaling, rotation, reflection and nonuniform transforms.
+This keeps the distance and blur support consistent at every output scale.</p>
 </body>
 </html>
