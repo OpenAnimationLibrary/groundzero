@@ -200,6 +200,16 @@ int main() {
     check(!r && r.error.find("singular") != std::string::npos, "singular transform accepted");
   });
 
+  run("a time that rounds to the last key as float stays in range", [&] {
+    // 1 - 1e-9 is below the last key in double but is 1.0f as float: the key
+    // search must not run past the last key (read out of bounds before)
+    auto asset = oneNode(sampler({0, 1}, {0,0,0, 10,0,0}, 3),
+                         otglb::AnimationPath::Translation, 3);
+    const auto r = otglb::evaluatePose(asset, 0, 1.0 - 1e-9);
+    check(bool(r), "pose just before the last key failed");
+    near(r.pose.nodes[0].translation[0], 10);
+  });
+
   run("random-access evaluation is independent of call order", [&] {
     auto asset = oneNode(sampler({0, 1}, {0,0,0, 10,0,0}, 3),
                          otglb::AnimationPath::Translation, 3);

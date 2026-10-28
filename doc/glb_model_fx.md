@@ -181,15 +181,17 @@ checked during geometry preparation and rasterization.
 
 ## Test without OpenToonz
 
-The **GLB Loader and Renderer** workflow builds and tests the standalone tools
-on Windows, Linux and macOS. Its regression suite covers loading, animation data,
-random-access pose evaluation, skin matrices and renderer behavior without Qt.
-The `glb-inspect-<platform>` artifacts contain `glb_inspect` and `glb_render`.
+The Linux Build workflow builds and tests the standalone tools on every pull
+request, with AddressSanitizer and UndefinedBehaviorSanitizer. Its regression
+suite covers loading, animation data, random-access pose evaluation, skin
+matrices and renderer behavior without Qt. The standalone build also makes
+`glb_inspect` and `glb_render`.
 `glb_render` remains a static command-line rendering utility in this stage; GLB
 FX playback is tested through the production FX/application test.
 
 The standalone CMake build documented for the loader runs loader, pose and
-renderer regressions. Windows application CI tests the actual FX, persistence,
+renderer regressions. The FX tests (`BUILD_GLB_FX_TESTS`, off by default and
+run by no workflow) test the actual FX, persistence,
 source preservation, file replacement, grayscale/RGB precision, Over compositing,
 and embedded skeletal playback using a deterministic generated GLB fixture. It
 also exercises the real material selector and native color/keyframe editor,

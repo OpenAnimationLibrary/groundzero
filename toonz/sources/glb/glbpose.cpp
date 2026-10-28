@@ -101,8 +101,11 @@ std::vector<float> sample(const AnimationSampler &sampler, std::size_t component
   } else if (seconds >= sampler.times.back()) {
     copyKey(sampler.times.size() - 1);
   } else {
-    const auto upper = std::upper_bound(sampler.times.begin(), sampler.times.end(),
-                                        float(seconds));
+    // Compare in double, like the range checks above: rounding seconds to
+    // float could reach times.back() and make upper_bound return end()
+    const auto upper = std::upper_bound(
+        sampler.times.begin(), sampler.times.end(), seconds,
+        [](double value, float time) { return value < double(time); });
     const std::size_t next = std::size_t(upper - sampler.times.begin());
     const std::size_t previous = next - 1;
     const double t0 = sampler.times[previous], t1 = sampler.times[next];
