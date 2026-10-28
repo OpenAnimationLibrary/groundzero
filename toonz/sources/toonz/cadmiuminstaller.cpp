@@ -7,6 +7,8 @@
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QStorageInfo>
+#include <QSslSocket>
+#include <QProcess>
 #include <QTimer>
 #include <QUrl>
 
@@ -136,6 +138,47 @@ void CadmiumInstaller::download() {
   url.setScheme(QStringLiteral("https"));
   url.setHost(QStringLiteral("github.com"));
   url.setPath(QStringLiteral("/latentspacelabs/cadmium-oss/releases/download/models-v2/") + model.name);
+#ifdef Q_OS_WIN
+  // The system HTTPS client uses the Windows trust store and needs no
+  // additional OpenSSL libraries when the Qt distribution has no TLS runtime.
+  if (!QSslSocket::supportsSsl()) {
+    const QString systemRoot = qEnvironmentVariable("SystemRoot");
+    const QString client = QDir(systemRoot).filePath("System32/curl.exe");
+    if (systemRoot.isEmpty() || !QFileInfo::exists(client)) {
+      fail(tr("Secure downloading is unavailable. Choose a verified offline model folder."));
+      return;
+    }
+    m_nativeSucceeded = false;
+    m_nativeDownload = new QProcess(this);
+    m_nativeDownload->setCreateProcessArgumentsModifier(
+        [](QProcess::CreateProcessArguments *arguments) {
+      arguments->flags |= 0x08000000UL;  // CREATE_NO_WINDOW
+    });
+    connect(m_nativeDownload, &QProcess::readyReadStandardOutput,
+            this, &CadmiumInstaller::readDownload);
+    connect(m_nativeDownload, &QProcess::readyReadStandardError, this,
+            [this] { if (m_nativeDownload) m_nativeDownload->readAllStandardError(); });
+    connect(m_nativeDownload, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+            this, [this](int code, QProcess::ExitStatus status) {
+      m_nativeSucceeded = code == 0 && status == QProcess::NormalExit;
+      completeDownload();
+    });
+    connect(m_nativeDownload, &QProcess::errorOccurred, this,
+            [this](QProcess::ProcessError) {
+      fail(tr("The system download client could not complete the secure download."));
+    });
+    m_nativeDownload->setProgram(client);
+    m_nativeDownload->setArguments({QStringLiteral("--fail"), QStringLiteral("--location"),
+        QStringLiteral("--proto"), QStringLiteral("=https"),
+        QStringLiteral("--proto-redir"), QStringLiteral("=https"),
+        QStringLiteral("--silent"), QStringLiteral("--show-error"),
+        QStringLiteral("--connect-timeout"), QStringLiteral("60"),
+        QStringLiteral("--max-time"), QStringLiteral("1800"),
+        QStringLiteral("--url"), url.toString(QUrl::FullyEncoded)});
+    m_nativeDownload->start(QIODevice::ReadOnly);
+    return;
+  }
+#endif
   QNetworkRequest request(url);
   request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
                        QNetworkRequest::NoLessSafeRedirectPolicy);
@@ -151,9 +194,9 @@ void CadmiumInstaller::download() {
 }
 
 void CadmiumInstaller::readDownload() {
-  if (!m_busy || !m_reply || !m_output) return;
-  while (m_reply->bytesAvailable() > 0) {
-    const QByteArray chunk = m_reply->read(1024 * 1024);
+  if (!m_busy || (!m_reply && !m_nativeDownload) || !m_output) return;
+  while (m_nativeDownload ? m_nativeDownload->bytesAvailable() > 0 : m_reply->bytesAvailable() > 0) {
+    const QByteArray chunk = m_nativeDownload ? m_nativeDownload->read(1024 * 1024) : m_reply->read(1024 * 1024);
     if (chunk.isEmpty()) break;
     m_received += chunk.size();
     if (m_received > m_models[m_index].bytes ||
@@ -167,11 +210,12 @@ void CadmiumInstaller::readDownload() {
 }
 
 void CadmiumInstaller::completeDownload() {
-  if (!m_busy || !m_reply) return;
+  if (!m_busy || (!m_reply && !m_nativeDownload)) return;
   readDownload();
-  if (!m_busy || !m_reply) return;
-  const int status = m_reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-  if (m_reply->error() != QNetworkReply::NoError || status != 200) {
+  if (!m_busy || (!m_reply && !m_nativeDownload)) return;
+  const int status = m_reply ? m_reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt() : 200;
+  if ((m_reply && m_reply->error() != QNetworkReply::NoError) ||
+      (m_nativeDownload && !m_nativeSucceeded) || status != 200) {
     fail(tr("The model download failed. Check connectivity and retry, or use offline files."));
     return;
   }
@@ -191,6 +235,12 @@ void CadmiumInstaller::completeDownload() {
 }
 
 void CadmiumInstaller::clearTransfer() {
+  if (m_nativeDownload) {
+    disconnect(m_nativeDownload, nullptr, this, nullptr);
+    m_nativeDownload->kill();
+    m_nativeDownload->deleteLater();
+    m_nativeDownload = nullptr;
+  }
   if (m_reply) {
     disconnect(m_reply, nullptr, this, nullptr);
     m_reply->abort();

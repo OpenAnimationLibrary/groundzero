@@ -2,6 +2,7 @@
 #include "cadmiumruntime.h"
 #include "cadmiumcodec.h"
 #include "trop.h"
+#include "tropcm.h"
 #include <cmath>
 #include "tapp.h"
 #include "tundo.h"
@@ -61,11 +62,15 @@ TImageP captureImage(const TImageP &source) {
   return captured;
 }
 
+QImage displayImage(const TImageP &, const Cadmium::Frame &);
+
 class CadmiumRasterTask final : public QThread {
 public:
   Cadmium::Frame target, reference;
   QString error;
   bool success = false;
+  bool single = false;
+  QImage before;
   void run() override {
     try {
       auto prepare = [this](Cadmium::Frame &frame) {
@@ -74,7 +79,9 @@ public:
           return Cadmium::snapshotToonzRaster(image, frame, error);
         return Cadmium::snapshotFullColor(image, frame, error);
       };
-      success = prepare(target) && prepare(reference);
+      success = prepare(target) && (single || prepare(reference));
+      if (success && single)
+        before = displayImage(target.original, target).scaled(320, 260, Qt::KeepAspectRatio, Qt::SmoothTransformation);
     } catch (...) {
       error = QObject::tr("The drawing analysis could not be completed. Try a smaller batch.");
     }
@@ -358,17 +365,20 @@ CadmiumPopup::CadmiumPopup(QWidget *parent) : QDialog(parent) {
           [this] { assignReference(); });
   connect(m_rasterSource, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
           [this] {
+    ++m_snapshotEpoch;
     m_extraction->setChecked(false);
     for (Drawing &drawing : m_drawings) { drawing.ready = false; drawing.reviewed = false; drawing.target = Cadmium::Frame(); }
     refresh(); refreshPreview();
   });
   connect(m_lineLevel, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
           [this] {
+    ++m_snapshotEpoch;
     m_extraction->setChecked(false);
     for (Drawing &drawing : m_drawings) { drawing.ready = false; drawing.reviewed = false; drawing.target = Cadmium::Frame(); }
     refresh(); refreshPreview();
   });
   auto thresholdChanged = [this] {
+    ++m_snapshotEpoch;
     m_extraction->setChecked(false);
     for (Drawing &drawing : m_drawings) { drawing.ready = false; drawing.reviewed = false; drawing.target = Cadmium::Frame(); }
     refresh(); refreshPreview();
@@ -446,6 +456,9 @@ bool CadmiumPopup::snapshot(const TFrameId &fid, Cadmium::Frame &frame, QString 
   }
   const TImageP image = m_level->getFullsampledFrame(fid, ImageManager::none);
   if (!image) { error = tr("The drawing could not be loaded."); return false; }
+  if (captureOnly && TUndo::getImageMemorySize(image.getPointer()) > 128LL * 1024 * 1024) {
+    error = tr("This drawing exceeds the analysis memory budget."); return false;
+  }
   switch (m_level->getType()) {
   case TZP_XSHLEVEL:
     if (captureOnly) {
@@ -468,6 +481,12 @@ bool CadmiumPopup::snapshot(const TFrameId &fid, Cadmium::Frame &frame, QString 
         error = tr("The clean-line level must contain the matching drawing ID."); return false;
       }
       frame.lineSource = line->getFullsampledFrame(fid, ImageManager::none);
+      if (captureOnly &&
+          TUndo::getImageMemorySize(image.getPointer()) +
+          TUndo::getImageMemorySize(frame.lineSource.getPointer()) > 128LL * 1024 * 1024) {
+        error = tr("The drawing and linked line source exceed the analysis memory budget.");
+        return false;
+      }
       if (captureOnly) frame.lineSource = captureImage(frame.lineSource);
     }
     if (captureOnly) {
@@ -497,7 +516,10 @@ void CadmiumPopup::generate() {
       tr("Review the extracted line mask in the preview, then approve extraction before generating."));
     return;
   }
+  ++m_snapshotEpoch;
   m_cancelled = false; m_generating = true; m_running = -1;
+  m_regions->setRowCount(0);
+  m_regions->setEnabled(false);
   for (Drawing &drawing : m_drawings) {
     drawing.ready = false; drawing.applied = false; drawing.reviewed = false; drawing.error.clear();
     drawing.target = Cadmium::Frame(); drawing.reference = Cadmium::Frame();
@@ -507,6 +529,7 @@ void CadmiumPopup::generate() {
 }
 
 void CadmiumPopup::next() {
+  if (!m_generating) return;
   if (m_cancelled || !currentScene()) { cancel(); return; }
   if (++m_running >= int(m_drawings.size())) {
     m_running = -1; m_generating = false;
@@ -518,6 +541,7 @@ void CadmiumPopup::next() {
   constexpr qint64 budget = 512LL * 1024 * 1024;
   auto memory = [](const Cadmium::Frame &frame) {
     return TUndo::getImageMemorySize(frame.original.getPointer()) +
+           TUndo::getImageMemorySize(frame.lineSource.getPointer()) +
            qint64(frame.lines.sizeInBytes()) + qint64(frame.labels.size()) * sizeof(int);
   };
   qint64 held = 0;
@@ -527,6 +551,16 @@ void CadmiumPopup::next() {
     const TImageP image = m_level->getFullsampledFrame(fid, ImageManager::none);
     held += std::max<qint64>(16LL * 1024 * 1024,
                             TUndo::getImageMemorySize(image.getPointer()) * 4);
+    if (m_level->getType() == OVL_XSHLEVEL &&
+        m_rasterSource->currentIndex() == int(Cadmium::RasterSource::LinkedLines)) {
+      auto *line = reinterpret_cast<TXshSimpleLevel *>(m_lineLevel->currentData().toULongLong());
+      std::vector<TXshLevel *> levels;
+      m_scene->getLevelSet()->listLevels(levels);
+      if (line && std::find(levels.begin(), levels.end(), line) != levels.end()) {
+        const TImageP lineImage = line->getFullsampledFrame(fid, ImageManager::none);
+        held += TUndo::getImageMemorySize(lineImage.getPointer()) * 4;
+      }
+    }
   }
   if (held > budget) {
     drawing.error = tr("The proposal cache reached its memory budget. Apply or discard completed results, then select a smaller batch.");
@@ -538,7 +572,7 @@ void CadmiumPopup::next() {
     if (!snapshot(drawing.fid, task->target, error, true) ||
         !snapshot(drawing.referenceId, task->reference, error, true)) {
       delete task; drawing.error = error; refresh();
-      QTimer::singleShot(0, this, &CadmiumPopup::next); return;
+      scheduleNext(); return;
     }
     const quint64 epoch = m_snapshotEpoch;
     const int index = m_running;
@@ -553,7 +587,7 @@ void CadmiumPopup::next() {
         submit();
       } else {
         completed.error = task->error; refresh();
-        QTimer::singleShot(0, this, &CadmiumPopup::next);
+        scheduleNext();
       }
     });
     connect(task, &QThread::finished, task, &QObject::deleteLater);
@@ -564,9 +598,19 @@ void CadmiumPopup::next() {
   if (!snapshot(drawing.fid, drawing.target, error) ||
       !snapshot(drawing.referenceId, drawing.reference, error)) {
     drawing.error = error; refresh();
-    QTimer::singleShot(0, this, &CadmiumPopup::next); return;
+    scheduleNext(); return;
   }
   submit();
+}
+
+void CadmiumPopup::scheduleNext() {
+  const quint64 epoch = m_snapshotEpoch;
+  const int index = m_running;
+  QTimer::singleShot(0, this, [this, epoch, index] {
+    if (epoch != m_snapshotEpoch || index != m_running ||
+        !m_generating || m_cancelled) return;
+    next();
+  });
 }
 
 void CadmiumPopup::submit() {
@@ -575,12 +619,12 @@ void CadmiumPopup::submit() {
   Drawing &drawing = m_drawings[m_running];
   if (drawing.target.lines.size() != drawing.reference.lines.size()) {
     drawing.error = tr("Reference and target analysis canvases must have matching dimensions.");
-    refresh(); QTimer::singleShot(0, this, &CadmiumPopup::next); return;
+    refresh(); scheduleNext(); return;
   }
   const QString targetLabels = labelUri(drawing.target), refLabels = labelUri(drawing.reference);
   if (targetLabels.isEmpty() || refLabels.isEmpty()) {
     drawing.error = tr("Invalid or incomplete native region labels.");
-    refresh(); QTimer::singleShot(0, this, &CadmiumPopup::next); return;
+    refresh(); scheduleNext(); return;
   }
   QJsonArray palette;
   QSet<QRgb> uniqueColors;
@@ -595,7 +639,7 @@ void CadmiumPopup::submit() {
   }
   if (uniqueColors.isEmpty() || uniqueColors.size() + int(hasNullColor) > 512) {
     drawing.error = tr("The reference needs between 1 and 512 model palette entries.");
-    refresh(); QTimer::singleShot(0, this, &CadmiumPopup::next); return;
+    refresh(); scheduleNext(); return;
   }
   QJsonObject reference{{"seg_map_uri", refLabels},
                         {"line_image_uri", Cadmium::lineImageUri(drawing.reference.lines)},
@@ -660,7 +704,7 @@ void CadmiumPopup::received(const QJsonObject &response) {
   drawing.reference.lines = QImage();
   drawing.reference.labels.clear();
   refresh(); refreshPreview();
-  QTimer::singleShot(0, this, &CadmiumPopup::next);
+  scheduleNext();
 }
 
 void CadmiumPopup::failed(const QString &error) {
@@ -675,7 +719,7 @@ void CadmiumPopup::failed(const QString &error) {
     return;
   }
   refresh();
-  QTimer::singleShot(0, this, &CadmiumPopup::next);
+  scheduleNext();
 }
 
 void CadmiumPopup::refresh() {
@@ -700,6 +744,7 @@ void CadmiumPopup::refresh() {
   m_paperThreshold->setEnabled(!m_generating);
   m_lineThreshold->setEnabled(!m_generating);
   m_repaint->setEnabled(!m_generating);
+  m_regions->setEnabled(!m_generating);
 }
 
 void CadmiumPopup::refreshPreview() {
@@ -710,6 +755,35 @@ void CadmiumPopup::refreshPreview() {
   const auto found = std::find(m_references.begin(), m_references.end(), drawing.referenceId);
   m_reference->setCurrentIndex(found == m_references.end() ? -1 : int(found - m_references.begin()));
   if (drawing.target.lines.isNull()) {
+    if (m_level && m_level->getType() != PLI_XSHLEVEL) {
+      if (m_backgroundTasks) { m_after->setText(tr("Analyzing line mask…")); return; }
+      auto *task = new CadmiumRasterTask;
+      QString error;
+      m_inspecting = true;
+      const bool captured = snapshot(drawing.fid, task->target, error, true);
+      m_inspecting = false;
+      if (!captured) { delete task; m_before->setText(error); return; }
+      task->single = true;
+      const quint64 epoch = m_snapshotEpoch;
+      ++m_backgroundTasks;
+      connect(task, &QThread::finished, this, [this, task, epoch, index] {
+        --m_backgroundTasks;
+        if (!currentScene() || !isVisible()) { refresh(); return; }
+        if (epoch != m_snapshotEpoch || index != m_list->currentRow()) {
+          refresh(); refreshPreview(); return;
+        }
+        if (task->success) {
+          m_before->setPixmap(QPixmap::fromImage(task->before));
+          m_after->setPixmap(QPixmap::fromImage(task->target.lines).scaled(320, 260, Qt::KeepAspectRatio, Qt::SmoothTransformation));
+          m_after->setToolTip(tr("Extracted line mask for inspection"));
+        } else m_before->setText(task->error);
+        refresh();
+      });
+      connect(task, &QThread::finished, task, &QObject::deleteLater);
+      connect(qApp, &QCoreApplication::aboutToQuit, task, [task] { task->wait(); });
+      m_after->setText(tr("Analyzing line mask…"));
+      refresh(); task->start(); return;
+    }
     Cadmium::Frame probe; QString error;
     m_inspecting = true;
     const bool inspected = snapshot(drawing.fid, probe, error);
@@ -740,12 +814,11 @@ void CadmiumPopup::refreshPreview() {
     decision->addItem(tr("Skip region"), -2);
     if (fullColor) {
       if (color.isValid()) decision->addItem(tr("Accept color"), 0);
-      decision->setCurrentIndex(drawing.styles.value(region, -1) == -2 ? 1 : color.isValid() ? 2 : 0);
     } else if (drawing.target.palette) {
       for (int style = 0; style < drawing.target.palette->getStyleCount(); ++style)
         decision->addItem(tr("Style %1").arg(style), style);
-      decision->setCurrentIndex(drawing.styles.value(region, -1) == -2 ? 1 : drawing.styles.value(region, -1) + 2);
     }
+    decision->setCurrentIndex(decision->findData(drawing.styles.value(region, -1)));
     m_regions->setCellWidget(region, 2, decision);
     if (region == 0) {
       decision->setEnabled(false);
@@ -753,7 +826,10 @@ void CadmiumPopup::refreshPreview() {
     }
     connect(decision, QOverload<int>::of(&QComboBox::activated), this,
             [this, index, region, decision, fullColor] {
+      if (m_generating || index < 0 || index >= int(m_drawings.size())) return;
       Drawing &selected = m_drawings[index];
+      if (!selected.ready || region < 0 || region >= selected.styles.size() ||
+          region >= selected.colors.size()) return;
       const int style = decision->currentData().toInt();
       selected.styles[region] = style;
       selected.reviewed = false;
@@ -813,11 +889,21 @@ void CadmiumPopup::apply(bool all) {
       error = tr("A target became read-only or its reference assignment changed."); break;
     }
     Cadmium::Frame targetNow, referenceNow;
-    if (!snapshot(drawing.fid, targetNow, error) ||
-        !snapshot(drawing.referenceId, referenceNow, error)) break;
-    if (targetNow.fingerprint != drawing.target.fingerprint ||
-        referenceNow.fingerprint != drawing.reference.fingerprint) {
-      error = tr("A drawing, palette, or input changed. Generate a new proposal before applying."); break;
+    auto fresh = [this, &error](const TFrameId &fid, const Cadmium::Frame &saved,
+                                Cadmium::Frame &now) {
+      if (m_level->getType() == PLI_XSHLEVEL) {
+        return snapshot(fid, now, error) && now.fingerprint == saved.fingerprint;
+      }
+      if (!snapshot(fid, now, error, true)) return false;
+      if (saved.kind == Cadmium::Kind::ToonzRaster)
+        return Cadmium::matchesToonzRaster(now.original, saved, error);
+      return Cadmium::matchesFullColor(now.original, now, saved, error);
+    };
+    if (!fresh(drawing.fid, drawing.target, targetNow) ||
+        !fresh(drawing.referenceId, drawing.reference, referenceNow)) {
+      if (error.isEmpty())
+        error = tr("A drawing, palette, or input changed. Generate a new proposal before applying.");
+      break;
     }
     QVector<QColor> colors = drawing.colors;
     for (int r = 1; r < colors.size(); ++r) {
@@ -852,9 +938,12 @@ void CadmiumPopup::apply(bool all) {
   TXshSimpleLevelP destination = m_level;
   const bool sourceWasDirty = m_level->getDirtyFlag();
   const bool newLevel = m_level->getType() == OVL_XSHLEVEL;
+  TXshLevel *created = nullptr;
+  try {
   if (newLevel) {
-    TXshLevel *created = m_scene->createNewLevel(OVL_XSHLEVEL, m_level->getName() + L"_paint");
+    created = m_scene->createNewLevel(OVL_XSHLEVEL, m_level->getName() + L"_paint");
     if (!created || !created->getSimpleLevel()) {
+      if (created) m_scene->getLevelSet()->removeLevel(created);
       QMessageBox::warning(this, tr("Cadmium"), tr("Could not create the result level.")); return;
     }
     destination = created->getSimpleLevel();
@@ -869,13 +958,14 @@ void CadmiumPopup::apply(bool all) {
     destination->getProperties()->setImageDpi(m_level->getProperties()->getImageDpi());
     destination->getProperties()->setBpp(m_level->getProperties()->getBpp());
   }
-  try {
     auto undo = std::unique_ptr<CadmiumPaintUndo>(new CadmiumPaintUndo(
         destination.getPointer(), before, after, newLevel, m_level.getPointer(), m_scene));
     notifyDrawings(destination.getPointer(), after);
     TUndoManager::manager()->add(undo.release());
   } catch (...) {
-    if (newLevel) m_scene->getLevelSet()->removeLevel(destination.getPointer());
+    if (newLevel) {
+      if (created) m_scene->getLevelSet()->removeLevel(created);
+    }
     else {
       for (const auto &entry : before) {
         destination->setFrame(entry.first, entry.second);

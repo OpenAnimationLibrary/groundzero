@@ -27,6 +27,12 @@ void nativePrecision(const Pixel &black, const Pixel &transparent) {
   QString error;
   require(Cadmium::snapshotFullColor(TImageP(image), frame, error),
           "transparent native raster snapshot failed");
+  require(Cadmium::matchesFullColor(TImageP(image), frame, TImageP(), error),
+          "unchanged source failed the freshness check");
+  raster->pixels(4)[4] = black;
+  require(!Cadmium::matchesFullColor(TImageP(image), frame, TImageP(), error),
+          "edited source passed the freshness check");
+  raster->pixels(4)[4] = transparent;
   require(frame.regionStyles.size() == 2, "expected one enclosed region");
   require(frame.labels[4 * 9 + 4] == 1 && frame.labels[0] == 0,
           "interior and exterior labels are incorrect");
@@ -82,6 +88,36 @@ int main() {
   TRaster32P result = output->getRaster();
   require(result->pixels(4)[4] == TPixel32::Red, "paper interior was not colored");
   require(result->pixels(0)[0] == TPixel32::White, "paper exterior was modified");
+
+  TRaster32P cleanLines(9, 9);
+  cleanLines->clear();
+  for (int y = 2; y <= 6; ++y)
+    for (int x = 2; x <= 6; ++x)
+      if (x == 2 || x == 6 || y == 2 || y == 6)
+        cleanLines->pixels(y)[x] = TPixel32::Black;
+  TRasterImageP cleanImage(cleanLines);
+  Cadmium::Frame linked;
+  linked.rasterSource = Cadmium::RasterSource::LinkedLines;
+  linked.lineSource = TImageP(cleanImage);
+  require(Cadmium::snapshotFullColor(TImageP(paperImage), linked, error),
+          "linked clean-line snapshot failed");
+  require(Cadmium::matchesFullColor(TImageP(paperImage), linked,
+                                   TImageP(cleanImage), error),
+          "unchanged linked drawing failed freshness check");
+  cleanLines->pixels(0)[0] = TPixel32::Black;
+  require(!Cadmium::matchesFullColor(TImageP(paperImage), linked,
+                                    TImageP(cleanImage), error),
+          "edited linked lines passed freshness check");
+  cleanLines->pixels(0)[0] = TPixel32::Transparent;
+  cleanImage->setDpi(144, 144);
+  require(!Cadmium::matchesFullColor(TImageP(paperImage), linked,
+                                    TImageP(cleanImage), error),
+          "linked image metadata edit passed freshness check");
+  cleanImage->setDpi(0, 0);
+  Cadmium::Frame changedOptions = linked;
+  changedOptions.paperThreshold = 0.5;
+  require(!Cadmium::matchesFullColor(TImageP(paperImage), changedOptions, linked, error),
+          "changed extraction settings passed freshness check");
 
   // Preserve meaningful float precision outside the accepted region and
   // perform accepted color conversion in the native linear sample space.

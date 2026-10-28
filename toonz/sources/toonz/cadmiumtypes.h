@@ -32,6 +32,9 @@ struct Frame {
 bool snapshotToonzRaster(const TImageP &, Frame &, QString &);
 bool snapshotVector(const TImageP &, Frame &, QString &);
 bool snapshotFullColor(const TImageP &, Frame &, QString &);
+bool matchesFullColor(const TImageP &, const Frame &, const TImageP &, QString &);
+bool matchesToonzRaster(const TImageP &, const Frame &, QString &);
+bool matchesFullColor(const TImageP &, const Frame &, const Frame &, QString &);
 TImageP applyToonzRaster(const Frame &, const QVector<int> &,
                         const QVector<QColor> &, bool, QString &);
 TImageP applyVector(const Frame &, const QVector<int> &,

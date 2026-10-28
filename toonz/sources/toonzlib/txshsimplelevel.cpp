@@ -949,7 +949,8 @@ void TXshSimpleLevel::loadData(TIStream& is) {
                   !pair[1].isString()) continue;
               const int number = pair[0].toInt(-1);
               const QString suffix = pair[1].toString();
-              if (number < 0 || suffix.size() > 64) continue;
+              if (number < 0 || pair[0].toDouble() != number ||
+                  suffix.size() > 64) continue;
               m_cadmiumReferences.insert(TFrameId(number, suffix));
             }
           }

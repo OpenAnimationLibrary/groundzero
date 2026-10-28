@@ -89,6 +89,7 @@ jobs:
         ctest --output-on-failure --output-junit cel-tests.xml --no-tests=error -R '^celfx_' 2>&1 | tee cel-tests-output.txt
 
     - name: Test Cadmium adapters
+      if: ${{ !cancelled() && hashFiles('toonz/build/bin/cadmium_toonzraster_test') != '' }}
       working-directory: toonz/build
       run: |
         QT_QPA_PLATFORM=xcb LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a ctest --output-on-failure --no-tests=error -R '^cadmium_'

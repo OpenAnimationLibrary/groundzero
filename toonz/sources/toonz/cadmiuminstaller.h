@@ -10,6 +10,7 @@
 class QNetworkAccessManager;
 class QNetworkReply;
 class QLockFile;
+class QProcess;
 
 class CadmiumInstaller final : public QObject {
   Q_OBJECT
@@ -41,6 +42,8 @@ private:
   void clearTransfer();
   QNetworkAccessManager *m_network;
   QNetworkReply *m_reply = nullptr;
+  QProcess *m_nativeDownload = nullptr;
+  bool m_nativeSucceeded = false;
   std::unique_ptr<QLockFile> m_lock;
   std::unique_ptr<QSaveFile> m_output;
   std::unique_ptr<QFile> m_existing;

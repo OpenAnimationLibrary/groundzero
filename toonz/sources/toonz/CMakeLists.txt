@@ -918,3 +918,13 @@ if(BUILD_CADMIUM_TESTS)
     add_test(NAME cadmium_metadata COMMAND cadmium_metadata_test)
     add_dependencies(cadmium_tests cadmium_metadata_test)
 endif()
+
+if(BUILD_CADMIUM_TESTS)
+    add_executable(cadmium_installer_test tests/cadmiuminstaller_test.cpp cadmiuminstaller.cpp
+        ${CMAKE_CURRENT_BINARY_DIR}/moc_cadmiuminstaller.cpp)
+    target_include_directories(cadmium_installer_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(cadmium_installer_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Network)
+    add_test(NAME cadmium_installer COMMAND cadmium_installer_test)
+    set_tests_properties(cadmium_installer PROPERTIES SKIP_RETURN_CODE 77)
+    add_dependencies(cadmium_tests cadmium_installer_test)
+endif()

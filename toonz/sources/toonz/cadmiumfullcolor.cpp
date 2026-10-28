@@ -88,17 +88,52 @@ bool opaque(const TRasterP &r) {
       if (read(r, x, y).a < 1.0) return false;
   return true;
 }
+void hashToken(QCryptographicHash &hash, const QByteArray &value) {
+  hash.addData(value);
+  hash.addData("\n");
+}
 void hashRaster(QCryptographicHash &hash, const TRasterImageP &image) {
   const TRasterP r = image->getRaster();
+  hashToken(hash, QByteArray::number(r->getLx()));
+  hashToken(hash, QByteArray::number(r->getLy()));
+  hashToken(hash, QByteArray::number(r->getPixelSize()));
   for (int y = 0; y < r->getLy(); ++y)
     hash.addData(reinterpret_cast<const char *>(r->getRawData() +
         y * r->getWrap() * r->getPixelSize()), r->getLx() * r->getPixelSize());
   double dx, dy; image->getDpi(dx, dy);
-  hash.addData(QByteArray::number(dx, 'g', 17));
-  hash.addData(QByteArray::number(dy, 'g', 17));
-  hash.addData(QByteArray::number(image->getOffset().x));
-  hash.addData(QByteArray::number(image->getOffset().y));
-  hash.addData(r->isLinear() ? "linear" : "display");
+  hashToken(hash, QByteArray::number(dx, 'g', 17));
+  hashToken(hash, QByteArray::number(dy, 'g', 17));
+  hashToken(hash, QByteArray::number(image->getOffset().x));
+  hashToken(hash, QByteArray::number(image->getOffset().y));
+  const TRect box = image->getSavebox();
+  hashToken(hash, QByteArray::number(box.x0));
+  hashToken(hash, QByteArray::number(box.y0));
+  hashToken(hash, QByteArray::number(box.x1));
+  hashToken(hash, QByteArray::number(box.y1));
+  hashToken(hash, QByteArray::number(image->getSubsampling()));
+  hashToken(hash, r->isLinear() ? "linear" : "display");
+  hashToken(hash, image->isOpaque() ? "opaque" : "alpha");
+  hashToken(hash, image->isScanBW() ? "scan" : "color");
+}
+QByteArray fingerprint(const TRasterImageP &source,
+                       const TRasterImageP &lines, const Frame &options) {
+  RasterLock sourceLock(source->getRaster()), lineLock(lines->getRaster());
+  QCryptographicHash hash(QCryptographicHash::Sha256);
+  hashRaster(hash, source); hashRaster(hash, lines);
+  hashToken(hash, QByteArray::number(int(options.rasterSource)));
+  hashToken(hash, options.extractionApproved ? "approved" : "unapproved");
+  hashToken(hash, QByteArray::number(options.paperThreshold, 'g', 17));
+  hashToken(hash, QByteArray::number(options.lineThreshold, 'g', 17));
+  hashToken(hash, QByteArray::number(options.protectionMask.width()));
+  hashToken(hash, QByteArray::number(options.protectionMask.height()));
+  // Canonical pixels exclude uninitialized scanline padding and make the
+  // freshness check independent of the mask's storage format.
+  for (int y = 0; y < options.protectionMask.height(); ++y)
+    for (int x = 0; x < options.protectionMask.width(); ++x) {
+      const QRgb color = options.protectionMask.pixel(x, y);
+      hash.addData(reinterpret_cast<const char *>(&color), sizeof(color));
+    }
+  return hash.result();
 }
 }
 
@@ -241,17 +276,38 @@ bool snapshotFullColor(const TImageP &image, Frame &frame, QString &error) {
   result.labels = labels;
   result.regionStyles = QVector<int>(count + 1, -1);
   result.regionColors = colors;
-  QCryptographicHash hash(QCryptographicHash::Sha256);
-  hashRaster(hash, input); hashRaster(hash, lineImage);
-  hash.addData(QByteArray::number(int(frame.rasterSource)));
-  hash.addData(QByteArray::number(frame.paperThreshold, 'g', 17));
-  hash.addData(QByteArray::number(frame.lineThreshold, 'g', 17));
-  for (int y = 0; y < frame.protectionMask.height(); ++y)
-    hash.addData(reinterpret_cast<const char *>(frame.protectionMask.constScanLine(y)),
-                 frame.protectionMask.bytesPerLine());
-  result.fingerprint = hash.result();
+  result.fingerprint = fingerprint(input, lineImage, frame);
   frame = result;
   return true;
+}
+
+bool matchesFullColor(const TImageP &source, const Frame &options,
+                      const Frame &frame, QString &error) {
+  error.clear();
+  TRasterImageP current = source;
+  TRasterImageP lines = options.rasterSource == RasterSource::LinkedLines
+      ? TRasterImageP(options.lineSource) : current;
+  if (frame.kind != Kind::FullColor || frame.fingerprint.isEmpty() ||
+      !current || !lines || !supported(current->getRaster()) ||
+      !supported(lines->getRaster()) || current->getSubsampling() != 1 ||
+      lines->getSubsampling() != 1 ||
+      (current->getRaster()->getLx() != frame.lines.width() ||
+       current->getRaster()->getLy() != frame.lines.height())) {
+    error = QStringLiteral("The full-color source or clean-line drawing is unavailable or has changed.");
+    return false;
+  }
+  if (fingerprint(current, lines, options) != frame.fingerprint) {
+    error = QStringLiteral("The full-color drawing, clean lines, or image settings changed. Generate the paint proposal again.");
+    return false;
+  }
+  return true;
+}
+
+bool matchesFullColor(const TImageP &source, const Frame &frame,
+                      const TImageP &lineSource, QString &error) {
+  Frame options = frame;
+  options.lineSource = lineSource;
+  return matchesFullColor(source, options, frame, error);
 }
 
 TImageP applyFullColor(const Frame &frame, const QVector<int> &styleIds,

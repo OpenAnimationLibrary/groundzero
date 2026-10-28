@@ -89,16 +89,29 @@ void losslessRegionLabels() {
   int maximum = 0;
   for (int label : frame.labels) maximum = std::max(maximum, label);
   require(maximum == 289, "Region labels wrapped at eight bits");
+  require(Cadmium::matchesToonzRaster(image, frame, error),
+          "An unchanged source failed the fast freshness check");
+  const QByteArray savedFingerprint = frame.fingerprint;
   Cadmium::Frame again;
   require(Cadmium::snapshotToonzRaster(image, again, error), "Repeat snapshot failed");
   require(again.fingerprint == frame.fingerprint, "Fingerprint is not deterministic");
   raster->pixels(1)[1].setPaint(2);
+  require(!Cadmium::matchesToonzRaster(image, frame, error),
+          "The fast freshness check accepted a pixel edit");
   require(Cadmium::snapshotToonzRaster(image, again, error), "Edited snapshot failed");
   require(again.fingerprint != frame.fingerprint, "Pixel edit did not invalidate snapshot");
   QVector<int> styles(again.regionStyles.size(), -100);
   again.labels[1] = styles.size();
   require(!Cadmium::applyToonzRaster(again, styles, {}, false, error),
           "An invalid region label was accepted");
+  raster->pixels(1)[1].setPaint(0);
+  require(Cadmium::matchesToonzRaster(image, frame, error),
+          "Restoring native pixels did not restore freshness");
+  image->getPalette()->setStyle(2, TPixel32(140, 25, 90));
+  require(!Cadmium::matchesToonzRaster(image, frame, error),
+          "The fast freshness check accepted a palette color edit");
+  require(frame.fingerprint == savedFingerprint,
+          "Freshness validation modified the saved proposal fingerprint");
 }
 }  // namespace
 

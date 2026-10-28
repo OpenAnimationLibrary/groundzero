@@ -427,7 +427,7 @@ void cutFramesWithoutUndo(TXshSimpleLevel *sl, std::set<TFrameId> &frames) {
   int i                 = 0;
   for (const TFrameId &frameId : frames) {
     QString id = "cutFrames" + QString::number((uintptr_t)sl) + "-" +
-                 QString::number(frameId.getNumber());
+                 QString::fromStdString(frameId.expand());
     TImageCache::instance()->add(id, sl->getFrame(frameId, false));
     imageSet[frameId] = id;
   }
@@ -1733,7 +1733,7 @@ void FilmstripCmd::remove(TXshSimpleLevel *sl, std::set<TFrameId> &frames) {
   int i = 0;
   for (const TFrameId &frameId : frames) {
     QString id = "removeFrames" + QString::number((uintptr_t)sl) + "-" +
-                 QString::number(frameId.getNumber());
+                 QString::fromStdString(frameId.expand());
     TImageCache::instance()->add(id, sl->getFrame(frameId, false));
     imageSet[frameId] = id;
   }

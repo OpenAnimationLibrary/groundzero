@@ -41,6 +41,7 @@ private:
   bool snapshot(const TFrameId &, Cadmium::Frame &, QString &, bool captureOnly = false);
   void generate();
   void next();
+  void scheduleNext();
   void submit();
   void received(const QJsonObject &);
   void failed(const QString &);

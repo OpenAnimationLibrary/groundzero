@@ -87,6 +87,31 @@ QByteArray fingerprint(const TToonzImageP &image,
 
 }  // namespace
 
+bool matchesToonzRaster(const TImageP &source, const Frame &frame, QString &error) {
+  error.clear();
+  const TToonzImageP image(source);
+  if (frame.kind != Kind::ToonzRaster || frame.fingerprint.isEmpty() ||
+      !image || !image->getRaster() || image->getSubsampling() != 1 ||
+      image->getRaster()->getLx() != frame.lines.width() ||
+      image->getRaster()->getLy() != frame.lines.height()) {
+    error = QStringLiteral("The source drawing no longer matches the paint proposal.");
+    return false;
+  }
+  try {
+    QVector<QColor> colors;
+    if (!paletteColors(TPaletteP(image->getPalette()), colors, error)) return false;
+    RasterLock lock(image->getRaster());
+    if (fingerprint(image, colors) != frame.fingerprint) {
+      error = QStringLiteral("The drawing or palette changed. Generate a new paint proposal.");
+      return false;
+    }
+    return true;
+  } catch (const std::bad_alloc &) {
+    error = QStringLiteral("There is not enough memory to validate the paint proposal.");
+    return false;
+  }
+}
+
 bool snapshotToonzRaster(const TImageP &source, Frame &frame, QString &error) {
   error.clear();
   const TToonzImageP image(source);
