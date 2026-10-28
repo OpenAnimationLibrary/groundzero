@@ -431,6 +431,15 @@ if(BUILD_FRAME_STRIPS_TESTS)
     add_test(NAME framestrips COMMAND framestrips_test)
 endif()
 
+# Custom render grids retain the legacy identity path unless explicitly enabled.
+if(BUILD_CELFX_TESTS)
+    add_executable(celfxrendergrid_test tests/celfxrendergrid_test.cpp)
+    target_link_libraries(celfxrendergrid_test Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME celfx_rendergrid COMMAND celfxrendergrid_test)
+    set_tests_properties(celfx_rendergrid PROPERTIES
+                         ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
+endif()
+
 # Cel effects use production renderers and native parameter widgets.
 if(BUILD_CELFX_TESTS)
     add_executable(celcolorkeep_test tests/celcolorkeep_test.cpp)
@@ -449,7 +458,7 @@ if(BUILD_CELFX_TESTS)
              ${CMAKE_CURRENT_SOURCE_DIR}/../../../stuff/profiles/layouts/fxs/STD_celColorKeyFx.xml)
     add_executable(celcolorkeymath_test tests/celcolorkeymath_test.cpp)
     add_test(NAME celfx_colorkey_math COMMAND celcolorkeymath_test)
-    add_executable(celboundaryblur_test tests/celboundaryblur_test.cpp celblur.cpp)
+    add_executable(celboundaryblur_test tests/celboundaryblur_test.cpp celblur.cpp celcolorkeyfx.cpp)
     target_link_libraries(celboundaryblur_test Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
     add_test(NAME celfx_boundaryblur COMMAND celboundaryblur_test)
     add_executable(celboundaryblur_ui_test tests/celboundaryblur_ui_test.cpp celblur.cpp)
@@ -463,7 +472,7 @@ if(BUILD_CELFX_TESTS)
     target_link_libraries(celdirectionalblur_ui_test toonzqt Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Widgets ${TNZLIBS} ${PTHREAD_LIBRARY})
     add_test(NAME celfx_directionalblur_ui COMMAND celdirectionalblur_ui_test
              ${CMAKE_CURRENT_SOURCE_DIR}/../../../stuff/profiles/layouts/fxs/STD_celDirectionalBlurFx.xml)
-    add_custom_target(celfx_tests DEPENDS celcolorkeep_test celcolorkeep_ui_test celcolorkey_test celcolorkey_ui_test celcolorkeymath_test celboundaryblur_test celboundaryblur_ui_test celdirectionalblur_test celdirectionalblur_ui_test)
+    add_custom_target(celfx_tests DEPENDS celcolorkeep_test celcolorkeep_ui_test celcolorkey_test celcolorkey_ui_test celcolorkeymath_test celfxrendergrid_test celboundaryblur_test celboundaryblur_ui_test celdirectionalblur_test celdirectionalblur_ui_test)
     add_executable(celradialblur_test tests/celradialblur_test.cpp celmotion.cpp celnoise.cpp)
     target_link_libraries(celradialblur_test Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
     add_test(NAME celfx_radialblur COMMAND celradialblur_test)
