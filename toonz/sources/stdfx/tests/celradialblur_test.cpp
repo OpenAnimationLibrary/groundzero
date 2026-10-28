@@ -2,6 +2,7 @@
 #include "tparamcontainer.h"
 #include "tstream.h"
 #include "tmacrofx.h"
+#include "celmotion_host_fixture.h"
 
 #include <QCoreApplication>
 #include <QTemporaryDir>
@@ -286,6 +287,48 @@ void noiseModes() {
   noise.type = CelNoise::Layer;
   require(CelNoise::sample(noise, 1, 1, 0.25) == 0.25, "Layer noise did not use luminance");
 }
+
+void productionTransformTests() {
+  HostMotionContext context;
+  for (bool rotation : {false, true})
+    for (const TAffine &affine : {TAffine(), TAffine(TScale(2.0, 1.0))}) {
+      const TPointD noisePoint = rotation ? TPointD(3, 1) : TPointD(3, 3);
+      auto run = [&](int noiseMode, bool strips) {
+        TFxP owner = new CelRadialBlurFx;
+        auto *fx = dynamic_cast<CelRadialBlurFx *>(owner.getPointer());
+        fx->getInputPort(0)->setFx(new HostMotionPixel(TPointD(2, 2)));
+        if (noiseMode == 0)
+          fx->getInputPort(1)->setFx(new HostMotionShift(
+              new HostMotionPixel(noisePoint - TPointD(1, 0)), TPointD(1, 0)));
+        else fx->getInputPort(1)->setFx(new HostMotionPixel(noisePoint, noiseMode == 1));
+        set(*fx, "blurType", rotation ? 1 : 0); set(*fx, "outerStrength", 3);
+        set(*fx, "quality", 8); set(*fx, "noiseType", 2); set(*fx, "noiseVariation", 100);
+        TRenderSettings info; info.m_affine = affine;
+        TRaster32P output(24, 16); output->clear();
+        if (!strips) {
+          TTile tile(output, TPointD(-4, -4)); fx->compute(tile, 0, info);
+        } else {
+          for (int y = 0; y < 16; ++y) {
+            TRaster32P row(24, 1); row->clear();
+            TTile tile(row, TPointD(-4, y - 4)); fx->compute(tile, 0, info);
+            output->copy(row, TPoint(0, y));
+          }
+        }
+        return output;
+      };
+      auto shifted = run(0, false), direct = run(1, false), black = run(2, false);
+      auto strips = run(0, true);
+      int shiftedAlpha = 0, blackAlpha = 0;
+      for (int y = 0; y < 16; ++y) for (int x = 0; x < 24; ++x) {
+        require(shifted->pixels(y)[x] == direct->pixels(y)[x],
+                "Transformed radial noise does not match a pretranslated layer");
+        require(shifted->pixels(y)[x] == strips->pixels(y)[x],
+                "Host affine changed radial output between frame and strips");
+        shiftedAlpha += shifted->pixels(y)[x].m; blackAlpha += black->pixels(y)[x].m;
+      }
+      require(shiftedAlpha > blackAlpha, "Transformed bright noise did not produce a radial trail");
+    }
+}
 void presetAndMacro(const QString &presetPath, const QString &macroPath) {
   TFxP first = new CelRadialBlurFx, second = new CelRadialBlurFx;
   first->setFxId(L"Radial1"); second->setFxId(L"Radial2");
@@ -392,7 +435,7 @@ void cancellation() {
 }
 
 int main(int argc, char **argv) {
-  QCoreApplication app(argc, argv);
+  QCoreApplication app(argc, argv); TThread::init(); TRenderer::initialize(); int result = 1;
   try {
     geometry(); oppositeEdges(); directionsAndTiles<TPixel32>(); directionsAndTiles<TPixel64>(); directionsAndTiles<TPixelF>();
     rotationAndBorders<TPixel32>(); rotationAndBorders<TPixel64>(); rotationAndBorders<TPixelF>();
@@ -401,9 +444,10 @@ int main(int argc, char **argv) {
     precisionAndPersistence(temp.filePath("radial.fx"));
     presetAndMacro(temp.filePath("radial.preset"), temp.filePath("radial.macro"));
     zeroBlurDoesNotAllocateDomain(); initializedInputs(); cancellation();
-    std::cout << "PASS: radial geometry, controls, precision, tiles and cancellation\n"; return 0;
+    productionTransformTests();
+    std::cout << "PASS: radial geometry, controls, precision, tiles and cancellation\n"; result = 0;
   } catch (const TException &error) {
     std::cerr << QString::fromStdWString(error.getMessage()).toStdString() << '\n';
   } catch (const std::exception &error) { std::cerr << error.what() << '\n'; }
-  return 1;
+  TThread::shutdown(); return result;
 }
