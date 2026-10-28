@@ -3134,6 +3134,9 @@ void MainWindow::defineActions() {
   createRightClickMenuAction(MI_RemoveReferenceToStudioPalette,
                              QT_TR_NOOP("Remove Reference to Studio Palette"),
                              "");
+  // Gradient Transform tool: give the picked region its own copy of the style
+  createRightClickMenuAction(MI_MakeUniqueStyle,
+                             QT_TR_NOOP("Make Unique Style"), "");
   createRightClickMenuAction(MI_ViewFile, QT_TR_NOOP("&View..."), "",
                              "view_file");
   createRightClickMenuAction(MI_ToggleXSheetToolbar,

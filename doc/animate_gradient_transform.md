@@ -29,7 +29,8 @@ fill shows nothing and changes nothing.
 3. Release the mouse. Each drag is one step in **Edit > Undo**.
 
 Click outside the handles to pick another area, or an empty spot to hide the
-handles.
+handles. A right click on another gradient area picks it too, so that the
+right-click menu acts on it.
 
 ### Linear Gradient
 
@@ -63,17 +64,54 @@ away from the centre so that they can still be grabbed. The handles belong to
 the drawing of the current frame: going to another frame hides them until you
 click an area again.
 
+## Make Unique Style
+
+The gradient belongs to the palette style, so moving the handles changes every
+area filled with that style. **Make Unique Style** gives the picked area its
+own copy of the style, so that the handles change that area alone, as in
+Adobe Animate.
+
+- Pick the area with the Gradient Transform tool, then click **Make Unique**
+  in the tool options bar, or right-click the area and choose **Make Unique
+  Style**. The command is also in **Tools > More Tools** (next to the tool)
+  and in the shortcut editor (**Make Unique Style**, under Right-click Menu
+  Commands), without a default shortcut.
+- It is offered when other areas of the same drawing use the style. The tool
+  options bar and the label next to the handles say how many areas of the
+  drawing share it. Only the drawing of the current frame is counted, because
+  counting every drawing of the level would mean loading them all.
+- What it does:
+  - it adds a copy of the style to the palette, in the same page, right after
+    the original. The copy has the same colours and gradient values, and the
+    original name with " (unique)" added (then " (unique 2)", " (unique 3)",
+    and so on; the smallest free number is used). A copy is not linked to a
+    studio palette, even when the original was. If the original has style
+    keyframes, the copy takes the values of the current frame, without
+    keyframes;
+  - it fills the picked area with the copy. The other areas keep the
+    original style;
+  - the copy becomes the current style: the handles and the Style Editor now
+    edit it.
+- **Edit > Undo** removes both the copy and the area change in one step;
+  Redo puts them back.
+- Nothing happens, and a message says why, when the palette is locked, when
+  the drawing cannot be changed (read-only level or locked frame, or a locked
+  column), or when no gradient area is picked.
+- The area keeps its own style afterwards. To give the same gradient back to
+  several areas, fill them with one style using the Fill tool.
+- If the style is used by this area only in this drawing but also in other
+  drawings, the command is not offered: duplicate the style in the palette
+  (select its chip, **Copy**, then **Paste Insert**) and fill the area with
+  the copy using the Fill tool.
+
 ## What it edits, and its limits
 
 - **The gradient belongs to the style, not to the area.** The tool changes the
   parameters of the palette style (the same numbers as in the Style Editor).
   Every area filled with the same style, in every drawing that uses the
-  palette, changes with it. The label next to the handles ("shared by all its
-  regions") is a reminder of this.
-- **To change only one area**, give it its own style first: duplicate the
-  style in the palette (select its chip, **Copy**, then **Paste Insert**), then
-  fill the area with the new style using the Fill tool. Now the tool only
-  changes that copy.
+  palette, changes with it. The label next to the handles says how many areas
+  of the current drawing share the style. To change only one area, use
+  **Make Unique Style** (above).
 - **Positions are relative to each area's box.** The style stores its centre as
   a percentage of the box around the area, and the size of a radial gradient
   as a percentage of the box's longer side. Two areas with the same style but
@@ -90,7 +128,9 @@ click an area again.
   Style Editor: on a keyframe it updates that keyframe.
 - The tool does not create anything new in the scene or the level: no file
   format changes. Only the palette is saved with the new values, as after any
-  Style Editor edit.
+  Style Editor edit. Make Unique Style adds an ordinary style to the palette
+  and changes the style of one area, as the Style Editor and the Fill tool
+  do.
 
 ## For developers
 
@@ -105,3 +145,9 @@ click an area again.
 - A drag replaces the palette style by an edited copy and notifies the level
   palette handle, as the Style Editor does; the undo stores the parameter
   values before and after the drag.
+- Make Unique Style (`MI_MakeUniqueStyle`, handled in
+  `gradienttransformtool.cpp`) inserts the copy with `PaletteCmd::addStyles`
+  and changes the region's style with an undo of the same kind as the Fill
+  tool's, both in one undo block. The choice of the copy's name and the
+  "is it shared" decision are in `toonz/sources/include/tools/uniquestyle.h`,
+  tested by `toonz/sources/tnztools/tests/uniquestyle_test.cpp`.
