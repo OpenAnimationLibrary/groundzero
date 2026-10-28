@@ -887,6 +887,8 @@ MeasuredDoubleParamField::MeasuredDoubleParamField(QWidget *parent,
   param->getValueRange(min, max, step);
   assert(min < max);
   m_measuredDoubleField->setRange(min, max);
+  if (param->getUISliderRange(min, max))
+    m_measuredDoubleField->setSliderRange(min, max);
 
   //----layout
   m_layout->addWidget(m_keyToggle);
@@ -939,11 +941,15 @@ void MeasuredDoubleParamField::onKeyToggled() { onKeyToggle(); }
 //-----------------------------------------------------------------------------
 
 void MeasuredDoubleParamField::setPrecision(int precision) {
-  double min, max;
+  double min, max, sliderMin, sliderMax;
+  const bool hasSliderRange =
+      m_measuredDoubleField->getSliderRange(sliderMin, sliderMax);
   m_measuredDoubleField->getRange(min, max);
   m_measuredDoubleField->setDecimals(precision);
   // update slider
   m_measuredDoubleField->setRange(min, max);
+  if (hasSliderRange)
+    m_measuredDoubleField->setSliderRange(sliderMin, sliderMax);
 }
 
 //=============================================================================

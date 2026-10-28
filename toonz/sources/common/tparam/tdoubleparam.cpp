@@ -16,6 +16,8 @@
 #include "tunit.h"
 
 // STD includes
+#include <algorithm>
+#include <cmath>
 #include <set>
 
 #include "tdoubleparam.h"
@@ -304,6 +306,8 @@ public:
   bool m_cycleEnabled;
   std::vector<std::string> m_uiChoices;
   bool m_uiCheckbox = false;
+  bool m_hasUISliderRange = false;
+  double m_uiSliderMin = 0.0, m_uiSliderMax = 0.0;
 
   std::set<TParamObserver *> m_observers;
 
@@ -329,6 +333,9 @@ public:
     m_cycleEnabled = src->m_cycleEnabled;
     m_uiChoices    = src->m_uiChoices;
     m_uiCheckbox   = src->m_uiCheckbox;
+    m_hasUISliderRange = src->m_hasUISliderRange;
+    m_uiSliderMin = src->m_uiSliderMin;
+    m_uiSliderMax = src->m_uiSliderMax;
   }
 
   void notify(const TParamChange &change) {
@@ -503,6 +510,22 @@ bool TDoubleParam::getValueRange(double &min, double &max, double &step) const {
   min  = m_imp->m_minValue;
   max  = m_imp->m_maxValue;
   step = 1;  // m_imp->m_valueStep;
+  return min < max;
+}
+
+void TDoubleParam::setUISliderRange(double min, double max) {
+  if (!std::isfinite(min) || !std::isfinite(max) || min >= max ||
+      min < m_imp->m_minValue || max > m_imp->m_maxValue)
+    throw TException("Slider bounds must lie within the numeric range");
+  m_imp->m_hasUISliderRange = true;
+  m_imp->m_uiSliderMin = min;
+  m_imp->m_uiSliderMax = max;
+}
+
+bool TDoubleParam::getUISliderRange(double &min, double &max) const {
+  if (!m_imp->m_hasUISliderRange) return false;
+  min = std::max(m_imp->m_minValue, m_imp->m_uiSliderMin);
+  max = std::min(m_imp->m_maxValue, m_imp->m_uiSliderMax);
   return min < max;
 }
 
