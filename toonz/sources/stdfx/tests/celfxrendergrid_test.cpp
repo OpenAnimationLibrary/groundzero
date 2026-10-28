@@ -1,10 +1,13 @@
 #include "../mosaicfx.cpp"
+#include "../celfxsourcegrid.h"
 #include "toonz/toonzscene.h"
 #include "toonz/txshcell.h"
 #include "toonz/txshlevelcolumn.h"
 #include "toonz/txshleveltypes.h"
 #include "toonz/txshsimplelevel.h"
 #include "trasterimage.h"
+#include "tstroke.h"
+#include "tvectorimage.h"
 #include "tfxcachemanager.h"
 #include "trenderer.h"
 #include "tthread.h"
@@ -144,6 +147,37 @@ void testLevelCompatibility() {
   TFxP owner = new GridProbe(TAffine(), false, policy);
   checkRoute(*static_cast<GridProbe *>(owner.getPointer()), TAffine(), TAffine());
 }
+
+void testVectorLevelGrid() {
+  ToonzScene scene;
+  TXshLevelP level = new TXshSimpleLevel(L"vector-grid-fixture");
+  auto *simple = level->getSimpleLevel();
+  simple->setType(PLI_XSHLEVEL);
+  simple->setScene(&scene);
+  TVectorImageP image(new TVectorImage());
+  const std::vector<TThickPoint> points{
+      TThickPoint(-3.125, -1.375, .5), TThickPoint(1.375, 2.625, .5),
+      TThickPoint(5.875, -1.375, .5)};
+  image->addStroke(new TStroke(points));
+  simple->setFrame(TFrameId(1), image);
+  TXshLevelColumn column;
+  require(column.setCell(0, TXshCell(level, TFrameId(1))), "Cannot create vector level fixture");
+  auto *source = static_cast<TRasterFx *>(column.getFx());
+  // The scene builder applies this marker even when vector DPI is identity.
+  source->setName(L"LevelColumn AffineFx");
+  TRenderSettings settings;
+  settings.m_affine = TRotation(17) * TScale(2, 3);
+  require(source->canHandle(settings, 0), "Vector level lost its continuous affine policy");
+  settings.m_getFullSizeBBox = true;
+  TRectD bounds;
+  require(source->doGetBBox(0, bounds, settings) && !bounds.isEmpty() &&
+              (bounds.x0 != std::floor(bounds.x0) || bounds.y0 != std::floor(bounds.y0)),
+          "Vector fixture must have fractional continuous bounds");
+  const TAffine grid = CelFxSourceGrid::renderAffine(source, 0);
+  require(grid == TAffine(), "Vector artwork bounds were mistaken for a native raster canvas");
+  TFxP owner = new GridProbe(grid, true);
+  checkRoute(*static_cast<GridProbe *>(owner.getPointer()), TAffine(), TAffine());
+}
 }
 
 int main(int argc, char **argv) {
@@ -155,6 +189,7 @@ int main(int argc, char **argv) {
     testOptIn();
     testMosaicCompatibility();
     testLevelCompatibility();
+    testVectorLevelGrid();
     std::cout << "PASS: custom render grids and legacy affine policies\n";
     result = 0;
   } catch (const TException &error) {
