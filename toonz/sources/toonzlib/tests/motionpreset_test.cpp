@@ -34,6 +34,14 @@ void require(bool condition, const std::string &message) {
   if (!condition) throw std::runtime_error(message);
 }
 
+// The same, with the reason a call gives for its failure. The reason is read
+// only when the check fails: an argument such as "text: " + reason would be
+// built before the call in the same expression has set it.
+void require(bool condition, const std::string &message,
+             const std::string *reason) {
+  require(condition, message + " " + (reason ? *reason : std::string()));
+}
+
 bool nearly(double a, double b) {
   return std::abs(a - b) <= 1e-4 * std::max(1.0, std::abs(b));
 }
@@ -236,7 +244,7 @@ void testApplyAdd() {
   {
     TDoubleParam y(5.0);
     std::string reason;
-    require(preset.applyChannel(hop, &y, 10, 0, &reason), "add: " + reason);
+    require(preset.applyChannel(hop, &y, 10, 0, &reason), "add:", &reason);
     require(y.getKeyframeCount() == 3, "add: key count");
     require(y.keyframeIndexToFrame(0) == 10 &&
                 y.keyframeIndexToFrame(1) == 16 &&
@@ -271,7 +279,7 @@ void testApplyAdd() {
     require(nearly(start, 1 + 99.0 * 10 / 14), "add: the start value");
 
     std::string reason;
-    require(preset.applyChannel(hop, &y, 10, 0, &reason), "add 2: " + reason);
+    require(preset.applyChannel(hop, &y, 10, 0, &reason), "add 2:", &reason);
     require(y.getKeyframeCount() == 5, "add 2: key count");
     require(y.keyframeIndexToFrame(0) == 0 && y.keyframeIndexToFrame(1) == 10 &&
                 y.keyframeIndexToFrame(2) == 16 &&
@@ -306,7 +314,7 @@ void testApplyAdd() {
     std::string reason;
     shifted.addChannel(channel);
     require(shifted.applyChannel(shifted.getChannel(0), &y, 0, 0, &reason),
-            "offset: " + reason);
+            "offset:", &reason);
     require(y.keyframeIndexToFrame(0) == 3, "offset: first frame");
 
     // And it can't start before the first frame
@@ -325,7 +333,7 @@ void testApplyMultiply() {
   TDoubleParam sx(2.0);
   std::string reason;
   require(preset.applyChannel(preset.getChannel(0), &sx, 3, 0, &reason),
-          "multiply: " + reason);
+          "multiply:", &reason);
   require(sx.getKeyframeCount() == 3, "multiply: key count");
   require(nearly(sx.getKeyframe(0).m_value, 2) &&
               nearly(sx.getKeyframe(1).m_value, 3) &&
@@ -368,7 +376,7 @@ void testAnchorEnd() {
   TDoubleParam x(1.0);
   std::string reason;
   require(preset.applyChannel(preset.getChannel(0), &x, 4, 0, &reason),
-          "end: " + reason);
+          "end:", &reason);
   require(x.keyframeIndexToFrame(0) == 4 && x.keyframeIndexToFrame(1) == 16,
           "end: frames");
   require(nearly(x.getKeyframe(0).m_value, -17), "end: starts away");
@@ -475,7 +483,7 @@ void testCapture() {
   std::string reason;
   require(MotionPreset::captureChannel(&y, "y", 3, 15, 3, channel, &reason) ==
               MotionPreset::CaptureDone,
-          "capture: " + reason);
+          "capture:", &reason);
   require(channel.m_mode == MotionPreset::Add && channel.m_keys.size() == 3,
           "capture: keys");
   require(nearly(channel.m_keys[0].m_frame, 0) &&
@@ -500,7 +508,9 @@ void testCapture() {
           "capture: speed in");
 
   // Nothing to store
-  require(MotionPreset::captureChannel(&y, "y", 4, 8, 4, channel, &reason) ==
+  // (into its own channel: a capture resets the channel it is given)
+  Channel none;
+  require(MotionPreset::captureChannel(&y, "y", 4, 8, 4, none, &reason) ==
               MotionPreset::CaptureNothing,
           "capture: a range without keys");
 
@@ -509,7 +519,7 @@ void testCapture() {
   preset.addChannel(channel);
   TDoubleParam other(1.0);
   require(preset.applyChannel(preset.getChannel(0), &other, 20, 0, &reason),
-          "capture: apply " + reason);
+          "capture: apply", &reason);
   for (int f = 0; f <= 12; ++f)
     require(nearly(y.getValue(3 + f) - 2.0, other.getValue(20 + f) - 1.0),
             "capture: the curves differ");
@@ -717,7 +727,7 @@ void testStock(const QString &stockDir, const QString &tempDir) {
       TDoubleParam param(start);
       std::string reason;
       require(preset.applyChannel(channel, &param, 7, 0, &reason),
-              what + ": apply " + channel.m_name + ": " + reason);
+              what + ": apply " + channel.m_name + ":", &reason);
       require(param.getKeyframeCount() == (int)channel.m_keys.size(),
               what + ": key count of " + channel.m_name);
       const int anchored = preset.getAnchor() == MotionPreset::AnchorEnd
