@@ -2,9 +2,19 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
+#include <limits>
 
 namespace CelRadial {
 struct Point { double x = 0.0, y = 0.0; };
+// The host raster allocator multiplies dimensions and pixel size as signed int.
+// Check using size_t before asking it to allocate, including the final product.
+inline bool fitsRasterAllocation(int width, int height, int bytesPerPixel) {
+  if (width <= 0 || height <= 0 || bytesPerPixel <= 0) return false;
+  const std::size_t maximum = std::size_t(std::numeric_limits<int>::max());
+  const std::size_t w = std::size_t(width), h = std::size_t(height), b = std::size_t(bytesPerPixel);
+  return w <= maximum / h && w * h <= maximum / b;
+}
 
 // A zero ratio is the limiting, very thin ellipse. Tangential motion uses arc
 // distance bounded by the requested length, so every sample fits the halo.

@@ -57,6 +57,12 @@ TRasterPT<Pixel> render(CelRadialBlurFx &fx, int width, int height, TPointD orig
 }
 void geometry() {
   const double pi = 3.14159265358979323846;
+  require(CelRadial::fitsRasterAllocation(32768, 4095, 16),
+          "Safe large raster was rejected");
+  require(!CelRadial::fitsRasterAllocation(32768, 4096, 16) &&
+          !CelRadial::fitsRasterAllocation(65536, 65536, 1) &&
+          !CelRadial::fitsRasterAllocation(1, 0, 4),
+          "Unsafe raster multiplication was accepted");
   const CelRadial::Point p{10, 0}, center{0, 0};
   auto outward = CelRadial::trajectory(p, center, 1, 0, 4, false, true);
   auto inward = CelRadial::trajectory(p, center, 1, 0, 4, false, false);

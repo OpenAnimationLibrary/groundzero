@@ -372,6 +372,11 @@ void CelRadialBlurFx::doCompute(TTile &tile, double frame,
   if (!sourceDomain(frame, settings, domain)) return;
   const TDimension size{int(domain.getLx()), int(domain.getLy())};
   CelMotion::checkedArea(size.lx, size.ly);
+  // The host allocator computes width * height * pixel size as signed int.
+  const int bytesPerPixel = TRasterFP(tile.getRaster()) ? 16 :
+                            TRaster64P(tile.getRaster()) ? 8 : 4;
+  if (!CelRadial::fitsRasterAllocation(size.lx, size.ly, bytesPerPixel))
+    throw TException("Cel Radial Blur: source raster exceeds allocator limits");
   TTile sourceTile;
   allocateClearedTile(sourceTile, domain.getP00(), size, tile.getRaster());
   m_source->compute(sourceTile, frame, settings);
