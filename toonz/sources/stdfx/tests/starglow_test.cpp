@@ -2,6 +2,15 @@
 #include "tparamcontainer.h"
 #include "tmacrofx.h"
 #include "tstream.h"
+#include "tfxutil.h"
+#include "trenderer.h"
+#include "tthread.h"
+#include "toonz/toonzscene.h"
+#include "toonz/txshcell.h"
+#include "toonz/txshlevelcolumn.h"
+#include "toonz/txshleveltypes.h"
+#include "toonz/txshsimplelevel.h"
+#include "trasterimage.h"
 #include <QCoreApplication>
 #include <QTemporaryDir>
 #include <cmath>
@@ -16,14 +25,21 @@ TDoubleParamP parameter(TFx &fx, const char *name) { return TParamP(fx.getParams
 class Source final : public TStandardRasterFx {
   TRasterP m_image;
   TPointD m_origin;
+  bool m_affineAware;
 public:
-  explicit Source(const TRasterP &image, TPointD origin = TPointD()) : m_image(image), m_origin(origin) {}
+  explicit Source(const TRasterP &image, TPointD origin = TPointD(), bool affineAware = false)
+      : m_image(image), m_origin(origin), m_affineAware(affineAware) {}
   const TPersistDeclaration *getDeclaration() const override { return nullptr; }
   std::string getAlias(double, const TRenderSettings &) const override { return "star-test-source"; }
   bool canHandle(const TRenderSettings &, double) override { return true; }
   bool doGetBBox(double, TRectD &box, const TRenderSettings &) override { box = TRectD(m_origin, TDimensionD(m_image->getLx(), m_image->getLy())); return true; }
-  void compute(TTile &tile, double, const TRenderSettings &) override {
+  void compute(TTile &tile, double, const TRenderSettings &settings) override {
     tile.getRaster()->clear();
+    if (m_affineAware) {
+      TTile source(m_image, m_origin);
+      TRasterFx::applyAffine(tile, source, settings);
+      return;
+    }
     tile.getRaster()->copy(m_image, TPoint(int(std::llround(m_origin.x - tile.m_pos.x)),
                                            int(std::llround(m_origin.y - tile.m_pos.y))));
   }
@@ -315,6 +331,71 @@ void testPartialUpstream() {
   require(std::abs(outside->pixels(3)[0].m - 1.0 / 49.0) < 1e-6,
           "Highlight did not reach outside the source bounding box");
 }
+// Characterize the current world-grid policy using an actual odd raster
+// level. The manual does not specify source-versus-composition pixel units.
+void testRasterLevelDpi() {
+  ToonzScene scene;
+  TXshLevelP level = new TXshSimpleLevel(L"glow-raster-grid");
+  auto *simple = level->getSimpleLevel();
+  simple->setType(OVL_XSHLEVEL); simple->setScene(&scene);
+  TRaster32P image(23, 17); image->clear();
+  for (int y = 5; y <= 11; ++y)
+    for (int x = 7; x <= 15; ++x)
+      image->pixels(y)[x] = TPixel32::White;
+  simple->setFrame(TFrameId(1), TRasterImageP(image));
+  TXshLevelColumn column;
+  require(column.setCell(0, TXshCell(level, TFrameId(1))), "Cannot create raster level");
+  auto *levelFx = static_cast<TRasterFx *>(column.getFx());
+  const TPointD origin(-11.5, -8.5);
+  for (const TAffine &dpiScale : std::vector<TAffine>{TAffine(), TScale(.5, .25)}) {
+    TFxP realDpi = TFxUtil::makeAffine(TFxP(levelFx), dpiScale);
+    TFxP fixtureDpi = TFxUtil::makeAffine(TFxP(new Source(image, origin, true)), dpiScale);
+    realDpi->setName(L"LevelColumn AffineFx");
+    fixtureDpi->setName(L"LevelColumn AffineFx");
+    TFxP realOwner = new StarGlowFx, fixtureOwner = new StarGlowFx;
+    auto &real = *static_cast<StarGlowFx *>(realOwner.getPointer());
+    auto &fixture = *static_cast<StarGlowFx *>(fixtureOwner.getPointer());
+    real.getInputPort(0)->setFx(realDpi.getPointer());
+    fixture.getInputPort(0)->setFx(fixtureDpi.getPointer());
+    for (StarGlowFx *fx : {&real, &fixture}) {
+      settings(*fx);
+      parameter(*fx, "sourceOpacity")->setDefaultValue(0);
+      parameter(*fx, "verticalLength")->setDefaultValue(2);
+      parameter(*fx, "profile")->setDefaultValue(0);
+      require(!fx->usesCustomRenderGrid() && fx->handledAffine(TRenderSettings(), 0) == TAffine(),
+              "Star Glow changed its world-grid policy");
+    }
+    TRenderer renderer(1);
+    const unsigned long id = TRenderer::buildRenderId();
+    renderer.install(id); renderer.declareRenderStart(id); renderer.declareFrameStart(0);
+    auto render = [&](StarGlowFx &fx, int strips) {
+      TRaster32P output(32, 24); output->clear();
+      TRenderSettings info; info.m_bpp = 32; info.m_cameraBox = TRectD(-16, -12, 16, 12);
+      for (int strip = 0; strip < strips; ++strip) {
+        const int y0 = 24 * strip / strips, y1 = 24 * (strip + 1) / strips;
+        TRaster32P part(32, y1-y0); part->clear();
+        TTile tile(part, TPointD(-16, -12+y0));
+        fx.compute(tile, 0, info); output->copy(part, TPoint(0, y0));
+      }
+      return output;
+    };
+    try {
+      const auto actual = render(real, 1), tiled = render(real, 4);
+      const auto expected = render(fixture, 1);
+      bool visible = false;
+      for (int y = 0; y < 24; ++y) for (int x = 0; x < 32; ++x) {
+        const TPixel32 a = actual->pixels(y)[x], b = tiled->pixels(y)[x], c = expected->pixels(y)[x];
+        visible = visible || a.m > 0;
+        require(std::abs(int(a.m)-int(b.m)) <= 1, "Odd raster level introduced a tile seam");
+        require(std::abs(int(a.m)-int(c.m)) <= 1, "Odd raster level and equivalent source disagree");
+      }
+      require(visible, "Odd raster-level fixture rendered empty");
+    } catch (...) {
+      renderer.declareFrameEnd(0); renderer.declareRenderEnd(id); renderer.uninstall(); throw;
+    }
+    renderer.declareFrameEnd(0); renderer.declareRenderEnd(id); renderer.uninstall();
+  }
+}
 void testFractionalOrigins() {
   StarGlowFx fx; settings(fx);
   TRasterFP input(3, 3); input->clear(); input->pixels(1)[1] = TPixelF::White;
@@ -356,6 +437,7 @@ void testAnimatedRampPrecision() {
 }
 int main(int argc, char **argv) {
   QCoreApplication app(argc, argv);
+  TThread::init(); TRenderer::initialize();
   bool passed = true;
   auto run = [&](const char *name, const auto &test) {
     std::cerr << "Running " << name << '\n';
@@ -369,6 +451,8 @@ int main(int argc, char **argv) {
   run("exponential support", testExponentialSupport);
   run("partial upstream", testPartialUpstream); run("fractional origins", testFractionalOrigins);
   run("animated ramp", testAnimatedRampPrecision);
+  run("odd raster level and DPI", testRasterLevelDpi);
+  TThread::shutdown();
   if (!passed) return 1;
   std::cout << "PASS: channels, profiles, alpha, rotation, tiles and precise ramps\n";
   return 0;
