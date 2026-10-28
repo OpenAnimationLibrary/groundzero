@@ -138,6 +138,9 @@ computer. Restoring a session checks its target drawings, references, native
 regions, palette, and input settings against the current scene before enabling
 application of the proposals. Changed or unavailable inputs require fresh
 generation rather than applying stale decisions.
+Resuming replaces the open review state; only saved entries that pass validation
+can be applied. If saved input settings are unavailable, the open session keeps
+its existing settings and decisions.
 
 Input limits
 ------------

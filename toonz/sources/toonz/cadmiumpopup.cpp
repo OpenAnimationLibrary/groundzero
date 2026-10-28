@@ -1079,13 +1079,14 @@ void CadmiumPopup::restoreSession() {
   if (m_sessionWriter) m_sessionWriter->wait();
   Cadmium::Session saved;
   QString error;
-  m_saveTimer.stop();
   if (!Cadmium::loadSessionWithAlias(sessionCacheRoot(), sceneIdentity(), m_level->cadmiumLevelId(), m_sessionSourceKey, saved, error)) {
     m_status->setText(error); return;
   }
   const Cadmium::Kind kind = m_level->getType() == PLI_XSHLEVEL ? Cadmium::Kind::Vector :
       m_level->getType() == OVL_XSHLEVEL ? Cadmium::Kind::FullColor : Cadmium::Kind::ToonzRaster;
   if (saved.kind != kind) { m_status->setText(tr("The saved session belongs to another native drawing format.")); return; }
+  const Cadmium::SessionOptions previousOptions = sessionOptions();
+  const int previousLine = m_lineLevel->currentIndex();
   m_refreshing = true;
   m_rasterSource->setCurrentIndex(int(saved.options.source));
   m_paperThreshold->setValue(saved.options.paperThreshold); m_lineThreshold->setValue(saved.options.lineThreshold);
@@ -1102,7 +1103,29 @@ void CadmiumPopup::restoreSession() {
   }
   m_refreshing = false;
   if (Cadmium::sessionOptionsDigest(saved.options) != Cadmium::sessionOptionsDigest(sessionOptions())) {
+    // An unavailable source must not change the repaint policy or extraction
+    // settings underneath proposals that the artist has already reviewed.
+    m_refreshing = true;
+    m_rasterSource->setCurrentIndex(int(previousOptions.source));
+    m_paperThreshold->setValue(previousOptions.paperThreshold);
+    m_lineThreshold->setValue(previousOptions.lineThreshold);
+    m_extraction->setChecked(previousOptions.extractionApproved);
+    m_repaint->setChecked(previousOptions.repaint);
+    m_lineLevel->setCurrentIndex(previousLine);
+    m_refreshing = false;
     m_status->setText(tr("The saved clean-line source or painting settings are no longer available.")); return;
+  }
+  m_saveTimer.stop();
+  // Resume replaces the current review state. Only successfully validated saved
+  // entries may become applicable again, including when repaint mode changed.
+  for (Drawing &drawing : m_drawings) {
+    drawing.ready = false; drawing.reviewed = false; drawing.error.clear();
+    drawing.target = Cadmium::Frame(); drawing.labelsFingerprint.clear();
+    drawing.proposals.clear(); drawing.selectedRegions.clear();
+    drawing.references.clear(); drawing.referencePreviews.clear();
+    drawing.targetBuilder = ImageBuilderP(); drawing.referenceBuilders.clear();
+    drawing.pendingTargetBuilder = ImageBuilderP(); drawing.pendingReferenceBuilders.clear();
+    drawing.requestedRegions.clear();
   }
   m_jobs.clear(); m_recovery.clear();
   for (const Cadmium::SessionDrawing &record : saved.drawings) {
