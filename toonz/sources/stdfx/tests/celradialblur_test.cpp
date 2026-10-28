@@ -3,6 +3,13 @@
 #include "tstream.h"
 #include "tmacrofx.h"
 #include "celmotion_host_fixture.h"
+#include "tfxutil.h"
+#include "toonz/toonzscene.h"
+#include "toonz/txshcell.h"
+#include "toonz/txshlevelcolumn.h"
+#include "toonz/txshleveltypes.h"
+#include "toonz/txshsimplelevel.h"
+#include "trasterimage.h"
 
 #include <QCoreApplication>
 #include <QTemporaryDir>
@@ -329,6 +336,56 @@ void productionTransformTests() {
       require(shiftedAlpha > blackAlpha, "Transformed bright noise did not produce a radial trail");
     }
 }
+
+void rasterLevelDpiTests() {
+  HostMotionContext context;
+  for (int width : {8, 9}) {
+    const int height = width == 8 ? 8 : 7;
+    const double phase = width % 2 ? .5 : 0;
+    ToonzScene scene;
+    TXshLevelP level = new TXshSimpleLevel(L"radial-dpi-fixture");
+    auto *simple = level->getSimpleLevel();
+    simple->setType(OVL_XSHLEVEL); simple->setScene(&scene);
+    TRaster32P raster(width, height); raster->clear();
+    raster->pixels(height / 2)[width / 2 + 1] = TPixel32::White;
+    simple->setFrame(TFrameId(1), TRasterImageP(raster));
+    TXshLevelColumn column;
+    require(column.setCell(0, TXshCell(level, TFrameId(1))), "Cannot create radial raster level");
+    for (bool rotation : {false, true}) {
+      CelRadialBlurFx nativeFx;
+      const TPointD nativeOrigin(std::ceil(-0.5 * width), std::ceil(-0.5 * height));
+      nativeFx.getInputPort(0)->setFx(new Source(raster, nativeOrigin));
+      TPointParamP nativeCenter(TParamP(nativeFx.getParams()->getParam("center")));
+      nativeCenter->setDefaultValue(TPointD(phase, phase));
+      set(nativeFx, "blurType", rotation ? 1 : 0);
+      set(nativeFx, "outerStrength", 2); set(nativeFx, "quality", 8);
+      const auto native = render<TPixel32>(nativeFx, 20, 20, TPointD(-10, -10));
+      TRaster32P expected(20, 20); expected->clear();
+      TTile nativeTile(native, TPointD(-10 - phase, -10 - phase));
+      TTile expectedTile(expected, TPointD(-10, -10));
+      TRasterFx::applyAffine(expectedTile, nativeTile, TRenderSettings());
+      for (const TAffine &placement : {TAffine(TScale(.25)), TAffine(TScale(.25, .5))}) {
+        TFxP dpi = TFxUtil::makeAffine(TFxP(column.getFx()), placement);
+        dpi->setName(L"LevelColumn AffineFx");
+        TFxP owner = new CelRadialBlurFx;
+        auto &fx = *static_cast<CelRadialBlurFx *>(owner.getPointer());
+        fx.getInputPort(0)->setFx(dpi.getPointer());
+        set(fx, "blurType", rotation ? 1 : 0); set(fx, "outerStrength", 2); set(fx, "quality", 8);
+        TRenderSettings info; info.m_affine = placement.inv();
+        TRaster32P actual(20, 20); actual->clear(); TTile tile(actual, TPointD(-10, -10));
+        fx.compute(tile, 0, info);
+        int visible = 0;
+        for (int y = 0; y < 20; ++y) for (int x = 0; x < 20; ++x) {
+          const auto &a = actual->pixels(y)[x], &b = expected->pixels(y)[x];
+          visible += b.m;
+          require(std::abs(int(a.m) - int(b.m)) <= 2 && std::abs(int(a.r) - int(b.r)) <= 2,
+                  "Radial source-pixel geometry changed across raster DPI or odd canvas");
+        }
+        require(visible > 0, "Radial level reference rendered empty");
+      }
+    }
+  }
+}
 void presetAndMacro(const QString &presetPath, const QString &macroPath) {
   TFxP first = new CelRadialBlurFx, second = new CelRadialBlurFx;
   first->setFxId(L"Radial1"); second->setFxId(L"Radial2");
@@ -445,6 +502,7 @@ int main(int argc, char **argv) {
     presetAndMacro(temp.filePath("radial.preset"), temp.filePath("radial.macro"));
     zeroBlurDoesNotAllocateDomain(); initializedInputs(); cancellation();
     productionTransformTests();
+    rasterLevelDpiTests();
     std::cout << "PASS: radial geometry, controls, precision, tiles and cancellation\n"; result = 0;
   } catch (const TException &error) {
     std::cerr << QString::fromStdWString(error.getMessage()).toStdString() << '\n';

@@ -7,6 +7,7 @@
 #include "celnoise.h"
 #include "celdistance.h"
 #include "celradialgeometry.h"
+#include "celfxsourcegrid.h"
 
 #include <algorithm>
 #include <array>
@@ -80,8 +81,11 @@ public:
     enableComputeInFloat(true);
   }
   bool requiresFullPrecisionSerialization() const override { return true; }
+  bool usesCustomRenderGrid() const override { return true; }
   bool canHandle(const TRenderSettings &, double) override { return false; }
-  TAffine handledAffine(const TRenderSettings &, double) override { return TAffine(); }
+  TAffine handledAffine(const TRenderSettings &, double frame) override {
+    return CelFxSourceGrid::renderAffine(m_source.getFx(), frame);
+  }
   bool toBeComputedInLinearColorSpace(bool, bool) const override { return false; }
   bool sourceDomain(double frame, const TRenderSettings &settings, TRectD &domain);
   double support(double frame) const;
@@ -140,7 +144,12 @@ double CelRadialBlurFx::support(double frame) const {
 bool CelRadialBlurFx::doGetBBox(double frame, TRectD &box, const TRenderSettings &settings) {
   if (!m_source.isConnected()) { box = TRectD(); return false; }
   if (!m_source->doGetBBox(frame, box, settings)) return false;
-  if (box != TConsts::infiniteRectD) box = box.enlarge(support(frame));
+  if (box != TConsts::infiniteRectD) {
+    const TAffine placement = CelFxSourceGrid::nativeToWorld(m_source.getFx(), frame);
+    const double x = support(frame) * std::hypot(placement.a11, placement.a12);
+    const double y = support(frame) * std::hypot(placement.a21, placement.a22);
+    box = TRectD(box.x0 - x, box.y0 - y, box.x1 + x, box.y1 + y);
+  }
   return true;
 }
 
@@ -181,6 +190,9 @@ std::string CelRadialBlurFx::getAlias(double frame, const TRenderSettings &setti
        m_outerFade, m_innerStrength, m_innerOffsetMode, m_innerOffset, m_innerFade, m_repeatBorder,
        m_ellipseRatio, m_ellipseAngle, m_quality, m_brightness, m_sizeVariation, m_noiseVariation,
        m_noiseType, m_seed, m_noiseOffset, m_thickness}) out << ';' << param->getValue(frame);
+  const TAffine grid = CelFxSourceGrid::renderAffine(m_source.getFx(), frame);
+  for (double component : {grid.a11, grid.a12, grid.a13, grid.a21, grid.a22, grid.a23})
+    out << ';' << component;
   // Domain selection for infinite generators also depends on the scene canvas.
   out << ';' << settings.m_cameraBox.x0 << ',' << settings.m_cameraBox.y0 << ','
       << settings.m_cameraBox.x1 << ',' << settings.m_cameraBox.y1;
@@ -499,7 +511,7 @@ void CelRadialBlurFx::doCompute(TTile &tile, double frame,
   CelMotion::Image source;
   if (!readAnyImage(sourceTile.getRaster(), domain, source, settings.m_isCanceled)) return;
   RadialSettings params;
-  const TPointD center = m_center->getValue(frame);
+  const TPointD center = settings.m_affine * m_center->getValue(frame);
   params.center = {center.x, center.y};
   params.rotation = mode(m_blurType->getValue(frame), 1) == 1;
   params.outer = limited(m_outerStrength->getValue(frame), 0, 2000);

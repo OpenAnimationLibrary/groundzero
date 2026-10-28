@@ -38,6 +38,8 @@ in Layer mode. Noise is sampled in scene coordinates, so tiled renders and
 frame order do not alter the pattern.</p>
 <h2>Animation and rendering</h2>
 <p>All controls use native keyframes, undo, scenes, presets and macro pins.
+Raster levels use their native pixel grid for blur strength and noise before
+DPI and geometry placement; ambiguous or vector inputs use the scene grid.
 The effect computes connected groups over the complete finite source domain,
 so tile boundaries do not change the result. For an infinite upstream source,
 the finite scene camera is used as the composition domain. Very large domains
