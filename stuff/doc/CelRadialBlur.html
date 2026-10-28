@@ -24,7 +24,8 @@ effect when fade is zero. A connected group is an eight-connected region of
 nontransparent pixels. Size Variation scales trail strength by group area: at
 100, the smallest groups receive no trail and the largest receive full strength.
 Equal-size groups are all treated as the smallest. Brightness Gain scales RGB
-while preserving alpha; floating-point renders retain finite HDR values.</p>
+while preserving alpha. Integer renders keep RGB within alpha; floating-point
+renders retain finite HDR values.</p>
 <h2>Noise</h2>
 <p>Noise Variation blends between uniform strength and noise-modulated strength.
 Smooth and Block use the Seed, animated Noise Offset and Thickness. Layer uses

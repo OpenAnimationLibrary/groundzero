@@ -169,6 +169,17 @@ void rotationAndBorders() {
             "Repeat Border affected output without edge fading");
 }
 
+template <class Pixel>
+void integerGainPremultiplication() {
+  const int half = Pixel::maxChannelValue / 2;
+  TRasterPT<Pixel> input(1, 1); input->pixels(0)[0] = Pixel(half, 0, 0, half);
+  CelRadialBlurFx fx; fx.getInputPort(0)->setFx(new Source(input));
+  set(fx, "brightness", 2);
+  const Pixel output = render<Pixel>(fx, 1, 1)->pixels(0)[0];
+  require(output.m == half && output.r == half && output.r <= output.m,
+          "Brightness gain produced an invalid premultiplied integer pixel");
+}
+
 void shapeAndNoise() {
   TRaster32P source(12, 1); source->clear(); source->pixels(0)[2] = TPixel32::Red;
   for (int x = 6; x <= 8; ++x) source->pixels(0)[x] = TPixel32::White;
@@ -301,6 +312,7 @@ int main(int argc, char **argv) {
   try {
     geometry(); directionsAndTiles<TPixel32>(); directionsAndTiles<TPixel64>(); directionsAndTiles<TPixelF>();
     rotationAndBorders<TPixel32>(); rotationAndBorders<TPixel64>(); rotationAndBorders<TPixelF>();
+    integerGainPremultiplication<TPixel32>(); integerGainPremultiplication<TPixel64>();
     shapeAndNoise(); noiseModes(); QTemporaryDir temp; require(temp.isValid(), "Cannot create scene fixture");
     precisionAndPersistence(temp.filePath("radial.fx"));
     presetAndMacro(temp.filePath("radial.preset"), temp.filePath("radial.macro")); initializedInputs(); cancellation();

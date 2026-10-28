@@ -367,6 +367,13 @@ bool renderRadial(const CelMotion::Image &source, const CelMotion::Image *noiseI
         };
         result.r = finiteFloat(result.r); result.g = finiteFloat(result.g);
         result.b = finiteFloat(result.b); result.m = finiteFloat(result.m);
+      } else {
+        // Integer rasters cannot represent HDR emission. Keep their RGB
+        // premultiplied after gain so downstream compositors see valid pixels.
+        const double alpha = std::max(0.0, std::min(1.0, result.m));
+        result.r = std::max(0.0, std::min(alpha, result.r));
+        result.g = std::max(0.0, std::min(alpha, result.g));
+        result.b = std::max(0.0, std::min(alpha, result.b));
       }
       row[x] = PixelConverter<Pixel>::from(result);
     }
