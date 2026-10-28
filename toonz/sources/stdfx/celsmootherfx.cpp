@@ -1,6 +1,7 @@
 #include "stdfx.h"
 #include "celsmoothing.h"
 #include "tfxparam.h"
+#include "tparamset.h"
 #include "tpixelutils.h"
 
 #include <iomanip>
@@ -121,7 +122,7 @@ class CelSmootherFx final : public TStandardRasterFx {
     TRenderSettings fullSettings(settings);
     fullSettings.m_getFullSizeBBox = true;
     TRectD box;
-    m_source->getBBox(frame, box, fullSettings);
+    static_cast<TRasterFx *>(m_source.getFx())->getBBox(frame, box, fullSettings);
     if (box == TConsts::infiniteRectD) box = settings.m_cameraBox;
     if (box.isEmpty()) return TRectD();
     if (!std::isfinite(box.x0) || !std::isfinite(box.y0) ||

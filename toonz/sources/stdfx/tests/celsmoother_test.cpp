@@ -141,6 +141,10 @@ void testKernel() {
   smooth(3, 3, source, output, 0, 100);
   require(std::abs(output[4].r - .01 * 25 / 64) < 1e-15,
           "Sub-8-bit values were quantized");
+  source.assign(9, Pixel{244.0/255,244.0/255,244.0/255,1});
+  source[4] = source[5] = source[7] = source[8] = {250.0/255,250.0/255,250.0/255,1};
+  smooth(3,3,source,output,6,100);
+  require(output[4].r == 250.0/255,"Inclusive integer range rounded away a boundary");
   source[4] = source[5] = source[7] = source[8] = {4, -2, .12345678, .5};
   source[0] = source[1] = source[2] = source[3] = source[6] = {0, 0, 0, 0};
   smooth(3, 3, source, output, 0, 100);

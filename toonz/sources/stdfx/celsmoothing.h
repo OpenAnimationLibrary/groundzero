@@ -51,8 +51,12 @@ inline bool smooth(int width, int height, const std::vector<Pixel> &source,
   strength = std::isfinite(strength) ? std::min(100.0, strength) : 100;
   const double slope = 100.0 / strength;
   const auto equal = [range](const Pixel &a, const Pixel &b) {
+    // Normalizing integer channels can round a boundary subtraction a few
+    // ulps upward. Preserve the inclusive integer range without broadening
+    // zero-range exact matching.
+    const double tolerance = range > 0 ? range + 4 * std::numeric_limits<double>::epsilon() : 0;
     return std::max({std::abs(a.r - b.r), std::abs(a.g - b.g),
-                     std::abs(a.b - b.b), std::abs(a.a - b.a)}) <= range;
+                     std::abs(a.b - b.b), std::abs(a.a - b.a)}) <= tolerance;
   };
   const auto interpolate = [&blend](const Pixel &a, const Pixel &b, double w) {
     return blend ? blend(a, b, w) : mix(a, b, w);
