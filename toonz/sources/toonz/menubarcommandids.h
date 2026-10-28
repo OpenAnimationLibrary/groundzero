@@ -137,6 +137,7 @@
 #define MI_Resequence "MI_Resequence"
 #define MI_CloneChild "MI_CloneChild"
 #define MI_ConvertToSymbol "MI_ConvertToSymbol"
+#define MI_SaveSymbolToLibrary "MI_SaveSymbolToLibrary"
 #define MI_SymbolTiming "MI_SymbolTiming"
 #define MI_DistributeToLayers "MI_DistributeToLayers"
 #define MI_DistributeToFrames "MI_DistributeToFrames"

@@ -5,6 +5,7 @@
 #include "menubarcommandids.h"
 #include "castselection.h"
 #include "symbolcommand.h"
+#include "librarycommand.h"
 
 // TnzQt includes
 #include "toonzqt/menubarcommand.h"
@@ -32,6 +33,7 @@
 #include <QDrag>
 #include <QAction>
 #include <QIcon>
+#include <QPointer>
 
 // STD includes
 #include <set>
@@ -44,6 +46,9 @@
 namespace {
 
 const QSize SymbolIconSize(80, 60);
+
+// The Symbols panel used last, for the commands working on its symbol
+QPointer<SymbolsPane> lastUsedPane;
 
 //-----------------------------------------------------------------------------
 
@@ -210,6 +215,13 @@ TXshChildLevel *SymbolsPane::getCurrentSymbol() const {
 
 //-----------------------------------------------------------------------------
 
+TXshChildLevel *SymbolsPane::getPanelSymbol() {
+  SymbolsPane *pane = lastUsedPane.data();
+  return (pane && pane->isVisible()) ? pane->getCurrentSymbol() : 0;
+}
+
+//-----------------------------------------------------------------------------
+
 // Returns the icon of the first symbol frame. Unless render is true, only an
 // icon already rendered is returned.
 QPixmap SymbolsPane::getIcon(TXshChildLevel *symbol, bool render) const {
@@ -223,6 +235,7 @@ QPixmap SymbolsPane::getIcon(TXshChildLevel *symbol, bool render) const {
 
 void SymbolsPane::showEvent(QShowEvent *e) {
   QWidget::showEvent(e);
+  lastUsedPane = this;
   refresh();
 }
 
@@ -318,6 +331,7 @@ void SymbolsPane::updateButtons() {
 //-----------------------------------------------------------------------------
 
 void SymbolsPane::onCurrentSymbolChanged() {
+  lastUsedPane = this;
   updateButtons();
   // render the icon of the current symbol, also when icons load on demand
   QListWidgetItem *item = m_list->currentItem();
@@ -337,6 +351,7 @@ void SymbolsPane::onContextMenu(const QPoint &pos) {
     menu.addAction(tr("Edit Symbol"), this, SLOT(editSymbol()));
     menu.addAction(tr("Duplicate Symbol"), this, SLOT(duplicateSymbol()));
     menu.addAction(tr("Rename Symbol..."), this, SLOT(renameSymbol()));
+    menu.addAction(tr("Save to Library..."), this, SLOT(saveToLibrary()));
     menu.addSeparator();
   }
   if (QAction *convertAction =
@@ -395,4 +410,10 @@ void SymbolsPane::renameSymbol() {
   for (int i = 0; i < m_list->count(); i++)
     if (m_list->item(i)->data(Qt::UserRole).toString() == name)
       m_list->setCurrentRow(i);
+}
+
+//-----------------------------------------------------------------------------
+
+void SymbolsPane::saveToLibrary() {
+  LibraryCmd::saveSymbolToLibrary(getCurrentSymbol());
 }

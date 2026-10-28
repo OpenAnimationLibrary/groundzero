@@ -536,6 +536,15 @@ if(BUILD_COLUMNCOLOREFFECT_TESTS)
     add_test(NAME columncoloreffect COMMAND columncoloreffect_test)
 endif()
 
+# Optional regression target for the item names and the pose set merge of
+# the shared Library (libraryitems.h).
+option(BUILD_LIBRARYITEMS_TESTS "Build the shared Library helpers regression test" ${BUILD_TESTS})
+if(BUILD_LIBRARYITEMS_TESTS)
+    add_executable(libraryitems_test tests/libraryitems_test.cpp)
+    target_link_libraries(libraryitems_test PRIVATE tnzcore Qt${QT_VERSION_MAJOR}::Core)
+    add_test(NAME libraryitems COMMAND libraryitems_test)
+endif()
+
 # Optional regression target for the export to an aspect ratio
 # (TOutputProperties and its scene file tag).
 option(BUILD_ASPECTEXPORT_TESTS "Build the aspect ratio export regression test" ${BUILD_TESTS})

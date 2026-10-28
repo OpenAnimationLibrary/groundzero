@@ -215,6 +215,7 @@ set(HEADERS
     symbolcommand.h
     distributecommand.h
     distributeutil.h
+    librarycommand.h
     tfarmstuff.h
     versioncontrolgui.h
     versioncontrolxmlreader.h
@@ -381,6 +382,7 @@ set(SOURCES
     subscenecommand.cpp
     symbolcommand.cpp
     distributecommand.cpp
+    librarycommand.cpp
     svncleanupdialog.cpp
     svncommitdialog.cpp
     svndeletedialog.cpp
