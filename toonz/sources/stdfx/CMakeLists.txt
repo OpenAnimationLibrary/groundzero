@@ -169,6 +169,7 @@ set(SOURCES
     raylitfx.cpp
     celcolorkeepfx.cpp
     celcolorkeyfx.cpp
+    celcolorexpandfx.cpp
     rgbkeyfx.cpp
     rgbmcutfx.cpp
     rgbmfadefx.cpp
@@ -445,4 +446,16 @@ if(BUILD_CELFX_TESTS)
     add_custom_target(celfx_tests DEPENDS celcolorkeep_test celcolorkeep_ui_test celcolorkey_test celcolorkey_ui_test celcolorkeymath_test)
     set_tests_properties(celfx_colorkeep celfx_colorkeep_ui celfx_colorkey celfx_colorkey_ui celfx_colorkey_math PROPERTIES
                          ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
+endif()
+
+if(BUILD_CELFX_TESTS)
+    add_executable(celcolorexpand_test tests/celcolorexpand_test.cpp)
+    target_link_libraries(celcolorexpand_test Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME celfx_colorexpand COMMAND celcolorexpand_test)
+    add_executable(celcolorexpand_ui_test tests/celcolorexpand_ui_test.cpp)
+    target_link_libraries(celcolorexpand_ui_test toonzqt Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Widgets ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME celfx_colorexpand_ui COMMAND celcolorexpand_ui_test
+             ${CMAKE_CURRENT_SOURCE_DIR}/../../../stuff/profiles/layouts/fxs/STD_celColorExpandFx.xml)
+    add_dependencies(celfx_tests celcolorexpand_test celcolorexpand_ui_test)
+    set_tests_properties(celfx_colorexpand celfx_colorexpand_ui PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
 endif()

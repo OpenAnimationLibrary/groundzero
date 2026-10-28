@@ -1165,6 +1165,8 @@
   <item>"STD_celColorKeyFx.replace025" "Use Replacement 25" </item>
   <item>"STD_celColorKeyFx.replacement025" "Replacement Color 25" </item>
 
+  <item>"STD_celColorExpandFx" "Cel Color Expand" </item>
+  <item>"STD_celColorExpandFx.radius" "Search Radius" </item>
   <item>"STD_celColorKeepFx" "Cel Color Keep" </item>
   <item>"STD_celColorKeepFx.enabledColors" "Enabled Colors" </item>
   <item>"STD_celColorKeepFx.color001" "Color 1" </item>
