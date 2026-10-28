@@ -228,7 +228,12 @@ bool applyKey(const TRasterPT<Pixel> &source, const TRasterPT<Pixel> &output,
       if (keep && replace && selectedIndex >= 0 && entries[selectedIndex].replace) {
         const CelKey::RGB &color = entries[selectedIndex].replacement;
         if (!CelKey::finite(color)) { dest[x] = Pixel::Transparent; continue; }
-        pixel.r = color[0] * pixel.m; pixel.g = color[1] * pixel.m; pixel.b = color[2] * pixel.m;
+        // Integer rasters require RGB to stay within the alpha coverage.
+        // Float rasters retain finite HDR replacement colors.
+        const bool isFloat = std::is_same<Pixel, TPixelF>::value;
+        pixel.r = (isFloat ? color[0] : bounded(color[0], 0, 1)) * pixel.m;
+        pixel.g = (isFloat ? color[1] : bounded(color[1], 0, 1)) * pixel.m;
+        pixel.b = (isFloat ? color[2] : bounded(color[2], 0, 1)) * pixel.m;
       } else {
         pixel.r *= alphaFactor; pixel.g *= alphaFactor; pixel.b *= alphaFactor;
       }
