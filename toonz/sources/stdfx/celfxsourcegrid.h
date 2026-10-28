@@ -24,26 +24,34 @@ inline bool invertible(const TAffine &affine) {
   return true;
 }
 
-inline TAffine nativeToWorld(TFx *source, double frame) {
+struct Grid {
   TAffine placement;
+  TPointD phase;
+};
+
+inline Grid discover(TFx *source, double frame) {
+  TAffine placement;
+  TRasterFx *canvas = nullptr;
+  bool markerNeedsInput = false;
   std::set<TFx *> visited;
-  while (source && visited.insert(source).second) {
+  while (source) {
+    if (!visited.insert(source).second) return Grid();
     auto *raster = dynamic_cast<TRasterFx *>(source);
-    if (!raster) return TAffine();
+    if (!raster) return Grid();
     const bool enabled = source->getAttributes()->isEnabled();
     // Identity DPI needs no affine node. The scene builder marks the original
     // raster source in that case, so keep placements accumulated above it.
-    if (enabled && source->getInputPortCount() == 0 &&
+    if (!canvas && enabled && source->getInputPortCount() == 0 &&
         source->getName() == L"LevelColumn AffineFx")
-      return placement;
+      canvas = raster;
     auto *geometry = dynamic_cast<TGeometryFx *>(source);
-    if (enabled && geometry && geometry->getActiveTimeRegion().contains(frame)) {
+    if (!canvas && enabled && geometry && geometry->getActiveTimeRegion().contains(frame)) {
       placement = placement * geometry->getPlacement(frame);
-      if (!invertible(placement)) return TAffine();
+      if (!invertible(placement)) return Grid();
       auto *affine = dynamic_cast<NaAffineFx *>(geometry);
       if (affine && (affine->isDpiAffine() ||
                      affine->getName() == L"LevelColumn AffineFx"))
-        return placement;
+        markerNeedsInput = true;
     }
     TFx *next = nullptr;
     if (!enabled) {
@@ -55,17 +63,42 @@ inline TAffine nativeToWorld(TFx *source, double frame) {
       for (int port = 0; port < source->getInputPortCount(); ++port) {
         TFxPort *input = source->getInputPort(port);
         if (!input->isConnected()) continue;
-        if (next || !dynamic_cast<TRasterFx *>(input->getFx())) return TAffine();
+        if (next || !dynamic_cast<TRasterFx *>(input->getFx())) return Grid();
         next = input->getFx();
       }
     }
+    if (markerNeedsInput) {
+      canvas = dynamic_cast<TRasterFx *>(next);
+      if (!canvas) return Grid();
+      markerNeedsInput = false;
+    }
     source = next;
   }
-  return TAffine();
+  if (!canvas) return Grid();
+  // Raster levels are centered on the level canvas. An odd-sized canvas has a
+  // half-pixel origin that must survive DPI cancellation. Query the unrounded
+  // full canvas, not the rounded render bbox or the content's savebox.
+  TRenderSettings settings;
+  settings.m_getFullSizeBBox = true;
+  TRectD bounds;
+  if (!canvas->doGetBBox(frame, bounds, settings) || bounds.isEmpty() ||
+      !std::isfinite(bounds.x0) || !std::isfinite(bounds.y0) ||
+      !std::isfinite(bounds.x1) || !std::isfinite(bounds.y1))
+    return Grid();
+  Grid result;
+  result.placement = placement;
+  result.phase = TPointD(std::floor(bounds.x0) - bounds.x0,
+                         std::floor(bounds.y0) - bounds.y0);
+  return result;
+}
+
+inline TAffine nativeToWorld(TFx *source, double frame) {
+  return discover(source, frame).placement;
 }
 
 inline TAffine renderAffine(TFx *source, double frame) {
-  TAffine grid = nativeToWorld(source, frame).inv();
+  const Grid sourceGrid = discover(source, frame);
+  TAffine grid = TTranslation(sourceGrid.phase) * sourceGrid.placement.inv();
   // TRasterFx moves whole-pixel translations into the tile origin before
   // consulting handledAffine. Return the same canonical form to prevent a
   // repeated affine wrapper while retaining the native sampling phase.

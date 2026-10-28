@@ -27,21 +27,22 @@ class Source final : public TStandardRasterFx {
   TRasterP m_raster;
   bool *m_observedClean;
   bool m_affineAware;
+  TPointD m_origin;
 public:
   explicit Source(const TRasterP &raster, bool *observedClean = nullptr,
-                  bool affineAware = false)
+                  bool affineAware = false, TPointD origin = TPointD())
       : m_raster(raster), m_observedClean(observedClean),
-        m_affineAware(affineAware) {}
+        m_affineAware(affineAware), m_origin(origin) {}
   const TPersistDeclaration *getDeclaration() const override { return nullptr; }
   bool canHandle(const TRenderSettings &, double) override { return true; }
   bool doGetBBox(double, TRectD &box, const TRenderSettings &) override {
-    box = TRectD(0, 0, m_raster->getLx(), m_raster->getLy()); return true;
+    box = TRectD(m_origin, TDimensionD(m_raster->getLx(), m_raster->getLy())); return true;
   }
   std::string getAlias(double, const TRenderSettings &) const override { return "key-test-source"; }
   void compute(TTile &tile, double, const TRenderSettings &settings) override {
     if (m_affineAware) {
       tile.getRaster()->clear();
-      TTile source(m_raster, TPointD());
+      TTile source(m_raster, m_origin);
       TRasterFx::applyAffine(tile, source, settings);
       return;
     }
@@ -335,6 +336,53 @@ void testLevelDpiGrid() {
     }
   }
 }
+
+template <class Pixel>
+void testOddLevelDpiGrid() {
+  constexpr int width = 23, height = 17;
+  const TPointD origin(-0.5 * width, -0.5 * height);
+  TRasterPT<Pixel> image(width, height);
+  for (int y = 0; y < height; ++y)
+    for (int x = 0; x < width; ++x)
+      image->pixels(y)[x] = PixelConverter<Pixel>::from(
+          x >= 7 && x <= 15 && y >= 5 && y <= 11 ? TPixelD(0, 1, 0, 1) : TPixelD(1, 0, 0, 1));
+  TFxP integerSource = new Source(image, nullptr, true);
+  TFxP centeredSource = new Source(image, nullptr, true, origin);
+  for (const TAffine &dpiScale : std::vector<TAffine>{TAffine(), TScale(.25, .5)}) {
+    TFxP dpi = TFxUtil::makeAffine(centeredSource, dpiScale);
+    dpi->setName(L"LevelColumn AffineFx");
+    const TAffine placement = TTranslation(2.125, -.375) * TRotation(11) * dpiScale;
+    TFxP placed = TFxUtil::makeAffine(dpi, TTranslation(2.125, -.375) * TRotation(11));
+    const TPointD aligned = CelFxSourceGrid::renderAffine(placed.getPointer(), 0) * placement * origin;
+    require(std::abs(aligned.x - std::round(aligned.x)) < 1e-10 &&
+                std::abs(aligned.y - std::round(aligned.y)) < 1e-10,
+            "Odd level canvas did not align to native pixel centers");
+    TFxP nativeOwner = new CelColorKeyFx, placedOwner = new CelColorKeyFx;
+    auto &native = *static_cast<CelColorKeyFx *>(nativeOwner.getPointer());
+    auto &keyed = *static_cast<CelColorKeyFx *>(placedOwner.getPointer());
+    native.getInputPort(0)->setFx(integerSource.getPointer());
+    keyed.getInputPort(0)->setFx(placed.getPointer());
+    for (TFx *effect : {nativeOwner.getPointer(), placedOwner.getPointer()}) {
+      number(*effect, "use001")->setDefaultValue(1);
+      number(*effect, "keep")->setDefaultValue(1);
+      number(*effect, "thin")->setDefaultValue(1.5);
+      number(*effect, "blur")->setDefaultValue(1.25);
+      color(*effect, "key001")->setDefaultValue(TPixel32(0, 255, 0));
+    }
+    for (bool linear : {false, true}) {
+      const TAffine camera = TTranslation(3.5, 2.25) * TScale(2);
+      // The reference starts from integer-origin pixels; it cannot accidentally
+      // share the half-pixel resampling defect of the centered level graph.
+      const auto expected = hostRender<Pixel>(native,
+          camera * placement * TTranslation(origin), 1, linear, true);
+      const auto full = hostRender<Pixel>(keyed, camera, 1, linear, true);
+      compareImages(expected, full, "Odd level canvas was resampled before color classification");
+      compareImages(full, hostRender<Pixel>(keyed, camera, 4, linear, true),
+                    "Odd level canvas introduced tile seams");
+    }
+    centeredSource->setName(L"Source");
+  }
+}
 template <class Pixel>
 void testRaster() {
   CelColorKeyFx fx;
@@ -528,6 +576,7 @@ int main(int argc, char **argv) {
     std::cout << "Checking native pixels across level DPI placement" << std::endl;
     testSourceGridDiscovery();
     testLevelDpiGrid<TPixel32>(); testLevelDpiGrid<TPixel64>(); testLevelDpiGrid<TPixelF>();
+    testOddLevelDpiGrid<TPixel32>(); testOddLevelDpiGrid<TPixel64>(); testOddLevelDpiGrid<TPixelF>();
     testPartiallyWrittenSource();
     checkInputSize(2, 3, 16);
     bool tooLarge = false;
