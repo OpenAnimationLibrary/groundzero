@@ -211,6 +211,8 @@ set(HEADERS
     subcameramanager.h
     subscenecommand.h
     symbolcommand.h
+    distributecommand.h
+    distributeutil.h
     tfarmstuff.h
     versioncontrolgui.h
     versioncontrolxmlreader.h
@@ -372,6 +374,7 @@ set(SOURCES
     print.cpp
     subscenecommand.cpp
     symbolcommand.cpp
+    distributecommand.cpp
     svncleanupdialog.cpp
     svncommitdialog.cpp
     svndeletedialog.cpp
@@ -850,4 +853,13 @@ if(BUILD_SPINE_EXPORT_TESTS)
     add_executable(spineexport_test tests/spineexport_test.cpp)
     target_include_directories(spineexport_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     add_test(NAME spineexport COMMAND spineexport_test)
+endif()
+
+# Optional regression target for the helpers of Distribute to Layers / Frames
+# (distributeutil.h, header-only).
+option(BUILD_DISTRIBUTE_TESTS "Build the Distribute to Layers/Frames helpers test" ${BUILD_TESTS})
+if(BUILD_DISTRIBUTE_TESTS)
+    add_executable(distributeutil_test tests/distributeutil_test.cpp)
+    target_include_directories(distributeutil_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    add_test(NAME distributeutil COMMAND distributeutil_test)
 endif()

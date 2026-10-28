@@ -2,6 +2,7 @@
 
 #include "mainwindow.h"
 #include "convertlinestoareascommand.h"
+#include "distributecommand.h"
 #include "rigeasecommand.h"
 #include "customhelplink.h"
 
@@ -2401,6 +2402,13 @@ void MainWindow::defineActions() {
   createMenuEditAction(MI_DistributeVertical,
                        QT_TR_NOOP("Distribute Vertically"), "",
                        "select_distribute_v");
+  createMenuEditAction(MI_DistributeToLayers,
+                       QT_TR_NOOP("Distribute to Layers"), "");
+  createMenuEditAction(MI_DistributeToFrames,
+                       QT_TR_NOOP("Distribute to Frames"), "");
+  createMenuEditAction(MI_ConvertSelectionToSymbol,
+                       QT_TR_NOOP("Convert Selection to Symbol..."), "");
+  initDistributeCommands(this);
 
   createMenuEditAction(MI_SelectAll, QT_TR_NOOP("&Select All"), "Ctrl+A",
                        "select_all");
