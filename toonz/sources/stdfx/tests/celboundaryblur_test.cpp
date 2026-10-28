@@ -126,10 +126,12 @@ class BlurSource final : public TStandardRasterFx {
   TRasterP m_image;
   int *m_cancel;
   bool m_clear;
+  bool m_transform;
 public:
   TRectD dryRequest;
-  explicit BlurSource(TRasterP image, int *cancel = nullptr, bool clear = true)
-      : m_image(image), m_cancel(cancel), m_clear(clear) {}
+  explicit BlurSource(TRasterP image, int *cancel = nullptr, bool clear = true,
+                      bool transform = false)
+      : m_image(image), m_cancel(cancel), m_clear(clear), m_transform(transform) {}
   const TPersistDeclaration *getDeclaration() const override { return nullptr; }
   bool canHandle(const TRenderSettings &, double) override { return true; }
   bool doGetBBox(double, TRectD &box, const TRenderSettings &) override {
@@ -137,9 +139,14 @@ public:
                   m_image->getLy() + (m_clear ? 0 : 2)); return true;
   }
   std::string getAlias(double, const TRenderSettings &) const override { return "boundary-source"; }
-  void compute(TTile &tile, double, const TRenderSettings &) override {
+  void compute(TTile &tile, double, const TRenderSettings &settings) override {
     if (m_clear) tile.getRaster()->clear();
-    tile.getRaster()->copy(m_image, TPoint(-int(tile.m_pos.x), -int(tile.m_pos.y)));
+    if (m_transform) {
+      TTile source(m_image, TPointD());
+      TRasterFx::applyAffine(tile, source, settings);
+    } else {
+      tile.getRaster()->copy(m_image, TPoint(-int(tile.m_pos.x), -int(tile.m_pos.y)));
+    }
     if (m_cancel) *m_cancel = 1;
   }
   void doCompute(TTile &tile, double frame, const TRenderSettings &info) override { compute(tile, frame, info); }
@@ -312,6 +319,134 @@ void workflowTest() {
               output->pixels(0)[2] == TPixel32::Transparent,
           "Color Keep followed by boundary blur did not isolate color transitions");
 }
+
+struct BlurRenderContext {
+  TRenderer renderer;
+  unsigned long id;
+  BlurRenderContext() : renderer(1), id(TRenderer::buildRenderId()) {
+    renderer.install(id);
+    renderer.declareRenderStart(id);
+    renderer.declareFrameStart(0);
+  }
+  ~BlurRenderContext() {
+    renderer.declareFrameEnd(0);
+    renderer.declareRenderEnd(id);
+    renderer.uninstall();
+  }
+};
+
+template <class Pixel> void keyWorkflowTest() {
+  BlurRenderContext context;
+  const double scale = blurChannelScale<Pixel>();
+  const double half = scale == 1 ? .5 : std::floor(scale / 2);
+  const double alpha = half / scale;
+  TRasterPT<Pixel> image(3,1);
+  image->pixels(0)[0] = Pixel(scale,0,0,scale);
+  image->pixels(0)[1] = Pixel(0,0,half,half);
+  image->pixels(0)[2] = Pixel(0,scale,0,scale);
+  TFxP key = TFx::create("STD_celColorKeyFx");
+  require(bool(key), "Color Key production registration is missing");
+  key->getInputPort(0)->setFx(new BlurSource(image));
+  auto keyColor = [&](const char *name, TPixel32 color) {
+    TPixelParamP slot = TParamP(key->getParams()->getParam(name));
+    slot->setDefaultValue(color);
+  };
+  CelBoundaryBlurFx blur;
+  blur.getInputPort(0)->setFx(key.getPointer());
+  value(blur,"amount",1); value(blur,"smoothness",100); value(blur,"repeats",1);
+  TRenderSettings settings;
+  settings.m_bpp = scale == 1 ? 128 : (scale == 255 ? 32 : 64);
+  const double tolerance = scale == 1 ? 1e-6 : 1.0 / scale;
+  // Removing green and keeping red/blue must produce the same coverage mask.
+  // Check the native analytical weights, without using the optimized filter
+  // or the original plugin as an expected-output generator.
+  for (bool keep : {false,true}) {
+    value(*key,"keep",keep ? 1 : 0);
+    value(*key,"enabledColors",keep ? 2 : 1);
+    value(*key,"use001",1); value(*key,"use002",keep ? 1 : 0);
+    keyColor("key001", keep ? TPixel32(255,0,0) : TPixel32(0,255,0));
+    keyColor("key002", TPixel32(0,0,255));
+    for (bool legacy : {false,true}) {
+      value(blur,"legacy",legacy ? 1 : 0);
+      const auto output = render<Pixel>(blur,3,1,TPointD(),0,settings);
+      const double red0 = legacy ? .5 : 2.0 / (2.0 + alpha);
+      const double blue0 = legacy ? .5 : alpha / (2.0 + alpha);
+      const double red1 = legacy ? .5 * alpha : alpha / (1 + 2 * alpha);
+      const double blue1 = legacy ? .5 * alpha : 2 * alpha * alpha / (1 + 2 * alpha);
+      require(std::abs(output->pixels(0)[0].r / scale - red0) <= tolerance &&
+                  std::abs(output->pixels(0)[0].b / scale - blue0) <= tolerance &&
+                  std::abs(output->pixels(0)[1].r / scale - red1) <= tolerance &&
+                  std::abs(output->pixels(0)[1].b / scale - blue1) <= tolerance,
+              "Color Key followed by Blur changed native coverage weights");
+      require(output->pixels(0)[0].m == scale && output->pixels(0)[1].m == half &&
+                  output->pixels(0)[2] == Pixel::Transparent,
+              "Color Key followed by Blur changed the selected alpha mask");
+    }
+  }
+}
+
+TRasterFP hostRender(CelBoundaryBlurFx &fx, int strips,
+                     const TAffine &affine, bool linear) {
+  BlurRenderContext context;
+  constexpr int width = 48, height = 36;
+  TRasterFP output(width,height);
+  output->clear(); output->setLinear(linear);
+  TRenderSettings settings;
+  settings.m_bpp = 128;
+  settings.m_affine = affine;
+  settings.m_linearColorSpace = linear;
+  settings.m_cameraBox = TRectD(-16,-12,32,24);
+  for (int strip = 0; strip < strips; ++strip) {
+    const int y0 = height * strip / strips, y1 = height * (strip + 1) / strips;
+    TRasterFP part(width,y1-y0);
+    part->clear(); part->setLinear(linear);
+    TTile tile(part,TPointD(-16.25,-12.5+y0));
+    fx.compute(tile,0,settings);
+    output->copy(tile.getRaster(),TPoint(0,y0));
+  }
+  return output;
+}
+
+void hostTransformTests() {
+  TRasterFP image(17,13);
+  for (int y = 0; y < 13; ++y)
+    for (int x = 0; x < 17; ++x) {
+      const float alpha = ((x * 3 + y) % 7 == 0) ? 0 : ((x + y) % 3 == 0 ? .4f : 1);
+      image->pixels(y)[x] = TPixelF(alpha * (x < 8 ? 2 : .1f),
+          alpha * (y < 6 ? .2f : .75f), alpha * .4f, alpha);
+    }
+  TFxP owner = new CelBoundaryBlurFx;
+  auto &fx = *static_cast<CelBoundaryBlurFx *>(owner.getPointer());
+  fx.getInputPort(0)->setFx(new BlurSource(image,nullptr,true,true));
+  value(fx,"amount",2.25); value(fx,"smoothness",63);
+  const std::vector<TAffine> transforms{
+      TTranslation(2.5,-1.25) * TScale(1.25),
+      TTranslation(3.5,1.25) * TRotation(27) * TScale(1.4,.7),
+      TTranslation(18.5,1.25) * TScale(-1.2,.8),
+      TAffine(1.1,.35,2.5,-.2,.9,1.75)};
+  for (const auto &affine : transforms)
+    for (bool linear : {false,true})
+      for (int bias : {0,1})
+        for (int legacy : {0,1}) {
+          value(fx,"bias",bias); value(fx,"legacy",legacy); value(fx,"repeats",3);
+          const auto full = hostRender(fx,1,affine,linear);
+          const auto strips = hostRender(fx,6,affine,linear);
+          value(fx,"repeats",0);
+          const auto identity = hostRender(fx,1,affine,linear);
+          bool visible = false;
+          for (int y = 0; y < full->getLy(); ++y)
+            for (int x = 0; x < full->getLx(); ++x) {
+              const auto &a = full->pixels(y)[x], &b = strips->pixels(y)[x];
+              visible = visible || a.m > .2f;
+              require(std::max({std::abs(a.r-b.r),std::abs(a.g-b.g),
+                                std::abs(a.b-b.b),std::abs(a.m-b.m)}) <= 2e-5f,
+                      "Transformed host blur introduced strip seams");
+              require(std::abs(a.m - identity->pixels(y)[x].m) <= 2e-5f,
+                      "Transformed host blur changed the source alpha silhouette");
+            }
+          require(visible,"Transformed host blur produced no visible image");
+        }
+}
 }  // namespace
 
 int main(int argc, char **argv) {
@@ -329,6 +464,9 @@ int main(int argc, char **argv) {
     persistenceTests(temp);
     std::cout << "Checking color selection workflow" << std::endl;
     workflowTest();
+    keyWorkflowTest<TPixel32>(); keyWorkflowTest<TPixel64>(); keyWorkflowTest<TPixelF>();
+    std::cout << "Checking transformed host blur" << std::endl;
+    hostTransformTests();
     std::cout << "PASS: boundary math, all controls, precision, support, tiles, cancellation and persistence\n";
     result = 0;
   } catch (const TException &error) {
