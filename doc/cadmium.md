@@ -62,7 +62,12 @@ Toonz Raster results retain native palette paint, inks, and antialiasing tone.
 Vector results update native region fills while retaining strokes and geometry.
 Full-color results create a new level in the scene cast and preserve the source;
 insert the result into the scene where required. Supported sample precision and
-image geometry are retained. Undo and redo replay stored accepted results without
+image geometry are retained. The model uses display-color proxies; accepted
+full-color fills use exact native reference samples, including high-bit-depth
+and HDR values. Distinct native fills sharing one model color require an explicit
+reference-fill choice. References without a dominant flat native fill need
+another reference or an explicit skip.
+Undo and redo replay stored accepted results without
 running the model again.
 
 Input limits

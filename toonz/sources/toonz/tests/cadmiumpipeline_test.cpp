@@ -1,4 +1,5 @@
 #include "cadmiumcodec.h"
+#include "cadmiumcolor.h"
 #include "cadmiumruntime.h"
 #include "tregion.h"
 #include "trasterimage.h"
@@ -351,7 +352,16 @@ void fullColorPipeline(CadmiumRuntime *runtime) {
   QVector<int> styles;
   QVector<QColor> colors;
   prediction(infer(runtime, requestFor(ref, frame)), frame, styles, colors);
-  const TRasterImageP result(Cadmium::applyFullColor(frame, styles, colors, false, error));
+  QVector<Cadmium::NativeColor> nativeColors(colors.size());
+  for (int region = 1; region < colors.size(); ++region) {
+    const QVector<int> matches = Cadmium::matchingNativeRegions(ref, colors[region]);
+    require(matches.size() == 1,
+            "The full-color prediction did not resolve its unique native reference.");
+    styles[region] = matches[0];
+    nativeColors[region] = ref.nativeRegionColors[matches[0]];
+  }
+  const TRasterImageP result(Cadmium::applyFullColor(
+      frame, styles, colors, false, error, nativeColors));
   require(bool(result), error);
   const TRaster32P before = target->getRaster(), after = result->getRaster();
   require(bool(after), "The full-color sample format changed.");
@@ -366,6 +376,74 @@ void fullColorPipeline(CadmiumRuntime *runtime) {
         require(before->pixels(y)[x] == after->pixels(y)[x],
                 "Inference modified protected full-color ink or exterior pixels.");
     }
+  rasterMetadata(TImageP(target.getPointer()), TImageP(result.getPointer()));
+}
+
+template <typename Raster, typename Pixel>
+void nativeFullColorPipeline(CadmiumRuntime *runtime, const Pixel &fill,
+                             bool linear) {
+  const auto drawing = [&](bool painted) {
+    Raster raster(256, 256);
+    raster->setLinear(linear);
+    for (int y = 0; y < 256; ++y)
+      for (int x = 0; x < 256; ++x)
+        raster->pixels(y)[x] = linePixel(x, y) ? Pixel::Black
+            : painted && interiorPixel(x, y) ? fill : Pixel::Transparent;
+    TRasterImageP image(raster);
+    image->setDpi(120.0, 144.0);
+    image->setOffset(TPoint(3, -7));
+    return image;
+  };
+  const TRasterImageP reference = drawing(true), target = drawing(false);
+  Cadmium::Frame ref, frame;
+  ref.rasterSource = Cadmium::RasterSource::LinkedLines;
+  ref.lineSource = TImageP(target.getPointer());
+  QString error;
+  require(Cadmium::snapshotFullColor(TImageP(reference.getPointer()), ref, error), error);
+  require(Cadmium::snapshotFullColor(TImageP(target.getPointer()), frame, error), error);
+  require(ref.regionColors.size() == 2 && ref.nativeRegionColors.size() == 2 &&
+              frame.regionColors.size() == 2 && ref.nativeRegionColors[1].valid,
+          "The native full-color fixtures need one valid enclosed reference region.");
+
+  const QJsonObject response = infer(runtime, requestFor(ref, frame, false));
+  const QJsonArray ids = response.value("target_color_ids").toArray();
+  const QJsonArray rgba = response.value("target_colors_rgba").toArray();
+  require(ids.size() == 2 && rgba.size() == 2 && ids[1].isDouble() &&
+              ids[1].toDouble() == 1.0 && rgba[1].isArray(),
+          "The model did not identify the native reference's proxy color.");
+  const QJsonArray pixel = rgba[1].toArray();
+  require(pixel.size() == 4, "The native reference prediction has an invalid color tuple.");
+  const QColor proxy = ref.regionColors[1];
+  const int channels[] = {proxy.red(), proxy.green(), proxy.blue(), proxy.alpha()};
+  for (int channel = 0; channel < 4; ++channel)
+    require(pixel[channel].isDouble() && pixel[channel].toDouble() == channels[channel],
+            "The model changed the native reference's proxy color.");
+  const QVector<int> matches = Cadmium::matchingNativeRegions(ref, proxy);
+  require(matches == QVector<int>({1}),
+          "The model prediction did not resolve its unique native reference.");
+  QVector<int> styles(2, -100);
+  QVector<QColor> colors(2);
+  QVector<Cadmium::NativeColor> nativeColors(2);
+  styles[1] = matches[0];
+  colors[1] = proxy;
+  nativeColors[1] = ref.nativeRegionColors[matches[0]];
+  const TRasterImageP result(Cadmium::applyFullColor(
+      frame, styles, colors, false, error, nativeColors));
+  require(bool(result), error);
+  const Raster before = target->getRaster(), after = result->getRaster();
+  require(bool(after) && after->isLinear() == linear,
+          "Native full-color application changed sample format or color space.");
+  for (int y = 0; y < 256; ++y)
+    for (int x = 0; x < 256; ++x) {
+      const Pixel original = linePixel(x, y) ? Pixel::Black : Pixel::Transparent;
+      require(before->pixels(y)[x] == original,
+              "Native full-color inference modified its original target.");
+      require(after->pixels(y)[x] == (interiorPixel(x, y) ? fill : original),
+              "Real-model reference transfer lost native channel precision or protected pixels.");
+    }
+  const Raster referencePixels = reference->getRaster();
+  require(referencePixels->pixels(128)[128] == fill,
+          "Native full-color inference modified its painted reference.");
   rasterMetadata(TImageP(target.getPointer()), TImageP(result.getPointer()));
 }
 }  // namespace
@@ -399,6 +477,11 @@ int main(int argc, char **argv) {
     std::cout << "Real-model vector pipeline passed.\n";
     fullColorPipeline(runtime);
     std::cout << "Real-model full-color pipeline passed.\n";
+    nativeFullColorPipeline<TRaster64P>(runtime, TPixel64(59111, 7723, 5143, 65535), false);
+    std::cout << "Real-model 16-bit native reference transfer passed.\n";
+    nativeFullColorPipeline<TRasterFP>(
+        runtime, TPixelF(2.345678f, 0.1234567f, -0.1251234f, 1.f), true);
+    std::cout << "Real-model float HDR native reference transfer passed.\n";
     runtime->stop();
     return 0;
   } catch (const std::exception &error) {

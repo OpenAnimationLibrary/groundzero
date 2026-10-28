@@ -3,6 +3,7 @@
 #include "cadmiumsource.h"
 #include "cadmiumdestination.h"
 #include "cadmiumcodec.h"
+#include "cadmiumcolor.h"
 #include "trop.h"
 #include "tropcm.h"
 #include <cmath>
@@ -27,6 +28,7 @@
 #include <QFileDialog>
 #include <QFormLayout>
 #include <QHeaderView>
+#include <QHash>
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QLabel>
@@ -359,6 +361,7 @@ CadmiumPopup::CadmiumPopup(QWidget *parent) : QDialog(parent) {
     cancel();
     for (Drawing &drawing : m_drawings) {
       drawing.ready = false; drawing.colors.clear(); drawing.styles.clear();
+      drawing.nativeColors.clear();
       drawing.target = Cadmium::Frame(); drawing.reference = Cadmium::Frame();
     }
     refresh(); refreshPreview();
@@ -539,7 +542,7 @@ void CadmiumPopup::generate() {
   for (Drawing &drawing : m_drawings) {
     drawing.ready = false; drawing.applied = false; drawing.reviewed = false; drawing.error.clear();
     drawing.target = Cadmium::Frame(); drawing.reference = Cadmium::Frame();
-    drawing.colors.clear(); drawing.styles.clear();
+    drawing.colors.clear(); drawing.styles.clear(); drawing.nativeColors.clear();
   }
   next();
 }
@@ -563,11 +566,18 @@ void CadmiumPopup::next() {
   auto memory = [](const Cadmium::Frame &frame) {
     return TUndo::getImageMemorySize(frame.original.getPointer()) +
            TUndo::getImageMemorySize(frame.lineSource.getPointer()) +
-           qint64(frame.lines.sizeInBytes()) + qint64(frame.labels.size()) * sizeof(int);
+           qint64(frame.lines.sizeInBytes()) +
+           qint64(frame.labels.size() + frame.regionStyles.size() +
+                  frame.nativeRegionIndices.size()) * qint64(sizeof(int)) +
+           qint64(frame.regionColors.size()) * qint64(sizeof(QColor)) +
+           qint64(frame.nativeRegionColors.size()) * qint64(sizeof(Cadmium::NativeColor));
   };
   qint64 held = 0;
   for (const Drawing &cached : m_drawings)
-    held += memory(cached.target) + memory(cached.reference);
+    held += memory(cached.target) + memory(cached.reference) +
+            qint64(cached.styles.size()) * qint64(sizeof(int)) +
+            qint64(cached.colors.size()) * qint64(sizeof(QColor)) +
+            qint64(cached.nativeColors.size()) * qint64(sizeof(Cadmium::NativeColor));
   for (const TFrameId &fid : {drawing.fid, drawing.referenceId}) {
     const TImageP image = Cadmium::loadDrawing(m_level.getPointer(), fid);
     held += std::max<qint64>(16LL * 1024 * 1024,
@@ -686,9 +696,11 @@ void CadmiumPopup::received(const QJsonObject &response) {
     failed(tr("Worker returned the wrong number of region predictions.")); return;
   }
   drawing.styles.fill(-1, colors.size()); drawing.colors.resize(colors.size());
+  drawing.nativeColors.fill(Cadmium::NativeColor(), colors.size());
   QVector<QColor> palette;
   for (const QColor &color : drawing.reference.regionColors)
     if (!palette.contains(color)) palette.append(color);
+  QHash<QRgb, QVector<int>> nativeChoices;
   for (int i = 0; i < colors.size(); ++i) {
     if (!ids[i].isDouble() || ids[i].toDouble() != ids[i].toInt()) {
       failed(tr("Worker returned a malformed palette index.")); return;
@@ -713,7 +725,14 @@ void CadmiumPopup::received(const QJsonObject &response) {
     }
     drawing.colors[i] = color;
     if (drawing.target.kind == Cadmium::Kind::FullColor) {
-      drawing.styles[i] = 0; continue;
+      if (!nativeChoices.contains(color.rgba()))
+        nativeChoices.insert(color.rgba(), Cadmium::matchingNativeRegions(drawing.reference, color));
+      const QVector<int> &candidates = nativeChoices[color.rgba()];
+      if (candidates.size() == 1) {
+        drawing.styles[i] = candidates.front();
+        drawing.nativeColors[i] = drawing.reference.nativeRegionColors[candidates.front()];
+      }
+      continue;
     }
     QSet<int> styles;
     for (int region = 0; region < drawing.reference.regionColors.size(); ++region)
@@ -826,6 +845,7 @@ void CadmiumPopup::refreshPreview() {
   if (!drawing.target.warnings.isEmpty())
     m_status->setText(drawing.target.warnings.join(QStringLiteral("\n")));
   const bool fullColor = drawing.target.kind == Cadmium::Kind::FullColor;
+  QHash<QRgb, QVector<int>> nativeChoices;
   m_regions->setRowCount(drawing.colors.size());
   for (int region = 0; region < drawing.colors.size(); ++region) {
     m_regions->setItem(region, 0, new QTableWidgetItem(QString::number(region)));
@@ -837,7 +857,19 @@ void CadmiumPopup::refreshPreview() {
     decision->addItem(tr("Unresolved"), -1);
     decision->addItem(tr("Skip region"), -2);
     if (fullColor) {
-      if (color.isValid()) decision->addItem(tr("Accept color"), 0);
+      if (color.isValid() && !nativeChoices.contains(color.rgba()))
+        nativeChoices.insert(color.rgba(), Cadmium::matchingNativeRegions(drawing.reference, color));
+      const QVector<int> candidates = color.isValid() ? nativeChoices.value(color.rgba()) : QVector<int>();
+      for (int candidate : candidates) {
+        const Cadmium::NativeColor &native = drawing.reference.nativeRegionColors[candidate];
+        decision->addItem(tr("Reference fill %1: %2, %3, %4; alpha %5")
+            .arg(candidate).arg(native.r, 0, 'g', 9).arg(native.g, 0, 'g', 9)
+            .arg(native.b, 0, 'g', 9).arg(native.a, 0, 'g', 9), candidate);
+      }
+      if (color.isValid() && candidates.isEmpty())
+        prediction->setToolTip(tr("No exact flat native reference fill is available. Skip this region or use another reference."));
+      else if (candidates.size() > 1)
+        prediction->setToolTip(tr("Different native reference fills share this model color. Choose the exact reference fill or skip the region."));
     } else if (drawing.target.palette) {
       for (int style = 0; style < drawing.target.palette->getStyleCount(); ++style)
         decision->addItem(tr("Style %1").arg(style), style);
@@ -857,7 +889,11 @@ void CadmiumPopup::refreshPreview() {
       const int style = decision->currentData().toInt();
       selected.styles[region] = style;
       selected.reviewed = false;
-      if (!fullColor && selected.target.palette && style >= 0) {
+      if (fullColor) {
+        selected.nativeColors[region] = style >= 0 &&
+            style < selected.reference.nativeRegionColors.size()
+            ? selected.reference.nativeRegionColors[style] : Cadmium::NativeColor();
+      } else if (selected.target.palette && style >= 0) {
         const TPixel32 pixel = selected.target.palette->getStyle(style)->getMainColor();
         selected.colors[region] = QColor(pixel.r, pixel.g, pixel.b, pixel.m);
       }
@@ -883,7 +919,7 @@ void CadmiumPopup::updateProposalPreview() {
   case Cadmium::Kind::Vector:
     result = Cadmium::applyVector(drawing.target, styles, colors, m_repaint->isChecked(), error); break;
   case Cadmium::Kind::FullColor:
-    result = Cadmium::applyFullColor(drawing.target, styles, colors, m_repaint->isChecked(), error); break;
+    result = Cadmium::applyFullColor(drawing.target, styles, colors, m_repaint->isChecked(), error, drawing.nativeColors); break;
   }
   if (!result) { m_after->setText(error); return; }
   m_after->setPixmap(QPixmap::fromImage(displayImage(result, drawing.target)).scaled(320, 260, Qt::KeepAspectRatio, Qt::SmoothTransformation));
@@ -895,7 +931,7 @@ void CadmiumPopup::assignReference() {
       reference < 0 || reference >= int(m_references.size())) return;
   Drawing &drawing = m_drawings[row];
   drawing.referenceId = m_references[reference]; drawing.ready = false;
-  drawing.colors.clear(); drawing.styles.clear();
+  drawing.colors.clear(); drawing.styles.clear(); drawing.nativeColors.clear();
   refresh(); refreshPreview();
 }
 
@@ -954,7 +990,7 @@ void CadmiumPopup::apply(bool all) {
     case Cadmium::Kind::Vector:
       result = Cadmium::applyVector(drawing.target, styles, colors, m_repaint->isChecked(), error); break;
     case Cadmium::Kind::FullColor:
-      result = Cadmium::applyFullColor(drawing.target, styles, colors, m_repaint->isChecked(), error); break;
+      result = Cadmium::applyFullColor(drawing.target, styles, colors, m_repaint->isChecked(), error, drawing.nativeColors); break;
     }
     if (!result) { if (error.isEmpty()) error = tr("The proposal could not be applied."); break; }
     before[drawing.fid] = targetNow.original;

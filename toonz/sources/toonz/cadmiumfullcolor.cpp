@@ -2,7 +2,6 @@
 #include "trasterimage.h"
 
 #include <QCryptographicHash>
-#include <QHash>
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -232,26 +231,55 @@ bool snapshotFullColor(const TImageP &image, Frame &frame, QString &error) {
     error = QStringLiteral("No enclosed paint regions were found. Review the clean lines and extraction threshold.");
     return false;
   }
-  QVector<QHash<QRgb, int>> histograms(count + 1);
+  QVector<NativeColor> nativeCandidates(count + 1);
+  QVector<QRgb> proxyCandidates(count + 1);
+  QVector<int> nativeVotes(count + 1, 0), proxyVotes(count + 1, 0);
   QVector<int> samples(count + 1, 0);
+  auto nativeColor = [&](const Sample &sample) {
+    const Sample s = straight(sample);
+    return NativeColor{s.r, s.g, s.b, s.a, source->isLinear(), true};
+  };
+  auto proxyColor = [&](const Sample &sample) {
+    const Sample s = display(sample, source->isLinear());
+    return qRgba(byte(s.r), byte(s.g), byte(s.b), byte(s.a));
+  };
+  // Majority candidates use bounded memory even when a region contains many
+  // distinct native samples. Confirm the flat-fill threshold in a second pass.
   for (int y = 0; y < h; ++y)
     for (int x = 0; x < w; ++x) {
       const int label = labels[y * w + x];
       if (!label || qAlpha(lines.pixel(x, y)) > 25) continue;
-      Sample s = display(read(source, x, h - 1 - y), source->isLinear());
+      const Sample s = read(source, x, h - 1 - y);
       if (s.a <= 0.0) continue;
-      ++histograms[label][qRgba(byte(s.r), byte(s.g), byte(s.b), byte(s.a))];
+      const NativeColor native = nativeColor(s);
+      const QRgb proxy = proxyColor(s);
+      if (!nativeVotes[label]) nativeCandidates[label] = native;
+      nativeVotes[label] += nativeCandidates[label] == native ? 1 : -1;
+      if (!proxyVotes[label]) proxyCandidates[label] = proxy;
+      proxyVotes[label] += proxyCandidates[label] == proxy ? 1 : -1;
       ++samples[label];
     }
+  QVector<int> nativeCounts(count + 1, 0), proxyCounts(count + 1, 0);
+  for (int y = 0; y < h; ++y)
+    for (int x = 0; x < w; ++x) {
+      const int label = labels[y * w + x];
+      if (!label || qAlpha(lines.pixel(x, y)) > 25) continue;
+      const Sample s = read(source, x, h - 1 - y);
+      if (s.a <= 0.0) continue;
+      if (nativeCandidates[label] == nativeColor(s)) ++nativeCounts[label];
+      if (proxyCandidates[label] == proxyColor(s)) ++proxyCounts[label];
+    }
   QVector<QColor> colors(count + 1);
+  QVector<NativeColor> nativeColors(count + 1);
+  int nonflatNative = 0;
   for (int label = 1; label <= count; ++label) {
-    int best = 0; QRgb color = 0;
-    for (auto i = histograms[label].cbegin(); i != histograms[label].cend(); ++i)
-      if (i.value() > best || (i.value() == best && i.key() < color)) {
-        best = i.value(); color = i.key();
-      }
-    if (best > 0 && qint64(best) * 5 >= qint64(samples[label]) * 4)
-      colors[label] = QColor::fromRgba(color);
+    if (proxyCounts[label] > 0 &&
+        qint64(proxyCounts[label]) * 5 >= qint64(samples[label]) * 4)
+      colors[label] = QColor::fromRgba(proxyCandidates[label]);
+    if (nativeCounts[label] > 0 &&
+        qint64(nativeCounts[label]) * 5 >= qint64(samples[label]) * 4)
+      nativeColors[label] = nativeCandidates[label];
+    else if (colors[label].isValid()) ++nonflatNative;
   }
   // Extend interior labels beneath partially covered line-edge pixels only.
   // Opaque ink and exterior transparent/paper pixels retain label zero.
@@ -276,6 +304,11 @@ bool snapshotFullColor(const TImageP &image, Frame &frame, QString &error) {
   result.labels = labels;
   result.regionStyles = QVector<int>(count + 1, -1);
   result.regionColors = colors;
+  result.nativeRegionColors = nativeColors;
+  if (nonflatNative)
+    result.warnings.append(QStringLiteral(
+        "%1 region(s) have no dominant native fill color. Their display proxy "
+        "cannot be used as an exact reference fill.").arg(nonflatNative));
   result.fingerprint = fingerprint(input, lineImage, frame);
   frame = result;
   return true;
@@ -311,7 +344,8 @@ bool matchesFullColor(const TImageP &source, const Frame &frame,
 }
 
 TImageP applyFullColor(const Frame &frame, const QVector<int> &styleIds,
-                      const QVector<QColor> &colors, bool repaint, QString &error) {
+                      const QVector<QColor> &colors, bool repaint, QString &error,
+                      const QVector<NativeColor> &nativeColors) {
   Q_UNUSED(styleIds);
   error.clear();
   TRasterImageP original = frame.original;
@@ -323,9 +357,19 @@ TImageP applyFullColor(const Frame &frame, const QVector<int> &styleIds,
   const int regionCount = frame.regionStyles.size();
   if (frame.lines.size() != QSize(w, h) || qint64(w) * h != frame.labels.size() ||
       regionCount <= 1 || colors.size() != regionCount ||
+      (!nativeColors.isEmpty() && nativeColors.size() != regionCount) ||
       (!frame.protectionMask.isNull() && frame.protectionMask.size() != QSize(w, h))) {
     error = QStringLiteral("The paint proposal does not match its source snapshot."); return TImageP();
   }
+  if (!nativeColors.isEmpty())
+    for (int region = 1; region < regionCount; ++region) {
+      if (!colors[region].isValid()) continue;
+      const NativeColor &color = nativeColors[region];
+      if (!color.valid || !finite(Sample{color.r, color.g, color.b, color.a})) {
+        error = QStringLiteral("Choose an exact native reference fill or skip the unresolved region.");
+        return TImageP();
+      }
+    }
   for (int label : frame.labels)
     if (label < 0 || label >= regionCount) {
       error = QStringLiteral("The paint proposal contains an invalid region label."); return TImageP();
@@ -370,7 +414,18 @@ TImageP applyFullColor(const Frame &frame, const QVector<int> &styleIds,
       }
       const QColor &c = colors[label];
       double r = c.redF(), g = c.greenF(), b = c.blueF(), a = c.alphaF();
-      if (source->isLinear()) { r = toLinear(r); g = toLinear(g); b = toLinear(b); }
+      bool fillLinear = false;
+      if (!nativeColors.isEmpty()) {
+        const NativeColor &native = nativeColors[label];
+        r = native.r; g = native.g; b = native.b; a = native.a;
+        fillLinear = native.linear;
+      }
+      if (fillLinear != source->isLinear()) {
+        auto convert = [&](double value) {
+          return source->isLinear() ? toLinear(value) : toDisplay(value);
+        };
+        r = convert(r); g = convert(g); b = convert(b);
+      }
       // Convert the line samples to the destination color space before the
       // native-precision source-over operation.
       if (inkRaster->isLinear() != source->isLinear()) {

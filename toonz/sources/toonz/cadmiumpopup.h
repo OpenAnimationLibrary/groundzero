@@ -34,6 +34,7 @@ private:
     int renumberCount = -1;
     QVector<int> styles;
     QVector<QColor> colors;
+    QVector<Cadmium::NativeColor> nativeColors;
     bool ready = false;
     bool applied = false;
     bool reviewed = false;

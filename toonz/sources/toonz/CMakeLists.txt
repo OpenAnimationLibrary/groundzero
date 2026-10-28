@@ -186,6 +186,7 @@ endif()
 set(HEADERS
     cadmiumtypes.h
     cadmiumsource.h
+    cadmiumcolor.h
     cadmiumdestination.h
     ${MOC_HEADERS}
     celldata.h
@@ -953,8 +954,17 @@ if(BUILD_CADMIUM_TESTS)
 endif()
 
 if(BUILD_CADMIUM_TESTS)
+    add_executable(cadmium_color_test tests/cadmiumcolor_test.cpp)
+    target_include_directories(cadmium_color_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(cadmium_color_test PRIVATE
+        Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui tnzcore)
+    add_test(NAME cadmium_color COMMAND cadmium_color_test)
+    add_dependencies(cadmium_tests cadmium_color_test)
+endif()
+
+if(BUILD_CADMIUM_TESTS)
     set_tests_properties(
         cadmium_toonzraster cadmium_fullcolor cadmium_vector cadmium_codec
-        cadmium_settings cadmium_metadata cadmium_save cadmium_destination
+        cadmium_settings cadmium_metadata cadmium_save cadmium_destination cadmium_color
         PROPERTIES TIMEOUT 120)
 endif()

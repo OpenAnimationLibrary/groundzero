@@ -59,12 +59,107 @@ void nativePrecision(const Pixel &black, const Pixel &transparent) {
   require(!Cadmium::applyFullColor(frame, {}, colors, true, error),
           "out-of-range label was accepted");
 }
+
+template <class Raster, class Pixel>
+void exactReferenceTransfer(const Pixel &first, const Pixel &second, bool linear) {
+  Raster target(13, 9), reference(13, 9);
+  target->clear(); reference->clear();
+  target->setLinear(linear); reference->setLinear(linear);
+  TRaster32P cleanLines(13, 9);
+  cleanLines->clear();
+  for (int left : {1, 7})
+    for (int y = 2; y <= 6; ++y)
+      for (int x = left; x <= left + 4; ++x) {
+        if (x == left || x == left + 4 || y == 2 || y == 6) {
+          cleanLines->pixels(y)[x] = TPixel32::Black;
+          target->pixels(y)[x] = Pixel::Black;
+          reference->pixels(y)[x] = Pixel::Black;
+        } else reference->pixels(y)[x] = left == 1 ? first : second;
+      }
+  target->pixels(0)[0] = first;
+  reference->pixels(0)[0] = second;
+  TRasterImageP targetImage(target), referenceImage(reference), cleanImage(cleanLines);
+  Cadmium::Frame targetFrame, referenceFrame;
+  for (Cadmium::Frame *frame : {&targetFrame, &referenceFrame}) {
+    frame->rasterSource = Cadmium::RasterSource::LinkedLines;
+    frame->lineSource = TImageP(cleanImage);
+  }
+  QString error;
+  require(Cadmium::snapshotFullColor(TImageP(targetImage), targetFrame, error) &&
+              Cadmium::snapshotFullColor(TImageP(referenceImage), referenceFrame, error),
+          "native reference fill snapshot failed");
+  const int firstLabel = targetFrame.labels[4 * 13 + 3];
+  const int secondLabel = targetFrame.labels[4 * 13 + 9];
+  require(firstLabel > 0 && secondLabel > 0 && firstLabel != secondLabel &&
+              referenceFrame.labels[4 * 13 + 3] == firstLabel &&
+              referenceFrame.labels[4 * 13 + 9] == secondLabel,
+          "native reference fixture lost distinct region identities");
+  require(referenceFrame.regionColors[firstLabel] ==
+              referenceFrame.regionColors[secondLabel],
+          "native reference fixture must have colliding display proxies");
+  require(referenceFrame.nativeRegionColors[firstLabel].valid &&
+              referenceFrame.nativeRegionColors[secondLabel].valid &&
+              referenceFrame.nativeRegionColors[firstLabel] !=
+                  referenceFrame.nativeRegionColors[secondLabel],
+          "distinct native fills collapsed into one display proxy color");
+  TRasterImageP output = Cadmium::applyFullColor(
+      targetFrame, {}, referenceFrame.regionColors, false, error,
+      referenceFrame.nativeRegionColors);
+  require(bool(output), "exact native reference application failed");
+  Raster result = output->getRaster();
+  require(bool(result) && result->isLinear() == linear,
+          "native reference application changed sample format or space");
+  for (int y = 0; y < 9; ++y)
+    for (int x = 0; x < 13; ++x) {
+      const bool firstInterior = x > 1 && x < 5 && y > 2 && y < 6;
+      const bool secondInterior = x > 7 && x < 11 && y > 2 && y < 6;
+      const Pixel expected = firstInterior ? first :
+          secondInterior ? second : target->pixels(y)[x];
+      require(result->pixels(y)[x] == expected,
+              "transferred native reference fill lost precision or changed protected pixels");
+      require(target->pixels(y)[x] ==
+                  (firstInterior || secondInterior ? Pixel::Transparent : expected),
+              "native reference application modified the source drawing");
+      if (firstInterior || secondInterior)
+        require(reference->pixels(y)[x] == (firstInterior ? first : second),
+                "native reference application modified the painted reference");
+    }
+  QVector<Cadmium::NativeColor> missing = referenceFrame.nativeRegionColors;
+  missing[firstLabel] = Cadmium::NativeColor();
+  require(!Cadmium::applyFullColor(targetFrame, {}, referenceFrame.regionColors,
+                                  false, error, missing),
+          "an accepted proxy without an exact native fill was painted");
+  missing.removeLast();
+  require(!Cadmium::applyFullColor(targetFrame, {}, referenceFrame.regionColors,
+                                  false, error, missing),
+          "a mismatched native color table was accepted");
+  // Several distinct native fills may share a flat-looking display proxy.
+  // That proxy must never stand in for a nonexistent dominant native fill.
+  reference->pixels(3)[2] = second;
+  reference->pixels(3)[3] = second;
+  reference->pixels(3)[4] = second;
+  reference->pixels(4)[2] = second;
+  Cadmium::Frame nonflat = referenceFrame;
+  require(Cadmium::snapshotFullColor(TImageP(referenceImage), nonflat, error),
+          "nonflat native reference snapshot failed");
+  require(nonflat.regionColors[firstLabel].isValid() &&
+              !nonflat.nativeRegionColors[firstLabel].valid &&
+              !nonflat.warnings.isEmpty(),
+          "a display proxy concealed the lack of an exact native majority");
+  require(!Cadmium::applyFullColor(targetFrame, {}, nonflat.regionColors,
+                                  false, error, nonflat.nativeRegionColors),
+          "a nonflat native reference was reduced to its display proxy");
+}
 }
 
 int main() {
   nativePrecision<TRaster32P>(TPixel32::Black, TPixel32::Transparent);
   nativePrecision<TRaster64P>(TPixel64::Black, TPixel64::Transparent);
   nativePrecision<TRasterFP>(TPixelF::Black, TPixelF::Transparent);
+  exactReferenceTransfer<TRaster64P>(TPixel64(12345, 23456, 34567, 65535),
+                                    TPixel64(12346, 23456, 34567, 65535), false);
+  exactReferenceTransfer<TRasterFP>(TPixelF(-0.1234567f, 1.234567f, 2.345678f, 0.456789f),
+                                   TPixelF(-0.1234566f, 1.234566f, 2.345677f, 0.456789f), true);
 
   TRaster32P paper(9, 9);
   paper->fill(TPixel32::White);

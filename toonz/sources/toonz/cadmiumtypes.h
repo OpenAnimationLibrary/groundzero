@@ -11,6 +11,17 @@
 namespace Cadmium {
 enum class Kind { ToonzRaster, Vector, FullColor };
 enum class RasterSource { TransparentLines, PaperScan, LinkedLines };
+struct NativeColor {
+  double r = 0.0, g = 0.0, b = 0.0, a = 0.0;
+  bool linear = false;
+  bool valid = false;
+  bool operator==(const NativeColor &other) const {
+    return valid == other.valid &&
+           (!valid || (r == other.r && g == other.g && b == other.b &&
+                       a == other.a && linear == other.linear));
+  }
+  bool operator!=(const NativeColor &other) const { return !(*this == other); }
+};
 struct Frame {
   Kind kind = Kind::ToonzRaster;
   TImageP original;
@@ -20,6 +31,7 @@ struct Frame {
   QVector<int> regionStyles;
   QVector<int> nativeRegionIndices;
   QVector<QColor> regionColors;
+  QVector<NativeColor> nativeRegionColors;
   QByteArray fingerprint;
   QStringList warnings;
   RasterSource rasterSource = RasterSource::TransparentLines;
@@ -40,5 +52,6 @@ TImageP applyToonzRaster(const Frame &, const QVector<int> &,
 TImageP applyVector(const Frame &, const QVector<int> &,
                    const QVector<QColor> &, bool, QString &);
 TImageP applyFullColor(const Frame &, const QVector<int> &,
-                      const QVector<QColor> &, bool, QString &);
+                      const QVector<QColor> &, bool, QString &,
+                      const QVector<NativeColor> &nativeColors = {});
 }
