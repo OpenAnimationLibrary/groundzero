@@ -51,9 +51,9 @@ public:
   void doCompute(TTile &tile, double frame, const TRenderSettings &settings) override { compute(tile, frame, settings); }
 };
 template <class Pixel>
-TRasterPT<Pixel> renderFx(StarGlowFx &fx, int width, int height, TPointD origin = TPointD()) {
+TRasterPT<Pixel> renderFx(StarGlowFx &fx, int width, int height, TPointD origin = TPointD(), double frame = 0) {
   TRasterPT<Pixel> out(width, height); TTile tile; tile.setRaster(out); tile.m_pos = origin;
-  fx.doCompute(tile, 0, TRenderSettings()); return out;
+  fx.doCompute(tile, frame, TRenderSettings()); return out;
 }
 void settings(StarGlowFx &fx) {
   parameter(fx, "verticalLength")->setDefaultValue(0);
@@ -224,10 +224,28 @@ void testFractionalOrigins() {
               "Fractional-origin tiles differ from the full image");
   }
 }
+void testAnimatedRampPrecision() {
+  StarGlowFx fx; settings(fx);
+  TRasterFP input(3, 3); input->clear(); input->pixels(1)[1] = TPixelF::White;
+  fx.getInputPort(0)->setFx(new Source(input));
+  parameter(fx, "sourceOpacity")->setDefaultValue(0);
+  parameter(fx, "verticalLength")->setDefaultValue(1);
+  parameter(fx, "verticalUseRamp")->setDefaultValue(1);
+  parameter(fx, "profile")->setDefaultValue(0);
+  auto ramp = TSpectrumParamP(TParamP(fx.getParams()->getParam("verticalRamp")));
+  ramp->getColor(0)->getRed()->setValue(0, 0.1234567);
+  ramp->getColor(0)->getRed()->setValue(10, 0.1234571);
+  const auto first = renderFx<TPixelF>(fx, 3, 3, TPointD(), 0);
+  const auto last = renderFx<TPixelF>(fx, 3, 3, TPointD(), 10);
+  require(std::abs(first->pixels(1)[1].r - 0.1234567 / 3.0) < 1e-7,
+          "Float glow did not evaluate the precise first ramp color");
+  require(last->pixels(1)[1].r > first->pixels(1)[1].r,
+          "Animated sub-8-bit ramp colors produced identical float glow");
+}
 }
 int main(int argc, char **argv) {
   QCoreApplication app(argc, argv);
-  try { testDepth<TPixel32>(); testDepth<TPixel64>(); testDepth<TPixelF>(); testFloatAndTiles(); testHighlightAndMerge(); testPartialUpstream(); testFractionalOrigins(); }
+  try { testDepth<TPixel32>(); testDepth<TPixel64>(); testDepth<TPixelF>(); testFloatAndTiles(); testHighlightAndMerge(); testPartialUpstream(); testFractionalOrigins(); testAnimatedRampPrecision(); }
   catch (const std::exception &e) { std::cerr << e.what() << '\n'; return 1; }
   catch (const TException &e) { std::cerr << QString::fromStdWString(e.getMessage()).toStdString() << '\n'; return 1; }
   std::cout << "PASS: channels, profiles, alpha, rotation, tiles and precise ramps\n";
