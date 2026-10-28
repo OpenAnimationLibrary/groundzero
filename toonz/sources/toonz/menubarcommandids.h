@@ -367,6 +367,7 @@
 #define MI_AdjustCurrentLevelToPalette "MI_AdjustCurrentLevelToPalette"
 #define MI_MergeToCurrentPalette "MI_MergeToCurrentPalette"
 #define MI_ReplaceWithCurrentPalette "MI_ReplaceWithCurrentPalette"
+#define MI_MakeUniqueStyle "MI_MakeUniqueStyle"
 #define MI_DeletePalette "MI_DeletePalette"
 #define MI_RefreshTree "MI_RefreshTree"
 #define MI_LoadRecentImage "MI_LoadRecentImage"

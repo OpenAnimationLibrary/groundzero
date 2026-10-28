@@ -50,6 +50,7 @@ set(HEADERS
     ../include/tools/fluidwidth.h
     ../include/tools/widthprofile.h
     ../include/tools/gradienthandles.h
+    ../include/tools/uniquestyle.h
     ../include/tools/stylepicker.h
     ../include/tools/tool.h
     ../include/tools/toolcommandids.h

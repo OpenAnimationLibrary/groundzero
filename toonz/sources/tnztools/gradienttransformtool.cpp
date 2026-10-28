@@ -6,6 +6,10 @@
 //  resize the gradient. The handles edit the parameters of the palette style
 //  (the same values as the Style Editor), so every region using that style
 //  follows. The maths is in tools/gradienthandles.h.
+//  "Make Unique Style" (options bar button, right-click menu and the command
+//  MI_MakeUniqueStyle) gives the picked region its own copy of the style, so
+//  that the handles change that region alone; its naming and "is it shared"
+//  decisions are in tools/uniquestyle.h.
 //-----------------------------------------------------------------------------
 
 // TnzTools includes
@@ -14,11 +18,19 @@
 #include "tools/toolutils.h"
 #include "tools/tooloptions.h"
 #include "tools/toolcommandids.h"
+#include "tools/toolhandle.h"
 #include "tools/gradienthandles.h"
+#include "tools/uniquestyle.h"
+
+// TnzQt includes
+#include "toonzqt/menubarcommand.h"
+#include "../toonz/menubarcommandids.h"
 
 // TnzLib includes
 #include "toonz/palettecontroller.h"
+#include "toonz/palettecmd.h"
 #include "toonz/tpalettehandle.h"
+#include "toonz/txsheethandle.h"
 #include "toonz/txshlevelhandle.h"
 #include "toonz/txshsimplelevel.h"
 
@@ -29,12 +41,17 @@
 #include "tcolorstyles.h"
 #include "tundo.h"
 #include "tgl.h"
+#include "tmsgcore.h"
 #include "historytypes.h"
 
 // Qt includes
+#include <QAction>
 #include <QCoreApplication>
 #include <QLabel>
+#include <QMenu>
+#include <QMutexLocker>
 #include <QObject>
+#include <QPushButton>
 #include <QString>
 
 // STD includes
@@ -92,6 +109,118 @@ bool editedFlagAfterChange(const TColorStyle *style) {
   return style->getIsEditedFlag();
 }
 
+//! Whether \p styleId is a Linear or Radial Gradient style of \p palette
+//! that the handles can edit.
+bool isGradientStyle(const TPalette *palette, int styleId) {
+  if (!palette || styleId <= 0 || styleId >= palette->getStyleCount())
+    return false;
+  TColorStyle *style = palette->getStyle(styleId);
+  return style && GH::kindFromTagId(style->getTagId()) != GH::NoGradient &&
+         style->getParamCount() >= 4;
+}
+
+//=============================================================================
+// Make Unique Style helpers
+//-----------------------------------------------------------------------------
+
+//! TPalette::addStyle refuses new styles from this style id on.
+const int MaxPaletteStyleCount = 4096;
+
+//! Appends the style ids of \p region and of all its sub-regions.
+void collectRegionStyles(const TRegion *region, std::vector<int> &ids) {
+  if (!region) return;
+  ids.push_back(region->getStyle());
+  UINT count = region->getSubregionCount();
+  for (UINT i = 0; i < count; ++i)
+    collectRegionStyles(region->getSubregion(i), ids);
+}
+
+//! How many regions of \p vi (sub-regions included) use \p styleId.
+int countRegionsWithStyle(const TVectorImageP &vi, int styleId) {
+  if (!vi || styleId <= 0) return 0;
+  std::vector<int> ids;
+  UINT count = vi->getRegionCount();
+  for (UINT i = 0; i < count; ++i) collectRegionStyles(vi->getRegion(i), ids);
+  return UniqueStyle::countUses(ids, styleId);
+}
+
+//! The names of the styles in the pages of \p palette.
+std::vector<std::wstring> paletteStyleNames(const TPalette *palette) {
+  std::vector<std::wstring> names;
+  int pageCount = palette->getPageCount();
+  for (int p = 0; p < pageCount; ++p) {
+    const TPalette::Page *page = palette->getPage(p);
+    if (!page) continue;
+    int styleCount = page->getStyleCount();
+    for (int i = 0; i < styleCount; ++i) {
+      const TColorStyle *style = page->getStyle(i);
+      if (style) names.push_back(style->getName());
+    }
+  }
+  return names;
+}
+
+//=============================================================================
+// MakeUniqueRegionUndo
+//-----------------------------------------------------------------------------
+
+//! The region part of Make Unique Style: the region under a point changes
+//! from one style id to another, like the Fill tool's VectorFillUndo (private
+//! to filltool.cpp), with the same notifications. The region is found with
+//! TVectorImage::getRegion(), as the tool picks it, rather than with
+//! TVectorImage::fill(), which skips regions outside an entered group. The
+//! palette part is the AddStylesUndo of PaletteCmd::addStyles, in the same
+//! undo block. The current style follows the region, so the handles and the
+//! Style Editor edit the style the region has after the undo or redo.
+class MakeUniqueRegionUndo final : public ToolUtils::TToolUndo {
+  TPaletteP m_palette;
+  TPointD m_point;
+  int m_oldStyleId, m_newStyleId;
+
+  void apply(int fromStyleId, int toStyleId) const {
+    TVectorImageP vi = m_level->getFrame(m_frameId, true);
+    if (!vi) return;
+    {
+      QMutexLocker lock(vi->getMutex());
+      TRegion *region = vi->getRegion(m_point);
+      if (region && region->getStyle() == fromStyleId)
+        region->setStyle(toStyleId);
+    }
+    TTool::Application *app = TTool::getApplication();
+    if (!app) return;
+    PaletteController *pc = app->getPaletteController();
+    TPaletteHandle *ph    = pc ? pc->getCurrentLevelPalette() : 0;
+    if (ph && ph->getPalette() == m_palette.getPointer() &&
+        m_palette->getStylePage(toStyleId))
+      app->setCurrentLevelStyleIndex(toStyleId);
+    app->getCurrentXsheet()->notifyXsheetChanged();
+    notifyImageChanged();
+  }
+
+public:
+  MakeUniqueRegionUndo(TXshSimpleLevel *level, const TFrameId &fid,
+                       TPalette *palette, const TPointD &point, int oldStyleId,
+                       int newStyleId)
+      : TToolUndo(level, fid)
+      , m_palette(palette)
+      , m_point(point)
+      , m_oldStyleId(oldStyleId)
+      , m_newStyleId(newStyleId) {}
+
+  void undo() const override { apply(m_newStyleId, m_oldStyleId); }
+  void redo() const override { apply(m_oldStyleId, m_newStyleId); }
+
+  int getSize() const override { return sizeof(*this); }
+
+  QString getToolName() override {
+    return QObject::tr("Make Unique Style : Style#%1 > Style#%2")
+        .arg(QString::number(m_oldStyleId))
+        .arg(QString::number(m_newStyleId));
+  }
+
+  int getHistoryType() override { return HistoryType::Palette; }
+};
+
 //=============================================================================
 // GradientTransformUndo
 //-----------------------------------------------------------------------------
@@ -147,24 +276,21 @@ public:
 };
 
 //=============================================================================
-// Options bar: a short help text, the tool has no settings
+// Options bar: the Make Unique button, the state of the picked region and a
+// short help text (the tool has no settings). Defined after the tool.
 //-----------------------------------------------------------------------------
 
+class GradientTransformTool;
+
 class GradientTransformToolOptionsBox final : public ToolOptionsBox {
+  GradientTransformTool *m_tool;
+  QPushButton *m_makeUniqueButton;
+  QLabel *m_stateLabel;
+
 public:
-  explicit GradientTransformToolOptionsBox(QWidget *parent)
-      : ToolOptionsBox(parent) {
-    QLabel *label = addLabel(QCoreApplication::translate(
-        "GradientTransformTool",
-        "Click a region filled with a Linear or Radial Gradient and drag its "
-        "handles (Shift: snap the angle). The gradient belongs to the style: "
-        "every region using the same style follows."));
-    label->setToolTip(QCoreApplication::translate(
-        "GradientTransformTool",
-        "To change only one region, duplicate its style in the palette and "
-        "fill the region with the copy first."));
-    m_layout->addStretch(1);
-  }
+  GradientTransformToolOptionsBox(QWidget *parent, GradientTransformTool *tool);
+
+  void updateStatus() override;
 };
 
 //=============================================================================
@@ -292,6 +418,12 @@ private:
   double m_radialHandleAngle;  // degrees; display only
   int m_cursorId;
 
+  // Make Unique Style: how many regions of the edited drawing use m_styleId,
+  // and the state last announced to the options bars.
+  int m_styleUses;
+  int m_shownStyleId, m_shownStyleUses;
+  bool m_active;
+
 public:
   GradientTransformTool()
       : TTool(T_GradientTransform)
@@ -302,25 +434,37 @@ public:
       , m_dragStartEdited(false)
       , m_dragChanged(false)
       , m_radialHandleAngle(0.0)
-      , m_cursorId(ToolCursor::CURSOR_ARROW) {
+      , m_cursorId(ToolCursor::CURSOR_ARROW)
+      , m_styleUses(0)
+      , m_shownStyleId(0)
+      , m_shownStyleUses(0)
+      , m_active(false) {
     bind(TTool::VectorImage);
   }
 
   ToolType getToolType() const override { return TTool::LevelReadTool; }
 
   ToolOptionsBox *createOptionsBox() override {
-    return new GradientTransformToolOptionsBox(0);
+    return new GradientTransformToolOptionsBox(0, this);
   }
 
   int getCursorId() const override { return m_cursorId; }
 
   bool isDragging() const override { return m_drag != NoHandle; }
 
-  void onActivate() override { refreshTarget(); }
+  void onActivate() override {
+    // The options bars read the state themselves when the tool switches.
+    m_active = false;
+    refreshTarget();
+    m_shownStyleId   = m_styleId;
+    m_shownStyleUses = m_styleUses;
+    m_active         = true;
+  }
 
   void onDeactivate() override {
     finishDrag();
-    m_hot = NoHandle;
+    m_hot    = NoHandle;
+    m_active = false;
   }
 
   void onImageChanged() override {
@@ -334,6 +478,20 @@ public:
   void leftButtonDown(const TPointD &pos, const TMouseEvent &e) override;
   void leftButtonDrag(const TPointD &pos, const TMouseEvent &e) override;
   void leftButtonUp(const TPointD &pos, const TMouseEvent &e) override;
+  void rightButtonDown(const TPointD &pos, const TMouseEvent &e) override;
+  void addContextMenuItems(QMenu *menu) override;
+
+  // Make Unique Style
+
+  //! A region is picked in the current drawing and other regions of the
+  //! drawing use its style.
+  bool offersMakeUnique() const {
+    return m_styleId > 0 && isSameCell() && m_styleUses > 1;
+  }
+  //! What the options bar says about the picked region.
+  QString uniqueStateText() const;
+  //! Makes the style of the picked region unique, or shows why it cannot.
+  void runMakeUniqueStyle();
 
 private:
   TPaletteHandle *paletteHandle() const {
@@ -357,12 +515,19 @@ private:
     return m_level && currentLevel() == m_level && getCurrentFid() == m_fid;
   }
 
+  //! Forgets the edited region; the caller then calls notifyUniqueState().
   void clearTarget() {
-    m_styleId = 0;
-    m_level   = 0;
-    m_hot     = NoHandle;
+    m_styleId   = 0;
+    m_level     = 0;
+    m_hot       = NoHandle;
+    m_styleUses = 0;
   }
 
+  void notifyUniqueState();
+  QString makeUniqueBlocker();
+  bool makeUniqueStyle(QString &reason);
+
+  TRegion *gradientRegionAt(const TVectorImageP &vi, const TPointD &pos) const;
   void refreshTarget();
   bool pickTarget(const TPointD &pos);
   bool currentView(GradientView &view) const;
@@ -374,25 +539,37 @@ private:
 
 //-----------------------------------------------------------------------------
 
+//! The region under \p pos if it is filled with a gradient style of the
+//! palette the viewer draws \p vi with (the level palette), else 0.
+TRegion *GradientTransformTool::gradientRegionAt(const TVectorImageP &vi,
+                                                 const TPointD &pos) const {
+  if (!vi) return 0;
+  TPalette *pl = palette();
+  if (!pl || (vi->getPalette() && vi->getPalette() != pl)) return 0;
+  TRegion *region = vi->getRegion(pos);
+  if (!region || !isGradientStyle(pl, region->getStyle())) return 0;
+  return region;
+}
+
+//-----------------------------------------------------------------------------
+
 //! Finds the edited region again (the drawing may have changed): its box is
-//! the reference of the gradient. Drops it if it is gone or restyled.
+//! the reference of the gradient. Drops it if it is gone or no longer has a
+//! gradient style; follows it to its new style if it has another gradient
+//! (for example after undoing Make Unique Style).
 void GradientTransformTool::refreshTarget() {
   if (m_styleId <= 0) return;
-  if (!isSameCell()) {
+  TVectorImageP vi;
+  if (isSameCell()) vi = TImageP(getImage(false));
+  TRegion *region = gradientRegionAt(vi, m_anchor);
+  if (!region)
     clearTarget();
-    return;
+  else {
+    m_styleId   = region->getStyle();
+    m_box       = region->getBBox();
+    m_styleUses = countRegionsWithStyle(vi, m_styleId);
   }
-  TVectorImageP vi = TImageP(getImage(false));
-  if (!vi) {
-    clearTarget();
-    return;
-  }
-  TRegion *region = vi->getRegion(m_anchor);
-  if (!region || region->getStyle() != m_styleId) {
-    clearTarget();
-    return;
-  }
-  m_box = region->getBBox();
+  notifyUniqueState();
 }
 
 //-----------------------------------------------------------------------------
@@ -401,26 +578,21 @@ bool GradientTransformTool::pickTarget(const TPointD &pos) {
   clearTarget();
 
   TVectorImageP vi = TImageP(getImage(false));
-  if (!vi) return false;
-  TRegion *region = vi->getRegion(pos);
-  if (!region) return false;
-
-  int styleId  = region->getStyle();
-  TPalette *pl = palette();
-  if (!pl || styleId <= 0 || styleId >= pl->getStyleCount()) return false;
-  // Edit only the palette the viewer draws this image with.
-  if (vi->getPalette() && vi->getPalette() != pl) return false;
-  TColorStyle *style = pl->getStyle(styleId);
-  if (!style || GH::kindFromTagId(style->getTagId()) == GH::NoGradient ||
-      style->getParamCount() < 4)
+  TRegion *region  = gradientRegionAt(vi, pos);
+  if (!region) {
+    notifyUniqueState();
     return false;
+  }
 
+  int styleId         = region->getStyle();
   m_styleId           = styleId;
   m_anchor            = pos;
   m_box               = region->getBBox();
   m_level             = currentLevel();
   m_fid               = getCurrentFid();
   m_radialHandleAngle = 0.0;
+  m_styleUses         = countRegionsWithStyle(vi, styleId);
+  notifyUniqueState();
 
   // Make it the current style, so the Style Editor shows the values that the
   // handles change.
@@ -559,8 +731,13 @@ void GradientTransformTool::draw() {
 
   TPalette *pl      = palette();
   std::string label = "Style #" + std::to_string(m_styleId);
-  label += (pl && pl->isLocked()) ? " (palette locked)"
-                                  : " (shared by all its regions)";
+  if (pl && pl->isLocked())
+    label += " (palette locked)";
+  else if (m_styleUses > 1)
+    label += " (shared by " + std::to_string(m_styleUses) +
+             " regions in this drawing)";
+  else
+    label += " (not shared in this drawing)";
   drawLabel(TPointD(view.center.x + 3 * r, view.center.y - 6 * r), label, px);
   glLineWidth(1.0f);
 }
@@ -569,7 +746,10 @@ void GradientTransformTool::draw() {
 
 void GradientTransformTool::mouseMove(const TPointD &pos, const TMouseEvent &) {
   if (m_drag != NoHandle) return;
-  if (m_styleId > 0 && !isSameCell()) clearTarget();
+  if (m_styleId > 0 && !isSameCell()) {
+    clearTarget();
+    notifyUniqueState();
+  }
   Handle hot = pickHandle(pos);
   m_cursorId = cursorFor(hot);
   if (hot != m_hot) {
@@ -720,8 +900,271 @@ void GradientTransformTool::finishDrag() {
   ph->notifyColorStyleChanged(false);
 }
 
+//=============================================================================
+// Make Unique Style
+//-----------------------------------------------------------------------------
+
+//! Tells the options bars that the picked style or its number of regions
+//! changed (they read the rest from the tool).
+void GradientTransformTool::notifyUniqueState() {
+  if (!m_active) return;  // onActivate() resynchronizes
+  if (m_styleId == m_shownStyleId && m_styleUses == m_shownStyleUses) return;
+  m_shownStyleId          = m_styleId;
+  m_shownStyleUses        = m_styleUses;
+  TTool::Application *app = getApplication();
+  ToolHandle *toolHandle  = app ? app->getCurrentTool() : 0;
+  if (toolHandle && toolHandle->getTool() == this)
+    toolHandle->notifyToolChanged();
+}
+
+//-----------------------------------------------------------------------------
+
+QString GradientTransformTool::uniqueStateText() const {
+  if (m_styleId <= 0 || !isSameCell())
+    return QCoreApplication::translate("GradientTransformTool",
+                                       "No gradient region picked");
+  if (m_styleUses > 1)
+    return QCoreApplication::translate(
+               "GradientTransformTool",
+               "Style #%1 is shared by %2 regions in this drawing")
+        .arg(m_styleId)
+        .arg(m_styleUses);
+  return QCoreApplication::translate("GradientTransformTool",
+                                     "Style #%1 is not shared in this drawing")
+      .arg(m_styleId);
+}
+
+//-----------------------------------------------------------------------------
+
+//! Why Make Unique Style cannot run now (empty when it can).
+QString GradientTransformTool::makeUniqueBlocker() {
+  if (m_styleId <= 0 || !isSameCell())
+    return QCoreApplication::translate(
+        "GradientTransformTool",
+        "Click a region filled with a Linear or Radial Gradient with the "
+        "Gradient Transform tool first.");
+  if (m_styleUses <= 1)
+    return QCoreApplication::translate(
+               "GradientTransformTool",
+               "No other region of this drawing uses style #%1, so it is "
+               "already unique here. If other drawings use it, duplicate the "
+               "style in the palette and fill this region with the copy.")
+        .arg(m_styleId);
+  TPalette *pl = palette();
+  if (!pl || !pl->getStylePage(m_styleId))
+    return QCoreApplication::translate(
+        "GradientTransformTool",
+        "The style of the picked region is not in a page of the level "
+        "palette.");
+  if (pl->isLocked())
+    return QCoreApplication::translate(
+        "GradientTransformTool",
+        "The palette is locked: unlock it to add a copy of the style.");
+  if (pl->isCleanupPalette() || pl->getStyleCount() >= MaxPaletteStyleCount)
+    return QCoreApplication::translate(
+        "GradientTransformTool", "No style can be added to this palette.");
+  if (!m_level || m_level->isFrameReadOnly(m_fid))
+    return QCoreApplication::translate(
+        "GradientTransformTool",
+        "The current drawing is locked (read-only level or frame): its "
+        "regions cannot change style.");
+  return QString();
+}
+
+//-----------------------------------------------------------------------------
+
+//! Adds a copy of the picked region's style to the palette, right after the
+//! original, and gives the copy to that region only. One undo step.
+bool GradientTransformTool::makeUniqueStyle(QString &reason) {
+  finishDrag();
+  refreshTarget();
+  reason = makeUniqueBlocker();
+  if (!reason.isEmpty()) return false;
+
+  TPaletteHandle *ph   = paletteHandle();
+  TPalette *pl         = ph ? ph->getPalette() : 0;
+  TVectorImageP vi     = TImageP(getImage(true));
+  TRegion *region      = gradientRegionAt(vi, m_anchor);
+  TPalette::Page *page = pl ? pl->getStylePage(m_styleId) : 0;
+  if (!pl || !page || !region || region->getStyle() != m_styleId) {
+    reason = QCoreApplication::translate(
+        "GradientTransformTool",
+        "The picked region changed: click it again and retry.");
+    return false;
+  }
+
+  int oldStyleId  = m_styleId;
+  int indexInPage = page->search(oldStyleId) + 1;  // right after the original
+  int newStyleId  = pl->getStyleCount();           // TPalette::addStyle appends
+
+  // The copy looks the same, has its own name and, like a new style, is not
+  // linked to a studio palette (in a studio palette it gets its own global
+  // name, as PaletteCmd::createStyle does).
+  TColorStyle *copy = pl->getStyle(oldStyleId)->clone();
+  copy->setName(
+      UniqueStyle::uniqueName(copy->getName(), paletteStyleNames(pl)));
+  copy->setOriginalName(L"");
+  copy->setIsEditedFlag(false);
+  if (pl->getGlobalName() != L"")
+    copy->setGlobalName(L"-" + pl->getGlobalName() + L"-" +
+                        std::to_wstring(newStyleId));
+  else
+    copy->setGlobalName(L"");
+
+  TUndoManager::manager()->beginBlock();
+  PaletteCmd::addStyles(ph, page->getIndex(), indexInPage,
+                        std::vector<TColorStyle *>(1, copy));
+  delete copy;  // the palette holds its own clone
+  if (page->getStyleId(indexInPage) != newStyleId) {
+    TUndoManager::manager()->popUndo(1);  // nothing was added
+    TUndoManager::manager()->endBlock();
+    reason = QCoreApplication::translate(
+        "GradientTransformTool", "No style can be added to this palette.");
+    return false;
+  }
+  {
+    QMutexLocker lock(vi->getMutex());
+    region->setStyle(newStyleId);
+  }
+  TUndoManager::manager()->add(new MakeUniqueRegionUndo(
+      m_level, m_fid, pl, m_anchor, oldStyleId, newStyleId));
+  TUndoManager::manager()->endBlock();
+
+  // The handles and the Style Editor now edit the copy.
+  m_styleId   = newStyleId;
+  m_styleUses = countRegionsWithStyle(vi, newStyleId);
+  ph->notifyPaletteChanged();
+  getApplication()->setCurrentLevelStyleIndex(newStyleId);
+  getApplication()->getCurrentXsheet()->notifyXsheetChanged();
+  notifyImageChanged();
+  notifyUniqueState();
+  invalidate();
+  return true;
+}
+
+//-----------------------------------------------------------------------------
+
+void GradientTransformTool::runMakeUniqueStyle() {
+  QString reason;
+  if (!isEnabled())
+    reason = QCoreApplication::translate(
+        "GradientTransformTool",
+        "The Gradient Transform tool cannot edit the current column or level "
+        "(it may be locked, hidden or not a Toonz Vector level).");
+  else
+    makeUniqueStyle(reason);
+  if (!reason.isEmpty()) DVGui::warning(reason);
+}
+
+//-----------------------------------------------------------------------------
+
+//! A right click on a gradient region picks it, as a left click does, so
+//! that the context menu acts on it; elsewhere the picked region stays.
+void GradientTransformTool::rightButtonDown(const TPointD &pos,
+                                            const TMouseEvent &) {
+  if (m_drag != NoHandle) return;
+  refreshTarget();
+  if (pickHandle(pos) != NoHandle) return;
+  TVectorImageP vi = TImageP(getImage(false));
+  TRegion *region  = gradientRegionAt(vi, pos);
+  if (!region) return;
+  if (m_styleId > 0 && region == gradientRegionAt(vi, m_anchor)) return;
+  pickTarget(pos);
+  m_hot      = NoHandle;
+  m_cursorId = cursorFor(NoHandle);
+  invalidate();
+}
+
+//-----------------------------------------------------------------------------
+
+void GradientTransformTool::addContextMenuItems(QMenu *menu) {
+  if (!offersMakeUnique()) return;
+  QAction *action = CommandManager::instance()->getAction(MI_MakeUniqueStyle);
+  if (!action) return;
+  menu->addAction(action);
+  menu->addSeparator();
+}
+
+//=============================================================================
+// GradientTransformToolOptionsBox
+//-----------------------------------------------------------------------------
+
+GradientTransformToolOptionsBox::GradientTransformToolOptionsBox(
+    QWidget *parent, GradientTransformTool *tool)
+    : ToolOptionsBox(parent)
+    , m_tool(tool)
+    , m_makeUniqueButton(0)
+    , m_stateLabel(0) {
+  m_makeUniqueButton = new QPushButton(
+      QCoreApplication::translate("GradientTransformTool", "Make Unique"));
+  m_makeUniqueButton->setFixedHeight(20);
+  m_makeUniqueButton->setToolTip(QCoreApplication::translate(
+      "GradientTransformTool",
+      "Make Unique Style: give the picked region its own copy of the style "
+      "(added to the palette after the original), so that the handles "
+      "change this region only. Available when other regions of the drawing "
+      "use the same style."));
+  m_layout->addWidget(m_makeUniqueButton, 0);
+
+  m_stateLabel = new QLabel;
+  m_stateLabel->setFixedHeight(20);
+  m_layout->addWidget(m_stateLabel, 0);
+
+  addSeparator();
+
+  QLabel *label = addLabel(QCoreApplication::translate(
+      "GradientTransformTool",
+      "Click a region filled with a Linear or Radial Gradient and drag its "
+      "handles (Shift: snap the angle). The gradient belongs to the style: "
+      "every region using the same style follows."));
+  label->setToolTip(QCoreApplication::translate(
+      "GradientTransformTool",
+      "To change only one region, use Make Unique first: the region gets "
+      "its own copy of the style."));
+  m_layout->addStretch(1);
+
+  GradientTransformTool *target = m_tool;
+  connect(m_makeUniqueButton, &QPushButton::clicked, this, [target]() {
+    if (target) target->runMakeUniqueStyle();
+  });
+
+  updateStatus();
+}
+
+//-----------------------------------------------------------------------------
+
+void GradientTransformToolOptionsBox::updateStatus() {
+  ToolOptionsBox::updateStatus();
+  if (!m_tool) return;
+  m_stateLabel->setText(m_tool->uniqueStateText());
+  m_makeUniqueButton->setEnabled(m_tool->offersMakeUnique());
+}
+
 //-----------------------------------------------------------------------------
 
 GradientTransformTool gradientTransformTool;
+
+//=============================================================================
+// MI_MakeUniqueStyle: Make Unique Style on the region picked by the tool
+//-----------------------------------------------------------------------------
+
+class MakeUniqueStyleCommandHandler final : public MenuItemHandler {
+public:
+  MakeUniqueStyleCommandHandler() : MenuItemHandler(MI_MakeUniqueStyle) {}
+
+  void execute() override {
+    TTool::Application *app = TTool::getApplication();
+    ToolHandle *toolHandle  = app ? app->getCurrentTool() : 0;
+    if (!toolHandle || toolHandle->getTool() != &gradientTransformTool) {
+      DVGui::warning(QCoreApplication::translate(
+          "GradientTransformTool",
+          "Make Unique Style works on the region picked with the Gradient "
+          "Transform tool: choose that tool and click a region filled with a "
+          "gradient first."));
+      return;
+    }
+    gradientTransformTool.runMakeUniqueStyle();
+  }
+} makeUniqueStyleCommandHandler;
 
 }  // namespace
