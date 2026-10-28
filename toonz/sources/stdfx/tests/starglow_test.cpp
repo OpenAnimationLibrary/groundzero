@@ -76,7 +76,11 @@ void testDepth() {
   parameter(fx, "profile")->setDefaultValue(0);
   auto result = renderFx<Pixel>(fx, 3, 3);
   const TPixelD center = toPixelD(result->pixels(1)[1]);
-  require(std::abs(center.r - 1.0 / 3.0) < 0.005 && std::abs(center.m - 1.0 / 3.0) < 0.005, "Box streak has incorrect weight");
+  if (!(std::abs(center.r - 1.0 / 3.0) < 0.005 && std::abs(center.m - 1.0 / 3.0) < 0.005)) {
+    std::cerr << "Box center for " << sizeof(Pixel) * 8 << "-bit pixel: r=" << center.r
+              << ", g=" << center.g << ", b=" << center.b << ", alpha=" << center.m << '\n';
+    throw std::runtime_error("Box streak has incorrect weight");
+  }
   require(result->pixels(1)[0] == Pixel::Transparent && result->pixels(0)[1] != Pixel::Transparent, "Vertical streak direction is wrong");
   parameter(fx, "threshold")->setDefaultValue(100);
   result = renderFx<Pixel>(fx, 3, 3);
@@ -256,13 +260,26 @@ void testAnimatedRampPrecision() {
           "Float glow did not evaluate the precise first ramp color");
   require(last->pixels(1)[1].r > first->pixels(1)[1].r,
           "Animated sub-8-bit ramp colors produced identical float glow");
+  ramp->getColor(0)->getRed()->setValue(0, 1e300);
+  require(!fx.getAlias(0, TRenderSettings()).empty(), "Extreme HDR alias failed");
+  const auto hdr = renderFx<TPixelF>(fx, 3, 3);
+  require(std::isfinite(hdr->pixels(1)[1].r) && hdr->pixels(1)[1].r > 1e30f,
+          "Extreme HDR output was not safely saturated");
 }
 }
 int main(int argc, char **argv) {
   QCoreApplication app(argc, argv);
-  try { testDepth<TPixel32>(); testDepth<TPixel64>(); testDepth<TPixelF>(); testFloatAndTiles(); testHighlightAndMerge(); testPartialUpstream(); testFractionalOrigins(); testAnimatedRampPrecision(); }
-  catch (const std::exception &e) { std::cerr << e.what() << '\n'; return 1; }
-  catch (const TException &e) { std::cerr << QString::fromStdWString(e.getMessage()).toStdString() << '\n'; return 1; }
+  bool passed = true;
+  auto run = [&](const char *name, const auto &test) {
+    try { test(); }
+    catch (const std::exception &e) { std::cerr << name << ": " << e.what() << '\n'; passed = false; }
+    catch (const TException &e) { std::cerr << name << ": " << QString::fromStdWString(e.getMessage()).toStdString() << '\n'; passed = false; }
+  };
+  run("8-bit", testDepth<TPixel32>); run("16-bit", testDepth<TPixel64>); run("float", testDepth<TPixelF>);
+  run("tiles", testFloatAndTiles); run("highlight and merge", testHighlightAndMerge);
+  run("partial upstream", testPartialUpstream); run("fractional origins", testFractionalOrigins);
+  run("animated ramp", testAnimatedRampPrecision);
+  if (!passed) return 1;
   std::cout << "PASS: channels, profiles, alpha, rotation, tiles and precise ramps\n";
   return 0;
 }

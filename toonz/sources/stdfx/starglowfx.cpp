@@ -11,6 +11,7 @@
 #include <limits>
 #include <locale>
 #include <sstream>
+#include <type_traits>
 #include <vector>
 
 namespace {
@@ -244,7 +245,15 @@ int StarGlowFx::getMemoryRequirement(const TRectD &rect, double frame, const TRe
 std::string StarGlowFx::getAlias(double frame, const TRenderSettings &settings) const {
   const Settings s = snapshot(frame);
   std::ostringstream out; out.imbue(std::locale::classic());
-  out << TRasterFx::getAlias(frame, settings) << "[starGlow:" << std::setprecision(std::numeric_limits<double>::max_digits10)
+  // Build the source portion directly: the generic spectrum alias converts
+  // every stop to 8-bit before formatting, which can overflow for HDR colors.
+  out << getFxType() << "[source:";
+  TFxPort *sourcePort = getInputPort(0);
+  if (sourcePort && sourcePort->isConnected()) {
+    TRasterFxP source = sourcePort->getFx();
+    if (source) out << source->getAlias(frame, settings);
+  }
+  out << "][starGlow:" << std::setprecision(std::numeric_limits<double>::max_digits10)
       << s.channel << ',' << s.profile << ',' << s.merge << ',' << s.approximate << ',' << s.gain << ',' << s.threshold
       << ',' << s.fade << ',' << s.glowOpacity << ',' << s.sourceOpacity << ',' << s.rotation << ',' << s.highlightRadius;
   auto color = [&](const TPixelD &c) { out << ';' << c.r << ',' << c.g << ',' << c.b << ',' << c.m; };
@@ -366,9 +375,14 @@ bool render(const TRasterPT<Pixel> &source, const TRasterPT<Pixel> &output,
       if (!std::isfinite(original.r) || !std::isfinite(original.g) || !std::isfinite(original.b) || !std::isfinite(original.m)) original = TPixelD(0, 0, 0, 0);
       const double alpha = limit(glow.a * s.glowOpacity, 0, 1);
       const double underlying = s.merge == 0 ? s.sourceOpacity : s.sourceOpacity * (1 - alpha);
-      const TPixelD composite(original.r * underlying + glow.r * s.glowOpacity,
-                              original.g * underlying + glow.g * s.glowOpacity,
-                              original.b * underlying + glow.b * s.glowOpacity,
+      const double maximum = std::is_same<Pixel, TPixelF>::value ? double(std::numeric_limits<float>::max()) : 1.0;
+      const double minimum = std::is_same<Pixel, TPixelF>::value ? -maximum : 0.0;
+      auto safeChannel = [minimum, maximum](double value) {
+        return std::isnan(value) ? 0.0 : std::max(minimum, std::min(maximum, value));
+      };
+      const TPixelD composite(safeChannel(original.r * underlying + glow.r * s.glowOpacity),
+                              safeChannel(original.g * underlying + glow.g * s.glowOpacity),
+                              safeChannel(original.b * underlying + glow.b * s.glowOpacity),
                               limit(original.m * underlying + alpha, 0, 1));
       dest[x] = PixelConverter<Pixel>::from(composite);
     }

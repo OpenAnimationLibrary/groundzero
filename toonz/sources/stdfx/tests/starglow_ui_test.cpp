@@ -9,6 +9,7 @@
 #include "toonzqt/spectrumfield.h"
 #include <QApplication>
 #include <QDir>
+#include <QLineEdit>
 #include <QTemporaryDir>
 #include <iostream>
 #include <stdexcept>
@@ -29,6 +30,28 @@ void check(const QString &layout) {
     if (candidate->property("fxParamName").toString() == "verticalRamp") field = candidate;
   require(field && field->property("preserveColorPrecision").toBool(), "Ramp editor lacks precision mode");
   require(ramp(preview)->getColor(0)->getValueD(0).r == 0.123456789, "Opening editor quantized preview");
+  auto *preciseRed = field->findChild<QLineEdit *>("spectrumPreciseRed");
+  require(preciseRed, "Missing precise ramp input");
+  preciseRed->setText("1.23456789123");
+  require(QMetaObject::invokeMethod(preciseRed, "editingFinished", Qt::DirectConnection), "Cannot edit precise ramp value");
+  require(ramp(actual)->getColor(0)->getValueD(0).r == 1.23456789123,
+          "Precise HDR ramp value was not stored");
+  TUndoManager::manager()->undo(); page.update(0);
+  require(ramp(actual)->getColor(0)->getValueD(0).r == 0.123456789,
+          "Precise ramp undo did not restore the original value");
+  TUndoManager::manager()->redo(); page.update(0);
+  require(ramp(actual)->getColor(0)->getValueD(0).r == 1.23456789123,
+          "Precise ramp redo did not restore the HDR value");
+  TUndoManager::manager()->undo(); page.update(0); TUndoManager::manager()->reset();
+  preciseRed->setText("1e300");
+  require(QMetaObject::invokeMethod(preciseRed, "editingFinished", Qt::DirectConnection), "Cannot edit extreme HDR ramp value");
+  page.update(0);
+  require(ramp(actual)->getColor(0)->getValueD(0).r == 1e300, "Extreme HDR value was not retained by the editor");
+  TUndoManager::manager()->undo(); page.update(0); TUndoManager::manager()->reset();
+  preciseRed->setText("not a number");
+  require(QMetaObject::invokeMethod(preciseRed, "editingFinished", Qt::DirectConnection), "Cannot validate precise input");
+  require(ramp(actual)->getColor(0)->getValueD(0).r == 0.123456789,
+          "Invalid precise input changed the ramp");
   auto *editor = field->findChild<DVGui::SpectrumField *>(); require(editor, "Missing ramp widget");
   TSpectrum changed = editor->getSpectrum(); changed.setKey(1, {1.0, TPixel32(42, 65, 127)}); editor->setSpectrum(changed);
   require(QMetaObject::invokeMethod(field, "onChange", Qt::DirectConnection, Q_ARG(bool, false)), "Cannot edit ramp");
