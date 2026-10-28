@@ -1,6 +1,7 @@
 #include "stdfx.h"
 #include "tfxparam.h"
 #include "tparamset.h"
+#include "tfxattributes.h"
 #include "celdistance.h"
 #include "tpixelutils.h"
 
@@ -34,6 +35,9 @@ struct GradientSettings {
   TPixelD color, bg;
 };
 bool gradientCanceled(const int *canceled) { return canceled && *canceled; }
+bool gradientInvertible(const TAffine &affine) {
+  return std::isfinite(affine.det()) && std::abs(affine.det()) >= 1e-12;
+}
 int gradientBlurSupport(const GradientSettings &p) {
   if (!p.blur || p.blurSize <= 0) return 0;
   const double radius = std::ceil(p.blurSize);
@@ -227,12 +231,39 @@ class AlphaDistanceGradientFx final : public TStandardRasterFx {
             gradientBound(m_blurSize->getValue(frame), 4096) * scale,
             gradientColor(m_color->getValueD(frame)), gradientColor(m_bg->getValueD(frame))};
   }
+  bool usesCameraDomain(double frame, const TRenderSettings &settings) {
+    if (!m_source.isConnected()) return false;
+    TRenderSettings full(settings); full.m_getFullSizeBBox = true;
+    TRectD box;
+    m_source->doGetBBox(frame, box, full);
+    return !gradientFiniteBox(box);
+  }
+  // The host moves integer affine translations and fractional tile positions
+  // into the working tile origin. A camera rectangle must move with that grid.
+  TPointD cameraCoordinates(const TPointD &position,
+                             const TRenderSettings &settings,
+                             TRenderSettings &normalized) const {
+    const TPointD integral(std::floor(position.x), std::floor(position.y));
+    const TPointD fraction = position - integral;
+    const TPointD translation(
+        std::floor(settings.m_affine.a13 - fraction.x),
+        std::floor(settings.m_affine.a23 - fraction.y));
+    const TPointD origin = integral - translation;
+    const TPointD delta = position - origin;
+    normalized = settings;
+    normalized.m_affine.a13 -= delta.x;
+    normalized.m_affine.a23 -= delta.y;
+    normalized.m_cameraBox -= delta;
+    return origin;
+  }
   bool sourceCanvas(double frame, const TRenderSettings &settings,
-                    TRectD &box, bool transformed) {
+                    TRectD &box, bool transformed, bool *cameraDomain = nullptr) {
+    if (cameraDomain) *cameraDomain = false;
     TRenderSettings full(settings); full.m_getFullSizeBBox = true;
     bool result = transformed ? m_source->getBBox(frame, box, full)
                               : m_source->doGetBBox(frame, box, full);
     if (!gradientFiniteBox(box)) {
+      if (cameraDomain) *cameraDomain = true;
       box = settings.m_cameraBox;
       if (!gradientFiniteBox(box) || box.isEmpty())
         throw TException("Alpha Distance Gradient: a finite source or camera canvas is required");
@@ -272,20 +303,61 @@ public:
     m_color->enableMatte(false); m_bg->enableMatte(false);
     enableComputeInFloat(true);
   }
-  bool canHandle(const TRenderSettings &settings, double) override {
-    return settings.m_affine == TAffine();
+  bool canHandle(const TRenderSettings &settings, double frame) override {
+    return settings.m_affine.isIdentity() ||
+           (gradientInvertible(settings.m_affine) && usesCameraDomain(frame, settings));
   }
-  TAffine handledAffine(const TRenderSettings &, double) override {
-    // Whole-shape analysis and peak rescaling use one native pixel grid. Let
-    // the host transform the completed result, including preview reduction.
-    return TAffine();
+  TAffine handledAffine(const TRenderSettings &settings, double frame) override {
+    // Finite sources use one native grid. Infinite sources use the camera's
+    // render grid; its rectangle is already expressed in output coordinates.
+    return gradientInvertible(settings.m_affine) && usesCameraDomain(frame, settings)
+               ? settings.m_affine : TAffine();
+  }
+  void compute(TTile &tile, double frame, const TRenderSettings &settings) override {
+    if (!getAttributes()->isEnabled() || !usesCameraDomain(frame, settings)) {
+      TRasterFx::compute(tile, frame, settings);
+      return;
+    }
+    TRenderSettings normalized;
+    const TPointD original = tile.m_pos;
+    tile.m_pos = cameraCoordinates(original, settings, normalized);
+    try {
+      TRasterFx::compute(tile, frame, normalized);
+    } catch (...) {
+      tile.m_pos = original;
+      throw;
+    }
+    tile.m_pos = original;
+  }
+  void dryCompute(TRectD &rect, double frame, const TRenderSettings &settings) override {
+    if (!getAttributes()->isEnabled() || !usesCameraDomain(frame, settings)) {
+      TRasterFx::dryCompute(rect, frame, settings);
+      return;
+    }
+    TRenderSettings normalized;
+    const TPointD origin = cameraCoordinates(rect.getP00(), settings, normalized);
+    TRectD normalizedRect(origin, rect.getSize());
+    TRasterFx::dryCompute(normalizedRect, frame, normalized);
   }
   bool requiresFullPrecisionSerialization() const override { return true; }
   bool toBeComputedInLinearColorSpace(bool, bool) const override { return false; }
   bool doGetBBox(double frame, TRectD &box, const TRenderSettings &settings) override {
     box = TRectD();
-    if (!m_source.isConnected() || !sourceCanvas(frame, settings, box, false)) return false;
-    box = box.enlarge(gradientMargin(parameters(frame))); return true;
+    bool cameraDomain = false;
+    if (!m_source.isConnected() || !sourceCanvas(frame, settings, box, false, &cameraDomain))
+      return false;
+    if (cameraDomain) {
+      if (!gradientInvertible(settings.m_affine)) { box = TRectD(); return false; }
+      box = TRectD(std::floor(box.x0), std::floor(box.y0),
+                    std::ceil(box.x1), std::ceil(box.y1));
+      box = box.enlarge(gradientMargin(parameters(frame, std::sqrt(std::abs(settings.m_affine.det())))));
+      // getBBox applies the affine after this callback. Return native bounds
+      // that contain the already-transformed camera, without scaling it twice.
+      box = settings.m_affine.inv() * box;
+    } else {
+      box = box.enlarge(gradientMargin(parameters(frame)));
+    }
+    return true;
   }
   void transform(double frame, int, const TRectD &, const TRenderSettings &settings,
                  TRectD &input, TRenderSettings &inputSettings) override {
@@ -309,7 +381,7 @@ public:
   std::string getAlias(double frame, const TRenderSettings &settings) const override {
     const GradientSettings p = parameters(frame);
     std::ostringstream s; s.imbue(std::locale::classic());
-    s << TRasterFx::getAlias(frame, settings) << "[alphaDistance:1:"
+    s << TRasterFx::getAlias(frame, settings) << "[alphaDistance:2:"
       << std::setprecision(std::numeric_limits<double>::max_digits10)
       << p.region << ',' << p.mode << ',' << p.interpolation << ',' << p.blur << ','
       << p.background << ',' << p.invert << ',' << p.inside << ',' << p.outside << ','

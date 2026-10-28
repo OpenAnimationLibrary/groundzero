@@ -2,6 +2,8 @@
 #include "tparamcontainer.h"
 #include "tstream.h"
 #include "tmacrofx.h"
+#include "trenderer.h"
+#include "tthread.h"
 #include <QCoreApplication>
 #include <QTemporaryDir>
 #include <future>
@@ -197,6 +199,7 @@ void checkCanvasAndFloat() {
     catch (const TException &) { overflow = true; }
     require(overflow, "Canvas allocation would overflow signed byte count");
   }
+  fx.getInputPort(0)->setFx(new Source(finite));
   for (double scale : {0.25, 0.5, 1.1, 2.0}) {
     settings.m_affine = TScale(scale);
     require(!fx.canHandle(settings, 0) && fx.handledAffine(settings, 0) == TAffine(),
@@ -205,6 +208,83 @@ void checkCanvasAndFloat() {
   AlphaDistanceGradientFx missing;
   require(render<TPixel32>(missing, 1, 1)->pixels(0)[0] == TPixel32::Transparent,
           "Missing source retained output");
+}
+class CameraRenderContext {
+  TRenderer m_renderer;
+  unsigned long m_id;
+public:
+  CameraRenderContext() : m_renderer(1), m_id(TRenderer::buildRenderId()) {
+    m_renderer.install(m_id);
+    m_renderer.declareRenderStart(m_id);
+    m_renderer.declareFrameStart(0);
+  }
+  ~CameraRenderContext() {
+    m_renderer.declareFrameEnd(0);
+    m_renderer.declareRenderEnd(m_id);
+    m_renderer.uninstall();
+  }
+};
+TRaster32P renderCamera(AlphaDistanceGradientFx &fx,
+                        const TRenderSettings &settings, int stripHeight) {
+  CameraRenderContext context;
+  TRaster32P image(33, 29); image->clear();
+  for (int y = 0; y < 29; y += stripHeight) {
+    const int height = std::min(stripHeight, 29 - y);
+    TRaster32P raster(33, height); raster->clear();
+    TTile tile(raster, TPointD(-16, -14 + y));
+    TRectD rect(tile.m_pos, TDimensionD(33, height));
+    fx.dryCompute(rect, 0, settings);
+    fx.compute(tile, 0, settings);
+    require(tile.m_pos == TPointD(-16, -14 + y), "Camera normalization changed the caller's tile");
+    image->copy(tile.getRaster(), TPoint(0, y));
+  }
+  return image;
+}
+void checkTransformedCamera() {
+  TRaster32P input(1, 1); input->fill(TPixel32::White);
+  AlphaDistanceGradientFx fx; fx.getInputPort(0)->setFx(new Source(input, true));
+  set(fx, "useBackground", 1); set(fx, "insideThreshold", 8);
+  set(fx, "outsideThreshold", 2); set(fx, "blurSize", 2);
+  const TRectD camera(-6, -4, 7, 5);
+  const std::vector<TAffine> transforms = {
+      TAffine(), TScale(0.5), TScale(2), TScale(2, 0.5), TRotation(30),
+      TTranslation(4, -3), TTranslation(0.25, -0.75) * TScale(0.5)};
+  for (const TAffine &affine : transforms) {
+    TRenderSettings settings; settings.m_affine = affine; settings.m_cameraBox = camera;
+    const double scale = std::sqrt(std::abs(affine.det()));
+    require(fx.canHandle(settings, 0) && fx.handledAffine(settings, 0) == affine,
+            "Infinite input must retain the camera's render grid");
+    for (int region = 0; region < 3; ++region) for (int blur = 0; blur < 3; ++blur) {
+      set(fx, "region", region); set(fx, "blurMode", blur);
+      const int margin = (region ? int(std::ceil(2 * scale)) + 1 : 0) +
+                         (blur ? int(std::ceil(2 * scale)) : 0);
+      const TRectD expected = camera.enlarge(margin);
+      TRectD bounds;
+      require(fx.getBBox(0, bounds, settings) && bounds.x0 <= expected.x0 &&
+                  bounds.y0 <= expected.y0 && bounds.x1 >= expected.x1 && bounds.y1 >= expected.y1,
+              "Transformed bounds clip the camera canvas");
+      if (affine.a12 == 0 && affine.a21 == 0)
+        require(bounds == expected, "Camera canvas was transformed twice");
+      TRectD predicted; TRenderSettings inputSettings;
+      fx.transform(0, 0, expected, settings, predicted, inputSettings);
+      require(predicted == camera, "Camera input request depends on the output transform");
+      const auto full = renderCamera(fx, settings, 29);
+      const auto strips = renderCamera(fx, settings, 7);
+      for (int y = 0; y < 29; ++y) for (int x = 0; x < 33; ++x) {
+        const int px = x - 16, py = y - 14;
+        const bool inside = px >= expected.x0 && px < expected.x1 &&
+                            py >= expected.y0 && py < expected.y1;
+        require(full->pixels(y)[x].m == (inside ? 255 : 0),
+                "Public rendering cropped or moved the transformed camera");
+        require(full->pixels(y)[x] == strips->pixels(y)[x],
+                "Transformed camera rendering depends on strip position");
+      }
+      if (region == 0 && blur == 0) {
+        const double weight = std::max(0.0, 1.0 - 4.0 / (8.0 * scale));
+        expect(full->pixels(14)[16], weight, weight, weight, 1);
+      }
+    }
+  }
 }
 const std::array<const char *, 10> numbers = {{"region", "insideThreshold", "outsideThreshold",
   "renderMode", "useBackground", "invert", "interpolation", "power", "blurMode", "blurSize"}};
@@ -258,14 +338,15 @@ void checkPersistence(const QString &directory) {
 }
 int main(int argc, char **argv) {
   QCoreApplication app(argc, argv); QTemporaryDir temp;
+  TThread::init(); TRenderer::initialize(); int result = 1;
   try {
     require(temp.isValid(), "Temporary directory unavailable");
     checkModes<TPixel32>(); checkModes<TPixel64>(); checkModes<TPixelF>(); checkBlur();
     checkTilesAndCancellation<TPixel32>(); checkTilesAndCancellation<TPixel64>(); checkTilesAndCancellation<TPixelF>();
-    checkCanvasAndFloat(); checkPersistence(temp.path());
-    std::cout << "PASS: every mode, all depths, blur, finite canvas, tiles and persistence\n"; return 0;
+    checkCanvasAndFloat(); checkTransformedCamera(); checkPersistence(temp.path());
+    std::cout << "PASS: every mode, all depths, blur, finite canvas, tiles and persistence\n"; result = 0;
   } catch (const TException &error) {
     std::cerr << QString::fromStdWString(error.getMessage()).toStdString() << '\n';
   } catch (const std::exception &error) { std::cerr << error.what() << '\n'; }
-  return 1;
+  TThread::shutdown(); return result;
 }
