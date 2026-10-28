@@ -409,6 +409,7 @@ void testRasterLevelDpi() {
                     << " haloTiled=" << int(haloTiled->pixels(y)[x].m) << '\n';
           for (int dy = -2; dy <= 2; ++dy) {
             const int yy = y + dy;
+            if (yy < 0 || yy >= 24) continue;
             std::cerr << "  y=" << yy << " source=" << int(sourceFull->pixels(yy)[x].m)
                       << "," << int(sourceTiled->pixels(yy)[x].m)
                       << " halo=" << int(haloFull->pixels(yy)[x].m)
