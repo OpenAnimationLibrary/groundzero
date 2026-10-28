@@ -316,7 +316,8 @@ TRasterFP hostRender(CelSmoother2Fx &fx, int strips, const TAffine &affine,
 }
 
 void testHostColorSpaceAndTransforms() {
-  CelSmoother2Fx fx;
+  TFxP owner = new CelSmoother2Fx;
+  auto &fx = *static_cast<CelSmoother2Fx *>(owner.getPointer());
   fx.getInputPort(0)->setFx(new Source(fixture<TPixelF>(), TPoint(-9, -7)));
   set(fx, "gammaCorrection", 1);
   set(fx, "extraSmooth", 60);
@@ -410,14 +411,19 @@ int main(int argc, char **argv) {
   int result = 1;
   try {
     require(directory.isValid(), "Cannot create fixture directory");
+    std::cout << "Checking transfer functions and gamma selection" << std::endl;
     testTransferAndGamma();
+    std::cout << "Checking allocation and partial-source boundaries" << std::endl;
     testAllocationBoundaries();
     testPartiallyWrittenSource();
+    std::cout << "Checking precision, extra passes and concurrent tiles" << std::endl;
     testRendering<TPixel32>();
     testRendering<TPixel64>();
     testRendering<TPixelF>();
     testKeyHdrAndCancellation();
+    std::cout << "Checking host color conversion and affine rendering" << std::endl;
     testHostColorSpaceAndTransforms();
+    std::cout << "Checking scenes, presets and macros" << std::endl;
     testPersistence(directory.path());
     std::cout << "PASS: complete smoother v2 rendering, gamma, concurrency and persistence\n";
     result = 0;

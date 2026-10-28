@@ -141,10 +141,11 @@ void testPage(const QString &layout) {
   require(last->isEnabled(), "Animated maximum count was ignored");
   mode->setDefaultValue(2);
   page.update(10);
-  require(!last->isEnabled(), "All Colors still exposes inactive palette controls");
+  require(!last->isVisibleTo(&page), "All Colors still exposes inactive palette controls");
   mode->setDefaultValue(1);
   page.update(10);
-  require(last->isEnabled(), "Gamma Colors did not restore its palette controls");
+  require(last->isVisibleTo(&page) && last->isEnabled(),
+          "Gamma Colors did not restore its palette controls");
   TUndoManager::manager()->reset();
   std::cout << "Closing parameter page" << std::endl;
 }
