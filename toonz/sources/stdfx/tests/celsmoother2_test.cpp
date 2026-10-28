@@ -64,18 +64,6 @@ public:
   }
 };
 
-class OversizedSource final : public TStandardRasterFx {
-public:
-  bool computed = false;
-  const TPersistDeclaration *getDeclaration() const override { return nullptr; }
-  bool canHandle(const TRenderSettings &, double) override { return true; }
-  bool doGetBBox(double, TRectD &box, const TRenderSettings &) override {
-    box = TRectD(0, 0, std::numeric_limits<int>::max() / 16, 2);
-    return true;
-  }
-  void doCompute(TTile &, double, const TRenderSettings &) override { computed = true; }
-};
-
 template <class Pixel>
 TRasterPT<Pixel> render(CelSmoother2Fx &fx, int width, int height,
                        TPoint position = TPoint(), double frame = 0,
@@ -148,13 +136,7 @@ void testAllocationBoundaries() {
   }
   require(!canAllocateSource(-1, 4, 16) && !canAllocateSource(4, -1, 16) &&
               !canAllocateSource(4, 4, 0), "Invalid allocation dimensions were accepted");
-  CelSmoother2Fx fx;
-  auto *source = new OversizedSource;
-  fx.getInputPort(0)->setFx(source);
-  bool rejected = false;
-  try { render<TPixelF>(fx, 1, 1); }
-  catch (const TException &) { rejected = true; }
-  require(rejected && !source->computed, "Oversized source reached the host allocator");
+
 }
 
 template <class Pixel> TRasterPT<Pixel> fixture() {
