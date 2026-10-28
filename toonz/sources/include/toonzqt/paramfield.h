@@ -47,6 +47,7 @@ class QHBoxLayout;
 class TFxHandle;
 class TXshLevelHandle;
 class QFontComboBox;
+class QLineEdit;
 
 namespace DVGui {
 class LineEdit;
@@ -494,16 +495,24 @@ class DVAPI SpectrumParamField final
   Q_OBJECT
 
   DVGui::SpectrumField *m_spectrumField;
+  QLineEdit *m_preciseChannels[4] = {nullptr, nullptr, nullptr, nullptr};
+  int m_preciseStopIndex = -1;
+  void ensurePreciseEditor();
+  void refreshPreciseEditor();
+  void commitPreciseChannel(int channel);
 
 public:
   SpectrumParamField(QWidget *parent, QString name,
                      const TSpectrumParamP &param);
 
+  void update(int frame) override;
   void updateField(TSpectrum value) override;
 
   void setParams();
 
-  QSize getPreferredSize() override { return QSize(477, 60); }
+  QSize getPreferredSize() override {
+    return property("preserveColorPrecision").toBool() ? QSize(560, 88) : QSize(477, 60);
+  }
 
 protected slots:
   void onKeyToggled();
