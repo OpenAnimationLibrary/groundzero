@@ -35,6 +35,10 @@ add_executable(tinbetweenmatch_test tinbetweenmatch_test.cpp)
 target_include_directories(tinbetweenmatch_test PRIVATE ../../include)
 add_test(NAME tinbetweenmatch COMMAND tinbetweenmatch_test)
 
+add_executable(fluidwidth_test fluidwidth_test.cpp)
+target_include_directories(fluidwidth_test PRIVATE ../../include)
+add_test(NAME fluidwidth COMMAND fluidwidth_test)
+
 # artlayer.h needs TStroke, so only in the full build
 if(TARGET tnzcore)
     add_executable(artlayer_test artlayer_test.cpp)
