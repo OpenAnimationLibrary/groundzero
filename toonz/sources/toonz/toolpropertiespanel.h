@@ -283,6 +283,7 @@ private:
   // Eraser properties (3 variants: vector / toonz-raster / fullcolor-raster)
   void createEraserProperties();
   void updateEraserOptionStates();
+  void updateBrushOptionStates();
 
   // Fill properties (3 variants: vector / toonz-raster / fullcolor-raster)
   void createFillProperties();

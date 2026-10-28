@@ -42,6 +42,7 @@
 #include "toonz/tcamera.h"
 #include "toonz/tpalettehandle.h"
 #include "toonz/imagestyles.h"
+#include "toonz/contouroutline.h"
 
 // TnzCore includes
 #include "tstream.h"
@@ -59,7 +60,9 @@
 
 // Qt includes
 #include <QPainter>
+#include <cmath>
 #include <limits>
+#include <memory>
 
 using namespace ToolUtils;
 
@@ -74,6 +77,7 @@ TEnv::IntVar V_BrushDrawOrder("InknpaintVectorDrawOrder", 2);
 TEnv::IntVar V_BrushBreakSharpAngles("InknpaintBrushBreakSharpAngles", 0);
 TEnv::IntVar V_BrushPressureSensitivity("InknpaintBrushPressureSensitivity", 1);
 TEnv::IntVar V_VectorBrushFluidWidth("VectorBrushFluidWidth", 0);
+TEnv::StringVar V_VectorBrushPaintMode("VectorBrushPaintMode", "Normal");
 TEnv::IntVar V_VectorBrushFrameRange("VectorBrushFrameRange", 0);
 TEnv::IntVar V_VectorBrushSnap("VectorBrushSnap", 0);
 TEnv::IntVar V_VectorBrushSnapSensitivity("VectorBrushSnapSensitivity", 0);
@@ -534,11 +538,184 @@ static void addStrokeWithAutoOptions(TTool::Application *application,
   application->getCurrentTool()->getTool()->notifyImageChanged();
 }
 
+//-------------------------------------------------------------------
+//
+// Paint Fills and Paint Behind (the "Paint:" option)
+//
+//-------------------------------------------------------------------
+
+// The largest thickness of the control points of a stroke: 0 for Colour Art.
+static double strokeThickness(const TStroke &stroke) {
+  double thick = 0.0;
+  for (int i = 0; i < stroke.getControlPointCount(); ++i)
+    thick = std::max(thick, std::fabs(stroke.getControlPoint(i).thick));
+  return thick;
+}
+
+// Index of a stroke that bounds the region, or -1 if there is none (a region
+// made only of autoclose edges).
+static int regionStrokeIndex(const TVectorImage &vi, const TRegion &region) {
+  const int count = (int)vi.getStrokeCount();
+  for (UINT i = 0; i < region.getEdgeCount(); ++i) {
+    const TEdge *edge = region.getEdge(i);
+    if (!edge || !edge->m_s) continue;
+    if (edge->m_index >= 0 && edge->m_index < count &&
+        vi.getStroke(edge->m_index) == edge->m_s)
+      return edge->m_index;
+    const int index = vi.getStrokeIndex(edge->m_s);
+    if (index >= 0) return index;
+  }
+  return -1;
+}
+
+// Fills with style the regions of the group of the closed outline stroke at
+// shapeIndex whose inside lies within that outline; with onlyUnfilled the
+// regions that already have a fill keep it. As Convert Brush Strokes to
+// Outline Shapes does, each region is tested at one of its internal points
+// against a polygon sampled along the outline. The nonzero winding rule
+// counts the places where the outline overlaps itself (where the two ends of
+// a closed brush stroke meet) as inside.
+static void fillShapeRegions(TVectorImage &vi, int shapeIndex, int style,
+                             bool onlyUnfilled) {
+  if (shapeIndex < 0 || shapeIndex >= (int)vi.getStrokeCount()) return;
+  const TStroke &outline = *vi.getStroke(shapeIndex);
+
+  const int samples = std::max(64, 8 * outline.getChunkCount());
+  std::vector<TPointD> polygon;
+  polygon.reserve(samples);
+  for (int i = 0; i < samples; ++i)
+    polygon.push_back(outline.getPoint((double)i / samples));
+
+  auto winding = [&polygon](const TPointD &p) {
+    int w = 0;
+    for (size_t i = 0, j = polygon.size() - 1; i < polygon.size(); j = i++) {
+      const TPointD &a = polygon[j], &b = polygon[i];
+      // > 0 when p is on the left of the edge a -> b
+      const double side = (b.x - a.x) * (p.y - a.y) - (p.x - a.x) * (b.y - a.y);
+      if (a.y <= p.y) {
+        if (b.y > p.y && side > 0) ++w;
+      } else if (b.y <= p.y && side < 0)
+        --w;
+    }
+    return w;
+  };
+
+  const TRectD bbox = outline.getBBox();
+  std::vector<TRegion *> regions;
+  for (UINT i = 0; i < vi.getRegionCount(); ++i)
+    regions.push_back(vi.getRegion(i));
+  while (!regions.empty()) {
+    TRegion *region = regions.back();
+    regions.pop_back();
+    if (!region || !bbox.overlaps(region->getBBox())) continue;
+    for (UINT i = 0; i < region->getSubregionCount(); ++i)
+      regions.push_back(region->getSubregion(i));
+    if (onlyUnfilled && region->getStyle() != 0) continue;
+    // Only the regions of the shape's own group: the others are not touched
+    const int strokeIndex = regionStrokeIndex(vi, *region);
+    if (strokeIndex < 0 || !vi.sameGroup(strokeIndex, shapeIndex)) continue;
+    TPointD p;
+    if (region->getInternalPoint(p) && winding(p) != 0) region->setStyle(style);
+  }
+}
+
+// Adds shape (vi takes it) where the paint mode says, among the strokes of
+// the group being edited, or of the whole drawing. Returns its index.
+static int placePaintShape(TVectorImage &vi, TStroke *shape,
+                           BrushPaintMode::Mode mode) {
+  const int count = (int)vi.getStrokeCount();
+  int begin = 0, end = count;
+  if (vi.isInsideGroup() > 0) {
+    begin = end = -1;
+    for (int i = 0; i < count; ++i)
+      if (vi.isEnteredGroupStroke(i)) {
+        if (begin < 0) begin = i;
+        end = i + 1;
+      }
+    if (begin < 0) begin = 0, end = count;
+  }
+
+  std::vector<double> thicknesses;
+  thicknesses.reserve(end - begin);
+  for (int i = begin; i < end; ++i)
+    thicknesses.push_back(strokeThickness(*vi.getStroke(i)));
+  const int wanted = begin + BrushPaintMode::insertionIndex(thicknesses, mode);
+
+  // Added on top first (of the group being edited, if any) as the Brush does,
+  // then moved down as Arrange > Send Back does. A place inside another group
+  // is not allowed: the nearest place below it is taken, or the nearest one
+  // above if there is none below in the group being edited.
+  const int shapeId = shape->getId();
+  vi.addStroke(shape, false);
+  vi.findRegions();
+  const int from = vi.getStrokeIndexById(shapeId);
+  if (from < 0) return -1;
+  if (wanted >= begin && wanted < from) {
+    int target = -1;
+    for (int t = wanted; t >= begin && target < 0; --t)
+      if (vi.canMoveStrokes(from, 1, t)) target = t;
+    for (int t = wanted + 1; t < from && target < 0; ++t)
+      if (vi.canMoveStrokes(from, 1, t)) target = t;
+    if (target >= 0) vi.moveStrokes(from, 1, target);
+  }
+  return vi.getStrokeIndexById(shapeId);
+}
+
+// Paint Fills and Paint Behind: the stroke is replaced by the closed outline
+// shape it draws (the shape of Convert Brush Strokes to Outline Shapes, which
+// follows the width of every control point), filled with its style and placed
+// below the Line Art or at the bottom of the drawing. One undo step, like the
+// Auto Group option.
+// Returns false when there is nothing to paint the shape with: no width (Size
+// 0, or the Colour Art target) or a style that cannot fill a region; the
+// caller then adds the stroke as in Normal mode. A stroke of zero length, or
+// one whose outline cannot be made, is dropped.
+static bool addPaintModeShape(TTool::Application *application,
+                              const TVectorImageP &vi, const TStroke &stroke,
+                              BrushPaintMode::Mode mode, bool frameCreated,
+                              bool levelCreated, TXshSimpleLevel *level,
+                              const TFrameId &fid) {
+  if (!BrushPaintMode::makesShape(mode)) return false;
+  if (!(strokeThickness(stroke) > 1e-6)) return false;
+  TPalette *palette  = vi->getPalette();
+  TColorStyle *style = palette ? palette->getStyle(stroke.getStyle()) : 0;
+  if (!style || !style->isRegionStyle()) return false;
+
+  std::unique_ptr<TStroke> shape;
+  if (stroke.getLength() > 0.0) {
+    // A closed stroke (Snap or Auto Close) paints its ring: the outline of the
+    // same stroke left open, whose two ends meet.
+    TStroke openStroke(stroke);
+    openStroke.setSelfLoop(false);
+    shape.reset(ContourOutline::makeOutlineStroke(openStroke));
+    if (shape) {
+      const TRectD box = shape->getBBox();
+      if (!(box.getLx() > 0.0 && box.getLy() > 0.0)) shape.reset();
+    }
+  }
+  // Nothing to paint, and nothing to undo unless the frame was just created
+  if (!shape && !frameCreated && !levelCreated) return true;
+
+  TVectorImageP before = cloneWithEnteredGroup(vi);
+  if (shape) {
+    const int index = placePaintShape(*vi, shape.release(), mode);
+    vi->findRegions();
+    fillShapeRegions(*vi, index, stroke.getStyle(),
+                     mode == BrushPaintMode::MODE_PAINT_BEHIND);
+  }
+  TUndoManager::manager()->add(
+      new UndoVectorAutoOptions(level, fid, frameCreated, levelCreated, before,
+                                cloneWithEnteredGroup(vi)));
+  application->getCurrentTool()->getTool()->notifyImageChanged();
+  return true;
+}
+
 static void addStroke(TTool::Application *application, const TVectorImageP &vi,
-                      TStroke *stroke, DrawOrder drawOrder, bool breakAngles, bool autoGroup,
-                      bool autoFill, bool frameCreated, bool levelCreated,
-                      TXshSimpleLevel *sLevel = NULL,
-                      TFrameId fid            = TFrameId::NO_FRAME) {
+                      TStroke *stroke, DrawOrder drawOrder,
+                      BrushPaintMode::Mode paintMode, bool breakAngles,
+                      bool autoGroup, bool autoFill, bool frameCreated,
+                      bool levelCreated, TXshSimpleLevel *sLevel = NULL,
+                      TFrameId fid = TFrameId::NO_FRAME) {
   QMutexLocker lock(vi->getMutex());
 
   if (application->getCurrentObject()->isSpline()) {
@@ -564,6 +741,12 @@ static void addStroke(TTool::Application *application, const TVectorImageP &vi,
   }
   TFrameId id = application->getCurrentTool()->getTool()->getCurrentFid();
   if (id == TFrameId::NO_FRAME && fid != TFrameId::NO_FRAME) id = fid;
+  // Paint Fills and Paint Behind replace the stroke with its filled shape,
+  // whatever the Draw Order, Break, Auto Group and Auto Fill options say
+  if (BrushPaintMode::makesShape(paintMode) &&
+      addPaintModeShape(application, vi, *stroke, paintMode, frameCreated,
+                        levelCreated, sl, id))
+    return;
   if (autoGroup) {
     addStrokeWithAutoOptions(application, vi, stroke, drawOrder, breakAngles,
                              autoFill, frameCreated, levelCreated, sl, id);
@@ -674,13 +857,15 @@ namespace {
 //-------------------------------------------------------------------
 
 void addStrokeToImage(TTool::Application *application, const TVectorImageP &vi,
-                      TStroke *stroke, DrawOrder drawOrder, bool breakAngles,
+                      TStroke *stroke, DrawOrder drawOrder,
+                      BrushPaintMode::Mode paintMode, bool breakAngles,
                       bool autoGroup, bool autoFill, bool frameCreated,
                       bool levelCreated, TXshSimpleLevel *sLevel = NULL,
                       TFrameId id = TFrameId::NO_FRAME) {
   QMutexLocker lock(vi->getMutex());
-  addStroke(application, vi.getPointer(), stroke, drawOrder, breakAngles,
-            autoGroup, autoFill, frameCreated, levelCreated, sLevel, id);
+  addStroke(application, vi.getPointer(), stroke, drawOrder, paintMode,
+            breakAngles, autoGroup, autoFill, frameCreated, levelCreated,
+            sLevel, id);
   // la notifica viene gia fatta da addStroke!
   // getApplication()->getCurrentTool()->getTool()->notifyImageChanged();
 }
@@ -713,6 +898,7 @@ ToonzVectorBrushTool::ToonzVectorBrushTool(std::string name, int targetType)
     , m_accuracy("Accuracy:", 1, 100, 20)
     , m_smooth("Smooth:", 0, 50, 0)
     , m_drawOrder("Draw Order")
+    , m_paintMode("Paint:")
     , m_preset("Preset:")
     , m_breakAngles("Break", true)
     , m_pressure("Pressure", true)
@@ -754,6 +940,7 @@ ToonzVectorBrushTool::ToonzVectorBrushTool(std::string name, int targetType)
   m_prop[0].bind(m_accuracy);
   m_prop[0].bind(m_smooth);
   m_prop[0].bind(m_drawOrder);
+  m_prop[0].bind(m_paintMode);
   m_prop[0].bind(m_breakAngles);
   m_prop[0].bind(m_pressure);
   m_prop[0].bind(m_fluidWidth);
@@ -761,6 +948,11 @@ ToonzVectorBrushTool::ToonzVectorBrushTool(std::string name, int targetType)
   m_drawOrder.addValue(L"Over All");
   m_drawOrder.addValue(L"Under All");
   m_drawOrder.addValue(L"Palette Order");
+
+  // In the order of BrushPaintMode::Mode
+  m_paintMode.addValue(L"Normal");
+  m_paintMode.addValue(L"Paint Fills");
+  m_paintMode.addValue(L"Paint Behind");
 
   m_prop[0].bind(m_frameRange);
   m_frameRange.addValue(L"Off");
@@ -861,6 +1053,10 @@ void ToonzVectorBrushTool::updateTranslation() {
   m_drawOrder.setItemUIName(L"Over All", tr("Over All"));
   m_drawOrder.setItemUIName(L"Under All", tr("Under All"));
   m_drawOrder.setItemUIName(L"Palette Order", tr("Palette Order"));
+  m_paintMode.setQStringName(tr("Paint:"));
+  m_paintMode.setItemUIName(L"Normal", tr("Normal"));
+  m_paintMode.setItemUIName(L"Paint Fills", tr("Paint Fills"));
+  m_paintMode.setItemUIName(L"Paint Behind", tr("Paint Behind"));
   m_preset.setQStringName(tr("Preset:"));
   m_preset.setItemUIName(CUSTOM_WSTR, tr("<custom>"));
   m_breakAngles.setQStringName(tr("Break"));
@@ -1262,7 +1458,8 @@ void ToonzVectorBrushTool::inputSetBusy(bool busy) {
                               strokes[i], m_frameRange.getIndex(),
                               m_breakAngles.getValue(), m_autoGroup.getValue(),
                               m_autoFill.getValue() && !m_bypassAutoClose,
-                              m_firstFrameRange);
+                              m_firstFrameRange, true, true,
+                              currentPaintMode());
         TUndoManager::manager()->endBlock();
       }
       
@@ -1295,13 +1492,22 @@ void ToonzVectorBrushTool::inputSetBusy(bool busy) {
     }
   } else {
     // regular paint strokes
+    // Guided auto inbetween pairs the new stroke with the brush strokes of the
+    // neighbouring drawings, so the Paint modes act as Normal with it.
+    const bool guidedInbetween =
+        (Preferences::instance()->getGuidedDrawingType() == 1 ||
+         Preferences::instance()->getGuidedDrawingType() == 2) &&
+        Preferences::instance()->getGuidedAutoInbetween();
+    const BrushPaintMode::Mode paintMode =
+        guidedInbetween ? BrushPaintMode::MODE_NORMAL : currentPaintMode();
     TUndoManager::manager()->beginBlock();
     bool strokeCommitted = false;
     for(StrokeList::iterator i = strokes.begin(); i != strokes.end(); ++i) {
       TStroke *stroke = *i;
       const int previousCount = vi->getStrokeCount();
       addStrokeToImage(app, vi, stroke, (DrawOrder)m_drawOrder.getIndex(),
-                       m_breakAngles.getValue(), m_autoGroup.getValue(),
+                       paintMode, m_breakAngles.getValue(),
+                       m_autoGroup.getValue(),
                        m_autoFill.getValue() && !m_bypassAutoClose,
                        m_isFrameCreated, m_isLevelCreated);
       strokeCommitted = strokeCommitted || vi->getStrokeCount() > previousCount;
@@ -1545,7 +1751,7 @@ bool ToonzVectorBrushTool::doFrameRangeStrokes(
     TFrameId firstFrameId, TStroke *firstStroke, TFrameId lastFrameId,
     TStroke *lastStroke, int interpolationType, bool breakAngles,
     bool autoGroup, bool autoFill, bool drawFirstStroke, bool drawLastStroke,
-    bool withUndo) {
+    bool withUndo, BrushPaintMode::Mode paintMode) {
   TXshSimpleLevel *sl =
       TTool::getApplication()->getCurrentLevel()->getLevel()->getSimpleLevel();
   TStroke *first           = new TStroke();
@@ -1617,14 +1823,14 @@ bool ToonzVectorBrushTool::doFrameRangeStrokes(
       if (!swapped && !drawFirstStroke) {
       } else
         addStrokeToImage(getApplication(), img, firstImage->getStroke(0),
-                         (DrawOrder)m_drawOrder.getIndex(),
+                         (DrawOrder)m_drawOrder.getIndex(), paintMode,
                          breakAngles, autoGroup, autoFill, m_isFrameCreated,
                          m_isLevelCreated, sl, fid);
     } else if (t == 1) {
       if (swapped && !drawFirstStroke) {
       } else if (drawLastStroke)
         addStrokeToImage(getApplication(), img, lastImage->getStroke(0),
-                         (DrawOrder)m_drawOrder.getIndex(),
+                         (DrawOrder)m_drawOrder.getIndex(), paintMode,
                          breakAngles, autoGroup, autoFill, m_isFrameCreated,
                          m_isLevelCreated, sl, fid);
     } else {
@@ -1634,9 +1840,9 @@ bool ToonzVectorBrushTool::doFrameRangeStrokes(
       assert(vi->getStrokeCount() == 1);
       if (autoCloseEnabled()) closeOpenStroke(vi->getStroke(0));
       addStrokeToImage(getApplication(), img, vi->getStroke(0),
-                       (DrawOrder)m_drawOrder.getIndex(), breakAngles,
-                       autoGroup, autoFill, m_isFrameCreated, m_isLevelCreated,
-                       sl, fid);
+                       (DrawOrder)m_drawOrder.getIndex(), paintMode,
+                       breakAngles, autoGroup, autoFill, m_isFrameCreated,
+                       m_isLevelCreated, sl, fid);
     }
   }
   if (row != -1)
@@ -1973,6 +2179,7 @@ bool ToonzVectorBrushTool::onPropertyChanged(std::string propertyName) {
        propertyName == m_accuracy.getName() ||
        propertyName == m_smooth.getName() ||
        propertyName == m_drawOrder.getName() ||
+       propertyName == m_paintMode.getName() ||
        propertyName == m_breakAngles.getName() ||
        propertyName == m_pressure.getName() ||
        propertyName == m_fluidWidth.getName() ||
@@ -1991,6 +2198,8 @@ bool ToonzVectorBrushTool::onPropertyChanged(std::string propertyName) {
     V_BrushAccuracy            = m_accuracy.getValue();
     V_BrushSmooth              = m_smooth.getValue();
     V_BrushDrawOrder           = m_drawOrder.getIndex();
+    V_VectorBrushPaintMode =
+        std::string(BrushPaintMode::toString(currentPaintMode()));
     V_BrushBreakSharpAngles    = m_breakAngles.getValue();
     V_BrushPressureSensitivity = m_pressure.getValue();
     V_VectorBrushFluidWidth    = m_fluidWidth.getValue();
@@ -2086,6 +2295,7 @@ void ToonzVectorBrushTool::loadPreset() {
     m_accuracy.setValue(preset.m_acc, true);
     m_smooth.setValue(preset.m_smooth, true);
     m_drawOrder.setIndex(preset.m_drawOrder);
+    m_paintMode.setIndex(BrushPaintMode::modeFromIndex(preset.m_paintMode));
     m_breakAngles.setValue(preset.m_breakAngles);
     m_pressure.setValue(preset.m_pressure);
     m_fluidWidth.setValue(preset.m_fluidWidth, true);
@@ -2278,6 +2488,7 @@ void ToonzVectorBrushTool::addPreset(QString name) {
   preset.m_acc         = m_accuracy.getValue();
   preset.m_smooth      = m_smooth.getValue();
   preset.m_drawOrder   = m_drawOrder.getIndex();
+  preset.m_paintMode   = currentPaintMode();
   preset.m_breakAngles = m_breakAngles.getValue();
   preset.m_pressure    = m_pressure.getValue();
   preset.m_fluidWidth  = m_fluidWidth.getValue();
@@ -2396,6 +2607,8 @@ void ToonzVectorBrushTool::loadLastBrush() {
   m_fluidWidth.setValue(V_VectorBrushFluidWidth, true);
   m_smooth.setValue(V_BrushSmooth);
   m_drawOrder.setIndex(V_BrushDrawOrder);
+  m_paintMode.setIndex(
+      BrushPaintMode::fromString(V_VectorBrushPaintMode.getValue()));
 
   // Properties not tracked with preset
   m_frameRange.setIndex(V_VectorBrushFrameRange);
@@ -2452,6 +2665,7 @@ VectorBrushData::VectorBrushData()
     , m_join(0)
     , m_miter(0)
     , m_fluidWidth(0)
+    , m_paintMode(BrushPaintMode::MODE_NORMAL)
     , m_styleInfoVersion(0)
     , m_hasVectorStyle(false)
     , m_vectorStyleTagId(0)
@@ -2485,6 +2699,7 @@ VectorBrushData::VectorBrushData(const std::wstring &name)
     , m_join(0)
     , m_miter(0)
     , m_fluidWidth(0)
+    , m_paintMode(BrushPaintMode::MODE_NORMAL)
     , m_styleInfoVersion(0)
     , m_hasVectorStyle(false)
     , m_vectorStyleTagId(0)
@@ -2541,6 +2756,14 @@ void VectorBrushData::saveData(TOStream &os) {
   if (m_fluidWidth > 0) {
     os.openChild("Fluid_Width");
     os << m_fluidWidth;
+    os.closeChild();
+  }
+  // Only written when not Normal, for the same reasons
+  const BrushPaintMode::Mode paintMode =
+      BrushPaintMode::modeFromIndex(m_paintMode);
+  if (paintMode != BrushPaintMode::MODE_NORMAL) {
+    os.openChild("Paint_Mode");
+    os << std::string(BrushPaintMode::toString(paintMode));
     os.closeChild();
   }
   // Style snapshot (version 2 = generic)
@@ -2622,6 +2845,8 @@ void VectorBrushData::loadData(TIStream &is) {
   // The preset manager reads every preset into the same object, and the tag
   // below is absent when Fluid Width is off, so start from the default.
   m_fluidWidth = 0;
+  // The same for the paint mode, absent when Normal (and in older presets).
+  m_paintMode = BrushPaintMode::MODE_NORMAL;
 
   while (is.matchTag(tagName)) {
     if (tagName == "Name")
@@ -2646,6 +2871,11 @@ void VectorBrushData::loadData(TIStream &is) {
       is >> m_miter, is.matchEndTag();
     else if (tagName == "Fluid_Width")
       is >> m_fluidWidth, is.matchEndTag();
+    else if (tagName == "Paint_Mode") {
+      std::string mode;
+      is >> mode, is.matchEndTag();
+      m_paintMode = BrushPaintMode::fromString(mode);
+    }
     // Style snapshot fields
     else if (tagName == "StyleInfoVersion")
       is >> m_styleInfoVersion, is.matchEndTag();

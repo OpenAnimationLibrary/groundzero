@@ -48,6 +48,7 @@ set(HEADERS
     ../include/tools/strokeselection.h
     ../include/tools/vectoralignment.h
     ../include/tools/fluidwidth.h
+    ../include/tools/brushpaintmode.h
     ../include/tools/widthprofile.h
     ../include/tools/gradienthandles.h
     ../include/tools/uniquestyle.h
