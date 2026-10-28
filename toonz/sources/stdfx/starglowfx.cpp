@@ -289,34 +289,36 @@ Vec streak(const std::vector<Vec> &pixels, int width, int height, double x, doub
 
 template <class Pixel>
 bool render(const TRasterPT<Pixel> &source, const TRasterPT<Pixel> &output,
-            int offsetX, int offsetY, int originX, int originY, const Settings &s, const int *canceled) {
+            int offsetX, int offsetY, int originParityX, int originParityY, const Settings &s, const int *canceled) {
   const int w = source->getLx(), h = source->getLy();
   if (w <= 0 || h <= 0 || size_t(w) > std::numeric_limits<size_t>::max() / size_t(h) / sizeof(Vec))
     throw TException("Star Glow: invalid raster dimensions");
   std::vector<Vec> extracted(size_t(w) * size_t(h));
   RasterLock inputLock(source), outputLock(output);
+  auto inputPixel = [&](int x, int y) -> Vec {
+    if (x < 0 || y < 0 || x >= w || y >= h) return {};
+    const TPixelD p = toPixelD(source->pixels(y)[x]);
+    if (!std::isfinite(p.r) || !std::isfinite(p.g) || !std::isfinite(p.b) ||
+        !std::isfinite(p.m) || p.m <= 0) return {};
+    return {p.r, p.g, p.b, p.m};
+  };
   for (int y = 0; y < h; ++y) {
     if (canceled && *canceled) return false;
     for (int x = 0; x < w; ++x) {
       if ((x & 31) == 0 && canceled && *canceled) return false;
-      extracted[size_t(y) * size_t(w) + size_t(x)] = extract(toPixelD(source->pixels(y)[x]), s);
-    }
-  }
-  if (s.approximate) {
-    std::vector<Vec> reduced(extracted.size());
-    for (int y = 0; y < h; ++y) {
-      if (canceled && *canceled) return false;
-      for (int x = 0; x < w; ++x) {
-        if ((x & 31) == 0 && canceled && *canceled) return false;
-        const int gx = originX + x, gy = originY + y;
+      if (s.approximate) {
+        const int gx = originParityX + x, gy = originParityY + y;
         const int bx = x - ((gx % 2 + 2) % 2), by = y - ((gy % 2 + 2) % 2);
-        Vec average = get(extracted, w, h, bx, by);
-        average += get(extracted, w, h, bx + 1, by); average += get(extracted, w, h, bx, by + 1);
-        average += get(extracted, w, h, bx + 1, by + 1);
-        reduced[size_t(y) * size_t(w) + size_t(x)] = average * 0.25;
+        Vec average = inputPixel(bx, by);
+        average += inputPixel(bx + 1, by); average += inputPixel(bx, by + 1);
+        average += inputPixel(bx + 1, by + 1);
+        average = average * 0.25;
+        extracted[size_t(y) * size_t(w) + size_t(x)] =
+            extract(TPixelD(average.r, average.g, average.b, average.a), s);
+      } else {
+        extracted[size_t(y) * size_t(w) + size_t(x)] = extract(toPixelD(source->pixels(y)[x]), s);
       }
     }
-    extracted.swap(reduced);
   }
   // The highlight is a separable two-axis blur, reusing the selected profile.
   std::vector<Vec> horizontal;
@@ -406,7 +408,9 @@ void StarGlowFx::doCompute(TTile &tile, double frame, const TRenderSettings &set
   if (settings.m_isCanceled && *settings.m_isCanceled) return;
   const Settings values = snapshot(frame);
   const int dx = int(std::llround(tile.m_pos.x - input.x0)), dy = int(std::llround(tile.m_pos.y - input.y0));
-  const int ox = int(std::floor(input.x0)), oy = int(std::floor(input.y0));
+  // Only grid parity is needed; avoid converting large world coordinates to int.
+  const int ox = int(std::fmod(std::floor(input.x0), 2.0));
+  const int oy = int(std::fmod(std::floor(input.y0), 2.0));
   bool complete = false;
   if (TRaster32P out = tile.getRaster()) complete = render<TPixel32>(source.getRaster(), out, dx, dy, ox, oy, values, settings.m_isCanceled);
   else if (TRaster64P out = tile.getRaster()) complete = render<TPixel64>(source.getRaster(), out, dx, dy, ox, oy, values, settings.m_isCanceled);

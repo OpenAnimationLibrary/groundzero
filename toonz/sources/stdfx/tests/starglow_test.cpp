@@ -190,6 +190,16 @@ void testHighlightAndMerge() {
   const auto over = renderFx<TPixelF>(fx, 3, 3);
   require(std::abs(added->pixels(1)[1].r - 4.0 / 3.0) < 1e-6, "Add merge did not retain HDR glow");
   require(std::abs(over->pixels(1)[1].r - 1.0) < 1e-6, "Premultiply merge is not alpha weighted");
+  parameter(fx, "merge")->setDefaultValue(0);
+  parameter(fx, "sourceOpacity")->setDefaultValue(0);
+  parameter(fx, "threshold")->setDefaultValue(50);
+  parameter(fx, "approximate")->setDefaultValue(0);
+  const auto fullInput = renderFx<TPixelF>(fx, 3, 3);
+  require(fullInput->pixels(1)[1].m > 0, "Full-resolution highlight was unexpectedly removed");
+  parameter(fx, "approximate")->setDefaultValue(1);
+  const auto reducedInput = renderFx<TPixelF>(fx, 3, 3);
+  require(reducedInput->pixels(1)[1] == TPixelF::Transparent,
+          "Approximated input was not reduced before thresholding");
   int canceled = 1; TRenderSettings info; info.m_isCanceled = &canceled;
   TRasterFP canceledOutput(3, 3); canceledOutput->fill(TPixelF::White);
   TTile tile; tile.setRaster(canceledOutput); fx.doCompute(tile, 0, info);
