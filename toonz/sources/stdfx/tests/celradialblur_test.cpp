@@ -218,6 +218,10 @@ void precisionAndPersistence(const QString &path) {
   require(pixel == input->pixels(0)[0], "Float HDR identity lost precision");
   set(fx, "brightness", 2); pixel = render<TPixelF>(fx, 1, 1)->pixels(0)[0];
   require(pixel.r == 5 && pixel.g == -1 && pixel.m == 0.5f, "Brightness gain changed alpha or clipped HDR");
+  input->pixels(0)[0] = TPixelF(std::numeric_limits<float>::max(), 0, 0, 1);
+  pixel = render<TPixelF>(fx, 1, 1)->pixels(0)[0];
+  require(std::isfinite(pixel.r) && pixel.r == std::numeric_limits<float>::max(),
+          "Extreme gain produced nonfinite output");
   const std::string alias = fx.getAlias(0, TRenderSettings());
   set(fx, "brightness", 2.0000001);
   require(fx.getAlias(0, TRenderSettings()) != alias, "Fine control changes share a render alias");

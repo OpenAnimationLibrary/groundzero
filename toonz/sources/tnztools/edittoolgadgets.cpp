@@ -2302,16 +2302,19 @@ void EllipseFxGadget::leftButtonDrag(const TPointD &pos, const TMouseEvent &e) {
 
     // AR
     if (!e.isShiftPressed()) {  // lock AR when shift is pressed
-      double aspect_ratio   = getValue(m_aspect_ratio);
+      double aspect_ratio = std::max(0.001, getValue(m_aspect_ratio));
       double pre_axisLength = 2.0 * aspect_ratio / (aspect_ratio + 1.0);
-      double ratio          = norm(new_v) / norm(old_v);
+      double ratio = norm(new_v) / norm(old_v);
       if (ratio == 0.) return;
       double new_axisLength = pre_axisLength * ratio;
-      double new_ar         = new_axisLength / (2.0 - new_axisLength);
-      if (new_ar < 0.1)
-        new_ar = 0.1;
-      else if (new_ar > 10.0)
-        new_ar = 10.0;
+      double new_ar = new_axisLength / (2.0 - new_axisLength);
+      double minimum = 0.1, maximum = 10.0, declaredMin, declaredMax, step;
+      if (m_aspect_ratio->getValueRange(declaredMin, declaredMax, step) &&
+          declaredMin >= 0.0 && declaredMax <= 10.0) {
+        minimum = declaredMin;
+        maximum = declaredMax;
+      }
+      new_ar = std::max(minimum, std::min(maximum, new_ar));
       setValue(m_aspect_ratio, new_ar);
     }
 

@@ -15,6 +15,7 @@
 #include <limits>
 #include <locale>
 #include <sstream>
+#include <type_traits>
 #include <vector>
 
 namespace {
@@ -329,9 +330,17 @@ bool renderRadial(const CelMotion::Image &source, const CelMotion::Image *noiseI
       }
       if (totalWeight <= 0) { row[x] = Pixel::Transparent; continue; }
       const double inverse = 1.0 / totalWeight;
-      const TPixelD result(sum[0] * inverse * settings.gain,
-                           sum[1] * inverse * settings.gain,
-                           sum[2] * inverse * settings.gain, sum[3] * inverse);
+      TPixelD result(sum[0] * inverse * settings.gain,
+                     sum[1] * inverse * settings.gain,
+                     sum[2] * inverse * settings.gain, sum[3] * inverse);
+      if constexpr (std::is_same<Pixel, TPixelF>::value) {
+        const double maxFloat = std::numeric_limits<float>::max();
+        auto finiteFloat = [maxFloat](double value) {
+          return std::max(-maxFloat, std::min(maxFloat, value));
+        };
+        result.r = finiteFloat(result.r); result.g = finiteFloat(result.g);
+        result.b = finiteFloat(result.b); result.m = finiteFloat(result.m);
+      }
       row[x] = PixelConverter<Pixel>::from(result);
     }
   }
@@ -345,7 +354,7 @@ void CelRadialBlurFx::doCompute(TTile &tile, double frame,
   if (!m_source.isConnected() || isCanceled(settings.m_isCanceled)) return;
   TRectD domain;
   if (!sourceDomain(frame, settings, domain)) return;
-  const TDimension size(int(domain.getLx()), int(domain.getLy()));
+  const TDimension size{int(domain.getLx()), int(domain.getLy())};
   CelMotion::checkedArea(size.lx, size.ly);
   TTile sourceTile;
   m_source->allocateAndCompute(sourceTile, domain.getP00(), size,

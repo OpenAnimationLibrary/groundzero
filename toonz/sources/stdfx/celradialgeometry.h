@@ -18,7 +18,8 @@ inline Point trajectory(Point position, Point center, double ratio, double angle
   const double rotatedY = -sine * x + cosine * y;
   const double qx = rotatedX / ratioSafe, qy = rotatedY;
   const double ellipticalRadius = std::hypot(qx, qy), radius = std::hypot(x, y);
-  if (!(radius > 1e-12) || !(ellipticalRadius > 1e-12) || !(length > 0.0)) return position;
+  if (!std::isfinite(radius) || !std::isfinite(ellipticalRadius) ||
+      !(radius > 1e-12) || !(ellipticalRadius > 1e-12) || !(length > 0.0)) return position;
   if (!rotation) {
     const double variation = ratioSafe >= 1.0
                                  ? std::min(1.0, ellipticalRadius / radius)
