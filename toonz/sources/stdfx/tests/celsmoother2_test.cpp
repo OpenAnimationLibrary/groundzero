@@ -2,6 +2,9 @@
 #include "tmacrofx.h"
 #include "tparamcontainer.h"
 #include "tstream.h"
+#include "trenderer.h"
+#include "tthread.h"
+#include "trop.h"
 
 #include <QCoreApplication>
 #include <QTemporaryDir>
@@ -226,6 +229,77 @@ void testKeyHdrAndCancellation() {
   }
 }
 
+TRasterFP hostRender(CelSmoother2Fx &fx, int strips, const TAffine &affine,
+                    bool linear) {
+  constexpr int width = 48, height = 40;
+  TRenderer renderer(1);
+  const unsigned long id = TRenderer::buildRenderId();
+  renderer.install(id);
+  renderer.declareRenderStart(id);
+  renderer.declareFrameStart(0);
+  TRasterFP output(width, height);
+  output->clear();
+  output->setLinear(linear);
+  try {
+    TRenderSettings settings;
+    settings.m_bpp = 128;
+    settings.m_affine = affine;
+    settings.m_linearColorSpace = linear;
+    settings.m_colorSpaceGamma = 2.2;
+    settings.m_cameraBox = TRectD(-24, -20, 24, 20);
+    for (int strip = 0; strip < strips; ++strip) {
+      const int y0 = height * strip / strips;
+      const int y1 = height * (strip + 1) / strips;
+      TRasterFP part(width, y1 - y0);
+      part->clear();
+      part->setLinear(linear);
+      TTile tile(part, TPointD(-24, -20 + y0));
+      fx.compute(tile, 0, settings);
+      output->copy(tile.getRaster(), TPoint(0, y0));
+    }
+  } catch (...) {
+    renderer.declareFrameEnd(0);
+    renderer.declareRenderEnd(id);
+    renderer.uninstall();
+    throw;
+  }
+  renderer.declareFrameEnd(0);
+  renderer.declareRenderEnd(id);
+  renderer.uninstall();
+  return output;
+}
+
+void testHostColorSpaceAndTransforms() {
+  CelSmoother2Fx fx;
+  fx.getInputPort(0)->setFx(new Source(fixture<TPixelF>(), TPoint(-9, -7)));
+  set(fx, "gammaCorrection", 1);
+  set(fx, "extraSmooth", 60);
+  const auto same = [](const TRasterFP &a, const TRasterFP &b, const char *message) {
+    bool visible = false;
+    for (int y = 0; y < a->getLy(); ++y)
+      for (int x = 0; x < a->getLx(); ++x) {
+        const TPixelF &first = a->pixels(y)[x], &second = b->pixels(y)[x];
+        visible |= first.m > .5f;
+        require(std::max({std::abs(first.r - second.r), std::abs(first.g - second.g),
+                          std::abs(first.b - second.b), std::abs(first.m - second.m)}) < 1e-6f,
+                message);
+      }
+    require(visible, "Host rendering produced an empty image");
+  };
+  for (int version : {0, 1}) {
+    set(fx, "smootherVersion", version);
+    auto encoded = hostRender(fx, 1, TAffine(), false);
+    auto linear = hostRender(fx, 1, TAffine(), true);
+    TRop::toLinearRGB(encoded, 2.2);
+    same(encoded, linear, "Working-space gamma was applied incorrectly");
+    const TAffine affine = TTranslation(2.5, -3.25) * TRotation(21) * TScale(1.3, .7);
+    for (bool workingLinear : {false, true})
+      same(hostRender(fx, 1, affine, workingLinear),
+           hostRender(fx, 8, affine, workingLinear),
+           "Affine or linear rendering created tile seams");
+  }
+}
+
 void testPersistence(const QString &directory) {
   TFxP owner = new CelSmoother2Fx;
   auto &fx = *owner;
@@ -285,7 +359,9 @@ void testPersistence(const QString &directory) {
 
 int main(int argc, char **argv) {
   QCoreApplication app(argc, argv);
+  TThread::init();
   QTemporaryDir directory;
+  int result = 1;
   try {
     require(directory.isValid(), "Cannot create fixture directory");
     testTransferAndGamma();
@@ -293,13 +369,15 @@ int main(int argc, char **argv) {
     testRendering<TPixel64>();
     testRendering<TPixelF>();
     testKeyHdrAndCancellation();
+    testHostColorSpaceAndTransforms();
     testPersistence(directory.path());
     std::cout << "PASS: complete smoother v2 rendering, gamma, concurrency and persistence\n";
-    return 0;
+    result = 0;
   } catch (const TException &error) {
     std::cerr << QString::fromStdWString(error.getMessage()).toStdString() << '\n';
   } catch (const std::exception &error) {
     std::cerr << error.what() << '\n';
   }
-  return 1;
+  TThread::shutdown();
+  return result;
 }
