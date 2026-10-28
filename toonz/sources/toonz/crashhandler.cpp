@@ -556,7 +556,14 @@ void signalHandler(int sig) {
 
   // Only async-signal-safe calls below. Avoid new signals inside the crash
   // handler: a second crash goes straight to the default action.
-  if (!handling.test_and_set() && s_pendingReportPath[0]) {
+  const bool first = !handling.test_and_set();
+  if (!first) {
+    // Another thread is writing the report, and ends the process when it is
+    // done: dying now would cut the report short. The wait is bounded, as
+    // this can also be the same thread, crashing again in the handler.
+    struct timespec step = {0, 100000000};  // 0.1 s
+    for (int i = 0; i < 50; ++i) nanosleep(&step, NULL);
+  } else if (s_pendingReportPath[0]) {
     int fd = open(s_pendingReportPath, O_WRONLY | O_CREAT | O_TRUNC, 0644);
     if (fd >= 0) {
       writeAll(fd, s_reportIntro, s_reportIntroLen);
