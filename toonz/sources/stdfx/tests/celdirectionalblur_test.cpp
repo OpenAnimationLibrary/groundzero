@@ -85,6 +85,9 @@ void mathTests() {
   require(!CelMotion::analyze(input, shapes, &canceled), "Shape cancellation ignored");
   require(CelMotion::checkedArea(4096, 4096) == std::size_t(4096) * 4096,
           "4K square canonical image rejected");
+  require(directionalMemoryMB(TRectD(0, 0, 4096, 4096), 160) == 2560 &&
+              directionalMemoryMB(TRectD(0, 0, 1e12, 1e12), 160) == std::numeric_limits<int>::max(),
+          "Canonical memory estimate overflowed before allocation");
   bool rejected = false;
   try { CelMotion::checkedArea(134217728, 1); }
   catch (const std::runtime_error &) { rejected = true; }
@@ -225,6 +228,13 @@ void rendererTests() {
   value(fx, "angle", 0); value(fx, "noiseVariation", 0); value(fx, "sizeVariation", 0);
   const auto cleared = render<Pixel>(fx, 3, 3);
   require(cleared->pixels(2)[2] == Pixel::Transparent, "Unwritten source samples became shapes");
+  partial->fill(Pixel::White);
+  fx.getInputPort(0)->setFx(new MotionSource(partial));
+  fx.getInputPort(1)->setFx(new MotionSource(partial, TPointD(1, 0), false));
+  value(fx, "noiseType", 2); value(fx, "noiseVariation", 100);
+  const auto noNoise = render<Pixel>(fx, 3, 1);
+  require(noNoise->pixels(0)[1] == Pixel::Transparent,
+          "Unwritten transformed noise samples generated a streak");
   TRasterPT<Pixel> bright(1, 1);
   const double alpha = scale == 1 ? 0.5 : std::floor(scale / 2);
   bright->pixels(0)[0] = Pixel(alpha, alpha, alpha, alpha);

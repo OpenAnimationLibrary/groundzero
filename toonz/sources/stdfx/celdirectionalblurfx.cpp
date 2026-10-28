@@ -24,6 +24,14 @@ const std::array<const char *, directionCount> directionalNames{{
 double directionalValue(double value, double low, double high) {
   return std::isfinite(value) ? std::max(low, std::min(high, value)) : low;
 }
+int directionalMemoryMB(const TRectD &region, int bytesPerPixel) {
+  if (region.isEmpty()) return 0;
+  const long double bytes = std::ceil(region.getLx()) *
+      static_cast<long double>(std::ceil(region.getLy())) * bytesPerPixel;
+  const long double megabytes = std::ceil(bytes / (1024 * 1024));
+  return !std::isfinite(megabytes) || megabytes > std::numeric_limits<int>::max()
+             ? std::numeric_limits<int>::max() : int(megabytes);
+}
 template <class Pixel> double directionalChannelScale() { return Pixel::maxChannelValue; }
 template <> double directionalChannelScale<TPixelF>() { return 1; }
 
@@ -188,8 +196,10 @@ public:
   int getMemoryRequirement(const TRectD &rect, double frame, const TRenderSettings &info) override {
     const auto values = parameters(frame, info);
     if (values.front.strength == 0 && values.back.strength == 0)
-      return memorySize(rect, 48 * 8);
-    return memorySize(sourceDomain(frame, info), 160 * 8) + memorySize(rect, 48 * 8);
+      return directionalMemoryMB(rect, 48);
+    const long long total = static_cast<long long>(directionalMemoryMB(sourceDomain(frame, info), 160)) +
+                            directionalMemoryMB(rect, 48);
+    return int(std::min(total, static_cast<long long>(std::numeric_limits<int>::max())));
   }
   std::string getAlias(double frame, const TRenderSettings &info) const override {
     std::ostringstream out; out.imbue(std::locale::classic());
