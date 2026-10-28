@@ -226,7 +226,7 @@ void checkPersistence(const QString &directory) {
   require(before != first->getAlias(10, TRenderSettings()), "Fine controls share cache aliases");
   for (bool compressed : {false, true}) {
     const TFilePath path((directory + (compressed ? "/compressed.fx" : "/plain.fx")).toStdWString());
-    { TOStream stream(path, compressed); stream << first; }
+    { TOStream stream(path, compressed); stream << first.getPointer(); }
     TFxP restored; { TIStream stream(path); stream >> restored; }
     require(restored && color(*restored, "backgroundColor")->getValueD(10) ==
                 color(*first, "backgroundColor")->getValueD(10), "Scene lost color precision");
