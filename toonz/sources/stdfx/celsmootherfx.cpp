@@ -1,5 +1,6 @@
 #include "stdfx.h"
 #include "celsmoothing.h"
+#include "celfxsourcegrid.h"
 #include "tfxparam.h"
 #include "tparamset.h"
 #include "tpixelutils.h"
@@ -121,9 +122,11 @@ class CelSmootherFx final : public TStandardRasterFx {
     if (!m_source.isConnected()) return TRectD();
     TRenderSettings fullSettings(settings);
     fullSettings.m_getFullSizeBBox = true;
+    fullSettings.m_affine = CelFxSourceGrid::renderAffine(m_source.getFx(), frame);
     TRectD box;
     static_cast<TRasterFx *>(m_source.getFx())->getBBox(frame, box, fullSettings);
-    if (box == TConsts::infiniteRectD) box = settings.m_cameraBox;
+    if (box == TConsts::infiniteRectD)
+      box = fullSettings.m_affine * settings.m_cameraBox;
     if (box.isEmpty()) return TRectD();
     if (!std::isfinite(box.x0) || !std::isfinite(box.y0) ||
         !std::isfinite(box.x1) || !std::isfinite(box.y1))
@@ -154,8 +157,9 @@ public:
     enableComputeInFloat(true);
   }
   bool canHandle(const TRenderSettings &, double) override { return false; }
-  TAffine handledAffine(const TRenderSettings &, double) override {
-    return TAffine();
+  bool usesCustomRenderGrid() const override { return true; }
+  TAffine handledAffine(const TRenderSettings &, double frame) override {
+    return CelFxSourceGrid::renderAffine(m_source.getFx(), frame);
   }
   bool requiresFullPrecisionSerialization() const override { return true; }
   bool toBeComputedInLinearColorSpace(bool, bool) const override { return false; }
@@ -165,14 +169,20 @@ public:
     const bool present = m_source->doGetBBox(frame, box, settings);
     // Coverage can cross a source alpha bound into the adjacent canvas pixel.
     // Keep a conservative output bound even when the input reports tight alpha.
-    if (present && !box.isEmpty() && box != TConsts::infiniteRectD)
-      box = box.enlarge(1);
+    if (present && !box.isEmpty() && box != TConsts::infiniteRectD) {
+      const TAffine placement =
+          CelFxSourceGrid::renderAffine(m_source.getFx(), frame).inv();
+      const double x = std::abs(placement.a11) + std::abs(placement.a12);
+      const double y = std::abs(placement.a21) + std::abs(placement.a22);
+      box = TRectD(box.x0 - x, box.y0 - y, box.x1 + x, box.y1 + y);
+    }
     return present;
   }
   void transform(double frame, int, const TRectD &,
                  const TRenderSettings &settings, TRectD &input,
                  TRenderSettings &inputSettings) override {
     inputSettings = settings;
+    inputSettings.m_affine = CelFxSourceGrid::renderAffine(m_source.getFx(), frame);
     input = domain(frame, settings);
   }
   int getMemoryRequirement(const TRectD &, double frame,
@@ -189,12 +199,15 @@ public:
     alias.imbue(std::locale::classic());
     const TPixelD key = m_colorKey->getValueD(frame);
     const TRectD box = domain(frame, settings);
-    alias << TRasterFx::getAlias(frame, settings) << "[celSmoother:1:"
+    const TAffine grid = CelFxSourceGrid::renderAffine(m_source.getFx(), frame);
+    alias << TRasterFx::getAlias(frame, settings) << "[celSmoother:2:"
           << std::setprecision(std::numeric_limits<double>::max_digits10)
           << (m_useColorKey->getValue(frame) >= .5) << ';' << key.r << ','
           << key.g << ',' << key.b << ';'
           << CelSmootherLocal::smoothRange(m_smoothRange->getValue(frame))
-          << ';' << box.x0 << ',' << box.y0 << ',' << box.x1 << ',' << box.y1;
+          << ';' << box.x0 << ',' << box.y0 << ',' << box.x1 << ',' << box.y1
+          << ';' << grid.a11 << ',' << grid.a12 << ',' << grid.a13 << ','
+          << grid.a21 << ',' << grid.a22 << ',' << grid.a23;
     return alias.str() + ']';
   }
   void doCompute(TTile &tile, double frame,
@@ -221,7 +234,9 @@ public:
     sourceRaster->clear();
     input.setRaster(sourceRaster);
     input.m_pos = box.getP00();
-    m_source->compute(input, frame, settings);
+    TRenderSettings inputSettings(settings);
+    inputSettings.m_affine = CelFxSourceGrid::renderAffine(m_source.getFx(), frame);
+    m_source->compute(input, frame, inputSettings);
     if (settings.m_isCanceled && *settings.m_isCanceled) return;
     if (TRaster32P output = tile.getRaster())
       CelSmootherLocal::render<TPixel32>(input.getRaster(), output, int(dx), int(dy),

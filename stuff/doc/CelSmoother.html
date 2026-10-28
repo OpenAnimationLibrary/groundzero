@@ -35,8 +35,11 @@ and macro exposure. The checkbox inserts constant keys. Fine color values are
 preserved when saving and cloning, including HDR values edited through the
 Function Editor.</p>
 <h2>Rendering</h2>
-<p>Smoothing runs on the source pixel grid before the host applies output
-scaling, rotation or other transforms. A complete source rectangle is analyzed
+<p>Smoothing runs on the native level pixel grid before the host applies level
+DPI, placement, camera scaling or rotation, including the half-pixel origins of
+odd-sized levels. The renderer finds that grid through
+a single connected image path to a raster level. Combined sources and graphs
+without a level grid use the effect's ordinary coordinate grid. A complete source rectangle is analyzed
 so strips and small tiles do not introduce seams. Raster levels use their full
 canvas; other finite graphs use their complete bounds. Infinite generators use
 the render camera rectangle, so changing that rectangle can change edge
