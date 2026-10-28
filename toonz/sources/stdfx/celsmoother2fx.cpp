@@ -12,6 +12,13 @@ using SmoothPixel = CelSmoothing::Pixel;
 
 std::string gammaSlot(int index) { return "gammaColor" + std::to_string(index + 1); }
 
+bool canAllocateSource(int width, int height, int pixelSize) {
+  if (width <= 0 || height <= 0 || pixelSize <= 0) return false;
+  // The host raster manager multiplies these values in signed int.
+  const size_t maximum = size_t(std::numeric_limits<int>::max());
+  return size_t(width) <= maximum / size_t(pixelSize) / size_t(height);
+}
+
 template <class Pixel> double pixelScale() { return Pixel::maxChannelValue; }
 template <> double pixelScale<TPixelF>() { return 1; }
 
@@ -214,6 +221,8 @@ public:
                             tile.m_pos.y + tile.getRaster()->getLy());
     if ((requested * box).isEmpty()) return;
     const int width = int(box.getLx()), height = int(box.getLy());
+    if (!canAllocateSource(width, height, tile.getRaster()->getPixelSize()))
+      throw TException("Cel Smoother v2: source raster exceeds allocation limits");
     TTile source;
     m_source->allocateAndCompute(source, box.getP00(), TDimension(width, height),
                                  tile.getRaster(), frame, settings);

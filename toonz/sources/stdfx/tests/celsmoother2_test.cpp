@@ -64,6 +64,18 @@ public:
   }
 };
 
+class OversizedSource final : public TStandardRasterFx {
+public:
+  bool computed = false;
+  const TPersistDeclaration *getDeclaration() const override { return nullptr; }
+  bool canHandle(const TRenderSettings &, double) override { return true; }
+  bool doGetBBox(double, TRectD &box, const TRenderSettings &) override {
+    box = TRectD(0, 0, std::numeric_limits<int>::max() / 16, 2);
+    return true;
+  }
+  void doCompute(TTile &, double, const TRenderSettings &) override { computed = true; }
+};
+
 template <class Pixel>
 TRasterPT<Pixel> render(CelSmoother2Fx &fx, int width, int height,
                        TPoint position = TPoint(), double frame = 0,
@@ -125,6 +137,24 @@ void testTransferAndGamma() {
   const Pixel covered = mix(Pixel{.5, 0, 0, .5}, Pixel{0, 0, 0, 0}, .5, s);
   near(covered.r, .25, 1e-14, "Transparent edge changed straight color");
   near(covered.a, .25, 1e-14, "Gamma changed coverage");
+}
+
+void testAllocationBoundaries() {
+  const int maximum = std::numeric_limits<int>::max();
+  for (int bytes : {4, 8, 16}) {
+    require(canAllocateSource(maximum / bytes, 1, bytes), "Valid byte limit was rejected");
+    require(!canAllocateSource(maximum / bytes + 1, 1, bytes), "Byte limit overflow was accepted");
+    require(!canAllocateSource(maximum / bytes, 2, bytes), "Area overflow was accepted");
+  }
+  require(!canAllocateSource(-1, 4, 16) && !canAllocateSource(4, -1, 16) &&
+              !canAllocateSource(4, 4, 0), "Invalid allocation dimensions were accepted");
+  CelSmoother2Fx fx;
+  auto *source = new OversizedSource;
+  fx.getInputPort(0)->setFx(source);
+  bool rejected = false;
+  try { render<TPixelF>(fx, 1, 1); }
+  catch (const TException &) { rejected = true; }
+  require(rejected && !source->computed, "Oversized source reached the host allocator");
 }
 
 template <class Pixel> TRasterPT<Pixel> fixture() {
@@ -365,6 +395,7 @@ int main(int argc, char **argv) {
   try {
     require(directory.isValid(), "Cannot create fixture directory");
     testTransferAndGamma();
+    testAllocationBoundaries();
     testRendering<TPixel32>();
     testRendering<TPixel64>();
     testRendering<TPixelF>();
