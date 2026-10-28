@@ -40,6 +40,7 @@
             <command>MI_ExportXsheetPDF</command>
             <command>MI_ExportCameraTrack</command>
             <command>MI_ExportSpine</command>
+            <command>MI_ExportTextureAtlas</command>
             <command>MI_ExportLayeredPSD</command>
         </menu>
         <separator/>

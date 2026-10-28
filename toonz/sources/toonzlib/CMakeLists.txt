@@ -468,6 +468,18 @@ if(BUILD_TIMEREMAP_TESTS)
     add_test(NAME timeremap COMMAND timeremap_test)
 endif()
 
+# Optional regression targets for the Texture Atlas export: the rectangle
+# packer (atlaspacker.h) and the JSON builder (atlasjson.h), both header only.
+option(BUILD_ATLAS_TESTS "Build the Texture Atlas packer and JSON regression tests" ${BUILD_TESTS})
+if(BUILD_ATLAS_TESTS)
+    add_executable(atlaspacker_test tests/atlaspacker_test.cpp)
+    add_test(NAME atlaspacker COMMAND atlaspacker_test)
+
+    add_executable(atlasjson_test tests/atlasjson_test.cpp)
+    target_link_libraries(atlasjson_test PRIVATE Qt${QT_VERSION_MAJOR}::Core)
+    add_test(NAME atlasjson COMMAND atlasjson_test)
+endif()
+
 # Optional regression target for the aspect ratio guide math (cameraguide.h).
 option(BUILD_CAMERAGUIDE_TESTS "Build the aspect ratio guide regression test" ${BUILD_TESTS})
 if(BUILD_CAMERAGUIDE_TESTS)

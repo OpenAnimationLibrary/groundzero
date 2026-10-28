@@ -551,6 +551,7 @@
 #define MI_ExportXsheetPDF "MI_ExportXsheetPDF"
 #define MI_ExportCameraTrack "MI_ExportCameraTrack"
 #define MI_ExportSpine "MI_ExportSpine"
+#define MI_ExportTextureAtlas "MI_ExportTextureAtlas"
 #define MI_ExportLayeredPSD "MI_ExportLayeredPSD"
 
 // mark id is added for each actual command (i.g. MI_SetCellMark1)
