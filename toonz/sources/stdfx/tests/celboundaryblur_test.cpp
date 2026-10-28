@@ -364,6 +364,52 @@ void rasterLevelDpiTest() {
   }
 }
 
+void oddRasterLevelDpiTest() {
+  constexpr int width = 9, height = 7;
+  ToonzScene scene;
+  TXshLevelP level = new TXshSimpleLevel(L"boundary-odd-dpi-fixture");
+  auto *simple = level->getSimpleLevel();
+  simple->setType(OVL_XSHLEVEL); simple->setScene(&scene);
+  TRaster32P image(width, height), filtered(width, height);
+  std::vector<CelBlur::Pixel> pixels(width * height);
+  for (int y = 0; y < height; ++y) for (int x = 0; x < width; ++x) {
+    image->pixels(y)[x] = x < 4 ? TPixel32::Red : TPixel32::Blue;
+    pixels[size_t(y) * width + x] = x < 4 ? CelBlur::Pixel{{1, 0, 0, 1}} : CelBlur::Pixel{{0, 0, 1, 1}};
+  }
+  CelBlur::Settings settings;
+  settings.radius = 2; settings.blend = 1; settings.repeats = 1;
+  const auto expected = reference(pixels, width, height, settings);
+  for (int y = 0; y < height; ++y) for (int x = 0; x < width; ++x) {
+    const auto &p = expected[size_t(y) * width + x];
+    filtered->pixels(y)[x] = TPixel32(int(std::round(p[0] * 255)), 0,
+                                     int(std::round(p[2] * 255)), 255);
+  }
+  simple->setFrame(TFrameId(1), TRasterImageP(image));
+  TXshLevelColumn column;
+  require(column.setCell(0, TXshCell(level, TFrameId(1))), "Cannot create odd raster level fixture");
+  TFxP dpi = TFxUtil::makeAffine(TFxP(column.getFx()), TScale(.25));
+  dpi->setName(L"LevelColumn AffineFx");
+  TFxP owner = new CelBoundaryBlurFx;
+  auto &fx = *static_cast<CelBoundaryBlurFx *>(owner.getPointer());
+  fx.getInputPort(0)->setFx(dpi.getPointer());
+  value(fx, "amount", 2); value(fx, "repeats", 1); value(fx, "smoothness", 100);
+  TRenderer renderer(1); const unsigned long id = TRenderer::buildRenderId();
+  renderer.install(id); renderer.declareRenderStart(id); renderer.declareFrameStart(0);
+  TRenderSettings info; info.m_affine = TScale(4);
+  TRaster32P result(10, 8), referenceRaster(10, 8);
+  result->clear(); referenceRaster->clear();
+  TTile tile(result, TPointD(-5, -4)); fx.compute(tile, 0, info);
+  TTile native(filtered, TPointD(-4.5, -3.5)), expectedTile(referenceRaster, TPointD(-5, -4));
+  TRasterFx::applyAffine(expectedTile, native, TRenderSettings());
+  renderer.declareFrameEnd(0); renderer.declareRenderEnd(id); renderer.uninstall();
+  for (int y = 0; y < 8; ++y) for (int x = 0; x < 10; ++x) {
+    const auto &a = result->pixels(y)[x], &b = referenceRaster->pixels(y)[x];
+    require(std::abs(int(a.r) - int(b.r)) <= 2 && std::abs(int(a.b) - int(b.b)) <= 2 &&
+                std::abs(int(a.m) - int(b.m)) <= 2,
+            "Odd raster level was resampled before boundary blur");
+  }
+}
+
 struct BlurRenderContext {
   TRenderer renderer;
   unsigned long id;
@@ -509,6 +555,7 @@ int main(int argc, char **argv) {
     std::cout << "Checking color selection workflow" << std::endl;
     workflowTest();
     rasterLevelDpiTest();
+    oddRasterLevelDpiTest();
     keyWorkflowTest<TPixel32>(); keyWorkflowTest<TPixel64>(); keyWorkflowTest<TPixelF>();
     std::cout << "Checking transformed host blur" << std::endl;
     hostTransformTests();
