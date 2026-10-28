@@ -57,6 +57,22 @@ void check(const QString &layout) {
   TUndoManager::manager()->undo(); page.update(0);
   require(ramp(actual)->getKeyCount() == 3 && ramp(actual)->getColor(2)->getValueD(0).r == 0.234567891, "Removing a stop lost its precise color");
   TUndoManager::manager()->reset();
+  ParamsPage samePage;
+  TIStream sameStream(TFilePath(layout.toStdWString()));
+  require(sameStream.matchTag(tag) && tag == "fxlayout", "Missing same-parameter layout");
+  require(sameStream.matchTag(tag) && tag == "page", "Missing same-parameter page");
+  samePage.setPage(sameStream, actual, false); samePage.setFx(actual, actual, 0);
+  SpectrumParamField *sameField = nullptr;
+  for (auto *candidate : samePage.findChildren<SpectrumParamField *>())
+    if (candidate->property("fxParamName").toString() == "verticalRamp") sameField = candidate;
+  require(sameField && ramp(actual)->getKeyCount() == 3, "Shared preview erased ramp stops");
+  require(QMetaObject::invokeMethod(sameField, "onKeyToggled", Qt::DirectConnection), "Cannot key shared ramp");
+  require(ramp(actual)->getKeyCount() == 3 && ramp(actual)->getColor(2)->getValueD(0).r == 0.234567891, "Shared keying lost ramp values");
+  auto *sameEditor = sameField->findChild<DVGui::SpectrumField *>(); require(sameEditor, "Missing shared ramp widget");
+  TSpectrum sameAdded = sameEditor->getSpectrum(); sameAdded.addKey({0.25, TPixel32::Blue}); sameEditor->setSpectrum(sameAdded);
+  require(QMetaObject::invokeMethod(sameField, "onKeyAdded", Qt::DirectConnection, Q_ARG(int, 3)), "Cannot add shared stop");
+  require(ramp(actual)->getKeyCount() == 4, "Shared ramp added a stop twice");
+  TUndoManager::manager()->reset();
 }
 }
 int main(int argc, char **argv) {

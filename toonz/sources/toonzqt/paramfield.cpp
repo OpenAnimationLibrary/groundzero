@@ -1402,7 +1402,8 @@ void SpectrumParamField::update(int frame) {
   }
   m_frame = frame;
   if (!m_actualParam || !m_currentParam) return;
-  if (m_actualParam->isKeyframe(frame) || !m_actualParam->hasKeyframes())
+  if (m_currentParam.getPointer() != m_actualParam.getPointer() &&
+      (m_actualParam->isKeyframe(frame) || !m_actualParam->hasKeyframes()))
     m_currentParam->copy(m_actualParam.getPointer());
   updateField(m_actualParam->getValue(frame));
   m_keyToggle->setStatus(m_actualParam->hasKeyframes(), m_actualParam->isKeyframe(frame),
@@ -1448,7 +1449,8 @@ void SpectrumParamField::onKeyToggled() {
       m_actualParam->getColor(i)->setValueD(m_frame, m_currentParam->getColor(i)->getValueD(m_frame));
     }
   }
-  m_currentParam->copy(m_actualParam.getPointer());
+  if (m_currentParam.getPointer() != m_actualParam.getPointer())
+    m_currentParam->copy(m_actualParam.getPointer());
   TUndoManager::manager()->add(undo);
   update(m_frame); emit actualParamChanged(); emit paramKeyToggle();
 }
@@ -1516,7 +1518,8 @@ void SpectrumParamField::onKeyAdded(int keyIndex) {
   if (property("preserveColorPrecision").toBool()) {
     if (!m_actualParam || !m_currentParam) return;
     TUndo *undo = new PreciseSpectrumParamUndo(m_actualParam, m_currentParam, m_interfaceName, m_frame, ParamField::m_fxHandleStat);
-    m_actualParam->addKey(key.first, key.second); m_currentParam->addKey(key.first, key.second);
+    m_actualParam->addKey(key.first, key.second);
+    if (m_currentParam.getPointer() != m_actualParam.getPointer()) m_currentParam->addKey(key.first, key.second);
     TUndoManager::manager()->add(undo); emit actualParamChanged(); emit currentParamChanged();
     return;
   }
@@ -1540,7 +1543,8 @@ void SpectrumParamField::onKeyRemoved(int keyIndex) {
   if (property("preserveColorPrecision").toBool()) {
     if (!m_actualParam || !m_currentParam) return;
     TUndo *undo = new PreciseSpectrumParamUndo(m_actualParam, m_currentParam, m_interfaceName, m_frame, ParamField::m_fxHandleStat);
-    m_actualParam->removeKey(keyIndex); m_currentParam->removeKey(keyIndex);
+    m_actualParam->removeKey(keyIndex);
+    if (m_currentParam.getPointer() != m_actualParam.getPointer()) m_currentParam->removeKey(keyIndex);
     TUndoManager::manager()->add(undo); emit actualParamChanged(); emit currentParamChanged();
     return;
   }
