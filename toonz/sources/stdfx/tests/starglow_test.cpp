@@ -19,6 +19,7 @@ class Source final : public TStandardRasterFx {
 public:
   explicit Source(const TRasterP &image, TPointD origin = TPointD()) : m_image(image), m_origin(origin) {}
   const TPersistDeclaration *getDeclaration() const override { return nullptr; }
+  std::string getAlias(double, const TRenderSettings &) const override { return "star-test-source"; }
   bool canHandle(const TRenderSettings &, double) override { return true; }
   bool doGetBBox(double, TRectD &box, const TRenderSettings &) override { box = TRectD(m_origin, TDimensionD(m_image->getLx(), m_image->getLy())); return true; }
   void compute(TTile &tile, double, const TRenderSettings &) override {
