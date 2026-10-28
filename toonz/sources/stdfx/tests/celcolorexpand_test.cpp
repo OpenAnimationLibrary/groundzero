@@ -161,9 +161,12 @@ template <class Pixel> void checkLevelDpi() {
   const double top = Pixel::maxChannelValue;
   for (const TDimension &size : {TDimension(10, 8), TDimension(9, 7)}) {
     TRasterPT<Pixel> image(size); image->clear();
-    image->pixels(1)[1] = Pixel(top, 0, 0, top);
-    image->pixels(size.ly / 2)[size.lx / 2] = Pixel(0, top / 2, 0, top / 2);
-    image->pixels(size.ly - 2)[size.lx - 2] = Pixel(0, 0, top, top);
+    for (int y = 1; y < size.ly - 1; ++y)
+      for (int x = 1; x < size.lx - 1; ++x)
+        image->pixels(y)[x] = x < size.lx / 3 ? Pixel(top, 0, 0, top) :
+                             x > 2 * size.lx / 3 ? Pixel(0, 0, top, top) :
+                             Pixel(0, top / 2, 0, top / 2);
+    image->pixels(size.ly / 2)[size.lx / 2] = Pixel::Transparent;
     CelLevelTest::Level original(image);
     for (double search : {0.0, 1.0, 2.5}) {
       const int halo = int(std::ceil(search));
@@ -190,10 +193,17 @@ template <class Pixel> void checkLevelDpi() {
         fx.getInputPort(0)->setFx(input.getPointer()); radius(fx)->setDefaultValue(search);
         for (const TAffine &camera : {TAffine(), placement.inv(),
                                       TTranslation(2.5, -.25) * TScale(2)}) {
+          std::ostringstream description;
+          description << "Expansion level " << size.lx << 'x' << size.ly << " radius " << search
+                      << " placement " << placement.a11 << ',' << placement.a12 << ',' << placement.a13
+                      << ',' << placement.a21 << ',' << placement.a22 << ',' << placement.a23
+                      << " camera " << camera.a11 << ',' << camera.a12 << ',' << camera.a13
+                      << ',' << camera.a21 << ',' << camera.a22 << ',' << camera.a23;
+          const std::string label = description.str();
           const auto result = CelLevelTest::render<Pixel>(fx, camera);
           CelLevelTest::compare(CelLevelTest::render<Pixel>(
               *static_cast<TRasterFx *>(reference.getPointer()), camera), result,
-              "Color expansion does not count native raster-level pixels");
+              label.c_str());
           CelLevelTest::compare(result, CelLevelTest::render<Pixel>(fx, camera, 4),
                                 "Raster level expansion changes across strips");
         }
