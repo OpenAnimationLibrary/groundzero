@@ -56,6 +56,10 @@ void testPage(const QString &layout) {
   page.setFx(preview, actual, 0);
   auto *selector = page.findChild<QComboBox *>("indexedColorSelector");
   require(selector && selector->count() == 5, "Color list is incomplete");
+  QWidget *palette = selector->parentWidget();
+  auto *gammaBox = qobject_cast<ModeSensitiveBox *>(palette->parentWidget());
+  require(palette->objectName() == "FxIndexedColors" && gammaBox,
+          "Gamma palette escaped its mode-sensitive container");
   require(page.findChildren<PixelParamField *>().size() == 6,
           "Not all colors have native bound controls");
   require(color(preview, 4)->getValueD(0).r == 0.123456789,
@@ -141,10 +145,13 @@ void testPage(const QString &layout) {
   require(last->isEnabled(), "Animated maximum count was ignored");
   mode->setDefaultValue(2);
   page.update(10);
-  require(!last->isVisibleTo(&page), "All Colors still exposes inactive palette controls");
+  require(!gammaBox->isActive() && gammaBox->isHidden() &&
+              !palette->isVisibleTo(&page) && !last->isVisibleTo(&page),
+          "All Colors still exposes inactive palette controls");
   mode->setDefaultValue(1);
   page.update(10);
-  require(last->isVisibleTo(&page) && last->isEnabled(),
+  require(gammaBox->isActive() && !gammaBox->isHidden() &&
+              palette->isVisibleTo(&page) && last->isVisibleTo(&page) && last->isEnabled(),
           "Gamma Colors did not restore its palette controls");
   TUndoManager::manager()->reset();
   std::cout << "Closing parameter page" << std::endl;
