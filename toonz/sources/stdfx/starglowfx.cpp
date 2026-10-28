@@ -375,8 +375,17 @@ void StarGlowFx::doCompute(TTile &tile, double frame, const TRenderSettings &set
   const int bytesPerPixel = tile.getRaster()->getPixelSize();
   if (!rasterSizeSupported(width, height, bytesPerPixel))
     throw TException("Star Glow: input raster exceeds the supported allocation size");
+  TRasterP sourceRaster;
+  if (TRaster32P(tile.getRaster())) sourceRaster = TRaster32P(width, height);
+  else if (TRaster64P(tile.getRaster())) sourceRaster = TRaster64P(width, height);
+  else if (TRasterFP(tile.getRaster())) sourceRaster = TRasterFP(width, height);
+  else throw TException("Star Glow: unsupported pixel type");
+  sourceRaster->setLinear(tile.getRaster()->isLinear());
+  sourceRaster->clear();
   TTile source;
-  m_source->allocateAndCompute(source, input.getP00(), TDimension(width, height), tile.getRaster(), frame, settings);
+  source.setRaster(sourceRaster);
+  source.m_pos = input.getP00();
+  m_source->compute(source, frame, settings);
   if (settings.m_isCanceled && *settings.m_isCanceled) return;
   const Settings values = snapshot(frame);
   const int dx = int(std::llround(tile.m_pos.x - input.x0)), dy = int(std::llround(tile.m_pos.y - input.y0));

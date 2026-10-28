@@ -1,9 +1,11 @@
 #include "../starglowfx.cpp"
 #include "tparamcontainer.h"
+#include "tmacrofx.h"
 #include "tstream.h"
 #include <QCoreApplication>
 #include <QTemporaryDir>
 #include <cmath>
+#include <future>
 #include <iostream>
 #include <memory>
 #include <stdexcept>
@@ -29,6 +31,20 @@ public:
   bool canHandle(const TRenderSettings &, double) override { return true; }
   bool doGetBBox(double, TRectD &box, const TRenderSettings &) override { box = TRectD(0, 0, 1000000, 1000000); return true; }
   void doCompute(TTile &tile, double, const TRenderSettings &) override { tile.getRaster()->clear(); }
+};
+// Some upstream effects write only their intersection and do not clear the
+// rest of a requested tile.
+class PartialSource final : public TStandardRasterFx {
+public:
+  const TPersistDeclaration *getDeclaration() const override { return nullptr; }
+  bool canHandle(const TRenderSettings &, double) override { return true; }
+  bool doGetBBox(double, TRectD &box, const TRenderSettings &) override { box = TRectD(0, 0, 1, 1); return true; }
+  void compute(TTile &tile, double, const TRenderSettings &) override {
+    TRasterFP raster = tile.getRaster();
+    const int x = -int(tile.m_pos.x), y = -int(tile.m_pos.y);
+    if (x >= 0 && y >= 0 && x < raster->getLx() && y < raster->getLy()) raster->pixels(y)[x] = TPixelF::White;
+  }
+  void doCompute(TTile &tile, double frame, const TRenderSettings &settings) override { compute(tile, frame, settings); }
 };
 template <class Pixel>
 TRasterPT<Pixel> renderFx(StarGlowFx &fx, int width, int height, TPointD origin = TPointD()) {
@@ -94,6 +110,16 @@ void testFloatAndTiles() {
       require(std::abs(a.r-b.r) < 1e-5 && std::abs(a.g-b.g) < 1e-5 && std::abs(a.m-b.m) < 1e-5, "Tiled glow differs from full image");
     }
   }
+  std::vector<std::future<void>> jobs;
+  for (int y = 0; y < 5; ++y) jobs.push_back(std::async(std::launch::async, [&, y] {
+    auto row = renderFx<TPixelF>(fx, 7, 1, TPointD(0, y));
+    for (int x = 0; x < 7; ++x) {
+      const TPixelF a = full->pixels(y)[x], b = row->pixels(0)[x];
+      require(std::abs(a.r-b.r) < 1e-5 && std::abs(a.g-b.g) < 1e-5 && std::abs(a.m-b.m) < 1e-5,
+              "Concurrent tiles differ from full image");
+    }
+  }));
+  for (auto &job : jobs) job.get();
   require(full->pixels(2)[3].r > full->pixels(2)[3].g, "RGB highlight lost color");
   auto ramp = TSpectrumParamP(TParamP(fx.getParams()->getParam("verticalRamp")));
   const auto before = fx.getAlias(0, TRenderSettings());
@@ -115,6 +141,25 @@ void testFloatAndTiles() {
   { TIStream preset(presetPath); restoredPreset.loadPreset(preset); }
   auto presetRamp = TSpectrumParamP(TParamP(restoredPreset.getParams()->getParam("verticalRamp")));
   require(presetRamp->getColor(0)->getValueD(0).r == 0.123456789, "Preset lost ramp precision");
+  TFxP first = new StarGlowFx, second = new StarGlowFx;
+  first->setFxId(L"StarGlow1"); second->setFxId(L"StarGlow2");
+  auto firstRamp = TSpectrumParamP(TParamP(first->getParams()->getParam("verticalRamp")));
+  firstRamp->getColor(0)->getRed()->setDefaultValue(0.123456789);
+  second->getInputPort(0)->setFx(first.getPointer());
+  TFxP macroOwner = TMacroFx::create({first, second});
+  auto *macro = dynamic_cast<TMacroFx *>(macroOwner.getPointer());
+  require(macro, "Could not construct macro");
+  macro->setParamExposed(first.getPointer(), "verticalRamp", true);
+  const TFilePath macroPath(temp.filePath("star.macro").toStdWString());
+  { TOStream macroStream(macroPath); macroStream << macro; }
+  TFxP restoredMacro;
+  { TIStream macroStream(macroPath); macroStream >> restoredMacro; }
+  auto *loadedMacro = dynamic_cast<TMacroFx *>(restoredMacro.getPointer());
+  require(loadedMacro, "Macro failed to reload");
+  TFx *member = loadedMacro->getFxById(L"StarGlow1");
+  require(member && loadedMacro->isParamExposed(member, "verticalRamp"), "Macro lost exposed ramp");
+  auto macroRamp = TSpectrumParamP(TParamP(member->getParams()->getParam("verticalRamp")));
+  require(macroRamp->getColor(0)->getValueD(0).r == 0.123456789, "Macro lost ramp precision");
 }
 
 void testHighlightAndMerge() {
@@ -146,10 +191,24 @@ void testHighlightAndMerge() {
   TTile tile; tile.setRaster(canceledOutput); fx.doCompute(tile, 0, info);
   require(canceledOutput->pixels(1)[1] == TPixelF::Transparent, "Canceled render was not cleared");
 }
+void testPartialUpstream() {
+  StarGlowFx fx; settings(fx);
+  fx.getInputPort(0)->setFx(new PartialSource);
+  parameter(fx, "sourceOpacity")->setDefaultValue(0);
+  parameter(fx, "verticalLength")->setDefaultValue(1);
+  parameter(fx, "profile")->setDefaultValue(0);
+  auto output = renderFx<TPixelF>(fx, 3, 3, TPointD(-1, -1));
+  for (int y = 0; y < 3; ++y) {
+    require(output->pixels(y)[0] == TPixelF::Transparent && output->pixels(y)[2] == TPixelF::Transparent,
+            "Unwritten upstream pixels affected glow");
+    require(std::abs(output->pixels(y)[1].m - 1.0 / 3.0) < 1e-6,
+            "Partial upstream highlight was not rendered correctly");
+  }
+}
 }
 int main(int argc, char **argv) {
   QCoreApplication app(argc, argv);
-  try { testDepth<TPixel32>(); testDepth<TPixel64>(); testDepth<TPixelF>(); testFloatAndTiles(); testHighlightAndMerge(); }
+  try { testDepth<TPixel32>(); testDepth<TPixel64>(); testDepth<TPixelF>(); testFloatAndTiles(); testHighlightAndMerge(); testPartialUpstream(); }
   catch (const std::exception &e) { std::cerr << e.what() << '\n'; return 1; }
   catch (const TException &e) { std::cerr << QString::fromStdWString(e.getMessage()).toStdString() << '\n'; return 1; }
   std::cout << "PASS: channels, profiles, alpha, rotation, tiles and precise ramps\n";
