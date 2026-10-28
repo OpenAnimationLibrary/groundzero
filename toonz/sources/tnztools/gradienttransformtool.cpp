@@ -47,6 +47,7 @@
 // Qt includes
 #include <QAction>
 #include <QCoreApplication>
+#include <QHBoxLayout>
 #include <QLabel>
 #include <QMenu>
 #include <QMutexLocker>
