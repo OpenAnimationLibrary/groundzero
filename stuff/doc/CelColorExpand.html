@@ -12,6 +12,12 @@ covered pixel. The default is 4. A radius of 0 passes the image through exactly.
 Fractional values are supported; the radius includes pixels exactly on its edge.
 Preview resolution scales the radius with the drawing. Rotation, reflection and
 nonuniform scaling use the normal effect transform pipeline.</p>
+<p>For an identifiable raster level, pixels mean the level's original pixels:
+expansion runs before its DPI and geometry placements, preserving the pixel phase
+of odd-sized images. The completed colors are then resampled for display or
+rendering. Vector artwork and graphs without one identifiable raster level use
+world effect pixels. A zero radius forwards the original source without changing
+its rendering grid.</p>
 <p>Every existing pixel with positive alpha keeps its complete original color
 and coverage. A transparent pixel inside the radius receives the nearest covered
 pixel's complete premultiplied RGBA value, including partial transparency. Colors

@@ -116,7 +116,8 @@ void checkGeometry() {
   TRenderSettings transformed; TRectD request;
   fx.transform(0, 0, TRectD(0, 0, 3, 2), settings, request, transformed);
   require(request == TRectD(-5, -5, 8, 7), "Predictive halo differs from render");
-  require(fx.canHandle(settings, 0), "Uniform scale rejected");
+  require(!fx.canHandle(settings, 0) && fx.handledAffine(settings, 0) == TAffine(),
+          "Preview must resample the completed expansion");
   settings.m_affine = TScale(2.0, 1.0);
   require(!fx.canHandle(settings, 0), "Nonuniform transform bypasses host adapter");
   radius(fx)->setDefaultValue(0);
