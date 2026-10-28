@@ -460,6 +460,14 @@ public:
   }
 };
 
+static bool preciseSpectraEqual(const TSpectrumParamP &a, const TSpectrumParamP &b, int frame) {
+  if (a->getKeyCount() != b->getKeyCount()) return false;
+  for (int i = 0; i < a->getKeyCount(); ++i)
+    if (a->getPosition(i)->getValue(frame) != b->getPosition(i)->getValue(frame) ||
+        a->getColor(i)->getValueD(frame) != b->getColor(i)->getValueD(frame)) return false;
+  return true;
+}
+
 //-----------------------------------------------------------------------------
 /*! SpectrumParamField Undo
         ※
@@ -1397,11 +1405,8 @@ void SpectrumParamField::update(int frame) {
   if (m_actualParam->isKeyframe(frame) || !m_actualParam->hasKeyframes())
     m_currentParam->copy(m_actualParam.getPointer());
   updateField(m_actualParam->getValue(frame));
-  bool different = m_actualParam->getKeyCount() != m_currentParam->getKeyCount();
-  for (int i = 0; !different && i < m_actualParam->getKeyCount(); ++i)
-    different = m_actualParam->getPosition(i)->getValue(frame) != m_currentParam->getPosition(i)->getValue(frame) ||
-                m_actualParam->getColor(i)->getValueD(frame) != m_currentParam->getColor(i)->getValueD(frame);
-  m_keyToggle->setStatus(m_actualParam->hasKeyframes(), m_actualParam->isKeyframe(frame), different);
+  m_keyToggle->setStatus(m_actualParam->hasKeyframes(), m_actualParam->isKeyframe(frame),
+                        !preciseSpectraEqual(m_actualParam, m_currentParam, frame));
 }
 
 void SpectrumParamField::updateField(TSpectrum value) {
@@ -1485,7 +1490,7 @@ void SpectrumParamField::onChange(bool isDragging) {
     if (commit) emit actualParamChanged();
     emit currentParamChanged();
     m_keyToggle->setStatus(m_actualParam->hasKeyframes(), m_actualParam->isKeyframe(m_frame),
-                           !commit);
+                           !preciseSpectraEqual(m_actualParam, m_currentParam, m_frame));
     return;
   }
 

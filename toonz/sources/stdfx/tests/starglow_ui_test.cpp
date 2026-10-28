@@ -49,6 +49,13 @@ void check(const QString &layout) {
   require(ramp(actual)->getKeyCount() == 2 && ramp(actual)->getColor(0)->getValueD(0).r == 0.123456789, "Stop undo lost precision");
   TUndoManager::manager()->redo(); page.update(0);
   require(ramp(actual)->getKeyCount() == 3 && ramp(actual)->getColor(0)->getValueD(0).r == 0.123456789, "Stop redo lost precision");
+  ramp(actual)->getColor(2)->getRed()->setDefaultValue(0.234567891);
+  ramp(preview)->getColor(2)->getRed()->setDefaultValue(0.234567891);
+  TSpectrum removed = editor->getSpectrum(); removed.removeKey(2); editor->setSpectrum(removed);
+  require(QMetaObject::invokeMethod(field, "onKeyRemoved", Qt::DirectConnection, Q_ARG(int, 2)), "Cannot remove ramp stop");
+  require(ramp(actual)->getKeyCount() == 2, "Stop was not removed");
+  TUndoManager::manager()->undo(); page.update(0);
+  require(ramp(actual)->getKeyCount() == 3 && ramp(actual)->getColor(2)->getValueD(0).r == 0.234567891, "Removing a stop lost its precise color");
   TUndoManager::manager()->reset();
 }
 }
