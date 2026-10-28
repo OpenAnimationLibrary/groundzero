@@ -14,6 +14,7 @@ set(HEADERS
     perlinnoise.h
     pins.h
     stdfx.h
+    celsmoothing.h
     t3dsource.h
     ../include/tfxaovsource.h
     texturefxP.h
@@ -169,6 +170,7 @@ set(SOURCES
     raylitfx.cpp
     celcolorkeepfx.cpp
     celcolorkeyfx.cpp
+    celsmootherfx.cpp
     rgbkeyfx.cpp
     rgbmcutfx.cpp
     rgbmfadefx.cpp
@@ -452,6 +454,16 @@ if(BUILD_CELFX_TESTS)
     add_executable(celcolorkeymath_test tests/celcolorkeymath_test.cpp)
     add_test(NAME celfx_colorkey_math COMMAND celcolorkeymath_test)
     add_custom_target(celfx_tests DEPENDS celcolorkeep_test celcolorkeep_ui_test celcolorkey_test celcolorkey_ui_test celcolorkeymath_test celfxrendergrid_test)
+    add_executable(celsmoother_test tests/celsmoother_test.cpp)
+    target_link_libraries(celsmoother_test Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME celfx_smoother COMMAND celsmoother_test)
+    add_executable(celsmoother_ui_test tests/celsmoother_ui_test.cpp)
+    target_link_libraries(celsmoother_ui_test toonzqt Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Widgets ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME celfx_smoother_ui COMMAND celsmoother_ui_test
+             ${CMAKE_CURRENT_SOURCE_DIR}/../../../stuff/profiles/layouts/fxs/STD_celSmootherFx.xml)
+    add_dependencies(celfx_tests celsmoother_test celsmoother_ui_test)
+    set_tests_properties(celfx_smoother celfx_smoother_ui PROPERTIES
+                         ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
     set_tests_properties(celfx_colorkeep celfx_colorkeep_ui celfx_colorkey celfx_colorkey_ui celfx_colorkey_math PROPERTIES
                          ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
 endif()

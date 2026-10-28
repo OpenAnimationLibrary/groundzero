@@ -58,6 +58,7 @@
     STD_iwa_SpinGradientFx 
   </Gradient>
   <Image_Adjust>
+    STD_celSmootherFx
     STD_iwa_AdjustExposureFx
     STD_adjustLevelsFx 
     STD_brightContFx 
