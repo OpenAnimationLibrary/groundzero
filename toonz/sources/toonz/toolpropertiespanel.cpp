@@ -6276,6 +6276,7 @@ void ToolPropertiesPanel::createSelectionProperties() {
   // ── 3–4. Vector only ────────────────────────────────────────────────────
   createBoolProperty(tr("Include Intersection"), "Include Intersection");
   createBoolProperty(tr("Preserve Thickness"), "Preserve Thickness");
+  createBoolProperty(tr("Envelope"), "Envelope");
 
   // ── 5. No Antialiasing (raster only) ────────────────────────────────────
   createBoolProperty(tr("No Antialiasing"), "No Antialiasing");

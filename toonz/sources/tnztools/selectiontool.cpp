@@ -8,6 +8,7 @@
 #include "drawutil.h"
 #include "tools/toolhandle.h"
 #include "tools/cursors.h"
+#include "tools/envelopelayout.h"
 #include "toonz/stage2.h"
 #include "toonz/tobjecthandle.h"
 
@@ -70,6 +71,11 @@ DragSelectionTool::DragTool *createNewRotationTool(SelectionTool *st) {
 }
 
 DragSelectionTool::DragTool *createNewFreeDeformTool(SelectionTool *st) {
+  // In the Envelope mode the handles bend the strokes through an envelope
+  if (st && st->isEnvelopeActive()) {
+    if (VectorSelectionTool *vst = dynamic_cast<VectorSelectionTool *>(st))
+      return new VectorEnvelopeTool(vst);
+  }
   return createNewDragTool<VectorFreeDeformTool, RasterFreeDeformTool>(st);
 }
 
@@ -302,6 +308,30 @@ void DragSelectionTool::drawFourPoints(const FourPoints &rect,
     if (!isEnabled) glDisable(GL_BLEND);
     glBlendFunc(src, dst);
   }
+}
+
+//-----------------------------------------------------------------------------
+
+// Draws the closed outline of an envelope the way drawFourPoints() draws the
+// box, with the colors inverted against the background.
+static void drawEnvelopeOutline(const std::vector<TPointD> &polygon,
+                                const TPixel32 &color) {
+  if (polygon.size() < 2) return;
+
+  GLint src, dst;
+  tglColor(color);
+  bool isEnabled = glIsEnabled(GL_BLEND);
+  glGetIntegerv(GL_BLEND_SRC, &src);
+  glGetIntegerv(GL_BLEND_DST, &dst);
+  glEnable(GL_BLEND);
+  glBlendFunc(GL_ONE_MINUS_DST_COLOR, GL_ONE_MINUS_SRC_ALPHA);
+
+  glBegin(GL_LINE_LOOP);
+  for (const TPointD &p : polygon) tglVertex(p);
+  glEnd();
+
+  if (!isEnabled) glDisable(GL_BLEND);
+  glBlendFunc(src, dst);
 }
 
 //=============================================================================
@@ -968,6 +998,35 @@ FreeDeformer *SelectionTool::getFreeDeformer(int index) const {
 
 //-----------------------------------------------------------------------------
 
+bool SelectionTool::isEnvelopeActive() const {
+  return isEnvelopeMode() && EnvelopeLayout::isUsableRest(getEnvelope());
+}
+
+//-----------------------------------------------------------------------------
+
+std::vector<TPointD> SelectionTool::getEnvelope(int index) const {
+  if (index >= 0 && index < (int)m_envelopes.size() &&
+      !m_envelopes[index].empty())
+    return m_envelopes[index];
+
+  if (index < 0 || index >= (int)m_bboxs.size()) return std::vector<TPointD>();
+
+  const DragSelectionTool::FourPoints &bbox = m_bboxs[index];
+  return EnvelopeLayout::perimeter(bbox.getP00(), bbox.getP10(), bbox.getP11(),
+                                   bbox.getP01());
+}
+
+//-----------------------------------------------------------------------------
+
+void SelectionTool::setEnvelope(const std::vector<TPointD> &handles,
+                                int index) {
+  if (index < 0) return;
+  if ((int)m_envelopes.size() <= index) m_envelopes.resize(index + 1);
+  m_envelopes[index] = handles;
+}
+
+//-----------------------------------------------------------------------------
+
 void SelectionTool::updateTranslation() {
   m_strokeSelectionType.setQStringName(tr("Type:"));
   m_strokeSelectionType.setItemUIName(RECT_SELECTION, tr("Rectangular"));
@@ -1040,10 +1099,24 @@ void SelectionTool::updateAction(TPointD pos, const TMouseEvent &e) {
       m_cursorId = ToolCursor::PointingHandCursor;
       return;
     }
-    if (tdistance2(bbox.getP00(), pos) < maxDist2 ||
-        tdistance2(bbox.getP11(), pos) < maxDist2 ||
-        tdistance2(bbox.getP01(), pos) < maxDist2 ||
-        tdistance2(bbox.getP10(), pos) < maxDist2) {
+    // Envelope mode: the corners and the middles of the sides are the handles
+    // of the envelope, and the sides do not scale
+    const bool envelope = isEnvelopeActive();
+    if (envelope) {
+      int handle =
+          EnvelopeLayout::findHandle(getEnvelope(), pos, 6 * pixelSize);
+      if (handle != EnvelopeLayout::kNoHandle) {
+        m_selectedPoint = static_cast<decltype(m_selectedPoint)>(
+            EnvelopeLayout::toolPointFromHandle(handle));
+        m_cursorId = ToolCursor::DistortCursor;
+        m_what     = DEFORM;
+        return;
+      }
+    }
+    if (!envelope && (tdistance2(bbox.getP00(), pos) < maxDist2 ||
+                      tdistance2(bbox.getP11(), pos) < maxDist2 ||
+                      tdistance2(bbox.getP01(), pos) < maxDist2 ||
+                      tdistance2(bbox.getP10(), pos) < maxDist2)) {
       if (!e.isCtrlPressed()) {
         m_what = SCALE;
         if (tdistance2(bbox.getTopRight(), pos) < maxDist2 ||
@@ -1057,8 +1130,10 @@ void SelectionTool::updateAction(TPointD pos, const TMouseEvent &e) {
       }
       return;
     }
-    if (isCloseToSegment(pos, TSegment(bbox.getPoint(0), bbox.getPoint(3)),
-                         maxDist))
+    if (envelope)
+      m_selectedPoint = NONE;
+    else if (isCloseToSegment(pos, TSegment(bbox.getPoint(0), bbox.getPoint(3)),
+                              maxDist))
       m_selectedPoint = P0M;
     else if (isCloseToSegment(pos, TSegment(bbox.getPoint(1), bbox.getPoint(2)),
                               maxDist))
@@ -1285,7 +1360,15 @@ void SelectionTool::drawCommandHandle(const TImage *image) {
   TPixel32 frameColor2(0, 0, 0);
   FourPoints rect = getBBox();
 
-  drawFourPoints(rect, frameColor, 0xffff, true);
+  // In the Envelope mode the outline and the handles are those of the envelope
+  const bool envelope = isEnvelopeActive();
+  std::vector<TPointD> handles;
+  if (envelope) handles = getEnvelope();
+
+  if (envelope)
+    drawEnvelopeOutline(handles, frameColor);
+  else
+    drawFourPoints(rect, frameColor, 0xffff, true);
 
   tglColor(frameColor);
 
@@ -1309,6 +1392,17 @@ void SelectionTool::drawCommandHandle(const TImage *image) {
                    getCenter() + TPointD(pixelSize * 15, 0));
     tglDrawSegment(getCenter() - TPointD(0, pixelSize * 15),
                    getCenter() + TPointD(0, pixelSize * 15));
+  }
+
+  if (envelope) {
+    for (const TPointD &h : handles)
+      drawSquare(h + TPointD(-pixelSize, pixelSize), pixelSize * 4, frameColor);
+    for (const TPointD &h : handles) drawSquare(h, pixelSize * 4, frameColor2);
+
+    if (vi && !m_deformValues.m_isSelectionModified)
+      drawRectWhitArrow(rect.getP10() - TPointD(14 * pixelSize, 15 * pixelSize),
+                        pixelSize);
+    return;
   }
 
   TPointD bl(rect.getP00().x - pixelSize, rect.getP00().y + pixelSize);

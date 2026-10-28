@@ -40,6 +40,7 @@ set(HEADERS
     ../include/tools/RGBpicker.h
     ../include/tools/artlayer.h
     ../include/tools/bilineardeform.h
+    ../include/tools/envelopelayout.h
     ../include/tools/cursormanager.h
     ../include/tools/cursors.h
     ../include/tools/levelselection.h
