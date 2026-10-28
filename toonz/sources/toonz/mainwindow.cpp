@@ -2766,6 +2766,7 @@ void MainWindow::defineActions() {
   createToggle(MI_RigIncludeChildren,
                QT_TR_NOOP("Include Child Objects in Rig Commands"), "", true,
                MenuCellsCommandType);
+  createMenuCellsAction(MI_RigMapping, QT_TR_NOOP("Rig Mapping..."), "", "");
 
   // Menu - Play
 

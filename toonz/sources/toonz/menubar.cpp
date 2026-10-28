@@ -1132,6 +1132,7 @@ QMenuBar *StackedMenuBar::createXsheetMenuBar() {
     addMenuItem(rigEaseMenu, MI_RigEaseCustom);
   }
   addMenuItem(cellsMenu, MI_RigIncludeChildren);
+  addMenuItem(cellsMenu, MI_RigMapping);
 
   //----Edit Menu
   QMenu *editMenu = addMenu(tr("Edit"), xsheetMenuBar);
@@ -1636,6 +1637,7 @@ QMenuBar *StackedMenuBar::createFullMenuBar() {
     addMenuItem(rigEaseMenu, MI_RigEaseCustom);
   }
   addMenuItem(cellsMenu, MI_RigIncludeChildren);
+  addMenuItem(cellsMenu, MI_RigMapping);
 
   // Menu' PLAY
   QMenu *playMenu = addMenu(tr("Play"), fullMenuBar);

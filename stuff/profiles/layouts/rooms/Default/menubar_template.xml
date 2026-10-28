@@ -286,6 +286,7 @@
             <command>MI_RigEaseCustom</command>
         </menu>
         <command>MI_RigIncludeChildren</command>
+        <command>MI_RigMapping</command>
     </menu>
     <menu title="Play">
         <command>MI_Play</command>
