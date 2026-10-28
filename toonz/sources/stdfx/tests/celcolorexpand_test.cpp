@@ -182,7 +182,7 @@ template <class Pixel> void checkLevelDpi() {
           }
         }
       CelLevelTest::Level oracle(expected);
-      for (const TAffine &placement : {TAffine(), TScale(.25),
+      for (const TAffine &placement : std::vector<TAffine>{TAffine(), TScale(.25),
               TTranslation(1.125, -.375) * TRotation(17) * TScale(.25, .5)}) {
         TFxP input = original.placed(placement), reference = oracle.placed(placement);
         TFxP owner = new CelColorExpandFx;
