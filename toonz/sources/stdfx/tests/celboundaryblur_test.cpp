@@ -107,6 +107,9 @@ void kernelTests() {
   require(!CelBlur::filter(horizontal, 9, 7, settings, &canceled), "Cancellation ignored");
   require(CelBlur::checkedArea(4096, 4096) == std::size_t(4096) * 4096,
           "A 4K square image was rejected before allocation");
+  require(blurMemoryMB(TRectD(0, 0, 4096, 4096), 160) == 2560 &&
+              blurMemoryMB(TRectD(0, 0, 1e12, 1e12), 160) == std::numeric_limits<int>::max(),
+          "Working-set estimate overflowed before allocation");
   bool limited = false;
   try { CelBlur::checkedArea(std::numeric_limits<int>::max(), 10); }
   catch (const std::runtime_error &) { limited = true; }

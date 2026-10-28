@@ -13,6 +13,14 @@ namespace {
 double blurValue(double value, double low, double high) {
   return std::isfinite(value) ? std::max(low, std::min(high, value)) : low;
 }
+int blurMemoryMB(const TRectD &region, int bytesPerPixel) {
+  if (region.isEmpty()) return 0;
+  const long double bytes = std::ceil(region.getLx()) *
+      static_cast<long double>(std::ceil(region.getLy())) * bytesPerPixel;
+  const long double megabytes = std::ceil(bytes / (1024 * 1024));
+  return !std::isfinite(megabytes) || megabytes > std::numeric_limits<int>::max()
+             ? std::numeric_limits<int>::max() : int(megabytes);
+}
 
 template <class Pixel> double blurChannelScale() {
   return Pixel::maxChannelValue;
@@ -141,7 +149,7 @@ public:
   }
   int getMemoryRequirement(const TRectD &rect, double frame,
                            const TRenderSettings &info) override {
-    return memorySize(inputRegion(rect, frame, info), 160 * 8);
+    return blurMemoryMB(inputRegion(rect, frame, info), 160);
   }
   std::string getAlias(double frame, const TRenderSettings &info) const override {
     const auto values = parameters(frame, info);
