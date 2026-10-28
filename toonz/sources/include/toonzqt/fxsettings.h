@@ -95,6 +95,7 @@ class DVAPI ParamsPage final : public QFrame {
   struct IndexedColors {
     std::string m_countName;
     std::vector<std::string> m_names;
+    std::vector<QString> m_labels;
     QComboBox *m_selector;
     QStackedWidget *m_editors;
   };
@@ -104,6 +105,7 @@ class DVAPI ParamsPage final : public QFrame {
   int m_indexedFrame = 0;
 
   void addIndexedColors(TIStream &is, const TFxP &fx);
+  void addIndexedGroups(TIStream &is, const TFxP &fx);
   void updateIndexedColors();
 
 public:

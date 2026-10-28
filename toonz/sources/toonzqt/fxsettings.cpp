@@ -42,6 +42,7 @@
 #include <QCoreApplication>
 #include <QPushButton>
 #include <QSignalBlocker>
+#include <QScopedValueRollback>
 #include <QComboBox>
 #include <cmath>
 
@@ -250,6 +251,8 @@ void ParamsPage::setPageField(TIStream &is, const TFxP &fx, bool isVertical) {
     if (!is.matchTag(tagName)) throw TException("expected tag");
     if (tagName == "indexedColors") {
       addIndexedColors(is, fx);
+    } else if (tagName == "indexedGroups") {
+      addIndexedGroups(is, fx);
     } else if (tagName == "control") {
       /*--- 設定ファイルからインタフェースの桁数を決める (PairSliderのみ実装。)
        * ---*/
@@ -311,6 +314,8 @@ void ParamsPage::setPageField(TIStream &is, const TFxP &fx, bool isVertical) {
             stringField->enableExrChoiceControls(TFxAovChoiceKind::Channel);
         }
         if (field) {
+          if (fx->requiresFullPrecisionSerialization())
+            field->setProperty("preserveColorPrecision", true);
           if (decimals >= 0) field->setPrecision(decimals);
           m_fields.push_back(field);
           registerPageParam(field, name);
@@ -699,6 +704,8 @@ void ParamsPage::addWidget(QWidget *field, bool isVertical) {
         QString::fromStdString(fx->getFxType() + "." + name);                  \
     ParamField *field = MAKE(this, paramName, param);                          \
     if (!field) return NULL;                                                   \
+    if (fx->requiresFullPrecisionSerialization())                              \
+      field->setProperty("preserveColorPrecision", true);                      \
     m_fields.push_back(field);                                                 \
     registerPageParam(field, name);                                            \
     connect(field, SIGNAL(currentParamChanged()), m_paramViewer,               \
@@ -825,7 +832,7 @@ void ParamsPage::addExposedParam(int fxIndex, const TFxP& fx,
       QString::fromStdWString(TStringTable::translate(translationKey));
   ParamField* field = ParamField::create(this, label, param);
   if (!field) return;
-  if (fx->getFxType() == "STD_celColorKeepFx")
+  if (fx->requiresFullPrecisionSerialization())
     field->setProperty("preserveColorPrecision", true);
 
   m_fields.push_back(field);
@@ -931,6 +938,69 @@ void ParamsPage::addIndexedColors(TIStream &is, const TFxP &fx) {
   m_indexedColors.push_back(group);
 }
 
+// An entry is a native layout, so all of its controls keep ordinary parameter
+// binding, animation, undo and macro exposure. The color attribute supplies
+// the navigation swatch; the optional label only names the entry in the list.
+void ParamsPage::addIndexedGroups(TIStream &is, const TFxP &fx) {
+  IndexedColors group;
+  group.m_countName = is.getTagAttribute("count");
+  if (!TDoubleParamP(TParamP(fx->getParams()->getParam(group.m_countName))))
+    throw TException("indexedGroups requires a numeric count parameter");
+  const QString title = QString::fromStdString(is.getTagAttribute("label"));
+  QWidget *container = new QWidget(this);
+  container->setObjectName("FxIndexedColors");
+  QVBoxLayout *layout = new QVBoxLayout(container);
+  layout->setContentsMargins(0, 0, 0, 0);
+  group.m_selector = new QComboBox(container);
+  group.m_selector->setObjectName("indexedColorSelector");
+  group.m_selector->setAccessibleName(title);
+  group.m_editors = new QStackedWidget(container);
+  layout->addWidget(group.m_selector);
+  layout->addWidget(group.m_editors);
+
+  while (!is.matchEndTag()) {
+    std::string tag;
+    if (!is.matchTag(tag) || tag != "entry")
+      throw TException("indexedGroups expects entries");
+    const std::string name = is.getTagAttribute("color");
+    if (!TPixelParamP(TParamP(fx->getParams()->getParam(name))))
+      throw TException("indexedGroups requires an entry color parameter");
+    QString label = QString::fromStdString(is.getTagAttribute("label"));
+    if (label.isEmpty())
+      label = QString::fromStdWString(
+          TStringTable::translate(fx->getFxType() + "." + name));
+
+    QWidget *row = new QWidget(group.m_editors);
+    QGridLayout *rowLayout = new QGridLayout(row);
+    rowLayout->setContentsMargins(0, 0, 0, 0);
+    rowLayout->setVerticalSpacing(10);
+    rowLayout->setHorizontalSpacing(5);
+    rowLayout->setColumnStretch(labelColumn(), 0);
+    rowLayout->setColumnStretch(fieldColumn(), 1);
+    {
+      QScopedValueRollback<QGridLayout *> mainLayout(m_mainLayout, rowLayout);
+      QScopedValueRollback<QHBoxLayout *> horizontalLayout(m_horizontalLayout,
+                                                          nullptr);
+      QScopedValueRollback<QGridLayout *> groupLayout(m_groupLayout, nullptr);
+      setPageField(is, fx, true);
+    }
+    group.m_names.push_back(name);
+    group.m_labels.push_back(label);
+    group.m_selector->addItem(label);
+    group.m_editors->addWidget(row);
+  }
+  connect(group.m_selector, QOverload<int>::of(&QComboBox::currentIndexChanged),
+          group.m_editors, &QStackedWidget::setCurrentIndex);
+  connect(group.m_selector, QOverload<int>::of(&QComboBox::currentIndexChanged),
+          this, &ParamsPage::preferredPageSizeChanged);
+  const int row = m_mainLayout->rowCount();
+  QLabel *label = new QLabel(title, this);
+  label->setObjectName("FxSettingsLabel");
+  m_mainLayout->addWidget(label, row, labelColumn(), Qt::AlignTop);
+  m_mainLayout->addWidget(container, row, fieldColumn());
+  m_indexedColors.push_back(group);
+}
+
 void ParamsPage::updateIndexedColors() {
   if (!m_indexedCurrentFx) return;
   for (const IndexedColors &group : m_indexedColors) {
@@ -950,8 +1020,11 @@ void ParamsPage::updateIndexedColors() {
       QPixmap swatch(16, 16);
       swatch.fill(QColor(pixel.r, pixel.g, pixel.b));
       group.m_selector->setItemIcon(i, QIcon(swatch));
-      const QString name = QString::fromStdWString(TStringTable::translate(
-          m_indexedCurrentFx->getFxType() + "." + group.m_names[i]));
+      const QString name =
+          i < int(group.m_labels.size())
+              ? group.m_labels[i]
+              : QString::fromStdWString(TStringTable::translate(
+                    m_indexedCurrentFx->getFxType() + "." + group.m_names[i]));
       group.m_selector->setItemText(i, i < count ? name : name + tr(" (inactive)"));
       group.m_editors->widget(i)->setEnabled(i < count);
     }

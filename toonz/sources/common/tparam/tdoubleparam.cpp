@@ -302,6 +302,8 @@ public:
   double m_defaultValue, m_minValue, m_maxValue;
   DoubleKeyframeVector m_keyframes;
   bool m_cycleEnabled;
+  std::vector<std::string> m_uiChoices;
+  bool m_uiCheckbox = false;
 
   std::set<TParamObserver *> m_observers;
 
@@ -325,6 +327,8 @@ public:
     m_maxValue     = src->m_maxValue;
     m_keyframes    = src->m_keyframes;
     m_cycleEnabled = src->m_cycleEnabled;
+    m_uiChoices    = src->m_uiChoices;
+    m_uiCheckbox   = src->m_uiCheckbox;
   }
 
   void notify(const TParamChange &change) {
@@ -501,6 +505,24 @@ bool TDoubleParam::getValueRange(double &min, double &max, double &step) const {
   step = 1;  // m_imp->m_valueStep;
   return min < max;
 }
+
+//---------------------------------------------------------
+
+void TDoubleParam::setUIChoices(const std::vector<std::string> &choices,
+                               bool checkbox) {
+  if ((!choices.empty() && choices.size() < 2) ||
+      (checkbox && choices.size() != 2))
+    throw TException("Discrete controls require at least two choices");
+  m_imp->m_uiChoices = choices;
+  m_imp->m_uiCheckbox = checkbox;
+  if (!choices.empty()) setValueRange(0, double(choices.size() - 1));
+}
+
+const std::vector<std::string> &TDoubleParam::getUIChoices() const {
+  return m_imp->m_uiChoices;
+}
+
+bool TDoubleParam::isUICheckbox() const { return m_imp->m_uiCheckbox; }
 
 //---------------------------------------------------------
 
@@ -705,6 +727,9 @@ bool TDoubleParam::setValue(double frame, double value) {
     // inserting a new keyframe
     k.m_value      = value;
     k.m_isKeyframe = true;
+    // The global FX key toggle and parameter copying use setValue as well as
+    // the field editor. Keep new discrete keys stepped on all these paths.
+    if (!m_imp->m_uiChoices.empty()) k.m_type = TDoubleKeyframe::Constant;
     k.m_expression.setGrammar(m_imp->m_grammar);
     k.m_expression.setOwnerParameter(this);
     it = keyframes.insert(it, k);
