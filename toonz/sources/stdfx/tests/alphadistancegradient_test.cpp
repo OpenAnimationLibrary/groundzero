@@ -4,6 +4,7 @@
 #include "tmacrofx.h"
 #include "trenderer.h"
 #include "tthread.h"
+#include "cellevelfixture.h"
 #include <QCoreApplication>
 #include <QTemporaryDir>
 #include <future>
@@ -289,6 +290,90 @@ void checkTransformedCamera() {
     }
   }
 }
+
+template <class Pixel> void checkLevelDpi() {
+  for (const TDimension &size : {TDimension(10, 8), TDimension(9, 7)}) {
+    TRasterPT<Pixel> image(size); image->clear();
+    for (int y = 1; y < size.ly - 1; ++y)
+      for (int x = 1; x < size.lx - 1; ++x)
+        if (x != size.lx / 2 || y != size.ly / 2) image->pixels(y)[x] = Pixel::White;
+    CelLevelTest::Level original(image);
+    for (int region = 0; region < 3; ++region) for (int blur = 0; blur < 3; ++blur) {
+      const int support = blur ? 2 : 0;
+      const int margin = (region ? 4 : 0) + support;
+      const int width = size.lx + 2 * margin, height = size.ly + 2 * margin;
+      std::vector<double> values(size_t(width) * height, 0);
+      // Independent exhaustive opposite-mask distance, including one exterior
+      // ring for the inside distance. No production distance/filter helper.
+      for (int y = 0; y < height; ++y) for (int x = 0; x < width; ++x) {
+        const int px = x - margin, py = y - margin;
+        const bool covered = px >= 0 && px < size.lx && py >= 0 && py < size.ly &&
+                             image->pixels(py)[px].m > 0;
+        if ((covered && region == 1) || (!covered && region == 0)) continue;
+        double distance = std::numeric_limits<double>::infinity();
+        for (int sy = -1; sy <= size.ly; ++sy) for (int sx = -1; sx <= size.lx; ++sx) {
+          const bool seed = sx >= 0 && sx < size.lx && sy >= 0 && sy < size.ly &&
+                            image->pixels(sy)[sx].m > 0;
+          if (seed == covered) continue;
+          distance = std::min(distance, std::hypot(double(px - sx), double(py - sy)));
+        }
+        const double threshold = covered ? 2 : 3;
+        values[size_t(y) * width + x] =
+            std::max(0.0, 1.0 - std::max(0.0, distance - 1.0) / threshold);
+      }
+      const double peak = *std::max_element(values.begin(), values.end());
+      if (blur) {
+        for (int pass = 0; pass < 3; ++pass) {
+          const int radius = (support + pass) / 3;
+          std::vector<double> filtered(values.size(), 0);
+          for (int y = 0; y < height; ++y) for (int x = 0; x < width; ++x) {
+            double sum = 0;
+            for (int dy = -radius; dy <= radius; ++dy)
+              for (int dx = -radius; dx <= radius; ++dx)
+                if (x + dx >= 0 && x + dx < width && y + dy >= 0 && y + dy < height)
+                  sum += values[size_t(y + dy) * width + x + dx];
+            filtered[size_t(y) * width + x] = sum / ((2 * radius + 1) * (2 * radius + 1));
+          }
+          values.swap(filtered);
+        }
+        if (blur == 2) {
+          const double blurredPeak = *std::max_element(values.begin(), values.end());
+          if (blurredPeak > 0)
+            for (double &value : values) value = std::min(1.0, value * peak / blurredPeak);
+        }
+      }
+      TRasterPT<Pixel> expected(width, height);
+      for (int y = 0; y < height; ++y) for (int x = 0; x < width; ++x) {
+        const double value = values[size_t(y) * width + x];
+        if constexpr (std::is_same<Pixel, TPixelF>::value)
+          expected->pixels(y)[x] = TPixelF(float(value), float(value), float(value), 1);
+        else if constexpr (std::is_same<Pixel, TPixel64>::value)
+          expected->pixels(y)[x] = toPixel64(TPixelD(value, value, value, 1));
+        else expected->pixels(y)[x] = toPixel32(TPixelD(value, value, value, 1));
+      }
+      CelLevelTest::Level oracle(expected);
+      for (const TAffine &placement : std::vector<TAffine>{TAffine(), TScale(.25),
+              TTranslation(1.125, -.375) * TRotation(17) * TScale(.25, .5)}) {
+        TFxP input = original.placed(placement), reference = oracle.placed(placement);
+        TFxP owner = new AlphaDistanceGradientFx;
+        auto &fx = *static_cast<AlphaDistanceGradientFx *>(owner.getPointer());
+        fx.getInputPort(0)->setFx(input.getPointer());
+        set(fx, "region", region); set(fx, "insideThreshold", 2); set(fx, "outsideThreshold", 3);
+        set(fx, "useBackground", 1); set(fx, "blurMode", blur); set(fx, "blurSize", 2);
+        for (const TAffine &camera : {TAffine(), placement.inv(),
+                                      TTranslation(2.5, -.25) * TScale(2)}) {
+          const auto result = CelLevelTest::render<Pixel>(fx, camera);
+          CelLevelTest::compare(CelLevelTest::render<Pixel>(
+              *static_cast<TRasterFx *>(reference.getPointer()), camera), result,
+              "Distance gradient differs from the native raster-level oracle");
+          CelLevelTest::compare(result, CelLevelTest::render<Pixel>(fx, camera, 4),
+                                "Raster level gradient changes across strips");
+        }
+      }
+    }
+  }
+}
+
 const std::array<const char *, 10> numbers = {{"region", "insideThreshold", "outsideThreshold",
   "renderMode", "useBackground", "invert", "interpolation", "power", "blurMode", "blurSize"}};
 void checkPersistence(const QString &directory) {
@@ -347,6 +432,7 @@ int main(int argc, char **argv) {
     checkModes<TPixel32>(); checkModes<TPixel64>(); checkModes<TPixelF>(); checkBlur();
     checkTilesAndCancellation<TPixel32>(); checkTilesAndCancellation<TPixel64>(); checkTilesAndCancellation<TPixelF>();
     checkCanvasAndFloat(); checkTransformedCamera(); checkPersistence(temp.path());
+    checkLevelDpi<TPixel32>(); checkLevelDpi<TPixel64>(); checkLevelDpi<TPixelF>();
     std::cout << "PASS: every mode, all depths, blur, finite canvas, tiles and persistence\n"; result = 0;
   } catch (const TException &error) {
     std::cerr << QString::fromStdWString(error.getMessage()).toStdString() << '\n';

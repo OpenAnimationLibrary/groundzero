@@ -28,6 +28,10 @@ inline bool invertible(const TAffine &affine) {
 struct Grid {
   TAffine placement;
   TPointD phase;
+  // Optional original raster canvas, before DPI and geometry placements.
+  // Existing consumers only need placement/phase and retain their behavior.
+  TRectD canvas;
+  bool hasCanvas = false;
 };
 
 inline Grid discover(TFx *source, double frame) {
@@ -93,6 +97,8 @@ inline Grid discover(TFx *source, double frame) {
     return Grid();
   Grid result;
   result.placement = placement;
+  result.canvas = bounds;
+  result.hasCanvas = true;
   result.phase = TPointD(std::floor(bounds.x0) - bounds.x0,
                          std::floor(bounds.y0) - bounds.y0);
   return result;
