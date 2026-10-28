@@ -115,6 +115,11 @@ public:
 
   TPixel32 m_filterColor;
 
+  //! Whether the image is shown as coloured outlines (Outline View of its
+  //! column). Used by the viewer painter for vector and Toonz raster images.
+  bool m_outlineView = false;
+  TPixel32 m_outlineColor;  //!< The outline colour, if m_outlineView
+
 public:
   Player();
 
