@@ -314,7 +314,7 @@ void testPersistence(const QString &path, bool compressed) {
   TFxP clone = fx.clone(false);
   require(color(*clone)->getValueD(0) == color(fx)->getValueD(0), "Clone lost color precision");
   require(number(*clone,"useColorKey")->isUICheckbox(), "Clone lost checkbox editor");
-  { TOStream stream(TFilePath(path.toStdWString()), compressed); stream << owner; }
+  { TOStream stream(TFilePath(path.toStdWString()), compressed); stream << owner.getPointer(); }
   TFxP loaded;
   { TIStream stream(TFilePath(path.toStdWString())); stream >> loaded; }
   require(dynamic_cast<CelSmootherFx *>(loaded.getPointer()), "Factory failed");
@@ -334,7 +334,7 @@ void testPersistence(const QString &path, bool compressed) {
   require(macro, "Macro creation failed");
   for (const char *name : {"useColorKey","colorKey","smoothRange"})
     macro->setParamExposed(owner.getPointer(), name, true);
-  { TOStream stream(TFilePath((path + ".macro").toStdWString())); stream << macroOwner; }
+  { TOStream stream(TFilePath((path + ".macro").toStdWString())); stream << macroOwner.getPointer(); }
   TFxP macroLoaded;
   { TIStream stream(TFilePath((path + ".macro").toStdWString())); stream >> macroLoaded; }
   auto *restored = dynamic_cast<TMacroFx *>(macroLoaded.getPointer());
