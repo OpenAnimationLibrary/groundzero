@@ -708,6 +708,11 @@ void Preferences::definePreferenceItems() {
   define(tableColor, "tableColor", QMetaType::QColor, QColor(153, 166, 179));
   define(previewBGColor, "previewBGColor", QMetaType::QColor,
          QColor(64, 64, 64));
+  // Off: the area outside the camera uses the Preview BG Color, opaque
+  define(cameraMaskCustomColor, "cameraMaskCustomColor", QMetaType::Bool,
+         false);
+  define(cameraMaskColor, "cameraMaskColor", QMetaType::QColor,
+         QColor(64, 64, 64, 180));
   define(levelEditorBoxColor, "levelEditorBoxColor", QMetaType::QColor,
          QColor(128, 128, 128));
   define(chessboardColor1, "chessboardColor1", QMetaType::QColor,

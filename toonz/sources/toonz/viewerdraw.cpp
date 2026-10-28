@@ -227,13 +227,15 @@ void ViewerDraw::drawCameraMask(SceneViewer *viewer) {
       bounds.y1 = p.y;
   }
 
-  // set the camera mask color same as the previewBG color
-  TPixel32 maskColor = Preferences::instance()->getPreviewBgColor();
-  double mask_r, mask_g, mask_b;
-  mask_r = (double)maskColor.r / 255.0;
-  mask_g = (double)maskColor.g / 255.0;
-  mask_b = (double)maskColor.b / 255.0;
-  glColor3d(mask_r, mask_g, mask_b);
+  // the Preview BG color, or the custom outside camera color and opacity
+  const TPixel32 maskColor = Preferences::instance()->getCameraMaskColor();
+  const bool translucent   = maskColor.m < 255;
+  if (translucent) {
+    glPushAttrib(GL_COLOR_BUFFER_BIT | GL_ENABLE_BIT);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+  }
+  glColor4ub(maskColor.r, maskColor.g, maskColor.b, maskColor.m);
 
   if (cameraRect.overlaps(bounds)) {
     double x0 = cameraRect.x0;
@@ -253,6 +255,8 @@ void ViewerDraw::drawCameraMask(SceneViewer *viewer) {
   } else {
     tglFillRect(bounds);
   }
+
+  if (translucent) glPopAttrib();
 }
 
 //-----------------------------------------------------------------------------
