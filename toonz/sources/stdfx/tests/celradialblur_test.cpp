@@ -331,10 +331,13 @@ void cancellation() {
   int canceled = 1; CelRadialBlurFx fx; fx.getInputPort(0)->setFx(new Source(input, TPointD(), &canceled));
   TRaster32P output(2, 2); TTile tile; tile.setRaster(output);
   TRenderSettings settings; settings.m_isCanceled = &canceled;
-  for (int initiallyCanceled : {1, 0}) {
-    canceled = initiallyCanceled; output->fill(TPixel32::White); fx.doCompute(tile, 0, settings);
-    require(canceled == 1, "Canceled render requested its source");
-    require(output->pixels(0)[0] == TPixel32::Transparent, "Canceled render left partial output");
+  for (bool blurred : {false, true}) {
+    set(fx, "outerStrength", blurred ? 2 : 0);
+    for (int initiallyCanceled : {1, 0}) {
+      canceled = initiallyCanceled; output->fill(TPixel32::White); fx.doCompute(tile, 0, settings);
+      require(canceled == 1, "Canceled render requested its source");
+      require(output->pixels(0)[0] == TPixel32::Transparent, "Canceled render left partial output");
+    }
   }
 }
 }
