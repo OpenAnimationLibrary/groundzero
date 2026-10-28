@@ -30,9 +30,9 @@ void testConversion() {
   require(TimeRemap::valueToRow(2.6) == 2, "conversion: rounds up");
   require(TimeRemap::valueToRow(std::nan("")) == -1,
           "conversion: not a number designates no row");
-  require(TimeRemap::valueToRow(1e300) == -1 &&
-              TimeRemap::valueToRow(-1e300) == -1,
-          "conversion: out of range designates no row");
+  require(
+      TimeRemap::valueToRow(1e300) == -1 && TimeRemap::valueToRow(-1e300) == -1,
+      "conversion: out of range designates no row");
 }
 
 //------------------------------------------------------------------

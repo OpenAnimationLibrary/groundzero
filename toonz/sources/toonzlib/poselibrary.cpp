@@ -110,7 +110,6 @@ void remapAllColumns(std::vector<PoseLibrary::Entry> &base,
 
 }  // namespace
 
-
 void PoseLibrary::insertColumn(int index) {
   remapAllColumns(m_base, m_poses,
                   [index](int c) { return c >= index ? c + 1 : c; });
@@ -124,8 +123,9 @@ void PoseLibrary::removeColumn(int index) {
 
 void PoseLibrary::swapColumns(int i, int j) {
   if (i == j) return;
-  remapAllColumns(m_base, m_poses,
-                  [i, j](int c) { return c == i ? j : c == j ? i : c; });
+  remapAllColumns(m_base, m_poses, [i, j](int c) {
+    return c == i ? j : c == j ? i : c;
+  });
 }
 
 //-----------------------------------------------------------------------------

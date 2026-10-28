@@ -280,8 +280,8 @@ void load(const QString &path) {
 // the decompression loop forever, data cut short), all fixed in tstream.cpp,
 // so those inputs are run again.
 
-const otfuzz::Harness kHarness = {"tstream", "tpl",   true,
-                                  makeSeeds, load,    nullptr};
+const otfuzz::Harness kHarness = {"tstream", "tpl", true,
+                                  makeSeeds, load,  nullptr};
 
 }  // namespace
 

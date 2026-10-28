@@ -44,7 +44,7 @@ void readColorPixels(const TRasterPT<PIXEL> &raster,
   for (int y = 0; y < h; ++y) {
     const PIXEL *row = raster->pixels(y);
     for (int x = 0; x < w; ++x) {
-      const PIXEL &p = row[x];
+      const PIXEL &p                 = row[x];
       pixels[std::size_t(y) * w + x] = {p.r / maximum, p.g / maximum,
                                         p.b / maximum, p.m / maximum};
     }
@@ -75,8 +75,8 @@ class ImagePlaneFx final : public TStandardRasterFx, public T3DRenderSource {
     TRenderSettings neutral = settings ? *settings : TRenderSettings();
     neutral.m_affine = TAffine();
     // 16 bits per channel for a deeper output, not to band its gradients
-    const bool deep = neutral.m_bpp > 32;
-    neutral.m_bpp = deep ? 64 : 32;
+    const bool deep            = neutral.m_bpp > 32;
+    neutral.m_bpp              = deep ? 64 : 32;
     neutral.m_linearColorSpace = false;
     auto *input = static_cast<TRasterFx *>(m_input.getFx());
     TRectD bbox;

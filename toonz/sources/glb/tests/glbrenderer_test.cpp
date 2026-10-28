@@ -97,10 +97,10 @@ int main() {
     // The same plane with every texel opaque: the two transparent texels must
     // remove about half of its coverage (a fixed bound could not fail, as the
     // rotated plane covers less than 3 pixels)
-    auto opaquePixels = std::make_shared<std::vector<ColorPixel>>(
-        4, ColorPixel{0, 0, 1, 1});
-    const auto opaque = renderTile(
-        prepareImagePlane(2, 2, opaquePixels, {rotation}), request);
+    auto opaquePixels =
+        std::make_shared<std::vector<ColorPixel>>(4, ColorPixel{0, 0, 1, 1});
+    const auto opaque =
+        renderTile(prepareImagePlane(2, 2, opaquePixels, {rotation}), request);
     check(coverage(output) < 0.75 * coverage(opaque),
           "Transparent pixels became opaque");
     for (const auto &p : output)

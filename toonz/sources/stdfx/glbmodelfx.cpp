@@ -172,8 +172,8 @@ class GlbModelFx final : public TStandardZeraryFx,
       }
       if (fileRevision() != revision)
         throw std::runtime_error("GLB changed while loading; retry the render.");
-      cache.loaded = std::move(loaded);
-      cache.digest = std::move(digest);
+      cache.loaded   = std::move(loaded);
+      cache.digest   = std::move(digest);
       cache.revision = revision;
       cache.projected.clear();
       cache.warned = false;
@@ -242,9 +242,9 @@ class GlbModelFx final : public TStandardZeraryFx,
       const otglb::LightingRig *lighting                   = nullptr,
       const std::vector<otglb::ModelTransform> *transforms = nullptr) const {
     if (m_modelFile->getValue().empty()) return {};
-    auto settings                      = options(frame);
+    auto settings                     = options(frame);
     const std::shared_ptr<Cache> held = fileCache();
-    Cache &cache                       = *held;
+    Cache &cache                      = *held;
     QMutexLocker lock(&cache.mutex);
     loadLocked(cache);
     applyAnimationLocked(cache, frame, settings);
@@ -353,7 +353,7 @@ public:
   std::vector<TFxMaterial> getMaterials() const override {
     if (m_modelFile->getValue().empty()) return {};
     const std::shared_ptr<Cache> held = fileCache();
-    Cache &cache                       = *held;
+    Cache &cache                      = *held;
     QMutexLocker lock(&cache.mutex);
     loadLocked(cache);
     const auto &asset = *cache.loaded.asset;
@@ -366,8 +366,10 @@ public:
       const auto c = otglb::materialColor(asset, i);
       std::string name = i == asset.materials.size() ? "Default material" : asset.materials[i].name;
       if (name.empty()) name = "Material " + std::to_string(i + 1);
-      materials.push_back({materialKey(cache, i), name,
-          TPixel32(int(c[0] * 255 + .5f), int(c[1] * 255 + .5f), int(c[2] * 255 + .5f), 255)});
+      materials.push_back(
+          {materialKey(cache, i), name,
+           TPixel32(int(c[0] * 255 + .5f), int(c[1] * 255 + .5f),
+                    int(c[2] * 255 + .5f), 255)});
     }
     return materials;
   }

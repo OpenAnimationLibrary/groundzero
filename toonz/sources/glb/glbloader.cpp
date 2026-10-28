@@ -834,7 +834,7 @@ void copyScenes(const cgltf_data &d, Asset &asset, Budget &budget, Result &resul
   // this budget, the corners of each mesh's own bounds are transformed
   // instead, which gives larger bounds that still contain the geometry.
   constexpr std::size_t ExactBoundsVertices = 50000000;
-  std::size_t instancedVertices = 0;
+  std::size_t instancedVertices             = 0;
   for (const auto &n : asset.nodes) {
     if (n.mesh == NoIndex || instancedVertices > ExactBoundsVertices) continue;
     for (const auto &p : asset.meshes[n.mesh].primitives)
@@ -843,7 +843,8 @@ void copyScenes(const cgltf_data &d, Asset &asset, Budget &budget, Result &resul
   }
   const bool exactBounds = instancedVertices <= ExactBoundsVertices;
   if (!exactBounds)
-    warn(result, "Many mesh instances; scene bounds use the bounds of each mesh.");
+    warn(result,
+         "Many mesh instances; scene bounds use the bounds of each mesh.");
   for (std::size_t i = 0; i < order.size(); ++i) {
     const auto index = order[i];
     const auto &n = asset.nodes[index];
@@ -857,10 +858,10 @@ void copyScenes(const cgltf_data &d, Asset &asset, Budget &budget, Result &resul
         const float x = (corner & 1 ? local.maximum : local.minimum)[0];
         const float y = (corner & 2 ? local.maximum : local.minimum)[1];
         const float z = (corner & 4 ? local.maximum : local.minimum)[2];
-        include(subtree[index], std::array<float, 3>{{
-            m[0] * x + m[4] * y + m[8] * z + m[12],
-            m[1] * x + m[5] * y + m[9] * z + m[13],
-            m[2] * x + m[6] * y + m[10] * z + m[14]}});
+        include(subtree[index], std::array<float, 3>{
+                                    {m[0] * x + m[4] * y + m[8] * z + m[12],
+                                     m[1] * x + m[5] * y + m[9] * z + m[13],
+                                     m[2] * x + m[6] * y + m[10] * z + m[14]}});
       }
       continue;
     }
@@ -962,9 +963,13 @@ Result load(const std::filesystem::path &path, const Limits &limits) {
                     [](const Mesh &mesh) { return !mesh.primitives.empty(); }))
       warn(result, "No mesh geometry is present in this GLB.");
     if (asset->animationCount)
-      warn(result, "Animation keys retained; the loader keeps the default node transforms (a pose evaluates the keys).");
+      warn(result,
+           "Animation keys retained; the loader keeps the default node "
+           "transforms (a pose evaluates the keys).");
     if (asset->skinCount)
-      warn(result, "Skin data retained; the loader keeps the undeformed mesh geometry (a pose evaluates the skin).");
+      warn(result,
+           "Skin data retained; the loader keeps the undeformed mesh geometry "
+           "(a pose evaluates the skin).");
     if (data->cameras_count || data->lights_count)
       warn(result, "Embedded cameras/lights are not retained in this loader stage.");
     result.asset = std::move(asset);

@@ -2655,8 +2655,8 @@ void UndoPasteFxs::initialize(const std::map<TFx *, int> &zeraryFxColumnSize,
       {           // assigned to the *actual* zerary
         TFxPort *outPort =
             fx->getOutputConnection(op);  // and not to a related zerary column.
-        connectPort(outPort, zcfx);  // This is an FxsData fault... BUGFIX
-                                     // REQUEST!
+        connectPort(outPort, zcfx);       // This is an FxsData fault... BUGFIX
+                                          // REQUEST!
       }
 
       zcfx->getAttributes()->setDagNodePos(

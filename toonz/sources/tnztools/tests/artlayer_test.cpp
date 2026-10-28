@@ -131,9 +131,9 @@ int main() {
     ColourRange block = colourRange(*image);
     require(!block.isEmpty() && !block.isLayered(), "Colour Art block");
     countRoles(*image, counts);
-    require(counts[UNDERLAY] == 0 && counts[OVERLAY] == 0 &&
-                counts[LINE_ART] == 2,
-            "Colour Art block keeps Line Art");
+    require(
+        counts[UNDERLAY] == 0 && counts[OVERLAY] == 0 && counts[LINE_ART] == 2,
+        "Colour Art block keeps Line Art");
     require(effectiveTarget(TARGET_OVERLAY, block) == TARGET_LINE_ART &&
                 effectiveTarget(TARGET_UNDERLAY, block) == TARGET_LINE_ART,
             "Underlay and Overlay need Line Art between the Colour Art");
