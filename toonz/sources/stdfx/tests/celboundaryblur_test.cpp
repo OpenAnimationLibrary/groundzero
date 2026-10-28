@@ -237,7 +237,7 @@ void persistenceTests(const QTemporaryDir &temp) {
     require(parameter(*clone, name)->getValue(10) == parameter(*fx, name)->getValue(10),
             "Cloning lost an animated parameter");
   const TFilePath path(temp.filePath("boundary.fx").toStdWString());
-  { TOStream stream(path); stream << fx; }
+  { TOStream stream(path); stream << fx.getPointer(); }
   TFxP restored;
   { TIStream stream(path); stream >> restored; }
   require(restored->getFxType() == "STD_celBoundaryBlurFx", "Effect registration failed");
@@ -297,9 +297,13 @@ int main(int argc, char **argv) {
   QTemporaryDir temp;
   try {
     require(temp.isValid(), "Temporary directory unavailable");
+    std::cout << "Checking boundary kernel" << std::endl;
     kernelTests();
     renderTests<TPixel32>(); renderTests<TPixel64>(); renderTests<TPixelF>();
-    persistenceTests(temp); workflowTest();
+    std::cout << "Checking boundary persistence" << std::endl;
+    persistenceTests(temp);
+    std::cout << "Checking color selection workflow" << std::endl;
+    workflowTest();
     std::cout << "PASS: boundary math, all controls, precision, support, tiles, cancellation and persistence\n";
     return 0;
   } catch (const TException &error) {
