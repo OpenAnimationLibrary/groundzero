@@ -644,6 +644,12 @@ void doDraw(const TVectorImage *vim, const TVectorRenderData &_rd,
         if (firstColour < 0) firstColour = i;
         lastColour = i;
       }
+  // As ArtLayer::colourRange(): without Line Art between the Colour Art
+  // strokes, there is no Underlay and Overlay
+  bool lineArtBetween = false;
+  for (int i = firstColour + 1; i < lastColour && !lineArtBetween; i++)
+    lineArtBetween = !isOThick(vim->getStroke(i));
+  if (!lineArtBetween) firstColour = lastColour = -1;
 
   /*if (rd.m_drawRegions && rd.m_isImagePattern)// the image patterns need
 antialiasing for lines, but on the areas there would be a lot of asserts
