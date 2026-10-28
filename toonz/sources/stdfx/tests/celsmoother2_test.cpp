@@ -308,18 +308,17 @@ void testKeyHdrAndCancellation() {
   }
 }
 
-TRasterFP hostRender(TRasterFx &fx, int strips, const TAffine &affine,
-                    bool linear, double frame = 0) {
+TRasterFP hostRenderFrame(TRasterFx &fx, TRenderer &renderer, unsigned long id,
+                         int strips, const TAffine &affine, bool linear,
+                         double frame) {
   constexpr int width = 48, height = 40;
-  TRenderer renderer(1);
-  const unsigned long id = TRenderer::buildRenderId();
   renderer.install(id);
-  renderer.declareRenderStart(id);
   renderer.declareFrameStart(frame);
-  TRasterFP output(width, height);
-  output->clear();
-  output->setLinear(linear);
+  TRasterFP output;
   try {
+    output = TRasterFP(width, height);
+    output->clear();
+    output->setLinear(linear);
     TRenderSettings settings;
     settings.m_bpp = 128;
     settings.m_affine = affine;
@@ -338,14 +337,45 @@ TRasterFP hostRender(TRasterFx &fx, int strips, const TAffine &affine,
     }
   } catch (...) {
     renderer.declareFrameEnd(frame);
-    renderer.declareRenderEnd(id);
     renderer.uninstall();
     throw;
   }
   renderer.declareFrameEnd(frame);
-  renderer.declareRenderEnd(id);
   renderer.uninstall();
   return output;
+}
+
+// The host owns render-instance lifecycle on the main thread. Its instance
+// registry and ID allocation are not synchronized for independent worker-side
+// construction/destruction. Workers share an established session, as they do
+// in production, and declare only their individual frame events.
+class HostRenderSession final {
+  TRenderer m_renderer;
+  const unsigned long m_id;
+public:
+  explicit HostRenderSession(int threads = 1)
+      : m_renderer(threads), m_id(TRenderer::buildRenderId()) {
+    m_renderer.install(m_id);
+    m_renderer.declareRenderStart(m_id);
+    m_renderer.uninstall();
+  }
+  ~HostRenderSession() {
+    m_renderer.install(m_id);
+    m_renderer.declareRenderEnd(m_id);
+    m_renderer.uninstall();
+  }
+  HostRenderSession(const HostRenderSession &) = delete;
+  HostRenderSession &operator=(const HostRenderSession &) = delete;
+  TRasterFP render(TRasterFx &fx, int strips, const TAffine &affine,
+                   bool linear, double frame = 0) {
+    return hostRenderFrame(fx, m_renderer, m_id, strips, affine, linear, frame);
+  }
+};
+
+TRasterFP hostRender(TRasterFx &fx, int strips, const TAffine &affine,
+                    bool linear, double frame = 0) {
+  HostRenderSession session;
+  return session.render(fx, strips, affine, linear, frame);
 }
 
 void sameImage(const TRasterFP &a, const TRasterFP &b, const char *message) {
@@ -419,6 +449,7 @@ void testNativeLevelGrid() {
   set(*upstream, "smoothness", 0);
   upstream->getInputPort(0)->setFx(placement);
   actual.getInputPort(0)->setFx(upstream);
+  std::cout << "Checking nested native-grid transforms and gamma" << std::endl;
   for (const TAffine &scale : std::vector<TAffine>{TScale(.25), TScale(.25, .5)}) {
     dpi->setAffine(scale);
     for (const TAffine &position : std::vector<TAffine>{
@@ -455,14 +486,27 @@ void testNativeLevelGrid() {
   number(actual, "smoothness")->setValue(10, 90);
   const auto first = hostRender(actual, 1, TScale(4), false, 0);
   const auto last = hostRender(actual, 1, TScale(4), false, 10);
-  auto concurrentFirst = std::async(std::launch::async, [&] {
-    return hostRender(actual, 8, TScale(4), false, 0);
-  });
-  auto concurrentLast = std::async(std::launch::async, [&] {
-    return hostRender(actual, 8, TScale(4), false, 10);
-  });
-  sameImage(first, concurrentFirst.get(), "Concurrent native grid render changed frame zero");
-  sameImage(last, concurrentLast.get(), "Concurrent native grid render changed frame ten");
+  std::cout << "Checking synchronized concurrent native-grid frames" << std::endl;
+  {
+    HostRenderSession session(2);
+    for (int repetition = 0; repetition < 16; ++repetition) {
+      std::promise<void> start;
+      const std::shared_future<void> ready = start.get_future().share();
+      auto concurrentFirst = std::async(std::launch::async, [&] {
+        ready.wait();
+        return session.render(actual, 8, TScale(4), false, 0);
+      });
+      auto concurrentLast = std::async(std::launch::async, [&] {
+        ready.wait();
+        return session.render(actual, 8, TScale(4), false, 10);
+      });
+      start.set_value();
+      const auto renderedFirst = concurrentFirst.get();
+      const auto renderedLast = concurrentLast.get();
+      sameImage(first, renderedFirst, "Concurrent native grid render changed frame zero");
+      sameImage(last, renderedLast, "Concurrent native grid render changed frame ten");
+    }
+  }
   dpi->setName(L"Unmarked geometry");
   require(actual.handledAffine(TRenderSettings(), 0) == TAffine(),
           "Generic source geometry unexpectedly selected a raster-level grid");
@@ -598,6 +642,7 @@ int main(int argc, char **argv) {
     testHostColorSpaceAndTransforms();
     std::cout << "Checking native level DPI, gamma and concurrent frame grids" << std::endl;
     testNativeLevelGrid();
+    std::cout << "Checking odd-canvas pixel phase and optimized level sources" << std::endl;
     testOddLevelOrigin();
     std::cout << "Checking scenes, presets and macros" << std::endl;
     testPersistence(directory.path());
