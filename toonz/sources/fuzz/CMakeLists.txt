@@ -43,8 +43,8 @@ function(add_fuzz_harness NAME)
     endif()
 endfunction()
 
-# Scenes, palettes and fx parameters (common/tstream); the known issue
-# checks decompress with LZ4 themselves.
+# Scenes, palettes and fx parameters (common/tstream); the seeds include
+# LZ4 compressed scenes.
 add_fuzz_harness(tstream LIBS tnzcore tnzbase ${LZ4_LIB})
 
 # PLI vector levels. The reader classes are not exported from the image
