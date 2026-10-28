@@ -266,14 +266,14 @@ bool renderRadial(const CelMotion::Image &source, const CelMotion::Image *noiseI
                   const RadialSettings &settings, const TRasterPT<Pixel> &output,
                   const TPointD &origin, const int *cancel) {
   RasterLock lock(output);
+  const double maximumSupport = std::max(
+      sideLength(settings.outer, settings.outerOffset, settings.outerMode),
+      sideLength(settings.inner, settings.innerOffset, settings.innerMode)) + 2.0;
   for (int y = 0; y < output->getLy(); ++y) {
     if (isCanceled(cancel)) return false;
     Pixel *row = output->pixels(y);
     for (int x = 0; x < output->getLx(); ++x) {
       const double gx = origin.x + x, gy = origin.y + y;
-      const double maximumSupport = std::max(
-          sideLength(settings.outer, settings.outerOffset, settings.outerMode),
-          sideLength(settings.inner, settings.innerOffset, settings.innerMode)) + 2.0;
       if (gx < source.originX - maximumSupport || gy < source.originY - maximumSupport ||
           gx >= source.originX + source.width + maximumSupport ||
           gy >= source.originY + source.height + maximumSupport) continue;
