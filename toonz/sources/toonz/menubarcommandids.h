@@ -597,5 +597,6 @@
 #define MI_RigEaseIn100 "MI_RigEaseIn100"
 #define MI_RigEaseCustom "MI_RigEaseCustom"
 #define MI_RigIncludeChildren "MI_RigIncludeChildren"
+#define MI_RigMapping "MI_RigMapping"
 
 #endif

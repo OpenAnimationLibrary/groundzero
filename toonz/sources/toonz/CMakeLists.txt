@@ -300,6 +300,7 @@ set(SOURCES
     convertpopup.cpp
     convertlinestoareascommand.cpp
     rigeasecommand.cpp
+    rigmappingcommand.cpp
     crashhandler.cpp
     autosaverecovery.cpp
     duplicatepopup.cpp

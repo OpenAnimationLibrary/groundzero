@@ -482,6 +482,14 @@ if(BUILD_PEGBARGUIDE_TESTS)
     add_test(NAME pegbarguide COMMAND pegbarguide_test)
 endif()
 
+# Optional regression target for the matching of Rig Mapping (rigmapping.h,
+# header only).
+option(BUILD_RIGMAPPING_TESTS "Build the rig mapping regression test" ${BUILD_TESTS})
+if(BUILD_RIGMAPPING_TESTS)
+    add_executable(rigmapping_test tests/rigmapping_test.cpp)
+    add_test(NAME rigmapping COMMAND rigmapping_test)
+endif()
+
 # Optional regression target for the export to an aspect ratio
 # (TOutputProperties and its scene file tag).
 option(BUILD_ASPECTEXPORT_TESTS "Build the aspect ratio export regression test" ${BUILD_TESTS})
