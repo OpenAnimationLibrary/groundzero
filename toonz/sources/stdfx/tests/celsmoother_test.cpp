@@ -56,7 +56,8 @@ public:
                             [](UCHAR c) { return c == 0; }),
                 "Upstream received uninitialized source storage");
       }
-      raster->copy(m_image->extract(TRect(2,2,2,2)),
+      TRect sample(2,2,2,2);
+      raster->copy(m_image->extract(sample),
                    TPoint(2-int(tile.m_pos.x),2-int(tile.m_pos.y)));
       return;
     }
