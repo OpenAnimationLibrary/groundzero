@@ -172,8 +172,11 @@ public:
     const int width = int(region.getLx()), height = int(region.getLy());
     CelBlur::checkedArea(width, height);
     TTile input;
-    m_source->allocateAndCompute(input, region.getP00(), TDimension(width, height),
-                                tile.getRaster(), frame, info);
+    input.setRaster(tile.getRaster()->create(width, height));
+    input.m_pos = region.getP00();
+    input.getRaster()->setLinear(tile.getRaster()->isLinear());
+    input.getRaster()->clear();
+    m_source->compute(input, frame, info);
     const int offsetX = int(std::round(tile.m_pos.x - region.x0));
     const int offsetY = int(std::round(tile.m_pos.y - region.y0));
     bool complete = false;

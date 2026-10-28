@@ -120,17 +120,20 @@ void kernelTests() {
 class BlurSource final : public TStandardRasterFx {
   TRasterP m_image;
   int *m_cancel;
+  bool m_clear;
 public:
   TRectD dryRequest;
-  explicit BlurSource(TRasterP image, int *cancel = nullptr) : m_image(image), m_cancel(cancel) {}
+  explicit BlurSource(TRasterP image, int *cancel = nullptr, bool clear = true)
+      : m_image(image), m_cancel(cancel), m_clear(clear) {}
   const TPersistDeclaration *getDeclaration() const override { return nullptr; }
   bool canHandle(const TRenderSettings &, double) override { return true; }
   bool doGetBBox(double, TRectD &box, const TRenderSettings &) override {
-    box = TRectD(0, 0, m_image->getLx(), m_image->getLy()); return true;
+    box = TRectD(0, 0, m_image->getLx() + (m_clear ? 0 : 2),
+                  m_image->getLy() + (m_clear ? 0 : 2)); return true;
   }
   std::string getAlias(double, const TRenderSettings &) const override { return "boundary-source"; }
   void compute(TTile &tile, double, const TRenderSettings &) override {
-    tile.getRaster()->clear();
+    if (m_clear) tile.getRaster()->clear();
     tile.getRaster()->copy(m_image, TPoint(-int(tile.m_pos.x), -int(tile.m_pos.y)));
     if (m_cancel) *m_cancel = 1;
   }
@@ -209,6 +212,13 @@ void renderTests() {
       for (int x = 0; x < 3; ++x)
         require(result->pixels(y)[x] == Pixel::Transparent, "Canceled tile was partially written");
   }
+  TRasterPT<Pixel> partial(1, 1); partial->fill(Pixel::Black);
+  fx.getInputPort(0)->setFx(new BlurSource(partial, nullptr, false));
+  const auto cleared = render<Pixel>(fx, 3, 3);
+  for (int y = 0; y < 3; ++y)
+    for (int x = 0; x < 3; ++x)
+      if (x || y) require(cleared->pixels(y)[x] == Pixel::Transparent,
+                          "Unwritten upstream samples were not transparent");
   CelBoundaryBlurFx empty;
   require(render<Pixel>(empty, 1, 1)->pixels(0)[0] == Pixel::Transparent,
           "Disconnected source did not clear output");
