@@ -249,9 +249,18 @@ void CelColorKeyFx::doCompute(TTile &tile, double frame, const TRenderSettings &
       input.getLx() > std::numeric_limits<int>::max() || input.getLy() > std::numeric_limits<int>::max())
     throw TException("Cel Color Key: invalid input dimensions");
   checkInputSize(int(input.getLx()), int(input.getLy()), tile.getRaster()->getPixelSize());
+  const TDimension size(int(input.getLx()), int(input.getLy()));
+  TRasterP sourceRaster;
+  if (TRaster32P(tile.getRaster())) sourceRaster = TRaster32P(size);
+  else if (TRaster64P(tile.getRaster())) sourceRaster = TRaster64P(size);
+  else if (TRasterFP(tile.getRaster())) sourceRaster = TRasterFP(size);
+  else throw TException("Cel Color Key: unsupported pixel type");
+  sourceRaster->setLinear(tile.getRaster()->isLinear());
+  sourceRaster->clear();
   TTile source;
-  m_source->allocateAndCompute(source, input.getP00(), TDimension(int(input.getLx()), int(input.getLy())),
-                               tile.getRaster(), frame, settings);
+  source.m_pos = input.getP00();
+  source.setRaster(sourceRaster);
+  m_source->compute(source, frame, settings);
   if (settings.m_isCanceled && *settings.m_isCanceled) return;
   std::array<CelKey::Entry, colorCapacity> entries;
   const int count = discrete(m_enabledColors->getValue(frame), colorCapacity);
