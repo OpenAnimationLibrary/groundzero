@@ -135,8 +135,10 @@ public:
     // Source pixels, mask, two distance-transform passes and their scratch.
     const double bytes = (rect.getLx() + 2 * halo) *
                          (rect.getLy() + 2 * halo) * 64;
+    // In MB, as the tile subdivision compares it with its limit in MB
+    const double megabytes = std::ceil(bytes / (1024.0 * 1024.0));
     return int(std::min(double(std::numeric_limits<int>::max()),
-                        std::max(0.0, bytes)));
+                        std::max(0.0, megabytes)));
   }
   std::string getAlias(double frame, const TRenderSettings &settings) const override {
     std::ostringstream alias;

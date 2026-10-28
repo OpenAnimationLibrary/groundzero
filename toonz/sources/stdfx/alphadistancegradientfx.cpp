@@ -401,7 +401,10 @@ public:
     if (!m_source.isConnected()) return 0;
     TRectD canvas; const TRectD box = analysisBox(frame, settings, canvas);
     const double bytes = box.getLx() * box.getLy() * 96;
-    return int(std::min(double(std::numeric_limits<int>::max()), std::max(0.0, bytes)));
+    // In MB, as the tile subdivision compares it with its limit in MB
+    const double megabytes = std::ceil(bytes / (1024.0 * 1024.0));
+    return int(std::min(double(std::numeric_limits<int>::max()),
+                        std::max(0.0, megabytes)));
   }
   std::string getAlias(double frame, const TRenderSettings &settings) const override {
     const GradientSettings p = parameters(frame);
