@@ -11,6 +11,7 @@
 #include "toonz/pythonengine.h"
 
 // Qt includes
+#include <QCoreApplication>
 #include <QList>
 #include <QMap>
 #include <QStringList>
@@ -19,6 +20,7 @@
 
 #include <cassert>
 #include <exception>
+#include <stdexcept>
 #include <string>
 
 namespace py = pybind11;
@@ -49,12 +51,14 @@ public:
 // Run once the interpreter is started, in a new namespace whose push(),
 // reset() and run_file() are used by PythonEngine
 const char *const bootstrapCode = R"PY(
-import builtins, code, os, sys, traceback
-import opentoonz
+import sys
 
-# don't import the modules of the current folder
-if sys.path and sys.path[0] == '':
-    del sys.path[0]
+# Don't import the modules of the current folder: before any other import, or
+# a code.py or traceback.py there would run in place of the standard ones
+sys.path[:] = [p for p in sys.path if p not in ('', '.')]
+
+import builtins, code, os, traceback
+import opentoonz
 
 sys.stdout = opentoonz._OutputStream(0)
 sys.stderr = opentoonz._OutputStream(1)
@@ -205,7 +209,13 @@ void addFunction(const QString &name, const PythonEngine::Function &f,
   std::string docStr  = doc.toStdString();
   // not module.def(), which would add an overload to an existing function
   module.attr(nameStr.c_str()) = py::cpp_function(
-      [f](py::args args) {
+      [f, nameStr](py::args args) {
+        // The functions of the application use its UI: a thread that a script
+        // started must not call them while the event loop runs
+        QCoreApplication *app = QCoreApplication::instance();
+        if (app && QThread::currentThread() != app->thread())
+          throw std::runtime_error(
+              nameStr + "() can only be called from the main thread");
         QVariantList list;
         for (py::handle arg : args) list.append(toVariant(arg));
         return toPython(f(list));
