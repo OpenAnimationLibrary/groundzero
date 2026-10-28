@@ -20,6 +20,7 @@
 
 namespace {
 const QColor red(230, 30, 20, 255);
+const QColor blue(20, 60, 230, 255);
 
 void require(bool value, const QString &message) {
   if (!value) throw std::runtime_error(message.toStdString());
@@ -83,11 +84,13 @@ TVectorImageP vectorDrawing(bool painted) {
 }
 
 QJsonObject requestFor(const Cadmium::Frame &reference,
-                       const Cadmium::Frame &target) {
-  require(reference.regionColors.size() == 2 && target.regionColors.size() == 2,
-          "The real-model fixtures need exterior and one enclosed region.");
-  require(reference.regionColors[1] == red,
-          "The adapter did not extract the known reference color.");
+                       const Cadmium::Frame &target, bool singleColor = true) {
+  if (singleColor) {
+    require(reference.regionColors.size() == 2 && target.regionColors.size() == 2,
+            "The real-model fixtures need exterior and one enclosed region.");
+    require(reference.regionColors[1] == red,
+            "The adapter did not extract the known reference color.");
+  }
   const QString referenceLabels = Cadmium::labelUri(reference);
   const QString targetLabels = Cadmium::labelUri(target);
   const QString referenceLines = Cadmium::lineImageUri(reference.lines);
@@ -219,6 +222,96 @@ void toonzPipeline(CadmiumRuntime *runtime) {
   rasterMetadata(TImageP(target.getPointer()), TImageP(result.getPointer()));
 }
 
+int pairedInterior(int x, int y) {
+  if (x >= 32 && x < 96 && y >= 40 && y < 216) return 2;
+  const int dx = x - 192, dy = y - 128;
+  return dx * dx + dy * dy < 38 * 38 ? 3 : 0;
+}
+
+TToonzImageP pairedDrawing(bool painted) {
+  TRasterCM32P raster(256, 256);
+  for (int y = 0; y < 256; ++y)
+    for (int x = 0; x < 256; ++x) {
+      const bool rectangle = x >= 28 && x < 100 && y >= 36 && y < 220;
+      const int dx = x - 192, dy = y - 128;
+      const bool circle = dx * dx + dy * dy < 42 * 42;
+      const int paint = pairedInterior(x, y);
+      const bool ink = (rectangle || circle) && paint == 0;
+      raster->pixels(y)[x] = ink ? TPixelCM32(1, 0, 0)
+          : TPixelCM32(0, painted ? paint : 0, 255);
+    }
+  TToonzImageP image(raster, raster->getBounds());
+  TPaletteP palette = new TPalette;
+  palette->addStyle(TPixel32(red.red(), red.green(), red.blue(), red.alpha()));
+  palette->addStyle(TPixel32(blue.red(), blue.green(), blue.blue(), blue.alpha()));
+  image->setPalette(palette.getPointer());
+  image->setDpi(120.0, 144.0);
+  image->setOffset(TPoint(3, -7));
+  return image;
+}
+
+void distinctRegionPipeline(CadmiumRuntime *runtime) {
+  const TToonzImageP reference = pairedDrawing(true), target = pairedDrawing(false);
+  Cadmium::Frame ref, frame;
+  QString error;
+  require(Cadmium::snapshotToonzRaster(TImageP(reference.getPointer()), ref, error), error);
+  require(Cadmium::snapshotToonzRaster(TImageP(target.getPointer()), frame, error), error);
+  require(ref.regionColors.size() == 3 && frame.regionColors.size() == 3,
+          "The distinct-color fixture needs two enclosed regions and the exterior.");
+  const auto labelAt = [](const Cadmium::Frame &drawing, int x, int nativeY) {
+    return drawing.labels[(drawing.lines.height() - 1 - nativeY) * drawing.lines.width() + x];
+  };
+  const int redTarget = labelAt(frame, 64, 128), blueTarget = labelAt(frame, 192, 128);
+  const int redReference = labelAt(ref, 64, 128), blueReference = labelAt(ref, 192, 128);
+  require(redTarget > 0 && blueTarget > 0 && redTarget != blueTarget &&
+              redReference > 0 && blueReference > 0 && redReference != blueReference,
+          "Distinct native region positions collapsed into one label.");
+  require(ref.regionColors[redReference] == red && ref.regionColors[blueReference] == blue,
+          "The reference adapter did not extract distinct native fill colors.");
+
+  const QJsonObject response = infer(runtime, requestFor(ref, frame, false));
+  const QJsonArray ids = response.value("target_color_ids").toArray();
+  const QJsonArray rgba = response.value("target_colors_rgba").toArray();
+  require(ids.size() == 3 && rgba.size() == 3,
+          "The distinct-region model response has an incorrect region count.");
+  // Match the worker's unique reference palette, including its null slot.
+  QVector<QColor> palette(1, QColor());
+  for (int region = 1; region < ref.regionColors.size(); ++region)
+    if (!palette.contains(ref.regionColors[region])) palette.append(ref.regionColors[region]);
+  QVector<int> styles(3, -100);
+  QVector<QColor> colors(3);
+  const auto accept = [&](int targetLabel, int referenceLabel, const QColor &expected) {
+    const QJsonValue id = ids[targetLabel];
+    require(id.isDouble() && id.toDouble() == palette.indexOf(expected),
+            "The model did not match the expected distinct reference palette entry.");
+    const QJsonArray pixel = rgba[targetLabel].toArray();
+    require(pixel.size() == 4, "The model returned an invalid distinct-region color tuple.");
+    const int expectedChannels[] = {expected.red(), expected.green(), expected.blue(), expected.alpha()};
+    for (int channel = 0; channel < 4; ++channel)
+      require(pixel[channel].isDouble() && pixel[channel].toDouble() == expectedChannels[channel],
+              "The model assigned the wrong color to a distinct native region.");
+    styles[targetLabel] = ref.regionStyles[referenceLabel];
+    colors[targetLabel] = expected;
+  };
+  accept(redTarget, redReference, red);
+  accept(blueTarget, blueReference, blue);
+  require(styles[redTarget] != styles[blueTarget],
+          "Distinct native reference styles were merged.");
+  const TToonzImageP result(Cadmium::applyToonzRaster(frame, styles, colors, false, error));
+  require(bool(result), error);
+  for (int y = 0; y < 256; ++y)
+    for (int x = 0; x < 256; ++x) {
+      const TPixelCM32 before = target->getRaster()->pixels(y)[x];
+      const TPixelCM32 after = result->getRaster()->pixels(y)[x];
+      require(before.getPaint() == 0, "Distinct-color inference modified the original target.");
+      require(after.getInk() == before.getInk() && after.getTone() == before.getTone(),
+              "Distinct-color application changed native ink or tone.");
+      require(after.getPaint() == pairedInterior(x, y),
+              "Distinct-color inference did not become the correct per-region native paint.");
+    }
+  rasterMetadata(TImageP(target.getPointer()), TImageP(result.getPointer()));
+}
+
 void vectorPipeline(CadmiumRuntime *runtime) {
   const TVectorImageP reference = vectorDrawing(true), target = vectorDrawing(false);
   Cadmium::Frame ref, frame;
@@ -300,6 +393,8 @@ int main(int argc, char **argv) {
     runtime->setStartupMode(CadmiumRuntime::OnDemand);
     toonzPipeline(runtime);
     std::cout << "Real-model Toonz Raster pipeline passed.\n";
+    distinctRegionPipeline(runtime);
+    std::cout << "Real-model distinct-color region matching passed.\n";
     vectorPipeline(runtime);
     std::cout << "Real-model vector pipeline passed.\n";
     fullColorPipeline(runtime);
