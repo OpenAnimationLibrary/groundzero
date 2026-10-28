@@ -103,6 +103,11 @@ int main(int argc, char **argv) {
   QCoreApplication app(argc, argv);
   try {
     testRaster<TPixel32>(); testRaster<TPixel64>(); testRaster<TPixelF>();
+    checkInputSize(2, 3, 16);
+    bool tooLarge = false;
+    try { checkInputSize(16005, 16005, 16); }
+    catch (const TException &) { tooLarge = true; }
+    require(tooLarge, "Oversized raster dimensions were not rejected");
     QTemporaryDir directory; require(directory.isValid(), "Cannot create temporary files");
     testPersistence(directory.filePath("color-key.fx"));
     std::cout << "PASS: color key raster modes, entries and persistence\n";
