@@ -568,6 +568,9 @@ private:
   class PresetNamePopup;
   PresetNamePopup *m_presetNamePopup;
   void filterControls();
+  // Vector Brush: Draw Order is not used by the Paint Fills and Paint Behind
+  // paint modes, so it is greyed out in those modes.
+  void updateDrawOrderState();
   // Guard: skip redundant setVisible() calls — and the Qt layout recalculation
   // they trigger — when the modifier-visibility state has not changed.
   // Each BrushToolOptionsBox is cached per TTool* by ToolOptions, so switching

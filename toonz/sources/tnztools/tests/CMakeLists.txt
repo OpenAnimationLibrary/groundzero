@@ -47,6 +47,10 @@ add_executable(fluidwidth_test fluidwidth_test.cpp)
 target_include_directories(fluidwidth_test PRIVATE ../../include)
 add_test(NAME fluidwidth COMMAND fluidwidth_test)
 
+add_executable(brushpaintmode_test brushpaintmode_test.cpp)
+target_include_directories(brushpaintmode_test PRIVATE ../../include)
+add_test(NAME brushpaintmode COMMAND brushpaintmode_test)
+
 add_executable(envelopelayout_test envelopelayout_test.cpp)
 target_include_directories(envelopelayout_test PRIVATE ../../include)
 add_test(NAME envelopelayout COMMAND envelopelayout_test)

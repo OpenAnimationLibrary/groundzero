@@ -17,6 +17,7 @@
 
 #include <tools/inputmanager.h>
 #include <tools/fluidwidth.h>
+#include <tools/brushpaintmode.h>
 #include <tools/modifiers/modifierline.h>
 #include <tools/modifiers/modifiertangents.h>
 #include <tools/modifiers/modifierassistants.h>
@@ -61,6 +62,9 @@ struct VectorBrushData final : public TPersist {
   // Fluid Width (speed sensitive width), 0 = off. Only saved when not 0, so
   // presets that do not use it are written exactly as before.
   int m_fluidWidth;
+  // Paint mode (BrushPaintMode::Mode), 0 = Normal. Only saved when not Normal,
+  // so presets that do not use it are written exactly as before.
+  int m_paintMode;
 
   // Style snapshot information (for strict preset restoration)
   int m_styleInfoVersion;       // 0 = old, 1 = full snapshot
@@ -187,12 +191,13 @@ public:
   // Tools.
   bool isPencilModeActive() override;
 
-  bool doFrameRangeStrokes(TFrameId firstFrameId, TStroke *firstStroke,
-                           TFrameId lastFrameId, TStroke *lastStroke,
-                           int interpolationType, bool breakAngles,
-                           bool autoGroup = false, bool autoFill = false,
-                           bool drawFirstStroke = true,
-                           bool drawLastStroke = true, bool withUndo = true);
+  bool doFrameRangeStrokes(
+      TFrameId firstFrameId, TStroke *firstStroke, TFrameId lastFrameId,
+      TStroke *lastStroke, int interpolationType, bool breakAngles,
+      bool autoGroup = false, bool autoFill = false,
+      bool drawFirstStroke = true, bool drawLastStroke = true,
+      bool withUndo                  = true,
+      BrushPaintMode::Mode paintMode = BrushPaintMode::MODE_NORMAL);
   bool doGuidedAutoInbetween(TFrameId cFid, const TVectorImageP &cvi,
                              TStroke *cStroke, bool breakAngles,
                              bool autoGroup = false, bool autoFill = false,
@@ -219,6 +224,7 @@ protected:
   TDoubleProperty m_accuracy;
   TDoubleProperty m_smooth;
   TEnumProperty m_drawOrder;
+  TEnumProperty m_paintMode;
   TEnumProperty m_preset;
   TBoolProperty m_breakAngles;
   TBoolProperty m_pressure;
@@ -233,6 +239,11 @@ protected:
   TBoolProperty m_autoClose;
   TBoolProperty m_autoGroup;
   TBoolProperty m_autoFill;
+
+  //! The "Paint:" option (Normal, Paint Fills, Paint Behind).
+  BrushPaintMode::Mode currentPaintMode() const {
+    return BrushPaintMode::modeFromIndex(m_paintMode.getIndex());
+  }
 
   bool m_bypassAutoClose = false;
   bool autoCloseEnabled() const {
