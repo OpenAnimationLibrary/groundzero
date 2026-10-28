@@ -212,6 +212,90 @@ void testHighlightAndMerge() {
   TTile tile; tile.setRaster(canceledOutput); fx.doCompute(tile, 0, info);
   require(canceledOutput->pixels(1)[1] == TPixelF::Transparent, "Canceled render was not cleared");
 }
+// Expected values below follow the documented native operations for a single
+// sample in the center of a three-tap, normalized Box streak. They do not
+// claim equivalence with another host's implementation.
+void testChannelAndCompositingValues() {
+  StarGlowFx fx; settings(fx);
+  TRasterFP input(3, 3); input->clear();
+  input->pixels(1)[1] = TPixelF(0.2f, 0.1f, 0.05f, 0.5f);
+  fx.getInputPort(0)->setFx(new Source(input));
+  parameter(fx, "verticalLength")->setDefaultValue(1);
+  parameter(fx, "profile")->setDefaultValue(0);
+  parameter(fx, "sourceOpacity")->setDefaultValue(0);
+  auto center = [&]() { return renderFx<TPixelF>(fx, 3, 3)->pixels(1)[1]; };
+  auto near = [](float value, double expected) { return std::abs(value - expected) < 1e-6; };
+
+  // Straight RGB is (0.4, 0.2, 0.1); Luminance uses the documented
+  // native coefficients, and non-alpha modes are premultiplied by 0.5.
+  const double luma = 0.2126 * 0.4 + 0.7152 * 0.2 + 0.0722 * 0.1;
+  const double expected[4][4] = {
+      {0.5 / 3, 0.5 / 3, 0.5 / 3, 0.5 / 3},
+      {0.5 * luma / 3, 0.5 * luma / 3, 0.5 * luma / 3, 0.5 * luma / 3},
+      {0.2 / 3, 0.1 / 3, 0.05 / 3, 0.2 / 3},
+      {0.2 / 3, 0.2 / 3, 0.2 / 3, 0.2 / 3}};
+  for (int mode = 0; mode < 4; ++mode) {
+    parameter(fx, "channel")->setDefaultValue(mode);
+    const TPixelF p = center();
+    require(near(p.r, expected[mode][0]) && near(p.g, expected[mode][1]) &&
+                near(p.b, expected[mode][2]) && near(p.m, expected[mode][3]),
+            "Partially transparent color produced the wrong channel extraction");
+  }
+
+  // Threshold 10%, fade 20%, gain 2: luminance is in the fade interval,
+  // brightness exceeds it, and Alpha/RGB do not apply the fade control.
+  parameter(fx, "gain")->setDefaultValue(2);
+  parameter(fx, "threshold")->setDefaultValue(10);
+  parameter(fx, "fade")->setDefaultValue(20);
+  parameter(fx, "channel")->setDefaultValue(1);
+  const double excess = luma - 0.1;
+  const double fadedLuma = excess * (excess / 0.2) * 2 * 0.5 / 3;
+  require(near(center().r, fadedLuma), "Luminance threshold and fade have incorrect weight");
+  parameter(fx, "channel")->setDefaultValue(3);
+  require(near(center().r, 0.1), "Brightness threshold and fade have incorrect weight");
+  parameter(fx, "channel")->setDefaultValue(0);
+  require(near(center().m, 0.8 / 3), "Alpha channel incorrectly applies fade");
+  parameter(fx, "channel")->setDefaultValue(2);
+  const TPixelF rgb = center();
+  require(near(rgb.r, 0.1) && near(rgb.g, 0.05) && near(rgb.b, 0.025) && near(rgb.m, 0.1),
+          "RGB channel incorrectly applies fade or loses color");
+
+  // The source contribution is 75%; the glow contribution and its alpha
+  // are 60% of the normalized alpha streak. Premultiply attenuates source
+  // by one minus that glow coverage; Add keeps the full source contribution.
+  parameter(fx, "gain")->setDefaultValue(1);
+  parameter(fx, "threshold")->setDefaultValue(0);
+  parameter(fx, "fade")->setDefaultValue(0);
+  parameter(fx, "channel")->setDefaultValue(0);
+  parameter(fx, "glowOpacity")->setDefaultValue(60);
+  parameter(fx, "sourceOpacity")->setDefaultValue(75);
+  parameter(fx, "merge")->setDefaultValue(0);
+  const TPixelF add = center();
+  require(near(add.r, 0.25) && near(add.g, 0.175) && near(add.b, 0.1375) && near(add.m, 0.475),
+          "Add did not apply independent source and glow opacity");
+  parameter(fx, "merge")->setDefaultValue(1);
+  const TPixelF over = center();
+  require(near(over.r, 0.235) && near(over.g, 0.1675) && near(over.b, 0.13375) && near(over.m, 0.4375),
+          "Premultiply did not apply glow coverage and opacity");
+}
+
+void testExponentialSupport() {
+  StarGlowFx fx; settings(fx);
+  TRasterFP input(7, 7); input->clear(); input->pixels(3)[3] = TPixelF::White;
+  fx.getInputPort(0)->setFx(new Source(input));
+  parameter(fx, "sourceOpacity")->setDefaultValue(0);
+  parameter(fx, "verticalLength")->setDefaultValue(2);
+  parameter(fx, "profile")->setDefaultValue(3);
+  const auto result = renderFx<TPixelF>(fx, 7, 7);
+  // At length two, the discrete taps are exp(-4*|i|/2) for i=-2..2.
+  const double normalization = 1 + 2 * std::exp(-2.0) + 2 * std::exp(-4.0);
+  require(std::abs(result->pixels(3)[3].m - 1.0 / normalization) < 1e-6 &&
+              std::abs(result->pixels(4)[3].m - std::exp(-2.0) / normalization) < 1e-6 &&
+              std::abs(result->pixels(5)[3].m - std::exp(-4.0) / normalization) < 1e-6,
+          "Exponential taps have incorrect normalized weights");
+  require(result->pixels(6)[3] == TPixelF::Transparent,
+          "Exponential streak continued beyond its documented finite support");
+}
 void testPartialUpstream() {
   StarGlowFx fx; settings(fx);
   fx.getInputPort(0)->setFx(new PartialSource);
@@ -281,6 +365,8 @@ int main(int argc, char **argv) {
   };
   run("8-bit", testDepth<TPixel32>); run("16-bit", testDepth<TPixel64>); run("float", testDepth<TPixelF>);
   run("tiles", testFloatAndTiles); run("highlight and merge", testHighlightAndMerge);
+  run("channel, fade and compositing values", testChannelAndCompositingValues);
+  run("exponential support", testExponentialSupport);
   run("partial upstream", testPartialUpstream); run("fractional origins", testFractionalOrigins);
   run("animated ramp", testAnimatedRampPrecision);
   if (!passed) return 1;
