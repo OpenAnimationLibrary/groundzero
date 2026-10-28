@@ -292,7 +292,7 @@ struct RadialSettings {
   double outer = 0, inner = 0, outerOffset = 0, innerOffset = 0;
   int outerMode = 0, innerMode = 0;
   double outerFade = 0, innerFade = 0, ratio = 1, angle = 0;
-  int quality = 5;
+  double quality = 5;
   double gain = 1, sizeVariation = 0, noiseVariation = 0;
   CelNoise::Settings noise;
 };
@@ -395,9 +395,12 @@ bool renderRadial(const CelMotion::Image &source, const CelMotion::Image *noiseI
         const double targetAllowed = sideLength(strength * targetSize * noiseFactor,
                                                 offset * targetSize * noiseFactor, offsetMode);
         if (!(maximum > 0)) continue;
-        for (int i = 1; i <= settings.quality; ++i) {
+        const int sampleCount = int(std::ceil(settings.quality));
+        for (int i = 1; i <= sampleCount; ++i) {
           if ((i & 15) == 0 && isCanceled(cancel)) return false;
-          const double fraction = double(i) / settings.quality;
+          const double fraction = std::min(1.0, double(i) / settings.quality);
+          const double sampleWeight = (i == sampleCount ? settings.quality - (sampleCount - 1) : 1.0) /
+                                      settings.quality;
           const double distance = fraction * maximum;
           const CelRadial::Point sample = CelRadial::trajectory(
               {gx, gy}, settings.center, settings.ratio, settings.angle,
@@ -407,13 +410,13 @@ bool renderRadial(const CelMotion::Image &source, const CelMotion::Image *noiseI
           const double maxX = minX + source.width - 1, maxY = minY + source.height - 1;
           if (sx < minX || sy < minY || sx > maxX || sy > maxY) {
             if (settings.repeat && fade > 0) { sx = std::max(minX, std::min(maxX, sx)); sy = std::max(minY, std::min(maxY, sy)); }
-            else { if (distance <= targetAllowed) totalWeight += fade / settings.quality; continue; }
+            else { if (distance <= targetAllowed) totalWeight += fade * sampleWeight; continue; }
           }
           const size_t index = dominantPixel(source, shapes, sx, sy);
           if (index == size_t(-1)) {
             // Without edge fade, fully transparent samples are ignored. With
             // fade, uncovered samples soften the trail at internal holes too.
-            if (distance <= targetAllowed) totalWeight += fade / settings.quality;
+            if (distance <= targetAllowed) totalWeight += fade * sampleWeight;
             continue;
           }
           const auto label = shapes.labels[index];
@@ -432,7 +435,7 @@ bool renderRadial(const CelMotion::Image &source, const CelMotion::Image *noiseI
                                                 index, outer, fadeRange, cancel));
             edge = cache[index];
           }
-          const double weight = (1.0 - fade * (1.0 - edge)) / settings.quality;
+          const double weight = (1.0 - fade * (1.0 - edge)) * sampleWeight;
           add(CelMotion::sample(source, sx, sy), weight);
         }
       }
@@ -511,7 +514,7 @@ void CelRadialBlurFx::doCompute(TTile &tile, double frame,
   params.ratio = limited(m_ellipseRatio->getValue(frame), 0, 5, 1);
   const double rawAngle = m_ellipseAngle->getValue(frame);
   params.angle = std::isfinite(rawAngle) ? std::remainder(rawAngle, 360.0) : 0.0;
-  params.quality = std::max(1, mode(m_quality->getValue(frame), 50));
+  params.quality = limited(m_quality->getValue(frame), 1, 50, 5);
   params.gain = limited(m_brightness->getValue(frame), 0, 10, 1);
   params.sizeVariation = limited(m_sizeVariation->getValue(frame), 0, 100) / 100.0;
   params.noiseVariation = limited(m_noiseVariation->getValue(frame), 0, 100) / 100.0;

@@ -156,6 +156,8 @@ void directionsAndTiles() {
   set(fx, "outerFade", 0);
   set(fx, "quality", 1);
   require(render<Pixel>(fx, 9, 1)->pixels(0)[3].m == 0, "Quality did not change trajectory sampling");
+  set(fx, "quality", 1.5);
+  require(render<Pixel>(fx, 9, 1)->pixels(0)[3].m > 0, "Fractional quality did not change trajectory sampling");
   set(fx, "quality", 4);
   set(fx, "outerStrength", 0); set(fx, "innerStrength", 2);
   auto inner = render<Pixel>(fx, 9, 1);
