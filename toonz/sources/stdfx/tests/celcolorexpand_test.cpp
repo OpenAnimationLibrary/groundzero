@@ -117,6 +117,15 @@ void checkGeometry() {
   try { expandSize(10, 10, std::numeric_limits<int>::max() / 2); }
   catch (const TException &) { threw = true; }
   require(threw, "Raster size overflow was accepted");
+  for (int bytes : {4, 8, 16}) {
+    const int width = std::numeric_limits<int>::max() / bytes;
+    require(expandSize(width, 1, 0, bytes).lx == width,
+            "Safe byte-count boundary was rejected");
+    bool overflow = false;
+    try { expandSize(width + 1, 1, 0, bytes); }
+    catch (const TException &) { overflow = true; }
+    require(overflow, "Signed raster byte-count overflow was accepted");
+  }
   threw = false;
   try { expandHalo(std::numeric_limits<double>::infinity()); }
   catch (const TException &) { threw = true; }

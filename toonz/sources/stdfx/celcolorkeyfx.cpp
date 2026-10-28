@@ -29,6 +29,12 @@ int discrete(double value, int maximum) {
 double bounded(double value, double minimum, double maximum) {
   return std::isfinite(value) ? std::max(minimum, std::min(maximum, value)) : 0.0;
 }
+void checkInputSize(int width, int height, int pixelSize) {
+  const size_t area = CelDistance::checkedArea(width, height);
+  // The host raster allocator multiplies dimensions in signed int.
+  if (pixelSize <= 0 || area > size_t(std::numeric_limits<int>::max()) / size_t(pixelSize))
+    throw TException("Cel Color Key: source tile exceeds the raster size limit");
+}
 }
 
 class CelColorKeyFx final : public TStandardRasterFx {
@@ -242,7 +248,7 @@ void CelColorKeyFx::doCompute(TTile &tile, double frame, const TRenderSettings &
   if (!std::isfinite(input.getLx()) || !std::isfinite(input.getLy()) || input.getLx() <= 0 || input.getLy() <= 0 ||
       input.getLx() > std::numeric_limits<int>::max() || input.getLy() > std::numeric_limits<int>::max())
     throw TException("Cel Color Key: invalid input dimensions");
-  CelDistance::checkedArea(int(input.getLx()), int(input.getLy()));
+  checkInputSize(int(input.getLx()), int(input.getLy()), tile.getRaster()->getPixelSize());
   TTile source;
   m_source->allocateAndCompute(source, input.getP00(), TDimension(int(input.getLx()), int(input.getLy())),
                                tile.getRaster(), frame, settings);

@@ -20,12 +20,12 @@ int expandHalo(double radius) {
     throw TException("Cel Color Expand: radius exceeds raster dimensions");
   return int(std::ceil(radius));
 }
-TDimension expandSize(int width, int height, int halo) {
+TDimension expandSize(int width, int height, int halo, int pixelBytes = sizeof(TPixelF)) {
   const int64_t w = int64_t(width) + 2LL * halo;
   const int64_t h = int64_t(height) + 2LL * halo;
   if (w <= 0 || h <= 0 || w > std::numeric_limits<int>::max() ||
       h > std::numeric_limits<int>::max() ||
-      w * h > std::numeric_limits<int>::max())
+      pixelBytes <= 0 || w * h > std::numeric_limits<int>::max() / pixelBytes)
     throw TException("Cel Color Expand: requested raster is too large");
   return TDimension(int(w), int(h));
 }
@@ -145,7 +145,7 @@ public:
     }
     const int halo = expandHalo(radius);
     const TDimension size = expandSize(tile.getRaster()->getLx(),
-                                       tile.getRaster()->getLy(), halo);
+                                       tile.getRaster()->getLy(), halo, tile.getRaster()->getPixelSize());
     TTile input;
     m_source->allocateAndCompute(input, tile.m_pos - TPointD(halo, halo), size,
                                  tile.getRaster(), frame, settings);
