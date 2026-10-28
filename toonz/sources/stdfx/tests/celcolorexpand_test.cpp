@@ -2,6 +2,7 @@
 #include "tparamcontainer.h"
 #include "tstream.h"
 #include "tmacrofx.h"
+#include "cellevelfixture.h"
 
 #include <QCoreApplication>
 #include <QTemporaryDir>
@@ -155,6 +156,52 @@ void checkFloat() {
   output = render<TPixelF>(fx, 3, 1);
   require(std::isnan(output->pixels(0)[1].r), "Radius zero is not exact identity");
 }
+
+template <class Pixel> void checkLevelDpi() {
+  const double top = Pixel::maxChannelValue;
+  for (const TDimension &size : {TDimension(10, 8), TDimension(9, 7)}) {
+    TRasterPT<Pixel> image(size); image->clear();
+    image->pixels(1)[1] = Pixel(top, 0, 0, top);
+    image->pixels(size.ly / 2)[size.lx / 2] = Pixel(0, top / 2, 0, top / 2);
+    image->pixels(size.ly - 2)[size.lx - 2] = Pixel(0, 0, top, top);
+    CelLevelTest::Level original(image);
+    for (double search : {0.0, 1.0, 2.5}) {
+      const int halo = int(std::ceil(search));
+      TRasterPT<Pixel> expected(size.lx + 2 * halo, size.ly + 2 * halo);
+      expected->clear();
+      for (int y = 0; y < expected->getLy(); ++y)
+        for (int x = 0; x < expected->getLx(); ++x) {
+          double best = std::numeric_limits<double>::infinity();
+          for (int sy = 0; sy < size.ly; ++sy) for (int sx = 0; sx < size.lx; ++sx) {
+            const Pixel pixel = image->pixels(sy)[sx];
+            if (!pixel.m) continue;
+            const double distance = std::hypot(double(sx - x + halo), double(sy - y + halo));
+            if (distance <= search && distance < best) {
+              best = distance; expected->pixels(y)[x] = pixel;
+            }
+          }
+        }
+      CelLevelTest::Level oracle(expected);
+      for (const TAffine &placement : std::vector<TAffine>{TAffine(), TScale(.25),
+              TTranslation(1.125, -.375) * TRotation(17) * TScale(.25, .5)}) {
+        TFxP input = original.placed(placement), reference = oracle.placed(placement);
+        TFxP owner = new CelColorExpandFx;
+        auto &fx = *static_cast<CelColorExpandFx *>(owner.getPointer());
+        fx.getInputPort(0)->setFx(input.getPointer()); radius(fx)->setDefaultValue(search);
+        for (const TAffine &camera : {TAffine(), placement.inv(),
+                                      TTranslation(2.5, -.25) * TScale(2)}) {
+          const auto result = CelLevelTest::render<Pixel>(fx, camera);
+          CelLevelTest::compare(CelLevelTest::render<Pixel>(
+              *static_cast<TRasterFx *>(reference.getPointer()), camera), result,
+              "Color expansion does not count native raster-level pixels");
+          CelLevelTest::compare(result, CelLevelTest::render<Pixel>(fx, camera, 4),
+                                "Raster level expansion changes across strips");
+        }
+      }
+    }
+  }
+}
+
 void checkPersistence(const QString &directory) {
   TFxP first = new CelColorExpandFx, second = new CelColorExpandFx;
   first->setFxId(L"Expand1"); second->setFxId(L"Expand2");
@@ -197,14 +244,16 @@ void checkPersistence(const QString &directory) {
 }  // namespace
 int main(int argc, char **argv) {
   QCoreApplication app(argc, argv); QTemporaryDir temp;
+  TThread::init(); TRenderer::initialize(); int result = 1;
   try {
     require(temp.isValid(), "Temporary directory unavailable");
     checkDepth<TPixel32>(); checkDepth<TPixel64>(); checkDepth<TPixelF>();
     checkGeometry(); checkFloat(); checkPersistence(temp.path());
+    checkLevelDpi<TPixel32>(); checkLevelDpi<TPixel64>(); checkLevelDpi<TPixelF>();
     std::cout << "PASS: nearest colors, coverage, radii, tiles, transforms and persistence\n";
-    return 0;
+    result = 0;
   } catch (const TException &error) {
     std::cerr << QString::fromStdWString(error.getMessage()).toStdString() << '\n';
   } catch (const std::exception &error) { std::cerr << error.what() << '\n'; }
-  return 1;
+  TThread::shutdown(); return result;
 }
