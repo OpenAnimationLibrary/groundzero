@@ -170,6 +170,7 @@ set(SOURCES
     celcolorkeepfx.cpp
     celcolorkeyfx.cpp
     celcolorexpandfx.cpp
+    alphadistancegradientfx.cpp
     rgbkeyfx.cpp
     rgbmcutfx.cpp
     rgbmfadefx.cpp
@@ -467,4 +468,16 @@ if(BUILD_CELFX_TESTS)
              ${CMAKE_CURRENT_SOURCE_DIR}/../../../stuff/profiles/layouts/fxs/STD_celColorExpandFx.xml)
     add_dependencies(celfx_tests celcolorexpand_test celcolorexpand_ui_test)
     set_tests_properties(celfx_colorexpand celfx_colorexpand_ui PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
+endif()
+
+if(BUILD_CELFX_TESTS)
+    add_executable(alphadistancegradient_test tests/alphadistancegradient_test.cpp)
+    target_link_libraries(alphadistancegradient_test Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME celfx_distancegradient COMMAND alphadistancegradient_test)
+    add_executable(alphadistancegradient_ui_test tests/alphadistancegradient_ui_test.cpp)
+    target_link_libraries(alphadistancegradient_ui_test toonzqt Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Widgets ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME celfx_distancegradient_ui COMMAND alphadistancegradient_ui_test
+             ${CMAKE_CURRENT_SOURCE_DIR}/../../../stuff/profiles/layouts/fxs/STD_alphaDistanceGradientFx.xml)
+    add_dependencies(celfx_tests alphadistancegradient_test alphadistancegradient_ui_test)
+    set_tests_properties(celfx_distancegradient celfx_distancegradient_ui PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
 endif()

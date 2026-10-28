@@ -1,0 +1,441 @@
+#include "../alphadistancegradientfx.cpp"
+#include "tparamcontainer.h"
+#include "tstream.h"
+#include "tmacrofx.h"
+#include "trenderer.h"
+#include "tthread.h"
+#include "cellevelfixture.h"
+#include <QCoreApplication>
+#include <QTemporaryDir>
+#include <future>
+#include <iostream>
+#include <stdexcept>
+#include <type_traits>
+namespace {
+void require(bool value, const char *message) { if (!value) throw std::runtime_error(message); }
+TDoubleParamP number(TFx &fx, const std::string &name) { return TParamP(fx.getParams()->getParam(name)); }
+TPixelParamP color(TFx &fx, const std::string &name) { return TParamP(fx.getParams()->getParam(name)); }
+void set(TFx &fx, const std::string &name, double value) { number(fx, name)->setDefaultValue(value); }
+class Source final : public TStandardRasterFx {
+  TRasterP m_image;
+  bool m_infinite;
+  int *m_cancel;
+  bool m_partial;
+public:
+  explicit Source(const TRasterP &image, bool infinite = false, int *cancel = nullptr, bool partial = false)
+      : m_image(image), m_infinite(infinite), m_cancel(cancel), m_partial(partial) {}
+  const TPersistDeclaration *getDeclaration() const override { return nullptr; }
+  bool canHandle(const TRenderSettings &, double) override { return true; }
+  std::string getAlias(double, const TRenderSettings &) const override { return "distance-source"; }
+  bool doGetBBox(double, TRectD &box, const TRenderSettings &) override {
+    box = m_infinite ? TConsts::infiniteRectD : TRectD(0, 0, m_image->getLx(), m_image->getLy());
+    return true;
+  }
+  void compute(TTile &tile, double, const TRenderSettings &) override {
+    if (m_partial) {
+      const TRasterP raster = tile.getRaster();
+      for (int y = 0; y < raster->getLy(); ++y)
+        for (int x = 0; x < raster->getLx() * raster->getPixelSize(); ++x)
+          require(raster->getRawData()[size_t(y) * raster->getWrap() * raster->getPixelSize() + x] == 0,
+                  "Gradient source raster was not cleared before rendering");
+    } else tile.getRaster()->clear();
+    if (m_infinite) {
+      if (TRaster32P raster = tile.getRaster()) raster->fill(TPixel32::White);
+      else if (TRaster64P raster = tile.getRaster()) raster->fill(TPixel64::White);
+      else if (TRasterFP raster = tile.getRaster()) raster->fill(TPixelF::White);
+    }
+    else tile.getRaster()->copy(m_image, TPoint(-int(tile.m_pos.x), -int(tile.m_pos.y)));
+    if (m_cancel) *m_cancel = 1;
+  }
+  void doCompute(TTile &tile, double frame, const TRenderSettings &settings) override {
+    compute(tile, frame, settings);
+  }
+};
+template <class Pixel>
+TRasterPT<Pixel> render(AlphaDistanceGradientFx &fx, int w, int h,
+                       TPointD pos = TPointD(), const TRenderSettings &settings = TRenderSettings()) {
+  TRasterPT<Pixel> result(w, h); result->fill(Pixel::White);
+  TTile tile; tile.setRaster(result); tile.m_pos = pos; fx.doCompute(tile, 0, settings);
+  return result;
+}
+template <class Pixel> void expect(const Pixel &pixel, double r, double g, double b, double alpha) {
+  const double maximum = Pixel::maxChannelValue;
+  const double tolerance = std::is_same<Pixel, TPixelF>::value ? 0.000002 : 1.5 / maximum;
+  require(std::abs(pixel.r / maximum - r) <= tolerance &&
+              std::abs(pixel.g / maximum - g) <= tolerance &&
+              std::abs(pixel.b / maximum - b) <= tolerance &&
+              std::abs(pixel.m / maximum - alpha) <= tolerance, "Gradient pixel differs from analytic fixture");
+}
+template <class Pixel> void checkModes() {
+  const double maximum = Pixel::maxChannelValue;
+  TRasterPT<Pixel> input(7, 7); input->clear();
+  const Pixel source(maximum / 4, maximum / 8, 0, maximum / 2);
+  for (int y = 1; y < 6; ++y) for (int x = 1; x < 6; ++x) input->pixels(y)[x] = source;
+  AlphaDistanceGradientFx fx; fx.getInputPort(0)->setFx(new Source(input, false, nullptr, true));
+  set(fx, "insideThreshold", 4); set(fx, "outsideThreshold", 4); set(fx, "power", 2);
+  color(fx, "gradationColor")->setDefaultValue(TPixel32::Red);
+  color(fx, "backgroundColor")->setDefaultValue(TPixel32::Blue);
+  const double weights[] = {0.5, std::sqrt(0.75), 0.25, 1};
+  for (int region = 0; region < 3; ++region)
+    for (int curve = 0; curve < 4; ++curve)
+      for (int mode = 0; mode < 2; ++mode)
+        for (int background = 0; background < 2; ++background)
+          for (int invert = 0; invert < 2; ++invert) {
+            set(fx, "region", region); set(fx, "interpolation", curve);
+            set(fx, "renderMode", mode); set(fx, "useBackground", background); set(fx, "invert", invert);
+            const auto out = render<Pixel>(fx, 1, 1, TPointD(3, 3));
+            double weight = region == 1 ? 0 : weights[curve];
+            if (invert) weight = 1 - weight;
+            const double red = mode ? double(source.r) / source.m : 1;
+            const double green = mode ? double(source.g) / source.m : 0;
+            expect(out->pixels(0)[0], red * weight, green * weight,
+                   background ? 1 - weight : 0, background ? 1 : weight);
+            if (region != 0) {
+              auto outside = render<Pixel>(fx, 1, 1, TPointD(8, 3));
+              weight = invert ? 1 - weights[curve] : weights[curve];
+              expect(outside->pixels(0)[0], red * weight, green * weight,
+                     background ? 1 - weight : 0, background ? 1 : weight);
+            }
+          }
+  set(fx, "region", 0); set(fx, "renderMode", 0); set(fx, "invert", 0);
+  set(fx, "useBackground", 0); set(fx, "interpolation", 0); set(fx, "insideThreshold", 0);
+  expect(render<Pixel>(fx, 1, 1, TPointD(1, 3))->pixels(0)[0], 1, 0, 0, 1);
+  expect(render<Pixel>(fx, 1, 1, TPointD(3, 3))->pixels(0)[0], 0, 0, 0, 0);
+  input->pixels(3)[3] = Pixel::Transparent;
+  set(fx, "insideThreshold", 4);
+  expect(render<Pixel>(fx, 1, 1, TPointD(2, 3))->pixels(0)[0], 1, 0, 0, 1);
+  input->clear();
+  expect(render<Pixel>(fx, 1, 1)->pixels(0)[0], 0, 0, 0, 0);
+  set(fx, "useBackground", 1);
+  expect(render<Pixel>(fx, 1, 1)->pixels(0)[0], 0, 0, 1, 1);
+  set(fx, "invert", 1);
+  expect(render<Pixel>(fx, 1, 1)->pixels(0)[0], 1, 0, 0, 1);
+  input->fill(source); set(fx, "invert", 0); set(fx, "useBackground", 0);
+  expect(render<Pixel>(fx, 1, 1)->pixels(0)[0], 1, 0, 0, 1);
+}
+void checkBlur() {
+  std::vector<double> impulse(25 * 25, 0); impulse[12 * 25 + 12] = 1;
+  auto plain = impulse, scaled = impulse;
+  require(gradientBlur(plain, 25, 25, 3, false, nullptr) &&
+              gradientBlur(scaled, 25, 25, 3, true, nullptr), "Blur failed");
+  require(std::abs(plain[12 * 25 + 12] - 49.0 / 729) < 1e-12,
+          "Three-pass blur differs from analytic kernel");
+  require(scaled[12 * 25 + 12] == 1 && plain[12 * 25 + 12] < 0.1,
+          "Blur modes do not preserve distinct peak behavior");
+  double sum = 0; for (double value : plain) sum += value;
+  require(std::abs(sum - 1) < 1e-12 && plain[12 * 25 + 8] < 1e-15,
+          "Blur lost energy or exceeded support");
+  require(gradientBlur(impulse, 25, 25, 0, true, nullptr) && impulse[12 * 25 + 12] == 1,
+          "Zero blur changed the profile");
+  int canceled = 1;
+  require(!gradientBlur(impulse, 25, 25, 1, false, &canceled), "Blur ignored cancellation");
+}
+template <class Pixel> void checkTilesAndCancellation() {
+  TRasterPT<Pixel> input(9, 5); input->clear();
+  input->pixels(2)[3] = Pixel::White; input->pixels(1)[6] = Pixel::Black;
+  AlphaDistanceGradientFx fx; fx.getInputPort(0)->setFx(new Source(input, false, nullptr, true));
+  set(fx, "region", 2); set(fx, "insideThreshold", 2); set(fx, "outsideThreshold", 3);
+  set(fx, "blurSize", 2);
+  for (int blur = 0; blur < 3; ++blur) {
+    set(fx, "blurMode", blur);
+    const auto full = render<Pixel>(fx, 23, 19, TPointD(-7, -7));
+    std::vector<std::future<void>> jobs;
+    for (int y = 0; y < 19; ++y) jobs.emplace_back(std::async(std::launch::async, [&, y] {
+      const auto strip = render<Pixel>(fx, 23, 1, TPointD(-7, y - 7));
+      for (int x = 0; x < 23; ++x)
+        require(strip->pixels(0)[x] == full->pixels(y)[x], "Canvas varies with tile or thread");
+    }));
+    for (auto &job : jobs) job.get();
+  }
+  int canceled = 1; TRenderSettings settings; settings.m_isCanceled = &canceled;
+  fx.getInputPort(0)->setFx(new Source(input, false, &canceled));
+  for (int initial : {1, 0}) {
+    canceled = initial; const auto output = render<Pixel>(fx, 2, 2, TPointD(), settings);
+    for (int y = 0; y < 2; ++y) for (int x = 0; x < 2; ++x)
+      require(output->pixels(y)[x] == Pixel::Transparent, "Cancellation left output");
+  }
+}
+void checkCanvasAndFloat() {
+  const TPixelD huge(std::numeric_limits<double>::max(), -100, 0.25, 0.5);
+  const auto integer8 = gradientPixel(huge, static_cast<TPixel32 *>(nullptr));
+  const auto integer16 = gradientPixel(huge, static_cast<TPixel64 *>(nullptr));
+  require(integer8.r == integer8.m && integer8.g == 0 &&
+              integer16.r == integer16.m && integer16.g == 0,
+          "Integer HDR conversion violated premultiplied coverage");
+  const auto floating = gradientPixel(huge, static_cast<TPixelF *>(nullptr));
+  require(std::isfinite(floating.r) && floating.r == std::numeric_limits<float>::max() &&
+              floating.g == -100, "Float output overflowed or clamped signed HDR");
+  TRasterFP input(1, 1); input->pixels(0)[0] = TPixelF(1, -0.25f, 0.125f, 0.5f);
+  AlphaDistanceGradientFx fx; fx.getInputPort(0)->setFx(new Source(input, false, nullptr, true));
+  set(fx, "renderMode", 1);
+  expect(render<TPixelF>(fx, 1, 1)->pixels(0)[0], 2, -0.5, 0.25, 1);
+  TRenderSettings settings; settings.m_affine = TScale(2);
+  TRectD box;
+  require(fx.doGetBBox(0, box, settings) && box == TRectD(0, 0, 1, 1),
+          "Bounds apply affine twice");
+  settings.m_affine = TScale(2, 1);
+  require(!fx.canHandle(settings, 0), "Nonuniform transform bypasses adapter");
+  TRaster32P finite(3, 3); finite->fill(TPixel32::White);
+  fx.getInputPort(0)->setFx(new Source(finite, true));
+  settings = TRenderSettings(); settings.m_cameraBox = TRectD(-2, -2, 3, 3);
+  require(fx.doGetBBox(0, box, settings) && box == settings.m_cameraBox,
+          "Infinite source ignored finite camera");
+  auto image = render<TPixel32>(fx, 7, 7, TPointD(-3, -3), settings);
+  require(image->pixels(0)[0] == TPixel32::Transparent && image->pixels(1)[1].m == 255,
+          "Camera boundary was not finite");
+  settings.m_cameraBox = TRectD(); bool threw = false;
+  try { render<TPixel32>(fx, 1, 1, TPointD(), settings); }
+  catch (const TException &) { threw = true; }
+  require(threw, "Unbounded canvas silently depends on tile size");
+  threw = false;
+  try { gradientSize(TRectD(0, 0, 1000000, 1000000)); }
+  catch (const TException &) { threw = true; }
+  require(threw, "Canvas index overflow was accepted");
+  for (int bytes : {4, 8, 16}) {
+    const int width = std::numeric_limits<int>::max() / bytes;
+    require(gradientSize(TRectD(0, 0, width, 1), bytes).lx == width,
+            "Safe canvas byte-count boundary was rejected");
+    bool overflow = false;
+    try { gradientSize(TRectD(0, 0, width + 1, 1), bytes); }
+    catch (const TException &) { overflow = true; }
+    require(overflow, "Canvas allocation would overflow signed byte count");
+  }
+  fx.getInputPort(0)->setFx(new Source(finite));
+  for (double scale : {0.25, 0.5, 1.1, 2.0}) {
+    settings.m_affine = TScale(scale);
+    require(!fx.canHandle(settings, 0) && fx.handledAffine(settings, 0) == TAffine(),
+            "Preview must transform one canonical native-space result");
+  }
+  AlphaDistanceGradientFx missing;
+  require(render<TPixel32>(missing, 1, 1)->pixels(0)[0] == TPixel32::Transparent,
+          "Missing source retained output");
+}
+class CameraRenderContext {
+  TRenderer m_renderer;
+  unsigned long m_id;
+public:
+  CameraRenderContext() : m_renderer(1), m_id(TRenderer::buildRenderId()) {
+    m_renderer.install(m_id);
+    m_renderer.declareRenderStart(m_id);
+    m_renderer.declareFrameStart(0);
+  }
+  ~CameraRenderContext() {
+    m_renderer.declareFrameEnd(0);
+    m_renderer.declareRenderEnd(m_id);
+    m_renderer.uninstall();
+  }
+};
+TRaster32P renderCamera(AlphaDistanceGradientFx &fx,
+                        const TRenderSettings &settings, int stripHeight) {
+  CameraRenderContext context;
+  TRaster32P image(33, 29); image->clear();
+  for (int y = 0; y < 29; y += stripHeight) {
+    const int height = std::min(stripHeight, 29 - y);
+    TRaster32P raster(33, height); raster->clear();
+    TTile tile(raster, TPointD(-16, -14 + y));
+    TRectD rect(tile.m_pos, TDimensionD(33, height));
+    fx.dryCompute(rect, 0, settings);
+    fx.compute(tile, 0, settings);
+    require(tile.m_pos == TPointD(-16, -14 + y), "Camera normalization changed the caller's tile");
+    image->copy(tile.getRaster(), TPoint(0, y));
+  }
+  return image;
+}
+void checkTransformedCamera() {
+  TRaster32P input(1, 1); input->fill(TPixel32::White);
+  // Public rendering retains effects in intrusive smart pointers for caching.
+  TFxP owner = new AlphaDistanceGradientFx;
+  auto &fx = *static_cast<AlphaDistanceGradientFx *>(owner.getPointer());
+  fx.getInputPort(0)->setFx(new Source(input, true));
+  set(fx, "useBackground", 1); set(fx, "insideThreshold", 8);
+  set(fx, "outsideThreshold", 2); set(fx, "blurSize", 2);
+  const TRectD camera(-6, -4, 7, 5);
+  const std::vector<TAffine> transforms = {
+      TAffine(), TScale(0.5), TScale(2), TScale(2, 0.5), TRotation(30),
+      TTranslation(4, -3), TTranslation(0.25, -0.75) * TScale(0.5)};
+  for (const TAffine &affine : transforms) {
+    TRenderSettings settings; settings.m_affine = affine; settings.m_cameraBox = camera;
+    const double scale = std::sqrt(std::abs(affine.det()));
+    require(fx.canHandle(settings, 0) && fx.handledAffine(settings, 0) == affine,
+            "Infinite input must retain the camera's render grid");
+    for (int region = 0; region < 3; ++region) for (int blur = 0; blur < 3; ++blur) {
+      set(fx, "region", region); set(fx, "blurMode", blur);
+      const int margin = (region ? int(std::ceil(2 * scale)) + 1 : 0) +
+                         (blur ? int(std::ceil(2 * scale)) : 0);
+      const TRectD expected = camera.enlarge(margin);
+      TRectD bounds;
+      require(fx.getBBox(0, bounds, settings) && bounds.x0 <= expected.x0 &&
+                  bounds.y0 <= expected.y0 && bounds.x1 >= expected.x1 && bounds.y1 >= expected.y1,
+              "Transformed bounds clip the camera canvas");
+      if (affine.a12 == 0 && affine.a21 == 0)
+        require(bounds == expected, "Camera canvas was transformed twice");
+      TRectD predicted; TRenderSettings inputSettings;
+      fx.transform(0, 0, expected, settings, predicted, inputSettings);
+      require(predicted == camera, "Camera input request depends on the output transform");
+      const auto full = renderCamera(fx, settings, 29);
+      const auto strips = renderCamera(fx, settings, 7);
+      for (int y = 0; y < 29; ++y) for (int x = 0; x < 33; ++x) {
+        const int px = x - 16, py = y - 14;
+        const bool inside = px >= expected.x0 && px < expected.x1 &&
+                            py >= expected.y0 && py < expected.y1;
+        require(full->pixels(y)[x].m == (inside ? 255 : 0),
+                "Public rendering cropped or moved the transformed camera");
+        require(full->pixels(y)[x] == strips->pixels(y)[x],
+                "Transformed camera rendering depends on strip position");
+      }
+      if (region == 0 && blur == 0) {
+        const double weight = std::max(0.0, 1.0 - 4.0 / (8.0 * scale));
+        expect(full->pixels(14)[16], weight, weight, weight, 1);
+      }
+    }
+  }
+}
+
+template <class Pixel> void checkLevelDpi() {
+  for (const TDimension &size : {TDimension(10, 8), TDimension(9, 7)}) {
+    TRasterPT<Pixel> image(size); image->clear();
+    for (int y = 1; y < size.ly - 1; ++y)
+      for (int x = 1; x < size.lx - 1; ++x)
+        if (x != size.lx / 2 || y != size.ly / 2) image->pixels(y)[x] = Pixel::White;
+    CelLevelTest::Level original(image);
+    for (int region = 0; region < 3; ++region) for (int blur = 0; blur < 3; ++blur) {
+      const int support = blur ? 2 : 0;
+      const int margin = (region ? 4 : 0) + support;
+      const int width = size.lx + 2 * margin, height = size.ly + 2 * margin;
+      std::vector<double> values(size_t(width) * height, 0);
+      // Independent exhaustive opposite-mask distance, including one exterior
+      // ring for the inside distance. No production distance/filter helper.
+      for (int y = 0; y < height; ++y) for (int x = 0; x < width; ++x) {
+        const int px = x - margin, py = y - margin;
+        const bool covered = px >= 0 && px < size.lx && py >= 0 && py < size.ly &&
+                             image->pixels(py)[px].m > 0;
+        if ((covered && region == 1) || (!covered && region == 0)) continue;
+        double distance = std::numeric_limits<double>::infinity();
+        for (int sy = -1; sy <= size.ly; ++sy) for (int sx = -1; sx <= size.lx; ++sx) {
+          const bool seed = sx >= 0 && sx < size.lx && sy >= 0 && sy < size.ly &&
+                            image->pixels(sy)[sx].m > 0;
+          if (seed == covered) continue;
+          distance = std::min(distance, std::hypot(double(px - sx), double(py - sy)));
+        }
+        const double threshold = covered ? 2 : 3;
+        values[size_t(y) * width + x] =
+            std::max(0.0, 1.0 - std::max(0.0, distance - 1.0) / threshold);
+      }
+      const double peak = *std::max_element(values.begin(), values.end());
+      if (blur) {
+        for (int pass = 0; pass < 3; ++pass) {
+          const int radius = (support + pass) / 3;
+          std::vector<double> filtered(values.size(), 0);
+          for (int y = 0; y < height; ++y) for (int x = 0; x < width; ++x) {
+            double sum = 0;
+            for (int dy = -radius; dy <= radius; ++dy)
+              for (int dx = -radius; dx <= radius; ++dx)
+                if (x + dx >= 0 && x + dx < width && y + dy >= 0 && y + dy < height)
+                  sum += values[size_t(y + dy) * width + x + dx];
+            filtered[size_t(y) * width + x] = sum / ((2 * radius + 1) * (2 * radius + 1));
+          }
+          values.swap(filtered);
+        }
+        if (blur == 2) {
+          const double blurredPeak = *std::max_element(values.begin(), values.end());
+          if (blurredPeak > 0)
+            for (double &value : values) value = std::min(1.0, value * peak / blurredPeak);
+        }
+      }
+      TRasterPT<Pixel> expected(width, height);
+      for (int y = 0; y < height; ++y) for (int x = 0; x < width; ++x) {
+        const double value = values[size_t(y) * width + x];
+        if constexpr (std::is_same<Pixel, TPixelF>::value)
+          expected->pixels(y)[x] = TPixelF(float(value), float(value), float(value), 1);
+        else if constexpr (std::is_same<Pixel, TPixel64>::value)
+          expected->pixels(y)[x] = toPixel64(TPixelD(value, value, value, 1));
+        else expected->pixels(y)[x] = toPixel32(TPixelD(value, value, value, 1));
+      }
+      CelLevelTest::Level oracle(expected);
+      for (const TAffine &placement : std::vector<TAffine>{TAffine(), TScale(.25),
+              TTranslation(1.125, -.375) * TRotation(17) * TScale(.25, .5)}) {
+        TFxP input = original.placed(placement), reference = oracle.placed(placement);
+        TFxP owner = new AlphaDistanceGradientFx;
+        auto &fx = *static_cast<AlphaDistanceGradientFx *>(owner.getPointer());
+        fx.getInputPort(0)->setFx(input.getPointer());
+        set(fx, "region", region); set(fx, "insideThreshold", 2); set(fx, "outsideThreshold", 3);
+        set(fx, "useBackground", 1); set(fx, "blurMode", blur); set(fx, "blurSize", 2);
+        for (const TAffine &camera : {TAffine(), placement.inv(),
+                                      TTranslation(2.5, -.25) * TScale(2)}) {
+          const auto result = CelLevelTest::render<Pixel>(fx, camera);
+          CelLevelTest::compare(CelLevelTest::render<Pixel>(
+              *static_cast<TRasterFx *>(reference.getPointer()), camera), result,
+              "Distance gradient differs from the native raster-level oracle");
+          CelLevelTest::compare(result, CelLevelTest::render<Pixel>(fx, camera, 4),
+                                "Raster level gradient changes across strips");
+        }
+      }
+    }
+  }
+}
+
+const std::array<const char *, 10> numbers = {{"region", "insideThreshold", "outsideThreshold",
+  "renderMode", "useBackground", "invert", "interpolation", "power", "blurMode", "blurSize"}};
+void checkPersistence(const QString &directory) {
+  TFxP first = new AlphaDistanceGradientFx, second = new AlphaDistanceGradientFx;
+  first->setFxId(L"Distance1"); second->setFxId(L"Distance2");
+  const double values[] = {2, 1000, 0, 1, 1, 1, 3, 0.01, 2, 4096};
+  for (size_t i = 0; i < numbers.size(); ++i) number(*first, numbers[i])->setValue(10, values[i]);
+  color(*first, "gradationColor")->setValueD(10, TPixelD(1.12345678901, 0.5, -0.25, 1));
+  color(*first, "backgroundColor")->setValueD(10, TPixelD(0.000000000123456, 0.25, 0.75, 1));
+  TFxP clone = first->clone(false);
+  for (size_t i = 0; i < numbers.size(); ++i)
+    require(number(*clone, numbers[i])->getValue(10) == values[i], "Clone lost a control");
+  TFxP linked = new AlphaDistanceGradientFx; linked->linkParams(first.getPointer());
+  require(number(*linked, "region").getPointer() == number(*first, "region").getPointer(), "Parameter link copied values");
+  linked->unlinkParams();
+  const std::string before = first->getAlias(10, TRenderSettings());
+  number(*first, "insideThreshold")->setValue(10, 999.99999999);
+  require(before != first->getAlias(10, TRenderSettings()), "Fine controls share cache aliases");
+  for (bool compressed : {false, true}) {
+    const TFilePath path((directory + (compressed ? "/compressed.fx" : "/plain.fx")).toStdWString());
+    { TOStream stream(path, compressed); stream << first.getPointer(); }
+    TFxP restored; { TIStream stream(path); stream >> restored; }
+    require(restored && color(*restored, "backgroundColor")->getValueD(10) ==
+                color(*first, "backgroundColor")->getValueD(10), "Scene lost color precision");
+    for (const char *name : numbers)
+      require(number(*restored, name)->isKeyframe(10) && number(*restored, name)->getValue(10) ==
+                  number(*first, name)->getValue(10), "Scene lost an animated control");
+    require(number(*restored, "interpolation")->getUIChoices().size() == 4,
+            "Restored choice control lost metadata");
+  }
+  const TFilePath preset((directory + "/distance.preset").toStdWString());
+  { TOStream stream(preset); first->savePreset(stream); }
+  { TIStream stream(preset); second->loadPreset(stream); }
+  for (const char *name : numbers)
+    require(number(*second, name)->getValue(10) == number(*first, name)->getValue(10), "Preset lost a control");
+  second->getInputPort(0)->setFx(first.getPointer());
+  TFxP owner = TMacroFx::create({first, second});
+  auto *macro = dynamic_cast<TMacroFx *>(owner.getPointer());
+  require(macro != nullptr, "Macro creation failed");
+  for (const char *name : numbers) macro->setParamExposed(first.getPointer(), name, true);
+  macro->setParamExposed(first.getPointer(), "gradationColor", true);
+  const TFilePath path((directory + "/distance.macro").toStdWString());
+  { TOStream stream(path); stream << macro; }
+  TFxP restored; { TIStream stream(path); stream >> restored; }
+  auto *loaded = dynamic_cast<TMacroFx *>(restored.getPointer());
+  require(loaded && loaded->getFxById(L"Distance1"), "Macro did not restore effect");
+  for (const char *name : numbers)
+    require(loaded->isParamExposed(loaded->getFxById(L"Distance1"), name), "Macro lost exposure");
+}
+}
+int main(int argc, char **argv) {
+  QCoreApplication app(argc, argv); QTemporaryDir temp;
+  TThread::init(); TRenderer::initialize(); int result = 1;
+  try {
+    require(temp.isValid(), "Temporary directory unavailable");
+    checkModes<TPixel32>(); checkModes<TPixel64>(); checkModes<TPixelF>(); checkBlur();
+    checkTilesAndCancellation<TPixel32>(); checkTilesAndCancellation<TPixel64>(); checkTilesAndCancellation<TPixelF>();
+    checkCanvasAndFloat(); checkTransformedCamera(); checkPersistence(temp.path());
+    checkLevelDpi<TPixel32>(); checkLevelDpi<TPixel64>(); checkLevelDpi<TPixelF>();
+    std::cout << "PASS: every mode, all depths, blur, finite canvas, tiles and persistence\n"; result = 0;
+  } catch (const TException &error) {
+    std::cerr << QString::fromStdWString(error.getMessage()).toStdString() << '\n';
+  } catch (const std::exception &error) { std::cerr << error.what() << '\n'; }
+  TThread::shutdown(); return result;
+}

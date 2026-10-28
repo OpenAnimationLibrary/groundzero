@@ -153,6 +153,9 @@ void testLevelCompatibility() {
   policy->setName(L"LevelColumn AffineFx");
   require(CelFxSourceGrid::renderAffine(policy, 0) == TTranslation(.5, .5),
           "Odd raster level lost its native pixel phase");
+  const auto canvas = CelFxSourceGrid::discover(policy, 0);
+  require(canvas.hasCanvas && canvas.canvas == TRectD(-4.5, -3.5, 4.5, 3.5),
+          "Raster grid did not retain the original full canvas");
   TFxP owner = new GridProbe(TAffine(), false, policy);
   checkRoute(*static_cast<GridProbe *>(owner.getPointer()), TAffine(), TAffine());
 }
@@ -187,6 +190,8 @@ void testVectorLevelGrid() {
           "Vector fixture must have fractional continuous bounds");
   const TAffine grid = CelFxSourceGrid::renderAffine(source, 0);
   require(grid == TAffine(), "Vector artwork bounds were mistaken for a native raster canvas");
+  require(!CelFxSourceGrid::discover(source, 0).hasCanvas,
+          "Vector artwork acquired a discrete level canvas");
   TFxP placed = TFxUtil::makeAffine(TFxP(source), TTranslation(2.5, -.25) * TScale(2, 3));
   require(CelFxSourceGrid::renderAffine(placed.getPointer(), 0) == TAffine(),
           "Placed vector level stopped using the world pixel grid");
