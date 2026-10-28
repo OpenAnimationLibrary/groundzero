@@ -39,6 +39,9 @@ void testDepth() {
   StarGlowFx fx; settings(fx);
   TRasterPT<Pixel> input(3, 3); input->clear(); input->pixels(1)[1] = Pixel::White;
   fx.getInputPort(0)->setFx(new Source(input));
+  TRectD bounds;
+  require(fx.doGetBBox(0, bounds, TRenderSettings()) && bounds == TRectD(0, 0, 3, 3),
+          "Zero effects expanded the source bounds");
   auto plain = renderFx<Pixel>(fx, 3, 3);
   require(plain->pixels(1)[1] == Pixel::White && plain->pixels(0)[0] == Pixel::Transparent, "Zero effects did not preserve source");
   parameter(fx, "sourceOpacity")->setDefaultValue(0);

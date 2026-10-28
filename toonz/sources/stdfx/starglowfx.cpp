@@ -194,10 +194,11 @@ Settings StarGlowFx::snapshot(double frame) const {
 }
 
 double StarGlowFx::support(double frame) const {
-  return std::ceil(std::max({limit(m_vertical.length->getValue(frame), 0, 1000),
-                             limit(m_horizontal.length->getValue(frame), 0, 1000),
-                             limit(m_diagonal.length->getValue(frame), 0, 1000),
-                             limit(m_highlightRadius->getValue(frame), 0, 1000)})) + 2;
+  const double maximum = std::max({limit(m_vertical.length->getValue(frame), 0, 1000),
+                                   limit(m_horizontal.length->getValue(frame), 0, 1000),
+                                   limit(m_diagonal.length->getValue(frame), 0, 1000),
+                                   limit(m_highlightRadius->getValue(frame), 0, 1000)});
+  return maximum > 0 ? std::ceil(maximum) + 2 : 0;
 }
 
 bool StarGlowFx::doGetBBox(double frame, TRectD &box, const TRenderSettings &settings) {
@@ -281,13 +282,17 @@ bool render(const TRasterPT<Pixel> &source, const TRasterPT<Pixel> &output,
   RasterLock inputLock(source), outputLock(output);
   for (int y = 0; y < h; ++y) {
     if (canceled && *canceled) return false;
-    for (int x = 0; x < w; ++x) extracted[size_t(y) * size_t(w) + size_t(x)] = extract(toPixelD(source->pixels(y)[x]), s);
+    for (int x = 0; x < w; ++x) {
+      if ((x & 31) == 0 && canceled && *canceled) return false;
+      extracted[size_t(y) * size_t(w) + size_t(x)] = extract(toPixelD(source->pixels(y)[x]), s);
+    }
   }
   if (s.approximate) {
     std::vector<Vec> reduced(extracted.size());
     for (int y = 0; y < h; ++y) {
       if (canceled && *canceled) return false;
       for (int x = 0; x < w; ++x) {
+        if ((x & 31) == 0 && canceled && *canceled) return false;
         const int gx = originX + x, gy = originY + y;
         const int bx = x - ((gx % 2 + 2) % 2), by = y - ((gy % 2 + 2) % 2);
         Vec average = get(extracted, w, h, bx, by);
@@ -305,8 +310,10 @@ bool render(const TRasterPT<Pixel> &source, const TRasterPT<Pixel> &output,
     Direction white; white.length = s.highlightRadius; white.color = TPixelD(1, 1, 1, 1);
     for (int y = 0; y < h; ++y) {
       if (canceled && *canceled) return false;
-      for (int x = 0; x < w; ++x)
+      for (int x = 0; x < w; ++x) {
+        if ((x & 31) == 0 && canceled && *canceled) return false;
         horizontal[size_t(y) * size_t(w) + size_t(x)] = streak(extracted, w, h, x, y, 0, white, s.profile, s.approximate);
+      }
     }
   }
   const double rotation = std::remainder(s.rotation, 360.0) * pi / 180.0;
@@ -314,6 +321,7 @@ bool render(const TRasterPT<Pixel> &source, const TRasterPT<Pixel> &output,
     if (canceled && *canceled) return false;
     Pixel *dest = output->pixels(y);
     for (int x = 0; x < output->getLx(); ++x) {
+      if ((x & 31) == 0 && canceled && *canceled) return false;
       const int sx = x + offsetX, sy = y + offsetY;
       Vec glow;
       glow += streak(extracted, w, h, sx, sy, rotation + pi / 2, s.directions[0], s.profile, s.approximate);
