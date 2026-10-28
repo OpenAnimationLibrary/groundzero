@@ -388,6 +388,11 @@ void testRasterLevelDpi() {
       }
       const auto sourceFull = render(real, 1), sourceTiled = render(real, 4);
       const auto fixtureFull = render(fixture, 1), fixtureStrips = render(fixture, 4);
+      for (StarGlowFx *fx : {&real, &fixture}) {
+        parameter(*fx, "verticalLength")->setDefaultValue(2);
+        parameter(*fx, "glowOpacity")->setDefaultValue(0);
+      }
+      const auto haloFull = render(real, 1), haloTiled = render(real, 4);
       bool visible = false;
       for (int y = 0; y < 24; ++y) for (int x = 0; x < 32; ++x) {
         const TPixel32 a = actual->pixels(y)[x], b = tiled->pixels(y)[x], c = expected->pixels(y)[x];
@@ -399,7 +404,16 @@ void testRasterLevelDpi() {
                     << " sourceFull=" << int(sourceFull->pixels(y)[x].m)
                     << " sourceTiled=" << int(sourceTiled->pixels(y)[x].m)
                     << " fixtureSource=" << int(fixtureFull->pixels(y)[x].m)
-                    << " fixtureSourceTiled=" << int(fixtureStrips->pixels(y)[x].m) << '\n';
+                    << " fixtureSourceTiled=" << int(fixtureStrips->pixels(y)[x].m)
+                    << " haloFull=" << int(haloFull->pixels(y)[x].m)
+                    << " haloTiled=" << int(haloTiled->pixels(y)[x].m) << '\n';
+          for (int dy = -2; dy <= 2; ++dy) {
+            const int yy = y + dy;
+            std::cerr << "  y=" << yy << " source=" << int(sourceFull->pixels(yy)[x].m)
+                      << "," << int(sourceTiled->pixels(yy)[x].m)
+                      << " halo=" << int(haloFull->pixels(yy)[x].m)
+                      << "," << int(haloTiled->pixels(yy)[x].m) << '\n';
+          }
           require(std::abs(int(a.m)-int(b.m)) <= 1, "Odd raster level introduced a tile seam");
           require(std::abs(int(a.m)-int(c.m)) <= 1, "Odd raster level and equivalent source disagree");
         }
