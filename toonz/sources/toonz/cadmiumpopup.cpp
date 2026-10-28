@@ -1,6 +1,7 @@
 #include "cadmiumpopup.h"
 #include "cadmiumruntime.h"
 #include "cadmiumsource.h"
+#include "cadmiumdestination.h"
 #include "cadmiumcodec.h"
 #include "trop.h"
 #include "tropcm.h"
@@ -288,7 +289,8 @@ CadmiumPopup::CadmiumPopup(QWidget *parent) : QDialog(parent) {
     const QString path = QFileDialog::getExistingDirectory(this, tr("Choose Model Folder"));
     if (!path.isEmpty()) CadmiumRuntime::instance()->setModelsDirectory(path);
   });
-  connect(unload, &QPushButton::clicked, this, &CadmiumPopup::cancel);
+  connect(unload, &QPushButton::clicked, CadmiumRuntime::instance(),
+          &CadmiumRuntime::stop);
 
   auto *splitter = new QSplitter(this);
   m_list = new QListWidget(splitter);
@@ -969,18 +971,15 @@ void CadmiumPopup::apply(bool all) {
   TXshLevel *created = nullptr;
   try {
   if (newLevel) {
-    created = m_scene->createNewLevel(OVL_XSHLEVEL, m_level->getName() + L"_paint");
+    created = Cadmium::createResultLevel(m_scene, m_level.getPointer(), error);
     if (!created || !created->getSimpleLevel()) {
       if (created) m_scene->getLevelSet()->removeLevel(created);
-      QMessageBox::warning(this, tr("Cadmium"), tr("Could not create the result level.")); return;
+      QMessageBox::warning(this, tr("Cadmium"), error.isEmpty() ? tr("Could not create the result level.") : error); return;
     }
     destination = created->getSimpleLevel();
     destination->setCadmiumSourceLevelId(m_level->cadmiumLevelId());
     destination->set16BitChannelLevel(m_level->is16BitChannelLevel());
     destination->setFloatChannelLevel(m_level->isFloatChannelLevel());
-    const std::string extension = m_level->isFloatChannelLevel() ? "exr" :
-                                  m_level->is16BitChannelLevel() ? "tif" : "png";
-    destination->setPath(destination->getPath().withType(extension), true);
     destination->getProperties()->options() = m_level->getProperties()->options();
     destination->getProperties()->setIsStopMotion(false);
     destination->getProperties()->setImageRes(m_level->getProperties()->getImageRes());

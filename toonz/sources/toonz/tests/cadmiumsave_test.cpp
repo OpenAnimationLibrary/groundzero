@@ -19,6 +19,7 @@
 #include "toonz/tproject.h"
 #include "toonz/txshleveltypes.h"
 #include "toonz/txshsimplelevel.h"
+#include "toonz/txshexrlevel.h"
 
 #include <OpenEXR/ImfChannelList.h>
 #include <OpenEXR/ImfHeader.h>
@@ -26,6 +27,7 @@
 
 #include <QCoreApplication>
 #include <QDir>
+#include <QFile>
 #include <QTemporaryDir>
 #include <cmath>
 #include <iostream>
@@ -233,6 +235,90 @@ void roundTrip(const QDir &dir, bool floating, double gamma = 1.0) {
                 floating);
 }
 
+void retainedExrMetadata(const QDir &dir) {
+  const TFilePath fixture = pathOf(dir.filePath("paint..exr"))
+                                .withFrame(TFrameId(1));
+  const TFilePath sequence = pathOf(dir.filePath("retained..exr"));
+  const TFrameId first(1), second(2, QStringLiteral("A"));
+  for (const TFrameId &fid : {first, second})
+    require(QFile::copy(fixture.getQString(), sequence.withFrame(fid).getQString()),
+            "cannot create retained EXR source fixture");
+
+  ToonzScene scene;
+  TProjectManager::instance()->initializeScene(&scene);
+  TXshExrLevel *source = new TXshExrLevel(L"Retained Source");
+  source->setScene(&scene);
+  source->setPath(sequence, true);
+  source->getProperties()->setColorSpaceGamma(1.0);
+  require(scene.getLevelSet()->insertLevel(source),
+          "cannot insert retained source level");
+  source->load();
+  require(source->isFid(first) && source->isFid(second),
+          "retained EXR sequence lost a letter-suffixed drawing");
+  require(source->isReadOnly() && Cadmium::canPaintLevel(source),
+          "retained EXR is not available as a protected painting input");
+  source->setCadmiumReference(first, true);
+  source->setCadmiumReference(second, true);
+  const std::set<TFrameId> references = {first, second};
+  const QString sourceId = source->cadmiumLevelId();
+  TXshSimpleLevel ancestor;
+  const QString ancestorId = ancestor.cadmiumLevelId();
+  source->setCadmiumSourceLevelId(ancestorId);
+  const TRasterImageP original(Cadmium::loadDrawing(source, first));
+  require(original && TRasterFP(original->getRaster()),
+          "retained source was not captured as native float");
+
+  auto verifySource = [&](TXshExrLevel *level) {
+    require(level->getCadmiumReferences() == references,
+            "retained EXR lost painted reference marks");
+    require(level->cadmiumLevelId() == sourceId &&
+                level->cadmiumSourceLevelId() == ancestorId,
+            "retained EXR lost its stable identity or source association");
+    require(level->isReadOnly() && level->isFloatChannelLevel(),
+            "retained EXR lost its protected native format");
+  };
+
+  // Resource rebuilds, explicit subsets and temporary loading ranges must not
+  // delete marks for drawings that are currently outside the visible subset.
+  source->load();
+  verifySource(source);
+  setLoadingLevelRange(first, first);
+  source->load();
+  require(source->isFid(first) && !source->isFid(second),
+          "retained source loading range was not applied");
+  verifySource(source);
+  source->load(std::vector<TFrameId>{second});
+  require(!source->isFid(first) && source->isFid(second),
+          "retained source explicit subset was not applied");
+  verifySource(source);
+  source->load();
+  verifySource(source);
+  verifySamples(original, TRasterImageP(Cadmium::loadDrawing(source, first)), true);
+
+  TXshSimpleLevel *result = addLevel(
+      scene, pathOf(dir.filePath("paint..exr")), L"Retained Paint", true);
+  result->setCadmiumSourceLevelId(sourceId);
+  result->setFrame(first, drawing(true));
+  const TFilePath scenePath = pathOf(dir.filePath("retained-scene.tnz"));
+  scene.saveCopy(scenePath);
+
+  ToonzScene reopenedScene;
+  reopenedScene.loadTnzFile(scenePath);
+  auto *restored = dynamic_cast<TXshExrLevel *>(
+      reopenedScene.getLevelSet()->getLevel(L"Retained Source"));
+  require(restored, "scene reload discarded the dedicated EXR level class");
+  verifySource(restored);
+  restored->load();
+  verifySource(restored);
+  verifySamples(original, TRasterImageP(Cadmium::loadDrawing(restored, first)), true);
+  TXshLevel *restoredResult =
+      reopenedScene.getLevelSet()->getLevel(L"Retained Paint");
+  require(restoredResult && restoredResult->getSimpleLevel() &&
+              restoredResult->getSimpleLevel()->cadmiumSourceLevelId() ==
+                  restored->cadmiumLevelId(),
+          "scene reload detached generated paint from its retained EXR source");
+}
+
 void verifyOrdinaryWriterDefaults(const QDir &dir) {
   ToonzScene scene;
   TProjectManager::instance()->initializeScene(&scene);
@@ -282,6 +368,7 @@ int main(int argc, char **argv) {
     roundTrip(dir, true);
     roundTrip(dir, true, LevelOptions::DefaultColorSpaceGamma);
     verifyOrdinaryWriterDefaults(dir);
+    retainedExrMetadata(dir);
     std::cout << "Cadmium resource precision checks passed\n";
     return 0;
   } catch (const TException &) {

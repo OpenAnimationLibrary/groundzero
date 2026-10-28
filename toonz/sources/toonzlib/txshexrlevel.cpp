@@ -71,6 +71,7 @@ void TXshExrLevel::setSelection(const Selection &selection,
 //-----------------------------------------------------------------------------
 
 void TXshExrLevel::loadData(TIStream &is) {
+  resetCadmiumInfo();
   m_selection      = Selection();
   m_primaryBinding = true;
 
@@ -90,6 +91,7 @@ void TXshExrLevel::loadData(TIStream &is) {
         is.matchEndTag();
         setScannedPath(path);
       } else if (tagName == "info") {
+        loadCadmiumInfo(is);
         std::string value;
         double xdpi = 0.0, ydpi = 0.0;
         int subsampling        = 1;
@@ -191,6 +193,7 @@ void TXshExrLevel::saveData(TOStream &os) {
   if (!areAlmostEqual(properties->colorSpaceGamma(),
                       LevelOptions::DefaultColorSpaceGamma))
     info["colorSpaceGamma"] = std::to_string(properties->colorSpaceGamma());
+  saveCadmiumInfo(info);
   os.openCloseChild("info", info);
 
   os.child("path") << getPath();
@@ -214,7 +217,16 @@ void TXshExrLevel::load() {
   TFrameId rangeFrom, rangeTo;
   getLoadingLevelRange(rangeFrom, rangeTo);
   setIsSubsequence(rangeFrom <= rangeTo);
-  ExrLevel::restoreRetainedLevel(this);
+  const std::set<TFrameId> references = getCadmiumReferences();
+  try {
+    ExrLevel::restoreRetainedLevel(this);
+  } catch (...) {
+    restoreCadmiumReferences(references);
+    throw;
+  }
+  // Rebuilding retained-source frames must not discard references, including
+  // drawings temporarily outside the selected loading range.
+  restoreCadmiumReferences(references);
   setFloatChannelLevel(true);
   setIsReadOnly(true);
 }
@@ -226,7 +238,16 @@ void TXshExrLevel::load(const std::vector<TFrameId> &fIds) {
   TFrameId rangeFrom, rangeTo;
   getLoadingLevelRange(rangeFrom, rangeTo);
   setIsSubsequence(rangeFrom <= rangeTo);
-  ExrLevel::restoreRetainedLevel(this, fIds);
+  const std::set<TFrameId> references = getCadmiumReferences();
+  try {
+    ExrLevel::restoreRetainedLevel(this, fIds);
+  } catch (...) {
+    restoreCadmiumReferences(references);
+    throw;
+  }
+  // Rebuilding retained-source frames must not discard references, including
+  // drawings temporarily outside the selected loading range.
+  restoreCadmiumReferences(references);
   setFloatChannelLevel(true);
   setIsReadOnly(true);
 }

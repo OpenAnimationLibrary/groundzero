@@ -351,6 +351,13 @@ public:
                                     int forbiddenMask);
 
 protected:
+  void resetCadmiumInfo();
+  void loadCadmiumInfo(TIStream &is);
+  void saveCadmiumInfo(std::map<std::string, std::string> &attributes) const;
+  void restoreCadmiumReferences(const std::set<TFrameId> &references) {
+    m_cadmiumReferences = references;
+  }
+
   // Specialized retained-source levels use the same one-shot loading range
   // contract as TXshSimpleLevel::load().
   void setIsSubsequence(bool value) { m_isSubsequence = value; }
