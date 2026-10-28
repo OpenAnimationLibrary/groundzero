@@ -6,6 +6,7 @@
 #include "tapp.h"
 #include "mainwindow.h"
 #include "menubarcommandids.h"
+#include "aspectguides.h"
 #include "toonzqt/menubarcommand.h"
 #include "tenv.h"
 #include "saveloadqsettings.h"
@@ -682,7 +683,7 @@ void TPanelTitleBarButtonForSafeArea::mousePressEvent(QMouseEvent *e) {
 
 void TPanelTitleBarButtonForSafeArea::contextMenuEvent(QContextMenuEvent *e) {
   QMenu menu(this);
-  menu.addAction(CommandManager::instance()->getAction(MI_CenterCutGuide));
+  menu.addMenu(AspectGuides::createMenu(&menu));
   menu.addSeparator();
   menu.addAction(tr("Standard Safe Areas"))->setEnabled(false);
 

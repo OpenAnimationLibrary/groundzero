@@ -2,7 +2,7 @@
 
 #include "imageviewer.h"
 #include "viewerdraw.h"
-#include "toonz/cameraguide.h"
+#include "aspectguides.h"
 
 // Tnz6 includes
 #include "tapp.h"
@@ -46,7 +46,6 @@
 //===================================================================================
 
 extern ToggleCommandHandler safeAreaToggle;
-extern ToggleCommandHandler centerCutGuideToggle;
 extern void getSafeAreaData(double &_smallSize, double &_largeSize);
 // enable to choose safe area from a list, and enable to draw multiple lines
 extern void getSafeAreaSizeList(QList<QList<double>> &_sizeList);
@@ -312,7 +311,7 @@ void ImageViewer::contextMenuEvent(QContextMenuEvent *event) {
     menu->addSeparator();
   }
 
-  menu->addAction(CommandManager::instance()->getAction(MI_CenterCutGuide));
+  menu->addMenu(AspectGuides::createMenu(menu));
 
   QAction *reset = menu->addAction(tr("Reset View"));
   reset->setShortcut(
@@ -604,7 +603,7 @@ void ImageViewer::paintGL() {
       drawSafeArea(bbox);
     }
   }
-  if (centerCutGuideToggle.getStatus() && !m_isColorModel) {
+  if (AspectGuides::anyActive() && !m_isColorModel) {
     TRasterImageP ri = m_image;
     TToonzImageP ti  = m_image;
     if (ri || ti) {
@@ -623,12 +622,11 @@ void ImageViewer::paintGL() {
         dpi = TPointD(1.0, 1.0);
       const TRectD physicalFrame(-0.5 * size.lx / dpi.x, -0.5 * size.ly / dpi.y,
                                  0.5 * size.lx / dpi.x, 0.5 * size.ly / dpi.y);
-      const TRectD guide = CameraGuide::centeredRect(physicalFrame, 4.0 / 3.0);
       glPushMatrix();
       glLoadIdentity();
       tglMultMatrix(TTranslation(viewerSize.lx * 0.5, viewerSize.ly * 0.5) *
                     m_viewAff * TScale(dpi.x, dpi.y));
-      ViewerDraw::drawCameraGuide(guide);
+      AspectGuides::draw(physicalFrame);
       glPopMatrix();
     }
   }
