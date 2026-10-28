@@ -365,10 +365,14 @@ void testRasterLevelDpi() {
       require(!fx->usesCustomRenderGrid() && fx->handledAffine(TRenderSettings(), 0) == TAffine(),
               "Star Glow changed its world-grid policy");
     }
-    TRenderer renderer(1);
-    const unsigned long id = TRenderer::buildRenderId();
-    renderer.install(id); renderer.declareRenderStart(id); renderer.declareFrameStart(0);
     auto render = [&](TRasterFx &fx, int strips) {
+      TRenderer renderer(1);
+      const unsigned long id = TRenderer::buildRenderId();
+      renderer.install(id); renderer.declareRenderStart(id); renderer.declareFrameStart(0);
+      struct Cleanup {
+        TRenderer &renderer; unsigned long id;
+        ~Cleanup() { renderer.declareFrameEnd(0); renderer.declareRenderEnd(id); renderer.uninstall(); }
+      } cleanup{renderer, id};
       TRaster32P output(32, 24); output->clear();
       TRenderSettings info; info.m_bpp = 32; info.m_cameraBox = TRectD(-16, -12, 16, 12);
       for (int strip = 0; strip < strips; ++strip) {
@@ -379,7 +383,7 @@ void testRasterLevelDpi() {
       }
       return output;
     };
-    try {
+    {
       auto &raw = *static_cast<TRasterFx *>(realDpi.getPointer());
       const auto rawFull = render(raw, 1), rawTiled = render(raw, 4);
       const auto actual = render(real, 1), tiled = render(real, 4);
@@ -424,10 +428,7 @@ void testRasterLevelDpi() {
         }
       }
       require(visible, "Odd raster-level fixture rendered empty");
-    } catch (...) {
-      renderer.declareFrameEnd(0); renderer.declareRenderEnd(id); renderer.uninstall(); throw;
     }
-    renderer.declareFrameEnd(0); renderer.declareRenderEnd(id); renderer.uninstall();
   }
 }
 void testFractionalOrigins() {
