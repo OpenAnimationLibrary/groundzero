@@ -437,6 +437,7 @@ set(SOURCES
     importpdf.cpp
     importpdf.h
     animatedsvgexport.cpp
+    lottieexport.cpp
     xdtsimportpopup.cpp
     expressionreferencemanager.cpp
     tooloptionsshortcutinvoker.cpp

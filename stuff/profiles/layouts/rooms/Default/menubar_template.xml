@@ -35,6 +35,7 @@
             <command>MI_ExportSXF</command>
             <command>MI_ExportOCA</command>
             <command>MI_ExportAnimatedSVG</command>
+            <command>MI_ExportLottie</command>
             <command>MI_StopMotionExportImageSequence</command>
             <command>MI_ExportTvpJson</command>
             <command>MI_ExportXsheetPDF</command>

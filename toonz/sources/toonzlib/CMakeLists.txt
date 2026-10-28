@@ -135,6 +135,8 @@ set(HEADERS
     ../include/toonz/tcolumnfx.h
     ../include/toonz/tcolumnfxset.h
     ../include/toonz/contouroutline.h
+    ../include/toonz/lottieexporter.h
+    ../include/toonz/lottiemath.h
     ../include/toonz/tcurvedeformer.h
     ../include/toonz/tdeformer.h
     ../include/toonz/tdeformerstack.h
@@ -267,6 +269,7 @@ set(SOURCES
     tcenterlineadjustments.cpp
     tcenterlinecolors.cpp
     contouroutline.cpp
+    lottieexporter.cpp
     tcenterlinepolygonizer.cpp
     tcenterlineskeletonizer.cpp
     tcenterlinetostrokes.cpp
@@ -498,6 +501,24 @@ if(BUILD_CONTOUR_TESTS)
     add_executable(contour_outline_test tests/contour_outline_test.cpp)
     target_link_libraries(contour_outline_test PRIVATE toonzlib tnzcore Qt${QT_VERSION_MAJOR}::Core)
     add_test(NAME contour_outline COMMAND contour_outline_test)
+endif()
+
+# Optional regression target for the Lottie export maths (lottiemath.h,
+# header-only helpers).
+option(BUILD_LOTTIEMATH_TESTS "Build the Lottie export math test" ${BUILD_TESTS})
+if(BUILD_LOTTIEMATH_TESTS)
+    add_executable(lottiemath_test tests/lottiemath_test.cpp)
+    target_link_libraries(lottiemath_test PRIVATE Qt${QT_VERSION_MAJOR}::Core)
+    add_test(NAME lottiemath COMMAND lottiemath_test)
+endif()
+
+# Optional regression target for the Lottie export of a scene built in memory
+# (lottieexporter.h).
+option(BUILD_LOTTIEEXPORT_TESTS "Build the Lottie export regression test" ${BUILD_TESTS})
+if(BUILD_LOTTIEEXPORT_TESTS)
+    add_executable(lottieexport_test tests/lottieexport_test.cpp)
+    target_link_libraries(lottieexport_test PRIVATE toonzlib tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
+    add_test(NAME lottieexport COMMAND lottieexport_test)
 endif()
 
 # Optional regression target for the compressed scene file format (tstream.h).
