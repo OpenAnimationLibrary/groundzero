@@ -142,6 +142,16 @@
             <command>MI_Binarize</command>
             <command>MI_LinesFade</command>
         </menu>
+        <menu title="Width Profile">
+            <command>MI_WidthProfileUniform</command>
+            <command>MI_WidthProfileTaperStart</command>
+            <command>MI_WidthProfileTaperEnd</command>
+            <command>MI_WidthProfileTaperBoth</command>
+            <command>MI_WidthProfilePulse</command>
+            <separator/>
+            <command>MI_ApplySavedWidthProfile</command>
+            <command>MI_SaveWidthProfile</command>
+        </menu>
         <menu title="Optimize">
             <command>MI_FillHoles</command>
             <command>MI_RemoveEndpoints</command>

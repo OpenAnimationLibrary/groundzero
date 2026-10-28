@@ -1482,6 +1482,17 @@ QMenuBar *StackedMenuBar::createFullMenuBar() {
     addMenuItem(adjustMenu, MI_Binarize);
     addMenuItem(adjustMenu, MI_LinesFade);
   }
+  QMenu *widthProfileMenu = levelMenu->addMenu(tr("Width Profile"));
+  {
+    addMenuItem(widthProfileMenu, MI_WidthProfileUniform);
+    addMenuItem(widthProfileMenu, MI_WidthProfileTaperStart);
+    addMenuItem(widthProfileMenu, MI_WidthProfileTaperEnd);
+    addMenuItem(widthProfileMenu, MI_WidthProfileTaperBoth);
+    addMenuItem(widthProfileMenu, MI_WidthProfilePulse);
+    widthProfileMenu->addSeparator();
+    addMenuItem(widthProfileMenu, MI_ApplySavedWidthProfile);
+    addMenuItem(widthProfileMenu, MI_SaveWidthProfile);
+  }
   QMenu *optimizeMenu = levelMenu->addMenu(tr("Optimize"));
   {
     addMenuItem(optimizeMenu, MI_RemoveEndpoints);

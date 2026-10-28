@@ -45,6 +45,7 @@ set(HEADERS
     ../include/tools/rasterselection.h
     ../include/tools/strokeselection.h
     ../include/tools/vectoralignment.h
+    ../include/tools/widthprofile.h
     ../include/tools/stylepicker.h
     ../include/tools/tool.h
     ../include/tools/toolcommandids.h
@@ -126,6 +127,7 @@ set(SOURCES
     controlpointselection.cpp
     rasterselection.cpp
     strokeselection.cpp
+    widthprofilecommands.cpp
     screenpicker.cpp
     fingertool.cpp
     rulertool.cpp
