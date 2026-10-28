@@ -52,6 +52,7 @@ bool render(const CelMotion::Image &source, const CelMotion::Shapes &shapes,
   for (int y = 0; y < source.height; ++y) {
     if (canceled && *canceled) return false;
     for (int x = 0; x < source.width; ++x) {
+      if ((x & 4095) == 0 && canceled && *canceled) return false;
       const auto label = shapes.labels[std::size_t(y) * source.width + x];
       if (!label) continue;
       auto &extent = extents[label - 1];
@@ -65,6 +66,7 @@ bool render(const CelMotion::Image &source, const CelMotion::Shapes &shapes,
   for (int y = 0; y < source.height; ++y) {
     if (canceled && *canceled) return false;
     for (int x = 0; x < source.width; ++x) {
+      if ((x & 4095) == 0 && canceled && *canceled) return false;
       const auto at = std::size_t(y) * source.width + x;
       const auto label = shapes.labels[at];
       if (!label) continue;
@@ -115,7 +117,9 @@ bool render(const CelMotion::Image &source, const CelMotion::Shapes &shapes,
       splat(output, px, py, pixel, activeSide ? centerWeight : 1);
     }
   }
-  for (auto &pixel : output.pixels) {
+  for (std::size_t index = 0; index < output.pixels.size(); ++index) {
+    if ((index & 4095) == 0 && canceled && *canceled) return false;
+    auto &pixel = output.pixels[index];
     if (pixel[3] <= 0) { pixel = CelMotion::Pixel{}; continue; }
     const double alpha = clamp(pixel[3]);
     const double factor = settings.gain * alpha / pixel[3];

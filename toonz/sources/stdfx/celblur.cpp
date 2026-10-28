@@ -41,6 +41,7 @@ bool pass(const std::vector<Pixel> &input, std::vector<Pixel> &output,
     };
     sums[0] = moments[0] = Pixel{};
     for (int i = 0; i < length; ++i) {
+      if ((i & 4095) == 0 && canceled && *canceled) return false;
       Pixel pixel = input[index(i)];
       if (legacy && pixel[3] > 0) {
         for (int channel = 0; channel < 3; ++channel) pixel[channel] /= pixel[3];
@@ -52,6 +53,7 @@ bool pass(const std::vector<Pixel> &input, std::vector<Pixel> &output,
       }
     }
     for (int i = 0; i < length; ++i) {
+      if ((i & 4095) == 0 && canceled && *canceled) return false;
       const std::size_t at = index(i);
       const Pixel &pixel = input[at];
       output[at] = pixel;
