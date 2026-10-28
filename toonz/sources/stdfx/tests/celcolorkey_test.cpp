@@ -128,6 +128,13 @@ void testPersistence(const QString &path) {
   require(loaded && number(*loaded, "use025")->isKeyframe(3), "Entry animation was not restored");
   require(color(*loaded, "key025")->getValueD(0).r == 0.123456789, "Entry precision was not restored");
   require(number(*loaded, "use025")->isUICheckbox(), "Animated choice metadata was not restored");
+  double sliderMin, sliderMax;
+  require(number(*loaded, "thin")->getUISliderRange(sliderMin, sliderMax) &&
+              sliderMin == -100.0 && sliderMax == 100.0,
+          "Scene restore lost edge thin slider bounds");
+  require(number(*loaded, "blur")->getUISliderRange(sliderMin, sliderMax) &&
+              sliderMin == 0.0 && sliderMax == 100.0,
+          "Scene restore lost edge blur slider bounds");
 }
 }
 int main(int argc, char **argv) {
