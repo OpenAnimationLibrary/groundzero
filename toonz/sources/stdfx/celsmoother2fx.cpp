@@ -1,5 +1,6 @@
 #include "stdfx.h"
 #include "tfxparam.h"
+#include "tparamset.h"
 #include "celsmoother2.h"
 
 #include <iomanip>
@@ -105,7 +106,8 @@ class CelSmoother2Fx final : public TStandardRasterFx {
     TRenderSettings full(settings);
     full.m_getFullSizeBBox = true;
     TRectD box;
-    if (!m_source->getBBox(frame, box, full) || box.isEmpty()) return TRectD();
+    auto *source = static_cast<TRasterFx *>(m_source.getFx());
+    if (!source->getBBox(frame, box, full) || box.isEmpty()) return TRectD();
     if (box == TConsts::infiniteRectD) {
       box = settings.m_cameraBox;
       if (box.isEmpty())
