@@ -3,6 +3,13 @@
 #include "tparamcontainer.h"
 #include "tstream.h"
 #include "celmotion_host_fixture.h"
+#include "tfxutil.h"
+#include "toonz/toonzscene.h"
+#include "toonz/txshcell.h"
+#include "toonz/txshlevelcolumn.h"
+#include "toonz/txshleveltypes.h"
+#include "toonz/txshsimplelevel.h"
+#include "trasterimage.h"
 
 #include <QCoreApplication>
 #include <QTemporaryDir>
@@ -170,6 +177,53 @@ void productionTransformTests() {
       shiftedAlpha += shifted->pixels(y)[x].m; blackAlpha += black->pixels(y)[x].m;
     }
     require(shiftedAlpha > blackAlpha, "Transformed bright noise did not produce a directional trail");
+  }
+}
+
+void rasterLevelDpiTests() {
+  HostMotionContext context;
+  for (int width : {8, 9}) {
+    const int height = width == 8 ? 8 : 7;
+    ToonzScene scene;
+    TXshLevelP level = new TXshSimpleLevel(L"directional-dpi-fixture");
+    auto *simple = level->getSimpleLevel();
+    simple->setType(OVL_XSHLEVEL); simple->setScene(&scene);
+    TRaster32P raster(width, height); raster->clear();
+    const int px = width / 2 - 1, py = height / 2;
+    raster->pixels(py)[px] = TPixel32::White;
+    simple->setFrame(TFrameId(1), TRasterImageP(raster));
+    TXshLevelColumn column;
+    require(column.setCell(0, TXshCell(level, TFrameId(1))), "Cannot create directional raster level");
+    CelMotion::Image source = image(width, height), output = image(width, height);
+    source.pixels[size_t(py) * width + px] = {{1, 1, 1, 1}};
+    CelMotion::Shapes shapes; require(CelMotion::analyze(source, shapes), "Cannot analyze directional level");
+    CelDirectional::Settings values; values.front.strength = 2;
+    require(CelDirectional::render(source, shapes, nullptr, output, values), "Cannot render native direction");
+    TRaster32P expectedNative(width, height);
+    for (int y = 0; y < height; ++y) for (int x = 0; x < width; ++x) {
+      const int alpha = int(std::round(output.pixels[size_t(y) * width + x][3] * 255));
+      expectedNative->pixels(y)[x] = TPixel32(alpha, alpha, alpha, alpha);
+    }
+    const int resultWidth = width + width % 2, resultHeight = height + height % 2;
+    const TPointD origin(std::floor(-0.5 * width), std::floor(-0.5 * height));
+    TRaster32P expected(resultWidth, resultHeight); expected->clear();
+    TTile native(expectedNative, TPointD(-0.5 * width, -0.5 * height));
+    TTile expectedTile(expected, origin); TRasterFx::applyAffine(expectedTile, native, TRenderSettings());
+    for (const TAffine &placement : {TAffine(TScale(.25)), TAffine(TScale(.25, .5))}) {
+      TFxP dpi = TFxUtil::makeAffine(TFxP(column.getFx()), placement);
+      dpi->setName(L"LevelColumn AffineFx");
+      TFxP owner = new CelDirectionalBlurFx;
+      auto &fx = *static_cast<CelDirectionalBlurFx *>(owner.getPointer());
+      fx.getInputPort(0)->setFx(dpi.getPointer()); value(fx, "frontStrength", 2);
+      TRenderSettings info; info.m_affine = placement.inv();
+      TRaster32P actual(resultWidth, resultHeight); actual->clear(); TTile tile(actual, origin);
+      fx.compute(tile, 0, info);
+      for (int y = 0; y < resultHeight; ++y) for (int x = 0; x < resultWidth; ++x) {
+        const auto &a = actual->pixels(y)[x], &b = expected->pixels(y)[x];
+        require(std::abs(int(a.m) - int(b.m)) <= 2 && std::abs(int(a.r) - int(b.r)) <= 2,
+                "Directional blur changed source-pixel strength across raster DPI or odd canvas");
+      }
+    }
   }
 }
 
@@ -346,6 +400,7 @@ int main(int argc, char **argv) {
     mathTests(); noiseTests();
     rendererTests<TPixel32>(); rendererTests<TPixel64>(); rendererTests<TPixelF>();
     productionTransformTests();
+    rasterLevelDpiTests();
     std::cout << "Checking directional persistence" << std::endl;
     persistenceTests(temp);
     std::cout << "PASS: directional lobes, shapes, fades, tails, noise, precision, tiles and persistence\n";
