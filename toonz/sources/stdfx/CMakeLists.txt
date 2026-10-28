@@ -171,6 +171,7 @@ set(SOURCES
     celcolorkeepfx.cpp
     celcolorkeyfx.cpp
     celsmootherfx.cpp
+    celsmoother2fx.cpp
     rgbkeyfx.cpp
     rgbmcutfx.cpp
     rgbmfadefx.cpp
@@ -465,5 +466,18 @@ if(BUILD_CELFX_TESTS)
     set_tests_properties(celfx_smoother celfx_smoother_ui PROPERTIES
                          ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
     set_tests_properties(celfx_colorkeep celfx_colorkeep_ui celfx_colorkey celfx_colorkey_ui celfx_colorkey_math PROPERTIES
+                         ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
+endif()
+
+if(BUILD_CELFX_TESTS)
+    add_executable(celsmoother2_test tests/celsmoother2_test.cpp)
+    target_link_libraries(celsmoother2_test Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME celfx_smoother2 COMMAND celsmoother2_test)
+    add_executable(celsmoother2_ui_test tests/celsmoother2_ui_test.cpp)
+    target_link_libraries(celsmoother2_ui_test toonzqt Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Widgets ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME celfx_smoother2_ui COMMAND celsmoother2_ui_test
+             ${CMAKE_CURRENT_SOURCE_DIR}/../../../stuff/profiles/layouts/fxs/STD_celSmoother2Fx.xml)
+    add_dependencies(celfx_tests celsmoother2_test celsmoother2_ui_test)
+    set_tests_properties(celfx_smoother2 celfx_smoother2_ui PROPERTIES
                          ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
 endif()
