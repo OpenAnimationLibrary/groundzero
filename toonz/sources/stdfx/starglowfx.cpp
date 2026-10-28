@@ -182,12 +182,16 @@ Settings StarGlowFx::snapshot(double frame) const {
   s.rotation = std::isfinite(m_rotation->getValue(frame)) ? m_rotation->getValue(frame) : 0;
   s.highlightRadius = limit(m_highlightRadius->getValue(frame), 0, 1000);
   s.highlightColor = m_highlightColor->getValueD(frame);
+  // Disabled matte is stored as 255 by TPixelParam, while getValueD exposes
+  // its raw value. Such colors are opaque in the normalized renderer.
+  if (!m_highlightColor->isMatteEnabled()) s.highlightColor.m = 1.0;
   const std::array<const DirectionParams *, 3> params{{&m_vertical, &m_horizontal, &m_diagonal}};
   for (int d = 0; d < 3; ++d) {
     Direction &direction = s.directions[d]; const DirectionParams &p = *params[d];
     direction.length = limit(p.length->getValue(frame), 0, 1000);
     direction.useRamp = mode(p.useRamp->getValue(frame), 1) != 0;
     direction.color = p.color->getValueD(frame);
+    if (!p.color->isMatteEnabled()) direction.color.m = 1.0;
     for (int i = 0; i < p.ramp->getKeyCount(); ++i) {
       const double pos = p.ramp->getPosition(i)->getValue(frame);
       const TPixelD color = p.ramp->getColor(i)->getValueD(frame);
