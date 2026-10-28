@@ -52,8 +52,10 @@ precision. The color picker can sample swatches from the source image.</p>
 quantization only at integer output. Finite negative and HDR float colors remain
 supported using signed transfer functions. Fully transparent and invalid input
 pixels are cleared. Coverage is blended independently from straight RGB.</p>
-<p>The effect smooths at source resolution before the host applies affine
-resampling. Each output tile reads the complete finite source bounds, so long
+<p>For an unambiguous raster-level source, the effect smooths in the native
+pixel grid before level DPI and geometry resampling. Generic generators and
+graphs combining multiple sources use the ordinary world grid. Each output
+tile reads the complete finite source bounds, so long
 diagonals remain consistent across tiles and concurrent frames. Infinite
 generators use the fixed camera bounds. A finite camera is required for these
 sources. Full-image processing uses more memory than a small-radius filter;

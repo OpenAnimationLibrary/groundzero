@@ -86,6 +86,39 @@ public:
   }
 };
 
+// A raster level supplies native pixels. Let the real host resample every
+// other requested grid so a premature DPI reduction is visible to the test.
+class NativeSource final : public TStandardRasterFx {
+  TRasterFP m_image;
+  TPointD m_origin;
+public:
+  explicit NativeSource(const TRasterFP &image, TPointD origin = TPointD(-12, -10))
+      : m_image(image), m_origin(origin) {
+    enableComputeInFloat(true);
+  }
+  const TPersistDeclaration *getDeclaration() const override { return nullptr; }
+  bool canHandle(const TRenderSettings &, double) override { return false; }
+  TAffine handledAffine(const TRenderSettings &, double) override {
+    const double x = -m_origin.x, y = -m_origin.y;
+    return TTranslation(x - std::floor(x), y - std::floor(y));
+  }
+  bool doGetBBox(double, TRectD &box, const TRenderSettings &) override {
+    box = TRectD(m_origin.x, m_origin.y, m_origin.x + m_image->getLx(),
+                 m_origin.y + m_image->getLy());
+    return true;
+  }
+  std::string getAlias(double, const TRenderSettings &) const override {
+    return "smoother2-native-source[" + std::to_string(m_image->getLx()) + "," +
+           std::to_string(m_image->getLy()) + "," + std::to_string(m_origin.x) +
+           "," + std::to_string(m_origin.y) + "]";
+  }
+  void doCompute(TTile &tile, double, const TRenderSettings &settings) override {
+    tile.getRaster()->clear();
+    TTile source(m_image, m_origin);
+    TRasterFx::applyAffine(tile, source, settings);
+  }
+};
+
 template <class Pixel>
 TRasterPT<Pixel> render(CelSmoother2Fx &fx, int width, int height,
                        TPoint position = TPoint(), double frame = 0,
@@ -275,14 +308,14 @@ void testKeyHdrAndCancellation() {
   }
 }
 
-TRasterFP hostRender(CelSmoother2Fx &fx, int strips, const TAffine &affine,
-                    bool linear) {
+TRasterFP hostRender(TRasterFx &fx, int strips, const TAffine &affine,
+                    bool linear, double frame = 0) {
   constexpr int width = 48, height = 40;
   TRenderer renderer(1);
   const unsigned long id = TRenderer::buildRenderId();
   renderer.install(id);
   renderer.declareRenderStart(id);
-  renderer.declareFrameStart(0);
+  renderer.declareFrameStart(frame);
   TRasterFP output(width, height);
   output->clear();
   output->setLinear(linear);
@@ -300,19 +333,32 @@ TRasterFP hostRender(CelSmoother2Fx &fx, int strips, const TAffine &affine,
       part->clear();
       part->setLinear(linear);
       TTile tile(part, TPointD(-24, -20 + y0));
-      fx.compute(tile, 0, settings);
+      fx.compute(tile, frame, settings);
       output->copy(tile.getRaster(), TPoint(0, y0));
     }
   } catch (...) {
-    renderer.declareFrameEnd(0);
+    renderer.declareFrameEnd(frame);
     renderer.declareRenderEnd(id);
     renderer.uninstall();
     throw;
   }
-  renderer.declareFrameEnd(0);
+  renderer.declareFrameEnd(frame);
   renderer.declareRenderEnd(id);
   renderer.uninstall();
   return output;
+}
+
+void sameImage(const TRasterFP &a, const TRasterFP &b, const char *message) {
+  bool visible = false;
+  for (int y = 0; y < a->getLy(); ++y)
+    for (int x = 0; x < a->getLx(); ++x) {
+      const TPixelF &first = a->pixels(y)[x], &second = b->pixels(y)[x];
+      visible |= first.m > .5f;
+      require(std::max({std::abs(first.r - second.r), std::abs(first.g - second.g),
+                        std::abs(first.b - second.b), std::abs(first.m - second.m)}) < 1e-6f,
+              message);
+    }
+  require(visible, "Host rendering produced an empty image");
 }
 
 void testHostColorSpaceAndTransforms() {
@@ -321,30 +367,156 @@ void testHostColorSpaceAndTransforms() {
   fx.getInputPort(0)->setFx(new Source(fixture<TPixelF>(), TPoint(-9, -7)));
   set(fx, "gammaCorrection", 1);
   set(fx, "extraSmooth", 60);
-  const auto same = [](const TRasterFP &a, const TRasterFP &b, const char *message) {
-    bool visible = false;
-    for (int y = 0; y < a->getLy(); ++y)
-      for (int x = 0; x < a->getLx(); ++x) {
-        const TPixelF &first = a->pixels(y)[x], &second = b->pixels(y)[x];
-        visible |= first.m > .5f;
-        require(std::max({std::abs(first.r - second.r), std::abs(first.g - second.g),
-                          std::abs(first.b - second.b), std::abs(first.m - second.m)}) < 1e-6f,
-                message);
-      }
-    require(visible, "Host rendering produced an empty image");
-  };
   for (int version : {0, 1}) {
     set(fx, "smootherVersion", version);
     auto encoded = hostRender(fx, 1, TAffine(), false);
     auto linear = hostRender(fx, 1, TAffine(), true);
     TRop::toLinearRGB(encoded, 2.2);
-    same(encoded, linear, "Working-space gamma was applied incorrectly");
+    sameImage(encoded, linear, "Working-space gamma was applied incorrectly");
     const TAffine affine = TTranslation(2.5, -3.25) * TRotation(21) * TScale(1.3, .7);
     for (bool workingLinear : {false, true})
-      same(hostRender(fx, 1, affine, workingLinear),
+      sameImage(hostRender(fx, 1, affine, workingLinear),
            hostRender(fx, 8, affine, workingLinear),
            "Affine or linear rendering created tile seams");
   }
+}
+
+void testNativeLevelGrid() {
+  TRasterFP input(24, 20);
+  input->clear();
+  for (int y = 3; y < 17; ++y)
+    for (int x = 3; x < 21; ++x)
+      input->pixels(y)[x] = x > 5 + y / 2 ? TPixelF(.8f, .2f, .6f, 1)
+                                         : TPixelF(.05f, .05f, .05f, 1);
+  TFxP referenceOwner = new CelSmoother2Fx;
+  auto &reference = *static_cast<CelSmoother2Fx *>(referenceOwner.getPointer());
+  reference.getInputPort(0)->setFx(new NativeSource(input));
+  set(reference, "extraSmooth", 70);
+  set(reference, "gammaCorrection", 2);
+  const auto smoothed = hostRender(reference, 1, TAffine(), false);
+  set(reference, "smoothRange", 255);
+  const auto bypass = hostRender(reference, 1, TAffine(), false);
+  set(reference, "smoothRange", 2);
+  bool filtered = false;
+  for (int y = 0; y < smoothed->getLy(); ++y)
+    for (int x = 0; x < smoothed->getLx(); ++x)
+      filtered |= std::abs(smoothed->pixels(y)[x].r - bypass->pixels(y)[x].r) > .001f;
+  require(filtered, "Native-grid fixture did not contain a smoothed contour");
+
+  TFxP actualOwner = new CelSmoother2Fx;
+  auto &actual = *static_cast<CelSmoother2Fx *>(actualOwner.getPointer());
+  set(actual, "extraSmooth", 70);
+  set(actual, "gammaCorrection", 2);
+  TFxP dpiOwner = new NaAffineFx;
+  auto *dpi = static_cast<NaAffineFx *>(dpiOwner.getPointer());
+  dpi->setName(L"LevelColumn AffineFx");
+  dpi->getInputPort(0)->setFx(new NativeSource(input));
+  TFxP placementOwner = new NaAffineFx;
+  auto *placement = static_cast<NaAffineFx *>(placementOwner.getPointer());
+  placement->getInputPort(0)->setFx(dpi);
+  TFxP upstreamOwner = new CelSmoother2Fx;
+  auto *upstream = static_cast<CelSmoother2Fx *>(upstreamOwner.getPointer());
+  set(*upstream, "smoothness", 0);
+  upstream->getInputPort(0)->setFx(placement);
+  actual.getInputPort(0)->setFx(upstream);
+  for (const TAffine &scale : std::vector<TAffine>{TScale(.25), TScale(.25, .5)}) {
+    dpi->setAffine(scale);
+    for (const TAffine &position : std::vector<TAffine>{
+             TTranslation(.25, -.75), TTranslation(2.25, -3.75) * TRotation(17)}) {
+      placement->setAffine(position);
+      const TAffine world = position * scale;
+      const TAffine grid = actual.handledAffine(TRenderSettings(), 0);
+      require(grid != TAffine() && grid.a13 >= 0 && grid.a13 < 1 &&
+                  grid.a23 >= 0 && grid.a23 < 1, "Invalid native source grid");
+      TRenderSettings predicted;
+      TRectD request;
+      actual.transform(0, 0, TRectD(0, 0, 1, 1), TRenderSettings(), request, predicted);
+      require(predicted.m_affine == grid && request.getLx() >= 28 && request.getLy() >= 24,
+              "Predictive source request lost native pixels or smoothing borders");
+      for (int version : {0, 1}) {
+        set(actual, "smootherVersion", version);
+        set(reference, "smootherVersion", version);
+        for (bool linear : {false, true})
+          for (const TAffine &camera : std::vector<TAffine>{TAffine(), TScale(4)}) {
+            const auto expected = hostRender(reference, 1, camera * world, linear);
+            const auto full = hostRender(actual, 1, camera, linear);
+            sameImage(full, expected, "Level DPI changed native contour and gamma blending");
+            sameImage(full, hostRender(actual, 8, camera, linear),
+                      "Native DPI rendering introduced strip seams");
+          }
+      }
+    }
+  }
+  const std::string alias = actual.getAlias(0, TRenderSettings());
+  dpi->setAffine(TScale(.250000000001, .5));
+  require(actual.getAlias(0, TRenderSettings()) != alias,
+          "Fine native grid changes reused the cached smoothing result");
+  number(actual, "smoothness")->setValue(0, 20);
+  number(actual, "smoothness")->setValue(10, 90);
+  const auto first = hostRender(actual, 1, TScale(4), false, 0);
+  const auto last = hostRender(actual, 1, TScale(4), false, 10);
+  auto concurrentFirst = std::async(std::launch::async, [&] {
+    return hostRender(actual, 8, TScale(4), false, 0);
+  });
+  auto concurrentLast = std::async(std::launch::async, [&] {
+    return hostRender(actual, 8, TScale(4), false, 10);
+  });
+  sameImage(first, concurrentFirst.get(), "Concurrent native grid render changed frame zero");
+  sameImage(last, concurrentLast.get(), "Concurrent native grid render changed frame ten");
+  dpi->setName(L"Unmarked geometry");
+  require(actual.handledAffine(TRenderSettings(), 0) == TAffine(),
+          "Generic source geometry unexpectedly selected a raster-level grid");
+}
+
+void testOddLevelOrigin() {
+  TRasterFP input(23, 17);
+  input->clear();
+  for (int y = 2; y < 15; ++y)
+    for (int x = 2; x < 21; ++x)
+      input->pixels(y)[x] = x > 4 + y / 2 ? TPixelF(.8f, .4f, .2f, 1)
+                                         : TPixelF(0, 0, 0, 1);
+  const TPointD origin(-11.5, -8.5);
+  TFxP referenceOwner = new CelSmoother2Fx;
+  auto &reference = *static_cast<CelSmoother2Fx *>(referenceOwner.getPointer());
+  reference.getInputPort(0)->setFx(new NativeSource(input, TPointD()));
+  TFxP actualOwner = new CelSmoother2Fx;
+  auto &actual = *static_cast<CelSmoother2Fx *>(actualOwner.getPointer());
+  TFxP dpiOwner = new NaAffineFx;
+  auto *dpi = static_cast<NaAffineFx *>(dpiOwner.getPointer());
+  dpi->setName(L"LevelColumn AffineFx");
+  dpi->getInputPort(0)->setFx(new NativeSource(input, origin));
+  actual.getInputPort(0)->setFx(dpi);
+  for (auto *effect : {&actual, &reference}) {
+    set(*effect, "extraSmooth", 55);
+    set(*effect, "gammaCorrection", 1);
+  }
+  for (const TAffine &world : std::vector<TAffine>{
+           TAffine(), TScale(.25),
+           TTranslation(2.25, -1.75) * TRotation(13) * TScale(.5, .25)}) {
+    dpi->setAffine(world);
+    const TAffine grid = actual.handledAffine(TRenderSettings(), 0);
+    const TPointD aligned = grid * world * origin;
+    requireNear(aligned.x, std::round(aligned.x), 1e-12,
+                "Odd level horizontal pixel phase was ignored");
+    requireNear(aligned.y, std::round(aligned.y), 1e-12,
+                "Odd level vertical pixel phase was ignored");
+    for (bool linear : {false, true})
+      for (const TAffine &camera : std::vector<TAffine>{TAffine(), TScale(4)}) {
+        const auto expected = hostRender(reference, 1,
+                                        camera * world * TTranslation(origin), linear);
+        const auto full = hostRender(actual, 1, camera, linear);
+        sameImage(full, expected, "Odd level pixels were resampled before smoothing");
+        sameImage(full, hostRender(actual, 8, camera, linear),
+                  "Odd level origin introduced strip seams");
+      }
+  }
+  // Identity DPI omits the affine wrapper and marks the native source itself.
+  auto *raw = new NativeSource(input, origin);
+  raw->setName(L"LevelColumn AffineFx");
+  actual.getInputPort(0)->setFx(raw);
+  sameImage(hostRender(actual, 1, TAffine(), false),
+            hostRender(reference, 1, TTranslation(origin), false),
+            "Unwrapped identity-DPI source lost its native pixel phase");
 }
 
 void testPersistence(const QString &directory) {
@@ -407,6 +579,7 @@ void testPersistence(const QString &directory) {
 int main(int argc, char **argv) {
   QCoreApplication app(argc, argv);
   TThread::init();
+  TRenderer::initialize();
   QTemporaryDir directory;
   int result = 1;
   try {
@@ -423,6 +596,9 @@ int main(int argc, char **argv) {
     testKeyHdrAndCancellation();
     std::cout << "Checking host color conversion and affine rendering" << std::endl;
     testHostColorSpaceAndTransforms();
+    std::cout << "Checking native level DPI, gamma and concurrent frame grids" << std::endl;
+    testNativeLevelGrid();
+    testOddLevelOrigin();
     std::cout << "Checking scenes, presets and macros" << std::endl;
     testPersistence(directory.path());
     std::cout << "PASS: complete smoother v2 rendering, gamma, concurrency and persistence\n";

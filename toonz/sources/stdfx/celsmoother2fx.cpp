@@ -2,6 +2,7 @@
 #include "tfxparam.h"
 #include "tparamset.h"
 #include "celsmoother2.h"
+#include "celfxsourcegrid.h"
 
 #include <iomanip>
 #include <limits>
@@ -105,11 +106,12 @@ class CelSmoother2Fx final : public TStandardRasterFx {
     if (!m_source.isConnected()) return TRectD();
     TRenderSettings full(settings);
     full.m_getFullSizeBBox = true;
+    full.m_affine = CelFxSourceGrid::renderAffine(m_source.getFx(), frame);
     TRectD box;
     auto *source = static_cast<TRasterFx *>(m_source.getFx());
     if (!source->getBBox(frame, box, full) || box.isEmpty()) return TRectD();
     if (box == TConsts::infiniteRectD) {
-      box = settings.m_cameraBox;
+      box = full.m_affine * settings.m_cameraBox;
       if (box.isEmpty())
         throw TException("Cel Smoother v2: a finite camera is required for infinite sources");
     }
@@ -169,27 +171,37 @@ public:
   }
 
   bool requiresFullPrecisionSerialization() const override { return true; }
-  bool canHandle(const TRenderSettings &settings, double) override {
-    return settings.m_affine.isIdentity();
+  bool canHandle(const TRenderSettings &, double) override { return false; }
+  bool usesCustomRenderGrid() const override { return true; }
+  TAffine handledAffine(const TRenderSettings &, double frame) override {
+    return CelFxSourceGrid::renderAffine(m_source.getFx(), frame);
   }
-  TAffine handledAffine(const TRenderSettings &, double) override { return TAffine(); }
   bool toBeComputedInLinearColorSpace(bool, bool) const override { return false; }
   bool doGetBBox(double frame, TRectD &box, const TRenderSettings &settings) override {
     if (!m_source.isConnected()) { box = TRectD(); return false; }
     const bool result = m_source->doGetBBox(frame, box, settings);
-    if (!box.isEmpty() && box != TConsts::infiniteRectD) box = box.enlarge(2);
+    if (!box.isEmpty() && box != TConsts::infiniteRectD) {
+      const TAffine placement =
+          CelFxSourceGrid::renderAffine(m_source.getFx(), frame).inv();
+      const double x = 2 * (std::abs(placement.a11) + std::abs(placement.a12));
+      const double y = 2 * (std::abs(placement.a21) + std::abs(placement.a22));
+      box = TRectD(box.x0 - x, box.y0 - y, box.x1 + x, box.y1 + y);
+    }
     return result;
   }
   void transform(double frame, int, const TRectD &, const TRenderSettings &output,
                  TRectD &inputBox, TRenderSettings &input) override {
     input = output;
     input.m_getFullSizeBBox = true;
+    input.m_affine = CelFxSourceGrid::renderAffine(m_source.getFx(), frame);
     inputBox = domain(frame, output);
   }
   void doDryCompute(TRectD &, double frame, const TRenderSettings &settings) override {
     if (!m_source.isConnected()) return;
     TRectD box = domain(frame, settings);
-    if (!box.isEmpty()) m_source->dryCompute(box, frame, settings);
+    TRenderSettings input(settings);
+    input.m_affine = CelFxSourceGrid::renderAffine(m_source.getFx(), frame);
+    if (!box.isEmpty()) m_source->dryCompute(box, frame, input);
   }
   int getMemoryRequirement(const TRectD &, double frame,
                            const TRenderSettings &settings) override {
@@ -202,15 +214,18 @@ public:
   std::string getAlias(double frame, const TRenderSettings &settings) const override {
     const auto s = snapshot(frame);
     const auto box = domain(frame, settings);
+    const TAffine grid = CelFxSourceGrid::renderAffine(m_source.getFx(), frame);
     std::ostringstream out;
     out.imbue(std::locale::classic());
-    out << TRasterFx::getAlias(frame, settings) << "[celSmoother2:1:"
+    out << TRasterFx::getAlias(frame, settings) << "[celSmoother2:2:"
         << std::setprecision(std::numeric_limits<double>::max_digits10)
         << s.useKey << ',' << s.invertKey << ',' << s.key.r << ',' << s.key.g << ','
         << s.key.b << ',' << s.range << ',' << s.strength << ',' << s.extra << ','
         << s.version << ',' << s.gammaMode << ',' << s.gamma << ',' << s.gammaCount;
     for (const auto &p : s.colors) out << ';' << p.r << ',' << p.g << ',' << p.b;
-    out << ';' << box.x0 << ',' << box.y0 << ',' << box.x1 << ',' << box.y1 << ']';
+    out << ';' << box.x0 << ',' << box.y0 << ',' << box.x1 << ',' << box.y1
+        << ';' << grid.a11 << ',' << grid.a12 << ',' << grid.a13 << ','
+        << grid.a21 << ',' << grid.a22 << ',' << grid.a23 << ']';
     return out.str();
   }
   void doCompute(TTile &tile, double frame, const TRenderSettings &settings) override {
@@ -232,7 +247,9 @@ public:
     // Upstream nodes may only write their intersecting bounds. The two-pixel
     // smoothing border and unwritten source regions must start transparent.
     source.getRaster()->clear();
-    m_source->compute(source, frame, settings);
+    TRenderSettings input(settings);
+    input.m_affine = CelFxSourceGrid::renderAffine(m_source.getFx(), frame);
+    m_source->compute(source, frame, input);
     std::vector<SmoothPixel> pixels, result;
     bool read = false;
     if (TRaster32P raster = source.getRaster())
