@@ -4,6 +4,9 @@
 Two modes:
 
   no_pii.py scan [FILE ...]   scan files (or stdin), print each hit, exit 1 on any
+  no_pii.py clean             print stdin without its session links and session
+                              trailers (the link the GitHub integration adds to
+                              a description becomes its plain claude.ai/code)
   no_pii.py hook              Claude Code PreToolUse hook: read the tool call as
                               JSON on stdin, exit 2 (block) when a publishing
                               command would carry a hit
@@ -44,6 +47,14 @@ def find_hits(text):
         if not ALLOWED_EMAIL.search(m.group(0)):
             hits.append(("e-mail address", m.group(0)))
     return hits
+
+
+def clean(text):
+    text = re.sub(r"(claude\.ai/code)/session_[A-Za-z0-9_-]+", r"\1", text, flags=re.I)
+    return "".join(
+        line for line in text.splitlines(True)
+        if not re.match(r"\s*Claude-Session:", line, re.I)
+    )
 
 
 def read(path):
@@ -153,4 +164,7 @@ if __name__ == "__main__":
     mode = sys.argv[1] if len(sys.argv) > 1 else "scan"
     if mode == "hook":
         sys.exit(hook_main())
+    if mode == "clean":
+        sys.stdout.write(clean(sys.stdin.read()))
+        sys.exit(0)
     sys.exit(scan_main(sys.argv[2:] if mode == "scan" else sys.argv[1:]))

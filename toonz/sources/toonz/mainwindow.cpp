@@ -8,6 +8,7 @@
 // Tnz6 includes
 #include "menubar.h"
 #include "menubarcommandids.h"
+#include "aspectguides.h"
 #include "xsheetviewer.h"
 #include "viewerpane.h"
 #include "flipbook.h"
@@ -81,6 +82,7 @@
 TEnv::IntVar ViewCameraToggleAction("ViewCameraToggleAction", 1);
 TEnv::IntVar ViewTableToggleAction("ViewTableToggleAction", 1);
 TEnv::IntVar FieldGuideToggleAction("FieldGuideToggleAction", 0);
+TEnv::IntVar PegbarGuideToggleAction("PegbarGuideToggleAction", 0);
 TEnv::IntVar ViewBBoxToggleAction("ViewBBoxToggleAction1", 1);
 TEnv::IntVar EditInPlaceToggleAction("EditInPlaceToggleAction", 0);
 TEnv::IntVar RasterizePliToggleAction("RasterizePliToggleAction", 0);
@@ -1767,6 +1769,8 @@ void MainWindow::onMenuCheckboxChanged() {
     ViewBBoxToggleAction = isChecked;
   else if (cm->getAction(MI_FieldGuide) == action)
     FieldGuideToggleAction = isChecked;
+  else if (cm->getAction(MI_PegbarGuide) == action)
+    PegbarGuideToggleAction = isChecked;
   else if (cm->getAction(MI_RasterizePli) == action) {
     if (!hasOpenGLPbuffers()) isChecked = 0;
     RasterizePliToggleAction = isChecked;
@@ -2834,6 +2838,10 @@ void MainWindow::defineActions() {
                ViewTableToggleAction ? 1 : 0, MenuViewCommandType);
   createToggle(MI_FieldGuide, QT_TR_NOOP("&Field Guide"), "Shift+G",
                FieldGuideToggleAction ? 1 : 0, MenuViewCommandType);
+  createToggle(MI_PegbarGuide, QT_TR_NOOP("Pegbar Guide"), "",
+               PegbarGuideToggleAction ? 1 : 0, MenuViewCommandType);
+  createMenuViewAction(MI_PegbarGuideSettings,
+                       QT_TR_NOOP("Pegbar Guide Settings..."), "");
   createToggle(MI_ViewBBox, QT_TR_NOOP("&Raster Bounding Box"), "",
                ViewBBoxToggleAction ? 1 : 0, MenuViewCommandType);
   createToggle(MI_LightTable, QT_TR_NOOP("&Light Table"), "", false,
@@ -2842,6 +2850,30 @@ void MainWindow::defineActions() {
                SafeAreaToggleAction ? 1 : 0, MenuViewCommandType);
   createToggle(MI_CenterCutGuide, QT_TR_NOOP("4:3 Center-Cut Guide"), "",
                CenterCutGuideToggleAction ? 1 : 0, MenuViewCommandType);
+  createToggle(
+      MI_AspectGuide166, QT_TR_NOOP("1.66:1 Guide (European Widescreen)"), "",
+      AspectGuides::storedStatus(MI_AspectGuide166), MenuViewCommandType);
+  createToggle(MI_AspectGuide178, QT_TR_NOOP("16:9 Guide (1.78:1)"), "",
+               AspectGuides::storedStatus(MI_AspectGuide178),
+               MenuViewCommandType);
+  createToggle(
+      MI_AspectGuide185, QT_TR_NOOP("1.85:1 Guide (Theatrical Widescreen)"), "",
+      AspectGuides::storedStatus(MI_AspectGuide185), MenuViewCommandType);
+  createToggle(MI_AspectGuide239, QT_TR_NOOP("2.39:1 Guide (Scope, DCI)"), "",
+               AspectGuides::storedStatus(MI_AspectGuide239),
+               MenuViewCommandType);
+  createToggle(MI_AspectGuide240, QT_TR_NOOP("2.40:1 Guide (Anamorphic Scope)"),
+               "", AspectGuides::storedStatus(MI_AspectGuide240),
+               MenuViewCommandType);
+  createToggle(MI_AspectGuideCustom, QT_TR_NOOP("Custom Aspect Ratio Guide"),
+               "", AspectGuides::storedStatus(MI_AspectGuideCustom),
+               MenuViewCommandType);
+  createToggle(MI_AspectGuideLetterbox,
+               QT_TR_NOOP("Letterbox Outside Aspect Guides"), "",
+               AspectGuides::storedStatus(MI_AspectGuideLetterbox),
+               MenuViewCommandType);
+  createMenuViewAction(MI_AspectGuideSettings,
+                       QT_TR_NOOP("Aspect Ratio Guide Settings..."), "");
   createToggle(MI_ViewColorcard, QT_TR_NOOP("&Camera BG Color"), "",
                ViewColorcardToggleAction ? 1 : 0, MenuViewCommandType);
   createToggle(MI_ViewGuide, QT_TR_NOOP("&Guide"), "",

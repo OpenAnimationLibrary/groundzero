@@ -1132,9 +1132,10 @@ QWidget* PreferencesPopup::createUI(PreferencesItemId id,
 
   case QMetaType::QColor:  // create ColorField
   {
-    ColorField* field =
-        new ColorField(this, false, colorToTPixel(item.value.value<QColor>()),
-                       24, true, 44, true);
+    // Only the outside camera colour has an opacity
+    ColorField* field = new ColorField(
+        this, id == cameraMaskColor, colorToTPixel(item.value.value<QColor>()),
+        24, true, 44, true);
     connect(field, &ColorField::colorChanged, this,
             &PreferencesPopup::onColorFieldChanged);
     widget = field;
@@ -1512,6 +1513,8 @@ QString PreferencesPopup::getUIString(PreferencesItemId id) {
       {viewerBGColor, tr("Viewer BG Color:")},
       {tableColor, tr("Table Color:")},
       {previewBGColor, tr("Preview BG Color:")},
+      {cameraMaskCustomColor, tr("Custom Outside Camera Color")},
+      {cameraMaskColor, tr("Outside Camera Color:")},
       {levelEditorBoxColor, tr("Level Editor Box Color:")},
       {chessboardColor1, tr("Chessboard Color 1:")},
       {chessboardColor2, tr("Chessboard Color 2:")},
@@ -2638,6 +2641,8 @@ QWidget* PreferencesPopup::createColorsPage() {
   insertUI(levelEditorBoxColor, lay);
   insertUI(chessboardColor1, lay);
   insertUI(chessboardColor2, lay);
+  QGridLayout* maskLay = insertGroupBoxUI(cameraMaskCustomColor, lay);
+  { insertUI(cameraMaskColor, maskLay); }
   QGridLayout* tcLay = insertGroupBox(tr("Transparency Check"), lay);
   {
     insertUI(transpCheckInkOnWhite, tcLay);
@@ -2658,6 +2663,10 @@ QWidget* PreferencesPopup::createColorsPage() {
   m_onEditedFuncMap.insert(viewerBGColor,
                            &PreferencesPopup::notifySceneChanged);
   m_onEditedFuncMap.insert(tableColor, &PreferencesPopup::notifySceneChanged);
+  m_onEditedFuncMap.insert(cameraMaskCustomColor,
+                           &PreferencesPopup::notifySceneChanged);
+  m_onEditedFuncMap.insert(cameraMaskColor,
+                           &PreferencesPopup::notifySceneChanged);
   m_onEditedFuncMap.insert(previewBGColor,
                            &PreferencesPopup::notifySceneChanged);
   m_onEditedFuncMap.insert(levelEditorBoxColor,

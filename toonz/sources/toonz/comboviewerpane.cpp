@@ -7,6 +7,7 @@
 #include "toolbar.h"
 #include "ruler.h"
 #include "menubarcommandids.h"
+#include "aspectguides.h"
 // Qt includes
 #include <QVBoxLayout>
 #include <QGridLayout>
@@ -133,9 +134,10 @@ void ComboViewerPanel::addShowHideContextMenu(QMenu *menu) {
   showHideMenu->addAction(CommandManager::instance()->getAction(MI_ViewCamera));
   showHideMenu->addAction(CommandManager::instance()->getAction(MI_ViewTable));
   showHideMenu->addAction(CommandManager::instance()->getAction(MI_FieldGuide));
-  showHideMenu->addAction(CommandManager::instance()->getAction(MI_SafeArea));
   showHideMenu->addAction(
-      CommandManager::instance()->getAction(MI_CenterCutGuide));
+      CommandManager::instance()->getAction(MI_PegbarGuide));
+  showHideMenu->addAction(CommandManager::instance()->getAction(MI_SafeArea));
+  showHideMenu->addMenu(AspectGuides::createMenu(showHideMenu));
   showHideMenu->addAction(CommandManager::instance()->getAction(MI_ViewBBox));
   showHideMenu->addAction(CommandManager::instance()->getAction(MI_LightTable));
   showHideMenu->addAction(

@@ -7,7 +7,8 @@
 #include "viewerpane.h"
 #include "onionskinmaskgui.h"
 #include "viewerdraw.h"
-#include "toonz/cameraguide.h"
+#include "aspectguides.h"
+#include "pegbarguides.h"
 #include "menubarcommandids.h"
 #include "ruler.h"
 #include "locatorpopup.h"
@@ -291,6 +292,7 @@ void ToggleCommandHandler::execute() {
 ToggleCommandHandler viewTableToggle(MI_ViewTable, false);
 ToggleCommandHandler editInPlaceToggle(MI_ToggleEditInPlace, false);
 ToggleCommandHandler fieldGuideToggle(MI_FieldGuide, false);
+ToggleCommandHandler pegbarGuideToggle(MI_PegbarGuide, false);
 ToggleCommandHandler safeAreaToggle(MI_SafeArea, false);
 ToggleCommandHandler centerCutGuideToggle(MI_CenterCutGuide, false);
 ToggleCommandHandler rasterizePliToggle(MI_RasterizePli, false);
@@ -1760,6 +1762,14 @@ void SceneViewer::drawOverlay() {
     glPopMatrix();
   }
 
+  // draw the Pegbar Guide, on the table as the Field Guide
+  if (pegbarGuideToggle.getStatus() && !m_drawEditingLevel && !is3DView()) {
+    glPushMatrix();
+    tglMultMatrix(m_drawTableAff);
+    PegbarGuides::draw();
+    glPopMatrix();
+  }
+
   if (!m_drawCameraTest) {
     // draw grid & guides
     if (viewGuideToggle.getStatus() &&
@@ -1836,12 +1846,10 @@ void SceneViewer::drawOverlay() {
       glPopMatrix();
     }
 
-    if (centerCutGuideToggle.getStatus() && !m_drawEditingLevel &&
-        !is3DView()) {
+    if (AspectGuides::anyActive() && !m_drawEditingLevel && !is3DView()) {
       glPushMatrix();
       tglMultMatrix(m_drawCameraAff);
-      ViewerDraw::drawCameraGuide(
-          CameraGuide::centeredRect(ViewerDraw::getCameraRect(), 4.0 / 3.0));
+      AspectGuides::draw(ViewerDraw::getCameraRect());
       glPopMatrix();
     }
 

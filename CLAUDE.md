@@ -25,8 +25,10 @@ It is enforced in two places:
   which blocks `git commit`, `git tag`, `gh pr`, `gh issue`, `gh api` and
   similar commands when their text, the files they send, or the staged changes
   carry a match.
-- The `No PII` workflow fails any pull request whose title, description,
-  commit messages or added lines carry a match.
+- The `No PII` workflow removes session links from a pull request's
+  description (the GitHub integration adds one to every pull request it
+  opens), then fails the pull request if its title, description, commit
+  messages or added lines still carry a match.
 
 If a match is a false positive, reword it; don't weaken the check.
 

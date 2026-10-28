@@ -5,6 +5,7 @@
 
 // Tnz6 includes
 #include "menubarcommandids.h"
+#include "aspectguides.h"
 #include "tapp.h"
 #include "cellselection.h"
 #include "mainwindow.h"
@@ -512,8 +513,9 @@ bool StackedMenuBar::readMenuRecursive(QXmlStreamReader &reader, QMenu *menu) {
   const auto actions = menu->actions();
   const int index    = actions.indexOf(safeArea);
   if (guide && index >= 0 && !actions.contains(guide))
-    menu->insertAction(
-        index + 1 < actions.size() ? actions.at(index + 1) : nullptr, guide);
+    menu->insertMenu(
+        index + 1 < actions.size() ? actions.at(index + 1) : nullptr,
+        AspectGuides::createMenu(menu));
 
   return !reader.hasError();
 }
@@ -630,8 +632,9 @@ QMenuBar *StackedMenuBar::createCleanupMenuBar() {
     addMenuItem(viewPartsMenu, MI_ViewCamera);
     addMenuItem(viewPartsMenu, MI_ViewTable);
     addMenuItem(viewPartsMenu, MI_FieldGuide);
+    addMenuItem(viewPartsMenu, MI_PegbarGuide);
     addMenuItem(viewPartsMenu, MI_SafeArea);
-    addMenuItem(viewPartsMenu, MI_CenterCutGuide);
+    viewPartsMenu->addMenu(AspectGuides::createMenu(viewPartsMenu));
     addMenuItem(viewPartsMenu, MI_ViewBBox);
     addMenuItem(viewPartsMenu, MI_ViewColorcard);
   }
@@ -807,8 +810,9 @@ QMenuBar *StackedMenuBar::createPltEditMenuBar() {
     addMenuItem(viewPartsMenu, MI_ViewCamera);
     addMenuItem(viewPartsMenu, MI_ViewTable);
     addMenuItem(viewPartsMenu, MI_FieldGuide);
+    addMenuItem(viewPartsMenu, MI_PegbarGuide);
     addMenuItem(viewPartsMenu, MI_SafeArea);
-    addMenuItem(viewPartsMenu, MI_CenterCutGuide);
+    viewPartsMenu->addMenu(AspectGuides::createMenu(viewPartsMenu));
     addMenuItem(viewPartsMenu, MI_ViewColorcard);
   }
   customizeMenu->addSeparator();
@@ -993,8 +997,9 @@ QMenuBar *StackedMenuBar::createInknPaintMenuBar() {
     addMenuItem(viewPartsMenu, MI_ViewCamera);
     addMenuItem(viewPartsMenu, MI_ViewTable);
     addMenuItem(viewPartsMenu, MI_FieldGuide);
+    addMenuItem(viewPartsMenu, MI_PegbarGuide);
     addMenuItem(viewPartsMenu, MI_SafeArea);
-    addMenuItem(viewPartsMenu, MI_CenterCutGuide);
+    viewPartsMenu->addMenu(AspectGuides::createMenu(viewPartsMenu));
     addMenuItem(viewPartsMenu, MI_ViewColorcard);
   }
   customizeMenu->addSeparator();
@@ -1202,8 +1207,9 @@ QMenuBar *StackedMenuBar::createXsheetMenuBar() {
     addMenuItem(viewPartsMenu, MI_ViewCamera);
     addMenuItem(viewPartsMenu, MI_ViewTable);
     addMenuItem(viewPartsMenu, MI_FieldGuide);
+    addMenuItem(viewPartsMenu, MI_PegbarGuide);
     addMenuItem(viewPartsMenu, MI_SafeArea);
-    addMenuItem(viewPartsMenu, MI_CenterCutGuide);
+    viewPartsMenu->addMenu(AspectGuides::createMenu(viewPartsMenu));
     addMenuItem(viewPartsMenu, MI_ViewBBox);
     addMenuItem(viewPartsMenu, MI_ViewColorcard);
   }
@@ -1657,8 +1663,10 @@ QMenuBar *StackedMenuBar::createFullMenuBar() {
   addMenuItem(viewMenu, MI_LightTable);
   viewMenu->addSeparator();
   addMenuItem(viewMenu, MI_SafeArea);
-  addMenuItem(viewMenu, MI_CenterCutGuide);
+  viewMenu->addMenu(AspectGuides::createMenu(viewMenu));
   addMenuItem(viewMenu, MI_FieldGuide);
+  addMenuItem(viewMenu, MI_PegbarGuide);
+  addMenuItem(viewMenu, MI_PegbarGuideSettings);
   addMenuItem(viewMenu, MI_ViewRuler);
   addMenuItem(viewMenu, MI_ViewGuide);
   viewMenu->addSeparator();

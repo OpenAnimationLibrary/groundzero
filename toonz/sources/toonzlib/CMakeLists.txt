@@ -466,6 +466,22 @@ if(BUILD_TIMEREMAP_TESTS)
     add_test(NAME timeremap COMMAND timeremap_test)
 endif()
 
+# Optional regression target for the aspect ratio guide math (cameraguide.h).
+option(BUILD_CAMERAGUIDE_TESTS "Build the aspect ratio guide regression test" ${BUILD_TESTS})
+if(BUILD_CAMERAGUIDE_TESTS)
+    add_executable(cameraguide_test tests/cameraguide_test.cpp)
+    target_link_libraries(cameraguide_test PRIVATE tnzcore Qt${QT_VERSION_MAJOR}::Core)
+    add_test(NAME cameraguide COMMAND cameraguide_test)
+endif()
+
+# Optional regression target for the Pegbar Guide layout (pegbarguide.h).
+option(BUILD_PEGBARGUIDE_TESTS "Build the pegbar guide regression test" ${BUILD_TESTS})
+if(BUILD_PEGBARGUIDE_TESTS)
+    add_executable(pegbarguide_test tests/pegbarguide_test.cpp)
+    target_link_libraries(pegbarguide_test PRIVATE toonzlib tnzcore Qt${QT_VERSION_MAJOR}::Core)
+    add_test(NAME pegbarguide COMMAND pegbarguide_test)
+endif()
+
 # Optional regression target for the brush stroke to outline shape conversion
 # (contouroutline.h).
 option(BUILD_CONTOUR_TESTS "Build the contour outline regression test" ${BUILD_TESTS})

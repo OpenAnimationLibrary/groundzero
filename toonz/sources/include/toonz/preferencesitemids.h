@@ -210,6 +210,8 @@ enum PreferencesItemId {
   viewerBGColor,
   tableColor,
   previewBGColor,
+  cameraMaskCustomColor,
+  cameraMaskColor,
   levelEditorBoxColor,
   chessboardColor1,
   chessboardColor2,

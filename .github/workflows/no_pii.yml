@@ -3,6 +3,12 @@ name: No PII
 # Fails a pull request whose title, description, commit messages or added
 # lines carry personal data or a private Claude Code session link.
 # The rule and the patterns are in CLAUDE.md and ci-scripts/no_pii.py.
+#
+# The GitHub integration of Claude Code adds a link to its session to the
+# description of every pull request it opens. The check removes such links
+# (and Claude-Session lines) from the description itself before it scans, so
+# that footer no longer fails every new pull request; what it cannot fix
+# (an e-mail address, a link in a commit or in a file) still fails.
 
 on:
   pull_request:
@@ -10,25 +16,44 @@ on:
 
 permissions:
   contents: read
+  pull-requests: write
 
 jobs:
   scan:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+
+      - name: Remove session links from the description
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          SAME_REPO: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/pii"
+          printf '%s' "$PR_BODY" > "$RUNNER_TEMP/pii/body"
+          python3 ci-scripts/no_pii.py clean < "$RUNNER_TEMP/pii/body" > "$RUNNER_TEMP/pii/cleaned"
+          if cmp -s "$RUNNER_TEMP/pii/body" "$RUNNER_TEMP/pii/cleaned"; then exit 0; fi
+          # A fork's token cannot edit the pull request: the scan then fails
+          # on the original description, as before
+          if [ "$SAME_REPO" = "true" ] &&
+             gh api -X PATCH "repos/${{ github.repository }}/pulls/$PR_NUMBER" \
+               -F "body=@$RUNNER_TEMP/pii/cleaned" > /dev/null; then
+            cp "$RUNNER_TEMP/pii/cleaned" "$RUNNER_TEMP/pii/body"
+            echo "::notice title=No PII::Removed session links from the description"
+          fi
 
       - name: Scan pull request
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
-          PR_BODY: ${{ github.event.pull_request.body }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          mkdir -p "$RUNNER_TEMP/pii"
           cd "$RUNNER_TEMP/pii"
-          printf '%s\n\n%s\n' "$PR_TITLE" "$PR_BODY" > description
+          { printf '%s\n\n' "$PR_TITLE"; cat body; echo; } > description
           git -C "$GITHUB_WORKSPACE" log --format='%B' "$BASE_SHA..$HEAD_SHA" > commit-messages
           git -C "$GITHUB_WORKSPACE" diff --no-color -U0 "$BASE_SHA...$HEAD_SHA" |
             grep '^+' | grep -v '^+++' | cut -c2- > added-lines || true

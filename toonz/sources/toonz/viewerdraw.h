@@ -46,7 +46,6 @@ void drawFieldGuide();
 void drawColorcard(UCHAR channel);
 
 void drawSafeArea();
-void drawCameraGuide(const TRectD &rect);
 
 unsigned int createDiskDisplayList();
 
