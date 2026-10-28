@@ -224,8 +224,13 @@ public:
     if (!canAllocateSource(width, height, tile.getRaster()->getPixelSize()))
       throw TException("Cel Smoother v2: source raster exceeds allocation limits");
     TTile source;
-    m_source->allocateAndCompute(source, box.getP00(), TDimension(width, height),
-                                 tile.getRaster(), frame, settings);
+    source.m_pos = box.getP00();
+    source.setRaster(tile.getRaster()->create(width, height));
+    source.getRaster()->setLinear(tile.getRaster()->isLinear());
+    // Upstream nodes may only write their intersecting bounds. The two-pixel
+    // smoothing border and unwritten source regions must start transparent.
+    source.getRaster()->clear();
+    m_source->compute(source, frame, settings);
     std::vector<SmoothPixel> pixels, result;
     bool read = false;
     if (TRaster32P raster = source.getRaster())

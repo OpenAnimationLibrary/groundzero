@@ -64,6 +64,28 @@ public:
   }
 };
 
+class PartialSource final : public TStandardRasterFx {
+public:
+  const TPersistDeclaration *getDeclaration() const override { return nullptr; }
+  bool canHandle(const TRenderSettings &, double) override { return true; }
+  bool doGetBBox(double, TRectD &box, const TRenderSettings &) override {
+    box = TRectD(0, 0, 3, 3);
+    return true;
+  }
+  void compute(TTile &tile, double, const TRenderSettings &) override {
+    TRasterFP raster = tile.getRaster();
+    require(bool(raster), "Unexpected source precision");
+    for (int y = 0; y < raster->getLy(); ++y)
+      for (int x = 0; x < raster->getLx(); ++x)
+        require(raster->pixels(y)[x] == TPixelF::Transparent,
+                "Source scratch was not initialized before upstream rendering");
+    raster->pixels(1 - int(tile.m_pos.y))[1 - int(tile.m_pos.x)] = TPixelF(1, 0, 0, 1);
+  }
+  void doCompute(TTile &tile, double frame, const TRenderSettings &settings) override {
+    compute(tile, frame, settings);
+  }
+};
+
 template <class Pixel>
 TRasterPT<Pixel> render(CelSmoother2Fx &fx, int width, int height,
                        TPoint position = TPoint(), double frame = 0,
@@ -137,6 +159,18 @@ void testAllocationBoundaries() {
   require(!canAllocateSource(-1, 4, 16) && !canAllocateSource(4, -1, 16) &&
               !canAllocateSource(4, 4, 0), "Invalid allocation dimensions were accepted");
 
+}
+
+void testPartiallyWrittenSource() {
+  CelSmoother2Fx fx;
+  fx.getInputPort(0)->setFx(new PartialSource);
+  set(fx, "smoothness", 0);
+  auto result = render<TPixelF>(fx, 7, 7, TPoint(-2, -2));
+  for (int y = 0; y < 7; ++y)
+    for (int x = 0; x < 7; ++x)
+      require(result->pixels(y)[x] ==
+                  (x == 3 && y == 3 ? TPixelF(1, 0, 0, 1) : TPixelF::Transparent),
+              "Unwritten upstream pixels leaked into smoothing");
 }
 
 template <class Pixel> TRasterPT<Pixel> fixture() {
@@ -378,6 +412,7 @@ int main(int argc, char **argv) {
     require(directory.isValid(), "Cannot create fixture directory");
     testTransferAndGamma();
     testAllocationBoundaries();
+    testPartiallyWrittenSource();
     testRendering<TPixel32>();
     testRendering<TPixel64>();
     testRendering<TPixelF>();
