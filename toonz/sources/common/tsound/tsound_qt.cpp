@@ -4,6 +4,7 @@
 #include "texception.h"
 #include "tthread.h"
 #include "tthreadmessage.h"
+#include "tsop.h"
 
 #include <errno.h>
 #include <unistd.h>
@@ -47,6 +48,37 @@ QAudioFormat::SampleFormat toQAudioSampleFormat(int sampleType,
     break;
   }
   return QAudioFormat::Unknown;
+}
+
+// The samples s0 to s1 (excluded) of the track in the format the device
+// plays, or null if that format can't be made
+TSoundTrackP convertedRange(const TSoundTrackP &st, TINT32 s0, TINT32 s1,
+                            const QAudioFormat &format) {
+  int bits = 0, type = TSound::INT;
+  switch (format.sampleFormat()) {
+  case QAudioFormat::UInt8:
+    bits = 8, type = TSound::UINT;
+    break;
+  case QAudioFormat::Int16:
+    bits = 16;
+    break;
+  case QAudioFormat::Float:
+    bits = 32, type = TSound::FLOAT;
+    break;
+  default:  // no 32-bit integer tracks
+    return TSoundTrackP();
+  }
+  if (s1 <= s0 || format.sampleRate() <= 0 || format.channelCount() < 1 ||
+      format.channelCount() > 2)
+    return TSoundTrackP();
+  try {
+    TSoundTrackP part = st->extract(s0, s1 - 1);
+    if (!part) return TSoundTrackP();
+    return TSop::convert(part, TSoundTrackFormat(format.sampleRate(), bits,
+                                                 format.channelCount(), type));
+  } catch (...) {
+    return TSoundTrackP();
+  }
 }
 
 typedef QAudioSink TAudioOutput;
@@ -222,10 +254,30 @@ public:
       format = info.nearestFormat(format);
 #endif
 
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    // The format played may not be the track's: Qt 6 has no 24-bit, signed
+    // 8-bit or unsigned 16/32-bit samples, and the device may take only its
+    // own rate. The samples are then converted: copied as they are, they
+    // played as noise, at the wrong speed.
+    TSoundTrackP track = st;
+    if (format.sampleFormat() !=
+            toQAudioSampleFormat(st->getSampleType(), st->getBitPerSample()) ||
+        format.channelCount() != st->getChannelCount() ||
+        format.sampleRate() != int(st->getSampleRate())) {
+      track = convertedRange(st, s0, s1, format);
+      if (!track) return;
+      s0 = 0;
+      s1 = track->getSampleCount();
+    }
+#else
+    const TSoundTrackP &track = st;
+#endif
+
     qint64 totalPacketCount = s1 - s0;
-    qint64 fileByteCount    = (s1 - s0)*st->getSampleSize();
+    qint64 fileByteCount    = (s1 - s0) * track->getSampleSize();
     m_buffer.resize(fileByteCount);
-    memcpy(m_buffer.data(), st->getRawData() + s0*st->getSampleSize(), fileByteCount);
+    memcpy(m_buffer.data(), track->getRawData() + s0 * track->getSampleSize(),
+           fileByteCount);
     m_bufferIndex = 0;
 
     m_looping = loop;
