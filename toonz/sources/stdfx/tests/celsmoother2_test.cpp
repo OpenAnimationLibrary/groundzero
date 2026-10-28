@@ -17,7 +17,7 @@ namespace {
 void require(bool value, const char *message) {
   if (!value) throw std::runtime_error(message);
 }
-void near(double actual, double expected, double tolerance, const char *message) {
+void requireNear(double actual, double expected, double tolerance, const char *message) {
   require(std::isfinite(actual) && std::abs(actual - expected) <= tolerance, message);
 }
 TDoubleParamP number(TFx &fx, const std::string &name) {
@@ -100,44 +100,44 @@ TRasterPT<Pixel> render(CelSmoother2Fx &fx, int width, int height,
 
 void testTransferAndGamma() {
   using namespace CelSmoother2;
-  near(linearize(0.04045), 0.0031308049535603713, 1e-14, "sRGB toe is incorrect");
-  near(encode(0.0031308), 0.040449936, 1e-14, "sRGB inverse toe is incorrect");
+  requireNear(linearize(0.04045), 0.0031308049535603713, 1e-14, "sRGB toe is incorrect");
+  requireNear(encode(0.0031308), 0.040449936, 1e-14, "sRGB inverse toe is incorrect");
   for (double c : {-2.5, -0.2, 0.0, 0.001, 0.3, 1.0, 4.5})
-    near(encode(linearize(c)), c, 1e-12, "Transfer lost signed HDR values");
+    requireNear(encode(linearize(c)), c, 1e-12, "Transfer lost signed HDR values");
   Settings s;
   Pixel black{0, 0, 0, 1}, white{1, 1, 1, 1};
   s.version = 0;
-  near(mix(black, white, .5, s).r, .5, 1e-14, "v1 must blend encoded RGB");
+  requireNear(mix(black, white, .5, s).r, .5, 1e-14, "v1 must blend encoded RGB");
   s.version = 1;
-  near(mix(black, white, .5, s).r, 0.7353569830524495, 1e-13,
+  requireNear(mix(black, white, .5, s).r, 0.7353569830524495, 1e-13,
        "v2 must blend in sRGB linear light");
   for (int version : {0, 1}) {
     s.version = version;
     for (int mode : {0, 1, 2}) {
       s.gammaMode = mode;
       s.gamma = 1;
-      near(mix(black, white, .5, s).r, version ? .7353569830524495 : .5,
+      requireNear(mix(black, white, .5, s).r, version ? .7353569830524495 : .5,
            1e-13, "Gamma one changed the selected version");
       s.gamma = 2.4;
       const double result = mix(black, white, .5, s).r;
       if (mode) require(result < (version ? .735 : .5), "Gamma did not favor dark lines");
-      else near(result, version ? .7353569830524495 : .5, 1e-13, "None applied gamma");
+      else requireNear(result, version ? .7353569830524495 : .5, 1e-13, "None applied gamma");
     }
   }
   s.version = 0;
   s.gammaMode = 1;
   Pixel red{1, 0, 0, 1}, blue{0, 0, 1, 1};
-  near(mix(red, blue, .5, s).r, .5, 1e-13, "Black-only gamma affected red/blue");
+  requireNear(mix(red, blue, .5, s).r, .5, 1e-13, "Black-only gamma affected red/blue");
   s.gammaMode = 2;
-  near(mix(red, blue, .5, s).r, std::pow(.5, 2.4), 1e-13, "Global gamma omitted red/blue");
+  requireNear(mix(red, blue, .5, s).r, std::pow(.5, 2.4), 1e-13, "Global gamma omitted red/blue");
   s.gammaMode = 1;
   s.gammaCount = 5;
   s.colors[4] = red;
-  near(mix(red, blue, .5, s).r, std::pow(.5, 2.4), 1e-13, "Fifth gamma slot is ignored");
+  requireNear(mix(red, blue, .5, s).r, std::pow(.5, 2.4), 1e-13, "Fifth gamma slot is ignored");
   s.gammaCount = 4;
-  near(mix(red, blue, .5, s).r, .5, 1e-13, "Inactive gamma slot still matches");
+  requireNear(mix(red, blue, .5, s).r, .5, 1e-13, "Inactive gamma slot still matches");
   s.gammaCount = 0;
-  near(mix(black, white, .5, s).r, .5, 1e-13, "Zero gamma count applied correction");
+  requireNear(mix(black, white, .5, s).r, .5, 1e-13, "Zero gamma count applied correction");
   const double threshold = .5 / 255;
   require(matches(Pixel{std::nextafter(threshold, 0.0), 0, 0, 1}, black),
           "Gamma tolerance rejected its interior");
@@ -145,8 +145,8 @@ void testTransferAndGamma() {
   require(matches(Pixel{.25, 0, 0, .25}, red), "Partial alpha broadened selection");
   s.gammaMode = 0;
   const Pixel covered = mix(Pixel{.5, 0, 0, .5}, Pixel{0, 0, 0, 0}, .5, s);
-  near(covered.r, .25, 1e-14, "Transparent edge changed straight color");
-  near(covered.a, .25, 1e-14, "Gamma changed coverage");
+  requireNear(covered.r, .25, 1e-14, "Transparent edge changed straight color");
+  requireNear(covered.a, .25, 1e-14, "Gamma changed coverage");
 }
 
 void testAllocationBoundaries() {
