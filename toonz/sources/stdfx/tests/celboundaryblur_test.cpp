@@ -5,6 +5,13 @@
 #include "trenderer.h"
 #include "tstream.h"
 #include "tthread.h"
+#include "tfxutil.h"
+#include "toonz/toonzscene.h"
+#include "toonz/txshcell.h"
+#include "toonz/txshlevelcolumn.h"
+#include "toonz/txshleveltypes.h"
+#include "toonz/txshsimplelevel.h"
+#include "trasterimage.h"
 
 #include <QCoreApplication>
 #include <QTemporaryDir>
@@ -320,6 +327,43 @@ void workflowTest() {
           "Color Keep followed by boundary blur did not isolate color transitions");
 }
 
+void rasterLevelDpiTest() {
+  ToonzScene scene;
+  TXshLevelP level = new TXshSimpleLevel(L"boundary-dpi-fixture");
+  auto *simple = level->getSimpleLevel();
+  simple->setType(OVL_XSHLEVEL); simple->setScene(&scene);
+  TRaster32P image(8, 8);
+  std::vector<CelBlur::Pixel> pixels(64);
+  for (int y = 0; y < 8; ++y) for (int x = 0; x < 8; ++x) {
+    image->pixels(y)[x] = x < 4 ? TPixel32::Red : TPixel32::Blue;
+    pixels[size_t(y) * 8 + x] = x < 4 ? CelBlur::Pixel{{1, 0, 0, 1}} : CelBlur::Pixel{{0, 0, 1, 1}};
+  }
+  simple->setFrame(TFrameId(1), TRasterImageP(image));
+  TXshLevelColumn column;
+  require(column.setCell(0, TXshCell(level, TFrameId(1))), "Cannot create raster level fixture");
+  TFxP dpi = TFxUtil::makeAffine(TFxP(column.getFx()), TScale(.25));
+  dpi->setName(L"LevelColumn AffineFx");
+  TFxP owner = new CelBoundaryBlurFx;
+  auto &fx = *static_cast<CelBoundaryBlurFx *>(owner.getPointer());
+  fx.getInputPort(0)->setFx(dpi.getPointer());
+  value(fx, "amount", 2); value(fx, "repeats", 1); value(fx, "smoothness", 100);
+  CelBlur::Settings expectedSettings;
+  expectedSettings.radius = 2; expectedSettings.blend = 1; expectedSettings.repeats = 1;
+  const auto expected = reference(pixels, 8, 8, expectedSettings);
+  TRenderer renderer(1); const unsigned long id = TRenderer::buildRenderId();
+  renderer.install(id); renderer.declareRenderStart(id); renderer.declareFrameStart(0);
+  TRenderSettings info; info.m_affine = TScale(4);
+  TRaster32P result(8, 8); result->clear(); TTile tile(result, TPointD(-4, -4));
+  fx.compute(tile, 0, info);
+  renderer.declareFrameEnd(0); renderer.declareRenderEnd(id); renderer.uninstall();
+  for (int y = 0; y < 8; ++y) for (int x = 0; x < 8; ++x) {
+    const auto &p = result->pixels(y)[x]; const auto &e = expected[size_t(y) * 8 + x];
+    require(std::abs(p.r / 255.0 - e[0]) <= 2.0 / 255 &&
+                std::abs(p.b / 255.0 - e[2]) <= 2.0 / 255 && p.m == 255,
+            "Raster level DPI changed a source-pixel blur radius");
+  }
+}
+
 struct BlurRenderContext {
   TRenderer renderer;
   unsigned long id;
@@ -464,6 +508,7 @@ int main(int argc, char **argv) {
     persistenceTests(temp);
     std::cout << "Checking color selection workflow" << std::endl;
     workflowTest();
+    rasterLevelDpiTest();
     keyWorkflowTest<TPixel32>(); keyWorkflowTest<TPixel64>(); keyWorkflowTest<TPixelF>();
     std::cout << "Checking transformed host blur" << std::endl;
     hostTransformTests();
