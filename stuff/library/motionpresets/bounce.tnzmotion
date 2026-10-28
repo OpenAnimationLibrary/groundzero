@@ -1,0 +1,17 @@
+<motionpreset>
+  <name>
+    "Bounce"
+  </name>
+  <description>
+    "Hops three times on the spot, each hop lower than the one before."
+  </description>
+  <channel name="y" mode="add">
+    0 0 S 0 0 2 2 0
+    6 3 S -2 0 2 0 0
+    12 0 S -2 2 1.33333 0.8 0
+    16 1.2 S -1.33333 0 1.33333 0 0
+    20 0 S -1.33333 0.8 0.666667 0.3 0
+    22 0.45 S -0.666667 0 0.666667 0 0
+    24 0 L -0.666667 0.3 0 0 0
+  </channel>
+</motionpreset>

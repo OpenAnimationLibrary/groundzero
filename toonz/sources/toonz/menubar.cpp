@@ -175,6 +175,7 @@ void ensureNewPanelActions(QMenu *windowsMenu) {
   ensurePanelAction(windowsMenu, MI_OpenMasterControllers);
   ensurePanelAction(windowsMenu, MI_OpenOffsetLayers);
   ensurePanelAction(windowsMenu, MI_OpenRigLibrary);
+  ensurePanelAction(windowsMenu, MI_OpenMotionPresets);
   ensurePanelAction(windowsMenu, MI_OpenArtLayerManager);
 }
 
@@ -1537,6 +1538,7 @@ QMenuBar *StackedMenuBar::createFullMenuBar() {
   addMenuItem(xsheetMenu, MI_RemoveSceneFrame);
   addMenuItem(xsheetMenu, MI_InsertGlobalKeyframe);
   addMenuItem(xsheetMenu, MI_RemoveGlobalKeyframe);
+  addMenuItem(xsheetMenu, MI_SaveMotionPreset);
   xsheetMenu->addSeparator();
   addMenuItem(xsheetMenu, MI_LipSyncPopup);
   addMenuItem(xsheetMenu, MI_NewAnnotationColumn);
@@ -1743,6 +1745,7 @@ QMenuBar *StackedMenuBar::createFullMenuBar() {
   addMenuItem(windowsMenu, MI_OpenMasterControllers);
   addMenuItem(windowsMenu, MI_OpenOffsetLayers);
   addMenuItem(windowsMenu, MI_OpenRigLibrary);
+  addMenuItem(windowsMenu, MI_OpenMotionPresets);
   addMenuItem(windowsMenu, MI_OpenArtLayerManager);
   addMenuItem(windowsMenu, MI_OpenSymbols);
   addMenuItem(windowsMenu, MI_OpenReferencePanel);

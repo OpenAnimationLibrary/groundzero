@@ -1,0 +1,12 @@
+<motionpreset>
+  <name>
+    "Spin 360"
+  </name>
+  <description>
+    "Turns once around, starting and stopping gently."
+  </description>
+  <channel name="rot" mode="add">
+    0 0 S 0 0 8 0 0
+    24 360 L -8 0 0 0 0
+  </channel>
+</motionpreset>

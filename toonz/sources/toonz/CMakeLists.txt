@@ -122,6 +122,7 @@ set(MOC_HEADERS
     mastercontrollerspane.h
     offsetlayerspane.h
     artlayermanagerpane.h
+    motionpresetspane.h
     riglibrarypane.h
     symbolspane.h
     vectorguideddrawingpane.h
@@ -350,6 +351,7 @@ set(SOURCES
     offsetlayerspane.cpp
     artlayermanagerpane.cpp
     createcolourartcommand.cpp
+    motionpresetspane.cpp
     riglibrarypane.cpp
     symbolspane.cpp
     vectorguideddrawingpane.cpp

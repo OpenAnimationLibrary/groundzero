@@ -578,6 +578,8 @@
 #define MI_OpenMasterControllers "MI_OpenMasterControllers"
 #define MI_OpenOffsetLayers "MI_OpenOffsetLayers"
 #define MI_OpenRigLibrary "MI_OpenRigLibrary"
+#define MI_OpenMotionPresets "MI_OpenMotionPresets"
+#define MI_SaveMotionPreset "MI_SaveMotionPreset"
 #define MI_OpenArtLayerManager "MI_OpenArtLayerManager"
 
 // Whole-rig breakdown and ease (Xsheet, Timeline, Cells menu)
