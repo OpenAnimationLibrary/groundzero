@@ -311,6 +311,9 @@ void presetAndMacro(const QString &presetPath, const QString &macroPath) {
 
 void precisionAndPersistence(const QString &path) {
   CelRadialBlurFx fx;
+  require(number(fx, "ellipseAngle")->getMeasureName() == "angle" &&
+              number(fx, "noiseOffset")->getMeasureName() == "angle",
+          "Angular controls do not use native angle units");
   TRasterFP input(1, 1); input->pixels(0)[0] = TPixelF(2.5f, -0.5f, 0.125f, 0.5f);
   fx.getInputPort(0)->setFx(new Source(input));
   auto pixel = render<TPixelF>(fx, 1, 1)->pixels(0)[0];

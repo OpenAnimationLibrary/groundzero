@@ -48,6 +48,8 @@ public:
     addInputPort("Noise", m_noise);
     m_center->getX()->setMeasureName("fxLength");
     m_center->getY()->setMeasureName("fxLength");
+    m_ellipseAngle->setMeasureName("angle");
+    m_noiseOffset->setMeasureName("angle");
     auto choice = [](const TDoubleParamP &param, const std::vector<std::string> &options, bool checkbox = false) {
       param->setValueRange(0.0, double(options.size() - 1));
       param->setUIChoices(options, checkbox);
@@ -516,7 +518,7 @@ void CelRadialBlurFx::doCompute(TTile &tile, double frame,
   params.noise.type = static_cast<CelNoise::Type>(mode(m_noiseType->getValue(frame), 2));
   params.noise.seed = std::uint32_t(std::floor(limited(m_seed->getValue(frame), 1, 1000, 1) + 0.5));
   const double rawNoiseOffset = m_noiseOffset->getValue(frame);
-  params.noise.offset = std::isfinite(rawNoiseOffset) ? rawNoiseOffset : 0.0;
+  params.noise.offset = std::isfinite(rawNoiseOffset) ? rawNoiseOffset / 360.0 : 0.0;
   params.noise.thickness = limited(m_thickness->getValue(frame), 1, 100, 10);
   CelMotion::Image noise;
   const CelMotion::Image *noisePtr = nullptr;

@@ -30,7 +30,8 @@ while preserving alpha. Integer renders keep RGB within alpha; floating-point
 renders retain finite HDR values.</p>
 <h2>Noise</h2>
 <p>Noise Variation blends between uniform strength and noise-modulated strength.
-Smooth and Block use the Seed, animated Noise Offset and Thickness. Layer uses
+Smooth and Block use the Seed, animated Noise Offset and Thickness. Noise Offset
+is measured in degrees; each 360 degrees moves through one noise interval. Layer uses
 the Noise input's premultiplied luminance: bright pixels retain more trail,
 black or transparent pixels reduce it. A disconnected Noise input acts as black
 in Layer mode. Noise is sampled in scene coordinates, so tiled renders and
