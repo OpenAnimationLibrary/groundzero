@@ -33,8 +33,9 @@ pass ordering and defaults define this effect; they do not claim binary output
 equivalence with another application's effect.</p>
 <h2>Animation and rendering</h2>
 <p>All five controls support native keys, undo, presets, scene saving and macro
-exposure. Amount follows the rendering scale. Rotation, reflection and shear
-are applied by the host after filtering in the cel's axes. Both axes request
+exposure. Raster levels are filtered in their native pixel grid before DPI and
+geometry placement; ambiguous or vector inputs use the scene grid. Rotation,
+reflection and shear are applied by the host after filtering. Both axes request
 the complete radius times repeat count, so strips match a whole-frame render.
 The alpha bounds never expand. Cancellation clears the unfinished tile.</p>
 <p>The working image is limited to approximately 53 million pixels including

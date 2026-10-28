@@ -1,6 +1,7 @@
 #include "stdfx.h"
 #include "tfxparam.h"
 #include "celdirectionalmath.h"
+#include "celfxsourcegrid.h"
 
 #include <algorithm>
 #include <array>
@@ -109,7 +110,8 @@ class CelDirectionalBlurFx final : public TStandardRasterFx {
     result.noise.seed = std::uint32_t(value(noiseSeed, 1, 1000) + 0.5);
     result.noise.offset = value(noiseOffset, -1e12, 1e12) / 360;
     result.noise.thickness = value(noiseThickness, 1, 100);
-    result.scale = std::sqrt(std::abs(info.m_affine.det()));
+    const TAffine nativeToRender = info.m_affine * CelFxSourceGrid::nativeToWorld(m_source.getFx(), frame);
+    result.scale = std::sqrt(std::abs(nativeToRender.det()));
     if (!std::isfinite(result.scale) || result.scale <= 0)
       throw TException("Cel Directional Blur: invalid render scale");
     return result;
@@ -148,9 +150,10 @@ public:
     enableComputeInFloat(true);
   }
   bool requiresFullPrecisionSerialization() const override { return true; }
-  bool canHandle(const TRenderSettings &info, double) override {
-    return info.m_affine.a12 == 0 && info.m_affine.a21 == 0 &&
-           info.m_affine.a11 == info.m_affine.a22 && info.m_affine.a11 > 0;
+  bool usesCustomRenderGrid() const override { return true; }
+  bool canHandle(const TRenderSettings &, double) override { return false; }
+  TAffine handledAffine(const TRenderSettings &, double frame) override {
+    return CelFxSourceGrid::renderAffine(m_source.getFx(), frame);
   }
   bool toBeComputedInLinearColorSpace(bool, bool) const override { return false; }
   bool doGetBBox(double frame, TRectD &box, const TRenderSettings &info) override {
@@ -160,13 +163,18 @@ public:
     if (box.isEmpty() || box == TConsts::infiniteRectD) return !box.isEmpty();
     TRenderSettings unitInfo = info; unitInfo.m_affine = TAffine();
     const auto values = parameters(frame, unitInfo);
-    const double x = std::cos(values.angle), y = std::sin(values.angle);
+    const TAffine placement = CelFxSourceGrid::nativeToWorld(m_source.getFx(), frame);
+    const TPointD direction = placement * TPointD(std::cos(values.angle), std::sin(values.angle)) -
+                             placement * TPointD();
+    const double x = direction.x, y = direction.y;
     const double front = values.front.strength, back = values.back.strength;
     if (front == 0 && back == 0) return true;
-    box = TRectD(box.x0 + std::min(-back * x, front * x) - 1,
-                 box.y0 + std::min(-back * y, front * y) - 1,
-                 box.x1 + std::max(-back * x, front * x) + 1,
-                 box.y1 + std::max(-back * y, front * y) + 1);
+    const double padX = std::max(1.0, std::abs(placement.a11) + std::abs(placement.a12));
+    const double padY = std::max(1.0, std::abs(placement.a21) + std::abs(placement.a22));
+    box = TRectD(box.x0 + std::min(-back * x, front * x) - padX,
+                 box.y0 + std::min(-back * y, front * y) - padY,
+                 box.x1 + std::max(-back * x, front * x) + padX,
+                 box.y1 + std::max(-back * y, front * y) + padY);
     return true;
   }
   void transform(double frame, int port, const TRectD &output,
@@ -206,6 +214,9 @@ public:
     out << TRasterFx::getAlias(frame, info) << "[celDirectional1:"
         << std::setprecision(std::numeric_limits<double>::max_digits10);
     for (const auto &parameter : m_parameters) out << parameter->getValue(frame) << ',';
+    const TAffine grid = CelFxSourceGrid::renderAffine(m_source.getFx(), frame);
+    for (double component : {grid.a11, grid.a12, grid.a13, grid.a21, grid.a22, grid.a23})
+      out << component << ',';
     // Infinite sources are restricted to this stable composition domain.
     out << info.m_cameraBox.x0 << ',' << info.m_cameraBox.y0 << ','
         << info.m_cameraBox.x1 << ',' << info.m_cameraBox.y1 << ']';

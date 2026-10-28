@@ -64,9 +64,10 @@ The source and optional noise image are retained per render call; concurrent
 tiles do not share mutable analysis. Long trajectories are clipped to the output
 tile before stepping. Runtime still grows with covered pixels and visible streak
 length. Cancellation discards unfinished output.</p>
-<p>Rendering scale changes strength and thickness consistently. Rotation,
-reflection and shear are applied by the host after filtering in the effect's
-axes. Negative origins, strip renders and out-of-order frames use the same
+<p>Raster levels use their native pixel grid for strength and thickness before
+DPI and geometry placement; ambiguous or vector inputs use the scene grid.
+Rotation, reflection and shear are applied by the host after filtering in the
+effect's axes. Negative origins, strip renders and out-of-order frames use the same
 global sampling domain and noise pattern.</p>
 </body>
 </html>
