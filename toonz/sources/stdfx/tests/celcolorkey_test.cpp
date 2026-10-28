@@ -1,4 +1,5 @@
 #include "../celcolorkeyfx.cpp"
+#include "../celfxsourcegrid.h"
 #include "tparamcontainer.h"
 #include "tfxutil.h"
 #include "tmacrofx.h"
@@ -56,6 +57,58 @@ public:
   }
   void doCompute(TTile &tile, double frame, const TRenderSettings &settings) override { compute(tile, frame, settings); }
 };
+
+class BranchSource final : public TStandardRasterFx {
+  TRasterFxPort m_first, m_second;
+public:
+  BranchSource() { addInputPort("first", m_first); addInputPort("second", m_second); }
+  const TPersistDeclaration *getDeclaration() const override { return nullptr; }
+  bool canHandle(const TRenderSettings &, double) override { return true; }
+  bool doGetBBox(double, TRectD &box, const TRenderSettings &) override {
+    box = TRectD(); return false;
+  }
+  void doCompute(TTile &tile, double, const TRenderSettings &) override { tile.getRaster()->clear(); }
+};
+
+void testSourceGridDiscovery() {
+  TRaster32P pixels(1, 1); pixels->fill(TPixel32::White);
+  TFxP source = new Source(pixels);
+  const TAffine outer = TTranslation(2.125, -0.375) * TScale(2, 1);
+  TFxP geometry = TFxUtil::makeAffine(source, outer);
+  require(CelFxSourceGrid::nativeToWorld(geometry.getPointer(), 0) == TAffine(),
+          "An unmarked source unexpectedly selected a native grid");
+  source->setName(L"LevelColumn AffineFx");
+  require(CelFxSourceGrid::nativeToWorld(geometry.getPointer(), 0) == outer,
+          "Identity DPI source lost its outer geometry");
+  source->setName(L"Source");
+  TFxP dpi = TFxUtil::makeAffine(source, TScale(0.25, 0.5));
+  dpi->setName(L"LevelColumn AffineFx");
+  geometry = TFxUtil::makeAffine(dpi, outer);
+  TFxP proxy = new CelColorKeyFx;
+  proxy->getInputPort(0)->setFx(geometry.getPointer());
+  const TAffine placement = outer * TScale(0.25, 0.5);
+  require(CelFxSourceGrid::nativeToWorld(proxy.getPointer(), 0) == placement,
+          "Unary chain lost the composed source placement");
+  TAffine expected = placement.inv();
+  expected.a13 -= std::floor(expected.a13); expected.a23 -= std::floor(expected.a23);
+  require(CelFxSourceGrid::renderAffine(proxy.getPointer(), 0) == expected,
+          "Native render grid was not canonicalized");
+  geometry->getAttributes()->enable(false);
+  require(CelFxSourceGrid::nativeToWorld(proxy.getPointer(), 0) == TScale(0.25, 0.5),
+          "Disabled geometry changed the native grid");
+  TFxP singular = TFxUtil::makeAffine(dpi, TScale(0));
+  require(CelFxSourceGrid::renderAffine(singular.getPointer(), 0) == TAffine(),
+          "Singular placement did not use the ordinary grid");
+  TFxP branch = new BranchSource;
+  branch->getInputPort(0)->setFx(dpi.getPointer());
+  branch->getInputPort(1)->setFx(source.getPointer());
+  require(CelFxSourceGrid::nativeToWorld(branch.getPointer(), 0) == TAffine(),
+          "Ambiguous multi-source graph chose an arbitrary grid");
+  proxy->getInputPort(0)->setFx(proxy.getPointer());
+  const TAffine cyclic = CelFxSourceGrid::renderAffine(proxy.getPointer(), 0);
+  proxy->getInputPort(0)->setFx(nullptr);
+  require(cyclic == TAffine(), "Cyclic graph did not stop grid discovery");
+}
 template <class Pixel>
 TRasterPT<Pixel> render(CelColorKeyFx &fx, int width, TPointD position = TPointD()) {
   TRasterPT<Pixel> result(width, 1); TTile tile; tile.setRaster(result); tile.m_pos = position;
@@ -171,7 +224,7 @@ struct RenderContext {
 
 template <class Pixel>
 TRasterPT<Pixel> hostRender(TRasterFx &fx, const TAffine &affine, int strips,
-                           bool linear = false) {
+                           bool linear = false, bool integerOrigin = false) {
   RenderContext context;
   constexpr int width = 48, height = 36;
   TRasterPT<Pixel> output(width, height);
@@ -186,7 +239,7 @@ TRasterPT<Pixel> hostRender(TRasterFx &fx, const TAffine &affine, int strips,
     const int y0 = height * strip / strips, y1 = height * (strip + 1) / strips;
     TRasterPT<Pixel> part(width, y1 - y0);
     part->clear(); part->setLinear(linear);
-    TTile tile(part, TPointD(-8.25, -6.5 + y0));
+    TTile tile(part, integerOrigin ? TPointD(-8, -6 + y0) : TPointD(-8.25, -6.5 + y0));
     fx.compute(tile, 0, settings);
     output->copy(tile.getRaster(), TPoint(0, y0));
   }
@@ -272,11 +325,11 @@ void testLevelDpiGrid() {
                                     TTranslation(2.5, 1.25) * TRotation(17) * TScale(3)}) {
         // Moving the DPI placement after the pixel operation is an independent
         // graph equivalence: classify and modify native pixels, then resample.
-        compareImages(hostRender<Pixel>(native, camera * placement, 1),
-                      hostRender<Pixel>(keyed, camera, 1),
+        compareImages(hostRender<Pixel>(native, camera * placement, 1, false, true),
+                      hostRender<Pixel>(keyed, camera, 1, false, true),
                       "Level DPI resampled colors before Color Key");
-        compareImages(hostRender<Pixel>(keyed, camera, 1),
-                      hostRender<Pixel>(keyed, camera, 4),
+        compareImages(hostRender<Pixel>(keyed, camera, 1, false, true),
+                      hostRender<Pixel>(keyed, camera, 4, false, true),
                       "Level DPI introduced Color Key tile seams");
       }
     }
@@ -473,6 +526,7 @@ int main(int argc, char **argv) {
     std::cout << "Checking transformed production rendering" << std::endl;
     testHostTransforms<TPixel32>(); testHostTransforms<TPixel64>(); testHostTransforms<TPixelF>();
     std::cout << "Checking native pixels across level DPI placement" << std::endl;
+    testSourceGridDiscovery();
     testLevelDpiGrid<TPixel32>(); testLevelDpiGrid<TPixel64>(); testLevelDpiGrid<TPixelF>();
     testPartiallyWrittenSource();
     checkInputSize(2, 3, 16);

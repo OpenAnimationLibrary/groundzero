@@ -149,6 +149,7 @@ void testLevelCompatibility() {
 int main(int argc, char **argv) {
   QCoreApplication app(argc, argv);
   TThread::init();
+  TRenderer::initialize();
   int result = 1;
   try {
     testOptIn();
