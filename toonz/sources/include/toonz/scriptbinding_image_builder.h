@@ -37,6 +37,7 @@ class DVAPI ImageBuilder final : public Wrapper {
   int m_width, m_height;
 
   QString add(const TImageP &img, const TAffine &aff);
+  QString addImage(const TImageP &img, const TAffine &aff);
 
 public:
   ImageBuilder();

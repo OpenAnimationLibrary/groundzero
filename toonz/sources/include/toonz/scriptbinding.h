@@ -61,6 +61,8 @@ typedef std::function<QJSValue(QJSEngine *engine, const QJSValueList &args)>
 // their script constructor, so that e.g. "" + image calls Image::toString()
 // and image instanceof Image is true.
 DVAPI QJSValue wrap(QJSEngine *engine, QObject *obj);
+// The same, from a method of caller, which must not be deleted meanwhile
+DVAPI QJSValue wrap(QJSEngine *engine, QObject *obj, const QObject *caller);
 
 // Returns the object wrapped by value, if it is a T (else 0)
 template <class T>
@@ -105,7 +107,7 @@ public:
 protected:
   template <class T>
   QJSValue create(T *obj) const {
-    return create(engine(), obj);
+    return wrap(engine(), obj, this);
   }
 
   // The engine running the script that is calling this object (the object

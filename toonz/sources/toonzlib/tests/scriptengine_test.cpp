@@ -198,6 +198,14 @@ void testBindings(Console &console) {
   // chained calls return the same script object, with its script properties
   expect(console, "b.fill('blue') === b", result, "true");
   expect(console, "b.tag = 'mine'; b.fill('green').tag", result, "\"mine\"");
+  // destroy() (it calls deleteLater()) then a method: the deletion that
+  // wrap() runs must not free the object running the method (it was freed,
+  // then used). Engines without destroy() have nothing to check.
+  expect(console,
+         "var d = new ImageBuilder(4, 3, 'Raster'); "
+         "typeof d.destroy !== 'function' || "
+         "(d.destroy(), d.fill('red') === d)",
+         result, "true");
   expect(console, "b.image", result, "Raster image ( 4 x 3 )");
   expect(console, "new ImageBuilder().add(b.image).add(b.image).image.width",
          result, "4");
@@ -362,6 +370,9 @@ void testStageObjects(Console &console) {
               "col2.getValue('x', 0)",
               "The stage object Col2 is no longer in the scene");
   expect(console, "String(col2)", result, "\"StageObject (removed)\"");
+  // removeColumn() does not check the index itself
+  expectError(console, "s.deleteColumn(-1)", "Bad column index (-1)");
+  expectError(console, "s.deleteColumn(100)", "Bad column index (100)");
 }
 
 void testImagesLevelsScene(Console &console) {

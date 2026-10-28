@@ -116,6 +116,11 @@ inline TAffine renderAffine(TFx *source, double frame) {
   // repeated affine wrapper while retaining the native sampling phase.
   grid.a13 -= std::floor(grid.a13);
   grid.a23 -= std::floor(grid.a23);
+  // x - floor(x) rounds to exactly 1 for a tiny negative x (residue of the
+  // inverse): that is no canonical form, and TRasterFx would wrap the fx
+  // again on each call, recursing without end
+  if (grid.a13 >= 1.0) grid.a13 = 0.0;
+  if (grid.a23 >= 1.0) grid.a23 = 0.0;
   return grid;
 }
 

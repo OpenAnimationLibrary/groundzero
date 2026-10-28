@@ -732,7 +732,9 @@ int main(int argc, char *argv[]) {
                       .replace("\"", "\\\"");
       QString cmd = QString("run(\"%1\")").arg(s);
       engine.evaluate(cmd);
-      engine.wait();
+      // The script can wait for the main thread (renders are started and
+      // reported there, view() runs there): keep delivering its calls
+      while (!engine.wait(20)) QCoreApplication::processEvents();
       if (!oldProjectPath.isEmpty()) pm->setCurrentProjectPath(oldProjectPath);
       return 1;
     } else {

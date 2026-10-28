@@ -85,6 +85,7 @@ QJSValue Scene::getLevels() const {
     TXshSimpleLevel *sl = (*it)->getSimpleLevel();
     if (sl) {
       Level *level = new Level(sl);
+      level->keepScene(self());
       result.setProperty(index++, create(engine(), level));
     }
   }
@@ -96,6 +97,7 @@ QJSValue Scene::getLevel(const QString &name) const {
   TXshSimpleLevel *sl = xl ? xl->getSimpleLevel() : 0;
   if (sl) {
     Level *level = new Level(sl);
+    level->keepScene(self());
     return create(engine(), level);
   } else
     return QJSValue();
@@ -121,7 +123,9 @@ QJSValue Scene::newLevel(const QString &levelTypeStr,
 
   TXshLevel *xl = m_scene->createNewLevel(levelType, levelName.toStdWString());
   xl->getSimpleLevel()->setDirtyFlag(true);
-  return create(engine(), new Level(xl->getSimpleLevel()));
+  Level *level = new Level(xl->getSimpleLevel());
+  level->keepScene(self());
+  return create(engine(), level);
 }
 
 QJSValue Scene::loadLevel(const QString &levelName,
@@ -138,7 +142,9 @@ QJSValue Scene::loadLevel(const QString &levelName,
   TXshLevel *xl = m_scene->loadLevel(fp);
   if (!xl || !xl->getSimpleLevel())
     return throwError(tr("Could not load level %1").arg(fpArg.toString()));
-  return create(engine(), new Level(xl->getSimpleLevel()));
+  Level *level = new Level(xl->getSimpleLevel());
+  level->keepScene(self());
+  return create(engine(), level);
 }
 
 QString Scene::doSetCell(int row, int col, const QJSValue &levelArg,
@@ -224,6 +230,9 @@ QJSValue Scene::insertColumn(int col) {
 }
 
 QJSValue Scene::deleteColumn(int col) {
+  // removeColumn() does not check the index: a bad one corrupts the memory
+  if (col < 0 || col >= m_scene->getXsheet()->getColumnCount())
+    return throwError(tr("Bad column index (%1)").arg(col));
   m_scene->getXsheet()->removeColumn(col);
   return self();
 }
