@@ -1426,6 +1426,10 @@ QMenuBar *StackedMenuBar::createFullMenuBar() {
     addMenuItem(arrangeMenu, MI_SendBackward);
     addMenuItem(arrangeMenu, MI_SendBack);
   }
+  editMenu->addSeparator();
+  addMenuItem(editMenu, MI_DistributeToLayers);
+  addMenuItem(editMenu, MI_DistributeToFrames);
+  addMenuItem(editMenu, MI_ConvertSelectionToSymbol);
 
   // Menu' SCAN CLEANUP
   QMenu *scanCleanupMenu = addMenu(tr("Scan && Cleanup"), fullMenuBar);
