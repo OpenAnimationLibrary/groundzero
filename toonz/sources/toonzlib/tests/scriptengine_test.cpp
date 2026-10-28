@@ -198,11 +198,13 @@ void testBindings(Console &console) {
   // chained calls return the same script object, with its script properties
   expect(console, "b.fill('blue') === b", result, "true");
   expect(console, "b.tag = 'mine'; b.fill('green').tag", result, "\"mine\"");
-  // deleteLater() then a method: the deletion that wrap() runs must not
-  // free the object running the method (it was freed, then used)
+  // destroy() (it calls deleteLater()) then a method: the deletion that
+  // wrap() runs must not free the object running the method (it was freed,
+  // then used). Engines without destroy() have nothing to check.
   expect(console,
-         "var d = new ImageBuilder(4, 3, 'Raster'); d.deleteLater(); "
-         "d.fill('red') === d",
+         "var d = new ImageBuilder(4, 3, 'Raster'); "
+         "typeof d.destroy !== 'function' || "
+         "(d.destroy(), d.fill('red') === d)",
          result, "true");
   expect(console, "b.image", result, "Raster image ( 4 x 3 )");
   expect(console, "new ImageBuilder().add(b.image).add(b.image).image.width",
