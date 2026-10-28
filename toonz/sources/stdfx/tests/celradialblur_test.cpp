@@ -50,6 +50,23 @@ public:
   }
   void doCompute(TTile &tile, double frame, const TRenderSettings &settings) override { compute(tile, frame, settings); }
 };
+class HugeBoundsSource final : public TStandardRasterFx {
+public:
+  const TPersistDeclaration *getDeclaration() const override { return nullptr; }
+  bool canHandle(const TRenderSettings &, double) override { return true; }
+  bool doGetBBox(double, TRectD &box, const TRenderSettings &) override {
+    box = TRectD(0, 0, 100000000, 100000000); return true;
+  }
+  std::string getAlias(double, const TRenderSettings &) const override { return "large-radial-source"; }
+  void compute(TTile &tile, double, const TRenderSettings &) override {
+    TRaster32P raster = tile.getRaster(); require(bool(raster), "Expected 8-bit tile");
+    raster->fill(TPixel32::White);
+  }
+  void doCompute(TTile &tile, double frame, const TRenderSettings &settings) override {
+    compute(tile, frame, settings);
+  }
+};
+
 template <class Pixel>
 TRasterPT<Pixel> render(CelRadialBlurFx &fx, int width, int height, TPointD origin = TPointD()) {
   TRasterPT<Pixel> output(width, height); TTile tile; tile.setRaster(output); tile.m_pos = origin;
@@ -283,13 +300,25 @@ void precisionAndPersistence(const QString &path) {
           "Scene loading lost animated choice metadata");
 }
 
+void zeroBlurDoesNotAllocateDomain() {
+  CelRadialBlurFx fx; fx.getInputPort(0)->setFx(new HugeBoundsSource);
+  TRenderSettings settings;
+  const TRectD output(12, 20, 16, 21);
+  TRectD request; TRenderSettings inputSettings;
+  fx.transform(0, 0, output, settings, request, inputSettings);
+  require(request == output && fx.getMemoryRequirement(output, 0, settings) == 0,
+          "Zero blur requested the whole source domain");
+  require(render<TPixel32>(fx, 4, 1, TPointD(12, 20))->pixels(0)[0] == TPixel32::White,
+          "Zero blur did not pass through a large source");
+}
+
 void initializedInputs() {
   TRaster32P source(5, 1); source->fill(TPixel32::White);
   TRaster32P noise(5, 1); noise->fill(TPixel32::White);
   CelRadialBlurFx fx;
   fx.getInputPort(0)->setFx(new Source(source, TPointD(), nullptr, true));
   fx.getInputPort(1)->setFx(new Source(noise, TPointD(), nullptr, true));
-  set(fx, "noiseType", 2); set(fx, "noiseVariation", 100);
+  set(fx, "noiseType", 2); set(fx, "noiseVariation", 100); set(fx, "outerStrength", 1);
   require(render<TPixel32>(fx, 5, 1)->pixels(0)[0] == TPixel32::White,
           "Cleared upstream inputs did not render correctly");
 }
@@ -315,7 +344,8 @@ int main(int argc, char **argv) {
     integerGainPremultiplication<TPixel32>(); integerGainPremultiplication<TPixel64>();
     shapeAndNoise(); noiseModes(); QTemporaryDir temp; require(temp.isValid(), "Cannot create scene fixture");
     precisionAndPersistence(temp.filePath("radial.fx"));
-    presetAndMacro(temp.filePath("radial.preset"), temp.filePath("radial.macro")); initializedInputs(); cancellation();
+    presetAndMacro(temp.filePath("radial.preset"), temp.filePath("radial.macro"));
+    zeroBlurDoesNotAllocateDomain(); initializedInputs(); cancellation();
     std::cout << "PASS: radial geometry, controls, precision, tiles and cancellation\n"; return 0;
   } catch (const TException &error) {
     std::cerr << QString::fromStdWString(error.getMessage()).toStdString() << '\n';

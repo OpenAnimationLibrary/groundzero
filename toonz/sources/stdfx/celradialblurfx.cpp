@@ -142,11 +142,15 @@ bool CelRadialBlurFx::doGetBBox(double frame, TRectD &box, const TRenderSettings
   return true;
 }
 
-void CelRadialBlurFx::transform(double frame, int port, const TRectD &,
+void CelRadialBlurFx::transform(double frame, int port, const TRectD &output,
                                 const TRenderSettings &settings, TRectD &input,
                                 TRenderSettings &inputSettings) {
   inputSettings = settings;
   input = TRectD();
+  if (support(frame) <= 2.0 && limited(m_brightness->getValue(frame), 0, 10, 1) == 1.0) {
+    if (port == 0 && m_source.isConnected()) input = output;
+    return;
+  }
   if ((port == 0 && m_source.isConnected()) ||
       (port == 1 && m_noise.isConnected() && mode(m_noiseType->getValue(frame), 2) == 2))
     sourceDomain(frame, settings, input);
@@ -154,6 +158,8 @@ void CelRadialBlurFx::transform(double frame, int port, const TRectD &,
 
 int CelRadialBlurFx::getMemoryRequirement(const TRectD &, double frame,
                                           const TRenderSettings &settings) {
+  if (support(frame) <= 2.0 && limited(m_brightness->getValue(frame), 0, 10, 1) == 1.0)
+    return 0;
   TRectD domain;
   if (!sourceDomain(frame, settings, domain)) return 0;
   // Two source rasters, double-precision images, labels and distance work.
@@ -198,6 +204,28 @@ struct RasterLock {
   explicit RasterLock(const TRasterP &r) : raster(r) { raster->lock(); }
   ~RasterLock() { raster->unlock(); }
 };
+
+template <class Pixel>
+bool cleanPassthrough(const TRasterPT<Pixel> &raster, const int *cancel) {
+  RasterLock lock(raster);
+  for (int y = 0; y < raster->getLy(); ++y) {
+    if (isCanceled(cancel)) return false;
+    Pixel *row = raster->pixels(y);
+    for (int x = 0; x < raster->getLx(); ++x) {
+      Pixel &pixel = row[x];
+      if constexpr (std::is_same<Pixel, TPixelF>::value) {
+        if (!(pixel.m > 0) || !std::isfinite(pixel.m) || !std::isfinite(pixel.r) ||
+            !std::isfinite(pixel.g) || !std::isfinite(pixel.b)) pixel = Pixel::Transparent;
+      } else if (pixel.m == 0) pixel = Pixel::Transparent;
+      else {
+        pixel.r = std::min(pixel.r, pixel.m);
+        pixel.g = std::min(pixel.g, pixel.m);
+        pixel.b = std::min(pixel.b, pixel.m);
+      }
+    }
+  }
+  return !isCanceled(cancel);
+}
 
 template <class Pixel>
 bool readImage(const TRasterPT<Pixel> &raster, const TRectD &domain,
@@ -386,6 +414,18 @@ void CelRadialBlurFx::doCompute(TTile &tile, double frame,
                                 const TRenderSettings &settings) {
   tile.getRaster()->clear();
   if (!m_source.isConnected() || isCanceled(settings.m_isCanceled)) return;
+  // The default zero-blur effect needs no whole-image analysis. This also
+  // avoids allocating a canonical image just to show an unchanged preview.
+  if (support(frame) <= 2.0 && limited(m_brightness->getValue(frame), 0, 10, 1) == 1.0) {
+    m_source->compute(tile, frame, settings);
+    bool complete = false;
+    if (TRaster32P raster = tile.getRaster()) complete = cleanPassthrough<TPixel32>(raster, settings.m_isCanceled);
+    else if (TRaster64P raster = tile.getRaster()) complete = cleanPassthrough<TPixel64>(raster, settings.m_isCanceled);
+    else if (TRasterFP raster = tile.getRaster()) complete = cleanPassthrough<TPixelF>(raster, settings.m_isCanceled);
+    else throw TException("Cel Radial Blur: unsupported output pixel type");
+    if (!complete) tile.getRaster()->clear();
+    return;
+  }
   TRectD domain;
   if (!sourceDomain(frame, settings, domain)) return;
   const TDimension size{int(domain.getLx()), int(domain.getLy())};
