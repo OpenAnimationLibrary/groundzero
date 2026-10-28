@@ -163,7 +163,7 @@ int CelRadialBlurFx::getMemoryRequirement(const TRectD &, double frame,
   TRectD domain;
   if (!sourceDomain(frame, settings, domain)) return 0;
   // Two source rasters, double-precision images, labels and distance work.
-  const double megabytes = std::ceil(domain.getLx() * domain.getLy() * 128.0 / (1024.0 * 1024.0));
+  const double megabytes = std::ceil(domain.getLx() * domain.getLy() * 160.0 / (1024.0 * 1024.0));
   return megabytes >= double(std::numeric_limits<int>::max()) ?
       std::numeric_limits<int>::max() : int(megabytes);
 }
@@ -315,6 +315,39 @@ size_t dominantPixel(const CelMotion::Image &image, const CelMotion::Shapes &sha
   return result;
 }
 
+// Follow the inverse trail to the side from which this lobe originates. An
+// unsigned distance-to-background alone also fades the unrelated lateral and
+// leading edges. The distance field bounds each safe step; cells are sampled
+// at their centers and repeated image borders keep their source label.
+double oppositeEdge(const CelMotion::Image &image, const CelMotion::Shapes &shapes,
+                    const CelDistance::Field &edges, const RadialSettings &settings,
+                    size_t index, bool outer, double fadeRange, const int *cancel) {
+  const int x = int(index % image.width), y = int(index / image.width);
+  const CelRadial::Point start{image.originX + x, image.originY + y};
+  const auto label = shapes.labels[index];
+  double distance = 0;
+  size_t current = index;
+  for (int iteration = 0; distance < fadeRange; ++iteration) {
+    if ((iteration & 63) == 0 && isCanceled(cancel)) return 0;
+    const double fieldDistance = edges.distance[current];
+    const double step = std::isfinite(fieldDistance) ? std::max(0.25, fieldDistance - 1.5) : fadeRange;
+    distance = std::min(fadeRange, distance + step);
+    const auto point = CelRadial::trajectory(start, settings.center, settings.ratio,
+                                             settings.angle, distance, settings.rotation, outer);
+    double px = point.x - image.originX, py = point.y - image.originY;
+    if (settings.repeat) {
+      px = std::max(0.0, std::min(double(image.width - 1), px));
+      py = std::max(0.0, std::min(double(image.height - 1), py));
+    } else if (px < -0.5 || py < -0.5 || px >= image.width - 0.5 || py >= image.height - 0.5) {
+      return distance / fadeRange;
+    }
+    const int sx = int(std::floor(px + 0.5)), sy = int(std::floor(py + 0.5));
+    current = size_t(sy) * image.width + sx;
+    if (shapes.labels[current] != label) return distance / fadeRange;
+  }
+  return 1.0;
+}
+
 template <class Pixel>
 bool renderRadial(const CelMotion::Image &source, const CelMotion::Image *noiseImage,
                   const CelMotion::Shapes &shapes, const CelDistance::Field &edges,
@@ -324,6 +357,9 @@ bool renderRadial(const CelMotion::Image &source, const CelMotion::Image *noiseI
   const double maximumSupport = std::max(
       sideLength(settings.outer, settings.outerOffset, settings.outerMode),
       sideLength(settings.inner, settings.innerOffset, settings.innerMode)) + 2.0;
+  std::vector<float> outerEdges, innerEdges;
+  if (settings.outerFade > 0) outerEdges.assign(shapes.labels.size(), -1.0f);
+  if (settings.innerFade > 0) innerEdges.assign(shapes.labels.size(), -1.0f);
   for (int y = 0; y < output->getLy(); ++y) {
     if (isCanceled(cancel)) return false;
     Pixel *row = output->pixels(y);
@@ -386,10 +422,15 @@ bool renderRadial(const CelMotion::Image &source, const CelMotion::Image *noiseI
           if (distance > allowed) continue;
           const double fadeRange = std::max(1.0, std::sqrt(double(component.count)) *
                                                    (0.05 + 0.45 * settings.sizeVariation));
-          const double edge = !edges.distance.empty() && std::isfinite(edges.distance[index])
-                                  ? std::max(0.0, std::min(1.0, (edges.distance[index] - 0.5) / fadeRange))
-                                  : 1.0;
-          const double weight = (1.0 - fade * (1.0 - edge) * (1.0 - fraction)) / settings.quality;
+          double edge = 1.0;
+          if (fade > 0) {
+            auto &cache = outer ? outerEdges : innerEdges;
+            if (cache[index] < 0)
+              cache[index] = float(oppositeEdge(source, shapes, edges, settings,
+                                                index, outer, fadeRange, cancel));
+            edge = cache[index];
+          }
+          const double weight = (1.0 - fade * (1.0 - edge)) / settings.quality;
           add(CelMotion::sample(source, sx, sy), weight);
         }
       }

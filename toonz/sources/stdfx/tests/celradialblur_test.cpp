@@ -104,6 +104,42 @@ void geometry() {
     }
 }
 
+void oppositeEdges() {
+  CelMotion::Image image;
+  image.width = 10; image.height = 3;
+  image.pixels.resize(30);
+  for (int y = 0; y < 3; ++y)
+    for (int x = 2; x <= 7; ++x) image.pixels[size_t(y) * 10 + x] = {{1, 1, 1, 1}};
+  CelMotion::Shapes shapes; require(CelMotion::analyze(image, shapes), "Cannot analyze zoom fixture");
+  std::vector<std::uint8_t> background(shapes.labels.size());
+  for (size_t i = 0; i < background.size(); ++i) background[i] = shapes.labels[i] == 0;
+  CelDistance::Field edges;
+  require(CelDistance::transform(background, 10, 3, CelDistance::Metric::Euclidean, edges, nullptr, true),
+          "Cannot analyze zoom boundaries");
+  RadialSettings settings; settings.center = {-100, 1};
+  const auto edge = [&](int x, int y, bool outer) {
+    return oppositeEdge(image, shapes, edges, settings, size_t(y) * 10 + x, outer, 3, nullptr);
+  };
+  require(edge(2, 1, true) < edge(7, 1, true) && edge(7, 1, false) < edge(2, 1, false),
+          "Zoom fades did not select opposite inner and outer edges");
+  require(std::abs(edge(4, 0, true) - edge(4, 1, true)) <= 0.1,
+          "Zoom fade incorrectly used a lateral edge");
+
+  image = CelMotion::Image(); image.width = image.height = 7; image.pixels.resize(49);
+  for (const auto &point : {TPoint(5, 3), TPoint(5, 4), TPoint(4, 5), TPoint(3, 5), TPoint(2, 5)})
+    image.pixels[size_t(point.y) * 7 + point.x] = {{1, 1, 1, 1}};
+  require(CelMotion::analyze(image, shapes), "Cannot analyze rotation fixture");
+  background.resize(shapes.labels.size());
+  for (size_t i = 0; i < background.size(); ++i) background[i] = shapes.labels[i] == 0;
+  require(CelDistance::transform(background, 7, 7, CelDistance::Metric::Euclidean, edges, nullptr, true),
+          "Cannot analyze rotation boundaries");
+  settings.center = {3, 3}; settings.rotation = true;
+  const size_t endpoint = size_t(3) * 7 + 5;
+  require(oppositeEdge(image, shapes, edges, settings, endpoint, false, 2, nullptr) <
+              oppositeEdge(image, shapes, edges, settings, endpoint, true, 2, nullptr),
+          "Rotation fades did not follow opposite curved paths");
+}
+
 template <class Pixel>
 void directionsAndTiles() {
   TRasterPT<Pixel> source(9, 1); source->clear();
@@ -353,7 +389,7 @@ void cancellation() {
 int main(int argc, char **argv) {
   QCoreApplication app(argc, argv);
   try {
-    geometry(); directionsAndTiles<TPixel32>(); directionsAndTiles<TPixel64>(); directionsAndTiles<TPixelF>();
+    geometry(); oppositeEdges(); directionsAndTiles<TPixel32>(); directionsAndTiles<TPixel64>(); directionsAndTiles<TPixelF>();
     rotationAndBorders<TPixel32>(); rotationAndBorders<TPixel64>(); rotationAndBorders<TPixelF>();
     integerGainPremultiplication<TPixel32>(); integerGainPremultiplication<TPixel64>();
     shapeAndNoise(); noiseModes(); QTemporaryDir temp; require(temp.isValid(), "Cannot create scene fixture");

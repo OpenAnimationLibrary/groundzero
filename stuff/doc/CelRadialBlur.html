@@ -18,7 +18,9 @@ trajectory samples from 1–50. Larger values smooth longer trails at greater
 rendering cost. The viewer's center and ellipse handles also edit the native
 parameters.</p>
 <h2>Edges, size and brightness</h2>
-<p>Outer and Inner Edge Fade independently soften the respective trails. Repeat
+<p>Outer Edge Fade softens the inner side of each group along the zoom or
+rotation path; Inner Edge Fade softens its outer side. Their fade regions grow
+with Size Variation. Repeat
 Border extends the original finite image boundary for edge fading; it has no
 effect when fade is zero. A connected group is an eight-connected region of
 nontransparent pixels. Size Variation scales trail strength by group area: at
