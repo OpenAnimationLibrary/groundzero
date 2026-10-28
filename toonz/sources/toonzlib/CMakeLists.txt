@@ -156,6 +156,7 @@ set(HEADERS
     ../include/toonz/tstageobjectspline.h
     ../include/toonz/tstageobjecttree.h
     ../include/toonz/timeremap.h
+    ../include/toonz/columncoloreffect.h
     ../include/toonz/timeremapcmd.h
     ../include/toonz/ttilesaver.h
     ../include/toonz/ttileset.h
@@ -480,6 +481,15 @@ if(BUILD_PEGBARGUIDE_TESTS)
     add_executable(pegbarguide_test tests/pegbarguide_test.cpp)
     target_link_libraries(pegbarguide_test PRIVATE toonzlib tnzcore Qt${QT_VERSION_MAJOR}::Core)
     add_test(NAME pegbarguide COMMAND pegbarguide_test)
+endif()
+
+# Optional regression target for the per-column Color Effect (the math of
+# columncoloreffect.h and the column fx parameters, saved only when used).
+option(BUILD_COLUMNCOLOREFFECT_TESTS "Build the column Color Effect regression test" ${BUILD_TESTS})
+if(BUILD_COLUMNCOLOREFFECT_TESTS)
+    add_executable(columncoloreffect_test tests/columncoloreffect_test.cpp)
+    target_link_libraries(columncoloreffect_test PRIVATE toonzlib tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core)
+    add_test(NAME columncoloreffect COMMAND columncoloreffect_test)
 endif()
 
 # Optional regression target for the export to an aspect ratio

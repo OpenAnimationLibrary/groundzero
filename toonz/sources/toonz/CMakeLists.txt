@@ -186,6 +186,7 @@ set(HEADERS
     cellkeyframeselection.h
     cellselection.h
     columncommand.h
+    columncoloreffectpopup.h
     columnselection.h
     customhelplink.h
     curveio.h
@@ -278,6 +279,7 @@ set(SOURCES
     xshcellmover.cpp
     xshcellviewer.cpp
     xshcolumnviewer.cpp
+    columncoloreffectpopup.cpp
     xsheetdragtool.cpp
     xsheetviewer.cpp
     xshnoteviewer.cpp

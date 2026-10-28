@@ -30,6 +30,11 @@ DVAPI TFxP makeBlur(const TFxP &arg, double value);
 
 DVAPI TFxP makeColumnColorFilter(const TFxP &arg, TPixel32 colorScale);
 
+//! Applies a column Color Effect: out = m * in + c per channel (r, g, b,
+//! alpha) on the straight colors in 0..255 (see toonz/columncoloreffect.h).
+DVAPI TFxP makeColumnColorEffect(const TFxP &arg, const double m[4],
+                                 const double c[4]);
+
 DVAPI TFxP makeRadialGradient(/*TPixel32 color*/);
 
 enum { NO_KEYFRAMES = 0, ALL_KEYFRAMES = 1, SOME_KEYFRAMES = -1 };

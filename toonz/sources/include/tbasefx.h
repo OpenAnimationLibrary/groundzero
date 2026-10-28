@@ -68,4 +68,41 @@ public:
                        const TRenderSettings &info) const override;
 };
 
+//******************************************************************************
+//    ColumnColorEffectFx  declaration
+//******************************************************************************
+
+//! Applies the Color Effect of a column (doc/animate_color_effect.md): a
+//! multiply and an offset per channel (r, g, b, alpha) of the straight colors
+//! in 0..255, out = m * in + c, clamped. Built by the render for each frame
+//! with the values at that frame (see FxBuilder); hidden and never saved.
+class ColumnColorEffectFx final : public TBaseRasterFx {
+  FX_DECLARATION(ColumnColorEffectFx)
+  double m_m[4], m_c[4];
+
+protected:
+  TRasterFxPort m_port;
+
+public:
+  ColumnColorEffectFx();
+
+  ~ColumnColorEffectFx() {}
+
+  TFx *clone(bool recursive) const override;
+
+  bool canHandle(const TRenderSettings &info, double frame) override {
+    return true;
+  }
+
+  bool doGetBBox(double frame, TRectD &bBox,
+                 const TRenderSettings &info) override;
+
+  void doCompute(TTile &tile, double frame, const TRenderSettings &ri) override;
+
+  void setColorEffect(const double m[4], const double c[4]);
+
+  std::string getAlias(double frame,
+                       const TRenderSettings &info) const override;
+};
+
 #endif  // TBASEFX_INCLUDED

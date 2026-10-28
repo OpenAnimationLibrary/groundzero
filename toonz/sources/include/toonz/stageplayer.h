@@ -11,6 +11,9 @@
 // TnzExt includes
 #include "ext/ttexturesstorage.h"
 
+// TnzLib includes
+#include "toonz/columncoloreffect.h"
+
 #undef DVAPI
 #undef DVVAR
 #ifdef TOONZLIB_EXPORTS
@@ -114,6 +117,10 @@ public:
   static bool m_isShiftAndTraceEnabled;
 
   TPixel32 m_filterColor;
+
+  //! The Color Effect of the column (and of the sub-xsheet columns holding
+  //! it) at the player's frame; the identity if there is none.
+  ColumnColorEffect::Transform m_colorEffect;
 
 public:
   Player();

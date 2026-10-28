@@ -26,6 +26,7 @@
 #include "toonz/txshchildlevel.h"
 #include "toonz/txshcolumn.h"
 #include "toonz/txshlevelcolumn.h"
+#include "toonz/tcolumnfx.h"
 #include "toonz/txshcell.h"
 #include "toonz/onionskinmask.h"
 #include "toonz/dpiscale.h"
@@ -186,6 +187,8 @@ public:
     ZPlacement m_camera;
     TAffine m_aff, m_zaff;
     double m_z;
+    // the Color Effect of the sub-xsheet columns that hold this one
+    ColumnColorEffect::Transform m_colorEffect;
   };
 
 public:
@@ -481,6 +484,15 @@ void StageBuilder::addCell(PlayerSet &players, ToonzScene *scene, TXsheet *xsh,
     player.m_filterColor =
         scene->getProperties()->getColorFilterColor(column->getColorFilterId());
 
+    // The Color Effect of the column, then the one of the sub-xsheet columns
+    // that hold it, at the output row (as in the render)
+    if (TXshLevelColumn *levelColumn = column->getLevelColumn())
+      player.m_colorEffect =
+          levelColumn->getLevelColumnFx()->getColorEffect(row);
+    if (!m_subXSheetStack.empty())
+      player.m_colorEffect =
+          player.m_colorEffect.then(m_subXSheetStack.back().m_colorEffect);
+
     if (m_subXSheetStack.empty()) {
       player.m_z         = columnZ;
       player.m_placement = m_camera3d ? columnAff : columnZaff;
@@ -577,6 +589,14 @@ void StageBuilder::addCell(PlayerSet &players, ToonzScene *scene, TXsheet *xsh,
       subXSheet.m_aff  = parentXSheet.m_aff * subXSheet.m_aff;
       subXSheet.m_zaff = parentXSheet.m_zaff * subXSheet.m_zaff;
     }
+
+    // The Color Effect of the sub-xsheet column applies to all its contents
+    if (TXshLevelColumn *levelColumn = column->getLevelColumn())
+      subXSheet.m_colorEffect =
+          levelColumn->getLevelColumnFx()->getColorEffect(row);
+    if (!m_subXSheetStack.empty())
+      subXSheet.m_colorEffect =
+          subXSheet.m_colorEffect.then(m_subXSheetStack.back().m_colorEffect);
 
     m_subXSheetStack.push_back(subXSheet);
 
