@@ -132,6 +132,8 @@ void rotationAndBorders() {
   auto repeat = render<Pixel>(border, 4, 1);
   require(repeat->pixels(0)[3].m > noRepeat->pixels(0)[3].m,
           "Repeat Border did not prevent boundary fading");
+  require(render<Pixel>(border, 1, 1, TPointD(20, 0))->pixels(0)[0] == Pixel::Transparent,
+          "Repeat Border extended output past its support");
   set(border, "outerFade", 0); set(border, "repeatBorder", 0);
   auto noFade = render<Pixel>(border, 4, 1);
   set(border, "repeatBorder", 1);

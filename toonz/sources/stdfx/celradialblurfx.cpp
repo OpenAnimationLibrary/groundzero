@@ -271,6 +271,12 @@ bool renderRadial(const CelMotion::Image &source, const CelMotion::Image *noiseI
     Pixel *row = output->pixels(y);
     for (int x = 0; x < output->getLx(); ++x) {
       const double gx = origin.x + x, gy = origin.y + y;
+      const double maximumSupport = std::max(
+          sideLength(settings.outer, settings.outerOffset, settings.outerMode),
+          sideLength(settings.inner, settings.innerOffset, settings.innerMode)) + 2.0;
+      if (gx < source.originX - maximumSupport || gy < source.originY - maximumSupport ||
+          gx >= source.originX + source.width + maximumSupport ||
+          gy >= source.originY + source.height + maximumSupport) continue;
       CelMotion::Pixel sum{};
       double totalWeight = 0;
       auto add = [&](const CelMotion::Pixel &pixel, double weight) {
