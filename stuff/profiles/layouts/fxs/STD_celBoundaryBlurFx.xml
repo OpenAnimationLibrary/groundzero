@@ -4,5 +4,6 @@
     <control>smoothness</control>
     <control decimals="0">repeats</control>
     <control>bias</control>
+    <control>legacy</control>
   </page>
 </fxlayout>
