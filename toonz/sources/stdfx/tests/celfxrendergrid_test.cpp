@@ -154,11 +154,14 @@ void testVectorLevelGrid() {
   auto *simple = level->getSimpleLevel();
   simple->setType(PLI_XSHLEVEL);
   simple->setScene(&scene);
+  simple->setPalette(new TPalette);
   TVectorImageP image(new TVectorImage());
   const std::vector<TThickPoint> points{
       TThickPoint(-3.125, -1.375, .5), TThickPoint(1.375, 2.625, .5),
       TThickPoint(5.875, -1.375, .5)};
-  image->addStroke(new TStroke(points));
+  auto *stroke = new TStroke(points);
+  stroke->setStyle(1);
+  image->addStroke(stroke);
   simple->setFrame(TFrameId(1), image);
   TXshLevelColumn column;
   require(column.setCell(0, TXshCell(level, TFrameId(1))), "Cannot create vector level fixture");
