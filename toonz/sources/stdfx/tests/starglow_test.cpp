@@ -23,6 +23,13 @@ public:
   }
   void doCompute(TTile &tile, double frame, const TRenderSettings &settings) override { compute(tile, frame, settings); }
 };
+class HugeSource final : public TStandardRasterFx {
+public:
+  const TPersistDeclaration *getDeclaration() const override { return nullptr; }
+  bool canHandle(const TRenderSettings &, double) override { return true; }
+  bool doGetBBox(double, TRectD &box, const TRenderSettings &) override { box = TRectD(0, 0, 1000000, 1000000); return true; }
+  void doCompute(TTile &tile, double, const TRenderSettings &) override { tile.getRaster()->clear(); }
+};
 template <class Pixel>
 TRasterPT<Pixel> renderFx(StarGlowFx &fx, int width, int height, TPointD origin = TPointD()) {
   TRasterPT<Pixel> out(width, height); TTile tile; tile.setRaster(out); tile.m_pos = origin;
@@ -113,6 +120,9 @@ void testFloatAndTiles() {
 void testHighlightAndMerge() {
   require(rasterSizeSupported(3, 3, 16) && !rasterSizeSupported(100000, 100000, 16) &&
               !rasterSizeSupported(0, 1, 4), "Oversized raster arithmetic was not rejected");
+  StarGlowFx large; settings(large); large.getInputPort(0)->setFx(new HugeSource);
+  require(large.getMemoryRequirement(TRectD(0, 0, 100000, 100000), 0, TRenderSettings()) > 900000,
+          "Large memory estimates overflowed");
   StarGlowFx fx; settings(fx);
   TRasterFP input(3, 3); input->clear(); input->pixels(1)[1] = TPixelF(1, 1, 1, 1);
   fx.getInputPort(0)->setFx(new Source(input));

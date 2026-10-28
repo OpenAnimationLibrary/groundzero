@@ -228,7 +228,15 @@ void StarGlowFx::transform(double frame, int, const TRectD &output, const TRende
 int StarGlowFx::getMemoryRequirement(const TRectD &rect, double frame, const TRenderSettings &settings) {
   TRectD input; TRenderSettings inputSettings;
   transform(frame, 0, rect, settings, input, inputSettings);
-  return TRasterFx::memorySize(input, 96);
+  // Calculate in wide floating point: the host helper multiplies unsigned
+  // long values, which can overflow at 32 bits on Windows.
+  if (input.isEmpty()) return 0;
+  const long double bytes = (static_cast<long double>(input.getLx()) + 1) *
+                            (static_cast<long double>(input.getLy()) + 1) * 96;
+  const long double megabytes = bytes / (1024 * 1024);
+  if (!std::isfinite(megabytes) || megabytes >= std::numeric_limits<int>::max())
+    return std::numeric_limits<int>::max();
+  return int(std::ceil(megabytes));
 }
 
 std::string StarGlowFx::getAlias(double frame, const TRenderSettings &settings) const {
