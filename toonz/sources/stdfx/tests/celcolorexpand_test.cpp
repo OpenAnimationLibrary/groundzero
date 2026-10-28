@@ -205,8 +205,18 @@ template <class Pixel> void checkLevelDpi() {
           CelLevelTest::compare(CelLevelTest::render<Pixel>(
               *static_cast<TRasterFx *>(reference.getPointer()), camera), result,
               label.c_str());
-          CelLevelTest::compare(result, CelLevelTest::render<Pixel>(fx, camera, 4),
-                                "Raster level expansion changes across strips");
+          try {
+            CelLevelTest::compare(result, CelLevelTest::render<Pixel>(fx, camera, 4),
+                                  (label + " changes across strips").c_str());
+          } catch (const std::exception &) {
+            if (search == 0) {
+              auto &upstream = *static_cast<TRasterFx *>(input.getPointer());
+              CelLevelTest::compare(CelLevelTest::render<Pixel>(upstream, camera),
+                  CelLevelTest::render<Pixel>(upstream, camera, 4),
+                  (label + " upstream level changes across strips").c_str());
+            }
+            throw;
+          }
         }
       }
     }
