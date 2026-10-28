@@ -7,8 +7,9 @@ decoding and rendering. Retaining animation data does **not** enable playback.
 
 ## Try a model
 
-Download the `glb-inspect-<platform>` artifact from the **GLB Loader and Renderer** workflow.
-Extract it and run the utility from a terminal:
+Build the standalone tools (`cmake -S toonz/sources/glb -B glb-build` and
+`cmake --build glb-build`; this repository has no workflow publishing them as
+artifacts) and run the utility from a terminal:
 
 ```text
 glb_inspect.exe "F:\Models\example.glb"
@@ -60,9 +61,11 @@ memory. Exit codes are 0 for loaded (including warnings),
   remain shared within their clip. Keys are never reduced or retimed.
 
 Complex models are not rejected for having many parts or polygons. Animation
-and skin data are retained but **deformation and playback are not evaluated**.
-Reported bounds and existing FX output still describe undeformed base geometry,
-not a first animation frame or a posed character. Morph target deltas, default
+and skin data are retained, and the loader itself does not evaluate them: its
+reported bounds describe the undeformed base geometry, not a first animation
+frame or a posed character. `glbpose.h` evaluates them at a time (skinning and
+keyframe playback), which the GLB Model FX uses when Embedded Animation is on
+(`doc/glb_model_fx.md`). Morph target deltas, default
 morph weights, cameras, lights and arbitrary metadata are not retained here.
 Unsupported optional extensions produce warnings when core data is usable;
 unsupported required extensions (including compression codecs) fail explicitly.
@@ -127,17 +130,17 @@ ctest --test-dir glb-build -C Release --output-on-failure
 
 `BUILD_GLB_LOADER_TOOLS` defaults to ON for standalone builds and OFF inside
 the full OpenToonz build. The static `otglb` target is built with OpenToonz;
-the GLB Model FX links to it for read-only loading and CPU rendering. The dedicated
-workflow runs on pull requests targeting any branch, so stacked PRs retain CI
-coverage. The small `glbanimationdata_test` target uses this same opt-in gate;
-no application-test defaults or workflows are changed.
+the GLB Model FX links to it for read-only loading and CPU rendering. The Linux
+Build workflow builds the standalone tools and runs their CTest suite on every
+pull request (any target branch, so stacked pull requests are covered). The
+small `glbanimationdata_test` target uses this same opt-in gate.
 
 The regression suite generates deterministic GLBs locally. It checks actual
 geometry, transforms, material data, sparse/interleaved accessors, malformed
 files, limits, source preservation and ownership. The animation-data suite adds
 sampler layout, sharing, interpolation metadata, quaternion decoding, skin tables,
 inverse binds, multiple influence sets, ignored extension targets and resource
-boundaries. Linux CI also runs with AddressSanitizer and UndefinedBehaviorSanitizer.
+boundaries. Linux CI runs it with AddressSanitizer and UndefinedBehaviorSanitizer.
 Keep both valid complex models and intentionally invalid fixtures in acceptance.
 
 The parser is [cgltf](https://github.com/jkuhlmann/cgltf), pinned as documented

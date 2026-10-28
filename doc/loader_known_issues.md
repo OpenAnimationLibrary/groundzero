@@ -72,10 +72,19 @@ The data and display windows were already checked for size. The raster of the
 display window is now also checked to fit an int in bytes (a small data
 window with a huge display window made `TRasterFP` overflow its size).
 
+### Compressed scenes, and allocations sized by a file header
+
+| What | Where |
+|---|---|
+| Compressed scenes (LZ4): a size near SIZE_MAX wrapping the buffer size, an unbounded declared size, a size too small making the decompression loop forever, and a header or payload cut short. The reads are checked, the declared size is bounded by the compressed one and by 256 MB of scene text, an allocation failure is reported as a damaged file, and `lz4decompress` stops when it makes no progress. These were the known issues of `tstream_fuzz`; it no longer skips them. | `common/tstream/tstream.cpp` |
+| EXR: the buffers were allocated from the header's data window before any pixel was read, so a damaged file of a few hundred bytes could ask for many GB. Images and windows larger than 16384 x 16384 pixels are refused when read. | `image/exr/tiio_exr.cpp`, `toonzlib/exrlevelsource.cpp` |
+| PSD: a load that throws (now common on damaged files) left the file open, so each attempt to show the frame leaked a file handle. The file is closed. | `TPSDReader::load` |
+
 ## Audited, nothing to fix
 
 * `image/exr/tiio_exr.cpp`, `toonzlib/exrlevelsource.cpp`: pixel counts,
-  windows and strides are computed in 64 bits and checked.
+  windows and strides are computed in 64 bits and checked (and bounded, see
+  above).
 * `glb/glbloader.cpp`: the container, the chunk lengths, accessors, sparse
   accessors, indices and node graph are validated with a size budget, and
   `glbloader_test` has damaged-file cases.
@@ -86,10 +95,9 @@ window with a huge display window made `TRasterFP` overflow its size).
 
 | What | Where | Why |
 |---|---|---|
-| Compressed `TIStream` (LZ4): size wrap, unbounded size, short size, truncated header | `common/tstream/tstream.cpp` | The checks added for compressed scenes (C3, `doc/compact_scene.md`) look like they reject all four: the header and payload reads are checked, the declared size is bounded by the compressed one, and `lz4decompress` stops when it makes no progress. `tstream_fuzz` still skips these inputs; run `tstream_fuzz_test --only-known` once and remove the known issues if it passes. |
 | A `pickedpos` style attribute that is not a number makes `std::stoi` throw `std::invalid_argument`; a palette load that fails inside a style leaks that style | `stringToPoint`, `TPalette::loadData` | Not a crash: the load fails with a `std::exception` instead of a `TException`. |
 | A failed raster allocation (null buffer) is not detected before writing pixels | `TRaster` constructor, used by all loaders | A change in the core raster class, outside a loader fix. The PSD and EXR loaders now refuse sizes that overflow an int. |
-| A PSD load that throws leaves the file open (`TPSDReader::load` catches everything) and the reader destructor frees nothing | `common/psdlib/psd.cpp` | A leak, not a memory-safety problem. A rewrite with smart pointers (see the comment at the top of the file) is the right fix. |
+| The PSD reader destructor frees nothing (`TPSDParser` and the layer tables leak) | `common/psdlib/psd.cpp` | A leak, not a memory-safety problem. A rewrite with smart pointers (see the comment at the top of the file) is the right fix. |
 | `TLevelReaderPsd::loadInfo` never deletes its `TPSDParser` | `image/psd/tiio_psd.cpp` | A leak. |
 | `TLevelReaderPsd` dereferences `QTextCodec::codecForName(...)` when the layer name encoding preference is not a known codec | `image/psd/tiio_psd.cpp` | Set by preferences, not by the file. |
 | 1 bit PSD pixels all get the value of the first bit of the byte; 16 bit gray with alpha loses the alpha | `readImageData` | Wrong output, not unsafe. Not changed to keep the output of valid files. |

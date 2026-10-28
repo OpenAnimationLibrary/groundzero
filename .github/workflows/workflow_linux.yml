@@ -118,6 +118,17 @@ jobs:
         path: /home/runner/.ccache
         key: ${{ runner.os }}-${{ matrix.compiler }}-${{ github.sha }}
 
+    # The GLB loader, pose and renderer build and test on their own (no Qt, no
+    # graphics context), in seconds: run them on every pull request, with the
+    # address and undefined behaviour sanitizers
+    - name: GLB loader and renderer tests
+      run: |
+        set -o pipefail
+        cmake -S toonz/sources/glb -B glb-build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo "-DCMAKE_CXX_FLAGS=-fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=undefined" 2>&1 | tee -a "$GITHUB_WORKSPACE/build.log"
+        cmake --build glb-build 2>&1 | tee -a "$GITHUB_WORKSPACE/build.log"
+        cd glb-build
+        ctest --output-on-failure --timeout 600
+
     # Show the errors on the pull request (summary and annotations) without
     # having to open the full log
     - name: Report build errors

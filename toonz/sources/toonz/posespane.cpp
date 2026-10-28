@@ -184,6 +184,10 @@ PosesPane::PosesPane(QWidget *parent, Qt::WindowFlags flags)
 void PosesPane::showEvent(QShowEvent *) {
   connect(TApp::instance()->getCurrentScene(), SIGNAL(sceneSwitched()), this,
           SLOT(refresh()), Qt::UniqueConnection);
+  // Another Poses panel can add or delete poses: the rows refer to the poses
+  // by index, so they must follow
+  connect(PoseLibraryNotifier::instance(), SIGNAL(changed()), this,
+          SLOT(refresh()), Qt::UniqueConnection);
   refresh();
 }
 
@@ -191,6 +195,8 @@ void PosesPane::showEvent(QShowEvent *) {
 
 void PosesPane::hideEvent(QHideEvent *) {
   disconnect(TApp::instance()->getCurrentScene(), SIGNAL(sceneSwitched()), this,
+             SLOT(refresh()));
+  disconnect(PoseLibraryNotifier::instance(), SIGNAL(changed()), this,
              SLOT(refresh()));
 }
 

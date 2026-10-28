@@ -19,7 +19,8 @@ while IFS= read -r -d '' file; do
   esac
 done < <(git diff --name-only --diff-filter=ACMR -z "$base_ref...HEAD")
 
-for file in "${files[@]}"; do
+# ${files[@]+...}: with set -u, bash before 4.4 (macOS) refuses an empty array
+for file in ${files[@]+"${files[@]}"}; do
   ranges=()
   while read -r start count; do
     count="${count:-1}"

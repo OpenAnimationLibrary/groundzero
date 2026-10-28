@@ -8,6 +8,7 @@
 #include "tdoubleparam.h"
 #include "tdoublekeyframe.h"
 
+#include <cmath>
 #include <iostream>
 #include <stdexcept>
 #include <vector>
@@ -27,6 +28,11 @@ void testConversion() {
   require(TimeRemap::valueToRow(1.0) == 0, "conversion: frame 1 is row 0");
   require(TimeRemap::valueToRow(2.4) == 1, "conversion: rounds down");
   require(TimeRemap::valueToRow(2.6) == 2, "conversion: rounds up");
+  require(TimeRemap::valueToRow(std::nan("")) == -1,
+          "conversion: not a number designates no row");
+  require(
+      TimeRemap::valueToRow(1e300) == -1 && TimeRemap::valueToRow(-1e300) == -1,
+      "conversion: out of range designates no row");
 }
 
 //------------------------------------------------------------------

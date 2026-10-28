@@ -30,7 +30,13 @@ namespace TimeRemap {
 typedef std::pair<int, double> Key;
 
 //! Converts a value of the remap curve to the 0-based row it designates.
-inline int valueToRow(double value) { return (int)std::floor(value + 0.5) - 1; }
+//! A value that is not a number, or out of the int range (an expression can
+//! give either), designates no row: converting it to int would be undefined.
+inline int valueToRow(double value) {
+  const double rounded = std::floor(value + 0.5);
+  if (!(rounded >= 1.0 - 1e9 && rounded <= 1e9)) return -1;
+  return (int)rounded - 1;
+}
 
 //! Converts a 0-based row to the value of the remap curve that designates it.
 inline double rowToValue(int row) { return row + 1.0; }

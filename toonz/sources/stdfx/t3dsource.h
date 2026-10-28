@@ -40,8 +40,10 @@ class T3DSourcePort final : public TRasterFxPort {
   }
 
 public:
+  bool accepts(TFx *fx) const override { return !fx || resolve(fx); }
+
   void setFx(TFx *fx) override {
-    if (fx && !resolve(fx))
+    if (!accepts(fx))
       throw TException("Fx: 3D source port requires a compatible 3D FX");
     TRasterFxPort::setFx(fx);
   }

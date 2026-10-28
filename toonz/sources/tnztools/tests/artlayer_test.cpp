@@ -122,7 +122,26 @@ int main() {
   Image empty;
   require(colourRange(empty).isEmpty(), "Empty image");
 
-  // The targets: Underlay and Overlay need Colour Art, else act as Line Art.
+  // A block of Colour Art below the Line Art (Create Colour Art) or above it
+  // (the Lasso Cutter's closing strokes) leaves it Line Art.
+  Image below{{colour, colour, line, line}};
+  Image above{{line, line, colour}};
+  Image single{{colour, line, line}};
+  for (const Image *image : {&below, &above, &single}) {
+    ColourRange block = colourRange(*image);
+    require(!block.isEmpty() && !block.isLayered(), "Colour Art block");
+    countRoles(*image, counts);
+    require(
+        counts[UNDERLAY] == 0 && counts[OVERLAY] == 0 && counts[LINE_ART] == 2,
+        "Colour Art block keeps Line Art");
+    require(effectiveTarget(TARGET_OVERLAY, block) == TARGET_LINE_ART &&
+                effectiveTarget(TARGET_UNDERLAY, block) == TARGET_LINE_ART,
+            "Underlay and Overlay need Line Art between the Colour Art");
+  }
+  require(colourRange(image).isLayered(), "Line Art between the Colour Art");
+
+  // The targets: Underlay and Overlay need layered Colour Art, else act as
+  // Line Art.
   require(effectiveTarget(TARGET_UNDERLAY, none) == TARGET_LINE_ART,
           "Underlay without Colour Art");
   require(effectiveTarget(TARGET_OVERLAY, none) == TARGET_LINE_ART,

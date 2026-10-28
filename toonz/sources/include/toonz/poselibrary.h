@@ -73,6 +73,13 @@ public:
   void addPose(const Pose &pose) { m_poses.push_back(pose); }
   void removePose(int index);
 
+  //! Keep the entries on their columns when the columns of the top-level
+  //! xsheet change, as TStageObjectTree does for the stage objects. A removed
+  //! column loses its entries, like its stage object.
+  void insertColumn(int index);
+  void removeColumn(int index);
+  void swapColumns(int i, int j);
+
   void saveData(TOStream &os) const;
   void loadData(TIStream &is);
 

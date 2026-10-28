@@ -77,6 +77,8 @@ bool s_changed = true;
 // Whether the previous session did not exit normally, and when it started
 bool s_previousSessionInterrupted = false;
 qint64 s_previousSessionStart     = 0;  // ms since epoch
+// When this session started: only its own copies are pruned per scene
+qint64 s_sessionStart = 0;  // ms since epoch
 // Whether the session marker is held by another running instance
 bool s_lockedByOtherInstance = false;
 // The session marker: removed on normal exit, left behind by a crash or kill
@@ -91,6 +93,9 @@ struct Snapshot {
   QString m_originalScene;      // saved scene file; empty if untitled
   QDateTime m_savedAt;          // UTC
   bool m_userModified = false;  // the user saved over the copy afterwards
+  // Levels with unsaved changes that could not be copied: the copy refers to
+  // their saved files, which lack those changes
+  QStringList m_uncopiedLevels;
 };
 
 //-----------------------------------------------------------------------------
@@ -154,6 +159,12 @@ bool readSnapshot(const QString &folder, Snapshot &s) {
   s.m_savedAt =
       QDateTime::fromString(ini.value("savedAt").toString(), Qt::ISODateWithMs);
   ini.endGroup();
+  const int uncopiedCount = ini.beginReadArray("uncopiedLevels");
+  for (int i = 0; i < uncopiedCount; i++) {
+    ini.setArrayIndex(i);
+    s.m_uncopiedLevels.append(ini.value("original").toString());
+  }
+  ini.endArray();
 
   if (sceneFile.isEmpty() || !s.m_savedAt.isValid() ||
       !QFileInfo::exists(s.m_sceneFile))
@@ -187,11 +198,16 @@ bool removeSnapshotFolder(const QString &folder) {
   return QDir(folder).removeRecursively();
 }
 
-// Keep the latest versions of the scene. Copies the user saved over are kept.
+// Keep the latest versions of the scene written by this session. Copies the
+// user saved over are kept, and so are the copies of earlier sessions: those
+// of an interrupted session are the ones to recover, and the recovery dialog
+// promises to keep them until they expire.
 void removeOldVersions(const QString &key) {
   QList<Snapshot> versions;
   for (const Snapshot &s : listSnapshots())
-    if (!s.m_userModified && groupKey(s) == key) versions.append(s);
+    if (!s.m_userModified && groupKey(s) == key &&
+        s.m_savedAt.toMSecsSinceEpoch() >= s_sessionStart)
+      versions.append(s);
   std::sort(versions.begin(), versions.end(),
             [](const Snapshot &a, const Snapshot &b) {
               return a.m_savedAt > b.m_savedAt;
@@ -373,7 +389,8 @@ void writeProjectLink(const TFilePath &folder, ToonzScene *scene) {
 bool writeManifest(const QString &folder, const QString &sceneFile,
                    const QString &sceneName, const QString &originalScene,
                    const QString &projectPath, const QDateTime &savedAt,
-                   const QList<QPair<QString, QString>> &copiedLevels) {
+                   const QList<QPair<QString, QString>> &copiedLevels,
+                   const QStringList &uncopiedLevels) {
   QSettings ini(QDir(folder).filePath(ManifestFileName), QSettings::IniFormat);
 #if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
   ini.setIniCodec("UTF-8");  // Qt 6 reads and writes UTF-8
@@ -396,6 +413,13 @@ bool writeManifest(const QString &folder, const QString &sceneFile,
     ini.setValue("copy", copiedLevels[i].second);
   }
   ini.endArray();
+  // Levels with unsaved changes whose copy failed
+  ini.beginWriteArray("uncopiedLevels", uncopiedLevels.size());
+  for (int i = 0; i < uncopiedLevels.size(); i++) {
+    ini.setArrayIndex(i);
+    ini.setValue("original", uncopiedLevels[i]);
+  }
+  ini.endArray();
   ini.sync();
   return ini.status() == QSettings::NoError;
 }
@@ -408,7 +432,8 @@ bool writeManifest(const QString &folder, const QString &sceneFile,
 
 void AutosaveRecovery::initSession() {
   if (s_initialized) return;
-  s_initialized = true;
+  s_initialized  = true;
+  s_sessionStart = QDateTime::currentMSecsSinceEpoch();
 
   // A new recovery copy is written only after a change
   auto setChanged = []() { s_changed = true; };
@@ -493,6 +518,7 @@ bool AutosaveRecovery::saveRecoveryCopy() {
   RecoverySaveGuard saveGuard;
 
   QList<QPair<QString, QString>> copiedLevels;
+  QStringList uncopiedLevels;
   bool sceneSaved = true;
   {
     LevelPathSwapper levelPaths;
@@ -526,7 +552,8 @@ bool AutosaveRecovery::saveRecoveryCopy() {
           newPath = TFilePath("$scenefolder") + relPath;
           copiedLevels.append(
               qMakePair(decodedPath.getQString(), relPath.getQString()));
-        }
+        } else
+          uncopiedLevels.append(decodedPath.getQString());
       }
 
       if (newPath != path) levelPaths.setPath(level, newPath);
@@ -546,7 +573,7 @@ bool AutosaveRecovery::saveRecoveryCopy() {
       !writeManifest(
           folder, sceneFile, sceneName, originalScene,
           project ? project->getProjectPath().getQString() : QString(), savedAt,
-          copiedLevels)) {
+          copiedLevels, uncopiedLevels)) {
     removeSnapshotFolder(folder);
     return false;
   }
@@ -597,7 +624,7 @@ bool AutosaveRecovery::showRecoveryDialog() {
     dialog.addItem(
         s.m_sceneName,
         QLocale().toString(s.m_savedAt.toLocalTime(), QLocale::ShortFormat),
-        s.m_originalScene, s.m_sceneFile, groupFolders);
+        s.m_originalScene, s.m_sceneFile, groupFolders, s.m_uncopiedLevels);
   }
   dialog.exec();
 
@@ -691,9 +718,20 @@ RecoveryDialog::RecoveryDialog(QWidget *parent, bool hasCrashReport)
 void RecoveryDialog::addItem(const QString &sceneName, const QString &savedAt,
                              const QString &originalScene,
                              const QString &sceneFile,
-                             const QStringList &folders) {
+                             const QStringList &folders,
+                             const QStringList &uncopiedLevels) {
   QTreeWidgetItem *item = new QTreeWidgetItem(m_list);
   item->setText(0, sceneName);
+  if (!uncopiedLevels.isEmpty()) {
+    item->setText(0, tr("%1 (incomplete)").arg(sceneName));
+    QStringList levels;
+    for (const QString &level : uncopiedLevels)
+      levels.append(QDir::toNativeSeparators(level));
+    item->setToolTip(
+        0, tr("The unsaved changes of these levels could not be copied, and "
+              "the copy uses their saved files:\n%1")
+               .arg(levels.join("\n")));
+  }
   item->setText(1, savedAt);
   item->setText(2, originalScene.isEmpty()
                        ? tr("Untitled scene")

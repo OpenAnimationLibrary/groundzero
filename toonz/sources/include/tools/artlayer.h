@@ -13,9 +13,11 @@
 //
 // Underlay and Overlay are Line Art strokes classified by their place in the
 // stacking order of the drawing: those below the first Colour Art stroke are
-// Underlay, those above the last one are Overlay. They exist only if the
-// drawing has a Colour Art stroke; otherwise every stroke is Line Art or Colour
-// Art, as before.
+// Underlay, those above the last one are Overlay. They exist only if some Line
+// Art lies between the Colour Art strokes; otherwise every stroke is Line Art
+// or Colour Art, as before. Create Colour Art adds its strokes below the Line
+// Art, and the Lasso Cutter adds its closing strokes above it: neither turns
+// the existing Line Art into Overlay or Underlay.
 //
 // The inline functions below are pure and independent of the tool framework,
 // so that they can be checked by tnztools/tests/artlayer_test.cpp.
@@ -82,10 +84,15 @@ Role roleOf(const Stroke &stroke) {
   return hasZeroThickness(stroke) ? COLOUR_ART : LINE_ART;
 }
 
-//! The first and last Colour Art strokes of a drawing, in stacking order.
+//! The first and last Colour Art strokes of a drawing, in stacking order, and
+//! whether Line Art lies between them: without, there are no Underlay and
+//! Overlay strokes (a block of Colour Art below or above the Line Art does
+//! not make it Overlay or Underlay).
 struct ColourRange {
   int first = -1, last = -1;
+  bool lineArtBetween = false;
   bool isEmpty() const { return first < 0; }
+  bool isLayered() const { return first >= 0 && lineArtBetween; }
 };
 
 //! Finds the Colour Art strokes of an image, which has getStrokeCount() and
@@ -99,6 +106,8 @@ ColourRange colourRange(const Image &image) {
     if (range.first < 0) range.first = i;
     range.last = i;
   }
+  for (int i = range.first + 1; i < range.last && !range.lineArtBetween; ++i)
+    range.lineArtBetween = !hasZeroThickness(*image.getStroke(i));
   return range;
 }
 
@@ -106,7 +115,7 @@ ColourRange colourRange(const Image &image) {
 //! stroke between the Colour Art strokes is plain Line Art.
 inline Role roleInStack(const ColourRange &range, int index, bool isColour) {
   if (isColour) return COLOUR_ART;
-  if (range.isEmpty()) return LINE_ART;
+  if (!range.isLayered()) return LINE_ART;
   if (index < range.first) return UNDERLAY;
   if (index > range.last) return OVERLAY;
   return LINE_ART;
@@ -122,10 +131,10 @@ void countRoles(const Image &image, int (&counts)[RoleCount]) {
     ++counts[roleInStack(range, i, hasZeroThickness(*image.getStroke(i)))];
 }
 
-//! Underlay and Overlay targets act as Line Art if there is no Colour Art.
+//! Underlay and Overlay targets act as Line Art if the drawing has none.
 inline Target effectiveTarget(Target target, const ColourRange &range) {
   if ((target == TARGET_UNDERLAY || target == TARGET_OVERLAY) &&
-      range.isEmpty())
+      !range.isLayered())
     return TARGET_LINE_ART;
   return target;
 }

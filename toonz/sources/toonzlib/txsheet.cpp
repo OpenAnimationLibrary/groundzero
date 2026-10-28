@@ -24,6 +24,7 @@
 #include "toonz/txshsoundcolumn.h"
 #include "toonz/sceneproperties.h"
 #include "toonz/toonzscene.h"
+#include "toonz/poselibrary.h"
 #include "toonz/columnfan.h"
 #include "toonz/txshleveltypes.h"
 #include "toonz/txshnoteset.h"
@@ -1318,6 +1319,15 @@ PERSIST_IDENTIFIER(TXsheet, "xsheet")
 
 //-----------------------------------------------------------------------------
 
+namespace {
+// The poses of the scene refer to the columns of its top-level xsheet
+PoseLibrary *topPoseLibrary(const TXsheet *xsh) {
+  ToonzScene *scene = xsh->getScene();
+  return scene && scene->getTopXsheet() == xsh ? scene->getPoseLibrary()
+                                               : nullptr;
+}
+}  // namespace
+
 void TXsheet::insertColumn(int col, TXshColumn::ColumnType type) {
   insertColumn(col, TXshColumn::createEmpty(type));
 }
@@ -1329,6 +1339,7 @@ void TXsheet::insertColumn(int col, TXshColumn *column) {
   column->setXsheet(this);
   m_imp->m_columnSet.insertColumn(col, column);
   m_imp->m_pegTree->insertColumn(col);
+  if (PoseLibrary *poses = topPoseLibrary(this)) poses->insertColumn(col);
   if (column->getPaletteColumn() ==
       nullptr)  // palette column are not connected to the xsheet fx node
   {
@@ -1360,6 +1371,7 @@ void TXsheet::removeColumn(int col) {
   }
   m_imp->m_columnSet.removeColumn(col);
   m_imp->m_pegTree->removeColumn(col);
+  if (PoseLibrary *poses = topPoseLibrary(this)) poses->removeColumn(col);
 
   for (ColumnFan &columnFan : m_imp->m_columnFans) {
     columnFan.rollLeftFoldedState(col,
@@ -1396,7 +1408,11 @@ void TXsheet::moveColumn(int srcIndex, int dstIndex) {
     m_imp->m_columnSet.rollLeft(c0, c1 - c0 + 1);
     for (ColumnFan &columnFan : m_imp->m_columnFans)
       columnFan.rollLeftFoldedState(c0, c1 - c0 + 1);
-    for (int c = c0; c < c1; ++c) m_imp->m_pegTree->swapColumns(c, c + 1);
+    PoseLibrary *poses = topPoseLibrary(this);
+    for (int c = c0; c < c1; ++c) {
+      m_imp->m_pegTree->swapColumns(c, c + 1);
+      if (poses) poses->swapColumns(c, c + 1);
+    }
   } else {
     int c0 = dstIndex;
     int c1 = srcIndex;
@@ -1404,7 +1420,11 @@ void TXsheet::moveColumn(int srcIndex, int dstIndex) {
     m_imp->m_columnSet.rollRight(c0, c1 - c0 + 1);
     for (ColumnFan &columnFan : m_imp->m_columnFans)
       columnFan.rollRightFoldedState(c0, c1 - c0 + 1);
-    for (int c = c1 - 1; c >= c0; --c) m_imp->m_pegTree->swapColumns(c, c + 1);
+    PoseLibrary *poses = topPoseLibrary(this);
+    for (int c = c1 - 1; c >= c0; --c) {
+      m_imp->m_pegTree->swapColumns(c, c + 1);
+      if (poses) poses->swapColumns(c, c + 1);
+    }
   }
 
   notify(TXsheetColumnChange(TXsheetColumnChange::Move, srcIndex, dstIndex));
