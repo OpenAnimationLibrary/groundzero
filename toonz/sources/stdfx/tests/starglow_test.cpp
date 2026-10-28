@@ -386,8 +386,12 @@ void testRasterLevelDpi() {
       for (int y = 0; y < 24; ++y) for (int x = 0; x < 32; ++x) {
         const TPixel32 a = actual->pixels(y)[x], b = tiled->pixels(y)[x], c = expected->pixels(y)[x];
         visible = visible || a.m > 0;
-        require(std::abs(int(a.m)-int(b.m)) <= 1, "Odd raster level introduced a tile seam");
-        require(std::abs(int(a.m)-int(c.m)) <= 1, "Odd raster level and equivalent source disagree");
+        if (std::abs(int(a.m)-int(b.m)) > 1 || std::abs(int(a.m)-int(c.m)) > 1) {
+          std::cerr << "DPI " << dpiScale.a11 << "," << dpiScale.a22 << " at " << x << "," << y
+                    << " full=" << int(a.m) << " tiled=" << int(b.m) << " fixture=" << int(c.m) << '\n';
+          require(std::abs(int(a.m)-int(b.m)) <= 1, "Odd raster level introduced a tile seam");
+          require(std::abs(int(a.m)-int(c.m)) <= 1, "Odd raster level and equivalent source disagree");
+        }
       }
       require(visible, "Odd raster-level fixture rendered empty");
     } catch (...) {
