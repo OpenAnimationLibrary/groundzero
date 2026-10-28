@@ -34,8 +34,10 @@ void setColor(TFx &fx, int index, const TPixelD &value) {
 
 class Source final : public TStandardRasterFx {
   TRasterP m_image;
+  int *m_cancelOnCompute;
 public:
-  explicit Source(const TRasterP &image) : m_image(image) {}
+  explicit Source(const TRasterP &image, int *cancelOnCompute = nullptr)
+      : m_image(image), m_cancelOnCompute(cancelOnCompute) {}
   const TPersistDeclaration *getDeclaration() const override { return nullptr; }
   bool canHandle(const TRenderSettings &, double) override { return true; }
   bool doGetBBox(double, TRectD &box, const TRenderSettings &) override {
@@ -48,6 +50,7 @@ public:
   void compute(TTile &tile, double, const TRenderSettings &) override {
     tile.getRaster()->clear();
     tile.getRaster()->copy(m_image, TPoint(-int(tile.m_pos.x), -int(tile.m_pos.y)));
+    if (m_cancelOnCompute) ++*m_cancelOnCompute;
   }
   void doCompute(TTile &tile, double frame, const TRenderSettings &info) override {
     compute(tile, frame, info);
@@ -202,9 +205,40 @@ void testTilesAndThreads() {
         require(strip->pixels(0)[x] == full->pixels(y)[x], "Tile/thread mismatch");
     }));
   for (auto &job : jobs) job.get();
+  const auto padded = render<TPixel32>(fx, 23, 17, 0, TPointD(-3, -2));
+  for (int y = 0; y < 17; ++y)
+    for (int x = 0; x < 23; ++x) {
+      const bool inside = x >= 3 && x < 20 && y >= 2 && y < 15;
+      const TPixel32 expected = inside ? full->pixels(y - 2)[x - 3]
+                                      : TPixel32::Transparent;
+      require(padded->pixels(y)[x] == expected, "Negative-origin tile mismatch");
+    }
   CelColorKeepFx disconnected;
   auto empty = render<TPixel32>(disconnected, 2);
   require(empty->pixels(0)[0] == TPixel32::Transparent, "Missing input not clear");
+}
+
+template <class Pixel>
+void testCancellation() {
+  CelColorKeepFx fx;
+  TRasterPT<Pixel> input(2, 2), output(2, 2);
+  input->fill(Pixel::Black);
+  int canceled = 1;
+  fx.getInputPort(0)->setFx(new Source(input, &canceled));
+  TRenderSettings settings;
+  settings.m_isCanceled = &canceled;
+  TTile tile;
+  tile.setRaster(output);
+  for (int initiallyCanceled : {1, 0}) {
+    canceled = initiallyCanceled;
+    output->fill(Pixel::White);
+    fx.doCompute(tile, 0, settings);
+    require(canceled == 1, "Canceled render still requested its source");
+    for (int y = 0; y < 2; ++y)
+      for (int x = 0; x < 2; ++x)
+        require(output->pixels(y)[x] == Pixel::Transparent,
+                "Cancellation left a partially rendered tile");
+  }
 }
 
 void testPresetAndMacro(const QString &presetPath, const QString &macroPath) {
@@ -266,6 +300,10 @@ int main(int argc, char **argv) {
     testPrecisionAndPersistence(temp.filePath("colors-compressed.fx"), true);
     std::cout << "Checking tiles and threads" << std::endl;
     testTilesAndThreads();
+    std::cout << "Checking cancellation" << std::endl;
+    testCancellation<TPixel32>();
+    testCancellation<TPixel64>();
+    testCancellation<TPixelF>();
     std::cout << "Checking presets and macros" << std::endl;
     testPresetAndMacro(temp.filePath("colors.preset"), temp.filePath("colors.macro"));
     std::cout << "PASS: color capacity, precision, alpha, persistence and tiles\n";

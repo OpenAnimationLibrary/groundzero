@@ -62,9 +62,15 @@ bool matchesColor(const TPixelF &pixel, const TPixelD &color) {
 
 template <class Pixel>
 void keepColors(const TRasterPT<Pixel> &raster,
-                const std::array<TPixelD, colorCapacity> &colors, int count) {
+                const std::array<TPixelD, colorCapacity> &colors, int count,
+                const int *isCanceled) {
   raster->lock();
   for (int y = 0; y < raster->getLy(); ++y) {
+    if (isCanceled && *isCanceled) {
+      raster->unlock();
+      raster->clear();
+      return;
+    }
     Pixel *row = raster->pixels(y);
     for (int x = 0; x < raster->getLx(); ++x) {
       Pixel &pixel = row[x];
@@ -144,7 +150,8 @@ public:
 
   void doCompute(TTile &tile, double frame,
                  const TRenderSettings &settings) override {
-    if (!m_source.isConnected()) {
+    if (!m_source.isConnected() ||
+        (settings.m_isCanceled && *settings.m_isCanceled)) {
       tile.getRaster()->clear();
       return;
     }
@@ -158,11 +165,11 @@ public:
     std::array<TPixelD, colorCapacity> colors;
     for (int i = 0; i < count; ++i) colors[i] = m_colors[i]->getValueD(frame);
     if (TRaster32P raster = tile.getRaster())
-      keepColors<TPixel32>(raster, colors, count);
+      keepColors<TPixel32>(raster, colors, count, settings.m_isCanceled);
     else if (TRaster64P raster = tile.getRaster())
-      keepColors<TPixel64>(raster, colors, count);
+      keepColors<TPixel64>(raster, colors, count, settings.m_isCanceled);
     else if (TRasterFP raster = tile.getRaster())
-      keepColors<TPixelF>(raster, colors, count);
+      keepColors<TPixelF>(raster, colors, count, settings.m_isCanceled);
     else
       throw TException("Cel Color Keep: unsupported pixel type");
   }
