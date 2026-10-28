@@ -281,7 +281,10 @@ void testHostTransforms() {
   for (int y = 2; y < 15; ++y)
     for (int x = y / 2; x < 20; ++x)
       input->pixels(y)[x] = TPixelF(.6f,.2f,.8f,1);
-  CelSmootherFx fx;
+  // The production cache retains smart references to effects. Match scene
+  // ownership here rather than allowing it to acquire a stack object.
+  TFxP owner = new CelSmootherFx;
+  auto &fx = *static_cast<CelSmootherFx *>(owner.getPointer());
   fx.getInputPort(0)->setFx(new Source(input,TPoint(-7,-5)));
   const TAffine affine = TTranslation(2.5,-3.25) * TRotation(21) * TScale(1.3,.7);
   const auto full = renderThroughHost(fx,1,affine);
@@ -368,9 +371,15 @@ int main(int argc, char **argv) {
   int result = 1;
   try {
     require(temp.isValid(), "Temporary storage unavailable");
+    std::cout << "Checking all raster precisions and keyed coverage" << std::endl;
     testPrecision<TPixel32>(); testPrecision<TPixel64>(); testPrecision<TPixelF>();
+    std::cout << "Checking partial upstream rendering" << std::endl;
     testPartialSource<TPixel32>(); testPartialSource<TPixel64>(); testPartialSource<TPixelF>();
-    testKernel(); testAllocationBounds(); testTilesAndDomain(); testHostTransforms();
+    std::cout << "Checking contour math, allocation boundaries and concurrent tiles" << std::endl;
+    testKernel(); testAllocationBounds(); testTilesAndDomain();
+    std::cout << "Checking transformed host rendering" << std::endl;
+    testHostTransforms();
+    std::cout << "Checking scene, preset and macro persistence" << std::endl;
     testPersistence(temp.filePath("smoother.fx"), false);
     testPersistence(temp.filePath("smoother-compressed.fx"), true);
     reportCost();
