@@ -1648,6 +1648,98 @@ ColumnsStatusCommand
 }  // namespace
 
 //=============================================================================
+// Outline View
+//-----------------------------------------------------------------------------
+// Shows the columns as coloured outlines in the viewer (see
+// doc/animate_outline_view.md). It is a flag of the column status word, so
+// unlike the commands above it is undoable.
+
+namespace {
+
+class ColumnOutlineViewUndo final : public TUndo {
+  std::vector<int> m_columns;
+  std::vector<bool> m_oldStates;  // the state of each column before the command
+  bool m_newState;                // the state they all get from the command
+
+  void apply(bool isUndo) const {
+    TXsheet *xsh = TApp::instance()->getCurrentXsheet()->getXsheet();
+    for (size_t i = 0; i < m_columns.size(); i++) {
+      TXshColumn *column = xsh->getColumn(m_columns[i]);
+      if (column) column->setOutlineView(isUndo ? m_oldStates[i] : m_newState);
+    }
+    TApp::instance()->getCurrentXsheet()->notifyXsheetChanged();
+    TApp::instance()->getCurrentScene()->setDirtyFlag(true);
+  }
+
+public:
+  ColumnOutlineViewUndo(const std::vector<int> &columns,
+                        const std::vector<bool> &oldStates, bool newState)
+      : m_columns(columns), m_oldStates(oldStates), m_newState(newState) {}
+
+  void undo() const override { apply(true); }
+  void redo() const override { apply(false); }
+
+  int getSize() const override {
+    return sizeof(*this) + m_columns.size() * (sizeof(int) + 1);
+  }
+
+  QString getHistoryString() override {
+    return m_newState ? QObject::tr("Outline View On")
+                      : QObject::tr("Outline View Off");
+  }
+
+  int getHistoryType() override { return HistoryType::Xsheet; }
+};
+
+//-----------------------------------------------------------------------------
+
+// Toggles the Outline View of the selected columns, or of the current one if
+// no column is selected. If all of them are already shown as outlines they go
+// back to normal, otherwise all of them are shown as outlines.
+class ToggleColumnOutlineCommand final : public MenuItemHandler {
+public:
+  ToggleColumnOutlineCommand() : MenuItemHandler(MI_ToggleColumnOutline) {}
+
+  void execute() override {
+    TApp *app                   = TApp::instance();
+    TColumnSelection *selection = dynamic_cast<TColumnSelection *>(
+        app->getCurrentSelection()->getSelection());
+    TXsheet *xsh = app->getCurrentXsheet()->getXsheet();
+    int cc       = app->getCurrentColumn()->getColumnIndex();
+
+    std::vector<int> columns;
+    std::vector<bool> oldStates;
+    bool allOutlined = true;
+    for (int i = 0; i < xsh->getColumnCount(); i++) {
+      if (xsh->isColumnEmpty(i)) continue;
+      TXshColumn *column = xsh->getColumn(i);
+      // Columns without drawings have nothing to show as outlines
+      if (!column || column->getSoundColumn() || column->getSoundTextColumn() ||
+          column->getPaletteColumn())
+        continue;
+      bool isSelected = selection && !selection->isEmpty()
+                            ? selection->isColumnSelected(i)
+                            : cc == i;
+      if (!isSelected) continue;
+
+      columns.push_back(i);
+      oldStates.push_back(column->isOutlineView());
+      if (!column->isOutlineView()) allOutlined = false;
+    }
+    if (columns.empty()) return;
+
+    ColumnOutlineViewUndo *undo =
+        new ColumnOutlineViewUndo(columns, oldStates, !allOutlined);
+    undo->redo();
+    TUndoManager::manager()->add(undo);
+  }
+};
+
+ToggleColumnOutlineCommand toggleColumnOutlineCommand;
+
+}  // namespace
+
+//=============================================================================
 // ConvertToVectorUndo
 //-----------------------------------------------------------------------------
 

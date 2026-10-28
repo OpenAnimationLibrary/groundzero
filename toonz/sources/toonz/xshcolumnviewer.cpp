@@ -3126,6 +3126,7 @@ void ColumnArea::contextMenuEvent(QContextMenuEvent *event) {
       menu.addAction(
           cmdManager->getAction(MI_LightTableIncludeSelectedColumns));
       menu.addAction(cmdManager->getAction(MI_LightTableIncludeAllColumns));
+      menu.addAction(cmdManager->getAction(MI_ToggleColumnOutline));
     }
     // column groups are displayed only in the xsheet orientation
     if (!isCamera && o->isVerticalTimeline()) {

@@ -482,6 +482,15 @@ if(BUILD_PEGBARGUIDE_TESTS)
     add_test(NAME pegbarguide COMMAND pegbarguide_test)
 endif()
 
+# Optional regression target for the Outline View of the columns: the colour
+# palette (outlinecolors.h) and the column status bit.
+option(BUILD_OUTLINEVIEW_TESTS "Build the column Outline View regression test" ${BUILD_TESTS})
+if(BUILD_OUTLINEVIEW_TESTS)
+    add_executable(outlineview_test tests/outlineview_test.cpp)
+    target_link_libraries(outlineview_test PRIVATE toonzlib tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core)
+    add_test(NAME outlineview COMMAND outlineview_test)
+endif()
+
 # Optional regression target for the export to an aspect ratio
 # (TOutputProperties and its scene file tag).
 option(BUILD_ASPECTEXPORT_TESTS "Build the aspect ratio export regression test" ${BUILD_TESTS})

@@ -160,6 +160,26 @@ TPaletteP overriddenPalette(const Stage::Player &player, TPalette *palette) {
 
 //----------------------------------------------------------------
 
+// Returns a copy of the specified palette with the outline colour of the
+// player as the main color of every style, so that the inks of a Toonz raster
+// image are drawn in it (Outline View). The level's own palette is never
+// modified.
+TPaletteP outlinePalette(const Stage::Player &player, TPalette *palette) {
+  if (!palette) return TPaletteP();
+
+  TPaletteP outlined = palette->clone();
+  // Bring animated styles to the frame first, so that the setFrame() of the
+  // painters does not overwrite the outline colour
+  outlined->setFrame(player.m_frame);
+  // The style 0 is the transparent one
+  for (int i = 1; i < outlined->getStyleCount(); ++i)
+    if (TColorStyle *style = outlined->getStyle(i))
+      style->setMainColor(player.m_outlineColor);
+  return outlined;
+}
+
+//----------------------------------------------------------------
+
 QImage rasterToQImage(const TRaster32P &ras) {
   QImage image(ras->getRawData(), ras->getLx(), ras->getLy(),
                QImage::Format_ARGB32_Premultiplied);
@@ -650,6 +670,8 @@ void RasterPainter::flushRasterImagesCpu(bool drawBBox) {
       }
       inksOnly = tc & ToonzCheck::eInksOnly;
     }
+    // Outline View shows the inks only
+    if (m_nodes[i].m_outlineView) inksOnly = true;
 
     if (TRaster32P src32 = m_nodes[i].m_raster)
       TRop::quickPut(viewedRaster, src32, aff, colorscale,
@@ -894,7 +916,8 @@ enum GpuTextureFlags {
   eGpuIgnoreAlpha = 0x8,
   eGpuRasterCM32  = 0x10,
   eGpuInksOnly    = 0x20,
-  eGpuColorScaled = 0x40
+  eGpuColorScaled = 0x40,
+  eGpuOutline     = 0x80  // Outline View
 };
 
 struct GpuTextureKey {
@@ -1263,6 +1286,8 @@ bool RasterPainter::flushRasterImagesGpu() {
       }
       inksOnly = tc & ToonzCheck::eInksOnly;
     }
+    // Outline View shows the inks only
+    if (node.m_outlineView) inksOnly = true;
 
     // The color part of the scale is baked, the matte is applied when drawing
     TPixel32 bakeScale(colorscale.r, colorscale.g, colorscale.b, 255);
@@ -1288,6 +1313,7 @@ bool RasterPainter::flushRasterImagesGpu() {
 
       key.m_flags |= eGpuRasterCM32;
       if (inksOnly) key.m_flags |= eGpuInksOnly;
+      if (node.m_outlineView) key.m_flags |= eGpuOutline;
       key.m_paletteHash = hashPalette(node.m_palette, node.m_frame);
 
       // Colormap pixels outside the savebox are transparent
@@ -1622,7 +1648,22 @@ void RasterPainter::onVectorImage(TVectorImage *vi,
   int oldFrame = vPalette->getFrame();
   vPalette->setFrame(player.m_frame);
 
-  if (player.m_onionSkinDistance != c_noOnionSkin) {
+  // Outline View: the drawing of the column is drawn as strokes only, all in
+  // the outline colour. The onion skins of the column keep their colours, but
+  // show the strokes only.
+  const bool outlineColor =
+      player.m_outlineView && (player.m_onionSkinDistance == c_noOnionSkin ||
+                               player.m_onionSkinDistance == 0);
+
+  if (outlineColor) {
+    // Every colour becomes the outline colour, the alpha keeps the opacity of
+    // the column
+    const double m[4] = {0.0, 0.0, 0.0, player.m_opacity / 255.0};
+    const double c[4] = {double(player.m_outlineColor.r),
+                         double(player.m_outlineColor.g),
+                         double(player.m_outlineColor.b), 0.0};
+    cf                = new TGenericColorFunction(m, c);
+  } else if (player.m_onionSkinDistance != c_noOnionSkin) {
     TPixel32 frontOnionColor, backOnionColor;
 
     if (player.m_onionSkinDistance != 0 &&
@@ -1653,7 +1694,7 @@ void RasterPainter::onVectorImage(TVectorImage *vi,
                        true  // alpha enabled
   );
 
-  rd.m_drawRegions           = !inksOnly;
+  rd.m_drawRegions           = !inksOnly && !player.m_outlineView;
   rd.m_inkCheckEnabled       = tc & ToonzCheck::eInk;
   rd.m_ink1CheckEnabled      = tc & ToonzCheck::eInk1;
   rd.m_paintCheckEnabled     = tc & ToonzCheck::ePaint;
@@ -1875,15 +1916,23 @@ void RasterPainter::onToonzImage(TToonzImage *ti, const Stage::Player &player) {
   // node keeps the copy of the palette alive
   TPalette *palette = ti->getPalette();
   TPaletteP overridden;
-  if (m_colourOverrides) {
+  TPixel32 filterColor = player.m_filterColor;
+  if (player.m_outlineView && onionMode == Node::eOnionSkinNone) {
+    // Outline View: the inks are drawn in the outline colour of the column,
+    // which the color filter of the column must not tint
+    overridden  = outlinePalette(player, palette);
+    filterColor = TPixel32::Black;
+    if (overridden) palette = overridden.getPointer();
+  } else if (m_colourOverrides) {
     overridden = overriddenPalette(player, palette);
     if (overridden) palette = overridden.getPointer();
   }
 
   m_nodes.push_back(Node(r, palette, alpha, aff, ti->getSavebox(), bbox,
                          player.m_frame, player.m_isCurrentColumn, onionMode,
-                         false, false, false, player.m_filterColor));
+                         false, false, false, filterColor));
   m_nodes.back().m_ownedPalette = overridden;
+  m_nodes.back().m_outlineView  = player.m_outlineView;
 
   if (m_gpuCompositing && player.m_sl) {
     m_nodes.back().m_imageId      = player.m_sl->getImageId(player.m_fid);

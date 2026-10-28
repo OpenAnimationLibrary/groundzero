@@ -63,6 +63,8 @@ setMask(),
 //=============================================================================
 
 class DVAPI TXshColumn : public TColumnHeader, public TPersist {
+  friend struct TXshColumnStatusAccess;  // regression tests
+
   int m_status;
   TXsheet *m_xsheet;
   int m_colorTag;  // Usato solo in tabkids
@@ -80,7 +82,8 @@ protected:
     eMasked                = 0x10,
     eCamstandTransparent43 = 0x20,  // obsoleto, solo per retrocompatibilita'
     eSelectionLocked       = 0x40,  // not picked by clicking in the viewer
-    eLightTableExcluded    = 0x80   // not faded by the light table
+    eLightTableExcluded    = 0x80,  // not faded by the light table
+    eOutlineView           = 0x100  // shown as coloured outlines in the viewer
   };
 
   TRaster32P m_icon;
@@ -213,6 +216,19 @@ Set column status light table exclusion to \b on.
 \sa isLightTableExcluded()
 */
   void setLightTableExcluded(bool on);
+
+  /*!
+Return true if column is shown as coloured outlines instead of filled art in
+the viewer (Outline View). It is a viewer setting only: the Flipbook and the
+render are not affected. The flag is saved only when it is set.
+\sa setOutlineView()
+*/
+  bool isOutlineView() const;
+  /*!
+Set column status outline view to \b on.
+\sa isOutlineView()
+*/
+  void setOutlineView(bool on);
 
   /*!
 Return true if column is a mask.
