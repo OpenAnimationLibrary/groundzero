@@ -136,6 +136,9 @@ void testFloatAndTiles() {
   TFxP copy = fx.clone(false);
   auto copied = TSpectrumParamP(TParamP(copy->getParams()->getParam("verticalRamp")));
   require(copied->getColor(0)->getValueD(0).r == 0.123456789, "Clone lost ramp precision");
+  // The synthetic source is intentionally not registered for persistence.
+  // Serialize the effect itself after the rendering checks have finished.
+  fx.getInputPort(0)->setFx(nullptr);
   QTemporaryDir temp; require(temp.isValid(), "Temporary directory unavailable");
   const TFilePath path(temp.filePath("star.fx").toStdWString());
   { TOStream stream(path); stream << &fx; }
@@ -271,6 +274,7 @@ int main(int argc, char **argv) {
   QCoreApplication app(argc, argv);
   bool passed = true;
   auto run = [&](const char *name, const auto &test) {
+    std::cerr << "Running " << name << '\n';
     try { test(); }
     catch (const std::exception &e) { std::cerr << name << ": " << e.what() << '\n'; passed = false; }
     catch (const TException &e) { std::cerr << name << ": " << QString::fromStdWString(e.getMessage()).toStdString() << '\n'; passed = false; }
