@@ -227,7 +227,9 @@ TPoint TFont::drawText(QImage &outImage, TPoint &unused, const QString &text,
     return getDistance(text, nextText);
   }
 
-  int width  = qMax(1, metrics.horizontalAdvance(text));
+  // The ink of an italic can go past the advance (an "f"): the image covers it
+  int width  = qMax(1, qMax(metrics.horizontalAdvance(text),
+                            metrics.boundingRect(text).right() + 1));
   int height = qMax(1, metrics.height());
   QImage rendered(width, height, QImage::Format_ARGB32_Premultiplied);
   rendered.fill(Qt::white);

@@ -33,15 +33,20 @@ void sleepMs(unsigned long msec) {
   mutex.unlock();
 }
 
-QString print(const QJSValue &arg, bool addQuotes) {
+QString print(const QJSValue &arg, bool addQuotes, int depth = 0) {
   if (arg.isArray()) {
+    // An array that contains itself would recurse until the stack is gone,
+    // and a huge one would print for ever: both are cut
+    if (depth >= 32) return "[...]";
     QString s   = "[";
     quint32 len = arg.property(QLatin1String("length")).toUInt();
-    for (quint32 i = 0; i < len; ++i) {
+    const quint32 maxItems = 10000;
+    for (quint32 i = 0; i < len && i < maxItems; ++i) {
       QJSValue item = arg.property(i);
       if (i > 0) s += ",";
-      s += print(item, addQuotes);
+      s += print(item, addQuotes, depth + 1);
     }
+    if (len > maxItems) s += ",...";
     s += "]";
     return s;
   } else if (arg.isBool()) {

@@ -20,11 +20,16 @@ class DVAPI Level final : public Wrapper {
   ToonzScene *m_scene;
   bool m_sceneOwner;
   int m_type;
+  // The script Scene that owns m_scene (a level taken from a scene): the
+  // garbage collector must not delete the scene while the level is in use
+  QJSValue m_sceneValue;
 
 public:
   Level();
   explicit Level(TXshSimpleLevel *sl);
   ~Level() override;
+
+  void keepScene(const QJSValue &sceneValue) { m_sceneValue = sceneValue; }
 
   WRAPPER_STD_METHODS(Level)
   Q_INVOKABLE QString toString();

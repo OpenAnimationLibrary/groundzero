@@ -88,7 +88,8 @@ public:
     addInputPort("Source", m_source);
     bindParam(this, "radius", m_radius);
     m_radius->setValueRange(0, std::numeric_limits<double>::max());
-    m_radius->setMeasureName("fxLength");
+    // No unit: the radius is in the level's own pixels (not the length unit
+    // of the user, which the field would convert it to and from)
     enableComputeInFloat(true);
   }
   bool usesCustomRenderGrid() const override { return true; }

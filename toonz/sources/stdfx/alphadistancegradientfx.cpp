@@ -321,8 +321,8 @@ public:
     m_blur->setValueRange(0, 2); m_blur->setUIChoices({"No Blur", "Blur No Scale", "Blur"});
     m_inside->setValueRange(0, 1000); m_outside->setValueRange(0, 1000);
     m_power->setValueRange(0.01, 5); m_blurSize->setValueRange(0, 4096);
-    m_inside->setMeasureName("fxLength"); m_outside->setMeasureName("fxLength");
-    m_blurSize->setMeasureName("fxLength");
+    // No unit: the thresholds and the blur are in the level's own pixels (not
+    // the length unit of the user, which the fields would convert them to)
     m_color->enableMatte(false); m_bg->enableMatte(false);
     enableComputeInFloat(true);
   }
