@@ -1,0 +1,15 @@
+<motionpreset>
+  <name>
+    "Pulse"
+  </name>
+  <description>
+    "A heartbeat: grows by 25 percent, shrinks back and beats once more with less strength."
+  </description>
+  <channel name="sc" mode="multiply">
+    0 1 S 0 0 1.66667 0 0
+    5 1.25 S -1.66667 0 1.66667 0 0
+    10 1 S -1.66667 0 1.33333 0 0
+    14 1.12 S -1.33333 0 1.33333 0 0
+    18 1 L -1.33333 0 0 0 0
+  </channel>
+</motionpreset>

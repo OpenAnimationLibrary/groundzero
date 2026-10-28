@@ -1,0 +1,16 @@
+<motionpreset>
+  <name>
+    "Swing"
+  </name>
+  <description>
+    "Swings left and right like a pendulum, each swing shorter than the one before."
+  </description>
+  <channel name="rot" mode="add">
+    0 0 S 0 0 1.33333 0 0
+    4 18 S -1.33333 0 2 0 0
+    10 -14 S -2 0 2 0 0
+    16 9 S -2 0 1.33333 0 0
+    20 -4 S -1.33333 0 1.33333 0 0
+    24 0 L -1.33333 0 0 0 0
+  </channel>
+</motionpreset>

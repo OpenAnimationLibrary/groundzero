@@ -104,6 +104,7 @@ set(HEADERS
     ../include/toonz/levelset.h
     ../include/toonz/levelupdater.h
     ../include/toonz/logger.h
+    ../include/toonz/motionpreset.h
     ../include/toonz/mypaint.h
     ../include/toonz/mypaintbrushstyle.h
     ../include/toonz/mypainthelpers.hpp
@@ -222,6 +223,7 @@ set(SOURCES
     levelupdater.cpp
     lut3d.cpp
     logger.cpp
+    motionpreset.cpp
     movierenderer.cpp
     multimediarenderer.cpp
     mypaintbrushstyle.cpp
@@ -489,6 +491,16 @@ if(BUILD_OUTLINEVIEW_TESTS)
     add_executable(outlineview_test tests/outlineview_test.cpp)
     target_link_libraries(outlineview_test PRIVATE toonzlib tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core)
     add_test(NAME outlineview COMMAND outlineview_test)
+endif()
+
+# Optional regression target for the motion presets (motionpreset.h). It also
+# loads the stock presets shipped in stuff/library/motionpresets.
+option(BUILD_MOTIONPRESET_TESTS "Build the motion preset regression test" ${BUILD_TESTS})
+if(BUILD_MOTIONPRESET_TESTS)
+    get_filename_component(MOTIONPRESETS_STOCK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../stuff/library/motionpresets" ABSOLUTE)
+    add_executable(motionpreset_test tests/motionpreset_test.cpp)
+    target_link_libraries(motionpreset_test PRIVATE toonzlib tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core)
+    add_test(NAME motionpreset COMMAND motionpreset_test ${MOTIONPRESETS_STOCK_DIR})
 endif()
 
 # Optional regression target for the export to an aspect ratio

@@ -11,6 +11,7 @@
 #include "offsetlayerspane.h"
 #include "artlayermanagerpane.h"
 #include "riglibrarypane.h"
+#include "motionpresetspane.h"
 
 // Tnz6 includes
 #include "pane.h"
@@ -2028,3 +2029,21 @@ public:
 
 OpenFloatingPanel openRigLibraryCommand(MI_OpenRigLibrary, "RigLibrary",
                                         QObject::tr("Rig Library"));
+
+//=============================================================================
+// Motion Presets
+//-----------------------------------------------------------------------------
+
+class MotionPresetsPanelFactory final : public TPanelFactory {
+public:
+  MotionPresetsPanelFactory() : TPanelFactory("MotionPresets") {}
+  void initialize(TPanel *panel) override {
+    panel->setWidget(new MotionPresetsPane(panel));
+    panel->setWindowTitle(QObject::tr("Motion Presets"));
+    panel->setIsMaximizable(false);
+  }
+} motionPresetsPanelFactory;
+
+OpenFloatingPanel openMotionPresetsCommand(MI_OpenMotionPresets,
+                                           "MotionPresets",
+                                           QObject::tr("Motion Presets"));

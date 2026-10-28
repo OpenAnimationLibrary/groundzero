@@ -203,6 +203,7 @@
         <command>MI_RemoveSceneFrame</command>
         <command>MI_InsertGlobalKeyframe</command>
         <command>MI_RemoveGlobalKeyframe</command>
+        <command>MI_SaveMotionPreset</command>
         <separator/>
         <command>MI_LipSyncPopup</command>
         <command>MI_NewAnnotationColumn</command>
@@ -394,6 +395,7 @@
         <command>MI_OpenMasterControllers</command>
         <command>MI_OpenOffsetLayers</command>
         <command>MI_OpenRigLibrary</command>
+        <command>MI_OpenMotionPresets</command>
         <command>MI_OpenArtLayerManager</command>
         <command>MI_OpenSymbols</command>
         <command>MI_OpenReferencePanel</command>

@@ -142,6 +142,7 @@
     <command>MI_RemoveSceneFrame</command>
     <command>MI_InsertGlobalKeyframe</command>
     <command>MI_RemoveGlobalKeyframe</command>
+    <command>MI_SaveMotionPreset</command>
   </menu>
   <menu title="Cells">
     <command>MI_Reverse</command>
@@ -228,6 +229,7 @@
     <command>MI_OpenMasterControllers</command>
     <command>MI_OpenOffsetLayers</command>
     <command>MI_OpenRigLibrary</command>
+    <command>MI_OpenMotionPresets</command>
     <command>MI_OpenArtLayerManager</command>
     <separator/>
     <command>MI_ResetRoomLayout</command>

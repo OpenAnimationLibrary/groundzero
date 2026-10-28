@@ -2646,6 +2646,8 @@ void MainWindow::defineActions() {
   createMenuXsheetAction(MI_RemoveGlobalKeyframe,
                          QT_TR_NOOP("Remove Multiple Keys"), "",
                          "remove_multiple_keys");
+  createMenuXsheetAction(MI_SaveMotionPreset,
+                         QT_TR_NOOP("Save Keys as Motion Preset..."), "", "");
   createMenuXsheetAction(MI_NewAnnotationColumn,
                          QT_TR_NOOP("New Annotation Column"), "",
                          "new_note_level");
@@ -3036,6 +3038,8 @@ void MainWindow::defineActions() {
   createMenuWindowsAction(MI_OpenOffsetLayers, QT_TR_NOOP("Offset Layers"), "",
                           "");
   createMenuWindowsAction(MI_OpenRigLibrary, QT_TR_NOOP("Rig Library"), "", "");
+  createMenuWindowsAction(MI_OpenMotionPresets, QT_TR_NOOP("Motion Presets"),
+                          "", "");
   createMenuWindowsAction(MI_OpenArtLayerManager,
                           QT_TR_NOOP("Art Layer Manager"), "", "");
   createMenuWindowsAction(MI_OpenSymbols, QT_TR_NOOP("Symbols"), "", "");
