@@ -89,7 +89,7 @@ public:
   }
   bool canHandle(const TRenderSettings &settings, double frame) override {
     return expandRadius(m_radius->getValue(frame)) == 0 ||
-           isAlmostIsotropic(settings.m_affine);
+           settings.m_affine.isIsotropic(0.001);
   }
   bool requiresFullPrecisionSerialization() const override { return true; }
   bool toBeComputedInLinearColorSpace(bool, bool) const override { return false; }
