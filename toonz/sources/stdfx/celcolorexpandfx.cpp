@@ -147,8 +147,10 @@ public:
     const TDimension size = expandSize(tile.getRaster()->getLx(),
                                        tile.getRaster()->getLy(), halo, tile.getRaster()->getPixelSize());
     TTile input;
-    m_source->allocateAndCompute(input, tile.m_pos - TPointD(halo, halo), size,
-                                 tile.getRaster(), frame, settings);
+    input.setRaster(tile.getRaster()->create(size.lx, size.ly));
+    input.m_pos = tile.m_pos - TPointD(halo, halo);
+    input.getRaster()->clear();
+    m_source->compute(input, frame, settings);
     if (settings.m_isCanceled && *settings.m_isCanceled) return;
     if (TRaster32P output = tile.getRaster())
       expandColors<TPixel32>(input.getRaster(), output, halo, radius, settings.m_isCanceled);
