@@ -82,6 +82,17 @@ jobs:
         set -o pipefail
         ctest --output-on-failure --output-junit cel-tests.xml --no-tests=error -R '^celfx_' 2>&1 | tee cel-tests-output.txt
 
+    - name: Diagnose cel UI crash
+      if: failure()
+      working-directory: toonz/build
+      run: |
+        if [ -f cel-tests-output.txt ] && grep -q 'celfx_colorkeep_ui.*SegFault' cel-tests-output.txt; then
+          sudo apt-get install -y gdb
+          QT_QPA_PLATFORM=offscreen timeout 45s gdb --batch -ex run -ex 'thread apply all backtrace' \
+            --args stdfx/celcolorkeep_ui_test ../../stuff/profiles/layouts/fxs/STD_celColorKeepFx.xml \
+            2>&1 | tee -a cel-tests-output.txt
+        fi
+
     - name: Report cel test failures
       if: failure()
       run: python3 ci-scripts/report_cel_tests.py toonz/build/cel-tests-output.txt

@@ -26,16 +26,20 @@ PixelParamField *fieldFor(ParamsPage &page, int index) {
   throw std::runtime_error("Color entry has no native editor");
 }
 void testPage(const QString &layout) {
+  std::cout << "Creating effect and preview" << std::endl;
   TFxP actual = new CelColorKeepFx;
   count(actual)->setDefaultValue(100);
   color(actual, 99)->getRed()->setDefaultValue(0.123456789);
   TFxP preview = actual->clone(false);
+  std::cout << "Creating parameter page" << std::endl;
   ParamsPage page;
   TIStream stream(TFilePath(layout.toStdWString()));
   std::string tag;
   require(stream.matchTag(tag) && tag == "fxlayout", "Missing layout root");
   require(stream.matchTag(tag) && tag == "page", "Missing effect page");
+  std::cout << "Loading native controls" << std::endl;
   page.setPage(stream, actual, false);
+  std::cout << "Binding native controls" << std::endl;
   page.setFx(preview, actual, 0);
   auto *selector = page.findChild<QComboBox *>("indexedColorSelector");
   require(selector && selector->count() == 100, "Color list is incomplete");
@@ -44,6 +48,7 @@ void testPage(const QString &layout) {
   require(color(preview, 99)->getValueD(0).r == 0.123456789,
           "Opening the editor quantized a color");
   for (int index : {0, 49, 99}) {
+    std::cout << "Checking color entry " << index + 1 << std::endl;
     const TPixelD before = color(actual, index)->getValueD(0);
     selector->setCurrentIndex(index);
     require(color(actual, index)->getValueD(0) == before,
@@ -65,6 +70,7 @@ void testPage(const QString &layout) {
     page.update(0);
   }
   auto *last = fieldFor(page, 99);
+  std::cout << "Checking key insertion and undo" << std::endl;
   require(QMetaObject::invokeMethod(last, "onKeyToggled", Qt::DirectConnection),
           "Key toggle unavailable");
   require(color(actual, 99)->isKeyframe(0) &&
@@ -75,6 +81,7 @@ void testPage(const QString &layout) {
   require(!color(actual, 99)->hasKeyframes(), "Key toggle undo failed");
   require(color(actual, 99)->getValueD(0).r == 0.123456789,
           "Key undo changed default color");
+  std::cout << "Checking enabled count and animation" << std::endl;
   count(actual)->setDefaultValue(1);
   page.update(0);
   require(!last->isEnabled() && fieldFor(page, 0)->isEnabled(),
@@ -90,10 +97,12 @@ void testPage(const QString &layout) {
   page.update(10);
   require(last->isEnabled(), "Animated maximum count was ignored");
   TUndoManager::manager()->reset();
+  std::cout << "Closing parameter page" << std::endl;
 }
 }  // namespace
 
 int main(int argc, char **argv) {
+  std::cout << "Initializing Qt application" << std::endl;
   QApplication app(argc, argv);
   try {
     require(argc == 2, "Expected the installed effect layout");
