@@ -35,9 +35,11 @@ void setColor(TFx &fx, int index, const TPixelD &value) {
 class Source final : public TStandardRasterFx {
   TRasterP m_image;
   int *m_cancelOnCompute;
+  bool *m_observedClean;
 public:
-  explicit Source(const TRasterP &image, int *cancelOnCompute = nullptr)
-      : m_image(image), m_cancelOnCompute(cancelOnCompute) {}
+  explicit Source(const TRasterP &image, int *cancelOnCompute = nullptr,
+                  bool *observedClean = nullptr)
+      : m_image(image), m_cancelOnCompute(cancelOnCompute), m_observedClean(observedClean) {}
   const TPersistDeclaration *getDeclaration() const override { return nullptr; }
   bool canHandle(const TRenderSettings &, double) override { return true; }
   bool doGetBBox(double, TRectD &box, const TRenderSettings &) override {
@@ -48,7 +50,14 @@ public:
     return "cel-test-source";
   }
   void compute(TTile &tile, double, const TRenderSettings &) override {
-    tile.getRaster()->clear();
+    if (m_observedClean) {
+      TRaster32P raster = tile.getRaster();
+      *m_observedClean = bool(raster);
+      if (raster)
+        for (int y = 0; y < raster->getLy(); ++y)
+          for (int x = 0; x < raster->getLx(); ++x)
+            *m_observedClean = *m_observedClean && raster->pixels(y)[x] == TPixel32::Transparent;
+    } else tile.getRaster()->clear();
     tile.getRaster()->copy(m_image, TPoint(-int(tile.m_pos.x), -int(tile.m_pos.y)));
     if (m_cancelOnCompute) ++*m_cancelOnCompute;
   }
@@ -213,6 +222,15 @@ void testTilesAndThreads() {
                                       : TPixel32::Transparent;
       require(padded->pixels(y)[x] == expected, "Negative-origin tile mismatch");
     }
+  bool observedClean = false;
+  TRaster32P partialInput(1, 1); partialInput->pixels(0)[0] = TPixel32::Black;
+  CelColorKeepFx partial;
+  partial.getInputPort(0)->setFx(new Source(partialInput, nullptr, &observedClean));
+  TRaster32P partialOutput(2, 1); partialOutput->fill(TPixel32::White);
+  TTile partialTile; partialTile.setRaster(partialOutput);
+  partial.doCompute(partialTile, 0, TRenderSettings());
+  require(observedClean && partialOutput->pixels(0)[1] == TPixel32::Transparent,
+          "Partial upstream output was not initialized");
   CelColorKeepFx disconnected;
   auto empty = render<TPixel32>(disconnected, 2);
   require(empty->pixels(0)[0] == TPixel32::Transparent, "Missing input not clear");
