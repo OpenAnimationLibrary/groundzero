@@ -75,6 +75,11 @@ public:
   void setValueRange(double min, double max, double step = 1.0);
   bool getValueRange(double &min, double &max, double &step) const;
 
+  // Optional slider bounds, independent of the full numeric entry range.
+  // Effect constructors provide this editor schema; parameter copies retain it.
+  void setUISliderRange(double min, double max);
+  bool getUISliderRange(double &min, double &max) const;
+
   // Optional native editor schema for keyable discrete parameters. Values are
   // zero-based choice indices. The effect constructor supplies the schema;
   // curves continue to use the ordinary double parameter stream format.

@@ -4,6 +4,7 @@
 #include "tpixelutils.h"
 #include "celcolorkeymath.h"
 #include "celdistance.h"
+#include "celfxsourcegrid.h"
 
 #include <algorithm>
 #include <array>
@@ -75,6 +76,8 @@ public:
     choice(m_blurDirection, {"Inside", "Around", "Outside"});
     threshold(m_threshold); threshold(m_component1); threshold(m_component2); threshold(m_component3);
     m_thin->setValueRange(-4000, 4000); m_blur->setValueRange(0, 4000); m_enabledColors->setValueRange(0, colorCapacity);
+    m_thin->setUISliderRange(-100, 100);
+    m_blur->setUISliderRange(0, 100);
     bindParam(this, "keep", m_keep); bindParam(this, "threshold", m_threshold);
     bindParam(this, "premultiplied", m_premultiplied); bindParam(this, "colorSpace", m_colorSpace);
     bindParam(this, "precision", m_precision); bindParam(this, "perColor", m_perColor);
@@ -97,8 +100,11 @@ public:
     enableComputeInFloat(true);
   }
   bool requiresFullPrecisionSerialization() const override { return true; }
+  bool usesCustomRenderGrid() const override { return true; }
   bool canHandle(const TRenderSettings &, double) override { return false; }
-  TAffine handledAffine(const TRenderSettings &, double) override { return TAffine(); }
+  TAffine handledAffine(const TRenderSettings &, double frame) override {
+    return CelFxSourceGrid::renderAffine(m_source.getFx(), frame);
+  }
   bool toBeComputedInLinearColorSpace(bool, bool) const override { return false; }
   TRectD inputRect(double frame, const TRectD &output, const TRenderSettings &settings);
   bool doGetBBox(double frame, TRectD &box, const TRenderSettings &settings) override;
@@ -155,6 +161,9 @@ std::string CelColorKeyFx::getAlias(double frame, const TRenderSettings &setting
   std::ostringstream out;
   out.imbue(std::locale::classic());
   out << TRasterFx::getAlias(frame, settings) << "[celKey:" << std::setprecision(std::numeric_limits<double>::max_digits10);
+  const TAffine grid = CelFxSourceGrid::renderAffine(m_source.getFx(), frame);
+  for (double component : {grid.a11, grid.a12, grid.a13, grid.a21, grid.a22, grid.a23})
+    out << ';' << component;
   auto value = [&](const TDoubleParamP &p) { out << ';' << p->getValue(frame); };
   for (const TDoubleParamP &p : {m_keep, m_threshold, m_premultiplied, m_colorSpace, m_precision,
        m_perColor, m_perComponent, m_component1, m_component2, m_component3, m_thin,
