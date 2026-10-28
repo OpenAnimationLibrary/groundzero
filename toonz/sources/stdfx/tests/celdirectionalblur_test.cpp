@@ -2,6 +2,7 @@
 #include "tmacrofx.h"
 #include "tparamcontainer.h"
 #include "tstream.h"
+#include "celmotion_host_fixture.h"
 
 #include <QCoreApplication>
 #include <QTemporaryDir>
@@ -131,6 +132,45 @@ void noiseTests() {
   settings.type = CelNoise::Layer;
   require(CelNoise::sample(settings, 0, 0, -1) == 0 && CelNoise::sample(settings, 0, 0, 2) == 1,
           "Layer intensity is not bounded");
+}
+
+void productionTransformTests() {
+  HostMotionContext context;
+  for (const TAffine &affine : {TAffine(), TAffine(TScale(2.0, 1.0))}) {
+    auto run = [&](int noiseMode, bool strips) {
+      TFxP owner = new CelDirectionalBlurFx;
+      auto *fx = dynamic_cast<CelDirectionalBlurFx *>(owner.getPointer());
+      fx->getInputPort(0)->setFx(new HostMotionPixel(TPointD(2, 2)));
+      if (noiseMode == 0)
+        fx->getInputPort(1)->setFx(new HostMotionShift(new HostMotionPixel(TPointD(1, 2)), TPointD(1, 0)));
+      else
+        fx->getInputPort(1)->setFx(new HostMotionPixel(TPointD(2, 2), noiseMode == 1));
+      value(*fx, "frontStrength", 4); value(*fx, "noiseType", 2); value(*fx, "noiseVariation", 100);
+      TRenderSettings info; info.m_affine = affine;
+      TRaster32P output(24, 16); output->clear();
+      if (!strips) {
+        TTile tile(output, TPointD(-4, -4)); fx->compute(tile, 0, info);
+      } else {
+        for (int y = 0; y < 16; ++y) {
+          TRaster32P row(24, 1); row->clear();
+          TTile tile(row, TPointD(-4, y - 4)); fx->compute(tile, 0, info);
+          output->copy(row, TPoint(0, y));
+        }
+      }
+      return output;
+    };
+    auto shifted = run(0, false), direct = run(1, false), black = run(2, false);
+    auto strips = run(0, true);
+    int shiftedAlpha = 0, blackAlpha = 0;
+    for (int y = 0; y < 16; ++y) for (int x = 0; x < 24; ++x) {
+      require(shifted->pixels(y)[x] == direct->pixels(y)[x],
+              "Transformed noise does not match a pretranslated layer");
+      require(shifted->pixels(y)[x] == strips->pixels(y)[x],
+              "Host affine changed output between frame and strips");
+      shiftedAlpha += shifted->pixels(y)[x].m; blackAlpha += black->pixels(y)[x].m;
+    }
+    require(shiftedAlpha > blackAlpha, "Transformed bright noise did not produce a directional trail");
+  }
 }
 
 class MotionSource final : public TStandardRasterFx {
@@ -298,18 +338,20 @@ void persistenceTests(const QTemporaryDir &temp) {
 }  // namespace
 
 int main(int argc, char **argv) {
-  QCoreApplication app(argc, argv); QTemporaryDir temp;
+  QCoreApplication app(argc, argv); TThread::init(); TRenderer::initialize(); QTemporaryDir temp;
+  int result = 1;
   try {
     require(temp.isValid(), "Temporary directory unavailable");
     std::cout << "Checking directional kernel and noise" << std::endl;
     mathTests(); noiseTests();
     rendererTests<TPixel32>(); rendererTests<TPixel64>(); rendererTests<TPixelF>();
+    productionTransformTests();
     std::cout << "Checking directional persistence" << std::endl;
     persistenceTests(temp);
     std::cout << "PASS: directional lobes, shapes, fades, tails, noise, precision, tiles and persistence\n";
-    return 0;
+    result = 0;
   } catch (const TException &error) {
     std::cerr << QString::fromStdWString(error.getMessage()).toStdString() << '\n';
   } catch (const std::exception &error) { std::cerr << error.what() << '\n'; }
-  return 1;
+  TThread::shutdown(); return result;
 }
