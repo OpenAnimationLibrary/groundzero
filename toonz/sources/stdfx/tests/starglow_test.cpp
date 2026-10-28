@@ -368,7 +368,7 @@ void testRasterLevelDpi() {
     TRenderer renderer(1);
     const unsigned long id = TRenderer::buildRenderId();
     renderer.install(id); renderer.declareRenderStart(id); renderer.declareFrameStart(0);
-    auto render = [&](StarGlowFx &fx, int strips) {
+    auto render = [&](TRasterFx &fx, int strips) {
       TRaster32P output(32, 24); output->clear();
       TRenderSettings info; info.m_bpp = 32; info.m_cameraBox = TRectD(-16, -12, 16, 12);
       for (int strip = 0; strip < strips; ++strip) {
@@ -380,6 +380,8 @@ void testRasterLevelDpi() {
       return output;
     };
     try {
+      auto &raw = *static_cast<TRasterFx *>(realDpi.getPointer());
+      const auto rawFull = render(raw, 1), rawTiled = render(raw, 4);
       const auto actual = render(real, 1), tiled = render(real, 4);
       const auto expected = render(fixture, 1), fixtureTiled = render(fixture, 4);
       for (StarGlowFx *fx : {&real, &fixture}) {
@@ -413,7 +415,9 @@ void testRasterLevelDpi() {
             std::cerr << "  y=" << yy << " source=" << int(sourceFull->pixels(yy)[x].m)
                       << "," << int(sourceTiled->pixels(yy)[x].m)
                       << " halo=" << int(haloFull->pixels(yy)[x].m)
-                      << "," << int(haloTiled->pixels(yy)[x].m) << '\n';
+                      << "," << int(haloTiled->pixels(yy)[x].m)
+                      << " raw=" << int(rawFull->pixels(yy)[x].m)
+                      << "," << int(rawTiled->pixels(yy)[x].m) << '\n';
           }
           require(std::abs(int(a.m)-int(b.m)) <= 1, "Odd raster level introduced a tile seam");
           require(std::abs(int(a.m)-int(c.m)) <= 1, "Odd raster level and equivalent source disagree");
