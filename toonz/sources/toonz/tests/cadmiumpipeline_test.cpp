@@ -419,7 +419,7 @@ void nativeFullColorPipeline(CadmiumRuntime *runtime, const Pixel &fill,
     require(pixel[channel].isDouble() && pixel[channel].toDouble() == channels[channel],
             "The model changed the native reference's proxy color.");
   const QVector<int> matches = Cadmium::matchingNativeRegions(ref, proxy);
-  require(matches == QVector<int>({1}),
+  require(matches.size() == 1 && matches[0] == 1,
           "The model prediction did not resolve its unique native reference.");
   QVector<int> styles(2, -100);
   QVector<QColor> colors(2);
