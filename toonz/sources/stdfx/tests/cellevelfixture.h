@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
+#include <sstream>
 #include <type_traits>
 
 namespace CelLevelTest {
@@ -29,6 +30,8 @@ public:
     auto *simple = m_level->getSimpleLevel();
     simple->setType(OVL_XSHLEVEL);
     simple->setScene(&m_scene);
+    static unsigned int identity = 0;
+    simple->setPath(TFilePath("cel-grid-fixture-" + std::to_string(++identity) + ".png"));
     simple->setFrame(TFrameId(1), TRasterImageP(image));
     if (!m_column.setCell(0, TXshCell(m_level, TFrameId(1))))
       throw std::runtime_error("Cannot create raster level fixture");
@@ -90,8 +93,13 @@ void compare(const TRasterPT<Pixel> &expected, const TRasterPT<Pixel> &actual,
       const TPixelD b = toPixelD(actual->pixels(y)[x]);
       visible = visible || a.m > 0.1;
       if (std::max({std::abs(a.r-b.r), std::abs(a.g-b.g),
-                    std::abs(a.b-b.b), std::abs(a.m-b.m)}) > tolerance)
-        throw std::runtime_error(message);
+                    std::abs(a.b-b.b), std::abs(a.m-b.m)}) > tolerance) {
+        std::ostringstream detail;
+        detail << message << " at " << x << ',' << y << ": expected "
+               << a.r << ',' << a.g << ',' << a.b << ',' << a.m << "; actual "
+               << b.r << ',' << b.g << ',' << b.b << ',' << b.m;
+        throw std::runtime_error(detail.str());
+      }
     }
   if (!visible) throw std::runtime_error("Level fixture rendered no visible pixels");
 }
