@@ -320,9 +320,13 @@ void initializedInputs() {
   TRaster32P noise(5, 1); noise->fill(TPixel32::White);
   CelRadialBlurFx fx;
   fx.getInputPort(0)->setFx(new Source(source, TPointD(), nullptr, true));
-  fx.getInputPort(1)->setFx(new Source(noise, TPointD(), nullptr, true));
-  set(fx, "noiseType", 2); set(fx, "noiseVariation", 100); set(fx, "outerStrength", 1);
-  require(render<TPixel32>(fx, 5, 1)->pixels(0)[0] == TPixel32::White,
+  int noiseComputes = 0;
+  fx.getInputPort(1)->setFx(new Source(noise, TPointD(), &noiseComputes, true));
+  set(fx, "noiseType", 2); set(fx, "outerStrength", 1);
+  require(render<TPixel32>(fx, 5, 1)->pixels(0)[0] == TPixel32::White && noiseComputes == 0,
+          "Zero noise variation requested an unused noise layer");
+  set(fx, "noiseVariation", 100);
+  require(render<TPixel32>(fx, 5, 1)->pixels(0)[0] == TPixel32::White && noiseComputes == 1,
           "Cleared upstream inputs did not render correctly");
 }
 

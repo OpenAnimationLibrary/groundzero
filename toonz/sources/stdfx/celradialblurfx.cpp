@@ -152,7 +152,8 @@ void CelRadialBlurFx::transform(double frame, int port, const TRectD &output,
     return;
   }
   if ((port == 0 && m_source.isConnected()) ||
-      (port == 1 && m_noise.isConnected() && mode(m_noiseType->getValue(frame), 2) == 2))
+      (port == 1 && m_noise.isConnected() && mode(m_noiseType->getValue(frame), 2) == 2 &&
+       limited(m_noiseVariation->getValue(frame), 0, 100) > 0))
     sourceDomain(frame, settings, input);
 }
 
@@ -468,7 +469,7 @@ void CelRadialBlurFx::doCompute(TTile &tile, double frame,
   params.noise.thickness = limited(m_thickness->getValue(frame), 1, 100, 10);
   CelMotion::Image noise;
   const CelMotion::Image *noisePtr = nullptr;
-  if (params.noise.type == CelNoise::Layer && m_noise.isConnected()) {
+  if (params.noiseVariation > 0 && params.noise.type == CelNoise::Layer && m_noise.isConnected()) {
     TTile noiseTile;
     allocateClearedTile(noiseTile, domain.getP00(), size, tile.getRaster());
     m_noise->compute(noiseTile, frame, settings);
