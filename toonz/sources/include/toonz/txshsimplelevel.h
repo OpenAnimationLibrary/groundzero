@@ -199,6 +199,15 @@ public:
   std::string getIconId(const TFrameId &fid, const TDimension &size) const;
 
   void eraseFrame(const TFrameId &fid);
+
+  const std::set<TFrameId> &getCadmiumReferences() const {
+    return m_cadmiumReferences;
+  }
+  void setCadmiumReference(const TFrameId &fid, bool marked) {
+    if (marked && isFid(fid)) m_cadmiumReferences.insert(fid);
+    else m_cadmiumReferences.erase(fid);
+  }
+  void clearCadmiumReferences() { m_cadmiumReferences.clear(); }
   void clearFrames();
   void invalidateFrames();
   void invalidateFrame(const TFrameId &fid);
@@ -356,6 +365,7 @@ private:
   TPaletteP m_palette;
 
   FramesSet m_frames;
+  std::set<TFrameId> m_cadmiumReferences;
   int m_renumberCount = 0;
 
   std::map<TFrameId, TFrameId>

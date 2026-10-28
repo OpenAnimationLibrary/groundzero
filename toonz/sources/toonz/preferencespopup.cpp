@@ -1,6 +1,7 @@
 
 
 #include "preferencespopup.h"
+#include "cadmiumsettingswidget.h"
 
 // Tnz6 includes
 #include "menubarcommandids.h"
@@ -1731,7 +1732,7 @@ PreferencesPopup::PreferencesPopup()
              << tr("Drawing") << tr("Tools") << tr("Xsheet") << tr("Onion Skin")
              << tr("Animation") << tr("Auto Lip-Sync") << tr("Colors")
              << tr("Vector Visualize") << tr("Version Control")
-             << tr("Touch/Tablet Settings");
+             << tr("Touch/Tablet Settings") << tr("Cadmium");
 #ifdef _WIN32
   categories << tr("Addons");
 #endif
@@ -1766,6 +1767,7 @@ PreferencesPopup::PreferencesPopup()
   addPage(createVisualizationPage());
   addPage(createVersionControlPage());
   addPage(createTouchTabletPage());
+  addPage(createCadmiumPage());
 #ifdef _WIN32
   addPage(createAddonsPage());
 #endif  // WIN32
@@ -2210,6 +2212,13 @@ QWidget* PreferencesPopup::createCodecPage() {
 }
 
 //-----------------------------------------------------------------------------
+
+QWidget* PreferencesPopup::createCadmiumPage() {
+  auto* widget = new QWidget(this);
+  auto* layout = new QVBoxLayout(widget);
+  layout->addWidget(new CadmiumSettingsWidget(widget));
+  return widget;
+}
 
 QWidget* PreferencesPopup::createAutoLipSyncPage() {
   auto putLabel = [&](const QString& labelStr, QGridLayout* lay) {

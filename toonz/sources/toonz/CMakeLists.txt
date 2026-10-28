@@ -1,6 +1,10 @@
 set(VERSION 1.8)
 
 set(MOC_HEADERS
+    cadmiumruntime.h
+    cadmiumpopup.h
+    cadmiumsettingswidget.h
+    cadmiuminstaller.h
     addfilmstripframespopup.h
     adjustlevelspopup.h
     adjustthicknesspopup.h
@@ -180,6 +184,7 @@ if(WITH_PYTHON)
 endif()
 
 set(HEADERS
+    cadmiumtypes.h
     ${MOC_HEADERS}
     celldata.h
     cellkeyframedata.h
@@ -238,6 +243,13 @@ set(HEADERS
 )
 
 set(SOURCES
+    cadmiumruntime.cpp
+    cadmiumpopup.cpp
+    cadmiumsettingswidget.cpp
+    cadmiuminstaller.cpp
+    cadmiumtoonzraster.cpp
+    cadmiumvector.cpp
+    cadmiumfullcolor.cpp
     floatingpanelcommand.cpp
     canvassizepopup.cpp
     commandbar.cpp
@@ -850,4 +862,35 @@ if(BUILD_SPINE_EXPORT_TESTS)
     add_executable(spineexport_test tests/spineexport_test.cpp)
     target_include_directories(spineexport_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     add_test(NAME spineexport COMMAND spineexport_test)
+endif()
+
+option(BUILD_CADMIUM_TESTS "Build Cadmium native adapter and workflow regression tests" ${BUILD_TESTS})
+if(BUILD_CADMIUM_TESTS)
+    foreach(adapter toonzraster fullcolor vector)
+        add_executable(cadmium_${adapter}_test
+            tests/cadmium${adapter}_test.cpp cadmium${adapter}.cpp)
+        target_include_directories(cadmium_${adapter}_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+        target_link_libraries(cadmium_${adapter}_test PRIVATE
+            Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Widgets
+            Qt${QT_VERSION_MAJOR}::OpenGL ${OT_QT_OPENGLWIDGETS_LIB}
+            tnzcore tnzbase tnzext toonzlib ${GL_LIB} ${GLUT_LIB})
+        add_test(NAME cadmium_${adapter} COMMAND cadmium_${adapter}_test)
+    endforeach()
+    add_custom_target(cadmium_tests DEPENDS cadmium_toonzraster_test cadmium_fullcolor_test cadmium_vector_test)
+endif()
+
+if(BUILD_CADMIUM_TESTS)
+    add_executable(cadmium_codec_test tests/cadmiumcodec_test.cpp)
+    target_include_directories(cadmium_codec_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(cadmium_codec_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui tnzcore)
+    add_test(NAME cadmium_codec COMMAND cadmium_codec_test)
+    add_executable(cadmium_settings_test tests/cadmiumsettings_test.cpp
+        cadmiumruntime.cpp cadmiumsettingswidget.cpp cadmiuminstaller.cpp
+        ${CMAKE_CURRENT_BINARY_DIR}/moc_cadmiumruntime.cpp
+        ${CMAKE_CURRENT_BINARY_DIR}/moc_cadmiumsettingswidget.cpp
+        ${CMAKE_CURRENT_BINARY_DIR}/moc_cadmiuminstaller.cpp)
+    target_include_directories(cadmium_settings_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(cadmium_settings_test PRIVATE Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Widgets Qt${QT_VERSION_MAJOR}::Network)
+    add_test(NAME cadmium_settings COMMAND cadmium_settings_test)
+    add_dependencies(cadmium_tests cadmium_codec_test cadmium_settings_test)
 endif()

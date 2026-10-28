@@ -1,6 +1,8 @@
 
 
 #include "filmstrip.h"
+#include "cadmiumpopup.h"
+#include "tundo.h"
 
 // Tnz6 includes
 #include "tapp.h"
@@ -62,9 +64,47 @@
 #include <QDragMoveEvent>
 #include <QDropEvent>
 #include <QTimer>
+#include <QStyleOptionButton>
 #include <algorithm>
 
 namespace {
+constexpr int cadmiumGutter = 20;
+
+class CadmiumReferencesUndo final : public TUndo {
+  TXshSimpleLevelP m_level;
+  std::set<TFrameId> m_before, m_after;
+  void restore(const std::set<TFrameId> &references) const {
+    m_level->clearCadmiumReferences();
+    for (const TFrameId &fid : references)
+      if (m_level->fid2index(fid) >= 0) m_level->setCadmiumReference(fid, true);
+    TApp::instance()->getCurrentScene()->setDirtyFlag(true);
+    TApp::instance()->getCurrentLevel()->notifyLevelChange();
+  }
+public:
+  CadmiumReferencesUndo(TXshSimpleLevel *level, const std::set<TFrameId> &before,
+                       const std::set<TFrameId> &after)
+      : m_level(level), m_before(before), m_after(after) {}
+  int getSize() const override {
+    return clampSize(sizeof(*this) + (m_before.size() + m_after.size()) * sizeof(TFrameId));
+  }
+  void undo() const override { restore(m_before); }
+  void redo() const override { restore(m_after); }
+  QString getHistoryString() override { return QObject::tr("Cadmium Reference Marks"); }
+};
+
+void changeCadmiumReferences(TXshSimpleLevel *level,
+                            const std::set<TFrameId> &drawings, bool marked) {
+  if (!level || level->isReadOnly()) return;
+  const std::set<TFrameId> before = level->getCadmiumReferences();
+  for (const TFrameId &fid : drawings)
+    if (level->fid2index(fid) >= 0) level->setCadmiumReference(fid, marked);
+  const std::set<TFrameId> after = level->getCadmiumReferences();
+  if (before == after) return;
+  TUndoManager::manager()->add(new CadmiumReferencesUndo(level, before, after));
+  TApp::instance()->getCurrentScene()->setDirtyFlag(true);
+  TApp::instance()->getCurrentLevel()->notifyLevelChange();
+}
+
 QString fidToFrameNumberWithLetter(int f) {
   QString str = QString::number((int)(f / 10));
   while (str.length() < 3) str.push_front("0");
@@ -313,12 +353,12 @@ void FilmstripFrames::updateContentConstraints() {
   } else if (m_isVertical) {
     m_scrollArea->setWidgetResizable(false);
     setFixedWidth(m_iconSize.width() + fs_leftMargin + fs_rightMargin +
-                  fs_iconMarginLR * 2);
+                  fs_iconMarginLR * 2 + cadmiumGutter);
     setMinimumHeight(0);
     setMaximumHeight(QWIDGETSIZE_MAX);
   } else {
     m_scrollArea->setWidgetResizable(false);
-    setFixedHeight(getOneFrameHeight());
+    setFixedHeight(getOneFrameHeight() + cadmiumGutter);
     setMinimumWidth(0);
     setMaximumWidth(QWIDGETSIZE_MAX);
   }
@@ -356,7 +396,7 @@ void FilmstripFrames::updateIconLayout() {
     if (vp && m_prefIconSize.width() > 0 && m_prefIconSize.height() > 0) {
       if (m_isVertical) {
         const int availW =
-            vp->width() - fs_leftMargin - fs_rightMargin - fs_iconMarginLR * 2;
+            vp->width() - fs_leftMargin - fs_rightMargin - fs_iconMarginLR * 2 - cadmiumGutter;
         if (availW > 0) {
           const int w = availW;
           const int h =
@@ -365,7 +405,7 @@ void FilmstripFrames::updateIconLayout() {
         }
       } else {
         const int availH = vp->height() - fs_frameSpacing - fs_iconMarginTop -
-                           fs_iconMarginBottom;
+                           fs_iconMarginBottom - cadmiumGutter;
         if (availH > 0) {
           const int h = availH;
           const int w =
@@ -513,7 +553,7 @@ void FilmstripFrames::updateContentHeight(int minimumHeight) {
 
 //-----------------------------------------------------------------------------
 void FilmstripFrames::updateContentWidth(int minimumWidth) {
-  if (!m_responsiveThumbnails) setFixedHeight(getOneFrameHeight());
+  if (!m_responsiveThumbnails) setFixedHeight(getOneFrameHeight() + cadmiumGutter);
   if (minimumWidth < 0) minimumWidth = visibleRegion().boundingRect().right();
   int contentWidth = getFramesWidth();
   if (contentWidth < minimumWidth) contentWidth = minimumWidth;
@@ -1034,6 +1074,15 @@ void FilmstripFrames::paintEvent(QPaintEvent *evt) {
       p.drawRect(tmp_frameRect.adjusted(-1, -1, 2, 2));
       p.setPen(Qt::NoPen);
     }
+    if (0 <= i && i < frameCount) {
+      QStyleOptionButton mark;
+      mark.initFrom(this);
+      mark.rect = cadmiumReferenceRect(i);
+      mark.state |= sl->getCadmiumReferences().count(fids[i])
+                        ? QStyle::State_On : QStyle::State_Off;
+      if (sl->isReadOnly()) mark.state &= ~QStyle::State_Enabled;
+      style()->drawControl(QStyle::CE_CheckBox, &mark, &p, this);
+    }
   }
 
   // se sono in modalita' level edit faccio vedere la freccia che indica il
@@ -1145,6 +1194,14 @@ TFrameId FilmstripFrames::getCurrentFrameId() {
 
 //-----------------------------------------------------------------------------
 
+QRect FilmstripFrames::cadmiumReferenceRect(int index) const {
+  if (m_isVertical)
+    return QRect(width() - cadmiumGutter + 2,
+                 index2y(index) + getOneFrameHeight() / 2 - 8, 16, 16);
+  return QRect(index2x(index) + getOneFrameWidth() / 2 - 8,
+               height() - cadmiumGutter + 2, 16, 16);
+}
+
 void FilmstripFrames::mousePressEvent(QMouseEvent *event) {
   m_selecting = false;
   int index   = 0;
@@ -1156,6 +1213,12 @@ void FilmstripFrames::mousePressEvent(QMouseEvent *event) {
   TFrameId fid = index2fid(index);
 
   TXshSimpleLevel *sl = getLevel();
+  if (sl && sl->fid2index(fid) >= 0 && event->button() == Qt::LeftButton &&
+      cadmiumReferenceRect(index).contains(event->pos())) {
+    changeCadmiumReferences(sl, {fid}, !sl->getCadmiumReferences().count(fid));
+    update();
+    return;
+  }
   if (sl) activateLevel();
 
   int frameHeight = m_iconSize.height() + fs_frameSpacing + fs_iconMarginTop +
@@ -1209,11 +1272,12 @@ void FilmstripFrames::mousePressEvent(QMouseEvent *event) {
     // was the inbetween button clicked?
     bool inbetweenSelected = false;
     if (m_isVertical)
-      inbetweenSelected = event->pos().x() > width() - 20 - fs_rightMargin;
+      inbetweenSelected = event->pos().x() > width() - cadmiumGutter - 20 - fs_rightMargin &&
+                          event->pos().x() < width() - cadmiumGutter;
     else
       inbetweenSelected =
-          event->pos().y() > height() - fs_iconMarginBottom - 20 &&
-          event->pos().y() < height() - fs_iconMarginBottom - fs_frameSpacing;
+          event->pos().y() > height() - cadmiumGutter - fs_iconMarginBottom - 20 &&
+          event->pos().y() < height() - cadmiumGutter - fs_iconMarginBottom - fs_frameSpacing;
 
     // with shift or control
     if (event->modifiers() & Qt::ShiftModifier) {
@@ -1446,6 +1510,19 @@ void FilmstripFrames::mouseMoveEvent(QMouseEvent *e) {
 void FilmstripFrames::keyPressEvent(QKeyEvent *event) {
   TXshSimpleLevel *level = getLevel();
   if (!level) return;
+  if (event->modifiers() == (Qt::ControlModifier | Qt::AltModifier) &&
+      event->key() == Qt::Key_R) {
+    const auto &selected = m_selection->getSelectedFids();
+    const bool allMarked = !selected.empty() && std::all_of(selected.begin(), selected.end(),
+        [level](const TFrameId &fid) { return level->getCadmiumReferences().count(fid) != 0; });
+    changeCadmiumReferences(level, selected, !allMarked);
+    update(); event->accept(); return;
+  }
+  if (event->modifiers() == (Qt::ControlModifier | Qt::AltModifier) &&
+      event->key() == Qt::Key_P) {
+    CadmiumPopup::open(level, m_selection->getSelectedFids(), this);
+    event->accept(); return;
+  }
 
   activateLevel();
   TFrameHandle *fh = TApp::instance()->getCurrentFrame();
@@ -1559,6 +1636,22 @@ void FilmstripFrames::contextMenuEvent(QContextMenuEvent *event) {
 
   menu->addAction(cm->getAction(MI_SelectAll));
   menu->addAction(cm->getAction(MI_InvertSelection));
+  QMenu *cadmium = menu->addMenu(tr("Cadmium Assisted Paint"));
+  QAction *markReference = cadmium->addAction(tr("Mark Selected as References"));
+  QAction *clearReference = cadmium->addAction(tr("Clear Selected Reference Marks"));
+  QAction *paint = cadmium->addAction(tr("Paint Selected Drawings…"));
+  markReference->setEnabled(sl && !isReadOnly && !m_selection->isEmpty());
+  clearReference->setEnabled(sl && !isReadOnly && !m_selection->isEmpty());
+  paint->setEnabled(sl && !isReadOnly && !m_selection->isEmpty());
+  connect(markReference, &QAction::triggered, this, [this, sl] {
+    changeCadmiumReferences(sl, m_selection->getSelectedFids(), true); update();
+  });
+  connect(clearReference, &QAction::triggered, this, [this, sl] {
+    changeCadmiumReferences(sl, m_selection->getSelectedFids(), false); update();
+  });
+  connect(paint, &QAction::triggered, this, [this, sl] {
+    CadmiumPopup::open(sl, m_selection->getSelectedFids(), this);
+  });
   QAction *resyncAction = menu->addAction(tr("Resync Level Strips"));
   connect(resyncAction, &QAction::triggered, this,
           [this] { emit levelStripsResyncRequestedSignal(); });

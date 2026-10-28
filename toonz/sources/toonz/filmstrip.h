@@ -177,6 +177,7 @@ protected:
   void timerEvent(QTimerEvent *) override;
   TFrameId getCurrentFrameId();
   void contextMenuEvent(QContextMenuEvent *event) override;
+  QRect cadmiumReferenceRect(int index) const;
 
   void startDragDrop();
   int dropInsertionIndex(const QPoint &pos) const;
