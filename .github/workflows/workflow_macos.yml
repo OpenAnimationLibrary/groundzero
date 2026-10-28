@@ -75,6 +75,7 @@ jobs:
           make install  # Ensures CMake finds the installed lib (avoid linking issues)
       - name: Build
         run: |
+          set -o pipefail
           export PKG_CONFIG_PATH="/usr/local/opt/jpeg-turbo/lib/pkgconfig:$PKG_CONFIG_PATH"
           cd toonz
           rm -rf build  
@@ -87,7 +88,32 @@ jobs:
             -DCMAKE_PREFIX_PATH=$(brew --prefix qt@5)/lib/cmake/Qt5 \
             -DOpenCV_DIR=$(brew --prefix opencv@4)/lib/cmake/opencv4 \
             -DWITH_TRANSLATION=OFF
-          ninja -j $(sysctl -n hw.ncpu)
+          ninja -j $(sysctl -n hw.ncpu) 2>&1 | tee -a "$GITHUB_WORKSPACE/build.log"
+      # Show the errors on the run (summary and annotations) without opening
+      # the full log, as the Linux and Windows builds do
+      - name: Report build errors
+        if: failure()
+        run: |
+          log="$GITHUB_WORKSPACE/build.log"
+          [ -f "$log" ] || exit 0
+          grep -E ': (fatal )?error:|CMake Error|undefined symbol|ld: |^FAILED:' "$log" | sort -u | head -60 > errors.txt || true
+          {
+            echo "## macOS build errors"
+            echo '```'
+            cat errors.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          prefix="$GITHUB_WORKSPACE/"
+          grep -E ': (fatal )?error:' errors.txt | head -40 | while IFS= read -r line; do
+            file=${line%%:*}; rest=${line#*:}; lineno=${rest%%:*}
+            msg=${line#*error: }
+            file=${file#$prefix}; file=${file#../sources/}
+            case "$file" in /*|toonz/*) ;; *) file="toonz/sources/$file" ;; esac
+            echo "::error file=${file},line=${lineno}::${msg}"
+          done
+          grep -vE ': (fatal )?error:' errors.txt | head -10 | while IFS= read -r line; do
+            echo "::error::${line}"
+          done
       - name: Introduce Libraries and Stuff
         run: |
           cd toonz/build/toonz

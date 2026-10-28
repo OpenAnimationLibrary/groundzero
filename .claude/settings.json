@@ -11,6 +11,11 @@
             "type": "command",
             "command": "python3 \"$CLAUDE_PROJECT_DIR/ci-scripts/no_pii.py\" hook",
             "timeout": 30
+          },
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/ci-scripts/ci_rules.py\"",
+            "timeout": 30
           }
         ]
       }
