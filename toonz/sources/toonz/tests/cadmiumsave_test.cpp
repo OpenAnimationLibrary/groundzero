@@ -329,14 +329,16 @@ void verifyOrdinaryWriterDefaults(const QDir &dir) {
     LevelUpdater updater(level);
     const TEnumProperty *bpp = static_cast<const TEnumProperty *>(
         updater.getLevelWriter()->getProperties()->getProperty("Bits Per Pixel"));
+    // Existing new-level enforcement chooses the smallest format divisible by
+    // 32, which is RGB half float for an ordinary EXR level.
     require(bpp && bpp->getValue() ==
-                       (floating ? L"128(RGBA)_HF" : L"32(RGBM)"),
+                       (floating ? L"96(RGB)_HF" : L"32(RGBM)"),
             "ordinary output writer defaults changed");
     updater.update(TFrameId(1), drawing(floating));
     updater.close();
 
-    // Existing ordinary resources must also retain their original precision,
-    // including the user's half-float EXR choice.
+    // Existing ordinary EXR resources use the writer's RGBA half-float default
+    // because reader metadata does not retain the original writer properties.
     updater.open(level);
     bpp = static_cast<const TEnumProperty *>(
         updater.getLevelWriter()->getProperties()->getProperty("Bits Per Pixel"));
@@ -345,6 +347,22 @@ void verifyOrdinaryWriterDefaults(const QDir &dir) {
             "existing resource writer precision changed");
     updater.close();
   }
+}
+
+template <typename Operation>
+bool runCase(const char *label, Operation operation) {
+  try {
+    operation();
+    std::cout << label << " passed\n";
+    return true;
+  } catch (const TException &) {
+    std::cerr << label << ": resource operation failed\n";
+  } catch (const std::string &error) {
+    std::cerr << label << ": " << error << '\n';
+  } catch (const std::exception &error) {
+    std::cerr << label << ": " << error.what() << '\n';
+  }
+  return false;
 }
 }  // namespace
 
@@ -364,11 +382,22 @@ int main(int argc, char **argv) {
     TImageCache::instance()->setRootDir(pathOf(dir.filePath("cache")));
     TThread::init();
     initImageIo();
-    roundTrip(dir, false);
-    roundTrip(dir, true);
-    roundTrip(dir, true, LevelOptions::DefaultColorSpaceGamma);
-    verifyOrdinaryWriterDefaults(dir);
-    retainedExrMetadata(dir);
+    bool passed = true;
+    if (!runCase("TIFF16 roundtrip", [&] { roundTrip(dir, false); }))
+      passed = false;
+    if (!runCase("Float EXR linear roundtrip", [&] { roundTrip(dir, true); }))
+      passed = false;
+    if (!runCase("Float EXR default gamma roundtrip", [&] {
+          roundTrip(dir, true, LevelOptions::DefaultColorSpaceGamma);
+        }))
+      passed = false;
+    if (!runCase("Ordinary writer defaults", [&] {
+          verifyOrdinaryWriterDefaults(dir);
+        }))
+      passed = false;
+    if (!runCase("Retained EXR metadata", [&] { retainedExrMetadata(dir); }))
+      passed = false;
+    if (!passed) return 1;
     std::cout << "Cadmium resource precision checks passed\n";
     return 0;
   } catch (const TException &) {

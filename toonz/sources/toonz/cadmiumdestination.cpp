@@ -32,14 +32,17 @@ TXshSimpleLevel *createResultLevel(ToonzScene *scene,
   const std::string extension = source->isFloatChannelLevel() ? "exr" :
       source->is16BitChannelLevel() ? "tif" : "png";
   const std::wstring base = source->getName() + L"_paint";
+  // Append numeric name suffixes only after the sequence path is formed.
+  // Otherwise a trailing "_1" can be parsed as an existing frame number.
+  const TFilePath basePath =
+      scene->getDefaultLevelPath(OVL_XSHLEVEL, base).withType(extension);
   std::vector<TXshLevel *> levels;
   scene->getLevelSet()->listLevels(levels);
   for (int index = 0; index < std::numeric_limits<int>::max(); ++index) {
     const std::wstring name = index == 0 ? base :
         base + L"_" + std::to_wstring(index);
     if (scene->getLevelSet()->getLevel(name)) continue;
-    const TFilePath path =
-        scene->getDefaultLevelPath(OVL_XSHLEVEL, name).withType(extension);
+    const TFilePath path = basePath.withName(name);
     const TFilePath actual = scene->decodeFilePath(path);
     if (TSystem::doesExistFileOrLevel(actual)) continue;
     bool occupied = false;

@@ -7,6 +7,7 @@
 #include "tthread.h"
 #include "toonz/levelset.h"
 #include "toonz/preferences.h"
+#include "toonz/sceneproperties.h"
 #include "toonz/toonzscene.h"
 #include "toonz/tproject.h"
 #include "toonz/txshleveltypes.h"
@@ -46,14 +47,18 @@ void destinations(const QDir &root, const QString &folder,
   ToonzScene scene;
   TProjectManager::instance()->initializeScene(&scene);
   scene.setScenePath(pathOf(dir.filePath("scene.tnz")));
+  scene.getProperties()->formatTemplateFIdForInput().setStartSeqInd('.');
   TXshSimpleLevel *source = addLevel(
       scene, L"Source", pathOf(dir.filePath("source..png")));
   source->set16BitChannelLevel(extension == "tif");
   source->setFloatChannelLevel(extension == "exr");
 
   const auto candidatePath = [&](const std::wstring &name) {
-    return scene.getDefaultLevelPath(OVL_XSHLEVEL, name).withType(extension);
+    return pathOf(dir.filePath(QString::fromStdWString(name) + ".." +
+                               QString::fromStdString(extension)));
   };
+  require(candidatePath(L"Source_paint_1") != candidatePath(L"Source_paint_3"),
+          "numeric level names collapsed into one sequence path");
   // The first collision exists only on disk and is intentionally not a valid
   // image: the destination chooser must not load, rewrite or remove it.
   const TFilePath occupiedPath = scene.decodeFilePath(
@@ -109,6 +114,7 @@ int main(int argc, char **argv) {
     QDir().mkpath(QDir(stuff).filePath("profiles/layouts/rooms/Default"));
     QDir().mkpath(QDir(stuff).filePath("library"));
     TEnv::setStuffDir(pathOf(stuff));
+    TFilePath::setUnderscoreFormatAllowed(true);
     Preferences::instance();
     Preferences::instance()->setValue(
         pathAliasPriority, int(Preferences::SceneFolderAlias), false);
