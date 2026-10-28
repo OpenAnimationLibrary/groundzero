@@ -69,6 +69,16 @@ void testRaster() {
   color(fx, "replacement001")->setDefaultValue(TPixel32(255, 255, 255));
   auto replaced = render<Pixel>(fx, 3);
   require(replaced->pixels(0)[1] == Pixel::White, "Replacement color was not applied");
+  source->pixels(0)[1] = PixelConverter<Pixel>::from(TPixelD(0, 0.5, 0, 0.5));
+  color(fx, "replacement001")->getRed()->setDefaultValue(2.0);
+  color(fx, "replacement001")->getGreen()->setDefaultValue(0.0);
+  color(fx, "replacement001")->getBlue()->setDefaultValue(0.0);
+  const TPixelD highReplacement = toPixelD(render<Pixel>(fx, 3)->pixels(0)[1]);
+  if (std::is_same<Pixel, TPixelF>::value)
+    require(highReplacement.r > highReplacement.m, "Float replacement lost HDR range");
+  else
+    require(highReplacement.r <= highReplacement.m, "Integer replacement exceeds alpha");
+  source->pixels(0)[1] = PixelConverter<Pixel>::from(TPixelD(0, 1, 0, 1));
   number(fx, "enableReplace")->setDefaultValue(0);
   number(fx, "thin")->setDefaultValue(1);
   auto expanded = render<Pixel>(fx, 3);
