@@ -133,7 +133,7 @@ class CelSmootherFx final : public TStandardRasterFx {
 
 public:
   CelSmootherFx()
-      : m_useColorKey(0), m_colorKey(TPixel32::White), m_smoothRange(6) {
+      : m_useColorKey(0.0), m_colorKey(TPixel32::White), m_smoothRange(6.0) {
     addInputPort("Source", m_source);
     bindParam(this, "useColorKey", m_useColorKey);
     bindParam(this, "colorKey", m_colorKey);
