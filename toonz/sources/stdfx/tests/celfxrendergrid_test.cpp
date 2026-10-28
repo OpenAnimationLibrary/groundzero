@@ -9,6 +9,7 @@
 #include "tstroke.h"
 #include "tvectorimage.h"
 #include "tfxcachemanager.h"
+#include "tfxutil.h"
 #include "trenderer.h"
 #include "tthread.h"
 
@@ -144,6 +145,9 @@ void testLevelCompatibility() {
   require(policy->handledAffine(TRenderSettings(), 0) == TTranslation(-.5, -.5),
           "Odd raster level must retain its half-pixel policy");
   require(!policy->usesCustomRenderGrid(), "Level column unexpectedly opted in");
+  policy->setName(L"LevelColumn AffineFx");
+  require(CelFxSourceGrid::renderAffine(policy, 0) == TTranslation(.5, .5),
+          "Odd raster level lost its native pixel phase");
   TFxP owner = new GridProbe(TAffine(), false, policy);
   checkRoute(*static_cast<GridProbe *>(owner.getPointer()), TAffine(), TAffine());
 }
@@ -178,6 +182,9 @@ void testVectorLevelGrid() {
           "Vector fixture must have fractional continuous bounds");
   const TAffine grid = CelFxSourceGrid::renderAffine(source, 0);
   require(grid == TAffine(), "Vector artwork bounds were mistaken for a native raster canvas");
+  TFxP placed = TFxUtil::makeAffine(TFxP(source), TTranslation(2.5, -.25) * TScale(2, 3));
+  require(CelFxSourceGrid::renderAffine(placed.getPointer(), 0) == TAffine(),
+          "Placed vector level stopped using the world pixel grid");
   TFxP owner = new GridProbe(grid, true);
   checkRoute(*static_cast<GridProbe *>(owner.getPointer()), TAffine(), TAffine());
 }

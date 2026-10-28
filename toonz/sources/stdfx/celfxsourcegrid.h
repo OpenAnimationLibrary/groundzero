@@ -2,6 +2,7 @@
 
 #include "trasterfx.h"
 #include "tfxattributes.h"
+#include "toonz/tcolumnfx.h"
 
 #include <cmath>
 #include <set>
@@ -42,8 +43,13 @@ inline Grid discover(TFx *source, double frame) {
     // Identity DPI needs no affine node. The scene builder marks the original
     // raster source in that case, so keep placements accumulated above it.
     if (!canvas && enabled && source->getInputPortCount() == 0 &&
-        source->getName() == L"LevelColumn AffineFx")
+        source->getName() == L"LevelColumn AffineFx") {
+      // Vector levels also carry the identity-DPI marker, but their artwork
+      // bounds are continuous geometry, not the origin of a raster canvas.
+      auto *level = dynamic_cast<TLevelColumnFx *>(source);
+      if (level && level->canHandle(TRenderSettings(), frame)) return Grid();
       canvas = raster;
+    }
     auto *geometry = dynamic_cast<TGeometryFx *>(source);
     if (!canvas && enabled && geometry && geometry->getActiveTimeRegion().contains(frame)) {
       placement = placement * geometry->getPlacement(frame);
