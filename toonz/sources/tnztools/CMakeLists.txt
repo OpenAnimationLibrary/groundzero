@@ -45,6 +45,7 @@ set(HEADERS
     ../include/tools/rasterselection.h
     ../include/tools/strokeselection.h
     ../include/tools/vectoralignment.h
+    ../include/tools/gradienthandles.h
     ../include/tools/stylepicker.h
     ../include/tools/tool.h
     ../include/tools/toolcommandids.h
@@ -128,6 +129,7 @@ set(SOURCES
     strokeselection.cpp
     screenpicker.cpp
     fingertool.cpp
+    gradienttransformtool.cpp
     rulertool.cpp
     mypainttoonzbrush.cpp
     shifttracetool.cpp
