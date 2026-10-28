@@ -113,8 +113,8 @@ QJSValue ImageBuilder::ctor(QJSEngine *engine, const QJSValueList &args) {
     if (type == "Raster")
       imageBuilder->m_img = new TRasterImage(TRaster32P(width, height));
     else if (type == "ToonzRaster") {
-      imageBuilder->m_img = new TToonzImage(TRasterCM32P(width, height),
-                                            TRect(0, 0, width, height));
+      TRasterCM32P raster(width, height);
+      imageBuilder->m_img = new TToonzImage(raster, raster->getBounds());
     }
   } else {
     if (args.size() != 0) {
