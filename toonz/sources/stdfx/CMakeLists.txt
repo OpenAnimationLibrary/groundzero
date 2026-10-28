@@ -171,6 +171,10 @@ set(SOURCES
     celcolorkeyfx.cpp
     celboundaryblurfx.cpp
     celblur.cpp
+    celmotion.cpp
+    celnoise.cpp
+    celdirectionalmath.cpp
+    celdirectionalblurfx.cpp
     rgbkeyfx.cpp
     rgbmcutfx.cpp
     rgbmfadefx.cpp
