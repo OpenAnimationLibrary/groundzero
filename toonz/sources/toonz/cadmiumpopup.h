@@ -35,6 +35,7 @@ private:
     TFrameId fid;
     QVector<TFrameId> referenceIds;
     Cadmium::Frame target;
+    QByteArray labelsFingerprint;
     QVector<Cadmium::Frame> references;
     ImageBuilderP targetBuilder;
     QVector<ImageBuilderP> referenceBuilders;

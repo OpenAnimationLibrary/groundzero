@@ -2,6 +2,7 @@
 #include "cadmiumreviewview.h"
 #include "cadmiumruntime.h"
 #include "tcolorstyles.h"
+#include "tsimplecolorstyles.h"
 #include "toonz/txshleveltypes.h"
 
 #include <QAction>
@@ -314,7 +315,7 @@ CadmiumPopup::CadmiumPopup(QWidget *parent) : QDialog(parent) {
   connect(&m_saveTimer, &QTimer::timeout, this, [this] { saveSession(false); });
   connect(qApp, &QCoreApplication::aboutToQuit, this, &CadmiumPopup::flushSession);
   connect(m_list, &QListWidget::currentRowChanged, this, [this] {
-    if (!m_refreshing) { refreshPreview(); refresh(); }
+    if (!m_refreshing) { autosave(); refreshPreview(); refresh(); }
   });
   connect(m_list, &QListWidget::itemSelectionChanged, this, [this] { if (!m_refreshing) refresh(); });
   connect(m_referenceList, &QListWidget::itemChanged, this, [this] {

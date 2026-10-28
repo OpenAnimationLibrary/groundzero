@@ -19,6 +19,7 @@
 #include "ttoonzimage.h"
 #include "trasterimage.h"
 #include "tcolorstyles.h"
+#include "tsimplecolorstyles.h"
 #include "toonz/toonzscene.h"
 #include "toonz/levelset.h"
 #include "toonz/levelproperties.h"
@@ -395,6 +396,7 @@ void CadmiumPopup::optionsChanged() {
   for (Drawing &drawing : m_drawings) {
     drawing.ready = false; drawing.reviewed = false;
     drawing.target = Cadmium::Frame(); drawing.proposals.clear();
+    drawing.labelsFingerprint.clear();
     drawing.references.clear(); drawing.referencePreviews.clear();
     drawing.selectedRegions.clear();
   }
@@ -442,6 +444,7 @@ void CadmiumPopup::inspectDrawing() {
   const quint64 epoch = m_snapshotEpoch;
   if (m_level->getType() == PLI_XSHLEVEL) {
     m_drawings[row].target = task->target; delete task;
+    m_drawings[row].labelsFingerprint = Cadmium::sessionLabelsDigest(m_drawings[row].target);
     m_drawings[row].proposals.resize(m_drawings[row].target.regionColors.size());
     if (!m_drawings[row].proposals.isEmpty()) {
       m_drawings[row].proposals[0].protectedRegion = true;
@@ -459,6 +462,7 @@ void CadmiumPopup::inspectDrawing() {
     }
     if (task->success) {
       m_drawings[row].target = task->target;
+      m_drawings[row].labelsFingerprint = Cadmium::sessionLabelsDigest(task->target);
       m_drawings[row].proposals.resize(task->target.regionColors.size());
       if (!m_drawings[row].proposals.isEmpty()) {
         m_drawings[row].proposals[0].protectedRegion = true;
@@ -622,6 +626,7 @@ void CadmiumPopup::analysisFinished(int index, Cadmium::Frame target,
   if (restoring) {
     const Cadmium::SessionDrawing saved = m_recovery.value(drawing.fid);
     drawing.target = target; drawing.references = references; drawing.referencePreviews = previews;
+    drawing.labelsFingerprint = Cadmium::sessionLabelsDigest(target);
     drawing.targetBuilder = drawing.pendingTargetBuilder;
     drawing.referenceBuilders = drawing.pendingReferenceBuilders;
     drawing.renumberCount = drawing.pendingRenumberCount;
@@ -669,6 +674,7 @@ void CadmiumPopup::analysisFinished(int index, Cadmium::Frame target,
   drawing.referenceBuilders = drawing.pendingReferenceBuilders;
   drawing.renumberCount = drawing.pendingRenumberCount;
   drawing.target = target; drawing.references = references; drawing.referencePreviews = previews;
+  drawing.labelsFingerprint = Cadmium::sessionLabelsDigest(target);
   drawing.proposals = plan.regions; drawing.requestedRegions = plan.requested;
   QSet<int> mappedSelection;
   for (int selected : drawing.selectedRegions)
@@ -989,7 +995,7 @@ Cadmium::Session CadmiumPopup::makeSession() const {
     }
     record.targetFingerprint = drawing.target.fingerprint;
     if (!drawing.target.lines.isNull()) {
-      record.canvas = drawing.target.lines.size(); record.labelsFingerprint = Cadmium::sessionLabelsDigest(drawing.target);
+      record.canvas = drawing.target.lines.size(); record.labelsFingerprint = drawing.labelsFingerprint;
     }
     record.regions = drawing.proposals;
     for (int ref = 0; ref < drawing.referenceIds.size(); ++ref) {
@@ -1148,6 +1154,7 @@ void CadmiumPopup::clearSession() {
   for (Drawing &drawing : m_drawings) {
     drawing.ready = false; drawing.reviewed = false; drawing.applied = false;
     drawing.proposals.clear(); drawing.target = Cadmium::Frame();
+    drawing.labelsFingerprint.clear();
     drawing.references.clear(); drawing.referencePreviews.clear(); drawing.selectedRegions.clear(); drawing.error.clear();
   }
   ++m_snapshotEpoch; refresh(); refreshPreview();

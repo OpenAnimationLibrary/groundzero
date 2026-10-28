@@ -118,6 +118,8 @@ selected region changed or disappeared, generate a new drawing proposal and
 select the current region. Vector geometry changes can require whole-drawing
 regeneration. Changing reference assignments or native palette information can
 also invalidate decisions even when the drawing still looks similar.
+Changing extraction or clean-line settings clears the old analysis and region
+decisions so the new line mask can be inspected before generation.
 
 Saving review sessions
 ----------------------
