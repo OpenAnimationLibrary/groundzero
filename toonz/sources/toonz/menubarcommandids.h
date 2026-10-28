@@ -544,6 +544,7 @@
 #define MI_ExportSXF "MI_ExportSXF"
 #define MI_ExportOCA "MI_ExportOCA"
 #define MI_ExportAnimatedSVG "MI_ExportAnimatedSVG"
+#define MI_ExportLottie "MI_ExportLottie"
 #define MI_ImportOCA "MI_ImportOCA"
 #define MI_ImportAbr "MI_ImportAbr"
 #define MI_ExportPDF "MI_ExportPDF"

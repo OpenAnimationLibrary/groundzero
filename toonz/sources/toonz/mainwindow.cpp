@@ -2335,6 +2335,8 @@ void MainWindow::defineActions() {
   createMenuFileAction(MI_ExportAnimatedSVG,
                        QT_TRANSLATE_NOOP("MainWindow", "Export Animated SVG"),
                        "");
+  createMenuFileAction(MI_ExportLottie,
+                       QT_TRANSLATE_NOOP("MainWindow", "Export Lottie..."), "");
   createMenuFileAction(
       MI_ImportOCA,
       QT_TRANSLATE_NOOP("MainWindow", "Import Open Cel Animation (OCA)"), "",
