@@ -241,7 +241,7 @@ bool snapshotVector(const TImageP &source, Frame &frame, QString &error) {
     }
     Frame result;
     result.kind = Kind::Vector;
-    result.original = original;
+    result.original = TImageP(original.getPointer());
     result.palette = palette;
     result.lines = lines;
     result.labels = labels;
@@ -303,6 +303,6 @@ TImageP applyVector(const Frame &frame, const QVector<int> &styleIds,
     region->setStyle(style);
     region->invalidateProp();
   }
-  return result;
+  return TImageP(result.getPointer());
 }
 }  // namespace Cadmium

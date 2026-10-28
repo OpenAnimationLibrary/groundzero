@@ -1,6 +1,7 @@
 
 
 #include "filmstripselection.h"
+#include "filmstrip.h"
 
 // Tnz6 includes
 #include "menubarcommandids.h"
@@ -46,6 +47,18 @@ TFilmstripSelection::~TFilmstripSelection() {}
 //-----------------------------------------------------------------------------
 
 void TFilmstripSelection::enableCommands() {
+  TXshSimpleLevel *cadmiumLevel = m_cadmiumStrip ? m_cadmiumStrip->getLevel() : nullptr;
+  if (cadmiumLevel && !cadmiumLevel->isReadOnly() && !isEmpty() &&
+      (cadmiumLevel->getType() == PLI_XSHLEVEL ||
+       cadmiumLevel->getType() == TZP_XSHLEVEL ||
+       cadmiumLevel->getType() == OVL_XSHLEVEL)) {
+    enableCommand(this, MI_CadmiumMarkReferences,
+                  &TFilmstripSelection::markCadmiumReferences, true);
+    enableCommand(this, MI_CadmiumClearReferences,
+                  &TFilmstripSelection::markCadmiumReferences, false);
+    enableCommand(this, MI_CadmiumPaint,
+                  &TFilmstripSelection::paintCadmiumSelection);
+  }
   TXshSimpleLevel *sl = TApp::instance()->getCurrentLevel()->getSimpleLevel();
   if (!sl) return;
 
@@ -99,6 +112,18 @@ void TFilmstripSelection::enableCommands() {
 }
 
 //-----------------------------------------------------------------------------
+
+void TFilmstripSelection::setCadmiumStrip(FilmstripFrames *strip) {
+  m_cadmiumStrip = strip;
+}
+
+void TFilmstripSelection::markCadmiumReferences(bool marked) {
+  if (m_cadmiumStrip) m_cadmiumStrip->markCadmiumReferences(marked);
+}
+
+void TFilmstripSelection::paintCadmiumSelection() {
+  if (m_cadmiumStrip) m_cadmiumStrip->paintCadmiumSelection();
+}
 
 bool TFilmstripSelection::isEmpty() const { return m_selectedFrames.empty(); }
 

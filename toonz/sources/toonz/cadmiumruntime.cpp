@@ -1,4 +1,5 @@
 #include "cadmiumruntime.h"
+#include "cadmiumcodec.h"
 
 #include <QBuffer>
 #include <QCoreApplication>
@@ -18,17 +19,67 @@
 #include <QPointer>
 #include <QProcessEnvironment>
 #include <QSettings>
+#include <QSet>
 #include <QStandardPaths>
 #include <QTcpServer>
 #include <QThread>
 #include <QUrl>
 #include <functional>
 #include <memory>
+#include <cmath>
 
 namespace {
 constexpr qint64 MaxBody = 256 * 1024 * 1024;
 constexpr qint64 MaxResponse = 128 * 1024 * 1024;
 struct Model { const char *name; qint64 size; const char *hash; bool optional; };
+struct VerifiedFile {
+  QString path;
+  qint64 size;
+  QByteArray hash;
+  bool runtime;
+};
+
+bool runtimeFiles(const QFileInfo &executable, QVector<VerifiedFile> &files) {
+  const QDir directory(executable.absolutePath());
+  QFile manifest(directory.filePath(QStringLiteral("runtime-manifest.json")));
+#ifndef Q_OS_WIN
+  // Unpackaged local workers remain available for development on other hosts.
+  if (!manifest.exists()) return true;
+#endif
+  if (!manifest.open(QIODevice::ReadOnly) || manifest.size() > 65536) return false;
+  QJsonParseError parseError;
+  const auto document = QJsonDocument::fromJson(manifest.readAll(), &parseError);
+  if (parseError.error != QJsonParseError::NoError || !document.isObject()) return false;
+  const QJsonObject object = document.object();
+  if (object.value("format").toDouble() != 1 ||
+      object.value("source").toString() != QStringLiteral("d817cae470a1499df4985be460e0fdc721233987") ||
+      object.value("platform").toString() != QStringLiteral("windows-x64") ||
+      executable.fileName() != QStringLiteral("cadmium-sidecar.exe")) return false;
+#ifndef Q_OS_WIN
+  return false;
+#else
+  QSet<QString> expected{QStringLiteral("cadmium-sidecar.exe"),
+      QStringLiteral("onnxruntime.dll"), QStringLiteral("onnxruntime_providers_shared.dll"),
+      QStringLiteral("DirectML.dll")};
+  const QJsonArray records = object.value("files").toArray();
+  if (records.size() != expected.size()) return false;
+  for (const auto &value : records) {
+    if (!value.isObject()) return false;
+    const auto record = value.toObject();
+    const QString name = record.value("file").toString();
+    const double bytes = record.value("bytes").toDouble(-1);
+    const QByteArray hash = record.value("sha256").toString().toLatin1();
+    if (!expected.remove(name) || !std::isfinite(bytes) || bytes <= 0 ||
+        bytes > 1024.0 * 1024 * 1024 || std::floor(bytes) != bytes ||
+        hash.size() != 64 || QByteArray::fromHex(hash).toHex() != hash) return false;
+    const QString path = directory.filePath(name);
+    const QFileInfo file(path);
+    if (!file.isFile() || file.isSymLink() || file.size() != qint64(bytes)) return false;
+    files.append({path, qint64(bytes), hash, true});
+  }
+  return expected.isEmpty();
+#endif
+}
 // Pinned model manifest. Each artifact is checked before the worker sees it.
 const Model Models[] = {
  {"ant_v2_fp32.onnx", 1388610539LL, "6c8d95cbfa62408f3cbfbbc29204fac7df5a587466dbb751e7e1b0bb530ff12b", false},
@@ -58,10 +109,10 @@ QJsonObject warmupColorize() {
   QJsonArray colors;
   colors.append(QJsonArray{0, 0, 0, 0});
   colors.append(QJsonArray{180, 80, 40, 255});
-  return {{"target_line_image_uri", pngUri(lines)},
+  return {{"target_line_image_uri", Cadmium::lineImageUri(lines)},
           {"target_seg_map_uri", pngUri(labels)},
           {"references", QJsonArray{QJsonObject{
-            {"line_image_uri", pngUri(lines)},
+            {"line_image_uri", Cadmium::lineImageUri(lines)},
             {"seg_map_uri", pngUri(labels)}, {"colors_rgba", colors}}}},
           {"return_colorized", false}, {"verbose", false}};
 }
@@ -185,23 +236,29 @@ void CadmiumRuntime::start() {
   if (!executable.isFile() || !executable.isExecutable()) {
     fail(tr("Setup required: choose the installed Cadmium worker.")); return;
   }
+  QVector<VerifiedFile> files;
+  if (!runtimeFiles(executable, files)) {
+    fail(tr("The Cadmium runtime package is missing or incompatible. Install the complete supported runtime package."));
+    return;
+  }
   const QDir directory(modelsDirectory());
   for (const Model &model : Models) {
     QFileInfo file(directory.filePath(QString::fromLatin1(model.name)));
     if ((!model.optional || file.exists()) && (!file.isFile() || file.size() != model.size)) {
       fail(tr("Setup required: model files are missing or have an incorrect size.")); return;
     }
+    if (file.exists()) files.append({file.absoluteFilePath(), model.size, QByteArray(model.hash), false});
   }
   const quint64 generation = ++m_generation;
   m_cancelVerification.store(false);
-  setState(Verifying, tr("Verifying model files…"));
-  m_verifier = QThread::create([this, directory, generation] {
+  setState(Verifying, tr("Verifying runtime and model files…"));
+  m_verifier = QThread::create([this, files, generation] {
     bool valid = true;
-    for (const Model &model : Models) {
-      const QString path = directory.filePath(QString::fromLatin1(model.name));
-      if (model.optional && !QFileInfo::exists(path)) continue;
-      QFile file(path);
-      if (!file.open(QIODevice::ReadOnly)) { valid = false; break; }
+    bool runtimeMismatch = false;
+    for (const VerifiedFile &entry : files) {
+      QFile file(entry.path);
+      runtimeMismatch = entry.runtime;
+      if (!file.open(QIODevice::ReadOnly) || file.size() != entry.size) { valid = false; break; }
       QCryptographicHash hash(QCryptographicHash::Sha256);
       while (!file.atEnd() && !m_cancelVerification.load()) {
         QByteArray block = file.read(1024 * 1024);
@@ -209,11 +266,13 @@ void CadmiumRuntime::start() {
         hash.addData(block);
       }
       if (m_cancelVerification.load()) return;
-      if (!valid || hash.result().toHex() != model.hash) { valid = false; break; }
+      if (!valid || hash.result().toHex() != entry.hash) { valid = false; break; }
     }
-    QMetaObject::invokeMethod(this, [this, generation, valid] {
+    QMetaObject::invokeMethod(this, [this, generation, valid, runtimeMismatch] {
       if (generation != m_generation || m_state != Verifying) return;
-      if (!valid) fail(tr("Model verification failed. Reinstall the verified model files."));
+      if (!valid) fail(runtimeMismatch ?
+        tr("Runtime verification failed. Reinstall the complete supported runtime package.") :
+        tr("Model verification failed. Reinstall the verified model files."));
       else launch(generation);
     }, Qt::QueuedConnection);
   });

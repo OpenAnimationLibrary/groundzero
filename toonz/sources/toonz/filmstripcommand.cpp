@@ -393,7 +393,7 @@ std::map<TFrameId, QString> clearFramesWithoutUndo(
 // QString id =
 // "clearFrames"+QString::number((UINT)sl.getPointer())+"-"+QString::number(it->getNumber());
     QString id = "clearFrames" + QString::number((uintptr_t)sl.getPointer()) +
-                 "-" + QString::number(frameId.getNumber());
+                 "-" + QString::fromStdString(frameId.expand());
     TImageCache::instance()->add(id, sl->getFrame(frameId, false));
     clearedFrames[frameId] = id;
     TImageP emptyFrame     = sl->createEmptyFrame();

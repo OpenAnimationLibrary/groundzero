@@ -894,3 +894,27 @@ if(BUILD_CADMIUM_TESTS)
     add_test(NAME cadmium_settings COMMAND cadmium_settings_test)
     add_dependencies(cadmium_tests cadmium_codec_test cadmium_settings_test)
 endif()
+
+if(BUILD_CADMIUM_TESTS)
+    add_executable(cadmium_pipeline_test tests/cadmiumpipeline_test.cpp
+        cadmiumruntime.cpp cadmiumtoonzraster.cpp cadmiumvector.cpp cadmiumfullcolor.cpp
+        ${CMAKE_CURRENT_BINARY_DIR}/moc_cadmiumruntime.cpp)
+    target_include_directories(cadmium_pipeline_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(cadmium_pipeline_test PRIVATE
+        Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Widgets
+        Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::OpenGL ${OT_QT_OPENGLWIDGETS_LIB}
+        tnzcore tnzbase tnzext toonzlib ${GL_LIB} ${GLUT_LIB})
+    add_test(NAME cadmium_pipeline COMMAND cadmium_pipeline_test)
+    set_tests_properties(cadmium_pipeline PROPERTIES SKIP_RETURN_CODE 77)
+    add_dependencies(cadmium_tests cadmium_pipeline_test)
+endif()
+
+if(BUILD_CADMIUM_TESTS)
+    add_executable(cadmium_metadata_test tests/cadmiummetadata_test.cpp)
+    target_include_directories(cadmium_metadata_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(cadmium_metadata_test PRIVATE
+        Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui
+        tnzcore tnzbase tnzext toonzlib image)
+    add_test(NAME cadmium_metadata COMMAND cadmium_metadata_test)
+    add_dependencies(cadmium_tests cadmium_metadata_test)
+endif()

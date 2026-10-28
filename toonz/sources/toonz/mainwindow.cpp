@@ -2527,6 +2527,12 @@ void MainWindow::defineActions() {
   createMenuLevelAction(MI_RevertToLastSaved, QT_TR_NOOP("&Reload"), "",
                         "reload_level");
   createMenuLevelAction(MI_ExposeResource, QT_TR_NOOP("&Expose in Xsheet"), "");
+  createMenuLevelAction(MI_CadmiumMarkReferences,
+                        QT_TR_NOOP("Cadmium: Mark Selected as References"), "");
+  createMenuLevelAction(MI_CadmiumClearReferences,
+                        QT_TR_NOOP("Cadmium: Clear Selected Reference Marks"), "");
+  createMenuLevelAction(MI_CadmiumPaint,
+                        QT_TR_NOOP("Cadmium: Paint Selected Drawings..."), "");
   createMenuLevelAction(MI_EditLevel, QT_TR_NOOP("&Display in Level Strip"),
                         "");
   createMenuLevelAction(MI_LevelSettings, QT_TR_NOOP("&Level Settings..."), "",

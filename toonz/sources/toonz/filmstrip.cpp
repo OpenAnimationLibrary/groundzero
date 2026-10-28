@@ -214,6 +214,7 @@ FilmstripFrames::FilmstripFrames(QScrollArea *parent, Qt::WindowFlags flags)
   m_frameHeadGadget = new FilmstripFrameHeadGadget(this);
 
   m_selection->setView(this);
+  m_selection->setCadmiumStrip(this);
   setMouseTracking(true);
 
   m_viewer = NULL;
@@ -1194,6 +1195,15 @@ TFrameId FilmstripFrames::getCurrentFrameId() {
 
 //-----------------------------------------------------------------------------
 
+void FilmstripFrames::markCadmiumReferences(bool marked) {
+  changeCadmiumReferences(getLevel(), m_selection->getSelectedFids(), marked);
+  update();
+}
+
+void FilmstripFrames::paintCadmiumSelection() {
+  CadmiumPopup::open(getLevel(), m_selection->getSelectedFids(), this);
+}
+
 QRect FilmstripFrames::cadmiumReferenceRect(int index) const {
   if (m_isVertical)
     return QRect(width() - cadmiumGutter + 2,
@@ -1510,19 +1520,6 @@ void FilmstripFrames::mouseMoveEvent(QMouseEvent *e) {
 void FilmstripFrames::keyPressEvent(QKeyEvent *event) {
   TXshSimpleLevel *level = getLevel();
   if (!level) return;
-  if (event->modifiers() == (Qt::ControlModifier | Qt::AltModifier) &&
-      event->key() == Qt::Key_R) {
-    const auto &selected = m_selection->getSelectedFids();
-    const bool allMarked = !selected.empty() && std::all_of(selected.begin(), selected.end(),
-        [level](const TFrameId &fid) { return level->getCadmiumReferences().count(fid) != 0; });
-    changeCadmiumReferences(level, selected, !allMarked);
-    update(); event->accept(); return;
-  }
-  if (event->modifiers() == (Qt::ControlModifier | Qt::AltModifier) &&
-      event->key() == Qt::Key_P) {
-    CadmiumPopup::open(level, m_selection->getSelectedFids(), this);
-    event->accept(); return;
-  }
 
   activateLevel();
   TFrameHandle *fh = TApp::instance()->getCurrentFrame();
@@ -1629,6 +1626,7 @@ void FilmstripFrames::contextMenuEvent(QContextMenuEvent *event) {
   QMenu *menu         = new QMenu();
   TXshSimpleLevel *sl = getLevel();
   if (sl) activateLevel();
+  m_selection->makeCurrent();
 
   bool isSubsequenceLevel = (sl && sl->isSubsequence());
   bool isReadOnly         = (sl && sl->isReadOnly());
@@ -1637,21 +1635,9 @@ void FilmstripFrames::contextMenuEvent(QContextMenuEvent *event) {
   menu->addAction(cm->getAction(MI_SelectAll));
   menu->addAction(cm->getAction(MI_InvertSelection));
   QMenu *cadmium = menu->addMenu(tr("Cadmium Assisted Paint"));
-  QAction *markReference = cadmium->addAction(tr("Mark Selected as References"));
-  QAction *clearReference = cadmium->addAction(tr("Clear Selected Reference Marks"));
-  QAction *paint = cadmium->addAction(tr("Paint Selected Drawings…"));
-  markReference->setEnabled(sl && !isReadOnly && !m_selection->isEmpty());
-  clearReference->setEnabled(sl && !isReadOnly && !m_selection->isEmpty());
-  paint->setEnabled(sl && !isReadOnly && !m_selection->isEmpty());
-  connect(markReference, &QAction::triggered, this, [this, sl] {
-    changeCadmiumReferences(sl, m_selection->getSelectedFids(), true); update();
-  });
-  connect(clearReference, &QAction::triggered, this, [this, sl] {
-    changeCadmiumReferences(sl, m_selection->getSelectedFids(), false); update();
-  });
-  connect(paint, &QAction::triggered, this, [this, sl] {
-    CadmiumPopup::open(sl, m_selection->getSelectedFids(), this);
-  });
+  cadmium->addAction(cm->getAction(MI_CadmiumMarkReferences));
+  cadmium->addAction(cm->getAction(MI_CadmiumClearReferences));
+  cadmium->addAction(cm->getAction(MI_CadmiumPaint));
   QAction *resyncAction = menu->addAction(tr("Resync Level Strips"));
   connect(resyncAction, &QAction::triggered, this,
           [this] { emit levelStripsResyncRequestedSignal(); });

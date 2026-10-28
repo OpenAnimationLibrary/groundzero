@@ -906,8 +906,16 @@ void TXshSimpleLevel::clearFrames() {
 
 //-----------------------------------------------------------------------------
 
+QString TXshSimpleLevel::cadmiumLevelId() {
+  if (m_cadmiumLevelId.isEmpty())
+    m_cadmiumLevelId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+  return m_cadmiumLevelId;
+}
+
 void TXshSimpleLevel::loadData(TIStream& is) {
   m_cadmiumReferences.clear();
+  m_cadmiumLevelId.clear();
+  m_cadmiumSourceLevelId.clear();
   std::string tagName;
   bool flag = false;
 
@@ -923,6 +931,12 @@ void TXshSimpleLevel::loadData(TIStream& is) {
         is.matchEndTag();
       } else if (tagName == "info") {
         std::string v;
+        if (is.getTagParam("cadmiumLevelId", v) &&
+            !QUuid(QString::fromStdString(v)).isNull())
+          m_cadmiumLevelId = QString::fromStdString(v);
+        if (is.getTagParam("cadmiumSourceLevelId", v) &&
+            !QUuid(QString::fromStdString(v)).isNull())
+          m_cadmiumSourceLevelId = QString::fromStdString(v);
         if (is.getTagParam("cadmiumReferencesV1", v) && v.size() <= 1048576) {
           const QJsonDocument document = QJsonDocument::fromJson(
               QByteArray::fromBase64(QByteArray::fromStdString(v)));
@@ -1419,6 +1433,10 @@ void TXshSimpleLevel::saveData(TOStream& os) {
   }
 
   if (m_type == TZI_XSHLEVEL) attr["type"] = "s";
+  if (!m_cadmiumLevelId.isEmpty())
+    attr["cadmiumLevelId"] = m_cadmiumLevelId.toStdString();
+  if (!m_cadmiumSourceLevelId.isEmpty())
+    attr["cadmiumSourceLevelId"] = m_cadmiumSourceLevelId.toStdString();
 
   if (!m_cadmiumReferences.empty()) {
     QJsonArray references;

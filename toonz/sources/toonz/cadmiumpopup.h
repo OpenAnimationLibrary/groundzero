@@ -10,6 +10,7 @@
 
 class QCheckBox;
 class QComboBox;
+class QDoubleSpinBox;
 class QLabel;
 class QListWidget;
 class QPushButton;
@@ -37,9 +38,10 @@ private:
   };
   explicit CadmiumPopup(QWidget *);
   void initialize(TXshSimpleLevel *, const std::set<TFrameId> &);
-  bool snapshot(const TFrameId &, Cadmium::Frame &, QString &);
+  bool snapshot(const TFrameId &, Cadmium::Frame &, QString &, bool captureOnly = false);
   void generate();
   void next();
+  void submit();
   void received(const QJsonObject &);
   void failed(const QString &);
   void refresh();
@@ -58,10 +60,13 @@ private:
   bool m_cancelled = false;
   bool m_generating = false;
   bool m_inspecting = false;
+  quint64 m_snapshotEpoch = 0;
+  int m_backgroundTasks = 0;
   QListWidget *m_list;
   QLabel *m_status, *m_before, *m_after;
   QComboBox *m_reference, *m_rasterSource, *m_lineLevel;
   QCheckBox *m_repaint, *m_extraction;
+  QDoubleSpinBox *m_paperThreshold, *m_lineThreshold;
   QTableWidget *m_regions;
   QPushButton *m_generate, *m_apply, *m_applyAll, *m_cancel;
   QPushButton *m_review;

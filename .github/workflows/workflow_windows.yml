@@ -250,6 +250,22 @@ jobs:
           cd toonz\build
           ctest -C RelWithDebInfo --output-on-failure --no-tests=error -R "^cadmium_"
 
+      - name: Restore Cadmium model cache
+        uses: actions/cache@v5
+        with:
+          path: models
+          key: cadmium-universal-models-v2-6c8d95cb-3a9a792f
+
+      - name: Verify models and exercise native painting pipelines
+        shell: cmd
+        run: |
+          python ci-scripts/cadmium_fetch_models.py models
+          if errorlevel 1 exit /b 1
+          set "PATH=%CD%\toonz\build\Opentoonz;%QT_PATH%\bin;%PATH%"
+          set "QT_PLUGIN_PATH=%QT_PATH%\plugins"
+          set "QT_QPA_PLATFORM_PLUGIN_PATH=%QT_PATH%\plugins\platforms"
+          toonz\build\RelWithDebInfo\cadmium_pipeline_test.exe "%CD%\toonz\build\Opentoonz\cadmium-sidecar.exe" "%CD%\models"
+
       - name: Report cel test failures
         if: failure()
         run: python ci-scripts/report_cel_tests.py toonz/build/cel-tests-output.txt

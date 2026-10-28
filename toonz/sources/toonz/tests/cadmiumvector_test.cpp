@@ -58,7 +58,7 @@ void run() {
   require(!error.isEmpty(), "empty drawing needs actionable failure");
   const TVectorImageP source = drawing();
   Cadmium::Frame frame;
-  require(Cadmium::snapshotVector(source, frame, error),
+  require(Cadmium::snapshotVector(TImageP(source.getPointer()), frame, error),
           qPrintable(QString("snapshot failed: ") + error));
   require(frame.lines.size() == QSize(1024, 1024), "analysis canvas changed");
   require(frame.regionStyles.size() == 2, "wrong region slots");
@@ -86,7 +86,7 @@ void run() {
 
   const TVectorImageP painted = drawing(2);
   Cadmium::Frame paintedFrame;
-  require(Cadmium::snapshotVector(painted, paintedFrame, error),
+  require(Cadmium::snapshotVector(TImageP(painted.getPointer()), paintedFrame, error),
           "painted snapshot failed");
   styles[1] = 3;
   const TVectorImageP protectedResult(

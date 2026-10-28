@@ -208,6 +208,9 @@ public:
     else m_cadmiumReferences.erase(fid);
   }
   void clearCadmiumReferences() { m_cadmiumReferences.clear(); }
+  QString cadmiumLevelId();
+  QString cadmiumSourceLevelId() const { return m_cadmiumSourceLevelId; }
+  void setCadmiumSourceLevelId(const QString &id) { m_cadmiumSourceLevelId = id; }
   void clearFrames();
   void invalidateFrames();
   void invalidateFrame(const TFrameId &fid);
@@ -366,6 +369,8 @@ private:
 
   FramesSet m_frames;
   std::set<TFrameId> m_cadmiumReferences;
+  QString m_cadmiumLevelId;
+  QString m_cadmiumSourceLevelId;
   int m_renumberCount = 0;
 
   std::map<TFrameId, TFrameId>

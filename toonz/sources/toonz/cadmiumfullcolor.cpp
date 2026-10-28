@@ -264,14 +264,14 @@ TImageP applyFullColor(const Frame &frame, const QVector<int> &styleIds,
   }
   const TRasterP source = original->getRaster();
   const int w = source->getLx(), h = source->getLy();
-  const int slots = frame.regionStyles.size();
+  const int regionCount = frame.regionStyles.size();
   if (frame.lines.size() != QSize(w, h) || qint64(w) * h != frame.labels.size() ||
-      slots <= 1 || colors.size() != slots ||
+      regionCount <= 1 || colors.size() != regionCount ||
       (!frame.protectionMask.isNull() && frame.protectionMask.size() != QSize(w, h))) {
     error = QStringLiteral("The paint proposal does not match its source snapshot."); return TImageP();
   }
   for (int label : frame.labels)
-    if (label < 0 || label >= slots) {
+    if (label < 0 || label >= regionCount) {
       error = QStringLiteral("The paint proposal contains an invalid region label."); return TImageP();
     }
   TRasterImageP inkImage = frame.rasterSource == RasterSource::LinkedLines
