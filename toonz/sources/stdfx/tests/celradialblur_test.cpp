@@ -179,10 +179,19 @@ void shapeAndNoise() {
   set(fx, "sizeVariation", 100);
   auto sizes = render<TPixel32>(fx, 12, 1);
   require(sizes->pixels(0)[3].m == 0 && sizes->pixels(0)[9].m > 0, "Shape-size variation was ignored");
+  set(fx, "outerFade", 100);
+  auto fadedSizes = render<TPixel32>(fx, 12, 1);
+  require(fadedSizes->pixels(0)[2] == source->pixels(0)[2],
+          "Edge Fade changed a group whose size variation removed blur");
+  set(fx, "outerFade", 0);
   set(fx, "sizeVariation", 0); set(fx, "noiseVariation", 100); set(fx, "noiseType", 2);
   TRaster32P black(12, 1); black->fill(TPixel32::Black);
   fx.getInputPort(1)->setFx(new Source(black));
   require(render<TPixel32>(fx, 12, 1)->pixels(0)[3].m == 0, "Black noise layer did not suppress blur");
+  set(fx, "outerFade", 100);
+  require(render<TPixel32>(fx, 12, 1)->pixels(0)[2] == source->pixels(0)[2],
+          "Edge Fade changed a pixel whose noise removed blur");
+  set(fx, "outerFade", 0);
   TRaster32P white(12, 1); white->fill(TPixel32::White);
   fx.getInputPort(1)->setFx(new Source(white));
   require(render<TPixel32>(fx, 12, 1)->pixels(0)[3].m > 0, "White noise layer did not retain blur");

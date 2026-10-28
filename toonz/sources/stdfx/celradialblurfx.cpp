@@ -305,6 +305,10 @@ bool renderRadial(const CelMotion::Image &source, const CelMotion::Image *noiseI
       const double luma = noiseImage ? CelMotion::luminance(*noiseImage, gx, gy) : 0;
       const double noise = CelNoise::sample(settings.noise, gx, gy, luma);
       const double noiseFactor = 1.0 - settings.noiseVariation + settings.noiseVariation * noise;
+      const size_t targetIndex = dominantPixel(source, shapes, gx, gy);
+      const double targetSize = targetIndex == size_t(-1) ? 1.0 :
+          CelMotion::sizeFactor(shapes.groups[shapes.labels[targetIndex] - 1],
+                                shapes, settings.sizeVariation);
       for (int side = 0; side < 2; ++side) {
         const bool outer = side == 0;
         const double strength = outer ? settings.outer : settings.inner;
@@ -312,6 +316,8 @@ bool renderRadial(const CelMotion::Image &source, const CelMotion::Image *noiseI
         const int offsetMode = outer ? settings.outerMode : settings.innerMode;
         const double fade = outer ? settings.outerFade : settings.innerFade;
         const double maximum = sideLength(strength, offset, offsetMode);
+        const double targetAllowed = sideLength(strength * targetSize * noiseFactor,
+                                                offset * targetSize * noiseFactor, offsetMode);
         if (!(maximum > 0)) continue;
         for (int i = 1; i <= settings.quality; ++i) {
           if ((i & 15) == 0 && isCanceled(cancel)) return false;
@@ -325,13 +331,13 @@ bool renderRadial(const CelMotion::Image &source, const CelMotion::Image *noiseI
           const double maxX = minX + source.width - 1, maxY = minY + source.height - 1;
           if (sx < minX || sy < minY || sx > maxX || sy > maxY) {
             if (settings.repeat && fade > 0) { sx = std::max(minX, std::min(maxX, sx)); sy = std::max(minY, std::min(maxY, sy)); }
-            else { totalWeight += fade / settings.quality; continue; }
+            else { if (distance <= targetAllowed) totalWeight += fade / settings.quality; continue; }
           }
           const size_t index = dominantPixel(source, shapes, sx, sy);
           if (index == size_t(-1)) {
             // Without edge fade, fully transparent samples are ignored. With
             // fade, uncovered samples soften the trail at internal holes too.
-            totalWeight += fade / settings.quality;
+            if (distance <= targetAllowed) totalWeight += fade / settings.quality;
             continue;
           }
           const auto label = shapes.labels[index];
