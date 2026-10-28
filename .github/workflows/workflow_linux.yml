@@ -3,9 +3,8 @@ name: Linux Build
 on:
   workflow_dispatch:
   workflow_call:
+  # Every pull request, also one stacked on another branch
   pull_request:
-    branches:
-      - edition
   # Also check edition itself after each merge: pull requests that each build
   # on their own can still break the build together.
   push:
@@ -43,8 +42,15 @@ jobs:
         # archive (the hosted images list the mirror in apt-mirrors.txt), and
         # time out and retry a stalled request instead of waiting on it
         sudo sed -i 's|http://azure.archive.ubuntu.com/ubuntu|http://archive.ubuntu.com/ubuntu|g' /etc/apt/apt-mirrors.txt /etc/apt/sources.list.d/*.sources /etc/apt/sources.list 2>/dev/null || true
-        sudo apt-get update
-        sudo apt-get install -y -o Acquire::http::Timeout=30 -o Acquire::Retries=5 build-essential cmake pkg-config ninja-build ccache libboost-all-dev qtbase5-dev qt5-qmake qtdeclarative5-dev qtdeclarative5-dev-tools qttools5-dev qttools5-dev-tools qtmultimedia5-dev qtwayland5 libqt5svg5-dev libqt5opengl5-dev libqt5multimedia5-plugins libqt5serialport5-dev libsuperlu-dev liblz4-dev libusb-1.0-0-dev liblzo2-dev libpng-dev libjpeg-dev libglew-dev freeglut3-dev libfreetype6-dev libjson-c-dev libmypaint-dev libopencv-dev libturbojpeg-dev libomp-dev libfuse2 ffmpeg
+        # A stalled or refused mirror request is retried, three times at most
+        ok=0
+        for attempt in 1 2 3; do
+          if timeout 600 sudo apt-get update -o Acquire::http::Timeout=30 -o Acquire::Retries=5 &&
+             timeout 900 sudo apt-get install -y -o Acquire::http::Timeout=30 -o Acquire::Retries=5 build-essential cmake pkg-config ninja-build ccache libboost-all-dev qtbase5-dev qt5-qmake qtdeclarative5-dev qtdeclarative5-dev-tools qttools5-dev qttools5-dev-tools qtmultimedia5-dev qtwayland5 libqt5svg5-dev libqt5opengl5-dev libqt5multimedia5-plugins libqt5serialport5-dev libsuperlu-dev liblz4-dev libusb-1.0-0-dev liblzo2-dev libpng-dev libjpeg-dev libglew-dev freeglut3-dev libfreetype6-dev libjson-c-dev libmypaint-dev libopencv-dev libturbojpeg-dev libomp-dev libfuse2 ffmpeg; then ok=1; break; fi
+          echo "::warning title=apt::attempt $attempt failed, retrying"
+          sleep 20
+        done
+        [ "$ok" = 1 ]
 
     - name: Set up cache
       run: mkdir -p /home/runner/.ccache
@@ -119,9 +125,9 @@ jobs:
         # portable-mode testing.
         cp -r appdir/usr/share/opentoonz/stuff artifact/portablestuff
 
-        wget -q -c 'https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage'
-        wget -q -c 'https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage'
-        wget -q -c 'https://github.com/linuxdeploy/linuxdeploy-plugin-appimage/releases/download/continuous/linuxdeploy-plugin-appimage-x86_64.AppImage'
+        wget -q -c --tries=5 --timeout=60 --waitretry=10 'https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage'
+        wget -q -c --tries=5 --timeout=60 --waitretry=10 'https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage'
+        wget -q -c --tries=5 --timeout=60 --waitretry=10 'https://github.com/linuxdeploy/linuxdeploy-plugin-appimage/releases/download/continuous/linuxdeploy-plugin-appimage-x86_64.AppImage'
         chmod 755 linuxdeploy-x86_64.AppImage
         chmod 755 linuxdeploy-plugin-qt-x86_64.AppImage
         chmod 755 linuxdeploy-plugin-appimage-x86_64.AppImage
