@@ -310,6 +310,10 @@ void zeroBlurDoesNotAllocateDomain() {
           "Zero blur requested the whole source domain");
   require(render<TPixel32>(fx, 4, 1, TPointD(12, 20))->pixels(0)[0] == TPixel32::White,
           "Zero blur did not pass through a large source");
+  set(fx, "brightness", 2);
+  require(fx.getMemoryRequirement(output, 0, settings) == 0 &&
+              render<TPixel32>(fx, 4, 1, TPointD(12, 20))->pixels(0)[0] == TPixel32::White,
+          "Pointwise gain requested a whole source domain");
   set(fx, "outerStrength", 1);
   require(fx.getMemoryRequirement(output, 0, settings) == std::numeric_limits<int>::max(),
           "Large-domain memory estimate wrapped instead of saturating");

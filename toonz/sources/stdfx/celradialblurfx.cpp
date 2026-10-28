@@ -147,7 +147,7 @@ void CelRadialBlurFx::transform(double frame, int port, const TRectD &output,
                                 TRenderSettings &inputSettings) {
   inputSettings = settings;
   input = TRectD();
-  if (support(frame) <= 2.0 && limited(m_brightness->getValue(frame), 0, 10, 1) == 1.0) {
+  if (support(frame) <= 2.0) {
     if (port == 0 && m_source.isConnected()) input = output;
     return;
   }
@@ -159,8 +159,7 @@ void CelRadialBlurFx::transform(double frame, int port, const TRectD &output,
 
 int CelRadialBlurFx::getMemoryRequirement(const TRectD &, double frame,
                                           const TRenderSettings &settings) {
-  if (support(frame) <= 2.0 && limited(m_brightness->getValue(frame), 0, 10, 1) == 1.0)
-    return 0;
+  if (support(frame) <= 2.0) return 0;
   TRectD domain;
   if (!sourceDomain(frame, settings, domain)) return 0;
   // Two source rasters, double-precision images, labels and distance work.
@@ -207,7 +206,7 @@ struct RasterLock {
 };
 
 template <class Pixel>
-bool cleanPassthrough(const TRasterPT<Pixel> &raster, const int *cancel) {
+bool cleanPassthrough(const TRasterPT<Pixel> &raster, double gain, const int *cancel) {
   RasterLock lock(raster);
   for (int y = 0; y < raster->getLy(); ++y) {
     if (isCanceled(cancel)) return false;
@@ -217,11 +216,21 @@ bool cleanPassthrough(const TRasterPT<Pixel> &raster, const int *cancel) {
       if constexpr (std::is_same<Pixel, TPixelF>::value) {
         if (!(pixel.m > 0) || !std::isfinite(pixel.m) || !std::isfinite(pixel.r) ||
             !std::isfinite(pixel.g) || !std::isfinite(pixel.b)) pixel = Pixel::Transparent;
+        else {
+          const double maxFloat = std::numeric_limits<float>::max();
+          auto apply = [gain, maxFloat](float value) {
+            return float(std::max(-maxFloat, std::min(maxFloat, double(value) * gain)));
+          };
+          pixel.r = apply(pixel.r); pixel.g = apply(pixel.g); pixel.b = apply(pixel.b);
+        }
       } else if (pixel.m == 0) pixel = Pixel::Transparent;
       else {
-        pixel.r = std::min(pixel.r, pixel.m);
-        pixel.g = std::min(pixel.g, pixel.m);
-        pixel.b = std::min(pixel.b, pixel.m);
+        auto apply = [gain, &pixel](double value) {
+          return std::min(double(pixel.m), std::floor(value * gain + 0.5));
+        };
+        pixel.r = static_cast<decltype(pixel.r)>(apply(pixel.r));
+        pixel.g = static_cast<decltype(pixel.g)>(apply(pixel.g));
+        pixel.b = static_cast<decltype(pixel.b)>(apply(pixel.b));
       }
     }
   }
@@ -415,14 +424,15 @@ void CelRadialBlurFx::doCompute(TTile &tile, double frame,
                                 const TRenderSettings &settings) {
   tile.getRaster()->clear();
   if (!m_source.isConnected() || isCanceled(settings.m_isCanceled)) return;
-  // The default zero-blur effect needs no whole-image analysis. This also
-  // avoids allocating a canonical image just to show an unchanged preview.
-  if (support(frame) <= 2.0 && limited(m_brightness->getValue(frame), 0, 10, 1) == 1.0) {
+  // Zero blur and optional gain are pointwise. They need no whole-image
+  // analysis, so even an infinite source can be previewed without a canvas.
+  if (support(frame) <= 2.0) {
     m_source->compute(tile, frame, settings);
+    const double gain = limited(m_brightness->getValue(frame), 0, 10, 1);
     bool complete = false;
-    if (TRaster32P raster = tile.getRaster()) complete = cleanPassthrough<TPixel32>(raster, settings.m_isCanceled);
-    else if (TRaster64P raster = tile.getRaster()) complete = cleanPassthrough<TPixel64>(raster, settings.m_isCanceled);
-    else if (TRasterFP raster = tile.getRaster()) complete = cleanPassthrough<TPixelF>(raster, settings.m_isCanceled);
+    if (TRaster32P raster = tile.getRaster()) complete = cleanPassthrough<TPixel32>(raster, gain, settings.m_isCanceled);
+    else if (TRaster64P raster = tile.getRaster()) complete = cleanPassthrough<TPixel64>(raster, gain, settings.m_isCanceled);
+    else if (TRasterFP raster = tile.getRaster()) complete = cleanPassthrough<TPixelF>(raster, gain, settings.m_isCanceled);
     else throw TException("Cel Radial Blur: unsupported output pixel type");
     if (!complete) tile.getRaster()->clear();
     return;
