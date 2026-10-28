@@ -74,7 +74,7 @@ void drawSpinField(const TRectD geom, const TPointD center,
   // adjust size for ellipse
   if (e_aspect_ratio != 1.0) {
     scale[0] = 2.0 * e_aspect_ratio / (e_aspect_ratio + 1);
-    scale[1] = scale[0] / e_aspect_ratio;
+    scale[1] = 2.0 / (e_aspect_ratio + 1.0);
     minDist *= std::min(scale[0], scale[1]);
     maxDist *= std::max(scale[0], scale[1]);
   }
@@ -145,7 +145,7 @@ void drawRadialField(const TRectD geom, const TPointD center,
   // adjust size for ellipse
   if (e_aspect_ratio != 1.0) {
     scale[0] = 2.0 * e_aspect_ratio / (e_aspect_ratio + 1);
-    scale[1] = scale[0] / e_aspect_ratio;
+    scale[1] = 2.0 / (e_aspect_ratio + 1.0);
     minDist *= std::min(scale[0], scale[1]);
     maxDist *= std::max(scale[0], scale[1]);
   }
@@ -1837,7 +1837,7 @@ void CompassFxGadget::draw(bool picking) {
         } else {  // elliptical + twist case
           double scale[2];
           scale[0] = 2.0 * e_aspect_ratio / (e_aspect_ratio + 1);
-          scale[1] = scale[0] / e_aspect_ratio;
+          scale[1] = 2.0 / (e_aspect_ratio + 1.0);
           glPushMatrix();
           glRotated(e_angle, 0., 0., 1.);
           glScaled(scale[0], scale[1], 1.);
@@ -1890,7 +1890,7 @@ void CompassFxGadget::draw(bool picking) {
         } else {  // elliptical case
           double scale[2];
           scale[0] = 2.0 * e_aspect_ratio / (e_aspect_ratio + 1);
-          scale[1] = scale[0] / e_aspect_ratio;
+          scale[1] = 2.0 / (e_aspect_ratio + 1.0);
           glRotated(e_angle, 0., 0., 1.);
           glScaled(scale[0], scale[1], 1.);
 
@@ -2171,7 +2171,7 @@ void EllipseFxGadget::draw(bool picking) {
   double scale[2] = {1.0, 1.0};
   if (!areAlmostEqual(aspect_ratio, 1.0)) {
     scale[0] = 2.0 * aspect_ratio / (aspect_ratio + 1.0);
-    scale[1] = scale[0] / aspect_ratio;
+    scale[1] = 2.0 / (aspect_ratio + 1.0);
   }
   glPushMatrix();
 
@@ -2280,7 +2280,7 @@ void EllipseFxGadget::leftButtonDrag(const TPointD &pos, const TMouseEvent &e) {
     double scale[2]     = {1.0, 1.0};
     if (!areAlmostEqual(aspect_ratio, 1.0)) {
       scale[0] = 2.0 * aspect_ratio / (aspect_ratio + 1.0);
-      scale[1] = scale[0] / aspect_ratio;
+      scale[1] = 2.0 / (aspect_ratio + 1.0);
     }
     TPointD center       = getCenter();
     QTransform transform = QTransform()

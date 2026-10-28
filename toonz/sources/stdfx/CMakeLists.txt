@@ -165,6 +165,7 @@ set(SOURCES
     posterizefx.cpp
     premultiplyfx.cpp
     radialblurfx.cpp
+    celradialblurfx.cpp
     randomwavefx.cpp
     raylitfx.cpp
     celcolorkeepfx.cpp
@@ -456,6 +457,17 @@ if(BUILD_CELFX_TESTS)
     add_test(NAME celfx_boundaryblur_ui COMMAND celboundaryblur_ui_test
              ${CMAKE_CURRENT_SOURCE_DIR}/../../../stuff/profiles/layouts/fxs/STD_celBoundaryBlurFx.xml)
     add_custom_target(celfx_tests DEPENDS celcolorkeep_test celcolorkeep_ui_test celcolorkey_test celcolorkey_ui_test celcolorkeymath_test celboundaryblur_test celboundaryblur_ui_test)
+    add_executable(celradialblur_test tests/celradialblur_test.cpp celmotion.cpp celnoise.cpp)
+    target_link_libraries(celradialblur_test Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME celfx_radialblur COMMAND celradialblur_test)
+    set_tests_properties(celfx_radialblur PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
+    add_dependencies(celfx_tests celradialblur_test)
+    add_executable(celradialblur_ui_test tests/celradialblur_ui_test.cpp celmotion.cpp celnoise.cpp)
+    target_link_libraries(celradialblur_ui_test toonzqt Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Widgets ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME celfx_radialblur_ui COMMAND celradialblur_ui_test
+             ${CMAKE_CURRENT_SOURCE_DIR}/../../../stuff/profiles/layouts/fxs/STD_celRadialBlurFx.xml)
+    set_tests_properties(celfx_radialblur_ui PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
+    add_dependencies(celfx_tests celradialblur_ui_test)
     set_tests_properties(celfx_colorkeep celfx_colorkeep_ui celfx_colorkey celfx_colorkey_ui celfx_colorkey_math celfx_boundaryblur celfx_boundaryblur_ui PROPERTIES
                          ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
 endif()

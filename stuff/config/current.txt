@@ -1169,6 +1169,28 @@
   <item>"STD_celColorKeyFx.component3025" "Component 3 Threshold 25" </item>
   <item>"STD_celColorKeyFx.replace025" "Use Replacement 25" </item>
   <item>"STD_celColorKeyFx.replacement025" "Replacement Color 25" </item>
+  <item>"STD_celRadialBlurFx" "Cel Radial Blur" </item>
+  <item>"STD_celRadialBlurFx.blurType" "Blur Type" </item>
+  <item>"STD_celRadialBlurFx.center" "Center" </item>
+  <item>"STD_celRadialBlurFx.outerStrength" "Outer Strength" </item>
+  <item>"STD_celRadialBlurFx.outerOffsetMode" "Outer Offset Mode" </item>
+  <item>"STD_celRadialBlurFx.outerOffset" "Outer Offset" </item>
+  <item>"STD_celRadialBlurFx.outerFade" "Outer Edge Fade" </item>
+  <item>"STD_celRadialBlurFx.innerStrength" "Inner Strength" </item>
+  <item>"STD_celRadialBlurFx.innerOffsetMode" "Inner Offset Mode" </item>
+  <item>"STD_celRadialBlurFx.innerOffset" "Inner Offset" </item>
+  <item>"STD_celRadialBlurFx.innerFade" "Inner Edge Fade" </item>
+  <item>"STD_celRadialBlurFx.repeatBorder" "Repeat Border" </item>
+  <item>"STD_celRadialBlurFx.ellipseRatio" "Ellipse Ratio" </item>
+  <item>"STD_celRadialBlurFx.ellipseAngle" "Ellipse Angle" </item>
+  <item>"STD_celRadialBlurFx.quality" "Quality" </item>
+  <item>"STD_celRadialBlurFx.brightness" "Brightness Gain" </item>
+  <item>"STD_celRadialBlurFx.sizeVariation" "Size Variation" </item>
+  <item>"STD_celRadialBlurFx.noiseVariation" "Noise Variation" </item>
+  <item>"STD_celRadialBlurFx.noiseType" "Noise Type" </item>
+  <item>"STD_celRadialBlurFx.seed" "Seed" </item>
+  <item>"STD_celRadialBlurFx.noiseOffset" "Noise Offset" </item>
+  <item>"STD_celRadialBlurFx.thickness" "Thickness" </item>
 
   <item>"STD_celColorKeepFx" "Cel Color Keep" </item>
   <item>"STD_celColorKeepFx.enabledColors" "Enabled Colors" </item>
