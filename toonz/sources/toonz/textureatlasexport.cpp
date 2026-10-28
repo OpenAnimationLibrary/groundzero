@@ -21,9 +21,26 @@
 //    the render shows the drawing. The stage is the camera frame, in camera
 //    pixels, y down from its top left corner. Cells are read through the time
 //    remap of the column, as the render does.
+//  - Symbols: each sub-xsheet (TXshChildLevel) shown is one symbol of the
+//    symbol dictionary, exported once however many columns show it. Its
+//    timeline is built by the same code as the main one, from the rows of
+//    the child xsheet seen through its current camera: the symbol
+//    coordinates are the frame of the child camera, in its pixels, y down
+//    from its top left corner. Its drawings are sprites of the same pages.
+//    A sub-xsheet column is a layer whose frames are symbol instances: a run
+//    of rows whose child frame (the cell frame number - 1, as in
+//    Stage::visit()) advances by one per row is one instance which plays
+//    once from its first child frame, or loops if it wraps from the last row
+//    of the child xsheet to the first; a held child frame is a single frame
+//    instance (AtlasJson::instanceRuns()). The instance matrix is the column
+//    placement relative to the camera, as for drawings, with the center of
+//    the child camera on the column origin; the child camera placement,
+//    scaled by its Z as Stage::visit() does, is inverted in the matrices of
+//    the symbol's layers, row by row. Sub-xsheets are followed up to
+//    c_maxSymbolDepth levels.
 //
-// Not exported: sub-xsheets, fxs, column transparency and color filters,
-// Z depth and stacking order changes, Plastic deformations.
+// Not exported: fxs, column transparency and color filters, Z depth and
+// stacking order changes, Plastic deformations.
 
 #include "textureatlasexport.h"
 
@@ -49,6 +66,7 @@
 #include "toonz/txshlevelcolumn.h"
 #include "toonz/txshcell.h"
 #include "toonz/txshsimplelevel.h"
+#include "toonz/txshchildlevel.h"
 #include "toonz/txshleveltypes.h"
 #include "toonz/tstageobject.h"
 #include "toonz/tstageobjecttree.h"
@@ -87,6 +105,7 @@
 #include <cmath>
 #include <cstring>
 #include <map>
+#include <set>
 #include <utility>
 #include <vector>
 
@@ -102,6 +121,9 @@ const char *c_animationFileName = "Animation.json";
 // Precision of the written matrices
 const double c_positionUnit = 1e-3;  // pixels
 const double c_linearUnit   = 1e-6;
+
+// Levels of nested sub-xsheets exported as symbols
+const int c_maxSymbolDepth = 16;
 
 //-----------------------------------------------------------------------------
 
@@ -175,10 +197,39 @@ struct AtlasSprite {
   bool m_rotated = false;
 };
 
+//! What a layer shows at a frame: a sprite, a frame of a symbol, or nothing
+struct AtlasCell {
+  int m_sprite   = -1;  //!< Index in the sprites, or -1
+  int m_symbol   = -1;  //!< Index in the symbols, or -1
+  int m_childRow = 0;   //!< Frame of the symbol: row of its xsheet
+};
+
 struct AtlasColumn {
   int m_index;
   QString m_name;
-  std::vector<int> m_frames;  //!< Sprite index per frame, -1 when blank
+  std::vector<AtlasCell> m_frames;  //!< One per frame of the timeline
+};
+
+//! The camera a timeline is seen through: the current camera of its xsheet
+struct AtlasView {
+  TDimension m_res;
+  TAffine m_toPixels, m_toStage;   //!< Stage units <-> camera pixels
+  std::vector<TAffine> m_inverse;  //!< Inverse camera placement, per frame
+  std::vector<char> m_valid;       //!< m_inverse exists, per frame
+};
+
+//! The rows [m_r0, m_r0 + m_frameCount) of an xsheet as a timeline
+struct AtlasTimeline {
+  TXsheet *m_xsheet = nullptr;
+  int m_r0 = 0, m_frameCount = 0;
+  AtlasView m_view;
+  std::vector<AtlasColumn> m_columns;  //!< Left to right
+};
+
+//! A sub-xsheet: its whole xsheet, from row 0
+struct AtlasSymbol {
+  QString m_name;
+  AtlasTimeline m_timeline;
 };
 
 struct AtlasOptions {
@@ -191,25 +242,27 @@ struct AtlasOptions {
 
 // Shows the options; returns false if canceled
 bool askOptions(AtlasOptions &options, int layerCount, int spriteCount,
-                int subXsheetColumns, int fxCount) {
+                int symbolCount, int fxCount) {
   DVGui::Dialog dialog(TApp::instance()->getMainWindow(), true);
   dialog.setWindowTitle(atlasTr("Export Texture Atlas"));
 
   QString text =
       atlasTr(
-          "%1 layer(s) and %2 drawing(s) will be exported: the drawings "
-          "are packed into atlas pages (spritemap1.png, ...) described by "
-          "spritemap1.json, ..., and the timeline of the layers is "
-          "written to Animation.json, in the folder chosen next.")
+          "%1 layer(s), %2 drawing(s) and %3 symbol(s) will be exported: "
+          "the drawings are packed into atlas pages (spritemap1.png, ...) "
+          "described by spritemap1.json, ..., and the timelines of the "
+          "layers and of the symbols are written to Animation.json, in the "
+          "folder chosen next.")
           .arg(layerCount)
-          .arg(spriteCount);
-  text += "\n\n" + atlasTr("Sub-xsheets and FX are not exported.");
-  if (subXsheetColumns > 0 || fxCount > 0)
-    text += " " + atlasTr(
-                      "This scene has %1 sub-xsheet column(s) and %2 FX, "
-                      "which are left out.")
-                      .arg(subXsheetColumns)
-                      .arg(fxCount);
+          .arg(spriteCount)
+          .arg(symbolCount);
+  text += "\n\n" + atlasTr(
+                       "Sub-xsheets are exported as symbols, up to %1 "
+                       "levels of nesting. FX are not exported.")
+                       .arg(c_maxSymbolDepth);
+  if (fxCount > 0)
+    text +=
+        " " + atlasTr("This scene has %1 FX, which are left out.").arg(fxCount);
   QLabel *info = new QLabel(text, &dialog);
   info->setWordWrap(true);
   dialog.addWidget(info);
@@ -354,6 +407,29 @@ QImage composePage(int width, int height,
 
 //-----------------------------------------------------------------------------
 
+// The camera reference (camera pixels, y up, the camera centered on its
+// origin) to the camera frame of size res (pixels, y down from its top left
+// corner), and back
+TAffine cameraToFrame(const TDimension &res) {
+  return TAffine(1.0, 0.0, 0.5 * res.lx, 0.0, -1.0, 0.5 * res.ly);
+}
+
+TAffine frameToCamera(const TDimension &res) {
+  return TAffine(1.0, 0.0, -0.5 * res.lx, 0.0, -1.0, 0.5 * res.ly);
+}
+
+//-----------------------------------------------------------------------------
+
+// The written matrix of a transform, rounded
+AtlasJson::Matrix3D toMatrix(const TAffine &aff) {
+  return AtlasJson::matrixFromAffine(
+      roundTo(aff.a11, c_linearUnit), roundTo(aff.a21, c_linearUnit),
+      roundTo(aff.a12, c_linearUnit), roundTo(aff.a22, c_linearUnit),
+      roundTo(aff.a13, c_positionUnit), roundTo(aff.a23, c_positionUnit));
+}
+
+//-----------------------------------------------------------------------------
+
 /*!
 The matrix placing the sprite on the stage: \e columnToCamera maps the column
 reference to the camera reference (both in camera pixels, y up, the camera
@@ -368,13 +444,310 @@ AtlasJson::Matrix3D spriteMatrix(const AtlasSprite &sprite,
   double sy = (double)sprite.m_height / sprite.m_image.height();
   TAffine spriteToColumn(sx, 0.0, sprite.m_center.x - 0.5 * sprite.m_width, 0.0,
                          -sy, sprite.m_center.y + 0.5 * sprite.m_height);
-  TAffine cameraToStage(1.0, 0.0, 0.5 * res.lx, 0.0, -1.0, 0.5 * res.ly);
-  TAffine aff = cameraToStage * columnToCamera * spriteToColumn;
+  return toMatrix(cameraToFrame(res) * columnToCamera * spriteToColumn);
+}
 
-  return AtlasJson::matrixFromAffine(
-      roundTo(aff.a11, c_linearUnit), roundTo(aff.a21, c_linearUnit),
-      roundTo(aff.a12, c_linearUnit), roundTo(aff.a22, c_linearUnit),
-      roundTo(aff.a13, c_positionUnit), roundTo(aff.a23, c_positionUnit));
+//-----------------------------------------------------------------------------
+
+/*!
+Sets the view of \e timeline, whose xsheet and frames are set: its current
+camera, and the inverse of the camera placement at each frame. If \e
+withCameraZ, the camera Z scales the view, as Stage::visit() does for the
+camera of a sub-xsheet.
+*/
+void initView(AtlasTimeline &timeline, bool withCameraZ) {
+  AtlasView &view = timeline.m_view;
+  view.m_inverse.assign(timeline.m_frameCount, TAffine());
+  view.m_valid.assign(timeline.m_frameCount, 0);
+
+  TXsheet *xsh            = timeline.m_xsheet;
+  TStageObjectTree *tree  = xsh->getStageObjectTree();
+  TStageObjectId cameraId = tree->getCurrentCameraId();
+  TCamera *camera         = tree->getCamera(cameraId);
+  if (!camera) return;
+  view.m_res      = camera->getRes();
+  view.m_toStage  = getDpiAffine(camera);
+  view.m_toPixels = view.m_toStage.inv();
+
+  for (int f = 0; f < timeline.m_frameCount; ++f) {
+    int row           = timeline.m_r0 + f;
+    TAffine cameraAff = xsh->getPlacement(cameraId, row);
+    if (withCameraZ) {
+      double k = (1000.0 + xsh->getZ(cameraId, row)) / 1000.0;
+      if (!std::isfinite(k) || k <= 1e-6) k = 1.0;
+      cameraAff = cameraAff * TScale(k);
+    }
+    if (std::abs(cameraAff.det()) < 1e-12) continue;
+    view.m_inverse[f] = cameraAff.inv();
+    view.m_valid[f]   = 1;
+  }
+}
+
+//=============================================================================
+
+/*!
+Collects the layers of a timeline, the drawings they show (the sprites) and
+the sub-xsheets they show (the symbols, collected the same way), each one
+once over the whole export.
+*/
+class AtlasCollector {
+public:
+  std::vector<AtlasSprite> m_sprites;
+  std::vector<AtlasSymbol> m_symbols;  //!< A symbol after those it shows
+  QStringList m_leftOut;  //!< Sub-xsheets left out somewhere: nested too
+                          //!< deeply, or inside themselves
+
+  //! \e mainSymbolName: the symbol name of the main timeline, which no
+  //! symbol takes
+  explicit AtlasCollector(const QString &mainSymbolName) {
+    m_symbolNames.insert(mainSymbolName);
+  }
+
+  //! Fills the columns of \e timeline, whose xsheet, frames and view are set.
+  //! \e depth is its nesting level, 0 for the main timeline.
+  void collect(AtlasTimeline &timeline, int depth);
+
+private:
+  std::map<std::pair<TXshSimpleLevel *, TFrameId>, int> m_spriteIndices;
+  std::map<TXshChildLevel *, int> m_symbolIndices;  //!< -1: nothing shown
+  std::set<TXshChildLevel *> m_building, m_leftOutLevels;
+  QSet<QString> m_spriteNames, m_symbolNames;
+
+  int spriteOf(TXshSimpleLevel *sl, const TFrameId &fid);
+  int symbolOf(TXshChildLevel *cl, int depth);
+};
+
+//-----------------------------------------------------------------------------
+
+// The index of the sprite of a drawing, added on the first call
+int AtlasCollector::spriteOf(TXshSimpleLevel *sl, const TFrameId &fid) {
+  auto key = std::make_pair(sl, fid);
+  auto it  = m_spriteIndices.find(key);
+  if (it != m_spriteIndices.end()) return it->second;
+
+  AtlasSprite sprite;
+  sprite.m_level = sl;
+  sprite.m_fid   = fid;
+  QString name   = QString::fromStdWString(sl->getName()) + "_" +
+                 QString::fromStdString(fid.expand());
+  sprite.m_name = uniqueName(fileSafeName(name), m_spriteNames, true);
+  m_sprites.push_back(sprite);
+  int index = (int)m_sprites.size() - 1;
+  m_spriteIndices.insert({key, index});
+  return index;
+}
+
+//-----------------------------------------------------------------------------
+
+// The index of the symbol of a sub-xsheet, built on the first call at the
+// nesting level depth; -1 if it shows nothing, is nested too deeply or is
+// being built (it is inside itself)
+int AtlasCollector::symbolOf(TXshChildLevel *cl, int depth) {
+  auto it = m_symbolIndices.find(cl);
+  if (it != m_symbolIndices.end()) return it->second;
+
+  TXsheet *child = cl->getXsheet();
+  if (!child) {
+    m_symbolIndices[cl] = -1;
+    return -1;
+  }
+  if (depth > c_maxSymbolDepth || m_building.count(cl) > 0) {
+    if (m_leftOutLevels.insert(cl).second)
+      m_leftOut << QString::fromStdWString(cl->getName());
+    return -1;
+  }
+
+  m_building.insert(cl);
+  AtlasSymbol symbol;
+  symbol.m_timeline.m_xsheet     = child;
+  symbol.m_timeline.m_r0         = 0;
+  symbol.m_timeline.m_frameCount = std::max(0, child->getFrameCount());
+  initView(symbol.m_timeline, true);
+  collect(symbol.m_timeline, depth);
+  m_building.erase(cl);
+
+  int index = -1;
+  if (!symbol.m_timeline.m_columns.empty()) {
+    QString name = QString::fromStdWString(cl->getName()).trimmed();
+    if (name.isEmpty()) name = "Symbol";
+    symbol.m_name = uniqueName(name, m_symbolNames);
+    m_symbols.push_back(std::move(symbol));
+    index = (int)m_symbols.size() - 1;
+  }
+  m_symbolIndices[cl] = index;
+  return index;
+}
+
+//-----------------------------------------------------------------------------
+
+void AtlasCollector::collect(AtlasTimeline &timeline, int depth) {
+  TXsheet *xsh = timeline.m_xsheet;
+  QSet<QString> layerNames;
+
+  for (int col = 0; col < xsh->getColumnCount(); ++col) {
+    if (xsh->isColumnEmpty(col)) continue;
+    TXshColumn *column = xsh->getColumn(col);
+    if (!column || !column->isPreviewVisible()) continue;
+    TXshLevelColumn *levelColumn = column->getLevelColumn();
+    if (!levelColumn) continue;
+
+    AtlasColumn atlasColumn;
+    atlasColumn.m_index = col;
+    bool used           = false;
+    for (int f = 0; f < timeline.m_frameCount; ++f) {
+      TXshCell cell       = levelColumn->getRemappedCell(timeline.m_r0 + f);
+      TXshSimpleLevel *sl = cell.getSimpleLevel();
+      AtlasCell shown;
+      if (sl && isExportedLevelType(sl->getType()))
+        shown.m_sprite = spriteOf(sl, cell.getFrameId());
+      else if (TXshChildLevel *cl = cell.getChildLevel()) {
+        // The row of the sub-xsheet, as in Stage::visit(); the rows after its
+        // end show nothing
+        int childRow = cell.getFrameId().getNumber() - 1;
+        int symbol   = symbolOf(cl, depth + 1);
+        if (symbol >= 0 && childRow >= 0 &&
+            childRow < m_symbols[symbol].m_timeline.m_frameCount) {
+          shown.m_symbol   = symbol;
+          shown.m_childRow = childRow;
+        }
+      }
+      if (shown.m_sprite >= 0 || shown.m_symbol >= 0) used = true;
+      atlasColumn.m_frames.push_back(shown);
+    }
+    if (!used) continue;
+
+    TStageObject *columnObj =
+        xsh->getStageObject(TStageObjectId::ColumnId(col));
+    QString name = QString::fromStdString(columnObj->getName());
+    if (name.isEmpty()) name = QString("Col%1").arg(col + 1);
+    atlasColumn.m_name = uniqueName(name, layerNames);
+    timeline.m_columns.push_back(atlasColumn);
+  }
+}
+
+//=============================================================================
+
+/*!
+The layers of \e timeline, the top one (the last column) first. A run of
+frames of a column which shows the same sprite with the same matrix is one
+frame entry; the frames which show a symbol are symbol instances made by
+AtlasJson::instanceRuns(). \e spriteToStage converts the column reference
+in the camera pixels of the main camera (in which the sprites are rendered
+and their centers given) into stage units. The matrices place the sprites
+and the symbols in the frame of the timeline's camera, in its pixels.
+*/
+std::vector<AtlasJson::Layer> timelineLayers(
+    const AtlasTimeline &timeline, const std::vector<AtlasSprite> &sprites,
+    const std::vector<AtlasSymbol> &symbols, const TAffine &spriteToStage) {
+  const AtlasView &view = timeline.m_view;
+  const int frameCount  = timeline.m_frameCount;
+  const TAffine toFrame = cameraToFrame(view.m_res);
+
+  std::vector<AtlasJson::Layer> layers;
+  for (int c = (int)timeline.m_columns.size() - 1; c >= 0; --c) {
+    const AtlasColumn &column = timeline.m_columns[c];
+    TStageObjectId columnId   = TStageObjectId::ColumnId(column.m_index);
+
+    // The column reference (stage units) to the camera reference (camera
+    // pixels), at the frames where the column shows something and is not
+    // squashed to nothing
+    std::vector<TAffine> columnToCamera(frameCount);
+    std::vector<char> visible(frameCount, 0);
+    for (int f = 0; f < frameCount; ++f) {
+      const AtlasCell &cell = column.m_frames[f];
+      if ((cell.m_sprite < 0 && cell.m_symbol < 0) || view.m_valid[f] == 0)
+        continue;
+      TAffine placement =
+          timeline.m_xsheet->getPlacement(columnId, timeline.m_r0 + f);
+      if (std::abs(placement.det()) < 1e-12) continue;
+      columnToCamera[f] = view.m_toPixels * view.m_inverse[f] * placement;
+      visible[f]        = 1;
+    }
+
+    AtlasJson::Layer layer;
+    layer.m_name = column.m_name;
+
+    // Sprites
+    int runStart = 0, runSprite = -1;
+    AtlasJson::Matrix3D runMatrix = AtlasJson::identityMatrix();
+    auto closeRun                 = [&](int end) {
+      if (runSprite >= 0 && end > runStart) {
+        AtlasJson::Frame frame;
+        frame.m_start    = runStart;
+        frame.m_duration = end - runStart;
+        frame.m_sprite   = sprites[runSprite].m_name;
+        frame.m_matrix   = runMatrix;
+        layer.m_frames.push_back(frame);
+      }
+      runSprite = -1;
+    };
+    for (int f = 0; f < frameCount; ++f) {
+      int index = column.m_frames[f].m_sprite;
+      if (index < 0 || !sprites[index].m_valid || visible[f] == 0) {
+        closeRun(f);
+        continue;
+      }
+      AtlasJson::Matrix3D matrix = spriteMatrix(
+          sprites[index], columnToCamera[f] * spriteToStage, view.m_res);
+      if (index == runSprite && matrix == runMatrix) continue;
+      closeRun(f);
+      runStart  = f;
+      runSprite = index;
+      runMatrix = matrix;
+    }
+    closeRun(frameCount);
+
+    // Symbol instances, of each symbol the column shows (usually one)
+    std::vector<int> shownSymbols;
+    for (const AtlasCell &cell : column.m_frames)
+      if (cell.m_symbol >= 0 &&
+          std::find(shownSymbols.begin(), shownSymbols.end(), cell.m_symbol) ==
+              shownSymbols.end())
+        shownSymbols.push_back(cell.m_symbol);
+
+    for (int s : shownSymbols) {
+      const AtlasSymbol &symbol   = symbols[s];
+      const AtlasView &symbolView = symbol.m_timeline.m_view;
+      // The symbol coordinates (the frame of the child camera, in its pixels)
+      // to the column reference (stage units)
+      const TAffine symbolToColumn =
+          symbolView.m_toStage * frameToCamera(symbolView.m_res);
+
+      std::vector<int> childFrames(frameCount, -1), segments(frameCount, 0);
+      std::vector<AtlasJson::Matrix3D> matrices(frameCount,
+                                                AtlasJson::identityMatrix());
+      int segment        = 0;
+      bool previousShown = false;
+      for (int f = 0; f < frameCount; ++f) {
+        const AtlasCell &cell = column.m_frames[f];
+        if (cell.m_symbol != s || visible[f] == 0) {
+          previousShown = false;
+          continue;
+        }
+        matrices[f] = toMatrix(toFrame * columnToCamera[f] * symbolToColumn);
+        // A new instance when the matrix changes
+        if (!previousShown || matrices[f] != matrices[f - 1]) ++segment;
+        segments[f]    = segment;
+        childFrames[f] = cell.m_childRow;
+        previousShown  = true;
+      }
+
+      for (const AtlasJson::InstanceRun &run : AtlasJson::instanceRuns(
+               childFrames, symbol.m_timeline.m_frameCount, segments)) {
+        AtlasJson::Frame frame;
+        frame.m_start      = run.m_start;
+        frame.m_duration   = run.m_duration;
+        frame.m_symbol     = symbol.m_name;
+        frame.m_firstFrame = run.m_firstFrame;
+        frame.m_loop       = run.m_loop;
+        frame.m_matrix     = matrices[run.m_start];
+        layer.m_frames.push_back(frame);
+      }
+    }
+
+    layers.push_back(layer);
+  }
+  return layers;
 }
 
 //-----------------------------------------------------------------------------
@@ -423,76 +796,46 @@ void ExportTextureAtlasCommand::execute() {
   TAffine stageToPixels   = getDpiAffine(camera).inv();
   TAffine pixelsToStage   = getDpiAffine(camera);
 
-  // Layers and used drawings
+  QString sceneName = QString::fromStdWString(scene->getSceneName());
+  if (sceneName.isEmpty()) sceneName = "untitled";
 
-  std::vector<AtlasColumn> columns;
-  std::vector<AtlasSprite> sprites;
-  std::map<std::pair<TXshSimpleLevel *, TFrameId>, int> spriteIndices;
-  QSet<QString> spriteNames, layerNames;
-  int subXsheetColumns = 0;
+  // Layers, used drawings and sub-xsheets
 
-  for (int col = 0; col < xsh->getColumnCount(); ++col) {
-    if (xsh->isColumnEmpty(col)) continue;
-    TXshColumn *column = xsh->getColumn(col);
-    if (!column || !column->isPreviewVisible()) continue;
-    TXshLevelColumn *levelColumn = column->getLevelColumn();
-    if (!levelColumn) continue;
+  AtlasTimeline mainTimeline;
+  mainTimeline.m_xsheet     = xsh;
+  mainTimeline.m_r0         = r0;
+  mainTimeline.m_frameCount = frameCount;
+  initView(mainTimeline, false);
 
-    AtlasColumn atlasColumn;
-    atlasColumn.m_index = col;
-    bool used = false, subXsheet = false;
-    for (int r = r0; r <= r1; ++r) {
-      TXshCell cell       = levelColumn->getRemappedCell(r);
-      TXshSimpleLevel *sl = cell.getSimpleLevel();
-      int index           = -1;
-      if (sl && isExportedLevelType(sl->getType())) {
-        auto key = std::make_pair(sl, cell.getFrameId());
-        auto it  = spriteIndices.find(key);
-        if (it == spriteIndices.end()) {
-          AtlasSprite sprite;
-          sprite.m_level = sl;
-          sprite.m_fid   = cell.getFrameId();
-          QString name   = QString::fromStdWString(sl->getName()) + "_" +
-                         QString::fromStdString(sprite.m_fid.expand());
-          sprite.m_name = uniqueName(fileSafeName(name), spriteNames, true);
-          sprites.push_back(sprite);
-          it = spriteIndices.insert({key, (int)sprites.size() - 1}).first;
-        }
-        index = it->second;
-        used  = true;
-      } else if (cell.getChildLevel())
-        subXsheet = true;
-      atlasColumn.m_frames.push_back(index);
-    }
-    if (subXsheet) ++subXsheetColumns;
-    if (!used) continue;
+  AtlasCollector collector(sceneName);
+  collector.collect(mainTimeline, 0);
+  std::vector<AtlasSprite> &sprites = collector.m_sprites;
 
-    TStageObject *columnObj =
-        xsh->getStageObject(TStageObjectId::ColumnId(col));
-    QString name = QString::fromStdString(columnObj->getName());
-    if (name.isEmpty()) name = QString("Col%1").arg(col + 1);
-    atlasColumn.m_name = uniqueName(name, layerNames);
-    columns.push_back(atlasColumn);
-  }
-
-  if (columns.empty()) {
+  if (mainTimeline.m_columns.empty()) {
     DVGui::error(atlasTr("No columns can be exported."));
     return;
   }
 
   // Options and folder
 
-  int fxCount = 0;
-  if (FxDag *fxDag = xsh->getFxDag())
-    if (TFxSet *internalFxs = fxDag->getInternalFxs())
-      fxCount = internalFxs->getFxCount();
+  auto fxCountOf = [](TXsheet *x) {
+    int count = 0;
+    if (FxDag *fxDag = x->getFxDag())
+      if (TFxSet *internalFxs = fxDag->getInternalFxs())
+        count = internalFxs->getFxCount();
+    return count;
+  };
+  int fxCount = fxCountOf(xsh);
+  for (const AtlasSymbol &symbol : collector.m_symbols)
+    fxCount += fxCountOf(symbol.m_timeline.m_xsheet);
 
   AtlasOptions options;
   options.m_pageSize = TextureAtlasExportPageSize;
   options.m_padding  = TextureAtlasExportPadding;
   options.m_scale    = TextureAtlasExportScale;
-  if (!askOptions(options, (int)columns.size(), (int)sprites.size(),
-                  subXsheetColumns, fxCount))
+  if (!askOptions(options, (int)mainTimeline.m_columns.size(),
+                  (int)sprites.size(), (int)collector.m_symbols.size(),
+                  fxCount))
     return;
   TextureAtlasExportPageSize = options.m_pageSize;
   TextureAtlasExportPadding  = options.m_padding;
@@ -591,76 +934,25 @@ void ExportTextureAtlasCommand::execute() {
     pages[p.m_page].m_sprites.push_back(sprite);
   }
 
-  // Timelines: the camera of every frame, then the frames of every layer, the
-  // top one first
-
-  std::vector<TAffine> cameraInverse(frameCount);
-  std::vector<char> cameraValid(frameCount, 0);
-  for (int f = 0; f < frameCount; ++f) {
-    TAffine cameraAff = xsh->getPlacement(cameraId, r0 + f);
-    if (std::abs(cameraAff.det()) < 1e-12) continue;
-    cameraInverse[f] = cameraAff.inv();
-    cameraValid[f]   = 1;
-  }
+  // Timelines: the layers of the main timeline, the top one first, and of
+  // every symbol
 
   AtlasJson::Animation animation;
-  QString sceneName = QString::fromStdWString(scene->getSceneName());
-  if (sceneName.isEmpty()) sceneName = "untitled";
   animation.m_name        = sceneName;
   animation.m_symbolName  = sceneName;
   animation.m_frameRate   = fps;
   animation.m_stageWidth  = res.lx;
   animation.m_stageHeight = res.ly;
   animation.m_frameCount  = frameCount;
-
-  for (int c = (int)columns.size() - 1; c >= 0; --c) {
-    const AtlasColumn &column = columns[c];
-    TStageObjectId columnId   = TStageObjectId::ColumnId(column.m_index);
-
-    AtlasJson::Layer layer;
-    layer.m_name = column.m_name;
-
-    int runStart = 0, runSprite = -1;
-    AtlasJson::Matrix3D runMatrix = AtlasJson::identityMatrix();
-    auto closeRun                 = [&](int end) {
-      if (runSprite >= 0 && end > runStart) {
-        AtlasJson::Frame frame;
-        frame.m_start    = runStart;
-        frame.m_duration = end - runStart;
-        frame.m_sprite   = sprites[runSprite].m_name;
-        frame.m_matrix   = runMatrix;
-        layer.m_frames.push_back(frame);
-      }
-      runSprite = -1;
-    };
-
-    for (int f = 0; f < frameCount; ++f) {
-      int index  = column.m_frames[f];
-      bool shown = index >= 0 && sprites[index].m_valid && cameraValid[f] != 0;
-      AtlasJson::Matrix3D matrix = AtlasJson::identityMatrix();
-      if (shown) {
-        TAffine placement = xsh->getPlacement(columnId, r0 + f);
-        if (std::abs(placement.det()) < 1e-12)
-          shown = false;  // squashed to nothing: not visible
-        else
-          matrix = spriteMatrix(
-              sprites[index],
-              stageToPixels * cameraInverse[f] * placement * pixelsToStage,
-              res);
-      }
-      if (!shown) {
-        closeRun(f);
-        continue;
-      }
-      if (index == runSprite && matrix == runMatrix) continue;
-      closeRun(f);
-      runStart  = f;
-      runSprite = index;
-      runMatrix = matrix;
-    }
-    closeRun(frameCount);
-
-    animation.m_layers.push_back(layer);
+  animation.m_layers =
+      timelineLayers(mainTimeline, sprites, collector.m_symbols, pixelsToStage);
+  for (const AtlasSymbol &symbol : collector.m_symbols) {
+    AtlasJson::Symbol json;
+    json.m_name       = symbol.m_name;
+    json.m_frameCount = symbol.m_timeline.m_frameCount;
+    json.m_layers     = timelineLayers(symbol.m_timeline, sprites,
+                                       collector.m_symbols, pixelsToStage);
+    animation.m_symbols.push_back(json);
   }
 
   QString problem = AtlasJson::validate(pages, animation);
@@ -732,13 +1024,26 @@ void ExportTextureAtlasCommand::execute() {
 
   QString str = atlasTr(
                     "The texture atlas has been exported: %1 sprite(s) on "
-                    "%2 page(s), %3 layer(s).")
+                    "%2 page(s), %3 layer(s), %4 symbol(s).")
                     .arg((int)packed.size())
                     .arg((int)pages.size())
-                    .arg((int)animation.m_layers.size());
+                    .arg((int)animation.m_layers.size())
+                    .arg((int)animation.m_symbols.size());
+  if (!collector.m_leftOut.isEmpty()) {
+    QStringList names = collector.m_leftOut.mid(0, 5);
+    if (collector.m_leftOut.size() > 5) names << "...";
+    str += "\n\n" + atlasTr(
+                        "These sub-xsheets are nested more than %1 levels "
+                        "deep, or inside themselves, and are left out "
+                        "there (blank frames): %2.")
+                        .arg(c_maxSymbolDepth)
+                        .arg(names.join(", "));
+  }
   std::vector<QString> buttons = {atlasTr("OK"),
                                   atlasTr("Open containing folder")};
-  if (DVGui::MsgBox(DVGui::INFORMATION, str, buttons) == 2) {
+  if (DVGui::MsgBox(
+          collector.m_leftOut.isEmpty() ? DVGui::INFORMATION : DVGui::WARNING,
+          str, buttons) == 2) {
     TFilePath folderPath(folder.toStdWString());
     if (TSystem::isUNC(folderPath))
       QDesktopServices::openUrl(QUrl(folderPath.getQString()));
