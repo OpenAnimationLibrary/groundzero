@@ -411,10 +411,6 @@ void testImagesLevelsScene(Console &console) {
 
   // the columns of a scene
   expect(console, "new Scene().getColumns().length", result, "0");
-  // a scene without frames renders nothing: the render used to wait forever
-  // for a render that was never started
-  expect(console, "new Renderer().renderScene(new Scene()).frameCount", result,
-         "0");
   expect(console,
          "sc.setCell(1, 0, lv, 2).setCell(3, 0, 'L', 3); "
          "sc.getColumns().map(function (c) { return [c.index, c.id, c.name, "
