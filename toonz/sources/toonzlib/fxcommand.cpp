@@ -75,6 +75,15 @@ inline TFx *getActualIn(TFx *fx) {
 
 //------------------------------------------------------
 
+// Connects a port, leaving it unconnected when it refuses the fx (a 3D source
+// port given an ordinary fx) instead of letting the exception escape the
+// command and the Qt event handler that runs it.
+inline void connectPort(TFxPort *port, TFx *fx) {
+  port->setFx(fx && !port->accepts(fx) ? nullptr : fx);
+}
+
+//------------------------------------------------------
+
 inline TFx *getActualOut(TFx *fx) {
   TZeraryFx *zfx = dynamic_cast<TZeraryFx *>(fx);
   return (zfx && zfx->getColumnFx()) ? zfx->getColumnFx() : fx;
@@ -385,7 +394,7 @@ void FxCommandUndo::attach(TXsheet *xsh, TFx *inputFx, TFx *outputFx, int link,
     } else {
       int ipCount = outputFx->getInputPortCount();
       if (ipCount > 0 && link < ipCount)
-        outputFx->getInputPort(link)->setFx(inputFx);
+        connectPort(outputFx->getInputPort(link), inputFx);
 
       if (copyGroupData) copyGroupEditLevel(inputFx, outputFx);
     }
@@ -416,8 +425,8 @@ void FxCommandUndo::attachOutputs(TXsheet *xsh, TFx *insertedFx, TFx *inputFx) {
   {          // it's necessary since TFxPort::setFx() REMOVES
     TFxPort *port = inputFx->getOutputConnection(
         p);  // the corresponding port int the output connections
-    port->setFx(
-        insertedFx);  // container - thus, it's better to start from the end
+    connectPort(port, insertedFx);  // container - thus, it's better to start
+                                    // from the end
   }
 
   if (fxDag->getTerminalFxs()->containsFx(inputFx)) {
@@ -447,7 +456,7 @@ void FxCommandUndo::detachFxs(TXsheet *xsh, TFx *fxLeft, TFx *fxRight,
     TFxPort *outPort = fxRight->getOutputConnection(p);
     assert(outPort && outPort->getFx() == fxRight);
 
-    outPort->setFx(inputFx0);
+    connectPort(outPort, inputFx0);
   }
 
   // Xsheet links redirection
@@ -1243,7 +1252,7 @@ void ReplaceFxUndo::replace(TXsheet *xsh, TFx *fx, TFx *repFx,
   int opCount = fx->getOutputConnectionCount();
   for (p = opCount - 1; p >= 0; --p) {
     TFxPort *port = fx->getOutputConnection(p);
-    port->setFx(repFx);
+    connectPort(port, repFx);
   }
 
   if (fxDag->getTerminalFxs()->containsFx(fx)) {
@@ -1289,7 +1298,8 @@ void ReplaceFxUndo::undo() const {
 
   size_t l, lCount = m_inputLinks.size();
   for (l = 0; l != lCount; ++l)
-    m_fx->getInputPort(m_inputLinks[l].first)->setFx(m_inputLinks[l].second);
+    connectPort(m_fx->getInputPort(m_inputLinks[l].first),
+                m_inputLinks[l].second);
 
   // Repair parameter links
   FxCommandUndo::linkParams(m_fx.getPointer(), m_linkedFx.getPointer());
@@ -1566,7 +1576,7 @@ void MakeMacroUndo::redo() const {
 
   int p, opCount = rootFx->getOutputConnectionCount();
   for (p = opCount - 1; p >= 0; --p)
-    rootFx->getOutputConnection(p)->setFx(macroFx);
+    connectPort(rootFx->getOutputConnection(p), macroFx);
 
   // Remove the macro's internal fxs from the scene
   const std::vector<TFxP> &fxs = macroFx->getFxs();
@@ -1599,7 +1609,7 @@ void MakeMacroUndo::undo() const {
   // Restore the root's output connections
   int p, opCount = macroFx->getOutputConnectionCount();
   for (p = opCount - 1; p >= 0; --p)
-    macroFx->getOutputConnection(p)->setFx(rootFx);
+    connectPort(macroFx->getOutputConnection(p), rootFx);
 
   // Remove the macro
   ::removeFxFromCurrentScene(macroFx, xsh);
@@ -2105,7 +2115,7 @@ void DeleteLinksUndo::undo() const {
     assert(index < outputFx->getInputPortCount());
 
     if (index < outputFx->getInputPortCount())
-      outputFx->getInputPort(index)->setFx(inputFx);
+      connectPort(outputFx->getInputPort(index), inputFx);
   }
 
   // Restore complete dynamic port groups configuration
@@ -2645,7 +2655,8 @@ void UndoPasteFxs::initialize(const std::map<TFx *, int> &zeraryFxColumnSize,
       {           // assigned to the *actual* zerary
         TFxPort *outPort =
             fx->getOutputConnection(op);  // and not to a related zerary column.
-        outPort->setFx(zcfx);  // This is an FxsData fault... BUGFIX REQUEST!
+        connectPort(outPort, zcfx);       // This is an FxsData fault... BUGFIX
+                                          // REQUEST!
       }
 
       zcfx->getAttributes()->setDagNodePos(

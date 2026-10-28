@@ -17,7 +17,9 @@
 
 #include <QApplication>
 #include <QCoreApplication>
+#include <QDir>
 #include <QFileDialog>
+#include <QFileInfo>
 #include <QImage>
 #include <QInputDialog>
 #include <QMessageBox>
@@ -155,7 +157,9 @@ bool collectScenePages(std::vector<QImage> &pages,
   title = QString::fromStdString(scene->getScenePath().getName());
   if (title.isEmpty()) title = QObject::tr("OpenToonz Scene");
 
-  TXsheet *xsheet = TApp::instance()->getCurrentXsheet()->getXsheet();
+  // The whole scene, also when a sub-xsheet is open: frameCount is the
+  // frame count of the top xsheet
+  TXsheet *xsheet = scene->getTopXsheet();
   for (int frame = 0; frame < frameCount; ++frame) {
     TRaster32P raster(resolution.lx, resolution.ly);
     raster->fill(scene->getProperties()->getBgColor());
@@ -190,7 +194,17 @@ public:
         parent, QObject::tr("Export PDF"), QString(),
         QObject::tr("PDF Documents (*.pdf)"));
     if (outputPath.isEmpty()) return;
-    if (!outputPath.endsWith(".pdf", Qt::CaseInsensitive)) outputPath += ".pdf";
+    if (!outputPath.endsWith(".pdf", Qt::CaseInsensitive)) {
+      outputPath += ".pdf";
+      // The dialog asked about the name without the extension only
+      if (QFileInfo::exists(outputPath) &&
+          QMessageBox::question(
+              parent, QObject::tr("Export PDF"),
+              QObject::tr("%1 already exists.\nDo you want to overwrite it?")
+                  .arg(QDir::toNativeSeparators(outputPath))) !=
+              QMessageBox::Yes)
+        return;
+    }
 
     QApplication::setOverrideCursor(Qt::WaitCursor);
     std::vector<QImage> pages;

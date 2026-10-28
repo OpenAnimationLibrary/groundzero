@@ -75,7 +75,7 @@ public:
   // removed by Discard; the first one is shown by Show Folder
   void addItem(const QString &sceneName, const QString &savedAt,
                const QString &originalScene, const QString &sceneFile,
-               const QStringList &folders);
+               const QStringList &folders, const QStringList &uncopiedLevels);
 
   // The recovery copy chosen with Open, if any
   QString getSceneToOpen() const { return m_sceneToOpen; }

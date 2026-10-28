@@ -1,0 +1,55 @@
+
+<fxlayout>
+  <page name="Shape Aware Deformer">
+   <separator label="Weights"/>
+    <control>resolution</control>
+    <control>margin</control>
+    <control>stretch</control>
+   <separator label="Pin 1"/>
+    <control>pinOn1</control>
+    <control>pin1</control>
+    <control>pinRest1</control>
+    <control>pinAngle1</control>
+    <control>pinScale1</control>
+   <separator label="Pin 2"/>
+    <control>pinOn2</control>
+    <control>pin2</control>
+    <control>pinRest2</control>
+    <control>pinAngle2</control>
+    <control>pinScale2</control>
+   <separator label="Pin 3"/>
+    <control>pinOn3</control>
+    <control>pin3</control>
+    <control>pinRest3</control>
+    <control>pinAngle3</control>
+    <control>pinScale3</control>
+   <separator label="Pin 4"/>
+    <control>pinOn4</control>
+    <control>pin4</control>
+    <control>pinRest4</control>
+    <control>pinAngle4</control>
+    <control>pinScale4</control>
+   <separator label="Bone 1"/>
+    <control>boneOn1</control>
+    <control>boneHead1</control>
+    <control>boneTail1</control>
+    <control>boneRestHead1</control>
+    <control>boneRestTail1</control>
+   <separator label="Bone 2"/>
+    <control>boneOn2</control>
+    <control>boneHead2</control>
+    <control>boneTail2</control>
+    <control>boneRestHead2</control>
+    <control>boneRestTail2</control>
+   <separator label="Cage"/>
+    <control>cageOn</control>
+    <control>cage1</control>
+    <control>cage2</control>
+    <control>cage3</control>
+    <control>cage4</control>
+    <control>cageRest1</control>
+    <control>cageRest2</control>
+    <control>cageRest3</control>
+    <control>cageRest4</control>
+  </page>
+</fxlayout>

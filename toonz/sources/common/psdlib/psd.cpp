@@ -66,6 +66,7 @@ static char swapByte(unsigned char src) {
 
 TPSDReader::TPSDReader(const TFilePath &path)
     : m_shrinkX(1), m_shrinkY(1), m_region(TRect()) {
+  m_file    = 0;
   m_layerId = 0;
   m_lx = m_ly = 0;
   memset(&m_headerInfo, 0, sizeof(m_headerInfo));
@@ -94,6 +95,7 @@ TPSDReader::TPSDReader(const TFilePath &path)
     throw TImageException(m_path, "Do PSD INFO ERROR");
   }
   fclose(m_file);
+  m_file = 0;  // load() opens it again, and closes it when it fails
 }
 TPSDReader::~TPSDReader() {
   /*for(int i=0; i<m_headerInfo.layersCount;i++)
@@ -494,6 +496,7 @@ void TPSDReader::load(TRasterImageP &img, int layerId) {
     openFile();
     doImage(rasP, layerId);
     fclose(m_file);
+    m_file = 0;
     /*
     // do savebox
     long sbx0 = li ? li->left : 0;
@@ -547,6 +550,12 @@ void TPSDReader::load(TRasterImageP &img, int layerId) {
     img->setDpi(m_headerInfo.hres, m_headerInfo.vres);
     img->setSavebox(savebox);
   } catch (...) {
+    // A damaged file throws from doImage(): close it, or every attempt to
+    // show the frame leaks a file handle
+    if (m_file) {
+      fclose(m_file);
+      m_file = 0;
+    }
   }
 }
 

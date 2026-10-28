@@ -57,6 +57,11 @@ public:
   virtual TFx *getFx() const = 0;
   virtual void setFx(TFx *)  = 0;
 
+  //! Whether setFx() would accept the fx. Ports restricted to some kinds of
+  //! fx (the 3D source ports) throw from setFx() when given another kind:
+  //! callers that connect user-chosen fxs check this first.
+  virtual bool accepts(TFx *) const { return true; }
+
   bool isConnected() const { return getFx() != 0; }
   bool isaControlPort() const { return m_isControl; }
 

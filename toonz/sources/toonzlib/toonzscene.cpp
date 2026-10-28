@@ -846,10 +846,10 @@ void ToonzScene::writeSceneFile(const TFilePath &fp, TXsheet *subxsh) {
   os.closeChild();
 
   // Poses refer to the top-level xsheet, so sub-xsheet saves skip them. The
-  // tag is written only when at least one pose exists (a base alone is not
-  // enough), so scenes that do not use poses stay readable by versions that
-  // reject unknown top-level tags.
-  if (!subxsh && m_poseLibrary->getPoseCount() > 0) {
+  // tag is written only when the scene uses poses (a pose, or a base set
+  // with Set Base, which would otherwise be lost on save), so scenes that do
+  // not use them stay readable by versions that reject unknown top-level tags.
+  if (!subxsh && !m_poseLibrary->isEmpty()) {
     os.openChild("poses");
     m_poseLibrary->saveData(os);
     os.closeChild();

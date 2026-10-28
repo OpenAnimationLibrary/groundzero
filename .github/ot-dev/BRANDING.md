@@ -77,6 +77,8 @@ actionlint .github/workflows/workflow_windows.yml .github/workflows/otdev_brandi
 ```
 
 Checks cover SVG rendering and replaceable artwork, source identity, package
-completeness, and recorder injection. Windows CI additionally compiles the
-recorder and application and tests native playback. Application workflow testing
-and a real Windows package remain necessary before release publication.
+completeness, and recorder injection. Windows CI compiles the recorder into the
+application and packages its encoder; it does not run these checks or the
+recorder's CTest suite (`recorder/README.md`), so run them locally. Application
+workflow testing and a real Windows package remain necessary before release
+publication.

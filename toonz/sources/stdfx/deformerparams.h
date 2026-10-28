@@ -34,6 +34,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace deformerfx {
@@ -540,6 +541,35 @@ private:
   mutable std::vector<double> m_cacheKey;
   mutable std::shared_ptr<const TShapeAwareDeformer::Weights> m_cache;
 
+  // The weights of the rest geometries used last, by every fx: the render
+  // clones the fx for each frame, and a clone starts with an empty m_cache,
+  // so without this the weights would be solved again for every frame
+  static std::shared_ptr<const TShapeAwareDeformer::Weights> sharedWeights(
+      const std::vector<double> &key, const std::vector<Handle> &handles,
+      const TShapeAwareDeformer::Settings &settings) {
+    typedef std::pair<std::vector<double>,
+                      std::shared_ptr<const TShapeAwareDeformer::Weights>>
+        Entry;
+    static std::mutex mutex;
+    static std::vector<Entry> recent;  // most recent first
+    const std::size_t maxEntries = 8;
+    {
+      std::lock_guard<std::mutex> lock(mutex);
+      for (auto it = recent.begin(); it != recent.end(); ++it)
+        if (it->first == key) {
+          std::rotate(recent.begin(), it, it + 1);
+          return recent.front().second;
+        }
+    }
+    // Solved without the lock: other fxs keep using their weights meanwhile
+    std::shared_ptr<const TShapeAwareDeformer::Weights> weights =
+        TShapeAwareDeformer::computeWeights(handles, settings);
+    std::lock_guard<std::mutex> lock(mutex);
+    recent.insert(recent.begin(), Entry(key, weights));
+    if (recent.size() > maxEntries) recent.resize(maxEntries);
+    return weights;
+  }
+
   // Default positions, scaled, so that the gadgets of the handles do not lie
   // on top of each other
   static TPointD defaultPin(int i, double scale) {
@@ -721,7 +751,7 @@ public:
 
       std::lock_guard<std::mutex> lock(m_cacheMutex);
       if (!m_cache || key != m_cacheKey) {
-        m_cache    = TShapeAwareDeformer::computeWeights(handles, settings);
+        m_cache    = sharedWeights(key, handles, settings);
         m_cacheKey = key;
       }
       weights = m_cache;

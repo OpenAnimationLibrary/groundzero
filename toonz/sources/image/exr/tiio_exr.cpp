@@ -190,6 +190,11 @@ size_t checkedPixelCount(int width, int height) {
   return w * h;
 }
 
+// Largest image read (16384 x 16384). The header alone sets the size, and the
+// buffers are allocated before any pixel is read: without a bound, a damaged
+// file of a few hundred bytes could make the reader allocate many GB.
+const size_t MaxReadPixelCount = size_t(1) << 28;
+
 [[noreturn]] void throwAsString(const std::exception &error) {
   throw std::string(error.what());
 }
@@ -282,6 +287,8 @@ void ExrReader::loadImage() {
     const Exr::Header &header               = m_input->header();
     const IMATH_NAMESPACE::Box2i dataWindow = header.dataWindow();
     const size_t pixelCount = checkedPixelCount(m_info.m_lx, m_info.m_ly);
+    if (pixelCount > MaxReadPixelCount)
+      throw std::runtime_error("EXR image dimensions are too large");
 
     std::vector<std::string> baseChannels;
     const Exr::ChannelList &channels = header.channels();

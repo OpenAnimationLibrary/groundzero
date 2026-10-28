@@ -348,8 +348,15 @@ public:
 
   int getMemoryRequirement(const TRectD &rect, double frame,
                            const TRenderSettings &info) override {
-    return TRasterFx::memorySize(rect.enlarge(getMargin(frame, info)),
-                                 info.m_bpp);
+    const TRectD area = rect.enlarge(getMargin(frame, info));
+    // The source tile, and the float planes of the shading (region, level,
+    // scratch, blurred and weight), which the renderer must count to split
+    // large tiles
+    const double planes = std::ceil(area.getLx()) * std::ceil(area.getLy()) *
+                          5.0 * sizeof(float) / (1024.0 * 1024.0);
+    const double total =
+        double(TRasterFx::memorySize(area, info.m_bpp)) + std::ceil(planes);
+    return int(std::min(total, double(std::numeric_limits<int>::max())));
   }
 
   void doCompute(TTile &tile, double frame, const TRenderSettings &ri) override;

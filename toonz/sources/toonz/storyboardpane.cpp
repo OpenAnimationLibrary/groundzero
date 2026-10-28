@@ -8,6 +8,7 @@
 #include "toonzqt/icongenerator.h"
 #include "toonzqt/menubarcommand.h"
 #include "toonzqt/lineedit.h"
+#include "toonzqt/dvdialog.h"
 #include "toonzqt/flipconsole.h"
 
 // TnzLib includes
@@ -909,6 +910,25 @@ void StoryboardPane::movePanel(int from, int to, bool after) {
   } else {
     for (int r = a0; r <= a1; r++) src.push_back(r);
     for (int r = ins; r < a0; r++) src.push_back(r);
+  }
+
+  // Locked columns keep their cells: moving the panel would leave them
+  // behind, out of step with the other columns and the tags
+  const int rowCount = (int)src.size();
+  for (int c = 0; c < xsh->getColumnCount(); c++) {
+    TXshColumn *column = xsh->getColumn(c);
+    if (!column || column->isEmpty() || !column->isLocked() ||
+        !column->getCellColumn() || column->getSoundColumn() ||
+        column->getSoundTextColumn())
+      continue;
+    for (int r = row0; r < row0 + rowCount; r++)
+      if (!xsh->getCell(r, c).isEmpty()) {
+        DVGui::warning(
+            tr("The panel cannot be moved: column %1 is locked and has cells "
+               "in the rows to move. Unlock it first.")
+                .arg(c + 1));
+        return;
+      }
   }
 
   StoryboardMoveUndo *undo = new StoryboardMoveUndo(xsh, row0, src);
