@@ -17,6 +17,8 @@
 
 #include "toonz/levelupdater.h"
 
+#include <cmath>
+
 //*****************************************************************************************
 //    Local namespace stuff
 //*****************************************************************************************
@@ -305,6 +307,19 @@ void LevelUpdater::open(TXshSimpleLevel *sl) {
     enforceBpp(m_pg, bpp, existsLevel);
   }
 
+  // Generated Cadmium resources must retain their source channel precision on
+  // every save, even when a reader does not restore the writer properties.
+  if (!sl->cadmiumSourceLevelId().isEmpty()) {
+    TEnumProperty *bppProp =
+        static_cast<TEnumProperty *>(m_pg->getProperty("Bits Per Pixel"));
+    if (bppProp) {
+      if (fp.getType() == "tif" && sl->is16BitChannelLevel())
+        bppProp->setValue(L"64(RGBM)");
+      else if (fp.getType() == "exr" && sl->isFloatChannelLevel())
+        bppProp->setValue(L"128(RGBA)_F");
+    }
+  }
+
   // Should sl->getPalette() be enforced on m_lw too? It was not present in the
   // old code...
 
@@ -399,9 +414,37 @@ void LevelUpdater::update(const TFrameId &fid, const TImageP &img) {
   // Resume open for write
   resume();
 
+  TImageP output = img;
+  if (m_sl && !m_sl->cadmiumSourceLevelId().isEmpty() &&
+      m_sl->isFloatChannelLevel() && m_lwPath.getType() == "exr") {
+    TRasterImageP rasterImage = img;
+    TRasterFP raster;
+    if (rasterImage) raster = rasterImage->getRaster();
+    const float gamma =
+        static_cast<float>(m_sl->getProperties()->colorSpaceGamma());
+    if (raster && gamma != 1.f) {
+      // EXR readers apply the level gamma to RGB directly, including pixels
+      // with partial or zero alpha. Invert that transfer on a private export
+      // image so save/reload preserves the cached drawing's channel values.
+      output = TImageP(rasterImage->cloneImage());
+      TRasterImageP exported = output;
+      TRasterFP pixels = exported->getRaster();
+      pixels->lock();
+      for (int y = 0; y < pixels->getLy(); ++y) {
+        TPixelF *row = pixels->pixels(y);
+        for (int x = 0; x < pixels->getLx(); ++x) {
+          if (row[x].r >= 0.f) row[x].r = std::pow(row[x].r, gamma);
+          if (row[x].g >= 0.f) row[x].g = std::pow(row[x].g, gamma);
+          if (row[x].b >= 0.f) row[x].b = std::pow(row[x].b, gamma);
+        }
+      }
+      pixels->unlock();
+    }
+  }
+
   if (!m_usingTemporaryFile) {
     // Plain random access write if supported
-    m_lw->getFrameWriter(fid)->save(img);
+    m_lw->getFrameWriter(fid)->save(output);
     return;
   }
 
@@ -412,7 +455,7 @@ void LevelUpdater::update(const TFrameId &fid, const TImageP &img) {
 
   // Save the passed image. In case it overwrites a frame, erase that from the
   // list too.
-  m_lw->getFrameWriter(fid)->save(img);
+  m_lw->getFrameWriter(fid)->save(output);
   if (m_currIdx < int(m_fids.size()) && m_fids[m_currIdx] == fid) ++m_currIdx;
 }
 

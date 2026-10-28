@@ -6,8 +6,10 @@
 #include "toonzqt/selection.h"
 #include "tfilepath.h"
 #include <set>
+#include <QPointer>
 
 class TXshSimpleLevel;
+class FilmstripFrames;
 
 //=============================================================================
 // TFilmStripSelection
@@ -20,6 +22,7 @@ public:
 private:
   std::set<TFrameId> m_selectedFrames;
   InbetweenRange m_inbetweenRange;
+  QPointer<FilmstripFrames> m_cadmiumStrip;
 
   void updateInbetweenRange();
 
@@ -28,6 +31,9 @@ public:
   ~TFilmstripSelection();
 
   void enableCommands() override;
+  void setCadmiumStrip(FilmstripFrames *strip);
+  void markCadmiumReferences(bool marked);
+  void paintCadmiumSelection();
 
   bool isEmpty() const override;
 

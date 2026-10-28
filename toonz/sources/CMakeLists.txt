@@ -846,6 +846,7 @@ include("${CMAKE_CURRENT_SOURCE_DIR}/../cmake/OpenEXR.cmake")
 # except the GLB/3D suites (tested in OT3D). Each suite keeps its own option
 # and can still be set alone.
 option(BUILD_TESTS "Build all regression tests and register them with ctest" OFF)
+option(BUILD_CADMIUM_TESTS "Build Cadmium native adapter and workflow tests" ${BUILD_TESTS})
 option(BUILD_CELFX_TESTS "Build cel effect rendering and UI regression tests" ${BUILD_TESTS})
 option(BUILD_EXR_TESTS "Build the OpenEXR image I/O and level source regression tests" ${BUILD_TESTS})
 option(BUILD_EXR_AOV_FX_TESTS "Build the OpenEXR AOV FX regression test" ${BUILD_TESTS})

@@ -72,6 +72,8 @@ public:
   void setLevel(TXshSimpleLevel *level);
   void setActive(bool active);
   void setSynchronized(bool synchronized);
+  void markCadmiumReferences(bool marked);
+  void paintCadmiumSelection();
 
   QSize getIconSize() const { return m_iconSize; }
   int getFrameLabelWidth() const { return m_frameLabelWidth; }
@@ -177,6 +179,7 @@ protected:
   void timerEvent(QTimerEvent *) override;
   TFrameId getCurrentFrameId();
   void contextMenuEvent(QContextMenuEvent *event) override;
+  QRect cadmiumReferenceRect(int index) const;
 
   void startDragDrop();
   int dropInsertionIndex(const QPoint &pos) const;

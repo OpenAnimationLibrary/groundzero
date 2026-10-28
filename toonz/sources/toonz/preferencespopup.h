@@ -109,6 +109,7 @@ private:
   QWidget* createSavingPage();
   QWidget* createCodecPage();
   QWidget* createAutoLipSyncPage();
+  QWidget* createCadmiumPage();
   QWidget* createDrawingPage();
   QWidget* createToolsPage();
   QWidget* createXsheetPage();

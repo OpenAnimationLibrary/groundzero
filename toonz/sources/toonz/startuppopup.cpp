@@ -1,6 +1,7 @@
 
 
 #include "startuppopup.h"
+#include "cadmiumsettingswidget.h"
 
 // Tnz6 includes
 #include "mainwindow.h"
@@ -279,6 +280,11 @@ StartupPopup::StartupPopup()
     }
     m_topLayout->addLayout(guiLay, 0);
   }
+
+  auto *cadmiumBox = new QGroupBox(tr("Cadmium Assisted Paint"), this);
+  auto *cadmiumLayout = new QVBoxLayout(cadmiumBox);
+  cadmiumLayout->addWidget(new CadmiumSettingsWidget(cadmiumBox, true));
+  m_topLayout->addWidget(cadmiumBox);
 
   m_buttonLayout->setContentsMargins(0, 0, 0, 0);
   m_buttonLayout->setSpacing(10);

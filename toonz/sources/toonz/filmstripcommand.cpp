@@ -393,7 +393,7 @@ std::map<TFrameId, QString> clearFramesWithoutUndo(
 // QString id =
 // "clearFrames"+QString::number((UINT)sl.getPointer())+"-"+QString::number(it->getNumber());
     QString id = "clearFrames" + QString::number((uintptr_t)sl.getPointer()) +
-                 "-" + QString::number(frameId.getNumber());
+                 "-" + QString::fromStdString(frameId.expand());
     TImageCache::instance()->add(id, sl->getFrame(frameId, false));
     clearedFrames[frameId] = id;
     TImageP emptyFrame     = sl->createEmptyFrame();
@@ -427,7 +427,7 @@ void cutFramesWithoutUndo(TXshSimpleLevel *sl, std::set<TFrameId> &frames) {
   int i                 = 0;
   for (const TFrameId &frameId : frames) {
     QString id = "cutFrames" + QString::number((uintptr_t)sl) + "-" +
-                 QString::number(frameId.getNumber());
+                 QString::fromStdString(frameId.expand());
     TImageCache::instance()->add(id, sl->getFrame(frameId, false));
     imageSet[frameId] = id;
   }
@@ -905,14 +905,16 @@ private:
 
 class DeleteFramesUndo final : public TUndo {
   TXshSimpleLevel *m_sl;
+  std::set<TFrameId> m_oldReferences;
   std::set<TFrameId> m_frames;
   std::unique_ptr<DrawingData> m_oldData;
   std::unique_ptr<DrawingData> m_newData;
 
 public:
   DeleteFramesUndo(TXshSimpleLevel *sl, std::set<TFrameId> &frames,
-                   DrawingData *oldData, DrawingData *newData)
-      : m_sl(sl), m_frames(frames), m_oldData(oldData), m_newData(newData) {}
+                   DrawingData *oldData, DrawingData *newData,
+                   const std::set<TFrameId> &references)
+      : m_sl(sl), m_frames(frames), m_oldData(oldData), m_newData(newData), m_oldReferences(references) {}
 
   void pasteFramesFromData(const DrawingData *data) const {
     std::set<TFrameId> frames = m_frames;
@@ -921,12 +923,18 @@ public:
                            true, dummy);
   }
 
-  void undo() const override { pasteFramesFromData(m_oldData.get()); }
+  void undo() const override {
+    pasteFramesFromData(m_oldData.get());
+    for (const auto &fid : m_oldReferences) m_sl->setCadmiumReference(fid, true);
+  }
   // NOTE: I cannot use the method "clearFramesWithoutUndo(...)" because
 // it creates a NEW empty frame, discarding the previous one
 // and any modifications that may have been made to it afterwards.
 
-  void redo() const override { pasteFramesFromData(m_newData.get()); }
+  void redo() const override {
+    pasteFramesFromData(m_newData.get());
+    for (const auto &fid : m_frames) m_sl->setCadmiumReference(fid, false);
+  }
 
   int getSize() const override { return sizeof(*this); }
 
@@ -951,14 +959,16 @@ private:
 
 class CutFramesUndo final : public TUndo {
   TXshSimpleLevel *m_sl;
+  std::set<TFrameId> m_oldReferences;
   std::set<TFrameId> m_framesCutted;
   std::vector<TFrameId> m_oldFrames;
   std::unique_ptr<DrawingData> m_newData;
 
 public:
   CutFramesUndo(TXshSimpleLevel *sl, std::set<TFrameId> &framesCutted,
-                std::vector<TFrameId> &oldFrames)
-      : m_sl(sl), m_framesCutted(framesCutted), m_oldFrames(oldFrames) {
+                std::vector<TFrameId> &oldFrames,
+                const std::set<TFrameId> &references)
+      : m_sl(sl), m_framesCutted(framesCutted), m_oldFrames(oldFrames), m_oldReferences(references) {
     QClipboard *clipboard = QApplication::clipboard();
     QMimeData *data       = cloneData(clipboard->mimeData());
     m_newData.reset(dynamic_cast<DrawingData *>(data));
@@ -970,6 +980,7 @@ public:
     bool dummy                = true;
     pasteFramesWithoutUndo(m_newData.get(), m_sl, frames,
                            DrawingData::OVER_SELECTION, true, dummy);
+    for (const auto &fid : m_oldReferences) m_sl->setCadmiumReference(fid, true);
     TApp::instance()->getCurrentXsheet()->notifyXsheetChanged();
   }
 
@@ -1006,19 +1017,21 @@ private:
 
 class RemoveFramesUndo final : public TUndo {
   TXshSimpleLevel *m_sl;
+  std::set<TFrameId> m_oldReferences;
   std::set<TFrameId> m_framesRemoved;
   std::unique_ptr<DrawingData> m_oldData;
 
 public:
   RemoveFramesUndo(TXshSimpleLevel *sl, std::set<TFrameId> &framesRemoved,
-                   DrawingData *oldData)
-      : m_sl(sl), m_framesRemoved(framesRemoved), m_oldData(oldData) {}
+                   DrawingData *oldData, const std::set<TFrameId> &references)
+      : m_sl(sl), m_framesRemoved(framesRemoved), m_oldData(oldData), m_oldReferences(references) {}
 
   void undo() const override {
     std::set<TFrameId> frames = m_framesRemoved;
     bool dummy                = true;
     pasteFramesWithoutUndo(m_oldData.get(), m_sl, frames,
                            DrawingData::OVER_SELECTION, true, dummy);
+    for (const auto &fid : m_oldReferences) m_sl->setCadmiumReference(fid, true);
     TApp::instance()->getCurrentXsheet()->notifyXsheetChanged();
   }
 
@@ -1675,8 +1688,9 @@ void FilmstripCmd::cut(TXshSimpleLevel *sl, std::set<TFrameId> &frames) {
   std::set<TFrameId> framesToCut = frames;
   std::vector<TFrameId> oldFrames;
   sl->getFids(oldFrames);
+  const auto references = sl->getCadmiumReferences();
   cutFramesWithoutUndo(sl, frames);
-  TUndoManager::manager()->add(new CutFramesUndo(sl, framesToCut, oldFrames));
+  TUndoManager::manager()->add(new CutFramesUndo(sl, framesToCut, oldFrames, references));
 }
 
 //=============================================================================
@@ -1696,6 +1710,7 @@ void FilmstripCmd::clear(TXshSimpleLevel *sl, std::set<TFrameId> &frames) {
 
   HookSet *levelHooks          = sl->getHookSet();
   std::set<TFrameId> oldFrames = frames;
+  const auto references = sl->getCadmiumReferences();
   std::map<TFrameId, QString> clearedFrames =
       clearFramesWithoutUndo(sl, frames);
   auto *oldData = new DrawingData();
@@ -1704,7 +1719,7 @@ void FilmstripCmd::clear(TXshSimpleLevel *sl, std::set<TFrameId> &frames) {
   newData->setLevelFrames(sl, frames);
   frames.clear();
   TUndoManager::manager()->add(
-      new DeleteFramesUndo(sl, oldFrames, oldData, newData));
+      new DeleteFramesUndo(sl, oldFrames, oldData, newData, references));
 }
 
 //=============================================================================
@@ -1718,7 +1733,7 @@ void FilmstripCmd::remove(TXshSimpleLevel *sl, std::set<TFrameId> &frames) {
   int i = 0;
   for (const TFrameId &frameId : frames) {
     QString id = "removeFrames" + QString::number((uintptr_t)sl) + "-" +
-                 QString::number(frameId.getNumber());
+                 QString::fromStdString(frameId.expand());
     TImageCache::instance()->add(id, sl->getFrame(frameId, false));
     imageSet[frameId] = id;
   }
@@ -1726,8 +1741,9 @@ void FilmstripCmd::remove(TXshSimpleLevel *sl, std::set<TFrameId> &frames) {
   auto *oldData       = new DrawingData();
   oldData->setFrames(imageSet, sl, *levelHooks);
 
+  const auto references = sl->getCadmiumReferences();
   removeFramesWithoutUndo(sl, frames);
-  TUndoManager::manager()->add(new RemoveFramesUndo(sl, frames, oldData));
+  TUndoManager::manager()->add(new RemoveFramesUndo(sl, frames, oldData, references));
 }
 
 //-----------------------------------------------------------------------------
