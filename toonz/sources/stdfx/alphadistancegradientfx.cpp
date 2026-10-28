@@ -318,7 +318,10 @@ public:
     const int bytes = tile.getRaster()->getPixelSize();
     const TDimension canvasSize = gradientSize(canvas, bytes), size = gradientSize(box, bytes);
     TTile source;
-    m_source->allocateAndCompute(source, canvas.getP00(), canvasSize, tile.getRaster(), frame, settings);
+    source.setRaster(tile.getRaster()->create(canvasSize.lx, canvasSize.ly));
+    source.m_pos = canvas.getP00();
+    source.getRaster()->clear();
+    m_source->compute(source, frame, settings);
     if (gradientCanceled(settings.m_isCanceled)) return;
     TRasterP padded = tile.getRaster()->create(size.lx, size.ly); padded->clear();
     padded->copy(source.getRaster(), TPoint(int(canvas.x0 - box.x0), int(canvas.y0 - box.y0)));

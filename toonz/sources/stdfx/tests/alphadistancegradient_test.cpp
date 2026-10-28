@@ -17,9 +17,10 @@ class Source final : public TStandardRasterFx {
   TRasterP m_image;
   bool m_infinite;
   int *m_cancel;
+  bool m_partial;
 public:
-  explicit Source(const TRasterP &image, bool infinite = false, int *cancel = nullptr)
-      : m_image(image), m_infinite(infinite), m_cancel(cancel) {}
+  explicit Source(const TRasterP &image, bool infinite = false, int *cancel = nullptr, bool partial = false)
+      : m_image(image), m_infinite(infinite), m_cancel(cancel), m_partial(partial) {}
   const TPersistDeclaration *getDeclaration() const override { return nullptr; }
   bool canHandle(const TRenderSettings &, double) override { return true; }
   std::string getAlias(double, const TRenderSettings &) const override { return "distance-source"; }
@@ -28,7 +29,13 @@ public:
     return true;
   }
   void compute(TTile &tile, double, const TRenderSettings &) override {
-    tile.getRaster()->clear();
+    if (m_partial) {
+      const TRasterP raster = tile.getRaster();
+      for (int y = 0; y < raster->getLy(); ++y)
+        for (int x = 0; x < raster->getLx() * raster->getPixelSize(); ++x)
+          require(raster->getRawData()[size_t(y) * raster->getWrap() * raster->getPixelSize() + x] == 0,
+                  "Gradient source raster was not cleared before rendering");
+    } else tile.getRaster()->clear();
     if (m_infinite) {
       if (TRaster32P raster = tile.getRaster()) raster->fill(TPixel32::White);
       else if (TRaster64P raster = tile.getRaster()) raster->fill(TPixel64::White);
@@ -61,7 +68,7 @@ template <class Pixel> void checkModes() {
   TRasterPT<Pixel> input(7, 7); input->clear();
   const Pixel source(maximum / 4, maximum / 8, 0, maximum / 2);
   for (int y = 1; y < 6; ++y) for (int x = 1; x < 6; ++x) input->pixels(y)[x] = source;
-  AlphaDistanceGradientFx fx; fx.getInputPort(0)->setFx(new Source(input));
+  AlphaDistanceGradientFx fx; fx.getInputPort(0)->setFx(new Source(input, false, nullptr, true));
   set(fx, "insideThreshold", 4); set(fx, "outsideThreshold", 4); set(fx, "power", 2);
   color(fx, "gradationColor")->setDefaultValue(TPixel32::Red);
   color(fx, "backgroundColor")->setDefaultValue(TPixel32::Blue);
@@ -123,7 +130,7 @@ void checkBlur() {
 template <class Pixel> void checkTilesAndCancellation() {
   TRasterPT<Pixel> input(9, 5); input->clear();
   input->pixels(2)[3] = Pixel::White; input->pixels(1)[6] = Pixel::Black;
-  AlphaDistanceGradientFx fx; fx.getInputPort(0)->setFx(new Source(input));
+  AlphaDistanceGradientFx fx; fx.getInputPort(0)->setFx(new Source(input, false, nullptr, true));
   set(fx, "region", 2); set(fx, "insideThreshold", 2); set(fx, "outsideThreshold", 3);
   set(fx, "blurSize", 2);
   for (int blur = 0; blur < 3; ++blur) {
@@ -147,7 +154,7 @@ template <class Pixel> void checkTilesAndCancellation() {
 }
 void checkCanvasAndFloat() {
   TRasterFP input(1, 1); input->pixels(0)[0] = TPixelF(1, -0.25f, 0.125f, 0.5f);
-  AlphaDistanceGradientFx fx; fx.getInputPort(0)->setFx(new Source(input));
+  AlphaDistanceGradientFx fx; fx.getInputPort(0)->setFx(new Source(input, false, nullptr, true));
   set(fx, "renderMode", 1);
   expect(render<TPixelF>(fx, 1, 1)->pixels(0)[0], 2, -0.5, 0.25, 1);
   TRenderSettings settings; settings.m_affine = TScale(2);
