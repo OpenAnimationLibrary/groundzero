@@ -15,13 +15,16 @@ void require(bool value, const char *message) { if (!value) throw std::runtime_e
 TDoubleParamP parameter(TFx &fx, const char *name) { return TParamP(fx.getParams()->getParam(name)); }
 class Source final : public TStandardRasterFx {
   TRasterP m_image;
+  TPointD m_origin;
 public:
-  explicit Source(const TRasterP &image) : m_image(image) {}
+  explicit Source(const TRasterP &image, TPointD origin = TPointD()) : m_image(image), m_origin(origin) {}
   const TPersistDeclaration *getDeclaration() const override { return nullptr; }
   bool canHandle(const TRenderSettings &, double) override { return true; }
-  bool doGetBBox(double, TRectD &box, const TRenderSettings &) override { box = TRectD(0, 0, m_image->getLx(), m_image->getLy()); return true; }
+  bool doGetBBox(double, TRectD &box, const TRenderSettings &) override { box = TRectD(m_origin, TDimensionD(m_image->getLx(), m_image->getLy())); return true; }
   void compute(TTile &tile, double, const TRenderSettings &) override {
-    tile.getRaster()->clear(); tile.getRaster()->copy(m_image, TPoint(-int(tile.m_pos.x), -int(tile.m_pos.y)));
+    tile.getRaster()->clear();
+    tile.getRaster()->copy(m_image, TPoint(int(std::llround(m_origin.x - tile.m_pos.x)),
+                                           int(std::llround(m_origin.y - tile.m_pos.y))));
   }
   void doCompute(TTile &tile, double frame, const TRenderSettings &settings) override { compute(tile, frame, settings); }
 };
@@ -205,10 +208,25 @@ void testPartialUpstream() {
             "Partial upstream highlight was not rendered correctly");
   }
 }
+void testFractionalOrigins() {
+  StarGlowFx fx; settings(fx);
+  TRasterFP input(3, 3); input->clear(); input->pixels(1)[1] = TPixelF::White;
+  fx.getInputPort(0)->setFx(new Source(input, TPointD(0.1, 0.2)));
+  parameter(fx, "sourceOpacity")->setDefaultValue(0);
+  parameter(fx, "verticalLength")->setDefaultValue(1);
+  parameter(fx, "profile")->setDefaultValue(0);
+  const auto full = renderFx<TPixelF>(fx, 3, 3, TPointD(0.1, 0.2));
+  for (int y = 0; y < 3; ++y) {
+    auto row = renderFx<TPixelF>(fx, 3, 1, TPointD(0.1, 0.2 + y));
+    for (int x = 0; x < 3; ++x)
+      require(std::abs(full->pixels(y)[x].m - row->pixels(0)[x].m) < 1e-6,
+              "Fractional-origin tiles differ from the full image");
+  }
+}
 }
 int main(int argc, char **argv) {
   QCoreApplication app(argc, argv);
-  try { testDepth<TPixel32>(); testDepth<TPixel64>(); testDepth<TPixelF>(); testFloatAndTiles(); testHighlightAndMerge(); testPartialUpstream(); }
+  try { testDepth<TPixel32>(); testDepth<TPixel64>(); testDepth<TPixelF>(); testFloatAndTiles(); testHighlightAndMerge(); testPartialUpstream(); testFractionalOrigins(); }
   catch (const std::exception &e) { std::cerr << e.what() << '\n'; return 1; }
   catch (const TException &e) { std::cerr << QString::fromStdWString(e.getMessage()).toStdString() << '\n'; return 1; }
   std::cout << "PASS: channels, profiles, alpha, rotation, tiles and precise ramps\n";

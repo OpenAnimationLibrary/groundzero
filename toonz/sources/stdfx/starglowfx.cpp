@@ -371,7 +371,10 @@ void StarGlowFx::doCompute(TTile &tile, double frame, const TRenderSettings &set
   if (!std::isfinite(input.getLx()) || !std::isfinite(input.getLy()) || input.getLx() <= 0 || input.getLy() <= 0 ||
       input.getLx() > std::numeric_limits<int>::max() || input.getLy() > std::numeric_limits<int>::max())
     throw TException("Star Glow: invalid input dimensions");
-  const int width = int(input.getLx()), height = int(input.getLy());
+  // Bounds were aligned to the output pixel grid. Round away tiny floating
+  // point subtraction error at fractional tile origins rather than truncating.
+  const int width = int(std::llround(input.getLx()));
+  const int height = int(std::llround(input.getLy()));
   const int bytesPerPixel = tile.getRaster()->getPixelSize();
   if (!rasterSizeSupported(width, height, bytesPerPixel))
     throw TException("Star Glow: input raster exceeds the supported allocation size");
