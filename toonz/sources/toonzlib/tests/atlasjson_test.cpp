@@ -1,7 +1,10 @@
 // Regression test of the JSON builder of the Texture Atlas export
 // (toonz/atlasjson.h): the files parse back, have the documented keys, list the
 // sprites of the input, cover the timeline of every layer without gaps or
-// overlaps, and keep the values of the matrices where the doc says.
+// overlaps, and keep the values of the matrices where the doc says. Symbols:
+// the symbol dictionary, symbol instances (also nested ones) and their keys,
+// the checks of the symbol input (undefined and recursive symbols), and the
+// symbol instances made from the frames of a sub-timeline (instanceRuns()).
 
 #include "toonz/atlasjson.h"
 
@@ -13,11 +16,13 @@
 #include <QSet>
 #include <QString>
 
+#include <algorithm>
 #include <cmath>
 #include <iostream>
 #include <limits>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 using namespace AtlasJson;
 
@@ -83,6 +88,57 @@ Frame frame(int start, int duration, const char *sprite,
   f.m_sprite   = sprite;
   f.m_matrix   = matrix;
   return f;
+}
+
+Frame symbolFrame(int start, int duration, const char *symbol, int firstFrame,
+                  LoopMode loop, const Matrix3D &matrix = identityMatrix()) {
+  Frame f;
+  f.m_start      = start;
+  f.m_duration   = duration;
+  f.m_symbol     = symbol;
+  f.m_firstFrame = firstFrame;
+  f.m_loop       = loop;
+  f.m_matrix     = matrix;
+  return f;
+}
+
+//! The "L" array of an object with a "TL"
+QJsonArray layersOf(const QJsonObject &owner) {
+  return owner["TL"].toObject()["L"].toArray();
+}
+
+//! The frames of every layer follow each other from 0 to total
+void requireCovers(const QJsonArray &layers, int total,
+                   const std::string &what) {
+  for (const QJsonValue &layer : layers) {
+    int cursor = 0;
+    for (const QJsonValue &v : layer.toObject()["FR"].toArray()) {
+      QJsonObject f = v.toObject();
+      require(f.contains("I") && f.contains("DU") && f.contains("E"),
+              what + ": frame keys");
+      require(f["I"].toInt(-1) == cursor,
+              what + ": frames follow each other without gap or overlap");
+      require(f["DU"].toInt(-1) >= 1, what + ": duration is positive");
+      cursor += f["DU"].toInt();
+    }
+    require(cursor == total, what + ": every layer covers its timeline");
+  }
+}
+
+//! The element of a frame entry, which must have one
+QJsonObject elementOf(const QJsonValue &frameEntry, const std::string &what) {
+  QJsonArray elements = frameEntry.toObject()["E"].toArray();
+  require(elements.size() == 1, what + ": one element");
+  return elements[0].toObject();
+}
+
+void requireMatrix(const QJsonValue &m3d, const double (&expected)[16],
+                   const std::string &what) {
+  QJsonArray m = m3d.toArray();
+  require(m.size() == 16, what + ": 16 numbers");
+  for (int i = 0; i < 16; ++i)
+    require(m[i].isDouble() && m[i].toDouble() == expected[i],
+            what + ": matrix value at index " + std::to_string(i));
 }
 
 //------------------------------------------------------------------
@@ -468,6 +524,478 @@ void testValidate() {
   require(validate(pages, blank).isEmpty(), "validate: blank frame");
 }
 
+//------------------------------------------------------------------
+// Symbols
+//------------------------------------------------------------------
+
+/*
+sampleAnimation() with, on top, a layer "Col3" showing the symbol "Outer",
+which holds a sprite and an instance of the symbol "Inner":
+  Inner (4 frames): Col1: A_0001 [0,2), A_0002 [2,4)
+  Outer (6 frames): Col2: Inner [0,6) FF 1 loop, scaled by 0.5, moved (4, 8)
+                    Col1: B_0001 [1,4)
+  main Col3: Outer [0,4) FF 2 play once, moved (100, 50); Outer [6,8) FF 5
+             single frame
+*/
+Animation symbolAnimation() {
+  Animation an = sampleAnimation();
+
+  Symbol inner;
+  inner.m_name       = "Inner";
+  inner.m_frameCount = 4;
+  Layer innerLayer;
+  innerLayer.m_name = "Col1";
+  innerLayer.m_frames.push_back(frame(0, 2, "A_0001"));
+  innerLayer.m_frames.push_back(frame(2, 2, "A_0002"));
+  inner.m_layers = {innerLayer};
+
+  Symbol outer;
+  outer.m_name       = "Outer";
+  outer.m_frameCount = 6;
+  Layer outerTop, outerBottom;
+  outerTop.m_name = "Col2";
+  outerTop.m_frames.push_back(
+      symbolFrame(0, 6, "Inner", 1, LoopMode::Loop,
+                  matrixFromAffine(0.5, 0, 0, 0.5, 4, 8)));
+  // The same layer name as in Inner and in the main timeline: layer names
+  // are unique in each timeline only
+  outerBottom.m_name = "Col1";
+  outerBottom.m_frames.push_back(frame(1, 3, "B_0001"));
+  outer.m_layers = {outerTop, outerBottom};
+
+  Layer top;
+  top.m_name = "Col3";
+  top.m_frames.push_back(symbolFrame(0, 4, "Outer", 2, LoopMode::PlayOnce,
+                                     matrixFromAffine(1, 0, 0, 1, 100, 50)));
+  top.m_frames.push_back(symbolFrame(6, 2, "Outer", 5, LoopMode::SingleFrame));
+  an.m_layers.insert(an.m_layers.begin(), top);
+
+  an.m_symbols = {inner, outer};
+  return an;
+}
+
+void testSymbols() {
+  Animation an            = symbolAnimation();
+  std::vector<Page> pages = {samplePage()};
+  require(validate(pages, an).isEmpty(), "symbols: valid input");
+
+  QJsonObject root = parse(toBytes(animationJson(an)), "symbols");
+  requireFinite(root, "symbols");
+
+  // The symbol dictionary, in the order of the input
+  QJsonArray symbols = root["SD"].toObject()["S"].toArray();
+  require(symbols.size() == 2, "symbols: two symbols in SD.S");
+  QJsonObject inner = symbols[0].toObject();
+  QJsonObject outer = symbols[1].toObject();
+  require(
+      inner["SN"].toString() == "Inner" && outer["SN"].toString() == "Outer",
+      "symbols: SN of the symbols");
+  require(inner.contains("TL") && outer.contains("TL"), "symbols: TL");
+
+  // Inner: one layer of two sprites, over its 4 frames
+  QJsonArray innerLayers = layersOf(inner);
+  require(innerLayers.size() == 1 &&
+              innerLayers[0].toObject()["LN"].toString() == "Col1",
+          "symbols: the layer of Inner");
+  requireCovers(innerLayers, 4, "symbols: Inner");
+  QJsonArray fr = innerLayers[0].toObject()["FR"].toArray();
+  require(fr.size() == 2, "symbols: Inner has two frames");
+  require(elementOf(fr[0], "symbols: Inner frame 0")["ASI"]
+                      .toObject()["N"]
+                      .toString() == "A_0001" &&
+              elementOf(fr[1], "symbols: Inner frame 1")["ASI"]
+                      .toObject()["N"]
+                      .toString() == "A_0002",
+          "symbols: the sprites of Inner");
+
+  // Outer: the nested instance of Inner on top, a sprite below, over its 6
+  // frames
+  QJsonArray outerLayers = layersOf(outer);
+  require(outerLayers.size() == 2 &&
+              outerLayers[0].toObject()["LN"].toString() == "Col2" &&
+              outerLayers[1].toObject()["LN"].toString() == "Col1",
+          "symbols: the layers of Outer, in order");
+  requireCovers(outerLayers, 6, "symbols: Outer");
+  fr = outerLayers[0].toObject()["FR"].toArray();
+  require(fr.size() == 1 && fr[0].toObject()["I"].toInt(-1) == 0 &&
+              fr[0].toObject()["DU"].toInt(-1) == 6,
+          "symbols: the nested instance covers Outer");
+  QJsonObject element = elementOf(fr[0], "symbols: nested instance");
+  require(element.contains("SI") && !element.contains("ASI"),
+          "symbols: a symbol instance is an SI element");
+  QJsonObject si = element["SI"].toObject();
+  for (const char *key : {"SN", "IN", "ST", "FF", "LP", "TRP", "M3D"})
+    require(si.contains(QString::fromLatin1(key)),
+            std::string("symbols: SI key ") + key);
+  require(si["SN"].toString() == "Inner", "symbols: nested SN");
+  require(si["IN"].isString() && si["IN"].toString().isEmpty(),
+          "symbols: IN is an empty string");
+  require(si["ST"].toString() == "G", "symbols: ST is G (graphic)");
+  require(si["FF"].toInt(-1) == 1, "symbols: nested FF");
+  require(si["LP"].toString() == "LP", "symbols: nested loop mode LP");
+  QJsonObject trp = si["TRP"].toObject();
+  require(trp["x"].isDouble() && trp["x"].toDouble(-1) == 0.0 &&
+              trp["y"].isDouble() && trp["y"].toDouble(-1) == 0.0,
+          "symbols: TRP is (0, 0)");
+  const double nested[16] = {0.5, 0, 0, 0, 0, 0.5, 0, 0,
+                             0,   0, 1, 0, 4, 8,   0, 1};
+  requireMatrix(si["M3D"], nested, "symbols: nested M3D");
+
+  fr = outerLayers[1].toObject()["FR"].toArray();
+  require(fr.size() == 3 && fr[0].toObject()["E"].toArray().isEmpty() &&
+              fr[2].toObject()["E"].toArray().isEmpty(),
+          "symbols: blank, sprite, blank in Outer");
+  require(elementOf(fr[1], "symbols: Outer sprite")["ASI"]
+                  .toObject()["N"]
+                  .toString() == "B_0001",
+          "symbols: the sprite of Outer");
+
+  // The main timeline: the instances of Outer on the top layer
+  QJsonArray layers = layersOf(root["AN"].toObject());
+  require(layers.size() == 3 && layers[0].toObject()["LN"].toString() == "Col3",
+          "symbols: the instance layer is on top");
+  requireCovers(layers, 10, "symbols: main timeline");
+  fr = layers[0].toObject()["FR"].toArray();
+  require(fr.size() == 4, "symbols: four frames on the top layer");
+  const int starts[4]    = {0, 4, 6, 8};
+  const int durations[4] = {4, 2, 2, 2};
+  for (int i = 0; i < 4; ++i)
+    require(fr[i].toObject()["I"].toInt(-1) == starts[i] &&
+                fr[i].toObject()["DU"].toInt(-1) == durations[i],
+            "symbols: top layer start and duration " + std::to_string(i));
+  require(fr[1].toObject()["E"].toArray().isEmpty() &&
+              fr[3].toObject()["E"].toArray().isEmpty(),
+          "symbols: blank frames between the instances");
+
+  si = elementOf(fr[0], "symbols: first instance")["SI"].toObject();
+  require(si["SN"].toString() == "Outer" && si["FF"].toInt(-1) == 2 &&
+              si["LP"].toString() == "PO" && si["ST"].toString() == "G",
+          "symbols: first instance fields");
+  const double moved[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 100, 50, 0, 1};
+  requireMatrix(si["M3D"], moved, "symbols: first instance M3D");
+
+  si = elementOf(fr[2], "symbols: second instance")["SI"].toObject();
+  require(si["SN"].toString() == "Outer" && si["FF"].toInt(-1) == 5 &&
+              si["LP"].toString() == "SF",
+          "symbols: second instance fields");
+  const double identity[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+  requireMatrix(si["M3D"], identity, "symbols: second instance M3D");
+
+  // The other layers are unchanged
+  require(layers[1].toObject()["LN"].toString() == "Col2" &&
+              layers[2].toObject()["LN"].toString() == "Col1",
+          "symbols: the sprite layers follow");
+
+  // A symbol is as long as its frames, if more than its frame count
+  Animation longer                 = an;
+  longer.m_symbols[0].m_frameCount = 0;
+  longer.m_symbols[0].m_layers[0].m_frames.push_back(frame(4, 3, "A_0001"));
+  root = parse(toBytes(animationJson(longer)), "symbol length");
+  requireCovers(layersOf(root["SD"].toObject()["S"].toArray()[0].toObject()), 7,
+                "symbol length");
+}
+
+//------------------------------------------------------------------
+
+void testSymbolValidate() {
+  std::vector<Page> pages = {samplePage()};
+  const Animation an      = symbolAnimation();
+  require(validate(pages, an).isEmpty(), "symbol validate: good input");
+
+  // An undefined symbol, in the main timeline or in a symbol
+  Animation undefined = an;
+  undefined.m_layers[0].m_frames.push_back(
+      symbolFrame(9, 1, "Nope", 0, LoopMode::Loop));
+  require(!validate(pages, undefined).isEmpty(),
+          "symbol validate: undefined symbol in the main timeline");
+  undefined                                               = an;
+  undefined.m_symbols[1].m_layers[0].m_frames[0].m_symbol = "Nope";
+  require(!validate(pages, undefined).isEmpty(),
+          "symbol validate: undefined symbol in a symbol");
+  undefined = an;
+  undefined.m_symbols.erase(undefined.m_symbols.begin());  // Inner
+  require(!validate(pages, undefined).isEmpty(),
+          "symbol validate: nested symbol not defined");
+
+  // Recursion: a symbol which shows itself, directly or through another
+  Animation recursive = an;
+  recursive.m_symbols[0].m_layers.push_back(Layer());
+  recursive.m_symbols[0].m_layers.back().m_name = "Self";
+  recursive.m_symbols[0].m_layers.back().m_frames.push_back(
+      symbolFrame(0, 1, "Inner", 0, LoopMode::Loop));
+  require(!validate(pages, recursive).isEmpty(),
+          "symbol validate: a symbol inside itself");
+  recursive = an;
+  recursive.m_symbols[0].m_layers.push_back(Layer());
+  recursive.m_symbols[0].m_layers.back().m_name = "Back";
+  recursive.m_symbols[0].m_layers.back().m_frames.push_back(
+      symbolFrame(0, 1, "Outer", 0, LoopMode::SingleFrame));
+  require(!validate(pages, recursive).isEmpty(),
+          "symbol validate: Inner inside Outer inside Inner");
+  Animation third = an;
+  Symbol extra;
+  extra.m_name = "Extra";
+  extra.m_layers.push_back(Layer());
+  extra.m_layers.back().m_name = "L";
+  extra.m_layers.back().m_frames.push_back(
+      symbolFrame(0, 2, "Outer", 0, LoopMode::Loop));
+  third.m_symbols.push_back(extra);
+  require(validate(pages, third).isEmpty(),
+          "symbol validate: a symbol used by two symbols is no recursion");
+  third.m_symbols[0].m_layers[0].m_frames.push_back(
+      symbolFrame(5, 1, "Extra", 0, LoopMode::Loop));
+  require(!validate(pages, third).isEmpty(),
+          "symbol validate: a cycle of three symbols");
+
+  // Names
+  Animation names           = an;
+  names.m_symbols[1].m_name = "Inner";
+  require(!validate(pages, names).isEmpty(),
+          "symbol validate: duplicate symbol names");
+  names                     = an;
+  names.m_symbols[1].m_name = QString();
+  require(!validate(pages, names).isEmpty(),
+          "symbol validate: empty symbol name");
+  names                     = an;
+  names.m_symbols[0].m_name = an.m_symbolName;
+  require(!validate(pages, names).isEmpty(),
+          "symbol validate: a symbol named as the main symbol");
+  names                                 = an;
+  names.m_symbols[1].m_layers[1].m_name = "Col2";
+  require(!validate(pages, names).isEmpty(),
+          "symbol validate: duplicate layer names in a symbol");
+
+  // First frames inside the symbol's timeline
+  Animation first                            = an;
+  first.m_layers[0].m_frames[0].m_firstFrame = 6;  // Outer has 6 frames
+  require(!validate(pages, first).isEmpty(),
+          "symbol validate: first frame after the symbol's end");
+  first.m_layers[0].m_frames[0].m_firstFrame = -1;
+  require(!validate(pages, first).isEmpty(),
+          "symbol validate: negative first frame");
+  first.m_layers[0].m_frames[0].m_firstFrame = 5;
+  require(validate(pages, first).isEmpty(),
+          "symbol validate: the last frame of the symbol");
+
+  // A frame shows a sprite or a symbol, not both
+  Animation both                        = an;
+  both.m_layers[0].m_frames[0].m_sprite = "A_0001";
+  require(!validate(pages, both).isEmpty(),
+          "symbol validate: sprite and symbol on one frame");
+
+  // Unknown sprite in a symbol
+  Animation sprite                                     = an;
+  sprite.m_symbols[0].m_layers[0].m_frames[0].m_sprite = "nope";
+  require(!validate(pages, sprite).isEmpty(),
+          "symbol validate: unknown sprite in a symbol");
+}
+
+//------------------------------------------------------------------
+
+void testSymbolNumbers() {
+  // A symbol instance with a non finite matrix is written with the identity
+  Animation an = symbolAnimation();
+  an.m_layers[0].m_frames[0].m_matrix[12] =
+      std::numeric_limits<double>::quiet_NaN();
+  an.m_symbols[1].m_layers[0].m_frames[0].m_matrix[0] =
+      std::numeric_limits<double>::infinity();
+  QJsonObject root = parse(toBytes(animationJson(an)), "symbol finite");
+  requireFinite(root, "symbol finite");
+  const double identity[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+  QJsonObject si =
+      elementOf(
+          layersOf(root["AN"].toObject())[0].toObject()["FR"].toArray()[0],
+          "symbol finite: main")["SI"]
+          .toObject();
+  requireMatrix(si["M3D"], identity, "symbol finite: main instance");
+  si = elementOf(layersOf(root["SD"].toObject()["S"].toArray()[1].toObject())[0]
+                     .toObject()["FR"]
+                     .toArray()[0],
+                 "symbol finite: nested")["SI"]
+           .toObject();
+  requireMatrix(si["M3D"], identity, "symbol finite: nested instance");
+
+  // A part before frame 0 is cut: a playing instance moves on its first frame
+  Animation cut = symbolAnimation();
+  cut.m_layers[0].m_frames.clear();
+  cut.m_layers[0].m_frames.push_back(
+      symbolFrame(-3, 5, "Inner", 2, LoopMode::Loop));  // Inner: 4 frames
+  cut.m_layers[1].m_frames.clear();
+  cut.m_layers[1].m_frames.push_back(
+      symbolFrame(-2, 4, "Outer", 3, LoopMode::PlayOnce));  // Outer: 6 frames
+  cut.m_layers[2].m_frames.clear();
+  cut.m_layers[2].m_frames.push_back(
+      symbolFrame(-4, 6, "Outer", 1, LoopMode::SingleFrame));
+  std::vector<Page> pages = {samplePage()};
+  require(validate(pages, cut).isEmpty(), "cut: valid input");
+  root                     = parse(toBytes(animationJson(cut)), "cut");
+  QJsonArray layers        = layersOf(root["AN"].toObject());
+  const int firstFrames[3] = {1, 5, 1};  // (2 + 3) % 4, min(3 + 2, 5), 1
+  const int lengths[3]     = {2, 2, 2};
+  for (int l = 0; l < 3; ++l) {
+    QJsonObject f = layers[l].toObject()["FR"].toArray()[0].toObject();
+    require(f["I"].toInt(-1) == 0 && f["DU"].toInt(-1) == lengths[l],
+            "cut: the part before frame 0 is cut " + std::to_string(l));
+    require(
+        elementOf(f, "cut")["SI"].toObject()["FF"].toInt(-1) == firstFrames[l],
+        "cut: first frame " + std::to_string(l));
+  }
+}
+
+//------------------------------------------------------------------
+// instanceRuns()
+
+// The frame of the symbol that a player shows at the n-th frame of an
+// instance, as the doc describes the loop modes
+int playedFrame(const InstanceRun &run, int n, int length) {
+  switch (run.m_loop) {
+  case LoopMode::Loop:
+    return (run.m_firstFrame + n) % length;
+  case LoopMode::PlayOnce:
+    return std::min(run.m_firstFrame + n, length - 1);
+  default:
+    return run.m_firstFrame;
+  }
+}
+
+// The runs play back the child frames exactly, are sorted, do not overlap,
+// and stay in their segment
+void requirePlaysBack(const std::vector<int> &childFrames, int length,
+                      const std::vector<InstanceRun> &runs,
+                      const std::vector<int> &segments,
+                      const std::string &what) {
+  std::vector<int> played(childFrames.size(), -1);
+  int end = 0;
+  for (const InstanceRun &run : runs) {
+    require(run.m_start >= end && run.m_duration >= 1,
+            what + ": runs sorted, not overlapping");
+    require(run.m_start + run.m_duration <= (int)childFrames.size(),
+            what + ": runs inside the timeline");
+    require(run.m_firstFrame >= 0 && run.m_firstFrame < length,
+            what + ": first frame inside the symbol");
+    for (int n = 0; n < run.m_duration; ++n) {
+      played[run.m_start + n] = playedFrame(run, n, length);
+      if (!segments.empty())
+        require(segments[run.m_start + n] == segments[run.m_start],
+                what + ": a run stays in its segment");
+    }
+    end = run.m_start + run.m_duration;
+  }
+  for (size_t f = 0; f < childFrames.size(); ++f) {
+    int expected =
+        (childFrames[f] >= 0 && childFrames[f] < length) ? childFrames[f] : -1;
+    require(played[f] == expected,
+            what + ": frame " + std::to_string(f) + " plays back");
+  }
+}
+
+void requireRun(const InstanceRun &run, int start, int duration, int firstFrame,
+                LoopMode loop, const std::string &what) {
+  require(run.m_start == start && run.m_duration == duration,
+          what + ": start and duration");
+  require(run.m_firstFrame == firstFrame, what + ": first frame");
+  require(run.m_loop == loop, what + ": loop mode");
+}
+
+std::vector<InstanceRun> checkedRuns(
+    const std::vector<int> &childFrames, int length, const std::string &what,
+    const std::vector<int> &segments = std::vector<int>()) {
+  std::vector<InstanceRun> runs = instanceRuns(childFrames, length, segments);
+  requirePlaysBack(childFrames, length, runs, segments, what);
+  return runs;
+}
+
+void testInstanceRuns() {
+  std::vector<InstanceRun> runs;
+
+  runs = checkedRuns({0, 1, 2, 3}, 10, "runs: playing");
+  require(runs.size() == 1, "runs: playing is one run");
+  requireRun(runs[0], 0, 4, 0, LoopMode::PlayOnce, "runs: playing");
+
+  runs = checkedRuns({3, 3, 3}, 10, "runs: held");
+  require(runs.size() == 1, "runs: held is one run");
+  requireRun(runs[0], 0, 3, 3, LoopMode::SingleFrame, "runs: held");
+
+  runs = checkedRuns({8, 9, 0, 1}, 10, "runs: wrapping");
+  require(runs.size() == 1, "runs: wrapping is one run");
+  requireRun(runs[0], 0, 4, 8, LoopMode::Loop, "runs: wrapping");
+
+  runs = checkedRuns({0, 1, 0, 1, 0}, 2, "runs: looping");
+  require(runs.size() == 1, "runs: looping is one run");
+  requireRun(runs[0], 0, 5, 0, LoopMode::Loop, "runs: looping");
+
+  runs = checkedRuns({5}, 10, "runs: lone frame");
+  require(runs.size() == 1, "runs: lone frame is one run");
+  requireRun(runs[0], 0, 1, 5, LoopMode::SingleFrame, "runs: lone frame");
+
+  runs = checkedRuns({-1, 2, 3, -1, -1, 7, 7}, 10, "runs: blanks");
+  require(runs.size() == 2, "runs: blanks split");
+  requireRun(runs[0], 1, 2, 2, LoopMode::PlayOnce, "runs: blanks 0");
+  requireRun(runs[1], 5, 2, 7, LoopMode::SingleFrame, "runs: blanks 1");
+
+  runs = checkedRuns({0, 1, 5, 6}, 10, "runs: jump");
+  require(runs.size() == 2, "runs: a jump splits");
+  requireRun(runs[0], 0, 2, 0, LoopMode::PlayOnce, "runs: jump 0");
+  requireRun(runs[1], 2, 2, 5, LoopMode::PlayOnce, "runs: jump 1");
+
+  runs = checkedRuns({2, 2, 3, 4}, 10, "runs: held then playing");
+  require(runs.size() == 2, "runs: held then playing splits");
+  requireRun(runs[0], 0, 2, 2, LoopMode::SingleFrame, "runs: held first");
+  requireRun(runs[1], 2, 2, 3, LoopMode::PlayOnce, "runs: playing next");
+
+  runs = checkedRuns({0, 1, 1}, 10, "runs: playing then held");
+  require(runs.size() == 2, "runs: playing then held splits");
+  requireRun(runs[0], 0, 2, 0, LoopMode::PlayOnce, "runs: playing first");
+  requireRun(runs[1], 2, 1, 1, LoopMode::SingleFrame, "runs: held next");
+
+  runs = checkedRuns({3, 2, 1}, 10, "runs: backwards");
+  require(runs.size() == 3, "runs: backwards is single frames");
+  for (const InstanceRun &run : runs)
+    require(run.m_loop == LoopMode::SingleFrame && run.m_duration == 1,
+            "runs: backwards single frames");
+
+  runs = checkedRuns({0, 1, 2, 3}, 10, "runs: segments", {0, 0, 1, 1});
+  require(runs.size() == 2, "runs: a segment change splits");
+  requireRun(runs[0], 0, 2, 0, LoopMode::PlayOnce, "runs: segment 0");
+  requireRun(runs[1], 2, 2, 2, LoopMode::PlayOnce, "runs: segment 1");
+
+  runs = checkedRuns({0, 10, 11, 9}, 10, "runs: outside the symbol");
+  require(runs.size() == 2, "runs: frames outside the symbol are blank");
+  requireRun(runs[0], 0, 1, 0, LoopMode::SingleFrame, "runs: outside 0");
+  requireRun(runs[1], 3, 1, 9, LoopMode::SingleFrame, "runs: outside 1");
+
+  runs = checkedRuns({0, 0, 0}, 1, "runs: one frame symbol");
+  require(runs.size() == 1, "runs: one frame symbol is one run");
+  requireRun(runs[0], 0, 3, 0, LoopMode::SingleFrame, "runs: one frame");
+
+  require(instanceRuns({}, 10).empty(), "runs: no frame");
+  require(instanceRuns({0, 1}, 0).empty(), "runs: empty symbol");
+
+  // A long mix of playing, held, jumping, wrapping and blank frames, with
+  // segments
+  unsigned seed   = 12345u;
+  auto nextRandom = [&seed](int n) {
+    seed = seed * 1103515245u + 12345u;
+    return (int)((seed >> 16) % (unsigned)n);
+  };
+  const int length = 7;
+  std::vector<int> frames, segments;
+  int current = 0, segment = 0;
+  for (int i = 0; i < 400; ++i) {
+    // 0-3: plays (and wraps), 4-5: holds, 6-7: jumps, 8: holds, 9: blank
+    int r = nextRandom(10);
+    if (r < 4)
+      current = (current + 1) % length;
+    else if (r == 6 || r == 7)
+      current = nextRandom(length);
+    if (nextRandom(12) == 0) ++segment;
+    frames.push_back(r < 9 ? current : -1);
+    segments.push_back(segment);
+  }
+  checkedRuns(frames, length, "runs: mix", segments);
+  checkedRuns(frames, length, "runs: mix without segments");
+}
+
 }  // namespace
 
 int main() {
@@ -479,6 +1007,10 @@ int main() {
     testNoFrames();
     testNumbersAreFinite();
     testValidate();
+    testSymbols();
+    testSymbolValidate();
+    testSymbolNumbers();
+    testInstanceRuns();
   } catch (const std::exception &e) {
     std::cerr << "atlasjson_test failed: " << e.what() << std::endl;
     return 1;
