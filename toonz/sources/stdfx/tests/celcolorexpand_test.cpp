@@ -171,7 +171,7 @@ void checkPersistence(const QString &directory) {
   require(first->getAlias(0, TRenderSettings()) != before, "Radius aliases collide");
   for (bool compressed : {false, true}) {
     const TFilePath path((directory + (compressed ? "/compressed.fx" : "/plain.fx")).toStdWString());
-    { TOStream stream(path, compressed); stream << first; }
+    { TOStream stream(path, compressed); stream << first.getPointer(); }
     TFxP restored; { TIStream stream(path); stream >> restored; }
     require(restored && radius(*restored)->isKeyframe(10) &&
                 radius(*restored)->getValue(0) == radius(*first)->getValue(0),
