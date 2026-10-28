@@ -360,7 +360,7 @@ void testPersistence(const QString &directory) {
           "Clone lost final gamma color precision");
   for (bool compressed : {false, true}) {
     const TFilePath path((directory + (compressed ? "/compressed.fx" : "/scene.fx")).toStdWString());
-    { TOStream stream(path, compressed); stream << owner; }
+    { TOStream stream(path, compressed); stream << owner.getPointer(); }
     TFxP restored;
     { TIStream stream(path); stream >> restored; }
     require(restored && restored->getFxType() == "STD_celSmoother2Fx", "Factory lost v2 effect identity");
@@ -386,7 +386,7 @@ void testPersistence(const QString &directory) {
   macro->setParamExposed(owner.getPointer(), "gammaColor5", true);
   macro->setParamExposed(owner.getPointer(), "smootherVersion", true);
   const TFilePath path((directory + "/macro.fx").toStdWString());
-  { TOStream stream(path); stream << macroOwner; }
+  { TOStream stream(path); stream << macroOwner.getPointer(); }
   TFxP restored;
   { TIStream stream(path); stream >> restored; }
   auto *loaded = dynamic_cast<TMacroFx *>(restored.getPointer());
