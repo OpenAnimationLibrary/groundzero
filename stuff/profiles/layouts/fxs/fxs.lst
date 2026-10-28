@@ -46,6 +46,7 @@
     STD_iwa_FloorBumpFx
   </Distort>
   <Gradient>
+    STD_alphaDistanceGradientFx
     STD_diamondGradientFx
     STD_fourPointsGradientFx 
     STD_iwa_LinearGradientFx
