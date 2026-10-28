@@ -1,6 +1,7 @@
 #include "stdfx.h"
 #include "tfxparam.h"
 #include "celblur.h"
+#include "celfxsourcegrid.h"
 
 #include <algorithm>
 #include <cmath>
@@ -77,8 +78,9 @@ class CelBoundaryBlurFx final : public TStandardRasterFx {
 
   CelBlur::Settings parameters(double frame, const TRenderSettings &info) const {
     CelBlur::Settings result;
+    const TAffine nativeToRender = info.m_affine * CelFxSourceGrid::nativeToWorld(m_source.getFx(), frame);
     result.radius = blurValue(m_amount->getValue(frame), 1, 1000) *
-                    std::sqrt(std::abs(info.m_affine.det()));
+                    std::sqrt(std::abs(nativeToRender.det()));
     result.blend = blurValue(m_smoothness->getValue(frame), 1, 100) / 100;
     result.repeats = int(blurValue(m_repeats->getValue(frame), 0, 10) + 0.5);
     result.vertical = blurValue(m_bias->getValue(frame), 0, 1) < 0.5;
@@ -125,10 +127,10 @@ public:
   }
 
   bool requiresFullPrecisionSerialization() const override { return true; }
-  bool canHandle(const TRenderSettings &info, double) override {
-    // The host applies rotation/shear after filtering in the cel's own axes.
-    return info.m_affine.a12 == 0 && info.m_affine.a21 == 0 &&
-           info.m_affine.a11 == info.m_affine.a22 && info.m_affine.a11 > 0;
+  bool usesCustomRenderGrid() const override { return true; }
+  bool canHandle(const TRenderSettings &, double) override { return false; }
+  TAffine handledAffine(const TRenderSettings &, double frame) override {
+    return CelFxSourceGrid::renderAffine(m_source.getFx(), frame);
   }
   bool toBeComputedInLinearColorSpace(bool, bool) const override { return false; }
   bool doGetBBox(double frame, TRectD &box, const TRenderSettings &info) override {
@@ -159,6 +161,9 @@ public:
         << std::setprecision(std::numeric_limits<double>::max_digits10)
         << values.radius << ',' << values.blend << ',' << values.repeats
         << ',' << values.vertical << ',' << values.legacy << ']';
+    const TAffine grid = CelFxSourceGrid::renderAffine(m_source.getFx(), frame);
+    for (double component : {grid.a11, grid.a12, grid.a13, grid.a21, grid.a22, grid.a23})
+      out << ';' << component;
     return out.str();
   }
   void doCompute(TTile &tile, double frame,
