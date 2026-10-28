@@ -35,6 +35,10 @@ add_executable(tinbetweenmatch_test tinbetweenmatch_test.cpp)
 target_include_directories(tinbetweenmatch_test PRIVATE ../../include)
 add_test(NAME tinbetweenmatch COMMAND tinbetweenmatch_test)
 
+add_executable(bilineardeform_test bilineardeform_test.cpp)
+target_include_directories(bilineardeform_test PRIVATE ../../include)
+add_test(NAME bilineardeform COMMAND bilineardeform_test)
+
 # artlayer.h needs TStroke, so only in the full build
 if(TARGET tnzcore)
     add_executable(artlayer_test artlayer_test.cpp)

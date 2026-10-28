@@ -475,10 +475,14 @@ AdjustThicknessPopup::SelectionData::SelectionData(const TSelection *sel)
           m_this->m_framesType = ALL_FRAMES;
           break;
 
-        case LevelSelection::FRAMES_SELECTED: {
+        case LevelSelection::FRAMES_SELECTED:
+        case LevelSelection::FRAMES_ONION_SKIN: {
           m_this->m_framesType = SELECTED_FRAMES;
 
-          const std::set<TFrameId> &fids = TTool::getSelectedFrames();
+          const std::set<TFrameId> fids =
+              (selection.framesMode() == LevelSelection::FRAMES_ONION_SKIN)
+                  ? LevelSelection::onionSkinFrames()
+                  : TTool::getSelectedFrames();
 
           std::set<int> s;
           for (auto const &e : fids) {

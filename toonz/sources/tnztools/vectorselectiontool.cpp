@@ -7,6 +7,7 @@
 #include "tools/imagegrouping.h"
 #include "tools/cursors.h"
 #include "tools/artlayer.h"
+#include "tools/bilineardeform.h"
 
 // TnzQt includes
 #include "toonzqt/selectioncommandids.h"
@@ -126,9 +127,9 @@ bool getStrokeIndexFromPos(UINT &index, const TVectorImageP &vi,
 // Check if current frame or not selected
 static bool currentOrNotSelected(const VectorSelectionTool &tool,
                                  const TFrameId &fid) {
-  return (tool.getCurrentFid() == fid ||
-          (tool.isSelectedFramesType() &&
-           tool.getSelectedFrames().count(fid) == 0));
+  return (
+      tool.getCurrentFid() == fid ||
+      (tool.isSelectedFramesType() && tool.getTargetFrames().count(fid) == 0));
 }
 
 //-----------------------------------------------------------------------------
@@ -252,35 +253,14 @@ void VectorFreeDeformer::deformImage() {
 //-----------------------------------------------------------------------------
 
 TThickPoint VectorFreeDeformer::deform(TThickPoint point) {
-  double vs  = m_originalP11.x - m_originalP00.x;
-  double s   = (vs == 0) ? 0 : (point.x - m_originalP00.x) / vs;
-  double vt  = m_originalP11.y - m_originalP00.y;
-  double t   = (vt == 0) ? 0 : (point.y - m_originalP00.y) / vt;
-  TPointD A  = m_newPoints[0];
-  TPointD B  = m_newPoints[1];
-  TPointD C  = m_newPoints[2];
-  TPointD D  = m_newPoints[3];
-  TPointD AD = (1 - t) * A + t * D;
-  TPointD BC = (1 - t) * B + t * C;
-  TPointD p  = (1 - s) * AD + s * BC;
+  BilinearDeform::Map bilinear(m_originalP00, m_originalP11, m_newPoints[0],
+                               m_newPoints[1], m_newPoints[2], m_newPoints[3]);
 
+  TPointD p        = bilinear.map(point);
   double thickness = point.thick;
-  if (!m_preserveThickness) {
-    double eps          = 1.e-2;
-    TPointD p0x         = TPointD(p.x - eps, p.x);
-    TPointD p1x         = TPointD(p.x + eps, p.x);
-    TPointD p0y         = TPointD(p.x, p.y - eps);
-    TPointD p1y         = TPointD(p.x, p.y + eps);
-    m_preserveThickness = true;
-    TThickPoint newp0x  = deform(p0x);
-    TThickPoint newp1x  = deform(p1x);
-    TThickPoint newp0y  = deform(p0y);
-    TThickPoint newp1y  = deform(p1y);
-    m_preserveThickness = false;
-    double newA         = fabs(cross(newp1x - newp0x, newp1y - newp0y));
-    double a            = 4 * eps * eps;
-    thickness *= sqrt(newA / a);
-  }
+  // The line gets thicker or thinner as the surface around the original point
+  // does. The scale is measured on the original point, not on the deformed one.
+  if (!m_preserveThickness) thickness *= bilinear.thicknessFactor(point);
   return TThickPoint(p, thickness);
 }
 
@@ -678,7 +658,7 @@ void DragSelectionTool::VectorDeformTool::transformWholeLevel() {
       // Skip nonselected frames
       if (tool->getCurrentFid() == fid ||
           (tool->isSelectedFramesType() &&
-           tool->getSelectedFrames().count(fid) == 0))
+           tool->getTargetFrames().count(fid) == 0))
         continue;
 
       TVectorImageP vi = level->getFrame(fid, true);
@@ -1343,6 +1323,7 @@ VectorSelectionTool::VectorSelectionTool(int targetType)
 
   m_selectionTarget.addValue(NORMAL_TYPE);
   m_selectionTarget.addValue(SELECTED_FRAMES_TYPE);
+  m_selectionTarget.addValue(ONION_SKIN_FRAMES_TYPE);
   m_selectionTarget.addValue(ALL_LEVEL_TYPE);
   m_selectionTarget.addValue(SAME_STYLE_TYPE);
   m_selectionTarget.addValue(STYLE_SELECTED_FRAMES_TYPE);
@@ -1429,7 +1410,30 @@ bool VectorSelectionTool::isLevelType() const {
 //-----------------------------------------------------------------------------
 
 bool VectorSelectionTool::isSelectedFramesType() const {
-  return m_levelSelection.framesMode() == LevelSelection::FRAMES_SELECTED;
+  return m_levelSelection.framesMode() == LevelSelection::FRAMES_SELECTED ||
+         isOnionSkinFramesType();
+}
+
+//-----------------------------------------------------------------------------
+
+bool VectorSelectionTool::isOnionSkinFramesType() const {
+  return m_levelSelection.framesMode() == LevelSelection::FRAMES_ONION_SKIN;
+}
+
+//-----------------------------------------------------------------------------
+
+const std::set<TFrameId> &VectorSelectionTool::getTargetFrames() const {
+  return isOnionSkinFramesType() ? m_onionFrames : getSelectedFrames();
+}
+
+//-----------------------------------------------------------------------------
+
+bool VectorSelectionTool::refreshOnionFrames() {
+  std::set<TFrameId> frames = LevelSelection::onionSkinFrames();
+  if (frames == m_onionFrames) return false;
+
+  m_onionFrames.swap(frames);
+  return true;
 }
 
 //-----------------------------------------------------------------------------
@@ -1451,6 +1455,8 @@ void VectorSelectionTool::updateTranslation() {
   m_selectionTarget.setQStringName(tr("Mode:"));
   m_selectionTarget.setItemUIName(NORMAL_TYPE, tr("Standard"));
   m_selectionTarget.setItemUIName(SELECTED_FRAMES_TYPE, tr("Selected Frames"));
+  m_selectionTarget.setItemUIName(ONION_SKIN_FRAMES_TYPE,
+                                  tr("Onion Skin Frames"));
   m_selectionTarget.setItemUIName(ALL_LEVEL_TYPE, tr("Whole Level"));
   m_selectionTarget.setItemUIName(SAME_STYLE_TYPE, tr("Same Style"));
   m_selectionTarget.setItemUIName(STYLE_SELECTED_FRAMES_TYPE,
@@ -1513,6 +1519,10 @@ void VectorSelectionTool::updateSelectionTarget() {
     framesMode = LevelSelection::FRAMES_ALL;
     break;
 
+  case ONION_SKIN_FRAMES_TYPE_IDX:
+    framesMode = LevelSelection::FRAMES_ONION_SKIN;
+    break;
+
   case SELECTED_FRAMES_TYPE_IDX:
   case STYLE_SELECTED_FRAMES_TYPE_IDX:
   case BOUNDARY_SELECTED_FRAMES_TYPE_IDX:
@@ -1528,6 +1538,7 @@ void VectorSelectionTool::updateSelectionTarget() {
   LevelSelection::Filter filter;
   switch (m_selectionTarget.getIndex()) {
   case SELECTED_FRAMES_TYPE_IDX:
+  case ONION_SKIN_FRAMES_TYPE_IDX:
   case ALL_LEVEL_TYPE_IDX:
     filter = LevelSelection::WHOLE;
     selectedStyles().clear();
@@ -1555,13 +1566,17 @@ void VectorSelectionTool::updateSelectionTarget() {
 //-----------------------------------------------------------------------------
 
 void VectorSelectionTool::finalizeSelection() {
+  // The frames shown by the onion skin depend on the current frame and on the
+  // onion skin settings: take them again before the boxes are computed.
+  if (isOnionSkinFramesType()) refreshOnionFrames();
+
   TVectorImageP vi = getImage(false);
   if (vi && !m_levelSelection.isEmpty()) {
     std::set<int> &selection = m_strokeSelection.getSelection();
     selection.clear();
 
     // Apply base additive selection
-    if (!isSelectedFramesType() || m_selectedFrames.count(getCurrentFid())) {
+    if (!isSelectedFramesType() || getTargetFrames().count(getCurrentFid())) {
       // Apply filters
       std::vector<int> selectedStrokes =
           getSelectedStrokes(*vi, m_levelSelection);
@@ -1766,6 +1781,9 @@ void VectorSelectionTool::leftButtonDown(const TPointD &pos,
     getViewer()->doPickGuideStroke(pos);
     return;
   }
+
+  // The onion skin may have been changed since the boxes were computed
+  if (isOnionSkinFramesType() && refreshOnionFrames()) finalizeSelection();
 
   SelectionTool::leftButtonDown(pos, e);
 }
@@ -1991,7 +2009,7 @@ void VectorSelectionTool::computeBBox() {
     double maxThickness = 0;
 
     // Calculate current image's bbox - it is always the first one (index 0)
-    if (vi && (isLevelType() || m_selectedFrames.count(getCurrentFid()) > 0)) {
+    if (vi && (isLevelType() || getTargetFrames().count(getCurrentFid()) > 0)) {
       FourPoints bbox =
           getFourPointsFromVectorImage(vi, selectedStyles(), maxThickness);
 
@@ -2007,7 +2025,7 @@ void VectorSelectionTool::computeBBox() {
 
       for (int i = 0; i < (int)fids.size(); ++i) {
         if (getCurrentFid() == fids[i] ||
-            (isSelectedFramesType() && m_selectedFrames.count(fids[i]) == 0))
+            (isSelectedFramesType() && getTargetFrames().count(fids[i]) == 0))
           continue;
 
         TVectorImageP vi = level->getFrame(fids[i], false);
@@ -2059,7 +2077,8 @@ void VectorSelectionTool::notifyImageChanged() {
     TTool::notifyImageChanged(getCurrentFid());
     break;
   case LevelSelection::FramesMode::FRAMES_SELECTED:
-    frames = getSelectedFrames();
+  case LevelSelection::FramesMode::FRAMES_ONION_SKIN:
+    frames = getTargetFrames();
     for (TFrameId fid : frames) {
       TTool::notifyImageChanged(fid);
     }
@@ -2474,8 +2493,10 @@ void VectorSelectionTool::updateAction(TPointD pos, const TMouseEvent &e) {
 //-----------------------------------------------------------------------------
 
 void VectorSelectionTool::onSelectedFramesChanged() {
-  if (isSelectedFramesType())  // False also in case m_levelSelection is not
-                               // current
+  // The frames of the onion skin mode do not depend on the selected ones
+  if (m_levelSelection.framesMode() ==
+      LevelSelection::FRAMES_SELECTED)  // False also in case m_levelSelection
+                                        // is not current
     finalizeSelection();
 }
 
@@ -2511,6 +2532,8 @@ void VectorSelectionTool::AttachedLevelSelection::sortWithPaletteOrder() {
     if (framesMode() == FRAMES_ALL)
       for (int i = 0; i < level->getFrameCount(); ++i)
         fids.insert(level->getFrameId(i));
+    else if (framesMode() == FRAMES_ONION_SKIN)
+      fids = onionSkinFrames();
     else  // FRAMES_SELECTED
       fids = getSelectedFrames();
     for (auto id : fids) {

@@ -502,6 +502,23 @@ DragSelectionTool::FreeDeform::FreeDeform(DeformTool *deformTool)
 
 //-----------------------------------------------------------------------------
 
+// Moves the corner \b index of \b bbox by \b delta. For an edge handle
+// (index from 4 to 7) it moves the two corners of that edge.
+static void moveFreeDeformHandle(const DeformTool *deformTool, FourPoints &bbox,
+                                 int index, const TPointD &delta) {
+  if (index < 4)
+    bbox.setPoint(index, bbox.getPoint(index) + delta);
+  else {
+    int beforeIndex = deformTool->getBeforeVertexIndex(index);
+    bbox.setPoint(beforeIndex, bbox.getPoint(beforeIndex) + delta);
+    bbox.setPoint(index, bbox.getPoint(index) + delta);
+    int nextIndex = deformTool->getNextVertexIndex(index);
+    bbox.setPoint(nextIndex, bbox.getPoint(nextIndex) + delta);
+  }
+}
+
+//-----------------------------------------------------------------------------
+
 void DragSelectionTool::FreeDeform::leftButtonDrag(const TPointD &pos,
                                                    const TMouseEvent &e) {
   SelectionTool *tool = m_deformTool->getTool();
@@ -509,20 +526,23 @@ void DragSelectionTool::FreeDeform::leftButtonDrag(const TPointD &pos,
   double pixelSize    = tool->getPixelSize();
   bool isFastDragging = norm2(delta) > 9.0 * pixelSize * pixelSize;
 
-  TPointD center     = tool->getCenter();
-  int index          = tool->getSelectedPoint();
-  FourPoints bbox    = tool->getBBox();
-  FourPoints newBbox = bbox;
-  if (index < 4)
-    bbox.setPoint(index, bbox.getPoint(index) + delta);
-  else {
-    int beforeIndex = m_deformTool->getBeforeVertexIndex(index);
-    bbox.setPoint(beforeIndex, bbox.getPoint(beforeIndex) + delta);
-    bbox.setPoint(index, bbox.getPoint(index) + delta);
-    int nextIndex = m_deformTool->getNextVertexIndex(index);
-    bbox.setPoint(nextIndex, bbox.getPoint(nextIndex) + delta);
-  }
+  int index       = tool->getSelectedPoint();
+  FourPoints bbox = tool->getBBox();
+  moveFreeDeformHandle(m_deformTool, bbox, index, delta);
   tool->setBBox(bbox);
+
+  // When the tool edits several frames (selected frames, whole level, onion
+  // skin frames), the boxes of the other frames - kept from index 1 on, the
+  // current frame being at index 0 - get the same move of the same handle.
+  // The frames are then deformed together when the mouse is released.
+  if (tool->isLevelType() || tool->isSelectedFramesType()) {
+    for (int i = 1; i < tool->getBBoxsCount(); ++i) {
+      FourPoints otherBbox = tool->getBBox(i);
+      moveFreeDeformHandle(m_deformTool, otherBbox, index, delta);
+      tool->setBBox(otherBbox, i);
+    }
+  }
+
   m_deformTool->setCurPos(pos);
   m_deformTool->applyTransform(bbox, isFastDragging);
 }
@@ -1024,7 +1044,7 @@ void SelectionTool::updateAction(TPointD pos, const TMouseEvent &e) {
         tdistance2(bbox.getP11(), pos) < maxDist2 ||
         tdistance2(bbox.getP01(), pos) < maxDist2 ||
         tdistance2(bbox.getP10(), pos) < maxDist2) {
-      if (!e.isCtrlPressed() || isLevelType() || isSelectedFramesType()) {
+      if (!e.isCtrlPressed()) {
         m_what = SCALE;
         if (tdistance2(bbox.getTopRight(), pos) < maxDist2 ||
             tdistance2(bbox.getBottomLeft(), pos) < maxDist2)
@@ -1050,7 +1070,7 @@ void SelectionTool::updateAction(TPointD pos, const TMouseEvent &e) {
                               maxDist))
       m_selectedPoint = PM0;
     if (m_selectedPoint == P0M || m_selectedPoint == P1M) {
-      if (!e.isCtrlPressed() || isLevelType() || isSelectedFramesType()) {
+      if (!e.isCtrlPressed()) {
         m_cursorId = ToolCursor::ScaleHCursor;
         m_what     = SCALE_X;
       } else {
@@ -1060,7 +1080,7 @@ void SelectionTool::updateAction(TPointD pos, const TMouseEvent &e) {
       return;
     }
     if (m_selectedPoint == PM1 || m_selectedPoint == PM0) {
-      if (!e.isCtrlPressed() || isLevelType() || isSelectedFramesType()) {
+      if (!e.isCtrlPressed()) {
         m_cursorId = ToolCursor::ScaleVCursor;
         m_what     = SCALE_Y;
       } else {
