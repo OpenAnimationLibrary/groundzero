@@ -92,11 +92,6 @@ jobs:
       if: failure()
       working-directory: toonz/build
       run: |
-        if [ -f cel-tests-output.txt ] && grep -qi 'celfx_rendergrid.*SegFault' cel-tests-output.txt; then
-          sudo apt-get install -y gdb
-          QT_QPA_PLATFORM=offscreen timeout 45s gdb --batch -ex run -ex 'thread apply all backtrace' \
-            --args bin/celfxrendergrid_test 2>&1 | tee -a cel-tests-output.txt
-        fi
         if [ -f cel-tests-output.txt ] && grep -q 'celfx_colorkeep_ui.*SegFault' cel-tests-output.txt; then
           sudo apt-get install -y gdb
           QT_QPA_PLATFORM=offscreen timeout 45s gdb --batch -ex run -ex 'thread apply all backtrace' \

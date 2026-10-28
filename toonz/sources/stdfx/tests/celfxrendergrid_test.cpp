@@ -205,11 +205,15 @@ public:
     auto *simple = m_level->getSimpleLevel();
     simple->setType(type);
     simple->setScene(&m_scene);
-    simple->setPalette(palette);
     static unsigned int identity = 0;
+    // These frames live in memory. Avoid loading an absent file, which can
+    // replace a colormapped level's palette before its frame is installed.
     simple->setPath(TFilePath("raster-tile-fixture-" + std::to_string(++identity) +
-                              (type == OVL_XSHLEVEL ? ".png" : ".tlv")));
+                              (type == OVL_XSHLEVEL ? ".png" : ".tlv")), true);
+    simple->setPalette(palette);
     simple->setFrame(TFrameId(1), image);
+    require(type != TZP_XSHLEVEL || image->getPalette() == palette,
+            "Colormapped fixture lost its palette");
     require(m_column.setCell(0, TXshCell(m_level, TFrameId(1))),
             "Cannot create real raster level");
   }
