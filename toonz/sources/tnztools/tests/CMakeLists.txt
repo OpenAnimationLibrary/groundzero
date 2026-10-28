@@ -51,6 +51,10 @@ add_executable(envelopelayout_test envelopelayout_test.cpp)
 target_include_directories(envelopelayout_test PRIVATE ../../include)
 add_test(NAME envelopelayout COMMAND envelopelayout_test)
 
+add_executable(gradienthandles_test gradienthandles_test.cpp)
+target_include_directories(gradienthandles_test PRIVATE ../../include)
+add_test(NAME gradienthandles COMMAND gradienthandles_test)
+
 # artlayer.h needs TStroke, so only in the full build
 if(TARGET tnzcore)
     add_executable(artlayer_test artlayer_test.cpp)

@@ -49,6 +49,7 @@ set(HEADERS
     ../include/tools/vectoralignment.h
     ../include/tools/fluidwidth.h
     ../include/tools/widthprofile.h
+    ../include/tools/gradienthandles.h
     ../include/tools/stylepicker.h
     ../include/tools/tool.h
     ../include/tools/toolcommandids.h
@@ -133,6 +134,7 @@ set(SOURCES
     widthprofilecommands.cpp
     screenpicker.cpp
     fingertool.cpp
+    gradienttransformtool.cpp
     rulertool.cpp
     mypainttoonzbrush.cpp
     shifttracetool.cpp

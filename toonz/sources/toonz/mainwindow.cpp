@@ -3339,6 +3339,8 @@ void MainWindow::defineActions() {
   createToolAction(T_Finger, "finger", QT_TR_NOOP("Finger Tool"), "");
   createToolAction(T_EditAssistants, "assistant", QT_TR_NOOP("Edit Assistants"),
                    "");
+  createToolAction(T_GradientTransform, "gradienttransform",
+                   QT_TR_NOOP("Gradient Transform Tool"), "");
   // Viewer Navigation tools (available only during the shortcut key is pressed)
   createToolAction(T_ZoomView, "zoom", QT_TR_NOOP("Zoom View"), "Shift+Space");
   createToolAction(T_RotateView, "rotate", QT_TR_NOOP("Rotate View"),

@@ -638,6 +638,7 @@ QString ToolPropertiesPanel::displayNameForToolId(const QString &toolId) const {
   if (toolId == T_Hand) return tr("Hand tool");
   if (toolId == T_Ruler) return tr("Ruler tool");
   if (toolId == T_ShiftTrace) return tr("Shift and Trace");
+  if (toolId == T_GradientTransform) return tr("Gradient Transform tool");
   return toolId;
 }
 

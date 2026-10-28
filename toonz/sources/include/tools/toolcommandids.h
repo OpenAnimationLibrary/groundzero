@@ -34,6 +34,7 @@
 #define T_EditAssistants "T_EditAssistants"
 #define T_CanvasSize "T_CanvasSize"
 #define T_ShiftTrace "T_ShiftTrace"
+#define T_GradientTransform "T_GradientTransform"
 
 // Viewer Navigation tools (available only during the shortcut key is pressed)
 #define T_ZoomView "T_ZoomView"
