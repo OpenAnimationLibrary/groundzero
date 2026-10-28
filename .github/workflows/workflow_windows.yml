@@ -163,7 +163,7 @@ jobs:
           mkdir build
           cd build
 
-          cmake ..\sources -G "%MSVCVERSION%" -Ax64 -DQT_PATH="%QT_PATH%" -DBOOST_ROOT="%BOOST_ROOT%" -DOpenCV_DIR="%OpenCV_DIR%" -DWITH_WINTAB=Y
+          cmake ..\sources -G "%MSVCVERSION%" -Ax64 -DQT_PATH="%QT_PATH%" -DBOOST_ROOT="%BOOST_ROOT%" -DOpenCV_DIR="%OpenCV_DIR%" -DWITH_WINTAB=Y -DBUILD_CELFX_TESTS=ON
         shell: cmd
 
       # Build Opentoonz using MSBuild
@@ -218,6 +218,23 @@ jobs:
           mkdir Opentoonz\portablestuff
           xcopy /Y /E /I ..\..\stuff .\Opentoonz\portablestuff
         shell: cmd
+
+      - name: Test cel effects
+        shell: cmd
+        run: |
+          set "PATH=%CD%\toonz\build\Opentoonz;%QT_PATH%\bin;%PATH%"
+          set "QT_PLUGIN_PATH=%QT_PATH%\plugins"
+          set "QT_QPA_PLATFORM_PLUGIN_PATH=%QT_PATH%\plugins\platforms"
+          set "QT_DEBUG_PLUGINS=1"
+          cd toonz\build
+          ctest -C RelWithDebInfo --output-on-failure --output-junit cel-tests.xml --no-tests=error -R "^celfx_" > cel-tests-output.txt 2>&1
+          set "CEL_TEST_EXIT=%ERRORLEVEL%"
+          type cel-tests-output.txt
+          exit /b %CEL_TEST_EXIT%
+
+      - name: Report cel test failures
+        if: failure()
+        run: python ci-scripts/report_cel_tests.py toonz/build/cel-tests-output.txt
 
       - name: Add the recorder encoder to the package
         shell: cmd

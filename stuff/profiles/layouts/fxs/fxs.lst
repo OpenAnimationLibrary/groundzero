@@ -143,6 +143,7 @@
     STD_iwa_RainbowFx
   </Light>
   <Matte>
+    STD_celColorKeepFx
     STD_erodeDilateFx
     STD_hsvKeyFx
     inFx

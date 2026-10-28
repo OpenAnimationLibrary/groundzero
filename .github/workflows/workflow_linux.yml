@@ -55,7 +55,7 @@ jobs:
     - name: Set up cache
       run: mkdir -p /home/runner/.ccache
 
-    - uses: actions/cache@v5
+    - uses: actions/cache/restore@v5
       with:
         path: /home/runner/.ccache
         key: ${{ runner.os }}-${{ matrix.compiler }}-${{ github.sha }}
@@ -69,7 +69,7 @@ jobs:
         CFLAGS='-fPIC' CXXFLAGS='-fPIC' ./configure --disable-jbig
         make -j $(nproc)
 
-    - name: Build
+    - name: Build cel regression targets
       run: |
         export CCACHE_DIR=/home/runner/.ccache
         export CC="ccache ${{ matrix.cc }}"
@@ -78,9 +78,45 @@ jobs:
         mkdir build
         cd build
         set -o pipefail
-        cmake ../sources -G Ninja -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER=${{ matrix.cxx }} -DCMAKE_C_COMPILER=${{ matrix.cc }} -DWITH_TRANSLATION=OFF -DCMAKE_CXX_FLAGS=-Werror=return-type 2>&1 | tee "$GITHUB_WORKSPACE/build.log"
+        cmake ../sources -G Ninja -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER=${{ matrix.cxx }} -DCMAKE_C_COMPILER=${{ matrix.cc }} -DWITH_TRANSLATION=OFF -DBUILD_CELFX_TESTS=ON -DCMAKE_CXX_FLAGS=-Werror=return-type 2>&1 | tee "$GITHUB_WORKSPACE/build.log"
         # -k 0: keep going, so one run reports every file that fails
+        ninja -k 0 celfx_tests 2>&1 | tee -a "$GITHUB_WORKSPACE/build.log"
+
+    - name: Test cel effects
+      working-directory: toonz/build
+      run: |
+        set -o pipefail
+        ctest --output-on-failure --output-junit cel-tests.xml --no-tests=error -R '^celfx_' 2>&1 | tee cel-tests-output.txt
+
+    - name: Diagnose cel UI crash
+      if: failure()
+      working-directory: toonz/build
+      run: |
+        if [ -f cel-tests-output.txt ] && grep -q 'celfx_colorkeep_ui.*SegFault' cel-tests-output.txt; then
+          sudo apt-get install -y gdb
+          QT_QPA_PLATFORM=offscreen timeout 45s gdb --batch -ex run -ex 'thread apply all backtrace' \
+            --args bin/celcolorkeep_ui_test ../../stuff/profiles/layouts/fxs/STD_celColorKeepFx.xml \
+            2>&1 | tee -a cel-tests-output.txt
+        fi
+
+    - name: Report cel test failures
+      if: failure()
+      run: python3 ci-scripts/report_cel_tests.py toonz/build/cel-tests-output.txt
+
+    - name: Build application
+      working-directory: toonz/build
+      run: |
+        export CCACHE_DIR=/home/runner/.ccache
+        set -o pipefail
         ninja -k 0 2>&1 | tee -a "$GITHUB_WORKSPACE/build.log"
+
+    # Keep successfully compiled objects even when a regression test fails.
+    - name: Save compiler cache
+      if: always()
+      uses: actions/cache/save@v5
+      with:
+        path: /home/runner/.ccache
+        key: ${{ runner.os }}-${{ matrix.compiler }}-${{ github.sha }}
 
     # Show the errors on the pull request (summary and annotations) without
     # having to open the full log
