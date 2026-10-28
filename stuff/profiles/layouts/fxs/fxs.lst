@@ -7,6 +7,9 @@
     STD_iwa_TileFx
 </Background>
   <Blur>
+    STD_celBoundaryBlurFx
+    STD_celRadialBlurFx
+    STD_celDirectionalBlurFx
     STD_blurFx 
     STD_inoBlurFx
     STD_directionalBlurFx
@@ -46,6 +49,7 @@
     STD_iwa_FloorBumpFx
   </Distort>
   <Gradient>
+    STD_alphaDistanceGradientFx
     STD_diamondGradientFx
     STD_fourPointsGradientFx 
     STD_iwa_LinearGradientFx
@@ -58,6 +62,8 @@
     STD_iwa_SpinGradientFx 
   </Gradient>
   <Image_Adjust>
+    STD_celSmootherFx
+    STD_celSmoother2Fx
     STD_iwa_AdjustExposureFx
     STD_adjustLevelsFx 
     STD_brightContFx 
@@ -139,10 +145,14 @@
     STD_iwa_SoapBubbleFx
     STD_targetSpotFx
     STD_iwa_GlareFx
+    STD_starGlowFx
     STD_iwa_BloomFx
     STD_iwa_RainbowFx
   </Light>
   <Matte>
+    STD_celColorKeepFx
+    STD_celColorKeyFx
+    STD_celColorExpandFx
     STD_erodeDilateFx
     STD_hsvKeyFx
     inFx

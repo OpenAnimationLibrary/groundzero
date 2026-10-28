@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Cel Smoother</title></head>
+<body>
+<h1>Cel Smoother</h1>
+<p>Antialias flat cel drawings without blurring whole regions. Add Cel Smoother
+from Image Adjust and connect the drawing to Source. The effect follows contour
+runs and blends the coverage of adjacent pixels, including thin lines,
+diagonals and intersections. Existing Smoother effects remain available.</p>
+<h2>Controls</h2>
+<p><b>Use Color Key</b> removes the selected background before smoothing.
+It is off by default. <b>Color Key</b> defaults to white. Sample the original
+source with the effect temporarily disabled. The selected color's alpha is
+ignored; source coverage is preserved on colors that remain.</p>
+<p><b>Do Smooth Range</b> groups neighboring colors within the selected channel
+difference. It defaults to 6 and accepts whole numbers from 0 to 255. Start
+with 0 for exact flat colors and raise it for drawings containing gradients.
+Values around 0 to 6 are usually sufficient. Larger values can hide genuine
+contours; 255 bypasses smoothing while still applying the optional color key.
+Fractional animation values round to the nearest integer, with halves upward.</p>
+<h2>Color and coverage</h2>
+<p>Contours are compared in premultiplied display RGBA, with range measured in
+8-bit units at every channel precision. Smoothing blends coverage in that same
+space. The color key compares selected straight RGB at the source precision:
+8-bit and 16-bit keys use native channel and coverage rounding; float keys use
+a straight RGB tolerance of 0.0001. Zero-alpha and nonfinite source pixels
+become transparent. Finite HDR and negative float colors remain unclipped.</p>
+<p>This is a native contour-area implementation of the cel-smoothing workflow.
+Its pixels are not claimed to match another application's plugin. Scene linear
+color conversion is handled by the renderer. This version has no extra gamma
+or blur pass.</p>
+<h2>Animation and reuse</h2>
+<p>All three controls use native animation, undo, scene saving, effect presets
+and macro exposure. The checkbox inserts constant keys. Fine color values are
+preserved when saving and cloning, including HDR values edited through the
+Function Editor.</p>
+<h2>Rendering</h2>
+<p>Smoothing runs on the native level pixel grid before the host applies level
+DPI, placement, camera scaling or rotation, including the half-pixel origins of
+odd-sized levels. The renderer finds that grid through
+a single connected image path to a raster level. Combined sources and graphs
+without a level grid use the effect's ordinary coordinate grid. A complete source rectangle is analyzed
+so strips and small tiles do not introduce seams. Raster levels use their full
+canvas; other finite graphs use their complete bounds. Infinite generators use
+the render camera rectangle, so changing that rectangle can change edge
+coverage at its boundary. An empty source or empty camera yields transparency.</p>
+<p>Each render request uses independent buffers and respects cancellation. The
+working storage is about 68, 72 or 80 bytes per source pixel for 8-bit, 16-bit
+or float input, plus the output tile and upstream rendering. Small output tiles
+still analyze the full source, so very large canvases require more memory and
+rendering time. No persistent image-analysis cache retains canceled results.</p>
+<p>Source rasters exceeding the host's signed allocation limit are rejected
+before allocation, with an explicit size error.</p>
+</body>
+</html>

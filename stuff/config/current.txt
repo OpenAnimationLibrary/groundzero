@@ -128,6 +128,27 @@
   <item>"STD_backlitFx.fade"		"Fade"			</item>
 
  
+  <item>"STD_celDirectionalBlurFx" "Cel Directional Blur" </item>
+  <item>"STD_celDirectionalBlurFx.angle" "Angle" </item>
+  <item>"STD_celDirectionalBlurFx.gain" "Brightness Gain" </item>
+  <item>"STD_celDirectionalBlurFx.sizeVariation" "Size Variation" </item>
+  <item>"STD_celDirectionalBlurFx.frontStrength" "Front Blur Strength" </item>
+  <item>"STD_celDirectionalBlurFx.frontFade" "Front Edge Fade" </item>
+  <item>"STD_celDirectionalBlurFx.frontSharp" "Front Sharp Tail" </item>
+  <item>"STD_celDirectionalBlurFx.backStrength" "Back Blur Strength" </item>
+  <item>"STD_celDirectionalBlurFx.backFade" "Back Edge Fade" </item>
+  <item>"STD_celDirectionalBlurFx.backSharp" "Back Sharp Tail" </item>
+  <item>"STD_celDirectionalBlurFx.noiseVariation" "Noise Variation" </item>
+  <item>"STD_celDirectionalBlurFx.noiseType" "Noise Type" </item>
+  <item>"STD_celDirectionalBlurFx.noiseSeed" "Seed" </item>
+  <item>"STD_celDirectionalBlurFx.noiseOffset" "Offset" </item>
+  <item>"STD_celDirectionalBlurFx.noiseThickness" "Thickness" </item>
+  <item>"STD_celBoundaryBlurFx" "Cel Boundary Blur" </item>
+  <item>"STD_celBoundaryBlurFx.amount" "Blur Amount" </item>
+  <item>"STD_celBoundaryBlurFx.smoothness" "Blur Smoothness" </item>
+  <item>"STD_celBoundaryBlurFx.repeats" "Number of Repeat" </item>
+  <item>"STD_celBoundaryBlurFx.bias" "Bias Direction" </item>
+  <item>"STD_celBoundaryBlurFx.legacy" "Legacy" </item>
   <item>"STD_blurFx"		"Blur"			</item>
   <item>"STD_blurFx.value"		"Value"			</item>
   <item>"STD_blurFx.spread"		"Spread"			</item>
@@ -946,6 +967,409 @@
   <item>"STD_raylitFx.includeInput"	"Keep Image"	</item>
   <item>"STD_raylitFx.invert"		"Invert"	</item>
 
+  <item>"STD_celColorKeyFx" "Cel Color Key" </item>
+  <item>"STD_celColorKeyFx.keep" "Color Keep" </item>
+  <item>"STD_celColorKeyFx.threshold" "Threshold" </item>
+  <item>"STD_celColorKeyFx.premultiplied" "Premultiplied Color" </item>
+  <item>"STD_celColorKeyFx.colorSpace" "Color Space" </item>
+  <item>"STD_celColorKeyFx.precision" "Force Lower Precision" </item>
+  <item>"STD_celColorKeyFx.perColor" "Per Color" </item>
+  <item>"STD_celColorKeyFx.perComponent" "Per Component" </item>
+  <item>"STD_celColorKeyFx.component1" "Component 1 Threshold" </item>
+  <item>"STD_celColorKeyFx.component2" "Component 2 Threshold" </item>
+  <item>"STD_celColorKeyFx.component3" "Component 3 Threshold" </item>
+  <item>"STD_celColorKeyFx.thin" "Edge Thin" </item>
+  <item>"STD_celColorKeyFx.thinMetric" "Edge Thin Distance" </item>
+  <item>"STD_celColorKeyFx.blur" "Edge Blur" </item>
+  <item>"STD_celColorKeyFx.blurMetric" "Edge Blur Distance" </item>
+  <item>"STD_celColorKeyFx.blurDirection" "Edge Blur Direction" </item>
+  <item>"STD_celColorKeyFx.enabledColors" "Number of Colors" </item>
+  <item>"STD_celColorKeyFx.enableReplace" "Enable Replace" </item>
+  <item>"STD_celColorKeyFx.use001" "Use Color 1" </item>
+  <item>"STD_celColorKeyFx.key001" "Color 1" </item>
+  <item>"STD_celColorKeyFx.threshold001" "Threshold 1" </item>
+  <item>"STD_celColorKeyFx.component1001" "Component 1 Threshold 1" </item>
+  <item>"STD_celColorKeyFx.component2001" "Component 2 Threshold 1" </item>
+  <item>"STD_celColorKeyFx.component3001" "Component 3 Threshold 1" </item>
+  <item>"STD_celColorKeyFx.replace001" "Use Replacement 1" </item>
+  <item>"STD_celColorKeyFx.replacement001" "Replacement Color 1" </item>
+  <item>"STD_celColorKeyFx.use002" "Use Color 2" </item>
+  <item>"STD_celColorKeyFx.key002" "Color 2" </item>
+  <item>"STD_celColorKeyFx.threshold002" "Threshold 2" </item>
+  <item>"STD_celColorKeyFx.component1002" "Component 1 Threshold 2" </item>
+  <item>"STD_celColorKeyFx.component2002" "Component 2 Threshold 2" </item>
+  <item>"STD_celColorKeyFx.component3002" "Component 3 Threshold 2" </item>
+  <item>"STD_celColorKeyFx.replace002" "Use Replacement 2" </item>
+  <item>"STD_celColorKeyFx.replacement002" "Replacement Color 2" </item>
+  <item>"STD_celColorKeyFx.use003" "Use Color 3" </item>
+  <item>"STD_celColorKeyFx.key003" "Color 3" </item>
+  <item>"STD_celColorKeyFx.threshold003" "Threshold 3" </item>
+  <item>"STD_celColorKeyFx.component1003" "Component 1 Threshold 3" </item>
+  <item>"STD_celColorKeyFx.component2003" "Component 2 Threshold 3" </item>
+  <item>"STD_celColorKeyFx.component3003" "Component 3 Threshold 3" </item>
+  <item>"STD_celColorKeyFx.replace003" "Use Replacement 3" </item>
+  <item>"STD_celColorKeyFx.replacement003" "Replacement Color 3" </item>
+  <item>"STD_celColorKeyFx.use004" "Use Color 4" </item>
+  <item>"STD_celColorKeyFx.key004" "Color 4" </item>
+  <item>"STD_celColorKeyFx.threshold004" "Threshold 4" </item>
+  <item>"STD_celColorKeyFx.component1004" "Component 1 Threshold 4" </item>
+  <item>"STD_celColorKeyFx.component2004" "Component 2 Threshold 4" </item>
+  <item>"STD_celColorKeyFx.component3004" "Component 3 Threshold 4" </item>
+  <item>"STD_celColorKeyFx.replace004" "Use Replacement 4" </item>
+  <item>"STD_celColorKeyFx.replacement004" "Replacement Color 4" </item>
+  <item>"STD_celColorKeyFx.use005" "Use Color 5" </item>
+  <item>"STD_celColorKeyFx.key005" "Color 5" </item>
+  <item>"STD_celColorKeyFx.threshold005" "Threshold 5" </item>
+  <item>"STD_celColorKeyFx.component1005" "Component 1 Threshold 5" </item>
+  <item>"STD_celColorKeyFx.component2005" "Component 2 Threshold 5" </item>
+  <item>"STD_celColorKeyFx.component3005" "Component 3 Threshold 5" </item>
+  <item>"STD_celColorKeyFx.replace005" "Use Replacement 5" </item>
+  <item>"STD_celColorKeyFx.replacement005" "Replacement Color 5" </item>
+  <item>"STD_celColorKeyFx.use006" "Use Color 6" </item>
+  <item>"STD_celColorKeyFx.key006" "Color 6" </item>
+  <item>"STD_celColorKeyFx.threshold006" "Threshold 6" </item>
+  <item>"STD_celColorKeyFx.component1006" "Component 1 Threshold 6" </item>
+  <item>"STD_celColorKeyFx.component2006" "Component 2 Threshold 6" </item>
+  <item>"STD_celColorKeyFx.component3006" "Component 3 Threshold 6" </item>
+  <item>"STD_celColorKeyFx.replace006" "Use Replacement 6" </item>
+  <item>"STD_celColorKeyFx.replacement006" "Replacement Color 6" </item>
+  <item>"STD_celColorKeyFx.use007" "Use Color 7" </item>
+  <item>"STD_celColorKeyFx.key007" "Color 7" </item>
+  <item>"STD_celColorKeyFx.threshold007" "Threshold 7" </item>
+  <item>"STD_celColorKeyFx.component1007" "Component 1 Threshold 7" </item>
+  <item>"STD_celColorKeyFx.component2007" "Component 2 Threshold 7" </item>
+  <item>"STD_celColorKeyFx.component3007" "Component 3 Threshold 7" </item>
+  <item>"STD_celColorKeyFx.replace007" "Use Replacement 7" </item>
+  <item>"STD_celColorKeyFx.replacement007" "Replacement Color 7" </item>
+  <item>"STD_celColorKeyFx.use008" "Use Color 8" </item>
+  <item>"STD_celColorKeyFx.key008" "Color 8" </item>
+  <item>"STD_celColorKeyFx.threshold008" "Threshold 8" </item>
+  <item>"STD_celColorKeyFx.component1008" "Component 1 Threshold 8" </item>
+  <item>"STD_celColorKeyFx.component2008" "Component 2 Threshold 8" </item>
+  <item>"STD_celColorKeyFx.component3008" "Component 3 Threshold 8" </item>
+  <item>"STD_celColorKeyFx.replace008" "Use Replacement 8" </item>
+  <item>"STD_celColorKeyFx.replacement008" "Replacement Color 8" </item>
+  <item>"STD_celColorKeyFx.use009" "Use Color 9" </item>
+  <item>"STD_celColorKeyFx.key009" "Color 9" </item>
+  <item>"STD_celColorKeyFx.threshold009" "Threshold 9" </item>
+  <item>"STD_celColorKeyFx.component1009" "Component 1 Threshold 9" </item>
+  <item>"STD_celColorKeyFx.component2009" "Component 2 Threshold 9" </item>
+  <item>"STD_celColorKeyFx.component3009" "Component 3 Threshold 9" </item>
+  <item>"STD_celColorKeyFx.replace009" "Use Replacement 9" </item>
+  <item>"STD_celColorKeyFx.replacement009" "Replacement Color 9" </item>
+  <item>"STD_celColorKeyFx.use010" "Use Color 10" </item>
+  <item>"STD_celColorKeyFx.key010" "Color 10" </item>
+  <item>"STD_celColorKeyFx.threshold010" "Threshold 10" </item>
+  <item>"STD_celColorKeyFx.component1010" "Component 1 Threshold 10" </item>
+  <item>"STD_celColorKeyFx.component2010" "Component 2 Threshold 10" </item>
+  <item>"STD_celColorKeyFx.component3010" "Component 3 Threshold 10" </item>
+  <item>"STD_celColorKeyFx.replace010" "Use Replacement 10" </item>
+  <item>"STD_celColorKeyFx.replacement010" "Replacement Color 10" </item>
+  <item>"STD_celColorKeyFx.use011" "Use Color 11" </item>
+  <item>"STD_celColorKeyFx.key011" "Color 11" </item>
+  <item>"STD_celColorKeyFx.threshold011" "Threshold 11" </item>
+  <item>"STD_celColorKeyFx.component1011" "Component 1 Threshold 11" </item>
+  <item>"STD_celColorKeyFx.component2011" "Component 2 Threshold 11" </item>
+  <item>"STD_celColorKeyFx.component3011" "Component 3 Threshold 11" </item>
+  <item>"STD_celColorKeyFx.replace011" "Use Replacement 11" </item>
+  <item>"STD_celColorKeyFx.replacement011" "Replacement Color 11" </item>
+  <item>"STD_celColorKeyFx.use012" "Use Color 12" </item>
+  <item>"STD_celColorKeyFx.key012" "Color 12" </item>
+  <item>"STD_celColorKeyFx.threshold012" "Threshold 12" </item>
+  <item>"STD_celColorKeyFx.component1012" "Component 1 Threshold 12" </item>
+  <item>"STD_celColorKeyFx.component2012" "Component 2 Threshold 12" </item>
+  <item>"STD_celColorKeyFx.component3012" "Component 3 Threshold 12" </item>
+  <item>"STD_celColorKeyFx.replace012" "Use Replacement 12" </item>
+  <item>"STD_celColorKeyFx.replacement012" "Replacement Color 12" </item>
+  <item>"STD_celColorKeyFx.use013" "Use Color 13" </item>
+  <item>"STD_celColorKeyFx.key013" "Color 13" </item>
+  <item>"STD_celColorKeyFx.threshold013" "Threshold 13" </item>
+  <item>"STD_celColorKeyFx.component1013" "Component 1 Threshold 13" </item>
+  <item>"STD_celColorKeyFx.component2013" "Component 2 Threshold 13" </item>
+  <item>"STD_celColorKeyFx.component3013" "Component 3 Threshold 13" </item>
+  <item>"STD_celColorKeyFx.replace013" "Use Replacement 13" </item>
+  <item>"STD_celColorKeyFx.replacement013" "Replacement Color 13" </item>
+  <item>"STD_celColorKeyFx.use014" "Use Color 14" </item>
+  <item>"STD_celColorKeyFx.key014" "Color 14" </item>
+  <item>"STD_celColorKeyFx.threshold014" "Threshold 14" </item>
+  <item>"STD_celColorKeyFx.component1014" "Component 1 Threshold 14" </item>
+  <item>"STD_celColorKeyFx.component2014" "Component 2 Threshold 14" </item>
+  <item>"STD_celColorKeyFx.component3014" "Component 3 Threshold 14" </item>
+  <item>"STD_celColorKeyFx.replace014" "Use Replacement 14" </item>
+  <item>"STD_celColorKeyFx.replacement014" "Replacement Color 14" </item>
+  <item>"STD_celColorKeyFx.use015" "Use Color 15" </item>
+  <item>"STD_celColorKeyFx.key015" "Color 15" </item>
+  <item>"STD_celColorKeyFx.threshold015" "Threshold 15" </item>
+  <item>"STD_celColorKeyFx.component1015" "Component 1 Threshold 15" </item>
+  <item>"STD_celColorKeyFx.component2015" "Component 2 Threshold 15" </item>
+  <item>"STD_celColorKeyFx.component3015" "Component 3 Threshold 15" </item>
+  <item>"STD_celColorKeyFx.replace015" "Use Replacement 15" </item>
+  <item>"STD_celColorKeyFx.replacement015" "Replacement Color 15" </item>
+  <item>"STD_celColorKeyFx.use016" "Use Color 16" </item>
+  <item>"STD_celColorKeyFx.key016" "Color 16" </item>
+  <item>"STD_celColorKeyFx.threshold016" "Threshold 16" </item>
+  <item>"STD_celColorKeyFx.component1016" "Component 1 Threshold 16" </item>
+  <item>"STD_celColorKeyFx.component2016" "Component 2 Threshold 16" </item>
+  <item>"STD_celColorKeyFx.component3016" "Component 3 Threshold 16" </item>
+  <item>"STD_celColorKeyFx.replace016" "Use Replacement 16" </item>
+  <item>"STD_celColorKeyFx.replacement016" "Replacement Color 16" </item>
+  <item>"STD_celColorKeyFx.use017" "Use Color 17" </item>
+  <item>"STD_celColorKeyFx.key017" "Color 17" </item>
+  <item>"STD_celColorKeyFx.threshold017" "Threshold 17" </item>
+  <item>"STD_celColorKeyFx.component1017" "Component 1 Threshold 17" </item>
+  <item>"STD_celColorKeyFx.component2017" "Component 2 Threshold 17" </item>
+  <item>"STD_celColorKeyFx.component3017" "Component 3 Threshold 17" </item>
+  <item>"STD_celColorKeyFx.replace017" "Use Replacement 17" </item>
+  <item>"STD_celColorKeyFx.replacement017" "Replacement Color 17" </item>
+  <item>"STD_celColorKeyFx.use018" "Use Color 18" </item>
+  <item>"STD_celColorKeyFx.key018" "Color 18" </item>
+  <item>"STD_celColorKeyFx.threshold018" "Threshold 18" </item>
+  <item>"STD_celColorKeyFx.component1018" "Component 1 Threshold 18" </item>
+  <item>"STD_celColorKeyFx.component2018" "Component 2 Threshold 18" </item>
+  <item>"STD_celColorKeyFx.component3018" "Component 3 Threshold 18" </item>
+  <item>"STD_celColorKeyFx.replace018" "Use Replacement 18" </item>
+  <item>"STD_celColorKeyFx.replacement018" "Replacement Color 18" </item>
+  <item>"STD_celColorKeyFx.use019" "Use Color 19" </item>
+  <item>"STD_celColorKeyFx.key019" "Color 19" </item>
+  <item>"STD_celColorKeyFx.threshold019" "Threshold 19" </item>
+  <item>"STD_celColorKeyFx.component1019" "Component 1 Threshold 19" </item>
+  <item>"STD_celColorKeyFx.component2019" "Component 2 Threshold 19" </item>
+  <item>"STD_celColorKeyFx.component3019" "Component 3 Threshold 19" </item>
+  <item>"STD_celColorKeyFx.replace019" "Use Replacement 19" </item>
+  <item>"STD_celColorKeyFx.replacement019" "Replacement Color 19" </item>
+  <item>"STD_celColorKeyFx.use020" "Use Color 20" </item>
+  <item>"STD_celColorKeyFx.key020" "Color 20" </item>
+  <item>"STD_celColorKeyFx.threshold020" "Threshold 20" </item>
+  <item>"STD_celColorKeyFx.component1020" "Component 1 Threshold 20" </item>
+  <item>"STD_celColorKeyFx.component2020" "Component 2 Threshold 20" </item>
+  <item>"STD_celColorKeyFx.component3020" "Component 3 Threshold 20" </item>
+  <item>"STD_celColorKeyFx.replace020" "Use Replacement 20" </item>
+  <item>"STD_celColorKeyFx.replacement020" "Replacement Color 20" </item>
+  <item>"STD_celColorKeyFx.use021" "Use Color 21" </item>
+  <item>"STD_celColorKeyFx.key021" "Color 21" </item>
+  <item>"STD_celColorKeyFx.threshold021" "Threshold 21" </item>
+  <item>"STD_celColorKeyFx.component1021" "Component 1 Threshold 21" </item>
+  <item>"STD_celColorKeyFx.component2021" "Component 2 Threshold 21" </item>
+  <item>"STD_celColorKeyFx.component3021" "Component 3 Threshold 21" </item>
+  <item>"STD_celColorKeyFx.replace021" "Use Replacement 21" </item>
+  <item>"STD_celColorKeyFx.replacement021" "Replacement Color 21" </item>
+  <item>"STD_celColorKeyFx.use022" "Use Color 22" </item>
+  <item>"STD_celColorKeyFx.key022" "Color 22" </item>
+  <item>"STD_celColorKeyFx.threshold022" "Threshold 22" </item>
+  <item>"STD_celColorKeyFx.component1022" "Component 1 Threshold 22" </item>
+  <item>"STD_celColorKeyFx.component2022" "Component 2 Threshold 22" </item>
+  <item>"STD_celColorKeyFx.component3022" "Component 3 Threshold 22" </item>
+  <item>"STD_celColorKeyFx.replace022" "Use Replacement 22" </item>
+  <item>"STD_celColorKeyFx.replacement022" "Replacement Color 22" </item>
+  <item>"STD_celColorKeyFx.use023" "Use Color 23" </item>
+  <item>"STD_celColorKeyFx.key023" "Color 23" </item>
+  <item>"STD_celColorKeyFx.threshold023" "Threshold 23" </item>
+  <item>"STD_celColorKeyFx.component1023" "Component 1 Threshold 23" </item>
+  <item>"STD_celColorKeyFx.component2023" "Component 2 Threshold 23" </item>
+  <item>"STD_celColorKeyFx.component3023" "Component 3 Threshold 23" </item>
+  <item>"STD_celColorKeyFx.replace023" "Use Replacement 23" </item>
+  <item>"STD_celColorKeyFx.replacement023" "Replacement Color 23" </item>
+  <item>"STD_celColorKeyFx.use024" "Use Color 24" </item>
+  <item>"STD_celColorKeyFx.key024" "Color 24" </item>
+  <item>"STD_celColorKeyFx.threshold024" "Threshold 24" </item>
+  <item>"STD_celColorKeyFx.component1024" "Component 1 Threshold 24" </item>
+  <item>"STD_celColorKeyFx.component2024" "Component 2 Threshold 24" </item>
+  <item>"STD_celColorKeyFx.component3024" "Component 3 Threshold 24" </item>
+  <item>"STD_celColorKeyFx.replace024" "Use Replacement 24" </item>
+  <item>"STD_celColorKeyFx.replacement024" "Replacement Color 24" </item>
+  <item>"STD_celColorKeyFx.use025" "Use Color 25" </item>
+  <item>"STD_celColorKeyFx.key025" "Color 25" </item>
+  <item>"STD_celColorKeyFx.threshold025" "Threshold 25" </item>
+  <item>"STD_celColorKeyFx.component1025" "Component 1 Threshold 25" </item>
+  <item>"STD_celColorKeyFx.component2025" "Component 2 Threshold 25" </item>
+  <item>"STD_celColorKeyFx.component3025" "Component 3 Threshold 25" </item>
+  <item>"STD_celColorKeyFx.replace025" "Use Replacement 25" </item>
+  <item>"STD_celColorKeyFx.replacement025" "Replacement Color 25" </item>
+  <item>"STD_celRadialBlurFx" "Cel Radial Blur" </item>
+  <item>"STD_celRadialBlurFx.blurType" "Blur Type" </item>
+  <item>"STD_celRadialBlurFx.center" "Center" </item>
+  <item>"STD_celRadialBlurFx.outerStrength" "Outer Strength" </item>
+  <item>"STD_celRadialBlurFx.outerOffsetMode" "Outer Offset Mode" </item>
+  <item>"STD_celRadialBlurFx.outerOffset" "Outer Offset" </item>
+  <item>"STD_celRadialBlurFx.outerFade" "Outer Edge Fade" </item>
+  <item>"STD_celRadialBlurFx.innerStrength" "Inner Strength" </item>
+  <item>"STD_celRadialBlurFx.innerOffsetMode" "Inner Offset Mode" </item>
+  <item>"STD_celRadialBlurFx.innerOffset" "Inner Offset" </item>
+  <item>"STD_celRadialBlurFx.innerFade" "Inner Edge Fade" </item>
+  <item>"STD_celRadialBlurFx.repeatBorder" "Repeat Border" </item>
+  <item>"STD_celRadialBlurFx.ellipseRatio" "Ellipse Ratio" </item>
+  <item>"STD_celRadialBlurFx.ellipseAngle" "Ellipse Angle" </item>
+  <item>"STD_celRadialBlurFx.quality" "Quality" </item>
+  <item>"STD_celRadialBlurFx.brightness" "Brightness Gain" </item>
+  <item>"STD_celRadialBlurFx.sizeVariation" "Size Variation" </item>
+  <item>"STD_celRadialBlurFx.noiseVariation" "Noise Variation" </item>
+  <item>"STD_celRadialBlurFx.noiseType" "Noise Type" </item>
+  <item>"STD_celRadialBlurFx.seed" "Seed" </item>
+  <item>"STD_celRadialBlurFx.noiseOffset" "Noise Offset" </item>
+  <item>"STD_celRadialBlurFx.thickness" "Thickness" </item>
+  <item>"STD_starGlowFx" "Star Glow" </item>
+  <item>"STD_starGlowFx.channel" "Channel" </item>
+  <item>"STD_starGlowFx.profile" "Blur Mode" </item>
+  <item>"STD_starGlowFx.merge" "Merge Mode" </item>
+  <item>"STD_starGlowFx.approximate" "Approximated Input" </item>
+  <item>"STD_starGlowFx.gain" "Brightness Gain" </item>
+  <item>"STD_starGlowFx.threshold" "Threshold" </item>
+  <item>"STD_starGlowFx.fade" "Fade Out" </item>
+  <item>"STD_starGlowFx.glowOpacity" "Glow Opacity" </item>
+  <item>"STD_starGlowFx.sourceOpacity" "Source Opacity" </item>
+  <item>"STD_starGlowFx.rotation" "Glow Rotation" </item>
+  <item>"STD_starGlowFx.highlightRadius" "Highlight Radius" </item>
+  <item>"STD_starGlowFx.highlightColor" "Highlight Color" </item>
+  <item>"STD_starGlowFx.verticalLength" "Vertical Length" </item>
+  <item>"STD_starGlowFx.verticalColor" "Vertical Color" </item>
+  <item>"STD_starGlowFx.verticalUseRamp" "Vertical Use Ramp" </item>
+  <item>"STD_starGlowFx.verticalRamp" "Vertical Ramp" </item>
+  <item>"STD_starGlowFx.horizontalLength" "Horizontal Length" </item>
+  <item>"STD_starGlowFx.horizontalColor" "Horizontal Color" </item>
+  <item>"STD_starGlowFx.horizontalUseRamp" "Horizontal Use Ramp" </item>
+  <item>"STD_starGlowFx.horizontalRamp" "Horizontal Ramp" </item>
+  <item>"STD_starGlowFx.diagonalLength" "Diagonal Length" </item>
+  <item>"STD_starGlowFx.diagonalColor" "Diagonal Color" </item>
+  <item>"STD_starGlowFx.diagonalUseRamp" "Diagonal Use Ramp" </item>
+  <item>"STD_starGlowFx.diagonalRamp" "Diagonal Ramp" </item>
+
+  <item>"STD_alphaDistanceGradientFx" "Alpha Distance Gradient" </item>
+  <item>"STD_alphaDistanceGradientFx.region" "Region" </item>
+  <item>"STD_alphaDistanceGradientFx.insideThreshold" "Inside Threshold" </item>
+  <item>"STD_alphaDistanceGradientFx.outsideThreshold" "Outside Threshold" </item>
+  <item>"STD_alphaDistanceGradientFx.renderMode" "Render Mode" </item>
+  <item>"STD_alphaDistanceGradientFx.useBackground" "Use Background Color" </item>
+  <item>"STD_alphaDistanceGradientFx.gradationColor" "Gradation Color" </item>
+  <item>"STD_alphaDistanceGradientFx.backgroundColor" "BG Color" </item>
+  <item>"STD_alphaDistanceGradientFx.invert" "Invert" </item>
+  <item>"STD_alphaDistanceGradientFx.interpolation" "Interpolation" </item>
+  <item>"STD_alphaDistanceGradientFx.power" "Power" </item>
+  <item>"STD_alphaDistanceGradientFx.blurMode" "Blur Mode" </item>
+  <item>"STD_alphaDistanceGradientFx.blurSize" "Blur Size" </item>
+  <item>"STD_celColorExpandFx" "Cel Color Expand" </item>
+  <item>"STD_celColorExpandFx.radius" "Search Radius" </item>
+  <item>"STD_celSmootherFx" "Cel Smoother" </item>
+  <item>"STD_celSmootherFx.useColorKey" "Use Color Key" </item>
+  <item>"STD_celSmootherFx.colorKey" "Color Key" </item>
+  <item>"STD_celSmootherFx.smoothRange" "Do Smooth Range" </item>
+  <item>"STD_celSmoother2Fx" "Cel Smoother v2" </item>
+  <item>"STD_celSmoother2Fx.useColorKey" "Use Color Key" </item>
+  <item>"STD_celSmoother2Fx.colorKey" "Color Key" </item>
+  <item>"STD_celSmoother2Fx.invertColorKey" "Invert Color Key" </item>
+  <item>"STD_celSmoother2Fx.smoothRange" "Smooth Range" </item>
+  <item>"STD_celSmoother2Fx.smoothness" "Smoothness" </item>
+  <item>"STD_celSmoother2Fx.extraSmooth" "Extra Smooth" </item>
+  <item>"STD_celSmoother2Fx.smootherVersion" "Smoother Version" </item>
+  <item>"STD_celSmoother2Fx.gammaCorrection" "Gamma Correction" </item>
+  <item>"STD_celSmoother2Fx.gammaValue" "Gamma Value" </item>
+  <item>"STD_celSmoother2Fx.numberOfGammaColors" "Number of Gamma Colors" </item>
+  <item>"STD_celSmoother2Fx.gammaColor1" "Gamma Color 1" </item>
+  <item>"STD_celSmoother2Fx.gammaColor2" "Gamma Color 2" </item>
+  <item>"STD_celSmoother2Fx.gammaColor3" "Gamma Color 3" </item>
+  <item>"STD_celSmoother2Fx.gammaColor4" "Gamma Color 4" </item>
+  <item>"STD_celSmoother2Fx.gammaColor5" "Gamma Color 5" </item>
+  <item>"STD_celColorKeepFx" "Cel Color Keep" </item>
+  <item>"STD_celColorKeepFx.enabledColors" "Enabled Colors" </item>
+  <item>"STD_celColorKeepFx.color001" "Color 1" </item>
+  <item>"STD_celColorKeepFx.color002" "Color 2" </item>
+  <item>"STD_celColorKeepFx.color003" "Color 3" </item>
+  <item>"STD_celColorKeepFx.color004" "Color 4" </item>
+  <item>"STD_celColorKeepFx.color005" "Color 5" </item>
+  <item>"STD_celColorKeepFx.color006" "Color 6" </item>
+  <item>"STD_celColorKeepFx.color007" "Color 7" </item>
+  <item>"STD_celColorKeepFx.color008" "Color 8" </item>
+  <item>"STD_celColorKeepFx.color009" "Color 9" </item>
+  <item>"STD_celColorKeepFx.color010" "Color 10" </item>
+  <item>"STD_celColorKeepFx.color011" "Color 11" </item>
+  <item>"STD_celColorKeepFx.color012" "Color 12" </item>
+  <item>"STD_celColorKeepFx.color013" "Color 13" </item>
+  <item>"STD_celColorKeepFx.color014" "Color 14" </item>
+  <item>"STD_celColorKeepFx.color015" "Color 15" </item>
+  <item>"STD_celColorKeepFx.color016" "Color 16" </item>
+  <item>"STD_celColorKeepFx.color017" "Color 17" </item>
+  <item>"STD_celColorKeepFx.color018" "Color 18" </item>
+  <item>"STD_celColorKeepFx.color019" "Color 19" </item>
+  <item>"STD_celColorKeepFx.color020" "Color 20" </item>
+  <item>"STD_celColorKeepFx.color021" "Color 21" </item>
+  <item>"STD_celColorKeepFx.color022" "Color 22" </item>
+  <item>"STD_celColorKeepFx.color023" "Color 23" </item>
+  <item>"STD_celColorKeepFx.color024" "Color 24" </item>
+  <item>"STD_celColorKeepFx.color025" "Color 25" </item>
+  <item>"STD_celColorKeepFx.color026" "Color 26" </item>
+  <item>"STD_celColorKeepFx.color027" "Color 27" </item>
+  <item>"STD_celColorKeepFx.color028" "Color 28" </item>
+  <item>"STD_celColorKeepFx.color029" "Color 29" </item>
+  <item>"STD_celColorKeepFx.color030" "Color 30" </item>
+  <item>"STD_celColorKeepFx.color031" "Color 31" </item>
+  <item>"STD_celColorKeepFx.color032" "Color 32" </item>
+  <item>"STD_celColorKeepFx.color033" "Color 33" </item>
+  <item>"STD_celColorKeepFx.color034" "Color 34" </item>
+  <item>"STD_celColorKeepFx.color035" "Color 35" </item>
+  <item>"STD_celColorKeepFx.color036" "Color 36" </item>
+  <item>"STD_celColorKeepFx.color037" "Color 37" </item>
+  <item>"STD_celColorKeepFx.color038" "Color 38" </item>
+  <item>"STD_celColorKeepFx.color039" "Color 39" </item>
+  <item>"STD_celColorKeepFx.color040" "Color 40" </item>
+  <item>"STD_celColorKeepFx.color041" "Color 41" </item>
+  <item>"STD_celColorKeepFx.color042" "Color 42" </item>
+  <item>"STD_celColorKeepFx.color043" "Color 43" </item>
+  <item>"STD_celColorKeepFx.color044" "Color 44" </item>
+  <item>"STD_celColorKeepFx.color045" "Color 45" </item>
+  <item>"STD_celColorKeepFx.color046" "Color 46" </item>
+  <item>"STD_celColorKeepFx.color047" "Color 47" </item>
+  <item>"STD_celColorKeepFx.color048" "Color 48" </item>
+  <item>"STD_celColorKeepFx.color049" "Color 49" </item>
+  <item>"STD_celColorKeepFx.color050" "Color 50" </item>
+  <item>"STD_celColorKeepFx.color051" "Color 51" </item>
+  <item>"STD_celColorKeepFx.color052" "Color 52" </item>
+  <item>"STD_celColorKeepFx.color053" "Color 53" </item>
+  <item>"STD_celColorKeepFx.color054" "Color 54" </item>
+  <item>"STD_celColorKeepFx.color055" "Color 55" </item>
+  <item>"STD_celColorKeepFx.color056" "Color 56" </item>
+  <item>"STD_celColorKeepFx.color057" "Color 57" </item>
+  <item>"STD_celColorKeepFx.color058" "Color 58" </item>
+  <item>"STD_celColorKeepFx.color059" "Color 59" </item>
+  <item>"STD_celColorKeepFx.color060" "Color 60" </item>
+  <item>"STD_celColorKeepFx.color061" "Color 61" </item>
+  <item>"STD_celColorKeepFx.color062" "Color 62" </item>
+  <item>"STD_celColorKeepFx.color063" "Color 63" </item>
+  <item>"STD_celColorKeepFx.color064" "Color 64" </item>
+  <item>"STD_celColorKeepFx.color065" "Color 65" </item>
+  <item>"STD_celColorKeepFx.color066" "Color 66" </item>
+  <item>"STD_celColorKeepFx.color067" "Color 67" </item>
+  <item>"STD_celColorKeepFx.color068" "Color 68" </item>
+  <item>"STD_celColorKeepFx.color069" "Color 69" </item>
+  <item>"STD_celColorKeepFx.color070" "Color 70" </item>
+  <item>"STD_celColorKeepFx.color071" "Color 71" </item>
+  <item>"STD_celColorKeepFx.color072" "Color 72" </item>
+  <item>"STD_celColorKeepFx.color073" "Color 73" </item>
+  <item>"STD_celColorKeepFx.color074" "Color 74" </item>
+  <item>"STD_celColorKeepFx.color075" "Color 75" </item>
+  <item>"STD_celColorKeepFx.color076" "Color 76" </item>
+  <item>"STD_celColorKeepFx.color077" "Color 77" </item>
+  <item>"STD_celColorKeepFx.color078" "Color 78" </item>
+  <item>"STD_celColorKeepFx.color079" "Color 79" </item>
+  <item>"STD_celColorKeepFx.color080" "Color 80" </item>
+  <item>"STD_celColorKeepFx.color081" "Color 81" </item>
+  <item>"STD_celColorKeepFx.color082" "Color 82" </item>
+  <item>"STD_celColorKeepFx.color083" "Color 83" </item>
+  <item>"STD_celColorKeepFx.color084" "Color 84" </item>
+  <item>"STD_celColorKeepFx.color085" "Color 85" </item>
+  <item>"STD_celColorKeepFx.color086" "Color 86" </item>
+  <item>"STD_celColorKeepFx.color087" "Color 87" </item>
+  <item>"STD_celColorKeepFx.color088" "Color 88" </item>
+  <item>"STD_celColorKeepFx.color089" "Color 89" </item>
+  <item>"STD_celColorKeepFx.color090" "Color 90" </item>
+  <item>"STD_celColorKeepFx.color091" "Color 91" </item>
+  <item>"STD_celColorKeepFx.color092" "Color 92" </item>
+  <item>"STD_celColorKeepFx.color093" "Color 93" </item>
+  <item>"STD_celColorKeepFx.color094" "Color 94" </item>
+  <item>"STD_celColorKeepFx.color095" "Color 95" </item>
+  <item>"STD_celColorKeepFx.color096" "Color 96" </item>
+  <item>"STD_celColorKeepFx.color097" "Color 97" </item>
+  <item>"STD_celColorKeepFx.color098" "Color 98" </item>
+  <item>"STD_celColorKeepFx.color099" "Color 99" </item>
+  <item>"STD_celColorKeepFx.color100" "Color 100" </item>
   <item>"STD_rgbKeyFx" 		"RGB Key" 	</item>
   <item>"STD_rgbKeyFx.color" 		"Color" 	</item>
   <item>"STD_rgbKeyFx.r_range" 		"Red Range" 	</item>
