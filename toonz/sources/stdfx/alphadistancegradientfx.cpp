@@ -3,6 +3,7 @@
 #include "tparamset.h"
 #include "tfxattributes.h"
 #include "celdistance.h"
+#include "celfxsourcegrid.h"
 #include "tpixelutils.h"
 
 #include <algorithm>
@@ -55,6 +56,17 @@ int gradientMargin(const GradientSettings &p) {
 bool gradientFiniteBox(const TRectD &box) {
   return box != TConsts::infiniteRectD && std::isfinite(box.x0) &&
          std::isfinite(box.y0) && std::isfinite(box.x1) && std::isfinite(box.y1);
+}
+TRectD gradientRasterBox(TRectD box) {
+  // Canceling DPI/rotation can leave roundoff at an integer pixel boundary.
+  auto snap = [](double value) {
+    const double nearest = std::round(value);
+    const double tolerance = 64 * std::numeric_limits<double>::epsilon() *
+                             std::max(1.0, std::abs(value));
+    return std::abs(value - nearest) <= tolerance ? nearest : value;
+  };
+  return TRectD(std::floor(snap(box.x0)), std::floor(snap(box.y0)),
+                std::ceil(snap(box.x1)), std::ceil(snap(box.y1)));
 }
 TDimension gradientSize(const TRectD &box, int pixelBytes = sizeof(TPixelF)) {
   const double w = box.getLx(), h = box.getLy();
@@ -238,6 +250,13 @@ class AlphaDistanceGradientFx final : public TStandardRasterFx {
     m_source->doGetBBox(frame, box, full);
     return !gradientFiniteBox(box);
   }
+  double pixelScale(double frame, const TRenderSettings &settings) {
+    TAffine drawing = settings.m_affine;
+    if (!usesCameraDomain(frame, settings))
+      drawing = drawing * CelFxSourceGrid::nativeToWorld(m_source.getFx(), frame);
+    const double scale = std::sqrt(std::abs(drawing.det()));
+    return std::abs(scale - 1) < 1e-10 ? 1 : scale;
+  }
   // The host moves integer affine translations and fractional tile positions
   // into the working tile origin. A camera rectangle must move with that grid.
   TPointD cameraCoordinates(const TPointD &position,
@@ -268,14 +287,18 @@ class AlphaDistanceGradientFx final : public TStandardRasterFx {
       if (!gradientFiniteBox(box) || box.isEmpty())
         throw TException("Alpha Distance Gradient: a finite source or camera canvas is required");
       result = true;
+    } else if (result && !box.isEmpty()) {
+      const auto grid = CelFxSourceGrid::discover(m_source.getFx(), frame);
+      if (grid.hasCanvas)
+        box = (transformed ? settings.m_affine * grid.placement : grid.placement) *
+              grid.canvas;
     }
     return result && !box.isEmpty();
   }
   TRectD analysisBox(double frame, const TRenderSettings &settings, TRectD &canvas) {
     if (!sourceCanvas(frame, settings, canvas, true)) return TRectD();
-    canvas = TRectD(std::floor(canvas.x0), std::floor(canvas.y0),
-                    std::ceil(canvas.x1), std::ceil(canvas.y1));
-    return canvas.enlarge(gradientMargin(parameters(frame, std::sqrt(std::abs(settings.m_affine.det())))));
+    canvas = gradientRasterBox(canvas);
+    return canvas.enlarge(gradientMargin(parameters(frame, pixelScale(frame, settings))));
   }
 public:
   AlphaDistanceGradientFx()
@@ -303,15 +326,15 @@ public:
     m_color->enableMatte(false); m_bg->enableMatte(false);
     enableComputeInFloat(true);
   }
+  bool usesCustomRenderGrid() const override { return true; }
   bool canHandle(const TRenderSettings &settings, double frame) override {
-    return settings.m_affine.isIdentity() ||
-           (gradientInvertible(settings.m_affine) && usesCameraDomain(frame, settings));
+    return gradientInvertible(settings.m_affine) && usesCameraDomain(frame, settings);
   }
   TAffine handledAffine(const TRenderSettings &settings, double frame) override {
     // Finite sources use one native grid. Infinite sources use the camera's
     // render grid; its rectangle is already expressed in output coordinates.
     return gradientInvertible(settings.m_affine) && usesCameraDomain(frame, settings)
-               ? settings.m_affine : TAffine();
+               ? settings.m_affine : CelFxSourceGrid::renderAffine(m_source.getFx(), frame);
   }
   void compute(TTile &tile, double frame, const TRenderSettings &settings) override {
     if (!getAttributes()->isEnabled() || !usesCameraDomain(frame, settings)) {
@@ -355,7 +378,10 @@ public:
       // that contain the already-transformed camera, without scaling it twice.
       box = settings.m_affine.inv() * box;
     } else {
-      box = box.enlarge(gradientMargin(parameters(frame)));
+      const auto grid = CelFxSourceGrid::discover(m_source.getFx(), frame);
+      const int margin = gradientMargin(parameters(frame));
+      box = grid.hasCanvas ? grid.placement * grid.canvas.enlarge(margin) :
+                             box.enlarge(margin);
     }
     return true;
   }
@@ -363,8 +389,7 @@ public:
                  TRectD &input, TRenderSettings &inputSettings) override {
     inputSettings = settings; input = TRectD();
     if (m_source.isConnected()) sourceCanvas(frame, settings, input, true);
-    if (!input.isEmpty()) input = TRectD(std::floor(input.x0), std::floor(input.y0),
-                                        std::ceil(input.x1), std::ceil(input.y1));
+    if (!input.isEmpty()) input = gradientRasterBox(input);
   }
   void doDryCompute(TRectD &, double frame, const TRenderSettings &settings) override {
     if (!m_source.isConnected()) return;
@@ -381,14 +406,20 @@ public:
   std::string getAlias(double frame, const TRenderSettings &settings) const override {
     const GradientSettings p = parameters(frame);
     std::ostringstream s; s.imbue(std::locale::classic());
-    s << TRasterFx::getAlias(frame, settings) << "[alphaDistance:2:"
+    s << TRasterFx::getAlias(frame, settings) << "[alphaDistance:3:"
       << std::setprecision(std::numeric_limits<double>::max_digits10)
       << p.region << ',' << p.mode << ',' << p.interpolation << ',' << p.blur << ','
       << p.background << ',' << p.invert << ',' << p.inside << ',' << p.outside << ','
       << p.power << ',' << p.blurSize << ',' << p.color.r << ',' << p.color.g << ','
       << p.color.b << ',' << p.bg.r << ',' << p.bg.g << ',' << p.bg.b << ','
       << settings.m_cameraBox.x0 << ',' << settings.m_cameraBox.y0 << ','
-      << settings.m_cameraBox.x1 << ',' << settings.m_cameraBox.y1 << ']';
+      << settings.m_cameraBox.x1 << ',' << settings.m_cameraBox.y1;
+    const auto grid = CelFxSourceGrid::discover(m_source.getFx(), frame);
+    for (double value : {grid.placement.a11, grid.placement.a12, grid.placement.a13,
+                         grid.placement.a21, grid.placement.a22, grid.placement.a23,
+                         grid.phase.x, grid.phase.y, grid.canvas.x0, grid.canvas.y0,
+                         grid.canvas.x1, grid.canvas.y1}) s << ',' << value;
+    s << ',' << grid.hasCanvas << ']';
     return s.str();
   }
   void doCompute(TTile &tile, double frame, const TRenderSettings &settings) override {
@@ -408,7 +439,7 @@ public:
     if (gradientCanceled(settings.m_isCanceled)) return;
     TRasterP padded = tile.getRaster()->create(size.lx, size.ly); padded->clear();
     padded->copy(source.getRaster(), TPoint(int(canvas.x0 - box.x0), int(canvas.y0 - box.y0)));
-    const GradientSettings p = parameters(frame, std::sqrt(std::abs(settings.m_affine.det())));
+    const GradientSettings p = parameters(frame, pixelScale(frame, settings));
     if (TRaster32P output = tile.getRaster())
       gradientRender<TPixel32>(padded, output, box.getP00(), tile.m_pos, p, settings.m_isCanceled);
     else if (TRaster64P output = tile.getRaster())

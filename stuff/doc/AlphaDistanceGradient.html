@@ -64,8 +64,12 @@ cloning, linked parameters and macro exposure. Choice and checkbox keys use
 constant interpolation when inserted by their native editors. 8-bit, 16-bit and
 float rendering are supported; finite HDR source colors are preserved in float.
 Nonfinite source channels are treated as transparent. Finite sources are evaluated
-on their native pixel grid; the host resamples the completed gradient for preview
-scaling, rotation, reflection and nonuniform transforms. Infinite sources are
+on their native pixel grid. For an identifiable raster level, its original full
+canvas defines the domain and distances count original level pixels, before DPI
+and geometry placements. Odd-sized canvases retain their half-pixel alignment.
+Vector artwork and graphs without one identifiable raster level use finite world
+effect bounds and world pixels. The host resamples the completed gradient for
+preview scaling, rotation, reflection and nonuniform transforms. Infinite sources are
 rendered on the camera pixel grid instead, keeping the camera domain fixed in
 output coordinates. Their distance and blur sizes use the affine's area scale;
 rotation and translation never resize or move the camera canvas. These policies
