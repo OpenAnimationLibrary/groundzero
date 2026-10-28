@@ -35,6 +35,10 @@ public:
 
   TXshChildLevel *getCurrentSymbol() const;
 
+  //! The current symbol of the Symbols panel used last, if it is visible,
+  //! otherwise 0 (see LibraryCmd::getCommandSymbol()).
+  static TXshChildLevel *getPanelSymbol();
+
 protected:
   void showEvent(QShowEvent *) override;
 
@@ -50,6 +54,7 @@ protected slots:
   void editSymbol();
   void duplicateSymbol();
   void renameSymbol();
+  void saveToLibrary();
 };
 
 #endif  // SYMBOLSPANE_H

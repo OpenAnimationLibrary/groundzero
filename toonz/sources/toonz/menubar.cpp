@@ -1054,6 +1054,7 @@ QMenuBar *StackedMenuBar::createXsheetMenuBar() {
   addMenuItem(subxsheetMenu, MI_LoadSubSceneFile);
   addMenuItem(subxsheetMenu, MI_CloneChild);
   addMenuItem(subxsheetMenu, MI_ConvertToSymbol);
+  addMenuItem(subxsheetMenu, MI_SaveSymbolToLibrary);
   addMenuItem(subxsheetMenu, MI_ExplodeChild);
 
   //----Levels Menu
@@ -1519,6 +1520,7 @@ QMenuBar *StackedMenuBar::createFullMenuBar() {
   addMenuItem(xsheetMenu, MI_Resequence);
   addMenuItem(xsheetMenu, MI_CloneChild);
   addMenuItem(xsheetMenu, MI_ConvertToSymbol);
+  addMenuItem(xsheetMenu, MI_SaveSymbolToLibrary);
   addMenuItem(xsheetMenu, MI_ExplodeChild);
   addMenuItem(xsheetMenu, MI_ToggleEditInPlace);
   xsheetMenu->addSeparator();

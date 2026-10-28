@@ -211,6 +211,7 @@ set(HEADERS
     subcameramanager.h
     subscenecommand.h
     symbolcommand.h
+    librarycommand.h
     tfarmstuff.h
     versioncontrolgui.h
     versioncontrolxmlreader.h
@@ -372,6 +373,7 @@ set(SOURCES
     print.cpp
     subscenecommand.cpp
     symbolcommand.cpp
+    librarycommand.cpp
     svncleanupdialog.cpp
     svncommitdialog.cpp
     svndeletedialog.cpp

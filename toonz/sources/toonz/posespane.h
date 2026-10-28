@@ -86,6 +86,8 @@ protected slots:
   void refresh();
   void onSetBase();
   void onAddPose();
+  void onSavePoseSet();
+  void onLoadPoseSet();
 };
 
 #endif  // POSESPANE_H

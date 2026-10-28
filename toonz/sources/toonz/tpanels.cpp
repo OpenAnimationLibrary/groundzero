@@ -2021,10 +2021,10 @@ public:
   RigLibraryPanelFactory() : TPanelFactory("RigLibrary") {}
   void initialize(TPanel *panel) override {
     panel->setWidget(new RigLibraryPane(panel));
-    panel->setWindowTitle(QObject::tr("Rig Library"));
+    panel->setWindowTitle(QObject::tr("Library"));
     panel->setIsMaximizable(false);
   }
 } rigLibraryPanelFactory;
 
 OpenFloatingPanel openRigLibraryCommand(MI_OpenRigLibrary, "RigLibrary",
-                                        QObject::tr("Rig Library"));
+                                        QObject::tr("Library"));

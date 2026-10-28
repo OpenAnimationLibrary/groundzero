@@ -2603,6 +2603,8 @@ void MainWindow::defineActions() {
                          "sub_clone");
   createMenuXsheetAction(MI_ConvertToSymbol, QT_TR_NOOP("Convert to Symbol..."),
                          "", "");
+  createMenuXsheetAction(MI_SaveSymbolToLibrary,
+                         QT_TR_NOOP("Save Symbol to Library..."), "", "");
   createMenuXsheetAction(MI_ApplyMatchLines,
                          QT_TR_NOOP("&Apply Match Lines..."), "",
                          "apply_match_lines");
@@ -3022,7 +3024,7 @@ void MainWindow::defineActions() {
                           QT_TR_NOOP("Master Controllers"), "", "");
   createMenuWindowsAction(MI_OpenOffsetLayers, QT_TR_NOOP("Offset Layers"), "",
                           "");
-  createMenuWindowsAction(MI_OpenRigLibrary, QT_TR_NOOP("Rig Library"), "", "");
+  createMenuWindowsAction(MI_OpenRigLibrary, QT_TR_NOOP("Library"), "", "");
   createMenuWindowsAction(MI_OpenArtLayerManager,
                           QT_TR_NOOP("Art Layer Manager"), "", "");
   createMenuWindowsAction(MI_OpenSymbols, QT_TR_NOOP("Symbols"), "", "");
