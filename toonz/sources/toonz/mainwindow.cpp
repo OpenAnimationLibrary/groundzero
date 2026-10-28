@@ -3609,6 +3609,8 @@ void MainWindow::defineActions() {
                           "");
   createToolOptionsAction("A_ToolOption_PreserveThickness",
                           QT_TR_NOOP("Preserve Thickness"), "");
+  createToolOptionsAction("A_ToolOption_Envelope",
+                          QT_TR_NOOP("Selection Tool - Envelope"), "");
   createToolOptionsAction("A_ToolOption_PressureSensitivity",
                           QT_TR_NOOP("Pressure Sensitivity"), "Shift+P");
   createToolOptionsAction("A_ToolOption_SegmentInk", QT_TR_NOOP("Segment Ink"),

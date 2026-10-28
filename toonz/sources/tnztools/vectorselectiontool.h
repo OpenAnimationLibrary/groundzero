@@ -75,9 +75,17 @@ class VectorFreeDeformer final : public FreeDeformer {
   std::set<int> m_strokeIndexes;
   std::vector<TStroke *> m_originalStrokes;
 
+  // Envelope mode
+  std::vector<TPointD> m_restEnvelope, m_deformedEnvelope;
+  std::vector<std::vector<TThickPoint>>
+      m_envelopeSources;  //!< Control points of the original strokes, with
+                          //!  their chunks cut in pieces for the warp.
+  bool m_isEnvelope = false;
+
   bool m_preserveThickness, m_computeRegion, m_flip;
 
   TThickPoint deform(TThickPoint point);
+  void deformEnvelopeImage();
 
 public:
   VectorFreeDeformer(TVectorImageP vi, std::set<int> strokeIndexes);
@@ -96,6 +104,13 @@ public:
                  const TPointD &p3) override;
   /*! Helper function. */
   TVectorImage *getDeformedImage() const { return m_vi.getPointer(); }
+
+  /*! Envelope mode: deformImage() warps the strokes with the mean value
+      coordinates of the closed polygon \b rest moved to \b deformed (see
+      TEnvelopeDeformer and EnvelopeLayout) instead of the four corners. */
+  void setEnvelope(const std::vector<TPointD> &rest,
+                   const std::vector<TPointD> &deformed);
+  bool isEnvelope() const { return m_isEnvelope; }
 
   void deformRegions();
   void deformImage() override;
@@ -164,6 +179,11 @@ public:
   void transformWholeLevel();
   bool isFlip();
 
+  /*! Gives the free deformer of the box \b index (0 is the current frame) its
+      new shape. By default, the four corners of \b bbox. */
+  virtual void setDeformerShape(VectorFreeDeformer *deformer, int index,
+                                const FourPoints &bbox);
+
 protected:
   std::unique_ptr<UndoChangeStrokes> m_undo;
 
@@ -205,6 +225,28 @@ public:
   VectorFreeDeformTool(VectorSelectionTool *tool);
 
   void leftButtonDrag(const TPointD &pos, const TMouseEvent &e) override;
+};
+
+//=============================================================================
+// VectorEnvelopeTool
+//-----------------------------------------------------------------------------
+
+/*! Drags a handle of the envelope (Envelope mode): the handle moves, in the box
+    of every frame the tool edits, and the strokes are warped from the envelope
+    they had at the button press to the moved one. */
+class VectorEnvelopeTool final : public VectorDeformTool {
+  std::vector<std::vector<TPointD>>
+      m_restEnvelopes;  //!< Envelope of each box at the button press.
+
+public:
+  VectorEnvelopeTool(VectorSelectionTool *tool);
+  ~VectorEnvelopeTool();
+
+  void setDeformerShape(VectorFreeDeformer *deformer, int index,
+                        const FourPoints &bbox) override;
+
+  void leftButtonDrag(const TPointD &pos, const TMouseEvent &e) override;
+  void leftButtonUp(const TPointD &pos, const TMouseEvent &e) override;
 };
 
 //=============================================================================
@@ -291,6 +333,7 @@ public:
   bool isConstantThickness() const override {
     return m_constantThickness.getValue();
   }
+  bool isEnvelopeMode() const override;
   bool isLevelType() const override;
   /*! True when the tool works on a set of frames: the selected ones (frame
           strip) or the ones shown by the onion skin. The set is returned by
@@ -385,6 +428,7 @@ private:
                                     //! image, styles...).
   TBoolProperty m_includeIntersection;
   TBoolProperty m_constantThickness;
+  TBoolProperty m_envelope;  //!< Box handles bend the strokes (Envelope).
 
   StrokeSelection m_strokeSelection;        //!< Standard selection of a set of
                                             //! strokes in current image.
