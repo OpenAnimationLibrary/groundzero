@@ -215,9 +215,12 @@ public:
     CelSmootherLocal::checkInputSize(int(box.getLx()), int(box.getLy()),
                                     tile.getRaster()->getPixelSize());
     TTile input;
-    m_source->allocateAndCompute(input, box.getP00(),
-                                 TDimension(int(box.getLx()), int(box.getLy())),
-                                 tile.getRaster(), frame, settings);
+    TRasterP sourceRaster = tile.getRaster()->create(int(box.getLx()), int(box.getLy()));
+    sourceRaster->setLinear(tile.getRaster()->isLinear());
+    sourceRaster->clear();
+    input.setRaster(sourceRaster);
+    input.m_pos = box.getP00();
+    m_source->compute(input, frame, settings);
     if (settings.m_isCanceled && *settings.m_isCanceled) return;
     if (TRaster32P output = tile.getRaster())
       CelSmootherLocal::render<TPixel32>(input.getRaster(), output, int(dx), int(dy),

@@ -28,10 +28,12 @@ class Source final : public TStandardRasterFx {
   TPoint m_origin;
   bool m_infinite;
   int *m_cancel;
+  bool m_partial;
 public:
   Source(const TRasterP &image, TPoint origin = TPoint(), bool infinite = false,
-         int *cancel = nullptr)
-      : m_image(image), m_origin(origin), m_infinite(infinite), m_cancel(cancel) {}
+         int *cancel = nullptr, bool partial = false)
+      : m_image(image), m_origin(origin), m_infinite(infinite), m_cancel(cancel),
+        m_partial(partial) {}
   const TPersistDeclaration *getDeclaration() const override { return nullptr; }
   bool canHandle(const TRenderSettings &, double) override { return true; }
   bool doGetBBox(double, TRectD &box, const TRenderSettings &) override {
@@ -45,6 +47,19 @@ public:
     return "cel-smoother-fixture";
   }
   void compute(TTile &tile, double, const TRenderSettings &) override {
+    if (m_partial) {
+      const TRasterP raster = tile.getRaster();
+      for (int y = 0; y < raster->getLy(); ++y) {
+        const UCHAR *row = raster->getRawData() +
+            std::size_t(y) * raster->getWrap() * raster->getPixelSize();
+        require(std::all_of(row, row + raster->getLx() * raster->getPixelSize(),
+                            [](UCHAR c) { return c == 0; }),
+                "Upstream received uninitialized source storage");
+      }
+      raster->copy(m_image->extract(TRect(2,2,2,2)),
+                   TPoint(2-int(tile.m_pos.x),2-int(tile.m_pos.y)));
+      return;
+    }
     tile.getRaster()->clear();
     tile.getRaster()->copy(m_image,
         TPoint(m_origin.x - int(tile.m_pos.x), m_origin.y - int(tile.m_pos.y)));
@@ -102,6 +117,19 @@ template <class Pixel> void testPrecision() {
   input->pixels(0)[0] = Pixel(alpha, alpha, alpha, alpha);
   output = render<Pixel>(fx, 3, 3);
   require(output->pixels(0)[0] == Pixel::Transparent, "Partial coverage key failed");
+}
+
+template <class Pixel> void testPartialSource() {
+  TRasterPT<Pixel> source(5,5);
+  source->fill(Pixel::White);
+  CelSmootherFx fx;
+  number(fx,"smoothRange")->setDefaultValue(255);
+  fx.getInputPort(0)->setFx(new Source(source,TPoint(),false,nullptr,true));
+  const auto output = render<Pixel>(fx,5,5);
+  for (int y = 0; y < 5; ++y)
+    for (int x = 0; x < 5; ++x)
+      require(output->pixels(y)[x] == (x == 2 && y == 2 ? Pixel::White : Pixel::Transparent),
+              "Partially rendered source leaked uninitialized pixels");
 }
 
 void testKernel() {
@@ -336,6 +364,7 @@ int main(int argc, char **argv) {
   try {
     require(temp.isValid(), "Temporary storage unavailable");
     testPrecision<TPixel32>(); testPrecision<TPixel64>(); testPrecision<TPixelF>();
+    testPartialSource<TPixel32>(); testPartialSource<TPixel64>(); testPartialSource<TPixelF>();
     testKernel(); testAllocationBounds(); testTilesAndDomain(); testHostTransforms();
     testPersistence(temp.filePath("smoother.fx"), false);
     testPersistence(temp.filePath("smoother-compressed.fx"), true);
