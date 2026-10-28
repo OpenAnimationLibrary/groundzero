@@ -40,6 +40,7 @@ public slots:
 
 signals:
   void statusChanged();
+  void workerStopped();
   void resultReady(const QJsonObject &response);
   void segmentReady(const QJsonObject &response);
   void preprocessReady(const QJsonObject &response);
@@ -50,6 +51,7 @@ private:
   struct Request { QString operation; QJsonObject body; qint64 bytes; };
   enum State { Stopped, Verifying, Starting, Warming, Ready, Stopping, Error };
   void setState(State state, const QString &text);
+  void stopWorker(bool notify);
   void fail(const QString &message);
   void launch(quint64 generation);
   void checkHealth(quint64 generation);

@@ -1,3 +1,4 @@
+#include "cadmiumsource.h"
 
 
 #include "filmstrip.h"
@@ -94,7 +95,7 @@ public:
 
 void changeCadmiumReferences(TXshSimpleLevel *level,
                             const std::set<TFrameId> &drawings, bool marked) {
-  if (!level || level->isReadOnly()) return;
+  if (!Cadmium::canPaintLevel(level)) return;
   const std::set<TFrameId> before = level->getCadmiumReferences();
   for (const TFrameId &fid : drawings)
     if (level->fid2index(fid) >= 0) level->setCadmiumReference(fid, marked);
@@ -1081,7 +1082,7 @@ void FilmstripFrames::paintEvent(QPaintEvent *evt) {
       mark.rect = cadmiumReferenceRect(i);
       mark.state |= sl->getCadmiumReferences().count(fids[i])
                         ? QStyle::State_On : QStyle::State_Off;
-      if (sl->isReadOnly()) mark.state &= ~QStyle::State_Enabled;
+      if (!Cadmium::canPaintLevel(sl)) mark.state &= ~QStyle::State_Enabled;
       style()->drawControl(QStyle::CE_CheckBox, &mark, &p, this);
     }
   }

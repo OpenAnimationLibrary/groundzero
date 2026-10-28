@@ -320,6 +320,10 @@ void CadmiumRuntime::launch(quint64 generation) {
 }
 
 void CadmiumRuntime::stop() {
+  stopWorker(true);
+}
+
+void CadmiumRuntime::stopWorker(bool notify) {
   ++m_generation;
   m_cancelVerification.store(true);
   m_healthTimer.stop(); m_deadline.stop(); m_idleTimer.stop();
@@ -341,10 +345,11 @@ void CadmiumRuntime::stop() {
   }
   m_listening = false;
   setState(Stopped, startupMode() == Off ? tr("Off") : tr("Stopped"));
+  if (notify) emit workerStopped();
 }
 
 void CadmiumRuntime::fail(const QString &message) {
-  stop(); setState(Error, message); emit failed(message);
+  stopWorker(false); setState(Error, message); emit failed(message);
 }
 
 void CadmiumRuntime::checkHealth(quint64 generation) {

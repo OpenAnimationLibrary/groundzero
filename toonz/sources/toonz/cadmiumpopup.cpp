@@ -1,5 +1,6 @@
 #include "cadmiumpopup.h"
 #include "cadmiumruntime.h"
+#include "cadmiumsource.h"
 #include "cadmiumcodec.h"
 #include "trop.h"
 #include "tropcm.h"
@@ -181,7 +182,7 @@ void notifyDrawings(TXshSimpleLevel *level,
     clone->setPalette(level->getPalette());
     clones[entry.first] = clone;
     if (level->fid2index(entry.first) >= 0)
-      previous[entry.first] = level->getFullsampledFrame(entry.first, ImageManager::none);
+      previous[entry.first] = Cadmium::loadDrawing(level, entry.first);
     else previous[entry.first] = TImageP();
   }
   try {
@@ -392,6 +393,15 @@ CadmiumPopup::CadmiumPopup(QWidget *parent) : QDialog(parent) {
   CadmiumRuntime *runtime = CadmiumRuntime::instance();
   connect(runtime, &CadmiumRuntime::resultReady, this, &CadmiumPopup::received);
   connect(runtime, &CadmiumRuntime::failed, this, &CadmiumPopup::failed);
+  connect(runtime, &CadmiumRuntime::workerStopped, this, [this] {
+    if (!m_generating && !m_backgroundTasks) return;
+    ++m_snapshotEpoch;
+    m_cancelled = true;
+    m_generating = false;
+    m_running = -1;
+    refresh();
+    m_status->setText(tr("The worker was unloaded. Pending processing was cancelled."));
+  });
   connect(runtime, &CadmiumRuntime::statusChanged, this, [this] {
     m_status->setText(CadmiumRuntime::instance()->statusText());
   });
@@ -405,6 +415,7 @@ bool CadmiumPopup::currentScene() const {
 void CadmiumPopup::initialize(TXshSimpleLevel *level,
                               const std::set<TFrameId> &selection) {
   m_level = level;
+  m_selectionRenumberCount = level ? level->getRenumberCount() : -1;
   ++m_snapshotEpoch;
   m_scene = TApp::instance()->getCurrentScene()->getScene();
   m_drawings.clear(); m_references.clear(); m_list->clear();
@@ -454,7 +465,7 @@ bool CadmiumPopup::snapshot(const TFrameId &fid, Cadmium::Frame &frame, QString 
   if (!currentScene() || m_level->fid2index(fid) < 0) {
     error = tr("The drawing or scene is no longer available."); return false;
   }
-  const TImageP image = m_level->getFullsampledFrame(fid, ImageManager::none);
+  const TImageP image = Cadmium::loadDrawing(m_level.getPointer(), fid);
   if (!image) { error = tr("The drawing could not be loaded."); return false; }
   if (captureOnly && TUndo::getImageMemorySize(image.getPointer()) > 128LL * 1024 * 1024) {
     error = tr("This drawing exceeds the analysis memory budget."); return false;
@@ -480,7 +491,7 @@ bool CadmiumPopup::snapshot(const TFrameId &fid, Cadmium::Frame &frame, QString 
       if (!found || !line || line->fid2index(fid) < 0) {
         error = tr("The clean-line level must contain the matching drawing ID."); return false;
       }
-      frame.lineSource = line->getFullsampledFrame(fid, ImageManager::none);
+      frame.lineSource = Cadmium::loadDrawing(line, fid);
       if (captureOnly &&
           TUndo::getImageMemorySize(image.getPointer()) +
           TUndo::getImageMemorySize(frame.lineSource.getPointer()) > 128LL * 1024 * 1024) {
@@ -502,6 +513,9 @@ bool CadmiumPopup::snapshot(const TFrameId &fid, Cadmium::Frame &frame, QString 
 
 void CadmiumPopup::generate() {
   if (m_generating || m_backgroundTasks || m_drawings.empty() || m_references.empty() || !currentScene()) return;
+  if (m_level->getRenumberCount() != m_selectionRenumberCount) {
+    QMessageBox::information(this, tr("Cadmium"), tr("The drawings were renumbered. Reopen Assisted Paint with the intended selection.")); return;
+  }
   if (CadmiumRuntime::instance()->startupMode() == CadmiumRuntime::Off) {
     QMessageBox::information(this, tr("Cadmium"), tr("Enable Cadmium in Preferences before generating paint.")); return;
   }
@@ -531,6 +545,11 @@ void CadmiumPopup::generate() {
 void CadmiumPopup::next() {
   if (!m_generating) return;
   if (m_cancelled || !currentScene()) { cancel(); return; }
+  if (m_level->getRenumberCount() != m_selectionRenumberCount) {
+    cancel();
+    m_status->setText(tr("The drawings were renumbered. Reopen Assisted Paint with the intended selection."));
+    return;
+  }
   if (++m_running >= int(m_drawings.size())) {
     m_running = -1; m_generating = false;
     m_status->setText(tr("Generation finished. Review each result before applying."));
@@ -548,7 +567,7 @@ void CadmiumPopup::next() {
   for (const Drawing &cached : m_drawings)
     held += memory(cached.target) + memory(cached.reference);
   for (const TFrameId &fid : {drawing.fid, drawing.referenceId}) {
-    const TImageP image = m_level->getFullsampledFrame(fid, ImageManager::none);
+    const TImageP image = Cadmium::loadDrawing(m_level.getPointer(), fid);
     held += std::max<qint64>(16LL * 1024 * 1024,
                             TUndo::getImageMemorySize(image.getPointer()) * 4);
     if (m_level->getType() == OVL_XSHLEVEL &&
@@ -557,7 +576,7 @@ void CadmiumPopup::next() {
       std::vector<TXshLevel *> levels;
       m_scene->getLevelSet()->listLevels(levels);
       if (line && std::find(levels.begin(), levels.end(), line) != levels.end()) {
-        const TImageP lineImage = line->getFullsampledFrame(fid, ImageManager::none);
+        const TImageP lineImage = Cadmium::loadDrawing(line, fid);
         held += TUndo::getImageMemorySize(lineImage.getPointer()) * 4;
       }
     }
@@ -567,6 +586,9 @@ void CadmiumPopup::next() {
     m_generating = false; m_running = -1;
     m_status->setText(drawing.error); refresh(); return;
   }
+  drawing.renumberCount = m_level->getRenumberCount();
+  drawing.targetBuilder = ImageManager::instance()->getBuilder(m_level->getImageId(drawing.fid));
+  drawing.referenceBuilder = ImageManager::instance()->getBuilder(m_level->getImageId(drawing.referenceId));
   if (m_level->getType() != PLI_XSHLEVEL) {
     auto *task = new CadmiumRasterTask;
     if (!snapshot(drawing.fid, task->target, error, true) ||
@@ -876,17 +898,23 @@ void CadmiumPopup::assignReference() {
 }
 
 void CadmiumPopup::apply(bool all) {
-  if (m_generating || !currentScene() || m_level->isReadOnly()) return;
+  if (m_generating || !currentScene() || !Cadmium::canPaintLevel(m_level.getPointer())) return;
   std::map<TFrameId, TImageP> before, after;
   QString error;
   std::vector<int> accepted;
   for (int i = 0; i < int(m_drawings.size()); ++i) {
     Drawing &drawing = m_drawings[i];
     if ((!all && i != m_list->currentRow()) || (all && !drawing.reviewed) || !drawing.ready || drawing.applied) continue;
-    if (m_level->isFrameReadOnly(drawing.fid) ||
+    if ((m_level->getType() != OVL_XSHLEVEL && m_level->isFrameReadOnly(drawing.fid)) ||
         m_level->getCadmiumReferences().count(drawing.fid) ||
         !m_level->getCadmiumReferences().count(drawing.referenceId)) {
       error = tr("A target became read-only or its reference assignment changed."); break;
+    }
+    if (m_level->getRenumberCount() != drawing.renumberCount ||
+        !drawing.targetBuilder || !drawing.referenceBuilder ||
+        ImageManager::instance()->getBuilder(m_level->getImageId(drawing.fid)) != drawing.targetBuilder.getPointer() ||
+        ImageManager::instance()->getBuilder(m_level->getImageId(drawing.referenceId)) != drawing.referenceBuilder.getPointer()) {
+      error = tr("A drawing was replaced or renumbered. Generate a new proposal before applying."); break;
     }
     Cadmium::Frame targetNow, referenceNow;
     auto fresh = [this, &error](const TFrameId &fid, const Cadmium::Frame &saved,
@@ -954,6 +982,7 @@ void CadmiumPopup::apply(bool all) {
                                   m_level->is16BitChannelLevel() ? "tif" : "png";
     destination->setPath(destination->getPath().withType(extension), true);
     destination->getProperties()->options() = m_level->getProperties()->options();
+    destination->getProperties()->setIsStopMotion(false);
     destination->getProperties()->setImageRes(m_level->getProperties()->getImageRes());
     destination->getProperties()->setImageDpi(m_level->getProperties()->getImageDpi());
     destination->getProperties()->setBpp(m_level->getProperties()->getBpp());

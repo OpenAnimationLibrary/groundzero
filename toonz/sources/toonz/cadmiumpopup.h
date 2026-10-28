@@ -2,6 +2,7 @@
 
 #include "cadmiumtypes.h"
 #include "toonz/txshsimplelevel.h"
+#include "toonz/imagemanager.h"
 #include <QDialog>
 #include <QJsonObject>
 #include "tfilepath.h"
@@ -29,6 +30,8 @@ private:
   struct Drawing {
     TFrameId fid, referenceId;
     Cadmium::Frame target, reference;
+    ImageBuilderP targetBuilder, referenceBuilder;
+    int renumberCount = -1;
     QVector<int> styles;
     QVector<QColor> colors;
     bool ready = false;
@@ -58,6 +61,7 @@ private:
   std::vector<Drawing> m_drawings;
   std::vector<TFrameId> m_references;
   int m_running = -1;
+  int m_selectionRenumberCount = -1;
   bool m_cancelled = false;
   bool m_generating = false;
   bool m_inspecting = false;

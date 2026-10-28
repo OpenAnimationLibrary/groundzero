@@ -185,6 +185,7 @@ endif()
 
 set(HEADERS
     cadmiumtypes.h
+    cadmiumsource.h
     ${MOC_HEADERS}
     celldata.h
     cellkeyframedata.h
@@ -927,4 +928,14 @@ if(BUILD_CADMIUM_TESTS)
     add_test(NAME cadmium_installer COMMAND cadmium_installer_test)
     set_tests_properties(cadmium_installer PROPERTIES SKIP_RETURN_CODE 77)
     add_dependencies(cadmium_tests cadmium_installer_test)
+endif()
+
+if(BUILD_CADMIUM_TESTS)
+    add_executable(cadmium_save_test tests/cadmiumsave_test.cpp)
+    target_include_directories(cadmium_save_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(cadmium_save_test PRIVATE
+        Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui
+        tnzcore tnzbase tnzext toonzlib image OpenEXR::OpenEXR)
+    add_test(NAME cadmium_save COMMAND cadmium_save_test)
+    add_dependencies(cadmium_tests cadmium_save_test)
 endif()

@@ -60,7 +60,9 @@ int main(int argc, char **argv) {
                 startMode->currentIndex() == CadmiumRuntime::Off,
             "preference changes synchronize startup without recursion");
 
-    int failures = 0, results = 0;
+    int failures = 0, results = 0, unloads = 0;
+    QObject::connect(runtime, &CadmiumRuntime::workerStopped, &app,
+                     [&unloads] { ++unloads; });
     QObject::connect(runtime, &CadmiumRuntime::failed, &app,
                      [&failures](const QString &) { ++failures; });
     QObject::connect(runtime, &CadmiumRuntime::resultReady, &app,
@@ -82,11 +84,14 @@ int main(int argc, char **argv) {
     require(executable && executable->text() == missingWorker &&
                 models && models->text() == directory.path(),
             "setup selections synchronize visible fields");
+    const int unloadsBeforeFailure = unloads;
     startMode->setCurrentIndex(CadmiumRuntime::Preload);
     require(prefMode->currentIndex() == CadmiumRuntime::Preload,
             "startup changes synchronize preferences");
     require(failures == 2 && !runtime->isReady() && !runtime->busy(),
             "missing worker is a recoverable preload failure");
+    require(unloads == unloadsBeforeFailure,
+            "worker failure must retain its error instead of becoming user cancellation");
     QSettings persisted(QStringLiteral("OpenToonz"), QStringLiteral("Cadmium"));
     require(persisted.value("startupMode").toInt() == CadmiumRuntime::Preload,
             "startup choice persists without manual file edits");
@@ -106,6 +111,8 @@ int main(int argc, char **argv) {
             "invalid mode does not replace remembered choice");
     runtime->stop();
     require(!runtime->busy() && !runtime->isReady(), "unload is safe after failed setup");
+    require(unloads == unloadsBeforeFailure + 1,
+            "explicit unloading must notify active workflow consumers");
     std::cout << "cadmiumsettings passed\n";
     return 0;
   } catch (const std::exception &error) {

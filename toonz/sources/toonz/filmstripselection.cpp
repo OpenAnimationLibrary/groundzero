@@ -1,3 +1,4 @@
+#include "cadmiumsource.h"
 
 
 #include "filmstripselection.h"
@@ -48,7 +49,7 @@ TFilmstripSelection::~TFilmstripSelection() {}
 
 void TFilmstripSelection::enableCommands() {
   TXshSimpleLevel *cadmiumLevel = m_cadmiumStrip ? m_cadmiumStrip->getLevel() : nullptr;
-  if (cadmiumLevel && !cadmiumLevel->isReadOnly() && !isEmpty() &&
+  if (Cadmium::canPaintLevel(cadmiumLevel) && !isEmpty() &&
       (cadmiumLevel->getType() == PLI_XSHLEVEL ||
        cadmiumLevel->getType() == TZP_XSHLEVEL ||
        cadmiumLevel->getType() == OVL_XSHLEVEL)) {
