@@ -376,7 +376,7 @@ bool renderRadial(const CelMotion::Image &source, const CelMotion::Image *noiseI
           if (distance > allowed) continue;
           const double fadeRange = std::max(1.0, std::sqrt(double(component.count)) *
                                                    (0.05 + 0.45 * settings.sizeVariation));
-          const double edge = std::isfinite(edges.distance[index])
+          const double edge = !edges.distance.empty() && std::isfinite(edges.distance[index])
                                   ? std::max(0.0, std::min(1.0, (edges.distance[index] - 0.5) / fadeRange))
                                   : 1.0;
           const double weight = (1.0 - fade * (1.0 - edge) * (1.0 - fraction)) / settings.quality;
@@ -484,10 +484,8 @@ void CelRadialBlurFx::doCompute(TTile &tile, double frame,
     if (!CelDistance::transform(background, source.width, source.height,
                                 CelDistance::Metric::Euclidean, edges,
                                 settings.m_isCanceled, !params.repeat)) return;
-  } else {
-    // No fade consults edge distances, so avoid a full distance transform.
-    edges.distance.assign(shapes.labels.size(), std::numeric_limits<double>::infinity());
   }
+  // An empty field means neither fade requires a distance transform.
   bool completed = false;
   if (TRaster32P out = tile.getRaster())
     completed = renderRadial<TPixel32>(source, noisePtr, shapes, edges, params, out, tile.m_pos, settings.m_isCanceled);
