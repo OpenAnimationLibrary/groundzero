@@ -73,6 +73,7 @@ TEnv::DoubleVar V_BrushSmooth("InknpaintBrushSmooth", 0.5);
 TEnv::IntVar V_BrushDrawOrder("InknpaintVectorDrawOrder", 2);
 TEnv::IntVar V_BrushBreakSharpAngles("InknpaintBrushBreakSharpAngles", 0);
 TEnv::IntVar V_BrushPressureSensitivity("InknpaintBrushPressureSensitivity", 1);
+TEnv::IntVar V_VectorBrushFluidWidth("VectorBrushFluidWidth", 0);
 TEnv::IntVar V_VectorBrushFrameRange("VectorBrushFrameRange", 0);
 TEnv::IntVar V_VectorBrushSnap("VectorBrushSnap", 0);
 TEnv::IntVar V_VectorBrushSnapSensitivity("VectorBrushSnapSensitivity", 0);
@@ -715,6 +716,7 @@ ToonzVectorBrushTool::ToonzVectorBrushTool(std::string name, int targetType)
     , m_preset("Preset:")
     , m_breakAngles("Break", true)
     , m_pressure("Pressure", true)
+    , m_fluidWidth("Fluid Width:", 0, 100, 0)
     , m_snap("Snap", false)
     , m_frameRange("Range:")
     , m_snapSensitivity("Sensitivity:")
@@ -754,6 +756,7 @@ ToonzVectorBrushTool::ToonzVectorBrushTool(std::string name, int targetType)
   m_prop[0].bind(m_drawOrder);
   m_prop[0].bind(m_breakAngles);
   m_prop[0].bind(m_pressure);
+  m_prop[0].bind(m_fluidWidth);
 
   m_drawOrder.addValue(L"Over All");
   m_drawOrder.addValue(L"Under All");
@@ -862,6 +865,7 @@ void ToonzVectorBrushTool::updateTranslation() {
   m_preset.setItemUIName(CUSTOM_WSTR, tr("<custom>"));
   m_breakAngles.setQStringName(tr("Break"));
   m_pressure.setQStringName(tr("Pressure"));
+  m_fluidWidth.setQStringName(tr("Fluid Width:"));
   m_capStyle.setQStringName(tr("Cap"));
   m_joinStyle.setQStringName(tr("Join"));
   m_miterJoinLimit.setQStringName(tr("Miter:"));
@@ -1336,19 +1340,30 @@ void ToonzVectorBrushTool::inputPaintTracks(const TTrackList &tracks) {
   TRectD invalidateRect;
 
   size_t count = m_isPath ? 1 : tracks.size();
+  // Fluid Width: the speed history is kept per track, point by point, in step
+  // with the stroke generators (a new stroke starts with empty m_tracks).
+  const bool fluid = m_fluidActive && !m_isPath;
+  if (m_tracks.empty()) m_fluidFilters.clear();
   m_tracks.resize(count);
+  if (fluid) m_fluidFilters.resize(count);
+  const double fluidUnit = m_pixelSize > 1e-9 ? m_pixelSize : 1.0;
   for(size_t i = 0; i < count; ++i) {
     const TTrack &track = *tracks[i];
     StrokeGenerator &gen = m_tracks[i];
     
     while(track.pointsRemoved) {
       gen.pop();
+      if (fluid) m_fluidFilters[i].pop();
       --track.pointsRemoved;
     }
     
     while(track.pointsAdded) {
       const TTrackPoint &p = track.current();
       double t = computeThickness(p.pressure, m_thickness, m_pressure.getValue(), m_isPath);
+      // thinner where the pen moves fast; speed is measured in screen pixels
+      if (fluid)
+        t *=
+            m_fluidFilters[i].push(p.time, p.length / fluidUnit, m_fluidParams);
       gen.add(TThickPoint(p.position, t * Stage::inch / m_cameraDpi), 0);
       --track.pointsAdded;
     }
@@ -1384,6 +1399,8 @@ void ToonzVectorBrushTool::updateModifiers() {
   m_cameraDpi = getApplication()->getCurrentScene()->getScene()->getCurrentCamera()->getDpi().x;
   int smoothRadius = (int)round(m_smooth.getValue());
   m_modifierAssistants->magnetism = m_assistants.getValue() ? 1 : 0;
+  m_fluidParams                   = FluidWidth::Params(m_fluidWidth.getValue());
+  m_fluidActive                   = m_fluidWidth.getValue() > 0;
   m_modifierSegmentation->setStep(TPointD(m_pixelSize, m_pixelSize));
   m_modifierSmoothSegmentation->setStep(TPointD(2*m_pixelSize, 2*m_pixelSize));
   m_modifierSimplify->step = 2*m_pixelSize;
@@ -1443,6 +1460,8 @@ void ToonzVectorBrushTool::handleMouseEvent(MouseEventType type,
   if (shift && !m_autoClose.getValue() && type == ME_DOWN &&
       e.button() == Qt::LeftButton && !m_active) {
     m_modifierAssistants->magnetism = 0;
+    // A straight line has only its two end points, so it keeps one width.
+    m_fluidActive = false;
     m_inputmanager.clearModifiers();
     m_inputmanager.addModifier(TInputModifierP(m_modifierLine.getPointer()));
     m_inputmanager.addModifier(TInputModifierP(m_modifierAssistants.getPointer()));
@@ -1956,6 +1975,7 @@ bool ToonzVectorBrushTool::onPropertyChanged(std::string propertyName) {
        propertyName == m_drawOrder.getName() ||
        propertyName == m_breakAngles.getName() ||
        propertyName == m_pressure.getName() ||
+       propertyName == m_fluidWidth.getName() ||
        propertyName == m_capStyle.getName() ||
        propertyName == m_joinStyle.getName() ||
        propertyName == m_miterJoinLimit.getName())) {
@@ -1973,6 +1993,7 @@ bool ToonzVectorBrushTool::onPropertyChanged(std::string propertyName) {
     V_BrushDrawOrder           = m_drawOrder.getIndex();
     V_BrushBreakSharpAngles    = m_breakAngles.getValue();
     V_BrushPressureSensitivity = m_pressure.getValue();
+    V_VectorBrushFluidWidth    = m_fluidWidth.getValue();
     V_VectorCapStyle           = m_capStyle.getIndex();
     V_VectorJoinStyle          = m_joinStyle.getIndex();
     V_VectorMiterValue         = m_miterJoinLimit.getValue();
@@ -2067,6 +2088,7 @@ void ToonzVectorBrushTool::loadPreset() {
     m_drawOrder.setIndex(preset.m_drawOrder);
     m_breakAngles.setValue(preset.m_breakAngles);
     m_pressure.setValue(preset.m_pressure);
+    m_fluidWidth.setValue(preset.m_fluidWidth, true);
     m_capStyle.setIndex(preset.m_cap);
     m_joinStyle.setIndex(preset.m_join);
     m_miterJoinLimit.setValue(preset.m_miter);
@@ -2258,6 +2280,7 @@ void ToonzVectorBrushTool::addPreset(QString name) {
   preset.m_drawOrder   = m_drawOrder.getIndex();
   preset.m_breakAngles = m_breakAngles.getValue();
   preset.m_pressure    = m_pressure.getValue();
+  preset.m_fluidWidth  = m_fluidWidth.getValue();
   preset.m_cap         = m_capStyle.getIndex();
   preset.m_join        = m_joinStyle.getIndex();
   preset.m_miter       = m_miterJoinLimit.getValue();
@@ -2370,6 +2393,7 @@ void ToonzVectorBrushTool::loadLastBrush() {
   m_breakAngles.setValue(V_BrushBreakSharpAngles ? 1 : 0);
   m_accuracy.setValue(V_BrushAccuracy);
   m_pressure.setValue(V_BrushPressureSensitivity ? 1 : 0);
+  m_fluidWidth.setValue(V_VectorBrushFluidWidth, true);
   m_smooth.setValue(V_BrushSmooth);
   m_drawOrder.setIndex(V_BrushDrawOrder);
 
@@ -2427,6 +2451,7 @@ VectorBrushData::VectorBrushData()
     , m_cap(0)
     , m_join(0)
     , m_miter(0)
+    , m_fluidWidth(0)
     , m_styleInfoVersion(0)
     , m_hasVectorStyle(false)
     , m_vectorStyleTagId(0)
@@ -2459,6 +2484,7 @@ VectorBrushData::VectorBrushData(const std::wstring &name)
     , m_cap(0)
     , m_join(0)
     , m_miter(0)
+    , m_fluidWidth(0)
     , m_styleInfoVersion(0)
     , m_hasVectorStyle(false)
     , m_vectorStyleTagId(0)
@@ -2510,6 +2536,13 @@ void VectorBrushData::saveData(TOStream &os) {
   os.openChild("Miter");
   os << m_miter;
   os.closeChild();
+  // Only written when used: presets without Fluid Width stay as they were
+  // (and builds that do not know the tag skip it).
+  if (m_fluidWidth > 0) {
+    os.openChild("Fluid_Width");
+    os << m_fluidWidth;
+    os.closeChild();
+  }
   // Style snapshot (version 2 = generic)
   os.openChild("StyleInfoVersion");
   os << 2;
@@ -2586,6 +2619,10 @@ void VectorBrushData::loadData(TIStream &is) {
   std::string tagName;
   int val;
 
+  // The preset manager reads every preset into the same object, and the tag
+  // below is absent when Fluid Width is off, so start from the default.
+  m_fluidWidth = 0;
+
   while (is.matchTag(tagName)) {
     if (tagName == "Name")
       is >> m_name, is.matchEndTag();
@@ -2607,6 +2644,8 @@ void VectorBrushData::loadData(TIStream &is) {
       is >> m_join, is.matchEndTag();
     else if (tagName == "Miter")
       is >> m_miter, is.matchEndTag();
+    else if (tagName == "Fluid_Width")
+      is >> m_fluidWidth, is.matchEndTag();
     // Style snapshot fields
     else if (tagName == "StyleInfoVersion")
       is >> m_styleInfoVersion, is.matchEndTag();

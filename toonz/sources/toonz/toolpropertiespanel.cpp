@@ -1057,6 +1057,10 @@ void ToolPropertiesPanel::createBrushProperties() {
     createAssistantsProperty();
   }
 
+  // === VECTOR: Fluid Width (thinner where the pen is fast; 0 = off) ===
+  // No-op for the other brushes, which have no such property.
+  createIntSliderByName(tr("Fluid Width"), "Fluid Width:");
+
   // === VECTOR: Frame Range (Off/Linear/In/Out/In&Out) ===
   createFrameRangeProperty();
 

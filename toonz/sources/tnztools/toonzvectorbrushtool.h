@@ -16,6 +16,7 @@
 #include <tools/cursors.h>
 
 #include <tools/inputmanager.h>
+#include <tools/fluidwidth.h>
 #include <tools/modifiers/modifierline.h>
 #include <tools/modifiers/modifiertangents.h>
 #include <tools/modifiers/modifierassistants.h>
@@ -57,7 +58,10 @@ struct VectorBrushData final : public TPersist {
   int m_drawOrder;
   bool m_breakAngles, m_pressure;
   int m_cap, m_join, m_miter;
-  
+  // Fluid Width (speed sensitive width), 0 = off. Only saved when not 0, so
+  // presets that do not use it are written exactly as before.
+  int m_fluidWidth;
+
   // Style snapshot information (for strict preset restoration)
   int m_styleInfoVersion;       // 0 = old, 1 = full snapshot
   
@@ -218,6 +222,7 @@ protected:
   TEnumProperty m_preset;
   TBoolProperty m_breakAngles;
   TBoolProperty m_pressure;
+  TIntProperty m_fluidWidth;
   TBoolProperty m_snap;
   TEnumProperty m_frameRange;
   TEnumProperty m_snapSensitivity;
@@ -233,6 +238,13 @@ protected:
   bool autoCloseEnabled() const {
     return m_autoClose.getValue() && !m_bypassAutoClose;
   }
+
+  // Fluid Width: speed sensitive thickness. m_fluidActive is decided when a
+  // stroke is about to start (see updateModifiers); the filters keep the speed
+  // history of each track of the stroke being drawn, in step with m_tracks.
+  FluidWidth::Params m_fluidParams;
+  bool m_fluidActive = false;
+  std::vector<FluidWidth::Filter> m_fluidFilters;
 
   TInputManager m_inputmanager;
   TSmartPointerT<TModifierLine> m_modifierLine;
