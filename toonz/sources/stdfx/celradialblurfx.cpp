@@ -477,12 +477,17 @@ void CelRadialBlurFx::doCompute(TTile &tile, double frame,
   }
   CelMotion::Shapes shapes;
   if (!CelMotion::analyze(source, shapes, settings.m_isCanceled)) return;
-  std::vector<std::uint8_t> background(shapes.labels.size());
-  for (size_t i = 0; i < background.size(); ++i) background[i] = shapes.labels[i] == 0;
   CelDistance::Field edges;
-  if (!CelDistance::transform(background, source.width, source.height,
-                              CelDistance::Metric::Euclidean, edges,
-                              settings.m_isCanceled, !params.repeat)) return;
+  if (params.outerFade > 0 || params.innerFade > 0) {
+    std::vector<std::uint8_t> background(shapes.labels.size());
+    for (size_t i = 0; i < background.size(); ++i) background[i] = shapes.labels[i] == 0;
+    if (!CelDistance::transform(background, source.width, source.height,
+                                CelDistance::Metric::Euclidean, edges,
+                                settings.m_isCanceled, !params.repeat)) return;
+  } else {
+    // No fade consults edge distances, so avoid a full distance transform.
+    edges.distance.assign(shapes.labels.size(), std::numeric_limits<double>::infinity());
+  }
   bool completed = false;
   if (TRaster32P out = tile.getRaster())
     completed = renderRadial<TPixel32>(source, noisePtr, shapes, edges, params, out, tile.m_pos, settings.m_isCanceled);
