@@ -380,6 +380,9 @@ QJSValue Level::setFrame(const QJSValue &fidArg, const QJSValue &imageArg) {
         tr("cannot insert a %1 image to a %2 level").arg(imgType, getType()));
   }
 
+  // A failed load() leaves the type but no level
+  if (!m_sl) return throwError(tr("the level is not loaded"));
+
   if (m_sl->getFrameCount() == 0) {
     m_sl->setPalette(img->getImg()->getPalette());
   }

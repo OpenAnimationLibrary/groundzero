@@ -205,12 +205,14 @@ ScriptEngine::~ScriptEngine() {
   // stop the running script (if any), then the thread: when it ends it
   // destroys the engine. The script could be waiting for a call queued to
   // this thread (see runOnMainThread()): keep delivering them, while
-  // m_stopping makes them return without running.
+  // m_stopping makes them return without running. It could also be waiting
+  // for a render, which reports to this thread through other objects: the
+  // queued calls of all the objects are delivered.
   m_executor->m_stopping = true;
   interrupt();
   m_executor->m_thread.quit();
   while (!m_executor->m_thread.wait(20))
-    QCoreApplication::sendPostedEvents(this, QEvent::MetaCall);
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::MetaCall);
   delete m_executor;
 }
 

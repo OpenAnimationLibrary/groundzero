@@ -224,6 +224,9 @@ QJSValue Scene::insertColumn(int col) {
 }
 
 QJSValue Scene::deleteColumn(int col) {
+  // removeColumn() does not check the index: a bad one corrupts the memory
+  if (col < 0 || col >= m_scene->getXsheet()->getColumnCount())
+    return throwError(tr("Bad column index (%1)").arg(col));
   m_scene->getXsheet()->removeColumn(col);
   return self();
 }
