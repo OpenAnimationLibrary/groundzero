@@ -123,8 +123,8 @@ class CelSmoother2Fx final : public TStandardRasterFx {
 
 public:
   CelSmoother2Fx()
-      : m_useKey(0), m_invertKey(0), m_range(2), m_strength(100), m_extra(0),
-        m_version(1), m_gammaMode(0), m_gamma(2.4), m_gammaCount(1),
+      : m_useKey(0.0), m_invertKey(0.0), m_range(2.0), m_strength(100.0), m_extra(0.0),
+        m_version(1.0), m_gammaMode(0.0), m_gamma(2.4), m_gammaCount(1.0),
         m_key(TPixel32::White) {
     addInputPort("Source", m_source);
     bindParam(this, "useColorKey", m_useKey);
