@@ -13,6 +13,7 @@
 #include "tvectorrenderdata.h"
 #include "tstrokedeformations.h"
 #include "tmathutil.h"
+#include "tenv.h"
 
 // Toonz includes
 #include "toonz/tobjecthandle.h"
@@ -23,6 +24,7 @@
 #include "tools/tool.h"
 #include "tools/toolutils.h"
 #include "tools/cursors.h"
+#include "tools/widthprofile.h"
 
 // Qt includes
 #include <QCoreApplication>  // For Qt translation support
@@ -36,8 +38,11 @@
 #define THICKEN_MODE L"Thicken Brush"
 #define THIN_MODE L"Thin Brush"
 #define OPACITY_MODE L"Opacity Brush"
+#define WIDTH_MODE L"Width"
 
 using namespace ToolUtils;
+
+TEnv::IntVar PumpToolWidthFalloff("PumpToolWidthFalloff", 30);
 
 namespace {
 
@@ -134,6 +139,7 @@ class PumpTool final : public TTool {
   TEnumProperty m_mode;  //!< Pump, or a brush that thickens or thins lines
   TDoubleProperty m_strength;  //!< Thickness change of the brush modes
   TIntProperty m_opacity;      //!< Target stroke opacity (%) of Opacity Brush
+  TIntProperty m_widthFalloff;  //!< Width mode: reach of a change, in pixels
   TPropertyGroup m_prop;
 
   // Brush modes: strokes touched during the current drag, by index, with the
@@ -143,6 +149,22 @@ class PumpTool final : public TTool {
   std::map<int, UndoModifyStroke *> m_brushUndos;
   std::map<int, TStroke *> m_brushOldStrokes;
   std::map<int, double> m_brushOldOpacity;  //!< Opacity Brush: before the drag
+
+  // Width mode: the stroke picked by the press and the state of its drag. The
+  // control points of the stroke are changed while dragging; the undo records
+  // the stroke as it was at the press.
+  bool m_widthDragging;  //!< A press picked a stroke, the button is down
+  bool m_widthPrepared;  //!< The drag started: points added, weights computed
+  int m_widthStrokeIndex;
+  double m_widthPickW;  //!< Parameter of the stroke at the press
+  TPointD m_widthDownPos, m_widthLastPos;
+  TThickPoint m_widthCenter;  //!< Widened point of the stroke; thick is the
+                              //!< width set by the drag
+  int m_widthCenterCp;        //!< Control point at the widened point
+  std::vector<double> m_widthBase;     //!< Thickness of each point at the press
+  std::vector<double> m_widthWeights;  //!< Share of the change of each point
+  UndoModifyStroke *m_widthUndo;
+  TStroke *m_widthOldStroke;
 
 public:
   PumpTool()
@@ -164,7 +186,15 @@ public:
       , m_mode("Mode:")
       , m_strength("Strength:", 1, 100, 20)
       , m_opacity("Opacity:", 0, 100, 50)
+      , m_widthFalloff("Width Falloff:", 1, 100, 30)
       , m_brushing(false)
+      , m_widthDragging(false)
+      , m_widthPrepared(false)
+      , m_widthStrokeIndex(-1)
+      , m_widthPickW(0)
+      , m_widthCenterCp(0)
+      , m_widthUndo(0)
+      , m_widthOldStroke(0)
       , m_enabled(false) {
     bind(TTool::VectorImage);
 
@@ -174,12 +204,14 @@ public:
     m_mode.addValue(THICKEN_MODE);
     m_mode.addValue(THIN_MODE);
     m_mode.addValue(OPACITY_MODE);
+    m_mode.addValue(WIDTH_MODE);
 
     m_prop.bind(m_mode);
     m_prop.bind(m_toolSize);
     m_prop.bind(m_accuracy);
     m_prop.bind(m_strength);
     m_prop.bind(m_opacity);
+    m_prop.bind(m_widthFalloff);
   }
 
   ToolType getToolType() const override { return TTool::LevelWriteTool; }
@@ -194,10 +226,14 @@ public:
     m_mode.setItemUIName(THICKEN_MODE, tr("Thicken Brush"));
     m_mode.setItemUIName(THIN_MODE, tr("Thin Brush"));
     m_mode.setItemUIName(OPACITY_MODE, tr("Opacity Brush"));
+    m_mode.setItemUIName(WIDTH_MODE, tr("Width"));
     m_strength.setQStringName(tr("Strength:"));
     m_opacity.setQStringName(tr("Opacity:"));
+    m_widthFalloff.setQStringName(tr("Width Falloff:"));
   }
 
+  void onActivate() override;
+  bool onPropertyChanged(std::string propertyName) override;
   void onEnter() override;
   void onLeave() override;
 
@@ -228,18 +264,43 @@ private:
                                 UINT &strokeIndex, double &dist2,
                                 bool onlyInCurrentGroup = false);
 
-  bool isBrushMode() const { return m_mode.getValue() != PUMP_MODE; }
+  bool isWidthMode() const { return m_mode.getValue() == WIDTH_MODE; }
+  bool isBrushMode() const {
+    return m_mode.getValue() != PUMP_MODE && m_mode.getValue() != WIDTH_MODE;
+  }
   double brushRadius() const { return m_toolSize.getValue() * getPixelSize(); }
   void brushAt(const TPointD &pos, double moved);
   void endBrush(bool accept);
   void opacityBrushAt(const TPointD &pos, double moved);
   void endOpacityBrush(bool accept);
 
+  bool pickWidthStroke(const TPointD &pos, int &index, double &w);
+  void widthDown(const TPointD &pos);
+  void widthDrag(const TPointD &pos);
+  void endWidth();
+  void prepareWidth(TStroke *stroke);
+
 } PumpToolInstance;
 
 //*****************************************************************************
 //    PumpTool implementation
 //*****************************************************************************
+
+void PumpTool::onActivate() {
+  m_widthFalloff.setValue((int)PumpToolWidthFalloff, true);
+}
+
+//----------------------------------------------------------------------
+
+bool PumpTool::onPropertyChanged(std::string propertyName) {
+  if (propertyName == m_widthFalloff.getName()) {
+    PumpToolWidthFalloff = m_widthFalloff.getValue();
+    return true;
+  }
+  return false;
+}
+
+//----------------------------------------------------------------------
 
 void PumpTool::onEnter() {
   m_draw = true;
@@ -257,6 +318,22 @@ void PumpTool::onEnter() {
 
 void PumpTool::draw() {
   if (!m_draw || !m_enabled) return;
+
+  if (isWidthMode()) {
+    glColor3d(1.0, 0.0, 1.0);
+    if (m_widthDragging) {
+      // The circle is the new width at the widened point; the pointer is on it
+      if (m_widthPrepared) {
+        tglDrawCircle(m_widthCenter, m_widthCenter.thick);
+        tglDrawSegment(TPointD(m_widthCenter.x, m_widthCenter.y),
+                       m_widthLastPos);
+      }
+    } else if (m_cursorEnabled) {
+      if (m_cursor.thick > 0) tglDrawCircle(m_cursor, m_cursor.thick);
+      tglDrawCircle(m_cursor, m_cursor.thick + 4 * getPixelSize());
+    }
+    return;
+  }
 
   if (isBrushMode()) {
     if (m_cursorEnabled) {
@@ -387,6 +464,11 @@ void PumpTool::leftButtonDown(const TPointD &pos, const TMouseEvent &e) {
 
   if (m_active || !m_enabled) return;
 
+  if (isWidthMode()) {
+    if (!m_widthDragging) widthDown(pos);
+    return;
+  }
+
   if (isBrushMode()) {
     if (!(TVectorImageP)getImage(true)) return;
     m_brushing     = true;
@@ -475,6 +557,11 @@ void PumpTool::leftButtonDrag(const TPointD &pos, const TMouseEvent &e) {
     return;
   }
 
+  if (m_widthDragging) {
+    widthDrag(pos);
+    return;
+  }
+
   if (!m_active || !m_enabled) return;
 
   TVectorImageP vi(getImage(true));
@@ -535,6 +622,11 @@ void PumpTool::leftButtonDrag(const TPointD &pos, const TMouseEvent &e) {
 void PumpTool::leftButtonUp(const TPointD &pos, const TMouseEvent &e) {
   if (m_brushing) {
     endBrush(true);
+    return;
+  }
+
+  if (m_widthDragging) {
+    endWidth();
     return;
   }
 
@@ -617,7 +709,27 @@ void PumpTool::invalidateCursorArea() {
 //----------------------------------------------------------------------
 
 void PumpTool::mouseMove(const TPointD &pos, const TMouseEvent &e) {
-  if (m_active || !m_enabled) return;
+  if (m_active || !m_enabled || m_widthDragging) return;
+
+  if (isWidthMode()) {
+    // Cursor preview updates on 3-pixel steps
+    if (tdistance2(pos, m_oldPoint) < 9.0 * sq(getPixelSize())) return;
+    m_oldPoint      = pos;
+    m_draw          = true;
+    m_cursorEnabled = false;
+
+    int index;
+    double w;
+    if (pickWidthStroke(pos, index, w)) {
+      TVectorImageP vi(getImage(false));
+      if (vi) {
+        m_cursor        = vi->getStroke(index)->getThickPoint(w);
+        m_cursorEnabled = true;
+      }
+    }
+    invalidate();
+    return;
+  }
 
   if (isBrushMode()) {
     m_draw          = true;
@@ -670,6 +782,7 @@ bool PumpTool::moveCursor(const TPointD &pos) {
 void PumpTool::onDeactivate() {
   m_draw = false;
   if (m_brushing) endBrush(true);
+  if (m_widthDragging) endWidth();
   if (m_active) {
     m_active = false;
     TVectorImageP vi(getImage(true));
@@ -709,6 +822,237 @@ void PumpTool::onLeave() {
 //*****************************************************************************
 //    PumpTool privates
 //*****************************************************************************
+
+//! Width mode: the stroke whose outline is nearest to \p pos, if it is within
+//! a few pixels of it. Returns its index and the parameter of the nearest
+//! point of its center line. Strokes outside the entered group and strokes
+//! without thickness (hidden by the renderer) are not picked; where strokes
+//! overlap, the one drawn on top wins.
+bool PumpTool::pickWidthStroke(const TPointD &pos, int &index, double &w) {
+  TVectorImageP vi(getImage(false));
+  if (!vi) return false;
+
+  const double tolerance = 8.0 * getPixelSize();
+  double best            = tolerance;
+  bool found             = false;
+
+  for (UINT i = 0; i < vi->getStrokeCount(); ++i) {
+    if (!vi->inCurrentGroup(i)) continue;
+    TStroke *stroke = vi->getStroke(i);
+    if (!stroke->getBBox().enlarge(tolerance).contains(pos)) continue;
+    if (isZeroThick(stroke)) continue;
+
+    double nearestW = stroke->getW(pos);
+    TThickPoint c   = stroke->getThickPoint(nearestW);
+    // Distance to the outline: inside the stroke counts as 0
+    double dist = std::max(0.0, tdistance(pos, TPointD(c.x, c.y)) - c.thick);
+    if (dist <= best) {
+      best  = dist;
+      index = (int)i;
+      w     = nearestW;
+      found = true;
+    }
+  }
+  return found;
+}
+
+//----------------------------------------------------------------------
+
+//! Width mode, button press: picks the stroke to be widened. Nothing is
+//! changed until the pointer moves.
+void PumpTool::widthDown(const TPointD &pos) {
+  TVectorImageP vi(getImage(true));
+  if (!vi) return;
+
+  QMutexLocker lock(vi->getMutex());
+
+  TXshSimpleLevel *sl =
+      TTool::getApplication()->getCurrentLevel()->getSimpleLevel();
+  if (!sl) return;
+
+  int index;
+  double w;
+  if (!pickWidthStroke(pos, index, w)) return;
+
+  delete m_widthUndo;
+  delete m_widthOldStroke;
+
+  TStroke *stroke    = vi->getStroke(index);
+  m_widthStrokeIndex = index;
+  m_widthPickW       = w;
+  m_widthDownPos     = pos;
+  m_widthLastPos     = pos;
+  m_widthCenter      = stroke->getThickPoint(w);
+  m_widthPrepared    = false;
+  m_widthUndo        = new UndoModifyStroke(sl, getCurrentFid(), index);
+  m_widthOldStroke   = new TStroke(*stroke);
+  m_widthDragging    = true;
+  m_widthBase.clear();
+  m_widthWeights.clear();
+
+  invalidate();
+}
+
+//----------------------------------------------------------------------
+
+//! Width mode, first move: makes the stroke ready for the drag. A control
+//! point is added at the picked point unless there is one within two pixels
+//! (adding a point does not change the shape). The thickness change fades out
+//! over the falloff distance on both sides; where no control point lies at
+//! that distance, one is added so that the fade ends on a control point and
+//! no spike appears. The thickness of every point at this moment and its share
+//! of the change are kept for the next moves.
+void PumpTool::prepareWidth(TStroke *stroke) {
+  const double pixel = getPixelSize();
+  const double snap  = 2.0 * pixel;
+  double radius      = std::max(1, m_widthFalloff.getValue()) * pixel;
+
+  // The on-curve control point nearest, along the stroke, to the length s
+  auto nearestOnCurve = [stroke](double s, double &dist) {
+    int best = 0;
+    dist     = (std::numeric_limits<double>::max)();
+    for (int i = 0; i < stroke->getControlPointCount(); i += 2) {
+      double d = std::abs(stroke->getLengthAtControlPoint(i) - s);
+      if (d < dist) {
+        dist = d;
+        best = i;
+      }
+    }
+    return best;
+  };
+
+  const bool closed = stroke->isSelfLoop();
+
+  // The widened point: an existing control point close enough, or a new one
+  double s0 = stroke->getLength(m_widthPickW);
+  double dist;
+  int nearest = nearestOnCurve(s0, dist);
+  if (dist > snap) {
+    stroke->insertControlPoints(m_widthPickW);
+    s0 = stroke->getLength(m_widthPickW);
+  } else
+    s0 = stroke->getLengthAtControlPoint(nearest);
+
+  // Where the fade ends, on each side
+  double total = stroke->getLength();
+  if (closed) radius = std::min(radius, 0.5 * total);
+  double ends[2] = {s0 - radius, s0 + radius};
+  for (int side = 0; side < 2; ++side) {
+    double s = ends[side];
+    if (closed) {
+      if (s < 0.0) s += total;
+      if (s > total) s -= total;
+    }
+    if (s <= 0.0 || s >= total) continue;
+    nearestOnCurve(s, dist);
+    if (dist > snap)
+      stroke->insertControlPoints(stroke->getParameterAtLength(s));
+  }
+
+  // Thickness and length of every control point, then the share of each
+  const int count = stroke->getControlPointCount();
+  std::vector<double> lengths(count);
+  m_widthBase.resize(count);
+  for (int i = 0; i < count; ++i) {
+    lengths[i]     = stroke->getLengthAtControlPoint(i);
+    m_widthBase[i] = stroke->getControlPoint(i).thick;
+  }
+
+  int center = 0;
+  dist       = (std::numeric_limits<double>::max)();
+  for (int i = 0; i < count; i += 2) {
+    double d = std::abs(lengths[i] - s0);
+    if (d < dist) {
+      dist   = d;
+      center = i;
+    }
+  }
+  m_widthCenterCp = center;
+  m_widthCenter   = stroke->getControlPoint(center);
+  m_widthWeights  = WidthProfile::falloffWeights(lengths, lengths[center],
+                                                 radius, closed, lengths.back());
+}
+
+//----------------------------------------------------------------------
+
+//! Width mode, move: the half thickness at the widened point becomes the
+//! distance between the pointer and the center of the stroke there (so
+//! the outline follows the pointer), and the points around it follow by their
+//! share of the change.
+void PumpTool::widthDrag(const TPointD &pos) {
+  TVectorImageP vi(getImage(true));
+  if (!vi || m_widthStrokeIndex < 0 ||
+      m_widthStrokeIndex >= (int)vi->getStrokeCount())
+    return;
+
+  QMutexLocker lock(vi->getMutex());
+  TStroke *stroke = vi->getStroke(m_widthStrokeIndex);
+  m_widthLastPos  = pos;
+
+  if (!m_widthPrepared) {
+    // A click or a tremor does not change the stroke
+    if (tdistance(pos, m_widthDownPos) < 2.0 * getPixelSize()) return;
+    prepareWidth(stroke);
+    m_widthPrepared = true;
+  }
+
+  const int count = stroke->getControlPointCount();
+  if ((int)m_widthBase.size() != count || (int)m_widthWeights.size() != count)
+    return;
+
+  const double target = WidthProfile::thicknessFromDistance(
+      tdistance(pos, TPointD(m_widthCenter.x, m_widthCenter.y)));
+  const double delta = target - m_widthBase[m_widthCenterCp];
+
+  for (int i = 0; i < count; ++i) {
+    double weight  = m_widthWeights[i];
+    double thick   = weight > 0.0 ? WidthProfile::blendThickness(m_widthBase[i],
+                                                                 delta, weight)
+                                  : m_widthBase[i];
+    TThickPoint cp = stroke->getControlPoint(i);
+    if (thick != cp.thick)
+      stroke->setControlPoint(i, TThickPoint(cp.x, cp.y, thick));
+  }
+  stroke->invalidate();
+
+  m_widthCenter.thick = target;
+  invalidate();
+}
+
+//----------------------------------------------------------------------
+
+//! Width mode, button release: one undo for the whole drag. A press that
+//! did not start a drag leaves the stroke untouched.
+void PumpTool::endWidth() {
+  m_widthDragging = false;
+
+  TVectorImageP vi(getImage(true));
+  if (m_widthPrepared && vi && m_widthUndo && m_widthOldStroke &&
+      m_widthStrokeIndex >= 0 &&
+      m_widthStrokeIndex < (int)vi->getStrokeCount()) {
+    TUndoManager::manager()->add(m_widthUndo);  // records the stroke now
+    m_widthUndo = 0;
+
+    {
+      QMutexLocker lock(vi->getMutex());
+      vi->notifyChangedStrokes(m_widthStrokeIndex, m_widthOldStroke);
+    }
+    notifyImageChanged();
+  }
+
+  delete m_widthUndo;
+  m_widthUndo = 0;
+  delete m_widthOldStroke;
+  m_widthOldStroke   = 0;
+  m_widthPrepared    = false;
+  m_widthStrokeIndex = -1;
+  m_widthBase.clear();
+  m_widthWeights.clear();
+
+  invalidate();
+}
+
+//----------------------------------------------------------------------
 
 //! Thickens or thins the control points within the brush radius of every
 //! stroke of the current image, by an amount proportional to the distance

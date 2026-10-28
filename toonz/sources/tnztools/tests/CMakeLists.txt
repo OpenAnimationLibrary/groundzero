@@ -31,6 +31,10 @@ add_executable(vectoralignment_test vectoralignment_test.cpp)
 target_include_directories(vectoralignment_test PRIVATE ../../include)
 add_test(NAME vectoralignment COMMAND vectoralignment_test)
 
+add_executable(widthprofile_test widthprofile_test.cpp)
+target_include_directories(widthprofile_test PRIVATE ../../include)
+add_test(NAME widthprofile COMMAND widthprofile_test)
+
 add_executable(tinbetweenmatch_test tinbetweenmatch_test.cpp)
 target_include_directories(tinbetweenmatch_test PRIVATE ../../include)
 add_test(NAME tinbetweenmatch COMMAND tinbetweenmatch_test)

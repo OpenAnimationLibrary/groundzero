@@ -2513,6 +2513,19 @@ void MainWindow::defineActions() {
   createMenuLevelAction(MI_ConvertToOutlineShapes,
                         QT_TR_NOOP("Convert Brush Strokes to &Outline Shapes"),
                         "");
+  createMenuLevelAction(MI_WidthProfileUniform, QT_TR_NOOP("&Uniform Width"),
+                        "");
+  createMenuLevelAction(MI_WidthProfileTaperStart, QT_TR_NOOP("Taper &Start"),
+                        "");
+  createMenuLevelAction(MI_WidthProfileTaperEnd, QT_TR_NOOP("Taper &End"), "");
+  createMenuLevelAction(MI_WidthProfileTaperBoth,
+                        QT_TR_NOOP("Taper &Both Ends"), "");
+  createMenuLevelAction(MI_WidthProfilePulse, QT_TR_NOOP("&Pulse"), "");
+  createMenuLevelAction(MI_ApplySavedWidthProfile,
+                        QT_TR_NOOP("Apply S&aved Width Profile..."), "");
+  createMenuLevelAction(
+      MI_SaveWidthProfile,
+      QT_TR_NOOP("Save Width Profile From Selected Stroke..."), "");
   createMenuLevelAction(MI_ClearInbetweenStrokePairs,
                         QT_TR_NOOP("&Clear Inbetween Stroke Pairs"), "");
   createMenuLevelAction(MI_AddFrames, QT_TR_NOOP("&Add Frames..."), "",

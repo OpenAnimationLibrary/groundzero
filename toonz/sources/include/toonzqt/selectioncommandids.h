@@ -40,6 +40,13 @@
 #define MI_ClearInbetweenStrokePairs "MI_ClearInbetweenStrokePairs"
 #define MI_AddInbetweenZoneHint "MI_AddInbetweenZoneHint"
 #define MI_ConvertToOutlineShapes "MI_ConvertToOutlineShapes"
+#define MI_WidthProfileUniform "MI_WidthProfileUniform"
+#define MI_WidthProfileTaperStart "MI_WidthProfileTaperStart"
+#define MI_WidthProfileTaperEnd "MI_WidthProfileTaperEnd"
+#define MI_WidthProfileTaperBoth "MI_WidthProfileTaperBoth"
+#define MI_WidthProfilePulse "MI_WidthProfilePulse"
+#define MI_ApplySavedWidthProfile "MI_ApplySavedWidthProfile"
+#define MI_SaveWidthProfile "MI_SaveWidthProfile"
 #define MI_SaveAsCustomVectorBrush "MI_SaveAsCustomVectorBrush"
 
 #define MI_OpenChild "MI_OpenChild"
