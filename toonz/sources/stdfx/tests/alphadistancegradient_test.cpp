@@ -242,7 +242,10 @@ TRaster32P renderCamera(AlphaDistanceGradientFx &fx,
 }
 void checkTransformedCamera() {
   TRaster32P input(1, 1); input->fill(TPixel32::White);
-  AlphaDistanceGradientFx fx; fx.getInputPort(0)->setFx(new Source(input, true));
+  // Public rendering retains effects in intrusive smart pointers for caching.
+  TFxP owner = new AlphaDistanceGradientFx;
+  auto &fx = *static_cast<AlphaDistanceGradientFx *>(owner.getPointer());
+  fx.getInputPort(0)->setFx(new Source(input, true));
   set(fx, "useBackground", 1); set(fx, "insideThreshold", 8);
   set(fx, "outsideThreshold", 2); set(fx, "blurSize", 2);
   const TRectD camera(-6, -4, 7, 5);
