@@ -228,6 +228,7 @@ set(HEADERS
     sxfio.h
     levelcommand.h
     spineexport.h
+    textureatlasexport.h
 # Tracker file
     ObjectTracker.h
     dummyprocessor.h
@@ -449,6 +450,7 @@ set(SOURCES
     exportcameratrackpopup.cpp
     exportlayeredpsdpopup.cpp
     spineexport.cpp
+    textureatlasexport.cpp
     abrimport.cpp
     deformerbake.cpp
 # Tracker file

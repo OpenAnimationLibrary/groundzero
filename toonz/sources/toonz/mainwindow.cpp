@@ -2375,6 +2375,9 @@ void MainWindow::defineActions() {
   createMenuFileAction(
       MI_ExportSpine,
       QT_TRANSLATE_NOOP("MainWindow", "Export to Spine JSON..."), "");
+  createMenuFileAction(
+      MI_ExportTextureAtlas,
+      QT_TRANSLATE_NOOP("MainWindow", "Export Texture Atlas..."), "");
   createMenuFileAction(MI_ExportLayeredPSD,
                        QT_TRANSLATE_NOOP("MainWindow", "Export Layered PSD..."),
                        "");
