@@ -3,6 +3,8 @@
 #include "tdoublekeyframe.h"
 #include "tmacrofx.h"
 #include "tstream.h"
+#include "trenderer.h"
+#include "tthread.h"
 
 #include <QCoreApplication>
 #include <QTemporaryDir>
@@ -189,6 +191,59 @@ void testTilesAndDomain() {
           "Missing source was not transparent");
 }
 
+TRasterFP renderThroughHost(CelSmootherFx &fx, int strips, const TAffine &affine) {
+  constexpr int width = 48, height = 40;
+  TRenderer renderer(1);
+  const unsigned long renderId = TRenderer::buildRenderId();
+  renderer.install(renderId);
+  renderer.declareRenderStart(renderId);
+  renderer.declareFrameStart(0);
+  TRasterFP output(width,height);
+  output->clear();
+  try {
+    TRenderSettings settings;
+    settings.m_bpp = 128;
+    settings.m_affine = affine;
+    settings.m_cameraBox = TRectD(-24,-20,24,20);
+    for (int s = 0; s < strips; ++s) {
+      const int y0 = height * s / strips, y1 = height * (s + 1) / strips;
+      TRasterFP part(width,y1-y0);
+      part->clear();
+      TTile tile(part,TPointD(-24.25,-20.5+y0));
+      fx.compute(tile,0,settings);
+      output->copy(tile.getRaster(),TPoint(0,y0));
+    }
+  } catch (...) {
+    renderer.declareFrameEnd(0); renderer.declareRenderEnd(renderId);
+    renderer.uninstall(); throw;
+  }
+  renderer.declareFrameEnd(0); renderer.declareRenderEnd(renderId);
+  renderer.uninstall();
+  return output;
+}
+void testHostTransforms() {
+  TRasterFP input(23,17);
+  input->clear();
+  for (int y = 2; y < 15; ++y)
+    for (int x = y / 2; x < 20; ++x)
+      input->pixels(y)[x] = TPixelF(.6f,.2f,.8f,1);
+  CelSmootherFx fx;
+  fx.getInputPort(0)->setFx(new Source(input,TPoint(-7,-5)));
+  const TAffine affine = TTranslation(2.5,-3.25) * TRotation(21) * TScale(1.3,.7);
+  const auto full = renderThroughHost(fx,1,affine);
+  const auto strips = renderThroughHost(fx,8,affine);
+  bool visible = false;
+  for (int y = 0; y < full->getLy(); ++y)
+    for (int x = 0; x < full->getLx(); ++x) {
+      const TPixelF &a = full->pixels(y)[x], &b = strips->pixels(y)[x];
+      visible = visible || a.m > .5f;
+      require(std::max({std::abs(a.r-b.r),std::abs(a.g-b.g),
+                        std::abs(a.b-b.b),std::abs(a.m-b.m)}) <= .000001f,
+              "Host rotation, scale or fractional origin created strip seams");
+    }
+  require(visible,"Transformed rendering produced an empty image");
+}
+
 void testPersistence(const QString &path, bool compressed) {
   TFxP owner = new CelSmootherFx;
   auto &fx = *owner;
@@ -254,18 +309,21 @@ void reportCost() {
 }  // namespace
 int main(int argc, char **argv) {
   QCoreApplication app(argc, argv);
+  TThread::init();
   QTemporaryDir temp;
+  int result = 1;
   try {
     require(temp.isValid(), "Temporary storage unavailable");
     testPrecision<TPixel32>(); testPrecision<TPixel64>(); testPrecision<TPixelF>();
-    testKernel(); testTilesAndDomain();
+    testKernel(); testTilesAndDomain(); testHostTransforms();
     testPersistence(temp.filePath("smoother.fx"), false);
     testPersistence(temp.filePath("smoother-compressed.fx"), true);
     reportCost();
     std::cout << "PASS: smoothing precision, coverage, tiles, animation and persistence\n";
-    return 0;
+    result = 0;
   } catch (const TException &e) {
     std::cerr << QString::fromStdWString(e.getMessage()).toStdString() << '\n';
   } catch (const std::exception &e) { std::cerr << e.what() << '\n'; }
-  return 1;
+  TThread::shutdown();
+  return result;
 }
