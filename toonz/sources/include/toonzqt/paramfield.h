@@ -499,6 +499,7 @@ public:
   SpectrumParamField(QWidget *parent, QString name,
                      const TSpectrumParamP &param);
 
+  void update(int frame) override;
   void updateField(TSpectrum value) override;
 
   void setParams();

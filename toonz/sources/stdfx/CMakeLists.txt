@@ -305,6 +305,7 @@ set(SOURCES
     iwa_spingradientfx.cpp
     iwa_lineargradientfx.cpp
     iwa_glarefx.cpp
+    starglowfx.cpp
     iwa_fractalnoisefx.cpp
     iwa_rainbowfx.cpp
     iwa_bokeh_advancedfx.cpp
@@ -452,6 +453,15 @@ if(BUILD_CELFX_TESTS)
     add_executable(celcolorkeymath_test tests/celcolorkeymath_test.cpp)
     add_test(NAME celfx_colorkey_math COMMAND celcolorkeymath_test)
     add_custom_target(celfx_tests DEPENDS celcolorkeep_test celcolorkeep_ui_test celcolorkey_test celcolorkey_ui_test celcolorkeymath_test celfxrendergrid_test)
+    add_executable(starglow_test tests/starglow_test.cpp)
+    target_link_libraries(starglow_test Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME celfx_starglow COMMAND starglow_test)
+    set_tests_properties(celfx_starglow PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
+    add_executable(starglow_ui_test tests/starglow_ui_test.cpp)
+    target_link_libraries(starglow_ui_test toonzqt Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Widgets ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME celfx_starglow_ui COMMAND starglow_ui_test ${CMAKE_CURRENT_SOURCE_DIR}/../../../stuff/profiles/layouts/fxs/STD_starGlowFx.xml)
+    set_tests_properties(celfx_starglow_ui PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
+    add_dependencies(celfx_tests starglow_test starglow_ui_test)
     set_tests_properties(celfx_colorkeep celfx_colorkeep_ui celfx_colorkey celfx_colorkey_ui celfx_colorkey_math PROPERTIES
                          ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
 endif()

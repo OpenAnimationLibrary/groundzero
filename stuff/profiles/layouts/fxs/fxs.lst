@@ -139,6 +139,7 @@
     STD_iwa_SoapBubbleFx
     STD_targetSpotFx
     STD_iwa_GlareFx
+    STD_starGlowFx
     STD_iwa_BloomFx
     STD_iwa_RainbowFx
   </Light>

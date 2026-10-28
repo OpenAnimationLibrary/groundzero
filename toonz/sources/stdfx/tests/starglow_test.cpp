@@ -1,0 +1,142 @@
+#include "../starglowfx.cpp"
+#include "tparamcontainer.h"
+#include "tstream.h"
+#include <QCoreApplication>
+#include <QTemporaryDir>
+#include <cmath>
+#include <iostream>
+#include <memory>
+#include <stdexcept>
+
+namespace {
+void require(bool value, const char *message) { if (!value) throw std::runtime_error(message); }
+TDoubleParamP parameter(TFx &fx, const char *name) { return TParamP(fx.getParams()->getParam(name)); }
+class Source final : public TStandardRasterFx {
+  TRasterP m_image;
+public:
+  explicit Source(const TRasterP &image) : m_image(image) {}
+  const TPersistDeclaration *getDeclaration() const override { return nullptr; }
+  bool canHandle(const TRenderSettings &, double) override { return true; }
+  bool doGetBBox(double, TRectD &box, const TRenderSettings &) override { box = TRectD(0, 0, m_image->getLx(), m_image->getLy()); return true; }
+  void compute(TTile &tile, double, const TRenderSettings &) override {
+    tile.getRaster()->clear(); tile.getRaster()->copy(m_image, TPoint(-int(tile.m_pos.x), -int(tile.m_pos.y)));
+  }
+  void doCompute(TTile &tile, double frame, const TRenderSettings &settings) override { compute(tile, frame, settings); }
+};
+template <class Pixel>
+TRasterPT<Pixel> renderFx(StarGlowFx &fx, int width, int height, TPointD origin = TPointD()) {
+  TRasterPT<Pixel> out(width, height); TTile tile; tile.setRaster(out); tile.m_pos = origin;
+  fx.doCompute(tile, 0, TRenderSettings()); return out;
+}
+void settings(StarGlowFx &fx) {
+  parameter(fx, "verticalLength")->setDefaultValue(0);
+  parameter(fx, "horizontalLength")->setDefaultValue(0);
+  parameter(fx, "diagonalLength")->setDefaultValue(0);
+  parameter(fx, "highlightRadius")->setDefaultValue(0);
+}
+template <class Pixel>
+void testDepth() {
+  StarGlowFx fx; settings(fx);
+  TRasterPT<Pixel> input(3, 3); input->clear(); input->pixels(1)[1] = Pixel::White;
+  fx.getInputPort(0)->setFx(new Source(input));
+  auto plain = renderFx<Pixel>(fx, 3, 3);
+  require(plain->pixels(1)[1] == Pixel::White && plain->pixels(0)[0] == Pixel::Transparent, "Zero effects did not preserve source");
+  parameter(fx, "sourceOpacity")->setDefaultValue(0);
+  parameter(fx, "verticalLength")->setDefaultValue(1);
+  parameter(fx, "profile")->setDefaultValue(0);
+  auto result = renderFx<Pixel>(fx, 3, 3);
+  const TPixelD center = toPixelD(result->pixels(1)[1]);
+  require(std::abs(center.r - 1.0 / 3.0) < 0.005 && std::abs(center.m - 1.0 / 3.0) < 0.005, "Box streak has incorrect weight");
+  require(result->pixels(1)[0] == Pixel::Transparent && result->pixels(0)[1] != Pixel::Transparent, "Vertical streak direction is wrong");
+  parameter(fx, "threshold")->setDefaultValue(100);
+  result = renderFx<Pixel>(fx, 3, 3);
+  require(result->pixels(1)[1] == Pixel::Transparent, "Threshold did not remove the highlight");
+  parameter(fx, "threshold")->setDefaultValue(0);
+  for (int channel = 0; channel < 4; ++channel) {
+    parameter(fx, "channel")->setDefaultValue(channel);
+    for (int profile = 0; profile < 4; ++profile) {
+      parameter(fx, "profile")->setDefaultValue(profile);
+      for (int merge = 0; merge < 2; ++merge) {
+        parameter(fx, "merge")->setDefaultValue(merge);
+        result = renderFx<Pixel>(fx, 3, 3);
+        require(toPixelD(result->pixels(1)[1]).m > 0, "A mode lost a white highlight");
+      }
+    }
+  }
+  parameter(fx, "channel")->setDefaultValue(0); parameter(fx, "profile")->setDefaultValue(0);
+  parameter(fx, "merge")->setDefaultValue(0); parameter(fx, "rotation")->setDefaultValue(90);
+  result = renderFx<Pixel>(fx, 3, 3);
+  require(result->pixels(1)[0] != Pixel::Transparent && result->pixels(0)[1] == Pixel::Transparent, "Rotation did not rotate the streak");
+}
+void testFloatAndTiles() {
+  StarGlowFx fx; settings(fx);
+  TRasterFP input(7, 5); input->clear(); input->pixels(2)[3] = TPixelF(2, 1, 0.5f, 1);
+  fx.getInputPort(0)->setFx(new Source(input));
+  parameter(fx, "channel")->setDefaultValue(2); parameter(fx, "sourceOpacity")->setDefaultValue(0);
+  parameter(fx, "verticalLength")->setDefaultValue(2); parameter(fx, "horizontalLength")->setDefaultValue(3);
+  parameter(fx, "diagonalLength")->setDefaultValue(1); parameter(fx, "highlightRadius")->setDefaultValue(1);
+  parameter(fx, "rotation")->setDefaultValue(31); parameter(fx, "approximate")->setDefaultValue(1);
+  auto full = renderFx<TPixelF>(fx, 7, 5);
+  for (int y = 0; y < 5; ++y) {
+    auto row = renderFx<TPixelF>(fx, 7, 1, TPointD(0, y));
+    for (int x = 0; x < 7; ++x) {
+      const TPixelF a = full->pixels(y)[x], b = row->pixels(0)[x];
+      require(std::abs(a.r-b.r) < 1e-5 && std::abs(a.g-b.g) < 1e-5 && std::abs(a.m-b.m) < 1e-5, "Tiled glow differs from full image");
+    }
+  }
+  require(full->pixels(2)[3].r > full->pixels(2)[3].g, "RGB highlight lost color");
+  auto ramp = TSpectrumParamP(TParamP(fx.getParams()->getParam("verticalRamp")));
+  const auto before = fx.getAlias(0, TRenderSettings());
+  ramp->getColor(0)->getRed()->setDefaultValue(0.123456789);
+  require(before != fx.getAlias(0, TRenderSettings()), "Fine ramp edits share a cache alias");
+  TFxP copy = fx.clone(false);
+  auto copied = TSpectrumParamP(TParamP(copy->getParams()->getParam("verticalRamp")));
+  require(copied->getColor(0)->getValueD(0).r == 0.123456789, "Clone lost ramp precision");
+  QTemporaryDir temp; require(temp.isValid(), "Temporary directory unavailable");
+  const TFilePath path(temp.filePath("star.fx").toStdWString());
+  { TOStream stream(path); stream << &fx; }
+  TIStream stream(path); TPersist *loaded = nullptr; stream >> loaded; std::unique_ptr<TPersist> owner(loaded);
+  auto *restored = dynamic_cast<StarGlowFx *>(loaded); require(restored, "Factory did not restore glow");
+  auto saved = TSpectrumParamP(TParamP(restored->getParams()->getParam("verticalRamp")));
+  require(saved->getColor(0)->getValueD(0).r == 0.123456789, "Scene lost ramp precision");
+  const TFilePath presetPath(temp.filePath("star.preset").toStdWString());
+  { TOStream preset(presetPath); fx.savePreset(preset); }
+  StarGlowFx restoredPreset;
+  { TIStream preset(presetPath); restoredPreset.loadPreset(preset); }
+  auto presetRamp = TSpectrumParamP(TParamP(restoredPreset.getParams()->getParam("verticalRamp")));
+  require(presetRamp->getColor(0)->getValueD(0).r == 0.123456789, "Preset lost ramp precision");
+}
+
+void testHighlightAndMerge() {
+  StarGlowFx fx; settings(fx);
+  TRasterFP input(3, 3); input->clear(); input->pixels(1)[1] = TPixelF(1, 1, 1, 1);
+  fx.getInputPort(0)->setFx(new Source(input));
+  parameter(fx, "sourceOpacity")->setDefaultValue(0);
+  parameter(fx, "highlightRadius")->setDefaultValue(1);
+  parameter(fx, "profile")->setDefaultValue(0);
+  auto output = renderFx<TPixelF>(fx, 3, 3);
+  require(std::abs(output->pixels(1)[1].r - 1.0 / 9.0) < 1e-6, "Highlight blur has incorrect weight");
+  require(output->pixels(0)[0].m > 0, "Highlight did not spread in two axes");
+  parameter(fx, "highlightRadius")->setDefaultValue(0);
+  parameter(fx, "verticalLength")->setDefaultValue(1);
+  parameter(fx, "sourceOpacity")->setDefaultValue(100);
+  parameter(fx, "merge")->setDefaultValue(0);
+  const auto added = renderFx<TPixelF>(fx, 3, 3);
+  parameter(fx, "merge")->setDefaultValue(1);
+  const auto over = renderFx<TPixelF>(fx, 3, 3);
+  require(std::abs(added->pixels(1)[1].r - 4.0 / 3.0) < 1e-6, "Add merge did not retain HDR glow");
+  require(std::abs(over->pixels(1)[1].r - 1.0) < 1e-6, "Premultiply merge is not alpha weighted");
+  int canceled = 1; TRenderSettings info; info.m_isCanceled = &canceled;
+  TRasterFP canceledOutput(3, 3); canceledOutput->fill(TPixelF::White);
+  TTile tile; tile.setRaster(canceledOutput); fx.doCompute(tile, 0, info);
+  require(canceledOutput->pixels(1)[1] == TPixelF::Transparent, "Canceled render was not cleared");
+}
+}
+int main(int argc, char **argv) {
+  QCoreApplication app(argc, argv);
+  try { testDepth<TPixel32>(); testDepth<TPixel64>(); testDepth<TPixelF>(); testFloatAndTiles(); testHighlightAndMerge(); }
+  catch (const std::exception &e) { std::cerr << e.what() << '\n'; return 1; }
+  catch (const TException &e) { std::cerr << QString::fromStdWString(e.getMessage()).toStdString() << '\n'; return 1; }
+  std::cout << "PASS: channels, profiles, alpha, rotation, tiles and precise ramps\n";
+  return 0;
+}
