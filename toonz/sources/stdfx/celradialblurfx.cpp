@@ -81,7 +81,7 @@ public:
   bool canHandle(const TRenderSettings &, double) override { return false; }
   TAffine handledAffine(const TRenderSettings &, double) override { return TAffine(); }
   bool toBeComputedInLinearColorSpace(bool, bool) const override { return false; }
-  bool sourceDomain(double frame, const TRenderSettings &settings, TRectD &domain) const;
+  bool sourceDomain(double frame, const TRenderSettings &settings, TRectD &domain);
   double support(double frame) const;
   bool doGetBBox(double frame, TRectD &box, const TRenderSettings &settings) override;
   void transform(double frame, int port, const TRectD &output, const TRenderSettings &settings,
@@ -106,7 +106,7 @@ bool finiteRect(const TRectD &r) {
 }
 
 bool CelRadialBlurFx::sourceDomain(double frame, const TRenderSettings &settings,
-                                    TRectD &domain) const {
+                                    TRectD &domain) {
   if (!m_source.isConnected()) return false;
   TRenderSettings full(settings);
   full.m_getFullSizeBBox = true;
