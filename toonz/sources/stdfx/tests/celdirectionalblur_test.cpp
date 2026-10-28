@@ -247,7 +247,7 @@ void persistenceTests(const QTemporaryDir &temp) {
   for (const char *name : directionalNames)
     require(param(*clone, name)->isKeyframe(10), "Clone lost control animation");
   const TFilePath file(temp.filePath("directional.fx").toStdWString());
-  { TOStream stream(file); stream << fx; }
+  { TOStream stream(file); stream << fx.getPointer(); }
   TFxP restored;
   { TIStream stream(file); stream >> restored; }
   require(restored->getFxType() == "STD_celDirectionalBlurFx", "Registration did not restore effect");
@@ -291,8 +291,10 @@ int main(int argc, char **argv) {
   QCoreApplication app(argc, argv); QTemporaryDir temp;
   try {
     require(temp.isValid(), "Temporary directory unavailable");
+    std::cout << "Checking directional kernel and noise" << std::endl;
     mathTests(); noiseTests();
     rendererTests<TPixel32>(); rendererTests<TPixel64>(); rendererTests<TPixelF>();
+    std::cout << "Checking directional persistence" << std::endl;
     persistenceTests(temp);
     std::cout << "PASS: directional lobes, shapes, fades, tails, noise, precision, tiles and persistence\n";
     return 0;
