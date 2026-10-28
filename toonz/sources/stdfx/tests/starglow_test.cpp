@@ -384,45 +384,16 @@ void testRasterLevelDpi() {
       return output;
     };
     {
-      auto &raw = *static_cast<TRasterFx *>(realDpi.getPointer());
-      const auto rawFull = render(raw, 1), rawTiled = render(raw, 4);
       const auto actual = render(real, 1), tiled = render(real, 4);
-      const auto expected = render(fixture, 1), fixtureTiled = render(fixture, 4);
-      for (StarGlowFx *fx : {&real, &fixture}) {
-        parameter(*fx, "verticalLength")->setDefaultValue(0);
-        parameter(*fx, "sourceOpacity")->setDefaultValue(100);
-      }
-      const auto sourceFull = render(real, 1), sourceTiled = render(real, 4);
-      const auto fixtureFull = render(fixture, 1), fixtureStrips = render(fixture, 4);
-      for (StarGlowFx *fx : {&real, &fixture}) {
-        parameter(*fx, "verticalLength")->setDefaultValue(2);
-        parameter(*fx, "glowOpacity")->setDefaultValue(0);
-      }
-      const auto haloFull = render(real, 1), haloTiled = render(real, 4);
+      const auto expected = render(fixture, 1);
       bool visible = false;
       for (int y = 0; y < 24; ++y) for (int x = 0; x < 32; ++x) {
         const TPixel32 a = actual->pixels(y)[x], b = tiled->pixels(y)[x], c = expected->pixels(y)[x];
         visible = visible || a.m > 0;
         if (std::abs(int(a.m)-int(b.m)) > 1 || std::abs(int(a.m)-int(c.m)) > 1) {
           std::cerr << "DPI " << dpiScale.a11 << "," << dpiScale.a22 << " at " << x << "," << y
-                    << " full=" << int(a.m) << " tiled=" << int(b.m) << " fixture=" << int(c.m)
-                    << " fixtureTiled=" << int(fixtureTiled->pixels(y)[x].m)
-                    << " sourceFull=" << int(sourceFull->pixels(y)[x].m)
-                    << " sourceTiled=" << int(sourceTiled->pixels(y)[x].m)
-                    << " fixtureSource=" << int(fixtureFull->pixels(y)[x].m)
-                    << " fixtureSourceTiled=" << int(fixtureStrips->pixels(y)[x].m)
-                    << " haloFull=" << int(haloFull->pixels(y)[x].m)
-                    << " haloTiled=" << int(haloTiled->pixels(y)[x].m) << '\n';
-          for (int dy = -2; dy <= 2; ++dy) {
-            const int yy = y + dy;
-            if (yy < 0 || yy >= 24) continue;
-            std::cerr << "  y=" << yy << " source=" << int(sourceFull->pixels(yy)[x].m)
-                      << "," << int(sourceTiled->pixels(yy)[x].m)
-                      << " halo=" << int(haloFull->pixels(yy)[x].m)
-                      << "," << int(haloTiled->pixels(yy)[x].m)
-                      << " raw=" << int(rawFull->pixels(yy)[x].m)
-                      << "," << int(rawTiled->pixels(yy)[x].m) << '\n';
-          }
+                    << " full=" << int(a.m) << " tiled=" << int(b.m)
+                    << " fixture=" << int(c.m) << '\n';
           require(std::abs(int(a.m)-int(b.m)) <= 1, "Odd raster level introduced a tile seam");
           require(std::abs(int(a.m)-int(c.m)) <= 1, "Odd raster level and equivalent source disagree");
         }
