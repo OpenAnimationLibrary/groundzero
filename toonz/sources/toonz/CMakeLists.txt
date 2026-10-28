@@ -951,3 +951,10 @@ if(BUILD_CADMIUM_TESTS)
     add_test(NAME cadmium_destination COMMAND cadmium_destination_test)
     add_dependencies(cadmium_tests cadmium_destination_test)
 endif()
+
+if(BUILD_CADMIUM_TESTS)
+    set_tests_properties(
+        cadmium_toonzraster cadmium_fullcolor cadmium_vector cadmium_codec
+        cadmium_settings cadmium_metadata cadmium_save cadmium_destination
+        PROPERTIES TIMEOUT 120)
+endif()

@@ -136,7 +136,7 @@ void roundTrip(const QDir &dir, bool floating, double gamma = 1.0) {
   const TFrameId fid(1);
   source->setFrame(fid, drawing(floating));
   paint->setCadmiumSourceLevelId(source->cadmiumLevelId());
-  paint->setFrame(fid, expected);
+  paint->setFrame(fid, TImageP(expected.getPointer()));
   paint->getProperties()->setDirtyFlag(true);
   // Exercise TXshSimpleLevel's real resource save path through LevelUpdater.
   paint->save();
@@ -144,7 +144,7 @@ void roundTrip(const QDir &dir, bool floating, double gamma = 1.0) {
 
   // The same inverse transfer is needed when saving an existing generated
   // resource; exporting must never modify the source or cached native raster.
-  paint->setFrame(fid, expected);
+  paint->setFrame(fid, TImageP(expected.getPointer()));
   paint->getProperties()->setDirtyFlag(true);
   paint->save();
   verifySamples(beforeSave, expected, floating);

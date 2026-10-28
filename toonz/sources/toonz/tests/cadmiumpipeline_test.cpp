@@ -101,7 +101,7 @@ QJsonObject requestFor(const Cadmium::Frame &reference,
   QJsonArray palette;
   for (int region = 0; region < reference.regionColors.size(); ++region) {
     const QColor color = reference.regionColors[region];
-    if (region == 0 || !color.isValid())
+    if (!color.isValid())
       palette.append(QJsonArray{-100, 0, 0, 0});
     else
       palette.append(QJsonArray{color.red(), color.green(), color.blue(), color.alpha()});
@@ -274,10 +274,10 @@ void distinctRegionPipeline(CadmiumRuntime *runtime) {
   const QJsonArray rgba = response.value("target_colors_rgba").toArray();
   require(ids.size() == 3 && rgba.size() == 3,
           "The distinct-region model response has an incorrect region count.");
-  // Match the worker's unique reference palette, including its null slot.
-  QVector<QColor> palette(1, QColor());
-  for (int region = 1; region < ref.regionColors.size(); ++region)
-    if (!palette.contains(ref.regionColors[region])) palette.append(ref.regionColors[region]);
+  // Match the worker's unique reference palette in first-occurrence order.
+  QVector<QColor> palette;
+  for (const QColor &color : ref.regionColors)
+    if (!palette.contains(color)) palette.append(color);
   QVector<int> styles(3, -100);
   QVector<QColor> colors(3);
   const auto accept = [&](int targetLabel, int referenceLabel, const QColor &expected) {

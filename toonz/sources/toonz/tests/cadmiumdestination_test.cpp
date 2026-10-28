@@ -40,6 +40,7 @@ TXshSimpleLevel *addLevel(ToonzScene &scene, const std::wstring &name,
 
 void destinations(const QDir &root, const QString &folder,
                    const std::string &extension) {
+  std::cerr << "Preparing " << extension << " destination checks" << std::endl;
   const QDir dir(root.filePath(folder));
   require(QDir().mkpath(dir.path()), "cannot create fixture directory");
   ToonzScene scene;
@@ -73,6 +74,7 @@ void destinations(const QDir &root, const QString &folder,
   addLevel(scene, L"Source_paint_2", pathOf(dir.filePath("another..png")));
 
   QString error;
+  std::cerr << "Creating first " << extension << " result" << std::endl;
   TXshSimpleLevel *result = Cadmium::createResultLevel(&scene, source, error);
   require(result, "result creation failed after valid collisions");
   require(error.isEmpty() && result->getName() == L"Source_paint_3",
@@ -86,17 +88,20 @@ void destinations(const QDir &root, const QString &folder,
           "existing resource bytes were altered");
   original.close();
 
+  std::cerr << "Creating second " << extension << " result" << std::endl;
   TXshSimpleLevel *second = Cadmium::createResultLevel(&scene, source, error);
   require(second && second != result && second->getName() == L"Source_paint_4",
           "a second result reused an occupied destination");
   require(second->getPath().getType() == extension,
           "a subsequent result lost its output format");
+  std::cerr << "Destroying " << extension << " destination scene" << std::endl;
 }
 }
 
 int main(int argc, char **argv) {
   QCoreApplication application(argc, argv);
   try {
+    std::cerr << "Preparing destination test environment" << std::endl;
     QTemporaryDir temporary;
     require(temporary.isValid(), "cannot create test storage");
     const QDir dir(temporary.path());
@@ -111,14 +116,16 @@ int main(int argc, char **argv) {
     QDir().mkpath(dir.filePath("cache"));
     TImageCache::instance()->setRootDir(pathOf(dir.filePath("cache")));
     TThread::init();
+    std::cerr << "Initializing image formats" << std::endl;
     initImageIo();
+    std::cerr << "Image formats initialized" << std::endl;
     destinations(dir, QStringLiteral("byte"), "png");
     destinations(dir, QStringLiteral("sixteen"), "tif");
     destinations(dir, QStringLiteral("floating"), "exr");
     QString error;
     require(!Cadmium::createResultLevel(nullptr, nullptr, error) && !error.isEmpty(),
             "missing source and scene were accepted");
-    std::cout << "Cadmium destination collision checks passed\n";
+    std::cout << "Cadmium destination collision checks passed" << std::endl;
     return 0;
   } catch (const TException &) {
     std::cerr << "Cadmium destination operation failed\n";
