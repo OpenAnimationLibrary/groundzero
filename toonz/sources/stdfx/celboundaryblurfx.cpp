@@ -99,7 +99,7 @@ class CelBoundaryBlurFx final : public TStandardRasterFx {
 
 public:
   CelBoundaryBlurFx()
-      : m_amount(5), m_smoothness(100), m_repeats(2), m_bias(0), m_legacy(0) {
+      : m_amount(5.0), m_smoothness(100.0), m_repeats(2.0), m_bias(0.0), m_legacy(0.0) {
     addInputPort("Source", m_source);
     bindParam(this, "amount", m_amount);
     bindParam(this, "smoothness", m_smoothness);
