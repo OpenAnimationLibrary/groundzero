@@ -67,11 +67,15 @@ public:
 
 private:
   TXsheetHandle *m_xshHandle;
+  // The xsheet the command changed: a sub-xsheet may be open, or closed,
+  // when the undo runs, and the column indexes are those of this one
+  TXsheetP m_xsh;
   std::vector<Entry> m_entries;
   QString m_name;
 
   void set(bool after) const {
-    TXsheet *xsh = m_xshHandle->getXsheet();
+    TXsheet *xsh = m_xsh.getPointer();
+    if (!xsh) return;
     for (const Entry &entry : m_entries) {
       TXshColumn *column           = xsh->getColumn(entry.m_columnIndex);
       TXshLevelColumn *levelColumn = column ? column->getLevelColumn() : 0;
@@ -84,7 +88,10 @@ private:
 public:
   TimeRemapUndo(TXsheetHandle *xshHandle, const std::vector<Entry> &entries,
                 const QString &name)
-      : m_xshHandle(xshHandle), m_entries(entries), m_name(name) {}
+      : m_xshHandle(xshHandle)
+      , m_xsh(xshHandle->getXsheet())
+      , m_entries(entries)
+      , m_name(name) {}
 
   void undo() const override { set(false); }
   void redo() const override { set(true); }

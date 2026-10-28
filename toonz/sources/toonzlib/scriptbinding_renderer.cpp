@@ -126,7 +126,12 @@ public:
     QMutex mutex;
     mutex.lock();
     m_completed = false;
-    m_renderer.startRendering(rds);
+    // Nothing to render (a scene without frames): the render is not started,
+    // and would never report that it finished
+    if (m_renderer.startRendering(rds) == (unsigned long)-1) {
+      mutex.unlock();
+      return;
+    }
 
     while (!m_completed) {
       // User input is left queued: on the GUI thread (Python) it could run a

@@ -548,8 +548,11 @@ public:
       , m_styleId(styleId) {}
 
   bool isReturn() const { return m_text == QString(QChar('\r')); }
+  // The ASCII space, which starts a new column in vertical text. The other
+  // spaces are characters there: Japanese text indents with the ideographic
+  // space (U+3000), which must not break the column.
   bool isSpace() const {
-    return !m_text.isEmpty() && m_text.at(0).isSpace();
+    return m_text.size() == 1 && m_text.at(0) == QLatin1Char(' ');
   }
 
   void update(TAffine scale, const QString &nextText = QString()) {
@@ -2603,14 +2606,28 @@ void TypeTool::addReturn() {
 
 //---------------------------------------------------------
 
+// setCursorIndexFromPoint() finds the line from the font metrics: line k
+// covers the line spacing below the point of its cursor. The steps to the
+// middle of the line above and below are in line spacing units: in font size
+// units (m_dimension) Down missed the next line at 96 dpi.
 void TypeTool::cursorUp() {
-  setCursorIndexFromPoint(m_cursorPoint + TPointD(0, 0.5 * m_dimension));
+  if (!m_isVertical) {
+    double lineSpacing =
+        TFontManager::instance()->getLineSpacing() * m_scale.a11;
+    setCursorIndexFromPoint(m_cursorPoint + TPointD(0, 0.5 * lineSpacing));
+  } else
+    setCursorIndexFromPoint(m_cursorPoint + TPointD(0, 0.5 * m_dimension));
 }
 
 //---------------------------------------------------------
 
 void TypeTool::cursorDown() {
-  setCursorIndexFromPoint(m_cursorPoint + TPointD(0, -1.5 * m_dimension));
+  if (!m_isVertical) {
+    double lineSpacing =
+        TFontManager::instance()->getLineSpacing() * m_scale.a11;
+    setCursorIndexFromPoint(m_cursorPoint + TPointD(0, -1.5 * lineSpacing));
+  } else
+    setCursorIndexFromPoint(m_cursorPoint + TPointD(0, -1.5 * m_dimension));
 }
 
 //---------------------------------------------------------

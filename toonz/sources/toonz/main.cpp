@@ -12,6 +12,7 @@
 #include "filebrowsermodel.h"
 #include "expressionreferencemanager.h"
 #include "thirdparty.h"
+#include "cadmiumruntime.h"
 
 // TnzTools includes
 #include "tools/tool.h"
@@ -78,6 +79,7 @@
 #include <QAbstractNativeEventFilter>
 #include <QByteArray>
 #include <QSplashScreen>
+#include <QTimer>
 #if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
 #include <QGLPixelBuffer>
 #endif
@@ -732,7 +734,9 @@ int main(int argc, char *argv[]) {
                       .replace("\"", "\\\"");
       QString cmd = QString("run(\"%1\")").arg(s);
       engine.evaluate(cmd);
-      engine.wait();
+      // The script can wait for the main thread (renders are started and
+      // reported there, view() runs there): keep delivering its calls
+      while (!engine.wait(20)) QCoreApplication::processEvents();
       if (!oldProjectPath.isEmpty()) pm->setCurrentProjectPath(oldProjectPath);
       return 1;
     } else {
@@ -821,6 +825,14 @@ int main(int argc, char *argv[]) {
     w.checkForUpdates();
 
   w.show();
+
+  auto *cadmiumRuntime = CadmiumRuntime::instance();
+  QObject::connect(&a, &QCoreApplication::aboutToQuit, cadmiumRuntime,
+                   &CadmiumRuntime::stop);
+  QTimer::singleShot(0, cadmiumRuntime, [cadmiumRuntime] {
+    if (cadmiumRuntime->startupMode() == CadmiumRuntime::Preload)
+      cadmiumRuntime->start();
+  });
 
   // Show floating panels only after the main window has been shown
   w.startupFloatingPanels();

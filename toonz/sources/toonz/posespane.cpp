@@ -201,7 +201,8 @@ PosesPane::PosesPane(QWidget *parent, Qt::WindowFlags flags)
 void PosesPane::showEvent(QShowEvent *) {
   connect(TApp::instance()->getCurrentScene(), SIGNAL(sceneSwitched()), this,
           SLOT(refresh()), Qt::UniqueConnection);
-  // the poses can also change from the Library panel
+  // The poses can change from another Poses panel or from the Library
+  // panel: the rows refer to the poses by index, so they must follow
   connect(PoseLibraryNotifier::instance(), SIGNAL(changed()), this,
           SLOT(refresh()), Qt::UniqueConnection);
   refresh();

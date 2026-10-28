@@ -3,6 +3,7 @@
 // TnzLib includes
 #include "toonz/txsheet.h"
 #include "toonz/txshcell.h"
+#include "toonz/txshlevelcolumn.h"
 #include "toonz/hook.h"
 #include "toonz/dpiscale.h"
 #include "toonz/txshsimplelevel.h"
@@ -119,7 +120,17 @@ TPointD XshHandleManager::getHandlePos(const TStageObjectId &id,
     --hookIndex;
 
     int col = id.getIndex();
-    TXshCell cell(m_xsh->getCell(row, col));
+    // The drawings the column shows: with a time remap, not the xsheet cells
+    // (as the render, see TLevelColumnFx), or the hook would follow another
+    // drawing than the one shown
+    TXshColumn *column           = m_xsh->getColumn(col);
+    TXshLevelColumn *levelColumn = column ? column->getLevelColumn() : 0;
+    const bool remapped = levelColumn && levelColumn->isTimeRemapActive();
+    auto cellAt         = [&](int r) {
+      return remapped ? levelColumn->getRemappedCell(r)
+                              : m_xsh->getCell(r, col);
+    };
+    TXshCell cell(cellAt(row));
 
     TXshLevel *xl = cell.m_level.getPointer();
     if (!xl) return TPointD();
@@ -136,7 +147,7 @@ TPointD XshHandleManager::getHandlePos(const TStageObjectId &id,
     TPointD delta;
 
     for (int r = row - 1; r >= 0; --r) {
-      cell = m_xsh->getCell(r, col);
+      cell = cellAt(r);
       if (cell.m_level.getPointer() != xl) break;
 
       const TFrameId &precFid = cell.m_frameId;

@@ -113,8 +113,8 @@ QJSValue ImageBuilder::ctor(QJSEngine *engine, const QJSValueList &args) {
     if (type == "Raster")
       imageBuilder->m_img = new TRasterImage(TRaster32P(width, height));
     else if (type == "ToonzRaster") {
-      imageBuilder->m_img = new TToonzImage(TRasterCM32P(width, height),
-                                            TRect(0, 0, width, height));
+      TRasterCM32P raster(width, height);
+      imageBuilder->m_img = new TToonzImage(raster, raster->getBounds());
     }
   } else {
     if (args.size() != 0) {
@@ -164,6 +164,19 @@ QJSValue ImageBuilder::fill(const QString &colorName) {
 void ImageBuilder::clear() { m_img = TImageP(); }
 
 QString ImageBuilder::add(const TImageP &img, const TAffine &aff) {
+  // TRop::over() throws for the pixel types it can't mix (an 8 bit image on
+  // a 16 bit one): a C++ exception through the script engine ends the
+  // application, so it becomes the error of the script
+  try {
+    return addImage(img, aff);
+  } catch (const TException &e) {
+    return QString::fromStdWString(e.getMessage());
+  } catch (const std::exception &e) {
+    return QString::fromUtf8(e.what());
+  }
+}
+
+QString ImageBuilder::addImage(const TImageP &img, const TAffine &aff) {
   if (fabs(aff.det()) < 0.001) return "";
   if (m_img && (m_img->getType() != img->getType()))
     return "Image type mismatch";

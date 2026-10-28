@@ -83,6 +83,10 @@ PUBLISHING = re.compile(
     r"\bgh\s+(?:pr|issue|release|gist|api|discussion)\b"
 )
 GIT_COMMIT = re.compile(r"\bgit\s+(?:-C\s+(\S+)\s+)?commit\b")
+# Commands that change the index: the hook runs before the whole command line,
+# so with "git add -A && git commit" the index does not hold the commit yet
+GIT_STAGE = re.compile(r"\bgit\s+(?:-C\s+\S+\s+)?(?:add|stage|rm|mv)\b")
+UNTRACKED_SIZE_LIMIT = 4 * 1024 * 1024
 FILE_FLAGS = {"-F", "--file", "--body-file", "--input", "--notes-file"}
 
 
@@ -114,15 +118,39 @@ def staged_additions(command, cwd):
     if cd and not (m and m.group(1)):
         repo = os.path.join(cwd, os.path.expanduser(cd.group(1).strip("'\"")))
     commit_all = re.search(r"\bcommit\b[^;&|]*\s(?:-a\b|--all\b|-[A-Za-z]*a[A-Za-z]*\b)", command)
+    stages = GIT_STAGE.search(command)
     args = ["git", "-C", repo, "diff", "--no-color", "-U0"]
-    args += ["HEAD"] if commit_all else ["--cached"]
+    # Staging in the same command can bring any change in: scan all of them
+    args += ["HEAD"] if commit_all or stages else ["--cached"]
     try:
         out = subprocess.run(args, capture_output=True, text=True, timeout=30).stdout
     except (OSError, subprocess.SubprocessError):
         return ""
-    return "\n".join(
+    added = [
         line[1:] for line in out.splitlines() if line.startswith("+") and not line.startswith("+++")
-    )
+    ]
+    if stages:
+        added += untracked_contents(repo)
+    return "\n".join(added)
+
+
+def untracked_contents(repo):
+    """Contents of the untracked files that "git add" could stage."""
+    args = ["git", "-C", repo, "ls-files", "-z", "--others", "--exclude-standard"]
+    try:
+        out = subprocess.run(args, capture_output=True, text=True, timeout=30).stdout
+    except (OSError, subprocess.SubprocessError):
+        return []
+    contents = []
+    for name in filter(None, out.split("\0")):
+        path = os.path.join(repo, name)
+        try:
+            if os.path.getsize(path) > UNTRACKED_SIZE_LIMIT:
+                continue
+        except OSError:
+            continue
+        contents.append(read(path))
+    return contents
 
 
 def hook_main():

@@ -73,7 +73,18 @@ def generate_notes(api, repo, tag, *, target=None, intro="", existing_only=False
                 raise ValueError("Existing draft targets a different build commit")
     else:
         # Manual asset publication must describe the tagged source, not HEAD.
-        target = commit_sha(api, repo, tag)
+        try:
+            target = commit_sha(api, repo, tag)
+        except subprocess.CalledProcessError:
+            # A draft gets its tag only when it is published: a draft pinned
+            # to a commit describes that commit, one that follows a branch has
+            # no tagged source yet
+            pinned = (current or {}).get("target_commitish") or ""
+            if current is None or not current["draft"] or not re.fullmatch(r"[0-9a-f]{40}", pinned):
+                raise ValueError(
+                    f"Release {tag} has no tag yet: create the tag, or target the draft at a commit"
+                ) from None
+            target = pinned
 
     candidates = []
     for release in releases:

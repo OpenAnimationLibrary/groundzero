@@ -67,8 +67,11 @@ jobs:
           name: Groundzero-recorder-test-decoder
           path: recorder-test-decoder
 
+  CadmiumRuntime:
+    uses: ./.github/workflows/cadmium_runtime.yml
+
   Windows:
-    needs: [RecorderEncoder]
+    needs: [RecorderEncoder, CadmiumRuntime]
     runs-on: windows-2025
     env:
       # QT related variable
@@ -163,7 +166,7 @@ jobs:
           mkdir build
           cd build
 
-          cmake ..\sources -G "%MSVCVERSION%" -Ax64 -DQT_PATH="%QT_PATH%" -DBOOST_ROOT="%BOOST_ROOT%" -DOpenCV_DIR="%OpenCV_DIR%" -DWITH_WINTAB=Y -DBUILD_CELFX_TESTS=ON
+          cmake ..\sources -G "%MSVCVERSION%" -Ax64 -DQT_PATH="%QT_PATH%" -DBOOST_ROOT="%BOOST_ROOT%" -DOpenCV_DIR="%OpenCV_DIR%" -DWITH_WINTAB=Y -DBUILD_CELFX_TESTS=ON -DBUILD_CADMIUM_TESTS=ON
         shell: cmd
 
       # Build Opentoonz using MSBuild
@@ -219,6 +222,12 @@ jobs:
           xcopy /Y /E /I ..\..\stuff .\Opentoonz\portablestuff
         shell: cmd
 
+      - name: Install optional Cadmium worker
+        uses: actions/download-artifact@v6
+        with:
+          name: cadmium-runtime-windows-x64
+          path: toonz/build/Opentoonz
+
       - name: Test cel effects
         shell: cmd
         run: |
@@ -231,6 +240,25 @@ jobs:
           set "CEL_TEST_EXIT=%ERRORLEVEL%"
           type cel-tests-output.txt
           exit /b %CEL_TEST_EXIT%
+
+      - name: Test Cadmium adapters
+        shell: cmd
+        run: |
+          set "PATH=%CD%\toonz\build\Opentoonz;%QT_PATH%\bin;%PATH%"
+          set "QT_PLUGIN_PATH=%QT_PATH%\plugins"
+          set "QT_QPA_PLATFORM_PLUGIN_PATH=%QT_PATH%\plugins\platforms"
+          cd toonz\build
+          ctest -C RelWithDebInfo --output-on-failure --no-tests=error -R "^cadmium_"
+
+      - name: Verify models and exercise native painting pipelines
+        shell: cmd
+        run: |
+          set "PATH=%CD%\toonz\build\Opentoonz;%QT_PATH%\bin;%PATH%"
+          set "QT_PLUGIN_PATH=%QT_PATH%\plugins"
+          set "QT_QPA_PLATFORM_PLUGIN_PATH=%QT_PATH%\plugins\platforms"
+          toonz\build\RelWithDebInfo\cadmium_installer_test.exe --download models
+          if errorlevel 1 exit /b 1
+          toonz\build\RelWithDebInfo\cadmium_pipeline_test.exe "%CD%\toonz\build\Opentoonz\cadmium-sidecar.exe" "%CD%\models"
 
       - name: Report cel test failures
         if: failure()

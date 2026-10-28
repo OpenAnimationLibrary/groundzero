@@ -79,6 +79,11 @@ ExrLevelSource::Window window(const IMATH_NAMESPACE::Box2i &box) {
   return {box.min.x, box.min.y, box.max.x, box.max.y};
 }
 
+// Largest window read (16384 x 16384). The header alone sets the windows,
+// and the channel buffers are allocated before any pixel is read: without a
+// bound, a damaged file of a few hundred bytes could ask for many GB.
+const std::uint64_t MaxPixelCount = std::uint64_t(1) << 28;
+
 std::size_t checkedPixelCount(const ExrLevelSource::Window &box,
                               const char *description) {
   const std::int64_t width = static_cast<std::int64_t>(box.xMax) - box.xMin + 1;
@@ -88,7 +93,9 @@ std::size_t checkedPixelCount(const ExrLevelSource::Window &box,
       height > std::numeric_limits<int>::max() ||
       static_cast<std::uint64_t>(width) >
           static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max()) /
-              static_cast<std::uint64_t>(height))
+              static_cast<std::uint64_t>(height) ||
+      static_cast<std::uint64_t>(width) * static_cast<std::uint64_t>(height) >
+          MaxPixelCount)
     throw std::runtime_error(std::string("Invalid or excessively large EXR ") +
                              description);
   return static_cast<std::size_t>(width) * static_cast<std::size_t>(height);

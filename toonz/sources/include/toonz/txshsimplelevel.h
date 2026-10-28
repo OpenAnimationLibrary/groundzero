@@ -199,6 +199,18 @@ public:
   std::string getIconId(const TFrameId &fid, const TDimension &size) const;
 
   void eraseFrame(const TFrameId &fid);
+
+  const std::set<TFrameId> &getCadmiumReferences() const {
+    return m_cadmiumReferences;
+  }
+  void setCadmiumReference(const TFrameId &fid, bool marked) {
+    if (marked && isFid(fid)) m_cadmiumReferences.insert(fid);
+    else m_cadmiumReferences.erase(fid);
+  }
+  void clearCadmiumReferences() { m_cadmiumReferences.clear(); }
+  QString cadmiumLevelId();
+  QString cadmiumSourceLevelId() const { return m_cadmiumSourceLevelId; }
+  void setCadmiumSourceLevelId(const QString &id) { m_cadmiumSourceLevelId = id; }
   void clearFrames();
   void invalidateFrames();
   void invalidateFrame(const TFrameId &fid);
@@ -339,6 +351,13 @@ public:
                                     int forbiddenMask);
 
 protected:
+  void resetCadmiumInfo();
+  void loadCadmiumInfo(TIStream &is);
+  void saveCadmiumInfo(std::map<std::string, std::string> &attributes) const;
+  void restoreCadmiumReferences(const std::set<TFrameId> &references) {
+    m_cadmiumReferences = references;
+  }
+
   // Specialized retained-source levels use the same one-shot loading range
   // contract as TXshSimpleLevel::load().
   void setIsSubsequence(bool value) { m_isSubsequence = value; }
@@ -356,6 +375,9 @@ private:
   TPaletteP m_palette;
 
   FramesSet m_frames;
+  std::set<TFrameId> m_cadmiumReferences;
+  QString m_cadmiumLevelId;
+  QString m_cadmiumSourceLevelId;
   int m_renumberCount = 0;
 
   std::map<TFrameId, TFrameId>

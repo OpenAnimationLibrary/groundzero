@@ -77,7 +77,7 @@ void Wrapper::warning(const QString &msg) {
 }
 
 QJSValue Wrapper::self() const {
-  return wrap(engine(), const_cast<Wrapper *>(this));
+  return wrap(engine(), const_cast<Wrapper *>(this), this);
 }
 
 QJSValue Wrapper::throwError(const QString &message) const {
@@ -293,11 +293,23 @@ QString Host::describe(const QJSValue &value) const {
 //=============================================================================
 
 QJSValue wrap(QJSEngine *engine, QObject *obj) {
+  return wrap(engine, obj, nullptr);
+}
+
+QJSValue wrap(QJSEngine *engine, QObject *obj, const QObject *caller) {
   // The objects that the garbage collector finds unreachable are released
   // with deleteLater(). The script thread doesn't go back to its event loop
   // until the evaluation ends, so the deletions are done here: otherwise a
   // long script (e.g. processing all the frames of a level) would keep all
   // of its images in memory until it ends.
+  // A script can also call destroy() or deleteLater() on an object, then a
+  // method of it: the object running the method (caller) and the one being
+  // returned are in use, so their deletion is cancelled (the garbage
+  // collector releases them again once they are unreachable).
+  QCoreApplication::removePostedEvents(obj, QEvent::DeferredDelete);
+  if (caller)
+    QCoreApplication::removePostedEvents(const_cast<QObject *>(caller),
+                                         QEvent::DeferredDelete);
   QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
 
   QJSValue value = engine->newQObject(obj);

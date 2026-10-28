@@ -321,8 +321,8 @@ public:
     m_blur->setValueRange(0, 2); m_blur->setUIChoices({"No Blur", "Blur No Scale", "Blur"});
     m_inside->setValueRange(0, 1000); m_outside->setValueRange(0, 1000);
     m_power->setValueRange(0.01, 5); m_blurSize->setValueRange(0, 4096);
-    m_inside->setMeasureName("fxLength"); m_outside->setMeasureName("fxLength");
-    m_blurSize->setMeasureName("fxLength");
+    // No unit: the thresholds and the blur are in the level's own pixels (not
+    // the length unit of the user, which the fields would convert them to)
     m_color->enableMatte(false); m_bg->enableMatte(false);
     enableComputeInFloat(true);
   }
@@ -401,7 +401,10 @@ public:
     if (!m_source.isConnected()) return 0;
     TRectD canvas; const TRectD box = analysisBox(frame, settings, canvas);
     const double bytes = box.getLx() * box.getLy() * 96;
-    return int(std::min(double(std::numeric_limits<int>::max()), std::max(0.0, bytes)));
+    // In MB, as the tile subdivision compares it with its limit in MB
+    const double megabytes = std::ceil(bytes / (1024.0 * 1024.0));
+    return int(std::min(double(std::numeric_limits<int>::max()),
+                        std::max(0.0, megabytes)));
   }
   std::string getAlias(double frame, const TRenderSettings &settings) const override {
     const GradientSettings p = parameters(frame);

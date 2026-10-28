@@ -846,6 +846,7 @@ include("${CMAKE_CURRENT_SOURCE_DIR}/../cmake/OpenEXR.cmake")
 # except the GLB/3D suites (tested in OT3D). Each suite keeps its own option
 # and can still be set alone.
 option(BUILD_TESTS "Build all regression tests and register them with ctest" OFF)
+option(BUILD_CADMIUM_TESTS "Build Cadmium native adapter and workflow tests" ${BUILD_TESTS})
 option(BUILD_CELFX_TESTS "Build cel effect rendering and UI regression tests" ${BUILD_TESTS})
 option(BUILD_EXR_TESTS "Build the OpenEXR image I/O and level source regression tests" ${BUILD_TESTS})
 option(BUILD_EXR_AOV_FX_TESTS "Build the OpenEXR AOV FX regression test" ${BUILD_TESTS})
@@ -882,11 +883,9 @@ if(WITH_PYTHON)
     endif()
     message(STATUS "Python scripting: Python ${Python3_VERSION}")
 endif()
-if(BUILD_TESTS OR BUILD_CELFX_TESTS OR BUILD_EXR_TESTS OR BUILD_EXR_AOV_FX_TESTS OR
-   BUILD_TNZTOOLS_TESTS OR BUILD_PSD_TESTS OR BUILD_SCRIPT_TESTS OR BUILD_FFMPEG_TESTS OR BUILD_FRAME_STRIPS_TESTS OR BUILD_LUT3D_TESTS OR BUILD_GLB_FX_TESTS OR
-   BUILD_FXRENDER_TESTS OR BUILD_TGL_BATCH_TESTS OR BUILD_FUZZ_TESTS)
-    enable_testing()
-endif()
+# Always: each test has its own BUILD_*_TESTS option, and a test configured
+# without BUILD_TESTS must still be found by ctest
+enable_testing()
 
 add_subdirectory(tnzcore)
 if(BUILD_TGL_BATCH_TESTS)

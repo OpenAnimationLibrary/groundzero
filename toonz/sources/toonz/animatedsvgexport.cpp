@@ -59,6 +59,10 @@ QString assetHref(const OCAIo::OCAAsset &asset, const TFilePath &imageDir,
 void writeLayer(QXmlStreamWriter &xml, const QJsonObject &layer,
                 const SvgExportData &data,
                 const QMap<QString, QString> &assetIds, int &layerId) {
+  // Columns hidden with the camstand toggle are exported to OCA, as hidden
+  // layers: they are not drawn
+  if (!layer["visible"].toBool(true)) return;
+
   QJsonArray childLayers = layer["childLayers"].toArray();
   if (!childLayers.isEmpty()) {
     xml.writeStartElement("g");

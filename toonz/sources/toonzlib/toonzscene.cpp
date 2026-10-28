@@ -51,8 +51,10 @@
 
 TOfflineGL *currentOfflineGL = 0;
 
+#include <QApplication>
 #include <QDateTime>
 #include <QMessageBox>
+#include <QThread>
 #include <QProgressDialog>
 #include <QPushButton>
 #include <QStringList>
@@ -692,35 +694,45 @@ void ToonzScene::save(TFilePath &fp, TXsheet *subxsh, bool saveSceneIcon) {
               "version or a release known to support its features.")
               .arg(QString::fromStdString(m_loadedSceneGenerator));
 
-    QMessageBox msgBox;
-    msgBox.setIcon(QMessageBox::Warning);
-    msgBox.setWindowTitle(QObject::tr("Unrecognized Scene Data"));
-    msgBox.setText(
-        QObject::tr(
-            "This scene contains data OpenToonz does not recognize.%1\n\n"
-            "Unrecognized entries: %2\n\n"
-            "OpenToonz can continue loading recognized data. Saving will not "
-            "write the unrecognized data back.\n\n"
-            "To preserve the original scene unchanged, save the recognized "
-            "scene data to the suggested timestamped file.")
-            .arg(generatorInfo, tags.join(", ")));
-    QPushButton *saveCopyButton = msgBox.addButton(
-        QObject::tr("Save as %1")
-            .arg(suggestedPath.withoutParentDir().getQString()),
-        QMessageBox::AcceptRole);
-    QPushButton *overwriteButton =
-        msgBox.addButton(QObject::tr("Overwrite Original"),
-                         QMessageBox::DestructiveRole);
-    Q_UNUSED(overwriteButton);
-    msgBox.setDefaultButton(saveCopyButton);
-    // This low-level save method has no cancellation result to return to its
-    // callers. For this first compatibility experiment, require one of the two
-    // explicit safe-save decisions rather than allowing the window-close path
-    // to be misreported as a successful save.
-    msgBox.setWindowFlag(Qt::WindowCloseButtonHint, false);
-    msgBox.exec();
+    // Only the GUI thread of a GUI application can ask. A script runs on its
+    // own thread, where a widget would abort the application, and a
+    // command-line tool has no GUI: both take the default answer, the copy
+    // that keeps the original unchanged.
+    QCoreApplication *app = QCoreApplication::instance();
+    const bool canAsk     = qobject_cast<QApplication *>(app) &&
+                        QThread::currentThread() == app->thread();
+    bool saveCopy = true;
+    if (canAsk) {
+      QMessageBox msgBox;
+      msgBox.setIcon(QMessageBox::Warning);
+      msgBox.setWindowTitle(QObject::tr("Unrecognized Scene Data"));
+      msgBox.setText(
+          QObject::tr(
+              "This scene contains data OpenToonz does not recognize.%1\n\n"
+              "Unrecognized entries: %2\n\n"
+              "OpenToonz can continue loading recognized data. Saving will not "
+              "write the unrecognized data back.\n\n"
+              "To preserve the original scene unchanged, save the recognized "
+              "scene data to the suggested timestamped file.")
+              .arg(generatorInfo, tags.join(", ")));
+      QPushButton *saveCopyButton = msgBox.addButton(
+          QObject::tr("Save as %1")
+              .arg(suggestedPath.withoutParentDir().getQString()),
+          QMessageBox::AcceptRole);
+      QPushButton *overwriteButton = msgBox.addButton(
+          QObject::tr("Overwrite Original"), QMessageBox::DestructiveRole);
+      Q_UNUSED(overwriteButton);
+      msgBox.setDefaultButton(saveCopyButton);
+      // This low-level save method has no cancellation result to return to its
+      // callers. For this first compatibility experiment, require one of the
+      // two explicit safe-save decisions rather than allowing the window-close
+      // path to be misreported as a successful save.
+      msgBox.setWindowFlag(Qt::WindowCloseButtonHint, false);
+      msgBox.exec();
+      saveCopy = msgBox.clickedButton() == saveCopyButton;
+    }
 
-    if (msgBox.clickedButton() == saveCopyButton) {
+    if (saveCopy) {
       newScenePath = suggestedPath;
       fp           = suggestedPath;
     }
@@ -846,10 +858,10 @@ void ToonzScene::writeSceneFile(const TFilePath &fp, TXsheet *subxsh) {
   os.closeChild();
 
   // Poses refer to the top-level xsheet, so sub-xsheet saves skip them. The
-  // tag is written only when at least one pose exists (a base alone is not
-  // enough), so scenes that do not use poses stay readable by versions that
-  // reject unknown top-level tags.
-  if (!subxsh && m_poseLibrary->getPoseCount() > 0) {
+  // tag is written only when the scene uses poses (a pose, or a base set
+  // with Set Base, which would otherwise be lost on save), so scenes that do
+  // not use them stay readable by versions that reject unknown top-level tags.
+  if (!subxsh && !m_poseLibrary->isEmpty()) {
     os.openChild("poses");
     m_poseLibrary->saveData(os);
     os.closeChild();

@@ -88,7 +88,8 @@ public:
     addInputPort("Source", m_source);
     bindParam(this, "radius", m_radius);
     m_radius->setValueRange(0, std::numeric_limits<double>::max());
-    m_radius->setMeasureName("fxLength");
+    // No unit: the radius is in the level's own pixels (not the length unit
+    // of the user, which the field would convert it to and from)
     enableComputeInFloat(true);
   }
   bool usesCustomRenderGrid() const override { return true; }
@@ -135,8 +136,10 @@ public:
     // Source pixels, mask, two distance-transform passes and their scratch.
     const double bytes = (rect.getLx() + 2 * halo) *
                          (rect.getLy() + 2 * halo) * 64;
+    // In MB, as the tile subdivision compares it with its limit in MB
+    const double megabytes = std::ceil(bytes / (1024.0 * 1024.0));
     return int(std::min(double(std::numeric_limits<int>::max()),
-                        std::max(0.0, bytes)));
+                        std::max(0.0, megabytes)));
   }
   std::string getAlias(double frame, const TRenderSettings &settings) const override {
     std::ostringstream alias;

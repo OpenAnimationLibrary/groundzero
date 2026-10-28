@@ -275,89 +275,13 @@ void load(const QString &path) {
 }
 
 //-----------------------------------------------------------------------------
-// Known issues
-
-const KnownIssue kSizeWrap = {
-    "tstream-size-wrap",
-    "compressed TIStream: a decompressed size near SIZE_MAX wraps "
-    "'out_len + 1000' and the output buffer is too small (heap overflow)"};
-const KnownIssue kHugeSize = {
-    "tstream-huge-size",
-    "compressed TIStream: the decompressed size is not bounded; a 20 byte "
-    "file allocates and clears gigabytes"};
-const KnownIssue kShortSize = {
-    "tstream-short-size",
-    "compressed TIStream: a decompressed size smaller than the data makes "
-    "lz4decompress() loop forever once the output buffer is full"};
-const KnownIssue kTruncated = {
-    "tstream-truncated",
-    "compressed TIStream: a header or payload cut short is used from "
-    "uninitialised memory"};
-
-//! Bytes LZ4F produces from the payload, stopping once more than limit.
-size_t lz4Output(const uint8_t *src, size_t size, size_t limit) {
-  LZ4F_decompressionContext_t context;
-  if (LZ4F_isError(LZ4F_createDecompressionContext(&context, LZ4F_VERSION)))
-    return 0;
-  std::vector<char> buffer(64 * 1024);
-  size_t produced = 0;
-  while (size > 0 && produced <= limit) {
-    size_t outSize = buffer.size(), inSize = size;
-    size_t result = LZ4F_decompress(context, buffer.data(), &outSize, src,
-                                    &inSize, nullptr);
-    if (LZ4F_isError(result) || (inSize == 0 && outSize == 0)) break;
-    produced += outSize;
-    src += inSize;
-    size -= inSize;
-  }
-  LZ4F_freeDecompressionContext(context);
-  return produced;
-}
-
-const KnownIssue *knownIssue(const Bytes &data) {
-  // TIStream takes the compressed path when the file starts with 'T'.
-  if (data.empty() || data[0] != 'T') return nullptr;
-  if (data.size() < 4) {
-    std::string start(data.begin(), data.end());
-    return (std::string("TABc").compare(0, start.size(), start) == 0 ||
-            std::string("TNZC").compare(0, start.size(), start) == 0)
-               ? &kTruncated
-               : nullptr;
-  }
-  const std::string magic(data.begin(), data.begin() + 4);
-  uint64_t outLen, inLen;
-  size_t headerSize;
-  if (magic == "TABc") {
-    headerSize = 16;
-    if (data.size() < headerSize) return &kTruncated;
-    // Any byte order mark but the native one means "swap".
-    bool swap = otfuzz::getU32(data, 4, false) != 0x0A0B0C0D;
-    // The sizes are TINT32 values stored into size_t: negative ones extend.
-    outLen = uint64_t(int64_t(int32_t(otfuzz::getU32(data, 8, swap))));
-    inLen  = uint64_t(int64_t(int32_t(otfuzz::getU32(data, 12, swap))));
-  } else if (magic == "TNZC") {
-    headerSize = 4 + 2 * sizeof(size_t);
-    if (data.size() < headerSize) return &kTruncated;
-    size_t out, in;
-    std::memcpy(&out, &data[4], sizeof(size_t));
-    std::memcpy(&in, &data[4 + sizeof(size_t)], sizeof(size_t));
-    outLen = out;
-    inLen  = in;
-  } else
-    return nullptr;
-
-  if (inLen == 0 || inLen > 100000000) return nullptr;  // rejected
-  if (outLen > uint64_t(std::numeric_limits<size_t>::max()) - 1000)
-    return &kSizeWrap;
-  if (outLen > (uint64_t(1) << 28)) return &kHugeSize;
-  if (inLen > data.size() - headerSize) return &kTruncated;
-  if (lz4Output(&data[headerSize], size_t(inLen), size_t(outLen)) > outLen)
-    return &kShortSize;
-  return nullptr;
-}
+// Known issues: none. The compressed stream used to have four (a size near
+// SIZE_MAX wrapping the buffer size, an unbounded size, a size too small making
+// the decompression loop forever, data cut short), all fixed in tstream.cpp,
+// so those inputs are run again.
 
 const otfuzz::Harness kHarness = {"tstream", "tpl", true,
-                                  makeSeeds, load,  knownIssue};
+                                  makeSeeds, load,  nullptr};
 
 }  // namespace
 

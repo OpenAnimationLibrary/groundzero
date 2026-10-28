@@ -143,7 +143,9 @@ hidden cursors, floating panels, selected-region transforms and clipping/exclusi
 They run at normal and 200% DPI with two video sizes. Region selection and resize
 tests also run at 200% DPI.
 
-Windows CI builds and runs these tests before building OpenToonz. Interactive
+Windows CI does not run these tests: it builds the encoder and the test-only
+decoder, and compiles the recorder into OpenToonz. Run CTest locally on Windows
+with the variables above before relying on a change. Interactive
 acceptance in the extracted artifact must additionally check the Viewer, Style
 Editor, Xsheet, FX Schematic, floating panels, popup menus, native file dialogs,
 overlapping external windows, multi-monitor/high-DPI use, shutdown/cancelled quit,

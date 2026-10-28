@@ -396,11 +396,11 @@ void StageBuilder::addCell(PlayerSet &players, ToonzScene *scene, TXsheet *xsh,
   TXshCell cell = xsh->getCell(row, col);
   // The time remap of a level column retimes what is shown, as in the render
   // (master plan B7). The current column is always shown as it is in the
-  // xsheet, so that what is drawn is what is seen.
+  // xsheet, so that what is drawn is what is seen. The columns of a
+  // sub-xsheet are not edited from its column: they stay remapped when that
+  // column is current.
   if (TXshLevelColumn *levelColumn = column->getLevelColumn()) {
-    bool isCurrentColumn = (subSheetColIndex >= 0)
-                               ? (subSheetColIndex == m_currentColumnIndex)
-                               : (col == m_currentColumnIndex);
+    bool isCurrentColumn = subSheetColIndex < 0 && col == m_currentColumnIndex;
     if (!isCurrentColumn && levelColumn->isTimeRemapActive())
       cell = levelColumn->getRemappedCell(row);
   }

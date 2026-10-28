@@ -803,7 +803,9 @@ void TFx::loadData(TIStream &is) {
             TPersist *p = 0;
             is >> p;
             TFx *fx = dynamic_cast<TFx *>(p);
-            port->setFx(fx);
+            // A link the port refuses (an ordinary fx on a 3D source port)
+            // is dropped rather than failing the whole scene load
+            if (port->accepts(fx)) port->setFx(fx);
           }
 
           is.closeChild();

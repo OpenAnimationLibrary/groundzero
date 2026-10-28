@@ -20,6 +20,7 @@
 #include <future>
 #include <limits>
 #include <locale>
+#include <map>
 #include <memory>
 #include <sstream>
 #include <stdexcept>
@@ -91,9 +92,41 @@ class GlbModelFx final : public TStandardZeraryFx,
     std::vector<std::shared_ptr<Projection>> projected;  // Most recent first.
     bool warned = false;
   };
-  // Render clones share owned data, but hold the lock only while loading the
-  // file or looking up projections; projection itself runs without the lock.
-  std::shared_ptr<Cache> m_cache = std::make_shared<Cache>();
+  // The fxs that use the same model file share its cache: render clones, and
+  // duplicates that still use the file. They hold the lock only while loading
+  // the file or looking up projections; projection itself runs without it.
+  // Duplicates using different files must not share one: each would reload
+  // its own file over the other's on every request.
+  static std::shared_ptr<Cache> sharedCache(const QString &key) {
+    static QMutex mutex;
+    static std::map<QString, std::weak_ptr<Cache>> caches;
+    QMutexLocker lock(&mutex);
+    for (auto it = caches.begin(); it != caches.end();)
+      it = it->second.expired() ? caches.erase(it) : std::next(it);
+    auto &slot = caches[key];
+    auto cache = slot.lock();
+    if (!cache) {
+      cache = std::make_shared<Cache>();
+      slot  = cache;
+    }
+    return cache;
+  }
+  // The cache of the current model file, kept alive by this fx
+  mutable QMutex m_cacheMutex;
+  mutable QString m_cacheKey;
+  mutable std::shared_ptr<Cache> m_cache;
+
+  std::shared_ptr<Cache> fileCache() const {
+    const QString key =
+        QFileInfo(QString::fromStdWString(m_modelFile->getValue()))
+            .absoluteFilePath();
+    QMutexLocker lock(&m_cacheMutex);
+    if (!m_cache || key != m_cacheKey) {
+      m_cache    = sharedCache(key);
+      m_cacheKey = key;
+    }
+    return m_cache;
+  }
 
   QString fileRevision() const {
     const QFileInfo file(QString::fromStdWString(m_modelFile->getValue()));
@@ -119,10 +152,10 @@ class GlbModelFx final : public TStandardZeraryFx,
     return o;
   }
 
-  void loadLocked() const {
+  void loadLocked(Cache &cache) const {
     const QString path = QString::fromStdWString(m_modelFile->getValue());
     const QString revision = fileRevision();
-    if (revision != m_cache->revision) {
+    if (revision != cache.revision) {
 #ifdef _WIN32
       const std::filesystem::path native(path.toStdWString());
 #else
@@ -139,23 +172,23 @@ class GlbModelFx final : public TStandardZeraryFx,
       }
       if (fileRevision() != revision)
         throw std::runtime_error("GLB changed while loading; retry the render.");
-      m_cache->loaded = std::move(loaded);
-      m_cache->digest = std::move(digest);
-      m_cache->revision = revision;
-      m_cache->projected.clear();
-      m_cache->warned = false;
-      for (const auto &warning : m_cache->loaded.warnings)
+      cache.loaded   = std::move(loaded);
+      cache.digest   = std::move(digest);
+      cache.revision = revision;
+      cache.projected.clear();
+      cache.warned = false;
+      for (const auto &warning : cache.loaded.warnings)
         qWarning().noquote() << "GLB Model:" << path << QString::fromStdString(warning);
     }
-    if (!m_cache->loaded) throw std::runtime_error(m_cache->loaded.error);
+    if (!cache.loaded) throw std::runtime_error(cache.loaded.error);
   }
 
-  std::string materialKey(std::size_t index) const {
-    return "m" + m_cache->digest + "_" + std::to_string(index);
+  std::string materialKey(const Cache &cache, std::size_t index) const {
+    return "m" + cache.digest + "_" + std::to_string(index);
   }
 
-  int animationIndexLocked() const {
-    const auto &animations = m_cache->loaded.asset->animations;
+  int animationIndexLocked(const Cache &cache) const {
+    const auto &animations = cache.loaded.asset->animations;
     if (animations.empty())
       throw std::runtime_error("Embedded Animation is enabled, but this GLB contains no animation clips.");
 
@@ -182,7 +215,8 @@ class GlbModelFx final : public TStandardZeraryFx,
     return found;
   }
 
-  void applyAnimationLocked(double frame, otglb::RenderOptions &settings) const {
+  void applyAnimationLocked(Cache &cache, double frame,
+                            otglb::RenderOptions &settings) const {
     if (m_animationMode->getValue() != 1) return;
     const double fps = m_playbackFps->getValue(frame);
     const double offset = m_timeOffset->getValue(frame);
@@ -190,10 +224,10 @@ class GlbModelFx final : public TStandardZeraryFx,
     if (!std::isfinite(fps) || fps <= 0.0 || !std::isfinite(offset) || !std::isfinite(speed))
       throw std::runtime_error("GLB playback requires positive finite Playback FPS and finite Time Offset/Speed.");
 
-    const int clip = animationIndexLocked();
+    const int clip = animationIndexLocked(cache);
     double seconds = offset + frame / fps * speed;
     if (m_loopMode->getValue() == 1) {
-      const double duration = m_cache->loaded.asset->animations[clip].lastKeyTime;
+      const double duration = cache.loaded.asset->animations[clip].lastKeyTime;
       if (!(duration > 0.0) || !std::isfinite(duration))
         throw std::runtime_error("GLB animation cannot loop because its clip duration is zero or invalid.");
       seconds = std::fmod(seconds, duration);
@@ -208,16 +242,18 @@ class GlbModelFx final : public TStandardZeraryFx,
       const otglb::LightingRig *lighting                   = nullptr,
       const std::vector<otglb::ModelTransform> *transforms = nullptr) const {
     if (m_modelFile->getValue().empty()) return {};
-    auto settings = options(frame);
-    QMutexLocker lock(&m_cache->mutex);
-    loadLocked();
-    applyAnimationLocked(frame, settings);
+    auto settings                     = options(frame);
+    const std::shared_ptr<Cache> held = fileCache();
+    Cache &cache                      = *held;
+    QMutexLocker lock(&cache.mutex);
+    loadLocked(cache);
+    applyAnimationLocked(cache, frame, settings);
     settings.materialColors = m_colorMode->getValue() == 1;
     if (settings.materialColors) {
-      const auto &asset = *m_cache->loaded.asset;
+      const auto &asset = *cache.loaded.asset;
       for (std::size_t i = 0; i <= asset.materials.size(); ++i) {
         auto color = otglb::materialColor(asset, i);
-        const int index = m_materialColors->getParamIdx(materialKey(i));
+        const int index = m_materialColors->getParamIdx(materialKey(cache, i));
         if (index < m_materialColors->getParamCount()) {
           TPixelParamP param = m_materialColors->getParam(index);
           if (param) {
@@ -236,7 +272,7 @@ class GlbModelFx final : public TStandardZeraryFx,
     }
     if (transforms) settings.transforms = *transforms;
 
-    auto &entries = m_cache->projected;
+    auto &entries = cache.projected;
     const auto found =
         std::find_if(entries.begin(), entries.end(),
                      [&](const std::shared_ptr<Projection> &entry) {
@@ -258,8 +294,8 @@ class GlbModelFx final : public TStandardZeraryFx,
     std::promise<std::shared_ptr<const otglb::RenderScene>> promise;
     entry->scene = promise.get_future().share();
     entries.insert(entries.begin(), entry);
-    trimProjectionsLocked();
-    const auto asset = m_cache->loaded.asset;
+    trimProjectionsLocked(cache);
+    const auto asset = cache.loaded.asset;
     lock.unlock();
 
     std::shared_ptr<const otglb::RenderScene> scene;
@@ -269,40 +305,41 @@ class GlbModelFx final : public TStandardZeraryFx,
       if (!(canceled && *canceled)) scene = std::move(prepared);
     } catch (...) {
       lock.relock();
-      eraseProjectionLocked(entry);
+      eraseProjectionLocked(cache, entry);
       promise.set_exception(std::current_exception());
       throw;
     }
     // Remove a failed entry before waking its waiters so they cannot retry it.
     lock.relock();
     if (!scene) {
-      eraseProjectionLocked(entry);
+      eraseProjectionLocked(cache, entry);
       promise.set_value(scene);
       return {};
     }
     entry->bytes = scene->triangles.capacity() * sizeof(otglb::RenderTriangle);
     promise.set_value(scene);
     // The file may have been reloaded meanwhile; that cleared this entry.
-    if (asset == m_cache->loaded.asset && !m_cache->warned) {
+    if (asset == cache.loaded.asset && !cache.warned) {
       for (const auto &warning : scene->warnings)
         qWarning().noquote()
             << "GLB Model:" << QString::fromStdWString(m_modelFile->getValue())
             << QString::fromStdString(warning);
-      m_cache->warned = true;
+      cache.warned = true;
     }
-    trimProjectionsLocked();
+    trimProjectionsLocked(cache);
     return scene;
   }
 
-  void eraseProjectionLocked(const std::shared_ptr<Projection> &entry) const {
-    auto &entries = m_cache->projected;
+  void eraseProjectionLocked(Cache &cache,
+                             const std::shared_ptr<Projection> &entry) const {
+    auto &entries = cache.projected;
     entries.erase(std::remove(entries.begin(), entries.end(), entry),
                   entries.end());
   }
 
   // Keep the most recent entry even if it alone exceeds the byte bound.
-  void trimProjectionsLocked() const {
-    auto &entries     = m_cache->projected;
+  void trimProjectionsLocked(Cache &cache) const {
+    auto &entries     = cache.projected;
     std::size_t bytes = 0;
     for (const auto &entry : entries) bytes += entry->bytes;
     while (entries.size() > 1 &&
@@ -315,9 +352,11 @@ class GlbModelFx final : public TStandardZeraryFx,
 public:
   std::vector<TFxMaterial> getMaterials() const override {
     if (m_modelFile->getValue().empty()) return {};
-    QMutexLocker lock(&m_cache->mutex);
-    loadLocked();
-    const auto &asset = *m_cache->loaded.asset;
+    const std::shared_ptr<Cache> held = fileCache();
+    Cache &cache                      = *held;
+    QMutexLocker lock(&cache.mutex);
+    loadLocked(cache);
+    const auto &asset = *cache.loaded.asset;
     bool defaultUsed = false;
     for (const auto &mesh : asset.meshes)
       for (const auto &primitive : mesh.primitives)
@@ -327,8 +366,10 @@ public:
       const auto c = otglb::materialColor(asset, i);
       std::string name = i == asset.materials.size() ? "Default material" : asset.materials[i].name;
       if (name.empty()) name = "Material " + std::to_string(i + 1);
-      materials.push_back({materialKey(i), name,
-          TPixel32(int(c[0] * 255 + .5f), int(c[1] * 255 + .5f), int(c[2] * 255 + .5f), 255)});
+      materials.push_back(
+          {materialKey(cache, i), name,
+           TPixel32(int(c[0] * 255 + .5f), int(c[1] * 255 + .5f),
+                    int(c[2] * 255 + .5f), 255)});
     }
     return materials;
   }
@@ -418,7 +459,12 @@ public:
 
   TFx *clone(bool recursive = true) const override {
     auto *copy = static_cast<GlbModelFx *>(TStandardZeraryFx::clone(recursive));
-    copy->m_cache = m_cache;
+    // Render clones start with the cache of the model file; a copy given
+    // another file later gets that file's cache instead (fileCache())
+    const std::shared_ptr<Cache> cache = fileCache();
+    QMutexLocker lock(&m_cacheMutex);
+    copy->m_cacheKey = m_cacheKey;
+    copy->m_cache    = cache;
     return copy;
   }
 

@@ -34,10 +34,12 @@
 // are converted from stage inches to camera pixels (Spine is y-up as the
 // stage).
 //
-// Spine 3.8 and 4.x write mesh attachments and deform timelines alike (type,
-// path, uvs, triangles, vertices, hull, width and height; the deform keys
-// have time, offset and vertices), so the version only changes the names of
-// the bone timeline values, as before.
+// Spine 3.8 and 4.x write mesh attachments and deform keys alike (type, path,
+// uvs, triangles, vertices, hull, width and height; the deform keys have time,
+// offset and vertices). The version changes the names of the bone timeline
+// values, and where the deform timelines go: up to 4.0 under the animation's
+// "deform" (skin/slot/attachment: keys), from 4.1 under its "attachments"
+// (skin/slot/attachment/"deform": keys), the only place 4.1 runtimes read.
 //
 // Mesh export limits: the faces' stacking order (the "SO" Plastic parameter)
 // is not exported, as meshes are drawn in face order, and neither are meshes
@@ -828,6 +830,8 @@ void ExportSpineCommand::execute() {
 
   QString version = versionCombo->currentData().toString();
   bool spine4     = !version.startsWith("3.");
+  // Deform timelines are attachment timelines from Spine 4.1
+  const bool attachmentTimelines = spine4 && !version.startsWith("4.0");
 
   QString imagesFolder = QString::fromStdString(fp.getName()) + "_images";
   TFilePath imagesDir  = fp.getParentDir() + TFilePath(imagesFolder);
@@ -1024,6 +1028,12 @@ void ExportSpineCommand::execute() {
     }
     if (!attachments.isEmpty()) skinAttachments[slot.m_name] = attachments;
     if (!deform.isEmpty()) {
+      if (attachmentTimelines)
+        for (const QString &name : deform.keys()) {
+          QJsonObject timelines;
+          timelines["deform"] = deform[name];
+          deform[name]        = timelines;
+        }
       QJsonObject deformSlots    = deformTimelines["default"].toObject();
       deformSlots[slot.m_name]   = deform;
       deformTimelines["default"] = deformSlots;
@@ -1066,7 +1076,8 @@ void ExportSpineCommand::execute() {
   QJsonObject animation;
   if (!bonesTimelines.isEmpty()) animation["bones"] = bonesTimelines;
   if (!slotsTimelines.isEmpty()) animation["slots"] = slotsTimelines;
-  if (!deformTimelines.isEmpty()) animation["deform"] = deformTimelines;
+  if (!deformTimelines.isEmpty())
+    animation[attachmentTimelines ? "attachments" : "deform"] = deformTimelines;
   QString animationName = QString::fromStdWString(scene->getSceneName());
   QJsonObject animations;
   animations[animationName.isEmpty() ? QString("animation") : animationName] =

@@ -27,10 +27,12 @@ def release(tag, *, draft=False, prerelease=True, published="2026-10-26T00:00:00
 
 
 class FakeGitHub:
-    def __init__(self, releases=(), statuses=None, generated="* Fix drawing by @artist in #42"):
+    def __init__(self, releases=(), statuses=None, generated="* Fix drawing by @artist in #42",
+                 missing_refs=()):
         self.pages = [list(releases)]
         self.statuses = statuses or {}
         self.generated = generated
+        self.missing_refs = set(missing_refs)
         self.calls = []
 
     def request(self, endpoint, *, data=None, paginate=False):
@@ -40,6 +42,9 @@ class FakeGitHub:
                 raise AssertionError("Release listing must paginate")
             return self.pages
         if endpoint.startswith(f"{ROOT}/commits/"):
+            if endpoint.split("/commits/", 1)[1] in self.missing_refs:
+                # gh api exits with an error on a 404
+                raise subprocess.CalledProcessError(1, ["gh", "api", endpoint])
             return {"sha": SHA}
         if endpoint.startswith(f"{ROOT}/compare/"):
             base = endpoint.split("/compare/", 1)[1].split("...", 1)[0]
@@ -129,6 +134,21 @@ class ReleaseNotesTests(unittest.TestCase):
         self.generate(api, "v0.1.0", existing_only=True)
         self.assertIn((f"{ROOT}/commits/v0.1.0", None, False), api.calls)
         self.assertNotIn((f"{ROOT}/commits/edition", None, False), api.calls)
+
+    def test_manual_publication_of_untagged_draft_uses_pinned_commit(self):
+        draft = release("v0.1.0", draft=True)
+        draft["target_commitish"] = OTHER_SHA
+        api = FakeGitHub([draft, release("v0.0.0", prerelease=False)], missing_refs={"v0.1.0"})
+        self.generate(api, "v0.1.0", existing_only=True)
+        self.assertNotIn((f"{ROOT}/commits/edition", None, False), api.calls)
+        self.assertTrue(any(OTHER_SHA in str(call) for call in api.calls))
+
+    def test_manual_publication_of_untagged_branch_draft_is_refused(self):
+        draft = release("v0.1.0", draft=True)
+        draft["target_commitish"] = "edition"
+        api = FakeGitHub([draft, release("v0.0.0", prerelease=False)], missing_refs={"v0.1.0"})
+        with self.assertRaisesRegex(ValueError, "has no tag yet"):
+            self.generate(api, "v0.1.0", existing_only=True)
 
     def test_legacy_draft_introduction_is_preserved(self):
         api = FakeGitHub([release("build-3", draft=True, body="Maintainer's notes"), release("build-2")])

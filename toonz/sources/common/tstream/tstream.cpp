@@ -17,6 +17,7 @@
 #include <memory>
 #include <limits>
 #include <locale>
+#include <new>
 
 //===============================================================
 namespace {
@@ -863,7 +864,7 @@ TIStream::TIStream(const TFilePath &fp) : m_imp(new Imp) {
     std::unique_ptr<std::istream> is(m_imp->m_is);
     m_imp->m_is = 0;
 
-    char magicBuffer[4];
+    char magicBuffer[4] = {0, 0, 0, 0};  // a file cut short reads less
     is->read(magicBuffer, 4);
     std::string magic(magicBuffer, 4);
     size_t in_len, out_len;
@@ -898,8 +899,11 @@ TIStream::TIStream(const TFilePath &fp) : m_imp(new Imp) {
       throw TException("Corrupted file");
 
     // A header cut short, or a declared decompressed size that LZ4 cannot
-    // reach from the compressed one (it expands at most ~255 times)
-    if (is->fail() || out_len > in_len * 256 + 1024)
+    // reach from the compressed one (it expands at most ~255 times). The
+    // buffer is allocated from the declared size before decompressing: bound
+    // it too, as 100M of compressed data could still declare 25G.
+    if (is->fail() || out_len > in_len * 256 + 1024 ||
+        out_len > (size_t(1) << 28))  // 256M of scene text
       throw TException("Corrupted file");
 
     LZ4F_decompressionContext_t lz4dctx;
@@ -909,6 +913,10 @@ TIStream::TIStream(const TFilePath &fp) : m_imp(new Imp) {
     if (LZ4F_isError(err)) throw TException("Couldn't decompress file");
 
     char *in = (char *)malloc(in_len);
+    if (!in) {
+      LZ4F_freeDecompressionContext(lz4dctx);
+      throw TException("Couldn't decompress file");
+    }
     is->read((char *)in, in_len);
     if ((size_t)is->gcount() != in_len) {  // payload cut short
       free(in);
@@ -916,7 +924,13 @@ TIStream::TIStream(const TFilePath &fp) : m_imp(new Imp) {
       throw TException("Corrupted file");
     }
 
-    m_imp->m_strbuffer.resize(out_len + 1000);  // for safety
+    try {
+      m_imp->m_strbuffer.resize(out_len + 1000);  // for safety
+    } catch (const std::bad_alloc &) {
+      free(in);
+      LZ4F_freeDecompressionContext(lz4dctx);
+      throw TException("Couldn't decompress file");
+    }
     char *out = (char *)m_imp->m_strbuffer.c_str();
 
     size_t check_len = out_len;

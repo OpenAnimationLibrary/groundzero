@@ -1,0 +1,116 @@
+name: Cadmium runtime
+
+on:
+  workflow_call:
+    inputs:
+      real_inference:
+        description: Exercise packaged CPU models
+        type: boolean
+        default: true
+  workflow_dispatch:
+    inputs:
+      real_inference:
+        description: Exercise packaged CPU models
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  windows-runtime:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: integration
+      - uses: actions/checkout@v4
+        with:
+          repository: latentspacelabs/cadmium-oss
+          ref: d817cae470a1499df4985be460e0fdc721233987
+          submodules: recursive
+          path: dependency
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: dependency/serving/sidecar
+      - name: Build pinned inference worker
+        working-directory: dependency/serving/sidecar
+        run: cargo build --locked --release --bin cadmium-sidecar --target x86_64-pc-windows-msvc
+      - name: Fetch and verify runtime libraries
+        working-directory: dependency/serving/sidecar
+        shell: powershell
+        run: |
+          ./scripts/fetch-directml.ps1
+          ./scripts/fetch-ort-dll.ps1
+      - name: Collect dependency notices
+        working-directory: dependency/serving/sidecar
+        shell: pwsh
+        run: |
+          cargo vendor --locked --versioned-dirs "$env:RUNNER_TEMP/cadmium-vendor"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $notices = New-Item -ItemType Directory -Force vendor-licenses
+          foreach ($crate in Get-ChildItem "$env:RUNNER_TEMP/cadmium-vendor" -Directory) {
+            $target = New-Item -ItemType Directory -Force (Join-Path $notices.FullName $crate.Name)
+            foreach ($file in Get-ChildItem $crate.FullName -Recurse -File) {
+              if ($file.Name -match '^(LICENSE|NOTICE|COPYING|COPYRIGHT)') {
+                $relative = $file.FullName.Substring($crate.FullName.Length).TrimStart('\', '/')
+                Copy-Item $file.FullName (Join-Path $target.FullName $relative.Replace('\', '-').Replace('/', '-'))
+              }
+            }
+          }
+          foreach ($prefix in @('ortdml-1.24.4', 'dml-1.15.4')) {
+            $archive = Get-ChildItem (Join-Path $env:TEMP $prefix) -Filter '*.nupkg' | Select-Object -First 1
+            if (-not $archive) { throw 'Runtime license archive missing' }
+            Add-Type -AssemblyName System.IO.Compression.FileSystem
+            $zip = [System.IO.Compression.ZipFile]::OpenRead($archive.FullName)
+            try {
+              foreach ($entry in $zip.Entries) {
+                if ($entry.Name -notmatch '(?i)(license|notice|copyright)' -or $entry.Length -eq 0) { continue }
+                $name = $prefix + '-' + $entry.FullName.Replace('/', '-')
+                [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, (Join-Path $notices.FullName $name), $true)
+              }
+            } finally { $zip.Dispose() }
+          }
+      - name: Assemble optional runtime component
+        shell: pwsh
+        run: ./integration/ci-scripts/package_cadmium_runtime.ps1 -Source dependency -Output cadmium-runtime
+      - name: Verify packaged worker startup
+        shell: pwsh
+        run: |
+          $worker = Start-Process ./cadmium-runtime/cadmium-sidecar.exe -ArgumentList '--host','127.0.0.1','--port','18771','--ep','cpu' -PassThru -NoNewWindow
+          try {
+            $ready = $false
+            for ($attempt = 0; $attempt -lt 30; $attempt++) {
+              if ($worker.HasExited) { throw 'Packaged worker exited before readiness' }
+              try {
+                $address = [System.UriBuilder]::new('http', '127.0.0.1', 18771, 'health').Uri
+                $reply = Invoke-RestMethod -Uri $address -TimeoutSec 1
+                if ($reply.status -eq 'ok') { $ready = $true; break }
+              } catch { Start-Sleep -Seconds 1 }
+            }
+            if (-not $ready) { throw 'Packaged worker did not become ready' }
+          } finally {
+            if (-not $worker.HasExited) { Stop-Process -Id $worker.Id -Force }
+          }
+      - name: Restore verified model cache
+        if: inputs.real_inference
+        uses: actions/cache@v4
+        with:
+          path: models
+          key: cadmium-universal-models-v2-6c8d95cb-3a9a792f
+      - name: Install real inference fixtures
+        if: inputs.real_inference
+        shell: pwsh
+        run: python integration/ci-scripts/cadmium_fetch_models.py models
+      - name: Validate packaged CPU inference
+        if: inputs.real_inference
+        shell: pwsh
+        run: python integration/ci-scripts/cadmium_runtime_smoke.py --runtime cadmium-runtime/cadmium-sidecar.exe --models models
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cadmium-runtime-windows-x64
+          path: cadmium-runtime
+          if-no-files-found: error

@@ -835,6 +835,7 @@ void TXshSimpleLevel::setFrame(const TFrameId& fid, const TImageP& img) {
 void TXshSimpleLevel::eraseFrame(const TFrameId& fid) {
   auto ft = m_frames.find(fid);
   if (ft == m_frames.end()) return;
+  m_cadmiumReferences.erase(fid);
 
   // Erase the corresponding entry in the renumber table
   for (auto it = m_renumberTable.begin(); it != m_renumberTable.end(); ++it) {
@@ -896,6 +897,7 @@ void TXshSimpleLevel::clearFrames() {
   }
 
   m_frames.clear();
+  m_cadmiumReferences.clear();
   m_editableRange.clear();
   m_editableRangeUserInfo.clear();
   m_renumberTable.clear();
@@ -904,7 +906,68 @@ void TXshSimpleLevel::clearFrames() {
 
 //-----------------------------------------------------------------------------
 
+QString TXshSimpleLevel::cadmiumLevelId() {
+  if (m_cadmiumLevelId.isEmpty())
+    m_cadmiumLevelId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+  return m_cadmiumLevelId;
+}
+
+void TXshSimpleLevel::resetCadmiumInfo() {
+  m_cadmiumReferences.clear();
+  m_cadmiumLevelId.clear();
+  m_cadmiumSourceLevelId.clear();
+}
+
+void TXshSimpleLevel::loadCadmiumInfo(TIStream &is) {
+  std::string v;
+  if (is.getTagParam("cadmiumLevelId", v) &&
+      !QUuid(QString::fromStdString(v)).isNull())
+    m_cadmiumLevelId = QString::fromStdString(v);
+  if (is.getTagParam("cadmiumSourceLevelId", v) &&
+      !QUuid(QString::fromStdString(v)).isNull())
+    m_cadmiumSourceLevelId = QString::fromStdString(v);
+  if (is.getTagParam("cadmiumReferencesV1", v) && v.size() <= 1048576) {
+    const QJsonDocument document = QJsonDocument::fromJson(
+        QByteArray::fromBase64(QByteArray::fromStdString(v)));
+    if (document.isArray()) {
+      const QJsonArray entries = document.array();
+      for (const QJsonValue &entry : entries) {
+        if (!entry.isArray()) continue;
+        const QJsonArray pair = entry.toArray();
+        if (pair.size() != 2 || !pair[0].isDouble() ||
+            !pair[1].isString()) continue;
+        const int number = pair[0].toInt(-1);
+        const QString suffix = pair[1].toString();
+        if (number < 0 || pair[0].toDouble() != number ||
+            suffix.size() > 64) continue;
+        m_cadmiumReferences.insert(TFrameId(number, suffix));
+      }
+    }
+  }
+}
+
+void TXshSimpleLevel::saveCadmiumInfo(
+    std::map<std::string, std::string> &attr) const {
+  if (!m_cadmiumLevelId.isEmpty())
+    attr["cadmiumLevelId"] = m_cadmiumLevelId.toStdString();
+  if (!m_cadmiumSourceLevelId.isEmpty())
+    attr["cadmiumSourceLevelId"] = m_cadmiumSourceLevelId.toStdString();
+
+  if (!m_cadmiumReferences.empty()) {
+    QJsonArray references;
+    for (const TFrameId &fid : m_cadmiumReferences) {
+      QJsonArray entry;
+      entry.append(fid.getNumber());
+      entry.append(fid.getLetter());
+      references.append(entry);
+    }
+    attr["cadmiumReferencesV1"] = QJsonDocument(references)
+        .toJson(QJsonDocument::Compact).toBase64().toStdString();
+  }
+}
+
 void TXshSimpleLevel::loadData(TIStream& is) {
+  resetCadmiumInfo();
   std::string tagName;
   bool flag = false;
 
@@ -920,6 +983,7 @@ void TXshSimpleLevel::loadData(TIStream& is) {
         is.matchEndTag();
       } else if (tagName == "info") {
         std::string v;
+        loadCadmiumInfo(is);
         double xdpi = 0, ydpi = 0;
         int subsampling        = 1;
         int doPremultiply      = 0;
@@ -1399,6 +1463,7 @@ void TXshSimpleLevel::saveData(TOStream& os) {
   }
 
   if (m_type == TZI_XSHLEVEL) attr["type"] = "s";
+  saveCadmiumInfo(attr);
 
   os.openCloseChild("info", attr);
 
@@ -2091,6 +2156,13 @@ void TXshSimpleLevel::renumber(const std::vector<TFrameId>& fids) {
   for (const auto& renumber : newRenumberTable) {
     m_renumberTable[renumber.first] = renumber.second;
   }
+
+  std::set<TFrameId> references;
+  for (const TFrameId &fid : m_cadmiumReferences) {
+    const auto found = table.find(fid);
+    if (found != table.end()) references.insert(found->second);
+  }
+  m_cadmiumReferences.swap(references);
 
   m_frames.clear();
   for (int i = 0; i < n; ++i) {

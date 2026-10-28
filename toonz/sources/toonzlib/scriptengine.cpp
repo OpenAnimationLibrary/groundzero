@@ -33,15 +33,20 @@ void sleepMs(unsigned long msec) {
   mutex.unlock();
 }
 
-QString print(const QJSValue &arg, bool addQuotes) {
+QString print(const QJSValue &arg, bool addQuotes, int depth = 0) {
   if (arg.isArray()) {
+    // An array that contains itself would recurse until the stack is gone,
+    // and a huge one would print for ever: both are cut
+    if (depth >= 32) return "[...]";
     QString s   = "[";
     quint32 len = arg.property(QLatin1String("length")).toUInt();
-    for (quint32 i = 0; i < len; ++i) {
+    const quint32 maxItems = 10000;
+    for (quint32 i = 0; i < len && i < maxItems; ++i) {
       QJSValue item = arg.property(i);
       if (i > 0) s += ",";
-      s += print(item, addQuotes);
+      s += print(item, addQuotes, depth + 1);
     }
+    if (len > maxItems) s += ",...";
     s += "]";
     return s;
   } else if (arg.isBool()) {
@@ -205,12 +210,14 @@ ScriptEngine::~ScriptEngine() {
   // stop the running script (if any), then the thread: when it ends it
   // destroys the engine. The script could be waiting for a call queued to
   // this thread (see runOnMainThread()): keep delivering them, while
-  // m_stopping makes them return without running.
+  // m_stopping makes them return without running. It could also be waiting
+  // for a render, which reports to this thread through other objects: the
+  // queued calls of all the objects are delivered.
   m_executor->m_stopping = true;
   interrupt();
   m_executor->m_thread.quit();
   while (!m_executor->m_thread.wait(20))
-    QCoreApplication::sendPostedEvents(this, QEvent::MetaCall);
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::MetaCall);
   delete m_executor;
 }
 

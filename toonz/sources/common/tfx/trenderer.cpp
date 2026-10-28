@@ -1309,6 +1309,11 @@ void RenderTask::computeTile(const TRasterFxP &fx, TTile &tile, double frame) {
   done.acquire(workersCount);
   job.rethrowError();
 
+  // A cancel leaves the strips not computed yet blank: the frame fails, as a
+  // completed one would be kept (e.g. by the previewer) as finished
+  if (m_rendererImp->hasToDie(m_renderId))
+    throw TException("Render task aborted");
+
   for (int s = 0; s < stripsCount; ++s)
     ras->copy(strips[s].getRaster(), TPoint(0, ly * s / stripsCount));
 
