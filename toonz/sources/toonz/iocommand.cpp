@@ -170,6 +170,7 @@ public:
   }
 
   bool isImportEnabled() const { return m_importEnabled; }
+  bool importsFxResources() const override { return m_importEnabled; }
   void setImportEnabled(bool enabled) {
     m_importQuestionAsked = true, m_importEnabled = enabled;
   }

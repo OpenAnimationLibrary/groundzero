@@ -87,8 +87,19 @@ jobs:
             -DQt5_DIR=$(brew --prefix qt@5)/lib/cmake/Qt5 \
             -DCMAKE_PREFIX_PATH=$(brew --prefix qt@5)/lib/cmake/Qt5 \
             -DOpenCV_DIR=$(brew --prefix opencv@4)/lib/cmake/opencv4 \
-            -DWITH_TRANSLATION=OFF
+            -DWITH_TRANSLATION=OFF -DBUILD_PARTICLE_CACHE_TESTS=ON
           ninja -j $(sysctl -n hw.ncpu) 2>&1 | tee -a "$GITHUB_WORKSPACE/build.log"
+      - name: Test particle cache integration
+        id: particle_tests
+        working-directory: toonz/build
+        run: |
+          set -o pipefail
+          QT_QPA_PLATFORM=offscreen ctest --output-on-failure --output-junit particle-tests.xml --timeout 300 --no-tests=error -R '^particlecache_' 2>&1 | tee particle-tests-output.txt
+
+      - name: Report particle test failures
+        if: ${{ failure() && steps.particle_tests.outcome == 'failure' }}
+        run: python3 ci-scripts/report_particle_tests.py toonz/build/particle-tests-output.txt
+
       # Show the errors on the run (summary and annotations) without opening
       # the full log, as the Linux and Windows builds do
       - name: Report build errors
@@ -118,6 +129,8 @@ jobs:
         run: |
           cd toonz/build/toonz
           cp -pr ../../../stuff OpenToonz.app/portablestuff
+          mkdir -p OpenToonz.app/Contents/Resources/licenses
+          cp ../licenses/Partio-LICENSE.txt OpenToonz.app/Contents/Resources/licenses/
           /usr/local/opt/qt@5/bin/macdeployqt OpenToonz.app -verbose=0 -always-overwrite \
             -executable=OpenToonz.app/Contents/MacOS/lzocompress \
             -executable=OpenToonz.app/Contents/MacOS/lzodecompress \

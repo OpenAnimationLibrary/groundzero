@@ -39,6 +39,7 @@ Particle::Particle(int g_lifetime, int seed, std::map<int, TTile *> porttiles,
                    int first, int level, int last,
                    std::vector<std::vector<int>> &myHistogram,
                    std::vector<float> &myWeight) {
+  birthId = static_cast<unsigned long long>(howmany);
   double random_s_a_range, random_speed;
   std::map<int, double> imagereferences;
   random                  = TRandom(seed);

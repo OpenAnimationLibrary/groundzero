@@ -45,6 +45,7 @@ set(HEADERS
     imagebuilders.h
     ../include/toonz/txshexrlevel.h
     ../include/toonz/lut3d.h
+    ../include/toonz/particlecache.h
     skeletonlut.h
     tcenterlinevectP.h
     texturemanager.h
@@ -190,6 +191,7 @@ set(HEADERS
 )
 
 set(SOURCES
+    particlecache.cpp
     abrparser.cpp
     autoadjust.cpp
     autoclose.cpp
@@ -443,6 +445,15 @@ elseif(BUILD_ENV_UNIXLIKE)
 endif()
 
 target_link_libraries(toonzlib OpenEXR::OpenEXR)
+target_link_libraries(toonzlib Partio::Partio)
+
+option(BUILD_PARTICLE_CACHE_TESTS "Build particle cache integration regressions" ${BUILD_TESTS})
+if(BUILD_PARTICLE_CACHE_TESTS)
+    add_executable(particlecache_test tests/particlecache_test.cpp)
+    target_link_libraries(particlecache_test PRIVATE toonzlib tnzcore Qt${QT_VERSION_MAJOR}::Core)
+    add_test(NAME particlecache_core COMMAND particlecache_test)
+    set_tests_properties(particlecache_core PROPERTIES TIMEOUT 120)
+endif()
 
 if(WITH_PYTHON)
     target_link_libraries(toonzlib pybind11::embed)

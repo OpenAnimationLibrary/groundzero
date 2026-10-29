@@ -36,6 +36,7 @@
 #include "../stdfx/globalcontrollablefx.h"
 
 #include "toonz/scenefx.h"
+#include "toonz/sceneresources.h"
 
 #include <QList>
 
@@ -1052,6 +1053,7 @@ PlacedFx FxBuilder::makePF(TZeraryColumnFx *zcfx) {
       fx->clone(false);  // Detach the fx with a clone. Why? It's typically done
                          // to build fx connections in the render-tree freely.
                          // Here, it's used just for particles, I guess...
+  resolveSceneFxResources(pf.m_fx.getPointer(), m_scene);
 
   // Deal with input sub-trees
   for (int i = 0; i < fx->getInputPortCount(); ++i) {
@@ -1064,6 +1066,7 @@ PlacedFx FxBuilder::makePF(TZeraryColumnFx *zcfx) {
       // this causes a connection with the effect and a level also with empty
       // cells.
       if (fx->getFxType() == "STD_particlesFx" ||
+          fx->getFxType() == "STD_particleCacheFx" ||
           fx->getFxType() == "STD_iwa_TiledParticlesFx" ||
           fx->getFxType() == "STD_tiledParticlesFx") {
         m_particleDescendentCount++;
@@ -1165,11 +1168,13 @@ PlacedFx FxBuilder::makePFfromUnaryFx(TFx *fx) {
         fx->getAttributes()->isSpeedAware() ||  // In the 'speedAware' case,
                                                 // we'll alter the fx's
                                                 // attributes (see below)
+        dynamic_cast<SceneFxResource *>(fx) ||
         dynamic_cast<TMacroFx *>(fx))  // As for macros... I'm not sure. Not
                                        // even who wrote this *understood*
     // why - it just solved a bug  X( . Investigate!
     {
       fx = fx->clone(false);
+      resolveSceneFxResources(fx, m_scene);
       if (!fx->connect(fx->getInputPortName(0), pf.m_fx.getPointer()))
         assert(!"Could not connect ports!");
     }
@@ -1249,6 +1254,7 @@ PlacedFx FxBuilder::makePFfromGenericFx(TFx *fx) {
   // will have an NaAffineFx
   // injected just before its actual input fx.
   pf.m_fx = fx->clone(false);
+  resolveSceneFxResources(pf.m_fx.getPointer(), m_scene);
 
   bool firstInput = true;
 

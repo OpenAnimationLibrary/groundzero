@@ -151,6 +151,22 @@ bool menuContainsAction(QMenu *menu, QAction *target) {
   return false;
 }
 
+void ensureParticleCacheActions(QMenu *fileMenu) {
+  QMenu *menu = nullptr;
+  const QString title = QCoreApplication::translate("MainWindow", "Particle Caches");
+  for (QAction *action : fileMenu->actions()) {
+    QMenu *candidate = menuOfAction(action);
+    if (candidate && candidate->title() == title) { menu = candidate; break; }
+  }
+  for (CommandId id : {MI_ImportParticleCache, MI_InspectParticleCache,
+                       MI_BakeParticleEffect, MI_ExportParticleCache}) {
+    QAction *action = CommandManager::instance()->getAction(id);
+    if (!action || menuContainsAction(fileMenu, action)) continue;
+    if (!menu) menu = fileMenu->addMenu(title);
+    menu->addAction(action);
+  }
+}
+
 void ensurePanelAction(QMenu *windowsMenu, CommandId id) {
   QAction *panelAction = CommandManager::instance()->getAction(id);
   if (!panelAction || menuContainsAction(windowsMenu, panelAction)) return;
@@ -375,6 +391,8 @@ void StackedMenuBar::createMenuBarByName(const QString &roomName) {
       QMenu *subMenu = menuOfAction(action);
       if (subMenu && subMenu->title() == tr("Windows"))
         ensureNewPanelActions(subMenu);
+      if (subMenu && subMenu->title() == tr("File"))
+        ensureParticleCacheActions(subMenu);
     }
   }
 }
@@ -419,6 +437,7 @@ QMenuBar *StackedMenuBar::loadMenuBar(const TFilePath &fp) {
             // Older Windows profiles keep private menu XML files. Add the new
             // built-in command without replacing the user's customized menu.
             if (title == QStringLiteral("Help")) ensureHelpActions(menu);
+            if (title == QStringLiteral("File")) ensureParticleCacheActions(menu);
             if (title == QStringLiteral("File")) ensureAnimatedSvgAction(menu);
             if (title == QStringLiteral("Windows")) ensureNewPanelActions(menu);
             menuBar->addMenu(menu);
@@ -1393,6 +1412,7 @@ QMenuBar *StackedMenuBar::createFullMenuBar() {
   }
   fileMenu->addSeparator();
   addMenuItem(fileMenu, MI_Preferences);
+  ensureParticleCacheActions(fileMenu);
   addMenuItem(fileMenu, MI_ShortcutPopup);
   fileMenu->addSeparator();
   addMenuItem(fileMenu, MI_ClearCacheFolder);

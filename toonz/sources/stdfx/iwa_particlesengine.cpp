@@ -1,3 +1,6 @@
+#include "particlebakecapture.h"
+#include <memory>
+#include <cmath>
 
 
 //------------------------------------------------------------------
@@ -567,13 +570,13 @@ void Iwa_Particles_Engine::render_particles(
 
   /*- Make current frame the step value -*/
   curr_frame = curr_frame / values.step_val;
+  ParticleBakeCapture::checkSimulationRange(m_parent, startframe, curr_frame);
 
-  Iwa_ParticlesManager *pc = Iwa_ParticlesManager::instance();
-
-  bool isFirstFrame = !(pc->isCached(fxId));
-
-  // Retrieve the last rolled frame
-  Iwa_ParticlesManager::FrameData *particlesData = pc->data(fxId);
+  std::unique_ptr<Iwa_ParticlesManager::FrameData> bakeData;
+  if (ParticleBakeCapture::active(m_parent))
+    bakeData.reset(new Iwa_ParticlesManager::FrameData(new Iwa_ParticlesManager::FxData));
+  Iwa_ParticlesManager::FrameData *particlesData = bakeData ? bakeData.get() :
+      Iwa_ParticlesManager::instance()->data(fxId);
 
   std::list<Iwa_Particle> myParticles;
   TRandom myRandom  = m_parent->randseed_val->getValue();
@@ -601,6 +604,7 @@ void Iwa_Particles_Engine::render_particles(
   }
   /*- Generate particles with margin outside -*/
   TRectD resourceTileBBox = outTileBBox.enlarge(pixelMargin);
+  ParticleBakeCapture::checkRasterSize(m_parent, resourceTileBBox.getLx(), resourceTileBBox.getLy(), 8);
 
   /*- Initial particle count. If unchanged, BG can be drawn as is -*/
   int initialOriginsSize;
@@ -632,6 +636,7 @@ void Iwa_Particles_Engine::render_particles(
 
   /*- Loop from start to current frame -*/
   for (frame = startframe - 1; frame <= curr_frame; ++frame) {
+    ParticleBakeCapture::checkCancel(m_parent);
     /*-  Reference images are not needed for frames already cached? -*/
     if (frame <= pcFrame) continue;
 
@@ -644,6 +649,7 @@ void Iwa_Particles_Engine::render_particles(
     /*- Parameter normalization -*/
     normalize_values(values, ri);
     /*- maxnum_val is the "birth_rate" parameter -*/
+    ParticleBakeCapture::checkParticleCount(m_parent, myParticles.size() + values.maxnum_val);
     intpart = (int)values.maxnum_val;
     /*-
      * When birth_rate is decimal, add the decimal parts of each frame and pass
@@ -656,6 +662,7 @@ void Iwa_Particles_Engine::render_particles(
     }
 
     std::map<int, TTile *> porttiles;
+    std::vector<std::unique_ptr<TTile>> ownedControlTiles;
 
     // Perform the roll
     /*- Duplicate RenderSettings for current frame calculation -*/
@@ -687,6 +694,7 @@ void Iwa_Particles_Engine::render_particles(
             (*it->second)->dryCompute(bbox, r_frame, riAux);
           } else {
             tmp = new TTile;
+            ownedControlTiles.emplace_back(tmp);
 
             if (isPrecomputingEnabled) {
               (*it->second)
@@ -696,7 +704,7 @@ void Iwa_Particles_Engine::render_particles(
             } else {
               std::string alias =
                   "CTRL: " + (*(it->second))->getAlias(r_frame, riAux);
-              TRasterImageP rimg = TImageCache::instance()->get(alias, false);
+              TRasterImageP rimg = (ParticleBakeCapture::active(m_parent) ? TImageP() : TImageCache::instance()->get(alias, false));
 
               if (rimg) {
                 tmp->m_pos = bbox.getP00();
@@ -716,6 +724,7 @@ void Iwa_Particles_Engine::render_particles(
     }
 
     TTile baseImgTile;
+    std::unique_ptr<ParticleBakeCapture::RasterLockGuard> baseLock;
     if (values.base_ctrl_val &&
         ctrl_ports.at(values.base_ctrl_val)->isConnected() &&
         port_is_used(values.base_ctrl_val, values) &&
@@ -727,7 +736,7 @@ void Iwa_Particles_Engine::render_particles(
       std::string alias =
           "BG_CTRL: " +
           (*ctrl_ports.at(values.base_ctrl_val))->getAlias(r_frame, ri);
-      TRasterImageP rimg = TImageCache::instance()->get(alias, false);
+      TRasterImageP rimg = (ParticleBakeCapture::active(m_parent) ? TImageP() : TImageCache::instance()->get(alias, false));
       if (rimg) {
         baseImgTile.m_pos = tile->m_pos;
         baseImgTile.setRaster(rimg->getRaster());
@@ -737,9 +746,9 @@ void Iwa_Particles_Engine::render_particles(
             ->allocateAndCompute(baseImgTile, tile->m_pos,
                                  convert(resourceTileBBox).getSize(),
                                  tile->getRaster(), r_frame, ri);
-        addRenderCache(alias, TRasterImageP(baseImgTile.getRaster()));
+        if (!ParticleBakeCapture::active(m_parent)) addRenderCache(alias, TRasterImageP(baseImgTile.getRaster()));
       }
-      baseImgTile.getRaster()->lock();
+      baseLock.reset(new ParticleBakeCapture::RasterLockGuard(baseImgTile.getRaster()));
     }
 
     // Invoke the actual rolling procedure
@@ -759,6 +768,45 @@ void Iwa_Particles_Engine::render_particles(
       particlesData->m_calculated      = true;
       particlesData->m_totalParticles  = totalparticles;
       particlesData->m_particleOrigins = particleOrigins;
+    }
+
+    if (frame == curr_frame && ParticleBakeCapture::active(m_parent)) {
+      for (const auto &original : myParticles) {
+        if (original.lifetime <= 0 || original.lifetime > original.genlifetime) continue;
+        // Color picking is evaluated on a copy; capture must not change native
+        // random state, color state or the subsequent draw traversal.
+        Iwa_Particle part(original);
+        ParticleBake::DrawSample sample;
+        const int step = std::max(1, values.step_val);
+        sample.id = part.birthId;
+        sample.position = TPointD(part.x, part.y);
+        sample.velocity = (part.genlifetime == part.lifetime
+            ? TPointD(part.vx, part.vy)
+            : TPointD(part.x - part.oldx, part.y - part.oldy)) * (1.0 / step);
+        sample.age = (part.genlifetime - part.lifetime) * step;
+        sample.lifetime = part.genlifetime * step;
+        sample.source = part.level;
+        sample.artworkFrame = part.frame % last_frame[part.level];
+        sample.scale = part.scale;
+        sample.angle = part.angle;
+        if (values.pathaim_val) sample.angle += std::atan2(part.vy, part.vx) * M_180_PI;
+        for (int h = 0; h != 3; ++h) sample.history[h] = TPointD(part.oldx, part.oldy);
+        sample.opacity = part.set_Opacity(porttiles, values, opacity_range, 0);
+        if (sample.opacity != 1 || part.gencol.fadecol || part.fincol.fadecol || part.foutcol.fadecol) {
+          if (values.pick_color_for_every_frame_val && values.gencol_ctrl_val &&
+              porttiles.find(values.gencol_ctrl_val) != porttiles.end())
+            part.get_image_reference(porttiles[values.gencol_ctrl_val], values, part.gencol.col);
+          if (part.gencol.fadecol || part.fincol.fadecol || part.foutcol.fadecol)
+            part.modify_colors(sample.tint, sample.tintMix);
+        }
+        const double theta = part.flap_theta * 3.14159 / 180.0;
+        const double phi = part.flap_phi * 3.14159 / 180.0;
+        const double ct = std::cos(theta), st = std::sin(theta), k = 1 - std::cos(phi);
+        const TAffine flap(1 - k * ct * ct, -k * ct * st, 0,
+                           -k * ct * st, 1 - k * st * st, 0);
+        sample.rasterToWorld = TTranslation(sample.position) * TRotation(sample.angle) * TScale(sample.scale) * flap;
+        ParticleBakeCapture::particle(m_parent, sample);
+      }
     }
 
     // Render the particles if the distance from current frame is a trail
@@ -813,6 +861,7 @@ void Iwa_Particles_Engine::render_particles(
           renderBackground(tile, particleOrigins, part_ports, ri, partLevel,
                            partScales, &baseImgTile);
         }
+        ParticleBakeCapture::background(m_parent, tile);
       }
 
       /*- Particle rendering. If in background mode, don't render -*/
@@ -862,14 +911,9 @@ void Iwa_Particles_Engine::render_particles(
       /*- End of particle rendering -*/
     }
 
-    std::map<int, TTile *>::iterator it;
-    for (it = porttiles.begin(); it != porttiles.end(); ++it) delete it->second;
+    // ownedControlTiles releases temporary tiles on success and cancellation.
 
-    if (values.base_ctrl_val &&
-        ctrl_ports.at(values.base_ctrl_val)->isConnected() &&
-        port_is_used(values.base_ctrl_val, values) &&
-        values.iw_rendermode_val != Iwa_TiledParticlesFx::REND_ILLUMINATED)
-      baseImgTile.getRaster()->unlock();
+    // baseLock releases the base raster on success and cancellation.
   }
 }
 
@@ -892,6 +936,26 @@ void Iwa_Particles_Engine::do_render(
   // Retrieve the particle frame - that is, the *column frame* from which we are
   // picking the particle to be rendered.
   int ndx = part->frame % lastframe;
+  if (ParticleBakeCapture::active(m_parent)) {
+    ParticleBake::DrawSample sample;
+    sample.id = part->birthId;
+    sample.position = TPointD(part->x, part->y);
+    const int step = std::max(1, values.step_val);
+    sample.velocity = (part->genlifetime == part->lifetime
+            ? TPointD(part->vx, part->vy)
+            : TPointD(part->x - part->oldx, part->y - part->oldy)) * (1.0 / step);
+    sample.age = (part->genlifetime - part->lifetime) * step;
+    sample.lifetime = part->genlifetime * step;
+    sample.source = part->level;
+    sample.artworkFrame = ndx;
+    sample.trailDistance = dist_frame * step;
+    sample.scale = part->scale;
+    sample.angle = part->angle;
+    if (values.pathaim_val) sample.angle += std::atan2(part->vy, part->vx) * M_180_PI;
+    for (int h = 0; h != 3; ++h) sample.history[h] = TPointD(part->oldx, part->oldy);
+    ParticleBakeCapture::beginDraw(m_parent, sample);
+  }
+
 
   TRasterP tileRas(tile->getRaster());
 
@@ -971,6 +1035,7 @@ void Iwa_Particles_Engine::do_render(
   bbox            = riNew.m_affine * bbox;
   /*- Size of scaled down Particle -*/
   partResolution = TDimensionD(tceil(bbox.getLx()), tceil(bbox.getLy()));
+  ParticleBakeCapture::checkRasterSize(m_parent, partResolution.lx, partResolution.ly, 8);
 
   TRasterP ras;
 
@@ -981,7 +1046,7 @@ void Iwa_Particles_Engine::do_render(
     ras = rimg->getRaster();
   } else {
     alias = "PART: " + (*part_ports[part->level])->getAlias(ndx, riNew);
-    rimg  = TImageCache::instance()->get(alias, false);
+    rimg  = (ParticleBakeCapture::active(m_parent) ? TImageP() : TImageCache::instance()->get(alias, false));
     if (rimg) {
       ras = rimg->getRaster();
 
@@ -1011,7 +1076,7 @@ void Iwa_Particles_Engine::do_render(
     ras = auxTile.getRaster();
 
     // Finally, cache the particle
-    addRenderCache(alias, TRasterImageP(ras));
+    if (!ParticleBakeCapture::active(m_parent)) addRenderCache(alias, TRasterImageP(ras));
   }
 
   if (!ras) return;  // At this point, it should never happen anyway...
@@ -1049,6 +1114,14 @@ void Iwa_Particles_Engine::do_render(
   } else
     rfinalpart2 = rfinalpart;
 
+  if (ParticleBakeCapture::active(m_parent)) {
+    TPixel32 tint = TPixel32::White;
+    double mix = 0;
+    if (part->gencol.fadecol || part->fincol.fadecol || part->foutcol.fadecol)
+      part->modify_colors(tint, mix);
+    ParticleBakeCapture::appearance(m_parent, curr_opacity, tint, mix);
+  }
+
   // Build particle transform before output tile
 
   // Incorporate rotation/scale from particle parameters
@@ -1062,6 +1135,8 @@ void Iwa_Particles_Engine::do_render(
   // NOTE: p_offset is added to account for the particle relative position
   // inside its level's bbox
   M = TTranslation(pos - tile->m_pos) * M * TTranslation(bbox.getP00());
+
+  ParticleBakeCapture::record(m_parent, rfinalpart2, M, tile);
 
   if (TRaster32P myras32 = tile->getRaster())
     TRop::over(tileRas, rfinalpart2, M);
@@ -1335,6 +1410,13 @@ void Iwa_Particles_Engine::initParticleOrigins(
   vect              = aff * vect;
   double triPixSize = sqrt(vect.x * vect.x + vect.y * vect.y);
 
+  if (ParticleBakeCapture::active(m_parent)) {
+    if (!std::isfinite(triPixSize) || triPixSize <= 0)
+      throw TException("Invalid tiled-particle size for bake.");
+    const double columns = std::ceil(resourceTileBBox.getLx() / (triPixSize * 0.5)) + 2;
+    const double rows = std::ceil(resourceTileBBox.getLy() / (triPixSize * 0.8660254)) + 2;
+    ParticleBakeCapture::checkParticleCount(m_parent, columns * rows);
+  }
   double pix2Inch = values.iw_triangleSize / triPixSize;
 
   /*- Horizontal movement distance -*/
@@ -1489,6 +1571,7 @@ void Iwa_Particles_Engine::renderBackground(
     bbox            = riNew.m_affine * bbox;
     /*- Size of scaled down Particle -*/
     partResolution = TDimensionD(tceil(bbox.getLx()), tceil(bbox.getLy()));
+  ParticleBakeCapture::checkRasterSize(m_parent, partResolution.lx, partResolution.ly, 8);
 
     TRasterP ras;
 
@@ -1499,7 +1582,7 @@ void Iwa_Particles_Engine::renderBackground(
       ras = rimg->getRaster();
     } else {
       alias = "PART: " + (*part_ports[origin.level])->getAlias(ndx, riNew);
-      rimg  = TImageCache::instance()->get(alias, false);
+      rimg  = (ParticleBakeCapture::active(m_parent) ? TImageP() : TImageCache::instance()->get(alias, false));
       if (rimg) {
         ras = rimg->getRaster();
 
@@ -1529,7 +1612,7 @@ void Iwa_Particles_Engine::renderBackground(
       ras = auxTile.getRaster();
 
       // Finally, cache the particle
-      addRenderCache(alias, TRasterImageP(ras));
+      if (!ParticleBakeCapture::active(m_parent)) addRenderCache(alias, TRasterImageP(ras));
     }
 
     if (!ras) return;  // At this point, it should never happen anyway...

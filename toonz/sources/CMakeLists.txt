@@ -841,6 +841,7 @@ set(CMAKE_C_FLAGS "${C_WARNINGS} ${CMAKE_C_FLAGS}")
 set(CMAKE_CXX_FLAGS "${CXX_WARNINGS} ${CMAKE_CXX_FLAGS}")
 
 include("${CMAKE_CURRENT_SOURCE_DIR}/../cmake/OpenEXR.cmake")
+include("${CMAKE_CURRENT_SOURCE_DIR}/../cmake/Partio.cmake")
 
 # BUILD_TESTS turns on every regression test below and in the subdirectories,
 # except the GLB/3D suites (tested in OT3D). Each suite keeps its own option

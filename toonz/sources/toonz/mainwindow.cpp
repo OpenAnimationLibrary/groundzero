@@ -2384,6 +2384,14 @@ void MainWindow::defineActions() {
   createMenuFileAction(MI_ExportLayeredPSD,
                        QT_TRANSLATE_NOOP("MainWindow", "Export Layered PSD..."),
                        "");
+  createMenuFileAction(MI_ImportParticleCache,
+                       QT_TR_NOOP("Import Particle Cache..."), "");
+  createMenuFileAction(MI_InspectParticleCache,
+                       QT_TR_NOOP("Particle Cache Inspector..."), "");
+  createMenuFileAction(MI_ExportParticleCache,
+                       QT_TR_NOOP("Export Particle Cache..."), "");
+  createMenuFileAction(MI_BakeParticleEffect,
+                       QT_TR_NOOP("Bake Particle Effect..."), "");
 
   // Menu - Edit
 

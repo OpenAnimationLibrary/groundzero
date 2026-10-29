@@ -39,6 +39,7 @@ Iwa_Particle::Iwa_Particle(
     Iwa_TiledParticlesFx *parent)  // added pointer to parent Fx
     : m_parent(parent)             // initialized
 {
+  birthId = static_cast<unsigned long long>(howmany);
   double random_s_a_range, random_speed;
   std::map<int, float> imagereferences;
   random                 = TRandom(seed);

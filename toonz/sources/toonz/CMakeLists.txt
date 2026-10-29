@@ -489,6 +489,7 @@ set(SOURCES
     textureatlasexport.cpp
     abrimport.cpp
     deformerbake.cpp
+    particlecachepopup.cpp
 # Tracker file
     dummyprocessor.cpp
     metnum.cpp

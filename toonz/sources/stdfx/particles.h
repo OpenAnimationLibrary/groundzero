@@ -132,6 +132,8 @@ typedef struct {
 
 class Particle {
 public:
+  // Monotonic birth ordinal, independent of RNG and render/list ordering.
+  unsigned long long birthId = 0;
   double x;
   double y;
   double oldx[3];

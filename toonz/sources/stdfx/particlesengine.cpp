@@ -1,3 +1,6 @@
+#include "particlebakecapture.h"
+#include <memory>
+#include <cmath>
 
 
 #include "trop.h"
@@ -466,11 +469,14 @@ void Particles_Engine::render_particles(
 
   std::map<std::pair<int, int>, double> partScales;
   curr_frame = curr_frame / values.step_val;
+  ParticleBakeCapture::checkSimulationRange(m_parent, startframe, curr_frame);
 
-  ParticlesManager *pc = ParticlesManager::instance();
-
-  // Retrieve the last rolled frame
-  ParticlesManager::FrameData *particlesData = pc->data(fxId);
+  // Explicit baking owns private simulation state, never preview-manager data.
+  std::unique_ptr<ParticlesManager::FrameData> bakeData;
+  if (ParticleBakeCapture::active(m_parent))
+    bakeData.reset(new ParticlesManager::FrameData(new ParticlesManager::FxData));
+  ParticlesManager::FrameData *particlesData = bakeData ? bakeData.get() :
+      ParticlesManager::instance()->data(fxId);
 
   std::list<Particle> myParticles;
   TRandom myRandom;
@@ -490,6 +496,7 @@ void Particles_Engine::render_particles(
   }
   /*- Loop from start to current frame -*/
   for (frame = startframe - 1; frame <= curr_frame; ++frame) {
+    ParticleBakeCapture::checkCancel(m_parent);
     int dist_frame = curr_frame - frame;
     /*-
      * Get parameters for current frame within loop. If start is negative, store
@@ -499,6 +506,7 @@ void Particles_Engine::render_particles(
     /*- Parameter normalization -*/
     normalize_values(values, ri);
     /*- maxnum_val is the "birth_rate" parameter -*/
+    ParticleBakeCapture::checkParticleCount(m_parent, myParticles.size() + values.maxnum_val);
     intpart = (int)values.maxnum_val;
     /*-
      * When birth_rate is decimal, pass integer part resulting from accumulating
@@ -511,6 +519,7 @@ void Particles_Engine::render_particles(
     }
 
     std::map<int, TTile *> porttiles;
+    std::vector<std::unique_ptr<TTile>> ownedControlTiles;
 
     // Perform the roll
     /*- Duplicate RenderSettings for current frame calculation -*/
@@ -570,6 +579,7 @@ void Particles_Engine::render_particles(
             // control image is used its gradient
             if (port_is_used_for_gradient(it->first, values)) {
               tmp = new TTile;
+              ownedControlTiles.emplace_back(tmp);
 
               if (isPrecomputingEnabled)
                 (*it->second)
@@ -579,7 +589,7 @@ void Particles_Engine::render_particles(
               else {
                 std::string alias =
                     "CTRL64: " + (*(it->second))->getAlias(r_frame, riAux64);
-                TRasterImageP rimg = TImageCache::instance()->get(alias, false);
+                TRasterImageP rimg = (ParticleBakeCapture::active(m_parent) ? TImageP() : TImageCache::instance()->get(alias, false));
 
                 if (rimg) {
                   tmp->m_pos = bbox.getP00();
@@ -590,7 +600,7 @@ void Particles_Engine::render_particles(
                                            convert(bbox).getSize(), 0, r_frame,
                                            riAux64);
 
-                  addRenderCache(alias, TRasterImageP(tmp->getRaster()));
+                  if (!ParticleBakeCapture::active(m_parent)) addRenderCache(alias, TRasterImageP(tmp->getRaster()));
                 }
               }
 
@@ -600,7 +610,8 @@ void Particles_Engine::render_particles(
               if (port_is_used_for_value(it->first, values)) {
                 TRaster32P tileRas(tmp->getRaster()->getSize());
                 TRop::convert(tileRas, tmp->getRaster());
-                tmp        = new TTile;
+                tmp = new TTile;
+                ownedControlTiles.emplace_back(tmp);
                 tmp->m_pos = bbox.getP00();
                 tmp->setRaster(tileRas);
                 porttiles[it->first] = tmp;
@@ -609,6 +620,7 @@ void Particles_Engine::render_particles(
             // control images used only for non-gradient
             else {
               tmp = new TTile;
+              ownedControlTiles.emplace_back(tmp);
 
               if (isPrecomputingEnabled)
                 (*it->second)
@@ -618,7 +630,7 @@ void Particles_Engine::render_particles(
               else {
                 std::string alias =
                     "CTRL: " + (*(it->second))->getAlias(r_frame, riAux);
-                TRasterImageP rimg = TImageCache::instance()->get(alias, false);
+                TRasterImageP rimg = (ParticleBakeCapture::active(m_parent) ? TImageP() : TImageCache::instance()->get(alias, false));
 
                 if (rimg) {
                   tmp->m_pos = bbox.getP00();
@@ -629,7 +641,7 @@ void Particles_Engine::render_particles(
                                            convert(bbox).getSize(), 0, r_frame,
                                            riAux);
 
-                  addRenderCache(alias, TRasterImageP(tmp->getRaster()));
+                  if (!ParticleBakeCapture::active(m_parent)) addRenderCache(alias, TRasterImageP(tmp->getRaster()));
                 }
               }
 
@@ -655,6 +667,40 @@ void Particles_Engine::render_particles(
         particlesData->buildMaxTrail();
         particlesData->m_calculated     = true;
         particlesData->m_totalParticles = totalparticles;
+      }
+    }
+
+    if (frame == curr_frame && ParticleBakeCapture::active(m_parent)) {
+      for (const auto &original : myParticles) {
+        if (original.lifetime <= 0 || original.lifetime > original.genlifetime) continue;
+        // Color picking is evaluated on a copy; capture must not change native
+        // random state, color state or the subsequent draw traversal.
+        Particle part(original);
+        ParticleBake::DrawSample sample;
+        const int step = std::max(1, values.step_val);
+        sample.id = part.birthId;
+        sample.position = TPointD(part.x, part.y);
+        sample.velocity = (part.genlifetime == part.lifetime
+            ? TPointD(part.vx, part.vy)
+            : TPointD(part.x - part.oldx[0], part.y - part.oldy[0])) * (1.0 / step);
+        sample.age = (part.genlifetime - part.lifetime) * step;
+        sample.lifetime = part.genlifetime * step;
+        sample.source = part.level;
+        sample.artworkFrame = part.frame % last_frame[part.level];
+        sample.scale = part.scale;
+        sample.angle = part.angle;
+        if (values.pathaim_val) sample.angle += std::atan2(part.vy, part.vx) * M_180_PI;
+        for (int h = 0; h != 3; ++h) sample.history[h] = TPointD(part.oldx[h], part.oldy[h]);
+        sample.opacity = part.set_Opacity(porttiles, values, opacity_range, 0);
+        if (sample.opacity != 1 || part.gencol.fadecol || part.fincol.fadecol || part.foutcol.fadecol) {
+          if (values.pick_color_for_every_frame_val && values.gencol_ctrl_val &&
+              porttiles.find(values.gencol_ctrl_val) != porttiles.end())
+            part.get_image_reference(porttiles[values.gencol_ctrl_val], values, part.gencol.col);
+          if (part.gencol.fadecol || part.fincol.fadecol || part.foutcol.fadecol)
+            part.modify_colors(sample.tint, sample.tintMix);
+        }
+        sample.rasterToWorld = TTranslation(sample.position) * TRotation(sample.angle) * TScale(sample.scale);
+        ParticleBakeCapture::particle(m_parent, sample);
       }
     }
 
@@ -711,8 +757,7 @@ void Particles_Engine::render_particles(
       }
     }
 
-    std::map<int, TTile *>::iterator it;
-    for (it = porttiles.begin(); it != porttiles.end(); ++it) delete it->second;
+    // ownedControlTiles releases temporary tiles on success and cancellation.
   }
 }
 
@@ -729,6 +774,30 @@ void Particles_Engine::do_render(
   // picking
   // the particle to be rendered.
   int ndx = part->frame % lastframe;
+  if (ParticleBakeCapture::active(m_parent)) {
+    ParticleBake::DrawSample sample;
+    sample.id = part->birthId;
+    sample.position = TPointD(part->x, part->y);
+    const int step = std::max(1, values.step_val);
+    sample.velocity = (part->genlifetime == part->lifetime
+            ? TPointD(part->vx, part->vy)
+            : TPointD(part->x - part->oldx[0], part->y - part->oldy[0])) * (1.0 / step);
+    sample.age = (part->genlifetime - part->lifetime) * step;
+    sample.lifetime = part->genlifetime * step;
+    sample.source = part->level;
+    sample.artworkFrame = ndx;
+    sample.trailDistance = dist_frame * step;
+    sample.scale = part->scale;
+    sample.angle = part->angle;
+    if (values.pathaim_val) sample.angle += std::atan2(part->vy, part->vx) * M_180_PI;
+    for (int h = 0; h != 3; ++h) sample.history[h] = TPointD(part->oldx[h], part->oldy[h]);
+    sample.motionBlur = values.motion_blur_val;
+    sample.blurGamma = values.motion_blur_gamma_adjust_val + ri.m_colorSpaceGamma;
+    sample.trailOpacityStart = values.trailopacity_val.first;
+    sample.trailOpacityEnd = values.trailopacity_val.second;
+    ParticleBakeCapture::beginDraw(m_parent, sample);
+  }
+
 
   TRasterP tileRas(tile->getRaster());
 
@@ -784,6 +853,7 @@ void Particles_Engine::do_render(
   riNew.m_linearColorSpace = false;
   /*- Size of scaled down Particle -*/
   partResolution = TDimensionD(tceil(bbox.getLx()), tceil(bbox.getLy()));
+  ParticleBakeCapture::checkRasterSize(m_parent, partResolution.lx, partResolution.ly, 8);
 
   TRasterP ras;
 
@@ -794,7 +864,7 @@ void Particles_Engine::do_render(
     ras = rimg->getRaster();
   } else {
     alias = "PART: " + (*part_ports[part->level])->getAlias(ndx, riNew);
-    rimg  = TImageCache::instance()->get(alias, false);
+    rimg  = (ParticleBakeCapture::active(m_parent) ? TImageP() : TImageCache::instance()->get(alias, false));
     if (rimg) {
       ras = rimg->getRaster();
 
@@ -835,7 +905,7 @@ void Particles_Engine::do_render(
     ras = rcachepart;
 
     // Finally, cache the particle
-    addRenderCache(alias, TRasterImageP(ras));
+    if (!ParticleBakeCapture::active(m_parent)) addRenderCache(alias, TRasterImageP(ras));
   }
 
   if (!ras) return;  // At this point, it should never happen anyway...
@@ -857,6 +927,14 @@ void Particles_Engine::do_render(
                                     rfinalpart);
   } else
     rfinalpart = ras;
+
+  if (ParticleBakeCapture::active(m_parent)) {
+    TPixel32 tint = TPixel32::White;
+    double mix = 0;
+    if (part->gencol.fadecol || part->fincol.fadecol || part->foutcol.fadecol)
+      part->modify_colors(tint, mix);
+    ParticleBakeCapture::appearance(m_parent, curr_opacity, tint, mix);
+  }
 
   // Now, let's build the particle transform before it is overed on the output
   // tile
@@ -882,6 +960,8 @@ void Particles_Engine::do_render(
   // NOTE: p_offset is added to account for the particle relative position
   // inside its level's bbox
   M = TTranslation(pos - tile->m_pos) * M * TTranslation(bbox.getP00());
+
+  ParticleBakeCapture::record(m_parent, rfinalpart, M, tile);
 
   if (TRaster32P myras32 = tile->getRaster())
     TRop::over(tileRas, rfinalpart, M);
@@ -911,6 +991,7 @@ bool Particles_Engine::do_render_motion_blur(
 
   TRect partBBox = convert(partBBoxD);
 
+  ParticleBakeCapture::checkRasterSize(m_parent, partBBox.getLx(), partBBox.getLy(), 4);
   TRaster32P partRas(partBBox.getSize());
   TRop::over(
       partRas, rfinalpart,
@@ -1011,8 +1092,9 @@ bool Particles_Engine::do_render_motion_blur(
   // create the blur filter
   TDimensionI filterDim(marginLeft + marginRight + 1,
                         marginTop + marginBottom + 1);
+  ParticleBakeCapture::checkRasterSize(m_parent, filterDim.lx, filterDim.ly, sizeof(float));
   TRasterGR8P filter_ras(sizeof(float) * filterDim.lx, filterDim.ly);
-  filter_ras->lock();
+  ParticleBakeCapture::RasterLockGuard filterLock(filter_ras);
   float *filter_p = (float *)filter_ras->getRawData();
   /* Variable for adding filter value*/
   float fil_val_sum = 0.0f;
@@ -1020,6 +1102,7 @@ bool Particles_Engine::do_render_motion_blur(
   float *current_fil_p = filter_p;
   /* For each coordinate in the filter */
   for (int fily = 0; fily < filterDim.ly; fily++) {
+    ParticleBakeCapture::checkCancel(m_parent);
     for (int filx = 0; filx < filterDim.lx; filx++, current_fil_p++) {
       /* Get filter coordinates */
       TPointD pos(static_cast<float>(filx - marginLeft),
@@ -1185,14 +1268,16 @@ bool Particles_Engine::do_render_motion_blur(
   TDimension blurredSize =
       partRas->getSize() +
       TDimension(marginLeft + marginRight, marginTop + marginBottom);
+  ParticleBakeCapture::checkRasterSize(m_parent, blurredSize.lx, blurredSize.ly, sizeof(float4));
   float4 *blurred_p;
   TRasterGR8P blurred_ras(sizeof(float4) * blurredSize.lx, blurredSize.ly);
-  blurred_ras->lock();
+  ParticleBakeCapture::RasterLockGuard blurLock(blurred_ras);
   blurred_ras->clear();
   blurred_p = (float4 *)blurred_ras->getRawData();
   // for each texture pixels,
   // distribute to all pixels in the filter
   for (int ty = 0; ty < partRas->getLy(); ty++) {
+    ParticleBakeCapture::checkCancel(m_parent);
     TPixel32 *t_p = partRas->pixels(ty);
     for (int tx = 0; tx < partRas->getLx(); tx++, t_p++) {
       if (t_p->m == 0) continue;
@@ -1221,7 +1306,7 @@ bool Particles_Engine::do_render_motion_blur(
     }
   }
 
-  filter_ras->unlock();
+
 
   float4 *b_p = blurred_p;
   TRaster32P blurred(blurredSize);
@@ -1245,13 +1330,15 @@ bool Particles_Engine::do_render_motion_blur(
     }
   }
 
-  blurred_ras->unlock();
+
 
   // composite particle
   TPointD pos(part->x, part->y);
   pos = ri.m_affine * pos;
   M   = TTranslation(pos - tile->m_pos) *
       TTranslation(-TPointD(marginLeft, marginBottom) + partBBoxD.getP00());
+
+  ParticleBakeCapture::record(m_parent, blurred, M, tile);
 
   if (TRaster32P myras32 = tileRas)
     TRop::over(tileRas, blurred, M);

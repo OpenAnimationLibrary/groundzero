@@ -157,6 +157,9 @@ set(SOURCES
     openexraovfx.cpp
     palettefilterfx.cpp
     particles.cpp
+    particlecachefx.cpp
+    particlebake.cpp
+    particlebakeio.cpp
     particlesengine.cpp
     particlesfx.cpp
     particlesmanager.cpp
@@ -551,4 +554,19 @@ if(BUILD_CELFX_TESTS)
     add_test(NAME celfx_starglow_ui COMMAND starglow_ui_test ${CMAKE_CURRENT_SOURCE_DIR}/../../../stuff/profiles/layouts/fxs/STD_starGlowFx.xml)
     set_tests_properties(celfx_starglow_ui PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
     add_dependencies(celfx_tests starglow_test starglow_ui_test)
+endif()
+
+# Native particle cache playback, scene resources and simulation bake regressions.
+if(BUILD_PARTICLE_CACHE_TESTS)
+    add_executable(particlecache_render_test tests/particlecache_render_test.cpp)
+    target_link_libraries(particlecache_render_test tnzstdfx Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME particlecache_render COMMAND particlecache_render_test)
+    add_executable(particlecache_bake_test tests/particlecache_bake_test.cpp)
+    target_link_libraries(particlecache_bake_test tnzstdfx Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME particlecache_bake COMMAND particlecache_bake_test)
+    add_executable(particlecache_resources_test tests/particlecache_resources_test.cpp)
+    target_link_libraries(particlecache_resources_test tnzstdfx Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME particlecache_resources COMMAND particlecache_resources_test)
+    set_tests_properties(particlecache_render particlecache_bake particlecache_resources PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 300)
+    add_custom_target(particlecache_tests DEPENDS particlecache_test particlecache_render_test particlecache_bake_test particlecache_resources_test)
 endif()
