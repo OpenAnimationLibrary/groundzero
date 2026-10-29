@@ -19,13 +19,15 @@
 
 #include <QByteArray>
 #include <QCoreApplication>
-#include <QCryptographicHash>
+#include <QDateTime>
+#include <QFile>
 #include <QDir>
 #include <QFileInfo>
 #include <QProcess>
 #include <QSemaphore>
 #include <QStandardPaths>
 #include <QTemporaryDir>
+#include <QTimer>
 
 #include <algorithm>
 #include <cstdlib>
@@ -76,20 +78,44 @@ TRaster32P makeFrame(int frame) {
   return raster;
 }
 
-// Path of the first intermediate image Ffmpeg would write for path
-QString firstIntermediateImage(const QString &path) {
-  const QByteArray hash = QCryptographicHash::hash(
-      QFileInfo(path).absoluteFilePath().toUtf8(), QCryptographicHash::Md5);
-  return QStandardPaths::writableLocation(QStandardPaths::CacheLocation) +
-         "/ffmpeg/" + QString::fromLatin1(hash.toHex().left(6)) +
-         "_in000000.png";
+QDir ffmpegCache() {
+  return QDir(QStandardPaths::writableLocation(QStandardPaths::CacheLocation) +
+              "/ffmpeg");
+}
+
+QStringList intermediateImages() {
+  return ffmpegCache().entryList({"export_*_in*.png"}, QDir::Files);
+}
+
+QStringList newNames(const QStringList &before, const QStringList &after) {
+  QStringList result;
+  for (const QString &name : after)
+    if (!before.contains(name)) result.push_back(name);
+  return result;
+}
+
+QStringList importGenerations() {
+  return ffmpegCache().entryList({"import-v2-*.frames"}, QDir::Dirs);
+}
+
+QByteArray readFile(const QString &path) {
+  QFile file(path);
+  require(file.open(QIODevice::ReadOnly), "Cannot read test file");
+  return file.readAll();
+}
+
+void writeFile(const QString &path, const QByteArray &bytes) {
+  QFile file(path);
+  require(file.open(QIODevice::WriteOnly), "Cannot create test file");
+  require(file.write(bytes) == bytes.size(), "Cannot write test file");
 }
 
 typedef std::function<TLevelWriter *(const TFilePath &)> WriterMaker;
 
-// Writes the frames; the writer's destructor runs ffmpeg
+// Writes the frames and explicitly checks encoder completion.
 void exportFrames(const WriterMaker &makeWriter, const QString &path,
-                  bool usePipe) {
+                  bool usePipe, int frameOffset = 0, int frameCount = kFrames) {
+  const QStringList previousImages = intermediateImages();
   if (usePipe)
     qunsetenv("OTDEV_FFMPEG_NO_PIPE");
   else
@@ -99,17 +125,21 @@ void exportFrames(const WriterMaker &makeWriter, const QString &path,
     TSmartPointerT<TLevelWriter> writer(
         makeWriter(TFilePath(path.toStdWString())));
     writer->setFrameRate(24);
-    for (int frame = 0; frame < kFrames; ++frame) {
+    for (int frame = 0; frame < frameCount; ++frame) {
       TImageWriterP frameWriter = writer->getFrameWriter(TFrameId(frame + 1));
       require(frameWriter.getPointer(), "No frame writer");
-      frameWriter->save(TRasterImageP(makeFrame(frame)));
+      frameWriter->save(TRasterImageP(makeFrame((frame + frameOffset) % kFrames)));
     }
     // ffmpeg is still running (pipe) or not started yet (intermediate images)
-    require(QFileInfo::exists(firstIntermediateImage(path)) == !usePipe,
+    require(newNames(previousImages, intermediateImages()).isEmpty() == usePipe,
             usePipe ? "The pipe export wrote intermediate images"
                     : "The intermediate image export wrote no images");
+    writer->finalize();
+    writer->finalize();  // Completion is idempotent, including destructor fallback.
   }
   qunsetenv("OTDEV_FFMPEG_NO_PIPE");
+  require(newNames(previousImages, intermediateImages()).isEmpty(),
+          "Export leaked owned intermediate images");
   require(QFileInfo(path).size() > 0,
           "No output written: " + path.toStdString());
 }
@@ -195,6 +225,7 @@ void testConcurrentExport(const QTemporaryDir &directory) {
   constexpr int frameCount = 24;
   constexpr int workers = 4;
   const QString path = directory.filePath("concurrent.apng");
+  const QStringList previousImages = intermediateImages();
   Preferences::instance()->setValue(ffmpegMultiThread, true);
   qunsetenv("OTDEV_FFMPEG_NO_PIPE");
   {
@@ -226,11 +257,12 @@ void testConcurrentExport(const QTemporaryDir &directory) {
     start.release(workers);
     for (std::thread &thread : threads) thread.join();
     if (error) std::rethrow_exception(error);
-    require(QFileInfo::exists(firstIntermediateImage(path)),
+    require(!newNames(previousImages, intermediateImages()).isEmpty(),
             "Concurrent export did not use intermediate images");
+    writer->finalize();
   }
   Preferences::instance()->setValue(ffmpegMultiThread, false);
-  require(!QFileInfo::exists(firstIntermediateImage(path)),
+  require(newNames(previousImages, intermediateImages()).isEmpty(),
           "Concurrent export left owned temporary images behind");
   const QByteArray decoded = decodeRgba(path, "apng", frameCount);
   for (int frame = 0; frame < frameCount; ++frame) {
@@ -254,17 +286,250 @@ void testSharedReaderCache(const QTemporaryDir &directory) {
           "Closing a reader removed another reader's cached frames");
   second.reset();
 
-  // The cache is shared, so the test owns cleanup of its unique input path.
-  const QByteArray hash = QCryptographicHash::hash(
-      QFileInfo(path.getQString()).absoluteFilePath().toUtf8(),
-      QCryptographicHash::Md5);
-  QDir cache(QStandardPaths::writableLocation(QStandardPaths::CacheLocation) +
-             "/ffmpeg");
-  const QString prefix = QString::fromLatin1(hash.toHex().left(6));
-  for (const QString &name : cache.entryList({prefix + "_in*.png",
-                                             prefix + ".txt"}, QDir::Files))
-    require(cache.remove(name), "Cannot remove test import cache");
 }
+
+void expectFailure(const std::function<void()> &operation,
+                   const std::string &message) {
+  bool failed = false;
+  try {
+    operation();
+  } catch (const TException &) {
+    failed = true;
+  }
+  require(failed, message);
+}
+
+void testFailedFinalization(const QTemporaryDir &directory, bool usePipe) {
+  const QString path = directory.filePath(usePipe ? "failed-pipe.apng"
+                                                 : "failed-files.apng");
+  const QByteArray original("previous good output");
+  writeFile(path, original);
+  Ffmpeg writer;
+  writer.setPath(TFilePath(path.toStdWString()));
+  if (usePipe) writer.enablePipe();
+  const Ffmpeg::ArgsBuilder invalidCodec = [](QStringList &pre,
+                                             QStringList &post) {
+    pre << "-framerate" << "24";
+    post << "-c:v" << "groundzero_missing_encoder_for_regression";
+  };
+  // A failed pipe may be noticed either while enqueueing or while closing.
+  try {
+    writer.saveFrame(TRasterImageP(makeFrame(0)), 1, invalidCodec);
+  } catch (const TException &) {
+  }
+  require(readFile(path) == original, "Encoding replaced output before success");
+  expectFailure([&] { writer.finalize(invalidCodec); },
+                "Encoder failure was reported as successful finalization");
+  expectFailure([&] { writer.finalize(invalidCodec); },
+                "Repeated finalization forgot the encoder failure");
+  require(readFile(path) == original, "Failed encoding destroyed previous output");
+}
+
+void testAbortedExport(const QTemporaryDir &directory, bool usePipe,
+                       bool failedFrame) {
+  const QString path = directory.filePath(QString("aborted-%1-%2.apng")
+                                              .arg(usePipe).arg(failedFrame));
+  const QByteArray original("previous good output");
+  writeFile(path, original);
+  const QStringList previousImages = intermediateImages();
+  if (usePipe) qunsetenv("OTDEV_FFMPEG_NO_PIPE");
+  else qputenv("OTDEV_FFMPEG_NO_PIPE", "1");
+  {
+    TSmartPointerT<TLevelWriter> writer(TLevelWriterAPng::create(
+        TFilePath(path.toStdWString()), new Tiio::APngWriterProperties()));
+    writer->setFrameRate(24);
+    writer->getFrameWriter(TFrameId(1))->save(TRasterImageP(makeFrame(0)));
+    if (failedFrame)
+      expectFailure([&] { writer->getFrameWriter(TFrameId(2))->save(TImageP()); },
+                    "A rejected frame was reported as saved");
+    else
+      writer->getFrameWriter(TFrameId(2))->save(TRasterImageP(makeFrame(1)));
+    writer->abort();
+    writer->abort();
+    expectFailure([&] { writer->finalize(); },
+                  "An aborted export was reported as completed");
+    require(readFile(path) == original, "Aborting replaced the old output");
+  }
+  require(readFile(path) == original,
+          "Destructor finalized an aborted export");
+  require(newNames(previousImages, intermediateImages()).isEmpty(),
+          "Aborting leaked owned intermediate images");
+  qunsetenv("OTDEV_FFMPEG_NO_PIPE");
+}
+
+void testCancellationDuringFinalization(const QTemporaryDir &directory) {
+  const QString path = directory.filePath("cancel-finalize.apng");
+  const QByteArray original("previous good output");
+  writeFile(path, original);
+  qputenv("OTDEV_FFMPEG_NO_PIPE", "1");
+  TSmartPointerT<TLevelWriter> writer(TLevelWriterAPng::create(
+      TFilePath(path.toStdWString()), new Tiio::APngWriterProperties()));
+  writer->setFrameRate(24);
+  for (int frame = 1; frame <= 2; ++frame)
+    writer->getFrameWriter(TFrameId(frame))->save(TRasterImageP(makeFrame(frame)));
+  // Intermediate encoding runs a nested event loop, just like the UI export.
+  bool requested = false;
+  QTimer cancellation;
+  cancellation.setSingleShot(true);
+  QObject::connect(&cancellation, &QTimer::timeout, &cancellation, [&] {
+    requested = true;
+    writer->requestAbort();
+  });
+  cancellation.start(0);
+  expectFailure([&] { writer->finalize(); },
+                "Cancellation during finalization published an export");
+  require(requested, "Finalization did not dispatch the cancellation callback");
+  writer->abort();
+  require(readFile(path) == original,
+          "Cancellation during finalization replaced the old output");
+  qunsetenv("OTDEV_FFMPEG_NO_PIPE");
+}
+
+void testIndependentExports(const QTemporaryDir &directory) {
+  const QString path = directory.filePath("same-target.apng");
+  const QByteArray original("previous good output");
+  writeFile(path, original);
+  qputenv("OTDEV_FFMPEG_NO_PIPE", "1");
+  TSmartPointerT<TLevelWriter> first(TLevelWriterAPng::create(
+      TFilePath(path.toStdWString()), new Tiio::APngWriterProperties()));
+  TSmartPointerT<TLevelWriter> second(TLevelWriterAPng::create(
+      TFilePath(path.toStdWString()), new Tiio::APngWriterProperties()));
+  require(readFile(path) == original,
+          "Opening a writer removed the previous output");
+  first->setFrameRate(24);
+  second->setFrameRate(24);
+  for (int frame = 1; frame <= 2; ++frame) {
+    first->getFrameWriter(TFrameId(frame))->save(TRasterImageP(makeFrame(frame)));
+    second->getFrameWriter(TFrameId(frame))->save(
+        TRasterImageP(makeFrame(frame + 3)));
+  }
+  require(readFile(path) == original,
+          "Unfinished encoding replaced the previous output");
+  first->finalize();
+  expectPixel(decodeRgba(path, "apng", 2), 0, 0, topPixel(1), 0,
+              "first same-target export");
+  second->finalize();
+  expectPixel(decodeRgba(path, "apng", 2), 0, 0, topPixel(4), 0,
+              "second same-target export");
+  qunsetenv("OTDEV_FFMPEG_NO_PIPE");
+}
+
+void testSourceReplacementAndIncompleteCache(const QTemporaryDir &directory) {
+  const WriterMaker makeWriter = [](const TFilePath &path) {
+    return TLevelWriterMp4::create(path, new Tiio::Mp4WriterProperties());
+  };
+  const QString source = directory.filePath("replace-source.mp4");
+  exportFrames(makeWriter, source, true);
+  const QDateTime originalTime = QFileInfo(source).lastModified();
+  auto first = std::make_unique<TLevelReaderMp4>(TFilePath(source.toStdWString()));
+  require(first->load(kFrames).getPointer(), "Cannot read initial source");
+
+  exportFrames(makeWriter, source, true, 3, 3);
+  QFile timestamp(source);
+  require(timestamp.open(QIODevice::ReadWrite), "Cannot open replaced source");
+  require(timestamp.setFileTime(originalTime, QFileDevice::FileModificationTime),
+          "Cannot restore source timestamp");
+  timestamp.close();
+
+  const QStringList before = importGenerations();
+  {
+    Ffmpeg replacement;
+    replacement.setPath(TFilePath(source.toStdWString()));
+    require(replacement.getInfo().m_frameCount == 3,
+            "Replaced source reused old video metadata");
+    replacement.getFramesFromMovie();
+    require(replacement.getImage(3).getPointer(), "Cannot read replaced source");
+  }
+  require(first->load(kFrames).getPointer(),
+          "Source replacement invalidated an existing reader's generation");
+  first.reset();
+
+  const QStringList added = newNames(before, importGenerations());
+  require(added.size() == 1, "Replacement did not publish one new cache generation");
+  QDir generation(ffmpegCache().filePath(added.front()));
+  const QString missing = generation.filePath("frame000003.png");
+  require(QFile::remove(missing), "Cannot remove a cached test frame");
+  {
+    Ffmpeg reader;
+    reader.setPath(TFilePath(source.toStdWString()));
+    reader.getFramesFromMovie();
+    require(reader.getImage(3).getPointer(),
+            "Cache reused an incomplete sequence because frame one existed");
+  }
+  writeFile(missing, "truncated");
+  {
+    Ffmpeg reader;
+    reader.setPath(TFilePath(source.toStdWString()));
+    reader.getFramesFromMovie();
+    require(reader.getImage(3).getPointer(), "Truncated cached frame was reused");
+  }
+  require(QFile::remove(generation.filePath("complete.json")),
+          "Cannot remove the test completion manifest");
+  {
+    Ffmpeg reader;
+    reader.setPath(TFilePath(source.toStdWString()));
+    reader.getFramesFromMovie();
+    require(QFileInfo::exists(generation.filePath("complete.json")),
+            "Uncommitted frame cache was reused");
+  }
+}
+
+void testFailedProbeCanRetry(const QTemporaryDir &directory) {
+  const QString source = directory.filePath("retry-probe.mp4");
+  require(QFile::copy(directory.filePath("pipe.mp4"), source),
+          "Cannot create probe retry source");
+  Ffmpeg reader;
+  reader.setPath(TFilePath(source.toStdWString()));
+  QTemporaryDir failingTools;
+  require(failingTools.isValid(), "Cannot create failing probe directory");
+  const QString executable = failingTools.filePath("ffprobe");
+  writeFile(executable, "#!/bin/sh\nexit 23\n");
+  require(QFile::setPermissions(executable, QFile::ReadOwner | QFile::WriteOwner |
+                                          QFile::ExeOwner),
+          "Cannot make failing probe executable");
+  Preferences::instance()->setValue(ffmpegPath, failingTools.path());
+  expectFailure([&] { reader.getInfo(); }, "Failed probe was accepted");
+  Preferences::instance()->setValue(ffmpegPath,
+                                    QString::fromUtf8(TIIO_FFMPEG_TEST_DIR));
+  const ffmpegFileInfo info = reader.getInfo();
+  require(info.m_frameCount == kFrames && info.m_lx == kLx && info.m_ly == kLy,
+          "Failed metadata was cached and prevented a retry");
+  reader.getFramesFromMovie();
+  require(reader.getImage(kFrames).getPointer(),
+          "Cannot read frames after retrying metadata");
+}
+
+void testFailedExtractionCanRetry(const QTemporaryDir &directory) {
+  const QString source = directory.filePath("retry-source.mp4");
+  require(QFile::copy(directory.filePath("pipe.mp4"), source),
+          "Cannot create retry source");
+  Ffmpeg reader;
+  reader.setPath(TFilePath(source.toStdWString()));
+  reader.getInfo();
+  const QStringList before = importGenerations();
+  QTemporaryDir failingTools;
+  require(failingTools.isValid(), "Cannot create failing encoder directory");
+  const QString executable = failingTools.filePath("ffmpeg");
+  writeFile(executable, "#!/bin/sh\nexit 23\n");
+  require(QFile::setPermissions(executable, QFile::ReadOwner | QFile::WriteOwner |
+                                          QFile::ExeOwner),
+          "Cannot make failing encoder executable");
+  // The metadata is already available; keep ffprobe available for codec lookup.
+  require(QFile::link(QDir(QString::fromUtf8(TIIO_FFMPEG_TEST_DIR))
+                         .filePath("ffprobe"), failingTools.filePath("ffprobe")),
+          "Cannot provide ffprobe for failed extraction");
+  Preferences::instance()->setValue(ffmpegPath, failingTools.path());
+  expectFailure([&] { reader.getFramesFromMovie(); },
+                "Failed extraction was accepted");
+  Preferences::instance()->setValue(ffmpegPath,
+                                    QString::fromUtf8(TIIO_FFMPEG_TEST_DIR));
+  require(newNames(before, importGenerations()).isEmpty(),
+          "Failed extraction published a reusable cache generation");
+  reader.getFramesFromMovie();
+  require(reader.getImage(kFrames).getPointer(),
+          "Failed extraction could not recover on retry");
+}
+
 
 void setUpEnvironment(const QTemporaryDir &directory) {
   // Preferences need a stuff folder with at least one room
@@ -293,6 +558,7 @@ int main(int argc, char *argv[]) {
     require(QFileInfo(ffmpegExecutable()).isExecutable(),
             "ffmpeg not found in " TIIO_FFMPEG_TEST_DIR);
     setUpEnvironment(directory);
+    const QStringList previousImports = importGenerations();
 
     // APNG is lossless: exact pixels, alpha included, identical exports
     testFormat(
@@ -311,9 +577,33 @@ int main(int argc, char *argv[]) {
 
     testConcurrentExport(directory);
     testSharedReaderCache(directory);
+    testFailedFinalization(directory, false);
+    testFailedFinalization(directory, true);
+    testAbortedExport(directory, false, false);
+    testAbortedExport(directory, true, false);
+    testAbortedExport(directory, false, true);
+    testAbortedExport(directory, true, true);
+    testCancellationDuringFinalization(directory);
+    testIndependentExports(directory);
+    testSourceReplacementAndIncompleteCache(directory);
+    testFailedProbeCanRetry(directory);
+    testFailedExtractionCanRetry(directory);
+
+    for (const QString &generation :
+         newNames(previousImports, importGenerations())) {
+      require(QDir(ffmpegCache().filePath(generation)).removeRecursively(),
+              "Cannot remove test import generation");
+      const QString metadata = generation.left(generation.size() - 7) + ".txt";
+      QFile::remove(ffmpegCache().filePath(metadata));
+    }
 
     std::cout << "FFmpeg export tests passed\n";
     return 0;
+  } catch (const TException &error) {
+    std::cerr << "FFmpeg export test failed: "
+              << QString::fromStdWString(error.getMessage()).toStdString()
+              << '\n';
+    return 1;
   } catch (const std::exception &error) {
     std::cerr << "FFmpeg export test failed: " << error.what() << '\n';
     return 1;

@@ -18,6 +18,8 @@
 #include <QVector>
 #include <QProcess>
 #include <functional>
+#include <atomic>
+#include <exception>
 #include <limits>
 #include <memory>
 
@@ -79,6 +81,12 @@ public:
   // reporting errors. Returns false if no frame was streamed, in which case
   // the caller runs ffmpeg over the intermediate images as before.
   bool finishPipe();
+
+  // Idempotent, checked export completion. A previous failure is rethrown.
+  void finalize(const ArgsBuilder &buildArgs);
+  void abort() noexcept;
+  void requestAbort() noexcept { m_abortRequested.store(true); }
+  bool isAborted() const { return m_abortRequested.load(); }
 
   // Executes ffmpeg with custom arguments
   void runFfmpeg(const QStringList &preInputArgs,
@@ -149,8 +157,15 @@ private:
   // bookkeeping without holding a lock during image conversion or PNG writes.
   QMutex m_intermediateMutex;
 
-  // Unique identifier for temporary files (based on full path hash)
+  // Export jobs own independent temporary files, even for the same target.
   QString m_tempBaseName;
+  // Import caches are immutable for the source content captured by this reader.
+  mutable QString m_importCacheBase;
+  QString m_exportOutputPath;
+  bool m_finalizationAttempted = false;
+  bool m_aborted = false;
+  std::atomic<bool> m_abortRequested{false};
+  std::exception_ptr m_finalizationError;
 
   // Raw video pipe state (see enablePipe())
   bool m_pipeEnabled       = false;
@@ -163,6 +178,9 @@ private:
   QString cleanPathSymbols() const;
   bool waitFfmpeg(QProcess &process, bool async) const;
   void startPipe(int lx, int ly, const ArgsBuilder &buildArgs);
+  QString importCacheBase() const;
+  bool hasCompleteImportCache() const;
+  QString exportOutputPath();
 
   // not allow copy of temporary files
   Ffmpeg(const Ffmpeg &)            = delete;

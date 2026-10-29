@@ -19,6 +19,9 @@ class TLevelWriterMp4 : public TLevelWriter {
 public:
   TLevelWriterMp4(const TFilePath &path, TPropertyGroup *winfo);
   ~TLevelWriterMp4();
+  void finalize() override;
+  void abort() noexcept override;
+  void requestAbort() noexcept override;
   void setFrameRate(double fps) override;
 
   TImageWriterP getFrameWriter(TFrameId fid) override;
@@ -35,7 +38,7 @@ private:
 
   std::unique_ptr<Ffmpeg> ffmpegWriter;
   mutable QMutex m_metadataMutex;
-  int m_lx, m_ly;
+  int m_lx = 0, m_ly = 0;
   int m_scale;
   int m_vidQuality;
   // void *m_buffer;
@@ -66,7 +69,7 @@ private:
   std::unique_ptr<Ffmpeg> ffmpegReader;
   bool ffmpegFramesCreated = false;
   TDimension m_size;
-  int m_frameCount, m_lx, m_ly;
+  int m_frameCount = 0, m_lx = 0, m_ly = 0;
 };
 
 //===========================================================================

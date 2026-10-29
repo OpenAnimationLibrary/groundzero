@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: BSD-3-Clause
 
-#include "../psd/tiio_psd.h"
+#include "../../common/psdlib/psd.h"
+#include "tlevel_io.h"
+#include "tnzimage.h"
+#include "tenv.h"
 #include "tpsdlayerwriter.h"
 
 #include "texception.h"
@@ -10,6 +13,7 @@
 #include "trasterimage.h"
 
 #include <QCoreApplication>
+#include <QDir>
 #include <QString>
 #include <QTemporaryDir>
 
@@ -376,6 +380,234 @@ void writeFile(const TFilePath &path, const std::vector<unsigned char> &data) {
   if (!data.empty()) std::fwrite(data.data(), 1, data.size(), file);
   std::fclose(file);
 }
+
+// Independent raw PSD fixtures: no application writer or codec builds the
+// pixel data, so reader and writer cannot hide the same decoding defect.
+struct NativePsdBytes {
+  std::vector<unsigned char> data;
+  void u8(unsigned int n) { data.push_back(n & 255); }
+  void u16(unsigned int n) {
+    u8(n >> 8);
+    u8(n);
+  }
+  void u32(std::uint32_t n) {
+    u16(n >> 16);
+    u16(n);
+  }
+  void text(const char *s) {
+    while (*s) u8(*s++);
+  }
+  void append(const std::vector<unsigned char> &bytes) {
+    data.insert(data.end(), bytes.begin(), bytes.end());
+  }
+};
+
+std::vector<unsigned char> storedZip(const std::vector<unsigned char> &data) {
+  // A zlib stream containing one uncompressed DEFLATE block. It still drives
+  // the PSD ZIP path, including its retained decompressed channel buffers.
+  require(data.size() <= 65535, "Native ZIP fixture is too large");
+  NativePsdBytes out;
+  out.u8(0x78);
+  out.u8(0x01);
+  out.u8(0x01);
+  out.u8(data.size());
+  out.u8(data.size() >> 8);
+  out.u8(~data.size());
+  out.u8((~data.size()) >> 8);
+  out.append(data);
+  std::uint32_t a = 1, b = 0;
+  for (unsigned char byte : data) {
+    a = (a + byte) % 65521;
+    b = (b + a) % 65521;
+  }
+  out.u32((b << 16) | a);
+  return out.data;
+}
+
+std::vector<unsigned char> nativePsd(
+    int width, int height, int depth, int mode,
+    const std::vector<std::vector<unsigned char>> &merged,
+    const std::vector<std::vector<unsigned char>> &layer,
+    const TRect &layerBounds, bool zipLayer = false) {
+  std::vector<std::vector<unsigned char>> encoded = layer;
+  if (zipLayer)
+    for (auto &plane : encoded) plane = storedZip(plane);
+  NativePsdBytes extra;
+  extra.u32(0);  // no layer mask
+  extra.u32(0);  // no blending ranges
+  extra.u8(4);
+  extra.text("Gray");
+  extra.u8(0);
+  extra.u16(0);  // Pascal name padded to 4 bytes
+  extra.text("8BIMlnsr");
+  extra.u32(4);
+  extra.text("test");
+
+  NativePsdBytes layers;
+  layers.u16(merged.size() > 1 ? 0xffff : 1);  // merged transparency flag
+  layers.u32(layerBounds.y0);
+  layers.u32(layerBounds.x0);
+  layers.u32(layerBounds.y1 + 1);
+  layers.u32(layerBounds.x1 + 1);
+  layers.u16(layer.size());
+  for (size_t i = 0; i < layer.size(); ++i) {
+    layers.u16(i == 0 ? 0 : 0xffff);  // grayscale, transparency
+    layers.u32(2 + encoded[i].size());
+  }
+  layers.text("8BIMnorm");
+  layers.u8(255);
+  layers.u8(0);
+  layers.u8(0);
+  layers.u8(0);
+  layers.u32(extra.data.size());
+  layers.append(extra.data);
+  for (const auto &plane : encoded) {
+    layers.u16(zipLayer ? 2 : 0);
+    layers.append(plane);
+  }
+  if (layers.data.size() % 2) layers.u8(0);
+
+  NativePsdBytes out;
+  out.text("8BPS");
+  out.u16(1);
+  out.u32(0);
+  out.u16(0);
+  out.u16(merged.size());
+  out.u32(height);
+  out.u32(width);
+  out.u16(depth);
+  out.u16(mode);
+  out.u32(0);
+  out.u32(0);  // color data and image resources
+  out.u32(4 + layers.data.size() + 4);
+  out.u32(layers.data.size());
+  out.append(layers.data);
+  out.u32(0);  // global layer mask
+  out.u16(0);  // raw merged image
+  for (const auto &plane : merged) out.append(plane);
+  return out.data;
+}
+
+void testNativeBitmap(const TFilePath &dir) {
+  const TFilePath path = dir + TFilePath("native_bitmap.psd");
+  const std::vector<unsigned char> plane = {
+      0xaa, 0xa8, 0x00, 0x00, 0xff, 0xf8, 0x96, 0x48, 0x42, 0x10};
+  const char *rows[] = {"1010101010101", "0000000000000", "1111111111111",
+                        "1001011001001", "0100001000010"};
+  writeFile(path, nativePsd(13, 5, 1, ModeBitmap, {plane}, {plane},
+                            TRect(0, 0, 12, 4)));
+  TPSDReader reader(path);
+  struct Sample {
+    TRect region;
+    int sx, sy;
+  };
+  const Sample samples[] = {
+      {TRect(), 1, 1}, {TRect(), 3, 3}, {TRect(3, 1, 11, 4), 2, 3},
+      {TRect(7, 2, 7, 2), 8, 8}, {TRect(-2, -1, 5, 3), 1, 2}};
+  for (const Sample &sample : samples) {
+    const TRect crop = sample.region.isEmpty() ? TRect(0, 0, 12, 4)
+                                             : sample.region * TRect(0, 0, 12, 4);
+    reader.setRegion(sample.region);
+    for (int layerId = 0; layerId <= 1; ++layerId) {
+      reader.setShrink(sample.sx, sample.sy);
+      TRasterImageP image;
+      reader.load(image, layerId);
+      require(!!image, "Native bitmap did not load");
+      TRasterGR8P raster = image->getRaster();
+      require(!!raster, "Native bitmap is not grayscale");
+      const int width = (crop.getLx() - 1) / sample.sx + 1;
+      const int height = (crop.getLy() - 1) / sample.sy + 1;
+      require(raster->getLx() == width && raster->getLy() == height,
+              "Native bitmap crop/shrink size mismatch");
+      for (int y = 0; y < height; ++y)
+        for (int x = 0; x < width; ++x) {
+          const int sx = crop.x0 + x * sample.sx;
+          const int sy = crop.y0 + y * sample.sy;
+          require(raster->pixels(y)[x].value == (rows[4 - sy][sx] == '1' ? 0 : 255),
+                  pixelMessage("Native bitmap bit/crop/shrink mismatch", x, y));
+        }
+    }
+  }
+
+  // A cropped, offset layer uses its own row/column origin on the canvas.
+  const TFilePath offset = dir + TFilePath("native_bitmap_offset.psd");
+  const std::vector<unsigned char> layer = {0x96, 0x80, 0x69, 0x00, 0xaa, 0x80};
+  const char *layerRows[] = {"100101101", "011010010", "101010101"};
+  writeFile(offset, nativePsd(13, 5, 1, ModeBitmap, {plane}, {layer},
+                              TRect(2, 1, 10, 3)));
+  TPSDReader offsetReader(offset);
+  offsetReader.setRegion(TRect(3, 0, 12, 4));
+  offsetReader.setShrink(3, 2);
+  TRasterImageP image;
+  offsetReader.load(image, 1);
+  require(!!image, "Offset bitmap did not load");
+  TRasterGR8P raster = image->getRaster();
+  require(!!raster && raster->getLx() == 4 && raster->getLy() == 3,
+          "Offset bitmap dimensions mismatch");
+  require(image->getSavebox() == TRect(0, 1, 2, 1), "Offset bitmap savebox mismatch");
+  for (int x = 0; x < 3; ++x)
+    require(raster->pixels(1)[x].value == (layerRows[1][1 + 3 * x] == '1' ? 0 : 255),
+            "Offset bitmap sampled the wrong source pixel");
+}
+
+void testNativeGray16(const TFilePath &dir) {
+  const unsigned int grays[] = {0, 65535, 16448, 65535, 32896, 8224};
+  const unsigned int alphas[] = {0, 65535, 32896, 16448, 0, 65535};
+  NativePsdBytes gray, alpha;
+  for (unsigned int value : grays) gray.u16(value);
+  for (unsigned int value : alphas) alpha.u16(value);
+  for (bool layerAlpha : {false, true}) {
+    const TFilePath path = dir + TFilePath(layerAlpha ? "native_gray_alpha.psd"
+                                                     : "native_gray_opaque.psd");
+    std::vector<std::vector<unsigned char>> layer = {gray.data};
+    if (layerAlpha) layer.push_back(alpha.data);
+    writeFile(path, nativePsd(3, 2, 16, ModeGrayScale, {gray.data, alpha.data},
+                              layer, TRect(0, 0, 2, 1), layerAlpha));
+    TPSDReader reader(path);
+    for (int loadIndex = 0; loadIndex < 4; ++loadIndex) {
+      const int layerId = loadIndex % 2;
+      TRaster32P loaded = loadLayer(reader, layerId, 3, 2);
+      for (int y = 0; y < 2; ++y)
+        for (int x = 0; x < 3; ++x) {
+          const int source = (1 - y) * 3 + x;
+          const TPixel32 pixel = loaded->pixels(y)[x];
+          const double grayValue = grays[source] / 257.0;
+          const double alphaValue = (layerId == 0 || layerAlpha)
+                                        ? alphas[source] / 257.0 : 255;
+          require(std::fabs(pixel.r - grayValue) <= 1.01 &&
+                      std::fabs(pixel.g - grayValue) <= 1.01 &&
+                      std::fabs(pixel.b - grayValue) <= 1.01 &&
+                      std::fabs(pixel.m - alphaValue) <= 1.01,
+                  pixelMessage("Native grayscale/alpha mismatch", x, y));
+        }
+    }
+    reader.setRegion(TRect(1, 0, 2, 1));
+    reader.setShrink(2, 1);
+    TRaster32P cropped = loadLayer(reader, 0, 1, 2);
+    require(std::abs(cropped->pixels(0)[0].r - 128) <= 1 &&
+                cropped->pixels(0)[0].m == 0 &&
+                cropped->pixels(1)[0] == TPixel32(255, 255, 255, 255),
+            "Native grayscale crop sampled the wrong pixel");
+    // Exercise metadata ownership and reader teardown through public factories.
+    for (int repeat = 0; repeat < 16; ++repeat) {
+      TLevelReaderP levelReader(path);
+      TLevelP first = levelReader->loadInfo();
+      TLevelP second = levelReader->loadInfo();
+      require(first->getFrameCount() == 1 && second->getFrameCount() == 1,
+              "Repeated PSD metadata load changed frame count");
+      TImageP frame = levelReader->getFrameReader(TFrameId(1))->load();
+      require(!!frame, "PSD frame did not survive metadata parser teardown");
+      bool rejected = false;
+      try {
+        TPSDParser invalid(path.withName(path.getName() + "#Gray#invalid"));
+      } catch (const TImageException &) {
+        rejected = true;
+      }
+      require(rejected, "Invalid PSD level mode was accepted");
+    }
+  }
+}
+
 
 // Loading a damaged file may fail, but it must not crash or hang.
 void loadDamaged(const TFilePath &path) {
@@ -811,17 +1043,23 @@ void testLayeredErrors(const TFilePath &dir) {
 int main(int argc, char *argv[]) {
   QCoreApplication application(argc, argv);
   try {
-    // OpenToonz normally registers these in initImageIo()
-    TFileType::declare("psd", TFileType::RASTER_LEVEL);
-    TLevelWriter::define("psd", TLevelWriterPsd::create, false);
-
     QTemporaryDir directory;
     require(directory.isValid(), "Cannot create PSD test directory");
     const TFilePath dir(directory.path());
+    // Public factory initialization reads preferences. Keep that state inside
+    // the test directory, with a valid default room for debug builds.
+    const QString stuff = QDir(directory.path()).filePath("stuff");
+    require(QDir().mkpath(QDir(stuff).filePath("profiles/layouts/rooms/Default")),
+            "Cannot create PSD test settings");
+    TEnv::setStuffDir(TFilePath(stuff));
+    TEnv::setApplicationFullName("tiio_psd_test");
+    initImageIo();
     test8Bit(dir);
     test16Bit(dir);
     testUnicodeName(dir);
     testSinglePixel(dir);
+    testNativeBitmap(dir);
+    testNativeGray16(dir);
     testDamagedFiles(dir);
     testUnsupportedImage(dir);
     testLayered8Bit(dir);

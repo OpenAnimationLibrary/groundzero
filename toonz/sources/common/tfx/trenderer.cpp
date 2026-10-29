@@ -29,6 +29,7 @@
 #include <QThreadPool>
 #include <QRunnable>
 #include <QSemaphore>
+#include <QDebug>
 
 // Debug
 // #define DIAGNOSTICS
@@ -407,7 +408,7 @@ public:
   TRendererImp(int nThreads);
   ~TRendererImp();
 
-  void startRendering(unsigned long renderId,
+  bool startRendering(unsigned long renderId,
                       const std::vector<TRenderer::RenderData> &renderDatas);
 
   void notifyRasterStarted(const TRenderPort::RenderData &rd);
@@ -1072,16 +1073,30 @@ void TRendererImp::notifyRenderFinished(bool isCanceled) {
     portsCopy = m_ports;
   }
 
-  auto sortedFxs = calculateSortedFxs(rootFx);
-  for (auto fx : sortedFxs) {
-    if (fx) const_cast<TFx *>(fx)->callEndRenderHandler();
+  // Clear the instance's root before callbacks can start another render.
+  TRasterFxP finishedRoot = rootFx;
+  rootFx = TRasterFxP();
+  try {
+    auto sortedFxs = calculateSortedFxs(finishedRoot);
+    for (auto fx : sortedFxs) {
+      try {
+        if (fx) const_cast<TFx *>(fx)->callEndRenderHandler();
+      } catch (...) {
+        qWarning() << "Render effect end callback failed";
+      }
+    }
+  } catch (...) {
+    qWarning() << "Could not finish render effect callbacks";
   }
 
   for (PortContainerIterator it = portsCopy.begin(); it != portsCopy.end();
-       ++it)
-    (*it)->onRenderFinished();
-
-  rootFx = TRasterFxP();
+       ++it) {
+    try {
+      (*it)->onRenderFinished(isCanceled);
+    } catch (...) {
+      qWarning() << "Render completion callback failed";
+    }
+  }
 }
 
 //================================================================================
@@ -1448,9 +1463,52 @@ void TRendererStartInvoker::emitStartRender(TRendererImp *renderer,
 
 void TRendererStartInvoker::doStartRender(TRendererImp *renderer,
                                           StartInvokerRenderData rd) {
-  renderer->startRendering(rd.m_renderId, *rd.m_renderDataVector);
-  renderer->release();
-  delete rd.m_renderDataVector;
+  struct RendererRelease {
+    void operator()(TRendererImp *value) const { value->release(); }
+  };
+  std::unique_ptr<TRendererImp, RendererRelease> rendererOwner(renderer);
+  std::unique_ptr<const RenderDataVector> request(rd.m_renderDataVector);
+
+  auto reportFailure = [&](TException &error) {
+    try {
+      TRenderPort::RenderData failed;
+      failed.m_renderId = rd.m_renderId;
+      if (!request->empty()) failed.m_info = request->front().m_info;
+      for (const auto &frame : *request) failed.m_frames.push_back(frame.m_frame);
+      renderer->notifyRasterFailure(failed, error);
+    } catch (...) {
+      qWarning() << "Render startup failure callback failed";
+    }
+  };
+
+  bool canceled = false;
+  try {
+    if (renderer->startRendering(rd.m_renderId, *request)) return;
+    canceled = true;
+  } catch (TException &error) {
+    reportFailure(error);
+  } catch (const std::exception &error) {
+    try {
+      TException failure(error.what());
+      reportFailure(failure);
+    } catch (...) {
+      qWarning() << "Could not report render startup failure";
+    }
+  } catch (...) {
+    try {
+      TException failure("Could not initialize rendering");
+      reportFailure(failure);
+    } catch (...) {
+      qWarning() << "Could not report render startup failure";
+    }
+  }
+  // No task owns completion when startup was canceled or failed. Startup's
+  // declarations have already unwound, so callbacks may safely start again.
+  try {
+    renderer->notifyRenderFinished(canceled);
+  } catch (...) {
+    qWarning() << "Could not report render startup completion";
+  }
 }
 
 std::vector<const TFx *> calculateSortedFxs(TRasterFxP rootFx) {
@@ -1513,7 +1571,7 @@ std::vector<const TFx *> calculateSortedFxs(TRasterFxP rootFx) {
 
 //---------------------------------------------------------
 
-void TRendererImp::startRendering(
+bool TRendererImp::startRendering(
     unsigned long renderId,
     const std::vector<TRenderer::RenderData> &renderDatas) {
   rootFx = renderDatas.front().m_fxRoot.m_frameA;
@@ -1669,7 +1727,7 @@ void TRendererImp::startRendering(
 
   for (it = renderDatas.begin(); it != renderDatas.end(); ++it) {
     // Check for user cancels
-    if (hasToDie(renderId)) return;
+    if (hasToDie(renderId)) return false;
 
     // Build the frame's description alias
     const TRenderer::RenderData &renderData = *it;
@@ -1710,12 +1768,13 @@ void TRendererImp::startRendering(
     jt = clusters.find(alias);
 
     if (jt == clusters.end()) {
-      RenderTask *newTask =
+      std::unique_ptr<RenderTask> newTask(
           new RenderTask(renderId, tasksIdCounter++, renderData.m_frame, rs,
-                         renderData.m_fxRoot, pos, frameSize, this);
+                         renderData.m_fxRoot, pos, frameSize, this));
 
-      tasksVector.push_back(newTask);
-      clusters.insert(std::make_pair(alias, newTask));
+      tasksVector.push_back(newTask.get());
+      newTask.release();  // TasksCleaner owns it after insertion succeeds.
+      clusters.insert(std::make_pair(alias, tasksVector.back()));
 
       if (stripsAllowed && !canComputeOnStrips(alias, renderData.m_fxRoot))
         stripsAllowed = false;
@@ -1775,7 +1834,7 @@ void TRendererImp::startRendering(
                                                renderInfos);
 
         for (kt = tasksVector.begin(); kt != kEnd; ++kt) {
-          if (hasToDie(renderId)) return;
+          if (hasToDie(renderId)) return false;
 
           (*kt)->preRun();
 
@@ -1794,7 +1853,7 @@ void TRendererImp::startRendering(
                                               renderInfos);
 
         for (kt = tasksVector.begin(); kt != kEnd; ++kt) {
-          if (hasToDie(renderId)) return;
+          if (hasToDie(renderId)) return false;
 
           (*kt)->preRun();
 
@@ -1811,6 +1870,8 @@ void TRendererImp::startRendering(
     //    Render
     //----------------------------------------------------------------------
 
+    // The last precompute iteration also processes cancellation events.
+    if (hasToDie(renderId)) return false;
     locals::declareStatusStart(this, TRenderer::COMPUTING, renderInfos);
 
     // Update the tasks counts
@@ -1830,6 +1891,7 @@ void TRendererImp::startRendering(
     m_executor.addTask(*kt);
 
   tasksVector.clear();  // Prevent tasks destruction by TasksCleaner
+  return true;
 }
 
 void TRenderer::initialize() { TRendererStartInvoker::instance(); }

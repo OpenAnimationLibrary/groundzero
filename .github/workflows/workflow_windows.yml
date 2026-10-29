@@ -131,7 +131,16 @@ jobs:
           choco install boost-msvc-${{ env.BOOST_TOOLSET }} --version=${{ env.BOOST_VERSION }} -y
         shell: cmd
 
-      # Install custom Qt 5.15.2 with WinTab support
+      # Public image-I/O tests use a full FFmpeg distribution and ffprobe.
+      - name: Install FFmpeg export test tools if absent
+        shell: pwsh
+        run: |
+          if (!(Get-Command ffmpeg -ErrorAction SilentlyContinue) -or !(Get-Command ffprobe -ErrorAction SilentlyContinue)) {
+            choco install ffmpeg --yes --no-progress
+            if ($LASTEXITCODE -ne 0) { throw "FFmpeg installation failed" }
+          }
+          Get-Command ffmpeg, ffprobe -ErrorAction Stop
+
       - name: Install custom Qt 5.15.2 with WinTab support
         run: |
           @echo on
@@ -166,7 +175,7 @@ jobs:
           mkdir build
           cd build
 
-          cmake ..\sources -G "%MSVCVERSION%" -Ax64 -DQT_PATH="%QT_PATH%" -DBOOST_ROOT="%BOOST_ROOT%" -DOpenCV_DIR="%OpenCV_DIR%" -DWITH_WINTAB=Y -DBUILD_CELFX_TESTS=ON -DBUILD_CADMIUM_TESTS=ON -DBUILD_RELIABILITY_TESTS=ON -DBUILD_STREAM_TESTS=ON -DBUILD_SCENEBENCH_TESTS=ON -DBUILD_FXRENDER_TESTS=ON
+          cmake ..\sources -G "%MSVCVERSION%" -Ax64 -DQT_PATH="%QT_PATH%" -DBOOST_ROOT="%BOOST_ROOT%" -DOpenCV_DIR="%OpenCV_DIR%" -DWITH_WINTAB=Y -DBUILD_CELFX_TESTS=ON -DBUILD_CADMIUM_TESTS=ON -DBUILD_RELIABILITY_TESTS=ON -DBUILD_STREAM_TESTS=ON -DBUILD_SCENEBENCH_TESTS=ON -DBUILD_FXRENDER_TESTS=ON -DBUILD_PSD_TESTS=ON -DBUILD_FFMPEG_TESTS=ON
         shell: cmd
 
       # Build Opentoonz using MSBuild
@@ -257,7 +266,7 @@ jobs:
           set "QT_PLUGIN_PATH=%QT_PATH%\plugins"
           set "QT_QPA_PLATFORM_PLUGIN_PATH=%QT_PATH%\plugins\platforms"
           cd toonz\build
-          python ..\..\ci-scripts\run_regression_tests.py --config RelWithDebInfo rasterallocation timagecache levelselection save_transaction compressed_stream scenebench fxrender
+          python ..\..\ci-scripts\run_regression_tests.py --config RelWithDebInfo rasterallocation timagecache levelselection save_transaction movierenderqueue levelupdater_abort trenderer_startup compressed_stream scenebench fxrender ffmpeg_public tiio_psd
 
       - name: Upload reliability diagnostics
         if: always()

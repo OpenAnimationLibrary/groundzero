@@ -1,5 +1,6 @@
 
 #include "tsystem.h"
+#include <QDebug>
 #include "tiio_gif.h"
 #include "trasterimage.h"
 #include "timageinfo.h"
@@ -56,17 +57,37 @@ TLevelWriterGif::TLevelWriterGif(const TFilePath &path, TPropertyGroup *winfo)
   ffmpegWriter = std::make_unique<Ffmpeg>();
   ffmpegWriter->setPath(m_path);
   // m_frameCount = 0;
-  if (TSystem::doesExistFileOrLevel(m_path)) TSystem::deleteFile(m_path);
 }
 
 //-----------------------------------------------------------
 
 TLevelWriterGif::~TLevelWriterGif() {
-  QStringList preIArgs;
-  QStringList postIArgs;
-  QStringList palettePreIArgs;
-  QStringList palettePostIArgs;
+  if (ffmpegWriter->isAborted()) return;
+  try {
+    finalize();
+  } catch (const TException &error) {
+    qWarning().noquote() << QString::fromStdWString(error.getMessage());
+  } catch (...) {
+    qWarning() << "FFmpeg export finalization failed";
+  }
+}
 
+void TLevelWriterGif::abort() noexcept { ffmpegWriter->abort(); }
+
+void TLevelWriterGif::requestAbort() noexcept {
+  ffmpegWriter->requestAbort();
+}
+
+void TLevelWriterGif::finalize() {
+  ffmpegWriter->finalize(
+      [this](QStringList &preIArgs, QStringList &postIArgs) {
+        buildFfmpegArgs(preIArgs, postIArgs);
+      });
+}
+
+void TLevelWriterGif::buildFfmpegArgs(QStringList &preIArgs,
+                                         QStringList &postIArgs) const {
+  QMutexLocker locker(&m_metadataMutex);
   int outLx = m_lx;
   int outLy = m_ly;
 
@@ -165,10 +186,6 @@ TLevelWriterGif::~TLevelWriterGif() {
     postIArgs << "-1";
   }
 
-  std::string outPath = m_path.getQString().toStdString();
-
-  ffmpegWriter->runFfmpeg(preIArgs, postIArgs, false, false, true);
-  ffmpegWriter->cleanUpFiles();
 }
 
 //-----------------------------------------------------------
@@ -195,6 +212,8 @@ void TLevelWriterGif::saveSoundTrack(TSoundTrack *st) { return; }
 
 void TLevelWriterGif::save(const TImageP &img, int frameIndex) {
   TRasterImageP image(img);
+  if (!image || !image->getRaster())
+    throw TImageException(m_path, "Cannot save non-raster image to FFmpeg");
   {
     QMutexLocker locker(&m_metadataMutex);
     m_lx = image->getRaster()->getLx();

@@ -6,6 +6,8 @@
 #include "psdutils.h"
 #include "timage_io.h"
 
+#include <memory>
+
 #define REF_LAYER_BY_NAME
 
 class TRasterImageP;
@@ -154,7 +156,10 @@ class DVAPI TPSDReader {
 public:
   TPSDReader(const TFilePath &path);
   ~TPSDReader();
+  TPSDReader(const TPSDReader &) = delete;
+  TPSDReader &operator=(const TPSDReader &) = delete;
   TImageReaderP getFrameReader(TFilePath path);
+  // Layer pointers in the returned header are borrowed for this reader's lifetime.
   TPSDHeaderInfo getPSDHeaderInfo();
 
   void load(TRasterImageP &rasP, int layerId);
@@ -184,6 +189,7 @@ private:
   bool doImageResources();
   bool doLayerAndMaskInfo();
   bool doLayersInfo();
+  void clearLayers() noexcept;
   bool readLayerInfo(int index);
 
   // void doImage(unsigned char *rasP, TPSDLayerInfo *li);
@@ -243,7 +249,7 @@ class DVAPI TPSDParser {
 
   TFilePath m_path;
   std::vector<Level> m_levels;  // layers id
-  TPSDReader *m_psdreader;      // lib
+  std::unique_ptr<TPSDReader> m_psdreader;
 public:
   // path define levels construction method
   // if path = :

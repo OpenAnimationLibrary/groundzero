@@ -172,9 +172,13 @@ int main(int argc, char **argv) {
     require(view.regionAt(view.viewportPointForImage(QPointF(2.5, 1.5))) == -1,
             "incomplete native labels were accepted");
     view.setRegions(before.size(), labels);
+    require(view.memoryBytes() >= before.sizeInBytes() + after.sizeInBytes() +
+                reference.sizeInBytes() + qint64(labels.capacity()) * sizeof(int),
+            "review accounting omitted image or region-label payload");
     view.clear(QStringLiteral("No proposal selected"));
     require(view.regionAt(view.canvasRect().center()) == -1,
             "clearing the review retained an editable native region");
+    require(view.memoryBytes() == 0, "clearing the review retained preview storage");
     view.setImages(before, after);
     view.setMode(CadmiumReviewView::Mode::ReferenceOverlay);
     require(!opacity->isEnabled(), "missing reference left its opacity control enabled");

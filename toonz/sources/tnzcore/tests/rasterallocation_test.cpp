@@ -54,7 +54,7 @@ void attachedBuffers() {
     raster->clear();
     for (int row = 0; row < 3; ++row) {
       for (int col = 0; col < 3; ++col)
-        check(pixels[row * 4 + col] == TPixel32(),
+        check(pixels[row * 4 + col] == TPixel32(0, 0, 0, 0),
               "clear respects attached image rows");
       check(pixels[row * 4 + 3] == TPixel32::Red,
             "clear preserves attached row padding");

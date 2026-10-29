@@ -20,6 +20,9 @@ class TLevelWriterGif : public TLevelWriter {
 public:
   TLevelWriterGif(const TFilePath &path, TPropertyGroup *winfo);
   ~TLevelWriterGif();
+  void finalize() override;
+  void abort() noexcept override;
+  void requestAbort() noexcept override;
   // FfmpegBridge* ffmpeg;
   void setFrameRate(double fps) override;
 
@@ -33,9 +36,11 @@ public:
   }
 
 private:
+  void buildFfmpegArgs(QStringList &preIArgs, QStringList &postIArgs) const;
+
   std::unique_ptr<Ffmpeg> ffmpegWriter;
   mutable QMutex m_metadataMutex;
-  int m_frameCount, m_lx, m_ly;
+  int m_frameCount = 0, m_lx = 0, m_ly = 0;
   // double m_fps;
   int m_scale;
   bool m_looping  = true;
@@ -68,7 +73,7 @@ private:
   std::unique_ptr<Ffmpeg> ffmpegReader;
   bool ffmpegFramesCreated = false;
   TDimension m_size;
-  int m_frameCount, m_lx, m_ly;
+  int m_frameCount = 0, m_lx = 0, m_ly = 0;
 };
 
 //===========================================================================

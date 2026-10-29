@@ -1,5 +1,6 @@
 
 #include "tsystem.h"
+#include <QDebug>
 #include "tiio_ff_mov.h"
 #include "trasterimage.h"
 #include "timageinfo.h"
@@ -55,21 +56,32 @@ TLevelWriterFFMov::TLevelWriterFFMov(const TFilePath &path,
   ffmpegWriter->setPath(m_path);
   // mov is always rendered sequentially (isSequencialRequired())
   ffmpegWriter->enablePipe(true);
-  if (TSystem::doesExistFileOrLevel(m_path)) TSystem::deleteFile(m_path);
 }
 
 //-----------------------------------------------------------
 
 TLevelWriterFFMov::~TLevelWriterFFMov() {
-  // Streamed frames only need ffmpeg to finish, otherwise encode the
-  // intermediate images
-  if (!ffmpegWriter->finishPipe()) {
-    QStringList preIArgs;
-    QStringList postIArgs;
-    buildFfmpegArgs(preIArgs, postIArgs);
-    ffmpegWriter->runFfmpeg(preIArgs, postIArgs, false, false, true);
+  if (ffmpegWriter->isAborted()) return;
+  try {
+    finalize();
+  } catch (const TException &error) {
+    qWarning().noquote() << QString::fromStdWString(error.getMessage());
+  } catch (...) {
+    qWarning() << "FFmpeg export finalization failed";
   }
-  ffmpegWriter->cleanUpFiles();
+}
+
+void TLevelWriterFFMov::abort() noexcept { ffmpegWriter->abort(); }
+
+void TLevelWriterFFMov::requestAbort() noexcept {
+  ffmpegWriter->requestAbort();
+}
+
+void TLevelWriterFFMov::finalize() {
+  ffmpegWriter->finalize(
+      [this](QStringList &preIArgs, QStringList &postIArgs) {
+        buildFfmpegArgs(preIArgs, postIArgs);
+      });
 }
 
 //-----------------------------------------------------------
@@ -135,6 +147,8 @@ void TLevelWriterFFMov::saveSoundTrack(TSoundTrack *st) {
 
 void TLevelWriterFFMov::save(const TImageP &img, int frameIndex) {
   TRasterImageP image(img);
+  if (!image || !image->getRaster())
+    throw TImageException(m_path, "Cannot save non-raster image to FFmpeg");
   {
     QMutexLocker locker(&m_metadataMutex);
     m_lx = image->getRaster()->getLx();

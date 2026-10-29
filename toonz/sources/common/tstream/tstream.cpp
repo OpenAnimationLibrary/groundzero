@@ -872,29 +872,30 @@ TIStream::TIStream(const TFilePath &fp) : m_imp(new Imp) {
     char magicBuffer[4] = {0, 0, 0, 0};  // a file cut short reads less
     is->read(magicBuffer, 4);
     std::string magic(magicBuffer, 4);
-    size_t in_len, out_len;
+    size_t in_len = 0, out_len = 0;
 
     if (magic == "TNZC") {
       // Tab3.0 beta
       is->read((char *)&out_len, sizeof out_len);
       is->read((char *)&in_len, sizeof in_len);
     } else if (magic == "TABc") {
-      TINT32 v;
-      is->read((char *)&v, sizeof v);
+      TINT32 byteOrder = 0, declaredOutput = 0, declaredInput = 0;
+      is->read((char *)&byteOrder, sizeof byteOrder);
+      is->read((char *)&declaredOutput, sizeof declaredOutput);
+      is->read((char *)&declaredInput, sizeof declaredInput);
+      // Do not interpret partially read fields, including the byte-order
+      // marker, until the complete header is available.
+      if (is->fail()) throw TException("Corrupted file");
 
-      if (v == 0x0A0B0C0D)
+      if (byteOrder == 0x0A0B0C0D)
         swapForEndianness = false;
-      else if (v == 0x0D0C0B0A)
+      else if (byteOrder == 0x0D0C0B0A)
         swapForEndianness = true;
-      else {
-        swapForEndianness = true;
-        printf("UH OH!\n");
-      }
+      else
+        throw TException("Corrupted file");
 
-      is->read((char *)&v, sizeof v);
-      out_len = swapForEndianness ? swapTINT32(v) : v;
-      is->read((char *)&v, sizeof v);
-      in_len = swapForEndianness ? swapTINT32(v) : v;
+      out_len = swapForEndianness ? swapTINT32(declaredOutput) : declaredOutput;
+      in_len = swapForEndianness ? swapTINT32(declaredInput) : declaredInput;
     } else
       throw TException("Bad magic number");
 

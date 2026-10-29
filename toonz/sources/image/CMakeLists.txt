@@ -224,24 +224,32 @@ if(BUILD_EXR_TESTS)
     add_test(NAME tiio_exr_level COMMAND tiio_exr_level_test)
 endif()
 
-# The test uses the writer classes directly, which only non-MSVC builds export
-if(BUILD_FFMPEG_TESTS AND NOT BUILD_ENV_MSVC)
+# The public factory smoke test also covers Windows DLL builds. The larger
+# direct-class suite remains non-MSVC because those classes are not exported.
+if(BUILD_FFMPEG_TESTS)
     find_program(FFMPEG_TEST_EXECUTABLE ffmpeg)
     if(FFMPEG_TEST_EXECUTABLE)
-        find_package(Threads REQUIRED)
         get_filename_component(FFMPEG_TEST_DIR "${FFMPEG_TEST_EXECUTABLE}" DIRECTORY)
-        add_executable(tiio_ffmpeg_test tests/tiio_ffmpeg_test.cpp)
-        target_link_libraries(tiio_ffmpeg_test PRIVATE image toonzlib Threads::Threads)
-        target_compile_definitions(tiio_ffmpeg_test PRIVATE
-            TIIO_FFMPEG_TEST_DIR="${FFMPEG_TEST_DIR}")
-        add_test(NAME tiio_ffmpeg COMMAND tiio_ffmpeg_test)
+        add_executable(ffmpeg_public_test tests/ffmpeg_public_test.cpp)
+        target_link_libraries(ffmpeg_public_test PRIVATE image toonzlib)
+        add_test(NAME ffmpeg_public
+                 COMMAND ffmpeg_public_test "${FFMPEG_TEST_EXECUTABLE}")
+        set_tests_properties(ffmpeg_public PROPERTIES TIMEOUT 180)
+        if(NOT BUILD_ENV_MSVC)
+            find_package(Threads REQUIRED)
+            add_executable(tiio_ffmpeg_test tests/tiio_ffmpeg_test.cpp)
+            target_link_libraries(tiio_ffmpeg_test PRIVATE image toonzlib Threads::Threads)
+            target_compile_definitions(tiio_ffmpeg_test PRIVATE
+                TIIO_FFMPEG_TEST_DIR="${FFMPEG_TEST_DIR}")
+            add_test(NAME tiio_ffmpeg COMMAND tiio_ffmpeg_test)
+        endif()
     else()
-        message(STATUS "No ffmpeg executable found: tiio_ffmpeg test skipped")
+        message(STATUS "No ffmpeg executable found: FFmpeg tests not registered")
     endif()
 endif()
 
-# The test uses TLevelWriterPsd directly, which only non-MSVC builds export
-if(BUILD_PSD_TESTS AND NOT BUILD_ENV_MSVC)
+# The test initializes the public I/O factories and uses exported PSD APIs.
+if(BUILD_PSD_TESTS)
     add_executable(tiio_psd_test tests/tiio_psd_test.cpp)
     target_link_libraries(tiio_psd_test PRIVATE image)
     add_test(NAME tiio_psd COMMAND tiio_psd_test)

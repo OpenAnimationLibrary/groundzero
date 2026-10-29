@@ -13,18 +13,28 @@
 #include <QAbstractEventDispatcher>
 #include <QDebug>
 #include <QEventLoop>
+#include <QElapsedTimer>
 #include <QImage>
 #include <QProcess>
 #include <QQueue>
 #include <QRegularExpression>
 #include <QThread>
+#include <QTimer>
 #include <QWaitCondition>
 #include <QUuid>
 #include <QDir>
 #include <QFile>
+#include <QSaveFile>
+#include <QTemporaryFile>
+#include <QTemporaryDir>
+#include <QLockFile>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QDateTime>
-#include <QCryptographicHash>  // For MD5 hash
+#include <QCryptographicHash>
 #include <algorithm>
+#include <cmath>
 #include "tmsgcore.h"
 #include "thirdparty.h"
 
@@ -47,7 +57,8 @@ Ffmpeg::~Ffmpeg() {
   try {
     finishPipe();
   } catch (...) {
-    qWarning() << "FFmpeg pipe finalization failed during cleanup";
+    if (!m_abortRequested.load())
+      qWarning() << "FFmpeg pipe finalization failed during cleanup";
   }
   try {
     cleanUpFiles();
@@ -99,20 +110,29 @@ void Ffmpeg::setFrameRate(double fps) { m_frameRate = fps; }
 
 void Ffmpeg::setPath(const TFilePath &path) {
   m_path = path;
+  m_tempBaseName = "export_" + QUuid::createUuid().toString(QUuid::WithoutBraces);
+  m_importCacheBase.clear();
+}
 
-  // Generate a short, unique identifier based on the full file path
-  QFileInfo fi(path.getQString());
-  QString fullPath = fi.absoluteFilePath();  // resolve absolute path
-  if (fullPath.isEmpty()) fullPath = path.getQString();  // fallback
-  QByteArray hash =
-      QCryptographicHash::hash(fullPath.toUtf8(), QCryptographicHash::Md5);
-  m_tempBaseName = hash.toHex().left(6);
+QString Ffmpeg::exportOutputPath() {
+  if (!m_exportOutputPath.isEmpty()) return m_exportOutputPath;
+  const QFileInfo destination(m_path.getQString());
+  QTemporaryFile output(destination.dir().filePath(
+      ".groundzero-XXXXXX." + destination.suffix()));
+  if (!output.open())
+    throw TImageException(m_path, "Cannot create temporary export output");
+  m_exportOutputPath = output.fileName();
+  m_cleanUpList.push_back(m_exportOutputPath);
+  output.setAutoRemove(false);
+  return m_exportOutputPath;
 }
 
 void Ffmpeg::createIntermediateImage(const TImageP &img, int frameIndex) {
+  if (m_finalizationAttempted || m_abortRequested.load())
+    throw TImageException(m_path, "Cannot save a frame after finalization");
   int idx = frameIndex - 1;
 
-  // Hash prefix + zero-padded 6-digit index (ffmpeg %06d)
+  // Export-specific prefix + zero-padded 6-digit index (ffmpeg %06d)
   QString tempFileName = m_tempBaseName + "_in" +
                          QString("%1").arg(idx, 6, 10, QChar('0')) + "." +
                          m_intermediateFormat;
@@ -121,47 +141,30 @@ void Ffmpeg::createIntermediateImage(const TImageP &img, int frameIndex) {
       getFfmpegCache().getQString() + QDir::separator() + tempFileName;
 
   TRasterImageP tempImage(img);
-  if (!tempImage) {
-    DVGui::warning(QObject::tr("Cannot save non-raster image to FFmpeg"));
-    return;
-  }
+  if (!tempImage)
+    throw TImageException(m_path, "Cannot save non-raster image to FFmpeg");
 
   TRasterP raster = tempImage->getRaster();
-  if (!raster || raster->getLx() <= 0 || raster->getLy() <= 0) {
-    DVGui::warning(QObject::tr("Invalid or empty raster for FFmpeg"));
-    return;
-  }
+  if (!raster || raster->getLx() <= 0 || raster->getLy() <= 0)
+    throw TImageException(m_path, "Invalid or empty raster for FFmpeg");
 
   const int lx  = raster->getLx();
   const int ly  = raster->getLy();
   const int bpp = raster->getPixelSize();
-  {
-    QMutexLocker locker(&m_intermediateMutex);
-    ++m_frameCount;
-    m_startNumber = std::min(m_startNumber, idx);
-    m_lx = lx;
-    m_ly = ly;
-    m_bpp = bpp;
-  }
 
   TRaster32P raster32;
 
   if (bpp == 4) {
     // Already 32-bit integer fast path, clone and mirror
     raster32 = raster->clone();
-    if (!raster32) {
-      DVGui::warning(QObject::tr("Failed to clone raster for FFmpeg"));
-      return;
-    }
+    if (!raster32)
+      throw TImageException(m_path, "Failed to clone raster for FFmpeg");
     raster32->yMirror();  // Mirror only once here
   } else {
     // FP32 or 64-bit convert safely
     raster32 = TRaster32P(lx, ly);
-    if (!raster32) {
-      DVGui::warning(
-          QObject::tr("Failed to allocate 32-bit raster for FFmpeg"));
-      return;
-    }
+    if (!raster32)
+      throw TImageException(m_path, "Failed to allocate raster for FFmpeg");
 
     // float (16 bytes/pixel), do clamp
     if (bpp == 16) {
@@ -185,9 +188,7 @@ void Ffmpeg::createIntermediateImage(const TImageP &img, int frameIndex) {
     try {
       TRop::convert(raster32, raster);
     } catch (...) {
-      DVGui::warning(
-          QObject::tr("Failed to convert raster to 32-bit ARGB (after clamp)"));
-      return;
+      throw TImageException(m_path, "Failed to convert raster for FFmpeg");
     }
     raster32->yMirror();  // Mirror only once here
   }
@@ -195,24 +196,23 @@ void Ffmpeg::createIntermediateImage(const TImageP &img, int frameIndex) {
   QImage qi(raster32->getRawData(), lx, ly, raster32->getWrap() * 4,
             QImage::Format_ARGB32);
 
-  if (qi.isNull()) {
-    DVGui::warning(
-        QObject::tr("Failed to create QImage for intermediate file"));
-    return;
-  }
+  if (qi.isNull())
+    throw TImageException(m_path, "Failed to create intermediate image");
   // qi = qi.copy();
   // Currently redundant,  removed for performance & clarity.
   // If raster-to-QImage sharing is needed in the future, we can revisit.
   QByteArray formatBa = m_intermediateFormat.toUpper().toLatin1();
   const char *format  = formatBa.constData();
 
-  if (!qi.save(tempPath, format, -1)) {
-    DVGui::warning(
-        QObject::tr("Failed to save intermediate image: %1").arg(tempPath));
-    return;
-  }
+  if (!qi.save(tempPath, format, -1))
+    throw TImageException(m_path, "Failed to save intermediate image");
 
   QMutexLocker locker(&m_intermediateMutex);
+  ++m_frameCount;
+  m_startNumber = std::min(m_startNumber, idx);
+  m_lx = lx;
+  m_ly = ly;
+  m_bpp = bpp;
   m_cleanUpList.push_back(tempPath);
 }
 
@@ -239,15 +239,16 @@ void Ffmpeg::runFfmpeg(const QStringList &preInputArgs,
 
   if (overwrite && !outputPathIncluded) args << "-y";
 
-  if (!outputPathIncluded) args << m_path.getQString();
+  if (!outputPathIncluded) args << exportOutputPath();
 
   QProcess ffmpeg;
   ThirdParty::runFFmpeg(ffmpeg, args);
 
   bool success = waitFfmpeg(ffmpeg, asynchronous);
   if (!success) {
-    DVGui::warning(
-        QObject::tr("FFmpeg process failed for: %1").arg(m_path.getQString()));
+    const std::string details =
+        ffmpeg.readAllStandardError().right(4096).toStdString();
+    throw TImageException(m_path, "FFmpeg failed or timed out: " + details);
   }
 
   ffmpeg.close();
@@ -280,33 +281,22 @@ QString Ffmpeg::runFfprobe(const QStringList &args) const {
 }
 
 bool Ffmpeg::waitFfmpeg(QProcess &process, bool async) const {
-  if (!async) {
-    bool status = process.waitForFinished(m_ffmpegTimeoutMs);
-    if (!status) {
-      DVGui::warning(
-          QObject::tr("FFmpeg timed out.\n"
-                      "Please check the file for errors.\n"
-                      "If the file doesn't play or is incomplete, \n"
-                      "Please try raising the FFmpeg timeout in Preferences."));
-    }
-    return status;
+  QTimer cancelTimer;
+  if (async) {
+    QObject::connect(&cancelTimer, &QTimer::timeout, &process, [&] {
+      if (m_abortRequested.load()) process.kill();
+    });
+    cancelTimer.start(100);
   }
-
-  int exitCode = ThirdParty::waitAsyncProcess(process, m_ffmpegTimeoutMs);
-  if (exitCode == 0) return true;
-
-  if (exitCode == -1) {
-    DVGui::warning(
-        QObject::tr("FFmpeg returned error-code: %1").arg(process.exitCode()));
-  } else if (exitCode == -2) {
-    DVGui::warning(
-        QObject::tr("FFmpeg timed out.\n"
-                    "Please check the file for errors.\n"
-                    "If the file doesn't play or is incomplete, \n"
-                    "Please try raising the FFmpeg timeout in Preferences."));
+  const bool finished = async
+      ? ThirdParty::waitAsyncProcess(process, m_ffmpegTimeoutMs) == 0
+      : process.waitForFinished(m_ffmpegTimeoutMs);
+  if (!finished && process.state() != QProcess::NotRunning) {
+    process.kill();
+    process.waitForFinished(3000);
   }
-
-  return false;
+  return finished && process.exitStatus() == QProcess::NormalExit &&
+         process.exitCode() == 0;
 }
 
 //===========================================================
@@ -364,13 +354,7 @@ QByteArray makePipeFrame(const TRasterP &raster, int lx, int ly) {
         rasterFloat->unlock();
       }
     }
-    try {
-      TRop::convert(raster32, raster);
-    } catch (...) {
-      DVGui::warning(
-          QObject::tr("Failed to convert raster to 32-bit ARGB (after clamp)"));
-      return QByteArray();
-    }
+    TRop::convert(raster32, raster);
   }
 
   if (raster32->getLx() != lx || raster32->getLy() != ly) {
@@ -407,8 +391,9 @@ public:
   enum Result { Running, Succeeded, Failed, TimedOut };
 
   FfmpegPipeWriter(const QStringList &args, int timeoutMs,
-                   const QString &logPath)
-      : m_args(args), m_timeoutMs(timeoutMs), m_logPath(logPath) {}
+                   const QString &logPath, const std::atomic<bool> &aborted)
+      : m_args(args), m_timeoutMs(timeoutMs), m_logPath(logPath),
+        m_abortRequested(aborted) {}
 
   // Queues a frame (QByteArray is shared, not copied). Blocks while the
   // backlog is full, so memory stays bounded when ffmpeg is slower than the
@@ -430,6 +415,14 @@ public:
     m_frameQueued.wakeOne();
   }
 
+  void cancel() {
+    QMutexLocker locker(&m_mutex);
+    m_canceled = m_stopped = m_finishing = true;
+    m_queue.clear();
+    m_frameQueued.wakeAll();
+    m_frameTaken.wakeAll();
+  }
+
   // Valid once the thread has finished
   Result result() const { return m_result; }
   int exitCode() const { return m_exitCode; }  // -1 if ffmpeg crashed
@@ -448,7 +441,12 @@ protected:
       QByteArray frame;
       {
         QMutexLocker locker(&m_mutex);
-        while (m_queue.isEmpty() && !m_finishing) m_frameQueued.wait(&m_mutex);
+        while (m_queue.isEmpty() && !m_finishing && !m_abortRequested.load())
+          m_frameQueued.wait(&m_mutex, 100);
+        if (m_canceled || m_abortRequested.load()) {
+          result = Failed;
+          break;
+        }
         if (m_queue.isEmpty()) break;  // finishing, every frame written
         frame = m_queue.dequeue();
         m_frameTaken.wakeAll();
@@ -460,10 +458,9 @@ protected:
     if (result == Running) {
       // EOF makes ffmpeg flush its encoders and finalize the file
       process.closeWriteChannel();
-      if (!process.waitForFinished(m_timeoutMs) &&
-          process.state() != QProcess::NotRunning)
-        result = TimedOut;
+      result = waitForExit(process);
     }
+    if (canceled() && process.state() != QProcess::NotRunning) process.kill();
     if (process.state() != QProcess::NotRunning &&
         (result == TimedOut || !process.waitForFinished(kPipeExitGraceMs))) {
       process.kill();
@@ -483,20 +480,46 @@ protected:
   }
 
 private:
+  bool canceled() {
+    QMutexLocker locker(&m_mutex);
+    return m_canceled || m_abortRequested.load();
+  }
+
+  Result waitForExit(QProcess &process) {
+    QElapsedTimer timer;
+    timer.start();
+    while (process.state() != QProcess::NotRunning) {
+      if (canceled()) return Failed;
+      const qint64 remaining = m_timeoutMs - timer.elapsed();
+      if (remaining <= 0) return TimedOut;
+      if (process.waitForFinished(int(qMin<qint64>(100, remaining)))) break;
+      if (process.state() == QProcess::NotRunning) break;
+      if (process.error() != QProcess::Timedout) return Failed;
+    }
+    return Running;  // The caller checks the actual process exit status.
+  }
+
   // Waits until at most maxPending bytes are left in QProcess' write buffer
   Result drain(QProcess &process, qint64 maxPending) {
+    QElapsedTimer timer;
+    timer.start();
     while (process.bytesToWrite() > maxPending) {
-      if (!process.waitForBytesWritten(m_timeoutMs))
-        return (process.state() != QProcess::NotRunning &&
-                process.error() == QProcess::Timedout)
-                   ? TimedOut
-                   : Failed;
+      if (canceled()) return Failed;
+      const qint64 remaining = m_timeoutMs - timer.elapsed();
+      if (remaining <= 0) return TimedOut;
+      if (process.waitForBytesWritten(int(qMin<qint64>(100, remaining)))) {
+        timer.restart();
+      } else if (process.state() == QProcess::NotRunning ||
+                 process.error() != QProcess::Timedout) {
+        return Failed;
+      }
     }
     return Running;
   }
 
   Result writeFrame(QProcess &process, const QByteArray &frame) {
     for (qint64 offset = 0; offset < frame.size();) {
+      if (canceled()) return Failed;
       const qint64 size = qMin<qint64>(kPipeChunkBytes, frame.size() - offset);
       if (process.write(frame.constData() + offset, size) != size)
         return Failed;
@@ -511,6 +534,7 @@ private:
   const QStringList m_args;
   const int m_timeoutMs;
   const QString m_logPath;
+  const std::atomic<bool> &m_abortRequested;
 
   QMutex m_mutex;
   QWaitCondition m_frameQueued;
@@ -518,6 +542,7 @@ private:
   QQueue<QByteArray> m_queue;
   bool m_finishing = false;
   bool m_stopped   = false;
+  bool m_canceled  = false;
   Result m_result  = Running;
   int m_exitCode   = 0;
 };
@@ -549,11 +574,12 @@ void Ffmpeg::startPipe(int lx, int ly, const ArgsBuilder &buildArgs) {
   args << preInputArgs << "-i"
        << "-";
   if (m_hasSoundTrack) args << m_audioArgs;
-  args << postInputArgs << "-y" << m_path.getQString();
+  args << postInputArgs << "-y" << exportOutputPath();
 
   m_pipeLogPath = getFfmpegCache().getQString() + QDir::separator() +
                   m_tempBaseName + "_pipe.log";
-  m_pipe = new FfmpegPipeWriter(args, m_ffmpegTimeoutMs, m_pipeLogPath);
+  m_pipe = new FfmpegPipeWriter(args, m_ffmpegTimeoutMs, m_pipeLogPath,
+                               m_abortRequested);
   m_pipe->start();
 }
 
@@ -567,17 +593,15 @@ void Ffmpeg::saveFrame(const TImageP &img, int frameIndex,
   }
 
   QMutexLocker locker(&m_pipeMutex);
+  if (m_finalizationAttempted || m_abortRequested.load())
+    throw TImageException(m_path, "Cannot save a frame after finalization");
 
   TRasterImageP rasterImage(img);
-  if (!rasterImage) {
-    DVGui::warning(QObject::tr("Cannot save non-raster image to FFmpeg"));
-    return;
-  }
+  if (!rasterImage)
+    throw TImageException(m_path, "Cannot save non-raster image to FFmpeg");
   TRasterP raster = rasterImage->getRaster();
-  if (!raster || raster->getLx() <= 0 || raster->getLy() <= 0) {
-    DVGui::warning(QObject::tr("Invalid or empty raster for FFmpeg"));
-    return;
-  }
+  if (!raster || raster->getLx() <= 0 || raster->getLy() <= 0)
+    throw TImageException(m_path, "Invalid or empty raster for FFmpeg");
 
   if (!m_pipe) {
     if (qint64(raster->getLx()) * raster->getLy() * 4 >
@@ -594,14 +618,12 @@ void Ffmpeg::saveFrame(const TImageP &img, int frameIndex,
 
   // Frames already streamed cannot be revisited
   if (frameIndex < m_pipeNextFrame) {
-    qWarning() << "FFmpeg pipe: frame" << frameIndex
-               << "arrived out of order and was dropped from"
-               << m_path.getQString();
-    return;
+    throw TImageException(m_path, "FFmpeg received an out-of-order frame");
   }
 
   QByteArray frame = makePipeFrame(raster, m_lx, m_ly);
-  if (frame.isEmpty()) return;
+  if (frame.isEmpty())
+    throw TImageException(m_path, "Failed to convert frame for FFmpeg");
 
   // A gap (e.g. a render step) repeats the previous frame, keeping the timing.
   // (The image sequence read by the intermediate image path ends at the first
@@ -609,11 +631,13 @@ void Ffmpeg::saveFrame(const TImageP &img, int frameIndex,
   // finishPipe() reports.
   for (; m_pipeNextFrame < frameIndex && !m_pipeLastFrame.isEmpty();
        ++m_pipeNextFrame)
-    m_pipe->push(m_pipeLastFrame);
+    if (!m_pipe->push(m_pipeLastFrame))
+      throw TImageException(m_path, "FFmpeg stopped accepting frames");
   m_pipeNextFrame = frameIndex + 1;
   m_pipeLastFrame = frame;
+  if (!m_pipe->push(frame))
+    throw TImageException(m_path, "FFmpeg stopped accepting frames");
   m_frameCount++;
-  m_pipe->push(frame);
 }
 
 bool Ffmpeg::finishPipe() {
@@ -637,7 +661,6 @@ bool Ffmpeg::finishPipe() {
   pipe->wait();
 
   const FfmpegPipeWriter::Result result = pipe->result();
-  const int exitCode                    = pipe->exitCode();
   delete pipe;
 
   if (result == FfmpegPipeWriter::Succeeded) {
@@ -645,27 +668,86 @@ bool Ffmpeg::finishPipe() {
     return true;
   }
 
-  if (result == FfmpegPipeWriter::TimedOut) {
-    DVGui::warning(
-        QObject::tr("FFmpeg timed out.\n"
-                    "Please check the file for errors.\n"
-                    "If the file doesn't play or is incomplete, \n"
-                    "Please try raising the FFmpeg timeout in Preferences."));
-  } else if (exitCode > 0) {
-    DVGui::warning(QObject::tr("FFmpeg returned error-code: %1").arg(exitCode));
-  }
-  DVGui::warning(
-      QObject::tr("FFmpeg process failed for: %1").arg(m_path.getQString()));
-
-  // The log is kept in the FFmpeg cache folder for inspection
   QFile log(m_pipeLogPath);
+  std::string details;
   if (log.open(QIODevice::ReadOnly)) {
     if (log.size() > 4096) log.seek(log.size() - 4096);
-    qWarning().noquote() << "FFmpeg pipe failed, end of" << m_pipeLogPath
-                         << ":\n"
-                         << QString::fromUtf8(log.readAll());
+    details = log.readAll().toStdString();
   }
-  return true;
+  throw TImageException(m_path,
+      (result == FfmpegPipeWriter::TimedOut ? "FFmpeg timed out: "
+                                          : "FFmpeg encoding failed: ") +
+      details);
+}
+
+void Ffmpeg::finalize(const ArgsBuilder &buildArgs) {
+  if (m_abortRequested.load())
+    throw TImageException(m_path, "FFmpeg export was aborted");
+  if (m_finalizationAttempted) {
+    if (m_finalizationError) std::rethrow_exception(m_finalizationError);
+    return;
+  }
+  m_finalizationAttempted = true;
+  try {
+    // Opening a writer for capabilities alone must not launch an encoder.
+    if (m_frameCount == 0 && !m_pipe) return;
+    if (!finishPipe()) {
+      QStringList preInputArgs, postInputArgs;
+      buildArgs(preInputArgs, postInputArgs);
+      runFfmpeg(preInputArgs, postInputArgs);
+    }
+
+    if (m_abortRequested.load())
+      throw TImageException(m_path, "FFmpeg export was aborted");
+
+    QFile encoded(m_exportOutputPath);
+    if (!encoded.open(QIODevice::ReadOnly) || encoded.size() <= 0)
+      throw TImageException(m_path, "FFmpeg produced no output");
+    QSaveFile destination(m_path.getQString());
+    destination.setDirectWriteFallback(false);
+    if (!destination.open(QIODevice::WriteOnly))
+      throw TImageException(m_path, "Cannot open export destination");
+    while (!encoded.atEnd()) {
+      if (m_abortRequested.load())
+        throw TImageException(m_path, "FFmpeg export was aborted");
+      const QByteArray chunk = encoded.read(1024 * 1024);
+      if (chunk.isEmpty() || destination.write(chunk) != chunk.size())
+        throw TImageException(m_path, "Cannot publish complete export output");
+    }
+    if (m_abortRequested.load())
+      throw TImageException(m_path, "FFmpeg export was aborted");
+    if (!destination.commit())
+      throw TImageException(m_path, "Cannot commit export output");
+    encoded.close();
+    cleanUpFiles();
+  } catch (...) {
+    m_finalizationError = std::current_exception();
+    throw;
+  }
+}
+
+void Ffmpeg::abort() noexcept {
+  if (m_aborted) return;
+  m_aborted = true;
+  requestAbort();
+  m_finalizationAttempted = true;
+  try {
+    // The process belongs to the pipe thread. Request cancellation there,
+    // then join before removing any of its output or audio files.
+    {
+      QMutexLocker locker(&m_pipeMutex);
+      if (m_pipe) m_pipe->cancel();
+    }
+    finishPipe();
+  } catch (...) {
+    // Cancellation intentionally causes a non-successful encoder exit.
+  }
+  try {
+    if (!m_pipeLogPath.isEmpty()) QFile::remove(m_pipeLogPath);
+    cleanUpFiles();
+  } catch (...) {
+    qWarning() << "FFmpeg aborted export cleanup failed";
+  }
 }
 
 void Ffmpeg::saveSoundTrack(TSoundTrack *soundTrack) {
@@ -674,20 +756,19 @@ void Ffmpeg::saveSoundTrack(TSoundTrack *soundTrack) {
   {
     // The audio input is part of the command started on the first frame
     QMutexLocker locker(&m_pipeMutex);
-    if (m_pipe) {
-      qWarning() << "FFmpeg pipe: sound track saved after the first frame is "
-                    "not included in"
-                 << m_path.getQString();
-      return;
-    }
+    if (m_pipe || m_finalizationAttempted || m_abortRequested.load())
+      throw TImageException(m_path, "Cannot add sound after encoding has started");
   }
 
   m_sampleRate        = soundTrack->getSampleRate();
   m_channelCount      = soundTrack->getChannelCount();
   m_bitsPerSample     = soundTrack->getBitPerSample();
-  int bufSize         = static_cast<int>(soundTrack->getSampleCount() *
-                                         soundTrack->getSampleSize());
+  const qint64 bufSize = qint64(soundTrack->getSampleCount()) *
+                         soundTrack->getSampleSize();
   const UCHAR *buffer = soundTrack->getRawData();
+  if (bufSize == 0) return;
+  if (bufSize < 0 || !buffer)
+    throw TImageException(m_path, "Invalid sound track for FFmpeg");
 
   m_audioPath = getFfmpegCache().getQString() + QDir::separator() +
                 m_tempBaseName + "_in.raw";
@@ -696,22 +777,13 @@ void Ffmpeg::saveSoundTrack(TSoundTrack *soundTrack) {
                   QString::number(m_bitsPerSample);
   if (m_bitsPerSample > 8) m_audioFormat.append("le");
 
-  QByteArray data(reinterpret_cast<const char *>(buffer), bufSize);
-
-  QFile file(m_audioPath);
-  if (!file.open(QIODevice::WriteOnly)) {
-    DVGui::warning(
-        QObject::tr("Cannot open audio file for writing: %1").arg(m_audioPath));
-    return;
-  }
-
-  if (file.write(data) != bufSize) {
-    DVGui::warning(QObject::tr("Failed to write audio data to file"));
-    file.close();
-    return;
-  }
-
-  file.close();
+  // Write directly from the sound track: avoid a second full audio buffer and
+  // preserve the 64-bit byte count for long clips.
+  QSaveFile file(m_audioPath);
+  if (!file.open(QIODevice::WriteOnly) ||
+      file.write(reinterpret_cast<const char *>(buffer), bufSize) != bufSize ||
+      !file.commit())
+    throw TImageException(m_path, "Cannot save complete audio input for FFmpeg");
   m_hasSoundTrack = true;
 
   m_audioArgs = QStringList{"-f",  m_audioFormat,
@@ -722,13 +794,44 @@ void Ffmpeg::saveSoundTrack(TSoundTrack *soundTrack) {
   m_cleanUpList.push_back(m_audioPath);
 }
 
-bool Ffmpeg::checkFilesExist() const {
-  QString ffmpegCachePath = getFfmpegCache().getQString();
-  // Look for the first frame (6 digits) directly in cache root
-  QString tempPath = ffmpegCachePath + QDir::separator() + m_tempBaseName +
-                     "_in000001." + m_intermediateFormat;
-  return TSystem::doesExistFileOrLevel(TFilePath(tempPath));
+QString Ffmpeg::importCacheBase() const {
+  if (!m_importCacheBase.isEmpty()) return m_importCacheBase;
+  QFile source(m_path.getQString());
+  if (!source.open(QIODevice::ReadOnly))
+    throw TImageException(m_path, "Cannot read video source for cache identity");
+  QCryptographicHash hash(QCryptographicHash::Sha256);
+  static const char version[] = "groundzero-ffmpeg-import-v2";
+  hash.addData(version, sizeof(version));
+  const QFileInfo info(source);
+  const QString canonical = info.canonicalFilePath().isEmpty()
+      ? info.absoluteFilePath() : info.canonicalFilePath();
+  hash.addData(canonical.toUtf8());
+  hash.addData("\0", 1);
+  if (!hash.addData(&source))
+    throw TImageException(m_path, "Cannot fingerprint video source");
+  m_importCacheBase = getFfmpegCache().getQString() + "/import-v2-" +
+                      QString::fromLatin1(hash.result().toHex());
+  return m_importCacheBase;
 }
+
+bool Ffmpeg::hasCompleteImportCache() const {
+  const QDir frames(importCacheBase() + ".frames");
+  QFile manifest(frames.filePath("complete.json"));
+  if (!manifest.open(QIODevice::ReadOnly)) return false;
+  const QJsonObject object = QJsonDocument::fromJson(manifest.readAll()).object();
+  const QJsonArray sizes = object.value("sizes").toArray();
+  if (object.value("version").toInt() != 2 || sizes.size() != m_frameCount ||
+      m_frameCount <= 0) return false;
+  for (int frame = 1; frame <= m_frameCount; ++frame) {
+    const QFileInfo image(frames.filePath(
+        QString("frame%1.png").arg(frame, 6, 10, QChar('0'))));
+    const qint64 expected = sizes[frame - 1].toString().toLongLong();
+    if (expected <= 0 || !image.isFile() || image.size() != expected) return false;
+  }
+  return true;
+}
+
+bool Ffmpeg::checkFilesExist() const { return hasCompleteImportCache(); }
 
 // ------------------------------------------------------------
 // Cached getters
@@ -740,10 +843,7 @@ ffmpegFileInfo Ffmpeg::getInfo() const {
     return ffmpegFileInfo{m_lx, m_ly, m_frameCount, m_frameRate};
   }
 
-  QString ffmpegCachePath = getFfmpegCache().getQString();
-  // Use short base name for the info cache file
-  QString tempPath =
-      ffmpegCachePath + QDir::separator() + m_tempBaseName + ".txt";
+  const QString tempPath = importCacheBase() + ".txt";
 
   if (QFile::exists(tempPath)) {
     QFile infoText(tempPath);
@@ -757,8 +857,13 @@ ffmpegFileInfo Ffmpeg::getInfo() const {
         m_ly         = textlist[1].toInt();
         m_frameRate  = textlist[2].toDouble();
         m_frameCount = textlist[3].toInt();
-        m_infoCached = true;
-        return ffmpegFileInfo{m_lx, m_ly, m_frameCount, m_frameRate};
+        if (m_lx > 0 && m_ly > 0 && m_frameCount > 0 &&
+            std::isfinite(m_frameRate) && m_frameRate > 0.0) {
+          m_infoCached = true;
+          return ffmpegFileInfo{m_lx, m_ly, m_frameCount, m_frameRate};
+        }
+        m_lx = m_ly = m_frameCount = 0;
+        m_frameRate = 0.0;
       }
     }
   }
@@ -768,8 +873,7 @@ ffmpegFileInfo Ffmpeg::getInfo() const {
   QString errorDetails;
 
   try {
-    TDimension size = getSize();  // will update m_lx, m_ly
-    // getSize already updated m_lx, m_ly
+    (void)getSize();  // will update m_lx, m_ly
   } catch (const TImageException &e) {
     failedOperations.append("size");
     errorDetails += QObject::tr("Size error: %1\n")
@@ -792,29 +896,28 @@ ffmpegFileInfo Ffmpeg::getInfo() const {
                         .arg(QString::fromStdWString(e.getMessage()));
   }
 
-  if (!failedOperations.isEmpty()) {
-    QString operations = failedOperations.join(", ");
-    DVGui::warning(
-        QObject::tr(
-            "Failed to retrieve %1 from video via ffprobe.\n"
-            "Error details:\n%2"
-            "Using available data and fallback values where necessary.\n"
-            "Note: Zero values in dimensions, frame count or frame rate "
-            "indicate that the information could not be retrieved.")
-            .arg(operations)
-            .arg(errorDetails));
+  if (!failedOperations.isEmpty() || m_lx <= 0 || m_ly <= 0 ||
+      m_frameCount <= 0 || !std::isfinite(m_frameRate) || m_frameRate <= 0.0)
+    throw TImageException(m_path, "Cannot read valid video metadata: " +
+                                    errorDetails.toStdString());
+
+  // ffprobe opens the source independently. Do not attach metadata from a
+  // replacement file to the content fingerprint captured before probing.
+  Ffmpeg currentSource;
+  currentSource.setPath(m_path);
+  if (currentSource.importCacheBase() != m_importCacheBase) {
+    m_lx = m_ly = m_frameCount = 0;
+    m_frameRate = 0.0;
+    m_importCacheBase.clear();
+    throw TImageException(m_path, "Video source changed while reading metadata");
   }
 
-  // Write to cache file (even if some values are zero)
-  QFile infoText(tempPath);
+  QSaveFile infoText(tempPath);
   if (infoText.open(QIODevice::WriteOnly | QIODevice::Text)) {
-    QString infoToWrite = QString("%1 %2 %3 %4\n")
-                              .arg(m_lx)
-                              .arg(m_ly)
-                              .arg(m_frameRate, 0, 'f', 3)
-                              .arg(m_frameCount);
-    infoText.write(infoToWrite.toUtf8());
-    infoText.close();
+    const QByteArray bytes = QString("%1 %2 %3 %4\n")
+        .arg(m_lx).arg(m_ly).arg(m_frameRate, 0, 'g', 17)
+        .arg(m_frameCount).toUtf8();
+    if (infoText.write(bytes) == bytes.size()) infoText.commit();
   }
 
   m_infoCached = true;
@@ -845,7 +948,7 @@ double Ffmpeg::getFrameRate() const {
     }
   }
 
-  if (!fpsDen) {
+  if (fpsNum <= 0 || fpsDen <= 0) {
     fpsArgs.clear();
     fpsArgs << "-v" << "error" << "-select_streams" << "v:0" << "-show_entries"
             << "stream=avg_frame_rate" << "-of"
@@ -901,46 +1004,22 @@ TDimension Ffmpeg::getSize() const {
 
 int Ffmpeg::getFrameCount() const {
   if (m_frameCount > 0) return m_frameCount;
-
-  QStringList frameCountArgs;
-  frameCountArgs << "-v" << "error" << "-count_frames" << "-select_streams"
-                 << "v:0" << "-show_entries" << "stream=duration" << "-of"
-                 << "default=nokey=1:noprint_wrappers=1" << m_path.getQString();
-
-  QString frameResults;
-  try {
-    frameResults = runFfprobe(frameCountArgs);
-  } catch (const TImageException &) {
-    frameResults = "";
+  // Containers such as MP4 provide an exact frame count without decoding.
+  // Only count decoded frames when that field is absent; never estimate from
+  // duration * rate, which can truncate or invent frames for variable rates.
+  QStringList args = {"-v", "error", "-select_streams", "v:0", "-show_entries",
+      "stream=nb_frames", "-of", "default=nokey=1:noprint_wrappers=1",
+      m_path.getQString()};
+  bool valid = false;
+  int count = runFfprobe(args).trimmed().toInt(&valid);
+  if (!valid || count <= 0) {
+    args = {"-v", "error", "-count_frames", "-select_streams", "v:0",
+        "-show_entries", "stream=nb_read_frames", "-of",
+        "default=nokey=1:noprint_wrappers=1", m_path.getQString()};
+    count = runFfprobe(args).trimmed().toInt(&valid);
   }
-
-  int count = 0;
-  if (!frameResults.isEmpty()) {
-    bool ok         = false;
-    double duration = frameResults.toDouble(&ok);
-    if (ok && duration > 0) {
-      count = static_cast<int>(duration * getFrameRate());
-    }
-  }
-
-  if (!count) {
-    frameCountArgs.clear();
-    frameCountArgs << "-v" << "error" << "-count_frames" << "-select_streams"
-                   << "v:0" << "-show_entries" << "stream=nb_read_frames"
-                   << "-of" << "default=nokey=1:noprint_wrappers=1"
-                   << m_path.getQString();
-
-    try {
-      frameResults = runFfprobe(frameCountArgs);
-    } catch (const TImageException &) {
-      frameResults = "";
-    }
-
-    if (!frameResults.isEmpty()) {
-      count = frameResults.toInt();
-    }
-  }
-
+  if (!valid || count <= 0)
+    throw TImageException(m_path, "Cannot count decoded video frames");
   m_frameCount = count;
   return m_frameCount;
 }
@@ -950,79 +1029,74 @@ int Ffmpeg::getFrameCount() const {
 // ------------------------------------------------------------
 
 void Ffmpeg::getFramesFromMovie(int frame) {
-  // Ensure frame count is known
-  if (m_frameCount <= 0) {
-    m_frameCount = getFrameCount();
+  getInfo();
+  if (frame != -1 && (frame < 1 || frame > m_frameCount))
+    throw TImageException(m_path, "Video frame index is out of range");
+  const QString base = importCacheBase();
+  QLockFile lock(base + ".lock");
+  // A live decoder may legitimately run longer than QLockFile's 30s default.
+  // Disable age expiry; QLockFile still detects a dead owning process.
+  lock.setStaleLockTime(0);
+  if (!lock.tryLock(m_ffmpegTimeoutMs))
+    throw TImageException(m_path, "Video cache is busy");
+  if (hasCompleteImportCache()) return;
+
+  // A failed extraction must never publish a reusable first frame. Build an
+  // entire generation separately, then publish it with a completion manifest.
+  QTemporaryDir pending(base + ".partial-XXXXXX");
+  if (!pending.isValid())
+    throw TImageException(m_path, "Cannot create video extraction directory");
+  const QStringList probeArgs = {"-v", "error", "-select_streams", "v:0",
+      "-show_entries", "stream=codec_name", "-of",
+      "default=noprint_wrappers=1:nokey=1", m_path.getQString()};
+  const QString codecName = runFfprobe(probeArgs).trimmed();
+  QStringList pre;
+  if (codecName == "vp9") pre << "-vcodec" << "libvpx-vp9";
+  else if (codecName == "vp8") pre << "-vcodec" << "libvpx";
+  else if (codecName == "av1") pre << "-vcodec" << "libaom-av1";
+  pre << "-threads" << "auto" << "-i" << m_path.getQString();
+  const QStringList post = {"-y", "-map", "0:v:0", "-vsync", "0", "-f",
+      "image2", pending.filePath("frame%06d.png")};
+  runFfmpeg(pre, post, true, true, true, false);
+
+  QDir directory(pending.path());
+  if (directory.entryList({"frame*.png"}, QDir::Files).size() != m_frameCount)
+    throw TImageException(m_path, "Video extraction produced an incomplete sequence");
+  QJsonArray sizes;
+  for (int index = 1; index <= m_frameCount; ++index) {
+    QFileInfo image(directory.filePath(
+        QString("frame%1.png").arg(index, 6, 10, QChar('0'))));
+    if (!image.isFile() || image.size() <= 0)
+      throw TImageException(m_path, "Video extraction is missing a frame");
+    sizes.append(QString::number(image.size()));
   }
-  if (m_frameCount <= 0) {
-    DVGui::warning(QObject::tr("Unable to determine frame count for: %1")
-                       .arg(m_path.getQString()));
-    return;
-  }
 
-  QString ffmpegCachePath = getFfmpegCache().getQString();
-  QString tempName = ffmpegCachePath + QDir::separator() + m_tempBaseName +
-                     "_in%06d." + m_intermediateFormat;
-
-  QString tempStart;
-  if (frame == -1) {
-    tempStart = ffmpegCachePath + QDir::separator() + m_tempBaseName +
-                "_in000001." + m_intermediateFormat;
-  } else {
-    tempStart = ffmpegCachePath + QDir::separator() + m_tempBaseName +
-                QString("_in%1.").arg(frame, 6, 10, QChar('0')) +
-                m_intermediateFormat;
-  }
-
-  if (!TSystem::doesExistFileOrLevel(TFilePath(tempStart))) {
-    QStringList probeArgs;
-    probeArgs << "-v" << "error" << "-select_streams" << "v:0"
-              << "-show_entries" << "stream=codec_name" << "-of"
-              << "default=noprint_wrappers=1:nokey=1" << m_path.getQString();
-    QString codecName;
-    try {
-      codecName = runFfprobe(probeArgs).trimmed();
-    } catch (const TImageException &) {
-      codecName = "";
-    }
-
-    QStringList preIFrameArgs;
-    if (codecName.contains("vp9", Qt::CaseInsensitive)) {
-      preIFrameArgs << "-vcodec" << "libvpx-vp9";
-    } else if (codecName.contains("vp8", Qt::CaseInsensitive)) {
-      preIFrameArgs << "-vcodec" << "libvpx";
-    } else if (codecName.contains("av1", Qt::CaseInsensitive)) {
-      preIFrameArgs << "-vcodec" << "libaom-av1";
-    }
-
-    preIFrameArgs << "-threads" << "auto" << "-i" << m_path.getQString();
-
-    QStringList postIFrameArgs;
-    postIFrameArgs << "-y" << "-f" << "image2" << tempName;
-
-    runFfmpeg(preIFrameArgs, postIFrameArgs, true, true, true, false);
-
-    if (!TSystem::doesExistFileOrLevel(TFilePath(tempStart))) {
-      DVGui::warning(QObject::tr("FFmpeg failed to extract frames from: "
-                                 "%1\nCheck file and codec support.")
-                         .arg(m_path.getQString()));
-      return;
-    }
-
-    // Extracted frames, like the metadata file, belong to the shared import
-    // cache. Another reader of this path may still need them after this reader
-    // closes. Only export intermediates are owned by m_cleanUpList; registering
-    // every import frame there both deleted another reader's inputs and did a
-    // quadratic number of QString comparisons for long clips.
-  }
+  // Catch replacement while ffmpeg reopened/decoded the source. Existing
+  // readers may keep their old immutable generation; new readers use a new key.
+  Ffmpeg currentSource;
+  currentSource.setPath(m_path);
+  if (currentSource.importCacheBase() != base)
+    throw TImageException(m_path, "Video source changed during extraction");
+  QSaveFile manifest(directory.filePath("complete.json"));
+  const QByteArray bytes = QJsonDocument(QJsonObject{
+      {"version", 2}, {"sizes", sizes}}).toJson(QJsonDocument::Compact);
+  if (!manifest.open(QIODevice::WriteOnly) ||
+      manifest.write(bytes) != bytes.size() || !manifest.commit())
+    throw TImageException(m_path, "Cannot complete the video cache manifest");
+  const QString published = base + ".frames";
+  if (QFileInfo::exists(published) && !QDir(published).removeRecursively())
+    throw TImageException(m_path, "Cannot replace an incomplete video cache");
+  if (!QDir().rename(pending.path(), published))
+    throw TImageException(m_path, "Cannot publish the video frame cache");
+  pending.setAutoRemove(false);
 }
 
 TRasterImageP Ffmpeg::getImage(int frameIndex) {
-  QString ffmpegCachePath = getFfmpegCache().getQString();
-  QString number =
-      QString("%1").arg(frameIndex, 6, 10, QChar('0'));  // 6 digits
-  QString tempName = ffmpegCachePath + QDir::separator() + m_tempBaseName +
-                     "_in" + number + ".png";
+  if (frameIndex < 1 || frameIndex > getFrameCount())
+    throw TImageException(m_path, "Video frame index is out of range");
+  const QString tempName = QDir(importCacheBase() + ".frames").filePath(
+      QString("frame%1.png").arg(frameIndex, 6, 10, QChar('0')));
+  if (!QFileInfo::exists(tempName)) getFramesFromMovie(frameIndex);
 
   if (QFile::exists(tempName)) {
     QImage qi;
@@ -1056,22 +1130,7 @@ QString Ffmpeg::cleanPathSymbols() const {
   return name;
 }
 
-int Ffmpeg::getGifFrameCount() {
-  int frame               = 1;
-  QString ffmpegCachePath = getFfmpegCache().getQString();
-
-  while (true) {
-    QString frameFile = ffmpegCachePath + QDir::separator() + m_tempBaseName +
-                        QString("_in%1.").arg(frame, 6, 10, QChar('0')) +
-                        m_intermediateFormat;
-    if (!TSystem::doesExistFileOrLevel(TFilePath(frameFile))) {
-      break;
-    }
-    frame++;
-  }
-
-  return frame - 1;
-}
+int Ffmpeg::getGifFrameCount() { return getFrameCount(); }
 
 void Ffmpeg::addToCleanUp(const QString &path) {
   if (TSystem::doesExistFileOrLevel(TFilePath(path))) {

@@ -6,9 +6,11 @@ Review date: October 29, 2026. Reviewed source: `edition` commit
 This roadmap follows the [codebase audit](codebase_audit_2026_10_29.md).
 It covers the application broadly, with **Windows first and macOS second**.
 Linux remains useful for existing regression, sanitizer and compatibility jobs.
-The phases below are proposed work, not completed implementation.
+The phases below describe the full program. The implementation table records
+the work in [PR #103](https://github.com/OpenAnimationLibrary/groundzero/pull/103);
+unmeasured and unvalidated work is identified explicitly.
 
-## First implementation batch
+## Implementation progress
 
 The `improve/app-reliability-performance` branch starts this plan from integration
 commit `3a2b9f6dc56a55a9f04f432dc00241020397b6e4`. That base already includes
@@ -21,8 +23,10 @@ a record of its earlier pinned snapshot.
 | Cadmium | A07 includes outline attributes in freshness checks; A20 updates only the reference overlay; pixel-type dispatch moves outside pixel loops | Existing vector/review tests expanded; native CI execution required |
 | Save and recovery | A01 preserves parent dirty state; A02 uses checked temporary palette replacement; A03 restores failed-save identity; A04 shares compressed-format limits; A05 retries partial recovery with bounded retention | Native save-failure/retry and stream cases added; child-export/recovery UI scenarios still required |
 | Navigation | A06 records the actual matched child-sheet coordinates | Application undo/redo scenario remains required |
-| Cache and resources | A08 removes the correct raster identity; A15 addresses export/video owner leaks; video cleanup removes quadratic bookkeeping | Deterministic address-reuse and overlapping-reader tests added; PSD ownership work remains |
-| Export concurrency | A09 protects FFmpeg adapter metadata and cleanup bookkeeping while keeping independent frame conversion concurrent | Concurrent intermediate-export regression added; wider render scheduling/finalization remains |
+| Cache and resources | A08 removes the correct raster identity; A10 gives imported media full content identities and complete extraction manifests; A15 manages PSD/video/export owners | Address-reuse, same-path replacement, interrupted-cache, overlapping-reader and ownership regressions added |
+| Export completion | A09 protects shared FFmpeg metadata; A11 records actual failed frames and delivers terminal status; A12 explicitly checks finalization and discards aborted FFmpeg output | Concurrent export, ordered failure, updater lifecycle and failure/abort regressions added; public export/decode smoke required on all three platforms |
+| PSD fidelity | A14 expands bitmap bits and preserves gray16 alpha; sampled crop/shrink coordinates and partial-parser cleanup are corrected | Independent native sample fixtures required on Windows, macOS and Linux |
+| Cadmium memory | A16 accounts retained payloads, reserves analysis headroom and evicts inactive inspection caches while preserving artist choices | Small-budget admission/eviction tests added; mandatory recovery metadata and transient/native/worker allocations are not a hard RSS cap |
 | Raster safety | A13 rejects invalid/overflowing storage and fails allocation explicitly; Canvas Resize prepares replacements before edits | Boundary/stride/view tests added; allocator fault injection and UI scenarios remain |
 | Test reliability | V01–V04 tighten exception/golden/graphics checks; required subsets run on ordinary Linux, Windows and macOS workflows | Registration runner rejects missing/skipped expected cases; CI results must be reviewed |
 
@@ -30,14 +34,36 @@ This is implementation awaiting CI and application validation, not completion of
 all phases or evidence of a measured speedup. Windows/macOS reference-machine
 profiles remain outstanding. Canvas Resize preparation improves failure handling
 but pins replacement drawings until commit and can raise peak residency; measure
-large multi-drawing resizes before release. Media-cache freshness (A10), render
-failure/finalization state (A11–A12), PSD fidelity/ownership (A14 and part of A15),
-and unified Cadmium memory admission (A16) remain explicit follow-up work.
+large multi-drawing resizes before release. Render reorder-buffer backpressure,
+budgeted disk-cache eviction, Cadmium peak-memory instrumentation, and native
+interactive failure/cancellation scenarios remain follow-up work.
 
 The FFmpeg import cache remains shared across readers; its files are not deleted
 when one reader closes. This preserves concurrent-reader correctness while owner
-objects are now released. Budgeted eviction and source-revision invalidation must
-be designed together in Phase 2.
+objects are now released. Full-source hashing prevents same-path/same-timestamp
+stale reuse, but adds sequential input reads. Export publication stages output
+and copies it once before replacement, increasing disk traffic and temporary
+space. Profile both costs; do not count these correctness changes as throughput
+improvements. Budgeted disk-cache eviction remains Phase 2 work.
+
+Movie output preservation applies per file before its commit. Stereo and
+multimedia jobs are not one atomic transaction across all outputs: if one file
+has committed before a later file fails, it cannot be rolled back by aborting the
+remaining writers. Image sequences can retain completed frames on cancellation.
+End-to-end UI/CLI cancellation, including renderer startup and finalization,
+still needs native smoke qualification in addition to the focused regressions.
+
+Additional review fixed truncated compressed-header reads, transactional studio
+palette saving, a studio-palette load exception leak, and palette style-alias
+ownership. Focused regressions cover malformed headers, serialization failure,
+retry/preservation and exactly-once style destruction. Windows test consumers
+now import the library's DLL symbols instead of inheriting its export definition.
+
+Cadmium's 512 MiB admission target protects retained browsing/analysis payloads;
+it is not a total-process memory guarantee. Fresh recovery state remains
+mandatory even when metadata exceeds that target. Preserving artist decisions
+takes priority over refusing an autosave snapshot. Parse/flush temporaries,
+native caches, GL storage and inference workers need separate measurement.
 
 The audit was a source review. No local builds, application tests or performance
 measurements were run: [CLAUDE.md](../CLAUDE.md) directs builds and tests through

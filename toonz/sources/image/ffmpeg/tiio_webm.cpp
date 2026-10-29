@@ -1,6 +1,7 @@
 
 #include "tiio_webm.h"
 #include "tsystem.h"
+#include <QDebug>
 #include "trasterimage.h"
 #include "tsound.h"
 #include "timageinfo.h"
@@ -61,21 +62,32 @@ TLevelWriterWebm::TLevelWriterWebm(const TFilePath &path, TPropertyGroup *winfo)
   ffmpegWriter = std::make_unique<Ffmpeg>();
   ffmpegWriter->setPath(m_path);
   ffmpegWriter->enablePipe();
-  if (TSystem::doesExistFileOrLevel(m_path)) TSystem::deleteFile(m_path);
 }
 
 //-----------------------------------------------------------
 
 TLevelWriterWebm::~TLevelWriterWebm() {
-  // Streamed frames only need ffmpeg to finish, otherwise encode the
-  // intermediate images
-  if (!ffmpegWriter->finishPipe()) {
-    QStringList preIArgs;
-    QStringList postIArgs;
-    buildFfmpegArgs(preIArgs, postIArgs);
-    ffmpegWriter->runFfmpeg(preIArgs, postIArgs, false, false, true);
+  if (ffmpegWriter->isAborted()) return;
+  try {
+    finalize();
+  } catch (const TException &error) {
+    qWarning().noquote() << QString::fromStdWString(error.getMessage());
+  } catch (...) {
+    qWarning() << "FFmpeg export finalization failed";
   }
-  ffmpegWriter->cleanUpFiles();
+}
+
+void TLevelWriterWebm::abort() noexcept { ffmpegWriter->abort(); }
+
+void TLevelWriterWebm::requestAbort() noexcept {
+  ffmpegWriter->requestAbort();
+}
+
+void TLevelWriterWebm::finalize() {
+  ffmpegWriter->finalize(
+      [this](QStringList &preIArgs, QStringList &postIArgs) {
+        buildFfmpegArgs(preIArgs, postIArgs);
+      });
 }
 
 //-----------------------------------------------------------
@@ -198,6 +210,8 @@ void TLevelWriterWebm::saveSoundTrack(TSoundTrack *st) {
 
 void TLevelWriterWebm::save(const TImageP &img, int frameIndex) {
   TRasterImageP image(img);
+  if (!image || !image->getRaster())
+    throw TImageException(m_path, "Cannot save non-raster image to FFmpeg");
   {
     QMutexLocker locker(&m_metadataMutex);
     m_lx = image->getRaster()->getLx();

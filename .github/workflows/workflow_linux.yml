@@ -78,7 +78,7 @@ jobs:
         mkdir build
         cd build
         set -o pipefail
-        cmake ../sources -G Ninja -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER=${{ matrix.cxx }} -DCMAKE_C_COMPILER=${{ matrix.cc }} -DWITH_TRANSLATION=OFF -DBUILD_CELFX_TESTS=ON -DBUILD_CADMIUM_TESTS=ON -DBUILD_RELIABILITY_TESTS=ON -DBUILD_STREAM_TESTS=ON -DBUILD_SCENEBENCH_TESTS=ON -DBUILD_FXRENDER_TESTS=ON -DBUILD_FFMPEG_TESTS=ON -DCMAKE_CXX_FLAGS=-Werror=return-type 2>&1 | tee "$GITHUB_WORKSPACE/build.log"
+        cmake ../sources -G Ninja -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER=${{ matrix.cxx }} -DCMAKE_C_COMPILER=${{ matrix.cc }} -DWITH_TRANSLATION=OFF -DBUILD_CELFX_TESTS=ON -DBUILD_CADMIUM_TESTS=ON -DBUILD_RELIABILITY_TESTS=ON -DBUILD_STREAM_TESTS=ON -DBUILD_SCENEBENCH_TESTS=ON -DBUILD_FXRENDER_TESTS=ON -DBUILD_FFMPEG_TESTS=ON -DBUILD_PSD_TESTS=ON -DCMAKE_CXX_FLAGS=-Werror=return-type 2>&1 | tee "$GITHUB_WORKSPACE/build.log"
         # -k 0: keep going, so one run reports every file that fails
         ninja -k 0 OpenToonz celfx_tests cadmium_tests 2>&1 | tee -a "$GITHUB_WORKSPACE/build.log"
 
@@ -119,7 +119,7 @@ jobs:
     - name: Test reliability and performance invariants
       working-directory: toonz/build
       run: |
-        QT_QPA_PLATFORM=xcb LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a python3 ../../ci-scripts/run_regression_tests.py rasterallocation timagecache levelselection save_transaction compressed_stream scenebench fxrender tiio_ffmpeg
+        QT_QPA_PLATFORM=xcb LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a python3 ../../ci-scripts/run_regression_tests.py rasterallocation timagecache levelselection save_transaction movierenderqueue levelupdater_abort trenderer_startup compressed_stream scenebench fxrender ffmpeg_public tiio_ffmpeg tiio_psd
 
     - name: Upload reliability diagnostics
       if: always()

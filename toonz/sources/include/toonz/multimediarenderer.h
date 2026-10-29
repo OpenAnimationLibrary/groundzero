@@ -60,6 +60,12 @@ public:
     virtual bool onFrameCompleted(int frame, int column) = 0;
     virtual bool onFrameFailed(int frame, int column, TException &e) = 0;
     virtual void onSequenceCompleted(int column) = 0;
+    virtual void onSequenceFinished(int column,
+                                    MovieRenderer::CompletionStatus status,
+                                    const std::wstring &error) {
+      if (status == MovieRenderer::CompletionStatus::Completed)
+        onSequenceCompleted(column);
+    }
     virtual void onRenderCompleted()             = 0;
     virtual ~Listener() {}
   };
