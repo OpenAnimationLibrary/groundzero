@@ -911,6 +911,8 @@ if(BUILD_CADMIUM_TESTS)
             tnzcore tnzbase tnzext toonzlib ${GL_LIB} ${GLUT_LIB})
         add_test(NAME cadmium_${adapter} COMMAND cadmium_${adapter}_test)
     endforeach()
+    # The vector test needs an OpenGL context and skips without one
+    set_tests_properties(cadmium_vector PROPERTIES SKIP_RETURN_CODE 77)
     add_custom_target(cadmium_tests DEPENDS cadmium_toonzraster_test cadmium_fullcolor_test cadmium_vector_test)
 endif()
 

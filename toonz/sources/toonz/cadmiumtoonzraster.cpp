@@ -4,6 +4,7 @@
 #include "tsimplecolorstyles.h"
 #include <QCryptographicHash>
 #include <QDataStream>
+#include <QIODevice>
 #include <limits>
 #include <new>
 

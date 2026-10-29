@@ -10,6 +10,9 @@
 #include <QCoreApplication>
 #include <QCryptographicHash>
 #include <QDataStream>
+#include <QIODevice>
+#include <QOffscreenSurface>
+#include <QOpenGLContext>
 #include <QThread>
 #include <algorithm>
 #include <cmath>
@@ -99,6 +102,19 @@ QImage imageFromRaster(const TRaster32P &raster) {
   return image;
 }
 
+// The analysis images are drawn with OpenGL (TOfflineGL). Without a context
+// (no display for the GLX of the platform plugin, for example) drawing would
+// crash, so a context is tried first.
+bool openGLAvailable() {
+  QOffscreenSurface surface;
+  surface.create();
+  QOpenGLContext context;
+  if (!surface.isValid() || !context.create()) return false;
+  const bool ok = context.makeCurrent(&surface);
+  if (ok) context.doneCurrent();
+  return ok;
+}
+
 class CurrentContext {
   TOfflineGL &m_gl;
 public:
@@ -157,6 +173,11 @@ bool snapshotVector(const TImageP &source, Frame &frame, QString &error) {
         TTranslation(canvasSize / 2.0, canvasSize / 2.0) * TScale(scale) *
         TTranslation(-(bounds.x0 + bounds.x1) / 2.0,
                      -(bounds.y0 + bounds.y1) / 2.0);
+    if (!openGLAvailable()) {
+      error = QObject::tr(
+          "OpenGL is not available, so the vector drawing cannot be analysed.");
+      return false;
+    }
     TOfflineGL gl(TDimension(canvasSize, canvasSize));
     CurrentContext context(gl);
     gl.clear(TPixel32(0, 0, 0, 0));
