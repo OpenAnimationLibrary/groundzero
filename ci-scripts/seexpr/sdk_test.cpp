@@ -49,6 +49,46 @@ void registryParity() {
   }
 }
 
+void syntaxQueriesAndRecovery() {
+  using namespace SeExpr2;
+  Expression expression(Expression::UseInterpreter);
+  expression.setDesiredReturnType(ExprType().FP(1).Varying());
+  expression.setExpr("$unbound_channel + 1");
+  require(expression.syntaxOK(),
+          "Syntax inspection incorrectly requires a host variable binding");
+  require(!expression.isValid(),
+          "An unbound host variable unexpectedly passed semantic validation");
+  require(!expression.getErrors().empty(),
+          "Semantic failure did not retain an actionable diagnostic");
+  require(expression.syntaxOK(),
+          "Semantic validation changed the result of syntax-only inspection");
+
+  expression.setExpr("2 + 3");
+  require(expression.syntaxOK() && expression.isValid(),
+          "SDK expression did not recover after a missing variable");
+  near(expression.evalFP()[0], 5,
+       "SDK evaluation changed after syntax/semantic inspection");
+
+  // A long flat arithmetic chain has shallow punctuation nesting but a deep
+  // syntax tree. The raw SDK must reject it before recursive preparation and
+  // must also be able to dispose of that tree and parse another expression.
+  std::string deep = "1";
+  for (int term = 0; term < 1200; ++term) deep += " + 1";
+  for (int attempt = 0; attempt < 3; ++attempt) {
+    expression.setExpr(deep);
+    require(!expression.syntaxOK() && !expression.isValid(),
+            "An excessive SDK syntax tree reached semantic evaluation");
+    require(expression.parseError().find("depth") != std::string::npos &&
+                !expression.getErrors().empty(),
+            "An excessive SDK syntax tree has no clear depth diagnostic");
+    expression.setExpr("7");
+    require(expression.syntaxOK() && expression.isValid(),
+            "SDK parser state did not recover after a rejected deep tree");
+    near(expression.evalFP()[0], 7,
+         "SDK recovery reused stale data after a rejected deep tree");
+  }
+}
+
 void blockEvaluation() {
   using namespace SeExpr2;
   VarBlockCreator creator;
@@ -103,6 +143,7 @@ int main() {
   try {
     SeExpr2::Expression::defaultEvaluationStrategy = SeExpr2::Expression::UseInterpreter;
     registryParity();
+    syntaxQueriesAndRecovery();
     blockEvaluation();
     expressionGraphIsolation();
     std::cout << "SeExpr SDK parity: PASS\n";

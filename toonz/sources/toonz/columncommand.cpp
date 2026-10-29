@@ -13,6 +13,7 @@
 #include "toonzqt/stageobjectsdata.h"
 #include "toonzqt/menubarcommand.h"
 #include "toonzqt/dvdialog.h"
+#include "toonzqt/functiontreeviewer.h"
 #include "historytypes.h"
 
 // TnzLib includes
@@ -40,6 +41,7 @@
 #include "toonz/preferences.h"
 #include "toonz/tstageobjectid.h"
 #include "toonz/columnfan.h"
+#include "toonz/expressionreferencemonitor.h"
 #include "orientation.h"
 
 // TnzBase includes
@@ -575,6 +577,39 @@ class DeleteColumnsUndo final : public TUndo {
 
   mutable std::unique_ptr<StageObjectsData> m_data;
   bool m_onlyColumns;
+  struct ReferenceState {
+    TDoubleParamP parameter;
+    std::map<int, TDoubleKeyframe> keys;
+  };
+  std::vector<ReferenceState> m_referenceStates;
+
+  static void gatherLiveParameters(TreeModel::Item *item,
+                                   std::set<TDoubleParam *> &parameters) {
+    if (auto *channel = dynamic_cast<FunctionTreeModel::Channel *>(item))
+      parameters.insert(channel->getParam());
+    else
+      for (int i = 0; i < item->getChildCount(); ++i)
+        gatherLiveParameters(item->getChild(i), parameters);
+  }
+
+  void restoreExternalReferences(TXsheet *xsh) const {
+    if (m_referenceStates.empty()) return;
+    // Removing a referenced column can invalidate or rewrite expressions in
+    // columns/FX outside the deleted set. StageObjectsData only retains the
+    // deleted objects, so their surviving dependents require their own undo
+    // state. Resolve live pointers after resetColumns to avoid reviving curves
+    // belonging to replaced/deleted objects.
+    FunctionTreeModel model;
+    model.refreshData(xsh);
+    std::set<TDoubleParam *> live;
+    for (int i = 0; i < model.getStageObjectsChannelCount(); ++i)
+      gatherLiveParameters(model.getStageObjectChannel(i), live);
+    for (int i = 0; i < model.getFxsChannelCount(); ++i)
+      gatherLiveParameters(model.getFxChannel(i), live);
+    for (const auto &state : m_referenceStates)
+      if (live.count(state.parameter.getPointer()))
+        state.parameter->setKeyframes(state.keys);
+  }
 
 public:
   DeleteColumnsUndo(const std::set<int> &indices, bool onlyColumns)
@@ -583,6 +618,16 @@ public:
       , m_onlyColumns(onlyColumns) {
     TApp *app    = TApp::instance();
     TXsheet *xsh = app->getCurrentXsheet()->getXsheet();
+
+    if (Preferences::instance()->isModifyExpressionOnMovingReferencesEnabled()) {
+      for (TDoubleParam *parameter : xsh->getExpRefMonitor()->info().keys()) {
+        ReferenceState state;
+        state.parameter = parameter;
+        for (int index = 0; index < parameter->getKeyframeCount(); ++index)
+          state.keys[index] = parameter->getKeyframe(index);
+        m_referenceStates.push_back(std::move(state));
+      }
+    }
 
     m_data->storeColumns(m_indices, xsh, 0);
     m_data->storeColumnFxs(m_indices, xsh, 0);
@@ -643,10 +688,22 @@ public:
     resetColumns(m_data.get(), &indices, m_columnFxLinks, m_columnObjParents,
                  m_columnObjChildren);
 
+    restoreExternalReferences(TApp::instance()->getCurrentXsheet()->getXsheet());
+
     m_data.reset();
   }
 
-  int getSize() const override { return sizeof(*this); }
+  int getSize() const override {
+    std::size_t size = sizeof(*this);
+    for (const auto &state : m_referenceStates) {
+      size += sizeof(state);
+      for (const auto &entry : state.keys)
+        size += sizeof(entry) + entry.second.m_expressionText.size() +
+                entry.second.m_unitName.size();
+    }
+    return static_cast<int>(std::min<std::size_t>(
+        size, (std::numeric_limits<int>::max)()));
+  }
 
   QString getHistoryString() override {
     QString str = QObject::tr("Delete Column :  ");

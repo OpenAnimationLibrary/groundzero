@@ -131,6 +131,7 @@ public:
   void setPinnedPage(bool pinnedPage) { m_isPinnedPage = pinnedPage; }
   void addExposedParam(int fxIndex, const TFxP& fx,
                        const std::string& paramName);
+  void addSeExprControl(const TFxP &fx, const std::string &paramName);
   void addNodeSeparator(const QString& name);
 
   void update(int frame);
@@ -266,6 +267,7 @@ class DVAPI ParamViewer final : public QFrame {
 
   QStackedWidget *m_tablePageSet;
   QMap<std::string, int> m_tableFxIndex;
+  std::string m_seExprPageKey;
 
 public:
   ParamViewer(QWidget *parent = 0, Qt::WindowFlags flags = Qt::WindowFlags());

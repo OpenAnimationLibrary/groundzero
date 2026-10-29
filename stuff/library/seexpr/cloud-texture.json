@@ -1,0 +1,31 @@
+{
+  "format": "groundzero-seexpr",
+  "version": 1,
+  "title": "Cloud Texture",
+  "document": {
+    "version": 1,
+    "backend": "interpreter",
+    "rgb": "cfbm([$u*$scale,$v*$scale,$time*$speed+$seed])",
+    "alpha": "1",
+    "controls": [
+      {
+        "id": "scale",
+        "name": "scale",
+        "label": "Scale",
+        "type": "scalar",
+        "value": 5,
+        "min": 0.1,
+        "max": 30
+      },
+      {
+        "id": "speed",
+        "name": "speed",
+        "label": "Speed",
+        "type": "scalar",
+        "value": 0.1,
+        "min": 0,
+        "max": 5
+      }
+    ]
+  }
+}

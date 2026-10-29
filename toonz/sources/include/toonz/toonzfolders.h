@@ -40,6 +40,10 @@ DVAPI TFilePath getStudioPaletteFolder();
 DVAPI TFilePath getFxPresetFolder();
 DVAPI TFilePath getLibraryFolder();
 DVAPI TFilePath getReslistPath(bool forCleanup);
+#ifdef BUILD_SEEXPR_TESTS
+// Only the disposable native integration fixture may redirect test storage.
+DVAPI void setSeExprTestStorageRoot(const TFilePath &root);
+#endif
 DVAPI TFilePath getCacheRootFolder();
 DVAPI TFilePath getCrashReportFolder();
 DVAPI TFilePath getProfileFolder();

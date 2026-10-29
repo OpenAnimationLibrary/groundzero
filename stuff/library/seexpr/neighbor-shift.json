@@ -1,0 +1,31 @@
+{
+  "format": "groundzero-seexpr",
+  "version": 1,
+  "title": "Neighbor Shift",
+  "document": {
+    "version": 1,
+    "backend": "interpreter",
+    "rgb": "sample_rgb($dx,$dy)",
+    "alpha": "sample_alpha($dx,$dy)",
+    "controls": [
+      {
+        "id": "dx",
+        "name": "dx",
+        "label": "Dx",
+        "type": "scalar",
+        "value": 1,
+        "min": -32,
+        "max": 32
+      },
+      {
+        "id": "dy",
+        "name": "dy",
+        "label": "Dy",
+        "type": "scalar",
+        "value": 0,
+        "min": -32,
+        "max": 32
+      }
+    ]
+  }
+}

@@ -86,6 +86,10 @@ add_custom_command(
         ${_ot_seexpr_llvm_prepare_args}
     DEPENDS
         "${_ot_seexpr_prepare}"
+        "${CMAKE_CURRENT_LIST_DIR}/prepare_seexpr_language.py"
+        "${CMAKE_CURRENT_LIST_DIR}/prepare_seexpr_safety.py"
+        "${CMAKE_CURRENT_LIST_DIR}/prepare_seexpr_sdk.py"
+        "${CMAKE_CURRENT_LIST_DIR}/prepare_seexpr_limits.py"
         "${CMAKE_CURRENT_LIST_DIR}/prepare_seexpr_llvm.py"
         "${CMAKE_CURRENT_LIST_DIR}/seexpr_llvm_compat.h"
         "${groundzero_seexpr_source_SOURCE_DIR}/src/SeExpr2/ExprParser.y"
@@ -111,8 +115,10 @@ set_target_properties(groundzero_seexpr_core PROPERTIES
     AUTORCC OFF
 )
 target_include_directories(groundzero_seexpr_core SYSTEM PUBLIC
-    "${_ot_seexpr_generated_root}"
-    "${_ot_seexpr_generated}")
+    "$<BUILD_INTERFACE:${_ot_seexpr_generated_root}>"
+    "$<BUILD_INTERFACE:${_ot_seexpr_generated}>"
+    "$<INSTALL_INTERFACE:sdk/include>"
+    "$<INSTALL_INTERFACE:sdk/include/SeExpr2>")
 target_include_directories(groundzero_seexpr_core PRIVATE
     "${CMAKE_CURRENT_LIST_DIR}/../sources/common/expressions")
 target_link_libraries(groundzero_seexpr_core PRIVATE
@@ -132,5 +138,7 @@ endif()
 # Source provenance is independent of the selected, explicitly reported backend.
 target_compile_definitions(groundzero_seexpr_core PUBLIC
     OT_SEEXPR_SOURCE_REVISION="${OT_SEEXPR_REVISION}")
+
+include("${CMAKE_CURRENT_LIST_DIR}/SeExprSDK.cmake")
 
 cmake_policy(POP)

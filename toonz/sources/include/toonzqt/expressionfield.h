@@ -40,6 +40,7 @@ namespace DVGui {
 class DVAPI ExpressionField final : public QTextEdit {
   Q_OBJECT
   bool m_editing;
+  bool m_seExprMode = false;
   const TSyntax::Grammar *m_grammar;
 
   class SyntaxHighlighter;
@@ -55,6 +56,8 @@ public:
 
   void setExpression(std::string expression);
   std::string getExpression() const;
+  void setSeExprMode(bool enabled);
+  bool isSeExprMode() const { return m_seExprMode; }
 
   void setGrammar(const TSyntax::Grammar *grammar);
   const TSyntax::Grammar *getGrammar() const { return m_grammar; }
@@ -73,6 +76,7 @@ protected:
   void showEvent(QShowEvent *) override;
   void hideEvent(QHideEvent *) override;
   bool eventFilter(QObject *obj, QEvent *e) override;
+  void insertFromMimeData(const QMimeData *source) override;
 
 private slots:
   void onTextChanged();

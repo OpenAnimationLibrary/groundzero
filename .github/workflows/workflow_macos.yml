@@ -49,13 +49,22 @@ jobs:
             done
           }
 
-          checkPkgAndInstall pkg-config glew lz4 libjpeg libpng lzo boost libusb libmypaint ccache jpeg-turbo ninja opencv@4 ffmpeg
+          checkPkgAndInstall bison flex pkg-config glew lz4 libjpeg libpng lzo boost libusb libmypaint ccache jpeg-turbo ninja opencv@4 ffmpeg
 
           brew list --formula | grep '^qt' | grep -v '@5' | xargs -n1 brew unlink || true
 
           brew install qt@5
           brew unlink qt@5 || true
           brew link qt@5 || true
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Select SeExpr parser tools
+        run: |
+          brew --prefix bison | sed 's|$|/bin|' >> "$GITHUB_PATH"
+          brew --prefix flex | sed 's|$|/bin|' >> "$GITHUB_PATH"
 
       - name: Set up cache
         run: |
@@ -87,8 +96,21 @@ jobs:
             -DQt5_DIR=$(brew --prefix qt@5)/lib/cmake/Qt5 \
             -DCMAKE_PREFIX_PATH=$(brew --prefix qt@5)/lib/cmake/Qt5 \
             -DOpenCV_DIR=$(brew --prefix opencv@4)/lib/cmake/opencv4 \
-            -DWITH_TRANSLATION=OFF
+            -DWITH_TRANSLATION=OFF \
+            -DBUILD_SEEXPR_TESTS=ON \
+            -DBUILD_SEEXPR_PYTHON=ON \
+            -DPython3_EXECUTABLE="$(command -v python)" 2>&1 | tee "$GITHUB_WORKSPACE/build.log"
           ninja -j $(sysctl -n hw.ncpu) 2>&1 | tee -a "$GITHUB_WORKSPACE/build.log"
+      - name: Test SeExpr native integration
+        id: seexpr_tests
+        run: |
+          set -o pipefail
+          QT_QPA_PLATFORM=offscreen ctest --test-dir toonz/build --output-on-failure --output-junit seexpr-tests.xml --no-tests=error --timeout 180 -R '^seexpr_' 2>&1 | tee toonz/build/seexpr-tests-output.txt
+
+      - name: Report SeExpr test failures
+        if: ${{ failure() && steps.seexpr_tests.outcome == 'failure' }}
+        run: python ci-scripts/seexpr/report.py toonz/build/seexpr-tests-output.txt
+
       # Show the errors on the run (summary and annotations) without opening
       # the full log, as the Linux and Windows builds do
       - name: Report build errors
@@ -118,6 +140,9 @@ jobs:
         run: |
           cd toonz/build/toonz
           cp -pr ../../../stuff OpenToonz.app/portablestuff
+          mkdir -p OpenToonz.app/Contents/Resources/sdk
+          cp -R ../seexpr-python OpenToonz.app/Contents/Resources/sdk/python
+          cp ../../../stuff/doc/LICENSE/LICENSE_seexpr.txt OpenToonz.app/Contents/Resources/sdk/python/LICENSE_seexpr.txt
           /usr/local/opt/qt@5/bin/macdeployqt OpenToonz.app -verbose=0 -always-overwrite \
             -executable=OpenToonz.app/Contents/MacOS/lzocompress \
             -executable=OpenToonz.app/Contents/MacOS/lzodecompress \

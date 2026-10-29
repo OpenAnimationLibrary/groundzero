@@ -10,6 +10,10 @@ import math
 
 from . import _core
 
+evaluate = _core.evaluate
+validate = _core.validate
+functions = _core.functions
+
 
 class ASTType(IntEnum):
     Invalid = 0
@@ -87,8 +91,21 @@ def getComment(node, source):
     end = node.range[1]
     line_end = encoded.find(b"\n", end)
     tail = encoded[end:line_end if line_end != -1 else len(encoded)]
-    mark = tail.find(b"#")
-    return tail[mark + 1:].decode("utf-8") if mark != -1 else ""
+    quote = None
+    escaped = False
+    for index, character in enumerate(tail):
+        if quote is not None:
+            if escaped:
+                escaped = False
+            elif character == ord("\\"):
+                escaped = True
+            elif character == quote:
+                quote = None
+        elif character in (ord('"'), ord("'")):
+            quote = character
+        elif character == ord("#"):
+            return tail[index + 1:].decode("utf-8")
+    return ""
 
 
 class Edits:
@@ -121,4 +138,4 @@ class Edits:
 
 
 __all__ = ["AST", "ASTHandle", "ASTType", "Edits", "getComment",
-           "traverseCallback", "traverseFilter"]
+           "traverseCallback", "traverseFilter", "evaluate", "validate", "functions"]

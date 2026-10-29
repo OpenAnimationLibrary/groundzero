@@ -7,6 +7,7 @@
 #include "toonzqt/filefield.h"
 #include "toonzqt/doublefield.h"
 #include "toonzqt/expressionfield.h"
+#include "toonzqt/seexpreditor.h"
 #include "toonzqt/dvdialog.h"
 #include "tw/stringtable.h"
 #include "toonzqt/functionsheet.h"
@@ -36,6 +37,8 @@
 #include <QPushButton>
 #include <QIntValidator>
 #include <QTextEdit>
+#include <QDialog>
+#include <QSignalBlocker>
 
 using namespace DVGui;
 
@@ -485,6 +488,113 @@ FunctionExpressionSegmentPage::FunctionExpressionSegmentPage(
     : FunctionSegmentPage(parent) {
   m_expressionFld = new DVGui::ExpressionField();
   m_expressionFld->setFixedHeight(21);
+  m_expressionEngine = new QComboBox(this);
+  m_expressionEngine->setObjectName("animationExpressionEngine");
+  m_expressionEngine->addItem(tr("Native"), false);
+  m_expressionEngine->addItem(tr("SeExpr"), true);
+  auto *editFormula = new QPushButton(tr("Open Formula Editor…"), this);
+  editFormula->setObjectName("animationFormulaEditor");
+  connect(m_expressionEngine, QOverload<int>::of(&QComboBox::currentIndexChanged),
+          this, [this](int) {
+            const bool seExpr = m_expressionEngine->currentData().toBool();
+            m_expressionFld->setSeExprMode(seExpr);
+            m_expressionFld->setFixedHeight(seExpr ? 100 : 21);
+            m_expressionFld->setToolTip(seExpr
+                ? tr("SeExpr uses radians. frame/rframe are one-based; time is seconds. "
+                     "Use channel(\"col1.x\"[, frame]) or drag a native channel here.")
+                : tr("Native animation expression"));
+          });
+  connect(editFormula, &QPushButton::clicked, this, [this]() {
+    TDoubleParam *curve = getCurve();
+    const int segment = getViewer()->getSegmentIndex();
+    if (!curve || segment < 0) return;
+    QDialog dialog(this);
+    dialog.setWindowTitle(tr("SeExpr Animation Formula"));
+    dialog.resize(760, 620);
+    auto *layout = new QVBoxLayout(&dialog);
+    auto *editor = new SeExprEditor(&dialog);
+    editor->setResultType(TSeExpr::Type::Scalar);
+    editor->setSource(QString::fromStdString(
+        TExpression::seExprSource(m_expressionFld->getExpression())), true);
+    editor->setValidator([this, curve, segment](const QString &source) {
+      if (getCurve() != curve || getViewer()->getSegmentIndex() != segment)
+        return tr("The selected animation segment changed. Reopen the editor.");
+      TExpression expression;
+      expression.setGrammar(curve->getGrammar());
+      expression.setOwnerParameter(curve);
+      expression.setText(TExpression::makeSeExprText(source.toStdString()));
+      if (!expression.isValid()) return QString::fromStdString(expression.getError());
+      if (dependsOn(expression, curve)) return tr("The formula has a circular channel reference.");
+      return QString();
+    });
+    editor->setCheckedPreviewEvaluator(
+        [this, curve, segment](const QString &source, QString &preview, QString &error) {
+      if (getCurve() != curve || getViewer()->getSegmentIndex() != segment) {
+        error = tr("The selected animation segment changed.");
+        return false;
+      }
+      TExpression expression;
+      expression.setGrammar(curve->getGrammar());
+      expression.setOwnerParameter(curve);
+      expression.setText(TExpression::makeSeExprText(source.toStdString()));
+      if (!expression.isValid() || dependsOn(expression, curve)) {
+        error = tr("The formula cannot be evaluated.");
+        return false;
+      }
+      const TMeasure *measure = curve->getMeasure();
+      const TUnit *unit = measure ? measure->getUnit(m_unitFld->text().toStdWString()) : nullptr;
+      if (!unit && measure) unit = measure->getCurrentUnit();
+      const double frame = curve->getKeyframe(segment).m_frame;
+      double value = 0.0;
+      if (!expression.evaluate(0.0, frame + 1.0, 1.0, unit, value)) {
+        error = QString::fromStdString(expression.getError());
+        return false;
+      }
+      preview = tr("Value at frame %1: %2")
+          .arg(frame + 1.0).arg(value, 0, 'g', 12);
+      return true;
+    });
+    editor->setRangeEvaluator(
+        [this, curve, segment](const QString &source, double frame,
+                               std::vector<double> &values, QString &error) {
+      if (getCurve() != curve || getViewer()->getSegmentIndex() != segment) {
+        error = tr("The selected animation segment changed. Reopen the range preview.");
+        return false;
+      }
+      TExpression expression;
+      expression.setGrammar(curve->getGrammar());
+      expression.setOwnerParameter(curve);
+      expression.setText(TExpression::makeSeExprText(source.toStdString()));
+      if (!expression.isValid() || dependsOn(expression, curve)) {
+        error = tr("The formula cannot be evaluated.");
+        return false;
+      }
+      const TMeasure *measure = curve->getMeasure();
+      const TUnit *unit = measure ? measure->getUnit(m_unitFld->text().toStdWString()) : nullptr;
+      if (!unit && measure) unit = measure->getCurrentUnit();
+      const double first = curve->getKeyframe(segment).m_frame;
+      const double last = segment + 1 < curve->getKeyframeCount()
+                              ? curve->getKeyframe(segment + 1).m_frame : first;
+      const double relative = frame - first;
+      const double time = last > first ? (frame - 1.0 - first) / (last - first) : 0.0;
+      double result = 0.0;
+      if (!expression.evaluate(time, frame, relative, unit, result)) {
+        error = QString::fromStdString(expression.getError());
+        return false;
+      }
+      values = {result};
+      return true;
+    });
+    connect(editor, &SeExprEditor::sourceApplied, &dialog,
+            [this, &dialog](const QString &source) {
+              m_expressionFld->setExpression(TExpression::makeSeExprText(source.toStdString()));
+              m_expressionEngine->setCurrentIndex(1);
+              apply();
+              dialog.accept();
+            });
+    layout->addWidget(editor);
+    dialog.exec();
+  });
 
   QLabel *unitLabel = new QLabel(tr("Unit:"));
   unitLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
@@ -499,6 +609,12 @@ FunctionExpressionSegmentPage::FunctionExpressionSegmentPage(
   mainLayout->setContentsMargins(2, 2, 2, 2);
   {
     mainLayout->addSpacing(3);
+    auto *engineLayout = new QHBoxLayout;
+    engineLayout->addWidget(new QLabel(tr("Language:")));
+    engineLayout->addWidget(m_expressionEngine);
+    engineLayout->addWidget(editFormula);
+    engineLayout->addStretch();
+    mainLayout->addLayout(engineLayout);
     mainLayout->addWidget(new QLabel(tr("Expression:")));
     mainLayout->addWidget(m_expressionFld);
 
@@ -529,6 +645,11 @@ void FunctionExpressionSegmentPage::refresh() {
   bool oldBlockSignalsStatus = m_expressionFld->blockSignals(true);
   m_expressionFld->setGrammar(curve->getGrammar());
   m_expressionFld->setExpression(expression);
+  {
+    QSignalBlocker blocker(m_expressionEngine);
+    m_expressionEngine->setCurrentIndex(TExpression::isSeExprText(expression) ? 1 : 0);
+  }
+  m_expressionFld->setFixedHeight(TExpression::isSeExprText(expression) ? 100 : 21);
   m_expressionFld->blockSignals(oldBlockSignalsStatus);
 
   std::wstring unitName = ::to_wstring(kf0.m_unitName);
@@ -551,6 +672,7 @@ void FunctionExpressionSegmentPage::init(int segmentLength) {
   }
 
   m_expressionFld->setEnabled(true);
+  m_expressionEngine->setCurrentIndex(0);
   m_expressionFld->setGrammar(curve->getGrammar());
 
   int kIndex = getViewer()->getSegmentIndex();
@@ -591,6 +713,10 @@ void FunctionExpressionSegmentPage::apply() {
   TExpression expr;
   expr.setGrammar(curve->getGrammar());
   expr.setText(expressionText);
+  if (TExpression::isSeExprText(expressionText) && !expr.isValid()) {
+    DVGui::warning(tr("Invalid SeExpr formula: %1").arg(QString::fromStdString(expr.getError())));
+    return;
+  }
   if (dependsOn(expr, curve)) {
     DVGui::warning(
         tr("There is a circular reference in the definition of the "
@@ -641,6 +767,10 @@ bool FunctionExpressionSegmentPage::getGuiValues(std::string &expressionText,
   TExpression expr;
   expr.setGrammar(curve->getGrammar());
   expr.setText(expressionText);
+  if (TExpression::isSeExprText(expressionText) && !expr.isValid()) {
+    DVGui::warning(tr("Invalid SeExpr formula: %1").arg(QString::fromStdString(expr.getError())));
+    return false;
+  }
   if (dependsOn(expr, curve)) {
     DVGui::warning(
         tr("There is a circular reference in the definition of the "

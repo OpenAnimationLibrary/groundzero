@@ -26,6 +26,9 @@
 #include "toonz/tcolumnfxset.h"
 #include "toonz/tcolumnfx.h"
 #include "toonz/txshsoundcolumn.h"
+#include "toonz/toonzscene.h"
+#include "toonz/sceneproperties.h"
+#include "toutputproperties.h"
 
 // Boost includes
 #include "boost/noncopyable.hpp"
@@ -780,6 +783,11 @@ const PlasticVertexPattern::Component PlasticVertexPattern::m_components[] = {
 
 TSyntax::Grammar *createXsheetGrammar(TXsheet *xsh) {
   Grammar *grammar = new Grammar();
+  grammar->setFrameRateProvider([xsh]() {
+    return xsh && xsh->getScene()
+               ? xsh->getScene()->getProperties()->getOutputProperties()->getFrameRate()
+               : 24.0;
+  });
   grammar->addPattern(new XsheetReferencePattern(xsh));
   grammar->addPattern(new FxReferencePattern(xsh));
   grammar->addPattern(new PlasticVertexPattern(xsh));

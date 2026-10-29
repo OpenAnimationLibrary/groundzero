@@ -10,11 +10,12 @@ thread_local EvaluationBudgetGuard *currentBudget = nullptr;
 
 EvaluationBudgetGuard::EvaluationBudgetGuard(
     std::size_t operations, const std::function<bool()> &cancelled,
-    std::size_t maxStringBytes)
+    std::size_t maxStringBytes, std::size_t maxAstDepth)
     : m_remaining(operations)
     , m_cancelled(cancelled)
     , m_previous(currentBudget)
-    , m_maxStringBytes(maxStringBytes) {
+    , m_maxStringBytes(maxStringBytes)
+    , m_maxAstDepth(maxAstDepth) {
   currentBudget = this;
 }
 
@@ -72,6 +73,14 @@ bool checkStringBytesNoThrow(std::size_t bytes) noexcept {
     captureEvaluationFailure(std::current_exception());
     return false;
   }
+}
+
+void checkAstDepth(std::size_t depth) {
+  if (!currentBudget && depth > 512)
+    throw std::runtime_error("Expression syntax tree depth exceeds the SDK limit.");
+  for (auto *budget = currentBudget; budget; budget = budget->m_previous)
+    if (depth > budget->m_maxAstDepth)
+      throw std::runtime_error("Expression syntax tree depth exceeds the configured limit.");
 }
 
 }  // namespace TSeExprInternal

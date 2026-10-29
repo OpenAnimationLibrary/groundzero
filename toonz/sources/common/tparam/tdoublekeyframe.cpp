@@ -38,7 +38,14 @@ void TDoubleKeyframe::saveData(TOStream &os) const {
   std::map<std::string, std::string> attr;
   if (!m_linkedHandles) attr["lnk"] = "no";
   if (m_step > 1) attr["step"]      = std::to_string(m_step);
-  os.openChild(typeCodes[m_type], attr);
+  const bool seExpr = m_expressionText.compare(0, 8, "seexpr1:") == 0 &&
+                      (m_type == Expression || m_type == SimilarShape);
+  const std::string expression = seExpr ? m_expressionText.substr(8)
+                                       : m_expressionText;
+  // Older readers reject the new tag, rather than interpreting SeExpr source
+  // using the native expression grammar and changing the animation silently.
+  os.openChild(seExpr ? (m_type == Expression ? "SeExpr1" : "SeExprShape1")
+                      : typeCodes[m_type], attr);
   switch (m_prevType) {
   case Linear:
     os.child("prev") << m_value;
@@ -72,10 +79,10 @@ void TDoubleKeyframe::saveData(TOStream &os) const {
     os << m_frame << m_value << m_speedOut.x;
     break;
   case Expression:
-    os << m_frame << m_expressionText << unitName;
+    os << m_frame << expression << unitName;
     break;
   case SimilarShape:
-    os << m_frame << m_value << m_expressionText << m_similarShapeOffset;
+    os << m_frame << m_value << expression << m_similarShapeOffset;
     break;
   case File:
     os << m_frame << m_fileParams.m_path << m_fileParams.m_fieldIndex
@@ -100,10 +107,13 @@ void TDoubleKeyframe::loadData(TIStream &is) {
     typeCodes["Ex"]       = Expression;
     typeCodes["F"]        = File;
     typeCodes["SimShape"] = SimilarShape;
+    typeCodes["SeExpr1"] = Expression;
+    typeCodes["SeExprShape1"] = SimilarShape;
   };
 
   std::string tagName;
   if (!is.matchTag(tagName)) return;
+  const bool seExpr = tagName == "SeExpr1" || tagName == "SeExprShape1";
   std::map<std::string, TDoubleKeyframe::Type>::iterator it =
       typeCodes.find(tagName);
   if (it == typeCodes.end()) {
@@ -157,6 +167,7 @@ void TDoubleKeyframe::loadData(TIStream &is) {
     break;
   }
   if (!is.matchEndTag()) throw TException(tagName + " : missing endtag");
+  if (seExpr) m_expressionText = "seexpr1:" + m_expressionText;
   if (m_unitName == "default") m_unitName = "";
   m_isKeyframe                            = true;
 }

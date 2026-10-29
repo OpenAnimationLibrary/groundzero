@@ -4,6 +4,7 @@
 #define TPARAMCONTAINER_INCLUDED
 
 #include <memory>
+#include <vector>
 
 #include "tparam.h"
 // #include "tfx.h"
@@ -95,6 +96,10 @@ public:
   ~TParamContainer();
 
   void add(TParamVar *var);
+
+  // Reorder existing entries without replacing parameters or observers.
+  // The supplied names must be an exact permutation of the current entries.
+  void reorder(const std::vector<std::string> &names);
 
   int getParamCount() const;
 

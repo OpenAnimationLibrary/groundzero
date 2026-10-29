@@ -35,6 +35,15 @@ std::string normalizedName(const std::string &name) {
   return !name.empty() && name.front() == '$' ? name.substr(1) : name;
 }
 
+bool validType(Type type) {
+  return type == Type::Scalar || type == Type::Vector || type == Type::String;
+}
+
+bool validLifetime(Lifetime lifetime) {
+  return lifetime == Lifetime::Constant || lifetime == Lifetime::Uniform ||
+         lifetime == Lifetime::Varying;
+}
+
 bool validName(const std::string &name) {
   if (name.empty()) return false;
   const auto first = [](unsigned char c) {
@@ -83,11 +92,13 @@ void initializeFunctions() {
 }
 
 bool validValue(const Value &value, const Options &options) {
+  if (!validType(value.type)) return false;
   if (value.type == Type::String)
     return value.text.find('\0') == std::string::npos &&
            value.text.size() <= options.maxStringBytes;
   if (value.number.empty() ||
       value.number.size() > options.maxDimension ||
+      value.number.size() > static_cast<std::size_t>(std::numeric_limits<int>::max()) ||
       (value.type == Type::Scalar && value.number.size() != 1))
     return false;
   return !options.requireFiniteResult || value.isFinite();
@@ -272,9 +283,18 @@ public:
     SeExpr2::ExprType prep(SeExpr2::ExprFuncNode *node, bool,
                           SeExpr2::ExprVarEnvBuilder &env) const override {
       bool valid = true;
-      for (int i = 0; i < node->numChildren(); ++i)
-        valid = node->checkArg(i, nativeType(argumentType(i), argumentDimension(i)),
-                               env) && valid;
+      for (int i = 0; i < node->numChildren(); ++i) {
+        const auto expected = nativeType(argumentType(i), argumentDimension(i));
+        const bool checked = node->checkArg(i, expected, env);
+        valid = checked && valid;
+        // Upstream value compatibility deliberately permits scalar promotion
+        // in both directions. A native scalar callback has one register and
+        // must not silently consume the first channel of a vector argument.
+        if (checked && expected.isFP(1) && !node->child(i)->type().isFP(1)) {
+          node->addError("A scalar function argument cannot consume a vector value.");
+          valid = false;
+        }
+      }
       return valid ? nativeType(m_function.resultType, m_function.resultDimension)
                    : SeExpr2::ExprType().Error();
     }
@@ -288,9 +308,14 @@ public:
           data->arguments.push_back(Value::string({}));
         else if (argumentType(i) == Type::Scalar)
           data->arguments.push_back(Value::scalar(0));
-        else
-          data->arguments.push_back(Value::numeric(
-              std::vector<double>(static_cast<std::size_t>(argumentDimension(i)))));
+        else {
+          Value argument = Value::numeric(
+              std::vector<double>(static_cast<std::size_t>(argumentDimension(i))));
+          // The host signature can deliberately distinguish a one-component
+          // vector from a scalar, even though both use upstream FP(1).
+          argument.type = Type::Vector;
+          data->arguments.push_back(std::move(argument));
+        }
       }
       return data;
     }
@@ -337,7 +362,7 @@ public:
       } catch (...) {
         TSeExprInternal::captureEvaluationFailure(std::current_exception());
         if (m_function.resultType == Type::String)
-          args.outStr = nullptr;
+          args.outStr = const_cast<char *>("");
         else
           std::fill_n(&args.outFp,
                       dimension(m_function.resultType, m_function.resultDimension),
@@ -361,11 +386,24 @@ public:
 
     SeExpr2::ExprVarRef *resolveVar(const std::string &name) const override {
       const auto found = m_host.variables.find(name);
-      return found == m_host.variables.end() ? nullptr : found->second.get();
+      if (found == m_host.variables.end()) return nullptr;
+      m_host.resolvedVariables.insert(name);
+      return found->second.get();
     }
     SeExpr2::ExprFunc *resolveFunc(const std::string &name) const override {
       const auto found = m_host.functions.find(name);
-      return found == m_host.functions.end() ? nullptr : &found->second->function;
+      if (found != m_host.functions.end()) {
+        m_host.resolvedFunctions.insert(name);
+        return &found->second->function;
+      }
+      const auto *function = SeExpr2::ExprFunc::lookup(name);
+      if (function) {
+        m_host.resolvedFunctions.insert(name);
+        m_host.resolvedBuiltins.insert(name);
+      }
+      // Upstream's legacy resolveFunc interface is mutable; the compiler only
+      // reads this globally owned definition, matching its fallback lookup.
+      return const_cast<SeExpr2::ExprFunc *>(function);
     }
   };
 
@@ -374,9 +412,38 @@ public:
   std::vector<Error> errors;
   std::map<std::string, std::unique_ptr<VariableRef>> variables;
   std::map<std::string, std::unique_ptr<Callback>> functions;
+  std::set<std::string> resolvedVariables;
+  std::set<std::string> resolvedFunctions;
+  std::set<std::string> resolvedBuiltins;
   // Destroy the expression and its per-call data before functions/variables.
   std::unique_ptr<NativeExpression> expression;
   bool valid = false;
+  bool compiling = false;
+  bool evaluating = false;
+  bool rejectedReentry = false;
+
+  bool busy() const { return compiling || evaluating; }
+
+  class CompilationScope {
+    Imp &m_host;
+
+  public:
+    explicit CompilationScope(Imp &host) : m_host(host) { m_host.compiling = true; }
+    ~CompilationScope() { m_host.compiling = false; }
+  };
+
+  class EvaluationScope {
+    Imp &m_host;
+
+  public:
+    explicit EvaluationScope(Imp &host) : m_host(host) { m_host.evaluating = true; }
+    ~EvaluationScope() { m_host.evaluating = false; }
+  };
+
+  bool rejectReentry(const char *message) {
+    rejectedReentry = true;
+    return fail(message);
+  }
 
   bool fail(std::string message, int begin = 0, int end = 0) {
     errors.push_back({std::move(message), begin, end});
@@ -386,8 +453,24 @@ public:
 
 Program::Program() : m_imp(new Imp) {}
 Program::~Program() = default;
-Program::Program(Program &&) noexcept = default;
-Program &Program::operator=(Program &&) noexcept = default;
+Program::Program(Program &&other) {
+  if (other.m_imp && other.m_imp->busy()) {
+    other.m_imp->rejectedReentry = true;
+    throw std::logic_error("An active expression program cannot be moved.");
+  }
+  m_imp = std::move(other.m_imp);
+}
+
+Program &Program::operator=(Program &&other) {
+  if (this == &other) return *this;
+  if ((m_imp && m_imp->busy()) || (other.m_imp && other.m_imp->busy())) {
+    if (m_imp && m_imp->busy()) m_imp->rejectedReentry = true;
+    if (other.m_imp && other.m_imp->busy()) other.m_imp->rejectedReentry = true;
+    throw std::logic_error("An active expression program cannot be moved.");
+  }
+  m_imp = std::move(other.m_imp);
+  return *this;
+}
 
 std::uint64_t failureCount() {
   return expressionFailures.load(std::memory_order_relaxed);
@@ -397,14 +480,23 @@ void reportFailure() {
   expressionFailures.fetch_add(1, std::memory_order_relaxed);
 }
 
-bool Program::compile(const std::string &source,
+bool Program::compile(const std::string &sourceInput,
                       const std::vector<Variable> &variables,
                       const std::vector<Function> &functions,
-                      const Options &options) {
+                      const Options &optionsInput) {
   FailureRecord outcome;
-  m_imp.reset(new Imp);
-  m_imp->source = source;
-  m_imp->options = options;
+  if (m_imp && m_imp->busy())
+    return m_imp->rejectReentry("An active expression program cannot be recompiled.");
+  // Copy before replacing the old program: sourceInput may alias source().
+  auto next = std::make_unique<Imp>();
+  next->source = sourceInput;
+  next->options = optionsInput;
+  m_imp = std::move(next);
+  const auto &source = m_imp->source;
+  const auto &options = m_imp->options;
+  Imp::CompilationScope compilation(*m_imp);
+  if (!validType(options.resultType))
+    return m_imp->fail("The expression result type is invalid.");
   if (!backendAvailable(options.backend))
     return m_imp->fail("The requested expression backend is unavailable in this build.");
   Error error;
@@ -417,6 +509,8 @@ bool Program::compile(const std::string &source,
     return m_imp->fail("Expression bindings exceed the configured limit.");
   if (options.maxDimension == 0 || options.maxInstructions == 0 ||
       options.maxStringBytes == 0 ||
+      options.maxDimension > static_cast<std::size_t>(std::numeric_limits<int>::max()) ||
+      options.maxVariables > static_cast<std::size_t>(std::numeric_limits<int>::max()) ||
       (options.resultType == Type::Vector &&
        (options.resultDimension < 1 ||
         static_cast<std::size_t>(options.resultDimension) > options.maxDimension)))
@@ -429,16 +523,25 @@ bool Program::compile(const std::string &source,
     initializeFunctions();
     TSeExprInternal::EvaluationBudgetGuard budget(options.maxInstructions,
                                                  m_imp->options.cancelled,
-                                                 options.maxStringBytes);
+                                                 options.maxStringBytes,
+                                                 options.maxNesting);
     for (const auto &variable : variables) {
       const std::string name = normalizedName(variable.name);
-      if (!validName(name) || !validValue(variable.value, options))
+      if (!validName(name) || !validValue(variable.value, options) ||
+          !validLifetime(variable.lifetime))
         return m_imp->fail("Expression variable has an invalid name, type or value.");
       if (!m_imp->variables.emplace(name, std::make_unique<Imp::VariableRef>(variable))
                .second)
         return m_imp->fail("Expression variable names must be unique.");
     }
     for (const auto &function : functions) {
+      if (function.argumentTypes.size() > options.maxVariables ||
+          function.argumentDimensions.size() > options.maxVariables ||
+          !validType(function.resultType) || function.minArgs < -1 ||
+          function.maxArgs < -1 ||
+          !std::all_of(function.argumentTypes.begin(), function.argumentTypes.end(),
+                       [](Type type) { return validType(type); }))
+        return m_imp->fail("Custom expression function has an invalid type or signature.");
       const int minArgs = function.minArgs < 0
                               ? static_cast<int>(function.argumentTypes.size())
                               : function.minArgs;
@@ -461,8 +564,6 @@ bool Program::compile(const std::string &source,
         return m_imp->fail("Custom expression function names must be unique.");
     }
     m_imp->expression = std::make_unique<Imp::NativeExpression>(*m_imp);
-    if (!options.allowConsoleOutput && m_imp->expression->usesFunc("printf"))
-      return m_imp->fail("Console output is unavailable in this expression context.");
     if (!m_imp->expression->isValid()) {
       const int length = static_cast<int>(source.size());
       for (const auto &nativeError : m_imp->expression->getErrors()) {
@@ -478,12 +579,16 @@ bool Program::compile(const std::string &source,
                         : m_imp->expression->parseError());
       return false;
     }
+    if (!options.allowConsoleOutput && m_imp->resolvedBuiltins.count("printf"))
+      return m_imp->fail("Console output is unavailable in this expression context.");
     if (options.resultType == Type::Scalar &&
         !m_imp->expression->returnType().isFP(1))
       return m_imp->fail("This expression context requires a scalar result.");
     if (options.cancelled && options.cancelled())
       return m_imp->fail("Expression compilation cancelled.");
     TSeExprInternal::rethrowEvaluationFailure();
+    if (m_imp->rejectedReentry)
+      return m_imp->fail("Expression compilation rejected a reentrant operation.");
     m_imp->valid = true;
     outcome.succeeded = true;
     return true;
@@ -504,6 +609,8 @@ bool Program::isValid() const { return m_imp && m_imp->valid; }
 
 bool Program::setVariable(const std::string &name, const Value &value) {
   if (!m_imp) return false;
+  if (m_imp->busy())
+    return m_imp->rejectReentry("Expression variables cannot change during an active operation.");
   const auto found = m_imp->variables.find(normalizedName(name));
   if (found == m_imp->variables.end())
     return m_imp->fail("Expression variable is not bound.");
@@ -520,6 +627,8 @@ bool Program::setVariable(const std::string &name, const Value &value) {
 
 bool Program::setScalar(const std::string &name, double value) {
   if (!m_imp) return false;
+  if (m_imp->busy())
+    return m_imp->rejectReentry("Expression variables cannot change during an active operation.");
   const auto found = m_imp->variables.find(normalizedName(name));
   if (found == m_imp->variables.end())
     return m_imp->fail("Expression variable is not bound.");
@@ -535,6 +644,8 @@ bool Program::setScalar(const std::string &name, double value) {
 
 bool Program::setVector(const std::string &name, double x, double y, double z) {
   if (!m_imp) return false;
+  if (m_imp->busy())
+    return m_imp->rejectReentry("Expression variables cannot change during an active operation.");
   const auto found = m_imp->variables.find(normalizedName(name));
   if (found == m_imp->variables.end())
     return m_imp->fail("Expression variable is not bound.");
@@ -557,17 +668,24 @@ bool Program::setString(const std::string &name, const std::string &value) {
 
 bool Program::evaluate(Value &result) {
   FailureRecord outcome;
+  if (m_imp && m_imp->busy())
+    return m_imp->rejectReentry("Reentrant evaluation on the same expression program is unsupported.");
   if (!isValid()) return false;
   m_imp->errors.clear();
+  m_imp->rejectedReentry = false;
+  Imp::EvaluationScope evaluation(*m_imp);
   try {
     if (m_imp->options.cancelled && m_imp->options.cancelled())
       return m_imp->fail("Expression evaluation cancelled.");
     TSeExprInternal::EvaluationBudgetGuard budget(m_imp->options.maxInstructions,
                                                  m_imp->options.cancelled,
-                                                 m_imp->options.maxStringBytes);
+                                                 m_imp->options.maxStringBytes,
+                                                 m_imp->options.maxNesting);
     if (m_imp->options.resultType == Type::String) {
       const char *text = m_imp->expression->evalStr();
       TSeExprInternal::rethrowEvaluationFailure();
+      if (m_imp->rejectedReentry)
+        return m_imp->fail("Expression evaluation rejected a reentrant operation.");
       if (!text) return m_imp->fail("Expression returned no string value.");
       if (std::strlen(text) > m_imp->options.maxStringBytes)
         return m_imp->fail("Expression string size limit exceeded.");
@@ -579,6 +697,8 @@ bool Program::evaluate(Value &result) {
     } else {
       const double *numbers = m_imp->expression->evalFP();
       TSeExprInternal::rethrowEvaluationFailure();
+      if (m_imp->rejectedReentry)
+        return m_imp->fail("Expression evaluation rejected a reentrant operation.");
       if (!numbers) return m_imp->fail("Expression returned no numeric value.");
       const int count = dimension(m_imp->options.resultType,
                                   m_imp->options.resultDimension);
@@ -612,6 +732,8 @@ bool Program::evaluateBatch(const std::vector<std::vector<Variable>> &rows,
                             std::vector<Value> &results) {
   FailureRecord outcome;
   results.clear();
+  if (m_imp && m_imp->busy())
+    return m_imp->rejectReentry("Reentrant batch evaluation on the same program is unsupported.");
   if (!isValid()) return false;
   for (const auto &row : rows) {
     for (const auto &variable : row)
@@ -630,11 +752,20 @@ bool Program::evaluateBatch(const std::vector<std::vector<Variable>> &rows,
   return true;
 }
 
-const std::string &Program::source() const { return m_imp->source; }
-Type Program::resultType() const { return m_imp->options.resultType; }
-const std::vector<Error> &Program::errors() const { return m_imp->errors; }
+const std::string &Program::source() const {
+  static const std::string empty;
+  return m_imp ? m_imp->source : empty;
+}
+Type Program::resultType() const {
+  return m_imp ? m_imp->options.resultType : Type::Vector;
+}
+const std::vector<Error> &Program::errors() const {
+  static const std::vector<Error> empty;
+  return m_imp ? m_imp->errors : empty;
+}
 
 std::string Program::errorMessage() const {
+  if (!m_imp) return "Expression program has no compiled state.";
   std::string result;
   for (const auto &error : m_imp->errors) {
     if (!result.empty()) result += '\n';
@@ -646,18 +777,14 @@ std::string Program::errorMessage() const {
 std::vector<std::string> Program::usedVariables() const {
   std::vector<std::string> result;
   if (m_imp && m_imp->expression)
-    for (const auto &variable : m_imp->variables)
-      if (m_imp->expression->usesVar(variable.first)) result.push_back(variable.first);
+    result.assign(m_imp->resolvedVariables.begin(), m_imp->resolvedVariables.end());
   return result;
 }
 
 std::vector<std::string> Program::usedFunctions() const {
   std::vector<std::string> result;
   if (!m_imp || !m_imp->expression) return result;
-  std::set<std::string> names;
-  for (const auto &function : builtinFunctions()) names.insert(function.name);
-  for (const auto &function : m_imp->functions) names.insert(function.first);
-  for (const auto &name : names)
+  for (const auto &name : m_imp->resolvedFunctions)
     if (m_imp->expression->usesFunc(name)) result.push_back(name);
   return result;
 }
@@ -681,6 +808,7 @@ std::vector<FunctionInfo> Program::builtinFunctions() {
 
 bool Program::backendAvailable(Backend backend) {
   if (backend == Backend::Interpreter) return true;
+  if (backend != Backend::LLVM) return false;
 #if defined(OT_SEEXPR_HAS_LLVM) && OT_SEEXPR_HAS_LLVM
   return true;
 #else

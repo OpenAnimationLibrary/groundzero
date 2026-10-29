@@ -180,6 +180,18 @@ def main():
         "graph handle evaluation order")
     graph.write_text(text, encoding="utf-8", newline="\n")
 
+    from prepare_seexpr_language import apply_language
+    apply_language(output)
+
+    from prepare_seexpr_safety import apply_safety
+    apply_safety(output)
+
+    from prepare_seexpr_sdk import apply_sdk
+    apply_sdk(output)
+
+    from prepare_seexpr_limits import apply_limits
+    apply_limits(output)
+
     if args.llvm:
         from prepare_seexpr_llvm import prepare_llvm
         prepare_llvm(output)

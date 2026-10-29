@@ -1,5 +1,6 @@
 #define PY_SSIZE_T_CLEAN
 #include <Python.h>
+#include "evalmodule.h"
 
 #include <SeExpr2/parser/SeExprParse.h>
 #include <SeExpr2/parser/ASTNode.h>
@@ -88,8 +89,10 @@ PyObject *parse(PyObject *, PyObject *argument) {
       PyErr_SetString(PyExc_RuntimeError, "Expression source contains a null byte");
       return nullptr;
     }
-    // Bound recursion before entering the recursive inspection parser. Quotes
-    // and comments are skipped so literal punctuation does not consume depth.
+    // Bound delimiter nesting before entering the private inspection parser.
+    // That parser separately bounds recursive entry and AST construction, so
+    // rejected flat/operator trees also have bounded owning-tree cleanup.
+    // Quotes and comments do not consume delimiter depth.
     unsigned depth = 0;
     char quote = 0;
     bool comment = false, escaped = false;
@@ -130,4 +133,8 @@ PyMethodDef methods[] = {
 PyModuleDef module = {PyModuleDef_HEAD_INIT, "_core", nullptr, -1, methods};
 }  // namespace
 
-PyMODINIT_FUNC PyInit__core() { return PyModule_Create(&module); }
+PyMODINIT_FUNC PyInit__core() {
+  PyObject *result = PyModule_Create(&module);
+  if (result && addEvaluationBindings(result) < 0) { Py_DECREF(result); return nullptr; }
+  return result;
+}

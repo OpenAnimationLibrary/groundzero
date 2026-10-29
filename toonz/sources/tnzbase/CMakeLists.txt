@@ -57,6 +57,7 @@ set(HEADERS ${MOC_HEADERS}
     ../include/tparamundo.h
     ../include/ttest.h
     ../include/texpression.h
+    ../include/tseexpr.h
     ../include/tgrammar.h
     ../include/tparser.h
     ../include/ttokenizer.h
@@ -104,6 +105,7 @@ set(SOURCES
     ../common/tapptools/tparamundo.cpp
     ../common/ttest/ttest.cpp
     ../common/expressions/texpression.cpp
+    ../common/expressions/tseexpr.cpp
     ../common/expressions/tgrammar.cpp
     ../common/expressions/tparser.cpp
     ../common/expressions/ttokenizer.cpp
@@ -165,6 +167,7 @@ endif()
 ot_qt_wrap_cpp(SOURCES ${MOC_HEADERS})
 
 add_library(tnzbase SHARED ${HEADERS} ${SOURCES} ${OBJCSOURCES})
+add_dependencies(tnzbase groundzero_seexpr_generated)
 
 if(BUILD_ENV_APPLE)
     set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,-install_name,@executable_path/libtnzbase.dylib")
@@ -215,4 +218,6 @@ elseif(BUILD_ENV_UNIXLIKE)
     _find_toonz_library(EXTRA_LIBS "tnzcore")
 endif()
 
-target_link_libraries(tnzbase Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui ${EXTRA_LIBS})
+target_link_libraries(tnzbase
+    PUBLIC Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui ${EXTRA_LIBS}
+    PRIVATE groundzero_seexpr_core)

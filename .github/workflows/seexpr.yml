@@ -43,6 +43,8 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
+      - name: Install Python UI qualification dependency
+        run: python -m pip install --disable-pip-version-check --retries 3 PyQt5==5.15.11
       - name: Install Linux parser tools
         if: runner.os == 'Linux'
         run: |
@@ -65,18 +67,22 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: ./ci-scripts/seexpr/install_parser_windows.ps1
+      - name: Configure Windows offscreen fonts
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Add-Content -LiteralPath $env:GITHUB_ENV -Value "QT_QPA_FONTDIR=$env:WINDIR\Fonts" -Encoding utf8
       - name: Configure interpreter qualification
         if: matrix.backend == 'interpreter'
         shell: bash
         run: |
           set -o pipefail
-          cmake -S ci-scripts/seexpr -B seexpr-build -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBUILD_SEEXPR_PYTHON=ON 2>&1 | tee seexpr-configure.log
+          cmake -S ci-scripts/seexpr -B seexpr-build -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBUILD_SEEXPR_PYTHON=ON -DBUILD_SEEXPR_PYTHON_UI_TESTS=ON 2>&1 | tee seexpr-configure.log
       - name: Configure LLVM qualification
         if: matrix.backend == 'llvm14'
         shell: bash
         run: |
           set -o pipefail
-          cmake -S ci-scripts/seexpr -B seexpr-build -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBUILD_SEEXPR_PYTHON=ON -DOT_SEEXPR_WITH_LLVM=ON -DLLVM_DIR=/usr/lib/llvm-14/lib/cmake/llvm 2>&1 | tee seexpr-configure.log
+          cmake -S ci-scripts/seexpr -B seexpr-build -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBUILD_SEEXPR_PYTHON=ON -DBUILD_SEEXPR_PYTHON_UI_TESTS=ON -DOT_SEEXPR_WITH_LLVM=ON -DLLVM_DIR=/usr/lib/llvm-14/lib/cmake/llvm 2>&1 | tee seexpr-configure.log
       - name: Build core and bindings
         shell: bash
         run: |
@@ -90,6 +96,24 @@ jobs:
       - name: Report qualification failure
         if: failure()
         run: python ci-scripts/seexpr/report.py seexpr-configure.log seexpr-build.log seexpr-tests.log
+      - name: Install and qualify the standalone SDK
+        id: installed_sdk
+        shell: bash
+        run: |
+          set -o pipefail
+          cmake --install seexpr-build --config RelWithDebInfo --prefix "$GITHUB_WORKSPACE/seexpr-sdk" 2>&1 | tee seexpr-sdk-install.log
+          cmake -S ci-scripts/seexpr/sdk_consumer -B seexpr-sdk-consumer -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/seexpr-sdk/sdk" 2>&1 | tee seexpr-sdk-configure.log
+          cmake --build seexpr-sdk-consumer --config RelWithDebInfo --parallel 2 2>&1 | tee seexpr-sdk-build.log
+          ctest --test-dir seexpr-sdk-consumer -C RelWithDebInfo --output-on-failure --no-tests=error 2>&1 | tee seexpr-sdk-tests.log
+      - name: Report installed SDK failure
+        if: ${{ failure() && steps.installed_sdk.outcome == 'failure' }}
+        run: python ci-scripts/seexpr/report.py seexpr-sdk-install.log seexpr-sdk-configure.log seexpr-sdk-build.log seexpr-sdk-tests.log
+      - name: Upload qualified native SDK
+        uses: actions/upload-artifact@v6
+        with:
+          name: SeExpr-SDK-${{ runner.os }}-${{ matrix.backend }}-${{ github.sha }}
+          path: seexpr-sdk/sdk
+          if-no-files-found: error
       - name: Package Python SDK notices
         shell: bash
         run: |
@@ -110,4 +134,8 @@ jobs:
             seexpr-build.log
             seexpr-tests.log
             seexpr-build/seexpr-tests.xml
+            seexpr-sdk-install.log
+            seexpr-sdk-configure.log
+            seexpr-sdk-build.log
+            seexpr-sdk-tests.log
           if-no-files-found: warn

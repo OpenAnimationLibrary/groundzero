@@ -18,7 +18,10 @@ function(groundzero_seexpr_configure_llvm target)
   if(NOT OT_SEEXPR_WITH_LLVM)
     return()
   endif()
-  target_include_directories(${target} SYSTEM PUBLIC ${LLVM_INCLUDE_DIRS})
+  # Installed SDK consumers locate their own LLVM 14 dependency. Do not bake
+  # this build machine's dependency prefix into a relocatable export.
+  target_include_directories(${target} SYSTEM PUBLIC
+    "$<BUILD_INTERFACE:${LLVM_INCLUDE_DIRS}>")
   separate_arguments(_llvm_definitions NATIVE_COMMAND "${LLVM_DEFINITIONS}")
   target_compile_options(${target} PRIVATE ${_llvm_definitions})
   # Prefer the shared distro LLVM target so packages do not acquire multiple

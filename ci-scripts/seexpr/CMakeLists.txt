@@ -17,6 +17,11 @@ add_library(seexpr_native_adapter STATIC
 target_include_directories(seexpr_native_adapter PUBLIC
   "${OT_NATIVE_SOURCE}/include")
 target_compile_definitions(seexpr_native_adapter PUBLIC TNZBASE_EXPORTS)
+if(APPLE)
+  target_compile_definitions(seexpr_native_adapter PUBLIC MACOSX)
+elseif(UNIX)
+  target_compile_definitions(seexpr_native_adapter PUBLIC LINUX)
+endif()
 if(MSVC)
   target_compile_definitions(seexpr_native_adapter PRIVATE _USE_MATH_DEFINES)
 endif()
@@ -27,6 +32,17 @@ add_executable(seexpr_runtime
 target_link_libraries(seexpr_runtime PRIVATE seexpr_native_adapter)
 add_test(NAME seexpr_runtime COMMAND seexpr_runtime)
 set_tests_properties(seexpr_runtime PROPERTIES TIMEOUT 120)
+
+add_executable(seexpr_builtins builtin_test.cpp)
+target_link_libraries(seexpr_builtins PRIVATE seexpr_native_adapter)
+add_test(NAME seexpr_builtins COMMAND seexpr_builtins)
+set_tests_properties(seexpr_builtins PROPERTIES TIMEOUT 180)
+
+add_executable(seexpr_formatting builtin_test.cpp)
+target_compile_definitions(seexpr_formatting PRIVATE SEEXPR_FORMATTING_ONLY)
+target_link_libraries(seexpr_formatting PRIVATE seexpr_native_adapter)
+add_test(NAME seexpr_formatting COMMAND seexpr_formatting)
+set_tests_properties(seexpr_formatting PROPERTIES TIMEOUT 180)
 
 add_executable(seexpr_sdk sdk_test.cpp)
 target_link_libraries(seexpr_sdk PRIVATE groundzero_seexpr_core)

@@ -3,6 +3,7 @@
 #include "toonzqt/expressionfield.h"
 
 #include "texpression.h"
+#include "tseexpr.h"
 #include "tparser.h"
 #include "tconvert.h"
 #include <QSyntaxHighlighter>
@@ -16,6 +17,8 @@
 #include <QToolTip>
 #include <QListView>
 #include <QLabel>
+#include <QMimeData>
+#include <QRegularExpression>
 #include <memory>
 
 using namespace DVGui;
@@ -25,6 +28,7 @@ using namespace TSyntax;
 
 class ExpressionField::SyntaxHighlighter final : public QSyntaxHighlighter {
   const Grammar *m_grammar;
+  bool m_seExprMode = false;
 
 public:
   bool m_open;
@@ -33,8 +37,28 @@ public:
   ~SyntaxHighlighter() {}
 
   void setGrammar(const Grammar *grammar) { m_grammar = grammar; }
+  void setSeExprMode(bool enabled) { m_seExprMode = enabled; rehighlight(); }
 
   void highlightBlock(const QString &text) override {
+    if (m_seExprMode) {
+      const std::pair<QRegularExpression, QColor> rules[] = {
+          {QRegularExpression("\\b[0-9]+(?:\\.[0-9]*)?(?:[eE][+-]?[0-9]+)?\\b"), QColor(0x50, 0x7d, 0)},
+          {QRegularExpression("\\$[A-Za-z_][A-Za-z_0-9]*"), QColor(0, 0x88, 0xc8)},
+          {QRegularExpression("\\b[A-Za-z_][A-Za-z_0-9]*(?=\\s*\\()"), QColor(0, 0x70, 0x90)},
+          {QRegularExpression("\\b(?:if|else|def|extern|float|string)\\b"), QColor(0x80, 0x40, 0xc0)},
+          {QRegularExpression("\"(?:\\\\.|[^\"\\\\])*\"|'(?:\\\\.|[^'\\\\])*'"), QColor(0x80, 0x70, 0x20)},
+          {QRegularExpression("#.*$"), QColor(0x70, 0x80, 0x70)}};
+      for (const auto &rule : rules) {
+        auto matches = rule.first.globalMatch(text);
+        while (matches.hasNext()) {
+          const auto match = matches.next();
+          QTextCharFormat format;
+          format.setForeground(rule.second);
+          setFormat(match.capturedStart(), match.capturedLength(), format);
+        }
+      }
+      return;
+    }
     Parser parser(m_grammar);
     std::vector<SyntaxToken> tokens;
     parser.checkSyntax(tokens, text.toStdString());  // status not used
@@ -188,11 +212,37 @@ void ExpressionField::showEvent(QShowEvent *e) { QTextEdit::showEvent(e); }
 void ExpressionField::hideEvent(QHideEvent *e) { QTextEdit::hideEvent(e); }
 
 void ExpressionField::setExpression(std::string expression) {
-  setPlainText(QString::fromStdString(expression));
+  setSeExprMode(TExpression::isSeExprText(expression));
+  setPlainText(QString::fromStdString(TExpression::seExprSource(expression)));
 }
 
 std::string ExpressionField::getExpression() const {
-  return toPlainText().toStdString();
+  const std::string source = toPlainText().toStdString();
+  return m_seExprMode ? TExpression::makeSeExprText(source) : source;
+}
+
+void ExpressionField::setSeExprMode(bool enabled) {
+  m_seExprMode = enabled;
+  m_syntaxHighlighter->setSeExprMode(enabled);
+  setVerticalScrollBarPolicy(enabled ? Qt::ScrollBarAsNeeded : Qt::ScrollBarAlwaysOff);
+}
+
+void ExpressionField::insertFromMimeData(const QMimeData *source) {
+  if (m_seExprMode && source && source->hasText() && m_grammar) {
+    const QString text = source->text();
+    if (!text.contains('\n') && !text.contains('\r')) {
+      TSyntax::Parser parser(m_grammar);
+      std::unique_ptr<TSyntax::Calculator> calculator(parser.parse(text.toStdString()));
+      if (calculator && parser.isValid() && parser.hasReference()) {
+        QString escaped = text;
+        escaped.replace("\\", "\\\\");
+        escaped.replace("\"", "\\\"");
+        insertPlainText("channel(\"" + escaped + "\")");
+        return;
+      }
+    }
+  }
+  QTextEdit::insertFromMimeData(source);
 }
 
 bool ExpressionField::event(QEvent *e) {
@@ -208,6 +258,10 @@ bool ExpressionField::event(QEvent *e) {
 
 void ExpressionField::keyPressEvent(QKeyEvent *e) {
   if (e->key() == Qt::Key_Return || e->key() == Qt::Key_Enter) {
+    if (m_seExprMode && !(e->modifiers() & Qt::ControlModifier)) {
+      QTextEdit::keyPressEvent(e);
+      return;
+    }
     m_editing = false;
     emit expressionChanged();
   } else if (e->key() == Qt::Key_F10) {
@@ -306,9 +360,9 @@ void ExpressionField::openCompleterPopup() {
 bool ExpressionField::updateCompleterPopup() {
   int start        = m_completerStartPos;
   int pos          = textCursor().position();
-  std::string text = getExpression();
+  QString source = toPlainText();
   if (m_suggestions.empty() || start < 0 || start > pos ||
-      pos > (int)text.length()) {
+      pos > source.length()) {
     if (m_completerPopup->isVisible()) m_completerPopup->hide();
     return false;
   }
@@ -318,7 +372,7 @@ bool ExpressionField::updateCompleterPopup() {
   if (oldModel) delete oldModel;
 
   QStandardItemModel *model = new QStandardItemModel();
-  std::string prefix        = toLower(text.substr(start, pos - start));
+  std::string prefix        = source.mid(start, pos - start).toLower().toStdString();
   int prefixLength          = prefix.length();
   int count                 = 0;
   for (size_t i = 0; i < m_suggestions.size(); ++i) {
@@ -366,6 +420,20 @@ int ExpressionField::computeSuggestions() {
   m_completerStartPos = -1;
   m_suggestions.clear();
 
+  if (m_seExprMode) {
+    const QString source = toPlainText();
+    int start = textCursor().position();
+    while (start > 0 && (source[start - 1].isLetterOrNumber() ||
+                         source[start - 1] == '_' || source[start - 1] == '$'))
+      --start;
+    m_completerStartPos = start;
+    for (const auto &function : TSeExpr::Program::builtinFunctions())
+      m_suggestions.emplace_back(function.name + "(", function.documentation);
+    m_suggestions.emplace_back("channel(\"", "channel(\"col1.x\"[, frame]): native channel reference");
+    for (const std::string &name : {"frame", "rframe", "time", "fps", "t", "pi"})
+      m_suggestions.emplace_back("$" + name, "Animation context variable");
+    return static_cast<int>(m_suggestions.size());
+  }
   std::string text = getExpression();
   int pos          = textCursor().position();
   int start        = pos;

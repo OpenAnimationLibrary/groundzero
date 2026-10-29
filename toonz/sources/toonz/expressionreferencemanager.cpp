@@ -486,8 +486,13 @@ void ExpressionReferenceManager::replaceExpressionTexts(
       expr.setText(keyframe.m_expressionText);
       // put "?" marks on both ends of the expression text when the circular
       // reference is detected in order to avoid crash
-      if (dependsOn(expr, curve))
-        keyframe.m_expressionText = "?" + keyframe.m_expressionText + "?";
+      if (dependsOn(expr, curve)) {
+        if (TExpression::isSeExprText(keyframe.m_expressionText))
+          keyframe.m_expressionText = TExpression::makeSeExprText(
+              "?" + TExpression::seExprSource(keyframe.m_expressionText) + "?");
+        else
+          keyframe.m_expressionText = "?" + keyframe.m_expressionText + "?";
+      }
 
       m_blockParamChange = true;
       KeyframeSetter setter(curve, kIndex, false);
@@ -515,19 +520,24 @@ void ExpressionReferenceManager::replaceExpressionTexts(
 
     // replace expression
     QString expr       = QString::fromStdString(keyframe.m_expressionText);
-    QStringList list   = expr.split('"');
-    bool isStringToken = false;
-    for (QString& partialExp : list) {
-      if (isStringToken) continue;
-      isStringToken = !isStringToken;
-
-      std::string partialExpStr = partialExp.toStdString();
-      std::string replacedStr =
-          boost::xpressive::regex_replace(partialExpStr, rx, *pstr);
-      partialExp = QString::fromStdString(replacedStr);
+    QString newExpr;
+    if (TExpression::isSeExprText(keyframe.m_expressionText)) {
+      newExpr = QString::fromStdString(TExpression::rewriteSeExprReferences(
+          keyframe.m_expressionText, [&](const std::string& reference) {
+            return boost::xpressive::regex_replace(reference, rx, *pstr);
+          }));
+    } else {
+      QStringList list = expr.split('"');
+      bool isStringToken = false;
+      for (QString& partialExp : list) {
+        if (!isStringToken) {
+          partialExp = QString::fromStdString(boost::xpressive::regex_replace(
+              partialExp.toStdString(), rx, *pstr));
+        }
+        isStringToken = !isStringToken;
+      }
+      newExpr = list.join('"');
     }
-
-    QString newExpr = list.join('"');
 
     m_blockParamChange = true;
     KeyframeSetter setter(curve, kIndex, false);
@@ -983,7 +993,8 @@ void ExpressionReferenceManager::transferReference(
     m_model->refreshData(TApp::instance()->getCurrentXsheet()->getXsheet());
 
   // 3. replace the expression texts
-  for (auto ic : insertedCurves) replaceExpressionTexts(ic, exprReplaceTable);
+  for (auto ic : insertedCurves)
+    replaceExpressionTexts(ic, exprReplaceTable, toXsh);
 }
 
 //----------------------------------------------------------------------------

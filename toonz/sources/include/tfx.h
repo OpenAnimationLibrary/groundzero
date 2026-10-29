@@ -477,6 +477,10 @@ public:
   void loadData(TIStream &is) override;
   void saveData(TOStream &os) override;
 
+  // Dynamic parameter schemas can be restored after their declaration field
+  // loads, before the remaining named parameters are looked up in the stream.
+  virtual void onParamLoaded(const std::string &) {}
+
   // Precision-sensitive effects opt in for both scene and preset parameters.
   virtual bool requiresFullPrecisionSerialization() const { return false; }
 

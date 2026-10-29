@@ -264,6 +264,16 @@ inline double getExpressionValue(const TActualDoubleKeyframe &k0,
                                  const TMeasure *measure) {
   double t = 0, rframe = frame - k0.m_frame;
   if (k1.m_frame > k0.m_frame) t = rframe / (k1.m_frame - k0.m_frame);
+  if (TExpression::isSeExprText(k0.m_expressionText)) {
+    const TUnit *unit =
+        (const_cast<TActualDoubleKeyframe &>(k0)).updateUnit(measure);
+    double value = measure ? measure->getDefaultValue() : 0.0;
+    if (unit) value = unit->convertTo(value);
+    // Keep Qt paint/selection callbacks safe. The expression retains its error
+    // and last valid preview; batch rendering preflight must reject failures.
+    k0.m_expression.evaluate(t, frame + 1, rframe + 1, unit, value);
+    return value;
+  }
   TSyntax::Calculator *calculator = k0.m_expression.getCalculator();
   if (calculator) {
     calculator->setUnit(

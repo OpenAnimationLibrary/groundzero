@@ -1,29 +1,38 @@
 # Native SeExpr integration
 
-Implementation status is tracked in [the parity checklist](seexpr_parity.md).
-Until its required rows are verified, the integration remains in development.
-This guide records the native workflow and compatibility contract; individual
-capabilities must not be advertised as complete solely because they appear here.
+SeExpr adds procedural image effects and a separate animation expression mode to OT. The native implementation includes an editor, named animated controls, curves, color ramps, swatches, spectrum authoring, presets, range graphs and developer SDKs. Source-backed implementation and acceptance status are recorded in [the parity checklist](seexpr_parity.md). The current implementation is awaiting CI qualification; this guide does not claim a verified release or manual hardware testing.
 
-## Expression language
+## Creating an effect
 
-SeExpr evaluates arithmetic expressions, vectors and strings. Formulas may use
-local variables, conditional assignments and local functions. Their final
-expression supplies the result. The host specifies the expected result type and
-provides external variables and functions.
+Add **Expression Generator** to create an image, or **Expression Color** to process the connected Source. Open its expression document in the native Formula Editor. Edit the RGB formula and separate scalar Alpha formula, select controls or a preset, validate the draft, then Apply. Typing changes the draft; Apply commits one native undo transaction and Revert restores the committed document. Invalid drafts preserve the saved source and do not replace a valid formula.
 
-Native OT expressions retain their existing interpretation. SeExpr animation
-uses an explicitly selected language mode. In particular, SeExpr's ordinary
-`sin`, `cos` and related functions use radians; its `sind`, `cosd`, `deg` and
-`rad` functions provide explicit degree conversion. Reinterpreting an existing
-native expression as SeExpr can therefore change its result.
+Generator has a finite canvas, initially 1920 × 1080. Color uses the Source bounds and accepts an optional Mask. Mix controls the blend with the original image; Mask can use alpha or luminance. A missing Mask means full influence. A Color effect with no Source has no source image to process.
 
-Both `$name` and `name` are accepted by the audited SeExpr grammar. External
-variable names, their dimensions and their lifetime are part of the host
-context. A formula using a variable absent from that context reports a binding
-error rather than receiving an invented value.
+These FX work on full-color raster, Toonz raster and vector columns through the normal renderer. They change rendered pixels and preserve the original drawing. SeExpr itself supplies no OT vector topology, region or palette editing API; editable vector geometry/style tools would be an additional host extension.
 
-Examples using the FX coordinate context:
+## Formula language and context
+
+Formulas support numeric values, vectors, strings, assignments, conditionals, typed or inferred nonrecursive local functions, external function prototypes and fixed/variadic calls. The final expression supplies the result. Native numeric inputs/results support dimensions 1 through 16; image RGB and vector controls use three components. Both `$name` and `name` are valid variable forms. Missing bindings and incorrect argument/result types produce diagnostics.
+
+The actual core registry contains 99 builtin names, including noise, curves, color math, vector math and string formatting. The native Functions browser reads that registry and adds real host callback help. Radian functions such as `sin` and `cos` retain SeExpr semantics; use `sind`, `cosd`, `deg` or `rad` when the angle convention needs to be explicit. General user loops and recursive local functions are not part of the audited upstream grammar.
+
+The FX context is:
+
+| Name | Meaning |
+|---|---|
+| `x`, `y` | Local effect coordinates at the pixel center, independent of tile size |
+| `u`, `v` | Coordinates normalized to the finite effect canvas |
+| `width`, `height` | Finite local canvas dimensions |
+| `frame` | One-based current frame, preserving fractional samples |
+| `time` | Seconds: the internal zero-based frame divided by Time Rate |
+| `fps` | The effect's explicit Time Rate control, initially 24 |
+| `seed` | Explicit effect seed; deterministic formulas must use it explicitly |
+| `src` | Straight Source RGB vector; zero for Generator |
+| `r`, `g`, `b`, `a` | Straight Source channels; zero for Generator |
+
+FX Time Rate is an explicit effect parameter and does not automatically follow the scene frame rate. Native animation seconds use the live scene rate, as described below.
+
+For example, a procedural RGB formula is:
 
 ```text
 $scale = 8;
@@ -31,129 +40,81 @@ $amount = clamp(noise([$u * $scale, $v * $scale, $time]), 0, 1);
 mix([0.1, 0.2, 0.4], [0.8, 0.9, 1], $amount)
 ```
 
-A scalar formula can express motion with explicit angle conventions:
+Color can swap Source channels with `[$b,$g,$r]` and preserve Source opacity with Alpha `$a`.
 
-```text
-10 * sind($frame * 10)
-```
+## Controls, curves and presets
 
-The examples require their host variables to be provided. The animation
-integration defines frame, relative-frame, normalized segment time, seconds,
-fps and units explicitly; these conventions must remain distinct from the FX
-coordinate context where appropriate. Source and reference IDs stay literal
-when the application language changes.
+The Controls tab creates named scalar, vector, color, string, scalar-curve and color-curve controls. Each has a stable ID, a formula variable/function name and a display label. Changing a display label preserves its identity and animation. Native numeric/vector/color parameters, curve positions and curve values use OT keyframes. Integer controls round and respect their declared integer range. HDR and negative color values retain double precision in the document/native parameters.
 
-## Native authoring workflow
+String controls can explicitly select a File or Directory input. Browse opens the native chooser only on request; cancel preserves the literal. Selecting a path changes the draft and does not open or execute that path from formula source.
 
-The native editor supplies validation, function and variable completion, source
-error locations, help, presets and temporary previews. Typing edits a draft.
-Apply commits one native undo transaction; Revert restores the committed
-formula. Invalid drafts do not overwrite valid saved formulas. A preview of the
-last valid expression must be identified as such when the current draft is
-invalid.
+Removed controls are archived so restoring a compatible stable ID can recover its animation. Changing a variable name or type is a schema migration; stable IDs distinguish it from a newly created control. Scene loading establishes the schema before applying saved parameter values, including archived or reordered controls. Presets embed source, schema and defaults into the scene; rendering does not depend on the original preset file remaining present.
 
-Named controls have stable IDs, variable identifiers and display labels.
-Changing a display label preserves its formula bindings and animation.
-Renaming a variable is a migration of source references and bindings, not a
-cosmetic operation. Removing controls or changing their types must preserve or
-explicitly migrate affected animation.
+Scalar and color curve editors preserve all five upstream interpolation modes: constant, linear, smooth, spline and monotone spline. Curve controls are called as functions of their input. Swatches support add/remove/reorder/edit and preserve the upstream uniform selection bins, including endpoint behavior. Native swatch color selection supports cancel and retains exact numeric values outside a picker's display range.
 
-The complete control set includes scalar and vector values, colors, strings,
-scalar curves, color ramps and swatches. The parity checklist separately tracks
-annotation parsing, animation-curve callbacks and the upstream deep-water
-spectrum editor. Fixed generic sliders are not a substitute for these features.
+**Import Annotations** converts supported literal assignments, numeric ranges, vectors/colors, strings, curves and swatches into native controls. It preserves comments and unsupported/computed expressions. Stable source/occurrence IDs keep repeated assignments and RGB/Alpha bindings separate. Import is an explicit draft operation; it does not silently rewrite arbitrary artist code.
 
-Presets carry formula source, schema and default control values. A scene embeds
-the information required to render after the original preset file is moved or
-removed. User preset import/export validates the schema and reports unsupported
-versions. Formula source remains available for repair after a load error.
+**Water Spectrum** supplies the twelve upstream spectrum-authoring parameters and an exact energy-spectrum preview. The native spectrum curve uses the shared analytic math, rather than interpolating its small display graph. This corresponds to the upstream spectrum editor. The upstream core does not contain the host-specific `deepWater` fluid renderer; a spectrum control does not create a 3D water simulation.
 
-## Procedural effects
+The Presets tab browses installed and user JSON presets, filters by name, and supports bounded import/export. Unknown versions and malformed schemas report errors while preserving repairable source. Formula source, IDs and reference strings remain literal when the application language changes.
 
-Expression Generator produces finite-canvas RGB and alpha output from formulas,
-coordinates, frame/time, seed and native animated controls. Generator bounds and
-pixel centers are defined independently of tile dimensions so the same pixel
-has the same meaning in preview, cropped renders and final output.
+## Previewing a draft
 
-Expression Color receives Source and optional Mask images. RGB and alpha
-evaluation use the documented working color space and straight/premultiplied
-conversion policy. The processed result is blended with Source using the
-selected mask channel and Mix. Missing Mask means full influence; zero influence
-preserves Source. Transparent, HDR and negative float values require explicit
-handling rather than premature integer clamping.
+Validate reports syntax, binding and type diagnostics at native source locations. The value preview evaluates the draft in its actual host context. It is a numeric sample, rather than a replacement for the full native image preview. Source-image callbacks require the native FX render context; apply the formula and use the normal FX preview for those images.
 
-Bounded source sampling adds declared sample reach, filtering and border modes.
-It must request the required source region and remain consistent across tile
-sizes and transforms. It does not imply arbitrary previous-frame sampling or
-unlimited image requests.
+**Range Preview** freezes the current draft and samples explicit one-based frames, including fractional steps. It draws a scalar or multicomponent graph and lists values and errors per frame. A failed frame does not discard later successful samples. The range is limited to 512 samples and 16 numeric components; Cancel retains completed samples. Closing the owning editor stops sampling at the guarded event boundary. Preview does not mutate the scene, keyframes or undo history.
 
-These effects can process full-color, Toonz raster and vector columns through
-the normal renderer. Rendered appearance changes preserve the original vector
-drawing. Editable vector styles and geometry operations have separate native
-palette, topology, region, persistence and undo requirements recorded in the
-parity checklist.
+An FX range dialog clones the FX once and evaluates its named controls and RGB/Alpha at each requested frame. Animation range preview uses the native channel grammar, units and normalized segment time. The graph therefore uses host evaluation rather than inventing stand-in values for unknown variables.
 
-## Runtime and extension contract
+## Source sampling and color policy
 
-The native adapter owns prepared evaluators and their host bindings. Each render
-worker uses a separate evaluator; editor preview state is separate from final
-render state. Changing formula source or control schema triggers preparation,
-while changing ordinary variable values reuses a prepared evaluator when its
-lifetime/type contract permits this.
+Expression Color exposes `sample_rgb(dx,dy)` and `sample_alpha(dx,dy)` for bounded sampling relative to the current local pixel. Sampling Radius declares the maximum offset. Requests outside it fail rather than silently request an unbounded image. Nearest and bilinear filters support transparent, clamp, repeat and mirror borders. Transform-aware input requests include the declared reach, keeping tiled and untiled results consistent.
 
-The interpreter is the foundation backend. A qualified LLVM backend must expose
-its real backend identity and pass parity tests; an unavailable JIT cannot be
-silently labeled as active. Backend, engine and function-policy versions are
-part of saved/validated feature data and cache identity.
+Incoming rendered pixels are premultiplied. Formulas see straight Source RGB and alpha; zero-alpha Source becomes zero RGB. The RGB formula supplies straight output and Alpha is clamped to [0,1] before premultiplication. Mix and the selected Mask channel blend the processed and original premultiplied pixels. Luminance Mask uses its rendered premultiplied RGB.
 
-Custom host functions declare names, signatures, documentation, result types,
-ownership and concurrency behavior. Trusted native extension loading is a
-separate SDK operation from evaluating a scene formula. Scene loading must not
-inherit arbitrary plugin search paths merely to find builtins. Console-output
-functions need an explicit host-context policy; string functions and string
-results must be tracked independently from that policy.
+Formulas operate in the renderer's working color space. Native color controls follow the render linear-color flag and gamma; negative float values preserve the native floating-raster convention. Float output preserves finite HDR/negative RGB within float range. Integer output clamps premultiplied RGB to the output alpha/range. NaN and infinity are errors, rather than successful black frames.
 
-The upstream Python package exposes AST parsing and source-editing helpers. Its
-`AST`, `ASTHandle`, `ASTType`, traversal, comments, ranges and edits are separate
-from OT's JavaScript engine. A native JavaScript helper is not an equivalent
-Python import/API implementation. Python packaging and its tests remain visible
-in the parity checklist until qualified.
+## Animation expressions
 
-## Persistence, diagnostics and rendering
+In the Function Editor, select **SeExpr** for the expression segment and use **Open Formula Editor** for the expanded workflow. Native mode retains existing OT interpretation, including degree-based native trigonometry. SeExpr uses its own explicit engine identity and radian math; selecting a new mode does not reinterpret every existing expression in a scene.
 
-Scenes save formula source, schema, control animation, stable bindings and
-engine/function-policy versions. Unknown versions preserve editable source and
-produce actionable diagnostics. A committed invalid formula or unavailable
-required engine must make batch rendering report failure, rather than report a
-successful black frame.
+Animation bindings are:
 
-Numeric output policy defines NaN/Inf handling, alpha bounds, HDR behavior and
-integer conversion. Source complexity, nesting and memory have documented
-bounds. Cancellation occurs at bounded preparation/evaluation boundaries; the
-upstream interpreter alone does not provide an interrupt inside every native
-function.
+| Name | Meaning |
+|---|---|
+| `frame`, `f` | One-based absolute frame |
+| `rframe`, `r` | One-based relative frame |
+| `t` | Normalized segment time |
+| `time` | Seconds, `(frame-1)/fps` |
+| `fps` | Live scene frame rate; a standalone grammar defaults to 24 |
+| `pi` | π |
 
-Cache identity includes exact formula/schema/version data, relevant control
-values, coordinates/dimensions, frame/time/fps when used, seed, color policy and
-upstream content. Different worker counts, tile sizes and frame order must not
-change deterministic results.
+`channel("col1.x")` samples a native channel at the current frame. `channel("col1.x", $frame-1)` supplies an explicit sample frame. The first argument must be a literal reference string so native dependency tracking, change notifications and reference rewrites can see it. Computed reference strings fail validation. Units follow the native channel context, and saved expressions preserve fractional frames.
 
-## Build, SDK and acceptance
+Native persistence uses versioned SeExpr/SeExpr-shape tags; the text adapter has the `seexpr1:` marker. Existing native tags remain readable. Invalid runtime samples may retain the last good interactive value with an error, but they increment the failure signal used by batch rendering. A failed committed expression must not become a successful render through that fallback.
 
-The core is pinned and built behind the native adapter. The complete port must
-qualify interpreter, selected optional backend/binding modules and their package
-behavior on the supported Windows, Linux and macOS toolchains. Exact source
-provenance and third-party license terms accompany the selected source files.
+Native reference monitoring follows column movement/insertion/deletion, clipboard duplication and sub-xsheet collapse/explode. Literal channel references are rewritten while unrelated strings remain unchanged, and native undo/redo restores their bindings. Direct/mixed dependency cycles are rejected, and runtime cycle detection also protects malformed graphs. Animation evaluation currently acquires a graph-wide recursive gate before curve locks to prevent concurrent opposing-reference deadlocks. This path is serialized; separate FX render workers still use independently owned evaluators. No speed claim is made without representative qualification.
 
-The principal upstream license modifies Apache2's trademark clause. Selected
-generated files retain their own generator notices. The unused Qt/Python editor
-initializer has a different restrictive notice and cannot be treated as covered
-by a blanket repository-wide license assertion. The source manifest and packaged
-notices must describe the actual distributed subset.
+## Runtime, backends and SDKs
 
-Required acceptance covers language/function semantics, typed callbacks,
-thread ownership, native editing and undo, control/schema migration, presets,
-save/reopen, dependency/reference lifecycle, preview/batch equivalence, image
-formats, cancellation, malformed input, packages and representative performance.
-Builds and tests run in CI. Manual desktop, tablet and GPU observations are
-reported separately from automated expression tests.
+The application uses the interpreter by default. A Program rejects reentrant evaluation, mutation and movement while active; independently owned nested Programs remain supported and count against their callers' budgets. Prepared FX evaluators are owned by each worker; source/schema/backend or relevant control changes invalidate the prepared state. Editor preview state is separate from final rendering. Cache identities include exact source/schema/version data, full-precision control values, frame/time/rate, bounds/transforms, color policy and upstream content.
+
+The optional LLVM14 backend builds the actual core JIT emitter. An unavailable requested backend reports an error instead of pretending the interpreter is JIT. LLVM qualification is configured on Linux; this does not establish a shipped JIT runtime on every application platform. Normal interpreter packages require no LLVM installation.
+
+The optional [C++ SDK](seexpr_sdk.md) provides the pinned core headers/static library, typed callback example, installed CMake package, calculator, grapher and explicit native plugin loading. Plugins require a compatible compiler/runtime/architecture and the SDK registration ABI. Automatic environment plugin discovery stays disabled; evaluating a scene cannot select an executable module. Loaded callbacks and their modules have explicit lifetime/cleanup rules.
+
+The optional [Python SDK](seexpr_python.md) supplies the upstream-compatible AST inspection/editing interface plus actual native numeric/vector/string evaluation, validation, catalog and typed Python callbacks. The independent `SeExprPy.editor`/`expreditor2` frontend provides Qt authoring widgets when PyQt5 or PyQt6 is installed separately. Python is not embedded into OT. Qt5 qualification does not certify Qt6 runtime behavior.
+
+Upstream RenderMan and external animlib adapters target other host SDKs. Their useful expression binding/batching and artist workflows are implemented through OT FX, native animation and the SDK examples; the port does not distribute or claim their external binary ABIs. Demo-local `rand`, `map` and `triplanar` placeholders are not core functions or production texture engines. Example formulas requiring external host callbacks must bind those callbacks explicitly.
+
+## Resource bounds, distribution and qualification
+
+Default native limits are 64 KiB source, lexical/structural AST depth 128, 512 external variables, numeric dimensions 1–16, one million interpreter/JIT budget steps per evaluation and 1 MiB owned strings. Structural depth is checked before recursive preparation, rejected trees are destroyed iteratively, and source error byte offsets retain the full allowed range. Nested Program work counts against each active caller's budget. FX documents allow at most 128 controls and use a 256 MiB sampling working-buffer bound. Source/preparation boundaries, VM/JIT budget checks and pixel/frame boundaries support cancellation. A custom native callback remains responsible for bounding its own work; a VM budget cannot interrupt arbitrary external code inside that callback.
+
+Console `printf` is registered but disabled in render contexts; authoring/SDK hosts can explicitly permit it. `sprintf` string results remain supported with bounded, validated formats. Unknown engine/function-policy/document versions preserve source and fail with a diagnostic. Batch rendering checks failed expressions during scene loading and rendering and returns nonzero for invalid committed formulas or unavailable engines.
+
+The source revision/archive checksum, parser tools, selected modules, build-copy corrections and independent replacements are recorded in `toonz/cmake/SeExpr-source.json`. The principal upstream license modifies Apache2's trademark clause; packaged notices preserve the exact terms and selected generated files retain their generator notices. The restrictive upstream Qt/Python initializer is not copied or redistributed.
+
+CI fixtures cover the core/function corpus, SDK installation/plugins, Python/Qt bindings, native controls/editor/range dialog, animation references/persistence, image formats/tiles and actual saved-scene batch rendering. `seexpr_native_application` launches the real application with disposable copied data and exercises native reference/column/clipboard/sub-xsheet commands and undo/redo. This complements focused offscreen widget tests; it is not manual desktop qualification.
+
+`seexpr_fx_test --benchmark` measures native Generator output at 1920×1080 and 3840×2160 using one and four workers. It records cold/warm-frame timings, image checksums and process peak resident memory, and verifies worker-count image equality. Linux CI retains the report; results remain pending. This workload uses one Generator per worker and does not establish many-node scene behavior, GPU performance, speed guarantees or minimum computer specifications. Builds and tests run in CI; manual installed-desktop/tablet/theme and representative production hardware qualification remain separate.

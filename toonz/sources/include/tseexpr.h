@@ -101,13 +101,15 @@ struct Options {
 
 // Each Program owns a complete interpreter and its custom functions. Use a
 // separate Program per render worker; concurrent calls on one Program are not
-// supported. The returned Value owns string and numeric result storage.
+// supported. Reentrant calls or mutation from a compile/evaluation callback
+// are rejected; distinct Programs may be nested. Moving an active Program
+// throws before transferring ownership. Returned Values own their storage.
 class DVAPI Program {
 public:
   Program();
   ~Program();
-  Program(Program &&) noexcept;
-  Program &operator=(Program &&) noexcept;
+  Program(Program &&);
+  Program &operator=(Program &&);
   Program(const Program &) = delete;
   Program &operator=(const Program &) = delete;
 

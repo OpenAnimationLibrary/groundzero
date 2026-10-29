@@ -35,6 +35,10 @@ jobs:
     steps:
     - uses: actions/checkout@v6
 
+    - uses: actions/setup-python@v6
+      with:
+        python-version: '3.12'
+
     - name: Install libraries
       run: |
         # The runner's Azure package mirror stalls in the middle of downloads,
@@ -46,7 +50,7 @@ jobs:
         ok=0
         for attempt in 1 2 3; do
           if timeout 600 sudo apt-get update -o Acquire::http::Timeout=30 -o Acquire::Retries=5 &&
-             timeout 900 sudo apt-get install -y xvfb libgl1-mesa-dri -o Acquire::http::Timeout=30 -o Acquire::Retries=5 build-essential cmake pkg-config ninja-build ccache libboost-all-dev qtbase5-dev qt5-qmake qtdeclarative5-dev qtdeclarative5-dev-tools qttools5-dev qttools5-dev-tools qtmultimedia5-dev qtwayland5 libqt5svg5-dev libqt5opengl5-dev libqt5multimedia5-plugins libqt5serialport5-dev libsuperlu-dev liblz4-dev libusb-1.0-0-dev liblzo2-dev libpng-dev libjpeg-dev libglew-dev freeglut3-dev libfreetype6-dev libjson-c-dev libmypaint-dev libopencv-dev libturbojpeg-dev libomp-dev libfuse2 ffmpeg; then ok=1; break; fi
+             timeout 900 sudo apt-get install -y xvfb libgl1-mesa-dri -o Acquire::http::Timeout=30 -o Acquire::Retries=5 build-essential cmake pkg-config ninja-build ccache bison flex python3-dev libboost-all-dev qtbase5-dev qt5-qmake qtdeclarative5-dev qtdeclarative5-dev-tools qttools5-dev qttools5-dev-tools qtmultimedia5-dev qtwayland5 libqt5svg5-dev libqt5opengl5-dev libqt5multimedia5-plugins libqt5serialport5-dev libsuperlu-dev liblz4-dev libusb-1.0-0-dev liblzo2-dev libpng-dev libjpeg-dev libglew-dev freeglut3-dev libfreetype6-dev libjson-c-dev libmypaint-dev libopencv-dev libturbojpeg-dev libomp-dev libfuse2 ffmpeg; then ok=1; break; fi
           echo "::warning title=apt::attempt $attempt failed, retrying"
           sleep 20
         done
@@ -78,7 +82,7 @@ jobs:
         mkdir build
         cd build
         set -o pipefail
-        cmake ../sources -G Ninja -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER=${{ matrix.cxx }} -DCMAKE_C_COMPILER=${{ matrix.cc }} -DWITH_TRANSLATION=OFF -DBUILD_CELFX_TESTS=ON -DBUILD_CADMIUM_TESTS=ON -DCMAKE_CXX_FLAGS=-Werror=return-type 2>&1 | tee "$GITHUB_WORKSPACE/build.log"
+        cmake ../sources -G Ninja -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER=${{ matrix.cxx }} -DCMAKE_C_COMPILER=${{ matrix.cc }} -DWITH_TRANSLATION=OFF -DBUILD_CELFX_TESTS=ON -DBUILD_CADMIUM_TESTS=ON -DBUILD_SEEXPR_TESTS=ON -DBUILD_SEEXPR_PYTHON=ON -DPython3_EXECUTABLE="$(command -v python)" -DCMAKE_CXX_FLAGS=-Werror=return-type 2>&1 | tee "$GITHUB_WORKSPACE/build.log"
         # -k 0: keep going, so one run reports every file that fails
         ninja -k 0 OpenToonz celfx_tests cadmium_tests 2>&1 | tee -a "$GITHUB_WORKSPACE/build.log"
 
@@ -115,6 +119,37 @@ jobs:
         export CCACHE_DIR=/home/runner/.ccache
         set -o pipefail
         ninja -k 0 2>&1 | tee -a "$GITHUB_WORKSPACE/build.log"
+
+    - name: Test SeExpr native integration
+      id: seexpr_tests
+      working-directory: toonz/build
+      run: |
+        set -o pipefail
+        QT_QPA_PLATFORM=xcb LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a ctest --output-on-failure --output-junit seexpr-tests.xml --no-tests=error --timeout 180 -R '^seexpr_' 2>&1 | tee seexpr-tests-output.txt
+
+    - name: Report SeExpr test failures
+      if: ${{ failure() && steps.seexpr_tests.outcome == 'failure' }}
+      run: python ci-scripts/seexpr/report.py toonz/build/seexpr-tests-output.txt
+
+    - name: Measure SeExpr full-resolution rendering
+      id: seexpr_performance
+      timeout-minutes: 10
+      working-directory: toonz/build
+      run: |
+        set -o pipefail
+        timeout 570 bin/seexpr_fx_test --benchmark 2>&1 | tee seexpr-performance.txt
+
+    - name: Report SeExpr performance failure
+      if: ${{ failure() && steps.seexpr_performance.outcome == 'failure' }}
+      run: python ci-scripts/seexpr/report.py toonz/build/seexpr-performance.txt
+
+    - name: Retain SeExpr performance measurements
+      if: ${{ always() && steps.seexpr_performance.outcome != 'skipped' }}
+      uses: actions/upload-artifact@v6
+      with:
+        name: SeExpr-performance-${{ github.sha }}
+        path: toonz/build/seexpr-performance.txt
+        if-no-files-found: warn
 
     # Keep successfully compiled objects even when a regression test fails.
     - name: Save compiler cache

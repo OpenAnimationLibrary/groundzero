@@ -1,4 +1,5 @@
 set(HEADERS
+    seexprfx.h
     ../include/stdfx/shaderfx.h
     ../include/stdfx/shaderinterface.h
     ../include/stdfx/shadingcontext.h
@@ -104,6 +105,7 @@ if(OpenCV_FOUND)
 endif()
 
 set(SOURCES
+    seexprfx.cpp
     adjustlevelsfx.cpp
     artcontourfx.cpp
     autopatchfx.cpp
@@ -371,6 +373,17 @@ include_directories(
 _find_toonz_library(TNZLIBS "tnzcore;tnzbase;toonzlib")
 
 target_link_libraries(tnzstdfx otglb OpenEXR::OpenEXR Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::OpenGL ${OT_QT_OPENGLWIDGETS_LIB} ${GL_LIB} ${GLEW_LIB} ${TNZLIBS} ${PTHREAD_LIBRARY})
+
+if(BUILD_SEEXPR_TESTS)
+    add_executable(seexpr_fx_test tests/seexprfx_test.cpp)
+    target_link_libraries(seexpr_fx_test Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
+    if(WIN32)
+        target_link_libraries(seexpr_fx_test Psapi)
+    endif()
+    add_test(NAME seexpr_fx COMMAND seexpr_fx_test)
+    set_tests_properties(seexpr_fx PROPERTIES TIMEOUT 120)
+    add_custom_target(seexpr_fx_tests DEPENDS seexpr_fx_test)
+endif()
 
 if(OpenCV_FOUND)
     target_link_libraries(tnzstdfx ${OpenCV_LIBS})

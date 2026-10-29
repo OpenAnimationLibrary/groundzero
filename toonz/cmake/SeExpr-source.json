@@ -3,7 +3,7 @@
   "repository": "https://github.com/wdas/SeExpr",
   "revision": "8f8c8f2c5e27e96fae70d6b82ac1ff4f4811d6dc",
   "archive_sha256": "097ffec1a4f50db2b8b7d8f8d0e488e0cafb9f235f1a63bc3693e6d6f079a8bb",
-  "included_source": "src/SeExpr2 core headers and implementation; no UI or Python subtree",
+  "included_source": "src/SeExpr2 root core headers and implementation, plus src/SeExpr2/parser syntax-inspection scanner and template headers for the optional Python SDK",
   "license": "Apache License 2.0 with the upstream replacement Section 6",
   "packaged_notice": "stuff/doc/LICENSE/LICENSE_seexpr.txt",
   "parser_tools": {
@@ -22,10 +22,62 @@
     "Isolate SDK graph resolution temporary state and evaluate selected dependencies in topological order",
     "Adapt the optional JIT emitter to LLVM 14 typed builder and fixed-vector APIs",
     "Insert no-throw JIT evaluation budget checks and capture callback exceptions for native reporting",
-    "Use bounded native string concatenation with terminator allocation in the optional JIT backend"
+    "Use bounded native string concatenation with terminator allocation in the optional JIT backend",
+    "Complete upstream parsed-but-disabled typed/inferred local functions and external prototypes in the AST/type environment, interpreter procedures and optional LLVM emitter",
+    "Keep nested local numeric/string calls isolated and preserve captured host-variable lifetimes",
+    "Validate bounded typed printf/sprintf formats and reject malformed argument lists before evaluation",
+    "Implement explicit cross-platform plugin loading with canonical path deduplication, deterministic directory discovery and registry-before-module cleanup",
+    "Validate AST structural depth iteratively before recursive preparation, dispose rejected/deep trees iteratively and preserve full signed source-byte positions",
+    "Keep syntaxOK independent of type preparation and reject excessive raw-SDK AST depth with a diagnostic",
+    "Correct whole-vector equality/inequality and scalar promotion in interpreter and optional LLVM paths",
+    "Preserve all typed SDK standard callback forms, varying lifetime aggregation, vector result shape and exceptions across the optional LLVM boundary",
+    "Prepare a private Python inspection-parser copy with virtual AST destruction and correct ordinary-call, vector-literal and nested-unary byte ranges",
+    "Bound Python inspection AST height during construction and parser recursion before deep-expression cleanup"
   ],
   "backends": {
-    "interpreter": "included",
+    "interpreter": "Included; source implementation and qualification corpus present; CI pending",
     "llvm": "LLVM 14 optional backend implementation; CI qualification pending"
+  },
+  "native_replacements": {
+    "application_ui": "Independently authored native Qt editor, controls, preset browser, spectrum editor and range viewer in toonzqt; upstream UI subtree is not compiled or installed",
+    "python_sdk": "Independently authored Python 3 AST/evaluation wrapper and SeExprPy helpers, with independent optional PyQt5/PyQt6 authoring widgets and expreditor2 compatibility import",
+    "external_hosts": "Native Generator/Color FX, Function Editor/channel bindings and SDK callback examples replace useful external renderer, image synthesis and animation-library host workflows"
+  },
+  "selected_modules": {
+    "core": "Required application/SDK interpreter and typed native adapter",
+    "llvm": "Optional LLVM 14 backend from the pinned core; explicit backend identity; Linux qualification configured, CI pending",
+    "cpp_sdk": "Optional installed headers/static library, explicit native plugin loader, calculator, grapher and host-binding example",
+    "python_ast": "Optional Python 3 extension compiles privately prepared ASTNode.h, SeExprLex.h/.cpp and SeExprParse.h from the licensed inspection parser; exact source ranges, node ownership and retained scanner notices; CI pending",
+    "python_qt": "Optional independent PyQt authoring frontend; external PyQt installation required; Qt5 qualification configured, Qt6 not yet qualified"
+  },
+  "excluded_sources": {
+    "src/SeExpr2/UI/__init__.py": "Restrictive upstream notice; never compiled, copied or redistributed by the native or Python frontend",
+    "src/SeExpr2/UI": "Replaced by independently authored native Qt and optional PyQt authoring workflows",
+    "src/py/SeExprPy.cpp": "Legacy wrapper replaced by the native Python 3 AST/evaluation wrapper; licensed syntax parser remains selected",
+    "src/demos/rman2": "External renderer SDK/ABI; useful expression binding and batching mapped into native OT effects and SDK examples, not an external renderer binary",
+    "src/SeExpr2/UI/CE": "External animation-library ABI; artist workflow mapped into native Function Editor, curves and channel bindings",
+    "src/demos/imageSynth and imageEditor": "Standalone host applications replaced by native Generator/Color FX and source sampling"
+  },
+  "patch_helpers": [
+    "toonz/cmake/prepare_seexpr.py",
+    "toonz/cmake/prepare_seexpr_language.py",
+    "toonz/cmake/prepare_seexpr_safety.py",
+    "toonz/cmake/prepare_seexpr_sdk.py",
+    "toonz/cmake/prepare_seexpr_llvm.py",
+    "toonz/cmake/prepare_seexpr_limits.py",
+    "toonz/sources/seexprpython/prepare_parser.py"
+  ],
+  "native_host_corrections": [
+    "Versioned native animation mode, literal channel dependency binding/rewrites, stable native control schema and archived animation restoration",
+    "Preserve reference monitor state and formulas across actual column movement/insertion/deletion, clipboard copy/paste and sub-xsheet collapse/explode with native undo/redo",
+    "Recursive animation graph gate precedes curve locks to reject malformed cross-worker cycles without lock-order deadlock",
+    "Batch loading/rendering failure counter prevents a last-good interactive animation value from reporting successful invalid renders"
+  ],
+  "qualification_sources": {
+    "core_and_sdk": "Interpreter Windows/Linux/macOS and optional LLVM14 Linux corpora, typed SDK callback/equality regressions and a clean installed CMake consumer; CI pending",
+    "python": "AST/evaluation/optional Qt5 widget fixtures use the built package; PyQt6 frontend available but not yet runtime-qualified",
+    "native_application": "Test-only startup launches the actual application against copied disposable portable data and exercises native column/reference/clipboard/sub-xsheet commands and undo/redo; CI pending",
+    "native_batch": "Actual generated/saved scene and tcomposer output/failure fixtures; CI pending",
+    "performance": "Native Generator 1920x1080 and 3840x2160, one/four workers, cold/warm-frame timings, deterministic image checksums and process peak resident memory; Linux CI measurement configured, no hardware results claimed"
   }
 }
