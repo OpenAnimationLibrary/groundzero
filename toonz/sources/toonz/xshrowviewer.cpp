@@ -369,7 +369,7 @@ void RowArea::drawRows(QPainter &p, int r0, int r1) {
       p.setPen(m_viewer->getCurrentFrameTextColor());
     else if (playR0 <= r && r <= playR1) {
       p.setPen(((r - m_r0) % step == 0) ? m_viewer->getPreviewFrameTextColor()
-                                        : m_viewer->getTextColor());
+                                        : m_viewer->getFrameTextColor());
     }
     // not in preview range
     else

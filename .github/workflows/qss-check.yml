@@ -1,0 +1,67 @@
+name: QSS Check
+
+# The UI themes are LESS sources under stuff/config/qss/Default/less, compiled
+# into the committed Qt stylesheets stuff/config/qss/<Theme>/<Theme>.qss by
+# ci-scripts/compile_qss.py. This check fails when a committed stylesheet no
+# longer matches its LESS source, so the two cannot drift apart again. Each
+# stale stylesheet is reported as an annotation on its file.
+on:
+  pull_request:
+    paths:
+      - 'stuff/config/qss/**'
+      - ci-scripts/compile_qss.py
+      - .github/workflows/qss-check.yml
+  push:
+    branches:
+      - edition
+    paths:
+      - 'stuff/config/qss/**'
+      - ci-scripts/compile_qss.py
+      - .github/workflows/qss-check.yml
+
+permissions:
+  contents: read
+
+# A new push to a pull request cancels its older, superseded run
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  Check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # lessc on PATH: faster and deterministic compared with npx fetching it
+      - name: Install lessc
+        run: npm install -g less@4
+
+      - name: Compare the committed QSS with the LESS sources
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 ci-scripts/compile_qss.py --check 2>&1 | tee "$RUNNER_TEMP/qss-check.log"
+
+      # Show the stale stylesheets on the pull request (annotations and
+      # summary) without having to open the full log
+      - name: Report stale stylesheets
+        if: failure()
+        run: |
+          log="$RUNNER_TEMP/qss-check.log"
+          [ -f "$log" ] || exit 0
+          grep '^STALE ' "$log" | awk '{print $2}' | while IFS= read -r file; do
+            echo "::error file=${file},title=Stale stylesheet::${file} no longer matches its LESS source under stuff/config/qss/Default/less"
+          done
+          echo "::error title=QSS Check::Run 'python3 ci-scripts/compile_qss.py' and commit the regenerated stylesheets"
+          {
+            echo "## Stale stylesheets"
+            echo '```'
+            grep -E '^(STALE |compile_qss:)' "$log" || cat "$log"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

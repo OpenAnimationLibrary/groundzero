@@ -112,15 +112,15 @@
 
 XsheetViewer {
   qproperty-TextColor: @xsh-cell-text-color;
-  qproperty-ErrorTextColor: @error-label-color;
+  qproperty-ErrorTextColor: @xsh-error-text-color;
   qproperty-SelectedTextColor: @xsh-cell-text-color-selected;
   qproperty-FrameTextColor: @xsh-framenumber-column-text-color;
   qproperty-CurrentFrameTextColor: @xsh-framenumber-current-text-color;
   qproperty-PreviewFrameTextColor: @xsh-framenumber-column-range-text-color;
   qproperty-ColumnTextColor:@text-color;
   qproperty-HighlightColumnTextColor: @xsh-cell-text-color;
-  qproperty-KeyframeLineColor: @xsh-cell-text-color;
-  qproperty-LevelEndColor: @xsh-cell-text-color;
+  qproperty-KeyframeLineColor: @xsh-keyframe-line-color;
+  qproperty-LevelEndColor: @xsh-level-end-color;
 
   qproperty-BGColor: @xsh-framenumber-column-bg-color;
   qproperty-LightBGColor: lighten(@bg-color, 65.8824); // unused?
@@ -137,6 +137,7 @@ XsheetViewer {
   qproperty-CurrentTimeIndicatorColor: @xsh-current-time-indicator-color;
   qproperty-EmptyColumnHeadColor: @xsh-column-header-empty-color;
   qproperty-CellFocusColor: @xsh-current-cell-border-color;
+  qproperty-ColumnFocusColor: @xsh-current-column-border-color;
   qproperty-ColumnHeadPastelizer: transparent; // is this useful anymore?
   qproperty-SelectedColumnHead: @xsh-column-header-selected-color;
 

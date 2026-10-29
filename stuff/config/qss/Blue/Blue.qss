@@ -298,10 +298,10 @@ TPanelTitleBar {
   qproperty-ActiveTitleColor: #76b2ff;
   qproperty-CloseOverColor: #d44a4a;
   font-weight: bold;
-  qproperty-BorderPixmap: url('../Default/imgs/white/other/transparent_16x16.png');
-  qproperty-ActiveBorderPixmap: url('../Default/imgs/white/other/transparent_16x16.png');
-  qproperty-FloatBorderPixmap: url('../Default/imgs/white/other/transparent_16x16.png');
-  qproperty-FloatActiveBorderPixmap: url('../Default/imgs/white/other/transparent_16x16.png');
+  qproperty-BorderPixmap: url('../Default/imgs/white/misc/transparent_16x16.png');
+  qproperty-ActiveBorderPixmap: url('../Default/imgs/white/misc/transparent_16x16.png');
+  qproperty-FloatBorderPixmap: url('../Default/imgs/white/misc/transparent_16x16.png');
+  qproperty-FloatActiveBorderPixmap: url('../Default/imgs/white/misc/transparent_16x16.png');
 }
 TPanelTitleBar:hover {
   background-color: #373a3f;
