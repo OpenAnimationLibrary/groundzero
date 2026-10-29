@@ -315,6 +315,7 @@
         <command>MI_SavePreviewedFrames</command>
         <separator/>
         <command>MI_OutputSettings</command>
+        <command>MI_CheckScene</command>
         <command>MI_Render</command>
         <separator/>
         <command>MI_FastRender</command>

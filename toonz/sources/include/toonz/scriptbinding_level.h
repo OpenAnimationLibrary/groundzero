@@ -6,6 +6,8 @@
 #include "toonz/scriptbinding.h"
 #include "toonz/scriptbinding_image.h"
 
+#include <vector>
+
 // Forward declarations
 class ToonzScene;
 class TXshSimpleLevel;
@@ -49,6 +51,13 @@ public:
   QJSValue getPath() const;
   void setPath(const QJSValue &pathArg);
 
+  // The level's palette, read only: an object with name and styles (an
+  // array of objects with id, name, color as "#AARRGGBB", page and used,
+  // true when a drawing of the level uses the style), or null for a level
+  // without a palette. It is a copy: changing it changes nothing.
+  Q_PROPERTY(QJSValue palette READ getPalette)
+  QJSValue getPalette() const;
+
   // Frame operations
   Q_INVOKABLE QJSValue getFrame(const QJSValue &fid);
   Q_INVOKABLE QJSValue getFrameByIndex(const QJSValue &index);
@@ -79,6 +88,18 @@ public:
   // the level (sl can be 0)
   static TFrameId nextFrameId(const TXshSimpleLevel *sl);
   static TFrameId getFid(const QJSValue &arg, QString &err);
+
+  // The styles of the pages of the level's palette, in page order (shared
+  // with the Python binding). False when the level has no palette. Finding
+  // the used styles loads every drawing of the level.
+  struct StyleInfo {
+    int m_id;
+    QString m_name, m_color;  // the color as "#AARRGGBB"
+    int m_page;
+    bool m_used;
+  };
+  static bool getPaletteInfo(TXshSimpleLevel *sl, QString &paletteName,
+                             std::vector<StyleInfo> &styles);
 
 private:
   Q_DISABLE_COPY(Level)

@@ -48,6 +48,7 @@
 #define MI_ProjectSettings "MI_ProjectSettings"
 #define MI_SaveDefaultSettings "MI_SaveDefaultSettings"
 #define MI_OutputSettings "MI_OutputSettings"
+#define MI_CheckScene "MI_CheckScene"
 #define MI_PreviewSettings "MI_PreviewSettings"
 #define MI_Render "MI_Render"
 #define MI_SaveAndRender "MI_SaveAndRender"

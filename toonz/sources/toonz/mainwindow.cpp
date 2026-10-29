@@ -2822,6 +2822,7 @@ void MainWindow::defineActions() {
 
   createMenuRenderAction(MI_OutputSettings, QT_TR_NOOP("&Output Settings..."),
                          "Ctrl+O", "output_settings");
+  createMenuRenderAction(MI_CheckScene, QT_TR_NOOP("&Check Scene..."), "", "");
   createMenuRenderAction(MI_PreviewSettings, QT_TR_NOOP("&Preview Settings..."),
                          "", "preview_settings");
   createMenuRenderAction(MI_Render, QT_TR_NOOP("&Render"), "Ctrl+Shift+R",

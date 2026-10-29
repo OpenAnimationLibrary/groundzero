@@ -9,6 +9,7 @@
 #include "filebrowsermodel.h"
 #include "previewfxmanager.h"
 #include "iocommand.h"
+#include "scenecheckpane.h"
 
 // TnzQt includes
 #include "toonzqt/menubarcommand.h"
@@ -306,6 +307,9 @@ sprop->getOutputProperties()->setRenderSettings(rso);*/
   }
 
   // Full render case
+
+  // The scene check, when the preference asks for it
+  if (!checkSceneBeforeRender()) return false;
 
   // Read the output filepath
   TFilePath fp = outputSettings.getPath();
