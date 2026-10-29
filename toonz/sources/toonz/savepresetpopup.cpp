@@ -1,5 +1,6 @@
 
 
+#include "toonzqt/uitranslations.h"
 #include "savepresetpopup.h"
 
 // Tnz6 includes
@@ -73,7 +74,7 @@ bool SavePresetPopup::apply() {
       DvDirModel::instance()->refreshFolder(parent.getParentDir());
     } catch (...) {
       DVGui::error(
-          tr("It is not possible to create the preset folder %1.")
+          UiTranslations::text(tr("It is not possible to create the preset folder %1."))
               .arg(QString::fromStdString(fp.getParentDir().getName())));
       return 0;
     }

@@ -1,5 +1,6 @@
 
 
+#include "toonzqt/uitranslations.h"
 #include "plastictool.h"
 
 // TnzTools includes
@@ -312,7 +313,7 @@ public:
   void undo() const override { setCurveBending(!m_on); }
 
   QString getHistoryString() override {
-    return QObject::tr("Curve Bending %1")
+    return UiTranslations::text(QObject::tr("Curve Bending %1"))
         .arg(m_on ? QObject::tr("On") : QObject::tr("Off"));
   }
 

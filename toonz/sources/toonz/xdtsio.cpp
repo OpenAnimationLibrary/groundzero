@@ -1,5 +1,6 @@
 
 
+#include "toonzqt/uitranslations.h"
 #include "xdtsio.h"
 
 #include "tsystem.h"
@@ -857,6 +858,7 @@ void ExportXDTSCommand::execute() {
     referenceFrameCombo->setCurrentIndex(referenceFrameCombo->findData(4));
 
     targetColumnCombo = new QComboBox();
+    UiTranslations::watchCombo(targetColumnCombo);
     targetColumnCombo->addItem(QObject::tr("All columns"), true);
     targetColumnCombo->addItem(QObject::tr("Only active columns"), false);
     targetColumnCombo->setCurrentIndex(targetColumnCombo->findData(true));
@@ -962,7 +964,7 @@ void ExportXDTSCommand::execute() {
   saveFile.write(jsonByteArrayData);
 
   const QString message =
-      QObject::tr("The file %1 has been exported successfully.")
+      UiTranslations::text(QObject::tr("The file %1 has been exported successfully."))
           .arg(QString::fromStdString(fp.getLevelName()));
 
   const std::vector<QString> buttons = {QObject::tr("OK"),

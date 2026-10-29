@@ -1,5 +1,6 @@
 
 
+#include "toonzqt/uitranslations.h"
 #include "canvassizepopup.h"
 
 // Tnz6 includes
@@ -1215,6 +1216,7 @@ CanvasSizePopup::CanvasSizePopup()
   addSeparator(tr("New Size"));
 
   m_unit = new QComboBox(this);
+  UiTranslations::watchCombo(m_unit);
   m_unit->addItem(tr("pixel"), "pixel");
   m_unit->addItem(tr("mm"), "mm");
   m_unit->addItem(tr("cm"), "cm");

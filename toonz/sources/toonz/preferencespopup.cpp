@@ -26,6 +26,7 @@
 #include "toonzqt/dvdialog.h"
 #include "toonzqt/filefield.h"
 #include "toonzqt/lutcalibrator.h"
+#include "toonzqt/uitranslations.h"
 
 // TnzLib includes
 #include "toonz/txsheethandle.h"
@@ -1046,6 +1047,8 @@ QWidget* PreferencesPopup::createUI(PreferencesItemId id,
       for (const ComboBoxItem& item : comboItems)
         combo->addItem(item.first, item.second);
       combo->setCurrentIndex(combo->findData(item.value));
+      // These integer choices are presentation enums with a private model.
+      UiTranslations::watchCombo(combo);
       connect(combo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
               &PreferencesPopup::onChange);
       widget = combo;
@@ -1105,6 +1108,19 @@ QWidget* PreferencesPopup::createUI(PreferencesItemId id,
       for (const ComboBoxItem& item : comboItems)
         combo->addItem(item.first, item.second);
       combo->setCurrentIndex(combo->findData(item.value));
+      // Room, font, language and theme names are data, not translated captions.
+      switch (id) {
+      case linearUnits:
+      case cameraUnits:
+      case cursorBrushType:
+      case cursorBrushStyle:
+      case defaultStartupTool:
+      case xsheetLayoutPreference:
+        UiTranslations::watchCombo(combo);
+        break;
+      default:
+        break;
+      }
       connect(combo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
               &PreferencesPopup::onChange);
       widget = combo;
@@ -1268,7 +1284,7 @@ QString PreferencesPopup::getUIString(PreferencesItemId id) {
     return str;
   };
 
-  const static QMap<PreferencesItemId, QString> uiStringTable = {
+  const QMap<PreferencesItemId, QString> uiStringTable = {
       // General
       {rasterOptimizedMemory, tr("Minimize Raster Memory Fragmentation*")},
       {autosaveEnabled, tr("Save Automatically")},
@@ -1312,7 +1328,12 @@ QString PreferencesPopup::getUIString(PreferencesItemId id) {
        tr("Show Raster Images Darken Blended")},
       {colourOverrideInViewer, tr("Show Colour Override in the Viewer")},
       {gpuCompositingInViewer,
-       tr("[Experimental Feature] ") + tr("GPU Compositing in the Viewer")},
+       UiTranslations::remember(
+           tr("[Experimental Feature] ") + tr("GPU Compositing in the Viewer"),
+           []() {
+             return tr("[Experimental Feature] ") +
+                    tr("GPU Compositing in the Viewer");
+           })},
       {iconSize, tr("Level Strip Thumbnail Size*:")},
       {viewShrink, tr("Viewer Shrink:")},
       {viewStep, tr("Step:")},
@@ -1322,7 +1343,7 @@ QString PreferencesPopup::getUIString(PreferencesItemId id) {
       {interfaceFontStyle, tr("Style*:")},
       {colorCalibrationEnabled, tr("Color Calibration using 3D Look-up Table")},
       {colorCalibrationLutPaths,
-       tr("3DLUT File for [%1]:")
+       UiTranslations::text(tr("3DLUT File for [%1]:"))
            .arg(LutManager::instance()->getMonitorName())},
       {displayIn30bit, tr("30bit Display*")},
       {showIconsInMenu, tr("Show Icons In Menu*")},
@@ -1416,7 +1437,7 @@ QString PreferencesPopup::getUIString(PreferencesItemId id) {
       {cursorOutlineEnabled, tr("Show Cursor Size Outlines")},
       {levelBasedToolsDisplay, tr("Toolbar Display Behaviour:")},
       {useCtrlAltToResizeBrush,
-       tr("Brush Tool: Use %1 to Resize").arg(CtrlAltStr())},
+       UiTranslations::text(tr("Brush Tool: Use %1 to Resize")).arg(CtrlAltStr())},
       {useStrokeEndCursor, tr("Draw Cursor at End of Stroke")},
       {clickTwiceToCreateArcs,
        tr("Geometric Tool: Click Twice to Create Arcs")},
@@ -1547,7 +1568,7 @@ QString PreferencesPopup::getUIString(PreferencesItemId id) {
 
 QList<ComboBoxItem> PreferencesPopup::getComboItemList(
     PreferencesItemId id) const {
-  const static QMap<PreferencesItemId, QList<ComboBoxItem>> comboItemsTable = {
+  const QMap<PreferencesItemId, QList<ComboBoxItem>> comboItemsTable = {
       {pathAliasPriority,
        {{tr("Project Folder Aliases (+drawings, +scenes, etc.)"),
          Preferences::ProjectFolderAliases},
@@ -1721,17 +1742,27 @@ PreferencesPopup::PreferencesPopup()
 
   // Category List
   QListWidget* categoryList = new QListWidget(this);
-  QStringList categories;
-  categories << tr("General") << tr("Interface") << tr("Preview/Render")
-             << tr("Load/Import") << tr("Saving") << tr("Decoder/Encoder")
-             << tr("Drawing") << tr("Tools") << tr("Xsheet") << tr("Onion Skin")
-             << tr("Animation") << tr("Auto Lip-Sync") << tr("Colors")
-             << tr("Vector Visualize") << tr("Version Control")
-             << tr("Touch/Tablet Settings") << tr("Cadmium") << tr("Diagnostics");
+  categoryList->setObjectName("preferencesCategories");
+  const auto categoryCaptions = []() {
+    QStringList categories;
+    categories << tr("General") << tr("Interface") << tr("Preview/Render")
+               << tr("Load/Import") << tr("Saving") << tr("Decoder/Encoder")
+               << tr("Drawing") << tr("Tools") << tr("Xsheet") << tr("Onion Skin")
+               << tr("Animation") << tr("Auto Lip-Sync") << tr("Colors")
+               << tr("Vector Visualize") << tr("Version Control")
+               << tr("Touch/Tablet Settings") << tr("Cadmium") << tr("Diagnostics");
 #ifdef _WIN32
-  categories << tr("Addons");
+    categories << tr("Addons");
 #endif
-  categoryList->addItems(categories);
+    return categories;
+  };
+  categoryList->addItems(categoryCaptions());
+  UiTranslations::onLanguageChanged(categoryList, [categoryList, categoryCaptions]() {
+    const QSignalBlocker blocker(categoryList);
+    const QStringList categories = categoryCaptions();
+    for (int index = 0; index < categoryList->count(); ++index)
+      categoryList->item(index)->setText(categories.at(index));
+  });
   categoryList->setFixedWidth(160);
   categoryList->setCurrentRow(0);
   categoryList->setAlternatingRowColors(true);
@@ -1855,35 +1886,36 @@ QWidget* PreferencesPopup::createGeneralPage() {
       tr("This option defines which alias to be used\nif both are possible on "
          "coding file path."));
   pathAliasPriorityCB->setItemData(0, QString(" "), Qt::ToolTipRole);
-  QString scenefolderTooltip =
-      tr("Choosing this option will set initial location of all file browsers "
-         "to $scenefolder.\n"
-         "Also the initial output destination for new scenes will be set to "
-         "$scenefolder as well.");
-  pathAliasPriorityCB->setItemData(1, scenefolderTooltip, Qt::ToolTipRole);
   pathAliasPriorityCB->setItemData(2, QString(" "), Qt::ToolTipRole);
-  QString autoBySceneToolTip =
-      tr("Automatically sets folder based on scene type:\n"
-         "Standalone -> $scenefolder\n"
-         "Project -> project folder aliases (+drawing...)");
-  pathAliasPriorityCB->setItemData(3, autoBySceneToolTip, Qt::ToolTipRole);
+  const auto updateAliasToolTips = [pathAliasPriorityCB]() {
+    const QSignalBlocker blocker(pathAliasPriorityCB);
+    const QSignalBlocker modelBlocker(pathAliasPriorityCB->model());
+    pathAliasPriorityCB->setItemData(
+        1, tr("Choosing this option will set initial location of all file browsers "
+              "to $scenefolder.\n"
+              "Also the initial output destination for new scenes will be set to "
+              "$scenefolder as well."), Qt::ToolTipRole);
+    pathAliasPriorityCB->setItemData(
+        3, tr("Automatically sets folder based on scene type:\n"
+              "Standalone -> $scenefolder\n"
+              "Project -> project folder aliases (+drawing...)"), Qt::ToolTipRole);
+  };
+  updateAliasToolTips();
+  UiTranslations::onLanguageChanged(pathAliasPriorityCB, updateAliasToolTips);
 
   QCheckBox* lazyLoadRoomsCheckBox = getUI<QCheckBox*>(lazyLoadRooms);
+  const auto updateLazyLoadToolTip = [lazyLoadRoomsCheckBox]() {
+    const bool enabled = Preferences::instance()->isLazyLoadRoomsEnabled();
+    const QString status = enabled ? tr("enabled") : tr("disabled");
+    const QString description = enabled ? tr("rooms will load on demand")
+                                        : tr("all rooms load at startup");
+    lazyLoadRoomsCheckBox->setToolTip(
+        tr("Lazy loading %1 - %2").arg(status).arg(description));
+  };
   connect(lazyLoadRoomsCheckBox, &QCheckBox::stateChanged,
-          [lazyLoadRoomsCheckBox](int state) {
-            QString status = Preferences::instance()->isLazyLoadRoomsEnabled()
-                                 ? tr("enabled")
-                                 : tr("disabled");
-            QString description =
-                Preferences::instance()->isLazyLoadRoomsEnabled()
-                    ? tr("rooms will load on demand")
-                    : tr("all rooms load at startup");
-            QString lazyLoadRoomsToolTip =
-                tr("Lazy loading %1 - %2").arg(status).arg(description);
-            lazyLoadRoomsCheckBox->setToolTip(lazyLoadRoomsToolTip);
-          });
-  lazyLoadRoomsCheckBox->stateChanged(
-      Preferences::instance()->isLazyLoadRoomsEnabled());
+          lazyLoadRoomsCheckBox, updateLazyLoadToolTip);
+  UiTranslations::onLanguageChanged(lazyLoadRoomsCheckBox, updateLazyLoadToolTip);
+  updateLazyLoadToolTip();
 
   m_onEditedFuncMap.insert(autosaveEnabled,
                            &PreferencesPopup::onAutoSaveChanged);

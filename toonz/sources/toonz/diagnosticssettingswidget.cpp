@@ -5,6 +5,7 @@
 #include <QComboBox>
 #include <QDesktopServices>
 #include <QEvent>
+#include <QFileInfo>
 #include <QFormLayout>
 #include <QLabel>
 #include <QPushButton>
@@ -93,7 +94,7 @@ void DiagnosticsSettingsWidget::refreshStatus() {
   m_status->setText(text);
   m_retry->setEnabled(m_service->isEnabled() &&
       (status.state == State::Locked || status.state == State::Error));
-  m_open->setEnabled(!m_service->directory().isEmpty());
+  m_open->setEnabled(QFileInfo(m_service->directory()).isDir());
   m_delete->setEnabled(!m_service->directory().isEmpty() &&
                       status.state != State::Starting);
 }

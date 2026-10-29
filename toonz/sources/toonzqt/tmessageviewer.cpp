@@ -1,3 +1,4 @@
+#include "toonzqt/uitranslations.h"
 #include "toonzqt/tmessageviewer.h"
 #include "toonzqt/dvdialog.h"
 
@@ -248,7 +249,7 @@ void TMessageViewer::retranslate() {
   m_greenCheck->setText(tr("Info"));
   m_clearButton->setText(tr("Clear"));
   const auto *repository = TMessageRepository::instance();
-  m_historyLabel->setText(tr("Recent history: %1 messages. Older messages discarded: %2.")
+  m_historyLabel->setText(UiTranslations::text(tr("Recent history: %1 messages. Older messages discarded: %2."))
                              .arg(repository->getModel()->rowCount())
                              .arg(repository->discardedCount()));
 }

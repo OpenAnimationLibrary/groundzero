@@ -12,6 +12,7 @@
 #include "stageobjectselection.h"
 #include "toonzqt/menubarcommand.h"
 #include "toonzqt/tselectionhandle.h"
+#include "toonzqt/uitranslations.h"
 
 // TnzLib includes
 #include "toonz/rigmapping.h"
@@ -52,6 +53,7 @@
 #include <QMessageBox>
 #include <QPushButton>
 #include <QRadioButton>
+#include <QSignalBlocker>
 #include <QTableWidget>
 #include <QVBoxLayout>
 
@@ -523,9 +525,11 @@ public:
     (RigMappingReplace != 0 ? m_replace : m_keep)->setChecked(true);
     m_plastic->setChecked(RigMappingPlastic != 0);
 
-    QDialogButtonBox *buttons = new QDialogButtonBox(
-        QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
-    buttons->button(QDialogButtonBox::Ok)->setText(tr("Apply"));
+    QDialogButtonBox *buttons =
+        new QDialogButtonBox(QDialogButtonBox::Cancel, this);
+    // A custom AcceptRole button keeps the Apply caption when Qt refreshes
+    // its standard button translations during a language change.
+    buttons->addButton(tr("Apply"), QDialogButtonBox::AcceptRole);
     QObject::connect(buttons, &QDialogButtonBox::accepted, this,
                      [this]() { onApply(); });
     QObject::connect(buttons, &QDialogButtonBox::rejected, this,
@@ -556,6 +560,7 @@ public:
 
     resize(720, 520);
     refresh();
+    UiTranslations::onLanguageChanged(this, [this]() { retranslateUi(); });
   }
 
   const RigParts &source() const { return m_source; }
@@ -603,7 +608,7 @@ private:
     return QString(part.m_depth * 3, QChar(' ')) + part.m_name;
   }
 
-  void refresh() {
+  void updateRigLabels() {
     m_sourceLabel->setText(
         tr("Source rig (the first selected, its animation is copied): "
            "<b>%1</b>")
@@ -613,6 +618,32 @@ private:
         tr("Target rig (receives the animation): <b>%1</b>")
             .arg(m_target.empty() ? QString()
                                   : m_target.front().m_name.toHtmlEscaped()));
+  }
+
+  void retranslateUi() {
+    updateRigLabels();
+    const QSignalBlocker tableSignals(m_table);
+    const QSignalBlocker modelSignals(m_table->model());
+    m_table->setHorizontalHeaderLabels(
+        {tr("Source Part"), tr("Target Part"), tr("Match"), tr("Animated Curves")});
+    for (int row = 0; row < int(m_combos.size()); ++row) {
+      QComboBox *combo = m_combos[row];
+      const QSignalBlocker comboSignals(combo);
+      const QSignalBlocker comboModelSignals(combo->model());
+      const int none = combo->findData(-1);
+      if (none >= 0) combo->setItemText(none, tr("(None)"));
+      combo->update();
+      combo->view()->viewport()->update();
+      // The user's chosen target and check state remain untouched. In
+      // particular, do not call refresh(), which rematches and rebuilds rows.
+      updateMatchText(row);
+    }
+    m_table->viewport()->update();
+    m_table->horizontalHeader()->viewport()->update();
+  }
+
+  void refresh() {
+    updateRigLabels();
 
     const std::vector<RigMapping::Pair> found =
         RigMapping::match(toNodes(m_source), toNodes(m_target));

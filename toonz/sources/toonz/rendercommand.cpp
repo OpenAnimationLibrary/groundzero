@@ -1,6 +1,7 @@
 
 
 // Tnz6 includes
+#include "toonzqt/uitranslations.h"
 #include "tapp.h"
 #include "mainwindow.h"
 #include "formatsettingspopups.h"
@@ -135,7 +136,7 @@ public:
     if (m_error) {
       m_error = false;
       DVGui::error(
-          QObject::tr("There was an error saving frames for the %1 level.")
+          UiTranslations::text(QObject::tr("There was an error saving frames for the %1 level."))
               .arg(QString::fromStdWString(
                   m_fp.withoutParentDir().getWideString())));
     }
@@ -156,8 +157,8 @@ public:
           m_fp = m_fp.withName(name.left(index).toStdWString());
 
         if (!TSystem::showDocument(m_fp)) {
-          QString msg(QObject::tr("It is not possible to display the file %1: "
-                                  "no player associated with its format")
+          QString msg(UiTranslations::text(QObject::tr("It is not possible to display the file %1: "
+                                  "no player associated with its format"))
                           .arg(QString::fromStdWString(
                               m_fp.withoutParentDir().getWideString())));
           DVGui::warning(msg);
@@ -331,7 +332,7 @@ sprop->getOutputProperties()->setRenderSettings(rso);*/
       DvDirModel::instance()->refreshFolder(parent.getParentDir());
     } catch (TException &e) {
       DVGui::warning(
-          QObject::tr("It is not possible to create folder : %1")
+          UiTranslations::text(QObject::tr("It is not possible to create folder : %1"))
               .arg(QString::fromStdString(::to_string(e.getMessage()))));
       return false;
     } catch (...) {
@@ -400,7 +401,7 @@ class RenderListener final : public DVGui::ProgressDialog,
         m_pb->hide();
       else {
         m_pb->setLabelText(
-            QObject::tr("Rendering frame %1 / %2", "RenderListener")
+            UiTranslations::text(QObject::tr("Rendering frame %1 / %2", "RenderListener"))
                 .arg(m_frame)
                 .arg(m_labelText));
         m_pb->setValue(m_frame);
@@ -412,9 +413,9 @@ public:
   RenderListener(TRenderer *renderer, const TFilePath &path, int steps,
                  bool isPreview)
       : DVGui::ProgressDialog(
-            QObject::tr("Precomputing %1 Frames", "RenderListener").arg(steps) +
+            UiTranslations::text(QObject::tr("Precomputing %1 Frames", "RenderListener")).arg(steps) +
                 ((isPreview) ? ""
-                             : QObject::tr(" of %1", "RenderListener")
+                             : UiTranslations::text(QObject::tr(" of %1", "RenderListener"))
                                    .arg(toQString(path))),
             QObject::tr("Cancel"), 0, steps, TApp::instance()->getMainWindow())
       , m_renderer(renderer)
@@ -432,7 +433,7 @@ public:
         QString::number(steps) +
         ((isPreview)
              ? ""
-             : QObject::tr(" of %1", "RenderListener").arg(toQString(path)));
+             : UiTranslations::text(QObject::tr(" of %1", "RenderListener")).arg(toQString(path)));
     // setMinimumDuration (0);
     m_totalFrames = steps;
     show();
@@ -664,8 +665,8 @@ class MultimediaProgressBar final : public DVGui::ProgressDialog,
                               "MultimediaProgressBar label (mode name)")
                 : QObject::tr("layer ",
                               "MultimediaProgressBar label (mode name)"));
-        m_pb->setLabelText(QObject::tr("Rendering %1%2, frame %3 / %4",
-                                       "MultimediaProgressBar label")
+        m_pb->setLabelText(UiTranslations::text(QObject::tr("Rendering %1%2, frame %3 / %4",
+                                       "MultimediaProgressBar label"))
                                .arg(modeStr)
                                .arg(m_column)
                                .arg(m_frame)
@@ -680,7 +681,7 @@ class MultimediaProgressBar final : public DVGui::ProgressDialog,
 public:
   MultimediaProgressBar(MultimediaRenderer *renderer)
       : ProgressDialog(
-            QObject::tr("Rendering %1 frames of %2", "MultimediaProgressBar")
+            UiTranslations::text(QObject::tr("Rendering %1 frames of %2", "MultimediaProgressBar"))
                 .arg(renderer->getFrameCount())
                 .arg(toQString(renderer->getFilePath())),
             QObject::tr("Cancel"), 0,
@@ -698,8 +699,8 @@ public:
 #endif
     setWindowFlags(Qt::WindowTitleHint | Qt::CustomizeWindowHint);
     m_progressBarString =
-        QObject::tr("%1 of %2",
-                    "MultimediaProgressBar - [totalframe] of [path]")
+        UiTranslations::text(QObject::tr("%1 of %2",
+                    "MultimediaProgressBar - [totalframe] of [path]"))
             .arg(m_renderer->getFrameCount())
             .arg(toQString(m_renderer->getFilePath()));
     show();

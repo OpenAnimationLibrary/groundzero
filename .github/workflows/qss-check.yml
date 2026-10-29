@@ -6,6 +6,7 @@ name: QSS Check
 # longer matches its LESS source, so the two cannot drift apart again. Each
 # stale stylesheet is reported as an annotation on its file.
 on:
+  workflow_dispatch:
   pull_request:
     paths:
       - 'stuff/config/qss/**'
@@ -40,6 +41,17 @@ jobs:
         run: npm install -g less@4
       - name: Generate stylesheets for review
         run: python3 ci-scripts/compile_qss.py
+      - name: Record generated Synthwave source output
+        run: |
+          python3 - <<'PY'
+          import base64, pathlib
+          data = pathlib.Path("stuff/config/qss/Synthwave/Synthwave.qss").read_bytes()
+          encoded = base64.b64encode(data).decode("ascii")
+          print("BEGIN-GENERATED-SYNTHWAVE")
+          for start in range(0, len(encoded), 1024):
+              print("QSS-DATA " + encoded[start:start + 1024])
+          print("END-GENERATED-SYNTHWAVE")
+          PY
       - name: Publish generated stylesheets
         uses: actions/upload-artifact@v4
         with:

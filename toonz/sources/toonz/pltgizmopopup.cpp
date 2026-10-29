@@ -1,5 +1,6 @@
 
 
+#include "toonzqt/uitranslations.h"
 #include "pltgizmopopup.h"
 
 // Tnz6 includes
@@ -159,7 +160,7 @@ public:
 
   QString getHistoryString() override {
     QString str =
-        QObject::tr("Palette Gizmo  %1")
+        UiTranslations::text(QObject::tr("Palette Gizmo  %1"))
             .arg(QString::fromStdWString(m_palette->getPaletteName()));
 
     TPalette::Page *page = m_palette->getPage(m_selection.getPageIndex());

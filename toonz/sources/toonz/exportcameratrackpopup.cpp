@@ -1,5 +1,6 @@
 
 
+#include "toonzqt/uitranslations.h"
 #include "exportcameratrackpopup.h"
 
 // Tnz6 includes
@@ -279,8 +280,10 @@ ExportCameraTrackPopup::ExportCameraTrackPopup()
   m_lineBL_CB               = new QCheckBox(tr("Bottom Left"), this);
   m_lineBR_CB               = new QCheckBox(tr("Bottom Right"), this);
   m_graduationIntervalCombo = new QComboBox(this);
+  UiTranslations::watchCombo(m_graduationIntervalCombo);
 
   m_numberAtCombo   = new QComboBox(this);
+  UiTranslations::watchCombo(m_numberAtCombo);
   m_numbersOnLineCB = new QCheckBox(tr("Draw Numbers On Track Line"), this);
   m_fontCombo       = new QFontComboBox(this);
   m_fontSizeEdit    = new DVGui::IntLineEdit(this, 30, 5, 300);
@@ -558,7 +561,7 @@ void ExportCameraTrackPopup::updateTargetColumnComboItems() {
     TXshSimpleLevelP sl = level->getSimpleLevel();
     if (!sl) continue;
 
-    QString itemName = tr("Col %1 (%2)")
+    QString itemName = UiTranslations::text(tr("Col %1 (%2)"))
                            .arg(col + 1)
                            .arg(QString::fromStdWString(sl->getName()));
 

@@ -312,6 +312,7 @@ ProjectPopup::ProjectPopup(bool isModal)
   m_acceptNonAlphabetSuffixCB =
       new CheckBox(tr("Accept Non-alphabet Suffix"), this);
   m_letterCountCombo = new QComboBox(this);
+  UiTranslations::watchCombo(m_letterCountCombo);
 
   QTabWidget *tabWidget = new QTabWidget(this);
 

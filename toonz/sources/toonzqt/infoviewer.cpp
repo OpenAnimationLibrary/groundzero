@@ -1,5 +1,6 @@
 
 
+#include "toonzqt/uitranslations.h"
 #include "toonzqt/infoviewer.h"
 #include "toonzqt/intfield.h"
 #include "tsystem.h"
@@ -567,7 +568,7 @@ bool InfoViewerImp::setItem(const TLevelP &level, TPalette *palette,
     assert(!m_level);
 
     if (!TSystem::doesExistFileOrLevel(m_path)) {
-      DVGui::warning(QObject::tr("The file %1 does not exist.")
+      DVGui::warning(UiTranslations::text(QObject::tr("The file %1 does not exist."))
                          .arg(QString::fromStdWString(path.getWideString())));
 
       return false;

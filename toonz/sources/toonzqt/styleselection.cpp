@@ -1,5 +1,6 @@
 
 
+#include "toonzqt/uitranslations.h"
 #include "toonzqt/styleselection.h"
 
 // TnzQt includes
@@ -317,7 +318,7 @@ public:
 
   int getSize() const override { return sizeof(*this); }
   QString getHistoryString() override {
-    return QObject::tr("Paste Style to Palette: %1")
+    return UiTranslations::text(QObject::tr("Paste Style to Palette: %1"))
         .arg(QString::fromStdWString(m_palette->getPaletteName()));
   }
   int getHistoryType() override { return HistoryType::Palette; }
@@ -393,7 +394,7 @@ public:
   int getSize() const override { return sizeof(*this); }
 
   QString getHistoryString() override {
-    return QObject::tr("Delete Style from Palette: %1")
+    return UiTranslations::text(QObject::tr("Delete Style from Palette: %1"))
         .arg(QString::fromStdWString(m_palette->getPaletteName()));
   }
   int getHistoryType() override { return HistoryType::Palette; }
@@ -462,7 +463,7 @@ public:
   int getSize() const override { return sizeof(*this); }
 
   QString getHistoryString() override {
-    return QObject::tr("Cut Style from Palette: %1")
+    return UiTranslations::text(QObject::tr("Cut Style from Palette: %1"))
         .arg(QString::fromStdWString(m_palette->getPaletteName()));
   }
   int getHistoryType() override { return HistoryType::Palette; }
@@ -759,11 +760,11 @@ void TStyleSelection::eraseUnusedStyle() {
     indicesStr.chop(2);
   else
     indicesStr.append(
-        QObject::tr("and %1 more styles.").arg(QString::number(count - 10)));
+        UiTranslations::text(QObject::tr("and %1 more styles.")).arg(QString::number(count - 10)));
   // open confirmation popup
   QString question =
-      QObject::tr(
-          "Erasing unused styles with following indices. Are you sure?\n\n%1")
+      UiTranslations::text(QObject::tr(
+          "Erasing unused styles with following indices. Are you sure?\n\n%1"))
           .arg(indicesStr);
   int ret =
       DVGui::MsgBox(question, QObject::tr("Erase"), QObject::tr("Cancel"), 0);
@@ -1029,16 +1030,16 @@ public:
 
   QString getHistoryString() override {
     QString palNameStr =
-        QObject::tr(" to Palette: %1")
+        UiTranslations::text(QObject::tr(" to Palette: %1"))
             .arg(QString::fromStdWString(m_palette->getPaletteName()));
     if (m_pasteName && m_pasteColor)
-      return QObject::tr("Paste Color && Name%1").arg(palNameStr);
+      return UiTranslations::text(QObject::tr("Paste Color && Name%1")).arg(palNameStr);
     else if (m_pasteName && !m_pasteColor)
-      return QObject::tr("Paste Name%1").arg(palNameStr);
+      return UiTranslations::text(QObject::tr("Paste Name%1")).arg(palNameStr);
     else if (!m_pasteName && m_pasteColor)
-      return QObject::tr("Paste Color%1").arg(palNameStr);
+      return UiTranslations::text(QObject::tr("Paste Color%1")).arg(palNameStr);
     else
-      return QObject::tr("Paste%1").arg(palNameStr);
+      return UiTranslations::text(QObject::tr("Paste%1")).arg(palNameStr);
   }
   int getHistoryType() override { return HistoryType::Palette; }
 };
@@ -1303,7 +1304,7 @@ public:
   }
 
   QString getHistoryString() override {
-    return QObject::tr("Blend Colors in Palette: %1")
+    return UiTranslations::text(QObject::tr("Blend Colors in Palette: %1"))
         .arg(QString::fromStdWString(m_palette->getPaletteName()));
   }
   int getHistoryType() override { return HistoryType::Palette; }
@@ -1433,7 +1434,7 @@ public:
   int getSize() const override { return sizeof(*this); }
 
   QString getHistoryString() override {
-    return QObject::tr("Toggle Link in Palette: %1")
+    return UiTranslations::text(QObject::tr("Toggle Link in Palette: %1"))
         .arg(QString::fromStdWString(m_palette->getPaletteName()));
   }
   int getHistoryType() override { return HistoryType::Palette; }
@@ -1631,7 +1632,7 @@ public:
   int getSize() const override { return sizeof(*this); }
 
   QString getHistoryString() override {
-    return QObject::tr("Remove Reference in Palette: %1")
+    return UiTranslations::text(QObject::tr("Remove Reference in Palette: %1"))
         .arg(QString::fromStdWString(m_palette->getPaletteName()));
   }
   int getHistoryType() override { return HistoryType::Palette; }

@@ -1,3 +1,4 @@
+#include "toonzqt/uitranslations.h"
 #include <QtGlobal>
 
 #include "dvdirtreeview.h"
@@ -481,7 +482,7 @@ void DvDirTreeView::dropEvent(QDropEvent *e) {
         TSystem::removeFileOrLevel(srcFp);
         FileBrowser::refreshFolder(srcFp.getParentDir());
       } else {
-        DVGui::error(tr("There was an error copying %1 to %2")
+        DVGui::error(UiTranslations::text(tr("There was an error copying %1 to %2"))
                          .arg(toQString(srcFp))
                          .arg(toQString(dstFp)));
       }

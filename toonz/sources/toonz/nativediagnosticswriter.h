@@ -22,6 +22,7 @@ struct Status {
   quint64 dropped = 0;
   size_t queued = 0;
   size_t queuedBytes = 0;
+  size_t pendingChanges = 0;
 };
 
 // Production defaults retain one 5 MiB file and three rotated backups.

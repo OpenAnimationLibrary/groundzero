@@ -1,4 +1,5 @@
-﻿#include "brushpresetpanel.h"
+﻿#include "toonzqt/uitranslations.h"
+#include "brushpresetpanel.h"
 
 // Standard includes
 #include <cmath>
@@ -2110,7 +2111,7 @@ void BrushPresetPanel::removeCurrentPreset() {
   // Ask for confirmation
   int ret = QMessageBox::question(
       this, tr("Remove Preset"),
-      tr("Are you sure you want to remove the preset '%1'?").arg(m_currentPreset),
+      UiTranslations::text(tr("Are you sure you want to remove the preset '%1'?")).arg(m_currentPreset),
       QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
   
   if (ret != QMessageBox::Yes) return;
@@ -2622,7 +2623,7 @@ void BrushPresetPanel::contextMenuEvent(QContextMenuEvent *event) {
   // Paste action (available when clipboard has content, even on empty page)
   if (!m_clipboardPresets.isEmpty()) {
     QAction *pasteAction = menu->addAction(
-        tr("Paste (%1 preset(s))").arg(m_clipboardPresets.size()));
+        UiTranslations::text(tr("Paste (%1 preset(s))")).arg(m_clipboardPresets.size()));
     connect(pasteAction, &QAction::triggered, [this]() {
       pastePresetsToCurrentPage();
     });
@@ -2833,7 +2834,7 @@ void BrushPresetPanel::showPresetContextMenu(const QPoint &globalPos, const QStr
   
   // Copy
   QAction *copyAction = menu.addAction(
-      selCount > 1 ? tr("Copy %1 Presets").arg(selCount) : tr("Copy"));
+      selCount > 1 ? UiTranslations::text(tr("Copy %1 Presets")).arg(selCount) : tr("Copy"));
   connect(copyAction, &QAction::triggered, [this, effectiveSelection]() {
     m_clipboardPresets = effectiveSelection;
     m_clipboardIsCut = false;
@@ -2841,7 +2842,7 @@ void BrushPresetPanel::showPresetContextMenu(const QPoint &globalPos, const QStr
   
   // Cut
   QAction *cutAction = menu.addAction(
-      selCount > 1 ? tr("Cut %1 Presets").arg(selCount) : tr("Cut"));
+      selCount > 1 ? UiTranslations::text(tr("Cut %1 Presets")).arg(selCount) : tr("Cut"));
   connect(cutAction, &QAction::triggered, [this, effectiveSelection]() {
     m_clipboardPresets = effectiveSelection;
     m_clipboardIsCut = true;
@@ -2850,7 +2851,7 @@ void BrushPresetPanel::showPresetContextMenu(const QPoint &globalPos, const QStr
   // Paste (only if clipboard has content)
   if (!m_clipboardPresets.isEmpty()) {
     QAction *pasteAction = menu.addAction(
-        tr("Paste (%1)").arg(m_clipboardPresets.size()));
+        UiTranslations::text(tr("Paste (%1)")).arg(m_clipboardPresets.size()));
     connect(pasteAction, &QAction::triggered, [this]() {
       pastePresetsToCurrentPage();
     });
@@ -2860,12 +2861,12 @@ void BrushPresetPanel::showPresetContextMenu(const QPoint &globalPos, const QStr
   
   // Delete
   QAction *deleteAction = menu.addAction(
-      selCount > 1 ? tr("Delete %1 Presets").arg(selCount) : tr("Delete"));
+      selCount > 1 ? UiTranslations::text(tr("Delete %1 Presets")).arg(selCount) : tr("Delete"));
   connect(deleteAction, &QAction::triggered, [this, effectiveSelection]() {
     // Confirm
     int ret = QMessageBox::question(
         this, tr("Delete Presets"),
-        tr("Are you sure you want to permanently delete %1 preset(s)?")
+        UiTranslations::text(tr("Are you sure you want to permanently delete %1 preset(s)?"))
             .arg(effectiveSelection.size()),
         QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
     if (ret != QMessageBox::Yes) return;
@@ -3168,7 +3169,7 @@ void BrushPresetPanel::deleteSelectedPresets() {
   
   int ret = QMessageBox::question(
       this, tr("Delete Presets"),
-      tr("Are you sure you want to permanently delete %1 preset(s)?")
+      UiTranslations::text(tr("Are you sure you want to permanently delete %1 preset(s)?"))
           .arg(toDelete.size()),
       QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
   if (ret != QMessageBox::Yes) return;
@@ -3298,7 +3299,7 @@ void BrushPresetPanel::addNewPage() {
   
   // Generate new page name
   int pageNum = m_tabBar->count() + 1;
-  QString newPageName = tr("Page %1").arg(pageNum);
+  QString newPageName = UiTranslations::text(tr("Page %1")).arg(pageNum);
   
   // Create new page object
   QList<BrushPresetPage*> &pages = m_pages[m_currentToolType];
@@ -3337,10 +3338,10 @@ void BrushPresetPanel::deletePage(int pageIndex) {
   // Confirm deletion with accurate information
   QString message;
   if (pagePresets.isEmpty()) {
-    message = tr("Are you sure you want to delete the page '%1'?").arg(pageName);
+    message = UiTranslations::text(tr("Are you sure you want to delete the page '%1'?")).arg(pageName);
   } else {
-    message = tr("Are you sure you want to delete the page '%1'?\n"
-                 "This will permanently delete %2 preset(s) contained in this page.")
+    message = UiTranslations::text(tr("Are you sure you want to delete the page '%1'?\n"
+                 "This will permanently delete %2 preset(s) contained in this page."))
               .arg(pageName).arg(pagePresets.size());
   }
   

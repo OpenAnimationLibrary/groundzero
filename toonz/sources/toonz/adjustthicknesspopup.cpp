@@ -1,5 +1,6 @@
 
 
+#include "toonzqt/uitranslations.h"
 #include "adjustthicknesspopup.h"
 
 // Tnz6 includes
@@ -698,6 +699,7 @@ AdjustThicknessPopup::AdjustThicknessPopup()
   topLayout->addWidget(new QLabel(tr("Mode:")), row, 1, Qt::AlignRight);
 
   m_thicknessMode = new QComboBox;
+  UiTranslations::watchCombo(m_thicknessMode);
   topLayout->addWidget(m_thicknessMode, row++, 2, Qt::AlignLeft);
 
   m_thicknessMode->addItems(QStringList() << tr("Scale Thickness")

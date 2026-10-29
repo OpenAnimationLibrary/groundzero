@@ -69,6 +69,7 @@ private:
                         bool restoring, quint64 epoch);
   void refresh();
   void refreshPreview();
+  void updateJobCaptions();
   void inspectDrawing();
   void updateProposalPreview();
   void showRegionMenu(int region, const QPoint &globalPosition);

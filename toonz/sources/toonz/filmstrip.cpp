@@ -1,3 +1,4 @@
+#include "toonzqt/uitranslations.h"
 #include "cadmiumsource.h"
 
 
@@ -2893,7 +2894,7 @@ int InbetweenDialog::getIndex(const QString &text) {
 //-----------------------------------------------------------------------------
 
 void InbetweenDialog::setStrokePairCount(int count) {
-  m_strokePairsCB->setText(tr("Use Stroke Pairs (%1)").arg(count));
+  m_strokePairsCB->setText(UiTranslations::text(tr("Use Stroke Pairs (%1)")).arg(count));
   m_strokePairsCB->setVisible(count > 0);
 }
 
@@ -2906,7 +2907,7 @@ bool InbetweenDialog::useStrokePairs() const {
 //-----------------------------------------------------------------------------
 
 void InbetweenDialog::setZoneHintCount(int count) {
-  m_zoneHintsCB->setText(tr("Use Zone Hints (%1)").arg(count));
+  m_zoneHintsCB->setText(UiTranslations::text(tr("Use Zone Hints (%1)")).arg(count));
   m_zoneHintsCB->setVisible(count > 0);
 }
 

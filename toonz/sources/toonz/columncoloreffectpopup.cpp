@@ -6,6 +6,7 @@
 // TnzQt includes
 #include "toonzqt/colorfield.h"
 #include "toonzqt/doublefield.h"
+#include "toonzqt/uitranslations.h"
 
 // TnzLib includes
 #include "toonz/columncoloreffect.h"
@@ -134,6 +135,7 @@ class ColorEffectDialog final : public QDialog {
   QCheckBox *m_keyCheck;
   QPushButton *m_advancedButton;
   QGroupBox *m_advancedBox;
+  QString m_columnName;
 
   EffectState m_before;  //!< The parameters when the current edit started
   bool m_editing  = false;
@@ -275,6 +277,12 @@ ColorEffectDialog::ColorEffectDialog(QWidget *parent) : QDialog(parent) {
     m_before.clear();
     hide();
   });
+  // Do not call refresh() here: it writes numeric controls and could replace
+  // an in-progress value edit. Static captions are tracked independently.
+  UiTranslations::onLanguageChanged(this, [this]() {
+    setWindowTitle(m_columnName.isEmpty() ? tr("Color Effect")
+        : tr("Color Effect: %1").arg(m_columnName));
+  });
 }
 
 //-----------------------------------------------------------------------------
@@ -293,6 +301,7 @@ void ColorEffectDialog::setColumn(TXshColumn *column) {
   }
   setWindowTitle(name.isEmpty() ? tr("Color Effect")
                                 : tr("Color Effect: %1").arg(name));
+  m_columnName = name;
 
   // Show the advanced values when they are used
   bool advanced = false;

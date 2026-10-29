@@ -1,3 +1,4 @@
+#include "toonzqt/uitranslations.h"
 #include "tvpjson_io.h"
 
 #include "tsystem.h"
@@ -500,7 +501,7 @@ void ExportTvpJsonCommand::execute() {
   QByteArray jsonByteArrayData = saveDoc.toJson();
   saveFile.write(jsonByteArrayData);
 
-  QString str = QObject::tr("The file %1 has been exported successfully.")
+  QString str = UiTranslations::text(QObject::tr("The file %1 has been exported successfully."))
                     .arg(QString::fromStdString(fp.getLevelName()));
 
   std::vector<QString> buttons = {QObject::tr("OK"),

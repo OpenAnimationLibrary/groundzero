@@ -1,3 +1,4 @@
+#include "toonzqt/uitranslations.h"
 #include "boardsettingspopup.h"
 
 // Tnz6 includes
@@ -346,6 +347,7 @@ ItemInfoView::ItemInfoView(QWidget* parent) : QStackedWidget(parent) {
   m_nameEdit        = new QLineEdit(this);
   m_maxFontSizeEdit = new DVGui::IntLineEdit(this, 1, 1);
   m_typeCombo       = new QComboBox(this);
+  UiTranslations::watchCombo(m_typeCombo);
   m_textEdit        = new QTextEdit(this);
   m_imgPathField    = new DVGui::FileField(this);
   m_fontCombo       = new QFontComboBox(this);
@@ -354,6 +356,7 @@ ItemInfoView::ItemInfoView(QWidget* parent) : QStackedWidget(parent) {
   m_fontColorField =
       new DVGui::ColorField(this, true, TPixel32(0, 0, 0, 255), 25, false, 54);
   m_imgARModeCombo = new QComboBox(this);
+  UiTranslations::watchCombo(m_imgARModeCombo);
 
   m_fontPropBox = new QWidget(this);
   m_imgPropBox  = new QWidget(this);
@@ -1079,7 +1082,7 @@ void BoardSettingsPopup::onLoadPreset() {
   } catch (const TSystemException& se) {
     DVGui::warning(QString::fromStdWString(se.getMessage()));
   } catch (...) {
-    DVGui::error(QObject::tr("Couldn't load %1").arg(fp.getQString()));
+    DVGui::error(UiTranslations::text(QObject::tr("Couldn't load %1")).arg(fp.getQString()));
   }
 
   initialize();
@@ -1116,7 +1119,7 @@ void BoardSettingsPopup::onSavePreset() {
   } catch (const TSystemException& se) {
     DVGui::warning(QString::fromStdWString(se.getMessage()));
   } catch (...) {
-    DVGui::error(QObject::tr("Couldn't save %1").arg(fp.getQString()));
+    DVGui::error(UiTranslations::text(QObject::tr("Couldn't save %1")).arg(fp.getQString()));
   }
 }
 
@@ -1208,7 +1211,7 @@ void BoardSettingsPopup::onExportBoardImage() {
   }
 
   if (TSystem::doesExistFileOrLevel(fp)) {
-    QString question(tr("File %1 already exists.\nDo you want to overwrite it?")
+    QString question(UiTranslations::text(tr("File %1 already exists.\nDo you want to overwrite it?"))
                          .arg(toQString(fp)));
     int ret = DVGui::MsgBox(question, QObject::tr("Overwrite"),
                             QObject::tr("Cancel"));

@@ -1,5 +1,6 @@
 
 
+#include "toonzqt/uitranslations.h"
 #include "toonzqt/stageschematicscene.h"
 
 // TnzQt includes
@@ -1394,9 +1395,9 @@ void StageSchematicScene::applyRigView() {
       else
         for (const auto &info : rigChannels)
           if (info.m_channel == port.m_channel) channelName = tr(info.m_label);
-      QString toolTip = tr("%1 (%2): click to select the channel in the "
+      QString toolTip = UiTranslations::text(tr("%1 (%2): click to select the channel in the "
                            "Function Editor, double click to set its value "
-                           "at the current frame")
+                           "at the current frame"))
                             .arg(name)
                             .arg(channelName);
       RigBadgeItem *row = new RigBadgeItem(node, getPublishedChannelText(id, i),
@@ -1562,7 +1563,7 @@ void StageSchematicScene::editPublishedChannel(const TStageObjectId &id,
   QWidget *parent = views().isEmpty() ? 0 : views()[0];
   double newValue = QInputDialog::getDouble(
       parent, tr("Published Channel"),
-      tr("%1 at frame %2%3:")
+      UiTranslations::text(tr("%1 at frame %2%3:"))
           .arg(name)
           .arg(frame + 1)
           .arg(unitName.isEmpty() ? QString() : " (" + unitName + ")"),

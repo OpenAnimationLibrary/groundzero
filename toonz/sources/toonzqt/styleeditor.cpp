@@ -1,5 +1,6 @@
 
 
+#include "toonzqt/uitranslations.h"
 #include "toonzqt/styleeditor.h"
 
 // TnzQt includes
@@ -137,9 +138,9 @@ public:
   }
 
   QString getHistoryString() override {
-    return QObject::tr(
+    return UiTranslations::text(QObject::tr(
                "Change Style   Palette : %1  Style#%2  [R%3 G%4 B%5] -> [R%6 "
-               "G%7 B%8]")
+               "G%7 B%8]"))
         .arg(QString::fromStdWString(m_palette->getPaletteName()))
         .arg(QString::number(m_styleId))
         .arg(m_oldColor->getMainColor().r)
@@ -2914,7 +2915,7 @@ void SettingsPage::onMyPaintSaveAs() {
   if (!QDir().mkpath(customDir.getQString())) {
     QMessageBox::warning(
         this, tr("Save MyPaint Brush As"),
-        tr("The Custom MyPaint brush folder could not be created: %1")
+        UiTranslations::text(tr("The Custom MyPaint brush folder could not be created: %1"))
             .arg(customDir.getQString()));
     return;
   }

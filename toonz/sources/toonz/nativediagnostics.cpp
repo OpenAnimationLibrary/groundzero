@@ -102,9 +102,9 @@ void NativeDiagnostics::initialize(const QString &settingsFile,
   if (m_initialized || m_stopped) return;
   m_initialized = true;
   m_settings.reset(new QSettings(settingsFile, QSettings::IniFormat));
+  const QString localData = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
   m_directory = logDirectory.isEmpty()
-      ? QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation) +
-            "/diagnostics"
+      ? (localData.isEmpty() ? QString() : localData + "/diagnostics")
       : logDirectory;
   m_privatePaths = QStringList{QDir::homePath()};
   m_historyLimit = std::max(100, std::min(10000,

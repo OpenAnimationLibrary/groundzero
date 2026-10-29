@@ -1,3 +1,4 @@
+#include "toonzqt/uitranslations.h"
 #include "colormodelbehaviorpopup.h"
 
 #include "toonzqt/colorfield.h"
@@ -88,6 +89,7 @@ ColorModelBehaviorPopup::ColorModelBehaviorPopup(
     pickColorBox = new QGroupBox(tr("Picking Colors from Raster Image"), this);
 
     m_pickColorCombo         = new QComboBox(this);
+    UiTranslations::watchCombo(m_pickColorCombo);
     m_colorChipBehaviorFrame = new QFrame(this);
     m_colorChipGridColor =
         new DVGui::ColorField(this, false, TPixel32::Magenta, 40, false);

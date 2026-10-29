@@ -10,6 +10,7 @@
 #include <tuple>
 #include <utility>
 class QComboBox;
+class QTabBar;
 
 #undef DVAPI
 #ifdef TOONZQT_EXPORTS
@@ -39,6 +40,10 @@ DVAPI void initialize();
 // Only call for a combo's private, presentation-only item model. Scene,
 // project, preset and other data-backed selectors must refresh explicitly.
 DVAPI void watchCombo(QComboBox *combo);
+// Opt in native caption tabs only; document and room names are user data.
+DVAPI void watchTabBar(QTabBar *tabs);
+// Used by lifecycle diagnostics and regression coverage.
+DVAPI std::size_t retainedCaptionCount();
 
 inline QString ownArgument(const char *value) {
   return QString::fromUtf8(value ? value : "");
@@ -65,6 +70,13 @@ public:
   Text(const QString &value) : QString(value), m_translate(recipe(value)) {}
   Text(const QString &value, Recipe translate)
       : QString(remember(value, translate)), m_translate(std::move(translate)) {}
+
+  Text appended(const QString &suffix) const {
+    QString value = QString(*this) + suffix;
+    if (!m_translate) return Text(value);
+    auto translate = m_translate;
+    return Text(value, [translate, suffix]() { return translate() + suffix; });
+  }
 
   template <typename... Args> Text arg(Args... args) const {
     QString value = QString::arg(args...);

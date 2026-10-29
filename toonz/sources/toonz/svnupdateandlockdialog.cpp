@@ -1,5 +1,6 @@
 
 
+#include "toonzqt/uitranslations.h"
 #include "svnupdateandlockdialog.h"
 
 // Tnz6 includes
@@ -161,7 +162,7 @@ void SVNUpdateAndLockDialog::onStatusRetrieved(const QString &xmlResponse) {
     m_waitingLabel->hide();
 
     m_textLabel->setText(
-        tr("%1 items to edit.").arg(m_filesToEdit.size() - m_sceneIconAdded));
+        UiTranslations::text(tr("%1 items to edit.")).arg(m_filesToEdit.size() - m_sceneIconAdded));
     m_lockButton->show();
     m_updateAndLockButton->show();
   }
@@ -245,7 +246,7 @@ void SVNUpdateAndLockDialog::onSceneResourcesStatusRetrieved(
 void SVNUpdateAndLockDialog::updateCommand() {
   m_commentLabel->hide();
   m_commentTextEdit->hide();
-  m_textLabel->setText(tr("Updating %1 items...")
+  m_textLabel->setText(UiTranslations::text(tr("Updating %1 items..."))
                            .arg(m_filesToEdit.size() + m_sceneResources.size() -
                                 m_sceneIconAdded));
   m_waitingLabel->show();
@@ -282,7 +283,7 @@ void SVNUpdateAndLockDialog::onUpdateDone() {
 
 void SVNUpdateAndLockDialog::lockCommand() {
   m_textLabel->setText(
-      tr("Editing %1 items...").arg(m_filesToEdit.size() - m_sceneIconAdded));
+      UiTranslations::text(tr("Editing %1 items...")).arg(m_filesToEdit.size() - m_sceneIconAdded));
 
   // Step 2: lock
   QStringList args;
@@ -358,7 +359,7 @@ void SVNUpdateAndLockDialog::onEditSceneContentsToggled(bool checked) {
     }
   }
 
-  m_textLabel->setText(tr("%1 items to edit.")
+  m_textLabel->setText(UiTranslations::text(tr("%1 items to edit."))
                            .arg(m_filesToEdit.size() + m_sceneResources.size() -
                                 m_sceneIconAdded));
 }

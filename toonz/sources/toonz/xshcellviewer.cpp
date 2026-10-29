@@ -1,3 +1,4 @@
+#include "toonzqt/uitranslations.h"
 #include "xshcellviewer.h"
 
 // Tnz6 includes
@@ -516,7 +517,7 @@ public:
   int getSize() const override { return sizeof *this; }
 
   QString getHistoryString() override {
-    return QObject::tr("Rename Cell  at Column %1  Frame %2")
+    return UiTranslations::text(QObject::tr("Rename Cell  at Column %1  Frame %2"))
         .arg(QString::number(m_col + 1))
         .arg(QString::number(m_row + 1));
   }
@@ -565,7 +566,7 @@ public:
   int getSize() const override { return sizeof *this; }
 
   QString getHistoryString() override {
-    return QObject::tr("Change Text at Column %1  Frame %2")
+    return UiTranslations::text(QObject::tr("Change Text at Column %1  Frame %2"))
         .arg(QString::number(m_col + 1))
         .arg(QString::number(m_row + 1));
   }
@@ -625,7 +626,7 @@ QString SetCellMarkUndo::getHistoryString() {
                    ->getProperties()
                    ->getCellMark(m_idAfter)
                    .name;
-  return QObject::tr("Set Cell Mark at Column %1  Frame %2 to %3")
+  return UiTranslations::text(QObject::tr("Set Cell Mark at Column %1  Frame %2 to %3"))
       .arg(QString::number(m_col + 1))
       .arg(QString::number(m_row + 1))
       .arg(markName);
@@ -3210,7 +3211,7 @@ public:
   int getSize() const override { return sizeof *this; }
 
   QString getHistoryString() override {
-    return QObject::tr("Toggle cycle of  %1")
+    return UiTranslations::text(QObject::tr("Toggle cycle of  %1"))
         .arg(QString::fromStdString(m_pegbar->getName()));
   }
   int getHistoryType() override { return HistoryType::Xsheet; }
@@ -4272,7 +4273,7 @@ void CellArea::createKeyLineMenu(QMenu &menu, int row, int col) {
   int i;
   for (i = 1; i <= 4; i++) {
     QAction *act =
-        new QAction(tr("Interpolation on %1's").arg(QString::number(i)), this);
+        new QAction(UiTranslations::text(tr("Interpolation on %1's")).arg(QString::number(i)), this);
     // if (paramStep == i) act->setEnabled(false);
     QList<QVariant> list;
     list.append(QVariant(i));

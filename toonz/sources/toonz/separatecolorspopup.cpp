@@ -1,3 +1,4 @@
+#include "toonzqt/uitranslations.h"
 #include "separatecolorspopup.h"
 
 #include "separatecolorsswatch.h"
@@ -1017,7 +1018,7 @@ void SeparateColorsPopup::setFiles(const std::vector<TFilePath>& fps) {
     for (int f = 0; f < frames.size(); f++)
       m_srcFrames.append(qMakePair(fps[0], frames[f]));
   } else {
-    setWindowTitle(tr("Separate %1 Levels").arg(m_srcFilePaths.size()));
+    setWindowTitle(UiTranslations::text(tr("Separate %1 Levels")).arg(m_srcFilePaths.size()));
     m_fromFld->setText("");
     m_toFld->setText("");
     m_fromFld->setEnabled(false);
@@ -1700,7 +1701,7 @@ void SeparateColorsPopup::separate() {
       from  = m_fromFld->text().toInt();
       to    = m_toFld->text().toInt();
       label = QString(
-          tr("Separating %1")
+          UiTranslations::text(tr("Separating %1"))
               .arg(QString::fromStdString(m_srcFilePaths[i].getLevelName())));
     } else {
       TLevelP levelTmp;
@@ -1709,7 +1710,7 @@ void SeparateColorsPopup::separate() {
       from  = 1;
       to    = levelTmp->getFrameCount();
       label = QString(
-          tr("Converting level %1 of %2: %3")
+          UiTranslations::text(tr("Converting level %1 of %2: %3"))
               .arg(i + 1)
               .arg(m_srcFilePaths.size())
               .arg(QString::fromStdString(m_srcFilePaths[i].getLevelName())));
@@ -1857,7 +1858,7 @@ void SeparateColorsPopup::doLoadSettings(const TFilePath& fp, bool loadAll) {
   QSettings settings(fp.getQString(), QSettings::IniFormat);
   if (!settings.childGroups().contains("SeparateColorsParameters")) {
     DVGui::error(
-        tr("Failed to load %1.").arg(fp.withoutParentDir().getQString()));
+        UiTranslations::text(tr("Failed to load %1.")).arg(fp.withoutParentDir().getQString()));
     return;
   }
 

@@ -95,13 +95,23 @@ jobs:
         QT_QPA_PLATFORM=xcb LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a ctest --output-on-failure --no-tests=error -R '^cadmium_'
 
     - name: Test native UI features
+      id: ui_tests
       working-directory: toonz/build
       run: |
         set -o pipefail
         QT_QPA_PLATFORM=xcb LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a ctest --output-on-failure --output-junit ui-tests.xml --no-tests=error -R '^ui_' 2>&1 | tee ui-tests-output.txt
 
+    - name: Test native application integration
+      id: ui_integration
+      run: |
+        QT_QPA_PLATFORM=xcb xvfb-run -a python3 ci-scripts/run_native_ui_test.py toonz/build/bin/OpenToonz stuff --output toonz/build/ui-integration-output.txt
+
+    - name: Report native application integration failure
+      if: ${{ failure() && steps.ui_integration.outcome == 'failure' }}
+      run: python3 ci-scripts/report_ui_tests.py toonz/build/ui-integration-output.txt
+
     - name: Report native UI failures
-      if: failure()
+      if: ${{ failure() && steps.ui_tests.outcome == 'failure' }}
       run: python3 ci-scripts/report_ui_tests.py toonz/build/ui-tests-output.txt
 
     - name: Diagnose cel UI crash

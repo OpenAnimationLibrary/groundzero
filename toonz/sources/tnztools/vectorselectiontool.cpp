@@ -1,5 +1,6 @@
 
 
+#include "toonzqt/uitranslations.h"
 #include "vectorselectiontool.h"
 
 // TnzTools includes
@@ -1472,7 +1473,7 @@ public:
   ~UndoReorderStrokes() {}
 
   QString getHistoryString() {
-    return QObject::tr("Sort Vector Strokes With Palette Order Level : %1")
+    return UiTranslations::text(QObject::tr("Sort Vector Strokes With Palette Order Level : %1"))
         .arg(QString::fromStdWString(m_level->getName()));
   }
 

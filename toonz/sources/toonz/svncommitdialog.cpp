@@ -1,5 +1,6 @@
 
 
+#include "toonzqt/uitranslations.h"
 #include "svncommitdialog.h"
 
 // Tnz6 includes
@@ -231,7 +232,7 @@ void SVNCommitDialog::addFiles() {
   int fileToAddCount = m_filesToAdd.size();
   if (fileToAddCount + m_sceneResourcesToCommit.size() > 0) {
     m_textLabel->setText(
-        tr("Adding %1 items...")
+        UiTranslations::text(tr("Adding %1 items..."))
             .arg(QString::number(fileToAddCount - m_sceneIconAdded)));
 
     QStringList args;
@@ -416,7 +417,7 @@ void SVNCommitDialog::onAddDone() {
     int fileToCommitCount = m_filesToCommit.size();
     if (fileToCommitCount > 0)
       m_textLabel->setText(
-          tr("Committing %1 items...")
+          UiTranslations::text(tr("Committing %1 items..."))
               .arg(QString::number(fileToCommitCount - m_sceneIconAdded)));
     // Then we commit changes (add, remove, modified files)
     commitFiles();
@@ -459,7 +460,7 @@ void SVNCommitDialog::onSetPropertyDone() {
         commitCount--;
     }
     m_textLabel->setText(
-        tr("Committing %1 items...").arg(QString::number(commitCount)));
+        UiTranslations::text(tr("Committing %1 items...")).arg(QString::number(commitCount)));
   }
 
   // Then we commit changes (add, remove, modified files)
@@ -515,7 +516,7 @@ void SVNCommitDialog::onStatusRetrieved(const QString &xmlResponse) {
       switchToCloseButton();
     } else {
       m_textLabel->setText(
-          tr("%1 items to commit.").arg(filesToPutCount - m_sceneIconAdded));
+          UiTranslations::text(tr("%1 items to commit.")).arg(filesToPutCount - m_sceneIconAdded));
 
       initTreeWidget();
 
@@ -819,7 +820,7 @@ void SVNCommitDialog::onSelectionCheckBoxClicked(bool checked) {
     }
   }
 
-  m_selectionLabel->setText(tr("%1 Selected / %2 Total")
+  m_selectionLabel->setText(UiTranslations::text(tr("%1 Selected / %2 Total"))
                                 .arg(checked ? totalCount : 0)
                                 .arg(totalCount));
 }
@@ -839,7 +840,7 @@ void SVNCommitDialog::updateTreeSelectionLabel() {
     }
   }
   m_selectionLabel->setText(
-      tr("%1 Selected / %2 Total").arg(selectedCount).arg(totalCount));
+      UiTranslations::text(tr("%1 Selected / %2 Total")).arg(selectedCount).arg(totalCount));
   m_commitButton->setEnabled(selectedCount != 0);
 }
 
@@ -921,7 +922,7 @@ void SVNCommitDialog::onCommitSceneContentsToggled(bool checked) {
       }
     }
   }
-  m_textLabel->setText(tr("%1 items to commit.")
+  m_textLabel->setText(UiTranslations::text(tr("%1 items to commit."))
                            .arg(m_filesToPut.size() +
                                 m_sceneResourcesToCommit.size() -
                                 m_sceneIconAdded));

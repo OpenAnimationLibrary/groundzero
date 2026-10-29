@@ -15,6 +15,10 @@
 #include "cadmiumruntime.h"
 #include "nativediagnostics.h"
 #include "themeapplication.h"
+#include <QDir>
+#ifdef BUILD_UI_PORT_TESTS
+#include "nativeuiintegrationtest.h"
+#endif
 
 // TnzTools includes
 #include "tools/tool.h"
@@ -160,7 +164,8 @@ DV_IMPORT_API void initColorFx();
     la stuffDir, controlla se la directory di outputs esiste (e provvede a
     crearla in caso contrario) verifica inoltre che stuffDir esista.
 */
-static void initToonzEnv(QHash<QString, QString> &argPathValues) {
+static void initToonzEnv(QHash<QString, QString> &argPathValues,
+                         bool nativeUiTest = false) {
   StudioPalette::enable(true);
   TEnv::setRootVarName(rootVarName);
   TEnv::setSystemVarPrefix(systemVarPrefix);
@@ -199,6 +204,10 @@ static void initToonzEnv(QHash<QString, QString> &argPathValues) {
   else if (!TFileStatus(stuffDir).isDirectory())
     fatalError("Folder \"" + toQString(stuffDir) +
                "\" not found or not readable");
+
+  // Set this before discovering project roots: a copied preferences template
+  // must not cause the test to create folders in Documents or on the Desktop.
+  if (nativeUiTest) Preferences::instance()->setValue(projectRoot, 8, false);
 
   // Setup third party
   ThirdParty::initialize();
@@ -269,9 +278,24 @@ static void script_output(int type, const QString &value) {
 //-----------------------------------------------------------------------------
 
 int main(int argc, char *argv[]) {
+  bool nativeUiTest = false;
+#ifdef BUILD_UI_PORT_TESTS
+  for (int index = 1; index < argc; ++index) {
+    if (QString::fromLocal8Bit(argv[index]) == "--test-native-ui") {
+      if (argc != 2) {
+        std::cerr << "Native UI test mode accepts no other arguments.\n";
+        return 2;
+      }
+      nativeUiTest = true;
+      argc = 1;
+      break;
+    }
+  }
+#endif
+
 #ifdef Q_OS_WIN
   // Enable standard input/output on Windows Platform for debug
-  if (::AttachConsole(ATTACH_PARENT_PROCESS)) {
+  if (!nativeUiTest && ::AttachConsole(ATTACH_PARENT_PROCESS)) {
     freopen("CON", "r", stdin);
     freopen("CON", "w", stdout);
     freopen("CON", "w", stderr);
@@ -347,6 +371,16 @@ int main(int argc, char *argv[]) {
   QApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
 
   QApplication a(argc, argv);
+#ifdef BUILD_UI_PORT_TESTS
+  if (nativeUiTest) {
+    QString error;
+    if (!prepareNativeUiIntegrationTest(&error)) {
+      std::cerr << error.toStdString() << std::endl;
+      return 2;
+    }
+  }
+#endif
+
 
 #ifdef MACOSX
   // This workaround is to avoid missing left button problem on Qt5.6.0.
@@ -522,10 +556,16 @@ int main(int argc, char *argv[]) {
       &toonzRunOutOfContMemHandler);
 
   // Toonz environment
-  initToonzEnv(argumentPathValues);
+  initToonzEnv(argumentPathValues, nativeUiTest);
   Preferences::instance();
+  if (nativeUiTest) {
+    Preferences::instance()->setValue(startupPopupEnabled, false, false);
+    Preferences::instance()->setValue(latestVersionCheckEnabled, false, false);
+    Preferences::instance()->setValue(autosaveEnabled, false, false);
+  }
   NativeDiagnostics::instance()->initialize(
-      (ToonzFolder::getMyModuleDir() + TFilePath("preferences.ini")).getQString());
+      (ToonzFolder::getMyModuleDir() + TFilePath("preferences.ini")).getQString(),
+      nativeUiTest ? QDir::current().filePath("diagnostics") : QString());
 
   // The crash report folder is known only now
   CrashHandler::prepareReport();
@@ -718,7 +758,7 @@ int main(int argc, char *argv[]) {
 
   // Check whether the previous session exited normally, and start this one,
   // for the autosave recovery copies
-  AutosaveRecovery::initSession();
+  if (!nativeUiTest) AutosaveRecovery::initSession();
 
 #if defined(_WIN32) && QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
   // http://doc.qt.io/qt-5/windows-issues.html#fullscreen-opengl-based-windows
@@ -786,7 +826,7 @@ int main(int argc, char *argv[]) {
 
   a.setQuitOnLastWindowClosed(false);
   // a.connect(&a, SIGNAL(lastWindowClosed()), &a, SLOT(quit()));
-  if (Preferences::instance()->isLatestVersionCheckEnabled())
+  if (!nativeUiTest && Preferences::instance()->isLatestVersionCheckEnabled())
     w.checkForUpdates();
 
   w.show();
@@ -794,8 +834,8 @@ int main(int argc, char *argv[]) {
   auto *cadmiumRuntime = CadmiumRuntime::instance();
   QObject::connect(&a, &QCoreApplication::aboutToQuit, cadmiumRuntime,
                    &CadmiumRuntime::stop);
-  QTimer::singleShot(0, cadmiumRuntime, [cadmiumRuntime] {
-    if (cadmiumRuntime->startupMode() == CadmiumRuntime::Preload)
+  QTimer::singleShot(0, cadmiumRuntime, [cadmiumRuntime, nativeUiTest] {
+    if (!nativeUiTest && cadmiumRuntime->startupMode() == CadmiumRuntime::Preload)
       cadmiumRuntime->start();
   });
 
@@ -883,12 +923,18 @@ int main(int argc, char *argv[]) {
   // Offer to recover the work of a previous session that did not exit
   // normally; that dialog also gives access to the crash report, if any.
   // Otherwise show the report of a crash in the previous session, if any.
-  if (!AutosaveRecovery::showRecoveryDialog())
+  if (!nativeUiTest && !AutosaveRecovery::showRecoveryDialog())
     CrashHandler::showPendingReport();
 
+#ifdef BUILD_UI_PORT_TESTS
+  if (nativeUiTest)
+    QTimer::singleShot(0, &a, [&a, &w] {
+      a.exit(runNativeUiIntegrationTest(&w));
+    });
+#endif
   int ret = a.exec();
 
-  AutosaveRecovery::endSession();
+  if (!nativeUiTest) AutosaveRecovery::endSession();
 
   TUndoManager::manager()->reset();
   PreviewFxManager::instance()->reset();

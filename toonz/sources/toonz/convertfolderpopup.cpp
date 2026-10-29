@@ -1,4 +1,5 @@
 
+#include "toonzqt/uitranslations.h"
 #include "convertfolderpopup.h"
 
 // Tnz6 includes
@@ -76,14 +77,14 @@ void ConvertFolderPopup::Converter::run() {
 
     if (TSystem::doesExistFileOrLevel(dstFilePath)) {
       if (m_parent->m_skip->isChecked()) {
-        m_logTxt.append(tr("Level %1 already exists; skipped.\n")
+        m_logTxt.append(UiTranslations::text(tr("Level %1 already exists; skipped.\n"))
                             .arg(dstFilePath.getQString()));
         m_skippedCount++;
         continue;
       } else {
         bool ok = TSystem::removeFileOrLevel(dstFilePath);
         if (!ok) {
-          m_logTxt.append(tr("Failed to remove existing level %1; skipped.\n")
+          m_logTxt.append(UiTranslations::text(tr("Failed to remove existing level %1; skipped.\n"))
                               .arg(dstFilePath.getQString()));
           m_skippedCount++;
           continue;
@@ -91,7 +92,7 @@ void ConvertFolderPopup::Converter::run() {
       }
     }
 
-    progressDialog->setLabelText(QString(tr("Converting level %1 of %2: %3")
+    progressDialog->setLabelText(QString(UiTranslations::text(tr("Converting level %1 of %2: %3"))
                                              .arg(i + 1)
                                              .arg(levelCount)
                                              .arg(levelName)));
@@ -116,7 +117,7 @@ void ConvertFolderPopup::Converter::convertLevel(
     popup->getFrameRange(sourceFileFullPath, from, to);
 
     if (from == TFrameId() || to == TFrameId()) {
-      m_logTxt.append(tr("Level %1 has no frame; skipped.")
+      m_logTxt.append(UiTranslations::text(tr("Level %1 has no frame; skipped."))
                           .arg(sourceFileFullPath.getQString()));
       popup->m_notifier->notifyError();
       return;
@@ -153,8 +154,8 @@ public:
     savePath = savePath.withNoFrame().withType("txt");  // Just to be sure
     if (TFileStatus(savePath).doesExist()) {
       int ret = DVGui::MsgBox(
-          QObject::tr(
-              "The log file already exists.\n Do you want to overwrite it?")
+          UiTranslations::text(QObject::tr(
+              "The log file already exists.\n Do you want to overwrite it?"))
               .arg(toQString(savePath.withoutParentDir())),
           QObject::tr("Overwrite"), QObject::tr("Don't Overwrite"), 0);
 
@@ -166,7 +167,7 @@ public:
 
     QFile file(savePath.getQString());
     if (!file.open(QIODevice::WriteOnly)) {
-      DVGui::error(tr("Failed to open the file %1").arg(savePath.getQString()));
+      DVGui::error(UiTranslations::text(tr("Failed to open the file %1")).arg(savePath.getQString()));
       return false;
     }
     QTextStream out(&file);
@@ -385,7 +386,7 @@ void ConvertFolderPopup::apply() {
 
   QMessageBox::StandardButton btn = QMessageBox::question(
       this, tr("Cofirmation"),
-      tr("Converting %1 files. Are you sure?").arg(m_srcFilePaths.size()),
+      UiTranslations::text(tr("Converting %1 files. Are you sure?")).arg(m_srcFilePaths.size()),
       QMessageBox::Yes | QMessageBox::No);
   if (btn != QMessageBox::Yes) return;
 
@@ -402,12 +403,12 @@ void ConvertFolderPopup::apply() {
 
   QString logTxt =
       tr("Convert TZP in folder\n") +
-      tr("Target Folder: %1\n").arg(m_convertFolderFld->getPath()) +
-      tr("Skip Existing Files: %1\n")
+      UiTranslations::text(tr("Target Folder: %1\n")).arg(m_convertFolderFld->getPath()) +
+      UiTranslations::text(tr("Skip Existing Files: %1\n"))
           .arg((m_skip->isChecked()) ? "True" : "False") +
-      tr("Apply to Subfolder: %1\n")
+      UiTranslations::text(tr("Apply to Subfolder: %1\n"))
           .arg((m_subfolder->isChecked()) ? "True" : "False") +
-      tr("Approx. levels to be converted: %1\n\n").arg(m_srcFilePaths.size()) +
+      UiTranslations::text(tr("Approx. levels to be converted: %1\n\n")).arg(m_srcFilePaths.size()) +
       tr("Started: ") + QDateTime::currentDateTime().toString() + "\n";
   m_converter = new Converter(this, logTxt);
   bool ret =
@@ -441,7 +442,7 @@ void ConvertFolderPopup::onConvertFinished() {
     logTxt.append(tr("Convert completed:"));
 
   logTxt.append(
-      tr("  %1 level(s) done, %2 level(s) skipped with %3 error(s).\n")
+      UiTranslations::text(tr("  %1 level(s) done, %2 level(s) skipped with %3 error(s).\n"))
           .arg(doneCount)
           .arg(skippedCount)
           .arg(errorCount));

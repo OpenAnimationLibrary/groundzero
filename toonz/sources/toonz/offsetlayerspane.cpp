@@ -1,3 +1,4 @@
+#include "toonzqt/uitranslations.h"
 #include "offsetlayerspane.h"
 
 // Tnz6 includes
@@ -204,7 +205,7 @@ void OffsetLayersPane::rebuild() {
   TStageObject *obj = getCurrentObject();
   m_objectId        = obj ? obj->getId() : TStageObjectId::NoneId;
   m_objectLabel->setText(
-      obj ? tr("Object: %1").arg(QString::fromStdString(obj->getFullName()))
+      obj ? UiTranslations::text(tr("Object: %1")).arg(QString::fromStdString(obj->getFullName()))
           : tr("No current object."));
   m_emptyLabel->setVisible(!obj || !obj->hasOffsetLayers());
   if (!obj) return;

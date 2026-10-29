@@ -1,5 +1,6 @@
 
 
+#include "toonzqt/uitranslations.h"
 #include "cellselection.h"
 
 // Tnz6 includes
@@ -1273,7 +1274,7 @@ public:
     if (r0 != r1)
       frameRange.append(QString(" - %1").arg(QString::number(r1 + 1)));
 
-    return QObject::tr("Rename Cell  at Column %1  Frame %2")
+    return UiTranslations::text(QObject::tr("Rename Cell  at Column %1  Frame %2"))
         .arg(colRange)
         .arg(frameRange);
   }
@@ -3827,7 +3828,7 @@ public:
   }
 
   QString getHistoryString() override {
-    QString str = QObject::tr("Simplify Vectors : Level %1")
+    QString str = UiTranslations::text(QObject::tr("Simplify Vectors : Level %1"))
                       .arg(QString::fromStdWString(m_sl->getName()));
     return str;
   }

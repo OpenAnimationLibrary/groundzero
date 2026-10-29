@@ -1,5 +1,6 @@
 
 
+#include "toonzqt/uitranslations.h"
 #include "xsheetdragtool.h"
 
 // Tnz6 includes
@@ -243,11 +244,11 @@ public:
 
   QString getHistoryString() override {
     if (m_oldR0 < 0 || m_oldR1 < 0)
-      return QObject::tr("Modify Play Range  : %1 - %2")
+      return UiTranslations::text(QObject::tr("Modify Play Range  : %1 - %2"))
           .arg(QString::number(m_newR0 + 1))
           .arg(QString::number(m_newR1 + 1));
 
-    return QObject::tr("Modify Play Range  : %1 - %2  >  %3 - %4")
+    return UiTranslations::text(QObject::tr("Modify Play Range  : %1 - %2  >  %3 - %4"))
         .arg(QString::number(m_oldR0 + 1))
         .arg(QString::number(m_oldR1 + 1))
         .arg(QString::number(m_newR0 + 1))
@@ -1167,7 +1168,7 @@ public:
   int getSize() const override { return sizeof *this; }
 
   QString getHistoryString() override {
-    return QObject::tr("Move keyframe handle  : %1  Handle of the keyframe %2")
+    return UiTranslations::text(QObject::tr("Move keyframe handle  : %1  Handle of the keyframe %2"))
         .arg(QString::fromStdString(m_objId.toString()))
         .arg(QString::number(m_row + 1));
   }

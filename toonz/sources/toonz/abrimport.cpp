@@ -8,6 +8,7 @@
 // (the coverage of the ABR file, inverted), like the brush tip images of
 // other painting programs.
 
+#include "toonzqt/uitranslations.h"
 #include "tapp.h"
 #include "menubarcommandids.h"
 
@@ -50,7 +51,7 @@ int importFile(const QString &abrPath, QStringList &messages) {
 
   QFile file(abrPath);
   if (!file.open(QIODevice::ReadOnly)) {
-    messages << QObject::tr("%1: the file cannot be read.").arg(fileName);
+    messages << UiTranslations::text(QObject::tr("%1: the file cannot be read.")).arg(fileName);
     return 0;
   }
   QByteArray bytes = file.readAll();
@@ -60,19 +61,19 @@ int importFile(const QString &abrPath, QStringList &messages) {
   std::string error;
   if (!AbrParser::parseAbr((const unsigned char *)bytes.constData(),
                            (size_t)bytes.size(), result, error)) {
-    messages << QObject::tr("%1: %2").arg(fileName).arg(
+    messages << UiTranslations::text(QObject::tr("%1: %2")).arg(fileName).arg(
         QString::fromStdString(error));
     return 0;
   }
   if (result.tips.empty()) {
-    messages << QObject::tr("%1: no sampled brushes found.").arg(fileName);
+    messages << UiTranslations::text(QObject::tr("%1: no sampled brushes found.")).arg(fileName);
   }
 
   QString folder = ToonzFolder::getLibraryFolder().getQString() +
                    "/brushtips/" +
                    sanitizedName(QFileInfo(abrPath).completeBaseName());
   if (!result.tips.empty() && !QDir().mkpath(folder)) {
-    messages << QObject::tr("%1: the folder %2 cannot be created.")
+    messages << UiTranslations::text(QObject::tr("%1: the folder %2 cannot be created."))
                     .arg(fileName)
                     .arg(folder);
     return 0;
@@ -102,19 +103,19 @@ int importFile(const QString &abrPath, QStringList &messages) {
       ++written;
     else
       messages
-          << QObject::tr("%1: %2 cannot be saved.").arg(fileName).arg(unique);
+          << UiTranslations::text(QObject::tr("%1: %2 cannot be saved.")).arg(fileName).arg(unique);
   }
 
   if (result.computedBrushes > 0)
-    messages << QObject::tr(
+    messages << UiTranslations::text(QObject::tr(
                     "%1: %2 computed (round) brushes have no image "
-                    "and were skipped.")
+                    "and were skipped."))
                     .arg(fileName)
                     .arg(result.computedBrushes);
   if (result.skippedSamples > 0)
-    messages << QObject::tr(
+    messages << UiTranslations::text(QObject::tr(
                     "%1: %2 brushes could not be read and were "
-                    "skipped.")
+                    "skipped."))
                     .arg(fileName)
                     .arg(result.skippedSamples);
   for (const std::string &w : result.warnings)
@@ -150,10 +151,10 @@ void ImportAbrCommand::execute() {
   QString text;
   if (written > 0)
     text =
-        QObject::tr(
+        UiTranslations::text(QObject::tr(
             "%1 brush tips were imported into %2.\nChoose them in the "
             "\"Tip:\" option of the Brush tool on a raster level (select "
-            "the tool again if it is already active).")
+            "the tool again if it is already active)."))
             .arg(written)
             .arg(ToonzFolder::getLibraryFolder().getQString() + "/brushtips");
   else

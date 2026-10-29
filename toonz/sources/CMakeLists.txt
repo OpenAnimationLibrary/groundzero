@@ -789,16 +789,55 @@ if(WITH_TRANSLATION)
     if(NOT OT_QT_TRANSLATION_QUERY EQUAL 0)
         message(FATAL_ERROR "Unable to locate Qt translation catalogs")
     endif()
+    set(need_qt_catalog_sources FALSE)
+    foreach(locale ${QT_LANGUAGE_LOCALES})
+        if(NOT EXISTS "${OT_QT_TRANSLATION_DIR}/qtbase_${locale}.qm")
+            set(need_qt_catalog_sources TRUE)
+        endif()
+    endforeach()
+    if(need_qt_catalog_sources)
+        # Some custom Qt distributions omit catalogs. Compile the missing
+        # translations from a pinned release of the corresponding major line.
+        include(FetchContent)
+        if(QT_VERSION_MAJOR EQUAL 6)
+            set(qt_translation_revision abe01d7de31d311db8bc485d4e7e8d0c30493425)
+        else()
+            set(qt_translation_revision 388e4f32ed4b28d92bd61b917ba0e6b910e2784d)
+        endif()
+        FetchContent_Declare(ui_qt_translations
+            GIT_REPOSITORY https://github.com/qt/qttranslations.git
+            GIT_TAG ${qt_translation_revision}
+            SOURCE_SUBDIR translation-data-only)
+        FetchContent_MakeAvailable(ui_qt_translations)
+        if(EXISTS "${ui_qt_translations_SOURCE_DIR}/LICENSE.GPL3-EXCEPT")
+            configure_file("${ui_qt_translations_SOURCE_DIR}/LICENSE.GPL3-EXCEPT"
+                "${CMAKE_SOURCE_DIR}/../../stuff/doc/LICENSE-Qt-translations.txt" COPYONLY)
+        else()
+            file(COPY "${ui_qt_translations_SOURCE_DIR}/LICENSES/"
+                DESTINATION "${CMAKE_SOURCE_DIR}/../../stuff/doc/qt-translations-licenses")
+        endif()
+    endif()
+    set(ui_qt_catalog_outputs)
     foreach(index RANGE 0 9)
         list(GET QT_LANGUAGE_LOCALES ${index} locale)
         list(GET LANG_DISPLAY_NAMES ${index} display)
         set(qt_catalog "${OT_QT_TRANSLATION_DIR}/qtbase_${locale}.qm")
-        if(NOT EXISTS "${qt_catalog}")
-            message(FATAL_ERROR "Missing Qt catalog: qtbase_${locale}.qm; install Qt translations")
+        set(qt_destination "${CMAKE_SOURCE_DIR}/../../stuff/config/loc/${display}/qtbase.qm")
+        if(EXISTS "${qt_catalog}")
+            configure_file("${qt_catalog}" "${qt_destination}" COPYONLY)
+        else()
+            set(qt_source "${ui_qt_translations_SOURCE_DIR}/translations/qtbase_${locale}.ts")
+            if(NOT EXISTS "${qt_source}")
+                message(FATAL_ERROR "Missing Qt translation source for ${locale}")
+            endif()
+            add_custom_command(OUTPUT "${qt_destination}"
+                COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_SOURCE_DIR}/../../stuff/config/loc/${display}"
+                COMMAND ${OT_QT_LRELEASE_EXECUTABLE} "${qt_source}" -qm "${qt_destination}"
+                DEPENDS "${qt_source}" VERBATIM)
+            list(APPEND ui_qt_catalog_outputs "${qt_destination}")
         endif()
-        configure_file("${qt_catalog}"
-            "${CMAKE_SOURCE_DIR}/../../stuff/config/loc/${display}/qtbase.qm" COPYONLY)
     endforeach()
+    add_custom_target(ui_qt_catalogs ALL DEPENDS ${ui_qt_catalog_outputs})
 
     list(LENGTH LANG_CODES CODE_COUNT)
     list(LENGTH LANG_DISPLAY_NAMES DISPLAY_COUNT)

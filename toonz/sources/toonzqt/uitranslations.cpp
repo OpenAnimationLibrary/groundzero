@@ -47,12 +47,19 @@ struct ItemBinding {
   QString assigned;
   Recipe translate;
 };
+struct TabBinding {
+  QPointer<QTabBar> tabs;
+  int index;
+  QString assigned;
+  Recipe translate;
+};
 struct State {
   std::map<const QChar *, Caption> captions;
   QHash<QString, const QChar *> literals;
   std::vector<Binding> bindings;
   std::vector<Callback> callbacks;
   std::vector<ItemBinding> items;
+  std::vector<TabBinding> tabs;
   bool capturing = false;
   bool refreshing = false;
   unsigned allocations = 0;
@@ -125,6 +132,15 @@ void captureObject(QObject *object) {
     captureProperty(widget, "text");
   if (qobject_cast<QGroupBox *>(widget) || qobject_cast<QMenu *>(widget))
     captureProperty(widget, "title");
+  if (auto *tabs = qobject_cast<QTabBar *>(widget)) {
+    if (tabs->property("_ot_caption_tabs").toBool())
+      for (int i = 0; i < tabs->count(); ++i) {
+        QString value = tabs->tabText(i);
+        Recipe translate = recipe(value);
+        if (translate)
+          state().tabs.push_back({tabs, i, value, std::move(translate)});
+      }
+  }
   // Editable values (line edits, text edits, editable combos and item views)
   // are deliberately outside automatic caption capture.
   QComboBox *combo = qobject_cast<QComboBox *>(widget);
@@ -214,8 +230,10 @@ void bind(QObject *object, const char *property, const char *context,
     return QCoreApplication::translate(ctx.constData(), src.constData(),
         comment.isEmpty() ? nullptr : comment.constData(), plural);
   };
+  QPointer<QObject> guard(object);
   QString value = translate();
   object->setProperty(property, value);
+  if (!guard) return;
   auto &bindings = state().bindings;
   auto existing = std::find_if(bindings.begin(), bindings.end(),
       [&](const Binding &binding) {
@@ -228,18 +246,28 @@ void bind(QObject *object, const char *property, const char *context,
 }
 
 void onLanguageChanged(QObject *owner, std::function<void()> callback) {
-  if (owner && callback) state().callbacks.push_back({owner, std::move(callback)});
+  auto &callbacks = state().callbacks;
+  callbacks.erase(std::remove_if(callbacks.begin(), callbacks.end(),
+      [](const Callback &entry) { return entry.owner.isNull(); }), callbacks.end());
+  if (owner && callback) callbacks.push_back({owner, std::move(callback)});
 }
 
 void watchCombo(QComboBox *combo) {
   if (combo) combo->setProperty("_ot_caption_items", true);
 }
 
+void watchTabBar(QTabBar *tabs) {
+  if (tabs) tabs->setProperty("_ot_caption_tabs", true);
+}
+
+std::size_t retainedCaptionCount() { return state().captions.size(); }
+
 void captureAll() {
   if (!guiThread() || state().capturing || state().refreshing) return;
   auto &s = state();
   s.capturing = true;
   s.items.clear();
+  s.tabs.clear();
   s.bindings.erase(std::remove_if(s.bindings.begin(), s.bindings.end(),
       [](const Binding &binding) { return binding.object.isNull(); }),
       s.bindings.end());
@@ -270,7 +298,8 @@ void refresh() {
     QString value = remember(binding.translate(), binding.translate);
     binding.object->setProperty(binding.property.constData(), value);
     for (Binding &live : s.bindings)
-      if (live.object == binding.object && live.property == binding.property) {
+      if (live.object && live.object == binding.object &&
+          live.property == binding.property) {
         live.assigned = live.object->property(live.property.constData()).toString();
         break;
       }
@@ -278,13 +307,21 @@ void refresh() {
   const auto items = s.items;
   for (const ItemBinding &item : items) {
     if (!item.combo || item.index >= item.combo->count() ||
-        item.combo->itemText(item.index) != item.assigned ||
+        item.combo->itemText(item.index).constData() != item.assigned.constData() ||
         item.combo->itemData(item.index) != item.identity)
       continue;
     QSignalBlocker block(item.combo);
     QSignalBlocker modelBlock(item.combo->model());
     item.combo->setItemText(item.index,
                            remember(item.translate(), item.translate));
+  }
+  const auto tabs = s.tabs;
+  for (const TabBinding &tab : tabs) {
+    if (!tab.tabs || tab.index >= tab.tabs->count() ||
+        tab.tabs->tabText(tab.index).constData() != tab.assigned.constData())
+      continue;
+    const QSignalBlocker blocker(tab.tabs);
+    tab.tabs->setTabText(tab.index, remember(tab.translate(), tab.translate));
   }
   s.callbacks.erase(std::remove_if(s.callbacks.begin(), s.callbacks.end(),
       [](const Callback &callback) { return callback.owner.isNull(); }),
@@ -294,10 +331,13 @@ void refresh() {
     if (callback.owner) callback.invoke();
   s.refreshing = false;
   captureAll();
-  for (QWidget *widget : QApplication::topLevelWidgets()) {
+  std::vector<QPointer<QWidget>> windows;
+  for (QWidget *widget : QApplication::topLevelWidgets()) windows.push_back(widget);
+  for (const QPointer<QWidget> &widget : windows) {
+    if (!widget) continue;
     QEvent event(QEvent::LanguageChange);
     QCoreApplication::sendEvent(widget, &event);
-    widget->update();
+    if (widget) widget->update();
   }
 }
 

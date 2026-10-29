@@ -40,6 +40,10 @@ DVAPI TFilePath getStudioPaletteFolder();
 DVAPI TFilePath getFxPresetFolder();
 DVAPI TFilePath getLibraryFolder();
 DVAPI TFilePath getReslistPath(bool forCleanup);
+#ifdef BUILD_UI_PORT_TESTS
+// Called only by the guarded native application fixture before initialization.
+DVAPI void setTestStorageRoot(const TFilePath &root);
+#endif
 DVAPI TFilePath getCacheRootFolder();
 DVAPI TFilePath getCrashReportFolder();
 DVAPI TFilePath getProfileFolder();

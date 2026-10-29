@@ -1,6 +1,7 @@
 
 
 // TnzCore includes
+#include "toonzqt/uitranslations.h"
 #include "tsystem.h"
 #include "tstream.h"
 #include "tfilepath_io.h"
@@ -528,7 +529,7 @@ void ParamChannelGroup::refresh() {
       auto *group = static_cast<ParamChannelGroup *>(getChild(i));
       auto found = names.find(group->getParam()->getName());
       group->m_materialCaption = found != names.end() ? found->second :
-          QObject::tr("Inactive material %1").arg(i + 1);
+          UiTranslations::text(QObject::tr("Inactive material %1")).arg(i + 1);
     }
     applyShowFilter();
     return;

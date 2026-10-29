@@ -1,4 +1,5 @@
 // TnzTools includes
+#include "toonzqt/uitranslations.h"
 #include "tools/tool.h"
 #include "tools/toolutils.h"
 #include "tools/cursors.h"
@@ -557,7 +558,7 @@ public:
   int getSize() const override { return sizeof(*this) + 500; }
 
   QString getHistoryString() override {
-    return QObject::tr("Lasso Cutter Tool   Paste To Level : %1")
+    return UiTranslations::text(QObject::tr("Lasso Cutter Tool   Paste To Level : %1"))
         .arg(QString::fromStdWString(m_level->getName()));
   }
 };

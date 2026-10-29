@@ -1,5 +1,6 @@
 
 
+#include "toonzqt/uitranslations.h"
 #include "svnrevertdialog.h"
 
 // Tnz6 includes
@@ -168,7 +169,7 @@ void SVNRevertDialog::onStatusRetrieved(const QString &xmlResponse) {
     // Update status text
     const int itemCount = m_filesToRevert.size() - m_sceneIconAdded;
     m_textLabel->setText(
-        tr("%1 items to revert.").arg(itemCount == 1 ? 1 : itemCount));
+        UiTranslations::text(tr("%1 items to revert.")).arg(itemCount == 1 ? 1 : itemCount));
 
     // Hide waiting animation and enable revert button
     m_waitingLabel->hide();
@@ -295,7 +296,7 @@ void SVNRevertDialog::revertFiles() {
     // Update status text
     const int displayCount = totalFilesToRevert - m_sceneIconAdded;
     m_textLabel->setText(
-        tr("Reverting %1 items...").arg(displayCount == 1 ? 1 : displayCount));
+        UiTranslations::text(tr("Reverting %1 items...")).arg(displayCount == 1 ? 1 : displayCount));
 
     // Prepare SVN revert command arguments
     QStringList args = {"revert"};
@@ -359,7 +360,7 @@ void SVNRevertDialog::onRevertSceneContentsToggled(bool checked) {
   const int displayCount = totalItems - m_sceneIconAdded;
 
   m_textLabel->setText(
-      tr("%1 items to revert.").arg(displayCount == 1 ? 1 : displayCount));
+      UiTranslations::text(tr("%1 items to revert.")).arg(displayCount == 1 ? 1 : displayCount));
 }
 
 //=============================================================================
@@ -533,7 +534,7 @@ void SVNRevertFrameRangeDialog::onStatusRetrieved(const QString &xmlResponse) {
                &SVNRevertFrameRangeDialog::onStatusRetrieved);
 
     m_textLabel->setText(
-        tr("Reverting %1 items...").arg(QString::number(fileToRevertCount)));
+        UiTranslations::text(tr("Reverting %1 items...")).arg(QString::number(fileToRevertCount)));
 
     // Prepare SVN revert command
     QStringList args = {"revert"};

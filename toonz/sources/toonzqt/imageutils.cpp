@@ -1,6 +1,7 @@
 
 
 // TnzQt includes
+#include "toonzqt/uitranslations.h"
 #include "toonzqt/seethroughwindow.h"
 #include "toonzqt/menubarcommand.h"
 #include "toonzqt/viewcommandids.h"
@@ -145,7 +146,7 @@ TFilePath duplicate(const TFilePath &levelPath) {
 
   if (!TSystem::doesExistFileOrLevel(levelPath)) {
     DVGui::warning(
-        QObject::tr("It is not possible to find the %1 level.")
+        UiTranslations::text(QObject::tr("It is not possible to find the %1 level."))
             .arg(QString::fromStdWString(levelPath.getWideString())));
     return TFilePath();
   }
@@ -171,7 +172,7 @@ TFilePath duplicate(const TFilePath &levelPath) {
     }
   } catch (...) {
     QString msg =
-        QObject::tr("There was an error copying %1").arg(toQString(levelPath));
+        UiTranslations::text(QObject::tr("There was an error copying %1")).arg(toQString(levelPath));
     DVGui::error(msg);
     return TFilePath();
   }
@@ -193,7 +194,7 @@ void premultiply(const TFilePath &levelPath) {
 
   if (!TSystem::doesExistFileOrLevel(levelPath)) {
     DVGui::warning(
-        QObject::tr("It is not possible to find the level %1")
+        UiTranslations::text(QObject::tr("It is not possible to find the level %1"))
             .arg(QString::fromStdWString(levelPath.getWideString())));
     return;
   }
@@ -275,7 +276,7 @@ return;
   }
 
   QApplication::restoreOverrideCursor();
-  QString msg = QObject::tr("Level %1 premultiplied.")
+  QString msg = UiTranslations::text(QObject::tr("Level %1 premultiplied."))
                     .arg(QString::fromStdString(levelPath.getLevelName()));
   DVGui::info(msg);
 }
@@ -429,7 +430,7 @@ static void convertFromVI(const TLevelReaderP &lr, const TPaletteP &plt,
       images.push_back(img);
       maxBbox += img->getBBox();
     } catch (...) {
-      msg = QObject::tr("Frame %1 : conversion failed!")
+      msg = UiTranslations::text(QObject::tr("Frame %1 : conversion failed!"))
                 .arg(QString::fromStdString(frames[i].expand()));
       DVGui::info(msg);
     }
@@ -458,7 +459,7 @@ static void convertFromVI(const TLevelReaderP &lr, const TPaletteP &plt,
         iw->save(TRasterImageP(rasImage));
       }
     } catch (...) {
-      msg = QObject::tr("Frame %1 : conversion failed!")
+      msg = UiTranslations::text(QObject::tr("Frame %1 : conversion failed!"))
                 .arg(QString::fromStdString(frames[i].expand()));
       DVGui::info(msg);
     }

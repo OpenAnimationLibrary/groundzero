@@ -1,5 +1,6 @@
 
 
+#include "toonzqt/uitranslations.h"
 #include "exportpanel.h"
 
 #include <QtGlobal>
@@ -271,8 +272,8 @@ text += firstClipPath.getLevelNameW();
 text += L" scene.\nThe output result may differ from what you expect. What do
 you want to do?";*/
         QString text =
-            tr("The %1  scene has a different resolution from the %2 scene.\n \
-                          The output result may differ from what you expect. What do you want to do?")
+            UiTranslations::text(tr("The %1  scene has a different resolution from the %2 scene.\n \
+                          The output result may differ from what you expect. What do you want to do?"))
                 .arg(QString::fromStdWString(fp.getLevelNameW()))
                 .arg(QString::fromStdWString(firstClipPath.getLevelNameW()));
         int ret = DVGui::MsgBox(text, tr("Continue"), tr("Cancel"));
@@ -284,17 +285,17 @@ you want to do?";*/
     }
   } catch (TException const &) {
     QString msg;
-    msg = QObject::tr(
+    msg = UiTranslations::text(QObject::tr(
               "There were problems loading the scene %1.\n Some files may be "
-              "missing.")
+              "missing."))
               .arg(QString::fromStdWString(fp.getWideString()));
 
     DVGui::warning(msg);
     return;
   } catch (...) {
-    QString msg = QObject::tr(
+    QString msg = UiTranslations::text(QObject::tr(
                       "There were problems loading the scene %1.\n Some files "
-                      "may be missing.")
+                      "may be missing."))
                       .arg(QString::fromStdWString(fp.getWideString()));
 
     DVGui::warning(msg);
@@ -339,10 +340,10 @@ you want to do?";*/
       try {
         movieGenerator.addSoundtrack(scene, frameOffset, sceneFrames);
       } catch (const TException &) {
-        QString text = tr("The %1 scene contains an audio file with different "
+        QString text = UiTranslations::text(tr("The %1 scene contains an audio file with different "
                           "characteristics from the one used in the first "
                           "exported scene.\nThe audio file will not be "
-                          "included in the rendered clip.")
+                          "included in the rendered clip."))
                            .arg(QString::fromStdWString(fp.getLevelNameW()));
         DVGui::warning(text);
       }
@@ -357,8 +358,8 @@ you want to do?";*/
       scene.load(fp);
       std::vector<TXshChildLevel *> childLevels;
       if (checkForMeshColumns(scene.getXsheet(), childLevels)) {
-        QString text = tr("The %1 scene contains a plastic deformed level.\n"
-                          "These levels can't be exported with this tool.")
+        QString text = UiTranslations::text(tr("The %1 scene contains a plastic deformed level.\n"
+                          "These levels can't be exported with this tool."))
                            .arg(QString::fromStdWString(fp.getLevelNameW()));
         DVGui::warning(text);
         continue;
@@ -375,8 +376,8 @@ you want to do?";*/
         QString name = QString::fromStdString(outPath.getName());
 
         if (!TSystem::showDocument(outPath)) {
-          QString msg(QObject::tr("It is not possible to display the file %1: "
-                                  "no player associated with its format")
+          QString msg(UiTranslations::text(QObject::tr("It is not possible to display the file %1: "
+                                  "no player associated with its format"))
                           .arg(QString::fromStdWString(
                               outPath.withoutParentDir().getWideString())));
           DVGui::warning(msg);

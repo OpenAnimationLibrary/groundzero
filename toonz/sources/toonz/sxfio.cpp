@@ -1,4 +1,5 @@
-﻿#include "sxfio.h"
+﻿#include "toonzqt/uitranslations.h"
+#include "sxfio.h"
 
 #include "tapp.h"
 #include "tsystem.h"
@@ -647,7 +648,7 @@ bool loadSxfScene(ToonzScene* scene, const TFilePath& scenePath) {
     sxfData = loadSxf(scenePath.getQString());
   } catch (const std::runtime_error& e) {
     DVGui::warning(
-        QObject::tr("Error while loading SXF scene: %1").arg(e.what()));
+        UiTranslations::text(QObject::tr("Error while loading SXF scene: %1")).arg(e.what()));
     return false;
   }
 
@@ -881,12 +882,14 @@ void ExportXDTSCommand::execute() {
 
     // Target column
     targetColumnCombo = new QComboBox();
+    UiTranslations::watchCombo(targetColumnCombo);
     targetColumnCombo->addItem(QObject::tr("All columns"), true);
     targetColumnCombo->addItem(QObject::tr("Only active columns"), false);
     targetColumnCombo->setCurrentIndex(targetColumnCombo->findData(true));
 
     // Export Area
     exportAreaCombo = new QComboBox();
+    UiTranslations::watchCombo(exportAreaCombo);
     exportAreaCombo->addItem(QObject::tr("ACTION"), 0);         // ACTION
     exportAreaCombo->addItem(QObject::tr("CELL"), 1);           // CELL
     exportAreaCombo->addItem(QObject::tr("ACTION & CELL"), 2);  // ALL
@@ -1055,7 +1058,7 @@ void ExportXDTSCommand::execute() {
   try {
     sxfData.build(xsh);
   } catch (std::runtime_error e) {
-    DVGui::error(QObject::tr("Failed to export SXF file.%1").arg(e.what()));
+    DVGui::error(UiTranslations::text(QObject::tr("Failed to export SXF file.%1")).arg(e.what()));
     return;
   }
 
@@ -1063,12 +1066,12 @@ void ExportXDTSCommand::execute() {
   try {
     saveSxf(fp.getQString(), sxfData);
   } catch (std::runtime_error e) {
-    DVGui::error(QObject::tr("Failed to export SXF file.%1").arg(e.what()));
+    DVGui::error(UiTranslations::text(QObject::tr("Failed to export SXF file.%1")).arg(e.what()));
     return;
   }
 
   // Succssed message box
-  QString str = QObject::tr("The file %1 has been exported successfully.")
+  QString str = UiTranslations::text(QObject::tr("The file %1 has been exported successfully."))
                     .arg(QString::fromStdString(fp.getLevelName()));
 
   std::vector<QString> buttons = {QObject::tr("OK"),

@@ -1,5 +1,6 @@
 
 
+#include "toonzqt/uitranslations.h"
 #include "toonzqt/camerasettingswidget.h"
 
 // TnzQt includes
@@ -891,8 +892,8 @@ void CameraSettingsWidget::onPresetSelected(const QString &str) {
     emit changed();
   } else {
     QMessageBox::warning(this, tr("Bad camera preset"),
-                         tr("'%1' doesn't seem a well formed camera preset. \n"
-                            "Possibly the preset file has been corrupted")
+                         UiTranslations::text(tr("'%1' doesn't seem a well formed camera preset. \n"
+                            "Possibly the preset file has been corrupted"))
                              .arg(str));
   }
 }
@@ -931,7 +932,7 @@ void CameraSettingsWidget::addPreset() {
   QString qs;
   while (true) {
     qs = DVGui::getText(tr("Preset name"),
-                        tr("Enter the name for %1").arg(presetString), "", &ok);
+                        UiTranslations::text(tr("Enter the name for %1")).arg(presetString), "", &ok);
 
     if (!ok) return;
 
@@ -956,7 +957,7 @@ void CameraSettingsWidget::removePreset() {
 
   // confirmation dialog
   int ret = DVGui::MsgBox(
-      tr("Deleting \"%1\".\nAre you sure?").arg(m_presetListOm->currentText()),
+      UiTranslations::text(tr("Deleting \"%1\".\nAre you sure?")).arg(m_presetListOm->currentText()),
       tr("Delete"), tr("Cancel"));
   if (ret == 0 || ret == 2) return;
 

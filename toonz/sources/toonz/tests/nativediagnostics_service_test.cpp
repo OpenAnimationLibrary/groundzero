@@ -69,7 +69,8 @@ void run() {
     messages.show(); another.show();
     QCoreApplication::processEvents();
     const quint64 before = service.status().written;
-    TMessageRepository::instance()->messageReceived(DVGui::INFORMATION, "application-once");
+    require(TMsgCore::instance()->send(DVGui::INFORMATION, "application-once"),
+            "normal native message transport remains active");
     const int oldHandled = handled;
     qWarning("qt-once");
     TLogger::instance()->addMessage(TLogger::Message(TLogger::Info, "native-once"));
@@ -119,11 +120,6 @@ void run() {
     restarted.shutdown();
   }
   qInstallMessageHandler(saved);
-  // Constructing the writer does not subscribe to TMsgCore. An isolated core
-  // still follows its existing no-receiver/no-socket result.
-  TMsgCore isolated;
-  require(!isolated.send(DVGui::INFORMATION, "unconnected"),
-          "diagnostic setup has not changed transport receiver semantics");
 }
 }  // namespace
 int main(int argc, char **argv) {

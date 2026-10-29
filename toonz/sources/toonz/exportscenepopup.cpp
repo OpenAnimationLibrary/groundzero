@@ -1,5 +1,6 @@
 
 
+#include "toonzqt/uitranslations.h"
 #include "exportscenepopup.h"
 
 // Tnz6 includes
@@ -57,20 +58,20 @@ TFilePath loadSceneToProject(TFilePath scenePath, ToonzScene &scene) {
   try {
     ret = IoCmd::loadScene(scene, scenePath, true);
   } catch (TException &e) {
-    DVGui::error(QObject::tr("Error loading scene %1 :%2")
+    DVGui::error(UiTranslations::text(QObject::tr("Error loading scene %1 :%2"))
                      .arg(toQString(scenePath))
                      .arg(QString::fromStdWString(e.getMessage())));
 
     return TFilePath();
   } catch (...) {
     DVGui::error(
-        QObject::tr("Error loading scene %1").arg(toQString(scenePath)));
+        UiTranslations::text(QObject::tr("Error loading scene %1")).arg(toQString(scenePath)));
     return TFilePath();
   }
 
   if (!ret) {
-    DVGui::error(QObject::tr("It is not possible to export the scene %1 "
-                             "because it does not belong to any project.")
+    DVGui::error(UiTranslations::text(QObject::tr("It is not possible to export the scene %1 "
+                             "because it does not belong to any project."))
                      .arg(toQString(scenePath)));
 
     return TFilePath();
@@ -790,7 +791,7 @@ void ExportScenePopup::onExport() {
 
       QDir newSceneFolderDir(newSceneFolder.getQString());
       if ((newSceneFolderDir.exists() && !newSceneFolderDir.isEmpty())) {
-        DVGui::warning(tr("Target folder already exists and not empty.\n %1")
+        DVGui::warning(UiTranslations::text(tr("Target folder already exists and not empty.\n %1"))
                            .arg(newSceneFolder.getQString()));
         success = false;
         continue;
@@ -814,8 +815,8 @@ void ExportScenePopup::onExport() {
         QString zipError;
         if (!zipDirectory(newSceneFolder, archivePath, zipError)) {
           DVGui::warning(
-              tr("The scene was exported, but the ZIP archive could not be "
-                 "created.\n%1")
+              UiTranslations::text(tr("The scene was exported, but the ZIP archive could not be "
+                 "created.\n%1"))
                   .arg(zipError));
           success = false;
         }
@@ -832,8 +833,8 @@ void ExportScenePopup::onExport() {
     QString zipError;
     if (!zipDirectory(projectFolder, archivePath, zipError)) {
       DVGui::warning(
-          tr("The project was exported, but the ZIP archive could not be "
-             "created.\n%1")
+          UiTranslations::text(tr("The project was exported, but the ZIP archive could not be "
+             "created.\n%1"))
               .arg(zipError));
       success = false;
     }
@@ -874,7 +875,7 @@ TFilePath ExportScenePopup::createNewProject() {
   TFilePath projectPath   = pm->projectFolderToProjectPath(projectFolder);
 
   if (TSystem::doesExistFileOrLevel(projectPath)) {
-    error(tr("Project '%1' already exists").arg(m_newProjectName->text()));
+    error(UiTranslations::text(tr("Project '%1' already exists")).arg(m_newProjectName->text()));
     return TFilePath();
   }
 

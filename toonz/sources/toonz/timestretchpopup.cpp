@@ -1,3 +1,4 @@
+#include "toonzqt/uitranslations.h"
 #include <memory>
 
 #include "timestretchpopup.h"
@@ -212,6 +213,7 @@ TimeStretchPopup::TimeStretchPopup()
   beginVLayout();
 
   m_stretchType = new QComboBox(this);
+  UiTranslations::watchCombo(m_stretchType);
   m_stretchType->setFixedHeight(DVGui::WidgetHeight);
   QStringList viewType;
   viewType << tr("Selected Cells") << tr("Selected Frame Range")

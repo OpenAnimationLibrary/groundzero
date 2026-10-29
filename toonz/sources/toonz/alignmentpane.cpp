@@ -1,4 +1,5 @@
 // Panel and icons adapted from manongjohn, Tahoma2D PR #1275.
+#include "toonzqt/uitranslations.h"
 #include "alignmentpane.h"
 #include "menubarcommandids.h"
 #include "tapp.h"
@@ -28,6 +29,7 @@ AlignmentPane::AlignmentPane(QWidget* parent, Qt::WindowFlags flags)
   setObjectName("AlignmentPanel");
 
   m_alignMethodCB = new QComboBox();
+  UiTranslations::watchCombo(m_alignMethodCB);
   m_alignMethodCB->addItem(tr("Selection Area"));
   m_alignMethodCB->setCurrentIndex(0);
 

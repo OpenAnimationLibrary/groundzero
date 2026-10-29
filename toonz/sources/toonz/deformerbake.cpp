@@ -3,6 +3,7 @@
 // doc/deformer_bake.md). Bake Envelope into Vector Level is the same command.
 
 // Tnz6 includes
+#include "toonzqt/uitranslations.h"
 #include "tapp.h"
 #include "menubarcommandids.h"
 #include "cellselection.h"
@@ -222,7 +223,7 @@ public:
     if (!m_drawings.empty())
       levelName = QString::fromStdWString(m_drawings[0].m_level->getName());
 
-    return QObject::tr("Bake Deformers into Vector Level  : %1 (%2)")
+    return UiTranslations::text(QObject::tr("Bake Deformers into Vector Level  : %1 (%2)"))
         .arg(levelName)
         .arg(fids.join(", "));
   }
@@ -259,10 +260,10 @@ bool confirmBake(const QStringList &fxNames, int drawingCount,
   dialog.setWindowTitle(QObject::tr("Bake Deformers into Vector Level"));
 
   QLabel *label = new QLabel(
-      QObject::tr("The deformation of %1 will be applied to the strokes of %2 "
+      UiTranslations::text(QObject::tr("The deformation of %1 will be applied to the strokes of %2 "
                   "drawing(s) of the column, each with the deformation of its "
                   "frame. A drawing exposed on several of the selected frames "
-                  "takes the deformation of the first one.")
+                  "takes the deformation of the first one."))
           .arg(fxNames.join(", "))
           .arg(drawingCount),
       &dialog);

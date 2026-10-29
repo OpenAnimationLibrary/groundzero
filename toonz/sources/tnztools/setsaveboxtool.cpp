@@ -1,5 +1,6 @@
 
 
+#include "toonzqt/uitranslations.h"
 #include "setsaveboxtool.h"
 #include "tgl.h"
 #include "tundo.h"
@@ -54,7 +55,7 @@ public:
   ~SetSaveboxUndo() {}
 
   QString getHistoryString() override {
-    return QObject::tr("Set Save Box : (X%1,Y%2,W%3,H%4)->(X%5,Y%6,W%7,H%8)")
+    return UiTranslations::text(QObject::tr("Set Save Box : (X%1,Y%2,W%3,H%4)->(X%5,Y%6,W%7,H%8)"))
         .arg(QString::number(m_originalSavebox.x0))
         .arg(QString::number(m_originalSavebox.y0))
         .arg(QString::number(m_originalSavebox.getLx()))

@@ -1,3 +1,4 @@
+#include "toonzqt/uitranslations.h"
 #include "cadmiumtypes.h"
 
 #include "tofflinegl.h"
@@ -146,7 +147,7 @@ bool snapshotVector(const TImageP &source, Frame &frame, QString &error) {
     original->findRegions();
     const QVector<TRegion *> regions = regionsOf(original);
     if (regions.isEmpty() || regions.size() > maxRegions) {
-      error = QObject::tr("The vector drawing needs between 1 and %1 native fill regions.")
+      error = UiTranslations::text(QObject::tr("The vector drawing needs between 1 and %1 native fill regions."))
                   .arg(maxRegions);
       return false;
     }
@@ -271,9 +272,9 @@ bool snapshotVector(const TImageP &source, Frame &frame, QString &error) {
     result.nativeRegionIndices = nativeIndices;
     const int omitted = regions.size() - (nativeIndices.size() - 1);
     if (omitted > 0) {
-      result.warnings.append(QObject::tr(
+      result.warnings.append(UiTranslations::text(QObject::tr(
           "%1 native vector region(s) are hidden or too small at the analysis "
-          "scale. They are unresolved and will remain unchanged.").arg(omitted));
+          "scale. They are unresolved and will remain unchanged.")).arg(omitted));
     }
     result.fingerprint = fingerprintOf(original, regions);
     frame = result;

@@ -166,7 +166,10 @@ jobs:
           mkdir build
           cd build
 
-          cmake ..\sources -G "%MSVCVERSION%" -Ax64 -DQT_PATH="%QT_PATH%" -DBOOST_ROOT="%BOOST_ROOT%" -DOpenCV_DIR="%OpenCV_DIR%" -DWITH_WINTAB=Y -DBUILD_CELFX_TESTS=ON -DBUILD_CADMIUM_TESTS=ON -DBUILD_UI_PORT_TESTS=ON
+          cmake ..\sources -G "%MSVCVERSION%" -Ax64 -DQT_PATH="%QT_PATH%" -DBOOST_ROOT="%BOOST_ROOT%" -DOpenCV_DIR="%OpenCV_DIR%" -DWITH_WINTAB=Y -DBUILD_CELFX_TESTS=ON -DBUILD_CADMIUM_TESTS=ON -DBUILD_UI_PORT_TESTS=ON > cmake-config.log 2>&1
+          set "CONFIGURE_EXIT=%ERRORLEVEL%"
+          type cmake-config.log
+          exit /b %CONFIGURE_EXIT%
         shell: cmd
 
       # Build Opentoonz using MSBuild
@@ -183,9 +186,9 @@ jobs:
         if: failure()
         shell: bash
         run: |
-          log=toonz/build/msbuild-errors.log
-          [ -f "$log" ] || exit 0
-          sort -u "$log" | grep -E ': (fatal )?error ' | head -60 > errors.txt || true
+          cat toonz/build/cmake-config.log toonz/build/msbuild-errors.log 2>/dev/null > combined-build-errors.log || true
+          [ -s combined-build-errors.log ] || exit 0
+          grep -E -A5 'CMake Error|Could NOT find|: (fatal )?error ' combined-build-errors.log | head -120 > errors.txt || true
           echo "::notice title=Windows build::$(wc -l < errors.txt) distinct errors"
           all=$(sed -e 's/%/%25/g' errors.txt | sed -e 's/\r//' | sed -e ':a;N;$!ba;s/\n/%0A/g')
           [ -n "$all" ] && echo "::error title=Windows build errors::${all}"
@@ -251,6 +254,7 @@ jobs:
           ctest -C RelWithDebInfo --output-on-failure --no-tests=error -R "^cadmium_"
 
       - name: Test native UI features
+        id: ui_tests
         shell: cmd
         run: |
           set "PATH=%CD%\toonz\build\Opentoonz;%QT_PATH%\bin;%PATH%"
@@ -262,8 +266,21 @@ jobs:
           type ui-tests-output.txt
           exit /b %UI_TEST_EXIT%
 
+      - name: Test native application integration
+        id: ui_integration
+        shell: cmd
+        run: |
+          set "PATH=%CD%\toonz\build\Opentoonz;%QT_PATH%\bin;%PATH%"
+          set "QT_PLUGIN_PATH=%QT_PATH%\plugins"
+          set "QT_QPA_PLATFORM_PLUGIN_PATH=%QT_PATH%\plugins\platforms"
+          python ci-scripts/run_native_ui_test.py toonz/build/Opentoonz/OpenToonz.exe stuff --output toonz/build/ui-integration-output.txt
+
+      - name: Report native application integration failure
+        if: ${{ failure() && steps.ui_integration.outcome == 'failure' }}
+        run: python ci-scripts/report_ui_tests.py toonz/build/ui-integration-output.txt
+
       - name: Report native UI failures
-        if: failure()
+        if: ${{ failure() && steps.ui_tests.outcome == 'failure' }}
         run: python ci-scripts/report_ui_tests.py toonz/build/ui-tests-output.txt
 
       - name: Verify models and exercise native painting pipelines

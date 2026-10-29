@@ -1,5 +1,6 @@
 
 
+#include "toonzqt/uitranslations.h"
 #include "matchline.h"
 
 // Tnz6 includes
@@ -590,7 +591,7 @@ public:
   }
 
   QString getHistoryString() override {
-    return QObject::tr("Delete Matchline  : Level %1")
+    return UiTranslations::text(QObject::tr("Delete Matchline  : Level %1"))
         .arg(QString::fromStdWString(m_sl->getName()));
   }
   int getHistoryType() override { return HistoryType::FilmStrip; }
@@ -671,7 +672,7 @@ public:
   }
 
   QString getHistoryString() override {
-    return QObject::tr("Apply Matchline  : Column%1 < Column%2")
+    return UiTranslations::text(QObject::tr("Apply Matchline  : Column%1 < Column%2"))
         .arg(QString::number(m_column + 1))
         .arg(QString::number(m_mColumn + 1));
   }

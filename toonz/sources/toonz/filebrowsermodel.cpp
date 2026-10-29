@@ -1,3 +1,4 @@
+#include "toonzqt/uitranslations.h"
 #include "filebrowsermodel.h"
 #include <QCoreApplication>
 #include "tutil.h"
@@ -109,8 +110,8 @@ QString DvDirModelNode::getDisplayName() const {
   case DisplayLocation::History:
     return QCoreApplication::translate("FileBrowserLocations", "History");
   case DisplayLocation::ProjectRoot:
-    return QCoreApplication::translate("FileBrowserLocations",
-                                       "Project root (%1)")
+    return UiTranslations::text(QCoreApplication::translate("FileBrowserLocations",
+                                       "Project root (%1)"))
         .arg(m_displayDetail);
   case DisplayLocation::SceneFolder:
     return QCoreApplication::translate("FileBrowserLocations", "Scene Folder");

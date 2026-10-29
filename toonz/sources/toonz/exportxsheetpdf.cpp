@@ -1,4 +1,5 @@
 
+#include "toonzqt/uitranslations.h"
 #include "exportxsheetpdf.h"
 
 // Tnz6 includes
@@ -366,6 +367,7 @@ QPixmap tickMarkPm(TickMarkType type, int size, bool withBG = false) {
 
 QComboBox* createTickMarkCombo(QWidget* parent) {
   QComboBox* combo = new QComboBox(parent);
+  UiTranslations::watchCombo(combo);
   combo->addItem(QIcon(tickMarkPm(TickMark_Dot, 15, true)),
                  QObject::tr("Dot", "XSheetPDF CellMark"), TickMark_Dot);
   combo->addItem(QIcon(tickMarkPm(TickMark_Circle, 15, true)),
@@ -1878,7 +1880,9 @@ ExportXsheetPdfPopup::ExportXsheetPdfPopup()
   m_fileNameFld         = new QLineEdit(this);
   m_templateCombo       = new QComboBox(this);
   m_exportAreaCombo     = new QComboBox(this);
+  UiTranslations::watchCombo(m_exportAreaCombo);
   m_continuousLineCombo = new QComboBox(this);
+  UiTranslations::watchCombo(m_continuousLineCombo);
   m_durationFld         = new DVGui::IntLineEdit(this, 0, 0);
 
   m_pageInfoLbl  = new QLabel(this);
@@ -2328,7 +2332,7 @@ void ExportXsheetPdfPopup::initialize() {
                                  m_drawDialogueCB->isChecked());
   m_dialogueColCombo->clear();
   for (auto colId : m_noteColumns.keys())
-    m_dialogueColCombo->addItem(tr("Col%1").arg(colId + 1), colId);
+    m_dialogueColCombo->addItem(UiTranslations::text(tr("Col%1")).arg(colId + 1), colId);
 
   initTemplate();
 
@@ -2447,7 +2451,7 @@ void ExportXsheetPdfPopup::initTemplate() {
     else {
       DVGui::MsgBoxInPopup(
           DVGui::CRITICAL,
-          tr("The preset file %1 is not valid.").arg(tmplPath));
+          UiTranslations::text(tr("The preset file %1 is not valid.")).arg(tmplPath));
       delete ret;
       m_currentTmpl = new XSheetPDFTemplate_B4_6sec(m_columns, m_duration);
     }
@@ -2562,7 +2566,7 @@ void ExportXsheetPdfPopup::updatePreview() {
     infoColor = QColor(Qt::green);
   } else {
     m_pageInfoLbl->setText(
-        tr("%1 x %2 pages").arg(framePageCount).arg(parallelPageCount));
+        UiTranslations::text(tr("%1 x %2 pages")).arg(framePageCount).arg(parallelPageCount));
     infoColor = QColor(Qt::yellow);
   }
   m_pageInfoLbl->setStyleSheet(QString("QLabel{color: %1;}\
@@ -2584,7 +2588,7 @@ void ExportXsheetPdfPopup::onExport() {
 
   if (TSystem::doesExistFileOrLevel(fp)) {
     QString question =
-        tr("The file %1 already exists.\nDo you want to overwrite it?")
+        UiTranslations::text(tr("The file %1 already exists.\nDo you want to overwrite it?"))
             .arg(fp.getQString());
     int ret = DVGui::MsgBox(question, QObject::tr("Overwrite"),
                             QObject::tr("Cancel"));
@@ -2594,7 +2598,7 @@ void ExportXsheetPdfPopup::onExport() {
   }
   if (!TFileStatus(fp.getParentDir()).doesExist()) {
     QString question =
-        tr("A folder %1 does not exist.\nDo you want to create it?")
+        UiTranslations::text(tr("A folder %1 does not exist.\nDo you want to create it?"))
             .arg(fp.getParentDir().getQString());
     int ret = DVGui::MsgBox(question, QObject::tr("Create folder"),
                             QObject::tr("Cancel"));
@@ -2604,7 +2608,7 @@ void ExportXsheetPdfPopup::onExport() {
 
     if (!TSystem::touchParentDir(fp)) {
       DVGui::MsgBoxInPopup(DVGui::CRITICAL,
-                           tr("Failed to create folder %1.")
+                           UiTranslations::text(tr("Failed to create folder %1."))
                                .arg(fp.getParentDir().getQString()));
       return;
     }
@@ -2654,7 +2658,7 @@ void ExportXsheetPdfPopup::onExportPNG() {
 
   if (TSystem::doesExistFileOrLevel(fp)) {
     QString question =
-        tr("The file %1 already exists.\nDo you want to overwrite it?")
+        UiTranslations::text(tr("The file %1 already exists.\nDo you want to overwrite it?"))
             .arg(fp.getQString());
     int ret = DVGui::MsgBox(question, QObject::tr("Overwrite"),
                             QObject::tr("Cancel"));
@@ -2664,7 +2668,7 @@ void ExportXsheetPdfPopup::onExportPNG() {
   }
   if (!TFileStatus(fp.getParentDir()).doesExist()) {
     QString question =
-        tr("A folder %1 does not exist.\nDo you want to create it?")
+        UiTranslations::text(tr("A folder %1 does not exist.\nDo you want to create it?"))
             .arg(fp.getParentDir().getQString());
     int ret = DVGui::MsgBox(question, QObject::tr("Create folder"),
                             QObject::tr("Cancel"));
@@ -2674,7 +2678,7 @@ void ExportXsheetPdfPopup::onExportPNG() {
 
     if (!TSystem::touchParentDir(fp)) {
       DVGui::MsgBoxInPopup(DVGui::CRITICAL,
-                           tr("Failed to create folder %1.")
+                           UiTranslations::text(tr("Failed to create folder %1."))
                                .arg(fp.getParentDir().getQString()));
       return;
     }
@@ -2720,7 +2724,7 @@ void ExportXsheetPdfPopup::onExportCSV() {
 
   if (TSystem::doesExistFileOrLevel(fp)) {
     QString question =
-        tr("The file %1 already exists.\nDo you want to overwrite it?")
+        UiTranslations::text(tr("The file %1 already exists.\nDo you want to overwrite it?"))
             .arg(fp.getQString());
     int ret = DVGui::MsgBox(question, QObject::tr("Overwrite"),
                             QObject::tr("Cancel"));
@@ -2730,7 +2734,7 @@ void ExportXsheetPdfPopup::onExportCSV() {
   }
   if (!TFileStatus(fp.getParentDir()).doesExist()) {
     QString question =
-        tr("A folder %1 does not exist.\nDo you want to create it?")
+        UiTranslations::text(tr("A folder %1 does not exist.\nDo you want to create it?"))
             .arg(fp.getParentDir().getQString());
     int ret = DVGui::MsgBox(question, QObject::tr("Create folder"),
                             QObject::tr("Cancel"));
@@ -2740,7 +2744,7 @@ void ExportXsheetPdfPopup::onExportCSV() {
 
     if (!TSystem::touchParentDir(fp)) {
       DVGui::MsgBoxInPopup(DVGui::CRITICAL,
-                           tr("Failed to create folder %1.")
+                           UiTranslations::text(tr("Failed to create folder %1."))
                                .arg(fp.getParentDir().getQString()));
       return;
     }
@@ -2750,7 +2754,7 @@ void ExportXsheetPdfPopup::onExportCSV() {
   if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
     DVGui::MsgBoxInPopup(
         DVGui::CRITICAL,
-        tr("Failed to create file %1.").arg(fp.getQString()));
+        UiTranslations::text(tr("Failed to create file %1.")).arg(fp.getQString()));
     return;
   }
   QTextStream stream(&file);
@@ -2831,7 +2835,7 @@ void ExportXsheetPdfPopup::onExportCSV() {
 
 void ExportXsheetPdfPopup::onExportFinished(const TFilePath& fp) {
   close();
-  QString str = QObject::tr("The file %1 has been exported successfully.")
+  QString str = UiTranslations::text(QObject::tr("The file %1 has been exported successfully."))
                     .arg(QString::fromStdString(fp.getLevelName()));
 
   std::vector<QString> buttons = {QObject::tr("OK"),

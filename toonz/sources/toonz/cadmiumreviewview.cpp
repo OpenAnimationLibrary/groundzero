@@ -1,6 +1,7 @@
 #include "cadmiumreviewview.h"
 
 #include <QApplication>
+#include <QAbstractItemView>
 #include <QComboBox>
 #include <QEvent>
 #include <QHBoxLayout>
@@ -95,6 +96,9 @@ void CadmiumReviewView::retranslateUi() {
   const QStringList modes{tr("Before / After"), tr("Wipe"),
                           tr("Reference overlay"), tr("Before"), tr("After")};
   for (int i = 0; i < modes.size(); ++i) m_modes->setItemText(i, modes[i]);
+  m_modes->updateGeometry();
+  m_modes->update();
+  m_modes->view()->viewport()->update();
   const auto caption = [](QToolButton *button, const QString &text,
                            const QString &description) {
     button->setText(text);

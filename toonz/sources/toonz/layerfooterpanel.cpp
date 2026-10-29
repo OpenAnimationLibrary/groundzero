@@ -1,3 +1,4 @@
+#include "toonzqt/uitranslations.h"
 #include "layerfooterpanel.h"
 
 #include <QPainter>
@@ -175,7 +176,7 @@ void LayerFooterPanel::contextMenuEvent(QContextMenuEvent* event) {
 
   QMenu* menu = new QMenu(this);
   for (auto frame : frames) {
-    QAction* action = menu->addAction(tr("%1 frames per page").arg(frame));
+    QAction* action = menu->addAction(UiTranslations::text(tr("%1 frames per page")).arg(frame));
     action->setData(frame);
     connect(action, SIGNAL(triggered()), this, SLOT(onFramesPerPageSelected()));
   }

@@ -1,6 +1,7 @@
 
 
 // TnzCore includes
+#include "toonzqt/uitranslations.h"
 #include "tconst.h"
 #include "tundo.h"
 #include "tsystem.h"
@@ -2810,9 +2811,9 @@ void SubsceneCmd::saveAsTemplate(const std::set<int> &indices) {
       templatesFolder + TFilePath(name.toStdWString() + L".tnz");
 
   if (TFileStatus(templatePath).doesExist()) {
-    QString question = QObject::tr(
+    QString question = UiTranslations::text(QObject::tr(
                            "The template %1 already exists.\nDo you want to "
-                           "overwrite it?")
+                           "overwrite it?"))
                            .arg(name);
     int ret = DVGui::MsgBox(question, QObject::tr("Overwrite"),
                             QObject::tr("Cancel"), 0);
@@ -2965,9 +2966,9 @@ bool SubsceneCmd::saveXsheetAsTemplate(TXsheet *templateXsh,
   } catch (const TException &e) {
     errorMsg = QString::fromStdWString(e.getMessage());
     if (errorMsg.isEmpty())
-      errorMsg = QObject::tr("Couldn't save %1").arg(toQString(templatePath));
+      errorMsg = UiTranslations::text(QObject::tr("Couldn't save %1")).arg(toQString(templatePath));
   } catch (...) {
-    errorMsg = QObject::tr("Couldn't save %1").arg(toQString(templatePath));
+    errorMsg = UiTranslations::text(QObject::tr("Couldn't save %1")).arg(toQString(templatePath));
   }
   // ToonzScene::save() restores the scene path only on success
   scene->setScenePath(oldScenePath);
@@ -2993,13 +2994,13 @@ bool SubsceneCmd::saveXsheetAsTemplate(TXsheet *templateXsh,
 
   if (!failedLevels.isEmpty())
     DVGui::warning(
-        QObject::tr("The template %1 has been saved, but the following levels "
+        UiTranslations::text(QObject::tr("The template %1 has been saved, but the following levels "
                     "could not be copied into it and are referred to with "
-                    "their original paths:\n%2")
+                    "their original paths:\n%2"))
             .arg(toQString(templatePath))
             .arg(failedLevels.join("\n")));
   else
-    DVGui::info(QObject::tr("The template has been saved to %1.")
+    DVGui::info(UiTranslations::text(QObject::tr("The template has been saved to %1."))
                     .arg(toQString(templatePath)));
   return true;
 }

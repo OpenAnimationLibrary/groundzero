@@ -129,6 +129,32 @@ void run() {
   require(rotated.entryList({"diagnostics*.log"}, QDir::Files).size() == 4,
           "restart reuses bounded file family");
 
+  // Force an actual sink failure after startup: the next rotation cannot
+  // replace a nonempty directory occupying its last backup destination.
+  const QString failureDirectory = temporary.path() + "/rotation-failure";
+  Writer failing(limits);
+  failing.enable(failureDirectory); idle(failing);
+  failing.append(message(QString(1200, 'x'))); idle(failing);
+  const QString rotationObstacle = failureDirectory + "/diagnostics.3.log";
+  require(QDir().mkdir(rotationObstacle),
+          "rotation obstacle created after opening the sink");
+  QFile protectedFile(rotationObstacle + "/keep.txt");
+  require(protectedFile.open(QIODevice::WriteOnly), "rotation obstacle is nonempty");
+  protectedFile.write("keep"); protectedFile.close();
+  QFile previousBackup(failureDirectory + "/diagnostics.2.log");
+  require(previousBackup.open(QIODevice::WriteOnly), "previous backup fixture created");
+  previousBackup.write("previous"); previousBackup.close();
+  failing.append(message(QString(1200, 'y'))); idle(failing);
+  require(failing.status().state == State::Error && failing.status().dropped == 1,
+          "runtime sink failure becomes status and accounts for unwritten event");
+  require(read(protectedFile.fileName()) == "keep",
+          "rotation obstacle remains untouched");
+  require(protectedFile.remove() && QDir().rmdir(rotationObstacle),
+          "runtime obstruction removed for retry");
+  failing.enable(failureDirectory); idle(failing);
+  require(failing.status().state == State::Ready, "sink can reopen after runtime failure");
+  failing.shutdown();
+
   Writer flooded(limits);
   flooded.enable(temporary.path() + "/flood"); idle(flooded);
   std::vector<std::thread> threads;
@@ -148,6 +174,8 @@ void run() {
   for (int change = 0; change < 10000; ++change) {
     if (change % 2) flooded.enable(temporary.path() + "/flood");
     else flooded.disable();
+    require(flooded.status().pendingChanges <= 2,
+            "control requests cannot grow the queue without bound");
   }
   flooded.disable();
   idle(flooded);

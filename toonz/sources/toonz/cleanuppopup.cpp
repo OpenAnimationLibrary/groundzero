@@ -1,5 +1,6 @@
 
 
+#include "toonzqt/uitranslations.h"
 #include "cleanuppopup.h"
 
 // Toonz includes
@@ -623,9 +624,9 @@ bool CleanupPopup::analyzeCleanupList() {
 
           // Inform the user and abort cleanup
           DVGui::warning(
-              tr("There were errors opening the existing level "
+              UiTranslations::text(tr("There were errors opening the existing level "
                  "\"%1\".\n\nPlease choose to delete the existing level and "
-                 "create a new one\nwhen running the cleanup process.")
+                 "create a new one\nwhen running the cleanup process."))
                   .arg(QString::fromStdWString(outputPath.getLevelNameW())));
 
           return false;
@@ -638,11 +639,11 @@ bool CleanupPopup::analyzeCleanupList() {
 
         if (oldRes != outRes && inputPath != outputPath) {
           DVGui::warning(
-              tr("The resulting resolution of level \"%1\"\ndoes not match "
+              UiTranslations::text(tr("The resulting resolution of level \"%1\"\ndoes not match "
                  "with that of previously cleaned up level drawings.\n\nPlease "
                  "set the right camera resolution and closest field, or choose "
                  "to delete\nthe existing level and create a new one when "
-                 "running the cleanup process.")
+                 "running the cleanup process."))
                   .arg(QString::fromStdWString(outputPath.getLevelNameW())));
 
           return false;
@@ -908,7 +909,7 @@ QString CleanupPopup::setupLevel() {
   /*--- 保存先PathをFull Pathにする ---*/
   TFilePath decodedPath(scene->decodeFilePath(outputPath));
   if (!TSystem::touchParentDir(decodedPath))
-    return tr("Couldn't create directory \"%1\"").arg(decodedPath.getQString());
+    return UiTranslations::text(tr("Couldn't create directory \"%1\"")).arg(decodedPath.getQString());
 
   /*---
    * 上書きオプションが選択されているとき、既存のLevel,Palette,Nopaintファイルを消す
@@ -1047,7 +1048,7 @@ QString CleanupPopup::setupLevel() {
   try {
     m_updater->open(sl);
   } catch (...) {
-    return tr("Couldn't open \"%1\" for write").arg(outputPath.getQString());
+    return UiTranslations::text(tr("Couldn't open \"%1\" for write")).arg(outputPath.getQString());
   }
 
   m_updater->getLevelWriter()->setOverwritePaletteFlag(!m_keepOriginalPalette);
@@ -1067,7 +1068,7 @@ QString CleanupPopup::resetLevel() {
     }
 
     static QString decorate(const TFilePath &fp) {
-      return tr("Couldn't remove file \"%1\"").arg(fp.getQString());
+      return UiTranslations::text(tr("Couldn't remove file \"%1\"")).arg(fp.getQString());
     }
   };
 
@@ -1535,7 +1536,7 @@ QString CleanupPopup::OverwriteDialog::acceptResolution(void *obj,
                                                         bool applyToAll) {
   struct locals {
     static inline QString existsStr(const TFilePath &fp) {
-      return tr("File \"%1\" already exists.\nWhat do you want to do?")
+      return UiTranslations::text(tr("File \"%1\" already exists.\nWhat do you want to do?"))
           .arg(fp.getQString());
     }
   };  // locals

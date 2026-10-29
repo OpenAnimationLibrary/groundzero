@@ -1,3 +1,4 @@
+#include "toonzqt/uitranslations.h"
 #include "drawingsubstitutionundo.h"
 
 // Tnz6 includes
@@ -71,7 +72,7 @@ int SubstituteDrawingUndo::getSize() const {
 //-----------------------------------------------------------------------------
 
 QString SubstituteDrawingUndo::getHistoryString() {
-  return QObject::tr("Drawing Substitution  Level : %1  Frame : %2")
+  return UiTranslations::text(QObject::tr("Drawing Substitution  Level : %1  Frame : %2"))
       .arg(QString::fromStdWString(m_newCell.m_level->getName()))
       .arg(
           QString::fromStdString(m_newCell.m_frameId.expand(TFrameId::NO_PAD)));

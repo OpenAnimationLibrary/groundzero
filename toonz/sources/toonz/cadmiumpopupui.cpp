@@ -4,6 +4,7 @@
 #include "tcolorstyles.h"
 #include "tsimplecolorstyles.h"
 #include "toonz/txshleveltypes.h"
+#include "toonzqt/uitranslations.h"
 
 #include <QAction>
 #include <QAbstractItemModel>
@@ -26,6 +27,7 @@
 #include <QPushButton>
 #include <QScopedValueRollback>
 #include <QSignalBlocker>
+#include <QScrollBar>
 #include <QSplitter>
 #include <QStyledItemDelegate>
 #include <QStyle>
@@ -71,6 +73,34 @@ QString candidateName(const Cadmium::ProposalCandidate &candidate,
   return origin;
 }
 
+void updateRegionCaptions(QTableWidget *table, int region,
+                          const Cadmium::RegionProposal &proposal,
+                          const QVector<TFrameId> &references) {
+  QTableWidgetItem *number = table->item(region, 0);
+  QTableWidgetItem *prediction = table->item(region, 1);
+  QTableWidgetItem *decision = table->item(region, 2);
+  QTableWidgetItem *state = table->item(region, 3);
+  if (!number || !prediction || !decision || !state) return;
+  number->setText(region ? QString::number(region) : CadmiumPopup::tr("Background"));
+  prediction->setText(proposal.candidates.isEmpty() ? CadmiumPopup::tr("Unmatched") :
+      proposal.candidates.size() == 1 ? proposal.candidates.front().color.name(QColor::HexArgb) :
+      CadmiumPopup::tr("%1 fill choices").arg(proposal.candidates.size()));
+  const bool selected = proposal.selected >= 0 && proposal.selected < proposal.candidates.size();
+  decision->setText(proposal.selected == -2 ? CadmiumPopup::tr("Skip region") :
+      selected ? candidateName(proposal.candidates[proposal.selected], references) :
+                 CadmiumPopup::tr("Unresolved"));
+  decision->setToolTip(region ? decision->text() :
+      CadmiumPopup::tr("Background and line pixels are protected."));
+  QStringList states;
+  if (!region || proposal.protectedRegion) states.append(CadmiumPopup::tr("Protected"));
+  if (proposal.locked) states.append(CadmiumPopup::tr("Locked"));
+  if (!proposal.protectedRegion && proposal.selected == -1 && proposal.candidates.size() > 1)
+    states.append(CadmiumPopup::tr("Conflict"));
+  state->setText(states.join(QStringLiteral(" · ")));
+  prediction->setToolTip(selected ?
+      candidateName(proposal.candidates[proposal.selected], references) : QString());
+}
+
 // Editors are created only for the active cell. Large drawings must not
 // allocate a widget and duplicate every reference choice for every region.
 class RegionDecisionDelegate final : public QStyledItemDelegate {
@@ -94,6 +124,21 @@ public:
     }
     QPointer<RegionDecisionDelegate> self(const_cast<RegionDecisionDelegate *>(this));
     QPointer<QComboBox> guard(editor);
+    const int drawing = m_current();
+    const int region = index.row();
+    UiTranslations::onLanguageChanged(editor, [self, guard, drawing, region]() {
+      if (!self || !guard || self->m_current() != drawing) return;
+      const QSignalBlocker blocker(guard.data());
+      const QSignalBlocker modelBlocker(guard->model());
+      const Choices choices = self->m_choices(region);
+      for (const auto &choice : choices) {
+        const int choiceIndex = guard->findData(choice.second);
+        if (choiceIndex < 0) continue;
+        guard->setItemText(choiceIndex, choice.first);
+        guard->setItemData(choiceIndex, choice.first, Qt::ToolTipRole);
+      }
+      guard->update();
+    });
     QObject::connect(editor, QOverload<int>::of(&QComboBox::activated), editor,
                      [self, guard](int) {
       if (!self || !guard) return;
@@ -202,8 +247,15 @@ CadmiumPopup::CadmiumPopup(QWidget *parent) : QDialog(parent) {
   auto *source = new QFormLayout(raster);
   m_rasterSource = new QComboBox(raster);
   m_rasterSource->addItems({tr("Transparent line artwork"), tr("Opaque paper scan"), tr("Linked clean-line level")});
+  UiTranslations::watchCombo(m_rasterSource);
   source->addRow(tr("Raster source:"), m_rasterSource);
   m_lineLevel = new QComboBox(raster);
+  UiTranslations::onLanguageChanged(m_lineLevel, [this]() {
+    const int index = m_lineLevel->findData(QVariant::fromValue<qulonglong>(0));
+    if (index < 0) return;
+    const QSignalBlocker blocker(m_lineLevel);
+    m_lineLevel->setItemText(index, tr("Choose a clean-line level"));
+  });
   source->addRow(tr("Clean-line level:"), m_lineLevel);
   m_paperThreshold = new QDoubleSpinBox(raster);
   m_paperThreshold->setRange(0.0, 1.0); m_paperThreshold->setSingleStep(0.01);
@@ -224,6 +276,25 @@ CadmiumPopup::CadmiumPopup(QWidget *parent) : QDialog(parent) {
   m_regions->setObjectName(QStringLiteral("cadmiumRegionDecisions"));
   m_regions->setColumnCount(4);
   m_regions->setHorizontalHeaderLabels({tr("Region"), tr("Predictions"), tr("Decision"), tr("State")});
+  UiTranslations::onLanguageChanged(m_regions, [this]() {
+    const QSignalBlocker blocker(m_regions);
+    const QSignalBlocker modelBlocker(m_regions->model());
+    const int horizontal = m_regions->horizontalScrollBar()->value();
+    const int vertical = m_regions->verticalScrollBar()->value();
+    m_regions->setHorizontalHeaderLabels(
+        {tr("Region"), tr("Predictions"), tr("Decision"), tr("State")});
+    const int row = m_list->currentRow();
+    if (row >= 0 && row < int(m_drawings.size())) {
+      const Drawing &drawing = m_drawings[row];
+      const int regions = std::min(m_regions->rowCount(), int(drawing.proposals.size()));
+      for (int region = 0; region < regions; ++region)
+        updateRegionCaptions(m_regions, region, drawing.proposals[region], drawing.referenceIds);
+    }
+    m_regions->horizontalScrollBar()->setValue(horizontal);
+    m_regions->verticalScrollBar()->setValue(vertical);
+    m_regions->horizontalHeader()->viewport()->update();
+    m_regions->viewport()->update();
+  });
   m_regions->setSelectionBehavior(QAbstractItemView::SelectRows);
   m_regions->setSelectionMode(QAbstractItemView::ExtendedSelection);
   m_regions->setEditTriggers(QAbstractItemView::SelectedClicked |
@@ -245,6 +316,7 @@ CadmiumPopup::CadmiumPopup(QWidget *parent) : QDialog(parent) {
   m_generationMode->addItem(tr("Current drawing"), int(Cadmium::RegenerationMode::CurrentDrawing));
   m_generationMode->addItem(tr("Unresolved regions in selected drawings"), int(Cadmium::RegenerationMode::UnresolvedRegions));
   m_generationMode->addItem(tr("Selected regions in the current drawing"), int(Cadmium::RegenerationMode::SelectedRegions));
+  UiTranslations::watchCombo(m_generationMode);
   generation->addWidget(m_generationMode, 1);
   m_generate = new QPushButton(tr("Generate"), this);
   m_cancel = new QPushButton(tr("Cancel Processing"), this);
@@ -391,6 +463,43 @@ CadmiumPopup::CadmiumPopup(QWidget *parent) : QDialog(parent) {
     for (const Drawing &drawing : m_drawings) if (drawing.ready && !drawing.applied) return;
     m_status->setText(CadmiumRuntime::instance()->statusText());
   });
+  UiTranslations::onLanguageChanged(this, [this]() {
+    const QSignalBlocker listBlocker(m_list);
+    const int horizontal = m_list->horizontalScrollBar()->value();
+    const int vertical = m_list->verticalScrollBar()->value();
+    updateJobCaptions();
+    m_list->doItemsLayout();
+    m_list->horizontalScrollBar()->setValue(horizontal);
+    m_list->verticalScrollBar()->setValue(vertical);
+
+    const int row = m_list->currentRow();
+    if (row < 0 || row >= int(m_drawings.size())) return;
+    const Drawing &drawing = m_drawings[row];
+    const QSignalBlocker previewBlocker(m_previewReference);
+    for (int index = 0; index < m_previewReference->count(); ++index) {
+      const int reference = m_previewReference->itemData(index).toInt();
+      if (reference >= 0 && reference < drawing.referenceIds.size())
+        m_previewReference->setItemText(index,
+            tr("Drawing %1").arg(frameName(drawing.referenceIds[reference])));
+    }
+  });
+}
+
+void CadmiumPopup::updateJobCaptions() {
+  for (int index = 0; index < int(m_drawings.size()); ++index) {
+    const Drawing &drawing = m_drawings[index];
+    const QString state = drawing.applied ? tr("Applied") : !drawing.error.isEmpty() ? tr("Failed") :
+        m_generating && index == m_running ? tr("Processing") :
+        m_restoring ? tr("Restoring") : drawing.ready ?
+        drawing.reviewed ? tr("Reviewed") : tr("Review") : tr("Not generated");
+    if (QListWidgetItem *item = m_list->item(index)) {
+      item->setText(tr("%1 — %2").arg(frameName(drawing.fid), state));
+      const UiTranslations::Recipe error = UiTranslations::recipe(drawing.error);
+      item->setToolTip(drawing.error.isEmpty()
+          ? tr("%1 assigned references").arg(drawing.referenceIds.size()) :
+            error ? error() : drawing.error);
+    }
+  }
 }
 
 void CadmiumPopup::refresh() {
@@ -401,21 +510,13 @@ void CadmiumPopup::refresh() {
   const bool current = row >= 0 && row < int(m_drawings.size());
   const bool restrictJobs = !m_list->selectedItems().isEmpty();
   bool reviewed = false, eligible = false;
+  updateJobCaptions();
   for (int index = 0; index < int(m_drawings.size()); ++index) {
     const Drawing &drawing = m_drawings[index];
     reviewed |= drawing.ready && drawing.reviewed && !drawing.applied;
     const QListWidgetItem *job = m_list->item(index);
     eligible |= !drawing.applied && !drawing.referenceIds.isEmpty() &&
                 (!restrictJobs || (job && job->isSelected()));
-    const QString state = drawing.applied ? tr("Applied") : !drawing.error.isEmpty() ? tr("Failed") :
-        m_generating && index == m_running ? tr("Processing") :
-        m_restoring ? tr("Restoring") : drawing.ready ?
-        drawing.reviewed ? tr("Reviewed") : tr("Review") : tr("Not generated");
-    if (QListWidgetItem *item = m_list->item(index)) {
-      item->setText(tr("%1 — %2").arg(frameName(drawing.fid), state));
-      item->setToolTip(drawing.error.isEmpty()
-          ? tr("%1 assigned references").arg(drawing.referenceIds.size()) : drawing.error);
-    }
   }
   const bool ready = current && m_drawings[row].ready && !m_drawings[row].applied;
   const bool resolved = ready && fullyResolved(m_drawings[row].proposals);
@@ -491,30 +592,19 @@ void CadmiumPopup::refreshPreview() {
   m_regions->setRowCount(drawing.proposals.size());
   for (int region = 0; region < drawing.proposals.size(); ++region) {
     const Cadmium::RegionProposal &proposal = drawing.proposals[region];
-    auto *number = new QTableWidgetItem(region ? QString::number(region) : tr("Background"));
-    auto *prediction = new QTableWidgetItem(proposal.candidates.isEmpty() ? tr("Unmatched") :
-        proposal.candidates.size() == 1 ? proposal.candidates.front().color.name(QColor::HexArgb) :
-        tr("%1 fill choices").arg(proposal.candidates.size()));
+    auto *number = new QTableWidgetItem;
+    auto *prediction = new QTableWidgetItem;
     if (proposal.candidates.size() == 1) prediction->setBackground(proposal.candidates.front().color);
-    const bool selected = proposal.selected >= 0 && proposal.selected < proposal.candidates.size();
-    auto *decision = new QTableWidgetItem(proposal.selected == -2 ? tr("Skip region") :
-        selected ? candidateName(proposal.candidates[proposal.selected], drawing.referenceIds) : tr("Unresolved"));
-    decision->setToolTip(decision->text());
+    auto *decision = new QTableWidgetItem;
     decision->setData(SelectedDecisionRole, proposal.selected);
-    QStringList states;
-    if (!region || proposal.protectedRegion) states.append(tr("Protected"));
-    if (proposal.locked) states.append(tr("Locked"));
-    if (!proposal.protectedRegion && proposal.selected == -1 && proposal.candidates.size() > 1)
-      states.append(tr("Conflict"));
-    auto *state = new QTableWidgetItem(states.join(QStringLiteral(" · ")));
+    auto *state = new QTableWidgetItem;
     for (QTableWidgetItem *item : {number, prediction, decision, state})
       item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
     if (region > 0 && drawing.ready && !drawing.applied && !proposal.protectedRegion)
       decision->setFlags(decision->flags() | Qt::ItemIsEditable);
-    if (selected) prediction->setToolTip(candidateName(proposal.candidates[proposal.selected], drawing.referenceIds));
-    if (!region) decision->setToolTip(tr("Background and line pixels are protected."));
     m_regions->setItem(region, 0, number); m_regions->setItem(region, 1, prediction);
     m_regions->setItem(region, 2, decision); m_regions->setItem(region, 3, state);
+    updateRegionCaptions(m_regions, region, proposal, drawing.referenceIds);
   }
   setSelectedRegions(drawing.selectedRegions);
   updateProposalPreview();

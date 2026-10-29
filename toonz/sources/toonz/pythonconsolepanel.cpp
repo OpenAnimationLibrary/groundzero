@@ -1,3 +1,4 @@
+#include "toonzqt/uitranslations.h"
 #include "pythonconsolepanel.h"
 
 // Tnz6 includes
@@ -304,7 +305,7 @@ void PythonConsole::runFile(const QString &path) {
   cursor.movePosition(QTextCursor::End);
   cursor.movePosition(QTextCursor::StartOfBlock, QTextCursor::KeepAnchor);
   cursor.insertText(m_prompt, textFormat(Qt::black));
-  cursor.insertText(tr("# Run %1").arg(path),
+  cursor.insertText(UiTranslations::text(tr("# Run %1")).arg(path),
                     textFormat(QColor(120, 120, 120)));
   cursor.insertBlock();
   setTextCursor(cursor);

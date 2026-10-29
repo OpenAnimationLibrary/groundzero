@@ -1,6 +1,7 @@
 
 
 // TnzCore includes
+#include "toonzqt/uitranslations.h"
 #include "tsystem.h"
 #include "tundo.h"
 #include "tpalette.h"
@@ -51,8 +52,8 @@ void MergeCmappedDialog::accept() {
 
   if (TSystem::doesExistFileOrLevel(fp)) {
     if (DVGui::MsgBox(
-            tr("Level %1 already exists! Are you sure you want to overwrite "
-               "it?")
+            UiTranslations::text(tr("Level %1 already exists! Are you sure you want to overwrite "
+               "it?"))
                 .arg(QString::fromStdWString(m_levelPath.getWideString())),
             tr("Ok"), tr("Cancel")) != 1)
       return;

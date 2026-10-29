@@ -1,3 +1,4 @@
+#include "toonzqt/uitranslations.h"
 #include "expressionreferencemanager.h"
 
 #include "tapp.h"
@@ -461,7 +462,7 @@ void ExpressionReferenceManager::onChange(const TParamChange& change) {
     }
 
     if (touchInfo(curve).ignored()) {
-      DVGui::info(tr("Expression monitoring restarted: \"%1\"")
+      DVGui::info(UiTranslations::text(tr("Expression monitoring restarted: \"%1\""))
                       .arg(touchInfo(curve).name()));
       touchInfo(curve).ignored() = false;
     }
@@ -539,7 +540,7 @@ void ExpressionReferenceManager::replaceExpressionTexts(
     m_blockParamChange = false;
 
     if (newExpr != expr) {
-      DVGui::info(tr("Expression modified: \"%1\" key at frame %2, %3 -> %4")
+      DVGui::info(UiTranslations::text(tr("Expression modified: \"%1\" key at frame %2, %3 -> %4"))
                       .arg(touchInfo(curve, xsh).name())
                       .arg(keyframe.m_frame + 1)
                       .arg(expr)

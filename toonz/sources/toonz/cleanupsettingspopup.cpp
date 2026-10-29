@@ -1,5 +1,6 @@
 
 
+#include "toonzqt/uitranslations.h"
 #include "cleanupsettingspopup.h"
 
 // Tnz6 includes
@@ -267,6 +268,7 @@ ProcessingTab::ProcessingTab() {
                             Qt::AlignRight);
 
   m_lineProcessing = new QComboBox(this);
+  UiTranslations::watchCombo(m_lineProcessing);
   m_lineProcessing->setFixedHeight(DVGui::WidgetHeight);
   m_lineProcessing->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Maximum);
 
@@ -281,6 +283,7 @@ ProcessingTab::ProcessingTab() {
   settingsLayout->addWidget(m_antialiasLabel, row, 0, Qt::AlignRight);
 
   m_antialias = new QComboBox(this);
+  UiTranslations::watchCombo(m_antialias);
   m_antialias->setFixedHeight(DVGui::WidgetHeight);
   m_antialias->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Maximum);
 
@@ -808,7 +811,7 @@ void CleanupSettings::onClnLoaded() {
   const QString &newWindowTitle =
       (fp.isEmpty())
           ? tr("Cleanup Settings")
-          : tr("Cleanup Settings: %1").arg(toQString(fp.withoutParentDir()));
+          : UiTranslations::text(tr("Cleanup Settings: %1")).arg(toQString(fp.withoutParentDir()));
 
   if (windowTitle() != newWindowTitle) {
     setWindowTitle(newWindowTitle);

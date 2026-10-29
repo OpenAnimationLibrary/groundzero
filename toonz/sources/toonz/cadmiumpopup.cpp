@@ -1,3 +1,4 @@
+#include "toonzqt/uitranslations.h"
 #include "cadmiumpopup.h"
 #include "cadmiumruntime.h"
 #include "cadmiumsource.h"
@@ -413,7 +414,7 @@ void CadmiumPopup::assignReferences() {
     if (m_referenceList->item(i)->checkState() == Qt::Checked)
       references.append(m_references[i]);
   if (references.size() > Cadmium::MaximumProposalReferences) {
-    m_status->setText(tr("Choose at most %1 references per drawing.").arg(Cadmium::MaximumProposalReferences));
+    m_status->setText(UiTranslations::text(tr("Choose at most %1 references per drawing.")).arg(Cadmium::MaximumProposalReferences));
     refreshPreview(); return;
   }
   Drawing &drawing = m_drawings[row];
@@ -712,7 +713,7 @@ void CadmiumPopup::submit() {
       {"target_line_image_uri", Cadmium::lineImageUri(drawing.target.lines)},
       {"references", QJsonArray{ref}}, {"return_colorized", false}, {"verbose", false}};
   refresh();
-  m_status->setText(tr("Drawing %1 of %2 — reference %3 of %4")
+  m_status->setText(UiTranslations::text(tr("Drawing %1 of %2 — reference %3 of %4"))
       .arg(m_jobPosition + 1).arg(m_jobs.size()).arg(m_runningReference + 1).arg(drawing.references.size()));
   CadmiumRuntime::instance()->colorize(request);
 }
@@ -939,8 +940,8 @@ void CadmiumPopup::apply(bool all) {
   for (int index : accepted) m_drawings[index].applied = true;
   autosave(); refresh(); refreshPreview();
   m_status->setText(newLevel
-      ? tr("Created result level %1. Original drawings were preserved.").arg(QString::fromStdWString(destination->getName()))
-      : tr("Applied %1 drawings. Undo restores their original paint.").arg(after.size()));
+      ? UiTranslations::text(tr("Created result level %1. Original drawings were preserved.")).arg(QString::fromStdWString(destination->getName()))
+      : UiTranslations::text(tr("Applied %1 drawings. Undo restores their original paint.")).arg(after.size()));
 }
 
 QString CadmiumPopup::sessionCacheRoot() const {

@@ -1,6 +1,7 @@
 
 
 // TnzCore includes
+#include "toonzqt/uitranslations.h"
 #include "tundo.h"
 #include "trandom.h"
 #include "tvectorimage.h"
@@ -145,7 +146,7 @@ public:
   int getSize() const override { return sizeof(*this); }
 
   QString getHistoryString() override {
-    return QObject::tr("Insert Frame  at Frame %1")
+    return UiTranslations::text(QObject::tr("Insert Frame  at Frame %1"))
         .arg(QString::number(m_frame + 1));
   }
   int getHistoryType() override { return HistoryType::Xsheet; }
@@ -318,7 +319,7 @@ public:
   }  // Gave up exact calculation. Say ~ 10 kB?
 
   QString getHistoryString() override {
-    return QObject::tr("Remove Frame  at Frame %1")
+    return UiTranslations::text(QObject::tr("Remove Frame  at Frame %1"))
         .arg(QString::number(m_frame + 1));
   }
   int getHistoryType() override { return HistoryType::Xsheet; }
@@ -494,7 +495,7 @@ public:
   }
 
   QString getHistoryString() override {
-    return QObject::tr("Insert Multiple Keys  at Frame %1")
+    return UiTranslations::text(QObject::tr("Insert Multiple Keys  at Frame %1"))
         .arg(QString::number(m_frame + 1));
   }
 };
@@ -588,7 +589,7 @@ public:
   }
 
   QString getHistoryString() override {
-    return QObject::tr("Remove Multiple Keys  at Frame %1")
+    return UiTranslations::text(QObject::tr("Remove Multiple Keys  at Frame %1"))
         .arg(QString::number(m_frame + 1));
   }
 };
@@ -719,7 +720,7 @@ public:
   int getSize() const override { return sizeof(*this); }
 
   QString getHistoryString() override {
-    return QObject::tr("Change current drawing %1")
+    return UiTranslations::text(QObject::tr("Change current drawing %1"))
         .arg(QString::number(m_direction));
   }
 
@@ -835,7 +836,7 @@ public:
   int getSize() const override { return sizeof(*this); }
 
   QString getHistoryString() override {
-    return QObject::tr("Change current drawing %1")
+    return UiTranslations::text(QObject::tr("Change current drawing %1"))
         .arg(QString::number(m_direction));
   }
 
@@ -1597,7 +1598,7 @@ public:
   int getSize() const override { return sizeof *this; }
 
   QString getHistoryString() override {
-    return QObject::tr("Set Keyframe : %1")
+    return UiTranslations::text(QObject::tr("Set Keyframe : %1"))
         .arg(QString::fromStdString(m_objId.toString()));
   }
   int getHistoryType() override { return HistoryType::Xsheet; }
@@ -2208,7 +2209,7 @@ void PrintXsheetCommand::execute() {
   copyCss(fp);
 
   QString str =
-      QObject::tr("The %1 file has been generated").arg(toQString(fp));
+      UiTranslations::text(QObject::tr("The %1 file has been generated")).arg(toQString(fp));
   DVGui::warning(str);
 
   TSystem::showDocument(fp);

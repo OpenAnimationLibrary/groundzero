@@ -1,5 +1,6 @@
 
 
+#include "toonzqt/uitranslations.h"
 #include "filedata.h"
 #include "tsystem.h"
 #include "tconvert.h"
@@ -41,7 +42,7 @@ void FileData::getFiles(TFilePath folder,
 
     if (!TSystem::doesExistFileOrLevel(oldPath)) {
       DVGui::warning(
-          QObject::tr("It is not possible to find the %1 level.", "FileData")
+          UiTranslations::text(QObject::tr("It is not possible to find the %1 level.", "FileData"))
               .arg(QString::fromStdWString(oldPath.getWideString())));
       return;
     }
@@ -58,7 +59,7 @@ void FileData::getFiles(TFilePath folder,
     if (TSystem::copyFileOrLevel(levelPathOut, oldPath))
       newFiles.push_back(levelPathOut);
     else {
-      QString msg = QObject::tr("There was an error copying %1", "FileData")
+      QString msg = UiTranslations::text(QObject::tr("There was an error copying %1", "FileData"))
                         .arg(toQString(oldPath));
       DVGui::error(msg);
       return;

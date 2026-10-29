@@ -1,5 +1,6 @@
 
 
+#include "toonzqt/uitranslations.h"
 #include "scanpopup.h"
 #include "tapp.h"
 #include "menubarcommandids.h"
@@ -72,7 +73,7 @@ void checkPaperFormat(TScannerParameters *parameters) {
     TScanner *scanner   = TScanner::instance();
     QString scannerName = scanner ? scanner->getName() : "no scanner";
     DVGui::warning(
-        QObject::tr("The selected paper format is not available for %1.")
+        UiTranslations::text(QObject::tr("The selected paper format is not available for %1."))
             .arg(scannerName));
   }
 }
@@ -349,6 +350,7 @@ DefineScannerPopup::DefineScannerPopup()
   setWindowTitle(tr("Define Scanner"));
 
   m_scanDriverOm = new QComboBox();
+  UiTranslations::watchCombo(m_scanDriverOm);
   m_scanDriverOm->setFixedSize(150, WidgetHeight);
 #ifdef _WIN32
   m_scanDriverOm->addItem(tr("WIA"), "WIA");

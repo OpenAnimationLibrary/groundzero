@@ -346,7 +346,11 @@ void Writer::disable() {
   if (m_impl->stopping) return;
   m_impl->desiredEnabled = false;
   m_impl->accepting = false;
-  if (!m_impl->worker.joinable()) { m_impl->current.state = State::Off; return; }
+  if (!m_impl->worker.joinable() || m_impl->workerExited) {
+    m_impl->current.state = State::Off;
+    m_impl->current.detail.clear();
+    return;
+  }
   m_impl->queueReconcileLocked();
   m_impl->changed.notify_one();
 }
@@ -412,7 +416,9 @@ void Writer::append(const Record &record) {
 
 Status Writer::status() const {
   std::lock_guard<std::mutex> guard(m_impl->mutex);
-  return m_impl->current;
+  Status result = m_impl->current;
+  result.pendingChanges = m_impl->tasks.size() - result.queued;
+  return result;
 }
 
 bool Writer::waitUntilIdle(int timeoutMilliseconds) {

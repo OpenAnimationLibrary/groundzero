@@ -7,6 +7,7 @@
 
 // TnzQt includes
 #include "toonzqt/dvdialog.h"
+#include "toonzqt/uitranslations.h"
 
 // TnzLib includes
 #include "toonz/toonzscene.h"
@@ -48,6 +49,8 @@
 #include <QRegularExpression>
 #include <QSet>
 #include <QSettings>
+#include <QSignalBlocker>
+#include <QScrollBar>
 #include <QTreeWidget>
 #include <QUrl>
 #include <QVBoxLayout>
@@ -67,6 +70,12 @@ namespace {
 const int MaxVersionsPerScene = 5;
 // Recovery copies older than this are removed at startup
 const int MaxAgeDays = 14;
+
+enum RecoveryItemRole {
+  SceneNameRole = Qt::UserRole + 2,
+  OriginalSceneRole,
+  UncopiedLevelsRole
+};
 
 const char *ManifestFileName    = "recovery.ini";
 const char *SessionLockFileName = "session.lock";
@@ -639,36 +648,18 @@ bool AutosaveRecovery::showRecoveryDialog() {
 //-----------------------------------------------------------------------------
 
 RecoveryDialog::RecoveryDialog(QWidget *parent, bool hasCrashReport)
-    : QDialog(parent), m_crashReportButton(0) {
+    : QDialog(parent)
+    , m_hasCrashReport(hasCrashReport)
+    , m_crashReportButton(0) {
   setWindowFlag(Qt::WindowContextHelpButtonHint, false);
   setWindowTitle(tr("Recover Unsaved Work"));
 
-  QStringList sl;
-  if (hasCrashReport)
-    sl.append(tr("<b>OpenToonz crashed during the previous session.</b>"));
-  else
-    sl.append(
-        tr("<b>OpenToonz did not shut down normally during the previous "
-           "session.</b>"));
-  sl.append(
-      tr("Autosave recovery copies newer than the saved scenes were found. "
-         "Open a copy to check it, then use Save Scene As to keep it. The "
-         "levels that had unsaved changes are stored with the copy, and Save "
-         "Scene As offers to copy them next to the saved scene."));
-  sl.append(tr("Recovery copies that are not discarded are removed "
-               "automatically after %1 days.")
-                .arg(MaxAgeDays));
-  if (hasCrashReport)
-    sl.append(tr("A crash report was saved. Click 'Crash Report' to view it."));
-
-  QLabel *label = new QLabel(sl.join("<br><br>"), this);
-  label->setWordWrap(true);
-  label->setTextFormat(Qt::RichText);
+  m_introLabel = new QLabel(this);
+  m_introLabel->setWordWrap(true);
+  m_introLabel->setTextFormat(Qt::RichText);
 
   m_list = new QTreeWidget(this);
   m_list->setColumnCount(3);
-  m_list->setHeaderLabels(QStringList() << tr("Scene") << tr("Saved")
-                                        << tr("Original Location"));
   m_list->setRootIsDecorated(false);
   m_list->setSelectionMode(QAbstractItemView::SingleSelection);
   m_list->header()->setStretchLastSection(true);
@@ -694,7 +685,7 @@ RecoveryDialog::RecoveryDialog(QWidget *parent, bool hasCrashReport)
   buttonsLay->addWidget(closeButton);
 
   QVBoxLayout *mainLayout = new QVBoxLayout();
-  mainLayout->addWidget(label);
+  mainLayout->addWidget(m_introLabel);
   mainLayout->addWidget(m_list, 1);
   mainLayout->addLayout(buttonsLay);
   setLayout(mainLayout);
@@ -710,18 +701,54 @@ RecoveryDialog::RecoveryDialog(QWidget *parent, bool hasCrashReport)
           &RecoveryDialog::onDiscard);
   connect(closeButton, &QPushButton::clicked, this, &QDialog::reject);
 
+  retranslateUi();
+  UiTranslations::onLanguageChanged(this, [this]() { retranslateUi(); });
   onCurrentItemChanged();
 }
 
 //-----------------------------------------------------------------------------
 
-void RecoveryDialog::addItem(const QString &sceneName, const QString &savedAt,
-                             const QString &originalScene,
-                             const QString &sceneFile,
-                             const QStringList &folders,
-                             const QStringList &uncopiedLevels) {
-  QTreeWidgetItem *item = new QTreeWidgetItem(m_list);
+void RecoveryDialog::retranslateUi() {
+  QStringList sl;
+  if (m_hasCrashReport)
+    sl.append(tr("<b>OpenToonz crashed during the previous session.</b>"));
+  else
+    sl.append(
+        tr("<b>OpenToonz did not shut down normally during the previous "
+           "session.</b>"));
+  sl.append(
+      tr("Autosave recovery copies newer than the saved scenes were found. "
+         "Open a copy to check it, then use Save Scene As to keep it. The "
+         "levels that had unsaved changes are stored with the copy, and Save "
+         "Scene As offers to copy them next to the saved scene."));
+  sl.append(tr("Recovery copies that are not discarded are removed "
+               "automatically after %1 days.")
+                .arg(MaxAgeDays));
+  if (m_hasCrashReport)
+    sl.append(tr("A crash report was saved. Click 'Crash Report' to view it."));
+  m_introLabel->setText(sl.join("<br><br>"));
+
+  QSignalBlocker blocker(m_list);
+  const int horizontal = m_list->horizontalScrollBar()->value();
+  const int vertical   = m_list->verticalScrollBar()->value();
+  m_list->setHeaderLabels(QStringList() << tr("Scene") << tr("Saved")
+                                        << tr("Original Location"));
+  for (int row = 0; row < m_list->topLevelItemCount(); ++row)
+    retranslateItem(m_list->topLevelItem(row));
+  m_list->doItemsLayout();
+  m_list->horizontalScrollBar()->setValue(horizontal);
+  m_list->verticalScrollBar()->setValue(vertical);
+}
+
+//-----------------------------------------------------------------------------
+
+void RecoveryDialog::retranslateItem(QTreeWidgetItem *item) {
+  const QString sceneName = item->data(0, SceneNameRole).toString();
+  const QString originalScene = item->data(0, OriginalSceneRole).toString();
+  const QStringList uncopiedLevels =
+      item->data(0, UncopiedLevelsRole).toStringList();
   item->setText(0, sceneName);
+  item->setToolTip(0, QString());
   if (!uncopiedLevels.isEmpty()) {
     item->setText(0, tr("%1 (incomplete)").arg(sceneName));
     QStringList levels;
@@ -732,13 +759,27 @@ void RecoveryDialog::addItem(const QString &sceneName, const QString &savedAt,
               "the copy uses their saved files:\n%1")
                .arg(levels.join("\n")));
   }
-  item->setText(1, savedAt);
   item->setText(2, originalScene.isEmpty()
                        ? tr("Untitled scene")
                        : QDir::toNativeSeparators(originalScene));
   item->setToolTip(2, item->text(2));
+}
+
+//-----------------------------------------------------------------------------
+
+void RecoveryDialog::addItem(const QString &sceneName, const QString &savedAt,
+                             const QString &originalScene,
+                             const QString &sceneFile,
+                             const QStringList &folders,
+                             const QStringList &uncopiedLevels) {
+  QTreeWidgetItem *item = new QTreeWidgetItem(m_list);
+  item->setText(1, savedAt);
   item->setData(0, Qt::UserRole, sceneFile);
   item->setData(0, Qt::UserRole + 1, folders);
+  item->setData(0, SceneNameRole, sceneName);
+  item->setData(0, OriginalSceneRole, originalScene);
+  item->setData(0, UncopiedLevelsRole, uncopiedLevels);
+  retranslateItem(item);
   if (!m_list->currentItem()) m_list->setCurrentItem(item);
   m_list->resizeColumnToContents(0);
   m_list->resizeColumnToContents(1);

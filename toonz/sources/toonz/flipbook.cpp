@@ -1,6 +1,7 @@
 
 
 // System includes
+#include "toonzqt/uitranslations.h"
 #include "tsystem.h"
 #include "timagecache.h"
 
@@ -679,7 +680,7 @@ bool FlipBook::doSaveImages(TFilePath fp) {
   }
 
   if (TSystem::doesExistFileOrLevel(fp)) {
-    QString question(tr("File %1 already exists.\nDo you want to overwrite it?")
+    QString question(UiTranslations::text(tr("File %1 already exists.\nDo you want to overwrite it?"))
                          .arg(toQString(fp)));
     int ret = DVGui::MsgBox(question, QObject::tr("Overwrite"),
                             QObject::tr("Cancel"));
@@ -744,7 +745,7 @@ void FlipBook::saveImage() {
     return;
   }
 
-  QString str = tr("Saved %1 frames out of %2 in %3")
+  QString str = UiTranslations::text(tr("Saved %1 frames out of %2 in %3"))
                     .arg(std::to_string(savedFrames).c_str())
                     .arg(std::to_string(m_framesCount).c_str())
                     .arg(::to_string(m_lw->getFilePath()).c_str());
@@ -1221,7 +1222,7 @@ void FlipBook::setLevel(const TFilePath &fp, TPalette *palette, int from,
       m_flipConsole->setFrameRange(from, to, step);
 
       m_framesCount = (to - from) / step + 1;
-      m_title       = tr("Rendered Frames  ::  From %1 To %2  ::  Step %3")
+      m_title       = UiTranslations::text(tr("Rendered Frames  ::  From %1 To %2  ::  Step %3"))
                     .arg(QString::number(from))
                     .arg(QString::number(to))
                     .arg(QString::number(step));
@@ -1561,7 +1562,7 @@ TImageP FlipBook::getCurrentImage(int frame) {
     if (!m_isPreviewFx) {
       m_title1 = m_viewerTitle + " :: " + fp.withoutParentDir().withFrame(fid);
       if (fp.getType() == "exr")
-        m_title1 += " :: " + tr("Gamma : %1").arg(colorSpaceGamma);
+        m_title1 += " :: " + UiTranslations::text(tr("Gamma : %1")).arg(colorSpaceGamma);
     } else
       m_title1 = "";
   } else if (m_levelNames.empty())
@@ -2271,7 +2272,7 @@ FlipBook *viewFile(const TFilePath &path, int from, int to, int step,
   if ((path.getType() == "mov" || path.getType() == "avi" ||
        path.getType() == "3gp") &&
       path.isLevelName()) {
-    DVGui::warning(QObject::tr("%1  has an invalid extension format.")
+    DVGui::warning(UiTranslations::text(QObject::tr("%1  has an invalid extension format."))
                        .arg(QString::fromStdString(path.getLevelName())));
     return NULL;
   }

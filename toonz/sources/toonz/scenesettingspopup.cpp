@@ -1,5 +1,6 @@
 
 
+#include "toonzqt/uitranslations.h"
 #include "scenesettingspopup.h"
 
 // Tnz6 includes
@@ -81,7 +82,7 @@ public:
   int getSize() const override { return sizeof *this; }
 
   QString getHistoryString() override {
-    return QObject::tr("Edit Cell Mark #%1").arg(QString::number(m_id));
+    return UiTranslations::text(QObject::tr("Edit Cell Mark #%1")).arg(QString::number(m_id));
   }
 };
 
@@ -121,7 +122,7 @@ public:
   int getSize() const override { return sizeof *this; }
 
   QString getHistoryString() override {
-    return QObject::tr("Edit Color Filter #%1").arg(QString::number(m_id));
+    return UiTranslations::text(QObject::tr("Edit Color Filter #%1")).arg(QString::number(m_id));
   }
 };
 
@@ -375,7 +376,7 @@ void ColorFiltersPopup::onColorChanged(const TPixel32 &color, bool isDragging) {
 
   QString name = oldCF.name;
   if (name.isEmpty()) {
-    name = tr("Color Filter %1").arg(id);
+    name = UiTranslations::text(tr("Color Filter %1")).arg(id);
     m_fields[id].nameField->setText(name);
     m_fields[id].clearBtn->setEnabled(true);
   }

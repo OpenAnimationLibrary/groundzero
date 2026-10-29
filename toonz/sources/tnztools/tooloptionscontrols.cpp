@@ -23,6 +23,7 @@
 
 // TnzQt includes
 #include "toonzqt/gutil.h"
+#include "toonzqt/uitranslations.h"
 
 // TnzTools includes
 #include "tools/tool.h"
@@ -333,8 +334,19 @@ ToolOptionCombo::ToolOptionCombo(TTool *tool, TEnumProperty *property,
     , ToolOptionControl(tool, property->getName(), toolHandle)
     , m_property(property) {
   setMinimumWidth(65);
+  UiTranslations::watchCombo(this);
   m_property->addListener(this);
   loadEntries();
+  UiTranslations::onLanguageChanged(this, [this]() {
+    int width = 0;
+    bool hasIcon = false;
+    for (int index = 0; index < count(); ++index) {
+      width = std::max(width, fontMetrics().horizontalAdvance(itemText(index)));
+      hasIcon |= !itemIcon(index).isNull();
+    }
+    setMaximumWidth(width + 25 + (hasIcon ? 23 : 0));
+    updateGeometry();
+  });
   setSizeAdjustPolicy(QComboBox::AdjustToContents);
   connect(this, SIGNAL(activated(int)), this, SLOT(onActivated(int)));
   // synchronize the state with the same widgets in other tool option bars

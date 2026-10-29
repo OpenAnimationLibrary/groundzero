@@ -4,6 +4,7 @@
 #include <QComboBox>
 #include <QMouseEvent>
 #include <QSlider>
+#include <QTranslator>
 #include <QWheelEvent>
 
 #include <cmath>
@@ -14,6 +15,18 @@ namespace {
 void require(bool condition, const char *message) {
   if (!condition) throw std::runtime_error(message);
 }
+
+class ReviewTranslator final : public QTranslator {
+public:
+  bool isEmpty() const override { return false; }
+  QString translate(const char *context, const char *source,
+                    const char * = nullptr, int = -1) const override {
+    if (QByteArray(context) == "CadmiumReviewView" &&
+        QByteArray(source) == "Wipe")
+      return QStringLiteral("Translated wipe");
+    return QString();
+  }
+};
 
 QColor pixel(CadmiumReviewView &view, const QPointF &point, int pane = 0) {
   QImage image(view.size(), QImage::Format_ARGB32);
@@ -155,6 +168,36 @@ int main(int argc, char **argv) {
     view.setImages(before, after);
     view.setMode(CadmiumReviewView::Mode::ReferenceOverlay);
     require(!opacity->isEnabled(), "missing reference left its opacity control enabled");
+
+    view.setRegions(before.size(), labels);
+    view.setMode(CadmiumReviewView::Mode::Wipe);
+    view.setZoom(8.0);
+    view.setPan(QPointF(13.0, -9.0));
+    view.setWipePosition(0.4);
+    view.setOverlayOpacity(0.6);
+    view.setSelectedRegion(1);
+    view.setProtectedRegions(protectedRegions);
+    const QColor selectedColor = pixel(view, QPointF(2.5, 1.5));
+    auto *modes = view.findChild<QComboBox *>("cadmiumReviewMode");
+    int languageModeChanges = 0;
+    QObject::connect(modes, QOverload<int>::of(&QComboBox::currentIndexChanged),
+                     [&languageModeChanges](int) { ++languageModeChanges; });
+    ReviewTranslator translator;
+    app.installTranslator(&translator);
+    app.processEvents();
+    require(modes->currentText() == "Translated wipe" &&
+                languageModeChanges == 0 &&
+                view.mode() == CadmiumReviewView::Mode::Wipe &&
+                view.zoom() == 8.0 && view.pan() == QPointF(13.0, -9.0) &&
+                view.wipePosition() == 0.4 && view.overlayOpacity() == 0.6 &&
+                view.regionAt(view.viewportPointForImage(QPointF(2.5, 1.5))) == 1 &&
+                pixel(view, QPointF(2.5, 1.5)) == selectedColor,
+            "language change reset review choices, regions or selected artwork");
+    app.removeTranslator(&translator);
+    app.processEvents();
+    require(modes->currentText() == "Wipe" && languageModeChanges == 0 &&
+                view.pan() == QPointF(13.0, -9.0),
+            "returning to the original language changed review state");
     std::cout << "Cadmium interactive review checks passed\n";
     return 0;
   } catch (const std::exception &error) {
