@@ -6,6 +6,7 @@
 #include <QApplication>
 #include <QOffscreenSurface>
 #include <QOpenGLContext>
+#include <functional>
 #include <iostream>
 #include <stdexcept>
 #include <vector>
@@ -56,6 +57,16 @@ void geometryEqual(const TVectorImageP &a, const TVectorImageP &b) {
     require(left->isSelfLoop() == right->isSelfLoop(), "closure changed");
     require(left->getControlPointCount() == right->getControlPointCount(),
             "control point count changed");
+    const auto &leftOutline = left->outlineOptions();
+    const auto &rightOutline = right->outlineOptions();
+    require(leftOutline.m_capStyle == rightOutline.m_capStyle &&
+                leftOutline.m_joinStyle == rightOutline.m_joinStyle &&
+                leftOutline.m_miterLower == rightOutline.m_miterLower &&
+                leftOutline.m_miterUpper == rightOutline.m_miterUpper &&
+                leftOutline.m_patternFrameOffset == rightOutline.m_patternFrameOffset &&
+                leftOutline.m_patternFrameStep == rightOutline.m_patternFrameStep &&
+                leftOutline.m_opacity == rightOutline.m_opacity,
+            "native stroke outline changed");
     for (int j = 0; j < left->getControlPointCount(); ++j) {
       const TThickPoint p = left->getControlPoint(j), q = right->getControlPoint(j);
       require(p.x == q.x && p.y == q.y && p.thick == q.thick,
@@ -115,6 +126,43 @@ void run() {
   require(!!repainted && repainted->getRegion(0U)->getStyle() == 3,
           "explicit repaint failed");
   geometryEqual(painted, repainted);
+
+  const auto outlineEditInvalidates = [&](const std::function<void(TStroke &)> &edit,
+                                         const char *message) {
+    const TVectorImageP edited = source->clone();
+    edit(*edited->getStroke(0));
+    Cadmium::Frame editedFrame;
+    require(Cadmium::snapshotVector(TImageP(edited.getPointer()), editedFrame, error),
+            "outline-edited snapshot failed");
+    // This is the freshness comparison used before the popup applies a result.
+    require(editedFrame.fingerprint != frame.fingerprint, message);
+    Cadmium::Frame stale = frame;
+    stale.original = editedFrame.original;
+    require(!Cadmium::applyVector(stale, styles, {}, true, error),
+            "an outline-edited snapshot accepted stale paint decisions");
+    const TVectorImageP freshResult(
+        Cadmium::applyVector(editedFrame, styles, {}, true, error));
+    require(!!freshResult, "fresh outline-edited proposal was rejected");
+    geometryEqual(edited, freshResult);
+  };
+  outlineEditInvalidates([](TStroke &stroke) { stroke.setOpacity(0.5); },
+                        "opacity edit retained a stale fingerprint");
+  outlineEditInvalidates([](TStroke &stroke) {
+    auto &outline = stroke.outlineOptions();
+    outline.m_capStyle = (outline.m_capStyle + 1) % 3;
+  }, "cap edit retained a stale fingerprint");
+  outlineEditInvalidates([](TStroke &stroke) {
+    auto &outline = stroke.outlineOptions();
+    outline.m_joinStyle = (outline.m_joinStyle + 1) % 3;
+  }, "join edit retained a stale fingerprint");
+  outlineEditInvalidates([](TStroke &stroke) { stroke.outlineOptions().m_miterLower += 1.0; },
+                        "lower miter edit retained a stale fingerprint");
+  outlineEditInvalidates([](TStroke &stroke) { stroke.outlineOptions().m_miterUpper += 1.0; },
+                        "upper miter edit retained a stale fingerprint");
+  outlineEditInvalidates([](TStroke &stroke) { ++stroke.outlineOptions().m_patternFrameOffset; },
+                        "pattern offset edit retained a stale fingerprint");
+  outlineEditInvalidates([](TStroke &stroke) { stroke.outlineOptions().m_patternFrameStep = -1; },
+                        "pattern direction edit retained a stale fingerprint");
 
   const TVectorImageP changed(frame.original);
   changed->getStroke(0)->setControlPoint(1, TThickPoint(0, -80, 2));

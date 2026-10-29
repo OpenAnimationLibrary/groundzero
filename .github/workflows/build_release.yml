@@ -73,7 +73,7 @@ jobs:
           set -euo pipefail
           # A unique tag preserves earlier builds; reruns reuse the same tag.
           tag="build-${GITHUB_RUN_ID}"
-          base="OpenToonz-groundzero-${tag}"
+          base="OpenToonz-groundzero-${GITHUB_RUN_ID}"
           echo "RELEASE_TAG=$tag" >> "$GITHUB_ENV"
           mkdir out
           test -s artifacts/windows/OpenToonz.exe

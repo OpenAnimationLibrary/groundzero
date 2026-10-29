@@ -8,21 +8,22 @@
 //     writer of every scene save, with the Compress Scene Files preference
 //     off and on);
 //   - the scene file read back (ToonzScene::loadTnzFile) and freed;
-//   - sub-phases: the xsheet alone through TOStream (plain, to a file with a
-//     flush per line, and compressed, to memory then one write), a raw write
+//   - sub-phases: the xsheet alone through TOStream (plain, buffered to a
+//     file, and compressed, to memory then one write), a raw write
 //     and read of the same bytes, the LZ4 decompression of TIStream, a
 //     TIStream walk of every tag and value without building objects, a
 //     character scan (skipCurrentTag), and replicas of two per cell steps of
 //     the loader (the frame id regular expression of TXshLevelColumn and the
-//     level lookups of fixBiancoProblem in toonzscene.cpp).
+//     level lookups of fixBiancoProblem in toonzscene.cpp);
+//   - a separate sparse scene with an empty interior column and a configurable
+//     empty tail, checking unchanged serialization and edit-time bound changes.
 // Each result is printed as "NOTICE: <phase> <ms> ms (<count> <unit>)" with
 // the median of the runs; the CI workflow turns these lines into annotations.
 // A phase that throws prints "NOTICE: <phase> failed: <what>" and the others
-// still run. The exit code is 1 only when a loaded scene differs from the
-// saved one (cell count, frame ids or level count).
+// still run. Any failed phase or round-trip comparison makes the exit code 1.
 //
 // Usage: scenebench_test [--repeat N] [--columns N] [--rows N] [--levels N]
-//                        [--pegbars N]
+//                        [--pegbars N] [--trailing-columns N]
 
 #include "toonz/toonzscene.h"
 #include "toonz/txsheet.h"
@@ -67,6 +68,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <tuple>
 #include <vector>
 
 namespace {
@@ -77,19 +79,28 @@ struct Config {
   int rows    = 500;
   int levels  = 200;
   int pegbars = 20;
+  int trailingColumns = 512;
 };
 
-bool g_broken = false;  // a loaded scene differs from the saved one
+bool g_failed = false;
 
 TFilePath toPath(const QString &path) { return TFilePath(path.toStdWString()); }
 
-qint64 fileSize(const QString &path) { return QFileInfo(path).size(); }
+qint64 fileSize(const QString &path) {
+  const QFileInfo file(path);
+  if (!file.isFile() || file.size() <= 0)
+    throw std::runtime_error("missing or empty output " + path.toStdString());
+  return file.size();
+}
 
 QByteArray readBytes(const QString &path) {
   QFile f(path);
   if (!f.open(QIODevice::ReadOnly))
     throw std::runtime_error("cannot read " + path.toStdString());
-  return f.readAll();
+  const QByteArray data = f.readAll();
+  if (f.error() != QFile::NoError)
+    throw std::runtime_error("cannot read " + path.toStdString());
+  return data;
 }
 
 std::string formatMs(double ms) {
@@ -134,6 +145,7 @@ double median(std::vector<double> values) {
 }
 
 void printFailure(const std::string &phase, const std::string &what) {
+  g_failed = true;
   std::cout << "NOTICE: " << phase << " failed: " << what << std::endl;
 }
 
@@ -178,6 +190,10 @@ struct SceneStats {
   int m_levels         = 0;
   int m_keyframes      = 0;
   int m_fxs            = 0;
+  int m_terminalFxs    = 0;
+  // Outside the timed load: compare exact drawing identities and positions,
+  // including frame suffixes, rather than relying on a colliding checksum.
+  std::vector<std::tuple<int, int, std::wstring, TFrameId>> m_drawings;
 };
 
 SceneStats sceneStats(ToonzScene &scene) {
@@ -193,6 +209,8 @@ SceneStats sceneStats(ToonzScene &scene) {
       const TXshCell &cell = cells->getCell(r);
       if (cell.isEmpty()) continue;
       stats.m_cells++;
+      stats.m_drawings.emplace_back(c, r, cell.m_level->getName(),
+                                   cell.m_frameId);
       stats.m_frameSum +=
           (long long)cell.m_frameId.getNumber() * (c % 7 + 1) * (r % 5 + 1);
     }
@@ -208,17 +226,19 @@ SceneStats sceneStats(ToonzScene &scene) {
       stats.m_keyframes += object->getParam(channel)->getKeyframeCount();
   }
   stats.m_fxs = xsh->getFxDag()->getInternalFxs()->getFxCount();
+  stats.m_terminalFxs = xsh->getFxDag()->getTerminalFxs()->getFxCount();
   return stats;
 }
 
-// Compares a loaded scene with the saved one. Cells and levels must match;
-// the other counts are only reported.
+// All structure counts and every drawing placement must survive the round trip.
 void checkLoaded(const std::string &phase, const SceneStats &saved,
                  const SceneStats &loaded) {
   if (loaded.m_cells != saved.m_cells ||
       loaded.m_frameSum != saved.m_frameSum ||
-      loaded.m_levels != saved.m_levels) {
-    g_broken = true;
+      loaded.m_levels != saved.m_levels ||
+      loaded.m_columns != saved.m_columns ||
+      loaded.m_drawings != saved.m_drawings) {
+    g_failed = true;
     std::cout << "NOTICE: " << phase << " check failed: cells " << saved.m_cells
               << " saved, " << loaded.m_cells << " loaded; frame checksum "
               << saved.m_frameSum << " saved, " << loaded.m_frameSum
@@ -227,11 +247,16 @@ void checkLoaded(const std::string &phase, const SceneStats &saved,
     std::cerr << phase << ": the loaded scene differs from the saved one"
               << std::endl;
   }
-  if (loaded.m_keyframes != saved.m_keyframes || loaded.m_fxs != saved.m_fxs)
+  if (loaded.m_keyframes != saved.m_keyframes || loaded.m_fxs != saved.m_fxs ||
+      loaded.m_terminalFxs != saved.m_terminalFxs) {
+    g_failed = true;
     std::cout << "NOTICE: " << phase << " differs: keyframes "
               << saved.m_keyframes << " saved, " << loaded.m_keyframes
               << " loaded; fx nodes " << saved.m_fxs << " saved, "
-              << loaded.m_fxs << " loaded" << std::endl;
+              << loaded.m_fxs << " loaded; terminal fx nodes "
+              << saved.m_terminalFxs << " saved, " << loaded.m_terminalFxs
+              << " loaded" << std::endl;
+  }
 }
 
 //-----------------------------------------------------------------------------
@@ -292,7 +317,7 @@ void buildScene(ToonzScene &scene, const Config &cfg) {
     TXshColumn *column = xsh->getColumn(c);
     TFx *columnFx      = column ? column->getFx() : nullptr;
     TFx *fx            = TFx::create("blendFx");
-    if (!fx) continue;  // the fx is not registered: no FX nodes
+    if (!fx) throw std::runtime_error("benchmark blendFx is not registered");
     dag->assignUniqueId(fx);
     dag->getInternalFxs()->addFx(fx);
     if (columnFx && fx->getInputPortCount() > 0) {
@@ -385,10 +410,107 @@ Config parseArguments(const QStringList &args) {
       cfg.levels = parseInt(args, i, cfg.levels, 1, 10000);
     else if (arg == "--pegbars")
       cfg.pegbars = parseInt(args, i, cfg.pegbars, 0, 1000);
+    else if (arg == "--trailing-columns")
+      cfg.trailingColumns = parseInt(args, i, cfg.trailingColumns, 1, 10000);
     else
       std::cerr << "ignored argument " << arg.toStdString() << std::endl;
   }
   return cfg;
+}
+
+// Keep this separate from the dense scene so its historical timings remain
+// comparable. Empty interior columns must survive; only the empty tail is
+// omitted. Bounds must be recomputed when later edits expand or shrink the sheet.
+void runSparseScene(const Config &cfg, const QString &dirPath) {
+  const QDir dir(dirPath);
+  ToonzScene scene;
+  TProjectManager::instance()->initializeScene(&scene);
+  TXsheet *xsh = scene.getXsheet();
+  TXshLevel *level = scene.createNewLevel(PLI_XSHLEVEL, L"Sparse");
+  if (!level) throw std::runtime_error("cannot create sparse fixture level");
+  xsh->setCell(0, 0, TXshCell(level, TFrameId(1)));
+  xsh->setCell(5, 2, TXshCell(level, TFrameId(2)));
+  xsh->getStageObject(TStageObjectId::ColumnId(1))
+      ->getParam(TStageObject::T_X)->setValue(4, 12.5);
+  // setCell does not create stage objects when column-name linking is off,
+  // but insertColumn materializes every earlier column's stage object. Create
+  // those initial objects before taking the byte reference, so padding adds
+  // only metadata beyond the saved boundary.
+  for (int c = 0; c < xsh->getColumnCount(); ++c)
+    xsh->getStageObject(TStageObjectId::ColumnId(c));
+  const SceneStats expected = sceneStats(scene);
+  const QString referencePath = dir.filePath("sparse-reference.txt");
+  writeXsheet(xsh, referencePath, false);
+  const QByteArray reference = readBytes(referencePath);
+
+  for (int c = 0; c < cfg.trailingColumns; ++c)
+    xsh->insertColumn(xsh->getColumnCount());
+  const int paddedColumns = xsh->getColumnCount();
+
+  auto checkRoundTrip = [&](const QString &path, const SceneStats &stats) {
+    ToonzScene loaded;
+    loaded.loadTnzFile(toPath(path));
+    checkLoaded("sparse scene", stats, sceneStats(loaded));
+    TXsheet *loadedXsh = loaded.getXsheet();
+    if (!loadedXsh->getColumn(1) || !loadedXsh->isColumnEmpty(1) ||
+        loadedXsh->getStageObject(TStageObjectId::ColumnId(1))
+                ->getParam(TStageObject::T_X)->getValue(4) != 12.5)
+      throw std::runtime_error("sparse save lost interior column state");
+  };
+
+  for (bool compressed : {false, true}) {
+    Preferences::instance()->setValue(compressSceneFiles, compressed, false);
+    const QString path = dir.filePath(
+        compressed ? "sparse-compressed.tnz" : "sparse-plain.tnz");
+    runPhase(compressed ? "save sparse compressed" : "save sparse plain",
+             "trailing columns", cfg.repeat, [&](Lap &lap) -> qint64 {
+               lap.start();
+               scene.saveCopy(toPath(path));
+               lap.stop();
+               fileSize(path);
+               checkRoundTrip(path, expected);
+               if (xsh->getColumnCount() != paddedColumns ||
+                   xsh->getFirstFreeColumnIndex() != expected.m_columns)
+                 throw std::runtime_error("save mutated sparse column bounds");
+               return cfg.trailingColumns;
+             });
+  }
+  Preferences::instance()->setValue(compressSceneFiles, false, false);
+
+  const QString paddedPath = dir.filePath("sparse-padded.txt");
+  writeXsheet(xsh, paddedPath, false);
+  const QByteArray padded = readBytes(paddedPath);
+  if (padded != reference) {
+    const auto difference = std::mismatch(reference.cbegin(), reference.cend(),
+                                          padded.cbegin(), padded.cend());
+    throw std::runtime_error(
+        "empty tail changed serialized xsheet contents at byte " +
+        std::to_string(difference.first - reference.cbegin()) +
+        " (reference length " + std::to_string(reference.size()) +
+        ", padded length " + std::to_string(padded.size()) + ")");
+  }
+
+  const QString editedPath = dir.filePath("sparse-edited.tnz");
+  const int lastColumn = paddedColumns - 1;
+  xsh->setCell(7, lastColumn, TXshCell(level, TFrameId(3)));
+  const SceneStats expanded = sceneStats(scene);
+  scene.saveCopy(toPath(editedPath));
+  checkRoundTrip(editedPath, expanded);
+  xsh->clearCells(7, lastColumn);
+  scene.saveCopy(toPath(editedPath));
+  checkRoundTrip(editedPath, expected);
+
+  // An entirely empty sheet must retain its zero-column boundary as well.
+  ToonzScene emptyScene;
+  TProjectManager::instance()->initializeScene(&emptyScene);
+  const SceneStats emptyExpected = sceneStats(emptyScene);
+  for (int c = 0; c < cfg.trailingColumns; ++c)
+    emptyScene.getXsheet()->insertColumn(c);
+  const QString emptyPath = dir.filePath("sparse-empty.tnz");
+  emptyScene.saveCopy(toPath(emptyPath));
+  ToonzScene emptyLoaded;
+  emptyLoaded.loadTnzFile(toPath(emptyPath));
+  checkLoaded("empty sparse scene", emptyExpected, sceneStats(emptyLoaded));
 }
 
 void run(const Config &cfg, const QString &dirPath) {
@@ -629,21 +751,27 @@ int main(int argc, char *argv[]) {
     // The scenes need a stuff folder (for the sandbox project and the
     // preferences): use an empty one, so that the defaults are used
     QString stuffPath = QDir(dir.path()).filePath("stuff");
-    QDir().mkpath(QDir(stuffPath).filePath("profiles/layouts/rooms/Default"));
+    if (!QDir().mkpath(
+            QDir(stuffPath).filePath("profiles/layouts/rooms/Default")))
+      throw std::runtime_error("cannot create temporary stuff directory");
     TEnv::setStuffDir(TFilePath(stuffPath));
     Preferences::instance();
 
     QString workPath = QDir(dir.path()).filePath("scenes");
-    QDir().mkpath(workPath);
+    if (!QDir().mkpath(workPath))
+      throw std::runtime_error("cannot create temporary scene directory");
     run(cfg, workPath);
+    runSparseScene(cfg, workPath);
   } catch (const TException &e) {
     printFailure("scenebench", ::to_string(e.getMessage()));
   } catch (const std::exception &e) {
     printFailure("scenebench", e.what());
+  } catch (...) {
+    printFailure("scenebench", "unknown exception");
   }
 
-  if (g_broken) {
-    std::cerr << "scenebench_test: a loaded scene differs from the saved one"
+  if (g_failed) {
+    std::cerr << "scenebench_test: a phase or round-trip comparison failed"
               << std::endl;
     return 1;
   }

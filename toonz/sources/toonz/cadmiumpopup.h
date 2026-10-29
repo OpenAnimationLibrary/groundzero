@@ -71,6 +71,12 @@ private:
   void refreshPreview();
   void inspectDrawing();
   void updateProposalPreview();
+  void updateReferencePreview();
+  bool admitMemory(qint64 bytes, int keepDrawing, QString &error);
+  bool reserveAnalysis(const QVector<TFrameId> &frames, int keepDrawing,
+                       QString &error);
+  static qint64 drawingMemoryBytes(const Drawing &);
+  static void releaseDrawingCache(Drawing &);
   void showRegionMenu(int region, const QPoint &globalPosition);
   void setRegionDecision(int region, int candidate);
   void setRegionProtected(int region, bool protect);
@@ -114,6 +120,8 @@ private:
   bool m_refreshing = false;
   quint64 m_snapshotEpoch = 0;
   int m_backgroundTasks = 0;
+  qint64 m_analysisReservedBytes = 0;
+  qint64 m_sessionReservedBytes = 0;
   int m_sessionWrites = 0;
   QThread *m_sessionWriter = nullptr;
   quint64 m_sessionRevision = 0;
@@ -123,7 +131,7 @@ private:
   QString m_pendingScene;
   Cadmium::Session m_pendingSession;
   Cadmium::Session m_savedSession;
-  QMap<TFrameId, Cadmium::SessionDrawing> m_recovery;
+  Cadmium::SessionRecovery m_recovery;
   QTimer m_saveTimer;
   QListWidget *m_list;
   QListWidget *m_referenceList;

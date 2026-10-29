@@ -1,6 +1,7 @@
 #include "cadmiumtypes.h"
 #include "trasterimage.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
@@ -150,6 +151,131 @@ void exactReferenceTransfer(const Pixel &first, const Pixel &second, bool linear
                                   false, error, nonflat.nativeRegionColors),
           "a nonflat native reference was reduced to its display proxy");
 }
+
+template <class Raster, class Pixel>
+void paperChannels(const Pixel &redLow, const Pixel &greenLow,
+                   const Pixel &blueLow, const Pixel &paper, bool linear) {
+  Raster raster(9, 9);
+  raster->fill(Pixel::White); raster->setLinear(linear);
+  for (int y = 2; y <= 6; ++y)
+    for (int x = 2; x <= 6; ++x)
+      if (x == 2 || x == 6 || y == 2 || y == 6)
+        raster->pixels(y)[x] = Pixel::Black;
+  raster->pixels(3)[3] = redLow;
+  raster->pixels(3)[4] = greenLow;
+  raster->pixels(3)[5] = blueLow;
+  raster->pixels(4)[4] = paper;
+  TRasterImageP image(raster);
+  Cadmium::Frame frame;
+  QString error;
+  // Default TransparentLines must detect that every native alpha is opaque.
+  require(!Cadmium::snapshotFullColor(TImageP(image), frame, error) &&
+              error.contains(QStringLiteral("approve")),
+          "opaque native paper bypassed extraction approval");
+  frame.extractionApproved = true;
+  require(Cadmium::snapshotFullColor(TImageP(image), frame, error),
+          "approved native paper channel fixture failed");
+  require(frame.regionStyles.size() == 2 && frame.labels[4 * 9 + 4] == 1,
+          "paper channel thresholds changed the enclosed region");
+  // The input display channels are permutations of (250, 247, 232)/255.
+  // Removing white paper leaves alpha 23/255 and straight RGB ratios
+  // 18/23, 15/23, 0, which round to these independent byte expectations.
+  require(frame.lines.pixel(3, 5) == qRgba(0, 200, 166, 23) &&
+              frame.lines.pixel(4, 5) == qRgba(200, 0, 166, 23) &&
+              frame.lines.pixel(5, 5) == qRgba(200, 166, 0, 23),
+          "paper extraction changed a channel threshold, gamma conversion, or rounding");
+  require(frame.lines.pixel(4, 4) == qRgba(0, 0, 0, 0) &&
+              frame.lines.pixel(2, 6) == qRgba(0, 0, 0, 255),
+          "paper removal or opaque ink changed");
+  require(raster->pixels(3)[3] == redLow && raster->pixels(4)[4] == paper,
+          "paper analysis changed the native source");
+}
+
+double linearChannel(double display) {
+  return display <= 0.04045 ? display / 12.92
+      : std::pow((display + 0.055) / 1.055, 2.4);
+}
+double displayChannel(double linear) {
+  return linear <= 0.0031308 ? linear * 12.92
+      : 1.055 * std::pow(linear, 1.0 / 2.4) - 0.055;
+}
+
+template <class Pixel> Pixel nativePixel(double r, double g, double b, double a);
+template <> TPixel32 nativePixel<TPixel32>(double r, double g, double b, double a) {
+  const auto channel = [](double value) {
+    return int(std::floor(std::max(0.0, std::min(1.0, value)) * 255.0 + 0.5));
+  };
+  return TPixel32(channel(r), channel(g), channel(b), channel(a));
+}
+template <> TPixel64 nativePixel<TPixel64>(double r, double g, double b, double a) {
+  const auto channel = [](double value) {
+    return int(std::floor(std::max(0.0, std::min(1.0, value)) * 65535.0 + 0.5));
+  };
+  return TPixel64(channel(r), channel(g), channel(b), channel(a));
+}
+template <> TPixelF nativePixel<TPixelF>(double r, double g, double b, double a) {
+  return TPixelF(float(r), float(g), float(b), float(a));
+}
+
+template <class Raster, class Pixel>
+void convertedRegionFills(bool linear) {
+  Raster raster(6, 2);
+  raster->clear(); raster->setLinear(linear);
+  raster->pixels(1)[0] = Pixel::White;
+  const Pixel marker = nativePixel<Pixel>(0.25, 0.125, 0.375, 0.5);
+  raster->pixels(0)[5] = marker;
+  TRasterFP ink(6, 2);
+  ink->clear(); ink->setLinear(!linear);
+  ink->pixels(1)[1] = TPixelF(0.125f, 0.25f, 0.375f, 0.5f);
+  Cadmium::Frame frame;
+  frame.kind = Cadmium::Kind::FullColor;
+  frame.original = TImageP(new TRasterImage(raster));
+  frame.rasterSource = Cadmium::RasterSource::LinkedLines;
+  frame.lineSource = TImageP(new TRasterImage(ink));
+  frame.lines = QImage(6, 2, QImage::Format_ARGB32);
+  frame.lines.fill(Qt::transparent);
+  frame.lines.setPixel(1, 0, qRgba(64, 128, 191, 128));
+  frame.labels = {1, 1, 1, 2, 2, 0, 0, 0, 0, 0, 0, 0};
+  frame.regionStyles = {-1, -1, -1};
+  frame.protectionMask = QImage(6, 2, QImage::Format_ARGB32);
+  frame.protectionMask.fill(Qt::black);
+  frame.protectionMask.setPixel(2, 0, qRgb(255, 255, 255));
+  const QVector<QColor> colors{QColor(), QColor(Qt::red), QColor(Qt::blue)};
+  const QVector<Cadmium::NativeColor> native{
+      {}, {0.25, 0.5, 0.75, 0.5, !linear, true},
+      {0.75, 0.25, 0.5, 0.75, !linear, true}};
+  const auto convert = [linear](double value) {
+    return linear ? linearChannel(value) : displayChannel(value);
+  };
+  // A half-covered line over a half-alpha fill has alpha 3/4. Both have
+  // identical straight channels here, so each output channel is 3/4 of the
+  // converted straight value. The second region has no line contribution.
+  const Pixel first = nativePixel<Pixel>(0.5 * convert(0.25),
+      0.5 * convert(0.5), 0.5 * convert(0.75), 0.5);
+  const Pixel edge = nativePixel<Pixel>(0.75 * convert(0.25),
+      0.75 * convert(0.5), 0.75 * convert(0.75), 0.75);
+  const Pixel second = nativePixel<Pixel>(0.75 * convert(0.75),
+      0.75 * convert(0.25), 0.75 * convert(0.5), 0.75);
+  for (bool repaint : {false, true}) {
+    QString error;
+    TRasterImageP output = Cadmium::applyFullColor(frame, {}, colors, repaint, error, native);
+    require(bool(output), "mixed-space native region application failed");
+    Raster result = output->getRaster();
+    require(bool(result) && result->isLinear() == linear,
+            "region conversion changed native format or color space");
+    for (int y = 0; y < 2; ++y)
+      for (int x = 0; x < 6; ++x) {
+        Pixel expected = raster->pixels(y)[x];
+        if (y == 1 && x == 0 && repaint) expected = first;
+        if (y == 1 && x == 1) expected = edge;
+        if (y == 1 && (x == 3 || x == 4)) expected = second;
+        require(result->pixels(y)[x] == expected,
+                "per-region fill reuse changed native samples, alpha, protection, or repaint policy");
+      }
+    require(raster->pixels(1)[0] == Pixel::White && raster->pixels(0)[5] == marker,
+            "region fill application changed its source");
+  }
+}
 }
 
 int main() {
@@ -160,6 +286,25 @@ int main() {
                                     TPixel64(12346, 23456, 34567, 65535), false);
   exactReferenceTransfer<TRasterFP>(TPixelF(-0.1234567f, 1.234567f, 2.345678f, 0.456789f),
                                    TPixelF(-0.1234566f, 1.234566f, 2.345677f, 0.456789f), true);
+  paperChannels<TRaster32P>(TPixel32(232, 250, 247), TPixel32(250, 232, 247),
+      TPixel32(250, 247, 232), TPixel32(250, 249, 247), false);
+  paperChannels<TRaster64P>(TPixel64(232 * 257, 250 * 257, 247 * 257),
+      TPixel64(250 * 257, 232 * 257, 247 * 257),
+      TPixel64(250 * 257, 247 * 257, 232 * 257),
+      TPixel64(250 * 257, 249 * 257, 247 * 257), false);
+  for (bool linear : {false, true}) {
+    const auto channel = [linear](int value) {
+      const double display = value / 255.0;
+      return float(linear ? linearChannel(display) : display);
+    };
+    paperChannels<TRasterFP>(TPixelF(channel(232), channel(250), channel(247), 1),
+        TPixelF(channel(250), channel(232), channel(247), 1),
+        TPixelF(channel(250), channel(247), channel(232), 1),
+        TPixelF(channel(250), channel(249), channel(247), 1), linear);
+    convertedRegionFills<TRaster32P, TPixel32>(linear);
+    convertedRegionFills<TRaster64P, TPixel64>(linear);
+    convertedRegionFills<TRasterFP, TPixelF>(linear);
+  }
 
   TRaster32P paper(9, 9);
   paper->fill(TPixel32::White);

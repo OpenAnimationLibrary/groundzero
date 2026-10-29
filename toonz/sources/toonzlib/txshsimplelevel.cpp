@@ -45,6 +45,7 @@
 #include <QDir>
 #include <QRegularExpression>
 #include <QMessageBox>
+#include <QTemporaryDir>
 #include <QtCore>
 #include <QTextCodec>  // not in <QtCore> in Qt 6 (Core5Compat)
 
@@ -1643,7 +1644,7 @@ void TXshSimpleLevel::saveSimpleLevel(const TFilePath& decodedFp,
     ~CopyOnExit() { m_dstPath = m_srcPath; }
   } copyOnExit = {m_path = decodedFp, oldPath};
 
-  bool savingOriginal = (decodedFp == dOldPath), paletteNotSaved = false;
+  bool savingOriginal = (decodedFp == dOldPath);
 
   int imFlags = savingOriginal
                     ? ImageManager::dontPutInCache | ImageManager::toBeSaved
@@ -1757,11 +1758,36 @@ void TXshSimpleLevel::saveSimpleLevel(const TFilePath& decodedFp,
         if (Preferences::instance()->isBackupEnabled() &&
             TSystem::doesExistFileOrLevel(palettePath))
           saveBackup(palettePath);
-        TOStream os(palettePath);
-        if (os.checkStatus())
+        // Keep the last palette intact until the replacement is fully written.
+        // Any failure must leave the palette dirty so the next save retries it.
+        const bool paletteExists = TFileStatus(palettePath).doesExist();
+        if (paletteExists && !TFileStatus(palettePath).isWritable())
+          throw TSystemException(palettePath,
+                                 "The palette of the level is read only.");
+        QTemporaryDir temporary(palettePath.getQString() + ".XXXXXX");
+        if (!temporary.isValid())
+          throw TSystemException(palettePath,
+                                 "Could not create a temporary palette folder.");
+        // QTemporaryFile::close() retains its native handle, preventing the
+        // Windows stream from reopening it. A private sibling directory gives
+        // TOStream exclusive handle ownership and cleans up on every exit.
+        const TFilePath temporaryPath(temporary.filePath("palette.tpl"));
+        {
+          TOStream os(temporaryPath);
+          if (!os.checkStatus())
+            throw TSystemException(palettePath,
+                                   "Could not open the temporary palette file.");
           os << getPalette();
-        else
-          paletteNotSaved = true;
+          if (!os.checkStatus())
+            throw TSystemException(palettePath,
+                                   "Could not complete the palette save.");
+        }
+        if (paletteExists &&
+            !QFile::setPermissions(temporaryPath.getQString(),
+                QFile::permissions(palettePath.getQString())))
+          throw TSystemException(palettePath,
+                                 "Could not preserve palette permissions.");
+        TSystem::replaceFile(palettePath, temporaryPath);
       }
     } else {
       LevelUpdater updater(this);
@@ -1857,11 +1883,6 @@ void TXshSimpleLevel::saveSimpleLevel(const TFilePath& decodedFp,
     setRenumberTable();
     if (m_properties) m_properties->setDirtyFlag(false);
     if (getPalette() && overwritePalette) getPalette()->setDirtyFlag(false);
-  }
-
-  if (paletteNotSaved) {
-    throw TSystemException(m_path,
-                           "The palette of the level could not be saved.");
   }
 }
 

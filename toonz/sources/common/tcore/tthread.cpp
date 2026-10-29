@@ -15,6 +15,7 @@
 // STL includes
 #include <set>
 #include <deque>
+#include <memory>
 
 // tcg includes
 #include "tcg/tcg_pool.h"
@@ -806,22 +807,50 @@ void Executor::setDedicatedThreads(bool dedicated, bool persistent) {
 //! Submits a task for execution. The task is executed according to
 //! its task load, insertion time and scheduling priority.
 void Executor::addTask(RunnableP task) {
+  bool accepted;
+  addTask(task, accepted);
+}
+
+//---------------------------------------------------------------------
+
+void Executor::addTask(RunnableP task, bool &accepted) {
+  accepted = false;
   {
-    if (task->m_id)  // Must be done outside transition lock, since eventually
-      task->m_id->release();  // invoked ~ExecutorId will lock it
+    if (task->m_id) {
+      ExecutorId *previousId = task->m_id;
+      task->m_id             = nullptr;
+      // Must be done outside the transition lock: ~ExecutorId locks it.
+      previousId->release();
+    }
 
     // Updating tasks and workers list - lock against state transitions
     QMutexLocker transitionLocker(&globalImp->m_transitionMutex);
 
+    const int priority = task->schedulingPriority();
     task->m_id = m_id;
     m_id->addRef();
 
-    globalImp->insertTask(task->schedulingPriority(), task);
+    try {
+      globalImp->insertTask(priority, task);
+      accepted = true;
+    } catch (...) {
+      // Preserve publication information even if insertion partially succeeds.
+      accepted = globalImp->m_tasks.contains(priority, task);
+      throw;
+    }
   }
 
   // If addTask is called in the main thread, the emit works directly -
   // so it is necessary to unlock the mutex *before* emitting the refresh.
   globalImpSlots->emitRefreshAssignments();
+}
+
+//---------------------------------------------------------------------
+
+bool Executor::withdrawQueuedTask(RunnableP task) {
+  QMutexLocker transitionLocker(&globalImp->m_transitionMutex);
+  if (!task || task->m_id != m_id) return false;
+  return globalImp->m_tasks.remove(task->m_schedulingPriority, task) != 0;
 }
 
 //---------------------------------------------------------------------
@@ -980,12 +1009,18 @@ inline void ExecutorId::newWorker(RunnableP &task) {
     worker->updateCountsOnTake();
     worker->m_waitCondition.wakeOne();
   } else {
-    worker = new Worker;
-    globalImp->m_workers.insert(worker);
-    QObject::connect(worker, SIGNAL(finished()), globalImpSlots,
-                     SLOT(onTerminated()));
-    worker->m_task = task;
-    worker->updateCountsOnTake();
+    std::unique_ptr<Worker> newWorker(new Worker);
+    try {
+      globalImp->m_workers.insert(newWorker.get());
+      QObject::connect(newWorker.get(), SIGNAL(finished()), globalImpSlots,
+                       SLOT(onTerminated()));
+      newWorker->m_task = task;
+      newWorker->updateCountsOnTake();
+    } catch (...) {
+      globalImp->m_workers.erase(newWorker.get());
+      throw;
+    }
+    worker = newWorker.release();
     worker->start();
   }
 }

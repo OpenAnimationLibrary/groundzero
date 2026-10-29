@@ -34,7 +34,7 @@
 
 TLevelReaderPsd::TLevelReaderPsd(const TFilePath &path)
     : TLevelReader(path), m_path(path), m_layerId(0) {
-  m_psdreader           = new TPSDReader(m_path);
+  m_psdreader.reset(new TPSDReader(m_path));
   TPSDHeaderInfo header = m_psdreader->getPSDHeaderInfo();
   m_lx                  = header.cols;
   m_ly                  = header.rows;
@@ -59,6 +59,8 @@ TLevelReaderPsd::TLevelReaderPsd(const TFilePath &path)
     if (layerStr != "frames") {
       QTextCodec *layerNameCodec = QTextCodec::codecForName(
           Preferences::instance()->getLayerNameEncoding().c_str());
+      if (!layerNameCodec)
+        throw TImageException(m_path, "Unknown PSD layer name encoding");
       TPSDParser psdparser(m_path);
       m_layerId = psdparser.getLevelIdByName(
           layerNameCodec->fromUnicode(layerStr).toStdString());
@@ -74,7 +76,7 @@ TLevelReaderPsd::TLevelReaderPsd(const TFilePath &path)
 
 //------------------------------------------------
 
-TLevelReaderPsd::~TLevelReaderPsd() { delete m_psdreader; }
+TLevelReaderPsd::~TLevelReaderPsd() = default;
 
 //------------------------------------------------
 
@@ -89,16 +91,16 @@ void TLevelReaderPsd::load(TRasterImageP &rasP, int shrinkX, int shrinkY,
 }
 
 TLevelP TLevelReaderPsd::loadInfo() {
-  TPSDParser *psdparser = new TPSDParser(m_path);
+  TPSDParser psdparser(m_path);
   assert(m_layerId >= 0);
-  int framesCount = psdparser->getFramesCount(m_layerId);
+  int framesCount = psdparser.getFramesCount(m_layerId);
   TLevelP level;
-  level->setName(psdparser->getLevelName(m_layerId));
+  level->setName(psdparser.getLevelName(m_layerId));
   m_frameTable.clear();
   for (int i = 0; i < framesCount; i++) {
     TFrameId frame(i + 1);
     m_frameTable.insert(
-        std::make_pair(frame, psdparser->getFrameId(m_layerId, i)));
+        std::make_pair(frame, psdparser.getFrameId(m_layerId, i)));
     level->setFrame(frame, TImageP());
   }
   return level;

@@ -35,6 +35,7 @@
 // TnzCore includes
 #include "timagecache.h"
 #include "tstream.h"
+#include "tstreamlimits.h"
 #include "tstreamexception.h"
 #include "tfilepath_io.h"
 #include "tofflinegl.h"
@@ -204,11 +205,14 @@ static void checkCompressedSceneFile(const TFilePath &fp) {
     if (is.isOpen()) {
       is.read(header, sizeof header);
       if (is && std::string(header, 4) == "TABc") {
-        qint32 byteOrder, compressedSize;
+        qint32 byteOrder, compressedSize, uncompressedSize;
         memcpy(&byteOrder, header + 4, sizeof byteOrder);
+        memcpy(&uncompressedSize, header + 8, sizeof uncompressedSize);
         memcpy(&compressedSize, header + 12, sizeof compressedSize);
         qint64 fileSize = QFileInfo(fp.getQString()).size();
-        complete        = byteOrder == 0x0A0B0C0D && compressedSize > 0 &&
+        complete        = byteOrder == 0x0A0B0C0D &&
+                   TStreamLimits::validCompressedSizes(compressedSize,
+                                                       uncompressedSize) &&
                    fileSize == qint64(sizeof header) + compressedSize;
       }
     }
@@ -328,6 +332,7 @@ ToonzScene::ToonzScene()
     : m_poseLibrary(new PoseLibrary())
     , m_contentHistory(0)
     , m_isUntitled(true)
+    , m_standAlone(false)
     , m_isLoading(false)
     , m_unrecognizedSceneTags()
     , m_loadedSceneGenerator() {
@@ -738,17 +743,24 @@ void ToonzScene::save(TFilePath &fp, TXsheet *subxsh, bool saveSceneIcon) {
     }
   }
 
-  // A sub-xsheet save does not switch the current scene to the saved file, so
-  // its stand-alone state must survive saving outside the scene's project,
-  // also when the save throws.
-  struct StandAloneRestorer {
-    bool &m_flag;
-    bool m_value;
-    bool m_enabled;
-    ~StandAloneRestorer() {
-      if (m_enabled) m_flag = m_value;
+  // Resolve resources against the destination while writing, but only a
+  // successful full-scene save may change the live document's identity.
+  // Restore all three fields on failure and after every sub-xsheet export.
+  struct SceneSaveRestorer {
+    TFilePath &m_path;
+    bool &m_untitled, &m_standAlone;
+    TFilePath m_oldPath;
+    bool m_oldUntitled, m_oldStandAlone;
+    bool m_committed = false;
+    ~SceneSaveRestorer() {
+      if (!m_committed) {
+        m_path       = m_oldPath;
+        m_untitled   = m_oldUntitled;
+        m_standAlone = m_oldStandAlone;
+      }
     }
-  } standAloneRestorer = {m_standAlone, m_standAlone, subxsh != 0};
+  } restoreScene = {m_scenePath, m_isUntitled, m_standAlone,
+                    m_scenePath, m_isUntitled, m_standAlone};
   if (newScenePath != oldScenePath)
     TProjectManager::instance()->loadSceneProject(newScenePath, &m_standAlone);
 
@@ -785,10 +797,8 @@ void ToonzScene::save(TFilePath &fp, TXsheet *subxsh, bool saveSceneIcon) {
   if (TFileStatus(scenePathTemp).doesExist())
     TSystem::replaceFile(scenePath, scenePathTemp);
 
-  if (subxsh) {
-    setScenePath(oldScenePath);
-    if (wasUntitled) setUntitled();
-  } else {
+  if (!subxsh) {
+    restoreScene.m_committed = true;
     if (wasUntitled) deleteUntitledScene(oldScenePath.getParentDir());
     if (saveSceneIcon) clearUnrecognizedSceneData();
   }
