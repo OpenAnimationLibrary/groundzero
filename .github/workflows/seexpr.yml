@@ -1,0 +1,113 @@
+name: SeExpr qualification
+
+on:
+  pull_request:
+  workflow_dispatch:
+  push:
+    branches:
+      - edition
+
+permissions:
+  contents: read
+
+concurrency:
+  group: seexpr-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  core:
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: Linux interpreter
+            runner: ubuntu-22.04
+            backend: interpreter
+          - label: Windows interpreter
+            runner: windows-2025
+            backend: interpreter
+          - label: macOS interpreter
+            runner: macos-15-intel
+            backend: interpreter
+          - label: Linux LLVM 14
+            runner: ubuntu-22.04
+            backend: llvm14
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          lfs: false
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install Linux parser tools
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -o Acquire::http::Timeout=30 -o Acquire::Retries=3
+          sudo apt-get install -y bison flex python3-dev
+      - name: Install LLVM 14 qualification dependencies
+        if: matrix.backend == 'llvm14'
+        run: |
+          sudo apt-get install -y llvm-14-dev libffi-dev libtinfo-dev zlib1g-dev
+      - name: Install macOS parser tools
+        if: runner.os == 'macOS'
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: 1
+        run: |
+          brew list --versions bison >/dev/null || brew install bison
+          brew list --versions flex >/dev/null || brew install flex
+          brew --prefix bison | sed 's|$|/bin|' >> "$GITHUB_PATH"
+          brew --prefix flex | sed 's|$|/bin|' >> "$GITHUB_PATH"
+      - name: Install Windows parser tools
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./ci-scripts/seexpr/install_parser_windows.ps1
+      - name: Configure interpreter qualification
+        if: matrix.backend == 'interpreter'
+        shell: bash
+        run: |
+          set -o pipefail
+          cmake -S ci-scripts/seexpr -B seexpr-build -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBUILD_SEEXPR_PYTHON=ON 2>&1 | tee seexpr-configure.log
+      - name: Configure LLVM qualification
+        if: matrix.backend == 'llvm14'
+        shell: bash
+        run: |
+          set -o pipefail
+          cmake -S ci-scripts/seexpr -B seexpr-build -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBUILD_SEEXPR_PYTHON=ON -DOT_SEEXPR_WITH_LLVM=ON -DLLVM_DIR=/usr/lib/llvm-14/lib/cmake/llvm 2>&1 | tee seexpr-configure.log
+      - name: Build core and bindings
+        shell: bash
+        run: |
+          set -o pipefail
+          cmake --build seexpr-build --config RelWithDebInfo --parallel 4 2>&1 | tee seexpr-build.log
+      - name: Test native runtime and SDK
+        shell: bash
+        run: |
+          set -o pipefail
+          ctest --test-dir seexpr-build -C RelWithDebInfo --output-on-failure --output-junit seexpr-tests.xml --no-tests=error --timeout 120 2>&1 | tee seexpr-tests.log
+      - name: Report qualification failure
+        if: failure()
+        run: python ci-scripts/seexpr/report.py seexpr-configure.log seexpr-build.log seexpr-tests.log
+      - name: Package Python SDK notices
+        shell: bash
+        run: |
+          cp stuff/doc/LICENSE/LICENSE_seexpr.txt seexpr-build/seexpr-python/LICENSE_seexpr.txt
+      - name: Upload qualified Python SDK
+        uses: actions/upload-artifact@v6
+        with:
+          name: SeExpr-Python-${{ runner.os }}-${{ matrix.backend }}-${{ github.sha }}
+          path: seexpr-build/seexpr-python
+          if-no-files-found: error
+      - name: Retain qualification diagnostics
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: SeExpr-reports-${{ runner.os }}-${{ matrix.backend }}-${{ github.sha }}
+          path: |
+            seexpr-configure.log
+            seexpr-build.log
+            seexpr-tests.log
+            seexpr-build/seexpr-tests.xml
+          if-no-files-found: warn

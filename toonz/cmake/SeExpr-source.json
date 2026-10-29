@@ -1,0 +1,31 @@
+{
+  "project": "SeExpr",
+  "repository": "https://github.com/wdas/SeExpr",
+  "revision": "8f8c8f2c5e27e96fae70d6b82ac1ff4f4811d6dc",
+  "archive_sha256": "097ffec1a4f50db2b8b7d8f8d0e488e0cafb9f235f1a63bc3693e6d6f079a8bb",
+  "included_source": "src/SeExpr2 core headers and implementation; no UI or Python subtree",
+  "license": "Apache License 2.0 with the upstream replacement Section 6",
+  "packaged_notice": "stuff/doc/LICENSE/LICENSE_seexpr.txt",
+  "parser_tools": {
+    "bison": "3.8.2",
+    "flex": "2.6.4"
+  },
+  "build_copy_changes": [
+    "Disable automatic SE_EXPR_PLUGINS discovery; explicit host function registration remains available",
+    "Disable environment-selected expression debugging; diagnostics are explicitly owned by the host",
+    "Invoke the host thread-local instruction budget before each interpreter instruction",
+    "Reset the interpreter local-function call stack at evaluation entry to recover from cancellation",
+    "Use standard C++17 snprintf and log2 on Windows",
+    "Delete the Windows critical section through its concrete type",
+    "Expose the standard C++17 cbrt, asinh, acosh, atanh and trunc functions on every platform",
+    "Keep the default evaluation backend interpreter-based and independent of process environment",
+    "Isolate SDK graph resolution temporary state and evaluate selected dependencies in topological order",
+    "Adapt the optional JIT emitter to LLVM 14 typed builder and fixed-vector APIs",
+    "Insert no-throw JIT evaluation budget checks and capture callback exceptions for native reporting",
+    "Use bounded native string concatenation with terminator allocation in the optional JIT backend"
+  ],
+  "backends": {
+    "interpreter": "included",
+    "llvm": "LLVM 14 optional backend implementation; CI qualification pending"
+  }
+}
