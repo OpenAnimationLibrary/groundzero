@@ -9,6 +9,7 @@
 #include <QPair>
 #include <QPointF>
 #include <QString>
+#include <QStringList>
 #include <QWidget>
 
 #include <vector>
@@ -105,7 +106,8 @@ class ReferencePanel final : public QFrame {
 
   struct Entry {
     QString path;
-    int layerId;  // PSD layer, 0 for the whole (flattened) image
+    int layerId;        // PSD layer, 0 for the whole (flattened) image
+    QString boardItem;  // PureRef export filename; empty means board overview
     ReferenceViewState state;
     bool hasState;
     Entry() : layerId(0), hasState(false) {}
@@ -115,6 +117,8 @@ class ReferencePanel final : public QFrame {
   QToolButton *m_flipHButton, *m_flipVButton;
   QComboBox *m_imageCombo, *m_layerCombo;
   QSlider *m_opacitySlider;
+  QWidget *m_boardControls;
+  QStringList m_boardItems;
 
   std::vector<Entry> m_entries;
   int m_current;                        // index in m_entries, -1 if none
@@ -136,6 +140,8 @@ private:
   void updateCombos();
   void saveEntries() const;
   void loadEntries();
+  bool importPureRefBoard(const QString &path, bool refresh = false);
+  QString pureRefExecutable();
 
 protected slots:
   void onLoadImage();
@@ -144,6 +150,10 @@ protected slots:
   void onLayerComboChanged(int index);
   void onOpacityChanged(int value);
   void onViewStateChanged();
+  void onImportPureRefBoard();
+  void onRefreshPureRefBoard();
+  void onOpenInPureRef();
+  void onConfigurePureRef();
 };
 
 #endif  // REFERENCEPANEL_H

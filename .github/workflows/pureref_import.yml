@@ -1,0 +1,54 @@
+name: PureRef import
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/pureref_import.yml'
+      - 'toonz/sources/toonz/purerefboard.*'
+      - 'toonz/sources/toonz/processprogress.h'
+      - 'toonz/sources/toonz/referencepanel.*'
+      - 'toonz/sources/toonz/tests/pureref/**'
+      - 'toonz/sources/toonz/tests/purerefboard_test.cpp'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pureref-import-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  regression:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install Qt
+        run: |
+          sudo apt-get update -o Acquire::Retries=3
+          sudo apt-get install -y -o Acquire::Retries=3 qtbase5-dev ninja-build
+      - name: Build import regression
+        run: |
+          set -o pipefail
+          cmake -S toonz/sources/toonz/tests/pureref -B pureref-build -G Ninja 2>&1 | tee pureref-build.log
+          cmake --build pureref-build 2>&1 | tee -a pureref-build.log
+      - name: Test import
+        run: ctest --test-dir pureref-build --output-on-failure --no-tests=error --output-junit results.xml
+      - name: Report errors
+        if: failure()
+        run: |
+          if [ -f pureref-build.log ]; then
+            while IFS= read -r line; do echo "::error title=PureRef import::$line"; done < <(grep -E 'error:|CMake Error' pureref-build.log || true)
+          fi
+          if [ -f pureref-build/Testing/Temporary/LastTest.log ]; then
+            while IFS= read -r line; do echo "::error title=PureRef regression::$line"; done < <(grep -E 'FAIL:|failure|Error|exception' pureref-build/Testing/Temporary/LastTest.log || true)
+          fi
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: PureRef-import-results
+          path: |
+            pureref-build.log
+            pureref-build/results.xml
+            pureref-build/Testing/Temporary/LastTest.log

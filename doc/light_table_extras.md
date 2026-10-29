@@ -63,8 +63,8 @@ the Line Art of a drawing.
 **Windows > Reference** (`toonz/referencepanel.*`):
 
 - **Several images.** Load Image... takes several files, and dropping files on
-  the panel adds them. The loaded images are listed in a combo box (up to 20;
-  the oldest is dropped beyond that) and **Remove** takes the current one out
+  the panel adds them. The loaded images are listed in a combo box with no
+  automatic eviction and **Remove** takes the current one out
   of the list. Loading (or dropping) an image already in the list reads the
   file again, so that changes made to it are shown, and keeps its view.
 - **Remembered view.** The zoom, pan, flips, rotation and a new **opacity**
@@ -77,6 +77,13 @@ the Line Art of a drawing.
   topmost first. A layer is shown at the size of the canvas, and keeps the view
   of the file, so layers can be compared in place. The reader is `TPSDReader`
   (`common/psdlib`). Layer names are read in the local 8-bit encoding.
+- **PureRef boards.** The arrow beside **Load Image...** offers **Import
+  PureRef Board...** and **PureRef Application...**. Dropping a `.pur` file
+  also imports it. Choose whether to include individual images; the default
+  is just the board overview. One board is one reference-list entry, with
+  its overview and optional images in the second selector. The image-list
+  limit has been removed for ordinary images as well. See
+  [PureRef reference boards](pureref_reference_boards.md).
 
 State is kept in the user environment (`ReferencePanelImages` and
 `ReferencePanelCurrentImage` in the env file, as one percent-encoded line;
