@@ -1,0 +1,136 @@
+// out: "../../../../Synthwave/Synthwave.qss"
+
+// Synthwave appearance adapted to the maintained native layouts: navy panels,
+// magenta selections, cyan room tabs and yellow active titles and checkboxes.
+@import '../default/default-theme.less';
+
+@img-url: '../Default/imgs/white';
+
+// Surfaces and text ------------------------------------------------------------
+@hover-amount: 8%;
+@pressed-amount: 8%;
+@dark-contrast: 0.8;
+@light-contrast: 0.8;
+
+@bg-color: #2b313a;
+@bg-color-hover: #3c4551;
+@dark-color-1: #22272e;
+@dark-color-2: #1a1d23;
+@dark-color-3: #131519;
+@dark-color-4: #000000;
+@dark-color-5: #000000;
+@light-color-0: #343b46;
+@light-color-1: #414a57;
+@border-color: #010102;
+
+@text-color: #d3d3d3;
+@text-color-active: #e4e410;
+@text-color-inactive: fade(@text-color, 60%);
+@icon-base-color: #cecece;
+@normal-label-color: #75dedf;
+@preview-color: #61bfbd;
+
+// Keep the native dock highlight aligned with the cyan workspace tabs. The
+// source appearance uses a separate magenta accent for commands and selections.
+@hl-color: #1cc6c6;
+@synthwave-selection-color: #aa4ca2;
+@synthwave-selection-hover-color: #ba65b3;
+
+@rooms-tab-bg-color-selected: @hl-color;
+@rooms-tab-text-color-selected: black;
+@rooms-tab-bg-color-selected-hover: #2ae1e1;
+@rooms-tab-bg-color-hover: #343b46;
+@menubar-item-bg-color-selected: @synthwave-selection-color;
+@menu-item-bg-color-selected: @synthwave-selection-color;
+@menu-icon-checked-bg-color: @synthwave-selection-color;
+
+// Buttons, inputs and active titlebars -----------------------------------------
+@button-bg-color-hover: #525e6f;
+@button-border-color-hover: @button-bg-color-hover;
+@button-border-color-pressed: #108183;
+@button-border-color-checked: @button-border-color-pressed;
+@button-bg-color-checked-hover: @bg-color;
+@button-bg-color-focus: @synthwave-selection-color;
+@button-bg-color-focus-hover: @synthwave-selection-hover-color;
+@button-bg-color-disabled: #38404c;
+
+@combobox-border-color-focus: @synthwave-selection-color;
+@toolbutton-bg-color-checked: @synthwave-selection-color;
+@toolbutton-bg-color-checked-hover: @synthwave-selection-hover-color;
+@toolbutton-bg-color-checked-pressed: #8e3f87;
+
+@input-border-color: #454f5d;
+@input-border-color-focus: @synthwave-selection-color;
+@input-selection-bg-color: fade(@synthwave-selection-color, 80%);
+@input-bg-color-disabled: #21262d;
+
+@checkbox-bg-color-checked: #d8d80f;
+@checkbox-bg-color-checked-hover: #f0f020;
+@checkbox-bg-color-checked-disabled: #939520;
+@checkbox-img-checked: 'checkmark/checkmark_black.svg';
+@checkbox-img-disabled: 'checkmark/checkmark_disabled_black.svg';
+@checkbox-img-partially: 'checkmark/checkpartially_black.svg';
+@checkbox-img-partially-disabled: 'checkmark/checkpartially_disabled_black.svg';
+
+@titlebar-button-rollover-bg-color: #434c5a;
+@titlebar-button-pressed-bg-color: @synthwave-selection-color;
+@sb-bg-color: #1d2127;
+@sb-handle-bg-color-hover: #525e6f;
+@sb-handle-bg-color-pressed: #637186;
+
+// Lists and palette selection retain the magenta source accent. The shared
+// layout supplies current hover, disabled and keyboard-focus handling.
+@palette-SelectedCellColor: @synthwave-selection-color;
+@palette-CurrentCellColor: fade(@synthwave-selection-color, 50%);
+@tree-item-bg-color-selected: @synthwave-selection-color;
+@browser-selected-item-bg-color: @synthwave-selection-color;
+
+// Viewer and playback ----------------------------------------------------------
+@flipmarker-img: 'flipslider/flipmarker-blue.svg';
+@flipslider-img: 'flipslider/flipslider-dark-hc.svg';
+@flipslider-notstarted-color: hsl(294, 24%, 33%);
+@flipslider-started-color: hsl(185, 41%, 52%);
+
+// Xsheet ----------------------------------------------------------------------
+// Use the source's darker, more saturated level colours with the current
+// shared selection/border rules and explicit contrast colours for native marks.
+@xsh-color: #343b46;
+@xsh-border-contrast: 0.8;
+@xsh-cell-lighten-amount: -8%;
+@xsh-cell-sat-amount: 4%;
+@xsh-border-darken-amount: 18%;
+@xsh-current-time-indicator-color: hsl(52, 100%, 64%);
+
+@xsh-empty-column-color: #292f37;
+@xsh-empty-column-range-color: @xsh-color;
+@xsh-empty-cell-color-selected: rgba(120, 97, 142, 0.5);
+@xsh-onionskin-column-bg-color: #292f37;
+@xsh-current-cell-border-color: #18ffe8;
+@xsh-current-column-border-color: @hl-color;
+
+@xsh-cell-text-color: rgba(255, 255, 255, 0.85);
+@xsh-cell-text-color-selected: white;
+@xsh-error-text-color: #ffd2d2;
+@xsh-level-end-color: @xsh-cell-text-color;
+@xsh-keyframe-line-color: @xsh-cell-text-color;
+
+@xsh-framenumber-column-range-bg-color: #3f4754;
+@xsh-framenumber-current-bg-color: fade(@synthwave-selection-color, 60%);
+@xsh-column-header-selected-color: rgba(236, 198, 233, 0.5);
+@xsh-button-preview-bg-on-color: @preview-color;
+@xsh-button-camstand-bg-on-color: hsl(301, 42.34234234%, 56.47058824%);
+
+// These four source icons belong to this theme. All remaining images use the
+// shared current assets, including the corrected titlebar image paths.
+XsheetViewer {
+  qproperty-TimelinePreviewButtonOnImage: url('imgs/timeline/preview_small-color-cyberpunk.svg');
+  qproperty-TimelineUnifiedButtonTranspImage: url('imgs/timeline/preview_trans_small-color-cyberpunk.svg');
+  qproperty-TimelineCamstandButtonOnImage: url('imgs/timeline/table_small-color-cyberpunk.svg');
+  qproperty-TimelineCamstandButtonTranspImage: url('imgs/timeline/trans_small-color-cyberpunk.svg');
+}
+
+// Function editor -------------------------------------------------------------
+@fe-current-row-bg-alpha: 60%;
+@fe-panel-bg-color: #323843;
+@fe-panel-ruler-bg-color: #2b3139;
+@fe-panel-curve-color-hover: cyan;

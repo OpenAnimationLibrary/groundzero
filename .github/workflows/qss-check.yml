@@ -28,6 +28,28 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  Generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install lessc
+        run: npm install -g less@4
+      - name: Generate stylesheets for review
+        run: python3 ci-scripts/compile_qss.py
+      - name: Publish generated stylesheets
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-native-stylesheets
+          path: stuff/config/qss/*/*.qss
+          if-no-files-found: error
+          retention-days: 7
+
+  # Compare a fresh checkout. Generation in the separate job must never repair
+  # stale committed output before this comparison runs.
   Check:
     runs-on: ubuntu-latest
     timeout-minutes: 15
