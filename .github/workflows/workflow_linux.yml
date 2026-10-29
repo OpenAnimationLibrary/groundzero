@@ -97,7 +97,7 @@ jobs:
       working-directory: toonz/build
       run: |
         set -o pipefail
-        ctest --output-on-failure --output-junit cel-tests.xml --no-tests=error -R '^celfx_' 2>&1 | tee cel-tests-output.txt
+        QT_QPA_PLATFORM=xcb LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a ctest --output-on-failure --output-junit cel-tests.xml --no-tests=error -R '^celfx_' 2>&1 | tee cel-tests-output.txt
 
     - name: Test Cadmium adapters
       if: ${{ !cancelled() && hashFiles('toonz/build/bin/cadmium_toonzraster_test') != '' }}
@@ -169,6 +169,11 @@ jobs:
       run: |
         log="$GITHUB_WORKSPACE/build.log"
         [ -f "$log" ] || exit 0
+        # Keep the failed target visible even when many linker references fill
+        # the bounded error excerpt below.
+        grep '^FAILED:' "$log" | head -10 | while IFS= read -r line; do
+          echo "::error title=Failed build target::$line"
+        done || true
         grep -E ': (fatal )?error:|CMake Error|undefined reference|ld returned|^FAILED:' "$log" | sort -u | head -60 > errors.txt || true
         {
           echo "## Linux build errors"

@@ -91,6 +91,11 @@ frame rather than pretending that their integer simulations support arbitrary
 subframe evaluation. Native trails and motion-blur contributions are captured
 as ordered draw records.
 
+Scene Multiplane Depth remains on the column during cached playback. Camera
+framing includes the extra particle area needed by its blur, including under
+rotated or sheared placement. Native weather depth size and opacity are also
+recorded in the particle data for export and replacement artwork.
+
 Procedural artwork inputs with unlimited duration are sampled over a fixed
 range: frame 1 through the later of the bake's last frame and the scene's last
 frame. This range stays the same for every captured sample, so random or cycling
@@ -199,10 +204,10 @@ memory and reload changed files.
 - `stdfx/particlebake.cpp` and the capture hooks evaluate native simulation in
   isolated state; `particlebakeio.cpp` stores and reloads native draw packages.
 - `toonz/particlecachepopup.cpp` owns native import, inspection, export and bake
-  commands. Baking expands the full scene FX tree, extracts its outer affine
-  transforms, and passes the detached native generator with that frame's complete
-  render affine and viewport to the capture service. Scene-resource discovery
-  tracks cache assets separately from levels.
+  commands. Shared scene preparation expands the scene FX tree and uses the
+  renderer's request calculations to obtain the native generator's affine and
+  viewport, including column-depth blur margins. Scene-resource discovery tracks
+  cache assets separately from levels.
 
 CI regression targets cover core I/O, generic rendering, native capture/playback
 and project resources. Required checks include image comparisons for native

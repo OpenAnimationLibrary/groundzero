@@ -7,6 +7,7 @@
 #include "tnotanimatableparam.h"
 #include "tparamset.h"
 #include "trasterfx.h"
+#include "texception.h"
 #include "trenderer.h"
 #include "trasterimage.h"
 #include "tthread.h"
@@ -29,6 +30,7 @@
 #include "toonz/txshleveltypes.h"
 #include "toonz/txshsimplelevel.h"
 #include "toonz/txshzeraryfxcolumn.h"
+#include "../../toonz/particlecachebakesource.h"
 
 #include <QGuiApplication>
 #include <QDir>
@@ -256,6 +258,20 @@ TRasterP render(TRasterFx *fx, double frame, const TRenderSettings &settings,
   return result;
 }
 
+TRasterP renderViewport(TRasterFx *fx, double frame,
+                        const TRenderSettings &settings, const TRectD &pixels) {
+  RenderSession session;
+  session.begin(frame);
+  TRasterP result = image(settings.m_bpp)->create(
+      int(std::ceil(pixels.getLx())), int(std::ceil(pixels.getLy())));
+  result->clear();
+  TTile tile(result, pixels.getP00());
+  try { fx->compute(tile, frame, settings); }
+  catch (...) { session.end(frame); throw; }
+  session.end(frame);
+  return result;
+}
+
 template <class Pixel>
 void comparePixels(const TRasterPT<Pixel> &expected,
                     const TRasterPT<Pixel> &actual, const std::string &label) {
@@ -380,10 +396,13 @@ void compareInterchange(const std::vector<ParticleBake::DrawSample> &expected,
 }
 
 TRasterP composite(const ParticleBake::Frame &frame,
-                   const TRenderSettings &settings) {
-  TRasterP result = image(settings.m_bpp);
+                   const TRenderSettings &settings,
+                   const TRectD &pixels = Domain) {
+  TRasterP result = image(settings.m_bpp)->create(
+      int(std::ceil(pixels.getLx())), int(std::ceil(pixels.getLy())));
+  result->clear();
   for (const auto &draw : frame.draws)
-    TRop::over(result, draw.artwork, TTranslation(32, 32) *
+    TRop::over(result, draw.artwork, TTranslation(-pixels.x0, -pixels.y0) *
                settings.m_affine * draw.rasterToWorld);
   return result;
 }
@@ -433,6 +452,69 @@ void testInvisibleState(bool tiled) {
           "Invisible particles stopped participating in simulation");
   compareState(result.particles, capture(fx.getPointer(), 3, settings, false).particles,
                tiled ? "tiled invisible state" : "standard invisible state");
+}
+
+void testWeatherCapture() {
+  TRenderSettings settings;
+  settings.m_cameraBox = Domain;
+  bool reducedScale = false;
+  for (int collision : {-1, 0, 1, 2}) {
+    TRasterFxP source = fixture(false);
+    number(source.getPointer(), "birth_rate", 8);
+    range(source.getPointer(), "scale", 100, 100);
+    range(source.getPointer(), "opacity", 100, 100);
+    range(source.getPointer(), "trail", 0, 0);
+    integer(source.getPointer(), "depth_layers", 4);
+    number(source.getPointer(), "depth_far_scale", .3);
+    number(source.getPointer(), "depth_far_opacity", .3);
+    number(source.getPointer(), "turbulence", 3);
+    if (collision >= 0) {
+      integer(source.getPointer(), "collision_ctrl", 1);
+      enumeration(source.getPointer(), "collision_mode", collision);
+    }
+    const auto captured = capture(source.getPointer(), 3, settings);
+    compare(render(source.getPointer(), 3, settings), composite(captured, settings),
+            "standard/weather/collision=" + std::to_string(collision));
+    // With unit birth scale/opacity and equal far factors, geometry and alpha
+    // have exactly the same depth attenuation. Check both recorded contracts.
+    for (const auto &particle : captured.particles) {
+      require(particle.scale == particle.opacity,
+              "Native weather depth was omitted from exported particle size");
+      const double transformScale = std::hypot(particle.rasterToWorld.a11,
+                                                particle.rasterToWorld.a21);
+      require(std::abs(transformScale - particle.scale) < 1e-12,
+              "Raw particle transform lost its effective weather depth scale");
+      reducedScale = reducedScale || particle.scale < 1;
+    }
+    for (const auto &draw : captured.draws)
+      require(draw.scale == draw.opacity,
+              "Prepared draw metadata lost its effective weather depth scale");
+
+    QTemporaryDir temporary;
+    require(temporary.isValid(), "Cannot create weather particle package fixture");
+    ParticleCache::Metadata metadata;
+    metadata.firstFrame = metadata.lastFrame = 3;
+    const QString directory = temporary.filePath("weather-cache");
+    QString error;
+    require(ParticleBake::writePackage(directory, metadata,
+                [&](int, ParticleBake::Frame &frame, QString &) {
+                  frame = captured;
+                  return true;
+                }, error),
+            "Cannot export native weather particles: " + error.toStdString());
+    ParticleCache::Sequence sequence;
+    require(ParticleCache::openSequence(QDir(directory).filePath("cache.otpc"),
+                                         sequence, error),
+            "Cannot reopen exported native weather particles: " + error.toStdString());
+    ParticleCache::Playback playback;
+    playback.startFrame = 3;
+    playback.sceneFramesPerSecond = metadata.framesPerSecond;
+    const auto exported = ParticleCache::sampleSequence(
+        sequence, 3, playback, sequence.mapping, error);
+    require(bool(exported), "Cannot sample exported native weather particles: " + error.toStdString());
+    compareInterchange(captured.particles, *exported, metadata.framesPerSecond);
+  }
+  require(reducedScale, "Weather fixture did not exercise a farther depth layer");
 }
 
 void testShortLivedRandomStacking() {
@@ -803,7 +885,8 @@ void testPackageFailureAtomicity() {
           "Failed export published a success manifest");
 }
 
-void testScenePreparation(bool tiled, bool fullAffine = false) {
+void testScenePreparation(bool tiled, bool fullAffine = false,
+                          bool columnDepth = false) {
   QTemporaryDir temporary;
   require(temporary.isValid(), "Cannot create scene bake fixture directory");
   ToonzScene scene;
@@ -849,6 +932,15 @@ void testScenePreparation(bool tiled, bool fullAffine = false) {
   artworkPlacement->getParam(TStageObject::T_X)->setValue(0, 3.0 / Stage::inch);
   sourcePlacement->getParam(TStageObject::T_X)->setValue(0, 4.0 / Stage::inch);
   sourcePlacement->getParam(TStageObject::T_Y)->setValue(0, -3.0 / Stage::inch);
+  if (columnDepth) {
+    MultiplaneDepth::Settings depth;
+    depth.enabled = true;
+    depth.blurPerUnit = .04;
+    depth.hazeDensity = .007;
+    depth.desaturationPerUnit = .002;
+    scene.getProperties()->setMultiplaneDepth(depth);
+    sourcePlacement->getParam(TStageObject::T_Z)->setValue(0, -50.0);
+  }
   if (fullAffine) {
     sourcePlacement->getParam(TStageObject::T_Angle)->setValue(0, 25.0);
     sourcePlacement->getParam(TStageObject::T_ShearX)->setValue(0, .2);
@@ -869,7 +961,8 @@ void testScenePreparation(bool tiled, bool fullAffine = false) {
   TRenderSettings settings;
   settings.m_cameraBox = Domain;
   const std::string label = std::string(tiled ? "tiled/scene" : "standard/scene") +
-      (fullAffine ? "/rotated-sheared-reflected" : "/translated");
+      (fullAffine ? "/rotated-sheared-reflected" : "/translated") +
+      (columnDepth ? "/column-depth" : "");
   const std::string sourceAlias = source->getAlias(3, settings);
   TFx *controlBefore = source->getInputPort("Control1")->getFx();
   const TXshCell sourceCell = xsheet->getCell(3, 1);
@@ -880,18 +973,51 @@ void testScenePreparation(bool tiled, bool fullAffine = false) {
   // Use the production scene builder as the source of the camera DPI, camera
   // and column transforms, just as the bake dialog does. Strip only its outer
   // affine nodes; artwork's own transforms remain in the native source graph.
-  TFxP expanded = build(3, BSFX_DEFAULT_TR);
-  TFxP unwrapped = expanded;
-  TAffine placement;
-  while (auto affine = dynamic_cast<NaAffineFx *>(unwrapped.getPointer())) {
-    placement = placement * affine->getPlacement(3);
-    unwrapped = affine->getInputPort(0)->getFx();
-  }
-  require(ParticleBake::isSupported(unwrapped.getPointer()),
+  ParticleBakeScene::Source preparedSource;
+  QString preparationError;
+  require(ParticleBakeScene::prepare(&scene, xsheet, source, 3,
+                                     preparedSource, preparationError),
+          label + ": source preparation failed: " + preparationError.toStdString());
+  const TAffine placement = preparedSource.placement;
+  require(ParticleBake::isSupported(preparedSource.native.getPointer()),
           label + ": full scene expansion did not retain the native generator");
+  require(preparedSource.columnEffects.size() == (columnDepth ? 2u : 0u),
+          label + ": generated column blur/haze wrappers were not identified");
   TRenderSettings bakeSettings(settings);
   bakeSettings.m_affine = settings.m_affine * placement;
-  const TRectD bakeDomain = bakeSettings.m_affine.inv() * Domain;
+  if (columnDepth && !tiled && !fullAffine) {
+    TRenderSettings oversized(bakeSettings), unusedSettings(bakeSettings);
+    oversized.m_affine.a13 = double(std::numeric_limits<int>::max()) * 2;
+    TRectD unusedPixels;
+    QString limitError;
+    bool accepted;
+    try {
+      accepted = ParticleBakeScene::samplingRequest(
+          preparedSource, 3, oversized, Domain, unusedSettings, unusedPixels,
+          limitError);
+    } catch (const TException &e) {
+      accepted = false;
+      limitError = QString::fromStdWString(e.getMessage());
+    }
+    require(!accepted && !limitError.isEmpty(),
+            label + ": oversized column request was not rejected before evaluation");
+  }
+  TRectD bakePixels = Domain;
+  if (columnDepth) {
+    TRenderSettings nativeSettings(bakeSettings);
+    require(ParticleBakeScene::samplingRequest(preparedSource, 3, bakeSettings,
+                                               Domain, nativeSettings, bakePixels,
+                                               preparationError),
+            label + ": sampling request failed: " + preparationError.toStdString());
+    bakeSettings = nativeSettings;
+    require(bakePixels.getLx() > Domain.getLx() &&
+                bakePixels.getLy() > Domain.getLy(),
+            label + ": column blur did not expand the native sampling viewport");
+    if (fullAffine)
+      require(bakeSettings.m_affine != settings.m_affine * placement,
+              label + ": column blur did not select its handled sampling affine");
+  }
+  const TRectD bakeDomain = bakeSettings.m_affine.inv() * bakePixels;
   require(bakeDomain != Domain, label + ": source-local viewport did not change");
   if (fullAffine)
     require(placement.det() < 0 && placement.a12 != 0 && placement.a21 != 0,
@@ -902,11 +1028,14 @@ void testScenePreparation(bool tiled, bool fullAffine = false) {
     require(raster != nullptr, label + ": scene lost an exposed particle frame");
     return render(raster, frame, settings);
   };
-  std::map<int, TRasterP> before;
+  std::map<int, TRasterP> before, nativeBefore;
   for (int frame : {3, 5}) {
     before.emplace(frame, sceneImage(frame));
-    TFxP prepared = build(frame, BSFX_NO_TR);
-    auto *native = dynamic_cast<TRasterFx *>(prepared.getPointer());
+    ParticleBakeScene::Source prepared;
+    require(ParticleBakeScene::prepare(&scene, xsheet, source, frame, prepared,
+                                       preparationError),
+            label + ": frame source preparation failed: " + preparationError.toStdString());
+    auto *native = prepared.native.getPointer();
     require(native && native != source.getPointer() && ParticleBake::isSupported(native),
             label + ": wrapper did not produce a detached native bake source");
     require(native->getInputPort("Texture1")->isConnected() &&
@@ -914,12 +1043,18 @@ void testScenePreparation(bool tiled, bool fullAffine = false) {
             label + ": scene preparation lost artwork placement at an empty cell");
     // Match both the pixel domain and affine received by the placed native FX.
     // This matters for tiled particles, whose initial grid uses the pixel tile.
-    const auto captured = capture(native, frame, bakeSettings, true, bakeDomain, Domain);
-    require(captured.pixelDomain == Domain, label + ": capture enlarged the pixel viewport");
-    compare(before.at(frame), render(native, frame, bakeSettings),
-            label + "/prepared source placement");
-    compare(before.at(frame), composite(captured, bakeSettings),
-            label + "/prepared capture");
+    const auto captured = capture(native, frame, bakeSettings, true, bakeDomain, bakePixels);
+    require(captured.pixelDomain == bakePixels, label + ": capture changed the native pixel viewport");
+    if (!columnDepth) {
+      compare(before.at(frame), render(native, frame, bakeSettings),
+              label + "/prepared source placement");
+      compare(before.at(frame), composite(captured, bakeSettings),
+              label + "/prepared capture");
+    } else {
+      nativeBefore.emplace(frame, renderViewport(native, frame, bakeSettings, bakePixels));
+      compare(nativeBefore.at(frame), composite(captured, bakeSettings, bakePixels),
+              label + "/prepared native halo capture");
+    }
     compare(before.at(frame), sceneImage(frame), label + "/source after capture");
   }
   require(!build(4, BSFX_NO_TR), label + ": empty generator exposure produced a source");
@@ -941,17 +1076,21 @@ void testScenePreparation(bool tiled, bool fullAffine = false) {
           result = ParticleBake::Frame();
           result.frame = frame;
           result.domain = bakeDomain;
-          result.pixelDomain = Domain;
+          result.pixelDomain = bakePixels;
           result.renderAffine = bakeSettings.m_affine;
           result.bitsPerPixel = bakeSettings.m_bpp;
           result.linearColorSpace = bakeSettings.m_linearColorSpace;
           result.colorSpaceGamma = bakeSettings.m_colorSpaceGamma;
           return true;
         }
-        TFxP prepared = build(frame, BSFX_NO_TR);
-        auto *native = dynamic_cast<TRasterFx *>(prepared.getPointer());
+        ParticleBakeScene::Source prepared;
+        QString failure;
+        require(ParticleBakeScene::prepare(&scene, xsheet, source, frame, prepared,
+                                           failure),
+                "Cannot prepare scene bake source: " + failure.toStdString());
+        auto *native = prepared.native.getPointer();
         require(native && ParticleBake::isSupported(native), "Cannot prepare scene bake source");
-        result = capture(native, frame, bakeSettings, true, bakeDomain, Domain);
+        result = capture(native, frame, bakeSettings, true, bakeDomain, bakePixels);
         return true;
       }, error);
   require(saved, label + ": scene package failed: " + error.toStdString());
@@ -976,14 +1115,17 @@ void testScenePreparation(bool tiled, bool fullAffine = false) {
     ParticleBake::Frame restored;
     require(ParticleBake::loadFrame(*snapshot, restored, error),
             label + ": cannot restore scene draw recipe");
-    require(restored.pixelDomain == Domain && restored.renderAffine == bakeSettings.m_affine,
+    require(restored.pixelDomain == bakePixels && restored.renderAffine == bakeSettings.m_affine,
             label + ": package changed the exact viewport or sampling affine");
     if (frame == 4)
       require(restored.draws.empty() && restored.particles.empty(),
               label + ": empty exposure acquired particle data");
-    else
+    else if (!columnDepth)
       compare(before.at(frame), composite(restored, bakeSettings),
               label + "/stored scene draw recipe");
+    else
+      compare(nativeBefore.at(frame), composite(restored, bakeSettings, bakePixels),
+              label + "/stored native halo draw recipe");
   }
 
   TFxP cache = TFx::create("STD_particleCacheFx");
@@ -1038,6 +1180,7 @@ int main(int argc, char **argv) {
     testCapture(true, 3, 64);   // Illuminated fluttering pieces.
     testInvisibleState(false);
     testInvisibleState(true);
+    testWeatherCapture();
     testShortLivedRandomStacking();
     testControlSamplingLimits();
     testSourcePointLimits();
@@ -1055,7 +1198,11 @@ int main(int argc, char **argv) {
     testScenePreparation(true);
     testScenePreparation(false, true);
     testScenePreparation(true, true);
-    std::cout << "Native particle capture/package/playback: 25 cases passed\n";
+    testScenePreparation(false, false, true);
+    testScenePreparation(true, false, true);
+    testScenePreparation(false, true, true);
+    testScenePreparation(true, true, true);
+    std::cout << "Native particle capture/package/playback: 30 cases passed\n";
     return 0;
   } catch (const std::exception &error) {
     std::cerr << "particlecache_bake: " << error.what() << '\n';

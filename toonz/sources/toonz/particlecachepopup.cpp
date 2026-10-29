@@ -34,6 +34,8 @@
 #include "trenderer.h"
 #include "tundo.h"
 #include "tzeraryfx.h"
+#include "texception.h"
+#include "particlecachebakesource.h"
 
 #include <QCheckBox>
 #include <QComboBox>
@@ -703,37 +705,22 @@ bool validBakeAffine(const TAffine &affine) {
 }
 
 // Keep the scene builder's complete column, parent, perspective, camera and DPI
-// placement. Peeling its outer affine nodes gives the native source and exactly
-// the affine that ordinary scene rendering passes to it, including the inherited
-// placement of a retained generator that no longer has its own column wrapper.
+// placement. Column depth stays outside the native recipe and supplies its
+// actual sampling request separately, including blur's input halo.
 bool prepareParticleBakeSource(ToonzScene *scene, TXsheet *xsheet,
                                const TFxP &source, int frame,
                                TRasterFxP &native, TAffine &affine,
                                QString &error) {
   try {
-    TFxP root = source;
-    if (auto zerary = dynamic_cast<TZeraryFx *>(source.getPointer()))
-      if (zerary->getColumnFx()) root = zerary->getColumnFx();
-    TFxP built = buildSceneFx(scene, frame, xsheet, root, BSFX_DEFAULT_TR, false);
-    affine = TAffine();
-    while (auto placement = dynamic_cast<NaAffineFx *>(built.getPointer())) {
-      affine = affine * placement->getPlacement(frame);
-      built = TFxP(placement->getInputPort(0)->getFx());
-    }
-    native = dynamic_cast<TRasterFx *>(built.getPointer());
-    // Empty exposures and columns behind the camera have no source to evaluate.
-    if (!built) return true;
-    if (!native || !ParticleBake::isSupported(native.getPointer())) {
-      error = tr("The selected particle graph could not be prepared for baking.");
+    ParticleBakeScene::Source prepared;
+    if (!ParticleBakeScene::prepare(scene, xsheet, source, frame, prepared, error))
       return false;
-    }
-    if (!validBakeAffine(affine)) {
-      error = tr("The particle or camera placement is singular or invalid at frame %1.")
-                  .arg(frame + 1);
-      return false;
-    }
+    native = prepared.native;
+    affine = prepared.placement;
     resolveSceneFxResources(native.getPointer(), scene);
     return true;
+  } catch (const TException &e) {
+    error = QString::fromStdWString(e.getMessage());
   } catch (const std::exception &e) {
     error = QString::fromUtf8(e.what());
   } catch (...) {
@@ -938,14 +925,34 @@ void bakeParticles() {
     try {
       TRasterFxP raster;
       TAffine affine;
-      if (!prepareParticleBakeSource(scene, xsheet, source, time, raster, affine, failure))
+      ParticleBakeScene::Source prepared;
+      if (!ParticleBakeScene::prepare(scene, xsheet, source, time, prepared, failure))
         return false;
+      raster = prepared.native;
+      affine = prepared.placement;
       TRenderSettings frameSettings(settings);
       ParticleBake::Options frameOptions(options);
       frameSettings.m_affine = settings.m_affine * (raster ? affine : cameraDpi);
       if (cameraFraming) {
         frameOptions.pixelDomain = cameraPixels;
         frameOptions.domain = frameSettings.m_affine.inv() * cameraPixels;
+      }
+      if (raster && !prepared.columnEffects.empty()) {
+        const TRectD pixels = cameraFraming ? cameraPixels
+            : frameSettings.m_affine * frameOptions.domain;
+        const TRectD viewport = cameraFraming
+            ? TRectD(pixels.x0, pixels.y0, pixels.x0 + std::ceil(pixels.getLx()),
+                      pixels.y0 + std::ceil(pixels.getLy()))
+            : TRectD(std::floor(pixels.x0), std::floor(pixels.y0),
+                      std::ceil(pixels.x1), std::ceil(pixels.y1));
+        TRenderSettings nativeSettings(frameSettings);
+        TRectD nativePixels;
+        if (!ParticleBakeScene::samplingRequest(prepared, time, frameSettings, viewport,
+                                                nativeSettings, nativePixels, failure))
+          return false;
+        frameSettings = nativeSettings;
+        frameOptions.pixelDomain = nativePixels;
+        frameOptions.domain = frameSettings.m_affine.inv() * nativePixels;
       }
       if (!raster) {
         frame = ParticleBake::Frame();
@@ -982,6 +989,9 @@ void bakeParticles() {
       } context(time);
       return ParticleBake::captureFrame(raster.getPointer(), time, frameSettings,
                                         frameOptions, frame, failure, cancel);
+    } catch (const TException &e) {
+      failure = QString::fromStdWString(e.getMessage());
+      return false;
     } catch (const std::exception &e) {
       failure = QString::fromUtf8(e.what());
       return false;

@@ -107,7 +107,7 @@ jobs:
         working-directory: toonz/build
         run: |
           set -o pipefail
-          DYLD_LIBRARY_PATH="$PWD/toonz/OpenToonz.app/Contents/MacOS" QT_QPA_PLATFORM=offscreen ctest --output-on-failure --output-junit particle-tests.xml --timeout 300 --no-tests=error -R '^particlecache_' 2>&1 | tee particle-tests-output.txt
+          DYLD_LIBRARY_PATH="$PWD/toonz/OpenToonz.app/Contents/MacOS" QT_QPA_PLATFORM=cocoa ctest --output-on-failure --output-junit particle-tests.xml --timeout 300 --no-tests=error -R '^particlecache_' 2>&1 | tee particle-tests-output.txt
 
       - name: Report particle test failures
         if: ${{ failure() && steps.particle_tests.outcome == 'failure' }}

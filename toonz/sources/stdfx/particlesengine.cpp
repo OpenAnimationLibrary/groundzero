@@ -744,7 +744,9 @@ void Particles_Engine::render_particles(
         sample.lifetime = part.genlifetime * step;
         sample.source = part.level;
         sample.artworkFrame = part.frame % last_frame[part.level];
-        sample.scale = part.scale;
+        sample.scale = part.depth > 0
+            ? part.scale * ParticleWeather::depthFactor(part.depth, values.depth_far_scale_val)
+            : part.scale;
         sample.angle = part.angle;
         if (values.pathaim_val) sample.angle += std::atan2(part.vy, part.vx) * M_180_PI;
         for (int h = 0; h != 3; ++h) sample.history[h] = TPointD(part.oldx[h], part.oldy[h]);
@@ -844,7 +846,9 @@ void Particles_Engine::do_render(
     sample.source = part->level;
     sample.artworkFrame = ndx;
     sample.trailDistance = dist_frame * step;
-    sample.scale = part->scale;
+    sample.scale = part->depth > 0
+        ? part->scale * ParticleWeather::depthFactor(part->depth, values.depth_far_scale_val)
+        : part->scale;
     sample.angle = part->angle;
     if (values.pathaim_val) sample.angle += std::atan2(part->vy, part->vx) * M_180_PI;
     for (int h = 0; h != 3; ++h) sample.history[h] = TPointD(part->oldx[h], part->oldy[h]);
