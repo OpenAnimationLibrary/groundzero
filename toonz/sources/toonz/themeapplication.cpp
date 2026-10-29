@@ -18,6 +18,12 @@
 #include <utility>
 
 namespace {
+// Qt 5's list equality depends on an iterator extension removed in newer MSVC.
+bool sameNames(const QStringList &left, const QStringList &right) {
+  return left.size() == right.size() &&
+         std::equal(left.cbegin(), left.cend(), right.cbegin());
+}
+
 bool fail(QString *error, const QString &message) {
   if (error) *error = message;
   return false;
@@ -157,11 +163,7 @@ private:
     QStringList names = m_themes.availableThemes();
     const QString current = m_themes.currentTheme();
     if (!current.isEmpty() && !names.contains(current)) names.prepend(current);
-    // Avoid Qt 5's QList equality dependency on removed MSVC stdext iterators.
-    const bool unchanged =
-        names.size() == m_names.size() &&
-        std::equal(names.cbegin(), names.cend(), m_names.cbegin());
-    if (!unchanged || actions().isEmpty()) {
+    if (!sameNames(names, m_names) || actions().isEmpty()) {
       clear();
       delete m_group;
       m_group = new QActionGroup(this);
@@ -292,7 +294,7 @@ void ThemeApplication::synchronizeComboBox(QComboBox *combo) const {
   QStringList previous;
   for (int i = 0; i < combo->count(); ++i)
     previous.append(combo->itemData(i).toString());
-  if (names != previous) {
+  if (!sameNames(names, previous)) {
     combo->clear();
     for (const QString &name : names) combo->addItem(name, name);
   }

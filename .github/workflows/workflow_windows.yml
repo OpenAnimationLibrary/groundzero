@@ -172,6 +172,18 @@ jobs:
           exit /b %CONFIGURE_EXIT%
         shell: cmd
 
+      # Compile independent UI targets first so Qt/toolchain failures are
+      # reported before the much longer native application build.
+      - name: Build standalone UI targets
+        shell: cmd
+        run: |
+          @echo on
+          cd toonz\build
+          msbuild /p:Configuration=RelWithDebInfo /m /verbosity:minimal "/flp:logfile=ui-preflight.log;verbosity=minimal" toonz\ui_commandpalette_test.vcxproj
+          if errorlevel 1 exit /b %ERRORLEVEL%
+          msbuild /p:Configuration=RelWithDebInfo /m /verbosity:minimal "/flp:logfile=ui-preflight.log;verbosity=minimal;append" toonz\ui_themeapplication_test.vcxproj
+          if errorlevel 1 exit /b %ERRORLEVEL%
+
       # Build Opentoonz using MSBuild
       - name: Build Opentoonz
         run: |
@@ -186,7 +198,7 @@ jobs:
         if: failure()
         shell: bash
         run: |
-          cat toonz/build/cmake-config.log toonz/build/msbuild-errors.log 2>/dev/null > combined-build-errors.log || true
+          cat toonz/build/cmake-config.log toonz/build/ui-preflight.log toonz/build/msbuild-errors.log 2>/dev/null > combined-build-errors.log || true
           [ -s combined-build-errors.log ] || exit 0
           grep -E -A5 'CMake Error|Could NOT find|lrelease error|: (fatal )?error ' combined-build-errors.log | head -120 > errors.txt || true
           echo "::notice title=Windows build::$(wc -l < errors.txt) distinct errors"
