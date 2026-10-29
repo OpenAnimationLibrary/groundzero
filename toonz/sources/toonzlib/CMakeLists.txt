@@ -397,9 +397,9 @@ if(BUILD_ENV_APPLE)
     add_dependencies(toonzlib tnzcore tnzbase tnzext)
 endif()
 
-add_definitions(
-    -DTOONZLIB_EXPORTS
-)
+# Only the library defines its exported symbols. Test executables consume
+# the DLL and must see dllimport declarations on Windows.
+target_compile_definitions(toonzlib PRIVATE TOONZLIB_EXPORTS)
 
 message("subdir: toonzlib")
 message("Bin: " ${CMAKE_CURRENT_BINARY_DIR})
@@ -629,9 +629,36 @@ if(BUILD_SCENECHECKER_TESTS)
     add_test(NAME scenechecker COMMAND scenechecker_test)
 endif()
 
+if(BUILD_RELIABILITY_TESTS)
+    add_executable(save_transaction_test tests/save_transaction_test.cpp)
+    target_link_libraries(save_transaction_test PRIVATE
+        toonzlib tnzbase tnzcore image Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
+    add_dependencies(save_transaction_test lzocompress lzodecompress)
+    if(BUILD_ENV_APPLE)
+        # TLV compression finds these helpers beside the running executable.
+        # macOS test binaries live outside the application bundle.
+        add_custom_command(TARGET save_transaction_test POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:lzocompress> $<TARGET_FILE:lzodecompress>
+                $<TARGET_FILE_DIR:save_transaction_test>
+            VERBATIM)
+    endif()
+    add_test(NAME save_transaction COMMAND save_transaction_test)
+    set_tests_properties(save_transaction PROPERTIES TIMEOUT 120)
+
+    add_executable(movierenderqueue_test tests/movierenderqueue_test.cpp)
+    add_test(NAME movierenderqueue COMMAND movierenderqueue_test)
+
+    add_executable(levelupdater_abort_test tests/levelupdater_abort_test.cpp)
+    target_link_libraries(levelupdater_abort_test PRIVATE
+        toonzlib tnzbase tnzcore image Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
+    add_test(NAME levelupdater_abort COMMAND levelupdater_abort_test)
+    set_tests_properties(levelupdater_abort PROPERTIES TIMEOUT 120)
+endif()
+
 # Optional benchmark of scene save and load (master plan E6, see
-# doc/scene_io_profile.md). It prints "NOTICE:" lines with the timings and
-# fails only when a loaded scene differs from the saved one.
+# doc/scene_io_profile.md). It prints timings and fails on a failed phase or
+# a round-trip mismatch.
 option(BUILD_SCENEBENCH_TESTS "Build the scene save and load benchmark" ${BUILD_TESTS})
 if(BUILD_SCENEBENCH_TESTS)
     add_executable(scenebench_test tests/scenebench_test.cpp)

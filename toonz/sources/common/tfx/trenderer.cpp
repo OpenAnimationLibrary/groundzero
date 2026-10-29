@@ -2,6 +2,7 @@
 
 #include "trenderer.h"
 #include "trendererP.h"
+#include "renderoutputbudget.h"
 
 // TnzCore includes
 #include "tsystem.h"
@@ -29,6 +30,7 @@
 #include <QThreadPool>
 #include <QRunnable>
 #include <QSemaphore>
+#include <QDebug>
 
 // Debug
 // #define DIAGNOSTICS
@@ -360,6 +362,14 @@ public:
     int m_canceled;
     int m_activeTasks;
     int m_status;
+    int m_submittedTasks = 0;
+    bool m_submissionFailed = false;
+    bool m_dispatching = false;
+    bool m_reportingCompletion = false;
+    std::size_t m_nextWindow = 0;
+    std::vector<std::vector<RunnableP>> m_windows;
+    std::unique_ptr<TException> m_submissionError{
+        new TException("Could not schedule rendering tasks.")};
 
     RenderInstanceInfos()
         : m_canceled(false), m_activeTasks(0), m_status(TRenderer::IDLE) {}
@@ -389,6 +399,7 @@ public:
 
   bool m_precomputingEnabled;
   bool m_frameStripsEnabled;
+  std::uint64_t m_outputRasterBudget = 0;
   RasterPool m_rasterPool;
 
   //! Helper threads computing frame strips (see RenderTask::computeTile()).
@@ -407,8 +418,11 @@ public:
   TRendererImp(int nThreads);
   ~TRendererImp();
 
-  void startRendering(unsigned long renderId,
+  bool startRendering(unsigned long renderId,
                       const std::vector<TRenderer::RenderData> &renderDatas);
+  void dispatchNextWindow(unsigned long renderId);
+  void advanceRender(unsigned long renderId);
+  void finishRender(unsigned long renderId, bool canceled);
 
   void notifyRasterStarted(const TRenderPort::RenderData &rd);
   void notifyRasterCompleted(const TRenderPort::RenderData &rd);
@@ -573,6 +587,7 @@ class RenderTask final : public TThread::Runnable {
   bool m_fieldRender, m_stereoscopic;
 
   int m_maxStrips;  // Max strips each frame may be split into; 1 = no split
+  std::atomic<bool> m_outputReported{false};
 
   Mutex m_rasterGuard;
   TTile m_tileA;  // in normal and field rendering, Rendered at given frame; in
@@ -600,6 +615,7 @@ public:
   void onFrameStarted();
   void onFrameCompleted();
   void onFrameFailed(TException &e);
+  void onSubmissionFailed(TException &e);
 
   void preRun();
   void run() override;
@@ -861,6 +877,10 @@ void TRenderer::stopRendering(bool waitForCompleteStop) {
   m_imp->stopRendering(waitForCompleteStop);
 }
 
+void TRenderer::setOutputRasterBudget(std::uint64_t bytes) {
+  m_imp->m_outputRasterBudget = bytes;
+}
+
 //---------------------------------------------------------
 
 bool TRenderer::isAborted(unsigned long renderId) const {
@@ -943,7 +963,8 @@ bool TRendererImp::hasToDie(unsigned long renderId) {
   std::map<unsigned long, RenderInstanceInfos>::iterator it =
       m_activeInstances.find(renderId);
   assert(it != m_activeInstances.end());
-  return it == m_activeInstances.end() ? true : it->second.m_canceled;
+  return it == m_activeInstances.end()
+             ? true : it->second.m_canceled || it->second.m_submissionFailed;
 }
 
 //---------------------------------------------------------
@@ -1072,16 +1093,30 @@ void TRendererImp::notifyRenderFinished(bool isCanceled) {
     portsCopy = m_ports;
   }
 
-  auto sortedFxs = calculateSortedFxs(rootFx);
-  for (auto fx : sortedFxs) {
-    if (fx) const_cast<TFx *>(fx)->callEndRenderHandler();
+  // Clear the instance's root before callbacks can start another render.
+  TRasterFxP finishedRoot = rootFx;
+  rootFx = TRasterFxP();
+  try {
+    auto sortedFxs = calculateSortedFxs(finishedRoot);
+    for (auto fx : sortedFxs) {
+      try {
+        if (fx) const_cast<TFx *>(fx)->callEndRenderHandler();
+      } catch (...) {
+        qWarning() << "Render effect end callback failed";
+      }
+    }
+  } catch (...) {
+    qWarning() << "Could not finish render effect callbacks";
   }
 
   for (PortContainerIterator it = portsCopy.begin(); it != portsCopy.end();
-       ++it)
-    (*it)->onRenderFinished();
-
-  rootFx = TRasterFxP();
+       ++it) {
+    try {
+      (*it)->onRenderFinished(isCanceled);
+    } catch (...) {
+      qWarning() << "Render completion callback failed";
+    }
+  }
 }
 
 //================================================================================
@@ -1341,6 +1376,7 @@ void RenderTask::onFrameStarted() {
 //---------------------------------------------------------
 
 void RenderTask::onFrameCompleted() {
+  if (m_outputReported.load()) return;
   TRasterP rasA(m_tileA.getRaster());
   TRasterP rasB(m_tileB.getRaster());
 
@@ -1356,12 +1392,23 @@ void RenderTask::onFrameCompleted() {
 
   TRenderPort::RenderData rd(m_frames, m_info, rasA, rasB, m_renderId,
                              m_taskId);
-  m_rendererImp->notifyRasterCompleted(rd);
+  if (m_outputReported.exchange(true)) return;
+  try {
+    m_rendererImp->notifyRasterCompleted(rd);
+  } catch (TException &error) {
+    // A port can fail while cloning/caching its output. The completion claim
+    // only arbitrates against submission errors; it must not hide this failure.
+    m_rendererImp->notifyRasterFailure(rd, error);
+  } catch (...) {
+    TException error("Could not deliver a rendered frame.");
+    m_rendererImp->notifyRasterFailure(rd, error);
+  }
 }
 
 //---------------------------------------------------------
 
 void RenderTask::onFrameFailed(TException &e) {
+  if (m_outputReported.exchange(true)) return;
   // TRasterP evenRas(m_evenTile.getRaster());
 
   TRenderPort::RenderData rd(m_frames, m_info, m_tileA.getRaster(),
@@ -1369,69 +1416,166 @@ void RenderTask::onFrameFailed(TException &e) {
   m_rendererImp->notifyRasterFailure(rd, e);
 }
 
+void RenderTask::onSubmissionFailed(TException &e) {
+  if (m_outputReported.exchange(true)) return;
+  // The controller defers submission failures until accepted callbacks finish.
+  // Unsubmitted frames have no output tiles to deliver.
+  TRenderPort::RenderData rd(m_frames, m_info, TRasterP(), TRasterP(),
+                            m_renderId, m_taskId);
+  // Failure messages can be queued beyond terminal delivery. Cancellation is
+  // conveyed by terminal status; do not export a pointer into instance storage.
+  rd.m_info.m_isCanceled = nullptr;
+  m_rendererImp->notifyRasterFailure(rd, e);
+}
+
 //---------------------------------------------------------
 
 void RenderTask::onFinished(TThread::RunnableP) {
   TRendererImp *rendererImp = m_rendererImp.getPointer();
-  --rendererImp->m_undoneTasks;
-
-  // Tiles release back to the Raster Pool happens in the main thread, after all
-  // possible
-  // signals emitted in the onFrameCompleted/Failed notifications have been
-  // resolved, thus
-  // ensuring that no other rendering thread owns the rasters before them.
+  // This main-thread slot runs after the worker's complete/failure callback.
+  // Release its render outputs before admitting another output window.
   releaseTiles();
-
-  // Update the render instance status
-  bool instanceExpires = false;
-  bool isCanceled      = false;
   {
-    QMutexLocker sl(&rendererImp->m_renderInstancesMutex);
-    std::map<unsigned long, TRendererImp::RenderInstanceInfos>::iterator it =
-        rendererImp->m_activeInstances.find(m_renderId);
+    QMutexLocker locker(&rendererImp->m_renderInstancesMutex);
+    auto it = rendererImp->m_activeInstances.find(m_renderId);
+    if (it == rendererImp->m_activeInstances.end()) return;
+    --it->second.m_activeTasks;
+    --it->second.m_submittedTasks;
+    --rendererImp->m_undoneTasks;
+  }
+  rendererImp->advanceRender(m_renderId);
+}
 
-    if (it != rendererImp->m_activeInstances.end() &&
-        (--it->second.m_activeTasks) <= 0) {
-      instanceExpires = true;
-      isCanceled      = (m_info.m_isCanceled && *m_info.m_isCanceled);
-      rendererImp->m_activeInstances.erase(m_renderId);
-      // m_info is freed, don't access further!
+void TRendererImp::finishRender(unsigned long renderId, bool canceled) {
+  notifyRenderFinished(canceled);
+
+  rendererStorage.setLocalData(new (TRendererImp *)(this));
+  renderIdsStorage.setLocalData(new unsigned long(renderId));
+  declareRenderEnd(renderId);
+  rendererStorage.setLocalData(0);
+  renderIdsStorage.setLocalData(0);
+  m_rasterPool.clear();
+
+  if (m_undoneTasks == 0) {
+    QMutexLocker locker(&m_renderInstancesMutex);
+    quitWaitingLoops();
+  }
+}
+
+void TRendererImp::advanceRender(unsigned long renderId) {
+  bool finished = false, canceled = false, dispatch = false;
+  // Keep task owners outside the instance lock until cleanup has completed.
+  // The current task/queued start invoker also keeps this renderer alive.
+  std::vector<std::vector<RunnableP>> completedTasks;
+  std::unique_ptr<TException> submissionError;
+  {
+    QMutexLocker locker(&m_renderInstancesMutex);
+    auto it = m_activeInstances.find(renderId);
+    if (it == m_activeInstances.end()) return;
+    RenderInstanceInfos &instance = it->second;
+    // Keep the batch stable if an enqueue operation processes nested events.
+    if (instance.m_dispatching) return;
+
+    if (instance.m_canceled || instance.m_submissionFailed) {
+      const int unscheduled = instance.m_activeTasks - instance.m_submittedTasks;
+      m_undoneTasks += -unscheduled;
+      instance.m_activeTasks = instance.m_submittedTasks;
+      instance.m_nextWindow = instance.m_windows.size();
+    }
+    if (instance.m_activeTasks == 0) {
+      if (instance.m_reportingCompletion) return;
+      instance.m_reportingCompletion = true;
+      canceled = instance.m_canceled;
+      completedTasks.swap(instance.m_windows);
+      if (instance.m_submissionFailed)
+        submissionError = std::move(instance.m_submissionError);
+      if (m_undoneTasks == 0) quitWaitingLoops();
+      finished = true;
+    } else if (instance.m_submittedTasks == 0) {
+      dispatch = true;
     }
   }
+  if (finished) {
+    // Report unproduced exposures after every accepted worker has finished.
+    // No callback now waits for an in-progress submission notification, and
+    // reentrant stopRendering(true) can observe that all work has stopped.
+    if (submissionError) {
+      for (const auto &tasks : completedTasks) {
+        for (const RunnableP &task : tasks) {
+          try {
+            static_cast<RenderTask *>(task.getPointer())
+                ->onSubmissionFailed(*submissionError);
+          } catch (...) {
+            qWarning() << "Could not report render submission failure";
+          }
+        }
+      }
+    }
+    {
+      QMutexLocker locker(&m_renderInstancesMutex);
+      auto it = m_activeInstances.find(renderId);
+      if (it != m_activeInstances.end()) {
+        canceled = it->second.m_canceled;
+        m_activeInstances.erase(it);
+      }
+    }
+    finishRender(renderId, canceled);
+  } else if (dispatch)
+    dispatchNextWindow(renderId);
+}
 
-  // If the render instance has just expired
-  if (instanceExpires) {
-    /*-- Do not update m_overallRenderedRegion if canceled --*/
-
-    // Inform the render ports
-    rendererImp->notifyRenderFinished(isCanceled);
-
-    // NOTE: This slot is currently invoked on the main thread. It could
-    // eventually be
-    // invoked directly on rendering threads, specifying the
-    // Qt::DirectConnection option -
-    // but probably there would be no real advantage in doing so...
-
-    // Temporarily install the renderer in current thread
-    rendererStorage.setLocalData(new (TRendererImp *)(rendererImp));
-    renderIdsStorage.setLocalData(new unsigned long(m_renderId));
-
-    // Inform the resource managers
-    rendererImp->declareRenderEnd(m_renderId);
-
-    // Uninstall the temporary
-    rendererStorage.setLocalData(0);
-    renderIdsStorage.setLocalData(0);
-
-    rendererImp->m_rasterPool
-        .clear();  // Isn't this misplaced? Should be in the block
-  }  // below...
-
-  // If no rendering task (of this or other render instances) is found...
-  if (rendererImp->m_undoneTasks == 0) {
-    QMutexLocker sl(&rendererImp->m_renderInstancesMutex);
-    rendererImp->quitWaitingLoops();
+void TRendererImp::dispatchNextWindow(unsigned long renderId) {
+  RenderInstanceInfos *instance;
+  std::size_t window;
+  {
+    QMutexLocker locker(&m_renderInstancesMutex);
+    auto it = m_activeInstances.find(renderId);
+    if (it == m_activeInstances.end()) return;
+    instance = &it->second;
+    if (instance->m_canceled || instance->m_submissionFailed) {
+      locker.unlock();
+      advanceRender(renderId);
+      return;
+    }
+    assert(instance->m_submittedTasks == 0);
+    assert(instance->m_nextWindow < instance->m_windows.size());
+    window = instance->m_nextWindow++;
+    instance->m_dispatching = true;
   }
+
+  for (const RunnableP &task : instance->m_windows[window]) {
+    {
+      QMutexLocker locker(&m_renderInstancesMutex);
+      if (instance->m_canceled) break;
+      ++instance->m_submittedTasks;
+    }
+    bool accepted = false;
+    try {
+      m_executor.addTask(task, accepted);
+    } catch (...) {
+      // Refreshing worker assignments can throw after queue insertion. Only
+      // withdraw a task that has not been taken by a worker; otherwise its
+      // finished callback still owns the outstanding-task count and lifetime.
+      const bool withdrawn = accepted && m_executor.withdrawQueuedTask(task);
+      {
+        QMutexLocker locker(&m_renderInstancesMutex);
+        if (!accepted || withdrawn) {
+          --instance->m_submittedTasks;
+          --instance->m_activeTasks;
+          --m_undoneTasks;
+        }
+        instance->m_submissionFailed = true;
+      }
+      // Accepted tasks may still be running. advanceRender reports remaining
+      // exposures only after their finished callbacks return.
+      break;
+    }
+  }
+  {
+    QMutexLocker locker(&m_renderInstancesMutex);
+    instance->m_dispatching = false;
+  }
+  advanceRender(renderId);
 }
 
 //================================================================================
@@ -1448,9 +1592,52 @@ void TRendererStartInvoker::emitStartRender(TRendererImp *renderer,
 
 void TRendererStartInvoker::doStartRender(TRendererImp *renderer,
                                           StartInvokerRenderData rd) {
-  renderer->startRendering(rd.m_renderId, *rd.m_renderDataVector);
-  renderer->release();
-  delete rd.m_renderDataVector;
+  struct RendererRelease {
+    void operator()(TRendererImp *value) const { value->release(); }
+  };
+  std::unique_ptr<TRendererImp, RendererRelease> rendererOwner(renderer);
+  std::unique_ptr<const RenderDataVector> request(rd.m_renderDataVector);
+
+  auto reportFailure = [&](TException &error) {
+    try {
+      TRenderPort::RenderData failed;
+      failed.m_renderId = rd.m_renderId;
+      if (!request->empty()) failed.m_info = request->front().m_info;
+      for (const auto &frame : *request) failed.m_frames.push_back(frame.m_frame);
+      renderer->notifyRasterFailure(failed, error);
+    } catch (...) {
+      qWarning() << "Render startup failure callback failed";
+    }
+  };
+
+  bool canceled = false;
+  try {
+    if (renderer->startRendering(rd.m_renderId, *request)) return;
+    canceled = true;
+  } catch (TException &error) {
+    reportFailure(error);
+  } catch (const std::exception &error) {
+    try {
+      TException failure(error.what());
+      reportFailure(failure);
+    } catch (...) {
+      qWarning() << "Could not report render startup failure";
+    }
+  } catch (...) {
+    try {
+      TException failure("Could not initialize rendering");
+      reportFailure(failure);
+    } catch (...) {
+      qWarning() << "Could not report render startup failure";
+    }
+  }
+  // No task owns completion when startup was canceled or failed. Startup's
+  // declarations have already unwound, so callbacks may safely start again.
+  try {
+    renderer->notifyRenderFinished(canceled);
+  } catch (...) {
+    qWarning() << "Could not report render startup completion";
+  }
 }
 
 std::vector<const TFx *> calculateSortedFxs(TRasterFxP rootFx) {
@@ -1513,7 +1700,7 @@ std::vector<const TFx *> calculateSortedFxs(TRasterFxP rootFx) {
 
 //---------------------------------------------------------
 
-void TRendererImp::startRendering(
+bool TRendererImp::startRendering(
     unsigned long renderId,
     const std::vector<TRenderer::RenderData> &renderDatas) {
   rootFx = renderDatas.front().m_fxRoot.m_frameA;
@@ -1627,6 +1814,15 @@ void TRendererImp::startRendering(
   TPointD pos(renderArea.getP00());
   TDimension frameSize(tceil(renderArea.getLx()), tceil(renderArea.getLy()));
 
+  bool stereo = false, field = false;
+  for (const auto &data : renderDatas) {
+    stereo |= data.m_info.m_stereoscopic;
+    field |= data.m_info.m_fieldPrevalence != TRenderSettings::NoField;
+  }
+  const std::size_t windowFrames = RenderOutputBudget::framesPerWindow(
+      m_outputRasterBudget, frameSize.lx, frameSize.ly, info.m_bpp,
+      stereo, field);
+
   TRectD camBox(TPointD(pos.x / info.m_shrinkX, pos.y / info.m_shrinkY),
                 TDimensionD(frameSize.lx, frameSize.ly));
 
@@ -1649,6 +1845,7 @@ void TRendererImp::startRendering(
   //----------------------------------------------------------------------
 
   std::vector<RenderTask *> tasksVector;
+  std::vector<std::size_t> windowEnds;
 
   struct TasksCleaner {
     std::vector<RenderTask *> &m_tasksVector;
@@ -1666,10 +1863,19 @@ void TRendererImp::startRendering(
 
   bool forcePreComputation = false;
   bool stripsAllowed       = m_frameStripsEnabled;
+  std::size_t frameIndex = 0;
 
   for (it = renderDatas.begin(); it != renderDatas.end(); ++it) {
     // Check for user cancels
-    if (hasToDie(renderId)) return;
+    if (hasToDie(renderId)) return false;
+
+    if (frameIndex && frameIndex % windowFrames == 0) {
+      // A raster shared by distant exposures must not pin one window's output
+      // while the admission of the missing intervening frames is suspended.
+      windowEnds.push_back(tasksVector.size());
+      clusters.clear();
+    }
+    ++frameIndex;
 
     // Build the frame's description alias
     const TRenderer::RenderData &renderData = *it;
@@ -1710,12 +1916,13 @@ void TRendererImp::startRendering(
     jt = clusters.find(alias);
 
     if (jt == clusters.end()) {
-      RenderTask *newTask =
+      std::unique_ptr<RenderTask> newTask(
           new RenderTask(renderId, tasksIdCounter++, renderData.m_frame, rs,
-                         renderData.m_fxRoot, pos, frameSize, this);
+                         renderData.m_fxRoot, pos, frameSize, this));
 
-      tasksVector.push_back(newTask);
-      clusters.insert(std::make_pair(alias, newTask));
+      tasksVector.push_back(newTask.get());
+      newTask.release();  // TasksCleaner owns it after insertion succeeds.
+      clusters.insert(std::make_pair(alias, tasksVector.back()));
 
       if (stripsAllowed && !canComputeOnStrips(alias, renderData.m_fxRoot))
         stripsAllowed = false;
@@ -1728,6 +1935,7 @@ void TRendererImp::startRendering(
 
   // Release the clusters - we'll just need the tasks vector from now on
   clusters.clear();
+  windowEnds.push_back(tasksVector.size());
 
   // Decide whether frames are split into strips computed on concurrent threads
   // (see TRenderer::enableFrameStrips). Precomputing would declare each strip
@@ -1775,7 +1983,7 @@ void TRendererImp::startRendering(
                                                renderInfos);
 
         for (kt = tasksVector.begin(); kt != kEnd; ++kt) {
-          if (hasToDie(renderId)) return;
+          if (hasToDie(renderId)) return false;
 
           (*kt)->preRun();
 
@@ -1794,7 +2002,7 @@ void TRendererImp::startRendering(
                                               renderInfos);
 
         for (kt = tasksVector.begin(); kt != kEnd; ++kt) {
-          if (hasToDie(renderId)) return;
+          if (hasToDie(renderId)) return false;
 
           (*kt)->preRun();
 
@@ -1811,13 +2019,33 @@ void TRendererImp::startRendering(
     //    Render
     //----------------------------------------------------------------------
 
+    // The last precompute iteration also processes cancellation events.
+    if (hasToDie(renderId)) return false;
     locals::declareStatusStart(this, TRenderer::COMPUTING, renderInfos);
 
-    // Update the tasks counts
+    // Prepare all task ownership before handing completion to the dispatcher.
+    // No task is submitted while these allocations can still throw.
+    std::vector<std::vector<RunnableP>> windows(windowEnds.size());
+    std::size_t begin = 0;
+    for (std::size_t w = 0; w < windowEnds.size(); ++w) {
+      windows[w].reserve(windowEnds[w] - begin);
+      for (std::size_t i = begin; i < windowEnds[w]; ++i) {
+        RunnableP task(tasksVector[i]);
+        tasksVector[i] = nullptr;  // The smart owner replaces TasksCleaner.
+        windows[w].push_back(task);
+      }
+      begin = windowEnds[w];
+    }
+    if (tasksVector.size() >
+        static_cast<std::size_t>((std::numeric_limits<int>::max)()))
+      throw std::bad_alloc();
+
+    // Update the tasks counts (pending plus submitted, not just executor work).
     m_undoneTasks += tasksVector.size();
     {
       QMutexLocker locker(&m_renderInstancesMutex);
       renderInfos->m_activeTasks = tasksVector.size();
+      renderInfos->m_windows.swap(windows);
     }
 
     renderDecl.commit();  // Declarations are taken over by render tasks
@@ -1825,11 +2053,10 @@ void TRendererImp::startRendering(
 
   instanceDecl.commit();  // Same here
 
-  // Launch the render
-  for (kt = tasksVector.begin(); kt != tasksVector.end(); ++kt)
-    m_executor.addTask(*kt);
-
-  tasksVector.clear();  // Prevent tasks destruction by TasksCleaner
+  // The controller admits the next window only after this one's callbacks
+  // return. Completion workers never wait for output-buffer space.
+  dispatchNextWindow(renderId);
+  return true;
 }
 
 void TRenderer::initialize() { TRendererStartInvoker::instance(); }

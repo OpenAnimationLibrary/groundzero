@@ -1,9 +1,11 @@
 # Scene save and load profile
 
-Master plan E6, the profiling step. Nothing is optimised yet: this page lists
-the benchmark and the hot spots that reading the code suggests, so that the
-next step can act on measured numbers instead of guesses. Line numbers are
-those of the `tier12` branch when this was written.
+Master plan E6, the profiling step. This page describes the benchmark and
+source-level costs to measure. The hotspot tables retain line references from
+the original `tier12` review; some work has since been implemented, including
+buffered plain-stream writes, cached frame-ID expressions and a single occupied
+column boundary scan per xsheet save. Source changes alone do not establish a
+measured speedup; compare the same fixture and settings on the same machine.
 
 ## The benchmark
 
@@ -29,17 +31,27 @@ It runs headless (`QCoreApplication`, an empty temporary stuff folder as in
 Each phase runs 3 times (`--repeat N`) and prints the median as
 `NOTICE: <phase> <ms> ms (<count> <unit>)`, after the single runs. A phase
 that throws prints `NOTICE: <phase> failed: <what>` and the others still run.
-The test fails (exit code 1) only when a loaded scene has different cells,
-frame ids or levels than the saved one; different keyframe or FX node counts
-are reported as a notice. The first lines give the scene size and the build
-time, the last one a summary.
+Any failed phase or round-trip comparison makes the test fail (exit code 1).
+Comparisons include exact drawing placements and frame IDs, column and level
+counts, keyframe counts, and internal and terminal FX counts. The output includes
+the dense scene size, build time and summary, followed by the sparse-scene phases.
+
+A separate sparse fixture keeps the dense benchmark workload unchanged. It has
+two occupied columns separated by an empty column with a keyframe, followed by
+512 empty columns (`--trailing-columns N`). The `save sparse plain` and
+`save sparse compressed` phases time scene serialization only; setup, reload and
+validation run outside the timer. They report the number of trailing columns.
+Checks compare plain xsheet bytes before and after padding, round-trip the
+interior column state, expand and shrink the occupied range between saves, and
+exercise an entirely empty padded sheet. These are metadata fixtures; they do
+not measure drawing-file serialization or end-to-end resource loading.
 
 | Phase | What it measures |
 |---|---|
 | `save plain` | `ToonzScene::saveCopy`: the whole scene file written by `writeSceneFile`, as every scene save does, without the icon, the backups and the levels |
 | `save compressed` | The same with the Compress Scene Files preference on (`doc/compact_scene.md`) |
-| `xsheet saveData plain stream` | `TXsheet::saveData` alone through a plain `TOStream` (to the file, with a flush per line) |
-| `xsheet saveData compressed stream` | The same through a compressed `TOStream`: written to memory, then LZ4 and one write. The difference with the plain one is the cost of the per line flush minus the LZ4 cost |
+| `xsheet saveData plain stream` | `TXsheet::saveData` alone through a plain `TOStream`, using buffered writes and a final checked flush |
+| `xsheet saveData compressed stream` | The same through a compressed `TOStream`: written to memory, then LZ4 and one write |
 | `write plain bytes` | One `QFile` write of the plain scene's bytes: the floor of the file write |
 | `load plain`, `load compressed` | `ToonzScene::loadTnzFile` into a new scene: the parse and the object building (not the level frame lists) |
 | `free loaded scene` | Destroying a loaded scene |
@@ -47,9 +59,10 @@ time, the last one a summary.
 | `open compressed` | The `TIStream` constructor on the compressed file: read, LZ4 decompression and the copies into the `istringstream` |
 | `parse plain`, `parse compressed` | A `TIStream` walk of every tag, attribute and value without building objects: `load` minus `parse` is the object building |
 | `scan plain` | `TIStream::skipCurrentTag` over the root tag: the character by character reading alone |
-| `cell frame id regex` | The regular expression that `TXshLevelColumn::loadData` compiles for each `<cell>` entry, run once per entry |
+| `cell frame id regex` | Historical per-cell expression-compilation cost, run once per entry; the production loader now caches the expression |
 | `cell frame id expand` | `TFrameId::expand` once per entry, as `TXshLevelColumn::saveData` does |
 | `cell level lookups` | What `fixBiancoProblem` does for each cell after every load: a cell copy and two lookups by level name |
+| `save sparse plain`, `save sparse compressed` | Scene saves with a configurable empty column tail, isolating the serialization-boundary scan from dense cell work |
 
 How to read the numbers: `save plain` against `write plain bytes` gives the
 serialisation cost; `load plain` against `parse plain` against `scan plain`
@@ -73,7 +86,7 @@ each one are named on the right.
 | `tstream.cpp:286` | A compressed save copies the whole document out of the `ostringstream` (`str()`), then allocates the LZ4 bound: the document is in memory three times | `save compressed` vs `save plain` |
 | `toonzlib/txshlevelcolumn.cpp:240` to `:283` | The cell loop copies each `TXshCell` (a reference count change) and writes `fid.expand()`, which builds an `ostringstream` per cell (`common/tsystem/tfilepath.cpp:126`) | `cell frame id expand`, `save plain` |
 | `common/tparam/tdoublekeyframe.cpp:24` to `:88` | Per keyframe: a `std::map` of attributes, `operator[]` on a static map of type codes, and a `QString` conversion of the degree sign (`:59`) to compare the unit name | `save plain` (the keyframe share grows with `--rows`) |
-| `toonzlib/txsheet.cpp:1272` | `getFirstFreeColumnIndex()` is called for every column; it walks back over the trailing empty columns, so it is quadratic only when many trailing columns are empty (not in the benchmark) | not measured |
+| `toonzlib/txsheet.cpp:1272` | Previously, `getFirstFreeColumnIndex()` rescanned the trailing empty columns for every column. The implementation now computes this boundary once per save and reuses it for columns, stage objects and FX; there is no persistent boundary cache | `save sparse plain`, `save sparse compressed`; vary `--trailing-columns` |
 | `toonzlib/tcolumnfxset.cpp:37`, `toonzlib/levelset.cpp:227` | FX nodes and the levels of a cast folder are saved in pointer order (`std::set<TFx *>`, `std::map<TXshLevel *, ...>`): not a speed issue, but two saves of the same scene can differ, which hurts diffs and compression | not measured |
 
 ### Reading

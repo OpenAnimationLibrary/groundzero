@@ -274,6 +274,9 @@ public:
   bool onFrameCompleted(int frame) override;
   bool onFrameFailed(int frame, TException &e) override;
   void onSequenceCompleted(const TFilePath &fp) override;
+  void onSequenceFinished(const TFilePath &fp,
+                          MovieRenderer::CompletionStatus status,
+                          const std::wstring &error) override;
 
   TFilePath m_fp;
   int m_frameCount;
@@ -281,6 +284,7 @@ public:
   int m_frameFailedCount;
   QWaitCondition &m_renderCompleted;
   bool m_stereo;
+  bool m_sequenceFailed = false;
 };
 
 //==================================================================================
@@ -346,6 +350,19 @@ bool MyMovieRenderListener::onFrameFailed(int frame, TException &e) {
 //------------------------------------------------------------------------------
 
 void MyMovieRenderListener::onSequenceCompleted(const TFilePath &fp) {
+  onSequenceFinished(fp, MovieRenderer::CompletionStatus::Completed, L"");
+}
+
+void MyMovieRenderListener::onSequenceFinished(
+    const TFilePath &fp, MovieRenderer::CompletionStatus status,
+    const std::wstring &error) {
+  m_sequenceFailed = status != MovieRenderer::CompletionStatus::Completed;
+  if (m_sequenceFailed) {
+    const std::string message = error.empty()
+        ? "Rendering did not complete." : ::to_string(error);
+    cout << message << endl;
+    m_userLog->error(message);
+  }
   cout << endl;
   QCoreApplication::instance()->quit();
 }
@@ -358,6 +375,7 @@ public:
   int m_frameCount;
   int m_frameCompletedCount;
   int m_frameFailedCount;
+  bool m_sequenceFailed = false;
 
   MyMultimediaRenderListener(const TFilePath &fp, int frameCount)
       : m_fp(fp)
@@ -368,6 +386,15 @@ public:
   bool onFrameCompleted(int frame, int column) override;
   bool onFrameFailed(int frame, int column, TException &e) override;
   void onSequenceCompleted(int column) override {}
+  void onSequenceFinished(int column, MovieRenderer::CompletionStatus status,
+                          const std::wstring &error) override {
+    if (status == MovieRenderer::CompletionStatus::Completed) return;
+    m_sequenceFailed = true;
+    const std::string message = "Could not complete column " +
+        std::to_string(column) + ": " + ::to_string(error);
+    cout << message << endl;
+    m_userLog->error(message);
+  }
   void onRenderCompleted() override {}
 };
 
@@ -516,7 +543,9 @@ static std::pair<int, int> generateMovie(ToonzScene *scene, const TFilePath &fp,
     // realize the
     // number of failed frames if any.
     std::pair<int, int> framePair =
-        std::make_pair(listener->m_frameCount, listener->m_frameCount);
+        std::make_pair(listener->m_frameFailedCount || listener->m_sequenceFailed
+                           ? -1 : listener->m_frameCount,
+                       listener->m_frameCount);
 
     delete listener;
     return framePair;
@@ -574,7 +603,9 @@ static std::pair<int, int> generateMovie(ToonzScene *scene, const TFilePath &fp,
 
     // int frameCompleted = listener->m_frameCompletedCount;
     std::pair<int, int> framePair =
-        std::make_pair(listener->m_frameCompletedCount, listener->m_frameCount);
+        std::make_pair(listener->m_sequenceFailed ? -1
+                                                  : listener->m_frameCompletedCount,
+                       listener->m_frameCount);
 
     delete listener;
     return framePair;
@@ -1012,7 +1043,8 @@ int main(int argc, char *argv[]) {
         std::to_string(TBigMemoryManager::instance()->getAllocationMean()) +
         " KB");
 
-    msg = "Compositing completed in " +
+    msg = (framePair.first == framePair.second ? "Compositing completed in "
+                                              : "Compositing failed after ") +
           ::to_string(Sw1.getTotalTime() / 1000.0, 2) + " seconds";
     string msg2 =
         "\n" + ::to_string(Sw2.getTotalTime() / 1000.0, 2) +

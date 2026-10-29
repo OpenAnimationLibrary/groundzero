@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstdint>
+
 #ifndef TRENDERER_INCLUDED
 #define TRENDERER_INCLUDED
 
@@ -211,6 +213,15 @@ public:
 
   void abortRendering(unsigned long renderId);
   void stopRendering(bool waitForCompleteStop = false);
+
+  //! Limits admitted camera rasters and handoff clones by contiguous frame
+  //! windows. Zero preserves unrestricted dispatch. One frame larger than the
+  //! target is admitted alone. FX/cache/encoder memory and postprocessing
+  //! temporaries are outside this target.
+  //! Consumers must release window results as callbacks finish; separately
+  //! retained results and caches are not bounded by the renderer.
+  //! Configure before startRendering(); one render lifecycle spans all windows.
+  void setOutputRasterBudget(std::uint64_t bytes);
 
   void enablePrecomputing(bool on);
   bool isPrecomputingEnabled() const;

@@ -2069,7 +2069,8 @@ bool IoCmd::saveScene(const TFilePath &path, int flags) {
   app->getCurrentLevel()->notifyLevelTitleChange();
   app->getCurrentPalette()->notifyPaletteTitleChanged();
 
-  app->getCurrentScene()->setDirtyFlag(false);
+  // Exporting a child does not save the parent scene or its other xsheets.
+  if (!saveSubxsheet) app->getCurrentScene()->setDirtyFlag(false);
 
   History::instance()->addItem(scenePath);
   RecentFiles::instance()->addFilePath(

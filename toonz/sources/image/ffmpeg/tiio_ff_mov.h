@@ -19,6 +19,9 @@ class TLevelWriterFFMov : public TLevelWriter {
 public:
   TLevelWriterFFMov(const TFilePath &path, TPropertyGroup *winfo);
   ~TLevelWriterFFMov();
+  void finalize() override;
+  void abort() noexcept override;
+  void requestAbort() noexcept override;
   void setFrameRate(double fps) override;
 
   TImageWriterP getFrameWriter(TFrameId fid) override;
@@ -33,8 +36,9 @@ public:
 private:
   void buildFfmpegArgs(QStringList &preIArgs, QStringList &postIArgs) const;
 
-  Ffmpeg *ffmpegWriter;
-  int m_lx, m_ly;
+  std::unique_ptr<Ffmpeg> ffmpegWriter;
+  mutable QMutex m_metadataMutex;
+  int m_lx = 0, m_ly = 0;
   int m_scale;
   int m_vidQuality;
 };
@@ -59,10 +63,10 @@ public:
   TImageP load(int frameIndex);
   TDimension getSize();
 private:
-  Ffmpeg *ffmpegReader;
+  std::unique_ptr<Ffmpeg> ffmpegReader;
   bool ffmpegFramesCreated = false;
   TDimension m_size;
-  int m_frameCount, m_lx, m_ly;
+  int m_frameCount = 0, m_lx = 0, m_ly = 0;
 };
 
 //===========================================================================

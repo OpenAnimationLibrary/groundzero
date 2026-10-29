@@ -1,4 +1,5 @@
 #include "cadmiumpopup.h"
+#include "cadmiummemory.h"
 #include "cadmiumreviewview.h"
 #include "cadmiumruntime.h"
 #include "tcolorstyles.h"
@@ -322,7 +323,7 @@ CadmiumPopup::CadmiumPopup(QWidget *parent) : QDialog(parent) {
     if (!m_refreshing) assignReferences();
   });
   connect(m_previewReference, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
-          [this] { if (!m_refreshing) updateProposalPreview(); });
+          [this] { if (!m_refreshing) updateReferencePreview(); });
   connect(m_generationMode, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this] {
     if (m_refreshing) return;
     m_generation = Cadmium::RegenerationMode(m_generationMode->currentData().toInt());
@@ -473,6 +474,16 @@ void CadmiumPopup::refreshPreview() {
   const int preview = m_previewReference->findData(previousReference);
   if (preview >= 0) m_previewReference->setCurrentIndex(preview);
   if (drawing.target.lines.isNull()) {
+    if (drawing.applied) {
+      m_view->clear(tr("This drawing has already been applied. Its preview cache was released."));
+      return;
+    }
+    if (m_recovery.contains(drawing.fid)) {
+      m_view->clear(drawing.error.isEmpty()
+          ? tr("Saved decisions are waiting for target and reference validation. Resume the saved session to continue.")
+          : drawing.error);
+      return;
+    }
     const bool busy = m_generating || m_restoring || m_backgroundTasks;
     m_view->clear(busy ? tr("Analyzing drawing…") : tr("Analyzing the line mask…"));
     if (!busy && currentScene()) {
@@ -487,6 +498,10 @@ void CadmiumPopup::refreshPreview() {
       });
     }
     return;
+  }
+  QString memoryError;
+  if (!admitMemory(qint64(drawing.proposals.size()) * 4 * 512, row, memoryError)) {
+    m_status->setText(memoryError); m_view->clear(memoryError); return;
   }
   m_regions->setRowCount(drawing.proposals.size());
   for (int region = 0; region < drawing.proposals.size(); ++region) {
@@ -525,9 +540,25 @@ void CadmiumPopup::updateProposalPreview() {
   if (row < 0 || row >= int(m_drawings.size())) return;
   const Drawing &drawing = m_drawings[row];
   if (!drawing.target.original || drawing.target.lines.isNull()) return;
+  QString error;
+  qint64 previewBytes = TUndo::getImageMemorySize(drawing.target.original.getPointer());
+  // Allow both display buffers and a composition clone while the existing
+  // images remain visible. Vector preview additionally rasterizes its strokes.
+  for (int image = 0; image < 3; ++image)
+    previewBytes = Cadmium::addMemoryBytes(previewBytes, drawing.target.lines.sizeInBytes());
+  previewBytes = Cadmium::addMemoryBytes(previewBytes,
+      qint64(drawing.target.labels.capacity()) * sizeof(int));
+  qint64 referenceBytes = 0;
+  for (const QImage &reference : drawing.referencePreviews)
+    referenceBytes = std::max(referenceBytes, qint64(reference.sizeInBytes()));
+  previewBytes = Cadmium::addMemoryBytes(previewBytes, referenceBytes);
+  if (drawing.target.kind == Cadmium::Kind::Vector)
+    previewBytes = Cadmium::addMemoryBytes(previewBytes, 32LL * 1024 * 1024);
+  if (!admitMemory(previewBytes, row, error)) {
+    m_status->setText(error); m_view->clear(error); return;
+  }
   const QImage before = imagePreview(drawing.target.original, drawing.target);
   QImage after = drawing.target.lines;
-  QString error;
   if (drawing.ready) {
     const TImageP result = composeProposal(drawing, error);
     if (result) after = imagePreview(result, drawing.target);
@@ -536,7 +567,8 @@ void CadmiumPopup::updateProposalPreview() {
       if (!error.isEmpty()) m_status->setText(error);
     }
   }
-  const int reference = m_previewReference->currentData().toInt();
+  const int reference = m_previewReference->currentIndex() >= 0
+      ? m_previewReference->currentData().toInt() : -1;
   const QImage referenceImage = reference >= 0 && reference < drawing.referencePreviews.size()
       ? drawing.referencePreviews[reference] : QImage();
   m_view->setImages(before, after, referenceImage);
@@ -551,6 +583,24 @@ void CadmiumPopup::updateProposalPreview() {
     for (const QString &warning : referenceFrame.warnings)
       if (!warnings.contains(warning)) warnings.append(warning);
   if (!warnings.isEmpty()) m_status->setText(warnings.join(QStringLiteral("\n")));
+}
+
+void CadmiumPopup::updateReferencePreview() {
+  const int row = m_list->currentRow();
+  if (row < 0 || row >= int(m_drawings.size())) return;
+  const Drawing &drawing = m_drawings[row];
+  if (!drawing.target.original || drawing.target.lines.isNull()) return;
+  const int reference = m_previewReference->currentIndex() >= 0
+      ? m_previewReference->currentData().toInt() : -1;
+  QString error;
+  if (reference >= 0 && reference < drawing.referencePreviews.size() &&
+      !admitMemory(drawing.referencePreviews[reference].sizeInBytes(), row, error)) {
+    // The selector has already changed. Do not leave the previous reference
+    // visible under the newly selected drawing's name when admission fails.
+    m_view->setReferenceImage(QImage()); m_status->setText(error); return;
+  }
+  m_view->setReferenceImage(reference >= 0 && reference < drawing.referencePreviews.size()
+      ? drawing.referencePreviews[reference] : QImage());
 }
 
 void CadmiumPopup::setSelectedRegions(const QSet<int> &regions) {

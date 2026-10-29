@@ -1,6 +1,7 @@
 
 
 #include "tstream.h"
+#include "tstreamlimits.h"
 #include "tpersist.h"
 #include "tfilepath_io.h"
 #include "tconvert.h"
@@ -207,8 +208,10 @@ TPersist *TPersist::create(const std::string &name) {
 
 class TOStream::Imp {
 public:
+  // Child streams share this state. Close the channel when its last view is
+  // released, including when serialization throws with tags still open.
+  std::unique_ptr<Tofstream> m_ownedStream;
   std::ostream *m_os;
-  bool m_chanOwner;
   bool m_compressed;
   bool m_fullPrecision = false;
   std::ostringstream m_ostringstream;
@@ -223,7 +226,6 @@ public:
 
   Imp()
       : m_os(0)
-      , m_chanOwner(false)
       , m_tab(0)
       , m_justStarted(true)
       , m_maxId(0)
@@ -238,11 +240,12 @@ TOStream::TOStream(const TFilePath &fp, bool compressed) : m_imp(new Imp) {
   if (compressed) {
     m_imp->m_os         = &m_imp->m_ostringstream;
     m_imp->m_compressed = true;
-    m_imp->m_chanOwner  = false;
   } else {
     std::unique_ptr<Tofstream> os(new Tofstream(fp));
-    m_imp->m_os        = os->isOpen() ? os.release() : 0;
-    m_imp->m_chanOwner = true;
+    if (os->isOpen()) {
+      m_imp->m_os          = os.get();
+      m_imp->m_ownedStream = std::move(os);
+    }
   }
 
   m_imp->m_justStarted = true;
@@ -292,12 +295,18 @@ TOStream::~TOStream() {
         const void *in  = (const void *)tmp.c_str();
 
         size_t in_len = tmp.size();
+        // Destructors cannot report failure. Leave the temporary file
+        // unpublished; the scene's checked save rejects an incomplete file.
+        if (in_len > TStreamLimits::maxUncompressedBytes) return;
 
         size_t out_len = LZ4F_compressFrameBound(in_len, NULL);
-        void *out      = malloc(out_len);
+        if (LZ4F_isError(out_len)) return;
+        std::unique_ptr<void, decltype(&free)> out(malloc(out_len), &free);
+        if (!out) return;
 
-        out_len = LZ4F_compressFrame(out, out_len, in, in_len, NULL);
-        if (!LZ4F_isError(out_len)) {
+        out_len = LZ4F_compressFrame(out.get(), out_len, in, in_len, NULL);
+        if (!LZ4F_isError(out_len) &&
+            TStreamLimits::validCompressedSizes(out_len, in_len)) {
           Tofstream os(m_imp->m_filepath);
           // TNZC <decompressed data length> <compressed data length>
           // <compressed data>
@@ -309,12 +318,9 @@ TOStream::~TOStream() {
           os.write((char *)&v, sizeof v);
           v = out_len;
           os.write((char *)&v, sizeof v);
-          os.write((char *)out, out_len);
+          os.write(static_cast<const char *>(out.get()), out_len);
         }
-
-        free(out);
       }
-      if (m_imp->m_chanOwner) delete m_imp->m_os;
     }
   } catch (...) {
   }
@@ -867,43 +873,38 @@ TIStream::TIStream(const TFilePath &fp) : m_imp(new Imp) {
     char magicBuffer[4] = {0, 0, 0, 0};  // a file cut short reads less
     is->read(magicBuffer, 4);
     std::string magic(magicBuffer, 4);
-    size_t in_len, out_len;
+    size_t in_len = 0, out_len = 0;
 
     if (magic == "TNZC") {
       // Tab3.0 beta
       is->read((char *)&out_len, sizeof out_len);
       is->read((char *)&in_len, sizeof in_len);
     } else if (magic == "TABc") {
-      TINT32 v;
-      is->read((char *)&v, sizeof v);
+      TINT32 byteOrder = 0, declaredOutput = 0, declaredInput = 0;
+      is->read((char *)&byteOrder, sizeof byteOrder);
+      is->read((char *)&declaredOutput, sizeof declaredOutput);
+      is->read((char *)&declaredInput, sizeof declaredInput);
+      // Do not interpret partially read fields, including the byte-order
+      // marker, until the complete header is available.
+      if (is->fail()) throw TException("Corrupted file");
 
-      if (v == 0x0A0B0C0D)
+      if (byteOrder == 0x0A0B0C0D)
         swapForEndianness = false;
-      else if (v == 0x0D0C0B0A)
+      else if (byteOrder == 0x0D0C0B0A)
         swapForEndianness = true;
-      else {
-        swapForEndianness = true;
-        printf("UH OH!\n");
-      }
+      else
+        throw TException("Corrupted file");
 
-      is->read((char *)&v, sizeof v);
-      out_len = swapForEndianness ? swapTINT32(v) : v;
-      is->read((char *)&v, sizeof v);
-      in_len = swapForEndianness ? swapTINT32(v) : v;
+      out_len = swapForEndianness ? swapTINT32(declaredOutput) : declaredOutput;
+      in_len = swapForEndianness ? swapTINT32(declaredInput) : declaredInput;
     } else
       throw TException("Bad magic number");
-
-    if (in_len <= 0 ||
-        in_len >
-            100000000)  // 100M of tnzfile (compressed) seems really excessive
-      throw TException("Corrupted file");
 
     // A header cut short, or a declared decompressed size that LZ4 cannot
     // reach from the compressed one (it expands at most ~255 times). The
     // buffer is allocated from the declared size before decompressing: bound
     // it too, as 100M of compressed data could still declare 25G.
-    if (is->fail() || out_len > in_len * 256 + 1024 ||
-        out_len > (size_t(1) << 28))  // 256M of scene text
+    if (is->fail() || !TStreamLimits::validCompressedSizes(in_len, out_len))
       throw TException("Corrupted file");
 
     LZ4F_decompressionContext_t lz4dctx;

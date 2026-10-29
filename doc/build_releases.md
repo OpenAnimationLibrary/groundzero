@@ -15,6 +15,11 @@ The workflow must be merged into the default branch for the schedule and
 manual control to become available.
 
 Each run receives a unique `build-<run ID>` tag pointing to the built commit.
+Download filenames omit the redundant `build-` prefix, for example
+`OpenToonz-groundzero-40809511313-Windows-x64.zip`. The macOS, Linux, and
+checksum files use the same shorter prefix. The manual **Publish Release**
+workflow follows this naming for build tags and retains stable version tags
+such as `v0.0.0` in filenames.
 Releases remain prereleases and do not replace the latest stable release.
 Earlier releases are retained. Failed or cancelled builds publish no release;
 an interrupted upload can leave a draft, which a rerun resumes. Rerunning an
