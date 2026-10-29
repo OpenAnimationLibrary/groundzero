@@ -131,6 +131,18 @@ TFxP TFxUtil::makeColumnColorFilter(const TFxP &arg, TPixel32 colorScale) {
 
 //-------------------------------------------------------------------
 
+TFxP TFxUtil::makeColumnColorEffect(const TFxP &arg, const double m[4],
+                                    const double c[4]) {
+  ColumnColorEffectFx *colorEffectFx = new ColumnColorEffectFx();
+  TFxP fx                            = colorEffectFx;
+  colorEffectFx->setColorEffect(m, c);
+  if (!colorEffectFx->connect("source", arg.getPointer()))
+    assert(!"Could not connect ports!");
+  return fx;
+}
+
+//-------------------------------------------------------------------
+
 int TFxUtil::getKeyframeStatus(const TFxP &fx, int frame) {
   bool keyframed = false, notKeyframed = false;
   for (int i = 0; i < fx->getParams()->getParamCount(); i++) {

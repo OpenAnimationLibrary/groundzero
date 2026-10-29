@@ -39,12 +39,19 @@ set(HEADERS
     assistants/assistantvanishingpoint.h
     ../include/tools/RGBpicker.h
     ../include/tools/artlayer.h
+    ../include/tools/bilineardeform.h
+    ../include/tools/envelopelayout.h
     ../include/tools/cursormanager.h
     ../include/tools/cursors.h
     ../include/tools/levelselection.h
     ../include/tools/rasterselection.h
     ../include/tools/strokeselection.h
     ../include/tools/vectoralignment.h
+    ../include/tools/fluidwidth.h
+    ../include/tools/brushpaintmode.h
+    ../include/tools/widthprofile.h
+    ../include/tools/gradienthandles.h
+    ../include/tools/uniquestyle.h
     ../include/tools/stylepicker.h
     ../include/tools/tool.h
     ../include/tools/toolcommandids.h
@@ -126,8 +133,10 @@ set(SOURCES
     controlpointselection.cpp
     rasterselection.cpp
     strokeselection.cpp
+    widthprofilecommands.cpp
     screenpicker.cpp
     fingertool.cpp
+    gradienttransformtool.cpp
     rulertool.cpp
     mypainttoonzbrush.cpp
     shifttracetool.cpp

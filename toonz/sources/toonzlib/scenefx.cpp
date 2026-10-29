@@ -987,6 +987,12 @@ PlacedFx FxBuilder::makePF(TLevelColumnFx *lcfx) {
       }
     }
 
+    // Apply the column's Color Effect (Brightness, Tint, Alpha, Advanced)
+    // with its values at the frame, whatever the color filter setting
+    const ColumnColorEffect::Transform effect = lcfx->getColorEffect(m_frame);
+    if (pf.m_fx && !effect.isIdentity())
+      pf.m_fx = TFxUtil::makeColumnColorEffect(pf.m_fx, effect.m, effect.c);
+
     return pf;
   } else
     return PlacedFx();

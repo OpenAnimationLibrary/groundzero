@@ -7,6 +7,18 @@
 #include "tools/toolhandle.h"
 #include "tools/artlayer.h"
 
+// TnzLib includes
+#include "toonz/tapplication.h"
+#include "toonz/tframehandle.h"
+#include "toonz/tcolumnhandle.h"
+#include "toonz/txsheethandle.h"
+#include "toonz/txshlevelhandle.h"
+#include "toonz/tonionskinmaskhandle.h"
+#include "toonz/onionskinmask.h"
+#include "toonz/txsheet.h"
+#include "toonz/txshcell.h"
+#include "toonz/txshsimplelevel.h"
+
 // TnzCore includes
 #include "tfilepath.h"
 #include "tvectorimage.h"
@@ -132,6 +144,62 @@ void LevelSelection::selectNone() {
   m_filter     = EMPTY;
 
   m_styles.clear();
+}
+
+//---------------------------------------------------------------------
+
+std::set<TFrameId> LevelSelection::onionSkinFrames() {
+  std::set<TFrameId> fids;
+
+  TTool::Application *app = TTool::getApplication();
+  if (!app) return fids;
+
+  TXshSimpleLevel *level = app->getCurrentLevel()->getSimpleLevel();
+  if (!level) return fids;
+
+  const OnionSkinMask &mask = app->getCurrentOnionSkin()->getOnionSkinMask();
+  // Same conditions the stage uses to draw the onion skin: it is not drawn
+  // while Shift and Trace is on.
+  const bool showsOnionSkin =
+      mask.isEnabled() && !mask.isEmpty() && !mask.isShiftTraceEnabled();
+
+  TFrameHandle *frameHandle = app->getCurrentFrame();
+  std::vector<int> rows;
+
+  if (frameHandle->isEditingLevel()) {
+    // Level editing: the onion skin marks are indices in the level
+    const TFrameId currentFid = frameHandle->getFid();
+    fids.insert(currentFid);
+
+    if (showsOnionSkin) {
+      mask.getAll(level->guessIndex(currentFid), rows);
+      const int frameCount = level->getFrameCount();
+      for (int row : rows) {
+        if (row < 0 || row >= frameCount) continue;
+        fids.insert(level->index2fid(row));
+      }
+    }
+  } else {
+    // Scene editing: the onion skin marks are rows of the current column
+    TXsheet *xsh   = app->getCurrentXsheet()->getXsheet();
+    const int col  = app->getCurrentColumn()->getColumnIndex();
+    const int row0 = frameHandle->getFrame();
+
+    const TXshCell currentCell = xsh->getCell(row0, col);
+    if (currentCell.getSimpleLevel() == level)
+      fids.insert(currentCell.getFrameId());
+
+    if (showsOnionSkin) {
+      mask.getAll(row0, rows);
+      for (int row : rows) {
+        if (row < 0) continue;
+        const TXshCell cell = xsh->getCell(row, col);
+        if (cell.getSimpleLevel() == level) fids.insert(cell.getFrameId());
+      }
+    }
+  }
+
+  return fids;
 }
 
 //*******************************************************************************

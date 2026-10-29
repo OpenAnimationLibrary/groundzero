@@ -1,0 +1,19 @@
+<motionpreset>
+  <name>
+    "Drop"
+  </name>
+  <description>
+    "Falls from above onto the current position and bounces twice before it stops there."
+  </description>
+  <anchor>
+    end
+  </anchor>
+  <channel name="y" mode="add">
+    0 0 S 0 0 3.33333 0 0
+    10 -10 S -3.33333 6.66667 1.33333 1 0
+    14 -8.5 S -1.33333 0 1.33333 0 0
+    18 -10 S -1.33333 1 0.666667 0.266667 0
+    20 -9.6 S -0.666667 0 0.666667 0 0
+    22 -10 L -0.666667 0.266667 0 0 0
+  </channel>
+</motionpreset>

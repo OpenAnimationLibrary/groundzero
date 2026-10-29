@@ -48,6 +48,7 @@ struct {
                     {T_Eraser, false, 0},
                     {T_Tape, false, 0},
                     {T_Finger, false, 0},
+                    {T_GradientTransform, true, 0},
                     {"Separator_3", false, 0},
                     {T_StylePicker, false, 0},
                     {T_RGBPicker, false, 0},

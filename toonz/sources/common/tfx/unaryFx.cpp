@@ -7,6 +7,10 @@
 #include "trasterfx.h"
 #include "tfxparam.h"
 #include "tparamset.h"
+#include "texception.h"
+
+// TnzLib includes (header only)
+#include "toonz/columncoloreffect.h"
 
 // #define ALLOW_SHEAR
 
@@ -225,6 +229,119 @@ std::string ColumnColorFilterFx::getAlias(double frame,
 //--------------------------------------------------
 
 FX_IDENTIFIER_IS_HIDDEN(ColumnColorFilterFx, "columnColorFilterFx")
+
+//==================================================================
+//  ColumnColorEffectFx
+//==================================================================
+
+namespace {
+
+// Applies the effect to the premultiplied pixels of a 32 or 64 bit raster
+template <typename PIXEL>
+void applyColumnColorEffect(const TRasterPT<PIXEL> &ras,
+                            const ColumnColorEffect::Transform &effect) {
+  typedef typename PIXEL::Channel Channel;
+  const double maxValue = (double)PIXEL::maxChannelValue;
+
+  ras->lock();
+  for (int y = 0; y < ras->getLy(); ++y) {
+    PIXEL *pix = ras->pixels(y), *endPix = pix + ras->getLx();
+    for (; pix != endPix; ++pix) {
+      if (pix->m == 0) continue;
+      double rgba[4] = {(double)pix->r, (double)pix->g, (double)pix->b,
+                        (double)pix->m};
+      effect.applyPremultiplied(rgba, maxValue);
+      pix->r = (Channel)(rgba[0] + 0.5);
+      pix->g = (Channel)(rgba[1] + 0.5);
+      pix->b = (Channel)(rgba[2] + 0.5);
+      pix->m = (Channel)(rgba[3] + 0.5);
+    }
+  }
+  ras->unlock();
+}
+
+}  // namespace
+
+//--------------------------------------------------
+
+ColumnColorEffectFx::ColumnColorEffectFx() {
+  for (int i = 0; i < 4; ++i) m_m[i] = 1.0, m_c[i] = 0.0;
+  setName(L"ColumnColorEffectFx");
+  addInputPort("source", m_port);
+}
+
+//--------------------------------------------------
+
+TFx *ColumnColorEffectFx::clone(bool recursive) const {
+  ColumnColorEffectFx *clonedFx =
+      dynamic_cast<ColumnColorEffectFx *>(TFx::clone(recursive));
+  assert(clonedFx);
+  clonedFx->setColorEffect(m_m, m_c);
+  return clonedFx;
+}
+
+//--------------------------------------------------
+
+void ColumnColorEffectFx::setColorEffect(const double m[4], const double c[4]) {
+  for (int i = 0; i < 4; ++i) m_m[i] = m[i], m_c[i] = c[i];
+}
+
+//--------------------------------------------------
+
+bool ColumnColorEffectFx::doGetBBox(double frame, TRectD &bBox,
+                                    const TRenderSettings &info) {
+  if (!m_port.isConnected()) return false;
+  TRasterFxP fx = m_port.getFx();
+  assert(fx);
+  return fx->doGetBBox(frame, bBox, info);
+}
+
+//--------------------------------------------------
+
+void ColumnColorEffectFx::doCompute(TTile &tile, double frame,
+                                    const TRenderSettings &ri) {
+  if (!m_port.isConnected()) return;
+
+  // Not computed in float: the render hands 32 or 64 bit tiles, in the
+  // (non linear) color space of the colors chosen in the column settings
+  TRaster32P ras32 = tile.getRaster();
+  TRaster64P ras64 = tile.getRaster();
+  if (!ras32 && !ras64)
+    throw TException("ColumnColorEffectFx unsupported pixel type");
+
+  TRasterFxP src = m_port.getFx();
+  src->compute(tile, frame, ri);
+
+  // The tile is premultiplied: the effect is applied to its straight colors
+  ColumnColorEffect::Transform effect;
+  for (int i = 0; i < 4; ++i) effect.m[i] = m_m[i], effect.c[i] = m_c[i];
+  if (ras32)
+    applyColumnColorEffect<TPixel32>(ras32, effect);
+  else
+    applyColumnColorEffect<TPixel64>(ras64, effect);
+}
+
+//--------------------------------------------------
+
+std::string ColumnColorEffectFx::getAlias(double frame,
+                                          const TRenderSettings &info) const {
+  std::string alias = getFxType();
+  alias += "[";
+  if (m_port.isConnected()) {
+    TRasterFxP ifx = m_port.getFx();
+    assert(ifx);
+    alias += ifx->getAlias(frame, info);
+  }
+
+  // The values at the frame, so that each frame is cached on its own
+  for (int i = 0; i < 4; ++i)
+    alias += "," + std::to_string(m_m[i]) + "," + std::to_string(m_c[i]);
+  return alias + "]";
+}
+
+//--------------------------------------------------
+
+FX_IDENTIFIER_IS_HIDDEN(ColumnColorEffectFx, "columnColorEffectFx")
 
 //==================================================================
 //  Geometric Fx

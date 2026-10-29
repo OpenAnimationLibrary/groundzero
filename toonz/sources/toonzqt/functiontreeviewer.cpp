@@ -1069,9 +1069,11 @@ void FunctionTreeModel::refreshFxs(TXsheet *xsh) {
   std::vector<TFx *> fxs;
   xsh->getFxDag()->getFxs(fxs);
   for (int i = 0; i < xsh->getColumnCount(); i++) {
-    // The level columns that use the time remap list its curve
+    // The level columns that use the time remap or the Color Effect list
+    // their curves
     TXshLevelColumn *lc = dynamic_cast<TXshLevelColumn *>(xsh->getColumn(i));
-    if (lc && lc->isTimeRemapUsed()) fxs.push_back(lc->getLevelColumnFx());
+    if (lc && (lc->isTimeRemapUsed() || lc->isColorEffectUsed()))
+      fxs.push_back(lc->getLevelColumnFx());
 
     TXshZeraryFxColumn *zc =
         dynamic_cast<TXshZeraryFxColumn *>(xsh->getColumn(i));

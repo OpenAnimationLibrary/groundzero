@@ -34,6 +34,9 @@
 
 class TGroupCommand;
 class TSceneHandle;
+namespace WidthProfile {
+struct Profile;
+}
 
 //=========================================================
 
@@ -104,6 +107,18 @@ public:
   //! Replaces the selected variable-width strokes by closed zero-thickness
   //! strokes with their outline (see ContourOutline).
   void convertToOutlineShapes();
+
+  //! Width profiles (see tools/widthprofile.h, widthprofilecommands.cpp):
+  //! gives the selected strokes the thickness profile along them, keeping
+  //! their maximum thickness. \p kind is a WidthProfile::BuiltIn.
+  void applyBuiltInWidthProfile(int kind);
+  //! Asks which of the saved width profiles to apply to the selection.
+  void applySavedWidthProfile();
+  //! Saves the width profile of the selected stroke under a name.
+  void saveWidthProfile();
+  //! Returns false (and changes nothing) if no selected stroke has thickness.
+  bool applyWidthProfile(const WidthProfile::Profile &profile);
+  void enableWidthProfileCommands();
 
   // Stroke pairing hints for the Inbetween command. They are kept in memory
   // only, by stroke id, and are never saved with the level.

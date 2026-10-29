@@ -32,11 +32,14 @@ class VectorSelectionTool;
 // Constants / Defines
 //-----------------------------------------------------------------------------
 
-enum SelectionTarget         //! Possible selection targets in a SelectionTool.
-{ NORMAL_TYPE_IDX,           //!< Normal selection (strokes at current frame).
-  SELECTED_FRAMES_TYPE_IDX,  //!< Selection of whole frames.
-  ALL_LEVEL_TYPE_IDX,        //!< Selection of an entire level.
-  SAME_STYLE_TYPE_IDX,       //!< Selected styles at current frame.
+enum SelectionTarget  //! Possible selection targets in a SelectionTool.
+{
+  NORMAL_TYPE_IDX,             //!< Normal selection (strokes at current frame).
+  SELECTED_FRAMES_TYPE_IDX,    //!< Selection of whole frames.
+  ONION_SKIN_FRAMES_TYPE_IDX,  //!< Whole frames shown by the onion skin (and
+                               //!  the current one).
+  ALL_LEVEL_TYPE_IDX,          //!< Selection of an entire level.
+  SAME_STYLE_TYPE_IDX,         //!< Selected styles at current frame.
   STYLE_SELECTED_FRAMES_TYPE_IDX,  //!< Selected styles at selected frames.
   STYLE_LEVEL_TYPE_IDX,  //!< Selected styles at current frame on the whole
                          //! level.
@@ -47,6 +50,7 @@ enum SelectionTarget         //! Possible selection targets in a SelectionTool.
 
 #define NORMAL_TYPE L"Standard"
 #define SELECTED_FRAMES_TYPE L"Selected Frames"
+#define ONION_SKIN_FRAMES_TYPE L"Onion Skin Frames"
 #define ALL_LEVEL_TYPE L"Whole Level"
 #define SAME_STYLE_TYPE L"Same Style"
 #define STYLE_SELECTED_FRAMES_TYPE L"Same Style on Selected Frames"
@@ -71,9 +75,17 @@ class VectorFreeDeformer final : public FreeDeformer {
   std::set<int> m_strokeIndexes;
   std::vector<TStroke *> m_originalStrokes;
 
+  // Envelope mode
+  std::vector<TPointD> m_restEnvelope, m_deformedEnvelope;
+  std::vector<std::vector<TThickPoint>>
+      m_envelopeSources;  //!< Control points of the original strokes, with
+                          //!  their chunks cut in pieces for the warp.
+  bool m_isEnvelope = false;
+
   bool m_preserveThickness, m_computeRegion, m_flip;
 
   TThickPoint deform(TThickPoint point);
+  void deformEnvelopeImage();
 
 public:
   VectorFreeDeformer(TVectorImageP vi, std::set<int> strokeIndexes);
@@ -92,6 +104,13 @@ public:
                  const TPointD &p3) override;
   /*! Helper function. */
   TVectorImage *getDeformedImage() const { return m_vi.getPointer(); }
+
+  /*! Envelope mode: deformImage() warps the strokes with the mean value
+      coordinates of the closed polygon \b rest moved to \b deformed (see
+      TEnvelopeDeformer and EnvelopeLayout) instead of the four corners. */
+  void setEnvelope(const std::vector<TPointD> &rest,
+                   const std::vector<TPointD> &deformed);
+  bool isEnvelope() const { return m_isEnvelope; }
 
   void deformRegions();
   void deformImage() override;
@@ -160,6 +179,11 @@ public:
   void transformWholeLevel();
   bool isFlip();
 
+  /*! Gives the free deformer of the box \b index (0 is the current frame) its
+      new shape. By default, the four corners of \b bbox. */
+  virtual void setDeformerShape(VectorFreeDeformer *deformer, int index,
+                                const FourPoints &bbox);
+
 protected:
   std::unique_ptr<UndoChangeStrokes> m_undo;
 
@@ -201,6 +225,28 @@ public:
   VectorFreeDeformTool(VectorSelectionTool *tool);
 
   void leftButtonDrag(const TPointD &pos, const TMouseEvent &e) override;
+};
+
+//=============================================================================
+// VectorEnvelopeTool
+//-----------------------------------------------------------------------------
+
+/*! Drags a handle of the envelope (Envelope mode): the handle moves, in the box
+    of every frame the tool edits, and the strokes are warped from the envelope
+    they had at the button press to the moved one. */
+class VectorEnvelopeTool final : public VectorDeformTool {
+  std::vector<std::vector<TPointD>>
+      m_restEnvelopes;  //!< Envelope of each box at the button press.
+
+public:
+  VectorEnvelopeTool(VectorSelectionTool *tool);
+  ~VectorEnvelopeTool();
+
+  void setDeformerShape(VectorFreeDeformer *deformer, int index,
+                        const FourPoints &bbox) override;
+
+  void leftButtonDrag(const TPointD &pos, const TMouseEvent &e) override;
+  void leftButtonUp(const TPointD &pos, const TMouseEvent &e) override;
 };
 
 //=============================================================================
@@ -287,8 +333,18 @@ public:
   bool isConstantThickness() const override {
     return m_constantThickness.getValue();
   }
+  bool isEnvelopeMode() const override;
   bool isLevelType() const override;
+  /*! True when the tool works on a set of frames: the selected ones (frame
+          strip) or the ones shown by the onion skin. The set is returned by
+          getTargetFrames(). */
   bool isSelectedFramesType() const override;
+  bool isOnionSkinFramesType() const;
+
+  /*! The frames the tool works on in the modes where isSelectedFramesType()
+          is true. The current frame is always in the set in the onion skin
+          mode. */
+  const std::set<TFrameId> &getTargetFrames() const;
   bool isSameStyleType() const override;
   bool isModifiableSelectionType() const override;
 
@@ -372,6 +428,7 @@ private:
                                     //! image, styles...).
   TBoolProperty m_includeIntersection;
   TBoolProperty m_constantThickness;
+  TBoolProperty m_envelope;  //!< Box handles bend the strokes (Envelope).
 
   StrokeSelection m_strokeSelection;        //!< Standard selection of a set of
                                             //! strokes in current image.
@@ -390,7 +447,13 @@ private:
   //!               but rather to bboxes count - and even that is deprecated.
   bool m_canEnterGroup;  //!< \deprecated  Used in Manga and Kids
 
+  std::set<TFrameId> m_onionFrames;  //!< Frames of the onion skin mode. Taken
+                                     //!  again each time the selection is
+                                     //!  made consistent, so that the bboxes
+                                     //!  and the free deformers agree.
+
 private:
+  bool refreshOnionFrames();  //!< Updates m_onionFrames. True if they changed.
   void modifySelectionOnClick(TImageP image, const TPointD &pos,
                               const TMouseEvent &e) override;
   bool selectStroke(int index, bool toggle);

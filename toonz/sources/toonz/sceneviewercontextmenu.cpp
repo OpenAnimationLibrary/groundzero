@@ -56,6 +56,20 @@ SceneViewerContextMenu::SceneViewerContextMenu(SceneViewer *parent)
   TTool *tool = app->getCurrentTool()->getTool();
   if (tool && tool->isEnabled()) tool->addContextMenuItems(this);
 
+  // distribute a selection of vector strokes to layers or frames, or make a
+  // symbol of it
+  if (!isEditingLevel) {
+    StrokeSelection *strokeSelection =
+        dynamic_cast<StrokeSelection *>(TSelection::getCurrent());
+    if (strokeSelection && !strokeSelection->isEmpty()) {
+      addSeparator();
+      addAction(commandManager->getAction(MI_DistributeToLayers));
+      addAction(commandManager->getAction(MI_DistributeToFrames));
+      addAction(commandManager->getAction(MI_ConvertSelectionToSymbol));
+      addSeparator();
+    }
+  }
+
   // fullscreen
   if (ImageUtils::FullScreenWidget *fsWidget =
           dynamic_cast<ImageUtils::FullScreenWidget *>(

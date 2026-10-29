@@ -60,6 +60,7 @@
 #include "cellselection.h"
 #include "expressionreferencemanager.h"
 #include "filebrowser.h"
+#include "librarycommand.h"
 
 #include "subscenecommand.h"
 
@@ -2807,9 +2808,6 @@ void SubsceneCmd::saveAsTemplate(const std::set<int> &indices) {
   TFilePath templatesFolder = getTemplatesFolder();
   TFilePath templatePath =
       templatesFolder + TFilePath(name.toStdWString() + L".tnz");
-  // the levels are copied into a folder named after the template
-  TFilePath levelFolder      = templatesFolder + name.toStdWString();
-  TFilePath codedLevelFolder = TFilePath("$scenefolder") + name.toStdWString();
 
   if (TFileStatus(templatePath).doesExist()) {
     QString question = QObject::tr(
@@ -2851,6 +2849,31 @@ void SubsceneCmd::saveAsTemplate(const std::set<int> &indices) {
     return;
   }
 
+  saveXsheetAsTemplate(templateXsh, name, LibraryCmd::RigKind);
+}
+
+//-----------------------------------------------------------------------------
+
+//! Saves the xsheet as the template \b name of the Library, with copies of
+//! the files of the levels it uses, as Save Selection as Template does.
+bool SubsceneCmd::saveXsheetAsTemplate(TXsheet *templateXsh,
+                                       const QString &name, const char *kind) {
+  if (!templateXsh || name.isEmpty()) return false;
+
+  TApp *app         = TApp::instance();
+  ToonzScene *scene = app->getCurrentScene()->getScene();
+
+  TFilePath templatesFolder = getTemplatesFolder();
+  TFilePath templatePath =
+      templatesFolder + TFilePath(name.toStdWString() + L".tnz");
+  bool overwritten = TFileStatus(templatePath).doesExist();
+  // the levels are copied into a folder named after the template (or the
+  // one the template already uses, see LibraryCmd)
+  std::wstring levelFolderName =
+      LibraryCmd::getTemplateLevelFolder(templatePath, name.toStdWString());
+  TFilePath levelFolder      = templatesFolder + levelFolderName;
+  TFilePath codedLevelFolder = TFilePath("$scenefolder") + levelFolderName;
+
   std::vector<TXshLevel *> levels;
   getTemplateResourceLevels(templateXsh, levels);
 
@@ -2870,17 +2893,17 @@ void SubsceneCmd::saveAsTemplate(const std::set<int> &indices) {
         "continue?");
     int ret = DVGui::MsgBox(question, QObject::tr("Save All and Continue"),
                             QObject::tr("Cancel"), 0);
-    if (ret != 1) return;
+    if (ret != 1) return false;
     CommandManager::instance()->execute(MI_SaveAll);
     if (needsSaving()) {
       DVGui::warning(
           QObject::tr("The template has not been saved because the scene or "
                       "some of its levels could not be saved."));
-      return;
+      return false;
     }
   }
 
-  if (app->isSaveInProgress()) return;
+  if (app->isSaveInProgress()) return false;
   app->setSaveInProgress(true);
   QApplication::setOverrideCursor(Qt::WaitCursor);
 
@@ -2959,8 +2982,11 @@ void SubsceneCmd::saveAsTemplate(const std::set<int> &indices) {
 
   if (!errorMsg.isEmpty()) {
     DVGui::warning(errorMsg);
-    return;
+    return false;
   }
+
+  // the identity of the library item, next to it
+  LibraryCmd::writeItemInfo(templatePath, kind, overwritten, levelFolderName);
 
   FileBrowser::refreshFolder(templatesFolder);
   IconGenerator::instance()->invalidate(templatePath);
@@ -2975,4 +3001,5 @@ void SubsceneCmd::saveAsTemplate(const std::set<int> &indices) {
   else
     DVGui::info(QObject::tr("The template has been saved to %1.")
                     .arg(toQString(templatePath)));
+  return true;
 }

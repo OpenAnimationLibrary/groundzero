@@ -2045,9 +2045,35 @@ BrushToolOptionsBox::BrushToolOptionsBox(QWidget *parent, TTool *tool,
         dynamic_cast<ToolOptionIntSlider *>(m_controls.value("Miter:"));
     m_miterField->setEnabled(m_joinStyleCombo->currentIndex() ==
                              TStroke::OutlineOptions::MITER_JOIN);
+    updateDrawOrderState();
   }
   hLayout()->addStretch(1);
   filterControls();
+}
+
+//-----------------------------------------------------------------------------
+
+void BrushToolOptionsBox::updateDrawOrderState() {
+  if (!(m_tool->getTargetType() & TTool::Vectors)) return;
+  TPropertyGroup *props = m_tool->getProperties(0);
+  TEnumProperty *paintMode =
+      props ? dynamic_cast<TEnumProperty *>(props->getProperty("Paint:")) : 0;
+  if (!paintMode) return;
+
+  const bool used = paintMode->getIndex() == BrushPaintMode::MODE_NORMAL;
+  const QString toolTip =
+      used ? QString()
+           : tr("Draw Order is not used by the Paint Fills and Paint Behind "
+                "modes.");
+  if (QWidget *widget =
+          dynamic_cast<QWidget *>(m_controls.value("Draw Order"))) {
+    widget->setEnabled(used);
+    widget->setToolTip(toolTip);
+  }
+  if (QLabel *label = m_labels.value("Draw Order")) {
+    label->setEnabled(used);
+    label->setToolTip(toolTip);
+  }
 }
 
 //-----------------------------------------------------------------------------
@@ -2113,6 +2139,7 @@ void BrushToolOptionsBox::updateStatus() {
                              TStroke::OutlineOptions::MITER_JOIN);
   if (m_snapCheckbox)
     m_snapSensitivityCombo->setHidden(!m_snapCheckbox->isChecked());
+  updateDrawOrderState();
 }
 
 //-----------------------------------------------------------------------------

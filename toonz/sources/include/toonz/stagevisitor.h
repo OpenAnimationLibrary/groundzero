@@ -141,6 +141,7 @@ struct DVAPI VisitArgs {
   int m_guidedBackStroke;
   bool m_lightTable;  // fade every column but the current one
   double m_lightTableOpacity;  // factor applied to the faded columns (0..1)
+  bool m_outlineView;  // show the columns set to Outline View as outlines
 #if defined(x64)
   TRasterImageP m_liveViewImage = 0;
   TRasterImageP m_lineupImage   = 0;
@@ -165,6 +166,7 @@ public:
       , m_guidedBackStroke(-1)
       , m_lightTable(false)
       , m_lightTableOpacity(0.3)
+      , m_outlineView(false)
       , m_rasterizePli(false) {}
 };
 
@@ -232,9 +234,15 @@ private:
 
     TPixel32 m_filterColor;
 
+    bool m_outlineView = false;  //!< Whether the node is drawn as outlines
+
     // Experimental GPU compositing data (see flushRasterImagesGpu())
     std::string m_imageId;        //!< Base image id of the node's level frame
     bool m_gpuCacheable = false;  //!< Whether the node's texture may be cached
+
+    //! The column's Color Effect, applied after the color scale (identity for
+    //! none). Nodes with an effect are composited by the CPU path.
+    ColumnColorEffect::Transform m_colorEffect;
 
   public:
     Node(const TRasterP &raster, TPalette *palette, int alpha,

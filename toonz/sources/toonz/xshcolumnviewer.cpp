@@ -8,6 +8,7 @@
 #include "columnselection.h"
 #include "xsheetdragtool.h"
 #include "columncommand.h"
+#include "columncoloreffectpopup.h"
 
 // TnzTools includes
 #include "tools/toolhandle.h"
@@ -1982,7 +1983,10 @@ using namespace DVGui;
 
 ColumnTransparencyPopup::ColumnTransparencyPopup(XsheetViewer *viewer,
                                                  QWidget *parent)
-    : QWidget(parent, Qt::Popup), m_viewer(viewer), m_lockBtn(nullptr) {
+    : QWidget(parent, Qt::Popup)
+    , m_column(nullptr)
+    , m_viewer(viewer)
+    , m_lockBtn(nullptr) {
   setFixedWidth(8 + 78 + 8 + 100 + 8 + 8 + 8 + 7);
 
   m_slider = new QSlider(Qt::Horizontal, this);
@@ -2000,6 +2004,11 @@ m_value->setFont(font);*/
 
   // contents of the combo box will be updated in setColumn
   m_filterColorCombo = new QComboBox(this);
+
+  // enabled in setColumn, for the level columns
+  m_colorEffectBtn = new QPushButton(tr("Color Effect..."), this);
+  m_colorEffectBtn->setToolTip(
+      tr("Brightness, Tint, Alpha and Advanced color effect of the column"));
 
   // Lock button is moved in the popup for Minimum layout
   QPushButton *lockExtraBtn = nullptr;
@@ -2057,8 +2066,17 @@ m_value->setFont(font);*/
       }
       mainLayout->addLayout(lockLay, 2, 1, Qt::AlignLeft | Qt::AlignVCenter);
     }
+
+    mainLayout->addWidget(m_colorEffectBtn, 3, 1,
+                          Qt::AlignLeft | Qt::AlignVCenter);
   }
   setLayout(mainLayout);
+
+  connect(m_colorEffectBtn, &QPushButton::clicked, this, [this]() {
+    if (!m_column) return;
+    hide();
+    ColumnColorEffectPopup::open(m_column);
+  });
 
   bool ret = connect(m_slider, SIGNAL(sliderReleased()), this,
                      SLOT(onSliderReleased()));
@@ -2169,6 +2187,8 @@ void ColumnTransparencyPopup::setColumn(TXshColumn *column) {
       m_filterColorCombo->findData(m_column->getColorFilterId()));
 
   if (m_lockBtn) m_lockBtn->setChecked(m_column->isLocked());
+
+  m_colorEffectBtn->setEnabled(m_column->getLevelColumn() != nullptr);
 }
 
 /*void ColumnTransparencyPopup::mouseMoveEvent ( QMouseEvent * e )
@@ -3126,6 +3146,7 @@ void ColumnArea::contextMenuEvent(QContextMenuEvent *event) {
       menu.addAction(
           cmdManager->getAction(MI_LightTableIncludeSelectedColumns));
       menu.addAction(cmdManager->getAction(MI_LightTableIncludeAllColumns));
+      menu.addAction(cmdManager->getAction(MI_ToggleColumnOutline));
     }
     // column groups are displayed only in the xsheet orientation
     if (!isCamera && o->isVerticalTimeline()) {

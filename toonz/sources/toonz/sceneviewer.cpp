@@ -2325,6 +2325,8 @@ void SceneViewer::drawScene() {
       args.m_lightTable = lightTableToggle.getStatus() && !args.m_isPlaying;
       args.m_lightTableOpacity =
           Preferences::instance()->getLightTableOpacity() / 100.0;
+      // the columns set to Outline View are shown as outlines, here only
+      args.m_outlineView = true;
       if (app->getCurrentLevel() && app->getCurrentLevel()->getLevel() &&
           !app->getCurrentLevel()->getLevel()->getSoundLevel())
         args.m_currentFrameId =

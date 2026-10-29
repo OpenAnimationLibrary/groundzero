@@ -379,6 +379,10 @@ protected:
   std::vector<DragSelectionTool::FourPoints> m_bboxs;
   std::vector<TPointD> m_centers;
   std::vector<FreeDeformer *> m_freeDeformers;
+  std::vector<std::vector<TPointD>> m_envelopes;  //!< Envelope mode: handles
+                                                  //!  moved by the current
+                                                  //!  drag, one entry per
+                                                  //!  m_bboxs entry.
 
   TEnumProperty m_strokeSelectionType;
   TPropertyGroup m_prop;
@@ -426,6 +430,18 @@ public:
   FreeDeformer *getFreeDeformer(int index = 0) const;
   virtual void setNewFreeDeformer() = 0;
   void clearDeformers();
+
+  /*! True when the box handles are the handles of an envelope (vector
+      selection, Envelope option on). */
+  virtual bool isEnvelopeMode() const { return false; }
+  /*! True in the Envelope mode when the box of the current frame can carry an
+      envelope (it is not flat). */
+  bool isEnvelopeActive() const;
+  /*! The envelope handles of the box \b index: the ones being dragged, or the
+      8 handles on the outline of the box (see EnvelopeLayout). */
+  std::vector<TPointD> getEnvelope(int index = 0) const;
+  void setEnvelope(const std::vector<TPointD> &handles, int index = 0);
+  void clearEnvelopes() { m_envelopes.clear(); }
 
   int getSelectedPoint() const { return m_selectedPoint; }
 

@@ -28,6 +28,7 @@
 #include "levelcommand.h"
 #include "columncommand.h"
 #include "tstreamexception.h"
+#include "historytypes.h"
 
 // TnzTools includes
 #include "tools/toolhandle.h"
@@ -67,6 +68,10 @@
 #include "toonz/txshleveltypes.h"
 #include "toonz/txshsoundtextcolumn.h"
 #include "toonz/tstageobjecttree.h"
+#include "toonz/tstageobject.h"
+#include "toonz/txshcolumn.h"
+#include "toonz/fxdag.h"
+#include "toonz/tcolumnfxset.h"
 #include "toonz/levelset.h"
 #include "toonz/namebuilder.h"
 #include "toonz/fullcolorpalette.h"
@@ -970,6 +975,326 @@ TXshLevel *loadChildLevel(ToonzScene *parentScene, TFilePath actualPath,
 
   return childLevel;
 }
+
+//===========================================================================
+// class LoadSubSceneUndo
+//---------------------------------------------------------------------------
+/*! Undoes the load of a scene as a sub-xsheet (loadChildLevel()) as one
+    step: it takes out of the xsheet the columns the load added (giving back
+    an empty column it replaced), clears the cells it set in the columns that
+    were there, and takes the new levels out of the cast. Redo puts the same
+    columns, cells and levels back. The files imported in the project stay,
+    as for the other loaded levels.                                        */
+
+class LoadSubSceneUndo final : public TUndo {
+public:
+  struct ColumnEntry {
+    int m_index;
+    TXshColumnP m_column;
+    std::string m_name;  //!< explicit name of the column stage object
+    bool m_terminal;     //!< the column fx is connected to the xsheet node
+  };
+  struct CellsEntry {
+    TXshColumnP m_column;  //!< a column that was there before the load
+    int m_row;
+    std::vector<TXshCell> m_cells;
+    std::string m_oldName, m_newName;  //!< of the column stage object
+  };
+  struct LevelEntry {
+    TXshLevelP m_level;
+    TFilePath m_folder;  //!< its cast folder
+  };
+
+  TXsheetP m_xsh;
+  std::wstring m_levelName;
+  std::vector<ColumnEntry> m_oldColumns;  //!< replaced, by old index
+  std::vector<ColumnEntry> m_newColumns;  //!< added, by new index
+  std::vector<CellsEntry> m_cells;        //!< set in the columns kept
+  std::vector<LevelEntry> m_levels;       //!< added to the cast
+  std::set<TXshLevel *> m_levelSet;       //!< the same levels
+  TFilePath m_castFolderParent;  //!< the cast folder created by the load
+  std::wstring m_castFolderName;
+  bool m_hasSound;
+
+  LoadSubSceneUndo(TXsheet *xsh, const std::wstring &levelName)
+      : m_xsh(xsh), m_levelName(levelName), m_hasSound(false) {}
+
+  bool isEmpty() const {
+    return m_newColumns.empty() && m_cells.empty() && m_levels.empty();
+  }
+
+  static int columnIndex(TXsheet *xsh, TXshColumn *column) {
+    for (int c = 0; c < xsh->getColumnCount(); c++)
+      if (xsh->getColumn(c) == column) return c;
+    return -1;
+  }
+
+  static void setColumnName(TXsheet *xsh, int col, const std::string &name) {
+    xsh->getStageObject(TStageObjectId::ColumnId(col))->setName(name);
+  }
+
+  static void insertColumn(TXsheet *xsh, const ColumnEntry &entry) {
+    TXshColumn *column = entry.m_column.getPointer();
+    xsh->insertColumn(entry.m_index, column);
+    // insertColumn() connects the fx to the xsheet node: keep its state
+    TFx *fx = column->getFx();
+    if (fx && !column->getPaletteColumn()) {
+      FxDag *fxDag = xsh->getFxDag();
+      if (entry.m_terminal)
+        fxDag->addToXsheet(fx);
+      else
+        fxDag->removeFromXsheet(fx);
+    }
+    setColumnName(xsh, entry.m_index, entry.m_name);
+  }
+
+  TLevelSet *getLevelSet() const {
+    return TApp::instance()->getCurrentScene()->getScene()->getLevelSet();
+  }
+
+  void notify() const {
+    TApp *app = TApp::instance();
+    app->getCurrentXsheet()->notifyXsheetChanged();
+    if (m_hasSound) app->getCurrentXsheet()->notifyXsheetSoundChanged();
+    app->getCurrentScene()->notifyCastChange();
+    app->getCurrentScene()->setDirtyFlag(true);
+  }
+
+  void undo() const override {
+    TXsheet *xsh = m_xsh.getPointer();
+
+    // the cells set in the columns that were there
+    for (const CellsEntry &entry : m_cells) {
+      int col = columnIndex(xsh, entry.m_column.getPointer());
+      if (col < 0) continue;
+      int count = (int)entry.m_cells.size();
+      for (int i = 0; i < count;) {
+        if (!m_levelSet.count(entry.m_cells[i].m_level.getPointer())) {
+          i++;
+          continue;
+        }
+        int j = i + 1;
+        while (j < count &&
+               m_levelSet.count(entry.m_cells[j].m_level.getPointer()))
+          j++;
+        xsh->clearCells(entry.m_row + i, col, j - i);
+        i = j;
+      }
+      setColumnName(xsh, col, entry.m_oldName);
+    }
+    // the added columns, from the last one, then the replaced ones back
+    for (auto it = m_newColumns.rbegin(); it != m_newColumns.rend(); ++it)
+      xsh->removeColumn(it->m_index);
+    for (const ColumnEntry &entry : m_oldColumns) insertColumn(xsh, entry);
+    xsh->updateFrameCount();
+
+    // the cast
+    TApp *app           = TApp::instance();
+    TLevelSet *levelSet = getLevelSet();
+    for (auto it = m_levels.rbegin(); it != m_levels.rend(); ++it) {
+      TXshLevel *level = it->m_level.getPointer();
+      if (app->getCurrentLevel()->getLevel() == level)
+        app->getCurrentLevel()->setLevel(0);
+      levelSet->removeLevel(level);
+    }
+    if (!m_castFolderName.empty()) {
+      TFilePath folder = m_castFolderParent + m_castFolderName;
+      std::vector<TXshLevel *> folderLevels;
+      std::vector<TFilePath> subFolders;
+      levelSet->listLevels(folderLevels, folder);
+      levelSet->listFolders(subFolders, folder);
+      if (folderLevels.empty() && subFolders.empty())
+        levelSet->removeFolder(folder);
+    }
+    notify();
+  }
+
+  void redo() const override {
+    TXsheet *xsh = m_xsh.getPointer();
+
+    // the cast
+    TLevelSet *levelSet = getLevelSet();
+    if (!m_castFolderName.empty())
+      levelSet->createFolder(m_castFolderParent, m_castFolderName);
+    for (const LevelEntry &entry : m_levels) {
+      TXshLevel *level = entry.m_level.getPointer();
+      levelSet->insertLevel(level);
+      if (entry.m_folder != TFilePath() &&
+          entry.m_folder != levelSet->getFolder(level)) {
+        std::vector<TFilePath> folders;
+        levelSet->listFolders(folders, entry.m_folder.getParentDir());
+        if (std::find(folders.begin(), folders.end(), entry.m_folder) !=
+            folders.end())
+          levelSet->moveLevelToFolder(entry.m_folder, level);
+      }
+    }
+
+    // the replaced columns, from the last one, then the added ones
+    for (auto it = m_oldColumns.rbegin(); it != m_oldColumns.rend(); ++it)
+      xsh->removeColumn(it->m_index);
+    for (const ColumnEntry &entry : m_newColumns) insertColumn(xsh, entry);
+    for (const CellsEntry &entry : m_cells) {
+      int col = columnIndex(xsh, entry.m_column.getPointer());
+      if (col < 0 || entry.m_cells.empty()) continue;
+      xsh->setCells(entry.m_row, col, (int)entry.m_cells.size(),
+                    &entry.m_cells[0]);
+      setColumnName(xsh, col, entry.m_newName);
+    }
+    xsh->updateFrameCount();
+    notify();
+  }
+
+  int getSize() const override {
+    int cellCount = 0;
+    for (const CellsEntry &entry : m_cells)
+      cellCount += (int)entry.m_cells.size();
+    return sizeof(*this) + cellCount * sizeof(TXshCell) +
+           (int)(m_newColumns.size() + m_levels.size()) * 256;
+  }
+
+  QString getHistoryString() override {
+    return QObject::tr("Load Sub-xsheet  %1")
+        .arg(QString::fromStdWString(m_levelName));
+  }
+  int getHistoryType() override { return HistoryType::Xsheet; }
+};
+
+//===========================================================================
+// class SubSceneLoadRecorder
+//---------------------------------------------------------------------------
+/*! Records the columns and the cast of the current xsheet before a scene is
+    loaded as a sub-xsheet, then compares them after the load to register a
+    LoadSubSceneUndo for what it added.                                    */
+
+class SubSceneLoadRecorder {
+  ToonzScene *m_scene;
+  TXsheetP m_xsh;
+  std::vector<TXshColumnP> m_columns;
+  std::vector<std::string> m_names;
+  std::vector<bool> m_terminal;
+  std::set<TXshLevel *> m_levels;
+  TFilePath m_castFolderParent;
+  std::wstring m_castFolderName;
+  bool m_castFolderExisted;
+
+  static std::string getColumnName(TXsheet *xsh, int col) {
+    TStageObject *obj = xsh->getStageObjectTree()->getStageObject(
+        TStageObjectId::ColumnId(col), false);
+    if (!obj) return std::string();
+    std::string name = obj->getName();
+    return name == TStageObjectId::ColumnId(col).toString() ? std::string()
+                                                            : name;
+  }
+
+  static bool isTerminal(TXsheet *xsh, TXshColumn *column) {
+    TFx *fx = column->getFx();
+    return fx && xsh->getFxDag()->getTerminalFxs()->containsFx(fx);
+  }
+
+  bool hasCastFolder() const {
+    if (m_castFolderName.empty()) return false;
+    std::vector<TFilePath> folders;
+    m_scene->getLevelSet()->listFolders(folders, m_castFolderParent);
+    return std::find(folders.begin(), folders.end(),
+                     m_castFolderParent + m_castFolderName) != folders.end();
+  }
+
+public:
+  //! \b castFolderParent and \b castFolderName are the cast folder the load
+  //! may create (see loadChildLevel()), or empty.
+  SubSceneLoadRecorder(ToonzScene *scene, const TFilePath &castFolderParent,
+                       const std::wstring &castFolderName)
+      : m_scene(scene)
+      , m_xsh(scene->getXsheet())
+      , m_castFolderParent(castFolderParent)
+      , m_castFolderName(castFolderName)
+      , m_castFolderExisted(false) {
+    TXsheet *xsh = m_xsh.getPointer();
+    for (int c = 0; c < xsh->getColumnCount(); c++) {
+      TXshColumn *column = xsh->getColumn(c);
+      m_columns.push_back(column);
+      m_names.push_back(getColumnName(xsh, c));
+      m_terminal.push_back(column && isTerminal(xsh, column));
+    }
+    TLevelSet *levelSet = scene->getLevelSet();
+    for (int i = 0; i < levelSet->getLevelCount(); i++)
+      m_levels.insert(levelSet->getLevel(i));
+    m_castFolderExisted = hasCastFolder();
+  }
+
+  //! Registers the undo of what the load added.
+  void addUndo(TXshLevel *childLevel) {
+    if (m_scene->getXsheet() != m_xsh.getPointer()) return;
+    TXsheet *xsh = m_xsh.getPointer();
+    std::unique_ptr<LoadSubSceneUndo> undo(new LoadSubSceneUndo(
+        xsh, childLevel ? childLevel->getName() : std::wstring()));
+
+    // the cast entries added
+    TLevelSet *levelSet = m_scene->getLevelSet();
+    for (int i = 0; i < levelSet->getLevelCount(); i++) {
+      TXshLevel *level = levelSet->getLevel(i);
+      if (!level || m_levels.count(level)) continue;
+      LoadSubSceneUndo::LevelEntry entry;
+      entry.m_level  = level;
+      entry.m_folder = levelSet->getFolder(level);
+      undo->m_levels.push_back(entry);
+      undo->m_levelSet.insert(level);
+      if (level->getSoundLevel()) undo->m_hasSound = true;
+    }
+
+    // the columns replaced (empty columns of another type) and added
+    std::set<TXshColumn *> oldColumns, newColumns;
+    for (const TXshColumnP &column : m_columns)
+      oldColumns.insert(column.getPointer());
+    for (int c = 0; c < xsh->getColumnCount(); c++)
+      newColumns.insert(xsh->getColumn(c));
+    for (int i = 0; i < (int)m_columns.size(); i++) {
+      if (!m_columns[i] || newColumns.count(m_columns[i].getPointer()))
+        continue;
+      LoadSubSceneUndo::ColumnEntry entry = {i, m_columns[i], m_names[i],
+                                             m_terminal[i]};
+      undo->m_oldColumns.push_back(entry);
+    }
+    for (int c = 0; c < xsh->getColumnCount(); c++) {
+      TXshColumn *column = xsh->getColumn(c);
+      if (!column) continue;
+      if (!oldColumns.count(column)) {
+        LoadSubSceneUndo::ColumnEntry entry = {c, column, getColumnName(xsh, c),
+                                               isTerminal(xsh, column)};
+        undo->m_newColumns.push_back(entry);
+        continue;
+      }
+      // the cells of the new levels in a column that was there
+      TXshCellColumn *cellColumn = column->getCellColumn();
+      int r0 = 0, r1 = -1;
+      if (!cellColumn || !cellColumn->getRange(r0, r1)) continue;
+      int first = -1, last = -1;
+      for (int r = r0; r <= r1; r++)
+        if (undo->m_levelSet.count(
+                cellColumn->getCell(r).m_level.getPointer())) {
+          if (first < 0) first = r;
+          last = r;
+        }
+      if (first < 0) continue;
+      LoadSubSceneUndo::CellsEntry entry;
+      entry.m_column = column;
+      entry.m_row    = first;
+      entry.m_cells.resize(last - first + 1);
+      xsh->getCells(first, c, last - first + 1, &entry.m_cells[0]);
+      for (int i = 0; i < (int)m_columns.size(); i++)
+        if (m_columns[i].getPointer() == column) entry.m_oldName = m_names[i];
+      entry.m_newName = getColumnName(xsh, c);
+      undo->m_cells.push_back(entry);
+    }
+    if (undo->isEmpty()) return;
+
+    if (!m_castFolderExisted && hasCastFolder()) {
+      undo->m_castFolderParent = m_castFolderParent;
+      undo->m_castFolderName   = m_castFolderName;
+    }
+    TUndoManager::manager()->add(undo.release());
+  }
+};
 
 //===========================================================================
 // loadLevel(scene, path, castFolder, row, col)
@@ -2788,7 +3113,17 @@ int IoCmd::loadResources(LoadResourceArguments &args, bool updateRecentFile,
 
       // load the scene as subXsheet
       try {
+        // what the load adds is recorded, to undo it as one step
+        TFilePath castFolderParent;
+        std::wstring castFolderName;
+        if (dstFolder != TFilePath()) {
+          castFolderParent = scene->getLevelSet()->getDefaultFolder() +
+                             dstFolder.getParentDir();
+          castFolderName = dstFolder.getWideName();
+        }
+        SubSceneLoadRecorder recorder(scene, castFolderParent, castFolderName);
         auto xl = loadChildLevel(scene, path, row0, col0, importDialog);
+        if (xl) recorder.addUndo(xl);
         if (dstFolder != TFilePath())
           app->getCurrentScene()->notifyCastFolderAdded(
               scene->getLevelSet()->getDefaultFolder() + dstFolder);
