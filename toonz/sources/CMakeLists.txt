@@ -401,9 +401,15 @@ endif()
 
 
 if(PLATFORM EQUAL 64)
-    if(BUILD_ENV_UNIXLIKE)
+    if(BUILD_ENV_APPLE)
+        # Request the modules used by image processing, camera capture and
+        # calibration. Linking every installed module also pulls in unused
+        # visualization libraries and their external renderer dependencies.
+        find_package(OpenCV 4.1 REQUIRED COMPONENTS core imgproc imgcodecs videoio calib3d)
+        message(STATUS "OpenCV application components: ${OpenCV_LIBS}")
+    elseif(BUILD_ENV_UNIXLIKE)
         find_package(OpenCV REQUIRED)
-    else() # Windows and MacOS case
+    else() # Windows case
         find_package(OpenCV 4.1 REQUIRED)
     endif()
     #include_directories(
