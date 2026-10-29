@@ -668,7 +668,7 @@ void TPSDReader::readImageData(TRasterP &rasP, TPSDLayerInfo *li,
   const int lry0 = (visible.y0 + m_shrinkY - 1) / m_shrinkY;
   const int lrx1 = visible.x1 / m_shrinkX;
   const int lry1 = visible.y1 / m_shrinkY;
-  const TRect layerSaveBox(lrx0, lry0, lrx1, lry1);
+  TRect layerSaveBox(lrx0, lry0, lrx1, lry1);
   if (layerSaveBox.isEmpty()) return;
   assert(TRect(imgSize).contains(layerSaveBox));
   m_layersSavebox[li ? li->layerId : 0] = layerSaveBox;
