@@ -1013,7 +1013,7 @@ int Ffmpeg::getFrameCount() const {
   bool valid = false;
   int count = runFfprobe(args).trimmed().toInt(&valid);
   if (!valid || count <= 0) {
-    args = {"-v", "error", "-count_frames", "-select_streams", "v:0",
+    args = QStringList{"-v", "error", "-count_frames", "-select_streams", "v:0",
         "-show_entries", "stream=nb_read_frames", "-of",
         "default=nokey=1:noprint_wrappers=1", m_path.getQString()};
     count = runFfprobe(args).trimmed().toInt(&valid);
