@@ -173,6 +173,7 @@ set(SOURCES
     celcolorkeyfx.cpp
     celcolorexpandfx.cpp
     celedgelinesfx.cpp
+    celboilfx.cpp
     alphadistancegradientfx.cpp
     celboundaryblurfx.cpp
     celblur.cpp
@@ -527,6 +528,18 @@ if(BUILD_CELFX_TESTS)
              ${CMAKE_CURRENT_SOURCE_DIR}/../../../stuff/profiles/layouts/fxs/STD_celEdgeLinesFx.xml)
     add_dependencies(celfx_tests celedgelines_test celedgelines_ui_test)
     set_tests_properties(celfx_edgelines celfx_edgelines_ui PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
+endif()
+
+if(BUILD_CELFX_TESTS)
+    add_executable(celboil_test tests/celboil_test.cpp celnoise.cpp)
+    target_link_libraries(celboil_test Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME celfx_boil COMMAND celboil_test)
+    add_executable(celboil_ui_test tests/celboil_ui_test.cpp celnoise.cpp)
+    target_link_libraries(celboil_ui_test toonzqt Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Widgets ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME celfx_boil_ui COMMAND celboil_ui_test
+             ${CMAKE_CURRENT_SOURCE_DIR}/../../../stuff/profiles/layouts/fxs/STD_celBoilFx.xml)
+    add_dependencies(celfx_tests celboil_test celboil_ui_test)
+    set_tests_properties(celfx_boil celfx_boil_ui PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
 endif()
 
 if(BUILD_CELFX_TESTS)
