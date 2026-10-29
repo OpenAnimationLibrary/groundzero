@@ -9,6 +9,10 @@
 #include "ttzpimagefx.h"
 
 #include <algorithm>
+#include <iomanip>
+#include <limits>
+#include <locale>
+#include <sstream>
 
 //**********************************************************************************************
 //    Global  functions
@@ -99,7 +103,8 @@ bool ColourOverrideFxRenderData::operator==(
       dynamic_cast<const ColourOverrideFxRenderData *>(&data);
   if (!theData) return false;
 
-  return theData->m_overrides == m_overrides;
+  return theData->m_overrides == m_overrides && theData->m_shift == m_shift &&
+         theData->m_keepPrefix == m_keepPrefix;
 }
 
 //------------------------------------------------------------------------------
@@ -115,7 +120,25 @@ std::string ColourOverrideFxRenderData::toString() const {
     // Replace is left out, so that the alias of the older overrides is kept
     if (it->m_mode != eReplace) alias += "/" + std::to_string(it->m_mode);
   }
+  // No shift is left out, so that the alias of the older overrides is kept
+  if (!m_shift.isIdentity()) {
+    std::ostringstream os;
+    os.imbue(std::locale::classic());
+    os << std::setprecision(std::numeric_limits<double>::max_digits10)
+       << ",shift:" << m_shift.hue << "/" << m_shift.saturation << "/"
+       << m_shift.lightness << "/";
+    for (wchar_t c : m_keepPrefix) os << (unsigned)c << ".";
+    alias += os.str();
+  }
   return alias;
+}
+
+//------------------------------------------------------------------------------
+
+ColourOverrideFxRenderData *ColourOverrideFxRenderData::withoutShift() const {
+  ColourOverrideFxRenderData *data = new ColourOverrideFxRenderData;
+  data->m_overrides                = m_overrides;
+  return data;
 }
 
 //------------------------------------------------------------------------------
@@ -147,6 +170,21 @@ void ColourOverrideFxRenderData::apply(TPalette *palette) const {
                                    o.m));
     } else
       style->setMainColor(c);
+  }
+
+  if (m_shift.isIdentity()) return;
+  // Every color of every style but the kept ones (style 0 is no color)
+  for (int id = 1; id < styleCount; ++id) {
+    TColorStyle *style = palette->getStyle(id);
+    if (!style || PaletteTransform::isKept(style->getName(), m_keepPrefix))
+      continue;
+    for (int p = 0; p < style->getColorParamCount(); ++p) {
+      TPixel32 c = style->getColorParamValue(p);
+      int r = c.r, g = c.g, b = c.b;
+      PaletteTransform::apply8(m_shift, r, g, b);
+      style->setColorParamValue(p, TPixel32(r, g, b, c.m));
+    }
+    style->invalidateIcon();
   }
 }
 

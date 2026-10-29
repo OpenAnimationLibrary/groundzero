@@ -3,6 +3,7 @@
 #include <QtGlobal>
 
 #include "sceneviewercontextmenu.h"
+#include "motionarcs.h"
 
 // Tnz6 includes
 #include "sceneviewer.h"
@@ -1803,6 +1804,10 @@ void SceneViewer::onContextMenu(const QPoint &pos, const QPoint &globalPos) {
   menu->addEnterGroupCommands(p);
 
   menu->addLevelCommands(columnIndices);
+
+  // the Motion Arcs, with the clicked point for "Track This Point"
+  if (!is3DView())
+    MotionArcs::addContextMenu(menu, winToWorld(pos * devPixRatio));
 
   BaseViewerPanel *bvp =
       qobject_cast<BaseViewerPanel *>(parentWidget()->parentWidget());

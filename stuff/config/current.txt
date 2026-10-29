@@ -879,6 +879,11 @@
   <item>"STD_paletteFilterFx.keep"	"Action"	</item>
   <item>"STD_paletteFilterFx.type"	"Apply To"	</item>
 
+  <item>"STD_colourScriptFx"	"Colour Script"	</item>
+  <item>"STD_colourScriptFx.hue"	"Hue"	</item>
+  <item>"STD_colourScriptFx.saturation"	"Saturation"	</item>
+  <item>"STD_colourScriptFx.lightness"	"Lightness"	</item>
+  <item>"STD_colourScriptFx.keepPrefix"	"Keep Styles"	</item>
   <item>"STD_colourOverrideFx"	"Colour Override"	</item>
   <item>"STD_colourOverrideFx.style1"	"Style 1"	</item>
   <item>"STD_colourOverrideFx.mode1"	"Mode 1"	</item>
@@ -1270,6 +1275,135 @@
   <item>"STD_alphaDistanceGradientFx.blurSize" "Blur Size" </item>
   <item>"STD_celColorExpandFx" "Cel Color Expand" </item>
   <item>"STD_celColorExpandFx.radius" "Search Radius" </item>
+  <item>"STD_celBoilFx" "Cel Boil" </item>
+  <item>"STD_celBoilFx.target" "Boil" </item>
+  <item>"STD_celBoilFx.lineThreshold" "Line Darkness" </item>
+  <item>"STD_celBoilFx.amplitude" "Amplitude" </item>
+  <item>"STD_celBoilFx.size" "Wobble Size" </item>
+  <item>"STD_celBoilFx.detail" "Detail" </item>
+  <item>"STD_celBoilFx.cycle" "Cycle (Frames)" </item>
+  <item>"STD_celBoilFx.blend" "Blend" </item>
+  <item>"STD_celBoilFx.seed" "Seed" </item>
+  <item>"STD_printProcessFx" "Print Process" </item>
+  <item>"STD_printProcessFx.output" "Output" </item>
+  <item>"STD_printProcessFx.cellSize" "Cell Size" </item>
+  <item>"STD_printProcessFx.shape" "Dot Shape" </item>
+  <item>"STD_printProcessFx.blackGeneration" "Black Generation" </item>
+  <item>"STD_printProcessFx.dotGain" "Dot Gain" </item>
+  <item>"STD_printProcessFx.softness" "Dot Softness" </item>
+  <item>"STD_printProcessFx.background" "Background" </item>
+  <item>"STD_printProcessFx.paper" "Paper Colour" </item>
+  <item>"STD_printProcessFx.grain" "Paper Grain" </item>
+  <item>"STD_printProcessFx.grainSize" "Grain Size" </item>
+  <item>"STD_printProcessFx.seed" "Seed" </item>
+  <item>"STD_printProcessFx.useCyan" "Cyan Plate" </item>
+  <item>"STD_printProcessFx.angleCyan" "Cyan Angle" </item>
+  <item>"STD_printProcessFx.inkCyan" "Cyan Ink" </item>
+  <item>"STD_printProcessFx.offsetCyanX" "Cyan Offset X" </item>
+  <item>"STD_printProcessFx.offsetCyanY" "Cyan Offset Y" </item>
+  <item>"STD_printProcessFx.useMagenta" "Magenta Plate" </item>
+  <item>"STD_printProcessFx.angleMagenta" "Magenta Angle" </item>
+  <item>"STD_printProcessFx.inkMagenta" "Magenta Ink" </item>
+  <item>"STD_printProcessFx.offsetMagentaX" "Magenta Offset X" </item>
+  <item>"STD_printProcessFx.offsetMagentaY" "Magenta Offset Y" </item>
+  <item>"STD_printProcessFx.useYellow" "Yellow Plate" </item>
+  <item>"STD_printProcessFx.angleYellow" "Yellow Angle" </item>
+  <item>"STD_printProcessFx.inkYellow" "Yellow Ink" </item>
+  <item>"STD_printProcessFx.offsetYellowX" "Yellow Offset X" </item>
+  <item>"STD_printProcessFx.offsetYellowY" "Yellow Offset Y" </item>
+  <item>"STD_printProcessFx.useBlack" "Black Plate" </item>
+  <item>"STD_printProcessFx.angleBlack" "Black Angle" </item>
+  <item>"STD_printProcessFx.inkBlack" "Black Ink" </item>
+  <item>"STD_printProcessFx.offsetBlackX" "Black Offset X" </item>
+  <item>"STD_printProcessFx.offsetBlackY" "Black Offset Y" </item>
+  <item>"STD_lightWrapFx" "Light Wrap" </item>
+  <item>"STD_lightWrapFx.output" "Output" </item>
+  <item>"STD_lightWrapFx.width" "Wrap Width" </item>
+  <item>"STD_lightWrapFx.softness" "Softness" </item>
+  <item>"STD_lightWrapFx.intensity" "Intensity" </item>
+  <item>"STD_lightWrapFx.blend" "Blend" </item>
+  <item>"STD_lightWrapFx.Background" "Background" </item>
+  <item>"STD_edgeExtendFx" "Edge Extend" </item>
+  <item>"STD_edgeExtendFx.radius" "Radius" </item>
+  <item>"STD_edgeExtendFx.solid" "Solid From Alpha" </item>
+  <item>"STD_edgeExtendFx.extendAlpha" "Extend Alpha" </item>
+  <item>"STD_matteChokeFx" "Matte Choke" </item>
+  <item>"STD_matteChokeFx.amount" "Choke / Spread" </item>
+  <item>"STD_matteChokeFx.feather" "Feather" </item>
+  <item>"STD_flowDisplaceFx" "Flow Displace" </item>
+  <item>"STD_flowDisplaceFx.mode" "Displacement" </item>
+  <item>"STD_flowDisplaceFx.strength" "Strength" </item>
+  <item>"STD_flowDisplaceFx.direction" "Direction" </item>
+  <item>"STD_flowDisplaceFx.invert" "Invert" </item>
+  <item>"STD_flowDisplaceFx.noiseAmplitude" "Noise Amplitude" </item>
+  <item>"STD_flowDisplaceFx.noiseSize" "Noise Size" </item>
+  <item>"STD_flowDisplaceFx.noiseSpeed" "Noise Speed" </item>
+  <item>"STD_flowDisplaceFx.seed" "Seed" </item>
+  <item>"STD_flowDisplaceFx.Displacement" "Displacement" </item>
+  <item>"STD_flowDisplaceFx.Matte" "Matte" </item>
+  <item>"STD_celEdgeLinesFx" "Cel Edge Lines" </item>
+  <item>"STD_celEdgeLinesFx.mode" "Output" </item>
+  <item>"STD_celEdgeLinesFx.opacity" "Line Opacity" </item>
+  <item>"STD_celEdgeLinesFx.tolerance" "Region Tolerance" </item>
+  <item>"STD_celEdgeLinesFx.matchTolerance" "Colour Match Tolerance" </item>
+  <item>"STD_celEdgeLinesFx.gap" "Antialias Gap" </item>
+  <item>"STD_celEdgeLinesFx.enabledRules" "Rules" </item>
+  <item>"STD_celEdgeLinesFx.use001" "Rule 1" </item>
+  <item>"STD_celEdgeLinesFx.firstKind001" "Between" </item>
+  <item>"STD_celEdgeLinesFx.firstColor001" "First Colour" </item>
+  <item>"STD_celEdgeLinesFx.secondKind001" "And" </item>
+  <item>"STD_celEdgeLinesFx.secondColor001" "Second Colour" </item>
+  <item>"STD_celEdgeLinesFx.weight001" "Line Weight" </item>
+  <item>"STD_celEdgeLinesFx.lineColor001" "Line Colour" </item>
+  <item>"STD_celEdgeLinesFx.use002" "Rule 2" </item>
+  <item>"STD_celEdgeLinesFx.firstKind002" "Between" </item>
+  <item>"STD_celEdgeLinesFx.firstColor002" "First Colour" </item>
+  <item>"STD_celEdgeLinesFx.secondKind002" "And" </item>
+  <item>"STD_celEdgeLinesFx.secondColor002" "Second Colour" </item>
+  <item>"STD_celEdgeLinesFx.weight002" "Line Weight" </item>
+  <item>"STD_celEdgeLinesFx.lineColor002" "Line Colour" </item>
+  <item>"STD_celEdgeLinesFx.use003" "Rule 3" </item>
+  <item>"STD_celEdgeLinesFx.firstKind003" "Between" </item>
+  <item>"STD_celEdgeLinesFx.firstColor003" "First Colour" </item>
+  <item>"STD_celEdgeLinesFx.secondKind003" "And" </item>
+  <item>"STD_celEdgeLinesFx.secondColor003" "Second Colour" </item>
+  <item>"STD_celEdgeLinesFx.weight003" "Line Weight" </item>
+  <item>"STD_celEdgeLinesFx.lineColor003" "Line Colour" </item>
+  <item>"STD_celEdgeLinesFx.use004" "Rule 4" </item>
+  <item>"STD_celEdgeLinesFx.firstKind004" "Between" </item>
+  <item>"STD_celEdgeLinesFx.firstColor004" "First Colour" </item>
+  <item>"STD_celEdgeLinesFx.secondKind004" "And" </item>
+  <item>"STD_celEdgeLinesFx.secondColor004" "Second Colour" </item>
+  <item>"STD_celEdgeLinesFx.weight004" "Line Weight" </item>
+  <item>"STD_celEdgeLinesFx.lineColor004" "Line Colour" </item>
+  <item>"STD_celEdgeLinesFx.use005" "Rule 5" </item>
+  <item>"STD_celEdgeLinesFx.firstKind005" "Between" </item>
+  <item>"STD_celEdgeLinesFx.firstColor005" "First Colour" </item>
+  <item>"STD_celEdgeLinesFx.secondKind005" "And" </item>
+  <item>"STD_celEdgeLinesFx.secondColor005" "Second Colour" </item>
+  <item>"STD_celEdgeLinesFx.weight005" "Line Weight" </item>
+  <item>"STD_celEdgeLinesFx.lineColor005" "Line Colour" </item>
+  <item>"STD_celEdgeLinesFx.use006" "Rule 6" </item>
+  <item>"STD_celEdgeLinesFx.firstKind006" "Between" </item>
+  <item>"STD_celEdgeLinesFx.firstColor006" "First Colour" </item>
+  <item>"STD_celEdgeLinesFx.secondKind006" "And" </item>
+  <item>"STD_celEdgeLinesFx.secondColor006" "Second Colour" </item>
+  <item>"STD_celEdgeLinesFx.weight006" "Line Weight" </item>
+  <item>"STD_celEdgeLinesFx.lineColor006" "Line Colour" </item>
+  <item>"STD_celEdgeLinesFx.use007" "Rule 7" </item>
+  <item>"STD_celEdgeLinesFx.firstKind007" "Between" </item>
+  <item>"STD_celEdgeLinesFx.firstColor007" "First Colour" </item>
+  <item>"STD_celEdgeLinesFx.secondKind007" "And" </item>
+  <item>"STD_celEdgeLinesFx.secondColor007" "Second Colour" </item>
+  <item>"STD_celEdgeLinesFx.weight007" "Line Weight" </item>
+  <item>"STD_celEdgeLinesFx.lineColor007" "Line Colour" </item>
+  <item>"STD_celEdgeLinesFx.use008" "Rule 8" </item>
+  <item>"STD_celEdgeLinesFx.firstKind008" "Between" </item>
+  <item>"STD_celEdgeLinesFx.firstColor008" "First Colour" </item>
+  <item>"STD_celEdgeLinesFx.secondKind008" "And" </item>
+  <item>"STD_celEdgeLinesFx.secondColor008" "Second Colour" </item>
+  <item>"STD_celEdgeLinesFx.weight008" "Line Weight" </item>
+  <item>"STD_celEdgeLinesFx.lineColor008" "Line Colour" </item>
   <item>"STD_celSmootherFx" "Cel Smoother" </item>
   <item>"STD_celSmootherFx.useColorKey" "Use Color Key" </item>
   <item>"STD_celSmootherFx.colorKey" "Color Key" </item>
@@ -1840,6 +1974,14 @@
   <item>"STD_particlesFx.perspective_distribution"	"Perspective Distribution"	</item>
   <item>"STD_particlesFx.motion_blur"	"Motion Blur"	</item>
   <item>"STD_particlesFx.motion_blur_gamma_adjust"	"Gamma Adjust"	</item>
+  <item>"STD_particlesFx.collision_ctrl"	"Collision Image"	</item>
+  <item>"STD_particlesFx.collision_mode"	"On Collision"	</item>
+  <item>"STD_particlesFx.turbulence"	"Turbulence"	</item>
+  <item>"STD_particlesFx.turbulence_size"	"Turbulence Size"	</item>
+  <item>"STD_particlesFx.turbulence_speed"	"Turbulence Speed"	</item>
+  <item>"STD_particlesFx.depth_layers"	"Depth Layers"	</item>
+  <item>"STD_particlesFx.depth_far_scale"	"Far Size"	</item>
+  <item>"STD_particlesFx.depth_far_opacity"	"Far Opacity"	</item>
 
   
  <!------------------------------ Function Editor ------------------------------------------->
@@ -1856,6 +1998,8 @@
   <item>W_Scale			"Scale"			</item>
   <item>W_RotationX	"Rotation X"	</item>
   <item>W_RotationY	"Rotation Y"	</item>
+  <item>W_FocusZ	"Focus Z"	</item>
+  <item>W_Aperture	"Aperture"	</item>
   
 <!------------------------------ Ino FXs ------------------------------------------->
 

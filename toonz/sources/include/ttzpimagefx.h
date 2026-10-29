@@ -10,6 +10,9 @@
 // TnzBase includes
 #include "trasterfxrenderdata.h"
 
+// TnzLib includes (header only)
+#include "toonz/palettetransform.h"
+
 // STD includes
 #include <vector>
 #include <set>
@@ -76,8 +79,16 @@ public:
 
   std::vector<Entry> m_overrides;
 
+  //! A hue, saturation and lightness shift of every style (Colour Script
+  //! Fx), but those whose name starts with m_keepPrefix. Applied after the
+  //! overrides of the same data.
+  PaletteTransform::Shift m_shift;
+  std::wstring m_keepPrefix;
+
 public:
   ColourOverrideFxRenderData() {}
+
+  bool isEmpty() const { return m_overrides.empty() && m_shift.isIdentity(); }
 
   float typeIndex() const override { return 0.25f; }
 
@@ -85,8 +96,12 @@ public:
   std::string toString() const override;
 
   //! Sets the overridden styles' main color in the specified palette. Style
-  //! ids that the palette does not contain are skipped.
+  //! ids that the palette does not contain are skipped. Then shifts the
+  //! colors of the styles.
   void apply(TPalette *palette) const;
+
+  //! The same data without the shift, for the columns that keep their colors
+  ColourOverrideFxRenderData *withoutShift() const;
 };
 
 //**********************************************************************************************

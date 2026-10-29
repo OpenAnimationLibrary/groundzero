@@ -1,0 +1,10 @@
+<fxlayout help_file="ColourScript.html">
+  <page name="Colour Script">
+    <separator label="Shift"/>
+    <control>hue</control>
+    <control>saturation</control>
+    <control>lightness</control>
+    <separator label="Keep"/>
+    <control>keepPrefix</control>
+  </page>
+</fxlayout>

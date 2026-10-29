@@ -11,6 +11,12 @@
 
 // TnzLib includes (header only)
 #include "toonz/columncoloreffect.h"
+#include "toonz/multiplanedepth.h"
+
+#include <iomanip>
+#include <limits>
+#include <locale>
+#include <sstream>
 
 // #define ALLOW_SHEAR
 
@@ -342,6 +348,143 @@ std::string ColumnColorEffectFx::getAlias(double frame,
 //--------------------------------------------------
 
 FX_IDENTIFIER_IS_HIDDEN(ColumnColorEffectFx, "columnColorEffectFx")
+
+//==================================================================
+//  ColumnDepthFx
+//==================================================================
+
+namespace {
+
+template <typename PIXEL>
+void applyColumnDepth(const TRasterPT<PIXEL> &ras,
+                      const MultiplaneDepth::Column &depth,
+                      const double color[3]) {
+  typedef typename PIXEL::Channel Channel;
+  const double maxValue = (double)PIXEL::maxChannelValue;
+
+  ras->lock();
+  for (int y = 0; y < ras->getLy(); ++y) {
+    PIXEL *pix = ras->pixels(y), *endPix = pix + ras->getLx();
+    for (; pix != endPix; ++pix) {
+      if (pix->m == 0) continue;
+      double rgb[3] = {pix->r / maxValue, pix->g / maxValue, pix->b / maxValue};
+      const double a = pix->m / maxValue;
+      MultiplaneDepth::applyPremultiplied(depth, color, rgb, a);
+      // Premultiplied: no channel above the alpha
+      for (double &v : rgb) v = std::min(std::max(v, 0.0), a);
+      pix->r = (Channel)(rgb[0] * maxValue + 0.5);
+      pix->g = (Channel)(rgb[1] * maxValue + 0.5);
+      pix->b = (Channel)(rgb[2] * maxValue + 0.5);
+    }
+  }
+  ras->unlock();
+}
+
+void applyColumnDepth(const TRasterFP &ras,
+                      const MultiplaneDepth::Column &depth,
+                      const double color[3]) {
+  ras->lock();
+  for (int y = 0; y < ras->getLy(); ++y) {
+    TPixelF *pix = ras->pixels(y), *endPix = pix + ras->getLx();
+    for (; pix != endPix; ++pix) {
+      if (pix->m <= 0.f) continue;
+      double rgb[3] = {pix->r, pix->g, pix->b};
+      MultiplaneDepth::applyPremultiplied(depth, color, rgb, pix->m);
+      pix->r = (float)rgb[0];
+      pix->g = (float)rgb[1];
+      pix->b = (float)rgb[2];
+    }
+  }
+  ras->unlock();
+}
+
+}  // namespace
+
+//--------------------------------------------------
+
+ColumnDepthFx::ColumnDepthFx() : m_haze(0.0), m_desaturation(0.0) {
+  m_color[0] = m_color[1] = m_color[2] = 1.0;
+  setName(L"ColumnDepthFx");
+  addInputPort("source", m_port);
+  enableComputeInFloat(true);
+}
+
+//--------------------------------------------------
+
+TFx *ColumnDepthFx::clone(bool recursive) const {
+  ColumnDepthFx *clonedFx =
+      dynamic_cast<ColumnDepthFx *>(TFx::clone(recursive));
+  assert(clonedFx);
+  clonedFx->setDepth(m_haze, m_desaturation, m_color);
+  return clonedFx;
+}
+
+//--------------------------------------------------
+
+void ColumnDepthFx::setDepth(double haze, double desaturation,
+                             const double color[3]) {
+  m_haze         = haze;
+  m_desaturation = desaturation;
+  for (int i = 0; i < 3; ++i) m_color[i] = color[i];
+}
+
+//--------------------------------------------------
+
+bool ColumnDepthFx::doGetBBox(double frame, TRectD &bBox,
+                              const TRenderSettings &info) {
+  if (!m_port.isConnected()) return false;
+  TRasterFxP fx = m_port.getFx();
+  assert(fx);
+  return fx->doGetBBox(frame, bBox, info);
+}
+
+//--------------------------------------------------
+
+void ColumnDepthFx::doCompute(TTile &tile, double frame,
+                              const TRenderSettings &ri) {
+  if (!m_port.isConnected()) return;
+
+  TRaster32P ras32 = tile.getRaster();
+  TRaster64P ras64 = tile.getRaster();
+  TRasterFP rasF   = tile.getRaster();
+  if (!ras32 && !ras64 && !rasF)
+    throw TException("ColumnDepthFx unsupported pixel type");
+
+  TRasterFxP src = m_port.getFx();
+  src->compute(tile, frame, ri);
+
+  MultiplaneDepth::Column depth;
+  depth.haze         = m_haze;
+  depth.desaturation = m_desaturation;
+  if (ras32)
+    applyColumnDepth<TPixel32>(ras32, depth, m_color);
+  else if (ras64)
+    applyColumnDepth<TPixel64>(ras64, depth, m_color);
+  else
+    applyColumnDepth(rasF, depth, m_color);
+}
+
+//--------------------------------------------------
+
+std::string ColumnDepthFx::getAlias(double frame,
+                                    const TRenderSettings &info) const {
+  std::ostringstream alias;
+  alias.imbue(std::locale::classic());
+  alias << std::setprecision(std::numeric_limits<double>::max_digits10)
+        << getFxType() << "[";
+  if (m_port.isConnected()) {
+    TRasterFxP ifx = m_port.getFx();
+    assert(ifx);
+    alias << ifx->getAlias(frame, info);
+  }
+  alias << "," << m_haze << "," << m_desaturation << "," << m_color[0] << ","
+        << m_color[1] << "," << m_color[2] << "]";
+  return alias.str();
+}
+
+//--------------------------------------------------
+
+FX_IDENTIFIER_IS_HIDDEN(ColumnDepthFx, "columnDepthFx")
 
 //==================================================================
 //  Geometric Fx

@@ -31,6 +31,8 @@ jobs:
     timeout-minutes: 240
     env:
       QT_QPA_PLATFORM: offscreen
+      # The tests that render through OpenGL (fxrender, the Cadmium vector
+      # test) get a display from xvfb-run and Mesa's software renderer
       LIBGL_ALWAYS_SOFTWARE: 1
       DEBIAN_FRONTEND: noninteractive
     steps:
@@ -46,7 +48,7 @@ jobs:
         # the main archive (the hosted images list it in apt-mirrors.txt)
         sudo sed -i 's|http://azure.archive.ubuntu.com/ubuntu|http://archive.ubuntu.com/ubuntu|g' /etc/apt/apt-mirrors.txt /etc/apt/sources.list.d/*.sources /etc/apt/sources.list 2>/dev/null || true
         sudo apt-get update
-        sudo apt-get install -y -o Acquire::http::Timeout=30 -o Acquire::Retries=5 build-essential bison flex cmake pkg-config ninja-build ccache libboost-all-dev qtbase5-dev qt5-qmake qtdeclarative5-dev qtdeclarative5-dev-tools qttools5-dev qttools5-dev-tools qtmultimedia5-dev qtwayland5 libqt5svg5-dev libqt5opengl5-dev libqt5multimedia5-plugins libqt5serialport5-dev libsuperlu-dev liblz4-dev libusb-1.0-0-dev liblzo2-dev libpng-dev libjpeg-dev libglew-dev freeglut3-dev libfreetype6-dev libjson-c-dev libmypaint-dev libopencv-dev libturbojpeg-dev libomp-dev ffmpeg python3-dev xvfb xauth
+        sudo apt-get install -y -o Acquire::http::Timeout=30 -o Acquire::Retries=5 build-essential bison flex cmake pkg-config ninja-build ccache libboost-all-dev qtbase5-dev qt5-qmake qtdeclarative5-dev qtdeclarative5-dev-tools qttools5-dev qttools5-dev-tools qtmultimedia5-dev qtwayland5 libqt5svg5-dev libqt5opengl5-dev libqt5multimedia5-plugins libqt5serialport5-dev libsuperlu-dev liblz4-dev libusb-1.0-0-dev liblzo2-dev libpng-dev libjpeg-dev libglew-dev freeglut3-dev libfreetype6-dev libjson-c-dev libmypaint-dev libopencv-dev libturbojpeg-dev libomp-dev ffmpeg python3-dev xvfb xauth libgl1-mesa-dri
 
     - name: Set up cache
       run: mkdir -p /home/runner/.ccache
@@ -104,7 +106,10 @@ jobs:
       run: |
         cd toonz/build
         set -o pipefail
-        xvfb-run -a ctest --output-on-failure --no-tests=error --timeout 900 2>&1 | tee "$GITHUB_WORKSPACE/ctest.log"
+        # A display for the offscreen OpenGL contexts: fxrender fails without
+        # one (it requires a compatibility context)
+        xvfb-run -a -s '-screen 0 1280x1024x24' \
+          ctest --output-on-failure --no-tests=error --timeout 900 2>&1 | tee "$GITHUB_WORKSPACE/ctest.log"
 
     # One annotation per failed test with the end of its output, and one with
     # the totals. Tests print lines starting with "NOTICE:" (benchmarks, for
@@ -120,7 +125,7 @@ jobs:
         failed="toonz/build/Testing/Temporary/LastTestsFailed.log"
         if [ -f "$failed" ]; then
           cut -d: -f2 "$failed" | while IFS= read -r name; do
-            out=$(cd toonz/build && xvfb-run -a ctest -R "^${name}\$" --output-on-failure --timeout 900 2>&1 | tail -n 40 | enc)
+            out=$(cd toonz/build && xvfb-run -a -s '-screen 0 1280x1024x24' ctest -R "^${name}\$" --output-on-failure --timeout 900 2>&1 | tail -n 40 | enc)
             echo "::error title=test ${name} failed::${out}"
           done
         fi

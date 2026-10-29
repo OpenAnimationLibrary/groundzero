@@ -9,6 +9,7 @@
 #include "viewerdraw.h"
 #include "aspectguides.h"
 #include "pegbarguides.h"
+#include "motionarcs.h"
 #include "menubarcommandids.h"
 #include "ruler.h"
 #include "locatorpopup.h"
@@ -293,6 +294,7 @@ ToggleCommandHandler viewTableToggle(MI_ViewTable, false);
 ToggleCommandHandler editInPlaceToggle(MI_ToggleEditInPlace, false);
 ToggleCommandHandler fieldGuideToggle(MI_FieldGuide, false);
 ToggleCommandHandler pegbarGuideToggle(MI_PegbarGuide, false);
+ToggleCommandHandler motionArcsToggle(MI_MotionArcs, false);
 ToggleCommandHandler safeAreaToggle(MI_SafeArea, false);
 ToggleCommandHandler centerCutGuideToggle(MI_CenterCutGuide, false);
 ToggleCommandHandler rasterizePliToggle(MI_RasterizePli, false);
@@ -2410,9 +2412,13 @@ void SceneViewer::drawScene() {
     TXshSimpleLevel::m_fillFullColorRaster = fillFullColorRaster;
 
     assert(glGetError() == 0);
-    if (m_viewMode != LEVEL_VIEWMODE)
+    if (m_viewMode != LEVEL_VIEWMODE) {
       drawSpline(getViewMatrix(), clipRect,
                  m_referenceMode == CAMERA3D_REFERENCE, m_pixelSize);
+      // The Motion Arcs, in the world seen by the camera as the spline
+      if (motionArcsToggle.getStatus() && !is3DView())
+        MotionArcs::draw(getViewMatrix());
+    }
     assert(glGetError() == 0);
 
     // gather animated guide strokes' bounding boxes

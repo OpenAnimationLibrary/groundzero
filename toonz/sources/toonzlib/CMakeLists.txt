@@ -111,11 +111,14 @@ set(HEADERS
     ../include/toonz/namebuilder.h
     ../include/toonz/observer.h
     ../include/toonz/onionskinmask.h
+    ../include/toonz/ghostfade.h
+    ../include/toonz/motionarc.h
     ../include/toonz/palettecmd.h
     ../include/toonz/plasticdeformerfx.h
     ../include/toonz/poselibrary.h
     ../include/toonz/rasterbrush.h
     ../include/toonz/rasterstrokegenerator.h
+    ../include/toonz/scenechecker.h
     ../include/toonz/scenefx.h
     ../include/toonz/sceneproperties.h
     ../include/toonz/sceneresources.h
@@ -234,12 +237,14 @@ set(SOURCES
     Naa2TlvConverter.cpp
     observer.cpp
     onionskinmask.cpp
+    motionarc.cpp
 	orientation.cpp
     outputproperties.cpp
     poselibrary.cpp
     preferences.cpp
     rasterbrush.cpp
     rasterstrokegenerator.cpp
+    scenechecker.cpp
     scenefx.cpp
     sceneproperties.cpp
     sceneresources.cpp
@@ -500,6 +505,15 @@ if(BUILD_PEGBARGUIDE_TESTS)
     add_test(NAME pegbarguide COMMAND pegbarguide_test)
 endif()
 
+# Optional regression target for the motion arcs (motionarc.h): the math on
+# the samples and the sampling of a scene in memory.
+option(BUILD_MOTIONARC_TESTS "Build the motion arcs regression test" ${BUILD_TESTS})
+if(BUILD_MOTIONARC_TESTS)
+    add_executable(motionarc_test tests/motionarc_test.cpp)
+    target_link_libraries(motionarc_test PRIVATE toonzlib tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
+    add_test(NAME motionarc COMMAND motionarc_test)
+endif()
+
 # Optional regression target for the Outline View of the columns: the colour
 # palette (outlinecolors.h) and the column status bit.
 option(BUILD_OUTLINEVIEW_TESTS "Build the column Outline View regression test" ${BUILD_TESTS})
@@ -507,6 +521,34 @@ if(BUILD_OUTLINEVIEW_TESTS)
     add_executable(outlineview_test tests/outlineview_test.cpp)
     target_link_libraries(outlineview_test PRIVATE toonzlib tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core)
     add_test(NAME outlineview COMMAND outlineview_test)
+endif()
+
+# Optional regression target for the camera's depth channels, Focus Z and
+# Aperture: saved and keyed only when used, and read by expressions.
+option(BUILD_CAMERADEPTH_TESTS "Build the camera depth channels regression test" ${BUILD_TESTS})
+if(BUILD_CAMERADEPTH_TESTS)
+    add_executable(cameradepth_test tests/cameradepth_test.cpp)
+    target_link_libraries(cameradepth_test PRIVATE toonzlib tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core)
+    add_test(NAME cameradepth COMMAND cameradepth_test)
+endif()
+
+# Optional regression target for the Multiplane Depth (multiplanedepth.h): the
+# math, the scene setting, and the blur and haze inserted per column by the
+# render. It links the standard FX for the Blur FX.
+option(BUILD_MULTIPLANEDEPTH_TESTS "Build the Multiplane Depth regression test" ${BUILD_TESTS})
+if(BUILD_MULTIPLANEDEPTH_TESTS)
+    add_executable(multiplanedepth_test tests/multiplanedepth_test.cpp)
+    target_link_libraries(multiplanedepth_test PRIVATE toonzlib tnzstdfx tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
+    add_test(NAME multiplanedepth COMMAND multiplanedepth_test)
+endif()
+
+# Optional regression target for the Colour Script (palettetransform.h): the
+# hue, saturation and lightness shift and the render data applying it.
+option(BUILD_COLOURSCRIPT_TESTS "Build the Colour Script regression test" ${BUILD_TESTS})
+if(BUILD_COLOURSCRIPT_TESTS)
+    add_executable(colourscript_test tests/colourscript_test.cpp)
+    target_link_libraries(colourscript_test PRIVATE toonzlib tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core)
+    add_test(NAME colourscript COMMAND colourscript_test)
 endif()
 
 # Optional regression target for the motion presets (motionpreset.h). It also
@@ -525,6 +567,14 @@ option(BUILD_RIGMAPPING_TESTS "Build the rig mapping regression test" ${BUILD_TE
 if(BUILD_RIGMAPPING_TESTS)
     add_executable(rigmapping_test tests/rigmapping_test.cpp)
     add_test(NAME rigmapping COMMAND rigmapping_test)
+endif()
+
+# Optional regression target for the Ghost Fade of the onion skin
+# (ghostfade.h, header only).
+option(BUILD_GHOSTFADE_TESTS "Build the onion skin Ghost Fade regression test" ${BUILD_TESTS})
+if(BUILD_GHOSTFADE_TESTS)
+    add_executable(ghostfade_test tests/ghostfade_test.cpp)
+    add_test(NAME ghostfade COMMAND ghostfade_test)
 endif()
 
 # Optional regression target for the per-column Color Effect (the math of
@@ -597,6 +647,16 @@ if(BUILD_STREAM_TESTS)
     add_executable(compressed_stream_test tests/compressed_stream_test.cpp)
     target_link_libraries(compressed_stream_test PRIVATE tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core)
     add_test(NAME compressed_stream COMMAND compressed_stream_test)
+endif()
+
+# Optional regression target for the scene checker (scenechecker.h): each
+# check on scenes built in memory, with a case that finds the issue and one
+# that does not.
+option(BUILD_SCENECHECKER_TESTS "Build the scene checker regression test" ${BUILD_TESTS})
+if(BUILD_SCENECHECKER_TESTS)
+    add_executable(scenechecker_test tests/scenechecker_test.cpp)
+    target_link_libraries(scenechecker_test PRIVATE toonzlib tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
+    add_test(NAME scenechecker COMMAND scenechecker_test)
 endif()
 
 if(BUILD_RELIABILITY_TESTS)

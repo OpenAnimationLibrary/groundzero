@@ -231,6 +231,78 @@ Will have to inquire further, though...
 
 //-------------------------------------------------------------------
 
+// The colour shifts of the Colour Script Fxs in the render data, innermost
+// first, as the palettes get them
+static std::vector<PaletteTransform::Shift> colourShifts(
+    const std::vector<TRasterFxRenderDataP> &fxs) {
+  std::vector<PaletteTransform::Shift> shifts;
+  for (auto it = fxs.rbegin(); it != fxs.rend(); ++it) {
+    const ColourOverrideFxRenderData *data =
+        dynamic_cast<const ColourOverrideFxRenderData *>((*it).getPointer());
+    if (data && !data->m_shift.isIdentity()) shifts.push_back(data->m_shift);
+  }
+  return shifts;
+}
+
+// Shifts the premultiplied pixels of a full-colour raster, which has no
+// palette to shift
+template <typename PIXEL>
+static void shiftPixels(const TRasterPT<PIXEL> &ras,
+                        const std::vector<PaletteTransform::Shift> &shifts,
+                        double maxValue) {
+  ras->lock();
+  for (int y = 0; y < ras->getLy(); ++y) {
+    PIXEL *pix = ras->pixels(y), *end = pix + ras->getLx();
+    for (; pix != end; ++pix) {
+      if (!(pix->m > 0)) continue;
+      double rgb[3] = {pix->r / maxValue, pix->g / maxValue, pix->b / maxValue};
+      const double a = pix->m / maxValue;
+      for (const PaletteTransform::Shift &shift : shifts)
+        PaletteTransform::applyPremultiplied(shift, rgb, a);
+      for (int i = 0; i < 3; ++i) {
+        double v = std::min(std::max(rgb[i], 0.0), a) * maxValue;
+        rgb[i]   = maxValue > 1.0 ? std::floor(v + 0.5) : v;
+      }
+      pix->r = (typename PIXEL::Channel)rgb[0];
+      pix->g = (typename PIXEL::Channel)rgb[1];
+      pix->b = (typename PIXEL::Channel)rgb[2];
+    }
+  }
+  ras->unlock();
+}
+
+static TRasterP shiftedRaster(
+    const TRasterP &ras, const std::vector<PaletteTransform::Shift> &shifts) {
+  TRasterP out = ras->clone();
+  if (TRaster32P r32 = out)
+    shiftPixels<TPixel32>(r32, shifts, 255.0);
+  else if (TRaster64P r64 = out)
+    shiftPixels<TPixel64>(r64, shifts, 65535.0);
+  else if (TRasterFP rF = out)
+    shiftPixels<TPixelF>(rF, shifts, 1.0);
+  return out;
+}
+
+//-------------------------------------------------------------------
+
+// The render data of a column that keeps its colours: the Colour Script's
+// shifts are left out, the colour overrides stay
+static std::vector<TRasterFxRenderDataP> withoutColourShifts(
+    const std::vector<TRasterFxRenderDataP> &fxs) {
+  std::vector<TRasterFxRenderDataP> out;
+  for (const TRasterFxRenderDataP &fx : fxs) {
+    const ColourOverrideFxRenderData *data =
+        dynamic_cast<const ColourOverrideFxRenderData *>(fx.getPointer());
+    if (!data || data->m_shift.isIdentity())
+      out.push_back(fx);
+    else if (!data->m_overrides.empty())
+      out.push_back(TRasterFxRenderDataP(data->withoutShift()));
+  }
+  return out;
+}
+
+//-------------------------------------------------------------------
+
 static bool mustApplySandorFx(const std::vector<TRasterFxRenderDataP> &fxs) {
   std::vector<TRasterFxRenderDataP>::const_iterator ft, fEnd(fxs.end());
   for (ft = fxs.begin(); ft != fEnd; ++ft) {
@@ -1139,8 +1211,18 @@ bool isSubsheetChainOnColumn0(TXsheet *topXsheet, TXsheet *subsheet,
 //-----------------------------------------------------
 
 void TLevelColumnFx::doCompute(TTile &tile, double frame,
-                               const TRenderSettings &info) {
+                               const TRenderSettings &settings) {
   if (!m_levelColumn) return;
+
+  // A column that keeps its colours is not shifted by a Colour Script
+  TRenderSettings keptSettings;
+  const bool keepColours =
+      m_levelColumn->areColoursKept() && !colourShifts(settings.m_data).empty();
+  if (keepColours) {
+    keptSettings        = settings;
+    keptSettings.m_data = withoutColourShifts(settings.m_data);
+  }
+  const TRenderSettings &info = keepColours ? keptSettings : settings;
 
   // Ensure that a corresponding cell and level exists
   int row       = (int)frame;
@@ -1326,6 +1408,12 @@ void TLevelColumnFx::doCompute(TTile &tile, double frame,
         filler.rectFill(appRas->getBounds(), params, false);
         ras = appRas;
       }
+
+      // The Colour Script shifts the palettes; a full-colour level has none,
+      // so its pixels are shifted
+      const std::vector<PaletteTransform::Shift> shifts =
+          colourShifts(info.m_data);
+      if (!shifts.empty()) ras = shiftedRaster(ras, shifts);
 
     } else if (ti) {
       // Colormap case
@@ -1707,8 +1795,13 @@ std::string TLevelColumnFx::getAlias(double frame,
     fp = path;
 
   std::string rdata;
-  std::vector<TRasterFxRenderDataP>::const_iterator it = info.m_data.begin();
-  for (; it != info.m_data.end(); ++it) {
+  // As doCompute(), without the Colour Script for a column that keeps its
+  // colours
+  const std::vector<TRasterFxRenderDataP> renderData =
+      m_levelColumn->areColoursKept() ? withoutColourShifts(info.m_data)
+                                      : info.m_data;
+  std::vector<TRasterFxRenderDataP>::const_iterator it = renderData.begin();
+  for (; it != renderData.end(); ++it) {
     TRasterFxRenderDataP data = *it;
     if (data) rdata += data->toString();
   }

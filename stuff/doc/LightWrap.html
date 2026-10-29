@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Light Wrap</title></head>
+<body>
+<h1>Light Wrap</h1>
+<p>Let the background's light bleed onto the edges of a character, so it sits
+in the scene instead of looking pasted on. Add Light Wrap from the Light
+category, connect the character to Source and the background to Background.</p>
+<p><b>Output</b>: <b>Over Background</b> composites the wrapped character over
+the background, so the background needs no other connection.
+<b>Foreground Only</b> outputs the character alone, with the light on its
+edges, for compositing elsewhere.</p>
+<p><b>Wrap Width</b> is how far the light reaches into the character from its
+edge, fading to nothing; <b>Softness</b> blurs the background first, so the
+light is its overall colour rather than its details; both are in pixels at
+100%. <b>Intensity</b> scales the light. <b>Blend</b> is Screen, which brightens
+without exceeding white, or Add, which is stronger. The character's alpha does
+not change.</p>
+<p>Every value can be animated. 8-bit, 16-bit and floating-point images are
+supported, and the result does not depend on render tiles.</p>
+</body>
+</html>

@@ -1707,33 +1707,46 @@ ColumnsStatusCommand
 }  // namespace
 
 //=============================================================================
-// Outline View
+// Outline View and Exclude from Depth
 //-----------------------------------------------------------------------------
-// Shows the columns as coloured outlines in the viewer (see
-// doc/animate_outline_view.md). It is a flag of the column status word, so
-// unlike the commands above it is undoable.
+// Outline View shows the columns as coloured outlines in the viewer (see
+// doc/animate_outline_view.md); Exclude from Depth keeps them out of the
+// scene's Multiplane Depth (doc/multiplane_depth.md). Both are flags of the
+// column status word, so unlike the commands above they are undoable.
 
 namespace {
 
-class ColumnOutlineViewUndo final : public TUndo {
+typedef bool (TXshColumn::*ColumnFlagGetter)() const;
+typedef void (TXshColumn::*ColumnFlagSetter)(bool);
+
+class ColumnFlagUndo final : public TUndo {
   // The columns themselves, not their indices: the undo may run while another
   // xsheet (a sub-xsheet) is the current one
   std::vector<TXshColumnP> m_columns;
   std::vector<bool> m_oldStates;  // the state of each column before the command
   bool m_newState;                // the state they all get from the command
+  ColumnFlagSetter m_setter;
+  QString m_onText, m_offText;
 
   void apply(bool isUndo) const {
     for (size_t i = 0; i < m_columns.size(); i++)
       if (m_columns[i])
-        m_columns[i]->setOutlineView(isUndo ? m_oldStates[i] : m_newState);
+        (m_columns[i].getPointer()->*m_setter)(isUndo ? m_oldStates[i]
+                                                      : m_newState);
     TApp::instance()->getCurrentXsheet()->notifyXsheetChanged();
     TApp::instance()->getCurrentScene()->setDirtyFlag(true);
   }
 
 public:
-  ColumnOutlineViewUndo(TXsheet *xsh, const std::vector<int> &columns,
-                        const std::vector<bool> &oldStates, bool newState)
-      : m_oldStates(oldStates), m_newState(newState) {
+  ColumnFlagUndo(TXsheet *xsh, const std::vector<int> &columns,
+                 const std::vector<bool> &oldStates, bool newState,
+                 ColumnFlagSetter setter, const QString &onText,
+                 const QString &offText)
+      : m_oldStates(oldStates)
+      , m_newState(newState)
+      , m_setter(setter)
+      , m_onText(onText)
+      , m_offText(offText) {
     for (int index : columns) m_columns.push_back(xsh->getColumn(index));
   }
 
@@ -1745,8 +1758,7 @@ public:
   }
 
   QString getHistoryString() override {
-    return m_newState ? QObject::tr("Outline View On")
-                      : QObject::tr("Outline View Off");
+    return m_newState ? m_onText : m_offText;
   }
 
   int getHistoryType() override { return HistoryType::Xsheet; }
@@ -1754,12 +1766,23 @@ public:
 
 //-----------------------------------------------------------------------------
 
-// Toggles the Outline View of the selected columns, or of the current one if
-// no column is selected. If all of them are already shown as outlines they go
-// back to normal, otherwise all of them are shown as outlines.
-class ToggleColumnOutlineCommand final : public MenuItemHandler {
+// Toggles a flag of the selected columns, or of the current one if no column
+// is selected. If all of them already have it they lose it, otherwise all of
+// them get it. Only columns with drawings take part.
+class ToggleColumnFlagCommand final : public MenuItemHandler {
+  ColumnFlagGetter m_getter;
+  ColumnFlagSetter m_setter;
+  const char *m_onText, *m_offText;
+
 public:
-  ToggleColumnOutlineCommand() : MenuItemHandler(MI_ToggleColumnOutline) {}
+  ToggleColumnFlagCommand(CommandId id, ColumnFlagGetter getter,
+                          ColumnFlagSetter setter, const char *onText,
+                          const char *offText)
+      : MenuItemHandler(id)
+      , m_getter(getter)
+      , m_setter(setter)
+      , m_onText(onText)
+      , m_offText(offText) {}
 
   void execute() override {
     TApp *app                   = TApp::instance();
@@ -1770,11 +1793,10 @@ public:
 
     std::vector<int> columns;
     std::vector<bool> oldStates;
-    bool allOutlined = true;
+    bool allSet = true;
     for (int i = 0; i < xsh->getColumnCount(); i++) {
       if (xsh->isColumnEmpty(i)) continue;
       TXshColumn *column = xsh->getColumn(i);
-      // Columns without drawings have nothing to show as outlines
       if (!column || column->getSoundColumn() || column->getSoundTextColumn() ||
           column->getPaletteColumn())
         continue;
@@ -1783,20 +1805,36 @@ public:
                             : cc == i;
       if (!isSelected) continue;
 
+      const bool state = (column->*m_getter)();
       columns.push_back(i);
-      oldStates.push_back(column->isOutlineView());
-      if (!column->isOutlineView()) allOutlined = false;
+      oldStates.push_back(state);
+      if (!state) allSet = false;
     }
     if (columns.empty()) return;
 
-    ColumnOutlineViewUndo *undo =
-        new ColumnOutlineViewUndo(xsh, columns, oldStates, !allOutlined);
+    ColumnFlagUndo *undo =
+        new ColumnFlagUndo(xsh, columns, oldStates, !allSet, m_setter,
+                           QObject::tr(m_onText), QObject::tr(m_offText));
     undo->redo();
     TUndoManager::manager()->add(undo);
   }
 };
 
-ToggleColumnOutlineCommand toggleColumnOutlineCommand;
+ToggleColumnFlagCommand toggleColumnOutlineCommand(
+    MI_ToggleColumnOutline, &TXshColumn::isOutlineView,
+    &TXshColumn::setOutlineView, QT_TR_NOOP("Outline View On"),
+    QT_TR_NOOP("Outline View Off"));
+
+ToggleColumnFlagCommand toggleColumnDepthCommand(
+    MI_ToggleColumnDepthExcluded, &TXshColumn::isDepthExcluded,
+    &TXshColumn::setDepthExcluded, QT_TR_NOOP("Exclude from Depth On"),
+    QT_TR_NOOP("Exclude from Depth Off"));
+
+// Keep Colours keeps the column out of the Colour Script (doc/colour_script.md)
+ToggleColumnFlagCommand toggleColumnColoursKeptCommand(
+    MI_ToggleColumnColoursKept, &TXshColumn::areColoursKept,
+    &TXshColumn::setColoursKept, QT_TR_NOOP("Keep Colours On"),
+    QT_TR_NOOP("Keep Colours Off"));
 
 }  // namespace
 

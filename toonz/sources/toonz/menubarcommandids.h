@@ -48,6 +48,7 @@
 #define MI_ProjectSettings "MI_ProjectSettings"
 #define MI_SaveDefaultSettings "MI_SaveDefaultSettings"
 #define MI_OutputSettings "MI_OutputSettings"
+#define MI_CheckScene "MI_CheckScene"
 #define MI_PreviewSettings "MI_PreviewSettings"
 #define MI_Render "MI_Render"
 #define MI_SaveAndRender "MI_SaveAndRender"
@@ -200,6 +201,8 @@
 #define MI_CenterCutGuide "MI_CenterCutGuide"
 #define MI_PegbarGuide "MI_PegbarGuide"
 #define MI_PegbarGuideSettings "MI_PegbarGuideSettings"
+#define MI_MotionArcs "MI_MotionArcs"
+#define MI_MotionArcsSettings "MI_MotionArcsSettings"
 #define MI_AspectGuide166 "MI_AspectGuide166"
 #define MI_AspectGuide178 "MI_AspectGuide178"
 #define MI_AspectGuide185 "MI_AspectGuide185"
@@ -356,6 +359,8 @@
   "MI_LightTableIncludeSelectedColumns"
 #define MI_LightTableIncludeAllColumns "MI_LightTableIncludeAllColumns"
 #define MI_ToggleColumnOutline "MI_ToggleColumnOutline"
+#define MI_ToggleColumnDepthExcluded "MI_ToggleColumnDepthExcluded"
+#define MI_ToggleColumnColoursKept "MI_ToggleColumnColoursKept"
 #define MI_ToggleXSheetToolbar "MI_ToggleXSheetToolbar"
 #define MI_ToggleXsheetBreadcrumbs "MI_ToggleXsheetBreadcrumbs"
 #define MI_FoldColumns "MI_FoldColumns"
@@ -592,6 +597,7 @@
 #define MI_OpenMotionPresets "MI_OpenMotionPresets"
 #define MI_SaveMotionPreset "MI_SaveMotionPreset"
 #define MI_OpenArtLayerManager "MI_OpenArtLayerManager"
+#define MI_OpenSpacingChart "MI_OpenSpacingChart"
 
 // Whole-rig breakdown and ease (Xsheet, Timeline, Cells menu)
 #define MI_RigBreakdown25 "MI_RigBreakdown25"

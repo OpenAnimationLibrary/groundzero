@@ -955,11 +955,14 @@ void FunctionTreeModel::refreshDataImpl(TXsheet *xsh, bool referenceMode) {
 
 void FunctionTreeModel::refreshStageObjects(TXsheet *xsh) {
   static const int channelIds[TStageObject::T_ChannelCount] = {
-      TStageObject::T_X,      TStageObject::T_Y,     TStageObject::T_Z,
-      TStageObject::T_SO,     TStageObject::T_Path,  TStageObject::T_Angle,
-      TStageObject::T_RotX,   TStageObject::T_RotY,  TStageObject::T_ScaleX,
-      TStageObject::T_ScaleY, TStageObject::T_Scale, TStageObject::T_ShearX,
-      TStageObject::T_ShearY};  // Explicitly ordered channels
+      TStageObject::T_X,       TStageObject::T_Y,
+      TStageObject::T_Z,       TStageObject::T_SO,
+      TStageObject::T_Path,    TStageObject::T_Angle,
+      TStageObject::T_RotX,    TStageObject::T_RotY,
+      TStageObject::T_ScaleX,  TStageObject::T_ScaleY,
+      TStageObject::T_Scale,   TStageObject::T_ShearX,
+      TStageObject::T_ShearY,  TStageObject::T_FocusZ,
+      TStageObject::T_Aperture};  // Explicitly ordered channels
 
   // Retrieve all (not-empty) root stage objects, and add them in the tree model
   QList<TreeModel::Item *> newItems;
@@ -996,6 +999,11 @@ void FunctionTreeModel::refreshStageObjects(TXsheet *xsh) {
       if (!m_referenceMode && stageObject->getId().isCamera() &&
           (channelIds[j] == TStageObject::T_RotX ||
            channelIds[j] == TStageObject::T_RotY))
+        continue;
+      // Only cameras have a focus and an aperture
+      if (!stageObject->getId().isCamera() &&
+          (channelIds[j] == TStageObject::T_FocusZ ||
+           channelIds[j] == TStageObject::T_Aperture))
         continue;
       TDoubleParam *param =
           stageObject->getParam((TStageObject::Channel)channelIds[j]);

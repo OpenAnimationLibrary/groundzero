@@ -123,6 +123,7 @@ set(SOURCES
     cloudsfx.cpp
     colorembossfx.cpp
     colouroverridefx.cpp
+    colourscriptfx.cpp
     cornerpinfx.cpp
     curvedeformerfx.cpp
     deformerstackfx.cpp
@@ -174,6 +175,13 @@ set(SOURCES
     celcolorkeepfx.cpp
     celcolorkeyfx.cpp
     celcolorexpandfx.cpp
+    celedgelinesfx.cpp
+    celboilfx.cpp
+    printprocessfx.cpp
+    lightwrapfx.cpp
+    edgeextendfx.cpp
+    mattechokefx.cpp
+    flowdisplacefx.cpp
     alphadistancegradientfx.cpp
     celboundaryblurfx.cpp
     celblur.cpp
@@ -536,6 +544,80 @@ if(BUILD_CELFX_TESTS)
              ${CMAKE_CURRENT_SOURCE_DIR}/../../../stuff/profiles/layouts/fxs/STD_celColorExpandFx.xml)
     add_dependencies(celfx_tests celcolorexpand_test celcolorexpand_ui_test)
     set_tests_properties(celfx_colorexpand celfx_colorexpand_ui PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
+endif()
+
+if(BUILD_CELFX_TESTS)
+    add_executable(celedgelines_test tests/celedgelines_test.cpp)
+    target_link_libraries(celedgelines_test Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME celfx_edgelines COMMAND celedgelines_test)
+    add_executable(celedgelines_ui_test tests/celedgelines_ui_test.cpp)
+    target_link_libraries(celedgelines_ui_test toonzqt Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Widgets ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME celfx_edgelines_ui COMMAND celedgelines_ui_test
+             ${CMAKE_CURRENT_SOURCE_DIR}/../../../stuff/profiles/layouts/fxs/STD_celEdgeLinesFx.xml)
+    add_dependencies(celfx_tests celedgelines_test celedgelines_ui_test)
+    set_tests_properties(celfx_edgelines celfx_edgelines_ui PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
+endif()
+
+if(BUILD_CELFX_TESTS)
+    add_executable(celboil_test tests/celboil_test.cpp celnoise.cpp)
+    target_link_libraries(celboil_test Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME celfx_boil COMMAND celboil_test)
+    add_executable(celboil_ui_test tests/celboil_ui_test.cpp celnoise.cpp)
+    target_link_libraries(celboil_ui_test toonzqt Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Widgets ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME celfx_boil_ui COMMAND celboil_ui_test
+             ${CMAKE_CURRENT_SOURCE_DIR}/../../../stuff/profiles/layouts/fxs/STD_celBoilFx.xml)
+    add_dependencies(celfx_tests celboil_test celboil_ui_test)
+    set_tests_properties(celfx_boil celfx_boil_ui PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
+endif()
+
+if(BUILD_CELFX_TESTS)
+    add_executable(printprocess_test tests/printprocess_test.cpp celnoise.cpp)
+    target_link_libraries(printprocess_test Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME celfx_printprocess COMMAND printprocess_test)
+    add_executable(printprocess_ui_test tests/printprocess_ui_test.cpp celnoise.cpp)
+    target_link_libraries(printprocess_ui_test toonzqt Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Widgets ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME celfx_printprocess_ui COMMAND printprocess_ui_test
+             ${CMAKE_CURRENT_SOURCE_DIR}/../../../stuff/profiles/layouts/fxs/STD_printProcessFx.xml)
+    add_dependencies(celfx_tests printprocess_test printprocess_ui_test)
+    set_tests_properties(celfx_printprocess celfx_printprocess_ui PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 120)
+endif()
+
+if(BUILD_CELFX_TESTS)
+    add_executable(celcomposite_test tests/celcomposite_test.cpp)
+    target_link_libraries(celcomposite_test Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME celfx_composite COMMAND celcomposite_test)
+    add_executable(celcomposite_ui_test tests/celcomposite_ui_test.cpp)
+    target_link_libraries(celcomposite_ui_test toonzqt Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Widgets ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME celfx_composite_ui COMMAND celcomposite_ui_test
+             ${CMAKE_CURRENT_SOURCE_DIR}/../../../stuff/profiles/layouts/fxs/STD_lightWrapFx.xml ${CMAKE_CURRENT_SOURCE_DIR}/../../../stuff/profiles/layouts/fxs/STD_edgeExtendFx.xml ${CMAKE_CURRENT_SOURCE_DIR}/../../../stuff/profiles/layouts/fxs/STD_matteChokeFx.xml)
+    add_dependencies(celfx_tests celcomposite_test celcomposite_ui_test)
+    set_tests_properties(celfx_composite celfx_composite_ui PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
+endif()
+
+if(BUILD_CELFX_TESTS)
+    add_executable(flowdisplace_test tests/flowdisplace_test.cpp celnoise.cpp)
+    target_link_libraries(flowdisplace_test Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME celfx_flowdisplace COMMAND flowdisplace_test)
+    add_executable(flowdisplace_ui_test tests/flowdisplace_ui_test.cpp celnoise.cpp)
+    target_link_libraries(flowdisplace_ui_test toonzqt Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Widgets ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME celfx_flowdisplace_ui COMMAND flowdisplace_ui_test
+             ${CMAKE_CURRENT_SOURCE_DIR}/../../../stuff/profiles/layouts/fxs/STD_flowDisplaceFx.xml)
+    add_dependencies(celfx_tests flowdisplace_test flowdisplace_ui_test)
+    set_tests_properties(celfx_flowdisplace celfx_flowdisplace_ui PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
+endif()
+
+if(BUILD_CELFX_TESTS)
+    add_executable(particleweather_test tests/particleweather_test.cpp
+        particlesfx.cpp particles.cpp particlesengine.cpp particlesmanager.cpp celnoise.cpp hsvutil.cpp)
+    target_link_libraries(particleweather_test Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME celfx_particleweather COMMAND particleweather_test)
+    add_executable(particleweather_ui_test tests/particleweather_ui_test.cpp
+        particlesfx.cpp particles.cpp particlesengine.cpp particlesmanager.cpp celnoise.cpp hsvutil.cpp)
+    target_link_libraries(particleweather_ui_test toonzqt Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Widgets ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME celfx_particleweather_ui COMMAND particleweather_ui_test
+             ${CMAKE_CURRENT_SOURCE_DIR}/../../../stuff/profiles/layouts/fxs/STD_particlesFx.xml)
+    add_dependencies(celfx_tests particleweather_test particleweather_ui_test)
+    set_tests_properties(celfx_particleweather celfx_particleweather_ui PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 120)
 endif()
 
 if(BUILD_CELFX_TESTS)

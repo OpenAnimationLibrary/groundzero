@@ -3,6 +3,7 @@
 #include "texception.h"
 //#include "tfxparam.h"
 #include "stdfx.h"
+#include "trop.h"
 
 namespace {
 TPixel32 unmultiply(const TPixel32 &pix) {
@@ -20,7 +21,10 @@ class UnmultiplyFx final : public TStandardRasterFx {
   TRasterFxPort m_input;
 
 public:
-  UnmultiplyFx() { addInputPort("Source", m_input); }
+  UnmultiplyFx() {
+    addInputPort("Source", m_input);
+    enableComputeInFloat(true);
+  }
   ~UnmultiplyFx(){};
 
   bool doGetBBox(double frame, TRectD &bBox,
@@ -48,7 +52,12 @@ void UnmultiplyFx::doCompute(TTile &tile, double frame,
   m_input->compute(tile, frame, ri);
 
   TRaster32P raster32 = tile.getRaster();
-  assert(raster32);  // per ora gestisco solo i Raster32
+  // 16-bit and float tiles: the colour divided by alpha, without the 8-bit
+  // truncation below. Before, these tiles dereferenced a null 8-bit raster.
+  if (!raster32) {
+    TRop::depremultiply(tile.getRaster());
+    return;
+  }
 
   int j;
   raster32->lock();

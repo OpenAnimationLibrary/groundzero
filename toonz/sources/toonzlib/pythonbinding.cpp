@@ -23,6 +23,7 @@
 #include "toonz/txshsimplelevel.h"
 #include "toonz/txshleveltypes.h"
 #include "toonz/levelset.h"
+#include "toonz/scenechecker.h"
 #include "toonz/tstageobject.h"
 #include "toonz/tstageobjectid.h"
 #include "toonz/tstageobjecttree.h"
@@ -508,6 +509,28 @@ public:
     sl->setDirtyFlag(true);
   }
 
+  // as Level.palette of the JavaScript binding: a dict, or None
+  py::object getPalette() const {
+    QString name;
+    std::vector<JsLevel::StyleInfo> styles;
+    if (!JsLevel::getPaletteInfo(getSimpleLevel(), name, styles))
+      return py::none();
+    py::list styleList;
+    for (const JsLevel::StyleInfo &info : styles) {
+      py::dict style;
+      style["id"]    = py::int_(info.m_id);
+      style["name"]  = py::str(toStd(info.m_name));
+      style["color"] = py::str(toStd(info.m_color));
+      style["page"]  = py::int_(info.m_page);
+      style["used"]  = py::bool_(info.m_used);
+      styleList.append(style);
+    }
+    py::dict palette;
+    palette["name"]   = py::str(toStd(name));
+    palette["styles"] = styleList;
+    return palette;
+  }
+
   bool hasFrame(const py::handle &fidArg) const {
     QString err;
     TFrameId fid = getFid(fidArg, err);
@@ -847,6 +870,31 @@ public:
     getXsheet()->removeColumn(col);
   }
 
+  // as Scene.check() of the JavaScript binding
+  py::list check(bool unusedStyles) const {
+    SceneChecker::Options options;
+    options.unusedStyles = unusedStyles;
+    py::list result;
+    for (const SceneChecker::Issue &issue :
+         SceneChecker::check(m_scene.get(), options)) {
+      py::dict item;
+      item["severity"] =
+          py::str(toStd(SceneChecker::severityName(issue.severity)));
+      item["kind"]     = py::str(toStd(SceneChecker::kindName(issue.kind)));
+      item["title"]    = py::str(toStd(SceneChecker::kindTitle(issue.kind)));
+      item["text"]     = py::str(toStd(issue.text));
+      item["column"]   = py::int_(issue.column);
+      item["row"]      = py::int_(issue.row);
+      item["rowCount"] = py::int_(issue.rowCount);
+      item["level"] = py::str(toStd(QString::fromStdWString(issue.levelName)));
+      item["styleId"] = py::int_(issue.styleId);
+      item["subXsheet"] =
+          py::str(toStd(QString::fromStdWString(issue.subXsheet)));
+      result.append(item);
+    }
+    return result;
+  }
+
   py::list getColumns() const {
     py::list result;
     for (int i = 0; i < getXsheet()->getColumnCount(); ++i) {
@@ -1015,6 +1063,11 @@ void bindClasses(py::module_ &m) {
            "Sets the image of a frame, which is added if the level has not "
            "it; returns the level")
       .def("hasFrame", &LevelWrapper::hasFrame, py::arg("fid"))
+      .def_property_readonly(
+          "palette", &LevelWrapper::getPalette,
+          "The palette as a dict with name and styles (dicts with id, name, "
+          "color, page and used), or None. A copy: changing it changes "
+          "nothing")
       .def("removeFrame", chain(&LevelWrapper::removeFrame), py::arg("fid"),
            "Removes the frame, if the level has it; returns the level")
       .def("appendFrame", &LevelWrapper::appendFrame, py::arg("image"),
@@ -1029,7 +1082,8 @@ void bindClasses(py::module_ &m) {
       m, "StageObject",
       "A column, pegbar, camera or the table of a Scene, with its animation "
       "channels (x, y, z, so, angle, scalex, scaley, scale, shearx, sheary, "
-      "path, rotx, roty), in internal units (inches, degrees, factors). "
+      "path, rotx, roty, and focus and aperture for cameras), in internal "
+      "units (inches, degrees, factors). "
       "Frames are xsheet rows numbered from 0. The changes are not undoable.")
       .def("__str__",
            [](const StageObjectWrapper &o) { return toStd(o.toString()); })
@@ -1169,6 +1223,11 @@ void bindClasses(py::module_ &m) {
            "The columns, as dicts with the keys index, id, name, type "
            "(Level, Sound, SoundText, Zerary, Palette, Mesh or Empty), "
            "firstRow and lastRow (-1 if the column has no cells)")
+      .def("check", &SceneWrapper::check, py::arg("unusedStyles") = false,
+           "The scene check: a list of dicts with severity (error, warning, "
+           "info), kind, title, text, column, row, rowCount, level, styleId "
+           "and subXsheet. unusedStyles=True also looks for unused styles "
+           "(it loads every drawing)")
       .def("renderFrame", &SceneWrapper::renderFrame, py::arg("frame"),
            "Renders the frame (from 0) with the output settings of the "
            "scene; returns an Image")
