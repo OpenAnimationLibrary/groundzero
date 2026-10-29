@@ -417,7 +417,7 @@ void Room::load(const TFilePath &fp, RoomLoadParams &params) {
     if (!pane) {
       // Allocate a message panel
       MessagePanel *message = new MessagePanel(this);
-      message->setWindowTitle(name.toString());
+      UiTranslations::setLiteral(message, "windowTitle", name.toString());
       message->setMessage(
           "This panel is not supported by the currently set license!");
 
@@ -632,23 +632,28 @@ void MainWindow::changeWindowTitle() {
   QString sceneName = QString::fromStdWString(scene->getSceneName());
 
   if (sceneName.isEmpty()) sceneName = tr("Untitled");
-  if (app->getCurrentScene()->getDirtyFlag()) sceneName += QString("*");
+  if (app->getCurrentScene()->getDirtyFlag())
+    sceneName = UiTranslations::text(sceneName).appended("*");
 
   /*--- レイアウトファイル名を頭に表示させる ---*/
-  if (!m_layoutName.isEmpty()) sceneName.prepend(m_layoutName + " : ");
+  if (!m_layoutName.isEmpty())
+    sceneName = UiTranslations::joined({m_layoutName + " : ", sceneName});
 
-  QString name = sceneName + " [" + projectName + "] : " +
-                 QString::fromStdString(TEnv::getApplicationFullName());
+  QString name = UiTranslations::joined(
+      {sceneName, QStringLiteral(" ["), projectName, QStringLiteral("] : "),
+       QString::fromStdString(TEnv::getApplicationFullName())});
 
   if (ShowBuildDateInTitle) {
-    name += " (built " __DATE__ " " __TIME__ ")";
+    name = UiTranslations::text(name).appended(" (built " __DATE__ " " __TIME__ ")");
   }
-  setWindowTitle(name);
+  UiTranslations::setCaption(this, "windowTitle", name);
 }
 
 //-----------------------------------------------------------------------------
 
-void MainWindow::changeWindowTitle(QString &str) { setWindowTitle(str); }
+void MainWindow::changeWindowTitle(QString &str) {
+  UiTranslations::setCaption(this, "windowTitle", str);
+}
 
 //-----------------------------------------------------------------------------
 

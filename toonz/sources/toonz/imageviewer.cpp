@@ -518,7 +518,7 @@ void ImageViewer::updateWindowTitle() {
       {m_image ? m_flipbook->getLevelZoomTitle() : m_flipbook->getTitle(),
        tr("  ::  Zoom : "),
        QString::number(tround(sqrt(m_viewAff.det()) * 100)), QStringLiteral(" %")});
-  m_flipbook->parentWidget()->setWindowTitle(title);
+  UiTranslations::setCaption(m_flipbook->parentWidget(), "windowTitle", title);
 }
 
 //-----------------------------------------------------------------------------

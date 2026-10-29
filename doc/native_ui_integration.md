@@ -47,6 +47,13 @@ The fixture checks:
   action without replacing its pointer or shortcut.
 - Live composite Xsheet captions updating while the document name, room name
   and a custom panel caption matching a translated source remain unchanged.
+- Repeated English/Japanese switches in real Inbetween and Convert dialogs,
+  preserving interpolation keys, custom strengths, TLV conversion tokens and
+  selected indices without emitting editing signals or starting conversion.
+- A real Drawing Substitution pane switching from an empty-cell caption to an
+  identically named level, preserving that literal level name through language
+  changes. Only this unfinished catalog source uses a scoped fixture translator
+  with a distinct alternate caption; other translations use the native catalogs.
 - Synthwave switching through the actual Preferences theme control, with the
   native selection, scene dirty state and undo history preserved.
 - Native Widget Inspector registration, inspecting a real palette field and

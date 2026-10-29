@@ -2,6 +2,9 @@
 
 #include "columnselection.h"
 #include "commandpalette.h"
+#include "convertpopup.h"
+#include "drawingsubstitutionpane.h"
+#include "filmstrip.h"
 #include "languagemanager.h"
 #include "mainwindow.h"
 #include "menubarcommandids.h"
@@ -15,6 +18,7 @@
 #include "tundo.h"
 #include "tvectorimage.h"
 #include "toonz/preferences.h"
+#include "toonz/levelset.h"
 #include "toonz/tcolumnhandle.h"
 #include "toonz/tframehandle.h"
 #include "toonz/toonzfolders.h"
@@ -28,6 +32,7 @@
 #include "toonz/txshsimplelevel.h"
 #include "toonzqt/menubarcommand.h"
 #include "toonzqt/tselectionhandle.h"
+#include "toonzqt/uitranslations.h"
 
 #include <QApplication>
 #include <QComboBox>
@@ -37,17 +42,37 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QKeyEvent>
+#include <QLabel>
 #include <QLineEdit>
 #include <QMainWindow>
 #include <QPointer>
 #include <QSettings>
 #include <QTreeWidget>
+#include <QTranslator>
 
 #include <iostream>
 #include <memory>
 
 namespace {
 QString testRoot;
+
+// This recently added source is unfinished in the shipped catalogs. Supply one
+// distinct test caption for this exact native source so equal-text provenance
+// is observable; every other caption still uses the installed real catalogs.
+class EmptyCellCaptionTranslator final : public QTranslator {
+public:
+  bool isEmpty() const override { return false; }
+  QString translate(const char *context, const char *source,
+                    const char *comment = nullptr, int plural = -1) const override {
+    if (qstrcmp(context, "DrawingSubstitutionPane") ||
+        qstrcmp(source, "No level in the current cell"))
+      return QString();
+    const QString value = UiLanguageManager::instance()->currentLanguage() == "English"
+                              ? QString::fromUtf8(source)
+                              : QStringLiteral("Fixture translated empty cell");
+    return UiTranslations::record(context, source, comment, plural, value);
+  }
+};
 
 struct Failure {
   const char *message;
@@ -205,6 +230,39 @@ void exerciseNativeUi(QMainWindow *window) {
     require(xsheet->setCell(0, col, cell), "disposable cell was not inserted");
   app->getCurrentXsheet()->notifyXsheetChanged();
   app->getCurrentColumn()->setColumnIndex(1);
+  app->getCurrentFrame()->setFrame(0);
+
+  EmptyCellCaptionTranslator emptyCellCaptionTranslator;
+  require(QCoreApplication::installTranslator(&emptyCellCaptionTranslator),
+          "empty-cell fixture translator could not be installed");
+  trigger(MI_OpenDrawingSubstitutionPanel);
+  const auto substitutionPanes =
+      app->getCurrentRoom()->findChildren<DrawingSubstitutionPane *>();
+  require(!substitutionPanes.isEmpty(), "native Drawing Substitution pane missing");
+  DrawingSubstitutionPane *substitutionPane = nullptr;
+  for (auto *candidate : substitutionPanes)
+    if (candidate->isVisible()) {
+      substitutionPane = candidate;
+      break;
+    }
+  require(substitutionPane, "native Drawing Substitution pane is not visible");
+  QLabel *substitutionName = substitutionPane->findChild<QLabel *>(
+      "drawingSubstitutionLevelName");
+  require(substitutionName && substitutionName->text() == "NativeUiFixture",
+          "native Drawing Substitution did not show the fixture level");
+  app->getCurrentFrame()->setFrame(1);
+  settle();
+  const QString literalLevelName = substitutionName->text();
+  require(literalLevelName == "No level in the current cell",
+          "native empty-cell fixture did not acquire its source caption");
+  UiTranslations::captureAll();
+  require(scene->getLevelSet()->renameLevel(level, literalLevelName.toStdWString()),
+          "native equal-caption level rename failed");
+  app->getCurrentFrame()->setFrame(0);
+  settle();
+  require(substitutionName->text() == literalLevelName,
+          "native pane did not display the equal-text literal level name");
+
   TColumnSelection *selection = viewer->getColumnSelection();
   selection->selectNone();
   selection->selectColumn(0);
@@ -222,7 +280,9 @@ void exerciseNativeUi(QMainWindow *window) {
                 app->getCurrentColumn()->getColumnIndex() == 1 &&
                 app->getCurrentFrame()->getFrame() == currentFrame &&
                 app->getCurrentScene()->getScene() == scene &&
-                app->getCurrentXsheet()->getXsheet() == xsheet,
+                app->getCurrentXsheet()->getXsheet() == xsheet &&
+                substitutionName->text() == literalLevelName &&
+                QString::fromStdWString(level->getName()) == literalLevelName,
             "palette or appearance change altered native selection context");
   };
   palette = openPalette();
@@ -266,6 +326,64 @@ void exerciseNativeUi(QMainWindow *window) {
   auto *language = comboWithValue(preferences, japanese);
   auto *theme = comboWithValue(preferences, QStringLiteral("Synthwave"));
   choose(language, "English");
+
+  // Exercise the real owners of translated choices. Keep these dialogs hidden:
+  // no inbetween command, source-file selection or conversion is requested.
+  InbetweenDialog interpolation(window);
+  interpolation.setValue("Ease Out");
+  interpolation.setEase(23, 71);
+  interpolation.setAutoMatch(true);
+  QComboBox *interpolationMode = comboWithValue(&interpolation, "Ease Out");
+  const int interpolationIndex = interpolation.getIndex("Ease Out");
+  const QString englishInterpolation = interpolationMode->currentText();
+  require(interpolationIndex == 2 && interpolation.getValue() == "Ease Out",
+          "native interpolation fixture did not select Ease Out");
+
+  ConvertPopup conversion(false);
+  conversion.setFormat("tlv");
+  const QString conversionToken = conversion.TlvMode_PaintedFromTwoImages;
+  QComboBox *conversionMode = comboWithValue(&conversion, conversionToken);
+  choose(conversionMode, conversionToken);
+  const int conversionIndex = conversionMode->currentIndex();
+  const QString englishConversion = conversionMode->currentText();
+  require(conversion.getTlvMode() == conversionToken &&
+              conversion.getDestinationType() == "tlv" &&
+              !conversion.isConverting(),
+          "native conversion fixture did not select an idle TLV mode");
+
+  int modeChanges = 0;
+  QObject modeObserver;
+  for (QComboBox *combo : {interpolationMode, conversionMode}) {
+    QObject::connect(combo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+                     &modeObserver, [&](int) { ++modeChanges; });
+    QObject::connect(combo, &QComboBox::currentTextChanged, &modeObserver,
+                     [&](const QString &) { ++modeChanges; });
+  }
+  const auto checkNativeModes = [&](bool isJapanese) {
+    const QString emptyCellCaption = QCoreApplication::translate(
+        "DrawingSubstitutionPane", "No level in the current cell");
+    require((emptyCellCaption != literalLevelName) == isJapanese,
+            "equal-text fixture did not provide a distinct translated caption");
+    require(interpolation.getValue() == "Ease Out" &&
+                interpolation.getIndex("Ease Out") == interpolationIndex &&
+                interpolationMode->currentIndex() == interpolationIndex &&
+                interpolation.slowStart() == 23 && interpolation.slowEnd() == 71 &&
+                interpolation.autoMatch(),
+            "language refresh changed native interpolation semantics or options");
+    require(conversion.getTlvMode() == conversionToken &&
+                conversion.TlvMode_PaintedFromTwoImages == conversionToken &&
+                conversionMode->currentIndex() == conversionIndex &&
+                conversion.getDestinationType() == "tlv" &&
+                !conversion.isConverting(),
+            "language refresh changed native conversion semantics or started work");
+    require((interpolationMode->currentText() != englishInterpolation) == isJapanese &&
+                (conversionMode->currentText() != englishConversion) == isJapanese,
+            "native interpolation or conversion captions did not follow language");
+    require(modeChanges == 0,
+            "native caption refresh emitted an editing signal for a mode choice");
+    selectionUnchanged();
+  };
+
   QPointer<QAction> preferencesAction = nativeAction(MI_Preferences);
   const QString englishText = preferencesAction->text();
   viewer->changeWindowTitle();
@@ -284,6 +402,7 @@ void exerciseNativeUi(QMainWindow *window) {
   const int historyIndex = undo->getCurrentHistoryIndex();
   const bool dirty = app->getCurrentScene()->getDirtyFlag();
   choose(language, japanese);
+  checkNativeModes(true);
   require(UiLanguageManager::instance()->currentLanguage() == japanese &&
               Preferences::instance()->getCurrentLanguage() == japanese,
           "Preferences language choice did not update native persisted state");
@@ -315,6 +434,11 @@ void exerciseNativeUi(QMainWindow *window) {
               savedPreferences.value("CurrentStyleSheetName").toString() == "Synthwave",
           "native theme preference was not saved in the isolated profile");
   selectionUnchanged();
+  for (const QString &nextLanguage : {QString("English"), japanese,
+                                      QString("English")}) {
+    choose(language, nextLanguage);
+    checkNativeModes(nextLanguage == japanese);
+  }
   choose(language, originalLanguage);
   choose(theme, originalTheme);
   preferences->hide();

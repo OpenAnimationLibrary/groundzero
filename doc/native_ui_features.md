@@ -59,10 +59,10 @@ document content remain unchanged. The integration retains existing controls
 and command identities while refreshing their presentation; it does not rebuild
 the workspace to change its language.
 
-**Validation status.** The implementation includes automated tests for command
-dispatch, theme resources and synchronization, diagnostic retention, inspector
-input handling, catalog replacement and presentation updates. Builds and tests
-run in CI. Source inspection alone does not establish a passing build or desktop
-compatibility. Full language-owner coverage and representative packaged-app
-checks remain acceptance requirements until their results are recorded; this
-guide does not claim that validation has already completed.
+**Validation.** Automated tests cover command dispatch, shipped theme resources,
+diagnostic retention, inspector input handling, repeated catalog replacement,
+and preservation of user text and editor state. Builds and tests run in CI.
+The native application fixture uses disposable portable data to exercise real
+panel factories, selections, undo/redo and Preferences. It also checks conversion
+and interpolation settings across language changes. These checks complement
+manual desktop, tablet and long-session validation.

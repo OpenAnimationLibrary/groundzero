@@ -376,7 +376,7 @@ void CadmiumPopup::initialize(TXshSimpleLevel *level,
   }
   m_refreshing = false;
   refresh();
-  m_status->setText(m_references.empty()
+  UiTranslations::setCaption(m_status, "text", m_references.empty()
       ? tr("Mark at least one painted reference drawing in the Level Strip.")
       : tr("Choose references, generate proposals, and review native region decisions."));
   if (!sceneIdentity().isEmpty() &&
@@ -402,7 +402,7 @@ void CadmiumPopup::optionsChanged() {
     drawing.selectedRegions.clear();
   }
   autosave(); refresh(); refreshPreview();
-  m_status->setText(tr("Input settings changed. Inspect the new line mask and regenerate decisions before applying."));
+  UiTranslations::setCaption(m_status, "text", tr("Input settings changed. Inspect the new line mask and regenerate decisions before applying."));
 }
 
 void CadmiumPopup::assignReferences() {
@@ -414,7 +414,7 @@ void CadmiumPopup::assignReferences() {
     if (m_referenceList->item(i)->checkState() == Qt::Checked)
       references.append(m_references[i]);
   if (references.size() > Cadmium::MaximumProposalReferences) {
-    m_status->setText(UiTranslations::text(tr("Choose at most %1 references per drawing.")).arg(Cadmium::MaximumProposalReferences));
+    UiTranslations::setCaption(m_status, "text", UiTranslations::text(tr("Choose at most %1 references per drawing.")).arg(Cadmium::MaximumProposalReferences));
     refreshPreview(); return;
   }
   Drawing &drawing = m_drawings[row];
@@ -441,7 +441,7 @@ void CadmiumPopup::inspectDrawing() {
   const bool captured = snapshot(m_drawings[row].fid, task->target, error,
                                  m_level->getType() != PLI_XSHLEVEL);
   m_inspecting = false;
-  if (!captured) { delete task; m_status->setText(error); return; }
+  if (!captured) { delete task; UiTranslations::setCaption(m_status, "text", error); return; }
   const quint64 epoch = m_snapshotEpoch;
   if (m_level->getType() == PLI_XSHLEVEL) {
     m_drawings[row].target = task->target; delete task;
@@ -501,11 +501,11 @@ void CadmiumPopup::generate() {
     if (currentOnly ? i != m_list->currentRow() :
         (!m_list->selectedItems().isEmpty() && !m_list->item(i)->isSelected())) continue;
     if (m_drawings[i].referenceIds.isEmpty()) {
-      m_status->setText(tr("Choose at least one reference for every drawing to generate.")); return;
+      UiTranslations::setCaption(m_status, "text", tr("Choose at least one reference for every drawing to generate.")); return;
     }
     m_jobs.append(i);
   }
-  if (m_jobs.isEmpty()) { m_status->setText(tr("Select an unapplied drawing to regenerate.")); return; }
+  if (m_jobs.isEmpty()) { UiTranslations::setCaption(m_status, "text", tr("Select an unapplied drawing to regenerate.")); return; }
   ++m_snapshotEpoch; m_cancelled = false; m_generating = true; m_jobPosition = -1;
   m_running = -1; m_runningReference = 0;
   for (int index : m_jobs) m_drawings[index].error.clear();
@@ -517,7 +517,7 @@ void CadmiumPopup::next() {
   if (++m_jobPosition >= m_jobs.size()) {
     m_running = -1; m_generating = false;
     autosave(); refresh(); refreshPreview();
-    m_status->setText(tr("Generation finished. Review agreements, conflicts, and protected regions before applying."));
+    UiTranslations::setCaption(m_status, "text", tr("Generation finished. Review agreements, conflicts, and protected regions before applying."));
     return;
   }
   m_running = m_jobs[m_jobPosition];
@@ -602,7 +602,7 @@ void CadmiumPopup::prepareDrawing(int index, bool restoring) {
   });
   connect(task, &QThread::finished, task, &QObject::deleteLater);
   connect(qApp, &QCoreApplication::aboutToQuit, task, [task] { task->wait(); });
-  m_status->setText(restoring ? tr("Validating saved drawing and reference fingerprints…") : tr("Analyzing target and reference regions…"));
+  UiTranslations::setCaption(m_status, "text", restoring ? tr("Validating saved drawing and reference fingerprints…") : tr("Analyzing target and reference regions…"));
   refresh(); task->start();
 }
 
@@ -713,7 +713,7 @@ void CadmiumPopup::submit() {
       {"target_line_image_uri", Cadmium::lineImageUri(drawing.target.lines)},
       {"references", QJsonArray{ref}}, {"return_colorized", false}, {"verbose", false}};
   refresh();
-  m_status->setText(UiTranslations::text(tr("Drawing %1 of %2 — reference %3 of %4"))
+  UiTranslations::setCaption(m_status, "text", UiTranslations::text(tr("Drawing %1 of %2 — reference %3 of %4"))
       .arg(m_jobPosition + 1).arg(m_jobs.size()).arg(m_runningReference + 1).arg(drawing.references.size()));
   CadmiumRuntime::instance()->colorize(request);
 }
@@ -757,7 +757,7 @@ void CadmiumPopup::failed(const QString &error) {
   m_drawings[m_running].error = error; m_drawings[m_running].ready = false;
   autosave();
   if (!CadmiumRuntime::instance()->isReady()) {
-    m_generating = false; m_running = -1; m_status->setText(error); refresh(); return;
+    m_generating = false; m_running = -1; UiTranslations::setCaption(m_status, "text", error); refresh(); return;
   }
   refresh(); scheduleNext();
 }
@@ -832,7 +832,7 @@ void CadmiumPopup::addPaletteDecision(int region, int style) {
       style >= drawing.target.palette->getStyleCount() || drawing.proposals[region].protectedRegion) return;
   const TColorStyle *colorStyle = drawing.target.palette->getStyle(style);
   if (!dynamic_cast<const TSolidColorStyle *>(colorStyle)) {
-    m_status->setText(tr("Choose a solid native palette style.")); return;
+    UiTranslations::setCaption(m_status, "text", tr("Choose a solid native palette style.")); return;
   }
   const TPixel32 pixel = colorStyle->getMainColor();
   Cadmium::ProposalCandidate candidate;
@@ -939,7 +939,7 @@ void CadmiumPopup::apply(bool all) {
   }
   for (int index : accepted) m_drawings[index].applied = true;
   autosave(); refresh(); refreshPreview();
-  m_status->setText(newLevel
+  UiTranslations::setCaption(m_status, "text", newLevel
       ? UiTranslations::text(tr("Created result level %1. Original drawings were preserved.")).arg(QString::fromStdWString(destination->getName()))
       : UiTranslations::text(tr("Applied %1 drawings. Undo restores their original paint.")).arg(after.size()));
 }
@@ -1026,14 +1026,14 @@ void CadmiumPopup::autosave() {
 void CadmiumPopup::saveSession(bool explicitSave) {
   const QString scene = currentScene() ? sceneIdentity() : m_pendingScene;
   if (scene.isEmpty()) {
-    if (explicitSave) m_status->setText(tr("Save the scene first to keep this painting session across restarts."));
+    if (explicitSave) UiTranslations::setCaption(m_status, "text", tr("Save the scene first to keep this painting session across restarts."));
     return;
   }
   if (m_sessionWrites) { m_saveTimer.start(); return; }
   if (!m_sessionDirty && !explicitSave) return;
   Cadmium::Session session = currentScene() ? makeSession() : m_pendingSession;
   QString error;
-  if (!Cadmium::validateSession(session, error)) { m_status->setText(error); return; }
+  if (!Cadmium::validateSession(session, error)) { UiTranslations::setCaption(m_status, "text", error); return; }
   if (!m_sessionScene.isEmpty() && m_sessionScene != scene) {
     if (!Cadmium::copySession(sessionCacheRoot(), m_sessionScene, scene, session.levelId, error))
       error.clear(); // A new complete snapshot can create the Save As entry.
@@ -1054,8 +1054,8 @@ void CadmiumPopup::saveSession(bool explicitSave) {
     if (task->success && revision == m_sessionRevision &&
         m_pendingSession.levelId == levelId && m_pendingScene == scene) m_sessionDirty = false;
     if (currentScene() && m_level->cadmiumLevelId() == levelId && sceneIdentity() == scene && epoch == m_snapshotEpoch) {
-      if (!task->success) m_status->setText(task->error);
-      else if (explicitSave) m_status->setText(tr("Painting session saved. Source drawings were not modified."));
+      if (!task->success) UiTranslations::setCaption(m_status, "text", task->error);
+      else if (explicitSave) UiTranslations::setCaption(m_status, "text", tr("Painting session saved. Source drawings were not modified."));
     }
     if (m_sessionDirty) m_saveTimer.start();
     refresh();
@@ -1081,11 +1081,11 @@ void CadmiumPopup::restoreSession() {
   Cadmium::Session saved;
   QString error;
   if (!Cadmium::loadSessionWithAlias(sessionCacheRoot(), sceneIdentity(), m_level->cadmiumLevelId(), m_sessionSourceKey, saved, error)) {
-    m_status->setText(error); return;
+    UiTranslations::setCaption(m_status, "text", error); return;
   }
   const Cadmium::Kind kind = m_level->getType() == PLI_XSHLEVEL ? Cadmium::Kind::Vector :
       m_level->getType() == OVL_XSHLEVEL ? Cadmium::Kind::FullColor : Cadmium::Kind::ToonzRaster;
-  if (saved.kind != kind) { m_status->setText(tr("The saved session belongs to another native drawing format.")); return; }
+  if (saved.kind != kind) { UiTranslations::setCaption(m_status, "text", tr("The saved session belongs to another native drawing format.")); return; }
   const Cadmium::SessionOptions previousOptions = sessionOptions();
   const int previousLine = m_lineLevel->currentIndex();
   m_refreshing = true;
@@ -1114,7 +1114,7 @@ void CadmiumPopup::restoreSession() {
     m_repaint->setChecked(previousOptions.repaint);
     m_lineLevel->setCurrentIndex(previousLine);
     m_refreshing = false;
-    m_status->setText(tr("The saved clean-line source or painting settings are no longer available.")); return;
+    UiTranslations::setCaption(m_status, "text", tr("The saved clean-line source or painting settings are no longer available.")); return;
   }
   m_saveTimer.stop();
   // Resume replaces the current review state. Only successfully validated saved
@@ -1158,7 +1158,7 @@ void CadmiumPopup::restoreNext() {
         if (m_drawings[i].fid == selected) m_list->setCurrentRow(i, QItemSelectionModel::NoUpdate);
     }
     refresh(); refreshPreview();
-    m_status->setText(tr("Saved session checked against current artwork. Stale entries require regeneration; previously applied entries remain history."));
+    UiTranslations::setCaption(m_status, "text", tr("Saved session checked against current artwork. Stale entries require regeneration; previously applied entries remain history."));
     return;
   }
   m_running = m_jobs[m_jobPosition]; prepareDrawing(m_running, true);
@@ -1171,7 +1171,7 @@ void CadmiumPopup::clearSession() {
   ++m_sessionRevision; m_sessionDirty = false;
   QString error;
   if (!sceneIdentity().isEmpty() && !Cadmium::removeSessionWithAlias(sessionCacheRoot(), sceneIdentity(), m_level->cadmiumLevelId(), m_sessionSourceKey, error)) {
-    m_status->setText(error); return;
+    UiTranslations::setCaption(m_status, "text", error); return;
   }
   m_savedSession = Cadmium::Session(); m_recovery.clear();
   m_pendingSession = Cadmium::Session(); m_pendingScene.clear();
@@ -1182,7 +1182,7 @@ void CadmiumPopup::clearSession() {
     drawing.references.clear(); drawing.referencePreviews.clear(); drawing.selectedRegions.clear(); drawing.error.clear();
   }
   ++m_snapshotEpoch; refresh(); refreshPreview();
-  m_status->setText(tr("Saved proposals and review decisions cleared. Scene artwork and undo history were preserved."));
+  UiTranslations::setCaption(m_status, "text", tr("Saved proposals and review decisions cleared. Scene artwork and undo history were preserved."));
 }
 
 void CadmiumPopup::cancel() {
@@ -1191,7 +1191,7 @@ void CadmiumPopup::cancel() {
   m_generating = false; m_restoring = false; m_running = -1;
   if (processing) CadmiumRuntime::instance()->stop();
   autosave(); refresh();
-  m_status->setText(tr("Processing stopped. Completed proposals and manual decisions are retained."));
+  UiTranslations::setCaption(m_status, "text", tr("Processing stopped. Completed proposals and manual decisions are retained."));
 }
 
 void CadmiumPopup::closeEvent(QCloseEvent *event) {

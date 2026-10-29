@@ -250,7 +250,7 @@ FlipBook::FlipBook(QWidget *parent, QString viewerTitle,
   assert(ret);
 
   m_viewerTitle = (m_viewerTitle.isEmpty()) ? tr("Flipbook") : m_viewerTitle;
-  parentWidget()->setWindowTitle(m_viewerTitle);
+  UiTranslations::setCaption(parentWidget(), "windowTitle", m_viewerTitle);
 }
 
 //-----------------------------------------------------------------------------
@@ -1951,7 +1951,7 @@ void FlipBook::reset() {
   m_flipConsole->setFrameRange(1, 1, 1);
 
   setTitle(tr("Flipbook"));
-  parentWidget()->setWindowTitle(m_title);
+  UiTranslations::setCaption(parentWidget(), "windowTitle", m_title);
 
   update();
 }

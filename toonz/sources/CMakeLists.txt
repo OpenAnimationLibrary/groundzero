@@ -832,7 +832,13 @@ if(WITH_TRANSLATION)
             endif()
             add_custom_command(OUTPUT "${qt_destination}"
                 COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_SOURCE_DIR}/../../stuff/config/loc/${display}"
-                COMMAND ${OT_QT_LRELEASE_EXECUTABLE} "${qt_source}" -qm "${qt_destination}"
+                # Qt 5's Windows command-line parser loses non-ASCII output
+                # arguments. Compile to an ASCII filename, then let CMake's
+                # Unicode-aware file operation install the display-name path.
+                COMMAND ${OT_QT_LRELEASE_EXECUTABLE} "${qt_source}"
+                    -qm "${CMAKE_CURRENT_BINARY_DIR}/qtbase_${locale}.qm"
+                COMMAND ${CMAKE_COMMAND} -E rename
+                    "${CMAKE_CURRENT_BINARY_DIR}/qtbase_${locale}.qm" "${qt_destination}"
                 DEPENDS "${qt_source}" VERBATIM)
             list(APPEND ui_qt_catalog_outputs "${qt_destination}")
         endif()

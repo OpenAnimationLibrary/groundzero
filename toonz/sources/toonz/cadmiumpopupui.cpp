@@ -445,8 +445,8 @@ CadmiumPopup::CadmiumPopup(QWidget *parent) : QDialog(parent) {
   connect(m_view, &CadmiumReviewView::regionContextMenuRequested, this, &CadmiumPopup::showRegionMenu);
   CadmiumRuntime *runtime = CadmiumRuntime::instance();
   connect(runtime, &CadmiumRuntime::statusChanged, workerStatus, [runtime, workerStatus] {
-    workerStatus->setText(runtime->statusText());
-    workerStatus->setToolTip(runtime->statusText());
+    UiTranslations::setCaption(workerStatus, "text", runtime->statusText());
+    UiTranslations::setCaption(workerStatus, "toolTip", runtime->statusText());
   });
   connect(runtime, &CadmiumRuntime::resultReady, this, &CadmiumPopup::received);
   connect(runtime, &CadmiumRuntime::failed, this, &CadmiumPopup::failed);
@@ -456,12 +456,12 @@ CadmiumPopup::CadmiumPopup(QWidget *parent) : QDialog(parent) {
     m_running = -1; m_jobs.clear();
     if (m_sessionDirty) m_saveTimer.start();
     refresh();
-    m_status->setText(tr("The worker was unloaded. Pending processing was cancelled."));
+    UiTranslations::setCaption(m_status, "text", tr("The worker was unloaded. Pending processing was cancelled."));
   });
   connect(runtime, &CadmiumRuntime::statusChanged, this, [this] {
     if (m_generating || m_restoring || m_backgroundTasks) return;
     for (const Drawing &drawing : m_drawings) if (drawing.ready && !drawing.applied) return;
-    m_status->setText(CadmiumRuntime::instance()->statusText());
+    UiTranslations::setCaption(m_status, "text", CadmiumRuntime::instance()->statusText());
   });
   UiTranslations::onLanguageChanged(this, [this]() {
     const QSignalBlocker listBlocker(m_list);
@@ -623,7 +623,7 @@ void CadmiumPopup::updateProposalPreview() {
     if (result) after = imagePreview(result, drawing.target);
     else {
       after = before;
-      if (!error.isEmpty()) m_status->setText(error);
+      if (!error.isEmpty()) UiTranslations::setCaption(m_status, "text", error);
     }
   }
   const int reference = m_previewReference->currentData().toInt();
@@ -640,7 +640,7 @@ void CadmiumPopup::updateProposalPreview() {
   for (const Cadmium::Frame &referenceFrame : drawing.references)
     for (const QString &warning : referenceFrame.warnings)
       if (!warnings.contains(warning)) warnings.append(warning);
-  if (!warnings.isEmpty()) m_status->setText(warnings.join(QStringLiteral("\n")));
+  if (!warnings.isEmpty()) UiTranslations::setCaption(m_status, "text", warnings.join(QStringLiteral("\n")));
 }
 
 void CadmiumPopup::setSelectedRegions(const QSet<int> &regions) {

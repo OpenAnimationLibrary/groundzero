@@ -466,9 +466,10 @@ void CleanupSettingsPane::updateImageInfo() {
   if (!parentWidget()) return;
 
   if (model->clnPath().isEmpty())
-    parentWidget()->setWindowTitle(tr("Cleanup Settings (Global)"));
+    UiTranslations::setCaption(parentWidget(), "windowTitle",
+                               tr("Cleanup Settings (Global)"));
   else
-    parentWidget()->setWindowTitle(
+    UiTranslations::setCaption(parentWidget(), "windowTitle",
         UiTranslations::text(tr("Cleanup Settings: "))
             .appended(toQString(model->clnPath().withoutParentDir())));
 }
@@ -515,9 +516,9 @@ void CleanupSettingsPane::postProcess() {
 void CleanupSettingsPane::onClnLoaded() {
   const TFilePath &fp = CleanupSettingsModel::instance()->clnPath();
   if (fp.isEmpty())
-    setWindowTitle(tr("Cleanup Settings"));
+    UiTranslations::setCaption(this, "windowTitle", tr("Cleanup Settings"));
   else
-    setWindowTitle(
+    UiTranslations::setCaption(this, "windowTitle",
         UiTranslations::text(tr("Cleanup Settings: %1")).arg(toQString(fp.withoutParentDir())));
 }
 

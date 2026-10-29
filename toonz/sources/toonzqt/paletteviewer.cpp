@@ -1366,7 +1366,7 @@ void PaletteViewer::changeWindowTitle() {
     name += cmName;
   }
 
-  titleOwner->setWindowTitle(name);
+  UiTranslations::setCaption(titleOwner, "windowTitle", name);
 }
 
 //-----------------------------------------------------------------------------

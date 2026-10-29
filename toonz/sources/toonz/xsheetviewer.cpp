@@ -1878,7 +1878,7 @@ void XsheetViewer::changeWindowTitle() {
             ((c1 - c0 + 1 == 1) ? tr(" column") : tr(" columns"));
   }
 
-  parentWidget()->setWindowTitle(name);
+  UiTranslations::setCaption(parentWidget(), "windowTitle", name);
 }
 
 //-----------------------------------------------------------------------------

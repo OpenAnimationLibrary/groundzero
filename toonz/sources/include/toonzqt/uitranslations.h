@@ -34,6 +34,11 @@ DVAPI QString remember(const QString &text, Recipe translate);
 // Explicitly compose caption fragments. Provenance-bearing parts translate;
 // untracked parts (for example a user-authored name) remain frozen values.
 DVAPI QString joined(std::initializer_list<QString> parts);
+// Mixed caption/data properties must use these explicit assignments in both
+// branches. Qt may discard an equal-text setter and retain the previous
+// QString buffer, so storage identity alone cannot identify such transitions.
+DVAPI void setCaption(QObject *object, const char *property, const QString &text);
+DVAPI void setLiteral(QObject *object, const char *property, const QString &text);
 DVAPI void bind(QObject *object, const char *property, const char *context,
                 const QString &source,
                 const QString &disambiguation = QString(), int plural = -1);

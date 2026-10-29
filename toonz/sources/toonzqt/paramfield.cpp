@@ -2949,13 +2949,13 @@ class MaterialColorsParamField final : public ParamField {
       for (const auto &m : m_materials) if (find(m_actual, m.key)) --inactive;
       m_selector->setEnabled(!m_materials.empty());
       if (m_color) m_color->setEnabled(true);
-      m_status->setText(m_materials.empty() ? tr("Choose a GLB file on the Model page.") :
+      UiTranslations::setCaption(m_status, "text", m_materials.empty() ? tr("Choose a GLB file on the Model page.") :
           inactive > 0 ? UiTranslations::text(tr("%1 overrides from other GLB contents are retained but inactive.")).arg(inactive) :
           tr("Use Material Colors mode. Click the diamond to set a color key."));
     } catch (const std::exception &e) {
       m_selector->setEnabled(false);
       if (m_color) m_color->setEnabled(false);
-      m_status->setText(QString::fromUtf8(e.what()));
+      UiTranslations::setCaption(m_status, "text", QString::fromUtf8(e.what()));
     }
   }
 

@@ -2002,7 +2002,7 @@ void FxSettings::changeTitleBar(TFx *fx) {
         {titleText, tr(" : "), QString::fromStdWString(fx->getName())});
   }
 
-  popup->setWindowTitle(titleText);
+  UiTranslations::setCaption(popup, "windowTitle", titleText);
 }
 
 //-----------------------------------------------------------------------------

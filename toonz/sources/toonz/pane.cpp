@@ -13,6 +13,7 @@
 #include "custompanelmanager.h"
 
 #include "toonzqt/gutil.h"
+#include "toonzqt/uitranslations.h"
 
 // TnzLib includes
 #include "toonz/preferences.h"
@@ -1035,7 +1036,7 @@ TPanel *TPanelFactory::createPanel(QWidget *parent, const QString &panelType) {
 TPanel *TPanelFactory::createPanel(QWidget *parent) {
   auto *panel = new TPanel(parent);
   panel->setObjectName(getPanelType());
-  panel->setWindowTitle(getPanelType());
+  UiTranslations::setLiteral(panel, "windowTitle", getPanelType());
   initialize(panel);
 
   // Enable room binding feature for all native panels

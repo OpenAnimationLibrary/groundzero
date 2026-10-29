@@ -598,9 +598,10 @@ void ScanSettingsPopup::updateUI() {
   QApplication::restoreOverrideCursor();
 
   TScanner *scanner = TScanner::instance();
-  m_scannerNameLbl->setText(scanner && scanner->getName() != ""
-                                ? scanner->getName()
-                                : tr("[no scanner]"));
+  if (scanner && scanner->getName() != "")
+    UiTranslations::setLiteral(m_scannerNameLbl, "text", scanner->getName());
+  else
+    UiTranslations::setCaption(m_scannerNameLbl, "text", tr("[no scanner]"));
 
   m_reverseOrderCB->setChecked(params->isReverseOrder());
   m_paperFeederCB->setChecked(params->m_paperFeeder.m_value == 1.0);

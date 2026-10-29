@@ -168,7 +168,7 @@ public:
   TPanel *createPanel(QWidget *parent) override {
     SchematicScenePanel *panel = new SchematicScenePanel(parent);
     panel->setObjectName(getPanelType());
-    panel->setWindowTitle(QObject::tr("Schematic"));
+    UiTranslations::setCaption(panel, "windowTitle", QObject::tr("Schematic"));
     panel->setMinimumSize(230, 200);
     return panel;
   }
@@ -308,9 +308,9 @@ void SchematicScenePanel::onPreferenceChanged(const QString &prefName) {
 
 void SchematicScenePanel::showEvent(QShowEvent *e) {
   if (m_schematicViewer->isStageSchematicViewed())
-    setWindowTitle(QObject::tr("Stage Schematic"));
+    UiTranslations::setCaption(this, "windowTitle", QObject::tr("Stage Schematic"));
   else
-    setWindowTitle(QObject::tr("Fx Schematic"));
+    UiTranslations::setCaption(this, "windowTitle", QObject::tr("Fx Schematic"));
 
   TApp *app = TApp::instance();
   connect(m_schematicViewer, SIGNAL(showPreview(TFxP)), this,
@@ -700,7 +700,7 @@ public:
     PaletteViewerPanel *panel = new PaletteViewerPanel(parent);
     panel->setFixWidthMode(TPanel::sizeable);
     panel->setObjectName(getPanelType());
-    panel->setWindowTitle(QObject::tr(("Level Palette")));
+    UiTranslations::setCaption(panel, "windowTitle", QObject::tr(("Level Palette")));
 
     return panel;
   }
@@ -773,7 +773,7 @@ public:
   TPanel *createPanel(QWidget *parent) override {
     StudioPaletteViewerPanel *panel = new StudioPaletteViewerPanel(parent);
     panel->setObjectName(getPanelType());
-    panel->setWindowTitle(QObject::tr("Studio Palette"));
+    UiTranslations::setCaption(panel, "windowTitle", QObject::tr("Studio Palette"));
 
     return panel;
   }
@@ -983,7 +983,7 @@ public:
     StyleEditorPanel *panel = new StyleEditorPanel(parent);
     panel->setFixWidthMode(TPanel::sizeable);
     panel->setObjectName(getPanelType());
-    panel->setWindowTitle(QObject::tr("Style Editor"));
+    UiTranslations::setCaption(panel, "windowTitle", QObject::tr("Style Editor"));
     return panel;
   }
 
@@ -1009,7 +1009,7 @@ public:
     // panel->setAllowedAreas(Qt::LeftDockWidgetArea|Qt::RightDockWidgetArea);
     panel->setFixedWidth(44);  // 35
     toolbar->setFixedWidth(34);
-    panel->setWindowTitle(QString(""));
+    UiTranslations::setLiteral(panel, "windowTitle", QString());
   }
 } toolbarFactory;
 
@@ -1048,7 +1048,7 @@ class CommandPaletteFactory final : public TPanelFactory {
 public:
   CommandPaletteFactory() : TPanelFactory("CommandPalette") {}
   void initialize(TPanel *panel) override {
-    panel->setWindowTitle(QObject::tr("Command Palette"));
+    UiTranslations::setCaption(panel, "windowTitle", QObject::tr("Command Palette"));
     panel->setWidget(createNativeCommandPalette(panel));
     panel->allowMultipleInstances(false);
     panel->setIsMaximizable(true);
@@ -1068,7 +1068,7 @@ public:
       }
       return QString();
     });
-    panel->setWindowTitle(QObject::tr("Widget Inspector"));
+    UiTranslations::setCaption(panel, "windowTitle", QObject::tr("Widget Inspector"));
     panel->setWidget(inspector);
     panel->allowMultipleInstances(false);
     panel->setIsMaximizable(true);
@@ -1105,7 +1105,7 @@ public:
   TPanel *createPanel(QWidget *parent) override {
     TPanel *panel = new ToolOptionPanel(parent);
     panel->setObjectName(getPanelType());
-    panel->setWindowTitle(getPanelType());
+    UiTranslations::setLiteral(panel, "windowTitle", getPanelType());
     panel->resize(600, panel->height());
     // A tab strip would not fit this bar (see DockLayout::supportsTabGrouping)
     panel->setProperty("canJoinDockTabs", false);
@@ -1246,7 +1246,7 @@ public:
   TPanel *createPanel(QWidget *parent) override {
     TPanel *panel = new FlipbookPanel(parent);
     panel->setObjectName(getPanelType());
-    panel->setWindowTitle(QObject::tr("FlipBook"));
+    UiTranslations::setCaption(panel, "windowTitle", QObject::tr("FlipBook"));
     return panel;
   }
 
@@ -1261,7 +1261,7 @@ class TasksViewerFactory final : public TPanelFactory {
 public:
   TasksViewerFactory() : TPanelFactory("Tasks") {}
   void initialize(TPanel *panel) override {
-    panel->setWindowTitle(QObject::tr("Tasks"));
+    UiTranslations::setCaption(panel, "windowTitle", QObject::tr("Tasks"));
     panel->setWidget(new TasksViewer(panel));
   }
 } tasksViewerFactory;
@@ -1270,7 +1270,7 @@ class BatchServersViewerFactory final : public TPanelFactory {
 public:
   BatchServersViewerFactory() : TPanelFactory("BatchServers") {}
   void initialize(TPanel *panel) override {
-    panel->setWindowTitle(QObject::tr("Batch Servers"));
+    UiTranslations::setCaption(panel, "windowTitle", QObject::tr("Batch Servers"));
     panel->setWidget(new BatchServersViewer(panel));
   }
 } batchServersViewerFactory;
@@ -1282,7 +1282,7 @@ public:
     FileBrowser *browser =
         new FileBrowser(panel, Qt::WindowFlags(), false, true);
     panel->setWidget(browser);
-    panel->setWindowTitle(QObject::tr("File Browser"));
+    UiTranslations::setCaption(panel, "windowTitle", QObject::tr("File Browser"));
     TFilePath currentProjectFolder =
         TProjectManager::instance()->getCurrentProjectPath().getParentDir();
     browser->setFolder(currentProjectFolder, true);
@@ -1300,7 +1300,7 @@ public:
     SceneBrowser *browser =
         new SceneBrowser(panel, Qt::WindowFlags(), false, true);
     panel->setWidget(browser);
-    panel->setWindowTitle(QObject::tr("Preproduction Board"));
+    UiTranslations::setCaption(panel, "windowTitle", QObject::tr("Preproduction Board"));
     TFilePath scenesFolder =
         TProjectManager::instance()->getCurrentProject()->getScenesPath();
     browser->setFolder(scenesFolder, true);
@@ -1317,7 +1317,7 @@ public:
   CastViewerFactory() : TPanelFactory("SceneCast") {}
   void initialize(TPanel *panel) override {
     panel->setWidget(new CastBrowser(panel));
-    panel->setWindowTitle(QObject::tr("Scene Cast"));
+    UiTranslations::setCaption(panel, "windowTitle", QObject::tr("Scene Cast"));
   }
 } castViewerFactory;
 
@@ -1330,7 +1330,7 @@ public:
   SymbolsFactory() : TPanelFactory("Symbols") {}
   void initialize(TPanel *panel) override {
     panel->setWidget(new SymbolsPane(panel));
-    panel->setWindowTitle(QObject::tr("Symbols"));
+    UiTranslations::setCaption(panel, "windowTitle", QObject::tr("Symbols"));
   }
 } symbolsFactory;
 
@@ -1385,7 +1385,7 @@ public:
     panel->setWidget(colorModel);
     panel->setFlipbook(colorModel);
     panel->setObjectName(getPanelType());
-    panel->setWindowTitle(getPanelType());
+    UiTranslations::setLiteral(panel, "windowTitle", getPanelType());
     return panel;
   }
 
@@ -1403,7 +1403,7 @@ public:
   TPanel *createPanel(QWidget *parent) override {
     FunctionViewerPanel *panel = new FunctionViewerPanel(parent);
     panel->setObjectName(getPanelType());
-    panel->setWindowTitle(QObject::tr("Function Editor"));
+    UiTranslations::setCaption(panel, "windowTitle", QObject::tr("Function Editor"));
     return panel;
   }
 
@@ -1423,7 +1423,7 @@ class TMessageViewerFactory final : public TPanelFactory {
 public:
   TMessageViewerFactory() : TPanelFactory("TMessage") {}
   void initialize(TPanel *panel) override {
-    panel->setWindowTitle(QObject::tr("Message Center"));
+    UiTranslations::setCaption(panel, "windowTitle", QObject::tr("Message Center"));
     panel->setWidget(new TMessageViewer(panel));
     panel->setMinimumHeight(80);
   }
@@ -1513,7 +1513,7 @@ public:
   TPanel *createPanel(QWidget *parent) override {
     ComboViewerPanelContainer *panel = new ComboViewerPanelContainer(parent);
     panel->setObjectName(getPanelType());
-    panel->setWindowTitle(QObject::tr("Combo Viewer"));
+    UiTranslations::setCaption(panel, "windowTitle", QObject::tr("Combo Viewer"));
     panel->resize(700, 600);
     return panel;
   }
@@ -1558,7 +1558,7 @@ public:
   TPanel *createPanel(QWidget *parent) override {
     SceneViewerPanelContainer *panel = new SceneViewerPanelContainer(parent);
     panel->setObjectName(getPanelType());
-    panel->setWindowTitle(QObject::tr("Viewer"));
+    UiTranslations::setCaption(panel, "windowTitle", QObject::tr("Viewer"));
     panel->setMinimumSize(220, 280);
     return panel;
   }
@@ -1603,7 +1603,7 @@ public:
   void initialize(TPanel *panel) override {
     HistoryPane *historyPane = new HistoryPane(panel);
     panel->setWidget(historyPane);
-    panel->setWindowTitle(QObject::tr("History"));
+    UiTranslations::setCaption(panel, "windowTitle", QObject::tr("History"));
     panel->setIsMaximizable(false);
   }
 } historyPanelFactory;
@@ -1627,7 +1627,7 @@ public:
     StopMotionController *stopMotionController =
         new StopMotionController(panel);
     panel->setWidget(stopMotionController);
-    panel->setWindowTitle(QObject::tr("Stop Motion Controller"));
+    UiTranslations::setCaption(panel, "windowTitle", QObject::tr("Stop Motion Controller"));
     panel->setIsMaximizable(false);
   }
 } stopMotionPanelFactory;
@@ -1651,7 +1651,7 @@ public:
   TPanel *createPanel(QWidget *parent) override {
     BrushPresetPanel *panel = new BrushPresetPanel(parent);
     panel->setObjectName(getPanelType());
-    panel->setWindowTitle(UiTranslations::joined(
+    UiTranslations::setCaption(panel, "windowTitle", UiTranslations::joined(
         {QObject::tr("Brush Presets"), QObject::tr(" [WIP]")}));
     panel->setIsMaximizable(false);
 
@@ -1681,7 +1681,7 @@ public:
   TPanel *createPanel(QWidget *parent) override {
     ToolPropertiesPanel *panel = new ToolPropertiesPanel(parent);
     panel->setObjectName(getPanelType());
-    panel->setWindowTitle(UiTranslations::joined(
+    UiTranslations::setCaption(panel, "windowTitle", UiTranslations::joined(
         {QObject::tr("Tool Properties"), QObject::tr(" [WIP]")}));
     panel->setIsMaximizable(false);
 
@@ -1755,7 +1755,7 @@ public:
     FxSettingsPanel *panel = new FxSettingsPanel(parent);
     panel->move(screenForWidget(panel)->geometry().center());
     panel->setObjectName(getPanelType());
-    panel->setWindowTitle(QObject::tr("Fx Settings"));
+    UiTranslations::setCaption(panel, "windowTitle", QObject::tr("Fx Settings"));
     panel->setMinimumSize(390, 85);
     panel->allowMultipleInstances(false);
     return panel;
@@ -1791,7 +1791,7 @@ public:
   TPanel *createPanel(QWidget *parent) override {
     TPanel *panel = new VectorGuidedDrawingPanel(parent);
     panel->setObjectName(getPanelType());
-    panel->setWindowTitle(QObject::tr("Vector Guided Drawing Controls"));
+    UiTranslations::setCaption(panel, "windowTitle", QObject::tr("Vector Guided Drawing Controls"));
     panel->setMinimumSize(387, 265);
 
     return panel;
@@ -1843,7 +1843,7 @@ public:
     LocatorPanel *panel = new LocatorPanel(parent);
     panel->move(screenForWidget(panel)->geometry().center());
     panel->setObjectName(getPanelType());
-    panel->setWindowTitle(QObject::tr("Locator"));
+    UiTranslations::setCaption(panel, "windowTitle", QObject::tr("Locator"));
     panel->allowMultipleInstances(false);
     return panel;
   }
@@ -1881,7 +1881,7 @@ public:
     FxBrowserPanel *panel = new FxBrowserPanel(parent);
     panel->move(screenForWidget(panel)->geometry().center());
     panel->setObjectName(getPanelType());
-    panel->setWindowTitle(QObject::tr("FX Browser"));
+    UiTranslations::setCaption(panel, "windowTitle", QObject::tr("FX Browser"));
     panel->setMinimumWidth(233);
     return panel;
   }
@@ -1902,7 +1902,7 @@ public:
     panel->setWidget(new AlignmentPane(panel));
     panel->setIsMaximizable(false);
     panel->setObjectName(getPanelType());
-    panel->setWindowTitle(QObject::tr("Align and Distribute"));
+    UiTranslations::setCaption(panel, "windowTitle", QObject::tr("Align and Distribute"));
     panel->setMinimumSize(235, 198);
     return panel;
   }
@@ -1922,7 +1922,7 @@ public:
   PosesPanelFactory() : TPanelFactory("PosesPanel") {}
   void initialize(TPanel *panel) override {
     panel->setWidget(new PosesPane(panel));
-    panel->setWindowTitle(QObject::tr("Poses"));
+    UiTranslations::setCaption(panel, "windowTitle", QObject::tr("Poses"));
     panel->setIsMaximizable(false);
   }
 } posesPanelFactory;
@@ -1939,7 +1939,7 @@ public:
   ReferencePanelFactory() : TPanelFactory("ReferencePanel") {}
   void initialize(TPanel *panel) override {
     panel->setWidget(new ReferencePanel(panel));
-    panel->setWindowTitle(QObject::tr("Reference"));
+    UiTranslations::setCaption(panel, "windowTitle", QObject::tr("Reference"));
   }
 } referencePanelFactory;
 
@@ -1955,7 +1955,7 @@ public:
       : TPanelFactory("DrawingSubstitutionPanel") {}
   void initialize(TPanel *panel) override {
     panel->setWidget(new DrawingSubstitutionPane(panel));
-    panel->setWindowTitle(QObject::tr("Drawing Substitution"));
+    UiTranslations::setCaption(panel, "windowTitle", QObject::tr("Drawing Substitution"));
     panel->setIsMaximizable(false);
   }
 } drawingSubstitutionPanelFactory;
@@ -1972,7 +1972,7 @@ public:
   SubstitutionSliderPanelFactory() : TPanelFactory("SubstitutionSliderPanel") {}
   void initialize(TPanel *panel) override {
     panel->setWidget(new SubstitutionSliderPane(panel));
-    panel->setWindowTitle(QObject::tr("Substitution Slider"));
+    UiTranslations::setCaption(panel, "windowTitle", QObject::tr("Substitution Slider"));
     panel->setIsMaximizable(false);
   }
 } substitutionSliderPanelFactory;
@@ -1989,7 +1989,7 @@ public:
   StoryboardPanelFactory() : TPanelFactory("StoryboardPanel") {}
   void initialize(TPanel *panel) override {
     panel->setWidget(new StoryboardPane(panel));
-    panel->setWindowTitle(QObject::tr("Storyboard"));
+    UiTranslations::setCaption(panel, "windowTitle", QObject::tr("Storyboard"));
     panel->setIsMaximizable(false);
   }
 } storyboardPanelFactory;
@@ -2007,7 +2007,7 @@ public:
   MasterControllersPanelFactory() : TPanelFactory("MasterControllers") {}
   void initialize(TPanel *panel) override {
     panel->setWidget(new MasterControllersPane(panel));
-    panel->setWindowTitle(QObject::tr("Master Controllers"));
+    UiTranslations::setCaption(panel, "windowTitle", QObject::tr("Master Controllers"));
     panel->setIsMaximizable(false);
   }
 } masterControllersPanelFactory;
@@ -2025,7 +2025,7 @@ public:
   OffsetLayersPanelFactory() : TPanelFactory("OffsetLayers") {}
   void initialize(TPanel *panel) override {
     panel->setWidget(new OffsetLayersPane(panel));
-    panel->setWindowTitle(QObject::tr("Offset Layers"));
+    UiTranslations::setCaption(panel, "windowTitle", QObject::tr("Offset Layers"));
     panel->setIsMaximizable(false);
   }
 } offsetLayersPanelFactory;
@@ -2042,7 +2042,7 @@ public:
   ArtLayerManagerPanelFactory() : TPanelFactory("ArtLayerManager") {}
   void initialize(TPanel *panel) override {
     panel->setWidget(new ArtLayerManagerPane(panel));
-    panel->setWindowTitle(QObject::tr("Art Layer Manager"));
+    UiTranslations::setCaption(panel, "windowTitle", QObject::tr("Art Layer Manager"));
     panel->setIsMaximizable(false);
   }
 } artLayerManagerPanelFactory;
@@ -2060,7 +2060,7 @@ public:
   RigLibraryPanelFactory() : TPanelFactory("RigLibrary") {}
   void initialize(TPanel *panel) override {
     panel->setWidget(new RigLibraryPane(panel));
-    panel->setWindowTitle(QObject::tr("Library"));
+    UiTranslations::setCaption(panel, "windowTitle", QObject::tr("Library"));
     panel->setIsMaximizable(false);
   }
 } rigLibraryPanelFactory;
@@ -2077,7 +2077,7 @@ public:
   MotionPresetsPanelFactory() : TPanelFactory("MotionPresets") {}
   void initialize(TPanel *panel) override {
     panel->setWidget(new MotionPresetsPane(panel));
-    panel->setWindowTitle(QObject::tr("Motion Presets"));
+    UiTranslations::setCaption(panel, "windowTitle", QObject::tr("Motion Presets"));
     panel->setIsMaximizable(false);
   }
 } motionPresetsPanelFactory;

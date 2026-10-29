@@ -1,7 +1,7 @@
 name: Windows Build
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.head.repo.full_name || github.repository }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: ${{ github.head_ref != '' }}
 
 on:
@@ -177,7 +177,7 @@ jobs:
         run: |
           @echo on
           cd toonz\build
-          msbuild /p:Configuration=RelWithDebInfo /m /verbosity:minimal "/flp:logfile=msbuild-errors.log;errorsonly" ALL_BUILD.vcxproj
+          msbuild /p:Configuration=RelWithDebInfo /m /verbosity:minimal "/flp:logfile=msbuild-errors.log;verbosity=minimal" ALL_BUILD.vcxproj
         shell: cmd
 
       # Show the compile and link errors on the run (annotations), since the
@@ -188,7 +188,7 @@ jobs:
         run: |
           cat toonz/build/cmake-config.log toonz/build/msbuild-errors.log 2>/dev/null > combined-build-errors.log || true
           [ -s combined-build-errors.log ] || exit 0
-          grep -E -A5 'CMake Error|Could NOT find|: (fatal )?error ' combined-build-errors.log | head -120 > errors.txt || true
+          grep -E -A5 'CMake Error|Could NOT find|lrelease error|: (fatal )?error ' combined-build-errors.log | head -120 > errors.txt || true
           echo "::notice title=Windows build::$(wc -l < errors.txt) distinct errors"
           all=$(sed -e 's/%/%25/g' errors.txt | sed -e 's/\r//' | sed -e ':a;N;$!ba;s/\n/%0A/g')
           [ -n "$all" ] && echo "::error title=Windows build errors::${all}"

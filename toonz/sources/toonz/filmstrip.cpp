@@ -2599,7 +2599,7 @@ void Filmstrip::updateWindowTitle() {
   QString levelName;
 
   if (!level) {
-    parentWidget()->setWindowTitle(tr("Level Strip"));
+    UiTranslations::setCaption(parentWidget(), "windowTitle", tr("Level Strip"));
     return;
   }
 
@@ -2607,7 +2607,7 @@ void Filmstrip::updateWindowTitle() {
   if (level->getProperties()->getDirtyFlag()) levelName += " *";
 
   // parentWidget() is TPanel
-  parentWidget()->setWindowTitle(
+  UiTranslations::setCaption(parentWidget(), "windowTitle",
       UiTranslations::text(tr("Level:  ")).appended(levelName));
 
   TFrameId workingFid;

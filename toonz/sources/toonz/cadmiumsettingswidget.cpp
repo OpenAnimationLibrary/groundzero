@@ -178,7 +178,7 @@ CadmiumSettingsWidget::CadmiumSettingsWidget(QWidget *parent, bool compact)
             m_installer, &CadmiumInstaller::cancel);
     connect(m_installer, &CadmiumInstaller::progress, this,
             [this](qint64 completed, qint64 total, const QString &file) {
-      m_downloadStatus->setText(UiTranslations::text(tr("Verifying or downloading %1")).arg(file));
+      UiTranslations::setCaption(m_downloadStatus, "text", UiTranslations::text(tr("Verifying or downloading %1")).arg(file));
       m_downloadProgress->setVisible(true);
       m_downloadProgress->setValue(total > 0 ? int(completed * 1000 / total) : 0);
       refresh();
@@ -187,16 +187,16 @@ CadmiumSettingsWidget::CadmiumSettingsWidget(QWidget *parent, bool compact)
             [this, runtime](const QString &directory) {
       runtime->setModelsDirectory(directory);
       m_downloadProgress->setValue(1000);
-      m_downloadStatus->setText(tr("Models installed and verified. Use Load Models when ready."));
+      UiTranslations::setCaption(m_downloadStatus, "text", tr("Models installed and verified. Use Load Models when ready."));
       refresh();
     });
     connect(m_installer, &CadmiumInstaller::failed, this,
             [this](const QString &message) {
-      m_downloadStatus->setText(message);
+      UiTranslations::setCaption(m_downloadStatus, "text", message);
       refresh();
     });
     connect(m_installer, &CadmiumInstaller::cancelled, this, [this] {
-      m_downloadStatus->setText(tr("Download cancelled. Previously installed files were preserved."));
+      UiTranslations::setCaption(m_downloadStatus, "text", tr("Download cancelled. Previously installed files were preserved."));
       refresh();
     });
 
@@ -225,7 +225,7 @@ void CadmiumSettingsWidget::refresh() {
   auto *runtime = CadmiumRuntime::instance();
   const QSignalBlocker blocker(m_startupMode);
   m_startupMode->setCurrentIndex(runtime->startupMode());
-  m_status->setText(runtime->statusText());
+  UiTranslations::setCaption(m_status, "text", runtime->statusText());
   if (m_executable) m_executable->setText(runtime->executablePath());
   if (m_models) m_models->setText(runtime->modelsDirectory());
   if (m_idleUnload) {

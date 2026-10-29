@@ -56,6 +56,8 @@ int main(int argc, char **argv) {
   QLabel userText(QString::fromUtf8("Open"), &window);
   QLineEdit editable(translated("Open"), &window);
   QLabel replaced(translated("Open"), &window);
+  QLabel equalReplacement(translated("Open"), &window);
+  QLabel equalSourceChange(translated("Open", "First"), &window);
   QAction action(translated("Open"), &window);
   action.setCheckable(true);
   action.setChecked(true);
@@ -110,6 +112,10 @@ int main(int argc, char **argv) {
   QObject::connect(&tabs, &QTabBar::currentChanged, [&]() { ++tabChanges; });
   UiTranslations::captureAll();
   replaced.setText(QStringLiteral("User caption"));
+  // QLabel discards equal-text assignments, retaining the old QString buffer.
+  // Ownership must follow the explicit producer, not that retained storage.
+  UiTranslations::setLiteral(&equalReplacement, "text", QStringLiteral("Open"));
+  UiTranslations::setCaption(&equalSourceChange, "text", translated("Open", "Second"));
   bool ok = true;
   for (int language : {1, 2, 0, 2, 0}) {
     UiTranslations::captureAll();
@@ -131,7 +137,11 @@ int main(int argc, char **argv) {
         realPath.getField()->text() == "Open" && realPath.getPath() == "Open",
         "Description changed a semantic token, path or user input");
     ok &= check(userText.text() == "Open" && editable.text() == "Open" &&
-                replaced.text() == "User caption", "User text changed");
+                replaced.text() == "User caption" && equalReplacement.text() == "Open",
+                "User text changed, including an equal-text replacement");
+    ok &= check(equalSourceChange.text() == (language
+        ? QString("Second:%1").arg(language) : QString("Open")),
+        "Equal caption replacement retained the wrong source context");
     ok &= check(action.isChecked() && action.shortcut() == QKeySequence("Ctrl+J")
                 && triggered == 0, "Action state/dispatch changed");
     ok &= check(captions.currentData().toInt() == 12 && changed == 0 &&
@@ -143,6 +153,37 @@ int main(int argc, char **argv) {
         tabs.currentIndex() == 1 && tabChanges == 0 &&
         documentTabs.tabText(0) == "Open", "Caption tabs changed tab state or document names");
   }
+  UiTranslations::setCaption(&equalReplacement, "text", translated("Open"));
+  realPath.setPath(QStringLiteral("kept.png"));
+  UiTranslations::captureAll();
+  catalog.language = 1;
+  UiTranslations::refresh();
+  ok &= check(equalReplacement.text() == "Fixture:1",
+              "Equal-text native caption did not regain translation ownership");
+  QAction controller(&window);
+  QLabel duringRefresh(&window);
+  UiTranslations::setCaption(&controller, "text", translated("Open"));
+  UiTranslations::setCaption(&duringRefresh, "text", translated("Open"));
+  const QString beforeOwnershipChange = duringRefresh.text();
+  QObject::connect(&controller, &QAction::changed, &duringRefresh, [&]() {
+    UiTranslations::setLiteral(&duringRefresh, "text", duringRefresh.text());
+  });
+  catalog.language = 2;
+  UiTranslations::refresh();
+  ok &= check(duringRefresh.text() == beforeOwnershipChange,
+              "A stale refresh snapshot overrode newly assigned literal data");
+  ok &= check(realPath.getPath() == "kept.png" &&
+              realPath.getField()->text() == "kept.png", "Selected path changed");
+  realPath.setPath(descriptionToken);
+  ok &= check(realPath.getPath() == descriptionToken &&
+              realPath.getField()->text() == "Fixture:2",
+              "Restoring description did not preserve its semantic token");
+  UiTranslations::captureAll();
+  catalog.language = 1;
+  UiTranslations::refresh();
+  ok &= check(realPath.getPath() == descriptionToken &&
+              realPath.getField()->text() == "Fixture:1",
+              "Restored description stopped translating");
   const std::size_t before = UiTranslations::retainedCaptionCount();
   for (int i = 0; i < 20000; ++i) {
     QString discarded = UiTranslations::text(translated("Shot %1")).arg(i);
@@ -162,7 +203,7 @@ int main(int argc, char **argv) {
   window.addAction(ephemeral);
   UiTranslations::captureAll();
   QObject::connect(ephemeral, &QAction::changed, [&]() { delete ephemeral.data(); });
-  catalog.language = 1;
+  catalog.language = 2;
   UiTranslations::refresh();
   ok &= check(ephemeral.isNull(), "Deleted presentation target was retained");
   DeletePeerWindow deletePeer;

@@ -575,12 +575,13 @@ void CustomPanelEditorPopup::updateTemplateValueLabel() {
   if (!m_templateValueLabel) return;
   QTreeWidgetItem* item = findTemplateItemByPath(m_currentTemplatePath);
   if (item)
-    m_templateValueLabel->setText(templateDisplayNameForItem(item));
+    UiTranslations::setLiteral(m_templateValueLabel, "text",
+                                templateDisplayNameForItem(item));
   else if (!m_currentTemplatePath.isEmpty())
-    m_templateValueLabel->setText(
+    UiTranslations::setLiteral(m_templateValueLabel, "text",
         QFileInfo(m_currentTemplatePath).completeBaseName());
   else
-    m_templateValueLabel->setText(tr("(none)"));
+    UiTranslations::setCaption(m_templateValueLabel, "text", tr("(none)"));
 }
 
 //-----------------------------------------------------------------------------
