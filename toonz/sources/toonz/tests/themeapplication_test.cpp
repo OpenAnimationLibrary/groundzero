@@ -52,7 +52,14 @@ void requireChecked(QMenu &menu, const QString &expected) {
 }  // namespace
 
 int main(int argc, char **argv) {
+#ifdef Q_OS_WIN
+  // Qt 5.15.2's QMessageBox::showEvent reads the Windows system menu through
+  // platformNativeInterface(), which the offscreen plugin does not provide.
+  // Exercise the real warning dialog on the same platform as the application.
+  qputenv("QT_QPA_PLATFORM", QByteArrayLiteral("windows"));
+#else
   qputenv("QT_QPA_PLATFORM", QByteArrayLiteral("offscreen"));
+#endif
   QApplication app(argc, argv);
   try {
     checkpoint("creating isolated themes and widgets");
