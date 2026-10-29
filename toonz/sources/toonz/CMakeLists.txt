@@ -1003,3 +1003,12 @@ if(BUILD_CADMIUM_TESTS)
         cadmium_settings cadmium_metadata cadmium_save cadmium_destination cadmium_color
         PROPERTIES TIMEOUT 120)
 endif()
+
+option(BUILD_PROCESS_PROGRESS_TESTS "Build the external tool wait test" ${BUILD_TESTS})
+if(BUILD_PROCESS_PROGRESS_TESTS)
+    add_executable(processprogress_test tests/processprogress_test.cpp)
+    target_include_directories(processprogress_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(processprogress_test Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Widgets)
+    add_test(NAME processprogress COMMAND processprogress_test)
+    set_tests_properties(processprogress PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endif()

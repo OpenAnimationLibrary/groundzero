@@ -1,4 +1,5 @@
 #include "importpdf.h"
+#include "processprogress.h"
 #include "thirdparty.h"
 
 #include <QApplication>
@@ -142,16 +143,10 @@ bool convertPdfToPngLevel(const TFilePath &sourcePath, TFilePath &levelPath) {
     return false;
   }
 
-  QApplication::setOverrideCursor(Qt::WaitCursor);
-  const bool rendererFinished = process.waitForFinished(-1);
-  QApplication::restoreOverrideCursor();
-  if (!rendererFinished) {
-    process.kill();
-    process.waitForFinished();
-    QMessageBox::warning(parent, QObject::tr("Import PDF"),
-                         QObject::tr("PDF conversion did not complete."));
+  // Large pages at a high resolution can take minutes: the user can stop it
+  if (ProcessProgress::wait(process, QObject::tr("Converting the PDF pages..."),
+                            parent) != ProcessProgress::Finished)
     return false;
-  }
   if (process.exitStatus() != QProcess::NormalExit || process.exitCode() != 0) {
     error = QString::fromLocal8Bit(process.readAllStandardError()).trimmed();
     if (error.isEmpty()) error = QObject::tr("PDF conversion failed.");
