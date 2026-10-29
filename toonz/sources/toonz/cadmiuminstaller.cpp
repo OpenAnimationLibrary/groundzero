@@ -2,6 +2,7 @@
 
 #include <QDir>
 #include <QFileInfo>
+#include <QIODevice>
 #include <QLockFile>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>

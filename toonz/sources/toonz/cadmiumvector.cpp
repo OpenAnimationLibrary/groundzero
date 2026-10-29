@@ -10,6 +10,7 @@
 #include <QCoreApplication>
 #include <QCryptographicHash>
 #include <QDataStream>
+#include <QIODevice>
 #include <QThread>
 #include <algorithm>
 #include <cmath>
