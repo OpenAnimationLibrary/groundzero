@@ -70,7 +70,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update -o Acquire::http::Timeout=30 -o Acquire::Retries=3
-          sudo apt-get install -y bison flex python3-dev
+          sudo apt-get install -y bison flex python3-dev libegl1
       - name: Install LLVM 14 qualification dependencies
         if: matrix.backend == 'llvm14' && runner.os == 'Linux'
         run: |
