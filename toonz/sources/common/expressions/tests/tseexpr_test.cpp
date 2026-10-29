@@ -335,7 +335,7 @@ void errorsAndBudgets() {
 
 void nativeBindingContracts() {
   Program program;
-  compile(program, "4*5", {}, {}, scalarOptions());
+  compile(program, "4*5");
   require(program.compile(program.source(), {}, {}, scalarOptions()),
           "recompilation invalidated a source string owned by the program");
   near(run(program).number[0], 20, "source-alias recompilation changed the expression");
@@ -394,20 +394,20 @@ void nativeBindingContracts() {
   one.type = Type::Vector;
   Options vectorOptions;
   vectorOptions.resultDimension = 1;
-  compile(program, "vector_host($value)", {{"value", one}}, {vector}, vectorOptions);
+  compile(program, "vector_host($value)", {{"value", one}}, vectorOptions, {vector});
   const Value output = run(program);
   require(output.type == Type::Vector && output.number.size() == 1,
           "one-component vector output lost its declared host type");
   near(output.number[0], 3, "one-component vector callback returned the wrong result");
 
-  compile(program, "gain=4;gain", {{"gain", Value::scalar(9)}}, {}, scalarOptions());
+  compile(program, "gain=4;gain", {{"gain", Value::scalar(9)}});
   require(program.usedVariables().empty(),
           "a local variable shadow created a false external dependency");
-  compile(program, "def FLOAT noise(FLOAT x){x+2} noise(3)", {}, {}, scalarOptions());
+  compile(program, "def FLOAT noise(FLOAT x){x+2} noise(3)");
   require(program.usedFunctions().empty(),
           "a local function shadow created a false builtin dependency");
   near(run(program).number[0], 5, "a local function shadow used the builtin instead");
-  compile(program, "def FLOAT printf(FLOAT x){x+1} printf(2)", {}, {}, scalarOptions());
+  compile(program, "def FLOAT printf(FLOAT x){x+1} printf(2)");
   near(run(program).number[0], 3,
        "render console policy incorrectly blocked a local pure function");
 
@@ -423,13 +423,13 @@ void nativeBindingContracts() {
       return "Unexpected native host callback failure.";
     }
   };
-  compile(program, "scalar_host(1)", {}, {scalar}, native);
+  compile(program, "scalar_host(1)", {}, native, {scalar});
   Value result;
   require(!program.evaluate(result) &&
               program.errorMessage() == "Native host callback failed.",
           "native callback exception formatting lost its diagnostic");
 
-  compile(program, "1/$x", {{"x", Value::scalar(2)}}, {}, scalarOptions());
+  compile(program, "1/$x", {{"x", Value::scalar(2)}});
   std::vector<Value> results;
   require(!program.evaluateBatch({{{"x", Value::scalar(2)}},
                                    {{"x", Value::scalar(0)}}}, results) && results.empty(),
@@ -469,7 +469,7 @@ void evaluationReentrancy() {
     }
     return Value::scalar(arguments[0].number[0]);
   };
-  compile(program, "host($x)", {{"x", Value::scalar(7)}}, {callback}, scalarOptions());
+  compile(program, "host($x)", {{"x", Value::scalar(7)}}, scalarOptions(), {callback});
   for (Mode attempted : {Mode::Evaluate, Mode::Compile, Mode::Mutate,
                           Mode::MoveConstruct, Mode::MoveAssign}) {
     mode = attempted;
@@ -492,11 +492,11 @@ void evaluationReentrancy() {
     }
     return Value::scalar(11);
   };
-  compile(other, "inner()", {}, {inner}, scalarOptions());
+  compile(other, "inner()", {}, scalarOptions(), {inner});
   Function outer;
   outer.name = "outer";
   outer.evaluate = [&](const std::vector<Value> &) { return run(other); };
-  compile(program, "outer()", {}, {outer}, scalarOptions());
+  compile(program, "outer()", {}, scalarOptions(), {outer});
   near(run(program).number[0], 11, "nested evaluations of distinct programs were rejected");
   cycle = true;
   Value ignored;
@@ -505,12 +505,12 @@ void evaluationReentrancy() {
   near(run(program).number[0], 11, "program did not recover after an indirect callback cycle");
 
   Program movable;
-  compile(movable, "9", {}, {}, scalarOptions());
+  compile(movable, "9");
   Program moved(std::move(movable));
   require(!movable.isValid() && movable.source().empty() && movable.errors().empty(),
           "an idle moved-from program could not be queried safely");
   near(run(moved).number[0], 9, "moving an idle program changed its evaluation");
-  compile(movable, "2", {}, {}, scalarOptions());
+  compile(movable, "2");
   near(run(movable).number[0], 2, "a moved-from program could not be compiled again");
 
   bool reenterCompile = true;
@@ -523,7 +523,7 @@ void evaluationReentrancy() {
   require(!program.compile("5", {}, {}, cancellation),
           "a cancellation callback replaced its actively compiling program");
   reenterCompile = false;
-  compile(program, "5", {}, {}, cancellation);
+  compile(program, "5", {}, cancellation);
   near(run(program).number[0], 5, "compilation did not recover after rejected callback reentry");
 }
 
@@ -544,14 +544,14 @@ void astDepthLimits() {
     // the C++ destructor stack for every child.
     require(!program.compile(source + "+", {}, {}, limits),
             "a malformed deep expression was accepted");
-    compile(program, "3", {}, {}, scalarOptions());
+    compile(program, "3");
     near(run(program).number[0], 3, "deep-tree rejection corrupted the next compilation");
   }
   Options larger = scalarOptions();
   larger.maxNesting = 256;
   std::string longer = "1";
   for (int index = 0; index < 200; ++index) longer += "+1";
-  compile(program, longer, {}, {}, larger);
+  compile(program, longer, {}, larger);
   near(run(program).number[0], 201, "an explicitly larger valid tree limit was ignored");
 
   const std::string offsetSource = std::string(40000, ' ') + "unknown_name";
