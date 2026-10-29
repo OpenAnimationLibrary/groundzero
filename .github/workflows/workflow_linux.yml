@@ -129,6 +129,7 @@ jobs:
         path: |
           toonz/build/reliability-tests.xml
           toonz/build/stdfx/fxrender-output
+          toonz/build/image/ffmpeg-test-output
         if-no-files-found: ignore
 
     # Keep successfully compiled objects even when a regression test fails.

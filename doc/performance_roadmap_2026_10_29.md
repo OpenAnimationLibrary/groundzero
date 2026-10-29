@@ -30,9 +30,10 @@ a record of its earlier pinned snapshot.
 | Raster safety | A13 rejects invalid/overflowing storage and fails allocation explicitly; Canvas Resize prepares replacements before edits | Boundary/stride/view tests added; allocator fault injection and UI scenarios remain |
 | Test reliability | V01–V04 tighten exception/golden/graphics checks; required subsets run on ordinary Linux, Windows and macOS workflows | Registration runner rejects missing/skipped expected cases; CI results must be reviewed |
 
-This is implementation awaiting CI and application validation, not completion of
-all phases or evidence of a measured speedup. Windows/macOS reference-machine
-profiles remain outstanding. Canvas Resize preparation improves failure handling
+This is one implementation batch, not completion of all phases or evidence of a
+measured speedup. CI results and remaining application validation are tracked in
+the linked PR. Windows/macOS reference-machine profiles remain outstanding.
+Canvas Resize preparation improves failure handling
 but pins replacement drawings until commit and can raise peak residency; measure
 large multi-drawing resizes before release. Render reorder-buffer backpressure,
 budgeted disk-cache eviction, Cadmium peak-memory instrumentation, and native

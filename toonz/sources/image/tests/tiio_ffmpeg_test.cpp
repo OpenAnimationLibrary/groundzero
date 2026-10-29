@@ -144,27 +144,63 @@ void exportFrames(const WriterMaker &makeWriter, const QString &path,
           "No output written: " + path.toStdString());
 }
 
+std::string saveDecodeDiagnostics(const QString &path, const QString &format,
+                                  const QStringList &decodeArgs,
+                                  const QByteArray &decoderLog) {
+  const QDir output(QDir::current().filePath("ffmpeg-test-output"));
+  QDir().mkpath(output.path());
+  const QString name = QFileInfo(path).fileName();
+  const QString saved = output.filePath(name);
+  QFile::remove(saved);
+  const bool copied = QFile::copy(path, saved);
+
+  QProcess probe;
+  QStringList args = {"-v", "error", "-f", format};
+  if (format == "apng") args << "-ignore_loop" << "1";
+  args << "-count_frames" << "-show_streams" << "-show_frames" << "-of"
+       << "json" << "-i" << path;
+  probe.start(QDir(QString::fromUtf8(TIIO_FFMPEG_TEST_DIR)).filePath("ffprobe"),
+              args);
+  if (!probe.waitForFinished(30000)) {
+    probe.kill();
+    probe.waitForFinished(3000);
+  }
+  QByteArray details = "Decoder arguments: " + decodeArgs.join(' ').toUtf8() +
+      "\nDecoder output:\n" + decoderLog + "\nffprobe output:\n" +
+      probe.readAllStandardOutput() + "\nffprobe errors:\n" +
+      probe.readAllStandardError();
+  QFile report(output.filePath(name + ".txt"));
+  if (report.open(QIODevice::WriteOnly)) report.write(details);
+  return "\nInput bytes: " + std::to_string(QFileInfo(path).size()) +
+      "; preserved: " + (copied ? saved.toStdString() : "copy failed") +
+      "\n" + details.right(12000).toStdString();
+}
+
 QByteArray decodeRgba(const QString &path, const QString &format,
                       int expectedFrames = kFrames) {
   QProcess process;
-  QStringList args;
-  args << "-v"
-       << "error"
-       << "-f" << format << "-i" << path << "-f"
-       << "rawvideo"
-       << "-pix_fmt"
-       << "rgba"
-       << "-";
+  QStringList args = {"-v", "warning", "-f", format};
+  if (format == "apng") args << "-ignore_loop" << "1";
+  // Validate the encoded frames themselves. Automatic timestamp resampling
+  // may drop or duplicate frames, especially in very short animations.
+  args << "-i" << path << "-vsync" << "0" << "-f" << "rawvideo"
+       << "-pix_fmt" << "rgba" << "-";
   process.start(ffmpegExecutable(), args);
-  require(process.waitForFinished(120000), "ffmpeg decode did not finish");
+  const bool finished = process.waitForFinished(120000);
+  if (!finished) {
+    process.kill();
+    process.waitForFinished(3000);
+  }
   const QByteArray frames = process.readAllStandardOutput();
-  require(
-      process.exitStatus() == QProcess::NormalExit && process.exitCode() == 0,
-      "ffmpeg cannot decode " + path.toStdString() + ": " +
-          process.readAllStandardError().toStdString());
-  require(frames.size() == expectedFrames * kFrameSize,
-          path.toStdString() + ": expected " + std::to_string(expectedFrames) +
-              " frames, decoded " + std::to_string(frames.size()) + " bytes");
+  const QByteArray decoderLog = process.readAllStandardError();
+  if (!finished || process.exitStatus() != QProcess::NormalExit ||
+      process.exitCode() != 0 || frames.size() != expectedFrames * kFrameSize) {
+    throw std::runtime_error(path.toStdString() + ": expected " +
+        std::to_string(expectedFrames) + " frames, decoded " +
+        std::to_string(frames.size()) + " bytes; decoder exit " +
+        std::to_string(process.exitCode()) +
+        saveDecodeDiagnostics(path, format, args, decoderLog));
+  }
   return frames;
 }
 

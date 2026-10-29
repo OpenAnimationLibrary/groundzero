@@ -137,6 +137,7 @@ jobs:
           ctest.log
           toonz/build/Testing/Temporary
           toonz/build/stdfx/fxrender-output
+          toonz/build/image/ffmpeg-test-output
         if-no-files-found: ignore
 
     - name: Fail if tests failed
