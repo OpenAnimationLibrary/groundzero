@@ -497,6 +497,7 @@ public:
     auto layout = new QVBoxLayout(&dialog);
     auto form = new QFormLayout(); layout->addLayout(form);
     auto label = new QLineEdit(control.value("label").toString(), &dialog);
+    label->setObjectName("seExprControlLabel");
     auto name = new QLineEdit(control.value("name").toString(), &dialog);
     auto kind = new QComboBox(&dialog);
     kind->addItems({"scalar", "vector", "color", "string", "curve", "colorcurve"});
@@ -512,8 +513,12 @@ public:
     const int stringIndex = stringKind->findData(control.value("annotationType").toString());
     if (stringIndex >= 0) stringKind->setCurrentIndex(stringIndex);
     auto low = new QDoubleSpinBox(&dialog), high = new QDoubleSpinBox(&dialog);
+    low->setObjectName("seExprControlMinimum");
+    high->setObjectName("seExprControlMaximum");
     for (auto spin : {low, high}) { spin->setDecimals(6); spin->setRange(-1e9, 1e9); }
     low->setValue(control.value("min").toDouble()); high->setValue(control.value("max").toDouble(1));
+    const double displayedMinimum = low->value();
+    const double displayedMaximum = high->value();
     form->addRow(SeExprEditor::tr("Display Name"), label);
     form->addRow(SeExprEditor::tr("Variable"), name);
     form->addRow(SeExprEditor::tr("Type"), kind);
@@ -597,7 +602,13 @@ public:
       for (const auto &entry : catalog) if (text(entry.name) == variable) unique = false;
       for (const auto &entry : customFunctions)
         if (!sameBinding && text(entry.name) == variable) unique = false;
-      if (!unique || low->value() > high->value()) {
+      const bool changedMinimum = low->value() != displayedMinimum;
+      const bool changedMaximum = high->value() != displayedMaximum;
+      const double minimum = changedMinimum ? low->value()
+          : control.value("min").toDouble(-1000000.);
+      const double maximum = changedMaximum ? high->value()
+          : control.value("max").toDouble(1000000.);
+      if (!unique || minimum > maximum) {
         error->setText(SeExprEditor::tr("Use a unique variable identifier and an ordered numeric range.")); return;
       }
       const QString type = kind->currentText();
@@ -617,7 +628,11 @@ public:
         parsed = (type == "scalar") ? QJsonValue(number) : QJsonValue(0.);
       }
       control["name"] = variable; control["label"] = label->text(); control["type"] = type;
-      control["value"] = parsed; control["min"] = low->value(); control["max"] = high->value();
+      control["value"] = parsed;
+      // Opening the display fields can round or clamp imported limits. Keep
+      // the original JSON (including omitted limits) until that field changes.
+      if (changedMinimum) control["min"] = minimum;
+      if (changedMaximum) control["max"] = maximum;
       if (type == "string") control["annotationType"] = stringKind->currentData().toString();
       if (type == "curve" || type == "colorcurve") control["points"] = points;
       dialog.accept();

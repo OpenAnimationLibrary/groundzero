@@ -295,6 +295,74 @@ int main(int argc, char **argv) {
               "native path annotation picker lost a value or committed the scene");
     }
 
+    // Opening imported control ranges must not replace exact or large limits
+    // with the rounded values shown by the native display fields. Editing one
+    // bound changes that bound alone; omitted limits stay omitted on a rename.
+    for (int operation = 0; operation < 4; ++operation) {
+      SeExprEditor rangeEditor;
+      const double minimum = 0.123456789012345;
+      const double maximum = 20000000000.;
+      QJsonObject original{{"id", "gain_id"}, {"name", "gain"}, {"label", "Gain"},
+                           {"type", "scalar"}, {"value", 0.5}};
+      if (operation != 3) { original["min"] = minimum; original["max"] = maximum; }
+      auto imported = document("$gain");
+      imported["controls"] = QJsonArray{original};
+      require(rangeEditor.importPreset(preset(imported), &error) && rangeEditor.validateDraft(),
+              "exact-range control fixture could not be imported or evaluated");
+      rangeEditor.findChild<QTableWidget *>("seExprControls")->setCurrentCell(0, 0);
+      QString rangeFailure;
+      bool dialogSeen = false;
+      int rangeCommits = 0;
+      QObject::connect(&rangeEditor, &SeExprEditor::documentApplied,
+                       [&](const QString &) { ++rangeCommits; });
+      QTimer watchdog(&rangeEditor);
+      watchdog.setSingleShot(true);
+      QObject::connect(&watchdog, &QTimer::timeout, &rangeEditor, [&] {
+        rangeFailure = "native exact-range control dialog did not complete";
+        for (auto *widget : QApplication::topLevelWidgets())
+          if (widget->objectName() == "seExprControlDialog")
+            if (auto *dialog = qobject_cast<QDialog *>(widget)) dialog->reject();
+      });
+      watchdog.start(5000);
+      QTimer::singleShot(0, &rangeEditor, [&] {
+        auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
+        if (!dialog || dialog->objectName() != "seExprControlDialog") {
+          rangeFailure = "native exact-range control dialog is missing";
+          return;
+        }
+        dialogSeen = true;
+        auto *label = dialog->findChild<QLineEdit *>("seExprControlLabel");
+        auto *low = dialog->findChild<QDoubleSpinBox *>("seExprControlMinimum");
+        auto *buttons = dialog->findChild<QDialogButtonBox *>("seExprControlButtons");
+        if (!label || !low || !buttons) {
+          rangeFailure = "native exact-range control fields are missing";
+          dialog->reject();
+          return;
+        }
+        if (operation == 1 || operation == 3) label->setText("Renamed Gain");
+        if (operation == 2) low->setValue(0.375);
+        buttons->button(QDialogButtonBox::Ok)->click();
+      });
+      rangeEditor.findChild<QPushButton *>("seExprControlEdit")->click();
+      watchdog.stop();
+      if (!rangeFailure.isEmpty()) throw std::runtime_error(rangeFailure.toStdString());
+      const auto edited = QJsonDocument::fromJson(rangeEditor.document().toUtf8())
+                              .object().value("controls").toArray()[0].toObject();
+      require(dialogSeen && rangeCommits == 0 && rangeEditor.validateDraft(),
+              "native exact-range editor committed a draft or damaged its formula");
+      if (operation == 3) {
+        require(!edited.contains("min") && !edited.contains("max"),
+                "editing a control label introduced different default range limits");
+      } else {
+        require(edited.value("min").toDouble() == (operation == 2 ? 0.375 : minimum) &&
+                    edited.value("max").toDouble() == maximum,
+                "native control editor rounded, clamped or replaced an untouched range limit");
+      }
+      if (operation == 1 || operation == 3)
+        require(edited.value("label").toString() == "Renamed Gain",
+                "native control label edit was lost while preserving range limits");
+    }
+
     // A display picker must preserve the native HDR source value and precision
     // for every component the artist leaves untouched, including on cancel.
     for (int operation = 0; operation < 3; ++operation) {

@@ -155,20 +155,27 @@ void exerciseNativeReferenceLifecycle(QMainWindow *window) {
   TXshSimpleLevel *level = scene->createNewLevel(PLI_XSHLEVEL, L"SeExprNativeDrawing")
                               ->getSimpleLevel();
   require(level, "native fixture could not create its disposable vector level");
+  checkpoint("created the disposable vector level");
   level->setFrame(TFrameId(1), TVectorImageP(new TVectorImage));
+  checkpoint("installed the disposable vector drawing");
   const TXshCell cell(level, TFrameId(1));
   for (int c = 0; c < 3; ++c)
     for (int row = 0; row < 4; ++row)
       require(xsheet->setCell(row, c, cell), "native fixture could not insert an exposure");
+  checkpoint("inserted the native vector exposures");
   keys(channel(xsheet, 0), "", 2, 8);
   keys(channel(xsheet, 1), seExprSource);
   keys(channel(xsheet, 2), "col2.x*3");
+  checkpoint("installed the mixed native and SeExpr curve sources");
   Preferences::instance()->setValue(modifyExpressionOnMovingReferences, true, false);
   app->getCurrentScene()->notifyPreferenceChanged("modifyExpressionOnMovingReferences");
+  checkpoint("enabled native expression reference monitoring");
   app->getCurrentXsheet()->notifyXsheetChanged();
   app->getCurrentFrame()->setFrame(0);
   app->getCurrentColumn()->setColumnIndex(0);
+  checkpoint("refreshing the initial native application views");
   settle();
+  checkpoint("refreshed the initial native application views");
   auto *monitor = ExpressionReferenceManager::instance();
   monitor->refreshXsheetRefInfo(xsheet);
   TUndoManager *history = TUndoManager::manager();

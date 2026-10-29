@@ -462,6 +462,15 @@ protected:
           NativeControl &native = *found->second;
           const QJsonObject previous = native.spec.definition;
           native.spec = spec;
+          if (spec.type == "scalar" || spec.type == "vector") {
+            const double minimum = number(spec.definition.value("min"), -1000000);
+            const double maximum = number(spec.definition.value("max"), 1000000);
+            if (spec.type == "scalar")
+              native.scalar->setValueRange(minimum, maximum);
+            else
+              for (auto &component : native.vector)
+                component->setValueRange(minimum, maximum);
+          }
           if (spec.definition.value("presentation").toString() == "spectrum") {
             const auto values = spectrumValues(spec.definition.value("spectrum").toObject());
             const auto old = spectrumValues(previous.value("spectrum").toObject());

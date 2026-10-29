@@ -4,6 +4,7 @@ from contextlib import contextmanager
 import os
 from pathlib import Path
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -84,6 +85,48 @@ def isolated_fixture(source, executable, mesa_runtime=None):
 
 def decode_output(output):
     return output.decode("utf-8", errors="replace") if isinstance(output, bytes) else output or ""
+
+
+def linux_crash_diagnostics(executable, source):
+    debugger = shutil.which("gdb")
+    if debugger is None:
+        return "Linux crash debugger is unavailable; use the flushed native checkpoints.\n"
+    # Capture the observed crash in a fresh disposable profile. Never replace
+    # the original failed acceptance result with the diagnostic run's status.
+    command = [debugger, "--batch", "--quiet", "--nx",
+               "-ex", "set pagination off", "-ex", "set confirm off",
+               "-ex", "set debuginfod enabled off",
+               "-ex", "set print frame-arguments none", "-ex", "run",
+               "-ex", "info sharedlibrary", "-ex", "thread apply all bt 8",
+               "-ex", "bt 80", "--args", str(executable), "--test-seexpr-native"]
+    with isolated_fixture(source, executable) as (directory, environment):
+        process = subprocess.Popen(command, cwd=directory, env=environment,
+                                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                   start_new_session=True)
+        try:
+            output, _ = process.communicate(timeout=120)
+            return (decode_output(output) +
+                    f"\nDiagnostic debugger exited with status {process.returncode}. "
+                    "The original native test failure remains authoritative.\n")
+        except subprocess.TimeoutExpired as error:
+            # GDB owns a native GUI child. Kill the whole diagnostic session
+            # before deleting its disposable profile, including on timeout.
+            notes = "\nNative Linux crash debugger timed out after 120 seconds.\n"
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            except OSError as cleanup_error:
+                notes += f"Debugger process-group cleanup failed: {type(cleanup_error).__name__}.\n"
+            if process.poll() is None:
+                process.kill()
+            try:
+                output, _ = process.communicate(timeout=15)
+            except subprocess.TimeoutExpired:
+                output = error.output
+                process.stdout.close()
+                notes += "Debugger output did not close after termination.\n"
+            return decode_output(output) + notes
 
 
 def windows_crash_diagnostics(executable, source, native_status, symbol_directories,
@@ -179,6 +222,7 @@ def main():
         print(f"::error title=Native UI report::{message}")
         status = 1
     print(output, end="", flush=True)
+    diagnostics = None
     if (args.windows_crash_debugger and os.name == "nt" and native_status is not None
             and (native_status & 0xc0000000) == 0xc0000000):
         try:
@@ -187,6 +231,14 @@ def main():
         except (OSError, RuntimeError, ValueError) as error:
             diagnostics = ("Native crash diagnostics could not complete: "
                            f"{type(error).__name__}: {error}\n")
+    elif (sys.platform.startswith("linux") and native_status is not None
+          and native_status < 0 and os.environ.get("SEEXPR_LINUX_CRASH_DEBUGGER") == "1"):
+        try:
+            diagnostics = linux_crash_diagnostics(executable, source)
+        except (OSError, RuntimeError, ValueError) as error:
+            diagnostics = ("Native Linux crash diagnostics could not complete: "
+                           f"{type(error).__name__}: {error}\n")
+    if diagnostics is not None:
         report = args.output.with_name(args.output.stem + "-debugger.txt")
         try:
             report.write_text(diagnostics, encoding="utf-8")

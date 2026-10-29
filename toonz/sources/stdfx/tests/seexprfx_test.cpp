@@ -141,6 +141,42 @@ template <typename Pixel> void checkColorAndSampling() {
   require(rejected, "sampler silently exceeded its declared radius");
 }
 
+void checkControlRangeEdits() {
+  SeExprGeneratorFx fx;
+  auto amount = scalar("amount", 2.5);
+  QJsonObject direction{{"id", "direction"}, {"name", "direction"}, {"type", "vector"},
+      {"value", QJsonArray{1, 2, 3}}, {"min", -20}, {"max", 20}};
+  document(fx, "[$amount,$direction[0],$direction[1]]", "1", {amount, direction});
+  const std::array<std::string, 4> names{{"seexprControl_amount__value",
+      "seexprControl_direction__x", "seexprControl_direction__y", "seexprControl_direction__z"}};
+  const std::array<double, 4> defaults{{2.5, 1, 2, 3}};
+  const std::array<double, 4> values{{12.5, 4, 5, 6}};
+  std::array<TDoubleParamP, 4> parameters;
+  for (int i = 0; i < 4; ++i) {
+    parameters[i] = numeric(fx, names[i]);
+    double minimum, maximum, step;
+    require(parameters[i]->getValueRange(minimum, maximum, step) && minimum == -20 && maximum == 20,
+            "initial native control range differs from its declaration");
+    parameters[i]->setValue(1, values[i]);
+    parameters[i]->setValue(5, -values[i]);
+  }
+  amount["min"] = -1; amount["max"] = 1;
+  direction["min"] = -2; direction["max"] = 2;
+  document(fx, "[$amount,$direction[0],$direction[1]]", "1", {amount, direction});
+  for (int i = 0; i < 4; ++i) {
+    const auto current = numeric(fx, names[i]);
+    double minimum, maximum, step;
+    const double limit = i == 0 ? 1 : 2;
+    require(current.getPointer() == parameters[i].getPointer(),
+            "editing a native control range replaced its parameter object");
+    require(current->getValueRange(minimum, maximum, step) && minimum == -limit && maximum == limit,
+            "editing scalar/vector metadata did not update the native range");
+    require(current->getDefaultValue() == defaults[i] && current->isKeyframe(1) && current->isKeyframe(5) &&
+                current->getValue(1) == values[i] && current->getValue(5) == -values[i],
+            "editing a native control range changed its defaults or animated values");
+  }
+}
+
 void checkNamedControlsAndPersistence(const QString &directory) {
   TFxP owner = new SeExprGeneratorFx;
   auto &fx = *dynamic_cast<SeExprGeneratorFx *>(owner.getPointer());
@@ -536,7 +572,7 @@ int main(int argc, char **argv) {
     QTemporaryDir temporary; require(temporary.isValid(), "temporary fixture directory is unavailable");
     checkGenerator<TPixel32>(); checkGenerator<TPixel64>(); checkGenerator<TPixelF>();
     checkColorAndSampling<TPixel32>(); checkColorAndSampling<TPixel64>(); checkColorAndSampling<TPixelF>();
-    checkNamedControlsAndPersistence(temporary.path());
+    checkControlRangeEdits(); checkNamedControlsAndPersistence(temporary.path());
     checkUnsupportedDocumentPersistence(temporary.path()); checkFailuresAndWorkers();
     std::cout << "seexpr-fx: PASS\n"; return 0;
   } catch (const TException &error) {

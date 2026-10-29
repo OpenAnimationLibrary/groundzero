@@ -51,7 +51,7 @@ jobs:
         ok=0
         for attempt in 1 2 3; do
           if timeout 600 sudo apt-get update -o Acquire::http::Timeout=30 -o Acquire::Retries=5 &&
-             timeout 900 sudo apt-get install -y xvfb libgl1-mesa-dri -o Acquire::http::Timeout=30 -o Acquire::Retries=5 build-essential cmake pkg-config ninja-build ccache bison flex python3-dev libboost-all-dev qtbase5-dev qt5-qmake qtdeclarative5-dev qtdeclarative5-dev-tools qttools5-dev qttools5-dev-tools qtmultimedia5-dev qtwayland5 libqt5svg5-dev libqt5opengl5-dev libqt5multimedia5-plugins libqt5serialport5-dev libsuperlu-dev liblz4-dev libusb-1.0-0-dev liblzo2-dev libpng-dev libjpeg-dev libglew-dev freeglut3-dev libfreetype6-dev libjson-c-dev libmypaint-dev libopencv-dev libturbojpeg-dev libomp-dev libfuse2 ffmpeg; then ok=1; break; fi
+             timeout 900 sudo apt-get install -y xvfb libgl1-mesa-dri -o Acquire::http::Timeout=30 -o Acquire::Retries=5 build-essential cmake pkg-config ninja-build ccache bison flex gdb python3-dev libboost-all-dev qtbase5-dev qt5-qmake qtdeclarative5-dev qtdeclarative5-dev-tools qttools5-dev qttools5-dev-tools qtmultimedia5-dev qtwayland5 libqt5svg5-dev libqt5opengl5-dev libqt5multimedia5-plugins libqt5serialport5-dev libsuperlu-dev liblz4-dev libusb-1.0-0-dev liblzo2-dev libpng-dev libjpeg-dev libglew-dev freeglut3-dev libfreetype6-dev libjson-c-dev libmypaint-dev libopencv-dev libturbojpeg-dev libomp-dev libfuse2 ffmpeg; then ok=1; break; fi
           echo "::warning title=apt::attempt $attempt failed, retrying"
           sleep 20
         done
@@ -126,6 +126,8 @@ jobs:
       id: seexpr_tests
       if: ${{ !cancelled() && steps.application_build.outcome == 'success' }}
       working-directory: toonz/build
+      env:
+        SEEXPR_LINUX_CRASH_DEBUGGER: '1'
       run: |
         set -o pipefail
         QT_QPA_PLATFORM=xcb LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a ctest --output-on-failure --output-junit seexpr-tests.xml --no-tests=error --timeout 180 -R '^seexpr_' 2>&1 | tee seexpr-tests-output.txt
@@ -133,6 +135,26 @@ jobs:
     - name: Report SeExpr test failures
       if: ${{ failure() && steps.seexpr_tests.outcome == 'failure' }}
       run: python ci-scripts/seexpr/report.py toonz/build/seexpr-tests-output.txt
+
+    - name: Report native SeExpr crash stack
+      if: ${{ failure() && steps.seexpr_tests.outcome == 'failure' }}
+      run: |
+        report=toonz/build/seexpr-native-output-debugger.txt
+        if [ -f "$report" ]; then
+          python ci-scripts/seexpr/report.py "$report"
+        fi
+
+    - name: Retain SeExpr native diagnostics
+      if: ${{ always() && steps.seexpr_tests.outcome != 'skipped' }}
+      uses: actions/upload-artifact@v6
+      with:
+        name: SeExpr-native-diagnostics-${{ github.sha }}
+        path: |
+          toonz/build/seexpr-tests-output.txt
+          toonz/build/seexpr-tests.xml
+          toonz/build/seexpr-native-output.txt
+          toonz/build/seexpr-native-output-debugger.txt
+        if-no-files-found: warn
 
     - name: Measure SeExpr full-resolution rendering
       id: seexpr_performance
