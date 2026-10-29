@@ -208,12 +208,12 @@ QMenu::indicator {
 }
 QMenu::indicator:non-exclusive {
   background-color: #262626;
-  border: 1 solid #6e6e6e;
+  border: 1 solid #8a8a8a;
   border-radius: 2px;
   padding: 1;
   width: 10px;
   height: 10px;
-  border-color: #6e6e6e;
+  border-color: #8a8a8a;
 }
 QMenu::indicator:non-exclusive:hover {
   background-color: #3a3a3a;
@@ -249,7 +249,7 @@ QMenu::indicator:non-exclusive:indeterminate:disabled {
 }
 QMenu::indicator:non-exclusive:disabled {
   background-color: #2d2d2d;
-  border-color: #4a4a4a;
+  border-color: #555555;
 }
 QMenu::indicator:non-exclusive:selected,
 QMenu::indicator:non-exclusive:hover {
@@ -688,7 +688,7 @@ QCheckBox:disabled {
 }
 QCheckBox::indicator {
   background-color: #262626;
-  border: 1 solid #6e6e6e;
+  border: 1 solid #8a8a8a;
   border-radius: 2px;
   padding: 1;
   width: 10px;
@@ -728,7 +728,7 @@ QCheckBox::indicator:indeterminate:disabled {
 }
 QCheckBox::indicator:disabled {
   background-color: #2d2d2d;
-  border-color: #4a4a4a;
+  border-color: #555555;
 }
 QRadioButton {
   color: #d9d9d9;
@@ -794,7 +794,7 @@ QGroupBox::title:disabled {
 }
 QGroupBox::indicator {
   background-color: #262626;
-  border: 1 solid #6e6e6e;
+  border: 1 solid #8a8a8a;
   border-radius: 2px;
   padding: 1;
   width: 10px;
@@ -836,7 +836,7 @@ QGroupBox::indicator:indeterminate:disabled {
 }
 QGroupBox::indicator:disabled {
   background-color: #2d2d2d;
-  border-color: #4a4a4a;
+  border-color: #555555;
 }
 QGroupBox:disabled {
   color: rgba(217, 217, 217, 0.4);
@@ -1473,7 +1473,7 @@ StyledTreeView {
   border: 1 solid #1f1f1f;
 }
 #FileDoesNotExistLabel {
-  color: #ec5b62;
+  color: #f2767c;
 }
 /* -----------------------------------------------------------------------------
    Scene Cast
@@ -1551,7 +1551,7 @@ ParamsPage {
 }
 #CameraSettingsRadioButton::indicator {
   background-color: #262626;
-  border: 1 solid #6e6e6e;
+  border: 1 solid #8a8a8a;
   border-radius: 2px;
   padding: 1;
   width: 10px;
@@ -1604,7 +1604,7 @@ ParamsPage {
 }
 #CameraSettingsRadioButton::indicator:disabled {
   background-color: #2d2d2d;
-  border-color: #4a4a4a;
+  border-color: #555555;
 }
 #CameraSettingsRadioButton::indicator:hover {
   background-color: #4a4a4a;
@@ -2723,7 +2723,7 @@ Ruler {
    Schematic Viewer
 ----------------------------------------------------------------------------- */
 SchematicViewer {
-  qproperty-TextColor: rgba(255, 255, 255, 0.9);
+  qproperty-TextColor: rgba(0, 0, 0, 0.85);
   qproperty-SelectedBorderColor: white;
   qproperty-VerticalLineColor: rgba(0, 0, 0, 0.5);
   qproperty-LevelColumnColor: #bcd3ec;
@@ -2740,17 +2740,17 @@ SchematicViewer {
   qproperty-ActiveOutputColor: #9fc3e8;
   qproperty-OtherOutputColor: #b9cfd9;
   qproperty-XsheetColor: #8aa9d6;
-  qproperty-TableColor: #4f6fa8;
+  qproperty-TableColor: #9fb6dc;
   qproperty-PegColor: #d4b78a;
   qproperty-PassThroughColor: hsl(0, 0%, 75%);
   qproperty-PassThroughTextColor: white;
-  qproperty-GroupColor: #3f7fb8;
-  qproperty-SplineColor: #5f8f2f;
-  qproperty-NormalFxColor: #4a6584;
-  qproperty-MacroFxColor: #7d4f7d;
-  qproperty-ImageAdjustFxColor: #5d5a8c;
-  qproperty-LayerBlendingFxColor: #3f7878;
-  qproperty-MatteFxColor: #8c4f4f;
+  qproperty-GroupColor: #8fbbe0;
+  qproperty-SplineColor: #b5cf86;
+  qproperty-NormalFxColor: #a4b9cf;
+  qproperty-MacroFxColor: #cfa6cf;
+  qproperty-ImageAdjustFxColor: #b3b0d6;
+  qproperty-LayerBlendingFxColor: #93c3c3;
+  qproperty-MatteFxColor: #d4a0a0;
   qproperty-SchematicPreviewButtonBgOnColor: #e8c547;
   qproperty-SchematicPreviewButtonOnImage: url('../Default/imgs/white/schematic/schematic_preview_on.svg');
   qproperty-SchematicPreviewButtonBgOffColor: #a8a8a8;
@@ -3094,15 +3094,15 @@ DVGui--Separator {
 ----------------------------------------------------------------------------- */
 XsheetViewer {
   qproperty-TextColor: rgba(0, 0, 0, 0.85);
-  qproperty-ErrorTextColor: #ec5b62;
+  qproperty-ErrorTextColor: #9b1b1b;
   qproperty-SelectedTextColor: #000000;
   qproperty-FrameTextColor: #c8c8c8;
   qproperty-CurrentFrameTextColor: white;
   qproperty-PreviewFrameTextColor: #78b5ff;
   qproperty-ColumnTextColor: #d9d9d9;
   qproperty-HighlightColumnTextColor: rgba(0, 0, 0, 0.85);
-  qproperty-KeyframeLineColor: rgba(0, 0, 0, 0.85);
-  qproperty-LevelEndColor: rgba(0, 0, 0, 0.85);
+  qproperty-KeyframeLineColor: rgba(255, 255, 255, 0.85);
+  qproperty-LevelEndColor: rgba(255, 255, 255, 0.85);
   qproperty-BGColor: #2b2b2b;
   qproperty-LightBGColor: #dadada;
   qproperty-DarkBGColor: #cbcbcb;
@@ -3130,37 +3130,37 @@ XsheetViewer {
   qproperty-NotEmptyColumnColor: #3c3c3c;
   qproperty-SelectedEmptyCellColor: rgba(38, 128, 235, 0.35);
   qproperty-LevelColumnColor: #bcd3ec;
-  qproperty-LevelColumnBorderColor: #659ad3;
+  qproperty-LevelColumnBorderColor: #4585ca;
   qproperty-SelectedLevelColumnColor: #76aeea;
   qproperty-FullcolorColumnColor: #cfc0e6;
-  qproperty-FullcolorColumnBorderColor: #9270c6;
+  qproperty-FullcolorColumnBorderColor: #7c52bb;
   qproperty-SelectedFullcolorColumnColor: #a57fe0;
   qproperty-VectorColumnColor: #d9d9d9;
-  qproperty-VectorColumnBorderColor: #a1a1a1;
+  qproperty-VectorColumnBorderColor: #8d8d8d;
   qproperty-SelectedVectorColumnColor: #c3a8a8;
   qproperty-ChildColumnColor: #bfe0b0;
-  qproperty-ChildColumnBorderColor: #7ec05f;
+  qproperty-ChildColumnBorderColor: #67b146;
   qproperty-SelectedChildColumnColor: #8fdc6c;
   qproperty-FxColumnColor: #e8d3a8;
-  qproperty-FxColumnBorderColor: #d1a64f;
+  qproperty-FxColumnBorderColor: #c39434;
   qproperty-SelectedFxColumnColor: #e9bc5f;
   qproperty-ReferenceColumnColor: #a8a8a8;
-  qproperty-ReferenceColumnBorderColor: #707070;
+  qproperty-ReferenceColumnBorderColor: #5c5c5c;
   qproperty-SelectedReferenceColumnColor: #848484;
   qproperty-PaletteColumnColor: #b7dcd8;
-  qproperty-PaletteColumnBorderColor: #6cb7af;
+  qproperty-PaletteColumnBorderColor: #52a89f;
   qproperty-SelectedPaletteColumnColor: #77d5cb;
   qproperty-MeshColumnColor: #dcc5e8;
-  qproperty-MeshColumnBorderColor: #ac75c8;
+  qproperty-MeshColumnBorderColor: #9a57bd;
   qproperty-SelectedMeshColumnColor: #c184e1;
   qproperty-MetaColumnColor: #b7dcd8;
-  qproperty-MetaColumnBorderColor: #6cb7af;
+  qproperty-MetaColumnBorderColor: #52a89f;
   qproperty-SelectedMetaColumnColor: #77d5cb;
   qproperty-SoundTextColumnColor: #ece6c9;
   qproperty-SoundTextColumnBorderColor: #cfc076;
   qproperty-SelectedSoundTextColumnColor: #dfd5a3;
   qproperty-SoundColumnColor: #c6d9b8;
-  qproperty-SoundColumnBorderColor: #8bb26f;
+  qproperty-SoundColumnBorderColor: #76a256;
   qproperty-SelectedSoundColumnColor: #9ed079;
   qproperty-SoundColumnHlColor: #34FE5E;
   qproperty-SoundColumnTrackColor: #1b1b1b;
@@ -3190,17 +3190,17 @@ XsheetViewer {
   qproperty-XsheetConfigButtonImage: url('../Default/imgs/white/xsheet/x_config.svg');
   qproperty-TimelineIconLineColor: #1f1f1f;
   qproperty-FrameRangeMarkerLineColor: rgba(255, 255, 255, 0.5);
-  qproperty-TimelinePreviewButtonBgOnColor: #e8c547;
+  qproperty-TimelinePreviewButtonBgOnColor: #323232;
   qproperty-TimelinePreviewButtonOnImage: url('../Default/imgs/white/timeline/preview_small.svg');
   qproperty-TimelinePreviewButtonBgOffColor: #323232;
   qproperty-TimelinePreviewButtonOffImage: url('../Default/imgs/white/timeline/transparent.svg');
   qproperty-TimelineUnifiedButtonTranspImage: url('../Default/imgs/white/timeline/preview_trans_small.svg');
-  qproperty-TimelineCamstandButtonBgOnColor: #e8956b;
+  qproperty-TimelineCamstandButtonBgOnColor: #323232;
   qproperty-TimelineCamstandButtonOnImage: url('../Default/imgs/white/timeline/table_small.svg');
   qproperty-TimelineCamstandButtonTranspImage: url('../Default/imgs/white/timeline/trans_small.svg');
   qproperty-TimelineCamstandButtonBgOffColor: #323232;
   qproperty-TimelineCamstandButtonOffImage: url('../Default/imgs/white/timeline/transparent.svg');
-  qproperty-TimelineLockButtonBgOnColor: #e34850;
+  qproperty-TimelineLockButtonBgOnColor: #323232;
   qproperty-TimelineLockButtonOnImage: url('../Default/imgs/white/timeline/lock_on_small.svg');
   qproperty-TimelineLockButtonBgOffColor: #323232;
   qproperty-TimelineLockButtonOffImage: url('../Default/imgs/white/timeline/transparent.svg');
@@ -3329,11 +3329,11 @@ FunctionPanel {
 }
 SpreadsheetViewer {
   qproperty-BGColor: #3c3c3c;
-  qproperty-TextColor: white;
+  qproperty-TextColor: rgba(0, 0, 0, 0.85);
   qproperty-LightLightBGColor: #353535;
   qproperty-LightLineColor: rgba(0, 0, 0, 0.35);
   qproperty-VerticalLineColor: rgba(0, 0, 0, 0.5);
-  qproperty-KeyframeLineColor: white;
+  qproperty-KeyframeLineColor: rgba(0, 0, 0, 0.85);
   qproperty-FrameTextColor: #c8c8c8;
   qproperty-CurrentRowTextColor: white;
   qproperty-CurrentRowBgColor: rgba(38, 128, 235, 0.8);
@@ -3344,16 +3344,16 @@ SpreadsheetViewer {
   qproperty-ColumnHeaderBorderColor: #1f1f1f;
   qproperty-SelectedEmptyColor: rgba(38, 128, 235, 0.35);
   qproperty-SelectedSceneRangeEmptyColor: rgba(38, 128, 235, 0.35);
-  qproperty-KeyFrameColor: #b8742e;
-  qproperty-KeyFrameBorderColor: #f1983c;
-  qproperty-SelectedKeyFrameColor: #d7a777;
-  qproperty-IgnoredKeyFrameColor: #a8454f;
-  qproperty-SelectedIgnoredKeyFrameColor: #c88a90;
-  qproperty-InBetweenColor: #5f5f5f;
-  qproperty-InBetweenBorderColor: #9a9a9a;
-  qproperty-SelectedInBetweenColor: #887c7c;
-  qproperty-IgnoredInBetweenColor: #7f6f68;
-  qproperty-SelectedIgnoredInBetweenColor: #9b8f89;
+  qproperty-KeyFrameColor: #f5a255;
+  qproperty-KeyFrameBorderColor: #9d6129;
+  qproperty-SelectedKeyFrameColor: #ffd0a5;
+  qproperty-IgnoredKeyFrameColor: #cc5b69;
+  qproperty-SelectedIgnoredKeyFrameColor: #e6adb4;
+  qproperty-InBetweenColor: #e2dbcc;
+  qproperty-InBetweenBorderColor: #a39b8a;
+  qproperty-SelectedInBetweenColor: #f6f0e4;
+  qproperty-IgnoredInBetweenColor: #b99083;
+  qproperty-SelectedIgnoredInBetweenColor: #e0cdc7;
 }
 SpreadsheetViewer QLineEdit {
   margin-top: 1;

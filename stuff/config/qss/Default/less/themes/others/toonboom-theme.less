@@ -57,10 +57,10 @@
 // Text
 @text-color: #d6d9dc;
 @text-color-active: #ffffff;
-@text-color-inactive: fade(@text-color, 60%);
+@text-color-inactive: fade(@text-color, 70%);
 
 // Highlight (teal)
-@hl-color: #3296a8;
+@hl-color: #27859a;
 @hl-text-color: white;
 
 @lock-color: #d9534f;
@@ -105,7 +105,7 @@
 @rooms-tab-text-color: #9aa0a6;
 @rooms-tab-bg-color-hover: #35383c;
 @rooms-tab-bg-color-selected: @hl-color;
-@rooms-tab-bg-color-selected-hover: #3ba6b8;
+@rooms-tab-bg-color-selected-hover: #2f93a6;
 
 // -----------------------------------------------------------------------------
 // Context Menu
@@ -141,10 +141,10 @@
 @button-text-color-checked: @hl-text-color;
 @button-bg-color-checked: @hl-color;
 @button-border-color-checked: @hl-color;
-@button-bg-color-checked-hover: #3ba6b8;
+@button-bg-color-checked-hover: #2f93a6;
 
 // Focus
-@button-border-color-focus: #3ba6b8;
+@button-border-color-focus: #2f93a6;
 
 // Disabled
 @button-border-color-disabled: fade(@button-border-color, 30%);
@@ -167,8 +167,8 @@
 @toolbutton-border-color-pressed: #2d2f32;
 
 @toolbutton-bg-color-checked: @hl-color;
-@toolbutton-bg-color-checked-hover: #3ba6b8;
-@toolbutton-border-color-checked-hover: #3ba6b8;
+@toolbutton-bg-color-checked-hover: #2f93a6;
+@toolbutton-border-color-checked-hover: #2f93a6;
 
 // -----------------------------------------------------------------------------
 // Scrollbars
@@ -194,9 +194,9 @@
 // CheckBox
 // -----------------------------------------------------------------------------
 @checkbox-bg-color: @dark-color-3;
-@checkbox-border-color: #6b7078;
+@checkbox-border-color: #8e949d;
 @checkbox-border-color-hover: #8e949d;
-@checkbox-bg-color-checked-hover: #3ba6b8;
+@checkbox-bg-color-checked-hover: #2f93a6;
 
 // -----------------------------------------------------------------------------
 // Sliders
@@ -279,7 +279,7 @@
 @xsh-cell-lighten-amount: 0%;
 @xsh-cell-sat-amount:     0%;
 
-@xsh-border-darken-amount: 22%;
+@xsh-border-darken-amount: 30%;
 @xsh-border-sat-amount:     0%;
 
 // Selected cells get darker and more saturated, like a selection tint
@@ -326,11 +326,16 @@
 // SPREADSHEET CELL AREA -------------------------------------------------------
 @xsh-empty-column-color: #303336;
 @xsh-empty-column-range-color: #383b3f;
-@xsh-empty-cell-color-selected: rgba(50, 150, 168, 0.35);
+@xsh-empty-cell-color-selected: rgba(39, 133, 154, 0.35);
 
 @xsh-cell-text-color: rgba(0, 0, 0, 0.85);
 @xsh-current-cell-border-color: #d9262c;
 @xsh-current-column-border-color: @hl-color;
+
+// Marks drawn on the dark empty cells need light ink, unlike the cell text
+@xsh-error-text-color: #9b1b1b;
+@xsh-level-end-color: rgba(255, 255, 255, 0.85);
+@xsh-keyframe-line-color: rgba(255, 255, 255, 0.85);
 
 // ONION SKIN AREA -------------------------------------------------------------
 @xsh-onionskin-column-bg-color: #2c2e31;
@@ -356,28 +361,28 @@
 // TIMELINE VIEW ---------------------------------------------------------------
 @timeline-column-header-border-color: #24262a;
 
-@timeline-preview-button-bg-on-color: @xsh-button-preview-bg-on-color;
-@timeline-table-button-bg-on-color: @xsh-button-camstand-bg-on-color;
-@timeline-lock-button-bg-on-color: @xsh-button-lock-bg-on-color;
+// The timeline header icons are white, so the on-state buttons keep the
+// default (panel colour) background instead of the yellow/orange tints.
 
 // -----------------------------------------------------------------------------
 // Nodes [node]
 // -----------------------------------------------------------------------------
 @node-viewer-bg-color: #2a2c2f;
-@node-text-color: rgba(255, 255, 255, 0.9);
+@node-text-color: rgba(0, 0, 0, 0.85);
 
-// Node colors are mid tones so the light text stays readable
+// Column nodes take the light Xsheet level colours, so the node text is dark
+// and the remaining node colours are pastels to match
 @node-lighten-amount: 0%;
 @node-sat-amount: 0%;
 
-@node-table-color: #5b7fb3;
-@node-group-color: #4a8a9a;
-@node-spline-color: #6b9a3d;
-@node-normal-fx-color: #4d6e8f;
-@node-macro-fx-color: #8a5a8a;
-@node-image-adjust-fx-color: #6a5a9a;
-@node-layer-blending-fx-color: #3f7f7f;
-@node-matte-fx-color: #9a4f4f;
+@node-table-color: #9fb6dc;
+@node-group-color: #8fbbe0;
+@node-spline-color: #b5cf86;
+@node-normal-fx-color: #a4b9cf;
+@node-macro-fx-color: #cfa6cf;
+@node-image-adjust-fx-color: #b3b0d6;
+@node-layer-blending-fx-color: #93c3c3;
+@node-matte-fx-color: #d4a0a0;
 
 @node-link-color: #d0d4d8;
 @node-selected-link-color: #5fe3f0;
@@ -393,10 +398,25 @@
 // -----------------------------------------------------------------------------
 @fe-header-border-color: #24262a;
 
-@fe-keyframe-color: #c7873c;
-@fe-ignored-keyframe-color: #b24a56;
-@fe-inbetween-color: #6a7078;
-@fe-ignored-inbetween-color: #8f7e78;
+// Light cells with dark text, matching the Xsheet
+@fe-text-color: rgba(0, 0, 0, 0.85);
+
+@fe-kf-lighten-amount: 0%;
+@fe-kf-sat-amount: 0%;
+@fe-kf-border-darken-amount: 40%;
+@fe-kf-border-sat-amount: 10%;
+@fe-kf-hl-lighten-amount: 50%;
+@fe-kf-hl-sat-amount: 30%;
+
+@fe-ib-border-darken-amount: 30%;
+@fe-ib-border-sat-amount: 5%;
+@fe-ib-hl-lighten-amount: 55%;
+@fe-ib-hl-sat-amount: 20%;
+
+@fe-keyframe-color: #f5a255;
+@fe-ignored-keyframe-color: #cc5b69;
+@fe-inbetween-color: #e2dbcc;
+@fe-ignored-inbetween-color: #b99083;
 
 @fe-panel-bg-color: #2f3236;
 @fe-panel-ruler-bg-color: #2a2c2f;

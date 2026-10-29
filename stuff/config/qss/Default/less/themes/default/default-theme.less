@@ -582,6 +582,9 @@
 
 @xsh-cell-text-color: rgba(255, 255, 255, 0.85);
 @xsh-cell-text-color-selected: rgba(@xsh-cell-text-color, 1.0);
+@xsh-error-text-color: @error-label-color; // missing level / frame
+@xsh-level-end-color: @xsh-cell-text-color; // cross after the last exposed cell (drawn on empty cells)
+@xsh-keyframe-line-color: @xsh-cell-text-color; // keyframe cycle line (drawn on empty cells)
 
 @xsh-current-cell-border-color: cyan;
 @xsh-current-column-border-color: #69ade8;

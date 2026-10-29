@@ -282,17 +282,17 @@
 @xsh-border-sat-amount:     0%;
 
 // Selected clips get lighter and a little more saturated, like Premiere
-@xsh-hl-lighten-amount: 12%;
-@xsh-hl-sat-amount:     10%;
+@xsh-hl-lighten-amount: -10%;
+@xsh-hl-sat-amount:      15%;
 
 // LEVEL COLORS (Premiere label colours) ---------------------------------------
-@xsh-vector-color: #6e74c2;       // Iris
-@xsh-toonzraster-color: #3f9aa3;  // Caribbean
-@xsh-raster-color: #8f7fc9;       // Lavender
+@xsh-vector-color: #676dbf;       // Iris
+@xsh-toonzraster-color: #347e86;  // Caribbean
+@xsh-raster-color: #7966be;       // Lavender
 @xsh-sub-color: #7a4fa0;          // Violet
-@xsh-fx-color: #d08a3a;           // Mango
-@xsh-palette-color: #3a7fb3;      // Cerulean
-@xsh-mesh-color: #a85a9a;         // Magenta
+@xsh-fx-color: #a16826;           // Mango
+@xsh-palette-color: #387aab;      // Cerulean
+@xsh-mesh-color: #a65798;         // Magenta
 @xsh-assistants-color: @xsh-palette-color;
 @xsh-reference-color: #6e6e6e;
 
@@ -301,14 +301,14 @@
 @xsh-notes-border-color: darken(@xsh-notes-color, 22%);
 @xsh-notes-hl-color: darken(@xsh-notes-color, 10%);
 
-@xsh-sound-color: #4f8f4f;        // Forest
+@xsh-sound-color: #488248;        // Forest
 @xsh-sound-track-color: #101010;
 
-@xsh-camera-active-color: #c75a7a; // Rose
-@xsh-camera-other-color: #a08a60;  // Tan
+@xsh-camera-active-color: #c24b6e; // Rose
+@xsh-camera-other-color: #84714f;  // Tan
 
 @xsh-xsheet-color: #5a6fb0;
-@xsh-peg-color: #9a7a4a;          // Brown
+@xsh-peg-color: #8c6f43;          // Brown
 
 // SPREADSHEET LINES -----------------------------------------------------------
 @xsh-horizontal-row-line-color: rgba(0, 0, 0, 0.35);
@@ -328,9 +328,12 @@
 @xsh-empty-column-range-color: #262626;
 @xsh-empty-cell-color-selected: rgba(122, 122, 245, 0.35);
 
-@xsh-cell-text-color: rgba(255, 255, 255, 0.92);
+@xsh-cell-text-color: white;
 @xsh-current-cell-border-color: #2d8ceb;
 @xsh-current-column-border-color: #7a7af5;
+
+// Pale ink for missing levels: a saturated red would vanish on the clip colours
+@xsh-error-text-color: #ffd2d2;
 
 // ONION SKIN AREA -------------------------------------------------------------
 @xsh-onionskin-column-bg-color: #202020;
@@ -356,23 +359,22 @@
 // TIMELINE VIEW ---------------------------------------------------------------
 @timeline-column-header-border-color: #141414;
 
-@timeline-preview-button-bg-on-color: @xsh-button-preview-bg-on-color;
-@timeline-table-button-bg-on-color: @xsh-button-camstand-bg-on-color;
-@timeline-lock-button-bg-on-color: @xsh-button-lock-bg-on-color;
+// The timeline header icons are white, so the on-state buttons keep the
+// default (panel colour) background instead of the yellow/orange tints.
 
 // -----------------------------------------------------------------------------
 // Nodes [node]
 // -----------------------------------------------------------------------------
 @node-viewer-bg-color: @dark-color-1;
-@node-text-color: rgba(255, 255, 255, 0.9);
+@node-text-color: white;
 
 // Node colors are mid tones so the light text stays readable
 @node-lighten-amount: 0%;
 @node-sat-amount: 0%;
 
 @node-table-color: #5a6fb0;
-@node-group-color: #3f7fb8;
-@node-spline-color: #5f8f2f;
+@node-group-color: #3b77ad;
+@node-spline-color: #55802a;
 @node-normal-fx-color: #4a6584;
 @node-macro-fx-color: #7d4f7d;
 @node-image-adjust-fx-color: #5d5a8c;
@@ -393,7 +395,13 @@
 // -----------------------------------------------------------------------------
 @fe-header-border-color: #141414;
 
-@fe-keyframe-color: #b8742e;
+// Modest selection tints so the white text stays readable
+@fe-kf-hl-lighten-amount: 12%;
+@fe-kf-hl-sat-amount: 5%;
+@fe-ib-hl-lighten-amount: 12%;
+@fe-ib-hl-sat-amount: 5%;
+
+@fe-keyframe-color: #a46729;
 @fe-ignored-keyframe-color: #a8454f;
 @fe-inbetween-color: #585858;
 @fe-ignored-inbetween-color: #7f6f68;

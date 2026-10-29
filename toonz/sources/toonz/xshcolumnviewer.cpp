@@ -3548,7 +3548,7 @@ void ColumnGroupArea::paintEvent(QPaintEvent *event) {
         arrow << QPoint(c.x() - 4, c.y() - 2) << QPoint(c.x() + 4, c.y() - 2)
               << QPoint(c.x(), c.y() + 2);
       p.setPen(Qt::NoPen);
-      p.setBrush(m_viewer->getTextColor());
+      p.setBrush(m_viewer->getColumnTextColor());
       p.drawPolygon(arrow);
       p.setBrush(Qt::NoBrush);
     }
@@ -3556,7 +3556,7 @@ void ColumnGroupArea::paintEvent(QPaintEvent *event) {
     // group name
     QRect nameRect = rect.adjusted(toggleRect.width(), 0, -2, 0);
     if (nameRect.width() > 8) {
-      p.setPen(m_viewer->getTextColor());
+      p.setPen(m_viewer->getColumnTextColor());
       QString name = p.fontMetrics().elidedText(strip.m_name, Qt::ElideRight,
                                                 nameRect.width());
       p.drawText(nameRect, Qt::AlignLeft | Qt::AlignVCenter, name);
