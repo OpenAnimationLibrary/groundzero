@@ -1,6 +1,7 @@
 
 
 #include "trasterfx.h"
+#include "texception.h"
 
 // Core-system includes
 #include "tsystem.h"
@@ -20,6 +21,9 @@
 #include "trenderresourcemanager.h"
 #include "tfxcachemanager.h"
 #include "trenderer.h"
+
+#include <cmath>
+#include <limits>
 
 // Diagnostics
 // #define DIAGNOSTICS
@@ -142,6 +146,121 @@ inline int getResampleFilterRadius(const TRenderSettings &info) {
     assert(false);
     return -1;
   }
+}
+
+//--------------------------------------------------
+
+bool normalizeRenderTranslation(const TPointD &position, const TAffine &affine,
+                                TPointD &normalizedPosition,
+                                TPointD &normalizedTranslation) {
+  TPoint intTilePos(tfloor(position.x), tfloor(position.y));
+  TPointD fracTilePos(position.x - intTilePos.x, position.y - intTilePos.y);
+  TPointD fracInfoTranslation(affine.a13 - fracTilePos.x,
+                              affine.a23 - fracTilePos.y);
+  TPoint intInfoTranslation(tfloor(fracInfoTranslation.x),
+                            tfloor(fracInfoTranslation.y));
+  normalizedPosition = TPointD(intTilePos.x - intInfoTranslation.x,
+                                intTilePos.y - intInfoTranslation.y);
+  normalizedTranslation = TPointD(fracInfoTranslation.x - intInfoTranslation.x,
+                                   fracInfoTranslation.y - intInfoTranslation.y);
+  return position != normalizedPosition;
+}
+
+//--------------------------------------------------
+
+void validateRenderAffine(const TAffine &affine) {
+  if (!std::isfinite(affine.a11) || !std::isfinite(affine.a12) ||
+      !std::isfinite(affine.a13) || !std::isfinite(affine.a21) ||
+      !std::isfinite(affine.a22) || !std::isfinite(affine.a23) ||
+      !std::isfinite(affine.det()) || affine.det() == 0)
+    throw TException("Render request requires a finite, invertible affine.");
+}
+
+void validateRenderRequest(const TRectD &rect, const TRenderSettings &settings) {
+  validateRenderAffine(settings.m_affine);
+  if (!std::isfinite(rect.x0) || !std::isfinite(rect.y0) ||
+      !std::isfinite(rect.x1) || !std::isfinite(rect.y1))
+    throw TException("Render request requires finite pixel bounds.");
+
+  // Leave room for the renderer's floor/ceil/round operations and integer
+  // dimension arithmetic. Check in doubles before any integer conversion.
+  const double minimum = double(std::numeric_limits<int>::min()) + 1;
+  const double maximum = double(std::numeric_limits<int>::max()) - 1;
+  auto validCoordinate = [&](double value) {
+    return std::isfinite(value) && value >= minimum && value <= maximum;
+  };
+  const double width = rect.getLx(), height = rect.getLy();
+  if (!validCoordinate(rect.x0) || !validCoordinate(rect.y0) ||
+      !validCoordinate(rect.x1) || !validCoordinate(rect.y1) ||
+      !std::isfinite(width) || !std::isfinite(height) ||
+      width > maximum || height > maximum)
+    throw TException("Render request exceeds the supported pixel coordinate range.");
+  if (myIsEmpty(rect)) return;
+
+  const double integerX = std::floor(rect.x0), integerY = std::floor(rect.y0);
+  const double fractionalX = settings.m_affine.a13 - (rect.x0 - integerX);
+  const double fractionalY = settings.m_affine.a23 - (rect.y0 - integerY);
+  const double normalizedX = integerX - std::floor(fractionalX);
+  const double normalizedY = integerY - std::floor(fractionalY);
+  if (!validCoordinate(fractionalX) || !validCoordinate(fractionalY) ||
+      !validCoordinate(normalizedX) || !validCoordinate(normalizedY) ||
+      !validCoordinate(normalizedX + width) ||
+      !validCoordinate(normalizedY + height))
+    throw TException("Render request exceeds the supported pixel coordinate range.");
+}
+
+// Bounds may deliberately be infinite. Round them without integer casts, then
+// validate the finite requested intersection rather than rejecting such FXs.
+void enlargeRequestBBoxToI(TRectD &bbox) {
+  TRectD rounded(std::floor(bbox.x0), std::floor(bbox.y0),
+                 std::ceil(bbox.x1), std::ceil(bbox.y1));
+  if (!myIsEmpty(rounded)) bbox = rounded;
+}
+
+void getRenderRequestBBox(TRasterFx *fx, double frame,
+                          const TRenderSettings &settings, TRectD &bbox,
+                          bool checked) {
+  if (!checked) {
+    fx->getBBox(frame, bbox, settings);
+    return;
+  }
+  fx->doGetBBox(frame, bbox, settings);
+  if (!bbox.isEmpty()) {
+    bbox = settings.m_affine * bbox;
+    enlargeRequestBBoxToI(bbox);
+  }
+}
+
+//--------------------------------------------------
+
+bool buildAffineInput(TRasterFx *fx, const TRectD &rectOut, double frame,
+                      const TRenderSettings &infoOut, TRectD &rectIn,
+                      TRenderSettings &infoIn, TAffine &appliedAff,
+                      bool checked = false) {
+  if (myIsEmpty(rectOut)) return false;
+
+  infoIn.m_affine = fx->handledAffine(infoOut, frame);
+  if (checked) validateRenderAffine(infoIn.m_affine);
+  appliedAff = infoOut.m_affine * infoIn.m_affine.inv();
+  if (checked) validateRenderAffine(appliedAff);
+
+  // Keep the renderer's existing near-singular-transform cutoff.
+  if (fabs(appliedAff.det()) < 1e-6) return false;
+
+  const TAffine &appliedAffInv = appliedAff.inv();
+  if (checked) validateRenderAffine(appliedAffInv);
+  int filterRadius = getResampleFilterRadius(infoOut);
+  TRectD bbox;
+  getRenderRequestBBox(fx, frame, infoIn, bbox, checked);
+
+  // Filter support applies in input during magnification and in output during
+  // minification, so both extents contribute to the requested rectangle.
+  rectIn = ((appliedAffInv * rectOut).enlarge(filterRadius) +
+            (appliedAffInv * rectOut.enlarge(filterRadius))) * bbox;
+  if (checked) validateRenderRequest(rectIn, infoIn);
+  if (myIsEmpty(rectIn)) return false;
+  enlargeToI(rectIn);
+  return true;
 }
 
 //--------------------------------------------------
@@ -320,38 +439,8 @@ private:
   bool buildInput(const TRectD &rectOut, double frame,
                   const TRenderSettings &infoOut, TRectD &rectIn,
                   TRenderSettings &infoIn, TAffine &appliedAff) {
-    if (myIsEmpty(rectOut)) return false;
-
-    // Build the affines
-    infoIn.m_affine = m_fx->handledAffine(infoOut, frame);
-    appliedAff      = infoOut.m_affine * infoIn.m_affine.inv();
-
-    // Quick fix - prevent near-singular transforms.
-    // NOTE: This check **SHOULD BE REMOVED** and dealt with at the RESAMPLING
-    // level.
-    //       Observe how the tolerance value is quite arbitrary! Yeah I know
-    //       it's shameful... :(
-    if (fabs(appliedAff.det()) < 1e-6)  // TO BE REMOVED
-      return false;                     // TO BE REMOVED
-
-    // Build the input rect
-    const TAffine &appliedAffInv = appliedAff.inv();
-    int filterRadius             = getResampleFilterRadius(infoOut);
-
-    TRectD bbox;
-    m_fx->getBBox(frame, bbox, infoIn);
-
-    rectIn =
-        ((appliedAffInv * rectOut)
-             .enlarge(
-                 filterRadius) +  // The filter size applies in input during
-         (appliedAffInv * rectOut.enlarge(filterRadius))) *
-        bbox;  // magnifications, and in output during
-               // minifications. Thus, they basically cumulate.
-    if (myIsEmpty(rectIn)) return false;
-
-    enlargeToI(rectIn);
-    return true;
+    return buildAffineInput(m_fx, rectOut, frame, infoOut, rectIn, infoIn,
+                            appliedAff);
   }
 };
 
@@ -616,6 +705,57 @@ int TRasterFx::getMemoryRequirement(const TRectD &rect, double frame,
 
 //--------------------------------------------------
 
+bool TRasterFx::prepareRenderRequest(
+    double frame, const TRectD &requestedRect,
+    const TRenderSettings &requestedSettings, TRectD &actualRect,
+    TRenderSettings &actualSettings) {
+  if (!std::isfinite(frame))
+    throw TException("Render request requires a finite frame.");
+  actualRect = requestedRect;
+  actualSettings = requestedSettings;
+  if ((checkActiveTimeRegion() && !getActiveTimeRegion().contains(frame)) ||
+      !getAttributes()->isEnabled() || !m_rasFxImp->isEnabled())
+    return false;
+
+  for (;;) {
+    validateRenderRequest(actualRect, actualSettings);
+    if (myIsEmpty(actualRect)) return false;
+    TPointD position, translation;
+    if (normalizeRenderTranslation(actualRect.getP00(), actualSettings.m_affine,
+                                    position, translation)) {
+      actualRect = TRectD(position, actualRect.getSize());
+      actualSettings.m_affine.a13 = translation.x;
+      actualSettings.m_affine.a23 = translation.y;
+      continue;
+    }
+
+    const bool canHandleAffine = canHandle(actualSettings, frame) ||
+        handledAffine(actualSettings, frame) == actualSettings.m_affine;
+    TRectD bbox;
+    getRenderRequestBBox(this, frame, actualSettings, bbox, true);
+    enlargeRequestBBoxToI(bbox);
+    actualRect *= bbox;
+    validateRenderRequest(actualRect, actualSettings);
+    if (myIsEmpty(actualRect)) return false;
+    if ((actualSettings.m_affine.isIdentity() && !usesCustomRenderGrid()) ||
+        canHandleAffine)
+      return true;
+
+    // TrFx::compute clips its output to this same bbox before buildInput(),
+    // then allocateAndCompute() normalizes the resulting input request again.
+    TRectD inputRect;
+    TRenderSettings inputSettings(actualSettings);
+    TAffine appliedAffine;
+    if (!buildAffineInput(this, actualRect, frame, actualSettings, inputRect,
+                           inputSettings, appliedAffine, true))
+      return false;
+    actualRect = inputRect;
+    actualSettings = inputSettings;
+  }
+}
+
+//--------------------------------------------------
+
 std::string TRasterFx::getAlias(double frame,
                                 const TRenderSettings &info) const {
   std::string alias = getFxType();
@@ -663,19 +803,12 @@ void TRasterFx::dryCompute(TRectD &rect, double frame,
 
   // If the input tile has a fractionary position, it is passed to the
   // rendersettings' accumulated affine.
-  TPoint intTilePos(tfloor(rect.x0), tfloor(rect.y0));
-  TPointD fracTilePos(rect.x0 - intTilePos.x, rect.y0 - intTilePos.y);
-  TPointD fracInfoTranslation(info.m_affine.a13 - fracTilePos.x,
-                              info.m_affine.a23 - fracTilePos.y);
-  TPoint intInfoTranslation(tfloor(fracInfoTranslation.x),
-                            tfloor(fracInfoTranslation.y));
-  TPointD newTilePos(intTilePos.x - intInfoTranslation.x,
-                     intTilePos.y - intInfoTranslation.y);
-
-  if (rect.getP00() != newTilePos) {
+  TPointD newTilePos, translation;
+  if (normalizeRenderTranslation(rect.getP00(), info.m_affine, newTilePos,
+                                  translation)) {
     TRenderSettings newInfo(info);
-    newInfo.m_affine.a13 = fracInfoTranslation.x - intInfoTranslation.x;
-    newInfo.m_affine.a23 = fracInfoTranslation.y - intInfoTranslation.y;
+    newInfo.m_affine.a13 = translation.x;
+    newInfo.m_affine.a23 = translation.y;
 
     TRectD newRect(newTilePos, rect.getSize());
 
@@ -855,20 +988,14 @@ void TRasterFx::compute(TTile &tile, double frame,
   // If the input tile has a fractionary position, it is passed to the
   // rendersettings' accumulated affine. At the same time, the integer part of
   // such affine is transferred to the tile.
-  TPoint intTilePos(tfloor(tile.m_pos.x), tfloor(tile.m_pos.y));
-  TPointD fracTilePos(tile.m_pos.x - intTilePos.x, tile.m_pos.y - intTilePos.y);
-  TPointD fracInfoTranslation(info.m_affine.a13 - fracTilePos.x,
-                              info.m_affine.a23 - fracTilePos.y);
-  TPoint intInfoTranslation(tfloor(fracInfoTranslation.x),
-                            tfloor(fracInfoTranslation.y));
-  TPointD newTilePos(intTilePos.x - intInfoTranslation.x,
-                     intTilePos.y - intInfoTranslation.y);
+  TPointD newTilePos, translation;
   /*-- If the position of the input tile had a fractional value --*/
-  if (tile.m_pos != newTilePos) {
+  if (normalizeRenderTranslation(tile.m_pos, info.m_affine, newTilePos,
+                                  translation)) {
     /*-- Add the offset to the affine matrix in RenderSettings --*/
     TRenderSettings newInfo(info);
-    newInfo.m_affine.a13 = fracInfoTranslation.x - intInfoTranslation.x;
-    newInfo.m_affine.a23 = fracInfoTranslation.y - intInfoTranslation.y;
+    newInfo.m_affine.a13 = translation.x;
+    newInfo.m_affine.a23 = translation.y;
     /*-- Tile position should be an integer value --*/
     TPointD oldPos(tile.m_pos);
     tile.m_pos = newTilePos;

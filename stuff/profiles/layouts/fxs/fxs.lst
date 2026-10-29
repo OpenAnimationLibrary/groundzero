@@ -185,6 +185,7 @@
   <Render>
     STD_cloudsFx 
     STD_inopnCloudsFx
+    STD_particleCacheFx
     STD_particlesFx 
     STD_iwa_TiledParticlesFx
     STD_iwa_TimeCodeFx

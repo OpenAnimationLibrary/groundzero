@@ -1,8 +1,9 @@
-#include "../particlesfx.h"
 #include "../particleweather.h"
 #include "stdfx.h"
 #include "tfxcachemanager.h"
+#include "tnotanimatableparam.h"
 #include "tparamcontainer.h"
+#include "tparamset.h"
 #include "trenderer.h"
 #include "tthread.h"
 
@@ -14,6 +15,8 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+
+DV_IMPORT_API void initStdFx();
 
 namespace {
 void require(bool value, const std::string &message) {
@@ -162,7 +165,9 @@ Frame render(TFx &fx, int frame) {
     TRaster32P raster(W, H);
     raster->clear();
     TTile tile(raster, TPointD(-W / 2.0, -H / 2.0));
-    static_cast<ParticlesFx &>(fx).doCompute(tile, frame, settings);
+    auto *rasterFx = dynamic_cast<TRasterFx *>(&fx);
+    require(rasterFx != nullptr, "Particles FX is not a raster effect");
+    rasterFx->compute(tile, frame, settings);
     out.alpha.resize(size_t(W) * H);
     for (int y = 0; y < H; ++y)
       for (int x = 0; x < W; ++x) {
@@ -190,7 +195,8 @@ Frame render(TFx &fx, int frame) {
 // Particles born across the top, falling under gravity
 TFxP rain() {
   static TFxP dot = new Dot;
-  TFxP fx         = new ParticlesFx;
+  TFxP fx         = TFx::create("STD_particlesFx");
+  require(bool(fx), "Particles FX is not registered");
   require(fx->connect("Texture1", dot.getPointer()), "Cannot connect a sprite");
   numeric(*fx, "birth_rate")->setDefaultValue(20);
   numeric(*fx, "gravity")->setDefaultValue(2);
@@ -272,6 +278,7 @@ int main(int argc, char **argv) {
   TRenderer::initialize();
   int result = 1;
   try {
+    initStdFx();
     testDepth();
     testTurbulence();
     testCollide();

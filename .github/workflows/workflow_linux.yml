@@ -83,15 +83,45 @@ jobs:
         mkdir build
         cd build
         set -o pipefail
-        cmake ../sources -G Ninja -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER=${{ matrix.cxx }} -DCMAKE_C_COMPILER=${{ matrix.cc }} -DWITH_TRANSLATION=OFF -DBUILD_CELFX_TESTS=ON -DBUILD_CADMIUM_TESTS=ON -DBUILD_RELIABILITY_TESTS=ON -DBUILD_STREAM_TESTS=ON -DBUILD_SCENEBENCH_TESTS=ON -DBUILD_FXRENDER_TESTS=ON -DBUILD_FFMPEG_TESTS=ON -DBUILD_PSD_TESTS=ON -DBUILD_SEEXPR_TESTS=ON -DBUILD_SEEXPR_PYTHON=ON -DPython3_EXECUTABLE="$(command -v python)" -DCMAKE_CXX_FLAGS=-Werror=return-type 2>&1 | tee "$GITHUB_WORKSPACE/build.log"
+        cmake ../sources -G Ninja -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER=${{ matrix.cxx }} -DCMAKE_C_COMPILER=${{ matrix.cc }} -DWITH_TRANSLATION=OFF -DBUILD_CELFX_TESTS=ON -DBUILD_CADMIUM_TESTS=ON -DBUILD_PARTICLE_CACHE_TESTS=ON -DBUILD_RELIABILITY_TESTS=ON -DBUILD_STREAM_TESTS=ON -DBUILD_SCENEBENCH_TESTS=ON -DBUILD_FXRENDER_TESTS=ON -DBUILD_FFMPEG_TESTS=ON -DBUILD_PSD_TESTS=ON -DBUILD_SEEXPR_TESTS=ON -DBUILD_SEEXPR_PYTHON=ON -DPython3_EXECUTABLE="$(command -v python)" -DCMAKE_CXX_FLAGS=-Werror=return-type 2>&1 | tee "$GITHUB_WORKSPACE/build.log"
         # -k 0: keep going, so one run reports every file that fails
-        ninja -k 0 OpenToonz celfx_tests cadmium_tests 2>&1 | tee -a "$GITHUB_WORKSPACE/build.log"
+        ninja -k 0 OpenToonz celfx_tests cadmium_tests particlecache_tests 2>&1 | tee -a "$GITHUB_WORKSPACE/build.log"
+
+    - name: Test particle cache integration
+      id: particle_tests
+      working-directory: toonz/build
+      run: |
+        set -o pipefail
+        QT_QPA_PLATFORM=xcb LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a ctest --output-on-failure --output-junit particle-tests.xml --timeout 300 --no-tests=error -R '^particlecache_' 2>&1 | tee particle-tests-output.txt
+
+    - name: Report particle test failures
+      if: ${{ failure() && steps.particle_tests.outcome == 'failure' }}
+      run: python3 ci-scripts/report_particle_tests.py toonz/build/particle-tests-output.txt
+
+    - name: Generate particle cache example project
+      id: particle_demo
+      timeout-minutes: 10
+      working-directory: toonz/build
+      run: |
+        set -o pipefail
+        QT_QPA_PLATFORM=xcb LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a bin/particlecache_demo "$PWD/particlecache-examples" "$GITHUB_WORKSPACE/doc/particlecache-examples/README.md" 2>&1 | tee particle-demo-output.txt
+
+    - name: Report particle example generation failures
+      if: ${{ failure() && steps.particle_demo.outcome == 'failure' }}
+      run: python3 ci-scripts/report_particle_tests.py toonz/build/particle-demo-output.txt
+
+    - name: Upload particle cache example project
+      uses: actions/upload-artifact@v6
+      with:
+        name: particle-cache-examples-${{ runner.os }}-${{ matrix.compiler }}
+        path: toonz/build/particlecache-examples
+        if-no-files-found: error
 
     - name: Test cel effects
       working-directory: toonz/build
       run: |
         set -o pipefail
-        ctest --output-on-failure --output-junit cel-tests.xml --no-tests=error -R '^celfx_' 2>&1 | tee cel-tests-output.txt
+        QT_QPA_PLATFORM=xcb LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a ctest --output-on-failure --output-junit cel-tests.xml --no-tests=error -R '^celfx_' 2>&1 | tee cel-tests-output.txt
 
     - name: Test Cadmium adapters
       if: ${{ !cancelled() && hashFiles('toonz/build/bin/cadmium_toonzraster_test') != '' }}
@@ -244,6 +274,11 @@ jobs:
       run: |
         log="$GITHUB_WORKSPACE/build.log"
         [ -f "$log" ] || exit 0
+        # Keep the failed target visible even when many linker references fill
+        # the bounded error excerpt below.
+        grep '^FAILED:' "$log" | head -10 | while IFS= read -r line; do
+          echo "::error title=Failed build target::$line"
+        done || true
         grep -E ': (fatal )?error:|CMake Error|undefined reference|ld returned|^FAILED:' "$log" | sort -u | head -60 > errors.txt || true
         {
           echo "## Linux build errors"
