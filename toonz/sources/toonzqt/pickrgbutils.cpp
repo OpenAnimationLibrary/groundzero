@@ -96,26 +96,33 @@ QRgb pickScreenRGB(const QRect &rect) {
                  ->grabWindow(widget->winId(), theRect.x(), theRect.y(),
                               theRect.width(), theRect.height())
                  .toImage());
-#else
-  // No desktop widget: grab the screen itself (window 0), whose coordinates
-  // are relative to the screen. On MACOSX theRect includes part of the primary
-  // screen, see above.
-  QScreen *screen = QGuiApplication::primaryScreen();
-#ifndef MACOSX
-  if (QScreen *rectScreen = QGuiApplication::screenAt(rect.center()))
-    screen = rectScreen;
-#endif
-
-  const QPoint screenOrigin = screen->geometry().topLeft();
-  QImage img(screen
-                 ->grabWindow(0, theRect.x() - screenOrigin.x(),
-                              theRect.y() - screenOrigin.y(), theRect.width(),
-                              theRect.height())
-                 .toImage());
-#endif
   return meanColor(
       img, QRect(rect.left() - theRect.left(), rect.top() - theRect.top(),
                  rect.width(), rect.height()));
+#else
+  // No desktop widget: grab the screen that shows the rect (window 0). Qt 6
+  // takes the coordinates of such a grab relative to that screen on Windows
+  // and X11 (their plugins add the screen's origin), but global on macOS (its
+  // plugin subtracts it), where a grab covers one display and needs no part
+  // of the primary screen (the workaround above is for Qt 5).
+  QScreen *screen = QGuiApplication::screenAt(rect.center());
+  if (!screen) screen = QGuiApplication::primaryScreen();
+#ifdef MACOSX
+  Q_UNUSED(theRect);
+  const QRect grab = rect;
+  const QPoint origin(0, 0);
+#else
+  const QRect grab    = theRect;
+  const QPoint origin = screen->geometry().topLeft();
+#endif
+  QImage img(screen
+                 ->grabWindow(0, grab.x() - origin.x(), grab.y() - origin.y(),
+                              grab.width(), grab.height())
+                 .toImage());
+  return meanColor(img,
+                   QRect(rect.left() - grab.left(), rect.top() - grab.top(),
+                         rect.width(), rect.height()));
+#endif
 }
 
 //------------------------------------------------------------------------------
