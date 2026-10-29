@@ -127,6 +127,8 @@ void paletteFailureAndRetry(const QDir &dir, bool studio) {
   blockDestination(palettePath);
   level->getPalette()->setStyle(1, TPixel32(120, 30, 220));
   level->getPalette()->setDirtyFlag(true);
+  const QStringList blockedEntries =
+      dir.entryList(QDir::AllEntries | QDir::NoDotAndDotDot);
 
   bool rejected = false;
   try {
@@ -140,14 +142,22 @@ void paletteFailureAndRetry(const QDir &dir, bool studio) {
           "palette-only failure changed level pixels");
   require(bytesOf(palettePath + ".saved") == oldPalette,
           "palette failure changed the original palette fixture");
+  require(sameFileNames(dir.entryList(QDir::AllEntries | QDir::NoDotAndDotDot),
+                        blockedEntries),
+          "failed palette save left temporary files or folders behind");
 
   require(QDir(palettePath).removeRecursively(), "cannot unblock palette path");
   require(QFile::rename(palettePath + ".saved", palettePath),
           "cannot restore palette fixture");
+  const QStringList retryEntries =
+      dir.entryList(QDir::AllEntries | QDir::NoDotAndDotDot);
   level->save();
   require(!level->getPalette()->getDirtyFlag(), "palette retry did not clear dirty state");
   require(bytesOf(palettePath) != oldPalette, "palette retry skipped changed colors");
   require(bytesOf(path.getQString()) == oldLevel, "palette retry changed level pixels");
+  require(sameFileNames(dir.entryList(QDir::AllEntries | QDir::NoDotAndDotDot),
+                        retryEntries),
+          "palette retry left temporary files or folders behind");
   // Confirm that the replacement can be parsed, not just that bytes changed.
   TPaletteP reopened;
   if (studio) {
@@ -239,7 +249,8 @@ void studioPaletteSerializationFailure(const QDir &dir) {
   studio->save(path, palette.getPointer());
   const QByteArray original = bytesOf(path.getQString());
   const QFile::Permissions permissions = QFile::permissions(path.getQString());
-  const QStringList files = dir.entryList(QDir::Files);
+  const QStringList entries =
+      dir.entryList(QDir::AllEntries | QDir::NoDotAndDotDot);
 
   palette->setStyle(1, new FailingStyle);
   palette->setDirtyFlag(true);
@@ -253,8 +264,9 @@ void studioPaletteSerializationFailure(const QDir &dir) {
   require(bytesOf(path.getQString()) == original,
           "failed serialization truncated the last studio palette");
   require(palette->getDirtyFlag(), "failed studio save cleared dirty state");
-  require(sameFileNames(dir.entryList(QDir::Files), files),
-          "failed studio save left a temporary palette behind");
+  require(sameFileNames(dir.entryList(QDir::AllEntries | QDir::NoDotAndDotDot),
+                        entries),
+          "failed studio save left temporary files or folders behind");
 
   palette->setStyle(1, TPixel32(10, 90, 180));
   studio->save(path, palette.getPointer());
@@ -266,8 +278,9 @@ void studioPaletteSerializationFailure(const QDir &dir) {
           "studio palette retry did not persist the edited color");
   require(QFile::permissions(path.getQString()) == permissions,
           "studio palette retry changed existing file permissions");
-  require(sameFileNames(dir.entryList(QDir::Files), files),
-          "studio palette retry left a temporary palette behind");
+  require(sameFileNames(dir.entryList(QDir::AllEntries | QDir::NoDotAndDotDot),
+                        entries),
+          "studio palette retry left temporary files or folders behind");
 }
 
 }  // namespace

@@ -289,17 +289,21 @@ Accept a performance change only when its benefit exceeds measurement noise,
 correctness remains unchanged, and its memory tradeoff is explicit. Establish
 fixture-specific regression thresholds after measuring normal variance.
 
-## First five focused PRs
+## Implementation order and next work
 
-1. Repair false-green benchmark/golden/context gates and preserve diagnostic artifacts.
-2. Fix parent dirty state, palette-save retries and failed Save As metadata (A01–A03).
-3. Fix sub-xsheet navigation redo with parent/child edit-isolation cases (A06).
-4. Fix Cadmium stale-vector validation with a generate/edit/apply regression case.
-5. Enforce checked raster allocation and safe failure with boundary and OOM cases.
+PR #103 combines the initial implementation sequence into one review:
 
-Build the pinned Windows/macOS baseline corpus and required-suite routing in
-parallel. Queue the confirmed export and non-Windows cache fixes as urgent focused
-follow-ups, with compressed-save/recovery cases in the same integrity milestone.
-Use measured rankings to select Phase 3–5 optimizations. Link each PR
-to its audit finding, regression case, baseline/candidate results and remaining
-application testing. Build success alone is not a runtime or performance result.
+1. Repair benchmark/golden/context gates and preserve diagnostic artifacts.
+2. Preserve parent dirty state, palette-save retries and failed Save As metadata.
+3. Correct child-sheet navigation redo and Cadmium stale-vector validation.
+4. Check raster allocation and repair cache identity and resource ownership.
+5. Handle export completion/cancellation and compressed-save/recovery failures.
+
+The implementation table above distinguishes focused regression coverage from
+the application scenarios still required. Next, complete the Windows/macOS
+baseline corpus and interactive failure/undo/cancellation qualification; measure
+memory and latency before selecting further Phase 3–5 optimizations. Render
+backpressure, disk-cache eviction and allocator fault injection remain open.
+Link subsequent work to its audit finding, regression case, baseline/candidate
+results and remaining application testing. Build success alone is not a runtime
+or performance result.

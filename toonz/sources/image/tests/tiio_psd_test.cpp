@@ -894,7 +894,7 @@ void testLayered8Bit(const TFilePath &dir) {
   std::vector<TLayeredPsdLayer> layers(3);
   layers[0].m_name    = L"Background";
   layers[0].m_raster  = bottom;
-  layers[1].m_name    = L"Aé col";
+  layers[1].m_name    = L"A\u00e9 col";
   layers[1].m_raster  = middle;
   layers[1].m_opacity = 128;
   layers[2].m_name    = L"Hidden";

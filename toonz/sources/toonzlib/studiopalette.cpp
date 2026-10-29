@@ -20,8 +20,9 @@
 #include <string.h>
 #include <memory>
 
+#include <QFile>
 #include <QSettings>
-#include <QTemporaryFile>
+#include <QTemporaryDir>
 
 //===================================================================
 
@@ -627,13 +628,15 @@ void StudioPalette::save(const TFilePath &path, TPalette *palette) {
 
   // Serialize beside the destination, then replace it only after a successful
   // flush. A failed write must leave the last saved palette available.
-  QTemporaryFile temporary(path.getQString() + ".XXXXXX");
-  if (!temporary.open()) {
+  QTemporaryDir temporary(path.getQString() + ".XXXXXX");
+  if (!temporary.isValid()) {
     throw TSystemException(path,
-                           "Could not create a temporary studio palette file.");
+                           "Could not create a temporary studio palette folder.");
   }
-  const TFilePath temporaryPath(temporary.fileName());
-  temporary.close();
+  // QTemporaryFile::close() retains its native handle on Windows. Keep the
+  // staging file in a private sibling directory so TOStream can open it and
+  // the directory guard removes it if serialization or replacement fails.
+  const TFilePath temporaryPath(temporary.filePath("palette.tpl"));
   {
     TOStream os(temporaryPath);
     if (!os.checkStatus()) {
@@ -652,7 +655,8 @@ void StudioPalette::save(const TFilePath &path, TPalette *palette) {
     }
   }
   if (fs.doesExist() &&
-      !temporary.setPermissions(QFile::permissions(path.getQString())))
+      !QFile::setPermissions(temporaryPath.getQString(),
+                            QFile::permissions(path.getQString())))
     throw TSystemException(path,
                            "Could not preserve studio palette permissions.");
   TSystem::replaceFile(path, temporaryPath);

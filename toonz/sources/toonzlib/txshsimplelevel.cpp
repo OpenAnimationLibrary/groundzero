@@ -45,7 +45,7 @@
 #include <QDir>
 #include <QRegularExpression>
 #include <QMessageBox>
-#include <QTemporaryFile>
+#include <QTemporaryDir>
 #include <QtCore>
 #include <QTextCodec>  // not in <QtCore> in Qt 6 (Core5Compat)
 
@@ -1764,12 +1764,14 @@ void TXshSimpleLevel::saveSimpleLevel(const TFilePath& decodedFp,
         if (paletteExists && !TFileStatus(palettePath).isWritable())
           throw TSystemException(palettePath,
                                  "The palette of the level is read only.");
-        QTemporaryFile temporary(palettePath.getQString() + ".XXXXXX");
-        if (!temporary.open())
+        QTemporaryDir temporary(palettePath.getQString() + ".XXXXXX");
+        if (!temporary.isValid())
           throw TSystemException(palettePath,
-                                 "Could not create a temporary palette file.");
-        const TFilePath temporaryPath(temporary.fileName());
-        temporary.close();
+                                 "Could not create a temporary palette folder.");
+        // QTemporaryFile::close() retains its native handle, preventing the
+        // Windows stream from reopening it. A private sibling directory gives
+        // TOStream exclusive handle ownership and cleans up on every exit.
+        const TFilePath temporaryPath(temporary.filePath("palette.tpl"));
         {
           TOStream os(temporaryPath);
           if (!os.checkStatus())
@@ -1781,7 +1783,7 @@ void TXshSimpleLevel::saveSimpleLevel(const TFilePath& decodedFp,
                                    "Could not complete the palette save.");
         }
         if (paletteExists &&
-            !temporary.setPermissions(
+            !QFile::setPermissions(temporaryPath.getQString(),
                 QFile::permissions(palettePath.getQString())))
           throw TSystemException(palettePath,
                                  "Could not preserve palette permissions.");
