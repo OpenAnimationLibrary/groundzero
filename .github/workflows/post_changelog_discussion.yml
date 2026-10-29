@@ -1,0 +1,47 @@
+# One-off: posts the changelog in .github/discussion as a GitHub Discussion.
+# Runs only on pushes to this branch, and skips if a discussion with the same
+# title already exists, so a re-run never posts it twice.
+name: Post changelog discussion
+
+on:
+  push:
+    branches: [chore/post-changelog]
+
+permissions:
+  contents: read
+  discussions: write
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create the discussion
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.event.repository.name }}
+          TITLE: "Changelog: 25 to 29 October 2026"
+          BODY_FILE: .github/discussion/changelog-2026-10-25-to-29.md
+        run: |
+          set -euo pipefail
+          data=$(gh api graphql \
+            -f query='query($o:String!,$n:String!){repository(owner:$o,name:$n){id discussionCategories(first:25){nodes{id name}} discussions(first:50,orderBy:{field:CREATED_AT,direction:DESC}){nodes{title url}}}}' \
+            -f o="$OWNER" -f n="$REPO")
+          existing=$(jq -r --arg t "$TITLE" '.data.repository.discussions.nodes[] | select(.title==$t) | .url' <<<"$data" | head -n1)
+          if [ -n "$existing" ]; then
+            echo "::notice title=changelog::already posted: $existing"
+            exit 0
+          fi
+          repo_id=$(jq -r '.data.repository.id' <<<"$data")
+          category=$(jq -c '.data.repository.discussionCategories.nodes | (map(select(.name=="Announcements"))[0] // map(select(.name=="General"))[0] // .[0])' <<<"$data")
+          category_id=$(jq -r '.id' <<<"$category")
+          category_name=$(jq -r '.name' <<<"$category")
+          if ! result=$(gh api graphql \
+              -f query='mutation($r:ID!,$c:ID!,$t:String!,$b:String!){createDiscussion(input:{repositoryId:$r,categoryId:$c,title:$t,body:$b}){discussion{url}}}' \
+              -f r="$repo_id" -f c="$category_id" -f t="$TITLE" -F b=@"$BODY_FILE" 2>&1); then
+            echo "::error title=changelog::$(tr '\n' ' ' <<<"$result")"
+            exit 1
+          fi
+          url=$(jq -r '.data.createDiscussion.discussion.url' <<<"$result")
+          echo "::notice title=changelog::posted in $category_name: $url"
