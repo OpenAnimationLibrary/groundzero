@@ -482,7 +482,7 @@ void Particles_Engine::render_particles(
     float dpi, int curr_frame, int shrink, double startx, double starty,
     double endx, double endy, std::vector<int> last_frame, unsigned long fxId) {
   int frame, startframe, intpart = 0, level_n = 0;
-  struct particles_values values;
+  struct particles_values values{};
   double dpicorr = dpi * 0.01, fractpart = 0, dpicorr_shrinked = 0,
          opacity_range = 0;
   bool random_level    = false;

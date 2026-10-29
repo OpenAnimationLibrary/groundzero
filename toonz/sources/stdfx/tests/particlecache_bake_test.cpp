@@ -139,15 +139,19 @@ FX_PLUGIN_IDENTIFIER(ParticleBakeSpriteFixture, "particleBakeSpriteFixture")
 class ParticleBakeBackgroundFixture final : public TStandardRasterFx {
   FX_PLUGIN_DECLARATION(ParticleBakeBackgroundFixture)
   TBoolParamP m_samplingAlias;
+  TBoolParamP m_privateAlias;
 public:
-  ParticleBakeBackgroundFixture() : m_samplingAlias(true) {
+  ParticleBakeBackgroundFixture() : m_samplingAlias(true), m_privateAlias(false) {
     bindParam(this, "fixtureSamplingAlias", m_samplingAlias);
+    bindParam(this, "fixturePrivateAlias", m_privateAlias);
   }
   bool canHandle(const TRenderSettings &, double) override { return true; }
   std::string getAlias(double frame, const TRenderSettings &settings) const override {
     return "particle-bake-background-fixture:" +
         (m_samplingAlias->getValue() ? fixtureAlias(frame, settings)
-                                     : std::to_string(frame));
+                                     : std::to_string(frame)) +
+        (m_privateAlias->getValue() ? ":private=" + std::to_string(getIdentifier())
+                                   : std::string());
   }
   TFxTimeRegion getTimeRegion() const override { return TFxTimeRegion(0, 31); }
   bool doGetBBox(double, TRectD &box, const TRenderSettings &) override {
@@ -1132,6 +1136,13 @@ void testScenePreparation(bool tiled, bool fullAffine = false,
     return render(raster, frame, settings);
   };
   std::map<int, TRasterP> before, nativeBefore;
+  std::vector<std::string> differences;
+  std::vector<std::string> captureDetails;
+  auto exact = [&](const TRasterP &expected, const TRasterP &actual,
+                   const std::string &comparison) {
+    try { compare(expected, actual, comparison); }
+    catch (const std::exception &e) { differences.push_back(e.what()); }
+  };
   for (int frame : {3, 5}) {
     before.emplace(frame, sceneImage(frame));
     ParticleBakeScene::Source prepared;
@@ -1183,32 +1194,122 @@ void testScenePreparation(bool tiled, bool fullAffine = false,
     artworkSettings.m_affine = TAffine();
     artworkSettings.m_cameraBox = Domain;
     for (int artworkFrame : {0, 1})
-      compare(renderViewport(originalArtwork, artworkFrame, artworkSettings, Domain),
-              renderViewport(clonedArtwork, artworkFrame, artworkSettings, Domain),
-              context + "/inputClone/artworkFrame=" + std::to_string(artworkFrame));
+      exact(renderViewport(originalArtwork, artworkFrame, artworkSettings, Domain),
+            renderViewport(clonedArtwork, artworkFrame, artworkSettings, Domain),
+            context + "/inputClone/artworkFrame=" + std::to_string(artworkFrame));
     const TRasterP freshImage = renderViewport(fresh.getPointer(), frame, bakeSettings, bakePixels);
     if (!columnDepth)
-      compare(before.at(frame), freshImage, context + "/freshCloneVsLive");
+      exact(before.at(frame), freshImage, context + "/freshCloneVsLive");
     else {
       nativeBefore.emplace(frame, renderViewport(native, frame, bakeSettings, bakePixels));
-      compare(nativeBefore.at(frame), freshImage, context + "/freshCloneVsLive");
+      exact(nativeBefore.at(frame), freshImage, context + "/freshCloneVsLive");
     }
+    // Capture before diagnostics warm any additional control-cache entries.
     TRasterP evaluated;
     const auto captured = capture(native, frame, bakeSettings, true, bakeDomain,
                                    bakePixels, 0, &evaluated);
     require(captured.pixelDomain == bakePixels, label + ": capture changed the native pixel viewport");
-    const TRasterP recomposed = composite(captured, bakeSettings, bakePixels);
-    compare(evaluated, recomposed, context + "/recipeVsEvaluation");
-    if (!columnDepth) {
-      compare(before.at(frame), render(native, frame, bakeSettings),
-              context + "/prepared source placement");
-      compare(before.at(frame), evaluated, context + "/liveVsEvaluation");
-      compare(before.at(frame), recomposed, context + "/prepared capture");
-    } else {
-      compare(nativeBefore.at(frame), evaluated, context + "/liveNativeVsEvaluation");
-      compare(nativeBefore.at(frame), recomposed, context + "/prepared native halo capture");
+    std::ostringstream draws;
+    draws << context << " captured " << captured.draws.size() << " draws";
+    for (std::size_t i = 0; i < std::min<std::size_t>(4, captured.draws.size()); ++i) {
+      const auto &draw = captured.draws[i];
+      draws << " [id=" << draw.id << ", artworkFrame=" << draw.artworkFrame
+            << ", tint=(" << int(draw.tint.r) << ',' << int(draw.tint.g) << ','
+            << int(draw.tint.b) << ',' << int(draw.tint.m) << ')';
+      if (draw.artwork) {
+        TRaster32P artwork = draw.artwork;
+        if (!artwork) {
+          artwork = TRaster32P(draw.artwork->getSize());
+          TRop::convert(artwork, draw.artwork);
+        }
+        std::uint64_t red = 0, green = 0, blue = 0, count = 0;
+        for (int y = 0; y < artwork->getLy(); ++y) {
+          const TPixel32 *pixels = artwork->pixels(y);
+          for (int x = 0; x < artwork->getLx(); ++x) {
+            if (!pixels[x].m) continue;
+            red += pixels[x].r;
+            green += pixels[x].g;
+            blue += pixels[x].b;
+            ++count;
+          }
+        }
+        if (count)
+          draws << ", meanRGB=(" << double(red) / count << ','
+                << double(green) / count << ',' << double(blue) / count << ')';
+      }
+      draws << ']';
     }
-    compare(before.at(frame), sceneImage(frame), label + "/source after capture");
+    captureDetails.push_back(draws.str());
+    auto *originalControl = dynamic_cast<TRasterFx *>(native->getInputPort("Control1")->getFx());
+    auto *clonedControl = dynamic_cast<TRasterFx *>(fresh->getInputPort("Control1")->getFx());
+    require(originalControl && clonedControl,
+            context + ": cloned graph lost its control input");
+    std::map<int, TRasterP> controlImages;
+    for (int controlFrame = 0; controlFrame <= frame; ++controlFrame) {
+      controlImages.emplace(controlFrame,
+          renderViewport(originalControl, controlFrame, artworkSettings, Domain));
+      exact(controlImages.at(controlFrame),
+            renderViewport(clonedControl, controlFrame, artworkSettings, Domain),
+            context + "/inputClone/controlFrame=" + std::to_string(controlFrame));
+    }
+    // Fixture aliases normally share content across clones, just like a real
+    // level. Force only this control clone cold to expose a manual-cache hit
+    // that otherwise makes two fresh native graphs agree on stale colors.
+    bool privateControl = false;
+    isolated.clear();
+    pending = {clonedControl};
+    while (!pending.empty()) {
+      TFx *fx = pending.back();
+      pending.pop_back();
+      if (!isolated.insert(fx).second) continue;
+      fx->setNewIdentifier();
+      if (dynamic_cast<ParticleBakeBackgroundFixture *>(fx)) {
+        parameter<TBoolParam>(fx, "fixturePrivateAlias")->setValue(true);
+        privateControl = true;
+      }
+      for (int port = 0; port < fx->getInputPortCount(); ++port)
+        if (TFx *input = fx->getInputPort(port)->getFx()) pending.push_back(input);
+    }
+    require(privateControl, context + ": cloned control subtree lost its fixture");
+    fresh->setNewIdentifier();
+    for (int controlFrame = 0; controlFrame <= frame; ++controlFrame)
+      exact(controlImages.at(controlFrame),
+            renderViewport(clonedControl, controlFrame, artworkSettings, Domain),
+            context + "/coldControl/controlFrame=" + std::to_string(controlFrame));
+    exact(freshImage, renderViewport(fresh.getPointer(), frame, bakeSettings, bakePixels),
+          context + "/coldControlVsLive");
+    if (!tiled) {
+      TRasterFxP withoutBirthColor = dynamic_cast<TRasterFx *>(native->clone(true));
+      require(bool(withoutBirthColor), context + ": cannot clone birth-color diagnostic");
+      withoutBirthColor->setNewIdentifier();
+      number(withoutBirthColor.getPointer(), "birth_color_fade", 0);
+      const TRasterP withoutBirthColorLive = renderViewport(
+          withoutBirthColor.getPointer(), frame, bakeSettings, bakePixels);
+      TRasterP withoutBirthColorEvaluation;
+      capture(withoutBirthColor.getPointer(), frame, bakeSettings, true, bakeDomain,
+              bakePixels, 0, &withoutBirthColorEvaluation);
+      exact(withoutBirthColorLive, withoutBirthColorEvaluation,
+            context + "/withoutBirthColor/liveVsEvaluation");
+    }
+    const TRasterP recomposed = composite(captured, bakeSettings, bakePixels);
+    exact(evaluated, recomposed, context + "/recipeVsEvaluation");
+    if (!columnDepth) {
+      exact(before.at(frame), render(native, frame, bakeSettings),
+            context + "/prepared source placement");
+      exact(before.at(frame), evaluated, context + "/liveVsEvaluation");
+      exact(before.at(frame), recomposed, context + "/prepared capture");
+    } else {
+      exact(nativeBefore.at(frame), evaluated, context + "/liveNativeVsEvaluation");
+      exact(nativeBefore.at(frame), recomposed, context + "/prepared native halo capture");
+    }
+    exact(before.at(frame), sceneImage(frame), label + "/source after capture");
+  }
+  if (!differences.empty()) {
+    std::ostringstream failure;
+    failure << label << ": " << differences.size() << " exact pixel checks failed";
+    for (const std::string &difference : differences) failure << '\n' << difference;
+    for (const std::string &details : captureDetails) failure << '\n' << details;
+    throw std::runtime_error(failure.str());
   }
   require(!build(4, BSFX_NO_TR), label + ": empty generator exposure produced a source");
 
