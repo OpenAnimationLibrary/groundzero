@@ -111,7 +111,7 @@ class CelSmoother2Fx final : public TStandardRasterFx {
     auto *source = static_cast<TRasterFx *>(m_source.getFx());
     if (!source->getBBox(frame, box, full) || box.isEmpty()) return TRectD();
     if (box == TConsts::infiniteRectD) {
-      box = full.m_affine * settings.m_cameraBox;
+      box = CelFxSourceGrid::cameraBox(settings, full.m_affine);
       if (box.isEmpty())
         throw TException("Cel Smoother v2: a finite camera is required for infinite sources");
     }
@@ -175,6 +175,18 @@ public:
   bool usesCustomRenderGrid() const override { return true; }
   TAffine handledAffine(const TRenderSettings &, double frame) override {
     return CelFxSourceGrid::renderAffine(m_source.getFx(), frame);
+  }
+  void compute(TTile &tile, double frame, const TRenderSettings &settings) override {
+    if (CelFxSourceGrid::usesCameraDomain(this, m_source.getFx(), frame, settings))
+      CelFxSourceGrid::computeInCamera(this, tile, frame, settings);
+    else
+      TRasterFx::compute(tile, frame, settings);
+  }
+  void dryCompute(TRectD &rect, double frame, const TRenderSettings &settings) override {
+    if (CelFxSourceGrid::usesCameraDomain(this, m_source.getFx(), frame, settings))
+      CelFxSourceGrid::dryComputeInCamera(this, rect, frame, settings);
+    else
+      TRasterFx::dryCompute(rect, frame, settings);
   }
   bool toBeComputedInLinearColorSpace(bool, bool) const override { return false; }
   bool doGetBBox(double frame, TRectD &box, const TRenderSettings &settings) override {

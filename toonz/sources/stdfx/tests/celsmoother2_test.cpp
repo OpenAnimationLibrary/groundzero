@@ -1,4 +1,5 @@
 #include "../celsmoother2fx.cpp"
+#include "celcamerabox.h"
 #include "tmacrofx.h"
 #include "tparamcontainer.h"
 #include "tstream.h"
@@ -646,6 +647,11 @@ int main(int argc, char **argv) {
     testOddLevelOrigin();
     std::cout << "Checking scenes, presets and macros" << std::endl;
     testPersistence(directory.path());
+    {
+      TFxP fx = new CelSmoother2Fx;
+      CelCameraBoxTest::checkInfiniteSourceCoversCamera(
+          static_cast<TRasterFx &>(*fx), "Cel Smoother v2");
+    }
     std::cout << "PASS: complete smoother v2 rendering, gamma, concurrency and persistence\n";
     result = 0;
   } catch (const TException &error) {

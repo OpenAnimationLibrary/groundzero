@@ -124,4 +124,80 @@ inline TAffine renderAffine(TFx *source, double frame) {
   return grid;
 }
 
+inline bool finiteBox(const TRectD &box) {
+  return std::isfinite(box.x0) && std::isfinite(box.y0) &&
+         std::isfinite(box.x1) && std::isfinite(box.y1) && !box.isEmpty() &&
+         box != TConsts::infiniteRectD;
+}
+
+// True when an enabled fx covers an infinite source with the camera box.
+inline bool usesCameraDomain(TRasterFx *fx, TFx *source, double frame,
+                             const TRenderSettings &settings) {
+  auto *raster = dynamic_cast<TRasterFx *>(source);
+  if (!raster || !fx->getAttributes()->isEnabled()) return false;
+  TRenderSettings full(settings);
+  full.m_getFullSizeBBox = true;
+  TRectD box;
+  return raster->getBBox(frame, box, full) && !box.isEmpty() && !finiteBox(box);
+}
+
+// TRasterFx::compute moves tile fractions and whole-pixel translations into
+// the affine, then wraps the fx in a TrFx that renders it on handledAffine.
+// Neither step moves m_cameraBox, which stays in the caller's coordinates.
+// Returns the tile origin the host would use, with settings whose camera box
+// is in the coordinates the fx actually renders in.
+inline TPointD cameraSettings(TRasterFx *fx, double frame,
+                              const TPointD &position,
+                              const TRenderSettings &settings,
+                              TRenderSettings &normalized) {
+  const TPointD integral(std::floor(position.x), std::floor(position.y));
+  const TPointD fraction = position - integral;
+  const TPointD translation(std::floor(settings.m_affine.a13 - fraction.x),
+                            std::floor(settings.m_affine.a23 - fraction.y));
+  const TPointD origin = integral - translation;
+  const TPointD delta  = position - origin;
+  normalized           = settings;
+  normalized.m_affine.a13 -= delta.x;
+  normalized.m_affine.a23 -= delta.y;
+  if (!finiteBox(normalized.m_cameraBox)) return origin;
+  normalized.m_cameraBox -= delta;
+  const TAffine handled = fx->handledAffine(normalized, frame);
+  if (handled != normalized.m_affine && invertible(handled) &&
+      invertible(normalized.m_affine))
+    normalized.m_cameraBox =
+        handled * normalized.m_affine.inv() * normalized.m_cameraBox;
+  return origin;
+}
+
+inline void computeInCamera(TRasterFx *fx, TTile &tile, double frame,
+                            const TRenderSettings &settings) {
+  TRenderSettings normalized;
+  const TPointD original = tile.m_pos;
+  tile.m_pos = cameraSettings(fx, frame, original, settings, normalized);
+  try {
+    fx->TRasterFx::compute(tile, frame, normalized);
+  } catch (...) {
+    tile.m_pos = original;
+    throw;
+  }
+  tile.m_pos = original;
+}
+
+inline void dryComputeInCamera(TRasterFx *fx, TRectD &rect, double frame,
+                               const TRenderSettings &settings) {
+  TRenderSettings normalized;
+  const TPointD origin =
+      cameraSettings(fx, frame, rect.getP00(), settings, normalized);
+  TRectD normalizedRect(origin, rect.getSize());
+  fx->TRasterFx::dryCompute(normalizedRect, frame, normalized);
+}
+
+// The camera box of settings, in the coordinates of the given render grid.
+inline TRectD cameraBox(const TRenderSettings &settings, const TAffine &grid) {
+  if (!finiteBox(settings.m_cameraBox) || grid == settings.m_affine ||
+      !invertible(grid) || !invertible(settings.m_affine))
+    return settings.m_cameraBox;
+  return grid * settings.m_affine.inv() * settings.m_cameraBox;
+}
+
 }  // namespace CelFxSourceGrid

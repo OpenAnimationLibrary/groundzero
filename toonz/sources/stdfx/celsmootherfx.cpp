@@ -126,7 +126,7 @@ class CelSmootherFx final : public TStandardRasterFx {
     TRectD box;
     static_cast<TRasterFx *>(m_source.getFx())->getBBox(frame, box, fullSettings);
     if (box == TConsts::infiniteRectD)
-      box = fullSettings.m_affine * settings.m_cameraBox;
+      box = CelFxSourceGrid::cameraBox(settings, fullSettings.m_affine);
     if (box.isEmpty()) return TRectD();
     if (!std::isfinite(box.x0) || !std::isfinite(box.y0) ||
         !std::isfinite(box.x1) || !std::isfinite(box.y1))
@@ -160,6 +160,18 @@ public:
   bool usesCustomRenderGrid() const override { return true; }
   TAffine handledAffine(const TRenderSettings &, double frame) override {
     return CelFxSourceGrid::renderAffine(m_source.getFx(), frame);
+  }
+  void compute(TTile &tile, double frame, const TRenderSettings &settings) override {
+    if (CelFxSourceGrid::usesCameraDomain(this, m_source.getFx(), frame, settings))
+      CelFxSourceGrid::computeInCamera(this, tile, frame, settings);
+    else
+      TRasterFx::compute(tile, frame, settings);
+  }
+  void dryCompute(TRectD &rect, double frame, const TRenderSettings &settings) override {
+    if (CelFxSourceGrid::usesCameraDomain(this, m_source.getFx(), frame, settings))
+      CelFxSourceGrid::dryComputeInCamera(this, rect, frame, settings);
+    else
+      TRasterFx::dryCompute(rect, frame, settings);
   }
   bool requiresFullPrecisionSerialization() const override { return true; }
   bool toBeComputedInLinearColorSpace(bool, bool) const override { return false; }
