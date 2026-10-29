@@ -6,6 +6,7 @@ on:
   push:
     branches:
       - edition
+      - 'ci/seexpr-*'
 
 permissions:
   contents: read
