@@ -161,6 +161,10 @@ to the implementations in the pinned Partio version. In particular, BGEO is
 **legacy version 5**; modern binary-JSON BGEO and `.bgeo.sc` are unsupported.
 For Houdini interchange, use a compatible legacy export such as `.bhclassic`.
 
+BIN versions 12 and 13 can store 64-bit particle IDs. Partio's integer attribute
+model uses signed 32-bit values, so IDs outside that range report an error rather
+than losing identity through integer narrowing.
+
 Compression is handled by the OT adapter for every format, including codecs
 that do not implement a gzip wrapper themselves. Gzip checksums and truncation
 are checked before parsing. Filename extension matching is case-insensitive.
