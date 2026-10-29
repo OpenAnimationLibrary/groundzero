@@ -356,6 +356,8 @@
   "MI_LightTableIncludeSelectedColumns"
 #define MI_LightTableIncludeAllColumns "MI_LightTableIncludeAllColumns"
 #define MI_ToggleColumnOutline "MI_ToggleColumnOutline"
+#define MI_ToggleColumnDepthExcluded "MI_ToggleColumnDepthExcluded"
+#define MI_ToggleColumnColoursKept "MI_ToggleColumnColoursKept"
 #define MI_ToggleXSheetToolbar "MI_ToggleXSheetToolbar"
 #define MI_ToggleXsheetBreadcrumbs "MI_ToggleXsheetBreadcrumbs"
 #define MI_FoldColumns "MI_FoldColumns"

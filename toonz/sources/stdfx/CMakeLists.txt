@@ -121,6 +121,7 @@ set(SOURCES
     cloudsfx.cpp
     colorembossfx.cpp
     colouroverridefx.cpp
+    colourscriptfx.cpp
     cornerpinfx.cpp
     curvedeformerfx.cpp
     deformerstackfx.cpp

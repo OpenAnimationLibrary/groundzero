@@ -357,6 +357,10 @@ public:
       return TStageObject::T_RotX;
     else if (s == "roty" || s == "angy" || s == "rotationy" || s == "angley")
       return TStageObject::T_RotY;
+    else if (s == "focus" || s == "focusz")
+      return TStageObject::T_FocusZ;
+    else if (s == "aperture")
+      return TStageObject::T_Aperture;
     else
       return TStageObject::T_ChannelCount;
   }

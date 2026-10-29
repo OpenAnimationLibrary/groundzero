@@ -218,7 +218,35 @@ TPaletteP overriddenPalette(const Stage::Player &player, TPalette *palette) {
     fx = next;
   }
 
-  if (data.m_overrides.empty()) return TPaletteP();
+  // A Colour Script between the Xsheet node and the Output shifts every
+  // column, but those that keep their colours
+  TFx *after = column->areColoursKept()
+                   ? nullptr
+                   : player.m_xsh->getFxDag()->getXsheetFx();
+  for (int depth = 0; after && depth < 64; ++depth) {
+    if (after->getOutputConnectionCount() != 1) break;
+    TFxPort *port = after->getOutputConnection(0);
+    TFx *next     = port ? port->getOwnerFx() : 0;
+    if (!next || dynamic_cast<TOutputFx *>(next) ||
+        next->getInputPortCount() == 0 || next->getInputPort(0) != port)
+      break;
+    if (next->getAttributes()->isEnabled()) {
+      const TColourOverrideSource *source =
+          dynamic_cast<const TColourOverrideSource *>(next);
+      if (source) {
+        ColourOverrideFxRenderData shift;
+        if (source->getColourOverrides(player.m_frame, shift) &&
+            data.m_shift.isIdentity()) {
+          data.m_shift      = shift.m_shift;
+          data.m_keepPrefix = shift.m_keepPrefix;
+        }
+      }
+    }
+    after = next;
+  }
+
+  if (column->areColoursKept()) data.m_shift = PaletteTransform::Shift();
+  if (data.isEmpty()) return TPaletteP();
 
   TPaletteP overridden = palette->clone();
   // Bring animated styles to the frame first, so that the setFrame() of the
