@@ -91,11 +91,21 @@ format. Loading plugins is an explicit trusted SDK operation.
 Loaded modules remain alive while their function objects can be referenced.
 Destroy every expression and stop all evaluation before calling
 `ExprFunc::cleanup()`. Cleanup removes registry objects before closing module
-handles; individual unloading while formulas are active is unsupported. An
+handles. The operating system may keep a module mapped and preserve its static
+state after those handles are closed; cleanup does not guarantee physical
+unmapping, reset module state or provide hot replacement of a binary. A later
+explicit load registers its functions into the fresh registry. Individual
+unloading while formulas are active is unsupported. An
 initializer that throws after registering code keeps its library pinned until
 cleanup so published function pointers cannot immediately become dangling.
 
 The fixture tests cover absence before explicit loading, rejection of a module
-without the entry point, function/help registration, deduplication, cleanup,
-directory reload and repeated cleanup. They set the environment plugin path
-deliberately to verify that initialization still does not discover it.
+without the entry point, function/help registration and removal, deduplication
+within each registry lifetime, directory re-registration after cleanup and
+repeated cleanup. The fixture accepts either fresh or retained module static
+state after handle release: it explicitly resets its own counter before cleanup,
+then requires exactly one new registration and unchanged counts after duplicate
+explicit/directory loads. This reset callback belongs to the test fixture, not
+the production loader. Formula failures identify the phase, expression and
+expected/actual result. Tests set the environment plugin path deliberately to
+verify that initialization still does not discover it.

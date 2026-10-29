@@ -216,7 +216,11 @@ struct NativeControl {
 }  // namespace
 
 namespace SeExprFx {
-Document parseDocument(const std::wstring &text) {
+namespace {
+// Storage-only parsing never authorizes evaluation. It recognizes the native
+// control declarations of an unavailable engine/document so scene and preset
+// loaders can retain their separately serialized animation parameters.
+Document parseDocumentContents(const std::wstring &text, bool checkIdentity) {
   const QByteArray bytes = QString::fromStdWString(text).toUtf8();
   demand(std::size_t(bytes.size()) <= maxDocumentBytes, "expression document is too large");
   QJsonParseError error;
@@ -225,17 +229,20 @@ Document parseDocument(const std::wstring &text) {
          "expression document is not a JSON object");
   Document result;
   result.json = parsed.object();
-  demand(result.json.value("version").toInt(-1) == 1, "unsupported expression document version");
+  if (checkIdentity)
+    demand(result.json.value("version").toInt(-1) == 1, "unsupported expression document version");
   demand(result.json.value("rgb").isString() && result.json.value("alpha").isString(),
          "RGB and alpha source must be strings");
   result.rgb = result.json.value("rgb").toString();
   result.alpha = result.json.value("alpha").toString();
   result.backend = result.json.value("backend").toString("interpreter");
-  demand(result.backend == "interpreter" || result.backend == "llvm", "unknown evaluation backend");
-  demand(!result.json.contains("engine") || result.json.value("engine").toString().toStdString() == TSeExpr::Program::engineVersion(),
-         "saved expression engine version is unavailable");
-  demand(!result.json.contains("functionPolicy") || result.json.value("functionPolicy").toInt(-1) == int(TSeExpr::Program::functionPolicyVersion()),
-         "saved expression function policy is unsupported");
+  if (checkIdentity) {
+    demand(result.backend == "interpreter" || result.backend == "llvm", "unknown evaluation backend");
+    demand(!result.json.contains("engine") || result.json.value("engine").toString().toStdString() == TSeExpr::Program::engineVersion(),
+           "saved expression engine version is unavailable");
+    demand(!result.json.contains("functionPolicy") || result.json.value("functionPolicy").toInt(-1) == int(TSeExpr::Program::functionPolicyVersion()),
+           "saved expression function policy is unsupported");
+  }
   std::map<QString, Control> table;
   std::set<QString> names;
   for (const QString group : {QString("controls"), QString("archive")}) {
@@ -307,6 +314,11 @@ Document parseDocument(const std::wstring &text) {
       if (ordered.insert(id).second) result.controls.push_back(table.at(id));
     }
   return result;
+}
+}  // namespace
+
+Document parseDocument(const std::wstring &text) {
+  return parseDocumentContents(text, true);
 }
 std::wstring initialDocument(bool generator) {
   QJsonObject object{{"version", 1}, {"rgb", generator ? "[$u,$v,0.5]" : "$src"},
@@ -417,13 +429,21 @@ protected:
     }
   }
 
-  void synchronizeDocument(bool loading = false) {
+  void synchronizeDocument(bool strict = false) {
     if (m_syncing) return;
     m_syncing = true;
     struct Reset { bool &flag; ~Reset() { flag = false; } } reset{m_syncing};
+    std::string identityError;
     try {
       const int oldCount = this->getParams()->getParamCount();
-      auto document = SeExprFx::parseDocument(m_document->getValue());
+      SeExprFx::Document document;
+      try {
+        document = SeExprFx::parseDocument(m_document->getValue());
+      } catch (const TException &error) {
+        identityError = QString::fromStdWString(error.getMessage()).toStdString();
+        if (strict) throw;
+        document = SeExprFx::parseDocumentContents(m_document->getValue(), false);
+      }
       std::set<QString> present;
       for (const auto &spec : document.controls) {
         const auto known = m_controlMap.find(spec.id);
@@ -498,19 +518,28 @@ protected:
               (suffix == "value" ? "" : " " + suffix));
         }
       }
-      for (const auto item : document.json.value("controls").toArray())
-        active.append(m_controlMap.at(item.toObject().value("id").toString())->spec.definition);
-      document.json.insert("controls", active);
-      document.json.insert("archive", archive);
-      document.json.insert("registry", registry);
-      document.json.insert("engine", QString::fromStdString(TSeExpr::Program::engineVersion()));
-      document.json.insert("functionPolicy", int(TSeExpr::Program::functionPolicyVersion()));
-      m_document->setValue(QString::fromUtf8(QJsonDocument(document.json).toJson(QJsonDocument::Compact)).toStdWString(), false);
-      m_schemaError.clear();
+      if (identityError.empty()) {
+        for (const auto item : document.json.value("controls").toArray())
+          active.append(m_controlMap.at(item.toObject().value("id").toString())->spec.definition);
+        document.json.insert("controls", active);
+        document.json.insert("archive", archive);
+        document.json.insert("registry", registry);
+        document.json.insert("engine", QString::fromStdString(TSeExpr::Program::engineVersion()));
+        document.json.insert("functionPolicy", int(TSeExpr::Program::functionPolicyVersion()));
+        m_document->setValue(QString::fromUtf8(QJsonDocument(document.json).toJson(QJsonDocument::Compact)).toStdWString(), false);
+      }
+      // Native storage can be recognized without granting permission to run
+      // its source. Never replace an unsupported document's identity or JSON.
+      m_schemaError = identityError;
       if (this->getParams()->getParamCount() != oldCount) this->notify(TFxParamAdded(this));
     } catch (const TException &error) {
-      m_schemaError = QString::fromStdWString(error.getMessage()).toStdString();
-      if (loading) throw;
+      m_schemaError = identityError.empty()
+                          ? QString::fromStdWString(error.getMessage()).toStdString()
+                          : identityError;
+      // Loading must retain an unsupported declaration verbatim so it can be
+      // inspected and repaired. The recorded error still prevents rendering;
+      // only internally constructed declarations require an immediate throw.
+      if (strict) throw;
     }
   }
 
@@ -649,7 +678,8 @@ protected:
     if (!m_generator && m_source.isConnected()) {
       TRenderSettings identity = settings; identity.m_affine = TAffine();
       TRectD box;
-      if (m_source->getBBox(frame, box, identity) && finiteBox(box) && !box.isEmpty()) return box;
+      if (static_cast<TRasterFx *>(m_source.getFx())->getBBox(frame, box, identity) &&
+          finiteBox(box) && !box.isEmpty()) return box;
     }
     const double width = finite(m_width->getValue(frame), "canvas width must be finite");
     const double height = finite(m_height->getValue(frame), "canvas height must be finite");
@@ -670,7 +700,8 @@ protected:
   TRectD inputRegion(const TRectD &requested, double frame, const TRenderSettings &settings) const {
     if (m_edge->getValue() == 0) return rasterBox(requested.enlarge(support(frame, settings)));
     TRectD box;
-    if (!m_source->getBBox(frame, box, settings) || box.isEmpty()) return TRectD();
+    if (!static_cast<TRasterFx *>(m_source.getFx())->getBBox(frame, box, settings) || box.isEmpty())
+      return TRectD();
     demand(finiteBox(box), "clamp/repeat/mirror sampling needs a finite Source canvas");
     return rasterBox(box);
   }
@@ -776,8 +807,8 @@ protected:
 
 public:
   explicit SeExprNativeFx(bool generator)
-      : m_document(SeExprFx::initialDocument(generator)), m_width(1920), m_height(1080),
-        m_fps(24), m_seed(0), m_mix(1), m_radius(32), m_edge(0, "Transparent"), m_filter(1, "Bilinear"),
+      : m_document(SeExprFx::initialDocument(generator)), m_width(1920.0), m_height(1080.0),
+        m_fps(24.0), m_seed(0.0), m_mix(1.0), m_radius(32.0), m_edge(0, "Transparent"), m_filter(1, "Bilinear"),
         m_maskChannel(0, "Alpha"), m_generator(generator) {
     // The declaration is saved first, so onParamLoaded can construct all
     // dynamic parameters before either scene or native preset value loading.
@@ -872,16 +903,33 @@ public:
     Base::onChange(change);
   }
   void onParamLoaded(const std::string &name) override {
-    if (name == documentName) synchronizeDocument(true);
+    if (name == documentName) synchronizeDocument();
   }
   TFx *clone(bool recursive = true) const override {
     std::unique_ptr<TFx> copy(TFx::create(this->getFxType()));
     auto *native = dynamic_cast<SeExprNativeFx *>(copy.get());
     demand(native != nullptr, "effect factory did not preserve its native type");
+    // An invalid declaration can follow an otherwise valid, animated schema.
+    // Recreate the already registered native controls independently of that
+    // declaration, then retain the original source and its diagnostic. This
+    // also keeps the native parameter permutation required by TFx::clone.
+    for (const auto &source : m_controls) {
+      std::unique_ptr<NativeControl> control(new NativeControl);
+      control->spec = source->spec;
+      if (source->allocatedKnots)
+        control->spec.definition.insert("nativeKnots", source->allocatedKnots);
+      native->createControl(*control);
+      native->m_controlMap.emplace(control->spec.id, control.get());
+      native->m_controls.push_back(std::move(control));
+    }
     native->m_document->setValue(m_document->getValue(), false);
-    native->synchronizeDocument(true);
+    native->synchronizeDocument();
     std::vector<std::string> order;
-    for (int i = 0; i < this->getParams()->getParamCount(); ++i) order.push_back(this->getParams()->getParamName(i));
+    for (int i = 0; i < this->getParams()->getParamCount(); ++i) {
+      const std::string name = this->getParams()->getParamName(i);
+      order.push_back(name);
+      native->getParams()->getParamVar(name)->setIsHidden(this->getParams()->isParamHidden(i));
+    }
     native->getParams()->reorder(order);
     TFx *result = this->TFx::clone(copy.get(), recursive);
     copy.release(); return result;

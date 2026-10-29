@@ -70,7 +70,8 @@ jobs:
         run: |
           export PATH="/usr/local/opt/ccache/libexec:$PATH"
           mkdir -p /Users/runner/.ccache
-      - uses: actions/cache@v5
+      - uses: actions/cache/restore@v5
+        id: compiler_cache
         with:
           path: /Users/runner/.ccache
           key: ${{ runner.os }}-${{ github.sha }}
@@ -101,11 +102,26 @@ jobs:
             -DBUILD_SEEXPR_PYTHON=ON \
             -DPython3_EXECUTABLE="$(command -v python)" 2>&1 | tee "$GITHUB_WORKSPACE/build.log"
           ninja -j $(sysctl -n hw.ncpu) 2>&1 | tee -a "$GITHUB_WORKSPACE/build.log"
+      - name: Preserve compiled objects
+        if: ${{ always() && steps.compiler_cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v5
+        with:
+          path: /Users/runner/.ccache
+          key: ${{ runner.os }}-${{ github.sha }}
       - name: Test SeExpr native integration
         id: seexpr_tests
         run: |
           set -o pipefail
-          QT_QPA_PLATFORM=offscreen ctest --test-dir toonz/build --output-on-failure --output-junit seexpr-tests.xml --no-tests=error --timeout 180 -R '^seexpr_' 2>&1 | tee toonz/build/seexpr-tests-output.txt
+          # Native test executables and the original tcomposer live outside
+          # the app bundle. The build copies their @executable_path libraries
+          # beside OpenToonz before this step, ahead of macdeployqt packaging.
+          app_libraries="$GITHUB_WORKSPACE/toonz/build/toonz/OpenToonz.app/Contents/MacOS"
+          if [ ! -f "$app_libraries/libtnzbase.dylib" ]; then
+            printf '%s\n' 'SeExpr macOS test runtime is missing libtnzbase.dylib in the built app bundle' | tee toonz/build/seexpr-tests-output.txt
+            exit 1
+          fi
+          DYLD_LIBRARY_PATH="$app_libraries${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}" \
+            QT_QPA_PLATFORM=offscreen ctest --test-dir toonz/build --output-on-failure --output-junit seexpr-tests.xml --no-tests=error --timeout 180 -R '^seexpr_' 2>&1 | tee toonz/build/seexpr-tests-output.txt
 
       - name: Report SeExpr test failures
         if: ${{ failure() && steps.seexpr_tests.outcome == 'failure' }}

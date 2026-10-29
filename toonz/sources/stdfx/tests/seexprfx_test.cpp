@@ -236,6 +236,132 @@ void checkFailuresAndWorkers() {
     require(first->pixels(y)[x] == second->pixels(y)[x], "parallel workers shared mutable interpreter state");
 }
 
+void expectUnsupportedDocument(TFx &fx, const std::wstring &source,
+                               const char *diagnostic) {
+  auto *native = dynamic_cast<TFxSeExprSource *>(&fx);
+  require(native && native->seExprDocumentParam()->getValue() == source,
+          "unsupported document source was changed or discarded");
+  std::string error;
+  require(!native->validateSeExprDocument(source, 0, error) &&
+              error.find(diagnostic) != std::string::npos,
+          "unsupported document validation lost its diagnostic");
+  std::string preview;
+  require(!native->previewSeExprDocument(source, 0, preview, error) &&
+              error.find(diagnostic) != std::string::npos,
+          "unsupported document preview silently used a different engine");
+  bool rejected = false;
+  try {
+    rendered<TPixelF>(*dynamic_cast<TRasterFx *>(&fx), 1, 1);
+  } catch (const TException &failure) {
+    rejected = QString::fromStdWString(failure.getMessage()).toStdString().find(diagnostic) != std::string::npos;
+  }
+  require(rejected, "unsupported document rendered without the expected failure");
+  require(native->seExprDocumentParam()->getValue() == source,
+          "validation or rendering rewrote an unsupported document");
+}
+
+void expectPreservedUnsupportedAnimation(TFx &fx) {
+  const auto gain = numeric(fx, "seexprControl_gain__value");
+  const auto stop = numeric(fx, "seexprControl_ramp__v1");
+  require(gain->isKeyframe(1) && gain->isKeyframe(3) &&
+              gain->getValue(1) == .875 && gain->getValue(3) == .9375 &&
+              stop->isKeyframe(1) && stop->isKeyframe(3) &&
+              stop->getValue(1) == 2 && stop->getValue(3) == 3,
+          "unsupported document persistence lost native control animation");
+}
+
+void checkUnsupportedDocumentPersistence(const QString &directory) {
+  struct Unsupported {
+    const char *field;
+    QJsonValue value;
+    const char *diagnostic;
+  };
+  const Unsupported cases[] = {
+      {"version", 999, "unsupported expression document version"},
+      {"engine", QStringLiteral("unavailable-engine"), "saved expression engine version is unavailable"},
+      {"functionPolicy", 999, "saved expression function policy is unsupported"}};
+  for (const auto &test : cases) {
+    TFxP owner = new SeExprGeneratorFx;
+    auto *native = dynamic_cast<TFxSeExprSource *>(owner.getPointer());
+    const QJsonObject ramp{{"id", "ramp"}, {"name", "ramp"}, {"type", "curve"},
+        {"points", QJsonArray{QJsonArray{0, 0, 1}, QJsonArray{1, 1, 1}}}};
+    document(*owner, "[$gain,ramp(0.5),0]", "1", {scalar("gain", .75), ramp});
+    numeric(*owner, "seexprControl_gain__value")->setValue(1, .875);
+    numeric(*owner, "seexprControl_gain__value")->setValue(3, .9375);
+    numeric(*owner, "seexprControl_ramp__v1")->setValue(1, 2);
+    numeric(*owner, "seexprControl_ramp__v1")->setValue(3, 3);
+    const auto repair = native->seExprDocumentParam()->getValue();
+    QJsonObject unsupported = QJsonDocument::fromJson(QString::fromStdWString(repair).toUtf8()).object();
+    unsupported[test.field] = test.value;
+    unsupported["futureMetadata"] = QJsonObject{{"retained", true}};
+    // Preserve formatting and unknown fields too, rather than canonicalizing
+    // an unsupported format into a success-looking current declaration.
+    const auto source = QString::fromUtf8(QJsonDocument(unsupported).toJson(QJsonDocument::Indented)).toStdWString();
+    native->seExprDocumentParam()->setValue(source);
+    expectUnsupportedDocument(*owner, source, test.diagnostic);
+    expectPreservedUnsupportedAnimation(*owner);
+
+    TFxP copy = owner->clone(false);
+    expectUnsupportedDocument(*copy, source, test.diagnostic);
+    require(copy->getParams()->getParamCount() == owner->getParams()->getParamCount(),
+            "cloning an unsupported document lost its registered controls");
+    expectPreservedUnsupportedAnimation(*copy);
+
+    for (bool compressed : {false, true}) {
+      const QString filename = QString("/unsupported-%1-%2.tnz").arg(test.field).arg(compressed ? "compressed" : "plain");
+      const TFilePath path((directory + filename).toStdWString());
+      { TOStream stream(path, compressed); stream << owner.getPointer(); }
+      TFxP restored; { TIStream stream(path); stream >> restored; }
+      require(restored, "loading an unsupported document discarded the effect");
+      expectUnsupportedDocument(*restored, source, test.diagnostic);
+      expectPreservedUnsupportedAnimation(*restored);
+      TFxP restoredCopy = restored->clone(false);
+      expectUnsupportedDocument(*restoredCopy, source, test.diagnostic);
+      expectPreservedUnsupportedAnimation(*restoredCopy);
+      const TFilePath resaved((directory + filename + ".resaved").toStdWString());
+      { TOStream stream(resaved, compressed); stream << restored.getPointer(); }
+      TFxP reopened; { TIStream stream(resaved); stream >> reopened; }
+      expectUnsupportedDocument(*reopened, source, test.diagnostic);
+      expectPreservedUnsupportedAnimation(*reopened);
+      dynamic_cast<TFxSeExprSource *>(restored.getPointer())->seExprDocumentParam()->setValue(repair);
+      expectPreservedUnsupportedAnimation(*restored);
+      expect(rendered<TPixelF>(*dynamic_cast<TRasterFx *>(restored.getPointer()), 1, 1, TPointD(), 1)->pixels(0)[0], .875, 1, 0, 1);
+      dynamic_cast<TFxSeExprSource *>(reopened.getPointer())->seExprDocumentParam()->setValue(repair);
+      expect(rendered<TPixelF>(*dynamic_cast<TRasterFx *>(reopened.getPointer()), 1, 1, TPointD(), 3)->pixels(0)[0], .9375, 1.5, 0, 1);
+    }
+    const TFilePath preset((directory + QString("/unsupported-%1.preset").arg(test.field)).toStdWString());
+    { TOStream stream(preset); owner->savePreset(stream); }
+    SeExprGeneratorFx presetFx; { TIStream stream(preset); presetFx.loadPreset(stream); }
+    expectUnsupportedDocument(presetFx, source, test.diagnostic);
+    expectPreservedUnsupportedAnimation(presetFx);
+    presetFx.seExprDocumentParam()->setValue(repair);
+    expect(rendered<TPixelF>(presetFx, 1, 1, TPointD(), 1)->pixels(0)[0], .875, 1, 0, 1);
+
+    dynamic_cast<TFxSeExprSource *>(copy.getPointer())->seExprDocumentParam()->setValue(repair);
+    expectPreservedUnsupportedAnimation(*copy);
+    expect(rendered<TPixelF>(*dynamic_cast<TRasterFx *>(copy.getPointer()), 1, 1, TPointD(), 1)->pixels(0)[0], .875, 1, 0, 1);
+    // Repairing the clone must not rewrite the still unsupported original.
+    expectUnsupportedDocument(*owner, source, test.diagnostic);
+  }
+
+  // A future declaration with an unrecognizable control schema still retains
+  // its source, but must not invent native storage or authorize evaluation.
+  TFxP future = new SeExprGeneratorFx;
+  const QJsonObject unknown{{"version", 999}, {"rgb", "[1,0,0]"}, {"alpha", "1"},
+      {"controls", QJsonArray{QJsonObject{{"id", "future"}, {"name", "future"},
+          {"type", "unrecognized-control"}, {"value", QJsonObject{{"data", 7}}}}}}};
+  const auto source = QString::fromUtf8(QJsonDocument(unknown).toJson(QJsonDocument::Indented)).toStdWString();
+  dynamic_cast<TFxSeExprSource *>(future.getPointer())->seExprDocumentParam()->setValue(source);
+  const TFilePath path((directory + "/unsupported-control-schema.tnz").toStdWString());
+  { TOStream stream(path); stream << future.getPointer(); }
+  TFxP restored; { TIStream stream(path); stream >> restored; }
+  expectUnsupportedDocument(*restored, source, "unsupported expression document version");
+  require(!restored->getParams()->getParam("seexprControl_future__value"),
+          "an unrecognizable future control acquired invented native storage");
+  TFxP copy = restored->clone(false);
+  expectUnsupportedDocument(*copy, source, "unsupported expression document version");
+}
+
 std::uint64_t checksum(const TRasterFP &image, int rowStart, int fullWidth) {
   std::uint64_t result = 0;
   for (int y = 0; y < image->getLy(); ++y) for (int x = 0; x < image->getLx(); ++x) {
@@ -322,7 +448,8 @@ int main(int argc, char **argv) {
     QTemporaryDir temporary; require(temporary.isValid(), "temporary fixture directory is unavailable");
     checkGenerator<TPixel32>(); checkGenerator<TPixel64>(); checkGenerator<TPixelF>();
     checkColorAndSampling<TPixel32>(); checkColorAndSampling<TPixel64>(); checkColorAndSampling<TPixelF>();
-    checkNamedControlsAndPersistence(temporary.path()); checkFailuresAndWorkers();
+    checkNamedControlsAndPersistence(temporary.path());
+    checkUnsupportedDocumentPersistence(temporary.path()); checkFailuresAndWorkers();
     std::cout << "seexpr-fx: PASS\n"; return 0;
   } catch (const TException &error) {
     std::cerr << QString::fromStdWString(error.getMessage()).toStdString() << '\n';
