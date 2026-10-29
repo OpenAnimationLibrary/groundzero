@@ -1,0 +1,403 @@
+// out: "../../../../Animate/Animate.qss"
+
+//! The above line is for EasyLESS (VSCode extension) compile output location
+
+// -----------------------------------------------------------------------------
+// ANIMATE THEME
+// Modelled on the dark interface of Adobe Animate: neutral charcoal panels
+// over a darker application frame, blue selection, rounded controls, regular
+// weight labels and a timeline whose exposed frames are light with dark text
+// while empty frames stay dark.
+// -----------------------------------------------------------------------------
+
+// Theme to inherit/override
+@import '../default/default-theme.less';
+
+// Image path relative to where this *.qss is output
+@img-url: '../Default/imgs/white';
+
+// SETTINGS --------------------------------------------------------------------
+
+// Adjust Pseudo States (Percentage)
+@hover-amount:    8%; // lighten
+@pressed-amount:  8%; // darken
+@disabled-amount: 40%; // opacity
+
+// Toggles (Adobe panels use regular weight text everywhere)
+@bold-titlebar-text: false;
+@bold-fxlabel-text:  false;
+@bold-label-text:    false;
+
+// COLORS ----------------------------------------------------------------------
+
+// Base colors: panel surface, with the application frame a step darker
+@bg-color: #323232;
+@bg-color-hover: #3e3e3e;
+@bg-color-pressed: #2b2b2b;
+
+@dark-color-1: #2b2b2b; // tab bars, titlebars
+@dark-color-2: #262626; // application frame, menus
+@dark-color-3: #202020; // text fields
+@dark-color-4: #1b1b1b; // panel gaps
+@dark-color-5: #141414;
+
+@light-color-0: #393939;
+@light-color-1: #3e3e3e;
+@light-color-2: #4a4a4a;
+@light-color-3: #5a5a5a;
+@light-color-4: #6e6e6e;
+@light-color-5: #909090;
+
+// Border
+@border-color: #1f1f1f;
+
+@dock-color: @dark-color-4;
+
+// Text
+@text-color: #d9d9d9;
+@text-color-active: #f5f5f5;
+@text-color-inactive: fade(@text-color, 55%);
+
+// Highlight (Adobe selection blue)
+@hl-color: #2680eb;
+@hl-text-color: white;
+
+@lock-color: #e34850;
+@preview-color: #e8c547;
+
+// Label
+@normal-label-color: #78b5ff;
+@success-label-color: #33ab84;
+@error-label-color: #ec5b62;
+@fx-settings-label-color: #a3d7ff;
+
+// Tooltip
+@tooltip-bg-color: #1b1b1b;
+@tooltip-border-color: #4a4a4a;
+@tooltip-text-color: #e3e3e3;
+
+// -----------------------------------------------------------------------------
+// Tabs
+// -----------------------------------------------------------------------------
+@tabbar-bg-color: @dark-color-2;
+
+@tab-bg-color: @tabbar-bg-color;
+@tab-text-color: #a2a2a2;
+@tab-border-color: @border-color;
+
+@tab-bg-color-hover: #2f2f2f;
+@tab-text-color-hover: @text-color-active;
+
+@tab-bg-color-selected: @bg-color;
+@tab-text-color-selected: @text-color-active;
+
+// -----------------------------------------------------------------------------
+// Top Menubar / Rooms
+// -----------------------------------------------------------------------------
+@topbar-bg-color: @dark-color-2;
+
+@menubar-item-bg-color-hover: #3e3e3e;
+
+// Rooms: selected workspace reads as a lighter tab rather than a blue block
+@rooms-tab-bg-color: @dark-color-2;
+@rooms-tab-text-color: #a2a2a2;
+@rooms-tab-bg-color-hover: #2f2f2f;
+@rooms-tab-bg-color-selected: @bg-color;
+@rooms-tab-text-color-selected: @text-color-active;
+@rooms-tab-bg-color-selected-hover: #3a3a3a;
+
+// -----------------------------------------------------------------------------
+// Context Menu
+// -----------------------------------------------------------------------------
+@menu-bg-color: #2b2b2b;
+@menu-border-color: #4a4a4a;
+@menu-separator-color: #4a4a4a;
+
+@menu-item-text-color-checked: @normal-label-color;
+@menu-checkbox-border-color-hover: #909090;
+
+// -----------------------------------------------------------------------------
+// GroupBox
+// -----------------------------------------------------------------------------
+@groupbox-border-color: #4a4a4a;
+@groupbox-border-radius: 4px;
+
+// -----------------------------------------------------------------------------
+// Button (Spectrum-like: dark grey, visible border, 4px radius)
+// -----------------------------------------------------------------------------
+@button-bg-color: #434343;
+@button-border-color: #5c5c5c;
+@button-border-radius: 4px;
+
+// Hover
+@button-bg-color-hover: #4f4f4f;
+@button-border-color-hover: #6e6e6e;
+
+// Pressed
+@button-bg-color-pressed: #2b2b2b;
+@button-border-color-pressed: #5c5c5c;
+
+// Checked
+@button-text-color-checked: @hl-text-color;
+@button-bg-color-checked: @hl-color;
+@button-border-color-checked: @hl-color;
+@button-bg-color-checked-hover: #378ef0;
+
+// Focus
+@button-border-color-focus: #378ef0;
+
+// Disabled
+@button-border-color-disabled: fade(@button-border-color, 30%);
+
+// Scroll Buttons
+@scroll-button-border-color: #5c5c5c;
+
+// Dialog Popup
+@popup-dialog-button-frame-bg-color: @dark-color-1;
+
+// -----------------------------------------------------------------------------
+// Tool Buttons
+// -----------------------------------------------------------------------------
+@toolbar-separator-color: #4a4a4a;
+
+@toolbutton-bg-color-hover: #4a4a4a;
+@toolbutton-border-color-hover: #4a4a4a;
+
+@toolbutton-bg-color-pressed: #262626;
+@toolbutton-border-color-pressed: #262626;
+
+@toolbutton-bg-color-checked: @hl-color;
+@toolbutton-bg-color-checked-hover: #378ef0;
+@toolbutton-border-color-checked-hover: #378ef0;
+
+// -----------------------------------------------------------------------------
+// Scrollbars
+// -----------------------------------------------------------------------------
+@sb-bg-color: #2a2a2a;
+@sb-handle-radius: 5px;
+@sb-handle-bg-color: #5c5c5c;
+@sb-handle-bg-color-hover: #6e6e6e;
+@sb-handle-bg-color-pressed: #808080;
+
+// -----------------------------------------------------------------------------
+// Textfield
+// -----------------------------------------------------------------------------
+@input-bg-color: #262626;
+@input-border-color: #4a4a4a;
+@input-border-radius: 4px;
+
+@input-border-color-hover: #5c5c5c;
+@input-border-color-focus: @hl-color;
+@input-selection-bg-color: fade(@hl-color, 70%);
+
+// -----------------------------------------------------------------------------
+// CheckBox
+// -----------------------------------------------------------------------------
+@checkbox-bg-color: #262626;
+@checkbox-border-color: #6e6e6e;
+@checkbox-border-color-hover: #909090;
+@checkbox-bg-color-checked-hover: #378ef0;
+
+// -----------------------------------------------------------------------------
+// Sliders
+// -----------------------------------------------------------------------------
+@slider-groove-img: 'slider/slider-groove-dark.svg';
+@slider-groove-color: #1f1f1f;
+@slider-handle-bg-color: #b0b0b0;
+
+// -----------------------------------------------------------------------------
+// Titlebars
+// -----------------------------------------------------------------------------
+@titlebar-bg-color: @dark-color-1;
+@titlebar-text-color: #a2a2a2;
+@titlebar-text-color-active: @text-color-active;
+
+@titlebar-button-rollover-bg-color: #4a4a4a;
+@titlebar-button-pressed-bg-color: @hl-color;
+
+// -----------------------------------------------------------------------------
+// Palette Window
+// -----------------------------------------------------------------------------
+@palette-NumpadShortcutBorderColor: #909090;
+@palette-SeparatorColor: #1f1f1f;
+
+// -----------------------------------------------------------------------------
+// File Browser / Treeviews / Lists
+// -----------------------------------------------------------------------------
+@tree-bg-color: @dark-color-2;
+@tree-bg-color-alt-row: rgba(255, 255, 255, 0.03);
+
+@browser-itemview-col-color: #3a3a3a;
+@browser-itemview-col-color-sorted: #434343;
+@browser-itemview-col-border-color: #1f1f1f;
+
+// -----------------------------------------------------------------------------
+// Flip Slider/Marker
+// -----------------------------------------------------------------------------
+@flipmarker-img: 'flipslider/flipmarker-animate.svg';
+@flipslider-img: 'flipslider/flipslider-dark-hc.svg';
+@flipslider-base-color: #262626;
+@flipslider-notstarted-color: hsl(0, 45%, 40%);
+@flipslider-started-color: hsl(145, 45%, 42%);
+
+// -----------------------------------------------------------------------------
+// Viewer Window
+// -----------------------------------------------------------------------------
+@viewer-ruler-bg-color: @dark-color-1;
+@viewer-ruler-handle-color: #ff7a1a;
+
+// -----------------------------------------------------------------------------
+// Progress Bar
+// -----------------------------------------------------------------------------
+@progressbar-chunk-bg-color: @hl-color;
+
+// -----------------------------------------------------------------------------
+// Custom Panels
+// -----------------------------------------------------------------------------
+@custompanel-scroller-bg-color: #262626;
+@custompanel-scroller-border-color: #6e6e6e;
+
+// -----------------------------------------------------------------------------
+// Xsheet [xsh]
+// Animate's timeline: dark empty frames, light exposed frames with dark text,
+// tween-like pastel tints per level type, red playhead.
+// -----------------------------------------------------------------------------
+
+// SETTINGS --------------------------------------------------------------------
+
+@xsh-color: #3a3a3a;
+
+// Adjust Contrast (Multiplier)
+@xsh-contrast:        1.0;
+@xsh-border-contrast: 0.8;
+
+// Toggles
+@xsh-mono-icons: true;
+
+// Level colors below are the final cell colors, so no lightening is applied.
+@xsh-cell-lighten-amount: 0%;
+@xsh-cell-sat-amount:     0%;
+
+@xsh-border-darken-amount: 22%;
+@xsh-border-sat-amount:     0%;
+
+// Selected cells get darker and more saturated, like a selection tint
+@xsh-hl-lighten-amount: -14%;
+@xsh-hl-sat-amount:      18%;
+
+// LEVEL COLORS ----------------------------------------------------------------
+@xsh-vector-color: #d9d9d9;       // plain frame span grey
+@xsh-toonzraster-color: #bcd3ec;  // motion tween blue
+@xsh-raster-color: #cfc0e6;       // classic tween purple
+@xsh-sub-color: #bfe0b0;          // shape tween green
+@xsh-fx-color: #e8d3a8;           // label / effect amber
+@xsh-palette-color: #b7dcd8;      // IK teal
+@xsh-mesh-color: #dcc5e8;
+@xsh-assistants-color: @xsh-palette-color;
+@xsh-reference-color: #a8a8a8;
+
+@xsh-notes-color: #ece6c9;
+@xsh-notes-border-color: darken(@xsh-notes-color, 22%);
+@xsh-notes-hl-color: darken(@xsh-notes-color, 10%);
+
+@xsh-sound-color: #c6d9b8;
+@xsh-sound-track-color: #1b1b1b;
+
+@xsh-camera-active-color: #9fc3e8;
+@xsh-camera-other-color: #b9cfd9;
+
+@xsh-xsheet-color: #8aa9d6;
+@xsh-peg-color: #d4b78a;
+
+// SPREADSHEET LINES -----------------------------------------------------------
+@xsh-horizontal-row-line-color: rgba(0, 0, 0, 0.35);
+@xsh-vertical-column-line-color: rgba(0, 0, 0, 0.5);
+
+// SEC MARKER LINES ------------------------------------------------------------
+@xsh-marker-line-color: rgba(255, 255, 255, 0.15);
+@xsh-selected-marker-line-color: rgba(255, 255, 255, 0.45);
+@xsh-sec-marker-line-color: rgba(255, 255, 255, 0.3);
+@xsh-current-time-indicator-color: #ff4040; // playhead red
+
+// FOLDED COLUMNS --------------------------------------------------------------
+@xsh-folded-column-bg-color: rgba(255, 255, 255, 0.35);
+
+// SPREADSHEET CELL AREA -------------------------------------------------------
+@xsh-empty-column-color: #353535;
+@xsh-empty-column-range-color: #3c3c3c;
+@xsh-empty-cell-color-selected: rgba(38, 128, 235, 0.35);
+
+@xsh-cell-text-color: rgba(0, 0, 0, 0.85);
+@xsh-current-cell-border-color: @hl-color;
+@xsh-current-column-border-color: #378ef0;
+
+// ONION SKIN AREA -------------------------------------------------------------
+@xsh-onionskin-column-bg-color: #303030;
+
+// FRAMENUMBER AREA ------------------------------------------------------------
+@xsh-framenumber-column-text-color: #c8c8c8;
+@xsh-framenumber-column-bg-color: #2b2b2b;
+
+@xsh-framenumber-column-range-text-color: @normal-label-color;
+@xsh-framenumber-column-range-bg-color: #353535;
+
+@xsh-framenumber-current-text-color: white;
+@xsh-framenumber-current-bg-color: fade(@hl-color, 60%);
+
+// COLUMN HEADER AREA ----------------------------------------------------------
+@xsh-column-header-empty-color: @bg-color;
+@xsh-column-header-border-color: #1f1f1f;
+@xsh-column-header-selected-color: rgba(255, 255, 255, 0.25);
+
+@xsh-button-preview-bg-on-color: @preview-color;
+@xsh-button-camstand-bg-on-color: #e8956b;
+
+// TIMELINE VIEW ---------------------------------------------------------------
+@timeline-column-header-border-color: #1f1f1f;
+
+@timeline-preview-button-bg-on-color: @xsh-button-preview-bg-on-color;
+@timeline-table-button-bg-on-color: @xsh-button-camstand-bg-on-color;
+@timeline-lock-button-bg-on-color: @xsh-button-lock-bg-on-color;
+
+// -----------------------------------------------------------------------------
+// Nodes [node]
+// -----------------------------------------------------------------------------
+@node-viewer-bg-color: @dark-color-2;
+@node-text-color: rgba(255, 255, 255, 0.9);
+
+// Node colors are mid tones so the light text stays readable
+@node-lighten-amount: 0%;
+@node-sat-amount: 0%;
+
+@node-table-color: #4f6fa8;
+@node-group-color: #3f7fb8;
+@node-spline-color: #5f8f2f;
+@node-normal-fx-color: #4a6584;
+@node-macro-fx-color: #7d4f7d;
+@node-image-adjust-fx-color: #5d5a8c;
+@node-layer-blending-fx-color: #3f7878;
+@node-matte-fx-color: #8c4f4f;
+
+@node-link-color: #c8c8c8;
+@node-selected-link-color: #4bb4ff;
+@node-motion-path-link-color: #9ff03a;
+
+// KEYFRAME COLORS -------------------------------------------------------------
+@keyframe-total-color: #e68619;
+@keyframe-inbetween-color: #808080;
+@keyframe-modified-color: #33ab84;
+
+// -----------------------------------------------------------------------------
+// Function Editor [fe]
+// -----------------------------------------------------------------------------
+@fe-header-border-color: #1f1f1f;
+
+@fe-keyframe-color: #b8742e;
+@fe-ignored-keyframe-color: #a8454f;
+@fe-inbetween-color: #5f5f5f;
+@fe-ignored-inbetween-color: #7f6f68;
+
+@fe-panel-bg-color: #2b2b2b;
+@fe-panel-ruler-bg-color: #262626;
+@fe-panel-line-tone: 25%;
+@fe-panel-curve-color-hover: #4bb4ff;

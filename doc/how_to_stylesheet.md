@@ -50,23 +50,38 @@ less/themes/default/default-theme.less
 less/themes/others/default-green-theme.less
 less/themes/others/blue-theme.less
 less/themes/others/dark-theme.less
+less/themes/others/darker-theme.less
 less/themes/others/clay-theme.less
 less/themes/others/neutral-theme.less
 less/themes/others/light-theme.less
-less/themes/others/synthwave-theme.less
+less/themes/others/animate-theme.less
+less/themes/others/toonboom-theme.less
 ```
 
-### Linux
-From opentoonz source directory root execute the following commands:
+### Linux / macOS / any shell
+From the source directory root, this compiles every theme to the output named
+in its `// out:` header (uncompressed, which is how the `.qss` files are
+committed). It uses `lessc` from `PATH`, or `npx` when only Node.js is
+installed:
 ```
-$ lessc -x less/themes/default/default-theme.less stuff/config/qss/Default/Default.qss
-$ lessc -x less/themes/others/default-green-theme.less stuff/config/qss/Default-Green/Default-Green.qss
-$ lessc -x less/themes/others/blue-theme.less stuff/config/qss/Blue/Blue.qss
-$ lessc -x less/themes/others/dark-theme.less stuff/config/qss/Dark/Dark.qss
-$ lessc -x less/themes/others/clay-theme.less stuff/config/qss/Clay/Clay.qss
-$ lessc -x less/themes/others/neutral-theme.less stuff/config/qss/Neutral/Neutral.qss
-$ lessc -x less/themes/others/light-theme.less stuff/config/qss/Light/Light.qss
-$ lessc -x less/themes/others/synthwave-theme.less stuff/config/qss/Synthwave/Synthwave.qss
+$ python3 ci-scripts/compile_qss.py
+```
+
+To compile a single theme, name it:
+```
+$ python3 ci-scripts/compile_qss.py Animate
+```
+
+To check that the committed `.qss` files match their LESS sources without
+writing anything (exits non-zero when one is stale):
+```
+$ python3 ci-scripts/compile_qss.py --check
+```
+
+The equivalent `lessc` call for one theme, run from
+`stuff/config/qss/Default/less`, is:
+```
+$ lessc themes/others/blue-theme.less ../../Blue/Blue.qss
 ```
 
 ## How They Work
@@ -138,6 +153,25 @@ To reuse styles from another class you can reference another class as a mixin:
 > [!NOTE]
 > This is more stable than using `extend`, even if it produces a larger `.qss` output.
 
+# Included Themes
+
+| Folder | Source | Look |
+| --- | --- | --- |
+| `Default` | `themes/default/default-theme.less` | Mid grey, blue highlight. All other themes override it. |
+| `Default-Green` | `themes/others/default-green-theme.less` | Default with a green highlight. |
+| `Blue` | `themes/others/blue-theme.less` | Default on a blue-grey base. |
+| `Dark` | `themes/others/dark-theme.less` | Darker grey with the default highlight. |
+| `Darker` | `themes/others/darker-theme.less` | Near black with gradient titlebars (by Soda-Popz JP). |
+| `Clay` | `themes/others/clay-theme.less` | Warm grey with a terracotta highlight. |
+| `Neutral` | `themes/others/neutral-theme.less` | Flat mid grey, black text, classic blue menus. |
+| `Light` | `themes/others/light-theme.less` | Light grey with black text. |
+| `Animate` | `themes/others/animate-theme.less` | In the manner of Adobe Animate's dark interface: charcoal panels on a darker frame, blue selection, rounded controls, regular weight labels, light exposed frames with dark text in the Xsheet. |
+| `ToonBoom` | `themes/others/toonboom-theme.less` | In the manner of Toon Boom Harmony's dark interface: cool charcoal, teal selection and tab accent, flat controls, light Xsheet cells coloured by layer type (drawings blue-grey, pegs green, camera yellow, effects rose, sound tan). |
+
+The `Animate` and `ToonBoom` themes only borrow the colour schemes; the panel
+layout is unchanged. Their flip marker and tab accent images live beside the
+other shared assets in `Default/imgs/white`.
+
 # Creating New Themes
 It's possible to create custom themes.
 
@@ -145,6 +179,7 @@ It's possible to create custom themes.
 1. Make sure you have a LESS compiler setup and working before proceeding.
 2. Navigate to `stuff/config/qss/Default/less/themes/others`.
 3. You can either duplicate an existing theme and rename it (pay attention to the header section to rename the `out` path) or create a new empty `.less` theme file.
+4. Compile it with `python3 ci-scripts/compile_qss.py <Theme-Name>`; the new folder under `stuff/config/qss` appears in *Preferences > Interface > Theme* on the next start.
 
 If creating an empty file, make sure to include the required sections:
 
