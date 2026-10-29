@@ -45,7 +45,15 @@ template <typename Pixel> TRasterPT<Pixel> rendered(
     const TRenderSettings &settings = TRenderSettings()) {
   TRasterPT<Pixel> image(width, height); image->fill(Pixel::White);
   TTile tile; tile.setRaster(image); tile.m_pos = position;
-  fx.doCompute(tile, frame, settings);
+  // The application renderer owns the base-class compute entry point. These
+  // focused fixtures call only the native effects' public implementation and
+  // retain checked dispatch when persistence/clone APIs return a base pointer.
+  if (auto *generator = dynamic_cast<SeExprGeneratorFx *>(&fx))
+    generator->doCompute(tile, frame, settings);
+  else if (auto *color = dynamic_cast<SeExprColorFx *>(&fx))
+    color->doCompute(tile, frame, settings);
+  else
+    throw std::runtime_error("render fixture requires a native expression effect");
   return image;
 }
 template <typename Pixel> void expect(const Pixel &pixel, double r, double g, double b, double a) {
