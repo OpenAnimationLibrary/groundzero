@@ -1,0 +1,7 @@
+<fxlayout help_file="EdgeExtend.html">
+  <page name="Edge Extend">
+    <control>radius</control>
+    <control>solid</control>
+    <control>extendAlpha</control>
+  </page>
+</fxlayout>

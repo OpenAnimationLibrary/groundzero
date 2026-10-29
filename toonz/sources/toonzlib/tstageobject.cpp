@@ -164,6 +164,8 @@ TStageObjectParams::TStageObjectParams(TStageObjectParams *data)
     , m_sheary(data->m_sheary)
     , m_rotx(data->m_rotx)
     , m_roty(data->m_roty)
+    , m_focusz(data->m_focusz)
+    , m_aperture(data->m_aperture)
     , m_skeletonDeformation(data->m_skeletonDeformation)
     , m_offsetLayers(data->m_offsetLayers)
     , m_publishedChannels(data->m_publishedChannels)
@@ -441,6 +443,8 @@ TStageObject::TStageObject(TStageObjectTree *tree, TStageObjectId id)
     , m_sheary(new TDoubleParam())
     , m_rotx(new TDoubleParam())
     , m_roty(new TDoubleParam())
+    , m_focusz(new TDoubleParam())
+    , m_aperture(new TDoubleParam())
     , m_center()
     , m_offset()
     , m_cycleEnabled(false)
@@ -502,6 +506,13 @@ TStageObject::TStageObject(TStageObjectTree *tree, TStageObjectId id)
   m_roty->setMeasureName("angle");
   m_roty->addObserver(this);
 
+  m_focusz->setName("W_FocusZ");
+  m_focusz->setMeasureName("zdepth");
+  m_focusz->addObserver(this);
+
+  m_aperture->setName("W_Aperture");
+  m_aperture->addObserver(this);
+
   m_posPath->setName("posPath");
   m_posPath->setMeasureName("percentage2");
   m_posPath->addObserver(this);
@@ -518,6 +529,8 @@ TStageObject::TStageObject(TStageObjectTree *tree, TStageObjectId id)
   m_tree->setGrammar(m_sheary);
   m_tree->setGrammar(m_rotx);
   m_tree->setGrammar(m_roty);
+  m_tree->setGrammar(m_focusz);
+  m_tree->setGrammar(m_aperture);
   m_tree->setGrammar(m_posPath);
 
   if (id.isCamera()) m_camera = new TCamera();
@@ -545,6 +558,8 @@ TStageObject::~TStageObject() {
   if (m_sheary) m_sheary->removeObserver(this);
   if (m_rotx) m_rotx->removeObserver(this);
   if (m_roty) m_roty->removeObserver(this);
+  if (m_focusz) m_focusz->removeObserver(this);
+  if (m_aperture) m_aperture->removeObserver(this);
   if (m_posPath) m_posPath->removeObserver(this);
 
   for (OffsetLayer &layer : m_offsets->m_layers) detachOffsetLayer(layer);
@@ -962,7 +977,9 @@ bool TStageObject::isFullKeyframe(int frame) const {
          m_scale->isKeyframe(frame) && m_shearx->isKeyframe(frame) &&
          m_sheary->isKeyframe(frame) &&
          (!isFullKeyframeChannel(T_RotX) || m_rotx->isKeyframe(frame)) &&
-         (!isFullKeyframeChannel(T_RotY) || m_roty->isKeyframe(frame));
+         (!isFullKeyframeChannel(T_RotY) || m_roty->isKeyframe(frame)) &&
+         (!isFullKeyframeChannel(T_FocusZ) || m_focusz->isKeyframe(frame)) &&
+         (!isFullKeyframeChannel(T_Aperture) || m_aperture->isKeyframe(frame));
 }
 
 //-----------------------------------------------------------------------------
@@ -973,6 +990,10 @@ bool TStageObject::isFullKeyframeChannel(Channel channel) const {
     return !m_rotx->isDefault();
   case T_RotY:
     return !m_roty->isDefault();
+  case T_FocusZ:
+    return !m_focusz->isDefault();
+  case T_Aperture:
+    return !m_aperture->isDefault();
   default:
     return channel >= 0 && channel < T_ChannelCount;
   }
@@ -1000,6 +1021,8 @@ TStageObject::Keyframe TStageObject::getKeyframe(int frame) const {
     k.m_channels[TStageObject::T_ShearY] = m_sheary->getValue(frame);
     k.m_channels[TStageObject::T_RotX]   = m_rotx->getValue(frame);
     k.m_channels[TStageObject::T_RotY]   = m_roty->getValue(frame);
+    k.m_channels[TStageObject::T_FocusZ]   = m_focusz->getValue(frame);
+    k.m_channels[TStageObject::T_Aperture] = m_aperture->getValue(frame);
 
     if (m_skeletonDeformation)
       m_skeletonDeformation->getKeyframeAt(frame, k.m_skeletonKeyframe);
@@ -1056,6 +1079,12 @@ void TStageObject::setKeyframeWithoutUndo(int frame,
   keyWasSet = ::setKeyframe(m_roty, k.m_channels[TStageObject::T_RotY], frame,
                             k.m_easeIn, k.m_easeOut) ||
               keyWasSet;
+  keyWasSet = ::setKeyframe(m_focusz, k.m_channels[TStageObject::T_FocusZ],
+                            frame, k.m_easeIn, k.m_easeOut) ||
+              keyWasSet;
+  keyWasSet = ::setKeyframe(m_aperture, k.m_channels[TStageObject::T_Aperture],
+                            frame, k.m_easeIn, k.m_easeOut) ||
+              keyWasSet;
 
   if (m_skeletonDeformation)
     keyWasSet = m_skeletonDeformation->setKeyframe(k.m_skeletonKeyframe, frame,
@@ -1083,9 +1112,11 @@ void TStageObject::setKeyframeWithoutUndo(int frame) {
   setkey(m_scale, frame);
   setkey(m_shearx, frame);
   setkey(m_sheary, frame);
-  // The optional tilt channels are keyed only once they are in use.
+  // The optional tilt and depth channels are keyed only once they are in use.
   if (isFullKeyframeChannel(T_RotX)) setkey(m_rotx, frame);
   if (isFullKeyframeChannel(T_RotY)) setkey(m_roty, frame);
+  if (isFullKeyframeChannel(T_FocusZ)) setkey(m_focusz, frame);
+  if (isFullKeyframeChannel(T_Aperture)) setkey(m_aperture, frame);
 
   // Plastic keys are currently not *created* by xsheet commands.
 
@@ -1129,6 +1160,8 @@ void TStageObject::removeKeyframeWithoutUndo(int frame) {
   m_sheary->deleteKeyframe(frame);
   m_rotx->deleteKeyframe(frame);
   m_roty->deleteKeyframe(frame);
+  m_focusz->deleteKeyframe(frame);
+  m_aperture->deleteKeyframe(frame);
 
   if (m_skeletonDeformation) m_skeletonDeformation->deleteKeyframe(frame);
 
@@ -1279,6 +1312,10 @@ TDoubleParam *TStageObject::getParam(Channel channel) const {
     return m_rotx.getPointer();
   case T_RotY:
     return m_roty.getPointer();
+  case T_FocusZ:
+    return m_focusz.getPointer();
+  case T_Aperture:
+    return m_aperture.getPointer();
   default:
     return 0;
   }
@@ -1631,6 +1668,8 @@ TStageObject *TStageObject::clone() {
   cloned->m_sheary  = static_cast<TDoubleParam *>(m_sheary->clone());
   cloned->m_rotx    = static_cast<TDoubleParam *>(m_rotx->clone());
   cloned->m_roty    = static_cast<TDoubleParam *>(m_roty->clone());
+  cloned->m_focusz   = static_cast<TDoubleParam *>(m_focusz->clone());
+  cloned->m_aperture = static_cast<TDoubleParam *>(m_aperture->clone());
 
   for (const OffsetLayer &layer : m_offsets->m_layers)
     cloned->insertOffsetLayer(-1, cloneOffsetLayer(layer));
@@ -1938,6 +1977,8 @@ void TStageObject::updateKeyframes(LazyData &ld) const {
   params.push_back(m_sheary.getPointer());
   params.push_back(m_rotx.getPointer());
   params.push_back(m_roty.getPointer());
+  params.push_back(m_focusz.getPointer());
+  params.push_back(m_aperture.getPointer());
 
   if (m_skeletonDeformation) {
     params.push_back(m_skeletonDeformation->skeletonIdsParam().getPointer());
@@ -1989,6 +2030,8 @@ void TStageObject::updateKeyframes(LazyData &ld) const {
     stageKf.m_channels[TStageObject::T_ShearY] = m_sheary->getKeyframeAt(f);
     stageKf.m_channels[TStageObject::T_RotX]   = m_rotx->getKeyframeAt(f);
     stageKf.m_channels[TStageObject::T_RotY]   = m_roty->getKeyframeAt(f);
+    stageKf.m_channels[TStageObject::T_FocusZ]   = m_focusz->getKeyframeAt(f);
+    stageKf.m_channels[TStageObject::T_Aperture] = m_aperture->getKeyframeAt(f);
 
     if (m_skeletonDeformation)
       m_skeletonDeformation->getKeyframeAt(f, stageKf.m_skeletonKeyframe);
@@ -2077,6 +2120,8 @@ void TStageObject::saveData(TOStream &os) {
   if (!m_sheary->isDefault()) os.child("shy") << *m_sheary;
   if (!m_rotx->isDefault()) os.child("rotx") << *m_rotx;
   if (!m_roty->isDefault()) os.child("roty") << *m_roty;
+  if (!m_focusz->isDefault()) os.child("focus") << *m_focusz;
+  if (!m_aperture->isDefault()) os.child("aperture") << *m_aperture;
   if (m_cycleEnabled) os.child("cycle") << 1;
 
   if (m_skeletonDeformation) os.child("plasticSD") << *m_skeletonDeformation;
@@ -2193,6 +2238,10 @@ void TStageObject::loadData(TIStream &is) {
       is >> *m_rotx;
     else if (tagName == "roty")
       is >> *m_roty;
+    else if (tagName == "focus")
+      is >> *m_focusz;
+    else if (tagName == "aperture")
+      is >> *m_aperture;
     else if (tagName == "pos")
       is >> *m_posPath;
     else if (tagName == "posCP") {
@@ -2386,6 +2435,8 @@ TStageObjectParams *TStageObject::getParams() const {
   data->m_sheary  = m_sheary;
   data->m_rotx    = m_rotx;
   data->m_roty    = m_roty;
+  data->m_focusz   = m_focusz;
+  data->m_aperture = m_aperture;
 
   data->m_skeletonDeformation = m_skeletonDeformation;
   data->m_offsetLayers        = m_offsets->m_layers;
@@ -2428,6 +2479,8 @@ void TStageObject::assignParams(const TStageObjectParams *src,
     m_sheary->copy(src->m_sheary.getPointer());
     m_rotx->copy(src->m_rotx.getPointer());
     m_roty->copy(src->m_roty.getPointer());
+    m_focusz->copy(src->m_focusz.getPointer());
+    m_aperture->copy(src->m_aperture.getPointer());
 
     if (src->m_skeletonDeformation)
       setPlasticSkeletonDeformation(
@@ -2459,6 +2512,10 @@ void TStageObject::assignParams(const TStageObjectParams *src,
     m_rotx->addObserver(this);
     m_roty = src->m_roty.getPointer();
     m_roty->addObserver(this);
+    m_focusz = src->m_focusz.getPointer();
+    m_focusz->addObserver(this);
+    m_aperture = src->m_aperture.getPointer();
+    m_aperture->addObserver(this);
 
     m_skeletonDeformation = src->m_skeletonDeformation;
     if (m_skeletonDeformation) m_skeletonDeformation->addObserver(this);

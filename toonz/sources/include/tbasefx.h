@@ -105,4 +105,37 @@ public:
                        const TRenderSettings &info) const override;
 };
 
+//************************************************************************
+//    ColumnDepthFx  definition
+//************************************************************************
+
+//! The haze and desaturation of a column by its depth (Multiplane Depth, see
+//! toonz/multiplanedepth.h), inserted by the render when the scene uses it.
+class ColumnDepthFx final : public TBaseRasterFx {
+  FX_DECLARATION(ColumnDepthFx)
+  double m_haze, m_desaturation, m_color[3];
+
+protected:
+  TRasterFxPort m_port;
+
+public:
+  ColumnDepthFx();
+
+  TFx *clone(bool recursive) const override;
+
+  bool canHandle(const TRenderSettings &info, double frame) override {
+    return true;
+  }
+
+  bool doGetBBox(double frame, TRectD &bBox,
+                 const TRenderSettings &info) override;
+
+  void doCompute(TTile &tile, double frame, const TRenderSettings &ri) override;
+
+  void setDepth(double haze, double desaturation, const double color[3]);
+
+  std::string getAlias(double frame,
+                       const TRenderSettings &info) const override;
+};
+
 #endif  // TBASEFX_INCLUDED

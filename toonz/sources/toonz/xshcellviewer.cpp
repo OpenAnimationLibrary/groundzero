@@ -390,9 +390,11 @@ bool isGlobalKeyFrameWithSameTypeDiffFromLinear(TStageObject *stageObject,
                   ->getKeyframeAt(frame)
                   .m_type)
     return false;
-  // The optional tilt channels are part of the global key only when in use
+  // The optional tilt and depth channels are part of the global key only when
+  // in use
   for (TStageObject::Channel channel :
-       {TStageObject::T_RotX, TStageObject::T_RotY}) {
+       {TStageObject::T_RotX, TStageObject::T_RotY, TStageObject::T_FocusZ,
+        TStageObject::T_Aperture}) {
     if (stageObject->isFullKeyframeChannel(channel) &&
         type != stageObject->getParam(channel)->getKeyframeAt(frame).m_type)
       return false;
@@ -449,9 +451,11 @@ bool isGlobalKeyFrameWithSamePrevTypeDiffFromLinear(TStageObject *stageObject,
                   ->getKeyframeAt(frame)
                   .m_prevType)
     return false;
-  // The optional tilt channels are part of the global key only when in use
+  // The optional tilt and depth channels are part of the global key only when
+  // in use
   for (TStageObject::Channel channel :
-       {TStageObject::T_RotX, TStageObject::T_RotY}) {
+       {TStageObject::T_RotX, TStageObject::T_RotY, TStageObject::T_FocusZ,
+        TStageObject::T_Aperture}) {
     if (stageObject->isFullKeyframeChannel(channel) &&
         type != stageObject->getParam(channel)->getKeyframeAt(frame).m_prevType)
       return false;
@@ -4400,6 +4404,13 @@ void CellArea::onStepChanged(QAction *act) {
   if (keyFrameIndex >= 0 && param->isKeyframe(frame)) {
     setParamStep(keyFrameIndex, step,
                  stageObject->getParam(TStageObject::T_RotY));
+  }
+  for (TStageObject::Channel channel :
+       {TStageObject::T_FocusZ, TStageObject::T_Aperture}) {
+    param         = stageObject->getParam(channel);
+    keyFrameIndex = param->getClosestKeyframe(frame);
+    if (keyFrameIndex >= 0 && param->isKeyframe(frame))
+      setParamStep(keyFrameIndex, step, param);
   }
 
   TUndoManager::manager()->endBlock();

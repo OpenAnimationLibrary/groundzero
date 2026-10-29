@@ -529,6 +529,34 @@ if(BUILD_OUTLINEVIEW_TESTS)
     add_test(NAME outlineview COMMAND outlineview_test)
 endif()
 
+# Optional regression target for the camera's depth channels, Focus Z and
+# Aperture: saved and keyed only when used, and read by expressions.
+option(BUILD_CAMERADEPTH_TESTS "Build the camera depth channels regression test" ${BUILD_TESTS})
+if(BUILD_CAMERADEPTH_TESTS)
+    add_executable(cameradepth_test tests/cameradepth_test.cpp)
+    target_link_libraries(cameradepth_test PRIVATE toonzlib tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core)
+    add_test(NAME cameradepth COMMAND cameradepth_test)
+endif()
+
+# Optional regression target for the Multiplane Depth (multiplanedepth.h): the
+# math, the scene setting, and the blur and haze inserted per column by the
+# render. It links the standard FX for the Blur FX.
+option(BUILD_MULTIPLANEDEPTH_TESTS "Build the Multiplane Depth regression test" ${BUILD_TESTS})
+if(BUILD_MULTIPLANEDEPTH_TESTS)
+    add_executable(multiplanedepth_test tests/multiplanedepth_test.cpp)
+    target_link_libraries(multiplanedepth_test PRIVATE toonzlib tnzstdfx tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
+    add_test(NAME multiplanedepth COMMAND multiplanedepth_test)
+endif()
+
+# Optional regression target for the Colour Script (palettetransform.h): the
+# hue, saturation and lightness shift and the render data applying it.
+option(BUILD_COLOURSCRIPT_TESTS "Build the Colour Script regression test" ${BUILD_TESTS})
+if(BUILD_COLOURSCRIPT_TESTS)
+    add_executable(colourscript_test tests/colourscript_test.cpp)
+    target_link_libraries(colourscript_test PRIVATE toonzlib tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core)
+    add_test(NAME colourscript COMMAND colourscript_test)
+endif()
+
 # Optional regression target for the motion presets (motionpreset.h). It also
 # loads the stock presets shipped in stuff/library/motionpresets.
 option(BUILD_MOTIONPRESET_TESTS "Build the motion preset regression test" ${BUILD_TESTS})

@@ -26,6 +26,7 @@
 #include "particlesmanager.h"
 
 #include "particlesengine.h"
+#include "particleweather.h"
 
 #include "trenderer.h"
 
@@ -145,6 +146,17 @@ void Particles_Engine::fill_value_struct(struct particles_values &myvalues,
   myvalues.motion_blur_val = m_parent->motion_blur_val->getValue();
   myvalues.motion_blur_gamma_adjust_val =
       m_parent->motion_blur_gamma_adjust_val->getValue(frame);
+  myvalues.collision_ctrl_val  = m_parent->collision_ctrl_val->getValue();
+  myvalues.collision_mode_val  = m_parent->collision_mode_val->getValue();
+  myvalues.turbulence_val      = m_parent->turbulence_val->getValue(frame);
+  myvalues.turbulence_size_val = m_parent->turbulence_size_val->getValue(frame);
+  myvalues.turbulence_speed_val =
+      m_parent->turbulence_speed_val->getValue(frame);
+  myvalues.depth_layers_val    = m_parent->depth_layers_val->getValue();
+  myvalues.depth_far_scale_val = m_parent->depth_far_scale_val->getValue(frame);
+  myvalues.depth_far_opacity_val =
+      m_parent->depth_far_opacity_val->getValue(frame);
+  myvalues.frame_val = frame;
 }
 
 /*-----------------------------------------------------------------*/
@@ -185,7 +197,7 @@ bool Particles_Engine::port_is_used_for_value(int i,
          values.source_ctrl_val == i || values.speed_ctrl_val == i ||
          (values.speeda_ctrl_val == i && !values.speeda_use_gradient_val) ||
          values.lifetime_ctrl_val == i || values.randomx_ctrl_val == i ||
-         values.randomy_ctrl_val == i;
+         values.randomy_ctrl_val == i || values.collision_ctrl_val == i;
 }
 
 // Returns true if the gradient of control image is used.
@@ -856,7 +868,11 @@ void Particles_Engine::do_render(
   // Calculate the rotational and scale components we have to apply on the
   // particle
   TRotation rotM(part->angle + aim_angle);
-  TScale scaleM(part->scale);
+  // Farther depth layers are smaller
+  TScale scaleM(part->depth > 0
+                    ? part->scale * ParticleWeather::depthFactor(
+                                        part->depth, values.depth_far_scale_val)
+                    : part->scale);
   TAffine M(rotM * scaleM);
 
   // Particles deal with dpi affines on their own

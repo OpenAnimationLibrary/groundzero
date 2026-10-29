@@ -1032,6 +1032,37 @@ rt
  <![endif]>
 </table>
 
+<h3 style='font-family:sans-serif'>Weather</h3>
+<p style='font-family:sans-serif;width:680pt'>Rain, snow and dust in depth, blown
+about and landing on the scene. Each setting is off at its default, and a scene
+that does not use them renders exactly as before.</p>
+<table border=1 cellpadding=4 cellspacing=0 style='font-family:sans-serif;
+ border-collapse:collapse;width:680pt'>
+ <tr><th>Param Name</th><th>Description</th><th>Control Image</th></tr>
+ <tr><td>Collision Image</td><td>The control port whose image the particles
+  hit: where it is more than half opaque, a particle stops falling through it.
+  0 for none.</td><td>○</td></tr>
+ <tr><td>On Collision</td><td>What a particle does when it hits the image.
+  <b>Disappear</b> ends it (rain soaking into the ground), <b>Settle</b> leaves
+  it resting where it landed for the rest of its lifetime (snow piling up),
+  <b>Bounce</b> sends it back up with part of its speed (hail, splashes).</td>
+  <td>―</td></tr>
+ <tr><td>Turbulence</td><td>The strength, in pixels per frame, of a drifting
+  noise push added to each particle's motion, for gusts and flurries.
+  0 for none.</td><td>―</td></tr>
+ <tr><td>Turbulence Size</td><td>The size of the turbulence's swirls.</td>
+  <td>―</td></tr>
+ <tr><td>Turbulence Speed</td><td>How fast the turbulence changes over
+  time.</td><td>―</td></tr>
+ <tr><td>Depth Layers</td><td>Spreads the particles over this many layers of
+  depth, from near to far. 1 for no depth.</td><td>―</td></tr>
+ <tr><td>Far Size</td><td>The size and speed of the farthest layer, as a
+  fraction of the nearest: far particles are smaller and move less.</td>
+  <td>―</td></tr>
+ <tr><td>Far Opacity</td><td>The opacity of the farthest layer, as a fraction
+  of the nearest.</td><td>―</td></tr>
+</table>
+
 </div>
 
 

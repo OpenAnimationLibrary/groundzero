@@ -6,6 +6,7 @@
 #include "tmacrofx.h"
 #include "toutputproperties.h"
 #include "tparamcontainer.h"
+#include "tdoubleparam.h"
 
 // TnzLib includes
 #include "toonz/txsheet.h"
@@ -24,6 +25,7 @@
 #include "toonz/tcamera.h"
 #include "toonz/toonzscene.h"
 #include "toonz/sceneproperties.h"
+#include "toonz/multiplanedepth.h"
 #include "toonz/plasticdeformerfx.h"
 #include "toonz/stage.h"
 #include "toonz/preferences.h"
@@ -39,6 +41,8 @@
 #include "toonz/sceneresources.h"
 
 #include <QList>
+
+#include <cmath>
 
 /*
   TODO: Some parts of the following render-tree building procedure should be
@@ -602,6 +606,7 @@ public:
   TXsheet *m_xsh;
   TAffine m_cameraAff;
   double m_cameraZ;
+  double m_cameraFocusZ, m_cameraAperture;
   double m_frame;
   int m_whichLevels;
   bool m_isPreview;
@@ -637,6 +642,7 @@ public:
   TFxP getFxWithColumnMovements(const PlacedFx &pf);
 
   bool addPlasticDeformerFx(PlacedFx &pf);
+  void addDepthFx(PlacedFx &pf, const TXshColumn *column) const;
 };
 
 //===================================================================
@@ -659,6 +665,9 @@ FxBuilder::FxBuilder(ToonzScene *scene, TXsheet *xsh, double frame,
   TStageObject *camera = m_xsh->getStageObject(cameraId);
   m_cameraAff          = camera->getPlacement(m_frame);
   m_cameraZ            = camera->getZ(m_frame);
+  m_cameraFocusZ = camera->getParam(TStageObject::T_FocusZ)->getValue(m_frame);
+  m_cameraAperture =
+      camera->getParam(TStageObject::T_Aperture)->getValue(m_frame);
 }
 
 //-------------------------------------------------------------------
@@ -746,6 +755,44 @@ bool FxBuilder::addPlasticDeformerFx(PlacedFx &pf) {
   }
 
   return false;
+}
+
+//-------------------------------------------------------------------
+
+// The Multiplane Depth of the scene (toonz/multiplanedepth.h): blurs and hazes
+// a placed column by its Z. Only the columns of the top xsheet are: a
+// sub-xsheet is one plane, at the Z of its column.
+void FxBuilder::addDepthFx(PlacedFx &pf, const TXshColumn *column) const {
+  // Nor the textures of particles, which the particles place themselves
+  if (!pf.m_fx || !column || column->isDepthExcluded() || !m_scene ||
+      m_particleDescendentCount > 0)
+    return;
+  const MultiplaneDepth::Settings &depth =
+      m_scene->getProperties()->getMultiplaneDepth();
+  if (!depth.enabled || m_xsh != m_scene->getTopXsheet()) return;
+
+  const MultiplaneDepth::Column c = MultiplaneDepth::evaluate(
+      depth, pf.m_z, m_cameraFocusZ, m_cameraAperture);
+  if (c.hasBlur()) {
+    // The blur is the one seen by the camera: divide it by the column's scale
+    // on screen, which its placement and the camera give
+    const TAffine onScreen =
+        (m_cameraAff * TScale((1000 + m_cameraZ) / 1000)).inv() * pf.m_aff;
+    const double local =
+        MultiplaneDepth::localBlur(c.blur, std::sqrt(std::abs(onScreen.det())));
+    // The standard Blur FX, when the FX plugins are loaded
+    TFxP blur = local > 1e-6 ? TFx::create("STD_blurFx") : TFxP();
+    TDoubleParamP value =
+        blur ? TDoubleParamP(blur->getParams()->getParam("value"))
+             : TDoubleParamP();
+    if (value && blur->connect("Source", pf.m_fx.getPointer())) {
+      value->setDefaultValue(local);
+      pf.m_fx = blur;
+    }
+  }
+  if (c.hasColor())
+    pf.m_fx = TFxUtil::makeColumnDepth(pf.m_fx, c.haze, c.desaturation,
+                                       depth.hazeColor);
 }
 
 //-------------------------------------------------------------------
@@ -998,6 +1045,7 @@ PlacedFx FxBuilder::makePF(TLevelColumnFx *lcfx) {
     if (pf.m_fx && !effect.isIdentity())
       pf.m_fx = TFxUtil::makeColumnColorEffect(pf.m_fx, effect.m, effect.c);
 
+    addDepthFx(pf, column);
     return pf;
   } else
     return PlacedFx();
@@ -1116,9 +1164,10 @@ PlacedFx FxBuilder::makePF(TZeraryColumnFx *zcfx) {
   }
 
   // Add the column placement NaAffineFx
-  if (getColumnPlacement(pf, m_xsh, m_frame, pf.m_columnIndex, m_isPreview))
+  if (getColumnPlacement(pf, m_xsh, m_frame, pf.m_columnIndex, m_isPreview)) {
+    addDepthFx(pf, zcfx->getColumn());
     return pf;
-  else
+  } else
     return PlacedFx();
 }
 

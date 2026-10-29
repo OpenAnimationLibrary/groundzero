@@ -5,6 +5,7 @@
 //#include "tpixelutils.h"
 #include "trop.h"
 #include "particles.h"
+#include "particleweather.h"
 #include "particlesengine.h"
 #include "hsvutil.h"
 #include "timage_io.h"
@@ -42,6 +43,9 @@ Particle::Particle(int g_lifetime, int seed, std::map<int, TTile *> porttiles,
   birthId = static_cast<unsigned long long>(howmany);
   double random_s_a_range, random_speed;
   std::map<int, double> imagereferences;
+  // From the seed, not a random draw: other particles are unchanged
+  depth   = ParticleWeather::depthOf(seed, values.depth_layers_val);
+  settled = false;
   random                  = TRandom(seed);
   double randomxreference = 0.0;
   double randomyreference = 0.0;
@@ -717,13 +721,49 @@ void Particle::move(std::map<int, TTile *> porttiles,
 
   vx += xgravity * mass;
   vy += ygravity * mass;
+  // The step, evaluated as before: without weather, positions are unchanged
+  double stepx, stepy;
   if (values.speedscale_val) {
     float scalecorr = scale / dpicorr;
-    x += (vx + windx + dummy.x) * scalecorr;
-    y += (vy + windy + dummy.y) * scalecorr;
+    stepx           = (vx + windx + dummy.x) * scalecorr;
+    stepy           = (vy + windy + dummy.y) * scalecorr;
   } else {
-    x += vx + windx + dummy.x;
-    y += vy + windy + dummy.y;
+    stepx = vx + windx + dummy.x;
+    stepy = vy + windy + dummy.y;
+  }
+  if (values.turbulence_val > 0) {
+    double tx, ty;
+    ParticleWeather::turbulence(values.turbulence_val,
+                                values.turbulence_size_val,
+                                values.turbulence_speed_val, values.frame_val,
+                                values.randseed_val, x, y, tx, ty);
+    stepx += tx;
+    stepy += ty;
+  }
+  // Farther layers move less: the depth's parallax
+  if (depth > 0) {
+    const double factor =
+        ParticleWeather::depthFactor(depth, values.depth_far_scale_val);
+    stepx *= factor;
+    stepy *= factor;
+  }
+  if (settled) {
+    vx = vy = 0;
+  } else {
+    x += stepx;
+    y += stepy;
+  }
+  if (values.collision_ctrl_val && !settled) {
+    auto hit = porttiles.find(values.collision_ctrl_val);
+    if (hit != porttiles.end() && hit->second->getRaster() &&
+        collides(hit->second)) {
+      ParticleWeather::Motion m = {x, y, vx, vy, settled, lifetime};
+      ParticleWeather::collide(
+          ParticleWeather::Collision(values.collision_mode_val), oldx[0],
+          oldy[0], m);
+      x = m.x, y = m.y, vx = m.vx, vy = m.vy;
+      settled = m.settled, lifetime = m.lifetime;
+    }
   }
   angle -= values.rotspeed_val + dummy.a;
 
@@ -761,5 +801,25 @@ double Particle::set_Opacity(std::map<int, TTile *> porttiles,
         values.opacity_val.first + (opacity_range)*opacityreference * opacity;
   } else
     opacity = values.opacity_val.first + opacity_range * opacity;
+  // Farther layers fade
+  if (depth > 0)
+    opacity *=
+        ParticleWeather::depthFactor(depth, values.depth_far_opacity_val);
   return opacity;
+}
+
+/*-----------------------------------------------------------------*/
+// Whether the particle is on an opaque pixel of the collision image.
+bool Particle::collides(TTile *ctrl) const {
+  TRaster32P raster32 = ctrl->getRaster();
+  if (!raster32) return false;
+  TPointD p(x, y);
+  p -= ctrl->m_pos;
+  const int px = int(std::floor(p.x)), py = int(std::floor(p.y));
+  if (px < 0 || py < 0 || px >= raster32->getLx() || py >= raster32->getLy())
+    return false;
+  raster32->lock();
+  const bool opaque = raster32->pixels(py)[px].m > 127;
+  raster32->unlock();
+  return opaque;
 }

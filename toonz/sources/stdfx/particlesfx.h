@@ -92,6 +92,15 @@ public:
   TBoolParamP perspective_distribution_val;
   TBoolParamP motion_blur_val;
   TDoubleParamP motion_blur_gamma_adjust_val;
+  // Weather: collision, turbulence and depth layers, off by default
+  TIntParamP collision_ctrl_val;
+  TIntEnumParamP collision_mode_val;
+  TDoubleParamP turbulence_val;
+  TDoubleParamP turbulence_size_val;
+  TDoubleParamP turbulence_speed_val;
+  TIntParamP depth_layers_val;
+  TDoubleParamP depth_far_scale_val;
+  TDoubleParamP depth_far_opacity_val;
 
 public:
   enum { UNIT_SMALL_INCH, UNIT_INCH };

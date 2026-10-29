@@ -98,6 +98,26 @@
     </vbox>
   </page>
 
+  <page name="Weather">
+    <vbox>
+      <separator label="Collision"/>
+        <control>collision_ctrl</control>
+        <control>collision_mode</control>
+      <separator label="Turbulence"/>
+        <control>turbulence</control>
+        <hbox>
+        <control>turbulence_size</control>
+        <control>turbulence_speed</control>
+        </hbox>
+      <separator label="Depth Layers"/>
+        <control>depth_layers</control>
+        <hbox>
+        <control>depth_far_scale</control>
+        <control>depth_far_opacity</control>
+        </hbox>
+    </vbox>
+  </page>
+
   <page name="Animation">
     <vbox>
       <separator label="Rotation"/>

@@ -1,0 +1,6 @@
+<fxlayout help_file="MatteChoke.html">
+  <page name="Matte Choke">
+    <control>amount</control>
+    <control>feather</control>
+  </page>
+</fxlayout>
