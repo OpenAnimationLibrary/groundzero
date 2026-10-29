@@ -182,15 +182,17 @@ void exerciseNestedReferenceRefresh(TXsheet *xsheet,
   secondLeaf->setName("sameLeaf");
   firstNested->addParam(firstLeaf, "registeredLeaf");
   secondNested->addParam(secondLeaf, "registeredLeaf");
-  first->addParam(firstNested, "nested");
-  second->addParam(secondNested, "nested");
+  first->addParam(TParamP(firstNested.getPointer()), "nested");
+  second->addParam(TParamP(secondNested.getPointer()), "nested");
   TPixelParamP firstColor(TPixel32::Black), secondColor(TPixel32::Black);
   firstColor->enableMatte(false);
   secondColor->enableMatte(false);
   first->addParam(firstColor, "color");
   second->addParam(secondColor, "color");
-  probe->getParams()->add(new TParamVarT<TParamP>("first", nullptr, first, true));
-  probe->getParams()->add(new TParamVarT<TParamP>("second", nullptr, second));
+  probe->getParams()->add(new TParamVarT<TParamP>(
+      "first", nullptr, TParamP(first.getPointer()), true));
+  probe->getParams()->add(new TParamVarT<TParamP>(
+      "second", nullptr, TParamP(second.getPointer())));
   auto *grammar = xsheet->getStageObjectTree()->getGrammar();
   firstLeaf->setGrammar(grammar);
   secondLeaf->setGrammar(grammar);
@@ -237,8 +239,8 @@ void exerciseNestedReferenceRefresh(TXsheet *xsheet,
   replacementLeaf->setGrammar(grammar);
   keys(replacementLeaf.getPointer(), seExprSource);
   replacement->addParam(replacementLeaf, "registeredLeaf");
-  first->removeParam(firstNested);
-  first->addParam(replacement, "nested");
+  first->removeParam(TParamP(firstNested.getPointer()));
+  first->addParam(TParamP(replacement.getPointer()), "nested");
   for (int refresh = 0; refresh < 3; ++refresh) {
     check(replacementLeaf.getPointer());
     require(!xsheet->getExpRefMonitor()->info().contains(firstLeaf.getPointer()),

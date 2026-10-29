@@ -360,6 +360,24 @@ jobs:
           xcopy /Y /E /I recorder-encoder toonz\build\Opentoonz\otdev-recorder
           copy /Y .github\ot-dev\recorder\README.md toonz\build\Opentoonz\otdev-recorder\README.md
 
+      - name: Remove SeExpr test drivers from the package
+        shell: pwsh
+        run: |
+          $package = "toonz/build/Opentoonz"
+          $drivers = @("seexpr_plugin_test", "seexpr_animation_test", "seexpr_fx_test", "seexpr_editor_test", "seexpr_controls_test", "seexpr_range_test", "seexpr_batch_fixture")
+          $suffixes = @(".exe", ".lib", ".exp", ".pdb", ".ilk", ".ipdb", ".iobj", ".exe.manifest")
+          foreach ($driver in $drivers) {
+            foreach ($suffix in $suffixes) {
+              $path = Join-Path $package ($driver + $suffix)
+              if (Test-Path -LiteralPath $path) {
+                Remove-Item -LiteralPath $path -Force -ErrorAction Stop
+              }
+              if (Test-Path -LiteralPath $path) {
+                throw "A SeExpr test driver or companion artifact remained in the production package"
+              }
+            }
+          }
+
       - name: Verify test-only native artifacts are absent
         shell: pwsh
         run: |
