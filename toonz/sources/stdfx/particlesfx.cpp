@@ -553,12 +553,12 @@ void ParticlesFx::compatibilityTranslatePort(int major, int minor,
 
 FX_PLUGIN_IDENTIFIER(ParticlesFx, "particlesFx");
 
-// Explicit bake dispatch bypasses top-level image caching.
+// Bake uses a detached graph with fresh cache identifiers.
 bool computeStandardParticlesForBake(TRasterFx *fx, TTile &tile, double frame,
                                     const TRenderSettings &settings) {
   auto *particles = dynamic_cast<ParticlesFx *>(fx);
   if (!particles) return false;
   if (particles->step_val->getValue() <= 0) throw TException("Invalid particle simulation step.");
-  particles->doCompute(tile, frame, settings);
+  particles->compute(tile, frame, settings);
   return true;
 }

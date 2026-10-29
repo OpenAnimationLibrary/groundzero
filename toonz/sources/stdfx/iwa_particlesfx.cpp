@@ -585,12 +585,12 @@ void Iwa_TiledParticlesFx::compatibilityTranslatePort(int major, int minor,
 
 FX_PLUGIN_IDENTIFIER(Iwa_TiledParticlesFx, "iwa_TiledParticlesFx");
 
-// Explicit bake dispatch bypasses top-level image caching.
+// Bake uses a detached graph with fresh cache identifiers.
 bool computeTiledParticlesForBake(TRasterFx *fx, TTile &tile, double frame,
                                     const TRenderSettings &settings) {
   auto *particles = dynamic_cast<Iwa_TiledParticlesFx *>(fx);
   if (!particles) return false;
   if (particles->step_val->getValue() <= 0) throw TException("Invalid particle simulation step.");
-  particles->doCompute(tile, frame, settings);
+  particles->compute(tile, frame, settings);
   return true;
 }

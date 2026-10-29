@@ -32,7 +32,8 @@ void record(const TFx *source, const TRasterP &artwork, const TAffine &affine,
             const TTile *tile);
 void background(const TFx *source, const TTile *tile);
 }
-// Direct dispatch avoids the top-level FX image cache during explicit capture.
+// Evaluate through the production renderer. captureFrame gives the detached
+// graph fresh identifiers, preventing cache hits or inherited tile predictions.
 bool computeStandardParticlesForBake(TRasterFx *, TTile &, double,
                                      const TRenderSettings &);
 bool computeTiledParticlesForBake(TRasterFx *, TTile &, double,
