@@ -4,13 +4,15 @@
 # Exact replacements fail if the reviewed upstream implementation changes.
 function(ot_patch_partio_ptc source output)
     file(READ "${source}" _ptc_source)
-    macro(_ptc_replace old new)
+    # Function arguments preserve C++ backslashes; macro substitution reparses them.
+    function(_ptc_replace old new)
         string(FIND "${_ptc_source}" "${old}" _ptc_match)
         if(_ptc_match LESS 0)
             message(FATAL_ERROR "Pinned Partio PTC source no longer matches its reviewed patch")
         endif()
         string(REPLACE "${old}" "${new}" _ptc_source "${_ptc_source}")
-    endmacro()
+        set(_ptc_source "${_ptc_source}" PARENT_SCOPE)
+    endfunction()
     _ptc_replace([=[inline string GetString(istream& input,const char terminator='\0')
 {
     // TODO: make this check for FEOF condition! and also more efficient

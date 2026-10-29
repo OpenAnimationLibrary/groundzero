@@ -4,13 +4,15 @@
 # Exact replacements fail if the reviewed upstream implementation changes.
 function(ot_patch_partio_geo source output)
     file(READ "${source}" _geo_source)
-    macro(_geo_replace old new)
+    # Function arguments preserve C++ backslashes; macro substitution reparses them.
+    function(_geo_replace old new)
         string(FIND "${_geo_source}" "${old}" _geo_match)
         if(_geo_match LESS 0)
             message(FATAL_ERROR "Pinned Partio GEO source no longer matches its reviewed patch")
         endif()
         string(REPLACE "${old}" "${new}" _geo_source "${_geo_source}")
-    endmacro()
+        set(_geo_source "${_geo_source}" PARENT_SCOPE)
+    endfunction()
     _geo_replace([=[#include "io.h"]=] [=[#include "io.h"
 #include <cctype>
 #include <limits>]=])

@@ -4,13 +4,15 @@
 # Exact replacements deliberately fail when the pinned upstream source changes.
 function(ot_patch_partio_prt source output)
     file(READ "${source}" _prt_source)
-    macro(_prt_replace old new)
+    # Function arguments preserve C++ backslashes; macro substitution reparses them.
+    function(_prt_replace old new)
         string(FIND "${_prt_source}" "${old}" _prt_match)
         if(_prt_match LESS 0)
             message(FATAL_ERROR "Pinned Partio PRT source no longer matches its reviewed patch")
         endif()
         string(REPLACE "${old}" "${new}" _prt_source "${_prt_source}")
-    endmacro()
+        set(_prt_source "${_prt_source}" PARENT_SCOPE)
+    endfunction()
     _prt_replace([=[#include <iostream>]=] [=[#include <iostream>
 #include <cstring>
 #include <limits>
