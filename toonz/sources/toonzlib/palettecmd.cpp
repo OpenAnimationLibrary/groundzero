@@ -54,7 +54,7 @@ class ReferenceColorsUndo final : public TUndo {
     for (const auto &entry : colors)
       m_palette->getStyle(entry.first)->setMainColor(entry.second);
     m_palette->setDirtyFlag(true);
-    m_handle->notifyColorStyleChanged(false);
+    m_handle->notifyColorStyleChanged(false, false);
   }
 public:
   ReferenceColorsUndo(TPaletteHandle *handle,

@@ -3,6 +3,7 @@
 // Tnz6 includes
 #include "colormodelviewer.h"
 #include "toonzqt/colormatcheditor.h"
+#include "trop.h"
 #include "menubarcommandids.h"
 #include "floatingpanelcommand.h"
 #include "tapp.h"
@@ -224,8 +225,14 @@ void ColorModelViewer::contextMenuEvent(QContextMenuEvent *event) {
   if (ri) {
     auto match = menu.addAction(tr("Match Palette to Reference Colors..."));
     connect(match, &QAction::triggered, this, [this, ri] {
+      TRasterP raster=ri->getRaster();
+      if (!TRaster32P(raster) && !TRasterGR8P(raster)) {
+        TRaster32P converted(raster->getLx(),raster->getLy());
+        TRop::convert(converted,raster);
+        raster=converted;
+      }
       matchPaletteToReference(this, getPaletteHandle(),
-                              rasterToQImage(ri->getRaster()).copy());
+                              rasterToQImage(raster).copy());
     });
   }
   if (ri && currentPalette->hasPickedPosStyle()) {

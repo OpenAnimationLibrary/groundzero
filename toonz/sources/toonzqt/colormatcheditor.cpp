@@ -38,12 +38,13 @@ class Editor final : public QDialog {
   QLabel *before, *after, *referencePreview, *status;
   QPushButton *apply, *analyze, *exportProfile, *exportLut;
   ColorMatch::Profile profile;
-  bool valid = false, busy = false;
+  bool valid = false, busy = false, pendingAdjustment = false;
   std::atomic_bool cancelled{false};
   std::future<AnalysisResult> task;
   QTimer poll;
   void invalidate() {
     cancelled = true;
+    pendingAdjustment = false;
     valid = false;
     apply->setEnabled(false); exportProfile->setEnabled(false); exportLut->setEnabled(false);
     after->clear();
@@ -91,7 +92,12 @@ class Editor final : public QDialog {
     poll.start(30);
   }
   void adjustProfile() {
-    if (!valid || busy) { invalidate(); return; }
+    if (!valid) { invalidate(); return; }
+    if (busy) {
+      cancelled = true;
+      pendingAdjustment = true;
+      return;
+    }
     profile.strength=strength->value()/100;
     profile.preserveLightness=lightness->isChecked();
     if(images[0].isNull()) return;
@@ -146,7 +152,14 @@ public:
     form->addRow(tr("Strength %"),strength); form->addRow(lightness);
     auto previews=new QHBoxLayout(); layout->addLayout(previews);
     before=new QLabel(tr("Source"),this); referencePreview=new QLabel(tr("Reference"),this); after=new QLabel(tr("Result"),this);
-    for(auto label:{before,referencePreview,after}) {label->setMinimumSize(200,160); previews->addWidget(label);}
+    const QString titles[]={tr("Source sample"),tr("Reference sample"),tr("Matched result")};
+    int previewIndex=0;
+    for(auto label:{before,referencePreview,after}) {
+      auto column=new QVBoxLayout();
+      column->addWidget(new QLabel(titles[previewIndex++],this));
+      label->setMinimumSize(200,160);label->setAlignment(Qt::AlignCenter);
+      column->addWidget(label);previews->addLayout(column);
+    }
     status=new QLabel(this); status->setWordWrap(true); layout->addWidget(status);
     auto actions=new QHBoxLayout();layout->addLayout(actions);
     analyze=new QPushButton(tr("Preview"),this);
@@ -178,6 +191,7 @@ public:
       poll.stop();busy=false;analyze->setEnabled(true);
       AnalysisResult result;
       try {result=task.get();} catch(const std::exception &e) {result.error=QString::fromUtf8(e.what());}
+      if(pendingAdjustment) {pendingAdjustment=false;adjustProfile();return;}
       if(cancelled.load())return;
       if(!result.error.isEmpty()||result.preview.isNull()) {status->setText(result.error);return;}
       profile=result.profile;valid=true;showImage(after,result.preview);
@@ -201,14 +215,14 @@ public:
     showImage(after,ColorMatch::preview(images[0],profile));
     status->setText(tr("Stored profile loaded. Preview recomputes from the selected source and reference."));return true;
   }
-  QString result() const {return valid?ColorMatch::serialize(profile):QString();}
+  QString serializedProfile() const {return valid?ColorMatch::serialize(profile):QString();}
 };
 }
 
 bool editColorMatchProfile(QWidget *parent,QString &profile,const QImage &reference,const QImage &source) {
   Editor editor(parent,profile,reference,source);
-  if(editor.exec()!=QDialog::Accepted || editor.result().isEmpty())return false;
-  profile=editor.result();return true;
+  if(editor.exec()!=QDialog::Accepted || editor.serializedProfile().isEmpty())return false;
+  profile=editor.serializedProfile();return true;
 }
 
 void matchPaletteToReference(QWidget *parent,TPaletteHandle *handle,const QImage &reference) {

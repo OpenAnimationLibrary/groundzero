@@ -4,14 +4,15 @@
 #include "tfxparam.h"
 #include "toonz/colormatch.h"
 #include <cmath>
+#include <limits>
 
 namespace {
 template <class P> double maskValue(const TRasterPT<P> &mask, int x, int y) {
   if (!mask) return 1;
   auto p = mask->pixels(y)[x];
   // Premultiplied RGB already contains alpha. Black/transparent excludes.
-  return std::max(0.0, std::min(1.0,
-      (.2126*p.r + .7152*p.g + .0722*p.b) / P::maxChannelValue));
+  const double value = (.2126*p.r + .7152*p.g + .0722*p.b) / P::maxChannelValue;
+  return std::isfinite(value) ? std::max(0.0, std::min(1.0,value)) : 0;
 }
 template <class P>
 bool applyMatch(TRasterPT<P> out, TRasterPT<P> mask, TRasterPT<P> ink,
@@ -61,6 +62,13 @@ public:
     enableComputeInFloat(true);
   }
   bool canHandle(const TRenderSettings &, double) override { return true; }
+  int getMemoryRequirement(const TRectD &rect, double,
+                           const TRenderSettings &ri) override {
+    const int count=2+int(m_mask.isConnected())+int(m_ink.isConnected());
+    const int single=memorySize(rect,ri.m_bpp);
+    return single > std::numeric_limits<int>::max()/count ?
+        std::numeric_limits<int>::max() : single*count;
+  }
   bool toBeComputedInLinearColorSpace(bool, bool) const override { return false; }
   bool doGetBBox(double frame, TRectD &box, const TRenderSettings &ri) override {
     if (!m_source.isConnected()) { box=TRectD(); return false; }
