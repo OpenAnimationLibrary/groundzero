@@ -584,6 +584,20 @@ if(BUILD_CELFX_TESTS)
 endif()
 
 if(BUILD_CELFX_TESTS)
+    add_executable(particleweather_test tests/particleweather_test.cpp
+        particlesfx.cpp particles.cpp particlesengine.cpp particlesmanager.cpp celnoise.cpp hsvutil.cpp)
+    target_link_libraries(particleweather_test Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME celfx_particleweather COMMAND particleweather_test)
+    add_executable(particleweather_ui_test tests/particleweather_ui_test.cpp
+        particlesfx.cpp particles.cpp particlesengine.cpp particlesmanager.cpp celnoise.cpp hsvutil.cpp)
+    target_link_libraries(particleweather_ui_test toonzqt Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Widgets ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME celfx_particleweather_ui COMMAND particleweather_ui_test
+             ${CMAKE_CURRENT_SOURCE_DIR}/../../../stuff/profiles/layouts/fxs/STD_particlesFx.xml)
+    add_dependencies(celfx_tests particleweather_test particleweather_ui_test)
+    set_tests_properties(celfx_particleweather celfx_particleweather_ui PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 120)
+endif()
+
+if(BUILD_CELFX_TESTS)
     add_executable(alphadistancegradient_test tests/alphadistancegradient_test.cpp)
     target_link_libraries(alphadistancegradient_test Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
     add_test(NAME celfx_distancegradient COMMAND alphadistancegradient_test)

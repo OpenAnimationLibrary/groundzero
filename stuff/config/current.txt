@@ -1947,6 +1947,14 @@
   <item>"STD_particlesFx.perspective_distribution"	"Perspective Distribution"	</item>
   <item>"STD_particlesFx.motion_blur"	"Motion Blur"	</item>
   <item>"STD_particlesFx.motion_blur_gamma_adjust"	"Gamma Adjust"	</item>
+  <item>"STD_particlesFx.collision_ctrl"	"Collision Image"	</item>
+  <item>"STD_particlesFx.collision_mode"	"On Collision"	</item>
+  <item>"STD_particlesFx.turbulence"	"Turbulence"	</item>
+  <item>"STD_particlesFx.turbulence_size"	"Turbulence Size"	</item>
+  <item>"STD_particlesFx.turbulence_speed"	"Turbulence Speed"	</item>
+  <item>"STD_particlesFx.depth_layers"	"Depth Layers"	</item>
+  <item>"STD_particlesFx.depth_far_scale"	"Far Size"	</item>
+  <item>"STD_particlesFx.depth_far_opacity"	"Far Opacity"	</item>
 
   
  <!------------------------------ Function Editor ------------------------------------------->
