@@ -17,6 +17,10 @@ concurrency:
 
 jobs:
   core:
+    # A dedicated development branch can qualify memory fixes without
+    # restarting an in-flight platform SDK bootstrap. Pull requests, release
+    # pushes and manual qualification still run the complete backend matrix.
+    if: github.event_name != 'push' || !startsWith(github.ref, 'refs/heads/ci/seexpr-sanitizer-')
     name: ${{ matrix.label }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: ${{ matrix.backend == 'llvm14' && matrix.runner == 'windows-2025' && 90 || 25 }}
