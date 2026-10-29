@@ -347,7 +347,10 @@ const Attribute *findAttribute(const Snapshot &s, const QString &name) {
 double number(const Attribute *a, std::size_t row, int component, double fallback) {
   if (!a || component >= a->components) return fallback;
   const std::size_t index = row * a->components + component;
-  return (a->type == AttributeType::Int) ? a->integers[index] : a->floats[index];
+  // A mixed int/float conditional promotes the integer to float first, which
+  // merges distinct IDs above 2^24. Promote each stored value directly to double.
+  if (a->type == AttributeType::Int) return double(a->integers[index]);
+  return double(a->floats[index]);
 }
 
 bool validateNumeric(const Attribute *a, int minimum, QString &error) {

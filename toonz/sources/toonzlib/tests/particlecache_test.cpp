@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <iostream>
 #include <limits>
 #include <stdexcept>
@@ -105,6 +106,41 @@ void interpolation() {
   nearlyEqual(held->particles[0].position[0], 1, "missing IDs do not interpolate array order");
   a.hasStableIds = true; a.extra["native"] = true;
   require(bool(interpolate(a, b, 0.5, error)), "native draws hold rather than interpolate particles");
+}
+
+void integerIdentities(const QDir &dir) {
+  Snapshot first = fixture();
+  first.particles[0].id = 16777216;
+  first.particles[1].id = 16777217;
+  Particle last = first.particles[0];
+  last.id = (std::numeric_limits<std::int32_t>::max)();
+  last.position[0] = 20;
+  first.particles.push_back(last);
+  Snapshot second = first;
+  for (auto &particle : second.particles) particle.position[0] += 10;
+  std::reverse(second.particles.begin(), second.particles.end());
+
+  QString error;
+  const QString firstPath = dir.filePath("integer-identities.0001.bgeo");
+  const QString secondPath = dir.filePath("integer-identities.0002.bgeo");
+  require(writeFrame(firstPath, first, WriteOptions{}, error), qPrintable(error));
+  require(writeFrame(secondPath, second, WriteOptions{}, error), qPrintable(error));
+  const auto left = loadFrame(firstPath, Mapping{}, error);
+  const auto right = loadFrame(secondPath, Mapping{}, error);
+  require(left && right && left->particles.size() == first.particles.size() &&
+              right->particles.size() == second.particles.size(),
+          "Large integer identity frames failed to load");
+  for (std::size_t i = 0; i < first.particles.size(); ++i)
+    require(left->particles[i].id == first.particles[i].id &&
+                right->particles[i].id == second.particles[i].id,
+            "Integer particle identity lost precision during mapping");
+  const auto middle = interpolate(*left, *right, .5, error);
+  require(middle && middle->particles.size() == first.particles.size(),
+          "Distinct large integer identities failed reordered interpolation");
+  for (std::size_t i = 0; i < first.particles.size(); ++i)
+    require(middle->particles[i].id == first.particles[i].id &&
+                middle->particles[i].position[0] == first.particles[i].position[0] + 5,
+            "Reordered interpolation matched a different large integer identity");
 }
 
 void roundTrips(const QDir &dir) {
@@ -405,6 +441,7 @@ int main(int argc, char **argv) {
     require(temporary.isValid(), "temporary test directory");
     capabilitiesAndMappings();
     interpolation();
+    integerIdentities(QDir(temporary.path()));
     roundTrips(QDir(temporary.path()));
     gzipAndRawSchemas(QDir(temporary.path()));
     packages(QDir(temporary.path()));
