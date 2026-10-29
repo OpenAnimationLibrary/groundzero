@@ -96,28 +96,53 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if draft=$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft); then
+          # The log host is not reachable from every environment, so every
+          # command here reports its failure as an annotation (see CLAUDE.md).
+          report() {
+            local status=$1; shift
+            echo "::error title=Publish prerelease::$* failed (exit $status): $(tr '\n' ' ' < step-error.log | cut -c1-1000)"
+            return "$status"
+          }
+          # One try: creating a release twice would leave two drafts.
+          run() {
+            "$@" 2> step-error.log || report $? "$@"
+          }
+          # Three tries for the calls that can be repeated (notes, edit, upload
+          # with --clobber): asset uploads fail now and then on the network.
+          retry() {
+            local attempt status=0
+            for attempt in 1 2 3; do
+              if "$@" 2> step-error.log; then return 0; fi
+              status=$?
+              if [ "$attempt" -lt 3 ]; then
+                echo "::warning title=Publish prerelease::attempt $attempt of: $* failed: $(tr '\n' ' ' < step-error.log | cut -c1-500)"
+                sleep $((attempt * 20))
+              fi
+            done
+            report "$status" "$@"
+          }
+          if draft=$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft 2>/dev/null); then
             if [ "$draft" != true ]; then
               echo "Release $RELEASE_TAG is already published."
               exit 0
             fi
           else
-            python3 .github/scripts/release_notes.py \
+            retry python3 .github/scripts/release_notes.py \
               --tag "$RELEASE_TAG" --target "$BUILD_SHA" \
               --intro-file release-notes.md --output release-notes.md
-            gh release create "$RELEASE_TAG" --draft --prerelease --latest=false \
+            run gh release create "$RELEASE_TAG" --draft --prerelease --latest=false \
               --target "$BUILD_SHA" --title "Groundzero ${RELEASE_TAG}" \
               --notes-file release-notes.md
           fi
           # Resume drafts with their original generated notes and baseline. Legacy
           # drafts receive a changelog once, preserving their existing introduction.
-          python3 .github/scripts/release_notes.py \
+          retry python3 .github/scripts/release_notes.py \
             --tag "$RELEASE_TAG" --target "$BUILD_SHA" --existing-only \
             --output release-notes.md
-          gh release edit "$RELEASE_TAG" --notes-file release-notes.md
+          retry gh release edit "$RELEASE_TAG" --notes-file release-notes.md
           # Keep the release unpublished until every asset has uploaded successfully.
-          gh release upload "$RELEASE_TAG" out/* --clobber
-          gh release edit "$RELEASE_TAG" --draft=false --latest=false
+          retry gh release upload "$RELEASE_TAG" out/* --clobber
+          retry gh release edit "$RELEASE_TAG" --draft=false --latest=false
           echo "Release: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/${RELEASE_TAG}" >> "$GITHUB_STEP_SUMMARY"
 
 
