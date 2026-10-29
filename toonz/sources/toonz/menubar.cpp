@@ -177,6 +177,7 @@ void ensureNewPanelActions(QMenu *windowsMenu) {
   ensurePanelAction(windowsMenu, MI_OpenRigLibrary);
   ensurePanelAction(windowsMenu, MI_OpenMotionPresets);
   ensurePanelAction(windowsMenu, MI_OpenArtLayerManager);
+  ensurePanelAction(windowsMenu, MI_OpenSpacingChart);
 }
 
 }  // namespace
@@ -1778,6 +1779,7 @@ QMenuBar *StackedMenuBar::createFullMenuBar() {
   addMenuItem(windowsMenu, MI_OpenRigLibrary);
   addMenuItem(windowsMenu, MI_OpenMotionPresets);
   addMenuItem(windowsMenu, MI_OpenArtLayerManager);
+  addMenuItem(windowsMenu, MI_OpenSpacingChart);
   addMenuItem(windowsMenu, MI_OpenSymbols);
   addMenuItem(windowsMenu, MI_OpenReferencePanel);
   addMenuItem(windowsMenu, MI_OpenCustomPanels);

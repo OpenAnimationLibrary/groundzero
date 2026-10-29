@@ -3071,6 +3071,8 @@ void MainWindow::defineActions() {
                           "", "");
   createMenuWindowsAction(MI_OpenArtLayerManager,
                           QT_TR_NOOP("Art Layer Manager"), "", "");
+  createMenuWindowsAction(MI_OpenSpacingChart, QT_TR_NOOP("Spacing Chart"), "",
+                          "");
   createMenuWindowsAction(MI_OpenSymbols, QT_TR_NOOP("Symbols"), "", "");
   createMenuWindowsAction(MI_OpenReferencePanel, QT_TR_NOOP("&Reference"), "",
                           "");

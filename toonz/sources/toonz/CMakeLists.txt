@@ -127,6 +127,7 @@ set(MOC_HEADERS
     mastercontrollerspane.h
     offsetlayerspane.h
     artlayermanagerpane.h
+    spacingchartpane.h
     motionpresetspane.h
     riglibrarypane.h
     symbolspane.h
@@ -384,6 +385,7 @@ set(SOURCES
     mastercontrollerspane.cpp
     offsetlayerspane.cpp
     artlayermanagerpane.cpp
+    spacingchartpane.cpp
     createcolourartcommand.cpp
     motionpresetspane.cpp
     riglibrarypane.cpp

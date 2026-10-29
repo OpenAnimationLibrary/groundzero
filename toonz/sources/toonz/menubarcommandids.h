@@ -596,6 +596,7 @@
 #define MI_OpenMotionPresets "MI_OpenMotionPresets"
 #define MI_SaveMotionPreset "MI_SaveMotionPreset"
 #define MI_OpenArtLayerManager "MI_OpenArtLayerManager"
+#define MI_OpenSpacingChart "MI_OpenSpacingChart"
 
 // Whole-rig breakdown and ease (Xsheet, Timeline, Cells menu)
 #define MI_RigBreakdown25 "MI_RigBreakdown25"
