@@ -105,9 +105,32 @@ namespace {
 
 double getOnionSkinOpacity(const Stage::Player &player) {
   if (player.m_onionSkinDistance == 0) return 0.9;
-  if (player.m_onionSkinOpacity >= 0.0) return player.m_onionSkinOpacity;
-  return 1.0 -
-         OnionSkinMask::getOnionSkinFade(player.m_onionSkinDistance);
+  const double opacity =
+      player.m_onionSkinOpacity >= 0.0
+          ? player.m_onionSkinOpacity
+          : 1.0 - OnionSkinMask::getOnionSkinFade(player.m_onionSkinDistance);
+  // The Ghost Fade multiplies the onion skin ghosts, not the Shift and Trace
+  // ones
+  if (Stage::Player::m_isShiftAndTraceEnabled) return opacity;
+  return GhostFade::ghostOpacity(opacity,
+                                 OnionSkinMask::getGhostFade().opacity);
+}
+
+//----------------------------------------------------------------
+
+// Whether the ghosts take the front and back onion skin colours: not the onion
+// skin ghosts with the tint of the Ghost Fade off. The Shift and Trace ghosts
+// follow their own preference.
+bool tintsGhosts() {
+  return Stage::Player::m_isShiftAndTraceEnabled ||
+         OnionSkinMask::getGhostFade().tint;
+}
+
+// The onion skin colours, black (no tint, as a node without onion skin) when
+// the ghosts are not tinted
+void getGhostColors(TPixel32 &front, TPixel32 &back, bool &inksOnly) {
+  Preferences::instance()->getOnionData(front, back, inksOnly);
+  if (!tintsGhosts()) front = back = TPixel32::Black;
 }
 
 //----------------------------------------------------------------
@@ -733,8 +756,7 @@ void RasterPainter::flushRasterImagesCpu(bool drawBBox) {
   TPixel32 frontOnionColor, backOnionColor;
   bool onionInksOnly;
 
-  Preferences::instance()->getOnionData(frontOnionColor, backOnionColor,
-                                        onionInksOnly);
+  getGhostColors(frontOnionColor, backOnionColor, onionInksOnly);
 
   // Stack every node on top of the raster buffer
   for (i = 0; i < nodesCount; ++i) {
@@ -1365,8 +1387,7 @@ bool RasterPainter::flushRasterImagesGpu() {
 
   TPixel32 frontOnionColor, backOnionColor;
   bool onionInksOnly;
-  Preferences::instance()->getOnionData(frontOnionColor, backOnionColor,
-                                        onionInksOnly);
+  getGhostColors(frontOnionColor, backOnionColor, onionInksOnly);
 
   // Retrieve (or build) the texture of each node that can be drawn on GPU
   std::vector<const GpuTexture *> textures(nodesCount, 0);
@@ -1788,8 +1809,9 @@ void RasterPainter::onVectorImage(TVectorImage *vi,
         (!player.m_isShiftAndTraceEnabled ||
          Preferences::instance()->areOnionColorsUsedForShiftAndTraceGhosts())) {
       prefs.getOnionData(frontOnionColor, backOnionColor, inksOnly);
-      bgColor =
-          (player.m_onionSkinDistance < 0) ? backOnionColor : frontOnionColor;
+      if (tintsGhosts())
+        bgColor =
+            (player.m_onionSkinDistance < 0) ? backOnionColor : frontOnionColor;
     }
 
     double m[4] = {1.0, 1.0, 1.0, 1.0}, c[4];
@@ -2204,6 +2226,10 @@ void OpenGlPainter::onRasterImage(TRasterImage *ri,
             : 0.5 - 0.45 *
                         (1 - 1 /
                                  (1 + 0.15 * abs(player.m_onionSkinDistance)));
+    if (player.m_onionSkinDistance != 0 &&
+        !Stage::Player::m_isShiftAndTraceEnabled)
+      opacity = GhostFade::ghostOpacity(opacity,
+                                        OnionSkinMask::getGhostFade().opacity);
     if ((int)matteChan.size() < r->getLx() * r->getLy())
       matteChan.resize(r->getLx() * r->getLy());
 
@@ -2466,8 +2492,7 @@ void onPlasticDeformedImage(TStageObject *playerObj,
       TPixel32 frontOnionColor, backOnionColor;
       bool inksOnly;
 
-      Preferences::instance()->getOnionData(frontOnionColor, backOnionColor,
-                                            inksOnly);
+      getGhostColors(frontOnionColor, backOnionColor, inksOnly);
 
       const TPixel32 &refColor =
           (player.m_onionSkinDistance < 0) ? backOnionColor : frontOnionColor;

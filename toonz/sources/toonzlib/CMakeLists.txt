@@ -111,6 +111,7 @@ set(HEADERS
     ../include/toonz/namebuilder.h
     ../include/toonz/observer.h
     ../include/toonz/onionskinmask.h
+    ../include/toonz/ghostfade.h
     ../include/toonz/palettecmd.h
     ../include/toonz/plasticdeformerfx.h
     ../include/toonz/poselibrary.h
@@ -553,6 +554,14 @@ option(BUILD_RIGMAPPING_TESTS "Build the rig mapping regression test" ${BUILD_TE
 if(BUILD_RIGMAPPING_TESTS)
     add_executable(rigmapping_test tests/rigmapping_test.cpp)
     add_test(NAME rigmapping COMMAND rigmapping_test)
+endif()
+
+# Optional regression target for the Ghost Fade of the onion skin
+# (ghostfade.h, header only).
+option(BUILD_GHOSTFADE_TESTS "Build the onion skin Ghost Fade regression test" ${BUILD_TESTS})
+if(BUILD_GHOSTFADE_TESTS)
+    add_executable(ghostfade_test tests/ghostfade_test.cpp)
+    add_test(NAME ghostfade COMMAND ghostfade_test)
 endif()
 
 # Optional regression target for the per-column Color Effect (the math of
