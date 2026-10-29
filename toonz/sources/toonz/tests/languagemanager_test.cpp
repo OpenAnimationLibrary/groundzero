@@ -3,6 +3,7 @@
 #include <QApplication>
 #include <QDir>
 #include <QFile>
+#include <QTranslator>
 #include <QLabel>
 #include <QLineEdit>
 #include <QTemporaryDir>
@@ -10,7 +11,7 @@
 
 int main(int argc, char **argv) {
   QApplication app(argc, argv);
-  if (argc != 2) {
+  if (argc != 2 && argc != 3) {
     std::cerr << "Expected the compiled fixture catalog directory\n";
     return 1;
   }
@@ -58,6 +59,27 @@ int main(int argc, char **argv) {
   ok &= !manager.setLanguage("../FixtureB", &error);
   ok &= manager.setLanguage("English", &error);
   ok &= label.text() == "Open" && formatted.text() == "Frame 37";
+  if (argc == 3) {
+    manager.setCatalogDirectory(QString::fromLocal8Bit(argv[2]));
+    const QStringList installed = manager.availableLanguages();
+    ok &= installed.size() == 11;  // English and all ten packaged languages.
+    for (const QString &language : installed) {
+      if (!manager.setLanguage(language, &error)) {
+        std::cerr << "Packaged catalog failed: " << language.toStdString()
+                  << ": " << error.toStdString() << '\n';
+        ok = false;
+      }
+      if (language != "English") {
+        QTranslator qtCatalog;
+        ok &= qtCatalog.load(QDir(manager.catalogDirectory())
+            .filePath(language + "/qtbase.qm"));
+      }
+      ok &= manager.currentLanguage() == language;
+      ok &= edited.text() == "Unsaved name" && edited.cursorPosition() == 4;
+    }
+    ok &= manager.setLanguage("English", &error);
+    ok &= formatted.text() == "Frame 37";
+  }
   if (!ok) std::cerr << "Language catalog, rollback or UI-state regression\n";
   return ok ? 0 : 1;
 }
