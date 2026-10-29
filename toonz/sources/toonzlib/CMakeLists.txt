@@ -528,6 +528,15 @@ if(BUILD_MULTIPLANEDEPTH_TESTS)
     add_test(NAME multiplanedepth COMMAND multiplanedepth_test)
 endif()
 
+# Optional regression target for the Colour Script (palettetransform.h): the
+# hue, saturation and lightness shift and the render data applying it.
+option(BUILD_COLOURSCRIPT_TESTS "Build the Colour Script regression test" ${BUILD_TESTS})
+if(BUILD_COLOURSCRIPT_TESTS)
+    add_executable(colourscript_test tests/colourscript_test.cpp)
+    target_link_libraries(colourscript_test PRIVATE toonzlib tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core)
+    add_test(NAME colourscript COMMAND colourscript_test)
+endif()
+
 # Optional regression target for the motion presets (motionpreset.h). It also
 # loads the stock presets shipped in stuff/library/motionpresets.
 option(BUILD_MOTIONPRESET_TESTS "Build the motion preset regression test" ${BUILD_TESTS})

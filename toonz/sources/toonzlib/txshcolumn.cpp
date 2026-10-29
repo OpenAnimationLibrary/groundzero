@@ -745,6 +745,21 @@ void TXshColumn::setDepthExcluded(bool on) {
 
 //-----------------------------------------------------------------------------
 
+bool TXshColumn::areColoursKept() const {
+  return (m_status & eColoursKept) != 0;
+}
+
+//-----------------------------------------------------------------------------
+
+void TXshColumn::setColoursKept(bool on) {
+  if (on)
+    m_status |= eColoursKept;
+  else
+    m_status &= ~eColoursKept;
+}
+
+//-----------------------------------------------------------------------------
+
 bool TXshColumn::isMask() const { return (m_status & eMasked) != 0; }
 
 //-----------------------------------------------------------------------------

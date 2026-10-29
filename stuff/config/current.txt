@@ -857,6 +857,11 @@
   <item>"STD_paletteFilterFx.keep"	"Action"	</item>
   <item>"STD_paletteFilterFx.type"	"Apply To"	</item>
 
+  <item>"STD_colourScriptFx"	"Colour Script"	</item>
+  <item>"STD_colourScriptFx.hue"	"Hue"	</item>
+  <item>"STD_colourScriptFx.saturation"	"Saturation"	</item>
+  <item>"STD_colourScriptFx.lightness"	"Lightness"	</item>
+  <item>"STD_colourScriptFx.keepPrefix"	"Keep Styles"	</item>
   <item>"STD_colourOverrideFx"	"Colour Override"	</item>
   <item>"STD_colourOverrideFx.style1"	"Style 1"	</item>
   <item>"STD_colourOverrideFx.mode1"	"Mode 1"	</item>

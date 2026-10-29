@@ -1771,6 +1771,12 @@ ToggleColumnFlagCommand toggleColumnDepthCommand(
     &TXshColumn::setDepthExcluded, QT_TR_NOOP("Exclude from Depth On"),
     QT_TR_NOOP("Exclude from Depth Off"));
 
+// Keep Colours keeps the column out of the Colour Script (doc/colour_script.md)
+ToggleColumnFlagCommand toggleColumnColoursKeptCommand(
+    MI_ToggleColumnColoursKept, &TXshColumn::areColoursKept,
+    &TXshColumn::setColoursKept, QT_TR_NOOP("Keep Colours On"),
+    QT_TR_NOOP("Keep Colours Off"));
+
 }  // namespace
 
 //=============================================================================

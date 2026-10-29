@@ -3308,6 +3308,8 @@ void MainWindow::defineActions() {
                              QT_TR_NOOP("Toggle Outline View"), "");
   createRightClickMenuAction(MI_ToggleColumnDepthExcluded,
                              QT_TR_NOOP("Toggle Exclude from Depth"), "");
+  createRightClickMenuAction(MI_ToggleColumnColoursKept,
+                             QT_TR_NOOP("Toggle Keep Colours"), "");
   createRightClickMenuAction(MI_DeactivateUpperColumns,
                              QT_TR_NOOP("Hide Upper Columns"), "");
   createRightClickMenuAction(MI_SeparateColors,
