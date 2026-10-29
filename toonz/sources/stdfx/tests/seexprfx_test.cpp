@@ -196,17 +196,40 @@ void checkNamedControlsAndPersistence(const QString &directory) {
   SeExprGeneratorFx presetFx; { TIStream stream(preset); presetFx.loadPreset(stream); }
   expect(rendered<TPixelF>(presetFx, 1, 1, TPointD(), 1)->pixels(0)[0], .5, 4, 0, 1);
   owner->setFxId(L"Expression1");
-  TFxP macroOwner = TMacroFx::create({owner});
+  TFxP colorOwner = new SeExprColorFx;
+  colorOwner->setFxId(L"ExpressionColor1");
+  colorOwner->connect("Source", owner.getPointer());
+  // Native macros require at least two connected effects with one output.
+  // Exercise a real Generator -> Color graph, including the Color's exposed
+  // Mask input, instead of an ineligible single-effect selection.
+  TFxP macroOwner = TMacroFx::create({owner, colorOwner});
   auto *macro = dynamic_cast<TMacroFx *>(macroOwner.getPointer());
   require(macro, "native expression macro creation failed");
   macro->setParamExposed(owner.getPointer(), "seexprControl_steps__value", true);
+  auto checkMacro = [](TMacroFx *candidate) {
+    require(candidate, "native expression macro is missing");
+    auto *generator = dynamic_cast<SeExprGeneratorFx *>(candidate->getFxById(L"Expression1"));
+    auto *color = dynamic_cast<SeExprColorFx *>(candidate->getFxById(L"ExpressionColor1"));
+    require(generator && color && candidate->getRoot() == color &&
+                color->getInputPort("Source")->getFx() == generator,
+            "native expression macro lost its internal Generator to Color graph");
+    require(candidate->isParamExposed(generator, "seexprControl_steps__value") &&
+                numeric(*generator, "seexprControl_steps__value")->hasKeyframes(),
+            "native expression macro lost its exposed animated control");
+    expect(rendered<TPixelF>(*generator, 1, 1, TPointD(), 1)->pixels(0)[0], .5, 4, 0, 1);
+    return generator;
+  };
+  checkMacro(macro);
   const TFilePath macroPath((directory + "/formula.macro").toStdWString());
   { TOStream stream(macroPath); stream << macroOwner.getPointer(); }
   TFxP loadedMacro; { TIStream stream(macroPath); stream >> loadedMacro; }
   auto *restoredMacro = dynamic_cast<TMacroFx *>(loadedMacro.getPointer());
-  require(restoredMacro && restoredMacro->getFxById(L"Expression1") &&
-              restoredMacro->isParamExposed(restoredMacro->getFxById(L"Expression1"), "seexprControl_steps__value"),
-          "macro save/reopen lost the stable expression-control exposure");
+  auto *restoredGenerator = checkMacro(restoredMacro);
+  TFxP macroCopy = restoredMacro->clone(false);
+  auto *clonedGenerator = checkMacro(dynamic_cast<TMacroFx *>(macroCopy.getPointer()));
+  numeric(*clonedGenerator, "seexprControl_steps__value")->setValue(1, 8);
+  expect(rendered<TPixelF>(*clonedGenerator, 1, 1, TPointD(), 1)->pixels(0)[0], .5, 8, 0, 1);
+  expect(rendered<TPixelF>(*restoredGenerator, 1, 1, TPointD(), 1)->pixels(0)[0], .5, 4, 0, 1);
   SeExprGeneratorFx linked;
   document(linked, "[$extra,0,0]", "1", {scalar("extra", .2)});
   linked.linkParams(&fx);
@@ -337,6 +360,63 @@ void checkUnsupportedDocumentPersistence(const QString &directory) {
       dynamic_cast<TFxSeExprSource *>(reopened.getPointer())->seExprDocumentParam()->setValue(repair);
       expect(rendered<TPixelF>(*dynamic_cast<TRasterFx *>(reopened.getPointer()), 1, 1, TPointD(), 3)->pixels(0)[0], .9375, 1.5, 0, 1);
     }
+
+    TFxP first = owner->clone(false), second = owner->clone(false);
+    second->linkParams(first.getPointer());
+    for (bool compressed : {false, true}) {
+      const QString filename = QString("/unsupported-linked-%1-%2.tnz").arg(test.field).arg(compressed ? "compressed" : "plain");
+      const TFilePath path((directory + filename).toStdWString());
+      { TOStream stream(path, compressed); stream << first.getPointer(); stream << second.getPointer(); }
+      TFxP restoredFirst, restoredSecond;
+      { TIStream stream(path); stream >> restoredFirst; stream >> restoredSecond; }
+      require(restoredFirst && restoredSecond &&
+                  restoredFirst->getLinkedFx() == restoredSecond.getPointer() &&
+                  restoredSecond->getLinkedFx() == restoredFirst.getPointer(),
+              "unsupported linked scene did not restore its linked pair");
+      require(restoredFirst->getParams()->getParam("seexprControl_gain__value") ==
+                  restoredSecond->getParams()->getParam("seexprControl_gain__value") &&
+                  restoredFirst->getParams()->getParam("seexprControl_ramp__v1") ==
+                  restoredSecond->getParams()->getParam("seexprControl_ramp__v1"),
+              "unsupported linked scene created independent native animation");
+      expectUnsupportedDocument(*restoredFirst, source, test.diagnostic);
+      expectUnsupportedDocument(*restoredSecond, source, test.diagnostic);
+      expectPreservedUnsupportedAnimation(*restoredFirst);
+      expectPreservedUnsupportedAnimation(*restoredSecond);
+      dynamic_cast<TFxSeExprSource *>(restoredFirst.getPointer())->seExprDocumentParam()->setValue(repair);
+      for (TFx *effect : {restoredFirst.getPointer(), restoredSecond.getPointer()}) {
+        std::string error;
+        auto *nativeEffect = dynamic_cast<TFxSeExprSource *>(effect);
+        require(nativeEffect->validateSeExprDocument(nativeEffect->seExprDocumentParam()->getValue(), 1, error),
+                "repairing a linked document did not repair every shared peer");
+        expectPreservedUnsupportedAnimation(*effect);
+        expect(rendered<TPixelF>(*dynamic_cast<TRasterFx *>(effect), 1, 1, TPointD(), 1)->pixels(0)[0], .875, 1, 0, 1);
+      }
+      numeric(*restoredSecond, "seexprControl_gain__value")->setValue(1, .8125);
+      expect(rendered<TPixelF>(*dynamic_cast<TRasterFx *>(restoredFirst.getPointer()), 1, 1, TPointD(), 1)->pixels(0)[0], .8125, 1, 0, 1);
+    }
+
+    TFxP incompatible = owner->clone(false);
+    auto different = unsupported;
+    different["futureMetadata"] = QJsonObject{{"retained", false}};
+    const auto differentSource = QString::fromUtf8(QJsonDocument(different).toJson(QJsonDocument::Indented)).toStdWString();
+    dynamic_cast<TFxSeExprSource *>(incompatible.getPointer())->seExprDocumentParam()->setValue(differentSource);
+    bool linkRejected = false;
+    try { incompatible->linkParams(owner.getPointer()); } catch (const TException &) { linkRejected = true; }
+    require(linkRejected && incompatible->getLinkedFx() == incompatible.getPointer(),
+            "incompatible unsupported documents were linked implicitly");
+    expectUnsupportedDocument(*incompatible, differentSource, test.diagnostic);
+
+    TFxP incompatibleStorage = new SeExprGeneratorFx;
+    const QJsonObject colorGain{{"id", "gain"}, {"name", "gain"}, {"type", "color"},
+                               {"value", QJsonArray{.75, .75, .75}}};
+    document(*incompatibleStorage, "$gain", "1", {colorGain, ramp});
+    dynamic_cast<TFxSeExprSource *>(incompatibleStorage.getPointer())->seExprDocumentParam()->setValue(source);
+    linkRejected = false;
+    try { incompatibleStorage->linkParams(owner.getPointer()); } catch (const TException &) { linkRejected = true; }
+    require(linkRejected && incompatibleStorage->getLinkedFx() == incompatibleStorage.getPointer(),
+            "identical unsupported source bypassed native parameter type checks");
+    expectUnsupportedDocument(*incompatibleStorage, source, test.diagnostic);
+
     const TFilePath preset((directory + QString("/unsupported-%1.preset").arg(test.field)).toStdWString());
     { TOStream stream(preset); owner->savePreset(stream); }
     SeExprGeneratorFx presetFx; { TIStream stream(preset); presetFx.loadPreset(stream); }

@@ -479,6 +479,8 @@ TDoubleParam::TDoubleParam(double v) : m_imp(new TDoubleParam::Imp(v)) {}
 TDoubleParam::TDoubleParam(const TDoubleParam &src)
     : TParam(src.getName()), m_imp(new TDoubleParam::Imp()) {
   m_imp->copy(src.m_imp);
+  for (auto &keyframe : m_imp->m_keyframes)
+    keyframe.m_expression.setOwnerParameter(this);
 }
 
 //---------------------------------------------------------
@@ -490,6 +492,8 @@ TDoubleParam::~TDoubleParam() {}
 TDoubleParam &TDoubleParam::operator=(const TDoubleParam &dp) {
   setName(dp.getName());
   m_imp->copy(dp.m_imp);
+  for (auto &keyframe : m_imp->m_keyframes)
+    keyframe.m_expression.setOwnerParameter(this);
   return *this;
 }
 
@@ -500,6 +504,8 @@ void TDoubleParam::copy(TParam *src) {
   if (!p) throw TException("invalid source for copy");
   setName(src->getName());
   m_imp->copy(p->m_imp);
+  for (auto &keyframe : m_imp->m_keyframes)
+    keyframe.m_expression.setOwnerParameter(this);
 
   m_imp->notify(TParamChange(this, 0, 0, true, false, false));
 }

@@ -517,7 +517,8 @@ static std::pair<int, int> generateMovie(ToonzScene *scene, const TFilePath &fp,
     // realize the
     // number of failed frames if any.
     std::pair<int, int> framePair =
-        std::make_pair(listener->m_frameCount, listener->m_frameCount);
+        std::make_pair(listener->m_frameCount - listener->m_frameFailedCount,
+                       listener->m_frameCount);
 
     delete listener;
     return framePair;
@@ -1012,6 +1013,15 @@ int main(int argc, char *argv[]) {
       cerr << expressionError << endl;
       m_userLog->error(expressionError);
       return -2;
+    }
+
+    if (framePair.first != framePair.second) {
+      const string renderError =
+          "Rendering failed: not all requested frames could be completed.";
+      cerr << renderError << endl;
+      m_userLog->error(renderError);
+      TImageCache::instance()->clear(true);
+      return -1;
     }
 
     Sw1.stop();

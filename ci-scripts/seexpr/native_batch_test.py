@@ -1,7 +1,9 @@
 """Exercise saved native SeExpr scenes through the actual batch renderer."""
 import argparse
+from collections import Counter
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -64,26 +66,64 @@ def main():
             if built.returncode:
                 raise RuntimeError("Native scene preparation failed")
             scenes = stuff / "projects" / "acceptance" / "scenes"
-            for name in ("valid", "syntax-error", "runtime-error", "animation-error", "unsupported-version"):
-                scene = scenes / f"{name}.tnz"
+            # Check exact callbacks, including failures after a successful
+            # frame and a requested range that starts past frame one. Error
+            # animation deliberately renders its GUI fallback before the
+            # separate headless failure boundary rejects the job.
+            cases = (
+                ("valid", "valid", {1, 2}, set(), False, []),
+                ("syntax-error", "syntax-error", set(), {1, 2}, True, []),
+                ("runtime-error", "runtime-error", set(), {1, 2}, True, []),
+                ("runtime-first", "runtime-first", {2, 3}, {1}, True, []),
+                ("runtime-middle", "runtime-middle", {1, 3}, {2}, True, []),
+                ("runtime-last", "runtime-last", {1, 2}, {3}, True, []),
+                ("runtime-range", "runtime-middle", {3}, {2}, True, ["-range", "2", "3"]),
+                ("runtime-step", "runtime-middle", {1, 3}, set(), False, ["-step", "2"]),
+                ("animation-error", "animation-error", {1, 2}, set(), True, []),
+                ("unsupported-version", "unsupported-version", None, None, True, []),
+                ("multimedia-syntax", "syntax-error", None, None, True, ["-multimedia", "1"]),
+                ("multimedia-version", "unsupported-version", None, None, True, ["-multimedia", "1"]),
+            )
+            for name, scene_name, completed, failed, expects_error, options in cases:
+                scene = scenes / f"{scene_name}.tnz"
                 if not scene.is_file():
                     raise RuntimeError("Native scene preparation omitted a required fixture")
                 command = [str(composer), str(scene), "-o", str(directory / "output" / f"{name}.png"),
-                           "-nthreads", "single", "-TOONZROOT", str(stuff)]
+                           "-nthreads", "single", "-TOONZROOT", str(stuff)] + options
                 rendered = run(command, directory, environment, report, f"Batch {name}")
-                if name == "valid":
+                if not expects_error:
                     if rendered.returncode:
                         raise RuntimeError("Valid native SeExpr scene failed batch rendering")
                 elif rendered.returncode == 0:
                     raise RuntimeError(f"Invalid {name} scene reported successful batch rendering")
                 elif "SeExpr" not in rendered.stdout:
                     raise RuntimeError(f"Invalid {name} scene failed without a SeExpr diagnostic")
+                elif os.name != "nt" and rendered.returncode < 0:
+                    raise RuntimeError(f"Invalid {name} scene crashed instead of reporting failure")
+                elif os.name == "nt" and (rendered.returncode & 0xC0000000) == 0xC0000000 and \
+                        (rendered.returncode & 0xFFFFFFFF) not in (0xFFFFFFFE, 0xFFFFFFFF):
+                    raise RuntimeError(f"Invalid {name} scene crashed instead of reporting failure")
+                if expects_error and "Compositing completed in" in rendered.stdout:
+                    raise RuntimeError(f"Invalid {name} scene printed a successful completion summary")
                 if name == "animation-error" and "a SeExpr expression could not be evaluated" not in rendered.stdout:
                     raise RuntimeError("Animation fallback did not reach the explicit batch failure boundary")
-            checked = run([str(builder), str(directory), "--verify-output"], directory,
-                          environment, report, "Batch image verification")
-            if checked.returncode:
-                raise RuntimeError("Valid native SeExpr image verification failed")
+                if completed is not None:
+                    pattern = re.compile(rf"[/\\]{re.escape(name)}\.(\d+)\.png (computed|failed)(?=:|\s*$)", re.MULTILINE)
+                    events = Counter((int(frame), outcome) for frame, outcome in pattern.findall(rendered.stdout))
+                    expected = Counter([(frame, "computed") for frame in completed] +
+                                       [(frame, "failed") for frame in failed])
+                    if events != expected:
+                        raise RuntimeError(f"Batch {name} misreported completed or failed frame numbers")
+                    image_pattern = re.compile(rf"{re.escape(name)}\.(\d+)\.png")
+                    written = {int(match.group(1)) for image in (directory / "output").iterdir()
+                               if (match := image_pattern.fullmatch(image.name))}
+                    if written != completed:
+                        raise RuntimeError(f"Batch {name} wrote an incorrect set of output frames")
+                if name == "valid":
+                    checked = run([str(builder), str(directory), "--verify-output"], directory,
+                                  environment, report, "Batch image verification")
+                    if checked.returncode:
+                        raise RuntimeError("Valid native SeExpr image verification failed")
             report.append("SeExpr native batch acceptance: PASS\n")
             status = 0
     except (OSError, RuntimeError, ValueError) as error:

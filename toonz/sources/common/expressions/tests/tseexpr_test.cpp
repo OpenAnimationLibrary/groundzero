@@ -19,7 +19,7 @@ void require(bool condition, const std::string &message) {
   if (!condition) throw std::runtime_error(message);
 }
 
-void near(double actual, double expected, const char *message) {
+void expectNear(double actual, double expected, const char *message) {
   require(std::abs(actual - expected) <= 1e-12, message);
 }
 
@@ -48,21 +48,21 @@ void languageAndTypes() {
   Program scalar;
   require(scalar.compile("sin(PI/2)+pow(2,3)", {}, {}, scalarOptions()),
           "scalar math did not compile");
-  near(run(scalar).number[0], 9, "SeExpr trigonometry must retain radians");
+  expectNear(run(scalar).number[0], 9, "SeExpr trigonometry must retain radians");
 
   require(scalar.compile("a=2; if ($x>0) { a=5; } else { a=7; } a*$x",
                          {{"x", Value::scalar(3)}}, {}, scalarOptions()),
           "assignments and branches did not compile");
-  near(run(scalar).number[0], 15, "branch produced the wrong value");
+  expectNear(run(scalar).number[0], 15, "branch produced the wrong value");
   require(scalar.setScalar("$x", -2), "scalar update rejected a valid binding");
-  near(run(scalar).number[0], -14, "varying variable retained an old result");
+  expectNear(run(scalar).number[0], -14, "varying variable retained an old result");
   require(scalar.compile("getVar(\"missing\", 17)", {}, {}, scalarOptions()),
           "getVar default did not compile");
-  near(run(scalar).number[0], 17, "getVar did not use its default");
+  expectNear(run(scalar).number[0], 17, "getVar did not use its default");
   require(scalar.compile("getVar(\"gain\", 17)",
                          {{"gain", Value::scalar(4)}}, {}, scalarOptions()),
           "getVar external binding did not compile");
-  near(run(scalar).number[0], 4, "getVar did not resolve its external binding");
+  expectNear(run(scalar).number[0], 4, "getVar did not resolve its external binding");
 
   Options four;
   four.resultDimension = 4;
@@ -95,17 +95,17 @@ void languageAndTypes() {
                            {{"gain", Value::scalar(4), Lifetime::Constant}}, {},
                            scalarOptions()),
           "constant binding failed");
-  near(run(constant).number[0], 5, "constant binding evaluated incorrectly");
+  expectNear(run(constant).number[0], 5, "constant binding evaluated incorrectly");
   require(!constant.setScalar("gain", 9),
           "constant bindings changed without recompilation");
-  near(run(constant).number[0], 5, "rejected constant update changed evaluation");
+  expectNear(run(constant).number[0], 5, "rejected constant update changed evaluation");
 
   require(constant.compile("$gain+1",
                            {{"gain", Value::scalar(4), Lifetime::Uniform}}, {},
                            scalarOptions()),
           "uniform binding failed");
   require(constant.setScalar("gain", 9), "uniform binding could not update");
-  near(run(constant).number[0], 10, "uniform binding retained a stale value");
+  expectNear(run(constant).number[0], 10, "uniform binding retained a stale value");
 }
 
 void localFunctions() {
@@ -113,28 +113,28 @@ void localFunctions() {
   compile(program,
       "def FLOAT choose(FLOAT a) {b=a+1; if(a>0){b=b*2;}else{b=3;} b} "
       "choose($x)+choose(-1)", {{"x", Value::scalar(2)}});
-  near(run(program).number[0], 9, "local branches did not preserve scope");
+  expectNear(run(program).number[0], 9, "local branches did not preserve scope");
 
   const std::string combine = "def FLOAT combine(FLOAT a,FLOAT b){a*10+b} ";
   compile(program, combine + "combine($x,combine(2,3))", {{"x", Value::scalar(1)}});
-  near(run(program).number[0], 33, "nested arguments overwrote an outer argument");
+  expectNear(run(program).number[0], 33, "nested arguments overwrote an outer argument");
   compile(program, combine + "combine(combine(1,2),combine(3,4))");
-  near(run(program).number[0], 154, "sibling nested calls shared result storage");
+  expectNear(run(program).number[0], 154, "sibling nested calls shared result storage");
 
   compile(program,
       "def FLOAT base(FLOAT a){a+2} def more(FLOAT a){base(a)*3} "
       "more($x)+base($x)", {{"x", Value::scalar(4)}});
-  near(run(program).number[0], 24, "earlier local definitions were not callable");
+  expectNear(run(program).number[0], 24, "earlier local definitions were not callable");
 
   compile(program, "def FLOAT captured(FLOAT a){a+$x} captured(1)",
           {{"x", Value::scalar(2)}});
-  near(run(program).number[0], 3, "captured native variable evaluated incorrectly");
+  expectNear(run(program).number[0], 3, "captured native variable evaluated incorrectly");
   require(program.setScalar("x", 5), "captured variable update failed");
-  near(run(program).number[0], 6, "local function capture was incorrectly constant folded");
+  expectNear(run(program).number[0], 6, "local function capture was incorrectly constant folded");
 
   compile(program, "def FLOAT isolated(FLOAT x){x=9; x} isolated($x)+$x",
           {{"x", Value::scalar(2)}});
-  near(run(program).number[0], 11, "local assignment changed an external binding");
+  expectNear(run(program).number[0], 11, "local assignment changed an external binding");
 
   Options four;
   four.resultDimension = 4;
@@ -180,7 +180,7 @@ void localFunctions() {
   };
   compile(program, "extern FLOAT host_gain(STRING,FLOAT) host_gain(\"gain\",$x)",
           {{"x", Value::scalar(3)}}, scalarOptions(), {host});
-  near(run(program).number[0], 6, "external prototype did not bind its native function");
+  expectNear(run(program).number[0], 6, "external prototype did not bind its native function");
   require(!program.compile("extern STRING host_gain(STRING,FLOAT) host_gain(\"gain\",1)",
                            {}, {host}, strings),
           "external prototype return mismatch was accepted");
@@ -220,16 +220,16 @@ void customFunctionsAndBatch() {
   require(animation.compile("channel(\"gain\", $frame)",
                             {{"frame", Value::scalar(1)}}, {lookup}, scalarOptions()),
           "string channel callback did not compile");
-  near(run(animation).number[0], 2, "channel callback returned the wrong value");
+  expectNear(run(animation).number[0], 2, "channel callback returned the wrong value");
   std::vector<Value> output;
   require(animation.evaluateBatch({{{"frame", Value::scalar(2)}},
                                     {{"frame", Value::scalar(5)}},
                                     {{"frame", Value::scalar(8)}}}, output),
           "batch evaluation failed");
   require(output.size() == 3, "batch result length differs from its input");
-  near(output[0].number[0], 4, "first batch sample differs");
-  near(output[1].number[0], 10, "second batch sample differs");
-  near(output[2].number[0], 16, "third batch sample differs");
+  expectNear(output[0].number[0], 4, "first batch sample differs");
+  expectNear(output[1].number[0], 10, "second batch sample differs");
+  expectNear(output[2].number[0], 16, "third batch sample differs");
 
   require(animation.compile("channel(\"missing\", 1)", {}, {lookup}, scalarOptions()),
           "host callback test expression failed compilation");
@@ -280,14 +280,14 @@ void errorsAndBudgets() {
   enabled.allowConsoleOutput = true;
   require(program.compile("printf(\"SeExpr core validation %f\", 1)", {}, {}, enabled),
           "explicit console-enabled core context lost printf support");
-  near(run(program).number[0], 0, "printf result changed from its native semantics");
+  expectNear(run(program).number[0], 0, "printf result changed from its native semantics");
 
   require(program.compile("1/$x", {{"x", Value::scalar(0)}}, {}, scalarOptions()),
           "nonfinite result test did not compile");
   Value result;
   require(!program.evaluate(result), "nonfinite render output was accepted");
   require(program.setScalar("x", 2), "finite recovery input was rejected");
-  near(run(program).number[0], 0.5, "program did not recover after a numeric error");
+  expectNear(run(program).number[0], 0.5, "program did not recover after a numeric error");
 
   Options limited = scalarOptions();
   limited.maxInstructions = 2000;
@@ -305,7 +305,7 @@ void errorsAndBudgets() {
               program.errorMessage().find("budget") != std::string::npos,
           "exponential local function work was not interrupted by its budget");
   require(program.setScalar("run", 0), "budget recovery input was rejected");
-  near(run(program).number[0], 3, "interpreter call stack did not recover after budget failure");
+  expectNear(run(program).number[0], 3, "interpreter call stack did not recover after budget failure");
 
   std::atomic<bool> cancel{false};
   Options cancellation = scalarOptions();
@@ -315,7 +315,7 @@ void errorsAndBudgets() {
   cancel = true;
   require(!program.evaluate(result), "cancelled evaluation continued");
   cancel = false;
-  near(run(program).number[0], 10, "evaluation failed after cancellation was cleared");
+  expectNear(run(program).number[0], 10, "evaluation failed after cancellation was cleared");
 
   Options strings;
   strings.resultType = Type::String;
@@ -338,7 +338,7 @@ void nativeBindingContracts() {
   compile(program, "4*5");
   require(program.compile(program.source(), {}, {}, scalarOptions()),
           "recompilation invalidated a source string owned by the program");
-  near(run(program).number[0], 20, "source-alias recompilation changed the expression");
+  expectNear(run(program).number[0], 20, "source-alias recompilation changed the expression");
 
   Value invalid = Value::vector(1, 2, 3);
   invalid.type = static_cast<Type>(99);
@@ -398,7 +398,7 @@ void nativeBindingContracts() {
   const Value output = run(program);
   require(output.type == Type::Vector && output.number.size() == 1,
           "one-component vector output lost its declared host type");
-  near(output.number[0], 3, "one-component vector callback returned the wrong result");
+  expectNear(output.number[0], 3, "one-component vector callback returned the wrong result");
 
   compile(program, "gain=4;gain", {{"gain", Value::scalar(9)}});
   require(program.usedVariables().empty(),
@@ -406,9 +406,9 @@ void nativeBindingContracts() {
   compile(program, "def FLOAT noise(FLOAT x){x+2} noise(3)");
   require(program.usedFunctions().empty(),
           "a local function shadow created a false builtin dependency");
-  near(run(program).number[0], 5, "a local function shadow used the builtin instead");
+  expectNear(run(program).number[0], 5, "a local function shadow used the builtin instead");
   compile(program, "def FLOAT printf(FLOAT x){x+1} printf(2)");
-  near(run(program).number[0], 3,
+  expectNear(run(program).number[0], 3,
        "render console policy incorrectly blocked a local pure function");
 
   struct NativeFailure {};
@@ -435,7 +435,7 @@ void nativeBindingContracts() {
                                    {{"x", Value::scalar(0)}}}, results) && results.empty(),
           "a failed batch exposed partial successful-looking results");
   require(program.setScalar("x", 4), "batch failure prevented a valid input update");
-  near(run(program).number[0], 0.25, "program did not recover after a failed batch");
+  expectNear(run(program).number[0], 0.25, "program did not recover after a failed batch");
 }
 
 void evaluationReentrancy() {
@@ -476,9 +476,9 @@ void evaluationReentrancy() {
     Value unchanged = Value::scalar(42);
     require(!program.evaluate(unchanged) && !program.errorMessage().empty(),
             "a reentrant callback operation corrupted or replaced the active program");
-    near(unchanged.number[0], 42, "a rejected reentrant evaluation exposed a partial result");
+    expectNear(unchanged.number[0], 42, "a rejected reentrant evaluation exposed a partial result");
     mode = Mode::Idle;
-    near(run(program).number[0], 7, "program ownership or variables changed after rejected reentry");
+    expectNear(run(program).number[0], 7, "program ownership or variables changed after rejected reentry");
   }
 
   Program other;
@@ -497,21 +497,21 @@ void evaluationReentrancy() {
   outer.name = "outer";
   outer.evaluate = [&](const std::vector<Value> &) { return run(other); };
   compile(program, "outer()", {}, scalarOptions(), {outer});
-  near(run(program).number[0], 11, "nested evaluations of distinct programs were rejected");
+  expectNear(run(program).number[0], 11, "nested evaluations of distinct programs were rejected");
   cycle = true;
   Value ignored;
   require(!program.evaluate(ignored), "an indirect program callback cycle was accepted");
   cycle = false;
-  near(run(program).number[0], 11, "program did not recover after an indirect callback cycle");
+  expectNear(run(program).number[0], 11, "program did not recover after an indirect callback cycle");
 
   Program movable;
   compile(movable, "9");
   Program moved(std::move(movable));
   require(!movable.isValid() && movable.source().empty() && movable.errors().empty(),
           "an idle moved-from program could not be queried safely");
-  near(run(moved).number[0], 9, "moving an idle program changed its evaluation");
+  expectNear(run(moved).number[0], 9, "moving an idle program changed its evaluation");
   compile(movable, "2");
-  near(run(movable).number[0], 2, "a moved-from program could not be compiled again");
+  expectNear(run(movable).number[0], 2, "a moved-from program could not be compiled again");
 
   bool reenterCompile = true;
   Options cancellation = scalarOptions();
@@ -524,7 +524,7 @@ void evaluationReentrancy() {
           "a cancellation callback replaced its actively compiling program");
   reenterCompile = false;
   compile(program, "5", {}, cancellation);
-  near(run(program).number[0], 5, "compilation did not recover after rejected callback reentry");
+  expectNear(run(program).number[0], 5, "compilation did not recover after rejected callback reentry");
 }
 
 void astDepthLimits() {
@@ -545,14 +545,14 @@ void astDepthLimits() {
     require(!program.compile(source + "+", {}, {}, limits),
             "a malformed deep expression was accepted");
     compile(program, "3");
-    near(run(program).number[0], 3, "deep-tree rejection corrupted the next compilation");
+    expectNear(run(program).number[0], 3, "deep-tree rejection corrupted the next compilation");
   }
   Options larger = scalarOptions();
   larger.maxNesting = 256;
   std::string longer = "1";
   for (int index = 0; index < 200; ++index) longer += "+1";
   compile(program, longer, {}, larger);
-  near(run(program).number[0], 201, "an explicitly larger valid tree limit was ignored");
+  expectNear(run(program).number[0], 201, "an explicitly larger valid tree limit was ignored");
 
   const std::string offsetSource = std::string(40000, ' ') + "unknown_name";
   require(!program.compile(offsetSource, {}, {}, scalarOptions()),
@@ -588,7 +588,7 @@ void parallelAndCatalog() {
       for (int repeat = 0; repeat < 4; ++repeat)
         for (int i = 31; i >= 0; --i) {
           require(owned.setScalar("x", i / 8.0), "worker update failed");
-          near(run(owned).number[0], expected[static_cast<std::size_t>(i)],
+          expectNear(run(owned).number[0], expected[static_cast<std::size_t>(i)],
                "parallel or reordered evaluation changed a deterministic result");
         }
     }));

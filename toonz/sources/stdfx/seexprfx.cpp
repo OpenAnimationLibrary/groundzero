@@ -23,6 +23,7 @@
 #include <set>
 #include <sstream>
 #include <stdexcept>
+#include <typeinfo>
 
 namespace {
 constexpr std::size_t maxDocumentBytes = 262144;
@@ -334,7 +335,7 @@ protected:
   TDoubleParamP m_width, m_height, m_fps, m_seed, m_mix, m_radius;
   TIntEnumParamP m_edge, m_filter, m_maskChannel;
   TRasterFxPort m_source, m_mask;
-  bool m_generator, m_syncing = false;
+  bool m_generator, m_syncing = false, m_loading = false;
   std::string m_schemaError;
   std::vector<std::unique_ptr<NativeControl>> m_controls;
   std::map<QString, NativeControl *> m_controlMap;
@@ -905,6 +906,16 @@ public:
   void onParamLoaded(const std::string &name) override {
     if (name == documentName) synchronizeDocument();
   }
+  void loadData(TIStream &stream) override {
+    const bool previous = m_loading;
+    m_loading = true;
+    struct Reset {
+      bool &flag;
+      bool previous;
+      ~Reset() { flag = previous; }
+    } reset{m_loading, previous};
+    Base::loadData(stream);
+  }
   TFx *clone(bool recursive = true) const override {
     std::unique_ptr<TFx> copy(TFx::create(this->getFxType()));
     auto *native = dynamic_cast<SeExprNativeFx *>(copy.get());
@@ -938,7 +949,35 @@ public:
     if (other == this) return;
     auto *source = dynamic_cast<SeExprNativeFx *>(other);
     demand(source && source->getFxType() == this->getFxType(), "linked expressions must have the same effect type");
-    auto merged = SeExprFx::parseDocument(source->m_document->getValue());
+    SeExprFx::Document merged;
+    try {
+      merged = SeExprFx::parseDocument(source->m_document->getValue());
+    } catch (const TException &error) {
+      const auto declaration = source->m_document->getValue();
+      // A linked peer is serialized with paramsLinkedTo instead of its own
+      // parameter declaration. Only that fresh load may adopt unsupported
+      // source verbatim; explicit links require an identical declaration.
+      demand(m_document->getValue() == declaration || (m_loading && m_controls.empty()),
+             "unsupported linked expressions need identical documents");
+      if (m_document->getValue() != declaration) m_document->setValue(declaration);
+      synchronizeDocument();
+      demand(this->getParams()->getParamCount() == source->getParams()->getParamCount(),
+             "unsupported linked expressions have incompatible native layouts");
+      std::vector<std::string> order;
+      for (int i = 0; i < source->getParams()->getParamCount(); ++i) {
+        const std::string name = source->getParams()->getParamName(i);
+        const TParam *ours = this->getParams()->getParam(name);
+        const TParam *theirs = source->getParams()->getParam(i);
+        demand(ours && typeid(*ours) == typeid(*theirs),
+               "unsupported linked expressions have incompatible native parameter types");
+        order.push_back(name);
+      }
+      this->getParams()->reorder(order);
+      const auto diagnostic = QString::fromStdWString(error.getMessage()).toStdString();
+      m_schemaError = source->m_schemaError = diagnostic;
+      Base::linkParams(other);
+      return;
+    }
     std::set<QString> known;
     for (const auto &control : merged.controls) known.insert(control.id);
     QJsonArray archive = merged.json.value("archive").toArray();

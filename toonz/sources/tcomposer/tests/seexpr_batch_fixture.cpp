@@ -71,7 +71,8 @@ TDoubleParam *number(TFx &fx, const char *name) {
 }
 
 void makeScene(const QDir &root, const QString &name, const QString &rgb,
-               bool brokenAnimation = false, int version = 1) {
+               bool brokenAnimation = false, int version = 1,
+               int frameCount = 2) {
   ToonzScene scene;
   TProjectManager::instance()->initializeScene(&scene);
   const QString sceneName = root.filePath("portablestuff/projects/acceptance/scenes/" + name + ".tnz");
@@ -82,7 +83,7 @@ void makeScene(const QDir &root, const QString &name, const QString &rgb,
   camera->setSize(TDimensionD(1, 1));
   scene.getProperties()->cloneCamerasFrom(scene.getXsheet()->getStageObjectTree());
   auto *output = scene.getProperties()->getOutputProperties();
-  output->setRange(0, 1, 1);
+  output->setRange(0, frameCount - 1, 1);
   output->setFrameRate(24.0);
   output->setPath(path(root.filePath("output/" + name + ".png")));
 
@@ -94,14 +95,14 @@ void makeScene(const QDir &root, const QString &name, const QString &rgb,
   number(*generator, "height")->setDefaultValue(128);
   auto *gain = number(*generator, "seexprControl_gain__value");
   gain->setValue(0, 0.75);
-  gain->setValue(1, 0.5);
+  gain->setValue(frameCount - 1, 0.5);
   require(std::abs(gain->getValue(0) - 0.75) < 1e-12 &&
-          std::abs(gain->getValue(1) - 0.5) < 1e-12,
+          std::abs(gain->getValue(frameCount - 1) - 0.5) < 1e-12,
           "named native control keyframes were not retained");
   if (version != 1) setDocument(*generator, document(rgb, true, version));
   setDocument(*color, document("$src * 0.5", false));
 
-  auto *column = new TXshZeraryFxColumn(2);
+  auto *column = new TXshZeraryFxColumn(frameCount);
   column->getZeraryColumnFx()->setZeraryFx(generator.getPointer());
   TXsheet *xsheet = scene.getXsheet();
   xsheet->insertColumn(0, column);
@@ -124,12 +125,12 @@ void makeScene(const QDir &root, const QString &name, const QString &rgb,
     horizontal->setKeyframe(last);
   }
   xsheet->updateFrameCount();
-  require(scene.getFrameCount() == 2, "native scene exposure range is incorrect");
+  require(scene.getFrameCount() == frameCount, "native scene exposure range is incorrect");
   scene.saveCopy(path(sceneName));
   require(QFile::exists(sceneName), "native scene was not saved");
   ToonzScene reopened;
   reopened.loadTnzFile(path(sceneName));
-  require(reopened.getFrameCount() == 2, "saved scene exposure range changed");
+  require(reopened.getFrameCount() == frameCount, "saved scene exposure range changed");
   auto *reopenedColumn = reopened.getXsheet()->getColumn(0)->getZeraryFxColumn();
   require(reopenedColumn != nullptr, "saved generator column was lost");
   TFx *reopenedGenerator = reopenedColumn->getZeraryColumnFx()->getZeraryFx();
@@ -145,7 +146,7 @@ void makeScene(const QDir &root, const QString &name, const QString &rgb,
   if (version == 1) {
     auto *reopenedGain = number(*reopenedGenerator, "seexprControl_gain__value");
     require(std::abs(reopenedGain->getValue(0) - 0.75) < 1e-12 &&
-            std::abs(reopenedGain->getValue(1) - 0.5) < 1e-12,
+            std::abs(reopenedGain->getValue(frameCount - 1) - 0.5) < 1e-12,
             "saved named control animation changed");
   }
 }
@@ -198,6 +199,9 @@ int main(int argc, char **argv) {
     makeScene(root, "valid", "[$gain,0.25,0.125]");
     makeScene(root, "syntax-error", "noise(");
     makeScene(root, "runtime-error", "[1/($frame-$frame),0,0]");
+    makeScene(root, "runtime-first", "[$gain/abs($frame-1),0.25,0.125]", false, 1, 3);
+    makeScene(root, "runtime-middle", "[$gain/abs($frame-2),0.25,0.125]", false, 1, 3);
+    makeScene(root, "runtime-last", "[$gain/abs($frame-3),0.25,0.125]", false, 1, 3);
     makeScene(root, "animation-error", "[$gain,0.25,0.125]", true);
     // Preserve unsupported data for repair while requiring batch failure.
     makeScene(root, "unsupported-version", "[$gain,0.25,0.125]", false, 999);

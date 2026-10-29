@@ -298,7 +298,9 @@ bool pasteColumnsWithoutUndo(std::set<int> *indices, bool doClone,
 
   std::list<int> restoredSplineIds;
   data->restoreObjects(*indices, restoredSplineIds, xsh,
-                       doClone ? StageObjectsData::eDoClone : 0,
+                       doClone ? StageObjectsData::eDoClone |
+                                     StageObjectsData::eRebindReferences
+                               : 0,
                        TConst::nowhere);
   app->getCurrentXsheet()->notifyXsheetChanged();
   app->getCurrentObject()->notifyObjectIdSwitched();
@@ -600,7 +602,7 @@ class DeleteColumnsUndo final : public TUndo {
     // state. Resolve live pointers after resetColumns to avoid reviving curves
     // belonging to replaced/deleted objects.
     FunctionTreeModel model;
-    model.refreshData(xsh);
+    model.refreshReferenceData(xsh);
     std::set<TDoubleParam *> live;
     for (int i = 0; i < model.getStageObjectsChannelCount(); ++i)
       gatherLiveParameters(model.getStageObjectChannel(i), live);

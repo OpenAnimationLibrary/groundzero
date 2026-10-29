@@ -24,7 +24,7 @@ namespace {
 void require(bool condition, const char *message) {
   if (!condition) throw std::runtime_error(message);
 }
-void near(double actual, double expected) {
+void expectNear(double actual, double expected) {
   require(std::isfinite(actual) && std::abs(actual - expected) < 1e-10,
           "range sample differs from the native expression value");
 }
@@ -48,9 +48,9 @@ void actualEvaluation() {
     const auto &sample = result.samples[row];
     require(sample.error.isEmpty() && sample.values.size() == 3,
             "valid vector sample lost its numeric components");
-    near(sample.frame, 1 + row * .5);
+    expectNear(sample.frame, 1 + row * .5);
     for (int component = 0; component < 3; ++component)
-      near(sample.values[component], sample.frame * (component + 1));
+      expectNear(sample.values[component], sample.frame * (component + 1));
   }
   bool cancel = false;
   const auto partial = SeExprRangeViewer::evaluate({1, 8, 1}, evaluator,
@@ -108,12 +108,12 @@ void nativeReferences() {
       });
   require(result.samples.size() == 2 && result.samples[0].error.isEmpty() &&
               result.samples[1].error.isEmpty(), "native range reference failed");
-  near(result.samples[0].values[0], 6);
-  near(result.samples[1].values[0], 10);
+  expectNear(result.samples[0].values[0], 6);
+  expectNear(result.samples[1].values[0], 10);
   require(horizontal->getKeyframeCount() == keys,
           "range preview changed native keyframe ownership");
-  near(horizontal->getValue(0), 3);
-  near(horizontal->getValue(1), 5);
+  expectNear(horizontal->getValue(0), 3);
+  expectNear(horizontal->getValue(1), 5);
 }
 
 void actualDialog() {

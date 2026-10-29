@@ -559,17 +559,23 @@ public:
       const auto array = QJsonDocument::fromJson(value->text().toUtf8()).array();
       const QColor initial = array.size() == 3 ? QColor::fromRgbF(std::clamp(array[0].toDouble(), 0., 1.),
           std::clamp(array[1].toDouble(), 0., 1.), std::clamp(array[2].toDouble(), 0., 1.)) : QColor(Qt::white);
-      const QColor selected = QColorDialog::getColor(initial, &dialog);
-      if (selected.isValid() && selected != initial) {
+      QColorDialog picker(initial, &dialog);
+      // QColorDialog can quantize its input when it initializes its display
+      // controls. Compare edits with the displayed baseline, not the original
+      // higher-precision color supplied to the dialog.
+      const QColor displayed = picker.currentColor();
+      if (picker.exec() != QDialog::Accepted) return;
+      const QColor selected = picker.selectedColor();
+      if (selected.isValid() && selected != displayed) {
         // The picker presents a bounded display color. Retain the original
         // precision and HDR values for every component the artist leaves alone.
         const auto component = [&](int index, double chosen, double displayed) {
           return array.size() == 3 && chosen == displayed ? array[index].toDouble() : chosen;
         };
         value->setText(QString("[%1,%2,%3]")
-            .arg(component(0, selected.redF(), initial.redF()), 0, 'g', 17)
-            .arg(component(1, selected.greenF(), initial.greenF()), 0, 'g', 17)
-            .arg(component(2, selected.blueF(), initial.blueF()), 0, 'g', 17));
+            .arg(component(0, selected.redF(), displayed.redF()), 0, 'g', 17)
+            .arg(component(1, selected.greenF(), displayed.greenF()), 0, 'g', 17)
+            .arg(component(2, selected.blueF(), displayed.blueF()), 0, 'g', 17));
       }
     });
     QObject::connect(curve, &QPushButton::clicked, &dialog, [&dialog, &points, kind]() {

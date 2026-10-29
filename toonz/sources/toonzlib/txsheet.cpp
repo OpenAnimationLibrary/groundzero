@@ -1853,6 +1853,11 @@ void TXsheet::notifyFxAdded(const std::vector<TFx *> &fxs) {
 void TXsheet::notifyStageObjectAdded(const TStageObjectId &id) {
   if (m_observer) m_observer->onStageObjectAdded(id);
 }
+void TXsheet::notifyStageObjectsPasted(
+    const QMap<TStageObjectId, TStageObjectId> &idTable,
+    const QMap<TFx *, TFx *> &fxTable) {
+  if (m_observer) m_observer->onStageObjectsPasted(this, idTable, fxTable);
+}
 bool TXsheet::isReferenceManagementIgnored(TDoubleParam *param) {
   if (m_observer) return m_observer->isIgnored(param);
   return false;

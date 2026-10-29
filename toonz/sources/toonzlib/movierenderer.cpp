@@ -10,6 +10,7 @@
 #include "timageinfo.h"
 #include "trop.h"
 #include "tsop.h"
+#include "texception.h"
 
 #include "tiio.h"
 
@@ -119,6 +120,7 @@ public:
   TSoundTrackP m_st;
 
   std::map<double, std::pair<TRasterP, TRasterP>> m_toBeSaved;
+  std::map<double, TException> m_frameErrors;
   std::vector<std::pair<double, TFxPair>> m_framesToBeRendered;
   std::string m_renderCacheId;
   /*--- When caching the same raster, gamma only the first one and use the
@@ -134,7 +136,7 @@ public:
   int m_nextFrameIdxToSave;
   int m_savingThreadsCount;
   bool m_firstCompletedRaster;
-  bool m_failure;
+  bool m_stopRequested;
   bool m_cacheResults;
   bool m_preview;
   bool m_movieType;
@@ -156,6 +158,7 @@ public:
 
   void doRenderRasterCompleted(const RenderData &renderData);
   void doPreviewRasterCompleted(const RenderData &renderData);
+  void flushFrames(TThread::MutexLocker &locker);
 
   // Helper methods
 
@@ -199,9 +202,8 @@ MovieRenderer::Imp::Imp(ToonzScene *scene, const TFilePath &moviePath,
     , m_nextFrameIdxToSave(0)
     , m_savingThreadsCount(0)
     , m_whiteSample(0)
-    , m_firstCompletedRaster(
-          true)         //< I know, sounds weird - it's just set to false
-    , m_failure(false)  //  AFTER the first completed raster gets processed
+    , m_firstCompletedRaster(true)
+    , m_stopRequested(false)
     , m_cacheResults(cacheResults)
     , m_preview(moviePath.isEmpty())
     , m_movieType(isMovieType(moviePath))
@@ -544,14 +546,12 @@ void MovieRenderer::Imp::doRenderRasterCompleted(const RenderData &renderData) {
   assert(!(m_cacheResults &&
            m_levelUpdaterB.get()));  // Cannot cache results on stereoscopy
 
-  QMutexLocker locker(&m_mutex);
-
-  bool allowMT    = Preferences::instance()->getFfmpegMultiThread();
-  bool requireSeq = allowMT ? m_seqRequired : m_movieType;
+  TThread::MutexLocker locker(&m_mutex);
+  if (m_stopRequested) return;
 
   // Build soundtrack at the first time a frame is completed - and the filetype
   // is that of a movie.
-  if (m_firstCompletedRaster) {
+  if (m_firstCompletedRaster && m_levelUpdaterA.get()) {
     if (m_movieType && !m_st) {
       // The soundtrack is saved before the clapperboard frames: writers that
       // stream frames to ffmpeg start it, audio input included, on the first
@@ -605,8 +605,19 @@ void MovieRenderer::Imp::doRenderRasterCompleted(const RenderData &renderData) {
     m_toBeAppliedGamma[*jt] = false;
   }
 
-  // Attempt flushing as many frames as possible to the level updater(s)
-  while (!m_toBeSaved.empty()) {
+  m_firstCompletedRaster = false;
+  flushFrames(locker);
+}
+
+//---------------------------------------------------------
+
+void MovieRenderer::Imp::flushFrames(TThread::MutexLocker &locker) {
+  const bool allowMT = Preferences::instance()->getFfmpegMultiThread();
+  const bool requireSeq = !m_preview && (allowMT ? m_seqRequired : m_movieType);
+
+  // Completed rasters and failed frames share the same queue. A failed frame
+  // advances sequential writers without discarding later completed rasters.
+  while (!m_stopRequested && !m_toBeSaved.empty()) {
     std::map<double, std::pair<TRasterP, TRasterP>>::iterator ft =
         m_toBeSaved.begin();
 
@@ -614,7 +625,8 @@ void MovieRenderer::Imp::doRenderRasterCompleted(const RenderData &renderData) {
     // If the frame is not the next one in the sequence, wait until *that* frame
     // is available.
     if (requireSeq &&
-        (ft->first != m_framesToBeRendered[m_nextFrameIdxToSave].first))
+        (m_nextFrameIdxToSave >= int(m_framesToBeRendered.size()) ||
+         ft->first != m_framesToBeRendered[m_nextFrameIdxToSave].first))
       break;
 
     // This thread will be the one processing ft - remove it from the map to
@@ -626,9 +638,18 @@ void MovieRenderer::Imp::doRenderRasterCompleted(const RenderData &renderData) {
     ++m_nextFrameIdxToSave;
     m_toBeSaved.erase(ft);
 
-    // Save current frame
-    std::pair<bool, int> savedFrame;
-    {
+    const double stretchFac = double(m_renderSettings.m_timeStretchTo) /
+                              m_renderSettings.m_timeStretchFrom;
+    const int outputFrame = !m_preview && stretchFac != 1
+                                ? tround(frame * stretchFac)
+                                : int(frame);
+    std::pair<bool, int> savedFrame(false, outputFrame);
+    TException failure;
+    const auto error = m_frameErrors.find(frame);
+    if (error != m_frameErrors.end()) {
+      failure = error->second;
+      m_frameErrors.erase(error);
+    } else {
       // Time the saving procedure
       struct SaveTimer {
         int &m_count;
@@ -643,7 +664,7 @@ void MovieRenderer::Imp::doRenderRasterCompleted(const RenderData &renderData) {
       // Unlock the mutex only in case this is NOT a movie type. Single images
       // can be saved concurrently.
       // QMutexLocker is a template in Qt 6
-      typedef decltype(locker) Locker;
+      typedef TThread::MutexLocker Locker;
       struct MutexUnlocker {
         Locker *m_locker;
         ~MutexUnlocker() {
@@ -651,8 +672,19 @@ void MovieRenderer::Imp::doRenderRasterCompleted(const RenderData &renderData) {
         }
       } unlocker = {requireSeq ? (Locker *)0 : (locker.unlock(), &locker)};
 
-      savedFrame = saveFrame(frame, rasters);
+      // Saving also queries the writer before its internal write guard. Keep
+      // those failures local to this frame: propagating them would requeue an
+      // already advanced equivalence cluster as a new compute failure.
+      try {
+        savedFrame = saveFrame(frame, rasters);
+      } catch (const TException &e) {
+        failure = TException(e.getMessage());
+      } catch (...) {
+        failure = TException("Unable to save rendered frame");
+      }
     }
+
+    if (m_stopRequested) break;
 
     // Report status and deal with responses
     bool okToContinue = true;
@@ -663,10 +695,8 @@ void MovieRenderer::Imp::doRenderRasterCompleted(const RenderData &renderData) {
       for (; lt != m_listeners.end(); ++lt)
         okToContinue &= (*lt)->onFrameCompleted(savedFrame.second);
     } else {
-      for (; lt != m_listeners.end(); ++lt) {
-        TException e;
-        okToContinue &= (*lt)->onFrameFailed(savedFrame.second, e);
-      }
+      for (; lt != m_listeners.end(); ++lt)
+        okToContinue &= (*lt)->onFrameFailed(savedFrame.second, failure);
     }
 
     if (!okToContinue) {
@@ -686,15 +716,15 @@ void MovieRenderer::Imp::doRenderRasterCompleted(const RenderData &renderData) {
                                           std::to_string(i + 1));
       }
 
+      m_stopRequested = true;
+      m_toBeSaved.clear();
+      m_frameErrors.clear();
       m_renderer.stopRendering();
-
-      m_levelUpdaterA
-          .reset();  // No more saving. Further attempts to save images
-      m_levelUpdaterB.reset();  // will be rejected and treated as failures.
+      // Other single-image saves can still be using the updaters while this
+      // mutex is unlocked. onRenderFinished closes them after all tasks end.
+      break;
     }
   }
-
-  m_firstCompletedRaster = false;
 }
 
 //---------------------------------------------------------
@@ -706,6 +736,7 @@ void MovieRenderer::Imp::doPreviewRasterCompleted(
   assert(!m_levelUpdaterA.get());
 
   QMutexLocker sl(&m_mutex);
+  if (m_stopRequested) return;
 
   QString name = getPreviewName(m_renderSessionId);
 
@@ -760,6 +791,9 @@ void MovieRenderer::Imp::doPreviewRasterCompleted(
       TImageCache::instance()->remove(frameName.toStdString());
     }
 
+    m_stopRequested = true;
+    m_toBeSaved.clear();
+    m_frameErrors.clear();
     m_renderer.stopRendering();
   }
 
@@ -770,64 +804,23 @@ void MovieRenderer::Imp::doPreviewRasterCompleted(
 
 void MovieRenderer::Imp::onRenderFailure(const RenderData &renderData,
                                          TException &e) {
-  QMutexLocker sl(&m_mutex);  // Lock as soon as possible.
-                              // No sense making it later in this case!
-  m_failure = true;
-
-  bool allowMT    = Preferences::instance()->getFfmpegMultiThread();
-  bool requireSeq = allowMT ? m_seqRequired : m_movieType;
-
-  // If the saver object has already been destroyed - or it was never
-  // created to begin with, nothing to be done
-  if (!m_levelUpdaterA.get()) return;  // The preview case would fall here
-
-  // Flush out as much as we can of the frames that were already rendered
-  m_toBeSaved[0.0] =
-      std::make_pair(TRasterP(), TRasterP());  // ?? Why is this ??
-
-  std::map<double, std::pair<TRasterP, TRasterP>>::iterator it =
-      m_toBeSaved.begin();
-  while (it != m_toBeSaved.end()) {
-    if (requireSeq &&
-        (it->first != m_framesToBeRendered[m_nextFrameIdxToSave].first))
-      break;
-
-    // o_o!
-    // I would have expected that at least those frames that were computed could
-    // attempt saving! Why is this not addressed? They're even marked as
-    // 'failed'!
-
-    double stretchFac = (double)renderData.m_info.m_timeStretchTo /
-                        renderData.m_info.m_timeStretchFrom;
-
-    int fr;
-    if (stretchFac != 1)
-      fr = tround(it->first * stretchFac);
-    else
-      fr = (int)it->first;
-
-    // No saving? Really?
-
-    std::set<MovieRenderer::Listener *>::iterator lt = m_listeners.begin();
-    bool okToContinue                                = true;
-
-    for (; lt != m_listeners.end(); ++lt)
-      okToContinue &= (*lt)->onFrameFailed((int)it->first, e);
-
-    if (!okToContinue) m_renderer.stopRendering();
-
-    ++m_nextFrameIdxToSave;
-    m_toBeSaved.erase(it++);
+  TThread::MutexLocker locker(&m_mutex);
+  if (m_stopRequested) return;
+  // A render can fail before a writer exists, including preview-only renders.
+  // Every frame in an equivalence cluster still needs its own notification.
+  for (const double frame : renderData.m_frames) {
+    m_toBeSaved[frame] = std::make_pair(TRasterP(), TRasterP());
+    m_frameErrors[frame] = TException(e.getMessage());
   }
+  flushFrames(locker);
 }
 
 //---------------------------------------------------------
 
 void MovieRenderer::Imp::onRenderFinished(bool isCanceled) {
-  TFilePath levelName(
-      m_levelUpdaterA.get()
-          ? m_fp
-          : TFilePath(getPreviewName(m_renderSessionId).toStdWString()));
+  TFilePath levelName(m_preview
+                         ? TFilePath(getPreviewName(m_renderSessionId).toStdWString())
+                         : m_fp);
 
   if (m_waitAfterFinish) {
     // Wait half a second to add some stability before finalizing
@@ -842,14 +835,12 @@ void MovieRenderer::Imp::onRenderFinished(bool isCanceled) {
   m_levelUpdaterA.reset();
   m_levelUpdaterB.reset();
 
-  if (!m_failure) {
-    // Inform listeners of the render completion
-    std::set<MovieRenderer::Listener *>::iterator it;
-    for (it = m_listeners.begin(); it != m_listeners.end(); ++it)
-      (*it)->onSequenceCompleted(levelName);
-
-    // I wonder why listeners are not informed of a failed sequence, btw...
-  }
+  // Completion closes the sequence lifecycle, including failed or canceled
+  // renders. Success is reported separately by the frame callbacks. Batch and
+  // multimedia callers rely on this notification to leave their event loops.
+  std::set<MovieRenderer::Listener *>::iterator it;
+  for (it = m_listeners.begin(); it != m_listeners.end(); ++it)
+    (*it)->onSequenceCompleted(levelName);
 
   release();  // The movieRenderer is released by the render process. It could
               // eventually be deleted.

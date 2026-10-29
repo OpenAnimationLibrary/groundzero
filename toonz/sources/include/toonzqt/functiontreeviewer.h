@@ -217,6 +217,7 @@ private:
   TFx *m_currentFx;           //!< (\p not \p owned) Current fx.
 
   bool m_paramsChanged;
+  bool m_referenceMode = false;
 
   TFxHandle *m_fxHandle;
   TObjectHandle *m_objectHandle;
@@ -244,6 +245,10 @@ public:
   void refreshActiveChannels();
   void refreshData(TXsheet *xsh);  // call this method when the stageObject/Fx
                                    // structure has been modified
+  // Reference maintenance also needs empty animated columns, inactive column
+  // effects and hidden numeric parameters. Keep the UI refresh signature and
+  // its filtering behavior unchanged.
+  void refreshReferenceData(TXsheet *xsh);
   void resetAll();
 
   void applyShowFilters();
@@ -275,6 +280,7 @@ signals:
   void currentChannelChanged(FunctionTreeModel::Channel *);
 
 private:
+  void refreshDataImpl(TXsheet *xsh, bool referenceMode);
   void addParameter(ChannelGroup *group, const std::string &prefixString,
                     const std::wstring &fxId, TParam *param);
 

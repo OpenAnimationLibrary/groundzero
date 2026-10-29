@@ -295,8 +295,9 @@ int main(int argc, char **argv) {
               "native path annotation picker lost a value or committed the scene");
     }
 
-    // An unchanged display picker must preserve the native HDR source value.
-    {
+    // A display picker must preserve the native HDR source value and precision
+    // for every component the artist leaves untouched, including on cancel.
+    for (int operation = 0; operation < 3; ++operation) {
       SeExprEditor colorEditor;
       const QJsonArray original{-0.25, 2.125, 0.123456789012345};
       auto colorDocument = document("$tint");
@@ -309,6 +310,10 @@ int main(int argc, char **argv) {
       colorEditor.findChild<QTableWidget *>("seExprControls")->setCurrentCell(0, 0);
       QString colorFailure;
       bool pickerSeen = false;
+      double selectedRed = original[0].toDouble();
+      int colorCommits = 0;
+      QObject::connect(&colorEditor, &SeExprEditor::documentApplied,
+                       [&](const QString &) { ++colorCommits; });
       QTimer watchdog(&colorEditor);
       watchdog.setSingleShot(true);
       QObject::connect(&watchdog, &QTimer::timeout, &colorEditor, [&] {
@@ -327,17 +332,38 @@ int main(int argc, char **argv) {
           auto *picker = qobject_cast<QColorDialog *>(QApplication::activeModalWidget());
           if (!picker) { colorFailure = "native display color picker is missing"; return; }
           pickerSeen = true;
-          QMetaObject::invokeMethod(picker, "accept", Qt::DirectConnection);
+          if (operation != 0) {
+            QColor changed = picker->currentColor();
+            changed.setRedF(0.75);
+            picker->setCurrentColor(changed);
+          }
+          if (operation == 2) picker->reject();
+          else {
+            if (!QMetaObject::invokeMethod(picker, "accept", Qt::DirectConnection))
+              colorFailure = "native display color picker could not accept its selection";
+            selectedRed = picker->selectedColor().redF();
+          }
         });
         color->click();
+        if (!colorFailure.isEmpty()) { dialog->reject(); return; }
         buttons->button(QDialogButtonBox::Ok)->click();
       });
       colorEditor.findChild<QPushButton *>("seExprControlEdit")->click();
       watchdog.stop();
       const auto edited = QJsonDocument::fromJson(colorEditor.document().toUtf8())
                               .object().value("controls").toArray()[0].toObject();
-      require(colorFailure.isEmpty() && pickerSeen && edited.value("value").toArray() == original,
-              "unchanged native color picker lost HDR or precision");
+      const auto result = edited.value("value").toArray();
+      if (!colorFailure.isEmpty()) throw std::runtime_error(colorFailure.toStdString());
+      require(pickerSeen && colorCommits == 0 && result.size() == 3,
+              "native display color picker failed or committed its draft");
+      if (operation == 1) {
+        require(selectedRed != original[0].toDouble() && result[0].toDouble() == selectedRed &&
+                    result[1] == original[1] && result[2] == original[2],
+                "changing one native color component lost an untouched HDR or precise component");
+      } else {
+        require(result == original,
+                "unchanged native color picker lost HDR or precision");
+      }
     }
 
     // Host preview failures are errors, rather than successful preview strings.

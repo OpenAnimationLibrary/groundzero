@@ -31,7 +31,7 @@ namespace {
 void require(bool condition, const char *message) {
   if (!condition) throw std::runtime_error(message);
 }
-void near(double actual, double expected, const char *message) {
+void expectNear(double actual, double expected, const char *message) {
   require(std::abs(actual - expected) < 1e-8, message);
 }
 
@@ -44,27 +44,27 @@ void dialectAndTime() {
   expression.setText("sin(90)");
   double value = 0.0;
   require(expression.evaluate(0.0, 1.0, 1.0, nullptr, value), "native trig did not evaluate");
-  near(value, 1.0, "native degree trig changed");
+  expectNear(value, 1.0, "native degree trig changed");
   expression.setText(TExpression::makeSeExprText("sin($pi/2)"));
   require(expression.evaluate(0.0, 1.0, 1.0, nullptr, value), "SeExpr radian trig did not evaluate");
-  near(value, 1.0, "SeExpr radian trig is incorrect");
+  expectNear(value, 1.0, "SeExpr radian trig is incorrect");
   expression.setText(TExpression::makeSeExprText("$frame + $rframe + $t + $time"));
   require(expression.evaluate(.5, 25.0, 3.0, nullptr, value), "animation context did not evaluate");
-  near(value, 29.5, "frame, relative frame or seconds convention is incorrect");
+  expectNear(value, 29.5, "frame, relative frame or seconds convention is incorrect");
   fps = 48.0;
   require(expression.evaluate(.5, 25.0, 3.0, nullptr, value), "fps change did not evaluate");
-  near(value, 29.0, "seconds did not follow the live fps provider");
+  expectNear(value, 29.0, "seconds did not follow the live fps provider");
 
   expression.setText(TExpression::makeSeExprText("1/($frame-2)"));
   require(expression.evaluate(0.0, 1.0, 1.0, nullptr, value), "valid formula did not evaluate");
-  near(value, -1.0, "unexpected initial formula value");
+  expectNear(value, -1.0, "unexpected initial formula value");
   const auto failures = TSeExpr::failureCount();
   require(!expression.evaluate(0.0, 2.0, 2.0, nullptr, value), "nonfinite animation result was accepted");
-  near(value, -1.0, "failed animation did not retain its last valid preview");
+  expectNear(value, -1.0, "failed animation did not retain its last valid preview");
   require(!expression.getError().empty() && TSeExpr::failureCount() > failures,
           "failed evaluation did not retain diagnostics and report a failure");
   require(expression.evaluate(0.0, 3.0, 3.0, nullptr, value), "formula did not recover after valid inputs");
-  near(value, 1.0, "recovered animation value is incorrect");
+  expectNear(value, 1.0, "recovered animation value is incorrect");
   require(expression.getError().empty(), "recovered formula retained a stale runtime error");
 
   expression.setText(TExpression::makeSeExprText("channel(sprintf(\"%s\", \"col1.x\"))"));
@@ -81,6 +81,37 @@ TDoubleKeyframe key(double frame, double value, TDoubleKeyframe::Type type,
   result.m_type = type;
   result.m_expressionText = text;
   return result;
+}
+
+void copiedExpressionOwners() {
+  TSyntax::Grammar grammar;
+  for (const std::string source : {
+           std::string("cycle(2)+1"),
+           TExpression::makeSeExprText("channel(\"cycle(2)\")+1")}) {
+    TDoubleParamP constructed, assigned(new TDoubleParam), copied(new TDoubleParam);
+    {
+      TDoubleParamP original(new TDoubleParam);
+      original->setGrammar(&grammar);
+      original->setKeyframe(key(0, 2, TDoubleKeyframe::Linear));
+      original->setKeyframe(key(1, 0, TDoubleKeyframe::Expression, source));
+      original->setKeyframe(key(4, 0, TDoubleKeyframe::Linear));
+      expectNear(original->getValue(2), 3, "cycle owner fixture did not evaluate");
+      constructed = new TDoubleParam(*original);
+      *assigned = *original;
+      copied->copy(original.getPointer());
+      // Distinct starting values make stale owners observable even before the
+      // original is destroyed, rather than relying only on a dangling pointer.
+      constructed->setKeyframe(0, key(0, 20, TDoubleKeyframe::Linear));
+      assigned->setKeyframe(0, key(0, 30, TDoubleKeyframe::Linear));
+      copied->setKeyframe(0, key(0, 40, TDoubleKeyframe::Linear));
+      expectNear(constructed->getValue(2), 21, "copy constructor retained the source expression owner");
+      expectNear(assigned->getValue(2), 31, "assignment retained the source expression owner");
+      expectNear(copied->getValue(2), 41, "parameter copy retained the source expression owner");
+    }
+    expectNear(constructed->getValue(2), 21, "copied expression owner expired with its source");
+    expectNear(assigned->getValue(2), 31, "assigned expression owner expired with its source");
+    expectNear(copied->getValue(2), 41, "parameter expression owner expired with its source");
+  }
 }
 
 struct Observer : TParamObserver {
@@ -107,13 +138,13 @@ void nativeReferencesAndCycles() {
       "channel(\"col1.x\", $frame-1) * 2 + channel(\"col1.x\")");
   output->setKeyframe(key(0, 0, TDoubleKeyframe::Expression, source));
   output->setKeyframe(key(10, 0, TDoubleKeyframe::Linear));
-  near(output->getValue(5), input->getValue(4) * 2 + input->getValue(5),
+  expectNear(output->getValue(5), input->getValue(4) * 2 + input->getValue(5),
        "SeExpr channel sampling did not use the native frame convention");
   Observer observer;
   output->addObserver(&observer);
   input->setValue(5, 17.0);
   require(observer.propagated > 0, "native reference changes did not notify the SeExpr owner");
-  near(output->getValue(5), input->getValue(4) * 2 + input->getValue(5),
+  expectNear(output->getValue(5), input->getValue(4) * 2 + input->getValue(5),
        "native reference update retained a stale value");
   output->removeObserver(&observer);
 
@@ -160,7 +191,7 @@ void persistenceAndUndo() {
   curve->setKeyframe(key(10, 0, TDoubleKeyframe::Linear));
   const double before = curve->getValue(4.5);
   TDoubleParamP clone(dynamic_cast<TDoubleParam *>(curve->clone()));
-  near(clone->getValue(4.5), before, "cloning lost SeExpr evaluation or fractional-frame semantics");
+  expectNear(clone->getValue(4.5), before, "cloning lost SeExpr evaluation or fractional-frame semantics");
 
   QTemporaryDir directory;
   require(directory.isValid(), "temporary scene fixture unavailable");
@@ -188,7 +219,7 @@ void persistenceAndUndo() {
   }
   require(loaded->getKeyframe(0).m_expressionText == source,
           "save/reopen changed SeExpr source or dialect");
-  near(loaded->getValue(4.5), before, "reopened SeExpr curve evaluated differently");
+  expectNear(loaded->getValue(4.5), before, "reopened SeExpr curve evaluated differently");
 
   TUndoManager *undo = TUndoManager::manager();
   undo->reset();
@@ -196,11 +227,11 @@ void persistenceAndUndo() {
     KeyframeSetter setter(loaded.getPointer(), 0);
     setter.setExpression(TExpression::makeSeExprText("42"));
   }
-  near(loaded->getValue(4.5), 42.0, "native expression edit did not apply");
+  expectNear(loaded->getValue(4.5), 42.0, "native expression edit did not apply");
   require(undo->undo(), "native expression edit had no undo");
-  near(loaded->getValue(4.5), before, "native undo did not restore source/evaluation");
+  expectNear(loaded->getValue(4.5), before, "native undo did not restore source/evaluation");
   require(undo->redo(), "native expression edit had no redo");
-  near(loaded->getValue(4.5), 42.0, "native redo did not restore the edit");
+  expectNear(loaded->getValue(4.5), 42.0, "native redo did not restore the edit");
   undo->reset();
 
   TExpression shared;
@@ -304,6 +335,7 @@ int main(int argc, char **argv) {
   QCoreApplication application(argc, argv);
   try {
     dialectAndTime();
+    copiedExpressionOwners();
     nativeReferencesAndCycles();
     rewriteReferences();
     persistenceAndUndo();
