@@ -1,6 +1,7 @@
 
 
 #include "tpanels.h"
+#include "toonzqt/uitranslations.h"
 #include "alignmentpane.h"
 #include "posespane.h"
 #include "referencepanel.h"
@@ -1650,8 +1651,8 @@ public:
   TPanel *createPanel(QWidget *parent) override {
     BrushPresetPanel *panel = new BrushPresetPanel(parent);
     panel->setObjectName(getPanelType());
-    panel->setWindowTitle(QObject::tr("Brush Presets") +
-                          QObject::tr(" [WIP]"));  // Temporarily add WIP label
+    panel->setWindowTitle(UiTranslations::joined(
+        {QObject::tr("Brush Presets"), QObject::tr(" [WIP]")}));
     panel->setIsMaximizable(false);
 
     // Enable room binding feature
@@ -1680,8 +1681,8 @@ public:
   TPanel *createPanel(QWidget *parent) override {
     ToolPropertiesPanel *panel = new ToolPropertiesPanel(parent);
     panel->setObjectName(getPanelType());
-    panel->setWindowTitle(QObject::tr("Tool Properties") +
-                          QObject::tr(" [WIP]"));  // Temporarily add WIP label
+    panel->setWindowTitle(UiTranslations::joined(
+        {QObject::tr("Tool Properties"), QObject::tr(" [WIP]")}));
     panel->setIsMaximizable(false);
 
     // Enable room binding feature

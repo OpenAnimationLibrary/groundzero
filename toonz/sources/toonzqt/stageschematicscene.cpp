@@ -1,5 +1,7 @@
 
 
+#include <QAbstractItemModel>
+#include <QSignalBlocker>
 #include "toonzqt/uitranslations.h"
 #include "toonzqt/stageschematicscene.h"
 
@@ -1646,6 +1648,23 @@ void StageSchematicScene::publishChannelDialog(const TStageObjectId &id) {
     channelCombo->setItemData(channelCombo->count() - 1, layerName,
                               Qt::UserRole + 1);
   }
+  UiTranslations::onLanguageChanged(channelCombo, [channelCombo] {
+    const QSignalBlocker block(channelCombo), modelBlock(channelCombo->model());
+    for (int row = 0; row < channelCombo->count(); ++row) {
+      const int channel = channelCombo->itemData(row).toInt();
+      if (channel == int(TStageObject::T_ChannelCount)) {
+        const QString layerName = channelCombo->itemData(row, Qt::UserRole + 1).toString();
+        channelCombo->setItemText(row, layerName + "/" + tr("Weight"));
+      } else {
+        for (const auto &info : rigChannels)
+          if (int(info.m_channel) == channel) {
+            channelCombo->setItemText(row, tr(info.m_label));
+            break;
+          }
+      }
+    }
+    channelCombo->update();
+  });
   layout->addRow(tr("Channel:"), channelCombo);
 
   // The name proposed is the one of the channel, until the user edits it

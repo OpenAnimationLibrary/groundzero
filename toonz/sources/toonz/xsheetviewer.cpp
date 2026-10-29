@@ -1,6 +1,7 @@
 
 
 #include "xsheetviewer.h"
+#include "toonzqt/uitranslations.h"
 #include "sceneviewerevents.h"
 #include "tapp.h"
 #include "floatingpanelcommand.h"
@@ -245,6 +246,7 @@ XsheetViewer::XsheetViewer(QWidget *parent, Qt::WindowFlags flags)
     , m_xsheetLayout("Classic")
     , m_frameZoomFactor(100)
     , m_columnGroupDepth(0) {
+  UiTranslations::onLanguageChanged(this, [this]() { changeWindowTitle(); });
   m_xsheetLayout = Preferences::instance()->getLoadedXsheetLayout();
 
   setFocusPolicy(Qt::StrongFocus);

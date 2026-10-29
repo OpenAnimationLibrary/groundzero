@@ -785,9 +785,9 @@ QString CleanupPopup::currentString() const {
   TFilePath levelName(scannedPath.getLevelNameW());
   QString imageName = toQString(levelName.withFrame(fid));
 
-  return tr("Cleanup in progress: ") + imageName + " " +
-         QString::number(m_completion.first) + "/" +
-         QString::number(m_completion.second);
+  return UiTranslations::joined({tr("Cleanup in progress: "), imageName, " ",
+         QString::number(m_completion.first), "/",
+         QString::number(m_completion.second)});
 }
 
 //-----------------------------------------------------------------------------

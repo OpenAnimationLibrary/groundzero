@@ -7,6 +7,7 @@
 #include <QStringView>
 #endif
 #include <functional>
+#include <initializer_list>
 #include <tuple>
 #include <utility>
 class QComboBox;
@@ -30,6 +31,9 @@ DVAPI QString record(const char *context, const char *source,
                      const QString &translated);
 DVAPI Recipe recipe(const QString &text);
 DVAPI QString remember(const QString &text, Recipe translate);
+// Explicitly compose caption fragments. Provenance-bearing parts translate;
+// untracked parts (for example a user-authored name) remain frozen values.
+DVAPI QString joined(std::initializer_list<QString> parts);
 DVAPI void bind(QObject *object, const char *property, const char *context,
                 const QString &source,
                 const QString &disambiguation = QString(), int plural = -1);

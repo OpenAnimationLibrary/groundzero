@@ -6,6 +6,7 @@
 #include <QSet>
 #include <QVector>
 #include <QWidget>
+#include <functional>
 
 class QComboBox;
 class QLabel;
@@ -75,6 +76,7 @@ private:
   QVector<int> m_labels;
   QSet<int> m_protected;
   QString m_message;
+  std::function<QString()> m_messageTranslation;
   QPointF m_pan, m_press, m_last;
   double m_scale = 1.0;
   double m_wipe = 0.5;

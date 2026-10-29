@@ -1,4 +1,6 @@
-﻿#include "toonzqt/uitranslations.h"
+﻿#include <QAbstractItemModel>
+#include <QSignalBlocker>
+#include "toonzqt/uitranslations.h"
 #include "sxfio.h"
 
 #include "tapp.h"
@@ -875,6 +877,15 @@ void ExportXDTSCommand::execute() {
 
     refreshCellMarkComboItems(tick1Id);
     refreshCellMarkComboItems(tick2Id);
+    for (QComboBox *combo : {tick1Id, tick2Id}) {
+      UiTranslations::onLanguageChanged(combo, [combo] {
+        const int none = combo->findData(-1);
+        if (none < 0) return;
+        const QSignalBlocker block(combo), modelBlock(combo->model());
+        combo->setItemText(none, QObject::tr("None"));
+        combo->update();
+      });
+    }
 
     // Inbetween ticks
     tick1Id->setCurrentIndex(tick1Id->findData(6));

@@ -137,7 +137,7 @@ class BoardSettingsPopup : public DVGui::Dialog {
   QPushButton* m_exportBoardBtn;
 
   void initialize();
-  void initializeItemTypeString();  // call once on the first launch
+  void initializeItemTypeString();  // refresh native type captions
 public:
   static BoardItem* currentBoardItem;
 

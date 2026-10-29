@@ -497,7 +497,7 @@ ConvertPopup::ConvertPopup(bool specifyInput)
   ret      = ret &&
         connect(m_tlvMode, QOverload<int>::of(&QComboBox::currentIndexChanged),
                 this, [this, combo = m_tlvMode](int index) {
-                  onTlvModeSelected(combo->itemText(index));
+                  onTlvModeSelected(combo->itemData(index).toString());
                 });
   ret = ret && connect(m_fromFld, SIGNAL(editingFinished()), this,
                        SLOT(onRangeChanged()));
@@ -526,7 +526,7 @@ ConvertPopup::ConvertPopup(bool specifyInput)
   // resize the dialog
   onFormatSelected(m_fileFormat->currentText());
   // update unable/enable of checkboxes
-  onTlvModeSelected(m_tlvMode->currentText());
+  onTlvModeSelected(getTlvMode());
 
   assert(ret);
 }
@@ -547,7 +547,9 @@ QString ConvertPopup::getDestinationType() const {
 
 //-----------------------------------------------------------------------------
 
-QString ConvertPopup::getTlvMode() const { return m_tlvMode->currentText(); }
+QString ConvertPopup::getTlvMode() const {
+  return m_tlvMode->currentData().toString();
+}
 
 //-----------------------------------------------------------------------------
 
@@ -565,7 +567,8 @@ QFrame *ConvertPopup::createSvgSettings() {
 
   QStringList items;
   items << tr("Centerline") << tr("Outline");
-  m_tlvMode->addItems(items);
+  for (const QString &caption : items) m_tlvMode->addItem(caption, caption);
+  UiTranslations::watchCombo(m_tlvMode);
 
   hLayout->addStretch();
   vLayout->addLayout(hLayout);
@@ -616,7 +619,8 @@ QFrame *ConvertPopup::createTlvSettings() {
   QStringList items;
   items << TlvMode_Unpainted << TlvMode_UnpaintedFromNonAA
         << TlvMode_PaintedFromTwoImages << TlvMode_PaintedFromNonAA;
-  m_tlvMode->addItems(items);
+  for (const QString &caption : items) m_tlvMode->addItem(caption, caption);
+  UiTranslations::watchCombo(m_tlvMode);
   m_antialiasIntensity->setEnabled(false);
 
   m_appendDefaultPalette->setToolTip(
@@ -783,15 +787,15 @@ void ConvertPopup::onFormatSelected(const QString &format) {
   // m_svgFrame->setVisible(isPli);
 
   if (isTlv) {
-    bool isPainted = m_tlvMode->currentText() == TlvMode_PaintedFromTwoImages;
+    bool isPainted = getTlvMode() == TlvMode_PaintedFromTwoImages;
     m_unpaintedFolderLabel->setEnabled(isPainted);
     m_unpaintedFolder->setEnabled(isPainted);
     m_suffixLabel->setEnabled(isPainted);
     m_unpaintedSuffix->setEnabled(isPainted);
 
-    m_saveBackupToNopaint->setEnabled(m_tlvMode->currentText() ==
+    m_saveBackupToNopaint->setEnabled(getTlvMode() ==
                                       TlvMode_Unpainted);
-    m_allowOnlyWhiteBG->setEnabled(m_tlvMode->currentText() ==
+    m_allowOnlyWhiteBG->setEnabled(getTlvMode() ==
                                    TlvMode_PaintedFromNonAA);
   }
   // For unknown reasons, calling adjustSize twice is needed to
@@ -925,7 +929,7 @@ void ConvertPopup::setFormat(QString format) {
 Convert2Tlv *ConvertPopup::makeTlvConverter(const TFilePath &sourceFilePath) {
   ToonzScene *sc = TApp::instance()->getCurrentScene()->getScene();
   TFilePath unpaintedfilePath;
-  if (m_tlvMode->currentText() == TlvMode_PaintedFromTwoImages) {
+  if (getTlvMode() == TlvMode_PaintedFromTwoImages) {
     QString suffixString = m_unpaintedSuffix->text();
 
     TFilePath unpaintedFolder;
@@ -1177,7 +1181,7 @@ bool ConvertPopup::checkParameters() const {
   }
 
   if (m_fileFormat->currentText() == TlvExtension) {
-    if (m_tlvMode->currentText() == TlvMode_PaintedFromTwoImages) {
+    if (getTlvMode() == TlvMode_PaintedFromTwoImages) {
       if (m_unpaintedSuffix->text() == "") {
         DVGui::warning(tr("No unpainted suffix specified: cannot convert."));
         return false;
@@ -1236,7 +1240,7 @@ void ConvertPopup::apply() {
 
   // TODO: salvare il vecchio stato
   if (m_fileFormat->currentText() == TlvExtension &&
-      m_tlvMode->currentText() == TlvMode_PaintedFromTwoImages) {
+      getTlvMode() == TlvMode_PaintedFromTwoImages) {
     if (!m_unpaintedSuffix->text().contains('_'))
       TFilePath::setUnderscoreFormatAllowed(true);
   }
@@ -1339,7 +1343,7 @@ void ConvertPopup::onFormatChanged(const QString &ext) {
 
 void ConvertPopup::onPalettePathChanged() {
   m_removeUnusedStyles->setEnabled(
-      m_tlvMode->currentText() == TlvMode_PaintedFromNonAA &&
+      getTlvMode() == TlvMode_PaintedFromNonAA &&
       m_palettePath->getPath() != CreateNewPalette);
 }
 
@@ -1348,7 +1352,7 @@ void ConvertPopup::onPalettePathChanged() {
 bool ConvertPopup::isSaveTlvBackupToNopaintActive() {
   return m_fileFormat->currentText() ==
              TlvExtension /*-- tlvが選択されている --*/
-         && m_tlvMode->currentText() ==
+         && getTlvMode() ==
                 TlvMode_Unpainted /*-- Unpainted Tlvが選択されている --*/
          && m_saveBackupToNopaint->isChecked(); /*-- Save Backup to "nopaint"
                                                    Folder オプションが有効 --*/

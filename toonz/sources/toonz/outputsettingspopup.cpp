@@ -241,6 +241,15 @@ OutputSettingsPopup::OutputSettingsPopup(bool isPreview)
   categoryList->addItems(categories);
   categoryList->setFixedWidth(100);
   categoryList->setCurrentRow(0);
+  UiTranslations::onLanguageChanged(categoryList, [categoryList] {
+    const QSignalBlocker listSignals(categoryList);
+    const QSignalBlocker modelSignals(categoryList->model());
+    const QStringList captions{tr("Camera"), tr("Color"), tr("File"),
+                                tr("More")};
+    for (int i = 0; i < captions.size(); ++i)
+      categoryList->item(i)->setText(captions[i]);
+    categoryList->viewport()->update();
+  });
 
   m_scrollArea = new QScrollArea(this);
   m_scrollArea->setWidgetResizable(true);

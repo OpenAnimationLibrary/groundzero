@@ -45,6 +45,8 @@ The fixture checks:
 - Japanese switching through the actual Preferences language control,
   persistence in the isolated profile and translation of an existing native
   action without replacing its pointer or shortcut.
+- Live composite Xsheet captions updating while the document name, room name
+  and a custom panel caption matching a translated source remain unchanged.
 - Synthwave switching through the actual Preferences theme control, with the
   native selection, scene dirty state and undo history preserved.
 - Native Widget Inspector registration, inspecting a real palette field and

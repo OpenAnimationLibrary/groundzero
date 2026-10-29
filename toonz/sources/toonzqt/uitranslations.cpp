@@ -221,6 +221,25 @@ QString remember(const QString &text, Recipe translate) {
   return value;
 }
 
+QString joined(std::initializer_list<QString> parts) {
+  std::vector<std::pair<QString, Recipe>> pieces;
+  QString value;
+  bool translated = false;
+  for (const QString &part : parts) {
+    Recipe source = recipe(part);
+    translated |= bool(source);
+    value += part;
+    pieces.emplace_back(source ? QString() : part, std::move(source));
+  }
+  if (!translated) return value;
+  return remember(value, [pieces]() {
+    QString result;
+    for (const auto &piece : pieces)
+      result += piece.second ? piece.second() : piece.first;
+    return result;
+  });
+}
+
 void bind(QObject *object, const char *property, const char *context,
           const QString &source, const QString &disambiguation, int plural) {
   if (!object || !property) return;

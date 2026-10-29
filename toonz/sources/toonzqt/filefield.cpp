@@ -4,11 +4,13 @@
 #include "toonzqt/dvdialog.h"
 #include "toonzqt/gutil.h"
 #include "toonzqt/lineedit.h"
+#include "toonzqt/uitranslations.h"
 #include "tfilepath.h"
 
 #include <QHBoxLayout>
 #include <QPushButton>
 #include <QFileDialog>
+#include <QSignalBlocker>
 
 using namespace DVGui;
 
@@ -36,7 +38,23 @@ FileField::FileField(QWidget *parent, QString path, bool readOnly,
   m_fileBrowseButton->setObjectName("PushButton_NoPadding");
 
   // if the initial text is not path, set the string here and prevent browsing
-  if (doNotBrowseInitialPath) m_descriptionText = path;
+  if (doNotBrowseInitialPath) {
+    m_descriptionText = path;
+    m_descriptionCaption = m_field->text();
+    m_descriptionActive = true;
+    UiTranslations::onLanguageChanged(this, [this]() {
+      // This constructor explicitly identified a non-path description. Keep
+      // its semantic token stable for consumers that compare getPath(), and
+      // never update an edited/selected path or an active editable input.
+      if (!m_descriptionActive || !m_field->isReadOnly() ||
+          m_field->text().constData() != m_descriptionCaption.constData()) return;
+      if (auto translate = UiTranslations::recipe(m_descriptionText)) {
+        const QSignalBlocker blocker(m_field);
+        m_field->setText(UiTranslations::remember(translate(), translate));
+        m_descriptionCaption = m_field->text();
+      }
+    });
+  }
 
   setFocusProxy(m_field);
 
@@ -67,12 +85,24 @@ void FileField::setFilters(const QStringList &filters) { m_filters = filters; }
 
 //-----------------------------------------------------------------------------
 
-QString FileField::getPath() { return m_field->text(); }
+QString FileField::getPath() {
+  return m_descriptionActive && !m_descriptionText.isNull() &&
+                 m_field->text().constData() == m_descriptionCaption.constData()
+             ? m_descriptionText : m_field->text();
+}
 
 //-----------------------------------------------------------------------------
 
 void FileField::setPath(const QString &path) {
-  m_field->setText(path);
+  QString caption = path;
+  const bool description = !m_descriptionText.isNull() &&
+      path.constData() == m_descriptionText.constData();
+  m_descriptionActive = description;
+  if (description && m_field->isReadOnly())
+    if (auto translate = UiTranslations::recipe(m_descriptionText))
+      caption = UiTranslations::remember(translate(), translate);
+  m_field->setText(caption);
+  if (description) m_descriptionCaption = m_field->text();
   m_lastSelectedPath = path;
 }
 
@@ -97,7 +127,9 @@ void FileField::browseDirectory() {
   if (!m_browserPopupController) return;
   m_browserPopupController->openPopup(
       m_filters, (m_fileMode == QFileDialog::Directory),
-      (m_lastSelectedPath == m_descriptionText) ? "" : m_lastSelectedPath,
+      (m_descriptionActive &&
+       m_lastSelectedPath.constData() == m_descriptionText.constData())
+          ? "" : m_lastSelectedPath,
       this);
   if (m_browserPopupController->isExecute())
     directory = m_browserPopupController->getPath(m_codePath);

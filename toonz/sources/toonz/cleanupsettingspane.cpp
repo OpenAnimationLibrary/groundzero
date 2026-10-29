@@ -469,8 +469,8 @@ void CleanupSettingsPane::updateImageInfo() {
     parentWidget()->setWindowTitle(tr("Cleanup Settings (Global)"));
   else
     parentWidget()->setWindowTitle(
-        tr("Cleanup Settings: ") +
-        toQString(model->clnPath().withoutParentDir()));
+        UiTranslations::text(tr("Cleanup Settings: "))
+            .appended(toQString(model->clnPath().withoutParentDir())));
 }
 
 //-----------------------------------------------------------------------------

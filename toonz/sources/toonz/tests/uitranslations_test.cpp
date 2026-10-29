@@ -1,7 +1,9 @@
 #include "toonzqt/uitranslations.h"
+#include "toonzqt/filefield.h"
 #include <QAction>
 #include <QApplication>
 #include <QComboBox>
+#include <QEvent>
 #include <QLabel>
 #include <QLineEdit>
 #include <QPointer>
@@ -23,6 +25,15 @@ public:
     if (language && QByteArray(source) == "Shot %1")
       value = QString("Scene%1: %2").arg(language).arg("%1");
     return UiTranslations::record(context, source, comment, n, value);
+  }
+};
+class DeletePeerWindow final : public QWidget {
+public:
+  QPointer<QWidget> peer;
+protected:
+  void changeEvent(QEvent *event) override {
+    QWidget::changeEvent(event);
+    if (event->type() == QEvent::LanguageChange) delete peer.data();
   }
 };
 bool check(bool condition, const char *message) {
@@ -53,6 +64,15 @@ int main(int argc, char **argv) {
   QObject::connect(&action, &QAction::triggered, [&]() { ++triggered; });
   window.addAction(&action);
   QLabel formatted(&window);
+  QLabel joined(UiTranslations::joined({translated("Open", "First"), " / ",
+      translated("Open", "Second"), " / ", QStringLiteral("Open")}), &window);
+  const QString descriptionToken = translated("Open");
+  DVGui::FileField description(&window, descriptionToken, true, true);
+  DVGui::FileField realPath(&window, descriptionToken, true, true);
+  realPath.setPath(QStringLiteral("Open"));
+  int pathChanges = 0;
+  QObject::connect(&description, &DVGui::FileField::pathChanged,
+                   [&]() { ++pathChanges; });
   {
     QByteArray argument("kept");
     formatted.setText(UiTranslations::text(translated("Shot %1"))
@@ -102,6 +122,14 @@ int main(int argc, char **argv) {
     ok &= check(formatted.text() == (language
         ? QString("Scene%1: kept").arg(language) : QString("Shot kept")),
         "Formatted caption or owned argument failed on repeated switch");
+    ok &= check(joined.text() == (language
+        ? QString("First:%1 / Second:%1 / Open").arg(language)
+        : QString("Open / Open / Open")), "Composed caption changed user text or lost source");
+    ok &= check(description.getField()->text() == (language
+        ? QString("Fixture:%1").arg(language) : QString("Open")) &&
+        description.getPath() == descriptionToken && pathChanges == 0 &&
+        realPath.getField()->text() == "Open" && realPath.getPath() == "Open",
+        "Description changed a semantic token, path or user input");
     ok &= check(userText.text() == "Open" && editable.text() == "Open" &&
                 replaced.text() == "User caption", "User text changed");
     ok &= check(action.isChecked() && action.shortcut() == QKeySequence("Ctrl+J")
@@ -137,5 +165,9 @@ int main(int argc, char **argv) {
   catalog.language = 1;
   UiTranslations::refresh();
   ok &= check(ephemeral.isNull(), "Deleted presentation target was retained");
+  DeletePeerWindow deletePeer;
+  deletePeer.peer = new QWidget;
+  UiTranslations::refresh();
+  ok &= check(deletePeer.peer.isNull(), "LanguageChange did not dispose its peer safely");
   return ok ? 0 : 1;
 }

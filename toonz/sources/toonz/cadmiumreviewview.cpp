@@ -1,4 +1,5 @@
 #include "cadmiumreviewview.h"
+#include "toonzqt/uitranslations.h"
 
 #include <QApplication>
 #include <QAbstractItemView>
@@ -89,6 +90,7 @@ CadmiumReviewView::CadmiumReviewView(QWidget *parent) : QWidget(parent) {
 }
 
 void CadmiumReviewView::retranslateUi() {
+  if (m_messageTranslation) m_message = m_messageTranslation();
   // This is a private enum model. Updating captions must not change the mode
   // or invoke any proposal/region selection callbacks.
   const QSignalBlocker comboSignals(m_modes);
@@ -130,6 +132,7 @@ void CadmiumReviewView::setImages(const QImage &before, const QImage &after,
   m_after = after;
   m_reference = reference;
   m_message.clear();
+  m_messageTranslation = {};
   const QSize current = m_before.isNull() ? m_after.size() : m_before.size();
   if (previous != current) { m_fit = true; m_pan = QPointF(); }
   updateControls();
@@ -171,6 +174,7 @@ void CadmiumReviewView::clear(const QString &message) {
   m_labels.clear(); m_regionSize = QSize(); m_protected.clear();
   m_selected = -1;
   m_message = message;
+  m_messageTranslation = UiTranslations::recipe(message);
   m_fit = true; m_pan = QPointF();
   m_pressed = m_panning = m_wiping = m_space = false;
   updateControls();

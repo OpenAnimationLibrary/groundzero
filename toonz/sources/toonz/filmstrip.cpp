@@ -1,3 +1,5 @@
+#include <QAbstractItemModel>
+#include <QSignalBlocker>
 #include "toonzqt/uitranslations.h"
 #include "cadmiumsource.h"
 
@@ -2109,7 +2111,7 @@ void FilmstripFrames::inbetween() {
 
   QSettings settings;
   QString keyName("InbetweenInterpolation");
-  QString currentItem = settings.value(keyName, tr("Linear")).toString();
+  QString currentItem = settings.value(keyName, QStringLiteral("Linear")).toString();
   int index;
 
   // stroke pairs set with the Pair Strokes for Inbetween command, if any
@@ -2186,6 +2188,13 @@ Filmstrip::Filmstrip(QWidget *parent, Qt::WindowFlags flags) : QWidget(parent) {
 
   m_frameArea        = new QScrollArea(this);
   m_chooseLevelCombo = new QComboBox(this);
+  UiTranslations::onLanguageChanged(m_chooseLevelCombo, [this] {
+    const int noLevel = m_chooseLevelCombo->findData(-1);
+    if (noLevel < 0) return;
+    const QSignalBlocker block(m_chooseLevelCombo), modelBlock(m_chooseLevelCombo->model());
+    m_chooseLevelCombo->setItemText(noLevel, tr("- No Current Level -"));
+    m_chooseLevelCombo->update();
+  });
   m_frames           = new FilmstripFrames(m_frameArea);
 
   //----
@@ -2246,7 +2255,7 @@ void Filmstrip::onChooseLevelComboChanged(int index) {
   m_frames->setSynchronized(false);
 
   TApp *tapp = TApp::instance();
-  int noLevelIndex = m_chooseLevelCombo->findText(tr("- No Current Level -"));
+  int noLevelIndex = m_chooseLevelCombo->findData(-1);
 
   if (index == noLevelIndex) {
     makeActive();
@@ -2393,7 +2402,7 @@ void Filmstrip::updateChooseLevelComboItems() {
   }
 
   if (m_chooseLevelCombo->count() == 0)
-    m_chooseLevelCombo->addItem(tr("- No Current Level -"));
+    m_chooseLevelCombo->addItem(tr("- No Current Level -"), -1);
 
   // swap the list
   m_workingFrames.clear();
@@ -2420,17 +2429,17 @@ void Filmstrip::updateChooseLevelComboItems() {
  */
 void Filmstrip::updateCurrentLevelComboItem() {
   if (m_chooseLevelCombo->count() == 1 &&
-      m_chooseLevelCombo->itemText(0) == tr("- No Current Level -")) {
+      m_chooseLevelCombo->itemData(0) == QVariant(-1)) {
     m_chooseLevelCombo->setCurrentIndex(0);
     return;
   }
 
   TXshSimpleLevel *currentLevel = m_frames->getLevel();
   if (!currentLevel) {
-    int noLevelIndex = m_chooseLevelCombo->findText(tr("- No Current Level -"));
+    int noLevelIndex = m_chooseLevelCombo->findData(-1);
     if (noLevelIndex == -1) {
       noLevelIndex = m_chooseLevelCombo->count();
-      m_chooseLevelCombo->addItem(tr("- No Current Level -"));
+      m_chooseLevelCombo->addItem(tr("- No Current Level -"), -1);
     }
     m_chooseLevelCombo->setCurrentIndex(noLevelIndex);
     return;
@@ -2440,16 +2449,16 @@ void Filmstrip::updateCurrentLevelComboItem() {
     if (currentLevel == m_levels[i]) {
       m_chooseLevelCombo->setCurrentIndex(i);
       int noLevelIndex =
-          m_chooseLevelCombo->findText(tr("- No Current Level -"));
+          m_chooseLevelCombo->findData(-1);
       if (noLevelIndex != -1) m_chooseLevelCombo->removeItem(noLevelIndex);
       return;
     }
   }
 
-  int noLevelIndex = m_chooseLevelCombo->findText(tr("- No Current Level -"));
+  int noLevelIndex = m_chooseLevelCombo->findData(-1);
   if (noLevelIndex == -1) {
     noLevelIndex = m_chooseLevelCombo->count();
-    m_chooseLevelCombo->addItem(tr("- No Current Level -"));
+    m_chooseLevelCombo->addItem(tr("- No Current Level -"), -1);
   }
   m_chooseLevelCombo->setCurrentIndex(noLevelIndex);
 }
@@ -2598,7 +2607,8 @@ void Filmstrip::updateWindowTitle() {
   if (level->getProperties()->getDirtyFlag()) levelName += " *";
 
   // parentWidget() is TPanel
-  parentWidget()->setWindowTitle(tr("Level:  ") + levelName);
+  parentWidget()->setWindowTitle(
+      UiTranslations::text(tr("Level:  ")).appended(levelName));
 
   TFrameId workingFid;
   TFrameHandle *fh = TApp::instance()->getCurrentFrame();
@@ -2801,7 +2811,10 @@ InbetweenDialog::InbetweenDialog(QWidget *parent)
 
   beginHLayout();
   m_comboBox = new QComboBox(this);
-  m_comboBox->addItems(items);
+  const QStringList keys = {"Linear", "Ease In", "Ease Out", "Ease In / Ease Out", "Custom"};
+  for (int index = 0; index < items.size(); ++index)
+    m_comboBox->addItem(items[index], keys[index]);
+  UiTranslations::watchCombo(m_comboBox);
   addWidget(tr("Interpolation:"), m_comboBox);
   endHLayout();
 
@@ -2875,12 +2888,13 @@ InbetweenDialog::InbetweenDialog(QWidget *parent)
 
 //-----------------------------------------------------------------------------
 
-QString InbetweenDialog::getValue() { return m_comboBox->currentText(); }
+QString InbetweenDialog::getValue() { return m_comboBox->currentData().toString(); }
 
 //-----------------------------------------------------------------------------
 
 void InbetweenDialog::setValue(const QString &value) {
-  int currentIndex = m_comboBox->findText(value);
+  int currentIndex = m_comboBox->findData(value);
+  if (currentIndex < 0) currentIndex = m_comboBox->findText(value);
   if (currentIndex < 0) currentIndex = 0;
   m_comboBox->setCurrentIndex(currentIndex);
 }
@@ -2888,7 +2902,8 @@ void InbetweenDialog::setValue(const QString &value) {
 //-----------------------------------------------------------------------------
 
 int InbetweenDialog::getIndex(const QString &text) {
-  return m_comboBox->findText(text);
+  const int index = m_comboBox->findData(text);
+  return index >= 0 ? index : m_comboBox->findText(text);
 }
 
 //-----------------------------------------------------------------------------

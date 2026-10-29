@@ -847,8 +847,8 @@ MyScannerListener::MyScannerListener(const ScanList &scanList, int adHocRow,
     TFilePath levelName(newXl->getName());
     QString imageName =
         toQString(levelName.withFrame(frame.getFrameId())) + QString(".tif");
-    QString text = tr("Scanning in progress: ") + imageName + " 1/" +
-                   QString::number(frameCount);
+    QString text = UiTranslations::joined({tr("Scanning in progress: "), imageName,
+                                          " 1/", QString::number(frameCount)});
     m_progressDialog =
         new DVGui::ProgressDialog(text, QObject::tr("Cancel"), 0, frameCount);
     connect(m_progressDialog, SIGNAL(canceled()), this,
@@ -967,9 +967,9 @@ void MyScannerListener::onAutomaticallyNextPaper() {
     TFilePath levelName(newXl->getName());
     QString imageName =
         toQString(levelName.withFrame(frame.getFrameId())) + QString(".tif");
-    m_progressDialog->setLabelText(tr("Scanning in progress: ") + imageName +
-                                   QString::number(m_current + 1) + " /" +
-                                   QString::number(frameCount));
+    m_progressDialog->setLabelText(UiTranslations::joined({
+        tr("Scanning in progress: "), imageName, QString::number(m_current + 1),
+        " /", QString::number(frameCount)}));
   }
   m_progressDialog->setValue(step);
   if (m_progressDialog && (step == frameCount)) m_progressDialog->hide();

@@ -3038,6 +3038,7 @@ StyleEditor::StyleEditor(PaletteController *paletteController, QWidget *parent)
   setRootPath(libraryPath);
 
   m_styleBar = new DVGui::TabBar(this);
+  UiTranslations::watchTabBar(m_styleBar);
   m_styleBar->setDrawBase(false);
   m_styleBar->setObjectName("StyleEditorTabBar");
 

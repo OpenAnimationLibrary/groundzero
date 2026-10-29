@@ -1,6 +1,7 @@
 
 
 #include "toonzqt/hexcolornames.h"
+#include "toonzqt/uitranslations.h"
 
 // TnzLib includes
 #include "toonz/toonzfolders.h"
@@ -519,6 +520,7 @@ HexColorNamesEditor::HexColorNamesEditor(QWidget *parent)
 
   // Tabs
   QTabWidget *tab = new QTabWidget();
+  UiTranslations::watchTabBar(tab->tabBar());
   tab->addTab(userTab, tr("User Defined Colors"));
   tab->addTab(mainTab, tr("Default Main Colors"));
   tab->setObjectName("hexTabWidget");

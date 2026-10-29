@@ -106,6 +106,11 @@ QString getShortcut(const char *id) {
   return QString::fromStdString(
       CommandManager::instance()->getShortcutFromId(id));
 }
+
+QString currentCaption(const QString &stored) {
+  const auto translate = UiTranslations::recipe(stored);
+  return translate ? UiTranslations::remember(translate(), translate) : stored;
+}
 }  // namespace
 
 //-----------------------------------------------------------------------------
@@ -1227,7 +1232,8 @@ void FlipBook::setLevel(const TFilePath &fp, TPalette *palette, int from,
                     .arg(QString::number(to))
                     .arg(QString::number(step));
       if (shrink > 1)
-        m_title = m_title + tr("  ::  Shrink ") + QString::number(shrink);
+        m_title = UiTranslations::joined(
+            {m_title, tr("  ::  Shrink "), QString::number(shrink)});
     }
 
     // parentWidget()->setWindowTitle(m_title);
@@ -1243,10 +1249,18 @@ void FlipBook::setLevel(const TFilePath &fp, TPalette *palette, int from,
 
 //-----------------------------------------------------------------------------
 
+QString FlipBook::getTitle() const { return currentCaption(m_viewerTitle); }
+
+QString FlipBook::getLevelZoomTitle() const {
+  return UiTranslations::joined(
+      {currentCaption(m_title1), currentCaption(m_title)});
+}
+
 void FlipBook::setTitle(const QString &title) {
   m_viewerTitle = title;
   if (!m_previewedFx && !m_levelNames.empty())
-    m_title = m_viewerTitle + "  ::  " + m_levelNames[0];
+    m_title = UiTranslations::joined(
+        {m_viewerTitle, QStringLiteral("  ::  "), m_levelNames[0]});
   else
     m_title = m_viewerTitle;
 }
@@ -1278,21 +1292,25 @@ void FlipBook::setLevel(TXshSimpleLevel *xl) {
 
     const LevelProperties *p = m_xl->getProperties();
 
-    m_title = m_viewerTitle + "  ::  " + m_levelNames[0];
+    m_title = UiTranslations::joined(
+        {m_viewerTitle, QStringLiteral("  ::  "), m_levelNames[0]});
 
     if (m_framesCount == 1)
-      m_title = m_title + "  ::  1 Frame";
+      m_title = UiTranslations::text(m_title).appended("  ::  1 Frame");
     else
-      m_title = m_title + "  ::  " + QString::number(m_framesCount) + " Frames";
+      m_title = UiTranslations::text(m_title).appended(
+          "  ::  " + QString::number(m_framesCount) + " Frames");
 
     if (p) m_dim = p->getImageRes();
 
     if (p)
-      m_title = m_title + "  ::  " + QString::number(p->getImageRes().lx) +
-                "x" + QString::number(p->getImageRes().ly) + " Pixels";
+      m_title = UiTranslations::text(m_title).appended(
+          "  ::  " + QString::number(p->getImageRes().lx) + "x" +
+          QString::number(p->getImageRes().ly) + " Pixels");
 
     if (m_shrink > 1)
-      m_title = m_title + "  ::  " + "Shrink: " + QString::number(m_shrink);
+      m_title = UiTranslations::text(m_title).appended(
+          "  ::  Shrink: " + QString::number(m_shrink));
 
     m_imageViewer->setHistogramEnable(true);
     m_imageViewer->setHistogramTitle(m_levelNames[0]);
@@ -1560,9 +1578,13 @@ TImageP FlipBook::getCurrentImage(int frame) {
          ((m_isPreviewFx) ? "" : ::to_string(this));
 
     if (!m_isPreviewFx) {
-      m_title1 = m_viewerTitle + " :: " + fp.withoutParentDir().withFrame(fid);
+      m_title1 = UiTranslations::joined(
+          {m_viewerTitle, QStringLiteral(" :: "),
+           fp.withoutParentDir().withFrame(fid).getQString()});
       if (fp.getType() == "exr")
-        m_title1 += " :: " + UiTranslations::text(tr("Gamma : %1")).arg(colorSpaceGamma);
+        m_title1 = UiTranslations::joined(
+            {m_title1, QStringLiteral(" :: "),
+             UiTranslations::text(tr("Gamma : %1")).arg(colorSpaceGamma)});
     } else
       m_title1 = "";
   } else if (m_levelNames.empty())

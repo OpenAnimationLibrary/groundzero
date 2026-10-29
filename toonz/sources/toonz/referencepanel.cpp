@@ -1,3 +1,5 @@
+#include <QAbstractItemModel>
+#include <QSignalBlocker>
 #include "toonzqt/uitranslations.h"
 #include "referencepanel.h"
 
@@ -393,6 +395,13 @@ ReferencePanel::ReferencePanel(QWidget *parent)
   removeButton->setAutoRaise(true);
 
   m_layerCombo = new QComboBox(this);
+  UiTranslations::onLanguageChanged(m_layerCombo, [this] {
+    const int flattened = m_layerCombo->findData(0);
+    if (flattened < 0) return;
+    const QSignalBlocker block(m_layerCombo), modelBlock(m_layerCombo->model());
+    m_layerCombo->setItemText(flattened, tr("Flattened image"));
+    m_layerCombo->update();
+  });
   m_layerCombo->setSizeAdjustPolicy(c_comboSizePolicy);
   m_layerCombo->setMinimumContentsLength(8);
   m_layerCombo->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);

@@ -1,6 +1,7 @@
 
 
 #include "toonzqt/fxsettings.h"
+#include "toonzqt/uitranslations.h"
 #include "toonzqt/gutil.h"
 #include "toonzqt/keyframenavigator.h"
 #include "toonzqt/dvdialog.h"
@@ -1997,8 +1998,8 @@ void FxSettings::changeTitleBar(TFx *fx) {
 
   QString titleText(tr("Fx Settings"));
   if (fx) {
-    titleText += tr(" : ");
-    titleText += QString::fromStdWString(fx->getName());
+    titleText = UiTranslations::joined(
+        {titleText, tr(" : "), QString::fromStdWString(fx->getName())});
   }
 
   popup->setWindowTitle(titleText);

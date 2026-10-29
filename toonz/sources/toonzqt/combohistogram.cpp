@@ -485,6 +485,7 @@ ComboHistogram::ComboHistogram(QWidget *parent)
   m_yPosLabel = new QLabel("", this);
 
   m_displayModeCombo = new QComboBox(this);
+  UiTranslations::watchCombo(m_displayModeCombo);
 
   m_rangeControlContainer = new QWidget(this);
   m_rangeUpBtn            = new QPushButton("", this);

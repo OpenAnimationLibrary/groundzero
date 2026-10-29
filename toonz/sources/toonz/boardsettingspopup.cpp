@@ -49,6 +49,8 @@
 #include <QPixmap>
 #include <QImageReader>
 #include <QMouseEvent>
+#include <QSignalBlocker>
+#include <QAbstractItemModel>
 
 BoardItem* BoardSettingsPopup::currentBoardItem = nullptr;
 
@@ -61,6 +63,8 @@ void setCurrentBoardItem(BoardItem* item) {
 }
 
 void editListWidgetItem(QListWidgetItem* listItem, BoardItem* item) {
+  listItem->setData(Qt::UserRole, item->getName());
+  listItem->setData(Qt::UserRole + 1, int(item->getType()));
   QString itemText = item->getName() + "\n(" +
                      stringByItemType.value(item->getType(), "Unknown type") +
                      ")";
@@ -691,6 +695,19 @@ ItemListView::ItemListView(QWidget* parent) : QWidget(parent) {
       new QPushButton(createQIcon("fb_down"), tr("Move Down"), this);
 
   m_list = new QListWidget(this);
+  UiTranslations::onLanguageChanged(m_list, [this] {
+    // Refresh only generated type captions. Preserve user names, selection,
+    // pending editor values and the scene's board data.
+    const QSignalBlocker listBlock(m_list), modelBlock(m_list->model());
+    for (int row = 0; row < m_list->count(); ++row) {
+      auto *item = m_list->item(row);
+      if (!item->data(Qt::UserRole + 1).isValid()) continue;
+      const auto type = BoardItem::Type(item->data(Qt::UserRole + 1).toInt());
+      item->setText(item->data(Qt::UserRole).toString() + "\n(" +
+                    stringByItemType.value(type, "Unknown type") + ")");
+    }
+    m_list->viewport()->update();
+  });
 
   QSize iconSize(16, 16);
 
@@ -873,6 +890,7 @@ BoardSettingsPopup::BoardSettingsPopup(QWidget* parent)
   setWindowTitle(tr("Clapperboard Settings"));
 
   initializeItemTypeString();
+  UiTranslations::onLanguageChanged(this, [this] { initializeItemTypeString(); });
 
   m_boardView    = new BoardView(this);
   m_itemInfoView = new ItemInfoView(this);
@@ -981,8 +999,6 @@ void BoardSettingsPopup::initialize() {
 }
 
 void BoardSettingsPopup::initializeItemTypeString() {
-  if (!stringByItemType.isEmpty()) return;
-
   stringByItemType[BoardItem::FreeText]    = tr("Text");  // free text (m_text)
   stringByItemType[BoardItem::ProjectName] = tr("Project name");
   stringByItemType[BoardItem::SceneName]   = tr("Scene name");

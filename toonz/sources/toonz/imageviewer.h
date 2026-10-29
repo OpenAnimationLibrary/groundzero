@@ -179,6 +179,7 @@ public slots:
   void onPreferenceChanged(const QString &prefName);
 
 private:
+  void updateWindowTitle();
   QPointF m_firstPanPoint;
 };
 

@@ -3,6 +3,7 @@
 #include "columnselection.h"
 #include "commandpalette.h"
 #include "languagemanager.h"
+#include "mainwindow.h"
 #include "menubarcommandids.h"
 #include "pane.h"
 #include "tapp.h"
@@ -43,6 +44,7 @@
 #include <QTreeWidget>
 
 #include <iostream>
+#include <memory>
 
 namespace {
 QString testRoot;
@@ -193,6 +195,7 @@ void exerciseNativeUi(QMainWindow *window) {
   require(viewer, "native Xsheet viewer is missing");
   viewer->setFocus(Qt::OtherFocusReason);
   settle();
+  scene->setSceneName(L"NativeUiFixtureScene");
   auto *level = scene->createNewLevel(PLI_XSHLEVEL, L"NativeUiFixture")
                     ->getSimpleLevel();
   require(level, "disposable vector level was not created");
@@ -265,6 +268,17 @@ void exerciseNativeUi(QMainWindow *window) {
   choose(language, "English");
   QPointer<QAction> preferencesAction = nativeAction(MI_Preferences);
   const QString englishText = preferencesAction->text();
+  viewer->changeWindowTitle();
+  const QString englishXsheetTitle = viewer->parentWidget()->windowTitle();
+  require(englishXsheetTitle.contains("NativeUiFixtureScene"),
+          "native Xsheet title did not include the document name");
+  auto *room = dynamic_cast<Room *>(app->getCurrentRoom());
+  require(room, "native room type is missing");
+  const QString roomName = room->getName();
+  std::unique_ptr<TPanel> customTitlePanel(new TPanel(room));
+  // Deliberately matches an existing translated caption but has no UI source
+  // identity: a custom caption must never be translated by its spelling.
+  customTitlePanel->setWindowTitle(QString::fromUtf8("Schematic"));
   const QKeySequence shortcut = preferencesAction->shortcut();
   const int historyCount = undo->getHistoryCount();
   const int historyIndex = undo->getCurrentHistoryIndex();
@@ -285,6 +299,12 @@ void exerciseNativeUi(QMainWindow *window) {
               preferencesAction->text() != englishText &&
               preferencesAction->shortcut() == shortcut,
           "live native action translation failed or replaced its identity");
+  require(viewer->parentWidget()->windowTitle() != englishXsheetTitle &&
+              viewer->parentWidget()->windowTitle().contains("NativeUiFixtureScene") &&
+              scene->getSceneName() == L"NativeUiFixtureScene" &&
+              room->getName() == roomName &&
+              customTitlePanel->windowTitle() == "Schematic",
+          "live native panel title failed or changed a document, room or custom name");
   selectionUnchanged();
   choose(theme, "Synthwave");
   require(NativeTheme::instance().currentTheme() == "Synthwave" &&

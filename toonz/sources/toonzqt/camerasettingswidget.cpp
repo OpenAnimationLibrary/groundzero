@@ -1,5 +1,7 @@
 
 
+#include <QAbstractItemModel>
+#include <QSignalBlocker>
 #include "toonzqt/uitranslations.h"
 #include "toonzqt/camerasettingswidget.h"
 
@@ -211,6 +213,13 @@ CameraSettingsWidget::CameraSettingsWidget(bool forCleanup)
   m_useLevelSettingsBtn = new QPushButton(tr("Use Current Level Settings"));
 
   m_presetListOm    = new QComboBox();
+  UiTranslations::onLanguageChanged(m_presetListOm, [this] {
+    const int custom = m_presetListOm->findData(-1);
+    if (custom < 0) return;
+    const QSignalBlocker block(m_presetListOm), modelBlock(m_presetListOm->model());
+    m_presetListOm->setItemText(custom, tr("<custom>"));
+    m_presetListOm->update();
+  });
   m_addPresetBtn    = new QPushButton(tr("Add"));
   m_removePresetBtn = new QPushButton(tr("Remove"));
 
@@ -418,7 +427,7 @@ void CameraSettingsWidget::showEvent(QShowEvent *e) {
 void CameraSettingsWidget::loadPresetList() {
   if (m_presetListFile.isEmpty()) return;
   m_presetListOm->clear();
-  m_presetListOm->addItem(tr("<custom>"));
+  m_presetListOm->addItem(tr("<custom>"), -1);
 
   QFile file(m_presetListFile);
   if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {

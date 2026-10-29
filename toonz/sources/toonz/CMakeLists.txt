@@ -1048,6 +1048,7 @@ if(TARGET ui_qt_catalogs)
 endif()
 if(BUILD_CADMIUM_TESTS)
     target_link_libraries(cadmium_settings_test PRIVATE toonzqt)
+    target_link_libraries(cadmium_reviewview_test PRIVATE toonzqt)
     target_link_libraries(cadmium_pipeline_test PRIVATE toonzqt)
 endif()
 

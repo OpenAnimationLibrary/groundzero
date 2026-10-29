@@ -1,4 +1,5 @@
 #include "cadmiumreviewview.h"
+#include "toonzqt/uitranslations.h"
 
 #include <QApplication>
 #include <QComboBox>
@@ -24,6 +25,9 @@ public:
     if (QByteArray(context) == "CadmiumReviewView" &&
         QByteArray(source) == "Wipe")
       return QStringLiteral("Translated wipe");
+    if (QByteArray(context) == "CadmiumReviewViewTest" &&
+        QByteArray(source) == "No proposal selected")
+      return QStringLiteral("Translated empty review message");
     return QString();
   }
 };
@@ -33,6 +37,15 @@ QColor pixel(CadmiumReviewView &view, const QPointF &point, int pane = 0) {
   image.fill(Qt::transparent);
   view.render(&image);
   return image.pixelColor(view.viewportPointForImage(point, pane));
+}
+
+QImage canvasImage(CadmiumReviewView &view) {
+  QWidget *canvas = view.findChild<QWidget *>("cadmiumReviewCanvas");
+  require(canvas, "review canvas is missing");
+  QImage image(canvas->size(), QImage::Format_ARGB32);
+  image.fill(Qt::transparent);
+  canvas->render(&image);
+  return image;
 }
 
 void mouse(CadmiumReviewView &view, QEvent::Type type, const QPoint &point,
@@ -198,6 +211,36 @@ int main(int argc, char **argv) {
     require(modes->currentText() == "Wipe" && languageModeChanges == 0 &&
                 view.pan() == QPointF(13.0, -9.0),
             "returning to the original language changed review state");
+
+    const QString message = UiTranslations::record(
+        "CadmiumReviewViewTest", "No proposal selected", nullptr, -1,
+        QStringLiteral("No proposal selected"));
+    view.clear(message);
+    view.setZoom(7.0);
+    view.setPan(QPointF(17.0, 23.0));
+    const QImage sourceMessage = canvasImage(view);
+    app.installTranslator(&translator);
+    app.processEvents();
+    require(canvasImage(view) != sourceMessage && view.zoom() == 7.0 &&
+                view.pan() == QPointF(17.0, 23.0) &&
+                view.mode() == CadmiumReviewView::Mode::Wipe &&
+                view.wipePosition() == 0.4 && view.overlayOpacity() == 0.6 &&
+                languageModeChanges == 0,
+            "cached empty-state message did not translate in place");
+    app.removeTranslator(&translator);
+    app.processEvents();
+    require(canvasImage(view) == sourceMessage &&
+                view.pan() == QPointF(17.0, 23.0),
+            "cached empty-state message did not restore its source language");
+
+    view.clear(QStringLiteral("No proposal selected"));
+    const QImage unboundMessage = canvasImage(view);
+    app.installTranslator(&translator);
+    app.processEvents();
+    require(canvasImage(view) == unboundMessage,
+            "equal unbound message was mistaken for a native caption");
+    app.removeTranslator(&translator);
+    app.processEvents();
     std::cout << "Cadmium interactive review checks passed\n";
     return 0;
   } catch (const std::exception &error) {

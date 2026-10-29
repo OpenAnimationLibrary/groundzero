@@ -1,4 +1,6 @@
 
+#include <QAbstractItemModel>
+#include <QSignalBlocker>
 #include "toonzqt/uitranslations.h"
 #include "exportxsheetpdf.h"
 
@@ -1899,6 +1901,14 @@ ExportXsheetPdfPopup::ExportXsheetPdfPopup()
       new QCheckBox(tr("Print Level Names On The Bottom"), this);
   m_drawDialogueCB   = new QCheckBox(tr("Print Dialogue"), this);
   m_dialogueColCombo = new QComboBox();
+  UiTranslations::onLanguageChanged(m_dialogueColCombo, [this] {
+    const QSignalBlocker block(m_dialogueColCombo), modelBlock(m_dialogueColCombo->model());
+    for (int row = 0; row < m_dialogueColCombo->count(); ++row) {
+      const int column = m_dialogueColCombo->itemData(row).toInt();
+      m_dialogueColCombo->setItemText(row, UiTranslations::text(tr("Col%1")).arg(column + 1));
+    }
+    m_dialogueColCombo->update();
+  });
   m_sceneNameEdit    = new QLineEdit(this);
   m_memoEdit         = new QTextEdit(this);
 
@@ -1924,6 +1934,15 @@ ExportXsheetPdfPopup::ExportXsheetPdfPopup()
   refreshCellMarkComboItems(m_tick1IdCombo);
   refreshCellMarkComboItems(m_tick2IdCombo);
   refreshCellMarkComboItems(m_keyIdCombo);
+  for (QComboBox *combo : {m_tick1IdCombo, m_tick2IdCombo, m_keyIdCombo}) {
+    UiTranslations::onLanguageChanged(combo, [combo] {
+      const int none = combo->findData(-1);
+      if (none < 0) return;
+      const QSignalBlocker block(combo), modelBlock(combo->model());
+      combo->setItemText(none, QObject::tr("None", "XSheetPDF CellMark"));
+      combo->update();
+    });
+  }
   m_tick1MarkCombo = createTickMarkCombo(this);
   m_tick2MarkCombo = createTickMarkCombo(this);
 
@@ -2226,6 +2245,20 @@ ExportXsheetPdfPopup::~ExportXsheetPdfPopup() {
 }
 
 void ExportXsheetPdfPopup::loadPresetItems() {
+  // Only bundled template captions have native translation identities.
+  // Custom preset labels remain exactly as configured by the user.
+  auto watchNativeCaption = [this](int index) {
+    auto translate = UiTranslations::recipe(m_templateCombo->itemText(index));
+    if (!translate) return;
+    const QVariant identity = m_templateCombo->itemData(index);
+    UiTranslations::onLanguageChanged(m_templateCombo,
+        [combo = m_templateCombo, index, identity, translate] {
+      if (index >= combo->count() || combo->itemData(index) != identity) return;
+      const QSignalBlocker block(combo), modelBlock(combo->model());
+      combo->setItemText(index, UiTranslations::remember(translate(), translate));
+      combo->update();
+    });
+  };
   // check in the preset folder
   TFilePath presetFolderPath =
       ToonzFolder::getLibraryFolder() + "xsheetpdfpresets";
@@ -2248,10 +2281,19 @@ void ExportXsheetPdfPopup::loadPresetItems() {
     QString labelStr =
         s.value("Label", QString::fromStdString(fp.getName())).toString();
     m_templateCombo->addItem(tr(labelStr.toLocal8Bit()), fp.getQString());
+    QString nativeLabel;
+    const std::string name = fp.getName();
+    if (name == "b4_6sec") nativeLabel = "B4 size, 6 seconds sheet";
+    else if (name == "b4_3sec") nativeLabel = "B4 size, 3 seconds sheet";
+    else if (name == "a3_6sec") nativeLabel = "A3 size, 6 seconds sheet";
+    if (!nativeLabel.isEmpty() && labelStr == nativeLabel)
+      watchNativeCaption(m_templateCombo->count() - 1);
   }
 
-  if (m_templateCombo->count() == 0)
+  if (m_templateCombo->count() == 0) {
     m_templateCombo->addItem(tr("B4 size, 6 seconds sheet"), "");
+    watchNativeCaption(0);
+  }
 }
 
 void ExportXsheetPdfPopup::initialize() {

@@ -1,5 +1,7 @@
 
 
+#include "toonzqt/uitranslations.h"
+
 // TnzCore includes
 #include "tconvert.h"
 #include "tgeometry.h"
@@ -105,6 +107,7 @@ TAffine zoomPanOnly(const TAffine &aff) {
 BaseViewerPanel::BaseViewerPanel(QWidget *parent, Qt::WindowFlags flags)
     : QFrame(parent) {
   TApp *app = TApp::instance();
+  UiTranslations::onLanguageChanged(this, [this]() { changeWindowTitle(); });
 
   setFrameStyle(QFrame::StyledPanel);
 

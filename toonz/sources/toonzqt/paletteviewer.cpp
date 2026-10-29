@@ -1,6 +1,7 @@
 
 
 #include "toonzqt/paletteviewer.h"
+#include "toonzqt/uitranslations.h"
 
 // TnzQt includes
 #include "toonzqt/gutil.h"
@@ -202,6 +203,7 @@ PaletteViewer::PaletteViewer(QWidget *parent, PaletteViewType viewType,
           &PaletteViewer::onSwitchToPage);
 
   changeWindowTitle();
+  UiTranslations::onLanguageChanged(this, [this]() { changeWindowTitle(); });
 
   setAcceptDrops(true);
 

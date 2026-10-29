@@ -1,5 +1,7 @@
 
 
+#include <QAbstractItemModel>
+#include <QSignalBlocker>
 #include "toonzqt/uitranslations.h"
 #include "penciltestpopup.h"
 
@@ -1679,6 +1681,14 @@ PencilTestPopup::PencilTestPopup()
   m_videoWidget = new MyVideoWidget(this);
 
   m_cameraListCombo                 = new QComboBox(this);
+  UiTranslations::onLanguageChanged(m_cameraListCombo, [this] {
+    const QSignalBlocker block(m_cameraListCombo), modelBlock(m_cameraListCombo->model());
+    const int missing = m_cameraListCombo->findData(-1);
+    const int select = m_cameraListCombo->findData(-2);
+    if (missing >= 0) m_cameraListCombo->setItemText(missing, tr("No camera found"));
+    if (select >= 0) m_cameraListCombo->setItemText(select, tr("- Select camera -"));
+    m_cameraListCombo->update();
+  });
   QPushButton* refreshCamListButton = new QPushButton(tr("Refresh"), this);
   m_resolutionCombo                 = new QComboBox(this);
 
@@ -2303,14 +2313,14 @@ void PencilTestPopup::refreshCameraList() {
 
   QList<TCameraInfo> cameras = availableCameras();
   if (cameras.empty()) {
-    m_cameraListCombo->addItem(tr("No camera found"));
+    m_cameraListCombo->addItem(tr("No camera found"), -1);
     m_cameraListCombo->setMaximumWidth(250);
     m_cameraListCombo->setDisabled(true);
   }
 
   int maxTextLength = 0;
   // Add non-connected state as default
-  m_cameraListCombo->addItem(tr("- Select camera -"));
+  m_cameraListCombo->addItem(tr("- Select camera -"), -2);
   for (int c = 0; c < cameras.size(); c++) {
     QString camDesc = cameras.at(c).description();
     m_cameraListCombo->addItem(camDesc);

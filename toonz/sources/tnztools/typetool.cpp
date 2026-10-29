@@ -1,7 +1,7 @@
 
 
-//#include "toonzqt/uitranslations.h"
-#include "tw/mainshell.h"
+#include "toonzqt/uitranslations.h"
+//#include "tw/mainshell.h"
 
 #include "tools/tool.h"
 #include "tools/toolutils.h"
@@ -1093,6 +1093,7 @@ public:
     previewArea->setWidgetResizable(false);
     m_textTabs->addTab(m_editor, tr("Source"));
     m_textTabs->addTab(previewArea, tr("Preview"));
+    UiTranslations::watchTabBar(m_textTabs->tabBar());
     setEditorEntry(m_history.draft(), false);
 
     QVBoxLayout *layout = new QVBoxLayout;

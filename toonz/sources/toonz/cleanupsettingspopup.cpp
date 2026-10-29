@@ -532,6 +532,7 @@ CleanupSettings::CleanupSettings(QWidget *parent)
   //  Tabs Bar
 
   DVGui::TabBar *tabBar = new DVGui::TabBar(this);
+  UiTranslations::watchTabBar(tabBar);
   hLayout->addWidget(tabBar);
 
   tabBar->addSimpleTab(tr("Cleanup"));

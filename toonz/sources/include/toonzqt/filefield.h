@@ -55,6 +55,8 @@ class DVAPI FileField : public QWidget {
   QString m_windowTitle;
   QString m_descriptionText;  // if the initial text is not path, set the string
                               // here and prevent browsing
+  QString m_descriptionCaption;  // Presentation identity; the token stays stable.
+  bool m_descriptionActive = false;
   bool m_codePath;
 
 protected:  // used in the child class for CleanupSettings

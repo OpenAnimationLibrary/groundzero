@@ -1,5 +1,7 @@
 
 
+#include <QAbstractItemModel>
+#include <QSignalBlocker>
 #include "toonzqt/uitranslations.h"
 #include "xdtsimportpopup.h"
 
@@ -187,6 +189,13 @@ XDTSImportPopup::XDTSImportPopup(QStringList levelNames, ToonzScene* scene,
 
   for (auto comboBox : comboBoxes) {
     comboBox->addItem(tr("None"), -1);
+    UiTranslations::onLanguageChanged(comboBox, [comboBox] {
+      const int none = comboBox->findData(-1);
+      if (none < 0) return;
+      const QSignalBlocker block(comboBox), modelBlock(comboBox->model());
+      comboBox->setItemText(none, tr("None"));
+      comboBox->update();
+    });
     int currentId = 0;
 
     for (const auto& mark : cellMarks) {
