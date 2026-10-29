@@ -29,6 +29,8 @@
     STD_iwa_FlowBlurFx
   </Blur>
   <Distort>
+    STD_celBoilFx
+    STD_flowDisplaceFx
     STD_freeDistortFx
     STD_deformerStackFx
     STD_curveDeformerFx
@@ -102,6 +104,7 @@
     multFx
     overFx
     STD_premultiplyFx   
+    STD_unmultiplyFx
     screenFx 
     subFx
     STD_fadeFx
@@ -131,6 +134,7 @@
     STD_inoSubtractFx
   </Layer_Blending_Ino>
   <Light>
+    STD_lightWrapFx
     STD_backlitFx
     STD_bodyHighLightFx
     STD_toneHighlightFx
@@ -153,7 +157,9 @@
     STD_celColorKeepFx
     STD_celColorKeyFx
     STD_celColorExpandFx
+    STD_edgeExtendFx
     STD_erodeDilateFx
+    STD_matteChokeFx
     STD_hsvKeyFx
     inFx
     outFx
@@ -181,12 +187,14 @@
     STD_iwa_FlowPaintBrushFx
   </Render>
   <Stylize>
+    STD_celEdgeLinesFx
     STD_colorEmbossFx
     STD_embossFx
     STD_inoMaxMinFx
     STD_mosaicFx
     STD_inoMotionWindFx
     STD_posterizeFx
+    STD_printProcessFx
     STD_solarizeFx
     STD_iwa_TangentFlowFx
     STD_iwa_MotionFlowFx
