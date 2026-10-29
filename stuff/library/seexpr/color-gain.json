@@ -1,0 +1,22 @@
+{
+  "format": "groundzero-seexpr",
+  "version": 1,
+  "title": "Color Gain",
+  "document": {
+    "version": 1,
+    "backend": "interpreter",
+    "rgb": "$src*$gain",
+    "alpha": "$a",
+    "controls": [
+      {
+        "id": "gain",
+        "name": "gain",
+        "label": "Gain",
+        "type": "scalar",
+        "value": 1,
+        "min": 0,
+        "max": 10
+      }
+    ]
+  }
+}

@@ -4,6 +4,7 @@
 #define TGRAMMAR_INCLUDED
 
 #include <memory>
+#include <functional>
 
 // TnzCore includes
 #include "tcommon.h"
@@ -64,6 +65,7 @@ public:
   virtual void accept(CalculatorNodeVisitor &visitor) = 0;
 
   virtual bool hasReference() const { return false; }
+  virtual void setOwnerParameter(TDoubleParam *) {}
 
 private:
   // Non-copyable
@@ -95,7 +97,10 @@ public:
 
   typedef double Calculator::*Variable;
 
-  void setOwnerParameter(TDoubleParam *param) { m_param = param; }
+  void setOwnerParameter(TDoubleParam *param) {
+    m_param = param;
+    if (m_rootNode) m_rootNode->setOwnerParameter(param);
+  }
   TDoubleParam *getOwnerParameter() const { return m_param; }
 
   const TUnit *getUnit() const { return m_unit; }
@@ -217,6 +222,11 @@ public:
   // returns matching <keywords, comment>
   typedef std::vector<std::pair<std::string, std::string>> Suggestions;
   void getSuggestions(Suggestions &suggetsions, Position position) const;
+
+  // Scene-owned grammars provide live fps for expression seconds. A standalone
+  // grammar uses the documented 24 fps authoring default.
+  void setFrameRateProvider(std::function<double()> provider);
+  double getFrameRate() const;
 
 private:
   // not implemented

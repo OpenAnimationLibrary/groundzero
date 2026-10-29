@@ -6,6 +6,9 @@
 #include "mainwindow.h"
 #include "flipbook.h"
 #include "tapp.h"
+#ifdef BUILD_SEEXPR_TESTS
+#include "seexprnativeintegrationtest.h"
+#endif
 #include "iocommand.h"
 #include "previewfxmanager.h"
 #include "cleanupsettingspopup.h"
@@ -157,7 +160,8 @@ DV_IMPORT_API void initColorFx();
     la stuffDir, controlla se la directory di outputs esiste (e provvede a
     crearla in caso contrario) verifica inoltre che stuffDir esista.
 */
-static void initToonzEnv(QHash<QString, QString> &argPathValues) {
+static void initToonzEnv(QHash<QString, QString> &argPathValues,
+                         bool seexprNativeTest = false) {
   StudioPalette::enable(true);
   TEnv::setRootVarName(rootVarName);
   TEnv::setSystemVarPrefix(systemVarPrefix);
@@ -196,6 +200,8 @@ static void initToonzEnv(QHash<QString, QString> &argPathValues) {
   else if (!TFileStatus(stuffDir).isDirectory())
     fatalError("Folder \"" + toQString(stuffDir) +
                "\" not found or not readable");
+
+  if (seexprNativeTest) Preferences::instance()->setValue(projectRoot, 8, false);
 
   // Setup third party
   ThirdParty::initialize();
@@ -266,9 +272,23 @@ static void script_output(int type, const QString &value) {
 //-----------------------------------------------------------------------------
 
 int main(int argc, char *argv[]) {
+  bool seexprNativeTest = false;
+#ifdef BUILD_SEEXPR_TESTS
+  for (int index = 1; index < argc; ++index) {
+    if (QString::fromLocal8Bit(argv[index]) == "--test-seexpr-native") {
+      if (argc != 2) {
+        std::cerr << "SeExpr native test mode accepts no other arguments." << std::endl;
+        return 2;
+      }
+      seexprNativeTest = true;
+      argc = 1;
+      break;
+    }
+  }
+#endif
 #ifdef Q_OS_WIN
   // Enable standard input/output on Windows Platform for debug
-  if (::AttachConsole(ATTACH_PARENT_PROCESS)) {
+  if (!seexprNativeTest && ::AttachConsole(ATTACH_PARENT_PROCESS)) {
     freopen("CON", "r", stdin);
     freopen("CON", "w", stdout);
     freopen("CON", "w", stderr);
@@ -344,6 +364,15 @@ int main(int argc, char *argv[]) {
   QApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
 
   QApplication a(argc, argv);
+#ifdef BUILD_SEEXPR_TESTS
+  if (seexprNativeTest) {
+    QString error;
+    if (!prepareSeExprNativeIntegrationTest(&error)) {
+      std::cerr << error.toStdString() << std::endl;
+      return 2;
+    }
+  }
+#endif
 
 #ifdef MACOSX
   // This workaround is to avoid missing left button problem on Qt5.6.0.
@@ -445,7 +474,7 @@ int main(int argc, char *argv[]) {
     QDir appDir(QApplication::applicationDirPath());
     appDir.cdUp(), appDir.cdUp(), appDir.cdUp();
 
-    bool ret = QDir::setCurrent(appDir.absolutePath());
+    bool ret = seexprNativeTest || QDir::setCurrent(appDir.absolutePath());
     assert(ret);
   }
 #endif
@@ -519,7 +548,12 @@ int main(int argc, char *argv[]) {
       &toonzRunOutOfContMemHandler);
 
   // Toonz environment
-  initToonzEnv(argumentPathValues);
+  initToonzEnv(argumentPathValues, seexprNativeTest);
+  if (seexprNativeTest) {
+    Preferences::instance()->setValue(startupPopupEnabled, false, false);
+    Preferences::instance()->setValue(latestVersionCheckEnabled, false, false);
+    Preferences::instance()->setValue(autosaveEnabled, false, false);
+  }
 
   // The crash report folder is known only now
   CrashHandler::prepareReport();
@@ -750,7 +784,7 @@ int main(int argc, char *argv[]) {
 
   // Check whether the previous session exited normally, and start this one,
   // for the autosave recovery copies
-  AutosaveRecovery::initSession();
+  if (!seexprNativeTest) AutosaveRecovery::initSession();
 
 #if defined(_WIN32) && QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
   // http://doc.qt.io/qt-5/windows-issues.html#fullscreen-opengl-based-windows
@@ -821,7 +855,7 @@ int main(int argc, char *argv[]) {
 
   a.setQuitOnLastWindowClosed(false);
   // a.connect(&a, SIGNAL(lastWindowClosed()), &a, SLOT(quit()));
-  if (Preferences::instance()->isLatestVersionCheckEnabled())
+  if (!seexprNativeTest && Preferences::instance()->isLatestVersionCheckEnabled())
     w.checkForUpdates();
 
   w.show();
@@ -829,8 +863,8 @@ int main(int argc, char *argv[]) {
   auto *cadmiumRuntime = CadmiumRuntime::instance();
   QObject::connect(&a, &QCoreApplication::aboutToQuit, cadmiumRuntime,
                    &CadmiumRuntime::stop);
-  QTimer::singleShot(0, cadmiumRuntime, [cadmiumRuntime] {
-    if (cadmiumRuntime->startupMode() == CadmiumRuntime::Preload)
+  QTimer::singleShot(0, cadmiumRuntime, [cadmiumRuntime, seexprNativeTest] {
+    if (!seexprNativeTest && cadmiumRuntime->startupMode() == CadmiumRuntime::Preload)
       cadmiumRuntime->start();
   });
 
@@ -918,12 +952,18 @@ int main(int argc, char *argv[]) {
   // Offer to recover the work of a previous session that did not exit
   // normally; that dialog also gives access to the crash report, if any.
   // Otherwise show the report of a crash in the previous session, if any.
-  if (!AutosaveRecovery::showRecoveryDialog())
+  if (!seexprNativeTest && !AutosaveRecovery::showRecoveryDialog())
     CrashHandler::showPendingReport();
 
+#ifdef BUILD_SEEXPR_TESTS
+  if (seexprNativeTest)
+    QTimer::singleShot(0, &a, [&a, &w] {
+      a.exit(runSeExprNativeIntegrationTest(&w));
+    });
+#endif
   int ret = a.exec();
 
-  AutosaveRecovery::endSession();
+  if (!seexprNativeTest) AutosaveRecovery::endSession();
 
   TUndoManager::manager()->reset();
   PreviewFxManager::instance()->reset();

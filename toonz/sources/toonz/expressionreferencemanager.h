@@ -58,6 +58,10 @@ public:
   void onChange(const TXsheetColumnChange&) override;
   void onFxAdded(const std::vector<TFx*>&) override;
   void onStageObjectAdded(const TStageObjectId) override;
+  void onStageObjectsPasted(
+      TXsheet* xsheet,
+      const QMap<TStageObjectId, TStageObjectId>& idTable,
+      const QMap<TFx*, TFx*>& fxTable) override;
   bool isIgnored(TDoubleParam*) override;
 
   void onChange(const TParamChange&) override;

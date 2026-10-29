@@ -5,6 +5,7 @@
 #include "tparamset.h"
 
 #include "tparam.h"
+#include "texception.h"
 
 void TParamVar::setParamObserver(TParamObserver *obs) {
   if (m_paramObserver == obs) return;
@@ -42,6 +43,21 @@ void TParamContainer::add(TParamVar *var) {
   m_imp->m_nameTable[var->getName()] = var;
   var->setParamObserver(m_imp->m_paramObserver);
   var->getParam()->setName(var->getName());
+}
+
+void TParamContainer::reorder(const std::vector<std::string> &names) {
+  if (names.size() != m_imp->m_vars.size())
+    throw TException("Parameter order must contain every existing parameter");
+  std::vector<TParamVar *> ordered;
+  std::set<std::string> seen;
+  ordered.reserve(names.size());
+  for (const auto &name : names) {
+    const auto entry = m_imp->m_nameTable.find(name);
+    if (entry == m_imp->m_nameTable.end() || !seen.insert(name).second)
+      throw TException("Parameter order is not an exact permutation");
+    ordered.push_back(entry->second);
+  }
+  m_imp->m_vars.swap(ordered);
 }
 
 int TParamContainer::getParamCount() const { return m_imp->m_vars.size(); }
@@ -86,7 +102,10 @@ void TParamContainer::unlink() {
     TParamVar *var = m_imp->m_vars[i];
     TParam *param  = var->getParam();
     // p0 = dynamic_cast<TRangeParam *>(param);
-    var->setParam(param->clone());
+    TParamP replacement = param->clone();
+    var->setParamObserver(nullptr);
+    var->setParam(replacement.getPointer());
+    var->setParamObserver(m_imp->m_paramObserver);
     /*p1 = dynamic_cast<TRangeParam *>(var->getParam());
 if(p0 && p1)
 {
@@ -101,7 +120,9 @@ void TParamContainer::link(const TParamContainer *src) {
   for (int i = 0; i < getParamCount(); i++) {
     assert(getParamName(i) == src->getParamName(i));
     assert(m_imp->m_vars[i]->getName() == getParamName(i));
+    m_imp->m_vars[i]->setParamObserver(nullptr);
     m_imp->m_vars[i]->setParam(src->getParam(i));
+    m_imp->m_vars[i]->setParamObserver(m_imp->m_paramObserver);
   }
 }
 

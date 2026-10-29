@@ -162,12 +162,26 @@ jobs:
           7z x -y thirdparty-libs.zip
         shell: cmd    
 
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install SeExpr parser tools
+        shell: pwsh
+        run: ./ci-scripts/seexpr/install_parser_windows.ps1
+
+      - name: Prepare software OpenGL for native SeExpr acceptance
+        timeout-minutes: 5
+        shell: pwsh
+        run: ./ci-scripts/seexpr/install_mesa_windows.ps1
+
       # Add msbuild to PATH for build process
       - name: Add msbuild to PATH
         uses: microsoft/setup-msbuild@v3
 
       # CMake configuration step
       - name: CMake configuration
+        id: seexpr_configure
         run: |
           @echo on
           cd thirdparty
@@ -180,8 +194,15 @@ jobs:
           mkdir build
           cd build
 
-          cmake ..\sources -G "%MSVCVERSION%" -Ax64 -DQT_PATH="%QT_PATH%" -DBOOST_ROOT="%BOOST_ROOT%" -DOpenCV_DIR="%OpenCV_DIR%" -DWITH_WINTAB=Y -DBUILD_LUT3D_TESTS=ON -DBUILD_CELFX_TESTS=ON -DBUILD_CADMIUM_TESTS=ON -DBUILD_PARTICLE_CACHE_TESTS=ON -DBUILD_RELIABILITY_TESTS=ON -DBUILD_STREAM_TESTS=ON -DBUILD_SCENEBENCH_TESTS=ON -DBUILD_FXRENDER_TESTS=ON -DBUILD_PSD_TESTS=ON -DBUILD_FFMPEG_TESTS=ON
+          cmake ..\sources -G "%MSVCVERSION%" -Ax64 -DQT_PATH="%QT_PATH%" -DBOOST_ROOT="%BOOST_ROOT%" -DOpenCV_DIR="%OpenCV_DIR%" -DWITH_WINTAB=Y -DBUILD_CELFX_TESTS=ON -DBUILD_CADMIUM_TESTS=ON -DBUILD_LUT3D_TESTS=ON -DBUILD_PARTICLE_CACHE_TESTS=ON -DBUILD_RELIABILITY_TESTS=ON -DBUILD_STREAM_TESTS=ON -DBUILD_SCENEBENCH_TESTS=ON -DBUILD_FXRENDER_TESTS=ON -DBUILD_PSD_TESTS=ON -DBUILD_FFMPEG_TESTS=ON -DBUILD_SEEXPR_TESTS=ON -DBUILD_SEEXPR_PYTHON=ON -DPython3_EXECUTABLE="%pythonLocation%\python.exe" > cmake-output.log 2>&1
+          set "SEEXPR_CONFIGURE_EXIT=%ERRORLEVEL%"
+          type cmake-output.log
+          exit /b %SEEXPR_CONFIGURE_EXIT%
         shell: cmd
+
+      - name: Report SeExpr configuration failure
+        if: ${{ failure() && steps.seexpr_configure.outcome == 'failure' }}
+        run: python ci-scripts/seexpr/report.py toonz/build/cmake-output.log
 
       # Build Opentoonz using MSBuild
       - name: Build Opentoonz
@@ -190,12 +211,6 @@ jobs:
           cd toonz\build
           msbuild /p:Configuration=RelWithDebInfo /m /verbosity:minimal "/flp:logfile=msbuild-errors.log;errorsonly" ALL_BUILD.vcxproj
         shell: cmd
-
-      # Pin the harness interpreter only after CMake has selected and built
-      # the application's own Python dependencies.
-      - uses: actions/setup-python@v6
-        with:
-          python-version: '3.12'
 
       - name: Verify benchmark harness contracts
         run: python -m unittest discover -s ci-scripts/tests -p test_paired_benchmark.py
@@ -216,6 +231,7 @@ jobs:
 
       # Create the package
       - name: Create Package
+        id: package
         run: |
           @echo on
           cd toonz\build
@@ -244,6 +260,9 @@ jobs:
           REM Create portablestuff directory and copy stuff folder
           mkdir Opentoonz\portablestuff
           xcopy /Y /E /I ..\..\stuff .\Opentoonz\portablestuff
+          REM The optional inspection SDK uses the separately installed Python.
+          xcopy /Y /E /I seexpr-python Opentoonz\sdk\python
+          copy /Y ..\..\stuff\doc\LICENSE\LICENSE_seexpr.txt Opentoonz\sdk\python\LICENSE_seexpr.txt
         shell: cmd
 
       - name: Install optional Cadmium worker
@@ -291,7 +310,36 @@ jobs:
           cd toonz\build
           ctest -C RelWithDebInfo --output-on-failure --no-tests=error -R "^cadmium_"
 
+      - name: Test SeExpr native integration
+        id: seexpr_tests
+        if: ${{ !cancelled() && steps.package.outcome == 'success' }}
+        shell: cmd
+        run: |
+          set "PATH=%CD%\toonz\build\Opentoonz;%QT_PATH%\bin;%PATH%"
+          set "QT_PLUGIN_PATH=%QT_PATH%\plugins"
+          set "QT_QPA_PLATFORM_PLUGIN_PATH=%QT_PATH%\plugins\platforms"
+          set "QT_QPA_FONTDIR=%WINDIR%\Fonts"
+          cd toonz\build
+          ctest -C RelWithDebInfo --output-on-failure --output-junit seexpr-tests.xml --no-tests=error --timeout 180 -R "^seexpr_" > seexpr-tests-output.txt 2>&1
+          set "SEEXPR_TEST_EXIT=%ERRORLEVEL%"
+          type seexpr-tests-output.txt
+          exit /b %SEEXPR_TEST_EXIT%
+
+      - name: Report SeExpr test failures
+        if: ${{ failure() && steps.seexpr_tests.outcome == 'failure' }}
+        run: python ci-scripts/seexpr/report.py toonz/build/seexpr-tests-output.txt
+
+      - name: Report native SeExpr crash stack
+        if: ${{ failure() && steps.seexpr_tests.outcome == 'failure' }}
+        shell: pwsh
+        run: |
+          $report = "toonz/build/seexpr-native-output-debugger.txt"
+          if (Test-Path -LiteralPath $report -PathType Leaf) {
+            python ci-scripts/seexpr/report.py $report
+          }
+
       - name: Test reliability and performance invariants
+        if: ${{ !cancelled() && steps.package.outcome == 'success' }}
         shell: cmd
         run: |
           set "PATH=%CD%\toonz\build\Opentoonz;%QT_PATH%\bin;%PATH%"
@@ -330,6 +378,35 @@ jobs:
           xcopy /Y /E /I recorder-encoder toonz\build\Opentoonz\otdev-recorder
           copy /Y .github\ot-dev\recorder\README.md toonz\build\Opentoonz\otdev-recorder\README.md
 
+      - name: Remove SeExpr test drivers from the package
+        shell: pwsh
+        run: |
+          $package = "toonz/build/Opentoonz"
+          $drivers = @("seexpr_plugin_test", "seexpr_animation_test", "seexpr_fx_test", "seexpr_surface_fx_test", "seexpr_native_animcurve_test", "glbsurface_test", "seexpr_editor_test", "seexpr_controls_test", "seexpr_range_test", "seexpr_batch_fixture")
+          $suffixes = @(".exe", ".lib", ".exp", ".pdb", ".ilk", ".ipdb", ".iobj", ".exe.manifest")
+          foreach ($driver in $drivers) {
+            foreach ($suffix in $suffixes) {
+              $path = Join-Path $package ($driver + $suffix)
+              if (Test-Path -LiteralPath $path) {
+                Remove-Item -LiteralPath $path -Force -ErrorAction Stop
+              }
+              if (Test-Path -LiteralPath $path) {
+                throw "A SeExpr test driver or companion artifact remained in the production package"
+              }
+            }
+          }
+
+      - name: Verify test-only native artifacts are absent
+        shell: pwsh
+        run: |
+          foreach ($directory in @("toonz/build/RelWithDebInfo", "toonz/build/Opentoonz")) {
+            foreach ($name in @("opengl32.dll", "libgallium_wgl.dll", "OpenToonz.exe.local", "tcomposer.exe.local", "SeExprSdkFixture.dll", "SeExprInvalidFixture.dll")) {
+              if (Test-Path -LiteralPath (Join-Path $directory $name)) {
+                throw "A test-only renderer or SDK fixture remained in the application runtime or package"
+              }
+            }
+          }
+
       - name: Prepare optional benchmark bundle
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.benchmark_bundle }}
         shell: pwsh
@@ -362,4 +439,12 @@ jobs:
           name: Groundzero-${{ github.event.pull_request.number && format('PR-{0}', github.event.pull_request.number) || 'Branch-build' }}-Windows-${{ github.sha }}-${{ github.run_id }}
           path: artifact
           if-no-files-found: error
+          include-hidden-files: true
+
+  InstalledApplication:
+    needs: Windows
+    uses: ./.github/workflows/seexpr-package-smoke.yml
+    with:
+      platform: windows
+      artifact_name: Groundzero-${{ github.event.pull_request.number && format('PR-{0}', github.event.pull_request.number) || 'Branch-build' }}-Windows-${{ github.sha }}-${{ github.run_id }}
 

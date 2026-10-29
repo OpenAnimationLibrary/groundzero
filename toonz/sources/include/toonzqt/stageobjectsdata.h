@@ -5,6 +5,7 @@
 
 // TnzCore includes
 #include "tconst.h"
+#include "tfx.h"
 
 // TnzLib includes
 #include "toonz/tstageobjectid.h"
@@ -69,12 +70,22 @@ class DVAPI StageObjectsData final : public DvMimeData {
                                   //! above) (cloned, shared ownership)
 
   std::map<TFx *, TFx *> m_fxTable;  //!< Original fxs/Cloned fxs pairings
+  // A native delete unlinks the stored FX objects themselves. Keep a stable
+  // representative for each saved parameter-link group so undo can restore
+  // the relationship as well as the objects. External representatives remain
+  // shared; internal ones are mapped to the restored copies.
+  std::map<TFx *, TFxP> m_parameterLinks;
+
+  void captureParameterLinks();
 
 public:
   enum FxFlags {
     eDoClone = 0x1,  // Clones sensible stored data
     eResetFxDagPositions =
-        0x2  // Accepts default positions for newly created FX objects
+        0x2,  // Accepts default positions for newly created FX objects
+    // Clipboard paste remaps references within the copied selection. Undo and
+    // cross-xsheet transfer commands manage their own reference lifecycles.
+    eRebindReferences = 0x4
   };
 
 public:

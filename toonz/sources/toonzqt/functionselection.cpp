@@ -828,8 +828,9 @@ bool FunctionKeyframesData::isCircularReferenceFree(int columnIndex,
   // for each key frame
   for (int i = 0; i < n; i++) {
     TDoubleKeyframe keyframe(keyframes[i]);
-    // only check Expression type
-    if (keyframe.m_type != TDoubleKeyframe::Expression) continue;
+    if (keyframe.m_type != TDoubleKeyframe::Expression &&
+        keyframe.m_type != TDoubleKeyframe::SimilarShape)
+      continue;
     // check circular reference
     TExpression expr;
     expr.setGrammar(curve->getGrammar());

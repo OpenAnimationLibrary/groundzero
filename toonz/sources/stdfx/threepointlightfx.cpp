@@ -175,6 +175,11 @@ public:
   int getMemoryRequirement(const TRectD &rect, double,
                            const TRenderSettings &) override {
     if (rect.isEmpty()) return 0;
+    if (m_source.isConnected() && m_source.source()->hasSurface3D()) {
+      const double bytes = std::ceil(rect.getLx()) * std::ceil(rect.getLy()) * 16.0;
+      return int(std::min(double(std::numeric_limits<int>::max()),
+          256.0 + std::ceil(bytes / (1024 * 1024))));
+    }
     const double megabytes = std::ceil(rect.getLx()) * std::ceil(rect.getLy()) *
                              112.0 / (1024.0 * 1024.0);
     return int(std::min(double(std::numeric_limits<int>::max()),
@@ -202,8 +207,9 @@ public:
       request.affine = {{a.a11, a.a12, a.a13, a.a21, a.a22, a.a23}};
       if (!request.width || !request.height) return;
 
-      const int band = std::max(
-          1, std::min(128, 2 * 1024 * 1024 / request.width));
+      const int band = rendered->surface
+          ? std::max(1, std::min(32, 512 * 1024 / request.width))
+          : std::max(1, std::min(128, 2 * 1024 * 1024 / request.width));
       const int height = request.height;
       for (int y = 0; y < height; y += band) {
         request.height = std::min(band, height - y);

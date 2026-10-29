@@ -14,9 +14,14 @@
 #include "toonzqt/lutcalibrator.h"
 #include "toonzqt/dvdialog.h"
 #include "toonzqt/fontstyletranslation.h"
+#include "toonzqt/seexpreditor.h"
+#include "toonzqt/seexprcontrols.h"
+#include "tseexprfx.h"
+#include "texception.h"
 #include "toonz/preferences.h"
 #include "toonz/txshlevelhandle.h"
 #include "toonz/txshsimplelevel.h"
+#include "toonz/toonzfolders.h"
 #include "tpalette.h"
 #include "tcolorstyles.h"
 
@@ -48,6 +53,7 @@
 #include <QPixmap>
 #include <QTimer>
 #include <QSignalBlocker>
+#include <QPointer>
 #include <algorithm>
 #include <cmath>
 #include <functional>
@@ -567,14 +573,22 @@ public:
   void undo() const override {
     m_param->setValue(m_oldValue);
     if (m_fxHandle) m_fxHandle->notifyFxChanged();
+    if (m_fxHandle && m_param->getName() == "seexprDocument")
+      QTimer::singleShot(0, m_fxHandle,
+                        [handle = m_fxHandle]() { handle->onFxNodeDoubleClicked(); });
   }
 
   void redo() const override {
     m_param->setValue(m_newValue);
     if (m_fxHandle) m_fxHandle->notifyFxChanged();
+    if (m_fxHandle && m_param->getName() == "seexprDocument")
+      QTimer::singleShot(0, m_fxHandle,
+                        [handle = m_fxHandle]() { handle->onFxNodeDoubleClicked(); });
   }
 
   QString getHistoryString() override {
+    if (m_param->getName() == "seexprDocument")
+      return QObject::tr("Modify Expression Document: %1").arg(m_name);
     QString str = QObject::tr("Modify Fx Param : %1 : %2 -> %3")
                       .arg(m_name)
                       .arg(QString::fromStdWString(m_oldValue))
@@ -2259,7 +2273,18 @@ StringParamField::StringParamField(QWidget *parent, QString name,
   m_paramName = str.fromStdString(param->getName());
 
   bool ret = true;
-  if (param->isMultiLineEnabled()) {
+  if (param->getName() == "seexprDocument") {
+    m_seExprEditor = new SeExprEditor(this);
+    m_seExprEditor->setMinimumSize(360, 260);
+    m_seExprEditor->setDocument(QString::fromStdWString(param->getValue()), true);
+    m_seExprEditor->setPresetDirectory(
+        (ToonzFolder::getMyModuleDir() + TFilePath("seexpr-presets")).getQString());
+    m_seExprEditor->setBuiltinPresetDirectory(
+        (ToonzFolder::getLibraryFolder() + TFilePath("seexpr")).getQString());
+    connect(m_seExprEditor, &SeExprEditor::documentApplied, this,
+            [this](const QString &) { onChange(); });
+    m_layout->addWidget(m_seExprEditor);
+  } else if (param->isMultiLineEnabled()) {
     m_multiTextFld = new component::MyTextEdit(name, this);
     m_multiTextFld->setFixedHeight(80);
     m_multiTextFld->setAcceptRichText(false);
@@ -2499,14 +2524,107 @@ void StringParamField::enableExrChoiceControls(TFxAovChoiceKind kind) {
 //-----------------------------------------------------------------------------
 
 void StringParamField::setFx(const TFxP &, const TFxP &actual) {
+  const bool changedOwner = m_actualFx.getPointer() != actual.getPointer();
   m_actualFx = actual;
+  if (m_seExprEditor) {
+    const auto *surfaceHost = dynamic_cast<TFxSeExprSource *>(actual.getPointer());
+    m_seExprEditor->setSurfaceDocumentSupported(
+        surfaceHost && surfaceHost->supportsSeExprSurfaceDocument());
+    if (changedOwner) {
+      if (const auto *source = dynamic_cast<TFxSeExprSource *>(actual.getPointer()))
+        m_seExprEditor->setDocument(QString::fromStdWString(
+            source->seExprDocumentParam()->getValue()), true);
+    }
+    m_seExprEditor->setValidator([this](const QString &document) {
+      auto *source = dynamic_cast<TFxSeExprSource *>(m_actualFx.getPointer());
+      if (!source) return tr("The current effect does not provide an expression context.");
+      std::string error;
+      return source->validateSeExprDocument(document.toStdWString(), m_frame, error)
+                 ? QString() : QString::fromUtf8(error.c_str());
+    });
+    const QPointer<StringParamField> curveField(this);
+    m_seExprEditor->setAnimationCurveLinkResolver(
+        [curveField, actual](const QString &reference, QJsonObject &control,
+                              QString &error) {
+      if (!curveField || curveField->m_actualFx.getPointer() != actual.getPointer()) {
+        error = tr("The selected effect changed. Reopen the curve editor.");
+        return false;
+      }
+      const auto *source = dynamic_cast<TFxSeExprSource *>(actual.getPointer());
+      if (!source) {
+        error = tr("No native curve reference context is available.");
+        return false;
+      }
+      return SeExprControls::refreshAnimationCurveLink(
+          source->seExprGrammar(), reference, control, error);
+    });
+    m_seExprEditor->setCheckedPreviewEvaluator(
+        [this](const QString &document, QString &preview, QString &diagnostic) {
+      auto *source = dynamic_cast<TFxSeExprSource *>(m_actualFx.getPointer());
+      if (!source) {
+        diagnostic = tr("No expression preview context is available.");
+        return false;
+      }
+      std::string value, error;
+      if (!source->previewSeExprDocument(document.toStdWString(), m_frame, value, error)) {
+        diagnostic = tr("Sample preview unavailable: %1").arg(QString::fromUtf8(error.c_str()));
+        return false;
+      }
+      preview = tr("Sample at u=0.5, v=0.5 (source image preview is in the FX swatch): %1")
+          .arg(QString::fromUtf8(value.c_str()));
+      return true;
+    });
+    m_seExprEditor->setRangeEvaluatorFactory(
+        [this, actual](const QString &document) -> SeExprEditor::RangeEvaluator {
+      const QPointer<StringParamField> field(this);
+      TFxP snapshot;
+      try {
+        if (actual) snapshot = actual->clone(false);
+      } catch (...) {
+        return [](double, std::vector<double> &, QString &error) {
+          error = tr("The native effect could not be prepared for range preview.");
+          return false;
+        };
+      }
+      return [field, actual, snapshot, document](
+                 double frame, std::vector<double> &values, QString &error) {
+        if (!field || field->m_actualFx.getPointer() != actual.getPointer()) {
+          error = tr("The selected effect changed. Reopen the range preview.");
+          return false;
+        }
+        auto *source = dynamic_cast<TFxSeExprSource *>(snapshot.getPointer());
+        if (!source) {
+          error = tr("No native range preview context is available.");
+          return false;
+        }
+        TSeExpr::Value rgb;
+        double alpha = 0;
+        std::string diagnostic;
+        if (!source->sampleSeExprDocument(document.toStdWString(), frame - 1.0,
+                                         rgb, alpha, diagnostic)) {
+          error = QString::fromUtf8(diagnostic.c_str());
+          return false;
+        }
+        values = std::move(rgb.number);
+        values.push_back(alpha);
+        return true;
+      };
+    });
+    if (auto *source = dynamic_cast<TFxSeExprSource *>(actual.getPointer())) {
+      try { m_seExprEditor->setContext(source->seExprVariables(m_frame), source->seExprFunctions(m_frame)); }
+      catch (const TException &) { m_seExprEditor->setContext({}); }
+      catch (const std::exception &) { m_seExprEditor->setContext({}); }
+    }
+  }
 }
 
 //-----------------------------------------------------------------------------
 
 void StringParamField::onChange() {
   std::wstring value;
-  if (m_multiTextFld)
+  if (m_seExprEditor)
+    value = m_seExprEditor->document().toStdWString();
+  else if (m_multiTextFld)
     value = m_multiTextFld->toPlainText().toStdWString();
   else
     value = m_textFld->text().toStdWString();
@@ -2525,17 +2643,25 @@ void StringParamField::onChange() {
   emit actualParamChanged();
 
   if (undo) TUndoManager::manager()->add(undo);
+  if (m_seExprEditor && m_fxHandleStat) {
+    // Rebuild schema-owned native fields after this Apply signal has returned.
+    QTimer::singleShot(0, m_fxHandleStat,
+                      [handle = m_fxHandleStat]() { handle->onFxNodeDoubleClicked(); });
+  }
 }
 
 //-----------------------------------------------------------------------------
 
 void StringParamField::setParam(const TParamP &current, const TParamP &actual,
                                 int frame) {
+  const bool changedParameter = m_actualParam.getPointer() != actual.getPointer();
   m_currentParam = current;
   m_actualParam  = actual;
   m_frame        = frame;
   assert(m_currentParam);
   assert(m_actualParam);
+  if (m_seExprEditor && changedParameter)
+    m_seExprEditor->setDocument(QString::fromStdWString(m_actualParam->getValue()), true);
   update(frame);
 }
 
@@ -2547,7 +2673,15 @@ void StringParamField::update(int frame) {
   QString str;
   QString strValue = str.fromStdWString(m_actualParam->getValue());
 
-  if (m_textFld) {
+  if (m_seExprEditor) {
+    m_seExprEditor->setFrame(frame);
+    m_seExprEditor->setDocument(strValue);
+    if (auto *source = dynamic_cast<TFxSeExprSource *>(m_actualFx.getPointer())) {
+      try { m_seExprEditor->setContext(source->seExprVariables(frame), source->seExprFunctions(frame)); }
+      catch (const TException &) { m_seExprEditor->setContext({}); }
+      catch (const std::exception &) { m_seExprEditor->setContext({}); }
+    }
+  } else if (m_textFld) {
     if (m_textFld->text() == strValue) return;
     m_textFld->setText(strValue);
 

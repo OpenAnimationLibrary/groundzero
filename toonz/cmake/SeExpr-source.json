@@ -1,0 +1,110 @@
+{
+  "project": "SeExpr",
+  "repository": "https://github.com/wdas/SeExpr",
+  "revision": "8f8c8f2c5e27e96fae70d6b82ac1ff4f4811d6dc",
+  "archive_sha256": "097ffec1a4f50db2b8b7d8f8d0e488e0cafb9f235f1a63bc3693e6d6f079a8bb",
+  "included_source": "src/SeExpr2 root core headers and implementation, plus src/SeExpr2/parser syntax-inspection scanner and template headers for the optional Python SDK",
+  "license": "Apache License 2.0 with the upstream replacement Section 6",
+  "packaged_notice": "stuff/doc/LICENSE/LICENSE_seexpr.txt",
+  "parser_tools": {
+    "bison": "3.8.2",
+    "flex": "2.6.4"
+  },
+  "build_copy_changes": [
+    "Disable automatic SE_EXPR_PLUGINS discovery; explicit host function registration remains available",
+    "Disable environment-selected expression debugging; diagnostics are explicitly owned by the host",
+    "Invoke the host thread-local instruction budget before each interpreter instruction",
+    "Reset the interpreter local-function call stack at evaluation entry to recover from cancellation",
+    "Use standard C++17 snprintf and log2 on Windows",
+    "Delete the Windows critical section through its concrete type",
+    "Expose the standard C++17 cbrt, asinh, acosh, atanh and trunc functions on every platform",
+    "Keep the default evaluation backend interpreter-based and independent of process environment",
+    "Isolate SDK graph resolution temporary state and evaluate selected dependencies in topological order",
+    "Adapt the optional JIT emitter to LLVM 14 typed builder and fixed-vector APIs",
+    "Insert no-throw JIT evaluation budget checks and capture callback exceptions for native reporting",
+    "Use bounded native string concatenation with terminator allocation in the optional JIT backend",
+    "Complete upstream parsed-but-disabled typed/inferred local functions and external prototypes in the AST/type environment, interpreter procedures and optional LLVM emitter",
+    "Keep nested local numeric/string calls isolated and preserve captured host-variable lifetimes",
+    "Validate bounded typed printf/sprintf formats and reject malformed argument lists before evaluation",
+    "Implement explicit cross-platform plugin loading with canonical path deduplication, deterministic directory discovery and registry-before-module cleanup",
+    "Validate AST structural depth iteratively before recursive preparation, dispose rejected/deep trees iteratively and preserve full signed source-byte positions",
+    "Keep syntaxOK independent of type preparation and reject excessive raw-SDK AST depth with a diagnostic",
+    "Reset cached SDK parse state after empty sources while preserving aliased input text",
+    "Initialize extension-function scalar state and empty standard-function enum/pointer before registry copies",
+    "Use empty-safe interpreter storage and reserve inactive custom-function output register slots",
+    "Release owned builtin caches and multi-expression graph values on reset while preserving borrowed SDK data and host string buffers",
+    "Match interpreter string allocation and node destruction, bound concatenation before allocation and preserve aliased operands",
+    "Initialize and source-bound EOF error locations and format multiline diagnostics with valid iterators",
+    "Release lexer string tokens discarded by Bison error recovery while preserving successful grammar-action ownership",
+    "Correct whole-vector equality/inequality and scalar promotion in interpreter and optional LLVM paths",
+    "Preserve all typed SDK standard callback forms, varying lifetime aggregation, vector result shape and exceptions across the optional LLVM boundary",
+    "Prepare a private Python inspection-parser copy with virtual AST destruction and correct ordinary-call, vector-literal and nested-unary byte ranges",
+    "Bound Python inspection AST height during construction and parser recursion before deep-expression cleanup"
+  ],
+  "backends": {
+    "interpreter": "Included; source implementation and qualification corpus present",
+    "llvm": "LLVM 14 optional backend implementation"
+  },
+  "native_replacements": {
+    "application_ui": "Independently authored native Qt editor, controls, preset browser, spectrum editor and range viewer in toonzqt; upstream UI subtree is not compiled or installed",
+    "python_sdk": "Independently authored Python 3 AST/evaluation wrapper and SeExprPy helpers, with independent optional PyQt5/PyQt6 authoring widgets and expreditor2 compatibility import",
+    "external_hosts": "Owned inline/named animCurve models, full key metadata and infinity/tangent editing, explicit linked refresh, native procedural surface/displacement and render-local namespaced attribute/option providers replace visible external-host workflows; vendor binary ABIs are not distributed; RGB opacity composes per-channel inside the native 3D renderer, with maximum channel coverage encoded into final OT scalar alpha"
+  },
+  "selected_modules": {
+    "core": "Required application/SDK interpreter and typed native adapter",
+    "llvm": "Optional LLVM 14 backend from the pinned core; explicit backend identity; Linux, Windows and Intel macOS qualification configured; configured jobs are not passing results",
+    "cpp_sdk": "Optional installed headers/static library, explicit native plugin loader, calculator, grapher and host-binding example",
+    "python_ast": "Optional Python 3 extension compiles privately prepared ASTNode.h, SeExprLex.h/.cpp and SeExprParse.h from the licensed inspection parser; exact source ranges, node ownership and retained scanner notices",
+    "python_qt": "Optional independent PyQt authoring frontend; external PyQt installation required; Qt5 three-platform and separate Linux PyQt6 qualification configured, each requiring actual final-revision results"
+  },
+  "excluded_sources": {
+    "src/SeExpr2/UI/__init__.py": "Restrictive upstream notice; never compiled, copied or redistributed by the native or Python frontend",
+    "src/SeExpr2/UI": "Replaced by independently authored native Qt and optional PyQt authoring workflows",
+    "src/py/SeExprPy.cpp": "Legacy wrapper replaced by the native Python 3 AST/evaluation wrapper; licensed syntax parser remains selected",
+    "src/demos/rman2": "RenderMan SDK/runtime and RSL plugin ABI are not distributed. Native triangle-mesh surface/displacement, lighting context and render-local attribute/option effects implement the OT host equivalent; RenderMan adaptive dicing and vendor execution are not claimed",
+    "src/SeExpr2/UI/CE": "Current pinned tree omits the external editor/evaluator. Native owned animCurve model and Qt/Python authoring preserve visible serialized metadata and policies; historical licensed tangent regeneration is separately recorded; external animlib binary compatibility is unqualified",
+    "src/demos/imageSynth and imageEditor": "Standalone host applications replaced by native Generator/Color FX and source sampling"
+  },
+  "patch_helpers": [
+    "toonz/cmake/prepare_seexpr.py",
+    "toonz/cmake/prepare_seexpr_language.py",
+    "toonz/cmake/prepare_seexpr_safety.py",
+    "toonz/cmake/prepare_seexpr_sdk.py",
+    "toonz/cmake/prepare_seexpr_llvm.py",
+    "toonz/cmake/prepare_seexpr_limits.py",
+    "toonz/sources/seexprpython/prepare_parser.py"
+  ],
+  "native_host_corrections": [
+    "Versioned native animation mode, literal channel dependency binding/rewrites, stable native control schema and archived animation restoration",
+    "Preserve reference monitor state and formulas across actual column movement/insertion/deletion, clipboard copy/paste and sub-xsheet collapse/explode with native undo/redo",
+    "Recursive animation graph gate precedes curve locks to reject malformed cross-worker cycles without lock-order deadlock",
+    "Batch loading/rendering failure counter prevents a last-good interactive animation value from reporting successful invalid renders",
+    "Deep clipboard snapshots preserve stage/offset/plastic curves; copied parameter expressions rebind to their destination owners after source/clipboard destruction",
+    "Paste-specific single-pass remapping updates destination-owned curves only, including empty/hidden numeric channels; reference-only models suppress queued GUI callbacks",
+    "Stable retained FX-link representatives preserve external sharing and undo/redo without cascading ring restoration; foreign shared references keep original source context/lifetime and stay outside destination monitor ownership",
+    "Ordered save queues retain later completed frames after earlier failures, report exact failed/completed frame identifiers and suppress successful completion for failed batch jobs"
+  ],
+  "qualification_sources": {
+    "core_and_sdk": "Interpreter and optional LLVM14 Windows/Linux/Intel macOS corpora, animation-curve policies, typed SDK callback/equality regressions and clean installed CMake consumers",
+    "python": "Built-package AST/evaluation/Qt5 widget fixtures on three platforms; separate Linux PyQt6 configuration; configured jobs require actual passing final-revision results",
+    "native_application": "Actual application startup with disposable data; Column/Stage Schematic snapshots and owner preservation, append/prepend/middle paste, empty/hidden channels, linked FX redo, foreign-sheet core callback isolation, column/sub-xsheet operations and undo/redo",
+    "native_batch": "Actual saved scene/tcomposer output; exact completed/failed frames for first/middle/last errors, range/step and multimedia cases, nonzero diagnostics and no false successful summary",
+    "performance": "Native Generator 1920x1080 and 3840x2160, one/four workers, cold/warm-frame timings, deterministic image checksums and process peak resident memory; Linux CI measurement configured, no hardware results claimed",
+    "native_surface": "Actual native GLBModel/Transform/ImagePlane/attribute/surface chains and pure GLB coverage, displacement, normals, transparency, tile/worker/cache/cancel/error fixtures; pure renderer also included in Linux sanitizers",
+    "native_package": "Fresh-runner installed application artifact launches on Windows/Linux/Intel macOS, packaged data/notices, no Qt SDK, development library/plugin paths cleared, native lifecycle and test-only runtime cleanup"
+  },
+  "source_inventory_status": "Implemented means source and named acceptance fixtures exist; actual passing evidence is recorded by the qualification jobs/reports at the final revision, not by this source manifest",
+  "qualification_reports": {
+    "core_sdk_python": "SeExpr qualification: Linux/Windows/macOS interpreter and LLVM14, Linux interpreter PyQt6, and Linux ASan and UBSan; JUnit/logs plus clean installed-consumer tests",
+    "native_platforms": "Linux Build, Windows Build, MacOS Build: Test SeExpr native integration; seexpr-tests.xml, seexpr-tests-output.txt, seexpr-native-output.txt and seexpr-native-batch-output.txt",
+    "performance": "Linux Build: Measure SeExpr full-resolution rendering; seexpr-performance.txt",
+    "readiness": "Every required native/core/SDK/backend/platform acceptance check must pass at the final implementation revision; physical hardware and vendor ABI qualification require their own evidence",
+    "installed_application": "Linux/Windows/MacOS Build: InstalledApplication reusable package qualification, seexpr-package-setup/launch and seexpr-packaged-native logs"
+  },
+  "historical_animation_source": {
+    "revision": "87547a6fcf447d8fe2fab2fb9d0e6e99f34f03b7",
+    "file": "src/SeExprEditor/CE/CETool.cpp",
+    "git_blob": "c908aabd3baea044d4049ef887a8d4de7c8ed25d",
+    "use": "Tangent regeneration adapted into the owned native animation-curve model; upstream modified-Apache notice retained"
+  }
+}

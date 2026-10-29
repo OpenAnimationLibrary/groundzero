@@ -1,7 +1,9 @@
 #pragma once
 
 #include "glbloader.h"
+#include <functional>
 #include <memory>
+#include <string>
 
 namespace otglb {
 
@@ -49,6 +51,50 @@ struct ModelTransform {
   }
 };
 
+// An immutable host request creates a fresh evaluator for each geometry/tile
+// worker. The renderer owns no expression engine and never shares mutable
+// evaluator state. Implementations throw on evaluation failure; those errors
+// propagate to the rendering host rather than becoming a successful blank.
+struct SurfaceSample {
+  std::array<double, 3> objectPosition{}, worldPosition{}, cameraPosition{};
+  std::array<double, 3> objectNormal{}, worldNormal{}, cameraNormal{};
+  std::array<double, 2> uv{};
+  // Straight display-referred sRGB before native illumination. Displacement
+  // receives the material base; shading receives the sampled image-plane texel.
+  std::array<double, 4> baseColor{{0.75, 0.75, 0.75, 1.0}};
+  double frame = 0.0, time = 0.0;
+};
+
+struct SurfaceColor {
+  std::array<double, 3> color{{0.75, 0.75, 0.75}};
+  double opacity = 1.0;
+  // Per-channel coverage multiplies scalar opacity before 3D composition.
+  // After flattening, RGBA alpha is the maximum channel coverage.
+  std::array<double, 3> coloredOpacity{{1.0, 1.0, 1.0}};
+};
+
+class SurfaceEvaluator {
+public:
+  virtual ~SurfaceEvaluator() = default;
+  // Object-space distance along the original, normalized object normal.
+  virtual double displace(const SurfaceSample &sample) = 0;
+  // Called at actual coverage samples after perspective-correct interpolation.
+  virtual SurfaceColor shade(const SurfaceSample &sample) = 0;
+};
+
+struct SurfaceRequest {
+  // A nonempty, stable identity must change with source, schema, host bindings,
+  // evaluator policy or values. Factories must only capture immutable data.
+  std::string identity;
+  double frame = 0.0, time = 0.0;
+  std::function<std::unique_ptr<SurfaceEvaluator>(const int *canceled)>
+      createEvaluator;
+
+  bool operator==(const SurfaceRequest &other) const {
+    return identity == other.identity && frame == other.frame && time == other.time;
+  }
+};
+
 struct RenderOptions {
   std::array<double, 3> position{}, rotation{};  // Degrees, applied X then Y then Z.
   double scale = 1.0;
@@ -75,11 +121,22 @@ struct RenderOptions {
   int animation = NoIndex;
   double sourceSeconds = 0.0;
 
+  std::shared_ptr<const SurfaceRequest> surface;
+
   bool operator==(const RenderOptions &other) const;
 };
 
 struct ProjectedVertex {
   double x, y, depth;  // Larger depth is nearer (1/d for perspective, -d otherwise).
+};
+struct SurfaceVertex {
+  std::array<double, 3> objectPosition{}, worldPosition{}, cameraPosition{};
+  std::array<double, 3> objectNormal{}, worldNormal{}, cameraNormal{};
+  std::array<double, 2> uv{};
+};
+struct SurfaceTriangle {
+  std::array<SurfaceVertex, 3> vertices;
+  std::array<double, 4> baseColor{{0.75, 0.75, 0.75, 1.0}};
 };
 struct RenderTriangle {
   std::array<ProjectedVertex, 3> vertices;
@@ -87,6 +144,9 @@ struct RenderTriangle {
   std::array<float, 3> color;
   std::array<std::array<double, 2>, 3> uv{};
   bool textured = false;
+  // Allocated only for procedural surfaces; ordinary rendering keeps its
+  // existing compact data path and output behavior.
+  std::shared_ptr<const SurfaceTriangle> surface;
 };
 struct ColorPixel {
   float r = 0, g = 0, b = 0, alpha = 0;  // Premultiplied sRGB.
@@ -98,6 +158,9 @@ struct RenderScene {
   bool wireframe = false;
   int textureWidth = 0, textureHeight = 0;
   std::shared_ptr<const std::vector<ColorPixel>> texture;
+  std::shared_ptr<const SurfaceRequest> surface;
+  bool perspective = false, headlight = false, useLightingRig = false;
+  LightingRig lighting;
 };
 struct RenderTile {
   int width = 0, height = 0;
@@ -124,10 +187,14 @@ std::vector<ColorPixel> renderTile(const RenderScene &scene, const RenderTile &t
 RenderScene prepareImagePlane(
     int width, int height,
     std::shared_ptr<const std::vector<ColorPixel>> pixels,
-    const std::vector<ModelTransform> &transforms);
+    const std::vector<ModelTransform> &transforms,
+    std::shared_ptr<const SurfaceRequest> surface = {},
+    const int *canceled = nullptr);
 // Geometry-only query for FX bounds; does not allocate or evaluate pixels.
 RenderScene projectImagePlane(int width, int height,
-                              const std::vector<ModelTransform> &transforms);
+                              const std::vector<ModelTransform> &transforms,
+                              std::shared_ptr<const SurfaceRequest> surface = {},
+                              const int *canceled = nullptr);
 
 float linearToSrgb(float value);
 float srgbToLinear(float value);

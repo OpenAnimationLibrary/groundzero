@@ -401,9 +401,15 @@ endif()
 
 
 if(PLATFORM EQUAL 64)
-    if(BUILD_ENV_UNIXLIKE)
+    if(BUILD_ENV_APPLE)
+        # Request the modules used by image processing, camera capture and
+        # calibration. Linking every installed module also pulls in unused
+        # visualization libraries and their external renderer dependencies.
+        find_package(OpenCV 4.1 REQUIRED COMPONENTS core imgproc imgcodecs videoio calib3d)
+        message(STATUS "OpenCV application components: ${OpenCV_LIBS}")
+    elseif(BUILD_ENV_UNIXLIKE)
         find_package(OpenCV REQUIRED)
-    else() # Windows and MacOS case
+    else() # Windows case
         find_package(OpenCV 4.1 REQUIRED)
     endif()
     #include_directories(
@@ -847,6 +853,8 @@ include("${CMAKE_CURRENT_SOURCE_DIR}/../cmake/Partio.cmake")
 # except the GLB/3D suites (tested in OT3D). Each suite keeps its own option
 # and can still be set alone.
 option(BUILD_TESTS "Build all regression tests and register them with ctest" OFF)
+option(BUILD_SEEXPR_TESTS "Build native SeExpr language, rendering and authoring regression tests" ${BUILD_TESTS})
+option(BUILD_SEEXPR_PYTHON "Build the optional SeExpr Python AST bindings" OFF)
 option(BUILD_RELIABILITY_TESTS "Build raster, cache, save and selection regression tests" ${BUILD_TESTS})
 option(BUILD_CADMIUM_TESTS "Build Cadmium native adapter and workflow tests" ${BUILD_TESTS})
 option(BUILD_CELFX_TESTS "Build cel effect rendering and UI regression tests" ${BUILD_TESTS})
@@ -890,6 +898,11 @@ endif()
 enable_testing()
 
 add_subdirectory(tnzcore)
+include("${CMAKE_CURRENT_SOURCE_DIR}/../cmake/SeExpr.cmake")
+if(BUILD_SEEXPR_PYTHON)
+    find_package(Python3 3.10 REQUIRED COMPONENTS Interpreter Development.Module)
+    add_subdirectory(seexprpython)
+endif()
 if(BUILD_RELIABILITY_TESTS)
     # Declare consumers outside tnzcore's directory so they do not inherit
     # its DLL export definitions on Windows.

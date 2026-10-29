@@ -335,7 +335,8 @@ QString StageObjectChannelGroup::getIdName() const {
 //
 //-----------------------------------------------------------------------------
 
-FxChannelGroup::FxChannelGroup(TFx *fx) : m_fx(fx) {
+FxChannelGroup::FxChannelGroup(TFx *fx, bool referenceOnly)
+    : m_referenceOnly(referenceOnly), m_fx(fx) {
   if (m_fx) m_fx->addRef();
 }
 
@@ -682,6 +683,7 @@ QVariant FunctionTreeModel::Channel::data(int role) const {
 //-----------------------------------------------------------------------------
 
 QString FunctionTreeModel::Channel::getShortName() const {
+  if (!m_referencePath.empty()) return QString::fromStdString(m_referencePath);
   if (m_param->hasUILabel()) {
     return QString::fromStdString(m_param->getUILabel());
   }
@@ -719,6 +721,9 @@ void FunctionTreeModel::Channel::setParam(const TParamP &param) {
 /*! in order to show the expression name in the tooltip
  */
 QString FunctionTreeModel::Channel::getExprRefName() const {
+  // Reference maintenance paths also include hidden and dynamic sets that the
+  // native token registry may not expose as user-enterable expression names.
+  if (!m_referencePath.empty()) return QString();
   auto *material = dynamic_cast<ParamChannelGroup *>(getParent());
   // The expression token registry does not yet register dynamic material paths.
   // Do not advertise a reference made from a display name that cannot resolve.
@@ -905,6 +910,16 @@ FunctionTreeModel::~FunctionTreeModel() {
 //-----------------------------------------------------------------------------
 
 void FunctionTreeModel::refreshData(TXsheet *xsh) {
+  refreshDataImpl(xsh, false);
+}
+
+void FunctionTreeModel::refreshReferenceData(TXsheet *xsh) {
+  refreshDataImpl(xsh, true);
+}
+
+void FunctionTreeModel::refreshDataImpl(TXsheet *xsh, bool referenceMode) {
+  if (m_referenceMode != referenceMode && getRootItem()) resetAll();
+  m_referenceMode = referenceMode;
   m_activeChannels.clear();
   Channel *currentChannel = m_currentChannel;
 
@@ -957,7 +972,8 @@ void FunctionTreeModel::refreshStageObjects(TXsheet *xsh) {
   for (i = 0; i < iCount; ++i) {
     TStageObject *pegbar = ptree->getStageObject(i);
     TStageObjectId id    = pegbar->getId();
-    if (id.isColumn() && xsh->isColumnEmpty(id.getIndex())) continue;
+    if (!m_referenceMode && id.isColumn() && xsh->isColumnEmpty(id.getIndex()))
+      continue;
 
     newItems.push_back(new StageObjectChannelGroup(pegbar));
   }
@@ -980,7 +996,7 @@ void FunctionTreeModel::refreshStageObjects(TXsheet *xsh) {
     for (j = 0; j < jCount; ++j) {
       // Cameras ignore the 3D tilt channels (see
       // TStageObject::computeLocalPlacement()), so do not list them
-      if (stageObject->getId().isCamera() &&
+      if (!m_referenceMode && stageObject->getId().isCamera() &&
           (channelIds[j] == TStageObject::T_RotX ||
            channelIds[j] == TStageObject::T_RotY))
         continue;
@@ -1050,7 +1066,7 @@ void FunctionTreeModel::refreshOffsetLayers() {
       params.push_back(layer.m_weight.getPointer());
       for (int c = 0; c < TStageObject::T_ChannelCount; ++c) {
         // Cameras ignore the 3D tilt channels, as for the base ones
-        if (stageObject->getId().isCamera() &&
+        if (!m_referenceMode && stageObject->getId().isCamera() &&
             (c == TStageObject::T_RotX || c == TStageObject::T_RotY))
           continue;
         if (layer.m_channels[c])
@@ -1080,7 +1096,7 @@ void FunctionTreeModel::refreshFxs(TXsheet *xsh) {
     // The level columns that use the time remap or the Color Effect list
     // their curves
     TXshLevelColumn *lc = dynamic_cast<TXshLevelColumn *>(xsh->getColumn(i));
-    if (lc && (lc->isTimeRemapUsed() || lc->isColorEffectUsed()))
+    if (lc && (m_referenceMode || lc->isTimeRemapUsed() || lc->isColorEffectUsed()))
       fxs.push_back(lc->getLevelColumnFx());
 
     TXshZeraryFxColumn *zc =
@@ -1113,11 +1129,12 @@ void FunctionTreeModel::refreshFxs(TXsheet *xsh) {
       if (0 != dynamic_cast<TDoubleParam *>(params->getParam(j)) ||
           0 != dynamic_cast<TPointParam *>(params->getParam(j)) ||
           0 != dynamic_cast<TRangeParam *>(params->getParam(j)) ||
-          0 != dynamic_cast<TPixelParam *>(params->getParam(j))) {
+          0 != dynamic_cast<TPixelParam *>(params->getParam(j)) ||
+          (m_referenceMode && dynamic_cast<TParamSet *>(params->getParam(j)))) {
         hasChannel = true;
         break;
       }
-    if (hasChannel) newItems.push_back(new FxChannelGroup(fxs[i]));
+    if (hasChannel) newItems.push_back(new FxChannelGroup(fxs[i], m_referenceMode));
   }
   m_fxs->setChildren(newItems);
   // Add channels to new fxs (only for those actually added: see setChildren())
@@ -1279,6 +1296,26 @@ void FunctionTreeModel::addParameter(ChannelGroup *group,
 
 //-----------------------------------------------------------------------------
 
+void FunctionTreeModel::addReferenceParameter(
+    ChannelGroup *group, const std::wstring &fxId, TParam *param,
+    const std::string &path) {
+  if (auto *curve = dynamic_cast<TDoubleParam *>(param)) {
+    auto *channel = new Channel(this, curve, "", fxId);
+    channel->setReferencePath(
+        fxId.empty() ? path : QString::fromStdWString(fxId).toStdString() + "." + path);
+    group->appendChild(channel);
+    channel->setChannelGroup(group);
+  } else if (auto *set = dynamic_cast<TParamSet *>(param)) {
+    // Registered component names can differ from the parameter object's name,
+    // and multiple sets commonly use the same leaf names (Red, Alpha, ...).
+    for (int index = 0; index < set->getParamCount(); ++index)
+      addReferenceParameter(group, fxId, set->getParam(index).getPointer(),
+                            path + "." + set->getParamName(index));
+  }
+}
+
+//-----------------------------------------------------------------------------
+
 void FunctionTreeModel::addChannels(TFx *fx, ChannelGroup *groupItem,
                                     TParamContainer *params) {
   FxChannelGroup *fxItem = static_cast<FxChannelGroup *>(groupItem);
@@ -1292,8 +1329,12 @@ void FunctionTreeModel::addChannels(TFx *fx, ChannelGroup *groupItem,
   int p, pCount = params->getParamCount();
   for (p = 0; p != pCount; ++p) {
     // hidden parameter are not displayed in the tree
-    if (params->isParamHidden(p)) continue;
-    addParameter(fxItem, paramNamePref, fxId, params->getParam(p));
+    if (!m_referenceMode && params->isParamHidden(p)) continue;
+    if (m_referenceMode)
+      addReferenceParameter(fxItem, fxId, params->getParam(p),
+                            params->getParamName(p));
+    else
+      addParameter(fxItem, paramNamePref, fxId, params->getParam(p));
   }
 }
 
@@ -1395,6 +1436,9 @@ FunctionTreeModel::ChannelGroup *FunctionTreeModel::getFxChannel(
 //-----------------------------------------------------------------------------
 
 void FunctionTreeModel::onChange(const TParamChange &tpc) {
+  // Reference-only models have no view to repaint. In particular, a temporary
+  // paste model must not enqueue a GUI notification that outlives that model.
+  if (m_referenceMode) return;
   if (!m_paramsChanged) {
     m_paramsChanged = true;
 

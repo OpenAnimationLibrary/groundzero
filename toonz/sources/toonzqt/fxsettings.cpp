@@ -13,6 +13,8 @@
 #include "tspectrumparam.h"
 #include "tfxattributes.h"
 #include "toutputproperties.h"
+#include "tseexprfx.h"
+#include "tnotanimatableparam.h"
 #include "pluginhost.h"
 #include "tenv.h"
 #include "tsystem.h"
@@ -44,10 +46,45 @@
 #include <QSignalBlocker>
 #include <QScopedValueRollback>
 #include <QComboBox>
+#include <QCryptographicHash>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <cmath>
 
 #include <QDesktopServices>
 #include <QUrl>
+
+namespace {
+// Dynamic layout identity excludes values/source text so ordinary keyframe or
+// expression edits reuse the page. Stable IDs, labels and types rebuild it.
+QByteArray seExprLayout(const TFxP &fx) {
+  if (!fx) return {};
+  if (const auto *macro = dynamic_cast<TMacroFx *>(fx.getPointer())) {
+    QByteArray result;
+    for (const auto &child : macro->getFxs()) result += seExprLayout(child);
+    return result;
+  }
+  const auto *source = dynamic_cast<TFxSeExprSource *>(fx.getPointer());
+  if (!source || !source->seExprDocumentParam()) return {};
+  const auto document = QJsonDocument::fromJson(QString::fromStdWString(
+      source->seExprDocumentParam()->getValue()).toUtf8()).object();
+  QJsonArray shape;
+  for (const auto &entry : document.value("controls").toArray()) {
+    const auto control = entry.toObject();
+    shape.append(QJsonObject{{"id", control.value("id")},
+                             {"name", control.value("name")},
+                             {"label", control.value("label")},
+                             {"type", control.value("type")},
+                             {"min", control.value("min")},
+                             {"max", control.value("max")},
+                             {"integer", control.value("integer")},
+                             {"presentation", control.value("presentation")},
+                             {"stops", int(control.value("points").toArray().size())}});
+  }
+  return QByteArray(fx->getFxType().c_str()) + QJsonDocument(shape).toJson(QJsonDocument::Compact);
+}
+}  // namespace
 #include <QGuiApplication>
 #include <QScreen>
 #include <QActionGroup>
@@ -860,6 +897,28 @@ void ParamsPage::addExposedParam(int fxIndex, const TFxP& fx,
 
 //-----------------------------------------------------------------------------
 
+void ParamsPage::addSeExprControl(const TFxP &fx, const std::string &name) {
+  TParamP param = fx->getParams()->getParam(name);
+  if (!param) return;
+  const QString label = QString::fromStdString(param->hasUILabel()
+      ? param->getUILabel() : name);
+  ParamField *field = ParamField::create(this, label, param);
+  if (!field) return;
+  field->setProperty("preserveColorPrecision", true);
+  m_fields.push_back(field);
+  registerPageParam(field, name);
+  QCheckBox *pin = createPinCheckBox(field, name);
+  const int row = m_mainLayout->rowCount();
+  if (pin) m_mainLayout->addWidget(pin, row, 0, Qt::AlignCenter);
+  auto nameLabel = new QLabel(label, this);
+  nameLabel->setObjectName("FxSettingsLabel");
+  m_mainLayout->addWidget(nameLabel, row, labelColumn(), Qt::AlignRight | Qt::AlignVCenter);
+  m_mainLayout->addWidget(field, row, fieldColumn());
+  connect(field, SIGNAL(currentParamChanged()), m_paramViewer, SIGNAL(currentFxParamChanged()));
+  connect(field, SIGNAL(actualParamChanged()), m_paramViewer, SIGNAL(actualFxParamChanged()));
+  connect(field, SIGNAL(paramKeyToggle()), m_paramViewer, SIGNAL(paramKeyChanged()));
+}
+
 void ParamsPage::setPointValue(int index, const TPointD &p) {
   if (0 <= index && index < (int)m_fields.size())
     m_fields[index]->setPointValue(p);
@@ -1428,7 +1487,26 @@ void ParamsPageSet::createControls(const TFxP& fx, int index,
     } catch (TException const &) {
     }
   }
-  // else createEmptyPage();
+  if (dynamic_cast<TFxSeExprSource *>(fx.getPointer())) {
+    ParamsPage *page = createParamsPage();
+    if (owningMacro) page->configureMacroPage(owningMacro, macroFxPath, index);
+    bool hasControls = false;
+    for (int paramIndex = 0; paramIndex < fx->getParams()->getParamCount(); ++paramIndex) {
+      const auto param = fx->getParams()->getParam(paramIndex);
+      if (!param) continue;
+      const std::string name = param->getName();
+      const auto *variable = fx->getParams()->getParamVar(name);
+      if (name.rfind("seexprControl_", 0) != 0 || !variable || variable->isHidden()) continue;
+      page->addSeExprControl(fx, name);
+      hasControls = true;
+    }
+    if (hasControls) {
+      page->setPageSpace();
+      const QByteArray title = QCoreApplication::translate("FxSettings", "Expression Controls").toUtf8();
+      addParamsPage(page, title.constData());
+      if (index >= 0) m_pageFxIndexTable[page] = index;
+    } else delete page;
+  }
 }
 
 //-----------------------------------------------------------------------------
@@ -1648,6 +1726,24 @@ void ParamViewer::setFx(const TFxP &currentFx, const TFxP &actualFx, int frame,
           macroFx->getMacroFxType() + "[" + macroFx->getExposedParamKey() + "]";
   } else {
     name += std::to_string(actualFx->getFxVersion());
+  }
+
+  const QByteArray shape = seExprLayout(actualFx);
+  if (!shape.isEmpty()) {
+    name += ":" + QCryptographicHash::hash(shape, QCryptographicHash::Sha256).toHex().toStdString();
+    if (!m_seExprPageKey.empty() && m_seExprPageKey != name) {
+      const auto previous = m_tableFxIndex.find(m_seExprPageKey);
+      if (previous != m_tableFxIndex.end()) {
+        const int removedIndex = previous.value();
+        QWidget *previousPage = m_tablePageSet->widget(removedIndex);
+        m_tablePageSet->removeWidget(previousPage);
+        if (previousPage) previousPage->deleteLater();
+        m_tableFxIndex.erase(previous);
+        for (auto page = m_tableFxIndex.begin(); page != m_tableFxIndex.end(); ++page)
+          if (page.value() > removedIndex) --page.value();
+      }
+    }
+    m_seExprPageKey = name;
   }
 
   int currentIndex = -1;

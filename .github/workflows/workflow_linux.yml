@@ -10,6 +10,7 @@ on:
   push:
     branches:
       - edition
+      - 'ci/seexpr-*'
 
 permissions:
   contents: read
@@ -35,6 +36,10 @@ jobs:
     steps:
     - uses: actions/checkout@v6
 
+    - uses: actions/setup-python@v6
+      with:
+        python-version: '3.12'
+
     - name: Install libraries
       run: |
         # The runner's Azure package mirror stalls in the middle of downloads,
@@ -46,7 +51,7 @@ jobs:
         ok=0
         for attempt in 1 2 3; do
           if timeout 600 sudo apt-get update -o Acquire::http::Timeout=30 -o Acquire::Retries=5 &&
-             timeout 900 sudo apt-get install -y xvfb libgl1-mesa-dri -o Acquire::http::Timeout=30 -o Acquire::Retries=5 build-essential cmake pkg-config ninja-build ccache libboost-all-dev qtbase5-dev qt5-qmake qtdeclarative5-dev qtdeclarative5-dev-tools qttools5-dev qttools5-dev-tools qtmultimedia5-dev qtwayland5 libqt5svg5-dev libqt5opengl5-dev libqt5multimedia5-plugins libqt5serialport5-dev libsuperlu-dev liblz4-dev libusb-1.0-0-dev liblzo2-dev libpng-dev libjpeg-dev libglew-dev freeglut3-dev libfreetype6-dev libjson-c-dev libmypaint-dev libopencv-dev libturbojpeg-dev libomp-dev libfuse2 ffmpeg; then ok=1; break; fi
+             timeout 900 sudo apt-get install -y xvfb libgl1-mesa-dri -o Acquire::http::Timeout=30 -o Acquire::Retries=5 build-essential cmake pkg-config ninja-build ccache bison flex gdb python3-dev libboost-all-dev qtbase5-dev qt5-qmake qtdeclarative5-dev qtdeclarative5-dev-tools qttools5-dev qttools5-dev-tools qtmultimedia5-dev qtwayland5 libqt5svg5-dev libqt5opengl5-dev libqt5multimedia5-plugins libqt5serialport5-dev libsuperlu-dev liblz4-dev libusb-1.0-0-dev liblzo2-dev libpng-dev libjpeg-dev libglew-dev freeglut3-dev libfreetype6-dev libjson-c-dev libmypaint-dev libopencv-dev libturbojpeg-dev libomp-dev libfuse2 ffmpeg; then ok=1; break; fi
           echo "::warning title=apt::attempt $attempt failed, retrying"
           sleep 20
         done
@@ -78,7 +83,7 @@ jobs:
         mkdir build
         cd build
         set -o pipefail
-        cmake ../sources -G Ninja -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER=${{ matrix.cxx }} -DCMAKE_C_COMPILER=${{ matrix.cc }} -DWITH_TRANSLATION=OFF -DBUILD_LUT3D_TESTS=ON -DBUILD_CELFX_TESTS=ON -DBUILD_CADMIUM_TESTS=ON -DBUILD_PARTICLE_CACHE_TESTS=ON -DBUILD_RELIABILITY_TESTS=ON -DBUILD_STREAM_TESTS=ON -DBUILD_SCENEBENCH_TESTS=ON -DBUILD_FXRENDER_TESTS=ON -DBUILD_FFMPEG_TESTS=ON -DBUILD_PSD_TESTS=ON -DCMAKE_CXX_FLAGS=-Werror=return-type 2>&1 | tee "$GITHUB_WORKSPACE/build.log"
+        cmake ../sources -G Ninja -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER=${{ matrix.cxx }} -DCMAKE_C_COMPILER=${{ matrix.cc }} -DWITH_TRANSLATION=OFF -DBUILD_CELFX_TESTS=ON -DBUILD_CADMIUM_TESTS=ON -DBUILD_LUT3D_TESTS=ON -DBUILD_PARTICLE_CACHE_TESTS=ON -DBUILD_RELIABILITY_TESTS=ON -DBUILD_STREAM_TESTS=ON -DBUILD_SCENEBENCH_TESTS=ON -DBUILD_FXRENDER_TESTS=ON -DBUILD_FFMPEG_TESTS=ON -DBUILD_PSD_TESTS=ON -DBUILD_SEEXPR_TESTS=ON -DBUILD_SEEXPR_PYTHON=ON -DPython3_EXECUTABLE="$(command -v python)" -DCMAKE_CXX_FLAGS=-Werror=return-type 2>&1 | tee "$GITHUB_WORKSPACE/build.log"
         # -k 0: keep going, so one run reports every file that fails
         ninja -k 0 OpenToonz celfx_tests cadmium_tests particlecache_tests referencecolormatch_test 2>&1 | tee -a "$GITHUB_WORKSPACE/build.log"
 
@@ -140,13 +145,94 @@ jobs:
       run: python3 ci-scripts/report_cel_tests.py toonz/build/cel-tests-output.txt
 
     - name: Build application
+      id: application_build
       working-directory: toonz/build
       run: |
         export CCACHE_DIR=/home/runner/.ccache
         set -o pipefail
         ninja -k 0 2>&1 | tee -a "$GITHUB_WORKSPACE/build.log"
 
+    - name: Test SeExpr native integration
+      id: seexpr_tests
+      if: ${{ !cancelled() && steps.application_build.outcome == 'success' }}
+      working-directory: toonz/build
+      env:
+        SEEXPR_LINUX_CORE_DIRECTORY: ${{ github.workspace }}/toonz/build/seexpr-native-cores
+      run: |
+        set -o pipefail
+        mkdir -p "$SEEXPR_LINUX_CORE_DIRECTORY"
+        chmod 700 "$SEEXPR_LINUX_CORE_DIRECTORY"
+        collect_native_test_crashes() {
+          native_test_status=$?
+          trap - EXIT
+          set +e
+          timeout --kill-after=5s 115s python ../../ci-scripts/seexpr/native_crashes.py \
+            --core-directory "$SEEXPR_LINUX_CORE_DIRECTORY" \
+            --binary-directory "$PWD/bin" \
+            --report "$PWD/seexpr-native-tests-debugger.txt"
+          native_collector_status=$?
+          if [ "$native_collector_status" -ne 0 ]; then
+            printf 'Native crash collector exited with status %s.\n' "$native_collector_status" >> seexpr-native-tests-debugger.txt
+          fi
+          rm -f -- "$SEEXPR_LINUX_CORE_DIRECTORY"/core.*
+          exit "$native_test_status"
+        }
+        trap collect_native_test_crashes EXIT
+        sudo sysctl -w "kernel.core_pattern=$SEEXPR_LINUX_CORE_DIRECTORY/core.%p"
+        ulimit -c unlimited
+        QT_QPA_PLATFORM=xcb LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a ctest --output-on-failure --output-junit seexpr-tests.xml --no-tests=error --timeout 180 -R '^seexpr_' 2>&1 | tee seexpr-tests-output.txt
+
+    - name: Report SeExpr test failures
+      if: ${{ failure() && steps.seexpr_tests.outcome == 'failure' }}
+      run: python ci-scripts/seexpr/report.py toonz/build/seexpr-tests-output.txt
+
+    - name: Report native SeExpr crash stack
+      if: ${{ failure() && steps.seexpr_tests.outcome == 'failure' }}
+      run: |
+        report=toonz/build/seexpr-native-output-debugger.txt
+        if [ -f "$report" ]; then
+          python ci-scripts/seexpr/report.py "$report"
+        fi
+        report=toonz/build/seexpr-native-tests-debugger.txt
+        if [ -f "$report" ]; then
+          python ci-scripts/seexpr/report.py "$report"
+        fi
+
+    - name: Retain SeExpr native diagnostics
+      if: ${{ always() && steps.seexpr_tests.outcome != 'skipped' }}
+      uses: actions/upload-artifact@v6
+      with:
+        name: SeExpr-native-diagnostics-${{ github.sha }}
+        path: |
+          toonz/build/seexpr-tests-output.txt
+          toonz/build/seexpr-tests.xml
+          toonz/build/seexpr-native-output.txt
+          toonz/build/seexpr-native-output-debugger.txt
+          toonz/build/seexpr-native-tests-debugger.txt
+        if-no-files-found: warn
+
+    - name: Measure SeExpr full-resolution rendering
+      id: seexpr_performance
+      timeout-minutes: 10
+      working-directory: toonz/build
+      run: |
+        set -o pipefail
+        timeout 570 bin/seexpr_fx_test --benchmark 2>&1 | tee seexpr-performance.txt
+
+    - name: Report SeExpr performance failure
+      if: ${{ failure() && steps.seexpr_performance.outcome == 'failure' }}
+      run: python ci-scripts/seexpr/report.py toonz/build/seexpr-performance.txt
+
+    - name: Retain SeExpr performance measurements
+      if: ${{ always() && steps.seexpr_performance.outcome != 'skipped' }}
+      uses: actions/upload-artifact@v6
+      with:
+        name: SeExpr-performance-${{ github.sha }}
+        path: toonz/build/seexpr-performance.txt
+        if-no-files-found: warn
+
     - name: Test reliability and performance invariants
+      if: ${{ !cancelled() && steps.application_build.outcome == 'success' }}
       working-directory: toonz/build
       run: |
         QT_QPA_PLATFORM=xcb LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a python3 ../../ci-scripts/run_regression_tests.py rasterallocation timagecache levelselection save_transaction movierenderqueue levelupdater_abort trenderer_startup renderoutputbudget executor_submission compressed_stream scenebench fxrender ffmpeg_public tiio_ffmpeg tiio_psd
@@ -238,7 +324,7 @@ jobs:
 
         cat << EOF > apprun.sh
         #!/usr/bin/env bash
-        exec "\${APPDIR}/usr/bin/OpenToonz"
+        exec "\${APPDIR}/usr/bin/OpenToonz" "\$@"
         EOF
         chmod 755 apprun.sh
 
@@ -264,4 +350,11 @@ jobs:
       with:
         name: Opentoonz-${{ runner.os }}-${{ matrix.compiler }}-${{ github.sha }}
         path: toonz/build/Opentoonz-${{ runner.os }}-${{ matrix.compiler }}-${{ github.sha }}.tar.gz
+
+  InstalledApplication:
+    needs: Ubuntu
+    uses: ./.github/workflows/seexpr-package-smoke.yml
+    with:
+      platform: linux
+      artifact_name: Opentoonz-Linux-gcc-${{ github.sha }}
 

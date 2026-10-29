@@ -1349,7 +1349,8 @@ bool TRenderSettings::operator==(const TRenderSettings &rhs) const {
       m_colorSpaceGamma != rhs.m_colorSpaceGamma)
     return false;
 
-  return std::equal(m_data.begin(), m_data.end(), rhs.m_data.begin(), areEqual);
+  return m_data.size() == rhs.m_data.size() &&
+         std::equal(m_data.begin(), m_data.end(), rhs.m_data.begin(), areEqual);
 }
 
 //------------------------------------------------------------------------------

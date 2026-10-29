@@ -749,6 +749,7 @@ void TFx::loadData(TIStream &is) {
           TParamVar *paramVar = getParams()->getParamVar(paramName);
           if (paramVar && paramVar->getParam()) {
             paramVar->getParam()->loadData(is);
+            onParamLoaded(paramName);
             if (paramVar->isObsolete())
               onObsoleteParamLoaded(paramVar->getParam()->getName());
           } else  // Parameter not present -> skip
@@ -969,7 +970,12 @@ void TFx::loadPreset(TIStream &is) {
         while (is.openChild(paramName)) {
           try {
             TParamP param = getParams()->getParam(paramName);
-            param->loadData(is);
+            if (param) {
+              param->loadData(is);
+              onParamLoaded(paramName);
+            } else {
+              skipChild(is);
+            }
           } catch (TException &) { /* Skip */
           }  // Parameter not present
           is.closeChild();

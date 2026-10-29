@@ -10,6 +10,7 @@
 #include "timageinfo.h"
 #include "trop.h"
 #include "tsop.h"
+#include "texception.h"
 
 #include "tiio.h"
 

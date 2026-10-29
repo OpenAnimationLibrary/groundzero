@@ -575,6 +575,9 @@ in TXsheetImp.
   void notify(const TXsheetColumnChange &change);
   void notifyFxAdded(const std::vector<TFx *> &fxs);
   void notifyStageObjectAdded(const TStageObjectId &id);
+  void notifyStageObjectsPasted(
+      const QMap<TStageObjectId, TStageObjectId> &idTable,
+      const QMap<TFx *, TFx *> &fxTable);
   bool isReferenceManagementIgnored(TDoubleParam *);
 
   NavigationTags *getNavigationTags() const { return m_navigationTags.get(); }

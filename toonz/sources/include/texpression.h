@@ -4,6 +4,7 @@
 #define TEXPRESSION_INCLUDED
 
 #include <memory>
+#include <functional>
 
 // TnzCore includes
 #include "tcommon.h"
@@ -71,7 +72,24 @@ expression's value at a given frame.
   void setText(std::string text);
   std::string getText() const;
 
+  // The explicit version marker keeps existing native expressions unchanged.
+  // Saved keyframes use a separate versioned tag for these expressions.
+  static bool isSeExprText(const std::string &text);
+  static std::string seExprSource(const std::string &text);
+  static std::string makeSeExprText(const std::string &source);
+  // Rewrite only native reference literals passed to channel(), never other
+  // SeExpr string data, comments, or user-defined variable names.
+  static std::string rewriteSeExprReferences(
+      const std::string &text,
+      const std::function<std::string(const std::string &)> &replace);
+
   TSyntax::Calculator *getCalculator();
+
+  // GUI-safe evaluation. Failed SeExpr drafts/loaded data keep their source
+  // and diagnostics; result retains the last valid preview when available.
+  // Batch hosts must treat false as a failed evaluation, not successful output.
+  bool evaluate(double t, double frame, double relativeFrame, const TUnit *unit,
+                double &result);
 
   /*!
           Returns whether the expression is valid according to actual
