@@ -142,7 +142,7 @@ void paletteFailureAndRetry(const QDir &dir, bool studio) {
   // Confirm that the replacement can be parsed, not just that bytes changed.
   TPaletteP reopened;
   if (studio) {
-    reopened = StudioPalette::instance()->load(path.withType("tpl"));
+    reopened = StudioPalette::instance()->getPalette(path.withType("tpl"));
   } else {
     TIStream input(path.withType("tpl"));
     TPersist *persist = nullptr;
@@ -249,7 +249,7 @@ void studioPaletteSerializationFailure(const QDir &dir) {
 
   palette->setStyle(1, TPixel32(10, 90, 180));
   studio->save(path, palette.getPointer());
-  TPaletteP reopened = studio->load(path);
+  TPaletteP reopened = studio->getPalette(path);
   require(!!reopened, "studio palette retry could not be read");
   require(reopened->getGlobalName() == palette->getGlobalName(),
           "studio palette retry lost the palette identity");

@@ -34,6 +34,7 @@ public:
       : m_renderer(renderer), m_action(action) {}
 
   std::string getPluginId() const override { return "startup-test"; }
+  const TPersistDeclaration *getDeclaration() const override { return nullptr; }
   bool canHandle(const TRenderSettings &, double) override { return true; }
   bool doGetBBox(double, TRectD &box, const TRenderSettings &) override {
     box = TRectD(0, 0, 4, 4);
