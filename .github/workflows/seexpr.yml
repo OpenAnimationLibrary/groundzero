@@ -19,7 +19,7 @@ jobs:
   core:
     name: ${{ matrix.label }}
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 25
+    timeout-minutes: ${{ matrix.backend == 'llvm14' && matrix.runner == 'windows-2025' && 90 || 25 }}
     strategy:
       fail-fast: false
       matrix:
@@ -35,6 +35,12 @@ jobs:
             backend: interpreter
           - label: Linux LLVM 14
             runner: ubuntu-22.04
+            backend: llvm14
+          - label: Windows LLVM 14
+            runner: windows-2025
+            backend: llvm14
+          - label: macOS LLVM 14
+            runner: macos-15-intel
             backend: llvm14
     steps:
       - uses: actions/checkout@v6
@@ -52,9 +58,24 @@ jobs:
           sudo apt-get update -o Acquire::http::Timeout=30 -o Acquire::Retries=3
           sudo apt-get install -y bison flex python3-dev
       - name: Install LLVM 14 qualification dependencies
-        if: matrix.backend == 'llvm14'
+        if: matrix.backend == 'llvm14' && runner.os == 'Linux'
         run: |
+          set -o pipefail
           sudo apt-get install -y llvm-14-dev libffi-dev libtinfo-dev zlib1g-dev
+          printf '%s\n' 'LLVM_DIR=/usr/lib/llvm-14/lib/cmake/llvm' >> "$GITHUB_ENV"
+          python ci-scripts/seexpr/install_llvm.py --license-only 2>&1 | tee seexpr-llvm-dependency.log
+      - name: Cache pinned LLVM 14 development SDK
+        if: matrix.backend == 'llvm14' && runner.os != 'Linux'
+        uses: actions/cache@v5
+        with:
+          path: ${{ runner.temp }}/seexpr-llvm14-sdk
+          key: seexpr-llvm14-sdk-v1-${{ matrix.runner }}-${{ runner.arch }}-${{ hashFiles('ci-scripts/seexpr/install_llvm.py') }}
+      - name: Install pinned LLVM 14 development SDK
+        if: matrix.backend == 'llvm14' && runner.os != 'Linux'
+        shell: bash
+        run: |
+          set -o pipefail
+          python ci-scripts/seexpr/install_llvm.py 2>&1 | tee seexpr-llvm-dependency.log
       - name: Install macOS parser tools
         if: runner.os == 'macOS'
         env:
@@ -83,7 +104,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          cmake -S ci-scripts/seexpr -B seexpr-build -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBUILD_SEEXPR_PYTHON=ON -DBUILD_SEEXPR_PYTHON_UI_TESTS=ON -DOT_SEEXPR_WITH_LLVM=ON -DLLVM_DIR=/usr/lib/llvm-14/lib/cmake/llvm 2>&1 | tee seexpr-configure.log
+          cmake -S ci-scripts/seexpr -B seexpr-build -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBUILD_SEEXPR_PYTHON=ON -DBUILD_SEEXPR_PYTHON_UI_TESTS=ON -DOT_SEEXPR_WITH_LLVM=ON -DLLVM_DIR="$LLVM_DIR" 2>&1 | tee seexpr-configure.log
       - name: Build core and bindings
         shell: bash
         run: |
@@ -96,16 +117,34 @@ jobs:
           ctest --test-dir seexpr-build -C RelWithDebInfo --output-on-failure --output-junit seexpr-tests.xml --no-tests=error --timeout 120 2>&1 | tee seexpr-tests.log
       - name: Report qualification failure
         if: failure()
-        run: python ci-scripts/seexpr/report.py seexpr-configure.log seexpr-build.log seexpr-tests.log
+        run: python ci-scripts/seexpr/report.py seexpr-llvm-dependency.log seexpr-configure.log seexpr-build.log seexpr-tests.log
       - name: Install and qualify the standalone SDK
         id: installed_sdk
         shell: bash
         run: |
           set -o pipefail
+          sdk_dependency=()
+          if [ "${{ matrix.backend }}" = llvm14 ]; then
+            sdk_dependency=("-DLLVM_DIR=$LLVM_DIR")
+          fi
           cmake --install seexpr-build --config RelWithDebInfo --prefix "$GITHUB_WORKSPACE/seexpr-sdk" 2>&1 | tee seexpr-sdk-install.log
-          cmake -S ci-scripts/seexpr/sdk_consumer -B seexpr-sdk-consumer -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/seexpr-sdk/sdk" 2>&1 | tee seexpr-sdk-configure.log
+          cmake -S ci-scripts/seexpr/sdk_consumer -B seexpr-sdk-consumer -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/seexpr-sdk/sdk" "${sdk_dependency[@]}" 2>&1 | tee seexpr-sdk-configure.log
           cmake --build seexpr-sdk-consumer --config RelWithDebInfo --parallel 2 2>&1 | tee seexpr-sdk-build.log
           ctest --test-dir seexpr-sdk-consumer -C RelWithDebInfo --output-on-failure --no-tests=error 2>&1 | tee seexpr-sdk-tests.log
+      - name: Package optional backend notices
+        if: matrix.backend == 'llvm14'
+        shell: bash
+        run: |
+          if [ ! -s "$LLVM_LICENSE_FILE" ]; then
+            echo '::error title=SeExpr qualification::The optional backend distribution notice is missing.'
+            exit 1
+          fi
+          for destination in seexpr-sdk/sdk/share/licenses/LICENSE_LLVM.txt seexpr-build/seexpr-python/LICENSE_LLVM.txt; do
+            if ! cp "$LLVM_LICENSE_FILE" "$destination"; then
+              echo '::error title=SeExpr qualification::Could not package the optional backend distribution notice.'
+              exit 1
+            fi
+          done
       - name: Report installed SDK failure
         if: ${{ failure() && steps.installed_sdk.outcome == 'failure' }}
         run: python ci-scripts/seexpr/report.py seexpr-sdk-install.log seexpr-sdk-configure.log seexpr-sdk-build.log seexpr-sdk-tests.log
@@ -131,6 +170,7 @@ jobs:
         with:
           name: SeExpr-reports-${{ runner.os }}-${{ matrix.backend }}-${{ github.sha }}
           path: |
+            seexpr-llvm-dependency.log
             seexpr-configure.log
             seexpr-build.log
             seexpr-tests.log
@@ -139,4 +179,53 @@ jobs:
             seexpr-sdk-configure.log
             seexpr-sdk-build.log
             seexpr-sdk-tests.log
+          if-no-files-found: warn
+
+  sanitizer:
+    name: Linux ASan and UBSan
+    runs-on: ubuntu-22.04
+    timeout-minutes: 25
+    env:
+      ASAN_OPTIONS: detect_leaks=1:halt_on_error=1:abort_on_error=1:strict_string_checks=1
+      UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          lfs: false
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install sanitizer qualification dependencies
+        run: |
+          sudo apt-get update -o Acquire::http::Timeout=30 -o Acquire::Retries=3
+          sudo apt-get install -y bison flex
+      - name: Configure instrumented core and parser corpus
+        shell: bash
+        run: |
+          set -o pipefail
+          cmake -S ci-scripts/seexpr -B seexpr-sanitizer -DCMAKE_BUILD_TYPE=RelWithDebInfo -DSEEXPR_QUALIFY_SANITIZERS=ON -DBUILD_SEEXPR_PYTHON=OFF 2>&1 | tee seexpr-sanitizer-configure.log
+      - name: Build instrumented core and parser corpus
+        shell: bash
+        run: |
+          set -o pipefail
+          cmake --build seexpr-sanitizer --config RelWithDebInfo --parallel 4 2>&1 | tee seexpr-sanitizer-build.log
+      - name: Test memory and undefined behavior safeguards
+        shell: bash
+        run: |
+          set -o pipefail
+          ctest --test-dir seexpr-sanitizer -C RelWithDebInfo --output-on-failure --output-junit seexpr-sanitizer-tests.xml --no-tests=error --timeout 120 2>&1 | tee seexpr-sanitizer-tests.log
+      - name: Report sanitizer qualification failure
+        if: failure()
+        run: python ci-scripts/seexpr/report.py seexpr-sanitizer-configure.log seexpr-sanitizer-build.log seexpr-sanitizer-tests.log
+      - name: Retain sanitizer qualification diagnostics
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: SeExpr-sanitizer-reports-${{ github.sha }}
+          path: |
+            seexpr-sanitizer-configure.log
+            seexpr-sanitizer-build.log
+            seexpr-sanitizer-tests.log
+            seexpr-sanitizer/seexpr-sanitizer-tests.xml
           if-no-files-found: warn

@@ -5,12 +5,15 @@
 #include <QCryptographicHash>
 #include <QDialog>
 #include <QDialogButtonBox>
-#include <QDoubleSpinBox>
+#include <QDoubleValidator>
 #include <QFormLayout>
 #include <QHeaderView>
 #include <QHBoxLayout>
 #include <QJsonDocument>
+#include <QIntValidator>
 #include <QLabel>
+#include <QLineEdit>
+#include <QLocale>
 #include <QMap>
 #include <QPainter>
 #include <QPainterPath>
@@ -196,6 +199,37 @@ TSeExprSpectrum::Parameters spectrumParameters(const QJsonObject &parameters) {
   return result;
 }
 
+// The spectrum accepts finite doubles rather than a fixed number of decimal
+// places. Keep small cutoffs and large values editable without expanding a
+// scientific value into hundreds of zeroes in the widget.
+class SpectrumNumberEdit final : public QLineEdit {
+public:
+  explicit SpectrumNumberEdit(QWidget *parent) : QLineEdit(parent) {
+    auto *validator = new QDoubleValidator(-std::numeric_limits<double>::max(),
+        std::numeric_limits<double>::max(),
+        std::numeric_limits<double>::max_digits10, this);
+    validator->setLocale(locale());
+    validator->setNotation(QDoubleValidator::ScientificNotation);
+    setValidator(validator);
+  }
+  void setValue(double value) {
+    setText(locale().toString(value, 'g', std::numeric_limits<double>::max_digits10));
+  }
+  double value() const { return locale().toDouble(text()); }
+  void setRange(double minimum, double maximum) {
+    auto *numeric = new QDoubleValidator(minimum, maximum,
+        std::numeric_limits<double>::max_digits10, this);
+    numeric->setLocale(locale());
+    numeric->setNotation(QDoubleValidator::ScientificNotation);
+    setValidator(numeric);
+  }
+  void setIntegerRange(int minimum, int maximum) {
+    auto *integer = new QIntValidator(minimum, maximum, this);
+    integer->setLocale(locale());
+    setValidator(integer);
+  }
+};
+
 class SpectrumView final : public QWidget {
 public:
   QJsonArray points;
@@ -210,8 +244,9 @@ public:
     const QRectF plot = QRectF(rect()).adjusted(8, 8, -8, -8);
     QColor active = palette().highlight().color();
     active.setAlpha(40);
-    painter.fillRect(QRectF(plot.left() + grid[0] * plot.width(), plot.top(),
-                           (grid[1] - grid[0]) * plot.width(), plot.height()), active);
+    if (std::isfinite(grid[0]) && std::isfinite(grid[1]))
+      painter.fillRect(QRectF(plot.left() + grid[0] * plot.width(), plot.top(),
+                             (grid[1] - grid[0]) * plot.width(), plot.height()), active);
     painter.setPen(palette().mid().color());
     painter.drawRect(plot);
     QPainterPath path;
@@ -488,7 +523,8 @@ bool editSpectrum(QWidget *parent, QJsonObject &control) {
   layout->addLayout(form);
   QJsonObject params = control.value("spectrum").toObject();
   if (params.isEmpty()) params = defaultSpectrumParameters();
-  QMap<QString, QDoubleSpinBox *> fields;
+  QMap<QString, SpectrumNumberEdit *> fields;
+  QSet<QString> changed;
   const QStringList keys{"resolution", "tileSize", "lengthCutoff", "amplitude",
       "windAngle", "windSpeed", "directionalFactorExponent", "directionalReflectionDamping",
       "sharpen", "time", "filterWidth"};
@@ -498,44 +534,82 @@ bool editSpectrum(QWidget *parent, QJsonObject &control) {
       QObject::tr("Reflection Damping"), QObject::tr("Sharpen"), QObject::tr("Time"),
       QObject::tr("Filter Width")};
   for (int i = 0; i < keys.size(); ++i) {
-    auto *field = new QDoubleSpinBox(&dialog);
+    auto *field = new SpectrumNumberEdit(&dialog);
     field->setObjectName("seExprSpectrum_" + keys[i]);
-    field->setDecimals(keys[i] == "resolution" ? 0 : 6);
-    field->setRange(0, 1000000);
-    if (keys[i] == "resolution") field->setRange(1, 20);
-    if (keys[i] == "windAngle" || keys[i] == "time") field->setMinimum(-1000000);
-    if (keys[i] == "directionalFactorExponent") field->setRange(0, 32);
-    if (keys[i] == "windSpeed" || keys[i] == "tileSize") field->setMinimum(0.000001);
+    if (keys[i] == "resolution") field->setIntegerRange(1, 20);
+    if (keys[i] == "lengthCutoff" || keys[i] == "amplitude")
+      field->setRange(0, std::numeric_limits<double>::max());
+    if (keys[i] == "directionalFactorExponent")
+      field->setRange(std::nextafter(-3.99, 0.0), 32);
+    if (keys[i] == "windSpeed" || keys[i] == "tileSize")
+      field->setRange(std::numeric_limits<double>::denorm_min(),
+                      std::numeric_limits<double>::max());
     field->setValue(params.value(keys[i]).toDouble(defaultSpectrumParameters().value(keys[i]).toDouble()));
     fields.insert(keys[i], field);
     form->addRow(labels[i], field);
   }
   const auto flow = params.value("flowDirection").toArray();
   for (int i = 0; i < 3; ++i) {
-    auto *field = new QDoubleSpinBox(&dialog);
+    auto *field = new SpectrumNumberEdit(&dialog);
     field->setObjectName("seExprSpectrum_flow" + QString::number(i));
-    field->setDecimals(6); field->setRange(-1000000, 1000000);
     field->setValue(flow.size() > i ? flow[i].toDouble() : 0);
     fields.insert("flow" + QString::number(i), field);
     form->addRow(QObject::tr("Flow Component %1").arg(i + 1), field);
   }
   auto *view = new SpectrumView(&dialog);
+  view->setObjectName("seExprSpectrumView");
   layout->addWidget(view);
+  auto *error = new QLabel(&dialog);
+  error->setObjectName("seExprSpectrumError");
+  error->setWordWrap(true);
+  layout->addWidget(error);
   const auto read = [&] {
     QJsonObject current = params;
-    for (const auto &key : keys) current[key] = fields[key]->value();
-    current["flowDirection"] = QJsonArray{fields["flow0"]->value(), fields["flow1"]->value(), fields["flow2"]->value()};
+    // Only replace edited values. Display/locale conversion must not rewrite
+    // untouched doubles, optional fields, or unrelated source metadata.
+    for (const auto &key : keys)
+      if (changed.contains(key)) current[key] = fields[key]->value();
+    QJsonArray currentFlow = flow;
+    bool flowChanged = false;
+    for (int i = 0; i < 3; ++i) {
+      const QString key = "flow" + QString::number(i);
+      if (!changed.contains(key)) continue;
+      while (currentFlow.size() < 3) currentFlow.append(0.0);
+      currentFlow[i] = fields[key]->value();
+      flowChanged = true;
+    }
+    if (flowChanged) current["flowDirection"] = currentFlow;
     return current;
   };
   const auto update = [&] {
+    for (auto *field : fields) {
+      if (field->hasAcceptableInput()) continue;
+      view->points = {}; view->grid = {{0, 0}}; view->update();
+      error->setText(QObject::tr("Enter a valid number in the supported range."));
+      return;
+    }
     const auto current = read();
     view->points = spectrumPoints(current);
-    view->grid = TSeExprSpectrum::gridRange(spectrumParameters(current));
+    const auto grid = TSeExprSpectrum::gridRange(spectrumParameters(current));
+    const bool finiteGrid = std::isfinite(grid[0]) && std::isfinite(grid[1]);
+    // Finite parameters can overflow intermediates in the logarithmic display
+    // grid. Never pass its NaNs to QPainter or alter the spectrum's exact math.
+    view->grid = finiteGrid ? grid : std::array<double, 2>{{0, 0}};
+    if (view->points.isEmpty())
+      error->setText(QObject::tr("These values do not produce a finite spectrum preview."));
+    else if (!finiteGrid)
+      error->setText(QObject::tr("The spectrum grid cannot be displayed for these values."));
+    else
+      error->clear();
     view->update();
   };
-  for (auto *field : fields)
-    QObject::connect(field, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
-                     &dialog, [update](double) { update(); });
+  for (auto it = fields.cbegin(); it != fields.cend(); ++it) {
+    const QString key = it.key();
+    QObject::connect(it.value(), &QLineEdit::textChanged,
+                     &dialog, [&changed, key, update](const QString &) {
+      changed.insert(key); update();
+    });
+  }
   update();
   auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
   buttons->setObjectName("seExprSpectrumButtons");
@@ -543,6 +617,10 @@ bool editSpectrum(QWidget *parent, QJsonObject &control) {
   bool accepted = false;
   QObject::connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
   QObject::connect(buttons, &QDialogButtonBox::accepted, &dialog, [&] {
+    for (auto *field : fields) {
+      if (field->hasAcceptableInput()) continue;
+      field->setFocus(); return;
+    }
     const auto points = spectrumPoints(read());
     if (points.isEmpty()) return;
     control["type"] = "curve"; control["presentation"] = "spectrum";

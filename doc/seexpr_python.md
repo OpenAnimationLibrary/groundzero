@@ -2,11 +2,11 @@
 
 The optional `BUILD_SEEXPR_PYTHON` build produces a separately packaged Python 3 SDK. The application does not embed Python. `BUILD_SEEXPR_PYTHON_UI_TESTS` additionally qualifies the optional Qt widgets and requires the selected PyQt binding in the test interpreter.
 
-The SDK implementation and named acceptance fixtures form the source inventory. Actual passing evidence comes from the interpreter/LLVM jobs and reports of SeExpr qualification, as recorded in `seexpr_parity.md`. The SDK contains independently implemented authoring widgets and the licensed upstream syntax-inspection parser. It does not redistribute the upstream Qt package initializer with its restrictive notice.
+The SDK implementation and named acceptance fixtures form the source inventory. Actual passing evidence comes from the interpreter/LLVM jobs and reports of SeExpr qualification, as recorded in `seexpr_parity.md`. The SDK contains independently implemented authoring widgets and the licensed upstream syntax-inspection parser. It does not redistribute the upstream Qt package initializer with its restrictive notice; that file contains no executable functionality.
 
 ## Native syntax and evaluation
 
-`SeExprPy.AST`, `ASTHandle`, `ASTType`, `traverseCallback`, `traverseFilter`, `getComment`, and `Edits` follow the upstream inspection interface. Node ranges are UTF-8 byte offsets. Handles retain their node data after the original tree object is released. Edits preserve Unicode source, reject overlapping ranges, and quote replacement strings. The checked private `prepare_parser.py` step fixes imported polymorphic destruction and call/vector/unary source ranges, bounds AST height during construction and guards parser recursion before a deep tree can form. It preserves the downloaded source and license notices. Flat/malformed operator chains, nested unary/power/ternary source and immediate recovery have focused fixtures.
+`SeExprPy.AST`, `ASTHandle`, `ASTType`, `traverseCallback`, `traverseFilter`, `getComment`, `printTree`, and `Edits` follow the upstream inspection interface. `printTree(tree, source)` prints node names, values and ordered tree structure; it does not promise byte-identical legacy spacing. Node ranges are UTF-8 byte offsets. Handles retain their node data after the original tree object is released. Edits preserve Unicode source, reject overlapping ranges, and quote replacement strings. The checked private `prepare_parser.py` step fixes imported polymorphic destruction and call/vector/unary source ranges, bounds AST height during construction and guards parser recursion before a deep tree can form. It preserves the downloaded source and license notices. Flat/malformed operator chains, nested unary/power/ternary source and immediate recovery have focused fixtures.
 
 `SeExprPy.evaluate(source, variables=None, result_type="vector", dimension=3, backend="interpreter", functions=None)` evaluates through the same native adapter used by the application. Scalars return Python floats, vectors return tuples, and strings return Unicode strings. Variables accept numbers, numeric sequences of one through sixteen components, or strings. The result type is explicitly `scalar`, `vector`, or `string`.
 
@@ -36,10 +36,10 @@ Install PyQt5 or PyQt6 into the SDK consumer's interpreter. Set `SEEXPR_QT_API=p
 
 The frontend provides:
 
-- `ExprEditor`: source editing, syntax highlighting, source completion, actual function help, native validation/value preview, literal/annotation controls, error ranges and apply signals.
+- `ExprEditor`: source editing, syntax highlighting, source completion including parsed local assignments, actual function help, native validation/value preview, literal/annotation controls, error ranges and apply signals.
 - `ExprDialog`: a modeless editor with `preview` and `expressionApplied` signals.
 - `ExprControlCollection`: numeric, vector, color and string controls, including explicitly selected file/directory dialogs, curve controls, swatches and spectrum parameters.
-- `ExprBrowser`: search paths, source/JSON preset selection and saving with metadata preserved.
+- `ExprBrowser`: nested search paths, source/JSON preset selection and saving with metadata preserved. Relative folder labels distinguish repeated filenames. Traversal skips links/reparse points and reports limits after 4,096 entries or 32 subdirectory levels.
 - `ExprShortEdit` and `ExprShortTextEdit`: compact editing and an expanded editor that retains source and propagates applied changes.
 - `ExprCurve` and `ExprColorCurve`: point editing, all five upstream interpolation modes and previews evaluated by the native engine.
 - `ExprColorSwatchWidget`: color addition, removal, reordering and selection.

@@ -518,7 +518,72 @@ std::uint64_t peakMemory() {
 #endif
 #endif
 }
+
+void benchmarkResidentNodes() {
+  // Keep a population of independently animated native effects alive while
+  // source revisions evict the worker cache. This measures resident-node and
+  // editing workloads; it does not simulate a connected production scene.
+  constexpr int nodeCount = 64;
+  constexpr int revisions = 8;
+  const auto began = std::chrono::steady_clock::now();
+  const auto peakBefore = peakMemory();
+  std::vector<std::unique_ptr<SeExprGeneratorFx>> effects;
+  effects.reserve(nodeCount);
+  for (int node = 0; node < nodeCount; ++node) {
+    std::unique_ptr<SeExprGeneratorFx> effect(new SeExprGeneratorFx);
+    set(*effect, "width", 8); set(*effect, "height", 8);
+    document(*effect, "[$amount+$u,0,$v]", "1", {scalar("amount", double(node) / nodeCount)});
+    const auto amount = numeric(*effect, "seexprControl_amount__value");
+    amount->setValue(1, double(node) / nodeCount);
+    amount->setValue(3, -double(node) / nodeCount);
+    effects.push_back(std::move(effect));
+  }
+  const auto peakAllocated = peakMemory();
+  double coldMilliseconds = 0, warmMilliseconds = 0;
+  std::uint64_t aggregate = 0;
+  for (int revision = 0; revision < revisions; ++revision) {
+    for (int node = 0; node < nodeCount; ++node) {
+      auto &effect = *effects[node];
+      const auto amount = numeric(effect, "seexprControl_amount__value");
+      const double green = double(revision) / revisions;
+      const QString source = QString("[$amount+$u,%1,$v] # node %2")
+                                 .arg(green, 0, 'g', 17).arg(node);
+      document(effect, source, "1", {scalar("amount", double(node) / nodeCount)});
+      require(numeric(effect, "seexprControl_amount__value").getPointer() == amount.getPointer() &&
+                  amount->isKeyframe(1) && amount->isKeyframe(3),
+              "source editing replaced a resident node's animated parameter");
+      for (int pass = 0; pass < 2; ++pass) {
+        const double frame = pass ? 3 : 1;
+        const auto renderBegan = std::chrono::steady_clock::now();
+        const auto image = rendered<TPixelF>(effect, 8, 8, TPointD(-4, -4), frame);
+        const auto elapsed = std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - renderBegan).count();
+        if (pass) warmMilliseconds += elapsed;
+        else coldMilliseconds += elapsed;
+        const double value = (pass ? -1 : 1) * double(node) / nodeCount;
+        expect(image->pixels(0)[0], value + .0625, green, .0625, 1);
+        expect(image->pixels(7)[7], value + .9375, green, .9375, 1);
+        aggregate += checksum(image, 0, 8);
+      }
+    }
+  }
+  const auto peakEdited = peakMemory();
+  effects.clear();
+  std::cout << "seexpr-resident-nodes: nodes=" << nodeCount << " revisions=" << revisions
+            << " rendered_frames=" << nodeCount * revisions * 2
+            << " cold_render_total_ms=" << coldMilliseconds
+            << " warm_render_total_ms=" << warmMilliseconds
+            << " total_wall_ms=" << std::chrono::duration<double, std::milli>(
+                   std::chrono::steady_clock::now() - began).count()
+            << " checksum=" << aggregate
+            << " peak_before_bytes=" << peakBefore
+            << " peak_after_allocation_bytes=" << peakAllocated
+            << " peak_after_edits_bytes=" << peakEdited
+            << " peak_after_release_bytes=" << peakMemory() << std::endl;
+}
+
 void benchmark() {
+  benchmarkResidentNodes();
   struct Work { double cold = 0, warm = 0; std::uint64_t first = 0, second = 0; };
   for (const auto dimensions : {TDimension(1920,1080), TDimension(3840,2160)}) {
     std::uint64_t referenceFirst = 0, referenceSecond = 0;

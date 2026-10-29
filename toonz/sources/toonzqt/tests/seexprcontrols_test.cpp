@@ -6,8 +6,11 @@
 #include <QColorDialog>
 #include <QDialog>
 #include <QDialogButtonBox>
-#include <QDoubleSpinBox>
 #include <QJsonDocument>
+#include <QLabel>
+#include <QLineEdit>
+#include <QLocale>
+#include <QPixmap>
 #include <QPushButton>
 #include <QTableWidget>
 #include <QTimer>
@@ -296,8 +299,18 @@ void spectrumCases() {
   require(SeExprControls::spectrumPoints(invalid).isEmpty(), "invalid spectrum produced a preview");
 
   auto metadata = SeExprControls::defaultSpectrumParameters();
-  metadata["windAngle"] = -15.0; metadata["flowDirection"] = QJsonArray{1.0, 2.0, -3.0};
-  metadata["time"] = 12.0; metadata["customMetadata"] = "retain";
+  metadata["lengthCutoff"] = 1.2345678901234568e-20;
+  metadata["amplitude"] = 1.2345678901234568e9;
+  metadata["tileSize"] = 12345678.901234567;
+  metadata["windSpeed"] = 10.123456789012346;
+  metadata["directionalFactorExponent"] = -1.2345678901234567;
+  metadata["windAngle"] = -15.123456789012346;
+  metadata["directionalReflectionDamping"] = -12345678.901234567;
+  metadata["sharpen"] = -1.2345678901234567;
+  metadata["flowDirection"] = QJsonArray{1.2345678901234567, -2.9876543210987654, 1.2345678901234568e-28};
+  metadata["time"] = -12345678.901234567;
+  metadata["filterWidth"] = -1.2345678901234568e-20;
+  metadata["customMetadata"] = "retain";
   QJsonObject control{{"id", "spectrum_id"}, {"name", "water"}, {"spectrum", metadata}};
   const auto original = control;
   require(!runDialog("seExprSpectrumDialog", [&] { return SeExprControls::editSpectrum(nullptr, control); },
@@ -305,22 +318,111 @@ void spectrumCases() {
       "cancelled spectrum edit was accepted");
   require(control == original, "Cancel changed spectrum metadata");
   require(runDialog("seExprSpectrumDialog", [&] { return SeExprControls::editSpectrum(nullptr, control); },
+      [](QDialog *dialog) { return click(dialog, "seExprSpectrumButtons", QDialogButtonBox::Ok); }),
+      "unchanged spectrum edit failed");
+  require(control.value("spectrum").toObject() == metadata,
+          "accepting unchanged spectrum rounded or clamped its original values");
+  require(runDialog("seExprSpectrumDialog", [&] { return SeExprControls::editSpectrum(nullptr, control); },
       [](QDialog *dialog) {
-        auto *wind = dialog->findChild<QDoubleSpinBox *>("seExprSpectrum_windSpeed");
-        auto *resolution = dialog->findChild<QDoubleSpinBox *>("seExprSpectrum_resolution");
-        if (!wind || !resolution) return false;
-        wind->setValue(15.0); resolution->setValue(12);
+        auto *wind = dialog->findChild<QLineEdit *>("seExprSpectrum_windSpeed");
+        if (!wind) return false;
+        wind->setText("15");
         return click(dialog, "seExprSpectrumButtons", QDialogButtonBox::Ok);
       }), "native spectrum edit failed");
-  const auto saved = control.value("spectrum").toObject();
-  require(saved.value("windSpeed").toDouble() == 15 && saved.value("resolution").toInt() == 12 &&
-              saved.value("flowDirection") == metadata.value("flowDirection") &&
-              saved.value("windAngle") == metadata.value("windAngle") &&
-              saved.value("time") == metadata.value("time") &&
-              saved.value("customMetadata").toString() == "retain",
+  auto expectedMetadata = metadata;
+  expectedMetadata["windSpeed"] = 15.0;
+  require(control.value("spectrum").toObject() == expectedMetadata,
           "spectrum editing lost unrelated parameters or metadata");
+  require(runDialog("seExprSpectrumDialog", [&] { return SeExprControls::editSpectrum(nullptr, control); },
+      [](QDialog *dialog) {
+        auto *cutoff = dialog->findChild<QLineEdit *>("seExprSpectrum_lengthCutoff");
+        auto *exponent = dialog->findChild<QLineEdit *>("seExprSpectrum_directionalFactorExponent");
+        auto *resolution = dialog->findChild<QLineEdit *>("seExprSpectrum_resolution");
+        auto *flow = dialog->findChild<QLineEdit *>("seExprSpectrum_flow0");
+        if (!cutoff || !exponent || !resolution || !flow) return false;
+        cutoff->setText("2.5e-20"); exponent->setText("-2.5");
+        resolution->setText("12"); flow->setText("-3.125e-28");
+        if (!cutoff->hasAcceptableInput() || !exponent->hasAcceptableInput() ||
+            !resolution->hasAcceptableInput() || !flow->hasAcceptableInput()) return false;
+        return click(dialog, "seExprSpectrumButtons", QDialogButtonBox::Ok);
+      }), "high-precision spectrum values could not be edited");
+  expectedMetadata["lengthCutoff"] = 2.5e-20;
+  expectedMetadata["directionalFactorExponent"] = -2.5;
+  expectedMetadata["resolution"] = 12;
+  auto expectedFlow = metadata.value("flowDirection").toArray();
+  expectedFlow[0] = -3.125e-28;
+  expectedMetadata["flowDirection"] = expectedFlow;
+  require(control.value("spectrum").toObject() == expectedMetadata,
+          "editing spectrum scientific values changed untouched flow components or metadata");
   require(control.value("points").toArray().size() == 64,
           "spectrum preview exceeded native curve control bounds");
+
+  const auto beforeInvalid = control;
+  bool invalidRejected = false;
+  require(!runDialog("seExprSpectrumDialog", [&] { return SeExprControls::editSpectrum(nullptr, control); },
+      [&](QDialog *dialog) {
+        auto *wind = dialog->findChild<QLineEdit *>("seExprSpectrum_windSpeed");
+        auto *error = dialog->findChild<QLabel *>("seExprSpectrumError");
+        if (!wind || !error) return false;
+        wind->setText("0");
+        if (!click(dialog, "seExprSpectrumButtons", QDialogButtonBox::Ok)) return false;
+        invalidRejected = dialog->isVisible() && control == beforeInvalid && !error->text().isEmpty();
+        wind->setText("15");
+        if (!error->text().isEmpty()) return false;
+        return click(dialog, "seExprSpectrumButtons", QDialogButtonBox::Cancel);
+      }), "invalid spectrum edit was applied");
+  require(invalidRejected && control == beforeInvalid,
+          "invalid spectrum OK did not retain the draft or Cancel changed its source");
+
+  {
+    struct RestoreLocale {
+      QLocale previous;
+      ~RestoreLocale() { QLocale::setDefault(previous); }
+    } restoreLocale;
+    QLocale::setDefault(QLocale(QLocale::German, QLocale::Germany));
+    require(runDialog("seExprSpectrumDialog", [&] { return SeExprControls::editSpectrum(nullptr, control); },
+        [](QDialog *dialog) { return click(dialog, "seExprSpectrumButtons", QDialogButtonBox::Ok); }),
+        "unchanged spectrum failed in a decimal-comma locale");
+    require(control == beforeInvalid,
+            "decimal-comma display changed an untouched spectrum");
+    require(runDialog("seExprSpectrumDialog", [&] { return SeExprControls::editSpectrum(nullptr, control); },
+        [](QDialog *dialog) {
+          auto *cutoff = dialog->findChild<QLineEdit *>("seExprSpectrum_lengthCutoff");
+          auto *wind = dialog->findChild<QLineEdit *>("seExprSpectrum_windSpeed");
+          if (!cutoff || !wind || !cutoff->text().contains(',')) return false;
+          cutoff->setText("3,75e-20"); wind->setText("15,125");
+          if (!cutoff->hasAcceptableInput() || !wind->hasAcceptableInput()) return false;
+          return click(dialog, "seExprSpectrumButtons", QDialogButtonBox::Ok);
+        }), "spectrum could not edit locale-specific scientific values");
+    expectedMetadata["lengthCutoff"] = 3.75e-20;
+    expectedMetadata["windSpeed"] = 15.125;
+    require(control.value("spectrum").toObject() == expectedMetadata,
+            "decimal-comma spectrum edit changed untouched metadata or parsed the wrong number");
+  }
+
+  auto extremeMetadata = SeExprControls::defaultSpectrumParameters();
+  extremeMetadata["windSpeed"] = 1e-200;
+  extremeMetadata["tileSize"] = 2.5e-308;
+  QJsonObject extremeControl{{"id", "extreme_spectrum"}, {"name", "extreme"},
+                            {"spectrum", extremeMetadata}};
+  const auto beforeExtreme = extremeControl;
+  bool gridWarning = false;
+  require(!runDialog("seExprSpectrumDialog", [&] { return SeExprControls::editSpectrum(nullptr, extremeControl); },
+      [&](QDialog *dialog) {
+        auto *view = dialog->findChild<QWidget *>("seExprSpectrumView");
+        auto *error = dialog->findChild<QLabel *>("seExprSpectrumError");
+        auto *wind = dialog->findChild<QLineEdit *>("seExprSpectrum_windSpeed");
+        auto *tile = dialog->findChild<QLineEdit *>("seExprSpectrum_tileSize");
+        if (!view || !error || !wind || !tile || !wind->hasAcceptableInput() ||
+            !tile->hasAcceptableInput()) return false;
+        gridWarning = error->text() == QObject::tr("The spectrum grid cannot be displayed for these values.");
+        // Exercise the actual painter while finite inputs produce a NaN grid.
+        const auto preview = view->grab();
+        if (preview.isNull()) return false;
+        return click(dialog, "seExprSpectrumButtons", QDialogButtonBox::Cancel);
+      }), "extreme spectrum cancellation was accepted");
+  require(gridWarning && extremeControl == beforeExtreme,
+          "non-finite spectrum display grid lacked a warning or changed source values");
 }
 }  // namespace
 

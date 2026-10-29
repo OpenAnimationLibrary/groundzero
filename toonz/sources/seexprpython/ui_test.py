@@ -2,6 +2,7 @@
 import json
 import os
 from pathlib import Path
+import subprocess
 import tempfile
 import SeExprPy as expr
 
@@ -69,6 +70,28 @@ require(len(applied) == 1 and editor.status.text(), 'invalid editor draft was ap
 editor.registerExtraVariable('fixture_variable', 'Fixture variable documentation')
 editor.updateCompleter()
 require(editor.help.findText('fixture_variable') >= 0, 'extra completion was lost')
+
+editor.setExpr('$local_gain=2*$u; $text="$hidden=3;"; # $comment=4\n$local_gain')
+require(editor.help.findText('local_gain') >= 0 and editor.help.findText('text') >= 0 and
+        editor.help.findText('hidden') == -1 and editor.help.findText('comment') == -1,
+        'local completion missed computed assignments or parsed strings/comments as variables')
+require('local_gain' in editor.edit._completer.model().stringList(),
+        'parsed locals did not reach the source completion model')
+editor.setExpr('$local_gain=2; $lo')
+cursor = editor.edit.textCursor()
+cursor.setPosition(len(editor.getExpr()))
+editor.edit.setTextCursor(cursor)
+editor.edit._insert('local_gain')
+require(editor.getExpr() == '$local_gain=2; $local_gain',
+        'completing a prefixed local duplicated its dollar sign')
+editor.setExpr('$replacement=3; $replacement')
+editor.clearExtraCompleters()
+require(editor.help.findText('local_gain') == -1 and editor.help.findText('replacement') >= 0 and
+        editor.help.findText('fixture_variable') == -1,
+        'rebuilding completions retained old locals or erased current locals')
+editor.setExpr('1+')
+require(editor.help.findText('replacement') == -1,
+        'an invalid draft retained stale local completions')
 
 curve = ui.ExprCurve()
 curve.setPoints([[0.0, 0.0, 0], [0.5, 0.8, 4], [1.0, 1.0, 1]])
@@ -157,6 +180,39 @@ with tempfile.TemporaryDirectory(prefix='seexpr-sdk-') as directory:
     browser.saveExpression()
     require(json.loads(packaged.read_text(encoding='utf-8'))['document']['rgb'] == '$u+1',
             'JSON preset save corrupted the preset envelope')
+
+    nested = Path(directory) / 'nested' / 'levels' / 'fixture.se'
+    nested.parent.mkdir(parents=True)
+    nested.write_text('$u*5', encoding='utf-8')
+    if os.name == 'nt':
+        # Directory junctions do not need elevation and were not recognized by
+        # Path.is_symlink on Python versions supported before isjunction.
+        subprocess.run(['cmd.exe', '/d', '/c', 'mklink', '/J', 'cycle', directory],
+                       cwd=nested.parent, check=True, capture_output=True, text=True)
+    else:
+        (nested.parent / 'cycle').symlink_to(directory, target_is_directory=True)
+    browser.update()
+    require(browser.list.count() == 3 and not browser.error.text(),
+            'nested presets were omitted, duplicated through links or failed to scan')
+    browser.search.setText('levels/fixture')
+    require(browser.list.count() == 1 and 'nested/levels/fixture' in browser.list.item(0).text(),
+            'nested preset labels or folder-aware filtering were lost')
+    browser.selectPath(nested)
+    require(editor.getExpr() == '$u*5', 'nested preset did not load its source')
+    editor.setExpr('$u*6')
+    browser.saveExpression()
+    require(nested.read_text(encoding='utf-8') == '$u*6' and
+            preset.read_text(encoding='utf-8') == '$u*3',
+            'saving a nested preset overwrote another preset with the same name')
+    scan_limit = browser._MAX_SCAN_ENTRIES
+    browser._MAX_SCAN_ENTRIES = 2
+    browser.update()
+    require('limit' in browser.error.text(), 'oversized preset traversal was not diagnosed')
+    browser._MAX_SCAN_ENTRIES = scan_limit
+    browser.search.clear()
+    browser.update()
+    require(browser.list.count() == 3 and not browser.error.text(),
+            'preset scanning did not recover after the traversal limit')
 
 short = ui.ExprShortEdit()
 short.setExpressionString('2+3')

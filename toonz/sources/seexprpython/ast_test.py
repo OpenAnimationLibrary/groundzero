@@ -1,5 +1,7 @@
 """Exercise native syntax traversal and literal editing in CI."""
 import gc
+import contextlib
+import io
 import SeExprPy as expr
 
 
@@ -25,6 +27,16 @@ edits = expr.Edits('3+4')
 for node in numbers:
     edits.addEdit(node, node.value * 2)
 require(edits.makeNewString() == '6.0+8.0', "literal editing failed")
+
+printed = io.StringIO()
+with contextlib.redirect_stdout(printed):
+    result = expr.printTree(tree, '3+4')
+lines = printed.getvalue().splitlines()
+require(result is None and 'printTree' in expr.__all__ and
+        any('BinaryOp +' in line for line in lines) and
+        [line.split('Num ', 1)[1] for line in lines if 'Num ' in line] == ['3.0', '4.0'] and
+        any('└─ ' in line for line in lines),
+        "public tree printing lost node names, source order or tree structure")
 
 source = '"é"+3'
 tree = expr.AST(source)

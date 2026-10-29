@@ -86,6 +86,28 @@ def traverseFilter(node, filterCallback):
     return found
 
 
+def printTree(tree, source=""):
+    """Print the inspection tree, retaining the upstream ``(AST, source)`` API.
+
+    The source argument remains accepted for existing inspection scripts. Node
+    values and names come from the owned AST, so printing does not reparse or
+    change the expression.
+    """
+    root = tree.root()
+    if root is None:
+        return
+    pending = [(root, "   ", "", "   ")]
+    while pending:
+        node, prefix, branch, child_prefix = pending.pop()
+        print(prefix + branch + node.type.name + " " + str(node.value))
+        children = node.children()
+        for index in range(len(children) - 1, -1, -1):
+            last = index == len(children) - 1
+            pending.append((children[index], child_prefix,
+                            "└─ " if last else "├─ ",
+                            child_prefix + ("   " if last else "│  ")))
+
+
 def getComment(node, source):
     encoded = source.encode("utf-8")
     end = node.range[1]
@@ -138,4 +160,5 @@ class Edits:
 
 
 __all__ = ["AST", "ASTHandle", "ASTType", "Edits", "getComment",
-           "traverseCallback", "traverseFilter", "evaluate", "validate", "functions"]
+           "traverseCallback", "traverseFilter", "printTree", "evaluate",
+           "validate", "functions"]

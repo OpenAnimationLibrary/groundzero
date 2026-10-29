@@ -41,11 +41,11 @@
   "native_replacements": {
     "application_ui": "Independently authored native Qt editor, controls, preset browser, spectrum editor and range viewer in toonzqt; upstream UI subtree is not compiled or installed",
     "python_sdk": "Independently authored Python 3 AST/evaluation wrapper and SeExprPy helpers, with independent optional PyQt5/PyQt6 authoring widgets and expreditor2 compatibility import",
-    "external_hosts": "Native Generator/Color FX, Function Editor/channel bindings and SDK callback examples replace useful external renderer, image synthesis and animation-library host workflows"
+    "external_hosts": "Native Generator/Color FX, Function Editor/channel bindings and SDK examples replace binding, batching and keyframe workflows; inline animCurve import, independent pre/post infinity, automatic scene attributes and 3D shading/displacement remain unported"
   },
   "selected_modules": {
     "core": "Required application/SDK interpreter and typed native adapter",
-    "llvm": "Optional LLVM 14 backend from the pinned core; explicit backend identity; Linux qualification configured",
+    "llvm": "Optional LLVM 14 backend from the pinned core; explicit backend identity; Linux, Windows and Intel macOS qualification configured; configured jobs are not passing results",
     "cpp_sdk": "Optional installed headers/static library, explicit native plugin loader, calculator, grapher and host-binding example",
     "python_ast": "Optional Python 3 extension compiles privately prepared ASTNode.h, SeExprLex.h/.cpp and SeExprParse.h from the licensed inspection parser; exact source ranges, node ownership and retained scanner notices",
     "python_qt": "Optional independent PyQt authoring frontend; external PyQt installation required; Qt5 qualification configured, Qt6 not yet qualified"
@@ -54,8 +54,8 @@
     "src/SeExpr2/UI/__init__.py": "Restrictive upstream notice; never compiled, copied or redistributed by the native or Python frontend",
     "src/SeExpr2/UI": "Replaced by independently authored native Qt and optional PyQt authoring workflows",
     "src/py/SeExprPy.cpp": "Legacy wrapper replaced by the native Python 3 AST/evaluation wrapper; licensed syntax parser remains selected",
-    "src/demos/rman2": "External renderer SDK/ABI; useful expression binding and batching mapped into native OT effects and SDK examples, not an external renderer binary",
-    "src/SeExpr2/UI/CE": "External animation-library ABI; artist workflow mapped into native Function Editor, curves and channel bindings",
+    "src/demos/rman2": "External renderer SDK/ABI not distributed; binding/batching mapped into native FX/SDK, but automatic scene attributes and 3D shading/surface displacement have no native equivalent and require a scope decision",
+    "src/SeExpr2/UI/CE": "External animation editor sources are absent upstream; native channel/keyframe workflows do not preserve inline animCurve metadata or independently chosen infinity policies, which remain unresolved scope",
     "src/demos/imageSynth and imageEditor": "Standalone host applications replaced by native Generator/Color FX and source sampling"
   },
   "patch_helpers": [

@@ -8,6 +8,19 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 get_filename_component(OT_SOURCE_ROOT "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
 set(OT_NATIVE_SOURCE "${OT_SOURCE_ROOT}/toonz/sources")
 
+# Instrument the complete standalone qualification graph, including the
+# generated parser, SDK plugins and native adapter. This option belongs to the
+# qualification project; application/package builds never inherit these flags.
+option(SEEXPR_QUALIFY_SANITIZERS "Qualify SeExpr with address/undefined sanitizers" OFF)
+if(SEEXPR_QUALIFY_SANITIZERS)
+  if(MSVC OR NOT CMAKE_CXX_COMPILER_ID MATCHES "^(GNU|Clang|AppleClang)$")
+    message(FATAL_ERROR "SeExpr sanitizer qualification requires GCC or Clang")
+  endif()
+  add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer
+    -fno-sanitize-recover=all)
+  add_link_options(-fsanitize=address,undefined -fno-sanitize-recover=all)
+endif()
+
 # This deliberately configures no Qt, graphics context or application library.
 # Core compiler/parser errors must surface before the full shipping builds.
 include("${OT_SOURCE_ROOT}/toonz/cmake/SeExpr.cmake")
@@ -32,6 +45,11 @@ add_executable(seexpr_runtime
 target_link_libraries(seexpr_runtime PRIVATE seexpr_native_adapter)
 add_test(NAME seexpr_runtime COMMAND seexpr_runtime)
 set_tests_properties(seexpr_runtime PROPERTIES TIMEOUT 120)
+
+add_executable(seexpr_parser_fuzz parser_fuzz_test.cpp)
+target_link_libraries(seexpr_parser_fuzz PRIVATE seexpr_native_adapter)
+add_test(NAME seexpr_parser_fuzz COMMAND seexpr_parser_fuzz)
+set_tests_properties(seexpr_parser_fuzz PROPERTIES TIMEOUT 120)
 
 add_executable(seexpr_builtins builtin_test.cpp)
 target_link_libraries(seexpr_builtins PRIVATE seexpr_native_adapter)

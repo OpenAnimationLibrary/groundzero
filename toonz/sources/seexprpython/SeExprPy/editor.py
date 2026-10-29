@@ -9,6 +9,7 @@ import math
 import os
 from pathlib import Path
 import re
+import stat
 
 from . import AST, ASTType, Edits, evaluate, functions, getComment, validate
 
@@ -624,7 +625,11 @@ class _SourceEdit(QtWidgets.QPlainTextEdit):
         self._completer.activated[str].connect(self._insert)
 
     def setCompletions(self, names):
-        self._completer.setModel(QtCore.QStringListModel(sorted(names), self._completer))
+        model = self._completer.model()
+        if not isinstance(model, QtCore.QStringListModel):
+            model = QtCore.QStringListModel(self._completer)
+            self._completer.setModel(model)
+        model.setStringList(sorted(names))
 
     def _insert(self, name):
         cursor = self.textCursor()
@@ -719,6 +724,7 @@ class ExprEditor(QtWidgets.QWidget):
         source = self.getExpr()
         self.collection.rebuild(source, lambda interval, replacement:
                                 self._control_change(source, interval, replacement))
+        self.updateCompleter()
 
     def controlChanged(self, _identifier):
         self._apply()
@@ -767,11 +773,24 @@ class ExprEditor(QtWidgets.QWidget):
                                     for name, definition in self._functions.items()})
         self._documentation.update(self._extra_functions)
         self._documentation.update(self._extra_variables)
+        # Inspect syntax rather than matching source text: comments and strings
+        # may contain assignment-like text, and computed locals need completion
+        # even when they do not produce a literal control.
+        try:
+            root = AST(self.getExpr()).root()
+        except RuntimeError:
+            root = None
+        pending = [root] if root else []
+        while pending:
+            node = pending.pop()
+            if node.type == ASTType.Assign:
+                name = str(node.value).lstrip("$")
+                self._documentation.setdefault(name, self.tr("Local variable"))
+            pending.extend(node.children())
         self.help.clear()
         self.help.addItems(sorted(self._documentation))
-        completer = QtWidgets.QCompleter(sorted(self._documentation), self)
+        completer = self.help.completer()
         completer.setCaseSensitivity(_enum(QtCore.Qt, "CaseSensitivity", "CaseInsensitive"))
-        self.help.setCompleter(completer)
         self.edit.setCompletions(self._documentation)
 
     def _show_help(self, _index=None):
@@ -835,6 +854,9 @@ class ExprDialog(QtWidgets.QDialog):
 
 
 class ExprBrowser(QtWidgets.QWidget):
+    _MAX_SCAN_ENTRIES = 4096
+    _MAX_SCAN_DEPTH = 32
+
     def __init__(self, parent=None, editor=None):
         super().__init__(parent)
         self.editor = editor
@@ -900,17 +922,52 @@ class ExprBrowser(QtWidgets.QWidget):
     def setSearchPath(self, context, path):
         self.addPath(context, path)
 
+    def _presetPaths(self, directory):
+        # Explicit roots may contain nested collections. Do not follow links
+        # back into the collection or outside it, and bound traversal so opening
+        # a preset browser cannot scan an unbounded directory tree.
+        pending = [(directory, 0)]
+        visited = 0
+        while pending:
+            folder, depth = pending.pop()
+            entries = []
+            with os.scandir(folder) as iterator:
+                for entry in iterator:
+                    visited += 1
+                    if visited > self._MAX_SCAN_ENTRIES:
+                        raise ValueError("Preset browser entry limit exceeded")
+                    entries.append(entry)
+            subdirectories = []
+            for entry in sorted(entries, key=lambda item: item.name.casefold()):
+                attributes = getattr(entry.stat(follow_symlinks=False), "st_file_attributes", 0)
+                if entry.is_symlink() or attributes & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400):
+                    continue
+                path = Path(entry.path)
+                if entry.is_dir(follow_symlinks=False):
+                    if depth >= self._MAX_SCAN_DEPTH:
+                        raise ValueError("Preset browser directory depth exceeded")
+                    subdirectories.append((path, depth + 1))
+                elif entry.is_file(follow_symlinks=False) and path.suffix.lower() in (".se", ".json"):
+                    yield path
+            pending.extend(reversed(subdirectories))
+
     def update(self, *_args):
         if not hasattr(self, "list"): return super().update()
         self.list.clear()
         query = self.search.text().casefold()
+        errors = []
         for name, directory in self._paths.items():
             if not directory.is_dir(): continue
-            for path in sorted(directory.iterdir()):
-                if path.is_file() and path.suffix.lower() in (".se", ".json") and query in path.stem.casefold():
-                    item = QtWidgets.QListWidgetItem(name + ": " + path.stem)
+            try:
+                for path in self._presetPaths(directory):
+                    relative = path.relative_to(directory).with_suffix("").as_posix()
+                    if query not in relative.casefold(): continue
+                    item = QtWidgets.QListWidgetItem(name + ": " + relative)
                     item.setData(_enum(QtCore.Qt, "ItemDataRole", "UserRole"), str(path))
                     self.list.addItem(item)
+            except (OSError, ValueError) as error:
+                errors.append(str(error))
+        self.error.setText("\n".join(errors))
 
     def clear(self):
         self._paths.clear(); self._selected = ""; self.list.clear()
