@@ -33,6 +33,40 @@ sub-xsheet's name.
 
 Issues are sorted with the errors first, then by kind.
 
+## The Scene Check panel
+
+**Render > Check Scene...** opens the Scene Check panel (floating, unless one is
+already shown in the room) and checks the current scene. The panel can also be
+docked in a room like any other.
+
+- At the top, the scene's **statistics**: the drawings of the levels used in the
+  xsheets, the levels of the cast, the non-empty columns of the top xsheet, the
+  frames, the styles of the palettes (each palette once) and the size of the
+  scene file ("not saved" for an untitled scene).
+- **Check** runs the check again; it also runs when the panel opens and when
+  another scene is opened. **Unused Styles** adds the slow check of the unused
+  styles.
+- The issues are grouped by kind, with their count, and the panel's title gives
+  the counts by severity ("Scene Check: 2 errors, 1 warning, 3 info"). The
+  combo box shows all issues, the warnings and errors, or the errors only, and
+  the filter field keeps the issues whose text or kind contains what is typed.
+- A **double-click** on an issue makes its column and frame current (for an
+  issue inside a sub-xsheet that is not open, the column of the sub-xsheet and
+  its first frame), its level current, and its style current in the level's
+  palette.
+
+Saved menus of earlier versions get the command added after Output Settings
+(or at the end of the Render menu) when they are loaded.
+
+## Checking before rendering
+
+**Preferences > Preview > Render > Check the Scene before Rendering and Ask
+when It Has Errors** is off by default. When it is on, Render (and Save and
+Render, Fast Render) first checks the scene. If the check finds errors, the
+Scene Check panel shows them and a dialog asks whether to **Continue** the
+render or **Cancel** it (the default). Warnings and info do not stop the
+render. The preview is not checked.
+
 ## How it works
 
 `SceneChecker::check()` (`toonz/scenechecker.h`, `toonzlib/scenechecker.cpp`)
@@ -42,6 +76,11 @@ levels of the cast come from the `SceneResources` visitor, the levels used from
 `TXsheet::getUsedLevels()`. `SceneChecker::statistics()` counts the drawings,
 levels, columns, frames and palette styles of the scene and the size of its
 file. `SceneChecker::usedStyleIds()` lists the styles a level's drawings use.
+
+The panel is `SceneCheckPane` (`toonz/scenecheckpane.cpp`, panel type
+`SceneCheck`); the command is `MI_CheckScene`; the preference is
+`checkSceneBeforeRendering`, read in `RenderCommand::init()`
+(`toonz/rendercommand.cpp`) for the full render.
 
 Tested by `toonzlib/tests/scenechecker_test.cpp`, on scenes built in memory:
 each check once with the issue and once without.

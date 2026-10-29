@@ -10,6 +10,7 @@
 #include "mastercontrollerspane.h"
 #include "offsetlayerspane.h"
 #include "artlayermanagerpane.h"
+#include "scenecheckpane.h"
 #include "riglibrarypane.h"
 #include "motionpresetspane.h"
 
@@ -2012,6 +2013,26 @@ public:
 OpenFloatingPanel openArtLayerManagerCommand(MI_OpenArtLayerManager,
                                              "ArtLayerManager",
                                              QObject::tr("Art Layer Manager"));
+
+//=============================================================================
+// Scene Check
+//-----------------------------------------------------------------------------
+
+class SceneCheckPanelFactory final : public TPanelFactory {
+public:
+  SceneCheckPanelFactory() : TPanelFactory("SceneCheck") {}
+  void initialize(TPanel *panel) override {
+    SceneCheckPane *pane = new SceneCheckPane(panel);
+    panel->setWidget(pane);
+    panel->setWindowTitle(QObject::tr("Scene Check"));
+    QObject::connect(pane, &SceneCheckPane::titleChanged, panel,
+                     [panel](const QString &title) {
+                       panel->setWindowTitle(title);
+                       panel->update();
+                       if (panel->getTitleBar()) panel->getTitleBar()->update();
+                     });
+  }
+} sceneCheckPanelFactory;
 
 //=============================================================================
 // Rig Library

@@ -388,6 +388,8 @@ void Preferences::definePreferenceItems() {
   define(taskchunksize, "taskchunksize", QMetaType::Int, 10, 1, 2000);
   define(sceneNumberingEnabled, "sceneNumberingEnabled", QMetaType::Bool,
          false);
+  define(checkSceneBeforeRendering, "checkSceneBeforeRendering",
+         QMetaType::Bool, false);
   define(watchFileSystemEnabled, "watchFileSystemEnabled", QMetaType::Bool,
          true);
   define(projectRoot, "projectRoot", QMetaType::Int, 0x08);

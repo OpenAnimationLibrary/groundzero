@@ -142,6 +142,21 @@ bool ensureAnimatedSvgAction(QMenu *menu) {
   return false;
 }
 
+// Render > Check Scene, added after users could save their own menus: after
+// Output Settings, or at the end.
+void ensureCheckSceneAction(QMenu *renderMenu) {
+  QAction *check = CommandManager::instance()->getAction(MI_CheckScene);
+  if (!check || renderMenu->actions().contains(check)) return;
+
+  const QList<QAction *> actions = renderMenu->actions();
+  int outputIndex =
+      actions.indexOf(CommandManager::instance()->getAction(MI_OutputSettings));
+  if (outputIndex >= 0 && outputIndex + 1 < actions.size())
+    renderMenu->insertAction(actions.at(outputIndex + 1), check);
+  else
+    renderMenu->addAction(check);
+}
+
 bool menuContainsAction(QMenu *menu, QAction *target) {
   for (QAction *action : menu->actions()) {
     if (action == target) return true;
@@ -421,6 +436,7 @@ QMenuBar *StackedMenuBar::loadMenuBar(const TFilePath &fp) {
             if (title == QStringLiteral("Help")) ensureHelpActions(menu);
             if (title == QStringLiteral("File")) ensureAnimatedSvgAction(menu);
             if (title == QStringLiteral("Windows")) ensureNewPanelActions(menu);
+            if (title == QStringLiteral("Render")) ensureCheckSceneAction(menu);
             menuBar->addMenu(menu);
           } else {
             reader.raiseError(tr("Failed to load menu %1").arg(title));
@@ -770,6 +786,7 @@ QMenuBar *StackedMenuBar::createPltEditMenuBar() {
   addMenuItem(renderMenu, MI_SavePreviewedFrames);
   renderMenu->addSeparator();
   addMenuItem(renderMenu, MI_OutputSettings);
+  addMenuItem(renderMenu, MI_CheckScene);
   addMenuItem(renderMenu, MI_Render);
 
   //---Windows Menu
@@ -1169,6 +1186,7 @@ QMenuBar *StackedMenuBar::createXsheetMenuBar() {
   addMenuItem(renderMenu, MI_SavePreviewedFrames);
   renderMenu->addSeparator();
   addMenuItem(renderMenu, MI_OutputSettings);
+  addMenuItem(renderMenu, MI_CheckScene);
   addMenuItem(renderMenu, MI_Render);
   renderMenu->addSeparator();
   addMenuItem(renderMenu, MI_Link);
@@ -1677,6 +1695,7 @@ QMenuBar *StackedMenuBar::createFullMenuBar() {
   addMenuItem(renderMenu, MI_SavePreviewedFrames);
   renderMenu->addSeparator();
   addMenuItem(renderMenu, MI_OutputSettings);
+  addMenuItem(renderMenu, MI_CheckScene);
   addMenuItem(renderMenu, MI_Render);
   renderMenu->addSeparator();
   addMenuItem(renderMenu, MI_FastRender);
