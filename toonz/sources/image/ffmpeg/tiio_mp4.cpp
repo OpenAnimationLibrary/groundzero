@@ -49,7 +49,7 @@ TLevelWriterMp4::TLevelWriterMp4(const TFilePath &path, TPropertyGroup *winfo)
         m_properties->getProperty("Quality")->getValueAsString();
     m_vidQuality = QString::fromStdString(quality).toInt();
   }
-  ffmpegWriter = new Ffmpeg();
+  ffmpegWriter = std::make_unique<Ffmpeg>();
   ffmpegWriter->setPath(m_path);
   ffmpegWriter->enablePipe();
   if (TSystem::doesExistFileOrLevel(m_path)) TSystem::deleteFile(m_path);
@@ -73,6 +73,7 @@ TLevelWriterMp4::~TLevelWriterMp4() {
 
 void TLevelWriterMp4::buildFfmpegArgs(QStringList &preIArgs,
                                       QStringList &postIArgs) const {
+  QMutexLocker locker(&m_metadataMutex);
   int outLx = m_lx;
   int outLy = m_ly;
 
@@ -129,8 +130,11 @@ void TLevelWriterMp4::saveSoundTrack(TSoundTrack *st) {
 
 void TLevelWriterMp4::save(const TImageP &img, int frameIndex) {
   TRasterImageP image(img);
-  m_lx = image->getRaster()->getLx();
-  m_ly = image->getRaster()->getLy();
+  {
+    QMutexLocker locker(&m_metadataMutex);
+    m_lx = image->getRaster()->getLx();
+    m_ly = image->getRaster()->getLy();
+  }
   ffmpegWriter->saveFrame(
       img, frameIndex, [this](QStringList &preIArgs, QStringList &postIArgs) {
         buildFfmpegArgs(preIArgs, postIArgs);
@@ -175,7 +179,7 @@ private:
 //===========================================================
 
 TLevelReaderMp4::TLevelReaderMp4(const TFilePath &path) : TLevelReader(path) {
-  ffmpegReader = new Ffmpeg();
+  ffmpegReader = std::make_unique<Ffmpeg>();
   ffmpegReader->setPath(m_path);
   ffmpegReader->disablePrecompute();
   ffmpegFileInfo tempInfo = ffmpegReader->getInfo();
@@ -197,9 +201,7 @@ TLevelReaderMp4::TLevelReaderMp4(const TFilePath &path) : TLevelReader(path) {
 }
 //-----------------------------------------------------------
 
-TLevelReaderMp4::~TLevelReaderMp4() {
-  // ffmpegReader->cleanUpFiles();
-}
+TLevelReaderMp4::~TLevelReaderMp4() {}
 
 //-----------------------------------------------------------
 

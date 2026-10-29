@@ -33,7 +33,8 @@ public:
   }
 
 private:
-  Ffmpeg *ffmpegWriter;
+  std::unique_ptr<Ffmpeg> ffmpegWriter;
+  mutable QMutex m_metadataMutex;
   int m_frameCount, m_lx, m_ly;
   // double m_fps;
   int m_scale;
@@ -64,7 +65,7 @@ public:
   // TThread::Mutex m_mutex;
   // void *m_decompressedBuffer;
 private:
-  Ffmpeg *ffmpegReader;
+  std::unique_ptr<Ffmpeg> ffmpegReader;
   bool ffmpegFramesCreated = false;
   TDimension m_size;
   int m_frameCount, m_lx, m_ly;

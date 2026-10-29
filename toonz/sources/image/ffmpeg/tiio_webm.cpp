@@ -58,7 +58,7 @@ TLevelWriterWebm::TLevelWriterWebm(const TFilePath &path, TPropertyGroup *winfo)
           m_properties->getProperty("Keyframe Interval")->getValueAsString())
           .toInt();
 
-  ffmpegWriter = new Ffmpeg();
+  ffmpegWriter = std::make_unique<Ffmpeg>();
   ffmpegWriter->setPath(m_path);
   ffmpegWriter->enablePipe();
   if (TSystem::doesExistFileOrLevel(m_path)) TSystem::deleteFile(m_path);
@@ -82,6 +82,7 @@ TLevelWriterWebm::~TLevelWriterWebm() {
 
 void TLevelWriterWebm::buildFfmpegArgs(QStringList &preIArgs,
                                        QStringList &postIArgs) const {
+  QMutexLocker locker(&m_metadataMutex);
   // Calculate output dimensions (ensure even)
   int outLx = m_lx;
   int outLy = m_ly;
@@ -197,8 +198,11 @@ void TLevelWriterWebm::saveSoundTrack(TSoundTrack *st) {
 
 void TLevelWriterWebm::save(const TImageP &img, int frameIndex) {
   TRasterImageP image(img);
-  m_lx = image->getRaster()->getLx();
-  m_ly = image->getRaster()->getLy();
+  {
+    QMutexLocker locker(&m_metadataMutex);
+    m_lx = image->getRaster()->getLx();
+    m_ly = image->getRaster()->getLy();
+  }
   ffmpegWriter->saveFrame(
       img, frameIndex, [this](QStringList &preIArgs, QStringList &postIArgs) {
         buildFfmpegArgs(preIArgs, postIArgs);
@@ -243,7 +247,7 @@ private:
 //===========================================================
 
 TLevelReaderWebm::TLevelReaderWebm(const TFilePath &path) : TLevelReader(path) {
-  ffmpegReader = new Ffmpeg();
+  ffmpegReader = std::make_unique<Ffmpeg>();
   ffmpegReader->setPath(m_path);
   ffmpegReader->disablePrecompute();
   ffmpegFileInfo tempInfo = ffmpegReader->getInfo();
@@ -265,9 +269,7 @@ TLevelReaderWebm::TLevelReaderWebm(const TFilePath &path) : TLevelReader(path) {
 }
 //-----------------------------------------------------------
 
-TLevelReaderWebm::~TLevelReaderWebm() {
-  // ffmpegReader->cleanUpFiles();
-}
+TLevelReaderWebm::~TLevelReaderWebm() {}
 
 //-----------------------------------------------------------
 

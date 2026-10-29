@@ -19,6 +19,7 @@
 #include <QProcess>
 #include <functional>
 #include <limits>
+#include <memory>
 
 // Struct to hold video file information.
 // Note: Zero values in any field may indicate that ffprobe failed to retrieve
@@ -144,6 +145,9 @@ private:
 
   TFilePath m_path;
   QVector<QString> m_cleanUpList;
+  // Intermediate frames may be encoded concurrently. Protect their shared
+  // bookkeeping without holding a lock during image conversion or PNG writes.
+  QMutex m_intermediateMutex;
 
   // Unique identifier for temporary files (based on full path hash)
   QString m_tempBaseName;
@@ -180,7 +184,7 @@ public:
   }
 
 private:
-  Ffmpeg *m_ffmpegReader = nullptr;
+  std::unique_ptr<Ffmpeg> m_ffmpegReader;
   bool m_framesExtracted = false;
   TDimension m_size;
   int m_frameCount        = -1;

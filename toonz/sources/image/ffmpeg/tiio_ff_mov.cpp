@@ -51,7 +51,7 @@ TLevelWriterFFMov::TLevelWriterFFMov(const TFilePath &path,
         m_properties->getProperty("Quality")->getValueAsString();
     m_vidQuality = QString::fromStdString(quality).toInt();
   }
-  ffmpegWriter = new Ffmpeg();
+  ffmpegWriter = std::make_unique<Ffmpeg>();
   ffmpegWriter->setPath(m_path);
   // mov is always rendered sequentially (isSequencialRequired())
   ffmpegWriter->enablePipe(true);
@@ -76,6 +76,7 @@ TLevelWriterFFMov::~TLevelWriterFFMov() {
 
 void TLevelWriterFFMov::buildFfmpegArgs(QStringList &preIArgs,
                                         QStringList &postIArgs) const {
+  QMutexLocker locker(&m_metadataMutex);
   int outLx = m_lx;
   int outLy = m_ly;
 
@@ -134,8 +135,11 @@ void TLevelWriterFFMov::saveSoundTrack(TSoundTrack *st) {
 
 void TLevelWriterFFMov::save(const TImageP &img, int frameIndex) {
   TRasterImageP image(img);
-  m_lx = image->getRaster()->getLx();
-  m_ly = image->getRaster()->getLy();
+  {
+    QMutexLocker locker(&m_metadataMutex);
+    m_lx = image->getRaster()->getLx();
+    m_ly = image->getRaster()->getLy();
+  }
   ffmpegWriter->saveFrame(
       img, frameIndex, [this](QStringList &preIArgs, QStringList &postIArgs) {
         buildFfmpegArgs(preIArgs, postIArgs);
@@ -181,7 +185,7 @@ private:
 
 TLevelReaderFFMov::TLevelReaderFFMov(const TFilePath &path)
     : TLevelReader(path) {
-  ffmpegReader = new Ffmpeg();
+  ffmpegReader = std::make_unique<Ffmpeg>();
   ffmpegReader->setPath(m_path);
   ffmpegReader->disablePrecompute();
   ffmpegFileInfo tempInfo = ffmpegReader->getInfo();

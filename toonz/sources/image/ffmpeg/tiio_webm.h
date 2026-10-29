@@ -38,7 +38,8 @@ private:
   void buildFfmpegArgs(QStringList &preIArgs, QStringList &postIArgs) const;
 
   // FFmpeg writer instance
-  Ffmpeg *ffmpegWriter;
+  std::unique_ptr<Ffmpeg> ffmpegWriter;
+  mutable QMutex m_metadataMutex;
 
   // Video properties
   int m_lx, m_ly;        // Frame width and height
@@ -71,7 +72,7 @@ public:
   // TThread::Mutex m_mutex;
   // void *m_decompressedBuffer;
 private:
-  Ffmpeg *ffmpegReader;
+  std::unique_ptr<Ffmpeg> ffmpegReader;
   bool ffmpegFramesCreated = false;
   TDimension m_size;
   int m_frameCount, m_lx, m_ly;

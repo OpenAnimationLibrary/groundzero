@@ -23,15 +23,20 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QProcess>
+#include <QSemaphore>
 #include <QStandardPaths>
 #include <QTemporaryDir>
 
 #include <algorithm>
 #include <cstdlib>
+#include <exception>
 #include <functional>
 #include <iostream>
+#include <mutex>
 #include <stdexcept>
 #include <string>
+#include <thread>
+#include <vector>
 
 #ifndef TIIO_FFMPEG_TEST_DIR
 #error "TIIO_FFMPEG_TEST_DIR must name the directory of the ffmpeg executable"
@@ -109,7 +114,8 @@ void exportFrames(const WriterMaker &makeWriter, const QString &path,
           "No output written: " + path.toStdString());
 }
 
-QByteArray decodeRgba(const QString &path, const QString &format) {
+QByteArray decodeRgba(const QString &path, const QString &format,
+                      int expectedFrames = kFrames) {
   QProcess process;
   QStringList args;
   args << "-v"
@@ -126,8 +132,8 @@ QByteArray decodeRgba(const QString &path, const QString &format) {
       process.exitStatus() == QProcess::NormalExit && process.exitCode() == 0,
       "ffmpeg cannot decode " + path.toStdString() + ": " +
           process.readAllStandardError().toStdString());
-  require(frames.size() == kFrames * kFrameSize,
-          path.toStdString() + ": expected " + std::to_string(kFrames) +
+  require(frames.size() == expectedFrames * kFrameSize,
+          path.toStdString() + ": expected " + std::to_string(expectedFrames) +
               " frames, decoded " + std::to_string(frames.size()) + " bytes");
   return frames;
 }
@@ -182,6 +188,84 @@ void testFormat(const QTemporaryDir &directory, const QString &type,
   expectSamePictures(piped, files, sameTolerance, what);
 }
 
+// Exercise the shared writer exactly as concurrent render completions do.
+// Conversion and PNG encoding may overlap, but frame order, shared metadata,
+// and cleanup registration must remain valid.
+void testConcurrentExport(const QTemporaryDir &directory) {
+  constexpr int frameCount = 24;
+  constexpr int workers = 4;
+  const QString path = directory.filePath("concurrent.apng");
+  Preferences::instance()->setValue(ffmpegMultiThread, true);
+  qunsetenv("OTDEV_FFMPEG_NO_PIPE");
+  {
+    TSmartPointerT<TLevelWriter> writer(TLevelWriterAPng::create(
+        TFilePath(path.toStdWString()), new Tiio::APngWriterProperties()));
+    writer->setFrameRate(24);
+    QSemaphore ready, start;
+    std::mutex errorMutex;
+    std::exception_ptr error;
+    std::vector<std::thread> threads;
+    for (int worker = 0; worker < workers; ++worker) {
+      threads.emplace_back([&, worker] {
+        ready.release();
+        start.acquire();
+        try {
+          for (int frame = worker; frame < frameCount; frame += workers) {
+            TImageWriterP frameWriter =
+                writer->getFrameWriter(TFrameId(frame + 1));
+            require(frameWriter.getPointer(), "No concurrent frame writer");
+            frameWriter->save(TRasterImageP(makeFrame(frame % kFrames)));
+          }
+        } catch (...) {
+          std::lock_guard<std::mutex> lock(errorMutex);
+          if (!error) error = std::current_exception();
+        }
+      });
+    }
+    ready.acquire(workers);
+    start.release(workers);
+    for (std::thread &thread : threads) thread.join();
+    if (error) std::rethrow_exception(error);
+    require(QFileInfo::exists(firstIntermediateImage(path)),
+            "Concurrent export did not use intermediate images");
+  }
+  Preferences::instance()->setValue(ffmpegMultiThread, false);
+  require(!QFileInfo::exists(firstIntermediateImage(path)),
+          "Concurrent export left owned temporary images behind");
+  const QByteArray decoded = decodeRgba(path, "apng", frameCount);
+  for (int frame = 0; frame < frameCount; ++frame) {
+    expectPixel(decoded, frame, 0, topPixel(frame % kFrames), 0,
+                "concurrent APNG");
+    expectPixel(decoded, frame, kLy - 1, bottomPixel(), 0,
+                "concurrent APNG");
+  }
+}
+
+void testSharedReaderCache(const QTemporaryDir &directory) {
+  const TFilePath path(directory.filePath("pipe.mp4").toStdWString());
+  auto first = std::make_unique<TLevelReaderFFmpeg>(path);
+  auto second = std::make_unique<TLevelReaderMp4>(path);
+  require(first->load(1).getPointer(), "First reader did not extract frames");
+  require(second->load(1).getPointer(), "Second reader could not share frames");
+  first.reset();
+  TRasterImageP last = second->load(kFrames);
+  require(last.getPointer() && last->getRaster()->getLx() == kLx &&
+              last->getRaster()->getLy() == kLy,
+          "Closing a reader removed another reader's cached frames");
+  second.reset();
+
+  // The cache is shared, so the test owns cleanup of its unique input path.
+  const QByteArray hash = QCryptographicHash::hash(
+      QFileInfo(path.getQString()).absoluteFilePath().toUtf8(),
+      QCryptographicHash::Md5);
+  QDir cache(QStandardPaths::writableLocation(QStandardPaths::CacheLocation) +
+             "/ffmpeg");
+  const QString prefix = QString::fromLatin1(hash.toHex().left(6));
+  for (const QString &name : cache.entryList({prefix + "_in*.png",
+                                             prefix + ".txt"}, QDir::Files))
+    require(cache.remove(name), "Cannot remove test import cache");
+}
+
 void setUpEnvironment(const QTemporaryDir &directory) {
   // Preferences need a stuff folder with at least one room
   const QString stuff = directory.filePath("stuff");
@@ -224,6 +308,9 @@ int main(int argc, char *argv[]) {
           return TLevelWriterMp4::create(fp, new Tiio::Mp4WriterProperties());
         },
         12, 2);
+
+    testConcurrentExport(directory);
+    testSharedReaderCache(directory);
 
     std::cout << "FFmpeg export tests passed\n";
     return 0;

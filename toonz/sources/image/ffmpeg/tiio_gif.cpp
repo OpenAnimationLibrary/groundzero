@@ -53,7 +53,7 @@ TLevelWriterGif::TLevelWriterGif(const TFilePath &path, TPropertyGroup *winfo)
       m_properties->getProperty("Max Colors")->getValueAsString();
   m_maxcolors = QString::fromStdString(maxcolors).toInt();
 
-  ffmpegWriter = new Ffmpeg();
+  ffmpegWriter = std::make_unique<Ffmpeg>();
   ffmpegWriter->setPath(m_path);
   // m_frameCount = 0;
   if (TSystem::doesExistFileOrLevel(m_path)) TSystem::deleteFile(m_path);
@@ -195,8 +195,11 @@ void TLevelWriterGif::saveSoundTrack(TSoundTrack *st) { return; }
 
 void TLevelWriterGif::save(const TImageP &img, int frameIndex) {
   TRasterImageP image(img);
-  m_lx = image->getRaster()->getLx();
-  m_ly = image->getRaster()->getLy();
+  {
+    QMutexLocker locker(&m_metadataMutex);
+    m_lx = image->getRaster()->getLx();
+    m_ly = image->getRaster()->getLy();
+  }
   ffmpegWriter->createIntermediateImage(img, frameIndex);
 }
 
@@ -241,7 +244,7 @@ TLevelReaderGif::TLevelReaderGif(const TFilePath &path)
     : TLevelReader(path)
 
 {
-  ffmpegReader = new Ffmpeg();
+  ffmpegReader = std::make_unique<Ffmpeg>();
   ffmpegReader->setPath(m_path);
   ffmpegReader->disablePrecompute();
   ffmpegFileInfo tempInfo = ffmpegReader->getInfo();
@@ -263,9 +266,7 @@ TLevelReaderGif::TLevelReaderGif(const TFilePath &path)
 }
 //-----------------------------------------------------------
 
-TLevelReaderGif::~TLevelReaderGif() {
-  // ffmpegReader->cleanUpFiles();
-}
+TLevelReaderGif::~TLevelReaderGif() {}
 
 //-----------------------------------------------------------
 

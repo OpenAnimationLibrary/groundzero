@@ -32,7 +32,8 @@ public:
 private:
   void buildFfmpegArgs(QStringList &preIArgs, QStringList &postIArgs) const;
 
-  Ffmpeg *ffmpegWriter;
+  std::unique_ptr<Ffmpeg> ffmpegWriter;
+  mutable QMutex m_metadataMutex;
   int m_lx, m_ly;
   int m_scale;
   bool m_looping;
@@ -59,7 +60,7 @@ public:
   TImageP load(int frameIndex);
   TDimension getSize();
 private:
-  Ffmpeg *ffmpegReader;
+  std::unique_ptr<Ffmpeg> ffmpegReader;
   bool ffmpegFramesCreated = false;
   TDimension m_size;
   int m_frameCount, m_lx, m_ly;

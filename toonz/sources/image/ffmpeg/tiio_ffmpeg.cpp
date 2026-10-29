@@ -24,6 +24,7 @@
 #include <QFile>
 #include <QDateTime>
 #include <QCryptographicHash>  // For MD5 hash
+#include <algorithm>
 #include "tmsgcore.h"
 #include "thirdparty.h"
 
@@ -41,8 +42,18 @@ Ffmpeg::Ffmpeg() {
 }
 
 Ffmpeg::~Ffmpeg() {
-  finishPipe();
-  cleanUpFiles();
+  // Owners also destroy this object while unwinding a failed reader/writer
+  // constructor. Cleanup must not replace that exception or terminate the app.
+  try {
+    finishPipe();
+  } catch (...) {
+    qWarning() << "FFmpeg pipe finalization failed during cleanup";
+  }
+  try {
+    cleanUpFiles();
+  } catch (...) {
+    qWarning() << "FFmpeg temporary-file cleanup failed";
+  }
 }
 
 bool Ffmpeg::checkFormat(std::string format) {
@@ -99,9 +110,7 @@ void Ffmpeg::setPath(const TFilePath &path) {
 }
 
 void Ffmpeg::createIntermediateImage(const TImageP &img, int frameIndex) {
-  m_frameCount++;
   int idx = frameIndex - 1;
-  if (idx < m_startNumber) m_startNumber = idx;
 
   // Hash prefix + zero-padded 6-digit index (ffmpeg %06d)
   QString tempFileName = m_tempBaseName + "_in" +
@@ -123,13 +132,21 @@ void Ffmpeg::createIntermediateImage(const TImageP &img, int frameIndex) {
     return;
   }
 
-  m_lx  = raster->getLx();
-  m_ly  = raster->getLy();
-  m_bpp = raster->getPixelSize();
+  const int lx  = raster->getLx();
+  const int ly  = raster->getLy();
+  const int bpp = raster->getPixelSize();
+  {
+    QMutexLocker locker(&m_intermediateMutex);
+    ++m_frameCount;
+    m_startNumber = std::min(m_startNumber, idx);
+    m_lx = lx;
+    m_ly = ly;
+    m_bpp = bpp;
+  }
 
   TRaster32P raster32;
 
-  if (m_bpp == 4) {
+  if (bpp == 4) {
     // Already 32-bit integer fast path, clone and mirror
     raster32 = raster->clone();
     if (!raster32) {
@@ -139,7 +156,7 @@ void Ffmpeg::createIntermediateImage(const TImageP &img, int frameIndex) {
     raster32->yMirror();  // Mirror only once here
   } else {
     // FP32 or 64-bit convert safely
-    raster32 = TRaster32P(m_lx, m_ly);
+    raster32 = TRaster32P(lx, ly);
     if (!raster32) {
       DVGui::warning(
           QObject::tr("Failed to allocate 32-bit raster for FFmpeg"));
@@ -147,13 +164,13 @@ void Ffmpeg::createIntermediateImage(const TImageP &img, int frameIndex) {
     }
 
     // float (16 bytes/pixel), do clamp
-    if (m_bpp == 16) {
+    if (bpp == 16) {
       TRasterPT<TPixelF> rasterFloat(raster);
       if (rasterFloat) {
         rasterFloat->lock();
-        for (int y = 0; y < m_ly; ++y) {
+        for (int y = 0; y < ly; ++y) {
           TPixelF *pix = rasterFloat->pixels(y);
-          for (int x = 0; x < m_lx; ++x, ++pix) {
+          for (int x = 0; x < lx; ++x, ++pix) {
             pix->r = tcrop(pix->r, 0.0f, 1.0f);
             pix->g = tcrop(pix->g, 0.0f, 1.0f);
             pix->b = tcrop(pix->b, 0.0f, 1.0f);
@@ -175,7 +192,7 @@ void Ffmpeg::createIntermediateImage(const TImageP &img, int frameIndex) {
     raster32->yMirror();  // Mirror only once here
   }
 
-  QImage qi(raster32->getRawData(), m_lx, m_ly, raster32->getWrap() * 4,
+  QImage qi(raster32->getRawData(), lx, ly, raster32->getWrap() * 4,
             QImage::Format_ARGB32);
 
   if (qi.isNull()) {
@@ -195,6 +212,7 @@ void Ffmpeg::createIntermediateImage(const TImageP &img, int frameIndex) {
     return;
   }
 
+  QMutexLocker locker(&m_intermediateMutex);
   m_cleanUpList.push_back(tempPath);
 }
 
@@ -991,15 +1009,11 @@ void Ffmpeg::getFramesFromMovie(int frame) {
       return;
     }
 
-    // Add all extracted frames to cleanup list
-    for (int i = 1; i <= m_frameCount; i++) {
-      QString frameFile = ffmpegCachePath + QDir::separator() + m_tempBaseName +
-                          QString("_in%1.").arg(i, 6, 10, QChar('0')) +
-                          m_intermediateFormat;
-      if (!m_cleanUpList.contains(frameFile)) {
-        m_cleanUpList.push_back(frameFile);
-      }
-    }
+    // Extracted frames, like the metadata file, belong to the shared import
+    // cache. Another reader of this path may still need them after this reader
+    // closes. Only export intermediates are owned by m_cleanUpList; registering
+    // every import frame there both deleted another reader's inputs and did a
+    // quadratic number of QString comparisons for long clips.
   }
 }
 
@@ -1136,10 +1150,7 @@ TLevelReaderFFmpeg::TLevelReaderFFmpeg(const TFilePath &path)
     , m_ly(0)
     , m_framesExtracted(false)
     , m_imageInfo(nullptr) {
-  m_ffmpegReader = new Ffmpeg();
-  if (!m_ffmpegReader) {
-    throw TImageException(path, "Failed to create FFmpeg reader");
-  }
+  m_ffmpegReader = std::make_unique<Ffmpeg>();
 
   m_ffmpegReader->setPath(path);
   m_ffmpegReader->disablePrecompute();
@@ -1161,14 +1172,12 @@ TLevelReaderFFmpeg::TLevelReaderFFmpeg(const TFilePath &path)
     m_imageInfo->m_dpix           = Stage::standardDpi;
     m_imageInfo->m_dpiy           = Stage::standardDpi;
   } catch (const TImageException &e) {
-    delete m_ffmpegReader;
-    m_ffmpegReader = nullptr;
+    m_ffmpegReader.reset();
     throw;
   }
 }
 
 TLevelReaderFFmpeg::~TLevelReaderFFmpeg() {
-  delete m_ffmpegReader;
   delete m_imageInfo;
 }
 
