@@ -194,12 +194,19 @@ void exerciseNestedReferenceRefresh(TXsheet *xsheet,
   probe->getParams()->add(new TParamVarT<TParamP>(
       "second", nullptr, TParamP(second.getPointer())));
   auto *grammar = xsheet->getStageObjectTree()->getGrammar();
+  // Disabled matte uses a separate sentinel for evaluation. Animate the
+  // registered Alpha component retained by the set's numeric enumeration,
+  // which is the hidden numeric curve reference maintenance must preserve.
+  auto *registeredAlpha = dynamic_cast<TDoubleParam *>(
+      firstColor->getParam(firstColor->getParamIdx("Alpha")).getPointer());
+  require(registeredAlpha && registeredAlpha != firstColor->getMatte().getPointer(),
+          "disabled matte fixture did not retain its registered alpha component");
   firstLeaf->setGrammar(grammar);
   secondLeaf->setGrammar(grammar);
-  firstColor->getMatte()->setGrammar(grammar);
+  registeredAlpha->setGrammar(grammar);
   keys(firstLeaf.getPointer(), seExprSource);
   keys(secondLeaf.getPointer(), "col2.x*3");
-  keys(firstColor->getMatte().getPointer(), seExprSource);
+  keys(registeredAlpha, seExprSource);
   FxDag *dag = xsheet->getFxDag();
   dag->assignUniqueId(probe.getPointer());
   dag->getInternalFxs()->addFx(probe.getPointer());
@@ -228,7 +235,7 @@ void exerciseNestedReferenceRefresh(TXsheet *xsheet,
     monitor->refreshXsheetRefInfo(xsheet);
     require(xsheet->getExpRefMonitor()->info().contains(expectedFirst) &&
                 xsheet->getExpRefMonitor()->info().contains(secondLeaf.getPointer()) &&
-                xsheet->getExpRefMonitor()->info().contains(firstColor->getMatte().getPointer()),
+                xsheet->getExpRefMonitor()->info().contains(registeredAlpha),
             "native monitoring omitted hidden nested or inactive alpha expressions");
   };
   for (int refresh = 0; refresh < 3; ++refresh) check(firstLeaf.getPointer());
