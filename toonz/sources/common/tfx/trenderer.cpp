@@ -1478,7 +1478,7 @@ void TRendererImp::advanceRender(unsigned long renderId) {
 
     if (instance.m_canceled || instance.m_submissionFailed) {
       const int unscheduled = instance.m_activeTasks - instance.m_submittedTasks;
-      m_undoneTasks -= unscheduled;
+      m_undoneTasks += -unscheduled;
       instance.m_activeTasks = instance.m_submittedTasks;
       instance.m_nextWindow = instance.m_windows.size();
     }
