@@ -15,6 +15,7 @@
 //       -L<build>/lib -ltnzbase -ltnzcore $(pkg-config --libs Qt5Core)
 
 #include "tstream.h"
+#include "tstreamlimits.h"
 #include "texception.h"
 #include "tfilepath.h"
 
@@ -24,6 +25,7 @@
 #include <QTemporaryDir>
 
 #include <iostream>
+#include <cstring>
 #include <map>
 #include <stdexcept>
 #include <string>
@@ -179,6 +181,21 @@ void run() {
   hugeSize.replace(8, 4, QByteArray("\xff\xff\xff\x3f", 4));
   writeBytes(badPath, hugeSize);
   require(isRejected(badPath), "an impossible decompressed size was accepted");
+
+  // Exercise the same bounds used by scene publication without allocating
+  // huge rasters/documents. A plausible compressed length must not permit a
+  // declared document larger than the supported format limit.
+  require(TStreamLimits::validCompressedSizes(2000000, 1u << 28),
+          "the maximum supported document size was rejected");
+  require(!TStreamLimits::validCompressedSizes(2000000, (1u << 28) + 1),
+          "scene publication would accept an unreadable document size");
+  require(!TStreamLimits::validCompressedSizes(100000001, 1),
+          "scene publication would accept an unreadable payload size");
+  QByteArray oversized = lz4;
+  const TINT32 excessiveDocument = (1u << 28) + 1;
+  std::memcpy(oversized.data() + 8, &excessiveDocument, sizeof(TINT32));
+  writeBytes(badPath, oversized);
+  require(isRejected(badPath), "an oversized document header was accepted");
 }
 
 }  // namespace
