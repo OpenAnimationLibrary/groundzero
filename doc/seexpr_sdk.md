@@ -45,6 +45,10 @@ The pinned core's parsed local-function/prototype language is completed in priva
 
 The optional LLVM emitter routes native standard/custom callbacks through checked exception boundaries; it does not allow exceptions to unwind through generated code. Returning to the SDK rethrows the captured exception, and later valid evaluation remains available. A matching compiled result shape is required; passing a vector object through an incompatible scalar ABI is not supported.
 
+Callback data keeps the original ownership contract: `ExprFuncNode::Data(false)` is borrowed from its host, while `Data(true)` is destroyed with the owning expression. Internal curve, Voronoi and variable-dispatch caches opt into ownership. `Expressions::reset()` releases graph-owned expressions and values and invalidates their handles; dependency edges and host-provided string buffers remain borrowed. Graph teardown releases evaluators before their input values, and failed preparation removes its dependency registrations.
+
+The standalone qualification includes deterministic generated/malformed expressions with valid-expression recovery, explicit owned/borrowed callback lifetimes, repeated graph reset and failure recovery. A separate Linux ASan/UBSan job instruments the core, adapter, SDK helpers and plugins; its diagnostics are required evidence rather than a substitute for the ordinary platform/installed-consumer checks.
+
 The optional Python inspection SDK has its own checked private parser preparation step and is documented in `seexpr_python.md`. These transformations preserve the downloaded source and notices. The exact selected files and helper paths are recorded in `toonz/cmake/SeExpr-source.json`.
 
 ## Calculator and grapher

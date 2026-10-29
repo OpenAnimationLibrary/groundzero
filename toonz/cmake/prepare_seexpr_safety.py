@@ -2,11 +2,84 @@
 from pathlib import Path
 
 
+def replace_once(source, before, after, label):
+    if source.count(before) != 1:
+        raise RuntimeError(f"Pinned SeExpr safety patch no longer matches: {label}")
+    return source.replace(before, after, 1)
+
+
 def apply_safety(output):
+    output = Path(output)
+    # A string-only operation legitimately has no floating-point registers.
+    # Acquiring its unused base pointer must not dereference vector element 0.
+    for name, replacements in (
+        ("Interpreter.h", (("&d[0]", "d.data()"),
+                           ("&s[0]", "s.data()"),
+                           ("&opData[0]", "opData.data()"))),
+        ("Interpreter.cpp", (("&opData[0]", "opData.data()"),)),
+        ("ExprFuncX.cpp", (("&interpreter->opData[0]", "interpreter->opData.data()"),
+                           ("&interpreter->d[0]", "interpreter->d.data()"),
+                           ("&interpreter->s[0]", "interpreter->s.data()"))),
+    ):
+        path = output / name
+        source = path.read_text(encoding="utf-8")
+        for before, after in replacements:
+            source = replace_once(source, before, after, "empty-safe interpreter storage")
+        if name == "Interpreter.cpp":
+            source = replace_once(source,
+                "            memcpy(fp, d.data(), d.size() * sizeof(double));",
+                "            if (!d.empty()) memcpy(fp, d.data(), d.size() * sizeof(double));",
+                "empty string-only VarBlock copy")
+        if name == "ExprFuncX.cpp":
+            source = replace_once(source,
+                "    interpreter->addOp(EvalOp);",
+                "    // ArgHandle binds both output references even when one\n"
+                "    // bank is unused for this result type. Reserve that slot\n"
+                "    // in both banks before constructing either reference.\n"
+                "    if (node->type().isFP()) {\n"
+                "        while (interpreter->s.size() <= static_cast<size_t>(outoperand))\n"
+                "            interpreter->allocPtr();\n"
+                "    } else {\n"
+                "        while (interpreter->d.size() <= static_cast<size_t>(outoperand))\n"
+                "            interpreter->allocFP(1);\n"
+                "    }\n\n"
+                "    interpreter->addOp(EvalOp);",
+                "valid inactive custom-function output references")
+        path.write_text(source, encoding="utf-8", newline="\n")
+
     path = Path(output) / "ExprBuiltins.cpp"
     source = path.read_text(encoding="utf-8")
     source = source.replace("#include <cassert>",
                             "#include <cassert>\n#include <memory>\n#include <stdexcept>\n#include <sstream>\n#include <cstdio>", 1)
+    # Internal per-expression allocations are owned by their nodes. Keep the
+    # public Data(false) default intact for SDK hosts that supply borrowed data.
+    source = replace_once(source,
+        "    VoronoiPointData() : jitter(-1) {}",
+        "    VoronoiPointData() : ExprFuncNode::Data(true), cell(0.0), jitter(-1) {}",
+        "owned initialized Voronoi cache")
+    source = replace_once(source,
+        "struct CurveData : public ExprFuncNode::Data {\n    Curve<T> curve;",
+        "struct CurveData : public ExprFuncNode::Data {\n"
+        "    CurveData() : ExprFuncNode::Data(true) {}\n    Curve<T> curve;",
+        "owned scalar/color curve cache")
+    source = replace_once(source,
+        "        Data(func fIn, int dim) : f(fIn), dim(dim) {}",
+        "        Data(func fIn, int dim) : ExprFuncNode::Data(true), f(fIn), dim(dim) {}",
+        "owned getVar dispatch cache")
+    for name, end_marker, value_type in (
+        ("CurveFuncX", "} curve;", "double"),
+        ("CCurveFuncX", "} ccurve;", "Vec3d"),
+    ):
+        begin = source.index("class " + name + " : public ExprFuncSimple {")
+        end = source.index(end_marker, begin)
+        region = source[begin:end]
+        region = replace_once(region,
+            "        CurveData<" + value_type + ">* data = new CurveData<" + value_type + ">;",
+            "        std::unique_ptr<CurveData<" + value_type + ">> data(new CurveData<" + value_type + ">);",
+            "exception-safe curve preparation")
+        region = replace_once(region, "        return data;", "        return data.release();",
+                              "curve preparation ownership transfer")
+        source = source[:begin] + region + source[end:]
     begin = source.index("class PrintFuncX : public ExprFuncSimple {")
     end = source.index("} sprintf;", begin) + len("} sprintf;")
     # Keep the pinned source license/header. The replacement validates the

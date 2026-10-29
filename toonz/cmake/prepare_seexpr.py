@@ -151,8 +151,27 @@ def main():
     # construction, not the previous expression or a different worker.
     graph = output / "ExprMultiExpr.cpp"
     text = graph.read_text(encoding="utf-8")
-    text = replace_once(text, '#include <set>', '#include <set>\n#include <functional>\n#include <stdexcept>',
+    text = replace_once(text, '#include <set>',
+                        '#include <set>\n#include <functional>\n#include <memory>\n#include <stdexcept>',
                         "graph traversal headers")
+    text = replace_once(text,
+        "    : Expression(e, type, be), context(context) {\n"
+        "    if (type.isFP())\n"
+        "        val = new GlobalFP(varName, type.dim());\n"
+        "    else if (type.isString())\n"
+        "        val = new GlobalStr(varName);\n"
+        "    else\n"
+        "        assert(false);",
+        "    : Expression(e, type, be), context(context), val(nullptr) {\n"
+        "    std::unique_ptr<GlobalVal> valueOwner;\n"
+        "    if (type.isFP())\n"
+        "        valueOwner.reset(new GlobalFP(varName, type.dim()));\n"
+        "    else if (type.isString())\n"
+        "        valueOwner.reset(new GlobalStr(varName));\n"
+        "    else\n"
+        "        throw std::invalid_argument(\"Expression graph requires a value type\");\n"
+        "    val = valueOwner.get();",
+        "graph result ownership during construction")
     text = replace_once(text, "std::set<SeExpr2::DExpression *> tmpOperandExprs;",
                         "thread_local std::set<SeExpr2::DExpression *> tmpOperandExprs;",
                         "graph-local expression resolution")
@@ -172,10 +191,79 @@ def main():
         "    } catch (...) {\n"
         "        for (DExpression *operand : tmpOperandExprs) operand->val->users.erase(this);\n"
         "        for (GlobalVal *operand : tmpOperandVars) operand->users.erase(this);\n"
-        "        delete val;\n"
         "        throw;\n"
-        "    }",
+        "    }\n"
+        "    valueOwner.release();",
         "graph resolution lifecycle")
+    text = replace_once(text,
+        "const std::string &DExpression::name() const { return val->varName; }",
+        "DExpression::~DExpression() {\n"
+        "    // Prepared data may borrow graph inputs. Release it before this\n"
+        "    // expression's own result; dependency sets never own their peers.\n"
+        "    reset();\n"
+        "    delete val;\n"
+        "}\n\n"
+        "const std::string &DExpression::name() const { return val->varName; }",
+        "graph expression result destruction")
+    text = replace_once(text, '''Expressions::~Expressions() {
+    for (std::set<DExpression *>::iterator I = AllExprs.begin(), E = AllExprs.end(); I != E; ++I) delete *I;
+
+    for (std::set<GlobalVal *>::iterator I = AllExternalVars.begin(), E = AllExternalVars.end(); I != E; ++I) delete *I;
+}''', '''Expressions::~Expressions() { reset(); }
+
+void Expressions::reset() {
+    resetEval();
+    // First release every evaluator while all borrowed values still exist.
+    // Pointer-set order is unrelated to dependency order.
+    for (DExpression *expression : AllExprs) expression->reset();
+    for (DExpression *expression : AllExprs) {
+        expression->operandExprs.clear();
+        expression->operandVars.clear();
+        expression->val->users.clear();
+    }
+    for (GlobalVal *variable : AllExternalVars) variable->users.clear();
+    // addExpression/addExternalVariable create distinct owners. Edges and
+    // GlobalStr's host-provided character buffer remain borrowed.
+    for (DExpression *expression : AllExprs) delete expression;
+    for (GlobalVal *variable : AllExternalVars) delete variable;
+    AllExprs.clear();
+    AllExternalVars.clear();
+}''', "graph reset releases its owned expressions and values")
+    text = replace_once(text, '''    if (seTy.isFP())
+        ret = AllExternalVars.insert(new GlobalFP(variableName, seTy.dim()));
+    else if (seTy.isString())
+        ret = AllExternalVars.insert(new GlobalStr(variableName));
+    else
+        assert(false);
+
+    return ret.first;''', '''    std::unique_ptr<GlobalVal> variable;
+    if (seTy.isFP())
+        variable.reset(new GlobalFP(variableName, seTy.dim()));
+    else if (seTy.isString())
+        variable.reset(new GlobalStr(variableName));
+    else
+        throw std::invalid_argument("Expression graph requires a value type");
+    ret = AllExternalVars.insert(variable.get());
+    if (ret.second) variable.release();
+    return ret.first;''', "graph variable insertion exception ownership")
+    text = replace_once(text,
+        "    ret = AllExprs.insert(new DExpression(varName, *this, expr, seTy));\n"
+        "    return ret.first;",
+        "    std::unique_ptr<DExpression> expression(new DExpression(varName, *this, expr, seTy));\n"
+        "    try {\n"
+        "        ret = AllExprs.insert(expression.get());\n"
+        "    } catch (...) {\n"
+        "        // Registration may fail after preparation published borrowed\n"
+        "        // dependency edges. Their owners are all still live here.\n"
+        "        for (DExpression *operand : expression->operandExprs)\n"
+        "            operand->val->users.erase(expression.get());\n"
+        "        for (GlobalVal *operand : expression->operandVars)\n"
+        "            operand->users.erase(expression.get());\n"
+        "        throw;\n"
+        "    }\n"
+        "    if (ret.second) expression.release();\n"
+        "    return ret.first;",
+        "graph expression insertion exception ownership")
     graph_order = '''std::vector<SeExpr2::DExpression *> evaluationOrder(
     const std::set<SeExpr2::DExpression *> &selected) {
     std::set<SeExpr2::DExpression *> visiting, complete;
@@ -208,6 +296,20 @@ def main():
         "    return std::make_pair(eh, evaluationOrder(selected));",
         "graph handle evaluation order")
     graph.write_text(text, encoding="utf-8", newline="\n")
+
+    graph_header = output / "ExprMultiExpr.h"
+    text = graph_header.read_text(encoding="utf-8")
+    text = replace_once(text,
+        "    mutable std::set<DExpression*> operandExprs;",
+        "    ~DExpression() override;\n\n"
+        "    mutable std::set<DExpression*> operandExprs;",
+        "graph expression destructor declaration")
+    text = replace_once(text, '''    void reset() {
+        resetEval();
+        AllExprs.clear();
+        AllExternalVars.clear();
+    }''', "    void reset();", "graph reset with complete value types")
+    graph_header.write_text(text, encoding="utf-8", newline="\n")
 
     from prepare_seexpr_language import apply_language
     apply_language(output)
