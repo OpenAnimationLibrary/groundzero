@@ -164,6 +164,7 @@ color, which
         *m_group;  //!< (\p not \p owned) Reference to the enclosing group
 
     std::string m_paramNamePref;
+    std::string m_referencePath;
 
     bool m_isActive;  //!< Whether the channels is active, ie visible
                       //!< as a curve and numeric column
@@ -176,6 +177,7 @@ color, which
       return (TDoubleParam *)m_param.getPointer();
     }
     void setParam(const TParamP &param) override;
+    void setReferencePath(const std::string &path) { m_referencePath = path; }
 
     QString getShortName() const;
     QString getLongName() const;
@@ -283,6 +285,8 @@ private:
   void refreshDataImpl(TXsheet *xsh, bool referenceMode);
   void addParameter(ChannelGroup *group, const std::string &prefixString,
                     const std::wstring &fxId, TParam *param);
+  void addReferenceParameter(ChannelGroup *group, const std::wstring &fxId,
+                             TParam *param, const std::string &path);
 
   //! remove channel from m_activeChannels and m_currentChannel
   void onChannelDestroyed(Channel *channel);
@@ -328,11 +332,13 @@ public:
 //=============================================================================
 
 class DVAPI FxChannelGroup final : public FunctionTreeModel::ChannelGroup {
+  bool m_referenceOnly;
+
 public:
   TFx *m_fx;
 
 public:
-  FxChannelGroup(TFx *fx);
+  FxChannelGroup(TFx *fx, bool referenceOnly = false);
   ~FxChannelGroup();
 
   QString getShortName() const override;
@@ -341,7 +347,10 @@ public:
   QString getIdName() const override;
 
   void *getInternalPointer() const override {
-    return static_cast<void *>(m_fx);
+    // Reference leaves include arbitrary nested/hidden sets. Rebuild from the
+    // current parameter objects; the UI's top-level name rebinding cannot
+    // resolve those leaves and can retain removed dynamic parameters.
+    return m_referenceOnly ? nullptr : static_cast<void *>(m_fx);
   }
   TFx *getFx() const { return m_fx; }
   QVariant data(int role) const override;

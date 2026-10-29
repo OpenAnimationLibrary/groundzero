@@ -12,11 +12,13 @@
 #include "texpression.h"
 #include "tfx.h"
 #include "tparamcontainer.h"
+#include "tparamset.h"
 #include "tundo.h"
 #include "tvectorimage.h"
 #include "toonz/preferences.h"
 #include "toonz/fxdag.h"
 #include "toonz/tcolumnfxset.h"
+#include "toonz/tcolumnfx.h"
 #include "toonz/expressionreferencemonitor.h"
 #include "toonz/tcolumnhandle.h"
 #include "toonz/tframehandle.h"
@@ -33,6 +35,7 @@
 #include "toonz/txshleveltypes.h"
 #include "toonz/txshsimplelevel.h"
 #include "toonzqt/dvdialog.h"
+#include "toonzqt/functiontreeviewer.h"
 #include "toonzqt/stageobjectsdata.h"
 
 #include <QApplication>
@@ -51,6 +54,7 @@
 #include <cmath>
 #include <iostream>
 #include <list>
+#include <map>
 #include <set>
 
 namespace {
@@ -135,6 +139,115 @@ void redo(TUndoManager *manager) {
   settle();
 }
 
+void collectReferenceChannels(
+    TreeModel::Item *item, std::map<std::string, TDoubleParam *> &curves) {
+  if (auto *leaf = dynamic_cast<FunctionTreeModel::Channel *>(item)) {
+    require(leaf->getParam(), "reference refresh retained a null numeric parameter");
+    require(curves.emplace(leaf->getShortName().toStdString(), leaf->getParam()).second,
+            "reference refresh confused numeric leaves with the same bare name");
+  } else {
+    for (int index = 0; index < item->getChildCount(); ++index)
+      collectReferenceChannels(item->getChild(index), curves);
+  }
+}
+
+std::map<std::string, TDoubleParam *> referenceChannels(
+    FunctionTreeModel &model, TFx *effect) {
+  for (int index = 0; index < model.getFxsChannelCount(); ++index) {
+    auto *group = dynamic_cast<FxChannelGroup *>(model.getFxChannel(index));
+    if (group && group->getFx() == effect) {
+      std::map<std::string, TDoubleParam *> result;
+      collectReferenceChannels(group, result);
+      return result;
+    }
+  }
+  throw Failure{"reference refresh omitted the expected native effect"};
+}
+
+void exerciseNestedReferenceRefresh(TXsheet *xsheet,
+                                    ExpressionReferenceManager *monitor) {
+  checkpoint("repeatedly refreshing default tint and hidden nested numeric references");
+  auto *columnFx = dynamic_cast<TLevelColumnFx *>(xsheet->getColumn(0)->getFx());
+  require(columnFx, "native fixture has no level-column effect");
+  TPixelParam *tint = columnFx->getTintColorParam();
+  require(tint && !tint->isMatteEnabled(), "default native tint fixture unexpectedly uses alpha");
+
+  TFxP probe(TFx::create("STD_blurFx"));
+  require(probe, "nested reference fixture could not create a built-in effect");
+  TParamSetP first(new TParamSet), second(new TParamSet);
+  TParamSetP firstNested(new TParamSet("sameContainer"));
+  TParamSetP secondNested(new TParamSet("sameContainer"));
+  TDoubleParamP firstLeaf(new TDoubleParam), secondLeaf(new TDoubleParam);
+  firstLeaf->setName("sameLeaf");
+  secondLeaf->setName("sameLeaf");
+  firstNested->addParam(firstLeaf, "registeredLeaf");
+  secondNested->addParam(secondLeaf, "registeredLeaf");
+  first->addParam(firstNested, "nested");
+  second->addParam(secondNested, "nested");
+  TPixelParamP firstColor(TPixel32::Black), secondColor(TPixel32::Black);
+  firstColor->enableMatte(false);
+  secondColor->enableMatte(false);
+  first->addParam(firstColor, "color");
+  second->addParam(secondColor, "color");
+  probe->getParams()->add(new TParamVarT<TParamP>("first", nullptr, first, true));
+  probe->getParams()->add(new TParamVarT<TParamP>("second", nullptr, second));
+  auto *grammar = xsheet->getStageObjectTree()->getGrammar();
+  firstLeaf->setGrammar(grammar);
+  secondLeaf->setGrammar(grammar);
+  firstColor->getMatte()->setGrammar(grammar);
+  keys(firstLeaf.getPointer(), seExprSource);
+  keys(secondLeaf.getPointer(), "col2.x*3");
+  keys(firstColor->getMatte().getPointer(), seExprSource);
+  FxDag *dag = xsheet->getFxDag();
+  dag->assignUniqueId(probe.getPointer());
+  dag->getInternalFxs()->addFx(probe.getPointer());
+
+  FunctionTreeModel model;
+  auto check = [&](TDoubleParam *expectedFirst) {
+    model.refreshReferenceData(xsheet);
+    const auto defaults = referenceChannels(model, columnFx);
+    for (int component = 0; component < tint->getParamCount(); ++component) {
+      const std::string path = tint->getName() + "." + tint->getParamName(component);
+      const auto found = defaults.find(path);
+      require(found != defaults.end() && found->second == tint->getParam(component).getPointer(),
+              "reference refresh lost or rebound an inactive default tint component");
+    }
+    const auto nested = referenceChannels(model, probe.getPointer());
+    require(nested.at("first.nested.registeredLeaf") == expectedFirst &&
+                nested.at("second.nested.registeredLeaf") == secondLeaf.getPointer(),
+            "reference refresh rebound a nested leaf by its ambiguous bare name");
+    for (const auto &color : {std::make_pair(std::string("first"), firstColor),
+                              std::make_pair(std::string("second"), secondColor)})
+      for (int component = 0; component < color.second->getParamCount(); ++component) {
+        const std::string path = color.first + ".color." + color.second->getParamName(component);
+        require(nested.at(path) == color.second->getParam(component).getPointer(),
+                "reference refresh omitted or confused hidden nested color components");
+      }
+    monitor->refreshXsheetRefInfo(xsheet);
+    require(xsheet->getExpRefMonitor()->info().contains(expectedFirst) &&
+                xsheet->getExpRefMonitor()->info().contains(secondLeaf.getPointer()) &&
+                xsheet->getExpRefMonitor()->info().contains(firstColor->getMatte().getPointer()),
+            "native monitoring omitted hidden nested or inactive alpha expressions");
+  };
+  for (int refresh = 0; refresh < 3; ++refresh) check(firstLeaf.getPointer());
+
+  TParamSetP replacement(new TParamSet("sameContainer"));
+  TDoubleParamP replacementLeaf(new TDoubleParam);
+  replacementLeaf->setName("sameLeaf");
+  replacementLeaf->setGrammar(grammar);
+  keys(replacementLeaf.getPointer(), seExprSource);
+  replacement->addParam(replacementLeaf, "registeredLeaf");
+  first->removeParam(firstNested);
+  first->addParam(replacement, "nested");
+  for (int refresh = 0; refresh < 3; ++refresh) {
+    check(replacementLeaf.getPointer());
+    require(!xsheet->getExpRefMonitor()->info().contains(firstLeaf.getPointer()),
+            "native monitoring retained a replaced nested parameter object");
+  }
+  dag->getInternalFxs()->removeFx(probe.getPointer());
+  monitor->refreshXsheetRefInfo(xsheet);
+}
+
 void exerciseNativeReferenceLifecycle(QMainWindow *window) {
   require(window && window->isVisible(), "native main window is not visible");
   require(TEnv::getIsPortable(), "native fixture did not start in portable mode");
@@ -180,6 +293,8 @@ void exerciseNativeReferenceLifecycle(QMainWindow *window) {
   monitor->refreshXsheetRefInfo(xsheet);
   TUndoManager *history = TUndoManager::manager();
   history->reset();
+  checkOriginal(xsheet);
+  exerciseNestedReferenceRefresh(xsheet, monitor);
   checkOriginal(xsheet);
 
   checkpoint("moving actual columns through the native reference observer");
@@ -350,7 +465,7 @@ void exerciseNativeReferenceLifecycle(QMainWindow *window) {
   undo(history); checkOriginal(xsheet);
 
   checkpoint("preserving references shared with an external linked native effect");
-  TFxP selectedFx(TFx::create("blurFx")), externalFx(TFx::create("blurFx"));
+  TFxP selectedFx(TFx::create("STD_blurFx")), externalFx(TFx::create("STD_blurFx"));
   require(selectedFx && externalFx, "native linked-effect fixture could not create built-in effects");
   FxDag *dag = xsheet->getFxDag();
   dag->assignUniqueId(selectedFx.getPointer());

@@ -335,7 +335,8 @@ QString StageObjectChannelGroup::getIdName() const {
 //
 //-----------------------------------------------------------------------------
 
-FxChannelGroup::FxChannelGroup(TFx *fx) : m_fx(fx) {
+FxChannelGroup::FxChannelGroup(TFx *fx, bool referenceOnly)
+    : m_referenceOnly(referenceOnly), m_fx(fx) {
   if (m_fx) m_fx->addRef();
 }
 
@@ -682,6 +683,7 @@ QVariant FunctionTreeModel::Channel::data(int role) const {
 //-----------------------------------------------------------------------------
 
 QString FunctionTreeModel::Channel::getShortName() const {
+  if (!m_referencePath.empty()) return QString::fromStdString(m_referencePath);
   if (m_param->hasUILabel()) {
     return QString::fromStdString(m_param->getUILabel());
   }
@@ -719,6 +721,9 @@ void FunctionTreeModel::Channel::setParam(const TParamP &param) {
 /*! in order to show the expression name in the tooltip
  */
 QString FunctionTreeModel::Channel::getExprRefName() const {
+  // Reference maintenance paths also include hidden and dynamic sets that the
+  // native token registry may not expose as user-enterable expression names.
+  if (!m_referencePath.empty()) return QString();
   auto *material = dynamic_cast<ParamChannelGroup *>(getParent());
   // The expression token registry does not yet register dynamic material paths.
   // Do not advertise a reference made from a display name that cannot resolve.
@@ -1121,7 +1126,7 @@ void FunctionTreeModel::refreshFxs(TXsheet *xsh) {
         hasChannel = true;
         break;
       }
-    if (hasChannel) newItems.push_back(new FxChannelGroup(fxs[i]));
+    if (hasChannel) newItems.push_back(new FxChannelGroup(fxs[i], m_referenceMode));
   }
   m_fxs->setChildren(newItems);
   // Add channels to new fxs (only for those actually added: see setChildren())
@@ -1247,13 +1252,6 @@ void FunctionTreeModel::addParameter(ChannelGroup *group,
 
     group->appendChild(channel);
     channel->setChannelGroup(group);
-  } else if (m_referenceMode && dynamic_cast<TParamSet *>(param)) {
-    // View-specific sets can hide components (including alpha) or archive
-    // controls. Every nested numeric curve still participates in expressions.
-    auto *set = static_cast<TParamSet *>(param);
-    const std::string prefix = prefixString + param->getName() + ".";
-    for (int index = 0; index < set->getParamCount(); ++index)
-      addParameter(group, prefix, fxId, set->getParam(index).getPointer());
   } else if (param->getName() == "materialColors" && dynamic_cast<TParamSet *>(param)) {
     std::string name = prefixString + param->getName();
     auto *materials = new ParamChannelGroup(param, fxId, name);
@@ -1290,6 +1288,26 @@ void FunctionTreeModel::addParameter(ChannelGroup *group,
 
 //-----------------------------------------------------------------------------
 
+void FunctionTreeModel::addReferenceParameter(
+    ChannelGroup *group, const std::wstring &fxId, TParam *param,
+    const std::string &path) {
+  if (auto *curve = dynamic_cast<TDoubleParam *>(param)) {
+    auto *channel = new Channel(this, curve, "", fxId);
+    channel->setReferencePath(
+        fxId.empty() ? path : QString::fromStdWString(fxId).toStdString() + "." + path);
+    group->appendChild(channel);
+    channel->setChannelGroup(group);
+  } else if (auto *set = dynamic_cast<TParamSet *>(param)) {
+    // Registered component names can differ from the parameter object's name,
+    // and multiple sets commonly use the same leaf names (Red, Alpha, ...).
+    for (int index = 0; index < set->getParamCount(); ++index)
+      addReferenceParameter(group, fxId, set->getParam(index).getPointer(),
+                            path + "." + set->getParamName(index));
+  }
+}
+
+//-----------------------------------------------------------------------------
+
 void FunctionTreeModel::addChannels(TFx *fx, ChannelGroup *groupItem,
                                     TParamContainer *params) {
   FxChannelGroup *fxItem = static_cast<FxChannelGroup *>(groupItem);
@@ -1304,7 +1322,11 @@ void FunctionTreeModel::addChannels(TFx *fx, ChannelGroup *groupItem,
   for (p = 0; p != pCount; ++p) {
     // hidden parameter are not displayed in the tree
     if (!m_referenceMode && params->isParamHidden(p)) continue;
-    addParameter(fxItem, paramNamePref, fxId, params->getParam(p));
+    if (m_referenceMode)
+      addReferenceParameter(fxItem, fxId, params->getParam(p),
+                            params->getParamName(p));
+    else
+      addParameter(fxItem, paramNamePref, fxId, params->getParam(p));
   }
 }
 
