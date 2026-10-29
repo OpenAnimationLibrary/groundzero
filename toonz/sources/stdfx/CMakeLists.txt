@@ -175,6 +175,9 @@ set(SOURCES
     celedgelinesfx.cpp
     celboilfx.cpp
     printprocessfx.cpp
+    lightwrapfx.cpp
+    edgeextendfx.cpp
+    mattechokefx.cpp
     alphadistancegradientfx.cpp
     celboundaryblurfx.cpp
     celblur.cpp
@@ -553,6 +556,18 @@ if(BUILD_CELFX_TESTS)
              ${CMAKE_CURRENT_SOURCE_DIR}/../../../stuff/profiles/layouts/fxs/STD_printProcessFx.xml)
     add_dependencies(celfx_tests printprocess_test printprocess_ui_test)
     set_tests_properties(celfx_printprocess celfx_printprocess_ui PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 120)
+endif()
+
+if(BUILD_CELFX_TESTS)
+    add_executable(celcomposite_test tests/celcomposite_test.cpp)
+    target_link_libraries(celcomposite_test Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME celfx_composite COMMAND celcomposite_test)
+    add_executable(celcomposite_ui_test tests/celcomposite_ui_test.cpp)
+    target_link_libraries(celcomposite_ui_test toonzqt Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Widgets ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME celfx_composite_ui COMMAND celcomposite_ui_test
+             ${CMAKE_CURRENT_SOURCE_DIR}/../../../stuff/profiles/layouts/fxs/STD_lightWrapFx.xml ${CMAKE_CURRENT_SOURCE_DIR}/../../../stuff/profiles/layouts/fxs/STD_edgeExtendFx.xml ${CMAKE_CURRENT_SOURCE_DIR}/../../../stuff/profiles/layouts/fxs/STD_matteChokeFx.xml)
+    add_dependencies(celfx_tests celcomposite_test celcomposite_ui_test)
+    set_tests_properties(celfx_composite celfx_composite_ui PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
 endif()
 
 if(BUILD_CELFX_TESTS)

@@ -1,0 +1,9 @@
+<fxlayout help_file="LightWrap.html">
+  <page name="Light Wrap">
+    <control>output</control>
+    <control>width</control>
+    <control>softness</control>
+    <control>intensity</control>
+    <control>blend</control>
+  </page>
+</fxlayout>

@@ -103,6 +103,7 @@
     multFx
     overFx
     STD_premultiplyFx   
+    STD_unmultiplyFx
     screenFx 
     subFx
     STD_fadeFx
@@ -132,6 +133,7 @@
     STD_inoSubtractFx
   </Layer_Blending_Ino>
   <Light>
+    STD_lightWrapFx
     STD_backlitFx
     STD_bodyHighLightFx
     STD_toneHighlightFx
@@ -154,7 +156,9 @@
     STD_celColorKeepFx
     STD_celColorKeyFx
     STD_celColorExpandFx
+    STD_edgeExtendFx
     STD_erodeDilateFx
+    STD_matteChokeFx
     STD_hsvKeyFx
     inFx
     outFx

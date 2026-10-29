@@ -1289,6 +1289,20 @@
   <item>"STD_printProcessFx.inkBlack" "Black Ink" </item>
   <item>"STD_printProcessFx.offsetBlackX" "Black Offset X" </item>
   <item>"STD_printProcessFx.offsetBlackY" "Black Offset Y" </item>
+  <item>"STD_lightWrapFx" "Light Wrap" </item>
+  <item>"STD_lightWrapFx.output" "Output" </item>
+  <item>"STD_lightWrapFx.width" "Wrap Width" </item>
+  <item>"STD_lightWrapFx.softness" "Softness" </item>
+  <item>"STD_lightWrapFx.intensity" "Intensity" </item>
+  <item>"STD_lightWrapFx.blend" "Blend" </item>
+  <item>"STD_lightWrapFx.Background" "Background" </item>
+  <item>"STD_edgeExtendFx" "Edge Extend" </item>
+  <item>"STD_edgeExtendFx.radius" "Radius" </item>
+  <item>"STD_edgeExtendFx.solid" "Solid From Alpha" </item>
+  <item>"STD_edgeExtendFx.extendAlpha" "Extend Alpha" </item>
+  <item>"STD_matteChokeFx" "Matte Choke" </item>
+  <item>"STD_matteChokeFx.amount" "Choke / Spread" </item>
+  <item>"STD_matteChokeFx.feather" "Feather" </item>
   <item>"STD_celEdgeLinesFx" "Cel Edge Lines" </item>
   <item>"STD_celEdgeLinesFx.mode" "Output" </item>
   <item>"STD_celEdgeLinesFx.opacity" "Line Opacity" </item>
