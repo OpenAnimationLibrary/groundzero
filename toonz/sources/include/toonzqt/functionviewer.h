@@ -18,6 +18,8 @@
 #include <QSplitter>
 #include <QSettings>
 
+#include <string>
+
 #undef DVAPI
 #undef DVVAR
 #ifdef TOONZQT_EXPORTS
@@ -193,6 +195,10 @@ private:
 
   TDoubleParam *m_curve;
   FunctionSelection *m_selection;
+
+  // The fx and the structure of its parameters when its material channels
+  // were last built (see refreshMaterialChannels())
+  std::string m_materialSignature;
 
 private:
   void showEvent(QShowEvent *) override;

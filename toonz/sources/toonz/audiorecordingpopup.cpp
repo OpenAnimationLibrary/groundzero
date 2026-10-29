@@ -90,10 +90,43 @@ QString audioDeviceName(const TAudioDeviceInfo &device) {
   return device.description();
 }
 
-// Qt 6 has no nearest format: use the one the device prefers.
+// Qt 6 has no nearestFormat(): keep the chosen rate and channels with the
+// closest sample format the device takes (a 24-bit choice, which Qt 6 lacks,
+// prefers 32-bit integers), then the chosen sample format at the rate and
+// channels the device prefers, and only then the format it prefers.
 QAudioFormat nearestAudioFormat(const TAudioDeviceInfo &device,
-                                const QAudioFormat &) {
-  return device.preferredFormat();
+                                const QAudioFormat &format) {
+  if (device.isFormatSupported(format)) return format;
+  const QAudioFormat preferred = device.preferredFormat();
+
+  QList<QAudioFormat::SampleFormat> sampleFormats;
+  switch (format.sampleFormat()) {
+  case QAudioFormat::UInt8:
+    sampleFormats << QAudioFormat::Int16 << QAudioFormat::Float;
+    break;
+  case QAudioFormat::Int16:
+    sampleFormats << QAudioFormat::Int32 << QAudioFormat::Float;
+    break;
+  case QAudioFormat::Float:
+    sampleFormats << QAudioFormat::Int32 << QAudioFormat::Int16;
+    break;
+  default:  // Int32, or a 24-bit choice (Unknown)
+    sampleFormats << QAudioFormat::Int32 << QAudioFormat::Float
+                  << QAudioFormat::Int16;
+    break;
+  }
+  for (QAudioFormat::SampleFormat sampleFormat : sampleFormats) {
+    QAudioFormat candidate = format;
+    candidate.setSampleFormat(sampleFormat);
+    if (device.isFormatSupported(candidate)) return candidate;
+  }
+
+  if (format.sampleFormat() != QAudioFormat::Unknown) {
+    QAudioFormat candidate = preferred;
+    candidate.setSampleFormat(format.sampleFormat());
+    if (device.isFormatSupported(candidate)) return candidate;
+  }
+  return preferred;
 }
 
 int audioSampleSize(const QAudioFormat &format) {

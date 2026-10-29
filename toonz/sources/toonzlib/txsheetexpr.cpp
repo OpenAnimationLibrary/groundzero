@@ -25,6 +25,7 @@
 #include "toonz/tstageobjecttree.h"
 #include "toonz/tcolumnfxset.h"
 #include "toonz/tcolumnfx.h"
+#include "toonz/txshsoundcolumn.h"
 
 // Boost includes
 #include "boost/noncopyable.hpp"
@@ -320,6 +321,14 @@ public:
       return TStageObjectId::NoneId;
   }
 
+  // The volume curve of a sound column, or null
+  TDoubleParam *volumeCurve(const TStageObjectId &id) const {
+    if (!id.isColumn()) return nullptr;
+    TXshColumn *column     = m_xsh->getColumn(id.getIndex());
+    TXshSoundColumn *sound = column ? column->getSoundColumn() : nullptr;
+    return sound ? sound->getVolumeCurve() : nullptr;
+  }
+
   TStageObject::Channel matchChannelName(const Token &token) const {
     std::string s = toLower(token.getText());
     if (s == "y" || s == "ns")
@@ -368,6 +377,11 @@ public:
     else if (i == 2) {
       if (matchChannelName(token) < TStageObject::T_ChannelCount)
         return true;
+      else if (toLower(token.getText()) == "volume")
+        // the volume of a sound column, which the Function Editor shows
+        // with the column's channels
+        return volumeCurve(matchExistingObjectName(previousTokens[0])) !=
+               nullptr;
       else
         return token.getText() == "cell" &&
                matchExistingObjectName(previousTokens[0]).isColumn();
@@ -404,7 +418,11 @@ public:
     TStageObjectId objectId = matchObjectName(tokens[0]);
 
     std::string field = toLower(tokens[2].getText());
-    if (field == "cell" || field == "cel" || field == "cels") {
+    if (field == "volume") {
+      if (TDoubleParam *curve = volumeCurve(objectId))
+        stack.push_back(
+            new ParamCalculatorNode(calc, curve, std::move(frameNode)));
+    } else if (field == "cell" || field == "cel" || field == "cels") {
       int columnIndex = objectId.getIndex();
       stack.push_back(new XsheetDrawingCalculatorNode(calc, m_xsh, columnIndex,
                                                       std::move(frameNode)));

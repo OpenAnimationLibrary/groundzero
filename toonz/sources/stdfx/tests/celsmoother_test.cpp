@@ -1,4 +1,5 @@
 #include "../celsmootherfx.cpp"
+#include "celcamerabox.h"
 #include "tparamcontainer.h"
 #include "tdoublekeyframe.h"
 #include "tmacrofx.h"
@@ -572,6 +573,11 @@ int main(int argc, char **argv) {
     testPersistence(temp.filePath("smoother.fx"), false);
     testPersistence(temp.filePath("smoother-compressed.fx"), true);
     reportCost();
+    {
+      TFxP fx = new CelSmootherFx;
+      CelCameraBoxTest::checkInfiniteSourceCoversCamera(
+          static_cast<TRasterFx &>(*fx), "Cel Smoother");
+    }
     std::cout << "PASS: smoothing precision, coverage, tiles, animation and persistence\n";
     result = 0;
   } catch (const TException &e) {

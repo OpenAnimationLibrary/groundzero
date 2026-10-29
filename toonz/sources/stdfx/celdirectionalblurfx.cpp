@@ -155,6 +155,18 @@ public:
   TAffine handledAffine(const TRenderSettings &, double frame) override {
     return CelFxSourceGrid::renderAffine(m_source.getFx(), frame);
   }
+  void compute(TTile &tile, double frame, const TRenderSettings &settings) override {
+    if (CelFxSourceGrid::usesCameraDomain(this, m_source.getFx(), frame, settings))
+      CelFxSourceGrid::computeInCamera(this, tile, frame, settings);
+    else
+      TRasterFx::compute(tile, frame, settings);
+  }
+  void dryCompute(TRectD &rect, double frame, const TRenderSettings &settings) override {
+    if (CelFxSourceGrid::usesCameraDomain(this, m_source.getFx(), frame, settings))
+      CelFxSourceGrid::dryComputeInCamera(this, rect, frame, settings);
+    else
+      TRasterFx::dryCompute(rect, frame, settings);
+  }
   bool toBeComputedInLinearColorSpace(bool, bool) const override { return false; }
   bool doGetBBox(double frame, TRectD &box, const TRenderSettings &info) override {
     if (!m_source.isConnected()) { box = TRectD(); return false; }
