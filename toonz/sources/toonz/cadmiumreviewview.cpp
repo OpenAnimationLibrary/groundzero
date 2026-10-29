@@ -95,6 +95,14 @@ void CadmiumReviewView::setImages(const QImage &before, const QImage &after,
   m_canvas->update();
 }
 
+void CadmiumReviewView::setReferenceImage(const QImage &reference) {
+  // Reference selection does not alter the proposal, region decisions, or view.
+  // Retain the already rendered before/after images instead of rebuilding them.
+  m_reference = reference;
+  updateControls();
+  m_canvas->update();
+}
+
 void CadmiumReviewView::setRegions(const QSize &size, const QVector<int> &labels) {
   if (size == m_regionSize && labels.size() == m_labels.size() &&
       labels.constData() == m_labels.constData()) return;

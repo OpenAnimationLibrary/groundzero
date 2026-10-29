@@ -44,8 +44,8 @@ void initSession();
 // Call on normal exit: removes the session marker
 void endSession();
 
-// Writes a recovery copy of the current scene, if it changed since the last
-// one. Returns false if no copy was written.
+// Writes a recovery copy if the scene changed or the previous copy was partial.
+// Returns true only for a complete copy; missing resources remain pending.
 bool saveRecoveryCopy();
 
 // Shows the "Recover Unsaved Work" dialog if the previous session did not

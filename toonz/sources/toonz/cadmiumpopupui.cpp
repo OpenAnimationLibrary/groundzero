@@ -322,7 +322,7 @@ CadmiumPopup::CadmiumPopup(QWidget *parent) : QDialog(parent) {
     if (!m_refreshing) assignReferences();
   });
   connect(m_previewReference, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
-          [this] { if (!m_refreshing) updateProposalPreview(); });
+          [this] { if (!m_refreshing) updateReferencePreview(); });
   connect(m_generationMode, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this] {
     if (m_refreshing) return;
     m_generation = Cadmium::RegenerationMode(m_generationMode->currentData().toInt());
@@ -536,7 +536,8 @@ void CadmiumPopup::updateProposalPreview() {
       if (!error.isEmpty()) m_status->setText(error);
     }
   }
-  const int reference = m_previewReference->currentData().toInt();
+  const int reference = m_previewReference->currentIndex() >= 0
+      ? m_previewReference->currentData().toInt() : -1;
   const QImage referenceImage = reference >= 0 && reference < drawing.referencePreviews.size()
       ? drawing.referencePreviews[reference] : QImage();
   m_view->setImages(before, after, referenceImage);
@@ -551,6 +552,17 @@ void CadmiumPopup::updateProposalPreview() {
     for (const QString &warning : referenceFrame.warnings)
       if (!warnings.contains(warning)) warnings.append(warning);
   if (!warnings.isEmpty()) m_status->setText(warnings.join(QStringLiteral("\n")));
+}
+
+void CadmiumPopup::updateReferencePreview() {
+  const int row = m_list->currentRow();
+  if (row < 0 || row >= int(m_drawings.size())) return;
+  const Drawing &drawing = m_drawings[row];
+  if (!drawing.target.original || drawing.target.lines.isNull()) return;
+  const int reference = m_previewReference->currentIndex() >= 0
+      ? m_previewReference->currentData().toInt() : -1;
+  m_view->setReferenceImage(reference >= 0 && reference < drawing.referencePreviews.size()
+      ? drawing.referencePreviews[reference] : QImage());
 }
 
 void CadmiumPopup::setSelectedRegions(const QSet<int> &regions) {

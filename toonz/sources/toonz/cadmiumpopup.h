@@ -71,6 +71,7 @@ private:
   void refreshPreview();
   void inspectDrawing();
   void updateProposalPreview();
+  void updateReferencePreview();
   void showRegionMenu(int region, const QPoint &globalPosition);
   void setRegionDecision(int region, int candidate);
   void setRegionProtected(int region, bool protect);

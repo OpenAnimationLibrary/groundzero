@@ -20,6 +20,7 @@ public:
   explicit CadmiumReviewView(QWidget *parent = nullptr);
   void setImages(const QImage &before, const QImage &after,
                  const QImage &reference = QImage());
+  void setReferenceImage(const QImage &reference);
   void setRegions(const QSize &size, const QVector<int> &labels);
   void setSelectedRegion(int region);
   void setProtectedRegions(const QSet<int> &regions);

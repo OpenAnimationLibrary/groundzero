@@ -188,32 +188,32 @@ QImage displayImage(const TImageP &image, const Cadmium::Frame &analysis) {
   QImage result(raster->getLx(), raster->getLy(), QImage::Format_ARGB32_Premultiplied);
   if (result.isNull()) return result;
   raster->lock();
-  for (int y = 0; y < result.height(); ++y) {
-    QRgb *row = reinterpret_cast<QRgb *>(result.scanLine(y));
-    const int sy = result.height() - 1 - y;
-    for (int x = 0; x < result.width(); ++x) {
-      double r, g, b, a;
-      if (TRaster32P ras = raster) {
-        const TPixel32 p = ras->pixels(sy)[x];
-        r = p.r / 255.0; g = p.g / 255.0; b = p.b / 255.0; a = p.m / 255.0;
-      } else if (TRaster64P ras = raster) {
-        const TPixel64 p = ras->pixels(sy)[x];
-        r = p.r / 65535.0; g = p.g / 65535.0; b = p.b / 65535.0; a = p.m / 65535.0;
-      } else if (TRasterFP ras = raster) {
-        const TPixelF p = ras->pixels(sy)[x];
-        r = p.r; g = p.g; b = p.b; a = p.m;
-      } else { row[x] = 0; continue; }
-      if (raster->isLinear() && a > 0.0) {
-        auto encode = [a](double channel) {
-          const double v = std::max(0.0, channel / a);
-          return a * (v <= 0.0031308 ? 12.92 * v : 1.055 * std::pow(v, 1.0 / 2.4) - 0.055);
-        };
-        r = encode(r); g = encode(g); b = encode(b);
+  const bool linear = raster->isLinear();
+  // Resolve the native pixel type once, keeping smart-pointer casts and
+  // reference counting out of the per-pixel conversion loop.
+  const auto convert = [&](const auto &typedRaster, double scale) {
+    for (int y = 0; y < result.height(); ++y) {
+      QRgb *row = reinterpret_cast<QRgb *>(result.scanLine(y));
+      const auto *source = typedRaster->pixels(result.height() - 1 - y);
+      for (int x = 0; x < result.width(); ++x) {
+        const auto &p = source[x];
+        double r = p.r / scale, g = p.g / scale, b = p.b / scale, a = p.m / scale;
+        if (linear && a > 0.0) {
+          auto encode = [a](double channel) {
+            const double v = std::max(0.0, channel / a);
+            return a * (v <= 0.0031308 ? 12.92 * v : 1.055 * std::pow(v, 1.0 / 2.4) - 0.055);
+          };
+          r = encode(r); g = encode(g); b = encode(b);
+        }
+        auto byte = [](double value) { return int(std::round(std::max(0.0, std::min(1.0, value)) * 255.0)); };
+        row[x] = qRgba(byte(r), byte(g), byte(b), byte(a));
       }
-      auto byte = [](double value) { return int(std::round(std::max(0.0, std::min(1.0, value)) * 255.0)); };
-      row[x] = qRgba(byte(r), byte(g), byte(b), byte(a));
     }
-  }
+  };
+  if (TRaster32P typed = raster) convert(typed, 255.0);
+  else if (TRaster64P typed = raster) convert(typed, 65535.0);
+  else if (TRasterFP typed = raster) convert(typed, 1.0);
+  else result.fill(Qt::transparent);
   raster->unlock();
   return result;
 }
