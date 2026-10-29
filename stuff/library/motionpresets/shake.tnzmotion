@@ -1,0 +1,32 @@
+<motionpreset>
+  <name>
+    "Shake"
+  </name>
+  <description>
+    "Shakes sideways and a little up and down, calming down to rest."
+  </description>
+  <channel name="x" mode="add">
+    0 0 L 0 0 0 0 0
+    2 0.7 L 0 0 0 0 0
+    4 -0.7 L 0 0 0 0 0
+    6 0.55 L 0 0 0 0 0
+    8 -0.55 L 0 0 0 0 0
+    10 0.4 L 0 0 0 0 0
+    12 -0.4 L 0 0 0 0 0
+    14 0.25 L 0 0 0 0 0
+    16 -0.25 L 0 0 0 0 0
+    18 0 L 0 0 0 0 0
+  </channel>
+  <channel name="y" mode="add">
+    0 0 L 0 0 0 0 0
+    2 0.2 L 0 0 0 0 0
+    4 -0.25 L 0 0 0 0 0
+    6 0.3 L 0 0 0 0 0
+    8 -0.15 L 0 0 0 0 0
+    10 0.2 L 0 0 0 0 0
+    12 -0.1 L 0 0 0 0 0
+    14 0.1 L 0 0 0 0 0
+    16 -0.05 L 0 0 0 0 0
+    18 0 L 0 0 0 0 0
+  </channel>
+</motionpreset>

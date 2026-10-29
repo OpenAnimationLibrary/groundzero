@@ -1747,7 +1747,7 @@ bool FileBrowser::drop(const QMimeData *mimeData) {
     }
     assert(!TSystem::doesExistFileOrLevel(folderPath));
 
-    TXshSimpleLevel *newSl = new TXshSimpleLevel();
+    TXshSimpleLevelP newSl = new TXshSimpleLevel();
     newSl->setType(sl->getType());
     newSl->clonePropertiesFrom(sl);
     newSl->setName(levelName);
@@ -1758,7 +1758,7 @@ bool FileBrowser::drop(const QMimeData *mimeData) {
       newSl->setFrame(fid, sl->getFrame(fid, false));
     }
 
-    IoCmd::saveLevel(folderPath, newSl, false);
+    IoCmd::saveLevel(folderPath, newSl.getPointer(), false);
     refreshFolder(folderPath.getParentDir());
     return true;
   } else if (mimeData->hasUrls()) {

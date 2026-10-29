@@ -97,6 +97,10 @@ public:
   //! The cell shown at \b row of the output, i.e. getCell() through the remap
   TXshCell getRemappedCell(int row) const;
 
+  //! True if the Color Effect of the column fx (doc/animate_color_effect.md)
+  //! is used: one of its parameters is not at its default.
+  bool isColorEffectUsed() const;
+
   // Disable copying and moving
   TXshLevelColumn(const TXshLevelColumn &)            = delete;
   TXshLevelColumn &operator=(const TXshLevelColumn &) = delete;

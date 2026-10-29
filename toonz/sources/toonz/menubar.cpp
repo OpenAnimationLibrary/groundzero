@@ -175,6 +175,7 @@ void ensureNewPanelActions(QMenu *windowsMenu) {
   ensurePanelAction(windowsMenu, MI_OpenMasterControllers);
   ensurePanelAction(windowsMenu, MI_OpenOffsetLayers);
   ensurePanelAction(windowsMenu, MI_OpenRigLibrary);
+  ensurePanelAction(windowsMenu, MI_OpenMotionPresets);
   ensurePanelAction(windowsMenu, MI_OpenArtLayerManager);
 }
 
@@ -717,6 +718,8 @@ QMenuBar *StackedMenuBar::createPltEditMenuBar() {
     addMenuItem(moreToolsMenu, T_Iron);
     addMenuItem(moreToolsMenu, T_Cutter);
     addMenuItem(moreToolsMenu, T_LassoCutter);
+    addMenuItem(moreToolsMenu, T_GradientTransform);
+    addMenuItem(moreToolsMenu, MI_MakeUniqueStyle);
     moreToolsMenu->addSeparator();
     addMenuItem(moreToolsMenu, T_Skeleton);
     addMenuItem(moreToolsMenu, T_Tracker);
@@ -901,6 +904,8 @@ QMenuBar *StackedMenuBar::createInknPaintMenuBar() {
     addMenuItem(moreToolsMenu, T_Iron);
     addMenuItem(moreToolsMenu, T_Cutter);
     addMenuItem(moreToolsMenu, T_LassoCutter);
+    addMenuItem(moreToolsMenu, T_GradientTransform);
+    addMenuItem(moreToolsMenu, MI_MakeUniqueStyle);
     moreToolsMenu->addSeparator();
     addMenuItem(moreToolsMenu, T_Skeleton);
     addMenuItem(moreToolsMenu, T_Tracker);
@@ -1054,6 +1059,7 @@ QMenuBar *StackedMenuBar::createXsheetMenuBar() {
   addMenuItem(subxsheetMenu, MI_LoadSubSceneFile);
   addMenuItem(subxsheetMenu, MI_CloneChild);
   addMenuItem(subxsheetMenu, MI_ConvertToSymbol);
+  addMenuItem(subxsheetMenu, MI_SaveSymbolToLibrary);
   addMenuItem(subxsheetMenu, MI_ExplodeChild);
 
   //----Levels Menu
@@ -1131,6 +1137,7 @@ QMenuBar *StackedMenuBar::createXsheetMenuBar() {
     addMenuItem(rigEaseMenu, MI_RigEaseCustom);
   }
   addMenuItem(cellsMenu, MI_RigIncludeChildren);
+  addMenuItem(cellsMenu, MI_RigMapping);
 
   //----Edit Menu
   QMenu *editMenu = addMenu(tr("Edit"), xsheetMenuBar);
@@ -1358,6 +1365,7 @@ QMenuBar *StackedMenuBar::createFullMenuBar() {
     addMenuItem(exportMenu, MI_ExportSXF);
     addMenuItem(exportMenu, MI_ExportOCA);
     addMenuItem(exportMenu, MI_ExportAnimatedSVG);
+    addMenuItem(exportMenu, MI_ExportLottie);
     addMenuItem(exportMenu, MI_ExportXsheetPDF);
 #if defined(x64)
     addMenuItem(exportMenu, MI_StopMotionExportImageSequence);
@@ -1365,6 +1373,7 @@ QMenuBar *StackedMenuBar::createFullMenuBar() {
     addMenuItem(exportMenu, MI_ExportTvpJson);
     addMenuItem(exportMenu, MI_ExportCameraTrack);
     addMenuItem(exportMenu, MI_ExportSpine);
+    addMenuItem(exportMenu, MI_ExportTextureAtlas);
     addMenuItem(exportMenu, MI_ExportLayeredPSD);
   }
   fileMenu->addSeparator();
@@ -1425,6 +1434,10 @@ QMenuBar *StackedMenuBar::createFullMenuBar() {
     addMenuItem(arrangeMenu, MI_SendBackward);
     addMenuItem(arrangeMenu, MI_SendBack);
   }
+  editMenu->addSeparator();
+  addMenuItem(editMenu, MI_DistributeToLayers);
+  addMenuItem(editMenu, MI_DistributeToFrames);
+  addMenuItem(editMenu, MI_ConvertSelectionToSymbol);
 
   // Menu' SCAN CLEANUP
   QMenu *scanCleanupMenu = addMenu(tr("Scan && Cleanup"), fullMenuBar);
@@ -1482,6 +1495,17 @@ QMenuBar *StackedMenuBar::createFullMenuBar() {
     addMenuItem(adjustMenu, MI_Binarize);
     addMenuItem(adjustMenu, MI_LinesFade);
   }
+  QMenu *widthProfileMenu = levelMenu->addMenu(tr("Width Profile"));
+  {
+    addMenuItem(widthProfileMenu, MI_WidthProfileUniform);
+    addMenuItem(widthProfileMenu, MI_WidthProfileTaperStart);
+    addMenuItem(widthProfileMenu, MI_WidthProfileTaperEnd);
+    addMenuItem(widthProfileMenu, MI_WidthProfileTaperBoth);
+    addMenuItem(widthProfileMenu, MI_WidthProfilePulse);
+    widthProfileMenu->addSeparator();
+    addMenuItem(widthProfileMenu, MI_ApplySavedWidthProfile);
+    addMenuItem(widthProfileMenu, MI_SaveWidthProfile);
+  }
   QMenu *optimizeMenu = levelMenu->addMenu(tr("Optimize"));
   {
     addMenuItem(optimizeMenu, MI_RemoveEndpoints);
@@ -1519,6 +1543,7 @@ QMenuBar *StackedMenuBar::createFullMenuBar() {
   addMenuItem(xsheetMenu, MI_Resequence);
   addMenuItem(xsheetMenu, MI_CloneChild);
   addMenuItem(xsheetMenu, MI_ConvertToSymbol);
+  addMenuItem(xsheetMenu, MI_SaveSymbolToLibrary);
   addMenuItem(xsheetMenu, MI_ExplodeChild);
   addMenuItem(xsheetMenu, MI_ToggleEditInPlace);
   xsheetMenu->addSeparator();
@@ -1537,6 +1562,7 @@ QMenuBar *StackedMenuBar::createFullMenuBar() {
   addMenuItem(xsheetMenu, MI_RemoveSceneFrame);
   addMenuItem(xsheetMenu, MI_InsertGlobalKeyframe);
   addMenuItem(xsheetMenu, MI_RemoveGlobalKeyframe);
+  addMenuItem(xsheetMenu, MI_SaveMotionPreset);
   xsheetMenu->addSeparator();
   addMenuItem(xsheetMenu, MI_LipSyncPopup);
   addMenuItem(xsheetMenu, MI_NewAnnotationColumn);
@@ -1619,6 +1645,7 @@ QMenuBar *StackedMenuBar::createFullMenuBar() {
     addMenuItem(rigEaseMenu, MI_RigEaseCustom);
   }
   addMenuItem(cellsMenu, MI_RigIncludeChildren);
+  addMenuItem(cellsMenu, MI_RigMapping);
 
   // Menu' PLAY
   QMenu *playMenu = addMenu(tr("Play"), fullMenuBar);
@@ -1743,6 +1770,7 @@ QMenuBar *StackedMenuBar::createFullMenuBar() {
   addMenuItem(windowsMenu, MI_OpenMasterControllers);
   addMenuItem(windowsMenu, MI_OpenOffsetLayers);
   addMenuItem(windowsMenu, MI_OpenRigLibrary);
+  addMenuItem(windowsMenu, MI_OpenMotionPresets);
   addMenuItem(windowsMenu, MI_OpenArtLayerManager);
   addMenuItem(windowsMenu, MI_OpenSymbols);
   addMenuItem(windowsMenu, MI_OpenReferencePanel);

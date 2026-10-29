@@ -31,9 +31,37 @@ add_executable(vectoralignment_test vectoralignment_test.cpp)
 target_include_directories(vectoralignment_test PRIVATE ../../include)
 add_test(NAME vectoralignment COMMAND vectoralignment_test)
 
+add_executable(widthprofile_test widthprofile_test.cpp)
+target_include_directories(widthprofile_test PRIVATE ../../include)
+add_test(NAME widthprofile COMMAND widthprofile_test)
+
 add_executable(tinbetweenmatch_test tinbetweenmatch_test.cpp)
 target_include_directories(tinbetweenmatch_test PRIVATE ../../include)
 add_test(NAME tinbetweenmatch COMMAND tinbetweenmatch_test)
+
+add_executable(bilineardeform_test bilineardeform_test.cpp)
+target_include_directories(bilineardeform_test PRIVATE ../../include)
+add_test(NAME bilineardeform COMMAND bilineardeform_test)
+
+add_executable(fluidwidth_test fluidwidth_test.cpp)
+target_include_directories(fluidwidth_test PRIVATE ../../include)
+add_test(NAME fluidwidth COMMAND fluidwidth_test)
+
+add_executable(brushpaintmode_test brushpaintmode_test.cpp)
+target_include_directories(brushpaintmode_test PRIVATE ../../include)
+add_test(NAME brushpaintmode COMMAND brushpaintmode_test)
+
+add_executable(envelopelayout_test envelopelayout_test.cpp)
+target_include_directories(envelopelayout_test PRIVATE ../../include)
+add_test(NAME envelopelayout COMMAND envelopelayout_test)
+
+add_executable(gradienthandles_test gradienthandles_test.cpp)
+target_include_directories(gradienthandles_test PRIVATE ../../include)
+add_test(NAME gradienthandles COMMAND gradienthandles_test)
+
+add_executable(uniquestyle_test uniquestyle_test.cpp)
+target_include_directories(uniquestyle_test PRIVATE ../../include)
+add_test(NAME uniquestyle COMMAND uniquestyle_test)
 
 # artlayer.h needs TStroke, so only in the full build
 if(TARGET tnzcore)

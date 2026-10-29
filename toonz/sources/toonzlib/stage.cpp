@@ -26,8 +26,10 @@
 #include "toonz/txshchildlevel.h"
 #include "toonz/txshcolumn.h"
 #include "toonz/txshlevelcolumn.h"
+#include "toonz/tcolumnfx.h"
 #include "toonz/txshcell.h"
 #include "toonz/onionskinmask.h"
+#include "toonz/outlinecolors.h"
 #include "toonz/dpiscale.h"
 #include "toonz/imagemanager.h"
 #include "toonz/tstageobjecttree.h"
@@ -186,6 +188,8 @@ public:
     ZPlacement m_camera;
     TAffine m_aff, m_zaff;
     double m_z;
+    // the Color Effect of the sub-xsheet columns that hold this one
+    ColumnColorEffect::Transform m_colorEffect;
   };
 
 public:
@@ -223,6 +227,10 @@ public:
   bool m_lightTable = false;  // see Stage::VisitArgs::m_lightTable
   // see Stage::VisitArgs::m_lightTableOpacity
   double m_lightTableOpacity = 0.3;
+  // see Stage::VisitArgs::m_outlineView
+  bool m_outlineView = false;
+  // true while the cells of a sub-xsheet in Outline View are being added
+  bool m_inOutlineSubXsheet = false;
   int m_guidedFrontStroke = -1;
   int m_guidedBackStroke  = -1;
   std::vector<TXshColumn *> m_ancestors;
@@ -480,6 +488,24 @@ void StageBuilder::addCell(PlayerSet &players, ToonzScene *scene, TXsheet *xsh,
       player.m_opacity = (UCHAR)(player.m_opacity * m_lightTableOpacity + 0.5);
     player.m_filterColor =
         scene->getProperties()->getColorFilterColor(column->getColorFilterId());
+    // Outline View: a column set to it, or any column inside a sub-xsheet
+    // column set to it, is shown as outlines. The colour comes from the index
+    // of the top level column, so that a whole sub-xsheet has one colour.
+    if (m_outlineView && (m_inOutlineSubXsheet || column->isOutlineView())) {
+      const OutlineColors::Rgb c = OutlineColors::colorForIndex(
+          (subSheetColIndex >= 0) ? subSheetColIndex : col);
+      player.m_outlineView  = true;
+      player.m_outlineColor = TPixel32(c.r, c.g, c.b);
+    }
+
+    // The Color Effect of the column, then the one of the sub-xsheet columns
+    // that hold it, at the output row (as in the render)
+    if (TXshLevelColumn *levelColumn = column->getLevelColumn())
+      player.m_colorEffect =
+          levelColumn->getLevelColumnFx()->getColorEffect(row);
+    if (!m_subXSheetStack.empty())
+      player.m_colorEffect =
+          player.m_colorEffect.then(m_subXSheetStack.back().m_colorEffect);
 
     if (m_subXSheetStack.empty()) {
       player.m_z         = columnZ;
@@ -578,13 +604,24 @@ void StageBuilder::addCell(PlayerSet &players, ToonzScene *scene, TXsheet *xsh,
       subXSheet.m_zaff = parentXSheet.m_zaff * subXSheet.m_zaff;
     }
 
+    // The Color Effect of the sub-xsheet column applies to all its contents
+    if (TXshLevelColumn *levelColumn = column->getLevelColumn())
+      subXSheet.m_colorEffect =
+          levelColumn->getLevelColumnFx()->getColorEffect(row);
+    if (!m_subXSheetStack.empty())
+      subXSheet.m_colorEffect =
+          subXSheet.m_colorEffect.then(m_subXSheetStack.back().m_colorEffect);
+
     m_subXSheetStack.push_back(subXSheet);
 
     ++m_currentXsheetLevel;
     // inherit the column index when visiting grandchild (sub-sub) sheet
     int subCol = (subSheetColIndex >= 0) ? subSheetColIndex : col;
+    const bool wasInOutlineSubXsheet = m_inOutlineSubXsheet;
+    if (m_outlineView && column->isOutlineView()) m_inOutlineSubXsheet = true;
     addFrame(players, scene, childXsheet, childRow, level + 1, false, false,
              subCol);
+    m_inOutlineSubXsheet = wasInOutlineSubXsheet;
     --m_currentXsheetLevel;
 
     m_subXSheetStack.pop_back();
@@ -999,6 +1036,7 @@ void Stage::visit(Visitor &visitor, const VisitArgs &args) {
   sb.m_guidedBackStroke       = args.m_guidedBackStroke;
   sb.m_lightTable             = args.m_lightTable;
   sb.m_lightTableOpacity      = args.m_lightTableOpacity;
+  sb.m_outlineView            = args.m_outlineView;
 #if defined(x64)
   if (args.m_liveViewImage) {
     sb.m_liveViewImage  = args.m_liveViewImage;

@@ -4,6 +4,7 @@
 #include "tvectorimage.h"
 
 #include <QApplication>
+#include <QOffscreenSurface>
 #include <QOpenGLContext>
 #include <iostream>
 #include <stdexcept>
@@ -12,6 +13,18 @@
 namespace {
 void require(bool condition, const char *message) {
   if (!condition) throw std::runtime_error(message);
+}
+
+// The adapter draws with OpenGL. Without a context (a test runner with no
+// display, for example) the test is skipped: ctest reads 77 as skipped.
+bool openGLAvailable() {
+  QOffscreenSurface surface;
+  surface.create();
+  QOpenGLContext context;
+  if (!surface.isValid() || !context.create()) return false;
+  const bool ok = context.makeCurrent(&surface);
+  if (ok) context.doneCurrent();
+  return ok;
 }
 
 TVectorImageP drawing(int paint = 0) {
@@ -112,10 +125,8 @@ void run() {
 
 int main(int argc, char **argv) {
   QApplication application(argc, argv);
-  // The vector analysis renders with OpenGL: without it (a headless machine
-  // on the offscreen platform) the test is skipped, with ctest's skip code
-  if (!QOpenGLContext().create()) {
-    std::cout << "Cadmium vector adapter checks skipped: no OpenGL\n";
+  if (!openGLAvailable()) {
+    std::cout << "Cadmium vector adapter checks skipped: no OpenGL context\n";
     return 77;
   }
   try {

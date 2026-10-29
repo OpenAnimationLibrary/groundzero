@@ -1456,9 +1456,12 @@ void PlasticTool::setVertexName(QString &name) {
 
   // Columns linked to skeleton vertices refer to them by name: make the
   // children linked to the renamed vertex follow it. This runs on the
-  // undo/redo of the rename too, keeping the links in sync with it.
+  // undo/redo of the rename too, keeping the links in sync with it. If
+  // another skeleton of the deformation still has a vertex of the old name,
+  // the links may be to that one (a link follows the name in whichever
+  // skeleton is active): they are kept.
   TStageObject *obj = ::stageObject();
-  if (name != oldName) {
+  if (name != oldName && !m_sd->vertexDeformation(oldName)) {
     const std::string oldHandle =
         TStageObject::getSkeletonVertexHandle(oldName.toStdString());
     const std::string newHandle =

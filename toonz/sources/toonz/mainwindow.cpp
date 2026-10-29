@@ -2,6 +2,7 @@
 
 #include "mainwindow.h"
 #include "convertlinestoareascommand.h"
+#include "distributecommand.h"
 #include "rigeasecommand.h"
 #include "customhelplink.h"
 
@@ -2334,6 +2335,8 @@ void MainWindow::defineActions() {
   createMenuFileAction(MI_ExportAnimatedSVG,
                        QT_TRANSLATE_NOOP("MainWindow", "Export Animated SVG"),
                        "");
+  createMenuFileAction(MI_ExportLottie,
+                       QT_TRANSLATE_NOOP("MainWindow", "Export Lottie..."), "");
   createMenuFileAction(
       MI_ImportOCA,
       QT_TRANSLATE_NOOP("MainWindow", "Import Open Cel Animation (OCA)"), "",
@@ -2375,6 +2378,9 @@ void MainWindow::defineActions() {
   createMenuFileAction(
       MI_ExportSpine,
       QT_TRANSLATE_NOOP("MainWindow", "Export to Spine JSON..."), "");
+  createMenuFileAction(
+      MI_ExportTextureAtlas,
+      QT_TRANSLATE_NOOP("MainWindow", "Export Texture Atlas..."), "");
   createMenuFileAction(MI_ExportLayeredPSD,
                        QT_TRANSLATE_NOOP("MainWindow", "Export Layered PSD..."),
                        "");
@@ -2401,6 +2407,13 @@ void MainWindow::defineActions() {
   createMenuEditAction(MI_DistributeVertical,
                        QT_TR_NOOP("Distribute Vertically"), "",
                        "select_distribute_v");
+  createMenuEditAction(MI_DistributeToLayers,
+                       QT_TR_NOOP("Distribute to Layers"), "");
+  createMenuEditAction(MI_DistributeToFrames,
+                       QT_TR_NOOP("Distribute to Frames"), "");
+  createMenuEditAction(MI_ConvertSelectionToSymbol,
+                       QT_TR_NOOP("Convert Selection to Symbol..."), "");
+  initDistributeCommands(this);
 
   createMenuEditAction(MI_SelectAll, QT_TR_NOOP("&Select All"), "Ctrl+A",
                        "select_all");
@@ -2513,6 +2526,19 @@ void MainWindow::defineActions() {
   createMenuLevelAction(MI_ConvertToOutlineShapes,
                         QT_TR_NOOP("Convert Brush Strokes to &Outline Shapes"),
                         "");
+  createMenuLevelAction(MI_WidthProfileUniform, QT_TR_NOOP("&Uniform Width"),
+                        "");
+  createMenuLevelAction(MI_WidthProfileTaperStart, QT_TR_NOOP("Taper &Start"),
+                        "");
+  createMenuLevelAction(MI_WidthProfileTaperEnd, QT_TR_NOOP("Taper &End"), "");
+  createMenuLevelAction(MI_WidthProfileTaperBoth,
+                        QT_TR_NOOP("Taper &Both Ends"), "");
+  createMenuLevelAction(MI_WidthProfilePulse, QT_TR_NOOP("&Pulse"), "");
+  createMenuLevelAction(MI_ApplySavedWidthProfile,
+                        QT_TR_NOOP("Apply S&aved Width Profile..."), "");
+  createMenuLevelAction(
+      MI_SaveWidthProfile,
+      QT_TR_NOOP("Save Width Profile From Selected Stroke..."), "");
   createMenuLevelAction(MI_ClearInbetweenStrokePairs,
                         QT_TR_NOOP("&Clear Inbetween Stroke Pairs"), "");
   createMenuLevelAction(MI_AddFrames, QT_TR_NOOP("&Add Frames..."), "",
@@ -2609,6 +2635,8 @@ void MainWindow::defineActions() {
                          "sub_clone");
   createMenuXsheetAction(MI_ConvertToSymbol, QT_TR_NOOP("Convert to Symbol..."),
                          "", "");
+  createMenuXsheetAction(MI_SaveSymbolToLibrary,
+                         QT_TR_NOOP("Save Symbol to Library..."), "", "");
   createMenuXsheetAction(MI_ApplyMatchLines,
                          QT_TR_NOOP("&Apply Match Lines..."), "",
                          "apply_match_lines");
@@ -2639,6 +2667,8 @@ void MainWindow::defineActions() {
   createMenuXsheetAction(MI_RemoveGlobalKeyframe,
                          QT_TR_NOOP("Remove Multiple Keys"), "",
                          "remove_multiple_keys");
+  createMenuXsheetAction(MI_SaveMotionPreset,
+                         QT_TR_NOOP("Save Keys as Motion Preset..."), "", "");
   createMenuXsheetAction(MI_NewAnnotationColumn,
                          QT_TR_NOOP("New Annotation Column"), "",
                          "new_note_level");
@@ -2749,6 +2779,7 @@ void MainWindow::defineActions() {
   createToggle(MI_RigIncludeChildren,
                QT_TR_NOOP("Include Child Objects in Rig Commands"), "", true,
                MenuCellsCommandType);
+  createMenuCellsAction(MI_RigMapping, QT_TR_NOOP("Rig Mapping..."), "", "");
 
   // Menu - Play
 
@@ -3028,7 +3059,9 @@ void MainWindow::defineActions() {
                           QT_TR_NOOP("Master Controllers"), "", "");
   createMenuWindowsAction(MI_OpenOffsetLayers, QT_TR_NOOP("Offset Layers"), "",
                           "");
-  createMenuWindowsAction(MI_OpenRigLibrary, QT_TR_NOOP("Rig Library"), "", "");
+  createMenuWindowsAction(MI_OpenRigLibrary, QT_TR_NOOP("Library"), "", "");
+  createMenuWindowsAction(MI_OpenMotionPresets, QT_TR_NOOP("Motion Presets"),
+                          "", "");
   createMenuWindowsAction(MI_OpenArtLayerManager,
                           QT_TR_NOOP("Art Layer Manager"), "", "");
   createMenuWindowsAction(MI_OpenSymbols, QT_TR_NOOP("Symbols"), "", "");
@@ -3109,6 +3142,9 @@ void MainWindow::defineActions() {
   createRightClickMenuAction(MI_RemoveReferenceToStudioPalette,
                              QT_TR_NOOP("Remove Reference to Studio Palette"),
                              "");
+  // Gradient Transform tool: give the picked region its own copy of the style
+  createRightClickMenuAction(MI_MakeUniqueStyle,
+                             QT_TR_NOOP("Make Unique Style"), "");
   createRightClickMenuAction(MI_ViewFile, QT_TR_NOOP("&View..."), "",
                              "view_file");
   createRightClickMenuAction(MI_ToggleXSheetToolbar,
@@ -3268,6 +3304,8 @@ void MainWindow::defineActions() {
                              QT_TR_NOOP("Include in Light Table"), "");
   createRightClickMenuAction(MI_LightTableIncludeAllColumns,
                              QT_TR_NOOP("Include All in Light Table"), "");
+  createRightClickMenuAction(MI_ToggleColumnOutline,
+                             QT_TR_NOOP("Toggle Outline View"), "");
   createRightClickMenuAction(MI_DeactivateUpperColumns,
                              QT_TR_NOOP("Hide Upper Columns"), "");
   createRightClickMenuAction(MI_SeparateColors,
@@ -3314,6 +3352,8 @@ void MainWindow::defineActions() {
   createToolAction(T_Finger, "finger", QT_TR_NOOP("Finger Tool"), "");
   createToolAction(T_EditAssistants, "assistant", QT_TR_NOOP("Edit Assistants"),
                    "");
+  createToolAction(T_GradientTransform, "gradienttransform",
+                   QT_TR_NOOP("Gradient Transform Tool"), "");
   // Viewer Navigation tools (available only during the shortcut key is pressed)
   createToolAction(T_ZoomView, "zoom", QT_TR_NOOP("Zoom View"), "Shift+Space");
   createToolAction(T_RotateView, "rotate", QT_TR_NOOP("Rotate View"),
@@ -3584,6 +3624,8 @@ void MainWindow::defineActions() {
                           "");
   createToolOptionsAction("A_ToolOption_PreserveThickness",
                           QT_TR_NOOP("Preserve Thickness"), "");
+  createToolOptionsAction("A_ToolOption_Envelope",
+                          QT_TR_NOOP("Selection Tool - Envelope"), "");
   createToolOptionsAction("A_ToolOption_PressureSensitivity",
                           QT_TR_NOOP("Pressure Sensitivity"), "Shift+P");
   createToolOptionsAction("A_ToolOption_SegmentInk", QT_TR_NOOP("Segment Ink"),

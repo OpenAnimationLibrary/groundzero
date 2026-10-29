@@ -8,6 +8,7 @@
 
 // TnzCore includes
 #include "tcommon.h"
+#include "tfilepath.h"
 
 // STD includes
 #include <set>
@@ -41,12 +42,16 @@ class TVectorImage;
 
 class DVAPI LevelSelection : public TSelection {
 public:
-  enum FramesMode     //!  Possible frames selection modes.
-  { FRAMES_NONE,      //!< No frame is selected.
-    FRAMES_CURRENT,   //!< Selects the (context-defined) current frame.
-    FRAMES_SELECTED,  //!< Selects the frames specified in \p
-                      //! TTool::getSelectedFrames().
-    FRAMES_ALL,       //!< Selects the whole level.
+  enum FramesMode  //!  Possible frames selection modes.
+  {
+    FRAMES_NONE,        //!< No frame is selected.
+    FRAMES_CURRENT,     //!< Selects the (context-defined) current frame.
+    FRAMES_SELECTED,    //!< Selects the frames specified in \p
+                        //! TTool::getSelectedFrames().
+    FRAMES_ALL,         //!< Selects the whole level.
+    FRAMES_ONION_SKIN,  //!< Selects the current frame and the frames of the
+                        //!  current level shown by the onion skin, see
+                        //!  onionSkinFrames().
   };
 
   enum Filter          //!  Possible selection filters.
@@ -72,6 +77,15 @@ public:
   void selectNone()
       override;  //!< Resets the selection to empty. This is functionally
                  //!  equivalent to <TT>operator=(LevelSelection());</TT>
+  /*! Returns the frames of the current level shown by the onion skin around
+          the current frame - either as frame numbers of the level (when
+          editing the level) or as the cells of the current column (when
+          editing the scene) - together with the current frame itself. Only
+          frames that exist in the level are returned. Only the current frame
+          is returned when the onion skin is off, empty or replaced by Shift
+          and Trace. */
+  static std::set<TFrameId> onionSkinFrames();
+
   FramesMode framesMode() const { return m_framesMode; }
   FramesMode &framesMode()  //!  Returns current frames selection mode.
   {

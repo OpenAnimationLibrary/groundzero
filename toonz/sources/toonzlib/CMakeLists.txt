@@ -104,6 +104,7 @@ set(HEADERS
     ../include/toonz/levelset.h
     ../include/toonz/levelupdater.h
     ../include/toonz/logger.h
+    ../include/toonz/motionpreset.h
     ../include/toonz/mypaint.h
     ../include/toonz/mypaintbrushstyle.h
     ../include/toonz/mypainthelpers.hpp
@@ -135,6 +136,8 @@ set(HEADERS
     ../include/toonz/tcolumnfx.h
     ../include/toonz/tcolumnfxset.h
     ../include/toonz/contouroutline.h
+    ../include/toonz/lottieexporter.h
+    ../include/toonz/lottiemath.h
     ../include/toonz/tcurvedeformer.h
     ../include/toonz/tdeformer.h
     ../include/toonz/tdeformerstack.h
@@ -156,6 +159,7 @@ set(HEADERS
     ../include/toonz/tstageobjectspline.h
     ../include/toonz/tstageobjecttree.h
     ../include/toonz/timeremap.h
+    ../include/toonz/columncoloreffect.h
     ../include/toonz/timeremapcmd.h
     ../include/toonz/ttilesaver.h
     ../include/toonz/ttileset.h
@@ -222,6 +226,7 @@ set(SOURCES
     levelupdater.cpp
     lut3d.cpp
     logger.cpp
+    motionpreset.cpp
     movierenderer.cpp
     multimediarenderer.cpp
     mypaintbrushstyle.cpp
@@ -267,6 +272,7 @@ set(SOURCES
     tcenterlineadjustments.cpp
     tcenterlinecolors.cpp
     contouroutline.cpp
+    lottieexporter.cpp
     tcenterlinepolygonizer.cpp
     tcenterlineskeletonizer.cpp
     tcenterlinetostrokes.cpp
@@ -466,6 +472,18 @@ if(BUILD_TIMEREMAP_TESTS)
     add_test(NAME timeremap COMMAND timeremap_test)
 endif()
 
+# Optional regression targets for the Texture Atlas export: the rectangle
+# packer (atlaspacker.h) and the JSON builder (atlasjson.h), both header only.
+option(BUILD_ATLAS_TESTS "Build the Texture Atlas packer and JSON regression tests" ${BUILD_TESTS})
+if(BUILD_ATLAS_TESTS)
+    add_executable(atlaspacker_test tests/atlaspacker_test.cpp)
+    add_test(NAME atlaspacker COMMAND atlaspacker_test)
+
+    add_executable(atlasjson_test tests/atlasjson_test.cpp)
+    target_link_libraries(atlasjson_test PRIVATE Qt${QT_VERSION_MAJOR}::Core)
+    add_test(NAME atlasjson COMMAND atlasjson_test)
+endif()
+
 # Optional regression target for the aspect ratio guide math (cameraguide.h).
 option(BUILD_CAMERAGUIDE_TESTS "Build the aspect ratio guide regression test" ${BUILD_TESTS})
 if(BUILD_CAMERAGUIDE_TESTS)
@@ -480,6 +498,51 @@ if(BUILD_PEGBARGUIDE_TESTS)
     add_executable(pegbarguide_test tests/pegbarguide_test.cpp)
     target_link_libraries(pegbarguide_test PRIVATE toonzlib tnzcore Qt${QT_VERSION_MAJOR}::Core)
     add_test(NAME pegbarguide COMMAND pegbarguide_test)
+endif()
+
+# Optional regression target for the Outline View of the columns: the colour
+# palette (outlinecolors.h) and the column status bit.
+option(BUILD_OUTLINEVIEW_TESTS "Build the column Outline View regression test" ${BUILD_TESTS})
+if(BUILD_OUTLINEVIEW_TESTS)
+    add_executable(outlineview_test tests/outlineview_test.cpp)
+    target_link_libraries(outlineview_test PRIVATE toonzlib tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core)
+    add_test(NAME outlineview COMMAND outlineview_test)
+endif()
+
+# Optional regression target for the motion presets (motionpreset.h). It also
+# loads the stock presets shipped in stuff/library/motionpresets.
+option(BUILD_MOTIONPRESET_TESTS "Build the motion preset regression test" ${BUILD_TESTS})
+if(BUILD_MOTIONPRESET_TESTS)
+    get_filename_component(MOTIONPRESETS_STOCK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../stuff/library/motionpresets" ABSOLUTE)
+    add_executable(motionpreset_test tests/motionpreset_test.cpp)
+    target_link_libraries(motionpreset_test PRIVATE toonzlib tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core)
+    add_test(NAME motionpreset COMMAND motionpreset_test ${MOTIONPRESETS_STOCK_DIR})
+endif()
+
+# Optional regression target for the matching of Rig Mapping (rigmapping.h,
+# header only).
+option(BUILD_RIGMAPPING_TESTS "Build the rig mapping regression test" ${BUILD_TESTS})
+if(BUILD_RIGMAPPING_TESTS)
+    add_executable(rigmapping_test tests/rigmapping_test.cpp)
+    add_test(NAME rigmapping COMMAND rigmapping_test)
+endif()
+
+# Optional regression target for the per-column Color Effect (the math of
+# columncoloreffect.h and the column fx parameters, saved only when used).
+option(BUILD_COLUMNCOLOREFFECT_TESTS "Build the column Color Effect regression test" ${BUILD_TESTS})
+if(BUILD_COLUMNCOLOREFFECT_TESTS)
+    add_executable(columncoloreffect_test tests/columncoloreffect_test.cpp)
+    target_link_libraries(columncoloreffect_test PRIVATE toonzlib tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core)
+    add_test(NAME columncoloreffect COMMAND columncoloreffect_test)
+endif()
+
+# Optional regression target for the item names and the pose set merge of
+# the shared Library (libraryitems.h).
+option(BUILD_LIBRARYITEMS_TESTS "Build the shared Library helpers regression test" ${BUILD_TESTS})
+if(BUILD_LIBRARYITEMS_TESTS)
+    add_executable(libraryitems_test tests/libraryitems_test.cpp)
+    target_link_libraries(libraryitems_test PRIVATE tnzcore Qt${QT_VERSION_MAJOR}::Core)
+    add_test(NAME libraryitems COMMAND libraryitems_test)
 endif()
 
 # Optional regression target for the export to an aspect ratio
@@ -498,6 +561,24 @@ if(BUILD_CONTOUR_TESTS)
     add_executable(contour_outline_test tests/contour_outline_test.cpp)
     target_link_libraries(contour_outline_test PRIVATE toonzlib tnzcore Qt${QT_VERSION_MAJOR}::Core)
     add_test(NAME contour_outline COMMAND contour_outline_test)
+endif()
+
+# Optional regression target for the Lottie export maths (lottiemath.h,
+# header-only helpers).
+option(BUILD_LOTTIEMATH_TESTS "Build the Lottie export math test" ${BUILD_TESTS})
+if(BUILD_LOTTIEMATH_TESTS)
+    add_executable(lottiemath_test tests/lottiemath_test.cpp)
+    target_link_libraries(lottiemath_test PRIVATE Qt${QT_VERSION_MAJOR}::Core)
+    add_test(NAME lottiemath COMMAND lottiemath_test)
+endif()
+
+# Optional regression target for the Lottie export of a scene built in memory
+# (lottieexporter.h).
+option(BUILD_LOTTIEEXPORT_TESTS "Build the Lottie export regression test" ${BUILD_TESTS})
+if(BUILD_LOTTIEEXPORT_TESTS)
+    add_executable(lottieexport_test tests/lottieexport_test.cpp)
+    target_link_libraries(lottieexport_test PRIVATE toonzlib tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
+    add_test(NAME lottieexport COMMAND lottieexport_test)
 endif()
 
 # Optional regression target for the compressed scene file format (tstream.h).

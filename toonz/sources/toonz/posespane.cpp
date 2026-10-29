@@ -3,6 +3,7 @@
 // Tnz6 includes
 #include "tapp.h"
 #include "columnselection.h"
+#include "librarycommand.h"
 
 // TnzQt includes
 #include "stageobjectselection.h"
@@ -31,6 +32,7 @@
 
 // Qt includes
 #include <QCheckBox>
+#include <QFileDialog>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
@@ -116,6 +118,17 @@ PosesPane::PosesPane(QWidget *parent, Qt::WindowFlags flags)
   addPoseButton->setToolTip(
       tr("Store the difference between the current values and the base pose "
          "as a new pose"));
+  // Pose sets are shared by the scenes through the Library
+  QPushButton *savePoseSetButton =
+      new QPushButton(tr("Save Pose Set..."), this);
+  savePoseSetButton->setToolTip(
+      tr("Save Pose Set to Library: store all the poses of the scene in the "
+         "Library, to load them in other scenes"));
+  QPushButton *loadPoseSetButton =
+      new QPushButton(tr("Load Pose Set..."), this);
+  loadPoseSetButton->setToolTip(
+      tr("Load Pose Set: add the poses of a pose set to the poses of the "
+         "scene"));
 
   m_baseLabel = new QLabel(this);
 
@@ -158,6 +171,8 @@ PosesPane::PosesPane(QWidget *parent, Qt::WindowFlags flags)
       buttonLayout->addWidget(setBaseButton);
       buttonLayout->addWidget(addPoseButton);
       buttonLayout->addStretch(1);
+      buttonLayout->addWidget(savePoseSetButton);
+      buttonLayout->addWidget(loadPoseSetButton);
     }
     mainLayout->addLayout(buttonLayout);
     QHBoxLayout *layerLayout = new QHBoxLayout();
@@ -175,6 +190,8 @@ PosesPane::PosesPane(QWidget *parent, Qt::WindowFlags flags)
 
   connect(setBaseButton, SIGNAL(clicked()), this, SLOT(onSetBase()));
   connect(addPoseButton, SIGNAL(clicked()), this, SLOT(onAddPose()));
+  connect(savePoseSetButton, SIGNAL(clicked()), this, SLOT(onSavePoseSet()));
+  connect(loadPoseSetButton, SIGNAL(clicked()), this, SLOT(onLoadPoseSet()));
   connect(m_asLayerCheck, &QCheckBox::toggled, m_layerNameEdit,
           &QLineEdit::setEnabled);
 }
@@ -184,8 +201,8 @@ PosesPane::PosesPane(QWidget *parent, Qt::WindowFlags flags)
 void PosesPane::showEvent(QShowEvent *) {
   connect(TApp::instance()->getCurrentScene(), SIGNAL(sceneSwitched()), this,
           SLOT(refresh()), Qt::UniqueConnection);
-  // Another Poses panel can add or delete poses: the rows refer to the poses
-  // by index, so they must follow
+  // The poses can change from another Poses panel or from the Library
+  // panel: the rows refer to the poses by index, so they must follow
   connect(PoseLibraryNotifier::instance(), SIGNAL(changed()), this,
           SLOT(refresh()), Qt::UniqueConnection);
   refresh();
@@ -391,6 +408,21 @@ void PosesPane::onAddPose() {
   app->getCurrentScene()->setDirtyFlag(true);
   PoseLibraryNotifier::instance()->notifyChanged();
   refresh();
+}
+
+//-----------------------------------------------------------------------------
+
+void PosesPane::onSavePoseSet() { LibraryCmd::savePoseSet(); }
+
+//-----------------------------------------------------------------------------
+
+void PosesPane::onLoadPoseSet() {
+  QString folder = LibraryCmd::getPosesFolder().getQString();
+  QString path   = QFileDialog::getOpenFileName(
+      this, tr("Load Pose Set"), folder,
+      tr("Pose Sets") + QString(" (*.") + LibraryCmd::PoseSetExtension + ")");
+  if (path.isEmpty()) return;
+  LibraryCmd::loadPoseSet(TFilePath(path));
 }
 
 //-----------------------------------------------------------------------------

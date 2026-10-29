@@ -137,7 +137,11 @@
 #define MI_Resequence "MI_Resequence"
 #define MI_CloneChild "MI_CloneChild"
 #define MI_ConvertToSymbol "MI_ConvertToSymbol"
+#define MI_SaveSymbolToLibrary "MI_SaveSymbolToLibrary"
 #define MI_SymbolTiming "MI_SymbolTiming"
+#define MI_DistributeToLayers "MI_DistributeToLayers"
+#define MI_DistributeToFrames "MI_DistributeToFrames"
+#define MI_ConvertSelectionToSymbol "MI_ConvertSelectionToSymbol"
 #define MI_ApplyMatchLines "MI_ApplyMatchLines"
 #define MI_MergeCmapped "MI_MergeCmapped"
 #define MI_MergeColumns "MI_MergeColumns"
@@ -351,6 +355,7 @@
 #define MI_LightTableIncludeSelectedColumns                                    \
   "MI_LightTableIncludeSelectedColumns"
 #define MI_LightTableIncludeAllColumns "MI_LightTableIncludeAllColumns"
+#define MI_ToggleColumnOutline "MI_ToggleColumnOutline"
 #define MI_ToggleXSheetToolbar "MI_ToggleXSheetToolbar"
 #define MI_ToggleXsheetBreadcrumbs "MI_ToggleXsheetBreadcrumbs"
 #define MI_FoldColumns "MI_FoldColumns"
@@ -363,6 +368,7 @@
 #define MI_AdjustCurrentLevelToPalette "MI_AdjustCurrentLevelToPalette"
 #define MI_MergeToCurrentPalette "MI_MergeToCurrentPalette"
 #define MI_ReplaceWithCurrentPalette "MI_ReplaceWithCurrentPalette"
+#define MI_MakeUniqueStyle "MI_MakeUniqueStyle"
 #define MI_DeletePalette "MI_DeletePalette"
 #define MI_RefreshTree "MI_RefreshTree"
 #define MI_LoadRecentImage "MI_LoadRecentImage"
@@ -543,6 +549,7 @@
 #define MI_ExportSXF "MI_ExportSXF"
 #define MI_ExportOCA "MI_ExportOCA"
 #define MI_ExportAnimatedSVG "MI_ExportAnimatedSVG"
+#define MI_ExportLottie "MI_ExportLottie"
 #define MI_ImportOCA "MI_ImportOCA"
 #define MI_ImportAbr "MI_ImportAbr"
 #define MI_ExportPDF "MI_ExportPDF"
@@ -550,6 +557,7 @@
 #define MI_ExportXsheetPDF "MI_ExportXsheetPDF"
 #define MI_ExportCameraTrack "MI_ExportCameraTrack"
 #define MI_ExportSpine "MI_ExportSpine"
+#define MI_ExportTextureAtlas "MI_ExportTextureAtlas"
 #define MI_ExportLayeredPSD "MI_ExportLayeredPSD"
 
 // mark id is added for each actual command (i.g. MI_SetCellMark1)
@@ -581,6 +589,8 @@
 #define MI_OpenMasterControllers "MI_OpenMasterControllers"
 #define MI_OpenOffsetLayers "MI_OpenOffsetLayers"
 #define MI_OpenRigLibrary "MI_OpenRigLibrary"
+#define MI_OpenMotionPresets "MI_OpenMotionPresets"
+#define MI_SaveMotionPreset "MI_SaveMotionPreset"
 #define MI_OpenArtLayerManager "MI_OpenArtLayerManager"
 
 // Whole-rig breakdown and ease (Xsheet, Timeline, Cells menu)
@@ -600,5 +610,6 @@
 #define MI_RigEaseIn100 "MI_RigEaseIn100"
 #define MI_RigEaseCustom "MI_RigEaseCustom"
 #define MI_RigIncludeChildren "MI_RigIncludeChildren"
+#define MI_RigMapping "MI_RigMapping"
 
 #endif

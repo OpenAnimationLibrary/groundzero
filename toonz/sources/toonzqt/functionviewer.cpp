@@ -29,6 +29,7 @@
 
 // TnzBase includes
 #include "tparamcontainer.h"
+#include "tparamset.h"
 #include "tfxmaterial.h"
 #include "tmacrofx.h"
 #include "tunit.h"
@@ -39,6 +40,7 @@
 
 // Qt includes
 #include <QPainter>
+#include <sstream>
 #include <QMouseEvent>
 #include <QWheelEvent>
 #include <QBoxLayout>
@@ -386,11 +388,39 @@ void FunctionViewer::refreshModel() {
   m_toolbar->setCurve(0);
 }
 
+namespace {
+// The fx and the number of its parameters (and of the parameters in its
+// parameter sets, where the materials are), for each fx of a macro
+std::string materialSignature(TFx *fx) {
+  std::ostringstream signature;
+  signature << fx;
+  auto add = [&signature](TFx *f) {
+    TParamContainer *params = f->getParams();
+    signature << ':' << params->getParamCount();
+    for (int i = 0; i < params->getParamCount(); ++i)
+      if (TParamSet *set = dynamic_cast<TParamSet *>(params->getParam(i)))
+        signature << ',' << set->getParamCount();
+  };
+  if (TMacroFx *macro = dynamic_cast<TMacroFx *>(fx)) {
+    for (const TFxP &inner : macro->getFxs())
+      if (inner) add(inner.getPointer());
+  } else
+    add(fx);
+  return signature.str();
+}
+}  // namespace
+
 void FunctionViewer::refreshMaterialChannels() {
   if (!isVisible() || !m_fxHandle || !m_xshHandle) return;
   TFx *fx = m_fxHandle->getFx();
   if (auto *column = dynamic_cast<TZeraryColumnFx *>(fx)) fx = column->getZeraryFx();
   if (!dynamic_cast<TFxMaterialSource *>(fx) && !dynamic_cast<TMacroFx *>(fx)) return;
+  // fxChanged() comes with every edit of a value: rebuild the whole model
+  // only when the material channels may have changed, i.e. when the
+  // parameters were added or removed
+  const std::string signature = materialSignature(fx);
+  if (signature == m_materialSignature) return;
+  m_materialSignature = signature;
   m_functionGraph->getModel()->refreshData(m_xshHandle->getXsheet());
   m_treeView->updateAll();
   m_numericalColumns->updateAll();

@@ -115,6 +115,18 @@ void TXshLevelColumn::setXsheet(TXsheet *xsheet) {
   TDoubleParam *timeRemap         = getTimeRemapParam();
   if (grammar && timeRemap->getGrammar() != grammar)
     timeRemap->setGrammar(grammar);
+
+  // ... and the curves of the Color Effect
+  if (!grammar) return;
+  std::vector<TDoubleParam *> curves;
+  for (int p = 0; p < ColumnColorEffect::ParamCount; ++p)
+    curves.push_back(m_fx->getColorEffectParam(p));
+  TPixelParam *tint = m_fx->getTintColorParam();
+  curves.push_back(tint->getRed().getPointer());
+  curves.push_back(tint->getGreen().getPointer());
+  curves.push_back(tint->getBlue().getPointer());
+  for (TDoubleParam *curve : curves)
+    if (curve && curve->getGrammar() != grammar) curve->setGrammar(grammar);
 }
 
 //-----------------------------------------------------------------------------
@@ -156,6 +168,12 @@ int TXshLevelColumn::getRemappedRow(int row) const {
 
 //-----------------------------------------------------------------------------
 
+bool TXshLevelColumn::isColorEffectUsed() const {
+  return m_fx->isColorEffectUsed();
+}
+
+//-----------------------------------------------------------------------------
+
 TXshCell TXshLevelColumn::getRemappedCell(int row) const {
   return getCell(getRemappedRow(row));
 }
@@ -170,7 +188,8 @@ TXshColumn *TXshLevelColumn::clone() const {
   column->m_first = m_first;
   column->setColorTag(getColorTag());
   column->setColorFilterId(getColorFilterId());
-  if (isTimeRemapUsed()) column->m_fx->getParams()->copy(m_fx->getParams());
+  if (isTimeRemapUsed() || isColorEffectUsed())
+    column->m_fx->getParams()->copy(m_fx->getParams());
 
   return column;
 }

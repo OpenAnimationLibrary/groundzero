@@ -127,6 +127,7 @@ set(MOC_HEADERS
     mastercontrollerspane.h
     offsetlayerspane.h
     artlayermanagerpane.h
+    motionpresetspane.h
     riglibrarypane.h
     symbolspane.h
     vectorguideddrawingpane.h
@@ -198,6 +199,7 @@ set(HEADERS
     cellkeyframeselection.h
     cellselection.h
     columncommand.h
+    columncoloreffectpopup.h
     columnselection.h
     customhelplink.h
     curveio.h
@@ -223,6 +225,9 @@ set(HEADERS
     subcameramanager.h
     subscenecommand.h
     symbolcommand.h
+    distributecommand.h
+    distributeutil.h
+    librarycommand.h
     tfarmstuff.h
     versioncontrolgui.h
     versioncontrolxmlreader.h
@@ -240,6 +245,7 @@ set(HEADERS
     sxfio.h
     levelcommand.h
     spineexport.h
+    textureatlasexport.h
 # Tracker file
     ObjectTracker.h
     dummyprocessor.h
@@ -303,6 +309,7 @@ set(SOURCES
     xshcellmover.cpp
     xshcellviewer.cpp
     xshcolumnviewer.cpp
+    columncoloreffectpopup.cpp
     xsheetdragtool.cpp
     xsheetviewer.cpp
     xshnoteviewer.cpp
@@ -325,6 +332,7 @@ set(SOURCES
     convertpopup.cpp
     convertlinestoareascommand.cpp
     rigeasecommand.cpp
+    rigmappingcommand.cpp
     crashhandler.cpp
     autosaverecovery.cpp
     duplicatepopup.cpp
@@ -375,6 +383,7 @@ set(SOURCES
     offsetlayerspane.cpp
     artlayermanagerpane.cpp
     createcolourartcommand.cpp
+    motionpresetspane.cpp
     riglibrarypane.cpp
     symbolspane.cpp
     vectorguideddrawingpane.cpp
@@ -397,6 +406,8 @@ set(SOURCES
     print.cpp
     subscenecommand.cpp
     symbolcommand.cpp
+    distributecommand.cpp
+    librarycommand.cpp
     svncleanupdialog.cpp
     svncommitdialog.cpp
     svndeletedialog.cpp
@@ -462,6 +473,7 @@ set(SOURCES
     importpdf.cpp
     importpdf.h
     animatedsvgexport.cpp
+    lottieexport.cpp
     xdtsimportpopup.cpp
     expressionreferencemanager.cpp
     tooloptionsshortcutinvoker.cpp
@@ -474,6 +486,7 @@ set(SOURCES
     exportcameratrackpopup.cpp
     exportlayeredpsdpopup.cpp
     spineexport.cpp
+    textureatlasexport.cpp
     abrimport.cpp
     deformerbake.cpp
 # Tracker file
@@ -877,6 +890,15 @@ if(BUILD_SPINE_EXPORT_TESTS)
     add_test(NAME spineexport COMMAND spineexport_test)
 endif()
 
+# Optional regression target for the helpers of Distribute to Layers / Frames
+# (distributeutil.h, header-only).
+option(BUILD_DISTRIBUTE_TESTS "Build the Distribute to Layers/Frames helpers test" ${BUILD_TESTS})
+if(BUILD_DISTRIBUTE_TESTS)
+    add_executable(distributeutil_test tests/distributeutil_test.cpp)
+    target_include_directories(distributeutil_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    add_test(NAME distributeutil COMMAND distributeutil_test)
+endif()
+
 option(BUILD_CADMIUM_TESTS "Build Cadmium native adapter and workflow regression tests" ${BUILD_TESTS})
 if(BUILD_CADMIUM_TESTS)
     foreach(adapter toonzraster fullcolor vector)
@@ -889,6 +911,8 @@ if(BUILD_CADMIUM_TESTS)
             tnzcore tnzbase tnzext toonzlib ${GL_LIB} ${GLUT_LIB})
         add_test(NAME cadmium_${adapter} COMMAND cadmium_${adapter}_test)
     endforeach()
+    # The vector test needs an OpenGL context and skips without one
+    set_tests_properties(cadmium_vector PROPERTIES SKIP_RETURN_CODE 77)
     add_custom_target(cadmium_tests DEPENDS cadmium_toonzraster_test cadmium_fullcolor_test cadmium_vector_test)
 endif()
 
@@ -1002,7 +1026,6 @@ if(BUILD_CADMIUM_TESTS)
         cadmium_toonzraster cadmium_fullcolor cadmium_vector cadmium_codec
         cadmium_settings cadmium_metadata cadmium_save cadmium_destination cadmium_color
         PROPERTIES TIMEOUT 120)
-    set_tests_properties(cadmium_vector PROPERTIES SKIP_RETURN_CODE 77)
 endif()
 
 option(BUILD_PROCESS_PROGRESS_TESTS "Build the external tool wait test" ${BUILD_TESTS})

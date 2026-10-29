@@ -7,6 +7,8 @@
 #include "tools/imagegrouping.h"
 #include "tools/cursors.h"
 #include "tools/artlayer.h"
+#include "tools/bilineardeform.h"
+#include "tools/envelopelayout.h"
 
 // TnzQt includes
 #include "toonzqt/selectioncommandids.h"
@@ -18,12 +20,14 @@
 #include "toonz/txshlevelhandle.h"
 #include "toonz/tobjecthandle.h"
 #include "toonz/tstageobject.h"
+#include "toonz/tdeformer.h"
 
 // TnzBase includes
 #include "tenv.h"
 
 // TnzCore includes
 #include "drawutil.h"
+#include "tcurves.h"
 
 // Qt includes
 #include <QApplication>
@@ -42,6 +46,7 @@ TEnv::IntVar l_strokeSelectConstantThickness("SelectionToolConstantThickness",
                                              0);
 TEnv::IntVar l_strokeSelectIncludeIntersection(
     "SelectionToolIncludeIntersection", 0);
+TEnv::IntVar l_strokeSelectEnvelope("SelectionToolEnvelope", 0);
 
 const int l_dragThreshold = 10;  //!< Distance, in pixels, the user has to
                                  //!  move from a button press to trigger a
@@ -126,9 +131,9 @@ bool getStrokeIndexFromPos(UINT &index, const TVectorImageP &vi,
 // Check if current frame or not selected
 static bool currentOrNotSelected(const VectorSelectionTool &tool,
                                  const TFrameId &fid) {
-  return (tool.getCurrentFid() == fid ||
-          (tool.isSelectedFramesType() &&
-           tool.getSelectedFrames().count(fid) == 0));
+  return (
+      tool.getCurrentFid() == fid ||
+      (tool.isSelectedFramesType() && tool.getTargetFrames().count(fid) == 0));
 }
 
 //-----------------------------------------------------------------------------
@@ -136,6 +141,42 @@ static bool currentOrNotSelected(const VectorSelectionTool &tool,
 // Notify selection changed
 inline void notifySelectionChanged() {
   TTool::getApplication()->getCurrentSelection()->notifySelectionChanged();
+}
+
+//-----------------------------------------------------------------------------
+
+// The control points of \b stroke with each chunk cut in the number of equal
+// pieces EnvelopeLayout::piecesForChunk() asks for, so that the warped curve
+// bends smoothly. The shape and the thickness profile are unchanged.
+void subdivideForEnvelope(const TStroke &stroke, double envelopeDiagonal,
+                          std::vector<TThickPoint> &points) {
+  points.clear();
+  const int chunkCount = stroke.getChunkCount();
+  if (chunkCount <= 0) return;
+
+  points.push_back(stroke.getChunk(0)->getThickP0());
+  for (int c = 0; c < chunkCount; ++c) {
+    const TThickQuadratic *chunk = stroke.getChunk(c);
+    TThickPoint p0 = chunk->getThickP0(), p1 = chunk->getThickP1(),
+                p2 = chunk->getThickP2();
+
+    const double length = tdistance(p0, p1) + tdistance(p1, p2);
+    const int pieces = EnvelopeLayout::piecesForChunk(length, envelopeDiagonal);
+
+    // De Casteljau: cut the first of the k remaining pieces off the rest
+    for (int k = pieces; k > 1; --k) {
+      const double t      = 1.0 / k;
+      const TThickPoint a = p0 * (1.0 - t) + p1 * t;
+      const TThickPoint b = p1 * (1.0 - t) + p2 * t;
+      const TThickPoint m = a * (1.0 - t) + b * t;
+      points.push_back(a);
+      points.push_back(m);
+      p0 = m;
+      p1 = b;
+    }
+    points.push_back(p1);
+    points.push_back(p2);
+  }
 }
 
 }  // namespace
@@ -209,6 +250,18 @@ void VectorFreeDeformer::setPoints(const TPointD &p0, const TPointD &p1,
 
 //-----------------------------------------------------------------------------
 
+void VectorFreeDeformer::setEnvelope(const std::vector<TPointD> &rest,
+                                     const std::vector<TPointD> &deformed) {
+  // The pieces of the strokes depend on the size of the rest envelope
+  if (rest != m_restEnvelope) m_envelopeSources.clear();
+
+  m_restEnvelope     = rest;
+  m_deformedEnvelope = deformed;
+  m_isEnvelope       = true;
+}
+
+//-----------------------------------------------------------------------------
+
 void VectorFreeDeformer::deformRegions() {
   if (m_strokeIndexes.empty() || !m_computeRegion) return;
 
@@ -222,6 +275,11 @@ void VectorFreeDeformer::deformRegions() {
 //-----------------------------------------------------------------------------
 
 void VectorFreeDeformer::deformImage() {
+  if (m_isEnvelope) {
+    deformEnvelopeImage();
+    return;
+  }
+
   // debug
   assert(m_strokeIndexes.size() == m_originalStrokes.size());
 
@@ -252,36 +310,79 @@ void VectorFreeDeformer::deformImage() {
 //-----------------------------------------------------------------------------
 
 TThickPoint VectorFreeDeformer::deform(TThickPoint point) {
-  double vs  = m_originalP11.x - m_originalP00.x;
-  double s   = (vs == 0) ? 0 : (point.x - m_originalP00.x) / vs;
-  double vt  = m_originalP11.y - m_originalP00.y;
-  double t   = (vt == 0) ? 0 : (point.y - m_originalP00.y) / vt;
-  TPointD A  = m_newPoints[0];
-  TPointD B  = m_newPoints[1];
-  TPointD C  = m_newPoints[2];
-  TPointD D  = m_newPoints[3];
-  TPointD AD = (1 - t) * A + t * D;
-  TPointD BC = (1 - t) * B + t * C;
-  TPointD p  = (1 - s) * AD + s * BC;
+  BilinearDeform::Map bilinear(m_originalP00, m_originalP11, m_newPoints[0],
+                               m_newPoints[1], m_newPoints[2], m_newPoints[3]);
 
+  TPointD p        = bilinear.map(point);
   double thickness = point.thick;
-  if (!m_preserveThickness) {
-    double eps          = 1.e-2;
-    TPointD p0x         = TPointD(p.x - eps, p.x);
-    TPointD p1x         = TPointD(p.x + eps, p.x);
-    TPointD p0y         = TPointD(p.x, p.y - eps);
-    TPointD p1y         = TPointD(p.x, p.y + eps);
-    m_preserveThickness = true;
-    TThickPoint newp0x  = deform(p0x);
-    TThickPoint newp1x  = deform(p1x);
-    TThickPoint newp0y  = deform(p0y);
-    TThickPoint newp1y  = deform(p1y);
-    m_preserveThickness = false;
-    double newA         = fabs(cross(newp1x - newp0x, newp1y - newp0y));
-    double a            = 4 * eps * eps;
-    thickness *= sqrt(newA / a);
-  }
+  // The line gets thicker or thinner as the surface around the original point
+  // does. The scale is measured on the original point, not on the deformed one.
+  if (!m_preserveThickness) thickness *= bilinear.thicknessFactor(point);
   return TThickPoint(p, thickness);
+}
+
+//-----------------------------------------------------------------------------
+
+void VectorFreeDeformer::deformEnvelopeImage() {
+  if (m_strokeIndexes.size() != m_originalStrokes.size()) {
+    assert(false);
+    return;
+  }
+
+  // A flat envelope, or one folded over itself, would turn the art inside
+  // out: the strokes are left as they are
+  if (!EnvelopeLayout::isValidDeformation(m_restEnvelope, m_deformedEnvelope))
+    return;
+
+  const double diagonal = EnvelopeLayout::diagonal(m_restEnvelope);
+
+  // Strokes with few control points are cut in shorter pieces once, so that
+  // they bend smoothly instead of following only their control points
+  if (m_envelopeSources.size() != m_originalStrokes.size()) {
+    m_envelopeSources.clear();
+    m_envelopeSources.resize(m_originalStrokes.size());
+    for (std::size_t i = 0; i < m_originalStrokes.size(); ++i)
+      subdivideForEnvelope(*m_originalStrokes[i], diagonal,
+                           m_envelopeSources[i]);
+  }
+
+  // Mean value coordinates of the rest envelope, applied to the moved one.
+  // The art on the outline follows the outline exactly.
+  const std::vector<TPointD> &rest     = m_restEnvelope;
+  const std::vector<TPointD> &deformed = m_deformedEnvelope;
+  auto map = [&rest, &deformed](const TPointD &p) -> TPointD {
+    TPointD q;
+    if (TEnvelopeDeformer::mapThrough(rest, deformed, p, q) &&
+        EnvelopeLayout::isFinitePoint(q))
+      return q;
+    return p;
+  };
+  const double step = EnvelopeLayout::kJacobianStepFraction * diagonal;
+
+  QMutexLocker lock(m_vi->getMutex());
+
+  std::vector<TThickPoint> points;
+  std::size_t i = 0;
+  for (auto it = m_strokeIndexes.begin(), end = m_strokeIndexes.end();
+       it != end; ++it, ++i) {
+    const std::vector<TThickPoint> &source = m_envelopeSources[i];
+    TStroke *stroke                        = m_vi->getStroke(*it);
+    if (!stroke || source.size() < 3) continue;
+
+    points = source;
+    for (TThickPoint &point : points) {
+      const TPointD original(point.x, point.y);
+      double thickness = point.thick;
+      // The line gets thicker or thinner as the surface around the original
+      // point does (the estimate is finite and clamped)
+      if (!m_preserveThickness)
+        thickness *= EnvelopeLayout::thicknessFactor(map, original, step);
+      point = TThickPoint(map(original), thickness);
+    }
+    stroke->reshape(points.data(), (int)points.size());
+  }
+
+  if (m_computeRegion) deformRegions();
 }
 
 //********************************************************************************
@@ -390,8 +491,15 @@ void DragSelectionTool::UndoChangeStrokes::transform(
     TStroke *sourcesStroke = strokes[s], *stroke = image->getStroke(index);
 
     int cp, cpCount = stroke->getControlPointCount();
-    for (cp = 0; cp != cpCount; ++cp)
-      stroke->setControlPoint(cp, sourcesStroke->getControlPoint(cp));
+    if (cpCount == sourcesStroke->getControlPointCount()) {
+      for (cp = 0; cp != cpCount; ++cp)
+        stroke->setControlPoint(cp, sourcesStroke->getControlPoint(cp));
+    } else {
+      // The Envelope mode adds control points: restore the whole stroke
+      std::vector<TThickPoint> points;
+      sourcesStroke->getControlPoints(points);
+      stroke->reshape(points.data(), (int)points.size());
+    }
   }
 
   image->notifyChangedStrokes(m_indexes, strokes, m_flip);
@@ -609,8 +717,7 @@ void DragSelectionTool::VectorDeformTool::applyTransform(FourPoints bbox,
                              bbox.getP11() == freeDeformer->getPoint(2) &&
                              bbox.getP01() == freeDeformer->getPoint(3);
 
-  freeDeformer->setPoints(bbox.getP00(), bbox.getP10(), bbox.getP11(),
-                          bbox.getP01());
+  setDeformerShape(freeDeformer, 0, bbox);
   freeDeformer->setComputeRegion(!m_isDragging);
   freeDeformer->setPreserveThickness(tool->isConstantThickness());
   freeDeformer->setFlip(isFlip());
@@ -678,7 +785,7 @@ void DragSelectionTool::VectorDeformTool::transformWholeLevel() {
       // Skip nonselected frames
       if (tool->getCurrentFid() == fid ||
           (tool->isSelectedFramesType() &&
-           tool->getSelectedFrames().count(fid) == 0))
+           tool->getTargetFrames().count(fid) == 0))
         continue;
 
       TVectorImageP vi = level->getFrame(fid, true);
@@ -696,8 +803,7 @@ void DragSelectionTool::VectorDeformTool::transformWholeLevel() {
 
       VectorFreeDeformer *freeDeformer =
           static_cast<VectorFreeDeformer *>(tool->getFreeDeformer(t));
-      freeDeformer->setPoints(bbox.getPoint(0), bbox.getPoint(1),
-                              bbox.getPoint(2), bbox.getPoint(3));
+      setDeformerShape(freeDeformer, t, bbox);
       freeDeformer->setComputeRegion(true);
       freeDeformer->setPreserveThickness(tool->isConstantThickness());
       freeDeformer->setFlip(isFlip());
@@ -723,6 +829,14 @@ void DragSelectionTool::VectorDeformTool::transformWholeLevel() {
   // changing it.
   // This reasonably leads to computeBBox(), but bboxes are taken as INPUT to
   // this transformation...            >:(
+}
+
+//-----------------------------------------------------------------------------
+
+void DragSelectionTool::VectorDeformTool::setDeformerShape(
+    VectorFreeDeformer *deformer, int index, const FourPoints &bbox) {
+  deformer->setPoints(bbox.getP00(), bbox.getP10(), bbox.getP11(),
+                      bbox.getP01());
 }
 
 //-----------------------------------------------------------------------------
@@ -813,6 +927,94 @@ void DragSelectionTool::VectorFreeDeformTool::leftButtonDrag(
   VectorSelectionTool *tool = dynamic_cast<VectorSelectionTool *>(m_tool);
   tool->setResetCenter(false);
   m_freeDeform->leftButtonDrag(pos, e);
+}
+
+//=============================================================================
+// VectorEnvelopeTool
+//-----------------------------------------------------------------------------
+
+DragSelectionTool::VectorEnvelopeTool::VectorEnvelopeTool(
+    VectorSelectionTool *tool)
+    : VectorDeformTool(tool) {
+  // The envelopes at the press: the handles on the outline of each box
+  tool->clearEnvelopes();
+  for (int i = 0; i < tool->getBBoxsCount(); ++i)
+    m_restEnvelopes.push_back(tool->getEnvelope(i));
+}
+
+//-----------------------------------------------------------------------------
+
+DragSelectionTool::VectorEnvelopeTool::~VectorEnvelopeTool() {
+  getTool()->clearEnvelopes();
+}
+
+//-----------------------------------------------------------------------------
+
+void DragSelectionTool::VectorEnvelopeTool::setDeformerShape(
+    VectorFreeDeformer *deformer, int index, const FourPoints &bbox) {
+  VectorDeformTool::setDeformerShape(deformer, index, bbox);
+  if (index < 0 || index >= (int)m_restEnvelopes.size()) return;
+
+  deformer->setEnvelope(m_restEnvelopes[index], getTool()->getEnvelope(index));
+}
+
+//-----------------------------------------------------------------------------
+
+void DragSelectionTool::VectorEnvelopeTool::leftButtonDrag(
+    const TPointD &pos, const TMouseEvent &e) {
+  VectorSelectionTool *tool = dynamic_cast<VectorSelectionTool *>(m_tool);
+  if (!tool || m_restEnvelopes.empty()) return;
+  tool->setResetCenter(false);
+
+  const int handle =
+      EnvelopeLayout::handleFromToolPoint(tool->getSelectedPoint());
+  if (handle == EnvelopeLayout::kNoHandle) return;
+
+  double pixelSize = tool->getPixelSize();
+  bool isFastDragging =
+      tdistance2(pos, getCurPos()) > 9.0 * pixelSize * pixelSize;
+
+  // The handle moves by the same distance in the box of every frame the tool
+  // edits (the current frame's box is the first one). A handle stops where its
+  // envelope would cross itself or turn inside out.
+  const TPointD offset = pos - getStartPos();
+  int count            = (tool->isLevelType() || tool->isSelectedFramesType())
+                             ? (int)m_restEnvelopes.size()
+                             : 1;
+  count                = std::min(count, tool->getBBoxsCount());
+
+  for (int i = 0; i < count; ++i) {
+    const std::vector<TPointD> &rest = m_restEnvelopes[i];
+    if (handle >= (int)rest.size() || !EnvelopeLayout::isUsableRest(rest))
+      continue;
+
+    std::vector<TPointD> envelope = tool->getEnvelope(i);
+    if (envelope.size() != rest.size()) continue;
+
+    envelope[handle] = EnvelopeLayout::constrainMove(rest, envelope, handle,
+                                                     rest[handle] + offset);
+    tool->setEnvelope(envelope, i);
+
+    // The box follows the corners of the envelope
+    FourPoints bbox = tool->getBBox(i);
+    for (int corner = 0; corner < 4; ++corner)
+      bbox.setPoint(corner,
+                    envelope[EnvelopeLayout::handleFromToolPoint(corner)]);
+    tool->setBBox(bbox, i);
+  }
+  if (norm2(offset) > 0.0) tool->m_deformValues.m_isSelectionModified = true;
+
+  setCurPos(pos);
+  applyTransform(tool->getBBox(), isFastDragging);
+}
+
+//-----------------------------------------------------------------------------
+
+void DragSelectionTool::VectorEnvelopeTool::leftButtonUp(const TPointD &pos,
+                                                         const TMouseEvent &e) {
+  // The other frames are warped here, with the envelopes still in place
+  VectorDeformTool::leftButtonUp(pos, e);
+  getTool()->clearEnvelopes();
 }
 
 //=============================================================================
@@ -1327,6 +1529,7 @@ VectorSelectionTool::VectorSelectionTool(int targetType)
     , m_selectionTarget("Mode:")
     , m_includeIntersection("Include Intersection", false)
     , m_constantThickness("Preserve Thickness", false)
+    , m_envelope("Envelope", false)
     , m_levelSelection(m_strokeSelection)
     , m_capStyle("Cap")
     , m_joinStyle("Join")
@@ -1339,10 +1542,12 @@ VectorSelectionTool::VectorSelectionTool(int targetType)
   m_prop.bind(m_selectionTarget);
   m_prop.bind(m_includeIntersection);
   m_prop.bind(m_constantThickness);
+  m_prop.bind(m_envelope);
   ArtLayer::bindProperties(m_prop);
 
   m_selectionTarget.addValue(NORMAL_TYPE);
   m_selectionTarget.addValue(SELECTED_FRAMES_TYPE);
+  m_selectionTarget.addValue(ONION_SKIN_FRAMES_TYPE);
   m_selectionTarget.addValue(ALL_LEVEL_TYPE);
   m_selectionTarget.addValue(SAME_STYLE_TYPE);
   m_selectionTarget.addValue(STYLE_SELECTED_FRAMES_TYPE);
@@ -1355,6 +1560,7 @@ VectorSelectionTool::VectorSelectionTool(int targetType)
 
   m_includeIntersection.setId("IncludeIntersection");
   m_constantThickness.setId("PreserveThickness");
+  m_envelope.setId("Envelope");
   m_selectionTarget.setId("SelectionMode");
 
   m_capStyle.addValue(BUTT_WSTR, QString::fromStdWString(BUTT_WSTR));
@@ -1422,6 +1628,14 @@ void VectorSelectionTool::setNewFreeDeformer() {
 
 //-----------------------------------------------------------------------------
 
+bool VectorSelectionTool::isEnvelopeMode() const {
+  // Motion paths keep the standard handles
+  return m_envelope.getValue() &&
+         !TTool::getApplication()->getCurrentObject()->isSpline();
+}
+
+//-----------------------------------------------------------------------------
+
 bool VectorSelectionTool::isLevelType() const {
   return m_levelSelection.framesMode() == LevelSelection::FRAMES_ALL;
 }
@@ -1429,7 +1643,30 @@ bool VectorSelectionTool::isLevelType() const {
 //-----------------------------------------------------------------------------
 
 bool VectorSelectionTool::isSelectedFramesType() const {
-  return m_levelSelection.framesMode() == LevelSelection::FRAMES_SELECTED;
+  return m_levelSelection.framesMode() == LevelSelection::FRAMES_SELECTED ||
+         isOnionSkinFramesType();
+}
+
+//-----------------------------------------------------------------------------
+
+bool VectorSelectionTool::isOnionSkinFramesType() const {
+  return m_levelSelection.framesMode() == LevelSelection::FRAMES_ONION_SKIN;
+}
+
+//-----------------------------------------------------------------------------
+
+const std::set<TFrameId> &VectorSelectionTool::getTargetFrames() const {
+  return isOnionSkinFramesType() ? m_onionFrames : getSelectedFrames();
+}
+
+//-----------------------------------------------------------------------------
+
+bool VectorSelectionTool::refreshOnionFrames() {
+  std::set<TFrameId> frames = LevelSelection::onionSkinFrames();
+  if (frames == m_onionFrames) return false;
+
+  m_onionFrames.swap(frames);
+  return true;
 }
 
 //-----------------------------------------------------------------------------
@@ -1451,6 +1688,8 @@ void VectorSelectionTool::updateTranslation() {
   m_selectionTarget.setQStringName(tr("Mode:"));
   m_selectionTarget.setItemUIName(NORMAL_TYPE, tr("Standard"));
   m_selectionTarget.setItemUIName(SELECTED_FRAMES_TYPE, tr("Selected Frames"));
+  m_selectionTarget.setItemUIName(ONION_SKIN_FRAMES_TYPE,
+                                  tr("Onion Skin Frames"));
   m_selectionTarget.setItemUIName(ALL_LEVEL_TYPE, tr("Whole Level"));
   m_selectionTarget.setItemUIName(SAME_STYLE_TYPE, tr("Same Style"));
   m_selectionTarget.setItemUIName(STYLE_SELECTED_FRAMES_TYPE,
@@ -1465,6 +1704,7 @@ void VectorSelectionTool::updateTranslation() {
 
   m_includeIntersection.setQStringName(tr("Include Intersection"));
   m_constantThickness.setQStringName(tr("Preserve Thickness"));
+  m_envelope.setQStringName(tr("Envelope"));
 
   m_capStyle.setQStringName(tr("Cap"));
   m_capStyle.setItemUIName(BUTT_WSTR, tr("Butt cap"));
@@ -1513,6 +1753,10 @@ void VectorSelectionTool::updateSelectionTarget() {
     framesMode = LevelSelection::FRAMES_ALL;
     break;
 
+  case ONION_SKIN_FRAMES_TYPE_IDX:
+    framesMode = LevelSelection::FRAMES_ONION_SKIN;
+    break;
+
   case SELECTED_FRAMES_TYPE_IDX:
   case STYLE_SELECTED_FRAMES_TYPE_IDX:
   case BOUNDARY_SELECTED_FRAMES_TYPE_IDX:
@@ -1528,6 +1772,7 @@ void VectorSelectionTool::updateSelectionTarget() {
   LevelSelection::Filter filter;
   switch (m_selectionTarget.getIndex()) {
   case SELECTED_FRAMES_TYPE_IDX:
+  case ONION_SKIN_FRAMES_TYPE_IDX:
   case ALL_LEVEL_TYPE_IDX:
     filter = LevelSelection::WHOLE;
     selectedStyles().clear();
@@ -1555,13 +1800,17 @@ void VectorSelectionTool::updateSelectionTarget() {
 //-----------------------------------------------------------------------------
 
 void VectorSelectionTool::finalizeSelection() {
+  // The frames shown by the onion skin depend on the current frame and on the
+  // onion skin settings: take them again before the boxes are computed.
+  if (isOnionSkinFramesType()) refreshOnionFrames();
+
   TVectorImageP vi = getImage(false);
   if (vi && !m_levelSelection.isEmpty()) {
     std::set<int> &selection = m_strokeSelection.getSelection();
     selection.clear();
 
     // Apply base additive selection
-    if (!isSelectedFramesType() || m_selectedFrames.count(getCurrentFid())) {
+    if (!isSelectedFramesType() || getTargetFrames().count(getCurrentFid())) {
       // Apply filters
       std::vector<int> selectedStrokes =
           getSelectedStrokes(*vi, m_levelSelection);
@@ -1766,6 +2015,9 @@ void VectorSelectionTool::leftButtonDown(const TPointD &pos,
     getViewer()->doPickGuideStroke(pos);
     return;
   }
+
+  // The onion skin may have been changed since the boxes were computed
+  if (isOnionSkinFramesType() && refreshOnionFrames()) finalizeSelection();
 
   SelectionTool::leftButtonDown(pos, e);
 }
@@ -1982,6 +2234,7 @@ bool VectorSelectionTool::isSelectionEmpty() {
 
 void VectorSelectionTool::computeBBox() {
   m_bboxs.clear();
+  m_envelopes.clear();
   if (canResetCenter()) m_centers.clear();
 
   TVectorImageP vi = getImage(false);
@@ -1991,7 +2244,7 @@ void VectorSelectionTool::computeBBox() {
     double maxThickness = 0;
 
     // Calculate current image's bbox - it is always the first one (index 0)
-    if (vi && (isLevelType() || m_selectedFrames.count(getCurrentFid()) > 0)) {
+    if (vi && (isLevelType() || getTargetFrames().count(getCurrentFid()) > 0)) {
       FourPoints bbox =
           getFourPointsFromVectorImage(vi, selectedStyles(), maxThickness);
 
@@ -2007,7 +2260,7 @@ void VectorSelectionTool::computeBBox() {
 
       for (int i = 0; i < (int)fids.size(); ++i) {
         if (getCurrentFid() == fids[i] ||
-            (isSelectedFramesType() && m_selectedFrames.count(fids[i]) == 0))
+            (isSelectedFramesType() && getTargetFrames().count(fids[i]) == 0))
           continue;
 
         TVectorImageP vi = level->getFrame(fids[i], false);
@@ -2059,7 +2312,8 @@ void VectorSelectionTool::notifyImageChanged() {
     TTool::notifyImageChanged(getCurrentFid());
     break;
   case LevelSelection::FramesMode::FRAMES_SELECTED:
-    frames = getSelectedFrames();
+  case LevelSelection::FramesMode::FRAMES_ONION_SKIN:
+    frames = getTargetFrames();
     for (TFrameId fid : frames) {
       TTool::notifyImageChanged(fid);
     }
@@ -2129,6 +2383,7 @@ void VectorSelectionTool::onActivate() {
   if (m_firstTime) {
     m_includeIntersection.setValue(l_strokeSelectIncludeIntersection ? 1 : 0);
     m_constantThickness.setValue(l_strokeSelectConstantThickness ? 1 : 0);
+    m_envelope.setValue(l_strokeSelectEnvelope ? 1 : 0);
     m_strokeSelection.setSceneHandle(
         TTool::getApplication()->getCurrentScene());
   }
@@ -2238,7 +2493,10 @@ bool VectorSelectionTool::onPropertyChanged(std::string propertyName) {
     l_strokeSelectIncludeIntersection = (int)(m_includeIntersection.getValue());
   if (propertyName == m_constantThickness.getName())
     l_strokeSelectConstantThickness = (int)(m_constantThickness.getValue());
-  else if (propertyName == m_selectionTarget.getName())
+  else if (propertyName == m_envelope.getName()) {
+    l_strokeSelectEnvelope = (int)(m_envelope.getValue());
+    invalidate();
+  } else if (propertyName == m_selectionTarget.getName())
     doOnActivate();
   else if (propertyName == m_capStyle.getName()) {
     if (m_strokeSelection.isEmpty()) return true;
@@ -2474,8 +2732,10 @@ void VectorSelectionTool::updateAction(TPointD pos, const TMouseEvent &e) {
 //-----------------------------------------------------------------------------
 
 void VectorSelectionTool::onSelectedFramesChanged() {
-  if (isSelectedFramesType())  // False also in case m_levelSelection is not
-                               // current
+  // The frames of the onion skin mode do not depend on the selected ones
+  if (m_levelSelection.framesMode() ==
+      LevelSelection::FRAMES_SELECTED)  // False also in case m_levelSelection
+                                        // is not current
     finalizeSelection();
 }
 
@@ -2511,6 +2771,8 @@ void VectorSelectionTool::AttachedLevelSelection::sortWithPaletteOrder() {
     if (framesMode() == FRAMES_ALL)
       for (int i = 0; i < level->getFrameCount(); ++i)
         fids.insert(level->getFrameId(i));
+    else if (framesMode() == FRAMES_ONION_SKIN)
+      fids = onionSkinFrames();
     else  // FRAMES_SELECTED
       fids = getSelectedFrames();
     for (auto id : fids) {

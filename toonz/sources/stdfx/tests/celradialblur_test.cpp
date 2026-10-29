@@ -1,4 +1,5 @@
 #include "../celradialblurfx.cpp"
+#include "celcamerabox.h"
 #include "tparamcontainer.h"
 #include "tstream.h"
 #include "tmacrofx.h"
@@ -503,6 +504,12 @@ int main(int argc, char **argv) {
     zeroBlurDoesNotAllocateDomain(); initializedInputs(); cancellation();
     productionTransformTests();
     rasterLevelDpiTests();
+    {
+      TFxP fx = new CelRadialBlurFx;
+      CelCameraBoxTest::setParam(*fx, "outerStrength", 3);
+      CelCameraBoxTest::checkInfiniteSourceCoversCamera(
+          static_cast<TRasterFx &>(*fx), "Cel Radial Blur");
+    }
     std::cout << "PASS: radial geometry, controls, precision, tiles and cancellation\n"; result = 0;
   } catch (const TException &error) {
     std::cerr << QString::fromStdWString(error.getMessage()).toStdString() << '\n';

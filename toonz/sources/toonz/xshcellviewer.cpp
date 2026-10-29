@@ -3933,6 +3933,7 @@ void CellArea::createCellMenu(QMenu &menu, bool isCellSelected, TXshCell cell,
         rigEaseSubMenu->addAction(cmdManager->getAction(MI_RigIncludeChildren));
       }
       menu.addMenu(rigEaseSubMenu);
+      menu.addAction(cmdManager->getAction(MI_RigMapping));
 
       if (!soundTextCellsSelected) {
         QMenu *editCellNumbersMenu = new QMenu(tr("Edit Cell Numbers"), this);

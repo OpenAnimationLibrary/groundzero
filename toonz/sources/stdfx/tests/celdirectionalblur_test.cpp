@@ -1,4 +1,5 @@
 #include "../celdirectionalblurfx.cpp"
+#include "celcamerabox.h"
 #include "tmacrofx.h"
 #include "tparamcontainer.h"
 #include "tstream.h"
@@ -403,6 +404,12 @@ int main(int argc, char **argv) {
     rasterLevelDpiTests();
     std::cout << "Checking directional persistence" << std::endl;
     persistenceTests(temp);
+    {
+      TFxP fx = new CelDirectionalBlurFx;
+      CelCameraBoxTest::setParam(*fx, "frontStrength", 3);
+      CelCameraBoxTest::checkInfiniteSourceCoversCamera(
+          static_cast<TRasterFx &>(*fx), "Cel Directional Blur");
+    }
     std::cout << "PASS: directional lobes, shapes, fades, tails, noise, precision, tiles and persistence\n";
     result = 0;
   } catch (const TException &error) {

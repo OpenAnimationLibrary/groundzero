@@ -714,6 +714,22 @@ void TXshColumn::setLightTableExcluded(bool on) {
 
 //-----------------------------------------------------------------------------
 
+bool TXshColumn::isOutlineView() const {
+  return (m_status & eOutlineView) != 0;
+}
+
+//-----------------------------------------------------------------------------
+
+void TXshColumn::setOutlineView(bool on) {
+  const int mask = eOutlineView;
+  if (on)
+    m_status |= mask;
+  else
+    m_status &= ~mask;
+}
+
+//-----------------------------------------------------------------------------
+
 bool TXshColumn::isMask() const { return (m_status & eMasked) != 0; }
 
 //-----------------------------------------------------------------------------

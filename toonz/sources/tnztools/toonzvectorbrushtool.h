@@ -16,6 +16,8 @@
 #include <tools/cursors.h>
 
 #include <tools/inputmanager.h>
+#include <tools/fluidwidth.h>
+#include <tools/brushpaintmode.h>
 #include <tools/modifiers/modifierline.h>
 #include <tools/modifiers/modifiertangents.h>
 #include <tools/modifiers/modifierassistants.h>
@@ -57,7 +59,13 @@ struct VectorBrushData final : public TPersist {
   int m_drawOrder;
   bool m_breakAngles, m_pressure;
   int m_cap, m_join, m_miter;
-  
+  // Fluid Width (speed sensitive width), 0 = off. Only saved when not 0, so
+  // presets that do not use it are written exactly as before.
+  int m_fluidWidth;
+  // Paint mode (BrushPaintMode::Mode), 0 = Normal. Only saved when not Normal,
+  // so presets that do not use it are written exactly as before.
+  int m_paintMode;
+
   // Style snapshot information (for strict preset restoration)
   int m_styleInfoVersion;       // 0 = old, 1 = full snapshot
   
@@ -183,12 +191,13 @@ public:
   // Tools.
   bool isPencilModeActive() override;
 
-  bool doFrameRangeStrokes(TFrameId firstFrameId, TStroke *firstStroke,
-                           TFrameId lastFrameId, TStroke *lastStroke,
-                           int interpolationType, bool breakAngles,
-                           bool autoGroup = false, bool autoFill = false,
-                           bool drawFirstStroke = true,
-                           bool drawLastStroke = true, bool withUndo = true);
+  bool doFrameRangeStrokes(
+      TFrameId firstFrameId, TStroke *firstStroke, TFrameId lastFrameId,
+      TStroke *lastStroke, int interpolationType, bool breakAngles,
+      bool autoGroup = false, bool autoFill = false,
+      bool drawFirstStroke = true, bool drawLastStroke = true,
+      bool withUndo                  = true,
+      BrushPaintMode::Mode paintMode = BrushPaintMode::MODE_NORMAL);
   bool doGuidedAutoInbetween(TFrameId cFid, const TVectorImageP &cvi,
                              TStroke *cStroke, bool breakAngles,
                              bool autoGroup = false, bool autoFill = false,
@@ -215,9 +224,11 @@ protected:
   TDoubleProperty m_accuracy;
   TDoubleProperty m_smooth;
   TEnumProperty m_drawOrder;
+  TEnumProperty m_paintMode;
   TEnumProperty m_preset;
   TBoolProperty m_breakAngles;
   TBoolProperty m_pressure;
+  TIntProperty m_fluidWidth;
   TBoolProperty m_snap;
   TEnumProperty m_frameRange;
   TEnumProperty m_snapSensitivity;
@@ -229,10 +240,22 @@ protected:
   TBoolProperty m_autoGroup;
   TBoolProperty m_autoFill;
 
+  //! The "Paint:" option (Normal, Paint Fills, Paint Behind).
+  BrushPaintMode::Mode currentPaintMode() const {
+    return BrushPaintMode::modeFromIndex(m_paintMode.getIndex());
+  }
+
   bool m_bypassAutoClose = false;
   bool autoCloseEnabled() const {
     return m_autoClose.getValue() && !m_bypassAutoClose;
   }
+
+  // Fluid Width: speed sensitive thickness. m_fluidActive is decided when a
+  // stroke is about to start (see updateModifiers); the filters keep the speed
+  // history of each track of the stroke being drawn, in step with m_tracks.
+  FluidWidth::Params m_fluidParams;
+  bool m_fluidActive = false;
+  std::vector<FluidWidth::Filter> m_fluidFilters;
 
   TInputManager m_inputmanager;
   TSmartPointerT<TModifierLine> m_modifierLine;

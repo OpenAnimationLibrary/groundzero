@@ -8,6 +8,9 @@
 #include <set>
 #include <string>
 #include <QList>
+#include <QString>
+
+class TXsheet;
 
 namespace SubsceneCmd {
 
@@ -18,6 +21,13 @@ void collapse(const QList<TStageObjectId> &objects);
 void collapse(const QList<TFxP> &fxs);
 void explode(int index);
 void saveAsTemplate(const std::set<int> &indices);
+//! Saves the xsheet as the template \b name of the Library (see
+//! LibraryCmd), as saveAsTemplate() saves the columns it copies: the files of
+//! the levels used by the xsheet are copied into a folder next to the
+//! template and referred to with $scenefolder, and the icon and the .libinfo
+//! file of \b kind are written. Asks to save the scene first if some of
+//! those levels are not saved. Shows the messages; returns true if saved.
+bool saveXsheetAsTemplate(TXsheet *xsh, const QString &name, const char *kind);
 }
 
 #endif

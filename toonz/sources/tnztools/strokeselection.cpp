@@ -1492,6 +1492,7 @@ void StrokeSelection::enableCommands() {
   enableCommand(this, MI_SortWithPaletteOrder, &StrokeSelection::sortWithPaletteOrder);
   enableCommand(this, MI_ConvertToOutlineShapes,
                 &StrokeSelection::convertToOutlineShapes);
+  enableWidthProfileCommands();
   enableCommand(this, MI_PairInbetweenStrokes,
                 &StrokeSelection::pairStrokesForInbetween);
   enableCommand(this, MI_AddInbetweenZoneHint,

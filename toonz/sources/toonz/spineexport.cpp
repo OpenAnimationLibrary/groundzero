@@ -53,6 +53,7 @@
 // transparency and color filters.
 
 #include "spineexport.h"
+#include "textureatlasexport.h"
 
 // Tnz6 includes
 #include "tapp.h"
@@ -629,6 +630,15 @@ QByteArray atlasPage(const QString &fileName, const SpineImage &image) {
 }
 
 }  // namespace
+
+//-----------------------------------------------------------------------------
+
+// Shared with the Texture Atlas export (textureatlasexport.cpp)
+TRaster32P renderTrimmedDrawing(TXshSimpleLevel *sl, const TFrameId &fid,
+                                const TCamera *camera,
+                                const TAffine &stageToPixels, TPointD &center) {
+  return renderDrawing(sl, fid, camera, stageToPixels, center);
+}
 
 //=============================================================================
 // ExportSpineCommand

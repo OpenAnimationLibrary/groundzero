@@ -221,6 +221,7 @@ class ColumnTransparencyPopup final : public QWidget {
 
   XsheetViewer *m_viewer;
   QPushButton *m_lockBtn;
+  QPushButton *m_colorEffectBtn;  // opens the Color Effect of a level column
 
 public:
   ColumnTransparencyPopup(XsheetViewer *viewer, QWidget *parent);

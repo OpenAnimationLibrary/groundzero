@@ -35,11 +35,13 @@
             <command>MI_ExportSXF</command>
             <command>MI_ExportOCA</command>
             <command>MI_ExportAnimatedSVG</command>
+            <command>MI_ExportLottie</command>
             <command>MI_StopMotionExportImageSequence</command>
             <command>MI_ExportTvpJson</command>
             <command>MI_ExportXsheetPDF</command>
             <command>MI_ExportCameraTrack</command>
             <command>MI_ExportSpine</command>
+            <command>MI_ExportTextureAtlas</command>
             <command>MI_ExportLayeredPSD</command>
         </menu>
         <separator/>
@@ -142,6 +144,16 @@
             <command>MI_Binarize</command>
             <command>MI_LinesFade</command>
         </menu>
+        <menu title="Width Profile">
+            <command>MI_WidthProfileUniform</command>
+            <command>MI_WidthProfileTaperStart</command>
+            <command>MI_WidthProfileTaperEnd</command>
+            <command>MI_WidthProfileTaperBoth</command>
+            <command>MI_WidthProfilePulse</command>
+            <separator/>
+            <command>MI_ApplySavedWidthProfile</command>
+            <command>MI_SaveWidthProfile</command>
+        </menu>
         <menu title="Optimize">
             <command>MI_FillHoles</command>
             <command>MI_RemoveEndpoints</command>
@@ -193,6 +205,7 @@
         <command>MI_RemoveSceneFrame</command>
         <command>MI_InsertGlobalKeyframe</command>
         <command>MI_RemoveGlobalKeyframe</command>
+        <command>MI_SaveMotionPreset</command>
         <separator/>
         <command>MI_LipSyncPopup</command>
         <command>MI_NewAnnotationColumn</command>
@@ -275,6 +288,7 @@
             <command>MI_RigEaseCustom</command>
         </menu>
         <command>MI_RigIncludeChildren</command>
+        <command>MI_RigMapping</command>
     </menu>
     <menu title="Play">
         <command>MI_Play</command>
@@ -384,6 +398,7 @@
         <command>MI_OpenMasterControllers</command>
         <command>MI_OpenOffsetLayers</command>
         <command>MI_OpenRigLibrary</command>
+        <command>MI_OpenMotionPresets</command>
         <command>MI_OpenArtLayerManager</command>
         <command>MI_OpenSymbols</command>
         <command>MI_OpenReferencePanel</command>

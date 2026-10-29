@@ -638,6 +638,7 @@ QString ToolPropertiesPanel::displayNameForToolId(const QString &toolId) const {
   if (toolId == T_Hand) return tr("Hand tool");
   if (toolId == T_Ruler) return tr("Ruler tool");
   if (toolId == T_ShiftTrace) return tr("Shift and Trace");
+  if (toolId == T_GradientTransform) return tr("Gradient Transform tool");
   return toolId;
 }
 
@@ -1035,6 +1036,10 @@ void ToolPropertiesPanel::createBrushProperties() {
   // === VECTOR & TOONZ RASTER: Draw Order ===
   createDrawOrderProperty();
 
+  // === VECTOR: Paint (Normal / Paint Fills / Paint Behind) ===
+  // No-op for the other brushes, which have no such property.
+  createEnumProperty(tr("Paint"), "Paint:");
+
   // === RASTER & TOONZ RASTER: Lock Alpha ===
   createLockAlphaProperty();
 
@@ -1057,6 +1062,10 @@ void ToolPropertiesPanel::createBrushProperties() {
     createAssistantsProperty();
   }
 
+  // === VECTOR: Fluid Width (thinner where the pen is fast; 0 = off) ===
+  // No-op for the other brushes, which have no such property.
+  createIntSliderByName(tr("Fluid Width"), "Fluid Width:");
+
   // === VECTOR: Frame Range (Off/Linear/In/Out/In&Out) ===
   createFrameRangeProperty();
 
@@ -1068,6 +1077,8 @@ void ToolPropertiesPanel::createBrushProperties() {
   createCapProperty();
   createJoinProperty();
   createMiterProperty();
+
+  updateBrushOptionStates();
 }
 
 //-----------------------------------------------------------------------------
@@ -6112,6 +6123,25 @@ void ToolPropertiesPanel::updateEraserOptionStates() {
     setPropertyWidgetTreeEnabled(hardnessW, !modeIsAreas && !pencilOn);
 }
 
+void ToolPropertiesPanel::updateBrushOptionStates() {
+  if (m_currentToolType != QStringLiteral("brush")) return;
+
+  TTool *tool = getCurrentTool();
+  if (!tool) return;
+  TPropertyGroup *props = tool->getProperties(0);
+  if (!props) return;
+
+  // Vector Brush: Draw Order is not used by the Paint Fills and Paint Behind
+  // modes (index 0 is Normal). The other brushes have no "Paint:" option.
+  TEnumProperty *paintProp =
+      dynamic_cast<TEnumProperty *>(props->getProperty("Paint:"));
+  if (!paintProp) return;
+
+  if (QWidget *drawOrderW =
+          findPropertyWidget(m_propertiesContainer, "Draw Order"))
+    setPropertyWidgetTreeEnabled(drawOrderW, paintProp->getIndex() == 0);
+}
+
 //=============================================================================
 // Fill Properties Creation
 //
@@ -6272,6 +6302,7 @@ void ToolPropertiesPanel::createSelectionProperties() {
   // ── 3–4. Vector only ────────────────────────────────────────────────────
   createBoolProperty(tr("Include Intersection"), "Include Intersection");
   createBoolProperty(tr("Preserve Thickness"), "Preserve Thickness");
+  createBoolProperty(tr("Envelope"), "Envelope");
 
   // ── 5. No Antialiasing (raster only) ────────────────────────────────────
   createBoolProperty(tr("No Antialiasing"), "No Antialiasing");
@@ -6696,6 +6727,8 @@ void ToolPropertiesPanel::updatePropertyValues() {
   if (m_currentToolType == "shifttrace") updateShiftTraceWidgets();
 
   if (m_currentToolType == QStringLiteral("eraser")) updateEraserOptionStates();
+
+  if (m_currentToolType == QStringLiteral("brush")) updateBrushOptionStates();
 
   if (m_currentToolType == "type") {
     updateToolOptionControlsIn(m_propertiesContainer);
