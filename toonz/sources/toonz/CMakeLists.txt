@@ -127,6 +127,7 @@ set(MOC_HEADERS
     mastercontrollerspane.h
     offsetlayerspane.h
     artlayermanagerpane.h
+    spacingchartpane.h
     motionpresetspane.h
     riglibrarypane.h
     symbolspane.h
@@ -234,6 +235,7 @@ set(HEADERS
     viewerdraw.h
     aspectguides.h
     pegbarguides.h
+    motionarcs.h
     viewerpopup.h
     xshcellmover.h
     xsheetdragtool.h
@@ -320,6 +322,7 @@ set(SOURCES
     viewerdraw.cpp
     aspectguides.cpp
     pegbarguides.cpp
+    motionarcs.cpp
     viewerpane.cpp
     castselection.cpp
     cellselection.cpp
@@ -382,6 +385,7 @@ set(SOURCES
     mastercontrollerspane.cpp
     offsetlayerspane.cpp
     artlayermanagerpane.cpp
+    spacingchartpane.cpp
     createcolourartcommand.cpp
     motionpresetspane.cpp
     riglibrarypane.cpp

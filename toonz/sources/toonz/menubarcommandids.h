@@ -200,6 +200,8 @@
 #define MI_CenterCutGuide "MI_CenterCutGuide"
 #define MI_PegbarGuide "MI_PegbarGuide"
 #define MI_PegbarGuideSettings "MI_PegbarGuideSettings"
+#define MI_MotionArcs "MI_MotionArcs"
+#define MI_MotionArcsSettings "MI_MotionArcsSettings"
 #define MI_AspectGuide166 "MI_AspectGuide166"
 #define MI_AspectGuide178 "MI_AspectGuide178"
 #define MI_AspectGuide185 "MI_AspectGuide185"
@@ -594,6 +596,7 @@
 #define MI_OpenMotionPresets "MI_OpenMotionPresets"
 #define MI_SaveMotionPreset "MI_SaveMotionPreset"
 #define MI_OpenArtLayerManager "MI_OpenArtLayerManager"
+#define MI_OpenSpacingChart "MI_OpenSpacingChart"
 
 // Whole-rig breakdown and ease (Xsheet, Timeline, Cells menu)
 #define MI_RigBreakdown25 "MI_RigBreakdown25"

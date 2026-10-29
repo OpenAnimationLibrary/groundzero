@@ -7,6 +7,9 @@
 #include "tcommon.h"
 #include "tgeometry.h"
 
+// TnzLib includes
+#include "toonz/ghostfade.h"
+
 #include <QList>
 
 #undef DVAPI
@@ -103,6 +106,11 @@ ie \a almost opaque,
 since underlying onion-skinned drawings must be visible.
 */
   static double getOnionSkinFade(int distance);
+
+  //! The Ghost Fade settings of the viewer (opacity multiplier, tint, step),
+  //! kept in the user's settings, not in the scene. See doc/ghost_fade.md.
+  static const GhostFade::Settings &getGhostFade();
+  static void setGhostFade(const GhostFade::Settings &settings);
 
   // Shift & Trace  stuff
 

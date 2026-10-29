@@ -2,6 +2,7 @@
 
 // TnzCore includes
 #include "tfilepath.h"
+#include "tenv.h"
 
 // TnzLib includes
 #include "toonz/txshsimplelevel.h"
@@ -15,6 +16,16 @@
 
 #define MINFADE 0.35
 #define MAXFADE 0.95
+
+//*****************************************************************************************
+//    Ghost Fade settings
+//*****************************************************************************************
+
+namespace {
+TEnv::DoubleVar OnionSkinGhostOpacity("OnionSkinGhostOpacity", 1.0);
+TEnv::IntVar OnionSkinGhostTint("OnionSkinGhostTint", 1);
+TEnv::IntVar OnionSkinGhostStep("OnionSkinGhostStep", 1);
+}  // namespace
 
 //*****************************************************************************************
 //    Local namespace
@@ -219,6 +230,35 @@ double OnionSkinMask::getOnionSkinFade(int rowsDistance) {
       abs(rowsDistance) *
           getIncrement(Preferences::instance()->getOnionPaperThickness());
   return tcrop(fade, MINFADE, MAXFADE);
+}
+
+//-------------------------------------------------------------------
+
+namespace {
+// The settings as last read or set: read once from the user's settings, since
+// the viewer asks for them for every ghost it draws
+GhostFade::Settings &ghostFade() {
+  static GhostFade::Settings settings = [] {
+    GhostFade::Settings stored;
+    stored.opacity = OnionSkinGhostOpacity;
+    stored.tint    = OnionSkinGhostTint != 0;
+    stored.step    = OnionSkinGhostStep;
+    return GhostFade::sanitized(stored);
+  }();
+  return settings;
+}
+}  // namespace
+
+const GhostFade::Settings &OnionSkinMask::getGhostFade() { return ghostFade(); }
+
+//-------------------------------------------------------------------
+
+void OnionSkinMask::setGhostFade(const GhostFade::Settings &settings) {
+  GhostFade::Settings &current = ghostFade();
+  current                      = GhostFade::sanitized(settings);
+  OnionSkinGhostOpacity        = current.opacity;
+  OnionSkinGhostTint           = current.tint ? 1 : 0;
+  OnionSkinGhostStep           = current.step;
 }
 
 //-------------------------------------------------------------------
