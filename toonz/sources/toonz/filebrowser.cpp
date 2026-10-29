@@ -11,6 +11,7 @@
 #include "castselection.h"
 #include "menubarcommandids.h"
 #include "floatingpanelcommand.h"
+#include "processprogress.h"
 #include "iocommand.h"
 #include "history.h"
 #include "tapp.h"
@@ -71,6 +72,7 @@
 #include <QMutexLocker>
 #include <QMessageBox>
 #include <QApplication>
+#include <QFile>
 #include <QFormLayout>
 #include <QMainWindow>
 #include <QLineEdit>
@@ -1170,15 +1172,16 @@ void FileBrowser::createLutFromImagePair() {
     return;
   }
 
-  if (!process.waitForFinished(120000)) {
-    process.kill();
-    process.waitForFinished();
-    DVGui::error(tr("OTLUT timed out while creating the LUT."));
+  // A partial LUT must not stay in the library, where it would be listed
+  if (ProcessProgress::wait(process, tr("Creating the 3D LUT..."), this) !=
+      ProcessProgress::Finished) {
+    QFile::remove(outputPath.getQString());
     return;
   }
 
   if (process.exitStatus() != QProcess::NormalExit ||
       process.exitCode() != 0) {
+    QFile::remove(outputPath.getQString());
     QString errorText =
         QString::fromUtf8(process.readAllStandardError()).trimmed();
     if (errorText.isEmpty())

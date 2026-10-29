@@ -11,6 +11,7 @@
 #include "filmstripselection.h"
 #include "castselection.h"
 #include "menubarcommandids.h"
+#include "processprogress.h"
 #include "floatingpanelcommand.h"
 #include "iocommand.h"
 #include "history.h"
@@ -73,6 +74,7 @@
 #include <QMutexLocker>
 #include <QMessageBox>
 #include <QApplication>
+#include <QFile>
 #include <QFormLayout>
 #include <QMainWindow>
 #include <QLineEdit>
@@ -995,6 +997,13 @@ void SceneBrowser::createLutFromImagePair() {
       tr("Raster Images (*.png *.jpg *.jpeg *.bmp *.tga *.psd *.gif *.hdr *.pic *.pnm);;"
          "All Files (*)"));
   if (targetPath.isEmpty()) return;
+  if (QFileInfo(sourcePath.getQString()).canonicalFilePath() ==
+      QFileInfo(targetPath).canonicalFilePath()) {
+    DVGui::warning(
+        tr("Source and target must be different images. Select the original "
+           "image and its graded version."));
+    return;
+  }
 
   TFilePath lutDir = TEnv::getStuffDir() + "library" + "luts";
   try {
@@ -1028,14 +1037,15 @@ void SceneBrowser::createLutFromImagePair() {
     return;
   }
 
-  if (!process.waitForFinished(120000)) {
-    process.kill();
-    process.waitForFinished();
-    DVGui::error(tr("OTLUT timed out while creating the LUT."));
+  // A partial LUT must not stay in the library, where it would be listed
+  if (ProcessProgress::wait(process, tr("Creating the 3D LUT..."), this) !=
+      ProcessProgress::Finished) {
+    QFile::remove(outputPath.getQString());
     return;
   }
 
   if (process.exitStatus() != QProcess::NormalExit || process.exitCode() != 0) {
+    QFile::remove(outputPath.getQString());
     QString errorText = QString::fromUtf8(process.readAllStandardError()).trimmed();
     if (errorText.isEmpty())
       errorText = UiTranslations::text(tr("OTLUT exited with code %1.")).arg(process.exitCode());

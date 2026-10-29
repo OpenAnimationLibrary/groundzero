@@ -72,8 +72,11 @@ void run() {
   require(!error.isEmpty(), "empty drawing needs actionable failure");
   const TVectorImageP source = drawing();
   Cadmium::Frame frame;
-  require(Cadmium::snapshotVector(TImageP(source.getPointer()), frame, error),
-          qPrintable(QString("snapshot failed: ") + error));
+  // The message is built before the call when it is an argument: it would
+  // report the previous call's error
+  const bool snapshot =
+      Cadmium::snapshotVector(TImageP(source.getPointer()), frame, error);
+  require(snapshot, qPrintable(QString("snapshot failed: ") + error));
   require(frame.lines.size() == QSize(1024, 1024), "analysis canvas changed");
   require(frame.regionStyles.size() == 2, "wrong region slots");
   require(frame.nativeRegionIndices.size() == 2, "missing native mapping");

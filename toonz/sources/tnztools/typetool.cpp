@@ -538,13 +538,18 @@ public:
 
   double m_offset;
   TPointD m_charPosition;
+  // A raster character's image starts here from its position: ink left of
+  // the pen (the tail of a "j") is drawn before it
+  TPointD m_glyphOrigin;
   QString m_text;
   int m_styleId;
 
-  StrokeChar(TImageP _char, double offset, const QString &text, int styleId)
+  StrokeChar(TImageP _char, double offset, const QString &text, int styleId,
+             const TPointD &glyphOrigin = TPointD())
       : m_char(_char)
       , m_offset(offset)
       , m_charPosition(TPointD(0, 0))
+      , m_glyphOrigin(glyphOrigin)
       , m_text(text)
       , m_styleId(styleId) {}
 
@@ -572,6 +577,7 @@ public:
             (TRasterCM32P &)newRasterCM, p, m_styleId, m_text, nextText);
         // m_char->transform(scale);
         m_offset = (scale * TPointD((double)(adv.x), (double)(adv.y))).x;
+        m_glyphOrigin = scale * TPointD((double)p.x, (double)p.y);
 
         m_char = new TToonzImage(newRasterCM, newRasterCM->getBounds());
       }
@@ -2093,7 +2099,8 @@ glPushMatrix();
 
       TPoint rasterCenter(dim.lx / 2, dim.ly / 2);
       TTranslation transl1(convert(rasterCenter));
-      TTranslation transl2(m_string[j].m_charPosition);
+      TTranslation transl2(m_string[j].m_charPosition +
+                           m_string[j].m_glyphOrigin);
       GLRasterPainter::drawRaster(transl2 * m_scale * transl1, ti, false);
 
       TPointD adjustedDim = m_scale * TPointD(dim.lx, dim.ly);
@@ -2193,7 +2200,8 @@ void TypeTool::addTextToToonzImage(const TToonzImageP &currentImage) {
     if (m_string[j].isReturn()) continue;
 
     if (TToonzImageP ti = m_string[j].m_char) {
-      TRectD srcBBox  = ti->getBBox() + m_string[j].m_charPosition;
+      TRectD srcBBox = ti->getBBox() + m_string[j].m_charPosition +
+                       m_string[j].m_glyphOrigin;
       TDimensionD dim = srcBBox.getSize();
       TDimensionD enlargeAmount(dim.lx * (m_scale.a11 - 1.0),
                                 dim.ly * (m_scale.a22 - 1.0));
@@ -2216,6 +2224,7 @@ vi->transform( TRotation(m_startPoint,-90) );
       if (TToonzImageP srcTi = m_string[j].m_char) {
         TRasterCM32P srcRaster = srcTi->getRaster();
         TTranslation transl2(m_string[j].m_charPosition +
+                             m_string[j].m_glyphOrigin +
                              convert(targetRaster->getCenter()));
         TRop::over(targetRaster, srcRaster, transl2 * m_scale);
       }
@@ -2573,7 +2582,8 @@ void TypeTool::replaceText(const QString &text, int from, int to) {
       newTImage->setPalette(vPalette);
 
       m_string.insert(m_string.begin() + index,
-                      StrokeChar(newTImage, d_adv.x, character, styleId));
+                      StrokeChar(newTImage, d_adv.x, character, styleId,
+                                 m_scale * TPointD((double)p.x, (double)p.y)));
     }
   }
 

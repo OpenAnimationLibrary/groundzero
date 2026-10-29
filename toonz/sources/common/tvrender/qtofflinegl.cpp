@@ -1,5 +1,6 @@
 
 
+#include "texception.h"
 #include "qtofflinegl.h"
 #include <traster.h>
 #include <tconvert.h>
@@ -136,8 +137,15 @@ void QtOfflineGL::createContext(TDimension rasterSize,
 
   m_context = std::make_shared<QOpenGLContext>();
   m_context->setFormat(format);
-  m_context->create();
-  m_context->makeCurrent(m_surface.get());
+  // Without OpenGL (the offscreen platform on a headless machine) the
+  // context is not created, and the framebuffer below crashed on the missing
+  // current context. Fail here instead, where callers can report it.
+  if (!m_surface->isValid() || !m_context->create() ||
+      !m_context->makeCurrent(m_surface.get())) {
+    m_context.reset();
+    m_surface.reset();
+    throw TException("OpenGL is not available: no offscreen context");
+  }
 
   QOpenGLFramebufferObjectFormat fbo_format;
   fbo_format.setAttachment(QOpenGLFramebufferObject::CombinedDepthStencil);
