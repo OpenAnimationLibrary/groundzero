@@ -167,9 +167,8 @@ struct PrtDeflateGuard {
     _prt_replace([=[(int)prtLoad<unsigned int>]=] [=[prtInteger<unsigned int>]=])
     _prt_replace([=[(int)prtLoad<unsigned long long>]=] [=[prtInteger<unsigned long long>]=])
     _prt_replace([=[(int)prtLoad<unsigned char>]=] [=[prtInteger<unsigned char>]=])
-    _prt_replace([=[    delete[] prt_buf;
-    
-    if (inflateEnd( &z ) != Z_OK) {
+    _prt_replace([=[    delete[] prt_buf;]=] [=[    // Storage is released by its vector owner.]=])
+    _prt_replace([=[    if (inflateEnd( &z ) != Z_OK) {
         if(errorStream) *errorStream<<"Zlib inflateEnd error"<<std::endl;
         return 0;
     }
