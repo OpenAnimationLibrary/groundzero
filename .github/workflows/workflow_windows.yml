@@ -439,6 +439,7 @@ jobs:
           name: Groundzero-${{ github.event.pull_request.number && format('PR-{0}', github.event.pull_request.number) || 'Branch-build' }}-Windows-${{ github.sha }}-${{ github.run_id }}
           path: artifact
           if-no-files-found: error
+          include-hidden-files: true
 
   InstalledApplication:
     needs: Windows
