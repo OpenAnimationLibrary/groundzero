@@ -136,6 +136,8 @@ public:
   std::vector<std::string> usedFunctions() const;
 
   static std::vector<FunctionInfo> builtinFunctions();
+  // Native host extensions are separate from the audited upstream registry.
+  static std::vector<FunctionInfo> nativeFunctions();
   static bool backendAvailable(Backend backend);
   static std::string engineVersion();
   static unsigned int functionPolicyVersion();

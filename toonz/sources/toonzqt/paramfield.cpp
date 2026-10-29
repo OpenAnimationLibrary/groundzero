@@ -14,6 +14,7 @@
 #include "toonzqt/dvdialog.h"
 #include "toonzqt/fontstyletranslation.h"
 #include "toonzqt/seexpreditor.h"
+#include "toonzqt/seexprcontrols.h"
 #include "tseexprfx.h"
 #include "texception.h"
 #include "toonz/preferences.h"
@@ -2505,6 +2506,9 @@ void StringParamField::setFx(const TFxP &, const TFxP &actual) {
   const bool changedOwner = m_actualFx.getPointer() != actual.getPointer();
   m_actualFx = actual;
   if (m_seExprEditor) {
+    const auto *surfaceHost = dynamic_cast<TFxSeExprSource *>(actual.getPointer());
+    m_seExprEditor->setSurfaceDocumentSupported(
+        surfaceHost && surfaceHost->supportsSeExprSurfaceDocument());
     if (changedOwner) {
       if (const auto *source = dynamic_cast<TFxSeExprSource *>(actual.getPointer()))
         m_seExprEditor->setDocument(QString::fromStdWString(
@@ -2516,6 +2520,22 @@ void StringParamField::setFx(const TFxP &, const TFxP &actual) {
       std::string error;
       return source->validateSeExprDocument(document.toStdWString(), m_frame, error)
                  ? QString() : QString::fromUtf8(error.c_str());
+    });
+    const QPointer<StringParamField> curveField(this);
+    m_seExprEditor->setAnimationCurveLinkResolver(
+        [curveField, actual](const QString &reference, QJsonObject &control,
+                              QString &error) {
+      if (!curveField || curveField->m_actualFx.getPointer() != actual.getPointer()) {
+        error = tr("The selected effect changed. Reopen the curve editor.");
+        return false;
+      }
+      const auto *source = dynamic_cast<TFxSeExprSource *>(actual.getPointer());
+      if (!source) {
+        error = tr("No native curve reference context is available.");
+        return false;
+      }
+      return SeExprControls::refreshAnimationCurveLink(
+          source->seExprGrammar(), reference, control, error);
     });
     m_seExprEditor->setCheckedPreviewEvaluator(
         [this](const QString &document, QString &preview, QString &diagnostic) {
@@ -2572,6 +2592,7 @@ void StringParamField::setFx(const TFxP &, const TFxP &actual) {
     if (auto *source = dynamic_cast<TFxSeExprSource *>(actual.getPointer())) {
       try { m_seExprEditor->setContext(source->seExprVariables(m_frame), source->seExprFunctions(m_frame)); }
       catch (const TException &) { m_seExprEditor->setContext({}); }
+      catch (const std::exception &) { m_seExprEditor->setContext({}); }
     }
   }
 }
@@ -2637,6 +2658,7 @@ void StringParamField::update(int frame) {
     if (auto *source = dynamic_cast<TFxSeExprSource *>(m_actualFx.getPointer())) {
       try { m_seExprEditor->setContext(source->seExprVariables(frame), source->seExprFunctions(frame)); }
       catch (const TException &) { m_seExprEditor->setContext({}); }
+      catch (const std::exception &) { m_seExprEditor->setContext({}); }
     }
   } else if (m_textFld) {
     if (m_textFld->text() == strValue) return;

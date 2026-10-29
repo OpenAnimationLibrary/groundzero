@@ -1,0 +1,73 @@
+name: SeExpr installed package qualification
+
+on:
+  workflow_call:
+    inputs:
+      platform:
+        description: Native package platform (linux, macos or windows)
+        required: true
+        type: string
+      artifact_name:
+        description: Application artifact produced in the current workflow run
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: ${{ inputs.platform }} installed application
+    runs-on: ${{ inputs.platform == 'windows' && 'windows-2025' || inputs.platform == 'macos' && 'macos-15-intel' || 'ubuntu-22.04' }}
+    timeout-minutes: 20
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      SMOKE_PLATFORM: ${{ inputs.platform }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          lfs: false
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: /ci-scripts/seexpr/
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Download the current run application artifact
+        uses: actions/download-artifact@v6
+        with:
+          name: ${{ inputs.artifact_name }}
+          path: package-artifact
+      - name: Install Linux display runtime
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -o pipefail
+          sudo apt-get update -o Acquire::http::Timeout=30 -o Acquire::Retries=3 2>&1 | tee seexpr-package-setup.log
+          sudo apt-get install -y xvfb xauth libgl1 libgl1-mesa-dri libglx-mesa0 libegl1 libegl-mesa0 libfontconfig1 libxkbcommon-x11-0 libxcb-xinerama0 libxcb-cursor0 2>&1 | tee -a seexpr-package-setup.log
+      - name: Prepare verified Windows desktop renderer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./ci-scripts/seexpr/install_mesa_windows.ps1 2>&1 | Tee-Object -FilePath seexpr-package-setup.log
+      - name: Run the installed application native lifecycle
+        shell: bash
+        run: |
+          set -o pipefail
+          if [ "$SMOKE_PLATFORM" = linux ]; then
+            xvfb-run -a -s '-screen 0 1280x1024x24' python ci-scripts/seexpr/package_smoke.py --platform "$SMOKE_PLATFORM" --artifact "$GITHUB_WORKSPACE/package-artifact" --output "$GITHUB_WORKSPACE/seexpr-packaged-native.log" 2>&1 | tee seexpr-package-launch.log
+          else
+            python ci-scripts/seexpr/package_smoke.py --platform "$SMOKE_PLATFORM" --artifact "$GITHUB_WORKSPACE/package-artifact" --output "$GITHUB_WORKSPACE/seexpr-packaged-native.log" 2>&1 | tee seexpr-package-launch.log
+          fi
+      - name: Report installed application failure
+        if: failure()
+        run: python ci-scripts/seexpr/report.py seexpr-package-setup.log seexpr-package-launch.log
+      - name: Retain installed application diagnostics
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: SeExpr-package-smoke-${{ inputs.artifact_name }}
+          path: |
+            seexpr-package-setup.log
+            seexpr-package-launch.log
+            seexpr-packaged-native.log
+          if-no-files-found: warn

@@ -1,4 +1,5 @@
 #include "toonzqt/seexpreditor.h"
+#include "toonzqt/seexprcontrols.h"
 #include "toonzqt/paramfield.h"
 #include "tenv.h"
 #include "tnotanimatableparam.h"
@@ -24,6 +25,7 @@
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QTableWidget>
+#include <QTabWidget>
 #include <QTemporaryDir>
 #include <QTimer>
 
@@ -570,6 +572,121 @@ int main(int argc, char **argv) {
     ranged.findChild<QPushButton *>("seExprRangePreview")->click();
     require(rangeDialogSeen && rangeFailure.isEmpty() && rangeFactories == 1 && rangeCommits == 0,
             "native editor range preview failed or committed a formula");
+
+    // Surface documents expose their independent scalar displacement source;
+    // ordinary image and animation editors retain their existing tabs/schema.
+    SeExprEditor surfaceEditor;
+    auto surfaceDocument = document("[0.2,0.4,0.6]");
+    surfaceDocument["displacement"] = "0.25";
+    surfaceDocument["futureMetadata"] = "retained";
+    surfaceEditor.setDocument(QString::fromUtf8(preset(surfaceDocument)), true);
+    auto *displacement = surfaceEditor.findChild<QPlainTextEdit *>("seExprDisplacement");
+    auto *surfaceTabs = surfaceEditor.findChild<QTabWidget *>();
+    require(displacement && surfaceTabs &&
+                surfaceTabs->isTabVisible(surfaceTabs->indexOf(displacement)),
+            "surface displacement source is not editable");
+    int surfaceCommits = 0;
+    QObject::connect(&surfaceEditor, &SeExprEditor::documentApplied,
+                     [&](const QString &) { ++surfaceCommits; });
+    displacement->setPlainText("[");
+    require(!surfaceEditor.applyDraft() && surfaceCommits == 0,
+            "invalid displacement was committed");
+    displacement->setPlainText("0.75");
+    require(surfaceEditor.applyDraft() && surfaceCommits == 1 &&
+                QJsonDocument::fromJson(surfaceEditor.document().toUtf8()).object()
+                    .value("futureMetadata").toString() == "retained",
+            "surface draft did not commit atomically or lost metadata");
+    auto *opacity = surfaceEditor.findChild<QPlainTextEdit *>("seExprOpacity");
+    require(opacity && surfaceTabs->isTabVisible(surfaceTabs->indexOf(opacity)) &&
+                opacity->toPlainText() == "[1,1,1]" && !surfaceEditor.isModified(),
+            "legacy surface documents did not acquire a clean editable RGB opacity default");
+    opacity->setPlainText("[");
+    require(!surfaceEditor.applyDraft() && surfaceCommits == 1,
+            "invalid colored opacity was committed");
+    opacity->setPlainText("[0.25,0.5,0.75]");
+    require(surfaceEditor.applyDraft() && surfaceCommits == 2,
+            "colored opacity did not commit through the document transaction");
+    require(surfaceEditor.importPreset(preset(document("[0,0,1]")), &error) &&
+                QJsonDocument::fromJson(surfaceEditor.document().toUtf8()).object()
+                    .value("displacement").toString() == "0.75" &&
+                surfaceTabs->isTabVisible(surfaceTabs->indexOf(displacement)),
+            "an image preset removed the surface host's editable displacement");
+    surfaceEditor.setSource("1", true);
+    require(!surfaceTabs->isTabVisible(surfaceTabs->indexOf(displacement)),
+            "animation source mode exposed a surface-only field");
+    surfaceEditor.setDocument(QString::fromUtf8(preset(document())), true);
+    require(!surfaceTabs->isTabVisible(surfaceTabs->indexOf(displacement)) &&
+                !QJsonDocument::fromJson(surfaceEditor.document().toUtf8()).object()
+                     .contains("displacement"),
+            "a two-dimensional preset acquired a displacement source");
+
+    SeExprEditor imageHost;
+    imageHost.setSurfaceDocumentSupported(false);
+    const QString beforeSurfaceImport = imageHost.document();
+    require(!imageHost.importPreset(preset(surfaceDocument), &error) &&
+                imageHost.document() == beforeSurfaceImport && error.contains("Surface"),
+            "an image host accepted a surface source it cannot render");
+    imageHost.setDocument(QString::fromUtf8(preset(surfaceDocument)), true);
+    imageHost.setValidator([](const QString &) { return QString(); });
+    imageHost.setCheckedPreviewEvaluator([](const QString &, QString &preview, QString &) {
+      preview = "image-only host preview"; return true;
+    });
+    require(!imageHost.validateDraft(),
+            "a host preview bypassed the surface capability boundary");
+    auto *imageTabs = imageHost.findChild<QTabWidget *>();
+    require(!imageTabs->isTabVisible(imageTabs->indexOf(
+                imageHost.findChild<QPlainTextEdit *>("seExprDisplacement"))) &&
+                !imageTabs->isTabVisible(imageTabs->indexOf(
+                imageHost.findChild<QPlainTextEdit *>("seExprOpacity"))) &&
+                imageHost.importPreset(preset(document()), &error) && imageHost.validateDraft(),
+            "an unsupported saved surface document could not be repaired with an image preset");
+
+    // Linked refresh is an explicit draft operation. Failed refreshes cannot
+    // mutate it, and one successful Apply emits one complete transaction.
+    SeExprEditor linkedEditor;
+    auto linkedControl = SeExprControls::defaultAnimationCurve();
+    linkedControl["id"] = "curve_id"; linkedControl["name"] = "motion";
+    linkedControl["label"] = "Motion"; linkedControl["link"] = "col1.ang";
+    linkedControl["futureMetadata"] = "retained";
+    auto linkedDocument = document("[0.1,0.2,0.3]");
+    linkedDocument["controls"] = QJsonArray{linkedControl};
+    require(linkedEditor.importPreset(preset(linkedDocument), &error),
+            "animation curve preset was rejected by the native editor");
+    auto *linkedTable = linkedEditor.findChild<QTableWidget *>("seExprControls");
+    linkedTable->setCurrentCell(0, 0);
+    auto *refresh = linkedEditor.findChild<QPushButton *>("seExprRefreshAnimationCurve");
+    require(refresh, "linked animation curve refresh action is missing");
+    const QString beforeRefresh = linkedEditor.document();
+    linkedEditor.setAnimationCurveLinkResolver(
+        [](const QString &, QJsonObject &control, QString &error) {
+      control["label"] = "must not escape";
+      error = "missing native channel"; return false;
+    });
+    refresh->click();
+    require(linkedEditor.document() == beforeRefresh,
+            "a failed linked refresh mutated the draft");
+    int linkedRefreshes = 0, linkedCommits = 0;
+    QObject::connect(&linkedEditor, &SeExprEditor::documentApplied,
+                     [&](const QString &) { ++linkedCommits; });
+    linkedEditor.setAnimationCurveLinkResolver(
+        [&](const QString &reference, QJsonObject &control, QString &) {
+      ++linkedRefreshes;
+      require(reference == "col1.ang", "linked refresh lost its native reference");
+      auto keys = control.value("keys").toArray();
+      auto key = keys[1].toObject(); key["value"] = 3.5; keys[1] = key;
+      control["keys"] = keys; return true;
+    });
+    refresh->click();
+    const auto refreshed = QJsonDocument::fromJson(linkedEditor.document().toUtf8())
+        .object().value("controls").toArray()[0].toObject();
+    require(linkedRefreshes == 1 && linkedCommits == 0 &&
+                refreshed.value("id").toString() == "curve_id" &&
+                refreshed.value("futureMetadata").toString() == "retained" &&
+                refreshed.value("keys").toArray()[1].toObject().value("value").toDouble() == 3.5 &&
+                linkedEditor.applyDraft() && linkedCommits == 1,
+            "linked snapshot refresh lost data or committed outside Apply");
+    require(linkedEditor.exportPreset().contains("animcurve"),
+            "portable presets lost the animation curve metadata");
 
     std::cout << "seexpr-editor: PASS\n";
     return 0;

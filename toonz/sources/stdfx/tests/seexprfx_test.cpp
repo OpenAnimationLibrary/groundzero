@@ -177,6 +177,231 @@ void checkControlRangeEdits() {
   }
 }
 
+void checkAnimationCurveControls(const QString &directory) {
+  TFxP owner = new SeExprGeneratorFx;
+  auto &fx = *dynamic_cast<SeExprGeneratorFx *>(owner.getPointer());
+  QJsonObject left{{"id", "left"}, {"time", 0}, {"value", 0},
+                   {"inTangent", "linear"}, {"outTangent", "linear"},
+                   {"foreignKeyMetadata", "retained"}};
+  QJsonObject right{{"id", "right"}, {"time", 2}, {"value", 2},
+                    {"inTangent", "linear"}, {"outTangent", "linear"}};
+  QJsonObject motion{{"id", "motion"}, {"name", "motion"}, {"type", "animcurve"},
+                     {"preInfinity", "constant"}, {"postInfinity", "linear"},
+                     {"weighted", false}, {"link", "col2.x"},
+                     {"foreignControlMetadata", QJsonObject{{"retained", true}}},
+                     {"keys", QJsonArray{left, right}}};
+  document(fx, "[motion(-1),motion(1),motion(3)]", "1", {motion});
+  expect(rendered<TPixelF>(fx, 1, 1)->pixels(0)[0], 0, 1, 3, 1);
+  const auto animated = numeric(fx, "seexprControl_motion__kleft_value");
+  animated->setValue(0, 0); animated->setValue(5, 4);
+  document(fx, "[motion(0),motion(1),motion(2)]", "1", {motion});
+  expect(rendered<TPixelF>(fx, 1, 1, TPointD(), 5)->pixels(0)[0], 4, 3, 2, 1);
+
+  // Move the same owned keys to a different chronological order. Array-index
+  // storage would attach the left key's animation to the other key here.
+  left["time"] = 2; right["time"] = 0;
+  motion["keys"] = QJsonArray{right, left};
+  motion["name"] = "movement"; motion["label"] = "Renamed Motion";
+  document(fx, "[movement(0),movement(1),movement(2)]", "1", {motion});
+  require(numeric(fx, "seexprControl_motion__kleft_value").getPointer() == animated.getPointer() &&
+              animated->isKeyframe(0) && animated->isKeyframe(5),
+          "reordering or renaming animation keys replaced their native owners");
+  expect(rendered<TPixelF>(fx, 1, 1, TPointD(), 5)->pixels(0)[0], 2, 3, 4, 1);
+  const auto before = fx.getAlias(5, TRenderSettings());
+  animated->setValue(5, 4.00000001);
+  require(before != fx.getAlias(5, TRenderSettings()), "animation-key alias lost numeric precision");
+  animated->setValue(5, 4);
+
+  auto *native = dynamic_cast<TFxSeExprSource *>(&fx);
+  const auto stored = SeExprFx::parseDocument(native->seExprDocumentParam()->getValue());
+  const auto storedControl = stored.json.value("controls").toArray()[0].toObject();
+  require(storedControl.value("foreignControlMetadata").toObject().value("retained").toBool() &&
+              storedControl.value("keys").toArray()[1].toObject().value("foreignKeyMetadata").toString() == "retained" &&
+              storedControl.value("link").toString() == "col2.x",
+          "native animation schema lost link or foreign metadata");
+  auto draftControl = storedControl;
+  auto draftKeys = draftControl.value("keys").toArray();
+  auto draftRight = draftKeys[0].toObject(); draftRight["value"] = 7;
+  draftKeys[0] = draftRight; draftControl["keys"] = draftKeys;
+  auto draft = stored.json; draft["controls"] = QJsonArray{draftControl};
+  TSeExpr::Value draftValue; double alpha = 0; std::string error;
+  require(native->sampleSeExprDocument(QString::fromUtf8(QJsonDocument(draft).toJson(QJsonDocument::Compact)).toStdWString(),
+                                      0, draftValue, alpha, error) &&
+              draftValue.number[0] == 7 && draftValue.number[1] == 3.5 && draftValue.number[2] == 0,
+          "animation-curve draft preview ignored changed defaults or mutated keyed fields");
+  expect(rendered<TPixelF>(fx, 1, 1, TPointD(), 0)->pixels(0)[0], 2, 1, 0, 1);
+
+  auto removed = motion; removed["keys"] = QJsonArray{right};
+  document(fx, "[movement(0),0,0]", "1", {removed});
+  require(fx.getParams()->getParamVar("seexprControl_motion__kleft_value")->isHidden() &&
+              numeric(fx, "seexprControl_motion__kleft_value").getPointer() == animated.getPointer(),
+          "removing an animation key discarded its archived track");
+  document(fx, "[movement(0),movement(1),movement(2)]", "1", {motion});
+  require(!fx.getParams()->getParamVar("seexprControl_motion__kleft_value")->isHidden() &&
+              animated->getValue(5) == 4,
+          "restoring an animation key did not restore its native animation");
+
+  QJsonObject ramp{{"id", "ramp"}, {"name", "ramp"}, {"type", "curve"},
+                   {"points", QJsonArray{QJsonArray{0, 0, 1}, QJsonArray{1, 1, 1}}}};
+  document(fx, "[movement(0),movement(1),movement(2)]", "1", {motion, ramp});
+  const auto functions = native->seExprFunctions(5);
+  animated->setValue(5, 8);
+  auto worker = [functions]() {
+    TSeExpr::Program program; TSeExpr::Options options; options.resultType = TSeExpr::Type::Scalar;
+    require(program.compile("movement(0)+ramp(0.25)", {}, functions, options),
+            "shared immutable curve snapshot did not compile in a worker");
+    for (int sample = 0; sample < 64; ++sample) {
+      TSeExpr::Value value;
+      require(program.evaluate(value) && std::abs(value.number[0] - 2.25) < 1e-10,
+              "shared curve snapshots raced or followed later native edits");
+    }
+  };
+  auto first = std::async(std::launch::async, worker);
+  auto second = std::async(std::launch::async, worker);
+  first.get(); second.get(); animated->setValue(5, 4);
+
+  TFxP copy = fx.clone(false);
+  expect(rendered<TPixelF>(*dynamic_cast<TRasterFx *>(copy.getPointer()), 1, 1, TPointD(), 5)->pixels(0)[0], 2, 3, 4, 1);
+  for (bool compressed : {false, true}) {
+    const TFilePath path((directory + (compressed ? "/animation-curve-compressed.tnz" : "/animation-curve.tnz")).toStdWString());
+    { TOStream stream(path, compressed); stream << owner.getPointer(); }
+    TFxP restored; { TIStream stream(path); stream >> restored; }
+    require(numeric(*restored, "seexprControl_motion__kleft_value")->isKeyframe(5),
+            "animation-curve save/reopen discarded native keys");
+    expect(rendered<TPixelF>(*dynamic_cast<TRasterFx *>(restored.getPointer()), 1, 1, TPointD(), 5)->pixels(0)[0], 2, 3, 4, 1);
+  }
+  const TFilePath preset((directory + "/animation-curve.preset").toStdWString());
+  { TOStream stream(preset); fx.savePreset(stream); }
+  SeExprGeneratorFx restoredPreset; { TIStream stream(preset); restoredPreset.loadPreset(stream); }
+  expect(rendered<TPixelF>(restoredPreset, 1, 1, TPointD(), 5)->pixels(0)[0], 2, 3, 4, 1);
+  SeExprGeneratorFx linked; linked.linkParams(&fx);
+  require(numeric(linked, "seexprControl_motion__kleft_value").getPointer() == animated.getPointer(),
+          "linked animation controls did not share the native parameter");
+  animated->setValue(5, 8);
+  expect(rendered<TPixelF>(linked, 1, 1, TPointD(), 5)->pixels(0)[0], 2, 5, 8, 1);
+  linked.unlinkParams();
+  numeric(linked, "seexprControl_motion__kleft_value")->setValue(5, 9);
+  require(animated->getValue(5) == 8, "unlinking an animation curve retained shared key ownership");
+  animated->setValue(5, 4);
+
+  auto invalid = motion;
+  invalid["keys"] = QJsonArray{left, right};
+  auto invalidDocument = stored.json; invalidDocument["controls"] = QJsonArray{invalid};
+  require(!native->validateSeExprDocument(QString::fromUtf8(QJsonDocument(invalidDocument).toJson(QJsonDocument::Compact)).toStdWString(),
+                                        0, error) && !error.empty(),
+          "unsorted animation keys were accepted without diagnostics");
+  QJsonArray tooMany;
+  for (int key = 0; key < 65; ++key)
+    tooMany.append(QJsonObject{{"time", key}, {"value", 0}});
+  invalid["keys"] = tooMany; invalidDocument["controls"] = QJsonArray{invalid};
+  require(!native->validateSeExprDocument(QString::fromUtf8(QJsonDocument(invalidDocument).toJson(QJsonDocument::Compact)).toStdWString(),
+                                        0, error) && error.find("64") != std::string::npos,
+          "native animation key bound lacked its explicit diagnostic");
+  motion["keys"] = QJsonArray();
+  document(fx, "[movement(1),0,0]", "1", {motion});
+  expect(rendered<TPixelF>(fx, 1, 1)->pixels(0)[0], 0, 0, 0, 1);
+  QJsonObject legacy = motion; legacy["id"] = "legacy"; legacy["name"] = "legacy";
+  legacy["keys"] = QJsonArray{QJsonObject{{"time", 0}, {"value", .25}}};
+  document(fx, "[legacy(1),0,0]", "1", {legacy});
+  require(fx.getParams()->getParam("seexprControl_legacy__kkey_0_value"),
+          "legacy animation keys did not acquire stable native IDs");
+  expect(rendered<TPixelF>(fx, 1, 1)->pixels(0)[0], .25, 0, 0, 1);
+}
+
+void checkNamespacedRenderAttributes() {
+  SeExprGeneratorFx fx;
+  document(fx, "$shot::gain+$shot::tint+$missing::value");
+  auto *native = dynamic_cast<TFxSeExprSource *>(&fx);
+  std::string error;
+  require(native->validateSeExprDocument(native->seExprDocumentParam()->getValue(), 0, error),
+          "missing host attributes did not validate with their zero fallback");
+  expect(rendered<TPixelF>(fx, 1, 1)->pixels(0)[0], 0, 0, 0, 1);
+  TSeExprAttributes::Snapshot outer;
+  outer.attributes = {{"shot::gain", TSeExpr::Value::scalar(.25)},
+                       {"shot::tint", TSeExpr::Value::vector(-1, .5, 2)}};
+  TSeExprAttributes::Snapshot near;
+  near.attributes = {{"shot::gain", TSeExpr::Value::scalar(.5)}};
+  near.options = {{"shot::gain", TSeExpr::Value::scalar(.75)}};
+  const TRenderSettings empty;
+  TRenderSettings one;
+  one.m_data.push_back(new TSeExprAttributes::RenderData(outer));
+  TRenderSettings two = one;
+  two.m_data.push_back(new TSeExprAttributes::RenderData(near));
+  const auto compareSettings = [](const TRenderSettings &left,
+                                   const TRenderSettings &right, bool equal) {
+    require((left == right) == equal && (left != right) != equal,
+            "render settings compared an attribute prefix as a complete snapshot");
+    require((right == left) == equal && (right != left) != equal,
+            "render settings attribute comparison depends on argument order");
+  };
+  compareSettings(empty, TRenderSettings(), true);
+  compareSettings(empty, one, false); compareSettings(empty, two, false);
+  compareSettings(one, two, false);
+  TRenderSettings sameOne = one;
+  sameOne.m_data.front() = new TSeExprAttributes::RenderData(outer);
+  compareSettings(one, sameOne, true);
+  TRenderSettings sameTwo = two;
+  sameTwo.m_data.back() = new TSeExprAttributes::RenderData(near);
+  compareSettings(two, sameTwo, true);
+  auto changedOuter = outer;
+  changedOuter.attributes["shot::gain"] = TSeExpr::Value::scalar(.251);
+  sameOne.m_data.front() = new TSeExprAttributes::RenderData(changedOuter);
+  compareSettings(one, sameOne, false);
+  auto changedNear = near;
+  changedNear.options["shot::gain"] = TSeExpr::Value::scalar(.751);
+  sameTwo.m_data.back() = new TSeExprAttributes::RenderData(changedNear);
+  compareSettings(two, sameTwo, false);
+  TRenderSettings settings;
+  settings.m_data.push_back(new TSeExprAttributes::RenderData(outer));
+  settings.m_data.push_back(new TSeExprAttributes::RenderData(near));
+  const auto alias = fx.getAlias(0, settings);
+  expect(rendered<TPixelF>(fx, 1, 1, TPointD(), 0, settings)->pixels(0)[0], -.5, 1, 2.5, 1);
+  near.options["shot::gain"] = TSeExpr::Value::scalar(.75000001);
+  settings.m_data.back() = new TSeExprAttributes::RenderData(near);
+  require(alias != fx.getAlias(0, settings), "render attributes were missing from the full-precision alias");
+  near.attributes.clear(); settings.m_data.back() = new TSeExprAttributes::RenderData(near);
+  expect(rendered<TPixelF>(fx, 1, 1, TPointD(), 0, settings)->pixels(0)[0], -.75, .75, 2.25, 1);
+  outer.attributes.erase("shot::gain");
+  settings.m_data.front() = new TSeExprAttributes::RenderData(outer);
+  near.options["shot::gain"] = TSeExpr::Value::scalar(1.25);
+  settings.m_data.back() = new TSeExprAttributes::RenderData(near);
+  expect(rendered<TPixelF>(fx, 1, 1, TPointD(), 0, settings)->pixels(0)[0], .25, 1.75, 3.25, 1);
+  near.options.clear(); settings.m_data.back() = new TSeExprAttributes::RenderData(near);
+  expect(rendered<TPixelF>(fx, 1, 1, TPointD(), 0, settings)->pixels(0)[0], -1, .5, 2, 1);
+  document(fx, "[$shot::gain[0],$shot::gain[1],$shot::gain[2]]");
+  outer.attributes["shot::gain"] = TSeExpr::Value::scalar(.5);
+  settings.m_data.front() = new TSeExprAttributes::RenderData(outer);
+  expect(rendered<TPixelF>(fx, 1, 1, TPointD(), 0, settings)->pixels(0)[0], .5, .5, .5, 1);
+  outer.attributes.erase("shot::gain");
+  settings.m_data.front() = new TSeExprAttributes::RenderData(outer);
+  near.options["shot::gain"] = TSeExpr::Value::scalar(.75);
+  settings.m_data.back() = new TSeExprAttributes::RenderData(near);
+  expect(rendered<TPixelF>(fx, 1, 1, TPointD(), 0, settings)->pixels(0)[0], .75, .75, .75, 1);
+  expect(rendered<TPixelF>(fx, 1, 1)->pixels(0)[0], 0, 0, 0, 1);
+}
+
+void checkSurfaceHostBoundary() {
+  SeExprGeneratorFx fx;
+  auto *native = dynamic_cast<TFxSeExprSource *>(&fx);
+  require(native && !native->supportsSeExprSurfaceDocument(),
+          "an image generator advertised unsupported geometry authoring");
+  for (const QString field : {QString("displacement"), QString("opacity")}) {
+    QJsonObject value{{"version", 1}, {"rgb", "[1,0,0]"}, {"alpha", "1"},
+                       {"controls", QJsonArray()}};
+    value[field] = field == "opacity" ? "[1,1,1]" : "0.25";
+    const auto source = QString::fromUtf8(QJsonDocument(value).toJson(QJsonDocument::Compact)).toStdWString();
+    std::string error;
+    require(!native->validateSeExprDocument(source, 0, error) &&
+                error.find("Surface") != std::string::npos,
+            "an image host validated an inactive surface source");
+    native->seExprDocumentParam()->setValue(source);
+    bool rejected = false;
+    try { rendered<TPixelF>(fx, 1, 1); }
+    catch (const TException &) { rejected = true; }
+    require(rejected, "a stored surface source was silently ignored by an image renderer");
+  }
+}
+
 void checkNamedControlsAndPersistence(const QString &directory) {
   TFxP owner = new SeExprGeneratorFx;
   auto &fx = *dynamic_cast<SeExprGeneratorFx *>(owner.getPointer());
@@ -637,7 +862,9 @@ int main(int argc, char **argv) {
     QTemporaryDir temporary; require(temporary.isValid(), "temporary fixture directory is unavailable");
     checkGenerator<TPixel32>(); checkGenerator<TPixel64>(); checkGenerator<TPixelF>();
     checkColorAndSampling<TPixel32>(); checkColorAndSampling<TPixel64>(); checkColorAndSampling<TPixelF>();
-    checkControlRangeEdits(); checkNamedControlsAndPersistence(temporary.path());
+    checkControlRangeEdits(); checkAnimationCurveControls(temporary.path()); checkNamespacedRenderAttributes();
+    checkSurfaceHostBoundary();
+    checkNamedControlsAndPersistence(temporary.path());
     checkUnsupportedDocumentPersistence(temporary.path()); checkFailuresAndWorkers();
     std::cout << "seexpr-fx: PASS\n"; return 0;
   } catch (const TException &error) {

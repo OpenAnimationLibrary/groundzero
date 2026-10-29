@@ -4,6 +4,7 @@ This independently implemented SDK frontend follows the upstream expreditor2
 widget interfaces. A host owns its document, animation and undo transaction;
 apply signals carry the same boundary as the C++ authoring API.
 """
+import copy
 import json
 import math
 import os
@@ -11,7 +12,7 @@ from pathlib import Path
 import re
 import stat
 
-from . import AST, ASTType, Edits, evaluate, functions, getComment, validate
+from . import AST, ASTType, Edits, evaluate, functions, getComment, native_functions, validate
 
 _api = os.environ.get("SEEXPR_QT_API", "").lower()
 if _api not in ("", "pyqt5", "pyqt6"):
@@ -280,6 +281,593 @@ class ExprColorCurve(ExprCurve):
         self.setPoints([[0.0, [0.0] * 3, 1], [1.0, [1.0] * 3, 1]])
 
 
+class ExprAnimCurve(QtWidgets.QWidget):
+    """Edit an owned animation-curve draft and apply it as one host change.
+
+    ``parameters`` uses the native ``type: animcurve`` JSON contract. Unknown
+    properties and optional key identifiers survive every edit. Numeric text
+    fields retain double precision; the graph always samples the native engine.
+    ``link`` is host refresh metadata and never opens a file or runs code.
+    An optional ``setLinkResolver`` callback supplies explicit linked snapshots.
+    """
+    curveChanged = Signal()
+    tangentNames = ("fixed", "auto", "linear", "flat", "step", "stepnext", "spline")
+    infinityNames = ("constant", "linear", "cycle", "cycleRelative", "oscillate")
+    _numbers = ("time", "value", "inWeight", "outWeight", "inAngle", "outAngle")
+    _key_defaults = dict(zip(_numbers, (0.0, 0.0, 1.0, 1.0, 0.0, 0.0)),
+                         inTangent="auto", outTangent="auto", weightsLocked=False)
+    _defaults = {"type": "animcurve", "preInfinity": "constant", "postInfinity": "constant",
+                 "weighted": False, "link": "", "keys": []}
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._updating = False
+        self._inline = None
+        self._link_resolver = None
+        self._key_slots = []
+        self._samples = []
+        self._preview_keys = []
+        self._params = copy.deepcopy(self._defaults)
+        layout = QtWidgets.QVBoxLayout(self)
+        settings = QtWidgets.QFormLayout()
+        layout.addLayout(settings)
+        self.preInfinity = self._combo(self.infinityNames, "constant")
+        self.preInfinity.setObjectName("preInfinity")
+        self.postInfinity = self._combo(self.infinityNames, "constant")
+        self.postInfinity.setObjectName("postInfinity")
+        self.weighted = QtWidgets.QCheckBox(self.tr("Use weighted tangents"), self)
+        self.weighted.setObjectName("weighted")
+        self.link = QtWidgets.QLineEdit(self)
+        self.link.setObjectName("link")
+        self.link.setMaxLength(65536)
+        self.link.setToolTip(self.tr("Refresh identifier supplied to the host application."))
+        settings.addRow(self.tr("Pre Infinity"), self.preInfinity)
+        settings.addRow(self.tr("Post Infinity"), self.postInfinity)
+        settings.addRow(self.weighted)
+        settings.addRow(self.tr("Link"), self.link)
+        self.refreshButton = QtWidgets.QPushButton(self.tr("Refresh Linked Curve"), self)
+        self.refreshButton.setObjectName("animationCurveRefresh")
+        settings.addRow(self.refreshButton)
+        self.table = QtWidgets.QTableWidget(0, 9, self)
+        self.table.setObjectName("animationKeys")
+        self.table.setHorizontalHeaderLabels([self.tr("Time"), self.tr("Value"),
+            self.tr("In Weight"), self.tr("Out Weight"), self.tr("In Angle (degrees)"),
+            self.tr("Out Angle (degrees)"), self.tr("In Tangent"), self.tr("Out Tangent"),
+            self.tr("Lock Weights")])
+        layout.addWidget(self.table)
+        actions = QtWidgets.QHBoxLayout()
+        self.addButton = QtWidgets.QPushButton(self.tr("Add Key"), self)
+        self.removeButton = QtWidgets.QPushButton(self.tr("Remove Selected"), self)
+        self.upButton = QtWidgets.QPushButton(self.tr("Move Up"), self)
+        self.downButton = QtWidgets.QPushButton(self.tr("Move Down"), self)
+        self.sortButton = QtWidgets.QPushButton(self.tr("Sort by Time"), self)
+        for button, operation in ((self.addButton, self._add), (self.removeButton, self._remove),
+                (self.upButton, lambda: self._move(-1)), (self.downButton, lambda: self._move(1)),
+                (self.sortButton, self._sort)):
+            actions.addWidget(button)
+            button.clicked.connect(operation)
+        layout.addLayout(actions)
+        self.graph = _AnimCurveGraph(self)
+        layout.addWidget(self.graph)
+        self.error = QtWidgets.QLabel(self)
+        self.error.setObjectName("animationCurveError")
+        self.error.setTextFormat(_enum(QtCore.Qt, "TextFormat", "PlainText"))
+        self.error.setWordWrap(True)
+        layout.addWidget(self.error)
+        decisions = QtWidgets.QHBoxLayout()
+        self.cancelButton = QtWidgets.QPushButton(self.tr("Cancel"), self)
+        self.applyButton = QtWidgets.QPushButton(self.tr("Apply"), self)
+        self.cancelButton.setObjectName("animationCurveCancel")
+        self.applyButton.setObjectName("animationCurveApply")
+        decisions.addWidget(self.cancelButton)
+        decisions.addWidget(self.applyButton)
+        layout.addLayout(decisions)
+        self.cancelButton.clicked.connect(self.cancel)
+        self.applyButton.clicked.connect(self.apply)
+        self.table.itemChanged.connect(self._item_changed)
+        self.preInfinity.currentTextChanged.connect(self._changed)
+        self.postInfinity.currentTextChanged.connect(self._changed)
+        self.weighted.toggled.connect(self._changed)
+        self.link.textChanged.connect(self._changed)
+        self.refreshButton.clicked.connect(self.refreshLinkedCurve)
+        self.setLinkResolver(None)
+        self.setParams(self._params)
+
+    def _combo(self, choices, value):
+        combo = QtWidgets.QComboBox(self)
+        combo.addItems(choices)
+        self._select(combo, value)
+        return combo
+
+    @staticmethod
+    def _select(combo, value):
+        text = str(value)
+        index = combo.findText(text)
+        if index < 0:
+            combo.addItem(text)
+            index = combo.count() - 1
+        combo.setCurrentIndex(index)
+
+    @staticmethod
+    def _number_text(value):
+        return repr(value) if isinstance(value, (int, float)) else str(value)
+
+    @classmethod
+    def _validated(cls, parameters):
+        if not isinstance(parameters, dict) or parameters.get("type", "animcurve") != "animcurve":
+            raise ValueError("Animation-curve metadata must have type 'animcurve'.")
+        result = copy.deepcopy(cls._defaults)
+        result.update(copy.deepcopy(parameters))
+        for name in ("preInfinity", "postInfinity"):
+            if result[name] not in cls.infinityNames:
+                raise ValueError("Unsupported " + name + ": choose " + ", ".join(cls.infinityNames) + ".")
+        if not isinstance(result["weighted"], bool):
+            raise ValueError("Animation-curve weighted must be a boolean.")
+        if not isinstance(result["link"], str) or "\0" in result["link"] or len(result["link"].encode("utf-8")) > 65536:
+            raise ValueError("Animation-curve link must be a string without null characters, at most 65536 UTF-8 bytes.")
+        if not isinstance(result["keys"], list) or len(result["keys"]) > 64:
+            raise ValueError("An animation curve requires zero to 64 keys.")
+        ids = set()
+        previous = None
+        for index, original in enumerate(result["keys"]):
+            prefix = "Key " + str(index + 1) + ": "
+            if not isinstance(original, dict):
+                raise ValueError(prefix + "metadata must be an object.")
+            key = dict(cls._key_defaults)
+            key.update(original)
+            if "id" in key:
+                identifier = key["id"]
+                if not isinstance(identifier, str) or re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,47}", identifier) is None or identifier in ids:
+                    raise ValueError(prefix + "identifier must be valid and unique.")
+                ids.add(identifier)
+            for name in cls._numbers:
+                value = key[name]
+                if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+                    raise ValueError(prefix + name + " must be a finite number.")
+                if name in ("inWeight", "outWeight") and value < 0:
+                    raise ValueError(prefix + name + " must be nonnegative.")
+            for name in ("inTangent", "outTangent"):
+                if key[name] not in cls.tangentNames:
+                    raise ValueError(prefix + name + " must be one of " + ", ".join(cls.tangentNames) + ".")
+            if not isinstance(key["weightsLocked"], bool):
+                raise ValueError(prefix + "weightsLocked must be a boolean.")
+            if previous is not None and (key["time"] <= previous or not math.isfinite(key["time"] - previous)):
+                raise ValueError(prefix + "times must be increasing and distinct with finite intervals; use Sort by Time to reorder keys.")
+            previous = key["time"]
+            result["keys"][index] = key
+        if len(result["keys"]) > 1 and not math.isfinite(result["keys"][-1]["time"] - result["keys"][0]["time"]):
+            raise ValueError("Animation-curve time range exceeds the finite numerical range.")
+        return result
+
+    def parameters(self):
+        """Return the last applied metadata, including properties unknown to Qt."""
+        return copy.deepcopy(self._params)
+
+    def draftParameters(self):
+        """Return the visible draft without applying it to the host."""
+        return self._draft()
+
+    def setLinkResolver(self, resolver):
+        """Set ``resolver(link, metadata_copy) -> snapshot_metadata`` or None.
+
+        The callback belongs to the host and runs only on explicit Refresh. It
+        may raise an exception to display an error. Unknown control properties
+        and properties of matching key identifiers (or times) are retained.
+        """
+        if resolver is not None and not callable(resolver):
+            raise TypeError("The animation-curve link resolver must be callable or None.")
+        self._link_resolver = resolver
+        self.refreshButton.setEnabled(resolver is not None)
+        self.refreshButton.setToolTip(self.tr("Refresh the draft from the host's linked curve.") if resolver is not None else
+                                      self.tr("The host has not provided an animation-curve link resolver."))
+
+    @staticmethod
+    def _matching_key(key, keys):
+        identifier = key.get("id")
+        if identifier is not None:
+            return next((index for index, old in enumerate(keys) if old.get("id") == identifier), None)
+        return next((index for index, old in enumerate(keys) if old.get("time", 0.0) == key.get("time", 0.0)), None)
+
+    def refreshLinkedCurve(self):
+        """Refresh only the draft; failures preserve all current field text."""
+        if self._link_resolver is None:
+            self.error.setText(self.tr("The host has not provided an animation-curve link resolver."))
+            return False
+        try:
+            draft = self._draft()
+            self._validated(draft)
+            snapshot = self._link_resolver(self.link.text(), copy.deepcopy(draft))
+            if not isinstance(snapshot, dict):
+                raise ValueError("The animation-curve link resolver must return metadata as an object.")
+            refreshed = copy.deepcopy(draft)
+            refreshed.update(copy.deepcopy(snapshot))
+            slots = []
+            old_keys = draft.get("keys", [])
+            if isinstance(refreshed.get("keys", []), list):
+                keys = []
+                for key in refreshed.get("keys", []):
+                    if not isinstance(key, dict):
+                        raise ValueError("Each refreshed animation key must be an object.")
+                    match = self._matching_key(key, old_keys)
+                    merged = copy.deepcopy(old_keys[match]) if match is not None else {}
+                    merged.update(key)
+                    keys.append(merged)
+                    slots.append(self._row_slots[match] if match is not None else None)
+                refreshed["keys"] = keys
+            self._sample(refreshed)
+            self._load_draft(refreshed, slots)
+            return True
+        except Exception as error:
+            self.error.setText(str(error) or self.tr("The linked animation curve could not be refreshed."))
+            return False
+
+    def setParams(self, parameters):
+        if not isinstance(parameters, dict) or not isinstance(parameters.get("keys", []), list):
+            raise ValueError("Animation-curve metadata must be an object with a keys array.")
+        if any(not isinstance(key, dict) for key in parameters.get("keys", [])):
+            raise ValueError("Each animation key must be an object.")
+        self._inline = None
+        self._params = copy.deepcopy(parameters)
+        self._key_slots = [None] * len(parameters.get("keys", []))
+        self.cancel()
+
+    def keys(self):
+        return copy.deepcopy(self._params.get("keys", []))
+
+    def setKeys(self, keys):
+        parameters = self.parameters()
+        parameters["keys"] = copy.deepcopy(keys)
+        self.setParams(parameters)
+
+    def _rows(self):
+        checked = _enum(QtCore.Qt, "CheckState", "Checked")
+        return [{"base": copy.deepcopy(base), "slot": self._row_slots[row],
+                 "texts": [self.table.item(row, column).text() for column in range(6)],
+                 "inTangent": self.table.cellWidget(row, 6).currentText(),
+                 "outTangent": self.table.cellWidget(row, 7).currentText(),
+                 "weightsLocked": self.table.item(row, 8).checkState() == checked}
+                for row, base in enumerate(self._row_bases)]
+
+    def _render_rows(self, records):
+        self._updating = True
+        self.table.setRowCount(0)
+        self.table.setRowCount(len(records))
+        self._row_bases = [copy.deepcopy(record["base"]) for record in records]
+        self._row_slots = [record["slot"] for record in records]
+        for row, record in enumerate(records):
+            for column, text in enumerate(record["texts"]):
+                self.table.setItem(row, column, QtWidgets.QTableWidgetItem(text))
+            for column, name in ((6, "inTangent"), (7, "outTangent")):
+                combo = self._combo(self.tangentNames, record[name])
+                self.table.setCellWidget(row, column, combo)
+                combo.currentTextChanged.connect(self._changed)
+            locked = QtWidgets.QTableWidgetItem()
+            locked.setFlags((locked.flags() | _enum(QtCore.Qt, "ItemFlag", "ItemIsUserCheckable")) &
+                            ~_enum(QtCore.Qt, "ItemFlag", "ItemIsEditable"))
+            locked.setCheckState(_enum(QtCore.Qt, "CheckState", "Checked" if record["weightsLocked"] else "Unchecked"))
+            self.table.setItem(row, 8, locked)
+        self._updating = False
+        self.addButton.setEnabled(len(records) < 64)
+
+    @classmethod
+    def _record(cls, key, slot=None):
+        values = dict(cls._key_defaults)
+        values.update(key)
+        return {"base": copy.deepcopy(key), "slot": slot,
+                "texts": [cls._number_text(values[name]) for name in cls._numbers],
+                "inTangent": values["inTangent"], "outTangent": values["outTangent"],
+                "weightsLocked": values["weightsLocked"]}
+
+    def _draft(self):
+        parameters = copy.deepcopy(self._working)
+        for name, value in (("preInfinity", self.preInfinity.currentText()),
+                ("postInfinity", self.postInfinity.currentText()), ("weighted", self.weighted.isChecked()),
+                ("link", self.link.text())):
+            # Invalid metadata remains visible until the corresponding field is
+            # corrected; untouched fields never acquire a different JSON type.
+            if value != self._global_views[name]:
+                parameters[name] = value
+        keys = []
+        for row, record in enumerate(self._rows()):
+            key = record["base"]
+            for name, text in zip(self._numbers, record["texts"]):
+                original = key.get(name, self._key_defaults[name])
+                if text != self._number_text(original):
+                    try:
+                        key[name] = float(text)
+                    except ValueError:
+                        raise ValueError("Key " + str(row + 1) + ": " + name + " must be a finite number.") from None
+            for name in ("inTangent", "outTangent", "weightsLocked"):
+                original = key.get(name, self._key_defaults[name])
+                displayed = bool(original) if name == "weightsLocked" else str(original)
+                if record[name] != displayed:
+                    key[name] = record[name]
+            keys.append(key)
+        if keys != parameters.get("keys", []):
+            parameters["keys"] = keys
+        return parameters
+
+    @classmethod
+    def _arguments(cls, parameters):
+        model = cls._validated(parameters)
+        return cls._raw_arguments(model)
+
+    @classmethod
+    def _raw_arguments(cls, parameters):
+        model = dict(cls._defaults)
+        model.update(parameters)
+        weighted = int(model["weighted"]) if isinstance(model["weighted"], bool) else model["weighted"]
+        values = [model["preInfinity"], model["postInfinity"], weighted, model["link"]]
+        for original in model["keys"]:
+            key = dict(cls._key_defaults)
+            key.update(original)
+            values.extend(key[name] for name in cls._numbers)
+            locked = int(key["weightsLocked"]) if isinstance(key["weightsLocked"], bool) else key["weightsLocked"]
+            values.extend((key["inTangent"], key["outTangent"], locked))
+        return values
+
+    def expression(self, input_expression=None):
+        """Return applied source; an imported call retains untouched literals."""
+        return self._expression(self._params, self._key_slots, input_expression)
+
+    def _expression(self, parameters, slots, input_expression=None):
+        values = self._arguments(parameters)
+        if self._inline is None or input_expression is not None:
+            lookup = input_expression if input_expression is not None else "$u"
+            return "animCurve(" + lookup + "," + ",".join(_format(value) for value in values) + ")"
+        original = self._inline
+        edits = []
+        same_keys = slots == list(range(len(original["parameters"]["keys"])))
+        original_values = self._raw_arguments(original["parameters"])
+        count = len(values) if same_keys else 4
+        for index in range(count):
+            if values[index] != original_values[index]:
+                edits.append((original["args"][index + 1].range, _format(values[index])))
+        if not same_keys:
+            # Keep the complete lookup and global-setting prefix, including
+            # comments. Structural edits replace only the key argument suffix.
+            replacement = "," + ",".join(_format(value) for value in values[4:]) if values[4:] else ""
+            suffix = original["source"].encode("utf-8")[original["args"][4].range[1]:original["range"][1] - 1].decode("utf-8")
+            tokens = re.findall(r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|#[^\n]*', suffix)
+            comments = [token for token in tokens if token.startswith("#")]
+            if comments:
+                replacement = "\n" + "\n".join(comments) + "\n" + replacement
+            edits.append(((original["args"][4].range[1], original["range"][1] - 1), replacement))
+        data = original["source"].encode("utf-8")
+        for (start, end), replacement in sorted(edits, reverse=True):
+            data = data[:start] + replacement.encode("utf-8") + data[end:]
+        return data.decode("utf-8")
+
+    @classmethod
+    def _import(cls, source):
+        try:
+            root = AST(source).root()
+        except RuntimeError as error:
+            raise ValueError(str(error)) from None
+        pending = [root] if root else []
+        call = None
+        while pending:
+            node = pending.pop()
+            if node.type == ASTType.Call and node.value == "animCurve":
+                call = node
+                break
+            pending.extend(reversed(node.children()))
+        if call is None:
+            raise ValueError("No animation-curve call was found.")
+        args = call.children()
+        if len(args) < 5 or (len(args) - 5) % 9:
+            raise ValueError("An animation curve needs lookup, pre/post infinity, weighted, link and nine fields per key.")
+        literals = [_literal(arg) for arg in args[1:]]
+        if any(value is None for value in literals):
+            raise ValueError("Animation-curve settings and keys must be literals; the lookup may be any expression.")
+        parameters = {"type": "animcurve", "preInfinity": literals[0], "postInfinity": literals[1],
+                      "weighted": literals[2], "link": literals[3], "keys": []}
+        if isinstance(literals[2], (int, float)):
+            parameters["weighted"] = bool(literals[2])
+        for index in range(4, len(literals), 9):
+            key = dict(zip(cls._numbers + ("inTangent", "outTangent", "weightsLocked"), literals[index:index + 9]))
+            if isinstance(key["weightsLocked"], (int, float)):
+                key["weightsLocked"] = bool(key["weightsLocked"])
+            parameters["keys"].append(key)
+        return {"source": source, "args": args, "range": call.range, "parameters": parameters}
+
+    def setExpression(self, source):
+        imported = self._import(str(source))
+        self.setParams(imported["parameters"])
+        self._inline = imported
+        self._key_slots = list(range(len(self.keys())))
+        self.cancel()
+
+    def _item_changed(self, item):
+        if self._updating:
+            return
+        if item.column() in (2, 3) and self.table.item(item.row(), 8).checkState() == _enum(QtCore.Qt, "CheckState", "Checked"):
+            self._updating = True
+            self.table.item(item.row(), 5 - item.column()).setText(item.text())
+            self._updating = False
+        self._changed()
+
+    def _changed(self, *_args):
+        if self._updating:
+            return
+        try:
+            draft = self._draft()
+            self._sample(draft)
+            self.error.clear()
+            self.applyButton.setEnabled(True)
+        except (ValueError, RuntimeError, OverflowError) as error:
+            self._samples = []
+            self._preview_keys = []
+            self.graph.update()
+            self.error.setText(str(error))
+            self.applyButton.setEnabled(False)
+
+    def _sample(self, parameters):
+        model = self._validated(parameters)
+        keys = model["keys"]
+        first, last = (keys[0]["time"], keys[-1]["time"]) if keys else (-1.0, 1.0)
+        span = last - first
+        margin = span * 0.1 if span else max(1.0, abs(first) * 0.1)
+        low = first - margin if math.isfinite(first - margin) else first
+        high = last + margin if math.isfinite(last + margin) else last
+        if low == high:
+            low, high = first - 1.0, last + 1.0
+        times = {low * (1.0 - index / 64) + high * (index / 64) for index in range(65)}
+        times.update(key["time"] for key in keys)
+        source = "animCurve($u," + ",".join(_format(value) for value in self._arguments(model)) + ")"
+        samples = []
+        for time in sorted(times):
+            value = evaluate(source, {"u": time}, "scalar")
+            if not math.isfinite(value):
+                raise ValueError("Animation-curve preview returned a nonfinite value at time " + repr(time) + ".")
+            samples.append((time, value))
+        self._samples = samples
+        self._preview_keys = [(key["time"], key["value"]) for key in keys]
+        self.graph.update()
+
+    def apply(self):
+        try:
+            draft = self._draft()
+            self._sample(draft)
+            slots = list(self._row_slots)
+            source = self._expression(draft, slots) if self._inline else None
+            imported = self._import(source) if source is not None else None
+        except (ValueError, RuntimeError, OverflowError) as error:
+            self.error.setText(str(error))
+            return False
+        changed = draft != self._params
+        self._params = draft
+        if imported is not None:
+            self._inline = imported
+            self._key_slots = list(range(len(self.keys())))
+        else:
+            self._key_slots = slots
+        self.cancel()
+        if changed:
+            self.curveChanged.emit()
+        return True
+
+    def cancel(self):
+        self._load_draft(self._params, self._key_slots)
+
+    def _load_draft(self, parameters, slots):
+        self._working = copy.deepcopy(parameters)
+        self._updating = True
+        for name, combo in (("preInfinity", self.preInfinity), ("postInfinity", self.postInfinity)):
+            self._select(combo, self._working.get(name, self._defaults[name]))
+        self.weighted.setChecked(bool(self._working.get("weighted", False)))
+        self.link.setText(str(self._working.get("link", "")))
+        self._global_views = {"preInfinity": self.preInfinity.currentText(),
+            "postInfinity": self.postInfinity.currentText(), "weighted": self.weighted.isChecked(),
+            "link": self.link.text()}
+        records = [self._record(key, slot) for key, slot in zip(self._working.get("keys", []), slots)]
+        self._render_rows(records)
+        self._updating = False
+        self._changed()
+
+    def _add(self):
+        records = self._rows()
+        if len(records) >= 64:
+            self.error.setText(self.tr("An animation curve supports at most 64 keys."))
+            return
+        time = 0.0
+        try:
+            times = [float(record["texts"][0]) for record in records]
+            if times and all(math.isfinite(value) for value in times):
+                time = max(times) + 1.0
+                if not math.isfinite(time) or time <= max(times):
+                    time = math.nextafter(max(times), math.inf)
+        except ValueError:
+            pass
+        key = dict(self._key_defaults)
+        key["time"] = time
+        ids = {record["base"]["id"] for record in records if isinstance(record["base"].get("id"), str)}
+        identifier = 0
+        while "key_" + str(identifier) in ids:
+            identifier += 1
+        key["id"] = "key_" + str(identifier)
+        records.append(self._record(key))
+        self._render_rows(records)
+        self.table.setCurrentCell(len(records) - 1, 0)
+        self._changed()
+
+    def _remove(self):
+        row = self.table.currentRow()
+        records = self._rows()
+        if 0 <= row < len(records):
+            records.pop(row)
+            self._render_rows(records)
+            if records:
+                self.table.setCurrentCell(min(row, len(records) - 1), 0)
+            self._changed()
+
+    def _move(self, step):
+        row = self.table.currentRow()
+        records = self._rows()
+        target = row + step
+        if 0 <= row < len(records) and 0 <= target < len(records):
+            records[row], records[target] = records[target], records[row]
+            self._render_rows(records)
+            self.table.setCurrentCell(target, 0)
+            self._changed()
+
+    def _sort(self):
+        records = self._rows()
+        try:
+            times = [float(record["texts"][0]) for record in records]
+            if not all(math.isfinite(value) for value in times):
+                raise ValueError
+        except ValueError:
+            self.error.setText(self.tr("Enter finite key times before sorting."))
+            return
+        records = [record for _time, _index, record in sorted(zip(times, range(len(records)), records))]
+        self._render_rows(records)
+        self._changed()
+
+
+class _AnimCurveGraph(QtWidgets.QWidget):
+    def __init__(self, curve):
+        super().__init__(curve)
+        self.curve = curve
+        self.setMinimumHeight(160)
+        self.setAccessibleName(self.tr("Animation Curve Preview"))
+
+    def paintEvent(self, _event):
+        painter = QtGui.QPainter(self)
+        painter.fillRect(self.rect(), self.palette().base())
+        plot = self.rect().adjusted(12, 18, -12, -20)
+        painter.setPen(self.palette().mid().color())
+        painter.drawRect(plot)
+        samples = self.curve._samples
+        if not samples:
+            return
+        first, last = samples[0][0], samples[-1][0]
+        values = [value for _time, value in samples] + [value for _time, value in self.curve._preview_keys]
+        low, high = min(values), max(values)
+        # Normalize before subtraction so finite HDR values cannot overflow
+        # merely while mapping the native samples to display coordinates.
+        xscale, yscale = max(1.0, abs(first), abs(last)), max(1.0, abs(low), abs(high))
+        left, right = first / xscale, last / xscale
+        bottom, top = low / yscale, high / yscale
+        if left == right:
+            left, right = left - 0.5, right + 0.5
+        if bottom == top:
+            bottom, top = bottom - 0.5, top + 0.5
+        def point(time, value):
+            return QtCore.QPointF(plot.left() + (time / xscale - left) / (right - left) * plot.width(),
+                                 plot.bottom() - (value / yscale - bottom) / (top - bottom) * plot.height())
+        painter.setPen(self.palette().highlight().color())
+        path = QtGui.QPainterPath()
+        for index, (time, value) in enumerate(samples):
+            path.moveTo(point(time, value)) if index == 0 else path.lineTo(point(time, value))
+        painter.drawPath(path)
+        for time, value in self.curve._preview_keys:
+            painter.drawEllipse(point(time, value), 3.0, 3.0)
+        painter.setPen(self.palette().text().color())
+        painter.drawText(12, 13, self.tr("Value ") + repr(low) + " … " + repr(high))
+        painter.drawText(12, self.height() - 4, self.tr("Time ") + repr(first) + " … " + repr(last))
+
+
 class _CurveGraph(QtWidgets.QWidget):
     def __init__(self, curve):
         super().__init__(curve)
@@ -471,9 +1059,18 @@ class ExprControlCollection(QtWidgets.QWidget):
         super().__init__(parent)
         self.form = QtWidgets.QFormLayout(self)
         self._controls = []
+        self._animation_link_resolver = None
 
     def controls(self):
         return list(self._controls)
+
+    def setAnimationCurveLinkResolver(self, resolver):
+        if resolver is not None and not callable(resolver):
+            raise TypeError("The animation-curve link resolver must be callable or None.")
+        self._animation_link_resolver = resolver
+        for control in self._controls:
+            if isinstance(control, ExprAnimCurve):
+                control.setLinkResolver(resolver)
 
     def clear(self):
         while self.form.count():
@@ -487,17 +1084,22 @@ class ExprControlCollection(QtWidgets.QWidget):
             root = AST(source).root()
         except RuntimeError:
             return
-        assignments, strings = [], []
-        def walk(node, assigned_literal=False):
+        assignments, strings, animations = [], [], []
+        def walk(node, assigned_literal=False, assignment_name=""):
             children = node.children()
             if node.type == ASTType.Assign and children: assignments.append(node)
+            if node.type == ASTType.Call and node.value == "animCurve":
+                animations.append((assignment_name or self.tr("Animation Curve"), node))
             if node.type == ASTType.String and not assigned_literal:
                 annotation = getComment(node, source).split()
                 if len(annotation) == 2: strings.append((annotation[1], node))
             for index, child in enumerate(children):
-                walk(child, node.type == ASTType.Assign and index == 0)
+                walk(child, node.type == ASTType.Assign and index == 0,
+                     node.value if node.type == ASTType.Assign else assignment_name)
         if root: walk(root)
         records = [(assignment.value, assignment.children()[0]) for assignment in assignments] + strings
+        recorded = {node.range for _label, node in records}
+        records.extend((label, node) for label, node in animations if node.range not in recorded)
         for label, node in records:
             def notify(interval, replacement, identifier=len(self._controls)):
                 changed(interval, replacement)
@@ -577,7 +1179,20 @@ class ExprControlCollection(QtWidgets.QWidget):
                     choose.clicked.connect(pick)
             elif node.type == ASTType.Call:
                 children = node.children()
-                if node.value in ("curve", "ccurve") and len(children) >= 4 and (len(children) - 1) % 3 == 0:
+                if node.value == "animCurve":
+                    animation = ExprAnimCurve(self)
+                    animation.setLinkResolver(self._animation_link_resolver)
+                    try:
+                        animation.setExpression(_sourcepart(source, node))
+                        widget = animation
+                        animation.curveChanged.connect(lambda n=node, w=animation, action=notify:
+                                                       action(n.range, w.expression()))
+                    except ValueError as error:
+                        animation.deleteLater()
+                        widget = QtWidgets.QLabel(str(error), self)
+                        widget.setTextFormat(_enum(QtCore.Qt, "TextFormat", "PlainText"))
+                        widget.setWordWrap(True)
+                elif node.value in ("curve", "ccurve") and len(children) >= 4 and (len(children) - 1) % 3 == 0:
                     try:
                         points = [[_literal(children[i]), _literal(children[i + 1]), _literal(children[i + 2])]
                                   for i in range(1, len(children), 3)]
@@ -716,11 +1331,18 @@ class ExprEditor(QtWidgets.QWidget):
         self._result_type = result_type
         self.updateCompleter()
 
+    def setAnimationCurveLinkResolver(self, resolver):
+        """Provide the host snapshot callback to current and rebuilt controls."""
+        self.collection.setAnimationCurveLinkResolver(resolver)
+
     def exprChanged(self):
         self.clearErrors()
         self._timer.start()
 
     def rebuildControls(self):
+        # setExpr rebuilds immediately. Do not let its pending debounce timer
+        # replace a newly opened animation control and discard its draft.
+        self._timer.stop()
         source = self.getExpr()
         self.collection.rebuild(source, lambda interval, replacement:
                                 self._control_change(source, interval, replacement))
@@ -768,6 +1390,8 @@ class ExprEditor(QtWidgets.QWidget):
 
     def updateCompleter(self):
         self._documentation = {entry["name"]: entry["documentation"] for entry in functions()}
+        self._documentation.update({entry["name"]: entry["documentation"]
+                                    for entry in native_functions()})
         self._documentation.update({name: self.tr("Host variable") for name in self._variables})
         self._documentation.update({name: definition.get("documentation", self.tr("Host function"))
                                     for name, definition in self._functions.items()})

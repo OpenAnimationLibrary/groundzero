@@ -1,4 +1,5 @@
 #include "tseexpr.h"
+#include "tseexpranimcurve.h"
 
 #include "seexprbudget.h"
 
@@ -371,6 +372,180 @@ public:
     }
   };
 
+  // The upstream UI's inline animation-curve form was a host extension, not
+  // one of the core 99 builtins. Keep each callsite's prepared snapshot owned
+  // by this Program and its AST, without global registration or pixel parsing.
+  class InlineAnimCurve final : public SeExpr2::ExprFuncSimple {
+    struct Data final : public SeExpr2::ExprFuncNode::Data {
+      Data() : SeExpr2::ExprFuncNode::Data(true) {}
+      std::shared_ptr<const TSeExprAnimCurve::PreparedCurve> curve;
+    };
+    const Options &m_options;
+    mutable std::map<const SeExpr2::ExprFuncNode *,
+        std::shared_ptr<const TSeExprAnimCurve::PreparedCurve>> m_literals;
+
+    static bool literalNumber(const SeExpr2::ExprNode *node, double &value) {
+      double sign = 1.0;
+      while (const auto *unary = dynamic_cast<const SeExpr2::ExprUnaryOpNode *>(node)) {
+        if (unary->_op != '-' && unary->_op != '+') return false;
+        if (unary->_op == '-') sign = -sign;
+        node = unary->child(0);
+      }
+      const auto *number = dynamic_cast<const SeExpr2::ExprNumNode *>(node);
+      if (!number) return false;
+      value = sign * number->value();
+      return true;
+    }
+
+    bool prepareLiteral(SeExpr2::ExprFuncNode *node) const {
+      // Literal curve metadata can be checked and prepared during type
+      // validation on both backends. Other constant expressions are evaluated
+      // once by the existing constant-data hook, never per sample.
+      std::vector<double> numbers(static_cast<std::size_t>(node->numChildren()));
+      std::vector<std::string> strings(numbers.size());
+      for (int i = 1; i < node->numChildren(); ++i) {
+        const bool string = i == 1 || i == 2 || i == 4 ||
+                            (i >= 5 && ((i - 5) % 9 == 6 || (i - 5) % 9 == 7));
+        if (string) {
+          const auto *literal = dynamic_cast<const SeExpr2::ExprStrNode *>(node->child(i));
+          if (!literal) return true;
+          strings[static_cast<std::size_t>(i)] = literal->str();
+        } else if (!literalNumber(node->child(i), numbers[static_cast<std::size_t>(i)])) {
+          return true;
+        }
+      }
+      auto boolean = [&](int i, bool &value) {
+        const double number = numbers[static_cast<std::size_t>(i)];
+        if (!std::isfinite(number)) return false;
+        value = number != 0.0;
+        return true;
+      };
+      TSeExprAnimCurve::Curve curve;
+      curve.preInfinity = strings[1]; curve.postInfinity = strings[2];
+      curve.link = strings[4];
+      if (!boolean(3, curve.weighted)) {
+        node->addError("animCurve flags must be finite numeric values.");
+        return false;
+      }
+      for (int i = 5; i < node->numChildren(); i += 9) {
+        TSeExprAnimCurve::Key key;
+        key.time = numbers[i]; key.value = numbers[i + 1];
+        key.inWeight = numbers[i + 2]; key.outWeight = numbers[i + 3];
+        key.inAngle = numbers[i + 4]; key.outAngle = numbers[i + 5];
+        key.inTangent = strings[i + 6]; key.outTangent = strings[i + 7];
+        if (!boolean(i + 8, key.weightsLocked)) {
+          node->addError("animCurve flags must be finite numeric values.");
+          return false;
+        }
+        curve.keys.push_back(std::move(key));
+      }
+      auto prepared = std::make_shared<TSeExprAnimCurve::PreparedCurve>();
+      std::string error;
+      if (!prepared->prepare(curve, error)) { node->addError(error); return false; }
+      m_literals[node] = std::move(prepared);
+      return true;
+    }
+
+  public:
+    SeExpr2::ExprFunc function;
+    explicit InlineAnimCurve(const Options &options)
+        : SeExpr2::ExprFuncSimple(true), m_options(options),
+          function(*this, 5, static_cast<int>(5 + 9 * TSeExprAnimCurve::maximumKeys)) {}
+
+    SeExpr2::ExprType prep(SeExpr2::ExprFuncNode *node, bool,
+                          SeExpr2::ExprVarEnvBuilder &env) const override {
+      const int count = node->numChildren();
+      if (count < 5 || (count - 5) % 9 != 0 ||
+          count > static_cast<int>(5 + 9 * TSeExprAnimCurve::maximumKeys)) {
+        node->addError("animCurve requires a sample time, pre/post infinity, "
+                       "weighted flag, link and nine constant fields per key.");
+        return SeExpr2::ExprType().Error();
+      }
+      bool valid = true;
+      for (int i = 0; i < count; ++i) {
+        const bool string = i == 1 || i == 2 || i == 4 ||
+                            (i >= 5 && ((i - 5) % 9 == 6 || (i - 5) % 9 == 7));
+        auto type = string ? SeExpr2::ExprType().String()
+                           : SeExpr2::ExprType().FP(1);
+        if (i) type.Constant(); else type.Varying();
+        const bool checked = node->checkArg(i, type, env);
+        valid = checked && valid;
+        if (checked && !string && !node->child(i)->type().isFP(1)) {
+          node->addError("animCurve numeric arguments must be scalar values.");
+          valid = false;
+        }
+      }
+      if (valid) valid = prepareLiteral(node);
+      return valid ? SeExpr2::ExprType().FP(1).Varying()
+                   : SeExpr2::ExprType().Error();
+    }
+
+    SeExpr2::ExprFuncNode::Data *evalConstant(
+        const SeExpr2::ExprFuncNode *node, ArgHandle args) const override {
+      if (const auto found = m_literals.find(node); found != m_literals.end()) {
+        auto data = std::make_unique<Data>();
+        data->curve = found->second;
+        return data.release();
+      }
+      auto text = [&](int index) {
+        const char *value = args.inStr(index);
+        return std::string(value ? value : "");
+      };
+      auto boolean = [&](int index) {
+        const double value = args.inFp<1>(index)[0];
+        if (!std::isfinite(value))
+          throw std::runtime_error("animCurve flags must be finite numeric values.");
+        return value != 0.0;
+      };
+      TSeExprAnimCurve::Curve curve;
+      curve.preInfinity = text(1);
+      curve.postInfinity = text(2);
+      curve.weighted = boolean(3);
+      curve.link = text(4);
+      curve.keys.reserve(static_cast<std::size_t>((args.nargs() - 5) / 9));
+      for (int i = 5; i < args.nargs(); i += 9) {
+        TSeExprAnimCurve::Key key;
+        key.time = args.inFp<1>(i)[0];
+        key.value = args.inFp<1>(i + 1)[0];
+        key.inWeight = args.inFp<1>(i + 2)[0];
+        key.outWeight = args.inFp<1>(i + 3)[0];
+        key.inAngle = args.inFp<1>(i + 4)[0];
+        key.outAngle = args.inFp<1>(i + 5)[0];
+        key.inTangent = text(i + 6);
+        key.outTangent = text(i + 7);
+        key.weightsLocked = boolean(i + 8);
+        curve.keys.push_back(std::move(key));
+      }
+      auto prepared = std::make_shared<TSeExprAnimCurve::PreparedCurve>();
+      std::string error;
+      if (!prepared->prepare(curve, error)) throw std::runtime_error(error);
+      auto data = std::make_unique<Data>();
+      data->curve = std::move(prepared);
+      return data.release();
+    }
+
+    void evaluateCurve(ArgHandle args) const {
+      if (m_options.cancelled && m_options.cancelled())
+        throw std::runtime_error("Expression evaluation cancelled.");
+      TSeExprInternal::instructionStep();
+      double result = 0.0;
+      std::string error;
+      if (!static_cast<Data *>(args.data)->curve->evaluate(
+              args.inFp<1>(0)[0], result, error))
+        throw std::runtime_error(error);
+      args.outFp = result;
+    }
+
+    void eval(ArgHandle args) override {
+      if (m_options.backend != Backend::LLVM) { evaluateCurve(args); return; }
+      try { evaluateCurve(args); }
+      catch (...) {
+        TSeExprInternal::captureEvaluationFailure(std::current_exception());
+        args.outFp = 0.0;
+      }
+    }
+  };
+
   class NativeExpression final : public SeExpr2::Expression {
     Imp &m_host;
 
@@ -396,6 +571,10 @@ public:
         m_host.resolvedFunctions.insert(name);
         return &found->second->function;
       }
+      if (name == "animCurve") {
+        m_host.resolvedFunctions.insert(name);
+        return &m_host.inlineAnimCurve->function;
+      }
       const auto *function = SeExpr2::ExprFunc::lookup(name);
       if (function) {
         m_host.resolvedFunctions.insert(name);
@@ -412,6 +591,7 @@ public:
   std::vector<Error> errors;
   std::map<std::string, std::unique_ptr<VariableRef>> variables;
   std::map<std::string, std::unique_ptr<Callback>> functions;
+  std::unique_ptr<InlineAnimCurve> inlineAnimCurve;
   std::set<std::string> resolvedVariables;
   std::set<std::string> resolvedFunctions;
   std::set<std::string> resolvedBuiltins;
@@ -563,6 +743,7 @@ bool Program::compile(const std::string &sourceInput,
                .second)
         return m_imp->fail("Custom expression function names must be unique.");
     }
+    m_imp->inlineAnimCurve = std::make_unique<Imp::InlineAnimCurve>(m_imp->options);
     m_imp->expression = std::make_unique<Imp::NativeExpression>(*m_imp);
     if (!m_imp->expression->isValid()) {
       const int length = static_cast<int>(source.size());
@@ -804,6 +985,18 @@ std::vector<FunctionInfo> Program::builtinFunctions() {
                       function->funcx()->isThreadSafe()});
   }
   return result;
+}
+
+std::vector<FunctionInfo> Program::nativeFunctions() {
+  return {{"animCurve",
+           "animCurve(time, preInfinity, postInfinity, weighted, link, "
+           "[keyTime, value, inWeight, outWeight, inAngle, outAngle, "
+           "inTangent, outTangent, weightsLocked, ...]): sample a native "
+           "animation curve. Metadata is constant; angles are degrees. "
+           "Infinity modes: constant, linear, cycle, cycleRelative, oscillate. "
+           "Tangent modes: fixed, auto, linear, flat, step, stepnext, spline. "
+           "The optional refresh link is host metadata, never executable code.",
+           5, static_cast<int>(5 + 9 * TSeExprAnimCurve::maximumKeys), true}};
 }
 
 bool Program::backendAvailable(Backend backend) {

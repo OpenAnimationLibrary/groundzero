@@ -46,6 +46,11 @@ target_link_libraries(seexpr_runtime PRIVATE seexpr_native_adapter)
 add_test(NAME seexpr_runtime COMMAND seexpr_runtime)
 set_tests_properties(seexpr_runtime PROPERTIES TIMEOUT 120)
 
+add_executable(seexpr_animcurve animcurve_test.cpp)
+target_link_libraries(seexpr_animcurve PRIVATE seexpr_native_adapter)
+add_test(NAME seexpr_animcurve COMMAND seexpr_animcurve)
+set_tests_properties(seexpr_animcurve PROPERTIES TIMEOUT 120)
+
 add_executable(seexpr_parser_fuzz parser_fuzz_test.cpp)
 target_link_libraries(seexpr_parser_fuzz PRIVATE seexpr_native_adapter)
 add_test(NAME seexpr_parser_fuzz COMMAND seexpr_parser_fuzz)

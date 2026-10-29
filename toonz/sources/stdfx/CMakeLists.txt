@@ -106,6 +106,7 @@ endif()
 
 set(SOURCES
     seexprfx.cpp
+    seexprattributefx.cpp
     adjustlevelsfx.cpp
     artcontourfx.cpp
     autopatchfx.cpp
@@ -383,14 +384,19 @@ _find_toonz_library(TNZLIBS "tnzcore;tnzbase;toonzlib")
 target_link_libraries(tnzstdfx otglb OpenEXR::OpenEXR Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::OpenGL ${OT_QT_OPENGLWIDGETS_LIB} ${GL_LIB} ${GLEW_LIB} ${TNZLIBS} ${PTHREAD_LIBRARY})
 
 if(BUILD_SEEXPR_TESTS)
+    find_package(Threads REQUIRED)
     add_executable(seexpr_fx_test tests/seexprfx_test.cpp)
-    target_link_libraries(seexpr_fx_test Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
+    target_link_libraries(seexpr_fx_test otglb Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
     if(WIN32)
         target_link_libraries(seexpr_fx_test Psapi)
     endif()
     add_test(NAME seexpr_fx COMMAND seexpr_fx_test)
     set_tests_properties(seexpr_fx PROPERTIES TIMEOUT 120)
-    add_custom_target(seexpr_fx_tests DEPENDS seexpr_fx_test)
+    add_executable(seexpr_surface_fx_test tests/seexprsurfacefx_test.cpp)
+    target_link_libraries(seexpr_surface_fx_test otglb Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui ${TNZLIBS} Threads::Threads)
+    add_test(NAME seexpr_surface_fx COMMAND seexpr_surface_fx_test)
+    set_tests_properties(seexpr_surface_fx PROPERTIES TIMEOUT 120)
+    add_custom_target(seexpr_fx_tests DEPENDS seexpr_fx_test seexpr_surface_fx_test)
 endif()
 
 if(OpenCV_FOUND)

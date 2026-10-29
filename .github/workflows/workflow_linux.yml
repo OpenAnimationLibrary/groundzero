@@ -269,7 +269,7 @@ jobs:
 
         cat << EOF > apprun.sh
         #!/usr/bin/env bash
-        exec "\${APPDIR}/usr/bin/OpenToonz"
+        exec "\${APPDIR}/usr/bin/OpenToonz" "\$@"
         EOF
         chmod 755 apprun.sh
 
@@ -295,4 +295,11 @@ jobs:
       with:
         name: Opentoonz-${{ runner.os }}-${{ matrix.compiler }}-${{ github.sha }}
         path: toonz/build/Opentoonz-${{ runner.os }}-${{ matrix.compiler }}-${{ github.sha }}.tar.gz
+
+  InstalledApplication:
+    needs: Ubuntu
+    uses: ./.github/workflows/seexpr-package-smoke.yml
+    with:
+      platform: linux
+      artifact_name: Opentoonz-Linux-gcc-${{ github.sha }}
 

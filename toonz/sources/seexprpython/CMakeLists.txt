@@ -62,6 +62,11 @@ install(TARGETS seexpr_python_core LIBRARY DESTINATION sdk/python/SeExprPy
 install(FILES SeExprPy/__init__.py SeExprPy/editor.py DESTINATION sdk/python/SeExprPy)
 install(FILES expreditor2.py DESTINATION sdk/python)
 option(BUILD_SEEXPR_PYTHON_UI_TESTS "Qualify the optional Python Qt editor SDK" OFF)
+set(SEEXPR_PYTHON_QT_API "pyqt5" CACHE STRING "Python Qt binding used by SDK UI qualification")
+set_property(CACHE SEEXPR_PYTHON_QT_API PROPERTY STRINGS pyqt5 pyqt6)
+if(NOT SEEXPR_PYTHON_QT_API MATCHES "^pyqt[56]$")
+  message(FATAL_ERROR "SEEXPR_PYTHON_QT_API must select pyqt5 or pyqt6")
+endif()
 if(BUILD_SEEXPR_TESTS)
   # Executing the source test directly prepends its directory to sys.path and
   # imports the unbuilt source package. Put the qualified package first before
@@ -76,7 +81,7 @@ if(BUILD_SEEXPR_TESTS)
   if(BUILD_SEEXPR_PYTHON_UI_TESTS)
     add_test(NAME seexpr_python_ui
       COMMAND "${CMAKE_COMMAND}" -E env
-      "QT_QPA_PLATFORM=offscreen" "SEEXPR_QT_API=pyqt5"
+      "QT_QPA_PLATFORM=offscreen" "SEEXPR_QT_API=${SEEXPR_PYTHON_QT_API}"
       "${Python3_EXECUTABLE}" -c "${_sdk_runner}"
       "${CMAKE_BINARY_DIR}/seexpr-python" "${CMAKE_CURRENT_SOURCE_DIR}/ui_test.py")
     set_tests_properties(seexpr_python_ui PROPERTIES TIMEOUT 180)

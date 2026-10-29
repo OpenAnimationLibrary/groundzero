@@ -266,3 +266,10 @@ jobs:
           name: Opentoonz-${{ runner.os }}-${{ github.sha }}
           path: toonz/build/toonz/OpenToonz.dmg
 
+  InstalledApplication:
+    needs: macOS
+    uses: ./.github/workflows/seexpr-package-smoke.yml
+    with:
+      platform: macos
+      artifact_name: Opentoonz-macOS-${{ github.sha }}
+

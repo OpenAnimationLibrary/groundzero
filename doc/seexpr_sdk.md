@@ -37,6 +37,15 @@ separate consumer project against that installation, builds it and evaluates a
 host-variable/custom-function example. Build-tree includes alone therefore do
 not count as SDK packaging validation.
 
+The installed `GroundzeroSeExpr/tseexpranimcurve.h` is a self-contained owned
+curve model with `Key`, `Curve` and `PreparedCurve`. Prepare once, then evaluate
+finite fractional times without retaining host objects. It preserves all seven
+tangent modes, independent five-mode infinity policies and weighted handles.
+The clean consumer also evaluates this installed header. The native adapter
+exposes inline `animCurve` as a host extension; the raw upstream core registry
+remains its original 99 functions, so SDK hosts explicitly bind native helpers
+when they need that extension.
+
 ## Evaluation and compatibility corrections
 
 The pinned core's parsed local-function/prototype language is completed in private build copies, preserving the original AST/type environment and interpreter/JIT backends. The corrections also retain captured input lifetimes, isolate nested numeric/string calls, preserve whole-vector equality semantics and support the SDK standard callback forms in both backends. Shared source fixtures cover zero-to-six scalar arguments, scalar/vector variadics, vector results, scalar requests, exception recovery and mixed uniform/varying lifetimes.

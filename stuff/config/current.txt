@@ -1,4 +1,19 @@
 <stringtable>
+  <item>"STD_seexprSurfaceFx" "Expression Surface" </item>
+  <item>"STD_seexprSurfaceFx.seexprDocument" "Surface Expressions" </item>
+  <item>"STD_seexprSurfaceFx.coordinates" "Position and Normal Coordinates" </item>
+  <item>"STD_seexprSurfaceFx.displacementLimit" "Displacement Limit (object units)" </item>
+  <item>"STD_seexprSurfaceFx.fps" "Time Rate (frames/second)" </item>
+  <item>"STD_seexprSurfaceFx.seed" "Seed" </item>
+  <item>"STD_seexprAttributeFx" "Expression Attribute" </item>
+  <item>"STD_seexprAttributeFx.namespace" "Namespace" </item>
+  <item>"STD_seexprAttributeFx.name" "Name" </item>
+  <item>"STD_seexprAttributeFx.scope" "Scope" </item>
+  <item>"STD_seexprAttributeFx.valueType" "Value Type" </item>
+  <item>"STD_seexprAttributeFx.value" "Scalar Value" </item>
+  <item>"STD_seexprAttributeFx.x" "Vector X" </item>
+  <item>"STD_seexprAttributeFx.y" "Vector Y" </item>
+  <item>"STD_seexprAttributeFx.z" "Vector Z" </item>
   <item>"STD_seexprGeneratorFx" "Expression Generator" </item>
   <item>"STD_seexprGeneratorFx.seexprDocument" "Expression" </item>
   <item>"STD_seexprGeneratorFx.width" "Canvas Width" </item>

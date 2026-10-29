@@ -3,6 +3,8 @@
 #include "tfxparam.h"
 #include "tparamset.h"
 #include "tseexprfx.h"
+#include "tseexpranimcurve.h"
+#include "tseexprattributes.h"
 #include "tseexprspectrum.h"
 #include "tstream.h"
 #include "tpixelutils.h"
@@ -28,12 +30,14 @@
 namespace {
 constexpr std::size_t maxDocumentBytes = 262144;
 constexpr std::size_t maxControls = 128;
+constexpr int maxAnimationKeys = 64;
+constexpr int maxStoredAnimationKeys = 512;
 constexpr double maxWorkingBytes = 256.0 * 1024 * 1024;
 const char *documentName = "seexprDocument";
 const char *controlPrefix = "seexprControl_";
 const std::set<QString> reservedVariables = {
     "x", "y", "u", "v", "width", "height", "frame", "time", "fps",
-    "seed", "src", "r", "g", "b", "a", "sample_rgb", "sample_alpha"};
+    "seed", "src", "r", "g", "b", "a", "sample_rgb", "sample_alpha", "animCurve"};
 
 void demand(bool value, const char *message) {
   if (!value) throw TException(std::string("SeExpr: ") + message);
@@ -202,6 +206,125 @@ TSeExprSpectrum::Parameters spectrumParameters(const std::map<std::string, doubl
   return p;
 }
 
+const std::array<const char *, 6> animationFields = {{
+    "time", "value", "inWeight", "outWeight", "inAngle", "outAngle"}};
+
+std::array<double, 6> animationValues(const TSeExprAnimCurve::Key &key) {
+  return {{key.time, key.value, key.inWeight, key.outWeight,
+           key.inAngle, key.outAngle}};
+}
+
+void setAnimationValues(TSeExprAnimCurve::Key &key,
+                        const std::array<double, 6> &values) {
+  key.time = values[0]; key.value = values[1];
+  key.inWeight = values[2]; key.outWeight = values[3];
+  key.inAngle = values[4]; key.outAngle = values[5];
+}
+
+std::string animationText(const QJsonObject &object, const char *field,
+                          const char *fallback) {
+  const auto value = object.value(field);
+  demand(value.isUndefined() || value.isString(),
+         "animation curve metadata must be text");
+  return value.isUndefined() ? fallback : value.toString().toStdString();
+}
+
+bool animationBoolean(const QJsonObject &object, const char *field,
+                       bool fallback = false) {
+  const auto value = object.value(field);
+  demand(value.isUndefined() || value.isBool(),
+         "animation curve flags must be boolean");
+  return value.isUndefined() ? fallback : value.toBool();
+}
+
+TSeExprAnimCurve::Key animationKey(const QJsonObject &object) {
+  TSeExprAnimCurve::Key key;
+  auto values = animationValues(key);
+  for (std::size_t field = 0; field < animationFields.size(); ++field)
+    values[field] = number(object.value(animationFields[field]), values[field]);
+  setAnimationValues(key, values);
+  key.inTangent = animationText(object, "inTangent", "auto");
+  key.outTangent = animationText(object, "outTangent", "auto");
+  key.weightsLocked = animationBoolean(object, "weightsLocked");
+  TSeExprAnimCurve::Curve single;
+  single.keys.push_back(key);
+  std::string error;
+  demand(TSeExprAnimCurve::validate(single, error), error.c_str());
+  return key;
+}
+
+TSeExprAnimCurve::Curve animationCurve(const QJsonObject &object) {
+  TSeExprAnimCurve::Curve curve;
+  curve.preInfinity = animationText(object, "preInfinity", "constant");
+  curve.postInfinity = animationText(object, "postInfinity", "constant");
+  curve.link = animationText(object, "link", "");
+  curve.weighted = animationBoolean(object, "weighted");
+  demand(object.value("keys").isArray(), "animation curves need a key array");
+  const auto keys = object.value("keys").toArray();
+  demand(keys.size() <= maxAnimationKeys,
+         "native animation curves support zero to 64 keys");
+  for (const auto value : keys) {
+    demand(value.isObject(), "animation key must be an object");
+    curve.keys.push_back(animationKey(value.toObject()));
+  }
+  std::string error;
+  demand(TSeExprAnimCurve::validate(curve, error), error.c_str());
+  return curve;
+}
+
+QJsonObject animationDefinition(QJsonObject object,
+                                const QJsonArray &previousRegistry = {}) {
+  animationCurve(object);
+  QJsonArray keys = object.value("keys").toArray();
+  std::set<QString> activeIds;
+  for (const auto value : keys) {
+    const auto key = value.toObject();
+    if (!key.contains("id")) continue;
+    const QString id = key.value("id").toString();
+    demand(identifier(id) && activeIds.insert(id).second,
+           "animation key IDs must be distinct identifiers");
+  }
+  for (int index = 0; index < keys.size(); ++index) {
+    auto key = keys[index].toObject();
+    if (!key.contains("id")) {
+      const QString base = QString("key_%1").arg(index);
+      QString id = base;
+      int suffix = 0;
+      while (activeIds.count(id)) id = base + "_" + QString::number(++suffix);
+      activeIds.insert(id);
+      key.insert("id", id);
+      keys[index] = key;
+    }
+  }
+  demand(!object.contains("nativeKeys") || object.value("nativeKeys").isArray(),
+         "saved animation-key registry must be an array");
+  QJsonArray registry;
+  std::map<QString, int> positions;
+  auto merge = [&](const QJsonArray &values) {
+    std::set<QString> ids;
+    for (const auto value : values) {
+      demand(value.isObject(), "saved animation key must be an object");
+      const auto key = value.toObject();
+      const QString id = key.value("id").toString();
+      demand(identifier(id) && ids.insert(id).second,
+             "saved animation key IDs must be distinct identifiers");
+      animationKey(key);
+      auto known = positions.find(id);
+      if (known == positions.end()) {
+        demand(registry.size() < maxStoredAnimationKeys,
+               "saved animation curve exceeds the 512-key storage limit");
+        positions.emplace(id, registry.size()); registry.append(key);
+      } else registry[known->second] = key;
+    }
+  };
+  merge(previousRegistry);
+  merge(object.value("nativeKeys").toArray());
+  merge(keys);
+  object.insert("keys", keys);
+  object.insert("nativeKeys", registry);
+  return object;
+}
+
 struct NativeControl {
   SeExprFx::Control spec;
   TDoubleParamP scalar;
@@ -212,6 +335,7 @@ struct NativeControl {
   std::array<TPixelParamP, 64> colors;
   int allocatedKnots = 0;
   std::map<std::string, TDoubleParamP> spectrum;
+  std::map<QString, std::array<TDoubleParamP, 6>> animationKeys;
 };
 
 }  // namespace
@@ -264,7 +388,8 @@ Document parseDocumentContents(const std::wstring &text, bool checkIdentity) {
       demand(!control.active || (!reservedVariables.count(control.name) && names.insert(control.name).second),
              "duplicate or reserved control variable");
       demand(control.type == "scalar" || control.type == "vector" || control.type == "color" ||
-                 control.type == "string" || control.type == "curve" || control.type == "colorcurve",
+                 control.type == "string" || control.type == "curve" || control.type == "colorcurve" ||
+                 control.type == "animcurve",
              "unsupported control type");
       const double minimum = number(object.value("min"), -1000000);
       const double maximum = number(object.value("max"), 1000000);
@@ -277,6 +402,7 @@ Document parseDocumentContents(const std::wstring &text, bool checkIdentity) {
       else if (control.type == "vector" || control.type == "color") triple(object.value("value"));
       else if (control.type == "string")
         demand(object.value("value").isString(), "string control needs a string value");
+      else if (control.type == "animcurve") control.definition = animationDefinition(object);
       else {
         const QJsonArray points = object.value("points").toArray();
         demand(points.size() >= 2 && points.size() <= 64, "curves need two to 64 points");
@@ -387,6 +513,8 @@ protected:
     } else if (spec.type == "string") {
       control.text = new TStringParam(object.value("value").toString().toStdWString());
       registerControl(key + "value", control.text, label);
+    } else if (spec.type == "animcurve") {
+      allocateAnimationKeys(control);
     } else if (spec.definition.value("presentation").toString() == "spectrum") {
       const auto values = spectrumValues(spec.definition.value("spectrum").toObject());
       for (const auto &value : values) {
@@ -397,6 +525,26 @@ protected:
       }
     } else {
       allocateKnots(control);
+    }
+  }
+
+  void allocateAnimationKeys(NativeControl &control) {
+    const std::string prefix = std::string(controlPrefix) + control.spec.id.toStdString() + "__k";
+    for (const auto value : control.spec.definition.value("nativeKeys").toArray()) {
+      const auto object = value.toObject();
+      const QString id = object.value("id").toString();
+      if (control.animationKeys.count(id)) continue;
+      const auto values = animationValues(animationKey(object));
+      auto inserted = control.animationKeys.emplace(id, std::array<TDoubleParamP, 6>());
+      auto &parameters = inserted.first->second;
+      for (std::size_t field = 0; field < animationFields.size(); ++field) {
+        parameters[field] = new TDoubleParam(values[field]);
+        if (field == 2 || field == 3)
+          parameters[field]->setValueRange(0, std::numeric_limits<double>::max());
+        registerControl(prefix + id.toStdString() + "_" + animationFields[field],
+                        parameters[field], control.spec.label.toStdString() + " " +
+                            id.toStdString() + " " + animationFields[field]);
+      }
     }
   }
 
@@ -462,6 +610,25 @@ protected:
           NativeControl &native = *found->second;
           const QJsonObject previous = native.spec.definition;
           native.spec = spec;
+          if (spec.type == "animcurve") {
+            native.spec.definition = animationDefinition(spec.definition,
+                                                          previous.value("nativeKeys").toArray());
+            allocateAnimationKeys(native);
+            std::map<QString, QJsonObject> oldKeys;
+            for (const auto value : previous.value("nativeKeys").toArray())
+              oldKeys.emplace(value.toObject().value("id").toString(), value.toObject());
+            for (const auto value : native.spec.definition.value("nativeKeys").toArray()) {
+              const auto object = value.toObject();
+              const QString id = object.value("id").toString();
+              const auto old = oldKeys.find(id);
+              if (old == oldKeys.end()) continue;
+              const auto values = animationValues(animationKey(object));
+              const auto oldValues = animationValues(animationKey(old->second));
+              for (std::size_t field = 0; field < animationFields.size(); ++field)
+                if (values[field] != oldValues[field])
+                  native.animationKeys.at(id)[field]->setDefaultValue(values[field]);
+            }
+          }
           if (spec.type == "scalar" || spec.type == "vector") {
             const double minimum = number(spec.definition.value("min"), -1000000);
             const double maximum = number(spec.definition.value("max"), 1000000);
@@ -487,7 +654,8 @@ protected:
               native.color->getBlue()->setDefaultValue(value[2]); }
             else if (spec.type == "string") native.text->setValue(spec.definition.value("value").toString().toStdWString(), false);
           }
-          if (spec.definition.value("presentation").toString() != "spectrum" &&
+          if ((spec.type == "curve" || spec.type == "colorcurve") &&
+              spec.definition.value("presentation").toString() != "spectrum" &&
               previous.value("points") != spec.definition.value("points")) {
             const auto points = spec.definition.value("points").toArray();
             for (int i = 0; i < points.size(); ++i) {
@@ -519,7 +687,15 @@ protected:
           if (name.compare(0, key.size(), key) != 0) continue;
           bool hidden = !control->spec.active;
           const std::string suffix = name.substr(key.size());
-          if (control->allocatedKnots && suffix.size() > 1) {
+          if (control->spec.type == "animcurve") {
+            const auto separator = suffix.rfind('_');
+            const QString id = separator != std::string::npos && separator > 1
+                                   ? QString::fromStdString(suffix.substr(1, separator - 1)) : QString();
+            bool activeKey = false;
+            for (const auto value : control->spec.definition.value("keys").toArray())
+              if (value.toObject().value("id").toString() == id) activeKey = true;
+            hidden = hidden || !activeKey;
+          } else if (control->allocatedKnots && suffix.size() > 1) {
             const int index = std::stoi(suffix.substr(1));
             hidden = hidden || index >= control->spec.definition.value("points").toArray().size();
           }
@@ -553,8 +729,11 @@ protected:
     }
   }
 
-  std::vector<TSeExpr::Variable> variablesFor(const SeExprFx::Document &document, double frame,
+  virtual std::vector<TSeExpr::Variable> variablesFor(const SeExprFx::Document &document, double frame,
                                                 bool linear = false, double gamma = 2.2) const {
+    demand(supportsSeExprSurfaceDocument() ||
+               (!document.json.contains("displacement") && !document.json.contains("opacity")),
+           "surface sources require an Expression Surface geometry host");
     std::vector<TSeExpr::Variable> result;
     auto scalar = [&](const std::string &name, double value) { result.push_back({name, TSeExpr::Value::scalar(value)}); };
     const double fps = finite(m_fps->getValue(frame), "frame rate must be finite");
@@ -566,7 +745,7 @@ protected:
     scalar("r", 0); scalar("g", 0); scalar("b", 0); scalar("a", 0);
     result.push_back({"src", TSeExpr::Value::vector(0, 0, 0)});
     for (const auto &spec : document.controls) {
-      if (!spec.active || spec.type == "curve" || spec.type == "colorcurve") continue;
+      if (!spec.active || spec.type == "curve" || spec.type == "colorcurve" || spec.type == "animcurve") continue;
       const auto found = m_controlMap.find(spec.id);
       const NativeControl *control = found == m_controlMap.end() || found->second->spec.type != spec.type ? nullptr : found->second;
       const bool changedDefault = control && control->spec.definition.value("value") != spec.definition.value("value");
@@ -591,10 +770,11 @@ protected:
         result.push_back({spec.name.toStdString(), TSeExpr::Value::vector(value[0], value[1], value[2])});
       }
     }
+    TSeExprAttributes::appendVariables(result, {}, {document.rgb.toStdString(), document.alpha.toStdString()});
     return result;
   }
 
-  std::vector<TSeExpr::Function> functionsFor(const SeExprFx::Document &document,
+  virtual std::vector<TSeExpr::Function> functionsFor(const SeExprFx::Document &document,
                                             double frame, InputSampler *sampler,
                                             bool linear = false, double gamma = 2.2) const {
     std::vector<TSeExpr::Function> result;
@@ -613,12 +793,46 @@ protected:
     };
     result.push_back(rgb); result.push_back(alpha);
     for (const auto &spec : document.controls) {
-      if (!spec.active || (spec.type != "curve" && spec.type != "colorcurve")) continue;
+      if (!spec.active || (spec.type != "curve" && spec.type != "colorcurve" && spec.type != "animcurve")) continue;
       TSeExpr::Function function;
       function.name = spec.name.toStdString(); function.argumentTypes = {TSeExpr::Type::Scalar};
       function.documentation = "Native animatable curve: " + spec.label.toStdString();
       const auto found = m_controlMap.find(spec.id);
       const NativeControl *native = found != m_controlMap.end() && found->second->spec.type == spec.type ? found->second : nullptr;
+      if (spec.type == "animcurve") {
+        auto curve = animationCurve(spec.definition);
+        const auto keys = spec.definition.value("keys").toArray();
+        std::map<QString, QJsonObject> previous;
+        if (native)
+          for (const auto value : native->spec.definition.value("keys").toArray())
+            previous.emplace(value.toObject().value("id").toString(), value.toObject());
+        for (int index = 0; index < keys.size(); ++index) {
+          const auto object = keys[index].toObject();
+          const QString id = object.value("id").toString();
+          if (!native || !native->animationKeys.count(id)) continue;
+          const auto &parameters = native->animationKeys.at(id);
+          auto values = animationValues(curve.keys[index]);
+          const auto prior = previous.find(id);
+          const auto old = prior == previous.end() ? values : animationValues(animationKey(prior->second));
+          for (std::size_t field = 0; field < animationFields.size(); ++field)
+            if ((prior != previous.end() && old[field] == values[field]) || parameters[field]->hasKeyframes())
+              values[field] = finite(parameters[field]->getValue(frame), "animated animation-key field must be finite");
+          setAnimationValues(curve.keys[index], values);
+        }
+        auto prepared = std::make_shared<TSeExprAnimCurve::PreparedCurve>();
+        std::string error;
+        demand(prepared->prepare(curve, error), error.c_str());
+        function.resultType = TSeExpr::Type::Scalar;
+        function.documentation = "Native animation curve with weighted tangents and infinity modes: " + spec.label.toStdString();
+        function.evaluate = [prepared](const std::vector<TSeExpr::Value> &arguments) {
+          double value = 0;
+          std::string error;
+          if (!prepared->evaluate(arguments[0].number[0], value, error))
+            throw std::runtime_error(error);
+          return TSeExpr::Value::scalar(value);
+        };
+        result.push_back(std::move(function)); continue;
+      }
       if (spec.definition.value("presentation").toString() == "spectrum") {
         auto values = spectrumValues(spec.definition.value("spectrum").toObject());
         if (native) {
@@ -659,15 +873,29 @@ protected:
         source << ',' << (point.size() == 3 ? int(number(point[2])) : 1);
       }
       source << ')';
-      auto program = std::make_shared<TSeExpr::Program>();
+      TSeExpr::Program validation;
       TSeExpr::Options options; options.resultType = function.resultType;
       options.backend = document.backend == "llvm" ? TSeExpr::Backend::LLVM : TSeExpr::Backend::Interpreter;
-      if (!program->compile(source.str(), {{"t", TSeExpr::Value::scalar(0)}}, {}, options))
-        throw TException("SeExpr curve: " + program->errorMessage());
-      function.evaluate = [program](const std::vector<TSeExpr::Value> &args) {
+      if (!validation.compile(source.str(), {{"t", TSeExpr::Value::scalar(0)}}, {}, options))
+        throw TException("SeExpr curve: " + validation.errorMessage());
+      function.evaluate = [source = source.str(), options](const std::vector<TSeExpr::Value> &args) {
+        struct Entry { std::string key; std::unique_ptr<TSeExpr::Program> program; };
+        static thread_local std::list<Entry> programs;
+        const std::string key = std::to_string(int(options.backend)) + ":" + source;
+        auto found = std::find_if(programs.begin(), programs.end(),
+                                  [&](const Entry &entry) { return entry.key == key; });
+        if (found == programs.end()) {
+          auto program = std::make_unique<TSeExpr::Program>();
+          if (!program->compile(source, {{"t", TSeExpr::Value::scalar(0)}}, {}, options))
+            throw TException("SeExpr curve: " + program->errorMessage());
+          programs.push_front({key, std::move(program)});
+          if (programs.size() > maxControls) programs.pop_back();
+          found = programs.begin();
+        } else programs.splice(programs.begin(), programs, found);
+        TSeExpr::Program &program = *programs.front().program;
         TSeExpr::Value value;
-        if (!program->setScalar("t", args[0].number[0])) throw TException("SeExpr curve: " + program->errorMessage());
-        if (!program->evaluate(value)) throw TException("SeExpr curve: " + program->errorMessage());
+        if (!program.setScalar("t", args[0].number[0])) throw TException("SeExpr curve: " + program.errorMessage());
+        if (!program.evaluate(value)) throw TException("SeExpr curve: " + program.errorMessage());
         return value;
       };
       result.push_back(std::move(function));
@@ -721,6 +949,9 @@ protected:
               const TRenderSettings &settings, InputSampler &sampler, const TTile &mask) {
     const auto document = SeExprFx::parseDocument(m_document->getValue());
     auto variables = variablesFor(document, frame, settings.m_linearColorSpace, settings.m_colorSpaceGamma);
+    const auto attributes = TSeExprAttributes::snapshot(settings);
+    TSeExprAttributes::appendVariables(variables, attributes,
+        {document.rgb.toStdString(), document.alpha.toStdString()});
     struct Prepared {
       TSeExpr::Program rgb, alpha;
       InputSampler sampler;
@@ -731,11 +962,13 @@ protected:
     std::ostringstream identity;
     identity.imbue(std::locale::classic()); identity << std::setprecision(17);
     identity << QString::fromStdWString(m_document->getValue()).toUtf8().constData()
-             << ',' << settings.m_linearColorSpace << ',' << settings.m_colorSpaceGamma;
+             << ',' << settings.m_linearColorSpace << ',' << settings.m_colorSpaceGamma
+             << ',' << attributes.identity();
     // Scalar/vector values are updated without recompiling. Curves contain
     // frame-dependent native stop constants and therefore qualify the cache.
     for (const auto &control : m_controls) {
-      if (!control->spec.active || (control->spec.type != "curve" && control->spec.type != "colorcurve")) continue;
+      if (!control->spec.active || (control->spec.type != "curve" && control->spec.type != "colorcurve" &&
+                                   control->spec.type != "animcurve")) continue;
       const std::string prefix = std::string(controlPrefix) + control->spec.id.toStdString() + "__";
       for (int i = 0; i < this->getParams()->getParamCount(); ++i) {
         TParam *parameter = this->getParams()->getParam(i);
@@ -844,6 +1077,7 @@ public:
       this->getParams()->getParamVar(this->getParams()->getParamName(i))->setParamObserver(nullptr);
   }
   TStringParam *seExprDocumentParam() const override { return m_document.getPointer(); }
+  const TSyntax::Grammar *seExprGrammar() const override { return m_fps->getGrammar(); }
   bool validateSeExprDocument(const std::wstring &text, double frame, std::string &error,
                               std::vector<TSeExpr::Error> *diagnostics = nullptr) const override {
     try {
@@ -870,6 +1104,7 @@ public:
       }
       error.clear(); if (diagnostics) diagnostics->clear(); return true;
     } catch (const TException &failure) { error = QString::fromStdWString(failure.getMessage()).toStdString(); return false; }
+    catch (const std::exception &failure) { error = failure.what(); return false; }
   }
   std::vector<TSeExpr::Variable> seExprVariables(double frame) const override {
     return variablesFor(SeExprFx::parseDocument(m_document->getValue()), frame);
@@ -897,6 +1132,7 @@ public:
       }
       alphaResult = unit(alphaValue.number[0]); error.clear(); return true;
     } catch (const TException &failure) { error = QString::fromStdWString(failure.getMessage()).toStdString(); return false; }
+    catch (const std::exception &failure) { error = failure.what(); return false; }
   }
   bool previewSeExprDocument(const std::wstring &text, double frame,
                              std::string &value, std::string &error) const override {
@@ -1007,6 +1243,8 @@ public:
         auto spec = item.toObject(); const auto ours = m_controlMap.find(spec.value("id").toString());
         if (ours != m_controlMap.end() && ours->second->allocatedKnots)
           spec.insert("nativeKnots", std::max(spec.value("nativeKnots").toInt(), ours->second->allocatedKnots));
+        if (ours != m_controlMap.end() && ours->second->spec.type == "animcurve")
+          spec = animationDefinition(spec, ours->second->spec.definition.value("nativeKeys").toArray());
         entries.append(spec);
       }
       merged.json.insert(group, entries);
@@ -1059,7 +1297,8 @@ public:
     alias.imbue(std::locale::classic()); alias << std::setprecision(17);
     alias << this->getFxType() << "[seexpr-fx-v1," << TSeExpr::Program::engineVersion() << ','
           << TSeExpr::Program::functionPolicyVersion() << ',' << frame << ','
-          << settings.m_linearColorSpace << ',' << settings.m_colorSpaceGamma;
+          << settings.m_linearColorSpace << ',' << settings.m_colorSpaceGamma << ','
+          << TSeExprAttributes::snapshot(settings).identity();
     for (int index = 0; index < this->getInputPortCount(); ++index) {
       const TFxPort *port = this->getInputPort(index);
       if (port->isConnected()) alias << ',' << TRasterFxP(port->getFx())->getAlias(frame, settings);
@@ -1130,3 +1369,5 @@ public:
 };
 FX_PLUGIN_IDENTIFIER(SeExprGeneratorFx, "seexprGeneratorFx")
 FX_PLUGIN_IDENTIFIER(SeExprColorFx, "seexprColorFx")
+
+#include "seexpr3dfx.inc"

@@ -70,7 +70,9 @@ class ImagePlaneFx final : public TStandardRasterFx, public T3DRenderSource {
   std::shared_ptr<const otglb::RenderScene> scene(
       double frame, const int *canceled,
       const std::vector<otglb::ModelTransform> *transforms,
-      const TRenderSettings *settings) const {
+      const TRenderSettings *settings,
+      const std::shared_ptr<const otglb::SurfaceRequest> &surface = {},
+      const otglb::LightingRig *lighting = nullptr) const {
     if (!m_input.isConnected()) return {};
     TRenderSettings neutral = settings ? *settings : TRenderSettings();
     neutral.m_affine = TAffine();
@@ -127,12 +129,40 @@ class ImagePlaneFx final : public TStandardRasterFx, public T3DRenderSource {
         texture          = pixels;
       }
     }
-    return std::make_shared<otglb::RenderScene>(otglb::prepareImagePlane(
+    auto prepared = otglb::prepareImagePlane(
         w, h, std::move(texture),
-        transforms ? *transforms : std::vector<otglb::ModelTransform>{}));
+        transforms ? *transforms : std::vector<otglb::ModelTransform>{}, surface, canceled);
+    if (surface && lighting) {
+      prepared.useLightingRig = true;
+      prepared.lighting = *lighting;
+    }
+    return std::make_shared<otglb::RenderScene>(std::move(prepared));
   }
 
 public:
+  void dryCompute3D(double frame, const TRenderSettings &settings) const override {
+    if (!m_input.isConnected()) return;
+    TRenderSettings neutral(settings);
+    neutral.m_affine = TAffine();
+    neutral.m_bpp = neutral.m_bpp > 32 ? 64 : 32;
+    neutral.m_linearColorSpace = false;
+    auto *input = static_cast<TRasterFx *>(m_input.getFx());
+    TRectD bounds;
+    if (!input->doGetBBox(frame, bounds, neutral) || bounds.isEmpty()) return;
+    if (!(std::isfinite(bounds.x0) && std::isfinite(bounds.y0) &&
+          std::isfinite(bounds.x1) && std::isfinite(bounds.y1)))
+      throw TException("Image Plane requires a finite source bounding box");
+    bounds = TRectD(std::floor(bounds.x0), std::floor(bounds.y0),
+                     std::ceil(bounds.x1), std::ceil(bounds.y1));
+    if (!(bounds.getLx() <= 8192 && bounds.getLy() <= 8192 &&
+          bounds.getLx() * bounds.getLy() <= 16.0 * 1024 * 1024))
+      throw TException("Image Plane input exceeds the 16 megapixel limit");
+    input->dryCompute(bounds, frame, neutral);
+  }
+  void doDryCompute(TRectD &, double frame, const TRenderSettings &settings) override {
+    dryCompute3D(frame, settings);
+  }
+
   ImagePlaneFx() {
     addInputPort("Source", m_input);
     enableComputeInFloat(true);
@@ -140,16 +170,18 @@ public:
 
   std::shared_ptr<const otglb::RenderScene> get3DRenderScene(
       double frame, const int *canceled,
-      const otglb::LightingRig * = nullptr,
+      const otglb::LightingRig *lighting = nullptr,
       const std::vector<otglb::ModelTransform> *transforms = nullptr,
-      const TRenderSettings *settings = nullptr) const override {
-    return scene(frame, canceled, transforms, settings);
+      const TRenderSettings *settings = nullptr,
+      const std::shared_ptr<const otglb::SurfaceRequest> &surface = {}) const override {
+    return scene(frame, canceled, transforms, settings, surface, lighting);
   }
 
   std::shared_ptr<const otglb::RenderScene> get3DRenderGeometry(
-      double frame, const int *,
+      double frame, const int *canceled,
       const std::vector<otglb::ModelTransform> *transforms = nullptr,
-      const TRenderSettings *settings = nullptr) const override {
+      const TRenderSettings *settings = nullptr,
+      const std::shared_ptr<const otglb::SurfaceRequest> &surface = {}) const override {
     if (!m_input.isConnected()) return {};
     TRenderSettings neutral = settings ? *settings : TRenderSettings();
     neutral.m_affine = TAffine();
@@ -167,7 +199,7 @@ public:
       throw std::runtime_error("Image Plane input exceeds the 16 megapixel limit.");
     return std::make_shared<otglb::RenderScene>(otglb::projectImagePlane(
         int(width), int(height),
-        transforms ? *transforms : std::vector<otglb::ModelTransform>{}));
+        transforms ? *transforms : std::vector<otglb::ModelTransform>{}, surface, canceled));
   }
 
   bool doGetBBox(double frame, TRectD &bbox,

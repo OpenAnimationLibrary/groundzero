@@ -82,6 +82,7 @@ bool validControlShape(const QJsonObject &control) {
   if (type == "scalar") return finiteNumber(value);
   if (type == "vector" || type == "color") return vector(value);
   if (type == "string") return value.isString();
+  if (type == "animcurve") return SeExprControls::validateAnimationCurve(control);
   if (type != "curve" && type != "colorcurve") return false;
   const auto points = control.value("points").toArray();
   if (points.size() < 2 || points.size() > 64) return false;
@@ -345,7 +346,7 @@ class SeExprEditor::Imp {
 public:
   SeExprEditor *owner;
   QTabWidget *tabs;
-  CodeEdit *rgb, *alpha;
+  CodeEdit *rgb, *alpha, *displacement, *opacity;
   QTableWidget *controls;
   QListWidget *presets, *functions;
   QTextBrowser *help;
@@ -360,6 +361,7 @@ public:
   QString presetDirectory;
   QString builtinPresetDirectory;
   bool documentMode = true, loading = false;
+  bool surfaceSupported = true;
   TSeExpr::Type type = TSeExpr::Type::Vector;
   double frame = 0.;
   std::vector<TSeExpr::Variable> variables;
@@ -367,6 +369,7 @@ public:
   std::function<QString(const QString &)> validator, evaluator;
   std::function<bool(const QString &, QString &, QString &)> checkedEvaluator;
   std::function<SeExprEditor::RangeEvaluator(const QString &)> rangeFactory;
+  SeExprEditor::AnimationCurveLinkResolver curveLinkResolver;
   std::vector<TSeExpr::FunctionInfo> catalog;
 
   explicit Imp(SeExprEditor *widget) : owner(widget) {}
@@ -382,12 +385,17 @@ public:
     QJsonObject result = object;
     result["rgb"] = rgb->toPlainText();
     result["alpha"] = alpha->toPlainText();
+    if (object.contains("displacement"))
+      result["displacement"] = displacement->toPlainText();
+    if (object.contains("opacity")) result["opacity"] = opacity->toPlainText();
     result["backend"] = backend->currentData().toString();
     return result;
   }
   void loadObject(const QJsonObject &value) {
     loading = true;
     object = value;
+    if (object.contains("displacement") && !object.contains("opacity"))
+      object["opacity"] = "[1,1,1]";
     const QString selectedBackend = value.value("backend").toString("interpreter");
     int backendIndex = backend->findData(selectedBackend);
     if (backendIndex < 0) {
@@ -397,6 +405,12 @@ public:
     backend->setCurrentIndex(backendIndex);
     rgb->setPlainText(value.value("rgb").toString());
     alpha->setPlainText(value.value("alpha").toString("1"));
+    displacement->setPlainText(value.value("displacement").toString("0"));
+    opacity->setPlainText(object.value("opacity").toString("[1,1,1]"));
+    tabs->setTabVisible(tabs->indexOf(displacement),
+                        surfaceSupported && documentMode && object.contains("displacement"));
+    tabs->setTabVisible(tabs->indexOf(opacity),
+                        surfaceSupported && documentMode && object.contains("opacity"));
     refreshControls();
     loading = false;
     apply->setEnabled(owner->isModified());
@@ -426,7 +440,8 @@ public:
     for (const auto &entry : object.value("controls").toArray())
       names << entry.toObject().value("name").toString();
     names << "if" << "else" << "def" << "extern" << "float" << "string";
-    rgb->setWords(names); alpha->setWords(names);
+    rgb->setWords(names); alpha->setWords(names); displacement->setWords(names);
+    opacity->setWords(names);
   }
   void refreshFunctions() {
     functions->clear();
@@ -500,7 +515,7 @@ public:
     label->setObjectName("seExprControlLabel");
     auto name = new QLineEdit(control.value("name").toString(), &dialog);
     auto kind = new QComboBox(&dialog);
-    kind->addItems({"scalar", "vector", "color", "string", "curve", "colorcurve"});
+    kind->addItems({"scalar", "vector", "color", "string", "curve", "colorcurve", "animcurve"});
     kind->setCurrentText(control.value("type").toString());
     kind->setEnabled(adding);
     auto value = new QLineEdit(valueText(control.value("value")), &dialog);
@@ -532,14 +547,20 @@ public:
     browse->setObjectName("seExprControlBrowse");
     form->addRow(color); form->addRow(curve); form->addRow(browse);
     QJsonArray points = control.value("points").toArray();
-    const auto updateKind = [form, kind, value, color, curve, stringKind, browse, &points]() {
+    const auto updateKind = [form, kind, value, color, curve, stringKind, browse, low, high, &points]() {
       const QString type = kind->currentText();
       color->setVisible(type == "color");
-      curve->setVisible(type == "curve" || type == "colorcurve");
+      curve->setVisible(type == "curve" || type == "colorcurve" || type == "animcurve");
+      curve->setText(type == "animcurve" ? SeExprEditor::tr("Edit Animation Curve")
+                                          : SeExprEditor::tr("Edit Points"));
       stringKind->setVisible(type == "string");
       form->labelForField(stringKind)->setVisible(type == "string");
       browse->setVisible(type == "string" && stringKind->currentData().toString() != "string");
-      value->setEnabled(type != "curve" && type != "colorcurve");
+      value->setEnabled(type != "curve" && type != "colorcurve" && type != "animcurve");
+      for (auto field : {low, high}) {
+        field->setVisible(type != "animcurve");
+        form->labelForField(field)->setVisible(type != "animcurve");
+      }
       if ((type == "vector" || type == "color") && !value->text().startsWith('[')) value->setText("[0,0,0]");
       if (points.isEmpty() && type == "curve") points = QJsonArray{QJsonArray{0., 0.}, QJsonArray{1., 1.}};
       if (points.isEmpty() && type == "colorcurve") points = QJsonArray{QJsonArray{0., QJsonArray{0., 0., 0.}}, QJsonArray{1., QJsonArray{1., 1., 1.}}};
@@ -583,7 +604,17 @@ public:
             .arg(component(2, selected.blueF(), displayed.blueF()), 0, 'g', 17));
       }
     });
-    QObject::connect(curve, &QPushButton::clicked, &dialog, [&dialog, &points, kind]() {
+    QObject::connect(curve, &QPushButton::clicked, &dialog, [&dialog, &points, &control, kind]() {
+      if (kind->currentText() == "animcurve") {
+        if (!control.contains("keys")) {
+          const auto defaults = SeExprControls::defaultAnimationCurve();
+          for (auto it = defaults.begin(); it != defaults.end(); ++it)
+            if (!control.contains(it.key())) control[it.key()] = it.value();
+        }
+        control["type"] = "animcurve";
+        SeExprControls::editAnimationCurve(&dialog, control, curveLinkResolver);
+        return;
+      }
       bool accepted; points = editPoints(&dialog, points, kind->currentText() == "colorcurve", accepted);
     });
     auto error = new QLabel(&dialog); error->setWordWrap(true); layout->addWidget(error);
@@ -629,6 +660,17 @@ public:
       }
       control["name"] = variable; control["label"] = label->text(); control["type"] = type;
       control["value"] = parsed;
+      if (type == "animcurve") {
+        if (!control.contains("keys")) {
+          const auto defaults = SeExprControls::defaultAnimationCurve();
+          for (auto it = defaults.begin(); it != defaults.end(); ++it)
+            if (!control.contains(it.key())) control[it.key()] = it.value();
+        }
+        QString message;
+        if (!SeExprControls::validateAnimationCurve(control, &message)) {
+          error->setText(message); return;
+        }
+      }
       // Opening the display fields can round or clamp imported limits. Keep
       // the original JSON (including omitted limits) until that field changes.
       if (changedMinimum) control["min"] = minimum;
@@ -642,6 +684,10 @@ public:
       const QString oldName = entries[row].toObject().value("name").toString();
       rgb->setPlainText(SeExprEditor::renameVariable(rgb->toPlainText(), oldName, name->text().trimmed()));
       alpha->setPlainText(SeExprEditor::renameVariable(alpha->toPlainText(), oldName, name->text().trimmed()));
+      if (object.contains("displacement"))
+        displacement->setPlainText(SeExprEditor::renameVariable(displacement->toPlainText(), oldName, name->text().trimmed()));
+      if (object.contains("opacity"))
+        opacity->setPlainText(SeExprEditor::renameVariable(opacity->toPlainText(), oldName, name->text().trimmed()));
       entries[row] = control;
     } else entries.append(control);
     object["controls"] = entries; refreshControls(); changed();
@@ -663,6 +709,10 @@ SeExprEditor::SeExprEditor(QWidget *parent) : QWidget(parent), m_imp(new Imp(thi
   d.tabs = new QTabWidget(this);
   d.rgb = new CodeEdit(this); d.rgb->setObjectName("seExprRgb"); new Highlighter(d.rgb->document());
   d.alpha = new CodeEdit(this); d.alpha->setObjectName("seExprAlpha"); new Highlighter(d.alpha->document());
+  d.displacement = new CodeEdit(this); d.displacement->setObjectName("seExprDisplacement");
+  new Highlighter(d.displacement->document());
+  d.opacity = new CodeEdit(this); d.opacity->setObjectName("seExprOpacity");
+  new Highlighter(d.opacity->document());
   d.tabs->addTab(d.rgb, tr("RGB")); d.tabs->addTab(d.alpha, tr("Alpha"));
   auto controlsPage = new QWidget(this); auto controlsLayout = new QVBoxLayout(controlsPage);
   d.controls = new QTableWidget(0, 4, controlsPage); d.controls->setObjectName("seExprControls");
@@ -680,9 +730,16 @@ SeExprEditor::SeExprEditor(QWidget *parent) : QWidget(parent), m_imp(new Imp(thi
   annotations->setObjectName("seExprImportAnnotations");
   auto swatches = new QPushButton(tr("Color Swatches"), controlsPage);
   auto spectrum = new QPushButton(tr("Water Spectrum"), controlsPage);
+  auto animationCurve = new QPushButton(tr("Animation Curve"), controlsPage);
+  animationCurve->setObjectName("seExprAddAnimationCurve");
+  auto refreshCurve = new QPushButton(tr("Refresh Linked Curve"), controlsPage);
+  refreshCurve->setObjectName("seExprRefreshAnimationCurve");
   advancedButtons->addWidget(annotations); advancedButtons->addWidget(swatches);
   advancedButtons->addWidget(spectrum); advancedButtons->addStretch();
   controlsLayout->addLayout(advancedButtons);
+  auto curveButtons = new QHBoxLayout();
+  curveButtons->addWidget(animationCurve); curveButtons->addWidget(refreshCurve);
+  curveButtons->addStretch(); controlsLayout->addLayout(curveButtons);
   auto presetPage = new QWidget(this); auto presetLayout = new QVBoxLayout(presetPage);
   d.presetFilter = new QLineEdit(presetPage); d.presetFilter->setPlaceholderText(tr("Search presets"));
   d.presets = new QListWidget(presetPage); d.presets->setObjectName("seExprPresets");
@@ -698,6 +755,10 @@ SeExprEditor::SeExprEditor(QWidget *parent) : QWidget(parent), m_imp(new Imp(thi
   d.help->setOpenExternalLinks(false);
   functionLayout->addWidget(d.functionFilter); functionLayout->addWidget(d.functions); functionLayout->addWidget(d.help);
   d.tabs->addTab(functionPage, tr("Functions")); layout->addWidget(d.tabs);
+  d.tabs->addTab(d.displacement, tr("Displacement"));
+  d.tabs->setTabVisible(d.tabs->indexOf(d.displacement), false);
+  d.tabs->addTab(d.opacity, tr("Opacity RGB"));
+  d.tabs->setTabVisible(d.tabs->indexOf(d.opacity), false);
   d.status = new QLabel(this); d.status->setObjectName("seExprStatus"); d.status->setWordWrap(true); d.status->setTextInteractionFlags(Qt::TextSelectableByMouse);
   d.preview = new QLabel(this); d.preview->setObjectName("seExprValuePreview"); d.preview->setWordWrap(true);
   d.status->setTextFormat(Qt::PlainText);
@@ -707,6 +768,13 @@ SeExprEditor::SeExprEditor(QWidget *parent) : QWidget(parent), m_imp(new Imp(thi
   auto validate = new QPushButton(tr("Validate"), this), revert = new QPushButton(tr("Revert"), this);
   auto range = new QPushButton(tr("Range Preview"), this);
   range->setObjectName("seExprRangePreview");
+  auto insertCurve = new QPushButton(tr("Insert Animation Curve"), this);
+  insertCurve->setObjectName("seExprInsertInlineCurve");
+  auto editInlineCurve = new QPushButton(tr("Edit Inline Curve"), this);
+  editInlineCurve->setObjectName("seExprEditInlineCurve");
+  auto inlineButtons = new QHBoxLayout();
+  inlineButtons->addWidget(insertCurve); inlineButtons->addWidget(editInlineCurve);
+  inlineButtons->addStretch(); layout->addLayout(inlineButtons);
   d.apply = new QPushButton(tr("Apply"), this); d.apply->setObjectName("seExprApply");
   buttons->addWidget(validate); buttons->addWidget(revert); buttons->addWidget(range);
   buttons->addStretch(); buttons->addWidget(d.apply); layout->addLayout(buttons);
@@ -714,6 +782,8 @@ SeExprEditor::SeExprEditor(QWidget *parent) : QWidget(parent), m_imp(new Imp(thi
   QObject::connect(d.rgb, &QPlainTextEdit::textChanged, this, [this]() { m_imp->changed(); });
   QObject::connect(d.backend, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this]() { m_imp->changed(); });
   QObject::connect(d.alpha, &QPlainTextEdit::textChanged, this, [this]() { m_imp->changed(); });
+  QObject::connect(d.displacement, &QPlainTextEdit::textChanged, this, [this]() { m_imp->changed(); });
+  QObject::connect(d.opacity, &QPlainTextEdit::textChanged, this, [this]() { m_imp->changed(); });
   QObject::connect(d.debounce, &QTimer::timeout, this, [this]() { validateDraft(); });
   QObject::connect(validate, &QPushButton::clicked, this, [this]() { validateDraft(); });
   QObject::connect(d.apply, &QPushButton::clicked, this, [this]() { applyDraft(); });
@@ -730,7 +800,7 @@ SeExprEditor::SeExprEditor(QWidget *parent) : QWidget(parent), m_imp(new Imp(thi
         for (const auto &entry : d.object.value("controls").toArray()) {
           const auto control = entry.toObject();
           const QString kind = control.value("type").toString();
-          if (kind == "curve" || kind == "colorcurve") continue;
+          if (kind == "curve" || kind == "colorcurve" || kind == "animcurve") continue;
           const auto value = control.value("value");
           TSeExpr::Value bound;
           if (value.isString()) bound = TSeExpr::Value::string(bytes(value.toString()));
@@ -796,9 +866,12 @@ SeExprEditor::SeExprEditor(QWidget *parent) : QWidget(parent), m_imp(new Imp(thi
     auto &d = *m_imp;
     QJsonArray controls = d.object.value("controls").toArray();
     QStringList diagnostics;
-    for (auto editor : {d.rgb, d.alpha}) {
+    for (auto editor : {d.rgb, d.alpha, d.displacement, d.opacity}) {
+      if (editor == d.displacement && !d.object.contains("displacement")) continue;
+      if (editor == d.opacity && !d.object.contains("opacity")) continue;
       const auto imported = SeExprControls::importAnnotations(editor->toPlainText(), controls,
-                                                             editor == d.rgb ? "rgb" : "alpha");
+          editor == d.rgb ? "rgb" : editor == d.alpha ? "alpha" :
+          editor == d.displacement ? "displacement" : "opacity");
       editor->setPlainText(imported.source);
       for (const auto &control : imported.controls) {
         const QString id = control.toObject().value("id").toString();
@@ -830,6 +903,65 @@ SeExprEditor::SeExprEditor(QWidget *parent) : QWidget(parent), m_imp(new Imp(thi
   };
   QObject::connect(swatches, &QPushButton::clicked, this, [addAdvanced]() { addAdvanced(false); });
   QObject::connect(spectrum, &QPushButton::clicked, this, [addAdvanced]() { addAdvanced(true); });
+  QObject::connect(animationCurve, &QPushButton::clicked, this, [this]() {
+    auto &d = *m_imp;
+    auto entries = d.object.value("controls").toArray();
+    auto control = SeExprControls::defaultAnimationCurve();
+    const QString name = "animation_" + QUuid::createUuid().toString(QUuid::Id128);
+    control["id"] = "control_" + QUuid::createUuid().toString(QUuid::Id128);
+    control["name"] = name; control["label"] = tr("Animation Curve");
+    if (!SeExprControls::editAnimationCurve(this, control, d.curveLinkResolver)) return;
+    entries.append(control); d.object["controls"] = entries;
+    d.refreshControls(); d.controls->selectRow(entries.size() - 1); d.changed();
+  });
+  QObject::connect(refreshCurve, &QPushButton::clicked, this, [this]() {
+    auto &d = *m_imp;
+    const int row = d.controls->currentRow();
+    auto entries = d.object.value("controls").toArray();
+    if (row < 0 || row >= entries.size() ||
+        entries[row].toObject().value("type").toString() != "animcurve") {
+      d.status->setText(tr("Select an animation curve to refresh.")); return;
+    }
+    auto control = entries[row].toObject();
+    const QString link = control.value("link").toString().trimmed();
+    if (link.isEmpty() || !d.curveLinkResolver) {
+      d.status->setText(tr("This curve needs a linked native channel and an available host context."));
+      return;
+    }
+    QString error;
+    bool refreshed = false;
+    try {
+      refreshed = d.curveLinkResolver(link, control, error) &&
+                  SeExprControls::validateAnimationCurve(control, &error);
+    } catch (...) {
+      error = tr("The linked native channel could not be read.");
+    }
+    if (!refreshed) {
+      d.status->setText(error.isEmpty() ? tr("The linked curve could not be refreshed.") : error);
+      return;
+    }
+    entries[row] = control; d.object["controls"] = entries;
+    d.refreshControls(); d.controls->selectRow(row); d.changed();
+    d.status->setText(tr("Linked curve refreshed in the draft. Apply commits the snapshot."));
+  });
+  const auto inlineCurveAction = [this](bool insert) {
+    auto &d = *m_imp;
+    auto *edit = dynamic_cast<CodeEdit *>(d.tabs->currentWidget());
+    if (!edit) edit = d.rgb;
+    QString formula = insert ? QString() : edit->toPlainText();
+    QString error;
+    if (!SeExprControls::editInlineAnimationCurve(this, formula, &error, insert,
+                                                 d.curveLinkResolver)) {
+      if (!error.isEmpty()) d.status->setText(error);
+      return;
+    }
+    if (insert) {
+      auto cursor = edit->textCursor(); cursor.insertText(formula);
+      edit->setTextCursor(cursor);
+    } else edit->setPlainText(formula);
+  };
+  QObject::connect(insertCurve, &QPushButton::clicked, this, [inlineCurveAction]() { inlineCurveAction(true); });
+  QObject::connect(editInlineCurve, &QPushButton::clicked, this, [inlineCurveAction]() { inlineCurveAction(false); });
   QObject::connect(d.presetFilter, &QLineEdit::textChanged, this, [this]() { m_imp->refreshPresets(); });
   QObject::connect(d.functionFilter, &QLineEdit::textChanged, this, [this]() { m_imp->refreshFunctions(); });
   QObject::connect(d.functions, &QListWidget::currentItemChanged, this, [this](QListWidgetItem *item) {
@@ -871,6 +1003,8 @@ SeExprEditor::SeExprEditor(QWidget *parent) : QWidget(parent), m_imp(new Imp(thi
     d.refreshPresets();
   });
   d.catalog = TSeExpr::Program::builtinFunctions();
+  const auto nativeFunctions = TSeExpr::Program::nativeFunctions();
+  d.catalog.insert(d.catalog.end(), nativeFunctions.begin(), nativeFunctions.end());
   d.variables = {{"u", TSeExpr::Value::scalar(.5)}, {"v", TSeExpr::Value::scalar(.5)},
     {"x", TSeExpr::Value::scalar(0)}, {"y", TSeExpr::Value::scalar(0)}, {"frame", TSeExpr::Value::scalar(1)},
     {"time", TSeExpr::Value::scalar(0)}, {"fps", TSeExpr::Value::scalar(24)},
@@ -889,6 +1023,8 @@ void SeExprEditor::setDocument(const QString &value, bool discardDraft) {
   QJsonParseError parse; const auto document = QJsonDocument::fromJson(value.toUtf8(), &parse);
   QJsonObject object = document.isObject() ? document.object() : defaultDocument();
   if (!object.contains("backend")) object["backend"] = "interpreter";
+  if (object.contains("displacement") && !object.contains("opacity"))
+    object["opacity"] = "[1,1,1]";
   if (!document.isObject()) object["rgb"] = value;
   const QString canonical = compact(object);
   if (d.documentMode && canonical == d.committed && !discardDraft) return;
@@ -909,12 +1045,22 @@ void SeExprEditor::setSource(const QString &value, bool discardDraft) {
   { const QSignalBlocker blocker(d.backend); d.backend->setCurrentIndex(0); }
   d.backendRow->hide();
   d.tabs->setTabText(0, tr("Expression")); d.tabs->setTabVisible(1, false); d.tabs->setTabVisible(2, false);
+  d.tabs->setTabVisible(d.tabs->indexOf(d.displacement), false);
+  d.tabs->setTabVisible(d.tabs->indexOf(d.opacity), false);
   if (!preserve) { d.loading = true; d.rgb->setPlainText(value); d.loading = false; }
   d.apply->setEnabled(isModified());
   d.refreshPresets();
 }
 QString SeExprEditor::source() const { return m_imp->rgb->toPlainText(); }
 void SeExprEditor::setResultType(TSeExpr::Type type) { m_imp->type = type; m_imp->refreshPresets(); }
+void SeExprEditor::setSurfaceDocumentSupported(bool supported) {
+  auto &d = *m_imp;
+  d.surfaceSupported = supported;
+  d.tabs->setTabVisible(d.tabs->indexOf(d.displacement),
+                       supported && d.documentMode && d.object.contains("displacement"));
+  d.tabs->setTabVisible(d.tabs->indexOf(d.opacity),
+                       supported && d.documentMode && d.object.contains("opacity"));
+}
 void SeExprEditor::setContext(const std::vector<TSeExpr::Variable> &variables,
                              const std::vector<TSeExpr::Function> &functions) {
   m_imp->variables = variables; m_imp->customFunctions = functions; m_imp->refreshFunctions();
@@ -948,13 +1094,21 @@ void SeExprEditor::setRangeEvaluatorFactory(
     std::function<RangeEvaluator(const QString &)> factory) {
   m_imp->rangeFactory = std::move(factory);
 }
+void SeExprEditor::setAnimationCurveLinkResolver(AnimationCurveLinkResolver resolver) {
+  m_imp->curveLinkResolver = std::move(resolver);
+}
 bool SeExprEditor::isModified() const {
   return (m_imp->documentMode ? document() : source()) != m_imp->committed;
 }
 
 bool SeExprEditor::validateDraft() {
   auto &d = *m_imp; d.debounce->stop();
-  d.rgb->setExtraSelections({}); d.alpha->setExtraSelections({});
+  for (auto *edit : {d.rgb, d.alpha, d.displacement, d.opacity}) edit->setExtraSelections({});
+  if (d.documentMode && !d.surfaceSupported &&
+      (d.object.contains("displacement") || d.object.contains("opacity"))) {
+    d.status->setText(tr("This preset requires an Expression Surface geometry host. Load an image preset for the current effect."));
+    d.preview->clear(); return false;
+  }
   if (d.documentMode && d.object.value("version").toInt(-1) != 1) {
     d.status->setText(tr("The expression document version is unsupported. Its source is preserved."));
     d.preview->clear();
@@ -1003,7 +1157,7 @@ bool SeExprEditor::validateDraft() {
     for (const auto &entry : d.object.value("controls").toArray()) {
       const auto control = entry.toObject(); const auto value = control.value("value");
       const QString type = control.value("type").toString();
-      if (type == "curve" || type == "colorcurve") continue;
+      if (type == "curve" || type == "colorcurve" || type == "animcurve") continue;
       TSeExpr::Value native;
       if (type == "string") native = TSeExpr::Value::string(bytes(value.toString()));
       else if (value.isArray()) { const auto a = value.toArray(); native = TSeExpr::Value::vector(a[0].toDouble(), a[1].toDouble(), a[2].toDouble()); }
@@ -1012,9 +1166,15 @@ bool SeExprEditor::validateDraft() {
     }
   }
   QStringList results;
-  for (int index = 0; index < (d.documentMode ? 2 : 1); ++index) {
-    auto edit = index == 0 ? d.rgb : d.alpha;
-    TSeExpr::Options options; options.resultType = index == 1 ? TSeExpr::Type::Scalar : d.type;
+  std::vector<std::pair<CodeEdit *, TSeExpr::Type>> fields{{d.rgb, d.type}};
+  if (d.documentMode) {
+    fields.push_back({d.alpha, TSeExpr::Type::Scalar});
+    if (d.object.contains("displacement")) fields.push_back({d.displacement, TSeExpr::Type::Scalar});
+    if (d.object.contains("opacity")) fields.push_back({d.opacity, TSeExpr::Type::Vector});
+  }
+  for (const auto &field : fields) {
+    auto edit = field.first;
+    TSeExpr::Options options; options.resultType = field.second;
     options.backend = d.backend->currentData().toString() == "llvm" ? TSeExpr::Backend::LLVM : TSeExpr::Backend::Interpreter;
     TSeExpr::Program program;
     if (!program.compile(bytes(edit->toPlainText()), variables, d.customFunctions, options)) {
@@ -1043,6 +1203,10 @@ bool SeExprEditor::validateDraft() {
   d.status->setText(tr("Valid. Apply commits one undoable edit."));
   d.preview->setText(d.documentMode ? tr("Sample at u=0.5, v=0.5 — RGB: %1; Alpha: %2").arg(results[0], results[1])
                                   : tr("Current value: %1").arg(results[0]));
+  for (std::size_t index = 2; index < fields.size(); ++index)
+    d.preview->setText(d.preview->text() +
+        (fields[index].first == d.displacement ? tr("; Displacement: %1") : tr("; Opacity RGB: %1"))
+            .arg(results[int(index)]));
   return true;
 }
 bool SeExprEditor::applyDraft() {
@@ -1072,8 +1236,13 @@ bool SeExprEditor::importPreset(const QByteArray &data, QString *error) {
     value = value.value("document").toObject();
   }
   if (value.value("version").toInt() != 1 || !value.value("rgb").isString() ||
-      !value.value("alpha").isString() || !value.value("controls").isArray())
+      !value.value("alpha").isString() || !value.value("controls").isArray() ||
+      (value.contains("displacement") && !value.value("displacement").isString()) ||
+      (value.contains("opacity") && !value.value("opacity").isString()))
     return fail(tr("The preset has an unsupported version or incomplete expression document."));
+  if (m_imp->documentMode && !m_imp->surfaceSupported &&
+      (value.contains("displacement") || value.contains("opacity")))
+    return fail(tr("This preset requires an Expression Surface geometry host."));
   const auto controls = value.value("controls").toArray();
   if (controls.size() > 512) return fail(tr("The preset has too many controls."));
   std::set<QString> identifiers, names;
@@ -1112,6 +1281,12 @@ bool SeExprEditor::importPreset(const QByteArray &data, QString *error) {
     QJsonArray archive;
     for (const auto &entry : retained) archive.append(entry.second);
     value["archive"] = archive;
+    // Image presets can supply color/controls to a surface host without
+    // removing its editable geometry source.
+    if (m_imp->surfaceSupported && m_imp->object.contains("displacement") && !value.contains("displacement"))
+      value["displacement"] = m_imp->displacement->toPlainText();
+    if (m_imp->surfaceSupported && m_imp->object.contains("opacity") && !value.contains("opacity"))
+      value["opacity"] = m_imp->opacity->toPlainText();
     m_imp->loadObject(value); m_imp->changed();
   }
   if (error) error->clear(); return true;
@@ -1153,6 +1328,6 @@ QString SeExprEditor::renameVariable(const QString &source, const QString &oldNa
 void SeExprEditor::changeEvent(QEvent *event) {
   QWidget::changeEvent(event);
   if (event->type() == QEvent::PaletteChange)
-    for (auto edit : {m_imp->rgb, m_imp->alpha})
+    for (auto edit : {m_imp->rgb, m_imp->alpha, m_imp->displacement, m_imp->opacity})
       for (auto highlighter : edit->document()->findChildren<QSyntaxHighlighter *>()) highlighter->rehighlight();
 }

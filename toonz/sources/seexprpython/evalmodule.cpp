@@ -269,11 +269,13 @@ PyObject *evaluateBinding(PyObject *self, PyObject *args, PyObject *keywords) {
 PyObject *validateBinding(PyObject *self, PyObject *args, PyObject *keywords) {
   return evaluate(self, args, keywords, true);
 }
-PyObject *catalog(PyObject *, PyObject *) {
+PyObject *catalog(bool native) {
   PyObject *result = PyList_New(0);
   if (!result) return nullptr;
   try {
-    for (const auto &function : TSeExpr::Program::builtinFunctions()) {
+    const auto entries = native ? TSeExpr::Program::nativeFunctions()
+                                : TSeExpr::Program::builtinFunctions();
+    for (const auto &function : entries) {
       PyObject *entry = Py_BuildValue("{s:s,s:s,s:i,s:i}", "name", function.name.c_str(),
           "documentation", function.documentation.c_str(), "min_args", function.minArgs,
           "max_args", function.maxArgs);
@@ -291,12 +293,16 @@ PyObject *catalog(PyObject *, PyObject *) {
   Py_DECREF(result);
   return nullptr;
 }
+PyObject *catalogBinding(PyObject *, PyObject *) { return catalog(false); }
+PyObject *nativeCatalogBinding(PyObject *, PyObject *) { return catalog(true); }
 PyMethodDef methods[] = {
     {"evaluate", reinterpret_cast<PyCFunction>(evaluateBinding), METH_VARARGS | METH_KEYWORDS,
      "Evaluate a formula using the native expression engine."},
     {"validate", reinterpret_cast<PyCFunction>(validateBinding), METH_VARARGS | METH_KEYWORDS,
      "Validate a formula and return native diagnostics."},
-    {"functions", catalog, METH_NOARGS, "Return the actual registered function catalog."},
+    {"functions", catalogBinding, METH_NOARGS, "Return the actual registered function catalog."},
+    {"native_functions", nativeCatalogBinding, METH_NOARGS,
+     "Return native extension functions separately from the core catalog."},
     {nullptr, nullptr, 0, nullptr}};
 }  // namespace
 

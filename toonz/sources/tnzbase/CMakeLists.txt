@@ -58,6 +58,7 @@ set(HEADERS ${MOC_HEADERS}
     ../include/ttest.h
     ../include/texpression.h
     ../include/tseexpr.h
+    ../include/tseexpranimcurve.h
     ../include/tgrammar.h
     ../include/tparser.h
     ../include/ttokenizer.h
@@ -221,3 +222,11 @@ endif()
 target_link_libraries(tnzbase
     PUBLIC Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui ${EXTRA_LIBS}
     PRIVATE groundzero_seexpr_core)
+
+if(BUILD_SEEXPR_TESTS)
+    add_executable(seexpr_native_animcurve_test
+        ../../../ci-scripts/seexpr/animcurve_test.cpp)
+    target_link_libraries(seexpr_native_animcurve_test tnzbase)
+    add_test(NAME seexpr_native_animcurve COMMAND seexpr_native_animcurve_test)
+    set_tests_properties(seexpr_native_animcurve PROPERTIES TIMEOUT 120)
+endif()

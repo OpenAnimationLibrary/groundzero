@@ -17,6 +17,24 @@ require(expr.validate('1+', result_type='scalar')['valid'] is False,
 require(bool(expr.validate('1+', result_type='scalar')['errors']), 'native diagnostics were omitted')
 catalog = {item['name']: item for item in expr.functions()}
 require(len(catalog) == 99 and bool(catalog['fbm']['documentation']), 'actual function catalog is incomplete')
+native_catalog = {item['name']: item for item in expr.native_functions()}
+require('native_functions' in expr.__all__ and 'animCurve' in native_catalog and
+        not set(catalog).intersection(native_catalog) and 'animCurve' not in catalog,
+        'native extension discovery changed or overlapped the core function catalog')
+animation_info = native_catalog['animCurve']
+require(set(animation_info) == {'name', 'documentation', 'min_args', 'max_args'} and
+        animation_info['min_args'] == 5 and animation_info['max_args'] >= 23 and
+        'degrees' in animation_info['documentation'] and
+        'cycleRelative' in animation_info['documentation'],
+        'native animation function metadata omitted its signature or authoring help')
+animation_source = (animation_info['name'] + '($u,"linear","cycleRelative",0,"fixture_curve",'
+                    '0,2,1,1,0,0,"linear","linear",0,'
+                    '2,6,1,1,0,0,"linear","linear",0)')
+require(expr.validate(animation_source, {'u': 0.5}, 'scalar')['valid'] and
+        expr.evaluate(animation_source, {'u': 0.5}, 'scalar') == 3.0 and
+        expr.evaluate(animation_source, {'u': 4.0}, 'scalar') == 10.0,
+        'a discovered native animation function did not interpolate or apply post infinity')
+require(len(expr.functions()) == 99, 'querying native extensions mutated the core catalog')
 callback = {'twice': {'arguments': ['scalar'], 'result_type': 'scalar',
                       'callback': lambda value: value * 2}}
 require(expr.evaluate('twice($x)', {'x': 3.5}, 'scalar', functions=callback) == 7,

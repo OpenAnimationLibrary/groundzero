@@ -229,12 +229,14 @@
   SHADER_HSLBlendGPU
 </Shaders>
   <3D>
+    STD_seexprSurfaceFx
     STD_glbModelFx
     STD_imagePlaneFx
     STD_transform3DFx
     STD_threePointLightFx
   </3D>
   <Utility>
+    STD_seexprAttributeFx
     STD_openExrAovFx
     STD_nothingFx
   </Utility>

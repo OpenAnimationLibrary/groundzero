@@ -21,6 +21,8 @@ class DVAPI SeExprEditor final : public QWidget {
   Q_OBJECT
 public:
   using RangeEvaluator = std::function<bool(double, std::vector<double> &, QString &)>;
+  using AnimationCurveLinkResolver =
+      std::function<bool(const QString &, QJsonObject &, QString &)>;
   explicit SeExprEditor(QWidget *parent = nullptr);
   ~SeExprEditor() override;
 
@@ -29,6 +31,7 @@ public:
   void setSource(const QString &source, bool discardDraft = false);
   QString source() const;
   void setResultType(TSeExpr::Type type);
+  void setSurfaceDocumentSupported(bool supported);
   void setContext(const std::vector<TSeExpr::Variable> &variables,
                   const std::vector<TSeExpr::Function> &functions = {});
   void setFrame(double frame);
@@ -47,6 +50,9 @@ public:
   // parameter state rather than sharing mutable evaluation caches.
   void setRangeEvaluatorFactory(
       std::function<RangeEvaluator(const QString &)> factory);
+  // Explicit GUI action: replace a draft curve with a snapshot of its linked
+  // native channel. Hosts guard their own lifetime and reference context.
+  void setAnimationCurveLinkResolver(AnimationCurveLinkResolver resolver);
   bool validateDraft();
   bool applyDraft();
   void revertDraft();

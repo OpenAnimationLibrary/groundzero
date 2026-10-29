@@ -93,13 +93,20 @@ def main():
                 ("unsupported-version", "unsupported-version", None, None, True, []),
                 ("multimedia-syntax", "syntax-error", None, None, True, ["-multimedia", "1"]),
                 ("multimedia-version", "unsupported-version", None, None, True, ["-multimedia", "1"]),
+                ("surface-valid", "surface-valid", {1, 2, 3}, set(), False, []),
+                ("surface-workers", "surface-valid", {1, 2, 3}, set(), False, []),
+                ("surface-static", "surface-static", {1, 2, 3}, set(), False, []),
+                ("surface-image-plane", "surface-image-plane", {1, 2, 3}, set(), False, []),
+                ("surface-runtime-middle", "surface-runtime-middle", {1, 3}, {2}, True, []),
+                ("surface-runtime-workers", "surface-runtime-middle", {1, 3}, {2}, True, []),
             )
             for name, scene_name, completed, failed, expects_error, options in cases:
                 scene = scenes / f"{scene_name}.tnz"
                 if not scene.is_file():
                     raise RuntimeError("Native scene preparation omitted a required fixture")
+                threads = "4" if name in ("surface-workers", "surface-runtime-workers") else "single"
                 command = [str(composer), str(scene), "-o", str(directory / "output" / f"{name}.png"),
-                           "-nthreads", "single", "-TOONZROOT", str(stuff)] + options
+                           "-nthreads", threads, "-TOONZROOT", str(stuff)] + options
                 rendered = run(command, directory, environment, report, f"Batch {name}")
                 if not expects_error:
                     if rendered.returncode:
@@ -117,6 +124,9 @@ def main():
                     raise RuntimeError(f"Invalid {name} scene printed a successful completion summary")
                 if name == "animation-error" and "a SeExpr expression could not be evaluated" not in rendered.stdout:
                     raise RuntimeError("Animation fallback did not reach the explicit batch failure boundary")
+                if name in ("surface-runtime-middle", "surface-runtime-workers") and \
+                        "a SeExpr expression could not be evaluated" not in rendered.stdout:
+                    raise RuntimeError("Surface displacement did not reach the explicit batch expression failure counter")
                 if completed is not None:
                     pattern = re.compile(rf"[/\\]{re.escape(name)}\.(\d+)\.png (computed|failed)(?=:|\s*$)", re.MULTILINE)
                     events = Counter((int(frame), outcome) for frame, outcome in pattern.findall(rendered.stdout))
@@ -134,6 +144,11 @@ def main():
                                   environment, report, "Batch image verification")
                     if checked.returncode:
                         raise RuntimeError("Valid native SeExpr image verification failed")
+            checked = run([str(builder), str(directory), "--verify-surfaces"], directory,
+                          environment, report, "Saved surface image and worker verification")
+            if checked.returncode:
+                raise RuntimeError("Actual surface batch pixels, geometry, animation or worker verification failed")
+            report.append("Saved GLB and Image Plane surfaces: single/multiple-worker pixels, animated attributes, displacement, scheduler inputs and failure counter verified\n")
             report.append("SeExpr native batch acceptance: PASS\n")
             status = 0
     except (OSError, RuntimeError, ValueError) as error:

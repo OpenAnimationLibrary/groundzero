@@ -13,6 +13,7 @@ from . import _core
 evaluate = _core.evaluate
 validate = _core.validate
 functions = _core.functions
+native_functions = _core.native_functions
 
 
 class ASTType(IntEnum):
@@ -161,4 +162,4 @@ class Edits:
 
 __all__ = ["AST", "ASTHandle", "ASTType", "Edits", "getComment",
            "traverseCallback", "traverseFilter", "printTree", "evaluate",
-           "validate", "functions"]
+           "validate", "functions", "native_functions"]

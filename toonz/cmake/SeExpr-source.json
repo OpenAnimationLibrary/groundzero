@@ -48,21 +48,21 @@
   "native_replacements": {
     "application_ui": "Independently authored native Qt editor, controls, preset browser, spectrum editor and range viewer in toonzqt; upstream UI subtree is not compiled or installed",
     "python_sdk": "Independently authored Python 3 AST/evaluation wrapper and SeExprPy helpers, with independent optional PyQt5/PyQt6 authoring widgets and expreditor2 compatibility import",
-    "external_hosts": "Native Generator/Color FX, Function Editor/channel bindings and SDK examples replace binding, batching and keyframe workflows; inline animCurve import, independent pre/post infinity, automatic scene attributes and 3D shading/displacement remain unported"
+    "external_hosts": "Owned inline/named animCurve models, full key metadata and infinity/tangent editing, explicit linked refresh, native procedural surface/displacement and render-local namespaced attribute/option providers replace visible external-host workflows; vendor binary ABIs are not distributed; RGB opacity composes per-channel inside the native 3D renderer, with maximum channel coverage encoded into final OT scalar alpha"
   },
   "selected_modules": {
     "core": "Required application/SDK interpreter and typed native adapter",
     "llvm": "Optional LLVM 14 backend from the pinned core; explicit backend identity; Linux, Windows and Intel macOS qualification configured; configured jobs are not passing results",
     "cpp_sdk": "Optional installed headers/static library, explicit native plugin loader, calculator, grapher and host-binding example",
     "python_ast": "Optional Python 3 extension compiles privately prepared ASTNode.h, SeExprLex.h/.cpp and SeExprParse.h from the licensed inspection parser; exact source ranges, node ownership and retained scanner notices",
-    "python_qt": "Optional independent PyQt authoring frontend; external PyQt installation required; Qt5 qualification configured, Qt6 not yet qualified"
+    "python_qt": "Optional independent PyQt authoring frontend; external PyQt installation required; Qt5 three-platform and separate Linux PyQt6 qualification configured, each requiring actual final-revision results"
   },
   "excluded_sources": {
     "src/SeExpr2/UI/__init__.py": "Restrictive upstream notice; never compiled, copied or redistributed by the native or Python frontend",
     "src/SeExpr2/UI": "Replaced by independently authored native Qt and optional PyQt authoring workflows",
     "src/py/SeExprPy.cpp": "Legacy wrapper replaced by the native Python 3 AST/evaluation wrapper; licensed syntax parser remains selected",
-    "src/demos/rman2": "External renderer SDK/ABI not distributed; binding/batching mapped into native FX/SDK, but automatic scene attributes and 3D shading/surface displacement have no native equivalent and require a scope decision",
-    "src/SeExpr2/UI/CE": "External animation editor sources are absent upstream; native channel/keyframe workflows do not preserve inline animCurve metadata or independently chosen infinity policies, which remain unresolved scope",
+    "src/demos/rman2": "RenderMan SDK/runtime and RSL plugin ABI are not distributed. Native triangle-mesh surface/displacement, lighting context and render-local attribute/option effects implement the OT host equivalent; RenderMan adaptive dicing and vendor execution are not claimed",
+    "src/SeExpr2/UI/CE": "Current pinned tree omits the external editor/evaluator. Native owned animCurve model and Qt/Python authoring preserve visible serialized metadata and policies; historical licensed tangent regeneration is separately recorded; external animlib binary compatibility is unqualified",
     "src/demos/imageSynth and imageEditor": "Standalone host applications replaced by native Generator/Color FX and source sampling"
   },
   "patch_helpers": [
@@ -85,17 +85,26 @@
     "Ordered save queues retain later completed frames after earlier failures, report exact failed/completed frame identifiers and suppress successful completion for failed batch jobs"
   ],
   "qualification_sources": {
-    "core_and_sdk": "Interpreter Windows/Linux/macOS and optional LLVM14 Linux corpora, typed SDK callback/equality regressions and a clean installed CMake consumer",
-    "python": "AST/evaluation/optional Qt5 widget fixtures use the built package; PyQt6 frontend available but not yet runtime-qualified",
+    "core_and_sdk": "Interpreter and optional LLVM14 Windows/Linux/Intel macOS corpora, animation-curve policies, typed SDK callback/equality regressions and clean installed CMake consumers",
+    "python": "Built-package AST/evaluation/Qt5 widget fixtures on three platforms; separate Linux PyQt6 configuration; configured jobs require actual passing final-revision results",
     "native_application": "Actual application startup with disposable data; Column/Stage Schematic snapshots and owner preservation, append/prepend/middle paste, empty/hidden channels, linked FX redo, foreign-sheet core callback isolation, column/sub-xsheet operations and undo/redo",
     "native_batch": "Actual saved scene/tcomposer output; exact completed/failed frames for first/middle/last errors, range/step and multimedia cases, nonzero diagnostics and no false successful summary",
-    "performance": "Native Generator 1920x1080 and 3840x2160, one/four workers, cold/warm-frame timings, deterministic image checksums and process peak resident memory; Linux CI measurement configured, no hardware results claimed"
+    "performance": "Native Generator 1920x1080 and 3840x2160, one/four workers, cold/warm-frame timings, deterministic image checksums and process peak resident memory; Linux CI measurement configured, no hardware results claimed",
+    "native_surface": "Actual native GLBModel/Transform/ImagePlane/attribute/surface chains and pure GLB coverage, displacement, normals, transparency, tile/worker/cache/cancel/error fixtures; pure renderer also included in Linux sanitizers",
+    "native_package": "Fresh-runner installed application artifact launches on Windows/Linux/Intel macOS, packaged data/notices, no Qt SDK, development library/plugin paths cleared, native lifecycle and test-only runtime cleanup"
   },
   "source_inventory_status": "Implemented means source and named acceptance fixtures exist; actual passing evidence is recorded by the qualification jobs/reports at the final revision, not by this source manifest",
   "qualification_reports": {
-    "core_sdk_python": "SeExpr qualification: Linux interpreter, Windows interpreter, macOS interpreter, Linux LLVM 14; seexpr-tests.xml, seexpr-tests.log and installed-consumer seexpr-sdk-tests.log",
+    "core_sdk_python": "SeExpr qualification: Linux/Windows/macOS interpreter and LLVM14, Linux interpreter PyQt6, and Linux ASan and UBSan; JUnit/logs plus clean installed-consumer tests",
     "native_platforms": "Linux Build, Windows Build, MacOS Build: Test SeExpr native integration; seexpr-tests.xml, seexpr-tests-output.txt, seexpr-native-output.txt and seexpr-native-batch-output.txt",
     "performance": "Linux Build: Measure SeExpr full-resolution rendering; seexpr-performance.txt",
-    "readiness": "Every required native/core/SDK/backend/platform acceptance check must pass at the final implementation revision; no manual hardware or PyQt6 qualification is asserted"
+    "readiness": "Every required native/core/SDK/backend/platform acceptance check must pass at the final implementation revision; physical hardware and vendor ABI qualification require their own evidence",
+    "installed_application": "Linux/Windows/MacOS Build: InstalledApplication reusable package qualification, seexpr-package-setup/launch and seexpr-packaged-native logs"
+  },
+  "historical_animation_source": {
+    "revision": "87547a6fcf447d8fe2fab2fb9d0e6e99f34f03b7",
+    "file": "src/SeExprEditor/CE/CETool.cpp",
+    "git_blob": "c908aabd3baea044d4049ef887a8d4de7c8ed25d",
+    "use": "Tangent regeneration adapted into the owned native animation-curve model; upstream modified-Apache notice retained"
   }
 }

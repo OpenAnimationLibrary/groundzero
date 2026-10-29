@@ -8,6 +8,7 @@
 #include "toonzqt/doublefield.h"
 #include "toonzqt/expressionfield.h"
 #include "toonzqt/seexpreditor.h"
+#include "toonzqt/seexprcontrols.h"
 #include "toonzqt/dvdialog.h"
 #include "tw/stringtable.h"
 #include "toonzqt/functionsheet.h"
@@ -39,6 +40,7 @@
 #include <QTextEdit>
 #include <QDialog>
 #include <QSignalBlocker>
+#include <QPointer>
 
 using namespace DVGui;
 
@@ -516,6 +518,18 @@ FunctionExpressionSegmentPage::FunctionExpressionSegmentPage(
     editor->setResultType(TSeExpr::Type::Scalar);
     editor->setSource(QString::fromStdString(
         TExpression::seExprSource(m_expressionFld->getExpression())), true);
+    const QPointer<FunctionExpressionSegmentPage> curvePage(this);
+    editor->setAnimationCurveLinkResolver(
+        [curvePage, curve, segment](const QString &reference, QJsonObject &control,
+                                    QString &error) {
+      if (!curvePage || curvePage->getCurve() != curve ||
+          curvePage->getViewer()->getSegmentIndex() != segment) {
+        error = tr("The selected animation segment changed. Reopen the curve editor.");
+        return false;
+      }
+      return SeExprControls::refreshAnimationCurveLink(
+          curve->getGrammar(), reference, control, error);
+    });
     editor->setValidator([this, curve, segment](const QString &source) {
       if (getCurve() != curve || getViewer()->getSegmentIndex() != segment)
         return tr("The selected animation segment changed. Reopen the editor.");

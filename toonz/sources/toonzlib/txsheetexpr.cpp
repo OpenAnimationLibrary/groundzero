@@ -35,6 +35,7 @@
 
 // Qt includes
 #include <QString>
+#include <QRegularExpression>
 
 #include "toonz/txsheetexpr.h"
 
@@ -90,17 +91,25 @@ public:
 class ParamReferenceFinder final : public TSyntax::CalculatorNodeVisitor {
   QSet<TDoubleParam *> m_refParams;
   QSet<int> m_columnIndices;
+  int m_referenceCount = 0;
+  bool m_hasOffsetLayers = false;
 
 public:
   ParamReferenceFinder() {}
 
-  void registerRefParam(TDoubleParam *param) { m_refParams.insert(param); }
+  void registerRefParam(TDoubleParam *param, bool hasOffsetLayers = false) {
+    m_refParams.insert(param);
+    ++m_referenceCount;
+    m_hasOffsetLayers = m_hasOffsetLayers || hasOffsetLayers;
+  }
   void registerColumnIndex(int columnIndex) {
     m_columnIndices.insert(columnIndex);
   }
 
   QSet<int> columnIndices() const { return m_columnIndices; }
   QSet<TDoubleParam *> refParams() const { return m_refParams; }
+  int referenceCount() const { return m_referenceCount; }
+  bool hasOffsetLayers() const { return m_hasOffsetLayers; }
 };
 
 //===================================================================
@@ -171,7 +180,8 @@ public:
   void accept(TSyntax::CalculatorNodeVisitor &visitor) override {
     ParamReferenceFinder *prf = dynamic_cast<ParamReferenceFinder *>(&visitor);
     if (prf) {
-      prf->registerRefParam(m_param.getPointer());
+      prf->registerRefParam(m_param.getPointer(),
+                            m_offsets && !m_offsets->m_layers.empty());
       return;
     }
 
@@ -226,7 +236,8 @@ public:
   void accept(TSyntax::CalculatorNodeVisitor &visitor) override {
     ParamReferenceFinder *prf = dynamic_cast<ParamReferenceFinder *>(&visitor);
     if (prf) {
-      prf->registerRefParam(m_param.getPointer());
+      prf->registerRefParam(m_param.getPointer(),
+                            m_offsets && !m_offsets->m_layers.empty());
       prf->registerColumnIndex(m_columnIndex);
       return;
     }
@@ -822,4 +833,23 @@ void referenceParams(TExpression &expr, QSet<int> &columnIndices,
   expr.accept(prf);
   columnIndices = prf.columnIndices();
   params        = prf.refParams();
+}
+
+bool referenceCurveForSnapshot(TExpression &expr, TDoubleParam *&param,
+                               bool &hasOffsetLayers) {
+  param = nullptr;
+  hasOffsetLayers = false;
+  static const QRegularExpression literalReference(
+      QStringLiteral("^[A-Za-z_][A-Za-z0-9_.]*$"));
+  if (!literalReference.match(QString::fromStdString(expr.getText()).trimmed())
+           .hasMatch() ||
+      !expr.isValid())
+    return false;
+  ParamReferenceFinder finder;
+  expr.accept(finder);
+  const QSet<TDoubleParam *> params = finder.refParams();
+  if (finder.referenceCount() != 1 || params.size() != 1) return false;
+  param = *params.constBegin();
+  hasOffsetLayers = finder.hasOffsetLayers();
+  return param != nullptr;
 }

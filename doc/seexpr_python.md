@@ -42,13 +42,16 @@ The frontend provides:
 - `ExprBrowser`: nested search paths, source/JSON preset selection and saving with metadata preserved. Relative folder labels distinguish repeated filenames. Traversal skips links/reparse points and reports limits after 4,096 entries or 32 subdirectory levels.
 - `ExprShortEdit` and `ExprShortTextEdit`: compact editing and an expanded editor that retains source and propagates applied changes.
 - `ExprCurve` and `ExprColorCurve`: point editing, all five upstream interpolation modes and previews evaluated by the native engine.
+- `ExprAnimCurve`: all animation-key fields, seven tangent/five infinity modes, weighting and locks, key operations, native graph preview and explicit host callback refresh. Apply/Cancel retain source precision, comments, lookup expressions, key identity and unknown metadata.
 - `ExprColorSwatchWidget`: color addition, removal, reordering and selection.
 - `ExprDeepWater`: the twelve spectrum parameters and spectrum preview. This is the upstream spectrum-authoring behavior, not a fluid simulation.
 
 Use `ExprEditor.setContext(variables, functions, result_type)` to bind real host inputs. `registerExtraFunction`, `registerExtraVariable`, and `updateCompleter` extend authoring help; documentation registration alone does not implement a function callback. Unknown functions remain validation errors until the host supplies their implementations.
 
+`functions()` retains the original 99-function core catalog. `native_functions()` separately describes native host extensions such as `animCurve`; the editor includes both in help and completion. The native extension is evaluated by the same compiled adapter as its C++ counterpart.
+
 Literal controls update source and emit apply notifications. Numeric RGB dialogs preserve HDR values and untouched component precision, and canceling them does not change source. Display swatches and the optional display color picker are limited to colors from zero to one; they do not replace the numeric values merely by opening and accepting the dialog. A consumer owns the actual document/scene transaction and should validate before applying it. The main application's native C++ editor owns OT undo, keyframes, references and persistence; the standalone Python widgets do not claim ownership of those application objects.
 
 ## Qualification
 
-The CI fixtures `seexpr_python_ast`, `seexpr_python_eval`, and optional `seexpr_python_ui` verify syntax ownership/editing, real scalar/vector/string and host-callback evaluation, and real Qt source/controls/presets/dialog behavior. They load the built SDK before the source tree, use disposable preset directories, and report failures rather than skip missing requested bindings. Qt5 qualification does not by itself establish Qt6 runtime qualification.
+The CI fixtures `seexpr_python_ast`, `seexpr_python_eval`, and optional `seexpr_python_ui` verify syntax ownership/editing, real scalar/vector/string and host-callback evaluation, and real Qt source/controls/presets/dialog behavior. They load the built SDK before the source tree, use disposable preset directories, and report failures rather than skip missing requested bindings. Qt5 is configured on all three platforms and PyQt6 has a separate Linux job; each configuration requires its own actual passing results.

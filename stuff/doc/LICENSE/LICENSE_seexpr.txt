@@ -2,6 +2,12 @@ SeExpr
 
 Copyright Disney Enterprises, Inc.  All rights reserved.
 
+The native animation-curve model adapts tangent regeneration from the historical
+SeExpr snapshot 87547a6fcf447d8fe2fab2fb9d0e6e99f34f03b7,
+src/SeExprEditor/CE/CETool.cpp (git blob
+c908aabd3baea044d4049ef887a8d4de7c8ed25d), under the same modified terms below.
+It is modified for owned native data, bounded evaluation and independent hosts.
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License
 and the following modification to it: Section 6 Trademarks.

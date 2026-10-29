@@ -364,7 +364,7 @@ jobs:
         shell: pwsh
         run: |
           $package = "toonz/build/Opentoonz"
-          $drivers = @("seexpr_plugin_test", "seexpr_animation_test", "seexpr_fx_test", "seexpr_editor_test", "seexpr_controls_test", "seexpr_range_test", "seexpr_batch_fixture")
+          $drivers = @("seexpr_plugin_test", "seexpr_animation_test", "seexpr_fx_test", "seexpr_surface_fx_test", "seexpr_native_animcurve_test", "glbsurface_test", "seexpr_editor_test", "seexpr_controls_test", "seexpr_range_test", "seexpr_batch_fixture")
           $suffixes = @(".exe", ".lib", ".exp", ".pdb", ".ilk", ".ipdb", ".iobj", ".exe.manifest")
           foreach ($driver in $drivers) {
             foreach ($suffix in $suffixes) {
@@ -421,4 +421,11 @@ jobs:
           name: Groundzero-${{ github.event.pull_request.number && format('PR-{0}', github.event.pull_request.number) || 'Branch-build' }}-Windows-${{ github.sha }}-${{ github.run_id }}
           path: artifact
           if-no-files-found: error
+
+  InstalledApplication:
+    needs: Windows
+    uses: ./.github/workflows/seexpr-package-smoke.yml
+    with:
+      platform: windows
+      artifact_name: Groundzero-${{ github.event.pull_request.number && format('PR-{0}', github.event.pull_request.number) || 'Branch-build' }}-Windows-${{ github.sha }}-${{ github.run_id }}
 

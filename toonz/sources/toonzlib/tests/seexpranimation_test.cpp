@@ -68,6 +68,21 @@ void dialectAndTime() {
   expectNear(value, 1.0, "recovered animation value is incorrect");
   require(expression.getError().empty(), "recovered formula retained a stale runtime error");
 
+  expression.setText(TExpression::makeSeExprText(
+      "animCurve($frame,\"constant\",\"linear\",0,\"col1.x\","
+      "1,0,1,1,0,0,\"linear\",\"linear\",0,"
+      "3,2,1,1,0,0,\"linear\",\"linear\",0)"));
+  require(expression.evaluate(0.0, 2.0, 2.0, nullptr, value),
+          "inline animation curve did not evaluate in the native animation dialect");
+  expectNear(value, 1, "inline animation curve lost one-based fractional-frame lookup");
+  require(expression.evaluate(0.0, 4.0, 4.0, nullptr, value),
+          "inline animation curve did not extrapolate in native animation");
+  expectNear(value, 3, "inline animation curve lost its linear post-infinity mode");
+  QSet<int> linkedColumns; QSet<TDoubleParam *> linkedParameters;
+  referenceParams(expression, linkedColumns, linkedParameters);
+  require(linkedColumns.empty() && linkedParameters.empty(),
+          "animation refresh metadata became a live native channel dependency");
+
   expression.setText(TExpression::makeSeExprText("channel(sprintf(\"%s\", \"col1.x\"))"));
   require(!expression.isValid(), "dynamic channel reference escaped static dependency binding");
   expression.setText(TExpression::makeSeExprText("noise("));

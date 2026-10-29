@@ -42,6 +42,35 @@ Source Edges selects transparent, clamp, repeat or mirror; the latter modes requ
 Neighbor Shift uses the default nonzero Sampling Radius. Sampling requests share a 256 MiB temporary Source/Mask budget.</p>
 <p>Source is the ordinary rendered level, including rasterized vector columns; drawings stay editable
 in their native level. These effects operate on rendered pixels.</p>
+<h2>Animation curves</h2>
+<p>Use Animation Curve in Controls for a named curve, or Insert Animation Curve / Edit Inline Curve
+for literal calls. Keys store time, value, in/out weights and angles, tangent modes and weight locks.
+The seven tangent modes are fixed, auto, linear, flat, step, stepnext and spline.
+Choose constant, linear, cycle, cycleRelative or oscillate independently before and after the keys.</p>
+<p>Refresh Linked Curve copies a supported native channel into the draft. Apply commits the snapshot
+as one undoable edit; Cancel keeps the old data. A link is metadata, not a live dependency.
+Use <code>channel("col1.x")</code> for live animation, offset layers or native interpolation that cannot
+be copied exactly. The artist editor supports 64 keys and inline runtime data supports 512.</p>
+<h2>Expression Surface and Expression Attribute</h2>
+<p>Expression Surface processes GLB Model or Image Plane geometry, including Transform 3D.
+RGB, Alpha and Opacity RGB shade covered surface samples; Displacement moves posed vertices before projection.
+Set Displacement Limit in object units. Position and normal use the chosen Object, World or Camera
+space as <code>$P</code>/<code>$N</code>; explicit <code>$Po</code>, <code>$Pw</code>, <code>$Pc</code>,
+<code>$No</code>, <code>$Nw</code>, <code>$Nc</code>, material <code>$Cs</code>/<code>$Os</code> and UVs
+are available. Normals are recomputed after displacement and transparent overlaps compose in depth order.</p>
+<p>Opacity RGB defaults to <code>[1,1,1]</code>, multiplies Alpha, and clamps each component to zero through one.
+Independent RGB transmittance is retained within the 3D geometry renderer. Its final premultiplied RGBA
+alpha is maximum channel coverage; one alpha cannot preserve colored transmission into a later unrelated
+2D background. Include that background in the geometry render when needed. Set Alpha to 1 when an
+imported Opacity RGB formula already includes material <code>$Os</code>.</p>
+<p>One Expression Surface material is supported per geometry chain. Displacement uses existing triangles.
+Image Plane geometry and bounds queries do not read its raster;
+displacement receives material color, while shading receives actual straight texture samples.
+Nonfinite results, excess displacement, cancellation and geometry/coverage limits report errors.</p>
+<p>Stack Expression Attribute nodes to supply animated scalar/vector <code>namespace::name</code> values
+to image or surface effects. Attribute scope overrides Option, and the nearest provider in a scope wins.
+Scalar values repeat across the three expression components; missing names evaluate to zero.
+Values are immutable render snapshots and participate in caching.</p>
 <h2>Errors and evaluation backends</h2>
 <p>The editor validates before Apply. Its numeric preview uses the current variables at the canvas center;
 Source RGB and alpha are zero in this numeric preview. Use the normal FX swatch for actual Source image results. Invalid committed formulas, nonfinite output,

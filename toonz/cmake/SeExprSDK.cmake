@@ -13,6 +13,8 @@ add_library(GroundzeroSeExpr::Core ALIAS groundzero_seexpr_core)
 install(TARGETS groundzero_seexpr_core EXPORT GroundzeroSeExprTargets
   ARCHIVE DESTINATION sdk/lib)
 install(FILES ${_ot_seexpr_header_outputs} DESTINATION sdk/include/SeExpr2)
+install(FILES "${_seexpr_native_source}/include/tseexpranimcurve.h"
+  DESTINATION sdk/include/GroundzeroSeExpr)
 if(OT_SEEXPR_WITH_LLVM)
   install(FILES
     "${CMAKE_CURRENT_LIST_DIR}/seexpr_llvm_compat.h"
