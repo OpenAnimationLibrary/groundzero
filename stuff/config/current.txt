@@ -1971,6 +1971,8 @@
   <item>W_Scale			"Scale"			</item>
   <item>W_RotationX	"Rotation X"	</item>
   <item>W_RotationY	"Rotation Y"	</item>
+  <item>W_FocusZ	"Focus Z"	</item>
+  <item>W_Aperture	"Aperture"	</item>
   
 <!------------------------------ Ino FXs ------------------------------------------->
 

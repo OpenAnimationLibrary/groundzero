@@ -41,13 +41,21 @@ const struct {
   const char *m_name;
   TStageObject::Channel m_channel;
 } channels[] = {
-    {"x", TStageObject::T_X},           {"y", TStageObject::T_Y},
-    {"z", TStageObject::T_Z},           {"so", TStageObject::T_SO},
-    {"angle", TStageObject::T_Angle},   {"scalex", TStageObject::T_ScaleX},
-    {"scaley", TStageObject::T_ScaleY}, {"scale", TStageObject::T_Scale},
-    {"shearx", TStageObject::T_ShearX}, {"sheary", TStageObject::T_ShearY},
-    {"path", TStageObject::T_Path},     {"rotx", TStageObject::T_RotX},
+    {"x", TStageObject::T_X},
+    {"y", TStageObject::T_Y},
+    {"z", TStageObject::T_Z},
+    {"so", TStageObject::T_SO},
+    {"angle", TStageObject::T_Angle},
+    {"scalex", TStageObject::T_ScaleX},
+    {"scaley", TStageObject::T_ScaleY},
+    {"scale", TStageObject::T_Scale},
+    {"shearx", TStageObject::T_ShearX},
+    {"sheary", TStageObject::T_ShearY},
+    {"path", TStageObject::T_Path},
+    {"rotx", TStageObject::T_RotX},
     {"roty", TStageObject::T_RotY},
+    {"focus", TStageObject::T_FocusZ},
+    {"aperture", TStageObject::T_Aperture},
 };
 
 // Parses the channel name (case insensitive); makes the calling script throw

@@ -1029,7 +1029,8 @@ void bindClasses(py::module_ &m) {
       m, "StageObject",
       "A column, pegbar, camera or the table of a Scene, with its animation "
       "channels (x, y, z, so, angle, scalex, scaley, scale, shearx, sheary, "
-      "path, rotx, roty), in internal units (inches, degrees, factors). "
+      "path, rotx, roty, and focus and aperture for cameras), in internal "
+      "units (inches, degrees, factors). "
       "Frames are xsheet rows numbered from 0. The changes are not undoable.")
       .def("__str__",
            [](const StageObjectWrapper &o) { return toStd(o.toString()); })

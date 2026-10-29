@@ -73,11 +73,11 @@ public:
 
 // The animatable channels of a stage object, as in the Function Editor.
 const TStageObject::Channel cChannels[] = {
-    TStageObject::T_Angle,  TStageObject::T_X,     TStageObject::T_Y,
-    TStageObject::T_Z,      TStageObject::T_SO,    TStageObject::T_ScaleX,
-    TStageObject::T_ScaleY, TStageObject::T_Scale, TStageObject::T_ShearX,
-    TStageObject::T_ShearY, TStageObject::T_RotX,  TStageObject::T_RotY,
-    TStageObject::T_Path};
+    TStageObject::T_Angle,  TStageObject::T_X,      TStageObject::T_Y,
+    TStageObject::T_Z,      TStageObject::T_SO,     TStageObject::T_ScaleX,
+    TStageObject::T_ScaleY, TStageObject::T_Scale,  TStageObject::T_ShearX,
+    TStageObject::T_ShearY, TStageObject::T_RotX,   TStageObject::T_RotY,
+    TStageObject::T_Path,   TStageObject::T_FocusZ, TStageObject::T_Aperture};
 
 //-----------------------------------------------------------------------------
 

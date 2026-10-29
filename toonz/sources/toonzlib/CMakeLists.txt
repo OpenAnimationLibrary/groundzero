@@ -509,6 +509,15 @@ if(BUILD_OUTLINEVIEW_TESTS)
     add_test(NAME outlineview COMMAND outlineview_test)
 endif()
 
+# Optional regression target for the camera's depth channels, Focus Z and
+# Aperture: saved and keyed only when used, and read by expressions.
+option(BUILD_CAMERADEPTH_TESTS "Build the camera depth channels regression test" ${BUILD_TESTS})
+if(BUILD_CAMERADEPTH_TESTS)
+    add_executable(cameradepth_test tests/cameradepth_test.cpp)
+    target_link_libraries(cameradepth_test PRIVATE toonzlib tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core)
+    add_test(NAME cameradepth COMMAND cameradepth_test)
+endif()
+
 # Optional regression target for the motion presets (motionpreset.h). It also
 # loads the stock presets shipped in stuff/library/motionpresets.
 option(BUILD_MOTIONPRESET_TESTS "Build the motion preset regression test" ${BUILD_TESTS})
