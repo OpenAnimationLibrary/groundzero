@@ -39,6 +39,18 @@ Color rgb(const Color &c) {
            encoded(-.0041960863*l - .7034186147*m + 1.7076147010*s)}};
 }
 QJsonArray array(const Color &c) { return QJsonArray{c[0], c[1], c[2]}; }
+QJsonArray rectangle(const QRectF &r) {
+  return QJsonArray{r.x(),r.y(),r.width(),r.height()};
+}
+bool readRectangle(const QJsonValue &value,QRectF &rectangle) {
+  if(value.isUndefined()) return true;
+  if(!value.isArray() || value.toArray().size()!=4) return false;
+  const auto values=value.toArray();
+  for(const auto &v:values) if(!v.isDouble() || !std::isfinite(v.toDouble()))return false;
+  QRectF next(values[0].toDouble(),values[1].toDouble(),values[2].toDouble(),values[3].toDouble());
+  if(next.isEmpty() || !QRectF(0,0,1,1).contains(next))return false;
+  rectangle=next;return true;
+}
 bool read(const QJsonValue &value, Color &c, bool deviation) {
   if (!value.isArray() || value.toArray().size() != 3) return false;
   const QJsonArray values = value.toArray();
@@ -115,6 +127,8 @@ QString serialize(const Profile &p) {
                 {"sourceDeviation", array(p.source.deviation)},
                 {"referenceMean", array(p.reference.mean)},
                 {"referenceDeviation", array(p.reference.deviation)},
+                {"sourceCrop", rectangle(p.sourceCrop)},
+                {"referenceCrop", rectangle(p.referenceCrop)},
                 {"preserveLightness", p.preserveLightness}, {"strength", p.strength}};
   return QString::fromUtf8(QJsonDocument(o).toJson(QJsonDocument::Compact));
 }
@@ -129,6 +143,8 @@ bool parse(const QString &text, Profile &p, QString &error) {
       !read(o.value("sourceDeviation"), next.source.deviation, true) ||
       !read(o.value("referenceMean"), next.reference.mean, false) ||
       !read(o.value("referenceDeviation"), next.reference.deviation, true) ||
+      !readRectangle(o.value("sourceCrop"), next.sourceCrop) ||
+      !readRectangle(o.value("referenceCrop"), next.referenceCrop) ||
       !o.value("preserveLightness").isBool() ||
       !o.value("strength").isDouble() ||
       !std::isfinite(o.value("strength").toDouble()) ||

@@ -28,8 +28,11 @@ void mathAndProfiles() {
   auto p=fixture();auto c=ColorMatch::transform({{100/255.0,100/255.0,100/255.0}},p);
   close(c[0],180/255.0);close(c[1],60/255.0);close(c[2],40/255.0);
   QString error;ColorMatch::Profile restored;
+  p.sourceCrop=QRectF(.1,.2,.5,.6);
+  p.referenceCrop=QRectF(.2,.1,.7,.8);
   require(ColorMatch::parse(ColorMatch::serialize(p),restored,error),"Roundtrip");
   require(ColorMatch::serialize(restored)==ColorMatch::serialize(p),"Stable serialization");
+  require(restored.sourceCrop==p.sourceCrop && restored.referenceCrop==p.referenceCrop,"Crop persistence");
   const auto original=ColorMatch::serialize(restored);
   for(const auto &bad:{QString("{}"),QString(4097,'x'),QString(original).replace("srgb-oklab","unknown")})
     require(!ColorMatch::parse(bad,restored,error),"Invalid profile accepted");

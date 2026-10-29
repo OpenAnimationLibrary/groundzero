@@ -81,6 +81,7 @@ class Editor final : public QDialog {
                                       crop[i][2]->value()/100,crop[i][3]->value()/100);
     const QRectF ra=rects[0], rb=rects[1];
     ColorMatch::Profile p; p.strength=strength->value()/100;
+    p.sourceCrop=ra;p.referenceCrop=rb;
     p.preserveLightness=lightness->isChecked();
     task=std::async(std::launch::async,[this,a,b,ma,mb,ra,rb,p]() mutable {
       AnalysisResult result; result.profile=p;
@@ -211,6 +212,13 @@ public:
     strength->blockSignals(true);lightness->blockSignals(true);
     strength->setValue(next.strength*100);lightness->setChecked(next.preserveLightness);
     strength->blockSignals(false);lightness->blockSignals(false);
+    const QRectF rectangles[]={next.sourceCrop,next.referenceCrop};
+    for(int i=0;i<2;++i) {
+      const double values[]={rectangles[i].x(),rectangles[i].y(),rectangles[i].width(),rectangles[i].height()};
+      for(int j=0;j<4;++j) {
+        crop[i][j]->blockSignals(true);crop[i][j]->setValue(values[j]*100);crop[i][j]->blockSignals(false);
+      }
+    }
     profile=next;valid=true;apply->setEnabled(true);exportProfile->setEnabled(true);exportLut->setEnabled(true);
     showImage(after,ColorMatch::preview(images[0],profile));
     status->setText(tr("Stored profile loaded. Preview recomputes from the selected source and reference."));return true;

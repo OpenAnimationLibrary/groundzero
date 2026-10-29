@@ -21,6 +21,7 @@ struct Statistics {
 };
 struct Profile {
   Statistics source, reference;
+  QRectF sourceCrop{0, 0, 1, 1}, referenceCrop{0, 0, 1, 1};
   bool preserveLightness = true;
   double strength = 1;
 };

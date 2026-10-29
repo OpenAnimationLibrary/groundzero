@@ -226,6 +226,10 @@ void ColorModelViewer::contextMenuEvent(QContextMenuEvent *event) {
     auto match = menu.addAction(tr("Match Palette to Reference Colors..."));
     connect(match, &QAction::triggered, this, [this, ri] {
       TRasterP raster=ri->getRaster();
+      if (qint64(raster->getLx())*raster->getLy()>16777216) {
+        DVGui::warning(tr("Use a reference of at most 16 megapixels for color matching."));
+        return;
+      }
       if (!TRaster32P(raster) && !TRasterGR8P(raster)) {
         TRaster32P converted(raster->getLx(),raster->getLy());
         TRop::convert(converted,raster);

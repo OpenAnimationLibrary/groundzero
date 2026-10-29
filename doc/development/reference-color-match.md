@@ -29,7 +29,8 @@ branch is local development; no runtime or artist validation is implied.
 The core transform uses alpha-weighted statistics in OKLab, with a bounded
 per-channel contrast ratio and optional preservation of OKLab lightness. Input
 and output are SDR sRGB. Profiles contain statistics, not image paths or pixels.
-Artists explicitly capture a look from a representative source and reference;
+Normalized source/reference crops are retained for later editing. Artists
+explicitly capture a look from a representative source and reference;
 the same mapping is used throughout a shot. This avoids frame-dependent pumping
 and tile-dependent statistics. It is color matching, not semantic recoloring,
 texture synthesis, or color-managed HDR grading.
