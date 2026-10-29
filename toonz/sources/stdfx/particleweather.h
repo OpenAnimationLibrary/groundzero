@@ -25,9 +25,9 @@ inline double depthOf(int seed, int layers) {
 }
 
 // The factor for a particle at a depth, from 1 for the nearest layer to
-// `far` for the farthest.
-inline double depthFactor(double depth, double far) {
-  return 1.0 + (far - 1.0) * depth;
+// `farthest` for the farthest. (Not `far`: windef.h defines it as nothing.)
+inline double depthFactor(double depth, double farthest) {
+  return 1.0 + (farthest - 1.0) * depth;
 }
 
 // A drifting noise push at a position and frame, in pixels.
