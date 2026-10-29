@@ -91,6 +91,7 @@ set(MOC_HEADERS
     scanpopup.h
     scenebrowser.h
     scenesettingspopup.h
+    scenecheckpane.h
     sceneviewer.h
     sceneviewercontextmenu.h
     scriptconsolepanel.h
@@ -365,6 +366,7 @@ set(SOURCES
     scenebrowserversioncontrol.cpp
     sceneviewercontextmenu.cpp
     scenesettingspopup.cpp
+    scenecheckpane.cpp
     scriptconsolepanel.cpp
     brushpresetpanel.cpp
     toolpropertiespanel.cpp
