@@ -575,15 +575,15 @@ void formattingRegressions(Backend backend) {
   auto limited = options(Type::String, backend);
   limited.maxStringBytes = 64;
   Program recovery;
-  compiled = recovery.compile("sprintf(\"%s\",$payload)",
-      {{"payload", Value::string(std::string(65, 'x'))}}, {}, limited);
+  compiled = recovery.compile("sprintf(\"%s%s\",$payload,$payload)",
+      {{"payload", Value::string(std::string(33, 'x'))}}, {}, limited);
   require(compiled, recovery.errorMessage());
   const bool oversized = recovery.evaluate(output);
   require(!oversized && !recovery.errorMessage().empty(),
           "A configured string bound was ignored by formatted output");
   require(recovery.setString("payload", "ok"), recovery.errorMessage());
   const bool recovered = recovery.evaluate(output);
-  require(recovered && output.type == Type::String && output.text == "ok",
+  require(recovered && output.type == Type::String && output.text == "okok",
           "A failed format evaluation did not recover after valid input");
 }
 }  // namespace
