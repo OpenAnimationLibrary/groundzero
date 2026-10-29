@@ -121,6 +121,7 @@ set(MOC_HEADERS
     alignmentpane.h
     posespane.h
     referencepanel.h
+    purerefboard.h
     drawingsubstitutionpane.h
     substitutionsliderpane.h
     storyboardpane.h
@@ -375,6 +376,7 @@ set(SOURCES
     alignmentpane.cpp
     posespane.cpp
     referencepanel.cpp
+    purerefboard.cpp
     drawingsubstitutionpane.cpp
     drawingsubstitutionundo.cpp
     substitutionsliderpane.cpp
@@ -888,6 +890,16 @@ if(BUILD_SPINE_EXPORT_TESTS)
     add_executable(spineexport_test tests/spineexport_test.cpp)
     target_include_directories(spineexport_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     add_test(NAME spineexport COMMAND spineexport_test)
+endif()
+
+option(BUILD_PUREREF_TESTS "Build the PureRef board import regression test" ${BUILD_TESTS})
+if(BUILD_PUREREF_TESTS)
+    add_executable(purerefboard_test tests/purerefboard_test.cpp purerefboard.cpp)
+    target_include_directories(purerefboard_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(purerefboard_test PRIVATE Qt${QT_VERSION_MAJOR}::Core
+        Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Widgets)
+    add_test(NAME purerefboard COMMAND purerefboard_test)
+    set_tests_properties(purerefboard PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
 endif()
 
 # Optional regression target for the helpers of Distribute to Layers / Frames
