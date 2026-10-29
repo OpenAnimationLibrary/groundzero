@@ -1,6 +1,6 @@
 # Native SeExpr integration
 
-SeExpr adds procedural image effects and a separate animation expression mode to OT. The native implementation includes an editor, named animated controls, curves, color ramps, swatches, spectrum authoring, presets, range graphs and developer SDKs. Source-backed implementation and acceptance status are recorded in [the parity checklist](seexpr_parity.md). “Implemented” in that checklist means source and acceptance fixtures exist; actual passing evidence comes from the named CI jobs/reports at the final revision. This guide does not claim manual hardware or PyQt6 qualification.
+SeExpr adds procedural image effects and a separate animation expression mode to OT. The native implementation includes an editor, named animated controls, curves, color ramps, swatches, spectrum authoring, presets, range graphs and developer SDKs. Source-backed implementation and acceptance status are recorded in [the parity checklist](seexpr_parity.md). “Implemented” in that checklist means source and acceptance fixtures exist; actual passing evidence comes from the named CI jobs/reports at the final revision. Runtime results apply to the platform, backend and Qt version actually tested; this guide does not claim manual hardware qualification.
 
 ## Creating an effect
 

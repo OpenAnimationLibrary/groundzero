@@ -1,5 +1,6 @@
 """Use the optional SDK widgets with their actual native evaluator in CI."""
 import json
+import math
 import os
 from pathlib import Path
 import subprocess
@@ -90,7 +91,9 @@ editor.setExpr('animCurve($u,"constant","constant",0,"",'
                '0,2,1,1,0,0,"linear","linear",0,2,6,1,1,0,0,"linear","linear",0)')
 native_completion_valid = editor.validateExpression()
 native_completion_value = editor.previewExpression() if native_completion_valid else None
-require(native_completion_valid and native_completion_value == 2.5,
+require(native_completion_valid and isinstance(native_completion_value, (int, float)) and
+        math.isfinite(native_completion_value) and
+        abs(native_completion_value - 2.5) <= 4 * math.ulp(2.5),
         'the native function offered by editor completion did not evaluate with its host context: '
         + repr({'valid': native_completion_valid, 'value': native_completion_value,
                 'status': editor.status.text(), 'source': editor.getExpr()}))
