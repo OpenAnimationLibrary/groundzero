@@ -27,6 +27,7 @@
 
 #include "particlesengine.h"
 #include "particleweather.h"
+#include "particlesamplingkey.h"
 
 #include "trenderer.h"
 
@@ -633,6 +634,7 @@ void Particles_Engine::render_particles(
             // dryComputed - so, declare the same here.
             (*it->second)->dryCompute(bbox, r_frame, riAux);
           } else {
+            const TDimension controlResolution = convert(bbox).getSize();
             // control image is used its gradient
             if (port_is_used_for_gradient(it->first, values)) {
               tmp = new TTile;
@@ -641,11 +643,13 @@ void Particles_Engine::render_particles(
               if (isPrecomputingEnabled)
                 (*it->second)
                     ->allocateAndCompute(*tmp, bbox.getP00(),
-                                         convert(bbox).getSize(), 0, r_frame,
+                                         controlResolution, 0, r_frame,
                                          riAux64);
               else {
-                std::string alias =
-                    "CTRL64: " + (*(it->second))->getAlias(r_frame, riAux64);
+                std::string alias = ParticleSampling::cacheKey(
+                    "CTRL64V2", (*(it->second))->getAlias(r_frame, riAux64),
+                    riAux64, bbox.getP00(),
+                    TDimensionD(controlResolution.lx, controlResolution.ly));
                 TRasterImageP rimg = (ParticleBakeCapture::isolating() ? TImageP() : TImageCache::instance()->get(alias, false));
 
                 if (rimg) {
@@ -654,7 +658,7 @@ void Particles_Engine::render_particles(
                 } else {
                   (*it->second)
                       ->allocateAndCompute(*tmp, bbox.getP00(),
-                                           convert(bbox).getSize(), 0, r_frame,
+                                           controlResolution, 0, r_frame,
                                            riAux64);
 
                   if (!ParticleBakeCapture::isolating()) addRenderCache(alias, TRasterImageP(tmp->getRaster()));
@@ -682,11 +686,13 @@ void Particles_Engine::render_particles(
               if (isPrecomputingEnabled)
                 (*it->second)
                     ->allocateAndCompute(*tmp, bbox.getP00(),
-                                         convert(bbox).getSize(), 0, r_frame,
+                                         controlResolution, 0, r_frame,
                                          riAux);
               else {
-                std::string alias =
-                    "CTRL: " + (*(it->second))->getAlias(r_frame, riAux);
+                std::string alias = ParticleSampling::cacheKey(
+                    "CTRLV2", (*(it->second))->getAlias(r_frame, riAux),
+                    riAux, bbox.getP00(),
+                    TDimensionD(controlResolution.lx, controlResolution.ly));
                 TRasterImageP rimg = (ParticleBakeCapture::isolating() ? TImageP() : TImageCache::instance()->get(alias, false));
 
                 if (rimg) {
@@ -695,7 +701,7 @@ void Particles_Engine::render_particles(
                 } else {
                   (*it->second)
                       ->allocateAndCompute(*tmp, bbox.getP00(),
-                                           convert(bbox).getSize(), 0, r_frame,
+                                           controlResolution, 0, r_frame,
                                            riAux);
 
                   if (!ParticleBakeCapture::isolating()) addRenderCache(alias, TRasterImageP(tmp->getRaster()));
@@ -921,6 +927,12 @@ void Particles_Engine::do_render(
   partResolution = TDimensionD(tceil(bbox.getLx()), tceil(bbox.getLy()));
   ParticleBakeCapture::checkRasterSize(m_parent, partResolution.lx, partResolution.ly, 8);
 
+  // Quantize the actual request before identifying a prepared raster. Reusing a
+  // larger cached sprite changes resampling, even when the source alias agrees.
+  partScale      = partResolution.lx / standardRefBBox.getLx();
+  riNew.m_affine = TScale(partScale);
+  bbox           = riNew.m_affine * standardRefBBox;
+
   TRasterP ras;
 
   std::string alias;
@@ -929,27 +941,17 @@ void Particles_Engine::do_render(
   if (rimg) {
     ras = rimg->getRaster();
   } else {
-    alias = "PART: " + (*part_ports[part->level])->getAlias(ndx, riNew);
+    alias = ParticleSampling::cacheKey("PART2",
+        (*part_ports[part->level])->getAlias(ndx, riNew), riNew,
+        bbox.getP00(), partResolution, tile->getRaster());
     rimg  = (ParticleBakeCapture::isolating() ? TImageP() : TImageCache::instance()->get(alias, false));
     if (rimg) {
       ras = rimg->getRaster();
 
-      // Check that the raster resolution is sufficient for our purposes
-      if (ras->getLx() < partResolution.lx || ras->getLy() < partResolution.ly)
+      if (ras->getLx() != partResolution.lx || ras->getLy() != partResolution.ly)
         ras = 0;
-      else
-        partResolution = TDimensionD(ras->getLx(), ras->getLy());
     }
   }
-
-  // We are interested in making the relation between scale and (integer)
-  // resolution
-  // bijective - since we shall cache by using resolution as a partial
-  // identification parameter.
-  // Therefore, we find the current bbox Lx and take a unique scale out of it.
-  partScale      = partResolution.lx / standardRefBBox.getLx();
-  riNew.m_affine = TScale(partScale);
-  bbox           = riNew.m_affine * standardRefBBox;
 
   // If no image was retrieved from the cache (or it was not scaled enough),
   // calculate it

@@ -110,14 +110,17 @@ void pattern(TTile &tile, double frame, bool background) {
 class ParticleBakeSpriteFixture final : public TStandardRasterFx {
   FX_PLUGIN_DECLARATION(ParticleBakeSpriteFixture)
   TIntParamP m_lastFrame;
+  TBoolParamP m_samplingAlias;
 public:
-  ParticleBakeSpriteFixture() : m_lastFrame(1) {
+  ParticleBakeSpriteFixture() : m_lastFrame(1), m_samplingAlias(true) {
     bindParam(this, "fixtureLastFrame", m_lastFrame);
+    bindParam(this, "fixtureSamplingAlias", m_samplingAlias);
   }
   bool canHandle(const TRenderSettings &, double) override { return true; }
   std::string getAlias(double frame, const TRenderSettings &settings) const override {
     return "particle-bake-sprite-fixture:" + std::to_string(m_lastFrame->getValue()) +
-           ":" + fixtureAlias(frame, settings);
+           ":" + (m_samplingAlias->getValue() ? fixtureAlias(frame, settings)
+                                             : std::to_string(frame));
   }
   TFxTimeRegion getTimeRegion() const override {
     return m_lastFrame->getValue() < 0 ? TFxTimeRegion::createUnlimited()
@@ -135,10 +138,16 @@ FX_PLUGIN_IDENTIFIER(ParticleBakeSpriteFixture, "particleBakeSpriteFixture")
 
 class ParticleBakeBackgroundFixture final : public TStandardRasterFx {
   FX_PLUGIN_DECLARATION(ParticleBakeBackgroundFixture)
+  TBoolParamP m_samplingAlias;
 public:
+  ParticleBakeBackgroundFixture() : m_samplingAlias(true) {
+    bindParam(this, "fixtureSamplingAlias", m_samplingAlias);
+  }
   bool canHandle(const TRenderSettings &, double) override { return true; }
   std::string getAlias(double frame, const TRenderSettings &settings) const override {
-    return "particle-bake-background-fixture:" + fixtureAlias(frame, settings);
+    return "particle-bake-background-fixture:" +
+        (m_samplingAlias->getValue() ? fixtureAlias(frame, settings)
+                                     : std::to_string(frame));
   }
   TFxTimeRegion getTimeRegion() const override { return TFxTimeRegion(0, 31); }
   bool doGetBBox(double, TRectD &box, const TRenderSettings &) override {
@@ -456,6 +465,45 @@ void testCapture(bool tiled, int mode, int bpp, bool motionBlur = false,
       else compareState(firstState, result.particles, label);
     }
   }
+}
+
+void testSamplingCacheIdentity(bool tiled) {
+  TRasterFxP source = fixture(tiled);
+  for (const char *port : {"Texture1", "Control1"})
+    parameter<TBoolParam>(source->getInputPort(port)->getFx(), "fixtureSamplingAlias")
+        ->setValue(false);
+  const std::string label = std::string(tiled ? "tiled" : "standard") +
+      "/sampling cache identity";
+  TRenderSettings settings;
+  settings.m_cameraBox = Domain;
+  const TRasterP before = render(source.getPointer(), 3, settings);
+  compare(before, composite(capture(source.getPointer(), 3, settings), settings),
+          label + "/cold capture");
+
+  // Real image/geometry aliases describe content independently of the incoming
+  // sampling affine. Separate native instances warm the shared artwork cache
+  // while keeping this source's simulation state and output request unchanged.
+  for (int sample = 0; sample != 2; ++sample) {
+    TRasterFxP warmer = dynamic_cast<TRasterFx *>(source->clone(false));
+    require(bool(warmer), label + ": cannot create cache warm-up source");
+    warmer->setNewIdentifier();
+    for (int port = 0; port < source->getInputPortCount(); ++port)
+      warmer->getInputPort(port)->setFx(source->getInputPort(port)->getFx());
+    TRenderSettings warm(settings);
+    warm.m_affine = TTranslation(.25, -.75) * TScale(sample == 0 ? 4.0 : 2.0);
+    warm.m_bpp = sample == 0 ? 64 : 32;
+    warm.m_colorSpaceGamma = sample == 0 ? 1.6 : 3.0;
+    render(warmer.getPointer(), 3, warm);
+  }
+  TRasterFxP afterSource = dynamic_cast<TRasterFx *>(source->clone(false));
+  require(bool(afterSource), label + ": cannot create fresh post-warm source");
+  afterSource->setNewIdentifier();
+  for (int port = 0; port < source->getInputPortCount(); ++port)
+    afterSource->getInputPort(port)->setFx(source->getInputPort(port)->getFx());
+  const TRasterP after = render(afterSource.getPointer(), 3, settings);
+  compare(before, after, label + "/warm live output");
+  compare(after, composite(capture(afterSource.getPointer(), 3, settings), settings),
+          label + "/warm capture");
 }
 
 void testInvisibleState(bool tiled) {
@@ -1081,7 +1129,7 @@ void testScenePreparation(bool tiled, bool fullAffine = false,
       compare(before.at(frame), render(native, frame, bakeSettings),
               label + "/prepared source placement");
       compare(before.at(frame), composite(captured, bakeSettings),
-              label + "/prepared capture");
+              label + "/prepared capture/frame=" + std::to_string(frame));
     } else {
       nativeBefore.emplace(frame, renderViewport(native, frame, bakeSettings, bakePixels));
       compare(nativeBefore.at(frame), composite(captured, bakeSettings, bakePixels),
@@ -1220,6 +1268,8 @@ int main(int argc, char **argv) {
     runCase("testCapture(tiled,mode=2,bpp=32)", [] { testCapture(true, 2, 32); });
     runCase("testCapture(tiled,mode=3,bpp=64)", [] { testCapture(true, 3, 64); });
     runCase("testCapture(tiled,mode=0,bpp=32,randomArtworkStart=true)", [] { testCapture(true, 0, 32, false, true); });
+    runCase("testSamplingCacheIdentity(standard)", [] { testSamplingCacheIdentity(false); });
+    runCase("testSamplingCacheIdentity(tiled)", [] { testSamplingCacheIdentity(true); });
     runCase("testInvisibleState(standard)", [] { testInvisibleState(false); });
     runCase("testInvisibleState(tiled)", [] { testInvisibleState(true); });
     runCase("testWeatherCapture", [] { testWeatherCapture(); });
@@ -1244,7 +1294,7 @@ int main(int argc, char **argv) {
     runCase("testScenePreparation(tiled,columnDepth=true)", [] { testScenePreparation(true, false, true); });
     runCase("testScenePreparation(standard,fullAffine=true,columnDepth=true)", [] { testScenePreparation(false, true, true); });
     runCase("testScenePreparation(tiled,fullAffine=true,columnDepth=true)", [] { testScenePreparation(true, true, true); });
-    std::cout << "Native particle capture/package/playback: 31 cases passed\n";
+    std::cout << "Native particle capture/package/playback: 33 cases passed\n";
     return 0;
   } catch (const std::exception &error) {
     std::cerr << "particlecache_bake: " << error.what() << '\n';
