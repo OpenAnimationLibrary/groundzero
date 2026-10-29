@@ -165,7 +165,7 @@ void captureObject(QObject *object) {
   if (!widget) return;
   for (const char *property : {"windowTitle", "toolTip", "statusTip",
                                "whatsThis", "accessibleName",
-                               "accessibleDescription"})
+                               "accessibleDescription", "placeholderText"})
     captureProperty(widget, property);
   if (qobject_cast<QLabel *>(widget) || qobject_cast<QAbstractButton *>(widget))
     captureProperty(widget, "text");

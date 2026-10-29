@@ -59,9 +59,12 @@ The fixture checks:
 - Native Widget Inspector registration, inspecting a real palette field and
   cancelling its picker without affecting the scene.
 
-The fixture creates three in-memory exposures of one disposable vector drawing.
-It saves no scene or drawing and logs only fixed assertion descriptions, never
-document data or resolved file paths. Success prints
+The fixture creates three in-memory exposures of one disposable vector drawing
+and one 2-by-2 PNG inside the temporary test directory. The PNG initializes the
+Convert dialog through its normal input classification and metadata path before
+selecting TLV; no conversion runs. The input image is removed with its temporary
+directory. The fixture saves no scene or vector drawing and logs only fixed
+assertion descriptions, never document data or resolved file paths. Success prints
 `native-ui-integration: PASS` and exits with status zero. An assertion or native
 exception returns a nonzero status; a startup hang is caught by the CI timeout.
 

@@ -41,12 +41,14 @@
 #include <QEventLoop>
 #include <QFile>
 #include <QFileInfo>
+#include <QImage>
 #include <QKeyEvent>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMainWindow>
 #include <QPointer>
 #include <QSettings>
+#include <QTemporaryDir>
 #include <QTreeWidget>
 #include <QTranslator>
 
@@ -328,7 +330,7 @@ void exerciseNativeUi(QMainWindow *window) {
   choose(language, "English");
 
   // Exercise the real owners of translated choices. Keep these dialogs hidden:
-  // no inbetween command, source-file selection or conversion is requested.
+  // no inbetween command or conversion is requested.
   InbetweenDialog interpolation(window);
   interpolation.setValue("Ease Out");
   interpolation.setEase(23, 71);
@@ -339,17 +341,30 @@ void exerciseNativeUi(QMainWindow *window) {
   require(interpolationIndex == 2 && interpolation.getValue() == "Ease Out",
           "native interpolation fixture did not select Ease Out");
 
+  // TLV is an input-dependent choice: native callers setFiles() before
+  // setFormat(). Supply a real, disposable full-color image so the owner can
+  // classify it and read its metadata through the normal initialization path.
+  QTemporaryDir conversionInputs(QDir(testRoot).filePath("conversion-input-XXXXXX"));
+  require(conversionInputs.isValid(), "conversion input fixture directory failed");
+  const QString conversionInput = conversionInputs.filePath("fixture.png");
+  QImage conversionImage(2, 2, QImage::Format_ARGB32);
+  conversionImage.fill(Qt::white);
+  require(conversionImage.save(conversionInput, "PNG"),
+          "conversion input fixture image could not be written");
   ConvertPopup conversion(false);
+  conversion.setFiles({TFilePath(conversionInput.toStdWString())});
   conversion.setFormat("tlv");
   const QString conversionToken = conversion.TlvMode_PaintedFromTwoImages;
   QComboBox *conversionMode = comboWithValue(&conversion, conversionToken);
   choose(conversionMode, conversionToken);
   const int conversionIndex = conversionMode->currentIndex();
   const QString englishConversion = conversionMode->currentText();
-  require(conversion.getTlvMode() == conversionToken &&
-              conversion.getDestinationType() == "tlv" &&
-              !conversion.isConverting(),
-          "native conversion fixture did not select an idle TLV mode");
+  require(conversion.getDestinationType() == "tlv",
+          "native conversion fixture did not enable TLV for its raster input");
+  require(conversion.getTlvMode() == conversionToken,
+          "native conversion fixture did not select the two-image painting mode");
+  require(!conversion.isConverting(),
+          "native conversion fixture unexpectedly started conversion");
 
   int modeChanges = 0;
   QObject modeObserver;
@@ -465,7 +480,7 @@ void exerciseNativeUi(QMainWindow *window) {
   require(undo->getHistoryCount() == historyCount,
           "native inspector changed document undo history");
   inspector->clearInspection();
-  // No close/save prompts or fixture files: normal application teardown follows.
+  // No close/save prompts; the temporary input is removed on return.
   selection->makeNotCurrent();
   app->getCurrentScene()->setDirtyFlag(false);
   undo->reset();

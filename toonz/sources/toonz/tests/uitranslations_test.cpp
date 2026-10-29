@@ -9,6 +9,8 @@
 #include <QPointer>
 #include <QStandardItemModel>
 #include <QTabBar>
+#include <QTextCursor>
+#include <QTextEdit>
 #include <QTranslator>
 #include <iostream>
 
@@ -55,6 +57,24 @@ int main(int argc, char **argv) {
   QLabel second(translated("Open", "Second"), &window);
   QLabel userText(QString::fromUtf8("Open"), &window);
   QLineEdit editable(translated("Open"), &window);
+  editable.setPlaceholderText(translated("Open", "Placeholder"));
+  editable.setSelection(1, 2);
+  const int editCursor = editable.cursorPosition();
+  int edits = 0;
+  QObject::connect(&editable, &QLineEdit::textChanged, [&]() { ++edits; });
+  QLineEdit literalPlaceholder(&window);
+  literalPlaceholder.setPlaceholderText(QStringLiteral("Open"));
+  QLineEdit storyboardCaption(&window);
+  storyboardCaption.setPlaceholderText(QStringLiteral("panelCaption"));
+  QTextEdit notes(&window);
+  notes.setPlainText(QStringLiteral("Unsaved notes"));
+  notes.setPlaceholderText(translated("Open", "NotesPlaceholder"));
+  QTextCursor notesCursor = notes.textCursor();
+  notesCursor.setPosition(3);
+  notesCursor.setPosition(7, QTextCursor::KeepAnchor);
+  notes.setTextCursor(notesCursor);
+  int noteEdits = 0;
+  QObject::connect(&notes, &QTextEdit::textChanged, [&]() { ++noteEdits; });
   QLabel replaced(translated("Open"), &window);
   QLabel equalReplacement(translated("Open"), &window);
   QLabel equalSourceChange(translated("Open", "First"), &window);
@@ -139,6 +159,18 @@ int main(int argc, char **argv) {
     ok &= check(userText.text() == "Open" && editable.text() == "Open" &&
                 replaced.text() == "User caption" && equalReplacement.text() == "Open",
                 "User text changed, including an equal-text replacement");
+    ok &= check(editable.placeholderText() == (language
+        ? QString("Placeholder:%1").arg(language) : QString("Open")) &&
+        editable.cursorPosition() == editCursor && editable.selectionStart() == 1 &&
+        editable.selectedText() == "pe" && edits == 0 &&
+        literalPlaceholder.placeholderText() == "Open" &&
+        storyboardCaption.placeholderText() == "panelCaption",
+        "Placeholder translation altered a value, selection or literal placeholder");
+    ok &= check(notes.placeholderText() == (language
+        ? QString("NotesPlaceholder:%1").arg(language) : QString("Open")) &&
+        notes.toPlainText() == "Unsaved notes" && notes.textCursor().position() == 7 &&
+        notes.textCursor().anchor() == 3 && noteEdits == 0,
+        "Text-edit placeholder translation altered document text or cursor");
     ok &= check(equalSourceChange.text() == (language
         ? QString("Second:%1").arg(language) : QString("Open")),
         "Equal caption replacement retained the wrong source context");
