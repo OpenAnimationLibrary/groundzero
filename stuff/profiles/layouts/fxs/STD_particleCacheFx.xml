@@ -1,0 +1,64 @@
+<fxlayout>
+  <page name="Cache">
+    <control>cacheFile</control>
+    <control>useBakedAppearance</control>
+    <control>sceneFps</control>
+    <control>cacheFps</control>
+    <control>startFrame</control>
+    <control>timeOffset</control>
+    <control>speed</control>
+    <control>endBehavior</control>
+    <control>missingFrame</control>
+    <control>interpolation</control>
+  </page>
+  <page name="Artwork">
+    <label>"Connect drawings to Artwork inputs. Turn off Use Baked Appearance to replace recorded artwork."</label>
+    <control>artworkAssignment</control>
+    <control>seed</control>
+    <control>artworkAnimation</control>
+    <control>artworkStart</control>
+    <control>artworkLength</control>
+    <control>artworkSpeed</control>
+    <control>sizeMode</control>
+    <control>drawOrder</control>
+    <control>linearTint</control>
+  </page>
+  <page name="Transform">
+    <control>positionX</control>
+    <control>positionY</control>
+    <control>scale</control>
+    <control>rotation</control>
+    <control>opacity</control>
+  </page>
+  <page name="Motion">
+    <label>"Baked appearance retains recorded trails and blur. Turn it off to apply these controls."</label>
+    <control>trailSamples</control>
+    <control>trailStep</control>
+    <control>trailFade</control>
+    <control>motionBlurSamples</control>
+    <control>shutter</control>
+  </page>
+  <page name="Mapping">
+    <label>"Use the Particle Cache Inspector to map attributes, or turn off Use Manifest Mapping to enter names here."</label>
+    <control>useManifestMapping</control>
+    <vbox modeSensitive="useManifestMapping" mode="0">
+      <control>positionAttribute</control>
+      <control>velocityAttribute</control>
+      <control>idAttribute</control>
+      <control>sizeAttribute</control>
+      <control>colorAttribute</control>
+      <control>opacityAttribute</control>
+      <control>rotationAttribute</control>
+      <control>ageAttribute</control>
+      <control>lifetimeAttribute</control>
+      <control>sourceAttribute</control>
+      <control>drawingAttribute</control>
+      <control>axes</control>
+      <control>flipY</control>
+      <control>units</control>
+      <control>defaultSize</control>
+      <control>sizeIsDiameter</control>
+      <control>rotationInRadians</control>
+    </vbox>
+  </page>
+</fxlayout>

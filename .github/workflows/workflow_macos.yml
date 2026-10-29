@@ -70,7 +70,8 @@ jobs:
         run: |
           export PATH="/usr/local/opt/ccache/libexec:$PATH"
           mkdir -p /Users/runner/.ccache
-      - uses: actions/cache@v5
+      - uses: actions/cache/restore@v5
+        id: compiler_cache
         with:
           path: /Users/runner/.ccache
           key: ${{ runner.os }}-${{ github.sha }}
@@ -96,10 +97,22 @@ jobs:
             -DQt5_DIR=$(brew --prefix qt@5)/lib/cmake/Qt5 \
             -DCMAKE_PREFIX_PATH=$(brew --prefix qt@5)/lib/cmake/Qt5 \
             -DOpenCV_DIR=$(brew --prefix opencv@4)/lib/cmake/opencv4 \
-            -DWITH_TRANSLATION=OFF -DBUILD_RELIABILITY_TESTS=ON \
+            -DWITH_TRANSLATION=OFF -DBUILD_PARTICLE_CACHE_TESTS=ON -DBUILD_RELIABILITY_TESTS=ON \
             -DBUILD_STREAM_TESTS=ON -DBUILD_SCENEBENCH_TESTS=ON \
             -DBUILD_FXRENDER_TESTS=ON -DBUILD_FFMPEG_TESTS=ON -DBUILD_PSD_TESTS=ON
           ninja -j $(sysctl -n hw.ncpu) 2>&1 | tee -a "$GITHUB_WORKSPACE/build.log"
+
+      - name: Test particle cache integration
+        id: particle_tests
+        working-directory: toonz/build
+        run: |
+          set -o pipefail
+          DYLD_LIBRARY_PATH="$PWD/toonz/OpenToonz.app/Contents/MacOS" QT_QPA_PLATFORM=cocoa ctest --output-on-failure --output-junit particle-tests.xml --timeout 300 --no-tests=error -R '^particlecache_' 2>&1 | tee particle-tests-output.txt
+
+      - name: Report particle test failures
+        if: ${{ failure() && steps.particle_tests.outcome == 'failure' }}
+        run: python3 ci-scripts/report_particle_tests.py toonz/build/particle-tests-output.txt
+
 
       # Leave application Python discovery unchanged; pin only the later
       # harness and packaging interpreter.
@@ -162,10 +175,20 @@ jobs:
           grep -vE ': (fatal )?error:' errors.txt | head -10 | while IFS= read -r line; do
             echo "::error::${line}"
           done
+      # Keep valid compiled objects even when an integration test fails.
+      - name: Save compiler cache
+        if: ${{ always() && steps.compiler_cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v5
+        with:
+          path: /Users/runner/.ccache
+          key: ${{ runner.os }}-${{ github.sha }}
+
       - name: Introduce Libraries and Stuff
         run: |
           cd toonz/build/toonz
           cp -pr ../../../stuff OpenToonz.app/portablestuff
+          mkdir -p OpenToonz.app/Contents/Resources/licenses
+          cp ../licenses/Partio-LICENSE.txt OpenToonz.app/Contents/Resources/licenses/
           /usr/local/opt/qt@5/bin/macdeployqt OpenToonz.app -verbose=0 -always-overwrite \
             -executable=OpenToonz.app/Contents/MacOS/lzocompress \
             -executable=OpenToonz.app/Contents/MacOS/lzodecompress \

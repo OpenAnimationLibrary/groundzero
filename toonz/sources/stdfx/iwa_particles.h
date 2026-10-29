@@ -159,6 +159,8 @@ typedef struct {
 
 class Iwa_Particle {
 public:
+  // Monotonic birth ordinal, independent of RNG and render/list ordering.
+  unsigned long long birthId = 0;
   double x;
   float y;
   float oldx;

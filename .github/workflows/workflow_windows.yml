@@ -180,7 +180,7 @@ jobs:
           mkdir build
           cd build
 
-          cmake ..\sources -G "%MSVCVERSION%" -Ax64 -DQT_PATH="%QT_PATH%" -DBOOST_ROOT="%BOOST_ROOT%" -DOpenCV_DIR="%OpenCV_DIR%" -DWITH_WINTAB=Y -DBUILD_CELFX_TESTS=ON -DBUILD_CADMIUM_TESTS=ON -DBUILD_RELIABILITY_TESTS=ON -DBUILD_STREAM_TESTS=ON -DBUILD_SCENEBENCH_TESTS=ON -DBUILD_FXRENDER_TESTS=ON -DBUILD_PSD_TESTS=ON -DBUILD_FFMPEG_TESTS=ON
+          cmake ..\sources -G "%MSVCVERSION%" -Ax64 -DQT_PATH="%QT_PATH%" -DBOOST_ROOT="%BOOST_ROOT%" -DOpenCV_DIR="%OpenCV_DIR%" -DWITH_WINTAB=Y -DBUILD_CELFX_TESTS=ON -DBUILD_CADMIUM_TESTS=ON -DBUILD_PARTICLE_CACHE_TESTS=ON -DBUILD_RELIABILITY_TESTS=ON -DBUILD_STREAM_TESTS=ON -DBUILD_SCENEBENCH_TESTS=ON -DBUILD_FXRENDER_TESTS=ON -DBUILD_PSD_TESTS=ON -DBUILD_FFMPEG_TESTS=ON
         shell: cmd
 
       # Build Opentoonz using MSBuild
@@ -223,6 +223,7 @@ jobs:
           REM Create Opentoonz directory and copy files from RelWithDebInfo
           mkdir Opentoonz
           copy /Y RelWithDebInfo\*.* Opentoonz\
+          xcopy /Y /E /I licenses Opentoonz\licenses
           REM Copy required DLLs for proper functionality
           copy /Y ..\..\thirdparty\glut\3.7.6\lib\glut64.dll Opentoonz
           copy /Y ..\..\thirdparty\glew\glew-1.9.0\bin\64bit\glew32.dll Opentoonz
@@ -250,6 +251,23 @@ jobs:
         with:
           name: cadmium-runtime-windows-x64
           path: toonz/build/Opentoonz
+
+      - name: Test particle cache integration
+        id: particle_tests
+        shell: cmd
+        run: |
+          set "PATH=%CD%\toonz\build\Opentoonz;%QT_PATH%\bin;%PATH%"
+          set "QT_PLUGIN_PATH=%QT_PATH%\plugins"
+          set "QT_QPA_PLATFORM_PLUGIN_PATH=%QT_PATH%\plugins\platforms"
+          cd toonz\build
+          ctest -C RelWithDebInfo --output-on-failure --output-junit particle-tests.xml --timeout 300 --no-tests=error -R "^particlecache_" > particle-tests-output.txt 2>&1
+          set "PARTICLE_TEST_EXIT=%ERRORLEVEL%"
+          type particle-tests-output.txt
+          exit /b %PARTICLE_TEST_EXIT%
+
+      - name: Report particle test failures
+        if: ${{ failure() && steps.particle_tests.outcome == 'failure' }}
+        run: python ci-scripts/report_particle_tests.py toonz/build/particle-tests-output.txt
 
       - name: Test cel effects
         shell: cmd

@@ -1,5 +1,6 @@
-#include "../particlesfx.h"
+#include "tdoubleparam.h"
 #include "tenv.h"
+#include "tfx.h"
 #include "tparamcontainer.h"
 #include "tstream.h"
 #include "tthread.h"
@@ -17,6 +18,8 @@
 #include <string>
 #include <vector>
 
+DV_IMPORT_API void initStdFx();
+
 namespace {
 void require(bool value, const std::string &message) {
   if (!value) throw std::runtime_error(message);
@@ -32,7 +35,8 @@ TDoubleParamP numeric(const TFxP &fx, const std::string &name) {
 }
 
 void checkPages(const QString &layout) {
-  TFxP actual  = new ParticlesFx;
+  TFxP actual  = TFx::create("STD_particlesFx");
+  require(bool(actual), "Particles FX is not registered");
   TFxP preview = actual->clone(false);
   // No parameter has two editors, and the weather ones are on their page
   std::map<std::string, int> editors;
@@ -89,6 +93,7 @@ int main(int argc, char **argv) {
   TThread::init();
   int result = 1;
   try {
+    initStdFx();
     require(argc == 2, "Expected the effect layout");
     QTemporaryDir environment;
     require(environment.isValid(), "Cannot create environment");

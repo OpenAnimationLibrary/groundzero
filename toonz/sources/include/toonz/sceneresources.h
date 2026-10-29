@@ -27,6 +27,25 @@ class ToonzScene;
 class TXshSimpleLevel;
 class TXshPaletteLevel;
 class TXsheet;
+class TFx;
+
+// A file-backed FX keeps its coded project path in its ordinary parameters.
+// The scene builder supplies a decoded path on render clones only; effects must
+// not serialize that transient path or retain it after the coded path changes.
+class DVAPI SceneFxResource {
+public:
+  virtual ~SceneFxResource() {}
+  virtual TFilePath resourcePath() const = 0;
+  virtual void setResourcePath(const TFilePath &path) = 0;
+  virtual void setResolvedResourcePath(const TFilePath &path) = 0;
+};
+
+// Resolve only the supplied effect and its contained macro effects, never its
+// input graph (which can still contain the original scene nodes during cloning).
+DVAPI void resolveSceneFxResources(TFx *fx, const ToonzScene *scene);
+// Clipboard clones must carry physical paths so pasting into another project
+// cannot reinterpret a source project's +extras alias.
+DVAPI void makeSceneFxResourcesAbsolute(TFx *fx, const ToonzScene *scene);
 
 //=============================================================================
 /*!ResourceImportStrategy allows to control the resource import behaviour during
@@ -44,6 +63,7 @@ public:
 
   ResourceImportStrategy(int strategy);
   virtual bool aborted() { return false; }
+  virtual bool importsFxResources() const { return m_strategy != DONT_IMPORT; }
 
   // note: this attribute is automatically initialized (from the preferences)
   bool isChildFolderEnabled() const { return m_childFolderEnabled; }
@@ -73,6 +93,7 @@ public:
   virtual void process(TXshSimpleLevel *sl) {}
   virtual void process(TXshPaletteLevel *sl) {}
   virtual void process(TXshSoundLevel *sl) {}
+  virtual void process(SceneFxResource *resource) {}
   virtual bool aborted() const { return false; }
 };
 
@@ -347,8 +368,9 @@ public:
   void process(TXshSimpleLevel *sl) override;
   void process(TXshPaletteLevel *sl) override;
   void process(TXshSoundLevel *sl) override;
+  void process(SceneFxResource *resource) override;
 
-  bool aborted() const override { return m_importStrategy.aborted(); }
+  bool aborted() const override { return m_fxFailed || m_importStrategy.aborted(); }
 
   static std::string extractPsdSuffix(TFilePath &path);
   static TFilePath buildPsd(const TFilePath &path, const std::string &suffix);
@@ -358,6 +380,8 @@ private:
   std::shared_ptr<TProject> m_dstProject;
   ToonzScene *m_dstScene;
   ResourceImportStrategy &m_importStrategy;
+  std::map<TFilePath, TFilePath> m_importedFxResources;
+  bool m_fxFailed = false;
 };
 
 //=============================================================================
@@ -369,6 +393,7 @@ class DVAPI ResourceCollector final : public ResourceProcessor {
   ToonzScene *m_scene;
   int m_count;
   std::map<TFilePath, TFilePath> m_collectedFiles;
+  bool m_fxFailed = false;
 
 public:
   ResourceCollector(ToonzScene *scene);
@@ -380,10 +405,12 @@ public:
   bool makeUnique(TFilePath &path);
 
   int getCollectedResourceCount() const { return m_count; }
+  bool aborted() const override { return m_fxFailed; }
 
   void process(TXshSimpleLevel *sl) override;
   void process(TXshSoundLevel *sl) override;
   void process(TXshPaletteLevel *pl) override;
+  void process(SceneFxResource *resource) override;
 };
 
 #endif

@@ -38,6 +38,7 @@
 #include "../stdfx/globalcontrollablefx.h"
 
 #include "toonz/scenefx.h"
+#include "toonz/sceneresources.h"
 
 #include <QList>
 
@@ -807,6 +808,10 @@ PlacedFx FxBuilder::makePF(TFx *fx) {
     return makePF(zcfx);
   else if (TXsheetFx *xsfx = dynamic_cast<TXsheetFx *>(fx))
     return makePF(xsfx);
+  // File-backed zerary generators can render with no artwork connected. Their
+  // first optional port must not turn them into an empty unary filter.
+  else if (fx->isZerary() && dynamic_cast<SceneFxResource *>(fx))
+    return makePFfromGenericFx(fx);
   else if (fx->getInputPortCount() == 1)
     return makePFfromUnaryFx(fx);
   else
@@ -1100,6 +1105,7 @@ PlacedFx FxBuilder::makePF(TZeraryColumnFx *zcfx) {
       fx->clone(false);  // Detach the fx with a clone. Why? It's typically done
                          // to build fx connections in the render-tree freely.
                          // Here, it's used just for particles, I guess...
+  resolveSceneFxResources(pf.m_fx.getPointer(), m_scene);
 
   // Deal with input sub-trees
   for (int i = 0; i < fx->getInputPortCount(); ++i) {
@@ -1112,6 +1118,7 @@ PlacedFx FxBuilder::makePF(TZeraryColumnFx *zcfx) {
       // this causes a connection with the effect and a level also with empty
       // cells.
       if (fx->getFxType() == "STD_particlesFx" ||
+          fx->getFxType() == "STD_particleCacheFx" ||
           fx->getFxType() == "STD_iwa_TiledParticlesFx" ||
           fx->getFxType() == "STD_tiledParticlesFx") {
         m_particleDescendentCount++;
@@ -1214,11 +1221,13 @@ PlacedFx FxBuilder::makePFfromUnaryFx(TFx *fx) {
         fx->getAttributes()->isSpeedAware() ||  // In the 'speedAware' case,
                                                 // we'll alter the fx's
                                                 // attributes (see below)
+        dynamic_cast<SceneFxResource *>(fx) ||
         dynamic_cast<TMacroFx *>(fx))  // As for macros... I'm not sure. Not
                                        // even who wrote this *understood*
     // why - it just solved a bug  X( . Investigate!
     {
       fx = fx->clone(false);
+      resolveSceneFxResources(fx, m_scene);
       if (!fx->connect(fx->getInputPortName(0), pf.m_fx.getPointer()))
         assert(!"Could not connect ports!");
     }
@@ -1298,11 +1307,21 @@ PlacedFx FxBuilder::makePFfromGenericFx(TFx *fx) {
   // will have an NaAffineFx
   // injected just before its actual input fx.
   pf.m_fx = fx->clone(false);
+  resolveSceneFxResources(pf.m_fx.getPointer(), m_scene);
 
   bool firstInput = true;
 
   int m = fx->getInputPortCount();
-  for (int i = 0; i < m; ++i) {
+  // Standalone caches retain the native generator's placement anchor separately
+  // from their artwork. Visit it first, as the native input order did.
+  int placementIndex = -1;
+  if (fx->isZerary() && dynamic_cast<SceneFxResource *>(fx))
+    for (int i = 0; i < m; ++i)
+      if (fx->getInputPortName(i) == "Placement1") placementIndex = i;
+  for (int ordinal = 0; ordinal < m; ++ordinal) {
+    const int i = placementIndex < 0 ? ordinal
+                  : ordinal == 0 ? placementIndex
+                  : ordinal <= placementIndex ? ordinal - 1 : ordinal;
     if (TFxP inputFx = fx->getInputPort(i)->getFx()) {
       PlacedFx inputPF;
       if (fx->getFxType() == "STD_iwa_FlowPaintBrushFx") {

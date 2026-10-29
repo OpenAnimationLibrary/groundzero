@@ -158,6 +158,9 @@ set(SOURCES
     openexraovfx.cpp
     palettefilterfx.cpp
     particles.cpp
+    particlecachefx.cpp
+    particlebake.cpp
+    particlebakeio.cpp
     particlesengine.cpp
     particlesfx.cpp
     particlesmanager.cpp
@@ -593,18 +596,27 @@ if(BUILD_CELFX_TESTS)
     set_tests_properties(celfx_flowdisplace celfx_flowdisplace_ui PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
 endif()
 
+# Like fxrender, particle renders need a platform plugin with OpenGL support.
+# The Linux offscreen plugin uses GLX under the CI runner's Xvfb display.
+if(APPLE)
+    set(OT_PARTICLE_TEST_QPA_PLATFORM cocoa)
+elseif(WIN32)
+    set(OT_PARTICLE_TEST_QPA_PLATFORM windows)
+else()
+    set(OT_PARTICLE_TEST_QPA_PLATFORM offscreen)
+endif()
+
 if(BUILD_CELFX_TESTS)
     add_executable(particleweather_test tests/particleweather_test.cpp
-        particlesfx.cpp particles.cpp particlesengine.cpp particlesmanager.cpp celnoise.cpp hsvutil.cpp)
-    target_link_libraries(particleweather_test Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
+        celnoise.cpp)
+    target_link_libraries(particleweather_test tnzstdfx Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
     add_test(NAME celfx_particleweather COMMAND particleweather_test)
-    add_executable(particleweather_ui_test tests/particleweather_ui_test.cpp
-        particlesfx.cpp particles.cpp particlesengine.cpp particlesmanager.cpp celnoise.cpp hsvutil.cpp)
-    target_link_libraries(particleweather_ui_test toonzqt Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Widgets ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_executable(particleweather_ui_test tests/particleweather_ui_test.cpp)
+    target_link_libraries(particleweather_ui_test tnzstdfx toonzqt Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Widgets ${TNZLIBS} ${PTHREAD_LIBRARY})
     add_test(NAME celfx_particleweather_ui COMMAND particleweather_ui_test
              ${CMAKE_CURRENT_SOURCE_DIR}/../../../stuff/profiles/layouts/fxs/STD_particlesFx.xml)
     add_dependencies(celfx_tests particleweather_test particleweather_ui_test)
-    set_tests_properties(celfx_particleweather celfx_particleweather_ui PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 120)
+    set_tests_properties(celfx_particleweather celfx_particleweather_ui PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=${OT_PARTICLE_TEST_QPA_PLATFORM}" TIMEOUT 120)
 endif()
 
 if(BUILD_CELFX_TESTS)
@@ -642,4 +654,25 @@ if(BUILD_CELFX_TESTS)
     add_test(NAME celfx_starglow_ui COMMAND starglow_ui_test ${CMAKE_CURRENT_SOURCE_DIR}/../../../stuff/profiles/layouts/fxs/STD_starGlowFx.xml)
     set_tests_properties(celfx_starglow_ui PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
     add_dependencies(celfx_tests starglow_test starglow_ui_test)
+endif()
+
+# Native particle cache playback, scene resources and simulation bake regressions.
+if(BUILD_PARTICLE_CACHE_TESTS)
+    add_executable(particlecache_render_test tests/particlecache_render_test.cpp)
+    target_link_libraries(particlecache_render_test tnzstdfx Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME particlecache_render COMMAND particlecache_render_test)
+    add_executable(particlecache_bake_test tests/particlecache_bake_test.cpp)
+    target_link_libraries(particlecache_bake_test tnzstdfx Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME particlecache_bake COMMAND particlecache_bake_test)
+    add_executable(particlecache_bakeisolation_test tests/particlecache_bakeisolation_test.cpp)
+    target_link_libraries(particlecache_bakeisolation_test tnzstdfx Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME particlecache_bakeisolation COMMAND particlecache_bakeisolation_test)
+    add_executable(particlecache_resources_test tests/particlecache_resources_test.cpp)
+    target_link_libraries(particlecache_resources_test tnzstdfx Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME particlecache_resources COMMAND particlecache_resources_test)
+    # Generate the portable example project from the production scene/image I/O.
+    add_executable(particlecache_demo tests/particlecache_demo.cpp)
+    target_link_libraries(particlecache_demo tnzstdfx image Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
+    set_tests_properties(particlecache_render particlecache_bake particlecache_bakeisolation particlecache_resources PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=${OT_PARTICLE_TEST_QPA_PLATFORM}" TIMEOUT 300)
+    add_custom_target(particlecache_tests DEPENDS particlecache_test particlecache_formats_test particlecache_render_test particlecache_bake_test particlecache_bakeisolation_test particlecache_resources_test particlecache_demo)
 endif()
