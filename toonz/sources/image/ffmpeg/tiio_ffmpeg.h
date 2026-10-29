@@ -139,6 +139,7 @@ private:
   mutable int m_lx           = 0;
   mutable int m_ly           = 0;
   mutable int m_frameCount   = 0;
+  mutable QString m_codecName;
   mutable bool m_infoCached =
       false;  // indicates whether cache has been attempted
 

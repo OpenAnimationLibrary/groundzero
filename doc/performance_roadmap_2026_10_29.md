@@ -30,14 +30,41 @@ a record of its earlier pinned snapshot.
 | Raster safety | A13 rejects invalid/overflowing storage and fails allocation explicitly; Canvas Resize prepares replacements before edits | Boundary/stride/view tests added; allocator fault injection and UI scenarios remain |
 | Test reliability | V01–V04 tighten exception/golden/graphics checks; required subsets run on ordinary Linux, Windows and macOS workflows | Registration runner rejects missing/skipped expected cases; CI results must be reviewed |
 
-This is one implementation batch, not completion of all phases or evidence of a
-measured speedup. CI results and remaining application validation are tracked in
+The next performance batch is included in the same PR:
+
+| Path | Additional implementation | Evidence and remaining validation |
+| --- | --- | --- |
+| Sparse scene saves | Compute the trailing-empty-column boundary once per save and reuse it for columns, pegbars and FX | Sparse plain/compressed fixtures check identical serialized content and round trips; paired timing remains required |
+| Image cache | Use the recorded history key for explicit compression; discover resident icon IDs through their ordered prefix range under the cache lock | Address reuse, refreshed/remapped history, prefix boundaries and aliases are covered; alias updates still scan the alias map |
+| Media import and cleanup | Combine metadata probes, reuse codec metadata, avoid repeated validation/locking for complete generations, remove filename sorting and a full-image mirror pass, reduce file-system probes | Probe-count, metadata fallback, source-switch, cache-lock and exact-pixel cases are added; full source hashing and manifest validation remain |
+| Cadmium full-color paint | Read typed alpha directly, reuse paper/display samples and source reads, and convert accepted fill colors once per region | Independent 8/16/float fixtures cover thresholds, alpha and color spaces; transient fill storage adds 32 bytes per region |
+| Render admission | Admit contiguous output windows in one renderer lifecycle; split aliases across windows and preserve queued/running task ownership when submission fails | Budget arithmetic, executor failure boundaries, ordering and native render lifecycle regressions are required; profile the throughput cost of recomputing aliases across windows |
+| Performance measurement | Versioned sparse/dense scene metadata workloads, immutable benchmark bundles and an opt-in paired Windows/macOS harness | Raw samples, median/p95 and qualified native memory counters are recorded; compatible baseline/candidate runs and relocated bundle execution remain required |
+
+See [paired measurements](paired_benchmarks.md) for workload matching, provenance,
+native memory-counter scope and workflow availability. The harness does not
+measure interactive drawing, playback or rendering, and ordinary PR checks do
+not impose timing thresholds. The linked PR records current CI results; added
+fixtures and static review alone are not execution evidence.
+
+This PR does not complete all phases or establish a measured speedup. CI results
+and remaining application validation are tracked in
 the linked PR. Windows/macOS reference-machine profiles remain outstanding.
 Canvas Resize preparation improves failure handling
 but pins replacement drawings until commit and can raise peak residency; measure
-large multi-drawing resizes before release. Render reorder-buffer backpressure,
+large multi-drawing resizes before release. Render budget tuning and measurement,
 budgeted disk-cache eviction, Cadmium peak-memory instrumentation, and native
 interactive failure/cancellation scenarios remain follow-up work.
+
+MovieRenderer opts into a 256 MiB admission target for pooled render outputs and
+their handoff clones; other TRenderer consumers retain unrestricted dispatch by
+default. One oversized frame is admitted alone. FX intermediates, predictive
+caches, postprocessing, writer/encoder buffers and total process RSS are outside
+this target. Alias clusters cannot retain a previous window's output while
+waiting for later-window frames, but splitting them can increase repeated
+computation. Measure long sequences, repeated exposures, stereo and fields before
+tuning the default. Native thread-start failures and total-process allocation
+failure still need broader platform qualification.
 
 The FFmpeg import cache remains shared across readers; its files are not deleted
 when one reader closes. This preserves concurrent-reader correctness while owner
@@ -45,7 +72,10 @@ objects are now released. Full-source hashing prevents same-path/same-timestamp
 stale reuse, but adds sequential input reads. Export publication stages output
 and copies it once before replacement, increasing disk traffic and temporary
 space. Profile both costs; do not count these correctness changes as throughput
-improvements. Budgeted disk-cache eviction remains Phase 2 work.
+improvements. Budgeted disk-cache eviction remains Phase 2 work. Before enabling
+deletion, add reader leases that cover in-flight frame loads across processes and
+atomic retirement of unleased generations. A valid-generation fast path alone
+does not make concurrent eviction safe.
 
 Movie output preservation applies per file before its commit. Stereo and
 multimedia jobs are not one atomic transaction across all outputs: if one file
@@ -214,8 +244,8 @@ already use their own threads.
 
 Profile FFmpeg piping/backpressure, PSD/EXR import and export, and scene/resource
 I/O. Reduce proven copies and repeated decoding; bound queues and retain prompt
-cancellation. Add memory-aware render scheduling for out-of-order completions;
-replace quadratic video cleanup tracking; measure time to first usable video
+cancellation. Qualify bounded output-window scheduling for out-of-order completions;
+profile remaining video cleanup and file-system costs; measure time to first usable video
 frame before choosing on-demand decode and prefetch. Require explicit validated
 tile/thread-safety behavior before extending frame-strip parallelism.
 Evaluate compiler/LTO/PGO experiments separately so their gains and
@@ -303,7 +333,7 @@ The implementation table above distinguishes focused regression coverage from
 the application scenarios still required. Next, complete the Windows/macOS
 baseline corpus and interactive failure/undo/cancellation qualification; measure
 memory and latency before selecting further Phase 3–5 optimizations. Render
-backpressure, disk-cache eviction and allocator fault injection remain open.
+budget qualification, disk-cache eviction and allocator fault injection remain open.
 Link subsequent work to its audit finding, regression case, baseline/candidate
 results and remaining application testing. Build success alone is not a runtime
 or performance result.

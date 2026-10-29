@@ -1,16 +1,14 @@
 #pragma once
 
-#include <cstddef>
 #include <map>
 #include <set>
 #include <string>
 #include <utility>
-#include <vector>
 
 // Pending results belong to actual requested frames. A failed frame occupies
 // its own place in the sequence, allowing later successful frames to drain.
-// The caller serializes access and decides whether to take in request order or
-// process independent image clusters concurrently.
+// The caller serializes access and decides whether to take in chronological
+// order or process independent image clusters concurrently.
 template <class Payload>
 class MovieRenderQueue {
 public:
@@ -21,7 +19,7 @@ public:
   };
 
   void addFrame(double frame) {
-    if (m_remaining.insert(frame).second) m_order.push_back(frame);
+    m_remaining.insert(frame);
   }
 
   void push(double frame, const Payload &payload) {
@@ -49,10 +47,8 @@ public:
   }
 
   bool takeNext(double &frame, Result &result) {
-    while (m_next < m_order.size() && !m_remaining.count(m_order[m_next]))
-      ++m_next;
-    if (m_next == m_order.size()) return false;
-    frame = m_order[m_next];
+    if (m_remaining.empty()) return false;
+    frame = *m_remaining.begin();
     return take(frame, result);
   }
 
@@ -60,8 +56,6 @@ public:
   void discardPending() { m_pending.clear(); }
 
 private:
-  std::vector<double> m_order;
   std::set<double> m_remaining;
   std::map<double, Result> m_pending;
-  std::size_t m_next = 0;
 };

@@ -1,0 +1,24 @@
+{
+  "schema": 1,
+  "id": "scene-io-v2",
+  "description": "Synthetic scene serialization, including a separately validated sparse xsheet. No drawing files or UI latency.",
+  "required_phases": {
+    "save plain": "bytes", "save compressed": "bytes",
+    "load plain": "bytes", "load compressed": "bytes",
+    "xsheet saveData plain stream": "bytes", "xsheet saveData compressed stream": "bytes",
+    "write plain bytes": "bytes", "free loaded scene": "bytes", "read plain bytes": "bytes",
+    "open compressed": "bytes", "parse plain": "bytes", "parse compressed": "bytes", "scan plain": "bytes",
+    "cell frame id regex": "cells", "cell frame id expand": "cells", "cell level lookups": "cells",
+    "save sparse plain": "trailing columns", "save sparse compressed": "trailing columns"
+  },
+  "cases": [
+    {
+      "id": "small",
+      "arguments": ["--repeat", "1", "--columns", "20", "--rows", "100", "--levels", "20", "--pegbars", "5", "--trailing-columns", "512"]
+    },
+    {
+      "id": "standard-sparse",
+      "arguments": ["--repeat", "1", "--columns", "200", "--rows", "500", "--levels", "200", "--pegbars", "20", "--trailing-columns", "4096"]
+    }
+  ]
+}

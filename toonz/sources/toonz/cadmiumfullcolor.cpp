@@ -49,9 +49,7 @@ Sample display(Sample s, bool linear) {
   }
   return s;
 }
-Sample extractInk(Sample input, bool paper, bool linear) {
-  if (!paper) return input;
-  Sample s = display(input, linear);
+Sample extractPaperInk(const Sample &s, bool linear) {
   // This decomposition is an artist-approved interpretation of a white-paper
   // scan. Linked clean lines avoid treating colored paint as line coverage.
   double a = 1.0 - std::min({clamp01(s.r), clamp01(s.g), clamp01(s.b)});
@@ -64,6 +62,9 @@ Sample extractInk(Sample input, bool paper, bool linear) {
   }
   ink.r *= a; ink.g *= a; ink.b *= a;
   return ink;
+}
+Sample extractInk(const Sample &input, bool paper, bool linear) {
+  return paper ? extractPaperInk(display(input, linear), linear) : input;
 }
 void store(const TRasterP &r, int x, int y, const Sample &s) {
   if (TRaster32P r32 = r) {
@@ -82,10 +83,19 @@ struct RasterLock {
   ~RasterLock() { raster->unlock(); }
 };
 bool opaque(const TRasterP &r) {
-  for (int y = 0; y < r->getLy(); ++y)
-    for (int x = 0; x < r->getLx(); ++x)
-      if (read(r, x, y).a < 1.0) return false;
-  return true;
+  // Opacity only needs alpha. Resolve the raster type once, without decoding
+  // three unused color channels or constructing smart pointers for every pixel.
+  const auto scan = [](const auto &typed, double maximum) {
+    for (int y = 0; y < typed->getLy(); ++y) {
+      const auto *row = typed->pixels(y);
+      for (int x = 0; x < typed->getLx(); ++x)
+        if (row[x].m < maximum) return false;
+    }
+    return true;
+  };
+  if (TRaster32P typed = r) return scan(typed, 255.0);
+  if (TRaster64P typed = r) return scan(typed, 65535.0);
+  return scan(TRasterFP(r), 1.0);
 }
 void hashToken(QCryptographicHash &hash, const QByteArray &value) {
   hash.addData(value);
@@ -180,6 +190,8 @@ bool snapshotFullColor(const TImageP &image, Frame &frame, QString &error) {
   RasterLock sourceLock(source);
   const TRasterP line = lineImage->getRaster();
   RasterLock lineLock(line);
+  const bool lineLinear = line->isLinear(), sourceLinear = source->isLinear();
+  const bool sameRaster = line.getPointer() == source.getPointer();
   const bool paper = frame.rasterSource == RasterSource::PaperScan || opaque(line);
   if (paper && !frame.extractionApproved) {
     error = QStringLiteral("Preview and approve white-paper line extraction, or choose transparent clean lines.");
@@ -195,16 +207,22 @@ bool snapshotFullColor(const TImageP &image, Frame &frame, QString &error) {
     QRgb *row = reinterpret_cast<QRgb *>(lines.scanLine(y));
     for (int x = 0; x < w; ++x) {
       Sample s = read(line, x, h - 1 - y);
-      if (!finite(s) || !finite(read(source, x, h - 1 - y))) {
+      if (!finite(s) || (!sameRaster && !finite(read(source, x, h - 1 - y)))) {
         error = QStringLiteral("The drawing contains nonfinite samples or invalid alpha.");
         return false;
       }
-      Sample ink = extractInk(s, paper, line->isLinear());
-      if (paper && display(s, line->isLinear()).r >= frame.paperThreshold &&
-          display(s, line->isLinear()).g >= frame.paperThreshold &&
-          display(s, line->isLinear()).b >= frame.paperThreshold)
-        ink = {0, 0, 0, 0};
-      Sample visible = display(ink, line->isLinear());
+      Sample ink = s;
+      if (paper) {
+        // Extraction and the paper threshold consume the same straight display
+        // sample. In linear images this avoids repeating its gamma conversion.
+        const Sample paperSample = display(s, lineLinear);
+        ink = extractPaperInk(paperSample, lineLinear);
+        if (paperSample.r >= frame.paperThreshold &&
+            paperSample.g >= frame.paperThreshold &&
+            paperSample.b >= frame.paperThreshold)
+          ink = {0, 0, 0, 0};
+      }
+      Sample visible = display(ink, lineLinear);
       row[x] = qRgba(byte(visible.r), byte(visible.g), byte(visible.b), byte(ink.a));
       if (ink.a >= frame.lineThreshold) labels[y * w + x] = 0;
     }
@@ -237,10 +255,10 @@ bool snapshotFullColor(const TImageP &image, Frame &frame, QString &error) {
   QVector<int> samples(count + 1, 0);
   auto nativeColor = [&](const Sample &sample) {
     const Sample s = straight(sample);
-    return NativeColor{s.r, s.g, s.b, s.a, source->isLinear(), true};
+    return NativeColor{s.r, s.g, s.b, s.a, sourceLinear, true};
   };
   auto proxyColor = [&](const Sample &sample) {
-    const Sample s = display(sample, source->isLinear());
+    const Sample s = display(sample, sourceLinear);
     return qRgba(byte(s.r), byte(s.g), byte(s.b), byte(s.a));
   };
   // Majority candidates use bounded memory even when a region contains many
@@ -384,12 +402,35 @@ TImageP applyFullColor(const Frame &frame, const QVector<int> &styleIds,
   const TRasterP destination = output->getRaster();
   const TRasterP inkRaster = inkImage->getRaster();
   RasterLock sourceLock(source), inkLock(inkRaster), destinationLock(destination);
+  const bool sourceLinear = source->isLinear(), inkLinear = inkRaster->isLinear();
+  const bool sameRaster = inkRaster.getPointer() == source.getPointer();
   const bool paper = frame.rasterSource == RasterSource::PaperScan || opaque(inkRaster);
   if (paper && !frame.extractionApproved) {
     error = QStringLiteral("The line extraction has not been approved."); return TImageP();
   }
   const bool paperBase = frame.rasterSource == RasterSource::PaperScan ||
       (frame.extractionApproved && opaque(source));
+  // A region has one accepted fill. Convert it once in the destination space,
+  // instead of repeating QColor access and gamma conversion for every pixel.
+  QVector<Sample> fills(regionCount);
+  for (int region = 1; region < regionCount; ++region) {
+    if (!colors[region].isValid()) continue;
+    const QColor &color = colors[region];
+    Sample fill{color.redF(), color.greenF(), color.blueF(), color.alphaF()};
+    bool fillLinear = false;
+    if (!nativeColors.isEmpty()) {
+      const NativeColor &native = nativeColors[region];
+      fill = {native.r, native.g, native.b, native.a};
+      fillLinear = native.linear;
+    }
+    if (fillLinear != sourceLinear) {
+      auto convert = [&](double value) {
+        return sourceLinear ? toLinear(value) : toDisplay(value);
+      };
+      fill.r = convert(fill.r); fill.g = convert(fill.g); fill.b = convert(fill.b);
+    }
+    fills[region] = fill;
+  }
   bool changed = false;
   TRect savebox = output->getSavebox();
   for (int y = 0; y < h; ++y)
@@ -400,46 +441,33 @@ TImageP applyFullColor(const Frame &frame, const QVector<int> &styleIds,
         continue;
       const int nativeY = h - 1 - y;
       Sample current = read(source, x, nativeY);
-      Sample ink = extractInk(read(inkRaster, x, nativeY), paper, inkRaster->isLinear());
+      Sample ink = extractInk(sameRaster ? current : read(inkRaster, x, nativeY), paper, inkLinear);
       if (qAlpha(frame.lines.pixel(x, y)) == 0) ink = {0, 0, 0, 0};
-      Sample visible = display(current, source->isLinear());
       if (!repaint) {
         // Transparent pixels are empty. In explicitly approved white-paper
         // mode only the selected paper color is empty. A supplied mask may
         // protect white-painted areas that pixels alone cannot distinguish.
         if (paperBase) {
+          const Sample visible = display(current, sourceLinear);
           if (std::min({visible.r, visible.g, visible.b}) < frame.paperThreshold &&
               current.a > ink.a + 1.0 / 65535.0) continue;
         } else if (current.a > ink.a + 1.0 / 65535.0) continue;
       }
-      const QColor &c = colors[label];
-      double r = c.redF(), g = c.greenF(), b = c.blueF(), a = c.alphaF();
-      bool fillLinear = false;
-      if (!nativeColors.isEmpty()) {
-        const NativeColor &native = nativeColors[label];
-        r = native.r; g = native.g; b = native.b; a = native.a;
-        fillLinear = native.linear;
-      }
-      if (fillLinear != source->isLinear()) {
-        auto convert = [&](double value) {
-          return source->isLinear() ? toLinear(value) : toDisplay(value);
-        };
-        r = convert(r); g = convert(g); b = convert(b);
-      }
+      const Sample &fill = fills[label];
       // Convert the line samples to the destination color space before the
       // native-precision source-over operation.
-      if (inkRaster->isLinear() != source->isLinear()) {
+      if (inkLinear != sourceLinear) {
         Sample straightInk = straight(ink);
         auto convert = [&](double v) {
-          return source->isLinear() ? toLinear(clamp01(v)) : toDisplay(std::max(0.0, v));
+          return sourceLinear ? toLinear(clamp01(v)) : toDisplay(std::max(0.0, v));
         };
         ink.r = convert(straightInk.r) * ink.a;
         ink.g = convert(straightInk.g) * ink.a;
         ink.b = convert(straightInk.b) * ink.a;
       }
-      const double behind = (1.0 - ink.a) * a;
-      Sample painted{ink.r + behind * r, ink.g + behind * g,
-                     ink.b + behind * b, ink.a + behind};
+      const double behind = (1.0 - ink.a) * fill.a;
+      Sample painted{ink.r + behind * fill.r, ink.g + behind * fill.g,
+                     ink.b + behind * fill.b, ink.a + behind};
       store(destination, x, nativeY, painted);
       savebox += TRect(x, nativeY, x, nativeY); changed = true;
     }

@@ -24,6 +24,7 @@
 #include <QFile>
 #include <QDir>
 #include <QFileInfo>
+#include <QLockFile>
 #include <QProcess>
 #include <QSemaphore>
 #include <QStandardPaths>
@@ -477,6 +478,168 @@ void testIndependentExports(const QTemporaryDir &directory) {
   qunsetenv("OTDEV_FFMPEG_NO_PIPE");
 }
 
+QString shellQuote(QString text) {
+  text.replace("'", "'\\''");
+  return "'" + text + "'";
+}
+
+void writeExecutable(const QString &path, const QByteArray &bytes) {
+  writeFile(path, bytes);
+  require(QFile::setPermissions(path, QFile::ReadOwner | QFile::WriteOwner |
+                                    QFile::ExeOwner),
+          "Cannot make probe fixture executable");
+}
+
+void expectImportedPixel(const TRasterImageP &image, int row,
+                         const TPixel32 &expected) {
+  require(image.getPointer(), "Missing imported image");
+  TRaster32P raster(image->getRaster());
+  require(raster.getPointer(), "Imported image is not RGBA");
+  const TPixel32 actual = raster->pixels(row)[0];
+  require(std::abs(int(actual.r) - expected.r) <= 12 &&
+              std::abs(int(actual.g) - expected.g) <= 12 &&
+              std::abs(int(actual.b) - expected.b) <= 12,
+          "Imported image changed pixel channels or bottom-up row order");
+}
+
+void testMetadataProbeBatching(const QTemporaryDir &directory) {
+  const QString source = directory.filePath("metadata-audio-first.mp4");
+  QProcess mux;
+  // Put audio first in the container: metadata must still select video v:0.
+  mux.start(ffmpegExecutable(), {"-v", "error", "-y", "-f", "lavfi", "-i",
+      "anullsrc=channel_layout=mono:sample_rate=48000", "-i",
+      directory.filePath("pipe.mp4"), "-map", "0:a:0", "-map", "1:v:0",
+      "-c:a", "aac", "-c:v", "copy", "-shortest", source});
+  const bool finished = mux.waitForFinished(30000);
+  if (!finished) {
+    mux.kill();
+    mux.waitForFinished(3000);
+  }
+  require(finished && mux.exitStatus() == QProcess::NormalExit && mux.exitCode() == 0,
+          "Cannot create audio-first media fixture: " +
+              mux.readAllStandardError().toStdString());
+
+  QTemporaryDir tools;
+  require(tools.isValid(), "Cannot create probe-count fixture directory");
+  const QString calls = tools.filePath("probe-calls.txt");
+  const QString realProbe = QDir(QString::fromUtf8(TIIO_FFMPEG_TEST_DIR))
+                                .filePath("ffprobe");
+  const QByteArray wrapper = ("#!/bin/sh\nprintf 'probe\\n' >> " +
+      shellQuote(calls) + "\nexec " + shellQuote(realProbe) + " \"$@\"\n").toUtf8();
+  writeExecutable(tools.filePath("ffprobe"), wrapper);
+  require(QFile::link(ffmpegExecutable(), tools.filePath("ffmpeg")),
+          "Cannot provide encoder beside probe-count fixture");
+  Preferences::instance()->setValue(ffmpegPath, tools.path());
+  const QStringList before = importGenerations();
+  Ffmpeg reader;
+  reader.setPath(TFilePath(source));
+  const ffmpegFileInfo info = reader.getInfo();
+  require(info.m_lx == kLx && info.m_ly == kLy && info.m_frameCount == kFrames &&
+              std::abs(info.m_frameRate - 24.0) < 0.001,
+          "Combined probe did not read the first video stream correctly");
+  reader.getSize();
+  reader.getFrameRate();
+  reader.getFrameCount();
+  require(readFile(calls).count('\n') == 1,
+          "Complete container metadata needed more than one ffprobe process");
+  reader.getFramesFromMovie();
+  require(readFile(calls).count('\n') == 1,
+          "Extraction probed a codec already returned with metadata");
+  expectImportedPixel(reader.getImage(kFrames), kLy - 1, topPixel(kFrames - 1));
+  expectImportedPixel(reader.getImage(kFrames), 0, bottomPixel());
+
+  const QStringList added = newNames(before, importGenerations());
+  require(added.size() == 1, "Probe fixture did not publish one cache generation");
+  const QString base = ffmpegCache().filePath(added.front().chopped(7));
+  QLockFile heldLock(base + ".lock");
+  heldLock.setStaleLockTime(0);
+  require(heldLock.tryLock(0), "Cannot hold extraction lock for cached-read test");
+  Ffmpeg cached;
+  cached.setPath(TFilePath(source));
+  cached.getFramesFromMovie();
+  require(cached.getImage(1).getPointer(),
+          "Validated cached frames were blocked by the extraction lock");
+  require(readFile(calls).count('\n') == 1,
+          "A new reader ignored complete cached metadata");
+  Preferences::instance()->setValue(ffmpegPath,
+                                    QString::fromUtf8(TIIO_FFMPEG_TEST_DIR));
+}
+
+void testMissingContainerFrameCount(const QTemporaryDir &directory) {
+  const QString source = directory.filePath("missing-container-count.mp4");
+  require(QFile::copy(directory.filePath("pipe.mp4"), source),
+          "Cannot create missing-count source");
+  QTemporaryDir tools;
+  require(tools.isValid(), "Cannot create missing-count fixture directory");
+  const QString calls = tools.filePath("probe-calls.txt");
+  const QString realProbe = QDir(QString::fromUtf8(TIIO_FFMPEG_TEST_DIR))
+                                .filePath("ffprobe");
+  const QString json = "{\"streams\":[{\"width\":320,\"height\":240,"
+      "\"r_frame_rate\":\"0/0\",\"avg_frame_rate\":\"30000/1001\","
+      "\"nb_frames\":\"N/A\",\"codec_name\":\"h264\"}]}";
+  const QByteArray wrapper = ("#!/bin/sh\nprintf 'probe\\n' >> " +
+      shellQuote(calls) + "\ncase \"$*\" in\n*nb_read_frames*) exec " +
+      shellQuote(realProbe) + " \"$@\" ;;\n*) printf '%s\\n' " +
+      shellQuote(json) + " ;;\nesac\n").toUtf8();
+  writeExecutable(tools.filePath("ffprobe"), wrapper);
+  require(QFile::link(ffmpegExecutable(), tools.filePath("ffmpeg")),
+          "Cannot provide encoder for missing-count fixture");
+  Preferences::instance()->setValue(ffmpegPath, tools.path());
+  Ffmpeg reader;
+  reader.setPath(TFilePath(source));
+  const ffmpegFileInfo info = reader.getInfo();
+  require(info.m_frameCount == kFrames &&
+              std::abs(info.m_frameRate - 30000.0 / 1001.0) < 1e-10,
+          "Decoded count or fractional average-rate fallback is incorrect");
+  reader.getFramesFromMovie();
+  require(reader.getImage(kFrames).getPointer(), "Missing-count source lost frames");
+  require(readFile(calls).count('\n') == 2,
+          "Missing count must need only metadata plus one decoded-count probe");
+  Ffmpeg cached;
+  cached.setPath(TFilePath(source));
+  require(std::abs(cached.getInfo().m_frameRate - info.m_frameRate) < 1e-10,
+          "Cached fractional rate lost precision");
+  cached.getFramesFromMovie();
+  require(readFile(calls).count('\n') == 2,
+          "Cached missing-count metadata repeated decoding or codec probing");
+  Preferences::instance()->setValue(ffmpegPath,
+                                    QString::fromUtf8(TIIO_FFMPEG_TEST_DIR));
+}
+
+void testOwnedCleanup(const QTemporaryDir &directory) {
+  const QString owned = directory.filePath("owned-frame.png");
+  const QString removed = directory.filePath("already-removed.png");
+  const QString sibling = directory.filePath("unrelated-frame.png");
+  writeFile(owned, "partial PNG bytes");
+  writeFile(removed, "complete PNG bytes");
+  writeFile(sibling, "unrelated data");
+  Ffmpeg writer;
+  writer.addToCleanUp(owned);
+  writer.addToCleanUp(owned);  // duplicate owned entries are harmless
+  writer.addToCleanUp(removed);
+  require(QFile::remove(removed), "Cannot remove owned cleanup fixture");
+  writer.abort();
+  writer.abort();
+  require(!QFileInfo::exists(owned) && !QFileInfo::exists(removed),
+          "Abort left an owned partial or missing file behind");
+  require(readFile(sibling) == "unrelated data", "Cleanup removed an unrelated file");
+}
+
+void testLosslessImportPixels(const QTemporaryDir &directory) {
+  Ffmpeg reader;
+  reader.setPath(TFilePath(directory.filePath("pipe.apng")));
+  reader.getFramesFromMovie();
+  for (int frame = 0; frame < kFrames; ++frame) {
+    const TRasterImageP image = reader.getImage(frame + 1);
+    require(image.getPointer(), "Missing imported APNG frame");
+    const TRaster32P raster(image->getRaster());
+    require(raster.getPointer() &&
+                raster->pixels(kLy - 1)[0] == topPixel(frame) &&
+                raster->pixels(0)[0] == bottomPixel(),
+            "Lossless import changed row order, channels or alpha");
+  }
+}
+
 void testSourceReplacementAndIncompleteCache(const QTemporaryDir &directory) {
   const WriterMaker makeWriter = [](const TFilePath &path) {
     return TLevelWriterMp4::create(path, new Tiio::Mp4WriterProperties());
@@ -497,6 +660,9 @@ void testSourceReplacementAndIncompleteCache(const QTemporaryDir &directory) {
   const QStringList before = importGenerations();
   {
     Ffmpeg replacement;
+    replacement.setPath(TFilePath(directory.filePath("pipe.apng")));
+    require(replacement.getInfo().m_frameCount == kFrames,
+            "Cannot initialize path-switch reader");
     replacement.setPath(TFilePath(source.toStdWString()));
     require(replacement.getInfo().m_frameCount == 3,
             "Replaced source reused old video metadata");
@@ -651,6 +817,10 @@ int main(int argc, char *argv[]) {
     testAbortedExport(directory, true, true);
     testCancellationDuringFinalization(directory);
     testIndependentExports(directory);
+    testMetadataProbeBatching(directory);
+    testMissingContainerFrameCount(directory);
+    testOwnedCleanup(directory);
+    testLosslessImportPixels(directory);
     testSourceReplacementAndIncompleteCache(directory);
     testFailedProbeCanRetry(directory);
     testFailedExtractionCanRetry(directory);

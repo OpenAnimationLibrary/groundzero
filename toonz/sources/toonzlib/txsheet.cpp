@@ -1267,10 +1267,14 @@ void TXsheet::loadData(TIStream &is) {
 //-----------------------------------------------------------------------------
 
 void TXsheet::saveData(TOStream &os) {
+  // Saving does not edit this sheet's cells. Compute its serialization boundary
+  // once: rescanning an empty tail for every column makes sparse saves quadratic.
+  // Keep this local so a later save sees any columns exposed since this one.
+  const int occupiedColumnCount = getFirstFreeColumnIndex();
   os.openChild("columns");
-  for (int c = 0; c < m_imp->m_columnSet.getColumnCount(); ++c) {
+  for (int c = 0; c < occupiedColumnCount; ++c) {
     TXshColumnP column = m_imp->m_columnSet.getColumn(c);
-    if (column && c < getFirstFreeColumnIndex()) os << column.getPointer();
+    if (column) os << column.getPointer();
   }
   os.closeChild();
 
@@ -1282,12 +1286,12 @@ void TXsheet::saveData(TOStream &os) {
   }
 
   os.openChild("pegbars");
-  m_imp->m_pegTree->saveData(os, getFirstFreeColumnIndex(), this);
+  m_imp->m_pegTree->saveData(os, occupiedColumnCount, this);
   os.closeChild();
 
   FxDag *fxDag = getFxDag();
   os.openChild("fxnodes");
-  fxDag->saveData(os, getFirstFreeColumnIndex());
+  fxDag->saveData(os, occupiedColumnCount);
   os.closeChild();
 
   // does not matter which Orientation to take, as all fans share folded data

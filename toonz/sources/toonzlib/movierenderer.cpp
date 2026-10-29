@@ -221,6 +221,9 @@ MovieRenderer::Imp::Imp(ToonzScene *scene, const TFilePath &moviePath,
           .getLevelName();
 
   m_renderer.addPort(this);
+  // Bound admitted camera rasters and reordered clones, not FX/postprocessing
+  // working memory, predictive caches, encoder buffers, or total process memory.
+  m_renderer.setOutputRasterBudget(std::uint64_t(256) * 1024 * 1024);
 }
 
 //---------------------------------------------------------
@@ -968,6 +971,14 @@ void MovieRenderer::start() {
   // which follows all frame callbacks. Startup failures use the same callback.
   m_imp->addRef();
   try {
+    // Window admission and sequential writers must use the same ascending
+    // order as the result queue, even when a caller adds frames out of order.
+    std::stable_sort(m_imp->m_framesToBeRendered.begin(),
+                     m_imp->m_framesToBeRendered.end(),
+                     [](const std::pair<double, TFxPair> &a,
+                        const std::pair<double, TFxPair> &b) {
+                       return a.first < b.first;
+                     });
     if (m_imp->m_framesToBeRendered.empty())
       m_imp->recordFailure(L"No frames were requested for rendering.");
     else if (!m_imp->m_canceled)

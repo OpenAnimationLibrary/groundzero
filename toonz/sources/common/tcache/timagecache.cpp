@@ -42,6 +42,8 @@
 #include <deque>
 #include <numeric>
 #include <sstream>
+#include <utility>
+#include <vector>
 #ifdef _WIN32
 #include <crtdbg.h>
 #endif
@@ -911,22 +913,14 @@ void TImageCache::Imp::doCompress(std::string id) {
       (uitem && (!uitem->m_image || hasExternalReferences(uitem->m_image))))
     return;
 
-  // search id in m_itemHistory
-  std::map<TUINT32, std::string>::iterator itu = m_itemHistory.begin();
-  while (itu != m_itemHistory.end() && itu->second != id) ++itu;
-  if (itu == m_itemHistory.end()) return;  // id not found: return
+  // The item already records its history key. Avoid scanning every resident
+  // image for each explicit compression request.
+  auto itu = m_itemHistory.find(item->m_historyCount);
+  assert(itu != m_itemHistory.end() && itu->second == id);
+  if (itu == m_itemHistory.end() || itu->second != id) return;
 
-// delete itu from m_itemHistory
-#ifdef _WIN32
-  assert(itu->first == it->second->m_historyCount);
-  itu = m_itemHistory.erase(itu);
+  m_itemHistory.erase(itu);
   m_itemsByImagePointer.erase(getPointer(item->getImage()));
-#else
-  std::map<TUINT32, std::string>::iterator itu2 = itu;
-  itu++;
-  m_itemHistory.erase(itu2);
-  m_itemsByImagePointer.erase(getPointer(item->getImage()));
-#endif
 
   // delete item from m_uncompressedItems
   m_uncompressedItems.erase(it);
@@ -1379,19 +1373,20 @@ void TImageCache::Imp::remap(const std::string &dstId,
 
 void TImageCache::remapIcons(const std::string &dstId,
                              const std::string &srcId) {
-  std::map<std::string, CacheItemP>::iterator it;
-  std::map<std::string, std::string> table;
-  std::string prefix = srcId + ":";
-  int j              = (int)prefix.length();
-  for (it = m_imp->m_uncompressedItems.begin();
-       it != m_imp->m_uncompressedItems.end(); ++it) {
-    std::string id = it->first;
-    if (id.find(prefix) == 0) table[id] = dstId + ":" + id.substr(j);
+  if (dstId == srcId) return;
+  TThread::MutexLocker sl(&m_imp->m_mutex);
+  const std::string prefix = srcId + ":";
+  std::vector<std::pair<std::string, std::string>> table;
+  // IDs are ordered, so only this contiguous prefix range can match. Keep a
+  // snapshot because remap changes the map, and hold the recursive cache lock
+  // across discovery and remapping to exclude concurrent cache mutations.
+  for (auto it = m_imp->m_uncompressedItems.lower_bound(prefix);
+       it != m_imp->m_uncompressedItems.end() &&
+       it->first.compare(0, prefix.size(), prefix) == 0; ++it) {
+    table.emplace_back(it->first,
+                       dstId + ":" + it->first.substr(prefix.size()));
   }
-  for (std::map<std::string, std::string>::iterator it2 = table.begin();
-       it2 != table.end(); ++it2) {
-    remap(it2->second, it2->first);
-  }
+  for (const auto &entry : table) m_imp->remap(entry.second, entry.first);
 }
 
 //------------------------------------------------------------------------------

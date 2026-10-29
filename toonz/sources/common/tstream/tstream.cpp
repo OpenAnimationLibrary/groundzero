@@ -208,8 +208,10 @@ TPersist *TPersist::create(const std::string &name) {
 
 class TOStream::Imp {
 public:
+  // Child streams share this state. Close the channel when its last view is
+  // released, including when serialization throws with tags still open.
+  std::unique_ptr<Tofstream> m_ownedStream;
   std::ostream *m_os;
-  bool m_chanOwner;
   bool m_compressed;
   bool m_fullPrecision = false;
   std::ostringstream m_ostringstream;
@@ -224,7 +226,6 @@ public:
 
   Imp()
       : m_os(0)
-      , m_chanOwner(false)
       , m_tab(0)
       , m_justStarted(true)
       , m_maxId(0)
@@ -239,11 +240,12 @@ TOStream::TOStream(const TFilePath &fp, bool compressed) : m_imp(new Imp) {
   if (compressed) {
     m_imp->m_os         = &m_imp->m_ostringstream;
     m_imp->m_compressed = true;
-    m_imp->m_chanOwner  = false;
   } else {
     std::unique_ptr<Tofstream> os(new Tofstream(fp));
-    m_imp->m_os        = os->isOpen() ? os.release() : 0;
-    m_imp->m_chanOwner = true;
+    if (os->isOpen()) {
+      m_imp->m_os          = os.get();
+      m_imp->m_ownedStream = std::move(os);
+    }
   }
 
   m_imp->m_justStarted = true;
@@ -319,7 +321,6 @@ TOStream::~TOStream() {
           os.write(static_cast<const char *>(out.get()), out_len);
         }
       }
-      if (m_imp->m_chanOwner) delete m_imp->m_os;
     }
   } catch (...) {
   }

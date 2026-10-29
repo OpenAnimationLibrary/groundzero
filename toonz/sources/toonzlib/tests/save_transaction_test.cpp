@@ -25,9 +25,11 @@
 #include <QDir>
 #include <QFile>
 #include <QTemporaryDir>
+#include <QXmlStreamReader>
 
 #include <iostream>
 #include <stdexcept>
+#include <utility>
 
 namespace {
 
@@ -241,6 +243,77 @@ class FailingStyle final : public TSolidColorStyle {
   }
 };
 
+void streamChannelOwnership(const QDir &dir) {
+  const QString abortedPath = dir.filePath("aborted-stream.xml");
+  try {
+    TOStream output(pathOf(abortedPath));
+    require(output.checkStatus(), "cannot open aborted stream fixture");
+    output.openChild("root");
+    output.openChild("nested");
+    output << 17;
+    throw TException("Intentional nested stream serialization failure");
+  } catch (const TException &) {
+  }
+  // Destruction must flush and release the channel even with unclosed tags.
+  // Windows also rejects removal while the owning file handle remains open.
+  require(bytesOf(abortedPath).contains("17 "),
+          "aborted stream did not flush its channel");
+  require(QFile::remove(abortedPath), "aborted stream kept its file open");
+
+  const QString nestedPath = dir.filePath("nested-stream.xml");
+  {
+    TOStream output(pathOf(nestedPath));
+    require(output.checkStatus(), "cannot open nested stream fixture");
+    {
+      TOStream root = output.child("root");
+      {
+        TOStream first = root.child("first");
+        first << 19;
+      }
+      root.child("second") << 23;
+    }
+    require(output.checkStatus(), "child destruction closed the parent channel");
+  }
+  QXmlStreamReader nested(bytesOf(nestedPath));
+  require(nested.readNextStartElement() && nested.name() == "root",
+          "nested stream lost its root");
+  require(nested.readNextStartElement() && nested.name() == "first" &&
+              nested.readElementText().trimmed() == "19",
+          "nested stream lost its first child");
+  require(nested.readNextStartElement() && nested.name() == "second" &&
+              nested.readElementText().trimmed() == "23",
+          "child destruction prevented subsequent writes");
+  while (!nested.atEnd()) nested.readNext();
+  require(!nested.hasError(), "nested stream did not close its tags");
+  require(QFile::remove(nestedPath), "nested stream kept its file open");
+
+  const QString replacedPath = dir.filePath("replaced-stream.xml");
+  const QString movedPath = dir.filePath("moved-stream.xml");
+  {
+    TOStream output(pathOf(replacedPath));
+    require(output.checkStatus(), "cannot open replaced stream fixture");
+    output.openChild("root");
+    output << 29;
+    TOStream replacement(pathOf(movedPath));
+    require(replacement.checkStatus(), "cannot open moved stream fixture");
+    replacement.openChild("root");
+    output = std::move(replacement);
+    require(bytesOf(replacedPath).contains("29 "),
+            "move assignment did not flush the replaced channel");
+    require(QFile::remove(replacedPath),
+            "move assignment kept the replaced file open");
+    output << 31;
+    output.closeChild();
+  }
+  QXmlStreamReader moved(bytesOf(movedPath));
+  require(moved.readNextStartElement() && moved.name() == "root" &&
+              moved.readElementText().trimmed() == "31",
+          "move assignment lost the replacement channel");
+  while (!moved.atEnd()) moved.readNext();
+  require(!moved.hasError(), "moved stream did not close its tags");
+  require(QFile::remove(movedPath), "moved stream kept its file open");
+}
+
 void studioPaletteSerializationFailure(const QDir &dir) {
   const TFilePath path = pathOf(dir.filePath("studio-transaction.tpl"));
   TPaletteP palette = new TPalette;
@@ -320,6 +393,8 @@ int main(int argc, char **argv) {
     paletteAddStyleOwnership();
     phase = "studio palette serialization";
     studioPaletteSerializationFailure(dir);
+    phase = "stream channel ownership";
+    streamChannelOwnership(dir);
     std::cout << "Scene and palette save transactions passed\n";
     return 0;
   } catch (const TException &error) {

@@ -104,6 +104,25 @@ void cancellationReleasesBufferedFrames() {
   require(!queue.complete(), "discarded frames were reported as complete");
 }
 
+void unorderedRequestsDrainChronologically() {
+  MovieRenderQueue<int> queue;
+  for (double frame : {100.0, 0.0, 101.0, 1.0}) queue.addFrame(frame);
+  queue.push(100.0, 100);
+  queue.push(101.0, 101);
+  MovieRenderQueue<int>::Result result;
+  double frame;
+  require(!queue.takeNext(frame, result),
+          "late frames drained before the earlier requested output window");
+  queue.push(1.0, 1);
+  queue.push(0.0, 0);
+  for (double expected : {0.0, 1.0, 100.0, 101.0}) {
+    require(queue.takeNext(frame, result) && frame == expected &&
+                !result.failed && result.payload == int(expected),
+            "unsorted requested frames lost chronological output order");
+  }
+  require(queue.complete(), "unsorted requested frames left a stalled queue");
+}
+
 }  // namespace
 
 int main() {
@@ -111,6 +130,7 @@ int main() {
   independentClustersKeepOwnership();
   failureDoesNotOverwriteFrameZero();
   cancellationReleasesBufferedFrames();
+  unorderedRequestsDrainChronologically();
   std::cout << "movie render queue failure and ordering checks passed\n";
   return 0;
 }
