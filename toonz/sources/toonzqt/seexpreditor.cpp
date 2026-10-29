@@ -604,7 +604,8 @@ public:
             .arg(component(2, selected.blueF(), displayed.blueF()), 0, 'g', 17));
       }
     });
-    QObject::connect(curve, &QPushButton::clicked, &dialog, [&dialog, &points, &control, kind]() {
+    QObject::connect(curve, &QPushButton::clicked, &dialog,
+        [&dialog, &points, &control, kind, resolver = curveLinkResolver]() {
       if (kind->currentText() == "animcurve") {
         if (!control.contains("keys")) {
           const auto defaults = SeExprControls::defaultAnimationCurve();
@@ -612,7 +613,7 @@ public:
             if (!control.contains(it.key())) control[it.key()] = it.value();
         }
         control["type"] = "animcurve";
-        SeExprControls::editAnimationCurve(&dialog, control, curveLinkResolver);
+        SeExprControls::editAnimationCurve(&dialog, control, resolver);
         return;
       }
       bool accepted; points = editPoints(&dialog, points, kind->currentText() == "colorcurve", accepted);

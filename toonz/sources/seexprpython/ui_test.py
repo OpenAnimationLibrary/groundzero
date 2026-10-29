@@ -88,8 +88,12 @@ editor.edit._insert('animCurve')
 require(editor.getExpr() == 'animCurve', 'native function completion did not replace the typed prefix')
 editor.setExpr('animCurve($u,"constant","constant",0,"",'
                '0,2,1,1,0,0,"linear","linear",0,2,6,1,1,0,0,"linear","linear",0)')
-require(editor.validateExpression() and editor.previewExpression() == 2.5,
-        'the native function offered by editor completion did not evaluate with its host context')
+native_completion_valid = editor.validateExpression()
+native_completion_value = editor.previewExpression() if native_completion_valid else None
+require(native_completion_valid and native_completion_value == 2.5,
+        'the native function offered by editor completion did not evaluate with its host context: '
+        + repr({'valid': native_completion_valid, 'value': native_completion_value,
+                'status': editor.status.text(), 'source': editor.getExpr()}))
 
 editor.setExpr('$local_gain=2*$u; $text="$hidden=3;"; # $comment=4\n$local_gain')
 require(editor.help.findText('local_gain') >= 0 and editor.help.findText('text') >= 0 and
