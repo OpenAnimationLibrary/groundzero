@@ -16,7 +16,9 @@ subdirectory, and write `.groundzero-native-ui-test` containing exactly
 `groundzero-native-ui-test` followed by a newline. Run the application with that
 temporary directory as its working directory and `--test-native-ui` as its only
 argument. Apply a process timeout of 180 seconds and delete the temporary tree
-after the application exits. Linux requires a virtual display with working
+after the application exits. The runner aligns the child's temporary-directory
+variables with the created fixture's parent so Python and Qt use the same root
+on Windows. Linux requires a virtual display with working
 software OpenGL; this is an application test rather than an offscreen QWidget
 test. Windows runs the same executable mode on the CI desktop.
 

@@ -21,6 +21,12 @@ void require(bool condition, const char *message) {
   if (!condition) throw std::runtime_error(message);
 }
 
+void checkpoint(const char *message) {
+  // Flush before entering Qt so a platform crash identifies the last operation
+  // in CTest's failure report even when no exception reaches the test harness.
+  std::cerr << "themeapplication: " << message << std::endl;
+}
+
 void write(const QString &path, const QByteArray &contents) {
   QDir().mkpath(QFileInfo(path).absolutePath());
   QFile file(path);
@@ -49,6 +55,7 @@ int main(int argc, char **argv) {
   qputenv("QT_QPA_PLATFORM", QByteArrayLiteral("offscreen"));
   QApplication app(argc, argv);
   try {
+    checkpoint("creating isolated themes and widgets");
     QTemporaryDir directory;
     require(directory.isValid(), "temporary theme directory unavailable");
     const QString root = directory.path();
@@ -78,6 +85,7 @@ int main(int argc, char **argv) {
     customLabel.setObjectName("custom");
     mainLabel.show(); floatingLabel.show(); customLabel.show();
     QString error;
+    checkpoint("applying initial fixture theme");
     require(themes.reload(&error), "initial theme could not be loaded");
     require(error.isEmpty(), "successful application left an error");
     app.processEvents();
@@ -87,6 +95,7 @@ int main(int argc, char **argv) {
             "additional stylesheet lost precedence");
     require(!themes.availableThemes().contains("NotATheme"), "non-theme directory was listed");
 
+    checkpoint("creating synchronized menus and Preferences");
     std::unique_ptr<QMenu> first(createQuickThemeMenu(themes, nullptr));
     std::unique_ptr<QMenu> second(createQuickThemeMenu(themes, nullptr));
     QComboBox preferences;
@@ -101,6 +110,7 @@ int main(int argc, char **argv) {
 
     const int initialRefreshes = iconRefreshes;
     const int initialNotifications = notifications;
+    checkpoint("switching fixture themes from menus and Preferences");
     themeAction(*first, "Light")->trigger();
     app.processEvents();
     require(themes.currentTheme() == "Light", "menu did not persist selection");
@@ -122,6 +132,7 @@ int main(int argc, char **argv) {
     requireChecked(*second, "Dark");
     const QString before = app.styleSheet();
     const int beforeRefreshes = iconRefreshes, beforeSaves = saves;
+    checkpoint("rejecting invalid themes without mutation");
     for (const QString &bad : {QString("Gone"), QString("../Dark"), QString("Broken"),
                               QString("MissingAsset")}) {
       require(!themes.applyTheme(bad, &error) && !error.isEmpty(), "invalid theme accepted");
@@ -137,11 +148,14 @@ int main(int argc, char **argv) {
       for (QWidget *window : QApplication::topLevelWidgets())
         if (QMessageBox *message = qobject_cast<QMessageBox *>(window)) message->reject();
     });
+    checkpoint("opening invalid-theme warning and dismissing it");
     themeAction(*first, "Broken")->trigger();
+    checkpoint("invalid-theme warning returned");
     requireChecked(*first, "Dark");
     requireChecked(*second, "Dark");
     require(themes.currentTheme() == "Dark" && app.styleSheet() == before,
             "failed menu choice changed the current theme");
+    checkpoint("applying additional stylesheet overrides");
     require(!themes.applyAdditionalStyle("QLabel { color: 'broken", &error),
             "unterminated override accepted");
     require(extraSaves == 0 && app.styleSheet() == before,
@@ -152,6 +166,7 @@ int main(int argc, char **argv) {
     require(extraSaves == 1 && customLabel.palette().color(QPalette::WindowText) == QColor("#123456"),
             "valid override was not applied and saved");
 
+    checkpoint("discovering a newly installed theme");
     write(root + "/New/New.qss", "QWidget { color: #338844; }");
     QMetaObject::invokeMethod(first.get(), "aboutToShow", Qt::DirectConnection);
     require(themeAction(*first, "New"), "newly installed theme not discovered");
@@ -165,6 +180,7 @@ int main(int argc, char **argv) {
       QMetaObject::invokeMethod(first.get(), "aboutToShow", Qt::DirectConnection);
     require(first->actions().size() == actionCount, "menu accumulated duplicate actions");
 
+    checkpoint("reloading edited stylesheet and clearing overrides");
     write(root + "/New/New.qss", "QWidget { color: #884433; }");
     require(themes.reload(&error), "edited stylesheet did not reload");
     app.processEvents();
@@ -174,6 +190,7 @@ int main(int argc, char **argv) {
             "comment-only override rejected");
     require(themes.applyAdditionalStyle("", &error), "clearing overrides failed");
 
+    checkpoint("restoring persisted theme in another application helper");
     QSettings reopened(settingsPath, QSettings::IniFormat);
     require(reopened.value("theme").toString() == "New" &&
             reopened.value("extra").toString().isEmpty(), "settings did not survive reopening");
@@ -185,6 +202,7 @@ int main(int argc, char **argv) {
     // CI also supplies the real installed-theme tree. This exercises its QSS
     // and inherited image resources rather than relying only on tiny fixtures.
     if (argc > 1) {
+      checkpoint("loading shipped theme resources");
       const QString installedRoot = QString::fromLocal8Bit(argv[1]);
       QString selected = QStringLiteral("Default");
       const QString overrideStyle = QStringLiteral("QLabel#custom { color: #124578; }");
@@ -206,8 +224,11 @@ int main(int argc, char **argv) {
       std::unique_ptr<QMenu> roomB(createQuickThemeMenu(installed, nullptr));
       QComboBox nativePreferences;
       installed.bindComboBox(&nativePreferences);
+      checkpoint("applying installed Default theme");
       require(installed.reload(&error), "default installed theme failed to load");
       for (const QString &name : shipped) {
+        std::cerr << "themeapplication: applying installed "
+                  << name.toStdString() << std::endl;
         require(installed.applyTheme(name, &error), "shipped theme or referenced image failed to load");
         app.processEvents();
         requireChecked(*roomA, name);
@@ -220,13 +241,17 @@ int main(int argc, char **argv) {
                 "shipped theme replaced the custom override");
         require(overrideWrites == 0, "theme switch rewrote the user stylesheet");
       }
+      checkpoint("restoring installed Default theme");
       require(installed.applyTheme("Default", &error), "original installed theme failed to restore");
       requireChecked(*roomA, "Default");
       requireChecked(*roomB, "Default");
+      checkpoint("destroying installed-theme controls");
     }
+    checkpoint("destroying fixture controls");
   } catch (const std::exception &error) {
     std::cerr << error.what() << '\n';
     return 1;
   }
+  checkpoint("fixture cleanup complete");
   return 0;
 }

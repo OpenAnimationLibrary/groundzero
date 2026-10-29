@@ -93,7 +93,14 @@ void settle() {
 
 bool below(const QString &path, const QString &root) {
   const QString resolved = QFileInfo(path).canonicalFilePath();
-  return !resolved.isEmpty() && resolved.startsWith(root + '/');
+  const QString parent = QFileInfo(root).canonicalFilePath();
+  if (resolved.isEmpty() || parent.isEmpty()) return false;
+  // QDir handles platform path casing and drive roots. Canonical paths also
+  // resolve links before checking containment; equality and siblings fail.
+  const QString relative = QDir::fromNativeSeparators(
+      QDir(parent).relativeFilePath(resolved));
+  return !relative.isEmpty() && relative != "." && relative != ".." &&
+         !relative.startsWith("../") && !QDir::isAbsolutePath(relative);
 }
 
 QAction *nativeAction(const char *id) {
@@ -494,8 +501,7 @@ bool prepareNativeUiIntegrationTest(QString *error) {
   };
   const QString root = QFileInfo(QDir::currentPath()).canonicalFilePath();
   const QString temporary = QFileInfo(QDir::tempPath()).canonicalFilePath();
-  if (root.isEmpty() || temporary.isEmpty() ||
-      !root.startsWith(temporary + '/'))
+  if (!below(root, temporary))
     return reject("native UI test requires a disposable temporary directory");
   const QFileInfo marker(QDir(root).filePath(".groundzero-native-ui-test"));
   QFile markerFile(marker.filePath());

@@ -19,10 +19,16 @@ def main():
         executable = args.executable.resolve(strict=True)
         source = args.stuff.resolve(strict=True)
         with tempfile.TemporaryDirectory(prefix="groundzero-native-ui-") as root:
-            directory = Path(root)
+            directory = Path(root).resolve(strict=True)
             shutil.copytree(source, directory / "portablestuff")
             (directory / ".groundzero-native-ui-test").write_bytes(b"groundzero-native-ui-test\n")
             environment = os.environ.copy()
+            # Python and Qt/Windows consult temporary-directory variables in
+            # different orders. Use the parent that actually contains this
+            # fresh fixture for every child convention, preserving the native
+            # strict-descendant check instead of bypassing it.
+            for key in ("TMPDIR", "TEMP", "TMP"):
+                environment[key] = str(directory.parent)
             for key, leaf in (("XDG_CONFIG_HOME", "config"), ("XDG_CACHE_HOME", "cache"),
                               ("XDG_DATA_HOME", "data"), ("APPDATA", "appdata"),
                               ("LOCALAPPDATA", "localappdata")):
