@@ -20,7 +20,13 @@ after the application exits. The runner aligns the child's temporary-directory
 variables with the created fixture's parent so Python and Qt use the same root
 on Windows. Linux requires a virtual display with working
 software OpenGL; this is an application test rather than an offscreen QWidget
-test. Windows runs the same executable mode on the CI desktop.
+test. Windows runs the same executable mode on the CI desktop with a pinned
+Mesa llvmpipe runtime. The fixture temporarily deploys the desktop OpenGL DLLs
+beside the executable so Qt and the application's direct OpenGL calls use the
+same implementation. It refuses to overwrite existing files and removes the
+temporary runtime afterward; CI checks that it is absent before creating the
+downloadable artifact.
+This provides the shader functions missing from the runner's system OpenGL.
 
 The copied data must include compiled themes, including Synthwave, and the
 Japanese `toonz`, `toonzqt`, `tnzcore`, `toonzlib`, `colorfx`, `tnztools` and `image`

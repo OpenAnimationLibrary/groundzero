@@ -10,7 +10,50 @@ import tempfile
 
 
 @contextmanager
-def isolated_fixture(source):
+def windows_mesa_renderer(executable, runtime):
+    """Temporarily provide desktop GL for both Qt and native GL imports."""
+    if runtime is None:
+        yield {}
+        return
+    if os.name != "nt":
+        raise ValueError("The Mesa desktop renderer option requires Windows")
+    runtime = runtime.resolve(strict=True)
+    names = ("opengl32.dll", "libgallium_wgl.dll")
+    sources = [runtime / name for name in names]
+    targets = [executable.parent / name for name in names]
+    marker = executable.with_name(executable.name + ".local")
+    if not all(source.is_file() for source in sources):
+        raise RuntimeError("The verified Mesa runtime is missing a required DLL")
+    if any(path.exists() or path.is_symlink() for path in [*targets, marker]):
+        raise RuntimeError("The temporary Mesa renderer would replace a packaged file")
+    created = []
+    try:
+        for source, target in zip(sources, targets):
+            with target.open("xb") as destination:
+                created.append(target)
+                with source.open("rb") as original:
+                    shutil.copyfileobj(original, destination)
+        with marker.open("xb") as destination:
+            created.append(marker)
+            destination.write(b"native-ui-test-only\n")
+        print("native-ui-integration: renderer: Mesa llvmpipe desktop OpenGL", flush=True)
+        # The standard DLL name keeps Qt's desktop WGL/GDI dispatch and native
+        # opengl32 imports on the same module. Do not load opengl32sw as well.
+        yield {"GALLIUM_DRIVER": "llvmpipe", "QT_OPENGL": "desktop",
+               "QT_OPENGL_DLL": "opengl32.dll"}
+    finally:
+        cleanup_error = None
+        for path in reversed(created):
+            try:
+                path.unlink()
+            except OSError as error:
+                cleanup_error = error
+        if cleanup_error is not None:
+            raise RuntimeError("Temporary Mesa renderer cleanup failed") from cleanup_error
+
+
+@contextmanager
+def isolated_fixture(source, executable, mesa_runtime=None):
     """Give every launch its own untouched data and identical isolation rules."""
     with tempfile.TemporaryDirectory(prefix="groundzero-native-ui-") as root:
         directory = Path(root).resolve(strict=True)
@@ -28,14 +71,17 @@ def isolated_fixture(source):
             path.mkdir()
             environment[key] = str(path)
         environment["LIBGL_ALWAYS_SOFTWARE"] = "1"
-        yield directory, environment
+        with windows_mesa_renderer(executable, mesa_runtime) as renderer_environment:
+            environment.update(renderer_environment)
+            yield directory, environment
 
 
 def decode_output(output):
     return output.decode("utf-8", errors="replace") if isinstance(output, bytes) else output or ""
 
 
-def windows_crash_diagnostics(executable, source, native_status, symbol_directories):
+def windows_crash_diagnostics(executable, source, native_status, symbol_directories,
+                              mesa_runtime=None):
     kits = os.environ.get("ProgramFiles(x86)")
     if not kits:
         return "Windows SDK debugger location is unavailable.\n"
@@ -52,7 +98,7 @@ def windows_crash_diagnostics(executable, source, native_status, symbol_director
                 "lm; ~* kb 8; .ecxr; kv 60; q")
     command = [str(debugger), "-G", "-lines", "-y", ";".join(symbols),
                "-c", commands, str(executable), "--test-native-ui"]
-    with isolated_fixture(source) as (directory, environment):
+    with isolated_fixture(source, executable, mesa_runtime) as (directory, environment):
         process = subprocess.Popen(command, cwd=directory, env=environment,
                                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         try:
@@ -90,13 +136,15 @@ def main():
                         help="Capture a separate CDB stack after a Windows native exception")
     parser.add_argument("--debugger-symbols", type=Path, action="append", default=[],
                         help="Local PDB directory for optional Windows crash diagnostics")
+    parser.add_argument("--windows-mesa", type=Path,
+                        help="Verified Mesa x64 runtime for temporary Windows desktop GL")
     args = parser.parse_args()
     output, status = "", 1
     native_status = None
     try:
         executable = args.executable.resolve(strict=True)
         source = args.stuff.resolve(strict=True)
-        with isolated_fixture(source) as (directory, environment):
+        with isolated_fixture(source, executable, args.windows_mesa) as (directory, environment):
             try:
                 result = subprocess.run([str(executable), "--test-native-ui"],
                                         cwd=directory, env=environment,
@@ -128,7 +176,7 @@ def main():
             and (native_status & 0xc0000000) == 0xc0000000):
         try:
             diagnostics = windows_crash_diagnostics(executable, source, native_status,
-                                                    args.debugger_symbols)
+                                                    args.debugger_symbols, args.windows_mesa)
         except (OSError, RuntimeError, ValueError) as error:
             diagnostics = ("Native crash diagnostics could not complete: "
                            f"{type(error).__name__}: {error}\n")

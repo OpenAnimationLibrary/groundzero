@@ -141,6 +141,30 @@ jobs:
           move Qt5.15.2_wintab\5.15.2_wintab thirdparty\qt
         shell: cmd
 
+      - name: Prepare pinned Mesa renderer for native UI fixture
+        timeout-minutes: 5
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $root = Join-Path $env:RUNNER_TEMP "groundzero-native-mesa-26.2.4"
+          New-Item -ItemType Directory -Path $root -Force | Out-Null
+          $archive = Join-Path $root "mesa3d-26.2.4-release-msvc.7z"
+          curl.exe -fSL --retry 2 --retry-delay 2 --max-time 90 -o $archive https://github.com/pal1000/mesa-dist-win/releases/download/26.2.4/mesa3d-26.2.4-release-msvc.7z
+          if ($LASTEXITCODE -ne 0) { throw "Could not download the pinned native UI renderer" }
+          $expected = "351fc8c8b695878ffb3eaa044b3ead08672a48b1a045e3c3e3975811df0f6695"
+          if ((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash -ne $expected) {
+            throw "Native UI renderer archive checksum does not match"
+          }
+          7z x $archive "x64/opengl32.dll" "x64/libgallium_wgl.dll" "-o$root" -y
+          if ($LASTEXITCODE -ne 0) { throw "Could not extract the native UI renderer" }
+          $runtime = Join-Path $root "x64"
+          foreach ($name in @("opengl32.dll", "libgallium_wgl.dll")) {
+            if (-not (Test-Path -LiteralPath (Join-Path $runtime $name) -PathType Leaf)) {
+              throw "The pinned native UI renderer is missing a required DLL"
+            }
+          }
+          Add-Content -LiteralPath $env:GITHUB_ENV -Value "NATIVE_UI_MESA_RUNTIME=$runtime" -Encoding utf8
+
       - name: Install third-party prebuilt libs (LFS workaround)
         run: |
           @echo on
@@ -333,7 +357,7 @@ jobs:
           set "PATH=%CD%\toonz\build\Opentoonz;%QT_PATH%\bin;%PATH%"
           set "QT_PLUGIN_PATH=%QT_PATH%\plugins"
           set "QT_QPA_PLATFORM_PLUGIN_PATH=%QT_PATH%\plugins\platforms"
-          python ci-scripts/run_native_ui_test.py toonz/build/Opentoonz/OpenToonz.exe stuff --output toonz/build/ui-integration-output.txt --windows-crash-debugger --debugger-symbols toonz/build/RelWithDebInfo
+          python ci-scripts/run_native_ui_test.py toonz/build/Opentoonz/OpenToonz.exe stuff --output toonz/build/ui-integration-output.txt --windows-crash-debugger --debugger-symbols toonz/build/RelWithDebInfo --windows-mesa "%NATIVE_UI_MESA_RUNTIME%"
 
       - name: Report native application integration failure
         if: ${{ failure() && steps.ui_integration.outcome == 'failure' }}
@@ -383,6 +407,15 @@ jobs:
           copy /Y .github\ot-dev\recorder\README.md toonz\build\Opentoonz\otdev-recorder\README.md
 
       # Create artifact from the build
+      - name: Verify native UI renderer was removed from package
+        shell: pwsh
+        run: |
+          foreach ($name in @("opengl32.dll", "libgallium_wgl.dll", "OpenToonz.exe.local")) {
+            if (Test-Path -LiteralPath (Join-Path "toonz/build/Opentoonz" $name)) {
+              throw "A temporary native UI renderer file remained in the package"
+            }
+          }
+
       - name: Create Artifact
         run: |
           mkdir artifact
