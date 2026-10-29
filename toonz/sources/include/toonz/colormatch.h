@@ -22,6 +22,9 @@ struct Statistics {
 struct Profile {
   Statistics source, reference;
   QRectF sourceCrop{0, 0, 1, 1}, referenceCrop{0, 0, 1, 1};
+  // Editable provenance only: basenames/fingerprints, never machine paths.
+  // Order: source image, reference image, source mask, reference mask.
+  std::array<QString, 4> sampleNames, sampleDigests;
   bool preserveLightness = true;
   double strength = 1;
 };
@@ -40,4 +43,5 @@ DVAPI bool exportCube(const QString &path, const Profile &profile,
                       QString &error);
 // Decode only local images; refuse excessive dimensions before decoding.
 DVAPI QImage loadSample(const QString &path, QString &error);
+DVAPI QString sampleDigest(const QImage &image);
 }  // namespace ColorMatch

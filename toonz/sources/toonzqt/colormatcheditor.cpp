@@ -10,6 +10,7 @@
 #include <QDialogButtonBox>
 #include <QDoubleSpinBox>
 #include <QFile>
+#include <QFileInfo>
 #include <QFileDialog>
 #include <QFormLayout>
 #include <QGroupBox>
@@ -33,6 +34,8 @@ QImage bounded(const QImage &image) {
 struct AnalysisResult { ColorMatch::Profile profile; QImage preview; QString error; };
 class Editor final : public QDialog {
   QImage images[2], masks[2];
+  std::array<QString,4> sampleNames, expectedDigests;
+  QLabel *sampleStatus[2];
   QDoubleSpinBox *crop[2][4], *strength;
   QCheckBox *lightness;
   QLabel *before, *after, *referencePreview, *status;
@@ -42,6 +45,15 @@ class Editor final : public QDialog {
   std::atomic_bool cancelled{false};
   std::future<AnalysisResult> task;
   QTimer poll;
+  void updateSampleStatus() {
+    for(int i=0;i<2;++i) {
+      const QString imageState=images[i].isNull()?tr("not linked"):tr("linked");
+      const QString maskState=masks[i].isNull()?
+          (expectedDigests[i+2].isEmpty()?tr("none"):tr("not linked")):tr("linked");
+      sampleStatus[i]->setText(tr("Image: %1 (%2)\nMask: %3 (%4)")
+          .arg(sampleNames[i],imageState,sampleNames[i+2],maskState));
+    }
+  }
   void invalidate() {
     cancelled = true;
     pendingAdjustment = false;
@@ -59,19 +71,35 @@ class Editor final : public QDialog {
     QString error;
     auto image=ColorMatch::loadSample(path,error);
     if(image.isNull()) { QMessageBox::warning(this,tr("Reference Color Match"),error); return; }
+    const int index=side+(mask?2:0);
+    const QString digest=ColorMatch::sampleDigest(image);
+    const bool matches=!expectedDigests[index].isEmpty() && digest==expectedDigests[index];
+    const bool preserve=valid && matches && !busy;
     if(mask) {
       if(images[side].isNull() || image.size()!=images[side].size()) {
         QMessageBox::warning(this,tr("Mask Size"),tr("Load the image first. Its mask must have the same aspect ratio and sampled dimensions.")); return;
       }
       masks[side]=image;
     } else {
-      images[side]=image; masks[side]=QImage();
+      images[side]=image;
+      if(!masks[side].isNull() && masks[side].size()!=image.size())masks[side]=QImage();
       showImage(side?referencePreview:before,image);
     }
-    invalidate();
+    sampleNames[index]=QFileInfo(path).fileName().left(128).replace('\\','_');
+    if(!preserve)invalidate();
+    if(!matches && !expectedDigests[index].isEmpty())
+      status->setText(tr("The replacement differs from the captured sample. Preview to capture a new mapping."));
+    else if(preserve)status->setText(tr("Original sample verified and relinked. The captured mapping is unchanged."));
+    updateSampleStatus();
   }
   void start() {
     if(busy) return;
+    if(images[0].isNull() || images[1].isNull()) {
+      status->setText(tr("Load or relink both samples before recomputing. The captured profile remains usable."));return;
+    }
+    for(int i=0;i<2;++i)if(!expectedDigests[i+2].isEmpty() && masks[i].isNull()) {
+      status->setText(tr("Relink the captured sampling masks, or explicitly Clear Mask before recomputing."));return;
+    }
     invalidate();
     cancelled=false; busy=true; analyze->setEnabled(false);
     status->setText(tr("Analyzing locally... Cancel closes without applying."));
@@ -80,11 +108,13 @@ class Editor final : public QDialog {
     for(int i=0;i<2;++i) rects[i]=QRectF(crop[i][0]->value()/100,crop[i][1]->value()/100,
                                       crop[i][2]->value()/100,crop[i][3]->value()/100);
     const QRectF ra=rects[0], rb=rects[1];
-    ColorMatch::Profile p; p.strength=strength->value()/100;
+    ColorMatch::Profile p; p.strength=strength->value()/100;p.sampleNames=sampleNames;
     p.sourceCrop=ra;p.referenceCrop=rb;
     p.preserveLightness=lightness->isChecked();
     task=std::async(std::launch::async,[this,a,b,ma,mb,ra,rb,p]() mutable {
       AnalysisResult result; result.profile=p;
+      result.profile.sampleDigests={{ColorMatch::sampleDigest(a),ColorMatch::sampleDigest(b),
+                                     ColorMatch::sampleDigest(ma),ColorMatch::sampleDigest(mb)}};
       if(ColorMatch::analyze(a,ma,ra,result.profile.source,result.error,&cancelled) &&
          ColorMatch::analyze(b,mb,rb,result.profile.reference,result.error,&cancelled))
         result.preview=ColorMatch::preview(a,result.profile,&cancelled);
@@ -97,12 +127,14 @@ class Editor final : public QDialog {
     if (busy) {
       cancelled = true;
       pendingAdjustment = true;
+      exportProfile->setEnabled(false);exportLut->setEnabled(false);
       return;
     }
     profile.strength=strength->value()/100;
     profile.preserveLightness=lightness->isChecked();
     if(images[0].isNull()) return;
     cancelled=false;busy=true;analyze->setEnabled(false);apply->setEnabled(false);
+    exportProfile->setEnabled(false);exportLut->setEnabled(false);
     const auto image=images[0];const auto p=profile;
     task=std::async(std::launch::async,[this,image,p] {
       AnalysisResult result;result.profile=p;
@@ -111,7 +143,7 @@ class Editor final : public QDialog {
     poll.start(30);
   }
   void save(bool lut) {
-    if(!valid) return;
+    if(!valid || busy || pendingAdjustment) return;
     QString path=QFileDialog::getSaveFileName(this,lut?tr("Export Creative LUT"):tr("Export Color Profile"),QString(),lut?tr("Cube LUT (*.cube)"):tr("Color profile (*.gzcolor)"));
     if(path.isEmpty()) return;
     QString error;
@@ -138,9 +170,12 @@ public:
       auto mask=new QPushButton(tr("Sampling Mask..."),box);
       auto clear=new QPushButton(tr("Clear Mask"),box);
       form->addRow(choose); form->addRow(mask); form->addRow(clear);
+      sampleStatus[i]=new QLabel(box);sampleStatus[i]->setWordWrap(true);form->addRow(sampleStatus[i]);
       connect(choose,&QPushButton::clicked,this,[this,i]{load(i,false);});
       connect(mask,&QPushButton::clicked,this,[this,i]{load(i,true);});
-      connect(clear,&QPushButton::clicked,this,[this,i]{masks[i]=QImage();invalidate();});
+      connect(clear,&QPushButton::clicked,this,[this,i]{
+        masks[i]=QImage();expectedDigests[i+2].clear();sampleNames[i+2].clear();invalidate();updateSampleStatus();
+      });
       const char *labels[]={"Left %","Top %","Width %","Height %"};
       for(int j=0;j<4;++j) {
         crop[i][j]=new QDoubleSpinBox(box); crop[i][j]->setRange(0,100);
@@ -195,11 +230,15 @@ public:
       if(pendingAdjustment) {pendingAdjustment=false;adjustProfile();return;}
       if(cancelled.load())return;
       if(!result.error.isEmpty()||result.preview.isNull()) {status->setText(result.error);return;}
-      profile=result.profile;valid=true;showImage(after,result.preview);
+      profile=result.profile;expectedDigests=profile.sampleDigests;valid=true;showImage(after,result.preview);
+      updateSampleStatus();
       apply->setEnabled(true);exportProfile->setEnabled(true);exportLut->setEnabled(true);
       status->setText(tr("Preview ready. The profile is embedded in the scene; original files are not needed for rendering."));
     });
     images[0]=bounded(source);images[1]=bounded(reference);
+    if(!source.isNull())sampleNames[0]=tr("Palette source");
+    if(!reference.isNull())sampleNames[1]=tr("Reference panel sample");
+    updateSampleStatus();
     showImage(before,images[0]);showImage(referencePreview,images[1]);
     invalidate();QString error;
     if(!initial.isEmpty()&&!setProfile(initial,error))status->setText(error);
@@ -220,6 +259,14 @@ public:
       }
     }
     profile=next;valid=true;apply->setEnabled(true);exportProfile->setEnabled(true);exportLut->setEnabled(true);
+    sampleNames=next.sampleNames;expectedDigests=next.sampleDigests;
+    for(int i=0;i<2;++i) {
+      if(!expectedDigests[i].isEmpty() && ColorMatch::sampleDigest(images[i])!=expectedDigests[i])
+        images[i]=QImage();
+      if(expectedDigests[i+2].isEmpty() || ColorMatch::sampleDigest(masks[i])!=expectedDigests[i+2])
+        masks[i]=QImage();
+    }
+    updateSampleStatus();showImage(before,images[0]);showImage(referencePreview,images[1]);
     showImage(after,ColorMatch::preview(images[0],profile));
     status->setText(tr("Stored profile loaded. Preview recomputes from the selected source and reference."));return true;
   }

@@ -22,6 +22,7 @@ bool applyMatch(TRasterPT<P> out, TRasterPT<P> mask, TRasterPT<P> ink,
   if (mask) mask->lock();
   if (ink) ink->lock();
   bool complete = true;
+  ColorMatch::Profile local = profile;
   for (int y=0;y<out->getLy();++y) {
     if (cancel && *cancel) { complete = false; break; }
     auto row = out->pixels(y);
@@ -32,8 +33,7 @@ bool applyMatch(TRasterPT<P> out, TRasterPT<P> mask, TRasterPT<P> ink,
           !std::isfinite(double(p.b))) continue;
       double coverage = maskValue(mask,x,y) * (ink ? 1-maskValue(ink,x,y) : 1);
       if (coverage <= 0) continue;
-      ColorMatch::Profile local = profile;
-      local.strength *= coverage;
+      local.strength = profile.strength * coverage;
       auto c = ColorMatch::transform({{double(p.r)/p.m,double(p.g)/p.m,
                                       double(p.b)/p.m}}, local);
       const double rounding = maximum == 1 ? 0 : .5;

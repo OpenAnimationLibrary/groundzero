@@ -5,6 +5,8 @@
 #include <QJsonObject>
 #include <QSaveFile>
 #include <QLocale>
+#include <QCryptographicHash>
+#include <QRegularExpression>
 #include <QTextStream>
 #include <algorithm>
 #include <cmath>
@@ -130,6 +132,10 @@ QString serialize(const Profile &p) {
                 {"sourceCrop", rectangle(p.sourceCrop)},
                 {"referenceCrop", rectangle(p.referenceCrop)},
                 {"preserveLightness", p.preserveLightness}, {"strength", p.strength}};
+  QJsonArray samples;
+  for(int i=0;i<4;++i)
+    samples.append(QJsonObject{{"name",p.sampleNames[i]}, {"sha256",p.sampleDigests[i]}});
+  o.insert("samples",samples);
   return QString::fromUtf8(QJsonDocument(o).toJson(QJsonDocument::Compact));
 }
 bool parse(const QString &text, Profile &p, QString &error) {
@@ -153,8 +159,44 @@ bool parse(const QString &text, Profile &p, QString &error) {
   }
   next.strength = o.value("strength").toDouble();
   next.preserveLightness = o.value("preserveLightness").toBool();
+  if(o.contains("samples")) {
+    const auto samples=o.value("samples").toArray();
+    if(!o.value("samples").isArray() || samples.size()!=4) {
+      error=QStringLiteral("Invalid sample metadata.");return false;
+    }
+    const QRegularExpression digestPattern(QStringLiteral("^[a-f0-9]{64}$"));
+    for(int i=0;i<4;++i) {
+      const auto item=samples[i].toObject();
+      if(!samples[i].isObject() || !item.value("name").isString() || !item.value("sha256").isString()) {
+        error=QStringLiteral("Invalid sample metadata.");return false;
+      }
+      next.sampleNames[i]=item.value("name").toString();
+      next.sampleDigests[i]=item.value("sha256").toString();
+      if(next.sampleNames[i].size()>128 || next.sampleNames[i].contains('/') ||
+         next.sampleNames[i].contains('\\') ||
+         (!next.sampleDigests[i].isEmpty() && !digestPattern.match(next.sampleDigests[i]).hasMatch())) {
+        error=QStringLiteral("Invalid sample name or fingerprint.");return false;
+      }
+    }
+  }
   p = next;
   return true;
+}
+QString sampleDigest(const QImage &image) {
+  if(image.isNull() || image.width()>1024 || image.height()>1024)return {};
+  const QImage sample=image.convertToFormat(QImage::Format_ARGB32);
+  QCryptographicHash hash(QCryptographicHash::Sha256);
+  hash.addData(QByteArray::number(sample.width())+"x"+QByteArray::number(sample.height())+":rgba8-v1:");
+  QByteArray row(sample.width()*4,'\0');
+  for(int y=0;y<sample.height();++y) {
+    auto pixels=reinterpret_cast<const QRgb *>(sample.constScanLine(y));
+    for(int x=0;x<sample.width();++x) {
+      row[4*x]=char(qRed(pixels[x]));row[4*x+1]=char(qGreen(pixels[x]));
+      row[4*x+2]=char(qBlue(pixels[x]));row[4*x+3]=char(qAlpha(pixels[x]));
+    }
+    hash.addData(row);
+  }
+  return QString::fromLatin1(hash.result().toHex());
 }
 QImage preview(const QImage &image, const Profile &p, const std::atomic_bool *cancel) {
   if (image.width() > 1024 || image.height() > 1024) return {};
@@ -178,7 +220,8 @@ QImage loadSample(const QString &path, QString &error) {
   if (!size.isValid() || qint64(size.width()) * size.height() > 16777216) {
     error = QStringLiteral("Use a local raster image of at most 16 megapixels."); return {};
   }
-  reader.setScaledSize(size.scaled(1024, 1024, Qt::KeepAspectRatio));
+  if (size.width()>1024 || size.height()>1024)
+    reader.setScaledSize(size.scaled(1024, 1024, Qt::KeepAspectRatio));
   auto result = reader.read();
   if (result.isNull()) error = reader.errorString();
   if (result.width() > 1024 || result.height() > 1024)

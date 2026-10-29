@@ -3,7 +3,8 @@
 ## Acceptance checklist
 
 Implementation, execution in CI, and artist validation are separate gates. This
-branch is local development; no runtime or artist validation is implied.
+draft separates authored coverage from CI execution and artist validation.
+Checklist completion requires the final revision to pass the corresponding gate.
 
 - [ ] Shared native, versioned color transform with bounded analysis and explicit
       color-space assumptions; no model, network, or training dependency.
@@ -29,7 +30,9 @@ branch is local development; no runtime or artist validation is implied.
 The core transform uses alpha-weighted statistics in OKLab, with a bounded
 per-channel contrast ratio and optional preservation of OKLab lightness. Input
 and output are SDR sRGB. Profiles contain statistics, not image paths or pixels.
-Normalized source/reference crops are retained for later editing. Artists
+Normalized source/reference crops, sample basenames and SHA-256 fingerprints of
+normalized sampled RGBA pixels are retained for explicit relinking. Files and
+absolute paths are never embedded. Artists
 explicitly capture a look from a representative source and reference;
 the same mapping is used throughout a shot. This avoids frame-dependent pumping
 and tile-dependent statistics. It is color matching, not semantic recoloring,
@@ -53,7 +56,7 @@ Temporal stylization additionally needs shot boundaries, ordered dependencies,
 held-drawing reuse, motion/occlusion handling and deterministic invalidation.
 It must pass motion, cut, occlusion and random-seek tests before being advertised
 as animation-consistent. None of these capabilities is implied by the native
-color-matching feature. Models, downloads, training and external artwork transfer
+color-matching feature. Weight downloads, runtime installation, training and external artwork transfer
 are outside the current implementation authorization.
 
 ## Artist workflow
@@ -67,8 +70,12 @@ pass-through. A missing profile is pass-through; a malformed profile is an error
 
 The source and reference samples can be replaced explicitly in the editor.
 Original images and their paths are not retained in a profile. To revise a
-captured look later, load the samples again; the stored statistics remain usable
-without them. Strength and lightness can be adjusted on an imported profile.
+captured look later, load the samples again. Matching fingerprints verify the
+relink without changing the captured look; differing replacements require a new
+Preview. Recorded sampling masks must be relinked or explicitly cleared before
+recomputing. Missing source images never prevent using the stored statistics.
+Fingerprints describe decoded/downsampled pixels, not original file bytes;
+decoder differences can require explicit recapture. Strength and lightness can be adjusted on an imported profile.
 Export Profile saves a portable `.gzcolor` file. Import copies its contents into
 the scene, so subsequent edits to that file cannot change an existing render.
 
@@ -115,7 +122,10 @@ The native transform has no previous-frame dependency and no random seed.
 
 `referencecolormatch_test` is registered with `BUILD_LUT3D_TESTS` (also enabled
 by `BUILD_TESTS`). Platform CI compiles the application and the test, and runs the
-new test alongside existing integration tests. Tests are authored, not executed
+new test alongside existing integration tests. Coverage includes numerical RGB
+results at three pixel depths, fractional masks and ink protection, shuffled
+frames, partitioned tiles, profile cache identity, reopened FX rendering, sample
+fingerprints and LUT grid values. Tests are authored, not executed
 locally, in accordance with repository policy. CI must verify the exact final
 revision before this draft can become ready.
 
