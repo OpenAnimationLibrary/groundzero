@@ -105,6 +105,15 @@ void pattern(TTile &tile, double frame, bool background) {
   if (TRaster32P destination = tile.getRaster()) destination->copy(pixels);
   else TRop::convert(tile.getRaster(), pixels);
 }
+
+thread_local std::vector<std::string> *artworkTrace = nullptr;
+class ArtworkTraceScope {
+  std::vector<std::string> *m_previous;
+public:
+  explicit ArtworkTraceScope(std::vector<std::string> &trace)
+      : m_previous(artworkTrace) { artworkTrace = &trace; }
+  ~ArtworkTraceScope() { artworkTrace = m_previous; }
+};
 }  // namespace
 
 class ParticleBakeSpriteFixture final : public TStandardRasterFx {
@@ -135,6 +144,55 @@ public:
   }
 };
 FX_PLUGIN_IDENTIFIER(ParticleBakeSpriteFixture, "particleBakeSpriteFixture")
+
+class ParticleBakeArtworkTraceFixture final : public TStandardRasterFx {
+  FX_PLUGIN_DECLARATION(ParticleBakeArtworkTraceFixture)
+  TRasterFxPort m_source;
+public:
+  ParticleBakeArtworkTraceFixture() { addInputPort("Source", m_source); }
+  bool canHandle(const TRenderSettings &, double) override { return true; }
+  std::string getAlias(double frame, const TRenderSettings &settings) const override {
+    return "particle-bake-artwork-trace:" + std::to_string(getIdentifier()) + ':' +
+        std::to_string(frame) + ':' +
+        (m_source.isConnected() ? TRasterFxP(m_source.getFx())->getAlias(frame, settings)
+                                : std::string());
+  }
+  TFxTimeRegion getTimeRegion() const override {
+    return m_source.isConnected() ? m_source.getFx()->getTimeRegion() : TFxTimeRegion();
+  }
+  bool doGetBBox(double frame, TRectD &box, const TRenderSettings &settings) override {
+    return m_source.isConnected() &&
+        TRasterFxP(m_source.getFx())->doGetBBox(frame, box, settings);
+  }
+  void doCompute(TTile &tile, double frame, const TRenderSettings &settings) override {
+    if (!m_source.isConnected()) return;
+    TRasterFxP(m_source.getFx())->compute(tile, frame, settings);
+    if (!artworkTrace) return;
+    const TRasterP raster = tile.getRaster();
+    std::uint64_t digest = 14695981039346656037ULL;
+    raster->lock();
+    for (int y = 0; y < raster->getLy(); ++y) {
+      const auto *bytes = raster->getRawData() +
+          y * raster->getWrap() * raster->getPixelSize();
+      for (int x = 0; x < raster->getLx() * raster->getPixelSize(); ++x) {
+        digest ^= bytes[x];
+        digest *= 1099511628211ULL;
+      }
+    }
+    raster->unlock();
+    const TAffine &a = settings.m_affine;
+    std::ostringstream request;
+    request.precision(17);
+    request << "frame=" << frame << " affine=(" << a.a11 << ',' << a.a12 << ','
+            << a.a13 << ',' << a.a21 << ',' << a.a22 << ',' << a.a23
+            << ") origin=(" << tile.m_pos.x << ',' << tile.m_pos.y
+            << ") size=(" << raster->getLx() << ',' << raster->getLy()
+            << ") bytes=" << raster->getPixelSize() << " linear=" << raster->isLinear()
+            << " digest=" << std::hex << digest;
+    artworkTrace->push_back(request.str());
+  }
+};
+FX_PLUGIN_IDENTIFIER(ParticleBakeArtworkTraceFixture, "particleBakeArtworkTraceFixture")
 
 class ParticleBakeBackgroundFixture final : public TStandardRasterFx {
   FX_PLUGIN_DECLARATION(ParticleBakeBackgroundFixture)
@@ -1278,6 +1336,36 @@ void testScenePreparation(bool tiled, bool fullAffine = false,
             context + "/coldControl/controlFrame=" + std::to_string(controlFrame));
     exact(freshImage, renderViewport(fresh.getPointer(), frame, bakeSettings, bakePixels),
           context + "/coldControlVsLive");
+    TRasterFxP traced = dynamic_cast<TRasterFx *>(native->clone(true));
+    require(bool(traced), context + ": cannot clone artwork diagnostic");
+    traced->setNewIdentifier();
+    TRasterFxP traceInput = new ParticleBakeArtworkTraceFixture;
+    traceInput->getInputPort("Source")->setFx(traced->getInputPort("Texture1")->getFx());
+    traced->getInputPort("Texture1")->setFx(traceInput.getPointer());
+    std::vector<std::string> liveArtworkTrace, capturedArtworkTrace;
+    TRasterP tracedLive;
+    {
+      ArtworkTraceScope scope(liveArtworkTrace);
+      tracedLive = renderViewport(traced.getPointer(), frame, bakeSettings, bakePixels);
+    }
+    exact(freshImage, tracedLive, context + "/coldTextureVsLive");
+    TRasterP tracedEvaluation;
+    ParticleBake::Frame tracedCapture;
+    {
+      ArtworkTraceScope scope(capturedArtworkTrace);
+      tracedCapture = capture(traced.getPointer(), frame, bakeSettings, true,
+                              bakeDomain, bakePixels, 0, &tracedEvaluation);
+    }
+    exact(tracedLive, tracedEvaluation, context + "/coldTexture/liveVsEvaluation");
+    exact(tracedEvaluation, composite(tracedCapture, bakeSettings, bakePixels),
+          context + "/coldTexture/recipeVsEvaluation");
+    for (const auto &trace : {std::make_pair("live", &liveArtworkTrace),
+                              std::make_pair("capture", &capturedArtworkTrace)}) {
+      captureDetails.push_back(context + "/artworkTrace/" + trace.first +
+          " calls=" + std::to_string(trace.second->size()));
+      for (const auto &call : *trace.second)
+        captureDetails.push_back(std::string(trace.first) + " " + call);
+    }
     if (!tiled) {
       TRasterFxP withoutBirthColor = dynamic_cast<TRasterFx *>(native->clone(true));
       require(bool(withoutBirthColor), context + ": cannot clone birth-color diagnostic");
