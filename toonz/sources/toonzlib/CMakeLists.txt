@@ -652,6 +652,16 @@ if(BUILD_LOTTIEEXPORT_TESTS)
 endif()
 
 # Optional regression target for the compressed scene file format (tstream.h).
+if(BUILD_SEEXPR_TESTS)
+    add_executable(seexpr_animation_test tests/seexpranimation_test.cpp)
+    target_link_libraries(seexpr_animation_test PRIVATE toonzlib tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core)
+    if(NOT WIN32)
+        target_link_libraries(seexpr_animation_test PRIVATE Threads::Threads)
+    endif()
+    add_test(NAME seexpr_animation COMMAND seexpr_animation_test)
+endif()
+
+# Optional regression target for the compressed scene file format (tstream.h).
 option(BUILD_STREAM_TESTS "Build the compressed stream round-trip test" ${BUILD_TESTS})
 if(BUILD_STREAM_TESTS)
     add_executable(compressed_stream_test tests/compressed_stream_test.cpp)

@@ -1,4 +1,41 @@
 <stringtable>
+  <item>"STD_seexprSurfaceFx" "Expression Surface" </item>
+  <item>"STD_seexprSurfaceFx.seexprDocument" "Surface Expressions" </item>
+  <item>"STD_seexprSurfaceFx.coordinates" "Position and Normal Coordinates" </item>
+  <item>"STD_seexprSurfaceFx.displacementLimit" "Displacement Limit (object units)" </item>
+  <item>"STD_seexprSurfaceFx.fps" "Time Rate (frames/second)" </item>
+  <item>"STD_seexprSurfaceFx.seed" "Seed" </item>
+  <item>"STD_seexprAttributeFx" "Expression Attribute" </item>
+  <item>"STD_seexprAttributeFx.namespace" "Namespace" </item>
+  <item>"STD_seexprAttributeFx.name" "Name" </item>
+  <item>"STD_seexprAttributeFx.scope" "Scope" </item>
+  <item>"STD_seexprAttributeFx.valueType" "Value Type" </item>
+  <item>"STD_seexprAttributeFx.value" "Scalar Value" </item>
+  <item>"STD_seexprAttributeFx.x" "Vector X" </item>
+  <item>"STD_seexprAttributeFx.y" "Vector Y" </item>
+  <item>"STD_seexprAttributeFx.z" "Vector Z" </item>
+  <item>"STD_seexprGeneratorFx" "Expression Generator" </item>
+  <item>"STD_seexprGeneratorFx.seexprDocument" "Expression" </item>
+  <item>"STD_seexprGeneratorFx.width" "Canvas Width" </item>
+  <item>"STD_seexprGeneratorFx.height" "Canvas Height" </item>
+  <item>"STD_seexprGeneratorFx.fps" "Time Rate (frames/second)" </item>
+  <item>"STD_seexprGeneratorFx.seed" "Seed" </item>
+  <item>"STD_seexprGeneratorFx.mix" "Mix" </item>
+  <item>"STD_seexprGeneratorFx.samplingRadius" "Sampling Radius" </item>
+  <item>"STD_seexprGeneratorFx.edgeMode" "Source Edges" </item>
+  <item>"STD_seexprGeneratorFx.samplingFilter" "Sampling Filter" </item>
+  <item>"STD_seexprGeneratorFx.maskChannel" "Mask Channel" </item>
+  <item>"STD_seexprColorFx" "Expression Color" </item>
+  <item>"STD_seexprColorFx.seexprDocument" "Expression" </item>
+  <item>"STD_seexprColorFx.width" "Canvas Width" </item>
+  <item>"STD_seexprColorFx.height" "Canvas Height" </item>
+  <item>"STD_seexprColorFx.fps" "Time Rate (frames/second)" </item>
+  <item>"STD_seexprColorFx.seed" "Seed" </item>
+  <item>"STD_seexprColorFx.mix" "Mix" </item>
+  <item>"STD_seexprColorFx.samplingRadius" "Sampling Radius" </item>
+  <item>"STD_seexprColorFx.edgeMode" "Source Edges" </item>
+  <item>"STD_seexprColorFx.samplingFilter" "Sampling Filter" </item>
+  <item>"STD_seexprColorFx.maskChannel" "Mask Channel" </item>
   <item>"STD_openExrAovFx" "EXR AOV Switchboard" </item>
   <item>"STD_openExrAovFx.exrFile" "EXR File / Sequence" </item>
   <item>"STD_openExrAovFx.frameOffset" "Sequence Frame Offset" </item>

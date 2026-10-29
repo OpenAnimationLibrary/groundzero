@@ -24,6 +24,7 @@
 #include "toonz/scenefx.h"
 #include "toonz/movierenderer.h"
 #include "toonz/multimediarenderer.h"
+#include "tseexpr.h"
 #include "toutputproperties.h"
 #include "toonz/imagestyles.h"
 #include "tproperty.h"
@@ -868,6 +869,7 @@ int main(int argc, char *argv[]) {
 
     if (!TSystem::doesExistFileOrLevel(srcFilePath)) return -2;
     ToonzScene *scene = new ToonzScene();
+    const auto seExprFailuresBeforeLoad = TSeExpr::failureCount();
 
     TImageStyle::setCurrentScene(scene);
 
@@ -1031,6 +1033,26 @@ int main(int argc, char *argv[]) {
 
     framePair = generateMovie(scene, theDstFilePath, r0, r1, step, shrink,
                               threadCount, maxTileSize);
+
+    // Interactive animation can retain its last valid preview after an
+    // expression error. A headless job must still report failed evaluation,
+    // including errors handled inside rendering workers or native callbacks.
+    if (TSeExpr::failureCount() != seExprFailuresBeforeLoad) {
+      const string expressionError =
+          "Rendering failed: a SeExpr expression could not be evaluated.";
+      cerr << expressionError << endl;
+      m_userLog->error(expressionError);
+      return -2;
+    }
+
+    if (framePair.first != framePair.second) {
+      const string renderError =
+          "Rendering failed: not all requested frames could be completed.";
+      cerr << renderError << endl;
+      m_userLog->error(renderError);
+      TImageCache::instance()->clear(true);
+      return -1;
+    }
 
     Sw1.stop();
 

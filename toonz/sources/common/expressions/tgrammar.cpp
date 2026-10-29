@@ -102,6 +102,7 @@ void Calculator::setRootNode(CalculatorNode *node) {
   if (node != m_rootNode) {
     delete m_rootNode;
     m_rootNode = node;
+    if (m_rootNode) m_rootNode->setOwnerParameter(m_param);
   }
 }
 
@@ -1176,6 +1177,7 @@ public:
 class Grammar::Imp {
 public:
   PatternTable m_prePatterns, m_postPatterns;
+  std::function<double()> m_frameRateProvider;
 
   Imp()
       : m_prePatterns(Grammar::ExpressionStart)
@@ -1329,6 +1331,15 @@ Grammar::Grammar() : m_imp(new Imp()) {
 }
 
 Grammar::~Grammar() {}
+
+void Grammar::setFrameRateProvider(std::function<double()> provider) {
+  m_imp->m_frameRateProvider = std::move(provider);
+}
+
+double Grammar::getFrameRate() const {
+  const double fps = m_imp->m_frameRateProvider ? m_imp->m_frameRateProvider() : 24.0;
+  return std::isfinite(fps) && fps > 0.0 ? fps : 24.0;
+}
 
 void Grammar::addPattern(Pattern *pattern) {
   std::vector<Token> noTokens;

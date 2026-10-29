@@ -1,0 +1,10 @@
+<fxlayout help_file="SeExpr.html">
+  <page name="Expression Surface">
+    <label>"Shade actual 3D surface samples and displace geometry before projection. P and N use the selected coordinate space; displacement is in object units. Use one Expression Surface per 3D branch."</label>
+    <control>seexprDocument</control>
+    <control>coordinates</control>
+    <control>displacementLimit</control>
+    <control>fps</control>
+    <control>seed</control>
+  </page>
+</fxlayout>

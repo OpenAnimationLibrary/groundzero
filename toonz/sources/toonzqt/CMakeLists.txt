@@ -56,6 +56,8 @@ set(MOC_HEADERS
     ../include/toonzqt/schematicviewer.h
     ../include/toonzqt/screenboard.h
     ../include/toonzqt/scriptconsole.h
+    ../include/toonzqt/seexpreditor.h
+    ../include/toonzqt/seexprrangeviewer.h
     ../include/toonzqt/seethroughwindow.h
     ../include/toonzqt/spectrumfield.h
     ../include/toonzqt/spreadsheetviewer.h
@@ -107,6 +109,7 @@ set(HEADERS
     ../include/toonzqt/trepetitionguard.h
     ../include/toonzqt/viewcommandids.h
     ../include/toonzqt/fontstyletranslation.h
+    ../include/toonzqt/seexprcontrols.h
 )
 
 set(SOURCES
@@ -123,6 +126,9 @@ set(SOURCES
     dvscrollwidget.cpp
     dvtextedit.cpp
     expressionfield.cpp
+    seexpreditor.cpp
+    seexprrangeviewer.cpp
+    seexprcontrols.cpp
     filefield.cpp
     flipconsole.cpp
     framenavigator.cpp
@@ -242,8 +248,8 @@ endif()
 
 add_definitions(
     -DQT_WIDGETS_LIB
-    -DTOONZQT_EXPORTS
 )
+target_compile_definitions(toonzqt PRIVATE TOONZQT_EXPORTS)
 
 message("subdir: toonzqt")
 message("type:" ${CMAKE_SHARED_LIBRARY_SUFFIX})
@@ -264,3 +270,24 @@ elseif(BUILD_ENV_UNIXLIKE)
 endif()
 
 target_link_libraries(toonzqt Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Widgets Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::OpenGL ${OT_QT_OPENGLWIDGETS_LIB} Qt${QT_VERSION_MAJOR}::Svg ${EXTRA_LIBS} ${GL_LIB})
+
+if(BUILD_SEEXPR_TESTS)
+    add_executable(seexpr_editor_test
+        tests/seexpreditor_test.cpp)
+    target_link_libraries(seexpr_editor_test PRIVATE toonzqt tnzbase
+        Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui
+        Qt${QT_VERSION_MAJOR}::Widgets)
+    add_test(NAME seexpr_editor COMMAND seexpr_editor_test)
+    add_executable(seexpr_controls_test
+        tests/seexprcontrols_test.cpp)
+    target_link_libraries(seexpr_controls_test PRIVATE toonzqt tnzbase
+        Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui
+        Qt${QT_VERSION_MAJOR}::Widgets)
+    add_test(NAME seexpr_controls COMMAND seexpr_controls_test)
+    add_executable(seexpr_range_test tests/seexprrangeviewer_test.cpp)
+    target_link_libraries(seexpr_range_test PRIVATE toonzqt toonzlib tnzbase
+        Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui
+        Qt${QT_VERSION_MAJOR}::Widgets)
+    add_test(NAME seexpr_range COMMAND seexpr_range_test)
+    set_tests_properties(seexpr_editor seexpr_controls seexpr_range PROPERTIES TIMEOUT 30)
+endif()

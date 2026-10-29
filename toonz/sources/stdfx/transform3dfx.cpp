@@ -63,7 +63,8 @@ class Transform3DFx final : public TStandardRasterFx, public T3DRenderSource {
       double frame, const int *canceled,
       const otglb::LightingRig *lighting                   = nullptr,
       const std::vector<otglb::ModelTransform> *downstream = nullptr,
-      const TRenderSettings *renderSettings = nullptr) const {
+      const TRenderSettings *renderSettings = nullptr,
+      const std::shared_ptr<const otglb::SurfaceRequest> &surface = {}) const {
     if (!m_source.isConnected()) return {};
     auto *source = m_source.source();
     if (!source)
@@ -77,10 +78,17 @@ class Transform3DFx final : public TStandardRasterFx, public T3DRenderSource {
       transforms.insert(transforms.end(), downstream->begin(),
                         downstream->end());
     return source->get3DRenderScene(frame, canceled, lighting, &transforms,
-                                    renderSettings);
+                                    renderSettings, surface);
   }
 
 public:
+  bool hasSurface3D() const override {
+    return m_source.isConnected() && m_source.source()->hasSurface3D();
+  }
+  void dryCompute3D(double frame, const TRenderSettings &settings) const override {
+    if (m_source.isConnected()) m_source.source()->dryCompute3D(frame, settings);
+  }
+
   Transform3DFx()
       : m_positionX(0.0)
       , m_positionY(0.0)
@@ -120,21 +128,23 @@ public:
       const otglb::LightingRig *lighting = nullptr,
       const std::vector<otglb::ModelTransform> *transforms =
           nullptr,
-      const TRenderSettings *renderSettings = nullptr) const override {
-    return scene(frame, canceled, lighting, transforms, renderSettings);
+      const TRenderSettings *renderSettings = nullptr,
+      const std::shared_ptr<const otglb::SurfaceRequest> &surface = {}) const override {
+    return scene(frame, canceled, lighting, transforms, renderSettings, surface);
   }
 
   std::shared_ptr<const otglb::RenderScene> get3DRenderGeometry(
       double frame, const int *canceled,
       const std::vector<otglb::ModelTransform> *downstream = nullptr,
-      const TRenderSettings *renderSettings = nullptr) const override {
+      const TRenderSettings *renderSettings = nullptr,
+      const std::shared_ptr<const otglb::SurfaceRequest> &surface = {}) const override {
     if (!m_source.isConnected()) return {};
     std::vector<otglb::ModelTransform> transforms;
     transforms.push_back(transform(frame));
     if (downstream)
       transforms.insert(transforms.end(), downstream->begin(), downstream->end());
     return m_source.source()->get3DRenderGeometry(frame, canceled,
-                                                  &transforms, renderSettings);
+                                                  &transforms, renderSettings, surface);
   }
 
   void getParamUIs(TParamUIConcept *&concepts, int &length) override {
@@ -168,6 +178,11 @@ public:
   int getMemoryRequirement(const TRectD &rect, double,
                            const TRenderSettings &) override {
     if (rect.isEmpty()) return 0;
+    if (hasSurface3D()) {
+      const double bytes = std::ceil(rect.getLx()) * std::ceil(rect.getLy()) * 16.0;
+      return int(std::min(double(std::numeric_limits<int>::max()),
+          256.0 + std::ceil(bytes / (1024 * 1024))));
+    }
     const double megabytes = std::ceil(rect.getLx()) * std::ceil(rect.getLy()) *
                              112.0 / (1024.0 * 1024.0);
     return int(std::min(double(std::numeric_limits<int>::max()),
@@ -195,8 +210,9 @@ public:
       request.affine = {{a.a11, a.a12, a.a13, a.a21, a.a22, a.a23}};
       if (!request.width || !request.height) return;
 
-      const int band =
-          std::max(1, std::min(128, 2 * 1024 * 1024 / request.width));
+      const int band = transformed->surface
+          ? std::max(1, std::min(32, 512 * 1024 / request.width))
+          : std::max(1, std::min(128, 2 * 1024 * 1024 / request.width));
       const int height = request.height;
       for (int y = 0; y < height; y += band) {
         request.height = std::min(band, height - y);

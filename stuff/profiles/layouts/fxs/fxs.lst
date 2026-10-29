@@ -1,5 +1,6 @@
 <fxs>
 <Background>
+    STD_seexprGeneratorFx
     checkBoardFx
     colorCardFx 
     STD_kaleidoFx
@@ -50,7 +51,10 @@
     STD_iwa_BarrelDistortFx
     STD_iwa_FloorBumpFx
   </Distort>
-  <Gradient>
+  <Expression>
+    STD_seexprColorFx
+</Expression>
+<Gradient>
     STD_alphaDistanceGradientFx
     STD_diamondGradientFx
     STD_fourPointsGradientFx 
@@ -226,12 +230,14 @@
   SHADER_HSLBlendGPU
 </Shaders>
   <3D>
+    STD_seexprSurfaceFx
     STD_glbModelFx
     STD_imagePlaneFx
     STD_transform3DFx
     STD_threePointLightFx
   </3D>
   <Utility>
+    STD_seexprAttributeFx
     STD_openExrAovFx
     STD_nothingFx
   </Utility>

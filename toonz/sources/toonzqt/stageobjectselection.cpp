@@ -367,7 +367,8 @@ void StageObjectSelection::pasteSelection() {
   std::list<int> restoredSplineIds;
   std::vector<TStageObjectId> ids = objData->restoreObjects(
       indexes, restoredSplineIds, m_xshHandle->getXsheet(),
-      StageObjectsData::eDoClone, m_pastePosition);
+      StageObjectsData::eDoClone | StageObjectsData::eRebindReferences,
+      m_pastePosition);
 
   // make sure that the levels contained in the pasted column nodes are
   // registered in the scene cast it may rename the level if there is another

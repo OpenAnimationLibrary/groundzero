@@ -44,6 +44,10 @@ DVAPI TFilePath getReslistPath(bool forCleanup);
 // Called only by the guarded native application fixture before initialization.
 DVAPI void setTestStorageRoot(const TFilePath &root);
 #endif
+#ifdef BUILD_SEEXPR_TESTS
+// Only the disposable native integration fixture may redirect test storage.
+DVAPI void setSeExprTestStorageRoot(const TFilePath &root);
+#endif
 DVAPI TFilePath getCacheRootFolder();
 DVAPI TFilePath getCrashReportFolder();
 DVAPI TFilePath getProfileFolder();

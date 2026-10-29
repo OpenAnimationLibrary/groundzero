@@ -23,6 +23,9 @@
 
 #include "toonzqt/stageobjectsdata.h"
 
+#include <QSet>
+#include <functional>
+
 // TODO: Method StageObjectsData::storeFxs() has no well-defined behaviour in
 // cases
 //      of 'jumpy' fx selections.
@@ -32,6 +35,34 @@
 //********************************************************************************
 
 namespace {
+
+TDoubleParamP snapshotCurve(const TDoubleParamP &source) {
+  if (!source) return TDoubleParamP();
+  // Preserve the complete parameter metadata, then rebuild each expression
+  // with the copied curve as its owner instead of the original curve.
+  TDoubleParamP copy = new TDoubleParam(*source);
+  copy->clearKeyframes();
+  for (int index = 0; index < source->getKeyframeCount(); ++index)
+    copy->setKeyframe(source->getKeyframe(index));
+  return copy;
+}
+
+void snapshotParameters(TStageObjectParams *params) {
+  TDoubleParamP *curves[] = {
+      &params->m_x,      &params->m_y,      &params->m_z,
+      &params->m_so,     &params->m_rot,    &params->m_scalex,
+      &params->m_scaley, &params->m_scale,  &params->m_posPath,
+      &params->m_shearx, &params->m_sheary, &params->m_rotx,
+      &params->m_roty};
+  for (TDoubleParamP *curve : curves) *curve = snapshotCurve(*curve);
+  for (auto &layer : params->m_offsetLayers) {
+    layer.m_weight = snapshotCurve(layer.m_weight);
+    for (auto &curve : layer.m_channels) curve = snapshotCurve(curve);
+  }
+  if (params->m_skeletonDeformation)
+    params->m_skeletonDeformation = new PlasticSkeletonDeformation(
+        *params->m_skeletonDeformation);
+}
 
 enum FxCanGenerateState {
   NoInput = 0,  // This fx has input port, but no connected fx - state will not
@@ -179,6 +210,7 @@ TStageObjectDataElement *TStageObjectDataElement::clone() const {
   TStageObjectDataElement *data = new TStageObjectDataElement();
 
   data->m_params = m_params->clone();
+  snapshotParameters(data->m_params);
   data->m_dagPos = m_dagPos;
 
   return data;
@@ -285,6 +317,7 @@ TColumnDataElement *TColumnDataElement::clone() const {
   TColumnDataElement *element = new TColumnDataElement();
 
   element->m_params = m_params->clone();
+  snapshotParameters(element->m_params);
   element->m_dagPos = m_dagPos;
   element->m_column = m_column;
 
@@ -417,6 +450,7 @@ TCameraDataElement *TCameraDataElement::clone() const {
   TCameraDataElement *data = new TCameraDataElement();
 
   data->m_params = m_params->clone();
+  snapshotParameters(data->m_params);
   data->m_camera = m_camera;
   data->m_dagPos = m_dagPos;
 
@@ -532,6 +566,36 @@ TStageObjectSpline *TSplineDataElement::restoreSpline(int flag) const {
 
 StageObjectsData::StageObjectsData() : DvMimeData() {}
 
+void StageObjectsData::captureParameterLinks() {
+  std::map<TFx *, TFx *> sourceToStored = m_fxTable;
+  for (const auto &entry : m_fxTable) {
+    auto *sourceColumn = dynamic_cast<TZeraryColumnFx *>(entry.first);
+    auto *storedColumn = dynamic_cast<TZeraryColumnFx *>(entry.second);
+    if (sourceColumn && storedColumn && sourceColumn->getZeraryFx() &&
+        storedColumn->getZeraryFx())
+      sourceToStored[sourceColumn->getZeraryFx()] = storedColumn->getZeraryFx();
+  }
+  std::set<TFx *> stored;
+  for (const auto &entry : sourceToStored) stored.insert(entry.second);
+  m_parameterLinks.clear();
+  for (TFx *fx : stored) {
+    if (fx->getLinkedFx() == fx) continue;
+    TFx *representative = fx;
+    bool hasExternal = false;
+    for (TFx *peer = fx->getLinkedFx(); peer != fx; peer = peer->getLinkedFx()) {
+      const auto mapped = sourceToStored.find(peer);
+      TFx *candidate = mapped == sourceToStored.end() ? peer : mapped->second;
+      const bool external = !stored.count(candidate);
+      if ((external && !hasExternal) ||
+          (external == hasExternal && std::less<TFx *>()(candidate, representative))) {
+        representative = candidate;
+        hasExternal = external;
+      }
+    }
+    if (representative != fx) m_parameterLinks[fx] = representative;
+  }
+}
+
 //------------------------------------------------------------------------------
 
 StageObjectsData::~StageObjectsData() {
@@ -572,18 +636,34 @@ bool StageObjectsData::checkCircularReferences(TXsheet *xsh) const {
 
 StageObjectsData *StageObjectsData::clone() const {
   StageObjectsData *data = new StageObjectsData();
+  std::map<TFx *, TFx *> fxTable;
 
   // Clone each element (the new data gets ownership)
   int i, elementsCount = m_elements.size();
-  for (i = 0; i < elementsCount; ++i)
+  for (i = 0; i < elementsCount; ++i) {
     data->m_elements.append(m_elements[i]->clone());
+    auto *original = dynamic_cast<TColumnDataElement *>(m_elements[i]);
+    auto *copied = dynamic_cast<TColumnDataElement *>(data->m_elements.back());
+    if (original && copied && original->m_column && copied->m_column) {
+      TFx *originalFx = original->m_column->getFx();
+      TFx *copiedFx = copied->m_column->getFx();
+      if (originalFx && copiedFx) fxTable[originalFx] = copiedFx;
+      auto *originalZerary = original->m_column->getZeraryFxColumn();
+      auto *copiedZerary = copied->m_column->getZeraryFxColumn();
+      if (originalZerary && copiedZerary) {
+        originalFx = originalZerary->getZeraryColumnFx()->getZeraryFx();
+        copiedFx = copiedZerary->getZeraryColumnFx()->getZeraryFx();
+        if (originalFx && copiedFx) fxTable[originalFx] = copiedFx;
+      }
+    }
+  }
 
   // Clone each spline (the new data gets ownership)
   for (i = 0; i < m_splines.size(); ++i)
     data->m_splines.append(m_splines[i]->clone());
 
   // Same for internal fxs
-  std::map<TFx *, TFx *> fxTable;  // And trace the pairings with the originals
+  // Trace pairings with the stored originals, including their column FX.
   std::set<TFx *>::const_iterator it;
   for (it = m_fxs.begin(); it != m_fxs.end(); ++it) {
     TFx *fxOrig = *it;
@@ -624,6 +704,15 @@ StageObjectsData *StageObjectsData::clone() const {
   if (!fxTable.empty())
     updateFxLinks(fxTable);  // Applies the traced map pairings to every fx
                              // descendant of each fx stored in the map.
+
+  for (const auto &entry : m_parameterLinks) {
+    const auto member = fxTable.find(entry.first);
+    if (member == fxTable.end()) continue;
+    const auto representative = fxTable.find(entry.second.getPointer());
+    data->m_parameterLinks[member->second] =
+        representative == fxTable.end() ? entry.second.getPointer()
+                                       : representative->second;
+  }
 
   // WARNING: m_fxsTable is NOT COPIED / CLONED !!
 
@@ -691,6 +780,13 @@ void StageObjectsData::storeObjects(const std::vector<TStageObjectId> &ids,
   }
 
   // Insert terminal fxs
+  // Clipboard copies must be snapshots. Sharing the source curves lets an
+  // insertion before the originals rewrite the clipboard while pasting it,
+  // and lets later source edits change an already copied selection. Flags0
+  // retains pointer identity for native undo and cross-xsheet moves.
+  if (fxFlags & eDoClone)
+    for (auto *element : m_elements) snapshotParameters(element->m_params);
+
   for (auto const &e : m_originalColumnFxs) {
     if (isColumnSelectionTerminalFx(e, xsh->getFxDag()->getTerminalFxs(),
                                     m_originalColumnFxs)) {
@@ -700,6 +796,7 @@ void StageObjectsData::storeObjects(const std::vector<TStageObjectId> &ids,
       m_terminalFxs.insert(fx);
     }
   }
+  captureParameterLinks();
 }
 
 //------------------------------------------------------------------------------
@@ -800,6 +897,7 @@ void StageObjectsData::storeFxs(const std::set<TFx *> &fxs, TXsheet *xsh,
   if (!m_fxTable.empty() && doClone)
     updateFxLinks(m_fxTable);  // Apply original/clone pairings
                                // to fx relatives
+  captureParameterLinks();
 }
 
 //------------------------------------------------------------------------------
@@ -888,6 +986,7 @@ void StageObjectsData::storeColumnFxs(const std::set<int> &columnIndexes,
 
   // Like in the functions above, update links
   if (!m_fxTable.empty() && doClone) updateFxLinks(m_fxTable);
+  captureParameterLinks();
 }
 
 //------------------------------------------------------------------------------
@@ -1132,6 +1231,21 @@ std::vector<TStageObjectId> StageObjectsData::restoreObjects(
   // Update the link, like in functions above
   if (!fxTable.empty() && doClone) updateFxLinks(fxTable.toStdMap());
 
+  QSet<TFx *> externallyLinked;
+  for (const auto &entry : m_parameterLinks) {
+    TFx *restored = fxTable.value(entry.first, nullptr);
+    if (!restored) continue;
+    TFx *representative = fxTable.value(entry.second.getPointer(),
+                                       entry.second.getPointer());
+    if (restored == representative) continue;
+    // linkParams merges linked rings. Detach the member first, including when
+    // it already belongs to that ring, so replaying saved group membership
+    // cannot split a ring or leave earlier members on stale parameter objects.
+    restored->unlinkParams();
+    restored->linkParams(representative);
+    if (!fxTable.contains(entry.second.getPointer())) externallyLinked.insert(restored);
+  }
+
   // Paste any associated spline (not stored im m_splines)
   std::map<TStageObjectSpline *, TStageObjectSpline *> splines;
   for (i = 0; i < (int)restoredIds.size(); ++i) {
@@ -1222,8 +1336,14 @@ std::vector<TStageObjectId> StageObjectsData::restoreObjects(
   }
   QMap<TFx *, TFx *>::const_iterator it;
   for (it = fxTable.constBegin(); it != fxTable.constEnd(); ++it) {
+    // An intentionally retained link to an uncopied FX also retains that FX's
+    // expression context, including when pasted in another xsheet.
+    if (externallyLinked.contains(it.value())) continue;
     setGrammerToParams(it.value()->getParams(), grammer);
   }
+
+  if (fxFlags & eRebindReferences)
+    xsh->notifyStageObjectsPasted(idTable, fxTable);
 
   return restoredIds;
 }

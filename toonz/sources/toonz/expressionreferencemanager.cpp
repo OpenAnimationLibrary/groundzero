@@ -32,6 +32,7 @@
 #include "tmsgcore.h"
 
 #include <QList>
+#include <set>
 
 #include <boost/xpressive/xpressive_static.hpp>
 #include <boost/xpressive/regex_actions.hpp>
@@ -217,6 +218,14 @@ ExpressionReferenceManager* ExpressionReferenceManager::instance() {
 
 bool ExpressionReferenceManager::refreshParamsRef(TDoubleParam* curve,
                                                   TXsheet* xsh) {
+  if (!xsh) xsh = TApp::instance()->getCurrentXsheet()->getXsheet();
+  // A retained link can share a source-sheet FX parameter in another sheet.
+  // Its source grammar owns the reference names; destination column changes
+  // must not register or rewrite that same shared parameter.
+  if (curve->getGrammar() != xsh->getStageObjectTree()->getGrammar()) {
+    info(xsh).remove(curve);
+    return false;
+  }
   QSet<int> colRef;
   QSet<TDoubleParam*> paramsRef;
   for (int k = 0; k < curve->getKeyframeCount(); k++) {
@@ -296,7 +305,7 @@ void ExpressionReferenceManager::onSceneSwitched() {
   for (auto xsh : allXsheets) {
     xsh->setObserver(this);
 
-    m_model->refreshData(xsh);
+    m_model->refreshReferenceData(xsh);
     xsh->getExpRefMonitor()->clearAll();
 
     for (int i = 0; i < m_model->getStageObjectsChannelCount(); i++) {
@@ -313,7 +322,7 @@ void ExpressionReferenceManager::onSceneSwitched() {
 
 void ExpressionReferenceManager::refreshXsheetRefInfo(TXsheet* xsh) {
   xsh->setObserver(this);
-  m_model->refreshData(xsh);
+  m_model->refreshReferenceData(xsh);
   xsh->getExpRefMonitor()->clearAll();
   for (int i = 0; i < m_model->getStageObjectsChannelCount(); i++) {
     checkRef(m_model->getStageObjectChannel(i), xsh);
@@ -329,14 +338,14 @@ void ExpressionReferenceManager::refreshXsheetRefInfo(TXsheet* xsh) {
 void ExpressionReferenceManager::onXsheetSwitched() {
   TXsheet* xsh = TApp::instance()->getCurrentXsheet()->getXsheet();
   xsh->setObserver(this);
-  m_model->refreshData(xsh);
+  m_model->refreshReferenceData(xsh);
 }
 
 //----------------------------------------------------------------------------
 
 void ExpressionReferenceManager::onXsheetChanged() {
   TXsheet* xsh = TApp::instance()->getCurrentXsheet()->getXsheet();
-  m_model->refreshData(xsh);
+  m_model->refreshReferenceData(xsh);
   // remove deleted parameters
   QList<TDoubleParam*> paramSet;
   for (int i = 0; i < m_model->getStageObjectsChannelCount(); i++) {
@@ -431,6 +440,88 @@ void ExpressionReferenceManager::onStageObjectAdded(
   }
 }
 
+void ExpressionReferenceManager::onStageObjectsPasted(
+    TXsheet* xsheet, const QMap<TStageObjectId, TStageObjectId>& idTable,
+    const QMap<TFx*, TFx*>& fxTable) {
+  if (!Preferences::instance()->isModifyExpressionOnMovingReferencesEnabled())
+    return;
+
+  std::map<std::string, std::string> replacements;
+  std::set<TStageObjectId> pastedObjects;
+  QSet<TFx*> pastedFxs;
+  QSet<TFx*> storedFxs;
+  QSet<TFx*> externallyLinkedFxs;
+  for (auto it = idTable.constBegin(); it != idTable.constEnd(); ++it) {
+    pastedObjects.insert(it.value());
+    if (it.key() != it.value())
+      for (int phrase = 0; phrase < getPhraseCount(it.key()); ++phrase)
+        replacements[getPhrase(it.key(), phrase)] = getPhrase(it.value(), phrase);
+  }
+  for (auto it = fxTable.constBegin(); it != fxTable.constEnd(); ++it) {
+    storedFxs.insert(it.key());
+    pastedFxs.insert(it.value());
+    if (it.key()->getFxId() != it.value()->getFxId())
+      replacements[getPhrase(it.key())] = getPhrase(it.value());
+  }
+  for (auto it = fxTable.constBegin(); it != fxTable.constEnd(); ++it)
+    for (TFx* member : {it.key(), it.value()})
+      for (TFx* peer = member->getLinkedFx(); peer != member;
+           peer = peer->getLinkedFx())
+        if (!storedFxs.contains(peer) && !pastedFxs.contains(peer)) {
+          externallyLinkedFxs.insert(it.value());
+          break;
+        }
+
+  // Copying within an xsheet creates new curves; it does not move the source
+  // curves. transferReference(xsheet,xsheet,...) would rewrite the originals
+  // as well. Resolve only the destination groups after all objects exist.
+  FunctionTreeModel pastedModel;
+  pastedModel.refreshReferenceData(xsheet);
+  QList<TreeModel::Item*> groups;
+  QSet<TDoubleParam*> sharedWithOriginals;
+  auto gatherOriginalParameters = [&](TreeModel::Item* group) {
+    QList<TDoubleParam*> parameters;
+    gatherParams(group, parameters);
+    for (auto* parameter : parameters) sharedWithOriginals.insert(parameter);
+  };
+  for (int index = 0; index < pastedModel.getStageObjectsChannelCount(); ++index) {
+    auto* group = dynamic_cast<StageObjectChannelGroup*>(
+        pastedModel.getStageObjectChannel(index));
+    if (group && pastedObjects.count(group->getStageObject()->getId()))
+      groups.append(group);
+    else if (group)
+      gatherOriginalParameters(group);
+  }
+  for (int index = 0; index < pastedModel.getFxsChannelCount(); ++index) {
+    auto* group = dynamic_cast<FxChannelGroup*>(pastedModel.getFxChannel(index));
+    if (group && pastedFxs.contains(group->getFx())) {
+      groups.append(group);
+      // A source-side linked peer may live in another xsheet and therefore be
+      // absent from this model. Such retained links still own these bindings.
+      if (externallyLinkedFxs.contains(group->getFx()))
+        gatherOriginalParameters(group);
+    } else if (group)
+      gatherOriginalParameters(group);
+  }
+
+  QSet<TDoubleParam*> rewritten;
+  for (auto* group : groups) {
+    QList<TDoubleParam*> curves;
+    gatherParams(group, curves);
+    for (auto* curve : curves)
+      // Native clipboard operations keep links to FX outside the copied
+      // selection. Their shared parameter is still owned by the original FX;
+      // preserving that link also preserves its original reference bindings.
+      if (!rewritten.contains(curve) && !sharedWithOriginals.contains(curve)) {
+        replaceExpressionTexts(curve, replacements, xsheet);
+        rewritten.insert(curve);
+      }
+  }
+  // Rebuild the dependency sets from the final mixed-dialect graph, rather
+  // than retaining the temporary bindings to the originals during insertion.
+  for (auto* group : groups) checkRef(group, xsheet);
+}
+
 bool ExpressionReferenceManager::isIgnored(TDoubleParam* param) {
   return touchInfo(param).ignored();
 }
@@ -474,6 +565,8 @@ void ExpressionReferenceManager::onChange(const TParamChange& change) {
 void ExpressionReferenceManager::replaceExpressionTexts(
     TDoubleParam* curve, const std::map<std::string, std::string> replaceMap,
     TXsheet* xsh) {
+  if (xsh && curve->getGrammar() != xsh->getStageObjectTree()->getGrammar())
+    return;
   if (touchInfo(curve, xsh).ignored() || replaceMap.empty()) {
     for (int kIndex = 0; kIndex < curve->getKeyframeCount(); kIndex++) {
       TDoubleKeyframe keyframe = curve->getKeyframe(kIndex);
@@ -487,8 +580,13 @@ void ExpressionReferenceManager::replaceExpressionTexts(
       expr.setText(keyframe.m_expressionText);
       // put "?" marks on both ends of the expression text when the circular
       // reference is detected in order to avoid crash
-      if (dependsOn(expr, curve))
-        keyframe.m_expressionText = "?" + keyframe.m_expressionText + "?";
+      if (dependsOn(expr, curve)) {
+        if (TExpression::isSeExprText(keyframe.m_expressionText))
+          keyframe.m_expressionText = TExpression::makeSeExprText(
+              "?" + TExpression::seExprSource(keyframe.m_expressionText) + "?");
+        else
+          keyframe.m_expressionText = "?" + keyframe.m_expressionText + "?";
+      }
 
       m_blockParamChange = true;
       KeyframeSetter setter(curve, kIndex, false);
@@ -516,19 +614,24 @@ void ExpressionReferenceManager::replaceExpressionTexts(
 
     // replace expression
     QString expr       = QString::fromStdString(keyframe.m_expressionText);
-    QStringList list   = expr.split('"');
-    bool isStringToken = false;
-    for (QString& partialExp : list) {
-      if (isStringToken) continue;
-      isStringToken = !isStringToken;
-
-      std::string partialExpStr = partialExp.toStdString();
-      std::string replacedStr =
-          boost::xpressive::regex_replace(partialExpStr, rx, *pstr);
-      partialExp = QString::fromStdString(replacedStr);
+    QString newExpr;
+    if (TExpression::isSeExprText(keyframe.m_expressionText)) {
+      newExpr = QString::fromStdString(TExpression::rewriteSeExprReferences(
+          keyframe.m_expressionText, [&](const std::string& reference) {
+            return boost::xpressive::regex_replace(reference, rx, *pstr);
+          }));
+    } else {
+      QStringList list = expr.split('"');
+      bool isStringToken = false;
+      for (QString& partialExp : list) {
+        if (!isStringToken) {
+          partialExp = QString::fromStdString(boost::xpressive::regex_replace(
+              partialExp.toStdString(), rx, *pstr));
+        }
+        isStringToken = !isStringToken;
+      }
+      newExpr = list.join('"');
     }
-
-    QString newExpr = list.join('"');
 
     m_blockParamChange = true;
     KeyframeSetter setter(curve, kIndex, false);
@@ -720,7 +823,7 @@ bool ExpressionReferenceManager::checkExplode(TXsheet* childXsh, int index,
     }
   }
 
-  m_model->refreshData(childXsh);
+  m_model->refreshReferenceData(childXsh);
   // find params referring to the stage params to be deleted
   QList<TDoubleParam*> stageParamsToBeDeleted;
   TStageObject* table = childXsh->getStageObject(TStageObjectId::TableId);
@@ -750,7 +853,7 @@ bool ExpressionReferenceManager::checkExplode(TXsheet* childXsh, int index,
       ++it;
 
   TXsheet* currentXsh = TApp::instance()->getCurrentXsheet()->getXsheet();
-  m_model->refreshData(currentXsh);
+  m_model->refreshReferenceData(currentXsh);
 
   // return true if there is no parameters which will lose references
   if (mainCautionParams.isEmpty() && subCautionParams.isEmpty()) return true;
@@ -861,7 +964,7 @@ void ExpressionReferenceManager::transferReference(
   }
   if (!fromFxParams.isEmpty() && !toFxParams.isEmpty()) {
     // gather from-fx parameter pointers
-    m_model->refreshData(fromXsh);
+    m_model->refreshReferenceData(fromXsh);
     for (int i = 0; i < m_model->getFxsChannelCount(); i++) {
       FxChannelGroup* fcg =
           dynamic_cast<FxChannelGroup*>(m_model->getFxChannel(i));
@@ -870,7 +973,7 @@ void ExpressionReferenceManager::transferReference(
         gatherParams(fcg, fromFxParams[fcg->getFx()]);
     }
     // gather to-fx parameter pointers
-    m_model->refreshData(toXsh);
+    m_model->refreshReferenceData(toXsh);
     for (int i = 0; i < m_model->getFxsChannelCount(); i++) {
       FxChannelGroup* fcg =
           dynamic_cast<FxChannelGroup*>(m_model->getFxChannel(i));
@@ -898,6 +1001,11 @@ void ExpressionReferenceManager::transferReference(
   QSet<TDoubleParam*> insertedCurves;
   for (auto itr = info(fromXsh).begin(); itr != info(fromXsh).end(); itr++) {
     TDoubleParam* fromParam = itr.key();
+    TDoubleParam* destination =
+        sameXSheet ? fromParam : curveReplaceTable.value(fromParam, nullptr);
+    if (destination && destination->getGrammar() !=
+                           toXsh->getStageObjectTree()->getGrammar())
+      continue;
     bool ignored            = touchInfo(fromParam, fromXsh).ignored();
     if (sameXSheet) {
       // transfer as-is if the parameter is ignored
@@ -981,10 +1089,11 @@ void ExpressionReferenceManager::transferReference(
 
   // refresh m_model with the current xsheet
   if (toXsh != TApp::instance()->getCurrentXsheet()->getXsheet())
-    m_model->refreshData(TApp::instance()->getCurrentXsheet()->getXsheet());
+    m_model->refreshReferenceData(TApp::instance()->getCurrentXsheet()->getXsheet());
 
   // 3. replace the expression texts
-  for (auto ic : insertedCurves) replaceExpressionTexts(ic, exprReplaceTable);
+  for (auto ic : insertedCurves)
+    replaceExpressionTexts(ic, exprReplaceTable, toXsh);
 }
 
 //----------------------------------------------------------------------------

@@ -1186,3 +1186,17 @@ if(BUILD_PROCESS_PROGRESS_TESTS)
     add_test(NAME processprogress COMMAND processprogress_test)
     set_tests_properties(processprogress PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endif()
+
+if(BUILD_SEEXPR_TESTS)
+    target_sources(OpenToonz PRIVATE seexprnativeintegrationtest.cpp seexprnativeintegrationtest.h)
+    target_compile_definitions(OpenToonz PRIVATE BUILD_SEEXPR_TESTS)
+    target_compile_definitions(toonzlib PRIVATE BUILD_SEEXPR_TESTS)
+    add_test(NAME seexpr_native_application
+        COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/../../../ci-scripts/seexpr/native_ui_test.py"
+            "$<TARGET_FILE:OpenToonz>"
+            "${CMAKE_CURRENT_SOURCE_DIR}/../../../stuff"
+            --output "${CMAKE_BINARY_DIR}/seexpr-native-output.txt"
+            --windows-crash-debugger)
+    set_tests_properties(seexpr_native_application PROPERTIES TIMEOUT 360)
+endif()

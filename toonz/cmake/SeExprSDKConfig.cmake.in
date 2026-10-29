@@ -1,0 +1,19 @@
+@PACKAGE_INIT@
+include(CMakeFindDependencyMacro)
+find_dependency(Threads)
+if(@OT_SEEXPR_WITH_LLVM@)
+  find_dependency(LLVM 14 CONFIG)
+  if(NOT LLVM_VERSION_MAJOR EQUAL 14)
+    set(GroundzeroSeExpr_FOUND FALSE)
+    set(GroundzeroSeExpr_NOT_FOUND_MESSAGE "The SeExpr SDK requires the qualified LLVM 14 dependency")
+    return()
+  endif()
+endif()
+include("${CMAKE_CURRENT_LIST_DIR}/GroundzeroSeExprTargets.cmake")
+if(@OT_SEEXPR_WITH_LLVM@)
+  set_property(TARGET GroundzeroSeExpr::Core APPEND PROPERTY
+    INTERFACE_INCLUDE_DIRECTORIES "${LLVM_INCLUDE_DIRS}")
+  set_property(TARGET GroundzeroSeExpr::Core APPEND PROPERTY
+    INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${LLVM_INCLUDE_DIRS}")
+endif()
+check_required_components(GroundzeroSeExpr)

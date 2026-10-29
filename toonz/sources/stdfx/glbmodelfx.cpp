@@ -240,9 +240,11 @@ class GlbModelFx final : public TStandardZeraryFx,
   std::shared_ptr<const otglb::RenderScene> projected(
       double frame, const int *canceled,
       const otglb::LightingRig *lighting                   = nullptr,
-      const std::vector<otglb::ModelTransform> *transforms = nullptr) const {
+      const std::vector<otglb::ModelTransform> *transforms = nullptr,
+      const std::shared_ptr<const otglb::SurfaceRequest> &surface = {}) const {
     if (m_modelFile->getValue().empty()) return {};
     auto settings                     = options(frame);
+    settings.surface = surface;
     const std::shared_ptr<Cache> held = fileCache();
     Cache &cache                      = *held;
     QMutexLocker lock(&cache.mutex);
@@ -286,7 +288,7 @@ class GlbModelFx final : public TStandardZeraryFx,
       if (auto scene = pending.get()) return scene;
       // Its preparing render was canceled and removed the entry; retry.
       if (canceled && *canceled) return {};
-      return projected(frame, canceled, lighting, transforms);
+      return projected(frame, canceled, lighting, transforms, surface);
     }
 
     auto entry     = std::make_shared<Projection>();
@@ -317,6 +319,9 @@ class GlbModelFx final : public TStandardZeraryFx,
       return {};
     }
     entry->bytes = scene->triangles.capacity() * sizeof(otglb::RenderTriangle);
+    for (const auto &triangle : scene->triangles)
+      if (triangle.surface)
+        entry->bytes += sizeof(otglb::SurfaceTriangle) + 4 * sizeof(void *);
     promise.set_value(scene);
     // The file may have been reloaded meanwhile; that cleared this entry.
     if (asset == cache.loaded.asset && !cache.warned) {
@@ -379,8 +384,9 @@ public:
       const otglb::LightingRig *lighting = nullptr,
       const std::vector<otglb::ModelTransform> *transforms =
           nullptr,
-      const TRenderSettings * = nullptr) const override {
-    return projected(frame, canceled, lighting, transforms);
+      const TRenderSettings * = nullptr,
+      const std::shared_ptr<const otglb::SurfaceRequest> &surface = {}) const override {
+    return projected(frame, canceled, lighting, transforms, surface);
   }
 
   GlbModelFx()

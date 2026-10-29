@@ -1,0 +1,9 @@
+<fxlayout help_file="SeExpr.html">
+  <page name="Expression Generator">
+    <control>seexprDocument</control>
+    <control>width</control>
+    <control>height</control>
+    <control>fps</control>
+    <control>seed</control>
+  </page>
+</fxlayout>

@@ -48,6 +48,7 @@ class TFxHandle;
 class TXshLevelHandle;
 class QFontComboBox;
 class QLineEdit;
+class SeExprEditor;
 
 namespace DVGui {
 class LineEdit;
@@ -690,6 +691,7 @@ class DVAPI StringParamField final : public ParamField {
   TStringParamP m_currentParam, m_actualParam;
   DVGui::LineEdit *m_textFld            = nullptr;
   component::MyTextEdit *m_multiTextFld = nullptr;
+  SeExprEditor *m_seExprEditor          = nullptr;
   bool m_lutFileControls                = false;
   bool m_glbFileControls                = false;
   bool m_exrFileControls                = false;
@@ -720,6 +722,7 @@ public:
   void update(int frame) override;
 
   QSize getPreferredSize() override {
+    if (m_seExprEditor) return QSize(420, 330);
     if (m_lutFileControls || m_glbFileControls || m_exrFileControls ||
         m_exrChoiceControls)
       return sizeHint().expandedTo(QSize(260, 54));

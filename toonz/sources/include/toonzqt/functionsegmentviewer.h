@@ -194,6 +194,7 @@ class FunctionExpressionSegmentPage final : public FunctionSegmentPage {
 
   DVGui::ExpressionField *m_expressionFld;
   DVGui::LineEdit *m_unitFld;
+  QComboBox *m_expressionEngine;
 
 public:
   FunctionExpressionSegmentPage(FunctionSegmentViewer *parent = 0);

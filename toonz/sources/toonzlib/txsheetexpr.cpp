@@ -26,12 +26,16 @@
 #include "toonz/tcolumnfxset.h"
 #include "toonz/tcolumnfx.h"
 #include "toonz/txshsoundcolumn.h"
+#include "toonz/toonzscene.h"
+#include "toonz/sceneproperties.h"
+#include "toutputproperties.h"
 
 // Boost includes
 #include "boost/noncopyable.hpp"
 
 // Qt includes
 #include <QString>
+#include <QRegularExpression>
 
 #include "toonz/txsheetexpr.h"
 
@@ -50,13 +54,20 @@ namespace {
 class ParamDependencyFinder final : public TSyntax::CalculatorNodeVisitor {
   TDoubleParam *m_possiblyDependentParam;
   bool m_found;
+  QSet<TDoubleParam *> m_visited;
 
 public:
   ParamDependencyFinder(TDoubleParam *possiblyDependentParam)
       : m_possiblyDependentParam(possiblyDependentParam), m_found(false) {}
 
-  void check(TDoubleParam *param) {
+  bool enter(TDoubleParam *param) {
     if (param == m_possiblyDependentParam) m_found = true;
+    // Column insertion/removal can leave a cyclic graph until all reference
+    // texts have been remapped. Visit each curve once while still searching
+    // the other branches for the requested dependency.
+    if (m_found || m_visited.contains(param)) return false;
+    m_visited.insert(param);
+    return true;
   }
 
   bool found() const { return m_found; }
@@ -80,17 +91,25 @@ public:
 class ParamReferenceFinder final : public TSyntax::CalculatorNodeVisitor {
   QSet<TDoubleParam *> m_refParams;
   QSet<int> m_columnIndices;
+  int m_referenceCount = 0;
+  bool m_hasOffsetLayers = false;
 
 public:
   ParamReferenceFinder() {}
 
-  void registerRefParam(TDoubleParam *param) { m_refParams.insert(param); }
+  void registerRefParam(TDoubleParam *param, bool hasOffsetLayers = false) {
+    m_refParams.insert(param);
+    ++m_referenceCount;
+    m_hasOffsetLayers = m_hasOffsetLayers || hasOffsetLayers;
+  }
   void registerColumnIndex(int columnIndex) {
     m_columnIndices.insert(columnIndex);
   }
 
   QSet<int> columnIndices() const { return m_columnIndices; }
   QSet<TDoubleParam *> refParams() const { return m_refParams; }
+  int referenceCount() const { return m_referenceCount; }
+  bool hasOffsetLayers() const { return m_hasOffsetLayers; }
 };
 
 //===================================================================
@@ -140,8 +159,7 @@ public:
                                 layer.m_channels[m_channel].getPointer()};
       for (TDoubleParam *curve : curves) {
         if (!curve || pdf.found()) continue;
-        pdf.check(curve);
-        if (!pdf.found()) curve->accept(visitor);
+        if (pdf.enter(curve)) curve->accept(visitor);
       }
     }
   }
@@ -162,15 +180,17 @@ public:
   void accept(TSyntax::CalculatorNodeVisitor &visitor) override {
     ParamReferenceFinder *prf = dynamic_cast<ParamReferenceFinder *>(&visitor);
     if (prf) {
-      prf->registerRefParam(m_param.getPointer());
+      prf->registerRefParam(m_param.getPointer(),
+                            m_offsets && !m_offsets->m_layers.empty());
       return;
     }
 
     ParamDependencyFinder *pdf =
         dynamic_cast<ParamDependencyFinder *>(&visitor);
     if (pdf) {
-      pdf->check(m_param.getPointer());
-      if (!pdf->found()) m_param->accept(visitor);
+      if (pdf->enter(m_param.getPointer())) m_param->accept(visitor);
+      // Offset layers belong to this reference's stage object, so a shared
+      // base curve does not make another object's offsets redundant.
       acceptOffsets(*pdf, visitor);
     }
   }
@@ -216,7 +236,8 @@ public:
   void accept(TSyntax::CalculatorNodeVisitor &visitor) override {
     ParamReferenceFinder *prf = dynamic_cast<ParamReferenceFinder *>(&visitor);
     if (prf) {
-      prf->registerRefParam(m_param.getPointer());
+      prf->registerRefParam(m_param.getPointer(),
+                            m_offsets && !m_offsets->m_layers.empty());
       prf->registerColumnIndex(m_columnIndex);
       return;
     }
@@ -224,8 +245,7 @@ public:
     ParamDependencyFinder *pdf =
         dynamic_cast<ParamDependencyFinder *>(&visitor);
     if (pdf) {
-      pdf->check(m_param.getPointer());
-      if (!pdf->found()) m_param->accept(visitor);
+      if (pdf->enter(m_param.getPointer())) m_param->accept(visitor);
       acceptOffsets(*pdf, visitor);
     }
   }
@@ -784,6 +804,11 @@ const PlasticVertexPattern::Component PlasticVertexPattern::m_components[] = {
 
 TSyntax::Grammar *createXsheetGrammar(TXsheet *xsh) {
   Grammar *grammar = new Grammar();
+  grammar->setFrameRateProvider([xsh]() {
+    return xsh && xsh->getScene()
+               ? xsh->getScene()->getProperties()->getOutputProperties()->getFrameRate()
+               : 24.0;
+  });
   grammar->addPattern(new XsheetReferencePattern(xsh));
   grammar->addPattern(new FxReferencePattern(xsh));
   grammar->addPattern(new PlasticVertexPattern(xsh));
@@ -808,4 +833,23 @@ void referenceParams(TExpression &expr, QSet<int> &columnIndices,
   expr.accept(prf);
   columnIndices = prf.columnIndices();
   params        = prf.refParams();
+}
+
+bool referenceCurveForSnapshot(TExpression &expr, TDoubleParam *&param,
+                               bool &hasOffsetLayers) {
+  param = nullptr;
+  hasOffsetLayers = false;
+  static const QRegularExpression literalReference(
+      QStringLiteral("^[A-Za-z_][A-Za-z0-9_.]*$"));
+  if (!literalReference.match(QString::fromStdString(expr.getText()).trimmed())
+           .hasMatch() ||
+      !expr.isValid())
+    return false;
+  ParamReferenceFinder finder;
+  expr.accept(finder);
+  const QSet<TDoubleParam *> params = finder.refParams();
+  if (finder.referenceCount() != 1 || params.size() != 1) return false;
+  param = *params.constBegin();
+  hasOffsetLayers = finder.hasOffsetLayers();
+  return param != nullptr;
 }

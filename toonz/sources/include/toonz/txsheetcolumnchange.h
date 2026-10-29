@@ -8,6 +8,8 @@
 // TnzLib includes
 #include "tstageobjectid.h"
 
+#include <QMap>
+
 #undef DVAPI
 #undef DVVAR
 #ifdef TOONZLIB_EXPORTS
@@ -20,6 +22,7 @@
 
 class TFx;
 class TDoubleParam;
+class TXsheet;
 //===========================================================
 
 //*****************************************************************************************
@@ -50,6 +53,12 @@ public:
   // Call when adding stage objects in which expression references may be
   // included. This can be happen when undoing removing objects operation.
   virtual void onStageObjectAdded(const TStageObjectId) = 0;
+  // Rebind references only in the newly pasted objects, after all their
+  // destination identifiers and grammars are available. Existing objects must
+  // retain their bindings to the original objects.
+  virtual void onStageObjectsPasted(
+      TXsheet *, const QMap<TStageObjectId, TStageObjectId> &,
+      const QMap<TFx *, TFx *> &) {}
   virtual bool isIgnored(TDoubleParam *)                = 0;
 };
 

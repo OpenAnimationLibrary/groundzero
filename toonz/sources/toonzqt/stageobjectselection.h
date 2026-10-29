@@ -10,6 +10,13 @@
 #include <QList>
 #include <QPair>
 
+#undef DVAPI
+#ifdef TOONZQT_EXPORTS
+#define DVAPI DV_EXPORT_API
+#else
+#define DVAPI DV_IMPORT_API
+#endif
+
 // forward declaration
 class TXsheetHandle;
 class TObjectHandle;
@@ -24,7 +31,7 @@ class SchematicPort;
 //
 //---------------------------------------------------------
 
-class StageObjectSelection final : public QObject, public TSelection {
+class DVAPI StageObjectSelection final : public QObject, public TSelection {
   Q_OBJECT
 
   QList<QPair<TStageObjectId, TStageObjectId>> m_selectedLinks;

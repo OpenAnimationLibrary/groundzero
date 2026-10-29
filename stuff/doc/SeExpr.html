@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><title>Expression Effects</title></head>
+<body><h1>Expression Generator and Expression Color</h1>
+<p>Expression Generator produces an image from a color expression and a separate alpha expression.
+Expression Color processes its Source input with an optional Mask and Mix value.
+Start with a preset in the native Expression editor or enter a formula, validate it,
+preview it, and press Apply. Revert discards the draft. Applying is undoable.</p>
+<h2>Coordinates and animation</h2>
+<p><code>$x</code> and <code>$y</code> are FX-local pixel-center coordinates.
+<code>$u</code> and <code>$v</code> are normalized across the canvas; <code>$width</code>
+and <code>$height</code> are its dimensions. Generator has a finite centered canvas.
+Color uses the finite Source bounds when available. Coordinates are independent of render tiles.</p>
+<p><code>$frame</code> starts at one. <code>$time</code> starts at zero and is the
+zero-based frame divided by <b>Time Rate</b>. Time Rate defaults to 24 frames/second
+and is an explicit effect control; set it to the intended rate for seconds-based motion.
+<code>$seed</code> is available to deterministic noise formulas. Trigonometric functions use radians.</p>
+<h2>Source, color and alpha</h2>
+<p><code>$src</code> is straight RGB; <code>$r</code>, <code>$g</code>, <code>$b</code>
+and <code>$a</code> expose its components. Output RGB is a three-component value;
+alpha is a scalar clamped to zero through one. Color calculations use the current
+render working space. Floating output preserves finite HDR and negative RGB.
+Integer output is clamped during conversion. Transparent source pixels expose zero RGB.</p>
+<p>Mix blends original and processed premultiplied RGBA. An absent Mask gives full influence.
+Mask Channel chooses alpha or premultiplied luminance; the clamped mask multiplies Mix.</p>
+<h2>Named controls and presets</h2>
+<p>Add scalar, vector, float-color, string, curve or color-ramp controls in the editor.
+Native controls appear in FX Settings and support normal keyframes where applicable.
+Stable IDs retain their curves through display-name changes. Reuse the same ID only for
+the same control type. Removed controls are archived so undo and scene persistence retain animation.
+Integer controls round to the nearest integer and clamp to their declared integer range.</p>
+<p>Curve functions use a declared name, for example <code>ramp($u)</code>. Each stop has
+an upstream interpolation mode: constant, linear, smooth, spline or monotone spline.
+Stop positions and values are native animatable parameters. Water Spectrum preserves its
+full native parameter set and evaluates the upstream spectrum directly rather than approximating it with its preview points.</p>
+<p>Presets embed formulas and control definitions. Importing a preset does not require
+external texture files. Formula text is saved in the scene; animate controls instead of switching source text.</p>
+<h2>Bounded image sampling</h2>
+<p><code>sample_rgb(dx,dy)</code> and <code>sample_alpha(dx,dy)</code> sample Source at
+FX-local pixel offsets. Sampling Radius defaults to 32 pixels. Set it to at least the largest absolute requested
+offset in either axis. Larger requests fail visibly. Sampling Filter selects nearest or bilinear.
+Source Edges selects transparent, clamp, repeat or mirror; the latter modes require finite Source bounds.
+Neighbor Shift uses the default nonzero Sampling Radius. Sampling requests share a 256 MiB temporary Source/Mask budget.</p>
+<p>Source is the ordinary rendered level, including rasterized vector columns; drawings stay editable
+in their native level. These effects operate on rendered pixels.</p>
+<h2>Animation curves</h2>
+<p>Use Animation Curve in Controls for a named curve, or Insert Animation Curve / Edit Inline Curve
+for literal calls. Keys store time, value, in/out weights and angles, tangent modes and weight locks.
+The seven tangent modes are fixed, auto, linear, flat, step, stepnext and spline.
+Choose constant, linear, cycle, cycleRelative or oscillate independently before and after the keys.</p>
+<p>Refresh Linked Curve copies a supported native channel into the draft. Apply commits the snapshot
+as one undoable edit; Cancel keeps the old data. A link is metadata, not a live dependency.
+Use <code>channel("col1.x")</code> for live animation, offset layers or native interpolation that cannot
+be copied exactly. The artist editor supports 64 keys and inline runtime data supports 512.</p>
+<h2>Expression Surface and Expression Attribute</h2>
+<p>Expression Surface processes GLB Model or Image Plane geometry, including Transform 3D.
+RGB, Alpha and Opacity RGB shade covered surface samples; Displacement moves posed vertices before projection.
+Set Displacement Limit in object units. Position and normal use the chosen Object, World or Camera
+space as <code>$P</code>/<code>$N</code>; explicit <code>$Po</code>, <code>$Pw</code>, <code>$Pc</code>,
+<code>$No</code>, <code>$Nw</code>, <code>$Nc</code>, material <code>$Cs</code>/<code>$Os</code> and UVs
+are available. Normals are recomputed after displacement and transparent overlaps compose in depth order.</p>
+<p>Opacity RGB defaults to <code>[1,1,1]</code>, multiplies Alpha, and clamps each component to zero through one.
+Independent RGB transmittance is retained within the 3D geometry renderer. Its final premultiplied RGBA
+alpha is maximum channel coverage; one alpha cannot preserve colored transmission into a later unrelated
+2D background. Include that background in the geometry render when needed. Set Alpha to 1 when an
+imported Opacity RGB formula already includes material <code>$Os</code>.</p>
+<p>One Expression Surface material is supported per geometry chain. Displacement uses existing triangles.
+Image Plane geometry and bounds queries do not read its raster;
+displacement receives material color, while shading receives actual straight texture samples.
+Nonfinite results, excess displacement, cancellation and geometry/coverage limits report errors.</p>
+<p>Stack Expression Attribute nodes to supply animated scalar/vector <code>namespace::name</code> values
+to image or surface effects. Attribute scope overrides Option, and the nearest provider in a scope wins.
+Scalar values repeat across the three expression components; missing names evaluate to zero.
+Values are immutable render snapshots and participate in caching.</p>
+<h2>Errors and evaluation backends</h2>
+<p>The editor validates before Apply. Its numeric preview uses the current variables at the canvas center;
+Source RGB and alpha are zero in this numeric preview. Use the normal FX swatch for actual Source image results. Invalid committed formulas, nonfinite output,
+unsupported versions and out-of-range sampling report render errors. Batch rendering must fail rather
+than report an invalid blank frame as success.</p>
+<p>The portable interpreter is the default backend. LLVM can be selected in builds that include it;
+requesting an unavailable backend reports an error. Native plugins are not loaded automatically from scene content.</p>
+</body></html>

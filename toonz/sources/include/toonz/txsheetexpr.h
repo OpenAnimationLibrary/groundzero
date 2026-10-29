@@ -27,5 +27,10 @@ DVAPI bool dependsOn(TExpression &expr, TDoubleParam *possiblyDependentParam);
 DVAPI bool dependsOn(TDoubleParam *param, TDoubleParam *possiblyDependentParam);
 DVAPI void referenceParams(TExpression &expr, QSet<int> &columnIndices,
                            QSet<TDoubleParam *> &params);
+// Resolve only a literal native channel reference, never an expression which
+// happens to use one parameter. Offset layers are reported separately because
+// copying the base curve alone would not preserve the effective channel value.
+DVAPI bool referenceCurveForSnapshot(TExpression &expr, TDoubleParam *&param,
+                                    bool &hasOffsetLayers);
 
 #endif  // XSHEETEXPR_INCLUDED

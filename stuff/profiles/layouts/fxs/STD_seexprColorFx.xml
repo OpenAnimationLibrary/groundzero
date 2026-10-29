@@ -1,0 +1,12 @@
+<fxlayout help_file="SeExpr.html">
+  <page name="Expression Color">
+    <control>seexprDocument</control>
+    <control>fps</control>
+    <control>seed</control>
+    <control>mix</control>
+    <control>samplingRadius</control>
+    <control>edgeMode</control>
+    <control>samplingFilter</control>
+    <control>maskChannel</control>
+  </page>
+</fxlayout>

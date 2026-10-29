@@ -1,0 +1,42 @@
+{
+  "format": "groundzero-seexpr",
+  "version": 1,
+  "title": "Checker Pattern",
+  "document": {
+    "version": 1,
+    "backend": "interpreter",
+    "rgb": "($u*$cells-floor($u*$cells))<0.5 ? (($v*$cells-floor($v*$cells))<0.5 ? $light : $dark) : (($v*$cells-floor($v*$cells))<0.5 ? $dark : $light)",
+    "alpha": "1",
+    "controls": [
+      {
+        "id": "cells",
+        "name": "cells",
+        "label": "Cells",
+        "type": "scalar",
+        "value": 12,
+        "min": 1,
+        "max": 100
+      },
+      {
+        "id": "light",
+        "name": "light",
+        "type": "color",
+        "value": [
+          0.8,
+          0.8,
+          0.8
+        ]
+      },
+      {
+        "id": "dark",
+        "name": "dark",
+        "type": "color",
+        "value": [
+          0.1,
+          0.1,
+          0.1
+        ]
+      }
+    ]
+  }
+}
