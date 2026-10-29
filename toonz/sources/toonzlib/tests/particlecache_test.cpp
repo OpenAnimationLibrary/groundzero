@@ -21,7 +21,7 @@ void require(bool condition, const char *message) {
   if (!condition) throw std::runtime_error(message);
 }
 
-void near(double actual, double expected, const char *message) {
+void nearlyEqual(double actual, double expected, const char *message) {
   require(std::abs(actual - expected) < 1e-5, message);
 }
 
@@ -90,8 +90,8 @@ void interpolation() {
   QString error;
   const auto middle = interpolate(a, b, 0.5, error);
   require(bool(middle), "interpolation succeeds");
-  near(middle->particles[0].position[0], 6, "IDs match despite particle reorder");
-  near(middle->particles[0].rotation, 360, "rotation uses shortest arc");
+  nearlyEqual(middle->particles[0].position[0], 6, "IDs match despite particle reorder");
+  nearlyEqual(middle->particles[0].rotation, 360, "rotation uses shortest arc");
   b.particles.pop_back();
   auto birth = b.particles.front(); birth.id = 500; b.particles.push_back(birth);
   const auto membership = interpolate(a, b, 0.5, error);
@@ -102,7 +102,7 @@ void interpolation() {
   a.hasStableIds = false;
   const auto held = interpolate(a, b, 0.5, error);
   require(bool(held), "missing IDs hold safely");
-  near(held->particles[0].position[0], 1, "missing IDs do not interpolate array order");
+  nearlyEqual(held->particles[0].position[0], 1, "missing IDs do not interpolate array order");
   a.hasStableIds = true; a.extra["native"] = true;
   require(bool(interpolate(a, b, 0.5, error)), "native draws hold rather than interpolate particles");
 }
@@ -118,15 +118,15 @@ void roundTrips(const QDir &dir) {
   const auto inspection = inspectFrame(path, error);
   require(inspection && inspection->particleCount == 2 && inspection->particles.empty() &&
           !inspection->attributes.empty(), "inspect discovers schema without a position mapping");
-  near(loaded->particles[0].position[0], 1, "position round-trip");
-  near(loaded->particles[0].tint[3], 0.5, "opacity round-trip");
+  nearlyEqual(loaded->particles[0].position[0], 1, "position round-trip");
+  nearlyEqual(loaded->particles[0].tint[3], 0.5, "opacity round-trip");
   require(loaded->particles[0].id == 42 && loaded->particles[0].artworkIndex == 2,
           "identity and artwork round-trip");
   Mapping remap; remap.axes = {{1, 0, 2}}; remap.axisSigns = {{-1, 1, 1}};
   remap.units = 2;
   const auto transformed = loadFrame(path, remap, error);
   require(bool(transformed), "coordinate mapping loads");
-  near(transformed->particles[0].position[0], -4, "coordinate mapping applied");
+  nearlyEqual(transformed->particles[0].position[0], -4, "coordinate mapping applied");
   Snapshot custom = *loaded;
   Attribute weights; weights.name = "customWeights"; weights.components = 2;
   weights.floats = {0.2f, 0.8f, 0.4f, 0.6f};
@@ -170,7 +170,7 @@ void roundTrips(const QDir &dir) {
   const auto prtLoaded = loadFrame(prtPath, Mapping{}, error);
   require(prtLoaded && prtLoaded->particles.size() == 2 &&
           prtLoaded->particles[0].id == 42, "PRT decoder preserves particle identities");
-  near(prtLoaded->particles[1].position[0], 10, "PRT zlib payload round-trip");
+  nearlyEqual(prtLoaded->particles[1].position[0], 10, "PRT zlib payload round-trip");
   bool tailPreserved = false;
   for (const auto &a : prtLoaded->attributes)
     if (a.name == "tailVector") tailPreserved = a.floats == prtTail.floats;
@@ -224,7 +224,7 @@ void roundTrips(const QDir &dir) {
   require(writeFrame(path, fixture(20), options, error), "replace cached filename");
   const auto changed = loadFrame(path, Mapping{}, error);
   require(bool(changed), "changed file loads");
-  near(changed->particles[0].position[0], 21, "file replacement invalidates cached frame");
+  nearlyEqual(changed->particles[0].position[0], 21, "file replacement invalidates cached frame");
   setMemoryCacheLimit(0);
   const auto uncached = loadFrame(path, Mapping{}, error);
   require(bool(uncached), "zero memory cache still loads");
@@ -245,7 +245,7 @@ void gzipAndRawSchemas(const QDir &dir) {
     require(bytes.startsWith(magic), "compressed formats contain actual gzip bytes");
     auto loaded = loadFrame(path, Mapping{}, error);
     require(loaded && loaded->particleCount == 2, qPrintable(error));
-    near(loaded->particles[0].position[0], 1, "gzip round-trip preserves positions");
+    nearlyEqual(loaded->particles[0].position[0], 1, "gzip round-trip preserves positions");
     auto reject = [&](const QString &name, const QByteArray &damaged) {
       const QString bad = dir.filePath(name + "." + format + ".gz");
       writeBytes(bad, damaged);
@@ -357,15 +357,15 @@ void packages(const QDir &dir) {
   Playback playback; playback.sceneFramesPerSecond = 30;
   auto middle = sampleSequence(sequence, 0.5, playback, sequence.mapping, error);
   require(bool(middle), "sample package subframe");
-  near(middle->particles[0].position[0], 1.5, "scene FPS and source first frame mapping");
+  nearlyEqual(middle->particles[0].position[0], 1.5, "scene FPS and source first frame mapping");
   playback.end = EndBehavior::Loop;
   auto loop = sampleSequence(sequence, 3, playback, sequence.mapping, error);
   require(bool(loop), "loop sample");
-  near(loop->particles[0].position[0], 1, "loop wraps to source start");
+  nearlyEqual(loop->particles[0].position[0], 1, "loop wraps to source start");
   playback.speed = -1; playback.offset = 2;
   auto reverse = sampleSequence(sequence, 1, playback, sequence.mapping, error);
   require(bool(reverse), "reverse sample");
-  near(reverse->particles[0].position[0], 2, "reverse time mapping");
+  nearlyEqual(reverse->particles[0].position[0], 2, "reverse time mapping");
   require(!writePackage(package, metadata, provider, options, error), "package overwrite rejected");
   const QString cancelledPath = dir.filePath("cancelled-package");
   int frames = 0;

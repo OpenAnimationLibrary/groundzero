@@ -496,19 +496,19 @@ void compareInterchange(const std::vector<ParticleBake::DrawSample> &expected,
           "Native interchange omitted live particles or added trail draws");
   std::map<std::int64_t, const ParticleCache::Particle *> byId;
   for (const auto &p : actual.particles) byId.emplace(p.id, &p);
-  auto near = [](double a, double b) {
+  auto nearlyEqual = [](double a, double b) {
     return std::abs(a - b) <= 2e-6 * std::max({1.0, std::abs(a), std::abs(b)});
   };
   for (const auto &a : expected) {
     const auto found = byId.find(std::int64_t(a.id));
     require(found != byId.end(), "Native interchange lost a live birth identity");
     const auto &b = *found->second;
-    require(near(a.position.x, b.position[0]) && near(a.position.y, b.position[1]) &&
-                near(a.velocity.x, b.velocity[0]) && near(a.velocity.y, b.velocity[1]) &&
-                near(a.age / fps, b.age) && near(a.lifetime / fps, b.lifetime) &&
-                near(a.scale, b.size) && near(a.angle, b.rotation) &&
-                near(a.opacity, b.tint[3]) && a.source == b.artworkIndex &&
-                near(a.artworkFrame, b.artworkFrame),
+    require(nearlyEqual(a.position.x, b.position[0]) && nearlyEqual(a.position.y, b.position[1]) &&
+                nearlyEqual(a.velocity.x, b.velocity[0]) && nearlyEqual(a.velocity.y, b.velocity[1]) &&
+                nearlyEqual(a.age / fps, b.age) && nearlyEqual(a.lifetime / fps, b.lifetime) &&
+                nearlyEqual(a.scale, b.size) && nearlyEqual(a.angle, b.rotation) &&
+                nearlyEqual(a.opacity, b.tint[3]) && a.source == b.artworkIndex &&
+                nearlyEqual(a.artworkFrame, b.artworkFrame),
             "Native interchange changed live particle state or time units");
   }
 }
