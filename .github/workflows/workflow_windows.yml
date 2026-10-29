@@ -364,7 +364,7 @@ jobs:
         shell: pwsh
         run: |
           foreach ($directory in @("toonz/build/RelWithDebInfo", "toonz/build/Opentoonz")) {
-            foreach ($name in @("opengl32.dll", "libgallium_wgl.dll", "OpenToonz.exe.local", "SeExprSdkFixture.dll", "SeExprInvalidFixture.dll")) {
+            foreach ($name in @("opengl32.dll", "libgallium_wgl.dll", "OpenToonz.exe.local", "tcomposer.exe.local", "SeExprSdkFixture.dll", "SeExprInvalidFixture.dll")) {
               if (Test-Path -LiteralPath (Join-Path $directory $name)) {
                 throw "A test-only renderer or SDK fixture remained in the application runtime or package"
               }

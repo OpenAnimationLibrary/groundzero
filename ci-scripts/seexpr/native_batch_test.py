@@ -1,6 +1,7 @@
 """Exercise saved native SeExpr scenes through the actual batch renderer."""
 import argparse
 from collections import Counter
+from contextlib import ExitStack
 import os
 from pathlib import Path
 import re
@@ -8,6 +9,8 @@ import shutil
 import subprocess
 import sys
 import tempfile
+
+from native_ui_test import windows_mesa_renderer
 
 
 def run(command, directory, environment, report, label):
@@ -39,7 +42,7 @@ def main():
         builder = args.builder.resolve(strict=True)
         composer = args.composer.resolve(strict=True)
         source = args.stuff.resolve(strict=True)
-        with tempfile.TemporaryDirectory(prefix="seexpr-native-batch-") as temporary:
+        with tempfile.TemporaryDirectory(prefix="seexpr-native-batch-") as temporary, ExitStack() as runtime:
             directory = Path(temporary).resolve(strict=True)
             (directory / ".seexpr-acceptance").write_text("disposable SeExpr fixture\n", encoding="ascii")
             stuff = directory / "portablestuff"
@@ -55,8 +58,15 @@ def main():
                 location = directory / leaf
                 location.mkdir()
                 environment[key] = str(location)
-            environment["QT_QPA_PLATFORM"] = "offscreen"
+            # Rendering requires the native platform's OpenGL context. The
+            # surrounding QWidget tests can still select an offscreen backend.
+            environment["QT_QPA_PLATFORM"] = (
+                "windows" if os.name == "nt" else "cocoa" if sys.platform == "darwin" else "xcb")
             environment["LIBGL_ALWAYS_SOFTWARE"] = "1"
+            mesa_runtime = (Path(environment["SEEXPR_TEST_MESA"])
+                            if os.name == "nt" and environment.get("SEEXPR_TEST_MESA") else None)
+            environment.update(runtime.enter_context(windows_mesa_renderer(composer, mesa_runtime)))
+            report.append(f"Native batch Qt platform: {environment['QT_QPA_PLATFORM']}\n")
             # Binary dependencies are selected by existing platform CI setup;
             # both native fixture and renderer use the same deployed runtime.
             environment["PATH"] = os.pathsep.join(
