@@ -280,7 +280,8 @@ class ParticleCacheFx final : public TStandardZeraryFx,
     }
     if (dry) {
       input.m_bpp = 128;
-      (*port)->dryCompute(TRectD(x0, y0, x0 + width, y0 + height), frame, input);
+      TRectD request(x0, y0, x0 + width, y0 + height);
+      (*port)->dryCompute(request, frame, input);
       cache.images.emplace(key, result);
       return result;
     }
@@ -457,8 +458,8 @@ public:
         m_sizeAttribute(L"pscale"), m_colorAttribute(L"Cd"), m_opacityAttribute(L"opacity"),
         m_rotationAttribute(L"rotation"), m_ageAttribute(L"age"), m_lifetimeAttribute(L"life"),
         m_sourceAttribute(L"ot_artwork"), m_drawingAttribute(L"ot_frame"),
-        m_units(1), m_defaultSize(1), m_sceneFps(24), m_cacheFps(0),
-        m_startFrame(0), m_offset(0), m_speed(1),
+        m_units(1.0), m_defaultSize(1.0), m_sceneFps(24.0), m_cacheFps(0.0),
+        m_startFrame(0.0), m_offset(0.0), m_speed(1.0),
         m_axes(new TIntEnumParam(0, "XY")),
         m_end(new TIntEnumParam(0, "Hold")), m_missing(new TIntEnumParam(0, "Error")),
         m_interpolation(new TIntEnumParam(0, "Hold Samples")),
@@ -467,9 +468,9 @@ public:
         m_assignment(new TIntEnumParam(0, "Cache Artwork Index")),
         m_order(new TIntEnumParam(0, "Depth")),
         m_flipY(false), m_diameter(false), m_radians(false), m_linearTint(true),
-        m_positionX(0), m_positionY(0), m_scale(100), m_rotation(0), m_opacity(100),
-        m_artworkStart(0), m_artworkLength(1), m_artworkSpeed(1),
-        m_seed(1), m_trails(0), m_blurSamples(1), m_trailStep(1), m_trailFade(.5), m_shutter(0) {
+        m_positionX(0.0), m_positionY(0.0), m_scale(100.0), m_rotation(0.0), m_opacity(100.0),
+        m_artworkStart(0.0), m_artworkLength(1.0), m_artworkSpeed(1.0),
+        m_seed(1), m_trails(0), m_blurSamples(1), m_trailStep(1.0), m_trailFade(0.5), m_shutter(0.0) {
     addInputPort("Artwork1", new TRasterFxPort, 0);
 #define BIND(name, member) bindParam(this, name, member)
     BIND("cacheFile", m_cacheFile); BIND("mappingJson", m_mappingJson);

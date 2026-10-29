@@ -120,7 +120,7 @@ void roundTrips(const QDir &dir) {
   weights.floats = {0.2f, 0.8f, 0.4f, 0.6f};
   custom.attributes.push_back(weights);
   Attribute labels; labels.name = "group"; labels.type = AttributeType::IndexedString;
-  labels.strings = {"leaf", "spark"}; labels.integers = {0, 1};
+  labels.strings = QStringList{"leaf", "spark"}; labels.integers = {0, 1};
   custom.attributes.push_back(labels);
   Attribute fixed; fixed.name = "customScale"; fixed.fixed = true; fixed.floats = {12};
   custom.attributes.push_back(fixed);
@@ -136,6 +136,58 @@ void roundTrips(const QDir &dir) {
     if (attribute.name == "customScale") global = attribute.fixed && attribute.floats == fixed.floats;
   }
   require(strings && global, "indexed strings and fixed metadata round-trip");
+  // Exercise the real zlib PRT path on every platform, including Windows where
+  // the pinned upstream default otherwise compiles unsupported-format stubs.
+  Snapshot prt = fixture();
+  Attribute prtPosition; prtPosition.name = "position";
+  prtPosition.type = AttributeType::Vector; prtPosition.components = 3;
+  prtPosition.floats = {1, 2, 3, 10, 2, 3};
+  Attribute prtId; prtId.name = "id"; prtId.type = AttributeType::Int;
+  prtId.integers = {42, 9};
+  Attribute prtTail; prtTail.name = "tailVector";
+  prtTail.type = AttributeType::Vector; prtTail.components = 3;
+  prtTail.floats = {0.25f, 0.5f, 0.75f, 1.25f, 1.5f, 1.75f};
+  // Last-channel arity exercises the upstream stride bug; mixed-case names
+  // must survive because an OT mapping identifies the exact attribute name.
+  prt.attributes = {prtPosition, prtId, prtTail};
+  WriteOptions prtOptions; prtOptions.format = "prt";
+  const QString prtPath = dir.filePath("particles.prt");
+  require(writeFrame(prtPath, prt, prtOptions, error), qPrintable(error));
+  const auto prtLoaded = loadFrame(prtPath, Mapping{}, error);
+  require(prtLoaded && prtLoaded->particles.size() == 2 &&
+          prtLoaded->particles[0].id == 42, "PRT decoder preserves particle identities");
+  near(prtLoaded->particles[1].position[0], 10, "PRT zlib payload round-trip");
+  bool tailPreserved = false;
+  for (const auto &a : prtLoaded->attributes)
+    if (a.name == "tailVector") tailPreserved = a.floats == prtTail.floats;
+  require(tailPreserved, "PRT final vector channel and exact name preserved");
+  Snapshot empty;
+  require(writeFrame(dir.filePath("empty.prt"), empty, prtOptions, error), qPrintable(error));
+  const auto emptyPrt = loadFrame(dir.filePath("empty.prt"), Mapping{}, error);
+  require(emptyPrt && emptyPrt->particles.empty(), "empty PRT cache round-trip");
+  QFile prtFile(prtPath);
+  require(prtFile.open(QIODevice::ReadOnly), "open PRT mutation fixture");
+  const QByteArray validPrt = prtFile.readAll();
+  prtFile.close();
+  auto rejectPrt = [&](const char *name, QByteArray bytes) {
+    QFile file(dir.filePath(name));
+    require(file.open(QIODevice::WriteOnly), "create malformed PRT fixture");
+    require(file.write(bytes) == bytes.size(), "write malformed PRT fixture");
+    file.close();
+    require(!loadFrame(file.fileName(), Mapping{}, error), "malformed PRT must fail safely");
+  };
+  // v1 header 56 bytes, followed by reserved/count/entry-size (12 bytes).
+  require(validPrt.size() > 112, "PRT fixture has a channel table");
+  QByteArray malformedType = validPrt;
+  malformedType[100] = char(0xff);  // first channel type (68 + 32)
+  rejectPrt("invalid-type.prt", malformedType);
+  QByteArray malformedName = validPrt;
+  for (int i = 68; i < 100; ++i) malformedName[i] = 'x';
+  rejectPrt("invalid-name.prt", malformedName);
+  QByteArray malformedArity = validPrt;
+  for (int i = 104; i < 108; ++i) malformedArity[i] = char(0xff);
+  rejectPrt("invalid-arity.prt", malformedArity);
+  rejectPrt("truncated.prt", validPrt.left(validPrt.size() - 4));
   WriteOptions refreshed; refreshed.preserveOriginalAttributes = false;
   require(writeFrame(dir.filePath("canonical.bgeo"), custom, refreshed, error), qPrintable(error));
   const auto canonical = loadFrame(dir.filePath("canonical.bgeo"), Mapping{}, error);

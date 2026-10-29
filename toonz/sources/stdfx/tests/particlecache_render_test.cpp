@@ -54,6 +54,10 @@ public:
     box = TRectD(-2, -2, 2, 2); return true;
   }
   TFxTimeRegion getTimeRegion() const override { return TFxTimeRegion(0, 3); }
+  std::string getAlias(double frame, const TRenderSettings &settings) const override {
+    return TRasterFx::getAlias(frame, settings) + "[drawing:" +
+           std::to_string(frame) + "]";
+  }
   void doCompute(TTile &tile, double frame, const TRenderSettings &settings) override {
     TRasterFP data(tile.getRaster()->getLx(), tile.getRaster()->getLy());
     const TAffine inverse = settings.m_affine.inv();

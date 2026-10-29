@@ -21,16 +21,28 @@ find_package(Threads REQUIRED)
 file(GLOB OT_PARTIO_SOURCES CONFIGURE_DEPENDS
     "${ot_partio_SOURCE_DIR}/src/lib/core/*.cpp"
     "${ot_partio_SOURCE_DIR}/src/lib/io/*.cpp")
+include("${CMAKE_CURRENT_LIST_DIR}/PartioPRT.cmake")
+set(OT_PARTIO_PRT_SOURCE "${CMAKE_CURRENT_BINARY_DIR}/partio-patched/PRT.cpp")
+file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/partio-patched")
+ot_patch_partio_prt("${ot_partio_SOURCE_DIR}/src/lib/io/PRT.cpp" "${OT_PARTIO_PRT_SOURCE}")
+list(REMOVE_ITEM OT_PARTIO_SOURCES "${ot_partio_SOURCE_DIR}/src/lib/io/PRT.cpp")
+list(APPEND OT_PARTIO_SOURCES "${OT_PARTIO_PRT_SOURCE}")
 add_library(ot_partio_core STATIC ${OT_PARTIO_SOURCES})
 add_library(Partio::Partio ALIAS ot_partio_core)
 set_target_properties(ot_partio_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_compile_features(ot_partio_core PUBLIC cxx_std_17)
 target_include_directories(ot_partio_core PUBLIC "${ot_partio_SOURCE_DIR}/src/lib")
+target_include_directories(ot_partio_core PRIVATE "${ot_partio_SOURCE_DIR}/src/lib/io")
 target_compile_definitions(ot_partio_core PRIVATE PARTIO_USE_ZLIB)
 target_link_libraries(ot_partio_core PUBLIC Threads::Threads)
 if(BUILD_ENV_MSVC)
     # The Windows SDK already supplies the verified zlib used by image I/O.
     target_compile_definitions(ot_partio_core PRIVATE PARTIO_WIN32 _USE_MATH_DEFINES)
+    # Upstream's PRT implementation is portable C++/zlib, but this historical
+    # guard selects no-op Windows stubs. Undefine only its private switch for
+    # this translation unit; preserve _WIN32 and every other platform macro.
+    set_source_files_properties("${OT_PARTIO_PRT_SOURCE}"
+        PROPERTIES COMPILE_OPTIONS /UPARTIO_WIN32)
     target_include_directories(ot_partio_core PRIVATE "${SDKROOT}/zlib-1.2.8")
     target_link_libraries(ot_partio_core PUBLIC ${Z_LIB})
 else()
