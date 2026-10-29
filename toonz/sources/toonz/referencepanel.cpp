@@ -1,3 +1,6 @@
+#include "toonzqt/colormatcheditor.h"
+#include "toonz/palettecontroller.h"
+#include "tapp.h"
 #include "referencepanel.h"
 #include "purerefboard.h"
 
@@ -432,6 +435,16 @@ ReferencePanel::ReferencePanel(QWidget *parent)
   QHBoxLayout *buttonLay = new QHBoxLayout();
   buttonLay->setContentsMargins(2, 2, 2, 2);
   buttonLay->setSpacing(2);
+  auto matchColors = new QToolButton(this);
+  matchColors->setText(tr("Match Colors..."));
+  matchColors->setToolTip(tr("Map selected palette styles to this reference. View opacity and rotation do not alter sampled colors."));
+  connect(matchColors, &QToolButton::clicked, this, [this] {
+    if (!m_view->hasImage()) return;
+    matchPaletteToReference(this,
+        TApp::instance()->getPaletteController()->getCurrentLevelPalette(),
+        m_view->image());
+  });
+  buttonLay->addWidget(matchColors);
   {
     buttonLay->addWidget(loadButton);
     buttonLay->addStretch(1);

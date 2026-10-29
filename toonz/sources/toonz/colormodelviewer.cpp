@@ -2,6 +2,7 @@
 
 // Tnz6 includes
 #include "colormodelviewer.h"
+#include "toonzqt/colormatcheditor.h"
 #include "menubarcommandids.h"
 #include "floatingpanelcommand.h"
 #include "tapp.h"
@@ -220,6 +221,13 @@ void ColorModelViewer::contextMenuEvent(QContextMenuEvent *event) {
   /* If there is at least one style with "picked pos" parameter, then enable
    * repick command */
   TRasterImageP ri = m_imageViewer->getImage();
+  if (ri) {
+    auto match = menu.addAction(tr("Match Palette to Reference Colors..."));
+    connect(match, &QAction::triggered, this, [this, ri] {
+      matchPaletteToReference(this, getPaletteHandle(),
+                              rasterToQImage(ri->getRaster()).copy());
+    });
+  }
   if (ri && currentPalette->hasPickedPosStyle()) {
     menu.addSeparator();
     QAction *repickFromColorModelAct = new QAction(

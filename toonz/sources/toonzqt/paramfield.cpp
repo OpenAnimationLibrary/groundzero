@@ -1,3 +1,4 @@
+#include "toonzqt/colormatcheditor.h"
 
 
 #include "toonzqt/paramfield.h"
@@ -2279,6 +2280,26 @@ StringParamField::StringParamField(QWidget *parent, QString name,
 }
 
 //-----------------------------------------------------------------------------
+
+void StringParamField::enableColorMatchControls() {
+  if (!m_textFld || property("colorMatchControls").toBool()) return;
+  setProperty("colorMatchControls", true);
+  m_textFld->hide();
+  auto edit = new QPushButton(tr("Create / Edit Color Profile..."), this);
+  auto clear = new QPushButton(tr("Clear"), this);
+  m_layout->addWidget(edit);
+  m_layout->addWidget(clear);
+  connect(edit, &QPushButton::clicked, this, [this] {
+    QString profile = m_textFld->text();
+    if (editColorMatchProfile(this, profile)) {
+      m_textFld->setText(profile);
+      onChange();
+    }
+  });
+  connect(clear, &QPushButton::clicked, this, [this] {
+    m_textFld->clear(); onChange();
+  });
+}
 
 void StringParamField::enableLutFileControls() {
   if (!m_textFld || m_lutFileControls) return;

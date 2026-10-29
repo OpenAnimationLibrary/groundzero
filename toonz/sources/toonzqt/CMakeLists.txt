@@ -110,6 +110,7 @@ set(HEADERS
 )
 
 set(SOURCES
+    colormatcheditor.cpp
     ../tnztools/cursormanager.cpp
     checkbox.cpp
     colorfield.cpp

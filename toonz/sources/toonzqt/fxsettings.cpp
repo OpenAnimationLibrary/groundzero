@@ -285,6 +285,10 @@ void ParamsPage::setPageField(TIStream &is, const TFxP &fx, bool isVertical) {
           if (auto stringField = dynamic_cast<StringParamField *>(field))
             stringField->enableLutFileControls();
         }
+        if (paramName == "STD_referenceColorMatchFx.profile") {
+          if (auto stringField = dynamic_cast<StringParamField *>(field))
+            stringField->enableColorMatchControls();
+        }
         if (paramName == "STD_glbModelFx.modelFile") {
           if (auto stringField = dynamic_cast<StringParamField *>(field))
             stringField->enableGlbFileControls();

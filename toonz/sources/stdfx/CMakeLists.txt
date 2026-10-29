@@ -150,6 +150,7 @@ set(SOURCES
     localblurfx.cpp
     localtransparencyfx.cpp
     lut3dbakefx.cpp
+    referencecolormatchfx.cpp
     mosaicfx.cpp
     motionblurfx.cpp
     multitonefx.cpp
@@ -390,6 +391,9 @@ endif()
 # Optional regression target for the production LUT parser and raster FX.
 option(BUILD_LUT3D_TESTS "Build the 3D LUT Bake regression executable" ${BUILD_TESTS})
 if(BUILD_LUT3D_TESTS)
+    add_executable(referencecolormatch_test tests/referencecolormatch_test.cpp)
+    target_link_libraries(referencecolormatch_test Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME referencecolormatch COMMAND referencecolormatch_test)
     add_executable(lut3dbake_test tests/lut3dbake_test.cpp)
     target_link_libraries(lut3dbake_test Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
     add_test(NAME lut3dbake COMMAND lut3dbake_test)

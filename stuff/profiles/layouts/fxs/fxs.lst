@@ -73,6 +73,7 @@
     STD_toneCurveFx 
     STD_colourScriptFx
     STD_lut3DBakeFx
+    STD_referenceColorMatchFx
     STD_despeckleFx
     STD_inoChannelSelectorFx
     STD_inoDensityFx

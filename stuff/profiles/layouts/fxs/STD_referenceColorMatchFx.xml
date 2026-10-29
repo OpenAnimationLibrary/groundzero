@@ -1,0 +1,5 @@
+<fxlayout>
+  <page name="Reference Color Match">
+    <control>profile</control>
+  </page>
+</fxlayout>

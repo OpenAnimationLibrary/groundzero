@@ -180,7 +180,7 @@ jobs:
           mkdir build
           cd build
 
-          cmake ..\sources -G "%MSVCVERSION%" -Ax64 -DQT_PATH="%QT_PATH%" -DBOOST_ROOT="%BOOST_ROOT%" -DOpenCV_DIR="%OpenCV_DIR%" -DWITH_WINTAB=Y -DBUILD_CELFX_TESTS=ON -DBUILD_CADMIUM_TESTS=ON -DBUILD_PARTICLE_CACHE_TESTS=ON -DBUILD_RELIABILITY_TESTS=ON -DBUILD_STREAM_TESTS=ON -DBUILD_SCENEBENCH_TESTS=ON -DBUILD_FXRENDER_TESTS=ON -DBUILD_PSD_TESTS=ON -DBUILD_FFMPEG_TESTS=ON
+          cmake ..\sources -G "%MSVCVERSION%" -Ax64 -DQT_PATH="%QT_PATH%" -DBOOST_ROOT="%BOOST_ROOT%" -DOpenCV_DIR="%OpenCV_DIR%" -DWITH_WINTAB=Y -DBUILD_LUT3D_TESTS=ON -DBUILD_CELFX_TESTS=ON -DBUILD_CADMIUM_TESTS=ON -DBUILD_PARTICLE_CACHE_TESTS=ON -DBUILD_RELIABILITY_TESTS=ON -DBUILD_STREAM_TESTS=ON -DBUILD_SCENEBENCH_TESTS=ON -DBUILD_FXRENDER_TESTS=ON -DBUILD_PSD_TESTS=ON -DBUILD_FFMPEG_TESTS=ON
         shell: cmd
 
       # Build Opentoonz using MSBuild
@@ -260,7 +260,7 @@ jobs:
           set "QT_PLUGIN_PATH=%QT_PATH%\plugins"
           set "QT_QPA_PLATFORM_PLUGIN_PATH=%QT_PATH%\plugins\platforms"
           cd toonz\build
-          ctest -C RelWithDebInfo --output-on-failure --output-junit particle-tests.xml --timeout 300 --no-tests=error -R "^particlecache_" > particle-tests-output.txt 2>&1
+          ctest -C RelWithDebInfo --output-on-failure --output-junit particle-tests.xml --timeout 300 --no-tests=error -R "^(particlecache_|referencecolormatch$)" > particle-tests-output.txt 2>&1
           set "PARTICLE_TEST_EXIT=%ERRORLEVEL%"
           type particle-tests-output.txt
           exit /b %PARTICLE_TEST_EXIT%
