@@ -4,6 +4,7 @@
 #include "tvectorimage.h"
 
 #include <QApplication>
+#include <QOpenGLContext>
 #include <iostream>
 #include <stdexcept>
 #include <vector>
@@ -58,8 +59,11 @@ void run() {
   require(!error.isEmpty(), "empty drawing needs actionable failure");
   const TVectorImageP source = drawing();
   Cadmium::Frame frame;
-  require(Cadmium::snapshotVector(TImageP(source.getPointer()), frame, error),
-          qPrintable(QString("snapshot failed: ") + error));
+  // The message is built before the call when it is an argument: it would
+  // report the previous call's error
+  const bool snapshot =
+      Cadmium::snapshotVector(TImageP(source.getPointer()), frame, error);
+  require(snapshot, qPrintable(QString("snapshot failed: ") + error));
   require(frame.lines.size() == QSize(1024, 1024), "analysis canvas changed");
   require(frame.regionStyles.size() == 2, "wrong region slots");
   require(frame.nativeRegionIndices.size() == 2, "missing native mapping");
@@ -108,6 +112,12 @@ void run() {
 
 int main(int argc, char **argv) {
   QApplication application(argc, argv);
+  // The vector analysis renders with OpenGL: without it (a headless machine
+  // on the offscreen platform) the test is skipped, with ctest's skip code
+  if (!QOpenGLContext().create()) {
+    std::cout << "Cadmium vector adapter checks skipped: no OpenGL\n";
+    return 77;
+  }
   try {
     run();
     std::cout << "Cadmium vector adapter checks passed\n";

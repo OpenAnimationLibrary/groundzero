@@ -1002,6 +1002,7 @@ if(BUILD_CADMIUM_TESTS)
         cadmium_toonzraster cadmium_fullcolor cadmium_vector cadmium_codec
         cadmium_settings cadmium_metadata cadmium_save cadmium_destination cadmium_color
         PROPERTIES TIMEOUT 120)
+    set_tests_properties(cadmium_vector PROPERTIES SKIP_RETURN_CODE 77)
 endif()
 
 option(BUILD_PROCESS_PROGRESS_TESTS "Build the external tool wait test" ${BUILD_TESTS})
