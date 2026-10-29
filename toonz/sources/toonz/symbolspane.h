@@ -29,6 +29,7 @@ class SymbolsPane final : public QWidget {
 
   TXshChildLevel *getSymbol(QListWidgetItem *item) const;
   QPixmap getIcon(TXshChildLevel *symbol, bool render) const;
+  void retranslateUi();
 
 public:
   SymbolsPane(QWidget *parent = 0, Qt::WindowFlags flags = Qt::WindowFlags());

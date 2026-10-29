@@ -12,6 +12,7 @@
 #include "toonzqt/icongenerator.h"
 #include "toonzqt/dvdialog.h"
 #include "toonzqt/gutil.h"
+#include "toonzqt/uitranslations.h"
 
 // TnzLib includes
 #include "toonz/toonzscene.h"
@@ -34,6 +35,8 @@
 #include <QAction>
 #include <QIcon>
 #include <QPointer>
+#include <QScrollBar>
+#include <QSignalBlocker>
 
 // STD includes
 #include <set>
@@ -46,6 +49,8 @@
 namespace {
 
 const QSize SymbolIconSize(80, 60);
+const int FrameCountRole = Qt::UserRole + 1;
+const int UsedRole       = Qt::UserRole + 2;
 
 // The Symbols panel used last, for the commands working on its symbol
 QPointer<SymbolsPane> lastUsedPane;
@@ -198,6 +203,7 @@ SymbolsPane::SymbolsPane(QWidget *parent, Qt::WindowFlags flags)
   connect(m_duplicateButton, SIGNAL(clicked()), this, SLOT(duplicateSymbol()));
   connect(m_renameButton, SIGNAL(clicked()), this, SLOT(renameSymbol()));
 
+  UiTranslations::onLanguageChanged(this, [this]() { retranslateUi(); });
   updateButtons();
 }
 
@@ -282,18 +288,39 @@ void SymbolsPane::refresh() {
   for (int i = 0; i < (int)symbols.size(); i++) {
     TXshChildLevel *symbol = symbols[i];
     QListWidgetItem *item  = m_list->item(i);
-    QString name           = QString::fromStdWString(symbol->getName());
     bool used              = usedLevels.count(symbol) > 0;
 
-    QString text = name + "\n" + tr("%1 frames").arg(symbol->getFrameCount());
-    if (!used) text += "  " + tr("(unused)");
-    item->setText(text);
-    item->setToolTip(used ? name : tr("%1 is not used in the scene").arg(name));
+    item->setData(FrameCountRole, symbol->getFrameCount());
+    item->setData(UsedRole, used);
     item->setIcon(
         QIcon(getIcon(symbol, !onDemand || item == m_list->currentItem())));
   }
 
+  retranslateUi();
   updateButtons();
+}
+
+//-----------------------------------------------------------------------------
+
+void SymbolsPane::retranslateUi() {
+  const QSignalBlocker blocker(m_list);
+  const int horizontal = m_list->horizontalScrollBar()->value();
+  const int vertical   = m_list->verticalScrollBar()->value();
+  for (int i = 0; i < m_list->count(); ++i) {
+    QListWidgetItem *item = m_list->item(i);
+    const QString name   = item->data(Qt::UserRole).toString();
+    const bool used      = item->data(UsedRole).toBool();
+    QString text =
+        name + "\n" + tr("%1 frames").arg(item->data(FrameCountRole).toInt());
+    if (!used) text += "  " + tr("(unused)");
+    item->setText(text);
+    item->setToolTip(used ? name : tr("%1 is not used in the scene").arg(name));
+  }
+  // Relabel the existing rows without resolving/reloading symbols, rendering
+  // thumbnails, changing selection or notifying scene-command consumers.
+  m_list->doItemsLayout();
+  m_list->horizontalScrollBar()->setValue(horizontal);
+  m_list->verticalScrollBar()->setValue(vertical);
 }
 
 //-----------------------------------------------------------------------------

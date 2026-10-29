@@ -16,6 +16,7 @@
 #include "toonzqt/lineedit.h"
 #include "toonzqt/checkbox.h"
 #include "toonzqt/gutil.h"
+#include "toonzqt/uitranslations.h"
 
 // TnzLib
 #include "toonz/filepathproperties.h"
@@ -36,6 +37,7 @@
 #include <QStackedWidget>
 #include <QButtonGroup>
 #include <QRadioButton>
+#include <QSignalBlocker>
 
 using namespace DVGui;
 
@@ -434,6 +436,15 @@ Note that this mode uses regular expression for file name validation and may slo
   //---------
   connect(m_rulePreferenceBG, SIGNAL(idToggled(int, bool)), this,
           SLOT(onRulePreferenceToggled(int, bool)));
+
+  UiTranslations::onLanguageChanged(tabWidget, [tabWidget]() {
+    QSignalBlocker blocker(tabWidget);
+    tabWidget->setTabText(0, ProjectPopup::tr("Project Folder"));
+    tabWidget->setTabText(1, ProjectPopup::tr("File Path Rules"));
+  });
+  UiTranslations::onLanguageChanged(customRB, [customRB]() {
+    customRB->setText(QString("[Experimental]  ") + ProjectPopup::tr("Custom"));
+  });
 }
 
 //-----------------------------------------------------------------------------

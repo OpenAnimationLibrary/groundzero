@@ -46,7 +46,7 @@ jobs:
         ok=0
         for attempt in 1 2 3; do
           if timeout 600 sudo apt-get update -o Acquire::http::Timeout=30 -o Acquire::Retries=5 &&
-             timeout 900 sudo apt-get install -y xvfb libgl1-mesa-dri -o Acquire::http::Timeout=30 -o Acquire::Retries=5 build-essential cmake pkg-config ninja-build ccache libboost-all-dev qtbase5-dev qt5-qmake qtdeclarative5-dev qtdeclarative5-dev-tools qttools5-dev qttools5-dev-tools qtmultimedia5-dev qtwayland5 libqt5svg5-dev libqt5opengl5-dev libqt5multimedia5-plugins libqt5serialport5-dev libsuperlu-dev liblz4-dev libusb-1.0-0-dev liblzo2-dev libpng-dev libjpeg-dev libglew-dev freeglut3-dev libfreetype6-dev libjson-c-dev libmypaint-dev libopencv-dev libturbojpeg-dev libomp-dev libfuse2 ffmpeg; then ok=1; break; fi
+             timeout 900 sudo apt-get install -y xvfb libgl1-mesa-dri -o Acquire::http::Timeout=30 -o Acquire::Retries=5 build-essential cmake pkg-config ninja-build ccache libboost-all-dev qtbase5-dev qt5-qmake qtdeclarative5-dev qtdeclarative5-dev-tools qttools5-dev qttools5-dev-tools qttranslations5-l10n qtmultimedia5-dev qtwayland5 libqt5svg5-dev libqt5opengl5-dev libqt5multimedia5-plugins libqt5serialport5-dev libsuperlu-dev liblz4-dev libusb-1.0-0-dev liblzo2-dev libpng-dev libjpeg-dev libglew-dev freeglut3-dev libfreetype6-dev libjson-c-dev libmypaint-dev libopencv-dev libturbojpeg-dev libomp-dev libfuse2 ffmpeg; then ok=1; break; fi
           echo "::warning title=apt::attempt $attempt failed, retrying"
           sleep 20
         done
@@ -78,9 +78,9 @@ jobs:
         mkdir build
         cd build
         set -o pipefail
-        cmake ../sources -G Ninja -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER=${{ matrix.cxx }} -DCMAKE_C_COMPILER=${{ matrix.cc }} -DWITH_TRANSLATION=OFF -DBUILD_CELFX_TESTS=ON -DBUILD_CADMIUM_TESTS=ON -DCMAKE_CXX_FLAGS=-Werror=return-type 2>&1 | tee "$GITHUB_WORKSPACE/build.log"
+        cmake ../sources -G Ninja -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER=${{ matrix.cxx }} -DCMAKE_C_COMPILER=${{ matrix.cc }} -DWITH_TRANSLATION=ON -DBUILD_CELFX_TESTS=ON -DBUILD_CADMIUM_TESTS=ON -DBUILD_UI_PORT_TESTS=ON -DCMAKE_CXX_FLAGS=-Werror=return-type 2>&1 | tee "$GITHUB_WORKSPACE/build.log"
         # -k 0: keep going, so one run reports every file that fails
-        ninja -k 0 OpenToonz celfx_tests cadmium_tests 2>&1 | tee -a "$GITHUB_WORKSPACE/build.log"
+        ninja -k 0 OpenToonz celfx_tests cadmium_tests ui_port_tests 2>&1 | tee -a "$GITHUB_WORKSPACE/build.log"
 
     - name: Test cel effects
       working-directory: toonz/build
@@ -93,6 +93,16 @@ jobs:
       working-directory: toonz/build
       run: |
         QT_QPA_PLATFORM=xcb LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a ctest --output-on-failure --no-tests=error -R '^cadmium_'
+
+    - name: Test native UI features
+      working-directory: toonz/build
+      run: |
+        set -o pipefail
+        QT_QPA_PLATFORM=xcb LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a ctest --output-on-failure --output-junit ui-tests.xml --no-tests=error -R '^ui_' 2>&1 | tee ui-tests-output.txt
+
+    - name: Report native UI failures
+      if: failure()
+      run: python3 ci-scripts/report_ui_tests.py toonz/build/ui-tests-output.txt
 
     - name: Diagnose cel UI crash
       if: failure()

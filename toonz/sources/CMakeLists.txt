@@ -775,6 +775,31 @@ if(WITH_TRANSLATION)
         set(OT_QT_LRELEASE_EXECUTABLE ${Qt5_LRELEASE_EXECUTABLE})
     endif()
 
+    # Ship Qt's standard dialog captions alongside the native catalogs. A
+    # packaged app must not depend on a developer SDK's translation directory.
+    set(QT_LANGUAGE_LOCALES ja it fr es zh_CN de ru ko cs pt_BR)
+    if(TARGET Qt${QT_VERSION_MAJOR}::qmake)
+        get_target_property(OT_QMAKE_FOR_TRANSLATIONS Qt${QT_VERSION_MAJOR}::qmake IMPORTED_LOCATION)
+    else()
+        find_program(OT_QMAKE_FOR_TRANSLATIONS NAMES qmake6 qmake REQUIRED)
+    endif()
+    execute_process(COMMAND "${OT_QMAKE_FOR_TRANSLATIONS}" -query QT_INSTALL_TRANSLATIONS
+        OUTPUT_VARIABLE OT_QT_TRANSLATION_DIR OUTPUT_STRIP_TRAILING_WHITESPACE
+        RESULT_VARIABLE OT_QT_TRANSLATION_QUERY)
+    if(NOT OT_QT_TRANSLATION_QUERY EQUAL 0)
+        message(FATAL_ERROR "Unable to locate Qt translation catalogs")
+    endif()
+    foreach(index RANGE 0 9)
+        list(GET QT_LANGUAGE_LOCALES ${index} locale)
+        list(GET LANG_DISPLAY_NAMES ${index} display)
+        set(qt_catalog "${OT_QT_TRANSLATION_DIR}/qtbase_${locale}.qm")
+        if(NOT EXISTS "${qt_catalog}")
+            message(FATAL_ERROR "Missing Qt catalog: qtbase_${locale}.qm; install Qt translations")
+        endif()
+        configure_file("${qt_catalog}"
+            "${CMAKE_SOURCE_DIR}/../../stuff/config/loc/${display}/qtbase.qm" COPYONLY)
+    endforeach()
+
     list(LENGTH LANG_CODES CODE_COUNT)
     list(LENGTH LANG_DISPLAY_NAMES DISPLAY_COUNT)
     if(NOT CODE_COUNT EQUAL DISPLAY_COUNT)
@@ -847,6 +872,7 @@ include("${CMAKE_CURRENT_SOURCE_DIR}/../cmake/OpenEXR.cmake")
 # and can still be set alone.
 option(BUILD_TESTS "Build all regression tests and register them with ctest" OFF)
 option(BUILD_CADMIUM_TESTS "Build Cadmium native adapter and workflow tests" ${BUILD_TESTS})
+option(BUILD_UI_PORT_TESTS "Build native UI behavior regression tests" ${BUILD_TESTS})
 option(BUILD_CELFX_TESTS "Build cel effect rendering and UI regression tests" ${BUILD_TESTS})
 option(BUILD_EXR_TESTS "Build the OpenEXR image I/O and level source regression tests" ${BUILD_TESTS})
 option(BUILD_EXR_AOV_FX_TESTS "Build the OpenEXR AOV FX regression test" ${BUILD_TESTS})
@@ -883,6 +909,24 @@ if(WITH_PYTHON)
     endif()
     message(STATUS "Python scripting: Python ${Python3_VERSION}")
 endif()
+# Diagnostics uses a pinned, header-only logging backend. Do not add the
+# example applications, shared library, or upstream test dependencies.
+include(FetchContent)
+set(SPDLOG_BUILD_EXAMPLE OFF CACHE BOOL "" FORCE)
+set(SPDLOG_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(SPDLOG_BUILD_BENCH OFF CACHE BOOL "" FORCE)
+set(SPDLOG_INSTALL OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(spdlog
+    GIT_REPOSITORY https://github.com/gabime/spdlog.git
+    GIT_TAG 48bcf39a661a13be22666ac64db8a7f886f2637e
+)
+FetchContent_MakeAvailable(spdlog)
+find_package(Threads REQUIRED)
+# Keep the upstream license in the application data distributed by all three
+# packaging workflows, including the header-only use.
+configure_file("${spdlog_SOURCE_DIR}/LICENSE"
+    "${CMAKE_SOURCE_DIR}/../../stuff/doc/LICENSE-spdlog.txt" COPYONLY)
+
 # Always: each test has its own BUILD_*_TESTS option, and a test configured
 # without BUILD_TESTS must still be found by ctest
 enable_testing()

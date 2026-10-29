@@ -87,8 +87,17 @@ jobs:
             -DQt5_DIR=$(brew --prefix qt@5)/lib/cmake/Qt5 \
             -DCMAKE_PREFIX_PATH=$(brew --prefix qt@5)/lib/cmake/Qt5 \
             -DOpenCV_DIR=$(brew --prefix opencv@4)/lib/cmake/opencv4 \
-            -DWITH_TRANSLATION=OFF
+            -DWITH_TRANSLATION=ON -DBUILD_UI_PORT_TESTS=ON
           ninja -j $(sysctl -n hw.ncpu) 2>&1 | tee -a "$GITHUB_WORKSPACE/build.log"
+      - name: Test native UI features
+        working-directory: toonz/build
+        run: |
+          set -o pipefail
+          export DYLD_LIBRARY_PATH="$(find "$PWD" -name '*.dylib' -exec dirname {} \; | sort -u | paste -sd: -)${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}"
+          QT_QPA_PLATFORM=offscreen ctest --output-on-failure --output-junit ui-tests.xml --no-tests=error -R '^ui_' 2>&1 | tee ui-tests-output.txt
+      - name: Report native UI failures
+        if: failure()
+        run: python3 ci-scripts/report_ui_tests.py toonz/build/ui-tests-output.txt
       # Show the errors on the run (summary and annotations) without opening
       # the full log, as the Linux and Windows builds do
       - name: Report build errors

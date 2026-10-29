@@ -13,6 +13,8 @@
 #include "expressionreferencemanager.h"
 #include "thirdparty.h"
 #include "cadmiumruntime.h"
+#include "nativediagnostics.h"
+#include "themeapplication.h"
 
 // TnzTools includes
 #include "tools/tool.h"
@@ -83,7 +85,8 @@
 #if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
 #include <QGLPixelBuffer>
 #endif
-#include <QTranslator>
+#include "languagemanager.h"
+#include "toonzqt/uitranslations.h"
 #include <QFileInfo>
 #include <QSettings>
 #include <QLibraryInfo>
@@ -520,6 +523,9 @@ int main(int argc, char *argv[]) {
 
   // Toonz environment
   initToonzEnv(argumentPathValues);
+  Preferences::instance();
+  NativeDiagnostics::instance()->initialize(
+      (ToonzFolder::getMyModuleDir() + TFilePath("preferences.ini")).getQString());
 
   // The crash report folder is known only now
   CrashHandler::prepareReport();
@@ -597,62 +603,24 @@ int main(int argc, char *argv[]) {
                      Qt::white);
   a.processEvents();
 
-  // Carico la traduzione contenuta in toonz.qm (se ï¿½ presente)
-  QString languagePathString =
-      QString::fromStdString(::to_string(TEnv::getConfigDir() + "loc"));
-#ifndef WIN32
-  // the merge of menu on osx can cause problems with different languages with
-  // the Preferences menu
-  // qt_mac_set_menubar_merge(false);
-  languagePathString += "/" + Preferences::instance()->getCurrentLanguage();
-#else
-  languagePathString += "\\" + Preferences::instance()->getCurrentLanguage();
-#endif
-  QTranslator translator;
-  translator.load("toonz", languagePathString);
-
-  // La installo
-  a.installTranslator(&translator);
-
-  // Carico la traduzione contenuta in toonzqt.qm (se e' presente)
-  QTranslator translator2;
-  translator2.load("toonzqt", languagePathString);
-  a.installTranslator(&translator2);
-
-  // Carico la traduzione contenuta in tnzcore.qm (se e' presente)
-  QTranslator tnzcoreTranslator;
-  tnzcoreTranslator.load("tnzcore", languagePathString);
-  qApp->installTranslator(&tnzcoreTranslator);
-
-  // Carico la traduzione contenuta in toonzlib.qm (se e' presente)
-  QTranslator toonzlibTranslator;
-  toonzlibTranslator.load("toonzlib", languagePathString);
-  qApp->installTranslator(&toonzlibTranslator);
-
-  // Carico la traduzione contenuta in colorfx.qm (se e' presente)
-  QTranslator colorfxTranslator;
-  colorfxTranslator.load("colorfx", languagePathString);
-  qApp->installTranslator(&colorfxTranslator);
-
-  // Carico la traduzione contenuta in tools.qm
-  QTranslator toolTranslator;
-  toolTranslator.load("tnztools", languagePathString);
-  qApp->installTranslator(&toolTranslator);
-
-  // load translation for file writers properties
-  QTranslator imageTranslator;
-  imageTranslator.load("image", languagePathString);
-  qApp->installTranslator(&imageTranslator);
-
-  QTranslator qtTranslator;
-  qtTranslator.load("qt_" + QLocale::system().name(),
-                    QLibraryInfo::location(QLibraryInfo::TranslationsPath));
-  a.installTranslator(&qtTranslator);
-
-  // Aggiorno la traduzione delle properties di tutti i tools
-  TTool::updateToolsPropertiesTranslation();
-  // Apply translation to file writers properties
-  Tiio::updateFileWritersPropertiesTranslation();
+  UiLanguageManager *languageManager = UiLanguageManager::instance();
+  languageManager->setCatalogDirectory(
+      QString::fromStdString(::to_string(TEnv::getConfigDir() + "loc")));
+  QObject::connect(languageManager, &UiLanguageManager::languageChanged, &a,
+                   [](const QString &language) {
+    Preferences::instance()->setValue(CurrentLanguageName, language);
+    TTool::updateToolsPropertiesTranslation();
+    Tiio::updateFileWritersPropertiesTranslation();
+  });
+  UiTranslations::onLanguageChanged(&a, []() {
+    CommandManager::instance()->retranslate();
+  });
+  QString languageError;
+  if (!languageManager->setLanguage(
+          Preferences::instance()->getCurrentLanguage(), &languageError)) {
+    languageManager->setLanguage("English");
+    DVGui::warning(languageError);
+  }
 
   // Force to have left-to-right layout direction in any language environment.
   // This function has to be called after installTranslator().
@@ -776,12 +744,9 @@ int main(int argc, char *argv[]) {
                      Qt::white);
   a.processEvents();
 
-  // Carico lo styleSheet
-  QString currentStyle = Preferences::instance()->getCurrentStyleSheet();
-  a.setStyleSheet(currentStyle);
-
-  // Parse inital stylesheet in ThemeManager
-  themeManager.parseCustomPropertiesFromStylesheet(currentStyle);
+  QString themeError;
+  if (!NativeTheme::instance().reload(&themeError))
+    DVGui::warning(themeError);
 
   // w.setWindowTitle(QString::fromStdString(TEnv::getApplicationFullName()));
   w.changeWindowTitle();

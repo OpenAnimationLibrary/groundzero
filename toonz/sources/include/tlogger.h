@@ -4,6 +4,7 @@
 #define TLOGGER_INCLUDED
 
 #include <memory>
+#include <functional>
 
 //
 // TLogger
@@ -71,6 +72,11 @@ public:
 
   void addListener(Listener *listener);
   void removeListener(Listener *listener);
+
+  // A typed diagnostic tap avoids rereading/replaying the last cached message.
+  // It runs outside the message mutex; existing listeners keep their behavior.
+  using DiagnosticSink = std::function<void(const Message &)>;
+  void setDiagnosticSink(DiagnosticSink sink);
 
   class DVAPI Stream {
     MessageType m_type;

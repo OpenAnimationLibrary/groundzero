@@ -1,6 +1,8 @@
 
 
 #include "mainwindow.h"
+#include "widgetinspector.h"
+#include "themeapplication.h"
 #include "convertlinestoareascommand.h"
 #include "distributecommand.h"
 #include "rigeasecommand.h"
@@ -33,6 +35,7 @@
 
 // TnzQt includes
 #include "toonzqt/gutil.h"
+#include "toonzqt/uitranslations.h"
 #include "toonzqt/icongenerator.h"
 #include "toonzqt/viewcommandids.h"
 #include "toonzqt/updatechecker.h"
@@ -1314,6 +1317,10 @@ void MainWindow::seeThroughWindow() {
 //-----------------------------------------------------------------------------
 
 void MainWindow::onCurrentRoomChanged(int newRoomIndex) {
+  // Picking must never carry a gesture into another room or its canvas.
+  for (QWidget *widget : QApplication::allWidgets())
+    if (auto *inspector = qobject_cast<WidgetInspector *>(widget))
+      inspector->cancelPicking();
   Room *oldRoom = getRoom(m_oldRoomIndex);
   Room *newRoom = getRoom(newRoomIndex);
 
@@ -1951,6 +1958,7 @@ QAction *MainWindow::createAction(const char *id, const char *name,
                                   const QString &defaultShortcut,
                                   CommandType type, const char *iconSVGName) {
   QAction *action = new DVAction(tr(name), this);
+  UiTranslations::bind(action, "text", "MainWindow", QString::fromUtf8(name));
 
   // For "edit" category menu commands may behave various function
   // according to the current selection.
@@ -3059,6 +3067,8 @@ void MainWindow::defineActions() {
                           QT_TR_NOOP("Master Controllers"), "", "");
   createMenuWindowsAction(MI_OpenOffsetLayers, QT_TR_NOOP("Offset Layers"), "",
                           "");
+  createMenuWindowsAction(MI_OpenCommandPalette, QT_TR_NOOP("Command Palette"), "", "");
+  createMenuWindowsAction(MI_OpenWidgetInspector, QT_TR_NOOP("Widget Inspector"), "", "");
   createMenuWindowsAction(MI_OpenRigLibrary, QT_TR_NOOP("Library"), "", "");
   createMenuWindowsAction(MI_OpenMotionPresets, QT_TR_NOOP("Motion Presets"),
                           "", "");
@@ -4081,8 +4091,8 @@ class ReloadStyle final : public MenuItemHandler {
 public:
   ReloadStyle() : MenuItemHandler("MI_ReloadStyle") {}
   void execute() override {
-    QString currentStyle = Preferences::instance()->getCurrentStyleSheet();
-    qApp->setStyleSheet(currentStyle);
+    QString error;
+    if (!NativeTheme::instance().reload(&error)) DVGui::warning(error);
   }
 } reloadStyle;
 

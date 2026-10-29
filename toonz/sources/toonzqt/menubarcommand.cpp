@@ -4,6 +4,7 @@
 // #include "menubarcommandids.h"
 #include "toonzqt/dvdialog.h"
 #include "toonzqt/gutil.h"
+#include "toonzqt/uitranslations.h"
 #include "toonz/toonzfolders.h"
 #include "tsystem.h"
 #include <assert.h>
@@ -389,6 +390,18 @@ void CommandManager::setToggleTexts(CommandId id, const QString &onText,
   if (node) {
     node->m_onText  = onText;
     node->m_offText = offText;
+  }
+}
+
+void CommandManager::retranslate() {
+  for (auto &entry : m_idTable) {
+    Node *node = entry.second;
+    for (QString *text : {&node->m_onText, &node->m_offText}) {
+      auto translate = UiTranslations::recipe(*text);
+      if (translate) *text = UiTranslations::remember(translate(), translate);
+    }
+    if (node->m_qaction && node->m_type == ToolCommandType)
+      updateToolTip(node->m_qaction);
   }
 }
 

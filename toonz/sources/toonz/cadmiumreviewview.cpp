@@ -9,6 +9,7 @@
 #include <QMouseEvent>
 #include <QPainter>
 #include <QSlider>
+#include <QSignalBlocker>
 #include <QToolButton>
 #include <QVBoxLayout>
 #include <QWheelEvent>
@@ -44,6 +45,10 @@ CadmiumReviewView::CadmiumReviewView(QWidget *parent) : QWidget(parent) {
   auto *actual = button(tr("100%"), tr("Show one image pixel per canvas pixel"));
   auto *out = button(QStringLiteral("−"), tr("Zoom out"));
   auto *in = button(QStringLiteral("+"), tr("Zoom in"));
+  m_fitButton = fit;
+  m_actualButton = actual;
+  m_zoomOutButton = out;
+  m_zoomInButton = in;
   m_zoomLabel = new QLabel(this);
   m_zoomLabel->setObjectName(QStringLiteral("cadmiumReviewZoom"));
   m_zoomLabel->setMinimumWidth(45);
@@ -80,6 +85,38 @@ CadmiumReviewView::CadmiumReviewView(QWidget *parent) : QWidget(parent) {
   connect(out, &QToolButton::clicked, this, [this] { setZoom(zoom() / 1.25); });
   connect(in, &QToolButton::clicked, this, [this] { setZoom(zoom() * 1.25); });
   updateControls();
+}
+
+void CadmiumReviewView::retranslateUi() {
+  // This is a private enum model. Updating captions must not change the mode
+  // or invoke any proposal/region selection callbacks.
+  const QSignalBlocker comboSignals(m_modes);
+  const QSignalBlocker modelSignals(m_modes->model());
+  const QStringList modes{tr("Before / After"), tr("Wipe"),
+                          tr("Reference overlay"), tr("Before"), tr("After")};
+  for (int i = 0; i < modes.size(); ++i) m_modes->setItemText(i, modes[i]);
+  const auto caption = [](QToolButton *button, const QString &text,
+                           const QString &description) {
+    button->setText(text);
+    button->setToolTip(description);
+    button->setAccessibleName(description);
+  };
+  caption(m_fitButton, tr("Fit"), tr("Fit artwork to the review canvas"));
+  caption(m_actualButton, tr("100%"), tr("Show one image pixel per canvas pixel"));
+  caption(m_zoomOutButton, QStringLiteral("−"), tr("Zoom out"));
+  caption(m_zoomInButton, QStringLiteral("+"), tr("Zoom in"));
+  m_overlay->setToolTip(tr("Reference overlay opacity"));
+  m_overlay->setAccessibleName(tr("Reference overlay opacity"));
+  m_canvas->setAccessibleName(tr("Painting review canvas"));
+  m_canvas->setToolTip(tr("Click a region to select it. Right-click for decisions. "
+                          "Drag to pan; use the wheel to zoom. Drag the divider in Wipe mode."));
+  updateControls();
+  m_canvas->update();
+}
+
+void CadmiumReviewView::changeEvent(QEvent *event) {
+  QWidget::changeEvent(event);
+  if (event->type() == QEvent::LanguageChange) retranslateUi();
 }
 
 void CadmiumReviewView::setImages(const QImage &before, const QImage &after,

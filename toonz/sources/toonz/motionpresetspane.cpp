@@ -12,6 +12,7 @@
 #include "toonzqt/dvdialog.h"
 #include "toonzqt/menubarcommand.h"
 #include "toonzqt/tselectionhandle.h"
+#include "toonzqt/uitranslations.h"
 
 // TnzLib includes
 #include "toonz/toonzfolders.h"
@@ -46,6 +47,8 @@
 #include <QPixmap>
 #include <QPolygonF>
 #include <QPushButton>
+#include <QScrollBar>
+#include <QSignalBlocker>
 #include <QTimer>
 #include <QVBoxLayout>
 
@@ -330,6 +333,7 @@ MotionPresetsPane::MotionPresetsPane(QWidget *parent, Qt::WindowFlags flags)
   connect(m_list, &QListWidget::itemDoubleClicked, this,
           [this](QListWidgetItem *item) { applyItem(item); });
 
+  UiTranslations::onLanguageChanged(this, [this]() { retranslateUi(); });
   updateButtons();
 }
 
@@ -394,6 +398,7 @@ void MotionPresetsPane::addPresets(const TFilePath &folder, bool userPresets,
       titleItem->setFont(font);
       titleItem->setFlags(Qt::NoItemFlags);
       titleItem->setData(PresetIndexRole, -1);
+      titleItem->setData(UserPresetRole, userPresets);
       m_list->addItem(titleItem);
       titleAdded = true;
     }
@@ -431,6 +436,26 @@ void MotionPresetsPane::refresh() {
   m_emptyLabel->setVisible(m_presets.empty());
   updateWatchedFolders();
   updateButtons();
+}
+
+//-----------------------------------------------------------------------------
+
+void MotionPresetsPane::retranslateUi() {
+  const QSignalBlocker blocker(m_list);
+  const int horizontal = m_list->horizontalScrollBar()->value();
+  const int vertical   = m_list->verticalScrollBar()->value();
+  for (int i = 0; i < m_list->count(); ++i) {
+    QListWidgetItem *item = m_list->item(i);
+    if (item->data(PresetIndexRole).toInt() == -1)
+      item->setText(item->data(UserPresetRole).toBool() ? tr("User")
+                                                       : tr("Stock"));
+  }
+  // Only generated presentation changes. Preset names/descriptions, the
+  // selected item and the offset-layer option are existing user state.
+  updateButtons();
+  m_list->doItemsLayout();
+  m_list->horizontalScrollBar()->setValue(horizontal);
+  m_list->verticalScrollBar()->setValue(vertical);
 }
 
 //-----------------------------------------------------------------------------

@@ -2,6 +2,9 @@
 
 #include "preferencespopup.h"
 #include "cadmiumsettingswidget.h"
+#include "diagnosticssettingswidget.h"
+#include "themeapplication.h"
+#include "languagemanager.h"
 
 // Tnz6 includes
 #include "menubarcommandids.h"
@@ -365,14 +368,17 @@ void PreferencesPopup::AdditionalStyleEdit::showEvent(QShowEvent*) {
 }
 
 void PreferencesPopup::AdditionalStyleEdit::onOK() {
-  onApply();
-  close();
+  if (onApply()) close();
 }
 
-void PreferencesPopup::AdditionalStyleEdit::onApply() {
-  Preferences::instance()->setValue(additionalStyleSheet,
-                                    m_edit->toPlainText());
+bool PreferencesPopup::AdditionalStyleEdit::onApply() {
+  QString error;
+  if (!NativeTheme::instance().applyAdditionalStyle(m_edit->toPlainText(), &error)) {
+    DVGui::warning(error);
+    return false;
+  }
   emit additionalSheetEdited();
+  return true;
 }
 
 //**********************************************************************************
@@ -563,21 +569,8 @@ void PreferencesPopup::onPathAliasPriorityChanged() {
 //-----------------------------------------------------------------------------
 
 void PreferencesPopup::onStyleSheetTypeChanged() {
-  QApplication::setOverrideCursor(Qt::WaitCursor);
-  QString currentStyle = m_pref->getCurrentStyleSheet();
-  qApp->setStyleSheet(currentStyle);
-  QApplication::restoreOverrideCursor();
-
-  // Update icons
-  ThemeManager& tm = ThemeManager::getInstance();
-  tm.parseCustomPropertiesFromStylesheet(currentStyle);
-
-  // Try request a full UI repaint to update icons
-  // TODO: Can be better, may not refresh all widgets like popups...
-  QMainWindow* mainwindow = TApp::instance()->getMainWindow();
-  if (mainwindow) {
-    mainwindow->update();
-  }
+  QString error;
+  if (!NativeTheme::instance().reload(&error)) DVGui::warning(error);
 }
 
 //-----------------------------------------------------------------------------
@@ -898,7 +891,9 @@ void PreferencesPopup::onEditAdditionalStyleSheet() {
 //-----------------------------------------------------------------------------
 
 void PreferencesPopup::onAdditionalStyleSheetEdited() {
-  onStyleSheetTypeChanged();
+  // The editor has already applied and persisted the validated stylesheet.
+  NativeTheme::instance().synchronizeComboBox(
+      getUI<QComboBox*>(CurrentStyleSheetName));
 }
 
 //-----------------------------------------------------------------------------
@@ -1322,7 +1317,7 @@ QString PreferencesPopup::getUIString(PreferencesItemId id) {
       {viewShrink, tr("Viewer Shrink:")},
       {viewStep, tr("Step:")},
       {viewerZoomCenter, tr("Zoom In/Out Center:")},
-      {CurrentLanguageName, tr("Language*:")},
+      {CurrentLanguageName, tr("Language:")},
       {interfaceFont, tr("Font*:")},
       {interfaceFontStyle, tr("Style*:")},
       {colorCalibrationEnabled, tr("Color Calibration using 3D Look-up Table")},
@@ -1732,7 +1727,7 @@ PreferencesPopup::PreferencesPopup()
              << tr("Drawing") << tr("Tools") << tr("Xsheet") << tr("Onion Skin")
              << tr("Animation") << tr("Auto Lip-Sync") << tr("Colors")
              << tr("Vector Visualize") << tr("Version Control")
-             << tr("Touch/Tablet Settings") << tr("Cadmium");
+             << tr("Touch/Tablet Settings") << tr("Cadmium") << tr("Diagnostics");
 #ifdef _WIN32
   categories << tr("Addons");
 #endif
@@ -1768,6 +1763,7 @@ PreferencesPopup::PreferencesPopup()
   addPage(createVersionControlPage());
   addPage(createTouchTabletPage());
   addPage(createCadmiumPage());
+  addPage(new DiagnosticsSettingsWidget(this));
 #ifdef _WIN32
   addPage(createAddonsPage());
 #endif  // WIN32
@@ -1923,7 +1919,7 @@ QWidget* PreferencesPopup::createGeneralPage() {
 
 QWidget* PreferencesPopup::createInterfacePage() {
   QList<ComboBoxItem> styleSheetItemList;
-  for (const QString& str : m_pref->getStyleSheetList()) {
+  for (const QString& str : NativeTheme::instance().availableThemes()) {
     TFilePath path(str.toStdWString());
     QString name = QString::fromStdWString(path.getWideName());
     styleSheetItemList.push_back(ComboBoxItem(name, name));
@@ -1934,7 +1930,7 @@ QWidget* PreferencesPopup::createInterfacePage() {
     roomItemList.push_back(ComboBoxItem(roomName, roomName));
 
   QList<ComboBoxItem> languageItemList;
-  for (const QString& name : m_pref->getLanguageList())
+  for (const QString& name : UiLanguageManager::instance()->availableLanguages())
     languageItemList.push_back(ComboBoxItem(name, name));
 
   QPushButton* additionalStyleSheetBtn =
@@ -1946,6 +1942,12 @@ QWidget* PreferencesPopup::createInterfacePage() {
   setupLayout(lay);
 
   insertUI(CurrentLanguageName, lay, languageItemList);
+  QComboBox* languageCombo = getUI<QComboBox*>(CurrentLanguageName);
+  connect(UiLanguageManager::instance(), &UiLanguageManager::languageChanged,
+          languageCombo, [languageCombo](const QString& language) {
+            const QSignalBlocker blocker(languageCombo);
+            languageCombo->setCurrentIndex(languageCombo->findData(language));
+          });
 
   insertDualUIs(linearUnits, cameraUnits, lay, getComboItemList(linearUnits),
                 getComboItemList(linearUnits));
@@ -1959,6 +1961,7 @@ QWidget* PreferencesPopup::createInterfacePage() {
   insertUI(iconSize, lay);
 
   insertUI(CurrentStyleSheetName, lay, styleSheetItemList);
+  NativeTheme::instance().bindComboBox(getUI<QComboBox*>(CurrentStyleSheetName));
   int row = lay->rowCount();
   lay->addWidget(additionalStyleSheetBtn, row - 1, 2, Qt::AlignRight);
   insertUI(CurrentRoomChoice, lay, roomItemList);
@@ -2922,6 +2925,28 @@ void PreferencesPopup::onChange() {
   QWidget* senderWidget = qobject_cast<QWidget*>(sender());
   if (!senderWidget) return;
   PreferencesItemId id = m_controlIdMap.value(senderWidget);
+
+  if (id == CurrentStyleSheetName) {
+    QComboBox* combo = qobject_cast<QComboBox*>(senderWidget);
+    if (!combo) return;
+    QString error;
+    if (!NativeTheme::instance().applyTheme(combo->currentData().toString(), &error)) {
+      NativeTheme::instance().synchronizeComboBox(combo);
+      DVGui::warning(error);
+    }
+    return;
+  }
+  if (id == CurrentLanguageName) {
+    QComboBox* combo = qobject_cast<QComboBox*>(senderWidget);
+    if (!combo) return;
+    QString error;
+    if (!UiLanguageManager::instance()->setLanguage(combo->currentData().toString(), &error)) {
+      const QSignalBlocker blocker(combo);
+      combo->setCurrentIndex(combo->findData(UiLanguageManager::instance()->currentLanguage()));
+      DVGui::warning(error);
+    }
+    return;
+  }
 
   if (m_preEditedFuncMap.contains(id)) (this->*m_preEditedFuncMap[id])();
 

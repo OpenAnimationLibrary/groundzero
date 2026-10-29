@@ -237,7 +237,7 @@ protected:
 
 private slots:
   void onOK();
-  void onApply();
+  bool onApply();
 signals:
   void additionalSheetEdited();
 };

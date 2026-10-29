@@ -31,6 +31,8 @@
 #include "sceneviewer.h"
 #include "toolbar.h"
 #include "commandbar.h"
+#include "commandpalette.h"
+#include "widgetinspector.h"
 #include "flipbook.h"
 #include "castviewer.h"
 #include "symbolspane.h"
@@ -1040,6 +1042,41 @@ public:
 OpenFloatingPanel openCommandBarCommand(MI_OpenCommandToolbar, "CommandBar",
                                         QObject::tr("Command Bar"));
 //-----------------------------------------------------------------------------
+
+class CommandPaletteFactory final : public TPanelFactory {
+public:
+  CommandPaletteFactory() : TPanelFactory("CommandPalette") {}
+  void initialize(TPanel *panel) override {
+    panel->setWindowTitle(QObject::tr("Command Palette"));
+    panel->setWidget(createNativeCommandPalette(panel));
+    panel->allowMultipleInstances(false);
+    panel->setIsMaximizable(true);
+    panel->resize(560, 380);
+  }
+} commandPaletteFactory;
+
+class WidgetInspectorFactory final : public TPanelFactory {
+public:
+  WidgetInspectorFactory() : TPanelFactory("WidgetInspector") {}
+  void initialize(TPanel *panel) override {
+    auto *inspector = new WidgetInspector(panel);
+    inspector->setPanelTypeResolver([](QWidget *widget) {
+      for (QWidget *parent = widget; parent; parent = parent->parentWidget()) {
+        if (auto *nativePanel = dynamic_cast<TPanel *>(parent))
+          return QString::fromStdString(nativePanel->getPanelType());
+      }
+      return QString();
+    });
+    panel->setWindowTitle(QObject::tr("Widget Inspector"));
+    panel->setWidget(inspector);
+    panel->allowMultipleInstances(false);
+    panel->setIsMaximizable(true);
+    panel->resize(480, 340);
+  }
+} widgetInspectorFactory;
+
+OpenFloatingPanel openWidgetInspectorCommand(
+    MI_OpenWidgetInspector, "WidgetInspector", QObject::tr("Widget Inspector"));
 
 //=========================================================
 // ToolOptionPanel

@@ -166,7 +166,7 @@ jobs:
           mkdir build
           cd build
 
-          cmake ..\sources -G "%MSVCVERSION%" -Ax64 -DQT_PATH="%QT_PATH%" -DBOOST_ROOT="%BOOST_ROOT%" -DOpenCV_DIR="%OpenCV_DIR%" -DWITH_WINTAB=Y -DBUILD_CELFX_TESTS=ON -DBUILD_CADMIUM_TESTS=ON
+          cmake ..\sources -G "%MSVCVERSION%" -Ax64 -DQT_PATH="%QT_PATH%" -DBOOST_ROOT="%BOOST_ROOT%" -DOpenCV_DIR="%OpenCV_DIR%" -DWITH_WINTAB=Y -DBUILD_CELFX_TESTS=ON -DBUILD_CADMIUM_TESTS=ON -DBUILD_UI_PORT_TESTS=ON
         shell: cmd
 
       # Build Opentoonz using MSBuild
@@ -249,6 +249,22 @@ jobs:
           set "QT_QPA_PLATFORM_PLUGIN_PATH=%QT_PATH%\plugins\platforms"
           cd toonz\build
           ctest -C RelWithDebInfo --output-on-failure --no-tests=error -R "^cadmium_"
+
+      - name: Test native UI features
+        shell: cmd
+        run: |
+          set "PATH=%CD%\toonz\build\Opentoonz;%QT_PATH%\bin;%PATH%"
+          set "QT_PLUGIN_PATH=%QT_PATH%\plugins"
+          set "QT_QPA_PLATFORM_PLUGIN_PATH=%QT_PATH%\plugins\platforms"
+          cd toonz\build
+          ctest -C RelWithDebInfo --output-on-failure --output-junit ui-tests.xml --no-tests=error -R "^ui_" > ui-tests-output.txt 2>&1
+          set "UI_TEST_EXIT=%ERRORLEVEL%"
+          type ui-tests-output.txt
+          exit /b %UI_TEST_EXIT%
+
+      - name: Report native UI failures
+        if: failure()
+        run: python ci-scripts/report_ui_tests.py toonz/build/ui-tests-output.txt
 
       - name: Verify models and exercise native painting pipelines
         shell: cmd
