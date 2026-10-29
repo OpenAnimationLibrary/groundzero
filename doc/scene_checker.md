@@ -67,6 +67,18 @@ Scene Check panel shows them and a dialog asks whether to **Continue** the
 render or **Cancel** it (the default). Warnings and info do not stop the
 render. The preview is not checked.
 
+## Scripts
+
+In JavaScript and Python, `scene.check()` returns the issues of a script
+scene, and `level.palette` the styles of a level's palette with whether its
+drawings use them. See "Scene check and palettes" in `doc/script_api.md`.
+
+```js
+new Scene('shots/sh010.tnz').check().forEach(function (i) {
+  print(i.severity, i.title, i.text);
+});
+```
+
 ## How it works
 
 `SceneChecker::check()` (`toonz/scenechecker.h`, `toonzlib/scenechecker.cpp`)
@@ -83,4 +95,6 @@ The panel is `SceneCheckPane` (`toonz/scenecheckpane.cpp`, panel type
 (`toonz/rendercommand.cpp`) for the full render.
 
 Tested by `toonzlib/tests/scenechecker_test.cpp`, on scenes built in memory:
-each check once with the issue and once without.
+each check once with the issue and once without. The script calls are tested
+by `toonzlib/tests/scriptengine_test.cpp` and, in builds with `WITH_PYTHON`,
+`toonzlib/tests/pythonengine_test.cpp`.

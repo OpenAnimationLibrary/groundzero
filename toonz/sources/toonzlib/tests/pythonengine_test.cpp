@@ -289,6 +289,32 @@ void testImagesLevelsScene(Console &console) {
               "ValueError: Frame 0 is out of range");
 }
 
+// Scene.check() and Level.palette, as in JavaScript (doc/scene_checker.md)
+void testSceneCheck(Console &console) {
+  run(console,
+      "cs = opentoonz.Scene(); cr = cs.newLevel('Raster', 'R'); "
+      "_ = cr.appendFrame(opentoonz.Image.create(4, 4).fill('red'))");
+  run(console,
+      "_ = cs.setCell(0, 0, cr, 1).setCell(1, 0, cr, 5).setCell(2, 0, cr, 5)");
+  expect(console,
+         "[(i['severity'], i['level'], i['column'], i['row'], i['rowCount'], "
+         "i['styleId'], i['subXsheet']) for i in cs.check() "
+         "if i['kind'] == 'missingDrawing']",
+         "[('error', 'R', 0, 1, 2, -1, '')]\n");
+  expect(console, "cs.check()[0]['title']", "'Missing Drawings'\n");
+  expect(console,
+         "any(i['kind'] == 'unsavedLevel' and i['severity'] == 'info' and "
+         "i['level'] == 'R' for i in cs.check())",
+         "True\n");
+  run(console, "_ = cs.setCell(1, 0, cr, 1).setCell(2, 0, cr, 1)");
+  expect(console,
+         "len([i for i in cs.check(unusedStyles=True) "
+         "if i['kind'] == 'missingDrawing'])",
+         "0\n");
+  // the stuff folder of the test has no default palettes
+  expect(console, "print(cs.newLevel('Vector', 'V').palette)", "None\n");
+}
+
 void testRunFile(Console &console, const QString &dirPath) {
   QString path = QDir(dirPath).filePath("test.py");
   {
@@ -380,6 +406,7 @@ int main(int argc, char *argv[]) {
     testScene(console);
     testStageObjects(console);
     testImagesLevelsScene(console);
+    testSceneCheck(console);
     testRunFile(console, dir.path());
   } catch (const std::exception &e) {
     std::cerr << "FAIL: " << e.what() << std::endl;

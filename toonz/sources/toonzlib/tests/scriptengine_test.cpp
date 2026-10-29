@@ -461,6 +461,53 @@ void testImagesLevelsScene(Console &console) {
   expectError(console, "sc.renderFrame(-1)", "Frame -1 is out of range");
 }
 
+// Scene.check() and Level.palette (doc/scene_checker.md)
+void testSceneCheck(Console &console) {
+  const int result = ScriptEngine::EvaluationResult;
+
+  // A missing drawing on rows 1 and 2, then none
+  expect(console,
+         "var cs = new Scene(); var cr = cs.newLevel('Raster', 'R'); "
+         "cr.appendFrame(new ImageBuilder(4, 4, 'Raster').fill('red').image); "
+         "cs.setCell(0, 0, cr, 1).setCell(1, 0, cr, 5).setCell(2, 0, cr, 5); "
+         "function missing(issues) { return issues.filter(function (i) { "
+         "return i.kind == 'missingDrawing'; }).map(function (i) { return "
+         "[i.severity, i.level, i.column, i.row, i.rowCount, i.styleId, "
+         "'[' + i.subXsheet + ']'].join(' '); }); } missing(cs.check())",
+         result, "[\"error R 0 1 2 -1 []\"]");
+  expect(console, "cs.check()[0].severity + ' ' + cs.check()[0].title", result,
+         "\"error Missing Drawings\"");
+  expect(console,
+         "cs.check().some(function (i) { return i.kind == 'unsavedLevel' && "
+         "i.severity == 'info' && i.level == 'R' && i.column == -1 && "
+         "i.text.length > 0; })",
+         result, "true");
+  expect(console,
+         "cs.setCell(1, 0, cr, 1).setCell(2, 0, cr, 1); "
+         "missing(cs.check({unusedStyles: true})).length",
+         result, "0");
+  expectError(console, "cs.check(3)", "Bad argument (3)");
+
+  // The palette: none for a vector level (the stuff folder of the test has no
+  // default palettes), the converter's for a converted Toonz Raster level
+  expect(console, "cs.newLevel('Vector', 'V').palette", result, "null");
+  expect(console,
+         "var ct = cs.newLevel('ToonzRaster', 'T'); ct.appendFrame(new "
+         "ToonzRasterConverter().convert(new ImageBuilder(4, 4, "
+         "'Raster').fill('black').image)); var pal = ct.palette; "
+         "pal.styles.map(function (st) { return [st.id, st.color, st.page, "
+         "st.used].join(' '); })",
+         result, "[\"0 #00ffffff 0 true\",\"1 #ff000000 0 true\"]");
+  // (the converter's palette has style 0, none, and 1, the black ink; its
+  // pixels use ink 1 and paint 0). The palette is a copy: changing it
+  // changes nothing
+  expect(console,
+         "pal.styles[1].used = false; pal.name = 'x'; "
+         "[ct.palette.styles[1].used, ct.palette.name == 'x', "
+         "ct.palette.styles.length]",
+         result, "[true,false,2]");
+}
+
 void testRun(Console &console, const QString &dirPath) {
   const int result = ScriptEngine::EvaluationResult;
 
@@ -546,6 +593,7 @@ int main(int argc, char *argv[]) {
     testBindings(console);
     testStageObjects(console);
     testImagesLevelsScene(console);
+    testSceneCheck(console);
     testRun(console, dir.path());
     testInterrupt(engine, console);
     testDefineFunction(engine, console);
