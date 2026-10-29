@@ -1028,6 +1028,14 @@ if(BUILD_CADMIUM_TESTS)
         PROPERTIES TIMEOUT 120)
 endif()
 
+if(BUILD_RELIABILITY_TESTS)
+    add_executable(levelselection_test tests/levelselection_test.cpp)
+    target_include_directories(levelselection_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(levelselection_test PRIVATE
+        toonzlib tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core)
+    add_test(NAME levelselection COMMAND levelselection_test)
+endif()
+
 option(BUILD_PROCESS_PROGRESS_TESTS "Build the external tool wait test" ${BUILD_TESTS})
 if(BUILD_PROCESS_PROGRESS_TESTS)
     add_executable(processprogress_test tests/processprogress_test.cpp)

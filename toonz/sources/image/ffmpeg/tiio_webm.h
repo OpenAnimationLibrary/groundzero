@@ -18,6 +18,9 @@ class TLevelWriterWebm : public TLevelWriter {
 public:
   TLevelWriterWebm(const TFilePath &path, TPropertyGroup *winfo);
   ~TLevelWriterWebm();
+  void finalize() override;
+  void abort() noexcept override;
+  void requestAbort() noexcept override;
 
   // Framerate control
   void setFrameRate(double fps) override;
@@ -38,10 +41,11 @@ private:
   void buildFfmpegArgs(QStringList &preIArgs, QStringList &postIArgs) const;
 
   // FFmpeg writer instance
-  Ffmpeg *ffmpegWriter;
+  std::unique_ptr<Ffmpeg> ffmpegWriter;
+  mutable QMutex m_metadataMutex;
 
   // Video properties
-  int m_lx, m_ly;        // Frame width and height
+  int m_lx = 0, m_ly = 0;        // Frame width and height
   int m_scale;           // Scaling factor
   QString m_speed;       // Encoding speed preset
   int m_kfSetting;       // Keyframe interval
@@ -71,10 +75,10 @@ public:
   // TThread::Mutex m_mutex;
   // void *m_decompressedBuffer;
 private:
-  Ffmpeg *ffmpegReader;
+  std::unique_ptr<Ffmpeg> ffmpegReader;
   bool ffmpegFramesCreated = false;
   TDimension m_size;
-  int m_frameCount, m_lx, m_ly;
+  int m_frameCount = 0, m_lx = 0, m_ly = 0;
 };
 
 //===========================================================================

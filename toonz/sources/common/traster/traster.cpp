@@ -13,6 +13,7 @@
 #include "tpixel.h"
 #include "tpixelgr.h"
 #include "timagecache.h"
+#include "rasterallocation.h"
 
 DEFINE_CLASS_CODE(TRaster, 1)
 
@@ -34,42 +35,10 @@ TRaster::TRaster(int lx, int ly, int pixelSize)
 #endif
 
 {
-  // try
-  {
-    assert(pixelSize > 0);
-    assert(lx > 0 && ly > 0);
-    TBigMemoryManager::instance()->putRaster(this);
-
-    // m_buffer = new UCHAR[lx*ly*pixelSize];
-
-    if (!m_buffer) {
-#ifdef _WIN32
-      static bool firstTime = true;
-      if (firstTime) {
-        firstTime          = false;
-        unsigned long size = pixelSize * lx * ly;
-        TImageCache::instance()->outputMap(size, "C:\\runout");
-        (*TBigMemoryManager::instance()->m_runOutCallback)(size);
-      }
-#endif
-      return;
-    }
-
-    // TBigMemoryManager::instance()->checkConsistency();
-
-    // m_totalMemory += ((lx*ly*pixelSize)>>10);
-  }
-  /* catch(...)
-{
-TImageCache::instance()->putAllOnDisk();
-m_buffer = BigMemoryManager.getMemoryChunk(lx*ly*pixelSize, this);
-//m_buffer = new UCHAR[lx*ly*pixelSize];
-m_totalMemory += ((lx*ly*pixelSize)>>10);
-#ifdef _WIN32
-MessageBox( NULL, "Run out of contiguous physical memory: please save all and
-restart toonz!", "Warning", MB_OK);
-#endif
-}*/
+  // A non-null raster must always contain pixels. Callers can recover from an
+  // allocation exception; returning an object with a null buffer makes their
+  // next clear(), copy() or pixels() access crash instead.
+  if (!TBigMemoryManager::instance()->putRaster(this)) throw std::bad_alloc();
 }
 
 //------------------------------------------------------------
@@ -91,28 +60,31 @@ TRaster::TRaster(int lx, int ly, int pixelSize, int wrap, UCHAR *buffer,
     , m_parent(nullptr)
 
 {
+  TRasterInternal::checkedByteCount(lx, ly, pixelSize, wrap);
+  if (!buffer || (parent && bufferOwner)) throw std::bad_alloc();
+
   if (parent) {
-    assert(bufferOwner == false);
     while (parent->m_parent) parent = parent->m_parent;
     parent->addRef();
     setLinear(parent->isLinear());
   }
-#ifdef _DEBUG
-  else if (bufferOwner)
-    TBigMemoryManager::instance()->m_totRasterMemInKb +=
-        ((m_lx * m_ly * m_pixelSize) >> 10);
-#endif
 
   m_parent = parent;
 
-  assert(pixelSize > 0);
-  assert(lx > 0 && ly > 0);
-  assert(wrap >= lx);
-  assert(m_buffer);
-  // if (parent)
-  TBigMemoryManager::instance()->putRaster(this);
-
-  //  TBigMemoryManager::instance()->checkConsistency();
+  try {
+    TBigMemoryManager::instance()->putRaster(this);
+  } catch (...) {
+    // Failed child registration must not retain its parent. The constructor's
+    // destructor is not called when it throws.
+    if (m_parent) m_parent->release();
+    m_parent = nullptr;
+    throw;
+  }
+#ifdef _DEBUG
+  if (!parent && bufferOwner)
+    TBigMemoryManager::instance()->m_totRasterMemInKb +=
+        ((m_lx * m_ly * m_pixelSize) >> 10);
+#endif
 }
 
 //------------------------------------------------------------

@@ -1,6 +1,7 @@
 
 #include "tiio_apng.h"
 #include "tsystem.h"
+#include <QDebug>
 #include "trasterimage.h"
 #include "tsound.h"
 #include "timageinfo.h"
@@ -53,30 +54,42 @@ TLevelWriterAPng::TLevelWriterAPng(const TFilePath &path, TPropertyGroup *winfo)
     m_path = m_path.getParentDir() + TFilePath(m_path.getWideName() + L".png");
   }
 
-  ffmpegWriter = new Ffmpeg();
+  ffmpegWriter = std::make_unique<Ffmpeg>();
   ffmpegWriter->setPath(m_path);
   ffmpegWriter->enablePipe();
-  if (TSystem::doesExistFileOrLevel(m_path)) TSystem::deleteFile(m_path);
 }
 
 //-----------------------------------------------------------
 
 TLevelWriterAPng::~TLevelWriterAPng() {
-  // Streamed frames only need ffmpeg to finish, otherwise encode the
-  // intermediate images
-  if (!ffmpegWriter->finishPipe()) {
-    QStringList preIArgs;
-    QStringList postIArgs;
-    buildFfmpegArgs(preIArgs, postIArgs);
-    ffmpegWriter->runFfmpeg(preIArgs, postIArgs, false, false, true);
+  if (ffmpegWriter->isAborted()) return;
+  try {
+    finalize();
+  } catch (const TException &error) {
+    qWarning().noquote() << QString::fromStdWString(error.getMessage());
+  } catch (...) {
+    qWarning() << "FFmpeg export finalization failed";
   }
-  ffmpegWriter->cleanUpFiles();
+}
+
+void TLevelWriterAPng::abort() noexcept { ffmpegWriter->abort(); }
+
+void TLevelWriterAPng::requestAbort() noexcept {
+  ffmpegWriter->requestAbort();
+}
+
+void TLevelWriterAPng::finalize() {
+  ffmpegWriter->finalize(
+      [this](QStringList &preIArgs, QStringList &postIArgs) {
+        buildFfmpegArgs(preIArgs, postIArgs);
+      });
 }
 
 //-----------------------------------------------------------
 
 void TLevelWriterAPng::buildFfmpegArgs(QStringList &preIArgs,
                                        QStringList &postIArgs) const {
+  QMutexLocker locker(&m_metadataMutex);
   int outLx = m_lx;
   int outLy = m_ly;
 
@@ -122,8 +135,13 @@ void TLevelWriterAPng::saveSoundTrack(TSoundTrack *st) {
 
 void TLevelWriterAPng::save(const TImageP &img, int frameIndex) {
   TRasterImageP image(img);
-  m_lx = image->getRaster()->getLx();
-  m_ly = image->getRaster()->getLy();
+  if (!image || !image->getRaster())
+    throw TImageException(m_path, "Cannot save non-raster image to FFmpeg");
+  {
+    QMutexLocker locker(&m_metadataMutex);
+    m_lx = image->getRaster()->getLx();
+    m_ly = image->getRaster()->getLy();
+  }
   ffmpegWriter->saveFrame(
       img, frameIndex, [this](QStringList &preIArgs, QStringList &postIArgs) {
         buildFfmpegArgs(preIArgs, postIArgs);
@@ -168,7 +186,7 @@ private:
 //===========================================================
 
 TLevelReaderAPng::TLevelReaderAPng(const TFilePath &path) : TLevelReader(path) {
-  ffmpegReader = new Ffmpeg();
+  ffmpegReader = std::make_unique<Ffmpeg>();
   ffmpegReader->setPath(m_path);
   ffmpegReader->disablePrecompute();
   ffmpegFileInfo tempInfo = ffmpegReader->getInfo();

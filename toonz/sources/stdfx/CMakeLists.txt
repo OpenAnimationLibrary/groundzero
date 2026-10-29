@@ -425,7 +425,16 @@ if(BUILD_FXRENDER_TESTS)
     add_test(NAME fxrender
              COMMAND fxrender_test ${CMAKE_CURRENT_SOURCE_DIR}/tests/fxrender
                      ${CMAKE_CURRENT_BINARY_DIR}/fxrender-output)
-    set_tests_properties(fxrender PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+    # Rendering into an offscreen surface still needs a platform plugin that
+    # creates OpenGL contexts. Qt's macOS/Windows offscreen plugins cannot
+    # replace their native backends for this render test.
+    if(APPLE)
+        set_tests_properties(fxrender PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=cocoa")
+    elseif(WIN32)
+        set_tests_properties(fxrender PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=windows")
+    else()
+        set_tests_properties(fxrender PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+    endif()
 endif()
 
 # Optional regression target for the pure helpers of the Light Shading FX

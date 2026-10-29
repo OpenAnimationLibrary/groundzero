@@ -1,8 +1,17 @@
 name: MacOS Build
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: ${{ github.head_ref != '' }}
+
 on:
   pull_request:
   workflow_dispatch:
+    inputs:
+      benchmark_bundle:
+        description: Prepare an immutable scene benchmark bundle after validation
+        type: boolean
+        default: false
   workflow_call:
 
 permissions:
@@ -84,6 +93,7 @@ jobs:
           make -j $(sysctl -n hw.ncpu)
           make install  # Ensures CMake finds the installed lib (avoid linking issues)
       - name: Build
+        id: build
         run: |
           set -o pipefail
           export PKG_CONFIG_PATH="/usr/local/opt/jpeg-turbo/lib/pkgconfig:$PKG_CONFIG_PATH"
@@ -98,6 +108,12 @@ jobs:
             -DCMAKE_PREFIX_PATH=$(brew --prefix qt@5)/lib/cmake/Qt5 \
             -DOpenCV_DIR=$(brew --prefix opencv@4)/lib/cmake/opencv4 \
             -DWITH_TRANSLATION=OFF \
+            -DBUILD_RELIABILITY_TESTS=ON \
+            -DBUILD_STREAM_TESTS=ON \
+            -DBUILD_SCENEBENCH_TESTS=ON \
+            -DBUILD_FXRENDER_TESTS=ON \
+            -DBUILD_FFMPEG_TESTS=ON \
+            -DBUILD_PSD_TESTS=ON \
             -DBUILD_SEEXPR_TESTS=ON \
             -DBUILD_SEEXPR_PYTHON=ON \
             -DPython3_EXECUTABLE="$(command -v python)" 2>&1 | tee "$GITHUB_WORKSPACE/build.log"
@@ -108,8 +124,13 @@ jobs:
         with:
           path: /Users/runner/.ccache
           key: ${{ runner.os }}-${{ github.sha }}
+
+      - name: Verify benchmark harness contracts
+        run: python3 -m unittest discover -s ci-scripts/tests -p test_paired_benchmark.py
+
       - name: Test SeExpr native integration
         id: seexpr_tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: |
           set -o pipefail
           # Native test executables and the original tcomposer live outside
@@ -127,6 +148,34 @@ jobs:
         if: ${{ failure() && steps.seexpr_tests.outcome == 'failure' }}
         run: python ci-scripts/seexpr/report.py toonz/build/seexpr-tests-output.txt
 
+      - name: Test reliability and performance invariants
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        working-directory: toonz/build
+        run: |
+          # Internal dylibs use @executable_path install names. The app build
+          # copies them beside its executable, while CTest executables live in
+          # several build subdirectories. Resolve all tests against that same
+          # current-build library set without changing the packaged app.
+          runtime_lib_dir="$PWD/toonz/OpenToonz.app/Contents/MacOS"
+          for library in libtnzcore.dylib libtnzbase.dylib libtoonzlib.dylib; do
+            if [ ! -f "$runtime_lib_dir/$library" ]; then
+              echo "::error::The built app is missing runtime library $library"
+              exit 1
+            fi
+          done
+          export DYLD_LIBRARY_PATH="$runtime_lib_dir"
+          python3 ../../ci-scripts/run_regression_tests.py rasterallocation timagecache levelselection save_transaction movierenderqueue levelupdater_abort trenderer_startup renderoutputbudget executor_submission compressed_stream scenebench fxrender ffmpeg_public tiio_ffmpeg tiio_psd
+
+      - name: Upload reliability diagnostics
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: macos-reliability-results
+          path: |
+            toonz/build/reliability-tests.xml
+            toonz/build/stdfx/fxrender-output
+            toonz/build/image/ffmpeg-test-output
+          if-no-files-found: ignore
       # Show the errors on the run (summary and annotations) without opening
       # the full log, as the Linux and Windows builds do
       - name: Report build errors
@@ -178,6 +227,24 @@ jobs:
               fi
             done
           done
+      - name: Prepare optional benchmark bundle
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.benchmark_bundle }}
+        run: |
+          python3 ci-scripts/benchmark_bundle.py --build toonz/build --platform macos \
+            --qt-version "$(/usr/local/opt/qt@5/bin/qmake -query QT_VERSION)" \
+            --macdeployqt /usr/local/opt/qt@5/bin/macdeployqt \
+            --revision "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID" \
+            --run-attempt "$GITHUB_RUN_ATTEMPT" --output benchmark-input.tar.gz
+
+      - name: Upload optional benchmark bundle
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.benchmark_bundle }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: benchmark-input-macos
+          path: benchmark-input.tar.gz
+          compression-level: 0
+          if-no-files-found: error
+
       - name: Create Artifact
         run: |
           cd toonz/build/toonz

@@ -7,6 +7,7 @@
 #include "tconvert.h"
 #include <set>
 #include "tfilepath_io.h"
+#include "../traster/rasterallocation.h"
 
 #ifdef _DEBUG
 std::set<TRaster *> Rasters;
@@ -246,6 +247,9 @@ void TBigMemoryManager::getRasterInfo(int &rasterCount,
 #endif
 
 bool TBigMemoryManager::putRaster(TRaster *ras, bool canPutOnDisk) {
+  const TUINT32 size = TRasterInternal::checkedByteCount(
+      ras->getLx(), ras->getLy(), ras->getPixelSize(), ras->getWrap());
+
   if (!ras->m_parent && ras->m_buffer) {
 #ifdef _DEBUG
     if (ras->m_bufferOwner) Rasters.insert(ras);
@@ -256,13 +260,6 @@ bool TBigMemoryManager::putRaster(TRaster *ras, bool canPutOnDisk) {
 #ifdef _DEBUG
   checkConsistency();
 #endif
-
-  TUINT32 size = ras->getLx() * ras->getLy() * ras->getPixelSize();
-
-  if (size == 0) {
-    ras->m_buffer = 0;
-    return true;
-  }
 
   if (m_theMemory == 0)  // il bigmemorymanager e' inattivo
   {
@@ -296,16 +293,28 @@ bool TBigMemoryManager::putRaster(TRaster *ras, bool canPutOnDisk) {
         TImageCache::instance()->outputMap(size, "C:\\logCacheTotalFailure");
       } else {
 #ifdef _DEBUG
+        try {
+          Rasters.insert(ras);
+        } catch (...) {
+          free(ras->m_buffer);
+          ras->m_buffer = nullptr;
+          throw;
+        }
         m_totRasterMemInKb += size >> 10;
-        Rasters.insert(ras);
 #endif
       }
       return ras->m_buffer != 0;
     } else {
       if (!ras->m_parent) {
 #ifdef _DEBUG
+        try {
+          Rasters.insert(ras);
+        } catch (...) {
+          free(ras->m_buffer);
+          ras->m_buffer = nullptr;
+          throw;
+        }
         m_totRasterMemInKb += size >> 10;
-        Rasters.insert(ras);
 #endif
       }
       return true;
@@ -385,8 +394,10 @@ else
 
   // assert(address);
 
-  ras->m_buffer     = address;
-  m_chunks[address] = Chunkinfo(size, ras);
+  // Register before exposing the buffer. If map/vector allocation fails, the
+  // pool still owns this free span and no half-constructed raster is retained.
+  m_chunks.emplace(address, Chunkinfo(size, ras));
+  ras->m_buffer = address;
   assert(m_availableMemory >= size);
   m_availableMemory -= size;
 #ifdef _DEBUG

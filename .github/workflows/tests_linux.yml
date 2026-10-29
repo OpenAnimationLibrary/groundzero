@@ -6,10 +6,8 @@ name: Linux Tests
 # ci-tests/* branches, or by hand. Failures are reported as annotations of the
 # run (the log host is not reachable from every environment).
 #
-# On a push, FX render references that do not exist yet are taken from the
-# render test's output and committed back to the branch (D3 in
-# doc/master_plan.md). Differing references are never replaced: they fail the
-# test and are left for review.
+# Missing or differing FX references fail. Candidate images are uploaded for
+# review; this workflow never changes the committed reference images.
 #
 # The Compat job builds the compat_regression tool from edition and from this
 # branch and fails if their outputs differ (doc/compat_regression.md).
@@ -21,7 +19,7 @@ on:
       - 'ci-tests/**'
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: tests-${{ github.ref }}
@@ -106,7 +104,7 @@ jobs:
       run: |
         cd toonz/build
         set -o pipefail
-        xvfb-run -a ctest --output-on-failure --timeout 900 2>&1 | tee "$GITHUB_WORKSPACE/ctest.log"
+        xvfb-run -a ctest --output-on-failure --no-tests=error --timeout 900 2>&1 | tee "$GITHUB_WORKSPACE/ctest.log"
 
     # One annotation per failed test with the end of its output, and one with
     # the totals. Tests print lines starting with "NOTICE:" (benchmarks, for
@@ -131,34 +129,17 @@ jobs:
         bench=$(xvfb-run -a ctest -V --timeout 900 -R '^(scenebench)$' 2>/dev/null | grep -o 'NOTICE:.*' | sed 's/^NOTICE: //' | head -60 | enc)
         [ -n "$bench" ] && echo "::notice title=benchmark::${bench}" || true
 
-    - name: Commit new FX render references
-      if: always() && github.event_name == 'push'
-      run: |
-        out=toonz/build/stdfx/fxrender-output
-        ref=toonz/sources/stdfx/tests/fxrender
-        [ -d "$out" ] || exit 0
-        added=0
-        for f in "$out"/*.png; do
-          [ -f "$f" ] || continue
-          name=$(basename "$f")
-          case "$name" in *-diff.png|*-actual.png) continue ;; esac
-          if [ ! -f "$ref/$name" ]; then cp "$f" "$ref/$name"; added=$((added+1)); fi
-        done
-        [ "$added" -gt 0 ] || { echo "No new references"; exit 0; }
-        git config user.name "github-actions[bot]"
-        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-        git add "$ref"/*.png
-        git commit -q -m "Add $added FX render reference images from a CI run"
-        if git push origin "HEAD:${GITHUB_REF_NAME}" > push.log 2>&1; then
-          echo "::notice title=fxrender::Committed $added new reference images"
-        else
-          # The push can be refused (token permissions, or the branch moved):
-          # hand the images over in the annotation instead
-          err=$(tail -n 5 push.log | sed -e ':a;N;$!ba;s/\n/%0A/g')
-          echo "::warning title=fxrender push failed::${err}"
-          blob=$(cd "$ref" && git show --name-only --format= HEAD | xargs -n1 basename | tar czf - -C . -T - | base64 -w0)
-          echo "::notice title=fxrender references (tar.gz, base64)::${blob}"
-        fi
+    - name: Upload test diagnostics and candidate FX images
+      if: always()
+      uses: actions/upload-artifact@v6
+      with:
+        name: regression-diagnostics
+        path: |
+          ctest.log
+          toonz/build/Testing/Temporary
+          toonz/build/stdfx/fxrender-output
+          toonz/build/image/ffmpeg-test-output
+        if-no-files-found: ignore
 
     - name: Fail if tests failed
       if: ${{ !cancelled() && steps.ctest.outcome == 'failure' }}
@@ -173,7 +154,7 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 240
     env:
-      QT_QPA_PLATFORM: offscreen
+      QT_QPA_PLATFORM: xcb
       # The same software OpenGL for both tools
       LIBGL_ALWAYS_SOFTWARE: 1
       DEBIAN_FRONTEND: noninteractive
@@ -199,7 +180,7 @@ jobs:
         sudo apt-get update
         # xvfb: a display for the OpenGL contexts of the vector renderer;
         # imagemagick: the pixel differences of the PNG files
-        sudo apt-get install -y -o Acquire::http::Timeout=30 -o Acquire::Retries=5 build-essential bison flex cmake pkg-config ninja-build ccache libboost-all-dev qtbase5-dev qt5-qmake qtdeclarative5-dev qtdeclarative5-dev-tools qttools5-dev qttools5-dev-tools qtmultimedia5-dev qtwayland5 libqt5svg5-dev libqt5opengl5-dev libqt5multimedia5-plugins libqt5serialport5-dev libsuperlu-dev liblz4-dev libusb-1.0-0-dev liblzo2-dev libpng-dev libjpeg-dev libglew-dev freeglut3-dev libfreetype6-dev libjson-c-dev libmypaint-dev libopencv-dev libturbojpeg-dev libomp-dev ffmpeg xvfb xauth imagemagick
+        sudo apt-get install -y -o Acquire::http::Timeout=30 -o Acquire::Retries=5 build-essential bison flex cmake pkg-config ninja-build ccache libboost-all-dev qtbase5-dev qt5-qmake qtdeclarative5-dev qtdeclarative5-dev-tools qttools5-dev qttools5-dev-tools qtmultimedia5-dev qtwayland5 libqt5svg5-dev libqt5opengl5-dev libqt5multimedia5-plugins libqt5serialport5-dev libsuperlu-dev liblz4-dev libusb-1.0-0-dev liblzo2-dev libpng-dev libjpeg-dev libglew-dev freeglut3-dev libfreetype6-dev libjson-c-dev libmypaint-dev libopencv-dev libturbojpeg-dev libomp-dev ffmpeg xvfb xauth imagemagick libgl1-mesa-dri
 
     - name: Set up caches
       run: mkdir -p /home/runner/.ccache-base /home/runner/.ccache-new
@@ -294,8 +275,8 @@ jobs:
             failed=1
           fi
         }
-        run base base "$GITHUB_WORKSPACE/base" "$GITHUB_WORKSPACE/out_base"
-        run new new "$GITHUB_WORKSPACE/new" "$GITHUB_WORKSPACE/out_new"
+        run base base --require-rendering "$GITHUB_WORKSPACE/base" "$GITHUB_WORKSPACE/out_base"
+        run new new --require-rendering "$GITHUB_WORKSPACE/new" "$GITHUB_WORKSPACE/out_new"
         run cross_new new --load "$GITHUB_WORKSPACE/out_base/scene.tnz" "$GITHUB_WORKSPACE/cross_new"
         run cross_base base --load "$GITHUB_WORKSPACE/out_new/scene.tnz" "$GITHUB_WORKSPACE/cross_base"
         echo "failed=$failed" >> "$GITHUB_OUTPUT"
@@ -395,8 +376,15 @@ jobs:
         check cross_new/scene_dump.txt out_base/scene_dump.txt cross_new/scene_dump.txt
         check cross_base/scene_dump.txt out_new/scene_dump.txt cross_base/scene_dump.txt
         if ! grep -qs '^opengl yes' out_base/manifest.txt || ! grep -qs '^opengl yes' out_new/manifest.txt; then
-          echo "::warning title=Compat::no OpenGL context: the PNG renders were skipped, only the dumps and the saved files were compared"
+          differs "required OpenGL context" "Graphics compatibility requires rendered images from both builds"
         fi
+        # These scene images are mandatory, even if both builds omit the same
+        # file and the union of their output lists therefore cannot detect it.
+        for row in 1 6 12; do
+          if [ ! -s "out_base/scene.$row.png" ] || [ ! -s "out_new/scene.$row.png" ]; then
+            differs "required scene.$row.png" "A required scene render is missing or empty"
+          fi
+        done
         {
           echo "compared=$compared"
           echo "identical=$identical"
