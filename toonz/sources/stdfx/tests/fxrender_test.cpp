@@ -24,7 +24,10 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QImage>
+#include <QOffscreenSurface>
+#include <QOpenGLContext>
 #include <QString>
+#include <QSurfaceFormat>
 
 #include <algorithm>
 #include <cstdlib>
@@ -42,6 +45,32 @@ const TDimension cSize(160, 120);
 // absorb floating point differences between compilers and platforms.
 const int cChannelTolerance  = 3;
 const double cPixelTolerance = 0.002;
+
+bool checkOpenGL() {
+  const auto fail = [](const char *reason) {
+    std::cerr << "OpenGL initialization failed for Qt platform '"
+              << QGuiApplication::platformName().toStdString() << "': "
+              << reason << std::endl;
+    return false;
+  };
+  // Match QtOfflineGL's compatibility context, on the GUI thread. Probe before
+  // any FX creates its framebuffer so an unavailable backend is a test failure
+  // with an actionable diagnostic, rather than a null-context crash.
+  QSurfaceFormat format;
+  format.setProfile(QSurfaceFormat::CompatibilityProfile);
+  QOpenGLContext context;
+  context.setFormat(format);
+  if (!context.create() || !context.isValid())
+    return fail("cannot create a compatibility OpenGL context");
+  QOffscreenSurface surface;
+  surface.setFormat(context.format());
+  surface.create();
+  if (!surface.isValid()) return fail("cannot create an offscreen surface");
+  if (!context.makeCurrent(&surface))
+    return fail("cannot make the offscreen context current");
+  context.doneCurrent();
+  return true;
+}
 
 TFxP create(const std::string &id) {
   TFxP fx = TFx::create(id);
@@ -195,9 +224,10 @@ int main(int argc, char **argv) {
               << std::endl;
     return 2;
   }
-  // A QGuiApplication: some FX render through an offscreen OpenGL surface,
-  // which needs a screen (QT_QPA_PLATFORM=offscreen when headless)
+  // Offscreen GL surfaces need a QGuiApplication and a platform backend with
+  // context support; CTest selects the native backend on macOS and Windows.
   QGuiApplication app(argc, argv);
+  if (!checkOpenGL()) return 1;
   TThread::init();
   initStdFx();
 

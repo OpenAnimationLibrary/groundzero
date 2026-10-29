@@ -9,6 +9,7 @@
 #include "../ffmpeg/tiio_mp4.h"
 
 #include "tenv.h"
+#include "thirdparty.h"
 #include "tfilepath.h"
 #include "tlevel_io.h"
 #include "tpixel.h"
@@ -183,8 +184,8 @@ QByteArray decodeRgba(const QString &path, const QString &format,
   if (format == "apng") args << "-ignore_loop" << "1";
   // Validate the encoded frames themselves. Automatic timestamp resampling
   // may drop or duplicate frames, especially in very short animations.
-  args << "-i" << path << "-vsync" << "0" << "-f" << "rawvideo"
-       << "-pix_fmt" << "rgba" << "-";
+  args << "-i" << path << ThirdParty::getFFmpegFrameSyncArgs() << "-f"
+       << "rawvideo" << "-pix_fmt" << "rgba" << "-";
   process.start(ffmpegExecutable(), args);
   const bool finished = process.waitForFinished(120000);
   if (!finished) {
@@ -333,6 +334,32 @@ void expectFailure(const std::function<void()> &operation,
     failed = true;
   }
   require(failed, message);
+}
+
+void testFrameSyncCapabilities() {
+  QTemporaryDir tools;
+  require(tools.isValid(), "Cannot create capability fixture directory");
+  const QString executable = tools.filePath("ffmpeg");
+  writeFile(executable, "#!/bin/sh\nprintf '%s\\n' '-vsync mode'\n");
+  require(QFile::setPermissions(executable, QFile::ReadOwner | QFile::WriteOwner |
+                                          QFile::ExeOwner),
+          "Cannot make capability fixture executable");
+  Preferences::instance()->setValue(ffmpegPath, tools.path());
+  require(ThirdParty::getFFmpegFrameSyncArgs() == QStringList({"-vsync", "0"}),
+          "Older FFmpeg lost exact frame passthrough support");
+
+  // Replace the executable in place. Its changed size invalidates cached help
+  // even on filesystems whose modification timestamps have coarse resolution.
+  writeFile(executable, "#!/bin/sh\nprintf '%s\\n' '-vsync mode' "
+                        "'-fps_mode mode'\n");
+  require(ThirdParty::getFFmpegFrameSyncArgs() ==
+              QStringList({"-fps_mode", "passthrough"}),
+          "Current FFmpeg did not prefer its supported frame passthrough option");
+  writeFile(executable, "#!/bin/sh\nprintf '%s\\n' '-unrelated option'\n");
+  expectFailure([] { ThirdParty::getFFmpegFrameSyncArgs(); },
+                "Missing passthrough support silently enabled frame resampling");
+  Preferences::instance()->setValue(ffmpegPath,
+                                    QString::fromUtf8(TIIO_FFMPEG_TEST_DIR));
 }
 
 void testFailedFinalization(const QTemporaryDir &directory, bool usePipe) {
@@ -546,7 +573,9 @@ void testFailedExtractionCanRetry(const QTemporaryDir &directory) {
   QTemporaryDir failingTools;
   require(failingTools.isValid(), "Cannot create failing encoder directory");
   const QString executable = failingTools.filePath("ffmpeg");
-  writeFile(executable, "#!/bin/sh\nexit 23\n");
+  writeFile(executable, "#!/bin/sh\n"
+      "if [ \"$1\" = \"-hide_banner\" ]; then\n"
+      "  printf '%s\\n' '-fps_mode mode'\n  exit 0\nfi\nexit 23\n");
   require(QFile::setPermissions(executable, QFile::ReadOwner | QFile::WriteOwner |
                                           QFile::ExeOwner),
           "Cannot make failing encoder executable");
@@ -595,6 +624,7 @@ int main(int argc, char *argv[]) {
             "ffmpeg not found in " TIIO_FFMPEG_TEST_DIR);
     setUpEnvironment(directory);
     const QStringList previousImports = importGenerations();
+    testFrameSyncCapabilities();
 
     // APNG is lossless: exact pixels, alpha included, identical exports
     testFormat(

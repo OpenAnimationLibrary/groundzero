@@ -1055,8 +1055,9 @@ void Ffmpeg::getFramesFromMovie(int frame) {
   else if (codecName == "vp8") pre << "-vcodec" << "libvpx";
   else if (codecName == "av1") pre << "-vcodec" << "libaom-av1";
   pre << "-threads" << "auto" << "-i" << m_path.getQString();
-  const QStringList post = {"-y", "-map", "0:v:0", "-vsync", "0", "-f",
-      "image2", pending.filePath("frame%06d.png")};
+  QStringList post = {"-y", "-map", "0:v:0"};
+  post << ThirdParty::getFFmpegFrameSyncArgs() << "-f" << "image2"
+       << pending.filePath("frame%06d.png");
   runFfmpeg(pre, post, true, true, true, false);
 
   QDir directory(pending.path());

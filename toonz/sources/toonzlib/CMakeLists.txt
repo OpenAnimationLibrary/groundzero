@@ -593,6 +593,16 @@ if(BUILD_RELIABILITY_TESTS)
     add_executable(save_transaction_test tests/save_transaction_test.cpp)
     target_link_libraries(save_transaction_test PRIVATE
         toonzlib tnzbase tnzcore image Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
+    add_dependencies(save_transaction_test lzocompress lzodecompress)
+    if(BUILD_ENV_APPLE)
+        # TLV compression finds these helpers beside the running executable.
+        # macOS test binaries live outside the application bundle.
+        add_custom_command(TARGET save_transaction_test POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:lzocompress> $<TARGET_FILE:lzodecompress>
+                $<TARGET_FILE_DIR:save_transaction_test>
+            VERBATIM)
+    endif()
     add_test(NAME save_transaction COMMAND save_transaction_test)
     set_tests_properties(save_transaction PROPERTIES TIMEOUT 120)
 

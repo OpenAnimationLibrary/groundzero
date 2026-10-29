@@ -3,6 +3,7 @@
 // Exercise the exported image-I/O API on every platform, including Windows
 // DLL builds. Decoding with ffmpeg independently checks the saved pixels.
 #include "tenv.h"
+#include "thirdparty.h"
 #include "texception.h"
 #include "tlevel_io.h"
 #include "tnzimage.h"
@@ -55,9 +56,11 @@ QByteArray readFile(const QString &path) {
 
 void verifyDecoded(const QString &ffmpeg, const QString &path) {
   QProcess decoder;
-  decoder.start(ffmpeg, {"-v", "error", "-f", "apng", "-ignore_loop", "1",
-                        "-i", path, "-vsync", "0", "-f", "rawvideo",
-                        "-pix_fmt", "rgba", "-"});
+  QStringList args = {"-v", "error", "-f", "apng", "-ignore_loop", "1",
+                      "-i", path};
+  args << ThirdParty::getFFmpegFrameSyncArgs() << "-f" << "rawvideo"
+       << "-pix_fmt" << "rgba" << "-";
+  decoder.start(ffmpeg, args);
   require(decoder.waitForStarted(10000), "Cannot start the FFmpeg decoder");
   if (!decoder.waitForFinished(60000)) {
     decoder.kill();

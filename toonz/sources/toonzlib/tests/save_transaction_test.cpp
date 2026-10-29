@@ -274,6 +274,7 @@ void studioPaletteSerializationFailure(const QDir &dir) {
 
 int main(int argc, char **argv) {
   QCoreApplication application(argc, argv);
+  QString phase = "test initialization";
   try {
     QTemporaryDir storage;
     require(storage.isValid(), "cannot create test storage");
@@ -289,18 +290,31 @@ int main(int argc, char **argv) {
     TImageCache::instance()->setRootDir(pathOf(dir.filePath("cache")));
     TThread::init();
     initImageIo();
-    for (bool untitled : {false, true})
-      for (bool child : {false, true}) sceneFailureAndRetry(dir, untitled, child);
-    for (bool studio : {false, true}) paletteFailureAndRetry(dir, studio);
+    for (bool untitled : {false, true}) {
+      for (bool child : {false, true}) {
+        phase = QString("scene save (untitled=%1, child=%2)")
+                    .arg(untitled).arg(child);
+        sceneFailureAndRetry(dir, untitled, child);
+      }
+    }
+    for (bool studio : {false, true}) {
+      phase = QString("TLV palette save (studio=%1)").arg(studio);
+      paletteFailureAndRetry(dir, studio);
+    }
+    phase = "palette style replacement ownership";
     paletteStyleOwnership();
+    phase = "palette style insertion ownership";
     paletteAddStyleOwnership();
+    phase = "studio palette serialization";
     studioPaletteSerializationFailure(dir);
     std::cout << "Scene and palette save transactions passed\n";
     return 0;
-  } catch (const TException &) {
-    std::cerr << "Unexpected save exception\n";
+  } catch (const TException &error) {
+    std::cerr << phase.toStdString() << ": "
+              << QString::fromStdWString(error.getMessage()).toStdString()
+              << '\n';
   } catch (const std::exception &error) {
-    std::cerr << error.what() << '\n';
+    std::cerr << phase.toStdString() << ": " << error.what() << '\n';
   }
   return 1;
 }

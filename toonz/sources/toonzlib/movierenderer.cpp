@@ -34,6 +34,7 @@
 
 #include "toonz/movierenderer.h"
 #include "movierenderqueue.h"
+#include "movierenderoutput.h"
 
 //**************************************************************************
 //    Local Namespace  stuff
@@ -240,7 +241,7 @@ void MovieRenderer::Imp::prepareForStart() {
       assert(!fp.isEmpty());
       // FFmpeg writers stage replacement output and publish only after a
       // successful encode. Keep the previous movie intact until then.
-      if (fp.isFfmpegType()) return;
+      if (MovieRenderOutput::usesFfmpeg(fp)) return;
 
       if (TSystem::doesExistFileOrLevel(fp)) {
         // In case the raster specifics are different from those of a currently
@@ -299,7 +300,7 @@ void MovieRenderer::Imp::prepareForStart() {
 
         m_levelUpdaterA.reset(new LevelUpdater(
             m_fp, oprop->getFileFormatProperties(m_fp.getType()),
-            oprop->formatTemplateFId(), m_fp.isFfmpegType()));
+            oprop->formatTemplateFId(), MovieRenderOutput::usesFfmpeg(m_fp)));
         m_levelUpdaterA->getLevelWriter()->setFrameRate(frameRate);
         m_fp = m_levelUpdaterA->getLevelWriter()->getFilePath();
       } else {
@@ -313,13 +314,13 @@ void MovieRenderer::Imp::prepareForStart() {
 
         m_levelUpdaterA.reset(new LevelUpdater(
             leftFp, oprop->getFileFormatProperties(leftFp.getType()),
-            oprop->formatTemplateFId(), leftFp.isFfmpegType()));
+            oprop->formatTemplateFId(), MovieRenderOutput::usesFfmpeg(leftFp)));
         m_levelUpdaterA->getLevelWriter()->setFrameRate(frameRate);
         leftFp = m_levelUpdaterA->getLevelWriter()->getFilePath();
 
         m_levelUpdaterB.reset(new LevelUpdater(
             rightFp, oprop->getFileFormatProperties(rightFp.getType()),
-            oprop->formatTemplateFId(), rightFp.isFfmpegType()));
+            oprop->formatTemplateFId(), MovieRenderOutput::usesFfmpeg(rightFp)));
         m_levelUpdaterB->getLevelWriter()->setFrameRate(frameRate);
         rightFp = m_levelUpdaterB->getLevelWriter()->getFilePath();
       }
@@ -975,12 +976,13 @@ void MovieRenderer::start() {
     if (!m_imp->m_failure && !m_imp->m_canceled) {
       {
         QMutexLocker locker(&m_imp->m_cancelMutex);
-        if (m_imp->m_levelUpdaterA)
-          m_imp->m_cancelWriters.push_back(
-              m_imp->m_levelUpdaterA->getLevelWriter());
-        if (m_imp->m_levelUpdaterB)
-          m_imp->m_cancelWriters.push_back(
-              m_imp->m_levelUpdaterB->getLevelWriter());
+        for (LevelUpdater *updater : {m_imp->m_levelUpdaterA.get(),
+                                      m_imp->m_levelUpdaterB.get()}) {
+          if (!updater) continue;
+          TLevelWriterP writer =
+              MovieRenderOutput::cancelableWriter(updater->getLevelWriter());
+          if (writer) m_imp->m_cancelWriters.push_back(writer);
+        }
       }
 
       // Keep ownership while allocating/populating the request vector. The

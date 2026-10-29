@@ -1,4 +1,5 @@
 #include "toonz/levelupdater.h"
+#include "movierenderoutput.h"
 #include "tenv.h"
 #include "texception.h"
 #include "tproperty.h"
@@ -88,6 +89,67 @@ TLevelWriter *createProbeWriter(const TFilePath &path,
   return new ProbeLevelWriter(path, properties);
 }
 
+// Native AVI/QuickTime writers rely on destruction to flush their file before
+// LevelUpdater can rename a temporary output. finalize() remains a no-op.
+class LegacyProbeWriter final : public TLevelWriter {
+  Probe &m_probe;
+public:
+  LegacyProbeWriter(const TFilePath &path, TPropertyGroup *properties)
+      : TLevelWriter(path, properties), m_probe(*currentProbe) {}
+  ~LegacyProbeWriter() override {
+    ++m_probe.destructorFinalizations;
+    try { writeFile(m_path.getQString(), "legacy replacement"); } catch (...) {}
+    ++m_probe.destroyed;
+  }
+  TImageWriterP getFrameWriter(TFrameId) override {
+    return new ProbeFrameWriter(m_path, m_probe);
+  }
+};
+
+TLevelWriter *createLegacyWriter(const TFilePath &path,
+                                TPropertyGroup *properties) {
+  return new LegacyProbeWriter(path, properties);
+}
+
+void legacyWriterClosesBeforeReturn(const QString &path) {
+  Probe probe;
+  currentProbe = &probe;
+  writeFile(path, "previous");
+  TPropertyGroup properties;
+  LevelUpdater updater(TFilePath(path), &properties,
+                       TFrameId(TFrameId::NO_FRAME), true);
+  TLevelWriterP cancelOwner =
+      MovieRenderOutput::cancelableWriter(updater.getLevelWriter());
+  updater.update(TFrameId(1), TImageP());
+  updater.close();
+  require(probe.destroyed == 1 && probe.destructorFinalizations == 1,
+          "cancellation owner kept legacy output open past updater close");
+  require(readFile(path) == "legacy replacement",
+          "legacy output was not flushed before updater close returned");
+}
+
+void ffmpegReplacementKeepsCancelOwnership(const QString &path) {
+  Probe probe;
+  currentProbe = &probe;
+  writeFile(path, "previous");
+  const TFilePath output(path);
+  TPropertyGroup properties;
+  LevelUpdater updater(output, &properties, TFrameId(TFrameId::NO_FRAME),
+                       MovieRenderOutput::usesFfmpeg(output));
+  require(updater.getLevelWriter()->getFilePath() == output,
+          "FFmpeg replacement incorrectly uses legacy temporary-file rename");
+  TLevelWriterP cancelOwner =
+      MovieRenderOutput::cancelableWriter(updater.getLevelWriter());
+  require(!!cancelOwner, "FFmpeg output lost its finalization cancellation owner");
+  updater.update(TFrameId(1), TImageP());
+  updater.abort();
+  require(probe.destroyed == 0, "cancellation owner was released too early");
+  cancelOwner = TLevelWriterP();
+  require(probe.destroyed == 1 && probe.abortCalls == 1 &&
+              probe.destructorFinalizations == 0 && readFile(path) == "previous",
+          "aborted FFmpeg replacement published output during cleanup");
+}
+
 void checkLifecycle(const QString &path, bool cancel, bool frameFailure,
                     bool encoderFailure) {
   Probe probe;
@@ -149,6 +211,18 @@ int main(int argc, char **argv) {
     LevelUpdater unopened;
     unopened.abort();
     unopened.close();
+
+    TLevelWriter::define("avi", createLegacyWriter, false);
+    legacyWriterClosesBeforeReturn(dir.filePath("legacy.avi"));
+    TLevelWriter::define("apng", createProbeWriter, false);
+    ffmpegReplacementKeepsCancelOwnership(dir.filePath("output.apng"));
+    TLevelWriter::define("mov", createProbeWriter, false);
+    ffmpegReplacementKeepsCancelOwnership(dir.filePath("output.mov"));
+    // This process-local flag follows the same native-MOV registration branch
+    // as initImageIo(). Set it last because QuickTime selection is one-way.
+    Tiio::useQuicktime(true);
+    TLevelWriter::define("mov", createLegacyWriter, false);
+    legacyWriterClosesBeforeReturn(dir.filePath("legacy.mov"));
     std::cout << "level updater abort and publication lifecycle passed\n";
     return 0;
   } catch (const TException &) {
