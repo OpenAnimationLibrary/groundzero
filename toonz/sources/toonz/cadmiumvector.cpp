@@ -55,6 +55,13 @@ QByteArray fingerprintOf(const TVectorImageP &image,
            << stroke->isSelfLoop()
            << qint32(image->getGroupByStroke(i))
            << qint32(stroke->getControlPointCount());
+    // Applying a proposal replaces the drawing with its captured native image.
+    // Outline-only edits must invalidate that snapshot just like geometry edits.
+    const TStroke::OutlineOptions &outline = stroke->outlineOptions();
+    stream << quint8(outline.m_capStyle) << quint8(outline.m_joinStyle)
+           << outline.m_miterLower << outline.m_miterUpper
+           << qint32(outline.m_patternFrameOffset)
+           << qint32(outline.m_patternFrameStep) << outline.m_opacity;
     for (int j = 0; j < stroke->getControlPointCount(); ++j) {
       const TThickPoint p = stroke->getControlPoint(j);
       stream << p.x << p.y << p.thick;

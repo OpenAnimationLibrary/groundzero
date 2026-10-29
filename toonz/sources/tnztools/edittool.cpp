@@ -16,6 +16,7 @@
 #include "toonz/txshcolumn.h"
 #include "toonz/stage.h"
 #include "toonz/tcamera.h"
+#include "toonz/motionarc.h"
 
 #include "tools/toolhandle.h"
 #include "toonz/tcolumnhandle.h"
@@ -1404,19 +1405,8 @@ bool EditTool::getTrajectoryRange(int &r0, int &r1) {
   if (!m_showTrajectory.getValue()) return false;
   TStageObjectId objId = getObjectId();
   if (!objId.isColumn() && !objId.isPegbar()) return false;
-  TXsheet *xsh      = getXsheet();
-  TStageObject *obj = xsh->getStageObject(objId);
-  if (!obj || !obj->getKeyframeRange(r0, r1)) return false;
-  r0 = std::max(r0, 0);
-  r1 = std::min(r1, xsh->getFrameCount() - 1);
-  if (r0 > r1) return false;
-  if (r1 - r0 + 1 > MaxTrajectoryFrames) {
-    int first = std::min(getFrame() - MaxTrajectoryFrames / 2,
-                         r1 - MaxTrajectoryFrames + 1);
-    r0        = std::max(r0, first);
-    r1        = r0 + MaxTrajectoryFrames - 1;
-  }
-  return true;
+  return MotionArc::keyRange(getXsheet(), objId, getFrame(),
+                             MaxTrajectoryFrames, r0, r1);
 }
 
 //-----------------------------------------------------------------------------
@@ -1425,10 +1415,8 @@ bool EditTool::getTrajectoryRange(int &r0, int &r1) {
 // point of the center gadget), in the tool space of the current frame.
 // \b parentAffInv is the inverse of the parent placement at the current frame.
 TPointD EditTool::getTrajectoryPos(int frame, const TAffine &parentAffInv) {
-  TXsheet *xsh         = getXsheet();
-  TStageObjectId objId = getObjectId();
-  TPointD center       = Stage::inch * xsh->getCenter(objId, frame);
-  return parentAffInv * (xsh->getPlacement(objId, frame) * center);
+  return parentAffInv * MotionArc::worldPos(getXsheet(), getObjectId(),
+                                            MotionArc::Track(), frame);
 }
 
 //-----------------------------------------------------------------------------

@@ -35,6 +35,11 @@ DVAPI TFxP makeColumnColorFilter(const TFxP &arg, TPixel32 colorScale);
 DVAPI TFxP makeColumnColorEffect(const TFxP &arg, const double m[4],
                                  const double c[4]);
 
+//! Applies the haze and desaturation of a column's depth (see
+//! toonz/multiplanedepth.h); color is the straight haze colour in 0..1.
+DVAPI TFxP makeColumnDepth(const TFxP &arg, double haze, double desaturation,
+                           const double color[3]);
+
 DVAPI TFxP makeRadialGradient(/*TPixel32 color*/);
 
 enum { NO_KEYFRAMES = 0, ALL_KEYFRAMES = 1, SOME_KEYFRAMES = -1 };

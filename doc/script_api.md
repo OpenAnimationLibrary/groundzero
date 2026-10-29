@@ -120,6 +120,33 @@ for c in scene.getColumns():
 scene.renderFrame(0).save('/tmp/sh010_0001.png')
 ```
 
+## Scene check and palettes
+
+Added with the scene checker (plan item T6, see `doc/scene_checker.md`), in
+JavaScript and Python:
+
+| JavaScript | Python | |
+|---|---|---|
+| `scene.check()`, `scene.check({unusedStyles: true})` | `scene.check()`, `scene.check(unusedStyles=True)` | The issues of the scene, errors first: an array (list) of objects (dicts) with `severity` (`error`, `warning` or `info`), `kind` (`missingDrawing`, `missingFile`, `unsavedLevel`, `emptyColumn`, `unusedLevel`, `unusedStyle`, `duplicateStyle`, `levelDpi`, `frameRate` or `resolution`), `title` (the group of the Scene Check panel, such as `Missing Drawings`), `text`, `column`, `row` and `rowCount` (from 0; -1, -1 and 0 when the issue is not about cells), `level` and `subXsheet` (names, `""` for none) and `styleId` (-1 for none). `unusedStyles` also looks for unused styles, which loads every drawing. |
+| `level.palette` | same | The level's palette, read only: an object (dict) with `name` and `styles`, the styles of its pages in page order, each with `id`, `name`, `color` (`"#AARRGGBB"`, the main color), `page` (from 0) and `used` (a drawing of the level uses it; this loads the drawings). `null` (`None`) for a level without a palette. It is a copy: changing it changes nothing. |
+
+```js
+var scene = new Scene('shots/sh010.tnz');
+scene.check().forEach(function (i) {
+  if (i.severity == 'error') print(i.title + ': ' + i.text);
+});
+var pal = scene.getLevel('A').palette;
+if (pal) pal.styles.filter(function (s) { return !s.used; })
+               .forEach(function (s) { print('unused', s.id, s.name, s.color); });
+```
+
+```python
+scene = ot.Scene('shots/sh010.tnz')
+errors = [i for i in scene.check() if i['severity'] == 'error']
+for s in scene.getLevel('A').palette['styles']:
+    print(s['id'], s['name'], s['color'], s['used'])
+```
+
 ## The scene open in the application
 
 Three functions, in the Script Console (JavaScript, global functions) and in

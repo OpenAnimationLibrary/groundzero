@@ -94,6 +94,13 @@ struct particles_values {
   bool perspective_distribution_val;
   bool motion_blur_val;
   double motion_blur_gamma_adjust_val;
+  // Weather (particleweather.h): all off at their defaults
+  int collision_ctrl_val;  // the control image particles hit, 0 for none
+  int collision_mode_val;  // ParticleWeather::Collision
+  double turbulence_val, turbulence_size_val, turbulence_speed_val;
+  int depth_layers_val;  // 1 for no depth
+  double depth_far_scale_val, depth_far_opacity_val;
+  double frame_val;  // the frame being stepped, for the turbulence's drift
 };
 
 //------------------------------------------------------------------------------
@@ -132,6 +139,8 @@ typedef struct {
 
 class Particle {
 public:
+  // Monotonic birth ordinal, independent of RNG and render/list ordering.
+  unsigned long long birthId = 0;
   double x;
   double y;
   double oldx[3];
@@ -164,6 +173,9 @@ public:
   bool animswing;
   TRandom random;
   int seed;
+  double depth = 0.0;    // 0 nearest to 1 farthest, among the depth layers
+  bool settled = false;  // came to rest on the collision image
+  bool collides(TTile *ctrl) const;
 
 public:
   Particle(int lifetime, int seed, const std::map<int, TTile *> porttiles,

@@ -159,6 +159,29 @@ int main(int argc, char **argv) {
     view.setOverlayOpacity(1.0);
     require(pixel(view, QPointF(2.5, 1.5)) == QColor(Qt::green),
             "opaque reference overlay did not display the reference");
+    const double referenceZoom = view.zoom();
+    const QPointF referencePan = view.pan();
+    QImage replacement(reference.size(), reference.format());
+    replacement.fill(Qt::magenta);
+    view.setReferenceImage(replacement);
+    require(pixel(view, QPointF(2.5, 1.5)) == QColor(Qt::magenta),
+            "changing the reference retained the previous overlay");
+    require(view.zoom() == referenceZoom && view.pan() == referencePan &&
+                view.regionAt(view.viewportPointForImage(QPointF(2.5, 1.5))) == 1,
+            "changing the reference reset the view or native region mapping");
+    view.setMode(CadmiumReviewView::Mode::Before);
+    require(pixel(view, QPointF(2.5, 1.5)) == QColor(Qt::red),
+            "changing the reference replaced the before image");
+    view.setMode(CadmiumReviewView::Mode::After);
+    require(pixel(view, QPointF(2.5, 1.5)) == QColor(Qt::blue),
+            "changing the reference replaced the after image");
+    view.setMode(CadmiumReviewView::Mode::ReferenceOverlay);
+    view.setReferenceImage(QImage());
+    require(!opacity->isEnabled() && pixel(view, QPointF(2.5, 1.5)) == QColor(Qt::blue),
+            "clearing the reference retained an overlay or removed the proposal");
+    view.setReferenceImage(reference);
+    require(opacity->isEnabled() && pixel(view, QPointF(2.5, 1.5)) == QColor(Qt::green),
+            "restoring a reference did not restore its overlay controls");
     opacity->setValue(0);
     require(view.overlayOpacity() == 0.0 && pixel(view, QPointF(2.5, 1.5)) == QColor(Qt::blue),
             "reference opacity control did not reveal the after image");
@@ -181,9 +204,13 @@ int main(int argc, char **argv) {
     require(view.regionAt(view.viewportPointForImage(QPointF(2.5, 1.5))) == -1,
             "incomplete native labels were accepted");
     view.setRegions(before.size(), labels);
+    require(view.memoryBytes() >= before.sizeInBytes() + after.sizeInBytes() +
+                reference.sizeInBytes() + qint64(labels.capacity()) * sizeof(int),
+            "review accounting omitted image or region-label payload");
     view.clear(QStringLiteral("No proposal selected"));
     require(view.regionAt(view.canvasRect().center()) == -1,
             "clearing the review retained an editable native region");
+    require(view.memoryBytes() == 0, "clearing the review retained preview storage");
     view.setImages(before, after);
     view.setMode(CadmiumReviewView::Mode::ReferenceOverlay);
     require(!opacity->isEnabled(), "missing reference left its opacity control enabled");

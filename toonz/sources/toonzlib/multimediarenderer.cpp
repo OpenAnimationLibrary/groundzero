@@ -17,6 +17,7 @@
 
 // Idle processing
 #include <QEventLoop>
+#include <atomic>
 
 //----------------------------------------------------------------------------
 
@@ -57,11 +58,12 @@ public:
   std::vector<MultimediaRenderer::Listener *> m_listeners;
 
   bool m_precomputingEnabled;
-  bool m_canceled;
+  std::atomic<bool> m_canceled;
 
   int m_currentFx;
   std::set<double>::iterator m_currentFrame;
   TRenderer *m_currentTRenderer;
+  std::function<void()> m_cancelCurrentRender;
 
   TFxSet m_fxsToRender;
   std::set<double> m_framesToRender;
@@ -88,6 +90,9 @@ public:
   bool onFrameCompleted(int frame) override;
   bool onFrameFailed(int frame, TException &e) override;
   void onSequenceCompleted(const TFilePath &fp) override;
+  void onSequenceFinished(const TFilePath &fp,
+                          MovieRenderer::CompletionStatus status,
+                          const std::wstring &error) override;
   void onRenderCompleted();
 };
 
@@ -108,6 +113,7 @@ MultimediaRenderer::Imp::Imp(ToonzScene *scene, const TFilePath &moviePath,
     , m_canceled(false)
     , m_currentFx(0)
     , m_currentFrame()
+    , m_currentTRenderer(nullptr)
     , m_multimediaMode(multimediaMode) {
   // Retrieve all fx nodes to be rendered in this process.
   scanSceneForRenderNodes();
@@ -294,7 +300,7 @@ void MultimediaRenderer::Imp::start() {
   int i, count = m_fxsToRender.getFxCount();
   for (i = 0; i < count; ++i) {
     // In case the process has been canceled, return
-    if (m_canceled) return;
+    if (m_canceled) break;
 
     // Then, build the scene fx for each frame to be rendered
     std::vector<std::pair<double, TFxPair>> pairsToBeRendered;
@@ -379,6 +385,7 @@ void MultimediaRenderer::Imp::start() {
     m_currentFx        = i;
     m_currentFrame     = m_framesToRender.begin();
     m_currentTRenderer = movieRenderer.getTRenderer();
+    m_cancelCurrentRender = movieRenderer.getCancelCallback();
 
     movieRenderer.start();
 
@@ -402,10 +409,13 @@ void MultimediaRenderer::Imp::start() {
 
 bool MultimediaRenderer::Imp::onFrameCompleted(int frame) {
   // Inform all listeners
+  bool keepRendering = true;
   for (unsigned int i = 0; i < m_listeners.size(); ++i)
-    m_listeners[i]->onFrameCompleted(*m_currentFrame, m_currentFx);
+    keepRendering &=
+        m_listeners[i]->onFrameCompleted(*m_currentFrame, m_currentFx);
 
   m_currentFrame++;
+  if (!keepRendering) m_canceled = true;
   return !m_canceled;
 }
 
@@ -413,21 +423,31 @@ bool MultimediaRenderer::Imp::onFrameCompleted(int frame) {
 
 bool MultimediaRenderer::Imp::onFrameFailed(int frame, TException &e) {
   // Inform all listeners
+  bool keepRendering = true;
   for (unsigned int i = 0; i < m_listeners.size(); ++i)
-    m_listeners[i]->onFrameFailed(*m_currentFrame, m_currentFx, e);
+    keepRendering &=
+        m_listeners[i]->onFrameFailed(*m_currentFrame, m_currentFx, e);
 
   m_currentFrame++;
+  if (!keepRendering) m_canceled = true;
   return !m_canceled;
 }
 
 //---------------------------------------------------------
 
 void MultimediaRenderer::Imp::onSequenceCompleted(const TFilePath &fp) {
+  onSequenceFinished(fp, MovieRenderer::CompletionStatus::Completed, L"");
+}
+
+void MultimediaRenderer::Imp::onSequenceFinished(
+    const TFilePath &fp, MovieRenderer::CompletionStatus status,
+    const std::wstring &error) {
   // Inform all listeners
   m_currentTRenderer = 0;
-
-  for (unsigned int i = 0; i < m_listeners.size(); ++i)
-    m_listeners[i]->onSequenceCompleted(m_currentFx);
+  m_cancelCurrentRender = {};
+  if (status == MovieRenderer::CompletionStatus::Canceled) m_canceled = true;
+  for (auto *listener : m_listeners)
+    listener->onSequenceFinished(m_currentFx, status, error);
 
   m_eventLoop.quit();
 }
@@ -534,7 +554,10 @@ void MultimediaRenderer::start() { m_imp->start(); }
 
 //---------------------------------------------------------
 
-void MultimediaRenderer::onCanceled() { m_imp->m_canceled = true; }
+void MultimediaRenderer::onCanceled() {
+  m_imp->m_canceled = true;
+  if (m_imp->m_cancelCurrentRender) m_imp->m_cancelCurrentRender();
+}
 
 //---------------------------------------------------------
 

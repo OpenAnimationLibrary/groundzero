@@ -9,6 +9,7 @@ enum PreferencesItemId {
   undoMemorySize,
   taskchunksize,
   sceneNumberingEnabled,
+  checkSceneBeforeRendering,
   watchFileSystemEnabled,
   projectRoot,
   customProjectRoot,

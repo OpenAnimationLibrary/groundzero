@@ -15,6 +15,7 @@
 //       -L<build>/lib -ltnzbase -ltnzcore $(pkg-config --libs Qt5Core)
 
 #include "tstream.h"
+#include "tstreamlimits.h"
 #include "texception.h"
 #include "tfilepath.h"
 
@@ -24,6 +25,7 @@
 #include <QTemporaryDir>
 
 #include <iostream>
+#include <cstring>
 #include <map>
 #include <stdexcept>
 #include <string>
@@ -163,8 +165,44 @@ void run() {
   writeBytes(badPath, lz4.left(lz4.size() / 2));
   require(isRejected(badPath), "a truncated payload was accepted");
 
-  writeBytes(badPath, lz4.left(10));
-  require(isRejected(badPath), "a truncated header was accepted");
+  // Every incomplete modern header, including magic alone, must fail before
+  // the reader interprets its lengths or byte-order marker.
+  for (int length = 1; length < 16; ++length) {
+    writeBytes(badPath, lz4.left(length));
+    require(isRejected(badPath), "a truncated TABc header was accepted");
+  }
+
+  // The old format stores native-size lengths. Retain its successful read
+  // path while checking each possible truncation of those fields as well.
+  QByteArray legacy("TNZC", 4);
+  const size_t legacyOutputSize = size_t(plain.size());
+  const size_t legacyInputSize  = size_t(lz4.size() - 16);
+  legacy.append(reinterpret_cast<const char *>(&legacyOutputSize),
+                sizeof(size_t));
+  legacy.append(reinterpret_cast<const char *>(&legacyInputSize),
+                sizeof(size_t));
+  const int legacyHeaderSize = legacy.size();
+  legacy.append(lz4.mid(16));
+  writeBytes(badPath, legacy);
+  require(readDocument(toPath(badPath)) == fromPlain,
+          "the legacy compressed format reads back differently");
+  for (int length = 1; length < legacyHeaderSize; ++length) {
+    writeBytes(badPath, legacy.left(length));
+    require(isRejected(badPath), "a truncated TNZC header was accepted");
+  }
+
+  // A valid foreign-endian header must still work. An unknown marker must
+  // not be treated as an instruction to swap otherwise plausible sizes.
+  QByteArray swapped = lz4;
+  for (int field = 4; field < 16; field += 4)
+    for (int byte = 0; byte < 4; ++byte)
+      swapped[field + byte] = lz4[field + 3 - byte];
+  writeBytes(badPath, swapped);
+  require(readDocument(toPath(badPath)) == fromPlain,
+          "the foreign-endian compressed format reads back differently");
+  swapped.replace(4, 4, QByteArray(4, '\0'));
+  writeBytes(badPath, swapped);
+  require(isRejected(badPath), "an invalid byte-order marker was accepted");
 
   // A declared decompressed size smaller than the data (the bytes 8..11 hold
   // it in host order): used to loop forever
@@ -179,6 +217,21 @@ void run() {
   hugeSize.replace(8, 4, QByteArray("\xff\xff\xff\x3f", 4));
   writeBytes(badPath, hugeSize);
   require(isRejected(badPath), "an impossible decompressed size was accepted");
+
+  // Exercise the same bounds used by scene publication without allocating
+  // huge rasters/documents. A plausible compressed length must not permit a
+  // declared document larger than the supported format limit.
+  require(TStreamLimits::validCompressedSizes(2000000, 1u << 28),
+          "the maximum supported document size was rejected");
+  require(!TStreamLimits::validCompressedSizes(2000000, (1u << 28) + 1),
+          "scene publication would accept an unreadable document size");
+  require(!TStreamLimits::validCompressedSizes(100000001, 1),
+          "scene publication would accept an unreadable payload size");
+  QByteArray oversized = lz4;
+  const TINT32 excessiveDocument = (1u << 28) + 1;
+  std::memcpy(oversized.data() + 8, &excessiveDocument, sizeof(TINT32));
+  writeBytes(badPath, oversized);
+  require(isRejected(badPath), "an oversized document header was accepted");
 }
 
 }  // namespace

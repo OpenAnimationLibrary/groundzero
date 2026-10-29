@@ -171,6 +171,7 @@ public:
   }
 
   bool isImportEnabled() const { return m_importEnabled; }
+  bool importsFxResources() const override { return m_importEnabled; }
   void setImportEnabled(bool enabled) {
     m_importQuestionAsked = true, m_importEnabled = enabled;
   }
@@ -2070,7 +2071,8 @@ bool IoCmd::saveScene(const TFilePath &path, int flags) {
   app->getCurrentLevel()->notifyLevelTitleChange();
   app->getCurrentPalette()->notifyPaletteTitleChanged();
 
-  app->getCurrentScene()->setDirtyFlag(false);
+  // Exporting a child does not save the parent scene or its other xsheets.
+  if (!saveSubxsheet) app->getCurrentScene()->setDirtyFlag(false);
 
   History::instance()->addItem(scenePath);
   RecentFiles::instance()->addFilePath(

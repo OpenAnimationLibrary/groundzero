@@ -4,13 +4,12 @@
 #define LEVELSETTINGSPOPUP_H
 
 #include "toonzqt/dvdialog.h"
+#include "levelselection.h"
 
 #include "toonz/txshsimplelevel.h"
 #include "toonz/txshpalettelevel.h"
 #include "toonz/txshchildlevel.h"
 #include "toonz/txshsoundlevel.h"
-
-#include <QSet>
 
 // forward declaration
 class QLabel;

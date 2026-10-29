@@ -45,6 +45,7 @@ set(HEADERS
     imagebuilders.h
     ../include/toonz/txshexrlevel.h
     ../include/toonz/lut3d.h
+    ../include/toonz/particlecache.h
     skeletonlut.h
     tcenterlinevectP.h
     texturemanager.h
@@ -111,11 +112,14 @@ set(HEADERS
     ../include/toonz/namebuilder.h
     ../include/toonz/observer.h
     ../include/toonz/onionskinmask.h
+    ../include/toonz/ghostfade.h
+    ../include/toonz/motionarc.h
     ../include/toonz/palettecmd.h
     ../include/toonz/plasticdeformerfx.h
     ../include/toonz/poselibrary.h
     ../include/toonz/rasterbrush.h
     ../include/toonz/rasterstrokegenerator.h
+    ../include/toonz/scenechecker.h
     ../include/toonz/scenefx.h
     ../include/toonz/sceneproperties.h
     ../include/toonz/sceneresources.h
@@ -190,6 +194,7 @@ set(HEADERS
 )
 
 set(SOURCES
+    particlecache.cpp
     abrparser.cpp
     autoadjust.cpp
     autoclose.cpp
@@ -234,12 +239,14 @@ set(SOURCES
     Naa2TlvConverter.cpp
     observer.cpp
     onionskinmask.cpp
+    motionarc.cpp
 	orientation.cpp
     outputproperties.cpp
     poselibrary.cpp
     preferences.cpp
     rasterbrush.cpp
     rasterstrokegenerator.cpp
+    scenechecker.cpp
     scenefx.cpp
     sceneproperties.cpp
     sceneresources.cpp
@@ -395,9 +402,9 @@ if(BUILD_ENV_APPLE)
     add_dependencies(toonzlib tnzcore tnzbase tnzext)
 endif()
 
-add_definitions(
-    -DTOONZLIB_EXPORTS
-)
+# Only the library defines its exported symbols. Test executables consume
+# the DLL and must see dllimport declarations on Windows.
+target_compile_definitions(toonzlib PRIVATE TOONZLIB_EXPORTS)
 
 message("subdir: toonzlib")
 message("Bin: " ${CMAKE_CURRENT_BINARY_DIR})
@@ -443,6 +450,24 @@ elseif(BUILD_ENV_UNIXLIKE)
 endif()
 
 target_link_libraries(toonzlib OpenEXR::OpenEXR)
+target_link_libraries(toonzlib Partio::Partio)
+if(BUILD_ENV_MSVC)
+    target_include_directories(toonzlib PRIVATE "${SDKROOT}/zlib-1.2.8")
+    target_link_libraries(toonzlib ${Z_LIB})
+else()
+    target_link_libraries(toonzlib ZLIB::ZLIB)
+endif()
+
+option(BUILD_PARTICLE_CACHE_TESTS "Build particle cache integration regressions" ${BUILD_TESTS})
+if(BUILD_PARTICLE_CACHE_TESTS)
+    add_executable(particlecache_test tests/particlecache_test.cpp)
+    target_link_libraries(particlecache_test PRIVATE toonzlib tnzcore Qt${QT_VERSION_MAJOR}::Core)
+    add_test(NAME particlecache_core COMMAND particlecache_test)
+    add_executable(particlecache_formats_test tests/particlecache_formats_test.cpp)
+    target_link_libraries(particlecache_formats_test PRIVATE toonzlib tnzcore Partio::Partio Qt${QT_VERSION_MAJOR}::Core)
+    add_test(NAME particlecache_formats COMMAND particlecache_formats_test)
+    set_tests_properties(particlecache_core particlecache_formats PROPERTIES TIMEOUT 120)
+endif()
 
 if(WITH_PYTHON)
     target_link_libraries(toonzlib pybind11::embed)
@@ -500,6 +525,15 @@ if(BUILD_PEGBARGUIDE_TESTS)
     add_test(NAME pegbarguide COMMAND pegbarguide_test)
 endif()
 
+# Optional regression target for the motion arcs (motionarc.h): the math on
+# the samples and the sampling of a scene in memory.
+option(BUILD_MOTIONARC_TESTS "Build the motion arcs regression test" ${BUILD_TESTS})
+if(BUILD_MOTIONARC_TESTS)
+    add_executable(motionarc_test tests/motionarc_test.cpp)
+    target_link_libraries(motionarc_test PRIVATE toonzlib tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
+    add_test(NAME motionarc COMMAND motionarc_test)
+endif()
+
 # Optional regression target for the Outline View of the columns: the colour
 # palette (outlinecolors.h) and the column status bit.
 option(BUILD_OUTLINEVIEW_TESTS "Build the column Outline View regression test" ${BUILD_TESTS})
@@ -507,6 +541,34 @@ if(BUILD_OUTLINEVIEW_TESTS)
     add_executable(outlineview_test tests/outlineview_test.cpp)
     target_link_libraries(outlineview_test PRIVATE toonzlib tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core)
     add_test(NAME outlineview COMMAND outlineview_test)
+endif()
+
+# Optional regression target for the camera's depth channels, Focus Z and
+# Aperture: saved and keyed only when used, and read by expressions.
+option(BUILD_CAMERADEPTH_TESTS "Build the camera depth channels regression test" ${BUILD_TESTS})
+if(BUILD_CAMERADEPTH_TESTS)
+    add_executable(cameradepth_test tests/cameradepth_test.cpp)
+    target_link_libraries(cameradepth_test PRIVATE toonzlib tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core)
+    add_test(NAME cameradepth COMMAND cameradepth_test)
+endif()
+
+# Optional regression target for the Multiplane Depth (multiplanedepth.h): the
+# math, the scene setting, and the blur and haze inserted per column by the
+# render. It links the standard FX for the Blur FX.
+option(BUILD_MULTIPLANEDEPTH_TESTS "Build the Multiplane Depth regression test" ${BUILD_TESTS})
+if(BUILD_MULTIPLANEDEPTH_TESTS)
+    add_executable(multiplanedepth_test tests/multiplanedepth_test.cpp)
+    target_link_libraries(multiplanedepth_test PRIVATE toonzlib tnzstdfx tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
+    add_test(NAME multiplanedepth COMMAND multiplanedepth_test)
+endif()
+
+# Optional regression target for the Colour Script (palettetransform.h): the
+# hue, saturation and lightness shift and the render data applying it.
+option(BUILD_COLOURSCRIPT_TESTS "Build the Colour Script regression test" ${BUILD_TESTS})
+if(BUILD_COLOURSCRIPT_TESTS)
+    add_executable(colourscript_test tests/colourscript_test.cpp)
+    target_link_libraries(colourscript_test PRIVATE toonzlib tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core)
+    add_test(NAME colourscript COMMAND colourscript_test)
 endif()
 
 # Optional regression target for the motion presets (motionpreset.h). It also
@@ -525,6 +587,14 @@ option(BUILD_RIGMAPPING_TESTS "Build the rig mapping regression test" ${BUILD_TE
 if(BUILD_RIGMAPPING_TESTS)
     add_executable(rigmapping_test tests/rigmapping_test.cpp)
     add_test(NAME rigmapping COMMAND rigmapping_test)
+endif()
+
+# Optional regression target for the Ghost Fade of the onion skin
+# (ghostfade.h, header only).
+option(BUILD_GHOSTFADE_TESTS "Build the onion skin Ghost Fade regression test" ${BUILD_TESTS})
+if(BUILD_GHOSTFADE_TESTS)
+    add_executable(ghostfade_test tests/ghostfade_test.cpp)
+    add_test(NAME ghostfade COMMAND ghostfade_test)
 endif()
 
 # Optional regression target for the per-column Color Effect (the math of
@@ -589,9 +659,46 @@ if(BUILD_STREAM_TESTS)
     add_test(NAME compressed_stream COMMAND compressed_stream_test)
 endif()
 
+# Optional regression target for the scene checker (scenechecker.h): each
+# check on scenes built in memory, with a case that finds the issue and one
+# that does not.
+option(BUILD_SCENECHECKER_TESTS "Build the scene checker regression test" ${BUILD_TESTS})
+if(BUILD_SCENECHECKER_TESTS)
+    add_executable(scenechecker_test tests/scenechecker_test.cpp)
+    target_link_libraries(scenechecker_test PRIVATE toonzlib tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
+    add_test(NAME scenechecker COMMAND scenechecker_test)
+endif()
+
+if(BUILD_RELIABILITY_TESTS)
+    add_executable(save_transaction_test tests/save_transaction_test.cpp)
+    target_link_libraries(save_transaction_test PRIVATE
+        toonzlib tnzbase tnzcore image Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
+    add_dependencies(save_transaction_test lzocompress lzodecompress)
+    if(BUILD_ENV_APPLE)
+        # TLV compression finds these helpers beside the running executable.
+        # macOS test binaries live outside the application bundle.
+        add_custom_command(TARGET save_transaction_test POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:lzocompress> $<TARGET_FILE:lzodecompress>
+                $<TARGET_FILE_DIR:save_transaction_test>
+            VERBATIM)
+    endif()
+    add_test(NAME save_transaction COMMAND save_transaction_test)
+    set_tests_properties(save_transaction PROPERTIES TIMEOUT 120)
+
+    add_executable(movierenderqueue_test tests/movierenderqueue_test.cpp)
+    add_test(NAME movierenderqueue COMMAND movierenderqueue_test)
+
+    add_executable(levelupdater_abort_test tests/levelupdater_abort_test.cpp)
+    target_link_libraries(levelupdater_abort_test PRIVATE
+        toonzlib tnzbase tnzcore image Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
+    add_test(NAME levelupdater_abort COMMAND levelupdater_abort_test)
+    set_tests_properties(levelupdater_abort PROPERTIES TIMEOUT 120)
+endif()
+
 # Optional benchmark of scene save and load (master plan E6, see
-# doc/scene_io_profile.md). It prints "NOTICE:" lines with the timings and
-# fails only when a loaded scene differs from the saved one.
+# doc/scene_io_profile.md). It prints timings and fails on a failed phase or
+# a round-trip mismatch.
 option(BUILD_SCENEBENCH_TESTS "Build the scene save and load benchmark" ${BUILD_TESTS})
 if(BUILD_SCENEBENCH_TESTS)
     add_executable(scenebench_test tests/scenebench_test.cpp)

@@ -87,6 +87,7 @@ TEnv::IntVar ViewCameraToggleAction("ViewCameraToggleAction", 1);
 TEnv::IntVar ViewTableToggleAction("ViewTableToggleAction", 1);
 TEnv::IntVar FieldGuideToggleAction("FieldGuideToggleAction", 0);
 TEnv::IntVar PegbarGuideToggleAction("PegbarGuideToggleAction", 0);
+TEnv::IntVar MotionArcsToggleAction("MotionArcsToggleAction", 0);
 TEnv::IntVar ViewBBoxToggleAction("ViewBBoxToggleAction1", 1);
 TEnv::IntVar EditInPlaceToggleAction("EditInPlaceToggleAction", 0);
 TEnv::IntVar RasterizePliToggleAction("RasterizePliToggleAction", 0);
@@ -1784,6 +1785,8 @@ void MainWindow::onMenuCheckboxChanged() {
     FieldGuideToggleAction = isChecked;
   else if (cm->getAction(MI_PegbarGuide) == action)
     PegbarGuideToggleAction = isChecked;
+  else if (cm->getAction(MI_MotionArcs) == action)
+    MotionArcsToggleAction = isChecked;
   else if (cm->getAction(MI_RasterizePli) == action) {
     if (!hasOpenGLPbuffers()) isChecked = 0;
     RasterizePliToggleAction = isChecked;
@@ -2397,6 +2400,14 @@ void MainWindow::defineActions() {
   createMenuFileAction(MI_ExportLayeredPSD,
                        QT_TRANSLATE_NOOP("MainWindow", "Export Layered PSD..."),
                        "");
+  createMenuFileAction(MI_ImportParticleCache,
+                       QT_TR_NOOP("Import Particle Cache..."), "");
+  createMenuFileAction(MI_InspectParticleCache,
+                       QT_TR_NOOP("Particle Cache Inspector..."), "");
+  createMenuFileAction(MI_ExportParticleCache,
+                       QT_TR_NOOP("Export Particle Cache..."), "");
+  createMenuFileAction(MI_BakeParticleEffect,
+                       QT_TR_NOOP("Bake Particle Effect..."), "");
 
   // Menu - Edit
 
@@ -2832,6 +2843,7 @@ void MainWindow::defineActions() {
 
   createMenuRenderAction(MI_OutputSettings, QT_TR_NOOP("&Output Settings..."),
                          "Ctrl+O", "output_settings");
+  createMenuRenderAction(MI_CheckScene, QT_TR_NOOP("&Check Scene..."), "", "");
   createMenuRenderAction(MI_PreviewSettings, QT_TR_NOOP("&Preview Settings..."),
                          "", "preview_settings");
   createMenuRenderAction(MI_Render, QT_TR_NOOP("&Render"), "Ctrl+Shift+R",
@@ -2892,6 +2904,10 @@ void MainWindow::defineActions() {
                PegbarGuideToggleAction ? 1 : 0, MenuViewCommandType);
   createMenuViewAction(MI_PegbarGuideSettings,
                        QT_TR_NOOP("Pegbar Guide Settings..."), "");
+  createToggle(MI_MotionArcs, QT_TR_NOOP("Motion Arcs"), "",
+               MotionArcsToggleAction ? 1 : 0, MenuViewCommandType);
+  createMenuViewAction(MI_MotionArcsSettings,
+                       QT_TR_NOOP("Motion Arcs Settings..."), "");
   createToggle(MI_ViewBBox, QT_TR_NOOP("&Raster Bounding Box"), "",
                ViewBBoxToggleAction ? 1 : 0, MenuViewCommandType);
   createToggle(MI_LightTable, QT_TR_NOOP("&Light Table"), "", false,
@@ -3079,6 +3095,8 @@ void MainWindow::defineActions() {
                           "", "");
   createMenuWindowsAction(MI_OpenArtLayerManager,
                           QT_TR_NOOP("Art Layer Manager"), "", "");
+  createMenuWindowsAction(MI_OpenSpacingChart, QT_TR_NOOP("Spacing Chart"), "",
+                          "");
   createMenuWindowsAction(MI_OpenSymbols, QT_TR_NOOP("Symbols"), "", "");
   createMenuWindowsAction(MI_OpenReferencePanel, QT_TR_NOOP("&Reference"), "",
                           "");
@@ -3321,6 +3339,10 @@ void MainWindow::defineActions() {
                              QT_TR_NOOP("Include All in Light Table"), "");
   createRightClickMenuAction(MI_ToggleColumnOutline,
                              QT_TR_NOOP("Toggle Outline View"), "");
+  createRightClickMenuAction(MI_ToggleColumnDepthExcluded,
+                             QT_TR_NOOP("Toggle Exclude from Depth"), "");
+  createRightClickMenuAction(MI_ToggleColumnColoursKept,
+                             QT_TR_NOOP("Toggle Keep Colours"), "");
   createRightClickMenuAction(MI_DeactivateUpperColumns,
                              QT_TR_NOOP("Hide Upper Columns"), "");
   createRightClickMenuAction(MI_SeparateColors,

@@ -7,6 +7,7 @@
 #include "toonz/tcolumnfx.h"
 #include "toonz/txsheet.h"
 #include "toonz/txshzeraryfxcolumn.h"
+#include "toonz/sceneresources.h"
 
 #include "fxdata.h"
 
@@ -90,6 +91,7 @@ void FxsData::setFxs(const QList<TFxP> &selectedFxs,
     TZeraryColumnFx *zerayFx = dynamic_cast<TZeraryColumnFx *>(fx);
     if (zerayFx) fx          = zerayFx->getZeraryFx();
     TFx *clonedFx            = fx->clone(false);
+    makeSceneFxResourcesAbsolute(clonedFx, xsh->getScene());
     TPointD pos;
     if (zerayFx)
       pos = zerayFx->getAttributes()->getDagNodePos();
@@ -111,6 +113,7 @@ void FxsData::setFxs(const QList<TFxP> &selectedFxs,
   for (it = columnIndexes.begin(); it != columnIndexes.end(); it++) {
     TXshColumn *col    = xsh->getColumn(*it);
     TXshColumn *newCol = col->clone();
+    makeSceneFxResourcesAbsolute(newCol->getFx(), xsh->getScene());
     newCol->getFx()->getAttributes()->setDagNodePos(
         col->getFx()->getAttributes()->getDagNodePos());
     m_columns.append(newCol);

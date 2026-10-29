@@ -257,6 +257,17 @@ public:
                           const TDimension &size, TRasterP templateRas,
                           double frame, const TRenderSettings &info);
 
+  // Map a pixel viewport to this FX's normalized computation request, including
+  // implicit affine resampling, filter support and bounding-box clipping.
+  // Performs no rendering or cache writes. False means no area reaches
+  // doCompute (empty bounds, inactive time or a disabled FX).
+  // Invalid affines or pixel coordinates throw TException before conversion
+  // to the renderer's integer grid.
+  bool prepareRenderRequest(double frame, const TRectD &requestedRect,
+                            const TRenderSettings &requestedSettings,
+                            TRectD &actualRect,
+                            TRenderSettings &actualSettings);
+
   virtual bool doGetBBox(double frame, TRectD &bBox,
                          const TRenderSettings &info) = 0;
 

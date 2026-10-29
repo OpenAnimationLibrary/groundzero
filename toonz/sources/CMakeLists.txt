@@ -911,11 +911,13 @@ set(CMAKE_C_FLAGS "${C_WARNINGS} ${CMAKE_C_FLAGS}")
 set(CMAKE_CXX_FLAGS "${CXX_WARNINGS} ${CMAKE_CXX_FLAGS}")
 
 include("${CMAKE_CURRENT_SOURCE_DIR}/../cmake/OpenEXR.cmake")
+include("${CMAKE_CURRENT_SOURCE_DIR}/../cmake/Partio.cmake")
 
 # BUILD_TESTS turns on every regression test below and in the subdirectories,
 # except the GLB/3D suites (tested in OT3D). Each suite keeps its own option
 # and can still be set alone.
 option(BUILD_TESTS "Build all regression tests and register them with ctest" OFF)
+option(BUILD_RELIABILITY_TESTS "Build raster, cache, save and selection regression tests" ${BUILD_TESTS})
 option(BUILD_CADMIUM_TESTS "Build Cadmium native adapter and workflow tests" ${BUILD_TESTS})
 option(BUILD_UI_PORT_TESTS "Build native UI behavior regression tests" ${BUILD_TESTS})
 option(BUILD_CELFX_TESTS "Build cel effect rendering and UI regression tests" ${BUILD_TESTS})
@@ -977,10 +979,33 @@ configure_file("${spdlog_SOURCE_DIR}/LICENSE"
 enable_testing()
 
 add_subdirectory(tnzcore)
+if(BUILD_RELIABILITY_TESTS)
+    # Declare consumers outside tnzcore's directory so they do not inherit
+    # its DLL export definitions on Windows.
+    add_executable(rasterallocation_test tnzcore/tests/rasterallocation_test.cpp)
+    target_link_libraries(rasterallocation_test PRIVATE tnzcore Qt${QT_VERSION_MAJOR}::Core)
+    add_test(NAME rasterallocation COMMAND rasterallocation_test)
+    add_executable(timagecache_test common/tcache/tests/timagecache_test.cpp)
+    target_link_libraries(timagecache_test PRIVATE tnzcore Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
+    add_test(NAME timagecache COMMAND timagecache_test)
+    add_executable(executor_submission_test common/tcore/tests/executor_submission_test.cpp)
+    target_link_libraries(executor_submission_test PRIVATE tnzcore Qt${QT_VERSION_MAJOR}::Core)
+    add_test(NAME executor_submission COMMAND executor_submission_test)
+    set_tests_properties(executor_submission PROPERTIES TIMEOUT 60)
+endif()
 if(BUILD_TGL_BATCH_TESTS)
     add_subdirectory(common/tgl/tests tglbatchtests)
 endif()
 add_subdirectory(tnzbase)
+if(BUILD_RELIABILITY_TESTS)
+    add_executable(trenderer_startup_test common/tfx/tests/trenderer_startup_test.cpp)
+    target_link_libraries(trenderer_startup_test PRIVATE tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core)
+    add_test(NAME trenderer_startup COMMAND trenderer_startup_test)
+    set_tests_properties(trenderer_startup PROPERTIES TIMEOUT 60)
+    add_executable(renderoutputbudget_test common/tfx/tests/renderoutputbudget_test.cpp)
+    target_include_directories(renderoutputbudget_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/common/tfx)
+    add_test(NAME renderoutputbudget COMMAND renderoutputbudget_test)
+endif()
 add_subdirectory(tnzext)
 add_subdirectory(toonzlib)
 add_subdirectory(toonzfarm/tfarm)

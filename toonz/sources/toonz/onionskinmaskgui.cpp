@@ -11,7 +11,90 @@
 
 #include "toonz/onionskinmask.h"
 
+#include <QActionGroup>
+#include <QHBoxLayout>
+#include <QLabel>
 #include <QMenu>
+#include <QSlider>
+#include <QWidgetAction>
+
+namespace {
+
+void setGhostFade(const GhostFade::Settings &settings) {
+  OnionSkinMask::setGhostFade(settings);
+  // Redraw the viewers
+  TApp::instance()->getCurrentOnionSkin()->notifyOnionSkinMaskChanged();
+}
+
+//------------------------------------------------------------------------------
+
+// The Ghost Fade submenu: an opacity slider for all the ghosts, their tint and
+// the step between the relative ghosts (doc/ghost_fade.md)
+void addGhostFadeMenu(QMenu *menu) {
+  QMenu *fadeMenu                    = menu->addMenu(QObject::tr("Ghost Fade"));
+  const GhostFade::Settings &current = OnionSkinMask::getGhostFade();
+
+  // Opacity slider, in percent
+  QWidget *sliderBox  = new QWidget(fadeMenu);
+  QHBoxLayout *layout = new QHBoxLayout(sliderBox);
+  layout->setContentsMargins(8, 4, 8, 4);
+  QLabel *label   = new QLabel(QObject::tr("Opacity:"), sliderBox);
+  QSlider *slider = new QSlider(Qt::Horizontal, sliderBox);
+  slider->setRange(0, int(GhostFade::maxOpacity * 100));
+  slider->setValue(int(current.opacity * 100 + 0.5));
+  slider->setMinimumWidth(120);
+  QLabel *value = new QLabel(QString("%1%").arg(slider->value()), sliderBox);
+  value->setMinimumWidth(value->fontMetrics().horizontalAdvance("200%"));
+  layout->addWidget(label);
+  layout->addWidget(slider, 1);
+  layout->addWidget(value);
+  QWidgetAction *sliderAction = new QWidgetAction(fadeMenu);
+  sliderAction->setDefaultWidget(sliderBox);
+  fadeMenu->addAction(sliderAction);
+  QObject::connect(slider, &QSlider::valueChanged, [value](int percent) {
+    value->setText(QString("%1%").arg(percent));
+    GhostFade::Settings settings = OnionSkinMask::getGhostFade();
+    settings.opacity             = percent / 100.0;
+    setGhostFade(settings);
+  });
+
+  // Tint
+  QAction *tint = fadeMenu->addAction(QObject::tr("Tint Ghosts"));
+  tint->setCheckable(true);
+  tint->setChecked(current.tint);
+  QObject::connect(tint, &QAction::triggered, [](bool checked) {
+    GhostFade::Settings settings = OnionSkinMask::getGhostFade();
+    settings.tint                = checked;
+    setGhostFade(settings);
+  });
+
+  // Step between the relative ghosts
+  QMenu *stepMenu      = fadeMenu->addMenu(QObject::tr("Ghost Every"));
+  QActionGroup *steps  = new QActionGroup(stepMenu);
+  const int stepList[] = {1, 2, 3, 4, 6, 8, 12};
+  for (int step : stepList) {
+    QAction *action = stepMenu->addAction(
+        step == 1 ? QObject::tr("Every Frame")
+                  : QObject::tr("Every %1 Frames").arg(step));
+    action->setCheckable(true);
+    action->setChecked(step == current.step);
+    action->setData(step);
+    steps->addAction(action);
+  }
+  QObject::connect(steps, &QActionGroup::triggered, [](QAction *action) {
+    GhostFade::Settings settings = OnionSkinMask::getGhostFade();
+    settings.step                = action->data().toInt();
+    setGhostFade(settings);
+  });
+
+  fadeMenu->addSeparator();
+  QAction *reset = fadeMenu->addAction(QObject::tr("Reset Ghost Fade"));
+  reset->setEnabled(!current.isDefault());
+  QObject::connect(reset, &QAction::triggered,
+                   [] { setGhostFade(GhostFade::Settings()); });
+}
+
+}  // namespace
 
 //=============================================================================
 // OnioniSkinMaskGUI::OnionSkinSwitcher
@@ -143,6 +226,7 @@ void OnioniSkinMaskGUI::addOnionSkinCommand(QMenu *menu, bool isFilmStrip) {
                       SLOT(clearMOS()));
       }
     }
+    addGhostFadeMenu(menu);
   } else {
     QAction *activateOnionSkin =
         menu->addAction(QString(QObject::tr("Activate Onion Skin")));

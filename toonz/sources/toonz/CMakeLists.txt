@@ -97,6 +97,7 @@ set(MOC_HEADERS
     scanpopup.h
     scenebrowser.h
     scenesettingspopup.h
+    scenecheckpane.h
     sceneviewer.h
     sceneviewercontextmenu.h
     scriptconsolepanel.h
@@ -127,12 +128,14 @@ set(MOC_HEADERS
     alignmentpane.h
     posespane.h
     referencepanel.h
+    purerefboard.h
     drawingsubstitutionpane.h
     substitutionsliderpane.h
     storyboardpane.h
     mastercontrollerspane.h
     offsetlayerspane.h
     artlayermanagerpane.h
+    spacingchartpane.h
     motionpresetspane.h
     riglibrarypane.h
     symbolspane.h
@@ -240,6 +243,7 @@ set(HEADERS
     viewerdraw.h
     aspectguides.h
     pegbarguides.h
+    motionarcs.h
     viewerpopup.h
     xshcellmover.h
     xsheetdragtool.h
@@ -335,6 +339,7 @@ set(SOURCES
     viewerdraw.cpp
     aspectguides.cpp
     pegbarguides.cpp
+    motionarcs.cpp
     viewerpane.cpp
     castselection.cpp
     cellselection.cpp
@@ -377,6 +382,7 @@ set(SOURCES
     scenebrowserversioncontrol.cpp
     sceneviewercontextmenu.cpp
     scenesettingspopup.cpp
+    scenecheckpane.cpp
     scriptconsolepanel.cpp
     brushpresetpanel.cpp
     toolpropertiespanel.cpp
@@ -390,6 +396,7 @@ set(SOURCES
     alignmentpane.cpp
     posespane.cpp
     referencepanel.cpp
+    purerefboard.cpp
     drawingsubstitutionpane.cpp
     drawingsubstitutionundo.cpp
     substitutionsliderpane.cpp
@@ -397,6 +404,7 @@ set(SOURCES
     mastercontrollerspane.cpp
     offsetlayerspane.cpp
     artlayermanagerpane.cpp
+    spacingchartpane.cpp
     createcolourartcommand.cpp
     motionpresetspane.cpp
     riglibrarypane.cpp
@@ -504,6 +512,7 @@ set(SOURCES
     textureatlasexport.cpp
     abrimport.cpp
     deformerbake.cpp
+    particlecachepopup.cpp
 # Tracker file
     dummyprocessor.cpp
     metnum.cpp
@@ -905,6 +914,16 @@ if(BUILD_SPINE_EXPORT_TESTS)
     add_test(NAME spineexport COMMAND spineexport_test)
 endif()
 
+option(BUILD_PUREREF_TESTS "Build the PureRef board import regression test" ${BUILD_TESTS})
+if(BUILD_PUREREF_TESTS)
+    add_executable(purerefboard_test tests/purerefboard_test.cpp purerefboard.cpp)
+    target_include_directories(purerefboard_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(purerefboard_test PRIVATE Qt${QT_VERSION_MAJOR}::Core
+        Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Widgets)
+    add_test(NAME purerefboard COMMAND purerefboard_test)
+    set_tests_properties(purerefboard PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
+endif()
+
 # Optional regression target for the helpers of Distribute to Layers / Frames
 # (distributeutil.h, header-only).
 option(BUILD_DISTRIBUTE_TESTS "Build the Distribute to Layers/Frames helpers test" ${BUILD_TESTS})
@@ -1149,6 +1168,14 @@ if(BUILD_UI_PORT_TESTS)
         endif()
     endforeach()
 
+endif()
+
+if(BUILD_RELIABILITY_TESTS)
+    add_executable(levelselection_test tests/levelselection_test.cpp)
+    target_include_directories(levelselection_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(levelselection_test PRIVATE
+        toonzlib tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core)
+    add_test(NAME levelselection COMMAND levelselection_test)
 endif()
 
 option(BUILD_PROCESS_PROGRESS_TESTS "Build the external tool wait test" ${BUILD_TESTS})

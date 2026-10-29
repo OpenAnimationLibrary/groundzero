@@ -160,6 +160,21 @@ bool ensureAnimatedSvgAction(QMenu *menu) {
   return false;
 }
 
+// Render > Check Scene, added after users could save their own menus: after
+// Output Settings, or at the end.
+void ensureCheckSceneAction(QMenu *renderMenu) {
+  QAction *check = CommandManager::instance()->getAction(MI_CheckScene);
+  if (!check || renderMenu->actions().contains(check)) return;
+
+  const QList<QAction *> actions = renderMenu->actions();
+  int outputIndex =
+      actions.indexOf(CommandManager::instance()->getAction(MI_OutputSettings));
+  if (outputIndex >= 0 && outputIndex + 1 < actions.size())
+    renderMenu->insertAction(actions.at(outputIndex + 1), check);
+  else
+    renderMenu->addAction(check);
+}
+
 bool menuContainsAction(QMenu *menu, QAction *target) {
   for (QAction *action : menu->actions()) {
     if (action == target) return true;
@@ -167,6 +182,22 @@ bool menuContainsAction(QMenu *menu, QAction *target) {
     if (subMenu && menuContainsAction(subMenu, target)) return true;
   }
   return false;
+}
+
+void ensureParticleCacheActions(QMenu *fileMenu) {
+  QMenu *menu = nullptr;
+  const QString title = QCoreApplication::translate("MainWindow", "Particle Caches");
+  for (QAction *action : fileMenu->actions()) {
+    QMenu *candidate = menuOfAction(action);
+    if (candidate && candidate->title() == title) { menu = candidate; break; }
+  }
+  for (CommandId id : {MI_ImportParticleCache, MI_InspectParticleCache,
+                       MI_BakeParticleEffect, MI_ExportParticleCache}) {
+    QAction *action = CommandManager::instance()->getAction(id);
+    if (!action || menuContainsAction(fileMenu, action)) continue;
+    if (!menu) menu = fileMenu->addMenu(title);
+    menu->addAction(action);
+  }
 }
 
 void ensurePanelAction(QMenu *windowsMenu, CommandId id) {
@@ -197,6 +228,7 @@ void ensureNewPanelActions(QMenu *windowsMenu) {
   ensurePanelAction(windowsMenu, MI_OpenArtLayerManager);
   ensurePanelAction(windowsMenu, MI_OpenCommandPalette);
   ensurePanelAction(windowsMenu, MI_OpenWidgetInspector);
+  ensurePanelAction(windowsMenu, MI_OpenSpacingChart);
 }
 
 }  // namespace
@@ -395,6 +427,8 @@ void StackedMenuBar::createMenuBarByName(const QString &roomName) {
       QMenu *subMenu = menuOfAction(action);
       if (subMenu && subMenu->title() == tr("Windows"))
         ensureNewPanelActions(subMenu);
+      if (subMenu && subMenu->title() == tr("File"))
+        ensureParticleCacheActions(subMenu);
     }
   }
 }
@@ -440,8 +474,10 @@ QMenuBar *StackedMenuBar::loadMenuBar(const TFilePath &fp) {
             // Older Windows profiles keep private menu XML files. Add the new
             // built-in command without replacing the user's customized menu.
             if (title == QStringLiteral("Help")) ensureHelpActions(menu);
+            if (title == QStringLiteral("File")) ensureParticleCacheActions(menu);
             if (title == QStringLiteral("File")) ensureAnimatedSvgAction(menu);
             if (title == QStringLiteral("Windows")) ensureNewPanelActions(menu);
+            if (title == QStringLiteral("Render")) ensureCheckSceneAction(menu);
             menuBar->addMenu(menu);
           } else {
             reader.raiseError(tr("Failed to load menu %1").arg(title));
@@ -675,6 +711,7 @@ QMenuBar *StackedMenuBar::createCleanupMenuBar() {
     addMenuItem(viewPartsMenu, MI_ViewTable);
     addMenuItem(viewPartsMenu, MI_FieldGuide);
     addMenuItem(viewPartsMenu, MI_PegbarGuide);
+    addMenuItem(viewPartsMenu, MI_MotionArcs);
     addMenuItem(viewPartsMenu, MI_SafeArea);
     viewPartsMenu->addMenu(AspectGuides::createMenu(viewPartsMenu));
     addMenuItem(viewPartsMenu, MI_ViewBBox);
@@ -826,6 +863,7 @@ QMenuBar *StackedMenuBar::createPltEditMenuBar() {
   addMenuItem(renderMenu, MI_SavePreviewedFrames);
   renderMenu->addSeparator();
   addMenuItem(renderMenu, MI_OutputSettings);
+  addMenuItem(renderMenu, MI_CheckScene);
   addMenuItem(renderMenu, MI_Render);
 
   //---Windows Menu
@@ -878,6 +916,7 @@ QMenuBar *StackedMenuBar::createPltEditMenuBar() {
     addMenuItem(viewPartsMenu, MI_ViewTable);
     addMenuItem(viewPartsMenu, MI_FieldGuide);
     addMenuItem(viewPartsMenu, MI_PegbarGuide);
+    addMenuItem(viewPartsMenu, MI_MotionArcs);
     addMenuItem(viewPartsMenu, MI_SafeArea);
     viewPartsMenu->addMenu(AspectGuides::createMenu(viewPartsMenu));
     addMenuItem(viewPartsMenu, MI_ViewColorcard);
@@ -1090,6 +1129,7 @@ QMenuBar *StackedMenuBar::createInknPaintMenuBar() {
     addMenuItem(viewPartsMenu, MI_ViewTable);
     addMenuItem(viewPartsMenu, MI_FieldGuide);
     addMenuItem(viewPartsMenu, MI_PegbarGuide);
+    addMenuItem(viewPartsMenu, MI_MotionArcs);
     addMenuItem(viewPartsMenu, MI_SafeArea);
     viewPartsMenu->addMenu(AspectGuides::createMenu(viewPartsMenu));
     addMenuItem(viewPartsMenu, MI_ViewColorcard);
@@ -1281,6 +1321,7 @@ QMenuBar *StackedMenuBar::createXsheetMenuBar() {
   addMenuItem(renderMenu, MI_SavePreviewedFrames);
   renderMenu->addSeparator();
   addMenuItem(renderMenu, MI_OutputSettings);
+  addMenuItem(renderMenu, MI_CheckScene);
   addMenuItem(renderMenu, MI_Render);
   renderMenu->addSeparator();
   addMenuItem(renderMenu, MI_Link);
@@ -1335,6 +1376,7 @@ QMenuBar *StackedMenuBar::createXsheetMenuBar() {
     addMenuItem(viewPartsMenu, MI_ViewTable);
     addMenuItem(viewPartsMenu, MI_FieldGuide);
     addMenuItem(viewPartsMenu, MI_PegbarGuide);
+    addMenuItem(viewPartsMenu, MI_MotionArcs);
     addMenuItem(viewPartsMenu, MI_SafeArea);
     viewPartsMenu->addMenu(AspectGuides::createMenu(viewPartsMenu));
     addMenuItem(viewPartsMenu, MI_ViewBBox);
@@ -1542,6 +1584,7 @@ QMenuBar *StackedMenuBar::createFullMenuBar() {
   }
   fileMenu->addSeparator();
   addMenuItem(fileMenu, MI_Preferences);
+  ensureParticleCacheActions(fileMenu);
   addMenuItem(fileMenu, MI_ShortcutPopup);
   fileMenu->addSeparator();
   addMenuItem(fileMenu, MI_ClearCacheFolder);
@@ -1868,6 +1911,7 @@ QMenuBar *StackedMenuBar::createFullMenuBar() {
   addMenuItem(renderMenu, MI_SavePreviewedFrames);
   renderMenu->addSeparator();
   addMenuItem(renderMenu, MI_OutputSettings);
+  addMenuItem(renderMenu, MI_CheckScene);
   addMenuItem(renderMenu, MI_Render);
   renderMenu->addSeparator();
   addMenuItem(renderMenu, MI_FastRender);
@@ -1887,6 +1931,8 @@ QMenuBar *StackedMenuBar::createFullMenuBar() {
   addMenuItem(viewMenu, MI_FieldGuide);
   addMenuItem(viewMenu, MI_PegbarGuide);
   addMenuItem(viewMenu, MI_PegbarGuideSettings);
+  addMenuItem(viewMenu, MI_MotionArcs);
+  addMenuItem(viewMenu, MI_MotionArcsSettings);
   addMenuItem(viewMenu, MI_ViewRuler);
   addMenuItem(viewMenu, MI_ViewGuide);
   viewMenu->addSeparator();
@@ -1971,6 +2017,7 @@ QMenuBar *StackedMenuBar::createFullMenuBar() {
   addMenuItem(windowsMenu, MI_OpenArtLayerManager);
   addMenuItem(windowsMenu, MI_OpenCommandPalette);
   addMenuItem(windowsMenu, MI_OpenWidgetInspector);
+  addMenuItem(windowsMenu, MI_OpenSpacingChart);
   addMenuItem(windowsMenu, MI_OpenSymbols);
   addMenuItem(windowsMenu, MI_OpenReferencePanel);
   addMenuItem(windowsMenu, MI_OpenCustomPanels);

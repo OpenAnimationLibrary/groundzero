@@ -3,6 +3,11 @@ name: MacOS Build
 on:
   pull_request:
   workflow_dispatch:
+    inputs:
+      benchmark_bundle:
+        description: Prepare an immutable scene benchmark bundle after validation
+        type: boolean
+        default: false
   workflow_call:
 
 permissions:
@@ -65,7 +70,8 @@ jobs:
         run: |
           export PATH="/usr/local/opt/ccache/libexec:$PATH"
           mkdir -p /Users/runner/.ccache
-      - uses: actions/cache@v5
+      - uses: actions/cache/restore@v5
+        id: compiler_cache
         with:
           path: /Users/runner/.ccache
           key: ${{ runner.os }}-${{ github.sha }}
@@ -91,7 +97,10 @@ jobs:
             -DQt5_DIR=$(brew --prefix qt@5)/lib/cmake/Qt5 \
             -DCMAKE_PREFIX_PATH=$(brew --prefix qt@5)/lib/cmake/Qt5 \
             -DOpenCV_DIR=$(brew --prefix opencv@4)/lib/cmake/opencv4 \
-            -DWITH_TRANSLATION=ON -DBUILD_UI_PORT_TESTS=ON
+            -DWITH_TRANSLATION=ON -DBUILD_UI_PORT_TESTS=ON \
+            -DBUILD_PARTICLE_CACHE_TESTS=ON -DBUILD_RELIABILITY_TESTS=ON \
+            -DBUILD_STREAM_TESTS=ON -DBUILD_SCENEBENCH_TESTS=ON \
+            -DBUILD_FXRENDER_TESTS=ON -DBUILD_FFMPEG_TESTS=ON -DBUILD_PSD_TESTS=ON
           ninja -j $(sysctl -n hw.ncpu) 2>&1 | tee -a "$GITHUB_WORKSPACE/build.log"
       - name: Test native UI features
         id: ui_tests
@@ -103,6 +112,55 @@ jobs:
       - name: Report native UI failures
         if: ${{ failure() && steps.ui_tests.outcome == 'failure' }}
         run: python3 ci-scripts/report_ui_tests.py toonz/build/ui-tests-output.txt
+
+      - name: Test particle cache integration
+        id: particle_tests
+        working-directory: toonz/build
+        run: |
+          set -o pipefail
+          DYLD_LIBRARY_PATH="$PWD/toonz/OpenToonz.app/Contents/MacOS" QT_QPA_PLATFORM=cocoa ctest --output-on-failure --output-junit particle-tests.xml --timeout 300 --no-tests=error -R '^particlecache_' 2>&1 | tee particle-tests-output.txt
+
+      - name: Report particle test failures
+        if: ${{ failure() && steps.particle_tests.outcome == 'failure' }}
+        run: python3 ci-scripts/report_particle_tests.py toonz/build/particle-tests-output.txt
+
+
+      # Leave application Python discovery unchanged; pin only the later
+      # harness and packaging interpreter.
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Verify benchmark harness contracts
+        run: python3 -m unittest discover -s ci-scripts/tests -p test_paired_benchmark.py
+
+      - name: Test reliability and performance invariants
+        working-directory: toonz/build
+        run: |
+          # Internal dylibs use @executable_path install names. The app build
+          # copies them beside its executable, while CTest executables live in
+          # several build subdirectories. Resolve all tests against that same
+          # current-build library set without changing the packaged app.
+          runtime_lib_dir="$PWD/toonz/OpenToonz.app/Contents/MacOS"
+          for library in libtnzcore.dylib libtnzbase.dylib libtoonzlib.dylib; do
+            if [ ! -f "$runtime_lib_dir/$library" ]; then
+              echo "::error::The built app is missing runtime library $library"
+              exit 1
+            fi
+          done
+          export DYLD_LIBRARY_PATH="$runtime_lib_dir"
+          python3 ../../ci-scripts/run_regression_tests.py rasterallocation timagecache levelselection save_transaction movierenderqueue levelupdater_abort trenderer_startup renderoutputbudget executor_submission compressed_stream scenebench fxrender ffmpeg_public tiio_ffmpeg tiio_psd
+
+      - name: Upload reliability diagnostics
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: macos-reliability-results
+          path: |
+            toonz/build/reliability-tests.xml
+            toonz/build/stdfx/fxrender-output
+            toonz/build/image/ffmpeg-test-output
+          if-no-files-found: ignore
       # Show the errors on the run (summary and annotations) without opening
       # the full log, as the Linux and Windows builds do
       - name: Report build errors
@@ -128,10 +186,20 @@ jobs:
           grep -vE ': (fatal )?error:' errors.txt | head -10 | while IFS= read -r line; do
             echo "::error::${line}"
           done
+      # Keep valid compiled objects even when an integration test fails.
+      - name: Save compiler cache
+        if: ${{ always() && steps.compiler_cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v5
+        with:
+          path: /Users/runner/.ccache
+          key: ${{ runner.os }}-${{ github.sha }}
+
       - name: Introduce Libraries and Stuff
         run: |
           cd toonz/build/toonz
           cp -pr ../../../stuff OpenToonz.app/portablestuff
+          mkdir -p OpenToonz.app/Contents/Resources/licenses
+          cp ../licenses/Partio-LICENSE.txt OpenToonz.app/Contents/Resources/licenses/
           /usr/local/opt/qt@5/bin/macdeployqt OpenToonz.app -verbose=0 -always-overwrite \
             -executable=OpenToonz.app/Contents/MacOS/lzocompress \
             -executable=OpenToonz.app/Contents/MacOS/lzodecompress \
@@ -151,6 +219,24 @@ jobs:
               fi
             done
           done
+      - name: Prepare optional benchmark bundle
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.benchmark_bundle }}
+        run: |
+          python3 ci-scripts/benchmark_bundle.py --build toonz/build --platform macos \
+            --qt-version "$(/usr/local/opt/qt@5/bin/qmake -query QT_VERSION)" \
+            --macdeployqt /usr/local/opt/qt@5/bin/macdeployqt \
+            --revision "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID" \
+            --run-attempt "$GITHUB_RUN_ATTEMPT" --output benchmark-input.tar.gz
+
+      - name: Upload optional benchmark bundle
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.benchmark_bundle }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: benchmark-input-macos
+          path: benchmark-input.tar.gz
+          compression-level: 0
+          if-no-files-found: error
+
       - name: Create Artifact
         run: |
           cd toonz/build/toonz
@@ -167,8 +253,46 @@ jobs:
             sleep 5
           done
           echo "DMG created successfully."
-      - uses: actions/upload-artifact@v6
+      # A transient artifact-service DNS failure must not throw away a built
+      # DMG. Retry only delivery, with bounded backoff; the last attempt is
+      # required, so a package that never uploads still fails the job.
+      - name: Upload macOS package
+        id: upload_macos
+        uses: actions/upload-artifact@v6
+        timeout-minutes: 5
+        continue-on-error: true
         with:
           name: Opentoonz-${{ runner.os }}-${{ github.sha }}
           path: toonz/build/toonz/OpenToonz.dmg
+          if-no-files-found: error
+          compression-level: 0
+          overwrite: true
+      - name: Wait before retrying macOS upload
+        if: ${{ !cancelled() && steps.upload_macos.outcome == 'failure' }}
+        run: sleep 10
+      - name: Retry macOS package upload
+        id: upload_macos_retry
+        if: ${{ !cancelled() && steps.upload_macos.outcome == 'failure' }}
+        uses: actions/upload-artifact@v6
+        timeout-minutes: 5
+        continue-on-error: true
+        with:
+          name: Opentoonz-${{ runner.os }}-${{ github.sha }}
+          path: toonz/build/toonz/OpenToonz.dmg
+          if-no-files-found: error
+          compression-level: 0
+          overwrite: true
+      - name: Wait before final macOS upload attempt
+        if: ${{ !cancelled() && steps.upload_macos_retry.outcome == 'failure' }}
+        run: sleep 30
+      - name: Final macOS package upload attempt
+        if: ${{ !cancelled() && steps.upload_macos_retry.outcome == 'failure' }}
+        uses: actions/upload-artifact@v6
+        timeout-minutes: 5
+        with:
+          name: Opentoonz-${{ runner.os }}-${{ github.sha }}
+          path: toonz/build/toonz/OpenToonz.dmg
+          if-no-files-found: error
+          compression-level: 0
+          overwrite: true
 

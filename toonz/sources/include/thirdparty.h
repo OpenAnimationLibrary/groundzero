@@ -38,6 +38,9 @@ DVAPI void setFFmpegTimeout(int secs);
 
 DVAPI void runFFmpeg(QProcess &process, const QStringList &arguments);
 DVAPI void runFFprobe(QProcess &process, const QStringList &arguments);
+// Preserve every decoded frame across old and current FFmpeg releases.
+// Queries the configured executable once per file revision; throws on failure.
+DVAPI QStringList getFFmpegFrameSyncArgs();
 
 DVAPI bool checkPdfRenderer();
 DVAPI QString autodetectPdfRenderer();

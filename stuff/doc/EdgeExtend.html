@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Edge Extend</title></head>
+<body>
+<h1>Edge Extend</h1>
+<p>Push the colour of a drawing's solid interior out over its antialiased
+edge, so later keys, blurs and colour corrections do not pick up the edge's mix
+with an old background (a dark fringe, a halo). Add Edge Extend from the Matte
+category and connect the image to Source.</p>
+<p><b>Radius</b> is how far from the interior colours are replaced, in pixels at
+100%. Pixels at least as opaque as <b>Solid From Alpha</b> are interior and
+keep their colour; the others within the radius take the colour of the nearest
+interior pixel, at their own alpha. With <b>Extend Alpha</b> on, the band
+around the drawing becomes opaque too, for effects that need colour beyond the
+edge.</p>
+<p>Every value can be animated. 8-bit, 16-bit and floating-point images are
+supported, and the result does not depend on render tiles.</p>
+</body>
+</html>

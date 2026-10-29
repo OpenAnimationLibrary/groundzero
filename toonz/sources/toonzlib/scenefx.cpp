@@ -6,6 +6,7 @@
 #include "tmacrofx.h"
 #include "toutputproperties.h"
 #include "tparamcontainer.h"
+#include "tdoubleparam.h"
 
 // TnzLib includes
 #include "toonz/txsheet.h"
@@ -24,6 +25,7 @@
 #include "toonz/tcamera.h"
 #include "toonz/toonzscene.h"
 #include "toonz/sceneproperties.h"
+#include "toonz/multiplanedepth.h"
 #include "toonz/plasticdeformerfx.h"
 #include "toonz/stage.h"
 #include "toonz/preferences.h"
@@ -36,8 +38,11 @@
 #include "../stdfx/globalcontrollablefx.h"
 
 #include "toonz/scenefx.h"
+#include "toonz/sceneresources.h"
 
 #include <QList>
+
+#include <cmath>
 
 /*
   TODO: Some parts of the following render-tree building procedure should be
@@ -601,6 +606,7 @@ public:
   TXsheet *m_xsh;
   TAffine m_cameraAff;
   double m_cameraZ;
+  double m_cameraFocusZ, m_cameraAperture;
   double m_frame;
   int m_whichLevels;
   bool m_isPreview;
@@ -636,6 +642,7 @@ public:
   TFxP getFxWithColumnMovements(const PlacedFx &pf);
 
   bool addPlasticDeformerFx(PlacedFx &pf);
+  void addDepthFx(PlacedFx &pf, const TXshColumn *column) const;
 };
 
 //===================================================================
@@ -658,6 +665,9 @@ FxBuilder::FxBuilder(ToonzScene *scene, TXsheet *xsh, double frame,
   TStageObject *camera = m_xsh->getStageObject(cameraId);
   m_cameraAff          = camera->getPlacement(m_frame);
   m_cameraZ            = camera->getZ(m_frame);
+  m_cameraFocusZ = camera->getParam(TStageObject::T_FocusZ)->getValue(m_frame);
+  m_cameraAperture =
+      camera->getParam(TStageObject::T_Aperture)->getValue(m_frame);
 }
 
 //-------------------------------------------------------------------
@@ -749,6 +759,44 @@ bool FxBuilder::addPlasticDeformerFx(PlacedFx &pf) {
 
 //-------------------------------------------------------------------
 
+// The Multiplane Depth of the scene (toonz/multiplanedepth.h): blurs and hazes
+// a placed column by its Z. Only the columns of the top xsheet are: a
+// sub-xsheet is one plane, at the Z of its column.
+void FxBuilder::addDepthFx(PlacedFx &pf, const TXshColumn *column) const {
+  // Nor the textures of particles, which the particles place themselves
+  if (!pf.m_fx || !column || column->isDepthExcluded() || !m_scene ||
+      m_particleDescendentCount > 0)
+    return;
+  const MultiplaneDepth::Settings &depth =
+      m_scene->getProperties()->getMultiplaneDepth();
+  if (!depth.enabled || m_xsh != m_scene->getTopXsheet()) return;
+
+  const MultiplaneDepth::Column c = MultiplaneDepth::evaluate(
+      depth, pf.m_z, m_cameraFocusZ, m_cameraAperture);
+  if (c.hasBlur()) {
+    // The blur is the one seen by the camera: divide it by the column's scale
+    // on screen, which its placement and the camera give
+    const TAffine onScreen =
+        (m_cameraAff * TScale((1000 + m_cameraZ) / 1000)).inv() * pf.m_aff;
+    const double local =
+        MultiplaneDepth::localBlur(c.blur, std::sqrt(std::abs(onScreen.det())));
+    // The standard Blur FX, when the FX plugins are loaded
+    TFxP blur = local > 1e-6 ? TFx::create("STD_blurFx") : TFxP();
+    TDoubleParamP value =
+        blur ? TDoubleParamP(blur->getParams()->getParam("value"))
+             : TDoubleParamP();
+    if (value && blur->connect("Source", pf.m_fx.getPointer())) {
+      value->setDefaultValue(local);
+      pf.m_fx = blur;
+    }
+  }
+  if (c.hasColor())
+    pf.m_fx = TFxUtil::makeColumnDepth(pf.m_fx, c.haze, c.desaturation,
+                                       depth.hazeColor);
+}
+
+//-------------------------------------------------------------------
+
 PlacedFx FxBuilder::makePF(TFx *fx) {
   if (!fx) return PlacedFx();
 
@@ -760,6 +808,10 @@ PlacedFx FxBuilder::makePF(TFx *fx) {
     return makePF(zcfx);
   else if (TXsheetFx *xsfx = dynamic_cast<TXsheetFx *>(fx))
     return makePF(xsfx);
+  // File-backed zerary generators can render with no artwork connected. Their
+  // first optional port must not turn them into an empty unary filter.
+  else if (fx->isZerary() && dynamic_cast<SceneFxResource *>(fx))
+    return makePFfromGenericFx(fx);
   else if (fx->getInputPortCount() == 1)
     return makePFfromUnaryFx(fx);
   else
@@ -993,6 +1045,7 @@ PlacedFx FxBuilder::makePF(TLevelColumnFx *lcfx) {
     if (pf.m_fx && !effect.isIdentity())
       pf.m_fx = TFxUtil::makeColumnColorEffect(pf.m_fx, effect.m, effect.c);
 
+    addDepthFx(pf, column);
     return pf;
   } else
     return PlacedFx();
@@ -1052,6 +1105,7 @@ PlacedFx FxBuilder::makePF(TZeraryColumnFx *zcfx) {
       fx->clone(false);  // Detach the fx with a clone. Why? It's typically done
                          // to build fx connections in the render-tree freely.
                          // Here, it's used just for particles, I guess...
+  resolveSceneFxResources(pf.m_fx.getPointer(), m_scene);
 
   // Deal with input sub-trees
   for (int i = 0; i < fx->getInputPortCount(); ++i) {
@@ -1064,6 +1118,7 @@ PlacedFx FxBuilder::makePF(TZeraryColumnFx *zcfx) {
       // this causes a connection with the effect and a level also with empty
       // cells.
       if (fx->getFxType() == "STD_particlesFx" ||
+          fx->getFxType() == "STD_particleCacheFx" ||
           fx->getFxType() == "STD_iwa_TiledParticlesFx" ||
           fx->getFxType() == "STD_tiledParticlesFx") {
         m_particleDescendentCount++;
@@ -1109,9 +1164,10 @@ PlacedFx FxBuilder::makePF(TZeraryColumnFx *zcfx) {
   }
 
   // Add the column placement NaAffineFx
-  if (getColumnPlacement(pf, m_xsh, m_frame, pf.m_columnIndex, m_isPreview))
+  if (getColumnPlacement(pf, m_xsh, m_frame, pf.m_columnIndex, m_isPreview)) {
+    addDepthFx(pf, zcfx->getColumn());
     return pf;
-  else
+  } else
     return PlacedFx();
 }
 
@@ -1165,11 +1221,13 @@ PlacedFx FxBuilder::makePFfromUnaryFx(TFx *fx) {
         fx->getAttributes()->isSpeedAware() ||  // In the 'speedAware' case,
                                                 // we'll alter the fx's
                                                 // attributes (see below)
+        dynamic_cast<SceneFxResource *>(fx) ||
         dynamic_cast<TMacroFx *>(fx))  // As for macros... I'm not sure. Not
                                        // even who wrote this *understood*
     // why - it just solved a bug  X( . Investigate!
     {
       fx = fx->clone(false);
+      resolveSceneFxResources(fx, m_scene);
       if (!fx->connect(fx->getInputPortName(0), pf.m_fx.getPointer()))
         assert(!"Could not connect ports!");
     }
@@ -1249,11 +1307,21 @@ PlacedFx FxBuilder::makePFfromGenericFx(TFx *fx) {
   // will have an NaAffineFx
   // injected just before its actual input fx.
   pf.m_fx = fx->clone(false);
+  resolveSceneFxResources(pf.m_fx.getPointer(), m_scene);
 
   bool firstInput = true;
 
   int m = fx->getInputPortCount();
-  for (int i = 0; i < m; ++i) {
+  // Standalone caches retain the native generator's placement anchor separately
+  // from their artwork. Visit it first, as the native input order did.
+  int placementIndex = -1;
+  if (fx->isZerary() && dynamic_cast<SceneFxResource *>(fx))
+    for (int i = 0; i < m; ++i)
+      if (fx->getInputPortName(i) == "Placement1") placementIndex = i;
+  for (int ordinal = 0; ordinal < m; ++ordinal) {
+    const int i = placementIndex < 0 ? ordinal
+                  : ordinal == 0 ? placementIndex
+                  : ordinal <= placementIndex ? ordinal - 1 : ordinal;
     if (TFxP inputFx = fx->getInputPort(i)->getFx()) {
       PlacedFx inputPF;
       if (fx->getFxType() == "STD_iwa_FlowPaintBrushFx") {

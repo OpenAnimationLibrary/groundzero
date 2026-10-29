@@ -51,6 +51,23 @@ protected slots:
   void onNameChanged();
   void onClearButtonClicked();
 };
+//! The scene's Multiplane Depth: depth of field and haze from the Z of the
+//! columns (toonz/multiplanedepth.h).
+class MultiplaneDepthPopup final : public QDialog {
+  Q_OBJECT
+  DVGui::CheckBox *m_enabled;
+  DVGui::DoubleLineEdit *m_blurPerUnit, *m_maxBlur, *m_hazeDensity,
+      *m_desaturation;
+  DVGui::ColorField *m_hazeColor;
+
+public:
+  MultiplaneDepthPopup(QWidget *parent);
+  void updateContents();
+protected slots:
+  void onChanged();
+  void onColorChanged(const TPixel32 &, bool);
+};
+
 //=============================================================================
 // SceneSettingsPopup
 //-----------------------------------------------------------------------------
@@ -76,6 +93,7 @@ class SceneSettingsPopup final : public QDialog {
 
   CellMarksPopup *m_cellMarksPopup;
   ColorFiltersPopup *m_colorFiltersPopup;
+  MultiplaneDepthPopup *m_depthPopup;
 
   DVGui::DoubleLineEdit *m_colorSpaceGammaFld;
 
@@ -105,6 +123,7 @@ public slots:
 
   void onEditCellMarksButtonClicked();
   void onEditColorFiltersButtonClicked();
+  void onEditDepthButtonClicked();
 };
 
 #endif  // SCENESETTINGSPOPUP_H

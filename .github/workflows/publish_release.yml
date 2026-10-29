@@ -62,7 +62,8 @@ jobs:
         run: |
           set -eu
           mkdir -p out
-          base="OpenToonz-groundzero-${TAG}"
+          # Keep build tags intact while shortening their asset filenames.
+          base="OpenToonz-groundzero-${TAG#build-}"
           for d in dl/*/*/; do
             name=$(basename "$d")
             case "$name" in

@@ -1303,6 +1303,8 @@ QString PreferencesPopup::getUIString(PreferencesItemId id) {
       {compressSceneFiles, tr("Compress Scene Files (smaller, loads faster; "
                               "older versions can't open them)")},
       {sceneNumberingEnabled, tr("Add Info water mark in Rendered Frames")},
+      {checkSceneBeforeRendering,
+       tr("Check the Scene before Rendering and Ask when It Has Errors")},
       {watchFileSystemEnabled,
        tr("Watch File System and Update File Browser Automatically")},
       //{ projectRoot,               tr("") },
@@ -2610,6 +2612,7 @@ QWidget* PreferencesPopup::createPreviewPage() {
   QGridLayout* renderLay = insertGroupBox(tr("Render"), lay);
   {
     insertUI(sceneNumberingEnabled, renderLay);
+    insertUI(checkSceneBeforeRendering, renderLay);
     insertUI(taskchunksize, renderLay);
     renderLay->addWidget(
         new QLabel(tr("Please indicate where you would like exports from Fast "

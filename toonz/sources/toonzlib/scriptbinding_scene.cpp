@@ -17,6 +17,7 @@
 #include "toonz/txshcell.h"
 #include "toonz/txshcolumn.h"
 #include "toonz/levelset.h"
+#include "toonz/scenechecker.h"
 #include "toonz/tstageobject.h"
 #include "toonz/tstageobjecttree.h"
 
@@ -309,6 +310,35 @@ QJSValue Scene::renderFrame(int frame) {
   TImageP img = Renderer::renderFrameImage(m_scene, frame);
   if (!img) return throwError(tr("Render failed"));
   return create(engine(), new Image(img));
+}
+
+QJSValue Scene::check(const QJSValue &options) {
+  SceneChecker::Options checkOptions;
+  if (options.isObject())
+    checkOptions.unusedStyles = options.property("unusedStyles").toBool();
+  else if (!options.isUndefined() && !options.isNull())
+    return throwError(tr("Bad argument (%1): expected an object such as "
+                         "{unusedStyles: true}")
+                          .arg(options.toString()));
+  std::vector<SceneChecker::Issue> issues =
+      SceneChecker::check(m_scene, checkOptions);
+  QJSValue result = engine()->newArray((uint)issues.size());
+  for (int i = 0; i < (int)issues.size(); ++i) {
+    const SceneChecker::Issue &issue = issues[i];
+    QJSValue item                    = engine()->newObject();
+    item.setProperty("severity", SceneChecker::severityName(issue.severity));
+    item.setProperty("kind", SceneChecker::kindName(issue.kind));
+    item.setProperty("title", SceneChecker::kindTitle(issue.kind));
+    item.setProperty("text", issue.text);
+    item.setProperty("column", issue.column);
+    item.setProperty("row", issue.row);
+    item.setProperty("rowCount", issue.rowCount);
+    item.setProperty("level", QString::fromStdWString(issue.levelName));
+    item.setProperty("styleId", issue.styleId);
+    item.setProperty("subXsheet", QString::fromStdWString(issue.subXsheet));
+    result.setProperty(i, item);
+  }
+  return result;
 }
 
 QJSValue Scene::getStageObject(const QString &name) {

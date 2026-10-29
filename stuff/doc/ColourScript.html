@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Colour Script</title></head>
+<body>
+<h1>Colour Script</h1>
+<p>Shift the colours of a whole scene for the colour script of a film: dusk,
+night, a flashback, a mood that changes across the cuts. Add Colour Script from
+the Image Adjust category and place it between the Xsheet node and the Output,
+so that every column goes through it, or after only some columns.</p>
+<h2>Shift</h2>
+<p><b>Hue</b> turns the hues by an angle, from -180 to 180 degrees.
+<b>Saturation</b> goes from -100 (grey) through 0 (unchanged) to 100 (fully
+saturated): in between, each colour's saturation moves that share of the way.
+<b>Lightness</b> works the same way from black to white. Every value can be
+animated: keys at the first frame of each cut give each cut its own look, and
+keys further apart blend from one look into another.</p>
+<h2>How the colours change</h2>
+<p>For Toonz Vector and Toonz Raster levels the shift is made on a copy of the
+palette when the column is rendered: every colour of every style changes, the
+level's own palette is never modified, and lines and fills stay as clean as
+they are. Full-colour levels (images, raster drawings) have no palette, so
+their pixels are shifted instead. The viewer shows the shift of a Colour
+Script after the Xsheet node on the palette levels when the preference that
+shows the Colour Override in the viewer is on.</p>
+<h2>Keep</h2>
+<p><b>Keep Styles</b> is a prefix: the styles whose name starts with it keep
+their colours, so a character can stay on model while the set around it changes
+(name its styles "KEEP Skin", "KEEP Hair", and type KEEP). To keep a whole
+column, right-click its header and choose <b>Toggle Keep Colours</b>.</p>
+<h2>Notes</h2>
+<p>A Colour Script after another one shifts the colours again. Presets of the
+Fx (right-click the node, Save As Preset) keep a look to reuse in other
+scenes. The math is the same for 8-bit, 16-bit and floating-point renders.</p>
+</body>
+</html>

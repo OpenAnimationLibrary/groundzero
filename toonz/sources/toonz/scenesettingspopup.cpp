@@ -35,6 +35,7 @@
 #include <QMainWindow>
 #include <QPainter>
 #include <QPushButton>
+#include <QSignalBlocker>
 
 using namespace DVGui;
 
@@ -123,6 +124,42 @@ public:
 
   QString getHistoryString() override {
     return UiTranslations::text(QObject::tr("Edit Color Filter #%1")).arg(QString::number(m_id));
+  }
+};
+
+//-----------------------------------------------------------------------------
+
+class EditMultiplaneDepthUndo final : public TUndo {
+  MultiplaneDepth::Settings m_before, m_after;
+  MultiplaneDepthPopup *m_popup;
+
+public:
+  EditMultiplaneDepthUndo(const MultiplaneDepth::Settings &after,
+                          MultiplaneDepthPopup *popup)
+      : m_after(after), m_popup(popup) {
+    m_before = TApp::instance()
+                   ->getCurrentScene()
+                   ->getScene()
+                   ->getProperties()
+                   ->getMultiplaneDepth();
+  }
+
+  void set(const MultiplaneDepth::Settings &settings) const {
+    TSceneHandle *sceneHandle = TApp::instance()->getCurrentScene();
+    sceneHandle->getScene()->getProperties()->setMultiplaneDepth(settings);
+    m_popup->updateContents();
+    sceneHandle->setDirtyFlag(true);
+    sceneHandle->notifySceneChanged();
+  }
+
+  void undo() const override { set(m_before); }
+
+  void redo() const override { set(m_after); }
+
+  int getSize() const override { return sizeof *this; }
+
+  QString getHistoryString() override {
+    return QObject::tr("Edit Multiplane Depth");
   }
 };
 
@@ -273,6 +310,124 @@ void CellMarksPopup::onNameChanged() {
   }
 
   EditCellMarkUndo *undo = new EditCellMarkUndo(id, nameF->text());
+  undo->redo();
+  TUndoManager::manager()->add(undo);
+}
+
+//=============================================================================
+// MultiplaneDepthPopup
+//-----------------------------------------------------------------------------
+
+MultiplaneDepthPopup::MultiplaneDepthPopup(QWidget *parent) : QDialog(parent) {
+  setWindowTitle(tr("Multiplane Depth Settings"));
+
+  m_enabled = new DVGui::CheckBox(
+      tr("Blur and Haze the Columns by Their Distance"), this);
+  m_blurPerUnit  = new DVGui::DoubleLineEdit(this, 0);
+  m_maxBlur      = new DVGui::DoubleLineEdit(this, 0);
+  m_hazeDensity  = new DVGui::DoubleLineEdit(this, 0);
+  m_desaturation = new DVGui::DoubleLineEdit(this, 0);
+  for (DVGui::DoubleLineEdit *field :
+       {m_blurPerUnit, m_maxBlur, m_hazeDensity, m_desaturation}) {
+    field->setRange(0.0, 1000.0);
+    field->setDecimals(4);
+  }
+  m_hazeColor = new ColorField(this, false, TPixel32::White, 40);
+  m_hazeColor->hideChannelsFields(true);
+
+  m_blurPerUnit->setToolTip(
+      tr("The blur for each unit of Z between a column and the camera's "
+         "Focus Z"));
+  m_hazeDensity->setToolTip(
+      tr("How fast the columns behind the focus fade into the haze colour"));
+  m_desaturation->setToolTip(
+      tr("How fast the columns behind the focus lose their saturation"));
+
+  QGridLayout *layout = new QGridLayout();
+  layout->setContentsMargins(10, 10, 10, 10);
+  layout->setHorizontalSpacing(5);
+  layout->setVerticalSpacing(10);
+  int row = 0;
+  layout->addWidget(m_enabled, row++, 0, 1, 2);
+  auto addRow = [&](const QString &label, QWidget *field) {
+    layout->addWidget(new QLabel(label, this), row, 0,
+                      Qt::AlignRight | Qt::AlignVCenter);
+    layout->addWidget(field, row++, 1);
+  };
+  addRow(tr("Blur per Unit:"), m_blurPerUnit);
+  addRow(tr("Maximum Blur:"), m_maxBlur);
+  addRow(tr("Haze Density:"), m_hazeDensity);
+  addRow(tr("Haze Color:"), m_hazeColor);
+  addRow(tr("Desaturation per Unit:"), m_desaturation);
+  QLabel *note = new QLabel(
+      tr("The camera's Focus Z and Aperture channels set the focus; Toggle "
+         "Exclude from Depth in a column's menu keeps it sharp."),
+      this);
+  note->setWordWrap(true);
+  layout->addWidget(note, row++, 0, 1, 2);
+  layout->setColumnStretch(1, 1);
+  setLayout(layout);
+  updateContents();
+
+  connect(m_enabled, SIGNAL(stateChanged(int)), this, SLOT(onChanged()));
+  for (DVGui::DoubleLineEdit *field :
+       {m_blurPerUnit, m_maxBlur, m_hazeDensity, m_desaturation})
+    connect(field, SIGNAL(editingFinished()), this, SLOT(onChanged()));
+  connect(m_hazeColor, SIGNAL(colorChanged(const TPixel32 &, bool)), this,
+          SLOT(onColorChanged(const TPixel32 &, bool)));
+}
+
+void MultiplaneDepthPopup::updateContents() {
+  const MultiplaneDepth::Settings &d = TApp::instance()
+                                           ->getCurrentScene()
+                                           ->getScene()
+                                           ->getProperties()
+                                           ->getMultiplaneDepth();
+  // Not an edit: no undo from the fields being refreshed
+  QSignalBlocker blocker(m_enabled);
+  m_enabled->setChecked(d.enabled);
+  m_blurPerUnit->setValue(d.blurPerUnit);
+  m_maxBlur->setValue(d.maxBlur);
+  m_hazeDensity->setValue(d.hazeDensity);
+  m_desaturation->setValue(d.desaturationPerUnit);
+  m_hazeColor->setColor(TPixel32(int(d.hazeColor[0] * 255 + 0.5),
+                                 int(d.hazeColor[1] * 255 + 0.5),
+                                 int(d.hazeColor[2] * 255 + 0.5)));
+}
+
+void MultiplaneDepthPopup::onChanged() {
+  MultiplaneDepth::Settings d = TApp::instance()
+                                    ->getCurrentScene()
+                                    ->getScene()
+                                    ->getProperties()
+                                    ->getMultiplaneDepth();
+  const MultiplaneDepth::Settings before = d;
+  d.enabled                              = m_enabled->isChecked();
+  d.blurPerUnit                          = m_blurPerUnit->getValue();
+  d.maxBlur                              = m_maxBlur->getValue();
+  d.hazeDensity                          = m_hazeDensity->getValue();
+  d.desaturationPerUnit                  = m_desaturation->getValue();
+  d.clamp();
+  if (d == before) return;
+  EditMultiplaneDepthUndo *undo = new EditMultiplaneDepthUndo(d, this);
+  undo->redo();
+  TUndoManager::manager()->add(undo);
+}
+
+void MultiplaneDepthPopup::onColorChanged(const TPixel32 &color,
+                                          bool isDragging) {
+  if (isDragging) return;
+  MultiplaneDepth::Settings d = TApp::instance()
+                                    ->getCurrentScene()
+                                    ->getScene()
+                                    ->getProperties()
+                                    ->getMultiplaneDepth();
+  const MultiplaneDepth::Settings before = d;
+  d.hazeColor[0]                         = color.r / 255.0;
+  d.hazeColor[1]                         = color.g / 255.0;
+  d.hazeColor[2]                         = color.b / 255.0;
+  if (d == before) return;
+  EditMultiplaneDepthUndo *undo = new EditMultiplaneDepthUndo(d, this);
   undo->redo();
   TUndoManager::manager()->add(undo);
 }
@@ -460,7 +615,8 @@ void ColorFiltersPopup::onClearButtonClicked() {
 SceneSettingsPopup::SceneSettingsPopup()
     : QDialog(TApp::instance()->getMainWindow())
     , m_cellMarksPopup(nullptr)
-    , m_colorFiltersPopup(nullptr) {
+    , m_colorFiltersPopup(nullptr)
+    , m_depthPopup(nullptr) {
   setWindowTitle(tr("Scene Settings"));
   setObjectName("SceneSettings");
   TSceneProperties *sprop = getProperties();
@@ -507,6 +663,9 @@ SceneSettingsPopup::SceneSettingsPopup()
 
   QPushButton *editColorFiltersButton =
       new QPushButton(tr("Edit Column Color Filters"), this);
+
+  QPushButton *editDepthButton =
+      new QPushButton(tr("Edit Multiplane Depth"), this);
 
   // layout
   QGridLayout *mainLayout = new QGridLayout();
@@ -558,6 +717,12 @@ SceneSettingsPopup::SceneSettingsPopup()
                           Qt::AlignRight | Qt::AlignVCenter);
     mainLayout->addWidget(editCellMarksButton, 7, 1, 1, 4,
                           Qt::AlignLeft | Qt::AlignVCenter);
+
+    // depth of field and haze
+    mainLayout->addWidget(new QLabel(tr("Depth:"), this), 8, 0,
+                          Qt::AlignRight | Qt::AlignVCenter);
+    mainLayout->addWidget(editDepthButton, 8, 1, 1, 4,
+                          Qt::AlignLeft | Qt::AlignVCenter);
   }
   mainLayout->setColumnStretch(0, 0);
   mainLayout->setColumnStretch(1, 0);
@@ -602,6 +767,8 @@ SceneSettingsPopup::SceneSettingsPopup()
   // Cell Marks
   ret = ret && connect(editCellMarksButton, SIGNAL(clicked()), this,
                        SLOT(onEditCellMarksButtonClicked()));
+  ret = ret && connect(editDepthButton, SIGNAL(clicked()), this,
+                       SLOT(onEditDepthButtonClicked()));
   assert(ret);
 }
 
@@ -658,6 +825,7 @@ void SceneSettingsPopup::update() {
 
   if (m_cellMarksPopup) m_cellMarksPopup->update();
   if (m_colorFiltersPopup) m_colorFiltersPopup->updateContents();
+  if (m_depthPopup) m_depthPopup->updateContents();
 }
 
 //-----------------------------------------------------------------------------
@@ -770,6 +938,15 @@ void SceneSettingsPopup::onEditCellMarksButtonClicked() {
   if (!m_cellMarksPopup) m_cellMarksPopup = new CellMarksPopup(this);
   m_cellMarksPopup->show();
   m_cellMarksPopup->raise();
+}
+
+//-----------------------------------------------------------------------------
+
+void SceneSettingsPopup::onEditDepthButtonClicked() {
+  if (!m_depthPopup) m_depthPopup = new MultiplaneDepthPopup(this);
+  m_depthPopup->updateContents();
+  m_depthPopup->show();
+  m_depthPopup->raise();
 }
 
 //=============================================================================

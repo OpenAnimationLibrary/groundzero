@@ -1,3 +1,4 @@
+#include "particlebakecapture.h"
 //------------------------------------------------------------------
 // Iwa_TiledParticlesFx for Marnie
 // based on ParticlesFx by Digital Video
@@ -485,8 +486,9 @@ void Iwa_TiledParticlesFx::doCompute(TTile &tile, double frame,
 
     for (unsigned int i = 0; i < (int)part_ports.size(); ++i) {
       const TFxTimeRegion &tr = (*part_ports[i])->getTimeRegion();
+      const int artworkLast = ParticleBakeCapture::artworkLastFrame(this, tr);
 
-      lastframe.push_back(tr.getLastFrame() + 1);
+      lastframe.push_back(artworkLast + 1);
       partLevel.push_back(new TLevel());
       partLevel[i]->setName((*part_ports[i])->getAlias(0, ri));
 
@@ -497,7 +499,8 @@ void Iwa_TiledParticlesFx::doCompute(TTile &tile, double frame,
       riZero.m_affine.a13 = riZero.m_affine.a23 = 0;
 
       // Calculate the bboxes union
-      for (int t = 0; t <= tr.getLastFrame(); ++t) {
+      for (int t = 0; t <= artworkLast; ++t) {
+        ParticleBakeCapture::checkCancel(this);
         TRectD inputBox;
         (*part_ports[i])->getBBox(t, inputBox, riZero);
         bbox += inputBox;
@@ -581,3 +584,13 @@ void Iwa_TiledParticlesFx::compatibilityTranslatePort(int major, int minor,
 //==============================================================================
 
 FX_PLUGIN_IDENTIFIER(Iwa_TiledParticlesFx, "iwa_TiledParticlesFx");
+
+// Bake uses a detached graph with fresh cache identifiers.
+bool computeTiledParticlesForBake(TRasterFx *fx, TTile &tile, double frame,
+                                    const TRenderSettings &settings) {
+  auto *particles = dynamic_cast<Iwa_TiledParticlesFx *>(fx);
+  if (!particles) return false;
+  if (particles->step_val->getValue() <= 0) throw TException("Invalid particle simulation step.");
+  particles->compute(tile, frame, settings);
+  return true;
+}

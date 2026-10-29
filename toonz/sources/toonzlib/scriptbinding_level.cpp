@@ -13,6 +13,7 @@
 #include "toonz/toonzscene.h"
 #include "toonz/txshsimplelevel.h"
 #include "toonz/levelset.h"
+#include "toonz/scenechecker.h"
 
 // TnzCore / TnzBase includes
 #include "tlevel_io.h"
@@ -23,6 +24,7 @@
 #include "ttoonzimage.h"
 #include "tvectorimage.h"
 #include "tpalette.h"
+#include "tcolorstyles.h"
 #include "tofflinegl.h"
 #include "tvectorrenderdata.h"
 #include "tgeometry.h"
@@ -518,6 +520,52 @@ int Level::setFrame(const TFrameId &fid, const TImageP &img) {
   m_sl->setFrame(fid, img);
   m_sl->setDirtyFlag(true);
   return 1;
+}
+
+bool Level::getPaletteInfo(TXshSimpleLevel *sl, QString &paletteName,
+                           std::vector<StyleInfo> &styles) {
+  styles.clear();
+  TPalette *palette = sl ? sl->getPalette() : nullptr;
+  if (!palette) return false;
+  paletteName        = QString::fromStdWString(palette->getPaletteName());
+  std::set<int> used = SceneChecker::usedStyleIds(sl);
+  for (int p = 0; p < palette->getPageCount(); ++p) {
+    TPalette::Page *page = palette->getPage(p);
+    for (int i = 0; i < page->getStyleCount(); ++i) {
+      int id             = page->getStyleId(i);
+      TColorStyle *style = palette->getStyle(id);
+      if (!style) continue;
+      TPixel32 c = style->getMainColor();
+      StyleInfo info;
+      info.m_id    = id;
+      info.m_name  = QString::fromStdWString(style->getName());
+      info.m_color = QColor(c.r, c.g, c.b, c.m).name(QColor::HexArgb);
+      info.m_page  = p;
+      info.m_used  = used.count(id) > 0;
+      styles.push_back(info);
+    }
+  }
+  return true;
+}
+
+QJSValue Level::getPalette() const {
+  QString name;
+  std::vector<StyleInfo> styles;
+  if (!getPaletteInfo(m_sl, name, styles)) return QJSValue(QJSValue::NullValue);
+  QJSValue result = engine()->newObject();
+  result.setProperty("name", name);
+  QJSValue array = engine()->newArray((uint)styles.size());
+  for (int i = 0; i < (int)styles.size(); ++i) {
+    QJSValue style = engine()->newObject();
+    style.setProperty("id", styles[i].m_id);
+    style.setProperty("name", styles[i].m_name);
+    style.setProperty("color", styles[i].m_color);
+    style.setProperty("page", styles[i].m_page);
+    style.setProperty("used", styles[i].m_used);
+    array.setProperty(i, style);
+  }
+  result.setProperty("styles", array);
+  return result;
 }
 
 }  // namespace TScriptBinding

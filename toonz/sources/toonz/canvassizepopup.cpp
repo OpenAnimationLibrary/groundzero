@@ -58,7 +58,10 @@
 #include <QMainWindow>
 #include <QHideEvent>
 #include <QKeyEvent>
+#include <QMessageBox>
 #include <algorithm>
+#include <memory>
+#include <stdexcept>
 
 TEnv::IntVar CanvasSizeShowCropConfirm("CanvasSizeShowCropConfirm", 1);
 
@@ -84,8 +87,14 @@ public:
     m_oldImageId = "ResizeCanvasUndo_oldImage_" + std::to_string(m_idCount);
     m_newImageId = "ResizeCanvasUnd_newImage_" + std::to_string(m_idCount++);
 
-    TImageCache::instance()->add(m_oldImageId, oldImage);
-    TImageCache::instance()->add(m_newImageId, newImage);
+    try {
+      TImageCache::instance()->add(m_oldImageId, oldImage);
+      TImageCache::instance()->add(m_newImageId, newImage);
+    } catch (...) {
+      TImageCache::instance()->remove(m_oldImageId);
+      TImageCache::instance()->remove(m_newImageId);
+      throw;
+    }
 
     TRasterP oldRaster, newRaster;
     TToonzImageP ti(oldImage);
@@ -100,11 +109,8 @@ public:
       newRaster = ri->getRaster();
     } else
       assert(0);
-    int oldSize =
-        oldRaster->getLx() * oldRaster->getLy() * oldRaster->getPixelSize();
-    int newSize =
-        newRaster->getLx() * newRaster->getLy() * newRaster->getPixelSize();
-    m_undoSize = oldSize + newSize;
+    m_undoSize = TUndo::clampSize(TUndo::getRasterMemorySize(oldRaster.getPointer()) +
+                                 TUndo::getRasterMemorySize(newRaster.getPointer()));
   }
 
   ~ResizeCanvasUndo() {
@@ -1676,63 +1682,113 @@ void CanvasSizePopup::onOkBtn() {
     if (ret == 2) return;
   }
 
-  hide();
-
-  QApplication::setOverrideCursor(Qt::WaitCursor);
-  TUndoManager::manager()->beginBlock();
-
-  if (rasterChanged) {
-    int i;
-    std::vector<TFrameId> fids;
-    m_sl->getFids(fids);
-    for (i = 0; i < (int)fids.size(); i++) {
-      TImageP img = m_sl->getFrame(fids[i], true);
-      TRasterImageP ri(img);
-      TToonzImageP ti(img);
-
-      if (ri) {
-        TRasterP ras    = ri->getRaster();
-        TRasterP newRas = ras->create(newDim.lx, newDim.ly);
-        if (newRas->getPixelSize() < 4)
-          memset(newRas->getRawData(), 255,
-                 newRas->getPixelSize() * newRas->getWrap() * newRas->getLy());
-        else
-          newRas->clear();
-        newRas->copy(ras, pos);
-        TRasterImageP newImg(newRas);
-        double xdpi, ydpi;
-        ri->getDpi(xdpi, ydpi);
-        newImg->setDpi(xdpi, ydpi);
-        m_sl->setFrame(fids[i], newImg);
-        TUndoManager::manager()->add(
-            new ResizeCanvasUndo(m_sl, fids[i], img, newImg, dim, newDim));
-      } else if (ti) {
-        TRasterP ras    = ti->getRaster();
-        TRasterP newRas = ras->create(newDim.lx, newDim.ly);
-        newRas->clear();
-        newRas->copy(ras, pos);
-        TRect box;
-        TRop::computeBBox(newRas, box);
-        TToonzImageP newImg(newRas, box);
-        double xdpi, ydpi;
-        ti->getDpi(xdpi, ydpi);
-        newImg->setDpi(xdpi, ydpi);
-        m_sl->setFrame(fids[i], newImg);
-        TUndoManager::manager()->add(
-            new ResizeCanvasUndo(m_sl, fids[i], img, newImg, dim, newDim));
-      } else
-        assert(0);
-      IconGenerator::instance()->invalidate(m_sl.getPointer(), fids[i]);
-      m_sl->touchFrame(fids[i]);
+  struct CursorGuard {
+    bool active = true;
+    CursorGuard() { QApplication::setOverrideCursor(Qt::WaitCursor); }
+    void restore() {
+      if (active) QApplication::restoreOverrideCursor();
+      active = false;
     }
-    if (sizeChanged) {
+    ~CursorGuard() { restore(); }
+  } cursor;
+
+  struct PreparedResize {
+    TFrameId fid;
+    TImageP image;
+    std::unique_ptr<ResizeCanvasUndo> undo;
+  };
+  std::vector<PreparedResize> prepared;
+  try {
+    // Allocate every replacement and its undo snapshot before modifying any
+    // drawing. A raster allocation failure must leave the level unchanged and
+    // must not leave an open undo block or escape into Qt event dispatch.
+    if (rasterChanged) {
+      std::vector<TFrameId> fids;
+      m_sl->getFids(fids);
+      prepared.reserve(fids.size());
+      for (const TFrameId &fid : fids) {
+        TImageP img = m_sl->getFrame(fid, true);
+        TRasterImageP ri(img);
+        TToonzImageP ti(img);
+        TImageP replacement;
+        if (ri) {
+          TRasterP ras    = ri->getRaster();
+          TRasterP newRas = ras->create(newDim.lx, newDim.ly);
+          if (newRas->getPixelSize() < 4)
+            memset(newRas->getRawData(), 255,
+                   newRas->getPixelSize() * newRas->getWrap() * newRas->getLy());
+          else
+            newRas->clear();
+          newRas->copy(ras, pos);
+          TRasterImageP newImg(newRas);
+          double xdpi, ydpi;
+          ri->getDpi(xdpi, ydpi);
+          newImg->setDpi(xdpi, ydpi);
+          replacement = newImg;
+        } else if (ti) {
+          TRasterP ras    = ti->getRaster();
+          TRasterP newRas = ras->create(newDim.lx, newDim.ly);
+          newRas->clear();
+          newRas->copy(ras, pos);
+          TRect box;
+          TRop::computeBBox(newRas, box);
+          TToonzImageP newImg(newRas, box);
+          double xdpi, ydpi;
+          ti->getDpi(xdpi, ydpi);
+          newImg->setDpi(xdpi, ydpi);
+          replacement = newImg;
+        } else {
+          throw std::runtime_error("Unsupported canvas image");
+        }
+        auto undo = std::unique_ptr<ResizeCanvasUndo>(
+            new ResizeCanvasUndo(m_sl, fid, img, replacement, dim, newDim));
+        prepared.push_back({fid, replacement, std::move(undo)});
+      }
+    }
+  } catch (...) {
+    cursor.restore();
+    QMessageBox::warning(this, tr("Canvas Size"),
+                         tr("Could not prepare the resized drawings. The level "
+                            "has not been changed. Try a smaller canvas size."));
+    return;
+  }
+
+  hide();
+  bool blockOpen = false;
+  try {
+    TUndoManager::manager()->beginBlock();
+    blockOpen = true;
+    for (PreparedResize &change : prepared) {
+      // Record the prepared undo before changing the corresponding drawing.
+      TUndoManager::manager()->add(change.undo.get());
+      change.undo.release();
+      m_sl->setFrame(change.fid, change.image);
+      IconGenerator::instance()->invalidate(m_sl.getPointer(), change.fid);
+      m_sl->touchFrame(change.fid);
+    }
+    if (rasterChanged && sizeChanged) {
       m_sl->getProperties()->setImageRes(newDim);
       IconGenerator::instance()->invalidateSceneIcon();
     }
+    if (updateCamera) applyCameraFromLevel(m_sl.getPointer());
+    blockOpen = false;
+    TUndoManager::manager()->endBlock();
+  } catch (...) {
+    if (blockOpen) {
+      // endBlock removes the open block before publishing it to the history.
+      // Do not retry it if publishing itself runs out of memory.
+      try {
+        TUndoManager::manager()->endBlock();
+      } catch (...) {
+      }
+    }
+    cursor.restore();
+    QMessageBox::warning(this, tr("Canvas Size"),
+                         tr("Could not finish resizing the canvas. Some drawings "
+                            "may have changed; check the level before continuing."));
+    return;
   }
-  if (updateCamera) applyCameraFromLevel(m_sl.getPointer());
-  TUndoManager::manager()->endBlock();
-  QApplication::restoreOverrideCursor();
+  cursor.restore();
   if (rasterChanged)
     TApp::instance()->getCurrentLevel()->notifyCanvasSizeChange();
 }

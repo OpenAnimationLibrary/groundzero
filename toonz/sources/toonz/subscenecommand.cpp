@@ -1014,13 +1014,7 @@ class OpenChildUndo final : public TUndo {
   int m_row, m_col;
 
 public:
-  OpenChildUndo() {
-    TApp *app     = TApp::instance();
-    m_row         = app->getCurrentFrame()->getFrame();
-    m_col         = app->getCurrentColumn()->getColumnIndex();
-    TXsheet *xsh  = app->getCurrentXsheet()->getXsheet();
-    TXshCell cell = xsh->getCell(m_row, m_col);
-  }
+  OpenChildUndo(int row, int col) : m_row(row), m_col(col) {}
 
   void undo() const override {
     TApp *app         = TApp::instance();
@@ -1097,6 +1091,7 @@ void openSubXsheet() {
   int col                = app->getCurrentColumn()->getColumnIndex();
   TXsheet *currentXsheet = app->getCurrentXsheet()->getXsheet();
   TXshCell targetCell;
+  int targetRow = row, targetCol = col;
 
   /*- For column selection -*/
   if (columnSelection && !columnSelection->isEmpty()) {
@@ -1109,14 +1104,18 @@ void openSubXsheet() {
       // If so, use that.
       targetCell = currentXsheet->getCell(row, c);
       if (!targetCell.isEmpty() &&
-          (ret = scene->getChildStack()->openChild(row, c)))
+          (ret = scene->getChildStack()->openChild(row, c))) {
+        targetCol = c;
         break;
+      }
 
       /*- For each Cell in the Column, if contents are found break -*/
       for (int r = 0; r < sceneLength; r++) {
         ret = scene->getChildStack()->openChild(r, c);
         if (ret) {
           targetCell = currentXsheet->getCell(r, c);
+          targetRow  = r;
+          targetCol  = c;
           break;
         }
       }
@@ -1146,6 +1145,8 @@ void openSubXsheet() {
           // When opening based on cell selection use the 1st
           // exposed frame in the sub-xsheet it finds
           targetCell = currentXsheet->getCell(r, c);
+          targetRow  = r;
+          targetCol  = c;
           break;
         }
       }
@@ -1162,7 +1163,7 @@ void openSubXsheet() {
 
     if (TSelection::getCurrent()) TSelection::getCurrent()->selectNone();
 
-    TUndoManager::manager()->add(new OpenChildUndo());
+    TUndoManager::manager()->add(new OpenChildUndo(targetRow, targetCol));
     app->getCurrentXsheet()->setXsheet(scene->getXsheet());
     app->getCurrentXsheet()->notifyXsheetChanged();
     app->getCurrentColumn()->setColumnIndex(0);

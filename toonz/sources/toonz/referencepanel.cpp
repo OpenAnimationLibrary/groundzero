@@ -2,6 +2,7 @@
 #include <QSignalBlocker>
 #include "toonzqt/uitranslations.h"
 #include "referencepanel.h"
+#include "purerefboard.h"
 
 // TnzQt includes
 #include "toonzqt/gutil.h"
@@ -24,6 +25,11 @@
 #include <QFileInfo>
 #include <QHBoxLayout>
 #include <QImageReader>
+#include <QDir>
+#include <QMenu>
+#include <QMessageBox>
+#include <QProcess>
+#include <QStandardPaths>
 #include <QMimeData>
 #include <QMouseEvent>
 #include <QPainter>
@@ -56,12 +62,22 @@ TEnv::FilePathVar ReferencePanelLastImage("ReferencePanelLastImage",
 // the index of the one shown.
 TEnv::StringVar ReferencePanelImages("ReferencePanelImages", "");
 TEnv::IntVar ReferencePanelCurrentImage("ReferencePanelCurrentImage", 0);
+TEnv::FilePathVar ReferencePanelPureRefApplication(
+    "ReferencePanelPureRefApplication", TFilePath());
 
 namespace {
 
 const double minZoom = 0.01, maxZoom = 64.0;
-// The oldest images are dropped from the list beyond this number.
-const int maxEntries = 20;
+
+bool isPureRef(const QString &path) {
+  return QFileInfo(path).suffix().compare("pur", Qt::CaseInsensitive) == 0;
+}
+
+QString referenceBoardRoot() {
+  return QDir(QStandardPaths::writableLocation(
+                  QStandardPaths::AppLocalDataLocation))
+      .filePath("referenceboards");
+}
 
 //-----------------------------------------------------------------------------
 
@@ -364,6 +380,15 @@ ReferencePanel::ReferencePanel(QWidget *parent)
   loadButton->setIcon(createQIcon("load"));
   loadButton->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
   loadButton->setAutoRaise(true);
+  QMenu *loadMenu = new QMenu(loadButton);
+  loadMenu->addAction(tr("Load Image..."), this, &ReferencePanel::onLoadImage);
+  loadMenu->addAction(tr("Import PureRef Board..."), this,
+                      &ReferencePanel::onImportPureRefBoard);
+  loadMenu->addSeparator();
+  loadMenu->addAction(tr("PureRef Application..."), this,
+                      &ReferencePanel::onConfigurePureRef);
+  loadButton->setMenu(loadMenu);
+  loadButton->setPopupMode(QToolButton::MenuButtonPopup);
 
   auto makeButton = [this](const char *iconName, const QString &toolTip,
                            bool checkable) {
@@ -443,6 +468,24 @@ ReferencePanel::ReferencePanel(QWidget *parent)
   {
     mainLay->addLayout(buttonLay);
     mainLay->addLayout(imageLay);
+    m_boardControls       = new QWidget(this);
+    QHBoxLayout *boardLay = new QHBoxLayout(m_boardControls);
+    boardLay->setContentsMargins(2, 0, 2, 2);
+    QToolButton *refresh = new QToolButton(m_boardControls);
+    refresh->setText(tr("Refresh from PureRef"));
+    refresh->setAutoRaise(true);
+    connect(refresh, &QToolButton::clicked, this,
+            &ReferencePanel::onRefreshPureRefBoard);
+    QToolButton *open = new QToolButton(m_boardControls);
+    open->setText(tr("Open in PureRef"));
+    open->setAutoRaise(true);
+    connect(open, &QToolButton::clicked, this,
+            &ReferencePanel::onOpenInPureRef);
+    boardLay->addWidget(refresh);
+    boardLay->addWidget(open);
+    boardLay->addStretch(1);
+    mainLay->addWidget(m_boardControls);
+    m_boardControls->hide();
     mainLay->addWidget(m_view, 1);
   }
   setLayout(mainLay);
@@ -483,7 +526,19 @@ bool ReferencePanel::showEntry(int index) {
   storeCurrentState();
 
   Entry &entry = m_entries[index];
-  QImage image = readImageFile(entry.path, entry.layerId);
+  PureRefBoard::Snapshot board;
+  QString error;
+  QImage image;
+  if (isPureRef(entry.path)) {
+    if (!PureRefBoard::load(entry.path, referenceBoardRoot(), board, error))
+      return false;
+    int selected = 0;
+    for (int i = 0; i < board.items.size(); ++i)
+      if (board.items[i].id == entry.boardItem) selected = i;
+    image           = readImageFile(board.items[selected].path);
+    entry.boardItem = board.items[selected].id;
+  } else
+    image = readImageFile(entry.path, entry.layerId);
   if (image.isNull()) return false;
 
   ReferenceViewState state =
@@ -491,7 +546,15 @@ bool ReferencePanel::showEntry(int index) {
   if (!entry.hasState) state.autoFit = true;
 
   m_layers.clear();
+  m_boardItems.clear();
   if (isPsd(entry.path)) m_layers = readPsdLayers(entry.path);
+  if (isPureRef(entry.path)) {
+    for (int i = 0; i < board.items.size(); ++i) {
+      m_layers.append(
+          qMakePair(i, i == 0 ? tr("Board overview") : board.items[i].label));
+      m_boardItems.append(board.items[i].id);
+    }
+  }
 
   m_updating = true;
   m_view->setImage(image, &state);
@@ -530,13 +593,19 @@ void ReferencePanel::updateCombos() {
   }
   m_imageCombo->setCurrentIndex(m_current);
 
-  // Only a PSD file with layers offers them
+  // PSD layers or the overview and individual images of a PureRef board.
   m_layerCombo->clear();
+  const bool board = m_current >= 0 && isPureRef(m_entries[m_current].path);
+  m_boardControls->setVisible(board);
   if (m_current >= 0 && !m_layers.isEmpty()) {
-    m_layerCombo->addItem(tr("Flattened image"), QVariant(0));
+    m_layerCombo->setToolTip(board ? tr("PureRef Board Image")
+                                   : tr("PSD Layer"));
+    if (!board) m_layerCombo->addItem(tr("Flattened image"), QVariant(0));
     for (const QPair<int, QString> &layer : m_layers)
       m_layerCombo->addItem(layer.second, layer.first);
-    int layerIndex = m_layerCombo->findData(m_entries[m_current].layerId);
+    int layerIndex = board
+                         ? m_boardItems.indexOf(m_entries[m_current].boardItem)
+                         : m_layerCombo->findData(m_entries[m_current].layerId);
     m_layerCombo->setCurrentIndex(std::max(0, layerIndex));
     m_layerCombo->show();
   } else
@@ -561,7 +630,8 @@ void ReferencePanel::saveEntries() const {
            << QString::number(s.flipH ? 1 : 0)
            << QString::number(s.flipV ? 1 : 0)
            << QString::number(s.autoFit ? 1 : 0)
-           << QString::number(s.opacity, 'g', 4);
+           << QString::number(s.opacity, 'g', 4)
+           << QString::fromLatin1(QUrl::toPercentEncoding(entry.boardItem));
     items << fields.join(";");
   }
   ReferencePanelImages       = items.join("|").toStdString();
@@ -577,7 +647,8 @@ void ReferencePanel::loadEntries() {
     if (fields.size() < 10) continue;
     Entry entry;
     entry.path = QUrl::fromPercentEncoding(fields[0].toLatin1());
-    if (!QFileInfo(entry.path).isFile()) continue;
+    // A cached board remains usable when its source or PureRef is unavailable.
+    if (!isPureRef(entry.path) && !QFileInfo(entry.path).isFile()) continue;
     entry.layerId         = std::max(0, fields[1].toInt());
     ReferenceViewState &s = entry.state;
     s.zoom                = fields[2].toDouble();
@@ -589,6 +660,8 @@ void ReferencePanel::loadEntries() {
     s.opacity             = fields[9].toDouble();
     if (!(s.zoom > 0.0)) s.autoFit = true;
     entry.hasState = true;
+    if (fields.size() > 10)
+      entry.boardItem = QUrl::fromPercentEncoding(fields[10].toLatin1());
     m_entries.push_back(entry);
   }
 
@@ -620,6 +693,9 @@ void ReferencePanel::loadEntries() {
 //-----------------------------------------------------------------------------
 
 bool ReferencePanel::loadImage(const QString &path) {
+  if (isPureRef(path)) {
+    return importPureRefBoard(path);
+  }
   // An image already in the list is read again (the file may have changed) and
   // shown with its view
   for (int i = 0; i < (int)m_entries.size(); i++) {
@@ -633,14 +709,6 @@ bool ReferencePanel::loadImage(const QString &path) {
   if (image.isNull()) {
     DVGui::warning(UiTranslations::text(tr("Unable to load the image %1")).arg(path));
     return false;
-  }
-
-  // Keep the current index valid when the oldest image is dropped
-  if ((int)m_entries.size() >= maxEntries) {
-    storeCurrentState();
-    int removed = (m_current == 0) ? 1 : 0;
-    m_entries.erase(m_entries.begin() + removed);
-    if (m_current > removed) m_current--;
   }
 
   Entry entry;
@@ -666,7 +734,7 @@ void ReferencePanel::onLoadImage() {
       tr("Images") +
           " (*.png *.jpg *.jpeg *.bmp *.gif *.tif "
           "*.tiff *.tga *.psd *.webp);;" +
-          tr("All Files") + " (*)");
+          tr("PureRef Boards") + " (*.pur);;" + tr("All Files") + " (*)");
   for (const QString &path : paths) loadImage(path);
 }
 
@@ -712,6 +780,19 @@ void ReferencePanel::onLayerComboChanged(int index) {
   if (m_updating || index < 0 || m_current < 0) return;
   Entry &entry = m_entries[m_current];
   int layerId  = m_layerCombo->itemData(index).toInt();
+  if (isPureRef(entry.path)) {
+    if (index >= m_boardItems.size()) return;
+    const QString previous = entry.boardItem;
+    entry.boardItem        = m_boardItems[index];
+    if (!showEntry(m_current)) {
+      entry.boardItem = previous;
+      updateCombos();
+      DVGui::warning(
+          tr("Unable to load the PureRef reference image. Refresh the board to "
+             "restore its images."));
+    }
+    return;
+  }
   if (layerId == entry.layerId) return;
 
   QImage image = readImageFile(entry.path, layerId);
@@ -741,6 +822,115 @@ void ReferencePanel::onViewStateChanged() {
   if (m_updating) return;
   storeCurrentState();
   saveEntries();
+}
+
+//-----------------------------------------------------------------------------
+
+void ReferencePanel::onConfigurePureRef() {
+  const QString application = QFileDialog::getOpenFileName(
+      this, tr("Select PureRef Application"),
+      toQString(TFilePath(ReferencePanelPureRefApplication)),
+      tr("All Files") + " (*)");
+  if (application.isEmpty()) return;
+  const QString executable = PureRefBoard::executablePath(application);
+  if (!QFileInfo(executable).isExecutable()) {
+    DVGui::warning(
+        tr("Select the installed PureRef application or executable."));
+    return;
+  }
+  ReferencePanelPureRefApplication = TFilePath(executable);
+}
+
+QString ReferencePanel::pureRefExecutable() {
+  TFilePath configured = ReferencePanelPureRefApplication;
+  QString executable   = toQString(configured);
+  if (executable.isEmpty())
+    executable = QStandardPaths::findExecutable("PureRef");
+  if (executable.isEmpty())
+    executable = QStandardPaths::findExecutable("pureref");
+#ifdef Q_OS_MAC
+  if (executable.isEmpty() &&
+      QFileInfo::exists("/Applications/PureRef.app/Contents/MacOS/PureRef"))
+    executable = "/Applications/PureRef.app/Contents/MacOS/PureRef";
+#endif
+#ifdef Q_OS_WIN
+  if (executable.isEmpty()) {
+    const QString installed = QDir(qEnvironmentVariable("ProgramFiles"))
+                                  .filePath("PureRef/PureRef.exe");
+    if (QFileInfo::exists(installed)) executable = installed;
+  }
+#endif
+  if (!executable.isEmpty() && QFileInfo(executable).isExecutable())
+    return executable;
+  onConfigurePureRef();
+  configured = ReferencePanelPureRefApplication;
+  executable = toQString(configured);
+  return QFileInfo(executable).isExecutable() ? executable : QString();
+}
+
+void ReferencePanel::onImportPureRefBoard() {
+  const QString path =
+      QFileDialog::getOpenFileName(this, tr("Import PureRef Board"), QString(),
+                                   tr("PureRef Boards") + " (*.pur)");
+  if (!path.isEmpty()) importPureRefBoard(path);
+}
+
+bool ReferencePanel::importPureRefBoard(const QString &path, bool refresh) {
+  const QString source     = PureRefBoard::sourcePath(path);
+  const QString executable = pureRefExecutable();
+  if (executable.isEmpty()) return false;
+  PureRefBoard::Snapshot previous, imported;
+  QString error;
+  bool includeImages = false;
+  const bool cached =
+      PureRefBoard::load(source, referenceBoardRoot(), previous, error);
+  if (cached) includeImages = previous.includeImages;
+  if (!refresh || !cached) {
+    const auto answer = QMessageBox::question(
+        this, tr("Import PureRef Board"),
+        tr("Include individual images as well as the board overview?\n\n"
+           "Choose No to import only the overview. PureRef is used to export "
+           "the saved board; the original board is kept unchanged."),
+        QMessageBox::Yes | QMessageBox::No | QMessageBox::Cancel,
+        includeImages ? QMessageBox::Yes : QMessageBox::No);
+    if (answer == QMessageBox::Cancel) return false;
+    includeImages = answer == QMessageBox::Yes;
+  }
+  if (!PureRefBoard::importBoard(executable, source, referenceBoardRoot(),
+                                 includeImages, imported, error, this)) {
+    if (!error.isEmpty()) DVGui::warning(error);
+    return false;
+  }
+  for (int i = 0; i < (int)m_entries.size(); ++i) {
+    if (m_entries[i].path == source) {
+      return showEntry(i);
+    }
+  }
+  Entry entry;
+  entry.path = source;
+  m_entries.push_back(entry);
+  if (showEntry((int)m_entries.size() - 1)) return true;
+  m_entries.pop_back();
+  return false;
+}
+
+void ReferencePanel::onRefreshPureRefBoard() {
+  if (m_current < 0 || !isPureRef(m_entries[m_current].path)) return;
+  importPureRefBoard(m_entries[m_current].path, true);
+}
+
+void ReferencePanel::onOpenInPureRef() {
+  if (m_current < 0 || !isPureRef(m_entries[m_current].path)) return;
+  const QString path = m_entries[m_current].path;
+  if (!QFileInfo::exists(path)) {
+    DVGui::warning(
+        tr("The PureRef board could not be found. Its imported images are "
+           "still available."));
+    return;
+  }
+  const QString executable = pureRefExecutable();
+  if (!executable.isEmpty() && !QProcess::startDetached(executable, {path}))
+    DVGui::warning(tr("Unable to open the board in PureRef."));
 }
 
 //-----------------------------------------------------------------------------

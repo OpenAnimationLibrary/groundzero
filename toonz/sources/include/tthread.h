@@ -221,6 +221,12 @@ public:
   static void shutdown();
 
   void addTask(RunnableP task);
+  // accepted records queue publication, including when a later synchronous
+  // scheduling refresh throws. An accepted task may already be running.
+  void addTask(RunnableP task, bool &accepted);
+  // Withdraw only a queued task, without emitting cancellation callbacks.
+  // False means the task was not queued and may already be running or finished.
+  bool withdrawQueuedTask(RunnableP task);
   void removeTask(RunnableP task);
   void cancelAll();
 

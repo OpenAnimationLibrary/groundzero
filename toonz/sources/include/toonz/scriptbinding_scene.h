@@ -46,6 +46,14 @@ public:
   // an Image
   Q_INVOKABLE QJSValue renderFrame(int frame);
 
+  // The scene check (doc/scene_checker.md): an array of objects with
+  // severity (error, warning or info), kind (missingDrawing, ...), title,
+  // text, column, row, rowCount (-1, -1 and 0 when not about a cell), level
+  // and subXsheet (names, "" for none) and styleId (-1 for none). The
+  // optional argument is an object: {unusedStyles: true} also looks for
+  // unused styles, which loads every drawing.
+  Q_INVOKABLE QJSValue check(const QJSValue &options = QJSValue());
+
   struct ColumnInfo {
     int m_index;
     QString m_id, m_name, m_type;

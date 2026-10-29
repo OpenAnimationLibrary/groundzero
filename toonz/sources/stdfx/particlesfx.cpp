@@ -1,3 +1,4 @@
+#include "particlebakecapture.h"
 
 
 // TnzCore includes
@@ -100,7 +101,15 @@ ParticlesFx::ParticlesFx()
     , pick_color_for_every_frame_val(false)
     , perspective_distribution_val(false)
     , motion_blur_val(false)
-    , motion_blur_gamma_adjust_val(0.) {
+    , motion_blur_gamma_adjust_val(0.)
+    , collision_ctrl_val(0)
+    , collision_mode_val(new TIntEnumParam(0, "Disappear"))
+    , turbulence_val(0.0)
+    , turbulence_size_val(40.0)
+    , turbulence_speed_val(0.05)
+    , depth_layers_val(1)
+    , depth_far_scale_val(0.3)
+    , depth_far_opacity_val(0.5) {
   addInputPort("Texture1", new TRasterFxPort, 0);
   addInputPort("Control1", new TRasterFxPort, 1);
 
@@ -269,6 +278,23 @@ ParticlesFx::ParticlesFx()
   bindParam(this, "motion_blur", motion_blur_val);
   bindParam(this, "motion_blur_gamma_adjust", motion_blur_gamma_adjust_val);
   motion_blur_gamma_adjust_val->setValueRange(-5., 5.);
+  bindParam(this, "collision_ctrl", collision_ctrl_val);
+  collision_ctrl_val->setValueRange(0, (std::numeric_limits<int>::max)());
+  bindParam(this, "collision_mode", collision_mode_val);
+  collision_mode_val->addItem(1, "Settle");
+  collision_mode_val->addItem(2, "Bounce");
+  bindParam(this, "turbulence", turbulence_val);
+  turbulence_val->setValueRange(0.0, 1000.0);
+  bindParam(this, "turbulence_size", turbulence_size_val);
+  turbulence_size_val->setValueRange(1.0, 100.0);
+  bindParam(this, "turbulence_speed", turbulence_speed_val);
+  turbulence_speed_val->setValueRange(-100.0, 100.0);
+  bindParam(this, "depth_layers", depth_layers_val);
+  depth_layers_val->setValueRange(1, 16);
+  bindParam(this, "depth_far_scale", depth_far_scale_val);
+  depth_far_scale_val->setValueRange(0.0, 1.0);
+  bindParam(this, "depth_far_opacity", depth_far_opacity_val);
+  depth_far_opacity_val->setValueRange(0.0, 1.0);
 }
 
 //------------------------------------------------------------------
@@ -424,8 +450,9 @@ void ParticlesFx::doCompute(TTile &tile, double frame,
 
     for (unsigned int i = 0; i < (int)part_ports.size(); ++i) {
       const TFxTimeRegion &tr = (*part_ports[i])->getTimeRegion();
+      const int artworkLast = ParticleBakeCapture::artworkLastFrame(this, tr);
 
-      lastframe.push_back(tr.getLastFrame() + 1);
+      lastframe.push_back(artworkLast + 1);
       partLevel.push_back(new TLevel());
       partLevel[i]->setName((*part_ports[i])->getAlias(0, ri));
 
@@ -436,7 +463,8 @@ void ParticlesFx::doCompute(TTile &tile, double frame,
       riZero.m_affine.a13 = riZero.m_affine.a23 = 0;
 
       // Calculate the bboxes union
-      for (int t = 0; t <= tr.getLastFrame(); ++t) {
+      for (int t = 0; t <= artworkLast; ++t) {
+        ParticleBakeCapture::checkCancel(this);
         TRectD inputBox;
         (*part_ports[i])->getBBox(t, inputBox, riZero);
         bbox += inputBox;
@@ -524,3 +552,13 @@ void ParticlesFx::compatibilityTranslatePort(int major, int minor,
 //==============================================================================
 
 FX_PLUGIN_IDENTIFIER(ParticlesFx, "particlesFx");
+
+// Bake uses a detached graph with fresh cache identifiers.
+bool computeStandardParticlesForBake(TRasterFx *fx, TTile &tile, double frame,
+                                    const TRenderSettings &settings) {
+  auto *particles = dynamic_cast<ParticlesFx *>(fx);
+  if (!particles) return false;
+  if (particles->step_val->getValue() <= 0) throw TException("Invalid particle simulation step.");
+  particles->compute(tile, frame, settings);
+  return true;
+}

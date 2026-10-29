@@ -133,6 +133,7 @@ void TSceneProperties::assign(const TSceneProperties *sprop) {
   m_fieldGuideSize            = sprop->m_fieldGuideSize;
   m_fieldGuideAspectRatio     = sprop->m_fieldGuideAspectRatio;
   m_columnColorFilterOnRender = sprop->m_columnColorFilterOnRender;
+  m_multiplaneDepth           = sprop->m_multiplaneDepth;
   int i;
   for (i = 0; i < m_notesColor.size(); i++)
     m_notesColor.replace(i, sprop->getNoteColor(i));
@@ -401,6 +402,16 @@ void TSceneProperties::saveData(TOStream &os) const {
   os.child("subsampling") << m_fullcolorSubsampling << m_tlvSubsampling;
   os.child("fieldguide") << m_fieldGuideSize << m_fieldGuideAspectRatio;
   if (m_columnColorFilterOnRender) os.child("columnColorFilterOnRender") << 1;
+  if (m_multiplaneDepth != MultiplaneDepth::Settings()) {
+    const MultiplaneDepth::Settings &d = m_multiplaneDepth;
+    os.openChild("multiplaneDepth");
+    os.child("enabled") << (d.enabled ? 1 : 0);
+    os.child("blur") << d.blurPerUnit << d.maxBlur;
+    os.child("haze") << d.hazeDensity << d.hazeColor[0] << d.hazeColor[1]
+                     << d.hazeColor[2];
+    os.child("desaturation") << d.desaturationPerUnit;
+    os.closeChild();
+  }
   if (!m_camCapSaveInPath.isEmpty())
     os.child("cameraCaputureSaveInPath") << m_camCapSaveInPath;
 
@@ -847,6 +858,28 @@ void TSceneProperties::loadData(TIStream &is, bool isLoadingProject) {
       assert(i == 7);
     } else if (tagName == "cameraCaputureSaveInPath") {
       is >> m_camCapSaveInPath;
+    } else if (tagName == "multiplaneDepth") {
+      MultiplaneDepth::Settings d;
+      while (is.matchTag(tagName)) {
+        if (tagName == "enabled") {
+          int on = 0;
+          is >> on;
+          d.enabled = on != 0;
+        } else if (tagName == "blur")
+          is >> d.blurPerUnit >> d.maxBlur;
+        else if (tagName == "haze")
+          is >> d.hazeDensity >> d.hazeColor[0] >> d.hazeColor[1] >>
+              d.hazeColor[2];
+        else if (tagName == "desaturation")
+          is >> d.desaturationPerUnit;
+        else {
+          // Written by a newer version
+          is.skipCurrentTag();
+          continue;
+        }
+        is.closeChild();
+      }
+      setMultiplaneDepth(d);
     } else if (tagName == "cellMarks") {
       int i = 0;
       while (!is.eos()) {
