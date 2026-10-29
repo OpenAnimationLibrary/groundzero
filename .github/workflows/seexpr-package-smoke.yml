@@ -44,7 +44,7 @@ jobs:
         run: |
           set -o pipefail
           sudo apt-get update -o Acquire::http::Timeout=30 -o Acquire::Retries=3 2>&1 | tee seexpr-package-setup.log
-          sudo apt-get install -y xvfb xauth libgl1 libgl1-mesa-dri libglx-mesa0 libegl1 libegl-mesa0 libfontconfig1 libxkbcommon-x11-0 libxcb-xinerama0 libxcb-cursor0 2>&1 | tee -a seexpr-package-setup.log
+          sudo apt-get install -y xvfb xauth libgl1 libopengl0 libgl1-mesa-dri libglx-mesa0 libegl1 libegl-mesa0 libfontconfig1 libxkbcommon-x11-0 libxcb-xinerama0 libxcb-cursor0 2>&1 | tee -a seexpr-package-setup.log
       - name: Prepare verified Windows desktop renderer
         if: runner.os == 'Windows'
         shell: pwsh
