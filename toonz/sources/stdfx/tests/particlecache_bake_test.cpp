@@ -317,7 +317,8 @@ ParticleBake::Frame capture(TRasterFx *fx, double frame,
                             bool requireArtwork = true,
                             const TRectD &domain = Domain,
                             const TRectD &pixelDomain = TRectD(),
-                            int proceduralLastFrame = 0) {
+                            int proceduralLastFrame = 0,
+                            TRasterP *evaluatedRaster = nullptr) {
   ParticleBake::Options options;
   options.domain = domain;
   options.pixelDomain = pixelDomain;
@@ -328,7 +329,7 @@ ParticleBake::Frame capture(TRasterFx *fx, double frame,
   outer.begin(frame);
   const auto rendererId = TRenderer::instance().rendererId();
   const bool ok = ParticleBake::captureFrame(fx, frame, settings, options, result,
-                                             error);
+                                             error, ParticleBake::Cancel(), evaluatedRaster);
   const bool preserved = TRenderer::renderId() == outer.identity() &&
       TRenderer::instance().rendererId() == rendererId;
   outer.end(frame);
@@ -1123,17 +1124,38 @@ void testScenePreparation(bool tiled, bool fullAffine = false,
             label + ": scene preparation lost artwork placement at an empty cell");
     // Match both the pixel domain and affine received by the placed native FX.
     // This matters for tiled particles, whose initial grid uses the pixel tile.
-    const auto captured = capture(native, frame, bakeSettings, true, bakeDomain, bakePixels);
+    const TAffine &a = bakeSettings.m_affine;
+    const double fracX = bakePixels.x0 - std::floor(bakePixels.x0);
+    const double fracY = bakePixels.y0 - std::floor(bakePixels.y0);
+    std::ostringstream request;
+    request.precision(17);
+    request << label << "/frame=" << frame << " [affine=("
+            << a.a11 << ',' << a.a12 << ',' << a.a13 << ','
+            << a.a21 << ',' << a.a22 << ',' << a.a23 << "), pixels=("
+            << bakePixels.x0 << ',' << bakePixels.y0 << ','
+            << bakePixels.x1 << ',' << bakePixels.y1 << "), normalizedOrigin=("
+            << std::floor(bakePixels.x0) - std::floor(a.a13 - fracX) << ','
+            << std::floor(bakePixels.y0) - std::floor(a.a23 - fracY)
+            << "), normalizedTranslation=("
+            << a.a13 - fracX - std::floor(a.a13 - fracX) << ','
+            << a.a23 - fracY - std::floor(a.a23 - fracY) << "), bpp="
+            << bakeSettings.m_bpp << ", gamma=" << bakeSettings.m_colorSpaceGamma << ']';
+    const std::string context = request.str();
+    TRasterP evaluated;
+    const auto captured = capture(native, frame, bakeSettings, true, bakeDomain,
+                                   bakePixels, 0, &evaluated);
     require(captured.pixelDomain == bakePixels, label + ": capture changed the native pixel viewport");
+    const TRasterP recomposed = composite(captured, bakeSettings, bakePixels);
+    compare(evaluated, recomposed, context + "/recipeVsEvaluation");
     if (!columnDepth) {
       compare(before.at(frame), render(native, frame, bakeSettings),
-              label + "/prepared source placement");
-      compare(before.at(frame), composite(captured, bakeSettings),
-              label + "/prepared capture/frame=" + std::to_string(frame));
+              context + "/prepared source placement");
+      compare(before.at(frame), evaluated, context + "/liveVsEvaluation");
+      compare(before.at(frame), recomposed, context + "/prepared capture");
     } else {
       nativeBefore.emplace(frame, renderViewport(native, frame, bakeSettings, bakePixels));
-      compare(nativeBefore.at(frame), composite(captured, bakeSettings, bakePixels),
-              label + "/prepared native halo capture");
+      compare(nativeBefore.at(frame), evaluated, context + "/liveNativeVsEvaluation");
+      compare(nativeBefore.at(frame), recomposed, context + "/prepared native halo capture");
     }
     compare(before.at(frame), sceneImage(frame), label + "/source after capture");
   }

@@ -134,9 +134,10 @@ bool isSupported(const TFx *fx) {
 }
 bool captureFrame(TRasterFx *fx, double frame, const TRenderSettings &settings,
                   const Options &options, Frame &result, QString &error,
-                  const Cancel &cancel) {
+                  const Cancel &cancel, TRasterP *evaluatedRaster) {
   error.clear();
   result = Frame();
+  if (evaluatedRaster) *evaluatedRaster = TRasterP();
   if (!isSupported(fx)) { error = "Select a Particles or Tiled Particles FX."; return false; }
   const TRectD &d = options.domain;
   const TAffine &a = settings.m_affine;
@@ -240,6 +241,7 @@ bool captureFrame(TRasterFx *fx, double frame, const TRenderSettings &settings,
     for (auto &particle : captured.particles)
       particle.velocity = particle.velocity * options.framesPerSecond;
     result = std::move(captured);
+    if (evaluatedRaster) *evaluatedRaster = tile.getRaster();
     return true;
   } catch (const TException &e) { error = QString::fromStdWString(e.getMessage()); }
     catch (const std::exception &e) { error = QString::fromUtf8(e.what()); }

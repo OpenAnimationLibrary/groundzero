@@ -80,10 +80,13 @@ PARTICLEBAKE_API bool isSupported(const TFx *fx);
 // for preview, not an unexpanded schematic FX with unresolved column ports.
 // A fresh private simulation state is used on each call; output does not depend
 // on previous previews, cache contents or the order in which frames are baked.
+// An optional evaluation image supports verifying the individual draw recipe;
+// the image is not stored in the cache package.
 PARTICLEBAKE_API bool captureFrame(TRasterFx *fx, double frame,
                                    const TRenderSettings &settings,
                                    const Options &options, Frame &result,
-                                   QString &error, const Cancel &cancel = Cancel());
+                                   QString &error, const Cancel &cancel = Cancel(),
+                                   TRasterP *evaluatedRaster = nullptr);
 using FrameProvider = std::function<bool(int frame, Frame &, QString &error)>;
 PARTICLEBAKE_API bool writePackage(const QString &directory,
                                    const ParticleCache::Metadata &metadata,
