@@ -87,46 +87,77 @@ def decode_output(output):
     return output.decode("utf-8", errors="replace") if isinstance(output, bytes) else output or ""
 
 
-def linux_crash_diagnostics(executable, source):
-    debugger = shutil.which("gdb")
-    if debugger is None:
-        return "Linux crash debugger is unavailable; use the flushed native checkpoints.\n"
-    # Capture the observed crash in a fresh disposable profile. Never replace
-    # the original failed acceptance result with the diagnostic run's status.
-    command = [debugger, "--batch", "--quiet", "--nx",
-               "-ex", "set pagination off", "-ex", "set confirm off",
-               "-ex", "set debuginfod enabled off",
-               "-ex", "set print frame-arguments none", "-ex", "run",
-               "-ex", "info sharedlibrary", "-ex", "thread apply all bt 8",
-               "-ex", "bt 80", "--args", str(executable), "--test-seexpr-native"]
-    with isolated_fixture(source, executable) as (directory, environment):
-        process = subprocess.Popen(command, cwd=directory, env=environment,
-                                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                   start_new_session=True)
+def stop_linux_process(process):
+    """Stop the whole launch session before removing its disposable fixture."""
+    notes = ""
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    except OSError as error:
+        notes += f"Linux process-group cleanup failed: {type(error).__name__}.\n"
+    if process.poll() is None:
+        process.kill()
+    return notes
+
+
+def linux_crash_diagnostics(executable, native_pid, directory, environment):
+    """Inspect only the original process's core, while its fixture still exists."""
+    configured_directory = environment.get("SEEXPR_LINUX_CORE_DIRECTORY")
+    if not configured_directory or not Path(configured_directory).is_absolute():
+        return "Original native Linux core capture is not configured; no replay was launched.\n"
+    core = Path(configured_directory) / f"core.{native_pid}"
+    notes = f"Original native Linux process PID: {native_pid}.\n"
+    output = ""
+    try:
+        if core.is_symlink() or not core.is_file():
+            notes += "Original native process core is unavailable; no replay was launched.\n"
+        else:
+            debugger = shutil.which("gdb")
+            if debugger is None:
+                notes += "Linux core debugger is unavailable; use the flushed native checkpoints.\n"
+            else:
+                # Initial commands run before the core is loaded, so even its
+                # first frame omits argument values. Never run a new inferior.
+                command = [debugger, "--batch", "--quiet", "--nx",
+                           "-iex", "set pagination off", "-iex", "set confirm off",
+                           "-iex", "set auto-load off", "-iex", "set debuginfod enabled off",
+                           "-iex", "set print frame-arguments none",
+                           "-iex", "set print entry-values no",
+                           "-ex", "thread apply all bt 8", "-ex", "bt 80",
+                           str(executable), str(core)]
+                # Bound the report in memory and in the retained text artifact.
+                # The temporary debugger stream is deleted with this fixture.
+                with tempfile.TemporaryFile(dir=directory) as report:
+                    process = subprocess.Popen(command, cwd=directory, env=environment,
+                                               stdout=report, stderr=subprocess.STDOUT,
+                                               start_new_session=True)
+                    try:
+                        process.wait(timeout=120)
+                        notes += f"Core debugger exited with status {process.returncode}.\n"
+                    except subprocess.TimeoutExpired:
+                        notes += "Native Linux core debugger timed out after 120 seconds.\n"
+                        notes += stop_linux_process(process)
+                        try:
+                            process.wait(timeout=15)
+                        except subprocess.TimeoutExpired:
+                            notes += "Core debugger did not exit after termination.\n"
+                    report.seek(0)
+                    limit = 256 * 1024
+                    captured = report.read(limit + 1)
+                    output = decode_output(captured[:limit])
+                    if len(captured) > limit:
+                        notes += "Core debugger text was truncated at 256 KiB.\n"
+    finally:
+        # Raw memory is never retained or uploaded, even if GDB cannot read it.
         try:
-            output, _ = process.communicate(timeout=120)
-            return (decode_output(output) +
-                    f"\nDiagnostic debugger exited with status {process.returncode}. "
-                    "The original native test failure remains authoritative.\n")
-        except subprocess.TimeoutExpired as error:
-            # GDB owns a native GUI child. Kill the whole diagnostic session
-            # before deleting its disposable profile, including on timeout.
-            notes = "\nNative Linux crash debugger timed out after 120 seconds.\n"
-            try:
-                os.killpg(process.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-            except OSError as cleanup_error:
-                notes += f"Debugger process-group cleanup failed: {type(cleanup_error).__name__}.\n"
-            if process.poll() is None:
-                process.kill()
-            try:
-                output, _ = process.communicate(timeout=15)
-            except subprocess.TimeoutExpired:
-                output = error.output
-                process.stdout.close()
-                notes += "Debugger output did not close after termination.\n"
-            return decode_output(output) + notes
+            core.unlink()
+        except FileNotFoundError:
+            pass
+        except OSError as error:
+            notes += f"Raw native core cleanup failed: {type(error).__name__}.\n"
+    return (output + "\n" + notes +
+            "The original native test failure remains authoritative.\n")
 
 
 def windows_crash_diagnostics(executable, source, native_status, symbol_directories,
@@ -191,24 +222,53 @@ def main():
     args = parser.parse_args()
     output, status = "", 1
     native_status = None
+    diagnostics = None
     try:
         executable = args.executable.resolve(strict=True)
         source = args.stuff.resolve(strict=True)
         with isolated_fixture(source, executable, args.windows_mesa) as (directory, environment):
+            process = None
             try:
-                result = subprocess.run([str(executable), "--test-seexpr-native"],
-                                        cwd=directory, env=environment,
-                                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                        timeout=180, encoding="utf-8", errors="replace")
-                output, status = result.stdout, result.returncode
+                if sys.platform.startswith("linux"):
+                    process = subprocess.Popen([str(executable), "--test-seexpr-native"],
+                                               cwd=directory, env=environment,
+                                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                               encoding="utf-8", errors="replace",
+                                               start_new_session=True)
+                    output, _ = process.communicate(timeout=180)
+                    status = process.returncode
+                else:
+                    result = subprocess.run([str(executable), "--test-seexpr-native"],
+                                            cwd=directory, env=environment,
+                                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                            timeout=180, encoding="utf-8", errors="replace")
+                    output, status = result.stdout, result.returncode
                 native_status = status
                 if status:
                     output += (f"\nNative application exited with status {status} "
                                f"(0x{status & 0xffffffff:08X}).\n")
             except subprocess.TimeoutExpired as error:
                 output = decode_output(error.stdout)
+                if process is not None:
+                    notes = stop_linux_process(process)
+                    try:
+                        captured, _ = process.communicate(timeout=15)
+                        output = decode_output(captured)
+                    except subprocess.TimeoutExpired:
+                        process.stdout.close()
+                        notes += "Native Linux output did not close after termination.\n"
+                    output += notes
                 output += "\nNative application integration test timed out after 180 seconds.\n"
                 status = 1
+            if process is not None:
+                output = f"Original native Linux process PID: {process.pid}.\n" + output
+                if native_status is not None and native_status < 0:
+                    try:
+                        diagnostics = linux_crash_diagnostics(executable, process.pid,
+                                                              directory, environment)
+                    except (OSError, RuntimeError, ValueError) as error:
+                        diagnostics = ("Original native Linux core diagnostics could not complete: "
+                                       f"{type(error).__name__}: {error}\n")
     except (OSError, RuntimeError, ValueError) as error:
         output += ("\nNative application integration setup, launch or cleanup failed: "
                    f"{type(error).__name__}: {error}\n")
@@ -222,7 +282,6 @@ def main():
         print(f"::error title=Native UI report::{message}")
         status = 1
     print(output, end="", flush=True)
-    diagnostics = None
     if (args.windows_crash_debugger and os.name == "nt" and native_status is not None
             and (native_status & 0xc0000000) == 0xc0000000):
         try:
@@ -230,13 +289,6 @@ def main():
                                                     args.debugger_symbols, args.windows_mesa)
         except (OSError, RuntimeError, ValueError) as error:
             diagnostics = ("Native crash diagnostics could not complete: "
-                           f"{type(error).__name__}: {error}\n")
-    elif (sys.platform.startswith("linux") and native_status is not None
-          and native_status < 0 and os.environ.get("SEEXPR_LINUX_CRASH_DEBUGGER") == "1"):
-        try:
-            diagnostics = linux_crash_diagnostics(executable, source)
-        except (OSError, RuntimeError, ValueError) as error:
-            diagnostics = ("Native Linux crash diagnostics could not complete: "
                            f"{type(error).__name__}: {error}\n")
     if diagnostics is not None:
         report = args.output.with_name(args.output.stem + "-debugger.txt")

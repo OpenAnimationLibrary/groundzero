@@ -23,6 +23,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
+#include <memory>
 #include <stdexcept>
 #include <thread>
 #include <vector>
@@ -163,6 +164,79 @@ void nativeReferencesAndCycles() {
   dependency.setOwnerParameter(other);
   dependency.setText(TExpression::makeSeExprText("channel(\"col1.x\")"));
   require(dependsOn(dependency, other), "mixed native/SeExpr cycle was not detected");
+}
+
+void cyclicDependencySearch() {
+  TXsheet xsheet;
+  TStageObject *first = xsheet.getStageObject(TStageObjectId::ColumnId(0));
+  TStageObject *second = xsheet.getStageObject(TStageObjectId::ColumnId(1));
+  TStageObject *third = xsheet.getStageObject(TStageObjectId::ColumnId(2));
+  TStageObject *fourth = xsheet.getStageObject(TStageObjectId::ColumnId(3));
+  TDoubleParam *a = first->getParam(TStageObject::T_X);
+  TDoubleParam *b = second->getParam(TStageObject::T_X);
+  TDoubleParam *target = third->getParam(TStageObject::T_X);
+  TDoubleParam *weightTarget = fourth->getParam(TStageObject::T_X);
+  TDoubleParamP removed(new TDoubleParam);
+  auto setExpression = [](TDoubleParam *curve, const std::string &source) {
+    curve->setKeyframe(key(0, 0, TDoubleKeyframe::Expression, source));
+    curve->setKeyframe(key(10, 0, TDoubleKeyframe::Linear));
+  };
+  TExpression dependency;
+  dependency.setGrammar(xsheet.getStageObjectTree()->getGrammar());
+  dependency.setText("col1.x*3");
+
+  // Prepend undo can shift a curve onto its old reference before the manager
+  // rewrites its text. An ignored, removed curve can query that temporary
+  // self-cycle first, depending on the order of the manager's pointer set.
+  setExpression(a, TExpression::makeSeExprText(
+      "channel(\"col1.x\") + channel(\"col3.x\")"));
+  require(!dependsOn(dependency, removed.getPointer()),
+          "unrelated dependency query did not terminate through a self-cycle");
+  require(dependsOn(dependency, target),
+          "dependency after a self-cycle was not found");
+  require(dependsOn(a, a), "actual self-reference was not found");
+  require(!dependsOn(target, target),
+          "a constant curve was treated as its own dependency");
+  a->clearKeyframes();
+
+  // Keep searching after revisiting a node in a mixed native/SeExpr cycle.
+  setExpression(a, "col2.x");
+  setExpression(b, TExpression::makeSeExprText(
+      "channel(\"col1.x\") + channel(\"col3.x\")"));
+  dependency.setText("col1.x");
+  require(!dependsOn(dependency, removed.getPointer()),
+          "unrelated dependency query did not terminate through a mutual cycle");
+  require(dependsOn(dependency, target),
+          "dependency after a mutual cycle was not found");
+  require(dependsOn(a, b) && dependsOn(b, a),
+          "mixed native/SeExpr cycle lost a reachable dependency");
+  // Break the stored calculator links before editing or destroying this graph.
+  a->clearKeyframes();
+  b->clearKeyframes();
+  dependency.setText("0");
+
+  // Two stage objects can share a base curve while retaining different
+  // effective offset layers. Visiting the shared base through the first
+  // reference must still search the second reference's weight and channel.
+  std::unique_ptr<TStageObjectParams> shared(second->getParams());
+  shared->m_x = a;
+  second->assignParams(shared.get(), false);
+  require(second->getParam(TStageObject::T_X) == a,
+          "shared-base dependency fixture did not retain its curve");
+  second->insertOffsetLayer(0, second->createOffsetLayer(L"Dependency"));
+  TDoubleParam *offset = second->getOffsetParam(0, TStageObject::T_X);
+  TDoubleParam *weight = second->getOffsetLayer(0).m_weight.getPointer();
+  setExpression(offset, "col2.x + col3.x");
+  setExpression(weight, TExpression::makeSeExprText("channel(\"col4.x\")"));
+  dependency.setText("col1.x + col2.x");
+  require(!dependsOn(dependency, removed.getPointer()),
+          "unrelated dependency query did not terminate through an offset cycle");
+  require(dependsOn(dependency, target),
+          "shared base curve hid another reference's offset dependency");
+  require(dependsOn(dependency, weightTarget),
+          "shared base curve hid another reference's weight dependency");
+  offset->clearKeyframes();
+  weight->clearKeyframes();
 }
 
 void rewriteReferences() {
@@ -337,6 +411,7 @@ int main(int argc, char **argv) {
     dialectAndTime();
     copiedExpressionOwners();
     nativeReferencesAndCycles();
+    cyclicDependencySearch();
     rewriteReferences();
     persistenceAndUndo();
     concurrentCorruptCycle();

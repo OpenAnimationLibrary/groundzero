@@ -127,9 +127,14 @@ jobs:
       if: ${{ !cancelled() && steps.application_build.outcome == 'success' }}
       working-directory: toonz/build
       env:
-        SEEXPR_LINUX_CRASH_DEBUGGER: '1'
+        SEEXPR_LINUX_CORE_DIRECTORY: ${{ github.workspace }}/toonz/build/seexpr-native-cores
       run: |
         set -o pipefail
+        mkdir -p "$SEEXPR_LINUX_CORE_DIRECTORY"
+        chmod 700 "$SEEXPR_LINUX_CORE_DIRECTORY"
+        trap 'rm -f "$SEEXPR_LINUX_CORE_DIRECTORY"/core.*' EXIT
+        sudo sysctl -w "kernel.core_pattern=$SEEXPR_LINUX_CORE_DIRECTORY/core.%p"
+        ulimit -c unlimited
         QT_QPA_PLATFORM=xcb LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a ctest --output-on-failure --output-junit seexpr-tests.xml --no-tests=error --timeout 180 -R '^seexpr_' 2>&1 | tee seexpr-tests-output.txt
 
     - name: Report SeExpr test failures

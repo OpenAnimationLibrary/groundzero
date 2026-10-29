@@ -53,13 +53,20 @@ namespace {
 class ParamDependencyFinder final : public TSyntax::CalculatorNodeVisitor {
   TDoubleParam *m_possiblyDependentParam;
   bool m_found;
+  QSet<TDoubleParam *> m_visited;
 
 public:
   ParamDependencyFinder(TDoubleParam *possiblyDependentParam)
       : m_possiblyDependentParam(possiblyDependentParam), m_found(false) {}
 
-  void check(TDoubleParam *param) {
+  bool enter(TDoubleParam *param) {
     if (param == m_possiblyDependentParam) m_found = true;
+    // Column insertion/removal can leave a cyclic graph until all reference
+    // texts have been remapped. Visit each curve once while still searching
+    // the other branches for the requested dependency.
+    if (m_found || m_visited.contains(param)) return false;
+    m_visited.insert(param);
+    return true;
   }
 
   bool found() const { return m_found; }
@@ -143,8 +150,7 @@ public:
                                 layer.m_channels[m_channel].getPointer()};
       for (TDoubleParam *curve : curves) {
         if (!curve || pdf.found()) continue;
-        pdf.check(curve);
-        if (!pdf.found()) curve->accept(visitor);
+        if (pdf.enter(curve)) curve->accept(visitor);
       }
     }
   }
@@ -172,8 +178,9 @@ public:
     ParamDependencyFinder *pdf =
         dynamic_cast<ParamDependencyFinder *>(&visitor);
     if (pdf) {
-      pdf->check(m_param.getPointer());
-      if (!pdf->found()) m_param->accept(visitor);
+      if (pdf->enter(m_param.getPointer())) m_param->accept(visitor);
+      // Offset layers belong to this reference's stage object, so a shared
+      // base curve does not make another object's offsets redundant.
       acceptOffsets(*pdf, visitor);
     }
   }
@@ -227,8 +234,7 @@ public:
     ParamDependencyFinder *pdf =
         dynamic_cast<ParamDependencyFinder *>(&visitor);
     if (pdf) {
-      pdf->check(m_param.getPointer());
-      if (!pdf->found()) m_param->accept(visitor);
+      if (pdf->enter(m_param.getPointer())) m_param->accept(visitor);
       acceptOffsets(*pdf, visitor);
     }
   }

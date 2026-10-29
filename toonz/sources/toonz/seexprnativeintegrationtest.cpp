@@ -9,6 +9,7 @@
 #include "tdoubleparam.h"
 #include "tdoublekeyframe.h"
 #include "tenv.h"
+#include "texception.h"
 #include "texpression.h"
 #include "tfx.h"
 #include "tparamcontainer.h"
@@ -52,6 +53,7 @@
 #include <QTimer>
 
 #include <cmath>
+#include <exception>
 #include <iostream>
 #include <list>
 #include <map>
@@ -374,28 +376,58 @@ void exerciseNativeReferenceLifecycle(QMainWindow *window) {
 
   checkpoint("reusing native clipboard before and between the original columns");
   destination = {0};
+  checkpoint("clipboard prepend at position 0: before paste");
   ColumnCmd::pasteColumns(destination);
+  checkpoint("clipboard prepend at position 0: after paste, before settle");
   settle();
+  checkpoint("clipboard prepend at position 0: after settle, before column-count check");
   require(xsheet->getColumnCount() == 6, "native clipboard prepend did not duplicate all columns");
+  checkpoint("clipboard prepend at position 0: before pasted reference check");
   checkReferences(xsheet, 0, 1, 2);
+  checkpoint("clipboard prepend at position 0: before original reference check");
   checkReferences(xsheet, 3, 4, 5);
-  undo(history); checkOriginal(xsheet);
+  checkpoint("clipboard prepend at position 0: before undo");
+  undo(history);
+  checkpoint("clipboard prepend at position 0: after undo, before original check");
+  checkOriginal(xsheet);
+  checkpoint("clipboard prepend at position 0: before redo");
   redo(history);
+  checkpoint("clipboard prepend at position 0: after redo, before pasted reference check");
   checkReferences(xsheet, 0, 1, 2);
+  checkpoint("clipboard prepend at position 0: before original reference check after redo");
   checkReferences(xsheet, 3, 4, 5);
-  undo(history); checkOriginal(xsheet);
+  checkpoint("clipboard prepend at position 0: before final undo");
+  undo(history);
+  checkpoint("clipboard prepend at position 0: after final undo, before original check");
+  checkOriginal(xsheet);
+  checkpoint("clipboard prepend at position 0: original state restored");
 
   destination = {1};
+  checkpoint("clipboard middle at position 1: before paste");
   ColumnCmd::pasteColumns(destination);
+  checkpoint("clipboard middle at position 1: after paste, before settle");
   settle();
+  checkpoint("clipboard middle at position 1: after settle, before column-count check");
   require(xsheet->getColumnCount() == 6, "native clipboard middle paste did not duplicate all columns");
+  checkpoint("clipboard middle at position 1: before pasted reference check");
   checkReferences(xsheet, 1, 2, 3);
+  checkpoint("clipboard middle at position 1: before original reference check");
   checkReferences(xsheet, 0, 4, 5);
-  undo(history); checkOriginal(xsheet);
+  checkpoint("clipboard middle at position 1: before undo");
+  undo(history);
+  checkpoint("clipboard middle at position 1: after undo, before original check");
+  checkOriginal(xsheet);
+  checkpoint("clipboard middle at position 1: before redo");
   redo(history);
+  checkpoint("clipboard middle at position 1: after redo, before pasted reference check");
   checkReferences(xsheet, 1, 2, 3);
+  checkpoint("clipboard middle at position 1: before original reference check after redo");
   checkReferences(xsheet, 0, 4, 5);
-  undo(history); checkOriginal(xsheet);
+  checkpoint("clipboard middle at position 1: before final undo");
+  undo(history);
+  checkpoint("clipboard middle at position 1: after final undo, before original check");
+  checkOriginal(xsheet);
+  checkpoint("clipboard middle at position 1: original state restored");
   QApplication::clipboard()->clear();
 
   checkpoint("pasting animated empty columns through the native clipboard");
@@ -686,6 +718,14 @@ int runSeExprNativeIntegrationTest(QMainWindow *window) {
     return 0;
   } catch (const Failure &failure) {
     std::cerr << "seexpr-native-integration: FAIL: " << failure.message << std::endl;
+  } catch (const TException &error) {
+    const QByteArray message = QString::fromStdWString(error.getMessage()).toUtf8();
+    std::cerr << "seexpr-native-integration: FAIL: unexpected native exception (TException): "
+              << message.constData() << std::endl;
+  } catch (const std::exception &error) {
+    const QByteArray message = QString::fromUtf8(error.what()).toUtf8();
+    std::cerr << "seexpr-native-integration: FAIL: unexpected native exception (std::exception): "
+              << message.constData() << std::endl;
   } catch (...) {
     std::cerr << "seexpr-native-integration: FAIL: unexpected native exception" << std::endl;
   }
