@@ -30,6 +30,7 @@
   </Blur>
   <Distort>
     STD_celBoilFx
+    STD_flowDisplaceFx
     STD_freeDistortFx
     STD_deformerStackFx
     STD_curveDeformerFx

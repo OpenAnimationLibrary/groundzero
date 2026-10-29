@@ -178,6 +178,7 @@ set(SOURCES
     lightwrapfx.cpp
     edgeextendfx.cpp
     mattechokefx.cpp
+    flowdisplacefx.cpp
     alphadistancegradientfx.cpp
     celboundaryblurfx.cpp
     celblur.cpp
@@ -568,6 +569,18 @@ if(BUILD_CELFX_TESTS)
              ${CMAKE_CURRENT_SOURCE_DIR}/../../../stuff/profiles/layouts/fxs/STD_lightWrapFx.xml ${CMAKE_CURRENT_SOURCE_DIR}/../../../stuff/profiles/layouts/fxs/STD_edgeExtendFx.xml ${CMAKE_CURRENT_SOURCE_DIR}/../../../stuff/profiles/layouts/fxs/STD_matteChokeFx.xml)
     add_dependencies(celfx_tests celcomposite_test celcomposite_ui_test)
     set_tests_properties(celfx_composite celfx_composite_ui PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
+endif()
+
+if(BUILD_CELFX_TESTS)
+    add_executable(flowdisplace_test tests/flowdisplace_test.cpp celnoise.cpp)
+    target_link_libraries(flowdisplace_test Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME celfx_flowdisplace COMMAND flowdisplace_test)
+    add_executable(flowdisplace_ui_test tests/flowdisplace_ui_test.cpp celnoise.cpp)
+    target_link_libraries(flowdisplace_ui_test toonzqt Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Widgets ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME celfx_flowdisplace_ui COMMAND flowdisplace_ui_test
+             ${CMAKE_CURRENT_SOURCE_DIR}/../../../stuff/profiles/layouts/fxs/STD_flowDisplaceFx.xml)
+    add_dependencies(celfx_tests flowdisplace_test flowdisplace_ui_test)
+    set_tests_properties(celfx_flowdisplace celfx_flowdisplace_ui PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
 endif()
 
 if(BUILD_CELFX_TESTS)
