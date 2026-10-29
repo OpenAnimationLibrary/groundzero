@@ -2,6 +2,7 @@
 #include "toonz/particlebake.h"
 class TFx;
 class TTile;
+class TFxTimeRegion;
 namespace ParticleBakeCapture {
 class RasterLockGuard {
   TRasterP m_raster;
@@ -15,6 +16,7 @@ public:
 };
 bool active(const TFx *source);
 void checkCancel(const TFx *source);
+int artworkLastFrame(const TFx *source, const TFxTimeRegion &region);
 void checkParticleCount(const TFx *source, double count);
 void checkRasterSize(const TFx *source, double width, double height, int pixelSize);
 void checkSimulationRange(const TFx *source, int start, int end);

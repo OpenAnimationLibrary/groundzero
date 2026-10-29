@@ -3,6 +3,7 @@
 #include "menubarcommandids.h"
 #include "toonzqt/menubarcommand.h"
 #include "toonzqt/dvdialog.h"
+#include "toonz/dpiscale.h"
 #include "toonz/fxcommand.h"
 #include "toonz/fxdag.h"
 #include "toonz/particlecache.h"
@@ -659,6 +660,53 @@ void bindSceneGrammar(TXsheet *xsheet, const Container *parameters) {
   }
 }
 
+bool validBakeAffine(const TAffine &affine) {
+  return std::isfinite(affine.a11) && std::isfinite(affine.a12) &&
+         std::isfinite(affine.a13) && std::isfinite(affine.a21) &&
+         std::isfinite(affine.a22) && std::isfinite(affine.a23) &&
+         std::isfinite(affine.det()) && affine.det() != 0;
+}
+
+// Keep the scene builder's complete column, parent, perspective, camera and DPI
+// placement. Peeling its outer affine nodes gives the native source and exactly
+// the affine that ordinary scene rendering passes to it, including the inherited
+// placement of a retained generator that no longer has its own column wrapper.
+bool prepareParticleBakeSource(ToonzScene *scene, TXsheet *xsheet,
+                               const TFxP &source, int frame,
+                               TRasterFxP &native, TAffine &affine,
+                               QString &error) {
+  try {
+    TFxP root = source;
+    if (auto zerary = dynamic_cast<TZeraryFx *>(source.getPointer()))
+      if (zerary->getColumnFx()) root = zerary->getColumnFx();
+    TFxP built = buildSceneFx(scene, frame, xsheet, root, BSFX_DEFAULT_TR, false);
+    affine = TAffine();
+    while (auto placement = dynamic_cast<NaAffineFx *>(built.getPointer())) {
+      affine = affine * placement->getPlacement(frame);
+      built = TFxP(placement->getInputPort(0)->getFx());
+    }
+    native = dynamic_cast<TRasterFx *>(built.getPointer());
+    // Empty exposures and columns behind the camera have no source to evaluate.
+    if (!built) return true;
+    if (!native || !ParticleBake::isSupported(native.getPointer())) {
+      error = tr("The selected particle graph could not be prepared for baking.");
+      return false;
+    }
+    if (!validBakeAffine(affine)) {
+      error = tr("The particle or camera placement is singular or invalid at frame %1.")
+                  .arg(frame + 1);
+      return false;
+    }
+    resolveSceneFxResources(native.getPointer(), scene);
+    return true;
+  } catch (const std::exception &e) {
+    error = QString::fromUtf8(e.what());
+  } catch (...) {
+    error = tr("The particle effect could not be prepared at frame %1.").arg(frame + 1);
+  }
+  return false;
+}
+
 void bakeParticles() {
   TApp *app = TApp::instance();
   TFxP source = innerFx(app->getCurrentFx()->getFx());
@@ -689,6 +737,23 @@ void bakeParticles() {
     return;
   }
   const TRectD cameraRect = camera->getStageRect();
+  if (cameraRect.isEmpty() || !std::isfinite(cameraRect.getLx()) ||
+      !std::isfinite(cameraRect.getLy()) ||
+      camera->getRes().lx <= 0 || camera->getRes().ly <= 0) {
+    DVGui::error(tr("The camera has an invalid capture resolution."));
+    return;
+  }
+  const TAffine cameraDpi = getDpiAffine(camera).inv();
+  const TAffine outputAffine = output->getRenderSettings().m_affine;
+  if (!validBakeAffine(cameraDpi) || !validBakeAffine(outputAffine)) {
+    DVGui::error(tr("The camera or output transform is singular or invalid."));
+    return;
+  }
+  // Construct the viewport from integer output dimensions just as the scene
+  // renderer does. A DPI round trip can add a pixel through floating-point ceil.
+  const TRectD cameraPixels = outputAffine * TRectD(
+      -.5 * camera->getRes().lx, -.5 * camera->getRes().ly,
+       .5 * camera->getRes().lx,  .5 * camera->getRes().ly);
   QDialog dialog(app->getMainWindow());
   dialog.setWindowTitle(tr("Bake Particle Effect"));
   auto form = new QFormLayout(&dialog);
@@ -702,6 +767,9 @@ void bakeParticles() {
   precision->addItem(tr("8-bit per channel"), 32);
   precision->addItem(tr("16-bit per channel"), 64);
   precision->setCurrentIndex(output->getRenderSettings().m_bpp == 32 ? 0 : 1);
+  auto framing = new QComboBox(&dialog);
+  framing->addItem(tr("Camera framing"));
+  framing->addItem(tr("Custom FX area"));
   auto width = numberBox(&dialog, cameraRect.getLx());
   auto height = numberBox(&dialog, cameraRect.getLy());
   auto centerX = numberBox(&dialog, (cameraRect.x0 + cameraRect.x1) * .5, -1000000);
@@ -714,6 +782,7 @@ void bakeParticles() {
   form->addRow(tr("First frame"), first);
   form->addRow(tr("Last frame"), last);
   form->addRow(tr("Artwork precision"), precision);
+  form->addRow(tr("Capture area"), framing);
   form->addRow(tr("Capture width (drawing units)"), width);
   form->addRow(tr("Capture height (drawing units)"), height);
   form->addRow(tr("Capture center X"), centerX);
@@ -721,8 +790,10 @@ void bakeParticles() {
   form->addRow(tr("Destination"), path);
   form->addRow(browse);
   form->addRow(useCache);
-  auto note = new QLabel(tr("The capture area starts at the camera size and stays fixed "
-                           "throughout the bake. The cache includes prepared artwork, "
+  auto note = new QLabel(tr("Camera framing captures the output camera area at every frame, "
+                           "including animated column and camera placement. Custom FX area "
+                           "keeps the entered bounds fixed in the effect's coordinates. "
+                           "The cache includes prepared artwork, "
                            "trails and blur. The original particle effect remains editable "
                            "in the schematic. Existing folders will not be overwritten."), &dialog);
   note->setWordWrap(true);
@@ -736,6 +807,39 @@ void bakeParticles() {
     QString folder = QFileDialog::getExistingDirectory(&dialog, tr("Choose Parent Folder"));
     if (!folder.isEmpty()) path->setText(QDir(folder).filePath("particle-cache"));
   });
+  bool customAreaEdited = false, settingArea = false;
+  const std::array<QDoubleSpinBox *, 4> areaFields{{width, height, centerX, centerY}};
+  const auto seedCustomArea = [&] {
+    if (customAreaEdited) return;
+    TRasterFxP native;
+    TAffine affine;
+    QString failure;
+    TRectD localCamera = cameraRect;
+    if (prepareParticleBakeSource(scene, xsheet, source, first->value() - 1,
+                                  native, affine, failure) && native)
+      localCamera = (outputAffine * affine).inv() * cameraPixels;
+    if (!std::isfinite(localCamera.x0) || !std::isfinite(localCamera.y0) ||
+        !std::isfinite(localCamera.x1) || !std::isfinite(localCamera.y1))
+      return;
+    settingArea = true;
+    width->setValue(localCamera.getLx());
+    height->setValue(localCamera.getLy());
+    centerX->setValue((localCamera.x0 + localCamera.x1) * .5);
+    centerY->setValue((localCamera.y0 + localCamera.y1) * .5);
+    settingArea = false;
+  };
+  for (auto field : areaFields) {
+    field->setEnabled(false);
+    QObject::connect(field, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
+                     &dialog, [&](double) { if (!settingArea) customAreaEdited = true; });
+  }
+  QObject::connect(framing, QOverload<int>::of(&QComboBox::currentIndexChanged),
+                   &dialog, [&](int mode) {
+    for (auto field : areaFields) field->setEnabled(mode == 1);
+  });
+  QObject::connect(first, QOverload<int>::of(&QSpinBox::valueChanged), &dialog,
+                   [&](int) { seedCustomArea(); });
+  seedCustomArea();
   if (dialog.exec() != QDialog::Accepted) return;
   const QString directory = path->text().trimmed();
   if (directory.isEmpty() || first->value() > last->value()) {
@@ -748,6 +852,16 @@ void bakeParticles() {
   }
 
   const int startFrame = first->value() - 1;
+  {
+    TRasterFxP initialSource;
+    TAffine initialAffine;
+    QString preparationError;
+    if (!prepareParticleBakeSource(scene, xsheet, source, startFrame, initialSource,
+                                   initialAffine, preparationError)) {
+      DVGui::error(preparationError);
+      return;
+    }
+  }
   ParticleCache::Metadata metadata;
   metadata.firstFrame = 0;
   metadata.lastFrame = last->value() - first->value();
@@ -756,25 +870,24 @@ void bakeParticles() {
   metadata.extra["sceneFramesPerSecond"] = fps;
   metadata.extra["sourceEffect"] = QString::fromStdString(source->getFxType());
   metadata.extra["sizeSemantics"] = "artwork-scale";
+  const bool cameraFraming = framing->currentIndex() == 0;
+  metadata.extra["captureFraming"] = cameraFraming ? "camera" : "fx-area";
   ParticleBake::Options options;
   options.framesPerSecond = fps;
+  options.proceduralArtworkLastFrame =
+      std::max({0, last->value() - 1, xsheet->getFrameCount() - 1});
+  metadata.extra["artworkLastFrame"] = options.proceduralArtworkLastFrame;
   options.domain = TRectD(centerX->value() - width->value() * .5,
                           centerY->value() - height->value() * .5,
                           centerX->value() + width->value() * .5,
                           centerY->value() + height->value() * .5);
   TRenderSettings settings = output->getRenderSettings();
-  const double scale = camera->getRes().lx / cameraRect.getLx();
-  if (!std::isfinite(scale) || scale <= 0) {
-    DVGui::error(tr("The camera has an invalid capture resolution."));
-    return;
-  }
-  settings.m_affine = TScale(scale);
   settings.m_shrinkX = settings.m_shrinkY = 1;
   settings.m_bpp = precision->currentData().toInt();
   // Native particle color math is nonlinear. Prepared sprites retain that
   // appearance; the cache effect converts it when rendering a linear scene.
   settings.m_linearColorSpace = false;
-  settings.m_cameraBox = settings.m_affine * options.domain;
+  settings.m_cameraBox = cameraPixels;
 
   QProgressDialog progress(tr("Baking particle effect..."), tr("Cancel"), 0,
                             metadata.lastFrame + 1, app->getMainWindow());
@@ -786,33 +899,36 @@ void bakeParticles() {
   };
   QString error;
   const auto provider = [&](int index, ParticleBake::Frame &frame, QString &failure) {
-    const double time = startFrame + index;
+    const int time = startFrame + index;
     try {
-      TFxP buildRoot = source;
-      if (auto zerary = dynamic_cast<TZeraryFx *>(source.getPointer())) {
-        if (auto columnFx = zerary->getColumnFx()) {
-          buildRoot = columnFx;
-          // Preserve gaps in the source column instead of simulating an effect
-          // on frames where the scene would not expose it.
-          if (columnFx->getColumn()->getCell(int(time)).isEmpty()) {
-            frame = ParticleBake::Frame();
-            frame.frame = time;
-            frame.domain = options.domain;
-            frame.renderAffine = settings.m_affine;
-            frame.bitsPerPixel = settings.m_bpp;
-            frame.linearColorSpace = settings.m_linearColorSpace;
-            frame.colorSpaceGamma = settings.m_colorSpaceGamma;
-            return true;
-          }
-        }
-      }
-      TFxP built = buildSceneFx(scene, time, xsheet, buildRoot, BSFX_NO_TR, false);
-      auto raster = dynamic_cast<TRasterFx *>(built.getPointer());
-      if (!raster || !ParticleBake::isSupported(raster)) {
-        failure = tr("The selected particle graph could not be prepared for baking.");
+      TRasterFxP raster;
+      TAffine affine;
+      if (!prepareParticleBakeSource(scene, xsheet, source, time, raster, affine, failure))
         return false;
+      TRenderSettings frameSettings(settings);
+      ParticleBake::Options frameOptions(options);
+      frameSettings.m_affine = settings.m_affine * (raster ? affine : cameraDpi);
+      if (cameraFraming) {
+        frameOptions.pixelDomain = cameraPixels;
+        frameOptions.domain = frameSettings.m_affine.inv() * cameraPixels;
       }
-      resolveSceneFxResources(built.getPointer(), scene);
+      if (!raster) {
+        frame = ParticleBake::Frame();
+        frame.frame = time;
+        frame.domain = frameOptions.domain;
+        const TRectD pixels = cameraFraming ? cameraPixels
+            : frameSettings.m_affine * frameOptions.domain;
+        frame.pixelDomain = cameraFraming
+            ? TRectD(pixels.x0, pixels.y0, pixels.x0 + std::ceil(pixels.getLx()),
+                      pixels.y0 + std::ceil(pixels.getLy()))
+            : TRectD(std::floor(pixels.x0), std::floor(pixels.y0),
+                      std::ceil(pixels.x1), std::ceil(pixels.y1));
+        frame.renderAffine = frameSettings.m_affine;
+        frame.bitsPerPixel = frameSettings.m_bpp;
+        frame.linearColorSpace = frameSettings.m_linearColorSpace;
+        frame.colorSpaceGamma = frameSettings.m_colorSpaceGamma;
+        return true;
+      }
       struct RenderContext {
         TRenderer renderer;
         unsigned long id;
@@ -829,7 +945,8 @@ void bakeParticles() {
           renderer.uninstall();
         }
       } context(time);
-      return ParticleBake::captureFrame(raster, time, settings, options, frame, failure, cancel);
+      return ParticleBake::captureFrame(raster.getPointer(), time, frameSettings,
+                                        frameOptions, frame, failure, cancel);
     } catch (const std::exception &e) {
       failure = QString::fromUtf8(e.what());
       return false;

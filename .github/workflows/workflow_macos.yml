@@ -70,7 +70,8 @@ jobs:
         run: |
           export PATH="/usr/local/opt/ccache/libexec:$PATH"
           mkdir -p /Users/runner/.ccache
-      - uses: actions/cache@v5
+      - uses: actions/cache/restore@v5
+        id: compiler_cache
         with:
           path: /Users/runner/.ccache
           key: ${{ runner.os }}-${{ github.sha }}
@@ -174,6 +175,14 @@ jobs:
           grep -vE ': (fatal )?error:' errors.txt | head -10 | while IFS= read -r line; do
             echo "::error::${line}"
           done
+      # Keep valid compiled objects even when an integration test fails.
+      - name: Save compiler cache
+        if: ${{ always() && steps.compiler_cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v5
+        with:
+          path: /Users/runner/.ccache
+          key: ${{ runner.os }}-${{ github.sha }}
+
       - name: Introduce Libraries and Stuff
         run: |
           cd toonz/build/toonz

@@ -277,6 +277,22 @@ bool loadFrame(const ParticleCache::Snapshot &snapshot, Frame &result,
     frame.domain = TRectD(domain[0].toDouble(), domain[1].toDouble(),
                          domain[2].toDouble(), domain[3].toDouble());
     require(!frame.domain.isEmpty(), "Empty particle capture domain");
+    frame.pixelDomain = frame.renderAffine * frame.domain;
+    if (o.contains("pixelDomain")) {
+      const QJsonArray pixels = o.value("pixelDomain").toArray();
+      require(pixels.size() == 4, "Invalid particle capture viewport");
+      for (const auto &value : pixels)
+        require(value.isDouble() && std::isfinite(value.toDouble()),
+                "Invalid particle capture viewport value");
+      frame.pixelDomain = TRectD(pixels[0].toDouble(), pixels[1].toDouble(),
+                                pixels[2].toDouble(), pixels[3].toDouble());
+    }
+    require(!frame.pixelDomain.isEmpty() &&
+                std::isfinite(frame.pixelDomain.getLx()) &&
+                std::isfinite(frame.pixelDomain.getLy()) &&
+                frame.pixelDomain.getLx() <= maxDimension &&
+                frame.pixelDomain.getLy() <= maxDimension,
+            "Invalid particle capture viewport bounds");
     const double fps = number(o, "fps");
     require(fps > 0 && snapshot.particles.size() <= maxDraws,
             "Invalid native particle timing or count");
@@ -547,6 +563,10 @@ bool writePackage(const QString &directory, const ParticleCache::Metadata &metad
           {"renderAffine", affineJson(captured.renderAffine)},
           {"bitsPerPixel", captured.bitsPerPixel}, {"linear", captured.linearColorSpace},
           {"gamma", captured.colorSpaceGamma}, {"draws", draws}};
+      const TRectD pixelDomain = captured.pixelDomain.isEmpty()
+          ? captured.renderAffine * captured.domain : captured.pixelDomain;
+      extra["pixelDomain"] = QJsonArray{pixelDomain.x0, pixelDomain.y0,
+                                        pixelDomain.x1, pixelDomain.y1};
       // Round-trip the native sprite data as well as Partio data before commit.
       snapshot.extra = extra;
       snapshot.sourceDirectory = stage.absolutePath();

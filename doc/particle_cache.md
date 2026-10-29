@@ -61,10 +61,15 @@ intentional gap can hold or become transparent without hiding a corrupt file.
    > Bake Particle Effect**.
 3. Set the first and last frames, choose 8-bit or 16-bit artwork precision, and
    choose a new destination folder. Existing folders are never overwritten.
-4. Check the capture area. It defaults to the camera's physical size, centered
-   in the particle effect's coordinate system, and stays fixed throughout the
-   bake. Expand or reposition it when controls or tiled particles need a larger
-   evaluation region. Sampling density follows the camera's output resolution.
+4. Choose the capture area. **Camera framing** is the default: it captures the
+   camera's output pixel area at every frame, following animated column, parent
+   and camera placement, including rotation and scale. **Custom FX area** lets
+   you enter bounds that stay fixed in the particle effect's coordinates. Its
+   initial bounds enclose the camera area at the first frame when the source is
+   visible; otherwise they start at the camera's physical size. After you edit
+   them, changing the first frame preserves your edits. Expand or reposition
+   those bounds when controls or tiled particles need a larger evaluation
+   region. Sampling density follows the camera's output resolution.
 5. Leave **Use the completed cache in this scene** enabled to switch playback
    after a successful bake. The original generator and its inputs remain in the
    scene as an editable, disconnected schematic node. For a zerary column, its
@@ -76,12 +81,20 @@ intentional gap can hold or become transparent without hiding a corrupt file.
 Select a generator belonging to the current Xsheet. If a source is inside a
 macro, explode the macro before baking; the command does not rewrite macro
 membership or its exposed parameter interface. Gaps in the generator's column
-exposure are recorded as empty frames.
+exposure and frames where its column is behind the camera are recorded as empty
+frames. Singular or invalid transforms report an error.
 
 Native generators evaluate at whole frames. The command records every selected
 frame rather than pretending that their integer simulations support arbitrary
 subframe evaluation. Native trails and motion-blur contributions are captured
 as ordered draw records.
+
+Procedural artwork inputs with unlimited duration are sampled over a fixed
+range: frame 1 through the later of the bake's last frame and the scene's last
+frame. This range stays the same for every captured sample, so random or cycling
+artwork selection does not change its frame count during the bake. Finite artwork
+inputs keep their own duration. The package records the procedural range's last
+frame as the zero-based `artworkLastFrame` metadata value.
 
 Prepared appearance is **individual particle artwork with transforms and draw
 order**, not a flattened image of the whole effect. It preserves native color,
@@ -93,8 +106,19 @@ recover detail absent from the recorded artwork.
 
 The captured artwork has finite resolution. Enlarging it greatly after baking
 can reveal resampling. Rebake at a suitable camera resolution when higher
-detail is needed. The fixed capture domain is also part of the result: a cache
-does not rerun an infinite control image when the camera changes.
+detail is needed. The capture region is also part of the result: camera framing
+keeps the output viewport fixed while the local evaluation area follows the
+scene transforms; a custom area keeps the local rectangle fixed instead. A
+cache does not rerun an infinite control image when you change the camera after
+baking. Custom areas under rotation or shear evaluate the enclosing output
+pixel rectangle.
+
+Native tiled-particle initialization depends on the evaluation viewport. The
+bake uses a fresh simulation with the chosen viewport for each frame. A preview
+that was warmed with a different viewport or simulation history can therefore
+differ; comparison must use the same fresh evaluation and capture framing.
+Ordinary animated column and camera transforms are sampled per frame, rather
+than freezing their placement at the first frame.
 
 To reuse the motion with different drawings, turn off **Use Baked Appearance**,
 connect replacement artwork and choose the appropriate size and artwork modes.
@@ -163,7 +187,10 @@ memory and reload changed files.
 - `stdfx/particlebake.cpp` and the capture hooks evaluate native simulation in
   isolated state; `particlebakeio.cpp` stores and reloads native draw packages.
 - `toonz/particlecachepopup.cpp` owns native import, inspection, export and bake
-  commands. Scene-resource discovery tracks cache assets separately from levels.
+  commands. Baking expands the full scene FX tree, extracts its outer affine
+  transforms, and passes the detached native generator with that frame's complete
+  render affine and viewport to the capture service. Scene-resource discovery
+  tracks cache assets separately from levels.
 
 CI regression targets cover core I/O, generic rendering, native capture/playback
 and project resources. Required checks include image comparisons for native

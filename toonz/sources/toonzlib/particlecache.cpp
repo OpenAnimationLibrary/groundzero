@@ -847,7 +847,9 @@ bool preserves(const std::vector<Attribute> &expected, const Snapshot &actual,
     const auto found = std::find_if(actual.attributes.begin(), actual.attributes.end(),
         [&](const Attribute &b) { return b.name == a.name && b.fixed == a.fixed; });
     if (found == actual.attributes.end() || found->type != a.type || found->components != a.components ||
-        found->integers != a.integers || found->strings != a.strings || found->floats.size() != a.floats.size()) {
+        found->integers != a.integers || found->strings.size() != a.strings.size() ||
+        !std::equal(found->strings.cbegin(), found->strings.cend(), a.strings.cbegin()) ||
+        found->floats.size() != a.floats.size()) {
       error = "The selected format cannot preserve attribute '" + a.name + "'."; return false;
     }
     for (std::size_t i = 0; i < a.floats.size(); ++i) {

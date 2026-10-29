@@ -10,7 +10,7 @@
 #include "trop.h"
 #include "toonz/particlecache.h"
 
-#include <QCoreApplication>
+#include <QGuiApplication>
 #include <QDir>
 #include <QFile>
 #include <QTemporaryDir>
@@ -241,7 +241,9 @@ void testPersistence(const QString &path, const QString &directory) {
 }
 
 int main(int argc, char **argv) {
-  QCoreApplication application(argc, argv);
+  // TRenderer creates a QOffscreenSurface even for these CPU-only fixtures.
+  // CTest selects the offscreen platform; QCoreApplication has no screen.
+  QGuiApplication application(argc, argv);
   try {
     initStdFx();
     QTemporaryDir directory; require(directory.isValid(), "Cannot create fixture directory");

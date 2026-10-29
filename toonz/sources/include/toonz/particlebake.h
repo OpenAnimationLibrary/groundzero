@@ -46,6 +46,9 @@ struct DrawSample {
 struct Frame {
   double frame = 0;
   TRectD domain;
+  // Actual sampled pixel viewport, preserving an explicit fractional origin.
+  // Unlike a transformed world AABB, this does not grow for rotated columns.
+  TRectD pixelDomain;
   TAffine renderAffine;
   int bitsPerPixel = 32;
   bool linearColorSpace = false;
@@ -59,6 +62,13 @@ struct Options {
   // Finite native FX-coordinate rectangle, fixed for the entire bake. It is
   // required because tiled particles and infinite control images use a domain.
   TRectD domain;
+  // Optional exact output-pixel viewport. When empty, renderAffine * domain
+  // determines the viewport. Supply the camera viewport for scene-built FXs so
+  // inverse/forward AABB transforms do not change tiled-particle origins.
+  TRectD pixelDomain;
+  // Inclusive last source-artwork frame used for textures with no temporal end.
+  // Keep fixed across every sample in a bake; zero holds procedural artwork at 0.
+  int proceduralArtworkLastFrame = 0;
   double framesPerSecond = 24;
   int maxRasterDimension = 16384;
   std::uint64_t maxArtworkBytes = 512ULL * 1024 * 1024;

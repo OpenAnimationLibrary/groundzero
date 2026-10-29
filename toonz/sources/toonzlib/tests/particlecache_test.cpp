@@ -132,7 +132,9 @@ void roundTrips(const QDir &dir) {
           "unknown attributes and fixed metadata retained");
   bool strings = false, global = false;
   for (const auto &attribute : restored->attributes) {
-    if (attribute.name == "group") strings = attribute.strings == labels.strings && attribute.integers == labels.integers;
+    if (attribute.name == "group") strings = attribute.strings.size() == labels.strings.size() &&
+        std::equal(attribute.strings.cbegin(), attribute.strings.cend(), labels.strings.cbegin()) &&
+        attribute.integers == labels.integers;
     if (attribute.name == "customScale") global = attribute.fixed && attribute.floats == fixed.floats;
   }
   require(strings && global, "indexed strings and fixed metadata round-trip");
