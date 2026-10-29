@@ -1001,9 +1001,9 @@ void testLayered16Bit(const TFilePath &dir) {
 }
 
 void testLayeredErrors(const TFilePath &dir) {
-  TRaster32P small(4, 4), big(5, 5);
-  small->fill(TPixel32(1, 2, 3, 255));
-  big->fill(TPixel32(1, 2, 3, 255));
+  TRaster32P smallRaster(4, 4), largeRaster(5, 5);
+  smallRaster->fill(TPixel32(1, 2, 3, 255));
+  largeRaster->fill(TPixel32(1, 2, 3, 255));
   TRaster64P deep(4, 4);
   deep->fill(TPixel64(1, 2, 3, 65535));
 
@@ -1013,10 +1013,10 @@ void testLayeredErrors(const TFilePath &dir) {
     TRasterP layer;
     bool noLayers;
   } cases[] = {
-      {"A layer of another size was accepted", small, big, false},
-      {"A layer of another bit depth was accepted", small, deep, false},
-      {"A null layer raster was accepted", small, TRasterP(), false},
-      {"No layers were accepted", small, small, true}};
+      {"A layer of another size was accepted", smallRaster, largeRaster, false},
+      {"A layer of another bit depth was accepted", smallRaster, deep, false},
+      {"A null layer raster was accepted", smallRaster, TRasterP(), false},
+      {"No layers were accepted", smallRaster, smallRaster, true}};
   for (const Case &c : cases) {
     std::vector<TLayeredPsdLayer> layers;
     if (!c.noLayers) {

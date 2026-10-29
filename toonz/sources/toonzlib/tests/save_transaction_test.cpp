@@ -43,6 +43,15 @@ QByteArray bytesOf(const QString &path) {
   return file.readAll();
 }
 
+bool sameFileNames(const QStringList &left, const QStringList &right) {
+  // Qt 5's QList equality uses stdext iterators removed by newer MSVC versions.
+  if (left.size() != right.size()) return false;
+  for (int i = 0; i < left.size(); ++i) {
+    if (left.at(i) != right.at(i)) return false;
+  }
+  return true;
+}
+
 void blockDestination(const QString &path) {
   require(QDir().mkpath(path), "cannot create blocking directory");
   QFile marker(QDir(path).filePath("keep"));
@@ -244,7 +253,7 @@ void studioPaletteSerializationFailure(const QDir &dir) {
   require(bytesOf(path.getQString()) == original,
           "failed serialization truncated the last studio palette");
   require(palette->getDirtyFlag(), "failed studio save cleared dirty state");
-  require(dir.entryList(QDir::Files) == files,
+  require(sameFileNames(dir.entryList(QDir::Files), files),
           "failed studio save left a temporary palette behind");
 
   palette->setStyle(1, TPixel32(10, 90, 180));
@@ -257,7 +266,7 @@ void studioPaletteSerializationFailure(const QDir &dir) {
           "studio palette retry did not persist the edited color");
   require(QFile::permissions(path.getQString()) == permissions,
           "studio palette retry changed existing file permissions");
-  require(dir.entryList(QDir::Files) == files,
+  require(sameFileNames(dir.entryList(QDir::Files), files),
           "studio palette retry left a temporary palette behind");
 }
 

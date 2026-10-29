@@ -99,6 +99,18 @@ jobs:
       - name: Test reliability and performance invariants
         working-directory: toonz/build
         run: |
+          # Internal dylibs use @executable_path install names. The app build
+          # copies them beside its executable, while CTest executables live in
+          # several build subdirectories. Resolve all tests against that same
+          # current-build library set without changing the packaged app.
+          runtime_lib_dir="$PWD/toonz/OpenToonz.app/Contents/MacOS"
+          for library in libtnzcore.dylib libtnzbase.dylib libtoonzlib.dylib; do
+            if [ ! -f "$runtime_lib_dir/$library" ]; then
+              echo "::error::The built app is missing runtime library $library"
+              exit 1
+            fi
+          done
+          export DYLD_LIBRARY_PATH="$runtime_lib_dir"
           python3 ../../ci-scripts/run_regression_tests.py rasterallocation timagecache levelselection save_transaction movierenderqueue levelupdater_abort trenderer_startup compressed_stream scenebench fxrender ffmpeg_public tiio_ffmpeg tiio_psd
 
       - name: Upload reliability diagnostics
