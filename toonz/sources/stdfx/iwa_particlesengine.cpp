@@ -854,15 +854,21 @@ void Iwa_Particles_Engine::render_particles(
        * value -*/
       if (values.iw_rendermode_val == Iwa_TiledParticlesFx::REND_ALL ||
           values.iw_rendermode_val == Iwa_TiledParticlesFx::REND_BG) {
-        for (int lev = 0; lev < level_n; lev++) {
-          std::pair<int, int> ndxPair(lev, 0);
+        auto includeBackgroundScale = [&](int level, int artworkFrame) {
+          ParticleBakeCapture::checkCancel(m_parent);
+          std::pair<int, int> ndxPair(level, artworkFrame);
           std::map<std::pair<int, int>, float>::iterator it =
               partScales.find(ndxPair);
           if (it != partScales.end())
             it->second = std::max((float)values.scale_val.second, it->second);
           else
             partScales[ndxPair] = values.scale_val.second;
-        }
+        };
+        // Retain the existing frame-zero sampling resolution, and include the
+        // actual initial drawings selected by random/held artwork animation.
+        for (int lev = 0; lev < level_n; lev++) includeBackgroundScale(lev, 0);
+        for (const ParticleOrigin &origin : particleOrigins)
+          includeBackgroundScale(origin.level, origin.initSourceFrame);
       }
       /*- Here, draw background with holes for departed particles -*/
       /*- If switch is ON -*/
@@ -1554,6 +1560,7 @@ void Iwa_Particles_Engine::renderBackground(
 
   /*- For remaining particle sources -*/
   for (int po = 0; po < origins.size(); po++) {
+    if (!(po % 256)) ParticleBakeCapture::checkCancel(m_parent);
     ParticleOrigin origin = origins.at(po);
 
     int ndx = origin.initSourceFrame;
@@ -1563,8 +1570,15 @@ void Iwa_Particles_Engine::renderBackground(
     TAffine M(rotM);
     // Particles deal with dpi affines on their own
     TAffine scaleAff(m_parent->handledAffine(ri, m_frame));
-    float partScale =
-        scaleAff.a11 * partScales[std::pair<int, int>(origin.level, ndx)];
+    const auto scale = partScales.find(std::pair<int, int>(origin.level, ndx));
+    if (scale == partScales.end())
+      throw TException("Missing tiled-particle background artwork scale.");
+    float partScale = scaleAff.a11 * scale->second;
+    if (!std::isfinite(partScale))
+      throw TException("Invalid tiled-particle background artwork scale.");
+    // Invisible origins contribute no artwork. Avoid a zero-sized allocation
+    // and the later inverse scale while retaining their simulation state.
+    if (partScale <= 0) continue;
     TDimensionD partResolution(0, 0);
     TRenderSettings riNew(ri);
     // Retrieve the bounding box in the standard reference
@@ -1585,7 +1599,8 @@ void Iwa_Particles_Engine::renderBackground(
     bbox            = riNew.m_affine * bbox;
     /*- Size of scaled down Particle -*/
     partResolution = TDimensionD(tceil(bbox.getLx()), tceil(bbox.getLy()));
-  ParticleBakeCapture::checkRasterSize(m_parent, partResolution.lx, partResolution.ly, 8);
+    ParticleBakeCapture::checkRasterSize(m_parent, partResolution.lx, partResolution.ly, 8);
+    if (partResolution.lx < 1 || partResolution.ly < 1) continue;
 
     TRasterP ras;
 

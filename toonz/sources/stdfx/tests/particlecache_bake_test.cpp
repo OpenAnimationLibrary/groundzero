@@ -44,6 +44,7 @@
 #include <limits>
 #include <map>
 #include <set>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -322,7 +323,29 @@ ParticleBake::Frame capture(TRasterFx *fx, double frame,
   const bool preserved = TRenderer::renderId() == outer.identity() &&
       TRenderer::instance().rendererId() == rendererId;
   outer.end(frame);
-  require(ok, "Capture failed: " + error.toStdString());
+  if (!ok) {
+    const TAffine &a = settings.m_affine;
+    std::ostringstream context;
+    context.precision(17);
+    context << "Capture failed [fx=" << fx->getFxType() << ", frame=" << frame
+            << ", domain=(" << domain.x0 << ',' << domain.y0 << ','
+            << domain.x1 << ',' << domain.y1 << "), pixelDomain=("
+            << pixelDomain.x0 << ',' << pixelDomain.y0 << ','
+            << pixelDomain.x1 << ',' << pixelDomain.y1 << "), affine=("
+            << a.a11 << ',' << a.a12 << ',' << a.a13 << ','
+            << a.a21 << ',' << a.a22 << ',' << a.a23 << "), bpp="
+            << settings.m_bpp << ", linear=" << settings.m_linearColorSpace
+            << ", gamma=" << settings.m_colorSpaceGamma << ", artworkLast="
+            << proceduralLastFrame;
+    for (const char *name : {"birth_rate", "lifetime", "scale", "step", "animation", "rendermode",
+                             "triangleSize", "collision_ctrl", "collision_mode",
+                             "depth_layers", "depth_far_scale", "turbulence"}) {
+      TParam *value = fx->getParams()->getParam(name);
+      if (value) context << ", " << name << '=' << value->getValueAlias(frame, 6);
+    }
+    context << "]: " << error.toStdString();
+    throw std::runtime_error(context.str());
+  }
   require(preserved, "Capture replaced the active renderer context");
   const bool backgroundOnly = fx->getFxType() == "STD_iwa_TiledParticlesFx" &&
       parameter<TIntEnumParam>(fx, "rendermode")->getValue() == 2;
@@ -407,8 +430,11 @@ TRasterP composite(const ParticleBake::Frame &frame,
   return result;
 }
 
-void testCapture(bool tiled, int mode, int bpp, bool motionBlur = false) {
+void testCapture(bool tiled, int mode, int bpp, bool motionBlur = false,
+                  bool randomArtworkStart = false) {
   TRasterFxP fx = fixture(tiled, mode);
+  if (randomArtworkStart)
+    enumeration(fx.getPointer(), "animation", 3);  // Random starting artwork frame.
   if (motionBlur) {
     parameter<TBoolParam>(fx.getPointer(), "motion_blur")->setValue(true);
     number(fx.getPointer(), "motion_blur_gamma_adjust", .4);
@@ -418,7 +444,8 @@ void testCapture(bool tiled, int mode, int bpp, bool motionBlur = false) {
   settings.m_cameraBox = Domain;
   const std::string label = std::string(tiled ? "tiled" : "standard") +
       "/mode=" + std::to_string(mode) + "/bpp=" + std::to_string(bpp) +
-      (motionBlur ? "/motion blur" : "");
+      (motionBlur ? "/motion blur" : "") +
+      (randomArtworkStart ? "/random artwork start" : "");
   std::vector<ParticleBake::DrawSample> firstState;
   for (int frame : {3, 7, 3}) {
     const TRasterP reference = render(fx.getPointer(), frame, settings);
@@ -458,63 +485,68 @@ void testWeatherCapture() {
   TRenderSettings settings;
   settings.m_cameraBox = Domain;
   bool reducedScale = false;
-  for (int collision : {-1, 0, 1, 2}) {
-    TRasterFxP source = fixture(false);
-    number(source.getPointer(), "birth_rate", 8);
-    range(source.getPointer(), "scale", 100, 100);
-    range(source.getPointer(), "opacity", 100, 100);
-    range(source.getPointer(), "trail", 0, 0);
-    integer(source.getPointer(), "depth_layers", 4);
-    number(source.getPointer(), "depth_far_scale", .3);
-    number(source.getPointer(), "depth_far_opacity", .3);
-    number(source.getPointer(), "turbulence", 3);
-    if (collision >= 0) {
-      integer(source.getPointer(), "collision_ctrl", 1);
-      enumeration(source.getPointer(), "collision_mode", collision);
-    }
-    const auto captured = capture(source.getPointer(), 3, settings);
-    compare(render(source.getPointer(), 3, settings), composite(captured, settings),
-            "standard/weather/collision=" + std::to_string(collision));
-    // With unit birth scale/opacity and equal far factors, geometry and alpha
-    // have exactly the same depth attenuation. Check both recorded contracts.
-    for (const auto &particle : captured.particles) {
-      require(particle.scale == particle.opacity,
-              "Native weather depth was omitted from exported particle size");
-      const double transformScale = std::hypot(particle.rasterToWorld.a11,
-                                                particle.rasterToWorld.a21);
-      require(std::abs(transformScale - particle.scale) < 1e-12,
-              "Raw particle transform lost its effective weather depth scale");
-      reducedScale = reducedScale || particle.scale < 1;
-    }
-    for (const auto &draw : captured.draws)
-      require(draw.scale == draw.opacity,
-              "Prepared draw metadata lost its effective weather depth scale");
+  bool zeroScaleState = false;
+  for (double farFactor : {.3, 0.0})
+    for (int collision : {-1, 0, 1, 2}) {
+      TRasterFxP source = fixture(false);
+      number(source.getPointer(), "birth_rate", 8);
+      range(source.getPointer(), "scale", 100, 100);
+      range(source.getPointer(), "opacity", 100, 100);
+      range(source.getPointer(), "trail", 0, 0);
+      integer(source.getPointer(), "depth_layers", 4);
+      number(source.getPointer(), "depth_far_scale", farFactor);
+      number(source.getPointer(), "depth_far_opacity", farFactor);
+      number(source.getPointer(), "turbulence", 3);
+      if (collision >= 0) {
+        integer(source.getPointer(), "collision_ctrl", 1);
+        enumeration(source.getPointer(), "collision_mode", collision);
+      }
+      const auto captured = capture(source.getPointer(), 3, settings);
+      compare(render(source.getPointer(), 3, settings), composite(captured, settings),
+              "standard/weather/far=" + std::to_string(farFactor) +
+                  "/collision=" + std::to_string(collision));
+      // With unit birth scale/opacity and equal far factors, geometry and alpha
+      // have exactly the same depth attenuation. Check both recorded contracts.
+      for (const auto &particle : captured.particles) {
+        require(particle.scale == particle.opacity,
+                "Native weather depth was omitted from exported particle size");
+        const double transformScale = std::hypot(particle.rasterToWorld.a11,
+                                                  particle.rasterToWorld.a21);
+        require(std::abs(transformScale - particle.scale) < 1e-12,
+                "Raw particle transform lost its effective weather depth scale");
+        reducedScale = reducedScale || particle.scale < 1;
+        zeroScaleState = zeroScaleState || particle.scale == 0;
+      }
+      for (const auto &draw : captured.draws)
+        require(draw.scale > 0 && draw.scale == draw.opacity,
+                "Prepared draw metadata lost its effective weather depth scale");
 
-    QTemporaryDir temporary;
-    require(temporary.isValid(), "Cannot create weather particle package fixture");
-    ParticleCache::Metadata metadata;
-    metadata.firstFrame = metadata.lastFrame = 3;
-    const QString directory = temporary.filePath("weather-cache");
-    QString error;
-    require(ParticleBake::writePackage(directory, metadata,
-                [&](int, ParticleBake::Frame &frame, QString &) {
-                  frame = captured;
-                  return true;
-                }, error),
-            "Cannot export native weather particles: " + error.toStdString());
-    ParticleCache::Sequence sequence;
-    require(ParticleCache::openSequence(QDir(directory).filePath("cache.otpc"),
-                                         sequence, error),
-            "Cannot reopen exported native weather particles: " + error.toStdString());
-    ParticleCache::Playback playback;
-    playback.startFrame = 3;
-    playback.sceneFramesPerSecond = metadata.framesPerSecond;
-    const auto exported = ParticleCache::sampleSequence(
-        sequence, 3, playback, sequence.mapping, error);
-    require(bool(exported), "Cannot sample exported native weather particles: " + error.toStdString());
-    compareInterchange(captured.particles, *exported, metadata.framesPerSecond);
-  }
+      QTemporaryDir temporary;
+      require(temporary.isValid(), "Cannot create weather particle package fixture");
+      ParticleCache::Metadata metadata;
+      metadata.firstFrame = metadata.lastFrame = 3;
+      const QString directory = temporary.filePath("weather-cache");
+      QString error;
+      require(ParticleBake::writePackage(directory, metadata,
+                  [&](int, ParticleBake::Frame &frame, QString &) {
+                    frame = captured;
+                    return true;
+                  }, error),
+              "Cannot export native weather particles: " + error.toStdString());
+      ParticleCache::Sequence sequence;
+      require(ParticleCache::openSequence(QDir(directory).filePath("cache.otpc"),
+                                           sequence, error),
+              "Cannot reopen exported native weather particles: " + error.toStdString());
+      ParticleCache::Playback playback;
+      playback.startFrame = 3;
+      playback.sceneFramesPerSecond = metadata.framesPerSecond;
+      const auto exported = ParticleCache::sampleSequence(
+          sequence, 3, playback, sequence.mapping, error);
+      require(bool(exported), "Cannot sample exported native weather particles: " + error.toStdString());
+      compareInterchange(captured.particles, *exported, metadata.framesPerSecond);
+    }
   require(reducedScale, "Weather fixture did not exercise a farther depth layer");
+  require(zeroScaleState, "Zero-scale weather layers lost their live particle state");
 }
 
 void testShortLivedRandomStacking() {
@@ -1172,37 +1204,47 @@ int main(int argc, char **argv) {
   TThread::init();
   initStdFx();
   try {
-    testCapture(false, 0, 32);
-    testCapture(false, 0, 64);
-    testCapture(false, 0, 32, true);
-    testCapture(true, 0, 32);   // Background plus flying pieces.
-    testCapture(true, 2, 32);   // Remaining background only.
-    testCapture(true, 3, 64);   // Illuminated fluttering pieces.
-    testInvisibleState(false);
-    testInvisibleState(true);
-    testWeatherCapture();
-    testShortLivedRandomStacking();
-    testControlSamplingLimits();
-    testSourcePointLimits();
-    testFractionalViewport(false);
-    testFractionalViewport(true);
-    testProceduralArtworkHorizon(false);
-    testProceduralArtworkHorizon(true);
-    testCancellationAndLimits();
-    testPackagePlayback(false, 0, 32);
-    testPackagePlayback(false, 0, 64, true);
-    testPackagePlayback(true, 0, 32);
-    testPackagePlayback(true, 3, 64);
-    testPackageFailureAtomicity();
-    testScenePreparation(false);
-    testScenePreparation(true);
-    testScenePreparation(false, true);
-    testScenePreparation(true, true);
-    testScenePreparation(false, false, true);
-    testScenePreparation(true, false, true);
-    testScenePreparation(false, true, true);
-    testScenePreparation(true, true, true);
-    std::cout << "Native particle capture/package/playback: 30 cases passed\n";
+    const auto runCase = [](const char *name, auto action) {
+      try { action(); }
+      catch (const std::exception &error) {
+        throw std::runtime_error(std::string(name) + ": " + error.what());
+      } catch (const TException &error) {
+        throw std::runtime_error(std::string(name) + ": " +
+            QString::fromStdWString(error.getMessage()).toStdString());
+      }
+    };
+    runCase("testCapture(standard,mode=0,bpp=32)", [] { testCapture(false, 0, 32); });
+    runCase("testCapture(standard,mode=0,bpp=64)", [] { testCapture(false, 0, 64); });
+    runCase("testCapture(standard,mode=0,bpp=32,blur=true)", [] { testCapture(false, 0, 32, true); });
+    runCase("testCapture(tiled,mode=0,bpp=32)", [] { testCapture(true, 0, 32); });
+    runCase("testCapture(tiled,mode=2,bpp=32)", [] { testCapture(true, 2, 32); });
+    runCase("testCapture(tiled,mode=3,bpp=64)", [] { testCapture(true, 3, 64); });
+    runCase("testCapture(tiled,mode=0,bpp=32,randomArtworkStart=true)", [] { testCapture(true, 0, 32, false, true); });
+    runCase("testInvisibleState(standard)", [] { testInvisibleState(false); });
+    runCase("testInvisibleState(tiled)", [] { testInvisibleState(true); });
+    runCase("testWeatherCapture", [] { testWeatherCapture(); });
+    runCase("testShortLivedRandomStacking", [] { testShortLivedRandomStacking(); });
+    runCase("testControlSamplingLimits", [] { testControlSamplingLimits(); });
+    runCase("testSourcePointLimits", [] { testSourcePointLimits(); });
+    runCase("testFractionalViewport(standard)", [] { testFractionalViewport(false); });
+    runCase("testFractionalViewport(tiled)", [] { testFractionalViewport(true); });
+    runCase("testProceduralArtworkHorizon(standard)", [] { testProceduralArtworkHorizon(false); });
+    runCase("testProceduralArtworkHorizon(tiled)", [] { testProceduralArtworkHorizon(true); });
+    runCase("testCancellationAndLimits", [] { testCancellationAndLimits(); });
+    runCase("testPackagePlayback(standard,mode=0,bpp=32)", [] { testPackagePlayback(false, 0, 32); });
+    runCase("testPackagePlayback(standard,mode=0,bpp=64,blur=true)", [] { testPackagePlayback(false, 0, 64, true); });
+    runCase("testPackagePlayback(tiled,mode=0,bpp=32)", [] { testPackagePlayback(true, 0, 32); });
+    runCase("testPackagePlayback(tiled,mode=3,bpp=64)", [] { testPackagePlayback(true, 3, 64); });
+    runCase("testPackageFailureAtomicity", [] { testPackageFailureAtomicity(); });
+    runCase("testScenePreparation(standard)", [] { testScenePreparation(false); });
+    runCase("testScenePreparation(tiled)", [] { testScenePreparation(true); });
+    runCase("testScenePreparation(standard,fullAffine=true)", [] { testScenePreparation(false, true); });
+    runCase("testScenePreparation(tiled,fullAffine=true)", [] { testScenePreparation(true, true); });
+    runCase("testScenePreparation(standard,columnDepth=true)", [] { testScenePreparation(false, false, true); });
+    runCase("testScenePreparation(tiled,columnDepth=true)", [] { testScenePreparation(true, false, true); });
+    runCase("testScenePreparation(standard,fullAffine=true,columnDepth=true)", [] { testScenePreparation(false, true, true); });
+    runCase("testScenePreparation(tiled,fullAffine=true,columnDepth=true)", [] { testScenePreparation(true, true, true); });
+    std::cout << "Native particle capture/package/playback: 31 cases passed\n";
     return 0;
   } catch (const std::exception &error) {
     std::cerr << "particlecache_bake: " << error.what() << '\n';

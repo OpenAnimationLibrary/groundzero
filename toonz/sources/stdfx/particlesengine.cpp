@@ -833,6 +833,12 @@ void Particles_Engine::do_render(
   // picking
   // the particle to be rendered.
   int ndx = part->frame % lastframe;
+  const double effectiveScale = part->depth > 0
+      ? part->scale * ParticleWeather::depthFactor(part->depth, values.depth_far_scale_val)
+      : part->scale;
+  // Invisible depth layers still belong to raw simulation capture, but have
+  // no drawable geometry and must not allocate or resample a singular sprite.
+  if (effectiveScale <= 0) return;
   if (ParticleBakeCapture::active(m_parent)) {
     ParticleBake::DrawSample sample;
     sample.id = part->birthId;
@@ -846,9 +852,7 @@ void Particles_Engine::do_render(
     sample.source = part->level;
     sample.artworkFrame = ndx;
     sample.trailDistance = dist_frame * step;
-    sample.scale = part->depth > 0
-        ? part->scale * ParticleWeather::depthFactor(part->depth, values.depth_far_scale_val)
-        : part->scale;
+    sample.scale = effectiveScale;
     sample.angle = part->angle;
     if (values.pathaim_val) sample.angle += std::atan2(part->vy, part->vx) * M_180_PI;
     for (int h = 0; h != 3; ++h) sample.history[h] = TPointD(part->oldx[h], part->oldy[h]);
@@ -873,10 +877,7 @@ void Particles_Engine::do_render(
   // particle
   TRotation rotM(part->angle + aim_angle);
   // Farther depth layers are smaller
-  TScale scaleM(part->depth > 0
-                    ? part->scale * ParticleWeather::depthFactor(
-                                        part->depth, values.depth_far_scale_val)
-                    : part->scale);
+  TScale scaleM(effectiveScale);
   TAffine M(rotM * scaleM);
 
   // Particles deal with dpi affines on their own
