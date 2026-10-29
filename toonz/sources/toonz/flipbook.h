@@ -13,6 +13,7 @@
 
 #include "tfx.h"
 #include "toonz/txsheet.h"
+#include "toonz/txshsimplelevel.h"
 
 #include <QTimer>
 
@@ -175,7 +176,9 @@ protected:
   // questi sono per il saving dei frame
   TLevelWriterP m_lw;
   TLevelReaderP m_lr;
-  TXshSimpleLevel *m_xl;
+  // Held by reference so a level dropped or viewed from a script stays alive
+  // while the flipbook shows it.
+  TXshSimpleLevelP m_xl;
   int m_currentFrameToSave;
   SaveImagesPopup *m_savePopup;
   LoadImagesPopup *m_loadPopup;

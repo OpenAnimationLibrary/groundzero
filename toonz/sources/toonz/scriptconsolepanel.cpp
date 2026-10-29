@@ -155,7 +155,22 @@ static QJSValue viewFun(ScriptEngine *teng, QJSEngine *engine,
       ImageViewer *imageViewer = flipBook->getImageViewer();
       imageViewer->setImage(image->getImg());
     } else {
-      flipBook->setLevel(level->getSimpleLevel());
+      // Show a detached copy: the script can keep editing the level, or drop
+      // it together with its scene, while the flipbook is still open.
+      TXshSimpleLevel *src  = level->getSimpleLevel();
+      TXshSimpleLevelP copy = new TXshSimpleLevel(src->getName());
+      copy->setScene(src->getScene());
+      copy->setType(src->getType());
+      copy->clonePropertiesFrom(src);
+      if (TPalette *palette = src->getPalette())
+        copy->setPalette(palette->clone());
+      std::vector<TFrameId> fids;
+      src->getFids(fids);
+      for (const TFrameId &fid : fids)
+        if (TImageP img = src->getFrame(fid, false))
+          copy->setFrame(fid, img->cloneImage());
+      copy->setScene(nullptr);
+      flipBook->setLevel(copy.getPointer());
     }
   });
   return teng->voidValue();
