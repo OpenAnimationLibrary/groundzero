@@ -5,6 +5,7 @@
 
 // TnzCore includes
 #include "tsystem.h"
+#include "texception.h"
 #include "tmsgcore.h"
 
 // QT includes
@@ -15,6 +16,8 @@
 #include <QRegularExpression>
 #include <QDir>
 #include <QStandardPaths>
+#include <QDateTime>
+#include <QMutex>
 
 namespace ThirdParty {
 
@@ -205,6 +208,49 @@ void runFFprobe(QProcess &process, const QStringList &arguments) {
     dir = QCoreApplication::applicationDirPath() + "/" + dir;
 
   process.start(dir + FFPROBE_EXE, arguments);
+}
+
+QStringList getFFmpegFrameSyncArgs() {
+  QString dir = getFFmpegDir();
+  if (dir.isEmpty() || dir.startsWith('.'))
+    dir = QCoreApplication::applicationDirPath() + "/" + dir;
+  const QFileInfo executable(dir + FFMPEG_EXE);
+  const QString identity = executable.absoluteFilePath() + "\n" +
+      QString::number(executable.size()) + "\n" +
+      QString::number(executable.lastModified().toMSecsSinceEpoch());
+  static QMutex mutex;
+  static QString cachedIdentity;
+  static QStringList cachedArgs;
+  {
+    QMutexLocker lock(&mutex);
+    if (identity == cachedIdentity) return cachedArgs;
+  }
+
+  // Capability detection also handles development/vendor version strings.
+  // -vsync was deprecated in favor of -fps_mode and is now removed, while
+  // older supported installations may not yet advertise -fps_mode.
+  QProcess process;
+  process.start(executable.absoluteFilePath(), {"-hide_banner", "-h", "full"});
+  const bool finished = process.waitForFinished(8000);
+  if (!finished && process.state() != QProcess::NotRunning) {
+    process.kill();
+    process.waitForFinished(3000);
+  }
+  if (!finished || process.exitStatus() != QProcess::NormalExit ||
+      process.exitCode() != 0)
+    throw TException("Cannot query FFmpeg frame synchronization options");
+  const QByteArray help = process.readAllStandardOutput() +
+                           process.readAllStandardError();
+  QStringList args;
+  if (help.contains("-fps_mode")) args << "-fps_mode" << "passthrough";
+  else if (help.contains("-vsync")) args << "-vsync" << "0";
+  else throw TException("FFmpeg has no supported frame passthrough option");
+  {
+    QMutexLocker lock(&mutex);
+    cachedIdentity = identity;
+    cachedArgs = args;
+  }
+  return args;
 }
 
 #ifdef _WIN32

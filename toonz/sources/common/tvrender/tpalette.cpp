@@ -313,22 +313,21 @@ int TPalette::getFirstUnpagedStyle() const {
  * palette, the new style will be appended to the end of the list.
  */
 int TPalette::addStyle(TColorStyle *style) {
+  const int styleId = int(m_styles.size());
+  // Duplicate inputs are borrowed from this palette, not newly owned styles.
+  for (int i = 0; i < styleId; ++i)
+    if (getStyle(i) == style) return -1;
+
+  std::unique_ptr<TColorStyle> styleOwner(style);
   // limit the number of cleanup style to 7
   if (isCleanupPalette() && getStyleInPagesCount() >= 8) return -1;
+  if (styleId >= 4096) return -1;
 
-  int styleId = int(m_styles.size());
-  if (styleId < 4096) {
-    // checking if the style is overlapped
-    int i = 0;
-    for (i = 0; i < styleId; i++)
-      if (getStyle(i) == style) break;
-    if (i == styleId) {
-      m_styles.push_back(std::make_pair((Page *)0, style));
-      return styleId;
-    }
-  }
-  delete style;
-  return -1;
+  // Retain through the palette's pointer type before vector insertion, which
+  // can throw after constructing its reference-counted element.
+  TColorStyleP retainedStyle(styleOwner.release());
+  m_styles.push_back(std::make_pair((Page *)0, retainedStyle));
+  return styleId;
 }
 
 //-------------------------------------------------------------------
@@ -340,16 +339,15 @@ int TPalette::addStyle(const TPixel32 &color) {
 //-------------------------------------------------------------------
 
 void TPalette::setStyle(int styleId, TColorStyle *style) {
-  std::unique_ptr<TColorStyle> styleOwner(style);
-
   int styleCount = getStyleCount();
 
-  if (0 <= styleId && styleId < styleCount) {
-    // Find out if the supplied style is already in the palette
-    // with a different style id. In that case, bail out as a noop.
-    for (int i = 0; i < styleCount; ++i)
-      if (style == getStyle(i)) return;
+  // A style already held by this palette is borrowed, even when the target
+  // index is invalid. Do not acquire ownership of it on the no-op path.
+  for (int i = 0; i < styleCount; ++i)
+    if (style == getStyle(i)) return;
 
+  std::unique_ptr<TColorStyle> styleOwner(style);
+  if (0 <= styleId && styleId < styleCount) {
     // Substitution can take place
     if (typeid(*m_styles[styleId].second.getPointer()) != typeid(*style))
       m_styleAnimationTable.erase(styleId);

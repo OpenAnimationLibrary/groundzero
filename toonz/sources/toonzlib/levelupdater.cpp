@@ -103,14 +103,14 @@ LevelUpdater::LevelUpdater(TXshSimpleLevel *sl)
 //-----------------------------------------------------------------------------
 
 LevelUpdater::LevelUpdater(const TFilePath &fp, TPropertyGroup *lwProperties,
-                           const TFrameId &tmplFId)
+                           const TFrameId &tmplFId, bool replaceExisting)
     : m_pg(0)
     , m_inputLevel(0)
     , m_imageInfo(0)
     , m_currIdx(0)
     , m_opened(false)
     , m_usingTemporaryFile(false) {
-  open(fp, lwProperties, tmplFId);
+  open(fp, lwProperties, tmplFId, replaceExisting);
 }
 
 //-----------------------------------------------------------------------------
@@ -213,12 +213,14 @@ void LevelUpdater::buildProperties(const TFilePath &fp) {
 //-----------------------------------------------------------------------------
 
 void LevelUpdater::open(const TFilePath &fp, TPropertyGroup *pg,
-                        const TFrameId &tmplFId) {
+                        const TFrameId &tmplFId, bool replaceExisting) {
   assert(!m_lw);
 
   // Find out if a corresponding level already exists on disk - in that case,
   // load it
-  bool existsLevel = TSystem::doesExistFileOrLevel(fp);
+  // Full movie renders replace the entire output; the FFmpeg writer stages it
+  // safely. Do not load/append old frames or delete the destination up front.
+  bool existsLevel = !replaceExisting && TSystem::doesExistFileOrLevel(fp);
   if (existsLevel)
     buildSourceInfo(fp);  // Could be !m_lr if level could not be read
 
@@ -471,6 +473,7 @@ void LevelUpdater::close() {
     if (m_usingTemporaryFile) {
       // Add all remaining frames still in m_fids
       addFramesTo((int)m_fids.size());
+      m_lw->finalize();
 
       // Currently written level is temporary. It must be renamed to its
       // originally intended path,
@@ -534,6 +537,8 @@ void LevelUpdater::close() {
       // or see what's wrong with the unwritable file.
     }
 
+    if (!m_usingTemporaryFile && m_lw) m_lw->finalize();
+
     // Reset the updater's status
     reset();
   } catch (...) {
@@ -541,10 +546,20 @@ void LevelUpdater::close() {
     // not be added.
     // Hopefully, it was not about closing m_lr or m_lw.
 
-    // However, we still intend to reset the updater's status before rethrowing.
-    reset();
+    // Suppress destructor finalization before releasing a partially written
+    // movie, including when copying trailing source frames failed.
+    abort();
     throw;
   }
+}
+
+//-----------------------------------------------------------------------------
+
+void LevelUpdater::abort() noexcept {
+  if (m_lw) m_lw->abort();
+  // Do not resume a suspended writer, append source frames, or publish a
+  // temporary level. reset() also prevents close() in our destructor.
+  reset();
 }
 
 //-----------------------------------------------------------------------------
@@ -557,9 +572,10 @@ void LevelUpdater::flush() {
   // throw btw),
   // reset and rethrow
   try {
+    m_lw->finalize();
     m_lw = TLevelWriterP();
   } catch (...) {
-    reset();
+    abort();
     throw;
   }
 }

@@ -1709,6 +1709,8 @@ void FilmstripFrames::createSelectLevelMenu(QMenu *menu) {
   if (scene) {
     std::vector<TXshLevel *> levels;
     scene->getLevelSet()->listLevels(levels);
+    std::set<TXshLevel *> usedLevels;
+    scene->getTopXsheet()->getUsedLevels(usedLevels);
     std::vector<TXshLevel *>::iterator it;
     int i       = 0;
     bool active = false;
@@ -1717,7 +1719,7 @@ void FilmstripFrames::createSelectLevelMenu(QMenu *menu) {
       TXshSimpleLevel *sl = (*it)->getSimpleLevel();
       if (sl) {
         // register only used level in xsheet
-        if (!scene->getTopXsheet()->isLevelUsed(sl)) continue;
+        if (usedLevels.count(sl) == 0) continue;
         QString levelName = QString::fromStdWString(sl->getName());
         if (i == 0) {
           levelSelectMenu = menu->addMenu(tr("Select Level"));
@@ -2354,6 +2356,8 @@ void Filmstrip::updateChooseLevelComboItems() {
   if (scene) {
     std::vector<TXshLevel *> levels;
     scene->getLevelSet()->listLevels(levels);
+    std::set<TXshLevel *> usedLevels;
+    scene->getTopXsheet()->getUsedLevels(usedLevels);
     std::vector<TXshLevel *>::iterator it;
 
     for (it = levels.begin(); it != levels.end(); ++it) {
@@ -2361,7 +2365,7 @@ void Filmstrip::updateChooseLevelComboItems() {
       TXshSimpleLevel *sl = (*it)->getSimpleLevel();
       if (sl) {
         // register only used level in xsheet
-        if (!scene->getTopXsheet()->isLevelUsed(sl)) continue;
+        if (usedLevels.count(sl) == 0) continue;
 
         sl->addRef();
         m_levels.push_back(sl);

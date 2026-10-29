@@ -1,0 +1,111 @@
+name: Paired Benchmarks
+
+# Explicitly opt in after both builds pass. Normal builds never gate on timings.
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        type: choice
+        options: [windows, macos]
+        default: windows
+        description: Run both revisions on one runner of this platform
+      baseline_run_id:
+        type: string
+        required: true
+        description: Successful build run containing the baseline benchmark bundle
+      baseline_sha:
+        type: string
+        required: true
+        description: Full baseline commit SHA from that build
+      candidate_run_id:
+        type: string
+        required: true
+        description: Successful build run containing the candidate benchmark bundle
+      candidate_sha:
+        type: string
+        required: true
+        description: Full candidate commit SHA from that build
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  Compare:
+    runs-on: ${{ inputs.platform == 'windows' && 'windows-2025' || 'macos-15-intel' }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Verify harness contracts
+        run: python -m unittest discover -s ci-scripts/tests -p test_paired_benchmark.py
+      - name: Resolve immutable input artifacts
+        id: inputs
+        uses: actions/github-script@v8
+        env:
+          BENCH_PLATFORM: ${{ inputs.platform }}
+          BASELINE_RUN: ${{ inputs.baseline_run_id }}
+          BASELINE_SHA: ${{ inputs.baseline_sha }}
+          CANDIDATE_RUN: ${{ inputs.candidate_run_id }}
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        with:
+          script: |
+            const fs = require('fs');
+            const provenance = {};
+            const expectedName = process.env.BENCH_PLATFORM === 'windows' ? 'Windows Build' : 'MacOS Build';
+            for (const side of ['baseline', 'candidate']) {
+              const prefix = side.toUpperCase();
+              const runText = process.env[prefix + '_RUN'];
+              const revision = process.env[prefix + '_SHA'];
+              if (!/^[1-9][0-9]*$/.test(runText) || !/^[0-9a-f]{40}$/.test(revision))
+                throw new Error('Use a numeric run ID and full lowercase commit SHA');
+              const run_id = Number(runText);
+              if (!Number.isSafeInteger(run_id)) throw new Error('Run ID is out of range');
+              const {data: run} = await github.rest.actions.getWorkflowRun({...context.repo, run_id});
+              if (run.conclusion !== 'success' || run.head_sha !== revision || run.name !== expectedName)
+                throw new Error(side + ' is not the specified successful platform build');
+              const artifacts = await github.paginate(github.rest.actions.listWorkflowRunArtifacts,
+                {...context.repo, run_id, per_page: 100});
+              const matches = artifacts.filter(a => a.name === 'benchmark-input-' + process.env.BENCH_PLATFORM && !a.expired);
+              if (matches.length !== 1 || !matches[0].digest)
+                throw new Error(side + ' must contain one unexpired benchmark bundle with a digest');
+              const artifact = matches[0];
+              provenance[side] = {run_id, revision, artifact_id: artifact.id, artifact_digest: artifact.digest};
+              core.setOutput(side + '_artifact', String(artifact.id));
+            }
+            fs.writeFileSync('benchmark-provenance.json', JSON.stringify(provenance, null, 2));
+      - name: Download pinned baseline bundle
+        uses: actions/download-artifact@v6
+        with:
+          artifact-ids: ${{ steps.inputs.outputs.baseline_artifact }}
+          run-id: ${{ inputs.baseline_run_id }}
+          github-token: ${{ github.token }}
+          path: benchmark-inputs/baseline
+          merge-multiple: true
+      - name: Download pinned candidate bundle
+        uses: actions/download-artifact@v6
+        with:
+          artifact-ids: ${{ steps.inputs.outputs.candidate_artifact }}
+          run-id: ${{ inputs.candidate_run_id }}
+          github-token: ${{ github.token }}
+          path: benchmark-inputs/candidate
+          merge-multiple: true
+      - name: Measure alternating baseline and candidate processes
+        run: >-
+          python ci-scripts/paired_benchmark.py
+          --baseline benchmark-inputs/baseline/benchmark-input.tar.gz
+          --candidate benchmark-inputs/candidate/benchmark-input.tar.gz
+          --provenance benchmark-provenance.json --output benchmark-results
+      - name: Archive raw measurements and logs
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: paired-benchmark-${{ inputs.platform }}-${{ inputs.baseline_run_id }}-${{ inputs.candidate_run_id }}
+          path: |
+            benchmark-results
+            benchmark-provenance.json
+          if-no-files-found: error

@@ -28,7 +28,7 @@ private:
   TFilePath m_path;
   int m_lx, m_ly;
   int m_layersCount;
-  TPSDReader *m_psdreader;
+  std::unique_ptr<TPSDReader> m_psdreader;
   int m_layerId;
   std::map<TFrameId, int> m_frameTable;  // frameID, layerId
 public:

@@ -18,7 +18,10 @@
 #include <QVector>
 #include <QProcess>
 #include <functional>
+#include <atomic>
+#include <exception>
 #include <limits>
+#include <memory>
 
 // Struct to hold video file information.
 // Note: Zero values in any field may indicate that ffprobe failed to retrieve
@@ -79,6 +82,12 @@ public:
   // the caller runs ffmpeg over the intermediate images as before.
   bool finishPipe();
 
+  // Idempotent, checked export completion. A previous failure is rethrown.
+  void finalize(const ArgsBuilder &buildArgs);
+  void abort() noexcept;
+  void requestAbort() noexcept { m_abortRequested.store(true); }
+  bool isAborted() const { return m_abortRequested.load(); }
+
   // Executes ffmpeg with custom arguments
   void runFfmpeg(const QStringList &preInputArgs,
                  const QStringList &postInputArgs,
@@ -130,6 +139,7 @@ private:
   mutable int m_lx           = 0;
   mutable int m_ly           = 0;
   mutable int m_frameCount   = 0;
+  mutable QString m_codecName;
   mutable bool m_infoCached =
       false;  // indicates whether cache has been attempted
 
@@ -144,9 +154,19 @@ private:
 
   TFilePath m_path;
   QVector<QString> m_cleanUpList;
+  // Intermediate frames may be encoded concurrently. Protect their shared
+  // bookkeeping without holding a lock during image conversion or PNG writes.
+  QMutex m_intermediateMutex;
 
-  // Unique identifier for temporary files (based on full path hash)
+  // Export jobs own independent temporary files, even for the same target.
   QString m_tempBaseName;
+  // Import caches are immutable for the source content captured by this reader.
+  mutable QString m_importCacheBase;
+  QString m_exportOutputPath;
+  bool m_finalizationAttempted = false;
+  bool m_aborted = false;
+  std::atomic<bool> m_abortRequested{false};
+  std::exception_ptr m_finalizationError;
 
   // Raw video pipe state (see enablePipe())
   bool m_pipeEnabled       = false;
@@ -159,6 +179,9 @@ private:
   QString cleanPathSymbols() const;
   bool waitFfmpeg(QProcess &process, bool async) const;
   void startPipe(int lx, int ly, const ArgsBuilder &buildArgs);
+  QString importCacheBase() const;
+  bool hasCompleteImportCache() const;
+  QString exportOutputPath();
 
   // not allow copy of temporary files
   Ffmpeg(const Ffmpeg &)            = delete;
@@ -180,7 +203,7 @@ public:
   }
 
 private:
-  Ffmpeg *m_ffmpegReader = nullptr;
+  std::unique_ptr<Ffmpeg> m_ffmpegReader;
   bool m_framesExtracted = false;
   TDimension m_size;
   int m_frameCount        = -1;

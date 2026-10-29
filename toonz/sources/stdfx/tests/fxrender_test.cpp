@@ -6,11 +6,10 @@
 // are missing or differ are written to the output folder (second argument),
 // so a CI run can upload them for review.
 //
-// To add or update a reference, copy the PNG from the output folder (for
-// example from the "fxrender-output" CI artifact) into the reference folder.
-// A case without a reference yet is written there and reported, but does not
-// fail: the Linux Tests workflow commits it as the new reference. A render
-// that differs from its reference fails.
+// Missing or unreadable references fail. To generate candidate references,
+// run "fxrender_test --generate <output folder>", review the PNGs and copy
+// approved images into the reference folder. Generation never compares or
+// automatically promotes its output to the regression baseline.
 // The PNG files store the raw premultiplied pixel values as if they were
 // straight RGBA, so they compare exactly.
 
@@ -25,7 +24,10 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QImage>
+#include <QOffscreenSurface>
+#include <QOpenGLContext>
 #include <QString>
+#include <QSurfaceFormat>
 
 #include <algorithm>
 #include <cstdlib>
@@ -43,6 +45,32 @@ const TDimension cSize(160, 120);
 // absorb floating point differences between compilers and platforms.
 const int cChannelTolerance  = 3;
 const double cPixelTolerance = 0.002;
+
+bool checkOpenGL() {
+  const auto fail = [](const char *reason) {
+    std::cerr << "OpenGL initialization failed for Qt platform '"
+              << QGuiApplication::platformName().toStdString() << "': "
+              << reason << std::endl;
+    return false;
+  };
+  // Match QtOfflineGL's compatibility context, on the GUI thread. Probe before
+  // any FX creates its framebuffer so an unavailable backend is a test failure
+  // with an actionable diagnostic, rather than a null-context crash.
+  QSurfaceFormat format;
+  format.setProfile(QSurfaceFormat::CompatibilityProfile);
+  QOpenGLContext context;
+  context.setFormat(format);
+  if (!context.create() || !context.isValid())
+    return fail("cannot create a compatibility OpenGL context");
+  QOffscreenSurface surface;
+  surface.setFormat(context.format());
+  surface.create();
+  if (!surface.isValid()) return fail("cannot create an offscreen surface");
+  if (!context.makeCurrent(&surface))
+    return fail("cannot make the offscreen context current");
+  context.doneCurrent();
+  return true;
+}
 
 TFxP create(const std::string &id) {
   TFxP fx = TFx::create(id);
@@ -190,20 +218,33 @@ std::string compare(const QImage &actual, const QImage &reference) {
 }  // namespace
 
 int main(int argc, char **argv) {
-  if (argc < 3) {
-    std::cerr << "Usage: fxrender_test <reference folder> <output folder>"
+  if (argc != 3) {
+    std::cerr << "Usage: fxrender_test <reference folder> <output folder>\n"
+                 "       fxrender_test --generate <output folder>"
               << std::endl;
     return 2;
   }
-  // A QGuiApplication: some FX render through an offscreen OpenGL surface,
-  // which needs a screen (QT_QPA_PLATFORM=offscreen when headless)
+  // Offscreen GL surfaces need a QGuiApplication and a platform backend with
+  // context support; CTest selects the native backend on macOS and Windows.
   QGuiApplication app(argc, argv);
+  if (!checkOpenGL()) return 1;
   TThread::init();
   initStdFx();
 
+  const bool generate = QString::fromLocal8Bit(argv[1]) == "--generate";
   const QDir referenceDir(QString::fromLocal8Bit(argv[1]));
   QDir outputDir(QString::fromLocal8Bit(argv[2]));
-  outputDir.mkpath(".");
+  if (!outputDir.mkpath(".")) {
+    std::cerr << "Cannot create output directory: "
+              << outputDir.path().toStdString() << std::endl;
+    return 1;
+  }
+  if (!generate &&
+      outputDir.canonicalPath() == referenceDir.canonicalPath()) {
+    std::cerr << "Regression output must be separate from reference images"
+              << std::endl;
+    return 2;
+  }
 
   TRenderer renderer(1);
   int failures = 0, missing = 0;
@@ -217,15 +258,24 @@ int main(int argc, char **argv) {
       continue;
     }
     const QImage actual = toImage(ras);
+    const QString outputPath = outputDir.filePath(fileName);
+    if (generate) {
+      if (!actual.save(outputPath, "PNG")) {
+        ++failures;
+        std::cerr << c.name << ": cannot write candidate image "
+                  << outputPath.toStdString() << std::endl;
+      } else {
+        std::cout << c.name << ": wrote candidate image "
+                  << outputPath.toStdString() << std::endl;
+      }
+      continue;
+    }
 
     std::string problem;
     const QString referencePath = referenceDir.filePath(fileName);
     if (!QFileInfo::exists(referencePath)) {
       ++missing;
-      actual.save(outputDir.filePath(fileName), "PNG");
-      std::cout << c.name << ": no reference image yet, wrote "
-                << outputDir.filePath(fileName).toStdString() << std::endl;
-      continue;
+      problem = "the reference image is missing";
     } else {
       QImage reference(referencePath);
       problem = reference.isNull() ? "the reference image cannot be read"
@@ -237,17 +287,26 @@ int main(int argc, char **argv) {
       continue;
     }
     ++failures;
-    actual.save(outputDir.filePath(fileName), "PNG");
-    std::cerr << c.name << ": " << problem << "; wrote "
-              << outputDir.filePath(fileName).toStdString() << std::endl;
+    std::cerr << c.name << ": " << problem;
+    if (actual.save(outputPath, "PNG"))
+      std::cerr << "; wrote " << outputPath.toStdString();
+    else
+      std::cerr << "; cannot write " << outputPath.toStdString();
+    std::cerr << std::endl;
   }
 
+  if (generate) {
+    std::cout << "Generated " << cases().size() - failures << " of "
+              << cases().size() << " candidate images; review before use"
+              << std::endl;
+    return failures ? 1 : 0;
+  }
   if (missing)
     std::cout << missing << " of " << cases().size()
               << " FX renders have no reference image yet" << std::endl;
   if (failures)
     std::cerr << failures << " of " << cases().size()
-              << " FX renders do not match their references" << std::endl;
+              << " FX render checks failed" << std::endl;
   else
     std::cout << "All " << cases().size() - missing
               << " FX renders with a reference match" << std::endl;

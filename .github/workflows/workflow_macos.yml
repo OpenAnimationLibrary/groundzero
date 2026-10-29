@@ -1,8 +1,17 @@
 name: MacOS Build
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: ${{ github.head_ref != '' }}
+
 on:
   pull_request:
   workflow_dispatch:
+    inputs:
+      benchmark_bundle:
+        description: Prepare an immutable scene benchmark bundle after validation
+        type: boolean
+        default: false
   workflow_call:
 
 permissions:
@@ -87,19 +96,59 @@ jobs:
             -DQt5_DIR=$(brew --prefix qt@5)/lib/cmake/Qt5 \
             -DCMAKE_PREFIX_PATH=$(brew --prefix qt@5)/lib/cmake/Qt5 \
             -DOpenCV_DIR=$(brew --prefix opencv@4)/lib/cmake/opencv4 \
-            -DWITH_TRANSLATION=OFF -DBUILD_PARTICLE_CACHE_TESTS=ON
+            -DWITH_TRANSLATION=OFF -DBUILD_PARTICLE_CACHE_TESTS=ON -DBUILD_RELIABILITY_TESTS=ON \
+            -DBUILD_STREAM_TESTS=ON -DBUILD_SCENEBENCH_TESTS=ON \
+            -DBUILD_FXRENDER_TESTS=ON -DBUILD_FFMPEG_TESTS=ON -DBUILD_PSD_TESTS=ON
           ninja -j $(sysctl -n hw.ncpu) 2>&1 | tee -a "$GITHUB_WORKSPACE/build.log"
+
       - name: Test particle cache integration
         id: particle_tests
         working-directory: toonz/build
         run: |
           set -o pipefail
-          QT_QPA_PLATFORM=offscreen ctest --output-on-failure --output-junit particle-tests.xml --timeout 300 --no-tests=error -R '^particlecache_' 2>&1 | tee particle-tests-output.txt
+          DYLD_LIBRARY_PATH="$PWD/toonz/OpenToonz.app/Contents/MacOS" QT_QPA_PLATFORM=offscreen ctest --output-on-failure --output-junit particle-tests.xml --timeout 300 --no-tests=error -R '^particlecache_' 2>&1 | tee particle-tests-output.txt
 
       - name: Report particle test failures
         if: ${{ failure() && steps.particle_tests.outcome == 'failure' }}
         run: python3 ci-scripts/report_particle_tests.py toonz/build/particle-tests-output.txt
 
+
+      # Leave application Python discovery unchanged; pin only the later
+      # harness and packaging interpreter.
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Verify benchmark harness contracts
+        run: python3 -m unittest discover -s ci-scripts/tests -p test_paired_benchmark.py
+
+      - name: Test reliability and performance invariants
+        working-directory: toonz/build
+        run: |
+          # Internal dylibs use @executable_path install names. The app build
+          # copies them beside its executable, while CTest executables live in
+          # several build subdirectories. Resolve all tests against that same
+          # current-build library set without changing the packaged app.
+          runtime_lib_dir="$PWD/toonz/OpenToonz.app/Contents/MacOS"
+          for library in libtnzcore.dylib libtnzbase.dylib libtoonzlib.dylib; do
+            if [ ! -f "$runtime_lib_dir/$library" ]; then
+              echo "::error::The built app is missing runtime library $library"
+              exit 1
+            fi
+          done
+          export DYLD_LIBRARY_PATH="$runtime_lib_dir"
+          python3 ../../ci-scripts/run_regression_tests.py rasterallocation timagecache levelselection save_transaction movierenderqueue levelupdater_abort trenderer_startup renderoutputbudget executor_submission compressed_stream scenebench fxrender ffmpeg_public tiio_ffmpeg tiio_psd
+
+      - name: Upload reliability diagnostics
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: macos-reliability-results
+          path: |
+            toonz/build/reliability-tests.xml
+            toonz/build/stdfx/fxrender-output
+            toonz/build/image/ffmpeg-test-output
+          if-no-files-found: ignore
       # Show the errors on the run (summary and annotations) without opening
       # the full log, as the Linux and Windows builds do
       - name: Report build errors
@@ -150,6 +199,24 @@ jobs:
               fi
             done
           done
+      - name: Prepare optional benchmark bundle
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.benchmark_bundle }}
+        run: |
+          python3 ci-scripts/benchmark_bundle.py --build toonz/build --platform macos \
+            --qt-version "$(/usr/local/opt/qt@5/bin/qmake -query QT_VERSION)" \
+            --macdeployqt /usr/local/opt/qt@5/bin/macdeployqt \
+            --revision "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID" \
+            --run-attempt "$GITHUB_RUN_ATTEMPT" --output benchmark-input.tar.gz
+
+      - name: Upload optional benchmark bundle
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.benchmark_bundle }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: benchmark-input-macos
+          path: benchmark-input.tar.gz
+          compression-level: 0
+          if-no-files-found: error
+
       - name: Create Artifact
         run: |
           cd toonz/build/toonz

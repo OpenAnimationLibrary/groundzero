@@ -125,7 +125,8 @@ public:
   LevelUpdater();
   LevelUpdater(TXshSimpleLevel *sl);
   LevelUpdater(const TFilePath &path, TPropertyGroup *lwProperties = 0,
-               const TFrameId &tmplFId = TFrameId(TFrameId::NO_FRAME));
+               const TFrameId &tmplFId = TFrameId(TFrameId::NO_FRAME),
+               bool replaceExisting = false);
   ~LevelUpdater();
 
   TLevelWriterP getLevelWriter() { return m_lw; }
@@ -142,9 +143,10 @@ public:
   //! <\I> of the supplied write properties.
   //! This function may throw in case the specified path has an unrecognized
   //! extension, or the file could
-  //! not be opened for write.
+  //! not be opened for write. replaceExisting starts a complete replacement
+  //! instead of copying untouched frames from an existing level.
   void open(const TFilePath &src, TPropertyGroup *lwProperties,
-            const TFrameId &tmplFId);
+            const TFrameId &tmplFId, bool replaceExisting = false);
 
   //! Attaches the updater to the specified simple level instance. Format
   //! properties are the default in case the level
@@ -165,6 +167,12 @@ public:
   //! In case the replace procedure failed, the temporaries are (silently, in
   //! current implementation) retained on disk.
   void close();
+
+  //! Discards a pending update without appending remaining source frames or
+  //! replacing the original with a temporary level. Staged movie writers
+  //! suppress destructor finalization; already-written image files may remain.
+  //! Call only after all frame writers have stopped.
+  void abort() noexcept;
 
   //! Flushes the level currently opened for write, \a suspending the update
   //! procedure. Since a level cannot be both

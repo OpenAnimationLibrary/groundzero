@@ -4,6 +4,7 @@
 #include "tfilepath.h"
 
 #include <QSize>
+#include <QMap>
 
 namespace Cadmium {
 
@@ -44,6 +45,24 @@ struct Session {
   SessionOptions options;
   QVector<SessionDrawing> drawings;
   int selectedDrawing = -1;
+};
+
+// Resume keeps these records authoritative until full target/reference
+// validation completes. A failed admission or cancellation must not silently
+// downgrade saved decisions to an inspection-only entry.
+class SessionRecovery {
+  QMap<TFrameId, SessionDrawing> m_pending;
+public:
+  bool stage(const SessionDrawing &record) {
+    m_pending.insert(record.fid, record);
+    // Applied is history, independent of whether fresh analysis can run.
+    return record.applied;
+  }
+  bool contains(const TFrameId &fid) const { return m_pending.contains(fid); }
+  SessionDrawing finish(const TFrameId &fid) { return m_pending.take(fid); }
+  void discard(const TFrameId &fid) { m_pending.remove(fid); }
+  void clear() { m_pending.clear(); }
+  const QMap<TFrameId, SessionDrawing> &records() const { return m_pending; }
 };
 
 QByteArray sessionOptionsDigest(const SessionOptions &);
