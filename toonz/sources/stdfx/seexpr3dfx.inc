@@ -230,6 +230,14 @@ public:
     for (const char *name : {"width", "height", "mix", "samplingRadius", "edgeMode", "samplingFilter", "maskChannel"})
       getParams()->getParamVar(name)->setIsHidden(true);
   }
+  ~SeExprSurfaceFx() override {
+    // ParamVar stores the address of each smart-pointer member. Detach these
+    // derived bindings while those members are alive; the base destructor's
+    // already-detached fast path must not read an ended member lifetime.
+    for (const char *name : {"coordinates", "displacementLimit"})
+      if (auto *parameter = getParams()->getParamVar(name))
+        parameter->setParamObserver(nullptr);
+  }
   bool validateSeExprDocument(const std::wstring &text, double frame,
       std::string &error, std::vector<TSeExpr::Error> *diagnostics = nullptr) const override {
     try {

@@ -132,7 +132,22 @@ jobs:
         set -o pipefail
         mkdir -p "$SEEXPR_LINUX_CORE_DIRECTORY"
         chmod 700 "$SEEXPR_LINUX_CORE_DIRECTORY"
-        trap 'rm -f "$SEEXPR_LINUX_CORE_DIRECTORY"/core.*' EXIT
+        collect_native_test_crashes() {
+          native_test_status=$?
+          trap - EXIT
+          set +e
+          timeout --kill-after=5s 115s python ../../ci-scripts/seexpr/native_crashes.py \
+            --core-directory "$SEEXPR_LINUX_CORE_DIRECTORY" \
+            --binary-directory "$PWD/bin" \
+            --report "$PWD/seexpr-native-tests-debugger.txt"
+          native_collector_status=$?
+          if [ "$native_collector_status" -ne 0 ]; then
+            printf 'Native crash collector exited with status %s.\n' "$native_collector_status" >> seexpr-native-tests-debugger.txt
+          fi
+          rm -f -- "$SEEXPR_LINUX_CORE_DIRECTORY"/core.*
+          exit "$native_test_status"
+        }
+        trap collect_native_test_crashes EXIT
         sudo sysctl -w "kernel.core_pattern=$SEEXPR_LINUX_CORE_DIRECTORY/core.%p"
         ulimit -c unlimited
         QT_QPA_PLATFORM=xcb LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a ctest --output-on-failure --output-junit seexpr-tests.xml --no-tests=error --timeout 180 -R '^seexpr_' 2>&1 | tee seexpr-tests-output.txt
@@ -148,6 +163,10 @@ jobs:
         if [ -f "$report" ]; then
           python ci-scripts/seexpr/report.py "$report"
         fi
+        report=toonz/build/seexpr-native-tests-debugger.txt
+        if [ -f "$report" ]; then
+          python ci-scripts/seexpr/report.py "$report"
+        fi
 
     - name: Retain SeExpr native diagnostics
       if: ${{ always() && steps.seexpr_tests.outcome != 'skipped' }}
@@ -159,6 +178,7 @@ jobs:
           toonz/build/seexpr-tests.xml
           toonz/build/seexpr-native-output.txt
           toonz/build/seexpr-native-output-debugger.txt
+          toonz/build/seexpr-native-tests-debugger.txt
         if-no-files-found: warn
 
     - name: Measure SeExpr full-resolution rendering

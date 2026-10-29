@@ -42,6 +42,9 @@ public:
 };
 
 namespace {
+void surfaceCheckpoint(const char *phase) {
+  std::cout << "seexpr-surface-phase: " << phase << std::endl;
+}
 void surfaceCheck(bool condition, const char *message) {
   if (!condition) throw std::runtime_error(message);
 }
@@ -75,6 +78,7 @@ TRasterFP surfacePixels(SeExprSurfaceFx &fx, double frame, const TRenderSettings
   return raster;
 }
 void surfaceAttributes() {
+  surfaceCheckpoint("attribute snapshots");
   TRenderSettings settings;
   TSeExprAttributes::Snapshot outer, inner;
   outer.attributes["user::gain"] = TSeExpr::Value::scalar(.1);
@@ -95,6 +99,7 @@ void surfaceAttributes() {
   TSeExpr::Value result;
   surfaceCheck(program.evaluate(result) && std::abs(result.number[0] - .7) < 1e-12,
                "Attribute precedence, vector binding, missing-zero or immutable snapshot failed");
+  surfaceCheckpoint("attribute scalar tuple indexing");
   {
     const std::string source = "[$user::gain[0],$user::gain[1],$user::gain[2]]";
     TSeExpr::Program indexed; std::vector<TSeExpr::Variable> bindings;
@@ -119,15 +124,55 @@ void surfaceAttributes() {
   surfaceCheck(explicitSnapshot.options.at("user::gain").number[0] == .9 &&
                    identity != explicitSnapshot.identity(), "Explicit option value lost its identity");
 
-  SeExprAttributeFx provider;
-  surfaceCheck(provider.getFxType() == "STD_seexprAttributeFx" &&
-      provider.getParams()->getParamCount() == 8, "Native attribute authoring is incomplete");
-  surfaceParam<TDoubleParam>(provider, "value")->setValue(0, .2);
-  surfaceParam<TDoubleParam>(provider, "value")->setValue(8, .8);
-  std::unique_ptr<TFx> copy(provider.clone(false));
-  surfaceCheck(surfaceParam<TDoubleParam>(*copy, "value")->isKeyframe(0) &&
-      surfaceParam<TDoubleParam>(*copy, "value")->getValue(8) == .8,
-      "Attribute provider clone lost native animation");
+  {
+    surfaceCheckpoint("attribute provider construction");
+    SeExprAttributeFx provider;
+    surfaceCheck(provider.getFxType() == "STD_seexprAttributeFx" &&
+        provider.getParams()->getParamCount() == 8, "Native attribute authoring is incomplete");
+    surfaceCheckpoint("attribute provider animation and clone");
+    surfaceParam<TDoubleParam>(provider, "value")->setValue(0, .2);
+    surfaceParam<TDoubleParam>(provider, "value")->setValue(8, .8);
+    std::unique_ptr<TFx> copy(provider.clone(false));
+    surfaceCheck(surfaceParam<TDoubleParam>(*copy, "value")->isKeyframe(0) &&
+        surfaceParam<TDoubleParam>(*copy, "value")->getValue(8) == .8,
+        "Attribute provider clone lost native animation");
+    surfaceCheckpoint("attribute provider destruction");
+  }
+  surfaceCheckpoint("attribute provider lifetime complete");
+}
+
+void surfaceParameterLifetime() {
+  struct Observer final : TParamObserver {
+    int changes = 0;
+    void onChange(const TParamChange &) override { ++changes; }
+  } observer;
+  TIntEnumParamP coordinates;
+  TDoubleParamP limit;
+  TFxP linked = new SeExprSurfaceFx;
+  surfaceCheckpoint("surface linked parameter lifetime");
+  {
+    TFxP original = new SeExprSurfaceFx;
+    linked->linkParams(original.getPointer());
+    coordinates = TParamP(surfaceParam<TIntEnumParam>(*original, "coordinates"));
+    limit = TParamP(surfaceParam<TDoubleParam>(*original, "displacementLimit"));
+    surfaceCheck(linked->getParams()->getParam("coordinates") == coordinates.getPointer() &&
+        linked->getParams()->getParam("displacementLimit") == limit.getPointer(),
+        "Linked surface effects did not retain their shared native parameters");
+    coordinates->addObserver(&observer); limit->addObserver(&observer);
+  }
+  surfaceCheckpoint("surface original owner destroyed");
+  coordinates->setValue(1); limit->setDefaultValue(17);
+  surfaceCheck(surfaceParam<TIntEnumParam>(*linked, "coordinates")->getValue() == 1 &&
+      surfaceParam<TDoubleParam>(*linked, "displacementLimit")->getDefaultValue() == 17,
+      "Destroying one surface detached its surviving linked peer");
+  linked = nullptr;
+  surfaceCheckpoint("surface all owners destroyed");
+  const int previous = observer.changes;
+  coordinates->setValue(2); limit->setDefaultValue(23);
+  surfaceCheck(observer.changes == previous + 2 && coordinates->getValue() == 2 &&
+      limit->getDefaultValue() == 23,
+      "Retained surface parameters lost independent observers or reached a destroyed FX");
+  coordinates->removeObserver(&observer); limit->removeObserver(&observer);
 }
 
 void surfaceRender(const QString &directory) {
@@ -138,10 +183,12 @@ void surfaceRender(const QString &directory) {
   surfaceCheck(file.write(reinterpret_cast<const char *>(bytes.data()), qint64(bytes.size())) == qint64(bytes.size()),
                "Surface geometry fixture write was incomplete");
   file.close();
+  surfaceCheckpoint("model construction");
   TFxP modelOwner = new GlbModelFx;
   auto &model = *static_cast<GlbModelFx *>(modelOwner.getPointer());
   surfaceParam<TStringParam>(model, "modelFile")->setValue(path.toStdWString());
   surfaceParam<TIntEnumParam>(model, "colorMode")->setValue(1);
+  surfaceCheckpoint("surface construction");
   TFxP surfaceOwner = new SeExprSurfaceFx;
   auto &fx = *static_cast<SeExprSurfaceFx *>(surfaceOwner.getPointer());
   fx.getInputPort("Source")->setFx(&model);
@@ -150,15 +197,18 @@ void surfaceRender(const QString &directory) {
                "Surface effect does not expose its native 3D source");
   const QJsonObject amount{{"id", "amount"}, {"name", "amount"}, {"type", "scalar"},
       {"value", .25}, {"min", 0}, {"max", 1}};
+  surfaceCheckpoint("surface document and animated control");
   surfaceDocument(fx, "[($Po[0]+1)/2,$user::tint[0],$amount]", "0.5", "0", {amount}, "[1,1,1]");
   auto *control = surfaceParam<TDoubleParam>(fx, "seexprControl_amount__value");
   control->setValue(0, .25); control->setValue(6, .75);
   const auto settings = surfaceSettings(.4);
+  surfaceCheckpoint("surface geometry preparation");
   const auto scene = fx.get3DRenderScene(0, nullptr, nullptr, nullptr, &settings);
   surfaceCheck(scene && scene->surface && !scene->triangles.empty(),
                "Surface expression did not stay in the unprojected renderer path");
   surfaceCheck(fx.get3DRenderScene(0, nullptr, nullptr, nullptr, &settings) == scene,
                "Identical surface request did not reuse its geometry cache");
+  surfaceCheckpoint("surface transform and lighting");
   {
     Transform3DFx transform;
     transform.getInputPort("Source")->setFx(&fx);
@@ -174,6 +224,7 @@ void surfaceRender(const QString &directory) {
     surfaceCheck(light.getMemoryRequirement(TRectD(0,0,8,8), 0, settings) >= 256,
         "Lighting understated procedural worker memory");
   }
+  surfaceCheckpoint("surface duplicate binding rejection");
   {
     SeExprSurfaceFx nested;
     nested.getInputPort("Source")->setFx(&fx);
@@ -182,6 +233,7 @@ void surfaceRender(const QString &directory) {
     catch (const std::exception &error) { rejected = std::string(error.what()).find("one Expression Surface") != std::string::npos; }
     surfaceCheck(rejected, "A second surface binding silently discarded an upstream shader");
   }
+  surfaceCheckpoint("surface attribute binding");
   const auto changedSettings = surfaceSettings(.7);
   surfaceCheck(fx.getAlias(0, settings) != fx.getAlias(0, changedSettings) &&
       fx.get3DRenderScene(0, nullptr, nullptr, nullptr, &changedSettings) != scene,
@@ -196,6 +248,7 @@ void surfaceRender(const QString &directory) {
   surfaceCheck(std::abs(scopedWorker->shade(scopedSample).color[1] - .9) < 1e-12,
       "Native attribute provider failed to pass its nearest binding into a 3D worker");
   {
+    surfaceCheckpoint("surface indexed scalar worker");
     SeExprSurfaceFx indexed;
     indexed.getInputPort("Source")->setFx(&model);
     surfaceDocument(indexed, "[$user::tint[0],$user::tint[1],$user::tint[2]]", "1", "0");
@@ -207,7 +260,9 @@ void surfaceRender(const QString &directory) {
     surfaceCheck(color.coloredOpacity == std::array<double,3>{{1,1,1}},
         "A legacy surface document without RGB opacity did not default to unity");
   }
+  surfaceCheckpoint("surface indexed worker lifetime complete");
   {
+    surfaceCheckpoint("surface colored opacity");
     SeExprSurfaceFx colored;
     colored.getInputPort("Source")->setFx(&model);
     surfaceDocument(colored, "[0.8,0.6,0.4]", "0.5", "0", {}, "[$user::tint[0],1,0]");
@@ -243,6 +298,7 @@ void surfaceRender(const QString &directory) {
     surfaceCheck(clamped.coloredOpacity == std::array<double,3>{{0,1,.25}},
         "RGB opacity components were not clamped independently");
   }
+  surfaceCheckpoint("surface colored opacity lifetime complete");
   const auto image = surfacePixels(fx, 0, settings);
   double minimum = 10, maximum = -10; int covered = 0;
   for (int y = 0; y < image->getLy(); ++y) for (int x = 0; x < image->getLx(); ++x) {
@@ -254,6 +310,7 @@ void surfaceRender(const QString &directory) {
   }
   surfaceCheck(covered > 20 && maximum - minimum > .2,
                "Surface was recolored at a centroid instead of evaluated per sample");
+  surfaceCheckpoint("surface tiles and workers");
   for (int offset = 0; offset < 32; offset += 8) {
     const auto tile = surfacePixels(fx, 0, settings, 8, TPointD(-16 + offset, -16));
     for (int y = 0; y < 32; ++y) for (int x = 0; x < 8; ++x)
@@ -267,6 +324,7 @@ void surfaceRender(const QString &directory) {
     for (int y = 0; y < 32; ++y) for (int x = 0; x < 32; ++x)
       surfaceCheck(result->pixels(y)[x] == image->pixels(y)[x], "Workers shared mutable surface evaluation state");
   }
+  surfaceCheckpoint("surface clone and persistence");
   std::unique_ptr<TFx> clone(fx.clone(false));
   auto *cloned = dynamic_cast<SeExprSurfaceFx *>(clone.get());
   surfaceCheck(cloned && surfaceParam<TDoubleParam>(*cloned, "seexprControl_amount__value")->getValue(6) == .75,
@@ -280,6 +338,7 @@ void surfaceRender(const QString &directory) {
       surfaceParam<TDoubleParam>(*restored, "seexprControl_amount__value")->getValue(6) == .75,
       "Surface save/reopen lost source or native control animation");
 
+  surfaceCheckpoint("surface displacement and cancellation");
   surfaceParam<TIntEnumParam>(model, "projection")->setValue(1);
   surfaceDocument(fx, "$Cs", "$a", "0");
   const auto before = fx.get3DRenderGeometry(0, nullptr, nullptr, &settings);
@@ -294,6 +353,7 @@ void surfaceRender(const QString &directory) {
   bool failed = false;
   try { surfacePixels(fx, 0, settings); } catch (const TException &) { failed = true; }
   surfaceCheck(failed, "Displacement resource failure became a successful blank frame");
+  surfaceCheckpoint("surface validation and runtime errors");
   surfaceDocument(fx, "$Cs", "$a", "missing_function()");
   std::string error;
   surfaceCheck(!fx.validateSeExprDocument(fx.seExprDocumentParam()->getValue(), 0, error) &&
@@ -323,9 +383,11 @@ void surfaceRender(const QString &directory) {
   const auto malformedText = QString::fromUtf8(QJsonDocument(malformed).toJson(QJsonDocument::Compact)).toStdWString();
   surfaceCheck(!fx.validateSeExprDocument(malformedText, 0, error),
       "A non-string RGB-opacity source was silently replaced with its default");
+  surfaceCheckpoint("surface fixture destruction");
 }
 
 void surfaceImagePlane() {
+  surfaceCheckpoint("image plane construction");
   TFxP sourceOwner = new SurfaceRasterSource;
   auto &source = *static_cast<SurfaceRasterSource *>(sourceOwner.getPointer());
   TFxP planeOwner = new ImagePlaneFx;
@@ -335,6 +397,7 @@ void surfaceImagePlane() {
   surface.getInputPort("Source")->setFx(&plane);
   surfaceDocument(surface, "$Cs", "$a", "0");
   TRenderSettings settings; settings.m_bpp = 128;
+  surfaceCheckpoint("image plane geometry and preflight");
   const auto bounds = surface.get3DRenderGeometry(0, nullptr, nullptr, &settings);
   surfaceCheck(bounds && !bounds->triangles.empty() && source.computes == 0,
       "Surface bounds evaluated an Image Plane raster outside its render session");
@@ -344,6 +407,7 @@ void surfaceImagePlane() {
       source.computes == 0, "Predictive rendering did not plan the complete image-plane source");
   surfaceCheck(surface.getMemoryRequirement(requested, 0, settings) >= 256,
       "Surface understated its bounded transparent-fragment workspace");
+  surfaceCheckpoint("image plane actual render");
   TRasterFP output(8, 8); TTile tile(output, TPointD(-4, -4));
   surface.doCompute(tile, 0, settings);
   const auto original = output->pixels(3)[3];
@@ -355,6 +419,7 @@ void surfaceImagePlane() {
   const auto opaque = output->pixels(3)[3];
   surfaceCheck(std::abs(opaque.r - .4) < .00003 && std::abs(opaque.m - 1) < .00001,
       "Surface opacity was multiplied by input alpha a second time");
+  surfaceCheckpoint("image plane fixture destruction");
 }
 }  // namespace
 
@@ -362,8 +427,10 @@ int main(int argc, char **argv) {
   QCoreApplication application(argc, argv);
   QTemporaryDir directory;
   try {
+    surfaceCheckpoint("main");
     surfaceCheck(directory.isValid(), "Surface test directory is unavailable");
-    surfaceAttributes(); surfaceRender(directory.path()); surfaceImagePlane();
+    surfaceAttributes(); surfaceParameterLifetime();
+    surfaceRender(directory.path()); surfaceImagePlane();
     std::cout << "SeExpr native surfaces and attributes: PASS\n";
     return 0;
   } catch (const TException &error) {
