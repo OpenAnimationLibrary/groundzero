@@ -199,17 +199,19 @@ TPoint TFont::drawText(TVectorImageP &image, const QString &text,
 
 //-----------------------------------------------------------------------------
 
-TPoint TFont::drawChar(QImage &outImage, TPoint &unused, uint32_t charcode,
+TPoint TFont::drawChar(QImage &outImage, TPoint &glyphOrigin, uint32_t charcode,
                        uint32_t nextCharCode) const {
   QString nextText;
   if (nextCharCode) nextText = fromUnicodeCodePoint(nextCharCode);
-  return drawText(outImage, unused, fromUnicodeCodePoint(charcode), nextText);
+  return drawText(outImage, glyphOrigin, fromUnicodeCodePoint(charcode),
+                  nextText);
 }
 
 //-----------------------------------------------------------------------------
 
-TPoint TFont::drawText(QImage &outImage, TPoint &unused, const QString &text,
-                       const QString &nextText) const {
+TPoint TFont::drawText(QImage &outImage, TPoint &glyphOrigin,
+                       const QString &text, const QString &nextText) const {
+  glyphOrigin = TPoint(0, 0);
   if (text.isEmpty()) return TPoint(0, 0);
 
   QFontMetrics metrics(m_pimpl->m_font);
@@ -227,16 +229,21 @@ TPoint TFont::drawText(QImage &outImage, TPoint &unused, const QString &text,
     return getDistance(text, nextText);
   }
 
-  // The ink of an italic can go past the advance (an "f"): the image covers it
-  int width  = qMax(1, qMax(metrics.horizontalAdvance(text),
-                            metrics.boundingRect(text).right() + 1));
+  // The ink can go past the advance on both sides (an italic "f", the tail
+  // of a "j"): the image covers it, and glyphOrigin is the position of its
+  // left edge from the pen
+  const QRect ink = metrics.boundingRect(text);
+  const int left  = qMin(0, ink.left());
+  int width =
+      qMax(1, qMax(metrics.horizontalAdvance(text), ink.right() + 1) - left);
   int height = qMax(1, metrics.height());
   QImage rendered(width, height, QImage::Format_ARGB32_Premultiplied);
   rendered.fill(Qt::white);
   QPainter painter(&rendered);
   painter.setFont(m_pimpl->m_font);
   painter.setPen(Qt::black);
-  painter.drawText(0, metrics.ascent(), text);
+  painter.drawText(-left, metrics.ascent(), text);
+  glyphOrigin = TPoint(left, 0);
   painter.end();
   outImage = rendered.convertToFormat(QImage::Format_Grayscale8);
 
@@ -245,20 +252,20 @@ TPoint TFont::drawText(QImage &outImage, TPoint &unused, const QString &text,
 
 //-----------------------------------------------------------------------------
 
-TPoint TFont::drawChar(TRasterCM32P &outImage, TPoint &unused, int inkId,
+TPoint TFont::drawChar(TRasterCM32P &outImage, TPoint &glyphOrigin, int inkId,
                        uint32_t charcode, uint32_t nextCharCode) const {
   QString nextText;
   if (nextCharCode) nextText = fromUnicodeCodePoint(nextCharCode);
-  return drawText(outImage, unused, inkId, fromUnicodeCodePoint(charcode),
+  return drawText(outImage, glyphOrigin, inkId, fromUnicodeCodePoint(charcode),
                   nextText);
 }
 
 //-----------------------------------------------------------------------------
 
-TPoint TFont::drawText(TRasterCM32P &outImage, TPoint &unused, int inkId,
+TPoint TFont::drawText(TRasterCM32P &outImage, TPoint &glyphOrigin, int inkId,
                        const QString &text, const QString &nextText) const {
   QImage grayAppImage;
-  drawText(grayAppImage, unused, text, nextText);
+  drawText(grayAppImage, glyphOrigin, text, nextText);
 
   int lx = grayAppImage.width();
   int ly = grayAppImage.height();
