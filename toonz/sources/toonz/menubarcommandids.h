@@ -200,6 +200,8 @@
 #define MI_CenterCutGuide "MI_CenterCutGuide"
 #define MI_PegbarGuide "MI_PegbarGuide"
 #define MI_PegbarGuideSettings "MI_PegbarGuideSettings"
+#define MI_MotionArcs "MI_MotionArcs"
+#define MI_MotionArcsSettings "MI_MotionArcsSettings"
 #define MI_AspectGuide166 "MI_AspectGuide166"
 #define MI_AspectGuide178 "MI_AspectGuide178"
 #define MI_AspectGuide185 "MI_AspectGuide185"

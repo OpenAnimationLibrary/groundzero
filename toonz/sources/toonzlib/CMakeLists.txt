@@ -112,6 +112,7 @@ set(HEADERS
     ../include/toonz/observer.h
     ../include/toonz/onionskinmask.h
     ../include/toonz/ghostfade.h
+    ../include/toonz/motionarc.h
     ../include/toonz/palettecmd.h
     ../include/toonz/plasticdeformerfx.h
     ../include/toonz/poselibrary.h
@@ -235,6 +236,7 @@ set(SOURCES
     Naa2TlvConverter.cpp
     observer.cpp
     onionskinmask.cpp
+    motionarc.cpp
 	orientation.cpp
     outputproperties.cpp
     poselibrary.cpp
@@ -499,6 +501,15 @@ if(BUILD_PEGBARGUIDE_TESTS)
     add_executable(pegbarguide_test tests/pegbarguide_test.cpp)
     target_link_libraries(pegbarguide_test PRIVATE toonzlib tnzcore Qt${QT_VERSION_MAJOR}::Core)
     add_test(NAME pegbarguide COMMAND pegbarguide_test)
+endif()
+
+# Optional regression target for the motion arcs (motionarc.h): the math on
+# the samples and the sampling of a scene in memory.
+option(BUILD_MOTIONARC_TESTS "Build the motion arcs regression test" ${BUILD_TESTS})
+if(BUILD_MOTIONARC_TESTS)
+    add_executable(motionarc_test tests/motionarc_test.cpp)
+    target_link_libraries(motionarc_test PRIVATE toonzlib tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
+    add_test(NAME motionarc COMMAND motionarc_test)
 endif()
 
 # Optional regression target for the Outline View of the columns: the colour

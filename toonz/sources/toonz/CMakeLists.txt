@@ -234,6 +234,7 @@ set(HEADERS
     viewerdraw.h
     aspectguides.h
     pegbarguides.h
+    motionarcs.h
     viewerpopup.h
     xshcellmover.h
     xsheetdragtool.h
@@ -320,6 +321,7 @@ set(SOURCES
     viewerdraw.cpp
     aspectguides.cpp
     pegbarguides.cpp
+    motionarcs.cpp
     viewerpane.cpp
     castselection.cpp
     cellselection.cpp

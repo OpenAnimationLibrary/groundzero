@@ -242,6 +242,7 @@ void BaseViewerPanel::addShowHideContextMenu(QMenu *menu) {
   showHideMenu->addAction(CommandManager::instance()->getAction(MI_FieldGuide));
   showHideMenu->addAction(
       CommandManager::instance()->getAction(MI_PegbarGuide));
+  showHideMenu->addAction(CommandManager::instance()->getAction(MI_MotionArcs));
   showHideMenu->addAction(CommandManager::instance()->getAction(MI_SafeArea));
   showHideMenu->addMenu(AspectGuides::createMenu(showHideMenu));
   showHideMenu->addAction(CommandManager::instance()->getAction(MI_ViewBBox));
