@@ -288,6 +288,9 @@ void comparePixels(const TRasterPT<Pixel> &expected,
   require(bool(expected) && bool(actual), label + ": unexpected pixel precision");
   require(expected->getSize() == actual->getSize(), label + ": wrong dimensions");
   std::size_t occupied = 0, differing = 0;
+  std::size_t alphaDifferences = 0, rgbDifferences = 0;
+  int firstX = -1, firstY = -1;
+  Pixel firstExpected{}, firstActual{};
   int maximum = 0;
   for (int y = 0; y < expected->getLy(); ++y) {
     const auto *a = expected->pixels(y), *b = actual->pixels(y);
@@ -297,13 +300,32 @@ void comparePixels(const TRasterPT<Pixel> &expected,
                                  std::abs(int(a[x].g) - int(b[x].g)),
                                  std::abs(int(a[x].b) - int(b[x].b)),
                                  std::abs(int(a[x].m) - int(b[x].m))});
-      if (delta) ++differing;
+      if (a[x].m != b[x].m) ++alphaDifferences;
+      if (a[x].r != b[x].r || a[x].g != b[x].g || a[x].b != b[x].b)
+        ++rgbDifferences;
+      if (delta) {
+        ++differing;
+        if (firstX < 0) {
+          firstX = x; firstY = y;
+          firstExpected = a[x]; firstActual = b[x];
+        }
+      }
       maximum = std::max(maximum, delta);
     }
   }
   require(occupied > 0, label + ": empty reference does not validate playback");
-  require(differing == 0, label + ": " + std::to_string(differing) +
-          " pixels changed; maximum channel difference " + std::to_string(maximum));
+  std::ostringstream difference;
+  difference << label << ": " << differing << " pixels changed; maximum channel difference "
+             << maximum << "; alpha differences=" << alphaDifferences
+             << "; RGB differences=" << rgbDifferences;
+  if (differing)
+    difference << "; first=(" << firstX << ',' << firstY << "), expected RGBA=("
+               << int(firstExpected.r) << ',' << int(firstExpected.g) << ','
+               << int(firstExpected.b) << ',' << int(firstExpected.m)
+               << "), actual RGBA=(" << int(firstActual.r) << ','
+               << int(firstActual.g) << ',' << int(firstActual.b) << ','
+               << int(firstActual.m) << ')';
+  require(differing == 0, difference.str());
 }
 void compare(const TRasterP &expected, const TRasterP &actual,
              const std::string &label) {
@@ -1141,6 +1163,36 @@ void testScenePreparation(bool tiled, bool fullAffine = false,
             << a.a23 - fracY - std::floor(a.a23 - fracY) << "), bpp="
             << bakeSettings.m_bpp << ", gamma=" << bakeSettings.m_colorSpaceGamma << ']';
     const std::string context = request.str();
+    TRasterFxP fresh = dynamic_cast<TRasterFx *>(native->clone(true));
+    require(bool(fresh), context + ": cannot clone the prepared native graph");
+    std::set<TFx *> isolated;
+    std::vector<TFx *> pending{fresh.getPointer()};
+    while (!pending.empty()) {
+      TFx *fx = pending.back();
+      pending.pop_back();
+      if (!isolated.insert(fx).second) continue;
+      fx->setNewIdentifier();
+      for (int port = 0; port < fx->getInputPortCount(); ++port)
+        if (TFx *input = fx->getInputPort(port)->getFx()) pending.push_back(input);
+    }
+    auto *originalArtwork = dynamic_cast<TRasterFx *>(native->getInputPort("Texture1")->getFx());
+    auto *clonedArtwork = dynamic_cast<TRasterFx *>(fresh->getInputPort("Texture1")->getFx());
+    require(originalArtwork && clonedArtwork,
+            context + ": cloned graph lost its artwork input");
+    TRenderSettings artworkSettings(bakeSettings);
+    artworkSettings.m_affine = TAffine();
+    artworkSettings.m_cameraBox = Domain;
+    for (int artworkFrame : {0, 1})
+      compare(renderViewport(originalArtwork, artworkFrame, artworkSettings, Domain),
+              renderViewport(clonedArtwork, artworkFrame, artworkSettings, Domain),
+              context + "/inputClone/artworkFrame=" + std::to_string(artworkFrame));
+    const TRasterP freshImage = renderViewport(fresh.getPointer(), frame, bakeSettings, bakePixels);
+    if (!columnDepth)
+      compare(before.at(frame), freshImage, context + "/freshCloneVsLive");
+    else {
+      nativeBefore.emplace(frame, renderViewport(native, frame, bakeSettings, bakePixels));
+      compare(nativeBefore.at(frame), freshImage, context + "/freshCloneVsLive");
+    }
     TRasterP evaluated;
     const auto captured = capture(native, frame, bakeSettings, true, bakeDomain,
                                    bakePixels, 0, &evaluated);
@@ -1153,7 +1205,6 @@ void testScenePreparation(bool tiled, bool fullAffine = false,
       compare(before.at(frame), evaluated, context + "/liveVsEvaluation");
       compare(before.at(frame), recomposed, context + "/prepared capture");
     } else {
-      nativeBefore.emplace(frame, renderViewport(native, frame, bakeSettings, bakePixels));
       compare(nativeBefore.at(frame), evaluated, context + "/liveNativeVsEvaluation");
       compare(nativeBefore.at(frame), recomposed, context + "/prepared native halo capture");
     }

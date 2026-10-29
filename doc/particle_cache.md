@@ -195,6 +195,12 @@ memory and reload changed files.
 
 ## Implementation and validation
 
+CI also generates a portable example project with external motion and native
+Standard/Tiled Particles scenes, editable PNG artwork, cache packages and
+previews. See the [example guide](particlecache-examples/README.md) for the
+artifact and opening instructions. Generation checks exact native playback and
+save/reopen behavior after relocating the complete project.
+
 - `toonz/cmake/Partio.cmake` pins and builds the complete upstream core, with
   zlib required. Separate Partio applications and Python bindings are not needed
   by OT's native C++ workflow.

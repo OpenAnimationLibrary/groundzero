@@ -93,6 +93,25 @@ jobs:
       if: ${{ failure() && steps.particle_tests.outcome == 'failure' }}
       run: python3 ci-scripts/report_particle_tests.py toonz/build/particle-tests-output.txt
 
+    - name: Generate particle cache example project
+      id: particle_demo
+      timeout-minutes: 10
+      working-directory: toonz/build
+      run: |
+        set -o pipefail
+        QT_QPA_PLATFORM=xcb LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a bin/particlecache_demo "$PWD/particlecache-examples" "$GITHUB_WORKSPACE/doc/particlecache-examples/README.md" 2>&1 | tee particle-demo-output.txt
+
+    - name: Report particle example generation failures
+      if: ${{ failure() && steps.particle_demo.outcome == 'failure' }}
+      run: python3 ci-scripts/report_particle_tests.py toonz/build/particle-demo-output.txt
+
+    - name: Upload particle cache example project
+      uses: actions/upload-artifact@v6
+      with:
+        name: particle-cache-examples-${{ runner.os }}-${{ matrix.compiler }}
+        path: toonz/build/particlecache-examples
+        if-no-files-found: error
+
     - name: Test cel effects
       working-directory: toonz/build
       run: |
