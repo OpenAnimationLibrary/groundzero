@@ -7,7 +7,9 @@
 #include "tparamset.h"
 #include "trenderer.h"
 #include "tstream.h"
+#include "tthread.h"
 #include "trop.h"
+#include "toonz/particlebake.h"
 #include "toonz/particlecache.h"
 
 #include <QGuiApplication>
@@ -47,8 +49,13 @@ TRasterP image(int bpp, int width = 64, int height = 64) {
 
 class ParticleCacheArtworkFixture final : public TStandardRasterFx {
   FX_PLUGIN_DECLARATION(ParticleCacheArtworkFixture)
+  TDoubleParamP m_alpha, m_gain;
 public:
-  ParticleCacheArtworkFixture() { enableComputeInFloat(true); }
+  ParticleCacheArtworkFixture() : m_alpha(1.0), m_gain(1.0) {
+    bindParam(this, "fixtureAlpha", m_alpha);
+    bindParam(this, "fixtureGain", m_gain);
+    enableComputeInFloat(true);
+  }
   bool canHandle(const TRenderSettings &, double) override { return true; }
   bool doGetBBox(double, TRectD &box, const TRenderSettings &) override {
     box = TRectD(-2, -2, 2, 2); return true;
@@ -63,15 +70,31 @@ public:
     const TAffine inverse = settings.m_affine.inv();
     for (int y = 0; y < data->getLy(); ++y) for (int x = 0; x < data->getLx(); ++x) {
       const TPointD q = inverse * TPointD(tile.m_pos.x + x, tile.m_pos.y + y);
-      const float alpha = std::abs(q.x) <= 2 && std::abs(q.y) <= 2 ? 1 : 0;
-      data->pixels(y)[x] = TPixelF(float(.123456 + frame * .1) * alpha,
-                                  .234567f * alpha, .345678f * alpha, alpha);
+      const float alpha = std::abs(q.x) <= 2 && std::abs(q.y) <= 2
+          ? float(m_alpha->getValue(frame)) : 0;
+      const float gain = float(m_gain->getValue(frame));
+      data->pixels(y)[x] = TPixelF(float(.123456 + frame * .1) * alpha * gain,
+                                  .234567f * alpha * gain,
+                                  .345678f * alpha * gain, alpha);
     }
     if (TRasterFP target = tile.getRaster()) target->copy(data);
     else TRop::convert(tile.getRaster(), data);
   }
 };
 FX_PLUGIN_IDENTIFIER(ParticleCacheArtworkFixture, "particleCacheArtworkFixture")
+
+class ParticleCachePlacementFixture final : public TStandardRasterFx {
+  FX_PLUGIN_DECLARATION(ParticleCachePlacementFixture)
+public:
+  bool canHandle(const TRenderSettings &, double) override { return true; }
+  bool doGetBBox(double, TRectD &box, const TRenderSettings &) override {
+    box = TRectD(-2, -2, 2, 2); return true;
+  }
+  void doCompute(TTile &, double, const TRenderSettings &) override {
+    throw std::runtime_error("Placement input must never render as particle artwork");
+  }
+};
+FX_PLUGIN_IDENTIFIER(ParticleCachePlacementFixture, "particleCachePlacementFixture")
 
 namespace {
 TRasterFxP effect(const QString &path, bool artwork = false) {
@@ -86,16 +109,18 @@ TRasterFxP effect(const QString &path, bool artwork = false) {
 }
 
 TRasterP render(TRasterFxP fx, double frame, int bpp = 32, int strips = 1,
-                const TAffine &affine = TAffine()) {
+                const TAffine &affine = TAffine(), bool linear = false) {
   TRenderer renderer(1);
   const auto id = TRenderer::buildRenderId();
   renderer.install(id); renderer.declareRenderStart(id); renderer.declareFrameStart(frame);
-  TRasterP result = image(bpp); result->clear();
+  TRasterP result = image(bpp); result->clear(); result->setLinear(linear);
   try {
     TRenderSettings settings; settings.m_bpp = bpp; settings.m_affine = affine;
+    settings.m_linearColorSpace = linear;
     for (int i = 0; i < strips; ++i) {
       const int y0 = 64 * i / strips, y1 = 64 * (i + 1) / strips;
       TTile tile(image(bpp, 64, y1 - y0), TPointD(-32, -32 + y0));
+      tile.getRaster()->setLinear(linear);
       fx->compute(tile, frame, settings);
       result->copy(tile.getRaster(), TPoint(0, y0));
     }
@@ -194,6 +219,174 @@ void testArtworkPrecision(const QString &directory) {
           "Fixed artwork frame did not select the requested drawing");
 }
 
+QString nativePackage(const QString &directory, const TRasterP &artwork) {
+  ParticleCache::Metadata metadata;
+  metadata.firstFrame = metadata.lastFrame = 0;
+  QString error;
+  require(ParticleBake::writePackage(directory, metadata,
+      [&](int frame, ParticleBake::Frame &captured, QString &) {
+        captured.frame = frame;
+        captured.domain = TRectD(-32, -32, 32, 32);
+        captured.bitsPerPixel = artwork->getPixelSize() * 8;
+        captured.linearColorSpace = artwork->isLinear();
+        ParticleBake::DrawSample draw;
+        draw.id = 1;
+        draw.artwork = artwork;
+        draw.rasterToWorld = TTranslation(-4, -4);
+        captured.draws.push_back(draw);
+        captured.particles.push_back(draw);
+        return true;
+      }, error), error.toStdString());
+  return QDir(directory).filePath("cache.otpc");
+}
+
+void testNativeFloatAndLinear(const QString &directory) {
+  TRasterFP sprite(8, 8);
+  sprite->fill(TPixelF(.24f, .16f, .08f, .4f));
+  auto floatingFx = effect(nativePackage(directory + "/native-float", sprite));
+  number(floatingFx.getPointer(), "opacity", 50);
+  TRasterFP floating = render(floatingFx, 0, 128);
+  const auto &pixel = floating->pixels(32)[32];
+  require(std::abs(pixel.r - .12) < .00001 &&
+              std::abs(pixel.g - .08) < .00001 &&
+              std::abs(pixel.b - .04) < .00001 &&
+              std::abs(pixel.m - .2) < .00001,
+          "Native float artwork failed float playback or opacity premultiplication");
+
+  TRaster32P gray(8, 8);
+  gray->fill(TPixel32(128, 128, 128, 255));
+  auto grayFx = effect(nativePackage(directory + "/native-gray", gray));
+  for (bool linear : {false, true}) {
+    TRasterFP output = render(grayFx, 0, 128, 1, TAffine(), linear);
+    const double expected = linear ? std::pow(128.0 / 255, 2.2) : 128.0 / 255;
+    const auto &p = output->pixels(32)[32];
+    require(std::abs(p.r - expected) < .00002 && p.m == 1,
+            "Native gray artwork must receive exactly one color-space conversion");
+    require(output->isLinear() == linear, "Native output has the wrong color-space flag");
+  }
+}
+
+void testArtworkTintColorSpace(const QString &directory) {
+  ParticleCache::Snapshot data;
+  data.hasStableIds = true;
+  ParticleCache::Particle particle;
+  particle.id = 1;
+  particle.size = 1;
+  particle.tint = {{.5, .7, .9, .6}};
+  data.particles.push_back(particle);
+  const QString file = QDir(directory).filePath("tinted.bgeo");
+  QString error;
+  require(ParticleCache::writeFrame(file, data, ParticleCache::WriteOptions(), error),
+          error.toStdString());
+  auto fx = effect(file, true);
+  mode(fx.getPointer(), "sizeMode", 1);
+  number(fx->getInputPort("Artwork1")->getFx(), "fixtureAlpha", .4);
+  const double source[] = {.123456, .234567, .345678};
+  for (bool tintIsLinear : {false, true}) {
+    param<TBoolParam>(fx.getPointer(), "linearTint")->setValue(tintIsLinear);
+    for (bool linear : {false, true}) {
+      TRasterFP output = render(fx, 0, 128, 1, TAffine(), linear);
+      const auto &p = output->pixels(32)[32];
+      const double channels[] = {p.r, p.g, p.b};
+      require(std::abs(p.m - .24) < .00001,
+              "Artwork alpha and particle opacity must each be applied once");
+      for (int channel = 0; channel < 3; ++channel) {
+        double tint = particle.tint[channel];
+        if (linear != tintIsLinear) tint = std::pow(tint, linear ? 2.2 : 1 / 2.2);
+        const double artwork = linear ? std::pow(source[channel], 2.2) : source[channel];
+        require(std::abs(channels[channel] - artwork * tint * .24) < .00002,
+                "Artwork and tint must be combined in the requested color space");
+      }
+    }
+  }
+}
+
+void testHdrIntegerConversion(const QString &directory) {
+  ParticleCache::Snapshot data;
+  data.hasStableIds = true;
+  ParticleCache::Particle particle;
+  particle.id = 1;
+  data.particles.push_back(particle);
+  const QString file = QDir(directory).filePath("hdr.bgeo");
+  QString error;
+  require(ParticleCache::writeFrame(file, data, ParticleCache::WriteOptions(), error),
+          error.toStdString());
+  auto fx = effect(file, true);
+  mode(fx.getPointer(), "sizeMode", 1);
+  TFx *artwork = fx->getInputPort("Artwork1")->getFx();
+  number(artwork, "fixtureAlpha", .5);
+  number(artwork, "fixtureGain", 16);
+  TRasterFP floating = render(fx, 0, 128);
+  const auto &p = floating->pixels(32)[32];
+  require(p.r > p.m && p.g > 1 && p.m == .5f,
+          "HDR fixture must contain bright color at partial alpha");
+  for (int bpp : {32, 64}) {
+    TRasterP expected = image(bpp);
+    TRop::convert(expected, floating);
+    TRasterP actual = render(fx, 0, bpp);
+    if (bpp == 32) {
+      const auto &a = TRaster32P(expected)->pixels(32)[32];
+      const auto &b = TRaster32P(actual)->pixels(32)[32];
+      require(a.r == b.r && a.g == b.g && a.b == b.b && a.m == b.m,
+              "8-bit HDR output differs from standard float conversion");
+    } else {
+      const auto &a = TRaster64P(expected)->pixels(32)[32];
+      const auto &b = TRaster64P(actual)->pixels(32)[32];
+      require(a.r == b.r && a.g == b.g && a.b == b.b && a.m == b.m,
+              "16-bit HDR output differs from standard float conversion");
+    }
+  }
+}
+
+void testPlacementRouting(const QString &directory) {
+  ParticleCache::Snapshot data;
+  data.hasStableIds = true;
+  for (int id = 1; id <= 8; ++id) {
+    ParticleCache::Particle particle;
+    particle.id = id;
+    particle.position = {{double(-27 + id * 6), 0, 0}};
+    particle.artworkIndex = 1;
+    data.particles.push_back(particle);
+  }
+  const QString file = QDir(directory).filePath("placement.bgeo");
+  QString error;
+  require(ParticleCache::writeFrame(file, data, ParticleCache::WriteOptions(), error),
+          error.toStdString());
+  auto addPlacement = [](const TRasterFxP &fx) {
+    require(fx->dynamicPortGroupsCount() == 2 &&
+                fx->dynamicPortGroup(1)->portsPrefix() == "Placement" &&
+                fx->dynamicPortGroup(1)->minPortsCount() == 0 &&
+                !fx->getInputPort("Placement1"),
+            "Placement must be an optional second port group");
+    require(fx->addInputPort("Placement1", new TRasterFxPort, 1),
+            "Cannot add placement anchor port");
+    fx->getInputPort("Placement1")->setFx(new ParticleCachePlacementFixture);
+  };
+  auto disks = effect(file), anchoredDisks = effect(file);
+  addPlacement(anchoredDisks);
+  for (int assignment : {0, 1}) {
+    mode(disks.getPointer(), "artworkAssignment", assignment);
+    mode(anchoredDisks.getPointer(), "artworkAssignment", assignment);
+    compare<TPixel32>(render(disks, 0), render(anchoredDisks, 0),
+                      "Placement input changed fallback disk rendering");
+  }
+  auto artwork = effect(file, true), anchoredArtwork = effect(file, true);
+  addPlacement(anchoredArtwork);
+  for (const auto &fx : {artwork, anchoredArtwork}) {
+    require(fx->addInputPort("Artwork2", new TRasterFxPort, 0),
+            "Cannot add second artwork port");
+    fx->getInputPort("Artwork2")->setFx(new ParticleCacheArtworkFixture);
+    number(fx->getInputPort("Artwork2")->getFx(), "fixtureAlpha", .3);
+    mode(fx.getPointer(), "sizeMode", 1);
+  }
+  for (int assignment : {0, 1}) {
+    mode(artwork.getPointer(), "artworkAssignment", assignment);
+    mode(anchoredArtwork.getPointer(), "artworkAssignment", assignment);
+    compare<TPixelF>(render(artwork, 0, 128), render(anchoredArtwork, 0, 128),
+                     "Placement input changed artwork indices or random assignment");
+  }
+}
+
 void testTrailsAndBlur(const QString &path) {
   auto fx = effect(path, true);
   mode(fx.getPointer(), "interpolation", 1);
@@ -244,6 +437,8 @@ int main(int argc, char **argv) {
   // TRenderer creates a QOffscreenSurface even for these CPU-only fixtures.
   // CTest selects the offscreen platform; QCoreApplication has no screen.
   QGuiApplication application(argc, argv);
+  // TRenderer's executor dereferences the global thread manager on creation.
+  TThread::init();
   try {
     initStdFx();
     QTemporaryDir directory; require(directory.isValid(), "Cannot create fixture directory");
@@ -252,10 +447,14 @@ int main(int argc, char **argv) {
     testTilesAndOrder(path, reordered);
     testTiming(path);
     testArtworkPrecision(directory.path());
+    testNativeFloatAndLinear(directory.path());
+    testArtworkTintColorSpace(directory.path());
+    testHdrIntegerConversion(directory.path());
+    testPlacementRouting(directory.path());
     testTrailsAndBlur(path);
     testPersistence(path, directory.path());
     testAliasInvalidation(directory.path());
-    std::cout << "Particle cache rendering: 6 groups passed (precision, tiles/IDs, timing, temporal FX, persistence, invalidation).\n";
+    std::cout << "Particle cache rendering: 10 groups passed (precision, tiles/IDs, timing, native float/linear, artwork tint/alpha, HDR integer conversion, placement routing, temporal FX, persistence, invalidation).\n";
     return 0;
   } catch (const std::exception &e) {
     std::cerr << "Particle cache render failure: " << e.what() << '\n';

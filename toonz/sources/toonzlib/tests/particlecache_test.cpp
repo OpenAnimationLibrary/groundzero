@@ -48,6 +48,18 @@ void writeJson(const QString &path, const QJsonObject &json) {
   require(file.write(bytes) == bytes.size(), "write JSON fixture");
 }
 
+QByteArray readBytes(const QString &path) {
+  QFile file(path);
+  require(file.open(QIODevice::ReadOnly), "open binary fixture");
+  return file.readAll();
+}
+
+void writeBytes(const QString &path, const QByteArray &bytes) {
+  QFile file(path);
+  require(file.open(QIODevice::WriteOnly), "create binary fixture");
+  require(file.write(bytes) == bytes.size(), "write binary fixture");
+}
+
 void capabilitiesAndMappings() {
   bool mc = false, rib = false, bgeo = false;
   for (const auto &f : capabilities()) {
@@ -219,6 +231,111 @@ void roundTrips(const QDir &dir) {
   setMemoryCacheLimit(256 * 1024 * 1024);
 }
 
+void gzipAndRawSchemas(const QDir &dir) {
+  QString error;
+  const QByteArray magic = QByteArray::fromHex("1f8b");
+  for (const auto &format : {QString("bgeo"), QString("prt"), QString("bin")}) {
+    WriteOptions options; options.format = format; options.compressed = true;
+    // BIN has a fixed schema, so this test explicitly permits its unrelated
+    // attribute loss while still checking the outer gzip stream and motion.
+    options.allowLossy = format == "bin";
+    const QString path = dir.filePath("gzip-" + format + "." + format.toUpper() + ".GZ");
+    require(writeFrame(path, fixture(), options, error), qPrintable(error));
+    const QByteArray bytes = readBytes(path);
+    require(bytes.startsWith(magic), "compressed formats contain actual gzip bytes");
+    auto loaded = loadFrame(path, Mapping{}, error);
+    require(loaded && loaded->particleCount == 2, qPrintable(error));
+    near(loaded->particles[0].position[0], 1, "gzip round-trip preserves positions");
+    auto reject = [&](const QString &name, const QByteArray &damaged) {
+      const QString bad = dir.filePath(name + "." + format + ".gz");
+      writeBytes(bad, damaged);
+      require(!inspectFrame(bad, error), "damaged gzip must fail inspection");
+      require(!error.isEmpty(), "damaged gzip reports an error");
+    };
+    require(bytes.size() > 8, "gzip has a checksum trailer");
+    QByteArray damaged = bytes;
+    damaged[damaged.size() - 8] = char(static_cast<unsigned char>(damaged[damaged.size() - 8]) ^ 1);
+    reject("bad-crc-" + format, damaged);
+    reject("truncated-gzip-" + format, bytes.left(bytes.size() - 4));
+    reject("trailing-gzip-" + format, bytes + "garbage");
+    int checks = 0;
+    require(!inspectFrame(path, error, [&] { return ++checks >= 3; }),
+            "cancellation interrupts gzip preparation");
+    require(error.contains("cancelled"), "gzip cancellation is reported");
+  }
+  WriteOptions options;
+  // Both the extension and the flag can request gzip; a flag-only file still
+  // needs detection before codecs such as PRT see it.
+  options.format = "PRT";
+  const QString suffix = dir.filePath("suffix-only.PRT.GZ");
+  require(writeFrame(suffix, fixture(), options, error), qPrintable(error));
+  require(readBytes(suffix).startsWith(magic), "gzip suffix requests compression");
+  options.compressed = true;
+  const QString flag = dir.filePath("flag-only.PRT");
+  require(writeFrame(flag, fixture(), options, error), qPrintable(error));
+  require(bool(loadFrame(flag, Mapping{}, error)), qPrintable(error));
+  const QString cancelledGzip = dir.filePath("cancelled-gzip.prt.gz");
+  int cancellationChecks = 0;
+  require(!writeFrame(cancelledGzip, fixture(), options, error,
+                      [&] { return ++cancellationChecks >= 5; }),
+          "cancellation interrupts gzip output before publication");
+  require(error.contains("cancelled") && !QFileInfo::exists(cancelledGzip),
+          "cancelled gzip output remains unpublished");
+  options.compressed = false;
+  const QString uppercase = dir.filePath("uppercase.PRT");
+  require(writeFrame(uppercase, fixture(), options, error), qPrintable(error));
+  require(bool(loadFrame(uppercase, Mapping{}, error)), "uppercase raw extension dispatches canonically");
+
+  Snapshot raw; raw.particleCount = 2;
+  Attribute position; position.name = "P"; position.type = AttributeType::Vector;
+  position.components = 3; position.floats = {1, 2, 3, 10, 2, 3};
+  Attribute identity; identity.name = "id"; identity.floats = {1.25f, 2.5f};
+  raw.attributes = {position, identity};
+  const QString source = dir.filePath("raw-schema.prt");
+  require(writeFrame(source, raw, options, error), qPrintable(error));
+  Sequence sequence;
+  require(openSequence(source, sequence, error), qPrintable(error));
+  sequence.mapping.position = "P";
+  require(!loadFrame(source, sequence.mapping, error), "fractional IDs cannot be mapped for rendering");
+  WriteOptions bgeo;
+  const QString geometry = dir.filePath("raw-geometry-export");
+  require(exportFiles(sequence, geometry, bgeo, error), qPrintable(error));
+  Sequence exported;
+  require(openSequence(geometry, exported, error), qPrintable(error));
+  require(exported.mapping.position == "P", "effective source mapping is retained in the package");
+  auto inspected = inspectFrame(exported.frames.begin()->second, error);
+  require(inspected && inspected->particleCount == 2, "raw export retains inspected particle count");
+  bool originalPosition = false, originalIds = false, geometryPosition = false;
+  for (const auto &a : inspected->attributes) {
+    if (a.name == "P") originalPosition = a.floats == position.floats;
+    if (a.name == "id") originalIds = a.type == AttributeType::Float && a.floats == identity.floats;
+    if (a.name == "position") geometryPosition = a.floats == position.floats;
+  }
+  require(originalPosition && originalIds && geometryPosition,
+          "geometry export retains raw schema and adds only the explicit raw position alias");
+  sequence.mapping.position = "absent";
+  const QString dataOnly = dir.filePath("raw-schema-export");
+  require(exportFiles(sequence, dataOnly, options, error), qPrintable(error));
+  require(openSequence(dataOnly, exported, error), qPrintable(error));
+  inspected = inspectFrame(exported.frames.begin()->second, error);
+  require(inspected && inspected->attributes.size() == 2 && inspected->particleCount == 2,
+          "data-only export requires no renderer mapping and invents no attributes");
+  const QString missingPosition = dir.filePath("raw-missing-position");
+  require(!exportFiles(sequence, missingPosition, bgeo, error),
+          "geometry export rejects an unusable position mapping");
+  require(!QFileInfo::exists(missingPosition), "failed geometry export remains unpublished");
+  Snapshot emptyRaw;
+  Attribute temperature; temperature.name = "temperature";
+  emptyRaw.attributes.push_back(temperature);
+  const QString emptyData = dir.filePath("empty-schema.prt");
+  require(writeFrame(emptyData, emptyRaw, options, error), qPrintable(error));
+  inspected = inspectFrame(emptyData, error);
+  require(inspected && inspected->particleCount == 0 &&
+              inspected->attributes.size() == 1 &&
+              inspected->attributes[0].name == "temperature",
+          "empty data-only schemas retain their exact attributes");
+}
+
 void packages(const QDir &dir) {
   Metadata metadata; metadata.firstFrame = 10; metadata.lastFrame = 12;
   metadata.framesPerSecond = 30;
@@ -289,6 +406,7 @@ int main(int argc, char **argv) {
     capabilitiesAndMappings();
     interpolation();
     roundTrips(QDir(temporary.path()));
+    gzipAndRawSchemas(QDir(temporary.path()));
     packages(QDir(temporary.path()));
     std::cout << "Particle cache core: format directions, schema, interpolation, IO, metadata, invalidation and atomic packages passed.\n";
     return 0;

@@ -1,6 +1,7 @@
 #include "particlebakecapture.h"
 #include <memory>
 #include <cmath>
+#include <stdexcept>
 
 
 #include "trop.h"
@@ -275,10 +276,22 @@ void Particles_Engine::roll_particles(
 
   /*- Store birth rate -*/
   newparticles = (int)values.maxnum_val;
+  // Replay every positive-lifetime birth during a bake. Dropping births that
+  // die before the requested frame changes whether the initial/random stacking
+  // branch runs, and therefore changes later birth seeds and stable identities.
+  const int birthLifetimeCutoff = ParticleBakeCapture::isolating()
+      ? 0 : curr_frame - frame;
+  const auto advanceBirthId = [&] {
+    if (ParticleBakeCapture::isolating() &&
+        totalparticles == std::numeric_limits<int>::max())
+      throw std::runtime_error("Particle birth identities exceed the supported INT32 range.");
+    ++totalparticles;
+  };
   if (myParticles.empty() && newparticles)  // Initial creation
   {
     /*- Repeat for number of new particles to create -*/
     for (i = 0; i < newparticles; i++) {
+      if (!(i % 256)) ParticleBakeCapture::checkCancel(m_parent);
       int seed = static_cast<int>(
           static_cast<double>(std::numeric_limits<int>::max()) *
           values.random_val->getFloat());
@@ -290,16 +303,18 @@ void Particles_Engine::roll_particles(
       else
         lifetime = (int)(values.lifetime_val.first +
                          ranges.lifetime_range * values.random_val->getFloat());
-      if (lifetime > curr_frame - frame)
+      if (lifetime > birthLifetimeCutoff)
         myParticles.push_back(Particle(
             lifetime, seed, porttiles, values, ranges, myregions,
             totalparticles, 0, level, lastframe[level], myHistogram, myWeight));
 
-      totalparticles++;
+      advanceBirthId();
     }
   } else {
     std::list<Particle>::iterator it;
+    int moved = 0;
     for (it = myParticles.begin(); it != myParticles.end();) {
+      if (!(moved++ % 256)) ParticleBakeCapture::checkCancel(m_parent);
       std::list<Particle>::iterator current = it;
       ++it;
 
@@ -316,6 +331,7 @@ void Particles_Engine::roll_particles(
     switch (values.toplayer_val) {
     case ParticlesFx::TOP_YOUNGER:
       for (i = 0; i < newparticles; i++) {
+        if (!(i % 256)) ParticleBakeCapture::checkCancel(m_parent);
         int seed = static_cast<int>(
             static_cast<double>(std::numeric_limits<int>::max()) *
             values.random_val->getFloat());
@@ -329,21 +345,31 @@ void Particles_Engine::roll_particles(
               (int)(values.lifetime_val.first +
                     ranges.lifetime_range * values.random_val->getFloat());
 
-        if (lifetime > curr_frame - frame)
+        if (lifetime > birthLifetimeCutoff)
           myParticles.push_front(Particle(lifetime, seed, porttiles, values,
                                           ranges, myregions, totalparticles, 0,
                                           level, lastframe[level], myHistogram,
                                           myWeight));
 
-        totalparticles++;
+        advanceBirthId();
       }
       break;
 
     case ParticlesFx::TOP_RANDOM:
       for (i = 0; i < newparticles; i++) {
+        if (!(i % 256)) ParticleBakeCapture::checkCancel(m_parent);
         double tmp = values.random_val->getFloat() * myParticles.size();
         std::list<Particle>::iterator it = myParticles.begin();
-        std::advance(it, static_cast<int>(tmp));
+        int advance = static_cast<int>(tmp);
+        if (ParticleBakeCapture::isolating()) {
+          while (advance > 0) {
+            ParticleBakeCapture::checkCancel(m_parent);
+            const int batch = std::min(advance, 256);
+            std::advance(it, batch);
+            advance -= batch;
+          }
+        } else
+          std::advance(it, advance);
         {
           int seed = static_cast<int>(
               static_cast<double>(std::numeric_limits<int>::max()) *
@@ -357,19 +383,20 @@ void Particles_Engine::roll_particles(
             lifetime =
                 (int)(values.lifetime_val.first +
                       ranges.lifetime_range * values.random_val->getFloat());
-          if (lifetime > curr_frame - frame)
+          if (lifetime > birthLifetimeCutoff)
             myParticles.insert(
                 it, Particle(lifetime, seed, porttiles, values, ranges,
                              myregions, totalparticles, 0, level,
                              lastframe[level], myHistogram, myWeight));
 
-          totalparticles++;
+          advanceBirthId();
         }
       }
       break;
 
     default:
       for (i = 0; i < newparticles; i++) {
+        if (!(i % 256)) ParticleBakeCapture::checkCancel(m_parent);
         int seed = static_cast<int>(
             static_cast<double>(std::numeric_limits<int>::max()) *
             values.random_val->getFloat());
@@ -382,13 +409,13 @@ void Particles_Engine::roll_particles(
           lifetime =
               (int)(values.lifetime_val.first +
                     ranges.lifetime_range * values.random_val->getFloat());
-        if (lifetime > curr_frame - frame)
+        if (lifetime > birthLifetimeCutoff)
           myParticles.push_back(Particle(lifetime, seed, porttiles, values,
                                          ranges, myregions, totalparticles, 0,
                                          level, lastframe[level], myHistogram,
                                          myWeight));
 
-        totalparticles++;
+        advanceBirthId();
       }
       break;
     }
@@ -473,7 +500,7 @@ void Particles_Engine::render_particles(
 
   // Explicit baking owns private simulation state, never preview-manager data.
   std::unique_ptr<ParticlesManager::FrameData> bakeData;
-  if (ParticleBakeCapture::active(m_parent))
+  if (ParticleBakeCapture::isolating())
     bakeData.reset(new ParticlesManager::FrameData(new ParticlesManager::FxData));
   ParticlesManager::FrameData *particlesData = bakeData ? bakeData.get() :
       ParticlesManager::instance()->data(fxId);
@@ -571,6 +598,24 @@ void Particles_Engine::render_particles(
                                                // bbox - deal with it
             bbox = bboxForInifiniteSource;
 
+          if (ParticleBakeCapture::isolating()) {
+            ParticleBakeCapture::checkCancel(m_parent);
+            // convert(TRectD) adds 0.5 before casting each coordinate to int.
+            // Validate in doubles before that conversion or any allocation.
+            const double minimum = double(std::numeric_limits<int>::min()) + 1;
+            const double maximum = double(std::numeric_limits<int>::max()) - 1;
+            for (double coordinate : {bbox.x0, bbox.y0, bbox.x1, bbox.y1})
+              if (!std::isfinite(coordinate) || coordinate < minimum ||
+                  coordinate > maximum)
+                throw std::runtime_error("Particle control bounds exceed renderer coordinate limits.");
+            const double width = std::trunc(bbox.x1 + 0.5) -
+                std::trunc(bbox.x0 + 0.5) + 1;
+            const double height = std::trunc(bbox.y1 + 0.5) -
+                std::trunc(bbox.y0 + 0.5) + 1;
+            ParticleBakeCapture::checkRasterSize(m_parent, width, height,
+                port_is_used_for_gradient(it->first, values) ? 8 : 4);
+          }
+
           if (frame <= pcFrame) {
             // This frame will not actually be rolled. However, it was
             // dryComputed - so, declare the same here.
@@ -589,7 +634,7 @@ void Particles_Engine::render_particles(
               else {
                 std::string alias =
                     "CTRL64: " + (*(it->second))->getAlias(r_frame, riAux64);
-                TRasterImageP rimg = (ParticleBakeCapture::active(m_parent) ? TImageP() : TImageCache::instance()->get(alias, false));
+                TRasterImageP rimg = (ParticleBakeCapture::isolating() ? TImageP() : TImageCache::instance()->get(alias, false));
 
                 if (rimg) {
                   tmp->m_pos = bbox.getP00();
@@ -600,7 +645,7 @@ void Particles_Engine::render_particles(
                                            convert(bbox).getSize(), 0, r_frame,
                                            riAux64);
 
-                  if (!ParticleBakeCapture::active(m_parent)) addRenderCache(alias, TRasterImageP(tmp->getRaster()));
+                  if (!ParticleBakeCapture::isolating()) addRenderCache(alias, TRasterImageP(tmp->getRaster()));
                 }
               }
 
@@ -630,7 +675,7 @@ void Particles_Engine::render_particles(
               else {
                 std::string alias =
                     "CTRL: " + (*(it->second))->getAlias(r_frame, riAux);
-                TRasterImageP rimg = (ParticleBakeCapture::active(m_parent) ? TImageP() : TImageCache::instance()->get(alias, false));
+                TRasterImageP rimg = (ParticleBakeCapture::isolating() ? TImageP() : TImageCache::instance()->get(alias, false));
 
                 if (rimg) {
                   tmp->m_pos = bbox.getP00();
@@ -641,7 +686,7 @@ void Particles_Engine::render_particles(
                                            convert(bbox).getSize(), 0, r_frame,
                                            riAux);
 
-                  if (!ParticleBakeCapture::active(m_parent)) addRenderCache(alias, TRasterImageP(tmp->getRaster()));
+                  if (!ParticleBakeCapture::isolating()) addRenderCache(alias, TRasterImageP(tmp->getRaster()));
                 }
               }
 
@@ -864,7 +909,7 @@ void Particles_Engine::do_render(
     ras = rimg->getRaster();
   } else {
     alias = "PART: " + (*part_ports[part->level])->getAlias(ndx, riNew);
-    rimg  = (ParticleBakeCapture::active(m_parent) ? TImageP() : TImageCache::instance()->get(alias, false));
+    rimg  = (ParticleBakeCapture::isolating() ? TImageP() : TImageCache::instance()->get(alias, false));
     if (rimg) {
       ras = rimg->getRaster();
 
@@ -905,7 +950,7 @@ void Particles_Engine::do_render(
     ras = rcachepart;
 
     // Finally, cache the particle
-    if (!ParticleBakeCapture::active(m_parent)) addRenderCache(alias, TRasterImageP(ras));
+    if (!ParticleBakeCapture::isolating()) addRenderCache(alias, TRasterImageP(ras));
   }
 
   if (!ras) return;  // At this point, it should never happen anyway...
@@ -1364,13 +1409,15 @@ void Particles_Engine::fill_array(TTile *ctrl1, int &regioncount,
 
   /*prima riga*/
   TRaster32P raster32 = ctrl1->getRaster();
-  raster32->lock();
+  ParticleBakeCapture::RasterLockGuard rasterLock(raster32);
+  ParticleBakeCapture::checkCancel(m_parent);
   TPixel32 *pix = raster32->pixels(0);
   for (i = 0; i < lx; i++) {
     if (pix->m > threshold) {
       pr++;
       if (!i) {
         (regioncount)++;
+        ParticleBakeCapture::checkParticleCount(m_parent, regioncount);
         myarray[i] = (regioncount);
       } else {
         if (myarray[i - 1]) myarray[i] = myarray[i - 1];
@@ -1380,6 +1427,7 @@ void Particles_Engine::fill_array(TTile *ctrl1, int &regioncount,
   }
 
   for (j = 1; j < ly; j++) {
+    ParticleBakeCapture::checkCancel(m_parent);
     for (i = 0, pix = raster32->pixels(j); i < lx; i++, pix++) {
       /*TMSG_INFO("j=%d i=%d\n", j, i);*/
       if (pix->m > threshold) {
@@ -1394,6 +1442,7 @@ void Particles_Engine::fill_array(TTile *ctrl1, int &regioncount,
         mask[2] = myarray[i + lx * (j - 1)];
         if (!mask[0] && !mask[1] && !mask[2] && !mask[3]) {
           (regioncount)++;
+          ParticleBakeCapture::checkParticleCount(m_parent, regioncount);
           myarray[i + lx * j] = (regioncount);
         } else {
           int mc, firsttime = 1;
@@ -1404,6 +1453,7 @@ void Particles_Engine::fill_array(TTile *ctrl1, int &regioncount,
                 firsttime           = 0;
               } else {
                 if (myarray[i + lx * j] != mask[mc]) {
+                  ParticleBakeCapture::checkParticleCount(m_parent, lista.size() + 1);
                   lista.push_back(myarray[i + lx * j]);
                   listb.push_back(mask[mc]);
 
@@ -1417,7 +1467,6 @@ void Particles_Engine::fill_array(TTile *ctrl1, int &regioncount,
       }
     }
   }
-  raster32->unlock();
 }
 
 /*-----------------------------------------------------------------*/
@@ -1432,28 +1481,48 @@ void Particles_Engine::normalize_array(
   int maxregioncounter = 0;
   int listsize         = (int)lista.size();
   // TMSG_INFO("regioncounter %d, eqcount=%d\n", regioncounter, eqcount);
-  for (k = 1; k <= regioncounter; k++) final[k] = k;
+  for (k = 1; k <= regioncounter; k++) {
+    if (!(k % 256)) ParticleBakeCapture::checkCancel(m_parent);
+    final[k] = k;
+  }
 
   for (l = 0; l < listsize; l++) {
+    if (!(l % 256)) ParticleBakeCapture::checkCancel(m_parent);
     j = lista[l];
     /*TMSG_INFO("j vale %d\n", j);*/
-    while (final[j] != j) j = final[j];
+    int links = 0;
+    while (final[j] != j) {
+      if (!(links++ % 256)) ParticleBakeCapture::checkCancel(m_parent);
+      j = final[j];
+    }
     k = listb[l];
     /*TMSG_INFO("k vale %d\n", k);*/
-    while (final[k] != k) k = final[k];
+    links = 0;
+    while (final[k] != k) {
+      if (!(links++ % 256)) ParticleBakeCapture::checkCancel(m_parent);
+      k = final[k];
+    }
     if (j != k) final[j] = k;
   }
   // TMSG_INFO("esco dal for\n");
-  for (j = 1; j <= regioncounter; j++)
-    while (final[j] != final[final[j]]) final[j] = final[final[j]];
+  for (j = 1; j <= regioncounter; j++) {
+    if (!(j % 256)) ParticleBakeCapture::checkCancel(m_parent);
+    int links = 0;
+    while (final[j] != final[final[j]]) {
+      if (!(links++ % 256)) ParticleBakeCapture::checkCancel(m_parent);
+      final[j] = final[final[j]];
+    }
+  }
 
   /*conto quante cavolo di regioni sono*/
 
   tmp.push_back(final[1]);
   maxregioncounter = 1;
   for (i = 2; i <= regioncounter; i++) {
+    if (!(i % 256)) ParticleBakeCapture::checkCancel(m_parent);
     int diff = 1;
     for (j = 0; j < maxregioncounter; j++) {
+      if (!(j % 256)) ParticleBakeCapture::checkCancel(m_parent);
       if (tmp[j] == final[i]) {
         diff = 0;
         break;
@@ -1466,13 +1535,16 @@ void Particles_Engine::normalize_array(
   }
 
   myregions.resize(maxregioncounter);
+  std::size_t pointCount = 0;
   for (j = 0; j < ly; j++) {
+    ParticleBakeCapture::checkCancel(m_parent);
     for (i = 0; i < lx; i++) {
       int tmpindex;
       if (myarray[i + lx * j]) {
         tmpindex = final[myarray[i + lx * j]];
         /*TMSG_INFO("tmpindex=%d\n", tmpindex);*/
         for (k = 0; k < maxregioncounter; k++) {
+          if (!(k % 256)) ParticleBakeCapture::checkCancel(m_parent);
           if (tmp[k] == tmpindex) break;
         }
         /*TMSG_INFO("k=%d\n", k);*/
@@ -1480,6 +1552,7 @@ void Particles_Engine::normalize_array(
         tmppoint.x = i;
         tmppoint.y = j;
         tmppoint += pos;
+        ParticleBakeCapture::checkParticleCount(m_parent, ++pointCount);
         myregions[k].push_back(tmppoint);
       }
     }
@@ -1524,11 +1597,12 @@ void Particles_Engine::fill_single_region(
   myregions[0].clear();
   int cc  = 0;
   int icc = 0;
-  raster32->lock();
+  ParticleBakeCapture::RasterLockGuard rasterLock(raster32);
 
   if (!do_source_gradation) /*- Two-tone case -*/
   {
     for (j = 0; j < raster32->getLy(); j++) {
+      ParticleBakeCapture::checkCancel(m_parent);
       TPixel32 *pix    = raster32->pixels(j);
       TPixel32 *endPix = pix + raster32->getLx();
       int i            = 0;
@@ -1540,6 +1614,7 @@ void Particles_Engine::fill_single_region(
           tmp.y = j;
           tmp.x = i;
           tmp += ctrl1->m_pos;
+          ParticleBakeCapture::checkParticleCount(m_parent, myregions[0].size() + 1);
           myregions[0].push_back(tmp);
           /*TMSG_INFO("total=%d\n", Region[0].total);*/
 
@@ -1555,6 +1630,7 @@ void Particles_Engine::fill_single_region(
 
     TRandom rand = TRandom(1);
     for (j = 0; j < raster32->getLy(); j++) {
+      ParticleBakeCapture::checkCancel(m_parent);
       TPixel32 *pix    = raster32->pixels(j);
       TPixel32 *endPix = pix + raster32->getLx();
       int i            = 0;
@@ -1569,6 +1645,7 @@ void Particles_Engine::fill_single_region(
           tmp.y = j;
           tmp.x = i;
           tmp += ctrl1->m_pos;
+          ParticleBakeCapture::checkParticleCount(m_parent, myregions[0].size() + 1);
 
           /*- Histogram registration -*/
           myHistogram[(int)pix->m].push_back((int)myregions[0].size());
@@ -1582,7 +1659,6 @@ void Particles_Engine::fill_single_region(
     }
   }
   if (myregions[0].size() == 0) myregions.resize(0);
-  raster32->unlock();
 }
 
 /*-----------------------------------------------------------------*/
@@ -1626,14 +1702,14 @@ void Particles_Engine::fill_regions_with_size_map(
   TRaster32P sourceRas;
   if (sourceTile) sourceRas = sourceTile->getRaster();
 
-  sizeRas->lock();
-  if (sourceRas) sourceRas->lock();
+  ParticleBakeCapture::RasterLockGuard sizeLock(sizeRas), sourceLock(sourceRas);
 
   myregions.resize(1);
   myregions[0].clear();
   for (int i = 0; i < 256; i++) myHistogram.push_back(std::vector<int>());
 
   for (int j = 0; j < sizeRas->getLy(); j++) {
+    ParticleBakeCapture::checkCancel(m_parent);
     TPixel32 *pix    = sizeRas->pixels(j);
     TPixel32 *endPix = pix + sizeRas->getLx();
 
@@ -1672,6 +1748,7 @@ void Particles_Engine::fill_regions_with_size_map(
         tmp += sizeTile->m_pos;
 
         int val = (int)TPixelGR8::from(*pix).value;
+        ParticleBakeCapture::checkParticleCount(m_parent, myregions[0].size() + 1);
 
         /*- Histogram registration -*/
         myHistogram[val].push_back((int)myregions[0].size());
@@ -1687,6 +1764,4 @@ void Particles_Engine::fill_regions_with_size_map(
 
   if (myregions[0].size() == 0) myregions.resize(0);
 
-  sizeRas->unlock();
-  if (sourceRas) sourceRas->unlock();
 }

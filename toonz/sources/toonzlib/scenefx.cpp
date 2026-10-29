@@ -761,6 +761,10 @@ PlacedFx FxBuilder::makePF(TFx *fx) {
     return makePF(zcfx);
   else if (TXsheetFx *xsfx = dynamic_cast<TXsheetFx *>(fx))
     return makePF(xsfx);
+  // File-backed zerary generators can render with no artwork connected. Their
+  // first optional port must not turn them into an empty unary filter.
+  else if (fx->isZerary() && dynamic_cast<SceneFxResource *>(fx))
+    return makePFfromGenericFx(fx);
   else if (fx->getInputPortCount() == 1)
     return makePFfromUnaryFx(fx);
   else
@@ -1259,7 +1263,16 @@ PlacedFx FxBuilder::makePFfromGenericFx(TFx *fx) {
   bool firstInput = true;
 
   int m = fx->getInputPortCount();
-  for (int i = 0; i < m; ++i) {
+  // Standalone caches retain the native generator's placement anchor separately
+  // from their artwork. Visit it first, as the native input order did.
+  int placementIndex = -1;
+  if (fx->isZerary() && dynamic_cast<SceneFxResource *>(fx))
+    for (int i = 0; i < m; ++i)
+      if (fx->getInputPortName(i) == "Placement1") placementIndex = i;
+  for (int ordinal = 0; ordinal < m; ++ordinal) {
+    const int i = placementIndex < 0 ? ordinal
+                  : ordinal == 0 ? placementIndex
+                  : ordinal <= placementIndex ? ordinal - 1 : ordinal;
     if (TFxP inputFx = fx->getInputPort(i)->getFx()) {
       PlacedFx inputPF;
       if (fx->getFxType() == "STD_iwa_FlowPaintBrushFx") {

@@ -14,6 +14,10 @@
 #include "toonz/tcolumnfx.h"
 #include "toonz/tcolumnfxset.h"
 #include "toonz/fxdag.h"
+#include "toonz/stage.h"
+#include "toonz/tcamera.h"
+#include "toonz/tstageobject.h"
+#include "toonz/tstageobjecttree.h"
 
 #include <QCoreApplication>
 #include <QDir>
@@ -25,6 +29,8 @@
 
 #include <iostream>
 #include <stdexcept>
+
+DV_IMPORT_API void initStdFx();
 
 // Resource behavior is tested independently of sprite rendering. This probe
 // uses the same public interface and real scene graph/visitor paths as the FX.
@@ -139,12 +145,127 @@ struct ImportStrategy : ResourceImportStrategy {
   explicit ImportStrategy(int mode) : ResourceImportStrategy(mode) {}
   TFilePath process(ToonzScene *, ToonzScene *, TFilePath path) override { return path; }
 };
+
+TFxP preparedGenerator(ToonzScene &scene, TFx *source, TAffine &placement) {
+  TFxP built = buildSceneFx(&scene, 1.0, scene.getXsheet(), TFxP(source),
+                           BSFX_DEFAULT_TR, false);
+  placement = TAffine();
+  while (auto affine = dynamic_cast<NaAffineFx *>(built.getPointer())) {
+    placement = placement * affine->getPlacement(1.0);
+    built = affine->getInputPort(0)->getFx();
+  }
+  return built;
+}
+
+void verifyStandaloneCache(const QString &path,
+                           const std::shared_ptr<TProject> &p) {
+  ToonzScene scene;
+  setup(scene, p);
+  TXsheet *xsheet = scene.getXsheet();
+  FxDag *dag = xsheet->getFxDag();
+  TCamera *camera = xsheet->getStageObjectTree()->getCurrentCamera();
+  check(camera != nullptr, "standalone fixture has no camera");
+  camera->setSize(TDimensionD(64.0 / Stage::inch, 64.0 / Stage::inch));
+  camera->setRes(TDimension(64, 64));
+
+  // Baking retains this real native generator as an internal node. Without
+  // textures it renders the native default circles; no artwork input is needed.
+  TFxP source = TFx::create("STD_particlesFx");
+  TFxP cache = TFx::create("STD_particleCacheFx");
+  check(bool(source) && bool(cache), "particle generators are not registered");
+  auto resource = dynamic_cast<SceneFxResource *>(cache.getPointer());
+  check(resource != nullptr, "cache does not implement the scene resource interface");
+  resource->setResourcePath(TFilePath(path));
+  dag->getInternalFxs()->addFx(source.getPointer());
+  dag->addToXsheet(source.getPointer());
+  TAffine nativePlacement, cachePlacement;
+  TFxP native = preparedGenerator(scene, source.getPointer(), nativePlacement);
+  check(native && native->getFxType() == source->getFxType(),
+        "retained native generator did not expand");
+
+  // Match the standalone branch of Bake and Use Cache, leaving the original
+  // graph in the scene. The old unary dispatch dropped the cache here.
+  dag->removeFromXsheet(source.getPointer());
+  dag->getInternalFxs()->addFx(cache.getPointer());
+  dag->addToXsheet(cache.getPointer());
+  TFxP playback = preparedGenerator(scene, cache.getPointer(), cachePlacement);
+  check(playback && playback->getFxType() == cache->getFxType(),
+        "standalone cache with no artwork disappeared during scene preparation");
+  check(cachePlacement == nativePlacement &&
+            cache->getInputPortCount() == 1 &&
+            !cache->getInputPort("Artwork1")->isConnected(),
+        "standalone cache changed placement or required a dummy artwork port");
+  check(bool(buildSceneFx(&scene, 1.0, 1, false)),
+        "standalone cache disappeared from the complete scene graph");
+
+  TXshZeraryFxColumnP control = new TXshZeraryFxColumn(2);
+  TFxP controlFx = new ParticleResourceProbe;
+  control->getZeraryColumnFx()->setZeraryFx(controlFx.getPointer());
+  xsheet->insertColumn(0, control.getPointer());
+  xsheet->getStageObject(TStageObjectId::ColumnId(0))
+      ->setParam(TStageObject::T_X, 0, 3.0 / Stage::inch);
+  source->getInputPort("Control1")->setFx(control->getFx());
+  check(cache->addInputPort("Placement1", new TRasterFxPort, 1),
+        "cannot add an explicit cache placement anchor");
+  cache->getInputPort("Placement1")->setFx(source.getPointer());
+  native = preparedGenerator(scene, source.getPointer(), nativePlacement);
+  playback = preparedGenerator(scene, cache.getPointer(), cachePlacement);
+  check(native && playback && cachePlacement == nativePlacement &&
+            !cachePlacement.isIdentity(),
+        "control-only cache lost its inherited stage placement");
+
+  // Control1 precedes a later Texture2 in the native graph. Placement must win
+  // over Artwork2 even when a new artwork port was added after the anchor.
+  TXshZeraryFxColumnP artwork = new TXshZeraryFxColumn(2);
+  TFxP artworkFx = new ParticleResourceProbe;
+  artwork->getZeraryColumnFx()->setZeraryFx(artworkFx.getPointer());
+  xsheet->insertColumn(1, artwork.getPointer());
+  xsheet->getStageObject(TStageObjectId::ColumnId(1))
+      ->setParam(TStageObject::T_X, 0, -7.0 / Stage::inch);
+  check(source->addInputPort("Texture2", new TRasterFxPort, 0) &&
+            cache->addInputPort("Artwork2", new TRasterFxPort, 0),
+        "cannot extend standalone generator artwork");
+  source->getInputPort("Texture2")->setFx(artwork->getFx());
+  cache->getInputPort("Artwork2")->setFx(artwork->getFx());
+  native = preparedGenerator(scene, source.getPointer(), nativePlacement);
+  playback = preparedGenerator(scene, cache.getPointer(), cachePlacement);
+  check(native && playback && cachePlacement == nativePlacement,
+        "artwork placement overrode the retained control placement anchor");
+
+  // The first connected Texture1 is hidden, so the native scene builder skips
+  // it and inherits the visible Control1 placement. Anchoring to the retained
+  // native node must make that same selection instead of using hidden Texture1.
+  TXshZeraryFxColumnP hidden = new TXshZeraryFxColumn(2);
+  TFxP hiddenFx = new ParticleResourceProbe;
+  hidden->getZeraryColumnFx()->setZeraryFx(hiddenFx.getPointer());
+  xsheet->insertColumn(2, hidden.getPointer());
+  xsheet->getStageObject(TStageObjectId::ColumnId(2))
+      ->setParam(TStageObject::T_X, 0, 19.0 / Stage::inch);
+  hidden->setPreviewVisible(false);
+  source->getInputPort("Texture1")->setFx(hidden->getFx());
+  cache->getInputPort("Artwork1")->setFx(hidden->getFx());
+  const TAffine controlPlacement = nativePlacement;
+  native = preparedGenerator(scene, source.getPointer(), nativePlacement);
+  playback = preparedGenerator(scene, cache.getPointer(), cachePlacement);
+  check(native && playback && nativePlacement == controlPlacement &&
+            cachePlacement == nativePlacement,
+        "hidden artwork displaced the standalone cache from its visible control");
+  check(cache->getInputPort("Placement1")->getFx() == source.getPointer() &&
+            !dag->checkLoop(source.getPointer(), cache.getPointer()),
+        "standalone placement anchor formed a cache cycle");
+  check(dag->getInternalFxs()->containsFx(source.getPointer()) &&
+            source->getInputPort("Texture1")->getFx() == hidden->getFx() &&
+            source->getInputPort("Control1")->getFx() == control->getFx() &&
+            source->getInputPort("Texture2")->getFx() == artwork->getFx(),
+        "standalone cache replacement changed the retained native graph");
+}
 }  // namespace
 
 int main(int argc, char **argv) {
   QCoreApplication app(argc, argv);
   QTemporaryDir directory;
   try {
+    initStdFx();
     check(directory.isValid(), "temporary directory unavailable");
     const QString source = fixture(directory.filePath("external"));
     ToonzScene scene;
@@ -231,8 +352,10 @@ int main(int argc, char **argv) {
       resources.updatePaths(); resources.commit();
     }
     check(first->resourcePath() == importedPath, "Save As changed stable project alias");
+    verifyStandaloneCache(source, importedProject);
     std::cout << "PASS: particle cache collection, native sidecars, nested deduplication, "
-                 "rollback, clone paths, clipboard paths, import and Save As\n";
+                 "rollback, clone paths, clipboard paths, import, Save As and "
+                 "standalone generator placement\n";
     return 0;
   } catch (const std::exception &error) {
     std::cerr << "FAIL particle cache resources: " << error.what() << '\n';

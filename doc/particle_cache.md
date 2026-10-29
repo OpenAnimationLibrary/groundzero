@@ -72,9 +72,11 @@ intentional gap can hold or become transparent without hiding a corrupt file.
    region. Sampling density follows the camera's output resolution.
 5. Leave **Use the completed cache in this scene** enabled to switch playback
    after a successful bake. The original generator and its inputs remain in the
-   scene as an editable, disconnected schematic node. For a zerary column, its
+   scene as an editable source node. For a zerary column, its
    exposure and stage placement stay on the cached playback. Undo restores the
-   procedural source; undo does not delete exported files.
+   procedural source; undo does not delete exported files. Standalone sources
+   retain an optional `Placement` connection so the cache inherits the same
+   eligible input-column placement without rendering that source again.
 6. Save and reopen the scene, or collect the project to move it to another
    machine. The package includes the recorded appearance required for playback.
 
@@ -114,11 +116,17 @@ baking. Custom areas under rotation or shear evaluate the enclosing output
 pixel rectangle.
 
 Native tiled-particle initialization depends on the evaluation viewport. The
-bake uses a fresh simulation with the chosen viewport for each frame. A preview
-that was warmed with a different viewport or simulation history can therefore
-differ; comparison must use the same fresh evaluation and capture framing.
+bake uses a private causal replay with the chosen viewport for each frame. A
+preview warmed with a different viewport or legacy simulation history can
+therefore differ; comparisons must account for that framing and history.
 Ordinary animated column and camera transforms are sampled per frame, rather
 than freezing their placement at the first frame.
+
+Baking replays births causally so a surviving particle keeps its identity and
+random state after earlier particles expire. Legacy random-stack cold renders
+can skip expired births and consume a different random sequence; comparing with
+sequential live playback avoids that legacy history difference. Upstream native
+particle controls are evaluated in private state as part of the capture too.
 
 To reuse the motion with different drawings, turn off **Use Baked Appearance**,
 connect replacement artwork and choose the appropriate size and artwork modes.
@@ -147,6 +155,10 @@ The dispatcher also accepts trailing `.gz`. Reader/writer support is specific
 to the implementations in the pinned Partio version. In particular, BGEO is
 **legacy version 5**; modern binary-JSON BGEO and `.bgeo.sc` are unsupported.
 For Houdini interchange, use a compatible legacy export such as `.bhclassic`.
+
+Compression is handled by the OT adapter for every format, including codecs
+that do not implement a gzip wrapper themselves. Gzip checksums and truncation
+are checked before parsing. Filename extension matching is case-insensitive.
 
 Formats do not all store the same attributes or types. Export checks for data
 loss and fails unless the user explicitly allows unsupported attributes to be

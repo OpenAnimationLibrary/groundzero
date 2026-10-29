@@ -304,6 +304,18 @@ void Iwa_Particles_Engine::roll_particles(
     return;
   }
 
+  // Keep every positive-lifetime birth during private replay. Omitting births
+  // that die before the target changes the initial/random stacking branch and
+  // its RNG consumption, so subsequent live births acquire different seeds.
+  const int birthLifetimeCutoff = ParticleBakeCapture::isolating()
+      ? 0 : curr_frame - frame;
+  auto advanceBirthOrdinal = [&]() {
+    if (ParticleBakeCapture::isolating() &&
+        totalparticles >= std::numeric_limits<int>::max())
+      throw TException("Particle bake exceeds the native birth identity limit.");
+    ++totalparticles;
+  };
+
   /*- New particle generation -*/
   /*- When there are only new particles -*/
   if (myParticles.empty() && actualBirthParticles)  // Initial creation
@@ -328,7 +340,7 @@ void Iwa_Particles_Engine::roll_particles(
       }
       /*- Determine if this particle is alive at the frame being rendered, and
        * generate if alive -*/
-      if (lifetime > curr_frame - frame) {
+      if (lifetime > birthLifetimeCutoff) {
         myParticles.push_back(Iwa_Particle(
             lifetime, seed, porttiles, values, ranges, totalparticles, 0,
             (int)po.level, lastframe[po.level], po.pos[0],
@@ -337,7 +349,7 @@ void Iwa_Particles_Engine::roll_particles(
             (int)po.initSourceFrame,  // Material initial frame
             m_parent));
       }
-      totalparticles++;
+      advanceBirthOrdinal();
     }
   }
   /*- Move existing particles and create new ones -*/
@@ -376,7 +388,7 @@ void Iwa_Particles_Engine::roll_particles(
               (int)(values.lifetime_val.first +
                     ranges.lifetime_range * values.random_val->getFloat());
         }
-        if (lifetime > curr_frame - frame) {
+        if (lifetime > birthLifetimeCutoff) {
           myParticles.push_front(Iwa_Particle(
               lifetime, seed, porttiles, values, ranges, totalparticles, 0,
               (int)po.level, lastframe[po.level], po.pos[0], po.pos[1],
@@ -385,7 +397,7 @@ void Iwa_Particles_Engine::roll_particles(
               m_parent                  // pointer
               ));
         }
-        totalparticles++;
+        advanceBirthOrdinal();
       }
       break;
 
@@ -411,7 +423,7 @@ void Iwa_Particles_Engine::roll_particles(
                 (int)(values.lifetime_val.first +
                       ranges.lifetime_range * values.random_val->getFloat());
           }
-          if (lifetime > curr_frame - frame) {
+          if (lifetime > birthLifetimeCutoff) {
             myParticles.insert(
                 it, Iwa_Particle(
                         lifetime, seed, porttiles, values, ranges,
@@ -421,7 +433,7 @@ void Iwa_Particles_Engine::roll_particles(
                         m_parent                  // pointer
                         ));
           }
-          totalparticles++;
+          advanceBirthOrdinal();
         }
       }
       break;
@@ -443,7 +455,7 @@ void Iwa_Particles_Engine::roll_particles(
           lifetime =
               (int)(values.lifetime_val.first +
                     ranges.lifetime_range * values.random_val->getFloat());
-        if (lifetime > curr_frame - frame) {
+        if (lifetime > birthLifetimeCutoff) {
           myParticles.push_back(Iwa_Particle(
               lifetime, seed, porttiles, values, ranges, totalparticles, 0,
               (int)po.level, lastframe[po.level], po.pos[0], po.pos[1],
@@ -452,7 +464,7 @@ void Iwa_Particles_Engine::roll_particles(
               m_parent                  // pointer
               ));
         }
-        totalparticles++;
+        advanceBirthOrdinal();
       }
       break;
     }
@@ -573,7 +585,7 @@ void Iwa_Particles_Engine::render_particles(
   ParticleBakeCapture::checkSimulationRange(m_parent, startframe, curr_frame);
 
   std::unique_ptr<Iwa_ParticlesManager::FrameData> bakeData;
-  if (ParticleBakeCapture::active(m_parent))
+  if (ParticleBakeCapture::isolating())
     bakeData.reset(new Iwa_ParticlesManager::FrameData(new Iwa_ParticlesManager::FxData));
   Iwa_ParticlesManager::FrameData *particlesData = bakeData ? bakeData.get() :
       Iwa_ParticlesManager::instance()->data(fxId);
@@ -704,7 +716,7 @@ void Iwa_Particles_Engine::render_particles(
             } else {
               std::string alias =
                   "CTRL: " + (*(it->second))->getAlias(r_frame, riAux);
-              TRasterImageP rimg = (ParticleBakeCapture::active(m_parent) ? TImageP() : TImageCache::instance()->get(alias, false));
+              TRasterImageP rimg = (ParticleBakeCapture::isolating() ? TImageP() : TImageCache::instance()->get(alias, false));
 
               if (rimg) {
                 tmp->m_pos = bbox.getP00();
@@ -736,7 +748,7 @@ void Iwa_Particles_Engine::render_particles(
       std::string alias =
           "BG_CTRL: " +
           (*ctrl_ports.at(values.base_ctrl_val))->getAlias(r_frame, ri);
-      TRasterImageP rimg = (ParticleBakeCapture::active(m_parent) ? TImageP() : TImageCache::instance()->get(alias, false));
+      TRasterImageP rimg = (ParticleBakeCapture::isolating() ? TImageP() : TImageCache::instance()->get(alias, false));
       if (rimg) {
         baseImgTile.m_pos = tile->m_pos;
         baseImgTile.setRaster(rimg->getRaster());
@@ -746,7 +758,7 @@ void Iwa_Particles_Engine::render_particles(
             ->allocateAndCompute(baseImgTile, tile->m_pos,
                                  convert(resourceTileBBox).getSize(),
                                  tile->getRaster(), r_frame, ri);
-        if (!ParticleBakeCapture::active(m_parent)) addRenderCache(alias, TRasterImageP(baseImgTile.getRaster()));
+        if (!ParticleBakeCapture::isolating()) addRenderCache(alias, TRasterImageP(baseImgTile.getRaster()));
       }
       baseLock.reset(new ParticleBakeCapture::RasterLockGuard(baseImgTile.getRaster()));
     }
@@ -1046,7 +1058,7 @@ void Iwa_Particles_Engine::do_render(
     ras = rimg->getRaster();
   } else {
     alias = "PART: " + (*part_ports[part->level])->getAlias(ndx, riNew);
-    rimg  = (ParticleBakeCapture::active(m_parent) ? TImageP() : TImageCache::instance()->get(alias, false));
+    rimg  = (ParticleBakeCapture::isolating() ? TImageP() : TImageCache::instance()->get(alias, false));
     if (rimg) {
       ras = rimg->getRaster();
 
@@ -1076,7 +1088,7 @@ void Iwa_Particles_Engine::do_render(
     ras = auxTile.getRaster();
 
     // Finally, cache the particle
-    if (!ParticleBakeCapture::active(m_parent)) addRenderCache(alias, TRasterImageP(ras));
+    if (!ParticleBakeCapture::isolating()) addRenderCache(alias, TRasterImageP(ras));
   }
 
   if (!ras) return;  // At this point, it should never happen anyway...
@@ -1410,7 +1422,7 @@ void Iwa_Particles_Engine::initParticleOrigins(
   vect              = aff * vect;
   double triPixSize = sqrt(vect.x * vect.x + vect.y * vect.y);
 
-  if (ParticleBakeCapture::active(m_parent)) {
+  if (ParticleBakeCapture::isolating()) {
     if (!std::isfinite(triPixSize) || triPixSize <= 0)
       throw TException("Invalid tiled-particle size for bake.");
     const double columns = std::ceil(resourceTileBBox.getLx() / (triPixSize * 0.5)) + 2;
@@ -1582,7 +1594,7 @@ void Iwa_Particles_Engine::renderBackground(
       ras = rimg->getRaster();
     } else {
       alias = "PART: " + (*part_ports[origin.level])->getAlias(ndx, riNew);
-      rimg  = (ParticleBakeCapture::active(m_parent) ? TImageP() : TImageCache::instance()->get(alias, false));
+      rimg  = (ParticleBakeCapture::isolating() ? TImageP() : TImageCache::instance()->get(alias, false));
       if (rimg) {
         ras = rimg->getRaster();
 
@@ -1612,7 +1624,7 @@ void Iwa_Particles_Engine::renderBackground(
       ras = auxTile.getRaster();
 
       // Finally, cache the particle
-      if (!ParticleBakeCapture::active(m_parent)) addRenderCache(alias, TRasterImageP(ras));
+      if (!ParticleBakeCapture::isolating()) addRenderCache(alias, TRasterImageP(ras));
     }
 
     if (!ras) return;  // At this point, it should never happen anyway...

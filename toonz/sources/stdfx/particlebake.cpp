@@ -4,6 +4,7 @@
 #include "tconvert.h"
 #include <cmath>
 #include <limits>
+#include <set>
 #include <stdexcept>
 
 namespace {
@@ -22,15 +23,34 @@ struct CaptureScope {
   explicit CaptureScope(Capture *capture) : previous(current) { current = capture; }
   ~CaptureScope() { current = previous; }
 };
+
+void isolateGraphIdentifiers(TFx *source) {
+  std::set<TFx *> visited;
+  std::vector<TFx *> pending{source};
+  while (!pending.empty()) {
+    TFx *fx = pending.back();
+    pending.pop_back();
+    if (!visited.insert(fx).second) continue;
+    // Recursive cloning retains IDs. Upstream compute() can hit a cached
+    // particle raster before reaching the engine's private-state hook, so the
+    // detached graph also needs its own render-cache identities.
+    fx->setNewIdentifier();
+    for (int port = 0; port < fx->getInputPortCount(); ++port) {
+      TFx *input = fx->getInputPort(port)->getFx();
+      if (input) pending.push_back(input);
+    }
+  }
+}
 }
 namespace ParticleBakeCapture {
 bool active(const TFx *source) { return current && current->source == source; }
-void checkCancel(const TFx *source) {
-  if (active(source) && current->cancel && current->cancel())
+bool isolating() { return current != nullptr; }
+void checkCancel(const TFx *) {
+  if (isolating() && current->cancel && current->cancel())
     throw std::runtime_error("Particle bake canceled.");
 }
 int artworkLastFrame(const TFx *source, const TFxTimeRegion &region) {
-  if (!active(source)) return region.getLastFrame();
+  if (!isolating()) return region.getLastFrame();
   checkCancel(source);
   if (region.isEmpty())
     throw std::runtime_error("Particle artwork has an empty frame range.");
@@ -42,20 +62,20 @@ int artworkLastFrame(const TFx *source, const TFxTimeRegion &region) {
   return last;
 }
 void checkParticleCount(const TFx *source, double count) {
-  if (!active(source)) return;
+  if (!isolating()) return;
   checkCancel(source);
   if (!std::isfinite(count) || count < 0 || count > current->options.maxDraws)
     throw std::runtime_error("Particle simulation exceeds bake particle limit.");
 }
-void checkRasterSize(const TFx *source, double width, double height, int pixelSize) {
-  if (!active(source)) return;
+void checkRasterSize(const TFx *, double width, double height, int pixelSize) {
+  if (!isolating()) return;
   if (!std::isfinite(width) || !std::isfinite(height) || width < 0 || height < 0 ||
       width > current->options.maxRasterDimension || height > current->options.maxRasterDimension ||
       width * height * pixelSize > current->options.maxArtworkBytes)
     throw std::runtime_error("Particle sampling exceeds bake raster limit.");
 }
-void checkSimulationRange(const TFx *source, int start, int end) {
-  if (!active(source)) return;
+void checkSimulationRange(const TFx *, int start, int end) {
+  if (!isolating()) return;
   if (start == std::numeric_limits<int>::min() || end == std::numeric_limits<int>::max() ||
       double(end) - start > 1000000)
     throw std::runtime_error("Particle bake preroll exceeds simulation frame limit.");
@@ -150,6 +170,7 @@ bool captureFrame(TRasterFx *fx, double frame, const TRenderSettings &settings,
     // state and upstream computations must not edit the live schematic graph.
     TRasterFxP source = dynamic_cast<TRasterFx *>(fx->clone(true));
     if (!source) throw std::runtime_error("Unable to clone particle effect.");
+    isolateGraphIdentifiers(source.getPointer());
     const bool explicitViewport = !viewport.isEmpty();
     const TRectD pixels = explicitViewport ? viewport : a * d;
     // An explicit viewport keeps its pixel-grid origin, including half-pixel

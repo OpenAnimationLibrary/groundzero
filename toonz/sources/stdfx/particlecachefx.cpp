@@ -89,7 +89,7 @@ void copyPixels(const TRasterPT<PIXEL> &raster,
       for (int k = 0; k < 3; ++k) {
         if (!std::isfinite(p[k])) p[k] = 0;
         if (!std::is_floating_point<Channel>::value)
-          p[k] = std::clamp(p[k], 0.0, p[3]);
+          p[k] = std::clamp(p[k], 0.0, 1.0);
       }
       const double round = std::is_floating_point<Channel>::value ? 0 : .5;
       row[x] = PIXEL(Channel(p[0] * PIXEL::maxChannelValue + round),
@@ -122,7 +122,7 @@ struct ArtworkMap {
 class ParticleCacheFx final : public TStandardZeraryFx,
                               public SceneFxResource {
   FX_PLUGIN_DECLARATION(ParticleCacheFx)
-  TFxPortDG m_artwork;
+  TFxPortDG m_artwork, m_placement;
   TStringParamP m_cacheFile, m_mappingJson;
   TBoolParamP m_useBakedAppearance;
   TBoolParamP m_manifestMapping;
@@ -217,6 +217,21 @@ class ParticleCacheFx final : public TStandardZeraryFx,
     return result;
   }
 
+  std::vector<int> connectedArtworkSources() const {
+    std::vector<int> connected;
+    for (int i = 0; i < getInputPortCount(); ++i) {
+      const std::string name = getInputPortName(i);
+      if (name.compare(0, 7, "Artwork") != 0 || !getInputPort(i)->isConnected())
+        continue;
+      bool valid = false;
+      const int number = QString::fromStdString(name.substr(7)).toInt(&valid);
+      if (valid && number > 0 && name == "Artwork" + std::to_string(number))
+        connected.push_back(number - 1);
+    }
+    std::sort(connected.begin(), connected.end());
+    return connected;
+  }
+
   int sourceIndex(const ParticleCache::Particle &p) const {
     if (m_assignment->getValue() == 0) return p.artworkIndex;
     // Hash identities, not array indices: source choice survives reorder/births.
@@ -224,9 +239,7 @@ class ParticleCacheFx final : public TStandardZeraryFx,
     h ^= h >> 30; h *= UINT64_C(0xbf58476d1ce4e5b9);
     h ^= h >> 27; h *= UINT64_C(0x94d049bb133111eb);
     h ^= h >> 31;
-    std::vector<int> connected;
-    for (int i = 0; i < getInputPortCount(); ++i)
-      if (getInputPort(i)->isConnected()) connected.push_back(i);
+    const std::vector<int> connected = connectedArtworkSources();
     return connected.empty() ? 0 : connected[std::size_t(h % connected.size())];
   }
 
@@ -242,8 +255,9 @@ class ParticleCacheFx final : public TStandardZeraryFx,
   }
 
   TRasterFxPort *sourcePort(int source) const {
-    if (source < 0 || source >= getInputPortCount()) return nullptr;
-    auto *port = dynamic_cast<TRasterFxPort *>(getInputPort(source));
+    if (source < 0) return nullptr;
+    auto *port = dynamic_cast<TRasterFxPort *>(getInputPort(
+        "Artwork" + std::to_string(std::int64_t(source) + 1)));
     return port && port->isConnected() ? port : nullptr;
   }
 
@@ -289,6 +303,7 @@ class ParticleCacheFx final : public TStandardZeraryFx,
     // Ask for float artwork; the FX framework converts sources without float
     // implementations. Do not down-convert HDR/16-bit inputs to 8-bit.
     TRasterFP templateRaster(1, 1);
+    templateRaster->setLinear(input.m_linearColorSpace);
     input.m_bpp = 128;
     (*port)->allocateAndCompute(tile, TPointD(x0, y0),
                                TDimension(int(width), int(height)),
@@ -317,7 +332,8 @@ class ParticleCacheFx final : public TStandardZeraryFx,
       const bool downConvert = TRaster32P(tile.getRaster()) && !TRaster32P(artwork);
       if (convertColor || opacity != 1 || TRasterFP(tile.getRaster()) || downConvert) {
         TRasterFP prepared(artwork->getLx(), artwork->getLy());
-        TRop::convert(prepared, artwork);
+        if (TRasterFP floating = artwork) prepared->copy(floating);
+        else TRop::convert(prepared, artwork);
         if (convertColor) {
           if (settings.m_linearColorSpace) TRop::toLinearRGB(prepared, settings.m_colorSpaceGamma);
           else TRop::tosRGB(prepared, captured.colorSpaceGamma);
@@ -386,11 +402,8 @@ class ParticleCacheFx final : public TStandardZeraryFx,
       double size = p.size * userScale;
       Artwork sprite;
       auto *port = sourcePort(source);
-      if (!port) {
-        for (int i = 0; i < getInputPortCount(); ++i)
-          if (getInputPort(i)->isConnected())
-            throw std::runtime_error("Particle artwork index selects an unconnected Artwork port");
-      }
+      if (!port && !connectedArtworkSources().empty())
+        throw std::runtime_error("Particle artwork index selects an unconnected Artwork port");
       if (port) {
         TRenderSettings identity(settings); identity.m_affine = TAffine();
         TRectD bounds;
@@ -453,7 +466,8 @@ class ParticleCacheFx final : public TStandardZeraryFx,
 
 public:
   ParticleCacheFx()
-      : m_artwork("Artwork"), m_cacheFile(L""), m_mappingJson(L""), m_useBakedAppearance(true), m_manifestMapping(true),
+      : m_artwork("Artwork"), m_placement("Placement", 0),
+        m_cacheFile(L""), m_mappingJson(L""), m_useBakedAppearance(true), m_manifestMapping(true),
         m_positionAttribute(L"position"), m_velocityAttribute(L"velocity"), m_idAttribute(L"id"),
         m_sizeAttribute(L"pscale"), m_colorAttribute(L"Cd"), m_opacityAttribute(L"opacity"),
         m_rotationAttribute(L"rotation"), m_ageAttribute(L"age"), m_lifetimeAttribute(L"life"),
@@ -518,9 +532,13 @@ public:
 
   bool isZerary() const override { return true; }
   bool canHandle(const TRenderSettings &, double) override { return true; }
-  int dynamicPortGroupsCount() const override { return 1; }
+  bool toBeComputedInLinearColorSpace(bool settingsIsLinear,
+                                      bool) const override {
+    return settingsIsLinear;
+  }
+  int dynamicPortGroupsCount() const override { return 2; }
   const TFxPortDG *dynamicPortGroup(int group) const override {
-    return group == 0 ? &m_artwork : nullptr;
+    return group == 0 ? &m_artwork : group == 1 ? &m_placement : nullptr;
   }
   TFxTimeRegion getTimeRegion() const override { return TFxTimeRegion::createUnlimited(); }
 

@@ -182,6 +182,49 @@ const AttributeMapping mappings[] = {
     {"Artwork source", &ParticleCache::Mapping::artworkIndex},
     {"Artwork frame", &ParticleCache::Mapping::artworkFrame}};
 
+bool effectiveCacheMapping(TFx *fx, ParticleCache::Mapping &mapping,
+                           QString &error) {
+  auto manifest = dynamic_cast<TBoolParam *>(fx->getParams()->getParam("useManifestMapping"));
+  if (!manifest || manifest->getValue()) {
+    const QString mappingJson = stringValue(fx, "mappingJson");
+    if (mappingJson.isEmpty()) return true;
+    QJsonParseError parse;
+    const auto json = QJsonDocument::fromJson(mappingJson.toUtf8(), &parse);
+    if (parse.error != QJsonParseError::NoError || !json.isObject()) {
+      error = tr("Invalid particle attribute mapping.");
+      return false;
+    }
+    return ParticleCache::mappingFromJson(json.object(), mapping, error);
+  }
+
+  const char *names[] = {"positionAttribute", "velocityAttribute", "idAttribute",
+                        "sizeAttribute", "rotationAttribute", "colorAttribute",
+                        "opacityAttribute", "ageAttribute", "lifetimeAttribute",
+                        "sourceAttribute", "drawingAttribute"};
+  for (std::size_t i = 0; i < sizeof(mappings) / sizeof(mappings[0]); ++i)
+    mapping.*(mappings[i].member) = stringValue(fx, names[i]);
+  const double frame = TApp::instance()->getCurrentFrame()->getFrame();
+  const auto number = [&](const char *name, double fallback) {
+    auto param = dynamic_cast<TDoubleParam *>(fx->getParams()->getParam(name));
+    return param ? param->getValue(frame) : fallback;
+  };
+  const auto flag = [&](const char *name) {
+    auto param = dynamic_cast<TBoolParam *>(fx->getParams()->getParam(name));
+    return param && param->getValue();
+  };
+  auto axes = dynamic_cast<TIntEnumParam *>(fx->getParams()->getParam("axes"));
+  const int plane = axes ? axes->getValue() : 0;
+  mapping.axes = plane == 1 ? std::array<int, 3>{{0, 2, 1}}
+                : plane == 2 ? std::array<int, 3>{{1, 2, 0}}
+                             : std::array<int, 3>{{0, 1, 2}};
+  mapping.axisSigns = {{1, flag("flipY") ? -1 : 1, 1}};
+  mapping.units = number("units", 1);
+  mapping.defaultSize = number("defaultSize", 1);
+  mapping.sizeIsDiameter = flag("sizeIsDiameter");
+  mapping.rotationInRadians = flag("rotationInRadians");
+  return true;
+}
+
 QDoubleSpinBox *numberBox(QWidget *parent, double value,
                           double minimum = 0.000001, double maximum = 1000000) {
   auto box = new QDoubleSpinBox(parent);
@@ -478,31 +521,10 @@ void inspectCache() {
   QString mappingJson = stringValue(fx.getPointer(), "mappingJson");
   if (!manifestMapping) {
     ParticleCache::Mapping mapping;
-    const char *names[] = {"positionAttribute", "velocityAttribute", "idAttribute",
-                          "sizeAttribute", "rotationAttribute", "colorAttribute",
-                          "opacityAttribute", "ageAttribute", "lifetimeAttribute",
-                          "sourceAttribute", "drawingAttribute"};
-    for (std::size_t i = 0; i < sizeof(mappings) / sizeof(mappings[0]); ++i)
-      mapping.*(mappings[i].member) = stringValue(fx.getPointer(), names[i]);
-    const double frame = TApp::instance()->getCurrentFrame()->getFrame();
-    const auto number = [&](const char *name, double fallback) {
-      auto param = dynamic_cast<TDoubleParam *>(fx->getParams()->getParam(name));
-      return param ? param->getValue(frame) : fallback;
-    };
-    const auto flag = [&](const char *name) {
-      auto param = dynamic_cast<TBoolParam *>(fx->getParams()->getParam(name));
-      return param && param->getValue();
-    };
-    auto axes = dynamic_cast<TIntEnumParam *>(fx->getParams()->getParam("axes"));
-    const int plane = axes ? axes->getValue() : 0;
-    mapping.axes = plane == 1 ? std::array<int, 3>{{0, 2, 1}}
-                  : plane == 2 ? std::array<int, 3>{{1, 2, 0}}
-                               : std::array<int, 3>{{0, 1, 2}};
-    mapping.axisSigns = {{1, flag("flipY") ? -1 : 1, 1}};
-    mapping.units = number("units", 1);
-    mapping.defaultSize = number("defaultSize", 1);
-    mapping.sizeIsDiameter = flag("sizeIsDiameter");
-    mapping.rotationInRadians = flag("rotationInRadians");
+    QString error;
+    if (!effectiveCacheMapping(fx.getPointer(), mapping, error)) {
+      DVGui::error(error); return;
+    }
     mappingJson = QString::fromUtf8(QJsonDocument(ParticleCache::mappingToJson(mapping))
                                       .toJson(QJsonDocument::Compact));
   }
@@ -533,6 +555,10 @@ void exportCache() {
                                    sequence, error)) {
     DVGui::error(error); return;
   }
+  if (!effectiveCacheMapping(fx.getPointer(), sequence.mapping, error)) {
+    DVGui::error(error); return;
+  }
+  sequence.metadata.mapping = sequence.mapping;
   QDialog dialog(TApp::instance()->getMainWindow());
   dialog.setWindowTitle(tr("Export Particle Cache"));
   auto form = new QFormLayout(&dialog);
@@ -626,6 +652,9 @@ public:
       for (int i = 0; i < source->getOutputConnectionCount(); ++i) {
         TFxPort *port = source->getOutputConnection(i);
         TFx *owner = port->getOwnerFx();
+        // The placement anchor keeps reading the retained native graph. It is
+        // not a consumer to replace, which would connect the cache to itself.
+        if (owner == cache) continue;
         for (int p = 0; p < owner->getInputPortCount(); ++p)
           if (owner->getInputPort(p) == port) m_outputs.push_back({TFxP(owner), p});
       }
@@ -647,6 +676,12 @@ void connectArtwork(TFx *source, TFx *cache) {
       cache->addInputPort(destination, new TRasterFxPort, 0);
     cache->getInputPort(destination)->setFx(source->getInputPort(p)->getFx());
   }
+  auto zerary = dynamic_cast<TZeraryFx *>(source);
+  if (zerary && zerary->getColumnFx()) return;
+  // Reuse the native graph's placement selection, including skipped hidden or
+  // disabled input trees. The renderer never computes this placement port.
+  cache->addInputPort("Placement1", new TRasterFxPort, 1);
+  cache->getInputPort("Placement1")->setFx(source);
 }
 
 template <typename Container>

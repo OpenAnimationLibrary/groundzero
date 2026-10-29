@@ -148,6 +148,33 @@ public:
 };
 FX_PLUGIN_IDENTIFIER(ParticleBakeBackgroundFixture, "particleBakeBackgroundFixture")
 
+class ParticleBakeControlBoundsFixture final : public TStandardRasterFx {
+  FX_PLUGIN_DECLARATION(ParticleBakeControlBoundsFixture)
+  TIntParamP m_mode;
+public:
+  ParticleBakeControlBoundsFixture() : m_mode(0) {
+    bindParam(this, "boundsMode", m_mode);
+  }
+  bool canHandle(const TRenderSettings &, double) override { return true; }
+  std::string getAlias(double frame, const TRenderSettings &settings) const override {
+    return "particle-bake-control-bounds-fixture:" + std::to_string(m_mode->getValue()) +
+        ":" + fixtureAlias(frame, settings);
+  }
+  bool doGetBBox(double, TRectD &box, const TRenderSettings &) override {
+    switch (m_mode->getValue()) {
+    case 1:
+    case 2: box = TConsts::infiniteRectD; break;
+    case 3: box = TRectD(0, 0, 64, 64); break;
+    default: box = TRectD(0, 0, 256, 256); break;
+    }
+    return true;
+  }
+  void doCompute(TTile &, double, const TRenderSettings &) override {
+    throw std::runtime_error("Unsafe control allocation reached fixture evaluation");
+  }
+};
+FX_PLUGIN_IDENTIFIER(ParticleBakeControlBoundsFixture, "particleBakeControlBoundsFixture")
+
 namespace {
 class RenderSession {
   TRenderer renderer;
@@ -281,7 +308,18 @@ ParticleBake::Frame capture(TRasterFx *fx, double frame,
   outer.end(frame);
   require(ok, "Capture failed: " + error.toStdString());
   require(preserved, "Capture replaced the active renderer context");
-  require(!result.particles.empty(), "Native capture returned no live particle state");
+  const bool backgroundOnly = fx->getFxType() == "STD_iwa_TiledParticlesFx" &&
+      parameter<TIntEnumParam>(fx, "rendermode")->getValue() == 2;
+  if (backgroundOnly) {
+    // The native background-only roll removes origins without ever creating
+    // flying particles. Its prepared plate is the complete expected output.
+    require(result.particles.empty(),
+            "Background-only native capture acquired flying particle state");
+    require(!result.draws.empty() && std::all_of(result.draws.begin(), result.draws.end(),
+                [](const ParticleBake::DrawSample &draw) { return draw.background; }),
+            "Background-only native capture lost its prepared background plate");
+  } else
+    require(!result.particles.empty(), "Native capture returned no live particle state");
   if (requireArtwork)
     require(!result.draws.empty(), "Native capture returned no artwork draws");
   std::set<std::uint64_t> identities;
@@ -395,6 +433,125 @@ void testInvisibleState(bool tiled) {
           "Invisible particles stopped participating in simulation");
   compareState(result.particles, capture(fx.getPointer(), 3, settings, false).particles,
                tiled ? "tiled invisible state" : "standard invisible state");
+}
+
+void testShortLivedRandomStacking() {
+  TRasterFxP source = fixture(false);
+  enumeration(source.getPointer(), "top_layer", 4);  // Random stacking.
+  number(source.getPointer(), "birth_rate", 1);
+  range(source.getPointer(), "lifetime", 2, 2);
+  range(source.getPointer(), "trail", 0, 0);
+  range(source.getPointer(), "speed", 0, 0);
+  range(source.getPointer(), "scale", 100, 100);
+  TRenderSettings settings;
+  settings.m_cameraBox = Domain;
+  ParticleBake::Options options;
+  options.domain = Domain;
+  std::map<std::uint64_t, TPointD> positions;
+  std::size_t survivingIdentities = 0;
+  RenderSession session;
+  for (int frame = 0; frame != 5; ++frame) {
+    session.begin(frame);
+    try {
+      TRasterP reference = image(32);
+      TTile tile(reference, Domain.getP00());
+      // Keep one live renderer warm from the first birth, so the reference
+      // consumes the causal RNG stream even after earlier particles die.
+      source->compute(tile, frame, settings);
+      ParticleBake::Frame captured;
+      QString error;
+      require(ParticleBake::captureFrame(source.getPointer(), frame, settings,
+                                          options, captured, error),
+              "Short-lived random-stack capture failed: " + error.toStdString());
+      compare(reference, composite(captured, settings),
+              "standard/short-lived random stacking/frame=" + std::to_string(frame));
+      for (const auto &particle : captured.particles) {
+        const auto previous = positions.find(particle.id);
+        if (previous != positions.end()) {
+          ++survivingIdentities;
+          require(previous->second == particle.position,
+                  "Stationary particle changed position under a surviving birth identity");
+        }
+        positions[particle.id] = particle.position;
+      }
+    } catch (...) { session.end(frame); throw; }
+    session.end(frame);
+  }
+  require(survivingIdentities > 0,
+          "Short-lived fixture never exercised a surviving birth identity");
+}
+
+void testControlSamplingLimits() {
+  TRenderSettings settings;
+  ParticleBake::Options options;
+  options.domain = Domain;
+  options.maxRasterDimension = 128;
+  RenderSession session;
+  session.begin(0);
+  try {
+    for (int mode = 0; mode != 4; ++mode) {
+      TRasterFxP source = fixture(false);
+      auto *control = new ParticleBakeControlBoundsFixture;
+      integer(control, "boundsMode", mode);
+      source->getInputPort("Control1")->setFx(control);
+      if (mode == 1 || mode == 2) {
+        // Infinite controls inherit emitter bounds after getBBox. Exercise
+        // invalid resulting coordinates before the engine converts them to int.
+        number(source.getPointer(), "length", mode == 1 ? 8e12
+            : std::numeric_limits<double>::infinity());
+      }
+      if (mode == 3) {
+        // The output and an 8-bit control fit this budget; the gradient's
+        // 16-bit control must be rejected before allocating or evaluating it.
+        options.maxArtworkBytes = 25000;
+        integer(source.getPointer(), "gravity_ctrl", 1);
+      }
+      ParticleBake::Frame captured;
+      QString error;
+      require(!ParticleBake::captureFrame(source.getPointer(), 0, settings,
+                                           options, captured, error),
+              "Capture accepted an unsafe control sampling rectangle");
+      require(error.contains(mode == 1 || mode == 2 ? "coordinate limits"
+                                                    : "sampling exceeds"),
+              "Control was evaluated before its bounds were rejected: " + error.toStdString());
+      require(captured.particles.empty() && captured.draws.empty(),
+              "Rejected control bounds leaked partial capture output");
+    }
+  } catch (...) { session.end(0); throw; }
+  session.end(0);
+}
+
+void testSourcePointLimits() {
+  TRenderSettings settings;
+  ParticleBake::Options options;
+  options.domain = Domain;
+  options.maxDraws = 32;
+  RenderSession session;
+  session.begin(0);
+  try {
+    for (int mode = 0; mode != 4; ++mode) {
+      TRasterFxP source = fixture(false);
+      number(source.getPointer(), "birth_rate", 1);
+      integer(source.getPointer(), "source_ctrl", 1);
+      if (mode == 1)
+        parameter<TBoolParam>(source.getPointer(), "source_gradation")->setValue(true);
+      if (mode == 2)
+        parameter<TBoolParam>(source.getPointer(), "multi_source")->setValue(true);
+      if (mode == 3) {
+        integer(source.getPointer(), "scale_ctrl", 1);
+        parameter<TBoolParam>(source.getPointer(), "perspective_distribution")->setValue(true);
+      }
+      ParticleBake::Frame captured;
+      QString error;
+      require(!ParticleBake::captureFrame(source.getPointer(), 0, settings,
+                                           options, captured, error),
+              "Capture allowed its source point vectors to exceed the particle limit");
+      require(error.contains("particle limit") && captured.particles.empty() &&
+                  captured.draws.empty(),
+              "Source point limit failed without rejecting partial capture output");
+    }
+  } catch (...) { session.end(0); throw; }
+  session.end(0);
 }
 
 void testFractionalViewport(bool tiled) {
@@ -875,6 +1032,9 @@ int main(int argc, char **argv) {
     testCapture(true, 3, 64);   // Illuminated fluttering pieces.
     testInvisibleState(false);
     testInvisibleState(true);
+    testShortLivedRandomStacking();
+    testControlSamplingLimits();
+    testSourcePointLimits();
     testFractionalViewport(false);
     testFractionalViewport(true);
     testProceduralArtworkHorizon(false);
@@ -889,7 +1049,7 @@ int main(int argc, char **argv) {
     testScenePreparation(true);
     testScenePreparation(false, true);
     testScenePreparation(true, true);
-    std::cout << "Native particle capture/package/playback: 22 cases passed\n";
+    std::cout << "Native particle capture/package/playback: 25 cases passed\n";
     return 0;
   } catch (const std::exception &error) {
     std::cerr << "particlecache_bake: " << error.what() << '\n';

@@ -1,6 +1,7 @@
 #include "toonz/particlecache.h"
 
 #include <Partio.h>
+#include <zlib.h>
 
 #include <QCryptographicHash>
 #include <QDateTime>
@@ -59,6 +60,116 @@ bool supported(const QString &path, bool writing) {
   for (const auto &f : capabilities())
     if (f.extension == ext) return writing ? f.writable : f.readable;
   return false;
+}
+
+bool needsGeometryPosition(const QString &format) {
+  return format == "bgeo" || format == "bhclassic" || format == "itbl" ||
+      format == "atbl" || format == "geo" || format == "hclassic" || format == "ptc" ||
+      format == "ptf" || format == "pdc" || format == "bin" || format == "rib";
+}
+
+enum class Transfer { Copy, Inflate, Deflate };
+
+// Keep gzip outside Partio: several upstream codecs ignore its compressed flag
+// or do not recognize gzip input. inflate also checks each member's CRC/trailer.
+bool transferFile(const QString &source, const QString &destination, Transfer mode,
+                  QString &error, const Cancel &cancel) {
+  QFile input(source), output(destination);
+  if (!input.open(QIODevice::ReadOnly)) { error = input.errorString(); return false; }
+  if (input.size() > qint64(maxDataBytes)) {
+    error = "Particle file exceeds the 1 GiB input limit."; return false;
+  }
+  if (!output.open(QIODevice::WriteOnly)) { error = output.errorString(); return false; }
+  std::array<unsigned char, 64 * 1024> inBuffer, outBuffer;
+  std::size_t outputBytes = 0;
+  auto read = [&]() -> qint64 {
+    const qint64 size = input.read(reinterpret_cast<char *>(inBuffer.data()), inBuffer.size());
+    if (size < 0) error = input.errorString();
+    else if (input.pos() > qint64(maxDataBytes)) {
+      error = "Particle file exceeds the 1 GiB input limit."; return -1;
+    }
+    return size;
+  };
+  auto write = [&](const unsigned char *data, std::size_t size) {
+    if (size > maxDataBytes - outputBytes) {
+      error = "Particle file exceeds the 1 GiB decompressed/output limit."; return false;
+    }
+    if (output.write(reinterpret_cast<const char *>(data), qint64(size)) != qint64(size)) {
+      error = output.errorString(); return false;
+    }
+    outputBytes += size; return true;
+  };
+  if (mode == Transfer::Copy) {
+    while (!input.atEnd()) {
+      if (cancelled(cancel, error)) return false;
+      const qint64 size = read();
+      if (size < 0) return false;
+      if (!write(inBuffer.data(), std::size_t(size))) return false;
+    }
+  } else {
+    z_stream stream{};
+    const bool compress = mode == Transfer::Deflate;
+    const int initialized = compress
+        ? deflateInit2(&stream, Z_DEFAULT_COMPRESSION, Z_DEFLATED, MAX_WBITS + 16, 8, Z_DEFAULT_STRATEGY)
+        : inflateInit2(&stream, MAX_WBITS + 16);
+    if (initialized != Z_OK) { error = "Cannot initialize particle gzip codec."; return false; }
+    struct EndStream {
+      z_stream &stream; bool compress;
+      ~EndStream() { if (compress) deflateEnd(&stream); else inflateEnd(&stream); }
+    } end{stream, compress};
+    bool eof = false;
+    for (;;) {
+      if (cancelled(cancel, error)) return false;
+      if (!stream.avail_in && !eof) {
+        const qint64 size = read();
+        if (size < 0) return false;
+        eof = size == 0;
+        stream.next_in = inBuffer.data(); stream.avail_in = uInt(size);
+      }
+      stream.next_out = outBuffer.data(); stream.avail_out = uInt(outBuffer.size());
+      const int status = compress ? deflate(&stream, eof ? Z_FINISH : Z_NO_FLUSH)
+                                  : inflate(&stream, Z_NO_FLUSH);
+      if (!write(outBuffer.data(), outBuffer.size() - stream.avail_out)) return false;
+      if (status == Z_STREAM_END) {
+        if (compress) break;
+        // Gzip permits concatenated members. Preserve unread bytes when
+        // resetting, and reject trailing garbage as an invalid next member.
+        if (!stream.avail_in) {
+          const qint64 size = read();
+          if (size < 0) return false;
+          if (!size) break;
+          stream.next_in = inBuffer.data(); stream.avail_in = uInt(size);
+        }
+        Bytef *remaining = stream.next_in; const uInt size = stream.avail_in;
+        if (inflateReset2(&stream, MAX_WBITS + 16) != Z_OK) {
+          error = "Cannot reset particle gzip codec."; return false;
+        }
+        stream.next_in = remaining; stream.avail_in = size; eof = false;
+      } else if (status != Z_OK && status != Z_BUF_ERROR) {
+        error = compress ? "Cannot compress particle data." : "Invalid particle gzip data or checksum.";
+        return false;
+      } else if (eof && !stream.avail_in && stream.avail_out) {
+        error = compress ? "Cannot finish particle gzip output." : "Truncated particle gzip data.";
+        return false;
+      }
+    }
+  }
+  if (cancelled(cancel, error)) return false;
+  if (!output.flush()) { error = output.errorString(); return false; }
+  return true;
+}
+
+bool prepareInput(const QString &path, const QTemporaryDir &staging,
+                  QString &prepared, QString &error, const Cancel &cancel) {
+  if (!staging.isValid()) { error = "Cannot create particle input staging directory."; return false; }
+  QFile input(path);
+  if (!input.open(QIODevice::ReadOnly)) { error = input.errorString(); return false; }
+  const QByteArray magic = input.peek(2);
+  if (input.error() != QFile::NoError) { error = input.errorString(); return false; }
+  const bool gzip = path.endsWith(".gz", Qt::CaseInsensitive) || magic == QByteArray::fromHex("1f8b");
+  input.close();
+  prepared = QDir(staging.path()).filePath("frame." + extension(path));
+  return transferFile(path, prepared, gzip ? Transfer::Inflate : Transfer::Copy, error, cancel);
 }
 
 bool finite(double v) { return std::isfinite(v); }
@@ -547,12 +658,15 @@ SnapshotPtr inspectFrame(const QString &path, QString &error, const Cancel &canc
   if (!info.isFile()) { error = "Particle cache frame is missing."; return {}; }
   const QString digest = fileDigest(path, error, cancel);
   if (digest.isEmpty()) return {};
+  QTemporaryDir staging;
+  QString prepared;
+  if (!prepareInput(path, staging, prepared, error, cancel)) return {};
   auto result = std::make_shared<Snapshot>();
   std::ostringstream diagnostics;
   {
     std::lock_guard<std::mutex> lock(ioMutex);
     if (cancelled(cancel, error)) return {};
-    const QByteArray name = QFile::encodeName(info.absoluteFilePath());
+    const QByteArray name = QFile::encodeName(prepared);
     Headers header(Partio::readHeaders(name.constData(), true, diagnostics));
     if (!header) { error = QString::fromStdString(diagnostics.str()); return {}; }
     if (!checkHeader(*header, error)) return {};
@@ -593,12 +707,15 @@ SnapshotPtr loadFrame(const QString &path, const Mapping &mapping, QString &erro
     const auto found = memoryCache.find(key);
     if (found != memoryCache.end()) { found->second.used = ++cacheClock; return found->second.snapshot; }
   }
+  QTemporaryDir staging;
+  QString prepared;
+  if (!prepareInput(path, staging, prepared, error, cancel)) return {};
   auto result = std::make_shared<Snapshot>();
   std::ostringstream diagnostics;
   {
     std::lock_guard<std::mutex> lock(ioMutex);
     if (cancelled(cancel, error)) return {};
-    const QByteArray name = QFile::encodeName(info.absoluteFilePath());
+    const QByteArray name = QFile::encodeName(prepared);
     Headers header(Partio::readHeaders(name.constData(), true, diagnostics));
     if (!header) { error = QString::fromStdString(diagnostics.str()); return {}; }
     if (!checkHeader(*header, error)) return {};
@@ -953,7 +1070,11 @@ bool writeFrame(const QString &path, const Snapshot &snapshot,
   }
   if (target.exists()) { error = "Particle export destination already exists."; return false; }
   if (!target.absoluteDir().exists()) { error = "Particle export parent directory does not exist."; return false; }
-  auto attributes = options.preserveOriginalAttributes && !snapshot.attributes.empty()
+  const bool originalAttributes = options.preserveOriginalAttributes &&
+      (!snapshot.attributes.empty() || (snapshot.particles.empty() && snapshot.particleCount != 0));
+  const std::size_t count = originalAttributes && snapshot.particles.empty()
+      ? snapshot.particleCount : snapshot.particles.size();
+  auto attributes = originalAttributes
       ? snapshot.attributes : canonicalAttributes(snapshot, error);
   if (!options.preserveOriginalAttributes) {
     // Refresh mapped render values while retaining every unrelated/custom
@@ -964,16 +1085,24 @@ bool writeFrame(const QString &path, const Snapshot &snapshot,
       if (!present) attributes.push_back(a);
     }
   }
-  if (!error.isEmpty() || !validateAttributes(attributes, snapshot.particles.size(), error)) return false;
+  if (!error.isEmpty() || !validateAttributes(attributes, count, error)) return false;
   // Most formats require position. A custom source mapping is preserved by
   // keeping its attribute while adding a canonical position when absent.
   const auto pos = std::find_if(attributes.begin(), attributes.end(),
       [](const Attribute &a) { return !a.fixed && a.name == "position"; });
-  if (pos == attributes.end()) {
+  if (pos == attributes.end() && snapshot.particles.size() == count &&
+      (!originalAttributes || count != 0 || needsGeometryPosition(extension(path)))) {
     Attribute a; a.name = "position"; a.type = AttributeType::Vector; a.components = 3;
     for (const auto &p : snapshot.particles) for (double v : p.position) a.floats.push_back(float(v));
     attributes.push_back(std::move(a));
-    if (!validateAttributes(attributes, snapshot.particles.size(), error)) return false;
+    if (!validateAttributes(attributes, count, error)) return false;
+  }
+  const QString format = extension(path);
+  if (needsGeometryPosition(format) && std::none_of(attributes.begin(), attributes.end(), [](const Attribute &a) {
+        return !a.fixed && a.name == "position";
+      })) {
+    error = "The selected format requires a position attribute; choose a usable source position mapping.";
+    return false;
   }
   if (extension(path) == "rib") {
     const bool hasWidth = std::any_of(attributes.begin(), attributes.end(), [](const Attribute &a) {
@@ -985,33 +1114,34 @@ bool writeFrame(const QString &path, const Snapshot &snapshot,
         return !a.fixed && a.name == "pscale" && a.components == 1 &&
                (a.type == AttributeType::Float || a.type == AttributeType::Vector);
       });
-      for (std::size_t i = 0; i < snapshot.particles.size(); ++i)
-        width.floats.push_back(float(2 * (scale == attributes.end() ? snapshot.particles[i].size : scale->floats[i])));
+      for (std::size_t i = 0; i < count; ++i)
+        width.floats.push_back(float(2 * (scale == attributes.end()
+            ? (snapshot.particles.empty() ? 1 : snapshot.particles[i].size) : scale->floats[i])));
       attributes.push_back(std::move(width));
-      if (!validateAttributes(attributes, snapshot.particles.size(), error)) return false;
+      if (!validateAttributes(attributes, count, error)) return false;
     }
   }
-  if (!prepareWriter(extension(path), attributes, snapshot.particles.size(), options.allowLossy, error)) return false;
+  if (!prepareWriter(format, attributes, count, options.allowLossy, error)) return false;
   if (!supported(path, false) && !options.allowLossy) {
     error = "This write-only format cannot verify attribute preservation. Enable lossy export explicitly.";
     return false;
   }
   QTemporaryDir staging(target.absoluteDir().filePath(".particle-write-XXXXXX"));
   if (!staging.isValid()) { error = "Cannot create particle export staging directory."; return false; }
-  const QString staged = QDir(staging.path()).filePath("frame." + options.format +
-      ((options.compressed || path.endsWith(".gz", Qt::CaseInsensitive)) ? ".gz" : ""));
+  const QString staged = QDir(staging.path()).filePath("frame." + format);
   {
     std::lock_guard<std::mutex> lock(ioMutex);
     if (cancelled(cancel, error)) return false;
-    Particles data = encode(attributes, snapshot.particles.size());
+    Particles data = encode(attributes, count);
     std::ostringstream diagnostics;
     const QByteArray filename = QFile::encodeName(staged);
-    Partio::write(filename.constData(), *data, options.compressed, true, diagnostics);
+    Partio::write(filename.constData(), *data, false, true, diagnostics);
     if (!diagnostics.str().empty()) {
       error = QString::fromStdString(diagnostics.str()); return false;
     }
     const QFileInfo written(staged);
     if (!written.exists() || written.size() <= 0) { error = "Particle writer produced no data."; return false; }
+    if (written.size() > qint64(maxDataBytes)) { error = "Particle output exceeds the 1 GiB limit."; return false; }
     if (supported(staged, false)) {
       Headers header(Partio::readHeaders(filename.constData(), true, diagnostics));
       if (!header || !checkHeader(*header, error)) {
@@ -1020,7 +1150,7 @@ bool writeFrame(const QString &path, const Snapshot &snapshot,
       }
       Particles verify(Partio::read(filename.constData(), true, diagnostics));
       Snapshot decoded;
-      if (!verify || verify->numParticles() != int(snapshot.particles.size()) ||
+      if (!verify || verify->numParticles() != int(count) ||
           !checkHeader(*verify, error) || !readAttributes(*verify, decoded, error)) {
         if (error.isEmpty()) error = "Particle export failed read-back validation.";
         return false;
@@ -1029,8 +1159,13 @@ bool writeFrame(const QString &path, const Snapshot &snapshot,
     }
   }
   if (cancelled(cancel, error)) return false;
+  QString published = staged;
+  if (options.compressed || path.endsWith(".gz", Qt::CaseInsensitive)) {
+    published += ".gz";
+    if (!transferFile(staged, published, Transfer::Deflate, error, cancel)) return false;
+  }
   // QFile::rename fails if the destination exists; it never replaces user data.
-  if (!QFile::rename(staged, target.absoluteFilePath())) {
+  if (!QFile::rename(published, target.absoluteFilePath())) {
     error = "Cannot publish particle frame; the destination may already exist."; return false;
   }
   return true;
@@ -1126,7 +1261,26 @@ bool exportFiles(const Sequence &sequence, const QString &directory,
   return writePackage(directory, metadata, [&](int frame, QString &failure) -> SnapshotPtr {
     const auto found = sequence.frames.find(frame);
     if (found == sequence.frames.end()) { failure = "Cannot export a sequence with missing frames."; return {}; }
-    return loadFrame(found->second, sequence.mapping, failure, cancel);
+    if (!options.preserveOriginalAttributes)
+      return loadFrame(found->second, sequence.mapping, failure, cancel);
+    const auto source = inspectFrame(found->second, failure, cancel);
+    if (!source) return {};
+    // Geometry codecs need their conventional position channel. Keep the
+    // complete source schema and add a raw alias without applying render units,
+    // axis changes, or validation of unrelated optional renderer mappings.
+    const auto position = findAttribute(*source, "position");
+    const auto mapped = findAttribute(*source, sequence.mapping.position);
+    if (needsGeometryPosition(options.format.toLower()) && !position && mapped &&
+        mapped->type != AttributeType::IndexedString && mapped->components >= 3) {
+      auto result = std::make_shared<Snapshot>(*source);
+      Attribute alias; alias.name = "position"; alias.type = AttributeType::Vector; alias.components = 3;
+      alias.floats.reserve(source->particleCount * 3);
+      for (std::size_t row = 0; row < source->particleCount; ++row)
+        for (int c = 0; c < 3; ++c) alias.floats.push_back(float(number(mapped, row, c, 0)));
+      result->attributes.push_back(std::move(alias));
+      return result;
+    }
+    return source;
   }, options, error, cancel, progress);
 }
 

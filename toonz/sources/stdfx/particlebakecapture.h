@@ -15,6 +15,9 @@ public:
   RasterLockGuard &operator=(const RasterLockGuard &) = delete;
 };
 bool active(const TFx *source);
+// Every upstream native simulation uses private state during capture, while
+// active(source) restricts draw/state recording to the selected generator.
+bool isolating();
 void checkCancel(const TFx *source);
 int artworkLastFrame(const TFx *source, const TFxTimeRegion &region);
 void checkParticleCount(const TFx *source, double count);
