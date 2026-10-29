@@ -404,7 +404,7 @@ void testCapture(bool tiled, int mode, int bpp, bool motionBlur = false) {
   for (int frame : {3, 7, 3}) {
     const TRasterP reference = render(fx.getPointer(), frame, settings);
     const auto result = capture(fx.getPointer(), frame, settings);
-    compare(reference, composite(result, settings), label + "/capture");
+    compare(reference, composite(result, settings), label + "/capture/frame=" + std::to_string(frame));
     if (frame == 3) {
       if (firstState.empty()) firstState = result.particles;
       else compareState(firstState, result.particles, label);
@@ -814,8 +814,8 @@ void testScenePreparation(bool tiled, bool fullAffine = false) {
   camera->setRes(TDimension(64, 64));
   TStageObject *cameraPlacement = xsheet->getStageObject(
       xsheet->getStageObjectTree()->getCurrentCameraId());
-  cameraPlacement->setParam(TStageObject::T_X, 0, -2.0 / Stage::inch);
-  cameraPlacement->setParam(TStageObject::T_Y, 0, 1.0 / Stage::inch);
+  cameraPlacement->getParam(TStageObject::T_X)->setValue(0, -2.0 / Stage::inch);
+  cameraPlacement->getParam(TStageObject::T_Y)->setValue(0, 1.0 / Stage::inch);
   TXshSimpleLevelP artwork = new TXshSimpleLevel(L"particle-bake-scene-artwork");
   artwork->setType(OVL_XSHLEVEL);
   artwork->setScene(&scene);
@@ -846,17 +846,23 @@ void testScenePreparation(bool tiled, bool fullAffine = false) {
   xsheet->clearCells(4, 1);
   TStageObject *artworkPlacement = xsheet->getStageObject(TStageObjectId::ColumnId(0));
   TStageObject *sourcePlacement = xsheet->getStageObject(TStageObjectId::ColumnId(1));
-  artworkPlacement->setParam(TStageObject::T_X, 0, 3.0 / Stage::inch);
-  sourcePlacement->setParam(TStageObject::T_X, 0, 4.0 / Stage::inch);
-  sourcePlacement->setParam(TStageObject::T_Y, 0, -3.0 / Stage::inch);
+  artworkPlacement->getParam(TStageObject::T_X)->setValue(0, 3.0 / Stage::inch);
+  sourcePlacement->getParam(TStageObject::T_X)->setValue(0, 4.0 / Stage::inch);
+  sourcePlacement->getParam(TStageObject::T_Y)->setValue(0, -3.0 / Stage::inch);
   if (fullAffine) {
-    sourcePlacement->setParam(TStageObject::T_Angle, 0, 25.0);
-    sourcePlacement->setParam(TStageObject::T_ShearX, 0, .2);
-    sourcePlacement->setParam(TStageObject::T_ScaleX, 0, -1.1);
-    sourcePlacement->setParam(TStageObject::T_ScaleY, 0, .85);
+    sourcePlacement->getParam(TStageObject::T_Angle)->setValue(0, 25.0);
+    sourcePlacement->getParam(TStageObject::T_ShearX)->setValue(0, .2);
+    sourcePlacement->getParam(TStageObject::T_ScaleX)->setValue(0, -1.1);
+    sourcePlacement->getParam(TStageObject::T_ScaleY)->setValue(0, .85);
   }
   const TAffine originalPlacement = sourcePlacement->getPlacement(3);
   require(!originalPlacement.isIdentity(), "Scene fixture has no column placement");
+  require(cameraPlacement->getParam(TStageObject::T_X, 3) == -2.0 / Stage::inch &&
+              cameraPlacement->getParam(TStageObject::T_Y, 3) == 1.0 / Stage::inch &&
+              artworkPlacement->getParam(TStageObject::T_X, 3) == 3.0 / Stage::inch &&
+              sourcePlacement->getParam(TStageObject::T_X, 3) == 4.0 / Stage::inch &&
+              sourcePlacement->getParam(TStageObject::T_Y, 3) == -3.0 / Stage::inch,
+          "Scene fixture lost its configured artwork, camera or source translation");
   require(xsheet->getCell(3, 0).isEmpty() && xsheet->getCell(4, 1).isEmpty(),
           "Scene fixture did not create artwork and generator exposure gaps");
 

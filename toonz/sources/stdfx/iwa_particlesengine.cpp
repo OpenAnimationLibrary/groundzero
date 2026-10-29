@@ -544,9 +544,11 @@ void Iwa_Particles_Engine::render_particles(
     double endy,                    /*- Comes in as 0 -*/
     std::vector<int> last_frame, /*- Column length of each texture material -*/
     unsigned long fxId) {
-  /*- Various particle parameters -*/
-  struct particles_values values;
-  // memset(&values, 0, sizeof(values));
+  // Inherited options without Tiled Particles parameters retain zero defaults.
+  // In particular, particle construction reads perspective_distribution_val
+  // when choosing its random scale distribution; leaving it indeterminate
+  // makes native rendering and isolated capture depend on their stack layout.
+  struct particles_values values{};
   /*- Get each parameter for the current frame -*/
   fill_value_struct(values, m_frame);
 

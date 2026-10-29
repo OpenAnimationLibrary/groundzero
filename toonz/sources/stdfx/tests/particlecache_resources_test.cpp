@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
 #include "../stdfx.h"
+#include "tdoubleparam.h"
 #include "tfxparam.h"
 #include "tnotanimatableparam.h"
 #include "toonz/particlecache.h"
@@ -27,6 +28,7 @@
 #include <QJsonDocument>
 #include <QTemporaryDir>
 
+#include <cmath>
 #include <iostream>
 #include <stdexcept>
 
@@ -202,8 +204,12 @@ void verifyStandaloneCache(const QString &path,
   TFxP controlFx = new ParticleResourceProbe;
   control->getZeraryColumnFx()->setZeraryFx(controlFx.getPointer());
   xsheet->insertColumn(0, control.getPointer());
-  xsheet->getStageObject(TStageObjectId::ColumnId(0))
-      ->setParam(TStageObject::T_X, 0, 3.0 / Stage::inch);
+  TStageObject *controlObject =
+      xsheet->getStageObject(TStageObjectId::ColumnId(0));
+  check(controlObject->getParam(TStageObject::T_X)
+            ->setValue(0, 3.0 / Stage::inch) &&
+            std::abs(controlObject->getPlacement(1).a13 - 3.0) < 1e-12,
+        "control fixture did not acquire its configured stage translation");
   source->getInputPort("Control1")->setFx(control->getFx());
   check(cache->addInputPort("Placement1", new TRasterFxPort, 1),
         "cannot add an explicit cache placement anchor");
@@ -220,8 +226,12 @@ void verifyStandaloneCache(const QString &path,
   TFxP artworkFx = new ParticleResourceProbe;
   artwork->getZeraryColumnFx()->setZeraryFx(artworkFx.getPointer());
   xsheet->insertColumn(1, artwork.getPointer());
-  xsheet->getStageObject(TStageObjectId::ColumnId(1))
-      ->setParam(TStageObject::T_X, 0, -7.0 / Stage::inch);
+  TStageObject *artworkObject =
+      xsheet->getStageObject(TStageObjectId::ColumnId(1));
+  check(artworkObject->getParam(TStageObject::T_X)
+            ->setValue(0, -7.0 / Stage::inch) &&
+            std::abs(artworkObject->getPlacement(1).a13 + 7.0) < 1e-12,
+        "artwork fixture did not acquire its configured stage translation");
   check(source->addInputPort("Texture2", new TRasterFxPort, 0) &&
             cache->addInputPort("Artwork2", new TRasterFxPort, 0),
         "cannot extend standalone generator artwork");
@@ -239,8 +249,12 @@ void verifyStandaloneCache(const QString &path,
   TFxP hiddenFx = new ParticleResourceProbe;
   hidden->getZeraryColumnFx()->setZeraryFx(hiddenFx.getPointer());
   xsheet->insertColumn(2, hidden.getPointer());
-  xsheet->getStageObject(TStageObjectId::ColumnId(2))
-      ->setParam(TStageObject::T_X, 0, 19.0 / Stage::inch);
+  TStageObject *hiddenObject =
+      xsheet->getStageObject(TStageObjectId::ColumnId(2));
+  check(hiddenObject->getParam(TStageObject::T_X)
+            ->setValue(0, 19.0 / Stage::inch) &&
+            std::abs(hiddenObject->getPlacement(1).a13 - 19.0) < 1e-12,
+        "hidden fixture did not acquire its configured stage translation");
   hidden->setPreviewVisible(false);
   source->getInputPort("Texture1")->setFx(hidden->getFx());
   cache->getInputPort("Artwork1")->setFx(hidden->getFx());
