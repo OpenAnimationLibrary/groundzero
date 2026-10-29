@@ -725,9 +725,14 @@ void StageBuilder::addCellWithOnionSkin(PlayerSet &players, ToonzScene *scene,
     while (it != rows.end() && *it < row) it++;
     std::sort(rows.begin(), it, descending);
 
+    const int ghostStep = OnionSkinMask::getGhostFade().step;
     int frontPos = 0, backPos = 0;
     for (int i = 0; i < (int)rows.size(); i++) {
       if (rows[i] == row) continue;
+      // Ghost Fade: the relative ghosts every Nth frame only
+      if (!GhostFade::showsGhost(rows[i] - row, m_onionSkinMask.isFos(rows[i]),
+                                 ghostStep))
+        continue;
 
 #ifdef NUOVO_ONION
       m_onionSkinDistance = rows[i] - row;
@@ -895,11 +900,16 @@ void StageBuilder::addSimpleLevelFrame(PlayerSet &players,
     while (it != rows.end() && *it < row) ++it;
     std::sort(rows.begin(), it, descending);
     m_onionSkinDistance = 0;
+    const int ghostStep = OnionSkinMask::getGhostFade().step;
     int frontPos = 0, backPos = 0;
 
     for (int i = 0; i < (int)rows.size(); i++) {
       const TFrameId &fid2 = level->index2fid(rows[i]);
       if (fid2 == fid) continue;
+      // Ghost Fade: the relative ghosts every Nth frame only
+      if (!GhostFade::showsGhost(rows[i] - row, m_onionSkinMask.isFos(rows[i]),
+                                 ghostStep))
+        continue;
       players.push_back(Player());
       Player &player                  = players.back();
       player.m_sl                     = level;

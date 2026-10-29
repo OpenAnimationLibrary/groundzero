@@ -10,6 +10,7 @@
 #include "mastercontrollerspane.h"
 #include "offsetlayerspane.h"
 #include "artlayermanagerpane.h"
+#include "spacingchartpane.h"
 #include "scenecheckpane.h"
 #include "riglibrarypane.h"
 #include "motionpresetspane.h"
@@ -2013,6 +2014,23 @@ public:
 OpenFloatingPanel openArtLayerManagerCommand(MI_OpenArtLayerManager,
                                              "ArtLayerManager",
                                              QObject::tr("Art Layer Manager"));
+
+//=============================================================================
+// Spacing Chart
+//-----------------------------------------------------------------------------
+
+class SpacingChartPanelFactory final : public TPanelFactory {
+public:
+  SpacingChartPanelFactory() : TPanelFactory("SpacingChart") {}
+  void initialize(TPanel *panel) override {
+    panel->setWidget(new SpacingChartPane(panel));
+    panel->setWindowTitle(QObject::tr("Spacing Chart"));
+    panel->setIsMaximizable(false);
+  }
+} spacingChartPanelFactory;
+
+OpenFloatingPanel openSpacingChartCommand(MI_OpenSpacingChart, "SpacingChart",
+                                          QObject::tr("Spacing Chart"));
 
 //=============================================================================
 // Scene Check

@@ -192,6 +192,7 @@ void ensureNewPanelActions(QMenu *windowsMenu) {
   ensurePanelAction(windowsMenu, MI_OpenRigLibrary);
   ensurePanelAction(windowsMenu, MI_OpenMotionPresets);
   ensurePanelAction(windowsMenu, MI_OpenArtLayerManager);
+  ensurePanelAction(windowsMenu, MI_OpenSpacingChart);
 }
 
 }  // namespace
@@ -650,6 +651,7 @@ QMenuBar *StackedMenuBar::createCleanupMenuBar() {
     addMenuItem(viewPartsMenu, MI_ViewTable);
     addMenuItem(viewPartsMenu, MI_FieldGuide);
     addMenuItem(viewPartsMenu, MI_PegbarGuide);
+    addMenuItem(viewPartsMenu, MI_MotionArcs);
     addMenuItem(viewPartsMenu, MI_SafeArea);
     viewPartsMenu->addMenu(AspectGuides::createMenu(viewPartsMenu));
     addMenuItem(viewPartsMenu, MI_ViewBBox);
@@ -831,6 +833,7 @@ QMenuBar *StackedMenuBar::createPltEditMenuBar() {
     addMenuItem(viewPartsMenu, MI_ViewTable);
     addMenuItem(viewPartsMenu, MI_FieldGuide);
     addMenuItem(viewPartsMenu, MI_PegbarGuide);
+    addMenuItem(viewPartsMenu, MI_MotionArcs);
     addMenuItem(viewPartsMenu, MI_SafeArea);
     viewPartsMenu->addMenu(AspectGuides::createMenu(viewPartsMenu));
     addMenuItem(viewPartsMenu, MI_ViewColorcard);
@@ -1020,6 +1023,7 @@ QMenuBar *StackedMenuBar::createInknPaintMenuBar() {
     addMenuItem(viewPartsMenu, MI_ViewTable);
     addMenuItem(viewPartsMenu, MI_FieldGuide);
     addMenuItem(viewPartsMenu, MI_PegbarGuide);
+    addMenuItem(viewPartsMenu, MI_MotionArcs);
     addMenuItem(viewPartsMenu, MI_SafeArea);
     viewPartsMenu->addMenu(AspectGuides::createMenu(viewPartsMenu));
     addMenuItem(viewPartsMenu, MI_ViewColorcard);
@@ -1233,6 +1237,7 @@ QMenuBar *StackedMenuBar::createXsheetMenuBar() {
     addMenuItem(viewPartsMenu, MI_ViewTable);
     addMenuItem(viewPartsMenu, MI_FieldGuide);
     addMenuItem(viewPartsMenu, MI_PegbarGuide);
+    addMenuItem(viewPartsMenu, MI_MotionArcs);
     addMenuItem(viewPartsMenu, MI_SafeArea);
     viewPartsMenu->addMenu(AspectGuides::createMenu(viewPartsMenu));
     addMenuItem(viewPartsMenu, MI_ViewBBox);
@@ -1713,6 +1718,8 @@ QMenuBar *StackedMenuBar::createFullMenuBar() {
   addMenuItem(viewMenu, MI_FieldGuide);
   addMenuItem(viewMenu, MI_PegbarGuide);
   addMenuItem(viewMenu, MI_PegbarGuideSettings);
+  addMenuItem(viewMenu, MI_MotionArcs);
+  addMenuItem(viewMenu, MI_MotionArcsSettings);
   addMenuItem(viewMenu, MI_ViewRuler);
   addMenuItem(viewMenu, MI_ViewGuide);
   viewMenu->addSeparator();
@@ -1791,6 +1798,7 @@ QMenuBar *StackedMenuBar::createFullMenuBar() {
   addMenuItem(windowsMenu, MI_OpenRigLibrary);
   addMenuItem(windowsMenu, MI_OpenMotionPresets);
   addMenuItem(windowsMenu, MI_OpenArtLayerManager);
+  addMenuItem(windowsMenu, MI_OpenSpacingChart);
   addMenuItem(windowsMenu, MI_OpenSymbols);
   addMenuItem(windowsMenu, MI_OpenReferencePanel);
   addMenuItem(windowsMenu, MI_OpenCustomPanels);

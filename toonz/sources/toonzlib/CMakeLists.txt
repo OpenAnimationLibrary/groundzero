@@ -111,6 +111,8 @@ set(HEADERS
     ../include/toonz/namebuilder.h
     ../include/toonz/observer.h
     ../include/toonz/onionskinmask.h
+    ../include/toonz/ghostfade.h
+    ../include/toonz/motionarc.h
     ../include/toonz/palettecmd.h
     ../include/toonz/plasticdeformerfx.h
     ../include/toonz/poselibrary.h
@@ -235,6 +237,7 @@ set(SOURCES
     Naa2TlvConverter.cpp
     observer.cpp
     onionskinmask.cpp
+    motionarc.cpp
 	orientation.cpp
     outputproperties.cpp
     poselibrary.cpp
@@ -502,6 +505,15 @@ if(BUILD_PEGBARGUIDE_TESTS)
     add_test(NAME pegbarguide COMMAND pegbarguide_test)
 endif()
 
+# Optional regression target for the motion arcs (motionarc.h): the math on
+# the samples and the sampling of a scene in memory.
+option(BUILD_MOTIONARC_TESTS "Build the motion arcs regression test" ${BUILD_TESTS})
+if(BUILD_MOTIONARC_TESTS)
+    add_executable(motionarc_test tests/motionarc_test.cpp)
+    target_link_libraries(motionarc_test PRIVATE toonzlib tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
+    add_test(NAME motionarc COMMAND motionarc_test)
+endif()
+
 # Optional regression target for the Outline View of the columns: the colour
 # palette (outlinecolors.h) and the column status bit.
 option(BUILD_OUTLINEVIEW_TESTS "Build the column Outline View regression test" ${BUILD_TESTS})
@@ -555,6 +567,14 @@ option(BUILD_RIGMAPPING_TESTS "Build the rig mapping regression test" ${BUILD_TE
 if(BUILD_RIGMAPPING_TESTS)
     add_executable(rigmapping_test tests/rigmapping_test.cpp)
     add_test(NAME rigmapping COMMAND rigmapping_test)
+endif()
+
+# Optional regression target for the Ghost Fade of the onion skin
+# (ghostfade.h, header only).
+option(BUILD_GHOSTFADE_TESTS "Build the onion skin Ghost Fade regression test" ${BUILD_TESTS})
+if(BUILD_GHOSTFADE_TESTS)
+    add_executable(ghostfade_test tests/ghostfade_test.cpp)
+    add_test(NAME ghostfade COMMAND ghostfade_test)
 endif()
 
 # Optional regression target for the per-column Color Effect (the math of
