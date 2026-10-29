@@ -69,6 +69,26 @@ void syntaxQueriesAndRecovery() {
   near(expression.evalFP()[0], 5,
        "SDK evaluation changed after syntax/semantic inspection");
 
+  // An empty source still caches its failed parse. Replacing it must discard
+  // that state; the old nonempty-text guard left subsequent sources unparsed.
+  for (int attempt = 0; attempt < 3; ++attempt) {
+    expression.setExpr("");
+    require(!expression.syntaxOK() && !expression.isValid() &&
+                !expression.getErrors().empty(),
+            "An empty SDK expression did not report its parse failure");
+    expression.setExpr("5*7+2");
+    require(expression.syntaxOK() && expression.isValid(),
+            "SDK parser did not recover after an empty expression");
+    near(expression.evalFP()[0], 37,
+         "SDK evaluation reused state from an empty expression");
+    expression.setExpr(expression.getExpr());
+    require(expression.getExpr() == "5*7+2" && expression.syntaxOK() &&
+                expression.isValid(),
+            "Aliased SDK source did not survive evaluator reset");
+    near(expression.evalFP()[0], 37,
+         "Aliased SDK source changed after evaluator reset");
+  }
+
   // A long flat arithmetic chain has shallow punctuation nesting but a deep
   // syntax tree. The raw SDK must reject it before recursive preparation and
   // must also be able to dispose of that tree and parse another expression.
@@ -87,6 +107,24 @@ void syntaxQueriesAndRecovery() {
     near(expression.evalFP()[0], 7,
          "SDK recovery reused stale data after a rejected deep tree");
   }
+}
+
+void emptyStandardFunctionState() {
+  SeExpr2::ExprFuncStandard empty;
+  require(empty.getFuncType() == SeExpr2::ExprFuncStandard::NONE &&
+              empty.getFuncPointer() == nullptr,
+          "An empty SDK standard function exposed uninitialized state");
+  const SeExpr2::ExprFuncStandard copied(empty);
+  require(copied.getFuncType() == SeExpr2::ExprFuncStandard::NONE &&
+              copied.getFuncPointer() == nullptr,
+          "Copying an empty SDK standard function changed its empty state");
+  // A custom function also owns an unused default standard-function slot.
+  // Builtin registration copies that slot; sanitizer qualification covers
+  // both it and the base extension-function state before any preparation.
+  const SeExpr2::ExprFunc unset;
+  const SeExpr2::ExprFunc copiedUnset(unset);
+  require(copiedUnset.minArgs() == 0 && copiedUnset.maxArgs() == 0,
+          "Copying an empty SDK function changed its argument contract");
 }
 
 void blockEvaluation() {
@@ -143,6 +181,7 @@ int main() {
   try {
     SeExpr2::Expression::defaultEvaluationStrategy = SeExpr2::Expression::UseInterpreter;
     registryParity();
+    emptyStandardFunctionState();
     syntaxQueriesAndRecovery();
     blockEvaluation();
     expressionGraphIsolation();

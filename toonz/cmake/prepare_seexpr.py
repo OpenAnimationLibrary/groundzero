@@ -66,12 +66,41 @@ def main():
         'bool Expression::debugging = getenv("SE_EXPR_DEBUG") != 0;',
         "bool Expression::debugging = false;",
         "host-owned diagnostic policy")
+    text = replace_once(text, '''void Expression::setExpr(const std::string& e) {
+    if (_expression != "") reset();
+    _expression = e;
+}''', '''void Expression::setExpr(const std::string& e) {
+    // Even an empty source can have cached parse/error state. Preserve an
+    // incoming reference before clearing the old evaluator's owned state.
+    const std::string source(e);
+    reset();
+    _expression = source;
+}''', "empty-source parser recovery and aliased input")
     default_begin = text.index("static Expression::EvaluationStrategy chooseDefaultEvaluationStrategy() {")
     default_end = text.index("Expression::EvaluationStrategy Expression::defaultEvaluationStrategy", default_begin)
     text = (text[:default_begin] +
             "static Expression::EvaluationStrategy chooseDefaultEvaluationStrategy() {\n"
             "    return Expression::UseInterpreter;\n}\n" + text[default_end:])
     expression.write_text(text, encoding="utf-8", newline="\n")
+
+    # Registry definitions are copied before type preparation. Initialize the
+    # complete base/default state instead of copying indeterminate bool/enum
+    # members, including the unused standard slot of a custom callback.
+    function_base = output / "ExprFuncX.h"
+    text = function_base.read_text(encoding="utf-8")
+    text = replace_once(text,
+        "ExprFuncX(const bool threadSafe) : _threadSafe(threadSafe) {}",
+        "ExprFuncX(const bool threadSafe) : _isScalar(false), _threadSafe(threadSafe) {}",
+        "initialized extension-function scalar state")
+    function_base.write_text(text, encoding="utf-8", newline="\n")
+
+    standard_function = output / "ExprFuncStandard.h"
+    text = standard_function.read_text(encoding="utf-8")
+    text = replace_once(text,
+        "ExprFuncStandard() : ExprFuncX(true) {}",
+        "ExprFuncStandard() : ExprFuncX(true), _funcType(NONE), _func(nullptr) {}",
+        "initialized empty standard-function state")
+    standard_function.write_text(text, encoding="utf-8", newline="\n")
 
     interpreter = output / "Interpreter.cpp"
     text = interpreter.read_text(encoding="utf-8")

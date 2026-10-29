@@ -61,9 +61,11 @@ def download(name, checksum, target):
 def windows_sdk(source, install, build):
     # A compiler-tools installer does not supply the complete native SDK.
     # Build actual LLVM14 libraries with the same release CRT as the consumer.
+    # Match the core/consumer's installed Visual Studio selection; runner images
+    # can replace older Visual Studio releases without changing the OS label.
     configure = [
         "cmake", "-S", str(source), "-B", str(build),
-        "-G", "Visual Studio 17 2022", "-A", "x64", "-T", "host=x64",
+        "-A", "x64", "-T", "host=x64",
         "-DCMAKE_BUILD_TYPE=Release", f"-DCMAKE_INSTALL_PREFIX={install}",
         "-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL",
         "-DLLVM_USE_CRT_RELEASE=MD", "-DLLVM_TARGETS_TO_BUILD=X86",
@@ -162,10 +164,6 @@ def main():
     with Path(os.environ["GITHUB_ENV"]).open("a", encoding="utf-8") as output:
         output.write(f"LLVM_DIR={configuration.parent.as_posix()}\n")
         output.write(f"LLVM_LICENSE_FILE={(install / 'LICENSE_LLVM.txt').as_posix()}\n")
-        if system == "Darwin":
-            current = os.environ.get("DYLD_LIBRARY_PATH", "")
-            libraries = (install / "lib").as_posix()
-            output.write(f"DYLD_LIBRARY_PATH={libraries}{':' + current if current else ''}\n")
     print("Pinned LLVM14 development SDK is ready.", flush=True)
 
 

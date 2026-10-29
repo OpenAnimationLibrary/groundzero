@@ -29,6 +29,8 @@
     "Implement explicit cross-platform plugin loading with canonical path deduplication, deterministic directory discovery and registry-before-module cleanup",
     "Validate AST structural depth iteratively before recursive preparation, dispose rejected/deep trees iteratively and preserve full signed source-byte positions",
     "Keep syntaxOK independent of type preparation and reject excessive raw-SDK AST depth with a diagnostic",
+    "Reset cached SDK parse state after empty sources while preserving aliased input text",
+    "Initialize extension-function scalar state and empty standard-function enum/pointer before registry copies",
     "Correct whole-vector equality/inequality and scalar promotion in interpreter and optional LLVM paths",
     "Preserve all typed SDK standard callback forms, varying lifetime aggregation, vector result shape and exceptions across the optional LLVM boundary",
     "Prepare a private Python inspection-parser copy with virtual AST destruction and correct ordinary-call, vector-literal and nested-unary byte ranges",

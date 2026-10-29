@@ -65,8 +65,9 @@ jobs:
           printf '%s\n' 'LLVM_DIR=/usr/lib/llvm-14/lib/cmake/llvm' >> "$GITHUB_ENV"
           python ci-scripts/seexpr/install_llvm.py --license-only 2>&1 | tee seexpr-llvm-dependency.log
       - name: Cache pinned LLVM 14 development SDK
+        id: llvm_cache
         if: matrix.backend == 'llvm14' && runner.os != 'Linux'
-        uses: actions/cache@v5
+        uses: actions/cache/restore@v5
         with:
           path: ${{ runner.temp }}/seexpr-llvm14-sdk
           key: seexpr-llvm14-sdk-v1-${{ matrix.runner }}-${{ runner.arch }}-${{ hashFiles('ci-scripts/seexpr/install_llvm.py') }}
@@ -76,6 +77,12 @@ jobs:
         run: |
           set -o pipefail
           python ci-scripts/seexpr/install_llvm.py 2>&1 | tee seexpr-llvm-dependency.log
+      - name: Save installed LLVM 14 development SDK
+        if: matrix.backend == 'llvm14' && runner.os != 'Linux' && steps.llvm_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: ${{ runner.temp }}/seexpr-llvm14-sdk
+          key: ${{ steps.llvm_cache.outputs.cache-primary-key }}
       - name: Install macOS parser tools
         if: runner.os == 'macOS'
         env:
