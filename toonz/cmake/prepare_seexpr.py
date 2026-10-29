@@ -76,6 +76,31 @@ def main():
     reset();
     _expression = source;
 }''', "empty-source parser recovery and aliased input")
+    text = replace_once(text,
+        "    int tempStartPos, tempEndPos;",
+        "    int tempStartPos = 0, tempEndPos = 0;",
+        "initialized parser error locations")
+    text = replace_once(text,
+        "    ExprParse(_parseTree, _parseError, tempStartPos, tempEndPos, _comments, this, _expression.c_str(), _wantVec);",
+        "    ExprParse(_parseTree, _parseError, tempStartPos, tempEndPos, _comments, this, _expression.c_str(), _wantVec);\n"
+        "    // The lexer may have consumed no token for an empty source.\n"
+        "    // Keep its cached EOF location inside this expression's bytes.\n"
+        "    const int sourceLength = static_cast<int>(_expression.size());\n"
+        "    tempStartPos = std::max(0, std::min(sourceLength, tempStartPos));\n"
+        "    tempEndPos = std::max(tempStartPos, std::min(sourceLength, tempEndPos));",
+        "source-bounded EOF parse locations")
+    text = replace_once(text,
+        "            int* bound = std::lower_bound(&*lines.begin(), &*lines.end(), _errors[i].startPos);\n"
+        "            int line = static_cast<int>(bound - &*lines.begin() + 1);\n"
+        "            int lineStart = line == 1 ? 0 : lines[line - 1];\n"
+        "            int col = _errors[i].startPos - lineStart;",
+        "            const int position = std::max(0, std::min(\n"
+        "                static_cast<int>(_expression.size()), _errors[i].startPos));\n"
+        "            const auto bound = std::lower_bound(lines.begin(), lines.end(), position);\n"
+        "            const int line = static_cast<int>(bound - lines.begin()) + 1;\n"
+        "            const int lineStart = line == 1 ? 0 : lines[line - 2] + 1;\n"
+        "            const int col = position - lineStart;",
+        "iterator-safe multiline and EOF diagnostic formatting")
     default_begin = text.index("static Expression::EvaluationStrategy chooseDefaultEvaluationStrategy() {")
     default_end = text.index("Expression::EvaluationStrategy Expression::defaultEvaluationStrategy", default_begin)
     text = (text[:default_begin] +

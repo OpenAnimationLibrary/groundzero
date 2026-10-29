@@ -8,6 +8,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -76,6 +77,10 @@ void syntaxQueriesAndRecovery() {
     require(!expression.syntaxOK() && !expression.isValid() &&
                 !expression.getErrors().empty(),
             "An empty SDK expression did not report its parse failure");
+    require(expression.getErrors().front().startPos == 0 &&
+                expression.getErrors().front().endPos == 0 &&
+                expression.parseError().find("Line 1 Col 0") != std::string::npos,
+            "Empty-source diagnostics retained a previous expression's location");
     expression.setExpr("5*7+2");
     require(expression.syntaxOK() && expression.isValid(),
             "SDK parser did not recover after an empty expression");
@@ -88,6 +93,12 @@ void syntaxQueriesAndRecovery() {
     near(expression.evalFP()[0], 37,
          "Aliased SDK source changed after evaluator reset");
   }
+
+  expression.setExpr("a=1;\nmissing");
+  require(!expression.isValid() && !expression.getErrors().empty() &&
+              expression.getErrors().front().startPos == 5 &&
+              expression.parseError().find("Line 2 Col 0") != std::string::npos,
+          "Multiline SDK diagnostics changed the source byte offset or column");
 
   // A long flat arithmetic chain has shallow punctuation nesting but a deep
   // syntax tree. The raw SDK must reject it before recursive preparation and
@@ -106,6 +117,27 @@ void syntaxQueriesAndRecovery() {
             "SDK parser state did not recover after a rejected deep tree");
     near(expression.evalFP()[0], 7,
          "SDK recovery reused stale data after a rejected deep tree");
+  }
+}
+
+void stringConcatenationLifetimes() {
+  using namespace SeExpr2;
+  Expression expression(Expression::UseInterpreter);
+  expression.setDesiredReturnType(ExprType().String().Varying());
+  const std::vector<std::pair<std::string, std::string>> cases = {
+      {"\"a\"+\"b\"", "ab"},
+      {"\"\"+\"\"", ""},
+      {"\"cel\"+\"-paint\"+\"-reference\"", "cel-paint-reference"},
+      {"def STRING mark(STRING a){a+\"!\"} mark(mark(\"cel\"))", "cel!!"}};
+  for (int repeat = 0; repeat < 4; ++repeat) {
+    for (const auto &test : cases) {
+      expression.setExpr(test.first);
+      require(expression.isValid(), "SDK concatenation lifecycle source did not compile");
+      for (int evaluation = 0; evaluation < 3; ++evaluation)
+        require(std::string(expression.evalStr()) == test.second,
+                "SDK concatenation changed during repeated evaluation");
+      expression.reset();
+    }
   }
 }
 
@@ -311,6 +343,7 @@ int main() {
     emptyStandardFunctionState();
     ownedAndBorrowedFunctionData();
     syntaxQueriesAndRecovery();
+    stringConcatenationLifetimes();
     blockEvaluation();
     expressionGraphIsolation();
     graphResetAndFailureOwnership();

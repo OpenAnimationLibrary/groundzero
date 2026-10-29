@@ -30,6 +30,37 @@ def apply_safety(output):
                 "            memcpy(fp, d.data(), d.size() * sizeof(double));",
                 "            if (!d.empty()) memcpy(fp, d.data(), d.size() * sizeof(double));",
                 "empty string-only VarBlock copy")
+            source = replace_once(source, '#include "seexprbudget.h"',
+                '#include "seexprbudget.h"\n#include <cstdlib>\n#include <cstring>\n#include <limits>\n#include <new>',
+                "owned string allocation dependencies")
+            begin = source.index("struct BinaryStringOp {")
+            end = source.index("\n};", begin) + len("\n};")
+            source = source[:begin] + '''struct BinaryStringOp {
+    static int f(int* opData, double*, char** c, std::vector<int>&) {
+        char*& out = *reinterpret_cast<char**>(c[opData[0]]);
+        const char* first = c[opData[1]];
+        const char* second = c[opData[2]];
+        const size_t firstSize = first ? std::strlen(first) : 0;
+        const size_t secondSize = second ? std::strlen(second) : 0;
+        if (firstSize > std::numeric_limits<size_t>::max() - secondSize ||
+            firstSize + secondSize == std::numeric_limits<size_t>::max())
+            throw std::bad_alloc();
+        const size_t size = firstSize + secondSize;
+        TSeExprInternal::checkStringBytes(size);
+        // Both interpreter and LLVM nodes release this buffer with free().
+        // Copy before releasing the previous output: a host binding may
+        // legitimately refer to that output until this evaluation finishes.
+        char* joined = static_cast<char*>(std::malloc(size + 1));
+        if (!joined) throw std::bad_alloc();
+        if (firstSize) std::memcpy(joined, first, firstSize);
+        if (secondSize) std::memcpy(joined + firstSize, second, secondSize);
+        joined[size] = '\\0';
+        std::free(out);
+        out = joined;
+        c[opData[3]] = out;
+        return 1;
+    }
+};''' + source[end:]
         if name == "ExprFuncX.cpp":
             source = replace_once(source,
                 "    interpreter->addOp(EvalOp);",

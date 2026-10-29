@@ -29,8 +29,10 @@ function(groundzero_seexpr_configure_llvm target)
   if(TARGET LLVM)
     target_link_libraries(${target} PRIVATE LLVM)
   else()
+    # The pinned evaluator includes LLVM Interpreter.h's force-link anchor
+    # even when it explicitly selects JIT. Static SDKs must supply that symbol.
     llvm_map_components_to_libnames(_llvm_libraries
-      core executionengine mcjit native nativecodegen ipo scalaropts
+      core executionengine interpreter mcjit native nativecodegen ipo scalaropts
       instcombine transformutils analysis target passes support)
     target_link_libraries(${target} PRIVATE ${_llvm_libraries})
   endif()
