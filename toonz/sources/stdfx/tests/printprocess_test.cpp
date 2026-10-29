@@ -14,14 +14,14 @@ using PrintProcess::Color;
 void require(bool value, const std::string &message) {
   if (!value) throw std::runtime_error(message);
 }
-bool near(double a, double b, double tolerance = 1e-9) {
+bool approx(double a, double b, double tolerance = 1e-9) {
   return std::abs(a - b) <= tolerance;
 }
 bool same(const Color &a, const Color &b) {
   return a.r == b.r && a.g == b.g && a.b == b.b && a.a == b.a;
 }
 bool close(const Color &a, const Color &b) {
-  return near(a.r, b.r) && near(a.g, b.g) && near(a.b, b.b) && near(a.a, b.a);
+  return approx(a.r, b.r) && approx(a.g, b.g) && approx(a.b, b.b) && approx(a.a, b.a);
 }
 
 struct Image {
@@ -66,7 +66,7 @@ void testCoverage() {
       double ink               = 0;
       for (const Color &c : out) ink += 1 - c.r;
       ink /= out.size();
-      require(near(ink, tone, 0.02), "A tone of " + std::to_string(tone) +
+      require(approx(ink, tone, 0.02), "A tone of " + std::to_string(tone) +
                                          " inks " + std::to_string(ink) +
                                          " of the cells for shape " +
                                          std::to_string(int(shape)));
@@ -134,8 +134,8 @@ void testPaperAndInks() {
   s.grain = 0;
   // White prints nothing: bare paper
   for (const Color &c : print(Image(20, 20, Color{1, 1, 1, 1}), s))
-    require(near(c.r, s.paper.r) && near(c.g, s.paper.g) &&
-                near(c.b, s.paper.b) && near(c.a, 1),
+    require(approx(c.r, s.paper.r) && approx(c.g, s.paper.g) &&
+                approx(c.b, s.paper.b) && approx(c.a, 1),
             "White is not bare paper");
   // A full cyan plate is paper filtered by the cyan ink
   s.dotGain = 0;
@@ -145,9 +145,9 @@ void testPaperAndInks() {
   for (int y = 1; y < 19; ++y)
     for (int x = 1; x < 19; ++x) {
       const Color &c = solid[size_t(y) * 20 + x];
-      require(near(c.r, s.paper.r * s.plates[0].ink.r, 1e-6) &&
-                  near(c.g, s.paper.g * s.plates[0].ink.g, 1e-6) &&
-                  near(c.b, s.paper.b * s.plates[0].ink.b, 1e-6),
+      require(approx(c.r, s.paper.r * s.plates[0].ink.r, 1e-6) &&
+                  approx(c.g, s.paper.g * s.plates[0].ink.g, 1e-6) &&
+                  approx(c.b, s.paper.b * s.plates[0].ink.b, 1e-6),
               "A full plate is not its ink on paper: " + std::to_string(c.r) +
                   "," + std::to_string(c.g) + "," + std::to_string(c.b));
     }
@@ -170,10 +170,10 @@ void testTransparent() {
   PrintProcess::Settings s;
   s.transparentBackground = true;
   const auto out          = print(image, s);
-  require(near(out[0].a, 0) && near(out[size_t(15) * 30 + 15].a, 1),
+  require(approx(out[0].a, 0) && approx(out[size_t(15) * 30 + 15].a, 1),
           "A transparent background did not keep the source's alpha");
   s.transparentBackground = false;
-  require(near(print(image, s)[0].a, 1), "Paper is not opaque");
+  require(approx(print(image, s)[0].a, 1), "Paper is not opaque");
 }
 
 Image painting(int w, int h) {
@@ -299,7 +299,7 @@ void testFx() {
               "An FX tile differs from the whole frame");
   // Paper is opaque over the whole frame
   const TPixelD corner = PixelConverter<TPixelD>::from(whole->pixels(0)[0]);
-  require(near(corner.m, 1, 1e-4) && corner.r > 0.8,
+  require(approx(corner.m, 1, 1e-4) && corner.r > 0.8,
           "The FX did not print on paper");
   // The alias follows the settings
   const std::string before = printFx.getAlias(0, settings);

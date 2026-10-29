@@ -18,7 +18,7 @@ using CelComposite::Color;
 void require(bool value, const std::string &message) {
   if (!value) throw std::runtime_error(message);
 }
-bool near(double a, double b, double tolerance = 1e-9) {
+bool approx(double a, double b, double tolerance = 1e-9) {
   return std::abs(a - b) <= tolerance;
 }
 bool same(const Color &a, const Color &b) {
@@ -60,8 +60,8 @@ void testLightWrap() {
   const Color &edge   = out[size_t(32) * 64 + 32 + 19];
   require(same(centre, fg.at(32, 32)), "Light reached the interior");
   require(edge.r > fg.at(51, 32).r + 0.3, "No light at the edge");
-  require(near(edge.a, fg.at(51, 32).a), "Screen changed the alpha");
-  require(near(out[0].a, 0) && near(out[0].r, 0),
+  require(approx(edge.a, fg.at(51, 32).a), "Screen changed the alpha");
+  require(approx(out[0].a, 0) && approx(out[0].r, 0),
           "Light outside the foreground");
   // Halfway into the band, about half the light
   const double half = out[size_t(32) * 64 + 32 + 16].g;
@@ -86,9 +86,9 @@ void testEdgeExtend() {
           "Edge extend canceled");
   for (size_t i = 0; i < out.size(); ++i) {
     const Color &c = out[i];
-    require(near(c.a, image.pixels[i].a), "Edge extend changed the alpha");
+    require(approx(c.a, image.pixels[i].a), "Edge extend changed the alpha");
     if (c.a > 0)
-      require(near(c.g, 0) && near(c.r, c.a, 1e-9),
+      require(approx(c.g, 0) && approx(c.r, c.a, 1e-9),
               "An edge pixel kept a mixed colour");
   }
   // With alpha extended, the band around the disk becomes solid
@@ -96,9 +96,9 @@ void testEdgeExtend() {
   require(CelComposite::edgeExtend(image.pixels, 40, 40, s, out),
           "Edge extend canceled");
   // (the last solid pixel on this row is 10 from the centre: 3 more is in)
-  require(near(out[size_t(20) * 40 + 20 + 13].a, 1),
+  require(approx(out[size_t(20) * 40 + 20 + 13].a, 1),
           "Extended alpha did not fill the band");
-  require(near(out[size_t(20) * 40 + 20 + 18].a, 0),
+  require(approx(out[size_t(20) * 40 + 20 + 18].a, 0),
           "Extended alpha went past the radius");
 }
 
@@ -121,14 +121,14 @@ void testChoke() {
     // A disk of radius 15 + amount
     const double expected = 3.14159265358979 * (15 + amount) * (15 + amount);
     require(
-        near(area(out), expected, expected * 0.04),
+        approx(area(out), expected, expected * 0.04),
         "The edge did not move by the amount: " + std::to_string(area(out)) +
             " instead of " + std::to_string(expected));
     require((amount > 0) == (area(out) > before), "Choke and spread swapped");
     // Colours keep their hue, including on spread pixels
     for (const Color &c : out)
       if (c.a > 1e-6)
-        require(near(c.r / c.a, 0.3, 1e-9), "A colour changed its hue");
+        require(approx(c.r / c.a, 0.3, 1e-9), "A colour changed its hue");
   }
 }
 
@@ -291,7 +291,7 @@ void testFx() {
   TTile corner(raster, TPointD(0, 0));
   static_cast<LightWrapFx &>(*wrap).doCompute(corner, 0, settings);
   const TPixelD c = PixelConverter<TPixelD>::from(raster->pixels(0)[0]);
-  require(near(c.m, 1, 1e-4) && near(c.b, 0.9, 2e-3),
+  require(approx(c.m, 1, 1e-4) && approx(c.b, 0.9, 2e-3),
           "Light wrap did not composite over the background");
   // Unmultiply works at every depth (it crashed on 16-bit and float tiles)
   TRasterPT<Pixel> plain(56, 50);
@@ -299,7 +299,7 @@ void testFx() {
   static_cast<UnmultiplyFx &>(*unmultiply).doCompute(tile, 0, settings);
   // A pixel on the disk's antialiased edge, about 10% covered
   const TPixelD edge = PixelConverter<TPixelD>::from(plain->pixels(38)[40]);
-  require(edge.m > 0.05 && edge.m < 0.95 && near(edge.r, 0.3, 0.02),
+  require(edge.m > 0.05 && edge.m < 0.95 && approx(edge.r, 0.3, 0.02),
           "Unmultiply did not divide the colour by its alpha");
 }
 }  // namespace

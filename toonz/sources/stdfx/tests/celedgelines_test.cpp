@@ -15,7 +15,7 @@ using CelEdge::Kind;
 void require(bool value, const std::string &message) {
   if (!value) throw std::runtime_error(message);
 }
-bool near(double a, double b, double tolerance = 1e-9) {
+bool approx(double a, double b, double tolerance = 1e-9) {
   return std::abs(a - b) <= tolerance;
 }
 
@@ -78,13 +78,13 @@ void testWeight() {
       const Image image = split(24, 8, ramp);
       const auto lines  = linesOf(image, {rule(Kind::Any, Kind::Any, weight)});
       for (int y = 0; y < image.h; ++y)
-        require(near(rowInk(lines, image.w, y), weight, 1e-6),
+        require(approx(rowInk(lines, image.w, y), weight, 1e-6),
                 "A line of weight " + std::to_string(weight) +
                     " is not that wide" + (ramp ? " across a ramp" : ""));
       // Centred on the boundary: as much ink on each side
       const int middle = image.w / 2;
       if (!ramp)
-        require(near(rowInk(lines, image.w, 3, 0, middle),
+        require(approx(rowInk(lines, image.w, 3, 0, middle),
                      rowInk(lines, image.w, 3, middle), 1e-9),
                 "A line is not centred on its boundary");
     }
@@ -96,24 +96,24 @@ void testRules() {
   for (int y = 0; y < 6; ++y)
     for (int x = 10; x < 30; ++x) image.at(x, y) = x < 20 ? green : blue;
   const auto lines = linesOf(image, {colorRule(red, green, 2)});
-  require(near(rowInk(lines, 30, 2, 0, 15), 2.0),
+  require(approx(rowInk(lines, 30, 2, 0, 15), 2.0),
           "The red-green boundary has no line");
-  require(near(rowInk(lines, 30, 2, 15, 30), 0.0),
+  require(approx(rowInk(lines, 30, 2, 15, 30), 0.0),
           "The green-blue boundary has a line it has no rule for");
   // The order of a rule's ends does not matter
   const auto swapped = linesOf(image, {colorRule(green, red, 2)});
-  require(near(rowInk(swapped, 30, 2, 0, 15), 2.0),
+  require(approx(rowInk(swapped, 30, 2, 0, 15), 2.0),
           "A rule did not match with its ends swapped");
   // The first matching rule wins
   const auto first =
       linesOf(image, {colorRule(red, green, 4), rule(Kind::Any, Kind::Any, 1)});
-  require(near(rowInk(first, 30, 2, 0, 15), 4.0) &&
-              near(rowInk(first, 30, 2, 15, 30), 1.0),
+  require(approx(rowInk(first, 30, 2, 0, 15), 4.0) &&
+              approx(rowInk(first, 30, 2, 15, 30), 1.0),
           "Rules were not applied in order");
   // A disabled rule draws nothing
   CelEdge::Rule off = rule(Kind::Any, Kind::Any, 2);
   off.enabled       = false;
-  require(near(rowInk(linesOf(image, {off}), 30, 2), 0.0),
+  require(approx(rowInk(linesOf(image, {off}), 30, 2), 0.0),
           "A disabled rule drew a line");
 }
 
@@ -121,11 +121,11 @@ void testTransparent() {
   Image image(20, 20);
   for (int y = 6; y < 14; ++y)
     for (int x = 6; x < 14; ++x) image.at(x, y) = red;
-  require(near(rowInk(linesOf(image, {rule(Kind::Any, Kind::Any, 2)}), 20, 10),
+  require(approx(rowInk(linesOf(image, {rule(Kind::Any, Kind::Any, 2)}), 20, 10),
                0.0),
           "Any colour matched transparency");
   const auto outline = linesOf(image, {rule(Kind::Any, Kind::Transparent, 2)});
-  require(near(rowInk(outline, 20, 10), 4.0),
+  require(approx(rowInk(outline, 20, 10), 4.0),
           "The drawing's outline is not drawn on both sides");
   require(outline[size_t(10) * 20 + 5].a > 0.99 &&
               outline[size_t(10) * 20 + 4].a < 1e-9,
@@ -140,7 +140,7 @@ void testFlatRegions() {
     seed = seed * 1103515245u + 12345u;
     c.g  = (seed >> 16 & 255) / 255.0 * 0.02;
   }
-  require(near(rowInk(linesOf(image, {rule(Kind::Any, Kind::Any, 2)}), 32, 16),
+  require(approx(rowInk(linesOf(image, {rule(Kind::Any, Kind::Any, 2)}), 32, 16),
                0.0),
           "Noise within the tolerance made lines");
   // Beyond the gap, an unflat area is no region and gets no line
@@ -151,7 +151,7 @@ void testFlatRegions() {
   CelEdge::Settings settings;
   settings.tolerance = 0.01;
   const auto lines   = linesOf(grad, {rule(Kind::Any, Kind::Any, 2)}, settings);
-  require(near(rowInk(lines, 40, 2, 24, 40), 0.0),
+  require(approx(rowInk(lines, 40, 2, 24, 40), 0.0),
           "A gradient was cut into regions");
 }
 
@@ -236,12 +236,12 @@ void testCompositing() {
   require(CelEdge::render(image.pixels, 16, 4, settings, rules, only),
           "Lines-only render canceled");
   const Color &line = only[size_t(1) * 16 + 7];
-  require(near(line.a, 0.5) && near(line.b, 0.5) && near(line.r, 0),
+  require(approx(line.a, 0.5) && approx(line.b, 0.5) && approx(line.r, 0),
           "Opacity does not scale the premultiplied line");
   const Color &mixed = over[size_t(1) * 16 + 7];
-  require(near(mixed.r, 0.5) && near(mixed.b, 0.5) && near(mixed.a, 1),
+  require(approx(mixed.r, 0.5) && approx(mixed.b, 0.5) && approx(mixed.a, 1),
           "The line is not composited over the source");
-  require(near(only[0].a, 0) && near(over[0].r, 1),
+  require(approx(only[0].a, 0) && approx(over[0].r, 1),
           "Pixels away from lines changed");
 }
 
@@ -339,9 +339,9 @@ void testFx() {
   for (int x = 0; x < 24; ++x) {
     const TPixelD p   = PixelConverter<TPixelD>::from(whole->pixels(3)[x]);
     const bool onLine = x == 11 || x == 12;
-    require(onLine ? near(p.r, 0, tolerance) && near(p.g, 0, tolerance) &&
-                         near(p.m, 1, tolerance)
-                   : near(p.m, 1, tolerance) && (p.r > 0.99 || p.g > 0.99),
+    require(onLine ? approx(p.r, 0, tolerance) && approx(p.g, 0, tolerance) &&
+                         approx(p.m, 1, tolerance)
+                   : approx(p.m, 1, tolerance) && (p.r > 0.99 || p.g > 0.99),
             "The FX line is wrong at x=" + std::to_string(x));
   }
   // A tile at an offset gives the same pixels
@@ -356,14 +356,14 @@ void testFx() {
   const TPixelD rim    = PixelConverter<TPixelD>::from(outlined->pixels(3)[0]);
   const TPixelD inside = PixelConverter<TPixelD>::from(outlined->pixels(3)[2]);
   require(
-      near(rim.r, 0, tolerance) && near(rim.m, 1, tolerance) && inside.r > 0.99,
+      approx(rim.r, 0, tolerance) && approx(rim.m, 1, tolerance) && inside.r > 0.99,
       "The default outline around the drawing is missing");
   // Without any rule the source passes through unchanged
   numeric(*fx, "enabledRules")->setDefaultValue(0);
   const TRasterPT<Pixel> plain = render(TPointD(0, 0), 24, 6);
   for (int x = 0; x < 24; ++x) {
     const TPixelD p = PixelConverter<TPixelD>::from(plain->pixels(3)[x]);
-    require(near(p.m, 1, tolerance) && (p.r > 0.99) == (x < 12),
+    require(approx(p.m, 1, tolerance) && (p.r > 0.99) == (x < 12),
             "Without rules the source changed");
   }
   // The alias changes with every rule value, so caches see new settings

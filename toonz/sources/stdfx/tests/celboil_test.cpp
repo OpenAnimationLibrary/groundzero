@@ -14,7 +14,7 @@ using CelBoil::Color;
 void require(bool value, const std::string &message) {
   if (!value) throw std::runtime_error(message);
 }
-bool near(double a, double b, double tolerance = 1e-9) {
+bool approx(double a, double b, double tolerance = 1e-9) {
   return std::abs(a - b) <= tolerance;
 }
 bool same(const Color &a, const Color &b) {
@@ -64,7 +64,7 @@ void testPhase() {
   require(CelBoil::phase(s, 0) == 0 && CelBoil::phase(s, 1) == 0 &&
               CelBoil::phase(s, 2) == 0,
           "A blend started before its share of the cycle");
-  require(near(CelBoil::phase(s, 3), 0.5), "A blend is not halfway");
+  require(approx(CelBoil::phase(s, 3), 0.5), "A blend is not halfway");
   require(CelBoil::phase(s, 4) == 1, "A blend did not end on the next plane");
 }
 
@@ -171,7 +171,7 @@ void testLinesOnly() {
     for (int x = 0; x < image.w; ++x) {
       const Color &c = out[size_t(y) * image.w + x];
       // No holes: where a line moved away, its paint shows
-      require(near(c.a, 1, 1e-9), "A line left a hole at " + std::to_string(x) +
+      require(approx(c.a, 1, 1e-9), "A line left a hole at " + std::to_string(x) +
                                       "," + std::to_string(y));
       // Paint far from every line stays exactly where it was
       const int fromCross = std::min(std::abs(x - 30), std::abs(y - 30));
@@ -275,7 +275,7 @@ void testFx() {
     for (int x = 0; x < 40; ++x) {
       const TPixelD p = PixelConverter<TPixelD>::from(still->pixels(y)[x]);
       const Color &c  = image.at(x, y);
-      require(near(p.r, c.r, 1e-6) && near(p.m, c.a, 1e-6),
+      require(approx(p.r, c.r, 1e-6) && approx(p.m, c.a, 1e-6),
               "No amplitude changed the source");
     }
 }
