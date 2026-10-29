@@ -202,8 +202,10 @@ void makeSurfaceScene(const QDir &root, const QString &name,
     auto generator = document("[0.25,0.5,0.75]", true);
     generator["alpha"] = "0.5";
     setDocument(*source, generator);
-    number(*source, "width")->setDefaultValue(64);
-    number(*source, "height")->setDefaultValue(64);
+    // The one-inch camera spans 53.33333 scene units. At ten degrees its
+    // inverse-rotated corner reaches 30.89 units; half-width 24 exposes edges.
+    number(*source, "width")->setDefaultValue(48);
+    number(*source, "height")->setDefaultValue(48);
     plane = TFx::create("STD_imagePlaneFx");
     require(bool(plane), "production Image Plane effect registration is missing");
   } else {
@@ -339,6 +341,17 @@ void verifySurfaceOutput(const QDir &root) {
     const QImage &parallel = workers.constFind(frame).value();
     const QImage &fixed = baseline.constFind(frame).value();
     const QImage &planeImage = imagePlane.constFind(frame).value();
+    const auto metrics = [frame](const char *label, const QImage &image) {
+      const auto center = image.pixelColor(16, 16);
+      std::cout << "Surface batch pixels: " << label << " frame " << frame
+                << " center RGBA [" << center.red() << ", " << center.green()
+                << ", " << center.blue() << ", " << center.alpha()
+                << "], covered " << coveredSurfacePixels(image) << std::endl;
+    };
+    metrics("surface-valid", current);
+    metrics("surface-workers", parallel);
+    metrics("surface-static", fixed);
+    metrics("surface-image-plane", planeImage);
     require(current == parallel, "actual batch worker counts changed surface pixels");
     for (const auto *image : {&current, &fixed, &planeImage}) {
       const auto center = image->pixelColor(16, 16);
