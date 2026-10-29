@@ -116,6 +116,7 @@ set(HEADERS
     ../include/toonz/poselibrary.h
     ../include/toonz/rasterbrush.h
     ../include/toonz/rasterstrokegenerator.h
+    ../include/toonz/scenechecker.h
     ../include/toonz/scenefx.h
     ../include/toonz/sceneproperties.h
     ../include/toonz/sceneresources.h
@@ -240,6 +241,7 @@ set(SOURCES
     preferences.cpp
     rasterbrush.cpp
     rasterstrokegenerator.cpp
+    scenechecker.cpp
     scenefx.cpp
     sceneproperties.cpp
     sceneresources.cpp
@@ -615,6 +617,16 @@ if(BUILD_STREAM_TESTS)
     add_executable(compressed_stream_test tests/compressed_stream_test.cpp)
     target_link_libraries(compressed_stream_test PRIVATE tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core)
     add_test(NAME compressed_stream COMMAND compressed_stream_test)
+endif()
+
+# Optional regression target for the scene checker (scenechecker.h): each
+# check on scenes built in memory, with a case that finds the issue and one
+# that does not.
+option(BUILD_SCENECHECKER_TESTS "Build the scene checker regression test" ${BUILD_TESTS})
+if(BUILD_SCENECHECKER_TESTS)
+    add_executable(scenechecker_test tests/scenechecker_test.cpp)
+    target_link_libraries(scenechecker_test PRIVATE toonzlib tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
+    add_test(NAME scenechecker COMMAND scenechecker_test)
 endif()
 
 # Optional benchmark of scene save and load (master plan E6, see
