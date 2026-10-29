@@ -58,6 +58,12 @@
 namespace {
 QString testRoot;
 
+void checkpoint(const char *stage) {
+  // Fixed labels only: flush each stage even if a native callback terminates
+  // the process before the fixture can report its final result.
+  std::cerr << "native-ui-integration: checkpoint: " << stage << std::endl;
+}
+
 // This recently added source is unfinished in the shipped catalogs. Supply one
 // distinct test caption for this exact native source so equal-text provenance
 // is observable; every other caption still uses the installed real catalogs.
@@ -184,6 +190,7 @@ void choose(QComboBox *combo, const QString &value) {
 }
 
 void exerciseNativeUi(QMainWindow *window) {
+  checkpoint("checking initialized application isolation");
   require(window && window->isVisible(), "application window is not visible");
   require(TEnv::getIsPortable(), "test application is not portable");
   require(QFileInfo(TEnv::getStuffDir().getQString()).canonicalFilePath() ==
@@ -206,6 +213,7 @@ void exerciseNativeUi(QMainWindow *window) {
   require(xsheet->getFrameCount() == 0, "test scene is not empty");
 
   // Test the real action registry and factory, including current Animate IDs.
+  checkpoint("opening and searching native command palette");
   auto *palette = openPalette();
   require(!runnable(palette, MI_ToggleColumnOutline),
           "outline command was runnable without a drawing target");
@@ -219,6 +227,7 @@ void exerciseNativeUi(QMainWindow *window) {
   sendKey(palette, Qt::Key_Escape);
 
   // Use the Xsheet's own selection, not a stand-in QObject or fake handler.
+  checkpoint("creating disposable native scene and selection");
   trigger(MI_OpenXshView);
   XsheetViewer *viewer = nullptr;
   for (auto *candidate : app->getCurrentRoom()->findChildren<XsheetViewer *>())
@@ -242,6 +251,7 @@ void exerciseNativeUi(QMainWindow *window) {
   app->getCurrentFrame()->setFrame(0);
 
   EmptyCellCaptionTranslator emptyCellCaptionTranslator;
+  checkpoint("checking native Drawing Substitution captions");
   require(QCoreApplication::installTranslator(&emptyCellCaptionTranslator),
           "empty-cell fixture translator could not be installed");
   trigger(MI_OpenDrawingSubstitutionPanel);
@@ -273,6 +283,7 @@ void exerciseNativeUi(QMainWindow *window) {
           "native pane did not display the equal-text literal level name");
 
   TColumnSelection *selection = viewer->getColumnSelection();
+  checkpoint("checking palette context preservation");
   selection->selectNone();
   selection->selectColumn(0);
   selection->selectColumn(2);
@@ -302,6 +313,7 @@ void exerciseNativeUi(QMainWindow *window) {
               !app->getCurrentScene()->getDirtyFlag(),
           "opening and cancelling a palette modified the document");
 
+  checkpoint("executing native outline command and undo");
   palette = openPalette();
   require(runnable(palette, MI_ToggleColumnOutline),
           "valid native outline selection was not runnable");
@@ -328,6 +340,7 @@ void exerciseNativeUi(QMainWindow *window) {
 
   // Run the actual Preferences controls and persistence adapter. Packaged
   // Japanese catalogs are required: a missing catalog is a failure, not a skip.
+  checkpoint("opening native Preferences");
   const QString originalLanguage = UiLanguageManager::instance()->currentLanguage();
   const QString originalTheme = NativeTheme::instance().currentTheme();
   QWidget *preferences = preferencesPopup();
@@ -338,6 +351,7 @@ void exerciseNativeUi(QMainWindow *window) {
 
   // Exercise the real owners of translated choices. Keep these dialogs hidden:
   // no inbetween command or conversion is requested.
+  checkpoint("initializing native interpolation dialog");
   InbetweenDialog interpolation(window);
   interpolation.setValue("Ease Out");
   interpolation.setEase(23, 71);
@@ -351,6 +365,7 @@ void exerciseNativeUi(QMainWindow *window) {
   // TLV is an input-dependent choice: native callers setFiles() before
   // setFormat(). Supply a real, disposable full-color image so the owner can
   // classify it and read its metadata through the normal initialization path.
+  checkpoint("initializing idle native conversion dialog");
   QTemporaryDir conversionInputs(QDir(testRoot).filePath("conversion-input-XXXXXX"));
   require(conversionInputs.isValid(), "conversion input fixture directory failed");
   const QString conversionInput = conversionInputs.filePath("fixture.png");
@@ -423,6 +438,7 @@ void exerciseNativeUi(QMainWindow *window) {
   const int historyCount = undo->getHistoryCount();
   const int historyIndex = undo->getCurrentHistoryIndex();
   const bool dirty = app->getCurrentScene()->getDirtyFlag();
+  checkpoint("switching native UI to Japanese");
   choose(language, japanese);
   checkNativeModes(true);
   require(UiLanguageManager::instance()->currentLanguage() == japanese &&
@@ -447,6 +463,7 @@ void exerciseNativeUi(QMainWindow *window) {
               customTitlePanel->windowTitle() == "Schematic",
           "live native panel title failed or changed a document, room or custom name");
   selectionUnchanged();
+  checkpoint("applying native Synthwave theme");
   choose(theme, "Synthwave");
   require(NativeTheme::instance().currentTheme() == "Synthwave" &&
               !qApp->styleSheet().isEmpty(),
@@ -456,11 +473,13 @@ void exerciseNativeUi(QMainWindow *window) {
               savedPreferences.value("CurrentStyleSheetName").toString() == "Synthwave",
           "native theme preference was not saved in the isolated profile");
   selectionUnchanged();
+  checkpoint("repeating native language switches");
   for (const QString &nextLanguage : {QString("English"), japanese,
                                       QString("English")}) {
     choose(language, nextLanguage);
     checkNativeModes(nextLanguage == japanese);
   }
+  checkpoint("restoring native appearance preferences");
   choose(language, originalLanguage);
   choose(theme, originalTheme);
   preferences->hide();
@@ -469,6 +488,7 @@ void exerciseNativeUi(QMainWindow *window) {
               app->getCurrentScene()->getDirtyFlag() == dirty,
           "appearance changes modified the document or its undo history");
 
+  checkpoint("checking native widget inspector");
   palette = openPalette();
   auto *edit = palette->findChild<QLineEdit *>("commandPaletteSearch");
   trigger(MI_OpenWidgetInspector);
@@ -488,13 +508,16 @@ void exerciseNativeUi(QMainWindow *window) {
           "native inspector changed document undo history");
   inspector->clearInspection();
   // No close/save prompts; the temporary input is removed on return.
+  checkpoint("clearing native fixture selection and history");
   selection->makeNotCurrent();
   app->getCurrentScene()->setDirtyFlag(false);
   undo->reset();
+  checkpoint("destroying native fixture dialogs");
 }
 }  // namespace
 
 bool prepareNativeUiIntegrationTest(QString *error) {
+  checkpoint("validating disposable fixture directory");
   const auto reject = [error](const char *reason) {
     if (error) *error = QString::fromLatin1(reason);
     return false;
@@ -532,19 +555,22 @@ bool prepareNativeUiIntegrationTest(QString *error) {
   ToonzFolder::setTestStorageRoot(TFilePath(root));
   testRoot = root;
   if (error) error->clear();
+  checkpoint("disposable storage isolation prepared");
   return true;
 }
 
 int runNativeUiIntegrationTest(QMainWindow *window) {
+  checkpoint("entered native fixture callback");
   try {
     require(!testRoot.isEmpty(), "native UI test was not prepared before startup");
     exerciseNativeUi(window);
-    std::cout << "native-ui-integration: PASS\n";
+    std::cout << "native-ui-integration: PASS" << std::endl;
     return 0;
   } catch (const Failure &failure) {
-    std::cerr << "native-ui-integration: FAIL: " << failure.message << '\n';
+    std::cerr << "native-ui-integration: FAIL: " << failure.message << std::endl;
   } catch (...) {
-    std::cerr << "native-ui-integration: FAIL: unexpected native exception\n";
+    std::cerr << "native-ui-integration: FAIL: unexpected native exception"
+              << std::endl;
   }
   return 1;
 }

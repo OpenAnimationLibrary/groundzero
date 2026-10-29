@@ -327,16 +327,25 @@ jobs:
       - name: Test native application integration
         id: ui_integration
         if: ${{ !cancelled() && steps.package.outcome == 'success' }}
+        timeout-minutes: 8
         shell: cmd
         run: |
           set "PATH=%CD%\toonz\build\Opentoonz;%QT_PATH%\bin;%PATH%"
           set "QT_PLUGIN_PATH=%QT_PATH%\plugins"
           set "QT_QPA_PLATFORM_PLUGIN_PATH=%QT_PATH%\plugins\platforms"
-          python ci-scripts/run_native_ui_test.py toonz/build/Opentoonz/OpenToonz.exe stuff --output toonz/build/ui-integration-output.txt
+          python ci-scripts/run_native_ui_test.py toonz/build/Opentoonz/OpenToonz.exe stuff --output toonz/build/ui-integration-output.txt --windows-crash-debugger --debugger-symbols toonz/build/RelWithDebInfo
 
       - name: Report native application integration failure
         if: ${{ failure() && steps.ui_integration.outcome == 'failure' }}
         run: python ci-scripts/report_ui_tests.py toonz/build/ui-integration-output.txt
+
+      - name: Report native application crash stack
+        if: ${{ failure() && steps.ui_integration.outcome == 'failure' }}
+        shell: pwsh
+        run: |
+          if (Test-Path -LiteralPath toonz/build/ui-integration-output-debugger.txt) {
+            python ci-scripts/report_ui_tests.py toonz/build/ui-integration-output-debugger.txt "Native application crash stack"
+          }
 
       - name: Report native UI failures
         if: ${{ failure() && steps.ui_tests.outcome == 'failure' }}

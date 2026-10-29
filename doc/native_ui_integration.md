@@ -70,6 +70,14 @@ assertion descriptions, never document data or resolved file paths. Success prin
 `native-ui-integration: PASS` and exits with status zero. An assertion or native
 exception returns a nonzero status; a startup hang is caught by the CI timeout.
 
+Startup and fixture checkpoints use fixed labels and flush immediately, so a
+native crash still identifies its last completed stage. On Windows, a native
+exception also triggers a bounded diagnostic launch under the installed SDK
+debugger against a fresh disposable fixture. This captures the first-chance
+exception stack using the build's local symbols. The original test report and
+failure remain authoritative; the diagnostic launch cannot turn a failure into
+a pass. No debugger is installed or used by the application itself.
+
 This coverage does not certify tablet drivers, rendering output, every tool's
 selection mode, graphics hardware or a complete interactive animation session.
 CI results must be reported separately from manual application validation.

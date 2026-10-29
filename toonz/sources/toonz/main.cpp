@@ -293,6 +293,11 @@ int main(int argc, char *argv[]) {
   }
 #endif
 
+  const auto nativeUiCheckpoint = [nativeUiTest](const char *stage) {
+    if (nativeUiTest)
+      std::cerr << "native-ui-integration: checkpoint: " << stage << std::endl;
+  };
+
 #ifdef Q_OS_WIN
   // Enable standard input/output on Windows Platform for debug
   if (!nativeUiTest && ::AttachConsole(ATTACH_PARENT_PROCESS)) {
@@ -370,7 +375,9 @@ int main(int argc, char *argv[]) {
   // constructed. Available from Qt 5.6.
   QApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
 
+  nativeUiCheckpoint("constructing QApplication");
   QApplication a(argc, argv);
+  nativeUiCheckpoint("QApplication constructed");
 #ifdef BUILD_UI_PORT_TESTS
   if (nativeUiTest) {
     QString error;
@@ -525,9 +532,12 @@ int main(int argc, char *argv[]) {
 
   bool isRunScript = (loadFilePath.getType() == "toonzscript");
 
+  nativeUiCheckpoint("constructing and showing splash screen");
   QSplashScreen splash(splashPixmap);
   if (!isRunScript) splash.show();
+  nativeUiCheckpoint("processing first splash events");
   a.processEvents();
+  nativeUiCheckpoint("first splash events completed");
 
   splash.showMessage(offsetStr + "Initializing QGLFormat...", Qt::AlignCenter,
                      Qt::white);
@@ -556,7 +566,9 @@ int main(int argc, char *argv[]) {
       &toonzRunOutOfContMemHandler);
 
   // Toonz environment
+  nativeUiCheckpoint("initializing Toonz environment");
   initToonzEnv(argumentPathValues, nativeUiTest);
+  nativeUiCheckpoint("Toonz environment initialized");
   Preferences::instance();
   if (nativeUiTest) {
     Preferences::instance()->setValue(startupPopupEnabled, false, false);
@@ -686,11 +698,13 @@ int main(int argc, char *argv[]) {
   a.processEvents();
 
   // Initialize ThemeManager before TApp
+  nativeUiCheckpoint("initializing native theme and TApp");
   auto &themeManager = ThemeManager::getInstance();
   themeManager.initialize();
 
   TTool::setApplication(TApp::instance());
   TApp::instance()->init();
+  nativeUiCheckpoint("native TApp initialized");
 
   splash.showMessage(offsetStr + "Loading Plugins...", Qt::AlignCenter,
                      Qt::white);
@@ -710,7 +724,9 @@ int main(int argc, char *argv[]) {
   a.processEvents();
 
   /*-- Layoutファイル名をMainWindowのctorに渡す --*/
+  nativeUiCheckpoint("constructing native main window");
   MainWindow w(argumentLayoutFileName);
+  nativeUiCheckpoint("native main window constructed");
   CrashHandler::attachParentWindow(&w);
   CrashHandler::reportProjectInfo(true);
 
@@ -785,8 +801,10 @@ int main(int argc, char *argv[]) {
   a.processEvents();
 
   QString themeError;
+  nativeUiCheckpoint("applying startup native theme");
   if (!NativeTheme::instance().reload(&themeError))
     DVGui::warning(themeError);
+  nativeUiCheckpoint("startup native theme applied");
 
   // w.setWindowTitle(QString::fromStdString(TEnv::getApplicationFullName()));
   w.changeWindowTitle();
@@ -822,6 +840,7 @@ int main(int argc, char *argv[]) {
 #endif
 
   QRect splashGeometry = splash.geometry();
+  nativeUiCheckpoint("finishing splash and showing native main window");
   splash.finish(&w);
 
   a.setQuitOnLastWindowClosed(false);
@@ -830,6 +849,7 @@ int main(int argc, char *argv[]) {
     w.checkForUpdates();
 
   w.show();
+  nativeUiCheckpoint("native main window shown");
 
   auto *cadmiumRuntime = CadmiumRuntime::instance();
   QObject::connect(&a, &QCoreApplication::aboutToQuit, cadmiumRuntime,
@@ -840,7 +860,9 @@ int main(int argc, char *argv[]) {
   });
 
   // Show floating panels only after the main window has been shown
+  nativeUiCheckpoint("restoring startup floating panels");
   w.startupFloatingPanels();
+  nativeUiCheckpoint("startup floating panels restored");
 
   const QByteArray defaultStartupTool =
       Preferences::instance()->getDefaultStartupTool().toLatin1();
@@ -932,12 +954,15 @@ int main(int argc, char *argv[]) {
       a.exit(runNativeUiIntegrationTest(&w));
     });
 #endif
+  nativeUiCheckpoint("entering native application event loop");
   int ret = a.exec();
+  nativeUiCheckpoint("native application event loop returned");
 
   if (!nativeUiTest) AutosaveRecovery::endSession();
 
   TUndoManager::manager()->reset();
   PreviewFxManager::instance()->reset();
 
+  nativeUiCheckpoint("native application cleanup completed");
   return ret;
 }
