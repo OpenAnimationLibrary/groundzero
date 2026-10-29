@@ -1,6 +1,7 @@
 
 
 #include "tstream.h"
+#include "tstreamlimits.h"
 #include "tpersist.h"
 #include "tfilepath_io.h"
 #include "tconvert.h"
@@ -292,12 +293,18 @@ TOStream::~TOStream() {
         const void *in  = (const void *)tmp.c_str();
 
         size_t in_len = tmp.size();
+        // Destructors cannot report failure. Leave the temporary file
+        // unpublished; the scene's checked save rejects an incomplete file.
+        if (in_len > TStreamLimits::maxUncompressedBytes) return;
 
         size_t out_len = LZ4F_compressFrameBound(in_len, NULL);
-        void *out      = malloc(out_len);
+        if (LZ4F_isError(out_len)) return;
+        std::unique_ptr<void, decltype(&free)> out(malloc(out_len), &free);
+        if (!out) return;
 
-        out_len = LZ4F_compressFrame(out, out_len, in, in_len, NULL);
-        if (!LZ4F_isError(out_len)) {
+        out_len = LZ4F_compressFrame(out.get(), out_len, in, in_len, NULL);
+        if (!LZ4F_isError(out_len) &&
+            TStreamLimits::validCompressedSizes(out_len, in_len)) {
           Tofstream os(m_imp->m_filepath);
           // TNZC <decompressed data length> <compressed data length>
           // <compressed data>
@@ -309,10 +316,8 @@ TOStream::~TOStream() {
           os.write((char *)&v, sizeof v);
           v = out_len;
           os.write((char *)&v, sizeof v);
-          os.write((char *)out, out_len);
+          os.write(static_cast<const char *>(out.get()), out_len);
         }
-
-        free(out);
       }
       if (m_imp->m_chanOwner) delete m_imp->m_os;
     }
@@ -893,17 +898,11 @@ TIStream::TIStream(const TFilePath &fp) : m_imp(new Imp) {
     } else
       throw TException("Bad magic number");
 
-    if (in_len <= 0 ||
-        in_len >
-            100000000)  // 100M of tnzfile (compressed) seems really excessive
-      throw TException("Corrupted file");
-
     // A header cut short, or a declared decompressed size that LZ4 cannot
     // reach from the compressed one (it expands at most ~255 times). The
     // buffer is allocated from the declared size before decompressing: bound
     // it too, as 100M of compressed data could still declare 25G.
-    if (is->fail() || out_len > in_len * 256 + 1024 ||
-        out_len > (size_t(1) << 28))  // 256M of scene text
+    if (is->fail() || !TStreamLimits::validCompressedSizes(in_len, out_len))
       throw TException("Corrupted file");
 
     LZ4F_decompressionContext_t lz4dctx;

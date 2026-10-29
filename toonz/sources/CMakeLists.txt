@@ -846,6 +846,7 @@ include("${CMAKE_CURRENT_SOURCE_DIR}/../cmake/OpenEXR.cmake")
 # except the GLB/3D suites (tested in OT3D). Each suite keeps its own option
 # and can still be set alone.
 option(BUILD_TESTS "Build all regression tests and register them with ctest" OFF)
+option(BUILD_RELIABILITY_TESTS "Build raster, cache, save and selection regression tests" ${BUILD_TESTS})
 option(BUILD_CADMIUM_TESTS "Build Cadmium native adapter and workflow tests" ${BUILD_TESTS})
 option(BUILD_CELFX_TESTS "Build cel effect rendering and UI regression tests" ${BUILD_TESTS})
 option(BUILD_EXR_TESTS "Build the OpenEXR image I/O and level source regression tests" ${BUILD_TESTS})
@@ -888,6 +889,16 @@ endif()
 enable_testing()
 
 add_subdirectory(tnzcore)
+if(BUILD_RELIABILITY_TESTS)
+    # Declare consumers outside tnzcore's directory so they do not inherit
+    # its DLL export definitions on Windows.
+    add_executable(rasterallocation_test tnzcore/tests/rasterallocation_test.cpp)
+    target_link_libraries(rasterallocation_test PRIVATE tnzcore Qt${QT_VERSION_MAJOR}::Core)
+    add_test(NAME rasterallocation COMMAND rasterallocation_test)
+    add_executable(timagecache_test common/tcache/tests/timagecache_test.cpp)
+    target_link_libraries(timagecache_test PRIVATE tnzcore Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
+    add_test(NAME timagecache COMMAND timagecache_test)
+endif()
 if(BUILD_TGL_BATCH_TESTS)
     add_subdirectory(common/tgl/tests tglbatchtests)
 endif()

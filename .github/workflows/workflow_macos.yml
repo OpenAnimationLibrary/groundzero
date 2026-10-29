@@ -87,8 +87,25 @@ jobs:
             -DQt5_DIR=$(brew --prefix qt@5)/lib/cmake/Qt5 \
             -DCMAKE_PREFIX_PATH=$(brew --prefix qt@5)/lib/cmake/Qt5 \
             -DOpenCV_DIR=$(brew --prefix opencv@4)/lib/cmake/opencv4 \
-            -DWITH_TRANSLATION=OFF
+            -DWITH_TRANSLATION=OFF -DBUILD_RELIABILITY_TESTS=ON \
+            -DBUILD_STREAM_TESTS=ON -DBUILD_SCENEBENCH_TESTS=ON \
+            -DBUILD_FXRENDER_TESTS=ON -DBUILD_FFMPEG_TESTS=ON
           ninja -j $(sysctl -n hw.ncpu) 2>&1 | tee -a "$GITHUB_WORKSPACE/build.log"
+
+      - name: Test reliability and performance invariants
+        working-directory: toonz/build
+        run: |
+          python3 ../../ci-scripts/run_regression_tests.py rasterallocation timagecache levelselection save_transaction compressed_stream scenebench fxrender tiio_ffmpeg
+
+      - name: Upload reliability diagnostics
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: macos-reliability-results
+          path: |
+            toonz/build/reliability-tests.xml
+            toonz/build/stdfx/fxrender-output
+          if-no-files-found: ignore
       # Show the errors on the run (summary and annotations) without opening
       # the full log, as the Linux and Windows builds do
       - name: Report build errors

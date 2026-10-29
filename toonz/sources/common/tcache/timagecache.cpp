@@ -837,7 +837,7 @@ void TImageCache::Imp::doCompress() {
     std::map<TUINT32, std::string>::iterator itu2 = itu;
     itu++;
     m_itemHistory.erase(itu2);
-    m_itemsByImagePointer.erase(item->getImage().getPointer());
+    m_itemsByImagePointer.erase(getPointer(item->getImage()));
     m_uncompressedItems.erase(it);
 #endif
 
@@ -925,7 +925,7 @@ void TImageCache::Imp::doCompress(std::string id) {
   std::map<TUINT32, std::string>::iterator itu2 = itu;
   itu++;
   m_itemHistory.erase(itu2);
-  m_itemsByImagePointer.erase(item->getImage().getPointer());
+  m_itemsByImagePointer.erase(getPointer(item->getImage()));
 #endif
 
   // delete item from m_uncompressedItems
@@ -1044,7 +1044,7 @@ UCHAR *TImageCache::Imp::compressAndMalloc(TUINT32 size) {
     std::map<TUINT32, std::string>::iterator itu2 = itu;
     itu++;
     m_itemHistory.erase(itu2);
-    m_itemsByImagePointer.erase(item->getImage().getPointer());
+    m_itemsByImagePointer.erase(getPointer(item->getImage()));
     m_uncompressedItems.erase(it);
 #endif
   }
