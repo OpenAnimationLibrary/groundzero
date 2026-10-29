@@ -319,14 +319,14 @@ void checkNamespacedRenderAttributes() {
   TSeExprAttributes::Snapshot outer;
   outer.attributes = {{"shot::gain", TSeExpr::Value::scalar(.25)},
                        {"shot::tint", TSeExpr::Value::vector(-1, .5, 2)}};
-  TSeExprAttributes::Snapshot near;
-  near.attributes = {{"shot::gain", TSeExpr::Value::scalar(.5)}};
-  near.options = {{"shot::gain", TSeExpr::Value::scalar(.75)}};
+  TSeExprAttributes::Snapshot nearest;
+  nearest.attributes = {{"shot::gain", TSeExpr::Value::scalar(.5)}};
+  nearest.options = {{"shot::gain", TSeExpr::Value::scalar(.75)}};
   const TRenderSettings empty;
   TRenderSettings one;
   one.m_data.push_back(new TSeExprAttributes::RenderData(outer));
   TRenderSettings two = one;
-  two.m_data.push_back(new TSeExprAttributes::RenderData(near));
+  two.m_data.push_back(new TSeExprAttributes::RenderData(nearest));
   const auto compareSettings = [](const TRenderSettings &left,
                                    const TRenderSettings &right, bool equal) {
     require((left == right) == equal && (left != right) != equal,
@@ -341,32 +341,32 @@ void checkNamespacedRenderAttributes() {
   sameOne.m_data.front() = new TSeExprAttributes::RenderData(outer);
   compareSettings(one, sameOne, true);
   TRenderSettings sameTwo = two;
-  sameTwo.m_data.back() = new TSeExprAttributes::RenderData(near);
+  sameTwo.m_data.back() = new TSeExprAttributes::RenderData(nearest);
   compareSettings(two, sameTwo, true);
   auto changedOuter = outer;
   changedOuter.attributes["shot::gain"] = TSeExpr::Value::scalar(.251);
   sameOne.m_data.front() = new TSeExprAttributes::RenderData(changedOuter);
   compareSettings(one, sameOne, false);
-  auto changedNear = near;
+  auto changedNear = nearest;
   changedNear.options["shot::gain"] = TSeExpr::Value::scalar(.751);
   sameTwo.m_data.back() = new TSeExprAttributes::RenderData(changedNear);
   compareSettings(two, sameTwo, false);
   TRenderSettings settings;
   settings.m_data.push_back(new TSeExprAttributes::RenderData(outer));
-  settings.m_data.push_back(new TSeExprAttributes::RenderData(near));
+  settings.m_data.push_back(new TSeExprAttributes::RenderData(nearest));
   const auto alias = fx.getAlias(0, settings);
   expect(rendered<TPixelF>(fx, 1, 1, TPointD(), 0, settings)->pixels(0)[0], -.5, 1, 2.5, 1);
-  near.options["shot::gain"] = TSeExpr::Value::scalar(.75000001);
-  settings.m_data.back() = new TSeExprAttributes::RenderData(near);
+  nearest.options["shot::gain"] = TSeExpr::Value::scalar(.75000001);
+  settings.m_data.back() = new TSeExprAttributes::RenderData(nearest);
   require(alias != fx.getAlias(0, settings), "render attributes were missing from the full-precision alias");
-  near.attributes.clear(); settings.m_data.back() = new TSeExprAttributes::RenderData(near);
+  nearest.attributes.clear(); settings.m_data.back() = new TSeExprAttributes::RenderData(nearest);
   expect(rendered<TPixelF>(fx, 1, 1, TPointD(), 0, settings)->pixels(0)[0], -.75, .75, 2.25, 1);
   outer.attributes.erase("shot::gain");
   settings.m_data.front() = new TSeExprAttributes::RenderData(outer);
-  near.options["shot::gain"] = TSeExpr::Value::scalar(1.25);
-  settings.m_data.back() = new TSeExprAttributes::RenderData(near);
+  nearest.options["shot::gain"] = TSeExpr::Value::scalar(1.25);
+  settings.m_data.back() = new TSeExprAttributes::RenderData(nearest);
   expect(rendered<TPixelF>(fx, 1, 1, TPointD(), 0, settings)->pixels(0)[0], .25, 1.75, 3.25, 1);
-  near.options.clear(); settings.m_data.back() = new TSeExprAttributes::RenderData(near);
+  nearest.options.clear(); settings.m_data.back() = new TSeExprAttributes::RenderData(nearest);
   expect(rendered<TPixelF>(fx, 1, 1, TPointD(), 0, settings)->pixels(0)[0], -1, .5, 2, 1);
   document(fx, "[$shot::gain[0],$shot::gain[1],$shot::gain[2]]");
   outer.attributes["shot::gain"] = TSeExpr::Value::scalar(.5);
@@ -374,8 +374,8 @@ void checkNamespacedRenderAttributes() {
   expect(rendered<TPixelF>(fx, 1, 1, TPointD(), 0, settings)->pixels(0)[0], .5, .5, .5, 1);
   outer.attributes.erase("shot::gain");
   settings.m_data.front() = new TSeExprAttributes::RenderData(outer);
-  near.options["shot::gain"] = TSeExpr::Value::scalar(.75);
-  settings.m_data.back() = new TSeExprAttributes::RenderData(near);
+  nearest.options["shot::gain"] = TSeExpr::Value::scalar(.75);
+  settings.m_data.back() = new TSeExprAttributes::RenderData(nearest);
   expect(rendered<TPixelF>(fx, 1, 1, TPointD(), 0, settings)->pixels(0)[0], .75, .75, .75, 1);
   expect(rendered<TPixelF>(fx, 1, 1)->pixels(0)[0], 0, 0, 0, 1);
 }
