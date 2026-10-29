@@ -141,6 +141,31 @@ void stringConcatenationLifetimes() {
   }
 }
 
+void discardedTokenRecovery() {
+  using namespace SeExpr2;
+  Expression expression(Expression::UseInterpreter);
+  expression.setDesiredReturnType(ExprType().FP(1).Varying());
+  const char *malformed[] = {
+      "pending = ;", "$pending = ;", "\"pending\" \"extra\"",
+      "def FLOAT pending(FLOAT value,){value} 1",
+      "extern FLOAT pending(STRING,) 1"};
+  for (int repeat = 0; repeat < 16; ++repeat) {
+    for (const char *source : malformed) {
+      expression.setExpr(source);
+      require(!expression.syntaxOK() && !expression.isValid() &&
+                  !expression.getErrors().empty(),
+              "Malformed pending-token source passed SDK parsing");
+      // Reusing the parser checks recovery, while strict LSan verifies that
+      // stack/lookahead strings discarded on each error were released once.
+      expression.setExpr("6*7");
+      require(expression.syntaxOK() && expression.isValid(),
+              "SDK parser did not recover after discarding lexer tokens");
+      near(expression.evalFP()[0], 42,
+           "Discarded lexer tokens corrupted subsequent SDK evaluation");
+    }
+  }
+}
+
 void emptyStandardFunctionState() {
   SeExpr2::ExprFuncStandard empty;
   require(empty.getFuncType() == SeExpr2::ExprFuncStandard::NONE &&
@@ -344,6 +369,7 @@ int main() {
     ownedAndBorrowedFunctionData();
     syntaxQueriesAndRecovery();
     stringConcatenationLifetimes();
+    discardedTokenRecovery();
     blockEvaluation();
     expressionGraphIsolation();
     graphResetAndFailureOwnership();

@@ -354,10 +354,19 @@ void Expressions::reset() {
 
     raw = output / "parser-input"
     raw.mkdir(exist_ok=True)
+    # Successful grammar actions already free their copied lexer strings.
+    # Bison must separately free NAME/VAR/STR values discarded while unwinding
+    # a syntax error; those tokens never reach a successful reduction action.
+    grammar = (source / "ExprParser.y").read_text(encoding="utf-8")
+    grammar = replace_once(grammar, "%token <s> NAME VAR STR",
+        "%token <s> NAME VAR STR\n%destructor { free($$); } <s>",
+        "discarded lexer token ownership")
+    grammar_path = raw / "ExprParser.y"
+    grammar_path.write_text(grammar, encoding="utf-8", newline="\n")
     subprocess.run([args.bison, "--name-prefix=SeExpr2",
                     "--defines=" + str(raw / "ExprParser.tab.h"),
                     "--output=" + str(raw / "ExprParser.cpp"),
-                    str(source / "ExprParser.y")], check=True)
+                    str(grammar_path)], check=True)
     subprocess.run([args.flex, "--outfile=" + str(raw / "ExprParserLex.cpp"),
                     str(source / "ExprParserLex.l")], check=True)
     for name in ("ExprParser.cpp", "ExprParser.tab.h", "ExprParserLex.cpp"):
