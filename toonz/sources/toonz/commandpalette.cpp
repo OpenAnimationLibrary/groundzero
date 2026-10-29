@@ -134,7 +134,10 @@ void CommandPalette::refreshCommands() {
               << QString::number(action->isChecked())
               << QString::number(action->icon().cacheKey());
   }
-  if (signature == m_signature) return;
+  // Qt 5's QList equality uses an MSVC iterator extension removed in newer STL.
+  if (signature.size() == m_signature.size() &&
+      std::equal(signature.cbegin(), signature.cend(), m_signature.cbegin()))
+    return;
   m_signature = signature;
   rebuildResults(false);
 }

@@ -14,6 +14,7 @@
 #include <QSignalBlocker>
 #include <QThread>
 #include <QUrl>
+#include <algorithm>
 #include <utility>
 
 namespace {
@@ -156,7 +157,11 @@ private:
     QStringList names = m_themes.availableThemes();
     const QString current = m_themes.currentTheme();
     if (!current.isEmpty() && !names.contains(current)) names.prepend(current);
-    if (names != m_names || actions().isEmpty()) {
+    // Avoid Qt 5's QList equality dependency on removed MSVC stdext iterators.
+    const bool unchanged =
+        names.size() == m_names.size() &&
+        std::equal(names.cbegin(), names.cend(), m_names.cbegin());
+    if (!unchanged || actions().isEmpty()) {
       clear();
       delete m_group;
       m_group = new QActionGroup(this);
