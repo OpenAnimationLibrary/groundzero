@@ -3,6 +3,7 @@
 // particle generators. Checks deliberately remain enabled in Release builds.
 #include "../stdfx.h"
 #include "tfx.h"
+#include "tfiletype.h"
 #include "tfxparam.h"
 #include "tnotanimatableparam.h"
 #include "tparamset.h"
@@ -1068,6 +1069,9 @@ void testScenePreparation(bool tiled, bool fullAffine = false,
   artwork->setType(OVL_XSHLEVEL);
   artwork->setScene(&scene);
   artwork->setPath(TFilePath(temporary.filePath("artwork..png").toStdWString()));
+  require(artwork->getPath().withFrame(TFrameId(1)) !=
+              artwork->getPath().withFrame(TFrameId(2)),
+          "Scene artwork format did not preserve distinct drawing paths");
   artwork->getProperties()->setDpiPolicy(LevelProperties::DP_CustomDpi);
   artwork->getProperties()->setDpi(Stage::inch);
   scene.getLevelSet()->insertLevel(artwork.getPointer());
@@ -1251,6 +1255,11 @@ void testScenePreparation(bool tiled, bool fullAffine = false,
     TRenderSettings artworkSettings(bakeSettings);
     artworkSettings.m_affine = TAffine();
     artworkSettings.m_cameraBox = Domain;
+    const std::string firstArtworkAlias = originalArtwork->getAlias(0, artworkSettings);
+    const std::string secondArtworkAlias = originalArtwork->getAlias(1, artworkSettings);
+    require(!firstArtworkAlias.empty() && !secondArtworkAlias.empty() &&
+                firstArtworkAlias != secondArtworkAlias,
+            context + ": distinct artwork drawings share a render-cache alias");
     for (int artworkFrame : {0, 1})
       exact(renderViewport(originalArtwork, artworkFrame, artworkSettings, Domain),
             renderViewport(clonedArtwork, artworkFrame, artworkSettings, Domain),
@@ -1512,6 +1521,9 @@ void testScenePreparation(bool tiled, bool fullAffine = false,
 int main(int argc, char **argv) {
   QGuiApplication application(argc, argv);
   TThread::init();
+  // The scene fixture keeps its PNG drawings in memory. Register their path
+  // type as initImageIo does so withFrame() gives each drawing its own alias.
+  TFileType::declare("png", TFileType::RASTER_IMAGE);
   initStdFx();
   try {
     const auto runCase = [](const char *name, auto action) {
