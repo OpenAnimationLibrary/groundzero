@@ -3,7 +3,7 @@
 The SDK uses the same pinned SeExpr source, generated grammar and core patches
 as the application. Its C++ headers and static library preserve the upstream
 `SeExpr2` API. Native OT rendering uses the separate ownership-safe adapter.
-All implementation and qualification fixtures described here are source-backed and remain CI pending. Status is recorded in `seexpr_parity.md`; no manual hardware or package qualification is implied.
+The implementation and named fixtures described here form the source inventory. Actual passing evidence comes from the SeExpr qualification jobs, clean installed-SDK consumer reports and native platform checks named in `seexpr_parity.md`; source presence alone does not establish readiness. No manual hardware qualification is implied.
 
 ## Building and consuming
 

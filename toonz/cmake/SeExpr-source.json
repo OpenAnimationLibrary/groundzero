@@ -35,8 +35,8 @@
     "Bound Python inspection AST height during construction and parser recursion before deep-expression cleanup"
   ],
   "backends": {
-    "interpreter": "Included; source implementation and qualification corpus present; CI pending",
-    "llvm": "LLVM 14 optional backend implementation; CI qualification pending"
+    "interpreter": "Included; source implementation and qualification corpus present",
+    "llvm": "LLVM 14 optional backend implementation"
   },
   "native_replacements": {
     "application_ui": "Independently authored native Qt editor, controls, preset browser, spectrum editor and range viewer in toonzqt; upstream UI subtree is not compiled or installed",
@@ -45,9 +45,9 @@
   },
   "selected_modules": {
     "core": "Required application/SDK interpreter and typed native adapter",
-    "llvm": "Optional LLVM 14 backend from the pinned core; explicit backend identity; Linux qualification configured, CI pending",
+    "llvm": "Optional LLVM 14 backend from the pinned core; explicit backend identity; Linux qualification configured",
     "cpp_sdk": "Optional installed headers/static library, explicit native plugin loader, calculator, grapher and host-binding example",
-    "python_ast": "Optional Python 3 extension compiles privately prepared ASTNode.h, SeExprLex.h/.cpp and SeExprParse.h from the licensed inspection parser; exact source ranges, node ownership and retained scanner notices; CI pending",
+    "python_ast": "Optional Python 3 extension compiles privately prepared ASTNode.h, SeExprLex.h/.cpp and SeExprParse.h from the licensed inspection parser; exact source ranges, node ownership and retained scanner notices",
     "python_qt": "Optional independent PyQt authoring frontend; external PyQt installation required; Qt5 qualification configured, Qt6 not yet qualified"
   },
   "excluded_sources": {
@@ -71,13 +71,24 @@
     "Versioned native animation mode, literal channel dependency binding/rewrites, stable native control schema and archived animation restoration",
     "Preserve reference monitor state and formulas across actual column movement/insertion/deletion, clipboard copy/paste and sub-xsheet collapse/explode with native undo/redo",
     "Recursive animation graph gate precedes curve locks to reject malformed cross-worker cycles without lock-order deadlock",
-    "Batch loading/rendering failure counter prevents a last-good interactive animation value from reporting successful invalid renders"
+    "Batch loading/rendering failure counter prevents a last-good interactive animation value from reporting successful invalid renders",
+    "Deep clipboard snapshots preserve stage/offset/plastic curves; copied parameter expressions rebind to their destination owners after source/clipboard destruction",
+    "Paste-specific single-pass remapping updates destination-owned curves only, including empty/hidden numeric channels; reference-only models suppress queued GUI callbacks",
+    "Stable retained FX-link representatives preserve external sharing and undo/redo without cascading ring restoration; foreign shared references keep original source context/lifetime and stay outside destination monitor ownership",
+    "Ordered save queues retain later completed frames after earlier failures, report exact failed/completed frame identifiers and suppress successful completion for failed batch jobs"
   ],
   "qualification_sources": {
-    "core_and_sdk": "Interpreter Windows/Linux/macOS and optional LLVM14 Linux corpora, typed SDK callback/equality regressions and a clean installed CMake consumer; CI pending",
+    "core_and_sdk": "Interpreter Windows/Linux/macOS and optional LLVM14 Linux corpora, typed SDK callback/equality regressions and a clean installed CMake consumer",
     "python": "AST/evaluation/optional Qt5 widget fixtures use the built package; PyQt6 frontend available but not yet runtime-qualified",
-    "native_application": "Test-only startup launches the actual application against copied disposable portable data and exercises native column/reference/clipboard/sub-xsheet commands and undo/redo; CI pending",
-    "native_batch": "Actual generated/saved scene and tcomposer output/failure fixtures; CI pending",
+    "native_application": "Actual application startup with disposable data; Column/Stage Schematic snapshots and owner preservation, append/prepend/middle paste, empty/hidden channels, linked FX redo, foreign-sheet core callback isolation, column/sub-xsheet operations and undo/redo",
+    "native_batch": "Actual saved scene/tcomposer output; exact completed/failed frames for first/middle/last errors, range/step and multimedia cases, nonzero diagnostics and no false successful summary",
     "performance": "Native Generator 1920x1080 and 3840x2160, one/four workers, cold/warm-frame timings, deterministic image checksums and process peak resident memory; Linux CI measurement configured, no hardware results claimed"
+  },
+  "source_inventory_status": "Implemented means source and named acceptance fixtures exist; actual passing evidence is recorded by the qualification jobs/reports at the final revision, not by this source manifest",
+  "qualification_reports": {
+    "core_sdk_python": "SeExpr qualification: Linux interpreter, Windows interpreter, macOS interpreter, Linux LLVM 14; seexpr-tests.xml, seexpr-tests.log and installed-consumer seexpr-sdk-tests.log",
+    "native_platforms": "Linux Build, Windows Build, MacOS Build: Test SeExpr native integration; seexpr-tests.xml, seexpr-tests-output.txt, seexpr-native-output.txt and seexpr-native-batch-output.txt",
+    "performance": "Linux Build: Measure SeExpr full-resolution rendering; seexpr-performance.txt",
+    "readiness": "Every required native/core/SDK/backend/platform acceptance check must pass at the final implementation revision; no manual hardware or PyQt6 qualification is asserted"
   }
 }
