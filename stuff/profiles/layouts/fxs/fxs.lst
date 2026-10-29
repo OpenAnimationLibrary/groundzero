@@ -181,6 +181,7 @@
     STD_iwa_FlowPaintBrushFx
   </Render>
   <Stylize>
+    STD_celEdgeLinesFx
     STD_colorEmbossFx
     STD_embossFx
     STD_inoMaxMinFx

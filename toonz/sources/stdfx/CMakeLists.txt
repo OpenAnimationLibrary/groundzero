@@ -172,6 +172,7 @@ set(SOURCES
     celcolorkeepfx.cpp
     celcolorkeyfx.cpp
     celcolorexpandfx.cpp
+    celedgelinesfx.cpp
     alphadistancegradientfx.cpp
     celboundaryblurfx.cpp
     celblur.cpp
@@ -514,6 +515,18 @@ if(BUILD_CELFX_TESTS)
              ${CMAKE_CURRENT_SOURCE_DIR}/../../../stuff/profiles/layouts/fxs/STD_celColorExpandFx.xml)
     add_dependencies(celfx_tests celcolorexpand_test celcolorexpand_ui_test)
     set_tests_properties(celfx_colorexpand celfx_colorexpand_ui PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
+endif()
+
+if(BUILD_CELFX_TESTS)
+    add_executable(celedgelines_test tests/celedgelines_test.cpp)
+    target_link_libraries(celedgelines_test Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME celfx_edgelines COMMAND celedgelines_test)
+    add_executable(celedgelines_ui_test tests/celedgelines_ui_test.cpp)
+    target_link_libraries(celedgelines_ui_test toonzqt Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Widgets ${TNZLIBS} ${PTHREAD_LIBRARY})
+    add_test(NAME celfx_edgelines_ui COMMAND celedgelines_ui_test
+             ${CMAKE_CURRENT_SOURCE_DIR}/../../../stuff/profiles/layouts/fxs/STD_celEdgeLinesFx.xml)
+    add_dependencies(celfx_tests celedgelines_test celedgelines_ui_test)
+    set_tests_properties(celfx_edgelines celfx_edgelines_ui PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
 endif()
 
 if(BUILD_CELFX_TESTS)
