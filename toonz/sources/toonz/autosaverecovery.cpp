@@ -212,8 +212,15 @@ void removeOldVersions(const QString &key) {
             [](const Snapshot &a, const Snapshot &b) {
               return a.m_savedAt > b.m_savedAt;
             });
-  for (int i = MaxVersionsPerScene; i < versions.size(); i++)
-    removeSnapshotFolder(versions[i].m_folder);
+  // Failed resource copies may be retried without another edit. Bound those
+  // partial snapshots separately so repeated failures cannot evict the last
+  // complete recovery copy or grow the recovery folder without limit.
+  int completeCount = 0, partialCount = 0;
+  for (const Snapshot &version : versions) {
+    int &count =
+        version.m_uncopiedLevels.isEmpty() ? completeCount : partialCount;
+    if (++count > MaxVersionsPerScene) removeSnapshotFolder(version.m_folder);
+  }
 }
 
 void removeExpiredSnapshots() {
@@ -578,9 +585,12 @@ bool AutosaveRecovery::saveRecoveryCopy() {
     return false;
   }
 
-  s_changed = false;
+  // A partial snapshot is useful, but its missing drawings still need a retry
+  // even if the artist makes no further edits.
+  const bool complete = uncopiedLevels.isEmpty();
+  s_changed           = !complete;
   removeOldVersions(groupKey(originalScene, sceneName));
-  return true;
+  return complete;
 }
 
 //-----------------------------------------------------------------------------

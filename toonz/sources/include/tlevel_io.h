@@ -143,6 +143,19 @@ public:
                TPropertyGroup *winfo = 0);  // ottiene l'ownership
   virtual ~TLevelWriter();
 
+  // Complete pending encoding before reporting success. Implementations may
+  // throw on failure; destructors remain a non-throwing cleanup fallback.
+  // Call only after all frame writers have finished saving.
+  virtual void finalize() {}
+
+  // Discard a pending export without publishing it. Call after frame writers
+  // have stopped; cleanup must remain safe during failure handling.
+  virtual void abort() noexcept {}
+
+  // Signal cancellation without destroying state. Safe from a UI callback
+  // while finalize() is pumping events; abort() performs cleanup afterwards.
+  virtual void requestAbort() noexcept {}
+
   void setCreator(const QString &creator) { m_creator = creator; }
 
   virtual void setPalette(TPalette *){};

@@ -122,10 +122,12 @@ TRaster32P loadLight() {
 class OnRenderCompleted final : public TThread::Message {
   TFilePath m_fp;
   bool m_error;
+  QString m_errorMessage;
 
 public:
-  OnRenderCompleted(const TFilePath &fp, bool error)
-      : m_fp(fp), m_error(error) {}
+  OnRenderCompleted(const TFilePath &fp, bool error,
+                    const QString &errorMessage = QString())
+      : m_fp(fp), m_error(error), m_errorMessage(errorMessage) {}
 
   TThread::Message *clone() const override {
     return new OnRenderCompleted(*this);
@@ -137,7 +139,10 @@ public:
       DVGui::error(
           QObject::tr("There was an error saving frames for the %1 level.")
               .arg(QString::fromStdWString(
-                  m_fp.withoutParentDir().getWideString())));
+                  m_fp.withoutParentDir().getWideString())) +
+          (m_errorMessage.isEmpty() ? QString()
+                                   : "\n" + m_errorMessage));
+      return;
     }
 
     bool isPreview = (m_fp.getType() == "noext");
@@ -373,7 +378,7 @@ class RenderListener final : public DVGui::ProgressDialog,
                              public MovieRenderer::Listener {
   QString m_progressBarString;
   int m_frameCounter, m_totalFrames;
-  TRenderer *m_renderer;
+  std::function<void()> m_cancelRender;
   bool m_error;
 
   class Message final : public TThread::Message {
@@ -409,16 +414,16 @@ class RenderListener final : public DVGui::ProgressDialog,
   };
 
 public:
-  RenderListener(TRenderer *renderer, const TFilePath &path, int steps,
-                 bool isPreview)
+  RenderListener(std::function<void()> cancelRender, const TFilePath &path,
+                 int steps, bool isPreview)
       : DVGui::ProgressDialog(
             QObject::tr("Precomputing %1 Frames", "RenderListener").arg(steps) +
                 ((isPreview) ? ""
                              : QObject::tr(" of %1", "RenderListener")
                                    .arg(toQString(path))),
             QObject::tr("Cancel"), 0, steps, TApp::instance()->getMainWindow())
-      , m_renderer(renderer)
       , m_frameCounter(0)
+      , m_cancelRender(std::move(cancelRender))
       , m_error(false) {
 #ifdef MACOSX
     // Modal dialogs seem to be preventing the execution of
@@ -442,8 +447,11 @@ public:
    * functions of MovieRenderer::Listener --*/
   bool onFrameCompleted(int frame) override {
     bool ret = wasCanceled();
-    if (m_frameCounter + 1 < m_totalFrames)
-      Message(this, ret ? -1 : ++m_frameCounter, m_progressBarString).send();
+    ++m_frameCounter;
+    if (ret)
+      Message(this, -1, "").send();
+    else if (m_frameCounter < m_totalFrames)
+      Message(this, m_frameCounter, m_progressBarString).send();
     else
       Message(this, -2, "").send();
     return !ret;
@@ -453,14 +461,25 @@ public:
     return onFrameCompleted(frame);
   }
   void onSequenceCompleted(const TFilePath &fp) override {
+    onSequenceFinished(fp, MovieRenderer::CompletionStatus::Completed, L"");
+  }
+  void onSequenceFinished(const TFilePath &fp,
+                          MovieRenderer::CompletionStatus status,
+                          const std::wstring &error) override {
+    m_cancelRender = {};
     Message(this, -1, "").send();
-    OnRenderCompleted(fp, m_error).send();
+    if (status != MovieRenderer::CompletionStatus::Canceled)
+      OnRenderCompleted(fp,
+                        status == MovieRenderer::CompletionStatus::Failed ||
+                            m_error,
+                        QString::fromStdWString(error)).send();
     m_error = false;
     RenderCommand::resetBgColor();
   }
 
   void onCancel() override {
     m_isCanceled = true;
+    if (m_cancelRender) m_cancelRender();
     setLabelText(QObject::tr("Aborting render...", "RenderListener"));
     reset();
     hide();
@@ -561,11 +580,10 @@ void RenderCommand::rasterRender(bool isPreview) {
 
   /*-- Create progress dialog --*/
   RenderListener *listener =
-      new RenderListener(movieRenderer.getTRenderer(), m_fp,
+      new RenderListener(movieRenderer.getCancelCallback(), m_fp,
                          ((m_numFrames - 1) / m_step) + 1, isPreview);
-  // Use modern syntax for connection
-  QObject::connect(listener, &RenderListener::canceled, &movieRenderer,
-                   &MovieRenderer::onCanceled);
+  // The cancellation callback retains the render state after this temporary
+  // wrapper disappears, including while the encoder finalizes its output.
   movieRenderer.addListener(listener);
 
   bool fieldRendering = rs.m_fieldPrevalence != TRenderSettings::NoField;
@@ -632,6 +650,9 @@ class MultimediaProgressBar final : public DVGui::ProgressDialog,
   int m_columnCounter;
   int m_pbCounter;
   MultimediaRenderer *m_renderer;
+  int m_multimediaMode;
+  bool m_error = false;
+  QString m_errorMessage;
 
   //----------------------------------------------------------
 
@@ -659,7 +680,7 @@ class MultimediaProgressBar final : public DVGui::ProgressDialog,
         m_pb->hide();
       else {
         QString modeStr(
-            m_pb->m_renderer->getMultimediaMode() == MultimediaRenderer::COLUMNS
+            m_pb->m_multimediaMode == MultimediaRenderer::COLUMNS
                 ? QObject::tr("column ",
                               "MultimediaProgressBar label (mode name)")
                 : QObject::tr("layer ",
@@ -686,6 +707,7 @@ public:
             QObject::tr("Cancel"), 0,
             renderer->getFrameCount() * renderer->getColumnsCount())
       , m_renderer(renderer)
+      , m_multimediaMode(renderer->getMultimediaMode())
       , m_frameCounter(0)
       , m_columnCounter(0)
       , m_pbCounter(0) {
@@ -715,8 +737,26 @@ public:
     return !ret;
   }
 
-  bool onFrameFailed(int frame, int column, TException &) override {
+  bool onFrameFailed(int frame, int column, TException &error) override {
+    m_error = true;
+    if (m_errorMessage.isEmpty())
+      m_errorMessage = QString::fromStdWString(error.getMessage());
     return onFrameCompleted(frame, column);
+  }
+
+  void onSequenceFinished(int column, MovieRenderer::CompletionStatus status,
+                          const std::wstring &error) override {
+    if (status == MovieRenderer::CompletionStatus::Completed) {
+      onSequenceCompleted(column);
+      return;
+    }
+    if (status == MovieRenderer::CompletionStatus::Failed) {
+      m_error = true;
+      if (m_errorMessage.isEmpty())
+        m_errorMessage = QString::fromStdWString(error);
+    }
+    m_frameCounter = 0;
+    ++m_columnCounter;
   }
 
   void onSequenceCompleted(int column) override {
@@ -730,14 +770,17 @@ public:
 
   void onRenderCompleted() override {
     Message(this, -1, -1, -1, "").send();
-    // OnRenderCompleted(fp).send();
+    if (m_error && !wasCanceled())
+      OnRenderCompleted(m_renderer->getFilePath(), true, m_errorMessage).send();
+    m_renderer = nullptr;
   }
 
   void onCancel() override {
     m_isCanceled = true;
     setLabelText(QObject::tr("Aborting render...", "MultimediaProgressBar"));
-    TRenderer *trenderer(m_renderer->getTRenderer());
-    if (m_renderer) trenderer->stopRendering(true);
+    if (m_renderer) {
+      m_renderer->onCanceled();
+    }
     reset();
     hide();
   }

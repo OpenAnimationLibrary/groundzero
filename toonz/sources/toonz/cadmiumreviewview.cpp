@@ -95,6 +95,20 @@ void CadmiumReviewView::setImages(const QImage &before, const QImage &after,
   m_canvas->update();
 }
 
+void CadmiumReviewView::setReferenceImage(const QImage &reference) {
+  // Reference selection does not alter the proposal, region decisions, or view.
+  // Retain the already rendered before/after images instead of rebuilding them.
+  m_reference = reference;
+  updateControls();
+  m_canvas->update();
+}
+
+qint64 CadmiumReviewView::memoryBytes() const {
+  return qint64(m_before.sizeInBytes()) + m_after.sizeInBytes() +
+      m_reference.sizeInBytes() + qint64(m_labels.capacity()) * sizeof(int) +
+      qint64(m_protected.capacity()) * (sizeof(int) + 3 * sizeof(void *));
+}
+
 void CadmiumReviewView::setRegions(const QSize &size, const QVector<int> &labels) {
   if (size == m_regionSize && labels.size() == m_labels.size() &&
       labels.constData() == m_labels.constData()) return;
@@ -127,7 +141,7 @@ void CadmiumReviewView::setProtectedRegions(const QSet<int> &regions) {
 
 void CadmiumReviewView::clear(const QString &message) {
   m_before = QImage(); m_after = QImage(); m_reference = QImage();
-  m_labels.clear(); m_regionSize = QSize(); m_protected.clear();
+  m_labels = QVector<int>(); m_regionSize = QSize(); m_protected = QSet<int>();
   m_selected = -1;
   m_message = message;
   m_fit = true; m_pan = QPointF();

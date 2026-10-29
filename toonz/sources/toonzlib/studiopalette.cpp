@@ -18,8 +18,11 @@
 #include <stdio.h>
 #include <sys/types.h>
 #include <string.h>
+#include <memory>
 
+#include <QFile>
 #include <QSettings>
+#include <QTemporaryDir>
 
 //===================================================================
 
@@ -623,17 +626,40 @@ void StudioPalette::save(const TFilePath &path, TPalette *palette) {
                            "only studio palette.");
   }
 
-  TOStream os(path);
-  if (!os) {
+  // Serialize beside the destination, then replace it only after a successful
+  // flush. A failed write must leave the last saved palette available.
+  QTemporaryDir temporary(path.getQString() + ".XXXXXX");
+  if (!temporary.isValid()) {
     throw TSystemException(path,
-                           "The studio palette cannot be saved: the output "
-                           "stream status is invalid.");
+                           "Could not create a temporary studio palette folder.");
   }
-  std::map<std::string, std::string> attr;
-  attr["name"] = ::to_string(palette->getGlobalName());
-  os.openChild("palette", attr);
-  palette->saveData(os);
-  os.closeChild();
+  // QTemporaryFile::close() retains its native handle on Windows. Keep the
+  // staging file in a private sibling directory so TOStream can open it and
+  // the directory guard removes it if serialization or replacement fails.
+  const TFilePath temporaryPath(temporary.filePath("palette.tpl"));
+  {
+    TOStream os(temporaryPath);
+    if (!os.checkStatus()) {
+      throw TSystemException(path,
+                             "The studio palette cannot be saved: the output "
+                             "stream status is invalid.");
+    }
+    std::map<std::string, std::string> attr;
+    attr["name"] = ::to_string(palette->getGlobalName());
+    os.openChild("palette", attr);
+    palette->saveData(os);
+    os.closeChild();
+    if (!os.checkStatus()) {
+      throw TSystemException(path,
+                             "Could not complete the studio palette save.");
+    }
+  }
+  if (fs.doesExist() &&
+      !QFile::setPermissions(temporaryPath.getQString(),
+                            QFile::permissions(path.getQString())))
+    throw TSystemException(path,
+                           "Could not preserve studio palette permissions.");
+  TSystem::replaceFile(path, temporaryPath);
 }
 
 //-------------------------------------------------------------------
@@ -646,12 +672,12 @@ TPalette *StudioPalette::load(const TFilePath &path) {
     if (!is.matchTag(tagName) || tagName != "palette") return 0;
     std::string gname;
     is.getTagParam("name", gname);
-    TPalette *palette = new TPalette();
+    std::unique_ptr<TPalette> palette(new TPalette());
     palette->loadData(is);
     palette->setGlobalName(::to_wstring(gname));
     is.matchEndTag();
     palette->setPaletteName(path.getWideName());
-    return palette;
+    return palette.release();
   } catch (...) {
     return 0;
   }

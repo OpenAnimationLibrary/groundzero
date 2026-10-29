@@ -19,6 +19,11 @@ on:
       - '.github/workflows/workflow_windows.yml'  # Include Windows workflow file
       - '.github/ot-dev/**'                       # Include Groundzero build branding assets
   workflow_dispatch:
+    inputs:
+      benchmark_bundle:
+        description: Prepare an immutable scene benchmark bundle after validation
+        type: boolean
+        default: false
   workflow_call:
 
 permissions:
@@ -131,7 +136,16 @@ jobs:
           choco install boost-msvc-${{ env.BOOST_TOOLSET }} --version=${{ env.BOOST_VERSION }} -y
         shell: cmd
 
-      # Install custom Qt 5.15.2 with WinTab support
+      # Public image-I/O tests use a full FFmpeg distribution and ffprobe.
+      - name: Install FFmpeg export test tools if absent
+        shell: pwsh
+        run: |
+          if (!(Get-Command ffmpeg -ErrorAction SilentlyContinue) -or !(Get-Command ffprobe -ErrorAction SilentlyContinue)) {
+            choco install ffmpeg --yes --no-progress
+            if ($LASTEXITCODE -ne 0) { throw "FFmpeg installation failed" }
+          }
+          Get-Command ffmpeg, ffprobe -ErrorAction Stop
+
       - name: Install custom Qt 5.15.2 with WinTab support
         run: |
           @echo on
@@ -166,7 +180,7 @@ jobs:
           mkdir build
           cd build
 
-          cmake ..\sources -G "%MSVCVERSION%" -Ax64 -DQT_PATH="%QT_PATH%" -DBOOST_ROOT="%BOOST_ROOT%" -DOpenCV_DIR="%OpenCV_DIR%" -DWITH_WINTAB=Y -DBUILD_CELFX_TESTS=ON -DBUILD_CADMIUM_TESTS=ON
+          cmake ..\sources -G "%MSVCVERSION%" -Ax64 -DQT_PATH="%QT_PATH%" -DBOOST_ROOT="%BOOST_ROOT%" -DOpenCV_DIR="%OpenCV_DIR%" -DWITH_WINTAB=Y -DBUILD_CELFX_TESTS=ON -DBUILD_CADMIUM_TESTS=ON -DBUILD_RELIABILITY_TESTS=ON -DBUILD_STREAM_TESTS=ON -DBUILD_SCENEBENCH_TESTS=ON -DBUILD_FXRENDER_TESTS=ON -DBUILD_PSD_TESTS=ON -DBUILD_FFMPEG_TESTS=ON
         shell: cmd
 
       # Build Opentoonz using MSBuild
@@ -176,6 +190,15 @@ jobs:
           cd toonz\build
           msbuild /p:Configuration=RelWithDebInfo /m /verbosity:minimal "/flp:logfile=msbuild-errors.log;errorsonly" ALL_BUILD.vcxproj
         shell: cmd
+
+      # Pin the harness interpreter only after CMake has selected and built
+      # the application's own Python dependencies.
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Verify benchmark harness contracts
+        run: python -m unittest discover -s ci-scripts/tests -p test_paired_benchmark.py
 
       # Show the compile and link errors on the run (annotations), since the
       # full log is not always reachable
@@ -250,6 +273,25 @@ jobs:
           cd toonz\build
           ctest -C RelWithDebInfo --output-on-failure --no-tests=error -R "^cadmium_"
 
+      - name: Test reliability and performance invariants
+        shell: cmd
+        run: |
+          set "PATH=%CD%\toonz\build\Opentoonz;%QT_PATH%\bin;%PATH%"
+          set "QT_PLUGIN_PATH=%QT_PATH%\plugins"
+          set "QT_QPA_PLATFORM_PLUGIN_PATH=%QT_PATH%\plugins\platforms"
+          cd toonz\build
+          python ..\..\ci-scripts\run_regression_tests.py --config RelWithDebInfo rasterallocation timagecache levelselection save_transaction movierenderqueue levelupdater_abort trenderer_startup renderoutputbudget executor_submission compressed_stream scenebench fxrender ffmpeg_public tiio_psd
+
+      - name: Upload reliability diagnostics
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: windows-reliability-results
+          path: |
+            toonz/build/reliability-tests.xml
+            toonz/build/stdfx/fxrender-output
+          if-no-files-found: ignore
+
       - name: Verify models and exercise native painting pipelines
         shell: cmd
         run: |
@@ -269,6 +311,24 @@ jobs:
         run: |
           xcopy /Y /E /I recorder-encoder toonz\build\Opentoonz\otdev-recorder
           copy /Y .github\ot-dev\recorder\README.md toonz\build\Opentoonz\otdev-recorder\README.md
+
+      - name: Prepare optional benchmark bundle
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.benchmark_bundle }}
+        shell: pwsh
+        run: >-
+          python ci-scripts/benchmark_bundle.py --build toonz/build --platform windows
+          --configuration RelWithDebInfo --qt-version 5.15.2
+          --revision "$env:GITHUB_SHA" --run-id "$env:GITHUB_RUN_ID"
+          --run-attempt "$env:GITHUB_RUN_ATTEMPT" --output benchmark-input.tar.gz
+
+      - name: Upload optional benchmark bundle
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.benchmark_bundle }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: benchmark-input-windows
+          path: benchmark-input.tar.gz
+          compression-level: 0
+          if-no-files-found: error
 
       # Create artifact from the build
       - name: Create Artifact

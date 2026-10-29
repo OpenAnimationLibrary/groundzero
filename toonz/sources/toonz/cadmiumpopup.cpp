@@ -5,6 +5,7 @@
 #include "cadmiumcodec.h"
 #include "cadmiumcolor.h"
 #include "cadmiumreviewview.h"
+#include "cadmiummemory.h"
 #include <QFileInfo>
 #include <QStandardPaths>
 #include <QSignalBlocker>
@@ -188,32 +189,32 @@ QImage displayImage(const TImageP &image, const Cadmium::Frame &analysis) {
   QImage result(raster->getLx(), raster->getLy(), QImage::Format_ARGB32_Premultiplied);
   if (result.isNull()) return result;
   raster->lock();
-  for (int y = 0; y < result.height(); ++y) {
-    QRgb *row = reinterpret_cast<QRgb *>(result.scanLine(y));
-    const int sy = result.height() - 1 - y;
-    for (int x = 0; x < result.width(); ++x) {
-      double r, g, b, a;
-      if (TRaster32P ras = raster) {
-        const TPixel32 p = ras->pixels(sy)[x];
-        r = p.r / 255.0; g = p.g / 255.0; b = p.b / 255.0; a = p.m / 255.0;
-      } else if (TRaster64P ras = raster) {
-        const TPixel64 p = ras->pixels(sy)[x];
-        r = p.r / 65535.0; g = p.g / 65535.0; b = p.b / 65535.0; a = p.m / 65535.0;
-      } else if (TRasterFP ras = raster) {
-        const TPixelF p = ras->pixels(sy)[x];
-        r = p.r; g = p.g; b = p.b; a = p.m;
-      } else { row[x] = 0; continue; }
-      if (raster->isLinear() && a > 0.0) {
-        auto encode = [a](double channel) {
-          const double v = std::max(0.0, channel / a);
-          return a * (v <= 0.0031308 ? 12.92 * v : 1.055 * std::pow(v, 1.0 / 2.4) - 0.055);
-        };
-        r = encode(r); g = encode(g); b = encode(b);
+  const bool linear = raster->isLinear();
+  // Resolve the native pixel type once, keeping smart-pointer casts and
+  // reference counting out of the per-pixel conversion loop.
+  const auto convert = [&](const auto &typedRaster, double scale) {
+    for (int y = 0; y < result.height(); ++y) {
+      QRgb *row = reinterpret_cast<QRgb *>(result.scanLine(y));
+      const auto *source = typedRaster->pixels(result.height() - 1 - y);
+      for (int x = 0; x < result.width(); ++x) {
+        const auto &p = source[x];
+        double r = p.r / scale, g = p.g / scale, b = p.b / scale, a = p.m / scale;
+        if (linear && a > 0.0) {
+          auto encode = [a](double channel) {
+            const double v = std::max(0.0, channel / a);
+            return a * (v <= 0.0031308 ? 12.92 * v : 1.055 * std::pow(v, 1.0 / 2.4) - 0.055);
+          };
+          r = encode(r); g = encode(g); b = encode(b);
+        }
+        auto byte = [](double value) { return int(std::round(std::max(0.0, std::min(1.0, value)) * 255.0)); };
+        row[x] = qRgba(byte(r), byte(g), byte(b), byte(a));
       }
-      auto byte = [](double value) { return int(std::round(std::max(0.0, std::min(1.0, value)) * 255.0)); };
-      row[x] = qRgba(byte(r), byte(g), byte(b), byte(a));
     }
-  }
+  };
+  if (TRaster32P typed = raster) convert(typed, 255.0);
+  else if (TRaster64P typed = raster) convert(typed, 65535.0);
+  else if (TRasterFP typed = raster) convert(typed, 1.0);
+  else result.fill(Qt::transparent);
   raster->unlock();
   return result;
 }
@@ -393,13 +394,8 @@ void CadmiumPopup::initialize(TXshSimpleLevel *level,
 void CadmiumPopup::optionsChanged() {
   if (m_refreshing || m_generating || m_restoring) return;
   ++m_snapshotEpoch;
-  for (Drawing &drawing : m_drawings) {
-    drawing.ready = false; drawing.reviewed = false;
-    drawing.target = Cadmium::Frame(); drawing.proposals.clear();
-    drawing.labelsFingerprint.clear();
-    drawing.references.clear(); drawing.referencePreviews.clear();
-    drawing.selectedRegions.clear();
-  }
+  m_recovery.clear();
+  for (Drawing &drawing : m_drawings) releaseDrawingCache(drawing);
   autosave(); refresh(); refreshPreview();
   m_status->setText(tr("Input settings changed. Inspect the new line mask and regenerate decisions before applying."));
 }
@@ -419,6 +415,7 @@ void CadmiumPopup::assignReferences() {
   Drawing &drawing = m_drawings[row];
   if (references.size() == drawing.referenceIds.size() &&
       std::equal(references.cbegin(), references.cend(), drawing.referenceIds.cbegin())) return;
+  m_recovery.discard(drawing.fid);
   drawing.referenceIds = references;
   drawing.references.clear(); drawing.referenceBuilders.clear(); drawing.referencePreviews.clear();
   // Reference indices in candidates are local to the checked reference list.
@@ -434,15 +431,33 @@ void CadmiumPopup::inspectDrawing() {
   const int row = m_list->currentRow();
   if (m_generating || m_restoring || m_backgroundTasks || !currentScene() ||
       row < 0 || row >= int(m_drawings.size()) || !m_drawings[row].target.lines.isNull()) return;
-  auto *task = new CadmiumRasterTask;
+  // A lightweight inspection must not replace saved decisions which have not
+  // yet passed full target/reference validation after a failed/cancelled resume.
+  if (m_recovery.contains(m_drawings[row].fid)) return;
   QString error;
+  if (!reserveAnalysis({m_drawings[row].fid}, row, error)) {
+    m_drawings[row].error = error; m_status->setText(error); m_view->clear(error);
+    return;
+  }
+  auto *task = new CadmiumRasterTask;
   m_inspecting = true;
-  const bool captured = snapshot(m_drawings[row].fid, task->target, error,
-                                 m_level->getType() != PLI_XSHLEVEL);
+  bool captured = false;
+  try {
+    captured = snapshot(m_drawings[row].fid, task->target, error,
+                        m_level->getType() != PLI_XSHLEVEL);
+  } catch (...) { error = tr("The drawing could not be captured for analysis."); }
   m_inspecting = false;
-  if (!captured) { delete task; m_status->setText(error); return; }
+  if (!captured) {
+    m_analysisReservedBytes = 0; delete task; m_status->setText(error); return;
+  }
   const quint64 epoch = m_snapshotEpoch;
   if (m_level->getType() == PLI_XSHLEVEL) {
+    m_analysisReservedBytes = 0;
+    const qint64 payload = Cadmium::frameMemoryBytes(task->target) +
+        qint64(task->target.regionColors.size()) * sizeof(Cadmium::RegionProposal);
+    if (!admitMemory(payload, row, error)) {
+      delete task; m_drawings[row].error = error; m_status->setText(error); m_view->clear(error); return;
+    }
     m_drawings[row].target = task->target; delete task;
     m_drawings[row].labelsFingerprint = Cadmium::sessionLabelsDigest(m_drawings[row].target);
     m_drawings[row].proposals.resize(m_drawings[row].target.regionColors.size());
@@ -455,12 +470,18 @@ void CadmiumPopup::inspectDrawing() {
   ++m_backgroundTasks;
   connect(task, &QThread::finished, this, [this, task, row, epoch] {
     --m_backgroundTasks;
+    m_analysisReservedBytes = 0;
     if (epoch != m_snapshotEpoch || !currentScene() || row >= int(m_drawings.size())) {
+      task->target = Cadmium::Frame();
       refresh();
       if (currentScene() && isVisible() && !m_cancelled) refreshPreview();
       return;
     }
-    if (task->success) {
+    QString error = task->error;
+    const qint64 payload = Cadmium::frameMemoryBytes(task->target) +
+        qint64(task->target.regionColors.size()) * sizeof(Cadmium::RegionProposal);
+    const bool accepted = task->success && admitMemory(payload, row, error);
+    if (accepted) {
       m_drawings[row].target = task->target;
       m_drawings[row].labelsFingerprint = Cadmium::sessionLabelsDigest(task->target);
       m_drawings[row].proposals.resize(task->target.regionColors.size());
@@ -468,15 +489,111 @@ void CadmiumPopup::inspectDrawing() {
         m_drawings[row].proposals[0].protectedRegion = true;
         m_drawings[row].proposals[0].selected = -2;
       }
-    } else m_drawings[row].error = task->error;
+    } else m_drawings[row].error = error;
+    // deleteLater can run after another queued job. Release rejected/stale
+    // payload now; accepted frames are already shared with the retained cache.
+    task->target = Cadmium::Frame();
     refresh();
     if (row == m_list->currentRow()) {
-      if (task->success) refreshPreview(); else m_view->clear(task->error);
+      if (accepted) refreshPreview(); else m_view->clear(error);
     }
   });
   connect(task, &QThread::finished, task, &QObject::deleteLater);
   connect(qApp, &QCoreApplication::aboutToQuit, task, [task] { task->wait(); });
   task->start();
+}
+
+qint64 CadmiumPopup::drawingMemoryBytes(const Drawing &drawing) {
+  qint64 bytes = Cadmium::frameMemoryBytes(drawing.target) - sizeof(Cadmium::Frame);
+  bytes = Cadmium::addMemoryBytes(bytes, drawing.labelsFingerprint.capacity());
+  bytes = Cadmium::addMemoryBytes(bytes, Cadmium::proposalMemoryBytes(drawing.proposals));
+  bytes = Cadmium::addMemoryBytes(bytes,
+      qint64(drawing.references.capacity() - drawing.references.size()) * sizeof(Cadmium::Frame));
+  for (const Cadmium::Frame &reference : drawing.references)
+    bytes = Cadmium::addMemoryBytes(bytes, Cadmium::frameMemoryBytes(reference));
+  bytes = Cadmium::addMemoryBytes(bytes,
+      qint64(drawing.referencePreviews.capacity()) * sizeof(QImage));
+  for (const QImage &image : drawing.referencePreviews)
+    bytes = Cadmium::addMemoryBytes(bytes, image.sizeInBytes());
+  return bytes;
+}
+
+void CadmiumPopup::releaseDrawingCache(Drawing &drawing) {
+  drawing.target = Cadmium::Frame(); drawing.labelsFingerprint = QByteArray();
+  drawing.references = QVector<Cadmium::Frame>();
+  drawing.referencePreviews = QVector<QImage>();
+  drawing.proposals = QVector<Cadmium::RegionProposal>();
+  drawing.targetBuilder = ImageBuilderP(); drawing.referenceBuilders = QVector<ImageBuilderP>();
+  drawing.pendingTargetBuilder = ImageBuilderP(); drawing.pendingReferenceBuilders = QVector<ImageBuilderP>();
+  drawing.requestedRegions = QSet<int>(); drawing.selectedRegions = QSet<int>();
+  drawing.ready = false; drawing.reviewed = false;
+}
+
+bool CadmiumPopup::admitMemory(qint64 bytes, int keepDrawing, QString &error) {
+  qint64 fixed = qint64(m_drawings.capacity()) * sizeof(Drawing);
+  fixed = Cadmium::addMemoryBytes(fixed, m_view->memoryBytes());
+  fixed = Cadmium::addMemoryBytes(fixed, m_analysisReservedBytes);
+  fixed = Cadmium::addMemoryBytes(fixed, m_sessionReservedBytes);
+  fixed = Cadmium::addMemoryBytes(fixed, Cadmium::sessionMemoryBytes(m_pendingSession));
+  fixed = Cadmium::addMemoryBytes(fixed, Cadmium::sessionMemoryBytes(m_savedSession));
+  for (const Cadmium::SessionDrawing &record : m_recovery.records())
+    fixed = Cadmium::addMemoryBytes(fixed, Cadmium::sessionDrawingMemoryBytes(record) +
+        sizeof(TFrameId) + 3 * sizeof(void *));
+  QVector<Cadmium::CacheEntry> entries;
+  entries.reserve(int(m_drawings.size()));
+  for (int index = 0; index < int(m_drawings.size()); ++index) {
+    const Drawing &drawing = m_drawings[index];
+    fixed = Cadmium::addMemoryBytes(fixed,
+        qint64(drawing.referenceIds.capacity()) * sizeof(TFrameId) +
+        qint64(drawing.referenceBuilders.capacity() + drawing.pendingReferenceBuilders.capacity()) * sizeof(ImageBuilderP) +
+        qint64(drawing.selectedRegions.capacity() + drawing.requestedRegions.capacity()) * (sizeof(int) + 3 * sizeof(void *)) +
+        qint64(drawing.error.capacity()) * sizeof(QChar));
+    const bool inspectionOnly = !drawing.ready && !drawing.reviewed &&
+        drawing.references.isEmpty() && drawing.selectedRegions.isEmpty() &&
+        drawing.requestedRegions.isEmpty() && !Cadmium::hasRegionDecisions(drawing.proposals);
+    const bool evictable = index != keepDrawing && index != m_running &&
+        index != m_list->currentRow() && (drawing.applied || inspectionOnly);
+    entries.append({drawingMemoryBytes(drawing), evictable});
+  }
+  // Account for populated review cells, including their variable text payload.
+  for (int row = 0; row < m_regions->rowCount(); ++row)
+    for (int column = 0; column < m_regions->columnCount(); ++column)
+      if (const QTableWidgetItem *item = m_regions->item(row, column))
+        fixed = Cadmium::addMemoryBytes(fixed, 256 +
+            qint64(item->text().capacity() + item->toolTip().capacity()) * sizeof(QChar));
+  const Cadmium::CacheAdmission admission = Cadmium::planCacheAdmission(entries, fixed, bytes);
+  if (!admission.allowed) {
+    error = tr("The painting preview cache reached its memory budget. Apply or discard results, or use a smaller batch or fewer references. Existing decisions have been kept.");
+    return false;
+  }
+  for (int index : admission.evictions) releaseDrawingCache(m_drawings[index]);
+  return true;
+}
+
+bool CadmiumPopup::reserveAnalysis(const QVector<TFrameId> &frames,
+                                  int keepDrawing, QString &error) {
+  qint64 bytes = 0;
+  try {
+    for (const TFrameId &fid : frames) {
+      const TImageP image = Cadmium::loadDrawing(m_level.getPointer(), fid);
+      if (!image) { error = tr("A drawing could not be loaded for analysis."); return false; }
+      bytes = Cadmium::addMemoryBytes(bytes, Cadmium::analysisMemoryReservation(
+          TUndo::getImageMemorySize(image.getPointer())));
+      if (m_level->getType() == OVL_XSHLEVEL &&
+          m_rasterSource->currentIndex() == int(Cadmium::RasterSource::LinkedLines)) {
+        auto *line = reinterpret_cast<TXshSimpleLevel *>(m_lineLevel->currentData().toULongLong());
+        std::vector<TXshLevel *> levels; m_scene->getLevelSet()->listLevels(levels);
+        if (line && std::find(levels.begin(), levels.end(), line) != levels.end())
+          bytes = Cadmium::addMemoryBytes(bytes, Cadmium::analysisMemoryReservation(
+              TUndo::getImageMemorySize(Cadmium::loadDrawing(line, fid).getPointer())));
+      }
+    }
+  } catch (...) {
+    error = tr("The drawings could not be loaded for analysis."); return false;
+  }
+  if (!admitMemory(bytes, keepDrawing, error)) return false;
+  m_analysisReservedBytes = bytes;
+  return true;
 }
 
 void CadmiumPopup::generate() {
@@ -537,36 +654,14 @@ void CadmiumPopup::prepareDrawing(int index, bool restoring) {
   if (m_level->getRenumberCount() != m_selectionRenumberCount) {
     error = tr("The drawings were renumbered. Reopen Assisted Paint before continuing.");
   }
-  const qint64 budget = 512LL * 1024 * 1024;
-  auto memory = [](const Cadmium::Frame &frame) {
-    return TUndo::getImageMemorySize(frame.original.getPointer()) +
-        TUndo::getImageMemorySize(frame.lineSource.getPointer()) + qint64(frame.lines.sizeInBytes()) +
-        qint64(frame.labels.size()) * qint64(sizeof(int)) +
-        qint64(frame.nativeRegionColors.size()) * qint64(sizeof(Cadmium::NativeColor));
-  };
-  qint64 bytes = 0;
-  for (const Drawing &cached : m_drawings) {
-    bytes += memory(cached.target) + Cadmium::proposalMemoryBytes(cached.proposals);
-    for (const Cadmium::Frame &reference : cached.references) bytes += memory(reference);
-    for (const QImage &image : cached.referencePreviews) bytes += image.sizeInBytes();
-  }
   QVector<TFrameId> captureIds = drawing.referenceIds;
   captureIds.prepend(drawing.fid);
   for (const TFrameId &fid : captureIds) {
     if (!m_level->isFid(fid) || (fid != drawing.fid && !m_level->getCadmiumReferences().count(fid))) {
       error = tr("A target or marked reference is no longer available."); break;
     }
-    TImageP image = Cadmium::loadDrawing(m_level.getPointer(), fid);
-    bytes += std::max<qint64>(16LL * 1024 * 1024, TUndo::getImageMemorySize(image.getPointer()) * 4);
-    if (m_level->getType() == OVL_XSHLEVEL &&
-        m_rasterSource->currentIndex() == int(Cadmium::RasterSource::LinkedLines)) {
-      auto *line = reinterpret_cast<TXshSimpleLevel *>(m_lineLevel->currentData().toULongLong());
-      std::vector<TXshLevel *> levels; m_scene->getLevelSet()->listLevels(levels);
-      if (line && std::find(levels.begin(), levels.end(), line) != levels.end())
-        bytes += TUndo::getImageMemorySize(Cadmium::loadDrawing(line, fid).getPointer()) * 4;
-    }
   }
-  if (bytes > budget) error = tr("The proposal cache reached its memory budget. Apply or discard results and use a smaller batch or fewer references.");
+  if (error.isEmpty()) reserveAnalysis(captureIds, index, error);
   if (!error.isEmpty()) {
     drawing.error = error;
     if (restoring) { refresh(); QTimer::singleShot(0, this, &CadmiumPopup::restoreNext); }
@@ -580,23 +675,30 @@ void CadmiumPopup::prepareDrawing(int index, bool restoring) {
     drawing.pendingReferenceBuilders.append(ImageManager::instance()->getBuilder(m_level->getImageId(fid)));
   auto *task = new CadmiumRasterTask;
   const bool raster = m_level->getType() != PLI_XSHLEVEL;
-  bool captured = snapshot(drawing.fid, task->target, error, raster);
-  if (captured) for (const TFrameId &fid : drawing.referenceIds) {
-    Cadmium::Frame reference;
-    if (!snapshot(fid, reference, error, raster)) { captured = false; break; }
-    task->references.append(reference);
-    if (!raster) task->previews.append(imagePreview(reference.original, reference));
+  bool captured = false;
+  try {
+    captured = snapshot(drawing.fid, task->target, error, raster);
+    if (captured) for (const TFrameId &fid : drawing.referenceIds) {
+      Cadmium::Frame reference;
+      if (!snapshot(fid, reference, error, raster)) { captured = false; break; }
+      task->references.append(reference);
+      if (!raster) task->previews.append(imagePreview(reference.original, reference));
+    }
+  } catch (...) {
+    captured = false; error = tr("The drawings could not be captured for analysis.");
   }
   const quint64 epoch = m_snapshotEpoch;
   if (!captured || !raster) {
-    analysisFinished(index, task->target, task->references, task->previews,
+    m_analysisReservedBytes = 0;
+    analysisFinished(index, std::move(task->target), std::move(task->references), std::move(task->previews),
                      captured ? QString() : error, restoring, epoch);
     delete task; return;
   }
   ++m_backgroundTasks;
   connect(task, &QThread::finished, this, [this, task, index, restoring, epoch] {
     --m_backgroundTasks;
-    analysisFinished(index, task->target, task->references, task->previews,
+    m_analysisReservedBytes = 0;
+    analysisFinished(index, std::move(task->target), std::move(task->references), std::move(task->previews),
         task->success ? QString() : task->error, restoring, epoch);
   });
   connect(task, &QThread::finished, task, &QObject::deleteLater);
@@ -617,6 +719,19 @@ void CadmiumPopup::analysisFinished(int index, Cadmium::Frame target,
       if (reference.lines.size() != target.lines.size()) {
         error = tr("Reference and target analysis canvases must have matching dimensions."); break;
       }
+  if (error.isEmpty()) {
+    qint64 bytes = Cadmium::frameMemoryBytes(target);
+    for (const Cadmium::Frame &reference : references)
+      bytes = Cadmium::addMemoryBytes(bytes, Cadmium::frameMemoryBytes(reference));
+    for (const QImage &preview : previews)
+      bytes = Cadmium::addMemoryBytes(bytes, preview.sizeInBytes());
+    // Reserve for regeneration/remapping and the next session snapshot as well
+    // as the newly analyzed frames. The old decisions remain alive until success.
+    bytes = Cadmium::addMemoryBytes(bytes,
+        qint64(target.regionColors.size()) * (sizeof(Cadmium::RegionProposal) + 128));
+    bytes = Cadmium::addMemoryBytes(bytes, Cadmium::proposalMemoryBytes(drawing.proposals));
+    admitMemory(bytes, index, error);
+  }
   if (!error.isEmpty()) {
     drawing.error = error;
     if (restoring) QTimer::singleShot(0, this, &CadmiumPopup::restoreNext);
@@ -624,7 +739,7 @@ void CadmiumPopup::analysisFinished(int index, Cadmium::Frame target,
     refresh(); return;
   }
   if (restoring) {
-    const Cadmium::SessionDrawing saved = m_recovery.value(drawing.fid);
+    const Cadmium::SessionDrawing saved = m_recovery.finish(drawing.fid);
     drawing.target = target; drawing.references = references; drawing.referencePreviews = previews;
     drawing.labelsFingerprint = Cadmium::sessionLabelsDigest(target);
     drawing.targetBuilder = drawing.pendingTargetBuilder;
@@ -654,7 +769,7 @@ void CadmiumPopup::analysisFinished(int index, Cadmium::Frame target,
     }
     for (Cadmium::Frame &reference : drawing.references) {
       reference.original = TImageP(); reference.lineSource = TImageP();
-      reference.labels.clear();
+      reference.labels = QVector<int>();
     }
     refresh(); refreshPreview();
     QTimer::singleShot(0, this, &CadmiumPopup::restoreNext);
@@ -670,6 +785,7 @@ void CadmiumPopup::analysisFinished(int index, Cadmium::Frame target,
   const Cadmium::RegenerationPlan plan = Cadmium::regenerationPlan(
       drawing.target, target, previous, drawing.selectedRegions, m_generation, drawing.applied);
   if (!plan.valid()) { drawing.error = plan.error; refresh(); scheduleNext(); return; }
+  m_recovery.discard(drawing.fid);
   drawing.targetBuilder = drawing.pendingTargetBuilder;
   drawing.referenceBuilders = drawing.pendingReferenceBuilders;
   drawing.renumberCount = drawing.pendingRenumberCount;
@@ -733,6 +849,12 @@ void CadmiumPopup::received(const QJsonObject &response) {
   if (!Cadmium::mergeReferenceProposals(merged, incoming, drawing.target.kind, error)) { failed(error); return; }
   for (int region = 1; region < merged.size(); ++region)
     if (!drawing.requestedRegions.contains(region)) merged[region] = drawing.proposals[region];
+  const qint64 growth = Cadmium::addMemoryBytes(Cadmium::proposalMemoryBytes(incoming),
+      Cadmium::proposalMemoryBytes(merged));
+  // Include the new consensus and its pending/saved session copies. Rejecting
+  // a response leaves the previous complete decisions available for review.
+  if (!admitMemory(Cadmium::addMemoryBytes(growth, Cadmium::addMemoryBytes(growth, growth)),
+                   m_running, error)) { failed(error); return; }
   drawing.proposals = merged;
   ++m_runningReference;
   autosave();
@@ -746,7 +868,7 @@ void CadmiumPopup::finishDrawing() {
   drawing.ready = true; drawing.error.clear();
   for (Cadmium::Frame &reference : drawing.references) {
     reference.original = TImageP(); reference.lineSource = TImageP();
-    reference.labels.clear();
+    reference.labels = QVector<int>();
   }
   autosave(); refresh(); refreshPreview(); scheduleNext();
 }
@@ -981,6 +1103,13 @@ Cadmium::Session CadmiumPopup::makeSession() const {
   const TFrameId selected = m_list->currentRow() >= 0 && m_list->currentRow() < int(m_drawings.size())
       ? m_drawings[m_list->currentRow()].fid : TFrameId();
   for (const Drawing &drawing : m_drawings) {
+    // A restore which ran out of analysis memory has no validated target yet.
+    // Keep its saved decisions recoverable; an autosave must not replace them
+    // with an empty inspection entry. Changed source settings invalidate this
+    // recovery path through the same options check used above.
+    if (!drawing.applied && drawing.target.lines.isNull() &&
+        m_recovery.contains(drawing.fid) && records.contains(drawing.fid))
+      continue;
     Cadmium::SessionDrawing record;
     record.fid = drawing.fid; record.ready = drawing.ready; record.applied = drawing.applied;
     record.reviewed = drawing.reviewed && drawing.ready;
@@ -1018,7 +1147,21 @@ Cadmium::Session CadmiumPopup::makeSession() const {
 void CadmiumPopup::autosave() {
   if (m_refreshing || !currentScene()) return;
   ++m_sessionRevision; m_sessionDirty = true;
-  m_pendingSession = makeSession(); m_pendingScene = sceneIdentity();
+  Cadmium::Session pending = makeSession();
+  QString error;
+  const qint64 growth = std::max<qint64>(0, Cadmium::sessionMemoryBytes(pending) -
+      Cadmium::sessionMemoryBytes(m_pendingSession));
+  const bool admitted = admitMemory(growth, m_running, error);
+  // Recovery data is mandatory. A scene switch flushes m_pendingSession after
+  // the old scene has gone away, so leaving it stale here would lose the latest
+  // artist decisions. If metadata growth exhausts the cache, release disposable
+  // view buffers and refuse subsequent analysis rather than dropping recovery.
+  m_pendingSession = pending; m_pendingScene = sceneIdentity();
+  if (!admitted) {
+    const QSignalBlocker blocker(m_regions);
+    m_view->clear(error); m_regions->setRowCount(0);
+    if (!admitMemory(0, m_running, error)) m_status->setText(error);
+  }
   m_saveTimer.start();
 }
 
@@ -1033,6 +1176,12 @@ void CadmiumPopup::saveSession(bool explicitSave) {
   Cadmium::Session session = currentScene() ? makeSession() : m_pendingSession;
   QString error;
   if (!Cadmium::validateSession(session, error)) { m_status->setText(error); return; }
+  // Session JSON is capped on disk. Allow headroom for encoding plus the new
+  // pending, saved and worker snapshots while any old snapshot is still alive.
+  qint64 reserved = 4 * Cadmium::MaximumSessionBytes;
+  for (int copy = 0; copy < 3; ++copy)
+    reserved = Cadmium::addMemoryBytes(reserved, Cadmium::sessionMemoryBytes(session));
+  if (!admitMemory(reserved, m_running, error)) { m_status->setText(error); return; }
   if (!m_sessionScene.isEmpty() && m_sessionScene != scene) {
     if (!Cadmium::copySession(sessionCacheRoot(), m_sessionScene, scene, session.levelId, error))
       error.clear(); // A new complete snapshot can create the Save As entry.
@@ -1046,9 +1195,14 @@ void CadmiumPopup::saveSession(bool explicitSave) {
   const quint64 revision = m_sessionRevision;
   const quint64 epoch = m_snapshotEpoch;
   const QString levelId = session.levelId;
+  // The retained pending/saved snapshots are counted by admitMemory itself.
+  m_sessionReservedBytes = Cadmium::addMemoryBytes(4 * Cadmium::MaximumSessionBytes,
+      Cadmium::sessionMemoryBytes(session));
   ++m_sessionWrites; m_sessionWriter = task;
   connect(task, &QThread::finished, this, [this, task, revision, epoch, levelId, scene, explicitSave] {
     --m_sessionWrites;
+    task->session = Cadmium::Session();
+    m_sessionReservedBytes = 0;
     if (m_sessionWriter == task) m_sessionWriter = nullptr;
     if (task->success && revision == m_sessionRevision &&
         m_pendingSession.levelId == levelId && m_pendingScene == scene) m_sessionDirty = false;
@@ -1085,6 +1239,12 @@ void CadmiumPopup::restoreSession() {
   const Cadmium::Kind kind = m_level->getType() == PLI_XSHLEVEL ? Cadmium::Kind::Vector :
       m_level->getType() == OVL_XSHLEVEL ? Cadmium::Kind::FullColor : Cadmium::Kind::ToonzRaster;
   if (saved.kind != kind) { m_status->setText(tr("The saved session belongs to another native drawing format.")); return; }
+  qint64 restoredBytes = 0;
+  // Account for saved, pending and recovery records before replacing any
+  // current decisions or extraction settings.
+  for (int copy = 0; copy < 3; ++copy)
+    restoredBytes = Cadmium::addMemoryBytes(restoredBytes, Cadmium::sessionMemoryBytes(saved));
+  if (!admitMemory(restoredBytes, -1, error)) { m_status->setText(error); return; }
   const Cadmium::SessionOptions previousOptions = sessionOptions();
   const int previousLine = m_lineLevel->currentIndex();
   m_refreshing = true;
@@ -1119,26 +1279,21 @@ void CadmiumPopup::restoreSession() {
   // Resume replaces the current review state. Only successfully validated saved
   // entries may become applicable again, including when repaint mode changed.
   for (Drawing &drawing : m_drawings) {
-    drawing.ready = false; drawing.reviewed = false; drawing.error.clear();
-    drawing.target = Cadmium::Frame(); drawing.labelsFingerprint.clear();
-    drawing.proposals.clear(); drawing.selectedRegions.clear();
-    drawing.references.clear(); drawing.referencePreviews.clear();
-    drawing.targetBuilder = ImageBuilderP(); drawing.referenceBuilders.clear();
-    drawing.pendingTargetBuilder = ImageBuilderP(); drawing.pendingReferenceBuilders.clear();
-    drawing.requestedRegions.clear();
+    releaseDrawingCache(drawing); drawing.error.clear();
   }
   m_jobs.clear(); m_recovery.clear();
   for (const Cadmium::SessionDrawing &record : saved.drawings) {
     for (int index = 0; index < int(m_drawings.size()); ++index) if (m_drawings[index].fid == record.fid) {
+      Drawing &drawing = m_drawings[index];
+      drawing.applied = m_recovery.stage(record);
       bool validReferences = true;
       for (const Cadmium::SessionReference &reference : record.references)
         if (!m_level->isFid(reference.fid) || !m_level->getCadmiumReferences().count(reference.fid)) validReferences = false;
       if (!validReferences) { m_drawings[index].error = tr("A saved marked reference is no longer available."); continue; }
-      Drawing &drawing = m_drawings[index];
       drawing.referenceIds.clear();
       for (const Cadmium::SessionReference &reference : record.references) drawing.referenceIds.append(reference.fid);
       drawing.ready = false; drawing.reviewed = false; drawing.error.clear();
-      m_recovery.insert(record.fid, record); m_jobs.append(index);
+      m_jobs.append(index);
     }
   }
   m_savedSession = saved; m_sessionScene = sceneIdentity(); m_sessionDirty = false;
@@ -1175,10 +1330,7 @@ void CadmiumPopup::clearSession() {
   m_savedSession = Cadmium::Session(); m_recovery.clear();
   m_pendingSession = Cadmium::Session(); m_pendingScene.clear();
   for (Drawing &drawing : m_drawings) {
-    drawing.ready = false; drawing.reviewed = false; drawing.applied = false;
-    drawing.proposals.clear(); drawing.target = Cadmium::Frame();
-    drawing.labelsFingerprint.clear();
-    drawing.references.clear(); drawing.referencePreviews.clear(); drawing.selectedRegions.clear(); drawing.error.clear();
+    releaseDrawingCache(drawing); drawing.applied = false; drawing.error.clear();
   }
   ++m_snapshotEpoch; refresh(); refreshPreview();
   m_status->setText(tr("Saved proposals and review decisions cleared. Scene artwork and undo history were preserved."));
