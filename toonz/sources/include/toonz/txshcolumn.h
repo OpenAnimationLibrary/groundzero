@@ -80,10 +80,11 @@ protected:
     ePreviewVisible        = 0x2,
     eLocked                = 0x8,
     eMasked                = 0x10,
-    eCamstandTransparent43 = 0x20,  // obsoleto, solo per retrocompatibilita'
-    eSelectionLocked       = 0x40,  // not picked by clicking in the viewer
-    eLightTableExcluded    = 0x80,  // not faded by the light table
-    eOutlineView           = 0x100  // shown as coloured outlines in the viewer
+    eCamstandTransparent43 = 0x20,   // obsoleto, solo per retrocompatibilita'
+    eSelectionLocked       = 0x40,   // not picked by clicking in the viewer
+    eLightTableExcluded    = 0x80,   // not faded by the light table
+    eOutlineView           = 0x100,  // shown as coloured outlines in the viewer
+    eDepthExcluded         = 0x200   // not blurred or hazed by its depth
   };
 
   TRaster32P m_icon;
@@ -229,6 +230,19 @@ Set column status outline view to \b on.
 \sa isOutlineView()
 */
   void setOutlineView(bool on);
+
+  /*!
+Return true if the scene's Multiplane Depth leaves the column alone: it is
+not blurred or hazed by its distance (toonz/multiplanedepth.h). The flag is
+saved only when it is set.
+\sa setDepthExcluded()
+*/
+  bool isDepthExcluded() const;
+  /*!
+Set the column's exclusion from the Multiplane Depth to \b on.
+\sa isDepthExcluded()
+*/
+  void setDepthExcluded(bool on);
 
   /*!
 Return true if column is a mask.

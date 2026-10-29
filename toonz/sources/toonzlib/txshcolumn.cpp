@@ -730,6 +730,21 @@ void TXshColumn::setOutlineView(bool on) {
 
 //-----------------------------------------------------------------------------
 
+bool TXshColumn::isDepthExcluded() const {
+  return (m_status & eDepthExcluded) != 0;
+}
+
+//-----------------------------------------------------------------------------
+
+void TXshColumn::setDepthExcluded(bool on) {
+  if (on)
+    m_status |= eDepthExcluded;
+  else
+    m_status &= ~eDepthExcluded;
+}
+
+//-----------------------------------------------------------------------------
+
 bool TXshColumn::isMask() const { return (m_status & eMasked) != 0; }
 
 //-----------------------------------------------------------------------------

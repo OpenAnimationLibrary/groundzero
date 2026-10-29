@@ -518,6 +518,16 @@ if(BUILD_CAMERADEPTH_TESTS)
     add_test(NAME cameradepth COMMAND cameradepth_test)
 endif()
 
+# Optional regression target for the Multiplane Depth (multiplanedepth.h): the
+# math, the scene setting, and the blur and haze inserted per column by the
+# render. It links the standard FX for the Blur FX.
+option(BUILD_MULTIPLANEDEPTH_TESTS "Build the Multiplane Depth regression test" ${BUILD_TESTS})
+if(BUILD_MULTIPLANEDEPTH_TESTS)
+    add_executable(multiplanedepth_test tests/multiplanedepth_test.cpp)
+    target_link_libraries(multiplanedepth_test PRIVATE toonzlib tnzstdfx tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
+    add_test(NAME multiplanedepth COMMAND multiplanedepth_test)
+endif()
+
 # Optional regression target for the motion presets (motionpreset.h). It also
 # loads the stock presets shipped in stuff/library/motionpresets.
 option(BUILD_MOTIONPRESET_TESTS "Build the motion preset regression test" ${BUILD_TESTS})

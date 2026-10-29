@@ -5,6 +5,7 @@
 
 #include "tfilepath.h"
 #include "tpixel.h"
+#include "toonz/multiplanedepth.h"
 #include <QList>
 
 #undef DVAPI
@@ -99,6 +100,9 @@ private:
 
   bool m_columnColorFilterOnRender;
   TFilePath m_camCapSaveInPath;
+
+  // Depth of field and haze from the Z of the columns
+  MultiplaneDepth::Settings m_multiplaneDepth;
 
 public:
   /*!
@@ -280,6 +284,16 @@ and height.
   /* Activate / deactivate the column color filter in render */
   void enableColumnColorFilterOnRender(bool on) {
     m_columnColorFilterOnRender = on;
+  }
+
+  /* The Multiplane Depth: blur and haze of the columns from their Z. Saved
+   * only when it differs from the default (off). */
+  const MultiplaneDepth::Settings &getMultiplaneDepth() const {
+    return m_multiplaneDepth;
+  }
+  void setMultiplaneDepth(const MultiplaneDepth::Settings &settings) {
+    m_multiplaneDepth = settings;
+    m_multiplaneDepth.clamp();
   }
 
   /* Returns initial save in path for the camera capture feature */

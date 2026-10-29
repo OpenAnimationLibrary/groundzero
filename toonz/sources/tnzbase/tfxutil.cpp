@@ -143,6 +143,18 @@ TFxP TFxUtil::makeColumnColorEffect(const TFxP &arg, const double m[4],
 
 //-------------------------------------------------------------------
 
+TFxP TFxUtil::makeColumnDepth(const TFxP &arg, double haze, double desaturation,
+                              const double color[3]) {
+  ColumnDepthFx *depthFx = new ColumnDepthFx();
+  TFxP fx                = depthFx;
+  depthFx->setDepth(haze, desaturation, color);
+  if (!depthFx->connect("source", arg.getPointer()))
+    assert(!"Could not connect ports!");
+  return fx;
+}
+
+//-------------------------------------------------------------------
+
 int TFxUtil::getKeyframeStatus(const TFxP &fx, int frame) {
   bool keyframed = false, notKeyframed = false;
   for (int i = 0; i < fx->getParams()->getParamCount(); i++) {
