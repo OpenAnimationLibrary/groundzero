@@ -74,6 +74,16 @@ if(BUILD_TESTING OR BUILD_SEEXPR_TESTS)
     "${_seexpr_repository}/ci-scripts/seexpr/plugin_invalid_fixture.cpp")
   set_target_properties(seexpr_invalid_plugin_fixture PROPERTIES
     PREFIX "" OUTPUT_NAME SeExprInvalidFixture)
+  if(WIN32)
+    # Windows packaging copies the application's runtime directory. Keep test
+    # plugins and import/debug artifacts outside it in every configuration.
+    set(_seexpr_plugin_fixture_output "${CMAKE_BINARY_DIR}/seexpr-test-plugins/$<CONFIG>")
+    set_target_properties(seexpr_plugin_fixture seexpr_invalid_plugin_fixture PROPERTIES
+      RUNTIME_OUTPUT_DIRECTORY "${_seexpr_plugin_fixture_output}"
+      LIBRARY_OUTPUT_DIRECTORY "${_seexpr_plugin_fixture_output}"
+      ARCHIVE_OUTPUT_DIRECTORY "${_seexpr_plugin_fixture_output}"
+      PDB_OUTPUT_DIRECTORY "${_seexpr_plugin_fixture_output}")
+  endif()
   add_executable(seexpr_plugin_test "${_seexpr_repository}/ci-scripts/seexpr/sdk_plugin_test.cpp")
   target_compile_features(seexpr_plugin_test PRIVATE cxx_std_17)
   target_link_libraries(seexpr_plugin_test PRIVATE groundzero_seexpr_core)

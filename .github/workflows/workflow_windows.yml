@@ -360,13 +360,13 @@ jobs:
           xcopy /Y /E /I recorder-encoder toonz\build\Opentoonz\otdev-recorder
           copy /Y .github\ot-dev\recorder\README.md toonz\build\Opentoonz\otdev-recorder\README.md
 
-      - name: Verify native acceptance renderer was removed
+      - name: Verify test-only native artifacts are absent
         shell: pwsh
         run: |
           foreach ($directory in @("toonz/build/RelWithDebInfo", "toonz/build/Opentoonz")) {
-            foreach ($name in @("opengl32.dll", "libgallium_wgl.dll", "OpenToonz.exe.local")) {
+            foreach ($name in @("opengl32.dll", "libgallium_wgl.dll", "OpenToonz.exe.local", "SeExprSdkFixture.dll", "SeExprInvalidFixture.dll")) {
               if (Test-Path -LiteralPath (Join-Path $directory $name)) {
-                throw "A temporary native acceptance renderer file remained in the build or package"
+                throw "A test-only renderer or SDK fixture remained in the application runtime or package"
               }
             }
           }
