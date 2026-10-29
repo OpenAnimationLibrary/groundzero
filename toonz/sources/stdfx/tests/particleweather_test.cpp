@@ -19,7 +19,7 @@ namespace {
 void require(bool value, const std::string &message) {
   if (!value) throw std::runtime_error(message);
 }
-bool near(double a, double b, double tolerance = 1e-9) {
+bool approx(double a, double b, double tolerance = 1e-9) {
   return std::abs(a - b) <= tolerance;
 }
 
@@ -34,8 +34,8 @@ void testDepth() {
     seen.insert(d);
   }
   require(seen.size() == 4, "Particles do not fill every depth layer");
-  require(near(ParticleWeather::depthFactor(0, 0.3), 1) &&
-              near(ParticleWeather::depthFactor(1, 0.3), 0.3),
+  require(approx(ParticleWeather::depthFactor(0, 0.3), 1) &&
+              approx(ParticleWeather::depthFactor(1, 0.3), 0.3),
           "The depth factor does not go from 1 to the far value");
 }
 

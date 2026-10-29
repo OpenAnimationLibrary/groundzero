@@ -14,7 +14,7 @@ using FlowDisplace::Color;
 void require(bool value, const std::string &message) {
   if (!value) throw std::runtime_error(message);
 }
-bool near(double a, double b, double tolerance = 1e-9) {
+bool approx(double a, double b, double tolerance = 1e-9) {
   return std::abs(a - b) <= tolerance;
 }
 bool same(const Color &a, const Color &b) {
@@ -84,8 +84,8 @@ void testMap() {
   s.direction    = 90;
   const auto out = displace(image, &white, nullptr, s);
   // White pushes the full strength along the direction (down, +y)
-  require(near(out[size_t(15) * 40 + 20].r, image.at(20, 12).r, 1e-9) &&
-              near(out[size_t(15) * 40 + 20].g, image.at(20, 12).g, 1e-9),
+  require(approx(out[size_t(15) * 40 + 20].r, image.at(20, 12).r, 1e-9) &&
+              approx(out[size_t(15) * 40 + 20].g, image.at(20, 12).g, 1e-9),
           "A white map did not push along its direction");
 }
 
