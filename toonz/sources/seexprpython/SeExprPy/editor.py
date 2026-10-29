@@ -1682,5 +1682,5 @@ class ExprShortEdit(QtWidgets.QWidget):
 
 
 __all__ = ["ExprEditor", "ExprDialog", "ExprControlCollection", "ExprBrowser",
-           "ExprShortEdit", "ExprShortTextEdit", "ExprCurve", "ExprColorCurve",
+           "ExprShortEdit", "ExprShortTextEdit", "ExprCurve", "ExprColorCurve", "ExprAnimCurve",
            "ExprColorSwatchWidget", "ExprDeepWater"]
