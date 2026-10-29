@@ -432,6 +432,12 @@ void runSparseScene(const Config &cfg, const QString &dirPath) {
   xsh->setCell(5, 2, TXshCell(level, TFrameId(2)));
   xsh->getStageObject(TStageObjectId::ColumnId(1))
       ->getParam(TStageObject::T_X)->setValue(4, 12.5);
+  // setCell does not create stage objects when column-name linking is off,
+  // but insertColumn materializes every earlier column's stage object. Create
+  // those initial objects before taking the byte reference, so padding adds
+  // only metadata beyond the saved boundary.
+  for (int c = 0; c < xsh->getColumnCount(); ++c)
+    xsh->getStageObject(TStageObjectId::ColumnId(c));
   const SceneStats expected = sceneStats(scene);
   const QString referencePath = dir.filePath("sparse-reference.txt");
   writeXsheet(xsh, referencePath, false);
@@ -473,8 +479,16 @@ void runSparseScene(const Config &cfg, const QString &dirPath) {
 
   const QString paddedPath = dir.filePath("sparse-padded.txt");
   writeXsheet(xsh, paddedPath, false);
-  if (readBytes(paddedPath) != reference)
-    throw std::runtime_error("empty tail changed serialized xsheet contents");
+  const QByteArray padded = readBytes(paddedPath);
+  if (padded != reference) {
+    const auto difference = std::mismatch(reference.cbegin(), reference.cend(),
+                                          padded.cbegin(), padded.cend());
+    throw std::runtime_error(
+        "empty tail changed serialized xsheet contents at byte " +
+        std::to_string(difference.first - reference.cbegin()) +
+        " (reference length " + std::to_string(reference.size()) +
+        ", padded length " + std::to_string(padded.size()) + ")");
+  }
 
   const QString editedPath = dir.filePath("sparse-edited.tnz");
   const int lastColumn = paddedColumns - 1;
