@@ -153,8 +153,46 @@ jobs:
             sleep 5
           done
           echo "DMG created successfully."
-      - uses: actions/upload-artifact@v6
+      # A transient artifact-service DNS failure must not throw away a built
+      # DMG. Retry only delivery, with bounded backoff; the last attempt is
+      # required, so a package that never uploads still fails the job.
+      - name: Upload macOS package
+        id: upload_macos
+        uses: actions/upload-artifact@v6
+        timeout-minutes: 5
+        continue-on-error: true
         with:
           name: Opentoonz-${{ runner.os }}-${{ github.sha }}
           path: toonz/build/toonz/OpenToonz.dmg
+          if-no-files-found: error
+          compression-level: 0
+          overwrite: true
+      - name: Wait before retrying macOS upload
+        if: ${{ !cancelled() && steps.upload_macos.outcome == 'failure' }}
+        run: sleep 10
+      - name: Retry macOS package upload
+        id: upload_macos_retry
+        if: ${{ !cancelled() && steps.upload_macos.outcome == 'failure' }}
+        uses: actions/upload-artifact@v6
+        timeout-minutes: 5
+        continue-on-error: true
+        with:
+          name: Opentoonz-${{ runner.os }}-${{ github.sha }}
+          path: toonz/build/toonz/OpenToonz.dmg
+          if-no-files-found: error
+          compression-level: 0
+          overwrite: true
+      - name: Wait before final macOS upload attempt
+        if: ${{ !cancelled() && steps.upload_macos_retry.outcome == 'failure' }}
+        run: sleep 30
+      - name: Final macOS package upload attempt
+        if: ${{ !cancelled() && steps.upload_macos_retry.outcome == 'failure' }}
+        uses: actions/upload-artifact@v6
+        timeout-minutes: 5
+        with:
+          name: Opentoonz-${{ runner.os }}-${{ github.sha }}
+          path: toonz/build/toonz/OpenToonz.dmg
+          if-no-files-found: error
+          compression-level: 0
+          overwrite: true
 
