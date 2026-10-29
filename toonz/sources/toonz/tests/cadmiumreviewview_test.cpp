@@ -3,6 +3,7 @@
 
 #include <QApplication>
 #include <QComboBox>
+#include <QFontDatabase>
 #include <QMouseEvent>
 #include <QSlider>
 #include <QTranslator>
@@ -62,6 +63,11 @@ int main(int argc, char **argv) {
   qputenv("QT_QPA_PLATFORM", QByteArrayLiteral("offscreen"));
   QApplication app(argc, argv);
   try {
+    // Qt 5's Windows offscreen plugin uses FreeType's configured font
+    // directory, not the Windows system-font discovery used by the native
+    // platform plugin. A fontless canvas cannot validate painted captions.
+    require(!QFontDatabase().families().isEmpty(),
+            "offscreen font database is empty; configure QT_QPA_FONTDIR");
     CadmiumReviewView view;
     view.resize(860, 440);
     view.show();
@@ -215,18 +221,26 @@ int main(int argc, char **argv) {
     const QString message = UiTranslations::record(
         "CadmiumReviewViewTest", "No proposal selected", nullptr, -1,
         QStringLiteral("No proposal selected"));
+    const UiTranslations::Recipe messageTranslation = UiTranslations::recipe(message);
+    require(bool(messageTranslation), "cached message lost its source metadata");
+    require(messageTranslation() == "No proposal selected",
+            "cached message source recipe did not resolve its original language");
     view.clear(message);
     view.setZoom(7.0);
     view.setPan(QPointF(17.0, 23.0));
     const QImage sourceMessage = canvasImage(view);
     app.installTranslator(&translator);
     app.processEvents();
-    require(canvasImage(view) != sourceMessage && view.zoom() == 7.0 &&
+    require(messageTranslation() == "Translated empty review message",
+            "cached message source recipe did not resolve the installed translator");
+    require(canvasImage(view) != sourceMessage,
+            "cached empty-state message did not repaint its translated text");
+    require(view.zoom() == 7.0 &&
                 view.pan() == QPointF(17.0, 23.0) &&
                 view.mode() == CadmiumReviewView::Mode::Wipe &&
                 view.wipePosition() == 0.4 && view.overlayOpacity() == 0.6 &&
                 languageModeChanges == 0,
-            "cached empty-state message did not translate in place");
+            "cached empty-state translation changed review state");
     app.removeTranslator(&translator);
     app.processEvents();
     require(canvasImage(view) == sourceMessage &&

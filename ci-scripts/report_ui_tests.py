@@ -8,10 +8,11 @@ def escape(value):
 
 
 report = pathlib.Path(sys.argv[1])
+title = sys.argv[2] if len(sys.argv) > 2 else "Native UI regression"
+annotation = "::error title=" + escape(title).replace(",", "%2C") + "::"
 try:
     output = report.read_text(encoding="utf-8", errors="replace")
-    print("::error title=Native UI regression::"
-          + escape(output[-12000:] or "Native UI tests produced an empty output report"))
+    print(annotation
+          + escape(output[-12000:] or "Tests produced an empty output report"))
 except OSError as error:
-    print("::error title=Native UI regression::"
-          + escape(f"Native UI test output report is unavailable: {error}"))
+    print(annotation + escape(f"Test output report is unavailable: {error}"))

@@ -208,6 +208,7 @@ jobs:
 
       # Create the package
       - name: Create Package
+        id: package
         run: |
           @echo on
           cd toonz\build
@@ -238,12 +239,27 @@ jobs:
         shell: cmd
 
       - name: Install optional Cadmium worker
+        id: install_worker
         uses: actions/download-artifact@v6
         with:
           name: cadmium-runtime-windows-x64
           path: toonz/build/Opentoonz
 
+      # Qt 5's Windows offscreen plugin uses FreeType without system font
+      # discovery. Give image-based UI regressions the installed font directory.
+      - name: Configure offscreen fonts
+        if: ${{ !cancelled() && steps.package.outcome == 'success' }}
+        shell: pwsh
+        run: |
+          $fontDirectory = Join-Path $env:WINDIR "Fonts"
+          if (-not (Test-Path -LiteralPath $fontDirectory -PathType Container)) {
+            throw "System font directory is unavailable for offscreen UI tests."
+          }
+          "QT_QPA_FONTDIR=$fontDirectory" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
       - name: Test cel effects
+        id: cel_tests
+        if: ${{ !cancelled() && steps.package.outcome == 'success' }}
         shell: cmd
         run: |
           set "PATH=%CD%\toonz\build\Opentoonz;%QT_PATH%\bin;%PATH%"
@@ -257,16 +273,22 @@ jobs:
           exit /b %CEL_TEST_EXIT%
 
       - name: Test Cadmium adapters
+        id: cadmium_tests
+        if: ${{ !cancelled() && steps.package.outcome == 'success' }}
         shell: cmd
         run: |
           set "PATH=%CD%\toonz\build\Opentoonz;%QT_PATH%\bin;%PATH%"
           set "QT_PLUGIN_PATH=%QT_PATH%\plugins"
           set "QT_QPA_PLATFORM_PLUGIN_PATH=%QT_PATH%\plugins\platforms"
           cd toonz\build
-          ctest -C RelWithDebInfo --output-on-failure --no-tests=error -R "^cadmium_"
+          ctest -C RelWithDebInfo --output-on-failure --no-tests=error -R "^cadmium_" > cadmium-tests-output.txt 2>&1
+          set "CADMIUM_TEST_EXIT=%ERRORLEVEL%"
+          type cadmium-tests-output.txt
+          exit /b %CADMIUM_TEST_EXIT%
 
       - name: Test native UI features
         id: ui_tests
+        if: ${{ !cancelled() && steps.package.outcome == 'success' }}
         shell: cmd
         run: |
           set "PATH=%CD%\toonz\build\Opentoonz;%QT_PATH%\bin;%PATH%"
@@ -280,6 +302,7 @@ jobs:
 
       - name: Test native application integration
         id: ui_integration
+        if: ${{ !cancelled() && steps.package.outcome == 'success' }}
         shell: cmd
         run: |
           set "PATH=%CD%\toonz\build\Opentoonz;%QT_PATH%\bin;%PATH%"
@@ -295,7 +318,12 @@ jobs:
         if: ${{ failure() && steps.ui_tests.outcome == 'failure' }}
         run: python ci-scripts/report_ui_tests.py toonz/build/ui-tests-output.txt
 
+      - name: Report Cadmium adapter failures
+        if: ${{ failure() && steps.cadmium_tests.outcome == 'failure' }}
+        run: python ci-scripts/report_ui_tests.py toonz/build/cadmium-tests-output.txt "Cadmium adapter regression"
+
       - name: Verify models and exercise native painting pipelines
+        if: ${{ !cancelled() && steps.package.outcome == 'success' && steps.install_worker.outcome == 'success' }}
         shell: cmd
         run: |
           set "PATH=%CD%\toonz\build\Opentoonz;%QT_PATH%\bin;%PATH%"
@@ -306,7 +334,7 @@ jobs:
           toonz\build\RelWithDebInfo\cadmium_pipeline_test.exe "%CD%\toonz\build\Opentoonz\cadmium-sidecar.exe" "%CD%\models"
 
       - name: Report cel test failures
-        if: failure()
+        if: ${{ failure() && steps.cel_tests.outcome == 'failure' }}
         run: python ci-scripts/report_cel_tests.py toonz/build/cel-tests-output.txt
 
       - name: Add the recorder encoder to the package
