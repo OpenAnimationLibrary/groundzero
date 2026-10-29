@@ -51,6 +51,7 @@
 #include <iostream>
 #include <map>
 #include <set>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -61,6 +62,11 @@ namespace {
 constexpr int FrameCount = 24;
 constexpr int ImageSize = 256;
 constexpr double FrameRate = 24.0;
+// Both scene XML and PNG pHYs metadata must round-trip the same geometry.
+// Stage::inch is 53.33333: using ImageSize / Stage::inch as camera size
+// produces 4.800000300000019, which ordinary scene serialization rounds to
+// 4.8. Even that small DPI change can cross a sprite density sampling boundary.
+constexpr double ArtworkDpi = 64.0;
 constexpr double Pi = 3.14159265358979323846;
 const TRectD Viewport(-ImageSize / 2, -ImageSize / 2,
                        ImageSize / 2, ImageSize / 2);
@@ -138,16 +144,36 @@ TRaster32P render(ToonzScene &scene, int frame) {
 void compare(const TRaster32P &a, const TRaster32P &b,
              const std::string &context) {
   require(a && b && a->getSize() == b->getSize(), context + ": invalid render size");
-  std::size_t occupied = 0, different = 0;
+  std::size_t occupied = 0, different = 0, alpha = 0, rgb = 0;
+  int maximum = 0;
+  std::string firstDifference;
   for (int y = 0; y < a->getLy(); ++y)
     for (int x = 0; x < a->getLx(); ++x) {
       const TPixel32 &left = a->pixels(y)[x], &right = b->pixels(y)[x];
       if (left.m) ++occupied;
-      if (left != right) ++different;
+      if (left != right) {
+        ++different;
+        if (left.m != right.m) ++alpha;
+        if (left.r != right.r || left.g != right.g || left.b != right.b) ++rgb;
+        maximum = std::max({maximum, std::abs(int(left.r) - int(right.r)),
+                            std::abs(int(left.g) - int(right.g)),
+                            std::abs(int(left.b) - int(right.b)),
+                            std::abs(int(left.m) - int(right.m))});
+        if (firstDifference.empty()) {
+          std::ostringstream detail;
+          detail << "; first pixel (" << x << ',' << y << "), expected RGBA=("
+                 << int(left.r) << ',' << int(left.g) << ',' << int(left.b) << ','
+                 << int(left.m) << "), actual RGBA=(" << int(right.r) << ','
+                 << int(right.g) << ',' << int(right.b) << ',' << int(right.m) << ')';
+          firstDifference = detail.str();
+        }
+      }
     }
   require(occupied > 0, context + ": empty demo output");
   require(different == 0, context + ": " + std::to_string(different) +
-                             " pixels changed");
+              " pixels changed; RGB=" + std::to_string(rgb) +
+              ", alpha=" + std::to_string(alpha) +
+              ", maximum channel delta=" + std::to_string(maximum) + firstDifference);
 }
 
 std::shared_ptr<TProject> makeProject(const QString &root) {
@@ -171,7 +197,7 @@ void setupScene(ToonzScene &scene, const std::shared_ptr<TProject> &project,
   scene.setScenePath(project->getScenesPath() + TFilePath(name + ".tnz"));
   auto *camera = scene.getXsheet()->getStageObjectTree()->getCurrentCamera();
   require(camera != nullptr, "Demo scene has no camera");
-  camera->setSize(TDimensionD(ImageSize / Stage::inch, ImageSize / Stage::inch));
+  camera->setSize(TDimensionD(ImageSize / ArtworkDpi, ImageSize / ArtworkDpi));
   camera->setRes(TDimension(ImageSize, ImageSize));
   scene.getProperties()->setBgColor(TPixel32::Transparent);
   for (auto *output : {scene.getProperties()->getOutputProperties(),
@@ -194,7 +220,8 @@ TXshSimpleLevelP artwork(ToonzScene &scene, const QString &name, int column,
   level->setScene(&scene);
   level->setPath(TFilePath("+drawings/") + TFilePath(name + "..png"));
   level->getProperties()->setDpiPolicy(LevelProperties::DP_CustomDpi);
-  level->getProperties()->setDpi(Stage::inch);
+  level->getProperties()->setDpi(ArtworkDpi);
+  level->getProperties()->setImageDpi(TPointD(ArtworkDpi, ArtworkDpi));
   level->getProperties()->setImageRes(TDimension(size, size));
   scene.getLevelSet()->insertLevel(level.getPointer());
   for (int drawing = 0; drawing < (control ? 1 : 2); ++drawing) {
@@ -215,7 +242,7 @@ TXshSimpleLevelP artwork(ToonzScene &scene, const QString &name, int column,
         }
       }
     TRasterImageP image(raster);
-    image->setDpi(Stage::inch, Stage::inch);
+    image->setDpi(ArtworkDpi, ArtworkDpi);
     level->setFrame(TFrameId(drawing + 1), image);
   }
   for (int frame = 0; frame < FrameCount; ++frame)
@@ -432,7 +459,8 @@ Demo nativeDemo(const std::shared_ptr<TProject> &project, bool tiled) {
   source->getAttributes()->setDagNodePos(TPointD(260, 220));
   column->getZeraryColumnFx()->setZeraryFx(cache.getPointer());
   for (const auto &item : demo.reference)
-    compare(item.second, render(scene, item.first), demo.sceneName.toStdString() + "/live-vs-cache");
+    compare(item.second, render(scene, item.first), demo.sceneName.toStdString() +
+                "/live-vs-cache/frame=" + std::to_string(item.first + 1));
   saveScene(scene);
   return demo;
 }
@@ -443,12 +471,16 @@ void insideBundle(const QString &file, const QString &root) {
           "Demo dependency is missing or outside the relocated bundle: " + file.toStdString());
 }
 
-void validateDemo(const QString &root, const Demo &demo) {
+void validateDemo(const QString &root, const Demo &demo, const std::string &phase) {
   ToonzScene reopened;
   reopened.load(TFilePath(QDir(root).filePath("scenes/" + demo.sceneName + ".tnz")), false);
   require(reopened.getFrameCount() == FrameCount, "Reopened demo changed timeline length");
   require(reopened.getProperties()->getOutputProperties()->getFrameRate() == FrameRate,
           "Reopened demo changed scene timing");
+  const auto *camera = reopened.getXsheet()->getStageObjectTree()->getCurrentCamera();
+  require(camera && camera->getRes() == TDimension(ImageSize, ImageSize) &&
+              camera->getSize() == TDimensionD(ImageSize / ArtworkDpi, ImageSize / ArtworkDpi),
+          "Reopened demo changed camera geometry");
   auto *column = dynamic_cast<TXshZeraryFxColumn *>(
       reopened.getXsheet()->getColumn(demo.cacheColumn));
   require(column != nullptr, "Reopened demo lost its cache column");
@@ -469,9 +501,17 @@ void validateDemo(const QString &root, const Demo &demo) {
     auto *level = reopened.getLevelSet()->getLevel(i)->getSimpleLevel();
     if (!level) continue;
     require(!level->getPath().isAbsolute(), "Serialized artwork path is not portable");
+    require(level->getProperties()->getDpiPolicy() == LevelProperties::DP_CustomDpi &&
+                level->getProperties()->getDpi() == TPointD(ArtworkDpi, ArtworkDpi),
+            "Reopened demo changed artwork geometry");
     for (const auto &fid : level->getFids()) {
       insideBundle(reopened.decodeFilePath(level->getPath()).withFrame(fid).getQString(), root);
-      require(bool(level->getFrame(fid, false)), "Cannot load relocated editable artwork");
+      TRasterImageP image = level->getFrame(fid, false);
+      require(bool(image), "Cannot load reopened editable artwork");
+      double dpiX, dpiY;
+      image->getDpi(dpiX, dpiY);
+      require(dpiX == ArtworkDpi && dpiY == ArtworkDpi,
+              "Reopened PNG changed image DPI metadata");
     }
   }
   if (!demo.nativeType.empty()) {
@@ -526,12 +566,13 @@ void validateDemo(const QString &root, const Demo &demo) {
       }
     }
     const TRaster32P image = render(reopened, item.first);
-    compare(item.second, image, demo.sceneName.toStdString() + "/relocated-scene");
-    if (item.first == 11 || item.first == 12)
+    compare(item.second, image, demo.sceneName.toStdString() + "/" + phase +
+                "/frame=" + std::to_string(item.first + 1));
+    if (phase == "relocated-scene" && (item.first == 11 || item.first == 12))
       TImageWriter::save(TFilePath(QDir(root).filePath("previews/" + demo.sceneName + ".png")), image);
   }
   std::cout << "Validated " << demo.sceneName.toStdString()
-            << ": saved, relocated, reopened, rendered; dependencies stay in bundle\n";
+            << '/' << phase << ": reopened and rendered; dependencies stay in bundle\n";
 }
 }  // namespace
 
@@ -574,6 +615,12 @@ int main(int argc, char **argv) {
     require(QFile::copy(QFileInfo(QString::fromLocal8Bit(argv[2])).absoluteFilePath(),
                         staging.filePath("README.md")), "Cannot copy example README");
     directory(staging.filePath("previews"));
+    // Keep the generated-memory reference: this comparison checks persistence
+    // independently of relocation and does not replace or normalize the oracle.
+    TImageCache::instance()->clear();
+    ParticleCache::clearMemoryCache();
+    const QString originalRoot = QFileInfo(staging.path()).canonicalFilePath();
+    for (const auto &demo : demos) validateDemo(originalRoot, demo, "same-location-reopen");
     // A real relocation catches accidentally persisted generation-time paths.
     require(QDir().rename(staging.path(), outputInfo.absoluteFilePath()),
             "Cannot publish portable demo bundle");
@@ -581,10 +628,11 @@ int main(int argc, char **argv) {
     TImageCache::instance()->clear();
     ParticleCache::clearMemoryCache();
     const QString root = QFileInfo(outputInfo.absoluteFilePath()).canonicalFilePath();
-    for (const auto &demo : demos) validateDemo(root, demo);
+    for (const auto &demo : demos) validateDemo(root, demo, "relocated-scene");
     writeText(QDir(root).filePath("VALIDATED.txt"),
               "Generated with production OpenToonz scene, level, particle and bake APIs.\n"
-              "Three scenes saved, moved, reopened and rendered at three sample frames each.\n"
+              "Three scenes saved and reopened, then moved and reopened again.\n"
+              "Both reopen checks render three sample frames per scene against the original output.\n"
               "Native source/cache pixels match exactly at frames 6, 13 and 24.\n"
               "All particle files, native sprites, sidecars and drawing frames resolve inside this bundle.\n"
               "No external tools, external artwork or test-only FX are required to open the scenes.\n");

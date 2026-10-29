@@ -9,7 +9,9 @@ Open a scene below with **File → Load Scene**. Keep the project file,
 `scenes/scenes.xml`, `drawings`, and `extras` together when moving the examples.
 OpenToonz discovers the project automatically from `scenes.xml`; no external
 simulator, plugin installation, or absolute asset paths are needed. Each scene
-is 24 frames at 24 fps, with a 256 × 256 camera. PNG previews are in `previews/`.
+is 24 frames at 24 fps, with a 256 × 256 camera. The camera is 4 inches square
+and the artwork uses 64 DPI, so scene and PNG geometry round-trip exactly.
+PNG previews are in `previews/`.
 
 | Scene | What it demonstrates |
 | --- | --- |
@@ -81,12 +83,13 @@ README. The generator is
 particle cache/bake APIs. It does not hand-author scene XML or persist custom
 test effects.
 
-Before publishing `VALIDATED.txt`, generation saves all three scenes, moves the
-whole project, reloads the scene and artwork files, checks every cache dependency
-is inside the moved bundle, and compares rendered sample frames before and after
-reopening. Native live and baked output must match exactly at frames 6, 13 and
-24. The external scene checks frames 1, 12 and 24, including fractional cache
-sampling. `previews/` contains one rendered PNG from each reopened scene.
+Before publishing `VALIDATED.txt`, generation saves all three scenes and reopens
+them in place, then moves the whole project and reopens them again. Both checks
+reload scene and artwork files, verify camera and artwork geometry, check every
+cache dependency stays inside the bundle, and compare sample renders with the
+original output. Native live and baked output must match exactly at frames 6, 13
+and 24. The external scene checks frames 1, 12 and 24, including fractional cache
+sampling. `previews/` contains one rendered PNG from each relocated scene.
 
 The generated artwork and particle motion are original example content and may
 be used or modified under the repository's BSD-3-Clause license.
