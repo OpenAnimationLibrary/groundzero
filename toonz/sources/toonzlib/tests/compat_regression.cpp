@@ -24,8 +24,10 @@
 // The file must also compile, unchanged, against the edition tree: it uses
 // only the API that exists there.
 //
-// Usage: compat_regression <repository root> <output folder>
+// Usage: compat_regression [--require-rendering] <repository root> <output folder>
 //        compat_regression --load <scene.tnz> <output folder>
+// Graphics CI uses --require-rendering: missing OpenGL or a failed scene
+// render is an error, not a serialization-only comparison.
 
 #include "tcommon.h"
 #include "tenv.h"
@@ -628,10 +630,13 @@ void buildScene(ToonzScene &scene, const QString &root, const QStringList &plis,
 // Renders rows through the FX tree of the scene on this thread, as
 // stdfx/tests/fxrender_test.cpp renders its FX graphs. Returns a manifest line
 // per row.
-std::string renderScene(ToonzScene &scene, const QDir &outDir) {
+std::string renderScene(ToonzScene &scene, const QDir &outDir, bool &failed) {
   std::string out;
   TCamera *camera = scene.getCurrentCamera();
-  if (!camera) return "scene render: no camera\n";
+  if (!camera) {
+    failed = true;
+    return "scene render: no camera\n";
+  }
   const TDimension res = camera->getRes();
   TRenderer renderer(1);
   for (int row : cRenderRows) {
@@ -664,6 +669,7 @@ std::string renderScene(ToonzScene &scene, const QDir &outDir) {
     });
     out += textf("scene render row %d: ", row + 1) +
            (error.empty() ? std::string("ok") : "error: " + error) + "\n";
+    if (!error.empty()) failed = true;
   }
   return out;
 }
@@ -677,14 +683,22 @@ void setLibraryRoot(const TFilePath &library) {
   TPalette::setRootDir(library);
 }
 
-int runGenerate(const QString &root, const QString &outPath) {
+int runGenerate(const QString &root, const QString &outPath,
+                bool requireRendering) {
   const QDir outDir(outPath);
-  outDir.mkpath("pli");
+  if (!outDir.mkpath("pli"))
+    throw std::runtime_error("cannot create compatibility output directory");
   setLibraryRoot(toPath(QDir(root).filePath("stuff/library")));
 
   const bool gl = openGLAvailable();
   std::string manifest =
       textf("opengl %s\n", gl ? "yes" : "no (renders skipped)");
+  if (requireRendering && !gl) {
+    writeText(outDir.filePath("manifest.txt"), manifest);
+    std::cerr << "compat_regression: rendering requires an OpenGL context"
+              << std::endl;
+    return 1;
+  }
 
   const QStringList plis = findPliFiles(root, outDir.absolutePath());
   manifest += textf("pli files %d\n", (int)plis.size());
@@ -705,14 +719,20 @@ int runGenerate(const QString &root, const QString &outPath) {
     writeText(outDir.filePath("scene_dump.txt"), dumpScene(loaded));
   });
   manifest += "scene: " + (error.empty() ? std::string("ok") : error) + "\n";
+  bool renderFailed = false;
   if (error.empty())
-    manifest += gl ? renderScene(scene, outDir)
+    manifest += gl ? renderScene(scene, outDir, renderFailed)
                    : std::string("scene render skipped: no OpenGL context\n");
 
   writeText(outDir.filePath("manifest.txt"), manifest);
   std::cout << manifest;
   if (!error.empty()) {
     std::cerr << "compat_regression: scene: " << error << std::endl;
+    return 1;
+  }
+  if (requireRendering && renderFailed) {
+    std::cerr << "compat_regression: a required scene render failed"
+              << std::endl;
     return 1;
   }
   return 0;
@@ -741,10 +761,15 @@ int main(int argc, char *argv[]) {
   // A QGuiApplication: the vector renderer draws through an offscreen OpenGL
   // surface (QT_QPA_PLATFORM=offscreen when headless)
   QGuiApplication app(argc, argv);
-  const QStringList args = app.arguments();
+  QStringList args = app.arguments();
+  const bool requireRendering =
+      args.size() > 1 && args[1] == "--require-rendering";
+  if (requireRendering) args.removeAt(1);
   const bool load        = args.size() == 4 && args[1] == "--load";
-  if (!load && (args.size() != 3 || args[1].startsWith("--"))) {
-    std::cerr << "Usage: compat_regression <repository root> <output folder>\n"
+  if ((load && requireRendering) ||
+      (!load && (args.size() != 3 || args[1].startsWith("--")))) {
+    std::cerr << "Usage: compat_regression [--require-rendering] "
+                 "<repository root> <output folder>\n"
                  "       compat_regression --load <scene.tnz> <output folder>"
               << std::endl;
     return 2;
@@ -777,7 +802,8 @@ int main(int argc, char *argv[]) {
 
     status = load ? runLoad(args[2], args[3])
                   : runGenerate(QFileInfo(args[1]).absoluteFilePath(),
-                                QFileInfo(args[2]).absoluteFilePath());
+                                QFileInfo(args[2]).absoluteFilePath(),
+                                requireRendering);
   });
   if (!error.empty()) {
     std::cerr << "compat_regression: " << error << std::endl;

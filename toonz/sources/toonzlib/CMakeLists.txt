@@ -592,6 +592,14 @@ endif()
 # Optional benchmark of scene save and load (master plan E6, see
 # doc/scene_io_profile.md). It prints "NOTICE:" lines with the timings and
 # fails only when a loaded scene differs from the saved one.
+if(BUILD_RELIABILITY_TESTS)
+    add_executable(save_transaction_test tests/save_transaction_test.cpp)
+    target_link_libraries(save_transaction_test PRIVATE
+        toonzlib tnzbase tnzcore image Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
+    add_test(NAME save_transaction COMMAND save_transaction_test)
+    set_tests_properties(save_transaction PROPERTIES TIMEOUT 120)
+endif()
+
 option(BUILD_SCENEBENCH_TESTS "Build the scene save and load benchmark" ${BUILD_TESTS})
 if(BUILD_SCENEBENCH_TESTS)
     add_executable(scenebench_test tests/scenebench_test.cpp)

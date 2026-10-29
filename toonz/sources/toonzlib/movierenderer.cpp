@@ -463,7 +463,7 @@ std::pair<bool, int> MovieRenderer::Imp::saveFrame(
         has64bitOutputSupport = writerA->is64bitOutputSupported();
 
         const std::string &type = toLower(m_fp.getType());
-        Tiio::Writer *writer    = Tiio::makeWriter(type);
+        std::unique_ptr<Tiio::Writer> writer(Tiio::makeWriter(type));
         writeInLinearColorSpace = writer && writer->writeInLinearColorSpace();
         if (writeInLinearColorSpace) {
           TDoubleProperty *gammaProp =
