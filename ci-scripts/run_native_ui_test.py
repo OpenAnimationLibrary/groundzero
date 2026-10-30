@@ -2,6 +2,7 @@
 import argparse
 from contextlib import contextmanager, nullcontext
 import json
+import math
 import os
 from pathlib import Path
 import shutil
@@ -11,6 +12,48 @@ import sys
 import tempfile
 import time
 from windows_process import WindowsJobProcess
+
+
+def original_macos_identity_witness(identity, native_status):
+    """Publish only bounded numeric identity, never an executable/local path."""
+    def scalar(value):
+        if type(value) not in (int, float):
+            return "unavailable"
+        try:
+            return format(value, ".17g") if math.isfinite(value) else "unavailable"
+        except OverflowError:
+            return "unavailable"
+    _, pid, started_at, finished_at = identity
+    return ("Original macOS identity: "
+            f"pid={scalar(pid)} status={scalar(native_status)} "
+            f"started_at={scalar(started_at)} finished_at={scalar(finished_at)}\n")
+
+
+def write_macos_crash_text(path, text):
+    """Replace a complete report atomically, retaining old evidence on failure."""
+    temporary = None
+    diagnostic = ""
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", newline="", dir=path.parent,
+                                         prefix=f".{path.name}.", suffix=".tmp",
+                                         delete=False) as destination:
+            temporary = Path(destination.name)
+            destination.write(text)
+        # The sibling file is closed successfully before replacing the old
+        # report, so a partial write or failed replace cannot truncate it.
+        os.replace(temporary, path)
+    except (OSError, ValueError) as error:
+        diagnostic = (f"Could not save original macOS crash report: {type(error).__name__} "
+                      f"(errno={getattr(error, 'errno', None)}).\n")
+    finally:
+        if temporary is not None:
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError as error:
+                diagnostic += (f"Could not remove temporary macOS crash report: {type(error).__name__} "
+                               f"(errno={getattr(error, 'errno', None)}).\n")
+    return diagnostic
 
 
 @contextmanager
@@ -557,6 +600,9 @@ def main():
     native_status = None
     executable, source = None, None
     original_windows = None
+    original_macos_identity = None
+    original_macos_text = ""
+    original_macos_matched = False
     runtime_state = {"safe_to_release": True}
     try:
         executable = args.executable.resolve(strict=True)
@@ -617,18 +663,17 @@ def main():
                         output += f"Could not save original core diagnostic report: {error}\n"
                 if sys.platform == "darwin" and native_status < 0 and runtime_state["safe_to_release"]:
                     from native_macos_crash import collect_original_macos_crash
-                    crash_output = collect_original_macos_crash(executable, runtime_state.get("pid"),
+                    # Later clear/debugger helpers may overwrite runtime_state.
+                    # Keep the original process identity independent of them.
+                    original_macos_identity = (executable, runtime_state.get("pid"),
                         runtime_state.get("started_at"), runtime_state.get("finished_at"))
-                    output += "\n--- Original macOS process crash report (no replay) ---\n" + crash_output
-                    try:
-                        report = args.output.with_name(args.output.stem + "-original-macos-crash.txt")
-                        report.parent.mkdir(parents=True, exist_ok=True)
-                        report.write_text(crash_output, encoding="utf-8")
-                    except (OSError, ValueError) as error:
-                        detail = str(getattr(error, "strerror", None) or type(error).__name__)
-                        detail = detail.replace("\r", " ").replace("\n", " ")[:160]
-                        output += (f"Could not save original macOS crash report: {type(error).__name__} "
-                                   f"(errno={getattr(error, 'errno', None)}): {detail}\n")
+                    crash_output = collect_original_macos_crash(*original_macos_identity)
+                    original_macos_matched = crash_output.startswith(
+                        f"original-macos-crash: MATCHED original PID {original_macos_identity[1]}; no replay.\n")
+                    original_macos_text = original_macos_identity_witness(original_macos_identity, native_status) + crash_output
+                    output += "\n--- Original macOS process crash report (no replay) ---\n" + original_macos_text
+                    report = args.output.with_name(args.output.stem + "-original-macos-crash.txt")
+                    output += write_macos_crash_text(report, original_macos_text)
                 if status == 0 and selected_suite:
                     lines = output.splitlines()
                     timing_pass = "function-timing-native: PASS"
@@ -789,6 +834,25 @@ def main():
         except (OSError, ValueError) as error:
             diagnostics += f"Could not save native debugger report: {error}\n"
         print(diagnostics, end="")
+    if original_macos_identity is not None and not original_macos_matched:
+        # The OS may finish its report during existing diagnostic work. This
+        # is one zero-wait read for the SAME retired original process, even if
+        # a diagnostic changed runtime_state; no later PID/status can qualify it.
+        from native_macos_crash import collect_original_macos_crash
+        try:
+            late_report = collect_original_macos_crash(*original_macos_identity, timeout=0)
+        except (OSError, RuntimeError, TypeError, ValueError) as error:
+            late_report = ("original-macos-crash: UNAVAILABLE (final original-process "
+                           f"scan failed: {type(error).__name__}).\n")
+        late_output = "\n--- Final zero-wait scan for the same original macOS process ---\n" + late_report
+        original_macos_text += late_output
+        report = args.output.with_name(args.output.stem + "-original-macos-crash.txt")
+        late_output += write_macos_crash_text(report, original_macos_text)
+        output += late_output
+        # The initial report was already printed/saved before debugger work.
+        # Preserve it verbatim and retain the late evidence in both destinations.
+        late_output += write_macos_crash_text(args.output, output)
+        print(late_output, end="", flush=True)
     return 0 if status == 0 else 1
 
 
