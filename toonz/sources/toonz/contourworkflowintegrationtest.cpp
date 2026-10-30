@@ -5,6 +5,7 @@
 #include "tools/toolhandle.h"
 #include "tools/strokeselection.h"
 #include "toonzqt/menubarcommand.h"
+#include "toonzqt/tselectionhandle.h"
 #include "toonz/toonzscene.h"
 #include "toonz/tscenehandle.h"
 #include "toonz/txshsimplelevel.h"
@@ -21,17 +22,26 @@
 #include "tregion.h"
 #include "tstroke.h"
 #include "tpalette.h"
+#include "tproperty.h"
 #include "tsimplecolorstyles.h"
 #include "tundo.h"
 #include <QAction>
 #include <QApplication>
+#include <QDialog>
+#include <QLabel>
+#include <QTimer>
 #include <algorithm>
 #include <cmath>
+#include <iostream>
+#include <sstream>
 #include <stdexcept>
 
 namespace {
 void require(bool ok, const char *message) {
   if (!ok) throw std::runtime_error(message);
+}
+void checkpoint(const char *phase) {
+  std::cout << "vector-contour-native: " << phase << std::endl;
 }
 TRaster32P render(const TVectorImageP &image) {
   TOfflineGL context(TDimension(256,256));
@@ -78,6 +88,7 @@ void compareRenders(const TRaster32P &before, const TRaster32P &after) {
 }
 
 void runContourOutlineNativeChecks() {
+  checkpoint("preparing nested-group drawing and native selection");
   auto *app = TApp::instance();
   auto *level = app->getCurrentScene()->getScene()->createNewLevel(
       PLI_XSHLEVEL, L"ContourWorkflowFixture")->getSimpleLevel();
@@ -109,26 +120,71 @@ void runContourOutlineNativeChecks() {
   app->getCurrentColumn()->setColumnIndex(0);
   app->getCurrentFrame()->setFrame(0);
   app->getCurrentLevel()->setLevel(level);
+  app->getCurrentXsheet()->notifyXsheetChanged();
   app->getCurrentTool()->setTool("T_Selection");
   QCoreApplication::processEvents();
-  auto *selection = dynamic_cast<StrokeSelection *>(app->getCurrentTool()->getTool()->getSelection());
+  auto *tool = app->getCurrentTool()->getTool();
+  // Tool options survive fixture/tool switches. Whole Level deliberately skips
+  // doOnActivate(), and its AttachedLevelSelection clears the stroke selection
+  // when relinquishing command ownership. Enter the single-drawing workflow
+  // through its native property before binding this fixture's selected stroke.
+  auto *mode = dynamic_cast<TEnumProperty *>(
+      tool->getProperties(0)->getProperty(std::string("Mode:")));
+  require(mode, "native contour selection mode property missing");
+  mode->setValue(L"Standard");
+  require(tool->onPropertyChanged("Mode:"), "native contour Standard mode was not applied");
+  auto *selection = dynamic_cast<StrokeSelection *>(tool->getSelection());
   require(selection, "native contour selection unavailable");
+  require(selection->getImage() == original && TVectorImageP(tool->getImage(false)) == original &&
+              tool->getCurrentFid() == TFrameId(1),
+          "native contour selection is bound to another drawing");
   // Enter the nested group to select just the top brush stroke.
   require(original->enterGroup(1) && original->enterGroup(1), "native contour fixture group entry failed");
-  selection->selectNone(); selection->select(1, true); selection->makeCurrent();
+  selection->makeCurrent();
+  selection->selectNone(); selection->select(1, true);
   app->getCurrentTool()->notifyToolChanged();
+  require(app->getCurrentSelection()->getSelection() == selection &&
+              selection->getSelection().size() == 1 && selection->isSelected(1) &&
+              selection->isEditable() && original->isEnteredGroupStroke(1),
+          "native contour command lost its editable selected stroke");
+  checkpoint("rendering original nested-group drawing");
   const auto before = render(original);
   const int originalStyleCount = palette->getStyleCount();
   auto *undo = TUndoManager::manager(); undo->reset();
   auto *action = CommandManager::instance()->getAction(MI_ConvertToOutlineShapes);
   require(action && action->isEnabled(), "native contour command disabled");
+  checkpoint("triggering registered contour command");
+  QString unexpectedDialog;
+  QTimer dialogGuard;
+  QObject::connect(&dialogGuard, &QTimer::timeout, [&]() {
+    auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
+    if (!dialog) return;
+    unexpectedDialog = dialog->windowTitle();
+    for (auto *label : dialog->findChildren<QLabel *>())
+      unexpectedDialog += " | " + label->text();
+    dialog->reject();
+  });
+  dialogGuard.start(0);
   action->trigger();
+  dialogGuard.stop();
+  if (!unexpectedDialog.isEmpty())
+    throw std::runtime_error("native contour command opened an unexpected dialog: " +
+                             unexpectedDialog.toStdString());
   TVectorImageP converted = level->getFrame(TFrameId(1), false);
-  require(converted && undo->getHistoryCount() == 1, "contour command did not create one undo step");
+  if (!converted || undo->getHistoryCount() != 1) {
+    std::ostringstream detail;
+    detail << "contour command did not create one undo step: history "
+           << undo->getHistoryCount() << ", selected strokes "
+           << selection->getSelection().size() << ", drawing strokes "
+           << (converted ? int(converted->getStrokeCount()) : -1);
+    throw std::runtime_error(detail.str());
+  }
+  checkpoint("checking converted fill, opacity, holes and stacking");
   compareRenders(before, render(converted));
   const int unselected = converted->getStrokeIndexById(line->getId());
   require(unselected >= 0 && converted->getGroupDepth(unselected) == 3,
           "contour layers lost original nested group ancestors");
+  checkpoint("checking undo and redo");
   undo->undo();
   TVectorImageP restored = level->getFrame(TFrameId(1), false);
   require(restored->getStrokeCount() == 4 && restored->getGroupDepth(0) == 2 &&
@@ -139,4 +195,5 @@ void runContourOutlineNativeChecks() {
   undo->redo();
   compareRenders(before, render(TVectorImageP(level->getFrame(TFrameId(1), false))));
   undo->reset();
+  checkpoint("PASS");
 }

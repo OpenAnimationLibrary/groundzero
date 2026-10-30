@@ -27,7 +27,7 @@ namespace {
 void require(bool condition, const char *message) {
   if (!condition) throw std::runtime_error(message);
 }
-bool near(double a, double b) { return std::abs(a - b) < 1e-7; }
+bool approximatelyEqual(double a, double b) { return std::abs(a - b) < 1e-7; }
 TStroke *line(double from, double to, double y = 0.) {
   auto *stroke = new TStroke(std::vector<TThickPoint>{
       {from,y,2.}, {(from+to)*.5,y,2.}, {to,y,2.}});
@@ -76,16 +76,16 @@ void nativeImageEdits(TPalette *palette) {
   TVectorImageP split = imageWith(source, palette);
   split->splitStroke(0, {{0., .25}, {.75, 1.}});
   require(split->getStrokeCount() == 2, "native interval split stroke count");
-  require(near(split->getStroke(0)->getOpacityAtLength(12.5), .0625) &&
-          near(split->getStroke(1)->getOpacityAtLength(12.5), .4375),
+  require(approximatelyEqual(split->getStroke(0)->getOpacityAtLength(12.5), .0625) &&
+          approximatelyEqual(split->getStroke(1)->getOpacityAtLength(12.5), .4375),
           "native split restarted opacity instead of retaining original arc position");
 
   auto *stepped = line(0, 100);
   stepped->setOpacityProfile({{0.,.1},{0.,.4},{.5,.6},{1.,.8},{1.,.2}});
   TStroke reversed(*stepped);
   reversed.changeDirection();
-  require(near(reversed.getOpacityAtLength(0), .2) &&
-          near(reversed.getOpacityAtLength(reversed.getLength()), .1),
+  require(approximatelyEqual(reversed.getOpacityAtLength(0), .2) &&
+          approximatelyEqual(reversed.getOpacityAtLength(reversed.getLength()), .1),
           "reversing an endpoint step changed visible cap opacity");
   TVectorImageP endpoints = imageWith(stepped, palette);
   endpoints->splitStroke(0, {{0.,.25},{.75,1.}});
@@ -93,8 +93,8 @@ void nativeImageEdits(TPalette *palette) {
   const auto &tail = endpoints->getStroke(1)->getOpacityProfile();
   require(head.size() >= 3 && head[0] == TPointD(0.,.1) && head[1] == TPointD(0.,.4) &&
           tail.size() >= 3 && tail[tail.size()-2] == TPointD(1.,.8) && tail.back() == TPointD(1.,.2) &&
-          near(endpoints->getStroke(0)->getOpacityAtLength(0), .1) &&
-          near(endpoints->getStroke(1)->getOpacityAtLength(endpoints->getStroke(1)->getLength()), .2),
+          approximatelyEqual(endpoints->getStroke(0)->getOpacityAtLength(0), .1) &&
+          approximatelyEqual(endpoints->getStroke(1)->getOpacityAtLength(endpoints->getStroke(1)->getLength()), .2),
           "native split lost a retained endpoint opacity step or evaluated the wrong side");
 
   for (bool smooth : {false, true}) for (bool reverseFirst : {false, true})
@@ -108,11 +108,11 @@ void nativeImageEdits(TPalette *palette) {
       joined->joinStroke(0, 1, reverseFirst ? 0 : 2, reverseLast ? 2 : 0, smooth);
       require(joined->getStrokeCount() == 1, "native Tape join count");
       const TStroke *result = joined->getStroke(0);
-      require(near(result->getOpacityAtLength(0), .4 * (reverseFirst ? .9 : .1)) &&
-              near(result->getOpacityAtLength(result->getLength()), .8 * (reverseLast ? .2 : .7)),
+      require(approximatelyEqual(result->getOpacityAtLength(0), .4 * (reverseFirst ? .9 : .1)) &&
+              approximatelyEqual(result->getOpacityAtLength(result->getLength()), .8 * (reverseLast ? .2 : .7)),
               "native Tape lost a scalar or reversed envelope endpoint");
-      require(near(result->getOpacityAtLength(result->getLength() * .25), .2) &&
-              near(result->getOpacityAtLength(result->getLength() * .75), .36),
+      require(approximatelyEqual(result->getOpacityAtLength(result->getLength() * .25), .2) &&
+              approximatelyEqual(result->getOpacityAtLength(result->getLength() * .75), .36),
               "native Tape did not retain both opacity interiors");
     }
 
@@ -181,8 +181,8 @@ void runStrokeOpacityEditNativeChecks() {
   tool->leftButtonUp(TPointD(25,0), mouse);
   require(image->getStrokeCount() == 2 && undo->getHistoryCount() == 1,
           "actual Cutter gesture did not create one undoable split");
-  require(near(image->getStroke(0)->getOpacityAtLength(12.5), .125) &&
-          near(image->getStroke(1)->getOpacityAtLength(25.), 5. / 12.),
+  require(approximatelyEqual(image->getStroke(0)->getOpacityAtLength(12.5), .125) &&
+          approximatelyEqual(image->getStroke(1)->getOpacityAtLength(25.), 5. / 12.),
           "actual Cutter did not retain opacity at original positions");
   undo->undo();
   require(image->getStrokeCount() == 1 && image->getStroke(0)->getOpacityProfile() == profile,
@@ -226,8 +226,8 @@ void runStrokeOpacityEditNativeChecks() {
           "actual Eraser endpoint gesture did not produce one edit");
   const double remainingStart = image->getStroke(0)->getControlPoint(0).x;
   require(remainingStart > 0. && remainingStart < 40. &&
-          near(image->getStroke(0)->getOpacityAtLength(0), remainingStart * .01) &&
-          near(image->getStroke(0)->getOpacityAtLength(image->getStroke(0)->getLength()), .5),
+          approximatelyEqual(image->getStroke(0)->getOpacityAtLength(0), remainingStart * .01) &&
+          approximatelyEqual(image->getStroke(0)->getOpacityAtLength(image->getStroke(0)->getLength()), .5),
           "one-intersection Eraser retained the unsliced opacity envelope");
   undo->undo(); require(image->getStroke(0)->getOpacityProfile() == profile, "Eraser opacity undo");
   undo->redo(); require(image->getStroke(0)->getControlPoint(0).x == remainingStart, "Eraser redo geometry");
@@ -250,9 +250,9 @@ void runStrokeOpacityEditNativeChecks() {
   tool->leftButtonDrag(TPointD(60,0), mouse);
   tool->leftButtonUp(TPointD(60,0), mouse);
   require(taped->getStrokeCount() == 1 && undo->getHistoryCount() == 1 &&
-          near(taped->getStroke(0)->getOpacityAtLength(20), .1) &&
-          near(taped->getStroke(0)->getOpacityAtLength(50), .5) &&
-          near(taped->getStroke(0)->getOpacityAtLength(80), .4),
+          approximatelyEqual(taped->getStroke(0)->getOpacityAtLength(20), .1) &&
+          approximatelyEqual(taped->getStroke(0)->getOpacityAtLength(50), .5) &&
+          approximatelyEqual(taped->getStroke(0)->getOpacityAtLength(80), .4),
           "actual Tape gesture lost source opacity or connecting-segment interpolation");
   undo->undo(); require(sameDrawing(taped, untaped), "actual Tape undo lost original strokes");
   undo->redo(); require(taped->getStrokeCount() == 1, "actual Tape redo lost join");
