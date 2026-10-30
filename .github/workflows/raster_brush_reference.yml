@@ -253,6 +253,7 @@ jobs:
           for row, measurement in zip(report['records'], measurements):
               if 'hardPixelCandidatePassed' in row:
                   measurement['hardGate'] = row['hardPixelCandidatePassed']
+                  measurement['alphaIoU'] = round(row['alphaCoverageIoU'], 8)
           for start in range(0, len(measurements), 8):
               text = json.dumps(measurements[start:start + 8], separators=(',', ':'))
               if len(text.encode()) > 3900:

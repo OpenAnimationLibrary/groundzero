@@ -8,6 +8,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QTemporaryDir>
 #include <algorithm>
 #include <cmath>
 #include <iostream>
@@ -64,9 +65,21 @@ QJsonObject compare(const QImage &base, const QImage &reference,
           "Reference dimensions differ; resizing is prohibited");
   std::vector<unsigned char> region(size_t(w) * h, 0);
   QRect refBounds, candidateBounds;
+  QRect refAlphaBounds, candidateAlphaBounds;
+  qint64 alphaIntersection = 0, alphaUnion = 0;
+  bool transparentBase = true;
   qint64 refCount = 0, candidateCount = 0, intersection = 0, unionCount = 0;
   for (int y = 0; y < h; ++y)
     for (int x = 0; x < w; ++x) {
+      transparentBase = transparentBase && qAlpha(base.pixel(x, y)) == 0;
+      const bool ra = qAlpha(reference.pixel(x, y)) > 0;
+      const bool ca = qAlpha(candidate.pixel(x, y)) > 0;
+      if (ra)
+        refAlphaBounds |= QRect(x, y, 1, 1);
+      if (ca)
+        candidateAlphaBounds |= QRect(x, y, 1, 1);
+      alphaIntersection += ra && ca;
+      alphaUnion += ra || ca;
       bool r = reference.pixel(x, y) != base.pixel(x, y);
       bool c = candidate.pixel(x, y) != base.pixel(x, y);
       if (r) {
@@ -128,6 +141,11 @@ QJsonObject compare(const QImage &base, const QImage &reference,
       {"regionPixels", n},
       {"referenceBounds", bounds(refBounds)},
       {"candidateBounds", bounds(candidateBounds)},
+      {"referenceAlphaBounds", bounds(refAlphaBounds)},
+      {"candidateAlphaBounds", bounds(candidateAlphaBounds)},
+      {"transparentBase", transparentBase},
+      {"alphaCoverageIoU",
+       alphaUnion ? double(alphaIntersection) / alphaUnion : 1},
       {"referenceChangedPixels", double(refCount)},
       {"candidateChangedPixels", double(candidateCount)},
       {"changedPixelIoU", unionCount ? double(intersection) / unionCount : 1},
@@ -142,8 +160,13 @@ QJsonObject compare(const QImage &base, const QImage &reference,
        n ? perceptual[0][size_t(std::ceil(.95 * n)) - 1] : 0},
       {"deltaE00WhiteP95",
        n ? perceptual[1][size_t(std::ceil(.95 * n)) - 1] : 0},
-      {"emptyCandidateFailure", refCount > 0 && candidateCount == 0},
-      {"bothEmpty", refCount == 0 && candidateCount == 0}};
+      {"emptyCandidateFailure",
+       transparentBase
+           ? !refAlphaBounds.isEmpty() && candidateAlphaBounds.isEmpty()
+           : refCount > 0 && candidateCount == 0},
+      {"bothEmpty", transparentBase ? refAlphaBounds.isEmpty() &&
+                                          candidateAlphaBounds.isEmpty()
+                                    : refCount == 0 && candidateCount == 0}};
 }
 } // namespace
 int main(int argc, char **argv) {
@@ -151,6 +174,27 @@ int main(int argc, char **argv) {
   try {
     if (app.arguments().size() == 2 &&
         app.arguments().at(1) == "--test-metrics") {
+      QTemporaryDir directory;
+      require(directory.isValid(), "Cannot create metric fixture directory");
+      QImage base(2, 2, QImage::Format_ARGB32);
+      base.fill(Qt::transparent);
+      QImage reference = base, candidate = base;
+      reference.setPixel(0, 0, qRgba(255, 0, 0, 0));
+      reference.setPixel(1, 0, qRgba(0, 0, 255, 255));
+      candidate.setPixel(1, 0, qRgba(0, 0, 255, 255));
+      auto measured = compare(base, reference, candidate,
+                              directory.filePath("hidden-rgb.png"));
+      require(measured["alphaCoverageIoU"].toDouble() == 1 &&
+                  measured["changedPixelIoU"].toDouble() == .5 &&
+                  measured["maxRGBError"].toDouble() == 0 &&
+                  measured["maxAlphaError"].toDouble() == 0,
+              "Undefined transparent RGB was counted as painted coverage");
+      candidate.setPixel(0, 1, qRgba(255, 0, 0, 255));
+      measured = compare(base, reference, candidate,
+                         directory.filePath("stray-visible.png"));
+      require(measured["alphaCoverageIoU"].toDouble() == .5 &&
+                  measured["maxAlphaError"].toDouble() == 1,
+              "Stray visible candidate pixels escaped the union comparison");
       // Published numerical pairs, including neutral and hue-wrap boundaries.
       // https://www.ece.rochester.edu/~gsharma/ciede2000/
       const double pairs[][7] = {
@@ -277,8 +321,13 @@ int main(int argc, char **argv) {
       metrics["sourceSemanticallySupported"] = false;
       metrics["sourceReferenceVerified"] = false;
       if (sourceHard) {
-        auto rb = metrics["referenceBounds"].toArray();
-        auto cb = metrics["candidateBounds"].toArray();
+        const bool alphaCoverage = metrics["transparentBase"].toBool();
+        auto rb =
+            metrics[alphaCoverage ? "referenceAlphaBounds" : "referenceBounds"]
+                .toArray();
+        auto cb =
+            metrics[alphaCoverage ? "candidateAlphaBounds" : "candidateBounds"]
+                .toArray();
         const double boundsError =
             std::max({std::abs(rb[0].toDouble() - cb[0].toDouble()),
                       std::abs(rb[1].toDouble() - cb[1].toDouble()),
@@ -290,7 +339,8 @@ int main(int argc, char **argv) {
             metrics["premultipliedRGBMAE"].toDouble() <= 2 / 255.0 &&
             metrics["alphaMAE"].toDouble() <= 1 / 255.0 &&
             metrics["alphaP99"].toDouble() <= 4 / 255.0 &&
-            metrics["changedPixelIoU"].toDouble() >= .98 &&
+            metrics[alphaCoverage ? "alphaCoverageIoU" : "changedPixelIoU"]
+                    .toDouble() >= .98 &&
             boundsError <= std::max(1.0, source["diameter"].toDouble() * .02) &&
             !metrics["emptyCandidateFailure"].toBool();
         if (fixtures["group"].toString() == "geometry")

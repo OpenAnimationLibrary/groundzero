@@ -129,7 +129,7 @@ from the native renderer. It rejects antialiasing, nonintegral diameter,
 noncircular/soft tips, sensors, angle/aspect changes, opacity/flow changes,
 texture, dual masks, wet paint and other unimplemented controls. The profile is
 selected explicitly by this harness, not silently by the foreign importer.
-Six hard one-dab cases must match full-canvas pixels exactly. A `hardpixel` job
+Six hard one-dab cases must match full-canvas premultiplied RGB and alpha exactly. A `hardpixel` job
 adds nine diameter/spacing combinations (7/32/128 pixels, spacing .1/.25/1) with
 the contract's dry RGB, alpha, p99, IoU and bound-displacement gates enforced.
 Failing candidate cases retain metrics/images and fail the job; exploratory
@@ -144,3 +144,10 @@ Qt device timestamps remain monotonic across separate strokes; authored trace
 times stay relative to the stroke for comparison. The earlier repeated 0-based
 device timestamps were not a valid source input stream. Exact repeated-pixel
 equality remains required after that correction.
+
+Transparent-canvas coverage gates use alpha >= 1/255, as specified by RCP1;
+raw changed-pixel IoU is also retained. K5341 can preserve hidden foreground RGB
+in alpha-zero pixels, so raw channel differences are not equivalent to painted
+coverage. The comparison retains the union of raw changed sets for error regions
+and reports both alpha and changed-pixel bounds. Original numeric tests require
+hidden RGB to leave coverage unchanged while still catching stray visible paint.

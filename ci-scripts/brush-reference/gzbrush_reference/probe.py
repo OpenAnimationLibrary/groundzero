@@ -116,8 +116,24 @@ class Probe(Extension):
                               "rotation": event.rotation()})
 
         rows = case["events"]
+        def tool_state():
+            resource = view.currentBrushPreset()
+            xml = Preset(resource).toXML()
+            fields = {field.attrib.get("name"): field.text for field in fromstring(xml).findall("param")}
+            return {"preset": resource.name(), "size": view.brushSize(),
+                    "opacity": view.paintingOpacity(), "flow": view.paintingFlow(),
+                    "presetSha256": hashlib.sha256(xml.encode()).hexdigest(),
+                    "brushDefinition": fields.get("brush_definition"),
+                    "paintingMode": fields.get("PaintingMode"),
+                    "precision": fields.get("KisPrecisionOption/precisionLevel"),
+                    "smoothing": combo.currentText()}
+        before_proximity = tool_state()
         send(rows[0], QEvent.TabletEnterProximity, QApplication.instance(), Qt.NoButton, Qt.NoButton, 0)
         yield
+        after_proximity = tool_state()
+        print("::notice title=Tablet source state::" + json.dumps(
+            {"beforeProximity": before_proximity, "afterProximity": after_proximity},
+            separators=(",", ":")).replace("%", "%25").replace("\n", "%0A").replace("\r", "%0D"), flush=True)
         for index, row in enumerate(rows):
             send(row, QEvent.TabletPress if index == 0 else QEvent.TabletMove,
                  canvas, Qt.LeftButton if index == 0 else Qt.NoButton,
@@ -129,6 +145,7 @@ class Probe(Extension):
         yield
         return {"mode": "Qt tablet events", "canvasClass": canvas.metaObject().className(),
                 "smoothing": combo.currentText(),
+                "stateAfterProximity": after_proximity,
                 "canvasSize": [canvas.width(), canvas.height()], "events": delivered,
                 "timing": "240 Hz event timestamps; Qt event-loop delivery, not physical device timing"}
 
@@ -256,6 +273,8 @@ class Probe(Extension):
                             return [events[1], events[-2]] if events else []
                         detail = {"preset": name, "repetition": repetition, "sha256Pixels": repeat_hashes,
                                   "changedPixels": changed_pixels, "firstDifferencesBGRA8": first_differences,
+                                  "firstToolState": delivery.get("stateAfterProximity"),
+                                  "repeatedToolState": repeated_delivery.get("stateAfterProximity"),
                                   "firstEndpoints": endpoints(delivery), "repeatedEndpoints": endpoints(repeated_delivery)}
                         (output / "repeat-failure.json").write_text(json.dumps(detail, indent=2))
                         for suffix, pixels in (("first", raw), ("repeated", repeated)):

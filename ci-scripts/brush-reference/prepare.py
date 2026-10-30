@@ -77,7 +77,7 @@ for mode, modern in profiles:
     if group == "tablet":
         variants = [variant for variant in variants if variant[0] in ("baseline", "pressure ramp")]
     if group == "hardpixel":
-        variants = [(f"hard diameter {diameter} spacing {spacing}", {}, diameter, spacing, [1, 1], 1, 1)
+        variants = [(f"hard diameter {diameter} spacing {round(spacing * 100):03d}", {}, diameter, spacing, [1, 1], 1, 1)
                     for diameter in (7, 32, 128) for spacing in (.1, .25, 1)]
     if mode == "dry" and group == "parameters":
         for length in (1, 2, 3, 4, 7, 16, 32):
