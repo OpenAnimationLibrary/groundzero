@@ -1,0 +1,107 @@
+name: Neural style evaluation
+
+on:
+  pull_request:
+  workflow_dispatch:
+  push:
+    branches:
+      - 'ci/reference-style-*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neural-style-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  temporal:
+    name: Temporal motion and occlusion
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          lfs: false
+          persist-credentials: false
+      - name: Install existing application math dependencies
+        run: |
+          sudo apt-get update -o Acquire::Retries=3
+          sudo apt-get install -y --no-install-recommends qtbase5-dev libopencv-core-dev libopencv-imgproc-dev libopencv-video-dev
+      - name: Build temporal qualification
+        run: |
+          cmake -S toonz/sources/neuralstyle/temporal-tests -B temporal-build -DCMAKE_BUILD_TYPE=Release
+          cmake --build temporal-build --parallel 2 2>&1 | tee temporal-build.log
+      - name: Report temporal compilation failure
+        if: failure()
+        run: |
+          if [ -f temporal-build.log ]; then
+            python -c "from pathlib import Path; print('::error title=Temporal build::' + ' | '.join(Path('temporal-build.log').read_text().splitlines()[-30:]))"
+          fi
+      - name: Check motion, holds, cuts, disocclusion and cancellation
+        run: ./temporal-build/neural-temporal-tests
+  runtime:
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: LiteRT Linux x64
+            runner: ubuntu-22.04
+          - label: LiteRT Windows x64
+            runner: windows-2025
+          - label: LiteRT macOS ARM64
+            runner: macos-15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          lfs: false
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Evaluate pinned runtime and official models
+        run: python ci-scripts/neural-style/evaluate.py
+      - name: Retain measurements and license notices
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: neural-style-${{ runner.os }}-${{ runner.arch }}-${{ github.sha }}
+          path: neural-evaluation/report
+          if-no-files-found: warn
+      - name: Retain same-revision numerical reference
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v7
+        with:
+          name: neural-style-golden-${{ github.sha }}
+          path: neural-evaluation/report/golden.npz
+          if-no-files-found: error
+
+  macos-intel:
+    name: LiteRT macOS Intel native
+    needs: runtime
+    runs-on: macos-15-intel
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          lfs: false
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v6
+        with:
+          name: neural-style-golden-${{ github.sha }}
+          path: neural-golden
+      - name: Qualify official universal C API on Intel
+        run: python ci-scripts/neural-style/evaluate.py --native-macos neural-golden/golden.npz
+      - name: Retain Intel measurements and notices
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: neural-style-macOS-Intel-${{ github.sha }}
+          path: neural-evaluation/report
+          if-no-files-found: warn

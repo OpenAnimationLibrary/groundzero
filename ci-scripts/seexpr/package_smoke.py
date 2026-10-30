@@ -12,6 +12,8 @@ import tarfile
 import tempfile
 
 import native_ui_test
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "neural-style"))
+import installed as neural_installed
 
 
 def unique(paths, description):
@@ -100,7 +102,7 @@ def verify_test_artifacts_absent(directory):
     drivers = {"seexpr_plugin_test", "seexpr_animation_test", "seexpr_fx_test",
                "seexpr_surface_fx_test", "seexpr_native_animcurve_test", "glbsurface_test",
                "seexpr_editor_test", "seexpr_controls_test", "seexpr_range_test",
-               "seexpr_batch_fixture"}
+               "seexpr_batch_fixture", "neuralstyle_host_test", "neuralstyle_test", "neuralstyle_editor_test"}
     suffixes = ("", ".exe", ".lib", ".exp", ".pdb", ".ilk", ".ipdb", ".iobj",
                 ".exe.manifest")
     forbidden.update(driver + suffix for driver in drivers for suffix in suffixes)
@@ -165,6 +167,13 @@ def main():
             executable, stuff = windows_package(artifact)
         package = executable.parent if args.platform != "linux" else executable.parent / "usr"
         verify_test_artifacts_absent(package)
+        component = package / "neural-style" if args.platform != "linux" else package / "bin" / "neural-style"
+        neural_error = None
+        try:
+            neural_installed.check(component)
+        except Exception as error:
+            neural_error = str(error)
+            print("::error title=Installed neural component::" + neural_error.replace("\n", " | "), flush=True)
         original_arguments = sys.argv
         try:
             arguments = [str(Path(native_ui_test.__file__)), str(executable), str(stuff),
@@ -181,6 +190,8 @@ def main():
                 encoding="utf-8", errors="replace").splitlines():
             raise RuntimeError("The installed application did not complete the native lifecycle fixture")
         print("seexpr-installed-package: PASS", flush=True)
+        if neural_error:
+            raise RuntimeError("Installed neural component failed: " + neural_error)
     return 0
 
 

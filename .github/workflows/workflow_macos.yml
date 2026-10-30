@@ -18,7 +18,27 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  neural-oracle:
+    name: macOS neural reference fixture
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          lfs: false
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Generate same-revision numerical oracle
+        run: python ci-scripts/neural-style/evaluate.py
+      - uses: actions/upload-artifact@v7
+        with:
+          name: macos-neural-oracle-${{ github.sha }}
+          path: neural-evaluation/report/golden.npz
+          if-no-files-found: error
   macOS:
+    needs: neural-oracle
     timeout-minutes: 180 # Stop job if it exceeds expected build time
     # GHA are sunsetting support for macOS 13 (Intel & Apple Silicon/arm) & will be fully unsupported on (December 4th 2025),
     # See: https://github.blog/changelog/2025-09-19-github-actions-macos-13-runner-image-is-closing-down/ & https://github.com/actions/runner-images/issues/13046
@@ -111,7 +131,7 @@ jobs:
             -DCMAKE_PREFIX_PATH=$(brew --prefix qt@5)/lib/cmake/Qt5 \
             -DOpenCV_DIR=$(brew --prefix opencv@4)/lib/cmake/opencv4 \
             -DWITH_TRANSLATION=ON -DBUILD_UI_PORT_TESTS=ON \
-            -DBUILD_PARTICLE_CACHE_TESTS=ON \
+            -DBUILD_LUT3D_TESTS=ON -DBUILD_PARTICLE_CACHE_TESTS=ON \
             -DBUILD_RELIABILITY_TESTS=ON \
             -DBUILD_STREAM_TESTS=ON \
             -DBUILD_SCENEBENCH_TESTS=ON \
@@ -129,6 +149,22 @@ jobs:
           path: /Users/runner/.ccache
           key: ${{ runner.os }}-${{ github.sha }}
 
+      - uses: actions/download-artifact@v6
+        with:
+          name: macos-neural-oracle-${{ github.sha }}
+          path: neural-golden
+
+      - name: Qualify native neural host
+        run: python ci-scripts/neural-style/host.py
+
+      - name: Retain reference style qualification and visual examples
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ReferenceStyle-${{ runner.os }}-${{ github.sha }}
+          path: neural-evaluation/report
+          if-no-files-found: warn
+
       - name: Test native UI features
         id: ui_tests
         working-directory: toonz/build
@@ -145,7 +181,7 @@ jobs:
         working-directory: toonz/build
         run: |
           set -o pipefail
-          DYLD_LIBRARY_PATH="$PWD/toonz/OpenToonz.app/Contents/MacOS" QT_QPA_PLATFORM=cocoa ctest --output-on-failure --output-junit particle-tests.xml --timeout 300 --no-tests=error -R '^particlecache_' 2>&1 | tee particle-tests-output.txt
+          DYLD_LIBRARY_PATH="$PWD/toonz/OpenToonz.app/Contents/MacOS" QT_QPA_PLATFORM=cocoa ctest --output-on-failure --output-junit particle-tests.xml --timeout 300 --no-tests=error -R '^(particlecache_|referencecolormatch$)' 2>&1 | tee particle-tests-output.txt
 
       - name: Report particle test failures
         if: ${{ failure() && steps.particle_tests.outcome == 'failure' }}
