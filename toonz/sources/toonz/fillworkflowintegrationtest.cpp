@@ -53,6 +53,7 @@
 #include <QMouseEvent>
 #include <QPointer>
 #include <QScrollArea>
+#include <algorithm>
 #include <stdexcept>
 #include <exception>
 #include <cmath>
@@ -437,21 +438,59 @@ void morphCallerChecks() {
     undo->redo();
     verifyApplied();
   }
+  std::cout << "vector-morph-caller: actual Apply and three Undo/Redo cycles verified" << std::endl;
   QTemporaryDir directory;
   require(directory.isValid(), "morph caller reload directory unavailable");
   const TFilePath path(directory.filePath("caller.pli"));
+  const TPixel32 beforeWriteColor = palette->getStyle(1)->getMainColor();
   { TLevelWriterP writer(path);
     for (int frame = 1; frame <= 3; ++frame)
       writer->getFrameWriter(TFrameId(frame))->save(level->getFrame(TFrameId(frame), false));
   }
+  verifyApplied();
+  require(level->getPalette() == palette.getPointer() &&
+          TVectorImageP(level->getFrame(TFrameId(2), false))->getPalette() == palette.getPointer() &&
+          palette->getStyle(1)->getMainColor() == beforeWriteColor,
+          "saving actual Filmstrip result changed its live palette binding or color");
+  std::cout << "vector-morph-caller: native save preserved live authored result" << std::endl;
   TLevelReaderP reader(path);
   TLevelP loaded = reader->loadInfo();
   require(loaded && loaded->getPalette(), "morph caller reopen lost its palette");
   TVectorImageP reopened = reader->getFrameReader(TFrameId(2))->load();
   require(reopened, "morph caller reopen lost the generated middle drawing");
   reopened->setPalette(loaded->getPalette());
-  require(sameAuthoredDrawing(reopened, expectedMiddle, false) &&
-          reopened->getPalette()->getStyle(1)->getMainColor() == palette->getStyle(1)->getMainColor(),
+  const bool drawingMatches = sameAuthoredDrawing(reopened, expectedMiddle, false);
+  const auto actualColor = reopened->getPalette()->getStyle(1)->getMainColor();
+  const auto expectedColor = palette->getStyle(1)->getMainColor();
+  if (!drawingMatches || actualColor != expectedColor) {
+    // Preserve the strict oracle while identifying which serialized field
+    // differs. Native PLI's coordinate/width encoding is separate from the
+    // exact profile payload; a generic Apply failure cannot distinguish them.
+    std::ostringstream diagnostic;
+    diagnostic << std::setprecision(17)
+               << "vector-morph-caller: PLI reload geometry="
+               << geometryDifference(reopened, expectedMiddle)
+               << " palette actual=" << int(actualColor.r) << ',' << int(actualColor.g)
+               << ',' << int(actualColor.b) << ',' << int(actualColor.m)
+               << " expected=" << int(expectedColor.r) << ',' << int(expectedColor.g)
+               << ',' << int(expectedColor.b) << ',' << int(expectedColor.m);
+    const UINT count = std::min<UINT>(4, std::min(reopened->getStrokeCount(), expectedMiddle->getStrokeCount()));
+    for (UINT i = 0; i < count; ++i) {
+      const auto *actual = reopened->getStroke(i), *expected = expectedMiddle->getStroke(i);
+      const auto &a = actual->getOpacityProfile(), &b = expected->getOpacityProfile();
+      diagnostic << " stroke=" << i << " style=" << actual->getStyle() << '/' << expected->getStyle()
+                 << " opacity=" << actual->getOpacity() << '/' << expected->getOpacity()
+                 << " profile_knots=" << a.size() << '/' << b.size();
+      for (size_t knot = 0; knot < std::min(a.size(), b.size()); ++knot) {
+        if (a[knot] == b[knot]) continue;
+        diagnostic << " first_profile_difference=" << knot << ":(" << a[knot].x << ','
+                   << a[knot].y << ")/(" << b[knot].x << ',' << b[knot].y << ')';
+        break;
+      }
+    }
+    std::cerr << diagnostic.str() << std::endl;
+  }
+  require(drawingMatches && actualColor == expectedColor,
           "actual Filmstrip Apply did not persist authored geometry/opacity/palette");
 
   // Closing an active strip must detach its non-owning selection before the
