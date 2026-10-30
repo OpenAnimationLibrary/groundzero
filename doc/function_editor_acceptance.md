@@ -108,3 +108,12 @@ empty clean scene. It never accepts an unexpected modal. Bounded reset/modal
 deadlines and flushed full-application checkpoints report further blocking
 dialogs instead of silently waiting for the outer runner timeout. Execution
 qualification of this boundary fix remains pending CI.
+
+At `ba3a8f3be8`, Linux passed both Function Editor suites and every assertion in
+the full-application Function Editor fixture, including the scene roundtrip.
+The process subsequently reported completed application cleanup and exited
+with `SIGSEGV`. That shutdown failure still fails qualification. The Linux
+runner now captures a separate bounded GDB stack for native signals, retaining
+the original failing status and both reports. No shutdown check is bypassed;
+the stack is required before attributing or fixing this remaining lifetime
+failure.
