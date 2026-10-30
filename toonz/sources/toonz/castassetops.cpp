@@ -624,7 +624,8 @@ bool reviewConsolidation(QWidget *parent, ToonzScene *source,
         }
       }
     }
-    progress.close();
+    if (cancel()) return false;
+    progress.reset();
     if (scene() != source || QMessageBox::question(parent, tr("Confirm Duplicate Consolidation"),
         tr("Replace %1 exposure cells and remove %2 duplicate Cast entries? Files remain on disk; Undo restores the exact assets and exposures.")
             .arg(qulonglong(cells.size())).arg(qulonglong(levels.size()))) != QMessageBox::Yes) return false;
@@ -636,7 +637,7 @@ bool reviewConsolidation(QWidget *parent, ToonzScene *source,
         throw std::runtime_error("An asset or scene changed during final review. No consolidation was applied.");
     }
     if (!guard.unchanged()) throw std::runtime_error("The scene changed during final review. No consolidation was applied.");
-    progress.close();
+    progress.reset();
     for (const auto &cell : cells)
       if (cell.sheet->getCell(cell.row, cell.column) != cell.before)
         throw std::runtime_error("The scene changed while reviewing consolidation. Search again.");
@@ -644,9 +645,9 @@ bool reviewConsolidation(QWidget *parent, ToonzScene *source,
     undo->redo(); TUndoManager::manager()->add(undo);
     return true;
   } catch (const std::exception &error) {
-    progress.close(); QMessageBox::warning(parent, tr("Consolidation canceled"), QString::fromUtf8(error.what()));
+    progress.reset(); QMessageBox::warning(parent, tr("Consolidation canceled"), QString::fromUtf8(error.what()));
   } catch (...) {
-    progress.close(); QMessageBox::warning(parent, tr("Consolidation canceled"), tr("A selected asset could not be validated. No changes were applied."));
+    progress.reset(); QMessageBox::warning(parent, tr("Consolidation canceled"), tr("A selected asset could not be validated. No changes were applied."));
   }
   return false;
 }
@@ -674,7 +675,10 @@ void relink(QWidget *parent, const std::vector<TXshLevel *> &selected) {
       if (progress.wasCanceled() || scene() != source) return;
     }
   }
-  progress.close();
+  QApplication::processEvents();
+  const bool searchCanceled = progress.wasCanceled() || scene() != source;
+  progress.reset();
+  if (searchCanceled) return;
   QDialog dialog(parent); dialog.setWindowTitle(tr("Review Batch Relink"));
   dialog.setObjectName("CastRelinkReview");
   QObject::connect(TApp::instance()->getCurrentScene(), &TSceneHandle::sceneSwitched, &dialog, &QDialog::reject);
@@ -726,8 +730,9 @@ void relink(QWidget *parent, const std::vector<TXshLevel *> &selected) {
   } catch (const std::exception &e) {
     QMessageBox::warning(parent, tr("Relink canceled"), QString::fromUtf8(e.what())); return;
   } catch (...) { QMessageBox::warning(parent, tr("Relink canceled"), tr("A replacement could not be read. No paths were changed.")); return; }
-  preparing.close();
-  if (changes.empty() || canceled()) return;
+  const bool preparationCanceled = canceled();
+  preparing.reset();
+  if (changes.empty() || preparationCanceled) return;
   if (!guard.valid(changes)) {
     QMessageBox::warning(parent, tr("Relink canceled"), tr("An asset changed during preparation. No links were changed; review the selection again."));
     return;
@@ -788,8 +793,9 @@ void makeLocal(QWidget *parent, const std::vector<TXshLevel *> &levels) {
       changes.push_back(change);
       copies.emplace_back(level, relative);
     }
-    preparing.close();
-    if (canceled()) return;
+    const bool preparationCanceled = canceled();
+    preparing.reset();
+    if (preparationCanceled) return;
     if (changes.empty()) { QMessageBox::information(parent, tr("Make Local Copy"), tr("The selection contains no external links.")); return; }
     if (QMessageBox::question(parent, tr("Make Local Copy"),
          tr("Create %1 local asset copies in %2? Undo restores the original links and retains these copies.")
@@ -825,7 +831,7 @@ void duplicates(QWidget *parent) {
     if (progress.wasCanceled() || scene() != source) { canceled = true; break; }
     if (!digest.isEmpty()) groups[digest].push_back(level);
   }
-  progress.close();
+  progress.reset();
   if (scene() != source) return;
   int groupNumber = 0;
   for (const auto &group : groups) if (group.second.size() > 1) {
@@ -886,7 +892,7 @@ void collectionReport(QWidget *parent) {
     rows.push_back({entry.first, entry.second.getQString(), actual.getQString(),
                    QString::number(files.size()), QString::number(bytes), state});
   }
-  progress.close();
+  progress.reset();
   if (scene() != source) return;
   report(parent, tr("Scene Collection Report"),
       (canceled ? tr("Canceled; partial inventory. ") : QString()) +
@@ -977,7 +983,7 @@ void verifyCollectedScene(QWidget *parent, const TFilePath &path, const TFilePat
   } catch (const std::exception &error) {
     rows.push_back({tr("Scene"), QString::fromUtf8(error.what()), path.getQString()});
   } catch (...) { rows.push_back({tr("Scene"), tr("The scene could not be read"), path.getQString()}); }
-  progress.close();
+  progress.reset();
   report(parent, tr("Relocated Scene Verification"),
       (canceled ? tr("Canceled; results are partial. ") : QString()) +
       tr("Checks the selected saved scene in a detached scene object. Dependencies must resolve inside the chosen relocated root. Exposed drawings are decoded with native readers. The open working scene and files are unchanged."),

@@ -2,6 +2,7 @@
 #include "castselection.h"
 #include "castbrowseractions.h"
 #include "tapp.h"
+#include "iocommand.h"
 #include "toonz/levelset.h"
 #include "toonz/toonzscene.h"
 #include "toonz/tscenehandle.h"
@@ -50,6 +51,7 @@
 #include <QDirIterator>
 #include <QKeyEvent>
 #include <QMenu>
+#include <QProgressDialog>
 #include <stdexcept>
 #include <iostream>
 
@@ -79,10 +81,21 @@ public:
     timer.start(30); deadline.setSingleShot(true); deadline.start(15000);
   }
 };
+void showProgressNextTurn(const QString &label) {
+  QTimer::singleShot(0, [label]() {
+    for (auto *widget : QApplication::topLevelWidgets())
+      if (auto *progress = qobject_cast<QProgressDialog *>(widget))
+        if (progress->labelText() == label) progress->show();
+  });
+}
 }
 
 // Runs only in the existing disposable-profile native UI qualification process.
 void runCastWorkflowIntegrationTest(QMainWindow *window) {
+  TApp::instance()->getCurrentScene()->setDirtyFlag(false);
+  TUndoManager::manager()->reset();
+  IoCmd::newScene();
+  QApplication::processEvents();
   auto *source = TApp::instance()->getCurrentScene()->getScene();
   auto *hero = source->createNewLevel(PLI_XSHLEVEL, L"Cast fixture Hero")->getSimpleLevel();
   auto *spare = source->createNewLevel(PLI_XSHLEVEL, L"Cast fixture Spare")->getSimpleLevel();
@@ -336,8 +349,10 @@ void runCastWorkflowIntegrationTest(QMainWindow *window) {
     DialogDriver driver([&](QDialog *dialog) {
       if (auto *files = qobject_cast<QFileDialog *>(dialog)) {
         files->setDirectory(newDir); files->selectFile(newDir); dialog->accept();
-      } else if (dialog->objectName() == "CastRelinkReview") dialog->accept();
-      else if (qobject_cast<QMessageBox *>(dialog)) dialog->reject();
+      } else if (dialog->objectName() == "CastRelinkReview") {
+        dialog->accept();
+        showProgressNextTurn("Validating replacement drawings…");
+      } else if (qobject_cast<QMessageBox *>(dialog)) dialog->reject();
     });
     CastBrowserActions::relink(&browser, {raster});
     require(!driver.expired && pixel().b == 255, "batch relink did not replace drawing contents");
@@ -358,8 +373,10 @@ void runCastWorkflowIntegrationTest(QMainWindow *window) {
     DialogDriver driver([&](QDialog *dialog) {
       if (auto *files = qobject_cast<QFileDialog *>(dialog)) {
         files->setDirectory(oldDir); files->selectFile(oldDir); dialog->accept();
-      } else if (dialog->objectName() == "CastRelinkReview") dialog->accept();
-      else if (qobject_cast<QMessageBox *>(dialog)) dialog->reject();
+      } else if (dialog->objectName() == "CastRelinkReview") {
+        dialog->accept();
+        showProgressNextTurn("Validating replacement drawings…");
+      } else if (qobject_cast<QMessageBox *>(dialog)) dialog->reject();
     });
     CastBrowserActions::relink(&browser, {raster});
     require(!driver.expired && raster->getFrameStatus(ids.front()) == TXshSimpleLevel::Normal,
@@ -383,8 +400,10 @@ void runCastWorkflowIntegrationTest(QMainWindow *window) {
     DialogDriver driver([&](QDialog *dialog) {
       if (auto *files = qobject_cast<QFileDialog *>(dialog)) {
         files->setDirectory(oldDir); files->selectFile(oldDir); dialog->accept();
-      } else if (dialog->objectName() == "CastRelinkReview") dialog->accept();
-      else if (qobject_cast<QMessageBox *>(dialog)) dialog->reject();
+      } else if (dialog->objectName() == "CastRelinkReview") {
+        dialog->accept();
+        showProgressNextTurn("Validating replacement drawings…");
+      } else if (qobject_cast<QMessageBox *>(dialog)) dialog->reject();
     });
     CastBrowserActions::relink(&browser, {missing.getPointer()});
     require(!driver.expired && source->decodeFilePath(missing->getPath()) == TFilePath(oldDir + "/asset.png"),
@@ -416,6 +435,7 @@ void runCastWorkflowIntegrationTest(QMainWindow *window) {
     DialogDriver driver([&](QDialog *dialog) {
       if (auto *files = qobject_cast<QFileDialog *>(dialog)) {
         files->setDirectory(localDir); files->selectFile(localDir); dialog->accept();
+        showProgressNextTurn("Preparing local asset copies…");
       } else if (auto *message = qobject_cast<QMessageBox *>(dialog)) {
         if (message->standardButtons().testFlag(QMessageBox::Yes)) {
           mutated = true;
@@ -436,6 +456,7 @@ void runCastWorkflowIntegrationTest(QMainWindow *window) {
     DialogDriver driver([&](QDialog *dialog) {
       if (auto *files = qobject_cast<QFileDialog *>(dialog)) {
         files->setDirectory(localDir); files->selectFile(localDir); dialog->accept();
+        showProgressNextTurn("Preparing local asset copies…");
       } else if (auto *message = qobject_cast<QMessageBox *>(dialog)) {
         if (message->standardButtons().testFlag(QMessageBox::Yes)) message->done(QMessageBox::Yes);
         else message->reject();
