@@ -85,7 +85,7 @@ jobs:
         set -o pipefail
         cmake ../sources -G Ninja -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER=${{ matrix.cxx }} -DCMAKE_C_COMPILER=${{ matrix.cc }} -DWITH_TRANSLATION=OFF -DBUILD_CELFX_TESTS=ON -DBUILD_CADMIUM_TESTS=ON -DBUILD_LUT3D_TESTS=ON -DBUILD_PARTICLE_CACHE_TESTS=ON -DBUILD_RELIABILITY_TESTS=ON -DBUILD_STREAM_TESTS=ON -DBUILD_SCENEBENCH_TESTS=ON -DBUILD_FXRENDER_TESTS=ON -DBUILD_FFMPEG_TESTS=ON -DBUILD_PSD_TESTS=ON -DBUILD_SEEXPR_TESTS=ON -DBUILD_SEEXPR_PYTHON=ON -DPython3_EXECUTABLE="$(command -v python)" -DCMAKE_CXX_FLAGS=-Werror=return-type 2>&1 | tee "$GITHUB_WORKSPACE/build.log"
         # -k 0: keep going, so one run reports every file that fails
-        ninja -k 0 OpenToonz celfx_tests cadmium_tests particlecache_tests referencecolormatch_test neuralstyle_host_test 2>&1 | tee -a "$GITHUB_WORKSPACE/build.log"
+        ninja -k 0 OpenToonz celfx_tests cadmium_tests particlecache_tests referencecolormatch_test neuralstyle_host_test neuralstyle_test 2>&1 | tee -a "$GITHUB_WORKSPACE/build.log"
 
     - name: Qualify native neural host
       run: python ci-scripts/neural-style/host.py

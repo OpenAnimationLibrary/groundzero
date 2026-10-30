@@ -17,3 +17,7 @@ DVAPI bool editColorMatchProfile(QWidget *parent, QString &profile,
                                  const QImage &source = QImage());
 DVAPI void matchPaletteToReference(QWidget *parent, TPaletteHandle *handle,
                                     const QImage &reference);
+DVAPI bool editNeuralStyleProfile(QWidget *parent, QString &profile,
+                                  const QImage &reference = QImage(),
+                                  const QImage &source = QImage());
+DVAPI void createNeuralStyleProfile(QWidget *parent, const QImage &reference);

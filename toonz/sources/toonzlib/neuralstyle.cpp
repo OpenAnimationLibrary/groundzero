@@ -15,6 +15,8 @@
 #include <cmath>
 #include <cstring>
 #include <limits>
+#include <mutex>
+#include <chrono>
 
 namespace NeuralStyle {
 namespace {
@@ -22,7 +24,8 @@ constexpr quint32 Magic = 0x31535a47;
 constexpr int ContentCount = 384 * 384 * 3;
 constexpr int MaxReply = 16 + ContentCount * 4;
 constexpr int TimeoutMs = 30000;
-bool cancelled(const std::atomic_bool *flag) { return flag && flag->load(); }
+std::timed_mutex workerLease;
+bool cancelled(Cancellation flag) { return flag(); }
 void appendWord(QByteArray &bytes, quint32 value) {
   const quint32 little = qToLittleEndian(value);
   bytes.append(reinterpret_cast<const char *>(&little), 4);
@@ -56,6 +59,7 @@ struct Session::Impl {
   QProcess process;
   QByteArray reference;
   quint32 sequence = 0;
+  bool ownsLease = false;
   explicit Impl(const QString &path) : directory(QDir(path).absolutePath()) {}
   ~Impl() { stop(); }
   void stop() {
@@ -67,6 +71,7 @@ struct Session::Impl {
     process.readAllStandardError();
     reference.clear();
     sequence = 0;
+    if (ownsLease) { workerLease.unlock(); ownsLease = false; }
   }
   bool fail(QString &error, const QString &message) {
     error = message;
@@ -74,7 +79,7 @@ struct Session::Impl {
     return false;
   }
   bool verify(const QJsonObject &manifest, const QString &role,
-              QString &path, QString &error, const std::atomic_bool *cancel) {
+              QString &path, QString &error, Cancellation cancel) {
     const auto entry = manifest.value(role).toObject();
     const QString name = entry.value("file").toString();
     const auto expected = entry.value("sha256").toString().toLatin1();
@@ -114,7 +119,7 @@ struct Session::Impl {
     return true;
   }
   bool receive(quint32 command, quint32 request, int count, QByteArray &payload,
-               QString &error, const std::atomic_bool *cancel, QElapsedTimer &timer) {
+               QString &error, Cancellation cancel, QElapsedTimer &timer) {
     QByteArray reply;
     const int expected = 16 + count * 4;
     for (;;) {
@@ -145,7 +150,7 @@ struct Session::Impl {
       process.waitForReadyRead(20);
     }
   }
-  bool start(QString &error, const std::atomic_bool *cancel) {
+  bool start(QString &error, Cancellation cancel) {
     if (process.state() == QProcess::Running) return true;
     stop();
     QFile file(QDir(directory).filePath("package.json"));
@@ -160,6 +165,13 @@ struct Session::Impl {
         !verify(manifest, "runtime", runtime, error, cancel) ||
         !verify(manifest, "prediction", prediction, error, cancel) ||
         !verify(manifest, "transfer", transfer, error, cancel)) return false;
+    QElapsedTimer queued;
+    queued.start();
+    while (!workerLease.try_lock_for(std::chrono::milliseconds(20))) {
+      if (cancelled(cancel)) return fail(error, "Neural styling cancelled.");
+      if (queued.elapsed() > TimeoutMs) return fail(error, "Neural worker queue timed out.");
+    }
+    ownsLease = true;
     auto environment = QProcessEnvironment::systemEnvironment();
     for (const auto &name : environment.keys())
       if (name.startsWith("PYTHON") || name.startsWith("DYLD_") || name.startsWith("LD_"))
@@ -182,7 +194,7 @@ struct Session::Impl {
     return receive(0, 0, 0, ready, error, cancel, timer);
   }
   bool request(quint32 command, const QByteArray &input, int count,
-               QByteArray &output, QString &error, const std::atomic_bool *cancel) {
+               QByteArray &output, QString &error, Cancellation cancel) {
     QByteArray message;
     appendWord(message, Magic);
     appendWord(message, command);
@@ -212,17 +224,31 @@ void Session::stop() {
   if (QThread::currentThread() == m_impl->thread) m_impl->stop();
 }
 bool Session::style(const QImage &reference, const QImage &content, QImage &result,
-                    QString &error, const std::atomic_bool *cancel) {
+                    QString &error, Cancellation cancel) {
+  std::vector<QImage> images;
+  if (!styleBatch(reference, {content}, images, error, cancel)) return false;
+  result = images.front();
+  return true;
+}
+bool Session::styleBatch(const QImage &reference, const std::vector<QImage> &contents,
+                         std::vector<QImage> &results, QString &error, Cancellation cancel) {
   error.clear();
   if (QThread::currentThread() != m_impl->thread) {
     error = "Neural session must remain on its owning thread.";
     return false;
   }
-  if (reference.size() != QSize(256, 256) || content.size() != QSize(384, 384)) {
-    error = "Neural inputs must match the qualified model dimensions.";
+  struct Release { Impl *impl; ~Release() { impl->stop(); } } release{m_impl.get()};
+  if (reference.size() != QSize(256, 256) || contents.empty() || contents.size() > 120) {
+    error = "Neural inputs require a 256-square reference and one to 120 frames.";
     return false;
   }
-  for (const auto &image : {reference, content}) {
+  std::vector<QImage> validation{reference};
+  validation.insert(validation.end(), contents.begin(), contents.end());
+  for (size_t i=0; i<validation.size(); ++i) {
+    const auto &image = validation[i];
+    if (i && image.size() != QSize(384,384)) {
+      error = "Neural frames must be 384 square."; return false;
+    }
     const auto rgba = image.convertToFormat(QImage::Format_ARGB32);
     for (int y = 0; y < rgba.height(); ++y) {
       if (cancelled(cancel)) return m_impl->fail(error, "Neural styling cancelled.");
@@ -236,28 +262,31 @@ bool Session::style(const QImage &reference, const QImage &content, QImage &resu
   }
   if (!m_impl->start(error, cancel)) return false;
   QByteArray response;
-  const auto style = pixels(reference);
-  if (m_impl->reference != style) {
-    if (!m_impl->request(1, style, 100, response, error, cancel)) return false;
-    m_impl->reference = style;
-  }
-  if (!m_impl->request(2, pixels(content), ContentCount, response, error, cancel)) return false;
-  QImage complete(384, 384, QImage::Format_RGB32);
-  for (int y = 0; y < 384; ++y) {
+  if (!m_impl->request(1, pixels(reference), 100, response, error, cancel)) return false;
+  std::vector<QImage> complete;
+  complete.reserve(contents.size());
+  for (size_t i=0; i<contents.size(); ++i) {
     if (cancelled(cancel)) return m_impl->fail(error, "Neural styling cancelled.");
-    auto row = reinterpret_cast<QRgb *>(complete.scanLine(y));
-    for (int x = 0; x < 384; ++x) {
-      int channels[3];
-      for (int c = 0; c < 3; ++c) {
-        const quint32 bits = word(response.constData() + ((y * 384 + x) * 3 + c) * 4);
-        float value;
-        std::memcpy(&value, &bits, 4);
-        channels[c] = int(std::max(0.f, std::min(1.f, value)) * 255 + .5f);
+    if (i && contents[i] == contents[i-1]) { complete.push_back(complete.back()); continue; }
+    if (!m_impl->request(2, pixels(contents[i]), ContentCount, response, error, cancel)) return false;
+    QImage image(384, 384, QImage::Format_RGB32);
+    for (int y = 0; y < 384; ++y) {
+      if (cancelled(cancel)) return m_impl->fail(error, "Neural styling cancelled.");
+      auto row = reinterpret_cast<QRgb *>(image.scanLine(y));
+      for (int x = 0; x < 384; ++x) {
+        int channels[3];
+        for (int c = 0; c < 3; ++c) {
+          const quint32 bits = word(response.constData() + ((y * 384 + x) * 3 + c) * 4);
+          float value;
+          std::memcpy(&value, &bits, 4);
+          channels[c] = int(std::max(0.f, std::min(1.f, value)) * 255 + .5f);
+        }
+        row[x] = qRgb(channels[0], channels[1], channels[2]);
       }
-      row[x] = qRgb(channels[0], channels[1], channels[2]);
     }
+    complete.push_back(image);
   }
-  result = complete;
+  results = std::move(complete);
   return true;
 }
 }  // namespace NeuralStyle

@@ -238,6 +238,18 @@ void ColorModelViewer::contextMenuEvent(QContextMenuEvent *event) {
       matchPaletteToReference(this, getPaletteHandle(),
                               rasterToQImage(raster).copy());
     });
+    auto texture = menu.addAction(tr("Create Neural Texture Profile..."));
+    connect(texture, &QAction::triggered, this, [this, ri] {
+      TRasterP raster=ri->getRaster();
+      if (qint64(raster->getLx())*raster->getLy()>16777216) {
+        DVGui::warning(tr("Use a reference of at most 16 megapixels."));return;
+      }
+      if (!TRaster32P(raster) && !TRasterGR8P(raster)) {
+        TRaster32P converted(raster->getLx(),raster->getLy());
+        TRop::convert(converted,raster);raster=converted;
+      }
+      createNeuralStyleProfile(this,rasterToQImage(raster).copy());
+    });
   }
   if (ri && currentPalette->hasPickedPosStyle()) {
     menu.addSeparator();

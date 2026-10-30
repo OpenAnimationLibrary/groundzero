@@ -24,6 +24,15 @@ Checklist completion requires the final revision to pass the corresponding gate.
       cancellation, serialization and palette undo; CI execution pending.
 - [ ] Document limitations and a concrete extension contract for neural and
       temporal processing without shipping placeholder controls.
+- [ ] Native neural component and application transport on Linux, Windows,
+      Apple Silicon and Intel Mac, including installed-package validation.
+- [ ] Scene-owned texture references, crop/mask capture, editor previews,
+      cancellation, replacement/relinking and portable `.gzstyle` profiles.
+- [ ] Non-destructive texture FX with exact current alpha, ink protection,
+      fixed camera sampling and canonical shot dependencies.
+- [ ] Motion-compensated history, occlusion/cut rejection, held exposures,
+      random seeking, cache eviction and nested FX qualification.
+- [ ] Artist review of texture detail, line edges and representative animation.
 
 ## Design decision
 
@@ -45,14 +54,14 @@ copied into the scene, so they need no external-file relinking at render time.
 
 ## Neural and temporal extension boundary
 
-Neural texture styling is not implemented by this native color transform. A
-future optional local worker must have a versioned request/result protocol,
+Neural texture styling is a separate FX from the native color transform. Its
+optional local worker uses a versioned request/result protocol,
 verified model manifest (publisher, digest, license, provenance, input contract),
 explicit installation, bounded memory and concurrency, cancellation and atomic
 result publication. Keep runtime/model versions in cache identity. Do not load
 executable Python checkpoints or automatically fetch models during rendering.
 
-Temporal stylization additionally needs shot boundaries, ordered dependencies,
+Temporal stylization implements shot boundaries, ordered dependencies,
 held-drawing reuse, motion/occlusion handling and deterministic invalidation.
 It must pass motion, cut, occlusion and random-seek tests before being advertised
 as animation-consistent. None of these capabilities is implied by the native
@@ -171,14 +180,13 @@ macOS native qualification uses the publisher's universal C API framework and
 checks its ARM/Intel slices and deployment targets. Intel uses saved same-revision
 Linux numerical fixtures, avoiding a dependency on an unavailable Python wheel.
 
-Product integration should use a separate native helper, following existing
+Product integration uses a separate native helper, following existing
 helper packaging in `toonz/sources/toonz/CMakeLists.txt` and QProcess lifecycle
 patterns in `toonz/sources/toonz/purerefboard.cpp`. The optional Python scripting
 and SeExpr SDK do not provide a redistributable Python interpreter. A successful
 Python evaluation does not establish that native helper's packaging.
 
-The proposed worker protocol has these explicit gates; it is not yet exposed as
-an available product feature:
+The application transport and FX have these validation gates:
 
 - Handshake: protocol version, worker/runtime versions, supported tensor formats,
   model manifest hashes, supported dimensions and resource limits. Reject
@@ -206,3 +214,64 @@ ink edges, large-frame strategy, color-space conversion, held drawings, motion,
 cuts, occlusions and random seeking. Compare temporal stability against both
 independent-frame styling and the unchanged native color baseline. Keep artist
 approval separate from numerical or synthetic test results.
+
+## Neural texture artist workflow and limits
+
+Choose **Image Adjust > Neural Texture Style**, connect Source and optionally
+Mask / ProtectInk, then **Create / Edit Texture Reference**. Load a representative
+source sample, reference and optional reference sampling mask. Set the reference
+crop and preview. White mask pixels include the reference; excluded/transparent
+areas are composited onto white before model input. This is image preprocessing,
+not a neural model trained to understand masks. The captured 256-square reference
+is embedded in the scene, so missing original files never change its look.
+Relinking originals is necessary only to recapture a different crop or mask.
+Changing the reference clears its old mask unless the original fingerprint
+matches. Import/export uses `.gzstyle`; Color Model and Reference Panel can create
+these profiles from their existing images. FX profile changes use normal undo.
+
+Set **Shot First Frame** and **Shot Last Frame** explicitly, using displayed
+one-based frame numbers. Outside that range the FX passes through. A range is
+limited to 120 frames; split longer sequences at intentional shot boundaries.
+**Temporal History %** is shot-locked and limited to 85%. Zero requests independent
+frame styling. **Style Strength** supports animation and zero is exact passthrough.
+Fractional shutter samples use independent inference rather than inventing a
+history between integer drawings. Current full-resolution alpha and explicit
+ink/mask inputs are restored after texture generation. The untouched contribution
+of float HDR pixels is retained at partial strength, but model inference is SDR.
+
+Every frame is sampled on the fixed camera domain into a letterboxed 384-square
+canvas. Texture resolution therefore remains 384 pixels: upsampling preserves
+placement and original alpha, not fine synthesized texture. This is unsuitable
+for claiming full-resolution detail restoration. The camera must be finite.
+Sampling is independent of requested output tiles and occupied artwork bounds.
+
+The temporal pass uses OpenCV Farneback forward/backward flow between source
+frames. It rejects history outside bounds, on alpha disagreement, inconsistent
+motion or excessive color residual; explicit shot boundaries and conservative
+cut/overlap guards reset history. Exact held inputs reuse the same stylized image.
+Fast/deforming motion, flat regions and occlusions remain quality risks requiring
+artist review. Results depend on canonical history from shot start, not the last
+frame viewed. Editing an earlier input changes downstream identities. A 32 MiB
+checkpoint cache may evict results without changing output. Cold random seeks and
+nested temporal FX can be expensive because all prior dependencies are sampled.
+
+One process is leased per bounded inference batch, with at most 120 frames. It
+retains compiled models and one embedding within that batch, then exits; idle
+sessions hold no worker. Cancellation discards partial responses and unpublished
+results. Individual optical-flow calls finish before cancellation is observed.
+Requests have 30-second deadlines. The renderer reserves 800 MiB plus its output
+tiles for the worker/history/cache/flow peak; output tiles are capped at 16 MP.
+The worker's measured CI peak must remain below 512 MiB. These are bounded design
+and measured checks, not an OS-enforced memory sandbox.
+
+The component directory contains only the helper, native LiteRT library, two
+verified models, hashes and notices. It is supplied by trusted application
+packaging, never by a scene or a rendering-time download. Manifest checksums
+detect corruption; authenticity depends on the trusted package distribution.
+Source builds without that optional component retain color matching and show an
+explicit component-unavailable error for neural styling.
+
+The editor, FX, temporal pass and their integration tests are authored but require
+final-revision application CI and installed-package execution. Operator checks
+already qualify the selected native C API on all four architectures; that alone
+does not qualify this newly added product integration or artistic quality.

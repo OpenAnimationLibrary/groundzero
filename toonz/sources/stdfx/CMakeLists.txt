@@ -154,6 +154,8 @@ set(SOURCES
     localtransparencyfx.cpp
     lut3dbakefx.cpp
     referencecolormatchfx.cpp
+    neuraltemporal.cpp
+    neuralstylefx.cpp
     mosaicfx.cpp
     motionblurfx.cpp
     multitonefx.cpp
@@ -410,6 +412,8 @@ endif()
 # Optional regression target for the production LUT parser and raster FX.
 option(BUILD_LUT3D_TESTS "Build the 3D LUT Bake regression executable" ${BUILD_TESTS})
 if(BUILD_LUT3D_TESTS)
+    add_executable(neuralstyle_test tests/neuralstyle_test.cpp)
+    target_link_libraries(neuralstyle_test toonzlib ${TNZLIBS} Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui ${OpenCV_LIBS})
     add_executable(neuralstyle_host_test ../neuralstyle/tests/host.cpp ../toonzlib/neuralstyle.cpp)
     target_compile_definitions(neuralstyle_host_test PRIVATE TOONZLIB_EXPORTS)
     target_link_libraries(neuralstyle_host_test Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)

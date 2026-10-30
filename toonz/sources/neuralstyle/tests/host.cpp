@@ -10,6 +10,7 @@
 #include <QtEndian>
 #include <chrono>
 #include <iostream>
+#include <future>
 #include <stdexcept>
 #include <thread>
 #ifdef _WIN32
@@ -107,6 +108,16 @@ int main(int argc, char **argv) {
     };
     infer(reference);
     compare(result, image(fixtures.filePath("expected.rgb"), 384));
+    std::vector<QImage> batch;
+    require(session.styleBatch(reference, {content, content}, batch, error), "Batch inference failed");
+    require(batch.size()==2 && batch[0]==batch[1], "Held content changed within a batch");
+    NeuralStyle::Session second(package.absolutePath());
+    require(second.style(reference, content, result, error), "Idle session retained the worker lease");
+    auto concurrent=std::async(std::launch::async,[&] {
+      NeuralStyle::Session other(package.absolutePath());QImage output;QString diagnostic;
+      return other.style(reference,content,output,diagnostic);
+    });
+    infer(reference);require(concurrent.get(),"Competing session failed to release worker lease");
     infer(alternate);
     compare(result, image(fixtures.filePath("alternate-expected.rgb"), 384));
     infer(reference);

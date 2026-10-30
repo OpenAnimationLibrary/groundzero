@@ -126,6 +126,12 @@
   <item>"STD_material3dFx.exposure" "Exposure" </item>
   <item>"STD_referenceColorMatchFx" "Reference Color Match" </item>
   <item>"STD_referenceColorMatchFx.profile" "Color Profile" </item>
+  <item>"STD_neuralStyleFx" "Neural Texture Style" </item>
+  <item>"STD_neuralStyleFx.profile" "Texture Reference" </item>
+  <item>"STD_neuralStyleFx.strength" "Style Strength" </item>
+  <item>"STD_neuralStyleFx.temporal" "Temporal History %" </item>
+  <item>"STD_neuralStyleFx.shotStart" "Shot First Frame" </item>
+  <item>"STD_neuralStyleFx.shotEnd" "Shot Last Frame" </item>
   <item>"STD_lut3DBakeFx" "3D LUT Bake" </item>
   <item>"STD_lut3DBakeFx.lutFile" "LUT File" </item>
 <!------------------------------ FX ------------------------------------------->

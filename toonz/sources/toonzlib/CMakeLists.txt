@@ -234,6 +234,7 @@ set(SOURCES
     lut3d.cpp
     colormatch.cpp
     neuralstyle.cpp
+    neuralstyleprofile.cpp
     logger.cpp
     motionpreset.cpp
     movierenderer.cpp

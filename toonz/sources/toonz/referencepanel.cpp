@@ -445,6 +445,13 @@ ReferencePanel::ReferencePanel(QWidget *parent)
         m_view->image());
   });
   buttonLay->addWidget(matchColors);
+  auto textureProfile = new QToolButton(this);
+  textureProfile->setText(tr("Texture Profile..."));
+  textureProfile->setToolTip(tr("Capture and export this reference for Neural Texture Style FX. Artwork stays on this computer."));
+  connect(textureProfile, &QToolButton::clicked, this, [this] {
+    if (m_view->hasImage()) createNeuralStyleProfile(this, m_view->image());
+  });
+  buttonLay->addWidget(textureProfile);
   {
     buttonLay->addWidget(loadButton);
     buttonLay->addStretch(1);
