@@ -22,11 +22,12 @@ Raster Krita/Photoshop brush compatibility is separately owned and excluded. Neu
 
 ## Current progress
 
-All 60 items have source implementations and prepared acceptance coverage in
-this stack. No current item is yet qualified on its final published revision.
-The source audit's missing subdeliverables have been added; this is not an
-all-60 completion claim, because platform failures and fresh execution remain
-open. Drafts stay in validation until their exact heads pass the required checks.
+All 60 items remain in scope. Most implementations and acceptance fixtures are
+prepared, but measured depth-opacity cost (items 20/36/59) and large-Cast refresh
+cost (item 49) have reopened implementation work. No current item is yet qualified
+on its final published revision. The source audit's missing subdeliverables have
+been added; this is not an all-60 completion claim. Drafts stay in validation
+until their exact heads pass the required checks.
 
 The audited follow-ups include saved-set rename and explicit target-range
 retiming; frozen evaluated comparisons with exact native restoration; native
@@ -56,36 +57,62 @@ and the component ledgers.
 | Vector diagnostic `0cc8df85d0d5664ecbbb6ed304bf13cc78bd33b8` | Linux and macOS compiled; macOS passed all 18 standalone UI tests. Both native sequences exposed blank alignment previews. | Renderer state/HDR/timing checks were not reached. |
 | Combined diagnostic `ebac3062ad9e09a5c249db9096dce6bde0371c38` | All three platforms identified two Qt 5 QStringList assignment ambiguities in Cast fixtures. `f8ab55239` corrects both. Windows passed the native-isolation and bounded-GL-launcher contracts. | This revision did not reach native renderer acceptance. |
 | Scene Cast `1c2c1a968b263cfde74daa578c0af18759378af5` | Linux compiled the new Cast and icon components, then rejected an unsupported TXsheet constructor in the nested timing fixture. `566e1bc5a` uses the child level's existing owned sheet and retains all assertions. | Native application workflows were not executed on this revision. |
-| Function Editor `ebf078049581c76bfad470cc383563067430c146` | Linux compiled, then the native preset-import widget test timed out in its file chooser. `208f938b8` drives the actual filename and enabled Open control instead of relying on ignored focused-field selection. macOS exposed title-based comparison-confirmation lookup in both Function fixtures; Qt ignores message-box titles there. `a6bbf59aa` matches the exact prompt, viewer owner, Question icon and enabled Yes/No controls instead. | The corrected drivers and subsequent application checks require fresh execution; no restore/cancel/undo assertion was relaxed. |
+| Function Editor `ebf078049581c76bfad470cc383563067430c146` | Linux compiled, then the native preset-import widget test timed out in its file chooser. `208f938b8` drives the actual filename and enabled Open control instead of relying on ignored focused-field selection. macOS exposed title-based comparison-confirmation lookup in both Function fixtures; Qt ignores message-box titles there. `a6bbf59aa` matches the exact prompt, viewer owner, Question icon and enabled Yes/No controls instead. | Corrected drivers were not executed on this revision; later evidence follows below. No restore/cancel/undo assertion was relaxed. |
 | Vector editing `ab7a8f4ee54ca36ef23b57a7ca46164f0c2d5cd1` | Linux passed 17 standalone UI tests; the width manager passed creation/capture/save-retry, then timed out at Import. `4c4ff918d` corrects the same focused-file-chooser driver while preserving overwrite, cancellation and error assertions. | Native vector rendering and the corrected manager workflow did not execute on this revision. |
-| Scene Cast `c7fdf2aecd719fed34b0f34608e1d7019838e152` | Linux compiled and passed the animation workflow, frozen Function comparisons, unkeyed defaults reload and saved-set rename. Fractional retime scene reload then failed its keyframe-field equality check. Source review found interpolation undo omitted the adjacent endpoint; `dbf7ffa38` fixes that defect and a final-key boundary while retaining strict comparisons and adding field diagnostics. | The predicted mismatch and correction require runtime confirmation; Cast/Library checks were not reached. |
-| Animation workflow `169d240ac3fe8a423ba106ed21aaf512140f194c` | Linux application and installed-package jobs passed. Main-job logs confirm both Function component suites, strict fractional retime reload, animation workflows and clean shutdown. The 96-channel/24,576-key graph painted in 31.67–31.85 ms at 1000×960. | The graph timing measures QWidget-to-QImage only. Installed checks exercise the packaged native SeExpr lifecycle; Windows and macOS remain separate gates. |
-| Combined workflow `47dbae4c9a048af1f795179aeaac1c4006fe61c1` | Linux compiled and passed all 19 UI tests, native cache/animation workflows, and independent Function, timing, Cast/vector and export diagnostics. The independent artist workload passed saved-data correctness. Native opacity plane, depth/stencil, secondary-color, sRGB, HDR and rollback checks passed before the 1080p visibility oracle failed. Isolated Cast also failed its final preview-submission check. | The mandatory suite failed and installed checks were skipped. Depth timings are provisional. `79a51a99b` restores the benchmark's normal zero stencil-clear setup; `10e062a05` selects the actual Cast target before the scene-switch fixture. Both retain the original oracles and await fresh CI. |
+| Scene Cast `c7fdf2aecd719fed34b0f34608e1d7019838e152` | Linux compiled and passed the animation workflow, frozen Function comparisons, unkeyed defaults reload and saved-set rename. Fractional retime scene reload then failed its keyframe-field equality check. Source review found interpolation undo omitted the adjacent endpoint; `dbf7ffa38` fixes that defect and a final-key boundary while retaining strict comparisons and adding field diagnostics. | Cast/Library checks were not reached on this revision. Later strict reload passes verify corrected behavior without establishing the exact old mismatched field. |
+| Function Editor `a6bbf59aaaff6b87661b0f4485e28abb791768c8` | Linux and macOS application and installed-package jobs passed. Windows passed the full native Function workflow, including strict retime reload, but its standalone offscreen widget fixture crashed at QMessageBox. | The native Windows platform correction and bounded diagnostics are published at `e16fab840`; fresh exact-head checks are pending. |
+| Animation workflow `169d240ac3fe8a423ba106ed21aaf512140f194c` | Linux and macOS application and installed-package jobs passed. Main-job logs confirm both Function component suites, strict fractional retime reload, animation workflows and clean shutdown. The Linux 96-channel/24,576-key graph painted in 31.67–31.85 ms at 1000×960. Windows failed the offscreen Function widget fixture and the legacy DIB OpenGL SVG export path. | The graph timing measures QWidget-to-QImage only. Installed checks exercise the packaged native SeExpr lifecycle. The shared Qt renderer must move earlier in the dependency stack before Windows qualification. |
+| Combined workflow `47dbae4c9a048af1f795179aeaac1c4006fe61c1` | Linux compiled and passed all 19 UI tests, native cache/animation workflows, and independent Function, timing, Cast/vector and export diagnostics. The independent artist workload passed saved-data correctness. Native opacity plane, depth/stencil, secondary-color, sRGB, HDR and rollback checks passed before the 1080p visibility oracle failed. Isolated Cast also failed its final preview-submission check. | The mandatory suite failed and installed checks were skipped. These depth timings are not accepted. `79a51a99b` restores normal zero stencil-clear setup; `10e062a05` selects the actual Cast target before the scene-switch fixture. Both retain the original oracles; their later evidence is below. |
+| Linux validation `6f95648db6736487ce680f5f979183317ffe9060` | The corrected 1080p workload passed all eight visible-stroke/color-mixing checks. Isolated Cast passed its actual Library provenance, ownership, UUID, import-undo and collection-rollback checks. Function, timing, Cast/vector and export diagnostics passed. GUI/background context contention passed. | The mandatory sequence and isolated renderer failed a later ordinary PLI-to-PNG oracle. `8c5b21283` corrects the fixture's missing saved palette-page membership and adds native reload preflight; it requires fresh execution. This candidate does not qualify later platform, EXR or performance changes. |
+| Windows combined `47dbae4c9a048af1f795179aeaac1c4006fe61c1` | Build, packaging, native neural host, Cadmium adapters, animation workflow and independent Function/timing/Cast-vector/export diagnostics passed. The 2D artist workload passed correctness. | Function and width-profile standalone fixtures crashed on Qt offscreen QMessageBox; the Shell test wrapper could not print UTF-8 to cp1252; Cast reliability exposed an EXR new-asset state defect. The old 1080p and final Cast preview fixtures also failed. Each has a source correction prepared, not a current-head pass. |
 
-Current investigations remain explicit: fractional retime persistence, native
-file-chooser acceptance, Windows SVG/vector-analysis/thumbnail rendering, the
-Windows width-profile manager crash, macOS relinking, and native opacity
-attachment/state/HDR qualification. Source corrections and diagnostics
-are present, but their existence does not establish a runtime fix. The preview
+Current work remains explicit: shared renderer dependency placement, Windows
+native-platform widget acceptance and process-tree cleanup, Shell output
+handling, retained EXR state, native converter acceptance, and measured depth
+opacity/Cast responsiveness. Fractional retime reload, file-chooser acceptance,
+macOS relinking and corrected Cast scene-switch/Library acceptance now have
+execution evidence on the revisions above; later revisions still need their
+own checks. Source corrections and diagnostics do not establish a runtime fix.
+The preview
 correction uses the drawing-plane inverse when native preview widgets flatten Z,
 while preserving the ordinary invertible 3D path. The HDR fixture now seeds the
 actual float attachment before testing production rendering. Original pixel,
 depth, stencil, rollback, cancellation and saved-content assertions remain strict.
 
-The representative 1080p depth-rendering workload executed on `47dbae4c`, but
-failed its visible-stroke oracle. Those timings are not accepted performance
-evidence. The source-backed fixture corrections require a fresh run.
-The approximately 99.5 MB attachment snapshot per 1080p stroke is a resource
-estimate, not measured practical performance. Synthetic native application
-benchmarks and widget-to-image graph timings are distinct from physical tablet
-latency, playback pacing and artist hardware qualification.
+The original 1080p workload on `47dbae4c` failed its visibility oracle, so its
+timings are not accepted evidence. Corrected Linux candidate `6f95648db` passed
+all visibility/mixing checks on a 1920×1080 D24S8 target with Qt 5.15.3 and
+llvmpipe. For eight strokes and three synchronized frames per mode, the mandatory
+sequence measured native frames at 8.24–8.45 ms, scalar opacity at 428–667 ms and
+profile opacity at 405–423 ms. The isolated renderer measured the same material
+cost: native 8.22–8.34 ms, scalar 382–687 ms and profile 420–446 ms. This workload
+is not accepted as interactive depth performance. A conservative color/depth
+region optimization is in progress; it retains full stencil coverage and a
+full-frame fallback. Its equivalence and same-workload cost remain unmeasured.
+
+The full snapshot allocates 99,532,800 bytes per modulated 1080p stroke. Observed
+process peak resident memory rose from 588.5 to 827.2 MB in the mandatory
+sequence and 470.5 to 692.3 MB in isolation. These are cumulative high-water
+marks, not attributed per-stroke allocations. Large-Cast single-add/remove/
+rename notifications on component `4016d693f` measured 422/421/421 ms on Linux,
+approximately 1.6–1.7 seconds on macOS and 3.0 seconds on Windows with 3,000
+assets. Isolated Linux candidate `6f95648db` measured 387/384/391 ms; use this
+matching isolated context for later comparisons, not the component sequence
+after preceding workflows. Identity and scroll checks passed, but responsiveness
+remains pending. `6adb14baa` shares status work within
+each refresh and avoids empty-query matching; comparable CI measurements must
+establish the result. Its setup/show/explicit-refresh timing is not a comparable
+one-refresh baseline, and no speedup is inferred from it.
+
+Synthetic native application benchmarks and widget-to-image graph timings are
+distinct from physical tablet latency, playback pacing and artist hardware
+qualification. No physical tablet or real-time pacing claim is made.
 The depth fixture now records synchronized frame samples, actual GL target and
 renderer provenance, and process peak resident memory before and after each
 mode. The shared memory probe reports a cumulative high-water mark that can
 include earlier fixture allocations; it does not attribute a peak delta to one
-stroke. Neither these probes nor the separate 2D measurements establish the
-practical cost of depth rendering until that workload passes its visibility and
-color-mixing checks.
+stroke. The separate 2D measurements do not substitute for depth rendering or
+physical input/presentation measurements.
 
 The component ledgers are `doc/function_editor_acceptance.md`,
 `doc/vector_workflow_acceptance.md`, `doc/scene_cast_acceptance.md`,
@@ -98,9 +125,10 @@ must run on the final integrated heads. No local builds or tests are permitted.
 After a mandatory combined native failure, the runner also collects isolated
 Function Editor, Cast, timing, Cast/vector, export and vector-renderer evidence.
 Each diagnostic gets a fresh disposable profile, runs sequentially and has a
-120-second limit. Neither a diagnostic pass nor a completion marker can replace
-the original full-sequence result. Reports remain in separate artifacts and the
-original report; the CI-only harness verifies isolation and failure retention.
+120-second child deadline, with bounded termination/diagnostic handling after it.
+Neither a diagnostic pass nor a completion marker can replace the original
+full-sequence result. Separate report files and the original report are uploaded;
+the CI-only harness verifies isolation and failure retention.
 
 ## Acceptance
 
@@ -113,7 +141,7 @@ original report; the CI-only harness verifies isolation and failure retention.
 | 3 | Saved channel sets | Stable owner identities; rename/delete, reload and workspace persistence. | Source-ready; fresh CI pending |
 | 4 | Curve solo and edit locks | Every editing command respects locks; visible reference/solo state. | Source-ready; CI pending |
 | 5 | Multi-key numeric editing | Mixed values; absolute/relative operations, collisions, cancel, one undo transaction. | Source-ready; CI pending |
-| 6 | Precise multi-channel retiming | Multiple channels, explicit target start/end preview, pivot/scale, quantization, collisions, repeat/undo. | Implemented; endpoint undo correction awaits reload verification |
+| 6 | Precise multi-channel retiming | Multiple channels, explicit target start/end preview, pivot/scale, quantization, collisions, repeat/undo. | Source-ready; strict reload passed on Linux/macOS, final-head CI pending |
 | 7 | Normalized curve display | Display-only normalized coordinates; native values and edits preserved. | Source-ready; CI pending |
 | 8 | Clear curve identification | Stable identities/colors with labels and high-DPI/theme readability. | Source-ready; CI pending |
 | 9 | Visible interpolation controls | Native interpolation/handle actions; multi-selection and keyboard access. | Source-ready; CI pending |
@@ -127,7 +155,7 @@ original report; the CI-only harness verifies isolation and failure retention.
 | 17 | Large-rig graph performance | Large-rig correctness fixture and measured CI report; no unmeasured speed claim. | Source-ready; fresh CI pending |
 | 18 | Keyboard/tablet editing | Focus, accessible targets, keyboard nudges/constraints and tablet manual checklist. | Source-ready; CI pending |
 | 19 | Opacity readback | Single/mixed opacity selection follows context without mutating drawing. | Source-ready; CI pending |
-| 20 | Style opacity consistency | Relevant vector style render paths preserve stroke alpha with independent pixel fixtures. | Source-ready; CI pending |
+| 20 | Style opacity consistency | Relevant vector style render paths preserve stroke alpha with independent pixel fixtures. | Pending; measured depth cost requires optimization and equivalence checks |
 | 21 | SVG stroke opacity | External SVG output carries palette alpha times stroke opacity. | Source-ready; CI pending |
 | 22 | Visual width-profile manager | CRUD/import/export/previews, errors, overwrite/cancel and restart persistence. | Source-ready; native chooser and Windows crash verification pending |
 | 23 | Width profiles across drawings | Selected drawings/level range, repeated exposures once, locked resources and undo. | Source-ready; CI pending |
@@ -143,7 +171,7 @@ original report; the CI-only harness verifies isolation and failure retention.
 | 33 | Multi-drawing alignment | Explicit frame/reference scope, preview/cancel, matching, groups and no index-only assumptions. | Source-ready; plane rendering correction awaits CI |
 | 34 | Paint Inside/Selection | Clipping to region/selection; holes/groups, pressure, undo. | Source-ready; CI pending |
 | 35 | Guided Drawing mode consistency | Guided Drawing honors paint mode or provides actionable explicit incompatibility. | Source-ready; CI pending |
-| 36 | Along-stroke opacity | Opacity variation survives draw/split/join/morph/deform/render/export and versioned storage. | Source-ready; CI pending |
+| 36 | Along-stroke opacity | Opacity variation survives draw/split/join/morph/deform/render/export and versioned storage. | Pending; depth optimization and converter fixture verification in progress |
 | 37 | Global Cast search | Name/path, folder/global scope, stable selection. | Source-ready; CI pending |
 | 38 | Cast filters | Types and resource status predicates including modified assets, combined with search. | Source-ready; fresh CI pending |
 | 39 | Where Used navigation | All nested occurrences, cycles bounded, exact instance navigation and multiselection. | Source-ready; CI pending |
@@ -156,7 +184,7 @@ original report; the CI-only harness verifies isolation and failure retention.
 | 46 | Audio audition | Native waveform/transport, stop-on-close/selection and no leaked playback. | Source-ready; fresh CI pending |
 | 47 | Tags and collections | Stable asset IDs, multi-tag queries, saved named collections and save/reload. | Source-ready; fresh CI pending |
 | 48 | Stable refresh state | Identity selection/scroll/expanded folders/sort retained through changes. | Source-ready; CI pending |
-| 49 | Large-Cast responsiveness | Large fixture correctness and measured incremental update/ordering. | Source-ready; fresh CI pending |
+| 49 | Large-Cast responsiveness | Large fixture correctness and measured incremental update/ordering. | Pending; refresh optimization prepared, comparable timings required |
 | 50 | Explicit duplicate consolidation | Content/identity/palette comparisons, explicit confirmation only, exposure-preserving undo. | Source-ready; CI pending |
 | 51 | Collection/dependency report | Missing/conflicting dependencies and sizes, exact inclusion and relocated output verification. | Source-ready; CI pending |
 | 52 | Linked ownership and local copy | Actual Library import/link provenance and explicit local copy with undo/collection preservation; external paths alone do not prove linkage. | Source-ready; fresh CI pending |
@@ -166,8 +194,8 @@ original report; the CI-only harness verifies isolation and failure retention.
 | 56 | Scene compatibility report | Read-only known-extension inventory, unsupported/lossy warnings and navigation; no certification of arbitrary historical builds. | Source-ready; fresh CI pending |
 | 57 | Export fidelity preflight | Lottie/SVG unsupported-feature inspection before write; cancel and explicit conversion. | Source-ready; CI pending |
 | 58 | Recovery completeness status | Current snapshot complete/partial/errors/retry visible without losing pending resources. | Source-ready; fresh CI pending |
-| 59 | Artist-workload benchmarks | Native synthetic drawing/scrub/playback/resource-save/memory metrics, correctness and provenance; physical tablet qualification separate. | Source-ready; CI pending |
-| 60 | Safe disk-cache management | Usage/budget/manual cleanup, cross-process leases, atomic retirement, cancellation/errors. | Source-ready; under-gate cancellation checks await CI |
+| 59 | Artist-workload benchmarks | Native synthetic drawing/scrub/playback/resource-save/memory metrics, correctness and provenance; physical tablet qualification separate. | Pending; valid 2D/depth baselines captured, optimization measurements outstanding |
+| 60 | Safe disk-cache management | Usage/budget/manual cleanup, cross-process leases, atomic retirement, cancellation/errors. | Source-ready; Linux cache checks passed on 6f95648db, final-head/platform CI pending |
 
 ## Shared regression gates
 
