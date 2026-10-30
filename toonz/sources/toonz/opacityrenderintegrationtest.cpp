@@ -29,8 +29,12 @@
 #include <QLabel>
 #include <QPaintEvent>
 #include <atomic>
+#include <algorithm>
 #include <future>
 #include <cmath>
+#include <iomanip>
+#include <iostream>
+#include <sstream>
 #include <stdexcept>
 
 namespace {
@@ -41,6 +45,45 @@ TVectorImageP imageWith(TPalette *palette, int style) {
   auto *stroke = new TStroke(std::vector<TThickPoint>{{-48,0,8},{0,0,8},{48,0,8}});
   stroke->setStyle(style); image->addStroke(stroke, false);
   return image;
+}
+void depthDiagnostics(const TVectorImageP &image, const char *phase) {
+  GLint viewport[4], depthFunction = 0, depthBits = 0, stencilBits = 0;
+  GLint sourceBlend = 0, destinationBlend = 0, matrixMode = 0;
+  GLboolean depthWrite = GL_FALSE, colorWrite[4];
+  GLdouble depthRange[2], model[16], projection[16];
+  glGetIntegerv(GL_VIEWPORT, viewport);
+  glGetIntegerv(GL_DEPTH_FUNC, &depthFunction);
+  glGetIntegerv(GL_DEPTH_BITS, &depthBits);
+  glGetIntegerv(GL_STENCIL_BITS, &stencilBits);
+  glGetIntegerv(GL_BLEND_SRC, &sourceBlend);
+  glGetIntegerv(GL_BLEND_DST, &destinationBlend);
+  glGetIntegerv(GL_MATRIX_MODE, &matrixMode);
+  glGetBooleanv(GL_DEPTH_WRITEMASK, &depthWrite);
+  glGetBooleanv(GL_COLOR_WRITEMASK, colorWrite);
+  glGetDoublev(GL_DEPTH_RANGE, depthRange);
+  glGetDoublev(GL_MODELVIEW_MATRIX, model);
+  glGetDoublev(GL_PROJECTION_MATRIX, projection);
+  const auto *stroke = image->getStroke(0);
+  std::ostringstream out;
+  out << std::setprecision(17) << "vector-opacity-depth: " << phase
+      << " style=" << stroke->getStyle()
+      << " tag=" << image->getPalette()->getStyle(stroke->getStyle())->getTagId()
+      << " opacity=" << stroke->getOpacity()
+      << " knots=" << stroke->getOpacityProfile().size()
+      << " depth=(enabled=" << int(glIsEnabled(GL_DEPTH_TEST))
+      << ",function=" << depthFunction << ",bits=" << depthBits
+      << ",write=" << int(depthWrite) << ",range=" << depthRange[0] << ':' << depthRange[1] << ')'
+      << " stencil=(enabled=" << int(glIsEnabled(GL_STENCIL_TEST)) << ",bits=" << stencilBits << ')'
+      << " blend=(enabled=" << int(glIsEnabled(GL_BLEND)) << ",source=" << sourceBlend
+      << ",destination=" << destinationBlend << ") colorMask=";
+  for (auto value : colorWrite) out << int(value);
+  out << " viewport=";
+  for (auto value : viewport) out << value << ',';
+  out << " matrixMode=" << matrixMode << " model=";
+  for (auto value : model) out << value << ',';
+  out << " projection=";
+  for (auto value : projection) out << value << ',';
+  std::cout << out.str() << std::endl;
 }
 TRaster32P render(const TVectorImageP &image, bool depth = false,
                  TOfflineGL *reuse = nullptr) {
@@ -64,20 +107,44 @@ TRaster32P render(const TVectorImageP &image, bool depth = false,
       ? TVectorRenderData(TVectorRenderData::ViewerSettings(), TAffine(), TRect(0,0,255,127), image->getPalette())
       : TVectorRenderData(TVectorRenderData::ProductionSettings(), TTranslation(128,64), TRect(0,0,255,127), image->getPalette());
   data.m_is3dView = depth; data.m_drawRegions = false;
+  if (depth) depthDiagnostics(image, "before native draw");
   reuse->draw(image, data, false);
+  if (depth) depthDiagnostics(image, "after native draw");
   auto pixels = reuse->getRaster()->clone(); reuse->doneCurrent();
   return pixels;
 }
 void scaledPixels(const TRaster32P &base, const TRaster32P &actual, double scale,
                   const char *message, bool requireArtwork = true) {
-  int occupied = 0;
+  int occupied = 0, mismatchCount = 0, maximumDifference = 0;
+  int left = base->getLx(), bottom = base->getLy(), right = -1, top = -1;
+  std::ostringstream mismatches;
   for (int y = 0; y < base->getLy(); ++y) for (int x = 0; x < base->getLx(); ++x) {
     const auto a = base->pixels(y)[x], b = actual->pixels(y)[x];
     if (a.m) ++occupied;
-    require(std::abs(int(std::lround(a.r * scale)) - int(b.r)) <= 2 &&
-            std::abs(int(std::lround(a.g * scale)) - int(b.g)) <= 2 &&
-            std::abs(int(std::lround(a.b * scale)) - int(b.b)) <= 2 &&
-            std::abs(int(std::lround(a.m * scale)) - int(b.m)) <= 2, message);
+    const int delta = std::max({std::abs(int(std::lround(a.r * scale)) - int(b.r)),
+        std::abs(int(std::lround(a.g * scale)) - int(b.g)),
+        std::abs(int(std::lround(a.b * scale)) - int(b.b)),
+        std::abs(int(std::lround(a.m * scale)) - int(b.m))});
+    if (delta > 2) {
+      if (mismatchCount < 12)
+        mismatches << "\npixel(" << x << ',' << y << ") base RGBA=("
+                   << int(a.r) << ',' << int(a.g) << ',' << int(a.b) << ',' << int(a.m)
+                   << ") actual RGBA=(" << int(b.r) << ',' << int(b.g) << ','
+                   << int(b.b) << ',' << int(b.m) << ')';
+      ++mismatchCount;
+      maximumDifference = std::max(maximumDifference, delta);
+      left = std::min(left,x); right = std::max(right,x);
+      bottom = std::min(bottom,y); top = std::max(top,y);
+    }
+  }
+  if (mismatchCount) {
+    std::ostringstream detail;
+    detail << message << ": mismatched pixels=" << mismatchCount
+           << " max channel difference=" << maximumDifference << " scale=" << scale
+           << " bounds=(" << left << ',' << bottom << ',' << right << ',' << top << ')'
+           << mismatches.str();
+    if (mismatchCount > 12) detail << "\n[remaining pixel details omitted]";
+    throw std::runtime_error(detail.str());
   }
   require(!requireArtwork || occupied > 20, "opacity style fixture produced no artwork");
 }
@@ -292,6 +359,8 @@ void runOpacityRenderNativeChecks() {
   styles.push_back(palette->addStyle(trail));
 
   for (int style : styles) {
+    std::cout << "vector-opacity-render: checking style=" << style << " tag="
+              << palette->getStyle(style)->getTagId() << std::endl;
     auto image = imageWith(palette.getPointer(), style);
     const auto base = render(image);
     if (palette->getStyle(style)->getTagId() == 106) {
@@ -323,6 +392,8 @@ void runOpacityRenderNativeChecks() {
     stroke->setOpacity(1.); stroke->setOpacityProfile({{0,1},{1,1}});
     scaledPixels(base, render(image), 1., "identity envelope altered style spacing or alpha");
     stroke->setOpacityProfile({});
+    std::cout << "vector-opacity-render: checking native 3D identity style=" << style
+              << " tag=" << palette->getStyle(style)->getTagId() << std::endl;
     const auto ordinaryDepth = render(image, true);
     stroke->setOpacityProfile({{0,1},{1,1}});
     scaledPixels(ordinaryDepth, render(image, true), 1.,

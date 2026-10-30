@@ -449,6 +449,7 @@ void runVectorMorphNativeChecks() {
               undo->getHistoryCount() == 0 && !app->getCurrentScene()->getDirtyFlag(),
           "failed morph changed artwork, history or dirty state");
   first->getStroke(2)->setOpacityProfile({}); last->getStroke(0)->setOpacityProfile({});
+  std::cout << "vector-morph-native: PASS" << std::endl;
 }
 
 void runVectorOpacityProfileNativeChecks() {
@@ -542,4 +543,5 @@ void runVectorOpacityProfileNativeChecks() {
               reopened->getStroke(1)->getOpacityProfile() == expected,
           "native opacity editor result lost exact step knots on PLI reopen");
   undo->reset();
+  std::cout << "vector-opacity-profile-native: PASS" << std::endl;
 }
