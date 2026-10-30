@@ -126,6 +126,17 @@ measurements rather than a machine-dependent pass threshold. Usable performance
 and complete platform execution remain pending CI; no performance-neutrality
 claim is made.
 
+The `vector-opacity-depth-workload-provenance` and
+`vector-opacity-depth-workload-mode` records identify the actual GL renderer,
+target/depth/sample formats, and each synchronized frame time in the 1080p
+eight-stroke workload. Timings include allocation, readback and replacement;
+untimed midpoint pixels verify that all eight strokes drew with the expected
+native/scalar/envelope result. Per-mode memory records use the process peak
+resident set before and after rendering (`PeakWorkingSetSize` on Windows,
+`ru_maxrss` on macOS, `VmHWM` on Linux). This cumulative high-water mark may be
+dominated by earlier fixtures; it is not an isolated allocation delta or
+simultaneous process-tree RSS. The known snapshot payload is reported separately.
+
 The native fixture retains the strict Chain `GL_LEQUAL` comparison and adds the
 scene viewer's `GL_ALWAYS` mode, transparent holes and later layers, same-color
 depth writes, channel/depth/stencil masks, scissor, reduced viewports, independent

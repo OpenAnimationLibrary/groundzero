@@ -1,4 +1,5 @@
 #include "opacityrenderintegrationtest.h"
+#include "nativeprocessmemory.h"
 #include "tstroke.h"
 #include "tvectorgl.h"
 #include "tstrokeopacitybounds.h"
@@ -28,6 +29,10 @@
 #include <QOpenGLFramebufferObject>
 #include <QOpenGLFunctions>
 #include <QElapsedTimer>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QSysInfo>
 #include <QThread>
 #include <QLabel>
 #include <QPaintEvent>
@@ -963,22 +968,83 @@ void nativeDepthTiming(TPalette *palette, int solidStyle) {
   };
   // Initialize native geometry/style caches before measuring comparable work.
   prepare(); tglDraw(data,image.getPointer()); glFinish();
+  GLint depthBits = 0, stencilBits = 0, sampleBuffers = 0, samples = 0;
+  GLint framebuffer = 0, viewport[4] = {}, colorBits[4] = {};
+  glGetIntegerv(GL_DEPTH_BITS,&depthBits);
+  glGetIntegerv(GL_STENCIL_BITS,&stencilBits);
+  glGetIntegerv(GL_SAMPLE_BUFFERS,&sampleBuffers);
+  glGetIntegerv(GL_SAMPLES,&samples);
+  glGetIntegerv(GL_FRAMEBUFFER_BINDING,&framebuffer);
+  glGetIntegerv(GL_VIEWPORT,viewport);
+  glGetIntegerv(GL_RED_BITS,&colorBits[0]); glGetIntegerv(GL_GREEN_BITS,&colorBits[1]);
+  glGetIntegerv(GL_BLUE_BITS,&colorBits[2]); glGetIntegerv(GL_ALPHA_BITS,&colorBits[3]);
+  require(depthBits > 0 && glIsEnabled(GL_DEPTH_TEST) && sampleBuffers == 0 &&
+              viewport[2] == width && viewport[3] == height,
+          "1080p opacity workload requires an actual single-sample depth target");
+  const size_t bytesPerPixel = 2*(4*sizeof(GLfloat)+sizeof(GLfloat)+(stencilBits ? sizeof(GLuint) : 0));
+  const auto glText = [](GLenum name) {
+    const GLubyte *value = glGetString(name);
+    return value ? QString::fromLatin1(reinterpret_cast<const char *>(value)) : QString();
+  };
+  const QJsonObject provenance{
+      {"platform",QSysInfo::productType()}, {"architecture",QSysInfo::currentCpuArchitecture()},
+      {"qt",qVersion()}, {"gl_vendor",glText(GL_VENDOR)},
+      {"gl_renderer",glText(GL_RENDERER)}, {"gl_version",glText(GL_VERSION)},
+      {"target",framebuffer ? "framebuffer object" : "default framebuffer"},
+      {"width",width}, {"height",height}, {"depth_bits",depthBits},
+      {"stencil_bits",stencilBits}, {"color_bits",QJsonArray{colorBits[0],colorBits[1],colorBits[2],colorBits[3]}},
+      {"sample_buffers",sampleBuffers}, {"samples",samples}, {"depth_function","GL_ALWAYS"},
+      {"strokes",strokes}, {"frames_per_mode",frames},
+      {"snapshot_bytes_per_modulated_stroke",QString::number(qulonglong(size_t(width)*height*bytesPerPixel))},
+      {"peak_resident_source",nativeProcessPeakResidentSource()},
+      {"measurement","Default TOfflineGL; per-frame clear, native vector draw and glFinish; includes allocation, synchronous readback and replacement for modulated strokes"},
+      {"memory_scope","Cumulative process peak before/after each mode; earlier fixtures may dominate. Not isolated workload RSS or process-tree memory. Snapshot bytes are a separate known buffer payload."}};
+  require(glGetError() == GL_NO_ERROR,"1080p opacity workload target query failed");
+  std::cout << "vector-opacity-depth-workload-provenance: "
+            << QJsonDocument(provenance).toJson(QJsonDocument::Compact).constData() << std::endl;
   qint64 times[3] = {};
+  std::vector<std::vector<GLubyte>> witnesses(3,std::vector<GLubyte>(strokes*4));
   for (int mode = 0; mode < 3; ++mode) {
+    const char *name = mode == 0 ? "native" : mode == 1 ? "scalar" : "profile";
     for (int i = 0; i < strokes; ++i) {
       auto *stroke = image->getStroke(i);
       stroke->setOpacity(mode == 1 ? .5 : 1.);
       stroke->setOpacityProfile(mode == 2 ? StrokeOpacity::Profile{{0,.2},{1,.8}} : StrokeOpacity::Profile{});
     }
-    glFinish(); QElapsedTimer elapsed; elapsed.start();
+    glFinish();
+    const qint64 peakBefore = nativeProcessPeakResidentBytes();
+    std::cout << "vector-opacity-depth-workload-mode: begin " << name << std::endl;
+    QJsonArray frameMilliseconds;
     for (int frame = 0; frame < frames; ++frame) {
+      QElapsedTimer elapsed; elapsed.start();
       prepare(); tglDraw(data,image.getPointer()); glFinish();
+      const qint64 frameNanoseconds = elapsed.nsecsElapsed();
+      times[mode] += frameNanoseconds;
+      frameMilliseconds.append(frameNanoseconds/1.e6);
     }
-    times[mode] = elapsed.nsecsElapsed();
+    const qint64 peakAfter = nativeProcessPeakResidentBytes();
+    // These untimed witnesses verify that each measured stroke actually drew;
+    // scalar/profile at its midpoint must halve the native destination change.
+    for (int i = 0; i < strokes; ++i)
+      glReadPixels(960,100+i*120,1,1,GL_RGBA,GL_UNSIGNED_BYTE,witnesses[mode].data()+i*4);
     require(glGetError() == GL_NO_ERROR,"1080p native opacity workload left an OpenGL error");
+    const QJsonObject measurement{
+        {"mode",name}, {"frame_ms",frameMilliseconds}, {"total_ms",times[mode]/1.e6},
+        {"process_peak_resident_before_bytes",QString::number(peakBefore)},
+        {"process_peak_resident_after_bytes",QString::number(peakAfter)}};
+    std::cout << "vector-opacity-depth-workload-mode: "
+              << QJsonDocument(measurement).toJson(QJsonDocument::Compact).constData() << std::endl;
   }
-  GLint stencilBits = 0; glGetIntegerv(GL_STENCIL_BITS,&stencilBits);
-  const size_t bytesPerPixel = 2*(4*sizeof(GLfloat)+sizeof(GLuint)+(stencilBits ? sizeof(GLuint) : 0));
+  for (int i = 0; i < strokes; ++i) {
+    require(witnesses[0][i*4] > 0,"1080p native workload stroke was not visible");
+    for (int channel = 0; channel < 4; ++channel) {
+      const double background = channel >= 2 ? 255. : 0.;
+      const double expected = (witnesses[0][i*4+channel]+background)/2.;
+      require(std::abs(witnesses[1][i*4+channel]-expected) <= 2. &&
+                  std::abs(witnesses[2][i*4+channel]-expected) <= 2.,
+              "1080p measured opacity strokes differ from native midpoint color mix");
+    }
+  }
   std::cout << "vector-opacity-depth-workload: viewport=" << width << 'x' << height
             << " strokes=" << strokes << " frames_per_mode=" << frames
             << " native_ms=" << times[0]/1.e6 << " scalar_ms=" << times[1]/1.e6
