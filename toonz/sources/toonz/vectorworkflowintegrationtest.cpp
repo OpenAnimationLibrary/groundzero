@@ -547,10 +547,20 @@ void runVectorWorkflowNativeChecks() {
     require(file.open(QIODevice::ReadOnly), "native gradient palette snapshot unavailable");
     return file.readAll();
   };
+  int nextGradientChoice = 0;
   auto chooseUnique = [&](const QString &choice, const std::function<void()> &whileOpen = {},
                           bool ownerCancelled = false) {
     bool visited = false, expired = false;
     std::exception_ptr failure;
+    const int review = ++nextGradientChoice;
+    const char *phase = "preparing command";
+    auto trace = [&](const char *next) {
+      phase = next;
+      std::cout << "vector-gradient-choice-native: review=" << review
+                << " choice=" << choice.toStdString()
+                << " owner_cancelled=" << ownerCancelled
+                << " phase=" << phase << std::endl;
+    };
     QTimer drive, deadline; drive.setInterval(20); deadline.setSingleShot(true);
     QObject::connect(&drive,&QTimer::timeout,[&] {
       if (visited) return;
@@ -558,6 +568,7 @@ void runVectorWorkflowNativeChecks() {
       if (!question) return;
       visited = true;
       try {
+        trace("actual question received");
         // QMessageBox intentionally ignores window titles on macOS. Identify
         // this exact native question and its choices independently of chrome.
         auto *cancel = question->button(QMessageBox::Cancel);
@@ -579,7 +590,12 @@ void runVectorWorkflowNativeChecks() {
               "Unexpected native gradient dialog: icon=%1 title='%2' text='%3' buttons=%4")
               .arg(int(question->icon())).arg(question->windowTitle().left(120))
               .arg(question->text().left(240)).arg(question->buttons().size()).toStdString());
-        if (whileOpen) whileOpen();
+        trace("question identity verified");
+        if (whileOpen) {
+          trace("entering intervening action");
+          whileOpen();
+          trace("intervening action returned");
+        }
         QAbstractButton *selected = choice == "Cancel" ? cancel :
             choice == "Copy Animation" ? animation :
             choice == "Current Appearance" ? appearance : nullptr;
@@ -589,22 +605,45 @@ void runVectorWorkflowNativeChecks() {
           bool delivered = false;
           require(!question->parentWidget() && !selected->isEnabled(),
                   "owner-cancelled gradient retained an actionable choice");
-          require(QMetaObject::invokeMethod(selected,[&] { delivered = true; selected->click(); },Qt::QueuedConnection),
+          trace("queueing cancelled choice");
+          require(QMetaObject::invokeMethod(selected,[&] {
+                    delivered = true;
+                    trace("delivering cancelled choice");
+                    selected->click();
+                    trace("cancelled choice click returned");
+                  },Qt::QueuedConnection),
                   "owner-cancelled gradient could not queue its actual choice");
           QCoreApplication::sendPostedEvents(selected,QEvent::MetaCall);
+          trace("cancelled choice delivery returned");
           require(delivered && !question->clickedButton() && question->result() == QDialog::Rejected,
                   "queued gradient choice revived an owner-cancelled operation");
-        } else require(QMetaObject::invokeMethod(selected,"click",Qt::QueuedConnection),
-                       "native gradient choice could not queue its actual button");
-      } catch (...) { failure = std::current_exception(); question->reject(); }
+          trace("cancelled choice remains rejected");
+        } else {
+          trace("queueing chosen button");
+          require(QMetaObject::invokeMethod(selected,"click",Qt::QueuedConnection),
+                  "native gradient choice could not queue its actual button");
+        }
+      } catch (...) {
+        failure = std::current_exception();
+        std::cerr << "vector-gradient-choice-native: review=" << review
+                  << " callback failed at phase=" << phase << std::endl;
+        question->reject();
+      }
     });
     QObject::connect(&deadline,&QTimer::timeout,[&] {
       expired = true;
+      std::cerr << "vector-gradient-choice-native: review=" << review
+                << " deadline at phase=" << phase << std::endl;
       if (auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget())) dialog->reject();
     });
-    drive.start(); deadline.start(5000); unique->trigger(); drive.stop(); deadline.stop();
+    drive.start(); deadline.start(5000);
+    trace("triggering command");
+    unique->trigger();
+    trace("command returned");
+    drive.stop(); deadline.stop();
     if (failure) std::rethrow_exception(failure);
     require(visited && !expired,"native gradient choice workflow did not complete");
+    trace("choice workflow verified");
   };
   tool->rightButtonDown(TPointD(0,0), TMouseEvent());
   const auto unchangedPalette = paletteBytes();
@@ -612,6 +651,12 @@ void runVectorWorkflowNativeChecks() {
   const bool cachedFirst = images->isCached(firstId), cachedSecond = images->isCached(secondId);
   const bool paletteDirty = palette->getDirtyFlag(), levelDirty = level->getProperties()->getDirtyFlag();
   for (int repeat = 0; repeat < 4; ++repeat) {
+    auto traceOwner = [&](const char *phase) {
+      std::cout << "vector-gradient-owner-native: repeat=" << repeat
+                << " action=" << (repeat < 2 ? "Cancel" : repeat == 2 ? "hide/show" : "delete")
+                << " phase=" << phase << std::endl;
+    };
+    traceOwner("begin");
     QPointer<QWidget> previous = QApplication::activeWindow();
     std::unique_ptr<QWidget> owner;
     if (repeat >= 2) {
@@ -620,10 +665,23 @@ void runVectorWorkflowNativeChecks() {
       chooseUnique(repeat == 2 ? "Copy Animation" : "Current Appearance", [&] {
         require(VectorModalTest::hasReviewOwner(QApplication::activeModalWidget(), owner.get()),
                 "gradient review did not capture its actual native owner");
-        if (repeat == 2) { owner->hide(); owner->show(); } else owner.reset();
+        traceOwner("native transient owner verified");
+        if (repeat == 2) {
+          traceOwner("hiding owner");
+          owner->hide();
+          traceOwner("owner hidden; showing owner");
+          owner->show();
+          traceOwner("owner shown");
+        } else {
+          traceOwner("deleting owner");
+          owner.reset();
+          traceOwner("owner deletion returned");
+        }
       },true);
     } else chooseUnique("Cancel");
+    traceOwner("settling after command");
     settle();
+    traceOwner("checking unchanged authored and cache state");
     require(!images->isModified(firstId) && !images->isModified(secondId) &&
                 images->isCached(firstId) == cachedFirst && images->isCached(secondId) == cachedSecond &&
                 TVectorImageP(level->getFrame(TFrameId(1),false)) == first &&
@@ -634,7 +692,9 @@ void runVectorWorkflowNativeChecks() {
                 palette->getDirtyFlag() == paletteDirty && level->getProperties()->getDirtyFlag() == levelDirty &&
                 undo->getHistoryCount() == 0 && !app->getCurrentScene()->getDirtyFlag(),
             "canceling animated Make Unique changed image/cache/palette/frame/history state");
+    traceOwner("unchanged state verified; releasing fixture owner");
     owner.reset(); if (previous) QApplication::setActiveWindow(previous);
+    traceOwner("fixture owner released and previous active window restored");
   }
   const TPaletteP originalAnimation = palette->clone();
   const std::unique_ptr<TColorStyle> currentAppearance(palette->getStyle(gradientId)->clone());
