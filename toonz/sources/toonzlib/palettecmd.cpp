@@ -45,6 +45,56 @@
 
 #include <QHash>
 
+namespace {
+class ReferenceColorsUndo final : public TUndo {
+  TPaletteP m_palette;
+  TPaletteHandle *m_handle;
+  std::vector<std::pair<int, TPixel32>> m_before, m_after;
+  void apply(const std::vector<std::pair<int, TPixel32>> &colors) const {
+    for (const auto &entry : colors)
+      m_palette->getStyle(entry.first)->setMainColor(entry.second);
+    m_palette->setDirtyFlag(true);
+    m_handle->notifyColorStyleChanged(false, false);
+  }
+public:
+  ReferenceColorsUndo(TPaletteHandle *handle,
+      const std::vector<std::pair<int, TPixel32>> &colors)
+      : m_palette(handle->getPalette()), m_handle(handle), m_after(colors) {
+    for (const auto &entry : colors)
+      m_before.emplace_back(entry.first, m_palette->getStyle(entry.first)->getMainColor());
+  }
+  void undo() const override { apply(m_before); }
+  void redo() const override { apply(m_after); }
+  int getSize() const override {
+    return sizeof(*this) + int((m_before.size()+m_after.size())*sizeof(m_before[0]));
+  }
+  QString getHistoryString() override { return QObject::tr("Match Reference Colors"); }
+  int getHistoryType() override { return HistoryType::Palette; }
+};
+}
+
+bool PaletteCmd::applyReferenceColors(TPaletteHandle *handle,
+    const std::vector<std::pair<int, TPixel32>> &mapping) {
+  TPalette *palette=handle?handle->getPalette():nullptr;
+  if (!palette || palette->isLocked() || palette->isAnimated()) return false;
+  std::set<int> seen;
+  std::vector<std::pair<int, TPixel32>> changes;
+  for (const auto &entry : mapping) {
+    if (entry.first<=0 || entry.first>=palette->getStyleCount() ||
+        !seen.insert(entry.first).second) return false;
+    auto style=palette->getStyle(entry.first);
+    if (style->getTagId()!=3 || !style->getGlobalName().empty()) return false;
+    auto color=entry.second;
+    color.m=style->getMainColor().m;
+    if (color!=style->getMainColor()) changes.emplace_back(entry.first,color);
+  }
+  if (changes.empty()) return true;
+  auto undo=new ReferenceColorsUndo(handle,changes);
+  undo->redo();
+  TUndoManager::manager()->add(undo);
+  return true;
+}
+
 //===================================================================
 
 void findPaletteLevels(std::set<TXshSimpleLevel *> &levels, int &rowIndex,

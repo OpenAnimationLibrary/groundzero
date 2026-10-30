@@ -66,6 +66,7 @@ public:
   // Shows the image with the given view; a null state fits it to the view.
   void setImage(const QImage &image, const ReferenceViewState *state);
   bool hasImage() const { return !m_image.isNull(); }
+  QImage image() const { return m_image; }
 
   ReferenceViewState getViewState() const;
 

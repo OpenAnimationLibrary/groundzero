@@ -113,6 +113,9 @@ set(HEADERS
 )
 
 set(SOURCES
+    colormatcheditor.cpp
+    neuralstyleeditor.cpp
+
     uitranslations.cpp
     ../tnztools/cursormanager.cpp
     checkbox.cpp
@@ -302,4 +305,10 @@ if(BUILD_SEEXPR_TESTS)
         Qt${QT_VERSION_MAJOR}::Widgets)
     add_test(NAME seexpr_range COMMAND seexpr_range_test)
     set_tests_properties(seexpr_editor seexpr_controls seexpr_range PROPERTIES TIMEOUT 30)
+endif()
+
+if(BUILD_LUT3D_TESTS)
+    add_executable(neuralstyle_editor_test tests/neuralstyle_editor_test.cpp)
+    target_link_libraries(neuralstyle_editor_test PRIVATE toonzqt toonzlib tnzbase tnzcore
+        Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Widgets)
 endif()
