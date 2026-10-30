@@ -9,6 +9,7 @@
 #include "tools/tool.h"
 #include "tools/toolhandle.h"
 #include "tools/strokeselection.h"
+#include "tools/vectorimagesnapshot.h"
 #include "toonzqt/selectioncommandids.h"
 #include "toonzqt/menubarcommand.h"
 #include "toonzqt/planeviewer.h"
@@ -1094,6 +1095,15 @@ void runVectorMorphNativeChecks() {
   options.m_unmatchedPolicy = TInbetween::FadeUnmatched;
   app->getCurrentScene()->setDirtyFlag(false); undo->reset();
   auto fadeDialog = [&](bool apply, bool blocked) {
+    const TVectorImageP sourceFirst = level->getFrame(TFrameId(1),false);
+    const TVectorImageP sourceLast = level->getFrame(TFrameId(3),false);
+    auto snapshot = [](const TVectorImageP &source) {
+      TVectorImageP copy = source->cloneWithGroupContext();
+      copy->setPalette(source->getPalette()->clone());
+      copy->findRegions();
+      return copy;
+    };
+    const TVectorImageP firstSnapshot = snapshot(sourceFirst), lastSnapshot = snapshot(sourceLast);
     InbetweenDialog review(nullptr);
     review.setValue("Linear"); review.setAutoMatch(false);
     review.setUnmatchedPolicy(TInbetween::FadeUnmatched);
@@ -1120,6 +1130,35 @@ void runVectorMorphNativeChecks() {
     TVectorImageP before = level->getFrame(TFrameId(2),false);
     QTimer drive, deadline; drive.setInterval(30); deadline.setSingleShot(true);
     int stage = 0; bool finished = false; QImage midpoint, early;
+    auto comparePixels = [&](const QImage &actual, const QImage &expected, const char *phase) {
+      if (actual == expected) return;
+      std::cerr << "vector-fade-preview-native: " << phase << " stage=" << stage
+                << " position=" << position->value() << " apply=" << apply
+                << " actual=" << actual.width() << 'x' << actual.height()
+                << " expected=" << expected.width() << 'x' << expected.height()
+                << " format=" << int(actual.format()) << '/' << int(expected.format())
+                << " dpr=" << actual.devicePixelRatio() << '/' << expected.devicePixelRatio();
+      if (actual.size() == expected.size() && !actual.isNull()) {
+        const QImage a = actual.convertToFormat(QImage::Format_RGBA8888);
+        const QImage b = expected.convertToFormat(QImage::Format_RGBA8888);
+        int changed = 0, maximum = 0, firstX = -1, firstY = -1;
+        for (int y = 0; y < a.height(); ++y) for (int x = 0; x < a.width(); ++x) {
+          bool different = false;
+          for (int channel = 0; channel < 4; ++channel) {
+            const int delta = std::abs(int(a.constScanLine(y)[x*4+channel]) -
+                                       int(b.constScanLine(y)[x*4+channel]));
+            maximum = std::max(maximum,delta); different = different || delta != 0;
+          }
+          if (different) {
+            if (!changed) { firstX = x; firstY = y; }
+            ++changed;
+          }
+        }
+        std::cerr << " changed_pixels=" << changed << " max_channel_delta=" << maximum
+                  << " first_changed=" << firstX << ',' << firstY;
+      }
+      std::cerr << std::endl;
+    };
     QObject::connect(&drive, &QTimer::timeout, [&]() {
       try {
         require(undo->getCurrentHistoryIndex() == history &&
@@ -1127,6 +1166,11 @@ void runVectorMorphNativeChecks() {
                     level->getProperties()->getDirtyFlag() == levelDirty &&
                     TVectorImageP(level->getFrame(TFrameId(2),false)) == before,
                 "native Fade preview changed artwork/history/dirty state");
+        require(TVectorImageP(level->getFrame(TFrameId(1),false)) == sourceFirst &&
+                    TVectorImageP(level->getFrame(TFrameId(3),false)) == sourceLast &&
+                    VectorImageSnapshot::sameContent(sourceFirst,firstSnapshot) &&
+                    VectorImageSnapshot::sameContent(sourceLast,lastSnapshot),
+                "native Fade preview changed an authored source or palette");
         if (blocked) {
           if (!status->text().contains("painted regions")) return;
           require(!button->isEnabled() && !table->property("previewReady").toBool(),
@@ -1137,8 +1181,55 @@ void runVectorMorphNativeChecks() {
         }
         if (!table->property("previewReady").toBool()) return;
         require(button->isEnabled(), "supported Fade preview did not enable Apply");
+        const TVectorImageP generated = review.previewImageForTest();
+        require(generated && generated->getStrokeCount() == 2,
+                "native Fade preview lost its generated stroke topology");
+        requireGeometry(generated,sourceFirst,"native Fade preview geometry changed");
+        const double expectedOpacity = .6 * (1. - position->value() / 100.);
+        for (int i = 0; i < 2; ++i) {
+          const auto *stroke = generated->getStroke(i), *source = sourceFirst->getStroke(i);
+          const double scalar = i ? expectedOpacity : source->getOpacity();
+          if (stroke->getOpacity() != scalar)
+            std::cerr << std::setprecision(17) << "vector-fade-preview-native: stage=" << stage
+                      << " position=" << position->value() << " stroke=" << i
+                      << " actual_opacity=" << stroke->getOpacity()
+                      << " expected_opacity=" << scalar << std::endl;
+          require(stroke->getOpacity() == scalar &&
+                      stroke->getOpacityProfile() == source->getOpacityProfile() &&
+                      stroke->getStyle() == source->getStyle() &&
+                      stroke->isSelfLoop() == source->isSelfLoop() &&
+                      generated->getGroupDepth(i) == sourceFirst->getGroupDepth(i) &&
+                      generated->getPalette() == sourceFirst->getPalette(),
+                  "native Fade preview changed authored scalar/profile/style/group semantics");
+        }
+        const TAffine beforeView = swatch->viewAff();
         const QImage image = swatch->grabFramebuffer();
         require(!image.isNull(), "native Fade preview framebuffer is empty");
+        const TAffine afterView = swatch->viewAff();
+        std::cout << "vector-fade-preview-native: stage=" << stage
+                  << " position=" << position->value() << " apply=" << apply
+                  << " size=" << image.width() << 'x' << image.height()
+                  << " widget=" << swatch->width() << 'x' << swatch->height()
+                  << " dpr=" << image.devicePixelRatio()
+                  << " opacity=" << generated->getStroke(1)->getOpacity()
+                  << " view_before=" << beforeView.a11 << ',' << beforeView.a12 << ',' << beforeView.a13
+                  << ',' << beforeView.a21 << ',' << beforeView.a22 << ',' << beforeView.a23
+                  << " view_after=" << afterView.a11 << ',' << afterView.a12 << ',' << afterView.a13
+                  << ',' << afterView.a21 << ',' << afterView.a22 << ',' << afterView.a23
+                  << std::endl;
+        // Force a different prior view without changing the source, position,
+        // or widget geometry. A paint must derive both backdrop and artwork
+        // from this review, not from the previous paint's first-draw fitting.
+        swatch->viewAff() = TTranslation(swatch->width()*4.,swatch->height()*3.) * TScale(.125);
+        const QImage repeated = swatch->grabFramebuffer();
+        comparePixels(repeated,image,"prior-view repaint mismatch");
+        require(repeated == image,"Fade preview pixels depend on the prior view transform");
+        require(review.previewImageForTest() == generated &&
+                    generated->getStroke(1)->getOpacity() == expectedOpacity &&
+                    generated->getStroke(1)->getOpacityProfile() == fadeProfile &&
+                    VectorImageSnapshot::sameContent(sourceFirst,firstSnapshot) &&
+                    VectorImageSnapshot::sameContent(sourceLast,lastSnapshot),
+                "repainting Fade changed the generated opacity or authored source");
         if (stage == 0) { midpoint = image; ++stage; position->setValue(25); return; }
         if (stage == 1) {
           early = image; require(early != midpoint, "Fade preview did not change visible opacity");
@@ -1148,6 +1239,7 @@ void runVectorMorphNativeChecks() {
           require(image != early && image != midpoint, "Fade preview reused stale opacity");
           ++stage; position->setValue(50); return;
         }
+        comparePixels(image,midpoint,"repeated midpoint mismatch");
         require(image == midpoint, "repeated Fade preview accumulated opacity changes");
         finished = true;
         if (apply) button->click(); else cancel->click();
