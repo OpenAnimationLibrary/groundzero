@@ -22,12 +22,17 @@ MARKERS = dict(zip(SUITES, ("function-workflow-native: PASS", "cast-native-workf
                           "cast-vector-native: PASS",
                           "combined-fidelity-native: PASS",
                           "vector-renderer-native: PASS")))
+ICON_LIFECYCLE_LINES = (
+    "icon-lifecycle-native: PASS (actual workers and Qt TLS retired)",
+    "native-ui-integration: checkpoint: native icon workers drained",
+)
 FULL_OUTPUT = "\n".join(("native-ui-integration: PASS", "vector-workflows: PASS",
                           "offline-gl-workflow: PASS", "function-workflow-native: PASS",
-                          *MARKERS.values())) + "\n"
+                          *MARKERS.values(), *ICON_LIFECYCLE_LINES)) + "\n"
 TIMING_LIFECYCLE_LINES = (
     "function-timing-native: PASS (native locks, undo and scene roundtrip)",
     "native-ui-diagnostic: PASS combined-timing",
+    *ICON_LIFECYCLE_LINES,
     "native-ui-integration: checkpoint: native application cleanup completed",
 )
 TIMING_LIFECYCLE_OUTPUT = "\n".join(TIMING_LIFECYCLE_LINES) + "\n"
@@ -90,7 +95,8 @@ class NativeDiagnosticContracts(unittest.TestCase):
 
     @staticmethod
     def passed(suite, command):
-        output = MARKERS[suite] + f"\nnative-ui-diagnostic: PASS {suite}\n"
+        output = (MARKERS[suite] + f"\nnative-ui-diagnostic: PASS {suite}\n" +
+                  "\n".join(ICON_LIFECYCLE_LINES) + "\n")
         return subprocess.CompletedProcess(command, 0, output)
 
     def test_original_failure_cannot_be_replaced_by_diagnostic_success(self):
@@ -187,6 +193,35 @@ class NativeDiagnosticContracts(unittest.TestCase):
         self.assertIn("Required isolated combined-timing lifecycle: PASS", output)
         self.assertNotIn("Independent diagnostics", output)
         debugger.assert_not_called()
+
+    def test_full_pass_requires_actual_icon_lifecycle_and_drain_lines(self):
+        for missing in ICON_LIFECYCLE_LINES:
+            for replacement in ("", "echo: " + missing, "diagnostic-prefix " + missing):
+                with self.subTest(missing=missing, replacement=replacement):
+                    def response(suite, command, options):
+                        if suite is not None:
+                            return self.passed(suite, command)
+                        return subprocess.CompletedProcess(command, 0, FULL_OUTPUT.replace(missing, replacement))
+                    status, calls, output = self.invoke(response)
+                    self.assertEqual(status, 1)
+                    self.assertIn("Missing native icon lifecycle checkpoints", output)
+                    self.assertEqual([call[0] for call in calls], [None, *SUITES])
+
+    def test_isolated_fixture_pass_cannot_replace_missing_icon_retirement(self):
+        for missing in ICON_LIFECYCLE_LINES:
+            with self.subTest(missing=missing):
+                def response(suite, command, options):
+                    if suite is None:
+                        return subprocess.CompletedProcess(command, 17, "original failure\n")
+                    result = self.passed(suite, command)
+                    if suite == "combined-timing":
+                        result.stdout = result.stdout.replace(missing, "echo: " + missing)
+                    return result
+                status, calls, output = self.invoke(response)
+                self.assertEqual(status, 1)
+                self.assertIn("combined-timing=FAIL (status 1)", output)
+                self.assertIn("Missing isolated diagnostic checkpoints", output)
+                self.assertIn("combined-fidelity=PASS (status 0)", output)
 
     def test_required_timing_lifecycle_rejects_missing_or_only_echoed_checkpoints(self):
         incomplete = [TIMING_LIFECYCLE_OUTPUT.replace(line + "\n", "")

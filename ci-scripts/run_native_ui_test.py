@@ -229,6 +229,19 @@ def select_diagnostic_suite(environment, suite):
     environment["GROUNDZERO_NATIVE_UI_SUITE"] = suite
 
 
+def missing_icon_lifecycle_checkpoints(output):
+    # Match application output lines, never an echoed debugger command or the
+    # earlier fixture's PASS. Process status is checked independently by callers.
+    lines = output.splitlines()
+    marker = "icon-lifecycle-native: PASS"
+    required = {
+        marker: any(line == marker or line.startswith(marker + " (") for line in lines),
+        "native-ui-integration: checkpoint: native icon workers drained":
+            "native-ui-integration: checkpoint: native icon workers drained" in lines,
+    }
+    return [marker for marker, observed in required.items() if not observed]
+
+
 def combined_failure_diagnostics(executable, source, output_path, mesa_runtime=None,
                                  linux_debugger=False, windows_debugger=False,
                                  symbol_directories=(), runtime_state=None, macos_debugger=False):
@@ -259,7 +272,8 @@ def combined_failure_diagnostics(executable, source, output_path, mesa_runtime=N
                     output, status = decode_output(result.stdout), result.returncode
                     native_status = status
                     required = (marker, f"native-ui-diagnostic: PASS {suite}")
-                    missing = [value for value in required if value not in output]
+                    missing = ([value for value in required if value not in output] +
+                               missing_icon_lifecycle_checkpoints(output))
                     if status == 0 and missing:
                         output += "\nMissing isolated diagnostic checkpoints: " + ", ".join(missing) + "\n"
                         status = 1
@@ -484,9 +498,15 @@ def main():
                         "native-ui-integration: checkpoint: native application cleanup completed":
                             "native-ui-integration: checkpoint: native application cleanup completed" in lines,
                     }
-                    missing = [marker for marker, observed in required.items() if not observed]
+                    missing = ([marker for marker, observed in required.items() if not observed] +
+                               missing_icon_lifecycle_checkpoints(output))
                     if missing:
                         output += "\nMissing required isolated timing lifecycle checkpoints: " + ", ".join(missing) + "\n"
+                        status = 1
+                if status == 0 and not selected_suite and not args.artist_benchmark:
+                    missing = missing_icon_lifecycle_checkpoints(output)
+                    if missing:
+                        output += "\nMissing native icon lifecycle checkpoints: " + ", ".join(missing) + "\n"
                         status = 1
                 if status == 0 and args.require_vector_workflows and not args.artist_benchmark:
                     missing = [marker for marker in ("native-ui-integration: PASS", "vector-workflows: PASS", "offline-gl-workflow: PASS")
