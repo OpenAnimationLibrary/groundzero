@@ -960,7 +960,10 @@ void nativeDepthTiming(TPalette *palette, int solidStyle) {
     glViewport(0,0,width,height); glDisable(GL_SCISSOR_TEST); glDisable(GL_STENCIL_TEST);
     glDisable(GL_BLEND); glDisable(GL_ALPHA_TEST); glDisable(GL_TEXTURE_2D);
     glColorMask(GL_TRUE,GL_TRUE,GL_TRUE,GL_TRUE); glDepthMask(GL_TRUE); glStencilMask(~GLuint(0));
-    glClearColor(0,0,1,1); glClearDepth(1.); glClearStencil(3);
+    // Native translucent solid strokes clear scratch stencil bit zero, then
+    // draw where that bit is zero. Unlike the transactional sentinel fixture,
+    // this visible workload must retain the viewer's default clear value.
+    glClearColor(0,0,1,1); glClearDepth(1.); glClearStencil(0);
     glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT|GL_STENCIL_BUFFER_BIT);
     glEnable(GL_DEPTH_TEST); glDepthFunc(GL_ALWAYS); glColorMask(GL_TRUE,GL_TRUE,GL_TRUE,GL_FALSE);
     glMatrixMode(GL_PROJECTION); glLoadIdentity(); glOrtho(0,width,0,height,-256,256);
@@ -968,10 +971,11 @@ void nativeDepthTiming(TPalette *palette, int solidStyle) {
   };
   // Initialize native geometry/style caches before measuring comparable work.
   prepare(); tglDraw(data,image.getPointer()); glFinish();
-  GLint depthBits = 0, stencilBits = 0, sampleBuffers = 0, samples = 0;
+  GLint depthBits = 0, stencilBits = 0, stencilClear = 0, sampleBuffers = 0, samples = 0;
   GLint framebuffer = 0, viewport[4] = {}, colorBits[4] = {};
   glGetIntegerv(GL_DEPTH_BITS,&depthBits);
   glGetIntegerv(GL_STENCIL_BITS,&stencilBits);
+  glGetIntegerv(GL_STENCIL_CLEAR_VALUE,&stencilClear);
   glGetIntegerv(GL_SAMPLE_BUFFERS,&sampleBuffers);
   glGetIntegerv(GL_SAMPLES,&samples);
   glGetIntegerv(GL_FRAMEBUFFER_BINDING,&framebuffer);
@@ -992,7 +996,8 @@ void nativeDepthTiming(TPalette *palette, int solidStyle) {
       {"gl_renderer",glText(GL_RENDERER)}, {"gl_version",glText(GL_VERSION)},
       {"target",framebuffer ? "framebuffer object" : "default framebuffer"},
       {"width",width}, {"height",height}, {"depth_bits",depthBits},
-      {"stencil_bits",stencilBits}, {"color_bits",QJsonArray{colorBits[0],colorBits[1],colorBits[2],colorBits[3]}},
+      {"stencil_bits",stencilBits}, {"stencil_clear",stencilClear},
+      {"color_bits",QJsonArray{colorBits[0],colorBits[1],colorBits[2],colorBits[3]}},
       {"sample_buffers",sampleBuffers}, {"samples",samples}, {"depth_function","GL_ALWAYS"},
       {"strokes",strokes}, {"frames_per_mode",frames},
       {"snapshot_bytes_per_modulated_stroke",QString::number(qulonglong(size_t(width)*height*bytesPerPixel))},
@@ -1036,6 +1041,16 @@ void nativeDepthTiming(TPalette *palette, int solidStyle) {
               << QJsonDocument(measurement).toJson(QJsonDocument::Compact).constData() << std::endl;
   }
   for (int i = 0; i < strokes; ++i) {
+    QJsonArray nativePixel, scalarPixel, profilePixel;
+    for (int channel = 0; channel < 4; ++channel) {
+      nativePixel.append(int(witnesses[0][i*4+channel]));
+      scalarPixel.append(int(witnesses[1][i*4+channel]));
+      profilePixel.append(int(witnesses[2][i*4+channel]));
+    }
+    const QJsonObject witness{{"stroke",i}, {"x",960}, {"y",100+i*120},
+        {"native_rgba",nativePixel}, {"scalar_rgba",scalarPixel}, {"profile_rgba",profilePixel}};
+    std::cout << "vector-opacity-depth-workload-witness: "
+              << QJsonDocument(witness).toJson(QJsonDocument::Compact).constData() << std::endl;
     require(witnesses[0][i*4] > 0,"1080p native workload stroke was not visible");
     for (int channel = 0; channel < 4; ++channel) {
       const double background = channel >= 2 ? 255. : 0.;
