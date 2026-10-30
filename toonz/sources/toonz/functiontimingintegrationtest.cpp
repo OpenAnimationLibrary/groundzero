@@ -39,7 +39,7 @@ const std::array<int, frameCount> movedRows{{2, 3, 4, 5, 0, 1}};
 void require(bool value, const char *message) {
   if (!value) throw std::runtime_error(message);
 }
-void near(double actual, double expected) {
+void requireNear(double actual, double expected) {
   require(std::isfinite(actual) && std::abs(actual - expected) < 1.e-8,
           "Storyboard/function timing differs from the original frame oracle");
 }
@@ -100,7 +100,7 @@ struct Channel {
       require(Ops::matchesSnapshot(curve, before.getPointer()),
               "Rejected/undone storyboard move changed native key fields");
     for (int frame = 0; frame < frameCount; ++frame)
-      near(curve->getValue(frame),
+      requireNear(curve->getValue(frame),
            before->getValue(moved ? movedRows[frame] : frame));
   }
 };
@@ -111,7 +111,7 @@ void checkReloaded(TDoubleParam *loaded, const Channel &source, bool moved) {
   require(!loaded->isEditorLocked(),
           "Session-only editor lock was persisted into a scene");
   for (int frame = 0; frame < frameCount; ++frame)
-    near(loaded->getValue(frame),
+    requireNear(loaded->getValue(frame),
          source.before->getValue(moved ? movedRows[frame] : frame));
 }
 }
