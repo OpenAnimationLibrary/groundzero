@@ -5,6 +5,7 @@
 #include "iocommand.h"
 #include "matchline.h"
 #include "nativeuiintegrationtest.h"
+#include "nativefiledialogtest.h"
 #include "tapp.h"
 #include "tdoubleparam.h"
 #include "tools/strokeselection.h"
@@ -345,9 +346,7 @@ void runCastVectorIntegrationTest(QMainWindow *window) {
     QString failure;
     DialogDriver driver([&](QDialog *dialog) {
       if (auto *files = qobject_cast<QFileDialog *>(dialog)) {
-        files->setDirectory(replacementDir);
-        files->selectFile(replacementDir);
-        dialog->accept();
+        NativeUiTest::acceptDirectory(files, replacementDir);
       } else if (dialog->objectName() == "CastRelinkReview") {
         dialog->accept();
         showProgressNextTurn("Validating replacement drawings…");
@@ -390,9 +389,7 @@ void runCastVectorIntegrationTest(QMainWindow *window) {
     QString failure;
     DialogDriver driver([&](QDialog *dialog) {
       if (auto *files = qobject_cast<QFileDialog *>(dialog)) {
-        files->setDirectory(localDir);
-        files->selectFile(localDir);
-        dialog->accept();
+        NativeUiTest::acceptDirectory(files, localDir);
         showProgressNextTurn("Preparing local asset copies…");
       } else if (auto *message = qobject_cast<QMessageBox *>(dialog)) {
         if (message->standardButtons().testFlag(QMessageBox::Yes))
