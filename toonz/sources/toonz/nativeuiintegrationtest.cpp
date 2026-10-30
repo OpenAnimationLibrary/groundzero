@@ -734,7 +734,7 @@ int runNativeUiIntegrationTest(QMainWindow *window) {
     runCastWorkflowIntegrationTest(window);
     QString timingError;
     if (!runFunctionTimingIntegrationTest(window, &timingError)) {
-      std::cerr << "native-ui-integration: function timing: "
+      std::cerr << "native-ui-integration: FAIL: function timing: "
                 << timingError.toStdString() << std::endl;
       return 1;
     }
