@@ -69,6 +69,17 @@ choice, count, undo and saved-state assertion. The animation/timing failure
 prefixes are also normalized so CI annotations retain the actual cause instead
 of unrelated audio-backend warnings. These corrections require fresh execution.
 
+A later independent review reopened two Function Editor source contracts.
+Dialogs parented as stack objects to the viewer must survive panel destruction
+without double deletion or stale viewer/graph access, and hiding a panel must
+cancel pending writes. Edit Keys must also reject same-owner curve mutations
+between opening the dialog and rebuilding its plan: inserted/deleted keys can
+otherwise shift captured indices to different keys. The Function owner is
+implementing guarded dialog lifetimes and exact curve baselines refreshed only
+after successful own Apply, with native/widget interruption coverage. Prior
+Function CI passes do not qualify these newly identified boundaries. Actual
+saved-set Delete/reopen coverage is also being completed; the feature exists.
+
 The audited follow-ups include saved-set rename and explicit target-range
 retiming; frozen evaluated comparisons with exact native restoration; native
 `.curve` import; a real multi-owner graph workload; explicit Fade and alignment
@@ -200,20 +211,20 @@ the CI-only harness verifies isolation and failure retention.
 |---|---|---|---|
 | 1 | Proper Fit Selection | Selected multi-channel keys, single points and constants fit; current/all actions separate. | Source-ready; CI pending |
 | 2 | Searchable channels | Object/FX/parameter matching, clear/expansion restoration, selected curves remain explicit. | Source-ready; CI pending |
-| 3 | Saved channel sets | Stable owner identities; rename/delete, reload and workspace persistence. | Source-ready; fresh CI pending |
+| 3 | Saved channel sets | Stable owner identities; rename/delete, reload and workspace persistence. | Pending; panel-lifetime guard and actual Delete/reopen coverage in progress |
 | 4 | Curve solo and edit locks | Every editing command respects locks; visible reference/solo state. | Source-ready; CI pending |
-| 5 | Multi-key numeric editing | Mixed values; absolute/relative operations, collisions, cancel, one undo transaction. | Source-ready; removed-owner/selection guards and native interrupted dialogs await CI |
-| 6 | Precise multi-channel retiming | Multiple channels, explicit target start/end preview, pivot/scale, quantization, collisions, repeat/undo. | Source-ready; target-range/strict reload retained, owner-loss correction awaits final-head CI |
+| 5 | Multi-key numeric editing | Mixed values; absolute/relative operations, collisions, cancel, one undo transaction. | Pending; panel lifetime and same-owner key-index drift corrections in progress |
+| 6 | Precise multi-channel retiming | Multiple channels, explicit target start/end preview, pivot/scale, quantization, collisions, repeat/undo. | Pending; reviewed-key baselines and panel-lifetime corrections in progress |
 | 7 | Normalized curve display | Display-only normalized coordinates; native values and edits preserved. | Source-ready; CI pending |
 | 8 | Clear curve identification | Stable identities/colors with labels and high-DPI/theme readability. | Source-ready; CI pending |
 | 9 | Visible interpolation controls | Native interpolation/handle actions; multi-selection and keyboard access. | Source-ready; CI pending |
 | 10 | Explicit snapping controls | Frame/neighbor/marker targets; bypass modifier; unchanged default semantics. | Source-ready; CI pending |
-| 11 | Before/after curve overlays | Snapshot comparison, accept/revert, linked/native/SeExpr ownership. | Source-ready; fresh CI pending |
-| 12 | Interactive breakdown slider | Preview/cancel; stage, Plastic and offset channels; driven channels protected. | Source-ready; shared edit-dialog owner validation and interrupted acceptance await CI |
-| 13 | Controlled key reduction | Independent sampled error bound, protected/held keys and undo. | Source-ready; shared edit-dialog owner validation and interrupted acceptance await CI |
-| 14 | Bake expressions to keys | Sampling range/step, units and output equivalence; cancellation and undo. | Source-ready; shared edit-dialog owner validation and interrupted acceptance await CI |
-| 15 | Visual motion-preset browser | Existing curve compatibility; browse/search/preview and amplitude/duration adaptation. | Source-ready; preview/save/import owner-loss cancellation awaits CI |
-| 16 | Channel dependency inspector | Sources/dependents, invalid references and owner navigation without second evaluator. | Source-ready; CI pending |
+| 11 | Before/after curve overlays | Snapshot comparison, accept/revert, linked/native/SeExpr ownership. | Pending; comparison restoration must remain safe after panel hide/destruction |
+| 12 | Interactive breakdown slider | Preview/cancel; stage, Plastic and offset channels; driven channels protected. | Pending; shared dialog lifetime and same-owner mutation guard in progress |
+| 13 | Controlled key reduction | Independent sampled error bound, protected/held keys and undo. | Pending; shared dialog lifetime and same-owner mutation guard in progress |
+| 14 | Bake expressions to keys | Sampling range/step, units and output equivalence; cancellation and undo. | Pending; shared dialog lifetime and same-owner mutation guard in progress |
+| 15 | Visual motion-preset browser | Existing curve compatibility; browse/search/preview and amplitude/duration adaptation. | Pending; main/nested preset dialog ownership and interruption coverage in progress |
+| 16 | Channel dependency inspector | Sources/dependents, invalid references and owner navigation without second evaluator. | Pending; dependency dialog lifetime correction in progress |
 | 17 | Large-rig graph performance | Large-rig correctness fixture and measured CI report; no unmeasured speed claim. | Source-ready; fresh CI pending |
 | 18 | Keyboard/tablet editing | Focus, accessible targets, keyboard nudges/constraints and tablet manual checklist. | Source-ready; CI pending |
 | 19 | Opacity readback | Single/mixed opacity selection follows context without mutating drawing. | Source-ready; CI pending |
