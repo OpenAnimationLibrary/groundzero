@@ -106,6 +106,19 @@ incoming precision modes. No local builds or tests were run for this follow-up.
 
 ## First CI failure and regression coverage
 
+At `ebf0780495`, Linux compiled the new tranche and passed the native curve
+operations suite, saved-set rename, target-range and context-cancellation
+widget checks. The preset-import widget fixture then hit its bounded deadline
+with `FunctionPresetImportFile` still open. The debugger confirms a waiting
+file-dialog event loop rather than a memory fault. The fixture had called
+`selectFile()` after the chooser was visible with its filename field focused;
+Qt deliberately leaves that field unchanged in this case. The corrected
+driver enters the exact existing path in the actual filename control, verifies
+the chooser's selected path and enabled Open button, then queues a real Open
+click. Native file validation, both cancellation points, import/adaptation and
+undo assertions remain unchanged. Fresh CI is required; the full-application
+fixture and installed package were skipped after the original failure.
+
 The initial Linux widget run at `b9df36e8` reported `ui_functionworkflow`
 terminating with a segmentation fault before emitting a test checkpoint. The
 native operation suite passed in that run. Source review found an uninitialized

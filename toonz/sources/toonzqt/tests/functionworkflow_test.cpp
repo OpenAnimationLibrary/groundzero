@@ -658,8 +658,24 @@ void nativePresetImport() {
           require(file->objectName() == "FunctionPresetImportFile", "unexpected preset file dialog");
           selectedFile = true;
           if (cancelStage == 1) { file->reject(); return; }
-          file->setDirectory(QFileInfo(path).absolutePath()); file->selectFile(path);
-          QTimer::singleShot(0, file, [file]() { QMetaObject::invokeMethod(file, "accept", Qt::DirectConnection); });
+          const QFileInfo source(path);
+          require(source.isFile(), "native preset source file is missing");
+          file->setDirectory(source.absolutePath());
+          auto *filename = file->findChild<QLineEdit *>("fileNameEdit");
+          auto *buttons = file->findChild<QDialogButtonBox *>();
+          auto *open = buttons ? buttons->button(QDialogButtonBox::Open) : nullptr;
+          require(filename && open, "native preset file chooser controls are missing");
+          // Qt leaves a visible focused filename field unchanged in
+          // selectFile(). Enter the path through that field, as an artist
+          // would, and retain QFileDialog's ordinary ExistingFile validation.
+          filename->setFocus(); filename->setText(source.absoluteFilePath());
+          const QStringList selected = file->selectedFiles();
+          require(selected.size() == 1 &&
+                      QFileInfo(selected.front()).canonicalFilePath() == source.canonicalFilePath() &&
+                      open->isEnabled(),
+                  "native preset file chooser did not select the exact existing source");
+          checkpoint("native preset file path verified; opening chooser");
+          QTimer::singleShot(0, file, [open]() { open->click(); });
         } else if (auto *name = qobject_cast<QInputDialog *>(QApplication::activeModalWidget())) {
           if (named) return;
           require(name->objectName() == "FunctionPresetImportName" && name->labelText().contains("current channel"),
