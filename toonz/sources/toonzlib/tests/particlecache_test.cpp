@@ -14,6 +14,8 @@
 #include <iostream>
 #include <limits>
 #include <stdexcept>
+#include <utility>
+#include <vector>
 
 namespace {
 using namespace ParticleCache;
@@ -432,6 +434,43 @@ void packages(const QDir &dir) {
   writeJson(dir.filePath("invalid.otpc"), bad);
   require(!openSequence(dir.filePath("invalid.otpc"), raw, error), "duplicate manifest frames rejected");
 }
+
+// Evaluates the call before reading its error (argument order is unspecified).
+void checked(bool ok, const QString &error) { require(ok, qPrintable(error)); }
+
+// A '-' before the digits is a separator unless it follows the start, '.' or
+// '_'.
+void frameNumbering(const QDir &dir) {
+  const std::vector<std::pair<QStringList, std::vector<int>>> cases = {
+      // "rain--0004" belongs to a "rain--" sequence: its second '-' is no sign.
+      {{"rain-0001.bgeo", "rain-0002.bgeo", "rain-0003.bgeo",
+        "rain--0004.bgeo"},
+       {1, 2, 3}},
+      {{"snow.-5.bgeo", "snow.-4.bgeo"}, {-5, -4}},
+      {{"drop_-2.bgeo", "drop_-1.bgeo", "drop_0.bgeo"}, {-2, -1, 0}},
+      {{"-1.bgeo", "1.bgeo"}, {-1, 1}},
+      {{"hail12.bgeo", "hail13.bgeo"}, {12, 13}}};
+  int index = 0;
+  for (const auto &entry : cases) {
+    const QString folder = QString("numbering-%1").arg(++index);
+    require(dir.mkpath(folder), "create numbering folder");
+    const QDir sub(dir.filePath(folder));
+    QString error;
+    for (const auto &name : entry.first)
+      checked(writeFrame(sub.filePath(name), fixture(), WriteOptions(), error),
+              error);
+    Sequence sequence;
+    checked(openSequence(sub.filePath(entry.first.front()), sequence, error),
+            error);
+    std::vector<int> frames;
+    for (const auto &frame : sequence.frames) frames.push_back(frame.first);
+    const QByteArray name = entry.first.front().toUtf8();
+    require(frames == entry.second,
+            ("wrong frame numbers for " + name).constData());
+    require(sequence.metadata.firstFrame == entry.second.front(),
+            "first frame from numbering");
+  }
+}
 }  // namespace
 
 int main(int argc, char **argv) {
@@ -445,6 +484,7 @@ int main(int argc, char **argv) {
     roundTrips(QDir(temporary.path()));
     gzipAndRawSchemas(QDir(temporary.path()));
     packages(QDir(temporary.path()));
+    frameNumbering(QDir(temporary.path()));
     std::cout << "Particle cache core: format directions, schema, interpolation, IO, metadata, invalidation and atomic packages passed.\n";
     return 0;
   } catch (const std::exception &error) {

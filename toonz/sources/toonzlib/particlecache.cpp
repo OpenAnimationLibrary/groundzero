@@ -622,11 +622,19 @@ bool openSequence(const QString &path, Sequence &sequence, QString &error) {
       error = "Unsupported particle format. Modern BGEO and .bgeo.sc are not supported; use .bhclassic.";
       return false;
     }
-    const QRegularExpression pattern("^(.*?)(-?[0-9]+)(\\.[^.]+(?:\\.gz)?)$");
+    // A '-' is a sign only at the start or after '.' or '_': "rain-0001.bgeo"
+    // is frame 1 of "rain-", while "rain.-5.bgeo" is frame -5 of "rain.".
+    const QRegularExpression pattern(
+        "^(.*?)((?:(?<![^._])-)?[0-9]+)(\\.[^.]+(?:\\.gz)?)$");
     const auto match = pattern.match(source.fileName());
     if (match.hasMatch()) {
-      const QRegularExpression siblings("^" + QRegularExpression::escape(match.captured(1)) +
-          "(-?[0-9]+)" + QRegularExpression::escape(match.captured(3)) + "$");
+      const QString prefix = match.captured(1);
+      const bool signedFrames =
+          prefix.isEmpty() || prefix.endsWith('.') || prefix.endsWith('_');
+      const QRegularExpression siblings(
+          "^" + QRegularExpression::escape(prefix) +
+          (signedFrames ? "(-?[0-9]+)" : "([0-9]+)") +
+          QRegularExpression::escape(match.captured(3)) + "$");
       for (const auto &name : base.entryList(QDir::Files, QDir::Name)) {
         const auto candidate = siblings.match(name);
         if (!candidate.hasMatch()) continue;
