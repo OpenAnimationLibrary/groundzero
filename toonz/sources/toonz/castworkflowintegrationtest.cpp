@@ -507,11 +507,27 @@ void runCastWorkflowIntegrationTest(QMainWindow *window) {
   unexposed->getXsheet()->setCell(9, 1, TXshCell(duplicate, ids.front()));
   raster->setCastTags({"canonical-tag"}); duplicate->setCastTags({"duplicate-tag"});
   {
-    bool confirmed = false;
+    bool confirmed = false, reviewQueued = false, reviewReturned = false;
     QString failure;
     DialogDriver driver([&](QDialog *dialog) {
       if (dialog->windowTitle() == "Duplicate Asset Review") {
-        if (auto *review = dialog->findChild<QPushButton *>("CastReviewConsolidation")) review->click();
+        if (reviewQueued) {
+          // A rejected nested review leaves the report open. Close it after
+          // the queued click has returned so the assertion reports the cause.
+          if (reviewReturned) dialog->reject();
+          return;
+        }
+        if (auto *review = dialog->findChild<QPushButton *>("CastReviewConsolidation")) {
+          reviewQueued = true;
+          // Qt does not recursively deliver a repeating timer while its slot
+          // is running. Leave that slot before entering the nested modal review
+          // so DialogDriver can service its review and confirmation dialogs.
+          // Binding the callback to the button cancels it if the report closes.
+          QTimer::singleShot(0, review, [review, &reviewReturned]() {
+            review->click();
+            reviewReturned = true;
+          });
+        }
       } else if (dialog->objectName() == "CastConsolidationReview") {
         auto *table = dialog->findChild<QTableWidget *>();
         for (int row = 0; table && row < table->rowCount(); ++row) {
@@ -528,7 +544,7 @@ void runCastWorkflowIntegrationTest(QMainWindow *window) {
       }
     });
     CastBrowserActions::duplicates(&browser);
-    require(!driver.expired && failure.isEmpty() && confirmed &&
+    require(!driver.expired && failure.isEmpty() && reviewQueued && reviewReturned && confirmed &&
             !source->getLevelSet()->getLevel(L"Cast fixture duplicate"), "explicit consolidation was not applied");
   }
   require(top->getCell(7, column + 2) == TXshCell(raster, ids.front()) &&
