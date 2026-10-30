@@ -60,8 +60,11 @@ parameter sets, including hidden FX parameters, column remap/color parameters,
 offset channels and weights, and Plastic skeleton/vertex curves. Inactive
 expression text on a non-expression key is not reported as evaluated animation.
 The report inspects the serialized authoring data, including disconnected FX and
-unused child levels; it does not evaluate expressions, load inference models, or
-infer third-party capabilities.
+unused child levels. Nested macros are traversed to their actual member effects;
+warnings include the containing macro path, and aliased macro parameters do not
+produce duplicate warnings. Actual nested native macros cover both registered
+effect and expression warnings in the acceptance fixture. The report does not
+evaluate expressions, load inference models, or infer third-party capabilities.
 
 The export preflight does not introduce a new renderer or promise editable Lottie
 support for skipped effects. SVG's rendered choice produces PNG frames inside the
