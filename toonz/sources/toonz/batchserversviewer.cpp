@@ -1,5 +1,6 @@
 
 
+#include "toonzqt/uitranslations.h"
 #include "batchserversviewer.h"
 #include "toonzqt/menubarcommand.h"
 #include "menubarcommandids.h"
@@ -268,6 +269,7 @@ BatchServersViewer::BatchServersViewer(QWidget *parent, Qt::WindowFlags flags)
 
   layout->addWidget(new QLabel(tr("Process with:")), row, 0, Qt::AlignRight);
   m_processWith = new QComboBox();
+  UiTranslations::watchCombo(m_processWith);
   QStringList type;
   type << tr("Local") << tr("Render Farm");
   m_processWith->addItems(type);
@@ -353,9 +355,9 @@ void BatchServersViewer::onProcessWith(int index) {
     int port;
     TFarmStuff::getControllerData(hostName, addr, port);
 
-    QString msg(tr("Unable to connect to the ToonzFarm Controller\n \
+    QString msg(UiTranslations::text(tr("Unable to connect to the ToonzFarm Controller\n \
   The Controller should run on %1 at port %2\n \
-  Please start the Controller before using the ToonzFarm")
+  Please start the Controller before using the ToonzFarm"))
                     .arg(hostName)
                     .arg(QString::number(port)));
 

@@ -1,5 +1,6 @@
 
 
+#include "toonzqt/uitranslations.h"
 #include "svndeletedialog.h"
 
 // Tnz6 includes
@@ -75,13 +76,13 @@ SVNDeleteDialog::SVNDeleteDialog(QWidget *parent, const QString &workingDir,
     QDir dir(m_workingDir + "/" + m_files.at(0));
     int filesCount = dir.entryList(QDir::Files | QDir::Dirs).count();
     if (filesCount > 0)
-      m_textLabel->setText(tr("Delete folder that contains %1 items.")
+      m_textLabel->setText(UiTranslations::text(tr("Delete folder that contains %1 items."))
                                .arg(filesCount - m_sceneIconAdded));
     else
       m_textLabel->setText(tr("Delete empty folder."));
   } else
     m_textLabel->setText(
-        tr("Delete %1 items.").arg(m_files.size() - m_sceneIconAdded));
+        UiTranslations::text(tr("Delete %1 items.")).arg(m_files.size() - m_sceneIconAdded));
 
   hLayout->addStretch();
   hLayout->addWidget(m_waitingLabel);
@@ -218,7 +219,7 @@ void SVNDeleteDialog::onDeleteLocalButtonClicked() {
   int fileCount = m_files.size();
   m_waitingLabel->show();
   m_textLabel->setText(
-      tr("Deleting %1 items...")
+      UiTranslations::text(tr("Deleting %1 items..."))
           .arg(fileCount + m_sceneResources.size() - m_sceneIconAdded));
   m_textLabel->show();
 
@@ -284,7 +285,7 @@ void SVNDeleteDialog::onDeleteServerButtonClicked() {
 void SVNDeleteDialog::deleteFiles() {
   m_waitingLabel->show();
   m_textLabel->setText(
-      tr("Deleting %1 items...")
+      UiTranslations::text(tr("Deleting %1 items..."))
           .arg(QString::number(m_files.size() + m_sceneResources.size() -
                                m_sceneIconAdded)));
   m_commentLabel->hide();
@@ -413,6 +414,6 @@ void SVNDeleteDialog::onDeleteSceneContentsToggled(bool checked) {
     }
   }
   m_textLabel->setText(
-      tr("Delete %1 items.")
+      UiTranslations::text(tr("Delete %1 items."))
           .arg(m_files.size() - m_sceneIconAdded + m_sceneResources.size()));
 }

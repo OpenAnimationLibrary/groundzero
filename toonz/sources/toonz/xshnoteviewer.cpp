@@ -1,5 +1,6 @@
 
 
+#include "toonzqt/uitranslations.h"
 #include "xshnoteviewer.h"
 
 // Tnz6 includes
@@ -468,6 +469,7 @@ NoteArea::NoteArea(XsheetViewer *parent, Qt::WindowFlags flags)
   m_precNoteButton         = new QToolButton(this);
   m_nextNoteButton         = new QToolButton(this);
   m_frameDisplayStyleCombo = new QComboBox(this);
+  UiTranslations::watchCombo(m_frameDisplayStyleCombo);
   m_layerHeaderPanel       = new LayerHeaderPanel(m_viewer, this);
 
   //-----

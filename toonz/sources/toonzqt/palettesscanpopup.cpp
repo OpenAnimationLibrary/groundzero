@@ -2,6 +2,7 @@
 
 #include "palettesscanpopup.h"
 #include "toonzqt/gutil.h"
+#include "toonzqt/uitranslations.h"
 #include "tsystem.h"
 
 #include <QPushButton>
@@ -88,7 +89,7 @@ void PalettesScanPopup::onOkBtnClicked() {
 void PalettesScanPopup::setLabel(const TFilePath &fp) {
   QString elideStr =
       elideText(toQString(fp), m_label->font(), m_label->width());
-  m_label->setText(elideStr);
+  UiTranslations::setLiteral(m_label, "text", elideStr);
 }
 
 //-----------------------------------------------------------------------------
@@ -122,7 +123,7 @@ void PalettesScanPopup::push(const TFilePath &fp) {
                 "<files>".
 */
 void PalettesScanPopup::push(const TFilePathSet &fs) {
-  m_label->setText(tr("<files>"));
+  UiTranslations::setCaption(m_label, "text", tr("<files>"));
   Directory *dir = new Directory();
   m_stack.push_back(dir);
   dir->m_path  = TFilePath();
@@ -142,7 +143,7 @@ void PalettesScanPopup::pop() {
     dir = m_stack.back();
     setLabel(dir->m_path);
   } else
-    m_label->setText(tr(""));
+    UiTranslations::setLiteral(m_label, "text", QString());
 }
 
 //-----------------------------------------------------------------------------
@@ -177,7 +178,7 @@ bool PalettesScanPopup::step() {
 void PalettesScanPopup::clearStack() {
   for (int i = 0; i < (int)m_stack.size(); i++) delete m_stack[i];
   m_stack.clear();
-  m_label->setText(tr(""));
+  UiTranslations::setLiteral(m_label, "text", QString());
 }
 
 //-----------------------------------------------------------------------------

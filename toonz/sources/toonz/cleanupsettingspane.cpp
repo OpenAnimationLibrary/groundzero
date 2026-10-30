@@ -1,5 +1,6 @@
 
 // ToonzCore includes
+#include "toonzqt/uitranslations.h"
 #include "tmsgcore.h"
 
 // ToonzLib includes
@@ -85,6 +86,7 @@ CleanupSettingsPane::CleanupSettingsPane(QWidget *parent)
   // Autocenter
   m_autocenterBox = new QGroupBox(tr("Autocenter"), this);
   m_pegHolesOm    = new QComboBox(this);
+  UiTranslations::watchCombo(m_pegHolesOm);
   m_fieldGuideOm  = new QComboBox(this);
   // Rotate&Flip
   QFrame *rotFlipFrame = new QFrame(this);
@@ -97,11 +99,13 @@ CleanupSettingsPane::CleanupSettingsPane(QWidget *parent)
   // LineProcessing
   QFrame *lineProcFrame = new QFrame(this);
   m_antialias           = new QComboBox(this);
+  UiTranslations::watchCombo(m_antialias);
   m_sharpness           = new DoubleField(this);
   m_despeckling         = new IntField(this);
   m_aaValueLabel        = new QLabel(tr("MLAA Intensity:"));
   m_aaValue             = new IntField(this);
   m_lineProcessing      = new QComboBox(this);
+  UiTranslations::watchCombo(m_lineProcessing);
   m_lpNoneFormatLabel   = new QLabel(tr("Format:"));
   m_lpNoneFormat        = new QComboBox(this);
   m_paletteViewer       = new CleanupPaletteViewer(this);
@@ -462,11 +466,12 @@ void CleanupSettingsPane::updateImageInfo() {
   if (!parentWidget()) return;
 
   if (model->clnPath().isEmpty())
-    parentWidget()->setWindowTitle(tr("Cleanup Settings (Global)"));
+    UiTranslations::setCaption(parentWidget(), "windowTitle",
+                               tr("Cleanup Settings (Global)"));
   else
-    parentWidget()->setWindowTitle(
-        tr("Cleanup Settings: ") +
-        toQString(model->clnPath().withoutParentDir()));
+    UiTranslations::setCaption(parentWidget(), "windowTitle",
+        UiTranslations::text(tr("Cleanup Settings: "))
+            .appended(toQString(model->clnPath().withoutParentDir())));
 }
 
 //-----------------------------------------------------------------------------
@@ -511,10 +516,10 @@ void CleanupSettingsPane::postProcess() {
 void CleanupSettingsPane::onClnLoaded() {
   const TFilePath &fp = CleanupSettingsModel::instance()->clnPath();
   if (fp.isEmpty())
-    setWindowTitle(tr("Cleanup Settings"));
+    UiTranslations::setCaption(this, "windowTitle", tr("Cleanup Settings"));
   else
-    setWindowTitle(
-        tr("Cleanup Settings: %1").arg(toQString(fp.withoutParentDir())));
+    UiTranslations::setCaption(this, "windowTitle",
+        UiTranslations::text(tr("Cleanup Settings: %1")).arg(toQString(fp.withoutParentDir())));
 }
 
 //-----------------------------------------------------------------------------

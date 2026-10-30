@@ -8,6 +8,7 @@
 
 // TnzQt includes
 #include "toonzqt/dvdialog.h"
+#include "toonzqt/uitranslations.h"
 
 // TnzLib includes
 #include "toonz/poselibrary.h"
@@ -35,16 +36,45 @@
 #include <QMimeData>
 #include <QPainter>
 #include <QPushButton>
+#include <QScrollBar>
+#include <QSignalBlocker>
 #include <QStringList>
 #include <QTabWidget>
 #include <QTimer>
 #include <QUrl>
 #include <QVBoxLayout>
+#include <QVariant>
 
 namespace {
 
 const QSize RigIconSize(128, 96);
 const QSize PoseIconSize(96, 64);
+
+// Store untranslated item metadata with each existing row. Language changes
+// update its presentation without reading files or rebuilding the lists.
+enum ItemRoles {
+  KindRole = Qt::UserRole + 1,
+  RevisionRole,
+  SourceSceneRole,
+  HasInfoRole,
+  PreviewRole,
+  PoseCountRole,
+  PoseNameRole,
+  ChannelCountRole
+};
+
+void setItemMetadata(QListWidgetItem *item, const QFileInfo &file) {
+  item->setData(Qt::UserRole, file.absoluteFilePath());
+  LibraryCmd::ItemInfo info;
+  const bool hasInfo =
+      LibraryCmd::readItemInfo(TFilePath(file.absoluteFilePath()), info);
+  item->setData(HasInfoRole, hasInfo);
+  if (hasInfo) {
+    item->setData(KindRole, info.m_kind);
+    item->setData(RevisionRole, info.m_revision);
+    item->setData(SourceSceneRole, info.m_sourceScene);
+  }
+}
 
 //-----------------------------------------------------------------------------
 
@@ -60,18 +90,20 @@ QString getKindName(const QString &kind) {
 
 // The tooltip of a library item: its name, its kind and revision, the scene
 // it comes from and its file.
-QString getItemToolTip(const QFileInfo &file, const QString &detail) {
+QString getItemToolTip(const QListWidgetItem *item, const QString &detail) {
+  const QFileInfo file(item->data(Qt::UserRole).toString());
   QStringList lines;
   lines << file.completeBaseName();
-  LibraryCmd::ItemInfo info;
-  if (LibraryCmd::readItemInfo(TFilePath(file.absoluteFilePath()), info)) {
-    QString kind = getKindName(info.m_kind);
-    lines << (kind.isEmpty() ? QObject::tr("Revision %1").arg(info.m_revision)
+  if (item->data(HasInfoRole).toBool()) {
+    const QString kind = getKindName(item->data(KindRole).toString());
+    const int revision = item->data(RevisionRole).toInt();
+    lines << (kind.isEmpty() ? QObject::tr("Revision %1").arg(revision)
                              : QObject::tr("%1, revision %2")
                                    .arg(kind)
-                                   .arg(info.m_revision));
-    if (!info.m_sourceScene.isEmpty())
-      lines << QObject::tr("From the scene %1").arg(info.m_sourceScene);
+                                   .arg(revision));
+    const QString sourceScene = item->data(SourceSceneRole).toString();
+    if (!sourceScene.isEmpty())
+      lines << QObject::tr("From the scene %1").arg(sourceScene);
   }
   if (!detail.isEmpty()) lines << detail;
   lines << file.absoluteFilePath();
@@ -83,12 +115,10 @@ QString getItemToolTip(const QFileInfo &file, const QString &detail) {
 // Returns the thumbnail of the template, i.e. the scene icon saved next to it
 // (see ToonzScene::getIconPath()), or a placeholder if there is none, with
 // the kind of the item in a corner.
-QPixmap makeRigThumbnail(const TFilePath &templatePath, const QString &badge,
+QPixmap makeRigThumbnail(const QImage &icon, const QString &badge,
                          const QPalette &pal) {
   QPixmap pixmap(RigIconSize);
   pixmap.fill(Qt::transparent);
-
-  QImage icon(ToonzScene::getIconPath(templatePath).getQString());
 
   QPainter p(&pixmap);
   p.setRenderHint(QPainter::Antialiasing, true);
@@ -98,10 +128,8 @@ QPixmap makeRigThumbnail(const TFilePath &templatePath, const QString &badge,
     p.setPen(pal.color(QPalette::Mid));
     p.drawText(frame, Qt::AlignCenter, QObject::tr("No preview"));
   } else {
-    QImage scaled =
-        icon.scaled(RigIconSize, Qt::KeepAspectRatio, Qt::SmoothTransformation);
-    p.drawImage((frame.width() - scaled.width()) / 2,
-                (frame.height() - scaled.height()) / 2, scaled);
+    p.drawImage((frame.width() - icon.width()) / 2,
+                (frame.height() - icon.height()) / 2, icon);
   }
   p.setPen(pal.color(QPalette::Mid));
   p.drawRect(frame.adjusted(0, 0, -1, -1));
@@ -328,15 +356,15 @@ RigLibraryPane::RigLibraryPane(QWidget *parent, Qt::WindowFlags flags)
   poseButtons->addStretch(1);
   QWidget *posePage = makePage(this, m_poseEmptyLabel, m_poseList, poseButtons);
 
-  QTabWidget *tabs = new QTabWidget(this);
-  tabs->addTab(rigPage, tr("Rigs && Symbols"));
-  tabs->addTab(poseSetPage, tr("Pose Sets"));
-  tabs->addTab(posePage, tr("Scene Poses"));
+  m_tabs = new QTabWidget(this);
+  m_tabs->addTab(rigPage, tr("Rigs && Symbols"));
+  m_tabs->addTab(poseSetPage, tr("Pose Sets"));
+  m_tabs->addTab(posePage, tr("Scene Poses"));
 
   QVBoxLayout *mainLayout = new QVBoxLayout();
   mainLayout->setContentsMargins(0, 0, 0, 0);
   mainLayout->setSpacing(0);
-  mainLayout->addWidget(tabs);
+  mainLayout->addWidget(m_tabs);
   setLayout(mainLayout);
 
   // The Library folder is watched, the template files are saved in several
@@ -379,6 +407,7 @@ RigLibraryPane::RigLibraryPane(QWidget *parent, Qt::WindowFlags flags)
   connect(m_poseSetList, &QWidget::customContextMenuRequested, this,
           &RigLibraryPane::onPoseSetContextMenu);
 
+  UiTranslations::onLanguageChanged(this, [this]() { retranslateUi(); });
   updateButtons();
 }
 
@@ -451,14 +480,18 @@ void RigLibraryPane::refreshRigs() {
       listItemFiles(LibraryCmd::getTemplatesFolder(), "*.tnz");
   for (const QFileInfo &file : files) {
     TFilePath path(file.absoluteFilePath());
-    LibraryCmd::ItemInfo info;
-    QString badge;
-    if (LibraryCmd::readItemInfo(path, info)) badge = getKindName(info.m_kind);
-    QListWidgetItem *item =
-        new QListWidgetItem(QIcon(makeRigThumbnail(path, badge, palette())),
-                            file.completeBaseName());
-    item->setData(Qt::UserRole, file.absoluteFilePath());
-    item->setToolTip(getItemToolTip(file, QString()));
+    QListWidgetItem *item = new QListWidgetItem(file.completeBaseName());
+    setItemMetadata(item, file);
+    // The preview is scaled once so retaining untranslated visual data does
+    // not keep a full-resolution scene thumbnail alive for every library row.
+    QImage preview(ToonzScene::getIconPath(path).getQString());
+    if (!preview.isNull())
+      preview = preview.scaled(RigIconSize, Qt::KeepAspectRatio,
+                               Qt::SmoothTransformation);
+    item->setData(PreviewRole, QVariant::fromValue(preview));
+    item->setIcon(QIcon(makeRigThumbnail(
+        preview, getKindName(item->data(KindRole).toString()), palette())));
+    item->setToolTip(getItemToolTip(item, QString()));
     m_rigList->addItem(item);
     if (file.absoluteFilePath() == currentPath) m_rigList->setCurrentItem(item);
   }
@@ -480,15 +513,18 @@ void RigLibraryPane::refreshPoseSets() {
   QFileInfoList files = listItemFiles(LibraryCmd::getPosesFolder(), pattern);
   for (const QFileInfo &file : files) {
     PoseLibrary poses;
-    QString detail =
+    const int poseCount =
         LibraryCmd::readPoseSet(TFilePath(file.absoluteFilePath()), poses)
-            ? tr("%1 poses").arg(poses.getPoseCount())
-            : tr("Unreadable");
+            ? poses.getPoseCount()
+            : -1;
+    const QString detail = poseCount >= 0 ? tr("%1 poses").arg(poseCount)
+                                         : tr("Unreadable");
     QListWidgetItem *item = new QListWidgetItem(
         QIcon(makeBadgeThumbnail(file.completeBaseName(), detail, palette())),
         QString());
-    item->setData(Qt::UserRole, file.absoluteFilePath());
-    item->setToolTip(getItemToolTip(file, detail));
+    setItemMetadata(item, file);
+    item->setData(PoseCountRole, poseCount);
+    item->setToolTip(getItemToolTip(item, detail));
     m_poseSetList->addItem(item);
     if (file.absoluteFilePath() == currentPath)
       m_poseSetList->setCurrentItem(item);
@@ -514,6 +550,8 @@ void RigLibraryPane::refreshPoses() {
                                           palette())),
                   QString());
       item->setData(Qt::UserRole, i);
+      item->setData(PoseNameRole, pose.m_name);
+      item->setData(ChannelCountRole, (int)pose.m_entries.size());
       item->setToolTip(tr("%1 (%2 channels)")
                            .arg(pose.m_name)
                            .arg((int)pose.m_entries.size()));
@@ -540,6 +578,46 @@ void RigLibraryPane::updateButtons() {
   bool poseSelected = m_poseList->currentItem() != 0;
   m_applyButton->setEnabled(poseSelected);
   m_applyLayerButton->setEnabled(poseSelected);
+}
+
+//-----------------------------------------------------------------------------
+
+void RigLibraryPane::retranslateUi() {
+  const QSignalBlocker tabsBlocker(m_tabs);
+  m_tabs->setTabText(0, tr("Rigs && Symbols"));
+  m_tabs->setTabText(1, tr("Pose Sets"));
+  m_tabs->setTabText(2, tr("Scene Poses"));
+
+  for (QListWidget *list : {m_rigList, m_poseSetList, m_poseList}) {
+    const QSignalBlocker blocker(list);
+    const int horizontal = list->horizontalScrollBar()->value();
+    const int vertical   = list->verticalScrollBar()->value();
+    for (int i = 0; i < list->count(); ++i) {
+      QListWidgetItem *item = list->item(i);
+      if (list == m_rigList) {
+        item->setIcon(QIcon(makeRigThumbnail(
+            item->data(PreviewRole).value<QImage>(),
+            getKindName(item->data(KindRole).toString()), palette())));
+        item->setToolTip(getItemToolTip(item, QString()));
+      } else if (list == m_poseSetList) {
+        const int count = item->data(PoseCountRole).toInt();
+        const QString detail = count >= 0 ? tr("%1 poses").arg(count)
+                                          : tr("Unreadable");
+        const QString name =
+            QFileInfo(item->data(Qt::UserRole).toString()).completeBaseName();
+        item->setIcon(QIcon(makeBadgeThumbnail(name, detail, palette())));
+        item->setToolTip(getItemToolTip(item, detail));
+      } else {
+        const QString name = item->data(PoseNameRole).toString();
+        const int count    = item->data(ChannelCountRole).toInt();
+        item->setIcon(QIcon(makePoseThumbnail(name, count, palette())));
+        item->setToolTip(tr("%1 (%2 channels)").arg(name).arg(count));
+      }
+    }
+    list->doItemsLayout();
+    list->horizontalScrollBar()->setValue(horizontal);
+    list->verticalScrollBar()->setValue(vertical);
+  }
 }
 
 //-----------------------------------------------------------------------------

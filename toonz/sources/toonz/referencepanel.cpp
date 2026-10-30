@@ -1,3 +1,6 @@
+#include <QAbstractItemModel>
+#include <QSignalBlocker>
+#include "toonzqt/uitranslations.h"
 #include "referencepanel.h"
 #include "purerefboard.h"
 
@@ -124,7 +127,7 @@ QList<QPair<int, QString>> readPsdLayers(const QString &path) {
       if (!li || li->layerId == 0) continue;
       if (li->right <= li->left || li->bottom <= li->top) continue;
       QString name = li->name ? QString::fromLocal8Bit(li->name) : QString();
-      if (name.isEmpty()) name = QObject::tr("Layer %1").arg(li->layerId);
+      if (name.isEmpty()) name = UiTranslations::text(QObject::tr("Layer %1")).arg(li->layerId);
       layers.append(qMakePair((int)li->layerId, name));
     }
   } catch (...) {
@@ -417,6 +420,13 @@ ReferencePanel::ReferencePanel(QWidget *parent)
   removeButton->setAutoRaise(true);
 
   m_layerCombo = new QComboBox(this);
+  UiTranslations::onLanguageChanged(m_layerCombo, [this] {
+    const int flattened = m_layerCombo->findData(0);
+    if (flattened < 0) return;
+    const QSignalBlocker block(m_layerCombo), modelBlock(m_layerCombo->model());
+    m_layerCombo->setItemText(flattened, tr("Flattened image"));
+    m_layerCombo->update();
+  });
   m_layerCombo->setSizeAdjustPolicy(c_comboSizePolicy);
   m_layerCombo->setMinimumContentsLength(8);
   m_layerCombo->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
@@ -691,13 +701,13 @@ bool ReferencePanel::loadImage(const QString &path) {
   for (int i = 0; i < (int)m_entries.size(); i++) {
     if (m_entries[i].path != path) continue;
     if (showEntry(i)) return true;
-    DVGui::warning(tr("Unable to load the image %1").arg(path));
+    DVGui::warning(UiTranslations::text(tr("Unable to load the image %1")).arg(path));
     return false;
   }
 
   QImage image = readImageFile(path);
   if (image.isNull()) {
-    DVGui::warning(tr("Unable to load the image %1").arg(path));
+    DVGui::warning(UiTranslations::text(tr("Unable to load the image %1")).arg(path));
     return false;
   }
 
@@ -755,7 +765,7 @@ void ReferencePanel::onRemoveImage() {
 void ReferencePanel::onImageComboChanged(int index) {
   if (m_updating || index < 0 || index == m_current) return;
   if (!showEntry(index)) {
-    DVGui::warning(tr("Unable to load the image %1")
+    DVGui::warning(UiTranslations::text(tr("Unable to load the image %1"))
                        .arg(index < (int)m_entries.size()
                                 ? m_entries[index].path
                                 : QString()));
@@ -787,7 +797,7 @@ void ReferencePanel::onLayerComboChanged(int index) {
 
   QImage image = readImageFile(entry.path, layerId);
   if (image.isNull()) {
-    DVGui::warning(tr("Unable to load the layer of %1").arg(entry.path));
+    DVGui::warning(UiTranslations::text(tr("Unable to load the layer of %1")).arg(entry.path));
     updateCombos();  // back to the current layer
     return;
   }

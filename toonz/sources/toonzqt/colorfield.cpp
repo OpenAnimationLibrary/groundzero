@@ -1,5 +1,6 @@
 
 
+#include "toonzqt/uitranslations.h"
 #include "toonzqt/styleeditor.h"
 #include "toonzqt/colorfield.h"
 #include "toonzqt/dvdialog.h"
@@ -624,7 +625,7 @@ void ColorField::contextMenuEvent(QContextMenuEvent *event) {
       QColor _color(color.r, color.g, color.b, color.m);
 
       QAction *action =
-          new QAction(tr("Paste Color of %1").arg(styleName), this);
+          new QAction(UiTranslations::text(tr("Paste Color of %1")).arg(styleName), this);
       action->setIcon(QIcon(getIconPm(_color)));
       action->setData(_color);
 

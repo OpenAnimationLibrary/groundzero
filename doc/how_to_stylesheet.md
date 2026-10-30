@@ -57,6 +57,7 @@ less/themes/others/light-theme.less
 less/themes/others/animate-theme.less
 less/themes/others/toonboom-theme.less
 less/themes/others/premiere-theme.less
+less/themes/others/synthwave-theme.less
 ```
 
 ### Linux / macOS / any shell
@@ -169,6 +170,7 @@ To reuse styles from another class you can reference another class as a mixin:
 | `Animate` | `themes/others/animate-theme.less` | In the manner of Adobe Animate's dark interface: charcoal panels on a darker frame, blue selection, rounded controls, regular weight labels, light exposed frames with dark text in the Xsheet. |
 | `ToonBoom` | `themes/others/toonboom-theme.less` | In the manner of Toon Boom Harmony's dark interface: cool charcoal, teal selection and tab accent, flat controls, light Xsheet cells coloured by layer type (drawings blue-grey, pegs green, camera yellow, effects rose, sound tan). |
 | `Premiere` | `themes/others/premiere-theme.less` | In the manner of Adobe Premiere Pro's dark interface: near-black frame with slightly lighter panels, lavender-blue selection, flat square controls, and an Xsheet styled like a sequence with white text on mid-saturated clip colours and a blue playhead. |
+| `Synthwave` | `themes/others/synthwave-theme.less` | Navy panels, magenta selections, cyan workspace tabs, yellow active titles and checkboxes, and cyan/magenta timeline icons. |
 
 The `Animate`, `ToonBoom` and `Premiere` themes only borrow the colour
 schemes; the panel layout is unchanged. Their flip marker and tab accent

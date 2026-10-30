@@ -1,5 +1,6 @@
 
 
+#include "toonzqt/uitranslations.h"
 #include "levelcreatepopup.h"
 
 // Tnz6 includes
@@ -165,7 +166,7 @@ public:
   int getSize() const override { return sizeof *this; }
 
   QString getHistoryString() override {
-    return QObject::tr("Create Level %1 at Column %2")
+    return UiTranslations::text(QObject::tr("Create Level %1 at Column %2"))
         .arg(QString::fromStdWString(m_sl->getName()))
         .arg(QString::number(m_columnIndex + 1));
   }
@@ -194,6 +195,7 @@ LevelCreatePopup::LevelCreatePopup()
   m_stepFld     = new DVGui::IntLineEdit(this);
   m_incFld      = new DVGui::IntLineEdit(this);
   m_levelTypeOm = new QComboBox();
+  UiTranslations::watchCombo(m_levelTypeOm);
 
   m_pathFld     = new FileField(nullptr);
   m_widthLabel  = new QLabel(tr("Width:"));

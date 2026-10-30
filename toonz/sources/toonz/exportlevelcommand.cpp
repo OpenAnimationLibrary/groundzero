@@ -1,6 +1,7 @@
 
 
 // TnzCore includes
+#include "toonzqt/uitranslations.h"
 #include "tsystem.h"
 #include "tpalette.h"
 #include "tvectorimage.h"
@@ -63,7 +64,7 @@ struct BusyCursorOverride {
 struct ExportOverwriteCB final : public IoCmd::OverwriteCallbacks {
   bool overwriteRequest(const TFilePath &fp) override {
     int ret = DVGui::MsgBox(
-        QObject::tr("Warning: file %1 already exists.").arg(toQString(fp)),
+        UiTranslations::text(QObject::tr("Warning: file %1 already exists.")).arg(toQString(fp)),
         QObject::tr("Continue Exporting"), QObject::tr("Stop Exporting"), 1);
     return (ret == 1);
   }

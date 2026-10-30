@@ -1,5 +1,6 @@
 
 
+#include "toonzqt/uitranslations.h"
 #include "svnpurgedialog.h"
 
 // Tnz6 includes
@@ -90,7 +91,7 @@ void SVNPurgeDialog::onStatusRetrieved(const QString &xmlResponse) {
     m_textLabel->setText(tr("No items to purge."));
     switchToCloseButton();
   } else {
-    m_textLabel->setText(tr("%1 items to purge.").arg(filesToPurgrCount));
+    m_textLabel->setText(UiTranslations::text(tr("%1 items to purge.")).arg(filesToPurgrCount));
     m_waitingLabel->hide();
     m_purgeButton->setEnabled(true);
   }

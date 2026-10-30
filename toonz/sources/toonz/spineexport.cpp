@@ -52,6 +52,7 @@
 // Not exported: sub-xsheets, Z depth and stacking order changes, fxs, column
 // transparency and color filters.
 
+#include "toonzqt/uitranslations.h"
 #include "spineexport.h"
 #include "textureatlasexport.h"
 
@@ -908,7 +909,7 @@ void ExportSpineCommand::execute() {
     QImage img       = rasterToQImage(ras);
     if (!img.save(imagesDir.getQString() + "/" + fileName, "PNG")) {
       progressDialog.close();
-      DVGui::error(QObject::tr("Unable to save %1.").arg(fileName));
+      DVGui::error(UiTranslations::text(QObject::tr("Unable to save %1.")).arg(fileName));
       return;
     }
     image.m_valid  = true;
@@ -1095,7 +1096,7 @@ void ExportSpineCommand::execute() {
   QFile jsonFile(fp.getQString());
   if (!jsonFile.open(QIODevice::WriteOnly) ||
       jsonFile.write(QJsonDocument(root).toJson()) < 0) {
-    DVGui::error(QObject::tr("Unable to save %1.").arg(fp.getQString()));
+    DVGui::error(UiTranslations::text(QObject::tr("Unable to save %1.")).arg(fp.getQString()));
     return;
   }
   jsonFile.close();
@@ -1103,12 +1104,12 @@ void ExportSpineCommand::execute() {
   TFilePath atlasPath = fp.withType("atlas");
   QFile atlasFile(atlasPath.getQString());
   if (!atlasFile.open(QIODevice::WriteOnly) || atlasFile.write(atlas) < 0) {
-    DVGui::error(QObject::tr("Unable to save %1.").arg(atlasPath.getQString()));
+    DVGui::error(UiTranslations::text(QObject::tr("Unable to save %1.")).arg(atlasPath.getQString()));
     return;
   }
   atlasFile.close();
 
-  QString str = QObject::tr("%1 has been exported successfully.")
+  QString str = UiTranslations::text(QObject::tr("%1 has been exported successfully."))
                     .arg(QString::fromStdString(fp.getLevelName()));
   std::vector<QString> buttons = {QObject::tr("OK"),
                                   QObject::tr("Open containing folder")};

@@ -1,5 +1,6 @@
 
 
+#include "toonzqt/uitranslations.h"
 #include "scanpopup.h"
 #include "tapp.h"
 #include "menubarcommandids.h"
@@ -72,7 +73,7 @@ void checkPaperFormat(TScannerParameters *parameters) {
     TScanner *scanner   = TScanner::instance();
     QString scannerName = scanner ? scanner->getName() : "no scanner";
     DVGui::warning(
-        QObject::tr("The selected paper format is not available for %1.")
+        UiTranslations::text(QObject::tr("The selected paper format is not available for %1."))
             .arg(scannerName));
   }
 }
@@ -349,6 +350,7 @@ DefineScannerPopup::DefineScannerPopup()
   setWindowTitle(tr("Define Scanner"));
 
   m_scanDriverOm = new QComboBox();
+  UiTranslations::watchCombo(m_scanDriverOm);
   m_scanDriverOm->setFixedSize(150, WidgetHeight);
 #ifdef _WIN32
   m_scanDriverOm->addItem(tr("WIA"), "WIA");
@@ -596,9 +598,10 @@ void ScanSettingsPopup::updateUI() {
   QApplication::restoreOverrideCursor();
 
   TScanner *scanner = TScanner::instance();
-  m_scannerNameLbl->setText(scanner && scanner->getName() != ""
-                                ? scanner->getName()
-                                : tr("[no scanner]"));
+  if (scanner && scanner->getName() != "")
+    UiTranslations::setLiteral(m_scannerNameLbl, "text", scanner->getName());
+  else
+    UiTranslations::setCaption(m_scannerNameLbl, "text", tr("[no scanner]"));
 
   m_reverseOrderCB->setChecked(params->isReverseOrder());
   m_paperFeederCB->setChecked(params->m_paperFeeder.m_value == 1.0);
@@ -845,8 +848,8 @@ MyScannerListener::MyScannerListener(const ScanList &scanList, int adHocRow,
     TFilePath levelName(newXl->getName());
     QString imageName =
         toQString(levelName.withFrame(frame.getFrameId())) + QString(".tif");
-    QString text = tr("Scanning in progress: ") + imageName + " 1/" +
-                   QString::number(frameCount);
+    QString text = UiTranslations::joined({tr("Scanning in progress: "), imageName,
+                                          " 1/", QString::number(frameCount)});
     m_progressDialog =
         new DVGui::ProgressDialog(text, QObject::tr("Cancel"), 0, frameCount);
     connect(m_progressDialog, SIGNAL(canceled()), this,
@@ -965,9 +968,9 @@ void MyScannerListener::onAutomaticallyNextPaper() {
     TFilePath levelName(newXl->getName());
     QString imageName =
         toQString(levelName.withFrame(frame.getFrameId())) + QString(".tif");
-    m_progressDialog->setLabelText(tr("Scanning in progress: ") + imageName +
-                                   QString::number(m_current + 1) + " /" +
-                                   QString::number(frameCount));
+    m_progressDialog->setLabelText(UiTranslations::joined({
+        tr("Scanning in progress: "), imageName, QString::number(m_current + 1),
+        " /", QString::number(frameCount)}));
   }
   m_progressDialog->setValue(step);
   if (m_progressDialog && (step == frameCount)) m_progressDialog->hide();

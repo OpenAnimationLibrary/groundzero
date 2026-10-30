@@ -18,6 +18,7 @@
 #include "toonzqt/gutil.h"
 #include "toonzqt/doublefield.h"
 #include "toonzqt/icongenerator.h"
+#include "toonzqt/uitranslations.h"
 
 // TnzLib includes
 #include "toonz/toonzscene.h"
@@ -50,6 +51,7 @@
 #include <QMouseEvent>
 #include <QDesktopServices>
 #include <QRegularExpression>  // Added for QRegularExpression
+#include <QSignalBlocker>
 
 using namespace DVGui;
 
@@ -137,6 +139,7 @@ StartupPopup::StartupPopup()
   QStringList type;
   type << tr("pixel") << tr("cm") << tr("mm") << tr("inch") << tr("field");
   m_unitsCB->addItems(type);
+  UiTranslations::watchCombo(m_unitsCB);
 
   QPushButton *openProjectButton = new QPushButton(tr("Open Project..."), this);
   QPushButton *exploreProjectButton =
@@ -350,6 +353,24 @@ StartupPopup::StartupPopup()
           &StartupPopup::onAutoSaveTimeChanged);
   connect(m_existingList, &StartupScenesList::itemClicked, this,
           &StartupPopup::onExistingSceneClicked);
+  UiTranslations::onLanguageChanged(this, [this]() {
+    QSignalBlocker tabsBlocker(m_scenesTab);
+    m_scenesTab->setTabText(0, tr("Open Existing Scene"));
+    m_scenesTab->setTabText(1, tr("Create a New Scene"));
+    QSignalBlocker listBlocker(m_existingList);
+    const int horizontal = m_existingList->horizontalScrollBar()->value();
+    const int vertical   = m_existingList->verticalScrollBar()->value();
+    for (int row = 0; row < m_existingList->count(); ++row) {
+      QListWidgetItem *item = m_existingList->item(row);
+      if (item->data(Qt::UserRole).toString() == ":") {
+        item->setText(tr("New Scene"));
+        item->setToolTip(tr("New Scene"));
+      }
+    }
+    m_existingList->doItemsLayout();
+    m_existingList->horizontalScrollBar()->setValue(horizontal);
+    m_existingList->verticalScrollBar()->setValue(vertical);
+  });
 }
 
 //-----------------------------------------------------------------------------

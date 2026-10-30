@@ -1,3 +1,4 @@
+#include "toonzqt/uitranslations.h"
 #include "exportalllevelspopup.h"
 
 // Tnz6 includes
@@ -73,7 +74,7 @@ struct MultiExportOverwriteCB final : public IoCmd::OverwriteCallbacks {
     if (m_stopped) return false;
 
     int ret = DVGui::MsgBox(
-        QObject::tr("Warning: file %1 already exists.").arg(toQString(fp)),
+        UiTranslations::text(QObject::tr("Warning: file %1 already exists.")).arg(toQString(fp)),
         QObject::tr("Continue Exporting"), QObject::tr("Continue to All"),
         QObject::tr("Stop Exporting"), 1);
 
@@ -243,7 +244,7 @@ bool ExportAllLevelsPopup::execute() {
           TSystem::mkDir(FilePath);
 
         } catch (...) {
-          DVGui::error(tr("It is not possible to create the %1 folder.")
+          DVGui::error(UiTranslations::text(tr("It is not possible to create the %1 folder."))
                            .arg(toQString(FilePath)));
           return false;
         }
@@ -287,7 +288,7 @@ bool ExportAllLevelsPopup::execute() {
         TSystem::mkDir(FilePath);
 
       } catch (...) {
-        DVGui::error(tr("It is not possible to create the %1 folder.")
+        DVGui::error(UiTranslations::text(tr("It is not possible to create the %1 folder."))
                          .arg(toQString(FilePath)));
         return false;
       }

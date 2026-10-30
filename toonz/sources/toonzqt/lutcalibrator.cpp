@@ -1,4 +1,5 @@
-﻿#include "toonzqt/lutcalibrator.h"
+﻿#include "toonzqt/uitranslations.h"
+#include "toonzqt/lutcalibrator.h"
 
 // Tnzlib includes
 #include "toonz/preferences.h"
@@ -290,38 +291,38 @@ bool LutCalibrator::initializeLutTextureShader() {
   // link shaders
   ret = m_shader.program->link();
   if (!ret)
-    return execWarning(QObject::tr("Failed to link simple shader: %1", "gl")
+    return execWarning(UiTranslations::text(QObject::tr("Failed to link simple shader: %1", "gl"))
                            .arg(m_shader.program->log()));
   // obtain parameter locations
   m_shader.vertexAttrib = m_shader.program->attributeLocation("vertexPosition");
   if (m_shader.vertexAttrib == -1)
     return execWarning(
-        QObject::tr("Failed to get attribute location of %1", "gl")
+        UiTranslations::text(QObject::tr("Failed to get attribute location of %1", "gl"))
             .arg("vertexPosition"));
   m_shader.texCoordAttrib = m_shader.program->attributeLocation("texCoord");
   if (m_shader.texCoordAttrib == -1)
     return execWarning(
-        QObject::tr("Failed to get attribute location of %1", "gl")
+        UiTranslations::text(QObject::tr("Failed to get attribute location of %1", "gl"))
             .arg("texCoord"));
   m_shader.texUniform = m_shader.program->uniformLocation("tex");
   if (m_shader.texUniform == -1)
     return execWarning(
-        QObject::tr("Failed to get uniform location of %1", "gl").arg("tex"));
+        UiTranslations::text(QObject::tr("Failed to get uniform location of %1", "gl")).arg("tex"));
   m_shader.lutUniform = m_shader.program->uniformLocation("lut");
   if (m_shader.lutUniform == -1)
     return execWarning(
-        QObject::tr("Failed to get uniform location of %1", "gl").arg("lut"));
+        UiTranslations::text(QObject::tr("Failed to get uniform location of %1", "gl")).arg("lut"));
   m_shader.lutSizeUniform = m_shader.program->uniformLocation("lutSize");
   if (m_shader.lutSizeUniform == -1)
-    return execWarning(QObject::tr("Failed to get uniform location of %1", "gl")
+    return execWarning(UiTranslations::text(QObject::tr("Failed to get uniform location of %1", "gl"))
                            .arg("lutSize"));
   m_shader.domainMinUniform = m_shader.program->uniformLocation("domainMin");
   if (m_shader.domainMinUniform == -1)
-    return execWarning(QObject::tr("Failed to get uniform location of %1", "gl")
+    return execWarning(UiTranslations::text(QObject::tr("Failed to get uniform location of %1", "gl"))
                            .arg("domainMin"));
   m_shader.domainMaxUniform = m_shader.program->uniformLocation("domainMax");
   if (m_shader.domainMaxUniform == -1)
-    return execWarning(QObject::tr("Failed to get uniform location of %1", "gl")
+    return execWarning(UiTranslations::text(QObject::tr("Failed to get uniform location of %1", "gl"))
                            .arg("domainMax"));
 
   return true;
@@ -489,7 +490,7 @@ bool LutManager::loadLutFile(const QString& fp) {
   Lut3D loaded;
   if (!loaded.load(fp, &error))
     return execWarning(
-        QObject::tr("Failed to Load 3D LUT File.\n%1").arg(error));
+        UiTranslations::text(QObject::tr("Failed to Load 3D LUT File.\n%1")).arg(error));
   m_lut = std::move(loaded);
   return true;
 }

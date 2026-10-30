@@ -3,6 +3,7 @@
 // tools/artlayer.h) of each of their Line Art strokes.
 
 // Tnz6 includes
+#include "toonzqt/uitranslations.h"
 #include "tapp.h"
 #include "menubarcommandids.h"
 #include "cellselection.h"
@@ -60,7 +61,7 @@ public:
   }
 
   QString getHistoryString() override {
-    return QObject::tr("Create Colour Art from Line Art  : %1 (%2)")
+    return UiTranslations::text(QObject::tr("Create Colour Art from Line Art  : %1 (%2)"))
         .arg(QString::fromStdWString(m_level->getName()))
         .arg(QString::fromStdString(m_fid.expand()));
   }
@@ -166,9 +167,9 @@ public:
     }
 
     TApp::instance()->getCurrentXsheet()->notifyXsheetChanged();
-    DVGui::info(QObject::tr("%1 Colour Art strokes created in %2 drawings. "
+    DVGui::info(UiTranslations::text(QObject::tr("%1 Colour Art strokes created in %2 drawings. "
                             "Set \"Art Layer:\" or open the Art Layer "
-                            "Manager to see and edit them.")
+                            "Manager to see and edit them."))
                     .arg(strokeCount)
                     .arg(drawingCount));
   }

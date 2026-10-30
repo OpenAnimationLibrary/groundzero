@@ -938,6 +938,9 @@ bool ThemeManager::isColoredIcon(const QString &iconName) const {
 // Then get with: getCustomProperty(QColor("custom-property"));
 void ThemeManager::parseCustomPropertiesFromStylesheet(
     const QString &styleSheet) {
+  // Each application supplies the complete base stylesheet plus user overrides.
+  // Properties omitted by the next theme must use defaults, not the old theme.
+  m_customProperties.clear();
   QRegularExpression rootRegex(R"(:TOONZCOLORS\s*\{([^}]*)\})");
   QRegularExpressionMatchIterator rootMatches =
       rootRegex.globalMatch(styleSheet);
@@ -974,7 +977,7 @@ void ThemeManager::setCustomProperty(const QString &name,
 
 QString ThemeManager::getCustomProperty(const QString &name,
                                         const QString &defaultValue) const {
-  return m_customProperties.value(name, QString());
+  return m_customProperties.value(name, defaultValue);
 }
 
 //-----------------------------------------------------------------------------

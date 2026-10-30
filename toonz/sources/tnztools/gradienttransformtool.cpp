@@ -13,6 +13,7 @@
 //-----------------------------------------------------------------------------
 
 // TnzTools includes
+#include "toonzqt/uitranslations.h"
 #include "tools/tool.h"
 #include "tools/cursors.h"
 #include "tools/toolutils.h"
@@ -214,7 +215,7 @@ public:
   int getSize() const override { return sizeof(*this); }
 
   QString getToolName() override {
-    return QObject::tr("Make Unique Style : Style#%1 > Style#%2")
+    return UiTranslations::text(QObject::tr("Make Unique Style : Style#%1 > Style#%2"))
         .arg(QString::number(m_oldStyleId))
         .arg(QString::number(m_newStyleId));
   }
@@ -268,7 +269,7 @@ public:
   }
 
   QString getHistoryString() override {
-    return QObject::tr("Gradient Transform  Palette : %1  Style#%2")
+    return UiTranslations::text(QObject::tr("Gradient Transform  Palette : %1  Style#%2"))
         .arg(QString::fromStdWString(m_palette->getPaletteName()))
         .arg(QString::number(m_styleId));
   }
@@ -925,13 +926,13 @@ QString GradientTransformTool::uniqueStateText() const {
     return QCoreApplication::translate("GradientTransformTool",
                                        "No gradient region picked");
   if (m_styleUses > 1)
-    return QCoreApplication::translate(
+    return UiTranslations::text(QCoreApplication::translate(
                "GradientTransformTool",
-               "Style #%1 is shared by %2 regions in this drawing")
+               "Style #%1 is shared by %2 regions in this drawing"))
         .arg(m_styleId)
         .arg(m_styleUses);
-  return QCoreApplication::translate("GradientTransformTool",
-                                     "Style #%1 is not shared in this drawing")
+  return UiTranslations::text(QCoreApplication::translate("GradientTransformTool",
+                                     "Style #%1 is not shared in this drawing"))
       .arg(m_styleId);
 }
 
@@ -945,11 +946,11 @@ QString GradientTransformTool::makeUniqueBlocker() {
         "Click a region filled with a Linear or Radial Gradient with the "
         "Gradient Transform tool first.");
   if (m_styleUses <= 1)
-    return QCoreApplication::translate(
+    return UiTranslations::text(QCoreApplication::translate(
                "GradientTransformTool",
                "No other region of this drawing uses style #%1, so it is "
                "already unique here. If other drawings use it, duplicate the "
-               "style in the palette and fill this region with the copy.")
+               "style in the palette and fill this region with the copy."))
         .arg(m_styleId);
   TPalette *pl = palette();
   if (!pl || !pl->getStylePage(m_styleId))

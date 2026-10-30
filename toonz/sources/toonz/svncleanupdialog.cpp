@@ -1,5 +1,6 @@
 
 
+#include "toonzqt/uitranslations.h"
 #include "svncleanupdialog.h"
 
 // Tnz6 includes
@@ -33,7 +34,7 @@ SVNCleanupDialog::SVNCleanupDialog(QWidget *parent, const QString &workingDir)
   waitingMove->setCacheMode(QMovie::CacheAll);
   waitingMove->start();
 
-  m_textLabel = new QLabel(tr("Cleaning up %1...").arg(workingDir));
+  m_textLabel = new QLabel(UiTranslations::text(tr("Cleaning up %1...")).arg(workingDir));
 
   addWidgets(m_waitingLabel, m_textLabel);
 

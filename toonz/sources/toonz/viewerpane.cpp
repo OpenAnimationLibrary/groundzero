@@ -1,5 +1,7 @@
 
 
+#include "toonzqt/uitranslations.h"
+
 // TnzCore includes
 #include "tconvert.h"
 #include "tgeometry.h"
@@ -105,6 +107,7 @@ TAffine zoomPanOnly(const TAffine &aff) {
 BaseViewerPanel::BaseViewerPanel(QWidget *parent, Qt::WindowFlags flags)
     : QFrame(parent) {
   TApp *app = TApp::instance();
+  UiTranslations::onLanguageChanged(this, [this]() { changeWindowTitle(); });
 
   setFrameStyle(QFrame::StyledPanel);
 
@@ -648,7 +651,7 @@ void BaseViewerPanel::changeWindowTitle() {  // �v�m�F
           name + tr("   ::   Frame: ") + tr(std::to_string(frame + 1).c_str());
     int col = app->getCurrentColumn()->getColumnIndex();
     if (col < 0) {
-      parentWidget()->setWindowTitle(name);
+      UiTranslations::setCaption(parentWidget(), "windowTitle", name);
       return;
     }
     TXsheet *xsh = app->getCurrentXsheet()->getXsheet();
@@ -668,7 +671,7 @@ void BaseViewerPanel::changeWindowTitle() {  // �v�m�F
           name = name + tr(" (Flipped)");
         }
       }
-      parentWidget()->setWindowTitle(name);
+      UiTranslations::setCaption(parentWidget(), "windowTitle", name);
       return;
     }
     assert(cell.m_level.getPointer());
@@ -699,7 +702,7 @@ void BaseViewerPanel::changeWindowTitle() {  // �v�m�F
     }
   }
 
-  parentWidget()->setWindowTitle(name);
+  UiTranslations::setCaption(parentWidget(), "windowTitle", name);
 }
 
 //-----------------------------------------------------------------------------

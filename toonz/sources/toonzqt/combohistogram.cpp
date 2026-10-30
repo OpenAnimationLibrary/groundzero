@@ -1,3 +1,4 @@
+#include "toonzqt/uitranslations.h"
 #include "toonzqt/combohistogram.h"
 #include "tcolorstyles.h"
 
@@ -415,35 +416,35 @@ void ComboHistoRGBLabel::paintEvent(QPaintEvent *pe) {
   QString colorStr2 = QString();
   switch (m_mode) {
   case Display_8bit: {
-    colorStr = tr("R:%1 G:%2 B:%3")
+    colorStr = UiTranslations::text(tr("R:%1 G:%2 B:%3"))
                    .arg(m_color.red())
                    .arg(m_color.green())
                    .arg(m_color.blue());
-    if (m_alphaVisible) colorStr += tr(" A:%1").arg(m_color.alpha());
+    if (m_alphaVisible) colorStr += UiTranslations::text(tr(" A:%1")).arg(m_color.alpha());
     break;
   }
   case Display_16bit: {
     QRgba64 rgba64 = m_color.rgba64();
-    colorStr       = tr("R:%1 G:%2 B:%3")
+    colorStr       = UiTranslations::text(tr("R:%1 G:%2 B:%3"))
                    .arg(rgba64.red())
                    .arg(rgba64.green())
                    .arg(rgba64.blue());
-    if (m_alphaVisible) colorStr += tr(" A:%1").arg(rgba64.alpha());
+    if (m_alphaVisible) colorStr += UiTranslations::text(tr(" A:%1")).arg(rgba64.alpha());
     break;
   }
   case Display_0_1: {
     if (!m_alphaVisible) {
-      colorStr = tr("R:%1 G:%2 B:%3")
+      colorStr = UiTranslations::text(tr("R:%1 G:%2 B:%3"))
                      .arg(m_color.redF())
                      .arg(m_color.greenF())
                      .arg(m_color.blueF());
     } else {
       // display in 2 lines
-      colorStr = tr("R:%1 G:%2 B:%3")
+      colorStr = UiTranslations::text(tr("R:%1 G:%2 B:%3"))
                      .arg(m_color.redF())
                      .arg(m_color.greenF())
                      .arg(m_color.blueF());
-      colorStr2 = tr("A:%1").arg(m_color.alphaF());
+      colorStr2 = UiTranslations::text(tr("A:%1")).arg(m_color.alphaF());
     }
     break;
   }
@@ -484,6 +485,7 @@ ComboHistogram::ComboHistogram(QWidget *parent)
   m_yPosLabel = new QLabel("", this);
 
   m_displayModeCombo = new QComboBox(this);
+  UiTranslations::watchCombo(m_displayModeCombo);
 
   m_rangeControlContainer = new QWidget(this);
   m_rangeUpBtn            = new QPushButton("", this);

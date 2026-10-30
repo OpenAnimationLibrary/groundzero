@@ -1,6 +1,12 @@
 set(VERSION 1.8)
 
 set(MOC_HEADERS
+    languagemanager.h
+    commandpalette.h
+    widgetinspector.h
+    themeapplication.h
+    nativediagnostics.h
+    diagnosticssettingswidget.h
     cadmiumruntime.h
     cadmiumpopup.h
     cadmiumsettingswidget.h
@@ -260,6 +266,15 @@ set(HEADERS
 )
 
 set(SOURCES
+    languagemanager.cpp
+    commandpalette.cpp
+    commandpalettenative.cpp
+    widgetinspector.cpp
+    themeapplication.cpp
+    nativethemeapplication.cpp
+    nativediagnosticswriter.cpp
+    nativediagnostics.cpp
+    diagnosticssettingswidget.cpp
     cadmiumruntime.cpp
     cadmiumdestination.cpp
     cadmiumpopup.cpp
@@ -1045,6 +1060,114 @@ if(BUILD_CADMIUM_TESTS)
         cadmium_toonzraster cadmium_fullcolor cadmium_vector cadmium_codec
         cadmium_settings cadmium_metadata cadmium_save cadmium_destination cadmium_color
         PROPERTIES TIMEOUT 120)
+endif()
+
+if(TARGET ui_qt_catalogs)
+    add_dependencies(OpenToonz ui_qt_catalogs)
+endif()
+if(BUILD_CADMIUM_TESTS)
+    target_link_libraries(cadmium_vector_test PRIVATE toonzqt)
+    target_link_libraries(cadmium_settings_test PRIVATE toonzqt)
+    target_link_libraries(cadmium_reviewview_test PRIVATE toonzqt)
+    target_link_libraries(cadmium_pipeline_test PRIVATE toonzqt)
+endif()
+
+# Shared native UI ports; use the same objects and behavior in CI as in the app.
+target_link_libraries(OpenToonz spdlog::spdlog_header_only Threads::Threads)
+if(WIN32)
+    target_compile_definitions(OpenToonz PRIVATE SPDLOG_WCHAR_FILENAMES)
+endif()
+
+if(BUILD_UI_PORT_TESTS)
+    target_sources(OpenToonz PRIVATE nativeuiintegrationtest.cpp nativeuiintegrationtest.h)
+    target_compile_definitions(OpenToonz PRIVATE BUILD_UI_PORT_TESTS)
+    target_compile_definitions(toonzlib PRIVATE BUILD_UI_PORT_TESTS)
+    add_custom_target(ui_port_tests)
+    function(add_ui_port_test name)
+        add_executable(ui_${name}_test ${ARGN})
+        target_include_directories(ui_${name}_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+        target_link_libraries(ui_${name}_test PRIVATE
+            Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Widgets)
+        if(name STREQUAL "themeapplication")
+            add_test(NAME ui_${name} COMMAND ui_${name}_test "${CMAKE_SOURCE_DIR}/../../stuff/config/qss")
+        else()
+            add_test(NAME ui_${name} COMMAND ui_${name}_test)
+        endif()
+        set_tests_properties(ui_${name} PROPERTIES TIMEOUT 120)
+        add_dependencies(ui_port_tests ui_${name}_test)
+    endfunction()
+    add_ui_port_test(commandpalette tests/commandpalette_test.cpp commandpalette.cpp
+        ${CMAKE_CURRENT_BINARY_DIR}/moc_commandpalette.cpp)
+    add_ui_port_test(widgetinspector tests/widgetinspector_test.cpp widgetinspector.cpp
+        ${CMAKE_CURRENT_BINARY_DIR}/moc_widgetinspector.cpp)
+    add_ui_port_test(themeapplication tests/themeapplication_test.cpp themeapplication.cpp
+        ${CMAKE_CURRENT_BINARY_DIR}/moc_themeapplication.cpp)
+    add_ui_port_test(themeproperties tests/themeproperties_test.cpp)
+    target_link_libraries(ui_themeproperties_test PRIVATE toonzqt)
+    add_ui_port_test(uitranslations tests/uitranslations_test.cpp)
+    target_link_libraries(ui_uitranslations_test PRIVATE toonzqt)
+    if(NOT OT_QT_LRELEASE_EXECUTABLE)
+        if(QT_VERSION_MAJOR EQUAL 6)
+            set(OT_QT_LRELEASE_EXECUTABLE Qt6::lrelease)
+        else()
+            set(OT_QT_LRELEASE_EXECUTABLE ${Qt5_LRELEASE_EXECUTABLE})
+        endif()
+    endif()
+    set(ui_language_fixture_root "${CMAKE_CURRENT_BINARY_DIR}/ui-language-fixtures")
+    set(ui_language_fixture_outputs)
+    foreach(fixture a b)
+        if(fixture STREQUAL "a")
+            set(fixture_directory "${ui_language_fixture_root}/FixtureA")
+        else()
+            set(fixture_directory "${ui_language_fixture_root}/FixtureB")
+        endif()
+        set(fixture_compiled "${fixture_directory}/toonz.qm")
+        add_custom_command(OUTPUT "${fixture_compiled}"
+            COMMAND ${CMAKE_COMMAND} -E make_directory "${fixture_directory}"
+            COMMAND ${OT_QT_LRELEASE_EXECUTABLE}
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/ui_language_${fixture}.ts"
+                -qm "${fixture_compiled}"
+            DEPENDS "tests/fixtures/ui_language_${fixture}.ts" VERBATIM)
+        list(APPEND ui_language_fixture_outputs "${fixture_compiled}")
+        foreach(module toonzqt tnzcore toonzlib colorfx tnztools image qtbase)
+            set(fixture_copy "${fixture_directory}/${module}.qm")
+            add_custom_command(OUTPUT "${fixture_copy}"
+                COMMAND ${CMAKE_COMMAND} -E copy "${fixture_compiled}" "${fixture_copy}"
+                DEPENDS "${fixture_compiled}" VERBATIM)
+            list(APPEND ui_language_fixture_outputs "${fixture_copy}")
+        endforeach()
+    endforeach()
+    add_custom_target(ui_language_fixtures DEPENDS ${ui_language_fixture_outputs})
+    add_executable(ui_languagemanager_test tests/languagemanager_test.cpp languagemanager.cpp
+        ${CMAKE_CURRENT_BINARY_DIR}/moc_languagemanager.cpp)
+    target_include_directories(ui_languagemanager_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(ui_languagemanager_test PRIVATE
+        Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Widgets toonzqt)
+    add_dependencies(ui_languagemanager_test ui_language_fixtures)
+    add_dependencies(ui_port_tests ui_languagemanager_test)
+    if(WITH_TRANSLATION)
+        add_test(NAME ui_languagemanager COMMAND ui_languagemanager_test
+            "${ui_language_fixture_root}" "${CMAKE_SOURCE_DIR}/../../stuff/config/loc")
+    else()
+        add_test(NAME ui_languagemanager COMMAND ui_languagemanager_test "${ui_language_fixture_root}")
+    endif()
+    set_tests_properties(ui_languagemanager PROPERTIES TIMEOUT 120)
+    add_ui_port_test(messagehistory tests/messagehistory_test.cpp)
+    target_link_libraries(ui_messagehistory_test PRIVATE toonzqt tnzcore Threads::Threads)
+    add_ui_port_test(diagnosticswriter tests/nativediagnosticswriter_test.cpp
+        nativediagnosticswriter.cpp)
+    add_ui_port_test(diagnosticsservice tests/nativediagnostics_service_test.cpp
+        nativediagnosticswriter.cpp nativediagnostics.cpp diagnosticssettingswidget.cpp
+        ${CMAKE_CURRENT_BINARY_DIR}/moc_nativediagnostics.cpp
+        ${CMAKE_CURRENT_BINARY_DIR}/moc_diagnosticssettingswidget.cpp)
+    target_link_libraries(ui_diagnosticsservice_test PRIVATE toonzqt tnzcore)
+    foreach(diagnostic_target ui_diagnosticswriter_test ui_diagnosticsservice_test)
+        target_link_libraries(${diagnostic_target} PRIVATE spdlog::spdlog_header_only Threads::Threads)
+        if(WIN32)
+            target_compile_definitions(${diagnostic_target} PRIVATE SPDLOG_WCHAR_FILENAMES)
+        endif()
+    endforeach()
+
 endif()
 
 if(BUILD_RELIABILITY_TESTS)

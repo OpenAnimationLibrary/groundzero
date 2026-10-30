@@ -1,3 +1,4 @@
+#include "toonzqt/uitranslations.h"
 #include "importpdf.h"
 #include "processprogress.h"
 #include "thirdparty.h"
@@ -57,7 +58,7 @@ bool convertPages(const QStringList &sourcePages, const QDir &destination,
     QImage image(sourcePages.at(index));
     if (image.isNull()) {
       error =
-          QObject::tr("Could not read converted PDF page %1.").arg(index + 1);
+          UiTranslations::text(QObject::tr("Could not read converted PDF page %1.")).arg(index + 1);
       break;
     }
 
@@ -68,7 +69,7 @@ bool convertPages(const QStringList &sourcePages, const QDir &destination,
     const QString outputPath = destination.absoluteFilePath(fileName);
     if (!image.save(outputPath, "PNG")) {
       error =
-          QObject::tr("Could not save imported PDF page %1.").arg(index + 1);
+          UiTranslations::text(QObject::tr("Could not save imported PDF page %1.")).arg(index + 1);
       break;
     }
     outputPages.append(outputPath);

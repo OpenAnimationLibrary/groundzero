@@ -1,3 +1,4 @@
+#include "toonzqt/uitranslations.h"
 #include "ocaio.h"
 
 #include "tsystem.h"
@@ -504,7 +505,7 @@ void ExportOCACommand::execute() {
 
   // Done
 
-  QString str = QObject::tr("%1 has been exported successfully.")
+  QString str = UiTranslations::text(QObject::tr("%1 has been exported successfully."))
                     .arg(QString::fromStdString(fp.getLevelName()));
 
   std::vector<QString> buttons = {QObject::tr("OK"),
@@ -551,7 +552,7 @@ void ImportOCACommand::execute() {
     DVGui::info(QObject::tr("OCA Import cancelled : empty filepath."));
     return;
   } else {
-    DVGui::info(QObject::tr("OCA Import file : %1").arg(fp.getQString()));
+    DVGui::info(UiTranslations::text(QObject::tr("OCA Import file : %1")).arg(fp.getQString()));
 
     QString label = QObject::tr(
         "Do you want to import or load image files from their original "
@@ -577,7 +578,7 @@ void ImportOCACommand::execute() {
   QJsonObject ocaObject;
   if (!ocaInputData.read(ocafile, ocaObject)) {
     DVGui::warning(
-        QObject::tr("Failed to load OCA file: %1").arg(fp.getQString()));
+        UiTranslations::text(QObject::tr("Failed to load OCA file: %1")).arg(fp.getQString()));
     return;
   }
   ocaInputData.getSceneData();                  // gather default values
@@ -612,7 +613,7 @@ bool OCAIo::OCAInputData::read(QString path, QJsonObject &json) {
     DVGui::error(QObject::tr("Unable to open OCA file for loading."));
     return false;
   } else {
-    DVGui::info(QObject::tr("Reading OCA file: %1").arg(path));
+    DVGui::info(UiTranslations::text(QObject::tr("Reading OCA file: %1")).arg(path));
   }
   QByteArray byteArray;
   byteArray = file.readAll();
@@ -624,7 +625,7 @@ bool OCAIo::OCAInputData::read(QString path, QJsonObject &json) {
   QJsonDocument jsonDoc;
   jsonDoc = QJsonDocument::fromJson(byteArray, &parseError);
   if (parseError.error != QJsonParseError::NoError) {
-    DVGui::warning(QObject::tr("Parse error at %1 while loading OCA file.")
+    DVGui::warning(UiTranslations::text(QObject::tr("Parse error at %1 while loading OCA file."))
                        .arg(parseError.offset));
     return false;
   }
@@ -703,7 +704,7 @@ void OCAIo::OCAInputData::importOcaLayer(const QJsonObject &jsonLayer,
     if (jsonLayer["blendingMode"].toString() != "normal") {
       showImportMessage(
           DVGui::WARNING,
-          QObject::tr("Blending mode '%1' not implemented for %2 '%3'")
+          UiTranslations::text(QObject::tr("Blending mode '%1' not implemented for %2 '%3'"))
               .arg(jsonLayer["blendingMode"].toString())
               .arg(jsonLayer["type"].toString())
               .arg(jsonLayer["name"].toString()));
@@ -731,7 +732,7 @@ void OCAIo::OCAInputData::importOcaLayer(const QJsonObject &jsonLayer,
     // Do not create levels without images!
     if (args.resourceDatas.empty()) {
       showImportMessage(DVGui::WARNING,
-                        QObject::tr("Skipped %1 '%2'. No image file indicated.")
+                        UiTranslations::text(QObject::tr("Skipped %1 '%2'. No image file indicated."))
                             .arg(jsonLayer["type"].toString())
                             .arg(jsonLayer["name"].toString()));
       return;
@@ -741,7 +742,7 @@ void OCAIo::OCAInputData::importOcaLayer(const QJsonObject &jsonLayer,
 
     if (args.loadedLevels.empty()) {
       showImportMessage(DVGui::CRITICAL,
-                        QObject::tr("Unable to load images for %1 '%2'.")
+                        UiTranslations::text(QObject::tr("Unable to load images for %1 '%2'."))
                             .arg(jsonLayer["type"].toString())
                             .arg(jsonLayer["name"].toString()));
       return;
@@ -834,8 +835,8 @@ void OCAIo::OCAInputData::importOcaLayer(const QJsonObject &jsonLayer,
   } else if (jsonLayer["type"] == "grouplayer") {
     showImportMessage(
         DVGui::WARNING,
-        QObject::tr(
-            "Sub-layers in grouplayer '%1' will be imported without grouping.")
+        UiTranslations::text(QObject::tr(
+            "Sub-layers in grouplayer '%1' will be imported without grouping."))
             .arg(jsonLayer["name"].toString()));
 
     // For now, import the child layers without grouping information
@@ -844,7 +845,7 @@ void OCAIo::OCAInputData::importOcaLayer(const QJsonObject &jsonLayer,
     }
   } else {
     showImportMessage(DVGui::WARNING,
-                      QObject::tr("Skipping unimplemented %1 '%2'")
+                      UiTranslations::text(QObject::tr("Skipping unimplemented %1 '%2'"))
                           .arg(jsonLayer["type"].toString())
                           .arg(jsonLayer["name"].toString()));
   }

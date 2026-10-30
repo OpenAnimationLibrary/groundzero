@@ -1,5 +1,6 @@
 
 
+#include "toonzqt/uitranslations.h"
 #include "versioncontroltimeline.h"
 
 // Tnz6 includes
@@ -516,7 +517,7 @@ void SVNTimeline::onUpdateButtonClicked() {
   m_timelineWidget->hide();
   m_waitingLabel->show();
   if (m_sceneResources.isEmpty())
-    m_textLabel->setText(tr("Getting the status for %1...").arg(m_fileName));
+    m_textLabel->setText(UiTranslations::text(tr("Getting the status for %1...")).arg(m_fileName));
   else
     m_textLabel->setText(tr("Getting repository status..."));
   m_textLabel->show();
@@ -547,9 +548,9 @@ void SVNTimeline::onUpdateToRevisionButtonClicked() {
   m_waitingLabel->show();
   if (m_sceneResources.isEmpty())
     m_textLabel->setText(
-        tr("Getting %1 to revision %2...").arg(m_fileName).arg(log.m_revision));
+        UiTranslations::text(tr("Getting %1 to revision %2...")).arg(m_fileName).arg(log.m_revision));
   else
-    m_textLabel->setText(tr("Getting %1 items to revision %2...")
+    m_textLabel->setText(UiTranslations::text(tr("Getting %1 items to revision %2..."))
                              .arg(m_sceneResources.size() + 1)
                              .arg(log.m_revision));
   m_textLabel->show();
@@ -582,10 +583,10 @@ void SVNTimeline::onStatusRetrieved(const QString &xmlResponse) {
     if (s.m_item == "none" || s.m_item == "missing" ||
         s.m_repoStatus == "modified") {
       if (list.size() == 1)
-        m_textLabel->setText(tr("Getting %1...").arg(m_fileName));
+        m_textLabel->setText(UiTranslations::text(tr("Getting %1...")).arg(m_fileName));
       else
         m_textLabel->setText(
-            tr("Getting %1 items...").arg(m_sceneResources.size() + 1));
+            UiTranslations::text(tr("Getting %1 items...")).arg(m_sceneResources.size() + 1));
 
       m_sceneContentsCheckBox->hide();
 

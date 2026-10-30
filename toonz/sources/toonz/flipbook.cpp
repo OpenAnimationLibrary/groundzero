@@ -1,6 +1,7 @@
 
 
 // System includes
+#include "toonzqt/uitranslations.h"
 #include "tsystem.h"
 #include "timagecache.h"
 
@@ -104,6 +105,11 @@ namespace {
 QString getShortcut(const char *id) {
   return QString::fromStdString(
       CommandManager::instance()->getShortcutFromId(id));
+}
+
+QString currentCaption(const QString &stored) {
+  const auto translate = UiTranslations::recipe(stored);
+  return translate ? UiTranslations::remember(translate(), translate) : stored;
 }
 }  // namespace
 
@@ -244,7 +250,7 @@ FlipBook::FlipBook(QWidget *parent, QString viewerTitle,
   assert(ret);
 
   m_viewerTitle = (m_viewerTitle.isEmpty()) ? tr("Flipbook") : m_viewerTitle;
-  parentWidget()->setWindowTitle(m_viewerTitle);
+  UiTranslations::setCaption(parentWidget(), "windowTitle", m_viewerTitle);
 }
 
 //-----------------------------------------------------------------------------
@@ -679,7 +685,7 @@ bool FlipBook::doSaveImages(TFilePath fp) {
   }
 
   if (TSystem::doesExistFileOrLevel(fp)) {
-    QString question(tr("File %1 already exists.\nDo you want to overwrite it?")
+    QString question(UiTranslations::text(tr("File %1 already exists.\nDo you want to overwrite it?"))
                          .arg(toQString(fp)));
     int ret = DVGui::MsgBox(question, QObject::tr("Overwrite"),
                             QObject::tr("Cancel"));
@@ -744,7 +750,7 @@ void FlipBook::saveImage() {
     return;
   }
 
-  QString str = tr("Saved %1 frames out of %2 in %3")
+  QString str = UiTranslations::text(tr("Saved %1 frames out of %2 in %3"))
                     .arg(std::to_string(savedFrames).c_str())
                     .arg(std::to_string(m_framesCount).c_str())
                     .arg(::to_string(m_lw->getFilePath()).c_str());
@@ -1221,12 +1227,13 @@ void FlipBook::setLevel(const TFilePath &fp, TPalette *palette, int from,
       m_flipConsole->setFrameRange(from, to, step);
 
       m_framesCount = (to - from) / step + 1;
-      m_title       = tr("Rendered Frames  ::  From %1 To %2  ::  Step %3")
+      m_title       = UiTranslations::text(tr("Rendered Frames  ::  From %1 To %2  ::  Step %3"))
                     .arg(QString::number(from))
                     .arg(QString::number(to))
                     .arg(QString::number(step));
       if (shrink > 1)
-        m_title = m_title + tr("  ::  Shrink ") + QString::number(shrink);
+        m_title = UiTranslations::joined(
+            {m_title, tr("  ::  Shrink "), QString::number(shrink)});
     }
 
     // parentWidget()->setWindowTitle(m_title);
@@ -1242,10 +1249,18 @@ void FlipBook::setLevel(const TFilePath &fp, TPalette *palette, int from,
 
 //-----------------------------------------------------------------------------
 
+QString FlipBook::getTitle() const { return currentCaption(m_viewerTitle); }
+
+QString FlipBook::getLevelZoomTitle() const {
+  return UiTranslations::joined(
+      {currentCaption(m_title1), currentCaption(m_title)});
+}
+
 void FlipBook::setTitle(const QString &title) {
   m_viewerTitle = title;
   if (!m_previewedFx && !m_levelNames.empty())
-    m_title = m_viewerTitle + "  ::  " + m_levelNames[0];
+    m_title = UiTranslations::joined(
+        {m_viewerTitle, QStringLiteral("  ::  "), m_levelNames[0]});
   else
     m_title = m_viewerTitle;
 }
@@ -1277,21 +1292,25 @@ void FlipBook::setLevel(TXshSimpleLevel *xl) {
 
     const LevelProperties *p = m_xl->getProperties();
 
-    m_title = m_viewerTitle + "  ::  " + m_levelNames[0];
+    m_title = UiTranslations::joined(
+        {m_viewerTitle, QStringLiteral("  ::  "), m_levelNames[0]});
 
     if (m_framesCount == 1)
-      m_title = m_title + "  ::  1 Frame";
+      m_title = UiTranslations::text(m_title).appended("  ::  1 Frame");
     else
-      m_title = m_title + "  ::  " + QString::number(m_framesCount) + " Frames";
+      m_title = UiTranslations::text(m_title).appended(
+          "  ::  " + QString::number(m_framesCount) + " Frames");
 
     if (p) m_dim = p->getImageRes();
 
     if (p)
-      m_title = m_title + "  ::  " + QString::number(p->getImageRes().lx) +
-                "x" + QString::number(p->getImageRes().ly) + " Pixels";
+      m_title = UiTranslations::text(m_title).appended(
+          "  ::  " + QString::number(p->getImageRes().lx) + "x" +
+          QString::number(p->getImageRes().ly) + " Pixels");
 
     if (m_shrink > 1)
-      m_title = m_title + "  ::  " + "Shrink: " + QString::number(m_shrink);
+      m_title = UiTranslations::text(m_title).appended(
+          "  ::  Shrink: " + QString::number(m_shrink));
 
     m_imageViewer->setHistogramEnable(true);
     m_imageViewer->setHistogramTitle(m_levelNames[0]);
@@ -1559,9 +1578,13 @@ TImageP FlipBook::getCurrentImage(int frame) {
          ((m_isPreviewFx) ? "" : ::to_string(this));
 
     if (!m_isPreviewFx) {
-      m_title1 = m_viewerTitle + " :: " + fp.withoutParentDir().withFrame(fid);
+      m_title1 = UiTranslations::joined(
+          {m_viewerTitle, QStringLiteral(" :: "),
+           fp.withoutParentDir().withFrame(fid).getQString()});
       if (fp.getType() == "exr")
-        m_title1 += " :: " + tr("Gamma : %1").arg(colorSpaceGamma);
+        m_title1 = UiTranslations::joined(
+            {m_title1, QStringLiteral(" :: "),
+             UiTranslations::text(tr("Gamma : %1")).arg(colorSpaceGamma)});
     } else
       m_title1 = "";
   } else if (m_levelNames.empty())
@@ -1928,7 +1951,7 @@ void FlipBook::reset() {
   m_flipConsole->setFrameRange(1, 1, 1);
 
   setTitle(tr("Flipbook"));
-  parentWidget()->setWindowTitle(m_title);
+  UiTranslations::setCaption(parentWidget(), "windowTitle", m_title);
 
   update();
 }
@@ -2271,7 +2294,7 @@ FlipBook *viewFile(const TFilePath &path, int from, int to, int step,
   if ((path.getType() == "mov" || path.getType() == "avi" ||
        path.getType() == "3gp") &&
       path.isLevelName()) {
-    DVGui::warning(QObject::tr("%1  has an invalid extension format.")
+    DVGui::warning(UiTranslations::text(QObject::tr("%1  has an invalid extension format."))
                        .arg(QString::fromStdString(path.getLevelName())));
     return NULL;
   }

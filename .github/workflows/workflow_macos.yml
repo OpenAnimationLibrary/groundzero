@@ -1,9 +1,5 @@
 name: MacOS Build
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
-  cancel-in-progress: ${{ github.head_ref != '' }}
-
 on:
   pull_request:
   workflow_dispatch:
@@ -16,6 +12,10 @@ on:
 
 permissions:
   contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.head.repo.full_name || github.repository }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
 
 jobs:
   macOS:
@@ -107,7 +107,7 @@ jobs:
             -DQt5_DIR=$(brew --prefix qt@5)/lib/cmake/Qt5 \
             -DCMAKE_PREFIX_PATH=$(brew --prefix qt@5)/lib/cmake/Qt5 \
             -DOpenCV_DIR=$(brew --prefix opencv@4)/lib/cmake/opencv4 \
-            -DWITH_TRANSLATION=OFF \
+            -DWITH_TRANSLATION=ON -DBUILD_UI_PORT_TESTS=ON \
             -DBUILD_PARTICLE_CACHE_TESTS=ON \
             -DBUILD_RELIABILITY_TESTS=ON \
             -DBUILD_STREAM_TESTS=ON \
@@ -125,6 +125,17 @@ jobs:
         with:
           path: /Users/runner/.ccache
           key: ${{ runner.os }}-${{ github.sha }}
+
+      - name: Test native UI features
+        id: ui_tests
+        working-directory: toonz/build
+        run: |
+          set -o pipefail
+          export DYLD_LIBRARY_PATH="$(find "$PWD" -name '*.dylib' -exec dirname {} \; | sort -u | paste -sd: -)${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}"
+          QT_QPA_PLATFORM=offscreen ctest --output-on-failure --output-junit ui-tests.xml --no-tests=error -R '^ui_' 2>&1 | tee ui-tests-output.txt
+      - name: Report native UI failures
+        if: ${{ failure() && steps.ui_tests.outcome == 'failure' }}
+        run: python3 ci-scripts/report_ui_tests.py toonz/build/ui-tests-output.txt
 
       - name: Test particle cache integration
         id: particle_tests
@@ -213,13 +224,6 @@ jobs:
           grep -vE ': (fatal )?error:' errors.txt | head -10 | while IFS= read -r line; do
             echo "::error::${line}"
           done
-      # Keep valid compiled objects even when an integration test fails.
-      - name: Save compiler cache
-        if: ${{ always() && steps.compiler_cache.outputs.cache-hit != 'true' }}
-        uses: actions/cache/save@v5
-        with:
-          path: /Users/runner/.ccache
-          key: ${{ runner.os }}-${{ github.sha }}
 
       - name: Introduce Libraries and Stuff
         run: |

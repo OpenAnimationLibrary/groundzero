@@ -1,5 +1,6 @@
 
 
+#include "toonzqt/uitranslations.h"
 #include "custompaneleditorpopup.h"
 
 // Tnz includes
@@ -518,7 +519,7 @@ void CustomPanelEditorPopup::populateTemplateFolder(QTreeWidgetItem* parent,
 
   for (const auto& file : files) {
     QString name = QString::fromStdString(file.getName());
-    if (isEditSection) name = tr("%1 (Edit)").arg(name);
+    if (isEditSection) name = UiTranslations::text(tr("%1 (Edit)")).arg(name);
     QTreeWidgetItem* fileItem = new QTreeWidgetItem(QStringList(name));
     fileItem->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
     fileItem->setData(0, Qt::UserRole, file.getQString());
@@ -574,12 +575,13 @@ void CustomPanelEditorPopup::updateTemplateValueLabel() {
   if (!m_templateValueLabel) return;
   QTreeWidgetItem* item = findTemplateItemByPath(m_currentTemplatePath);
   if (item)
-    m_templateValueLabel->setText(templateDisplayNameForItem(item));
+    UiTranslations::setLiteral(m_templateValueLabel, "text",
+                                templateDisplayNameForItem(item));
   else if (!m_currentTemplatePath.isEmpty())
-    m_templateValueLabel->setText(
+    UiTranslations::setLiteral(m_templateValueLabel, "text",
         QFileInfo(m_currentTemplatePath).completeBaseName());
   else
-    m_templateValueLabel->setText(tr("(none)"));
+    UiTranslations::setCaption(m_templateValueLabel, "text", tr("(none)"));
 }
 
 //-----------------------------------------------------------------------------
@@ -684,7 +686,7 @@ QTreeWidgetItem* CustomPanelEditorPopup::findTemplateItemByPath(
 bool CustomPanelEditorPopup::loadTemplateList() {
   TFilePath customPanelTemplateFolder = customPaneTemplateFolderPath();
   if (!TSystem::doesExistFileOrLevel(customPanelTemplateFolder)) {
-    DVGui::warning(tr("Template folder %1 not found.")
+    DVGui::warning(UiTranslations::text(tr("Template folder %1 not found."))
                        .arg(customPanelTemplateFolder.getQString()));
     return false;
   }
@@ -1183,7 +1185,7 @@ void CustomPanelEditorPopup::onRegister() {
   // Overwrite confirmation
   if (TSystem::doesExistFileOrLevel(customPanelPath)) {
     QString question =
-        tr("The custom panel %1 already exists. Do you want to overwrite?")
+        UiTranslations::text(tr("The custom panel %1 already exists. Do you want to overwrite?"))
             .arg(panelName);
     int ret = DVGui::MsgBox(question, tr("Overwrite"), tr("Cancel"), 0);
     if (ret == 0 || ret == 2) {
@@ -1391,12 +1393,12 @@ void CustomPanelEditorPopup::onRemove() {
   // Confirmation dialog
   QString question;
   if (selectedPanels.size() == 1) {
-    question = tr("Are you sure you want to permanently remove the custom panel '%1'?\n\n"
-                  "This will delete the panel file and unregister its command.")
+    question = UiTranslations::text(tr("Are you sure you want to permanently remove the custom panel '%1'?\n\n"
+                  "This will delete the panel file and unregister its command."))
                    .arg(selectedPanels.first());
   } else {
-    question = tr("Are you sure you want to permanently remove %1 custom panels?\n\n"
-                  "This will delete the panel files and unregister their commands.")
+    question = UiTranslations::text(tr("Are you sure you want to permanently remove %1 custom panels?\n\n"
+                  "This will delete the panel files and unregister their commands."))
                    .arg(selectedPanels.size());
   }
 
@@ -1434,7 +1436,7 @@ void CustomPanelEditorPopup::onRemove() {
           action->setVisible(false);
         }
       } catch (...) {
-        DVGui::warning(tr("Failed to delete panel: %1").arg(panelName));
+        DVGui::warning(UiTranslations::text(tr("Failed to delete panel: %1")).arg(panelName));
       }
     }
   }
@@ -1450,7 +1452,7 @@ void CustomPanelEditorPopup::onRemove() {
 
     QString message = (successCount == 1)
                           ? tr("Custom panel has been successfully removed.")
-                          : tr("%1 custom panels have been successfully removed.")
+                          : UiTranslations::text(tr("%1 custom panels have been successfully removed."))
                                 .arg(successCount);
     DVGui::info(message);
   }

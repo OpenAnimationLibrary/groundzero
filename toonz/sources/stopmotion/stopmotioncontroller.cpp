@@ -30,6 +30,7 @@
 #include "toonzqt/intfield.h"
 #include "toonzqt/doublefield.h"
 #include "toonzqt/menubarcommand.h"
+#include "toonzqt/uitranslations.h"
 
 // Qt includes
 #include <QAction>
@@ -180,6 +181,7 @@ QScrollArea *makeChooserPageWithoutScrollBar(QWidget *chooser) {
 StopMotionController::StopMotionController(QWidget *parent) : QWidget(parent) {
   m_stopMotion = StopMotion::instance();
   m_tabBar     = new DVGui::TabBar(this);
+  UiTranslations::watchTabBar(m_tabBar);
   m_tabBar->setDrawBase(false);
   m_tabBar->setObjectName("StopMotionTabBar");
   m_tabBar->addSimpleTab(tr("Controls"));

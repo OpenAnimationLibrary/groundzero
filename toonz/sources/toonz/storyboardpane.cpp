@@ -1,3 +1,4 @@
+#include "toonzqt/uitranslations.h"
 #include "storyboardpane.h"
 
 // Tnz6 includes
@@ -144,13 +145,13 @@ public:
   QString getHistoryString() override {
     QString frameStr = QString::number(m_frame + 1);
     if (!m_hasOld)
-      return QObject::tr("New Storyboard Panel  Frame : %1").arg(frameStr);
+      return UiTranslations::text(QObject::tr("New Storyboard Panel  Frame : %1")).arg(frameStr);
     if (!m_hasNew)
-      return QObject::tr("Delete Storyboard Panel  Frame : %1").arg(frameStr);
+      return UiTranslations::text(QObject::tr("Delete Storyboard Panel  Frame : %1")).arg(frameStr);
     if (m_oldTag.m_label == m_newTag.m_label)
-      return QObject::tr("Edit Storyboard Panel Notes  Frame : %1")
+      return UiTranslations::text(QObject::tr("Edit Storyboard Panel Notes  Frame : %1"))
           .arg(frameStr);
-    return QObject::tr("Rename Storyboard Panel  Frame : %1  %2 > %3")
+    return UiTranslations::text(QObject::tr("Rename Storyboard Panel  Frame : %1  %2 > %3"))
         .arg(frameStr)
         .arg(m_oldTag.m_label)
         .arg(m_newTag.m_label);
@@ -478,7 +479,7 @@ void StoryboardPane::onFrameSwitched() {
 QString StoryboardPane::panelCaption(int index) const {
   if (index < 0 || index >= (int)m_panels.size()) return QString();
   const QString &label = m_panels[index].m_label;
-  return label.isEmpty() ? tr("Panel %1").arg(index + 1) : label;
+  return label.isEmpty() ? UiTranslations::text(tr("Panel %1")).arg(index + 1) : label;
 }
 
 //-----------------------------------------------------------------------------
@@ -566,13 +567,13 @@ void StoryboardPane::rebuildList() {
   for (int i = 0; i < count; i++) {
     const Panel &panel = m_panels[i];
     int frames         = panel.m_r1 - panel.m_r0 + 1;
-    QString duration   = tr("%1 fr").arg(frames);
+    QString duration   = UiTranslations::text(tr("%1 fr")).arg(frames);
     if (fps > 0.0)
-      duration += tr(" (%1 s)").arg(QString::number(frames / fps, 'f', 1));
+      duration += UiTranslations::text(tr(" (%1 s)")).arg(QString::number(frames / fps, 'f', 1));
 
     QListWidgetItem *item = m_panelList->item(i);
     item->setText(panelCaption(i) + "\n" + duration);
-    QString toolTip = tr("%1\nFrames %2 - %3")
+    QString toolTip = UiTranslations::text(tr("%1\nFrames %2 - %3"))
                           .arg(panelCaption(i))
                           .arg(panel.m_r0 + 1)
                           .arg(panel.m_r1 + 1);
@@ -600,7 +601,7 @@ void StoryboardPane::updateInfoLabel() {
            "Frame\"."));
   else
     m_infoLabel->setText(
-        tr("%1 panels. Drag a card onto another one to reorder the panels.")
+        UiTranslations::text(tr("%1 panels. Drag a card onto another one to reorder the panels."))
             .arg(m_panels.size()));
 }
 
@@ -857,8 +858,8 @@ bool StoryboardPane::eventFilter(QObject *obj, QEvent *e) {
     if (dropTarget(dropEventPos(de), index, after)) {
       de->acceptProposedAction();
       m_infoLabel->setText(
-          after ? tr("Move the panel after \"%1\"").arg(panelCaption(index))
-                : tr("Move the panel before \"%1\"").arg(panelCaption(index)));
+          after ? UiTranslations::text(tr("Move the panel after \"%1\"")).arg(panelCaption(index))
+                : UiTranslations::text(tr("Move the panel before \"%1\"")).arg(panelCaption(index)));
     } else {
       de->ignore();
       updateInfoLabel();
@@ -924,8 +925,8 @@ void StoryboardPane::movePanel(int from, int to, bool after) {
     for (int r = row0; r < row0 + rowCount; r++)
       if (!xsh->getCell(r, c).isEmpty()) {
         DVGui::warning(
-            tr("The panel cannot be moved: column %1 is locked and has cells "
-               "in the rows to move. Unlock it first.")
+            UiTranslations::text(tr("The panel cannot be moved: column %1 is locked and has cells "
+               "in the rows to move. Unlock it first."))
                 .arg(c + 1));
         return;
       }

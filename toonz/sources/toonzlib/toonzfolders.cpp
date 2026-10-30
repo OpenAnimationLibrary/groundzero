@@ -12,6 +12,9 @@ using namespace TEnv;
 
 //-------------------------------------------------------------------
 namespace {
+#ifdef BUILD_UI_PORT_TESTS
+TFilePath testStorageRoot;
+#endif
 #ifdef BUILD_SEEXPR_TESTS
 TFilePath seExprTestStorageRoot;
 #endif
@@ -110,6 +113,12 @@ TFilePath ToonzFolder::getFxPresetFolder() {
   return fp;
 }
 
+#ifdef BUILD_UI_PORT_TESTS
+void ToonzFolder::setTestStorageRoot(const TFilePath &root) {
+  testStorageRoot = root;
+}
+#endif
+
 #ifdef BUILD_SEEXPR_TESTS
 void ToonzFolder::setSeExprTestStorageRoot(const TFilePath &root) {
   seExprTestStorageRoot = root;
@@ -120,6 +129,10 @@ TFilePath ToonzFolder::getCacheRootFolder() {
   static enum STATE { FIRSTTIME, OK, NG } state = FIRSTTIME;
   QString cacheDir =
       QStandardPaths::writableLocation(QStandardPaths::CacheLocation);
+#ifdef BUILD_UI_PORT_TESTS
+  if (!testStorageRoot.isEmpty())
+    cacheDir = (testStorageRoot + "cache").getQString();
+#endif
 #ifdef BUILD_SEEXPR_TESTS
   if (!seExprTestStorageRoot.isEmpty())
     cacheDir = (seExprTestStorageRoot + "cache").getQString();
@@ -138,6 +151,10 @@ TFilePath ToonzFolder::getCrashReportFolder() {
   QString crashDir =
       QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation) +
       "/crash";
+#ifdef BUILD_UI_PORT_TESTS
+  if (!testStorageRoot.isEmpty())
+    crashDir = (testStorageRoot + "crash").getQString();
+#endif
 #ifdef BUILD_SEEXPR_TESTS
   if (!seExprTestStorageRoot.isEmpty())
     crashDir = (seExprTestStorageRoot + "crash").getQString();

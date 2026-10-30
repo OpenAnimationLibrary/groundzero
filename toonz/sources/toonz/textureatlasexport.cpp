@@ -52,6 +52,7 @@
 #include "toonzqt/menubarcommand.h"
 #include "toonzqt/dvdialog.h"
 #include "toonzqt/gutil.h"
+#include "toonzqt/uitranslations.h"
 
 // TnzLib includes
 #include "toonz/atlasjson.h"
@@ -246,26 +247,35 @@ bool askOptions(AtlasOptions &options, int layerCount, int spriteCount,
   DVGui::Dialog dialog(TApp::instance()->getMainWindow(), true);
   dialog.setWindowTitle(atlasTr("Export Texture Atlas"));
 
-  QString text =
-      atlasTr(
-          "%1 layer(s), %2 drawing(s) and %3 symbol(s) will be exported: "
-          "the drawings are packed into atlas pages (spritemap1.png, ...) "
-          "described by spritemap1.json, ..., and the timelines of the "
-          "layers and of the symbols are written to Animation.json, in the "
-          "folder chosen next.")
-          .arg(layerCount)
-          .arg(spriteCount)
-          .arg(symbolCount);
-  text += "\n\n" + atlasTr(
-                       "Sub-xsheets are exported as symbols, up to %1 "
-                       "levels of nesting. FX are not exported.")
-                       .arg(c_maxSymbolDepth);
-  if (fxCount > 0)
-    text +=
-        " " + atlasTr("This scene has %1 FX, which are left out.").arg(fxCount);
-  QLabel *info = new QLabel(text, &dialog);
+  const auto description = [layerCount, spriteCount, symbolCount, fxCount]() {
+    QString text =
+        atlasTr(
+            "%1 layer(s), %2 drawing(s) and %3 symbol(s) will be exported: "
+            "the drawings are packed into atlas pages (spritemap1.png, ...) "
+            "described by spritemap1.json, ..., and the timelines of the "
+            "layers and of the symbols are written to Animation.json, in the "
+            "folder chosen next.")
+            .arg(layerCount)
+            .arg(spriteCount)
+            .arg(symbolCount);
+    text += "\n\n" + atlasTr(
+                         "Sub-xsheets are exported as symbols, up to %1 "
+                         "levels of nesting. FX are not exported.")
+                         .arg(c_maxSymbolDepth);
+    if (fxCount > 0)
+      text +=
+          " " + atlasTr("This scene has %1 FX, which are left out.").arg(fxCount);
+    return text;
+  };
+  QLabel *info = new QLabel(description(), &dialog);
   info->setWordWrap(true);
   dialog.addWidget(info);
+  // Counts are an owned snapshot; retranslation neither renders again nor
+  // resets the export options currently being edited.
+  UiTranslations::onLanguageChanged(&dialog,
+      [info, description]() { info->setText(description()); });
+  UiTranslations::bind(&dialog, "windowTitle", "TextureAtlasExport",
+                       "Export Texture Atlas");
 
   QComboBox *sizeCombo  = new QComboBox(&dialog);
   const int pageSizes[] = {1024, 2048, 4096};

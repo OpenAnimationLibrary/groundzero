@@ -1,3 +1,6 @@
+#include <QAbstractItemModel>
+#include <QSignalBlocker>
+#include "toonzqt/uitranslations.h"
 #include "penciltestpopup_qt.h"
 
 // Tnz6 includes
@@ -1096,6 +1099,7 @@ PencilTestSaveInFolderPopup::PencilTestSaveInFolderPopup(QWidget* parent)
 
   m_autoSubNameCB      = new QCheckBox(tr("Auto Format:"), this);
   m_subNameFormatCombo = new QComboBox(this);
+  UiTranslations::watchCombo(m_subNameFormatCombo);
   m_subFolderNameField = new QLineEdit(this);
 
   QCheckBox* showPopupOnLaunchCB =
@@ -1389,7 +1393,7 @@ void PencilTestSaveInFolderPopup::onOkPressed() {
 
   if (QFileInfo::exists(actualFp.getQString())) {
     DVGui::MsgBox(WARNING,
-                  tr("Folder %1 already exists.").arg(actualFp.getQString()));
+                  UiTranslations::text(tr("Folder %1 already exists.")).arg(actualFp.getQString()));
     return;
   }
 
@@ -1407,7 +1411,7 @@ void PencilTestSaveInFolderPopup::onOkPressed() {
   try {
     TSystem::mkDir(actualFp);
   } catch (...) {
-    MsgBox(CRITICAL, tr("It is not possible to create the %1 folder.")
+    MsgBox(CRITICAL, UiTranslations::text(tr("It is not possible to create the %1 folder."))
                          .arg(toQString(actualFp)));
     return;
   }
@@ -1487,6 +1491,14 @@ PencilTestPopup::PencilTestPopup()
   m_videoWidget = new MyVideoWidget(this);
 
   m_cameraListCombo                 = new QComboBox(this);
+  UiTranslations::onLanguageChanged(m_cameraListCombo, [this] {
+    const QSignalBlocker block(m_cameraListCombo), modelBlock(m_cameraListCombo->model());
+    const int missing = m_cameraListCombo->findData(-1);
+    const int select = m_cameraListCombo->findData(-2);
+    if (missing >= 0) m_cameraListCombo->setItemText(missing, tr("No camera found"));
+    if (select >= 0) m_cameraListCombo->setItemText(select, tr("- Select camera -"));
+    m_cameraListCombo->update();
+  });
   QPushButton* refreshCamListButton = new QPushButton(tr("Refresh"), this);
   m_resolutionCombo                 = new QComboBox(this);
 
@@ -1512,6 +1524,7 @@ PencilTestPopup::PencilTestPopup()
 
   QGroupBox* imageFrame = new QGroupBox(tr("Image adjust"), this);
   m_colorTypeCombo      = new QComboBox(this);
+  UiTranslations::watchCombo(m_colorTypeCombo);
 
   m_camCapLevelControl = new CameraCaptureLevelControl(this);
   m_upsideDownCB       = new QCheckBox(tr("Upside down"), this);
@@ -1906,14 +1919,14 @@ void PencilTestPopup::refreshCameraList() {
 
   QList<QCameraInfo> cameras = QCameraInfo::availableCameras();
   if (cameras.empty()) {
-    m_cameraListCombo->addItem(tr("No camera found"));
+    m_cameraListCombo->addItem(tr("No camera found"), -1);
     m_cameraListCombo->setMaximumWidth(250);
     m_cameraListCombo->setDisabled(true);
   }
 
   int maxTextLength = 0;
   // add non-connected state as default
-  m_cameraListCombo->addItem(tr("- Select camera -"));
+  m_cameraListCombo->addItem(tr("- Select camera -"), -2);
   for (int c = 0; c < cameras.size(); c++) {
     QString camDesc = cameras.at(c).description();
     m_cameraListCombo->addItem(camDesc);
@@ -2533,7 +2546,7 @@ bool PencilTestPopup::importImage(QImage image) {
       scene->decodeFilePath(TFilePath(m_saveInFileFld->getPath()));
   if (!TFileStatus(parentDir).doesExist()) {
     QString question;
-    question = tr("Folder %1 doesn't exist.\nDo you want to create it?")
+    question = UiTranslations::text(tr("Folder %1 doesn't exist.\nDo you want to create it?"))
                    .arg(toQString(parentDir));
     int ret = DVGui::MsgBox(question, QObject::tr("Yes"), QObject::tr("No"));
     if (ret == 0 || ret == 2) return false;
@@ -2598,7 +2611,7 @@ bool PencilTestPopup::importImage(QImage image) {
     if (TFileStatus(frameFp).doesExist()) {
       if (!m_alwaysOverwrite) {
         QString question =
-            tr("File %1 does exist.\nDo you want to overwrite it?")
+            UiTranslations::text(tr("File %1 does exist.\nDo you want to overwrite it?"))
                 .arg(toQString(frameFp));
         int ret = DVGui::MsgBox(question, QObject::tr("Overwrite"),
                                 QObject::tr("Always Overwrite in This Scene"),
@@ -2616,7 +2629,7 @@ bool PencilTestPopup::importImage(QImage image) {
     if (TSystem::doesExistFileOrLevel(actualLevelFp)) {
       level = scene->loadLevel(actualLevelFp);
       if (!level) {
-        error(tr("Failed to load %1.").arg(toQString(actualLevelFp)));
+        error(UiTranslations::text(tr("Failed to load %1.")).arg(toQString(actualLevelFp)));
         return false;
       }
 
@@ -2637,7 +2650,7 @@ bool PencilTestPopup::importImage(QImage image) {
       if (TFileStatus(frameFp).doesExist()) {
         if (!m_alwaysOverwrite) {
           QString question =
-              tr("File %1 does exist.\nDo you want to overwrite it?")
+              UiTranslations::text(tr("File %1 does exist.\nDo you want to overwrite it?"))
                   .arg(toQString(frameFp));
           int ret = DVGui::MsgBox(question, QObject::tr("Overwrite"),
                                   QObject::tr("Always Overwrite in This Scene"),
@@ -2908,8 +2921,8 @@ void PencilTestPopup::refreshFrameInfo() {
       // if the saved images has not the same resolution as the current camera
       // resolution
       if (camRes != dim) {
-        tooltipStr += tr("\nWARNING : Image size mismatch. The saved image "
-                         "size is %1 x %2.")
+        tooltipStr += UiTranslations::text(tr("\nWARNING : Image size mismatch. The saved image "
+                         "size is %1 x %2."))
                           .arg(dim.lx)
                           .arg(dim.ly);
         labelStr += tr("WARNING");
@@ -2918,10 +2931,10 @@ void PencilTestPopup::refreshFrameInfo() {
       // if the resolutions are matched
       else {
         if (frameCount == 1)
-          tooltipStr += tr("\nFrame %1 exists.")
+          tooltipStr += UiTranslations::text(tr("\nFrame %1 exists."))
                             .arg(fidsToString(fids, letterOptionEnabled));
         else
-          tooltipStr += tr("\nFrames %1 exist.")
+          tooltipStr += UiTranslations::text(tr("\nFrames %1 exist."))
                             .arg(fidsToString(fids, letterOptionEnabled));
         // if the frame exists, then it will be overwritten
         if (frameExist) {
@@ -2932,9 +2945,9 @@ void PencilTestPopup::refreshFrameInfo() {
           infoType = ADD;
         }
         if (frameCount == 1)
-          labelStr += tr(" %1 frame").arg(frameCount);
+          labelStr += UiTranslations::text(tr(" %1 frame")).arg(frameCount);
         else
-          labelStr += tr(" %1 frames").arg(frameCount);
+          labelStr += UiTranslations::text(tr(" %1 frames")).arg(frameCount);
       }
       m_allowedCameraSize = QSize(dim.lx, dim.ly);
     }
@@ -2960,7 +2973,7 @@ void PencilTestPopup::refreshFrameInfo() {
     bool ret = getRasterLevelSize(level_sameName, dim);
     if (!ret) {
       tooltipStr +=
-          tr("\nWARNING : Failed to get image size of the existing level %1.")
+          UiTranslations::text(tr("\nWARNING : Failed to get image size of the existing level %1."))
               .arg(QString::fromStdWString(levelName));
       labelStr += tr("WARNING");
       infoType = WARNING;
@@ -2968,8 +2981,8 @@ void PencilTestPopup::refreshFrameInfo() {
     // if the saved images has not the same resolution as the current camera
     // resolution
     else if (camRes != dim) {
-      tooltipStr += tr("\nWARNING : Image size mismatch. The existing level "
-                       "size is %1 x %2.")
+      tooltipStr += UiTranslations::text(tr("\nWARNING : Image size mismatch. The existing level "
+                       "size is %1 x %2."))
                         .arg(dim.lx)
                         .arg(dim.ly);
       labelStr += tr("WARNING");
@@ -2979,10 +2992,10 @@ void PencilTestPopup::refreshFrameInfo() {
     else {
       int frameCount = fids.size();
       if (fids.size() == 1)
-        tooltipStr += tr("\nFrame %1 exists.")
+        tooltipStr += UiTranslations::text(tr("\nFrame %1 exists."))
                           .arg(fidsToString(fids, letterOptionEnabled));
       else
-        tooltipStr += tr("\nFrames %1 exist.")
+        tooltipStr += UiTranslations::text(tr("\nFrames %1 exist."))
                           .arg(fidsToString(fids, letterOptionEnabled));
       // Check if the target frame already exist in the level
       bool hasFrame = false;
@@ -3003,9 +3016,9 @@ void PencilTestPopup::refreshFrameInfo() {
         infoType = ADD;
       }
       if (frameCount == 1)
-        labelStr += tr(" %1 frame").arg(frameCount);
+        labelStr += UiTranslations::text(tr(" %1 frame")).arg(frameCount);
       else
-        labelStr += tr(" %1 frames").arg(frameCount);
+        labelStr += UiTranslations::text(tr(" %1 frames")).arg(frameCount);
     }
     m_allowedCameraSize = QSize(dim.lx, dim.ly);
   }
@@ -3015,16 +3028,16 @@ void PencilTestPopup::refreshFrameInfo() {
     if (level_sameName) {
       TFilePath anotherPath = level_sameName->getPath();
       tooltipStr +=
-          tr("WARNING : Level name conflicts. There already is a level %1 in the scene with the path\
-                        \n          %2.")
+          UiTranslations::text(tr("WARNING : Level name conflicts. There already is a level %1 in the scene with the path\
+                        \n          %2."))
               .arg(QString::fromStdWString(levelName))
               .arg(toQString(anotherPath));
       // check resolution
       TDimension dim;
       bool ret = getRasterLevelSize(level_sameName, dim);
       if (ret && camRes != dim)
-        tooltipStr += tr("\nWARNING : Image size mismatch. The size of level "
-                         "with the same name is is %1 x %2.")
+        tooltipStr += UiTranslations::text(tr("\nWARNING : Image size mismatch. The size of level "
+                         "with the same name is is %1 x %2."))
                           .arg(dim.lx)
                           .arg(dim.ly);
       m_allowedCameraSize = QSize(dim.lx, dim.ly);
@@ -3033,16 +3046,16 @@ void PencilTestPopup::refreshFrameInfo() {
       std::wstring anotherName = level_samePath->getName();
       if (!tooltipStr.isEmpty()) tooltipStr += QString("\n");
       tooltipStr +=
-          tr("WARNING : Level path conflicts. There already is a level with the path %1\
-                        \n          in the scene with the name %2.")
+          UiTranslations::text(tr("WARNING : Level path conflicts. There already is a level with the path %1\
+                        \n          in the scene with the name %2."))
               .arg(toQString(levelFp))
               .arg(QString::fromStdWString(anotherName));
       // check resolution
       TDimension dim;
       bool ret = getRasterLevelSize(level_samePath, dim);
       if (ret && camRes != dim)
-        tooltipStr += tr("\nWARNING : Image size mismatch. The size of level "
-                         "with the same path is %1 x %2.")
+        tooltipStr += UiTranslations::text(tr("\nWARNING : Image size mismatch. The size of level "
+                         "with the same path is %1 x %2."))
                           .arg(dim.lx)
                           .arg(dim.ly);
       m_allowedCameraSize = QSize(dim.lx, dim.ly);

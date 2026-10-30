@@ -1,5 +1,8 @@
 
 
+#include <QAbstractItemModel>
+#include <QSignalBlocker>
+#include "toonzqt/uitranslations.h"
 #include "xdtsimportpopup.h"
 
 #include "tapp.h"
@@ -101,7 +104,7 @@ XDTSImportPopup::XDTSImportPopup(QStringList levelNames, ToonzScene* scene,
   // Set dialog properties
   const QString fileType = isSXF ? "SXF" : "XDTS";
   setWindowTitle(
-      tr("Importing %1 file %2")
+      UiTranslations::text(tr("Importing %1 file %2"))
           .arg(fileType, QString::fromStdString(scenePath.getLevelName())));
 
   // Create buttons
@@ -119,6 +122,7 @@ XDTSImportPopup::XDTSImportPopup(QStringList levelNames, ToonzScene* scene,
 
   // Create conversion combo box
   m_convertCombo             = new QComboBox(this);
+  UiTranslations::watchCombo(m_convertCombo);
   QStringList convertOptions = {
       tr("Do not Convert"), tr("Convert Every Level with Settings Popup"),
       tr("Convert Unpainted Aliasing Raster(Inks Only)")};
@@ -142,6 +146,7 @@ XDTSImportPopup::XDTSImportPopup(QStringList levelNames, ToonzScene* scene,
                           tr("Custom DPI")};
 
   m_dpiMode = new QComboBox(this);
+  UiTranslations::watchCombo(m_dpiMode);
   m_dpiMode->addItems(dpiModes);
 
   m_dpiFld = new DoubleLineEdit(this);
@@ -184,6 +189,13 @@ XDTSImportPopup::XDTSImportPopup(QStringList levelNames, ToonzScene* scene,
 
   for (auto comboBox : comboBoxes) {
     comboBox->addItem(tr("None"), -1);
+    UiTranslations::onLanguageChanged(comboBox, [comboBox] {
+      const int none = comboBox->findData(-1);
+      if (none < 0) return;
+      const QSignalBlocker block(comboBox), modelBlock(comboBox->model());
+      comboBox->setItemText(none, tr("None"));
+      comboBox->update();
+    });
     int currentId = 0;
 
     for (const auto& mark : cellMarks) {
@@ -253,7 +265,7 @@ XDTSImportPopup::XDTSImportPopup(QStringList levelNames, ToonzScene* scene,
 
   // Create cell mark group box
   auto cellMarkGroupBox =
-      new QGroupBox(tr("Cell marks for %1 symbols").arg(fileType));
+      new QGroupBox(UiTranslations::text(tr("Cell marks for %1 symbols")).arg(fileType));
 
   auto markLayout = new QGridLayout();
   markLayout->setContentsMargins(10, 10, 10, 10);
@@ -263,12 +275,12 @@ XDTSImportPopup::XDTSImportPopup(QStringList levelNames, ToonzScene* scene,
   {
     // Inbetween symbols: ○ (0x25CB) and ● (0x25CF)
     markLayout->addWidget(
-        new QLabel(tr("Inbetween Symbol1 (%1):").arg(QChar(0x25CB)), this), 0,
+        new QLabel(UiTranslations::text(tr("Inbetween Symbol1 (%1):")).arg(QChar(0x25CB)), this), 0,
         0, Qt::AlignRight | Qt::AlignVCenter);
     markLayout->addWidget(m_tick1Combo, 0, 1);
     markLayout->addItem(new QSpacerItem(10, 1), 0, 2);
     markLayout->addWidget(
-        new QLabel(tr("Inbetween Symbol2 (%1):").arg(QChar(0x25CF)), this), 0,
+        new QLabel(UiTranslations::text(tr("Inbetween Symbol2 (%1):")).arg(QChar(0x25CF)), this), 0,
         3, Qt::AlignRight | Qt::AlignVCenter);
     markLayout->addWidget(m_tick2Combo, 0, 4);
 

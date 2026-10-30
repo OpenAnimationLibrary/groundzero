@@ -1,3 +1,4 @@
+#include "toonzqt/uitranslations.h"
 #include "pegbarguides.h"
 
 #include "menubarcommandids.h"
@@ -106,6 +107,7 @@ public:
     if (index >= 0) fdg->setCurrentIndex(index);
 
     QComboBox *side = new QComboBox(this);
+    UiTranslations::watchCombo(side);
     side->addItem(tr("Top"), PegbarGuide::Top);
     side->addItem(tr("Bottom"), PegbarGuide::Bottom);
     side->addItem(tr("Left"), PegbarGuide::Left);

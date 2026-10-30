@@ -113,6 +113,7 @@ set(HEADERS
 )
 
 set(SOURCES
+    uitranslations.cpp
     ../tnztools/cursormanager.cpp
     checkbox.cpp
     colorfield.cpp

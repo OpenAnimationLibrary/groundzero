@@ -1,3 +1,4 @@
+#include "toonzqt/uitranslations.h"
 #include "audiorecordingpopup.h"
 
 // Tnz6 includes
@@ -230,6 +231,8 @@ AudioRecordingPopup::AudioRecordingPopup()
   m_labelSamplefmt  = new QLabel(tr("Sample format: "));
   m_comboSamplerate = new QComboBox();
   m_comboSamplefmt  = new QComboBox();
+  UiTranslations::watchCombo(m_comboSamplerate);
+  UiTranslations::watchCombo(m_comboSamplefmt);
   m_comboSamplerate->addItem(tr("8000 Hz"), QVariant::fromValue(8000));
   m_comboSamplerate->addItem(tr("11025 Hz"), QVariant::fromValue(11025));
   m_comboSamplerate->addItem(tr("22050 Hz"), QVariant::fromValue(22050));

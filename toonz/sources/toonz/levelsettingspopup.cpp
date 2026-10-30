@@ -1,5 +1,6 @@
 
 
+#include "toonzqt/uitranslations.h"
 #include "levelsettingspopup.h"
 
 // Tnz6 includes
@@ -317,7 +318,7 @@ public:
   int getSize() const override { return sizeof *this; }
 
   QString getHistoryString() override {
-    return QObject::tr("Edit Level Settings : %1")
+    return UiTranslations::text(QObject::tr("Edit Level Settings : %1"))
         .arg(QString::fromStdWString(m_xl->getName()));
   }
 };
@@ -347,6 +348,7 @@ LevelSettingsPopup::LevelSettingsPopup()
   m_typeLabel           = new QLabel();  // Level Type
   // Type
   m_dpiTypeOm = new QComboBox();
+  UiTranslations::watchCombo(m_dpiTypeOm);
   // DPI
   QLabel *dpiLabel = new QLabel(tr("DPI:"));
   m_dpiFld         = new DoubleLineEdit();
@@ -1009,8 +1011,8 @@ void LevelSettingsPopup::onNameChanged() {
     TXshLevel *existingLevel = levelSet->getLevel(text.toStdWString());
     if (existingLevel &&
         LevelCmd::removeLevelFromCast(existingLevel, nullptr, false))
-      DVGui::info(QObject::tr("Removed unused level %1 from the scene cast. "
-                              "(This behavior can be disabled in Preferences.)")
+      DVGui::info(UiTranslations::text(QObject::tr("Removed unused level %1 from the scene cast. "
+                              "(This behavior can be disabled in Preferences.)"))
                       .arg(text));
   }
 
@@ -1061,7 +1063,7 @@ void LevelSettingsPopup::onPathChanged() {
           new LevelSettingsUndo(levelP.getPointer(), LevelSettingsUndo::Path,
                                 oldPath.getQString(), newPath.getQString()));
     } else {
-      error(tr("The file %1 is not a sound level.")
+      error(UiTranslations::text(tr("The file %1 is not a sound level."))
                 .arg(QString::fromStdWString(newPath.getLevelNameW())));
       updateLevelSettings();
     }

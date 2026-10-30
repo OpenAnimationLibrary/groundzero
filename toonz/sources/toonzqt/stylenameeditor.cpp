@@ -1,3 +1,4 @@
+#include "toonzqt/uitranslations.h"
 #include "toonzqt/stylenameeditor.h"
 
 // TnzQt includes
@@ -102,7 +103,7 @@ void WordButton::onRemove() { emit removeWord(text()); }
 
 void WordButton::contextMenuEvent(QContextMenuEvent* event) {
   QMenu menu(this);
-  QAction* removeAct = new QAction(tr("Remove %1").arg(text()), &menu);
+  QAction* removeAct = new QAction(UiTranslations::text(tr("Remove %1")).arg(text()), &menu);
   bool ret = connect(removeAct, SIGNAL(triggered()), this, SLOT(onRemove()));
   menu.addAction(removeAct);
   menu.exec(event->globalPos());
@@ -112,12 +113,16 @@ void WordButton::contextMenuEvent(QContextMenuEvent* event) {
 
 AddWordButton::AddWordButton(const int col, QWidget* parent)
     : WordButton(tr("New"), parent), m_column(col) {
-  static QString columnLabel[WORD_COLUMN_AMOUNT] = {tr("Character"), tr("Part"),
-                                                    tr("Suffix")};
   // setFixedSize(23, 23);
   setIcon(createQIcon("plus"));
   setIconSize(QSize(16, 16));
-  setToolTip(tr("Add New Word for %1").arg(columnLabel[col]));
+  const auto updateCaption = [this]() {
+    const QString columnLabel[WORD_COLUMN_AMOUNT] = {
+        tr("Character"), tr("Part"), tr("Suffix")};
+    setToolTip(tr("Add New Word for %1").arg(columnLabel[m_column]));
+  };
+  updateCaption();
+  UiTranslations::onLanguageChanged(this, updateCaption);
 }
 
 //-------
@@ -243,7 +248,7 @@ void EasyInputArea::addWordButtonClicked(const int columnId) {
   }
   if (found) {
     QMessageBox::warning(this, tr("Warning"),
-                         tr("%1 is already registered").arg(word));
+                         UiTranslations::text(tr("%1 is already registered")).arg(word));
     return;
   }
 
@@ -474,7 +479,7 @@ void StyleNameEditor::onStyleSwitched() {
   m_styleName->setFocus();
 
   int styleId = m_paletteHandle->getStyleIndex();
-  setWindowTitle(tr("Name Editor: # %1").arg(styleId));
+  setWindowTitle(UiTranslations::text(tr("Name Editor: # %1")).arg(styleId));
 }
 
 //-------

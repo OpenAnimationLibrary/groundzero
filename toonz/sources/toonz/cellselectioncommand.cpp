@@ -1,3 +1,4 @@
+#include "toonzqt/uitranslations.h"
 #include <memory>
 
 #include "cellselection.h"
@@ -367,7 +368,7 @@ public:
   int getSize() const override { return sizeof(*this); }
 
   QString getHistoryString() override {
-    return QObject::tr("Step %1").arg(QString::number(m_step));
+    return UiTranslations::text(QObject::tr("Step %1")).arg(QString::number(m_step));
   }
   int getHistoryType() override { return HistoryType::Xsheet; }
 };
@@ -468,7 +469,7 @@ public:
   int getSize() const override { return sizeof(*this); }
 
   QString getHistoryString() override {
-    return QObject::tr("Each %1").arg(QString::number(m_each));
+    return UiTranslations::text(QObject::tr("Each %1")).arg(QString::number(m_each));
   }
   int getHistoryType() override { return HistoryType::Xsheet; }
 };
@@ -581,9 +582,9 @@ public:
 
   QString getHistoryString() override {
     if (m_withBlank == -1)
-      return QObject::tr("Reframe to %1's").arg(QString::number(m_step));
+      return UiTranslations::text(QObject::tr("Reframe to %1's")).arg(QString::number(m_step));
     else
-      return QObject::tr("Reframe to %1's with %2 blanks")
+      return UiTranslations::text(QObject::tr("Reframe to %1's with %2 blanks"))
           .arg(QString::number(m_step))
           .arg(QString::number(m_withBlank));
   }
@@ -1400,7 +1401,7 @@ public:
     if (m_insertedLevels.empty()) return QString();
     QString str;
     if (m_insertedLevels.size() == 1) {
-      str = QObject::tr("Clone  Level : %1 > %2")
+      str = UiTranslations::text(QObject::tr("Clone  Level : %1 > %2"))
                 .arg(QString::fromStdWString(
                     m_insertedLevels.begin()->first->getName()))
                 .arg(QString::fromStdWString(
@@ -1442,8 +1443,8 @@ public:
   ExistsFunc(ToonzScene *scene) : m_scene(scene) {}
 
   QString conflictString(const TFilePath &fp) const override {
-    return OverwriteDialog::tr(
-               "Level \"%1\" already exists.\n\nWhat do you want to do?")
+    return UiTranslations::text(OverwriteDialog::tr(
+               "Level \"%1\" already exists.\n\nWhat do you want to do?"))
         .arg(QString::fromStdWString(fp.withoutParentDir().getWideString()));
   }
 

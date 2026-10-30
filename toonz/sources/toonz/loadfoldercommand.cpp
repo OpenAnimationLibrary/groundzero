@@ -1,5 +1,6 @@
 
 
+#include "toonzqt/uitranslations.h"
 #include "iocommand.h"
 
 // Tnz6 includes
@@ -442,7 +443,7 @@ void import(const ToonzScene &scene, std::vector<Resource> &resources,
 
     if (progressDialog) {
       progressDialog->setLabelText(
-          DVGui::ProgressDialog::tr("Importing \"%1\"...")
+          UiTranslations::text(DVGui::ProgressDialog::tr("Importing \"%1\"..."))
               .arg(rsrc.m_path.m_relFp.getQString()));
       progressDialog->setValue(r);
 
@@ -508,9 +509,9 @@ QString OverwriteDialog::acceptResolution(void *obj_, int resolution,
   if (resolution == NO_RESOLUTION) {
     // Test existence of any resource components
     if (locals::existsResource(obj.m_dstDir, obj.m_rsrc))
-      error = QObject::tr(
+      error = UiTranslations::text(QObject::tr(
                   "File \"%1\" already exists.\nDo you want to overwrite it?",
-                  "OverwriteDialog")
+                  "OverwriteDialog"))
                   .arg(obj.m_rsrc.m_path.m_relFp.getQString());
   }
 

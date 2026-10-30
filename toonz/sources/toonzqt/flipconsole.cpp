@@ -1,3 +1,4 @@
+#include "toonzqt/uitranslations.h"
 #include "toonzqt/flipconsole.h"
 // Include shared flipbook settings (e.g., FlipBookWhiteBgToggle) from toonz/
 #include "toonz/flipbooksettings.h"
@@ -2185,7 +2186,7 @@ void FlipConsole::adjustGain(bool increase) {
   QString labelStr = QString("f/%1").arg(QString::number(fNumber, 'g', 2));
   double gain      = std::pow(2.0, (double)m_settings.m_gainStep * 0.5);
   m_resetGainBtn->setText(labelStr);
-  m_resetGainBtn->setToolTip(labelStr + tr(" (gain %1)").arg(gain));
+  m_resetGainBtn->setToolTip(labelStr + UiTranslations::text(tr(" (gain %1)")).arg(gain));
 }
 
 void FlipConsole::resetGain(bool forceInit) {
@@ -2201,7 +2202,7 @@ void FlipConsole::resetGain(bool forceInit) {
   QString labelStr = QString("f/%1").arg(QString::number(fNumber, 'g', 2));
   double gain      = std::pow(2.0, (double)m_settings.m_gainStep * 0.5);
   m_resetGainBtn->setText(labelStr);
-  m_resetGainBtn->setToolTip(labelStr + tr(" (gain %1)").arg(gain));
+  m_resetGainBtn->setToolTip(labelStr + UiTranslations::text(tr(" (gain %1)")).arg(gain));
 }
 
 //====================================================================

@@ -12,6 +12,7 @@ class QPoint;
 class QPushButton;
 class QLabel;
 class QTimer;
+class QTabWidget;
 
 //=============================================================================
 // RigLibraryPane
@@ -52,6 +53,7 @@ class RigLibraryPane final : public QFrame {
   QPushButton *m_deletePoseSetButton;
   QPushButton *m_applyButton;
   QPushButton *m_applyLayerButton;
+  QTabWidget *m_tabs;
 
   QFileSystemWatcher *m_watcher;
   QTimer *m_refreshTimer;
@@ -67,6 +69,7 @@ private:
   void renameItem(QListWidget *list);
   void deleteItem(QListWidget *list);
   void updateWatchedFolders();
+  void retranslateUi();
 
 protected:
   void showEvent(QShowEvent *) override;

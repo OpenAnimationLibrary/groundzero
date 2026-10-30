@@ -8,7 +8,9 @@
 #include <QStringList>
 
 class QTreeWidget;
+class QTreeWidgetItem;
 class QPushButton;
+class QLabel;
 
 //=============================================================================
 // AutosaveRecovery
@@ -64,9 +66,14 @@ class RecoveryDialog final : public QDialog {
   Q_OBJECT
 
   QTreeWidget *m_list;
+  QLabel *m_introLabel;
+  bool m_hasCrashReport;
   QPushButton *m_openButton, *m_folderButton, *m_discardButton,
       *m_crashReportButton;
   QString m_sceneToOpen;
+
+  void retranslateUi();
+  void retranslateItem(QTreeWidgetItem *item);
 
 public:
   RecoveryDialog(QWidget *parent, bool hasCrashReport);

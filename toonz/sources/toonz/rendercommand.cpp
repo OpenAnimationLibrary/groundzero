@@ -1,6 +1,7 @@
 
 
 // Tnz6 includes
+#include "toonzqt/uitranslations.h"
 #include "tapp.h"
 #include "mainwindow.h"
 #include "formatsettingspopups.h"
@@ -138,7 +139,7 @@ public:
     if (m_error) {
       m_error = false;
       DVGui::error(
-          QObject::tr("There was an error saving frames for the %1 level.")
+          UiTranslations::text(QObject::tr("There was an error saving frames for the %1 level."))
               .arg(QString::fromStdWString(
                   m_fp.withoutParentDir().getWideString())) +
           (m_errorMessage.isEmpty() ? QString()
@@ -162,8 +163,8 @@ public:
           m_fp = m_fp.withName(name.left(index).toStdWString());
 
         if (!TSystem::showDocument(m_fp)) {
-          QString msg(QObject::tr("It is not possible to display the file %1: "
-                                  "no player associated with its format")
+          QString msg(UiTranslations::text(QObject::tr("It is not possible to display the file %1: "
+                                  "no player associated with its format"))
                           .arg(QString::fromStdWString(
                               m_fp.withoutParentDir().getWideString())));
           DVGui::warning(msg);
@@ -340,7 +341,7 @@ sprop->getOutputProperties()->setRenderSettings(rso);*/
       DvDirModel::instance()->refreshFolder(parent.getParentDir());
     } catch (TException &e) {
       DVGui::warning(
-          QObject::tr("It is not possible to create folder : %1")
+          UiTranslations::text(QObject::tr("It is not possible to create folder : %1"))
               .arg(QString::fromStdString(::to_string(e.getMessage()))));
       return false;
     } catch (...) {
@@ -380,22 +381,34 @@ sprop->getOutputProperties()->setRenderSettings(rso);*/
 
 class RenderListener final : public DVGui::ProgressDialog,
                              public MovieRenderer::Listener {
-  QString m_progressBarString;
+  using FrameCaption = std::function<QString(int)>;
+  const FrameCaption m_progressCaption;
   int m_frameCounter, m_totalFrames;
   std::function<void()> m_cancelRender;
   bool m_error;
 
+  static QString precomputingCaption(const QString &path, int steps,
+                                    bool isPreview) {
+    const UiTranslations::Recipe caption = [path, steps, isPreview]() {
+      return QObject::tr("Precomputing %1 Frames", "RenderListener").arg(steps) +
+          (isPreview ? QString()
+                     : QObject::tr(" of %1", "RenderListener").arg(path));
+    };
+    return UiTranslations::remember(caption(), caption);
+  }
+
   class Message final : public TThread::Message {
     RenderListener *m_pb;
     int m_frame;
-    QString m_labelText;
+    FrameCaption m_caption;
 
   public:
-    Message(RenderListener *pb, int frame, const QString &labelText)
+    Message(RenderListener *pb, int frame,
+            const FrameCaption &caption = FrameCaption())
         : TThread::Message()
         , m_pb(pb)
         , m_frame(frame)
-        , m_labelText(labelText) {}
+        , m_caption(caption) {}
     TThread::Message *clone() const override { return new Message(*this); }
     void onDeliver() override {
       if (m_frame == -2) {
@@ -408,10 +421,12 @@ class RenderListener final : public DVGui::ProgressDialog,
       } else if (m_frame == -1)
         m_pb->hide();
       else {
-        m_pb->setLabelText(
-            QObject::tr("Rendering frame %1 / %2", "RenderListener")
-                .arg(m_frame)
-                .arg(m_labelText));
+        // Messages may be created on render workers. Resolve the immutable
+        // caption only here, on the GUI thread, and retain the whole recipe so
+        // a language change also updates the native suffix while rendering.
+        const UiTranslations::Recipe caption =
+            [render = m_caption, frame = m_frame]() { return render(frame); };
+        m_pb->setLabelText(UiTranslations::remember(caption(), caption));
         m_pb->setValue(m_frame);
       }
     }
@@ -421,11 +436,15 @@ public:
   RenderListener(std::function<void()> cancelRender, const TFilePath &path,
                  int steps, bool isPreview)
       : DVGui::ProgressDialog(
-            QObject::tr("Precomputing %1 Frames", "RenderListener").arg(steps) +
-                ((isPreview) ? ""
-                             : QObject::tr(" of %1", "RenderListener")
-                                   .arg(toQString(path))),
+            precomputingCaption(toQString(path), steps, isPreview),
             QObject::tr("Cancel"), 0, steps, TApp::instance()->getMainWindow())
+      , m_progressCaption([steps, pathText = toQString(path), isPreview](int frame) {
+          const QString total = QString::number(steps) +
+              (isPreview ? QString()
+                         : QObject::tr(" of %1", "RenderListener").arg(pathText));
+          return QObject::tr("Rendering frame %1 / %2", "RenderListener")
+              .arg(frame).arg(total);
+        })
       , m_frameCounter(0)
       , m_cancelRender(std::move(cancelRender))
       , m_error(false) {
@@ -437,11 +456,6 @@ public:
     setWindowModality(Qt::ApplicationModal);
 #endif
     setWindowFlags(Qt::Dialog | Qt::WindowTitleHint | Qt::CustomizeWindowHint);
-    m_progressBarString =
-        QString::number(steps) +
-        ((isPreview)
-             ? ""
-             : QObject::tr(" of %1", "RenderListener").arg(toQString(path)));
     // setMinimumDuration (0);
     m_totalFrames = steps;
     show();
@@ -453,11 +467,11 @@ public:
     bool ret = wasCanceled();
     ++m_frameCounter;
     if (ret)
-      Message(this, -1, "").send();
+      Message(this, -1).send();
     else if (m_frameCounter < m_totalFrames)
-      Message(this, m_frameCounter, m_progressBarString).send();
+      Message(this, m_frameCounter, m_progressCaption).send();
     else
-      Message(this, -2, "").send();
+      Message(this, -2).send();
     return !ret;
   }
   bool onFrameFailed(int frame, TException &) override {
@@ -471,7 +485,7 @@ public:
                           MovieRenderer::CompletionStatus status,
                           const std::wstring &error) override {
     m_cancelRender = {};
-    Message(this, -1, "").send();
+    Message(this, -1).send();
     if (status != MovieRenderer::CompletionStatus::Canceled)
       OnRenderCompleted(fp,
                         status == MovieRenderer::CompletionStatus::Failed ||
@@ -649,12 +663,12 @@ void RenderCommand::resetBgColor() {
 
 class MultimediaProgressBar final : public DVGui::ProgressDialog,
                                     public MultimediaRenderer::Listener {
-  QString m_progressBarString;
+  using FrameCaption = std::function<QString(int, int)>;
+  const FrameCaption m_progressCaption;
   int m_frameCounter;
   int m_columnCounter;
   int m_pbCounter;
   MultimediaRenderer *m_renderer;
-  int m_multimediaMode;
   bool m_error = false;
   QString m_errorMessage;
 
@@ -665,17 +679,17 @@ class MultimediaProgressBar final : public DVGui::ProgressDialog,
     int m_frame;
     int m_column;
     int m_pbValue;
-    QString m_labelText;
+    FrameCaption m_caption;
 
   public:
     Message(MultimediaProgressBar *pb, int frame, int column, int pbValue,
-            const QString &labelText)
+            const FrameCaption &caption = FrameCaption())
         : TThread::Message()
         , m_pb(pb)
         , m_frame(frame)
         , m_column(column)
         , m_pbValue(pbValue)
-        , m_labelText(labelText) {}
+        , m_caption(caption) {}
 
     TThread::Message *clone() const override { return new Message(*this); }
 
@@ -683,18 +697,11 @@ class MultimediaProgressBar final : public DVGui::ProgressDialog,
       if (m_pbValue == -1)
         m_pb->hide();
       else {
-        QString modeStr(
-            m_pb->m_multimediaMode == MultimediaRenderer::COLUMNS
-                ? QObject::tr("column ",
-                              "MultimediaProgressBar label (mode name)")
-                : QObject::tr("layer ",
-                              "MultimediaProgressBar label (mode name)"));
-        m_pb->setLabelText(QObject::tr("Rendering %1%2, frame %3 / %4",
-                                       "MultimediaProgressBar label")
-                               .arg(modeStr)
-                               .arg(m_column)
-                               .arg(m_frame)
-                               .arg(m_labelText));
+        const UiTranslations::Recipe caption =
+            [render = m_caption, frame = m_frame, column = m_column]() {
+              return render(frame, column);
+            };
+        m_pb->setLabelText(UiTranslations::remember(caption(), caption));
         m_pb->setValue(m_pbValue);
       }
     }
@@ -705,13 +712,25 @@ class MultimediaProgressBar final : public DVGui::ProgressDialog,
 public:
   MultimediaProgressBar(MultimediaRenderer *renderer)
       : ProgressDialog(
-            QObject::tr("Rendering %1 frames of %2", "MultimediaProgressBar")
+            UiTranslations::text(QObject::tr("Rendering %1 frames of %2", "MultimediaProgressBar"))
                 .arg(renderer->getFrameCount())
                 .arg(toQString(renderer->getFilePath())),
             QObject::tr("Cancel"), 0,
             renderer->getFrameCount() * renderer->getColumnsCount())
+      , m_progressCaption([
+            steps = renderer->getFrameCount(),
+            path = toQString(renderer->getFilePath()),
+            columns = renderer->getMultimediaMode() == MultimediaRenderer::COLUMNS
+          ](int frame, int column) {
+          const QString mode = columns
+              ? QObject::tr("column ", "MultimediaProgressBar label (mode name)")
+              : QObject::tr("layer ", "MultimediaProgressBar label (mode name)");
+          const QString total = QObject::tr("%1 of %2",
+              "MultimediaProgressBar - [totalframe] of [path]").arg(steps).arg(path);
+          return QObject::tr("Rendering %1%2, frame %3 / %4",
+              "MultimediaProgressBar label").arg(mode).arg(column).arg(frame).arg(total);
+        })
       , m_renderer(renderer)
-      , m_multimediaMode(renderer->getMultimediaMode())
       , m_frameCounter(0)
       , m_columnCounter(0)
       , m_pbCounter(0) {
@@ -723,11 +742,6 @@ public:
     setWindowModality(Qt::ApplicationModal);
 #endif
     setWindowFlags(Qt::WindowTitleHint | Qt::CustomizeWindowHint);
-    m_progressBarString =
-        QObject::tr("%1 of %2",
-                    "MultimediaProgressBar - [totalframe] of [path]")
-            .arg(m_renderer->getFrameCount())
-            .arg(toQString(m_renderer->getFilePath()));
     show();
   }
 
@@ -736,7 +750,7 @@ public:
   bool onFrameCompleted(int frame, int column) override {
     bool ret = wasCanceled();
     Message(this, ++m_frameCounter, m_columnCounter, ret ? -1 : ++m_pbCounter,
-            m_progressBarString)
+            m_progressCaption)
         .send();
     return !ret;
   }
@@ -766,14 +780,14 @@ public:
   void onSequenceCompleted(int column) override {
     m_frameCounter = 0;
     Message(this, m_frameCounter, ++m_columnCounter, m_pbCounter,
-            m_progressBarString)
+            m_progressCaption)
         .send();
     // OnRenderCompleted(fp).send();   //No output should have been put in cache
     // - and no viewfile to be called...
   }
 
   void onRenderCompleted() override {
-    Message(this, -1, -1, -1, "").send();
+    Message(this, -1, -1, -1).send();
     if (m_error && !wasCanceled())
       OnRenderCompleted(m_renderer->getFilePath(), true, m_errorMessage).send();
     m_renderer = nullptr;

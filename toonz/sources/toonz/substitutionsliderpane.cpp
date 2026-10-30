@@ -1,3 +1,4 @@
+#include "toonzqt/uitranslations.h"
 #include "substitutionsliderpane.h"
 #include "drawingsubstitutionundo.h"
 
@@ -115,7 +116,7 @@ void SubstitutionSliderPane::updateLabel(const TFrameId &currentFid) {
     return;
   }
   m_label->setText(
-      tr("%1  Frame : %2  (%3 drawings)")
+      UiTranslations::text(tr("%1  Frame : %2  (%3 drawings)"))
           .arg(QString::fromStdWString(m_level->getName()))
           .arg(QString::fromStdString(currentFid.expand(TFrameId::NO_PAD)))
           .arg(int(m_fids.size())));

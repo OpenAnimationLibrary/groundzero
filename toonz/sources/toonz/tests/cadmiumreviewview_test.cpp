@@ -1,9 +1,12 @@
 #include "cadmiumreviewview.h"
+#include "toonzqt/uitranslations.h"
 
 #include <QApplication>
 #include <QComboBox>
+#include <QFontDatabase>
 #include <QMouseEvent>
 #include <QSlider>
+#include <QTranslator>
 #include <QWheelEvent>
 
 #include <cmath>
@@ -15,11 +18,35 @@ void require(bool condition, const char *message) {
   if (!condition) throw std::runtime_error(message);
 }
 
+class ReviewTranslator final : public QTranslator {
+public:
+  bool isEmpty() const override { return false; }
+  QString translate(const char *context, const char *source,
+                    const char * = nullptr, int = -1) const override {
+    if (QByteArray(context) == "CadmiumReviewView" &&
+        QByteArray(source) == "Wipe")
+      return QStringLiteral("Translated wipe");
+    if (QByteArray(context) == "CadmiumReviewViewTest" &&
+        QByteArray(source) == "No proposal selected")
+      return QStringLiteral("Translated empty review message");
+    return QString();
+  }
+};
+
 QColor pixel(CadmiumReviewView &view, const QPointF &point, int pane = 0) {
   QImage image(view.size(), QImage::Format_ARGB32);
   image.fill(Qt::transparent);
   view.render(&image);
   return image.pixelColor(view.viewportPointForImage(point, pane));
+}
+
+QImage canvasImage(CadmiumReviewView &view) {
+  QWidget *canvas = view.findChild<QWidget *>("cadmiumReviewCanvas");
+  require(canvas, "review canvas is missing");
+  QImage image(canvas->size(), QImage::Format_ARGB32);
+  image.fill(Qt::transparent);
+  canvas->render(&image);
+  return image;
 }
 
 void mouse(CadmiumReviewView &view, QEvent::Type type, const QPoint &point,
@@ -36,6 +63,11 @@ int main(int argc, char **argv) {
   qputenv("QT_QPA_PLATFORM", QByteArrayLiteral("offscreen"));
   QApplication app(argc, argv);
   try {
+    // Qt 5's Windows offscreen plugin uses FreeType's configured font
+    // directory, not the Windows system-font discovery used by the native
+    // platform plugin. A fontless canvas cannot validate painted captions.
+    require(!QFontDatabase().families().isEmpty(),
+            "offscreen font database is empty; configure QT_QPA_FONTDIR");
     CadmiumReviewView view;
     view.resize(860, 440);
     view.show();
@@ -182,6 +214,74 @@ int main(int argc, char **argv) {
     view.setImages(before, after);
     view.setMode(CadmiumReviewView::Mode::ReferenceOverlay);
     require(!opacity->isEnabled(), "missing reference left its opacity control enabled");
+
+    view.setRegions(before.size(), labels);
+    view.setMode(CadmiumReviewView::Mode::Wipe);
+    view.setZoom(8.0);
+    view.setPan(QPointF(13.0, -9.0));
+    view.setWipePosition(0.4);
+    view.setOverlayOpacity(0.6);
+    view.setSelectedRegion(1);
+    view.setProtectedRegions(protectedRegions);
+    const QColor selectedColor = pixel(view, QPointF(2.5, 1.5));
+    auto *modes = view.findChild<QComboBox *>("cadmiumReviewMode");
+    int languageModeChanges = 0;
+    QObject::connect(modes, QOverload<int>::of(&QComboBox::currentIndexChanged),
+                     [&languageModeChanges](int) { ++languageModeChanges; });
+    ReviewTranslator translator;
+    app.installTranslator(&translator);
+    app.processEvents();
+    require(modes->currentText() == "Translated wipe" &&
+                languageModeChanges == 0 &&
+                view.mode() == CadmiumReviewView::Mode::Wipe &&
+                view.zoom() == 8.0 && view.pan() == QPointF(13.0, -9.0) &&
+                view.wipePosition() == 0.4 && view.overlayOpacity() == 0.6 &&
+                view.regionAt(view.viewportPointForImage(QPointF(2.5, 1.5))) == 1 &&
+                pixel(view, QPointF(2.5, 1.5)) == selectedColor,
+            "language change reset review choices, regions or selected artwork");
+    app.removeTranslator(&translator);
+    app.processEvents();
+    require(modes->currentText() == "Wipe" && languageModeChanges == 0 &&
+                view.pan() == QPointF(13.0, -9.0),
+            "returning to the original language changed review state");
+
+    const QString message = UiTranslations::record(
+        "CadmiumReviewViewTest", "No proposal selected", nullptr, -1,
+        QStringLiteral("No proposal selected"));
+    const UiTranslations::Recipe messageTranslation = UiTranslations::recipe(message);
+    require(bool(messageTranslation), "cached message lost its source metadata");
+    require(messageTranslation() == "No proposal selected",
+            "cached message source recipe did not resolve its original language");
+    view.clear(message);
+    view.setZoom(7.0);
+    view.setPan(QPointF(17.0, 23.0));
+    const QImage sourceMessage = canvasImage(view);
+    app.installTranslator(&translator);
+    app.processEvents();
+    require(messageTranslation() == "Translated empty review message",
+            "cached message source recipe did not resolve the installed translator");
+    require(canvasImage(view) != sourceMessage,
+            "cached empty-state message did not repaint its translated text");
+    require(view.zoom() == 7.0 &&
+                view.pan() == QPointF(17.0, 23.0) &&
+                view.mode() == CadmiumReviewView::Mode::Wipe &&
+                view.wipePosition() == 0.4 && view.overlayOpacity() == 0.6 &&
+                languageModeChanges == 0,
+            "cached empty-state translation changed review state");
+    app.removeTranslator(&translator);
+    app.processEvents();
+    require(canvasImage(view) == sourceMessage &&
+                view.pan() == QPointF(17.0, 23.0),
+            "cached empty-state message did not restore its source language");
+
+    view.clear(QStringLiteral("No proposal selected"));
+    const QImage unboundMessage = canvasImage(view);
+    app.installTranslator(&translator);
+    app.processEvents();
+    require(canvasImage(view) == unboundMessage,
+            "equal unbound message was mistaken for a native caption");
+    app.removeTranslator(&translator);
+    app.processEvents();
     std::cout << "Cadmium interactive review checks passed\n";
     return 0;
   } catch (const std::exception &error) {

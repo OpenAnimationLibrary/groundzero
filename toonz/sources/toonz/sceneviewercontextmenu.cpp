@@ -1,5 +1,6 @@
 
 
+#include "toonzqt/uitranslations.h"
 #include "sceneviewer.h"
 #include "sceneviewercontextmenu.h"
 
@@ -332,8 +333,8 @@ void SceneViewerContextMenu::addShowHideCommand(QMenu *menu,
   TXsheet *xsh  = TApp::instance()->getCurrentXsheet()->getXsheet();
   TStageObject *stageObject =
       xsh->getStageObject(TStageObjectId::ColumnId(column->getIndex()));
-  QString text    = isHidden ? tr("Show %1").arg(getName(stageObject))
-                             : tr("Hide %1").arg(getName(stageObject));
+  QString text    = isHidden ? UiTranslations::text(tr("Show %1")).arg(getName(stageObject))
+                             : UiTranslations::text(tr("Hide %1")).arg(getName(stageObject));
   QAction *action = new QAction(text, this);
   int columnIndex = column->getIndex();
 
@@ -355,7 +356,7 @@ void SceneViewerContextMenu::addSelectCommand(QMenu *menu,
   TStageObject *stageObject = xsh->getStageObject(id);
   if (!stageObject) return;
   QString text = (id.isTable()) ? tr("Table") : getName(stageObject);
-  if (menu == this) text = tr("Select %1").arg(text);
+  if (menu == this) text = UiTranslations::text(tr("Select %1")).arg(text);
   QAction *action = new QAction(text, this);
 
   connect(action, &QAction::triggered, this, [this, id]() {

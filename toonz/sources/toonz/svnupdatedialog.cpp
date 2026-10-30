@@ -1,5 +1,6 @@
 
 
+#include "toonzqt/uitranslations.h"
 #include "svnupdatedialog.h"
 
 // Tnz6 includes
@@ -174,10 +175,10 @@ void SVNUpdateDialog::onStatusRetrieved(const QString &xmlResponse) {
     // Update text label with appropriate item count
     if (m_filesToUpdate.size() == 1) {
       m_textLabel->setText(
-          tr("%1 items to update.")
+          UiTranslations::text(tr("%1 items to update."))
               .arg(m_filesToUpdate.size() + m_sceneResources.size()));
     } else {
-      m_textLabel->setText(tr("%1 items to update.")
+      m_textLabel->setText(UiTranslations::text(tr("%1 items to update."))
                                .arg(m_filesToUpdate.size() +
                                     m_sceneResources.size() -
                                     m_sceneIconsCount));
@@ -509,10 +510,10 @@ void SVNUpdateDialog::onUpdateSceneContentsToggled(bool checked) {
   // Update text label with new item count
   if (m_filesToUpdate.size() == 1) {
     m_textLabel->setText(
-        tr("%1 items to update.")
+        UiTranslations::text(tr("%1 items to update."))
             .arg(m_filesToUpdate.size() + m_sceneResources.size()));
   } else {
-    m_textLabel->setText(tr("%1 items to update.")
+    m_textLabel->setText(UiTranslations::text(tr("%1 items to update."))
                              .arg(m_filesToUpdate.size() +
                                   m_sceneResources.size() - m_sceneIconsCount));
   }

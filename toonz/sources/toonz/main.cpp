@@ -16,6 +16,12 @@
 #include "expressionreferencemanager.h"
 #include "thirdparty.h"
 #include "cadmiumruntime.h"
+#include "nativediagnostics.h"
+#include "themeapplication.h"
+#include <QDir>
+#ifdef BUILD_UI_PORT_TESTS
+#include "nativeuiintegrationtest.h"
+#endif
 
 // TnzTools includes
 #include "tools/tool.h"
@@ -86,7 +92,8 @@
 #if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
 #include <QGLPixelBuffer>
 #endif
-#include <QTranslator>
+#include "languagemanager.h"
+#include "toonzqt/uitranslations.h"
 #include <QFileInfo>
 #include <QSettings>
 #include <QLibraryInfo>
@@ -161,7 +168,7 @@ DV_IMPORT_API void initColorFx();
     crearla in caso contrario) verifica inoltre che stuffDir esista.
 */
 static void initToonzEnv(QHash<QString, QString> &argPathValues,
-                         bool seexprNativeTest = false) {
+                         bool nativeIntegrationTest = false) {
   StudioPalette::enable(true);
   TEnv::setRootVarName(rootVarName);
   TEnv::setSystemVarPrefix(systemVarPrefix);
@@ -201,7 +208,9 @@ static void initToonzEnv(QHash<QString, QString> &argPathValues,
     fatalError("Folder \"" + toQString(stuffDir) +
                "\" not found or not readable");
 
-  if (seexprNativeTest) Preferences::instance()->setValue(projectRoot, 8, false);
+  // Set this before discovering project roots: a copied preferences template
+  // must not cause the test to create folders in Documents or on the Desktop.
+  if (nativeIntegrationTest) Preferences::instance()->setValue(projectRoot, 8, false);
 
   // Setup third party
   ThirdParty::initialize();
@@ -272,6 +281,21 @@ static void script_output(int type, const QString &value) {
 //-----------------------------------------------------------------------------
 
 int main(int argc, char *argv[]) {
+  bool nativeUiTest = false;
+#ifdef BUILD_UI_PORT_TESTS
+  for (int index = 1; index < argc; ++index) {
+    if (QString::fromLocal8Bit(argv[index]) == "--test-native-ui") {
+      if (argc != 2) {
+        std::cerr << "Native UI test mode accepts no other arguments.\n";
+        return 2;
+      }
+      nativeUiTest = true;
+      argc = 1;
+      break;
+    }
+  }
+#endif
+
   bool seexprNativeTest = false;
 #ifdef BUILD_SEEXPR_TESTS
   for (int index = 1; index < argc; ++index) {
@@ -286,9 +310,16 @@ int main(int argc, char *argv[]) {
     }
   }
 #endif
+  const bool nativeIntegrationTest = nativeUiTest || seexprNativeTest;
+
+  const auto nativeUiCheckpoint = [nativeUiTest](const char *stage) {
+    if (nativeUiTest)
+      std::cerr << "native-ui-integration: checkpoint: " << stage << std::endl;
+  };
+
 #ifdef Q_OS_WIN
   // Enable standard input/output on Windows Platform for debug
-  if (!seexprNativeTest && ::AttachConsole(ATTACH_PARENT_PROCESS)) {
+  if (!nativeIntegrationTest && ::AttachConsole(ATTACH_PARENT_PROCESS)) {
     freopen("CON", "r", stdin);
     freopen("CON", "w", stdout);
     freopen("CON", "w", stderr);
@@ -363,7 +394,18 @@ int main(int argc, char *argv[]) {
   // constructed. Available from Qt 5.6.
   QApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
 
+  nativeUiCheckpoint("constructing QApplication");
   QApplication a(argc, argv);
+  nativeUiCheckpoint("QApplication constructed");
+#ifdef BUILD_UI_PORT_TESTS
+  if (nativeUiTest) {
+    QString error;
+    if (!prepareNativeUiIntegrationTest(&error)) {
+      std::cerr << error.toStdString() << std::endl;
+      return 2;
+    }
+  }
+#endif
 #ifdef BUILD_SEEXPR_TESTS
   if (seexprNativeTest) {
     QString error;
@@ -474,7 +516,7 @@ int main(int argc, char *argv[]) {
     QDir appDir(QApplication::applicationDirPath());
     appDir.cdUp(), appDir.cdUp(), appDir.cdUp();
 
-    bool ret = seexprNativeTest || QDir::setCurrent(appDir.absolutePath());
+    bool ret = nativeIntegrationTest || QDir::setCurrent(appDir.absolutePath());
     assert(ret);
   }
 #endif
@@ -517,9 +559,12 @@ int main(int argc, char *argv[]) {
 
   bool isRunScript = (loadFilePath.getType() == "toonzscript");
 
+  nativeUiCheckpoint("constructing and showing splash screen");
   QSplashScreen splash(splashPixmap);
   if (!isRunScript) splash.show();
+  nativeUiCheckpoint("processing first splash events");
   a.processEvents();
+  nativeUiCheckpoint("first splash events completed");
 
   splash.showMessage(offsetStr + "Initializing QGLFormat...", Qt::AlignCenter,
                      Qt::white);
@@ -548,12 +593,18 @@ int main(int argc, char *argv[]) {
       &toonzRunOutOfContMemHandler);
 
   // Toonz environment
-  initToonzEnv(argumentPathValues, seexprNativeTest);
-  if (seexprNativeTest) {
+  nativeUiCheckpoint("initializing Toonz environment");
+  initToonzEnv(argumentPathValues, nativeIntegrationTest);
+  nativeUiCheckpoint("Toonz environment initialized");
+  Preferences::instance();
+  if (nativeIntegrationTest) {
     Preferences::instance()->setValue(startupPopupEnabled, false, false);
     Preferences::instance()->setValue(latestVersionCheckEnabled, false, false);
     Preferences::instance()->setValue(autosaveEnabled, false, false);
   }
+  NativeDiagnostics::instance()->initialize(
+      (ToonzFolder::getMyModuleDir() + TFilePath("preferences.ini")).getQString(),
+      nativeIntegrationTest ? QDir::current().filePath("diagnostics") : QString());
 
   // The crash report folder is known only now
   CrashHandler::prepareReport();
@@ -631,62 +682,24 @@ int main(int argc, char *argv[]) {
                      Qt::white);
   a.processEvents();
 
-  // Carico la traduzione contenuta in toonz.qm (se ï¿½ presente)
-  QString languagePathString =
-      QString::fromStdString(::to_string(TEnv::getConfigDir() + "loc"));
-#ifndef WIN32
-  // the merge of menu on osx can cause problems with different languages with
-  // the Preferences menu
-  // qt_mac_set_menubar_merge(false);
-  languagePathString += "/" + Preferences::instance()->getCurrentLanguage();
-#else
-  languagePathString += "\\" + Preferences::instance()->getCurrentLanguage();
-#endif
-  QTranslator translator;
-  translator.load("toonz", languagePathString);
-
-  // La installo
-  a.installTranslator(&translator);
-
-  // Carico la traduzione contenuta in toonzqt.qm (se e' presente)
-  QTranslator translator2;
-  translator2.load("toonzqt", languagePathString);
-  a.installTranslator(&translator2);
-
-  // Carico la traduzione contenuta in tnzcore.qm (se e' presente)
-  QTranslator tnzcoreTranslator;
-  tnzcoreTranslator.load("tnzcore", languagePathString);
-  qApp->installTranslator(&tnzcoreTranslator);
-
-  // Carico la traduzione contenuta in toonzlib.qm (se e' presente)
-  QTranslator toonzlibTranslator;
-  toonzlibTranslator.load("toonzlib", languagePathString);
-  qApp->installTranslator(&toonzlibTranslator);
-
-  // Carico la traduzione contenuta in colorfx.qm (se e' presente)
-  QTranslator colorfxTranslator;
-  colorfxTranslator.load("colorfx", languagePathString);
-  qApp->installTranslator(&colorfxTranslator);
-
-  // Carico la traduzione contenuta in tools.qm
-  QTranslator toolTranslator;
-  toolTranslator.load("tnztools", languagePathString);
-  qApp->installTranslator(&toolTranslator);
-
-  // load translation for file writers properties
-  QTranslator imageTranslator;
-  imageTranslator.load("image", languagePathString);
-  qApp->installTranslator(&imageTranslator);
-
-  QTranslator qtTranslator;
-  qtTranslator.load("qt_" + QLocale::system().name(),
-                    QLibraryInfo::location(QLibraryInfo::TranslationsPath));
-  a.installTranslator(&qtTranslator);
-
-  // Aggiorno la traduzione delle properties di tutti i tools
-  TTool::updateToolsPropertiesTranslation();
-  // Apply translation to file writers properties
-  Tiio::updateFileWritersPropertiesTranslation();
+  UiLanguageManager *languageManager = UiLanguageManager::instance();
+  languageManager->setCatalogDirectory(
+      QString::fromStdString(::to_string(TEnv::getConfigDir() + "loc")));
+  QObject::connect(languageManager, &UiLanguageManager::languageChanged, &a,
+                   [](const QString &language) {
+    Preferences::instance()->setValue(CurrentLanguageName, language);
+    TTool::updateToolsPropertiesTranslation();
+    Tiio::updateFileWritersPropertiesTranslation();
+  });
+  UiTranslations::onLanguageChanged(&a, []() {
+    CommandManager::instance()->retranslate();
+  });
+  QString languageError;
+  if (!languageManager->setLanguage(
+          Preferences::instance()->getCurrentLanguage(), &languageError)) {
+    languageManager->setLanguage("English");
+    DVGui::warning(languageError);
+  }
 
   // Force to have left-to-right layout direction in any language environment.
   // This function has to be called after installTranslator().
@@ -712,11 +725,13 @@ int main(int argc, char *argv[]) {
   a.processEvents();
 
   // Initialize ThemeManager before TApp
+  nativeUiCheckpoint("initializing native theme and TApp");
   auto &themeManager = ThemeManager::getInstance();
   themeManager.initialize();
 
   TTool::setApplication(TApp::instance());
   TApp::instance()->init();
+  nativeUiCheckpoint("native TApp initialized");
 
   splash.showMessage(offsetStr + "Loading Plugins...", Qt::AlignCenter,
                      Qt::white);
@@ -736,7 +751,9 @@ int main(int argc, char *argv[]) {
   a.processEvents();
 
   /*-- Layoutファイル名をMainWindowのctorに渡す --*/
+  nativeUiCheckpoint("constructing native main window");
   MainWindow w(argumentLayoutFileName);
+  nativeUiCheckpoint("native main window constructed");
   CrashHandler::attachParentWindow(&w);
   CrashHandler::reportProjectInfo(true);
 
@@ -784,7 +801,7 @@ int main(int argc, char *argv[]) {
 
   // Check whether the previous session exited normally, and start this one,
   // for the autosave recovery copies
-  if (!seexprNativeTest) AutosaveRecovery::initSession();
+  if (!nativeIntegrationTest) AutosaveRecovery::initSession();
 
 #if defined(_WIN32) && QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
   // http://doc.qt.io/qt-5/windows-issues.html#fullscreen-opengl-based-windows
@@ -810,12 +827,11 @@ int main(int argc, char *argv[]) {
                      Qt::white);
   a.processEvents();
 
-  // Carico lo styleSheet
-  QString currentStyle = Preferences::instance()->getCurrentStyleSheet();
-  a.setStyleSheet(currentStyle);
-
-  // Parse inital stylesheet in ThemeManager
-  themeManager.parseCustomPropertiesFromStylesheet(currentStyle);
+  QString themeError;
+  nativeUiCheckpoint("applying startup native theme");
+  if (!NativeTheme::instance().reload(&themeError))
+    DVGui::warning(themeError);
+  nativeUiCheckpoint("startup native theme applied");
 
   // w.setWindowTitle(QString::fromStdString(TEnv::getApplicationFullName()));
   w.changeWindowTitle();
@@ -851,25 +867,29 @@ int main(int argc, char *argv[]) {
 #endif
 
   QRect splashGeometry = splash.geometry();
+  nativeUiCheckpoint("finishing splash and showing native main window");
   splash.finish(&w);
 
   a.setQuitOnLastWindowClosed(false);
   // a.connect(&a, SIGNAL(lastWindowClosed()), &a, SLOT(quit()));
-  if (!seexprNativeTest && Preferences::instance()->isLatestVersionCheckEnabled())
+  if (!nativeIntegrationTest && Preferences::instance()->isLatestVersionCheckEnabled())
     w.checkForUpdates();
 
   w.show();
+  nativeUiCheckpoint("native main window shown");
 
   auto *cadmiumRuntime = CadmiumRuntime::instance();
   QObject::connect(&a, &QCoreApplication::aboutToQuit, cadmiumRuntime,
                    &CadmiumRuntime::stop);
-  QTimer::singleShot(0, cadmiumRuntime, [cadmiumRuntime, seexprNativeTest] {
-    if (!seexprNativeTest && cadmiumRuntime->startupMode() == CadmiumRuntime::Preload)
+  QTimer::singleShot(0, cadmiumRuntime, [cadmiumRuntime, nativeIntegrationTest] {
+    if (!nativeIntegrationTest && cadmiumRuntime->startupMode() == CadmiumRuntime::Preload)
       cadmiumRuntime->start();
   });
 
   // Show floating panels only after the main window has been shown
+  nativeUiCheckpoint("restoring startup floating panels");
   w.startupFloatingPanels();
+  nativeUiCheckpoint("startup floating panels restored");
 
   const QByteArray defaultStartupTool =
       Preferences::instance()->getDefaultStartupTool().toLatin1();
@@ -952,9 +972,16 @@ int main(int argc, char *argv[]) {
   // Offer to recover the work of a previous session that did not exit
   // normally; that dialog also gives access to the crash report, if any.
   // Otherwise show the report of a crash in the previous session, if any.
-  if (!seexprNativeTest && !AutosaveRecovery::showRecoveryDialog())
+  if (!nativeIntegrationTest && !AutosaveRecovery::showRecoveryDialog())
     CrashHandler::showPendingReport();
 
+#ifdef BUILD_UI_PORT_TESTS
+  if (nativeUiTest)
+    QTimer::singleShot(0, &a, [&a, &w] {
+      a.exit(runNativeUiIntegrationTest(&w));
+    });
+#endif
+  nativeUiCheckpoint("entering native application event loop");
 #ifdef BUILD_SEEXPR_TESTS
   if (seexprNativeTest)
     QTimer::singleShot(0, &a, [&a, &w] {
@@ -962,11 +989,13 @@ int main(int argc, char *argv[]) {
     });
 #endif
   int ret = a.exec();
+  nativeUiCheckpoint("native application event loop returned");
 
-  if (!seexprNativeTest) AutosaveRecovery::endSession();
+  if (!nativeIntegrationTest) AutosaveRecovery::endSession();
 
   TUndoManager::manager()->reset();
   PreviewFxManager::instance()->reset();
 
+  nativeUiCheckpoint("native application cleanup completed");
   return ret;
 }

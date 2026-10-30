@@ -1,5 +1,6 @@
 
 
+#include "toonzqt/uitranslations.h"
 #include "outputsettingspopup.h"
 
 // Tnz6 includes
@@ -240,6 +241,15 @@ OutputSettingsPopup::OutputSettingsPopup(bool isPreview)
   categoryList->addItems(categories);
   categoryList->setFixedWidth(100);
   categoryList->setCurrentRow(0);
+  UiTranslations::onLanguageChanged(categoryList, [categoryList] {
+    const QSignalBlocker listSignals(categoryList);
+    const QSignalBlocker modelSignals(categoryList->model());
+    const QStringList captions{tr("Camera"), tr("Color"), tr("File"),
+                                tr("More")};
+    for (int i = 0; i < captions.size(); ++i)
+      categoryList->item(i)->setText(captions[i]);
+    categoryList->viewport()->update();
+  });
 
   m_scrollArea = new QScrollArea(this);
   m_scrollArea->setWidgetResizable(true);
@@ -526,6 +536,7 @@ QFrame *OutputSettingsPopup::createColorSettingsBox(bool isPreview) {
 
   // Channel Width
   m_channelWidthOm = new QComboBox();
+  UiTranslations::watchCombo(m_channelWidthOm);
   // Linear Color Space
   m_linearColorSpaceChk = new DVGui::CheckBox();
   // color space gamma
@@ -600,10 +611,13 @@ QFrame *OutputSettingsPopup::createFileSettingsBox(bool isPreview) {
 
   // Resample Balance
   m_resampleBalanceOm = new QComboBox();
+  UiTranslations::watchCombo(m_resampleBalanceOm);
   // Threads
   m_threadsComboOm = new QComboBox();
+  UiTranslations::watchCombo(m_threadsComboOm);
   // Granularity
   m_rasterGranularityOm = new QComboBox();
+  UiTranslations::watchCombo(m_rasterGranularityOm);
 
   // Resample Balance
   translateResampleOptions();
@@ -749,6 +763,7 @@ QFrame *OutputSettingsPopup::createMoreSettingsBox() {
   m_gammaFld = new DVGui::DoubleLineEdit();
   // Dominant Field
   m_dominantFieldOm = new QComboBox();
+  UiTranslations::watchCombo(m_dominantFieldOm);
 
   // Stretch
   TRenderSettings rs = getProperties()->getRenderSettings();
@@ -759,6 +774,7 @@ QFrame *OutputSettingsPopup::createMoreSettingsBox() {
   m_stretchFromFld = new DVGui::DoubleLineEdit(this, rs.m_timeStretchFrom);
   m_stretchToFld   = new DVGui::DoubleLineEdit(this, rs.m_timeStretchTo);
   m_multimediaOm   = new QComboBox(this);
+  UiTranslations::watchCombo(m_multimediaOm);
   m_doStereoscopy  = new DVGui::CheckBox(tr("Do stereoscopy"), this);
   m_stereoShift    = new DVGui::DoubleLineEdit(this, 0.05);
 
@@ -783,6 +799,7 @@ QFrame *OutputSettingsPopup::createMoreSettingsBox() {
 
   // Export to an aspect ratio
   m_aspectRatioOm = new QComboBox(this);
+  UiTranslations::watchCombo(m_aspectRatioOm);
   m_aspectRatioOm->addItem(tr("None"));
   for (int i = 0; i < aspectPresetCount; i++)
     m_aspectRatioOm->addItem(tr(aspectPresets[i].label));
@@ -793,6 +810,7 @@ QFrame *OutputSettingsPopup::createMoreSettingsBox() {
   m_aspectRatioFld->setToolTip(tr("A ratio such as 2.2, 2.2:1 or 21:9"));
   m_aspectRatioFld->setMaximumWidth(80);
   m_aspectModeOm = new QComboBox(this);
+  UiTranslations::watchCombo(m_aspectModeOm);
   m_aspectModeOm->addItem(tr("Letterbox (keep the frame size)"));
   m_aspectModeOm->addItem(tr("Crop (output only the ratio)"));
   m_aspectModeOm->setFocusPolicy(Qt::StrongFocus);

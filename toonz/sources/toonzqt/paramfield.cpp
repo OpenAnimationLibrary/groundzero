@@ -1,5 +1,6 @@
 
 
+#include "toonzqt/uitranslations.h"
 #include "toonzqt/paramfield.h"
 #include "toonzqt/gutil.h"
 #include "toonzqt/fxsettings.h"
@@ -86,7 +87,7 @@ public:
       : FxSettingsUndo(name, fxHandle), m_frame(frame) {}
 
   QString getHistoryString() override {
-    QString str = QObject::tr("Modify Fx Param : %1").arg(m_name);
+    QString str = UiTranslations::text(QObject::tr("Modify Fx Param : %1")).arg(m_name);
     if (m_wasKeyframe)
       str += QString("  Frame : %1").arg(QString::number(m_frame + 1));
     else
@@ -328,7 +329,7 @@ public:
   }
 
   QString getHistoryString() override {
-    QString str = QObject::tr("Modify Fx Param : %1 : %2 -> %3")
+    QString str = UiTranslations::text(QObject::tr("Modify Fx Param : %1 : %2 -> %3"))
                       .arg(m_name)
                       .arg(QString::fromStdString(m_oldString))
                       .arg(QString::fromStdString(m_newString));
@@ -363,7 +364,7 @@ public:
   }
 
   QString getHistoryString() override {
-    QString str = QObject::tr("Modify Fx Param : %1 : %2 -> %3")
+    QString str = UiTranslations::text(QObject::tr("Modify Fx Param : %1 : %2 -> %3"))
                       .arg(m_name)
                       .arg(QString::number(m_oldValue))
                       .arg(QString::number(m_newValue));
@@ -397,9 +398,9 @@ public:
   QString getHistoryString() override {
     QString str = QObject::tr("Modify Fx Param : ");
     if (m_newState)
-      str += QObject::tr("ON : %1").arg(m_name);
+      str += UiTranslations::text(QObject::tr("ON : %1")).arg(m_name);
     else
-      str += QObject::tr("OFF : %1").arg(m_name);
+      str += UiTranslations::text(QObject::tr("OFF : %1")).arg(m_name);
     return str;
   }
 };
@@ -545,7 +546,7 @@ public:
 
   QString getHistoryString() override {
     QString str =
-        QObject::tr("Modify Fx Param : %1 : %2 Key")
+        UiTranslations::text(QObject::tr("Modify Fx Param : %1 : %2 Key"))
             .arg(m_name)
             .arg((m_isAddUndo) ? QObject::tr("Add") : QObject::tr("Remove"));
     return str;
@@ -587,8 +588,8 @@ public:
 
   QString getHistoryString() override {
     if (m_param->getName() == "seexprDocument")
-      return QObject::tr("Modify Expression Document: %1").arg(m_name);
-    QString str = QObject::tr("Modify Fx Param : %1 : %2 -> %3")
+      return UiTranslations::text(QObject::tr("Modify Expression Document: %1")).arg(m_name);
+    QString str = UiTranslations::text(QObject::tr("Modify Fx Param : %1 : %2 -> %3"))
                       .arg(m_name)
                       .arg(QString::fromStdWString(m_oldValue))
                       .arg(QString::fromStdWString(m_newValue));
@@ -623,7 +624,7 @@ public:
   }
 
   QString getHistoryString() override {
-    QString str = QObject::tr("Modify Fx Param : %1").arg(m_name);
+    QString str = UiTranslations::text(QObject::tr("Modify Fx Param : %1")).arg(m_name);
     return str;
   }
 };
@@ -721,7 +722,7 @@ public:
 
   QString getHistoryString() override {
     QString str =
-        QObject::tr("Modify Fx Param : %1 : %2 Point")
+        UiTranslations::text(QObject::tr("Modify Fx Param : %1 : %2 Point"))
             .arg(m_name)
             .arg((m_isAddUndo) ? QObject::tr("Add") : QObject::tr("Remove"));
     return str;
@@ -761,9 +762,9 @@ public:
   QString getHistoryString() override {
     QString str = QObject::tr("Modify Fx Param : ");
     if (m_newState)
-      str += QObject::tr("%1 : Linear ON").arg(m_name);
+      str += UiTranslations::text(QObject::tr("%1 : Linear ON")).arg(m_name);
     else
-      str += QObject::tr("%1 : Linear OFF").arg(m_name);
+      str += UiTranslations::text(QObject::tr("%1 : Linear OFF")).arg(m_name);
     return str;
   }
 };
@@ -1337,8 +1338,8 @@ void PixelParamField::setColor(TPixel32 value) {
 RgbLinkButtons::RgbLinkButtons(QString str1, QString str2, QWidget *parent,
                                PixelParamField *field1, PixelParamField *field2)
     : QWidget(parent), m_field1(field1), m_field2(field2) {
-  QString copyButtonStr   = tr("Copy RGB : %1 > %2").arg(str1).arg(str2);
-  QString swapButtonStr   = tr("Swap %1 and %2").arg(str1).arg(str2);
+  QString copyButtonStr   = UiTranslations::text(tr("Copy RGB : %1 > %2")).arg(str1).arg(str2);
+  QString swapButtonStr   = UiTranslations::text(tr("Swap %1 and %2")).arg(str1).arg(str2);
   QPushButton *copyButton = new QPushButton(copyButtonStr, this);
   QPushButton *swapButton = new QPushButton(swapButtonStr, this);
 
@@ -1456,7 +1457,7 @@ void SpectrumParamField::ensurePreciseEditor() {
     row->addWidget(new QLabel(QString::fromLatin1(labels[i]), this));
     auto *field = new QLineEdit(this);
     field->setObjectName(QString::fromLatin1(names[i]));
-    field->setAccessibleName(tr("Precise %1 channel").arg(QString::fromLatin1(labels[i])));
+    field->setAccessibleName(UiTranslations::text(tr("Precise %1 channel")).arg(QString::fromLatin1(labels[i])));
     field->setMinimumWidth(55);
     m_preciseChannels[i] = field;
     row->addWidget(field);
@@ -2169,7 +2170,7 @@ void IntParamField::updateSwatch() {
           : nullptr;
   m_swatch->setIcon(styleSwatchIcon(style, QSize(40, 14)));
   m_swatch->setToolTip(
-      style ? tr("%1: %2").arg(styleId).arg(
+      style ? UiTranslations::text(tr("%1: %2")).arg(styleId).arg(
                   QString::fromStdWString(style->getName()))
             : tr("Choose a style of the current level's palette"));
 }
@@ -2333,7 +2334,7 @@ void StringParamField::enableLutFileControls() {
     Lut3D lut;
     QString error;
     if (!lut.load(path, &error)) {
-      DVGui::warning(tr("Cannot load LUT: %1\n%2").arg(path, error));
+      DVGui::warning(UiTranslations::text(tr("Cannot load LUT: %1\n%2")).arg(path, error));
       return;
     }
     m_textFld->setText(QFileInfo(path).absoluteFilePath());
@@ -2434,7 +2435,7 @@ void StringParamField::enableExrFileControls() {
       DVGui::info(QString::fromStdWString(source->getAovSummary(m_frame)));
     } catch (const std::exception &error) {
       DVGui::warning(
-          tr("Cannot inspect EXR: %1").arg(QString::fromUtf8(error.what())));
+          UiTranslations::text(tr("Cannot inspect EXR: %1")).arg(QString::fromUtf8(error.what())));
     }
   });
   connect(clear, &QPushButton::clicked, this, [this]() {
@@ -2491,7 +2492,7 @@ void StringParamField::enableExrChoiceControls(TFxAovChoiceKind kind) {
       onChange();
     } catch (const std::exception &error) {
       DVGui::warning(
-          tr("Cannot inspect EXR: %1").arg(QString::fromUtf8(error.what())));
+          UiTranslations::text(tr("Cannot inspect EXR: %1")).arg(QString::fromUtf8(error.what())));
     }
   });
   connect(clear, &QPushButton::clicked, this, [this]() {
@@ -3082,13 +3083,13 @@ class MaterialColorsParamField final : public ParamField {
       for (const auto &m : m_materials) if (find(m_actual, m.key)) --inactive;
       m_selector->setEnabled(!m_materials.empty());
       if (m_color) m_color->setEnabled(true);
-      m_status->setText(m_materials.empty() ? tr("Choose a GLB file on the Model page.") :
-          inactive > 0 ? tr("%1 overrides from other GLB contents are retained but inactive.").arg(inactive) :
+      UiTranslations::setCaption(m_status, "text", m_materials.empty() ? tr("Choose a GLB file on the Model page.") :
+          inactive > 0 ? UiTranslations::text(tr("%1 overrides from other GLB contents are retained but inactive.")).arg(inactive) :
           tr("Use Material Colors mode. Click the diamond to set a color key."));
     } catch (const std::exception &e) {
       m_selector->setEnabled(false);
       if (m_color) m_color->setEnabled(false);
-      m_status->setText(QString::fromUtf8(e.what()));
+      UiTranslations::setCaption(m_status, "text", QString::fromUtf8(e.what()));
     }
   }
 

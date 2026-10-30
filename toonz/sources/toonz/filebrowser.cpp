@@ -1,5 +1,6 @@
 
 
+#include "toonzqt/uitranslations.h"
 #include "filebrowser.h"
 
 // Tnz6 includes
@@ -1184,7 +1185,7 @@ void FileBrowser::createLutFromImagePair() {
     QString errorText =
         QString::fromUtf8(process.readAllStandardError()).trimmed();
     if (errorText.isEmpty())
-      errorText = tr("OTLUT exited with code %1.").arg(process.exitCode());
+      errorText = UiTranslations::text(tr("OTLUT exited with code %1.")).arg(process.exitCode());
     DVGui::error(tr("OTLUT could not create the LUT.\n") + errorText);
     return;
   }
@@ -1192,7 +1193,7 @@ void FileBrowser::createLutFromImagePair() {
   const QString processOutput =
       QString::fromUtf8(process.readAllStandardOutput()).trimmed();
   QString successMessage =
-      tr("3D LUT created successfully:\n%1\n\nSource:\n%2\n\nTarget:\n%3")
+      UiTranslations::text(tr("3D LUT created successfully:\n%1\n\nSource:\n%2\n\nTarget:\n%3"))
           .arg(outputPath.getQString(), sourcePathString, targetPath);
   if (!processOutput.isEmpty())
     successMessage += tr("\n\nOTLUT report:\n") + processOutput;
@@ -1733,7 +1734,7 @@ bool FileBrowser::drop(const QMimeData *mimeData) {
         TFilePath(levelName + ::to_wstring(sl->getPath().getDottedType()));
     if (TSystem::doesExistFileOrLevel(folderPath)) {
       QString question =
-          tr("Level %1 already exists\nDo you want to duplicate it?")
+          UiTranslations::text(tr("Level %1 already exists\nDo you want to duplicate it?"))
               .arg(toQString(folderPath));
       int ret =
           DVGui::MsgBox(question, tr("Duplicate"), tr("Don't Duplicate"), 0);
@@ -1767,7 +1768,7 @@ bool FileBrowser::drop(const QMimeData *mimeData) {
       TFilePath dstFp = srcFp.withParentDir(folderPath);
       if (dstFp != srcFp) {
         if (!TSystem::copyFileOrLevel(dstFp, srcFp))
-          DVGui::error(tr("There was an error copying %1 to %2")
+          DVGui::error(UiTranslations::text(tr("There was an error copying %1 to %2"))
                            .arg(toQString(srcFp))
                            .arg(toQString(dstFp)));
       }
@@ -1810,7 +1811,7 @@ RenameAsToonzPopup::RenameAsToonzPopup(const QString &name, int frames,
     else
       lbl = new QLabel(tr("Renaming File ") + name, this);
   } else
-    lbl = new QLabel(tr("Creating an animation level of %1 frames").arg(frames),
+    lbl = new QLabel(UiTranslations::text(tr("Creating an animation level of %1 frames")).arg(frames),
                      this);
   lbl->setFixedHeight(20);
   lbl->setObjectName("TitleTxtLabel");
@@ -1947,7 +1948,7 @@ void renameSingleFileOrToonzLevel(const QString &fullpath) {
 
   if (name == fpin.getName()) {
     DVGui::error(
-        QObject::tr("The specified name is already assigned to the %1 file.")
+        UiTranslations::text(QObject::tr("The specified name is already assigned to the %1 file."))
             .arg(fullpath));
     return;
   }
@@ -1957,7 +1958,7 @@ void renameSingleFileOrToonzLevel(const QString &fullpath) {
   else {
     if (TSystem::doesExistFileOrLevel(fpin.withName(name))) {
       DVGui::error(
-          QObject::tr("The specified name is already assigned to the %1 file.")
+          UiTranslations::text(QObject::tr("The specified name is already assigned to the %1 file."))
               .arg(fpin.withName(name).getQString()));
       return;
     } else
@@ -1993,7 +1994,7 @@ void doRenameAsToonzLevel(const QString &fullpath) {
   if (TSystem::doesExistFileOrLevel(levelOut)) {
     QApplication::restoreOverrideCursor();
     int ret = DVGui::MsgBox(
-        QObject::tr("Warning: level %1 already exists; overwrite?")
+        UiTranslations::text(QObject::tr("Warning: level %1 already exists; overwrite?"))
             .arg(toQString(levelOut)),
         QObject::tr("Yes"), QObject::tr("No"), 1);
     QApplication::setOverrideCursor(Qt::WaitCursor);
@@ -2010,13 +2011,13 @@ void doRenameAsToonzLevel(const QString &fullpath) {
       if (!QFile::rename(parentPath + "/" + fname, pathOut)) {
         QString tmp(parentPath + "/" + fname);
         DVGui::error(
-            QObject::tr("It is not possible to rename the %1 file.").arg(tmp));
+            UiTranslations::text(QObject::tr("It is not possible to rename the %1 file.")).arg(tmp));
         return;
       }
     } else if (!QFile::copy(parentPath + "/" + fname, pathOut)) {
       QString tmp(parentPath + "/" + fname);
       DVGui::error(
-          QObject::tr("It is not possible to copy the %1 file.").arg(tmp));
+          UiTranslations::text(QObject::tr("It is not possible to copy the %1 file.")).arg(tmp));
       return;
     }
   }
@@ -2102,7 +2103,7 @@ void FileBrowser::convertToUnpaintedTlv() {
 
     if (TSystem::doesExistFileOrLevel(converter->m_levelOut)) {
       QApplication::restoreOverrideCursor();
-      int ret = DVGui::MsgBox(tr("Warning: level %1 already exists; overwrite?")
+      int ret = DVGui::MsgBox(UiTranslations::text(tr("Warning: level %1 already exists; overwrite?"))
                                   .arg(toQString(converter->m_levelOut)),
                               tr("Yes"), tr("No"), 1);
       QApplication::setOverrideCursor(Qt::WaitCursor);
@@ -2196,7 +2197,7 @@ void FileBrowser::convertToPaintedTlv() {
 
   if (TSystem::doesExistFileOrLevel(converter->m_levelOut)) {
     QApplication::restoreOverrideCursor();
-    int ret = DVGui::MsgBox(tr("Warning: level %1 already exists; overwrite?")
+    int ret = DVGui::MsgBox(UiTranslations::text(tr("Warning: level %1 already exists; overwrite?"))
                                 .arg(toQString(converter->m_levelOut)),
                             tr("Yes"), tr("No"), 1);
     QApplication::setOverrideCursor(Qt::WaitCursor);
@@ -2395,7 +2396,7 @@ void FileBrowser::newFolder() {
   try {
     TSystem::mkDir(folderPath);
   } catch (...) {
-    DVGui::error(tr("It is not possible to create the %1 folder.")
+    DVGui::error(UiTranslations::text(tr("It is not possible to create the %1 folder."))
                      .arg(toQString(folderPath)));
     return;
   }

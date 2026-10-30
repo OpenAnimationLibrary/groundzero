@@ -1,5 +1,6 @@
 
 
+#include "toonzqt/uitranslations.h"
 #include "scenebrowser.h"
 
 // Tnz6 includes
@@ -1047,7 +1048,7 @@ void SceneBrowser::createLutFromImagePair() {
     QFile::remove(outputPath.getQString());
     QString errorText = QString::fromUtf8(process.readAllStandardError()).trimmed();
     if (errorText.isEmpty())
-      errorText = tr("OTLUT exited with code %1.").arg(process.exitCode());
+      errorText = UiTranslations::text(tr("OTLUT exited with code %1.")).arg(process.exitCode());
     DVGui::error(tr("OTLUT could not create the LUT.\n") + errorText);
     return;
   }
@@ -1574,7 +1575,7 @@ bool SceneBrowser::drop(const QMimeData *mimeData) {
       TFilePath dstFp = srcFp.withParentDir(folderPath);
       if (dstFp != srcFp) {
         if (!TSystem::copyFileOrLevel(dstFp, srcFp))
-          DVGui::error(tr("There was an error copying %1 to %2")
+          DVGui::error(UiTranslations::text(tr("There was an error copying %1 to %2"))
                            .arg(toQString(srcFp))
                            .arg(toQString(dstFp)));
       }
@@ -1702,7 +1703,7 @@ void renameSingleFileOrToonzLevel(const QString &fullpath) {
 
   if (name == fpin.getName()) {
     DVGui::error(QString(
-        QObject::tr("The specified name is already assigned to the %1 file.")
+        UiTranslations::text(QObject::tr("The specified name is already assigned to the %1 file."))
             .arg(fullpath)));
     return;
   }
@@ -1743,7 +1744,7 @@ void doRenameAsToonzLevel(const QString &fullpath) {
   if (TSystem::doesExistFileOrLevel(levelOut)) {
     QApplication::restoreOverrideCursor();
     int ret = DVGui::MsgBox(
-        QObject::tr("Warning: level %1 already exists; overwrite?")
+        UiTranslations::text(QObject::tr("Warning: level %1 already exists; overwrite?"))
             .arg(toQString(levelOut)),
         QObject::tr("Yes"), QObject::tr("No"), 1);
     QApplication::setOverrideCursor(Qt::WaitCursor);
@@ -1761,13 +1762,13 @@ void doRenameAsToonzLevel(const QString &fullpath) {
       if (!QFile::rename(parentPath + "/" + pathIn[i], pathOut)) {
         QString tmp(parentPath + "/" + pathIn[i]);
         DVGui::error(QString(
-            QObject::tr("It is not possible to rename the %1 file.").arg(tmp)));
+            UiTranslations::text(QObject::tr("It is not possible to rename the %1 file.")).arg(tmp)));
         return;
       }
     } else if (!QFile::copy(parentPath + "/" + pathIn[i], pathOut)) {
       QString tmp(parentPath + "/" + pathIn[i]);
       DVGui::error(QString(
-          QObject::tr("It is not possible to copy the %1 file.").arg(tmp)));
+          UiTranslations::text(QObject::tr("It is not possible to copy the %1 file.")).arg(tmp)));
 
       return;
     }
@@ -1987,7 +1988,7 @@ void SceneBrowser::newScene() {
     TSystem::mkDir(folderPath);
 
   } catch (...) {
-    DVGui::error(tr("It is not possible to create the %1 folder.")
+    DVGui::error(UiTranslations::text(tr("It is not possible to create the %1 folder."))
                      .arg(toQString(folderPath)));
     return;
   }

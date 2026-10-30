@@ -1,6 +1,8 @@
 #include "cadmiumreviewview.h"
+#include "toonzqt/uitranslations.h"
 
 #include <QApplication>
+#include <QAbstractItemView>
 #include <QComboBox>
 #include <QEvent>
 #include <QHBoxLayout>
@@ -9,6 +11,7 @@
 #include <QMouseEvent>
 #include <QPainter>
 #include <QSlider>
+#include <QSignalBlocker>
 #include <QToolButton>
 #include <QVBoxLayout>
 #include <QWheelEvent>
@@ -44,6 +47,10 @@ CadmiumReviewView::CadmiumReviewView(QWidget *parent) : QWidget(parent) {
   auto *actual = button(tr("100%"), tr("Show one image pixel per canvas pixel"));
   auto *out = button(QStringLiteral("−"), tr("Zoom out"));
   auto *in = button(QStringLiteral("+"), tr("Zoom in"));
+  m_fitButton = fit;
+  m_actualButton = actual;
+  m_zoomOutButton = out;
+  m_zoomInButton = in;
   m_zoomLabel = new QLabel(this);
   m_zoomLabel->setObjectName(QStringLiteral("cadmiumReviewZoom"));
   m_zoomLabel->setMinimumWidth(45);
@@ -82,6 +89,42 @@ CadmiumReviewView::CadmiumReviewView(QWidget *parent) : QWidget(parent) {
   updateControls();
 }
 
+void CadmiumReviewView::retranslateUi() {
+  if (m_messageTranslation) m_message = m_messageTranslation();
+  // This is a private enum model. Updating captions must not change the mode
+  // or invoke any proposal/region selection callbacks.
+  const QSignalBlocker comboSignals(m_modes);
+  const QSignalBlocker modelSignals(m_modes->model());
+  const QStringList modes{tr("Before / After"), tr("Wipe"),
+                          tr("Reference overlay"), tr("Before"), tr("After")};
+  for (int i = 0; i < modes.size(); ++i) m_modes->setItemText(i, modes[i]);
+  m_modes->updateGeometry();
+  m_modes->update();
+  m_modes->view()->viewport()->update();
+  const auto caption = [](QToolButton *button, const QString &text,
+                           const QString &description) {
+    button->setText(text);
+    button->setToolTip(description);
+    button->setAccessibleName(description);
+  };
+  caption(m_fitButton, tr("Fit"), tr("Fit artwork to the review canvas"));
+  caption(m_actualButton, tr("100%"), tr("Show one image pixel per canvas pixel"));
+  caption(m_zoomOutButton, QStringLiteral("−"), tr("Zoom out"));
+  caption(m_zoomInButton, QStringLiteral("+"), tr("Zoom in"));
+  m_overlay->setToolTip(tr("Reference overlay opacity"));
+  m_overlay->setAccessibleName(tr("Reference overlay opacity"));
+  m_canvas->setAccessibleName(tr("Painting review canvas"));
+  m_canvas->setToolTip(tr("Click a region to select it. Right-click for decisions. "
+                          "Drag to pan; use the wheel to zoom. Drag the divider in Wipe mode."));
+  updateControls();
+  m_canvas->update();
+}
+
+void CadmiumReviewView::changeEvent(QEvent *event) {
+  QWidget::changeEvent(event);
+  if (event->type() == QEvent::LanguageChange) retranslateUi();
+}
+
 void CadmiumReviewView::setImages(const QImage &before, const QImage &after,
                                 const QImage &reference) {
   const QSize previous = m_before.isNull() ? m_after.size() : m_before.size();
@@ -89,6 +132,7 @@ void CadmiumReviewView::setImages(const QImage &before, const QImage &after,
   m_after = after;
   m_reference = reference;
   m_message.clear();
+  m_messageTranslation = {};
   const QSize current = m_before.isNull() ? m_after.size() : m_before.size();
   if (previous != current) { m_fit = true; m_pan = QPointF(); }
   updateControls();
@@ -144,6 +188,7 @@ void CadmiumReviewView::clear(const QString &message) {
   m_labels = QVector<int>(); m_regionSize = QSize(); m_protected = QSet<int>();
   m_selected = -1;
   m_message = message;
+  m_messageTranslation = UiTranslations::recipe(message);
   m_fit = true; m_pan = QPointF();
   m_pressed = m_panning = m_wiping = m_space = false;
   updateControls();

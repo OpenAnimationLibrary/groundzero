@@ -1,6 +1,7 @@
 
 
 // TnzCore includes
+#include "toonzqt/uitranslations.h"
 #include "tstream.h"
 #include "tsystem.h"
 
@@ -93,8 +94,8 @@ public:
     savePath = savePath.withNoFrame().withType("cln");  // Just to be sure
     if (TFileStatus(savePath).doesExist()) {
       int ret = DVGui::MsgBox(
-          QObject::tr("The cleanup settings file for the %1 level already "
-                      "exists.\n Do you want to overwrite it?")
+          UiTranslations::text(QObject::tr("The cleanup settings file for the %1 level already "
+                      "exists.\n Do you want to overwrite it?"))
               .arg(toQString(savePath.withoutParentDir())),
           QObject::tr("Overwrite"), QObject::tr("Don't Overwrite"), 0);
 
@@ -123,7 +124,7 @@ public:
     if (loadPath.isEmpty()) return false;
 
     if (!TSystem::doesExistFileOrLevel(loadPath)) {
-      DVGui::error(QObject::tr("%1 does not exist.").arg(toQString(loadPath)));
+      DVGui::error(UiTranslations::text(QObject::tr("%1 does not exist.")).arg(toQString(loadPath)));
       return false;
     }
 

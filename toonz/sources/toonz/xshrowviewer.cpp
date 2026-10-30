@@ -1,5 +1,6 @@
 
 
+#include "toonzqt/uitranslations.h"
 #include "xshrowviewer.h"
 #include "xsheetviewer.h"
 #include "tapp.h"
@@ -1501,7 +1502,7 @@ void RowArea::mouseMoveEvent(QMouseEvent *event) {
   else if (endArrow.contains(m_pos))
     m_tooltip = tr("Playback End Marker");
   else if (isOnPinnedCenterKey)
-    m_tooltip = tr("Pinned Center : Col%1%2")
+    m_tooltip = UiTranslations::text(tr("Pinned Center : Col%1%2"))
                     .arg(pinnedCenterColumnId + 1)
                     .arg((isRootBonePinned) ? " (Root)" : "");
   else if (o->rect(PredefinedRect::NAVIGATION_TAG_AREA)
@@ -1510,7 +1511,7 @@ void RowArea::mouseMoveEvent(QMouseEvent *event) {
     TXsheet *xsh  = m_viewer->getXsheet();
     QString label = xsh->getNavigationTags()->getTagLabel(m_row);
     if (label.isEmpty()) label = "-";
-    if (xsh->isFrameTagged(m_row)) m_tooltip = tr("Tag: %1").arg(label);
+    if (xsh->isFrameTagged(m_row)) m_tooltip = UiTranslations::text(tr("Tag: %1")).arg(label);
   } else if (row == currentRow) {
     if (Preferences::instance()->isOnionSkinEnabled() &&
         o->rect(PredefinedRect::ONION)
@@ -1619,7 +1620,7 @@ void RowArea::contextMenuEvent(QContextMenuEvent *event) {
     std::vector<NavigationTags::Tag> tags = navTags->getTags();
     for (int i = 0; i < tags.size(); i++) {
       int frame     = tags[i].m_frame;
-      QString label = tr("Frame %1").arg(frame + 1);
+      QString label = UiTranslations::text(tr("Frame %1")).arg(frame + 1);
       if (!tags[i].m_label.isEmpty()) label += ": " + tags[i].m_label;
       tagAction = tagMenu->addAction(label);
       tagAction->setData(frame);

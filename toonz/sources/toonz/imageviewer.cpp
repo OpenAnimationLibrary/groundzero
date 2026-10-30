@@ -1,6 +1,7 @@
 
 
 #include "imageviewer.h"
+#include "toonzqt/uitranslations.h"
 #include "viewerdraw.h"
 #include "aspectguides.h"
 
@@ -230,6 +231,7 @@ ImageViewer::ImageViewer(QWidget *parent, FlipBook *flipbook,
     , m_rectRGBPick(false)
     , m_firstImage(true)
     , m_timer(nullptr) {
+  UiTranslations::onLanguageChanged(this, [this]() { updateWindowTitle(); });
   m_visualSettings.m_sceneProperties =
       TApp::instance()->getCurrentScene()->getScene()->getProperties();
   m_visualSettings.m_drawExternalBG = true;
@@ -510,6 +512,17 @@ void ImageViewer::resizeGL(int w, int h) {
 
 //-----------------------------------------------------------------------------
 
+void ImageViewer::updateWindowTitle() {
+  if (!m_flipbook || !m_flipbook->parentWidget()) return;
+  const QString title = UiTranslations::joined(
+      {m_image ? m_flipbook->getLevelZoomTitle() : m_flipbook->getTitle(),
+       tr("  ::  Zoom : "),
+       QString::number(tround(sqrt(m_viewAff.det()) * 100)), QStringLiteral(" %")});
+  UiTranslations::setCaption(m_flipbook->parentWidget(), "windowTitle", title);
+}
+
+//-----------------------------------------------------------------------------
+
 void ImageViewer::paintGL() {
   initializeOpenGLFunctions();
   if (m_lutCalibrator && m_lutCalibrator->isValid()) m_fbo->bind();
@@ -527,13 +540,7 @@ void ImageViewer::paintGL() {
   TRect loadbox;
 
   if (m_flipbook) {
-    QString title =
-        (!m_image)
-            ? m_flipbook->getTitle() + tr("  ::  Zoom : ") +
-                  QString::number(tround(sqrt(m_viewAff.det()) * 100)) + " %"
-            : m_flipbook->getLevelZoomTitle() + tr("  ::  Zoom : ") +
-                  QString::number(tround(sqrt(m_viewAff.det()) * 100)) + " %";
-    m_flipbook->parentWidget()->setWindowTitle(title);
+    updateWindowTitle();
     imageSize = m_flipbook->getImageSize();
     if (m_visualSettings.m_useLoadbox && m_flipbook->getLoadbox() != TRect())
       loadbox = m_flipbook->getLoadbox();

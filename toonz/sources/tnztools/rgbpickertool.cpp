@@ -1,5 +1,6 @@
 
 
+#include "toonzqt/uitranslations.h"
 #include "rgbpickertool.h"
 
 #include "tvectorimage.h"
@@ -107,7 +108,7 @@ public:
   int getSize() const override { return sizeof(*this); }
 
   QString getHistoryString() override {
-    return QObject::tr("RGB Picker (R%1, G%2, B%3)")
+    return UiTranslations::text(QObject::tr("RGB Picker (R%1, G%2, B%3)"))
         .arg(QString::number((int)m_newValue.r))
         .arg(QString::number((int)m_newValue.g))
         .arg(QString::number((int)m_newValue.b));

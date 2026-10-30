@@ -9,6 +9,7 @@
 #include "stageobjectselection.h"
 #include "toonzqt/tselectionhandle.h"
 #include "toonzqt/dvdialog.h"
+#include "toonzqt/uitranslations.h"
 
 // TnzLib includes
 #include "toonz/poselibrary.h"
@@ -194,6 +195,7 @@ PosesPane::PosesPane(QWidget *parent, Qt::WindowFlags flags)
   connect(loadPoseSetButton, SIGNAL(clicked()), this, SLOT(onLoadPoseSet()));
   connect(m_asLayerCheck, &QCheckBox::toggled, m_layerNameEdit,
           &QLineEdit::setEnabled);
+  UiTranslations::onLanguageChanged(this, [this]() { retranslateUi(); });
 }
 
 //-----------------------------------------------------------------------------
@@ -230,27 +232,31 @@ void PosesPane::refresh() {
   }
 
   ToonzScene *scene = TApp::instance()->getCurrentScene()->getScene();
+  m_baseChannelCount = scene ? (int)scene->getPoseLibrary()->getBase().size() : -1;
+  retranslateUi();
   if (!scene) return;
   PoseLibrary *poseLibrary = scene->getPoseLibrary();
-
-  if (poseLibrary->getBase().empty())
-    m_baseLabel->setText(
-        tr("No base pose. Select the rig and click Set Base."));
-  else
-    m_baseLabel->setText(
-        tr("Base pose: %1 channels").arg((int)poseLibrary->getBase().size()));
 
   for (int i = 0; i < poseLibrary->getPoseCount(); ++i) {
     const PoseLibrary::Pose &pose = poseLibrary->getPose(i);
 
+    // A generated default name becomes user data when the pose is saved.
+    // Give its label an independent identity so automatic caption capture
+    // cannot reinterpret a stored name as a live translation recipe.
+    QString poseName = pose.m_name;
+    poseName.detach();
     QWidget *row              = new QWidget(this);
-    QLabel *nameLabel         = new QLabel(pose.m_name, row);
+    QLabel *nameLabel         = new QLabel(poseName, row);
     QSlider *slider           = new QSlider(Qt::Horizontal, row);
     QLabel *valueLabel        = new QLabel(row);
     QPushButton *applyButton  = new QPushButton(tr("Apply"), row);
     QPushButton *deleteButton = new QPushButton(tr("Delete"), row);
 
     nameLabel->setToolTip(tr("%1 channels").arg((int)pose.m_entries.size()));
+    const int channelCount = (int)pose.m_entries.size();
+    UiTranslations::onLanguageChanged(nameLabel, [nameLabel, channelCount]() {
+      nameLabel->setToolTip(PosesPane::tr("%1 channels").arg(channelCount));
+    });
     slider->setRange(-100, 100);
     slider->setValue(100);
     slider->setToolTip(tr("Weight"));
@@ -292,6 +298,20 @@ void PosesPane::refresh() {
     connect(deleteButton, &QPushButton::clicked, this,
             [this, i]() { deletePose(i); });
   }
+}
+
+//-----------------------------------------------------------------------------
+
+void PosesPane::retranslateUi() {
+  // A scene refresh recreates the rows and resets their sliders. A language
+  // change must only update captions, leaving pose weights and edited layer
+  // names exactly as they are.
+  if (m_baseChannelCount < 0)
+    m_baseLabel->clear();
+  else if (m_baseChannelCount == 0)
+    m_baseLabel->setText(tr("No base pose. Select the rig and click Set Base."));
+  else
+    m_baseLabel->setText(tr("Base pose: %1 channels").arg(m_baseChannelCount));
 }
 
 //-----------------------------------------------------------------------------

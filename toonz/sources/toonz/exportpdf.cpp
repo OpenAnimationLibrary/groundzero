@@ -1,3 +1,4 @@
+#include "toonzqt/uitranslations.h"
 #include "menubarcommandids.h"
 #include "tapp.h"
 
@@ -69,7 +70,7 @@ bool writePdf(const QString &outputPath, const QString &title,
 
   QSaveFile output(outputPath);
   if (!output.open(QIODevice::WriteOnly)) {
-    error = QObject::tr("Could not create %1: %2")
+    error = UiTranslations::text(QObject::tr("Could not create %1: %2"))
                 .arg(outputPath, output.errorString());
     return false;
   }
@@ -92,7 +93,7 @@ bool writePdf(const QString &outputPath, const QString &title,
           if (i > 0 && (!writer.setPageLayout(
                             pageLayoutForImage(pages[i], pageDpis[i])) ||
                         !writer.newPage())) {
-            error = QObject::tr("Could not create PDF page %1.").arg(i + 1);
+            error = UiTranslations::text(QObject::tr("Could not create PDF page %1.")).arg(i + 1);
             break;
           }
           painter.drawImage(QRect(0, 0, writer.width(), writer.height()),
@@ -109,7 +110,7 @@ bool writePdf(const QString &outputPath, const QString &title,
     return false;
   }
   if (!output.commit()) {
-    error = QObject::tr("Could not save %1: %2")
+    error = UiTranslations::text(QObject::tr("Could not save %1: %2"))
                 .arg(outputPath, output.errorString());
     return false;
   }
@@ -132,7 +133,7 @@ bool collectLevelPages(std::vector<QImage> &pages,
     TRasterImageP image = (TRasterImageP)level->getFrame(fids[i], false);
     QImage page = image ? rasterToPdfImage(image->getRaster()) : QImage();
     if (page.isNull()) {
-      error = QObject::tr("Could not read raster level frame %1.").arg(i + 1);
+      error = UiTranslations::text(QObject::tr("Could not read raster level frame %1.")).arg(i + 1);
       return false;
     }
     pages.push_back(page);
@@ -166,7 +167,7 @@ bool collectScenePages(std::vector<QImage> &pages,
     scene->renderFrame(raster, frame, xsheet);
     QImage page = rasterToPdfImage(raster);
     if (page.isNull()) {
-      error = QObject::tr("Could not render scene frame %1.").arg(frame + 1);
+      error = UiTranslations::text(QObject::tr("Could not render scene frame %1.")).arg(frame + 1);
       return false;
     }
     pages.push_back(page);
@@ -200,7 +201,7 @@ public:
       if (QFileInfo::exists(outputPath) &&
           QMessageBox::question(
               parent, QObject::tr("Export PDF"),
-              QObject::tr("%1 already exists.\nDo you want to overwrite it?")
+              UiTranslations::text(QObject::tr("%1 already exists.\nDo you want to overwrite it?"))
                   .arg(QDir::toNativeSeparators(outputPath))) !=
               QMessageBox::Yes)
         return;

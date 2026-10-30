@@ -1,6 +1,7 @@
 
 
 #include "toonzqt/dvdialog.h"
+#include "toonzqt/uitranslations.h"
 
 // TnzQt includes
 #include "toonzqt/checkbox.h"
@@ -105,6 +106,13 @@ QString getMsgBoxTitle(MsgType type) {
 Separator::Separator(QString name, QWidget *parent, bool isHorizontal)
     : QFrame(parent), m_name(name), m_isHorizontal(isHorizontal) {
   setMinimumSize(1, 15);
+  UiTranslations::onLanguageChanged(this, [this]() {
+    if (auto translate = UiTranslations::recipe(m_name)) {
+      m_name = UiTranslations::remember(translate(), translate);
+      updateGeometry();
+      update();
+    }
+  });
 }
 
 //-----------------------------------------------------------------------------

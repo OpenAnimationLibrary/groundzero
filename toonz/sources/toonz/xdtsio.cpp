@@ -1,5 +1,8 @@
 
 
+#include <QAbstractItemModel>
+#include <QSignalBlocker>
+#include "toonzqt/uitranslations.h"
 #include "xdtsio.h"
 
 #include "tsystem.h"
@@ -850,6 +853,15 @@ void ExportXDTSCommand::execute() {
     refreshCellMarkComboItems(tick2Combo);
     refreshCellMarkComboItems(keyFrameCombo);
     refreshCellMarkComboItems(referenceFrameCombo);
+    for (QComboBox *combo : {tick1Combo, tick2Combo, keyFrameCombo, referenceFrameCombo}) {
+      UiTranslations::onLanguageChanged(combo, [combo] {
+        const int none = combo->findData(-1);
+        if (none < 0) return;
+        const QSignalBlocker block(combo), modelBlock(combo->model());
+        combo->setItemText(none, QObject::tr("None"));
+        combo->update();
+      });
+    }
 
     tick1Combo->setCurrentIndex(tick1Combo->findData(6));
     tick2Combo->setCurrentIndex(tick2Combo->findData(8));
@@ -857,6 +869,7 @@ void ExportXDTSCommand::execute() {
     referenceFrameCombo->setCurrentIndex(referenceFrameCombo->findData(4));
 
     targetColumnCombo = new QComboBox();
+    UiTranslations::watchCombo(targetColumnCombo);
     targetColumnCombo->addItem(QObject::tr("All columns"), true);
     targetColumnCombo->addItem(QObject::tr("Only active columns"), false);
     targetColumnCombo->setCurrentIndex(targetColumnCombo->findData(true));
@@ -962,7 +975,7 @@ void ExportXDTSCommand::execute() {
   saveFile.write(jsonByteArrayData);
 
   const QString message =
-      QObject::tr("The file %1 has been exported successfully.")
+      UiTranslations::text(QObject::tr("The file %1 has been exported successfully."))
           .arg(QString::fromStdString(fp.getLevelName()));
 
   const std::vector<QString> buttons = {QObject::tr("OK"),

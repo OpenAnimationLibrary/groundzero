@@ -1,5 +1,6 @@
 
 
+#include "toonzqt/uitranslations.h"
 #include "columncommand.h"
 
 // Tnz6 includes
@@ -1059,7 +1060,7 @@ public:
   }
 
   QString getHistoryString() override {
-    return QObject::tr("Resequence :  Col%1").arg(QString::number(m_index + 1));
+    return UiTranslations::text(QObject::tr("Resequence :  Col%1")).arg(QString::number(m_index + 1));
   }
 
   int getHistoryType() override { return HistoryType::Xsheet; }
@@ -1159,7 +1160,7 @@ public:
   }
 
   QString getHistoryString() override {
-    return QObject::tr("Clone Sub-xsheet :  Col%1")
+    return UiTranslations::text(QObject::tr("Clone Sub-xsheet :  Col%1"))
         .arg(QString::number(m_columnIndex + 1));
   }
 
@@ -1329,7 +1330,7 @@ public:
   }
 
   QString getHistoryString() override {
-    return QObject::tr("Clear Cells :  Col%1").arg(QString::number(m_col + 1));
+    return UiTranslations::text(QObject::tr("Clear Cells :  Col%1")).arg(QString::number(m_col + 1));
   }
 
   int getHistoryType() override { return HistoryType::Xsheet; }
@@ -1513,10 +1514,10 @@ void ColumnCmd::unifyColumnVisibilityToggles() {
       scene->getTopXsheet(), modifiedColumnNames, doneList, parentStack);
   if (!modifiedColumnNames.isEmpty()) {
     DVGui::warning(
-        QObject::tr(
+        UiTranslations::text(QObject::tr(
             "The visibility toggles of following columns are modified \n"
             "due to \"Unify Preview and Camstand Visibility Toggles\" "
-            "preference option : \n  %1")
+            "preference option : \n  %1"))
             .arg(modifiedColumnNames.join("\n  ")));
     app->getCurrentScene()->setDirtyFlag(true);
   }
@@ -2019,7 +2020,7 @@ public:
   }
 
   QString getHistoryString() override {
-    return QObject::tr("Rename Column Group :  %1")
+    return UiTranslations::text(QObject::tr("Rename Column Group :  %1"))
         .arg(QString::fromStdWString(m_newName));
   }
 

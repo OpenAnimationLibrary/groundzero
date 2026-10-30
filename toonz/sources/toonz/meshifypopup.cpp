@@ -1,5 +1,6 @@
 
 
+#include "toonzqt/uitranslations.h"
 #include "meshifypopup.h"
 
 // Toonz includes
@@ -287,15 +288,15 @@ TXshSimpleLevel *createMeshLevel(TXshLevel *texturesLevel) {
     int answer = -1;
     {
       QString question(
-          MeshifyPopup::tr("A level with the preferred path \"%1\" already "
-                           "exists.\nWhat do you want to do?")
+          UiTranslations::text(MeshifyPopup::tr("A level with the preferred path \"%1\" already "
+                           "exists.\nWhat do you want to do?"))
               .arg(QString::fromStdWString(codedOrigPath.getWideString())));
 
       QStringList optionsList;
       optionsList << MeshifyPopup::tr("Delete the old level entirely")
                   << MeshifyPopup::tr(
                          "Keep the old level and overwrite processed frames")
-                  << MeshifyPopup::tr("Choose a different path (%1)")
+                  << UiTranslations::text(MeshifyPopup::tr("Choose a different path (%1)"))
                          .arg(QString::fromStdWString(
                              codedDstPath.getWideString()));
 

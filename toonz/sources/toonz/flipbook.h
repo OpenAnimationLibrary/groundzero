@@ -214,9 +214,9 @@ public:
   void onPlayCompleted() override {}
   bool doSaveImages(TFilePath fp);
   int getCurrentFrame() { return m_flipConsole->getCurrentFrame(); }
-  QString getLevelZoomTitle() const { return m_title1 + m_title; }
+  QString getLevelZoomTitle() const;
   void setTitle(const QString &title);
-  QString getTitle() const { return m_viewerTitle; }
+  QString getTitle() const;
   void showFrame(int frame);
 
   TFx *getPreviewedFx() const;

@@ -6,10 +6,12 @@
 #include <QSet>
 #include <QVector>
 #include <QWidget>
+#include <functional>
 
 class QComboBox;
 class QLabel;
 class QSlider;
+class QToolButton;
 
 class CadmiumReviewView final : public QWidget {
   Q_OBJECT
@@ -51,6 +53,7 @@ signals:
 
 protected:
   bool eventFilter(QObject *object, QEvent *event) override;
+  void changeEvent(QEvent *event) override;
 
 private:
   QSize imageSize() const;
@@ -61,6 +64,7 @@ private:
   QPointF imagePosition(const QPointF &position, int pane) const;
   void changeZoom(double scale, const QPointF &anchor);
   void updateControls();
+  void retranslateUi();
   void paintCanvas();
   bool nearWipe(const QPointF &position) const;
 
@@ -68,11 +72,13 @@ private:
   QComboBox *m_modes;
   QSlider *m_overlay;
   QLabel *m_zoomLabel;
+  QToolButton *m_fitButton, *m_actualButton, *m_zoomOutButton, *m_zoomInButton;
   QImage m_before, m_after, m_reference;
   QSize m_regionSize;
   QVector<int> m_labels;
   QSet<int> m_protected;
   QString m_message;
+  std::function<QString()> m_messageTranslation;
   QPointF m_pan, m_press, m_last;
   double m_scale = 1.0;
   double m_wipe = 0.5;

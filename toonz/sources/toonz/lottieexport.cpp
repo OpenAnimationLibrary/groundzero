@@ -15,6 +15,7 @@
 #include "toonzqt/menubarcommand.h"
 #include "toonzqt/dvdialog.h"
 #include "toonzqt/gutil.h"
+#include "toonzqt/uitranslations.h"
 
 // TnzLib includes
 #include "toonz/lottieexporter.h"
@@ -152,11 +153,14 @@ void ExportLottieCommand::execute() {
     QGridLayout *layout   = new QGridLayout(customWidget);
     layout->setContentsMargins(5, 5, 5, 5);
     layout->setSpacing(5);
-    layout->addWidget(new QLabel(QObject::tr("From Frame:")), 0, 0);
+    auto *fromLabel = new QLabel(QObject::tr("From Frame:"));
+    auto *toLabel = new QLabel(QObject::tr("To Frame:"));
+    auto *rateLabel = new QLabel(QObject::tr("Frame Rate:"));
+    layout->addWidget(fromLabel, 0, 0);
     layout->addWidget(fromField, 0, 1);
-    layout->addWidget(new QLabel(QObject::tr("To Frame:")), 0, 2);
+    layout->addWidget(toLabel, 0, 2);
     layout->addWidget(toField, 0, 3);
-    layout->addWidget(new QLabel(QObject::tr("Frame Rate:")), 0, 4);
+    layout->addWidget(rateLabel, 0, 4);
     layout->addWidget(fpsField, 0, 5);
     layout->addWidget(embedImages, 1, 0, 1, 6);
     layout->setColumnStretch(6, 1);
@@ -164,6 +168,18 @@ void ExportLottieCommand::execute() {
     savePopup =
         new GenericSaveFilePopup(QObject::tr("Export Lottie"), customWidget);
     savePopup->addFilterType("json");
+    // The save popup is retained between exports. Only captions are bound;
+    // frame values, the filename and the selected folder remain user state.
+    UiTranslations::bind(savePopup, "windowTitle", "QObject", "Export Lottie");
+    UiTranslations::bind(fromLabel, "text", "QObject", "From Frame:");
+    UiTranslations::bind(toLabel, "text", "QObject", "To Frame:");
+    UiTranslations::bind(rateLabel, "text", "QObject", "Frame Rate:");
+    UiTranslations::bind(embedImages, "text", "QObject",
+                         "Embed Raster Levels as PNG Data");
+    UiTranslations::bind(embedImages, "toolTip", "QObject",
+                         "Checked: the images of the raster levels are stored in "
+                         "the JSON file\nUnchecked: they are saved as PNG files "
+                         "in a folder next to it");
   }
   // Frames are shown from 1, as in the xsheet
   fromField->setRange(1, frameCount);

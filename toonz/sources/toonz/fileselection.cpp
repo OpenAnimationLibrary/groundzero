@@ -1,5 +1,6 @@
 
 
+#include "toonzqt/uitranslations.h"
 #include "fileselection.h"
 
 // Tnz6 includes
@@ -311,10 +312,10 @@ void FileSelection::deleteFiles() {
     TFileStatus fs(files[0]);
     if (fs.isDirectory()) {
       if (!fs.isWritable()) return;
-      question = QObject::tr("Deleting folder %1. Are you sure?")
+      question = UiTranslations::text(QObject::tr("Deleting folder %1. Are you sure?"))
                      .arg(files[0].getQString());
     } else {
-      question = QObject::tr("Deleting %1. Are you sure?")
+      question = UiTranslations::text(QObject::tr("Deleting %1. Are you sure?"))
                      .arg(QString::fromStdWString(files[0].getWideString()));
     }
   } else {
@@ -580,7 +581,7 @@ void FileSelection::collectAssets() {
   if (collectedAssets == 0)
     DVGui::info(QObject::tr("There are no assets to collect"));
   else
-    DVGui::info(QObject::tr("%1 assets imported").arg(collectedAssets));
+    DVGui::info(UiTranslations::text(QObject::tr("%1 assets imported")).arg(collectedAssets));
 
   DvDirModel::instance()->refreshFolder(
       TProjectManager::instance()->getCurrentProjectPath().getParentDir());
@@ -595,13 +596,13 @@ static int importSceneInternal(const TFilePath &scenePath) {
   try {
     IoCmd::loadScene(scene, scenePath, true);
   } catch (TException &e) {
-    DVGui::error(QObject::tr("Error loading scene %1 : %2")
+    DVGui::error(UiTranslations::text(QObject::tr("Error loading scene %1 : %2"))
                      .arg(toQString(scenePath))
                      .arg(QString::fromStdWString(e.getMessage())));
     return 0;
   } catch (...) {
     DVGui::error(
-        QObject::tr("Error loading scene %1").arg(toQString(scenePath)));
+        UiTranslations::text(QObject::tr("Error loading scene %1")).arg(toQString(scenePath)));
     return 0;
   }
 
@@ -609,7 +610,7 @@ static int importSceneInternal(const TFilePath &scenePath) {
     scene.save(scene.getScenePath());
   } catch (TException &) {
     DVGui::error(
-        QObject::tr("Error saving scene %1").arg(toQString(scenePath)));
+        UiTranslations::text(QObject::tr("Error saving scene %1")).arg(toQString(scenePath)));
     return 0;
   }
 
@@ -647,7 +648,7 @@ void FileSelection::importScenes() {
   else if (importedSceneCount == 1)
     DVGui::info(QObject::tr("One scene imported"));
   else
-    DVGui::info(QObject::tr("%1 scenes imported").arg(importedSceneCount));
+    DVGui::info(UiTranslations::text(QObject::tr("%1 scenes imported")).arg(importedSceneCount));
 }
 
 //------------------------------------------------------------------------

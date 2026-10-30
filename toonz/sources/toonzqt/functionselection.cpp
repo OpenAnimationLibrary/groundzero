@@ -1,5 +1,6 @@
 
 
+#include "toonzqt/uitranslations.h"
 #include "toonzqt/functionselection.h"
 
 #include "toonzqt/dvdialog.h"
@@ -117,7 +118,7 @@ public:
     return sizeof(*this) + 100;  // approx
   }
   QString getHistoryString() override {
-    return QObject::tr("Paste Keyframe  at Frame : %1")
+    return UiTranslations::text(QObject::tr("Paste Keyframe  at Frame : %1"))
         .arg(QString::number((int)m_frame + 1));
   }
 };
