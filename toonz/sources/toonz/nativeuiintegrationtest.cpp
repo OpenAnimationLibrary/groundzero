@@ -7,6 +7,7 @@
 #include "convertpopup.h"
 #include "drawingsubstitutionpane.h"
 #include "filmstrip.h"
+#include "iocommand.h"
 #include "languagemanager.h"
 #include "mainwindow.h"
 #include "menubarcommandids.h"
@@ -18,9 +19,13 @@
 
 #include "tenv.h"
 #include "tundo.h"
+#include "tpalette.h"
 #include "tvectorimage.h"
+#include "toonz/fullcolorpalette.h"
+#include "toonz/levelproperties.h"
 #include "toonz/preferences.h"
 #include "toonz/levelset.h"
+#include "toonz/sceneresources.h"
 #include "toonz/tcolumnhandle.h"
 #include "toonz/tframehandle.h"
 #include "toonz/toonzfolders.h"
@@ -31,8 +36,10 @@
 #include "toonz/txsheet.h"
 #include "toonz/txsheethandle.h"
 #include "toonz/txshleveltypes.h"
+#include "toonz/txshpalettelevel.h"
 #include "toonz/txshsimplelevel.h"
 #include "toonzqt/menubarcommand.h"
+#include "toonzqt/selection.h"
 #include "toonzqt/tselectionhandle.h"
 #include "toonzqt/uitranslations.h"
 
@@ -51,11 +58,13 @@
 #include <QPointer>
 #include <QSettings>
 #include <QTemporaryDir>
+#include <QTimer>
 #include <QTreeWidget>
 #include <QTranslator>
 
 #include <iostream>
 #include <memory>
+#include <vector>
 
 namespace {
 QString testRoot;
@@ -561,6 +570,78 @@ bool prepareNativeUiIntegrationTest(QString *error) {
   return true;
 }
 
+bool resetNativeUiIntegrationScene(QString *error) {
+  const auto reject = [error](const QString &message) {
+    if (error) *error = message;
+    std::cerr << "native-ui-integration: fixture reset: "
+              << message.toStdString() << std::endl;
+    return false;
+  };
+  if (error) error->clear();
+  // This intentionally destructive cleanup is available only in a prepared
+  // native test process, whose application data and current directory are the
+  // disposable root validated before TApp initialization.
+  if (testRoot.isEmpty() || !TEnv::getIsPortable() ||
+      QFileInfo(QDir::currentPath()).canonicalFilePath() != testRoot ||
+      QFileInfo(TEnv::getStuffDir().getQString()).canonicalFilePath() !=
+          testRoot + "/portablestuff")
+    return reject("Refusing to reset an unprepared or non-disposable scene");
+  if (auto *modal = QApplication::activeModalWidget())
+    return reject(QString("Unexpected modal before fixture reset: %1 (%2)")
+                      .arg(modal->objectName(), modal->windowTitle()));
+  auto *app = TApp::instance();
+  auto *scene = app->getCurrentScene()->getScene();
+  if (!scene) return reject("Disposable application scene is missing");
+  checkpoint("discarding disposable fixture resources");
+  if (auto *selection = TSelection::getCurrent()) selection->makeNotCurrent();
+  TUndoManager::manager()->reset();
+  std::vector<TXshLevel *> levels;
+  scene->getLevelSet()->listLevels(levels);
+  for (auto *level : levels) {
+    if (auto *simple = level->getSimpleLevel()) {
+      simple->getProperties()->setDirtyFlag(false);
+      if (simple->getPalette()) simple->getPalette()->setDirtyFlag(false);
+    } else if (auto *palette = level->getPaletteLevel()) {
+      if (palette->getPalette()) palette->getPalette()->setDirtyFlag(false);
+    }
+  }
+  if (FullColorPalette::instance()->getDirtyFlag())
+    FullColorPalette::instance()->getPalette(scene)->setDirtyFlag(false);
+  QStringList dirty;
+  {
+    SceneResources resources(scene, nullptr);
+    resources.getDirtyResources(dirty);
+  }
+  if (!dirty.empty() || FullColorPalette::instance()->getDirtyFlag())
+    return reject("Disposable resource inventory is still dirty before New Scene");
+  app->getCurrentScene()->setDirtyFlag(false);
+
+  // A save or error prompt here is a fixture failure, never a dialog to accept
+  // automatically. Report the exact modal before the runner's outer timeout.
+  QTimer deadline;
+  deadline.setSingleShot(true);
+  QObject::connect(&deadline, &QTimer::timeout, &deadline, []() {
+    if (auto *modal = QApplication::activeModalWidget())
+      std::cerr << "native-ui-integration: unexpected reset modal: "
+                << modal->objectName().toStdString() << " ("
+                << modal->windowTitle().toStdString() << ")" << std::endl;
+    qFatal("native-ui-integration: disposable New Scene exceeded its 15-second deadline");
+  });
+  checkpoint("starting clean native New Scene");
+  deadline.start(15000);
+  IoCmd::newScene();
+  deadline.stop();
+  checkpoint("clean native New Scene returned");
+  auto *fresh = app->getCurrentScene()->getScene();
+  auto *sheet = app->getCurrentXsheet()->getXsheet();
+  if (!fresh || !sheet || sheet != fresh->getXsheet() ||
+      sheet->getFrameCount() != 0 || fresh->getLevelSet()->getLevelCount() != 0 ||
+      app->getCurrentScene()->getDirtyFlag() || TSelection::getCurrent() ||
+      TUndoManager::manager()->getHistoryCount() != 0)
+    return reject("Native New Scene did not produce an empty clean fixture");
+  return true;
+}
+
 int runNativeUiIntegrationTest(QMainWindow *window) {
   checkpoint("entered native fixture callback");
   try {
@@ -572,6 +653,7 @@ int runNativeUiIntegrationTest(QMainWindow *window) {
       return 1;
     }
     exerciseNativeUi(window);
+    checkpoint("native fixture dialogs destroyed; starting Function Editor workflow");
     QString functionError;
     if (!runFunctionWorkflowIntegrationTest(window, &functionError)) {
       std::cerr << "native-ui-integration: FAIL: " << functionError.toStdString() << std::endl;
