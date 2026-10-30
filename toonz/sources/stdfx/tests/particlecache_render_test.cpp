@@ -15,7 +15,9 @@
 #include <QGuiApplication>
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QTemporaryDir>
+#include <QThread>
 
 #include <algorithm>
 #include <cmath>
@@ -415,6 +417,92 @@ void testAliasInvalidation(const QString &directory) {
   require(QFile::remove(path) && QFile::rename(replacement, path), "Cannot replace cache fixture");
   const auto after = fx->getAlias(0, TRenderSettings());
   require(before != after, "Replacing particle data did not invalidate FX image cache");
+
+  // In-place rewrites with the same size: the alias is built from file stamps
+  // and must still change, both right away and once the file has settled.
+  const QString otherPath = QDir(directory).filePath("other.bgeo");
+  require(ParticleCache::writeFrame(otherPath, snapshot(3),
+                                    ParticleCache::WriteOptions(), error),
+          error.toStdString());
+  auto overwrite = [&](const QString &source) {
+    QFile input(source), output(path);
+    require(input.open(QIODevice::ReadOnly), "Cannot read cache fixture");
+    const QByteArray bytes = input.readAll();
+    require(output.open(QIODevice::ReadWrite) &&
+                output.size() == bytes.size() &&
+                output.write(bytes) == bytes.size(),
+            "Cannot rewrite cache fixture in place");
+  };
+  overwrite(otherPath);
+  const auto rewritten = fx->getAlias(0, TRenderSettings());
+  require(rewritten != after,
+          "An immediate same-size rewrite did not invalidate the alias");
+
+  // Aliases are computed on the UI thread: they must not decode frames. An
+  // undecodable frame only fails when it is rendered.
+  const QString garbage = QDir(directory).filePath("garbage.bgeo");
+  {
+    QFile file(garbage);
+    require(file.open(QIODevice::WriteOnly) &&
+                file.write(QByteArray(256, 'x')) == 256,
+            "Cannot write undecodable fixture");
+  }
+  auto undecodable = effect(garbage);
+  require(undecodable->getAlias(0, TRenderSettings()).find(":error:") ==
+              std::string::npos,
+          "Computing the alias decoded the particle frame");
+  bool failed = false;
+  try {
+    render(undecodable, 0);
+  } catch (...) {
+    failed = true;
+  }
+  require(failed, "An undecodable particle frame rendered");
+
+  // Native frame revisions are memoized by stamps of the sprites they verify.
+  TRaster32P sprite(8, 8);
+  sprite->fill(TPixel32(10, 20, 30, 255));
+  const QString nativePath = nativePackage(directory + "/native-alias", sprite);
+  auto native              = effect(nativePath);
+  const auto nativeAlias   = native->getAlias(0, TRenderSettings());
+  require(nativeAlias.find(":error:") == std::string::npos,
+          "Native alias failed: " + nativeAlias);
+
+  // Let every fixture settle so stamps alone identify them, as for real caches.
+  QThread::msleep(2200);
+  const auto settled = fx->getAlias(0, TRenderSettings());
+  require(settled == fx->getAlias(0, TRenderSettings()),
+          "A settled alias is not stable");
+  // Unsettled files also carry their content digest, so only settled aliases
+  // are expected to repeat exactly.
+  const auto settledNative = native->getAlias(0, TRenderSettings());
+  require(settledNative.find(":error:") == std::string::npos &&
+              native->getAlias(0, TRenderSettings()) == settledNative,
+          "A settled native alias changed");
+  const QString restore = QDir(directory).filePath("restore.bgeo");
+  require(ParticleCache::writeFrame(restore, snapshot(1),
+                                    ParticleCache::WriteOptions(), error),
+          error.toStdString());
+  overwrite(restore);
+  require(
+      fx->getAlias(0, TRenderSettings()) != settled,
+      "A same-size rewrite of a settled frame did not invalidate the alias");
+  const auto restored = render(fx, 0);
+  compare<TPixel32>(restored, render(effect(restore), 0),
+                    "A rewritten frame rendered stale particles");
+
+  QDir artwork(QFileInfo(nativePath).absoluteDir().filePath("artwork"));
+  const auto sprites = artwork.entryInfoList(QDir::Files);
+  require(!sprites.isEmpty(), "Native package has no sprite files");
+  {
+    QFile file(sprites.front().absoluteFilePath());
+    require(file.open(QIODevice::ReadWrite) && file.seek(file.size() - 1) &&
+                file.write("\x01", 1) == 1,
+            "Cannot corrupt native sprite fixture");
+  }
+  require(native->getAlias(0, TRenderSettings()).find(":error:") !=
+              std::string::npos,
+          "A corrupted native sprite was hidden by the revision memo");
 }
 
 void testPersistence(const QString &path, const QString &directory) {

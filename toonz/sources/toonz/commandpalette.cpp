@@ -10,6 +10,7 @@
 #include <QKeyEvent>
 #include <QLabel>
 #include <QLineEdit>
+#include <QMenu>
 #include <QScrollBar>
 #include <QSet>
 #include <QShowEvent>

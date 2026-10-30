@@ -29,6 +29,14 @@ public:
   bool applyTheme(const QString &name, QString *error = nullptr);
   bool applyAdditionalStyle(const QString &style, QString *error = nullptr);
   bool reload(QString *error = nullptr);
+  // Applies the saved theme when nothing is styled yet. A theme or additional
+  // style sheet that fails the checks is never applied; instead of leaving the
+  // application unstyled, the saved theme without the additional sheet, or
+  // the Default theme, is used for this session and the saved settings are
+  // kept. Returns whether a style sheet was applied; error explains any
+  // failure, including one recovered by a fallback. Once a theme is applied
+  // this is reload(): interactive changes stay strict.
+  bool startup(QString *error = nullptr);
 
   // Synchronizes presentation only; the Preferences owner handles user edits.
   void bindComboBox(QComboBox *combo);
@@ -41,8 +49,8 @@ protected:
   bool eventFilter(QObject *object, QEvent *event) override;
 
 private:
-  bool apply(const QString &name, const QString &additional, bool saveAdditional,
-             bool force, QString *error);
+  bool apply(const QString &name, const QString &additional,
+             bool saveAdditional, bool saveTheme, bool force, QString *error);
   QString m_directory;
   Settings m_settings;
   QString m_appliedTheme;
