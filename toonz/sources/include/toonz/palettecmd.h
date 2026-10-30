@@ -5,6 +5,7 @@
 
 #include <set>
 #include <vector>
+#include <utility>
 #include "tpalette.h"
 
 #undef DVAPI
@@ -33,6 +34,11 @@ DVAPI bool areStylesUsed(const std::set<TXshSimpleLevel *> levels,
                          const std::vector<int> styleIds);
 
 namespace PaletteCmd {
+
+// Atomic, undoable update of unlinked solid colors; preserves IDs and alpha.
+// Locked/animated palettes and invalid or duplicate IDs reject the whole batch.
+DVAPI bool applyReferenceColors(
+    TPaletteHandle *handle, const std::vector<std::pair<int, TPixel32>> &mapping);
 
 DVAPI void arrangeStyles(TPaletteHandle *paletteHandle, int dstPageIndex,
                          int dstIndexInPage, int srcPageIndex,
