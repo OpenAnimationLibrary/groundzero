@@ -92,6 +92,56 @@ void nextPreviewRequest(QWidget *inspector) {
   // Return at the actual timer boundary, before the queued worker completion.
   require(submitted, "native inspector failed to submit its desired preview");
 }
+void reopenOwnership(ToonzScene *source, TXshSimpleLevel *level,
+                     const TFilePath &copyPath,
+                     TXshLevel::LibraryProvenance::Relationship relationship,
+                     const TPixel32 &expectedPixel) {
+  const auto origin = level->getLibraryProvenance();
+  const QString identity = level->getCastId();
+  const bool expectedSource = level->sourceExpectedOnDisk();
+  const auto storedPath = level->getPath();
+  const auto actualPath = source->decodeFilePath(storedPath);
+  const auto workingPath = source->getScenePath();
+  const int history = TUndoManager::manager()->getCurrentHistoryIndex();
+  require(level->getLibraryRelationship() == relationship,
+          "ownership reopen fixture began with the wrong relationship");
+  source->saveCopy(copyPath);
+  ToonzScene restored;
+  TProjectManager::instance()->initializeScene(&restored);
+  restored.setProject(source->getProject());
+  restored.loadTnzFile(copyPath);
+  TXshSimpleLevel *reopened = nullptr;
+  for (int index = 0; index < restored.getLevelSet()->getLevelCount(); ++index) {
+    auto *candidate = restored.getLevelSet()->getLevel(index);
+    if (candidate->getCastId() != identity) continue;
+    require(!reopened && candidate->getSimpleLevel(), "native reopen duplicated or changed the asset UUID");
+    reopened = candidate->getSimpleLevel();
+  }
+  require(reopened && reopened->getLibraryProvenance() == origin &&
+              reopened->sourceExpectedOnDisk() == expectedSource &&
+              reopened->getLibraryRelationship() == relationship &&
+              restored.decodeFilePath(reopened->getPath()) == actualPath,
+          "native reopen changed Library provenance, ownership, source state or path");
+  // Load this saved asset through the native reader. Other fixture drawings
+  // intentionally remain unsaved; reopening must not prompt to resolve them.
+  reopened->load();
+  std::vector<TFrameId> frames; reopened->getFids(frames);
+  require(!frames.empty(), "native ownership reopen lost the saved drawing");
+  TRasterImageP image = reopened->getFrame(frames.front(), false);
+  TRaster32P pixels = image ? image->getRaster() : TRasterP();
+  require(pixels && pixels->pixels(0)[0] == expectedPixel,
+          "native ownership reopen decoded the wrong source content");
+  require(reopened->getCastId() == identity && reopened->getLibraryProvenance() == origin &&
+              reopened->sourceExpectedOnDisk() == expectedSource &&
+              reopened->getLibraryRelationship() == relationship,
+          "native asset loading changed reopened ownership metadata");
+  require(TApp::instance()->getCurrentScene()->getScene() == source &&
+              source->getScenePath() == workingPath && level->getPath() == storedPath &&
+              level->getCastId() == identity && level->getLibraryProvenance() == origin &&
+              level->sourceExpectedOnDisk() == expectedSource &&
+              TUndoManager::manager()->getCurrentHistoryIndex() == history,
+          "ownership verification changed the working scene or undo history");
+}
 int find(CastBrowser &browser, const QString &name) {
   for (int i = 0; i < browser.getItemCount(); ++i)
     if (browser.getItemData(i, DvItemListModel::Name).toString() == name) return i;
@@ -713,8 +763,8 @@ void runCastWorkflowIntegrationTest(QMainWindow *window) {
   };
   require(pixel().r == 255, "source fixture pixel is incorrect");
   TXshLevel::LibraryProvenance origin;
-  origin.itemId = "cast-fixture-library-item"; origin.itemPath = assets.path() + "/fixture.libinfo";
-  origin.kind = "image"; origin.revision = 1; origin.sourceAssetPath = oldDir + "/asset.png";
+  origin.itemId = "cast-fixture-library-item"; origin.itemPath = assets.path() + "/fixture.tnz";
+  origin.kind = "rig"; origin.revision = 1; origin.sourceAssetPath = oldDir + "/asset.png";
   origin.relationship = TXshLevel::LibraryProvenance::Linked;
   raster->setLibraryProvenance(origin);
   const QString rasterId = raster->getCastId();
@@ -768,10 +818,14 @@ void runCastWorkflowIntegrationTest(QMainWindow *window) {
   require(raster->getLibraryRelationship() == TXshLevel::LibraryProvenance::Replaced &&
           raster->getLibraryProvenance().itemId == origin.itemId && raster->getCastId() == rasterId,
           "relink lost Library origin or asset identity instead of recording replaced source");
+  reopenOwnership(source, raster, TFilePath(assets.path() + "/relinked.tnz"),
+                  TXshLevel::LibraryProvenance::Replaced, TPixel32::Blue);
   TUndoManager::manager()->undo();
   require(pixel().r == 255, "relink undo did not restore original pixels");
   require(raster->getLibraryProvenance() == origin && raster->sourceExpectedOnDisk() == expectedOriginal &&
           raster->getCastId() == rasterId, "relink undo lost exact provenance or asset identity");
+  reopenOwnership(source, raster, TFilePath(assets.path() + "/relink-undone.tnz"),
+                  TXshLevel::LibraryProvenance::Linked, TPixel32::Red);
   TUndoManager::manager()->redo();
   require(pixel().b == 255, "relink redo did not restore replacement pixels");
   raster->invalidateFrames();
@@ -902,15 +956,21 @@ void runCastWorkflowIntegrationTest(QMainWindow *window) {
           raster->getCastId() == rasterId && raster->sourceExpectedOnDisk(),
           "making Library source local lost origin or stable identity");
   require(QFileInfo::exists(copied.getQString()) && pixel().b == 255, "local copy is unreadable");
+  reopenOwnership(source, raster, TFilePath(localDir + "/local-copy.tnz"),
+                  TXshLevel::LibraryProvenance::LocalCopy, TPixel32::Blue);
   TUndoManager::manager()->undo();
   require(raster->getPath() == linked && QFileInfo::exists(copied.getQString()) &&
           QFileInfo::exists(newDir + "/asset.png"), "local-copy undo removed files or failed to restore links");
   require(raster->getLibraryProvenance() == origin && raster->sourceExpectedOnDisk() == expectedOriginal &&
           raster->getCastId() == rasterId, "local-copy undo lost exact linked provenance");
+  reopenOwnership(source, raster, TFilePath(localDir + "/local-copy-undone.tnz"),
+                  TXshLevel::LibraryProvenance::Linked, TPixel32::Blue);
   TUndoManager::manager()->redo();
   require(source->decodeFilePath(raster->getPath()) == copied, "local-copy redo generated a second folder");
   raster->invalidateFrames();
   require(pixel().b == 255, "local copy retained a stale file builder");
+  reopenOwnership(source, raster, TFilePath(localDir + "/local-copy-redone.tnz"),
+                  TXshLevel::LibraryProvenance::LocalCopy, TPixel32::Blue);
   {
     const int count = TUndoManager::manager()->getHistoryCount();
     DialogDriver driver([](QDialog *dialog) { dialog->reject(); });

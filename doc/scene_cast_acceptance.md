@@ -30,6 +30,14 @@ The source now includes the reopened Modified/New/Missing/Cached filters, docked
 
 `toonz/castworkflowintegrationtest.cpp` runs inside the existing disposable-profile OpenToonz native UI qualification process. It drives actual controls and modal dialogs, with deadlines to turn missed dialog automation into a reported failure. The native application hook is enabled on all three OS workflows. macOS now records and annotates native application failures and uploads the output alongside regression evidence.
 
+Ownership transition checks also save and reopen native scenes after relinking,
+undoing the relink, making a local copy, undoing the copy and redoing it. They
+require exact provenance, relationship, stable UUID, expected-source state and
+resolved path, then decode the saved asset and compare its pixel content. The
+synthetic attribution uses the supported `rig` item kind; raster is the asset
+type, not a Library item kind. These checks are prepared for CI, not locally
+executed.
+
 Pending CI checks: compile/link on all platforms; the required `castworkflow` test; the native application workflow; unchanged existing native/regression suites. Prepared tests are not reported as executed or passing. Manual acceptance remains necessary for actual audio devices, accessibility/screen-reader behavior, very large network-mounted casts, and diverse collected production projects on a second machine. The synthetic relocated-project workflow is already prepared as a required native CI oracle.
 
 ## File and cancellation rules
