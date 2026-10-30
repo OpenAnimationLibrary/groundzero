@@ -650,7 +650,7 @@ int runNativeUiIntegrationTest(QMainWindow *window) {
     require(!testRoot.isEmpty(), "native UI test was not prepared before startup");
     QString animationError;
     if (!runAnimationWorkflowIntegrationTest(window, &animationError)) {
-      std::cerr << "native-ui-integration: animation workflow: "
+      std::cerr << "native-ui-integration: FAIL: animation workflow: "
                 << animationError.toStdString() << std::endl;
       return 1;
     }
