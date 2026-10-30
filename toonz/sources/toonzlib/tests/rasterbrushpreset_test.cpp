@@ -714,28 +714,102 @@ void testCollection() {
   require(load(paths[0], error).preset.name == first.preset.name,
           "conflicting collection modified another preset");
 }
+void testWorkerWire() {
+  QTemporaryDir directory;
+  require(directory.isValid(), "cannot create worker wire fixture");
+  Record record;
+  auto image              = std::make_shared<Image>();
+  image->width            = 2;
+  image->height           = 1;
+  image->color            = true;
+  image->pixels           = {{128.0 / 255, 0, 0, 128.0 / 255}, {0, 1, 0, 1}};
+  record.preset.tip.shape = Shape::Bitmap;
+  record.preset.tip.images.push_back(image);
+  // Shared resources are written and charged only once per record.
+  record.preset.texture.image = image;
+  QString error;
+  auto bytes = encodeWorkerRecord(record, directory.path(), error);
+  require(!bytes.isEmpty() && error.isEmpty(), qPrintable(error));
+  const size_t budget = 2 * (sizeof(Pixel) + 8);
+  auto restored = decodeWorkerRecord(bytes, directory.path(), error, budget);
+  require(error.isEmpty(), qPrintable(error));
+  auto restoredImage = restored.preset.tip.images.front();
+  require(restoredImage == restored.preset.texture.image &&
+              std::abs(restoredImage->pixels[0].a - 128.0 / 255) < 1e-7 &&
+              restoredImage->pixels[1].g == 1,
+          "worker wire changed color, alpha, or resource sharing");
+  decodeWorkerRecord(bytes, directory.path(), error, budget - 1);
+  require(error.contains("before allocation"), "worker wire ignored budget");
+  decode(bytes, error);
+  require(!error.isEmpty(), "worker record accepted as portable preset");
+  auto portable = encode(record, error);
+  decodeWorkerRecord(portable, directory.path(), error);
+  require(!error.isEmpty(), "portable codec accepted on worker return path");
+  auto root        = QJsonDocument::fromJson(bytes).object();
+  auto assets      = root["assets"].toObject();
+  const QString id = assets.keys().front();
+  auto badAssets   = assets;
+  badAssets[id] =
+      QJsonObject{{"png", "foreign codec payload"}, {"color", true}};
+  decodeWorkerRecord(altered(bytes, "assets", badAssets), directory.path(),
+                     error);
+  require(!error.isEmpty(), "worker return accepted a codec payload");
+  const QString path = QDir(directory.path()).filePath(id + ".rgba8");
+  QFile file(path);
+  require(file.open(QIODevice::ReadOnly), "cannot read wire resource");
+  const QByteArray original = file.readAll();
+  file.close();
+  auto replace = [&](const QByteArray &data) {
+    require(file.open(QIODevice::WriteOnly | QIODevice::Truncate) &&
+                file.write(data) == data.size(),
+            "cannot mutate wire resource");
+    file.close();
+  };
+  for (int kind = 0; kind < 4; ++kind) {
+    QByteArray damaged = original;
+    if (kind == 0) damaged.resize(7);
+    if (kind == 1) damaged[0] = char(255);
+    if (kind == 2) damaged.chop(1);
+    if (kind == 3) damaged[8] = char(0);
+    replace(damaged);
+    decodeWorkerRecord(bytes, directory.path(), error);
+    require(!error.isEmpty(), "malformed worker image accepted");
+  }
+  replace(original);
+#ifndef _WIN32
+  const QString target = directory.filePath("symlink-target");
+  require(file.rename(target) && QFile::link(target, path),
+          "cannot create symlink wire fixture");
+  decodeWorkerRecord(bytes, directory.path(), error);
+  require(!error.isEmpty(), "worker image symlink accepted");
+#endif
+}
 int oversizedWorkerFixture(const QString &directory) {
   // A hostile worker result: each package fits its own resource limit, but
   // retaining both would require 320 MiB of float image pixels.
   QString error;
   Record record;
-  auto root = QJsonDocument::fromJson(encode(record, error)).object();
+  auto root =
+      QJsonDocument::fromJson(encodeWorkerRecord(record, directory, error))
+          .object();
   require(error.isEmpty(), "cannot prepare worker budget fixture");
   for (int package = 0; package < 2; ++package) {
     QJsonObject assets;
     QJsonArray references;
     for (int index = 0; index < package + 2; ++index) {
-      QImage image(2048, 1024, QImage::Format_ARGB32);
-      image.fill(qRgba(0, 0, 0, 17 + 34 * (index + package * 2)));
-      QByteArray png;
-      QBuffer buffer(&png);
-      require(buffer.open(QIODevice::WriteOnly) && image.save(&buffer, "PNG"),
-              "cannot write large original PNG fixture");
+      QByteArray raw(8 + 2048 * 1024 * 4, '\0');
+      raw[2] = 8;
+      raw[6] = 4;
+      for (int pixel = 11; pixel < raw.size(); pixel += 4)
+        raw[pixel] = char(17 + 34 * (index + package * 2));
       QString identity = QString::fromLatin1(
-          QCryptographicHash::hash(png + "mask", QCryptographicHash::Sha256)
+          QCryptographicHash::hash(raw + "mask", QCryptographicHash::Sha256)
               .toHex());
-      assets[identity] = QJsonObject{
-          {"png", QString::fromLatin1(png.toBase64())}, {"color", false}};
+      QFile resource(QDir(directory).filePath(identity + ".rgba8"));
+      require(resource.open(QIODevice::WriteOnly | QIODevice::NewOnly) &&
+                  resource.write(raw) == raw.size(),
+              "cannot write raw worker fixture");
+      assets[identity] = QJsonObject{{"rgba8", identity}, {"color", false}};
       references.append(identity);
     }
     auto settings    = root["settings"].toObject();
@@ -752,7 +826,7 @@ int oversizedWorkerFixture(const QString &directory) {
         "cannot write worker budget package");
   }
   QFile manifest(QDir(directory).filePath("result.json"));
-  QByteArray bytes = QJsonDocument(QJsonObject{{"protocol", 1},
+  QByteArray bytes = QJsonDocument(QJsonObject{{"protocol", 2},
                                                {"count", 2},
                                                {"diagnostics", QJsonArray{}}})
                          .toJson();
@@ -1015,6 +1089,7 @@ int main(int argc, char **argv) {
     testImports();
     testBundles();
     testCollection();
+    testWorkerWire();
     testWorkerProcess();
     if (argc == 3 && QString::fromLocal8Bit(argv[1]) == "--write-corpus")
       writeCorpus(QString::fromLocal8Bit(argv[2]));

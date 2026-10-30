@@ -21,6 +21,14 @@ RASTERBRUSH_API QByteArray encode(const Record &record, QString &error);
 RASTERBRUSH_API Record decode(const QByteArray &bytes, QString &error,
                               size_t maximumDecodedBytes = 256u * 1024u *
                                                            1024u);
+// Private worker wire format: bounded metadata plus fixed-size RGBA8 sidecars.
+// Parent decoding does not invoke PNG, archive, XML or foreign brush codecs.
+RASTERBRUSH_API QByteArray encodeWorkerRecord(const Record &record,
+                                              const QString &directory,
+                                              QString &error);
+RASTERBRUSH_API Record decodeWorkerRecord(
+    const QByteArray &bytes, const QString &directory, QString &error,
+    size_t maximumDecodedBytes = 256u * 1024u * 1024u);
 RASTERBRUSH_API Record load(const QString &path, QString &error,
                             size_t maximumDecodedBytes = 256u * 1024u * 1024u);
 RASTERBRUSH_API bool save(const QString &path, const Record &record,

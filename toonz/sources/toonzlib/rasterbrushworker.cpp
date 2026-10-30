@@ -267,7 +267,7 @@ int runImportWorker(const QString &input, const QString &directory) {
     }
     qint64 total = 0;
     for (size_t i = 0; i < imported.records.size(); ++i) {
-      auto bytes = encode(imported.records[i], error);
+      auto bytes = encodeWorkerRecord(imported.records[i], directory, error);
       total += bytes.size();
       if (!error.isEmpty() || total > packageBudget ||
           !writeFile(output.filePath(QString::number(i) + ".gzbrush"), bytes))
@@ -277,7 +277,7 @@ int runImportWorker(const QString &input, const QString &directory) {
     for (const auto &message : imported.diagnostics)
       diagnostics.append(message);
     QByteArray manifest =
-        QJsonDocument(QJsonObject{{"protocol", 1},
+        QJsonDocument(QJsonObject{{"protocol", 2},
                                   {"count", int(imported.records.size())},
                                   {"diagnostics", diagnostics}})
             .toJson(QJsonDocument::Compact);
@@ -419,7 +419,7 @@ ImportResult importBrushProcess(const QString &executable, const QString &path,
   auto json   = QJsonDocument::fromJson(manifest.read(manifestBudget + 1));
   auto object = json.object();
   int count   = object.value("count").toInt(-1);
-  if (!json.isObject() || object.value("protocol").toInt() != 1 || count < 1 ||
+  if (!json.isObject() || object.value("protocol").toInt() != 2 || count < 1 ||
       count > 256 || !object.value("diagnostics").isArray()) {
     error = "Invalid brush import result protocol";
     return {};
@@ -436,8 +436,20 @@ ImportResult importBrushProcess(const QString &executable, const QString &path,
       error = "Brush import result exceeded its package budget";
       return {};
     }
+    QFile packageFile(package);
+    if (!packageFile.open(QIODevice::ReadOnly) ||
+        packageFile.size() > 64 * 1024 * 1024) {
+      error = "Invalid worker metadata package";
+      return {};
+    }
+    const auto metadata = packageFile.read(64 * 1024 * 1024 + 1);
+    if (!packageFile.atEnd() || packageFile.error() != QFileDevice::NoError) {
+      error = "Cannot read bounded worker metadata";
+      return {};
+    }
     auto record =
-        load(package, error, maximumDecodedBytes - pixels * sizeof(Pixel));
+        decodeWorkerRecord(metadata, directory.path(), error,
+                           maximumDecodedBytes - pixels * sizeof(Pixel));
     if (!error.isEmpty()) return {};
     std::set<const Image *> resources;
     auto account = [&](const std::shared_ptr<const Image> &image) {

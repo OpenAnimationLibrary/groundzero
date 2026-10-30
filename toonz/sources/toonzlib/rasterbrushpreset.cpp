@@ -5,6 +5,8 @@
 #include <QCryptographicHash>
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
+#include <QRegularExpression>
 #include <QImage>
 #include <QImageReader>
 #include <QJsonArray>
@@ -130,15 +132,41 @@ QImage toImage(const Image &im) {
   return out;
 }
 QString assetId(const QByteArray &png, bool color) {
-  return QString::fromLatin1(
-      QCryptographicHash::hash(png + (color ? "color" : "mask"),
-                               QCryptographicHash::Sha256)
-          .toHex());
+  QCryptographicHash hash(QCryptographicHash::Sha256);
+  hash.addData(png);
+  hash.addData(color ? "color" : "mask", color ? 5 : 4);
+  return QString::fromLatin1(hash.result().toHex());
 }
 struct Writer {
   QJsonObject assets;
+  QString rawDirectory;
   QString image(const std::shared_ptr<const Image> &im) {
     if (!im) return {};
+    if (!rawDirectory.isEmpty()) {
+      QByteArray raw;
+      raw.reserve(8 + int(im->pixels.size() * 4));
+      for (unsigned value : {unsigned(im->width), unsigned(im->height)})
+        for (int shift = 24; shift >= 0; shift -= 8)
+          raw.append(char(value >> shift));
+      for (const Pixel &pixel : im->pixels) {
+        raw.append(char(pixel.a > 0 ? byte(pixel.r / pixel.a) : 0));
+        raw.append(char(pixel.a > 0 ? byte(pixel.g / pixel.a) : 0));
+        raw.append(char(pixel.a > 0 ? byte(pixel.b / pixel.a) : 0));
+        raw.append(char(byte(pixel.a)));
+      }
+      const QString id   = assetId(raw, im->color);
+      const QString path = QDir(rawDirectory).filePath(id + ".rgba8");
+      QFile file(path);
+      if (QFileInfo::exists(path)) {
+        if (QFileInfo(path).isSymLink() || !file.open(QIODevice::ReadOnly) ||
+            file.size() != raw.size() || file.read(raw.size() + 1) != raw)
+          throw Invalid("Conflicting worker image resource");
+      } else if (!file.open(QIODevice::WriteOnly | QIODevice::NewOnly) ||
+                 file.write(raw) != raw.size() || !file.flush())
+        throw Invalid("Cannot write private worker image");
+      assets[id] = QJsonObject{{"rgba8", id}, {"color", im->color}};
+      return id;
+    }
     QByteArray png;
     QBuffer b(&png);
     b.open(QIODevice::WriteOnly);
@@ -159,6 +187,53 @@ struct Writer {
             {"randomSequence", t.randomSequence}};
   }
 };
+std::shared_ptr<const Image> readWorkerImage(const QString &directory,
+                                             const QString &id, bool color,
+                                             size_t remaining) {
+  static const QRegularExpression identity("^[0-9a-f]{64}$");
+  if (!identity.match(id).hasMatch()) throw Invalid("Invalid worker image ID");
+  const QString path = QDir(directory).filePath(id + ".rgba8");
+  QFile file(path);
+  if (QFileInfo(path).isSymLink() || !QFileInfo(path).isFile() ||
+      !file.open(QIODevice::ReadOnly))
+    throw Invalid("Invalid worker image file");
+  const QByteArray header = file.read(8);
+  if (header.size() != 8) throw Invalid("Truncated worker image header");
+  auto word = [&](int offset) {
+    unsigned value = 0;
+    for (int i = 0; i < 4; ++i)
+      value = (value << 8) | static_cast<unsigned char>(header[offset + i]);
+    return value;
+  };
+  const unsigned width = word(0), height = word(4);
+  if (!width || !height || width > 8192 || height > 8192 ||
+      size_t(width) * height > 2 * 1024 * 1024)
+    throw Invalid("Worker image geometry exceeds limits");
+  const size_t pixels = size_t(width) * height;
+  if (pixels > remaining / (sizeof(Pixel) + 8))
+    throw Invalid("Remaining worker image budget exceeded before allocation");
+  const qint64 length = qint64(pixels * 4);
+  if (file.size() != length + 8)
+    throw Invalid("Invalid worker image byte count");
+  const QByteArray rgba = file.read(length + 1);
+  if (rgba.size() != length || !file.atEnd() ||
+      assetId(header + rgba, color) != id)
+    throw Invalid("Worker image checksum mismatch");
+  auto image    = std::make_shared<Image>();
+  image->width  = int(width);
+  image->height = int(height);
+  image->color  = color;
+  image->pixels.resize(pixels);
+  for (size_t i = 0; i < pixels; ++i) {
+    const auto *v =
+        reinterpret_cast<const unsigned char *>(rgba.constData()) + i * 4;
+    const double alpha = v[3] / 255.0;
+    image->pixels[i]   = {color ? v[0] / 255.0 * alpha : 0,
+                        color ? v[1] / 255.0 * alpha : 0,
+                        color ? v[2] / 255.0 * alpha : 0, alpha};
+  }
+  return image;
+}
 struct Reader {
   QMap<QString, std::shared_ptr<const Image>> assets;
   std::shared_ptr<const Image> image(const QJsonValue &v) {
@@ -244,7 +319,8 @@ std::shared_ptr<const Image> decodeImage(const QByteArray &bytes, bool color,
   return im;
 }
 
-QByteArray encode(const Record &r, QString &error) {
+static QByteArray encodeRecord(const Record &r, QString &error,
+                               const QString &rawDirectory) {
   error.clear();
   try {
     std::string why = validate(r.preset);
@@ -260,9 +336,10 @@ QByteArray encode(const Record &r, QString &error) {
     for (const auto &note : r.diagnostics)
       if (note.size() > 16384) throw Invalid("Preset diagnostic is too long");
     Writer w;
-    const auto &p = r.preset;
-    const auto &t = p.texture;
-    const auto &s = p.secondary;
+    w.rawDirectory = rawDirectory;
+    const auto &p  = r.preset;
+    const auto &t  = p.texture;
+    const auto &s  = p.secondary;
     QJsonObject settings{
         {"name", QString::fromStdString(p.name)},
         {"profile", QString::fromStdString(p.profile)},
@@ -321,13 +398,16 @@ QByteArray encode(const Record &r, QString &error) {
                                         {"scatter", s.scatter}};
     if (w.assets.size() > 512) throw Invalid("Too many resources");
     QByteArray result =
-        QJsonDocument(QJsonObject{{"format", "groundzero-raster-brush"},
-                                  {"version", 1},
-                                  {"settings", settings},
-                                  {"assets", w.assets},
-                                  {"provenance", r.provenance},
-                                  {"diagnostics",
-                                   QJsonArray::fromStringList(r.diagnostics)}})
+        QJsonDocument(
+            QJsonObject{
+                {"format", rawDirectory.isEmpty()
+                               ? "groundzero-raster-brush"
+                               : "groundzero-brush-worker-record"},
+                {"version", 1},
+                {"settings", settings},
+                {"assets", w.assets},
+                {"provenance", r.provenance},
+                {"diagnostics", QJsonArray::fromStringList(r.diagnostics)}})
             .toJson();
     if (result.size() > maxBytes) throw Invalid("Brush package exceeds 64 MiB");
     return result;
@@ -337,8 +417,9 @@ QByteArray encode(const Record &r, QString &error) {
   }
 }
 
-Record decode(const QByteArray &bytes, QString &error,
-              size_t maximumDecodedBytes) {
+static Record decodeRecord(const QByteArray &bytes, QString &error,
+                           size_t maximumDecodedBytes,
+                           const QString &rawDirectory) {
   maximumDecodedBytes =
       std::min(maximumDecodedBytes, size_t(256u * 1024u * 1024u));
   Record r;
@@ -353,7 +434,9 @@ Record decode(const QByteArray &bytes, QString &error,
     auto root = doc.object();
     keys(root, {"format", "version", "settings", "assets", "provenance",
                 "diagnostics"});
-    if (text(root["format"]) != "groundzero-raster-brush" ||
+    if (text(root["format"]) != (rawDirectory.isEmpty()
+                                     ? "groundzero-raster-brush"
+                                     : "groundzero-brush-worker-record") ||
         number(root["version"]) != 1)
       throw Invalid("Unsupported native brush version");
     if (root.contains("diagnostics")) {
@@ -372,15 +455,24 @@ Record decode(const QByteArray &bytes, QString &error,
     size_t total = 0;
     for (auto i = assets.begin(); i != assets.end(); ++i) {
       auto a = object(i.value());
-      keys(a, {"png", "color"});
-      if (!a["png"].isString()) throw Invalid("Invalid image encoding");
-      auto png   = QByteArray::fromBase64(a["png"].toString().toLatin1());
-      bool color = boolean(a["color"]);
-      if (assetId(png, color) != i.key())
-        throw Invalid("Brush resource hash mismatch");
-      QString why;
-      auto im = decodeImage(png, color, why, maximumDecodedBytes - total);
-      if (!im) throw Invalid(why);
+      std::shared_ptr<const Image> im;
+      if (!rawDirectory.isEmpty()) {
+        keys(a, {"rgba8", "color"});
+        if (text(a["rgba8"]) != i.key())
+          throw Invalid("Conflicting worker image ID");
+        im = readWorkerImage(rawDirectory, i.key(), boolean(a["color"]),
+                             maximumDecodedBytes - total);
+      } else {
+        keys(a, {"png", "color"});
+        if (!a["png"].isString()) throw Invalid("Invalid image encoding");
+        auto png   = QByteArray::fromBase64(a["png"].toString().toLatin1());
+        bool color = boolean(a["color"]);
+        if (assetId(png, color) != i.key())
+          throw Invalid("Brush resource hash mismatch");
+        QString why;
+        im = decodeImage(png, color, why, maximumDecodedBytes - total);
+        if (!im) throw Invalid(why);
+      }
       total += im->pixels.size() * sizeof(Pixel);
       if (total > maximumDecodedBytes)
         throw Invalid("Aggregate resource budget exceeded");
@@ -528,6 +620,30 @@ Record decode(const QByteArray &bytes, QString &error,
     r.diagnostics << error;
     return r;
   }
+}
+
+QByteArray encode(const Record &record, QString &error) {
+  return encodeRecord(record, error, {});
+}
+Record decode(const QByteArray &bytes, QString &error,
+              size_t maximumDecodedBytes) {
+  return decodeRecord(bytes, error, maximumDecodedBytes, {});
+}
+QByteArray encodeWorkerRecord(const Record &record, const QString &directory,
+                              QString &error) {
+  if (directory.isEmpty()) {
+    error = "Missing worker resource directory";
+    return {};
+  }
+  return encodeRecord(record, error, directory);
+}
+Record decodeWorkerRecord(const QByteArray &bytes, const QString &directory,
+                          QString &error, size_t maximumDecodedBytes) {
+  if (directory.isEmpty()) {
+    error = "Missing worker resource directory";
+    return {};
+  }
+  return decodeRecord(bytes, error, maximumDecodedBytes, directory);
 }
 
 Record load(const QString &path, QString &error, size_t maximumDecodedBytes) {

@@ -725,3 +725,23 @@ explicit radius percent to the candidate; radius above 100% and new-model
 nonzero radius remain conversions pending their separate implementation. This
 expands the candidate region without changing the full RCP1 target or marking
 it source-verified. Captured column regressions and full-image CI qualify it.
+
+Worker return protocol 2 removes the image-codec boundary from the parent
+process: private record metadata references SHA-256-addressed straight RGBA8
+sidecars, each with a fixed two-word dimension header. The parent checks file
+type, dimensions, exact byte length, checksum, and remaining decoded allowance
+before allocation. It never dispatches a PNG or other foreign codec for worker
+results. Native portable presets retain their existing embedded PNG format;
+they are decoded inside the import worker. Roundtrip tests cover shared
+resources and partial alpha; hostile cases cover codec substitution, malformed
+headers, truncation, checksums, symlinks, and one-byte-under-budget rejection.
+The hostile multi-package memory qualification uses this same protocol. These
+new protocol tests await exact-head CI; passing tests of the preceding head do
+not qualify this change.
+
+At the preceding head 5423354f, import fuzzing, Linux Qt 5, both Windows parser
+configurations (including process/memory Job Object probes), and both macOS
+parser configurations passed. Linux Qt 6 and full application/source suites
+were still pending at this checkpoint. macOS parser success does not establish
+a privilege sandbox, and Windows Job Object success establishes resource limits,
+not filesystem/network privilege isolation.
