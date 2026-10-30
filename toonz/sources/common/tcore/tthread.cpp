@@ -16,6 +16,9 @@
 #include <set>
 #include <deque>
 #include <memory>
+#include <stdexcept>
+#include <utility>
+#include <vector>
 
 // tcg includes
 #include "tcg/tcg_pool.h"
@@ -27,6 +30,8 @@
 #include <QWaitCondition>
 #include <QMetaType>
 #include <QCoreApplication>
+#include <QPointer>
+#include <QTimer>
 
 //==============================================================================
 
@@ -174,6 +179,13 @@ void TThread::shutdown() { Executor::shutdown(); }
 
 namespace TThread {
 
+// Independent of ExecutorId lifetime: retaining an idle worker must not retain
+// its executor and prevent the executor destructor from waking that worker.
+struct WorkerRetirement {
+  bool retiring = false;
+  size_t liveWorkers = 0;
+};
+
 //==============================================================================
 
 //===========================
@@ -190,6 +202,7 @@ public:
 
   bool m_exit;
   QWaitCondition m_waitCondition;
+  std::vector<std::shared_ptr<WorkerRetirement>> m_retirementOwners;
 
   Worker();
   ~Worker();
@@ -199,6 +212,7 @@ public:
   inline void takeTask();
   inline bool canAdopt(const RunnableP &task);
   inline void adoptTask(RunnableP &task);
+  void trackDedicatedExecutor(ExecutorId *id);
 
   inline void rest();
 
@@ -233,7 +247,10 @@ public:
 
   bool m_dedicatedThreads;
   bool m_persistentThreads;
+  bool m_onlyDedicatedTasks = true;
+  bool m_hasSubmittedTasks = false;
   std::deque<Worker *> m_sleepings;
+  std::shared_ptr<WorkerRetirement> m_retirement;
 
   ExecutorId();
   ~ExecutorId();
@@ -519,7 +536,8 @@ ExecutorId::ExecutorId()
     , m_activeLoad(0)
     , m_maxActiveLoad((std::numeric_limits<int>::max)())
     , m_dedicatedThreads(false)
-    , m_persistentThreads(false) {
+    , m_persistentThreads(false)
+    , m_retirement(std::make_shared<WorkerRetirement>()) {
   QMutexLocker transitionLocker(&globalImp->m_transitionMutex);
 
   m_id = globalImp->m_executorIdPool.acquire();
@@ -796,6 +814,12 @@ void Executor::shutdown() {
 void Executor::setDedicatedThreads(bool dedicated, bool persistent) {
   QMutexLocker transitionLocker(&globalImp->m_transitionMutex);
 
+  if (m_id->m_retirement->retiring) return;
+  // Once work was submitted, dropping dedication can allow its worker to serve
+  // unrelated persistent executors. Such a history cannot promise local drain.
+  if (!dedicated && m_id->m_hasSubmittedTasks)
+    m_id->m_onlyDedicatedTasks = false;
+
   m_id->m_dedicatedThreads  = dedicated;
   m_id->m_persistentThreads = persistent;
 
@@ -826,6 +850,11 @@ void Executor::addTask(RunnableP task, bool &accepted) {
     // Updating tasks and workers list - lock against state transitions
     QMutexLocker transitionLocker(&globalImp->m_transitionMutex);
 
+    if (m_id->m_retirement->retiring)
+      throw std::runtime_error("Cannot submit to a retired executor");
+    if (!m_id->m_dedicatedThreads) m_id->m_onlyDedicatedTasks = false;
+    m_id->m_hasSubmittedTasks = true;
+
     const int priority = task->schedulingPriority();
     task->m_id = m_id;
     m_id->addRef();
@@ -851,6 +880,43 @@ bool Executor::withdrawQueuedTask(RunnableP task) {
   QMutexLocker transitionLocker(&globalImp->m_transitionMutex);
   if (!task || task->m_id != m_id) return false;
   return globalImp->m_tasks.remove(task->m_schedulingPriority, task) != 0;
+}
+
+//---------------------------------------------------------------------
+
+void Executor::beginRetirement() {
+  // Keep canceled tasks alive until after the transition mutex is released.
+  std::vector<RunnableP> canceled;
+  QMutexLocker transitionLocker(&globalImp->m_transitionMutex);
+  if (m_id->m_retirement->retiring) return;
+  if (!m_id->m_dedicatedThreads || !m_id->m_onlyDedicatedTasks)
+    throw std::logic_error("Retirement requires a dedicated executor");
+
+  canceled.reserve(globalImp->m_tasks.size());
+  m_id->m_retirement->retiring = true;
+  m_id->m_persistentThreads = false;
+  m_id->refreshDedicatedList();
+
+  for (Worker *worker : globalImp->m_workers) {
+    RunnableP task = worker->m_task;
+    if (task && task->m_id == m_id) Q_EMIT task->canceled(task);
+  }
+  auto it = globalImp->m_tasks.begin();
+  while (it != globalImp->m_tasks.end()) {
+    if (it.value()->m_id != m_id) {
+      ++it;
+      continue;
+    }
+    canceled.push_back(it.value());
+    Q_EMIT canceled.back()->canceled(canceled.back());
+    it = globalImp->m_tasks.erase(it);
+  }
+}
+
+bool Executor::isRetired() const {
+  QMutexLocker transitionLocker(&globalImp->m_transitionMutex);
+  return m_id->m_retirement->retiring &&
+         m_id->m_retirement->liveWorkers == 0 && m_id->m_activeTasks == 0;
 }
 
 //---------------------------------------------------------------------
@@ -993,7 +1059,33 @@ void ExecutorImpSlots::onRefreshAssignments() {
 
 //---------------------------------------------------------------------
 
-void ExecutorImpSlots::onTerminated() { delete QObject::sender(); }
+void ExecutorImpSlots::onTerminated() {
+  retireFinishedWorker(static_cast<Worker *>(QObject::sender()));
+}
+
+void ExecutorImpSlots::retireFinishedWorker(Worker *worker) {
+  // QThread::finished precedes thread-local destructors. Some of those need
+  // GUI service, so never block the controller or hold the transition mutex.
+  if (!worker->wait(0)) {
+    const QPointer<Worker> guarded(worker);
+    QTimer::singleShot(1, this, [this, guarded] {
+      if (guarded) retireFinishedWorker(guarded.data());
+    });
+    return;
+  }
+  auto owners = std::move(worker->m_retirementOwners);
+  {
+    QMutexLocker transitionLocker(&globalImp->m_transitionMutex);
+    // Idle persistent workers return directly after being woken; they have
+    // not necessarily removed themselves through Worker::onFinish().
+    globalImp->m_workers.erase(worker);
+    // Retirement means the actual worker and QThreadStorage have finished.
+    // Publish that before QObject destruction: a synchronous destroyed callback
+    // may itself drain this executor and must not wait on its own GUI stack.
+    for (const auto &owner : owners) --owner->liveWorkers;
+  }
+  delete worker;  // Runnable/ExecutorId destructors may acquire the mutex.
+}
 
 //=====================================================================
 //      Task adoption methods
@@ -1014,6 +1106,7 @@ inline void ExecutorId::newWorker(RunnableP &task) {
       globalImp->m_workers.insert(newWorker.get());
       QObject::connect(newWorker.get(), SIGNAL(finished()), globalImpSlots,
                        SLOT(onTerminated()));
+      newWorker->trackDedicatedExecutor(this);
       newWorker->m_task = task;
       newWorker->updateCountsOnTake();
     } catch (...) {
@@ -1028,8 +1121,18 @@ inline void ExecutorId::newWorker(RunnableP &task) {
 //---------------------------------------------------------------------
 
 inline void Worker::adoptTask(RunnableP &task) {
+  trackDedicatedExecutor(task->m_id);
   m_task = task;
   updateCountsOnTake();
+}
+
+void Worker::trackDedicatedExecutor(ExecutorId *id) {
+  if (!id->m_dedicatedThreads) return;
+  const auto &owner = id->m_retirement;
+  for (const auto &existing : m_retirementOwners)
+    if (existing == owner) return;
+  m_retirementOwners.push_back(owner);
+  ++owner->liveWorkers;
 }
 
 //---------------------------------------------------------------------
@@ -1114,6 +1217,7 @@ inline bool Worker::canAdopt(const RunnableP &task) {
 // Takes a task and assigns it to the worker in a way similar to the one above.
 inline void Worker::takeTask() {
   TSmartPointerT<ExecutorId> oldId = m_task->m_id;
+  RunnableP oldTask = m_task;
 
   // When a new task is taken, the old one's Executor may seize the worker
   m_master = oldId->m_dedicatedThreads ? oldId : (TSmartPointerT<ExecutorId>)0;
@@ -1127,9 +1231,12 @@ inline void Worker::takeTask() {
   // since user code may be executed upon task destruction - including the mutex
   // relock!!
 
+  // Detach shared state under the transition mutex. Only releasing its retained
+  // local reference happens unlocked: cancellation/retirement may inspect m_task.
+  m_task = 0;
   globalImp->m_transitionMutex.unlock();
 
-  m_task = 0;
+  oldTask = 0;
   oldId  = TSmartPointerT<ExecutorId>();
 
   globalImp->m_transitionMutex.lock();
