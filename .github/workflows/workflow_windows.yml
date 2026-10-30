@@ -141,8 +141,15 @@ jobs:
         shell: pwsh
         run: |
           if (!(Get-Command ffmpeg -ErrorAction SilentlyContinue) -or !(Get-Command ffprobe -ErrorAction SilentlyContinue)) {
-            choco install ffmpeg --yes --no-progress
-            if ($LASTEXITCODE -ne 0) { throw "FFmpeg installation failed" }
+            for ($attempt = 1; $attempt -le 3; $attempt++) {
+              choco install ffmpeg --yes --no-progress
+              if ($LASTEXITCODE -eq 0) { break }
+              if ($attempt -eq 3) {
+                Write-Output "::error title=FFmpeg dependency installation::Chocolatey failed after three attempts; inspect the package-feed response above."
+                throw "FFmpeg installation failed"
+              }
+              Start-Sleep -Seconds (10 * $attempt)
+            }
           }
           Get-Command ffmpeg, ffprobe -ErrorAction Stop
 
@@ -218,7 +225,7 @@ jobs:
           mkdir build
           cd build
 
-          cmake ..\sources -G "%MSVCVERSION%" -Ax64 -DQT_PATH="%QT_PATH%" -DBOOST_ROOT="%BOOST_ROOT%" -DOpenCV_DIR="%OpenCV_DIR%" -DWITH_WINTAB=Y -DBUILD_CELFX_TESTS=ON -DBUILD_CADMIUM_TESTS=ON -DBUILD_UI_PORT_TESTS=ON -DBUILD_PARTICLE_CACHE_TESTS=ON -DBUILD_RELIABILITY_TESTS=ON -DBUILD_STREAM_TESTS=ON -DBUILD_SCENEBENCH_TESTS=ON -DBUILD_FXRENDER_TESTS=ON -DBUILD_PSD_TESTS=ON -DBUILD_FFMPEG_TESTS=ON -DBUILD_SEEXPR_TESTS=ON -DBUILD_SEEXPR_PYTHON=ON -DPython3_EXECUTABLE="%pythonLocation%\python.exe" > cmake-config.log 2>&1
+          cmake ..\sources -G "%MSVCVERSION%" -Ax64 -DQT_PATH="%QT_PATH%" -DBOOST_ROOT="%BOOST_ROOT%" -DOpenCV_DIR="%OpenCV_DIR%" -DWITH_WINTAB=Y -DBUILD_CELFX_TESTS=ON -DBUILD_CADMIUM_TESTS=ON -DBUILD_UI_PORT_TESTS=ON -DBUILD_LUT3D_TESTS=ON -DBUILD_PARTICLE_CACHE_TESTS=ON -DBUILD_RELIABILITY_TESTS=ON -DBUILD_STREAM_TESTS=ON -DBUILD_SCENEBENCH_TESTS=ON -DBUILD_FXRENDER_TESTS=ON -DBUILD_PSD_TESTS=ON -DBUILD_FFMPEG_TESTS=ON -DBUILD_SEEXPR_TESTS=ON -DBUILD_SEEXPR_PYTHON=ON -DPython3_EXECUTABLE="%pythonLocation%\python.exe" > cmake-config.log 2>&1
           set "CONFIGURE_EXIT=%ERRORLEVEL%"
           type cmake-config.log
           exit /b %CONFIGURE_EXIT%
@@ -344,6 +351,23 @@ jobs:
           name: cadmium-runtime-windows-x64
           path: toonz/build/Opentoonz
 
+      - name: Qualify native neural host
+        shell: cmd
+        run: |
+          set "PATH=%CD%\toonz\build\Opentoonz;%QT_PATH%\bin;%PATH%"
+          set "QT_PLUGIN_PATH=%QT_PATH%\plugins"
+          set "QT_QPA_PLATFORM_PLUGIN_PATH=%QT_PATH%\plugins\platforms"
+          set "QT_QPA_FONTDIR=%WINDIR%\Fonts"
+          python ci-scripts/neural-style/host.py
+
+      - name: Retain reference style qualification and visual examples
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ReferenceStyle-${{ runner.os }}-${{ github.sha }}
+          path: neural-evaluation/report
+          if-no-files-found: warn
+
       - name: Test particle cache integration
         id: particle_tests
         shell: cmd
@@ -352,7 +376,7 @@ jobs:
           set "QT_PLUGIN_PATH=%QT_PATH%\plugins"
           set "QT_QPA_PLATFORM_PLUGIN_PATH=%QT_PATH%\plugins\platforms"
           cd toonz\build
-          ctest -C RelWithDebInfo --output-on-failure --output-junit particle-tests.xml --timeout 300 --no-tests=error -R "^particlecache_" > particle-tests-output.txt 2>&1
+          ctest -C RelWithDebInfo --output-on-failure --output-junit particle-tests.xml --timeout 300 --no-tests=error -R "^(particlecache_|referencecolormatch$)" > particle-tests-output.txt 2>&1
           set "PARTICLE_TEST_EXIT=%ERRORLEVEL%"
           type particle-tests-output.txt
           exit /b %PARTICLE_TEST_EXIT%
@@ -517,7 +541,7 @@ jobs:
         shell: pwsh
         run: |
           $package = "toonz/build/Opentoonz"
-          $drivers = @("seexpr_plugin_test", "seexpr_animation_test", "seexpr_fx_test", "seexpr_surface_fx_test", "seexpr_native_animcurve_test", "glbsurface_test", "seexpr_editor_test", "seexpr_controls_test", "seexpr_range_test", "seexpr_batch_fixture")
+          $drivers = @("seexpr_plugin_test", "seexpr_animation_test", "seexpr_fx_test", "seexpr_surface_fx_test", "seexpr_native_animcurve_test", "glbsurface_test", "seexpr_editor_test", "seexpr_controls_test", "seexpr_range_test", "seexpr_batch_fixture", "neuralstyle_host_test", "neuralstyle_test", "neuralstyle_editor_test")
           $suffixes = @(".exe", ".lib", ".exp", ".pdb", ".ilk", ".ipdb", ".iobj", ".exe.manifest")
           foreach ($driver in $drivers) {
             foreach ($suffix in $suffixes) {

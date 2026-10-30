@@ -846,6 +846,10 @@ if(BUILD_ENV_UNIXLIKE AND BUILD_TARGET_WIN)
         DESTINATION share/opentoonz
     )
 elseif(BUILD_ENV_UNIXLIKE AND NOT BUILD_TARGET_WIN)
+    # Generated only by verified component qualification/package tooling.
+    # Source builds without the optional component keep color matching usable.
+    install(DIRECTORY ${CMAKE_BINARY_DIR}/bin/neural-style DESTINATION bin OPTIONAL
+            USE_SOURCE_PERMISSIONS)
     # Setup files on Linux/Unix platform.
     # not essential since the binary can run in-place,
     # but useful for package managers.

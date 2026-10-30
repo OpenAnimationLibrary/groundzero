@@ -1,3 +1,7 @@
+#include "toonzqt/colormatcheditor.h"
+#include "toonz/palettecontroller.h"
+#include "tapp.h"
+
 #include <QAbstractItemModel>
 #include <QSignalBlocker>
 #include "toonzqt/uitranslations.h"
@@ -442,6 +446,23 @@ ReferencePanel::ReferencePanel(QWidget *parent)
   QHBoxLayout *buttonLay = new QHBoxLayout();
   buttonLay->setContentsMargins(2, 2, 2, 2);
   buttonLay->setSpacing(2);
+  auto matchColors = new QToolButton(this);
+  matchColors->setText(tr("Match Colors..."));
+  matchColors->setToolTip(tr("Map selected palette styles to this reference. View opacity and rotation do not alter sampled colors."));
+  connect(matchColors, &QToolButton::clicked, this, [this] {
+    if (!m_view->hasImage()) return;
+    matchPaletteToReference(this,
+        TApp::instance()->getPaletteController()->getCurrentLevelPalette(),
+        m_view->image());
+  });
+  buttonLay->addWidget(matchColors);
+  auto textureProfile = new QToolButton(this);
+  textureProfile->setText(tr("Texture Profile..."));
+  textureProfile->setToolTip(tr("Capture and export this reference for Neural Texture Style FX. Artwork stays on this computer."));
+  connect(textureProfile, &QToolButton::clicked, this, [this] {
+    if (m_view->hasImage()) createNeuralStyleProfile(this, m_view->image());
+  });
+  buttonLay->addWidget(textureProfile);
   {
     buttonLay->addWidget(loadButton);
     buttonLay->addStretch(1);

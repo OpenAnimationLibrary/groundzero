@@ -2,6 +2,8 @@
 
 // Tnz6 includes
 #include "colormodelviewer.h"
+#include "toonzqt/colormatcheditor.h"
+#include "trop.h"
 #include "menubarcommandids.h"
 #include "floatingpanelcommand.h"
 #include "tapp.h"
@@ -220,6 +222,35 @@ void ColorModelViewer::contextMenuEvent(QContextMenuEvent *event) {
   /* If there is at least one style with "picked pos" parameter, then enable
    * repick command */
   TRasterImageP ri = m_imageViewer->getImage();
+  if (ri) {
+    auto match = menu.addAction(tr("Match Palette to Reference Colors..."));
+    connect(match, &QAction::triggered, this, [this, ri] {
+      TRasterP raster=ri->getRaster();
+      if (qint64(raster->getLx())*raster->getLy()>16777216) {
+        DVGui::warning(tr("Use a reference of at most 16 megapixels for color matching."));
+        return;
+      }
+      if (!TRaster32P(raster) && !TRasterGR8P(raster)) {
+        TRaster32P converted(raster->getLx(),raster->getLy());
+        TRop::convert(converted,raster);
+        raster=converted;
+      }
+      matchPaletteToReference(this, getPaletteHandle(),
+                              rasterToQImage(raster).copy());
+    });
+    auto texture = menu.addAction(tr("Create Neural Texture Profile..."));
+    connect(texture, &QAction::triggered, this, [this, ri] {
+      TRasterP raster=ri->getRaster();
+      if (qint64(raster->getLx())*raster->getLy()>16777216) {
+        DVGui::warning(tr("Use a reference of at most 16 megapixels."));return;
+      }
+      if (!TRaster32P(raster) && !TRasterGR8P(raster)) {
+        TRaster32P converted(raster->getLx(),raster->getLy());
+        TRop::convert(converted,raster);raster=converted;
+      }
+      createNeuralStyleProfile(this,rasterToQImage(raster).copy());
+    });
+  }
   if (ri && currentPalette->hasPickedPosStyle()) {
     menu.addSeparator();
     QAction *repickFromColorModelAct = new QAction(

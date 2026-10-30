@@ -29,7 +29,9 @@ jobs:
           lfs: false
           persist-credentials: false
           sparse-checkout-cone-mode: false
-          sparse-checkout: /ci-scripts/seexpr/
+          sparse-checkout: |
+            /ci-scripts/seexpr/
+            /ci-scripts/neural-style/
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
