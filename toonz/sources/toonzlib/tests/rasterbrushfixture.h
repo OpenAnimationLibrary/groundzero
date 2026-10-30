@@ -49,6 +49,8 @@ inline QByteArray hardPixelKpp(const QString &mutation = {},
   if (mutation != "missing") param("KisPrecisionOption/precisionLevel", "5");
   if (mutation == "unknown") param("UnclassifiedActiveSetting", "true");
   if (!model.isEmpty()) {
+    const bool wetPressure =
+        mutation == "wetPressure" || mutation == "radiusPressure";
     for (const QString &key :
          {"PressureColorRate", "PressureSmudgeRate", "PressureSmudgeRadius"})
       param(key, mutation == "lengthOff" && key == "PressureSmudgeRate"
@@ -56,10 +58,9 @@ inline QByteArray hardPixelKpp(const QString &mutation = {},
                      : "true");
     for (const QString &key :
          {"ColorRateUseCurve", "SmudgeRateUseCurve", "SmudgeRadiusUseCurve"})
-      param(key, mutation == "wetPressure" && key != "SmudgeRadiusUseCurve"
-                     ? "true"
-                     : "false");
-    if (mutation == "wetPressure") {
+      param(key,
+            wetPressure && key != "SmudgeRadiusUseCurve" ? "true" : "false");
+    if (wetPressure) {
       for (const QString &prefix : {"SmudgeRate", "ColorRate"}) {
         param(prefix + "UseSameCurve", "true");
         param(prefix + "commonCurve", "0,0;1,1;");
@@ -68,7 +69,9 @@ inline QByteArray hardPixelKpp(const QString &mutation = {},
       }
     }
     param("SmudgeRateSmearAlpha", mutation == "alphaOff" ? "false" : "true");
-    param("SmudgeRadiusValue", mutation == "radius" ? "1" : "0");
+    param("SmudgeRadiusValue", mutation == "radius"           ? "1"
+                               : mutation == "radiusPressure" ? "100"
+                                                              : "0");
     param("SmudgeRateValue", "0.5");
     param("ColorRateValue", "0.25");
     param("SmudgeRateMode", model.endsWith("smear") ? "0" : "1");

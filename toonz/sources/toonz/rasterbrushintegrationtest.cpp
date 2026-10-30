@@ -235,9 +235,10 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
     checkpoint("qualifying source wet stroke transactions and persistence");
     for (const QString &model :
          {"legacy-smear", "legacy-dulling", "new-smear", "new-dulling"})
-      for (const QString &variant : {QString(), QString("wetPressure")}) {
+      for (const QString &variant :
+           {QString(), QString("wetPressure"), QString("radiusPressure")}) {
         const QString label =
-            model + (variant.isEmpty() ? "-fixed" : "-pressure");
+            model + "-" + (variant.isEmpty() ? QString("fixed") : variant);
         const QString sourcePath =
             QDir::current().filePath("original-source-" + label + ".kpp");
         QFile sourceFile(sourcePath);
@@ -258,6 +259,12 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
                     "krita-5.3.4.1-" + model.toStdString() + "-candidate-1" &&
                 !fixture.provenance["sourceReferenceVerified"].toBool(),
             "KPP worker lost strict candidate identity or qualification");
+        if (variant == "radiusPressure")
+          require(fixture.preset.smudgeRadius ==
+                          (model.endsWith("dulling") ? 1 : 0) &&
+                      fixture.preset.pickupControl.mappings.size() == 1 &&
+                      fixture.preset.colorRateControl.mappings.size() == 1,
+                  "combined source radius and pressure mappings were lost");
         fixture.preset.name =
             "Original source transaction " + label.toStdString();
         const QString folder =

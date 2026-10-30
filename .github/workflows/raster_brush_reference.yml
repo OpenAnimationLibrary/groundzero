@@ -90,7 +90,7 @@ jobs:
       max-parallel: 2
       fail-fast: false
       matrix:
-        fixture_group: [wetkernel, wetpressure, pixelsoftsize, pixelrectsize, pixelsoft, pixelopacitytablet, pixelopacity, pixelpressure, wettexture3, wetstate, wethold, wettexture, pixelaarange, pixelcontrols, pixelsmallpressure, pixelshape, wetswitches, wetcombined, wetsteps, hardpixel, geometry, tablet, parameters]
+        fixture_group: [wetkernel, wettexture3, wetkernelscale, wetpressure, pixelsoftsize, pixelrectsize, pixelsoft, pixelopacitytablet, pixelopacity, pixelpressure, wetstate, wethold, wettexture, pixelaarange, pixelcontrols, pixelsmallpressure, pixelshape, wetswitches, wetcombined, wetsteps, hardpixel, geometry, tablet, parameters]
     runs-on: ubuntu-22.04
     timeout-minutes: 20
     env:
@@ -291,17 +291,27 @@ jobs:
                   raise RuntimeError('Measurement annotation exceeds the observed 4096-byte limit')
               print('::notice title=Unqualified conversion measurements::' + text.replace('%', '%25').replace('\n', '%0A').replace('\r', '%0D'))
           PYMETRICS
-      - name: Report comparison build failure
+      - name: Report comparison failure evidence
         if: failure()
         shell: bash
         run: |
-          if test -f "$BRUSH_REFERENCE_ROOT/comparison-build.log"; then
-            tail -40 "$BRUSH_REFERENCE_ROOT/comparison-build.log" | while IFS= read -r line; do
-              line=${line//'%'/'%25'}
-              line=${line//$'\r'/'%0D'}
-              echo "::error::$line"
-            done
-          fi
+          python3 - <<'PYFAILURE'
+          import os, re
+          from pathlib import Path
+          root = Path(os.environ['BRUSH_REFERENCE_ROOT'])
+          build = root / 'comparison-build.log'
+          if build.is_file():
+              lines = build.read_text(errors='replace').splitlines()
+              errors = [line for line in lines if re.search(r'error:|fatal error:|undefined reference|CMake Error|FAILED:|error C[0-9]', line)]
+              # Successful compiler progress is context, never an error.
+              level = 'error' if errors else 'notice'
+              message = '\n'.join(errors[-12:] if errors else lines[-3:])[-3500:]
+              print(f'::{level} title=Comparison build evidence::' + message.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A'))
+          runtime = root / 'comparison.log'
+          if runtime.is_file():
+              message = runtime.read_text(errors='replace')[-3500:]
+              print('::notice title=Comparison runtime context::' + message.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A'))
+          PYFAILURE
       - uses: actions/upload-artifact@v4
         if: always()
         with:

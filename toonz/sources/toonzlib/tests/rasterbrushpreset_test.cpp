@@ -1018,6 +1018,20 @@ void writeCorpus(const QString &directory) {
   record.preset.scatterBothAxes = false;
   save("native-count-direction", 0, encode(record, error));
   require(error.isEmpty(), "cannot encode count/direction corpus");
+  {
+    QTemporaryDir wire;
+    Record record;
+    auto image   = std::make_shared<Image>();
+    image->width = image->height = 1;
+    image->pixels                = {{0, 0, 0, 1}};
+    record.preset.tip.shape      = Shape::Bitmap;
+    record.preset.tip.images.push_back(image);
+    save("worker-metadata", 6, encodeWorkerRecord(record, wire.path(), error));
+    require(error.isEmpty(), "cannot encode worker wire corpus");
+    save("worker-rgba8", 7, QByteArray::fromHex("0000000100000001000000ff"));
+    save("worker-oversized-header", 7,
+         QByteArray::fromHex("ffffffffffffffff000000ff"));
+  }
   save("pixel-kpp", 1, kpp());
   save("smudge-kpp", 1, kpp("colorsmudge"));
   save("gray-gbr", 2, gbr());

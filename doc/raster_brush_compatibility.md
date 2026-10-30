@@ -20,7 +20,7 @@ satisfy the contract. Build and test through CI per CLAUDE.md.
 | ABR descriptor/computed-tip/pattern behavioral import | Typed descriptor decoding and legacy 1/2 computed-tip native conversion implemented; modern behavioral binding and patterns pending | Every declared version and active setting; decoding is not behavioral support |
 | KPP/bundle/GBR/GIH import | GBR 1/2 and one-dimensional GIH native conversions; KPP native conversion plus strict fixed-tip source candidate selection; bounded bundle dependency resolution | Unknown/missing active settings retain native conversion; candidate flags do not claim source verification |
 | Independent dry renderer and defined dynamics/combinations | Native CPU renderer and independent fixed hard-circle source candidate implemented | Six isolated and nine long source hard-pixel gates passed; source AA/softness/dynamics remain incomplete |
-| Four Krita smudge profiles and native wet | Native wet/smear plus four separate fixed-tip source candidates implemented | All four models pass the 64 first/second-dab gates at 763fb470; all 32 varied-third-dab cases meet numeric bounds, with a hidden-RGB coverage metric correction awaiting CI; full source profiles remain incomplete |
+| Four Krita smudge profiles and native wet | Native wet/smear plus four separate fixed-tip source candidates implemented | All 48 wet-pressure gates passed at 5423354f; 215 enforced full-image kernel gates passed at 99ca200c, including nonzero-radius legacy/new Dulling. Earlier fixed/control/state gates passed; full dynamics/geometry/texture profiles remain incomplete |
 | Real tilt/rotation capture and normalization | Additive Qt tablet fields and track interpolation implemented | Linux full application CI passes; physical device qualification pending |
 | Actual-engine preview, editor, portable preset export/relink | Native scratchpad, sensor/curve/texture/dual/color editor and embedded-asset export implemented | Six platform/Qt suites passed at `a0ef97ea`; full editor device workflows still require qualification |
 | Undo/cancel/frame lifecycle/save/reopen | Native path uses raster undo; cancellation rolls back tiles and created frame | Linux actual-tool and installed-package undo, redo, cancellation, frame creation and PNG reopen workloads passed at `31a0bee6`; exact final head and other installed platforms remain gates |
@@ -765,3 +765,29 @@ orthogonal impulse regressions and mandatory full-image/third-dab gates.
 Those new runtime gates are pending CI; this is not a promotion to verified.
 Legacy radius above 100 percent still needs its distinct large-area sampling
 rule, and the full dynamics/geometry/texture contract remains unchanged.
+
+The installed-application workload additionally combines a 100 percent Dulling
+radius with pressure-driven pickup and color rate (and verifies that Smear keeps
+its serialized radius inactive). Each variant imports through the worker,
+installs a portable preset, paints through the actual tool, and checks exact
+undo/redo, cancellation, state reset and PNG reopening. A separate source scale
+matrix varies diameter and radius with orthogonal impulses to distinguish the
+legacy large-area sampling rule from the new model's tip-limited rule. Existing
+candidate regions retain mandatory comparison gates; measurements outside them
+remain exploratory until the corresponding runtime is implemented.
+
+The instrumented mutation corpus now includes both worker metadata and raw RGBA8
+sidecars, alongside all six existing foreign/native input formats. Worker fuzz
+cases use the exact parent decoder with a 1 MiB allocation allowance; malformed
+headers, body lengths and mutated resource graphs cannot bypass that boundary.
+Original valid wire records and an oversized-header seed exercise both accepted
+and rejected paths. This supplements the protocol unit and peak-memory gates.
+
+At 99ca200c, all 215 enforced full-image kernel gates passed (266 acquired cases;
+the remaining 51 legacy large-radius cases are exploratory, not passing parity).
+All six OS/Qt parser suites and import fuzzing also passed, including the private
+raw return protocol and 59 captured orthogonal impulse regressions. This confirms
+the measured radius implementation for those fixtures without claiming general
+source compatibility or completion of the full RCP1 contract. The next head adds
+combined radius/pressure application transactions, broader scale acquisition and
+worker-response fuzzing; those additions require their own exact-head CI.

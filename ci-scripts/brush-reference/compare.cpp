@@ -366,6 +366,7 @@ int main(int argc, char **argv) {
            fixtures["group"].toString() == "wetcombined" ||
            fixtures["group"].toString() == "wetpressure" ||
            ((fixtures["group"].toString() == "wetkernel" ||
+             fixtures["group"].toString() == "wetkernelscale" ||
              fixtures["group"].toString() == "wettexture" ||
              fixtures["group"].toString() == "wettexture3") &&
             (name.contains(" smear ") ||
