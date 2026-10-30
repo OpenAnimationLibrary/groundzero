@@ -53,6 +53,16 @@ Library drafts and independent exports completed before cancellation are not
 rolled back. The scope was established by source ownership analysis, not a
 reproduced crash; it is separate from the still-unlocalized native timeout.
 
+The first execution of these cases found two fixture setup errors. Native owner
+setup now requests platform activation and waits, with a five-second bound, for
+the exposed window to be active; each review also proves its transient owner is
+that exact window before cancellation. Merely calling Qt's active-window setter
+does not request native focus. Manager cancellation compares all loaded draft
+samples exactly, using the library's existing five-significant-digit format as
+its initial state, rather than comparing decoded samples to unsaved sine-based
+built-in values. Original byte, queued-action, drawing and history oracles stay
+strict. These fixture corrections still require fresh CI qualification.
+
 The existing `BUILD_UI_PORT_TESTS` gate builds the standalone tests and the real
 application fixtures. `nativeuiintegrationtest.cpp` calls the vector, fill,
 contour, brush, morph, opacity editor, renderer, native stroke editing and

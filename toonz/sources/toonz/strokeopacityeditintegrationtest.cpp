@@ -1,4 +1,5 @@
 #include "strokeopacityeditintegrationtest.h"
+#include "vectormodaltest.h"
 #include "tapp.h"
 #include "tools/tool.h"
 #include "tools/toolhandle.h"
@@ -275,9 +276,7 @@ void opacityReviewGuards() {
   for (int destroy = 0; destroy < 2; ++destroy) {
     QPointer<QWidget> previous = QApplication::activeWindow();
     std::unique_ptr<QWidget> owner(new QWidget);
-    owner->resize(320,200); owner->show(); QApplication::setActiveWindow(owner.get());
-    QCoreApplication::processEvents();
-    require(QApplication::activeWindow() == owner.get(), "opacity fixture original owner unavailable");
+    VectorModalTest::activateOwner(*owner, "opacity");
     const bool dirty = app->getCurrentScene()->getDirtyFlag(), levelDirty = level->getProperties()->getDirtyFlag();
     const TPixel32 color = palette->getStyle(1)->getMainColor();
     bool saw = false, delivered = false, expired = false;
@@ -290,8 +289,9 @@ void opacityReviewGuards() {
     QObject::connect(&response,&QTimer::timeout,[&] {
       auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
       try {
-        require(dialog && dialog->objectName() == "strokeOpacityEditor" && !dialog->parentWidget(),
-                "opacity owner review is missing or QObject-owned");
+        require(dialog && dialog->objectName() == "strokeOpacityEditor" &&
+                    VectorModalTest::hasReviewOwner(dialog, owner.get()),
+                "opacity review did not capture its actual native owner");
         saw = true;
         auto *fade = dialog->findChild<QPushButton *>("strokeOpacityFadeOut");
         auto *apply = dialog->findChild<QPushButton *>("strokeOpacityApply");

@@ -73,6 +73,18 @@ Pending CI checks: compile/link on all platforms; the required `castworkflow` te
   actually current trees and selects replacements without clearing selection
   in the fixture. The existing interruption cases remain. This correction is
   prepared for fresh CI, not qualified by the earlier run.
+- [Linux candidate 5d02222bf8](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/41101342783)
+  advanced through those interruption boundaries, then failed the combined
+  fresh-tag value/one-Undo assertion. That log does not identify which field
+  differed. Source tracing independently found that a selected scene-root
+  label update could enter the folder-rename handler and add a phantom Undo
+  during the tag edit's dirty notification. Root display updates now block
+  edit signals, and folder edits require an editable, existing, nonempty
+  folder path. Native coverage retains the fresh-tag, Cancel and exact Undo
+  checks, adds bounded acceptance/history diagnostics, and checks selected
+  visible and hidden roots against full folder/membership/history snapshots.
+  The existing real-folder rename/Undo checks remain. Fresh CI must establish
+  the runtime outcome of this correction.
 - Search, preview navigation, read-only inspection and reports do not alter level data or exposure cells. Explicit cover selection and confirmed consolidation are undoable edits. Native child navigation may add its normal navigation undo records.
 - Relink and local-copy preparation does not alter live paths. All chosen assets validate before one grouped application. Cancellation during snapshotting or streamed copying discards the prepared operation.
 - A published local-copy directory is user data. Undo never deletes it; subsequent redo uses that exact directory. No source or existing destination file is overwritten or deleted.
