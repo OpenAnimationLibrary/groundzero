@@ -174,7 +174,10 @@ void ownershipRoundTrip(const QString &directory) {
     }
     source->setLibraryProvenance(origin);
     const QString identity = source->getCastId();
-    require(!identity.isEmpty() && !source->sourceExpectedOnDisk(), "new asset identity/save state is invalid");
+    const std::string typeContext = " (level type " + std::to_string(type) + ")";
+    require(!identity.isEmpty(), ("new asset has no Cast identity" + typeContext).c_str());
+    require(!source->sourceExpectedOnDisk(),
+            ("new asset incorrectly expects a saved source" + typeContext).c_str());
     for (bool expected : {false, true}) {
       source->setSourceExpectedOnDisk(expected);
       const TFilePath path(QDir(directory).filePath(QString("ownership-%1.xml").arg(type)));
@@ -182,9 +185,15 @@ void ownershipRoundTrip(const QString &directory) {
       TPersist *loaded = nullptr;
       { TIStream is(path); is >> loaded; }
       TXshLevelP restored = dynamic_cast<TXshLevel *>(loaded);
-      require(restored && restored->getCastId() == identity &&
-                  restored->getLibraryProvenance() == origin && restored->sourceExpectedOnDisk() == expected,
-              "native ownership metadata did not round-trip on every Cast level type");
+      require(restored, ("native ownership reload lost its level" + typeContext).c_str());
+      require(restored->getCastId() == identity,
+              ("native ownership reload changed Cast identity" + typeContext).c_str());
+      require(restored->getLibraryProvenance() == origin,
+              ("native ownership reload changed Library attribution" + typeContext).c_str());
+      require(restored->sourceExpectedOnDisk() == expected,
+              ("native ownership reload changed expected source state to " +
+               std::to_string(restored->sourceExpectedOnDisk()) + ", expected " +
+               std::to_string(expected) + typeContext).c_str());
       TXshSimpleLevel cloned;
       const QString cloneId = cloned.getCastId();
       cloned.copyCastMetadataFrom(restored.getPointer());
