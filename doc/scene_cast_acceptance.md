@@ -42,6 +42,26 @@ Pending CI checks: compile/link on all platforms; the required `castworkflow` te
 
 ## File and cancellation rules
 
+- Cast modal workflows share the original panel's lifetime and scene scope.
+  Hiding or destroying that panel (or an ancestor), or switching scenes,
+  permanently invalidates the open operation, including nested file choosers,
+  overwrite prompts and confirmations. Stack dialogs and caller-owned context
+  menus have nonowning native transient relationships, so panel deletion cannot
+  delete their storage before their event loops return. No late queued action
+  may navigate, publish files or add Undo after invalidation. A new invocation
+  gets a fresh scope. User-canceled read-only progress can still show a partial
+  report; owner or scene invalidation does not open another report.
+- `castinterruptionintegrationtest.cpp` prepares native owner-hide, destruction,
+  ancestor-hide and New Scene interruptions, with actual queued controls and
+  exact asset identity/content, collections, nested exposure, history, dirty
+  state and file snapshots. It covers nested relink/local-copy/consolidation/
+  report prompts, an existing CSV overwrite, and fresh repeated tag edits.
+  Folder deletion revalidates the reviewed hierarchy and resolves tree items
+  again after its confirmation; a refresh while that prompt is open is covered.
+  These are new source-level safeguards and prepared CI assertions for reopened
+  items 39, 40, 42, 43, 46–48 and 50–52, not evidence of an executed crash or of
+  successful qualification of this revision. Earlier passing runs precede these
+  changes.
 - Search, preview navigation, read-only inspection and reports do not alter level data or exposure cells. Explicit cover selection and confirmed consolidation are undoable edits. Native child navigation may add its normal navigation undo records.
 - Relink and local-copy preparation does not alter live paths. All chosen assets validate before one grouped application. Cancellation during snapshotting or streamed copying discards the prepared operation.
 - A published local-copy directory is user data. Undo never deletes it; subsequent redo uses that exact directory. No source or existing destination file is overwritten or deleted.

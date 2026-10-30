@@ -17,7 +17,7 @@
 #include <QHideEvent>
 #include <QShowEvent>
 #include <QLabel>
-#include <QMessageBox>
+#include "castworkflowguard.h"
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPushButton>
@@ -285,7 +285,10 @@ CastInspector::CastInspector(QWidget *parent) : QWidget(parent), m(new State) {
       m->start = double(first) / m->track->getSampleRate();
       m->audio->play(m->track, first, m->track->getSampleCount() - 1);
       m->elapsed.start(); m->playback.start(40); m->stop->setEnabled(true);
-    } catch (...) { QMessageBox::warning(this, tr("Audition Audio"), tr("This sound could not be played.")); }
+    } catch (...) {
+      CastWorkflowGuard workflow(this);
+      workflow.warning(tr("Audition Audio"), tr("This sound could not be played."));
+    }
   });
   connect(&m->playback, &QTimer::timeout, this, [this]() {
     if (!m->audio || !m->audio->isPlaying() || !m->track || !m->current()) { stopAudio(); return; }

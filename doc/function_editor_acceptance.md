@@ -337,3 +337,22 @@ cycle verifies preferences persistence and that deleted sets cannot be recalled,
 without introducing animation undo for workspace preferences. These new checks
 are authored and source-reviewed only until fresh exact-head CI executes them;
 no local build or test was run.
+
+The subsequent focused Linux run at `3dd99b2f69262dbe7612efc90dc452b6fbc48deb`
+compiled and passed the widget fixtures, including queued panel closure and
+key-drift checks. Its isolated native Function workflow crashed during the new
+panel sequence; GDB reproduced `ParamCalculatorNode::onChange` called from
+`TDoubleParam::setKeyframe` in `panelLifetimeDialogs`, after the dependency route.
+This remains a failed native qualification, independently of the original
+full-suite vector failure.
+
+Source inspection found a separate observer-lifetime defect:
+`FunctionSegmentViewer` registers itself on its current curve but its destructor
+released that curve without unregistering. A source edit can consequently
+propagate through a native expression to the already destroyed segment editor.
+The correction unregisters before releasing. Prepared regressions check exact
+observer membership through both native segment-binding slots and destruction,
+and retain all 24 panel routes in their original order. After every native panel
+is destroyed, source and dependent key edits exercise propagated and direct
+notifications, restore exact authored snapshots, and add no undo entry. These
+new source/tests require fresh exact-head CI; no local execution occurred.
