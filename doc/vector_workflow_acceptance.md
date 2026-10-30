@@ -65,10 +65,60 @@ for executed results.
   representation and are rejected explicitly before any mutation.
 - Shape-clipped painting refuses unsupported guide-stroke scalar/envelope
   opacity instead of silently converting it to a different alpha shape.
-- Uniform opacity remains on the GPU after native-style capture. Envelopes add
+- With depth testing disabled, uniform opacity remains on the GPU after native-style capture. Envelopes add
   pixel readback and a bounded spatial lookup. Unverified procedural styles
   capture a full viewport. Performance and memory costs are measured in CI;
   this branch makes no unmeasured speed claim.
+
+## Depth-tested opacity and resource cost
+
+Native 3D drawing has fragment-level depth and stencil behavior, including
+antialiased Chain lines that occlude one another. A flattened style texture
+cannot reconstruct those decisions from the stroke plane. The depth-enabled
+path therefore draws the unmodulated native style into the original target and
+interpolates its actual color change by scalar opacity and the arc-length
+envelope. It retains native depth and stencil wherever the effective opacity is
+positive, including changes that leave the color identical to the background.
+Exactly zero opacity restores the original color, depth and stencil. Errors
+after native drawing restore all saved attachments before propagating.
+
+Snapshots cover the full attachment because native fill-mask clears can affect
+stencil outside both the stroke and viewport. Float color preserves high-bit
+targets; fixed and floating depth retain their original 32-bit transfer values.
+sRGB targets interpolate RGB in linear light. Floating-color targets temporarily
+disable read/fragment clamping during snapshot/replace, preserving untouched
+HDR values while native drawing retains the caller's original clamp policy.
+Pixel transfer, program, texture,
+channel-mask, scissor and separate read-framebuffer state are restored. Field
+lookups are skipped only when every color/depth/stencil value is unchanged.
+
+The supported depth targets are non-multisample Qt windows and FBOs with a depth
+renderbuffer, 2D texture, or cube-map face. Multisample attachments (including a
+multisample attachment with one sample) and other texture depth targets are
+rejected before drawing. The application's Qt production backend requests a
+combined depth/stencil FBO with no samples; the ordinary 2D opacity path is
+unchanged by these depth-specific restrictions. This is not a per-sample GPU
+renderer redesign.
+
+This 3D path adds readback, native drawing and attachment replacement per stroke.
+With stencil present, its two attachment snapshots contain 48 bytes per target
+pixel: 1,572,864 bytes at 256×128 and 99,532,800 bytes at 1920×1080, before the
+stroke/field objects and existing framebuffer storage. Buffers are released
+after each stroke. Aggregate snapshots are capped at 512 MiB before allocation;
+larger targets are refused before drawing with an instruction to reduce the
+viewer framebuffer size. With stencil, this allows up to 11,184,810 target pixels;
+full 3840×2160 depth-tested targets fit (398,131,200 snapshot bytes). This limit does not apply
+to ordinary depth-disabled 2D drawing or export. Acceptance records native, scalar and envelope frame timings
+for bounded small and 1920×1080 multi-stroke workloads; these are descriptive
+measurements rather than a machine-dependent pass threshold. Usable performance
+and complete platform execution remain pending CI; no performance-neutrality
+claim is made.
+
+The native fixture retains the strict Chain `GL_LEQUAL` comparison and adds the
+scene viewer's `GL_ALWAYS` mode, transparent holes and later layers, same-color
+depth writes, channel/depth/stencil masks, scissor, reduced viewports, independent
+read FBOs, high-bit and sRGB color, supported depth textures, preflight refusal,
+failure rollback and recovery.
 
 ## Production caller preservation
 
@@ -109,4 +159,7 @@ insertion. They remain directly inside the entered group, above its existing
 children and below any outside layers. Native brush acceptance checks nested
 group ancestry, overlapping siblings and outer layers, and repeated undo/redo.
 Its phase-specific pixel, contour and region diagnostics retain the original
-rendering assertions; execution of this correction is pending CI.
+rendering assertions. Linux at `bc9ca867f6cd2fa6c719f6159a9de3411b44b76e` passed
+fill, contour, Brush, morph and opacity-editor native checks; the renderer then
+identified the Chain depth mismatch addressed above. The new depth correction
+and remaining platform qualification still await CI.

@@ -80,9 +80,11 @@ void DVAPI tglDraw(const TVectorRenderData &rd, TRegion *r,
 #ifdef BUILD_UI_PORT_TESTS
 // Native acceptance fault injection, absent from production builds. 0 resets,
 // 1 simulates missing FBO entry points, 2 fails after resource allocation,
-// 3 fails only inside an intermediate style capture.
+// 3 fails only inside an intermediate style capture, 4 fails after native
+// depth drawing, 5 refuses multisampling, 6 forces a snapshot-budget refusal.
 void DVAPI tglSetOpacityFramebufferFailureForTest(int stage);
 void DVAPI tglSetOpacityViewportCaptureForTest(bool full);
+bool DVAPI tglOpacitySnapshotFitsForTest(int width, int height, bool stencil);
 #endif
 
 //=============================================================================
