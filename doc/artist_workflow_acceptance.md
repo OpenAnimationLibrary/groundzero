@@ -23,7 +23,7 @@ Raster Krita/Photoshop brush compatibility is separately owned and excluded. Neu
 
 ## Current progress
 
-All 60 items remain in scope. Function Editor revision `e16fab840` passed
+All 60 items remain in scope. Function Editor revision `efdd9139f` passed
 application and installed-package checks on all three platforms. Combined
 revision `10ad236fa` passed Linux application and installed-package checks,
 including the mandatory full native workflow sequence, converter, actual EXR
@@ -48,10 +48,12 @@ its assertions and cleanup checkpoints. The mandatory isolated gate at
 `b00db72a` reproduced it and both LLDB captures identify an active thumbnail
 worker reading `QAction::isChecked` through `StageBuilder::addFrame` while the
 main thread destroys UI actions. Reviewed correction `db83112a9` snapshots the
-GUI Camera Test value and removes that worker-side widget access. A separate
-stop/drain correction is in progress: reject new icon work, account for every
-admitted task and retire workers before UI/resources are destroyed. The common
-application exit path must cover exits that bypass the window close event.
+GUI Camera Test value and removes that worker-side widget access. Reviewed core
+correction `cd3ee23e0` rejects new icon work, accounts for every admitted task
+including superseded requests, and requires native thread/TLS retirement. The
+common application exit integration is still under review: accepted Quit must
+drain before scene clearing, canceled Quit must retain icon admission, and
+programmatic exits must drain before UI/resources are destroyed.
 This is distinct from the Function segment observer defect. Final qualification
 must retain the isolated lifecycle gate, zero exit and bounded LLDB capture;
 the old process remains failed. The separate macOS gradient
@@ -143,6 +145,28 @@ adds symmetric removal and deterministic post-close source/dependent mutation
 regressions while preserving all 24 original panel routes. This does
 not establish the cause of the separate historical macOS shutdown failure.
 
+Linux candidate `9629a7c5c` passed the standalone native UI suite and the isolated
+Function process, including all 24 panel-lifetime cases and post-close observer
+notifications, with zero exit. Its mandatory process timed out after 600 seconds.
+The last vector checkpoint preceded the second post-save Undo/Redo pair; it
+does not prove that pair completed. The earlier palette-save invariance checks
+and first pair passed. Reviewed correction `d8f696db3` adds precise action/settle
+checkpoints and drives the real modified-resource New Scene confirmation with
+an independent timer. It does not clear dirty resources or relax comparisons,
+and the observed timeout cause remains unlocalized until fresh execution.
+
+The same candidate's isolated Cast process crashed after a folder tree remained
+registered as the current selection beyond its destruction. Reviewed correction
+`1630d4366` detaches that selection while the tree is alive and adds a real
+destruction/replacement witness. Its Cast/vector diagnostic also failed the
+consolidation confirmation oracle: the driver closed the outer report before
+the nested action returned. Correction `ec76ca8cf` waits for the actual click to
+return while preserving all validation, confirmation and history assertions.
+Timing, export, renderer and artist diagnostics passed; reliability/EXR and the
+installed application were skipped. Reporting correction `a31e8dcf3` keeps the
+mandatory timeout primary and reports isolated failures separately. The original
+failed process and its deadlines remain unchanged.
+
 The audited follow-ups include saved-set rename and explicit target-range
 retiming; frozen evaluated comparisons with exact native restoration; native
 `.curve` import; a real multi-owner graph workload; explicit Fade and alignment
@@ -180,18 +204,21 @@ and the component ledgers.
 | Linux validation `6f95648db6736487ce680f5f979183317ffe9060` | The corrected 1080p workload passed all eight visible-stroke/color-mixing checks. Isolated Cast passed its actual Library provenance, ownership, UUID, import-undo and collection-rollback checks. Function, timing, Cast/vector and export diagnostics passed. GUI/background context contention passed. | The mandatory sequence and isolated renderer failed a later ordinary PLI-to-PNG oracle. `8c5b21283` corrects the fixture's missing saved palette-page membership and adds native reload preflight; it requires fresh execution. This candidate does not qualify later platform, EXR or performance changes. |
 | Linux validation `b12e763a63e6df3c6b086a51f4417060298c95f7` | All cropped/full-frame attachment comparisons, procedural/shader fallbacks and eight 1080p witnesses passed. Cast fresh-file/dirty/cache state, identity, Library ownership and measured edit checks passed in isolation. The input PLI reload preflight and independent Function/timing/Cast-vector/export checks passed. | The mandatory sequence and isolated renderer still failed ordinary PLI conversion: the decoded output was 1×1 despite valid source geometry and palette. Source review identified palette-less bounds calculation in the converter. Reliability/EXR and installed checks were not reached. This candidate also predates later runner cleanup and gradient-cancel corrections. |
 | Function Editor `e16fab84080d915ee15ab7f18d6dcabcfcb689ae` | Linux, macOS and Windows application and installed-package jobs passed. The native Function workflows, strict fractional-retime reload and clean application exits passed. Windows standalone widgets used their native platform successfully. | New same-xsheet owner-removal, detached-selection and interrupted preset corrections in `4d1e2fc38`/`efdd9139f` still need exact-head CI. Widget-to-image timings do not qualify interaction latency. |
-| Function Editor `efdd9139faff46242aaee54302556dbb222917a4` | Linux, Windows and macOS main application checks passed, including owner-removal guards and clean exit. Linux and Windows installed-package checks also passed. | macOS installed checks remain pending. New panel-lifetime, same-owner key-drift and saved-set Delete fixtures are later source changes and need fresh qualification. |
+| Function Editor `efdd9139faff46242aaee54302556dbb222917a4` | Linux, Windows and macOS application and installed-package checks passed, including owner-removal guards and clean exit. | New panel-lifetime, same-owner key-drift, saved-set Delete and worker-retirement changes are later revisions and need fresh qualification. |
 | Scene Cast `0b4e5032a34c88198204f38982e1d4d82dd7f919` | Native Cast and actual Library workflows passed on Linux, Windows and macOS. Windows/macOS Cast reliability helpers passed. Matching component-context macOS add/remove/rename measured 318/303/304 ms versus 1559/1714/1558 ms on `4016d693f`; identity/order/scroll and one-refresh checks passed. | Overall jobs failed later inherited converter/Shell paths; this is component evidence, not full platform qualification. Later published Cast revisions require their own final checks. |
 | Combined workflow `b00db72a35be48bf7852cbbc49a113622985761d` | Linux passed native UI checks, all six isolated diagnostics and the independent artist workload. Windows passed corrected Shell/profile thumbnails, 19 of 20 native UI tests, all 16 reliability tests including EXR, and all 16 SeExpr tests. | Both mandatory sequences failed in the old pose modal fixture before new native vector editing guards ran. Windows width export failed its extra-dialog oracle and its artist workload did not execute because retained renderer files blocked setup. Linux reliability and both installed checks were skipped. Passing diagnostics do not replace the failed sequences. |
 | Linux validation `15a4593e2247b37000ef22b8c4bd58474002cc7f` | The corrected pose driver passed the full animation workflow. All six isolated diagnostics and the independent artist workload passed. | The mandatory sequence next failed its exact width drawing comparison because the fixture captured an evaluated palette from a different frame. Reviewed fixture correction `8d2f19c5a` retains exact comparisons and gradient assertions but is unexecuted. Reliability and installed checks were skipped. |
 | Linux validation `3dd99b2f69262dbe7612efc90dc452b6fbc48deb` | All 19 native UI tests passed. The full sequence passed pose context changes and width interruption guards. Five isolated groups and the independent artist workload passed. Native saved-set Save/Rename/Delete/reopen, target-range reload and removed-owner guards passed before the separate Function failure. | Mandatory integration failed repeated width Undo after a native PLI save changed the live evaluated palette. The isolated Function process crashed during the actual panel-lifetime matrix in `ParamCalculatorNode::onChange`; observer lifetime is under investigation. Reliability/EXR and installed checks were skipped. This revision predates the Cast modal-lifetime correction. |
+| Linux validation `9629a7c5c216fd72ce4cb5418207ea00dcb5de3a` | Standalone native UI and isolated Function passed, including the 24 panel routes and actual post-close source/dependent notifications. Palette-save invariance and the first post-save width Undo/Redo pair passed. Timing, export, renderer and artist diagnostics passed. | Mandatory integration timed out after 600 seconds; the last checkpoint preceded the second post-save pair. Isolated Cast crashed through stale current selection, and Cast/vector failed the consolidation confirmation oracle. Reliability/EXR and installed checks were skipped. New Cast detach, vector driver, reporting and shutdown corrections are unexecuted. |
 | Combined workflow `10ad236fa5e0ae91b71fae025a260bb7a070d240` | Linux application and installed-package jobs passed, including the mandatory native sequence, SeExpr, reliability/EXR and GLB checks. Windows passed its full native sequence, artist workload and reliability/EXR gates. | Windows overall failed standalone width-export and old scene-thumbnail checks, followed by retained-renderer preflight refusals; installed checks were skipped. macOS was superseded during compilation. This revision predates the six interrupted-dialog corrections and the standalone scene-thumbnail fix. Later readiness must use the actual final heads. |
 | Windows combined `47dbae4c9a048af1f795179aeaac1c4006fe61c1` | Build, packaging, native neural host, Cadmium adapters, animation workflow and independent Function/timing/Cast-vector/export diagnostics passed. The 2D artist workload passed correctness. | Function and width-profile standalone fixtures crashed on Qt offscreen QMessageBox; the Shell test wrapper could not print UTF-8 to cp1252; Cast reliability exposed an EXR new-asset state defect. The old 1080p and final Cast preview fixtures also failed. Each has a source correction prepared, not a current-head pass. |
 
-Current work remains explicit: integrate and execute the six interrupted-dialog
-corrections; verify the standalone scene-thumbnail fallback and UTF-8 failure
-reporting; obtain complete final-head platform and installed-package results;
-and localize the historical macOS shutdown failure if it recurs. The shared
+Current work remains explicit: complete accepted/canceled Quit and programmatic
+exit integration, execute worker-retirement and Cast-selection corrections,
+localize the mandatory vector timeout, and obtain complete final-head platform
+and installed-package results. The macOS shutdown failure has an actual worker
+stack and must pass on the corrected revision; it is not a speculative defect.
+The shared
 renderer dependency, native converter and retained EXR state corrections are
 implemented; the combined Linux revision above supplies their current execution
 evidence. Measured depth opacity and Cast responsiveness retain the limits below. Fractional retime reload, file-chooser acceptance,
