@@ -187,6 +187,14 @@ jobs:
       - name: Verify benchmark harness contracts
         run: python3 -m unittest discover -s ci-scripts/tests -p test_paired_benchmark.py
 
+      - name: Verify native diagnostic isolation
+        run: python3 -m unittest discover -s ci-scripts/tests -p test_native_ui_diagnostics.py
+
+      - name: Verify original native crash identity and process contracts
+        run: |
+          python3 -m unittest discover -s ci-scripts/tests -p test_native_macos_crash.py -v
+          python3 -m unittest discover -s ci-scripts/tests -p test_windows_process.py -v
+
       - name: Verify native lifecycle harness contracts
         run: python3 -m unittest discover -s ci-scripts/tests -p test_native_ui_lifecycle.py
 
@@ -223,7 +231,7 @@ jobs:
         run: |
           app_libraries="$GITHUB_WORKSPACE/toonz/build/toonz/OpenToonz.app/Contents/MacOS"
           DYLD_LIBRARY_PATH="$app_libraries${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}" \
-            QT_QPA_PLATFORM=cocoa python3 ci-scripts/run_native_ui_test.py "$app_libraries/OpenToonz" stuff --require-function-workflow --require-offline-gl-workflow --require-vector-workflows --output toonz/build/ui-integration-output.txt
+            QT_QPA_PLATFORM=cocoa python3 ci-scripts/run_native_ui_test.py "$app_libraries/OpenToonz" stuff --require-function-workflow --require-offline-gl-workflow --require-vector-workflows --macos-crash-debugger --output toonz/build/ui-integration-output.txt
 
       - name: Report native application integration failure
         if: ${{ failure() && steps.ui_integration.outcome == 'failure' }}

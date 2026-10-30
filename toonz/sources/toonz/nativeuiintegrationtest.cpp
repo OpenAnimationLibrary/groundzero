@@ -85,6 +85,14 @@ void checkpoint(const char *stage) {
   std::cerr << "native-ui-integration: checkpoint: " << stage << std::endl;
 }
 
+// Declare immediately before a fixture local to report its completed natural
+// destruction. Do not explicitly delete or reorder the native owners: these
+// checkpoints distinguish a teardown failure without changing its lifetime.
+struct DestructionCheckpoint {
+  const char *stage;
+  ~DestructionCheckpoint() { checkpoint(stage); }
+};
+
 // This recently added source is unfinished in the shipped catalogs. Supply one
 // distinct test caption for this exact native source so equal-text provenance
 // is observable; every other caption still uses the installed real catalogs.
@@ -271,6 +279,8 @@ void exerciseNativeUi(QMainWindow *window) {
   app->getCurrentColumn()->setColumnIndex(1);
   app->getCurrentFrame()->setFrame(0);
 
+  DestructionCheckpoint translatorDestroyed{
+      "fixture empty-cell translator destroyed"};
   EmptyCellCaptionTranslator emptyCellCaptionTranslator;
   checkpoint("checking native Drawing Substitution captions");
   require(QCoreApplication::installTranslator(&emptyCellCaptionTranslator),
@@ -339,6 +349,8 @@ void exerciseNativeUi(QMainWindow *window) {
   require(runnable(palette, MI_ToggleColumnOutline),
           "valid native outline selection was not runnable");
   int invocations = 0;
+  DestructionCheckpoint outlineObserverDestroyed{
+      "fixture outline observer destroyed"};
   QObject observer;
   QObject::connect(nativeAction(MI_ToggleColumnOutline), &QAction::triggered,
                    &observer, [&]() { ++invocations; });
@@ -373,6 +385,8 @@ void exerciseNativeUi(QMainWindow *window) {
   // Exercise the real owners of translated choices. Keep these dialogs hidden:
   // no inbetween command or conversion is requested.
   checkpoint("initializing native interpolation dialog");
+  DestructionCheckpoint interpolationDestroyed{
+      "fixture interpolation dialog destroyed"};
   InbetweenDialog interpolation(window);
   interpolation.setValue("Ease Out");
   interpolation.setEase(23, 71);
@@ -387,6 +401,8 @@ void exerciseNativeUi(QMainWindow *window) {
   // setFormat(). Supply a real, disposable full-color image so the owner can
   // classify it and read its metadata through the normal initialization path.
   checkpoint("initializing idle native conversion dialog");
+  DestructionCheckpoint conversionInputsDestroyed{
+      "fixture conversion input directory destroyed"};
   QTemporaryDir conversionInputs(QDir(testRoot).filePath("conversion-input-XXXXXX"));
   require(conversionInputs.isValid(), "conversion input fixture directory failed");
   const QString conversionInput = conversionInputs.filePath("fixture.png");
@@ -394,6 +410,8 @@ void exerciseNativeUi(QMainWindow *window) {
   conversionImage.fill(Qt::white);
   require(conversionImage.save(conversionInput, "PNG"),
           "conversion input fixture image could not be written");
+  DestructionCheckpoint conversionDestroyed{
+      "fixture conversion dialog destroyed"};
   ConvertPopup conversion(false);
   conversion.setFiles({TFilePath(conversionInput.toStdWString())});
   conversion.setFormat("tlv");
@@ -410,6 +428,8 @@ void exerciseNativeUi(QMainWindow *window) {
           "native conversion fixture unexpectedly started conversion");
 
   int modeChanges = 0;
+  DestructionCheckpoint modeObserverDestroyed{
+      "fixture mode observer destroyed"};
   QObject modeObserver;
   for (QComboBox *combo : {interpolationMode, conversionMode}) {
     QObject::connect(combo, QOverload<int>::of(&QComboBox::currentIndexChanged),
@@ -451,6 +471,8 @@ void exerciseNativeUi(QMainWindow *window) {
   auto *room = dynamic_cast<Room *>(app->getCurrentRoom());
   require(room, "native room type is missing");
   const QString roomName = room->getName();
+  DestructionCheckpoint customTitlePanelDestroyed{
+      "fixture custom title panel destroyed"};
   std::unique_ptr<TPanel> customTitlePanel(new TPanel(room));
   // Deliberately matches an existing translated caption but has no UI source
   // identity: a custom caption must never be translated by its spelling.
@@ -465,6 +487,8 @@ void exerciseNativeUi(QMainWindow *window) {
   require(UiLanguageManager::instance()->currentLanguage() == japanese &&
               Preferences::instance()->getCurrentLanguage() == japanese,
           "Preferences language choice did not update native persisted state");
+  DestructionCheckpoint savedPreferencesDestroyed{
+      "fixture saved preferences destroyed"};
   QSettings savedPreferences(
       (ToonzFolder::getMyModuleDir() + TFilePath("preferences.ini")).getQString(),
       QSettings::IniFormat);
