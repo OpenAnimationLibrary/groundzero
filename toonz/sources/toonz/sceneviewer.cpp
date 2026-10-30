@@ -2248,6 +2248,7 @@ void SceneViewer::drawScene() {
     OnionSkinMask osm  = app->getCurrentOnionSkin()->getOnionSkinMask();
     args.m_osm         = &osm;
     args.m_camera3d    = true;
+    args.m_cameraTest  = m_drawCameraTest;
     args.m_xsheetLevel = xsheetLevel;
     args.m_currentFrameId =
         app->getCurrentXsheet()
@@ -2324,6 +2325,7 @@ void SceneViewer::drawScene() {
       args.m_osm         = &osm;
       args.m_xsheetLevel = xsheetLevel;
       args.m_isPlaying   = frameHandle->isPlaying();
+      args.m_cameraTest  = m_drawCameraTest;
       // the light table is for drawing; playback shows the scene as it is
       args.m_lightTable = lightTableToggle.getStatus() && !args.m_isPlaying;
       args.m_lightTableOpacity =
@@ -3417,6 +3419,7 @@ void SceneViewer::posToColumnIndexes(const TPointD &p,
   args.m_col         = currentColumnIndex;
   args.m_osm         = &osm;
   args.m_onlyVisible = includeInvisible;
+  args.m_cameraTest  = CameraTestCheck::instance()->isEnabled();
 
   Stage::visit(picker, args); /*
 picker,
@@ -3475,6 +3478,7 @@ int SceneViewer::posToRow(const TPointD &p, double distance,
     args.m_col         = currentColumnIndex;
     args.m_osm         = &osm;
     args.m_onlyVisible = includeInvisible;
+    args.m_cameraTest  = CameraTestCheck::instance()->isEnabled();
 
     if (currentColumnOnly) picker.setCurrentColumnIndex(currentColumnIndex);
 
