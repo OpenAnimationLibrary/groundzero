@@ -55,6 +55,21 @@ cause. These changes require their final owning-head application/platform
 checks. No local builds or tests ran.
 [Original capture qualification](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/41143305949).
 
+In that same published cohort, #118's macOS original native sequence and its
+separate required timing lifecycle passed, including both terminal cases and
+zero exit; #117's original native sequence also passed. #116 instead exited
+SIGSEGV during custom-title panel destruction. Its exact audit retained the
+original failure; the OS report scan found no candidate files, and a later
+passing LLDB replay did not identify the cause. Source review found unchecked
+title-bar parent casts during invalid-owner or base-widget teardown events.
+The guarded callbacks now have actual native owner-destruction and live
+float/dock behavior regressions, with source/history/room invariance. A final
+zero-wait report scan retains immutable original identity, and atomic diagnostic
+replacement preserves prior bytes even on partial-write failure. These are
+source-reviewed corrections requiring fresh final-head CI, not a claim that an
+uncaptured historical crash has been reproduced or causally explained.
+[Recorded foundation macOS failure](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/41139721386).
+
 ### Preceding application qualification
 
 All 60 improvements remain in the acceptance ledger. Product implementations
