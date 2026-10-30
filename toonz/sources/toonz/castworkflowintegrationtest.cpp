@@ -83,14 +83,24 @@ void nextPreviewRequest(QWidget *inspector) {
   auto *delay = inspector->findChild<QTimer *>("CastPreviewDelay");
   require(delay, "inspector has no preview coalescing timer");
   QEventLoop loop; QTimer deadline; deadline.setSingleShot(true);
-  bool submitted = false;
+  bool submitted = false, fired = false;
   QObject::connect(delay, &QTimer::timeout, &loop, [&]() {
-    submitted = inspector->property("PreviewPending").toBool(); loop.quit();
+    fired = true; submitted = inspector->property("PreviewPending").toBool(); loop.quit();
   });
   QObject::connect(&deadline, &QTimer::timeout, &loop, &QEventLoop::quit);
   deadline.start(5000); loop.exec();
   // Return at the actual timer boundary, before the queued worker completion.
-  require(submitted, "native inspector failed to submit its desired preview");
+  if (!submitted) {
+    auto *table = inspector->findChild<QTableWidget *>("CastInspectorDetails");
+    auto *slider = inspector->findChild<QSlider *>("CastDrawingPreview");
+    const int row = table ? table->currentRow() : -1;
+    const QString target = table && row >= 0 && table->item(row, 0) ? table->item(row, 0)->text() : QString();
+    throw std::runtime_error(QString("native inspector failed to submit its desired preview: "
+        "timer fired=%1 active=%2 visible=%3 rows=%4 target=%5 slider=%6/%7 enabled=%8 displayed=%9")
+        .arg(fired).arg(delay->isActive()).arg(inspector->isVisible()).arg(table ? table->rowCount() : -1)
+        .arg(target).arg(slider ? slider->value() : -1).arg(slider ? slider->maximum() : -1)
+        .arg(slider && slider->isEnabled()).arg(inspector->property("PreviewFrame").toString()).toStdString());
+  }
 }
 void reopenOwnership(ToonzScene *source, TXshSimpleLevel *level,
                      const TFilePath &copyPath,
@@ -1244,6 +1254,16 @@ void runCastWorkflowIntegrationTest(QMainWindow *window) {
   switchingDrawing->setFrame(TFrameId(1), TRasterImageP(switchingRaster));
   switchingDrawing->setFrame(TFrameId(2), TRasterImageP(switchingRaster->clone()));
   source->getLevelSet()->insertLevel(switchingDrawing.getPointer()); browser.refreshData();
+  // A queued search refresh still follows the Cast selection. Keep the target
+  // selected, as required by the real Inspect action, across that refresh.
+  const int drawingIndex = find(browser, "Cast scene switch drawing");
+  require(drawingIndex >= 0, "scene-switch preview target is absent from Cast");
+  viewer->getPanel()->getSelection()->selectNone();
+  viewer->getPanel()->getSelection()->select(drawingIndex);
+  selected.clear();
+  static_cast<CastSelection *>(viewer->getPanel()->getSelection())->getSelectedLevels(selected);
+  require(selected.size() == 1 && selected.front() == switchingDrawing.getPointer(),
+          "scene-switch preview target was not selected in Cast");
   CastBrowserActions::inspect(&browser, {switchingDrawing.getPointer()});
   auto *switchInspector = browser.findChild<QWidget *>("CastInspector");
   switchInspector->findChild<QSlider *>("CastDrawingPreview")->setValue(1);
