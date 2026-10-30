@@ -591,6 +591,56 @@ void mc(const QDir &dir) {
         0xfcffffffu);  // Header size -4 (little-endian bytes of 0xfffffffc).
   rejectAll(dir.filePath("negative-header.mc"), badHeader);
 }
+
+QByteArray pdcHeader(std::uint32_t particles, std::uint32_t attributes) {
+  QByteArray bytes("PDC ");
+  for (std::uint32_t value : {1u, 1u, 0u, 0u, particles, attributes})
+    be32(bytes, value);
+  return bytes;
+}
+
+QByteArray pdcAttribute(const QByteArray &name, int type,
+                        const QByteArray &data) {
+  QByteArray bytes;
+  be32(bytes, std::uint32_t(name.size()));
+  bytes += name;
+  be32(bytes, std::uint32_t(type));
+  return bytes + data;
+}
+
+void pdc(const QDir &dir) {
+  const QByteArray body =
+      pdcAttribute("lifespan", 2, doubles({4})) +
+      pdcAttribute("position", 5, doubles({1, 2, 3, 4, 5, 6})) +
+      pdcAttribute("mass", 3, doubles({0.5, 0.25}));
+  // The attribute loop ran 2^31 times on a failed stream (hang).
+  rejectAll(dir.filePath("many-attributes.pdc"), pdcHeader(1, 0x7fffffffu));
+  rejectAll(dir.filePath("negative-particles.pdc"), pdcHeader(0xffffffffu, 0));
+  rejectAll(dir.filePath("short-header.pdc"), pdcHeader(1, 0).left(20));
+  for (int size : {30, 40, 60, 100, 28 + body.size() - 1})
+    rejectAll(dir.filePath(QString("truncated-%1.pdc").arg(size)),
+              (pdcHeader(2, 3) + body).left(size));
+  QByteArray hugeName = pdcHeader(1, 1);
+  be32(hugeName, 0x7fffffffu);
+  rejectAll(dir.filePath("huge-name.pdc"), hugeName + "abc");
+  rejectAll(dir.filePath("unknown-type.pdc"),
+            pdcHeader(1, 1) + pdcAttribute("x", 9, doubles({1})));
+  rejectAll(dir.filePath("duplicate.pdc"),
+            pdcHeader(1, 2) + pdcAttribute("x", 3, doubles({1})) +
+                pdcAttribute("x", 3, doubles({2})));
+  rejectAll(dir.filePath("huge-value.pdc"),
+            pdcHeader(1, 1) + pdcAttribute("x", 3, doubles({1e300})), true);
+
+  QString error;
+  writeRaw(dir.filePath("valid.pdc"), pdcHeader(2, 3) + body);
+  const auto valid = loadFrame(dir.filePath("valid.pdc"), Mapping{}, error);
+  const auto *mass = valid ? attribute(*valid, "mass") : nullptr;
+  require(valid && valid->particles.size() == 2 &&
+              valid->particles[1].position[0] == 4 && mass &&
+              mass->floats == std::vector<float>{0.5f, 0.25f} &&
+              !attribute(*valid, "lifespan"),
+          "Valid PDC cache failed: " + error.toStdString());
+}
 }  // namespace
 
 int main(int argc, char **argv) {
@@ -604,7 +654,8 @@ int main(int argc, char **argv) {
     bin(dir);
     bgeo(dir);
     mc(dir);
-    std::cout << "Particle format readers: long GEO strings and strict GEO/PTC/BIN/BGEO/MC inputs passed.\n";
+    pdc(dir);
+    std::cout << "Particle format readers: long GEO strings and strict GEO/PTC/BIN/BGEO/MC/PDC inputs passed.\n";
     return 0;
   } catch (const std::exception &error) {
     std::cerr << "Particle format reader failure: " << error.what() << '\n';
