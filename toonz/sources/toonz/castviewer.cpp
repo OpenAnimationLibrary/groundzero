@@ -261,6 +261,17 @@ CastTreeViewer::CastTreeViewer(QWidget *parent)
 
 //-----------------------------------------------------------------------------
 
+CastTreeViewer::~CastTreeViewer() {
+  // The global selection handle is nonowning. Detach while this derived
+  // selection is still alive, before QTreeWidget and TSelection teardown.
+  makeNotCurrent();
+  // QTreeWidget's base destructor may clear its current item after the
+  // TSelection base is gone. Do not let that signal register it again.
+  blockSignals(true);
+}
+
+//-----------------------------------------------------------------------------
+
 //! Resizes viewport to contents
 void CastTreeViewer::resizeToConts(void) { resizeColumnToContents(0); }
 
@@ -773,6 +784,7 @@ CastBrowser::CastBrowser(QWidget *parent, Qt::WindowFlags flags)
 CastBrowser::~CastBrowser() {
   // Clear handlers targeting this browser while its model and controls still
   // exist. The panel subsequently releases the owned selection object.
+  m_treeViewer->makeNotCurrent();
   m_itemViewer->getPanel()->enableGlobalSelection(false);
 }
 
