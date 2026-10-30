@@ -318,8 +318,14 @@ void successfulIcon(IconGenerator *icons, TXshSimpleLevel *level, Completions &c
 
 QByteArray fileBytes(const TFilePath &path) {
   QFile file(QString::fromStdWString(path.getWideString()));
-  require(file.open(QIODevice::ReadOnly), "Cannot read native scene-transition fixture file");
-  return file.readAll();
+  const bool opened = file.open(QIODevice::ReadOnly);
+  require(opened, qPrintable(QString("Cannot read native scene-transition fixture file: %1 (%2)")
+      .arg(file.fileName().left(512), file.errorString().left(160))));
+  const QByteArray bytes = file.readAll();
+  require(file.error() == QFileDevice::NoError,
+          qPrintable(QString("Native scene-transition fixture read failed: %1 (%2)")
+              .arg(file.fileName().left(512), file.errorString().left(160))));
+  return bytes;
 }
 
 void sceneDecision(const QString &operation, const QString &choice,
@@ -389,8 +395,39 @@ void sceneTransitionChecks() {
     saved.setScenePath(loadPath);
     auto level = makeTransitionLevel(&saved, L"Loaded icon source");
     level->setPath(drawingPath, true);
+    // makeTransitionLevel clears dirty flags for the later modal checks. This
+    // newly authored saved input must explicitly enter the native writer;
+    // saveSimpleLevel intentionally skips clean drawing/palette data.
+    level->getProperties()->setDirtyFlag(true);
+    level->getPalette()->setDirtyFlag(true);
     level->save(drawingPath);
     saved.saveCopy(loadPath);
+
+    require(!fileBytes(drawingPath).isEmpty() && !fileBytes(loadPath).isEmpty(),
+            "Native scene-transition save did not materialize both input files");
+    ToonzScene reopened;
+    reopened.setProject(project);
+    reopened.load(loadPath);
+    auto *reopenedBase = reopened.getLevelSet()->getLevel(L"Loaded icon source");
+    auto *reopenedLevel = reopenedBase ? reopenedBase->getSimpleLevel() : nullptr;
+    require(reopenedLevel && reopened.getLevelSet()->getLevelCount() == 1 &&
+                reopenedLevel->getFrameCount() == 3 &&
+                reopened.getXsheet()->getCell(0, 0) == TXshCell(reopenedLevel, TFrameId(1)) &&
+                reopened.getCurrentCamera()->getRes() == TDimension(80, 60),
+            "Native scene-transition saved scene did not reopen its level/exposure/camera");
+    for (int frame = 1; frame <= 3; ++frame) {
+      const TVectorImageP original = level->getFrame(TFrameId(frame), false);
+      const TVectorImageP image = reopenedLevel->getFrame(TFrameId(frame), false);
+      require(original && image && image->getStrokeCount() == 1 &&
+                  image->getPalette() == reopenedLevel->getPalette() &&
+                  image->getStroke(0)->getStyle() == original->getStroke(0)->getStyle() &&
+                  image->getStroke(0)->getControlPointCount() == 3,
+              "Native scene-transition PLI did not reopen its authored drawing");
+      for (int point = 0; point < 3; ++point)
+        require(image->getStroke(0)->getControlPoint(point) ==
+                    original->getStroke(0)->getControlPoint(point),
+                "Native scene-transition PLI changed authored control points");
+    }
   }
   const auto loadProject = TProjectManager::instance()->loadSceneProject(loadPath);
   require(loadProject && loadProject->isCurrent(),

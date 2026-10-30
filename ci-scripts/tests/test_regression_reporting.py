@@ -8,6 +8,7 @@ import sys
 import tempfile
 import unittest
 from unittest.mock import patch
+from urllib.parse import unquote_to_bytes
 import xml.etree.ElementTree as ET
 
 
@@ -114,6 +115,130 @@ class RegressionReportingTest(unittest.TestCase):
         self.assertTrue(output.startswith("::error title=描画%2C50%25::".encode("utf-8")))
         self.assertIn("native: FAIL: 動画.pli 🎨 50%25%0A".encode("utf-8"), output)
         self.assertIn("invalid: �%0A".encode("utf-8"), output)
+
+    def test_native_timeout_remains_primary_before_failed_isolated_diagnostic(self):
+        original = (
+            "vector-width-context-native: Undo/Redo after native PLI write 1\n"
+            "PulseAudioService: pa_context_connect() failed\n"
+            "Native application integration test timed out after 600 seconds.\n"
+            "\nIndependent diagnostics; original all-workflows result unchanged:\n"
+            "combined-cast-vector=FAIL (status 1)\ncombined-timing=PASS (status 0)\n"
+            "\n--- Independent native diagnostic: combined-cast-vector ---\n"
+            "cast-vector-native: checkpoint: rejecting incompatible consolidation\n"
+            "native-ui-integration: FAIL: consolidation 動画 🎨 50%\n"
+            "Independent native diagnostic: combined-cast-vector exited with status 1 (0x00000001).\n"
+            "The original all-workflows failure remains authoritative.\n"
+            "\n--- Independent native diagnostic: combined-timing ---\n"
+            "Expected failure dialog: FAIL text is part of a successful fixture\n"
+            "function-timing-native: PASS\nnative-ui-diagnostic: PASS combined-timing\n"
+            "Independent native diagnostic: combined-timing exited with status 0 (0x00000000).\n"
+            "The original all-workflows failure remains authoritative.\n"
+        ).encode("utf-8")
+        with tempfile.TemporaryDirectory() as directory:
+            report = Path(directory) / "native-output.txt"
+            report.write_bytes(original)
+            status, output = invoke(SCRIPTS / "report_ui_tests.py", [report])
+            self.assertEqual(report.read_bytes(), original)
+        self.assertEqual(status, 0)  # Reporting must not replace the runner status.
+        annotations = output.splitlines()
+        self.assertEqual(len(annotations), 2)
+        self.assertTrue(annotations[0].startswith(
+            b"::error title=Native UI regression::Failure: Native application integration test timed out after 600 seconds."))
+        self.assertIn(b"Undo/Redo after native PLI write 1", annotations[0])
+        self.assertNotIn(b"consolidation", annotations[0])
+        self.assertNotIn(b"combined-timing", output)
+        self.assertTrue(annotations[1].startswith(
+            b"::error title=Native UI regression - secondary diagnostic: combined-cast-vector::Failure: native-ui-integration: FAIL:"))
+        self.assertIn("consolidation 動画 🎨 50%25".encode("utf-8"), annotations[1])
+
+    def test_ordinary_native_failure_stays_primary_before_secondary_timeout(self):
+        original = (
+            "native-ui-integration: checkpoint: native drawing\n"
+            "native-ui-integration: FAIL: original drawing assertion\n"
+            "Native application exited with status 1 (0x00000001).\n"
+            "\nIndependent diagnostics; original all-workflows result unchanged:\n"
+            "cast-workflow=FAIL (status 1)\n"
+            "\n--- Independent native diagnostic: cast-workflow ---\n"
+            "Isolated diagnostic timed out after 120 seconds.\n"
+            "Independent native diagnostic: cast-workflow exited with status 1 (0x00000001).\n"
+            "The original all-workflows failure remains authoritative.\n"
+        ).encode("utf-8")
+        with tempfile.TemporaryDirectory() as directory:
+            report = Path(directory) / "native-output.txt"
+            report.write_bytes(original)
+            status, output = invoke(SCRIPTS / "report_ui_tests.py", [report])
+            self.assertEqual(report.read_bytes(), original)
+        self.assertEqual(status, 0)
+        annotations = output.splitlines()
+        self.assertEqual(len(annotations), 2)
+        self.assertIn(b"::Failure: native-ui-integration: FAIL: original drawing assertion", annotations[0])
+        self.assertNotIn(b"timed out", annotations[0])
+        self.assertIn(b"secondary diagnostic: cast-workflow::Failure: Isolated diagnostic timed out after 120 seconds.", annotations[1])
+
+    def test_first_native_assertion_precedes_lifecycle_and_isolated_failures(self):
+        original = (
+            "native-ui-integration: checkpoint: checking gradient owner\n"
+            "native-ui-integration: FAIL: gradient owner 動画 50% unavailable\n"
+            "native-ui-integration: checkpoint: native application event loop returned\n"
+            "icon-lifecycle-native: scene retention and reinstatement PASS\n"
+            "native-ui-integration: FAIL: icon lifecycle: missing fixture 🎨.pli\n"
+            "Native application exited with status 1 (0x00000001).\n"
+            "\nIndependent diagnostics; original all-workflows result unchanged:\n"
+            "cast-workflow=FAIL (status 1)\n"
+            "\n--- Independent native diagnostic: cast-workflow ---\n"
+            "native-ui-integration: FAIL: fresh Cast tag acceptance\n"
+            "native-ui-integration: checkpoint: native application event loop returned\n"
+            "native-ui-integration: FAIL: icon lifecycle: missing fixture 🎨.pli\n"
+            "Independent native diagnostic: cast-workflow exited with status 1 (0x00000001).\n"
+        ).encode("utf-8")
+        with tempfile.TemporaryDirectory() as directory:
+            report = Path(directory) / "native-output.txt"
+            report.write_bytes(original)
+            status, output = invoke(SCRIPTS / "report_ui_tests.py", [report])
+            self.assertEqual(report.read_bytes(), original)
+        self.assertEqual(status, 0)
+        annotations = output.splitlines()
+        self.assertEqual(len(annotations), 4)
+        self.assertTrue(annotations[0].startswith(
+            "::error title=Native UI regression::Failure: native-ui-integration: FAIL: gradient owner 動画 50%25 unavailable".encode("utf-8")))
+        self.assertTrue(annotations[1].startswith(
+            b"::error title=Native UI regression - additional native failure 2::Failure: native-ui-integration: FAIL: icon lifecycle:"))
+        self.assertTrue(annotations[2].startswith(
+            b"::error title=Native UI regression - secondary diagnostic: cast-workflow::Failure: native-ui-integration: FAIL: fresh Cast tag acceptance"))
+        self.assertTrue(annotations[3].startswith(
+            b"::error title=Native UI regression - secondary diagnostic: cast-workflow - additional native failure 2::Failure: native-ui-integration: FAIL: icon lifecycle:"))
+        for annotation in annotations:
+            body = unquote_to_bytes(annotation.split(b"::", 2)[2])
+            self.assertLessEqual(len(body), 3500)
+            body.decode("utf-8", errors="strict")
+
+    def test_standalone_failure_and_each_secondary_excerpt_remain_bounded_utf8(self):
+        for diagnostics in (False, True):
+            with self.subTest(diagnostics=diagnostics), tempfile.TemporaryDirectory() as directory:
+                primary = "ui_widget: FAIL: ordinary assertion\n" + "描画 noise\n" * 1500
+                original = primary
+                if diagnostics:
+                    original += (
+                        "\nIndependent diagnostics; original all-workflows result unchanged:\n"
+                        "cast-workflow=FAIL (status -11)\n"
+                        "\n--- Independent native diagnostic: cast-workflow ---\n"
+                        "Thread 1 received signal SIGSEGV\n" + "動画 noise\n" * 1500 +
+                        "Independent native diagnostic: cast-workflow exited with status -11 (0xFFFFFFF5).\n"
+                        "The original all-workflows failure remains authoritative.\n")
+                report = Path(directory) / "native-output.txt"
+                report.write_text(original, encoding="utf-8")
+                status, output = invoke(SCRIPTS / "report_ui_tests.py", [report])
+                self.assertEqual(status, 0)
+                self.assertEqual(report.read_text(encoding="utf-8"), original)
+                annotations = output.splitlines()
+                self.assertEqual(len(annotations), 2 if diagnostics else 1)
+                self.assertIn(b"::Failure: ui_widget: FAIL: ordinary assertion", annotations[0])
+                for annotation in annotations:
+                    body = unquote_to_bytes(annotation.split(b"::", 2)[2])
+                    self.assertLessEqual(len(body), 3500)
+                    body.decode("utf-8", errors="strict")
+                if diagnostics:
+                    self.assertIn(b"secondary diagnostic: cast-workflow::Failure: Thread 1 received signal SIGSEGV", annotations[1])
 
     def test_missing_unicode_report_is_annotated_without_encoding_failure(self):
         with tempfile.TemporaryDirectory() as directory:
