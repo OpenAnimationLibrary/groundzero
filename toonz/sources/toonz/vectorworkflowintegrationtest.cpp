@@ -43,6 +43,7 @@
 #include <array>
 #include <exception>
 #include <functional>
+#include <sstream>
 #include <stdexcept>
 
 namespace {
@@ -127,11 +128,25 @@ std::vector<AlignmentObservation> reviewAlignment(
               "alignment preview missed a changed drawing or native swatch");
       for (int i = 0; i < drawingCount; ++i) {
         frames->setCurrentIndex(i);
+        // Let normal show/resize and drawing-change events initialize each
+        // PlaneViewer before inspecting its rendered framebuffer.
+        settle();
         const QImage original = before->grabFramebuffer();
         const QImage proposed = after->grabFramebuffer();
         require(before->bounds() == after->bounds(), "alignment preview uses independent fit scales");
-        require(pixelDifference(original, proposed) > 2,
-                "alignment preview did not visibly display changed positions");
+        const int difference = pixelDifference(original, proposed);
+        if (difference <= 2) {
+          std::ostringstream detail;
+          detail << "alignment preview did not visibly display changed positions: drawing="
+              << frames->itemText(i).toStdString() << " delta=" << difference
+              << " pixels=" << original.width() << 'x' << original.height();
+          for (UINT index = 0; index < std::min<UINT>(4,before->image()->getStrokeCount()); ++index) {
+            const auto *a = before->image()->getStroke(index), *b = after->image()->getStroke(index);
+            detail << " stroke" << index << " x0=" << a->getBBox().x0 << ':' << b->getBBox().x0
+                << " opacity=" << a->getOpacity() << " knots=" << a->getOpacityProfile().size();
+          }
+          throw std::runtime_error(detail.str());
+        }
         result.push_back({before->image()->cloneWithGroupContext(),
                           after->image()->cloneWithGroupContext(), after->bounds(),
                           after->size(), proposed});

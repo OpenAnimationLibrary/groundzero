@@ -997,7 +997,25 @@ void drawOpacityEnvelope(const TVectorRenderData &rd, const TStroke &stroke) {
   const QMatrix4x4 mapping = projectionMatrix * modelMatrix;
   bool invertible = false;
   const QMatrix4x4 inverse = mapping.inverted(&invertible);
-  if (!invertible) return;
+  double planeInverse[9] = {};
+  if (!invertible) {
+    // PlaneViewer deliberately flattens Z, so its 4D matrix is singular even
+    // though the stroke's z=0 plane has a valid screen mapping. Invert that
+    // plane's XY/W homography without changing the viewer's native geometry.
+    const double a = mapping(0,0), b = mapping(0,1), c = mapping(0,3);
+    const double d = mapping(1,0), e = mapping(1,1), f = mapping(1,3);
+    const double g = mapping(3,0), h = mapping(3,1), i = mapping(3,3);
+    const double cofactors[] = {e*i-f*h,c*h-b*i,b*f-c*e,
+        f*g-d*i,a*i-c*g,c*d-a*f,d*h-e*g,b*g-a*h,a*e-b*d};
+    const double determinant = a*cofactors[0]+b*cofactors[3]+c*cofactors[6];
+    if (!std::isfinite(determinant) || determinant == 0.)
+      throw OpacityRenderError("Cannot display stroke opacity with a degenerate drawing-plane projection; restore the viewer orientation");
+    for (int j = 0; j < 9; ++j) {
+      planeInverse[j] = cofactors[j]/determinant;
+      if (!std::isfinite(planeInverse[j]))
+        throw OpacityRenderError("Cannot display stroke opacity with an unbounded drawing-plane projection; adjust the viewer orientation");
+    }
+  }
   // Unknown procedural styles can draw outside their legacy geometry bbox.
   // Their fallback is the full output viewport, never a guessed crop.
   const auto *style = rd.m_palette->getStyle(stroke.getStyle());
@@ -1050,6 +1068,16 @@ void drawOpacityEnvelope(const TVectorRenderData &rd, const TStroke &stroke) {
   auto planePoint = [&](double x, double y) {
     const float nx = float(2. * (x - viewport[0]) / viewport[2] - 1.);
     const float ny = float(2. * (y - viewport[1]) / viewport[3] - 1.);
+    if (!invertible) {
+      const double w = planeInverse[6]*nx+planeInverse[7]*ny+planeInverse[8];
+      if (w == 0. || !std::isfinite(w))
+        throw OpacityRenderError("Cannot display stroke opacity at the drawing-plane horizon; adjust the viewer orientation");
+      const double px = (planeInverse[0]*nx+planeInverse[1]*ny+planeInverse[2])/w;
+      const double py = (planeInverse[3]*nx+planeInverse[4]*ny+planeInverse[5])/w;
+      if (!std::isfinite(px) || !std::isfinite(py))
+        throw OpacityRenderError("Cannot display stroke opacity at the drawing-plane horizon; adjust the viewer orientation");
+      return TPointD(px,py);
+    }
     QVector4D nearPoint = inverse * QVector4D(nx, ny, -1, 1);
     QVector4D farPoint = inverse * QVector4D(nx, ny, 1, 1);
     if (nearPoint.w() == 0 || farPoint.w() == 0) return TPointD();
@@ -1153,14 +1181,12 @@ void drawOpacityEnvelope(const TVectorRenderData &rd, const TStroke &stroke) {
     glColor4d(opacity, opacity, opacity, opacity);
   }
   glDisable(GL_CULL_FACE); glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-  // A plane's projected depth is linear in screen coordinates. Reconstruct
-  // each corner depth so 3D viewer occlusion remains identical to the original
-  // stroke; a constant raster Z would incorrectly place it at the near plane.
+  // Targets with depth attachments already use drawDepthOpacity above. Here
+  // the capture contains the native clipping result and only needs a 2D quad;
+  // inverse-projecting its corners would fail at a projective horizon even
+  // when all captured artwork is valid and visible.
   auto vertex = [&](double x, double y, double u, double v) {
-    const TPointD point = planePoint(x, y);
-    const QVector4D projected = mapping * QVector4D(float(point.x), float(point.y), 0, 1);
-    const double depth = projected.w() != 0 ? projected.z() / projected.w() : 0.;
-    glTexCoord2d(u, v); glVertex3d(x, y, -depth);
+    glTexCoord2d(u, v); glVertex2d(x, y);
   };
   glBegin(GL_QUADS);
   vertex(x0,y0,0,0); vertex(x1,y0,1,0); vertex(x1,y1,1,1); vertex(x0,y1,0,1);

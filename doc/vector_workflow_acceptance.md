@@ -83,6 +83,14 @@ positive, including changes that leave the color identical to the background.
 Exactly zero opacity restores the original color, depth and stencil. Errors
 after native drawing restore all saved attachments before propagating.
 
+PlaneViewer intentionally flattens the Z coordinate. Opacity previews invert
+the drawing plane's XY/W projection when that makes the full 3D matrix singular;
+ordinary 3D matrices keep their existing inverse path. An actually degenerate
+drawing plane is reported before drawing, and an undefined projective-horizon
+sample reports an error instead of silently omitting the stroke. Native checks
+cover widget scalar/profile visibility, sampled fade positions, and projected
+clipping across the near plane; the existing 3D depth oracles remain unchanged.
+
 Snapshots cover the full attachment because native fill-mask clears can affect
 stencil outside both the stroke and viewport. Float color preserves high-bit
 targets. Fixed depth of at most 24 bits and native 32-bit floating depth use FLOAT
