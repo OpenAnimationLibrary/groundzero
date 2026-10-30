@@ -334,6 +334,15 @@ bool eligibleFixedSource(const QMap<QString, QString> &fields,
       return false;
     required["PaintingMode"] = fields["PaintingMode"];
   }
+  if (engine == "paintbrush" && fields.value("PressureSize") == "true") {
+    if (preset.size.mappings.size() != 1) return false;
+    required["PressureSize"]     = "true";
+    required["SizeUseCurve"]     = "true";
+    required["SizeUseSameCurve"] = "true";
+    required["SizecommonCurve"]  = "0,0;1,1;";
+    required["SizeSensor"]       = fields.value("SizeSensor");
+    if (fields.contains("SizecurveMode")) required["SizecurveMode"] = "0";
+  }
   if (engine == "colorsmudge") {
     for (const QString &key : {"PressureColorRate", "PressureSmudgeRate",
                                "PressureSmudgeRadius", "SmudgeRateSmearAlpha"})

@@ -129,7 +129,15 @@ QByteArray hardPixelKpp(const QString &mutation = {},
         "PaintOpSettings/isAirbrushing", "PaintOpSettings/ignoreSpacing",
         "PaintOpSettings/updateSpacingBetweenDabs",
         "KisPrecisionOption/AutoPrecisionEnabled"})
-    param(key, "false");
+    param(key,
+          mutation == "pressure" && key == "PressureSize" ? "true" : "false");
+  if (mutation == "pressure") {
+    param("SizeUseCurve", "true");
+    param("SizeUseSameCurve", "true");
+    param("SizecommonCurve", "0,0;1,1;");
+    param("SizeSensor",
+          "<params id=\"pressure\"><curve>0,0;1,1;</curve></params>");
+  }
   if (mutation != "missing") param("KisPrecisionOption/precisionLevel", "5");
   if (mutation == "unknown") param("UnclassifiedActiveSetting", "true");
   if (!model.isEmpty()) {
@@ -401,6 +409,12 @@ void testImports() {
               translucent.records.front().preset.profile ==
                   hardRecord.preset.profile,
           "fixed source opacity failed eligibility");
+  auto pressure = importBrush(hardPixelKpp("pressure"), "kpp", error);
+  require(pressure.complete &&
+              pressure.records.front().preset.profile ==
+                  hardRecord.preset.profile &&
+              pressure.records.front().preset.size.mappings.size() == 1,
+          "explicit linear source pressure curve was not preserved");
   auto hardRestored = decode(encode(hardRecord, error), error);
   require(error.isEmpty() &&
               hardRestored.preset.profile == hardRecord.preset.profile,

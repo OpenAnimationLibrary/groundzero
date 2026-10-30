@@ -190,6 +190,9 @@ class Probe(Extension):
                 if case.get("background") == "wet-halves":
                     boundary = math.ceil(case.get("wetBoundary", 336))
                     row = bytes((255, 0, 0, 255)) * boundary + bytes((0, 0, 255, 128)) * (w - boundary)
+                if case.get("wetPattern") == "two-pixel-red-yellow":
+                    boundary = math.ceil(case.get("wetBoundary", 336))
+                    row = row[:boundary * 4] + b"".join(bytes((0, 0, 255, 128) if (x // 2) % 2 == 0 else (0, 255, 255, 255)) for x in range(boundary, w))
                 if "wetThirdBoundary" in case:
                     third = case["wetThirdRGBA8"]
                     boundary = case["wetThirdBoundary"]

@@ -361,6 +361,20 @@ void testKritaHardPixelCandidate() {
   longStroke.finish();
   require(longStroke.dabCount() == 480,
           "decimal spacing emitted a spurious final source dab");
+  p.size.mappings.push_back({Sensor::Pressure, {{0, 0}, {1, 1}}, 1});
+  FullCanvas pressured;
+  Stroke pressureStroke(pressured, p);
+  require(pressureStroke.add(sample(64, 64, 0, .25)),
+          pressureStroke.error().c_str());
+  int pressureCount = 0;
+  for (const auto &pixel : pressured.pixels) pressureCount += pixel.a == 1;
+  require(pressureCount == 48,
+          "linear source pressure changed measured eight-pixel geometry");
+  p.size.mappings.front().curve.insert(
+      p.size.mappings.front().curve.begin() + 1, {.5, .25});
+  require(!validate(p).empty(),
+          "unqualified nonlinear source pressure curve accepted");
+  p.size.mappings.clear();
   p.tip.antialiasEdges = true;
   require(!validate(p).empty(), "unimplemented source edge model accepted");
 }

@@ -259,6 +259,13 @@ int main(int argc, char **argv) {
                              x < source["wetBoundary"].toDouble(336)
                                  ? qRgba(0, 0, 255, 255)
                                  : qRgba(255, 0, 0, 128));
+      if (source["wetPattern"].toString() == "two-pixel-red-yellow")
+        for (int y = 0; y < initial.height(); ++y)
+          for (int x = int(std::ceil(source["wetBoundary"].toDouble(336)));
+               x < initial.width(); ++x)
+            initial.setPixel(x, y,
+                             (x / 2) % 2 == 0 ? qRgba(255, 0, 0, 128)
+                                              : qRgba(255, 255, 0, 255));
       if (source.contains("wetThirdBoundary")) {
         const auto c = source["wetThirdRGBA8"].toArray();
         for (int y = 0; y < initial.height(); ++y)
@@ -277,15 +284,20 @@ int main(int argc, char **argv) {
       Preset p = imported.records.front().preset;
       const bool sourceHard = fixtures["group"].toString() == "hardpixel" ||
                               fixtures["group"].toString() == "pixelopacity" ||
+                              fixtures["group"].toString() == "pixelpressure" ||
                               (fixtures["group"].toString() == "geometry" &&
                                name.endsWith("antialias 0"));
       if (sourceHard)
         require(p.profile == "krita-5.3.4.1-hard-pixel-candidate-1",
                 "Strict source hard-pixel eligibility did not select the "
                 "candidate");
-      const bool sourceWet = (fixtures["group"].toString() == "wetsteps" ||
-                              fixtures["group"].toString() == "wethold" ||
-                              fixtures["group"].toString() == "wetstate");
+      const bool sourceWet =
+          (fixtures["group"].toString() == "wetsteps" ||
+           fixtures["group"].toString() == "wethold" ||
+           fixtures["group"].toString() == "wetstate" ||
+           (fixtures["group"].toString() == "wettexture" &&
+            source["overrides"].toObject()["SmudgeRadiusValue"].toString() ==
+                "0"));
       if (sourceWet) {
         const QString model =
             imported.records.front().provenance["sourceSmudgeModel"].toString();

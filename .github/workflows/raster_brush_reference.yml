@@ -80,9 +80,12 @@ jobs:
             brush-import-budget.log
   krita:
     strategy:
+      # Bound full-application reference runs independently of parser CI.
+      # Every matrix member still runs; one mismatch cannot cancel peers.
+      max-parallel: 2
       fail-fast: false
       matrix:
-        fixture_group: [parameters, geometry, tablet, hardpixel, wetsteps, wethold, wetstate, pixelopacity]
+        fixture_group: [parameters, geometry, tablet, hardpixel, wetsteps, wethold, wetstate, pixelopacity, pixelpressure, wettexture]
     runs-on: ubuntu-22.04
     timeout-minutes: 20
     env:
@@ -186,7 +189,7 @@ jobs:
                   probes.append(probe)
               # The observed check retained only ten annotations per step. Group the
               # bounded 79-case table instead of silently losing later cases.
-              batch = 7 if os.environ['BRUSH_REFERENCE_GROUP'] in ('wetsteps', 'wethold', 'wetstate') else 8
+              batch = 4 if os.environ['BRUSH_REFERENCE_GROUP'] == 'wettexture' else (7 if os.environ['BRUSH_REFERENCE_GROUP'] in ('wetsteps', 'wethold', 'wetstate') else 8)
               for start in range(0, len(probes), batch):
                   text = json.dumps(probes[start:start + batch], separators=(',', ':'))
                   if len(text.encode()) > 3900:
@@ -260,7 +263,7 @@ jobs:
                   measurement['wetGate'] = row['wetCandidatePassed']
                   measurement['maxRGB'] = round(row['maxRGBError'], 8)
                   measurement['maxAlpha'] = round(row['maxAlphaError'], 8)
-          batch = 7 if os.environ['BRUSH_REFERENCE_GROUP'] in ('wetsteps', 'wethold', 'wetstate') else 8
+          batch = 4 if os.environ['BRUSH_REFERENCE_GROUP'] == 'wettexture' else (7 if os.environ['BRUSH_REFERENCE_GROUP'] in ('wetsteps', 'wethold', 'wetstate') else 8)
           for start in range(0, len(measurements), batch):
               text = json.dumps(measurements[start:start + batch], separators=(',', ':'))
               if len(text.encode()) > 3900:

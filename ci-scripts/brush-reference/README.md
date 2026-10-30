@@ -204,3 +204,13 @@ https://docs.krita.org/en/reference_manual/brushes/brush_settings/opacity_and_fl
 The enum order (build-up zero, wash one) is documented in the public GUI data
 example, without consulting paint-engine implementation:
 https://docs.krita.org/en/untranslatable_pages/brush_editor_gui_with_lager.html
+
+`pixelpressure` adds eighteen hard-tip linear pressure-size traces, including
+zero-pressure endpoints, rising/falling ramps, constant pressure and three
+spacings. Eligibility accepts only one explicitly serialized linear pressure
+mapping; nonlinear curves and other active dynamics remain native conversions.
+`wettexture` adds 32 heterogeneous-destination measurements across all four
+models and radii 0/50/100/300 percent. Radius-zero candidates retain hard gates;
+nonzero-radius conversions remain exploratory until implemented independently.
+The reference matrix runs at most two complete application jobs concurrently;
+all matrix members and comparison thresholds remain enabled.

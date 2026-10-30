@@ -180,15 +180,26 @@ std::string validate(const Preset &p) {
   const bool sourceWet  = sourceWetProfile(p.profile);
   if (p.profile != "groundzero-native-1" && !sourceHard && !sourceWet)
     return "Unimplemented behavior profile: " + p.profile;
+  bool sourceLinearPressure = false;
+  if (sourceHard && p.size.minimum == 0 && p.size.mappings.size() == 1) {
+    const auto &mapping  = p.size.mappings.front();
+    sourceLinearPressure = mapping.sensor == Sensor::Pressure &&
+                           mapping.scale == 1 &&
+                           mapping.interpolation == Interpolation::Linear &&
+                           mapping.curve.size() == 2 &&
+                           mapping.curve[0].x == 0 && mapping.curve[0].y == 0 &&
+                           mapping.curve[1].x == 1 && mapping.curve[1].y == 1;
+  }
   if (sourceHard || sourceWet) {
     auto fixed = [](const Dynamic &value, double expected) {
       return value.value == expected && value.mappings.empty();
     };
     if (p.tip.shape != Shape::Round || p.tip.hardness != 1 ||
         p.tip.antialiasEdges || !p.tip.images.empty() ||
-        !p.size.mappings.empty() || p.size.value != std::floor(p.size.value) ||
-        !fixed(p.aspect, 1) || !fixed(p.angle, 0) ||
-        !p.opacity.mappings.empty() || !p.flow.mappings.empty() ||
+        (!p.size.mappings.empty() && !sourceLinearPressure) ||
+        p.size.value != std::floor(p.size.value) || !fixed(p.aspect, 1) ||
+        !fixed(p.angle, 0) || !p.opacity.mappings.empty() ||
+        !p.flow.mappings.empty() ||
         (sourceWet && (!fixed(p.opacity, 1) || !fixed(p.flow, 1))) ||
         !fixed(p.scatter, 0) || !fixed(p.countControl, 1) ||
         !fixed(p.backgroundMix, 0) || !fixed(p.hue, 0) ||
