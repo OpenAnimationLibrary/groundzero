@@ -770,7 +770,7 @@ endif()
 # compat_regression: end
 
 if(WIN32)
-    target_link_libraries(toonzlib userenv advapi32 ws2_32)
+    target_link_libraries(toonzlib userenv advapi32 ws2_32 shell32 ole32)
 endif()
 
 if(APPLE OR WIN32)

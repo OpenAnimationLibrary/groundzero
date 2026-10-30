@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Exercise the deployed, signed helper, including its mandatory denial probes."""
 import json
+import plistlib
+import re
 from pathlib import Path
 import struct
 import subprocess
@@ -59,6 +61,27 @@ def startup_evidence(helper, pid, started):
 
 def main():
     helper = Path(sys.argv[1]).resolve(strict=True)
+    # libsecinit requires CFBundleIdentifier in signed metadata even for a
+    # standalone command-line executable. Validate every architecture before
+    # launching, so packaging cannot silently remove the embedded section.
+    identity = "org.openanimationlibrary.groundzero.brush-import"
+    subprocess.run(["/usr/bin/codesign", "--verify", "--strict", str(helper)],
+                   check=True, timeout=10)
+    signature = subprocess.run(
+        ["/usr/bin/codesign", "--display", "--verbose=4", str(helper)],
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=True, timeout=10)
+    assert f"Identifier={identity}" in signature.stdout.decode(), "Wrong helper signing identifier"
+    architectures = subprocess.check_output(
+        ["/usr/bin/lipo", "-archs", str(helper)], timeout=10).decode().split()
+    assert architectures, "Helper has no Mach-O architecture"
+    for architecture in architectures:
+        metadata = subprocess.check_output(
+            ["/usr/bin/otool", "-arch", architecture, "-P", str(helper)], timeout=10)
+        plists = re.findall(rb"<\?xml.*?</plist>", metadata, re.DOTALL)
+        assert len(plists) == 1, "Missing or ambiguous embedded helper Info.plist"
+        assert plistlib.loads(plists[0])["CFBundleIdentifier"] == identity, \
+            "Embedded helper identity does not match code signature"
+    print("Signed helper embedded bundle identity verified for " + ", ".join(architectures), flush=True)
     # Original one-pixel GBR v2 fixture, independent of any distributed pack.
     fixture = struct.pack(">7I", 30, 2, 1, 1, 1, 0x47494D50, 25) + b"x\0\xff"
     with tempfile.TemporaryDirectory(prefix="brush-boundary-") as temporary:

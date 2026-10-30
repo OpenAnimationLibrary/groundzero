@@ -68,6 +68,10 @@ shutil.copytree(source / "gzbrush_reference", resources / "pykrita" / "gzbrush_r
 (root / "config" / "kritarc").write_text("[General]\nuseOpenGL=false\n[python]\nenable_gzbrush_reference=true\n")
 names, cases = [], []
 group = os.environ.get("BRUSH_REFERENCE_GROUP", "parameters")
+if group in ("tabletsensors", "spacingdynamics"):
+    from sensor_fixtures import prepare as prepare_sensors
+    prepare_sensors(root, resources, preset, group)
+    raise SystemExit(0)
 if group in ("bitmaptips", "gihstatistics"):
     from resource_fixtures import prepare as prepare_resources
     prepare_resources(root, resources, preset, group)

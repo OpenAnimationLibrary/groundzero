@@ -3,6 +3,13 @@
 set(_brush_helper_dir "${CMAKE_CURRENT_LIST_DIR}")
 function(sign_rasterbrush_helper target)
   find_program(BRUSH_CODESIGN codesign REQUIRED)
+  # Independent sandboxed command-line executables need bundle identity in
+  # signed code metadata, not just codesign's --identifier. libsecinit reads
+  # CFBundleIdentifier from this embedded plist before main is entered.
+  set(helper_info "${_brush_helper_dir}/resources/rasterbrushimport-info.plist")
+  target_link_options(${target} PRIVATE
+    "LINKER:-sectcreate,__TEXT,__info_plist,${helper_info}")
+  set_property(TARGET ${target} APPEND PROPERTY LINK_DEPENDS "${helper_info}")
   add_custom_command(TARGET ${target} POST_BUILD
     COMMAND "${BRUSH_CODESIGN}" --force --sign -
       --identifier org.openanimationlibrary.groundzero.brush-import
@@ -52,7 +59,7 @@ function(add_rasterbrush_helper target qt_major main_source)
     target_link_libraries(${target} PRIVATE "-framework Security" "-framework CoreFoundation")
     sign_rasterbrush_helper(${target})
   elseif(WIN32)
-    target_link_libraries(${target} PRIVATE userenv advapi32 ws2_32)
+    target_link_libraries(${target} PRIVATE userenv advapi32 ws2_32 shell32 ole32)
     if(target STREQUAL "rasterbrushworker_test")
       deploy_rasterbrush_windows(${target} ${qt_major} "brush-worker-test-runtime")
     else()

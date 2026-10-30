@@ -17,6 +17,7 @@
 #include <aclapi.h>
 #include <sddl.h>
 #include <userenv.h>
+#include <shlobj.h>
 #include <QCryptographicHash>
 #include <QRegularExpression>
 #include <set>
@@ -27,6 +28,7 @@ namespace {
 class WindowsImportSandbox final {
   PSID sid = nullptr;
   QString profile;
+  QString localAppData;
   QStringList grants;
   QTemporaryDir inputDirectory;
   QTemporaryDir codeDirectory;
@@ -214,6 +216,20 @@ public:
     QElapsedTimer localElapsed;
     localElapsed.start();
     if (!elapsed) elapsed = &localElapsed;
+    // CreateProcess needs the host LocalAppData location to establish and
+    // redirect the AppContainer profile environment. A stripped environment
+    // without it fails with ERROR_ENVVAR_NOT_FOUND before the worker starts.
+    // Resolve an OS known folder rather than importing arbitrary environment.
+    PWSTR knownFolder = nullptr;
+    const HRESULT folderResult = SHGetKnownFolderPath(
+        FOLDERID_LocalAppData, KF_FLAG_DEFAULT, nullptr, &knownFolder);
+    if (SUCCEEDED(folderResult) && knownFolder)
+      localAppData = QString::fromWCharArray(knownFolder);
+    CoTaskMemFree(knownFolder);
+    if (FAILED(folderResult) || localAppData.isEmpty()) {
+      error = "Cannot resolve Windows LocalAppData for brush AppContainer";
+      return false;
+    }
     if (!stageRuntime(executable, error, cancelled, *elapsed)) return false;
     if (!inputDirectory.isValid()) {
       error = "Cannot create private brush input staging";
@@ -311,6 +327,7 @@ public:
                        codeDirectory.path() + ";" +
                            QDir(inheritedEnvironment.value("SystemRoot"))
                                .filePath("System32"));
+    environment.insert("LOCALAPPDATA", localAppData);
     environment.insert("QT_PLUGIN_PATH", codeDirectory.path());
     process.setProcessEnvironment(environment);
     process.setCreateProcessArgumentsModifier(

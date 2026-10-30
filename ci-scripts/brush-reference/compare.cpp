@@ -14,6 +14,7 @@
 #include <cmath>
 #include <iostream>
 #include <stdexcept>
+#include <utility>
 
 using namespace RasterBrush;
 namespace {
@@ -272,6 +273,11 @@ int main(int argc, char **argv) {
     }
     auto expected = fixtures["presets"].toArray();
     require(!expected.empty(), "Empty fixture manifest");
+    if (fixtures["group"].toString() == "tabletsensors")
+      require(expected.size() == 76, "Incomplete tablet sensor fixture matrix");
+    if (fixtures["group"].toString() == "spacingdynamics")
+      require(expected.size() == 16,
+              "Incomplete spacing sensor fixture matrix");
     QStringList remaining;
     for (const auto &name : expected)
       remaining.append(name.toString());
@@ -286,6 +292,50 @@ int main(int argc, char **argv) {
     const QImage stripInitial = initial;
     for (const auto &value : oracle["records"].toArray()) {
       auto source = value.toObject();
+      const bool sensorCase = fixtures["group"].toString() == "tabletsensors" ||
+                              fixtures["group"].toString() == "spacingdynamics";
+      QJsonArray deliveredSensorEvents;
+      if (sensorCase) {
+        const auto evidence = source["sensorEvidence"].toObject();
+        require(evidence["deliveryValuesMatchAuthored"].isBool() &&
+                    evidence["deliveryValuesMatchAuthored"].toBool() &&
+                    evidence["effectiveControls"].isObject() &&
+                    !evidence["effectiveControls"].toObject().empty() &&
+                    evidence["nonzeroAlphaPixels"].toInt() > 0,
+                "Missing effective sensor controls, delivered values or "
+                "nonempty raster");
+        const auto authored = source["events"].toArray();
+        deliveredSensorEvents = evidence["deliveredContactEvents"].toArray();
+        require(authored.size() == 33 &&
+                    deliveredSensorEvents.size() == authored.size(),
+                "Incomplete sensor contact trace");
+        const double timeBase =
+            deliveredSensorEvents[0].toObject()["timeMs"].toDouble();
+        for (int i = 0; i < authored.size(); ++i) {
+          const auto wanted = authored[i].toObject();
+          const auto actual = deliveredSensorEvents[i].toObject();
+          const auto image = actual["image"].toArray(),
+                     tilt = actual["tilt"].toArray();
+          require(image.size() == 2 && tilt.size() == 2,
+                  "Incomplete delivered tablet vector");
+          for (const auto &pair :
+               {std::make_pair(image[0].toDouble(), wanted["x"].toDouble()),
+                std::make_pair(image[1].toDouble(), wanted["y"].toDouble()),
+                std::make_pair(tilt[0].toDouble(), wanted["tiltX"].toDouble()),
+                std::make_pair(tilt[1].toDouble(), wanted["tiltY"].toDouble()),
+                std::make_pair(actual["pressure"].toDouble(),
+                               wanted["pressure"].toDouble()),
+                std::make_pair(actual["rotation"].toDouble(),
+                               wanted["rotation"].toDouble())})
+            require(std::isfinite(pair.first) &&
+                        std::abs(pair.first - pair.second) <= 1e-7,
+                    "Candidate/source sensor inputs differ");
+          require(
+              std::abs((actual["timeMs"].toDouble() - timeBase) -
+                       wanted["timeUs"].toDouble() / 1000) <= .500001,
+              "Delivered sensor clock differs beyond millisecond quantization");
+        }
+      }
       initial = stripInitial;
       if (source["background"].toString() == "transparent")
         initial.fill(Qt::transparent);
@@ -486,6 +536,25 @@ int main(int argc, char **argv) {
       timer.start();
       if (source.contains("events")) {
         auto events = source["events"].toArray();
+        if (sensorCase) {
+          events = {};
+          const double timeBase =
+              deliveredSensorEvents[0].toObject()["timeMs"].toDouble();
+          for (const auto &value : deliveredSensorEvents) {
+            const auto delivered = value.toObject();
+            const auto image = delivered["image"].toArray(),
+                       tilt = delivered["tilt"].toArray();
+            events.append(QJsonObject{
+                {"x", image[0]},
+                {"y", image[1]},
+                {"pressure", delivered["pressure"]},
+                {"tiltX", tilt[0]},
+                {"tiltY", tilt[1]},
+                {"rotation", delivered["rotation"]},
+                {"timeUs",
+                 (delivered["timeMs"].toDouble() - timeBase) * 1000}});
+          }
+        }
         require(!events.empty() && events.size() <= 4096,
                 "Invalid bounded event trace");
         for (const auto &value : events) {
@@ -563,6 +632,14 @@ int main(int argc, char **argv) {
         metrics["wetCandidatePassed"] = passed;
         if (!passed)
           failedHardCases.append(name);
+      }
+      if (sensorCase) {
+        metrics["sensorAcquisitionInputsValidated"] = true;
+        metrics["candidateInputConvention"] =
+            "delivered Qt tilt degrees / 60; barrel degrees to radians; "
+            "delivered relative milliseconds to seconds (native application "
+            "convention)";
+        metrics["sensorSourceParityQualified"] = false;
       }
       metrics["renderMilliseconds"] = elapsed;
       metrics["dabs"] = double(stroke.dabCount());
