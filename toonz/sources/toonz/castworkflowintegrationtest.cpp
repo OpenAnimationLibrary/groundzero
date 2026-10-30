@@ -616,7 +616,7 @@ void runCastWorkflowIntegrationTest(QMainWindow *window) {
     level->setScene(source); level->setType(PLI_XSHLEVEL);
     level->setPath(TFilePath(localDir + '/' + name + ".pli"), true);
     source->getLevelSet()->insertLevel(level.getPointer());
-    large.push_back(level);
+    large.push_back(TXshLevelP(level.getPointer()));
   }
   search->clear(); scope->setCurrentIndex(1); type->setCurrentIndex(0); status->setCurrentIndex(0);
   QElapsedTimer measurement;

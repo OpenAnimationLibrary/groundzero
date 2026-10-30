@@ -486,7 +486,7 @@ QByteArray savedDigest(ToonzScene *source, TXshLevel *level, const std::function
     hash.addData(QByteArray::number(file.size()) + ':');
     while (!file.atEnd()) {
       QByteArray bytes = file.read(1024 * 1024);
-      if (bytes.empty() && file.error() != QFile::NoError) return {};
+      if (bytes.isEmpty() && file.error() != QFile::NoError) return {};
       hash.addData(bytes);
       if (cancel && cancel()) return {};
     }
