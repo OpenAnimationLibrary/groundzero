@@ -714,7 +714,8 @@ void runCastVectorIntegrationTest(QMainWindow *window) {
             "Cast/vector clone did not create required intermediate columns");
     // A later Function Editor undo entry owns the exact curve, not a column ID.
     // Recreating a default stage during clone redo would detach that later edit.
-    TDoubleParamP authored = generatedX->clone();
+    TDoubleParamP authored(dynamic_cast<TDoubleParam *>(generatedX->clone()));
+    require(bool(authored), "Cast/vector cloned-column parameter copy lost numeric type");
     require(authored->setValue(6., 23.), "Cast/vector cloned-column key fixture failed");
     QString curveError;
     require(FunctionCurveOperations::apply(
