@@ -7,6 +7,15 @@
 namespace RasterBrush {
 namespace {
 constexpr double pi = 3.14159265358979323846;
+bool sourceWetProfile(const std::string &profile) {
+  return profile == "krita-5.3.4.1-legacy-smear-candidate-1" ||
+         profile == "krita-5.3.4.1-legacy-dulling-candidate-1" ||
+         profile == "krita-5.3.4.1-new-smear-candidate-1";
+}
+bool sourceProfile(const std::string &profile) {
+  return profile == "krita-5.3.4.1-hard-pixel-candidate-1" ||
+         sourceWetProfile(profile);
+}
 double unit(double v) { return std::max(0.0, std::min(1.0, v)); }
 Pixel clean(Pixel p) {
   p.a = unit(p.a);
@@ -167,9 +176,10 @@ Pixel composite(Pixel dst, Pixel src, Blend mode, bool lockAlpha) {
 
 std::string validate(const Preset &p) {
   const bool sourceHard = p.profile == "krita-5.3.4.1-hard-pixel-candidate-1";
-  if (p.profile != "groundzero-native-1" && !sourceHard)
+  const bool sourceWet  = sourceWetProfile(p.profile);
+  if (p.profile != "groundzero-native-1" && !sourceHard && !sourceWet)
     return "Unimplemented behavior profile: " + p.profile;
-  if (sourceHard) {
+  if (sourceHard || sourceWet) {
     auto fixed = [](const Dynamic &value, double expected) {
       return value.value == expected && value.mappings.empty();
     };
@@ -182,11 +192,20 @@ std::string validate(const Preset &p) {
         !fixed(p.hue, 0) || !fixed(p.saturation, 1) ||
         !fixed(p.brightness, 1) || p.count != 1 || p.airbrushRate != 0 ||
         p.wash || p.lockAlpha || p.flipX || p.flipY ||
-        p.blend != Blend::Normal || p.wet != Wet::Off || p.texture.image ||
-        p.secondary.enabled || p.color.a != 1)
+        p.blend != Blend::Normal || (sourceHard && p.wet != Wet::Off) ||
+        p.texture.image || p.secondary.enabled || p.color.a != 1)
       return "Unimplemented setting in the experimental Krita hard-pixel "
              "profile";
   }
+  if (sourceWet &&
+      (p.wet != (p.profile == "krita-5.3.4.1-legacy-dulling-candidate-1"
+                     ? Wet::Dulling
+                     : Wet::Smear) ||
+       p.smudgeRadius != 0 || p.reload != 0 || p.pickupControl.value != 1 ||
+       !p.pickupControl.mappings.empty() || p.colorRateControl.value != 1 ||
+       !p.colorRateControl.mappings.empty() || p.radiusControl.value != 1 ||
+       !p.radiusControl.mappings.empty()))
+    return "Unimplemented setting in the experimental Krita wet profile";
   auto range = [](double v, double lo, double hi) {
     return std::isfinite(v) && v >= lo && v <= hi;
   };
@@ -354,7 +373,7 @@ struct Stroke::Impl {
   std::shared_ptr<MemoryBudget> shared;
   size_t reserved = 0;
   std::string failure;
-  Sample previous, first;
+  Sample previous, first, previousSourceDab;
   bool started = false, finished = false;
   bool pendingSourceEndpoint = false;
   bool hasInitialDirection   = false;
@@ -537,11 +556,114 @@ struct Stroke::Impl {
     used += charge;
     return ptr;
   }
+  bool sourceWetDab(const Sample &s) {
+    // Independent candidate inferred from original first/second-dab fixtures.
+    // Model-specific equations are intentionally separate from native wet
+    // paint.
+    const double radius = p.size.value * .5;
+    spacing             = std::max(.01, p.size.value * p.spacing);
+    if (!dabs) {
+      previousSourceDab = s;
+      ++dabs;
+      return true;
+    }
+    const double cx = s.x + .5, cy = s.y;
+    const int reach = int(std::ceil(radius + 1));
+    const int x0    = std::max(0, int(std::floor(cx)) - reach),
+              y0    = std::max(0, int(std::floor(cy)) - reach),
+              x1    = std::min(surface.width(), int(std::ceil(cx)) + reach),
+              y1    = std::min(surface.height(), int(std::ceil(cy)) + reach);
+    if (x0 >= x1 || y0 >= y1) {
+      previousSourceDab = s;
+      ++dabs;
+      return true;
+    }
+    const double deltaX = previousSourceDab.x - s.x,
+                 deltaY = previousSourceDab.y - s.y;
+    int sx0             = std::max(0, int(std::floor(x0 + deltaX))),
+        sy0             = std::max(0, int(std::floor(y0 + deltaY))),
+        sx1 = std::min(surface.width(), int(std::ceil(x1 + deltaX)) + 1),
+        sy1 = std::min(surface.height(), int(std::ceil(y1 + deltaY)) + 1);
+    if (!surface.prepare(x0, y0, x1, y1) ||
+        (sx0 < sx1 && sy0 < sy1 && !surface.prepare(sx0, sy0, sx1, sy1))) {
+      failure = "Raster transaction refused the source wet region";
+      return false;
+    }
+    const int centerX = int(std::floor(previousSourceDab.x)),
+              centerY = int(std::floor(previousSourceDab.y));
+    if (p.wet == Wet::Dulling && centerX >= 0 && centerY >= 0 &&
+        centerX < surface.width() && centerY < surface.height() &&
+        !surface.prepare(centerX, centerY, centerX + 1, centerY + 1)) {
+      failure = "Raster transaction refused the source wet sample";
+      return false;
+    }
+    const size_t bytes = size_t(x1 - x0) * (y1 - y0) * sizeof(Pixel);
+    if (bytes > budget - used || !shared->reserve(bytes)) {
+      failure = "Source wet snapshot memory limit exceeded";
+      return false;
+    }
+    reserved += bytes;
+    // Snapshot before writes, including overlapping dabs. The next dab reads
+    // the deposited surface, not the native pre-deposition reservoir.
+    std::vector<Pixel> feedback(size_t(x1 - x0) * (y1 - y0));
+    auto at = [&](int x, int y) -> Pixel {
+      return x >= 0 && y >= 0 && x < surface.width() && y < surface.height()
+                 ? surface.read(x, y)
+                 : Pixel{};
+    };
+    const Pixel center = p.wet == Wet::Dulling ? at(centerX, centerY) : Pixel{};
+    for (int y = y0; y < y1; ++y)
+      for (int x = x0; x < x1; ++x) {
+        const double fx = x + deltaX, fy = y + deltaY;
+        const int ix = int(std::floor(fx)), iy = int(std::floor(fy));
+        feedback[size_t(y - y0) * (x1 - x0) + x - x0] =
+            p.wet == Wet::Dulling
+                ? center
+                : mix(mix(at(ix, iy), at(ix + 1, iy), fx - ix),
+                      mix(at(ix, iy + 1), at(ix + 1, iy + 1), fx - ix),
+                      fy - iy);
+      }
+    auto quantize = [](Pixel v) {
+      if (v.a <= 0) return Pixel{};
+      const double a = std::floor(unit(v.a) * 255 + .5) / 255;
+      return Pixel{std::floor(unit(v.r / v.a) * 255 + .5) / 255 * a,
+                   std::floor(unit(v.g / v.a) * 255 + .5) / 255 * a,
+                   std::floor(unit(v.b / v.a) * 255 + .5) / 255 * a, a};
+    };
+    const bool modern = p.profile == "krita-5.3.4.1-new-smear-candidate-1";
+    for (int y = y0; y < y1; ++y)
+      for (int x = x0; x < x1; ++x) {
+        double dx = (x + .5 - cx) / radius, dy = (y + .5 - cy) / radius;
+        double coverage =
+            tipPixel(p.tip, 0, dx, dy).a * unit(surface.coverage(x, y));
+        if (coverage <= 0) continue;
+        Pixel paint = feedback[size_t(y - y0) * (x1 - x0) + x - x0];
+        Pixel out   = surface.read(x, y);
+        if (modern) {
+          out = composite(out, mul(paint, p.pickup * coverage), Blend::Normal);
+          out =
+              composite(out, mul(p.color, p.colorRate * p.colorRate * coverage),
+                        Blend::Normal);
+        } else {
+          paint = composite(
+              paint, mul(p.color, p.colorRate * std::max(.2, 1 - p.pickup)),
+              Blend::Normal);
+          out = composite(out, mul(paint, p.pickup * coverage), Blend::Normal);
+        }
+        surface.write(x, y, quantize(out));
+      }
+    shared->release(bytes);
+    reserved -= bytes;
+    previousSourceDab = s;
+    ++dabs;
+    return true;
+  }
   bool dab(const Sample &s) {
     if (dabs >= 1000000) {
       failure = "Stroke dab limit exceeded";
       return false;
     }
+    if (sourceWetProfile(p.profile)) return sourceWetDab(s);
     randomDab = random();
     const Pixel foreground =
         hsv(mix(p.color, p.background, eval(p.backgroundMix, s)),
@@ -789,8 +911,7 @@ bool Stroke::add(const Sample &s) {
       double step = std::max(1e-9, std::min(fd, ft));
       const double end = f + step;
       const bool sourceEndpoint =
-          m->p.profile == "krita-5.3.4.1-hard-pixel-candidate-1" &&
-          std::abs(end - 1) <= 1e-12;
+          sourceProfile(m->p.profile) && std::abs(end - 1) <= 1e-12;
       if (end > 1 && !sourceEndpoint) break;
       m->travel += (sourceEndpoint ? 1 - f : step) * distance;
       f = sourceEndpoint ? 1 : end;

@@ -269,6 +269,15 @@ int main(int argc, char **argv) {
                                name.endsWith("antialias 0"));
       if (sourceHard)
         p.profile = "krita-5.3.4.1-hard-pixel-candidate-1";
+      const bool sourceWet = fixtures["group"].toString() == "wetsteps" &&
+                             !name.startsWith("GZ Original dulling new");
+      if (sourceWet) {
+        const QString model =
+            imported.records.front().provenance["sourceSmudgeModel"].toString();
+        p.profile = "krita-5.3.4.1-" + model.toStdString() + "-candidate-1";
+        p.smudgeRadius = 0;
+        p.reload = 0;
+      }
       p.size.value = source["diameter"].toDouble();
       p.color = {220 / 255.0, 40 / 255.0, 30 / 255.0, 1};
       if (source.contains("foregroundRGBA8")) {
@@ -362,6 +371,15 @@ int main(int argc, char **argv) {
         if (!passed)
           failedHardCases.append(name);
       }
+      if (sourceWet) {
+        const bool passed = metrics["maxRGBError"].toDouble() <= 2 / 255.0 &&
+                            metrics["maxAlphaError"].toDouble() <= 1 / 255.0 &&
+                            metrics["changedPixelIoU"].toDouble() >= .98 &&
+                            !metrics["emptyCandidateFailure"].toBool();
+        metrics["wetCandidatePassed"] = passed;
+        if (!passed)
+          failedHardCases.append(name);
+      }
       metrics["renderMilliseconds"] = elapsed;
       metrics["dabs"] = double(stroke.dabCount());
       metrics["diagnostics"] =
@@ -381,7 +399,7 @@ int main(int argc, char **argv) {
     std::cout << "Measured " << results.size()
               << " native conversion cases; source parity is not granted.\n";
     require(failedHardCases.empty(),
-            "Experimental K5341 hard-pixel fidelity gates failed: " +
+            "Experimental K5341 source-candidate fidelity gates failed: " +
                 failedHardCases.join(", "));
   } catch (const std::exception &e) {
     std::cerr << "::error::Brush comparison failed: " << e.what() << '\n';

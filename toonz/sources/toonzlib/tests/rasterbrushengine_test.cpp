@@ -542,6 +542,44 @@ void testLongWetTrace() {
     require(budget->used() == 0, "long wet trace retained reservoir memory");
   }
 }
+void testSourceWetInitialization() {
+  for (const auto &model : {"legacy-smear", "legacy-dulling", "new-smear"}) {
+    Preset p;
+    p.profile = std::string("krita-5.3.4.1-") + model + "-candidate-1";
+    p.tip.antialiasEdges = false;
+    p.size.value         = 8;
+    p.spacing            = 5;
+    p.wet = std::string(model) == "legacy-dulling" ? Wet::Dulling : Wet::Smear;
+    p.smudgeRadius = 0;
+    p.color        = {0, 1, 0, 1};
+    Canvas canvas;
+    for (int y = 0; y < canvas.h; ++y)
+      for (int x = 0; x < canvas.w; ++x)
+        canvas.write(
+            x, y,
+            x < 50 ? Pixel{0, 0, 1, 1} : Pixel{128 / 255.0, 0, 0, 128 / 255.0});
+    Canvas original = canvas;
+    auto budget     = std::make_shared<MemoryBudget>(1024 * 1024);
+    Stroke stroke(canvas, p, 1024 * 1024, budget);
+    require(stroke.add(sample(30, 64, 0)), stroke.error().c_str());
+    require(same(canvas, original), "source wet first dab deposited paint");
+    require(stroke.add(sample(71, 64, 1)), stroke.error().c_str());
+    Pixel center      = canvas.read(70, 64);
+    const bool modern = std::string(model) == "new-smear";
+    const double a    = (modern ? 195 : 192) / 255.0;
+    require(std::abs(center.a - a) < 1e-12, "source wet alpha equation");
+    require(std::abs(center.g / center.a - 21 / 255.0) < 1e-12,
+            "source wet color equation");
+    stroke.finish();
+    require(budget->used() == 0, "source wet snapshot retained memory");
+    Stroke denied(original, p, 1);
+    require(denied.add(sample(30, 64, 0)),
+            "source first dab allocated a snapshot");
+    require(!denied.add(sample(71, 64, 1)), "source snapshot bypassed budget");
+    p.smudgeRadius = 1;
+    require(!validate(p).empty(), "unmeasured source wet radius accepted");
+  }
+}
 void testCubicCurves() {
   Preset p;
   p.opacity.mappings.push_back({Sensor::Pressure,
@@ -581,6 +619,7 @@ int main() {
     testStationaryAndBatching();
     testColorDynamics();
     testCubicCurves();
+    testSourceWetInitialization();
     testLongWetTrace();
   } catch (const std::exception &e) {
     std::cerr << e.what() << '\n';
