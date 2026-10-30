@@ -160,4 +160,3 @@ application sequence. CI-only harness contracts are in
 - Existing scenes, SeExpr bindings, particle resources and library import/link semantics retain their behavior.
 - Search, previews and analysis do not mutate scene data. Destructive asset operations require a concrete preview and do not silently remove source files.
 - Keyboard focus, translated captions, accessible names, high-DPI hit targets and bounded work are covered where applicable. Automated offscreen/native tests do not establish physical tablet validation.
-
