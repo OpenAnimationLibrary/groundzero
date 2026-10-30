@@ -10,6 +10,15 @@ review is not a claim that the application built or that interactive acceptance
 passed. The final PR revision must pass the registered tests on supported
 platforms; the visual/device observations below also remain to be checked.
 
+At published head `7285dc93ca16966252c78035542141296fa56128`, Linux, Windows
+and macOS main/package jobs passed. The historical investigation sections below describe
+their named revisions, rather than reopening already-passed source fixes.
+Shared runner changes following original process crashes in downstream #117
+and #118 require fresh qualification: exact crash-status reporting, atomic
+Windows descendant containment, original crash evidence, and native fixture
+teardown checkpoints. The two historical crash causes remain unproven; passing
+a separate diagnostic process is never substituted for the failed original.
+
 The implementation keeps native curve data and the SeExpr evaluator. The new
 operation layer plans immutable before/after snapshots, checks ranges, units,
 locks and stale previews, then applies one undo transaction. Dialog previews

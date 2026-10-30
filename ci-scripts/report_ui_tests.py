@@ -8,6 +8,14 @@ NATIVE_FAILURE = re.compile(r"^native-ui-integration: FAIL:.*$", re.M)
 NATIVE_TIMEOUT = re.compile(
     r"^(?:Native application integration test|Isolated diagnostic) "
     r"timed out after \d+(?:\.\d+)? seconds\.\r?$", re.M)
+NATIVE_STATUS = re.compile(
+    r"^(?:Native application|Reviewed-clear native process|"
+    r"Independent native diagnostic: [a-z0-9-]+) exited with status "
+    r"-?[1-9]\d* \(0x[0-9A-Fa-f]{8}\)\.\r?$", re.M)
+NATIVE_SIGNAL = re.compile(
+    r"^(?:Thread \d+(?: \"[^\"]*\")? received signal SIG[A-Z0-9]+.*|"
+    r"Program (?:received|terminated with) signal SIG[A-Z0-9]+.*|"
+    r"Segmentation fault(?: \(core dumped\))?)\r?$", re.M)
 
 
 def escape(value):
@@ -64,7 +72,10 @@ def failure_excerpt(output):
     candidates = [i for i, line in enumerate(lines) if failure.search(line)]
     native = [i for i in candidates if NATIVE_FAILURE.fullmatch(lines[i])]
     timeouts = [i for i, line in enumerate(lines) if NATIVE_TIMEOUT.fullmatch(line)]
+    statuses = [i for i, line in enumerate(lines) if NATIVE_STATUS.fullmatch(line)]
+    signals = [i for i, line in enumerate(lines) if NATIVE_SIGNAL.fullmatch(line)]
     index = (timeouts[-1] if timeouts else native[0] if native else
+             signals[0] if signals else statuses[0] if statuses else
              (candidates or [max(0, len(lines) - 1)])[-1])
     phases = [line for line in lines[:index]
               if "checkpoint:" in line or "workflow:" in line or "-native:" in line]
