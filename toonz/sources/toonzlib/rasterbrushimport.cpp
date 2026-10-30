@@ -20,7 +20,7 @@ struct Invalid : std::runtime_error {
 };
 struct Reader {
   const QByteArray &bytes;
-  size_t pos = 0, total = 0;
+  size_t pos = 0, total = 0, limit = 256u * 1024u * 1024u;
   unsigned read() {
     if (pos >= size_t(bytes.size())) throw Invalid("Truncated brush resource");
     return static_cast<unsigned char>(bytes[int(pos++)]);
@@ -41,8 +41,7 @@ struct Reader {
     if (!w || !h || w > 8192 || h > 8192 || size_t(w) * h > 2 * 1024 * 1024)
       throw Invalid("Brush image budget exceeded");
     size_t n = size_t(w) * h * sizeof(Pixel);
-    if (n > 256u * 1024u * 1024u - total)
-      throw Invalid("Aggregate brush budget exceeded");
+    if (n > limit - total) throw Invalid("Aggregate brush budget exceeded");
     total += n;
     auto im    = std::make_shared<Image>();
     im->width  = int(w);
@@ -118,6 +117,8 @@ Record converted(const QByteArray &bytes, const QString &format) {
       {"sourceSemanticallySupported", false},
       {"sourceReferenceVerified", false}};
   r.decoded = true;
+  r.diagnostics << "Converted native settings; source engine semantics and "
+                   "appearance are not verified.";
   return r;
 }
 QMap<QString, QString> kppParameters(const QByteArray &xml, QString &name,
@@ -222,7 +223,7 @@ bool convertCurve(const QMap<QString, QString> &fields, const QString &prefix,
 }
 Tip resolveTip(const QMap<QString, QByteArray> *resources,
                const QString &filename, const QString &md5,
-               QStringList &diagnostics) {
+               QStringList &diagnostics, size_t maximumDecodedBytes) {
   if (!resources)
     throw Invalid(
         "KPP tip resource is missing; import a bundle containing its "
@@ -242,9 +243,16 @@ Tip resolveTip(const QMap<QString, QByteArray> *resources,
   const QString key = matches[0], suffix = QFileInfo(key).suffix().toLower();
   if (suffix == "png") {
     QString error;
-    auto image = decodeImage(resources->value(key), true, error);
+    auto image =
+        decodeImage(resources->value(key), true, error, maximumDecodedBytes);
     if (!image) throw std::runtime_error(error.toStdString());
-    auto mask        = std::make_shared<Image>(*image);
+    // decodeImage creates a fresh non-const Image. Convert the uniquely owned
+    // result in place before publishing it as an immutable tip, avoiding a
+    // second full float-pixel allocation during mask conversion.
+    if (image.use_count() != 1)
+      throw Invalid("Unexpected shared PNG decode result");
+    auto mask = std::const_pointer_cast<Image>(image);
+    image.reset();
     mask->color      = false;
     bool transparent = false;
     for (const auto &p : mask->pixels)
@@ -267,14 +275,16 @@ Tip resolveTip(const QMap<QString, QByteArray> *resources,
   if (suffix != "gbr" && suffix != "gih")
     throw Invalid("Unsupported KPP tip resource format");
   QString error;
-  auto imported = importBrush(resources->value(key), suffix, error);
+  auto imported = importBrush(resources->value(key), suffix, error, nullptr,
+                              maximumDecodedBytes);
   if (!error.isEmpty() || imported.records.size() != 1)
     throw Invalid("Cannot decode KPP tip dependency");
   diagnostics.append(imported.diagnostics);
   return imported.records[0].preset.tip;
 }
 Record convertKpp(const QByteArray &bytes, QStringList &diagnostics,
-                  const QMap<QString, QByteArray> *resources = nullptr) {
+                  const QMap<QString, QByteArray> *resources = nullptr,
+                  size_t maximumDecodedBytes = 256u * 1024u * 1024u) {
   QString error;
   auto png = boundedPng(bytes, error);
   if (!error.isEmpty()) throw std::runtime_error(error.toStdString());
@@ -309,7 +319,8 @@ Record convertKpp(const QByteArray &bytes, QStringList &diagnostics,
         if (type != "png_brush" && type != "gbr_brush" && type != "gih_brush")
           throw Invalid("Unsupported KPP tip type");
         r.preset.tip = resolveTip(resources, a.value("filename").toString(),
-                                  a.value("md5sum").toString(), diagnostics);
+                                  a.value("md5sum").toString(), diagnostics,
+                                  maximumDecodedBytes);
         r.preset.size.value = std::max(r.preset.tip.images[0]->width,
                                        r.preset.tip.images[0]->height) *
                               numeric(a.value("scale").toString());
@@ -407,6 +418,7 @@ Record convertKpp(const QByteArray &bytes, QStringList &diagnostics,
   if (!unmapped.isEmpty())
     diagnostics << "Source settings not reproduced: " + unmapped.join(", ");
   r.provenance["conversionReport"] = diagnostics.join("\n");
+  r.diagnostics.append(diagnostics);
   return r;
 }
 QStringList bundlePresets(const QMap<QString, QByteArray> &members,
@@ -430,7 +442,7 @@ QStringList bundlePresets(const QMap<QString, QByteArray> &members,
     if (!root) {
       if (reader.name() != QStringLiteral("manifest") ||
           reader.namespaceUri() != ns ||
-          reader.attributes().value(ns, "version") != "1.2")
+          reader.attributes().value(ns, "version") != QStringLiteral("1.2"))
         throw Invalid("Unsupported bundle manifest version");
       root = true;
       continue;
@@ -476,7 +488,10 @@ void check(Record &r) {
 }
 }  // namespace
 ImportResult importBrush(const QByteArray &bytes, const QString &format,
-                         QString &error, const std::atomic_bool *cancelled) {
+                         QString &error, const std::atomic_bool *cancelled,
+                         size_t maximumDecodedBytes) {
+  maximumDecodedBytes =
+      std::min(maximumDecodedBytes, size_t(256u * 1024u * 1024u));
   ImportResult result;
   error.clear();
   auto checkCancelled = [&]() {
@@ -489,7 +504,7 @@ ImportResult importBrush(const QByteArray &bytes, const QString &format,
       throw Invalid("Brush input exceeds 64 MiB");
     const QString kind = format.toLower();
     if (kind == "gzbrush") {
-      auto r = decode(bytes, error);
+      auto r = decode(bytes, error, maximumDecodedBytes);
       checkCancelled();
       if (!error.isEmpty()) return {};
       result.records.push_back(r);
@@ -505,11 +520,12 @@ ImportResult importBrush(const QByteArray &bytes, const QString &format,
       for (const auto &path : presets) {
         checkCancelled();
         QStringList diagnostics;
-        auto r = convertKpp(members[path], diagnostics, &resources);
+        auto r = convertKpp(members[path], diagnostics, &resources,
+                            maximumDecodedBytes - decoded);
         check(r);
         for (const auto &image : r.preset.tip.images) {
           size_t n = image->pixels.size() * sizeof(Pixel);
-          if (n > 256u * 1024u * 1024u - decoded)
+          if (n > maximumDecodedBytes - decoded)
             throw Invalid("Bundle decoded image budget exceeded");
           decoded += n;
         }
@@ -522,6 +538,7 @@ ImportResult importBrush(const QByteArray &bytes, const QString &format,
       }
     } else if (kind == "gbr" || kind == "gih") {
       Reader reader{bytes};
+      reader.limit   = maximumDecodedBytes;
       auto r         = converted(bytes, kind);
       int count      = 1;
       double spacing = .1;
@@ -586,7 +603,8 @@ ImportResult importBrush(const QByteArray &bytes, const QString &format,
       check(r);
       result.records.push_back(r);
     } else if (kind == "kpp") {
-      auto r = convertKpp(bytes, result.diagnostics);
+      auto r =
+          convertKpp(bytes, result.diagnostics, nullptr, maximumDecodedBytes);
       check(r);
       result.records.push_back(r);
     } else if (kind == "abr") {
@@ -594,7 +612,8 @@ ImportResult importBrush(const QByteArray &bytes, const QString &format,
       std::string why;
       AbrParser::Limits limits;
       limits.maxFileBytes    = fileLimit;
-      limits.maxDecodedBytes = 8 * 1024 * 1024;
+      limits.maxDecodedBytes = std::min(size_t(8 * 1024 * 1024),
+                                        maximumDecodedBytes / sizeof(Pixel));
       limits.maxRecords      = 256;
       if (!AbrParser::parseAbr(
               reinterpret_cast<const unsigned char *>(bytes.constData()),
@@ -608,10 +627,12 @@ ImportResult importBrush(const QByteArray &bytes, const QString &format,
             << "The ABR contains behavior or records that are not represented "
                "by these native tip conversions.";
       Reader allocator{bytes};
+      allocator.limit = maximumDecodedBytes;
       for (const auto &tip : parsed.tips) {
         checkCancelled();
         auto r                              = converted(bytes, kind);
         r.preset.name                       = tip.name;
+        r.diagnostics.append(result.diagnostics);
         r.provenance["containerVersion"]    = parsed.version;
         r.provenance["containerSubversion"] = parsed.subVersion;
         auto im = allocator.allocate(tip.width, tip.height, false);

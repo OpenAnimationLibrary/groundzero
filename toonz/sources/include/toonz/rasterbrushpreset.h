@@ -1,4 +1,5 @@
 #pragma once
+#include "qtmsvccompat.h"
 #include "toonz/rasterbrushengine.h"
 #include <QByteArray>
 #include <QString>
@@ -17,8 +18,11 @@ struct Record {
   bool referenceVerified = false;
 };
 RASTERBRUSH_API QByteArray encode(const Record &record, QString &error);
-RASTERBRUSH_API Record decode(const QByteArray &bytes, QString &error);
-RASTERBRUSH_API Record load(const QString &path, QString &error);
+RASTERBRUSH_API Record decode(const QByteArray &bytes, QString &error,
+                              size_t maximumDecodedBytes = 256u * 1024u *
+                                                           1024u);
+RASTERBRUSH_API Record load(const QString &path, QString &error,
+                            size_t maximumDecodedBytes = 256u * 1024u * 1024u);
 RASTERBRUSH_API bool save(const QString &path, const Record &record,
                           QString &error);
 RASTERBRUSH_API QString install(const QString &directory, const Record &record,
@@ -31,5 +35,6 @@ installCollection(const QString &directory, const std::vector<Record> &records,
 // Converts a bounded bitmap into a native mask or colored stamp. PNG resources
 // inside a package have no filenames and cannot escape their resource graph.
 RASTERBRUSH_API std::shared_ptr<const Image> decodeImage(
-    const QByteArray &bytes, bool color, QString &error);
+    const QByteArray &bytes, bool color, QString &error,
+    size_t maximumDecodedBytes = 256u * 1024u * 1024u);
 }  // namespace RasterBrush

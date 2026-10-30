@@ -10,6 +10,10 @@
 #include <QDir>
 #include <QImage>
 #include <QBuffer>
+#include <QCryptographicHash>
+#ifdef __linux__
+#include <sys/resource.h>
+#endif
 #include <iostream>
 #include <stdexcept>
 using namespace RasterBrush;
@@ -253,6 +257,7 @@ void testImports() {
 void testPackage() {
   Record r;
   r.preset.name = "Original brush";
+  r.diagnostics << "Original conversion note: source behavior is unverified.";
   r.provenance  = {{"license", "CC0-1.0"}, {"origin", "original test fixture"}};
   auto image    = std::make_shared<Image>();
   image->width  = 2;
@@ -285,6 +290,21 @@ void testPackage() {
           "cancelled import produced installable records");
   auto restored = decode(bytes, error);
   require(error.isEmpty() && restored.semanticallySupported, qPrintable(error));
+  decode(bytes, error, 4 * sizeof(Pixel) - 1);
+  require(error.contains("before allocation"),
+          "remaining package budget checked after allocation");
+  require(restored.diagnostics == r.diagnostics,
+          "conversion notes were lost on package reopening");
+  decode(altered(bytes, "diagnostics", QJsonArray{42}), error);
+  require(!error.isEmpty(), "non-text conversion note accepted");
+  decode(altered(bytes, "diagnostics", QJsonArray{QString(16385, 'x')}), error);
+  require(!error.isEmpty(), "oversized conversion note accepted");
+  auto older = QJsonDocument::fromJson(bytes).object();
+  older.remove("diagnostics");
+  auto oldRecord = decode(QJsonDocument(older).toJson(), error);
+  require(error.isEmpty() && oldRecord.semanticallySupported &&
+              oldRecord.diagnostics.empty(),
+          "older native package without notes stopped loading");
   require(restored.preset.pickupControl.mappings.size() == 1,
           "wet dynamics lost in package");
   require(restored.preset.hue.mappings.size() == 1 &&
@@ -381,10 +401,81 @@ void testCollection() {
   require(load(paths[0], error).preset.name == first.preset.name,
           "conflicting collection modified another preset");
 }
+int oversizedWorkerFixture(const QString &directory) {
+  // A hostile worker result: each package fits its own resource limit, but
+  // retaining both would require 320 MiB of float image pixels.
+  QString error;
+  Record record;
+  auto root = QJsonDocument::fromJson(encode(record, error)).object();
+  require(error.isEmpty(), "cannot prepare worker budget fixture");
+  for (int package = 0; package < 2; ++package) {
+    QJsonObject assets;
+    QJsonArray references;
+    for (int index = 0; index < package + 2; ++index) {
+      QImage image(2048, 1024, QImage::Format_ARGB32);
+      image.fill(qRgba(0, 0, 0, 17 + 34 * (index + package * 2)));
+      QByteArray png;
+      QBuffer buffer(&png);
+      require(buffer.open(QIODevice::WriteOnly) && image.save(&buffer, "PNG"),
+              "cannot write large original PNG fixture");
+      QString identity = QString::fromLatin1(
+          QCryptographicHash::hash(png + "mask", QCryptographicHash::Sha256)
+              .toHex());
+      assets[identity] = QJsonObject{
+          {"png", QString::fromLatin1(png.toBase64())}, {"color", false}};
+      references.append(identity);
+    }
+    auto settings    = root["settings"].toObject();
+    auto tip         = settings["tip"].toObject();
+    tip["shape"]     = "bitmap";
+    tip["images"]    = references;
+    settings["tip"]  = tip;
+    root["settings"] = settings;
+    root["assets"]   = assets;
+    QFile file(QDir(directory).filePath(QString::number(package) + ".gzbrush"));
+    auto bytes = QJsonDocument(root).toJson();
+    require(
+        file.open(QIODevice::WriteOnly) && file.write(bytes) == bytes.size(),
+        "cannot write worker budget package");
+  }
+  QFile manifest(QDir(directory).filePath("result.json"));
+  QByteArray bytes = QJsonDocument(QJsonObject{{"protocol", 1},
+                                               {"count", 2},
+                                               {"diagnostics", QJsonArray{}}})
+                         .toJson();
+  require(manifest.open(QIODevice::WriteOnly) &&
+              manifest.write(bytes) == bytes.size(),
+          "cannot write worker budget manifest");
+  return 0;
+}
+void testWorkerPeakBudget() {
+  QTemporaryDir directory;
+  QString error;
+  auto result =
+      importBrushProcess(QCoreApplication::applicationFilePath(),
+                         directory.filePath("oversized-worker.fixture"), error);
+  require(
+      result.records.empty() && !result.complete &&
+          error.contains("before allocation"),
+      "multi-package result did not reject before decoding the excess image");
+#ifdef __linux__
+  rusage usage{};
+  require(getrusage(RUSAGE_SELF, &usage) == 0,
+          "cannot measure parent peak RSS");
+  std::cout << "::notice::Brush import parent peak RSS: " << usage.ru_maxrss
+            << " KiB\n";
+  // Includes Qt, allocator and codec overhead, separately from the 256 MiB
+  // resource budget. Run in its own non-sanitized CI process for valid RSS.
+  require(usage.ru_maxrss < 320 * 1024,
+          "parent import exceeded the qualified 320 MiB total-RSS envelope");
+#endif
+}
 void testWorkerProcess() {
   QTemporaryDir directory;
   require(directory.isValid(), "worker fixture directory unavailable");
-  QString input = directory.filePath("original.gbr"), error;
+  QString input = directory.filePath(
+              QString::fromUtf8("\xE7\xAD\x86-original.gbr")),
+          error;
   {
     QFile file(input);
     require(file.open(QIODevice::WriteOnly), "cannot write worker input");
@@ -492,13 +583,18 @@ int main(int argc, char **argv) {
   QCoreApplication app(argc, argv);
   if (argc == 4 &&
       QString::fromLocal8Bit(argv[1]) == "--raster-brush-import-worker") {
+    if (app.arguments().at(2).endsWith("oversized-worker.fixture"))
+      return oversizedWorkerFixture(app.arguments().at(3));
     // Test-only blocked decoder; the parent must kill it after cancellation.
     if (QString::fromLocal8Bit(argv[2]).endsWith("blocking-worker.fixture"))
       QThread::sleep(30);
-    return runImportWorker(QString::fromLocal8Bit(argv[2]),
-                           QString::fromLocal8Bit(argv[3]));
+    return runImportWorker(app.arguments().at(2), app.arguments().at(3));
   }
   try {
+    if (argc == 2 && app.arguments().at(1) == "--test-worker-budget") {
+      testWorkerPeakBudget();
+      return 0;
+    }
     testPackage();
     testImports();
     testBundles();

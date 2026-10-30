@@ -28,7 +28,7 @@ jobs:
         run: |
           set -o pipefail
           cmake -S ci-scripts/brush-parser -B brush-metrics-build -DCMAKE_BUILD_TYPE=Release
-          cmake --build brush-metrics-build --target rasterbrushbenchmark --parallel 2 2>&1 | tee brush-metrics-build.log
+          cmake --build brush-metrics-build --target rasterbrushbenchmark rasterbrushpreset_test --parallel 2 2>&1 | tee brush-metrics-build.log
       - name: Measure original native traces
         run: |
           lscpu > brush-metrics-machine.txt
@@ -40,6 +40,22 @@ jobs:
           for row in result['records']:
               print('::notice title=Native brush measurement::' + json.dumps(row))
           PY
+      - name: Qualify hostile multi-package import peak memory
+        shell: bash
+        run: |
+          set -o pipefail
+          /usr/bin/time -v -o brush-import-peak-memory.txt timeout 60 brush-metrics-build/rasterbrushpreset_test --test-worker-budget 2>&1 | tee brush-import-budget.log
+      - name: Report import memory failure
+        if: failure()
+        run: |
+          python3 - <<'PYBUDGET'
+          from pathlib import Path
+          for name in ('brush-import-budget.log', 'brush-import-peak-memory.txt'):
+              path = Path(name)
+              if path.is_file():
+                  message = path.read_text(errors='replace')[-3500:]
+                  print('::error title=' + name + '::' + message.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A'))
+          PYBUDGET
       - name: Report metric failure
         if: failure()
         shell: bash
@@ -60,6 +76,8 @@ jobs:
             brush-metrics-machine.txt
             brush-metrics-memory.txt
             brush-metrics-build.log
+            brush-import-peak-memory.txt
+            brush-import-budget.log
   krita:
     runs-on: ubuntu-22.04
     timeout-minutes: 20
@@ -148,7 +166,7 @@ jobs:
           from pathlib import Path
           root = Path(os.environ['BRUSH_REFERENCE_ROOT'])
           import re
-          for name in ('version.log', 'output/oracle-status.json', 'output/plugin-startup.log', 'runtime.log', 'data/krita/krita.log', 'data/krita/krita-sysinfo.log'):
+          for name in ('version.log', 'output/oracle-status.json', 'output/plugin-startup.log', 'output/progress.log', 'output/python-stacks.log', 'runtime.log', 'data/krita/krita.log', 'data/krita/krita-sysinfo.log'):
               path = root / name
               if not path.is_file():
                   print('::notice::Reference diagnostic absent: ' + name)

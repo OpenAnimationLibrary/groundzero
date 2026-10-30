@@ -11,7 +11,8 @@ struct ImportResult {
 // source-engine semantic support or reference verification.
 RASTERBRUSH_API ImportResult
 importBrush(const QByteArray &bytes, const QString &format, QString &error,
-            const std::atomic_bool *cancelled = nullptr);
+            const std::atomic_bool *cancelled = nullptr,
+            size_t maximumDecodedBytes        = 256u * 1024u * 1024u);
 RASTERBRUSH_API ImportResult
 importBrushFile(const QString &path, QString &error,
                 const std::atomic_bool *cancelled = nullptr);

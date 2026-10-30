@@ -266,3 +266,34 @@ module, before the reference plugin loads. The harness now locates the bundled
 standard library and supplies its prefix/search path only to the reference
 application. Successful execution and all source-profile comparison gates remain
 pending; no source fidelity claim follows from this harness fix.
+
+## Resource preflight and retained conversion notes
+
+Decoders receive the remaining transaction budget before allocating the next
+image, including when the parent reads multiple worker-produced packages and
+when a bundle resolves multiple presets. PNG preflight reserves retained float
+pixels plus a conservative per-pixel codec/conversion allowance before Qt
+allocates its decoded raster. Encoded file, JSON/XML metadata and application
+memory remain separately bounded/accounted; these checks are not an OS memory
+or privilege sandbox. Fresh PNG-to-mask conversion happens before publication
+without duplicating the full float image.
+
+A dedicated non-sanitized Linux CI process consumes hostile worker output whose
+two individually valid packages would retain 320 MiB of float image pixels.
+It must reject the excess image before allocation, return no partial records,
+and remain below a separately reported 320 MiB total-parent-RSS qualification
+envelope. The transaction image limit remains 256 MiB. This fixture qualifies
+that failure path only; it is not a universal RSS guarantee. Validation is pending
+until the new CI workload runs.
+
+Conversion notes are preserved in native packages and exposed by the editor's
+Brush details control, including older KPP conversion reports. The optional
+notes field accepts at most 1,024 bounded strings and 256 KiB of serialized notes;
+older packages without it still load. Verification is never conferred by imported
+metadata. Windows import workers use Qt's Unicode command-line arguments.
+
+The five-preset source comparison is exploratory measurement only. Its green
+result means the workload and report completed; it does not enforce the RCP1
+fidelity thresholds. Every current conversion remains source-semantically
+unsupported and source-reference-unverified until its actual behavioral profile
+and required comparison suite are implemented and pass.

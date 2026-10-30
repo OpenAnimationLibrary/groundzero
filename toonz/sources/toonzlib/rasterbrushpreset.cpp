@@ -13,6 +13,7 @@
 #include <QTemporaryDir>
 #include <QSet>
 #include <QMap>
+#include <algorithm>
 #include <cmath>
 #include <stdexcept>
 
@@ -173,7 +174,8 @@ struct Reader {
 }  // namespace
 
 std::shared_ptr<const Image> decodeImage(const QByteArray &bytes, bool color,
-                                         QString &error) {
+                                         QString &error,
+                                         size_t maximumDecodedBytes) {
   error.clear();
   if (bytes.isEmpty() || bytes.size() > maxBytes) {
     error = "Brush image file budget exceeded";
@@ -195,6 +197,14 @@ std::shared_ptr<const Image> decodeImage(const QByteArray &bytes, bool color,
       size.height() > 8192 ||
       qint64(size.width()) * size.height() > 2 * 1024 * 1024) {
     error = "Brush image allocation budget exceeded";
+    return {};
+  }
+  // Reserve room for retained float pixels and bounded codec/conversion
+  // scratch before Qt allocates a decoded raster, not after returning it.
+  const size_t pixels = size_t(size.width()) * size.height();
+  if (pixels > std::min(maximumDecodedBytes, size_t(256u * 1024u * 1024u)) /
+                   (sizeof(Pixel) + 16)) {
+    error = "Remaining decoded image budget exceeded before allocation";
     return {};
   }
   QImage q = reader.read().convertToFormat(QImage::Format_ARGB32);
@@ -228,6 +238,13 @@ QByteArray encode(const Record &r, QString &error) {
     if (QString::fromStdString(r.preset.name).size() > 4096 ||
         QJsonDocument(r.provenance).toJson().size() > 16384)
       throw Invalid("Preset metadata budget exceeded");
+    if (r.diagnostics.size() > 1024 ||
+        QJsonDocument(QJsonArray::fromStringList(r.diagnostics))
+                .toJson()
+                .size() > 256 * 1024)
+      throw Invalid("Preset diagnostic budget exceeded");
+    for (const auto &note : r.diagnostics)
+      if (note.size() > 16384) throw Invalid("Preset diagnostic is too long");
     Writer w;
     const auto &p = r.preset;
     const auto &t = p.texture;
@@ -287,7 +304,9 @@ QByteArray encode(const Record &r, QString &error) {
                                   {"version", 1},
                                   {"settings", settings},
                                   {"assets", w.assets},
-                                  {"provenance", r.provenance}})
+                                  {"provenance", r.provenance},
+                                  {"diagnostics",
+                                   QJsonArray::fromStringList(r.diagnostics)}})
             .toJson();
     if (result.size() > maxBytes) throw Invalid("Brush package exceeds 64 MiB");
     return result;
@@ -297,7 +316,10 @@ QByteArray encode(const Record &r, QString &error) {
   }
 }
 
-Record decode(const QByteArray &bytes, QString &error) {
+Record decode(const QByteArray &bytes, QString &error,
+              size_t maximumDecodedBytes) {
+  maximumDecodedBytes =
+      std::min(maximumDecodedBytes, size_t(256u * 1024u * 1024u));
   Record r;
   error.clear();
   try {
@@ -308,10 +330,21 @@ Record decode(const QByteArray &bytes, QString &error) {
     if (parse.error != QJsonParseError::NoError || !doc.isObject())
       throw Invalid("Invalid brush JSON: " + parse.errorString());
     auto root = doc.object();
-    keys(root, {"format", "version", "settings", "assets", "provenance"});
+    keys(root, {"format", "version", "settings", "assets", "provenance",
+                "diagnostics"});
     if (text(root["format"]) != "groundzero-raster-brush" ||
         number(root["version"]) != 1)
       throw Invalid("Unsupported native brush version");
+    if (root.contains("diagnostics")) {
+      auto notes = array(root["diagnostics"], 1024);
+      if (QJsonDocument(notes).toJson().size() > 256 * 1024)
+        throw Invalid("Preset diagnostic budget exceeded");
+      for (const auto &note : notes) {
+        if (!note.isString() || note.toString().size() > 16384)
+          throw Invalid("Invalid preset diagnostic");
+        r.diagnostics << note.toString();
+      }
+    }
     Reader rd;
     auto assets = object(root["assets"]);
     if (assets.size() > 512) throw Invalid("Too many resources");
@@ -325,10 +358,10 @@ Record decode(const QByteArray &bytes, QString &error) {
       if (assetId(png, color) != i.key())
         throw Invalid("Brush resource hash mismatch");
       QString why;
-      auto im = decodeImage(png, color, why);
+      auto im = decodeImage(png, color, why, maximumDecodedBytes - total);
       if (!im) throw Invalid(why);
       total += im->pixels.size() * sizeof(Pixel);
-      if (total > 256u * 1024u * 1024u)
+      if (total > maximumDecodedBytes)
         throw Invalid("Aggregate resource budget exceeded");
       rd.assets[i.key()] = im;
     }
@@ -432,7 +465,7 @@ Record decode(const QByteArray &bytes, QString &error) {
   }
 }
 
-Record load(const QString &path, QString &error) {
+Record load(const QString &path, QString &error, size_t maximumDecodedBytes) {
   QFile f(path);
   if (!f.open(QIODevice::ReadOnly)) {
     error = f.errorString();
@@ -447,7 +480,7 @@ Record load(const QString &path, QString &error) {
     error = "Cannot read brush package";
     return {};
   }
-  return decode(bytes, error);
+  return decode(bytes, error, maximumDecodedBytes);
 }
 bool save(const QString &path, const Record &r, QString &error) {
   auto bytes = encode(r, error);

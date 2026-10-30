@@ -84,6 +84,7 @@
 #include <QProgressBar>
 #include <QThread>
 #include <QListWidget>
+#include <QSet>
 #include <cmath>
 
 //----------------------------------------------------------------------------------
@@ -393,7 +394,39 @@ bool editNativeDynamics(QWidget *parent, RasterBrush::Dynamic &dynamic) {
 bool editNativeBrush(RasterBrush::Record &record) {
   QDialog dialog;
   dialog.setWindowTitle(QObject::tr("Native Raster Brush"));
-  auto layout  = new QVBoxLayout(&dialog);
+  auto layout           = new QVBoxLayout(&dialog);
+  const bool conversion = record.provenance.contains("sourceSha256");
+  auto status           = new QLabel(
+      conversion
+          ? QObject::tr(
+                "Native conversion. Source brush behavior is not verified.")
+          : QObject::tr("Native settings supported. External brush parity is "
+                                            "not verified."),
+      &dialog);
+  status->setWordWrap(true);
+  layout->addWidget(status);
+  auto details = new QPushButton(QObject::tr("Brush details…"), &dialog);
+  layout->addWidget(details);
+  QObject::connect(details, &QPushButton::clicked, &dialog, [&]() {
+    QStringList notes = record.diagnostics;
+    const QString previousReport =
+        record.provenance.value("conversionReport").toString();
+    if (!previousReport.isEmpty() && !notes.join("\n").contains(previousReport))
+      notes << previousReport;
+    notes << QObject::tr("Native profile: %1")
+                 .arg(QString::fromStdString(record.preset.profile));
+    notes << QObject::tr("Decoded native package: %1")
+                 .arg(record.decoded ? QObject::tr("yes") : QObject::tr("no"));
+    notes << QObject::tr("Native settings supported: %1")
+                 .arg(record.semanticallySupported ? QObject::tr("yes")
+                                                   : QObject::tr("no"));
+    notes << QObject::tr("Source reference verification: not established");
+    QMessageBox report(QMessageBox::Information, QObject::tr("Brush details"),
+                       status->text(), QMessageBox::Ok, &dialog);
+    report.setTextFormat(Qt::PlainText);
+    report.setDetailedText(notes.join("\n"));
+    report.exec();
+  });
   auto preview = new NativeBrushPreview(&dialog);
   layout->addWidget(preview, 0, Qt::AlignHCenter);
   auto scroll = new QScrollArea(&dialog);
@@ -404,6 +437,7 @@ bool editNativeBrush(RasterBrush::Record &record) {
   layout->addWidget(scroll);
   dialog.resize(480, 680);
   auto &p      = record.preset;
+  const RasterBrush::Preset originalPreset = p;
   auto refresh = [&]() { preview->configure(p); };
   auto spin = [&](const QString &label, double &value, double lo, double hi) {
     auto box = new QDoubleSpinBox(&dialog);
@@ -536,6 +570,19 @@ bool editNativeBrush(RasterBrush::Record &record) {
     if (!ok) return images;
     int mode     = modes.indexOf(selected);
     size_t bytes = 0;
+    QSet<const RasterBrush::Image *> retained;
+    auto account = [&](const std::shared_ptr<const RasterBrush::Image> &image) {
+      if (image && !retained.contains(image.get())) {
+        retained.insert(image.get());
+        bytes += image->pixels.size() * sizeof(RasterBrush::Pixel);
+      }
+    };
+    for (const auto *preset :
+         {&originalPreset, static_cast<const RasterBrush::Preset *>(&p)}) {
+      for (const auto &image : preset->tip.images) account(image);
+      for (const auto &image : preset->secondary.tip.images) account(image);
+      account(preset->texture.image);
+    }
     for (const auto &path : paths) {
       QFile file(path);
       QString error;
@@ -543,7 +590,9 @@ bool editNativeBrush(RasterBrush::Record &record) {
       if (!file.open(QIODevice::ReadOnly) || file.size() > 64 * 1024 * 1024)
         error = QObject::tr("Cannot read image within the 64 MiB file limit.");
       else
-        image = RasterBrush::decodeImage(file.readAll(), mode != 1, error);
+        image = RasterBrush::decodeImage(
+            file.readAll(), mode != 1, error,
+            bytes < 256u * 1024u * 1024u ? 256u * 1024u * 1024u - bytes : 0);
       if (image && bytes + image->pixels.size() * sizeof(RasterBrush::Pixel) >
                        256u * 1024u * 1024u)
         error = QObject::tr("Combined decoded images exceed 256 MiB.");
@@ -554,7 +603,10 @@ bool editNativeBrush(RasterBrush::Record &record) {
       }
       bytes += image->pixels.size() * sizeof(RasterBrush::Pixel);
       if (mode == 0) {
-        auto mask   = std::make_shared<RasterBrush::Image>(*image);
+        // Fresh decode results are uniquely owned until this editor publishes
+        // them.
+        auto mask = std::const_pointer_cast<RasterBrush::Image>(image);
+        image.reset();
         mask->color = false;
         for (auto &pixel : mask->pixels)
           pixel = {0, 0, 0,

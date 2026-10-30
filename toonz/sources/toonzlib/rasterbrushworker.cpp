@@ -144,7 +144,8 @@ ImportResult importBrushProcess(const QString &executable, const QString &path,
       error = "Brush import result exceeded its package budget";
       return {};
     }
-    auto record = load(package, error);
+    auto record =
+        load(package, error, size_t(packageBudget) - pixels * sizeof(Pixel));
     if (!error.isEmpty()) return {};
     std::set<const Image *> resources;
     auto account = [&](const std::shared_ptr<const Image> &image) {

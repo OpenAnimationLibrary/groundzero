@@ -287,8 +287,9 @@ int main(int argc, char *argv[]) {
       QString::fromLocal8Bit(argv[1]) == "--raster-brush-import-worker") {
     if (argc != 4) return 2;
     QCoreApplication worker(argc, argv);
-    return RasterBrush::runImportWorker(QString::fromLocal8Bit(argv[2]),
-                                        QString::fromLocal8Bit(argv[3]));
+    // Qt reconstructs Windows arguments from the Unicode command line.
+    const QStringList arguments = worker.arguments();
+    return RasterBrush::runImportWorker(arguments.at(2), arguments.at(3));
   }
   bool nativeUiTest = false;
   bool rasterBrushTest = false;
