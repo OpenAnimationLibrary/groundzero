@@ -101,6 +101,12 @@ jobs:
         run: |
           set -o pipefail
           cmake --build brush-parser-build --config Debug --parallel 2 2>&1 | tee brush-parser-build.log
+      - name: Record Windows network isolation prerequisites
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Get-Service BFE, MpsSvc | Select-Object Name, Status | Format-Table
+          Get-NetFirewallProfile | Select-Object Name, Enabled | Format-Table
       - name: Run parser regression
         shell: bash
         run: |

@@ -365,7 +365,13 @@ int probeWindowsImportSandboxWorker(const QString &input, const QString &output,
   WSACleanup();
   // Connection refusal alone is not evidence of isolation. Windows must deny
   // the capability, independently of whether any service listens at the port.
-  if (connected == 0 || networkError != WSAEACCES) return 6;
+  if (connected == 0 || networkError != WSAEACCES) {
+    std::fprintf(stderr,
+                 "AppContainer loopback denial probe: connect=%d Winsock=%d "
+                 "(required WSAEACCES=%d)\n",
+                 connected, networkError, WSAEACCES);
+    return 6;
+  }
   return writeFile(QDir(output).filePath("sandbox-passed"), "passed") ? 0 : 7;
 }
 int probeWindowsImportSandbox(const QString &executable, const QString &input,
@@ -383,7 +389,9 @@ int probeWindowsImportSandbox(const QString &executable, const QString &input,
   sandbox.configure(process);
   process.setWorkingDirectory(output);
   process.setStandardOutputFile(QProcess::nullDevice());
-  process.setStandardErrorFile(QProcess::nullDevice());
+  // This test-only helper prints bounded stage diagnostics. Forward them to
+  // the probe parent, whose output the regression driver captures.
+  process.setProcessChannelMode(QProcess::ForwardedErrorChannel);
   process.start(sandbox.program, {"--test-windows-sandbox-worker",
                                   sandbox.input, output, forbidden});
   if (!process.waitForStarted(5000)) {

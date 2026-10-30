@@ -9,7 +9,7 @@ import time
 import zlib
 from pathlib import Path
 from krita import Krita, Extension, ManagedColor, Preset
-from . import resource_probe, sensor_probe
+from . import resource_probe, sensor_probe, mirror_probe
 from xml.etree.ElementTree import fromstring
 from PyQt5.QtCore import QByteArray, QPoint, QPointF, QTimer, QEvent, Qt
 from PyQt5.QtGui import QColor, QImage, QTabletEvent
@@ -139,7 +139,8 @@ class Probe(Extension):
                               "image": [image_pos.x(), image_pos.y()],
                               "authoredImage": [row["x"], row["y"]],
                               "timeMs": event.timestamp(), "accepted": event.isAccepted(),
-                              "pressure": event.pressure(), "tilt": [event.xTilt(), event.yTilt()],
+                              "pressure": event.pressure(), "device": int(event.device()),
+                              "pointerType": int(event.pointerType()), "uniqueId": event.uniqueId(), "tilt": [event.xTilt(), event.yTilt()],
                               "rotation": event.rotation()})
 
         rows = case["events"]
@@ -152,20 +153,29 @@ class Probe(Extension):
                     "presetSha256": hashlib.sha256(xml.encode()).hexdigest(),
                     "brushDefinition": fields.get("brush_definition"),
                     "paintOpAction": fields.get("PaintOpAction"),
+                    "disablePressure": view.disablePressure(),
+                    "pressureControls": {key: fields.get(key) for prefix in ("Size", "Opacity", "Flow")
+                        for key in ("Pressure" + prefix, prefix + "UseCurve", prefix + "UseSameCurve",
+                                    prefix + "commonCurve", prefix + "Sensor") if key in fields},
                     "precision": fields.get("KisPrecisionOption/precisionLevel"),
                     "smoothing": combo.currentText()}
         before_proximity = tool_state()
         send(rows[0], QEvent.TabletEnterProximity, QApplication.instance(), Qt.NoButton, Qt.NoButton, 0)
         yield
         after_proximity = tool_state()
-        print("::notice title=Tablet source state::" + json.dumps(
-            {"beforeProximity": before_proximity, "afterProximity": after_proximity},
-            separators=(",", ":")).replace("%", "%25").replace("\n", "%0A").replace("\r", "%0D"), flush=True)
+        for phase, state in (("beforeProximity", before_proximity), ("afterProximity", after_proximity)):
+            print("::notice title=Tablet source state::" + json.dumps(
+                {"phase": phase, "state": state}, separators=(",", ":")).replace(
+                    "%", "%25").replace("\n", "%0A").replace("\r", "%0D"), flush=True)
         # Establish the hover position before contact, as a real tablet does.
         # This also initializes the source input manager's pointer state before
         # its first pressure sample rather than inheriting the mouse position.
         send(rows[0], QEvent.TabletMove, canvas, Qt.NoButton, Qt.NoButton, 0)
         yield
+        before_contact = tool_state()
+        print("::notice title=Tablet source state::" + json.dumps(
+            {"phase": "beforeContact", "state": before_contact}, separators=(",", ":")).replace(
+                "%", "%25").replace("\n", "%0A").replace("\r", "%0D"), flush=True)
         for index, row in enumerate(rows):
             send(row, QEvent.TabletPress if index == 0 else QEvent.TabletMove,
                  canvas, Qt.LeftButton if index == 0 else Qt.NoButton,
@@ -177,7 +187,8 @@ class Probe(Extension):
         yield
         return {"mode": "Qt tablet events", "canvasClass": canvas.metaObject().className(),
                 "smoothing": combo.currentText(),
-                "stateAfterProximity": after_proximity,
+                "stateBeforeProximity": before_proximity,
+                "stateAfterProximity": after_proximity, "stateBeforeContact": before_contact,
                 "canvasSize": [canvas.width(), canvas.height()], "events": delivered,
                 "zoom": view.canvas().zoomLevel(),
                 "preferredCenter": [view.canvas().preferredCenter().x(), view.canvas().preferredCenter().y()],
@@ -384,12 +395,12 @@ class Probe(Extension):
                             abs(float(kernel_geometry["serializedRadius"]) - float(case["overrides"]["SmudgeRadiusValue"])) > 1e-9):
                         raise RuntimeError("Source serialized kernel controls differ from requested values")
                 size_curve_controls = None
-                if fixtures.get("group") == "pixelcurveknots":
+                if fixtures.get("group") in ("pixelcurveknots", "pixelprecision") and case.get("overrides", {}).get("PressureSize") == "true":
                     keys = ("PressureSize", "SizeUseCurve", "SizeUseSameCurve",
                             "SizecommonCurve", "SizeSensor", "SizecurveMode")
                     size_curve_controls = {key: effective_fields.get(key) for key in keys}
                     for key in keys:
-                        if size_curve_controls[key] != case["overrides"][key]:
+                        if key in case["overrides"] and size_curve_controls[key] != case["overrides"][key]:
                             raise RuntimeError("Source size curve setting did not round trip: " + key)
                 transfer_controls = None
                 if case.get("variant", "").startswith("transfer "):
@@ -438,6 +449,8 @@ class Probe(Extension):
                 sensor_evidence = (sensor_probe.capture(case, effective_fields, delivery, raw, w)
                                    if "sensorProbe" in case else None)
                 if sensor_evidence is not None:
+                    if "mirrorProbe" in case:
+                        mirror_probe.qualify(case, effective_fields, sensor_evidence)
                     sensor_probe.emit_notices(name, sensor_evidence)
                     # Persist bounded diagnostics before a no-op or repeat gate
                     # can fail. Empty output is not silently excused as acquisition.

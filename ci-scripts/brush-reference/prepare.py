@@ -68,6 +68,10 @@ shutil.copytree(source / "gzbrush_reference", resources / "pykrita" / "gzbrush_r
 (root / "config" / "kritarc").write_text("[General]\nuseOpenGL=false\n[python]\nenable_gzbrush_reference=true\n")
 names, cases = [], []
 group = os.environ.get("BRUSH_REFERENCE_GROUP", "parameters")
+if group == "mirrortips":
+    from mirror_fixtures import prepare as prepare_mirrors
+    prepare_mirrors(root, resources, preset)
+    raise SystemExit(0)
 if group in ("tabletsensors", "spacingdynamics"):
     from sensor_fixtures import prepare as prepare_sensors
     prepare_sensors(root, resources, preset, group)
@@ -188,7 +192,9 @@ for mode, modern in profiles:
         # Nonuniform knots, interior extrema and between-knot probes separate
         # linear, natural cubic, shape-preserving and other interpolation rules.
         curves = {"monotone": "0,0.125;0.25,0.25;0.75,0.75;1,0.875;",
-                  "turning": "0,0.25;0.25,0.875;0.75,0.125;1,0.75;"}
+                  "turning": "0,0.25;0.25,0.875;0.75,0.125;1,0.75;",
+                  "heldout": "0,0.125;0.125,0.75;0.625,0.25;1,0.875;",
+                  "overshoot": "0,0;0.125,1;0.75,0;1,1;"}
         for shape, curve in curves.items():
             for shared in ("true", "false"):
                 controls = {"PressureSize": "true", "SizeUseCurve": "true", "SizecurveMode": "0",
@@ -196,8 +202,8 @@ for mode, modern in profiles:
                             "SizecommonCurve": curve if shared == "true" else "0,1;1,0;",
                             "SizeSensor": '<params id="pressure"><curve>' +
                                           ("0,1;1,0;" if shared == "true" else curve) + '</curve></params>'}
-                for pressure_value in (0, .125, .25, .5, .75, .875, 1):
-                    label = f"knots {shape} shared {shared} pressure {round(pressure_value * 1000):04d}"
+                for pressure_value in ((.0625, .1875, .375, .6875, .9375) if shape in ("heldout", "overshoot") else (0, .125, .25, .5, .75, .875, 1)):
+                    label = f"knots {shape} shared {shared} pressure {round(pressure_value * 10000):05d}"
                     variants.append((label, controls, 64, 5, [pressure_value] * 2, 1, 1))
                 for disabled in ("PressureSize", "SizeUseCurve"):
                     variants.append((f"knots {shape} shared {shared} disabled {disabled}",
@@ -440,6 +446,18 @@ for mode, modern in profiles:
             variants.append((label, {"SmudgeRateValue": "1", "ColorRateValue": "0",
                                      "SmudgeRadiusValue": str(radius)},
                              diameter, 4, [1, 1], 1, 1))
+    if group in ("pixeltransfer", "pixelprecision"):
+        paired = []
+        for variant in variants:
+            label = variant[0]
+            if ((group == "pixeltransfer" and " dynamic pressure " in label) or
+                    (group == "pixelprecision" and label.startswith("precision mask") and
+                     precision_positions[label][:2] == (0, 0))):
+                node_label = label + " Node control"
+                paired.append((node_label, *variant[1:]))
+                if group == "pixelprecision":
+                    precision_positions[node_label] = precision_positions[label]
+        variants.extend(paired)
     for label, overrides, diameter, spacing, pressure, opacity, flow in variants:
         # Resource names also become KPP filenames. The source treats decimal
         # dot segments as resource versions, so all generated identities use
@@ -467,6 +485,8 @@ for mode, modern in profiles:
         # behavior for this correctly serialized setting.
         expected_empty = (group in ("pixelopacity", "pixelopacitytablet") and (opacity == 0 or (overrides.get("PaintOpAction") == "0" and flow == 0))) or (mode != "dry" and not modern and label == "pickup 0") or (group == "geometry" and diameter == 1 and label.endswith("antialias 0"))
         cases.append({"preset": name, "variant": label, "diameter": diameter, "spacing": spacing, "pressure": pressure, "opacity": opacity, "flow": flow, "start": [256, 1024], "end": [end_x, 1024], "brushRotationDegrees": float(label.split()[6]) if group == "pixelshape" else 0, "background": "transparent" if group in ("geometry", "pixelsoft", "pixelsoftsize", "pixelrectsize", "pixelaarange", "pixelshape", "pixelprecision", "pixelcurves", "pixelcurveknots", "pixelblend") or label.startswith("short line ") else "strips", "overrides": overrides, "expectUnchanged": expected_empty})
+        if group == "pixelcurveknots" and label.startswith("knots overshoot"):
+            cases[-1]["changeExpectation"] = "measure spline output clamping; full-image candidate gate enforced"
         if group == "pixelblend":
             cases[-1].update({"background": "blend-stripes",
                 "end": [257 if spacing == 5 else 352, 1024],
@@ -579,4 +599,10 @@ for mode, modern in profiles:
                                "pressure": pressure[0] + (pressure[1] - pressure[0]) * i / 64,
                                "tiltX": 0, "tiltY": 0, "rotation": 0,
                                "timeUs": round(i * 1000000 / 240)} for i in range(65)]
-(root / "output" / "fixtures.json").write_text(json.dumps({"version": "5.3.4.1", "group": group, "presets": names, "cases": cases, "license": "CC0-1.0", "width": 2048, "height": 2048, "input": "Qt synthetic tablet events; not physical tablet delivery" if group in ("tablet", "pixelopacitytablet", "pixelcontrols", "pixeltransfer", "wetboundary", "pixelprecision") else "Node.paintLine API; not physical tablet delivery"}, indent=2))
+        if label.endswith(" Node control"):
+            # Identical settings and integer geometry, different public input
+            # interface. Never round the fractional Qt precision cases.
+            cases[-1]["delivery"] = "Node.paintLine"
+            cases[-1].pop("events", None)
+            cases[-1]["pairedQtVariant"] = label.removesuffix(" Node control")
+(root / "output" / "fixtures.json").write_text(json.dumps({"version": "5.3.4.1", "group": group, "presets": names, "cases": cases, "license": "CC0-1.0", "width": 2048, "height": 2048, "input": "Qt synthetic tablet events plus paired Node.paintLine controls; not physical tablet delivery" if group in ("pixeltransfer", "pixelprecision") else "Qt synthetic tablet events; not physical tablet delivery" if group in ("tablet", "pixelopacitytablet", "pixelcontrols", "pixeltransfer", "wetboundary", "pixelprecision") else "Node.paintLine API; not physical tablet delivery"}, indent=2))

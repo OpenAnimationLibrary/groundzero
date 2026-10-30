@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <cmath>
 #include <iostream>
+#include <set>
 #include <stdexcept>
 #include <utility>
 
@@ -258,6 +259,7 @@ int main(int argc, char **argv) {
                 oracle["version"].toString() == "5.3.4.1",
             "Source reference incomplete or wrong version");
     QJsonArray results;
+    std::set<int> stochasticReplicates;
     QStringList failedHardCases;
     QFile manifest(root.filePath("output/fixtures.json"));
     require(manifest.open(QIODevice::ReadOnly), "Fixture manifest missing");
@@ -279,6 +281,8 @@ int main(int argc, char **argv) {
     if (fixtures["group"].toString() == "spacingdynamics")
       require(expected.size() == 112,
               "Incomplete spacing sensor fixture matrix");
+    if (fixtures["group"].toString() == "mirrortips")
+      require(expected.size() == 42, "Incomplete mirror fixture matrix");
     QStringList remaining;
     for (const auto &name : expected)
       remaining.append(name.toString());
@@ -293,8 +297,10 @@ int main(int argc, char **argv) {
     const QImage stripInitial = initial;
     for (const auto &value : oracle["records"].toArray()) {
       auto source = value.toObject();
-      const bool sensorCase = fixtures["group"].toString() == "tabletsensors" ||
-                              fixtures["group"].toString() == "spacingdynamics";
+      const bool sensorCase =
+          fixtures["group"].toString() == "tabletsensors" ||
+          fixtures["group"].toString() == "spacingdynamics" ||
+          fixtures["group"].toString() == "mirrortips";
       QJsonArray deliveredSensorEvents;
       if (sensorCase) {
         const auto evidence = source["sensorEvidence"].toObject();
@@ -303,6 +309,16 @@ int main(int argc, char **argv) {
                     evidence["effectiveControls"].isObject() &&
                     !evidence["effectiveControls"].toObject().empty(),
                 "Missing effective sensor controls or delivered values");
+        if (fixtures["group"].toString() == "mirrortips") {
+          const auto controls = evidence["effectiveControls"].toObject();
+          const auto mirror = source["mirrorProbe"].toObject();
+          require(evidence["mirrorAxisValuesVerified"].toBool() &&
+                      controls["HorizontalMirrorEnabled"].toString() ==
+                          (mirror["horizontal"].toBool() ? "true" : "false") &&
+                      controls["VerticalMirrorEnabled"].toString() ==
+                          (mirror["vertical"].toBool() ? "true" : "false"),
+                  "Missing effective Mirror-axis evidence");
+        }
         const auto authored = source["events"].toArray();
         deliveredSensorEvents = evidence["deliveredContactEvents"].toArray();
         require(authored.size() == 33 &&
@@ -444,6 +460,8 @@ int main(int argc, char **argv) {
           fixtures["group"].toString() == "pixelshape" ||
           fixtures["group"].toString() == "pixelprecision" ||
           fixtures["group"].toString() == "pixelcurves" ||
+          (fixtures["group"].toString() == "pixelcurveknots" &&
+           !source["variant"].toString().contains("disabled")) ||
           (fixtures["group"].toString() == "pixelblend" &&
            p.tip.shape == Shape::Round && p.tip.hardness == 1 &&
            !p.tip.antialiasEdges) ||
@@ -542,6 +560,19 @@ int main(int argc, char **argv) {
       }
       p.opacity.value = source["opacity"].toDouble();
       p.flow.value = source["flow"].toDouble();
+      if (fixtures["group"].toString() == "gihstatistics") {
+        const auto probe = source["resourceProbe"].toObject();
+        const double replicate = probe["replicate"].toDouble(-1);
+        require(replicate >= 0 && replicate < 100 &&
+                    replicate == std::floor(replicate) &&
+                    stochasticReplicates.insert(int(replicate)).second &&
+                    p.tip.randomSequence && p.tip.images.size() == 3,
+                "Invalid stochastic candidate replicate or sequence");
+        // Distinct reproducible native streams, not 100 replays of seed 1.
+        // This does not presume any correspondence to the source RNG/seed.
+        p.seed = UINT64_C(0x9e3779b97f4a7c15) *
+                 std::uint64_t(int(replicate) + 1);
+      }
       Canvas canvas(initial);
       Stroke stroke(canvas, p);
       Sample first, last;
@@ -611,6 +642,7 @@ int main(int argc, char **argv) {
       metrics["preset"] = name;
       metrics["inputCase"] = source;
       metrics["candidateProfile"] = QString::fromStdString(p.profile);
+      metrics["candidateSeed"] = QString::number(qulonglong(p.seed));
       metrics["sourceSemanticallySupported"] = false;
       metrics["sourceReferenceVerified"] = false;
       if (sourceHard || sourceSoft) {
@@ -671,6 +703,9 @@ int main(int argc, char **argv) {
     }
     require(remaining.empty() && results.size() == expected.size(),
             "Incomplete comparison workload");
+    require(fixtures["group"].toString() != "gihstatistics" ||
+                stochasticReplicates.size() == 100,
+            "Incomplete independent stochastic candidate workload");
     QFile report(root.filePath("output/comparison.json"));
     require(report.open(QIODevice::WriteOnly),
             "Cannot write comparison report");

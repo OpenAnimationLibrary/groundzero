@@ -427,6 +427,7 @@ static QByteArray encodeRecord(
         {"colorRate", p.colorRate},
         {"reload", p.reload},
         {"smudgeRadius", p.smudgeRadius},
+        {"varySeedPerStroke", p.varySeedPerStroke},
         {"seed", QString::number(p.seed)}};
     settings["texture"] =
         QJsonObject{{"image", w.image(t.image)},  {"mode", masks[int(t.mode)]},
@@ -558,6 +559,7 @@ static Record decodeRecord(
              "reload",
              "smudgeRadius",
              "seed",
+             "varySeedPerStroke",
              "texture",
              "secondary",
              "pickupControl",
@@ -632,6 +634,9 @@ static Record decodeRecord(
       p.colorRateControl = dynamic(o["colorRateControl"]);
     if (o.contains("radiusControl"))
       p.radiusControl = dynamic(o["radiusControl"]);
+    p.varySeedPerStroke = o.contains("varySeedPerStroke")
+                              ? boolean(o["varySeedPerStroke"])
+                              : false;
     bool ok = false;
     p.seed  = text(o["seed"]).toULongLong(&ok);
     if (!ok) throw Invalid("Invalid random seed");

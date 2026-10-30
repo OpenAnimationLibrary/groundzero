@@ -159,6 +159,11 @@ void testGihSelectionLifecycle() {
                 selected == render(record.preset, false),
             "GIH selection changed after reopen, restart or event partition");
     if (random) {
+      Preset resolved = restored.preset;
+      resolved.varySeedPerStroke = true;
+      require(selected == render(resolved, false) &&
+                  selected == render(resolved, true),
+              "raw renderer replaced its resolved seed using host policy");
       Preset otherSeed = restored.preset;
       ++otherSeed.seed;
       require(selected != render(otherSeed, false), "GIH random seed ignored");
@@ -929,9 +934,21 @@ void testImports() {
     }
   }
   auto spline = importBrush(hardPixelKpp("pressureSpline"), "kpp", error);
-  require(spline.complete &&
-              spline.records.front().preset.profile == "groundzero-native-1",
-          "unimplemented multi-knot source spline claimed candidate support");
+  require(
+      spline.complete &&
+          spline.records.front().preset.profile ==
+              "krita-5.3.4.1-hard-pixel-candidate-1" &&
+          spline.records.front().preset.size.mappings.front().interpolation ==
+              Interpolation::NaturalCubic &&
+          !spline.records.front()
+               .provenance["sourceReferenceVerified"]
+               .toBool(),
+      "measured multi-knot source size curve lost cubic candidate mapping");
+  auto splineRestored = decode(encode(spline.records.front(), error), error);
+  require(error.isEmpty() &&
+              splineRestored.preset.size.mappings.front().interpolation ==
+                  Interpolation::NaturalCubic,
+          "source cubic interpolation lost on portable round trip");
   auto hardRestored = decode(encode(hardRecord, error), error);
   require(error.isEmpty() &&
               hardRestored.preset.profile == hardRecord.preset.profile,
@@ -1471,6 +1488,7 @@ void testPackage() {
   r.preset.saturation.value                           = .7;
   r.preset.brightness.value                           = 1.2;
   r.preset.seed = UINT64_C(18446744073709551615);
+  r.preset.varySeedPerStroke = true;
   QString error;
   auto bytes = encode(r, error);
   require(!bytes.isEmpty(), qPrintable(error));
@@ -1541,6 +1559,20 @@ void testPackage() {
           "color dynamics lost in package");
   require(!restored.referenceVerified, "unearned reference verification");
   require(restored.preset.seed == r.preset.seed, "seed precision lost");
+  require(restored.preset.varySeedPerStroke, "per-stroke seed policy lost");
+  auto legacySeedRoot     = QJsonDocument::fromJson(bytes).object();
+  auto legacySeedSettings = legacySeedRoot["settings"].toObject();
+  legacySeedSettings.remove("varySeedPerStroke");
+  legacySeedRoot["settings"] = legacySeedSettings;
+  auto legacySeed = decode(QJsonDocument(legacySeedRoot).toJson(), error);
+  require(error.isEmpty() && !legacySeed.preset.varySeedPerStroke,
+          "old package changed its fixed seed behavior");
+  Preset sourceSeed;
+  sourceSeed.profile           = "krita-5.3.4.1-hard-pixel-candidate-1";
+  sourceSeed.varySeedPerStroke = true;
+  require(validate(sourceSeed).find("seed variation") != std::string::npos,
+          "source profile accepted unsupported host seed variation");
+
   require(restored.preset.tip.images[0]->pixels[0].r == 1, "image lost");
   require(restored.preset.tip.images[0] == restored.preset.texture.image,
           "resource not deduplicated");

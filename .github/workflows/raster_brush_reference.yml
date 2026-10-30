@@ -93,7 +93,7 @@ jobs:
       max-parallel: 2
       fail-fast: false
       matrix:
-        fixture_group: [tabletsensors, spacingdynamics, bitmaptips, gihstatistics, pixelcurveknots, texturestate, pixeltransfer, wetboundary, pixelprecision, texturemasks, pixelblend, wetkernelcount, wetopacitycombo, wettransfer, pixelcurves, wetkernelscale, wetkernel, wettexture3, wetpressure, pixelsoftsize, pixelrectsize, pixelsoft, pixelopacitytablet, pixelopacity, pixelpressure, wetstate, wethold, wettexture, pixelaarange, pixelcontrols, pixelsmallpressure, pixelshape, wetswitches, wetcombined, wetsteps, hardpixel, geometry, tablet, parameters]
+        fixture_group: [mirrortips, tabletsensors, spacingdynamics, bitmaptips, gihstatistics, pixelcurveknots, texturestate, pixeltransfer, wetboundary, pixelprecision, texturemasks, pixelblend, wetkernelcount, wetopacitycombo, wettransfer, pixelcurves, wetkernelscale, wetkernel, wettexture3, wetpressure, pixelsoftsize, pixelrectsize, pixelsoft, pixelopacitytablet, pixelopacity, pixelpressure, wetstate, wethold, wettexture, pixelaarange, pixelcontrols, pixelsmallpressure, pixelshape, wetswitches, wetcombined, wetsteps, hardpixel, geometry, tablet, parameters]
     runs-on: ubuntu-22.04
     timeout-minutes: 20
     env:
@@ -202,6 +202,15 @@ jobs:
                   if os.environ['BRUSH_REFERENCE_GROUP'] == 'pixelcurveknots':
                       probe['sizeCurve'] = row.get('effectiveSizeCurveControls')
                       probe['delivery'] = row.get('deliveryReport', {}).get('events')
+                  if os.environ['BRUSH_REFERENCE_GROUP'] in ('pixeltransfer', 'pixelprecision'):
+                      report = row.get('deliveryReport', {})
+                      probe['input'] = row.get('input')
+                      probe['sizeCurve'] = row.get('effectiveSizeCurveControls')
+                      probe['pressureStates'] = {phase: {key: report[phase].get(key) for key in ('disablePressure', 'pressureControls')}
+                          for phase in ('stateBeforeProximity', 'stateAfterProximity', 'stateBeforeContact') if phase in report}
+                      events = report.get('events', [])
+                      probe['device'] = [{key: event.get(key) for key in ('device', 'pointerType', 'uniqueId', 'pressure')}
+                          for event in events if event.get('type') == 92][:1]
                   if os.environ['BRUSH_REFERENCE_GROUP'] == 'pixeltransfer':
                       probe['transfer'] = row.get('effectivePixelTransferControls')
                       probe['input'] = row.get('input')

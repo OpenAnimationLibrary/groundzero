@@ -1,6 +1,7 @@
 
 
 #include "fullcolorbrushtool.h"
+#include <atomic>
 #include "toonz/rasterbrushimport.h"
 
 // TnzTools includes
@@ -409,6 +410,19 @@ QStringList installNativeCollection(
     error.clear();
   return result;
 }
+// Allocate one stream per logical input stroke, shared by all replicated
+// tracks. The raw renderer never consults this counter; replay uses its
+// resolved seed.
+std::uint64_t resolveNativeStrokeSeed(const RasterBrush::Preset &p) {
+  if (!p.varySeedPerStroke) return p.seed;
+  static std::atomic<std::uint64_t> sequence{0};
+  std::uint64_t value = p.seed + (++sequence) * UINT64_C(0x9e3779b97f4a7c15);
+  value               = (value ^ (value >> 30)) * UINT64_C(0xbf58476d1ce4e5b9);
+  value               = (value ^ (value >> 27)) * UINT64_C(0x94d049bb133111eb);
+  value ^= value >> 31;
+  return value ? value : 1;
+}
+
 class NativeBrushPreview final : public QWidget, public RasterBrush::Surface {
   std::vector<RasterBrush::Pixel> pixels;
   std::unique_ptr<RasterBrush::Stroke> stroke;
@@ -483,7 +497,9 @@ protected:
   }
   void tabletEvent(QTabletEvent *e) override {
     if (e->type() == QEvent::TabletPress) {
-      stroke.reset(new RasterBrush::Stroke(*this, preset));
+      auto resolved = preset;
+      resolved.seed = resolveNativeStrokeSeed(preset);
+      stroke.reset(new RasterBrush::Stroke(*this, resolved));
       beginInput();
     }
     if (stroke) {
@@ -527,7 +543,9 @@ protected:
   }
   void mousePressEvent(QMouseEvent *e) override {
     if (e->button() != Qt::LeftButton) return;
-    stroke.reset(new RasterBrush::Stroke(*this, preset));
+    auto resolved = preset;
+    resolved.seed = resolveNativeStrokeSeed(preset);
+    stroke.reset(new RasterBrush::Stroke(*this, resolved));
     beginInput();
     drawAt(e);
   }
@@ -982,6 +1000,28 @@ bool editNativeBrush(RasterBrush::Record &record) {
       });
   auto seed = new QLineEdit(QString::number(qulonglong(p.seed)), &dialog);
   form->addRow(QObject::tr("Random seed"), seed);
+  QObject::connect(seed, &QLineEdit::textEdited, &dialog, [&](const QString &text) {
+    bool ok = false;
+    const auto value = text.toULongLong(&ok);
+    if (ok) {
+      p.seed = value;
+      refresh();
+    }
+  });
+  auto varySeed =
+      new QCheckBox(QObject::tr("Vary random seed for each stroke"), &dialog);
+  varySeed->setObjectName("nativeBrushVarySeedPerStroke");
+  varySeed->setChecked(p.varySeedPerStroke);
+  varySeed->setEnabled(p.profile == "groundzero-native-1");
+  varySeed->setToolTip(
+      QObject::tr("Off repeats the saved random stream. On gives each new "
+                  "stroke a different stream. Undo and redo restore the "
+                  "original pixels. The sample preview stays repeatable."));
+  form->addRow(varySeed);
+  QObject::connect(varySeed, &QCheckBox::toggled, &dialog, [&](bool enabled) {
+    p.varySeedPerStroke = enabled;
+    refresh();
+  });
   auto blend = new QComboBox(&dialog);
   blend->addItems({QObject::tr("Normal"), QObject::tr("Multiply"),
                    QObject::tr("Screen"), QObject::tr("Overlay"),
@@ -2071,6 +2111,8 @@ void FullColorBrushTool::inputSetBusy(bool busy) {
   if (m_skipStrokeUntilDown && busy) return;
   if (m_started == busy) return;
   if (busy) {
+    if (m_nativeRecord)
+      m_nativeResolvedSeed = resolveNativeStrokeSeed(m_nativeRecord->preset);
     m_nativeStrokeFailed  = false;
     m_nativePixelsChanged = false;
     m_nativeCreatedFrame  = m_isFrameCreated;
@@ -2145,6 +2187,7 @@ void FullColorBrushTool::inputPaintTrackPoint(const TTrackPoint &point,
     handler->brush.beginStroke();
     if (m_nativeRecord) {
       RasterBrush::Preset preset = m_nativeRecord->preset;
+      preset.seed                = m_nativeResolvedSeed;
       const double alpha         = m_currentColor.m / 255.0;
       preset.color               = {m_currentColor.r / 255.0 * alpha,
                                     m_currentColor.g / 255.0 * alpha,
