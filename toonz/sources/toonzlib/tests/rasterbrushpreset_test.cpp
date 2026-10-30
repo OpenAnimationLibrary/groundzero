@@ -403,10 +403,12 @@ void testPackage() {
       {Sensor::DabIndex, {{0, 1}, {1, 0}}, 20, Interpolation::NaturalCubic});
   r.preset.angle.mappings.push_back(
       {Sensor::InitialDirection, {{0, 0}, {1, 1}}, 1});
-  r.preset.scatterBothAxes  = false;
-  r.preset.saturation.value = .7;
-  r.preset.brightness.value = 1.2;
-  r.preset.seed             = UINT64_C(18446744073709551615);
+  r.preset.scatterBothAxes = false;
+  r.preset.secondary.count = 3;
+  r.preset.secondary.flipX = r.preset.secondary.flipY = true;
+  r.preset.saturation.value                           = .7;
+  r.preset.brightness.value                           = 1.2;
+  r.preset.seed = UINT64_C(18446744073709551615);
   QString error;
   auto bytes = encode(r, error);
   require(!bytes.isEmpty(), qPrintable(error));
@@ -420,6 +422,9 @@ void testPackage() {
   require(restored.preset.tip.antialiasEdges,
           "antialias setting lost on reopen");
   require(!restored.preset.scatterBothAxes &&
+              restored.preset.secondary.count == 3 &&
+              restored.preset.secondary.flipX &&
+              restored.preset.secondary.flipY &&
               restored.preset.countControl.mappings.front().sensor ==
                   Sensor::DabIndex &&
               restored.preset.countControl.mappings.front().scale == 20 &&
@@ -440,7 +445,11 @@ void testPackage() {
   auto olderSettings = older["settings"].toObject();
   olderSettings.remove("countControl");
   olderSettings.remove("scatterBothAxes");
-  auto olderTip = olderSettings["tip"].toObject();
+  auto olderSecondary = olderSettings["secondary"].toObject();
+  for (const auto &key : {"count", "flipX", "flipY"})
+    olderSecondary.remove(key);
+  olderSettings["secondary"] = olderSecondary;
+  auto olderTip              = olderSettings["tip"].toObject();
   olderTip.remove("antialiasEdges");
   olderSettings["tip"] = olderTip;
   older["settings"]    = olderSettings;
@@ -450,6 +459,9 @@ void testPackage() {
               oldRecord.preset.scatterBothAxes &&
               oldRecord.preset.countControl.value == 1 &&
               oldRecord.preset.countControl.mappings.empty() &&
+              oldRecord.preset.secondary.count == 1 &&
+              !oldRecord.preset.secondary.flipX &&
+              !oldRecord.preset.secondary.flipY &&
               !oldRecord.preset.tip.antialiasEdges,
           "older native package without notes stopped loading");
   require(restored.preset.pickupControl.mappings.size() == 1,

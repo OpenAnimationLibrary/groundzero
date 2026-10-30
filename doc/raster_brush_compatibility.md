@@ -411,3 +411,14 @@ The numeric mode names were checked against the public
 and serialized metadata in KDE's original test presets; no paint-engine
 implementation was copied. The user-facing modes are described in the
 [Krita brush-tip manual](https://docs.krita.org/en/reference_manual/brushes/brush_settings/brush_tips.html).
+
+Native dual masks expose a separate count (1–64) and horizontal/vertical flips.
+For each primary stamp, secondary offsets are drawn once from the stroke PRNG;
+each secondary coverage includes its opacity, and their union is accumulated
+as `b = b + (1-b)*coverage`. Multiply/subtract is applied once to that union.
+A count of one with no flips preserves the prior native result and random draw
+order. Optional package fields default to count one and no flips. Original
+fixtures check two half-opacity stamps, subtraction, asymmetric bitmap mirrors,
+limits and reopening. Independent secondary spacing and source-specific dual
+brush scheduling remain required adapter work; this native primitive does not
+claim that Photoshop or Krita uses the same union/scheduling rules.

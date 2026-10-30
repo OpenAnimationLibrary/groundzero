@@ -313,6 +313,9 @@ QByteArray encode(const Record &r, QString &error) {
                                         {"angle", dynamicJson(s.angle)},
                                         {"opacity", dynamicJson(s.opacity)},
                                         {"aspect", s.aspect},
+                                        {"count", s.count},
+                                        {"flipX", s.flipX},
+                                        {"flipY", s.flipY},
                                         {"scatter", s.scatter}};
     if (w.assets.size() > 512) throw Invalid("Too many resources");
     QByteArray result =
@@ -461,7 +464,7 @@ Record decode(const QByteArray &bytes, QString &error,
     p.texture.perDab     = boolean(t["perDab"]);
     auto s               = object(o["secondary"]);
     keys(s, {"enabled", "tip", "mode", "size", "angle", "opacity", "aspect",
-             "scatter"});
+             "scatter", "count", "flipX", "flipY"});
     p.secondary.enabled = boolean(s["enabled"]);
     p.secondary.tip     = rd.tip(s["tip"]);
     p.secondary.mode    = MaskMode(choice(s["mode"], masks));
@@ -470,7 +473,15 @@ Record decode(const QByteArray &bytes, QString &error,
     p.secondary.opacity = dynamic(s["opacity"]);
     p.secondary.aspect  = number(s["aspect"]);
     p.secondary.scatter = number(s["scatter"]);
-    r.provenance        = object(root["provenance"]);
+    if (s.contains("count")) {
+      const double count = number(s["count"]);
+      if (count != std::floor(count) || count < 1 || count > 64)
+        throw Invalid("Invalid secondary stamp count");
+      p.secondary.count = int(count);
+    }
+    if (s.contains("flipX")) p.secondary.flipX = boolean(s["flipX"]);
+    if (s.contains("flipY")) p.secondary.flipY = boolean(s["flipY"]);
+    r.provenance = object(root["provenance"]);
     if (QJsonDocument(r.provenance).toJson().size() > 16384)
       throw Invalid("Provenance budget exceeded");
     r.decoded       = true;

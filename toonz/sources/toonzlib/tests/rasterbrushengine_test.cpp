@@ -315,6 +315,45 @@ void testCountFadeAndDirection() {
     }
   require(outsideCenter, "one-axis scatter did not disperse stamps");
 }
+void testSecondaryCountAndMirror() {
+  Preset p;
+  p.size.value              = 16;
+  p.tip.shape               = Shape::Square;
+  p.secondary.enabled       = true;
+  p.secondary.tip.shape     = Shape::Square;
+  p.secondary.opacity.value = .5;
+  p.secondary.count         = 2;
+  Canvas canvas;
+  Stroke repeated(canvas, p);
+  require(repeated.add(sample(32, 32, 0)), repeated.error().c_str());
+  require(canvas.read(32, 32).a == .75,
+          "secondary stamps did not compose coverage before masking");
+  p.secondary.mode = MaskMode::Subtract;
+  Canvas subtracted;
+  Stroke cut(subtracted, p);
+  require(cut.add(sample(32, 32, 0)), cut.error().c_str());
+  require(subtracted.read(32, 32).a == .25,
+          "secondary subtraction was applied separately per stamp");
+  auto image   = std::make_shared<Image>();
+  image->width = image->height = 2;
+  image->pixels                = {{0, 0, 0, 1}, {}, {}, {}};
+  p.secondary.tip.shape        = Shape::Bitmap;
+  p.secondary.tip.images       = {image};
+  p.secondary.mode             = MaskMode::Multiply;
+  p.secondary.count            = 1;
+  p.secondary.opacity.value    = 1;
+  Canvas original, mirrored;
+  Stroke a(original, p);
+  require(a.add(sample(32.5, 32.5, 0)), a.error().c_str());
+  p.secondary.flipX = p.secondary.flipY = true;
+  Stroke b(mirrored, p);
+  require(b.add(sample(32.5, 32.5, 0)), b.error().c_str());
+  require(original.read(28, 28).a == 1 && mirrored.read(28, 28).a == 0 &&
+              mirrored.read(36, 36).a == 1 && original.read(36, 36).a == 0,
+          "secondary image axes did not mirror independently of primary");
+  p.secondary.count = 65;
+  require(!validate(p).empty(), "unbounded secondary stamp count accepted");
+}
 void testResourcesAndWet() {
   Preset p;
   p.wet   = Wet::Dulling;
@@ -488,6 +527,7 @@ int main() {
     testWetPressure();
     testWetPickupGeometry();
     testCountFadeAndDirection();
+    testSecondaryCountAndMirror();
     testStationaryAndBatching();
     testColorDynamics();
     testCubicCurves();

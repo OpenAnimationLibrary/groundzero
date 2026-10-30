@@ -249,7 +249,8 @@ std::string validate(const Preset &p) {
   const auto &s = p.secondary;
   if ((!tip(s.tip) || !dynamic(s.size, .01, 10) ||
        !dynamic(s.angle, -36000, 36000) || !dynamic(s.opacity, 0, 1) ||
-       !range(s.aspect, .01, 1) || !range(s.scatter, 0, 5)))
+       !range(s.aspect, .01, 1) || !range(s.scatter, 0, 5) || s.count < 1 ||
+       s.count > 64))
     return "Invalid secondary tip";
   if (!dynamic(p.pickupControl, 0, 1) || !dynamic(p.colorRateControl, 0, 1) ||
       !dynamic(p.radiusControl, 0, 1))
@@ -617,8 +618,11 @@ struct Stroke::Impl {
       const double secondAngle =
           sec.enabled ? eval(sec.angle, s) * pi / 180 : 0;
       const double sc = std::cos(secondAngle), ss = std::sin(secondAngle);
-      const double sx = sec.enabled ? (random() * 2 - 1) * sec.scatter : 0,
-                   sy = sec.enabled ? (random() * 2 - 1) * sec.scatter : 0;
+      std::array<std::pair<double, double>, 64> secondaryOffsets{};
+      if (sec.enabled)
+        for (int i = 0; i < sec.count; ++i)
+          secondaryOffsets[i] = {(random() * 2 - 1) * sec.scatter,
+                                 (random() * 2 - 1) * sec.scatter};
       const double secondOpacity = sec.enabled ? unit(eval(sec.opacity, s)) : 1;
       for (int y = y0; y < y1; ++y)
         for (int x = x0; x < x1; ++x) {
@@ -649,16 +653,25 @@ struct Stroke::Impl {
                      t.mode);
           }
           if (sec.enabled) {
-            double su = (u - sx) / secondSize, sv = (v - sy) / secondSize;
-            double b =
-                filteredTip(sec.tip, secondIndex, su * sc + sv * ss,
-                            (-su * ss + sv * sc) / sec.aspect,
-                            (ux * sc + vx * ss) / secondSize,
-                            (uy * sc + vy * ss) / secondSize,
-                            (-ux * ss + vx * sc) / (secondSize * sec.aspect),
-                            (-uy * ss + vy * sc) / (secondSize * sec.aspect))
-                    .a *
-                secondOpacity;
+            double b        = 0;
+            const double fx = sec.flipX ? -1 : 1, fy = sec.flipY ? -1 : 1;
+            // Compose secondary coverage before applying the chosen mask
+            // operation once. Count one preserves the original native result.
+            for (int i = 0; i < sec.count; ++i) {
+              double su = (u - secondaryOffsets[i].first) / secondSize,
+                     sv = (v - secondaryOffsets[i].second) / secondSize;
+              double coverage =
+                  filteredTip(
+                      sec.tip, secondIndex, fx * (su * sc + sv * ss),
+                      fy * (-su * ss + sv * sc) / sec.aspect,
+                      fx * (ux * sc + vx * ss) / secondSize,
+                      fx * (uy * sc + vy * ss) / secondSize,
+                      fy * (-ux * ss + vx * sc) / (secondSize * sec.aspect),
+                      fy * (-uy * ss + vy * sc) / (secondSize * sec.aspect))
+                      .a *
+                  secondOpacity;
+              b += (1 - b) * coverage;
+            }
             a = mask(a, b, sec.mode);
           }
           a *= unit(surface.coverage(x, y));

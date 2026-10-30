@@ -674,6 +674,18 @@ bool editNativeBrush(RasterBrush::Record &record) {
   spin(QObject::tr("Secondary opacity"), p.secondary.opacity.value, 0, 1);
   spin(QObject::tr("Secondary aspect"), p.secondary.aspect, .01, 1);
   spin(QObject::tr("Secondary scatter"), p.secondary.scatter, 0, 5);
+  check(QObject::tr("Flip secondary tip horizontally"), p.secondary.flipX);
+  check(QObject::tr("Flip secondary tip vertically"), p.secondary.flipY);
+  auto secondaryCount = new QSpinBox(&dialog);
+  secondaryCount->setRange(1, 64);
+  secondaryCount->setValue(p.secondary.count);
+  form->addRow(QObject::tr("Secondary stamps per dab"), secondaryCount);
+  QObject::connect(
+      secondaryCount, static_cast<void (QSpinBox::*)(int)>(&QSpinBox::valueChanged),
+      &dialog, [&](int n) {
+        p.secondary.count = n;
+        refresh();
+      });
   dynamics(QObject::tr("Secondary size dynamics"), p.secondary.size);
   dynamics(QObject::tr("Secondary angle dynamics"), p.secondary.angle);
   dynamics(QObject::tr("Secondary opacity dynamics"), p.secondary.opacity);

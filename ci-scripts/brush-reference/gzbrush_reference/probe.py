@@ -5,6 +5,7 @@ import hashlib
 import json
 import math
 import os
+import time
 import zlib
 from pathlib import Path
 from krita import Krita, Extension, ManagedColor, Preset
@@ -72,6 +73,11 @@ class Probe(Extension):
             raise RuntimeError("Source image transform is singular")
         flake_to_canvas = view.flakeToCanvasTransform()
         delivered = []
+        # Qt timestamps belong to the input device clock, not the individual
+        # stroke. Replaying 0..267 ms twice sends time backwards through the
+        # source input manager even though the authored relative trace matches.
+        timestamp_base = max(time.monotonic_ns() // 1000000,
+                             getattr(self, "lastTabletTimeMs", -1) + 1)
 
         def send(row, kind, target, button, buttons, pressure):
             local = flake_to_canvas.map(image_to_flake.map(QPointF(row["x"], row["y"])))
@@ -81,7 +87,8 @@ class Probe(Extension):
             event = QTabletEvent(kind, local, global_pos, QTabletEvent.Stylus,
                                  QTabletEvent.Pen, pressure, row["tiltX"], row["tiltY"],
                                  0.0, row["rotation"], 0, Qt.NoModifier, 1, button, buttons)
-            event.setTimestamp(round(row["timeUs"] / 1000))
+            event.setTimestamp(timestamp_base + round(row["timeUs"] / 1000))
+            self.lastTabletTimeMs = event.timestamp()
             event.setAccepted(False)
             QApplication.sendEvent(target, event)
             delivered.append({"type": int(kind), "local": [local.x(), local.y()],

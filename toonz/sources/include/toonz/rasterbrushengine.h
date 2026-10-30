@@ -79,6 +79,8 @@ struct Secondary {
   MaskMode mode = MaskMode::Multiply;
   Dynamic size{1, 0, {}}, angle{0, 0, {}}, opacity{1, 0, {}};
   double aspect = 1, scatter = 0;
+  int count  = 1;
+  bool flipX = false, flipY = false;
 };
 struct Preset {
   std::string name = "Native brush", profile = "groundzero-native-1";
