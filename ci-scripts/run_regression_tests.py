@@ -24,7 +24,7 @@ def main():
     parser.add_argument("--config")
     parser.add_argument("--report", default="reliability-tests.xml")
     parser.add_argument("--include-prefix", action="append", default=[],
-                        help="Also run all registered tests with this prefix; named tests remain required")
+                        help="Also retain every registered test with this prefix")
     parser.add_argument("tests", nargs="+")
     args = parser.parse_args()
     command = ["ctest"] + (["-C", args.config] if args.config else [])
@@ -36,6 +36,7 @@ def main():
     if missing:
         error("Required tests were not registered: " + ", ".join(sorted(missing)))
         return 1
+
     expected.update(name for name in available
                     if any(name.startswith(prefix) for prefix in args.include_prefix))
     report = Path(args.report)

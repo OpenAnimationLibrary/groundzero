@@ -745,17 +745,17 @@ if(BUILD_COMPAT_REGRESSION)
 endif()
 # compat_regression: end
 
-# Native Cast indexing/persistence tests share the UI qualification gate.
-if(BUILD_UI_PORT_TESTS OR BUILD_TESTS)
-    add_executable(castworkflow_test tests/castworkflow_test.cpp)
-    target_link_libraries(castworkflow_test PRIVATE toonzlib tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
-    add_test(NAME castworkflow COMMAND castworkflow_test)
-endif()
-
 # Real vector tween/persistence regressions for the artist morphing workflow.
 option(BUILD_MORPHWORKFLOW_TESTS "Build native vector morph workflow tests" ${BUILD_TESTS})
 if(BUILD_MORPHWORKFLOW_TESTS OR BUILD_UI_PORT_TESTS)
     add_executable(morphworkflow_test tests/morphworkflow_test.cpp)
     target_link_libraries(morphworkflow_test PRIVATE toonzlib tnzbase tnzcore image Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
     add_test(NAME ui_vector_morphworkflow COMMAND morphworkflow_test)
+endif()
+
+# Native Cast indexing/persistence tests share the UI qualification gate.
+if(BUILD_UI_PORT_TESTS OR BUILD_TESTS)
+    add_executable(castworkflow_test tests/castworkflow_test.cpp)
+    target_link_libraries(castworkflow_test PRIVATE toonzlib tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
+    add_test(NAME castworkflow COMMAND castworkflow_test)
 endif()
