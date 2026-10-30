@@ -83,6 +83,7 @@
 #include <QColorDialog>
 #include <QProgressBar>
 #include <QThread>
+#include <QListWidget>
 #include <cmath>
 
 //----------------------------------------------------------------------------------
@@ -155,6 +156,33 @@ RasterBrush::ImportResult importNativeBrush(const QString &path,
     error.clear();
     return {};
   }
+  return result;
+}
+
+QStringList installNativeCollection(
+    const std::vector<RasterBrush::Record> &records, QString &error) {
+  std::atomic_bool cancelled(false);
+  NativeImportProgress dialog(cancelled);
+  QStringList result;
+  const QString directory = nativeBrushFolder();
+  std::unique_ptr<QThread> worker(QThread::create([&]() {
+    try {
+      result =
+          RasterBrush::installCollection(directory, records, error, &cancelled);
+    } catch (const std::exception &e) {
+      error = QString::fromUtf8(e.what());
+    } catch (...) {
+      error = QObject::tr("Brush installation failed.");
+    }
+  }));
+  QObject::connect(worker.get(), &QThread::finished, &dialog, &QDialog::accept);
+  worker->start();
+  dialog.exec();
+  worker->wait();
+  // A nonempty result means the atomic publish already completed. A late
+  // cancellation cannot pretend that an installed collection does not exist.
+  if (result.empty() && cancelled.load(std::memory_order_relaxed))
+    error.clear();
   return result;
 }
 class NativeBrushPreview final : public QWidget, public RasterBrush::Surface {
@@ -254,9 +282,10 @@ bool editNativeDynamics(QWidget *parent, RasterBrush::Dynamic &dynamic) {
   auto form = new QFormLayout;
   form->addRow(QObject::tr("Minimum fraction"), minimum);
   layout->addLayout(form);
-  auto table = new QTableWidget(0, 3, &dialog);
+  auto table = new QTableWidget(0, 4, &dialog);
   table->setHorizontalHeaderLabels({QObject::tr("Sensor"), QObject::tr("Scale"),
-                                    QObject::tr("Curve points")});
+                                    QObject::tr("Curve points"),
+                                    QObject::tr("Interpolation")});
   table->horizontalHeader()->setStretchLastSection(true);
   layout->addWidget(table);
   const QStringList sensors = {QObject::tr("Pressure"),
@@ -285,6 +314,11 @@ bool editNativeDynamics(QWidget *parent, RasterBrush::Dynamic &dynamic) {
       points << QString::number(k.x, 'g', 17) + ":" +
                     QString::number(k.y, 'g', 17);
     table->setItem(row, 2, new QTableWidgetItem(points.join(", ")));
+    auto interpolation = new QComboBox(table);
+    interpolation->addItems(
+        {QObject::tr("Linear"), QObject::tr("Natural cubic")});
+    interpolation->setCurrentIndex(int(mapping.interpolation));
+    table->setCellWidget(row, 3, interpolation);
   };
   for (const auto &mapping : dynamic.mappings) add(mapping);
   auto actions = new QHBoxLayout;
@@ -311,6 +345,8 @@ bool editNativeDynamics(QWidget *parent, RasterBrush::Dynamic &dynamic) {
       RasterBrush::Mapping m;
       m.sensor = RasterBrush::Sensor(
           static_cast<QComboBox *>(table->cellWidget(row, 0))->currentIndex());
+      m.interpolation = RasterBrush::Interpolation(
+          static_cast<QComboBox *>(table->cellWidget(row, 3))->currentIndex());
       bool ok = false;
       m.scale = table->item(row, 1)->text().toDouble(&ok);
       valid &=
@@ -328,6 +364,9 @@ bool editNativeDynamics(QWidget *parent, RasterBrush::Dynamic &dynamic) {
                y = pair[1].trimmed().toDouble(&yok);
         valid &= xok && yok && std::isfinite(x) && std::isfinite(y) &&
                  x > last && x >= 0 && x <= 1 && y >= 0 && y <= 1;
+        if (m.interpolation == RasterBrush::Interpolation::NaturalCubic &&
+            last >= 0 && x - last < 1e-9)
+          valid = false;
         last = x;
         m.curve.push_back({x, y});
       }
@@ -691,11 +730,16 @@ void FullColorBrushTool::initNativePresets() {
            {L"<edit>", tr("Edit / Save Native Brush…")},
            {L"<export>", tr("Export Native Brush…")}})
     m_nativePreset.addValueWithUIName(pair.first, pair.second);
-  const QStringList files =
-      QDir(nativeBrushFolder())
-          .entryList({"*.gzbrush"}, QDir::Files, QDir::Name);
+  QStringList files;
+  QDir root(nativeBrushFolder());
+  QDirIterator iterator(root.path(), {"*.gzbrush"},
+                        QDir::Files | QDir::NoSymLinks,
+                        QDirIterator::Subdirectories);
+  while (iterator.hasNext() && files.size() < 2000)
+    files << root.relativeFilePath(iterator.next());
+  files.sort();
   for (const auto &file : files.mid(0, 2000)) {
-    QString name = file.section('-', 0, -2);
+    QString name = QFileInfo(file).fileName().section('-', 0, -2);
     if (name.isEmpty()) name = file;
     m_nativePreset.addValueWithUIName(file.toStdWString(), name);
   }
@@ -746,26 +790,45 @@ bool FullColorBrushTool::selectNativePreset() {
       if (report.exec() != QMessageBox::Ok) return true;
     }
     if (imported.records.empty()) return true;
-    int index = 0;
+    std::vector<RasterBrush::Record> selected = imported.records;
     if (imported.records.size() > 1) {
-      QStringList names;
-      for (size_t i = 0; i < imported.records.size(); ++i)
-        names << QString::number(i + 1) + ": " +
-                     QString::fromStdString(imported.records[i].preset.name);
-      bool ok = false;
-      auto chosen =
-          QInputDialog::getItem(nullptr, tr("Choose a Brush"),
-                                tr("Native conversion"), names, 0, false, &ok);
-      if (!ok) return true;
-      index = names.indexOf(chosen);
+      QDialog chooser;
+      chooser.setWindowTitle(tr("Import Brush Collection"));
+      auto layout = new QVBoxLayout(&chooser);
+      auto list   = new QListWidget(&chooser);
+      layout->addWidget(
+          new QLabel(tr("Choose the brushes to install together:"), &chooser));
+      layout->addWidget(list);
+      for (const auto &record : imported.records) {
+        auto item = new QListWidgetItem(
+            QString::fromStdString(record.preset.name), list);
+        item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
+        item->setCheckState(Qt::Checked);
+      }
+      auto buttons = new QDialogButtonBox(
+          QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &chooser);
+      layout->addWidget(buttons);
+      QObject::connect(buttons, &QDialogButtonBox::accepted, &chooser,
+                       &QDialog::accept);
+      QObject::connect(buttons, &QDialogButtonBox::rejected, &chooser,
+                       &QDialog::reject);
+      chooser.resize(480, 520);
+      if (chooser.exec() != QDialog::Accepted) return true;
+      selected.clear();
+      for (int i = 0; i < list->count(); ++i)
+        if (list->item(i)->checkState() == Qt::Checked)
+          selected.push_back(imported.records[size_t(i)]);
+      if (selected.empty()) return true;
     }
-    path = RasterBrush::install(nativeBrushFolder(), imported.records[index],
-                                error);
+    auto installed = installNativeCollection(selected, error);
     if (!error.isEmpty()) {
       DVGui::warning(error);
       return true;
     }
-    FullcolorNativeBrush = QFileInfo(path).fileName().toStdString();
+    if (installed.empty()) return true;
+    FullcolorNativeBrush = QDir(nativeBrushFolder())
+                               .relativeFilePath(installed.front())
+                               .toStdString();
     initNativePresets();
     return true;
   }

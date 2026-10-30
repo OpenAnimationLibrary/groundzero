@@ -41,10 +41,12 @@ enum class Sensor {
 struct Knot {
   double x = 0, y = 0;
 };
+enum class Interpolation { Linear, NaturalCubic };
 struct Mapping {
   Sensor sensor = Sensor::Pressure;
   std::vector<Knot> curve{{0, 0}, {1, 1}};
-  double scale = 1;
+  double scale                = 1;
+  Interpolation interpolation = Interpolation::Linear;
 };
 struct Dynamic {
   double value = 1, minimum = 0;

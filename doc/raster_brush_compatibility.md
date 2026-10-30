@@ -15,16 +15,16 @@ satisfy the contract. Build and test through CI per CLAUDE.md.
 | Requirement | Implementation | Validation / release gate |
 |---|---|---|
 | Existing ABR input and allocation budgets, exact subversion guards | Implemented | CI parser fixtures at the PR head |
-| Existing ABR collection installation without overwriting or partial writes | Implemented | Packaged application fault-injection review pending |
+| Collection installation without overwriting or partial writes | Legacy ABR staging and native atomic collection staging implemented | Invalid-member, cancellation, reimport and conflict tests; packaged application fault-injection review pending |
 | Versioned native IR and decoded/supported/verified status separation | Native v1 implemented; foreign semantics remain separate | Package round-trip, missing resource, checksum, enum and version tests in CI |
 | ABR descriptor/computed-tip/pattern behavioral import | Planned | Every declared version and active setting |
 | KPP/bundle/GBR/GIH import | GBR 1/2 and one-dimensional GIH native conversions; KPP native conversion with bounded bundle dependency resolution | Original generated fixtures; conversions explicitly do not claim source semantics |
 | Independent dry renderer and defined dynamics/combinations | Native CPU renderer implemented; foreign profiles planned | Numeric native tests; source-reference gates pending |
 | Four Krita smudge profiles and native wet | Native wet/smear implemented; four source models still planned | Native deterministic pickup tests; foreign models must not alias native wet |
 | Real tilt/rotation capture and normalization | Additive Qt tablet fields and track interpolation implemented | Full app CI and device qualification pending |
-| Actual-engine preview, editor, portable preset export/relink | Native preview/basic editor and embedded-asset export implemented | Cross-platform package CI passes; application workflows pending |
+| Actual-engine preview, editor, portable preset export/relink | Native scratchpad, sensor/curve/texture/dual/color editor and embedded-asset export implemented | Cross-platform package CI passes; application workflows pending |
 | Undo/cancel/frame lifecycle/save/reopen | Native path uses raster undo; cancellation rolls back tiles and created frame | Application scene/lifecycle tests still required |
-| Parser isolation/fuzzing/cancel and complete resource budgets | Planned | Sanitizers, malformed corpus and limits |
+| Parser isolation/fuzzing/cancel and complete resource budgets | Bounded readers and cancellable worker implemented; process isolation and sustained fuzzing pending | Sanitizers, malformed corpus, cancellation and limits |
 | Packaged Windows/macOS/Linux QA and performance | Planned | Exact-head artifacts and hardware results |
 | Must-have pack parity including any wet/Mixer/bristle/TPL expansion | Unresolved target | Pack revision/preset identity and authorized reference access |
 
@@ -202,3 +202,26 @@ The Photoshop baseline is explicitly revised to **27.11 (P2711)**, the latest
 release section in the primary Adobe notes checked on October 30, 2026. The
 earlier 27.0 citation came from a historical section of the same page. No
 Photoshop execution or parity is established by this correction.
+
+
+## Native workflow additions
+
+The editor exposes sensor mappings, linear and natural-cubic curves, embedded
+image sequences, texture settings, dual masks, HSV foreground variation and
+premultiplied foreground/background mixing. Natural-cubic curves have zero
+second derivative at the endpoints, clamp their output to [0,1], and reject
+knots separated by less than 1e-9. Their compiled coefficients are included in
+the stroke budget. This interpolation name is an explicit native rule, not a
+claim that every foreign curve uses the same rule.
+
+Collection imports let the user select multiple presets, stage all selected
+packages, and publish a complete content-identified directory. Invalid members,
+conflicting installed content and cancellation before publication do not install
+a subset. Parsing and staging run on a worker thread; cancellation is checked
+between bounded resources. This is not yet operating-system process isolation.
+
+The CI native benchmark records 60-second 240 Hz dry and 120 Hz textured/dual
+and smudge traces, event-to-surface CPU percentiles, tracked active-stroke memory,
+and separate backing-raster memory. Hosted-runner results are measurements, not
+hardware/display latency qualification. Foreign reference qualification remains
+pending; the expanded native workflow does not satisfy those unfinished rows.

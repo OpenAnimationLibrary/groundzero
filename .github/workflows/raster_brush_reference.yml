@@ -14,6 +14,52 @@ concurrency:
   group: brush-reference-${{ github.ref }}
   cancel-in-progress: true
 jobs:
+  native-metrics:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.3'
+          cache: true
+      - name: Build benchmark
+        shell: bash
+        run: |
+          set -o pipefail
+          cmake -S ci-scripts/brush-parser -B brush-metrics-build -DCMAKE_BUILD_TYPE=Release
+          cmake --build brush-metrics-build --target rasterbrushbenchmark --parallel 2 2>&1 | tee brush-metrics-build.log
+      - name: Measure original native traces
+        run: |
+          lscpu > brush-metrics-machine.txt
+          /usr/bin/time -v -o brush-metrics-memory.txt timeout 300 brush-metrics-build/rasterbrushbenchmark brush-metrics.json || { status=$?; echo "::error::Native benchmark exited with status $status"; exit "$status"; }
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          result = json.loads(Path('brush-metrics.json').read_text())
+          for row in result['records']:
+              print('::notice title=Native brush measurement::' + json.dumps(row))
+          PY
+      - name: Report metric failure
+        if: failure()
+        shell: bash
+        run: |
+          echo '::error::Native brush metrics failed; inspect build and memory artifacts.'
+          if test -f brush-metrics-build.log; then
+            tail -30 brush-metrics-build.log | while IFS= read -r line; do
+              line=${line//'%'/'%25'}
+              echo "::error::$line"
+            done
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: native-brush-metrics-${{ github.sha }}
+          path: |
+            brush-metrics.json
+            brush-metrics-machine.txt
+            brush-metrics-memory.txt
+            brush-metrics-build.log
   krita:
     runs-on: ubuntu-22.04
     timeout-minutes: 20
@@ -42,6 +88,7 @@ jobs:
           export XDG_CONFIG_HOME="$BRUSH_REFERENCE_ROOT/config"
           export QT_X11_NO_MITSHM=1
           export LIBGL_ALWAYS_SOFTWARE=1
+          export QT_LOGGING_RULES='krita.*=true'
           # The AppImage's bundled fontconfig otherwise searches a nonexistent
           # build-time configuration path on the hosted runner.
           export FONTCONFIG_FILE=/etc/fonts/fonts.conf
@@ -77,6 +124,15 @@ jobs:
               echo "::error::$line"
             done
           fi
+          for log in "$BRUSH_REFERENCE_ROOT/output/plugin-startup.log" "$BRUSH_REFERENCE_ROOT/data/krita/krita.log" "$BRUSH_REFERENCE_ROOT/data/krita/krita-sysinfo.log"; do
+            if test -f "$log"; then
+              tail -40 "$log" | while IFS= read -r line; do
+                line=${line//'%'/'%25'}
+                line=${line//$'\r'/'%0D'}
+                echo "::error::$line"
+              done
+            fi
+          done
       - uses: jurplel/install-qt-action@v4
         with:
           version: '6.8.3'
@@ -109,4 +165,5 @@ jobs:
             brush-reference-run/runtime.log
             brush-reference-run/version.log
             brush-reference-run/comparison*.log
+            brush-reference-run/data/krita/*.log
             reference-runtime/application-sha256.txt

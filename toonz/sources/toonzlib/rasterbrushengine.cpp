@@ -165,11 +165,15 @@ std::string validate(const Preset &p) {
     for (const auto &m : d.mappings) {
       if (int(m.sensor) < 0 || int(m.sensor) > int(Sensor::RandomStroke) ||
           !range(m.scale, 1e-9, 1e9) || m.curve.empty() ||
-          m.curve.size() > 1024)
+          m.curve.size() > 1024 || int(m.interpolation) < 0 ||
+          int(m.interpolation) > int(Interpolation::NaturalCubic))
         return false;
       double last = -1;
       for (const auto &k : m.curve) {
         if (!range(k.x, 0, 1) || !range(k.y, 0, 1) || k.x <= last) return false;
+        if (m.interpolation == Interpolation::NaturalCubic && last >= 0 &&
+            k.x - last < 1e-9)
+          return false;
         last = k.x;
       }
     }
@@ -230,6 +234,13 @@ std::string validate(const Preset &p) {
     return "Invalid wet brush settings";
   if (p.wet != Wet::Off && (p.wash || s.enabled || p.blend != Blend::Normal))
     return "Wet brushes require normal build-up painting and a single tip";
+  if (p.wet != Wet::Off &&
+      (p.tip.images.size() > 1 ||
+       std::any_of(p.tip.images.begin(), p.tip.images.end(),
+                   [](const std::shared_ptr<const Image> &image) {
+                     return image->color;
+                   })))
+    return "Wet brushes require a single alpha-mask tip";
   return {};
 }
 
@@ -238,6 +249,7 @@ struct BufferedSurface::Impl {
   std::shared_ptr<Surface> backing;
   std::shared_ptr<MemoryBudget> budget;
   std::map<std::pair<int, int>, std::unique_ptr<Tile>> tiles;
+  std::map<const Mapping *, std::vector<double>> cubic;
   size_t reserved = 0;
   Impl(std::shared_ptr<Surface> b, std::shared_ptr<MemoryBudget> mem)
       : backing(std::move(b)), budget(std::move(mem)) {}
@@ -319,6 +331,46 @@ struct Stroke::Impl {
       , reservoir(v.color) {
     failure      = validate(v);
     randomStroke = random();
+    if (!failure.empty()) return;
+    try {
+      for (const Dynamic *dynamic :
+           {&p.size, &p.aspect, &p.angle, &p.opacity, &p.flow, &p.scatter,
+            &p.pickupControl, &p.colorRateControl, &p.radiusControl,
+            &p.backgroundMix, &p.hue, &p.saturation, &p.brightness,
+            &p.secondary.size, &p.secondary.angle, &p.secondary.opacity}) {
+        for (const auto &mapping : dynamic->mappings) {
+          if (mapping.interpolation != Interpolation::NaturalCubic) continue;
+          size_t n      = mapping.curve.size(),
+                 charge = 2 * n * sizeof(double) + 128;
+          if (charge > budget - used || !shared->reserve(charge)) {
+            failure = "Curve memory limit exceeded";
+            return;
+          }
+          reserved += charge;
+          std::vector<double> second(n, 0), rhs(n, 0);
+          for (size_t i = 1; i + 1 < n; ++i) {
+            const auto &a = mapping.curve[i - 1], &b = mapping.curve[i],
+                       &c = mapping.curve[i + 1];
+            double span = c.x - a.x, fraction = (b.x - a.x) / span;
+            double denominator = fraction * second[i - 1] + 2;
+            second[i]          = (fraction - 1) / denominator;
+            double slopeChange =
+                (c.y - b.y) / (c.x - b.x) - (b.y - a.y) / (b.x - a.x);
+            rhs[i] =
+                (6 * slopeChange / span - fraction * rhs[i - 1]) / denominator;
+          }
+          for (size_t i = n - 1; i > 0; --i)
+            second[i - 1] = second[i - 1] * second[i] + rhs[i - 1];
+          cubic.emplace(&mapping, std::move(second));
+          std::vector<double>().swap(rhs);
+          shared->release(n * sizeof(double));
+          reserved -= n * sizeof(double);
+          used += charge - n * sizeof(double);
+        }
+      }
+    } catch (const std::bad_alloc &) {
+      failure = "Curve allocation failed";
+    }
   }
   ~Impl() { shared->release(reserved); }
   double random() {
@@ -382,6 +434,15 @@ struct Stroke::Impl {
             const auto &a = m.curve[i - 1];
             const auto &b = m.curve[i];
             v             = a.y + (b.y - a.y) * (x - a.x) / (b.x - a.x);
+            if (m.interpolation == Interpolation::NaturalCubic) {
+              const auto &second = cubic.at(&m);
+              double span = b.x - a.x, left = (b.x - x) / span,
+                     right = (x - a.x) / span;
+              v += ((left * left * left - left) * second[i - 1] +
+                    (right * right * right - right) * second[i]) *
+                   span * span / 6;
+              v = unit(v);
+            }
             break;
           }
       factor *= v;
@@ -508,6 +569,7 @@ struct Stroke::Impl {
       const double sc = std::cos(secondAngle), ss = std::sin(secondAngle);
       const double sx = sec.enabled ? (random() * 2 - 1) * sec.scatter : 0,
                    sy = sec.enabled ? (random() * 2 - 1) * sec.scatter : 0;
+      const double secondOpacity = sec.enabled ? unit(eval(sec.opacity, s)) : 1;
       for (int y = y0; y < y1; ++y)
         for (int x = x0; x < x1; ++x) {
           double dx = (x + .5 - cx) / radius, dy = (y + .5 - cy) / radius;
@@ -537,7 +599,7 @@ struct Stroke::Impl {
             double b = tipPixel(sec.tip, secondIndex, su * sc + sv * ss,
                                 (-su * ss + sv * sc) / sec.aspect)
                            .a *
-                       unit(eval(sec.opacity, s));
+                       secondOpacity;
             a = mask(a, b, sec.mode);
           }
           a *= unit(surface.coverage(x, y));
@@ -638,6 +700,7 @@ bool Stroke::add(const Sample &s) {
 void Stroke::finish() {
   m->finished = true;
   m->tiles.clear();
+  m->cubic.clear();
   std::vector<Pixel>().swap(m->smear);
   m->shared->release(m->reserved);
   m->reserved = 0;

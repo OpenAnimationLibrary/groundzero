@@ -14,6 +14,17 @@ if(APPLE)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   target_compile_definitions(abrparser_test PRIVATE LINUX)
 endif()
+
+add_executable(rasterbrushbenchmark
+  "${REPO_ROOT}/toonz/sources/toonzlib/rasterbrushengine.cpp"
+  "${REPO_ROOT}/ci-scripts/brush-reference/benchmark.cpp")
+target_include_directories(rasterbrushbenchmark PRIVATE "${REPO_ROOT}/toonz/sources/include")
+target_compile_definitions(rasterbrushbenchmark PRIVATE TOONZLIB_EXPORTS)
+if(APPLE)
+  target_compile_definitions(rasterbrushbenchmark PRIVATE MACOSX)
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  target_compile_definitions(rasterbrushbenchmark PRIVATE LINUX)
+endif()
 option(BRUSH_SANITIZERS "Run parser regression with address/undefined sanitizers" OFF)
 if(BRUSH_SANITIZERS AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
   target_compile_options(abrparser_test PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)

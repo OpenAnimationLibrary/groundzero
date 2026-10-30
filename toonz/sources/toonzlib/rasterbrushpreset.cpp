@@ -10,6 +10,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QSaveFile>
+#include <QTemporaryDir>
 #include <QSet>
 #include <QMap>
 #include <cmath>
@@ -62,14 +63,17 @@ const QStringList shapes = {"round", "square", "gaussian", "bitmap"};
 const QStringList blends = {"normal", "multiply", "screen", "overlay", "erase"};
 const QStringList masks  = {"multiply", "subtract"};
 const QStringList wets   = {"off", "dulling", "smear"};
+const QStringList interpolations = {"linear", "natural-cubic"};
 QJsonObject dynamicJson(const Dynamic &d) {
   QJsonArray maps;
   for (const auto &m : d.mappings) {
     QJsonArray curve;
     for (auto k : m.curve) curve.append(QJsonArray{k.x, k.y});
-    maps.append(QJsonObject{{"sensor", sensors[int(m.sensor)]},
-                            {"scale", m.scale},
-                            {"curve", curve}});
+    maps.append(
+        QJsonObject{{"sensor", sensors[int(m.sensor)]},
+                    {"scale", m.scale},
+                    {"interpolation", interpolations[int(m.interpolation)]},
+                    {"curve", curve}});
   }
   return {{"value", d.value}, {"minimum", d.minimum}, {"mappings", maps}};
 }
@@ -81,10 +85,13 @@ Dynamic dynamic(const QJsonValue &v) {
   d.minimum = number(o["minimum"]);
   for (auto item : array(o["mappings"], 16)) {
     auto a = object(item);
-    keys(a, {"sensor", "scale", "curve"});
+    keys(a, {"sensor", "scale", "curve", "interpolation"});
     Mapping m;
     m.sensor = Sensor(choice(a["sensor"], sensors));
     m.scale  = number(a["scale"]);
+    if (a.contains("interpolation"))
+      m.interpolation =
+          Interpolation(choice(a["interpolation"], interpolations));
     m.curve.clear();
     for (auto k : array(a["curve"], 1024)) {
       auto pair = array(k, 2);
@@ -479,5 +486,106 @@ QString install(const QString &directory, const Record &r, QString &error) {
   }
   if (!save(path, r, error)) return {};
   return path;
+}
+QStringList installCollection(const QString &directory,
+                              const std::vector<Record> &records,
+                              QString &error,
+                              const std::atomic_bool *cancelled) {
+  error.clear();
+  auto stopped = [&]() {
+    return cancelled && cancelled->load(std::memory_order_relaxed);
+  };
+  if (records.empty() || records.size() > 256) {
+    error = "A brush collection must contain 1 to 256 presets";
+    return {};
+  }
+  if (!QDir().mkpath(directory)) {
+    error = "Cannot create brush library";
+    return {};
+  }
+  QTemporaryDir stage(QDir(directory).filePath(".brush-import-XXXXXX"));
+  if (!stage.isValid()) {
+    error = "Cannot stage brush collection";
+    return {};
+  }
+  QStringList names;
+  QCryptographicHash identity(QCryptographicHash::Sha256);
+  qint64 total = 0;
+  for (const auto &record : records) {
+    if (stopped()) {
+      error = "Brush import cancelled";
+      return {};
+    }
+    auto bytes = encode(record, error);
+    if (!error.isEmpty()) return {};
+    total += bytes.size();
+    if (total > 256 * 1024 * 1024) {
+      error = "Brush collection package budget exceeded";
+      return {};
+    }
+    auto hash =
+        QCryptographicHash::hash(bytes, QCryptographicHash::Sha256).toHex();
+    identity.addData(hash);
+    QString label = QString::fromStdString(record.preset.name).left(40);
+    for (int i = 0; i < label.size(); ++i)
+      if (!label[i].isLetterOrNumber() && label[i] != '-' && label[i] != '_')
+        label[i] = '_';
+    if (label.isEmpty()) label = "brush";
+    QString name = label + "-" + QString::fromLatin1(hash) + ".gzbrush";
+    if (names.contains(name)) continue;
+    QFile file(QDir(stage.path()).filePath(name));
+    if (!file.open(QIODevice::WriteOnly | QIODevice::NewOnly) ||
+        file.write(bytes) != bytes.size() || !file.flush()) {
+      error = "Cannot write staged brush collection: " + file.errorString();
+      return {};
+    }
+    file.close();
+    names << name;
+  }
+  if (stopped()) {
+    error = "Brush import cancelled";
+    return {};
+  }
+  QString destination = QDir(directory).filePath(
+      "pack-" + QString::fromLatin1(identity.result().toHex()));
+  if (QFileInfo(destination).isSymLink()) {
+    error = "Brush collection destination cannot be a symbolic link";
+    return {};
+  }
+  if (!QFileInfo::exists(destination)) {
+    if (!QDir().rename(stage.path(), destination)) {
+      error = "Cannot atomically publish brush collection";
+      return {};
+    }
+    stage.setAutoRemove(false);
+  } else {
+    QDir existing(destination);
+    auto actual = existing.entryList(
+        QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot | QDir::Hidden,
+        QDir::Name);
+    QStringList expected = names;
+    expected.sort();
+    if (actual != expected) {
+      error = "Existing brush collection conflicts with its identity";
+      return {};
+    }
+    for (const auto &name : names) {
+      if (stopped()) {
+        error = "Brush import cancelled";
+        return {};
+      }
+      QFile staged(QDir(stage.path()).filePath(name)),
+          saved(existing.filePath(name));
+      if (QFileInfo(saved).isSymLink() || !staged.open(QIODevice::ReadOnly) ||
+          !saved.open(QIODevice::ReadOnly) || saved.size() != staged.size() ||
+          saved.read(maxBytes + 1) != staged.read(maxBytes + 1)) {
+        error = "Existing brush collection content conflicts with its identity";
+        return {};
+      }
+    }
+  }
+  QStringList installed;
+  for (const auto &name : names) installed << QDir(destination).filePath(name);
+  return installed;
 }
 }  // namespace RasterBrush

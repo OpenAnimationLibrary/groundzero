@@ -247,6 +247,28 @@ void testColorDynamics() {
   p.background.r = 1;
   require(!validate(p).empty(), "non-premultiplied background accepted");
 }
+void testCubicCurves() {
+  Preset p;
+  p.opacity.mappings.push_back({Sensor::Pressure,
+                                {{0, 0}, {.5, 1}, {1, 0}},
+                                1,
+                                Interpolation::NaturalCubic});
+  Canvas canvas;
+  auto budget = std::make_shared<MemoryBudget>(1024 * 1024);
+  {
+    Stroke stroke(canvas, p, 1024 * 1024, budget);
+    require(stroke.add(sample(32, 32, 0, .25)), stroke.error().c_str());
+    require(std::abs(canvas.read(32, 32).a - .6875) < 1e-12,
+            "natural cubic curve used linear interpolation");
+    require(budget->used() > 0, "curve cache not budgeted");
+    stroke.finish();
+    require(budget->used() == 0, "curve cache not released at stroke end");
+  }
+  Stroke denied(canvas, p, 1);
+  require(!denied.add(sample(32, 32, 0)), "curve cache exceeded memory budget");
+  p.opacity.mappings.front().curve = {{0, 0}, {1e-12, 1}, {1, 0}};
+  require(!validate(p).empty(), "numerically unstable cubic knots accepted");
+}
 }  // namespace
 int main() {
   try {
@@ -258,6 +280,7 @@ int main() {
     testWetPressure();
     testStationaryAndBatching();
     testColorDynamics();
+    testCubicCurves();
   } catch (const std::exception &e) {
     std::cerr << e.what() << '\n';
     return 1;

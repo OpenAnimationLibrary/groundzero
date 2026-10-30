@@ -5,6 +5,7 @@
 #include <QJsonDocument>
 #include <QJsonArray>
 #include <QFile>
+#include <QDir>
 #include <QImage>
 #include <QBuffer>
 #include <iostream>
@@ -268,9 +269,10 @@ void testPackage() {
   r.preset.hue.value           = 180;
   r.preset.hue.mappings.push_back(
       {Sensor::RandomStroke, {{0, .2}, {1, .8}}, 1});
-  r.preset.saturation.value = .7;
-  r.preset.brightness.value = 1.2;
-  r.preset.seed             = UINT64_C(18446744073709551615);
+  r.preset.hue.mappings.front().interpolation = Interpolation::NaturalCubic;
+  r.preset.saturation.value                   = .7;
+  r.preset.brightness.value                   = 1.2;
+  r.preset.seed                               = UINT64_C(18446744073709551615);
   QString error;
   auto bytes = encode(r, error);
   require(!bytes.isEmpty(), qPrintable(error));
@@ -284,6 +286,8 @@ void testPackage() {
   require(restored.preset.pickupControl.mappings.size() == 1,
           "wet dynamics lost in package");
   require(restored.preset.hue.mappings.size() == 1 &&
+              restored.preset.hue.mappings.front().interpolation ==
+                  Interpolation::NaturalCubic &&
               restored.preset.background.a == .5 &&
               restored.preset.brightness.value == 1.2,
           "color dynamics lost in package");
@@ -333,6 +337,48 @@ void testPackage() {
   r.preset.color     = {1, 0, 0, .5};
   require(encode(r, error).isEmpty(), "invalid premultiplication accepted");
 }
+void testCollection() {
+  QTemporaryDir directory;
+  require(directory.isValid(), "temporary collection directory unavailable");
+  Record first, second;
+  first.preset.name        = "Original first";
+  second.preset.name       = "Original second";
+  second.preset.size.value = 36;
+  QString error;
+  auto invalid              = second;
+  invalid.preset.size.value = -1;
+  require(installCollection(directory.path(), {first, invalid}, error).empty(),
+          "partially valid collection installed");
+  require(QDir(directory.path())
+              .entryList(QDir::AllEntries | QDir::Hidden | QDir::NoDotAndDotDot)
+              .empty(),
+          "failed collection left staged or installed files");
+  std::atomic_bool cancelled(true);
+  require(
+      installCollection(directory.path(), {first, second}, error, &cancelled)
+          .empty(),
+      "cancelled collection installed");
+  require(QDir(directory.path())
+              .entryList(QDir::AllEntries | QDir::Hidden | QDir::NoDotAndDotDot)
+              .empty(),
+          "cancelled collection left files");
+  auto paths = installCollection(directory.path(), {first, second}, error);
+  require(error.isEmpty() && paths.size() == 2, qPrintable(error));
+  require(load(paths[0], error).preset.name == first.preset.name &&
+              load(paths[1], error).preset.size.value == 36,
+          "collection preset content changed");
+  require(installCollection(directory.path(), {first, second}, error) == paths,
+          "collection reimport changed identity");
+  QFile damaged(paths[1]);
+  require(damaged.open(QIODevice::WriteOnly),
+          "cannot damage collection fixture");
+  damaged.write("damaged");
+  damaged.close();
+  require(installCollection(directory.path(), {first, second}, error).empty(),
+          "conflicting collection overwritten");
+  require(load(paths[0], error).preset.name == first.preset.name,
+          "conflicting collection modified another preset");
+}
 }  // namespace
 int main(int argc, char **argv) {
   QCoreApplication app(argc, argv);
@@ -340,6 +386,7 @@ int main(int argc, char **argv) {
     testPackage();
     testImports();
     testBundles();
+    testCollection();
     std::cout << "Native brush package tests passed\n";
     return 0;
   } catch (const std::exception &e) {
