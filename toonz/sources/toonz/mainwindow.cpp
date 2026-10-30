@@ -17,6 +17,7 @@
 #include "flipbook.h"
 #include "messagepanel.h"
 #include "iocommand.h"
+#include <QScopedValueRollback>
 #include "tapp.h"
 #include "comboviewerpane.h"
 #include "startuppopup.h"
@@ -1915,6 +1916,11 @@ void MainWindow::onActiveViewerChanged() {
 //-----------------------------------------------------------------------------
 
 void MainWindow::closeEvent(QCloseEvent *event) {
+  if (m_closeInProgress || IoCmd::isSceneTransitionInProgress()) {
+    event->ignore();
+    return;
+  }
+  const QScopedValueRollback<bool> closing(m_closeInProgress, true);
   // il riferimento alla variabile booleana doExit viene passato a tutti gli
   // slot che catturano l'emissione
   // del segnale. Impostando a false tale variabile, l'applicazione non viene
@@ -1926,13 +1932,22 @@ void MainWindow::closeEvent(QCloseEvent *event) {
     return;
   }
 
-  if (!IoCmd::saveSceneIfNeeded(QApplication::tr("Quit"))) {
+  if (!IoCmd::saveSceneIfNeeded(QApplication::tr("Quit"), []() {
+        // Accepted Quit clears scene resources inside saveSceneIfNeeded.
+        // Retire active readers only after every save/cancel decision succeeds.
+        IconGenerator::instance()->shutdown();
+      })) {
     event->ignore();
     return;
   }
 
-  // sto facendo quit. interrompo (il prima possibile) le threads
-  IconGenerator::instance()->clearRequests();
+  // A cancellation request alone does not stop an active thumbnail render.
+  // Finish its worker and thread-local GL cleanup before clearing image data
+  // or allowing the window and its actions to be destroyed.
+  {
+    IoCmd::SceneTransitionGuard shutdown;
+    IconGenerator::instance()->shutdown();
+  }
 
   if (m_saveSettingsOnQuit) writeSettings();
 

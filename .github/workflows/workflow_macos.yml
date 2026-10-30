@@ -187,6 +187,15 @@ jobs:
       - name: Verify benchmark harness contracts
         run: python3 -m unittest discover -s ci-scripts/tests -p test_paired_benchmark.py
 
+      - name: Verify native lifecycle harness contracts
+        run: python3 -m unittest discover -s ci-scripts/tests -p test_native_ui_lifecycle.py
+
+      - name: Verify bounded desktop GL launcher
+        run: python3 -m unittest discover -s ci-scripts/tests -p test_windows_gl_test.py -v
+
+      - name: Verify Unicode regression reporting
+        run: python3 -m unittest discover -s ci-scripts/tests -p test_regression_reporting.py -v
+
       - name: Test SeExpr native integration
         id: seexpr_tests
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}

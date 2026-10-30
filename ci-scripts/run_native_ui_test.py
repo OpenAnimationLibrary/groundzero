@@ -215,6 +215,19 @@ def decode_output(output):
     return output.decode("utf-8", errors="replace") if isinstance(output, bytes) else output or ""
 
 
+def missing_icon_lifecycle_checkpoints(output):
+    # Match application output lines, never an echoed debugger command or the
+    # earlier fixture's PASS. Process status is checked independently by callers.
+    lines = output.splitlines()
+    marker = "icon-lifecycle-native: PASS"
+    required = {
+        marker: any(line == marker or line.startswith(marker + " (") for line in lines),
+        "native-ui-integration: checkpoint: native icon workers drained":
+            "native-ui-integration: checkpoint: native icon workers drained" in lines,
+    }
+    return [marker for marker, observed in required.items() if not observed]
+
+
 def capture_debugger(command, executable, source, mesa_runtime=None,
                      runtime_state=None):
     state = runtime_state if runtime_state is not None else {"safe_to_release": True}
@@ -321,6 +334,11 @@ def main():
     if args.require_offline_gl_workflow and status == 0 and "offline-gl-workflow: PASS" not in output:
         output += "\nThe required native offscreen context/converter fixture did not run.\n"
         status = 1
+    if status == 0:
+        missing = missing_icon_lifecycle_checkpoints(output)
+        if missing:
+            output += "\nMissing native icon lifecycle checkpoints: " + ", ".join(missing) + "\n"
+            status = 1
     if not runtime_state["safe_to_release"]:
         output += "\nFurther diagnostics were not launched because process-tree exit was not confirmed.\n"
     try:
