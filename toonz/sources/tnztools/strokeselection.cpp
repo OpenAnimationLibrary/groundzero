@@ -16,6 +16,7 @@
 #include "tools/artlayer.h"
 #include "tools/strokeopacityeditor.h"
 #include "tools/vectoralignmentpreview.h"
+#include "tools/vectorimagesnapshot.h"
 
 // TnzQt includes
 #include "toonzqt/selectioncommandids.h"
@@ -832,22 +833,60 @@ void StrokeSelection::editOpacityProfile() {
   const TFrameId fid = tool->getCurrentFid();
   const TVectorImageP image = m_vi;
   const std::set<int> selected = m_indexes;
-  std::map<int,int> selectedIds;
   for (int index : selected) {
     if (index < 0 || index >= int(image->getStrokeCount())) return;
-    selectedIds.emplace(index,image->getStroke(index)->getId());
   }
-  StrokeOpacityEditor::Dialog editor(image, selected, QApplication::activeWindow());
-  if (editor.exec() != QDialog::Accepted) return;
-  // Context-switch signals reject the dialog; also revalidate its immutable
-  // selection before applying in case an external editor replaced the image.
-  if (app->getCurrentLevel()->getSimpleLevel() != level.getPointer() ||
+  TVectorImageP before;
+  {
+    QMutexLocker lock(image->getMutex());
+    before = image->cloneWithGroupContext();
+    if (auto *palette = image->getPalette()) {
+      TPaletteP frozenPalette = palette->clone();
+      before->setPalette(frozenPalette.getPointer());
+    }
+    before->findRegions();
+  }
+  const auto *scene = app->getCurrentScene()->getScene();
+  const auto *xsheet = app->getCurrentXsheet()->getXsheet();
+  const auto frameType = app->getCurrentFrame()->getFrameType();
+  const int frame = app->getCurrentFrame()->getFrame();
+  const int column = app->getCurrentColumn()->getColumnIndex();
+  const auto object = app->getCurrentObject()->getObjectId();
+  bool invalidated = false;
+  StrokeOpacityEditor::Dialog editor(before, selected, QApplication::activeWindow());
+  // Reject is not a latch: an already queued Apply can accept a closed dialog
+  // after leaving and returning to the original drawing in the same event turn.
+  auto invalidate = [&]() { invalidated = true; editor.reject(); };
+  QObject::connect(app->getCurrentScene(), &TSceneHandle::sceneSwitched, &editor, invalidate);
+  QObject::connect(app->getCurrentXsheet(), &TXsheetHandle::xsheetSwitched, &editor, invalidate);
+  QObject::connect(app->getCurrentLevel(), &TXshLevelHandle::xshLevelSwitched, &editor, invalidate);
+  QObject::connect(app->getCurrentFrame(), &TFrameHandle::frameSwitched, &editor, invalidate);
+  QObject::connect(app->getCurrentColumn(), &TColumnHandle::columnIndexSwitched, &editor, invalidate);
+  QObject::connect(app->getCurrentObject(), &TObjectHandle::objectSwitched, &editor, invalidate);
+  QObject::connect(app->getCurrentTool(), &ToolHandle::toolSwitched, &editor, invalidate);
+  QObject::connect(app->getCurrentSelection(), &TSelectionHandle::selectionSwitched, &editor, invalidate);
+  QObject::connect(app->getCurrentSelection(), &TSelectionHandle::selectionChanged, &editor, invalidate);
+  if (editor.exec() != QDialog::Accepted || invalidated) return;
+  if (app->getCurrentScene()->getScene() != scene ||
+      app->getCurrentXsheet()->getXsheet() != xsheet ||
+      app->getCurrentLevel()->getSimpleLevel() != level.getPointer() ||
+      app->getCurrentTool()->getTool() != tool || !tool->isEnabled() ||
+      app->getCurrentFrame()->getFrameType() != frameType ||
+      app->getCurrentFrame()->getFrame() != frame ||
+      app->getCurrentColumn()->getColumnIndex() != column ||
+      app->getCurrentObject()->getObjectId() != object ||
+      app->getCurrentObject()->isSpline() ||
+      app->getCurrentSelection()->getSelection() != this ||
       tool->getCurrentFid() != fid || m_vi != image || m_indexes != selected ||
+      TVectorImageP(level->getFrame(fid, false)) != image ||
+      TVectorImageP(tool->getImage(false)) != image ||
       !isEditable() || !StrokeOpacity::valid(editor.profile())) return;
+  {
+    QMutexLocker lock(image->getMutex());
+    if (!VectorImageSnapshot::sameContent(image, before)) return;
+  }
   bool changed = false;
   for (int index : selected) {
-    if (index >= int(image->getStrokeCount()) ||
-        image->getStroke(index)->getId() != selectedIds[index]) return;
     changed |= image->getStroke(index)->getOpacityProfile() != editor.profile();
   }
   if (!changed) return;
@@ -1689,54 +1728,6 @@ public:
   }
 };
 
-bool sameAlignmentRegion(const TRegion *a, const TRegion *b) {
-  if (a->getStyle() != b->getStyle() ||
-      a->getEdgeCount() != b->getEdgeCount() ||
-      a->getSubregionCount() != b->getSubregionCount()) return false;
-  for (UINT i = 0; i < a->getEdgeCount(); ++i) {
-    const auto *x = a->getEdge(i), *y = b->getEdge(i);
-    if (x->m_index != y->m_index || x->m_w0 != y->m_w0 ||
-        x->m_w1 != y->m_w1 || x->m_styleId != y->m_styleId) return false;
-  }
-  for (int i = 0; i < a->getSubregionCount(); ++i)
-    if (!sameAlignmentRegion(a->getSubregion(i), b->getSubregion(i))) return false;
-  return true;
-}
-
-// A modal event loop may run a script or reload an asset. Check every reviewed
-// source, including unchanged strokes/fills/groups, before the first live edit.
-// Region computation is confined to detached clones even during validation.
-bool sameAlignmentSource(const TVectorImageP &live, const TVectorImageP &before) {
-  if (!live || live->getStrokeCount() != before->getStrokeCount() ||
-      live->isInsideGroup() != before->isInsideGroup() ||
-      live->getAutocloseTolerance() != before->getAutocloseTolerance()) return false;
-  for (UINT i = 0; i < live->getStrokeCount(); ++i) {
-    const auto *a = live->getStroke(i), *b = before->getStroke(i);
-    const auto &x = a->outlineOptions(), &y = b->outlineOptions();
-    if (a->getId() != b->getId() || *a != *b || a->getStyle() != b->getStyle() ||
-        a->isSelfLoop() != b->isSelfLoop() ||
-        x.m_capStyle != y.m_capStyle || x.m_joinStyle != y.m_joinStyle ||
-        x.m_miterLower != y.m_miterLower || x.m_miterUpper != y.m_miterUpper ||
-        x.m_patternFrameOffset != y.m_patternFrameOffset ||
-        x.m_patternFrameStep != y.m_patternFrameStep || x.m_opacity != y.m_opacity ||
-        x.m_opacityProfile != y.m_opacityProfile ||
-        live->getGroupDepth(i) != before->getGroupDepth(i) ||
-        live->getGroupByStroke(i) != before->getGroupByStroke(i) ||
-        live->isEnteredGroupStroke(i) != before->isEnteredGroupStroke(i) ||
-        (i && live->getCommonGroupDepth(i-1, i) != before->getCommonGroupDepth(i-1, i)))
-      return false;
-  }
-  const auto *a = live->getPalette(), *b = before->getPalette();
-  if (bool(a) != bool(b) || (a && a->getStyleCount() != b->getStyleCount())) return false;
-  if (a) for (int i = 0; i < a->getStyleCount(); ++i)
-    if (!(*a->getStyle(i) == *b->getStyle(i))) return false;
-  TVectorImageP current = live->cloneWithGroupContext();
-  current->findRegions();
-  if (current->getRegionCount() != before->getRegionCount()) return false;
-  for (UINT i = 0; i < current->getRegionCount(); ++i)
-    if (!sameAlignmentRegion(current->getRegion(i), before->getRegion(i))) return false;
-  return true;
-}
 }  // namespace
 
 std::vector<int> StrokeSelection::selectionOrder() const {
@@ -1915,7 +1906,7 @@ void StrokeSelection::alignStrokes(VectorAlignment::Type type) {
       break;
     }
     QMutexLocker lock(live->getMutex());
-    valid = sameAlignmentSource(live, previews[i].before);
+    valid = VectorImageSnapshot::sameContent(live, previews[i].before);
   }
   if (!valid) {
     DVGui::warning(QObject::tr("A reviewed drawing or selection changed. No drawings were aligned. "

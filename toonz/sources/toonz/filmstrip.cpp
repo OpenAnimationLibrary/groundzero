@@ -32,6 +32,7 @@
 
 // TnzTools includes
 #include "tools/strokeselection.h"
+#include "tools/vectorimagesnapshot.h"
 
 // TnzLib includes
 #include "toonz/txshlevelhandle.h"
@@ -73,6 +74,7 @@
 #include <QDragMoveEvent>
 #include <QDropEvent>
 #include <QTimer>
+#include <QPointer>
 #include <QStyleOptionButton>
 #include <algorithm>
 
@@ -239,6 +241,9 @@ FilmstripFrames::FilmstripFrames(QScrollArea *parent, Qt::WindowFlags flags)
 //-----------------------------------------------------------------------------
 
 FilmstripFrames::~FilmstripFrames() {
+  // The selection handle is non-owning. Detach while the concrete selection
+  // and its command handlers are still alive, including closing an active strip.
+  m_selection->makeNotCurrent();
   delete m_selection;
   delete m_frameHeadGadget;
 }
@@ -1317,7 +1322,9 @@ void FilmstripFrames::mousePressEvent(QMouseEvent *event) {
       }
     } else if (sl->getType() == PLI_XSHLEVEL &&
              m_selection->isInInbetweenRange(fid) && inbetweenSelected) {
+      QPointer<FilmstripFrames> self(this);
       inbetween();
+      if (!self) return;
     } else {
       // move current frame when clicked without modifier
       TApp *tapp = TApp::instance();
@@ -2116,22 +2123,116 @@ void FilmstripFrames::inbetween() {
   TFilmstripSelection::InbetweenRange range = m_selection->getInbetweenRange();
   if (range.first >= range.second || !getLevel()) return;
 
+  auto *app = TApp::instance();
+  auto *scene = app->getCurrentScene()->getScene();
+  TXshSimpleLevelP level = getLevel();
+  if (level->isReadOnly()) return;
+  auto *selection = app->getCurrentSelection()->getSelection();
+  const auto selected = m_selection->getSelectedFids();
+  const std::string hints = level->getMorphHints();
+  struct ReviewedFrame {
+    TFrameId fid;
+    TImageP image;
+    TVectorImageP snapshot;
+  };
+  std::vector<ReviewedFrame> reviewed;
+  std::vector<TFrameId> fids;
+  level->getFids(fids);
+  const auto first = std::find(fids.begin(), fids.end(), range.first);
+  const auto last = std::find(fids.begin(), fids.end(), range.second);
+  if (first == fids.end() || last == fids.end() || last - first < 2) return;
+  try {
+    for (auto it = first; it != last + 1; ++it) {
+      if (it != first && it != last && level->isFrameReadOnly(*it)) return;
+      ReviewedFrame frame{*it, level->getFrame(*it, false), TVectorImageP()};
+      TVectorImageP image = frame.image;
+      if (image) {
+        frame.snapshot = image->cloneWithGroupContext();
+        if (image->getPalette()) frame.snapshot->setPalette(image->getPalette()->clone());
+        frame.snapshot->findRegions();
+      } else if (frame.image) return;
+      reviewed.push_back(std::move(frame));
+    }
+  } catch (...) {
+    DVGui::warning(tr("The inbetween preview could not be prepared. The drawings were left unchanged."));
+    return;
+  }
+  QPointer<FilmstripFrames> self(this);
+  bool invalidated = false;
+  bool reviewing = true;
+  QObject dialogContext;
+  auto sameSource = [&]() {
+    if (invalidated || !self || app->getCurrentScene()->getScene() != scene ||
+        app->getCurrentLevel()->getSimpleLevel() != level.getPointer() ||
+        app->getCurrentSelection()->getSelection() != selection ||
+        self->getLevel() != level.getPointer() || level->isReadOnly() ||
+        self->m_selection->getSelectedFids() != selected ||
+        self->m_selection->getInbetweenRange() != range || level->getMorphHints() != hints)
+      return false;
+    std::vector<TFrameId> current;
+    level->getFids(current);
+    current.erase(std::remove_if(current.begin(), current.end(), [&](const TFrameId &fid) {
+      return fid < range.first || fid > range.second;
+    }), current.end());
+    if (current.size() != reviewed.size()) return false;
+    for (size_t i = 0; i < reviewed.size(); ++i) {
+      const auto &before = reviewed[i];
+      if (current[i] != before.fid ||
+          (i > 0 && i + 1 < reviewed.size() && level->isFrameReadOnly(before.fid))) return false;
+      const TImageP image = level->getFrame(before.fid, false);
+      if (image != before.image || (before.snapshot &&
+          !VectorImageSnapshot::sameContent(TVectorImageP(image), before.snapshot))) return false;
+    }
+    return true;
+  };
+  auto invalidate = [&]() {
+    if (!reviewing) return;
+    invalidated = true;
+    if (self && self->m_inbetweenDialog) self->m_inbetweenDialog->reject();
+  };
+  connect(app->getCurrentScene(), &TSceneHandle::sceneSwitched, &dialogContext, invalidate);
+  connect(app->getCurrentLevel(), &TXshLevelHandle::xshLevelSwitched, &dialogContext, invalidate);
+  connect(app->getCurrentSelection(), &TSelectionHandle::selectionChanged, &dialogContext, [&]() {
+    if (!self || self->m_selection->getSelectedFids() != selected) invalidate();
+  });
+  connect(app->getCurrentSelection(), &TSelectionHandle::selectionSwitched, &dialogContext, [&]() {
+    if (app->getCurrentSelection()->getSelection() != selection) invalidate();
+  });
+  connect(app->getCurrentLevel(), &TXshLevelHandle::xshLevelChanged, &dialogContext, [&]() {
+    if (!reviewing) return;
+    bool unchanged = false;
+    try { unchanged = sameSource(); } catch (...) { }
+    if (!unchanged) invalidate();
+  });
+
   QSettings settings;
   QString keyName("InbetweenInterpolation");
   QString currentItem = settings.value(keyName, QStringLiteral("Linear")).toString();
   int index;
 
   // stroke pairs set with the Pair Strokes for Inbetween command, if any
-  TVectorImageP img0 = getLevel()->getFrame(range.first, false);
-  TVectorImageP img1 = getLevel()->getFrame(range.second, false);
+  TVectorImageP img0 = reviewed.front().snapshot;
+  TVectorImageP img1 = reviewed.back().snapshot;
   std::vector<std::pair<int, int>> strokePairs =
-      StrokeSelection::getInbetweenStrokePairs(getLevel(), range.first, range.second);
+      StrokeSelection::getInbetweenStrokePairs(level.getPointer(), range.first, range.second);
   FilmstripCmd::InbetweenOptions options;
   std::vector<std::pair<TRectD, TRectD>> zoneHints =
-      StrokeSelection::getInbetweenZoneHints(getLevel(), range.first, range.second);
+      StrokeSelection::getInbetweenZoneHints(level.getPointer(), range.first, range.second);
 
   {
-    if (!m_inbetweenDialog) m_inbetweenDialog = new InbetweenDialog(this);
+    if (!m_inbetweenDialog) {
+      m_inbetweenDialog = new InbetweenDialog(this);
+      // The dialog is parented to the main window. Closing this strip must
+      // close its modal loop too, without deleting it inside exec().
+      auto *dialog = m_inbetweenDialog;
+      connect(this, &QObject::destroyed, dialog, [dialog]() {
+        dialog->reject();
+        dialog->deleteLater();
+      });
+      connect(dialog, &QObject::destroyed, this, [this]() {
+        m_inbetweenDialog = nullptr;
+      });
+    }
 
     // Default -> l'ultimo valore usato
 
@@ -2145,8 +2246,16 @@ void FilmstripFrames::inbetween() {
     m_inbetweenDialog->setUnmatchedPolicy(settings.value("InbetweenUnmatchedPolicy", 0).toInt());
     m_inbetweenDialog->setPreviewSource(img0, img1, strokePairs, zoneHints);
 
-    int ret = m_inbetweenDialog->exec();
-    if (!ret) return;
+    QPointer<InbetweenDialog> dialog(m_inbetweenDialog);
+    int ret = dialog->exec();
+    reviewing = false;
+    if (!self || !dialog || !ret || invalidated) return;
+    bool unchanged = false;
+    try { unchanged = sameSource(); } catch (...) { }
+    if (!unchanged) {
+      DVGui::warning(tr("The drawings, range or morph hints changed while the preview was open. Reopen Inbetween to review them. No drawing was overwritten."));
+      return;
+    }
     if (!m_inbetweenDialog->useStrokePairs()) strokePairs.clear();
     if (m_inbetweenDialog->useZoneHints()) options.m_zoneHints = zoneHints;
     options.m_autoMatch = m_inbetweenDialog->autoMatch();
@@ -2177,7 +2286,7 @@ void FilmstripFrames::inbetween() {
 
   // inbetween
   try {
-    FilmstripCmd::inbetween(getLevel(), range.first, range.second, interpolation,
+    FilmstripCmd::inbetween(level.getPointer(), range.first, range.second, interpolation,
                             strokePairs, options);
   } catch (...) {
     DVGui::warning(tr("The inbetweens could not be generated. The drawings were left unchanged."));

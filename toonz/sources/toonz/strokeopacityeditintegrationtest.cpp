@@ -2,10 +2,15 @@
 #include "tapp.h"
 #include "tools/tool.h"
 #include "tools/toolhandle.h"
+#include "tools/strokeselection.h"
+#include "toonzqt/menubarcommand.h"
+#include "toonzqt/selectioncommandids.h"
+#include "toonzqt/tselectionhandle.h"
 #include "toonz/toonzscene.h"
 #include "toonz/tscenehandle.h"
 #include "toonz/txshleveltypes.h"
 #include "toonz/txshsimplelevel.h"
+#include "toonz/levelproperties.h"
 #include "toonz/txshlevelhandle.h"
 #include "toonz/txsheethandle.h"
 #include "toonz/txsheet.h"
@@ -15,10 +20,17 @@
 #include "tvectorimage.h"
 #include "tstroke.h"
 #include "tpalette.h"
+#include "tcolorstyles.h"
+#include "tlevel_io.h"
+#include "tlevel.h"
 #include "tproperty.h"
 #include "tundo.h"
 #include <QApplication>
 #include <QDialog>
+#include <QAction>
+#include <QEvent>
+#include <QPushButton>
+#include <QTemporaryDir>
 #include <QTimer>
 #include <cmath>
 #include <stdexcept>
@@ -40,11 +52,11 @@ TVectorImageP imageWith(TStroke *stroke, TPalette *palette) {
   image->addStroke(stroke);
   return image;
 }
-bool sameDrawing(const TVectorImageP &a, const TVectorImageP &b) {
+bool sameDrawing(const TVectorImageP &a, const TVectorImageP &b, bool compareIds = true) {
   if (a->getStrokeCount() != b->getStrokeCount()) return false;
   for (int i = 0; i < a->getStrokeCount(); ++i) {
     const TStroke *x = a->getStroke(i), *y = b->getStroke(i);
-    if (x->getId() != y->getId() || x->getStyle() != y->getStyle() ||
+    if ((compareIds && x->getId() != y->getId()) || x->getStyle() != y->getStyle() ||
         x->isSelfLoop() != y->isSelfLoop() || x->getOpacity() != y->getOpacity() ||
         x->getOpacityProfile() != y->getOpacityProfile() ||
         x->getControlPointCount() != y->getControlPointCount()) return false;
@@ -148,6 +160,160 @@ void boolProperty(TTool *tool, const char *name, bool value) {
   auto *property = dynamic_cast<TBoolProperty *>(tool->getProperties(0)->getProperty(name));
   require(property != nullptr, "native stroke tool boolean property missing");
   property->setValue(value); tool->onPropertyChanged(name);
+}
+
+void opacityReviewGuards() {
+  auto *app = TApp::instance();
+  auto *level = app->getCurrentScene()->getScene()->createNewLevel(
+      PLI_XSHLEVEL, L"OpacityReviewGuardFixture")->getSimpleLevel();
+  TPaletteP palette = new TPalette;
+  level->setPalette(palette.getPointer());
+  TVectorImageP image = imageWith(line(0, 100), palette.getPointer());
+  image->addStroke(line(0, 100, 20));
+  const StrokeOpacity::Profile original{{0., .2}, {1., .8}};
+  const StrokeOpacity::Profile intervening{{0., .7}, {.5, .1}, {1., .9}};
+  const StrokeOpacity::Profile proposed{{0., 1.}, {1., 0.}};
+  image->getStroke(0)->setOpacityProfile(original);
+  image->getStroke(1)->setOpacityProfile(original);
+  level->setFrame(TFrameId(1), image);
+  level->setFrame(TFrameId(2), image->clone());
+  auto *xsheet = app->getCurrentXsheet()->getXsheet();
+  xsheet->setCell(0, 0, TXshCell(level, TFrameId(1)));
+  xsheet->setCell(1, 0, TXshCell(level, TFrameId(2)));
+  app->getCurrentColumn()->setColumnIndex(0);
+  app->getCurrentFrame()->setFrame(0);
+  app->getCurrentLevel()->setLevel(level);
+  app->getCurrentTool()->setTool("T_Selection");
+  app->getCurrentXsheet()->notifyXsheetChanged();
+  QCoreApplication::processEvents();
+  auto *tool = app->getCurrentTool()->getTool();
+  enumProperty(tool, "Mode:", L"Standard");
+  tool->onImageChanged();
+  auto *selection = dynamic_cast<StrokeSelection *>(tool->getSelection());
+  require(selection && selection->getImage() == image,
+          "opacity review guard fixture did not select its native drawing");
+  auto selectSource = [&]() {
+    selection->selectNone(); selection->select(0, true); selection->makeCurrent();
+    app->getCurrentSelection()->notifySelectionChanged();
+  };
+  selectSource();
+  auto *action = CommandManager::instance()->getAction(MI_EditStrokeOpacityProfile);
+  require(action && action->isEnabled(), "opacity review guard command unavailable");
+  auto *undo = TUndoManager::manager();
+  undo->reset();
+
+  // A queued Apply must not regain authority after a context switch returns to
+  // exactly the same pointers, nor overwrite a same-image script edit.
+  const char *cases[] = {"envelope", "selected geometry", "unselected geometry",
+                         "palette", "frame leave/return", "selection leave/return"};
+  for (int scenario = 0; scenario < 6; ++scenario) {
+    selectSource();
+    app->getCurrentScene()->setDirtyFlag(false);
+    level->getProperties()->setDirtyFlag(false);
+    bool saw = false, accepted = false, restoredContext = false, timedOut = false;
+    TVectorImageP expected;
+    TPixel32 expectedColor;
+    bool expectedDirty = false;
+    QTimer response, deadline;
+    response.setSingleShot(true); deadline.setSingleShot(true);
+    QObject::connect(&deadline, &QTimer::timeout, [&]() {
+      timedOut = true;
+      if (auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget())) dialog->reject();
+    });
+    QObject::connect(&response, &QTimer::timeout, [&]() {
+      auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
+      saw = dialog && dialog->objectName() == "strokeOpacityEditor";
+      if (!saw) { if (dialog) dialog->reject(); return; }
+      auto *fade = dialog->findChild<QPushButton *>("strokeOpacityFadeOut");
+      auto *apply = dialog->findChild<QPushButton *>("strokeOpacityApply");
+      if (!fade || !apply) { dialog->reject(); return; }
+      fade->click();
+      QMetaObject::invokeMethod(apply, "click", Qt::QueuedConnection);
+      if (scenario == 0) image->getStroke(0)->setOpacityProfile(intervening);
+      else if (scenario == 1) image->getStroke(0)->transform(TTranslation(3., 4.));
+      else if (scenario == 2) image->getStroke(1)->transform(TTranslation(-2., 5.));
+      else if (scenario == 3) palette->getStyle(1)->setMainColor(TPixel32(80, 160, 220));
+      else if (scenario == 4) {
+        app->getCurrentFrame()->setFrame(1); tool->onImageChanged();
+        app->getCurrentFrame()->setFrame(0); tool->onImageChanged();
+        selectSource();
+      } else {
+        selection->selectNone(); selection->select(1, true);
+        app->getCurrentSelection()->notifySelectionChanged();
+        selectSource();
+      }
+      expectedDirty = scenario < 4;
+      if (expectedDirty) {
+        level->setDirtyFlag(true);
+        app->getCurrentScene()->setDirtyFlag(true);
+      }
+      expected = image->clone();
+      expectedColor = palette->getStyle(1)->getMainColor();
+      restoredContext = selection->getImage() == image &&
+          selection->getSelection() == std::set<int>{0} &&
+          app->getCurrentFrame()->getFrame() == 0;
+      // Deliver the already queued button activation in this modal event turn,
+      // after reject/return, so the test really requires the invalidation latch.
+      QCoreApplication::sendPostedEvents(apply, QEvent::MetaCall);
+      accepted = dialog->result() == QDialog::Accepted;
+    });
+    deadline.start(10000); response.start(0); action->trigger(); deadline.stop();
+    if (!saw || !accepted || !restoredContext || timedOut || !expected ||
+        TVectorImageP(level->getFrame(TFrameId(1), false)) != image ||
+        !sameDrawing(image, expected) || palette->getStyle(1)->getMainColor() != expectedColor ||
+        undo->getHistoryCount() != 0 ||
+        app->getCurrentScene()->getDirtyFlag() != expectedDirty ||
+        level->getProperties()->getDirtyFlag() != expectedDirty)
+      throw std::runtime_error(std::string("opacity stale review failed to preserve ") + cases[scenario]);
+  }
+
+  // Cancellation and a newly opened review still work after each rejected
+  // attempt; the accepted edit retains the intervening source as its undo base.
+  TVectorImageP before = image->clone();
+  auto finish = [&](bool apply) {
+    bool saw = false;
+    QTimer response; response.setSingleShot(true);
+    QObject::connect(&response, &QTimer::timeout, [&]() {
+      auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
+      saw = dialog && dialog->objectName() == "strokeOpacityEditor";
+      if (!saw) { if (dialog) dialog->reject(); return; }
+      auto *fade = dialog->findChild<QPushButton *>("strokeOpacityFadeOut");
+      auto *button = dialog->findChild<QPushButton *>(apply ? "strokeOpacityApply" : "strokeOpacityCancel");
+      if (!fade || !button) { saw = false; dialog->reject(); return; }
+      fade->click(); button->click();
+    });
+    response.start(0); action->trigger();
+    require(saw, "opacity review could not be reopened after a stale attempt");
+  };
+  finish(false);
+  require(sameDrawing(image, before) && undo->getHistoryCount() == 0,
+          "opacity Cancel after a stale review changed source or history");
+  finish(true);
+  require(undo->getHistoryCount() == 1 && image->getStroke(0)->getOpacityProfile() == proposed &&
+          image->getStroke(1)->getOpacityProfile() == original,
+          "fresh opacity review did not apply only the reviewed selection");
+  for (int repeat = 0; repeat < 3; ++repeat) {
+    undo->undo(); require(sameDrawing(image, before), "opacity undo lost intervening source edits");
+    undo->redo(); require(image->getStroke(0)->getOpacityProfile() == proposed,
+                          "opacity redo lost the reviewed envelope");
+  }
+  QTemporaryDir directory;
+  require(directory.isValid(), "opacity stale-review reload directory unavailable");
+  const TFilePath path(directory.filePath("reviewed.pli"));
+  { TLevelWriterP writer(path); writer->getFrameWriter(TFrameId(1))->save(image); }
+  TLevelReaderP reader(path);
+  TLevelP reopenedLevel = reader->loadInfo();
+  require(reopenedLevel && reopenedLevel->getPalette(),
+          "opacity review reopen did not load its native palette");
+  TVectorImageP reopened = reader->getFrameReader(TFrameId(1))->load();
+  require(reopened, "opacity review reopen did not load its native drawing");
+  reopened->setPalette(reopenedLevel->getPalette());
+  // Native PLI reconstructs runtime stroke IDs; geometry and authored opacity
+  // must persist, while live undo checks above still require the original IDs.
+  require(reopened && sameDrawing(image, reopened, false) &&
+          reopened->getPalette()->getStyle(1)->getMainColor() == palette->getStyle(1)->getMainColor(),
+          "opacity review reopen lost the accepted envelope or intervening source edits");
+  undo->reset();
 }
 }
 
@@ -300,4 +466,5 @@ void runStrokeOpacityEditNativeChecks() {
           "rejected actual Eraser sample partly deleted strokes or registered empty undo");
   undo->reset();
   app->getCurrentTool()->setTool("T_Selection");
+  opacityReviewGuards();
 }

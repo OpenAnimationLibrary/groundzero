@@ -79,17 +79,19 @@ public:
 inline bool review(const std::vector<Entry> &entries) {
   if (entries.empty()) return true;
   QDialog dialog(QApplication::activeWindow());
+  bool invalidated = false;
+  const auto invalidate = [&] { invalidated = true; dialog.reject(); };
   if (auto *app = TTool::getApplication()) {
     QObject::connect(app->getCurrentScene(), &TSceneHandle::sceneSwitched,
-                     &dialog, &QDialog::reject);
+                     &dialog, invalidate);
     QObject::connect(app->getCurrentLevel(), &TXshLevelHandle::xshLevelSwitched,
-                     &dialog, &QDialog::reject);
+                     &dialog, invalidate);
     QObject::connect(app->getCurrentFrame(), &TFrameHandle::frameSwitched,
-                     &dialog, &QDialog::reject);
+                     &dialog, invalidate);
     QObject::connect(app->getCurrentColumn(), &TColumnHandle::columnIndexSwitched,
-                     &dialog, &QDialog::reject);
+                     &dialog, invalidate);
     QObject::connect(app->getCurrentTool(), &ToolHandle::toolSwitched,
-                     &dialog, &QDialog::reject);
+                     &dialog, invalidate);
   }
   dialog.setObjectName("vectorFillReview");
   dialog.setWindowTitle(QApplication::translate("VectorFillReview", "Review Fills"));
@@ -135,6 +137,9 @@ inline bool review(const std::vector<Entry> &entries) {
   QObject::connect(frames, QOverload<int>::of(&QComboBox::currentIndexChanged),
                    &dialog, refresh);
   refresh(0);
-  return dialog.exec() == QDialog::Accepted;
+  const bool accepted = dialog.exec() == QDialog::Accepted;
+  // A queued Apply must not revive a review rejected by a context switch,
+  // including a round trip to the same frame before the click is delivered.
+  return accepted && !invalidated;
 }
 }  // namespace VectorFillReview
