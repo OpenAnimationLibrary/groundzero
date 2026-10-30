@@ -23,6 +23,30 @@ Raster Krita/Photoshop brush compatibility is separately owned and excluded. Neu
 
 ## Current progress
 
+The latest executed combined candidate, `5d02222bf`, failed qualification.
+Its first mandatory failure was `gradient fixture original owner unavailable`;
+the later lifecycle setup also could not read its native scene-transition
+fixture. Every isolated process exited unsuccessfully at that lifecycle setup,
+including those which printed a component PASS. Cast additionally failed its
+fresh-tag undo assertion. Standalone UI passed 18 of 19 tests; the width-profile
+owner case failed its exact authored-sample check. The independent artist
+workload and 26 native-runner contract tests passed, but do not qualify the
+failed application sequence. Installed checks were skipped.
+
+Reviewed corrections preserve those acceptance contracts. `b722d6810` marks
+authored lifecycle inputs dirty before native save and independently reopens
+the actual scene, drawing and palette. `c99fbf0aa` compares width cancellation
+against the actual loaded profile samples and requests/verifies native window
+activation before owner interruption. `9f15d6b81` prevents programmatic scene
+root labels from entering folder-rename undo, with visible/hidden selected-root
+regressions and bounded fresh-tag diagnostics. The old compound tag assertion
+did not localize its mismatched field; the unintended rename path is established
+by source review, and the full tag workflow still needs new-head execution.
+`7815bdc93` preserves the first native assertion in CI reports and exposes later
+lifecycle failures separately. No timeout, exact state comparison, undo count
+or file assertion was relaxed. These changes are integrated and source-reviewed;
+complete supported-platform and installed-package qualification remains pending.
+
 All 60 items remain in scope. Function Editor revision `efdd9139f` passed
 application and installed-package checks on all three platforms. Combined
 revision `10ad236fa` passed Linux application and installed-package checks,
@@ -229,6 +253,7 @@ and the component ledgers.
 | Linux validation `15a4593e2247b37000ef22b8c4bd58474002cc7f` | The corrected pose driver passed the full animation workflow. All six isolated diagnostics and the independent artist workload passed. | The mandatory sequence next failed its exact width drawing comparison because the fixture captured an evaluated palette from a different frame. Reviewed fixture correction `8d2f19c5a` retains exact comparisons and gradient assertions but is unexecuted. Reliability and installed checks were skipped. |
 | Linux validation `3dd99b2f69262dbe7612efc90dc452b6fbc48deb` | All 19 native UI tests passed. The full sequence passed pose context changes and width interruption guards. Five isolated groups and the independent artist workload passed. Native saved-set Save/Rename/Delete/reopen, target-range reload and removed-owner guards passed before the separate Function failure. | Mandatory integration failed repeated width Undo after a native PLI save changed the live evaluated palette. The isolated Function process crashed during the actual panel-lifetime matrix in `ParamCalculatorNode::onChange`; observer lifetime is under investigation. Reliability/EXR and installed checks were skipped. This revision predates the Cast modal-lifetime correction. |
 | Linux validation `9629a7c5c216fd72ce4cb5418207ea00dcb5de3a` | Standalone native UI and isolated Function passed, including the 24 panel routes and actual post-close source/dependent notifications. Palette-save invariance and the first post-save width Undo/Redo pair passed. Timing, export, renderer and artist diagnostics passed. | Mandatory integration timed out after 600 seconds; the last checkpoint preceded the second post-save pair. Isolated Cast crashed through stale current selection, and Cast/vector failed the consolidation confirmation oracle. Reliability/EXR and installed checks were skipped. New Cast detach, vector driver, reporting and shutdown corrections are unexecuted. |
+| Linux validation `5d02222bf8f8fbc4735229d32604ba31a25b2dc1` | Standalone UI passed 18 of 19 tests. All 33 Cast interruption checkpoints completed. The independent artist workload and 26 native-runner contract tests passed. | Mandatory integration first failed gradient owner setup, then lifecycle file setup. All six isolated processes failed lifecycle setup; Cast also failed its fresh-tag undo assertion. Component PASS markers do not count as process passes. The standalone width owner case failed its loaded-sample comparison. Installed checks were skipped. Reviewed fixture, Cast root-label and reporting corrections need new-head execution. |
 | Combined workflow `10ad236fa5e0ae91b71fae025a260bb7a070d240` | Linux application and installed-package jobs passed, including the mandatory native sequence, SeExpr, reliability/EXR and GLB checks. Windows passed its full native sequence, artist workload and reliability/EXR gates. | Windows overall failed standalone width-export and old scene-thumbnail checks, followed by retained-renderer preflight refusals; installed checks were skipped. macOS was superseded during compilation. This revision predates the six interrupted-dialog corrections and the standalone scene-thumbnail fix. Later readiness must use the actual final heads. |
 | Windows combined `47dbae4c9a048af1f795179aeaac1c4006fe61c1` | Build, packaging, native neural host, Cadmium adapters, animation workflow and independent Function/timing/Cast-vector/export diagnostics passed. The 2D artist workload passed correctness. | Function and width-profile standalone fixtures crashed on Qt offscreen QMessageBox; the Shell test wrapper could not print UTF-8 to cp1252; Cast reliability exposed an EXR new-asset state defect. The old 1080p and final Cast preview fixtures also failed. Each has a source correction prepared, not a current-head pass. |
 
