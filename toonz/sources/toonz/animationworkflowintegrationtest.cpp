@@ -16,6 +16,8 @@
 #include "viewerpane.h"
 #include "tdoublekeyframe.h"
 #include "tdoubleparam.h"
+#include "texpression.h"
+#include "tunit.h"
 #include "tfx.h"
 #include "tmacrofx.h"
 #include "tparamcontainer.h"
@@ -29,6 +31,7 @@
 #include "tundo.h"
 #include "tvectorimage.h"
 #include "toonz/levelproperties.h"
+#include "toonz/childstack.h"
 #include "toonz/levelset.h"
 #include "toonz/fxdag.h"
 #include "toonz/navigationtags.h"
@@ -608,18 +611,233 @@ void exerciseTiming(ToonzScene *scene, QMainWindow *window, const QString &folde
   require(TUndoManager::manager()->getCurrentHistoryIndex() == history, "failed move changed history");
   sheet->getColumn(0)->lock(false);
 
+  // Invalid driven samples must fail before the undo transaction, even when
+  // the interactive preview returned a finite fallback or earlier rows were
+  // already sampled successfully. Preserve picture/audio cells and authored
+  // curve fields, pin/tag state, dirty flag, selection and the full history.
+  const TDoubleParamP numericBefore = new TDoubleParam(*curve);
+  auto setDriven = [&](const std::string &text) {
+    curve->copy(numericBefore.getPointer());
+    auto driven = curve->getKeyframe(0);
+    driven.m_type = TDoubleKeyframe::Expression;
+    driven.m_expressionText = text;
+    curve->setKeyframe(0, driven);
+  };
+  for (const auto &text : {std::string("sin("),
+           TExpression::makeSeExprText("unknown_function(frame)"),
+           std::string("1/(f-4)"), TExpression::makeSeExprText("1/(frame-4)")}) {
+    setDriven(text);
+    const TDoubleParamP before = new TDoubleParam(*curve);
+    const TDoubleParamP rigBefore = new TDoubleParam(*rig);
+    const int beforeIndex = TUndoManager::manager()->getCurrentHistoryIndex();
+    const int beforeCount = TUndoManager::manager()->getHistoryCount();
+    app->getCurrentScene()->setDirtyFlag(false);
+    for (int repeat = 0; repeat < 2; ++repeat) {
+      require(!moveStoryboardTiming(sheet, 0, 1, 6, &error, true) && !error.isEmpty(),
+              "invalid expression fallback was baked into storyboard timing");
+      require(TUndoManager::manager()->getCurrentHistoryIndex() == beforeIndex &&
+                  TUndoManager::manager()->getHistoryCount() == beforeCount &&
+                  !app->getCurrentScene()->getDirtyFlag(),
+              "rejected storyboard bake changed history or dirty state");
+      require(curve->getKeyframeCount() == before->getKeyframeCount() &&
+                  rig->getKeyframeCount() == rigBefore->getKeyframeCount(),
+              "rejected storyboard bake changed source key count");
+      for (int key = 0; key < curve->getKeyframeCount(); ++key)
+        require(sameKey(curve->getKeyframe(key), before->getKeyframe(key)),
+                "rejected storyboard bake changed expression source or metadata");
+      for (int key = 0; key < rig->getKeyframeCount(); ++key)
+        require(sameKey(rig->getKeyframe(key), rigBefore->getKeyframe(key)),
+                "rejected storyboard bake changed another animation track");
+      for (int row = 0; row < 6; ++row) {
+        require(sheet->getCell(row, 0) == TXshCell(level, TFrameId(row + 1)),
+                "rejected storyboard bake moved an exposure");
+        require(sheet->getCell(row, 1) == TXshCell(sound, TFrameId(row)),
+                "rejected storyboard bake moved an audio slice");
+      }
+      require(rigObject->getPinnedRangeSet()->isPinned(0) &&
+                  !rigObject->getPinnedRangeSet()->isPinned(4) &&
+                  sheet->getNavigationTags()->getTagLabel(0) == "First" &&
+                  sheet->getNavigationTags()->getTagLabel(2) == "Second" &&
+                  app->getCurrentFrame()->getFrame() == 3 &&
+                  app->getCurrentColumn()->getColumnIndex() == 0,
+              "rejected storyboard bake changed pins, tags or editing context");
+    }
+  }
+  for (const auto &text : {std::string("f*2"), TExpression::makeSeExprText("frame*2")}) {
+    setDriven(text);
+    // Native undo notifications redraw the camera and may resolve its display
+    // unit. Establish that ordinary valid preview state before the snapshot.
+    (void)curve->getValue(0);
+    const TDoubleParamP before = new TDoubleParam(*curve);
+    const int beforeIndex = TUndoManager::manager()->getCurrentHistoryIndex();
+    require(moveStoryboardTiming(sheet, 0, 1, 6, &error, true),
+            "valid driven storyboard bake failed");
+    require(TUndoManager::manager()->getCurrentHistoryIndex() == beforeIndex + 1,
+            "driven storyboard bake was not one undo transaction");
+    const TUnit *unit = curve->getMeasure() ? curve->getMeasure()->getCurrentUnit() : nullptr;
+    for (int row = 0; row < 6; ++row) {
+      const double expressionValue = (source[row] + 1) * 2.0;
+      requireNear(curve->getValue(row), unit ? unit->convertFrom(expressionValue) : expressionValue,
+                  "valid storyboard expression bake changed sampled output");
+      require(sheet->getCell(row, 0) == TXshCell(level, TFrameId(source[row] + 1)) &&
+                  sheet->getCell(row, 1) == TXshCell(sound, TFrameId(source[row])),
+              "valid driven bake lost picture/audio correspondence");
+    }
+    require(TUndoManager::manager()->undo() && TUndoManager::manager()->redo() &&
+                TUndoManager::manager()->undo(), "driven storyboard repeated undo/redo failed");
+    require(curve->getKeyframeCount() == before->getKeyframeCount(),
+            "driven storyboard undo lost source keys");
+    for (int key = 0; key < curve->getKeyframeCount(); ++key)
+      require(sameKey(curve->getKeyframe(key), before->getKeyframe(key)),
+              "driven storyboard undo lost original expression metadata");
+  }
+  curve->copy(numericBefore.getPointer());
+
   auto *column = sheet->getColumn(0)->getLevelColumn();
+  auto *remapCurve = column->getTimeRemapParam();
+  auto *tree = sheet->getStageObjectTree();
+  int referenceIndex = 0;
+  while (tree->getStageObject(TStageObjectId::PegbarId(referenceIndex), false)) ++referenceIndex;
+  const auto referenceId = TStageObjectId::PegbarId(referenceIndex);
+  auto *referenceOwner = tree->getStageObject(referenceId, true);
+  auto *referenceSource = referenceOwner->getParam(TStageObject::T_X);
+  const std::string referenceMeasure = referenceSource->getMeasureName();
+  auto setReference = [&](const std::string &text) {
+    referenceSource->clearKeyframes();
+    referenceSource->setMeasureName("");
+    TDoubleKeyframe first(0, 0), last(5, 0);
+    first.m_type = TDoubleKeyframe::Expression;
+    first.m_expressionText = text;
+    referenceSource->setKeyframe(first);
+    referenceSource->setKeyframe(last);
+    referenceSource->setMeasureName(referenceMeasure);
+  };
+  // An unused pegbar and selected sound column isolate this batch-only cold
+  // unit check from interactive camera placement and remap-label reads during
+  // successful undo notifications. No active column is parented to the pegbar.
+  app->getCurrentColumn()->setColumnIndex(1);
+  setReference("f");
+  TDoubleKeyframe remapReference(0, 0), remapEnd(5, 0);
+  remapReference.m_type = TDoubleKeyframe::Expression;
+  remapReference.m_expressionText = "peg" + std::to_string(referenceIndex + 1) + ".x";
+  remapCurve->setKeyframe(remapReference);
+  remapCurve->setKeyframe(remapEnd);
+  column->setTimeRemapEnabled(true);
+  const TDoubleParamP remapBefore = new TDoubleParam(*remapCurve);
+  const TDoubleParamP referenceBefore = new TDoubleParam(*referenceSource);
+  require(referenceSource->getKeyframe(0).m_unitName.empty(), "remap reference fixture unit was already authored");
+  require(moveStoryboardTiming(sheet, 0, 1, 6, &error, true), "valid referenced remap bake failed");
+  for (int row = 0; row < 6; ++row)
+    require(column->getRemappedCell(row) == TXshCell(level, TFrameId(source[row] + 1)),
+            "checked remap sample lost original drawing correspondence");
+  require(TUndoManager::manager()->undo(), "referenced remap undo missing");
+  require(referenceSource->getKeyframeCount() == referenceBefore->getKeyframeCount() &&
+              remapCurve->getKeyframeCount() == remapBefore->getKeyframeCount(),
+          "referenced remap undo lost source keys");
+  for (int key = 0; key < referenceSource->getKeyframeCount(); ++key)
+    require(sameKey(referenceSource->getKeyframe(key), referenceBefore->getKeyframe(key)),
+            "remap sampling authored source unit metadata or lost reference data");
+  for (int key = 0; key < remapCurve->getKeyframeCount(); ++key)
+    require(sameKey(remapCurve->getKeyframe(key), remapBefore->getKeyframe(key)),
+            "referenced remap undo changed its original keys");
+  setReference("sin(");
+  const TDoubleParamP invalidReferenceBefore = new TDoubleParam(*referenceSource);
+  const int remapHistory = TUndoManager::manager()->getCurrentHistoryIndex();
+  const int remapCount = TUndoManager::manager()->getHistoryCount();
+  app->getCurrentScene()->setDirtyFlag(false);
+  require(!moveStoryboardTiming(sheet, 0, 1, 6, &error, true) && !error.isEmpty(),
+          "referenced remap failure was accepted");
+  require(TUndoManager::manager()->getCurrentHistoryIndex() == remapHistory &&
+              TUndoManager::manager()->getHistoryCount() == remapCount &&
+              !app->getCurrentScene()->getDirtyFlag(), "failed remap bake changed transaction state");
+  require(referenceSource->getKeyframeCount() == invalidReferenceBefore->getKeyframeCount() &&
+              remapCurve->getKeyframeCount() == remapBefore->getKeyframeCount(),
+          "failed remap bake changed source key counts");
+  for (int key = 0; key < referenceSource->getKeyframeCount(); ++key)
+    require(sameKey(referenceSource->getKeyframe(key), invalidReferenceBefore->getKeyframe(key)),
+            "failed remap bake changed referenced source metadata");
+  for (int key = 0; key < remapCurve->getKeyframeCount(); ++key)
+    require(sameKey(remapCurve->getKeyframe(key), remapBefore->getKeyframe(key)),
+            "failed remap bake changed reference source");
+  for (int row = 0; row < 6; ++row)
+    require(sheet->getCell(row, 0) == TXshCell(level, TFrameId(row + 1)) &&
+                sheet->getCell(row, 1) == TXshCell(sound, TFrameId(row)),
+            "failed remap bake changed picture/audio cells");
+  remapCurve->clearKeyframes();
+  referenceSource->clearKeyframes();
+  tree->removeStageObject(referenceId);
+  app->getCurrentColumn()->setColumnIndex(0);
   column->setTimeRemapEnabled(true);
   column->getTimeRemapParam()->setValue(0, 6);
   column->getTimeRemapParam()->setValue(5, 1);
   app->getCurrentFrame()->setFrame(0);
   app->getCurrentXsheet()->notifyXsheetChanged();
-  const auto viewers = window->findChildren<BaseViewerPanel *>();
-  require(!viewers.isEmpty(), "native viewer is missing");
-  viewers.front()->changeWindowTitle();
-  auto *label = viewers.front()->findChild<QLabel *>("viewerTimeRemapStatus");
+  BaseViewerPanel *viewer = nullptr;
+  for (auto *candidate : window->findChildren<BaseViewerPanel *>())
+    if (candidate->isVisible()) { viewer = candidate; break; }
+  require(viewer, "visible native viewer is missing");
+  auto *label = viewer->findChild<QLabel *>("viewerTimeRemapStatus");
   require(label && !label->isHidden() && label->text().contains("6"), "source/playback timing readback missing");
   require(sheet->getCell(0, 0).getFrameId() == TFrameId(1), "timing readback changed editable source");
+
+  // Drive context signals, never the title-refresh slot. The two columns use
+  // the identical level and drawing, suppressing the incidental level-switch
+  // signal that previously hid this stale-readback bug.
+  const QString originalTiming = label->text();
+  for (int row = 0; row < 6; ++row)
+    require(sheet->setCell(row, 2, TXshCell(level, TFrameId(row + 1))),
+            "same-level timing column fixture failed");
+  app->getCurrentColumn()->setColumnIndex(2);
+  require(label->isHidden(), "same-level column switch retained another column's remap label");
+  auto *otherColumn = sheet->getColumn(2)->getLevelColumn();
+  otherColumn->getTimeRemapParam()->setValue(0, 2);
+  otherColumn->getTimeRemapParam()->setValue(5, 2);
+  otherColumn->setTimeRemapEnabled(true);
+  app->getCurrentXsheet()->notifyXsheetChanged();
+  require(!label->isHidden() && label->text() != originalTiming &&
+              label->text().contains("source row 2"),
+          "active same-level column timing was not displayed");
+  app->getCurrentColumn()->setColumnIndex(0);
+  require(label->text() == originalTiming, "same-level return did not restore original timing readback");
+  app->getCurrentFrame()->setFrame(5);
+  require(label->text().contains("Output frame 6") && label->text().contains("source row 1"),
+          "frame transition retained stale source/playback timing");
+  app->getCurrentFrame()->setFrame(0);
+  viewer->enableFullPreview(true);
+  require(label->text().contains("Previewing remapped timing"), "preview transition did not update timing mode");
+  viewer->enableFullPreview(false);
+  require(label->text() == originalTiming, "preview exit did not restore editing timing mode");
+  sheet->removeColumn(2);
+
+  // Enter an actual child stack whose selected cell still uses the same asset
+  // and whose remap differs. No column/frame/level change can mask a missing
+  // xsheetSwitched subscription here.
+  auto *timingChild = new TXshChildLevel(L"TimingReadbackChild");
+  timingChild->setScene(scene);
+  timingChild->setXsheet(new TXsheet(scene));
+  scene->getLevelSet()->insertLevel(timingChild);
+  auto *childSheet = timingChild->getXsheet();
+  for (int row = 0; row < 6; ++row)
+    require(childSheet->setCell(row, 0, TXshCell(level, TFrameId(row + 1))),
+            "nested timing readback fixture failed");
+  auto *childColumn = childSheet->getColumn(0)->getLevelColumn();
+  childColumn->getTimeRemapParam()->setValue(0, 4);
+  childColumn->getTimeRemapParam()->setValue(5, 4);
+  childColumn->setTimeRemapEnabled(true);
+  require(sheet->setCell(0, 2, TXshCell(timingChild, TFrameId(1))), "nested timing exposure failed");
+  require(scene->getChildStack()->openChild(0, 2), "cannot enter timing child");
+  app->getCurrentXsheet()->setXsheet(scene->getXsheet());
+  require(app->getCurrentXsheet()->getXsheet() == childSheet &&
+              !label->isHidden() && label->text().contains("source row 4"),
+          "same-level child entry retained parent source/playback timing");
+  int parentRow = -1, parentColumn = -1;
+  require(scene->getChildStack()->closeChild(parentRow, parentColumn), "cannot leave timing child");
+  app->getCurrentXsheet()->setXsheet(scene->getXsheet());
+  require(app->getCurrentXsheet()->getXsheet() == sheet && label->text() == originalTiming,
+          "same-level child exit retained child source/playback timing");
+  sheet->removeColumn(2);
+  scene->getLevelSet()->removeLevel(timingChild);
+
   require(!moveStoryboardTiming(sheet, 0, 1, 6, &error), "native mode silently baked remapped timing");
   std::vector<TFrameId> playback;
   for (int row = 0; row < 6; ++row) playback.push_back(column->getRemappedCell(row).getFrameId());
@@ -632,7 +850,7 @@ void exerciseTiming(ToonzScene *scene, QMainWindow *window, const QString &folde
   require(column->isTimeRemapEnabled() && column->getTimeRemapParam()->getKeyframeCount() == 2,
           "remapped timing undo lost original curve");
   column->setTimeRemapEnabled(false);
-  viewers.front()->changeWindowTitle();
+  app->getCurrentXsheet()->notifyXsheetChanged();
   require(label->isHidden(), "timing readback remains after remap disabled");
 
   curve->deleteKeyframe(5);
