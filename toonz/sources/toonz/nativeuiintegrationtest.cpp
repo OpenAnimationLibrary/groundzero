@@ -2,6 +2,7 @@
 #include "artistworkflowbenchmark.h"
 #include "mediacacheintegrationtest.h"
 #include "functionworkflowintegrationtest.h"
+#include "animationworkflowintegrationtest.h"
 
 #include "columnselection.h"
 #include "commandpalette.h"
@@ -571,6 +572,12 @@ int runNativeUiIntegrationTest(QMainWindow *window) {
     QString cacheError;
     if (!runMediaCacheIntegrationTest(window, &cacheError)) {
       std::cerr << "native-ui-integration: FAIL: " << cacheError.toStdString() << std::endl;
+      return 1;
+    }
+    QString animationError;
+    if (!runAnimationWorkflowIntegrationTest(window, &animationError)) {
+      std::cerr << "native-ui-integration: animation workflow: "
+                << animationError.toStdString() << std::endl;
       return 1;
     }
     exerciseNativeUi(window);

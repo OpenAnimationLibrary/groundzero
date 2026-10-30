@@ -394,12 +394,14 @@ set(SOURCES
     timestretchpopup.cpp
     trackerpopup.cpp
     alignmentpane.cpp
+    poselibrarycommand.cpp
     posespane.cpp
     referencepanel.cpp
     purerefboard.cpp
     drawingsubstitutionpane.cpp
     drawingsubstitutionundo.cpp
     substitutionsliderpane.cpp
+    storyboardtiming.cpp
     storyboardpane.cpp
     mastercontrollerspane.cpp
     offsetlayerspane.cpp
@@ -496,6 +498,7 @@ set(SOURCES
     importpdf.cpp
     importpdf.h
     animatedsvgexport.cpp
+    exportfidelity.cpp
     lottieexport.cpp
     xdtsimportpopup.cpp
     expressionreferencemanager.cpp
@@ -1080,7 +1083,8 @@ if(WIN32)
 endif()
 
 if(BUILD_UI_PORT_TESTS)
-    target_sources(OpenToonz PRIVATE nativeuiintegrationtest.cpp nativeuiintegrationtest.h)
+    target_sources(OpenToonz PRIVATE nativeuiintegrationtest.cpp nativeuiintegrationtest.h
+        animationworkflowintegrationtest.cpp animationworkflowintegrationtest.h)
     target_sources(OpenToonz PRIVATE artistworkflowbenchmark.cpp artistworkflowbenchmark.h)
     target_sources(OpenToonz PRIVATE mediacacheintegrationtest.cpp mediacacheintegrationtest.h)
     if(WIN32)

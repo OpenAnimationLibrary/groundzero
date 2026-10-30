@@ -1,3 +1,4 @@
+#include "poselibrarycommand.h"
 #include "posespane.h"
 
 // Tnz6 includes
@@ -251,6 +252,7 @@ void PosesPane::refresh() {
     QLabel *valueLabel        = new QLabel(row);
     QPushButton *applyButton  = new QPushButton(tr("Apply"), row);
     QPushButton *deleteButton = new QPushButton(tr("Delete"), row);
+    deleteButton->setObjectName(QString("deletePose%1").arg(i));
 
     nameLabel->setToolTip(tr("%1 channels").arg((int)pose.m_entries.size()));
     const int channelCount = (int)pose.m_entries.size();
@@ -367,8 +369,9 @@ void PosesPane::onSetBase() {
     return;
   }
 
-  scene->getPoseLibrary()->setBase(values);
-  app->getCurrentScene()->setDirtyFlag(true);
+  PoseLibrary next = *scene->getPoseLibrary();
+  next.setBase(values);
+  replacePoseLibrary(scene, next, tr("Set Base Pose"));
   refresh();
 }
 
@@ -424,9 +427,9 @@ void PosesPane::onAddPose() {
   if (name.isEmpty()) name = defaultName;
 
   pose.m_name = name;
-  poseLibrary->addPose(pose);
-  app->getCurrentScene()->setDirtyFlag(true);
-  PoseLibraryNotifier::instance()->notifyChanged();
+  PoseLibrary next = *poseLibrary;
+  next.addPose(pose);
+  replacePoseLibrary(scene, next, tr("Add Pose"));
   refresh();
 }
 
@@ -568,8 +571,8 @@ void PosesPane::deletePose(int index) {
       tr("Delete the pose \"%1\"?").arg(poseLibrary->getPose(index).m_name);
   if (DVGui::MsgBox(question, tr("Delete"), tr("Cancel")) != 1) return;
 
-  poseLibrary->removePose(index);
-  TApp::instance()->getCurrentScene()->setDirtyFlag(true);
-  PoseLibraryNotifier::instance()->notifyChanged();
+  PoseLibrary next = *poseLibrary;
+  next.removePose(index);
+  replacePoseLibrary(scene, next, tr("Delete Pose"));
   refresh();
 }

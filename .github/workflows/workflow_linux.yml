@@ -139,7 +139,7 @@ jobs:
     - name: Test native application integration
       id: ui_integration
       run: |
-        QT_QPA_PLATFORM=xcb xvfb-run -a python3 ci-scripts/run_native_ui_test.py toonz/build/bin/OpenToonz stuff --require-function-workflow --output toonz/build/ui-integration-output.txt
+        QT_QPA_PLATFORM=xcb xvfb-run -a python3 ci-scripts/run_native_ui_test.py toonz/build/bin/OpenToonz stuff --require-function-workflow --linux-crash-debugger --output toonz/build/ui-integration-output.txt
 
     - name: Measure native artist workloads
       id: artist_benchmark
@@ -164,6 +164,21 @@ jobs:
     - name: Report native application integration failure
       if: ${{ failure() && steps.ui_integration.outcome == 'failure' }}
       run: python3 ci-scripts/report_ui_tests.py toonz/build/ui-integration-output.txt
+
+    - name: Report native application crash stack
+      if: ${{ failure() && steps.ui_integration.outcome == 'failure' }}
+      run: |
+        if [ -f toonz/build/ui-integration-output-debugger.txt ]; then
+          python3 ci-scripts/report_ui_tests.py toonz/build/ui-integration-output-debugger.txt "Native application crash stack"
+        fi
+
+    - name: Upload native animation workflow diagnostics
+      if: always()
+      uses: actions/upload-artifact@v6
+      with:
+        name: animation-workflow-linux
+        path: toonz/build/ui-integration-output*.txt
+        if-no-files-found: ignore
 
     - name: Report native UI failures
       if: ${{ failure() && steps.ui_tests.outcome == 'failure' }}

@@ -2279,6 +2279,7 @@ void MainWindow::defineActions() {
                        "load_scene");
   createMenuFileAction(MI_SaveAll, QT_TR_NOOP("&Save All"), "Ctrl+S",
                        "saveall");
+  createMenuFileAction(MI_RecoveryStatus, QT_TR_NOOP("Recovery Status..."), "", "");
   createMenuFileAction(MI_SaveScene, QT_TR_NOOP("&Save Scene Only"),
                        "Ctrl+Shift+S", "save_scene");
   createMenuFileAction(MI_SaveSceneAs, QT_TR_NOOP("&Save Scene As..."), "",

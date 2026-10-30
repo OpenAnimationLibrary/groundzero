@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -128,6 +129,27 @@ def windows_crash_diagnostics(executable, source, native_status, symbol_director
             return decode_output(output) + notes
 
 
+def linux_crash_diagnostics(executable, source):
+    debugger = shutil.which("gdb")
+    if not debugger:
+        return "Linux debugger is unavailable; use the flushed native checkpoints.\n"
+    command = [debugger, "--batch", "-ex", "set pagination off", "-ex", "run",
+               "-ex", "thread apply all bt 20", "--args", str(executable), "--test-native-ui"]
+    with isolated_fixture(source, executable) as (directory, environment):
+        process = subprocess.Popen(command, cwd=directory, env=environment,
+                                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                   start_new_session=True)
+        try:
+            output, _ = process.communicate(timeout=120)
+            return (decode_output(output) +
+                    "\nDiagnostic debugger completed. The original native failure remains authoritative.\n")
+        except subprocess.TimeoutExpired:
+            # Include the inferior; otherwise it can keep disposable files open.
+            os.killpg(process.pid, signal.SIGKILL)
+            output, _ = process.communicate(timeout=15)
+            return decode_output(output) + "\nNative Linux crash debugger timed out.\n"
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("executable", type=Path)
@@ -139,6 +161,8 @@ def main():
                         help="Require the real application Function Editor fixture checkpoint")
     parser.add_argument("--windows-crash-debugger", action="store_true",
                         help="Capture a separate CDB stack after a Windows native exception")
+    parser.add_argument("--linux-crash-debugger", action="store_true",
+                        help="Capture a separate GDB stack after a Linux native signal")
     parser.add_argument("--debugger-symbols", type=Path, action="append", default=[],
                         help="Local PDB directory for optional Windows crash diagnostics")
     parser.add_argument("--windows-mesa", type=Path,
@@ -202,6 +226,18 @@ def main():
         print(f"::error title=Native UI report::{message}")
         status = 1
     print(output, end="", flush=True)
+    if (args.linux_crash_debugger and not args.artist_benchmark and sys.platform.startswith("linux")
+            and native_status is not None and native_status < 0):
+        try:
+            diagnostics = linux_crash_diagnostics(executable, source)
+        except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as error:
+            diagnostics = f"Native Linux crash diagnostics failed: {type(error).__name__}: {error}\n"
+        report = args.output.with_name(args.output.stem + "-debugger.txt")
+        try:
+            report.write_text(diagnostics, encoding="utf-8")
+        except (OSError, ValueError) as error:
+            diagnostics += f"Could not save native debugger report: {error}\n"
+        print(diagnostics, end="")
     if (args.windows_crash_debugger and not args.artist_benchmark and os.name == "nt" and native_status is not None
             and (native_status & 0xc0000000) == 0xc0000000):
         try:
