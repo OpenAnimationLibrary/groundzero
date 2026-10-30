@@ -75,6 +75,7 @@
 #include <QTreeWidget>
 #include <QTranslator>
 
+#include <exception>
 #include <iostream>
 #include <memory>
 #include <vector>

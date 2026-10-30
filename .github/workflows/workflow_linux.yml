@@ -158,7 +158,7 @@ jobs:
       env:
         GZ_CAST_WORKFLOW_REPORT: ${{ github.workspace }}/toonz/build/cast-workflow-metrics.json
       run: |
-        QT_QPA_PLATFORM=xcb xvfb-run -a python3 ci-scripts/run_native_ui_test.py toonz/build/bin/OpenToonz stuff --require-function-workflow --require-vector-workflows --require-combined-workflows --linux-crash-debugger --output toonz/build/ui-integration-output.txt
+        QT_QPA_PLATFORM=xcb xvfb-run -a python3 ci-scripts/run_native_ui_test.py toonz/build/bin/OpenToonz stuff --require-function-workflow --require-offline-gl-workflow --require-vector-workflows --require-combined-workflows --linux-crash-debugger --output toonz/build/ui-integration-output.txt
 
     - name: Measure native artist workloads
       id: artist_benchmark

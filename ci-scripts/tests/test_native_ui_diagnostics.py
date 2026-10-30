@@ -39,11 +39,11 @@ class NativeDiagnosticContracts(unittest.TestCase):
         (self.source / "pristine.txt").write_text("source", encoding="utf-8")
         self.report = self.root / "reports" / "ui-integration-output.txt"
 
-    def invoke(self, response, benchmark=False, extra_arguments=()):
+    def invoke(self, response, benchmark=False, extra_arguments=(), retained_count=0):
         calls = []
 
         def launch(command, **options):
-            environment, directory = options["env"], options["cwd"]
+            environment, directory = options["environment"], options["cwd"]
             suite = environment.get("GROUNDZERO_NATIVE_UI_SUITE")
             calls.append((suite, directory, options["timeout"],
                           environment.get("GROUNDZERO_ARTIST_BENCHMARK")))
@@ -51,7 +51,12 @@ class NativeDiagnosticContracts(unittest.TestCase):
             self.assertEqual((directory / "portablestuff" / "pristine.txt").read_text(), "source")
             self.assertFalse((directory / "changed-by-process").exists())
             (directory / "changed-by-process").write_text("isolated", encoding="utf-8")
-            return response(suite, command, options)
+            result = response(suite, command, options)
+            # The shared captured-process boundary returns bytes on every OS;
+            # the native runner owns UTF-8 decoding and report formatting.
+            if isinstance(result.stdout, str):
+                result.stdout = result.stdout.encode("utf-8")
+            return result
 
         arguments = ["native-runner", str(self.executable), str(self.source),
                      "--output", str(self.report)]
@@ -63,11 +68,16 @@ class NativeDiagnosticContracts(unittest.TestCase):
                      "GROUNDZERO_ARTIST_BENCHMARK": "1"}
         with mock.patch.object(sys, "argv", arguments), \
              mock.patch.dict(os.environ, inherited), \
-             mock.patch.object(runner.subprocess, "run", side_effect=launch), \
+             mock.patch.object(runner, "run_captured_process", side_effect=launch), \
              redirect_stdout(io.StringIO()):
             status = runner.main()
         self.assertEqual(len({call[1] for call in calls}), len(calls))
-        self.assertTrue(all(not call[1].exists() for call in calls))
+        retained = [call[1] for call in calls if call[1].exists()]
+        for directory in retained:
+            # The fake process owns no handles; clean up only after observing
+            # whether production respected the unsafe retention boundary.
+            self.addCleanup(runner.shutil.rmtree, directory)
+        self.assertEqual(len(retained), retained_count)
         return status, calls, self.report.read_text(encoding="utf-8")
 
     @staticmethod
@@ -196,7 +206,7 @@ class NativeDiagnosticContracts(unittest.TestCase):
                     status, calls, output = self.invoke(
                         response, extra_arguments=("--linux-crash-debugger",))
                     debugger.assert_called_once_with(self.executable.resolve(), self.source.resolve(),
-                                                     "combined-cast-vector")
+                                                     "combined-cast-vector", runtime_state=mock.ANY)
                 self.assertEqual(status, 1)
                 self.assertEqual([call[0] for call in calls], [None, *SUITES])
                 self.assertIn("combined-cast-vector=FAIL (status -11)", output)
@@ -205,13 +215,65 @@ class NativeDiagnosticContracts(unittest.TestCase):
                 self.assertIn("debugger unavailable" if debugger_fails else "diagnostic stack only",
                               report.read_text(encoding="utf-8"))
 
+    def test_unsafe_original_crash_retains_fixture_and_prevents_all_reruns(self):
+        def response(suite, command, options):
+            options["runtime_state"].update(safe_to_release=False, output=b"original crash checkpoint\n")
+            return subprocess.CompletedProcess(command, -11, b"original crash checkpoint\n")
+        with mock.patch.object(runner.sys, "platform", "linux"), \
+                mock.patch.object(runner, "linux_crash_diagnostics") as debugger:
+            status, calls, output = self.invoke(response,
+                extra_arguments=("--linux-crash-debugger",), retained_count=1)
+        self.assertEqual(status, 1)
+        self.assertEqual([call[0] for call in calls], [None])
+        self.assertIn("original crash checkpoint", output)
+        self.assertIn("status -11", output)
+        self.assertIn("retained", output)
+        debugger.assert_not_called()
+
+    def test_unsafe_isolated_failure_prevents_remaining_suites_and_final_debugger(self):
+        def response(suite, command, options):
+            if suite is None:
+                return subprocess.CompletedProcess(command, -11, b"original crash\n")
+            options["runtime_state"].update(safe_to_release=False, output=b"isolated failure checkpoint\n")
+            return subprocess.CompletedProcess(command, 23, b"isolated failure checkpoint\n")
+        with mock.patch.object(runner.sys, "platform", "linux"), \
+                mock.patch.object(runner, "linux_crash_diagnostics") as debugger:
+            status, calls, output = self.invoke(response,
+                extra_arguments=("--linux-crash-debugger",), retained_count=1)
+        self.assertEqual(status, 1)
+        self.assertEqual([call[0] for call in calls], [None, "function-workflow"])
+        self.assertIn("original crash", output)
+        self.assertIn("isolated failure checkpoint", output)
+        self.assertIn("retained", output)
+        self.assertNotIn("cast-workflow=PASS", output)
+        debugger.assert_not_called()
+
+    def test_unsafe_selected_debugger_prevents_remaining_suites_and_final_debugger(self):
+        def response(suite, command, options):
+            return subprocess.CompletedProcess(command, -11,
+                b"original crash\n" if suite is None else b"isolated crash\n")
+        def debug(*args, **kwargs):
+            kwargs["runtime_state"]["safe_to_release"] = False
+            return "isolated debugger checkpoint; fixture retained\n"
+        with mock.patch.object(runner.sys, "platform", "linux"), \
+                mock.patch.object(runner, "linux_crash_diagnostics", side_effect=debug) as debugger:
+            status, calls, output = self.invoke(response, extra_arguments=("--linux-crash-debugger",))
+        self.assertEqual(status, 1)
+        self.assertEqual([call[0] for call in calls], [None, "function-workflow"])
+        debugger.assert_called_once_with(self.executable.resolve(), self.source.resolve(),
+                                         "function-workflow", runtime_state=mock.ANY)
+        self.assertFalse(debugger.call_args.kwargs["runtime_state"]["safe_to_release"])
+        self.assertIn("isolated debugger checkpoint", output)
+        self.assertIn("function-workflow=FAIL (status -11)", output)
+        self.assertNotIn("cast-workflow=PASS", output)
+
     def test_both_debuggers_launch_the_exact_selected_suite(self):
         kits = self.root / "sdk"
         cdb = kits / "Windows Kits" / "10" / "Debuggers" / "x64" / "cdb.exe"
         cdb.parent.mkdir(parents=True)
         cdb.write_bytes(b"mocked debugger; never executed\n")
-        process = mock.Mock(returncode=0)
-        process.communicate.return_value = (b"bounded diagnostic stack\n", None)
+        result = subprocess.CompletedProcess(["mock-debugger"], 0,
+                                             b"bounded diagnostic stack\n")
         inherited = {"ProgramFiles(x86)": str(kits),
                      "GROUNDZERO_NATIVE_UI_SUITE": "untrusted-inherited-selector",
                      "GROUNDZERO_ARTIST_BENCHMARK": "1"}
@@ -220,15 +282,16 @@ class NativeDiagnosticContracts(unittest.TestCase):
                 with self.subTest(selected=selected, debugger=debugger_kind), \
                      mock.patch.dict(os.environ, inherited), \
                      mock.patch.object(runner.shutil, "which", return_value="mock-gdb"), \
-                     mock.patch.object(runner.subprocess, "Popen", return_value=process) as launch:
+                     mock.patch.object(runner, "run_captured_process", return_value=result) as launch:
                     if debugger_kind == "linux":
                         runner.linux_crash_diagnostics(self.executable, self.source, selected)
                     else:
                         runner.windows_crash_diagnostics(self.executable, self.source, 0xc0000005,
                                                          (), native_suite=selected)
                     options = launch.call_args.kwargs
-                    self.assertEqual(options["env"].get("GROUNDZERO_NATIVE_UI_SUITE"), selected)
-                    self.assertNotIn("GROUNDZERO_ARTIST_BENCHMARK", options["env"])
+                    self.assertEqual(options["environment"].get("GROUNDZERO_NATIVE_UI_SUITE"), selected)
+                    self.assertNotIn("GROUNDZERO_ARTIST_BENCHMARK", options["environment"])
+                    self.assertEqual(options["timeout"], 120)
                     self.assertFalse(options["cwd"].exists())
 
     def test_unknown_diagnostic_selector_is_rejected(self):
