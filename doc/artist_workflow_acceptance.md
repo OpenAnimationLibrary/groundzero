@@ -54,12 +54,16 @@ and the component ledgers.
 | Scene Cast `ea42f65311ed8fc0e3e8041a0cefb356650aea42` | Linux application/package checks passed. macOS reached Cast but selected no relink candidate; Windows stopped at the preceding export failure. | New ownership, collections, dock/waveform, queue and incremental-update workflows. |
 | Combined diagnostic `f951b9bea7ad16838cae5876b8c48293112f497c` | Five isolated Function/Cast/timing/Cast-vector/export diagnostics passed, including scene reload, interleaved clone/key undo and atomic export cancellation. | The mandatory sequence failed its secondary-color state assertion; later metadata and audit additions are unqualified. |
 | Vector diagnostic `0cc8df85d0d5664ecbbb6ed304bf13cc78bd33b8` | Linux and macOS compiled; macOS passed all 18 standalone UI tests. Both native sequences exposed blank alignment previews. | Renderer state/HDR/timing checks were not reached. |
-| Combined diagnostic `ebac3062ad9e09a5c249db9096dce6bde0371c38` | Linux identified two Qt 5 QStringList assignment ambiguities in Cast fixtures. `f8ab55239` corrects both. | This revision did not reach native renderer acceptance; other platform outcomes remain separately tracked. |
+| Combined diagnostic `ebac3062ad9e09a5c249db9096dce6bde0371c38` | All three platforms identified two Qt 5 QStringList assignment ambiguities in Cast fixtures. `f8ab55239` corrects both. Windows passed the native-isolation and bounded-GL-launcher contracts. | This revision did not reach native renderer acceptance. |
 | Scene Cast `1c2c1a968b263cfde74daa578c0af18759378af5` | Linux compiled the new Cast and icon components, then rejected an unsupported TXsheet constructor in the nested timing fixture. `566e1bc5a` uses the child level's existing owned sheet and retains all assertions. | Native application workflows were not executed on this revision. |
+| Function Editor `ebf078049581c76bfad470cc383563067430c146` | Linux compiled, then the native preset-import widget test timed out in its file chooser. `208f938b8` drives the actual filename and enabled Open control instead of relying on ignored focused-field selection. | The corrected driver and subsequent application checks require fresh execution. |
+| Vector editing `ab7a8f4ee54ca36ef23b57a7ca46164f0c2d5cd1` | Linux passed 17 standalone UI tests; the width manager passed creation/capture/save-retry, then timed out at Import. `4c4ff918d` corrects the same focused-file-chooser driver while preserving overwrite, cancellation and error assertions. | Native vector rendering and the corrected manager workflow did not execute on this revision. |
+| Scene Cast `c7fdf2aecd719fed34b0f34608e1d7019838e152` | Linux compiled and passed the animation workflow, frozen Function comparisons, unkeyed defaults reload and saved-set rename. Fractional retime scene reload then failed its keyframe-field equality check. | The actual mismatched field is under investigation; Cast/Library checks were not reached. |
 
-Current investigations remain explicit: Windows SVG/vector-analysis/thumbnail
-rendering, the Windows width-profile manager crash, macOS relinking, and native
-opacity attachment/state/HDR qualification. Source corrections and diagnostics
+Current investigations remain explicit: fractional retime persistence, native
+file-chooser acceptance, Windows SVG/vector-analysis/thumbnail rendering, the
+Windows width-profile manager crash, macOS relinking, and native opacity
+attachment/state/HDR qualification. Source corrections and diagnostics
 are present, but their existence does not establish a runtime fix. The preview
 correction uses the drawing-plane inverse when native preview widgets flatten Z,
 while preserving the ordinary invertible 3D path. The HDR fixture now seeds the
@@ -98,7 +102,7 @@ original report; the CI-only harness verifies isolation and failure retention.
 | 3 | Saved channel sets | Stable owner identities; rename/delete, reload and workspace persistence. | Source-ready; fresh CI pending |
 | 4 | Curve solo and edit locks | Every editing command respects locks; visible reference/solo state. | Source-ready; CI pending |
 | 5 | Multi-key numeric editing | Mixed values; absolute/relative operations, collisions, cancel, one undo transaction. | Source-ready; CI pending |
-| 6 | Precise multi-channel retiming | Multiple channels, explicit target start/end preview, pivot/scale, quantization, collisions, repeat/undo. | Source-ready; fresh CI pending |
+| 6 | Precise multi-channel retiming | Multiple channels, explicit target start/end preview, pivot/scale, quantization, collisions, repeat/undo. | Implemented; reload failure under investigation |
 | 7 | Normalized curve display | Display-only normalized coordinates; native values and edits preserved. | Source-ready; CI pending |
 | 8 | Clear curve identification | Stable identities/colors with labels and high-DPI/theme readability. | Source-ready; CI pending |
 | 9 | Visible interpolation controls | Native interpolation/handle actions; multi-selection and keyboard access. | Source-ready; CI pending |
@@ -114,7 +118,7 @@ original report; the CI-only harness verifies isolation and failure retention.
 | 19 | Opacity readback | Single/mixed opacity selection follows context without mutating drawing. | Source-ready; CI pending |
 | 20 | Style opacity consistency | Relevant vector style render paths preserve stroke alpha with independent pixel fixtures. | Source-ready; CI pending |
 | 21 | SVG stroke opacity | External SVG output carries palette alpha times stroke opacity. | Source-ready; CI pending |
-| 22 | Visual width-profile manager | CRUD/import/export/previews, errors, overwrite/cancel and restart persistence. | Source-ready; Windows crash verification pending |
+| 22 | Visual width-profile manager | CRUD/import/export/previews, errors, overwrite/cancel and restart persistence. | Source-ready; native chooser and Windows crash verification pending |
 | 23 | Width profiles across drawings | Selected drawings/level range, repeated exposures once, locked resources and undo. | Source-ready; CI pending |
 | 24 | Pressure/profile blending | Zero-strength identity, replace/multiply semantics and pressure preservation. | Source-ready; CI pending |
 | 25 | Fill-safe reshaping | Actual region-change preview/recovery in geometry edit flow; fills/undo saved. | Source-ready; CI pending |
