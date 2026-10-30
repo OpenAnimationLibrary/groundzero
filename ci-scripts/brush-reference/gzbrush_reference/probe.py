@@ -5,7 +5,7 @@ import json
 import os
 from pathlib import Path
 from krita import Krita, Extension, ManagedColor
-from PyQt5.QtCore import QByteArray, QCoreApplication, QEvent, QPoint, QTimer
+from PyQt5.QtCore import QByteArray, QPoint, QTimer
 from PyQt5.QtGui import QColor, QImage
 from PyQt5.QtWidgets import QApplication
 
@@ -51,17 +51,18 @@ class Probe(Extension):
             resources = app.resources("preset")
             by_name = {resource.name(): resource for resource in resources.values()}
             w, h = fixtures["width"], fixtures["height"]
+            checkpoint("create reference document")
+            document = app.createDocument(w, h, "Original reference canvas", "RGBA", "U8", "sRGB-elle-V2-srgbtrc.icc", 72.0)
+            view = app.activeWindow().addView(document)
+            app.setActiveDocument(document)
+            node = document.createNode("Original strips", "paintlayer")
+            document.rootNode().addChildNode(node, None)
+            document.setActiveNode(node)
+            report["documentIsolation"] = "full-raster reset before each separate Node.paintLine stroke"
             for case in fixtures["cases"]:
                 name = case["preset"]
                 if name not in by_name:
                     raise RuntimeError("Original reference preset was not loaded: " + name)
-                checkpoint(name + ": create document")
-                document = app.createDocument(w, h, name, "RGBA", "U8", "sRGB-elle-V2-srgbtrc.icc", 72.0)
-                view = app.activeWindow().addView(document)
-                app.setActiveDocument(document)
-                node = document.createNode("Original strips", "paintlayer")
-                document.rootNode().addChildNode(node, None)
-                document.setActiveNode(node)
                 # Krita integer RGBA API uses BGRA channel order, top row first.
                 colors = [(255, 0, 0, 255), (0, 255, 0, 128), (0, 0, 255, 255), (0, 0, 0, 0)]
                 row = b"".join(bytes(colors[(x // 128) % 4]) for x in range(w))
@@ -102,14 +103,6 @@ class Probe(Extension):
                     samples.append([x, red, green, blue, alpha])
                 report["records"].append({**case, "image": filename, "sha256Pixels": hashlib.sha256(raw).hexdigest(), "profile": document.colorProfile(), "input": "Node.paintLine", "changed": raw != initial, "centerlineRGBA8": samples})
                 checkpoint(name + ": saved output")
-                document.setModified(False)
-                document.close()
-                # Release API wrappers and let deferred view/thumbnail cleanup
-                # finish while QApplication and its display services exist.
-                node = view = None
-                document = None
-                QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
-                QApplication.processEvents()
             report["status"] = "complete"
             (output / "oracle-status.json").write_text(json.dumps(report, indent=2))
         except Exception as error:
@@ -120,10 +113,11 @@ class Probe(Extension):
         finally:
             if document is not None:
                 document.setModified(False)
-                document.close()
-                node = view = document = None
-            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
             faulthandler.cancel_dump_traceback_later()
+            # Keep the native view/document alive until the normal window close.
+            # Manually closing Document and pumping events raced queued thumbnail
+            # and canvas consumers in the pinned application. Each case instead
+            # resets every pixel in this one canvas and starts a new API stroke.
             # Closing the main window runs Krita's normal document/view cleanup;
             # exit() skips it and left display consumers alive during teardown.
             # CI independently requires a complete status AND a zero exit code.
