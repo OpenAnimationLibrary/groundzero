@@ -671,6 +671,37 @@ void sameOwnerKeyDrift() {
   }
   checkpoint("same-owner insertion/deletion rejected before Preview and after captured Preview");
 }
+void segmentObserverLifetime() {
+  for (bool byFrame : {false, true}) {
+    auto fixture = std::make_unique<Fixture>();
+    const TDoubleParamP a = fixture->a, b = fixture->b;
+    QWidget *segment = nullptr;
+    for (auto *widget : fixture->viewer.findChildren<QWidget *>())
+      if (QString::fromLatin1(widget->metaObject()->className()) == "FunctionSegmentViewer") segment = widget;
+    auto *observer = dynamic_cast<TParamObserver *>(segment);
+    require(segment && observer, "segment observer fixture is missing the real editor");
+    const auto bind = [&](TDoubleParam *curve) {
+      require(QMetaObject::invokeMethod(segment, byFrame ? "setSegmentByFrame" : "setSegment", Qt::DirectConnection,
+                                       Q_ARG(TDoubleParam *, curve), Q_ARG(int, byFrame ? 5 : 0)),
+              "native segment binding slot is unavailable");
+    };
+    bind(a.getPointer());
+    require(a->observers().count(observer) == 1, "segment editor did not observe its first curve");
+    bind(b.getPointer());
+    require(!a->observers().count(observer) && b->observers().count(observer) == 1,
+            "segment editor did not transfer its observer to the new curve");
+    fixture.reset();
+    require(!a->observers().count(observer) && !b->observers().count(observer),
+            "destroyed segment editor remains registered on a live curve");
+    auto first = a->getKeyframe(0), second = b->getKeyframe(0);
+    first.m_value += 1; second.m_value += 2;
+    a->setKeyframe(first); b->setKeyframe(second);
+    requireNear(a->getKeyframe(0).m_value, first.m_value);
+    requireNear(b->getKeyframe(0).m_value, second.m_value);
+    QApplication::sendPostedEvents(TFunctorInvoker::instance(), QEvent::MetaCall);
+  }
+  checkpoint("closed segment editors detach from switched live curves");
+}
 void modalPanelLifetime() {
   for (bool destroy : {false, true}) {
     TSceneHandle scene;
@@ -1029,6 +1060,7 @@ int main(int argc, char **argv) {
     checkpoint("normalization/locks begin"); normalizationAndLocks();
     checkpoint("batch editing begins"); nativeBatchDialog();
     checkpoint("same-owner key drift begins"); sameOwnerKeyDrift();
+    checkpoint("segment observer lifetime begins"); segmentObserverLifetime();
     checkpoint("modal panel lifetime begins"); modalPanelLifetime();
     checkpoint("saved-set rename begins"); savedSetRename();
     checkpoint("target-range modal begins"); nativeTargetRangeDialog();
