@@ -171,6 +171,9 @@ std::string validate(const Preset &p) {
        !dynamic(s.angle, -36000, 36000) || !dynamic(s.opacity, 0, 1) ||
        !range(s.aspect, .01, 1) || !range(s.scatter, 0, 5)))
     return "Invalid secondary tip";
+  if (!dynamic(p.pickupControl, 0, 1) || !dynamic(p.colorRateControl, 0, 1) ||
+      !dynamic(p.radiusControl, 0, 1))
+    return "Invalid wet sensor dynamics";
   if (!range(p.pickup, 0, 1) || !range(p.colorRate, 0, 1) ||
       !range(p.reload, 0, 1) || !range(p.smudgeRadius, 0, 3))
     return "Invalid wet brush settings";
@@ -379,6 +382,9 @@ struct Stroke::Impl {
                  sn           = std::sin(angle);
     const double opacity      = unit(eval(p.opacity, s)),
                  flow         = unit(eval(p.flow, s));
+    const double pickup       = p.pickup * eval(p.pickupControl, s),
+                 colorRate    = p.colorRate * eval(p.colorRateControl, s);
+    const double smudgeRadius = p.smudgeRadius * eval(p.radiusControl, s);
     const size_t primaryIndex = index(p.tip),
                  secondIndex  = index(p.secondary.tip);
     const double scatter      = eval(p.scatter, s) * diameter;
@@ -391,8 +397,7 @@ struct Stroke::Impl {
       int x1          = std::min(surface.width(), int(std::ceil(cx)) + reach),
           y1          = std::min(surface.height(), int(std::ceil(cy)) + reach);
       if (x0 >= x1 || y0 >= y1) continue;
-      int halo =
-          p.wet == Wet::Off ? 0 : int(std::ceil(radius * p.smudgeRadius));
+      int halo = p.wet == Wet::Off ? 0 : int(std::ceil(radius * smudgeRadius));
       if (!surface.prepare(std::max(0, x0 - halo), std::max(0, y0 - halo),
                            std::min(surface.width(), x1 + halo),
                            std::min(surface.height(), y1 + halo))) {
@@ -417,10 +422,10 @@ struct Stroke::Impl {
         for (int j = 0; j < side; ++j)
           for (int i = 0; i < side; ++i) {
             double u = (i + .5) / side * 2 - 1, v = (j + .5) / side * 2 - 1;
-            int xx = int(
-                std::floor(cx + u * radius * std::max(.01, p.smudgeRadius)));
-            int yy = int(
-                std::floor(cy + v * radius * std::max(.01, p.smudgeRadius)));
+            int xx =
+                int(std::floor(cx + u * radius * std::max(.01, smudgeRadius)));
+            int yy =
+                int(std::floor(cy + v * radius * std::max(.01, smudgeRadius)));
             Pixel q = (xx >= 0 && yy >= 0 && xx < surface.width() &&
                        yy < surface.height())
                           ? surface.read(xx, yy)
@@ -434,8 +439,8 @@ struct Stroke::Impl {
             total += w;
           }
         if (total > 0) avg = mul(avg, 1 / total);
-        reservoir = mix(reservoir, avg, p.pickup);
-        paint     = mix(reservoir, p.color, p.colorRate);
+        reservoir = mix(reservoir, avg, pickup);
+        paint     = mix(reservoir, p.color, colorRate);
       }
       const auto &t   = p.texture;
       const auto &sec = p.secondary;
@@ -491,8 +496,8 @@ struct Stroke::Impl {
                 0, std::min(smearSide - 1, int((u * .5 + .5) * smearSide)));
             int iy = std::max(
                 0, std::min(smearSide - 1, int((v * .5 + .5) * smearSide)));
-            ink = mix(mix(paint, smear[size_t(iy) * smearSide + ix], p.pickup),
-                      p.color, p.colorRate);
+            ink = mix(mix(paint, smear[size_t(iy) * smearSide + ix], pickup),
+                      p.color, colorRate);
           }
           if (p.wash) {
             Tile *buf = tile(x, y);

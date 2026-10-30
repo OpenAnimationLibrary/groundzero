@@ -143,6 +143,22 @@ void testWashAndInput() {
   Stroke denied(f, p);
   require(!denied.add(sample(20, 20, 0)), "transaction denial ignored");
 }
+void testWetPressure() {
+  Preset p;
+  p.wet       = Wet::Dulling;
+  p.pickup    = 1;
+  p.colorRate = 0;
+  p.color     = {1, 0, 0, 1};
+  p.pickupControl.mappings.push_back({Sensor::Pressure, {{0, 0}, {1, 1}}, 1});
+  Canvas low, high;
+  for (auto &v : low.pixels) v = {0, 0, 1, 1};
+  high.pixels = low.pixels;
+  Stroke a(low, p), b(high, p);
+  require(a.add(sample(64, 64, 0, 0)), "low pressure wet failed");
+  require(b.add(sample(64, 64, 0, 1)), "high pressure wet failed");
+  require(low.read(64, 64).r > .9 && high.read(64, 64).b > .9,
+          "wet pressure pickup was ignored");
+}
 void testResourcesAndWet() {
   Preset p;
   p.wet   = Wet::Dulling;
@@ -199,6 +215,7 @@ int main() {
     testDeterminismAndMasks();
     testWashAndInput();
     testResourcesAndWet();
+    testWetPressure();
     testStationaryAndBatching();
   } catch (const std::exception &e) {
     std::cerr << e.what() << '\n';

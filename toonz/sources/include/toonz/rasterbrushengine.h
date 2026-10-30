@@ -89,8 +89,12 @@ struct Preset {
   Secondary secondary;
   Wet wet       = Wet::Off;
   double pickup = 0.5, colorRate = 0.25, reload = 0, smudgeRadius = 1;
+  Dynamic pickupControl{1, 0, {}}, colorRateControl{1, 0, {}},
+      radiusControl{1, 0, {}};
   std::uint64_t seed = 1;
 };
+// Canvas coordinates: origin at upper-left, +y down; positive rotation is
+// clockwise.
 struct Sample {
   double x = 0, y = 0, pressure = 1, tiltX = 0, tiltY = 0;
   double rotation = 0, time = 0;  // radians and monotonic seconds

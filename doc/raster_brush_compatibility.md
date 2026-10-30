@@ -18,7 +18,7 @@ satisfy the contract. Build and test through CI per CLAUDE.md.
 | Existing ABR collection installation without overwriting or partial writes | Implemented | Packaged application fault-injection review pending |
 | Versioned native IR and decoded/supported/verified status separation | Native v1 implemented; foreign semantics remain separate | Package round-trip, missing resource, checksum, enum and version tests in CI |
 | ABR descriptor/computed-tip/pattern behavioral import | Planned | Every declared version and active setting |
-| KPP/bundle/GBR/GIH import | GBR 1/2 and one-dimensional GIH native conversions; generated-tip KPP conversion; bundles still planned | Original generated fixtures; conversions explicitly do not claim source semantics |
+| KPP/bundle/GBR/GIH import | GBR 1/2 and one-dimensional GIH native conversions; KPP native conversion with bounded bundle dependency resolution | Original generated fixtures; conversions explicitly do not claim source semantics |
 | Independent dry renderer and defined dynamics/combinations | Native CPU renderer implemented; foreign profiles planned | Numeric native tests; source-reference gates pending |
 | Four Krita smudge profiles and native wet | Native wet/smear implemented; four source models still planned | Native deterministic pickup tests; foreign models must not alias native wet |
 | Real tilt/rotation capture and normalization | Additive Qt tablet fields and track interpolation implemented | Full app CI and device qualification pending |
@@ -158,11 +158,14 @@ host application's existing backup/undo buffers have separate budgets.
 
 Foreign resource adapter v1 is an explicit **converted approximation** path:
 GBR 1/2 mask/RGBA resources, GIH single-dimension incremental/random sequences,
-ABR sampled tips, and KPP 2.2/5.0 generated-tip Pixel/Color Smudge containers.
+ABR sampled tips, and KPP 2.2/5.0 Pixel/Color Smudge containers. Native wet pickup, paint mix and radius can use
+sensor curves; mapped KPP curves are explicitly converted to linear native curves.
 KPP source model identifiers are retained, but native wet never stands in for
 implemented Krita smudge semantics. Unmapped KPP fields are listed in the import
-report; foreign installation requires accepting that conversion. External-tip KPP,
-bundles, ABR descriptor behavior and unsupported selectors remain unimplemented.
+report; foreign installation requires accepting that conversion. Standalone KPP with missing external resources, ABR descriptor behavior and
+unsupported selectors remain unimplemented. Bundle manifest v1.2 resolves declared
+PNG/GBR/GIH tip assets by explicit path/name or checksum; archive parsing never
+extracts files. Missing, ambiguous or malformed dependencies reject the import.
 These conversions do not satisfy the foreign-profile acceptance rows above.
 
 PNG chunk CRC/framing and metadata decompression are bounded before Qt decoding.

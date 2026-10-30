@@ -67,13 +67,14 @@ PngParts boundedPng(const QByteArray &bytes, QString &error) {
         auto key  = value.left(zero);
         auto body = value.mid(zero + 1);
         if (type == "zTXt" || type == "iCCP") {
-          if (body.isEmpty() || body[0] != 0)
+          if (body.isEmpty() || body.at(0) != 0)
             throw std::runtime_error("Unsupported PNG text compression");
           body = inflateText(body.mid(1));
         } else if (type == "iTXt") {
-          if (body.size() < 4 || body[1] != 0 || (body[0] != 0 && body[0] != 1))
+          if (body.size() < 4 || body.at(1) != 0 ||
+              (body.at(0) != 0 && body.at(0) != 1))
             throw std::runtime_error("Invalid PNG international text");
-          bool compressed = body[0] == 1;
+          bool compressed = body.at(0) == 1;
           int language    = body.indexOf('\0', 2);
           if (language < 0) throw std::runtime_error("Invalid PNG language");
           int translated = body.indexOf('\0', language + 1);

@@ -81,6 +81,14 @@ void testRaster(const QString &directory) {
   require(same(before, raster), "tile undo did not restore exact pixels");
   raster->copy(after);
   require(same(after, raster), "baked redo pixels changed");
+  Transaction orientation(raster);
+  NativeRasterBrushSurface oriented(raster, orientation);
+  require(oriented.prepare(0, 0, 1, 1), "orientation preparation failed");
+  oriented.write(0, 0, {1, 0, 0, 1});
+  require(raster->pixels(raster->getLy() - 1)[0] == TPixel32(255, 0, 0, 255),
+          "top-down resource was flipped in host raster");
+  orientation.undo(raster);
+  require(same(after, raster), "oriented tile undo failed");
   Transaction denied(raster);
   denied.accept = false;
   NativeRasterBrushSurface refused(raster, denied);

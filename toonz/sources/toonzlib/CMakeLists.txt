@@ -203,6 +203,7 @@ set(SOURCES
     rasterbrushpreset.cpp
     rasterbrushimport.cpp
     rasterbrushpng.cpp
+    rasterbrusharchive.cpp
     autoadjust.cpp
     autoclose.cpp
     autopos.cpp

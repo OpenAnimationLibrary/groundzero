@@ -65,6 +65,8 @@
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QFormLayout>
+#include <QVBoxLayout>
+#include <QScrollArea>
 #include <QDoubleSpinBox>
 #include <QComboBox>
 #include <QCheckBox>
@@ -177,10 +179,17 @@ protected:
 bool editNativeBrush(RasterBrush::Record &record) {
   QDialog dialog;
   dialog.setWindowTitle(QObject::tr("Native Raster Brush"));
-  auto form    = new QFormLayout(&dialog);
+  auto layout  = new QVBoxLayout(&dialog);
   auto preview = new NativeBrushPreview(&dialog);
+  layout->addWidget(preview, 0, Qt::AlignHCenter);
+  auto scroll = new QScrollArea(&dialog);
+  scroll->setWidgetResizable(true);
+  auto controls = new QWidget(scroll);
+  auto form     = new QFormLayout(controls);
+  scroll->setWidget(controls);
+  layout->addWidget(scroll);
+  dialog.resize(480, 680);
   auto &p      = record.preset;
-  form->addRow(QObject::tr("Preview / scratchpad"), preview);
   auto refresh = [&]() { preview->configure(p); };
   auto spin = [&](const QString &label, double &value, double lo, double hi) {
     auto box = new QDoubleSpinBox(&dialog);
@@ -209,6 +218,36 @@ bool editNativeBrush(RasterBrush::Record &record) {
   spin(QObject::tr("Paint pickup"), p.pickup, 0, 1);
   spin(QObject::tr("Foreground paint mix"), p.colorRate, 0, 1);
   spin(QObject::tr("Paint reload"), p.reload, 0, 1);
+  spin(QObject::tr("Smudge sampling radius"), p.smudgeRadius, 0, 3);
+  auto pressure = [&](const QString &label, RasterBrush::Dynamic &dynamic) {
+    auto box     = new QCheckBox(&dialog);
+    auto *target = &dynamic;
+    box->setChecked(
+        std::any_of(dynamic.mappings.begin(), dynamic.mappings.end(),
+                    [](const RasterBrush::Mapping &m) {
+                      return m.sensor == RasterBrush::Sensor::Pressure;
+                    }));
+    form->addRow(label, box);
+    QObject::connect(
+        box, &QCheckBox::toggled, &dialog, [&, target](bool enabled) {
+          auto &m = target->mappings;
+          m.erase(std::remove_if(m.begin(), m.end(),
+                                 [](const RasterBrush::Mapping &v) {
+                                   return v.sensor ==
+                                          RasterBrush::Sensor::Pressure;
+                                 }),
+                  m.end());
+          if (enabled)
+            m.push_back({RasterBrush::Sensor::Pressure, {{0, 0}, {1, 1}}, 1});
+          refresh();
+        });
+  };
+  pressure(QObject::tr("Pressure controls size"), p.size);
+  pressure(QObject::tr("Pressure controls opacity"), p.opacity);
+  pressure(QObject::tr("Pressure controls flow"), p.flow);
+  pressure(QObject::tr("Pressure controls pickup"), p.pickupControl);
+  pressure(QObject::tr("Pressure controls paint mix"), p.colorRateControl);
+  pressure(QObject::tr("Pressure controls smudge radius"), p.radiusControl);
   auto wet = new QComboBox(&dialog);
   wet->addItems(
       {QObject::tr("Dry"), QObject::tr("Wet mix"), QObject::tr("Smear")});
@@ -241,7 +280,7 @@ bool editNativeBrush(RasterBrush::Record &record) {
   });
   auto buttons = new QDialogButtonBox(
       QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
-  form->addRow(buttons);
+  layout->addWidget(buttons);
   QObject::connect(buttons, &QDialogButtonBox::accepted, &dialog,
                    &QDialog::accept);
   QObject::connect(buttons, &QDialogButtonBox::rejected, &dialog,
@@ -300,7 +339,7 @@ bool FullColorBrushTool::selectNativePreset() {
   if (id == "<import>") {
     QString path = QFileDialog::getOpenFileName(
         nullptr, tr("Import Native Raster Brush"), QString(),
-        tr("Raster brushes (*.gzbrush *.abr *.gbr *.gih *.kpp)"));
+        tr("Raster brushes (*.gzbrush *.abr *.gbr *.gih *.kpp *.bundle)"));
     m_nativePreset.setValue(previous);
     if (path.isEmpty()) return true;
     auto imported = RasterBrush::importBrushFile(path, error);
@@ -1023,13 +1062,13 @@ void FullColorBrushTool::inputPaintTrackPoint(const TTrackPoint &point,
   if (handler->nativeStroke) {
     RasterBrush::Sample sample;
     sample.x           = point.position.x + rasCenter.x;
-    sample.y           = point.position.y + rasCenter.y;
+    sample.y           = ras->getLy() - 1 - (point.position.y + rasCenter.y);
     sample.pressure    = pressure;
     sample.hasPressure = m_enabledPressure && track.hasPressure;
     sample.tiltX       = point.tilt.x;
-    sample.tiltY       = point.tilt.y;
+    sample.tiltY       = -point.tilt.y;
     sample.hasTilt  = track.hasTilt || point.tilt.x != 0 || point.tilt.y != 0;
-    sample.rotation = point.rotation;
+    sample.rotation    = -point.rotation;
     sample.hasRotation = point.hasRotation;
     sample.time        = point.time;
     if (!handler->nativeStroke->add(sample)) {

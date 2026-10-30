@@ -246,6 +246,9 @@ QByteArray encode(const Record &r, QString &error) {
         {"color", QJsonArray{p.color.r, p.color.g, p.color.b, p.color.a}},
         {"wet", wets[int(p.wet)]},
         {"pickup", p.pickup},
+        {"pickupControl", dynamicJson(p.pickupControl)},
+        {"colorRateControl", dynamicJson(p.colorRateControl)},
+        {"radiusControl", dynamicJson(p.radiusControl)},
         {"colorRate", p.colorRate},
         {"reload", p.reload},
         {"smudgeRadius", p.smudgeRadius},
@@ -317,12 +320,14 @@ Record decode(const QByteArray &bytes, QString &error) {
       rd.assets[i.key()] = im;
     }
     auto o = object(root["settings"]);
-    keys(o, {"name",         "profile", "tip",          "size",      "aspect",
-             "angle",        "opacity", "flow",         "scatter",   "spacing",
-             "airbrushRate", "count",   "wash",         "lockAlpha", "flipX",
-             "flipY",        "blend",   "color",        "wet",       "pickup",
-             "colorRate",    "reload",  "smudgeRadius", "seed",      "texture",
-             "secondary"});
+    keys(o, {"name",         "profile",   "tip",           "size",
+             "aspect",       "angle",     "opacity",       "flow",
+             "scatter",      "spacing",   "airbrushRate",  "count",
+             "wash",         "lockAlpha", "flipX",         "flipY",
+             "blend",        "color",     "wet",           "pickup",
+             "colorRate",    "reload",    "smudgeRadius",  "seed",
+             "texture",      "secondary", "pickupControl", "colorRateControl",
+             "radiusControl"});
     auto &p        = r.preset;
     p.name         = text(o["name"]).toStdString();
     p.profile      = text(o["profile"]).toStdString();
@@ -353,8 +358,14 @@ Record decode(const QByteArray &bytes, QString &error) {
     p.colorRate    = number(o["colorRate"]);
     p.reload       = number(o["reload"]);
     p.smudgeRadius = number(o["smudgeRadius"]);
-    bool ok        = false;
-    p.seed         = text(o["seed"]).toULongLong(&ok);
+    if (o.contains("pickupControl"))
+      p.pickupControl = dynamic(o["pickupControl"]);
+    if (o.contains("colorRateControl"))
+      p.colorRateControl = dynamic(o["colorRateControl"]);
+    if (o.contains("radiusControl"))
+      p.radiusControl = dynamic(o["radiusControl"]);
+    bool ok = false;
+    p.seed  = text(o["seed"]).toULongLong(&ok);
     if (!ok) throw Invalid("Invalid random seed");
     auto t = object(o["texture"]);
     keys(t, {"image", "mode", "scale", "angle", "offsetX", "offsetY", "depth",

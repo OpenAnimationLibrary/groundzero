@@ -1,6 +1,7 @@
 #include "toonz/rasterbrushimport.h"
 #include "toonz/abrparser.h"
 #include "rasterbrushpng.h"
+#include "rasterbrusharchive.h"
 #include <QXmlStreamReader>
 #include <QSet>
 #include <cmath>
@@ -67,7 +68,8 @@ struct Reader {
     } else
       spacing = .1;
     auto label = take(header - fixed);
-    if (label.back() != 0) throw Invalid("GBR name is not terminated");
+    if (label.at(label.size() - 1) != '\0')
+      throw Invalid("GBR name is not terminated");
     name = QString::fromUtf8(label.constData(), label.size() - 1);
     if (size_t(w) * h * channels > size_t(bytes.size()) - pos)
       throw Invalid("Truncated GBR pixels");
@@ -218,7 +220,61 @@ bool convertCurve(const QMap<QString, QString> &fields, const QString &prefix,
                      "(source spline behavior is unverified).";
   return true;
 }
-Record convertKpp(const QByteArray &bytes, QStringList &diagnostics) {
+Tip resolveTip(const QMap<QString, QByteArray> *resources,
+               const QString &filename, const QString &md5,
+               QStringList &diagnostics) {
+  if (!resources)
+    throw Invalid(
+        "KPP tip resource is missing; import a bundle containing its "
+        "resources");
+  QStringList matches;
+  for (auto i = resources->begin(); i != resources->end(); ++i) {
+    if (!md5.isEmpty()) {
+      if (QString::fromLatin1(
+              QCryptographicHash::hash(i.value(), QCryptographicHash::Md5)
+                  .toHex()) == md5.toLower())
+        matches << i.key();
+    } else if (i.key() == filename || QFileInfo(i.key()).fileName() == filename)
+      matches << i.key();
+  }
+  if (matches.size() != 1)
+    throw Invalid("Missing or ambiguous KPP tip dependency");
+  const QString key = matches[0], suffix = QFileInfo(key).suffix().toLower();
+  if (suffix == "png") {
+    QString error;
+    auto image = decodeImage(resources->value(key), true, error);
+    if (!image) throw std::runtime_error(error.toStdString());
+    auto mask        = std::make_shared<Image>(*image);
+    mask->color      = false;
+    bool transparent = false;
+    for (const auto &p : mask->pixels)
+      if (p.a < 1) {
+        transparent = true;
+        break;
+      }
+    for (auto &p : mask->pixels) {
+      double a =
+          transparent ? p.a : 1 - (.2126 * p.r + .7152 * p.g + .0722 * p.b);
+      p = {0, 0, 0, a};
+    }
+    Tip tip;
+    tip.shape = Shape::Bitmap;
+    tip.images.push_back(mask);
+    diagnostics << "PNG tip converted to a native coverage mask; source "
+                   "color/lightness tip application is not reproduced.";
+    return tip;
+  }
+  if (suffix != "gbr" && suffix != "gih")
+    throw Invalid("Unsupported KPP tip resource format");
+  QString error;
+  auto imported = importBrush(resources->value(key), suffix, error);
+  if (!error.isEmpty() || imported.records.size() != 1)
+    throw Invalid("Cannot decode KPP tip dependency");
+  diagnostics.append(imported.diagnostics);
+  return imported.records[0].preset.tip;
+}
+Record convertKpp(const QByteArray &bytes, QStringList &diagnostics,
+                  const QMap<QString, QByteArray> *resources = nullptr) {
   QString error;
   auto png = boundedPng(bytes, error);
   if (!error.isEmpty()) throw std::runtime_error(error.toStdString());
@@ -247,10 +303,18 @@ Record convertKpp(const QByteArray &bytes, QStringList &diagnostics) {
     if (!brush.isStartElement()) continue;
     auto a = brush.attributes();
     if (brush.name() == QStringLiteral("Brush")) {
-      if (found || a.value("type") != QStringLiteral("auto_brush"))
-        throw Invalid(
-            "KPP conversion requires a generated tip; external tips must be "
-            "resolved first");
+      if (found) throw Invalid("Duplicate KPP brush definition");
+      QString type = a.value("type").toString();
+      if (type != "auto_brush") {
+        if (type != "png_brush" && type != "gbr_brush" && type != "gih_brush")
+          throw Invalid("Unsupported KPP tip type");
+        r.preset.tip = resolveTip(resources, a.value("filename").toString(),
+                                  a.value("md5sum").toString(), diagnostics);
+        r.preset.size.value = std::max(r.preset.tip.images[0]->width,
+                                       r.preset.tip.images[0]->height) *
+                              numeric(a.value("scale").toString());
+        maskFound = true;
+      }
       found            = true;
       r.preset.spacing = numeric(a.value("spacing").toString());
       r.preset.angle.value =
@@ -324,6 +388,12 @@ Record convertKpp(const QByteArray &bytes, QStringList &diagnostics) {
                    "Old/new smudge equations, smear-alpha and sensor "
                    "relationships are NOT reproduced.";
   }
+  convertCurve(fields, "SmudgeRate", r.preset.pickupControl, mapped,
+               diagnostics);
+  convertCurve(fields, "ColorRate", r.preset.colorRateControl, mapped,
+               diagnostics);
+  convertCurve(fields, "SmudgeRadius", r.preset.radiusControl, mapped,
+               diagnostics);
   convertCurve(fields, "Size", r.preset.size, mapped, diagnostics);
   convertCurve(fields, "Opacity", r.preset.opacity, mapped, diagnostics, true);
   convertCurve(fields, "Flow", r.preset.flow, mapped, diagnostics, true);
@@ -338,6 +408,66 @@ Record convertKpp(const QByteArray &bytes, QStringList &diagnostics) {
     diagnostics << "Source settings not reproduced: " + unmapped.join(", ");
   r.provenance["conversionReport"] = diagnostics.join("\n");
   return r;
+}
+QStringList bundlePresets(const QMap<QString, QByteArray> &members,
+                          QMap<QString, QByteArray> &resources) {
+  if (members.value("mimetype").trimmed() !=
+      "application/x-krita-resourcebundle")
+    throw Invalid("Invalid Krita bundle MIME type");
+  auto xml = members.value("META-INF/manifest.xml");
+  if (xml.isEmpty() || xml.size() > 1024 * 1024)
+    throw Invalid("Missing or oversized bundle manifest");
+  QXmlStreamReader reader(xml);
+  QStringList presets;
+  QSet<QString> paths;
+  bool root        = false;
+  const QString ns = "urn:oasis:names:tc:opendocument:xmlns:manifest:1.0";
+  while (!reader.atEnd()) {
+    reader.readNext();
+    if (reader.isDTD() || reader.isEntityReference())
+      throw Invalid("Bundle manifest entities are unsupported");
+    if (!reader.isStartElement()) continue;
+    if (!root) {
+      if (reader.name() != QStringLiteral("manifest") ||
+          reader.namespaceUri() != ns ||
+          reader.attributes().value(ns, "version") != "1.2")
+        throw Invalid("Unsupported bundle manifest version");
+      root = true;
+      continue;
+    }
+    if (reader.name() == QStringLiteral("file-entry")) {
+      auto a       = reader.attributes();
+      QString path = a.value(ns, "full-path").toString(),
+              type = a.value(ns, "media-type").toString();
+      if (paths.contains(path)) throw Invalid("Duplicate bundle manifest path");
+      paths.insert(path);
+      if (path == "/") {
+        if (type != "application/x-krita-resourcebundle")
+          throw Invalid("Invalid bundle root declaration");
+        continue;
+      }
+      if (!members.contains(path))
+        throw Invalid("Bundle manifest references a missing member");
+      QString md5 = a.value(ns, "md5sum").toString();
+      if (!md5.isEmpty() &&
+          QString::fromLatin1(
+              QCryptographicHash::hash(members[path], QCryptographicHash::Md5)
+                  .toHex()) != md5.toLower())
+        throw Invalid("Bundle manifest checksum mismatch");
+      if (type == "brushes" || type == "patterns")
+        resources[path] = members[path];
+      if (type == "paintoppresets") {
+        if (!path.endsWith(".kpp", Qt::CaseInsensitive))
+          throw Invalid("Bundle preset type mismatch");
+        presets << path;
+      }
+    } else if (reader.name() != QStringLiteral("tags") &&
+               reader.name() != QStringLiteral("tag"))
+      throw Invalid("Unknown bundle manifest element");
+  }
+  if (reader.hasError() || !root || presets.isEmpty() || presets.size() > 256)
+    throw Invalid("Invalid or empty bundle preset manifest");
+  return presets;
 }
 void check(Record &r) {
   auto error = validate(r.preset);
@@ -360,7 +490,30 @@ ImportResult importBrush(const QByteArray &bytes, const QString &format,
       result.complete = true;
       return result;
     }
-    if (kind == "gbr" || kind == "gih") {
+    if (kind == "bundle") {
+      auto members = brushArchive(bytes, error);
+      if (!error.isEmpty()) return {};
+      QMap<QString, QByteArray> resources;
+      auto presets   = bundlePresets(members, resources);
+      size_t decoded = 0;
+      for (const auto &path : presets) {
+        QStringList diagnostics;
+        auto r = convertKpp(members[path], diagnostics, &resources);
+        check(r);
+        for (const auto &image : r.preset.tip.images) {
+          size_t n = image->pixels.size() * sizeof(Pixel);
+          if (n > 256u * 1024u * 1024u - decoded)
+            throw Invalid("Bundle decoded image budget exceeded");
+          decoded += n;
+        }
+        r.provenance["bundleSha256"] = QString::fromLatin1(
+            QCryptographicHash::hash(bytes, QCryptographicHash::Sha256)
+                .toHex());
+        r.provenance["bundleMember"] = path;
+        result.records.push_back(r);
+        result.diagnostics << path + ": " + diagnostics.join("\n");
+      }
+    } else if (kind == "gbr" || kind == "gih") {
       Reader reader{bytes};
       auto r         = converted(bytes, kind);
       int count      = 1;
