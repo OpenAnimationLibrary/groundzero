@@ -465,6 +465,7 @@ void FunctionSelection::doCopy() {
 }
 
 void FunctionSelection::doPaste() {
+  if (hasLockedCurves()) return;
   const FunctionKeyframesData *data =
       dynamic_cast<const FunctionKeyframesData *>(
           QApplication::clipboard()->mimeData());
@@ -491,13 +492,15 @@ void FunctionSelection::doPaste() {
     // curves
     // only single curve selection supported
     columnCount = 1;
-    if (m_selectedKeyframes.empty()) return;
+    if (m_selectedKeyframes.empty() || m_selectedKeyframes[0].second.empty()) return;
     TDoubleParam *curve = m_selectedKeyframes[0].first;
     if (curve == 0) return;
     int kIndex = *(m_selectedKeyframes[0].second.begin());
     frame      = curve->keyframeIndexToFrame(kIndex);
     params.push_back(curve);
   }
+
+  for (auto *param : params) if (param->isEditorLocked()) return;
 
   /*--- カーブの貼り付け時に循環参照をチェックして、駄目ならアラートを返す ---*/
   for (int c = 0; c < columnCount; c++) {
@@ -514,6 +517,7 @@ void FunctionSelection::doPaste() {
 }
 
 void FunctionSelection::doCut() {
+  if (hasLockedCurves()) return;
   TUndoManager::manager()->beginBlock();
   doCopy();
 
@@ -554,6 +558,7 @@ void FunctionSelection::doCut() {
 }
 
 void FunctionSelection::doDelete() {
+  if (hasLockedCurves()) return;
   if (isEmpty()) return;
   std::vector<KeyframesDeleteUndo::Column> columns;
   for (int col = 0; col < (int)m_selectedKeyframes.size(); col++) {
@@ -572,6 +577,7 @@ void FunctionSelection::doDelete() {
 }
 
 void FunctionSelection::insertCells() {
+  if (hasLockedCurves()) return;
   if (isEmpty()) return;
   QRect selectedCells     = getSelectedCells();
   int frameDelta          = selectedCells.height();
@@ -592,6 +598,7 @@ void FunctionSelection::insertCells() {
 }
 
 void FunctionSelection::setStep(int step, bool inclusive) {
+  if (hasLockedCurves()) return;
   if (isEmpty()) return;
   TUndoManager::manager()->beginBlock();
 
@@ -680,6 +687,7 @@ QList<QPair<TDoubleParam *, QList<int>>> FunctionSelection::getSelectedSegments(
 
 void FunctionSelection::setSegmentType(TDoubleKeyframe::Type type,
                                        bool inclusive) {
+  if (hasLockedCurves()) return;
   if (isEmpty()) return;
   TUndoManager::manager()->beginBlock();
 
@@ -692,6 +700,7 @@ void FunctionSelection::setSegmentType(TDoubleKeyframe::Type type,
 
 void FunctionSelection::setSegmentEase(double easeOut, double easeIn,
                                        bool inclusive) {
+  if (hasLockedCurves()) return;
   if (isEmpty()) return;
   TUndoManager::manager()->beginBlock();
 
@@ -703,6 +712,7 @@ void FunctionSelection::setSegmentEase(double easeOut, double easeIn,
 }
 
 void FunctionSelection::insertBreakdowns(int frame, double favour) {
+  if (hasLockedCurves()) return;
   if (isEmpty()) return;
   TUndoManager::manager()->beginBlock();
 
@@ -840,4 +850,11 @@ bool FunctionKeyframesData::isCircularReferenceFree(int columnIndex,
     if (dependsOn(expr, curve)) return false;
   }
   return true;
+}
+
+
+bool FunctionSelection::hasLockedCurves() const {
+  for (const auto &entry : m_selectedKeyframes)
+    if (entry.first && entry.first->isEditorLocked()) return true;
+  return false;
 }

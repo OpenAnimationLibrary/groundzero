@@ -314,6 +314,8 @@ public:
   double m_defaultValue, m_minValue, m_maxValue;
   DoubleKeyframeVector m_keyframes;
   bool m_cycleEnabled;
+  std::string m_workspaceId;
+  bool m_editorLocked = false;
   std::vector<std::string> m_uiChoices;
   bool m_uiCheckbox = false;
   bool m_hasUISliderRange = false;
@@ -486,6 +488,14 @@ TDoubleParam::TDoubleParam(const TDoubleParam &src)
 //---------------------------------------------------------
 
 TDoubleParam::~TDoubleParam() {}
+
+std::string TDoubleParam::getWorkspaceId() const { return m_imp->m_workspaceId; }
+void TDoubleParam::setWorkspaceId(const std::string &id) {
+  if (id.size() > 64) throw TException("Invalid Function Editor channel identity");
+  m_imp->m_workspaceId = id;
+}
+bool TDoubleParam::isEditorLocked() const { return m_imp->m_editorLocked; }
+void TDoubleParam::setEditorLocked(bool locked) { m_imp->m_editorLocked = locked; }
 
 //---------------------------------------------------------
 
@@ -1088,6 +1098,8 @@ const std::set<TParamObserver *> &TDoubleParam::observers() const {
 
 void TDoubleParam::loadData(TIStream &is) {
   string tagName;
+  m_imp->m_workspaceId.clear();
+  m_imp->m_editorLocked = false;
   /*
 if(is.matchTag(tagName))
 {
@@ -1122,6 +1134,8 @@ is >> m_imp->m_defaultValue;
       // (old) format 5.2. Since 6.0 param type is no used anymore
       is >> oldType;
     } else if (tagName == "default") {
+      std::string id;
+      if (is.getTagParam("workspaceId", id)) setWorkspaceId(id);
       is >> m_imp->m_defaultValue;
     } else if (tagName == "cycle") {
       string dummy;
@@ -1253,7 +1267,13 @@ is >> m_imp->m_defaultValue;
 
 void TDoubleParam::saveData(TOStream &os) {
   // os.child("type") << (int)m_imp->m_type;
-  os.child("default") << m_imp->m_defaultValue;
+  if (m_imp->m_workspaceId.empty())
+    os.child("default") << m_imp->m_defaultValue;
+  else {
+    os.openChild("default", {{"workspaceId", m_imp->m_workspaceId}});
+    os << m_imp->m_defaultValue;
+    os.closeChild();
+  }
   if (isCycleEnabled()) os.child("cycle") << std::string("enabled");
   // if(getExtrapolationAfter() == Loop)
   //  os.child("cycle") << string("loop");

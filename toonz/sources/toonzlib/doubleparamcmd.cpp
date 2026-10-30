@@ -120,6 +120,7 @@ void KeyframeSetter::selectKeyframe(int kIndex) {
 
 // set key frame at frame and returns its index
 int KeyframeSetter::createKeyframe(double frame) {
+  if (m_param->isEditorLocked()) return -1;
   /*--- If there is already a keyframe there, just return its Index ---*/
   int kIndex = m_param->getClosestKeyframe(frame);
   if (kIndex >= 0 && m_param->getKeyframe(kIndex).m_frame == frame) {
@@ -253,6 +254,7 @@ void KeyframeSetter::getRotatingSpeedHandles(
 }
 
 void KeyframeSetter::moveKeyframes(int dFrame, double dValue) {
+  if (m_param->isEditorLocked()) return;
   int n = m_param->getKeyframeCount();
   if (n == 0) return;
 
@@ -419,6 +421,7 @@ m_param->setKeyframe(kf);
 }
 
 void KeyframeSetter::setType(int kIndex, TDoubleKeyframe::Type type) {
+  if (m_param->isEditorLocked()) return;
   assert(0 <= kIndex && kIndex < m_param->getKeyframeCount());
   // get the current keyframe value
   TDoubleKeyframe keyframe = m_param->getKeyframe(kIndex);
@@ -503,11 +506,13 @@ void KeyframeSetter::setType(int kIndex, TDoubleKeyframe::Type type) {
 }
 
 void KeyframeSetter::setType(TDoubleKeyframe::Type type) {
+  if (m_param->isEditorLocked()) return;
   assert(m_kIndex >= 0 && m_indices.size() == 1);
   setType(m_kIndex, type);
 }
 
 void KeyframeSetter::setStep(int step) {
+  if (m_param->isEditorLocked()) return;
   assert(m_kIndex >= 0 && m_indices.size() == 1);
   if (m_keyframe.m_step == step) return;
   m_changed         = true;
@@ -516,6 +521,7 @@ void KeyframeSetter::setStep(int step) {
 }
 
 void KeyframeSetter::setExpression(std::string expression) {
+  if (m_param->isEditorLocked()) return;
   assert(m_kIndex >= 0 && m_indices.size() == 1);
   m_changed                   = true;
   m_keyframe.m_expressionText = expression;
@@ -524,6 +530,7 @@ void KeyframeSetter::setExpression(std::string expression) {
 }
 
 void KeyframeSetter::setSimilarShape(std::string expression, double offset) {
+  if (m_param->isEditorLocked()) return;
   assert(m_kIndex >= 0 && m_indices.size() == 1);
   m_changed                       = true;
   m_keyframe.m_expressionText     = expression;
@@ -533,6 +540,7 @@ void KeyframeSetter::setSimilarShape(std::string expression, double offset) {
 }
 
 void KeyframeSetter::setFile(const TDoubleKeyframe::FileParams &params) {
+  if (m_param->isEditorLocked()) return;
   assert(m_kIndex >= 0 && m_indices.size() == 1);
   m_changed               = true;
   m_keyframe.m_fileParams = params;
@@ -541,6 +549,7 @@ void KeyframeSetter::setFile(const TDoubleKeyframe::FileParams &params) {
 }
 
 void KeyframeSetter::setUnitName(std::string unitName) {
+  if (m_param->isEditorLocked()) return;
   assert(m_kIndex >= 0 && m_indices.size() == 1);
   m_changed             = true;
   m_keyframe.m_unitName = unitName;
@@ -548,6 +557,7 @@ void KeyframeSetter::setUnitName(std::string unitName) {
 }
 
 void KeyframeSetter::setValue(double value) {
+  if (m_param->isEditorLocked()) return;
   assert(m_kIndex >= 0 && m_indices.size() == 1);
   if (m_keyframe.m_value == value) return;
   m_changed          = true;
@@ -556,6 +566,7 @@ void KeyframeSetter::setValue(double value) {
 }
 
 void KeyframeSetter::linkHandles() {
+  if (m_param->isEditorLocked()) return;
   assert(m_kIndex >= 0 && m_indices.size() == 1);
   if (m_keyframe.m_linkedHandles) return;
   m_changed                  = true;
@@ -576,6 +587,7 @@ void KeyframeSetter::linkHandles() {
 }
 
 void KeyframeSetter::unlinkHandles() {
+  if (m_param->isEditorLocked()) return;
   assert(m_kIndex >= 0 && m_indices.size() == 1);
   if (!m_keyframe.m_linkedHandles) return;
   m_changed                  = true;
@@ -584,6 +596,7 @@ void KeyframeSetter::unlinkHandles() {
 }
 
 void KeyframeSetter::setSpeedIn(const TPointD &speedIn) {
+  if (m_param->isEditorLocked()) return;
   const double eps = 0.00001;
   assert(m_kIndex >= 0 && m_indices.size() == 1);
   assert(isSpeedInOut(m_kIndex - 1));
@@ -615,6 +628,7 @@ void KeyframeSetter::setSpeedIn(const TPointD &speedIn) {
 }
 
 void KeyframeSetter::setSpeedOut(const TPointD &speedOut) {
+  if (m_param->isEditorLocked()) return;
   const double eps = 0.00001;
   assert(m_kIndex >= 0 && m_indices.size() == 1);
   assert(isSpeedInOut(m_kIndex));
@@ -648,6 +662,7 @@ void KeyframeSetter::setSpeedOut(const TPointD &speedOut) {
 }
 
 void KeyframeSetter::setEaseIn(double easeIn) {
+  if (m_param->isEditorLocked()) return;
   // easeIn <=0
   assert(m_kIndex >= 1 && m_indices.size() == 1);
   assert(isEaseInOut(m_kIndex - 1));
@@ -673,6 +688,7 @@ void KeyframeSetter::setEaseIn(double easeIn) {
 }
 
 void KeyframeSetter::setEaseOut(double easeOut) {
+  if (m_param->isEditorLocked()) return;
   assert(m_kIndex >= 0 && m_kIndex + 1 < m_param->getKeyframeCount() &&
          m_indices.size() == 1);
   assert(isEaseInOut(m_kIndex));
@@ -703,6 +719,7 @@ void KeyframeSetter::setAllParams(
     int step, TDoubleKeyframe::Type comboType, const TPointD &speedIn,
     const TPointD &speedOut, std::string expressionText, std::string unitName,
     const TDoubleKeyframe::FileParams &fileParam, double similarShapeOffset) {
+  if (m_param->isEditorLocked()) return;
   assert(0 <= m_kIndex && m_kIndex < m_param->getKeyframeCount());
 
   TDoubleKeyframe keyframe = m_param->getKeyframe(m_kIndex);
@@ -802,6 +819,7 @@ void KeyframeSetter::setAllParams(
 
 bool KeyframeSetter::insertBreakdown(TDoubleParam *curve, int frame,
                                      double favour) {
+  if (!curve || curve->isEditorLocked()) return false;
   if (!curve || curve->isKeyframe(frame)) return false;
   int prevIndex = curve->getPrevKeyframe(frame);
   int nextIndex = curve->getNextKeyframe(frame);
@@ -823,6 +841,7 @@ bool KeyframeSetter::insertBreakdown(TDoubleParam *curve, int frame,
 
 void KeyframeSetter::setSegmentEase(TDoubleParam *curve, int kIndex,
                                     double easeOut, double easeIn) {
+  if (!curve || curve->isEditorLocked()) return;
   if (!curve || kIndex < 0 || kIndex + 1 >= curve->getKeyframeCount()) return;
   easeOut = tcrop(easeOut, 0.0, 100.0);
   easeIn  = tcrop(easeIn, 0.0, 100.0 - easeOut);
@@ -854,6 +873,7 @@ public:
 //=============================================================================
 
 void KeyframeSetter::removeKeyframeAt(TDoubleParam *curve, double frame) {
+  if (!curve || curve->isEditorLocked()) return;
   int kIndex = curve->getClosestKeyframe(frame);
   if (kIndex < 0 || kIndex >= curve->getKeyframeCount() ||
       curve->keyframeIndexToFrame(kIndex) != frame)
@@ -895,6 +915,7 @@ public:
 
 void KeyframeSetter::enableCycle(TDoubleParam *curve, bool enabled,
                                  TSceneHandle *sceneHandle) {
+  if (!curve || curve->isEditorLocked()) return;
   curve->enableCycle(enabled);
   if (sceneHandle) sceneHandle->notifySceneChanged();
   TUndoManager::manager()->add(new EnableCycleUndo(curve, sceneHandle));

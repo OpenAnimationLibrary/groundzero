@@ -10,6 +10,8 @@
 #include <QDialog>
 #include <set>
 #include <cmath>
+#include <QMap>
+#include "tdoubleparam.h"
 
 #undef DVAPI
 #undef DVVAR
@@ -30,7 +32,7 @@ class FunctionSelection;
 //-----------------------------------------------------------------------------
 
 //! Channel edit panel (numcols + graph popup)
-class FunctionPanel final : public QDialog {
+class DVAPI FunctionPanel final : public QDialog {
   Q_OBJECT
 
   QColor m_bgColor;
@@ -72,6 +74,13 @@ public:
 
 private:
   QTransform m_viewTransform;  // world -> window
+  bool m_normalized = false;
+  QMap<TDoubleParam *, QPointF> m_normalization;
+  std::vector<std::pair<TDoubleParamP, TDoubleParamP>> m_comparison;
+  int m_snapFrames = 1;
+  bool m_snapKeys = false;
+  int m_hitRadius = 10;
+  double m_valueNudge = 1;
   int m_valueAxisX, m_frameAxisY, m_graphViewportY;
   QPoint m_origin;              // axes origin (window coords)
   QPoint m_startPos, m_oldPos;  // mouse click position, last mouse click/drag
@@ -156,6 +165,17 @@ public:
   void fitCurve();
   void fitGraphToWindow(bool currentCurveOnly = false);
   void fitRegion(double f0, double v0, double f1, double v1);
+  QRectF selectionBounds() const;
+  void setNormalized(bool enabled);
+  bool isNormalized() const { return m_normalized; }
+  void refreshNormalization();
+  void setComparison(const std::vector<std::pair<TDoubleParamP, TDoubleParamP>> &curves) {
+    m_comparison = curves; update();
+  }
+  void setSnap(int frames, bool keys) { m_snapFrames = std::max(1, frames); m_snapKeys = keys; }
+  double snapFrameDelta(double delta, double anchor, bool bypass) const;
+  void setHitRadius(int radius) { m_hitRadius = std::max(6, std::min(24, radius)); update(); }
+  void setValueNudge(double value) { m_valueNudge = value; }
 
   QPointF getWinPos(TDoubleParam *curve, double frame, double value) const;
   QPointF getWinPos(TDoubleParam *curve, const TPointD &frameValuePos) const {

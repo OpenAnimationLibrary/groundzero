@@ -12,6 +12,8 @@
 
 // Qt includes
 #include <QScrollBar>
+#include <QMap>
+#include <QPersistentModelIndex>
 
 #undef DVAPI
 #undef DVVAR
@@ -392,7 +394,7 @@ public:
 
 //! TreeView with stage object and fx channels. controls channel visibility and
 //! current channel
-class FunctionTreeView final : public TreeView {
+class DVAPI FunctionTreeView final : public TreeView {
   Q_OBJECT
 
   TFilePath m_scenePath;
@@ -401,6 +403,10 @@ class FunctionTreeView final : public TreeView {
   FunctionTreeModel::Channel *m_draggingChannel;
   QPoint m_dragStartPosition;
   FunctionViewer *m_viewer;
+  QString m_searchText;
+  QMap<QPersistentModelIndex, bool> m_searchExpansion;
+  bool m_applyingSearch = false;
+  bool applySearch(const QModelIndex &parent, const QString &ancestor);
   //---
 
   // set color by using style sheet
@@ -419,6 +425,8 @@ public:
   void setTextColor(const QColor &color) { m_textColor = color; }
   QColor getTextColor() const { return m_textColor; }
   FunctionViewer *getViewer() { return m_viewer; }
+  QList<FunctionTreeModel::Channel *> channels() const;
+  QString searchText() const { return m_searchText; }
 
   void setXsheetHandle(TXsheetHandle *xshHandle) { m_xshHandle = xshHandle; }
   TXsheetHandle *getXsheetHandle() { return m_xshHandle; }
@@ -443,6 +451,8 @@ public slots:
 
   void onActivated(const QModelIndex &index);
   void updateAll();
+  void setSearchText(const QString &text);
+  void refreshSearch();
 
   // show all the animated channels when the scene switched
   void displayAnimatedChannels();
