@@ -222,7 +222,7 @@ def select_diagnostic_suite(environment, suite):
 
 def combined_failure_diagnostics(executable, source, output_path, mesa_runtime=None,
                                  linux_debugger=False, windows_debugger=False,
-                                 symbol_directories=(), runtime_state=None):
+                                 symbol_directories=(), runtime_state=None, macos_debugger=False):
     """Collect isolated evidence without changing the original failed result."""
     suites = (("function-workflow", "function-workflow-native: PASS"),
               ("cast-workflow", "cast-native-workflow: PASS"),
@@ -271,6 +271,9 @@ def combined_failure_diagnostics(executable, source, output_path, mesa_runtime=N
             if (state["safe_to_release"] and linux_debugger and sys.platform.startswith("linux") and
                     native_status is not None and native_status < 0):
                 debugger_output = linux_crash_diagnostics(executable, source, suite, runtime_state=state)
+            elif (state["safe_to_release"] and macos_debugger and sys.platform == "darwin" and
+                  native_status is not None and native_status < 0):
+                debugger_output = macos_crash_diagnostics(executable, source, suite, runtime_state=state)
             elif (state["safe_to_release"] and windows_debugger and os.name == "nt" and native_status is not None and
                   (native_status & 0xc0000000) == 0xc0000000):
                 debugger_output = windows_crash_diagnostics(
@@ -311,7 +314,7 @@ def combined_failure_diagnostics(executable, source, output_path, mesa_runtime=N
 
 
 def capture_debugger(command, executable, source, mesa_runtime=None, native_suite=None,
-                     runtime_state=None):
+                     runtime_state=None, cleanup_checkpoint=None, output_limit_bytes=None):
     state = runtime_state if runtime_state is not None else {"safe_to_release": True}
     output = b""
     notes = ""
@@ -326,9 +329,25 @@ def capture_debugger(command, executable, source, mesa_runtime=None, native_suit
             except subprocess.TimeoutExpired as error:
                 output = error.output or b""
                 notes += "\nNative crash debugger timed out after 120 seconds.\n"
+            except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as error:
+                output = output or state.get("output", b"")
+                notes += f"\nDiagnostic debugger launch or wait failed: {type(error).__name__}: {error}\n"
+            finally:
+                if cleanup_checkpoint is not None:
+                    observed = decode_output(output or state.get("output", b""))
+                    if cleanup_checkpoint not in observed.splitlines():
+                        # A debugger can own an inferior in another process
+                        # group. Group cleanup alone cannot prove its exit.
+                        state["safe_to_release"] = False
+                        notes += "\nDebugger target exit was not confirmed; disposable resources retained.\n"
     except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as error:
         output = output or state.get("output", b"")
         notes += f"\nDiagnostic launch or cleanup failed: {type(error).__name__}: {error}\n"
+    if output_limit_bytes is not None:
+        raw = output if isinstance(output, bytes) else output.encode("utf-8")
+        if len(raw) > output_limit_bytes:
+            half = output_limit_bytes // 2
+            output = (raw[:half] + b"\nDebugger output truncated; beginning and ending retained.\n" + raw[-half:])
     return decode_output(output) + notes + "The original native test failure remains authoritative.\n"
 
 
@@ -364,6 +383,32 @@ def linux_crash_diagnostics(executable, source, native_suite=None, runtime_state
                             runtime_state=runtime_state)
 
 
+def macos_crash_diagnostics(executable, source, native_suite=None, runtime_state=None):
+    debugger = shutil.which("lldb")
+    if not debugger:
+        return ("macOS LLDB is unavailable; no debugger process was launched.\n"
+                "The original native test failure remains authoritative.\n")
+    cleanup_checkpoint = "native-lldb-target-cleanup: CONFIRMED"
+    # LLDB's crash command list is separate from its ordinary -o commands.
+    # Confirm inferior termination on both paths; do not infer it merely from
+    # the debugger exiting. Match the emitted line, never the echoed command.
+    cleanup = (
+        "script p=lldb.debugger.GetSelectedTarget().GetProcess(); "
+        "e=p.Kill() if p.IsValid() and p.GetState()!=lldb.eStateExited else None; "
+        "print('" + cleanup_checkpoint + "' if not p.IsValid() or "
+        "p.GetState()==lldb.eStateExited else 'native-lldb-target-cleanup: UNCONFIRMED')")
+    command = [debugger, "--batch", "--no-lldbinit",
+               "-o", "settings set auto-confirm true",
+               "-o", "run",
+               "-o", cleanup,
+               "--one-line-on-crash", "thread backtrace all -c 40",
+               "--one-line-on-crash", cleanup,
+               "--", str(executable), "--test-native-ui"]
+    return capture_debugger(command, executable, source, native_suite=native_suite,
+                            runtime_state=runtime_state, cleanup_checkpoint=cleanup_checkpoint,
+                            output_limit_bytes=256 * 1024)
+
+
 def main():
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="backslashreplace")
@@ -379,6 +424,8 @@ def main():
                         help="Capture a separate CDB stack after a Windows native exception")
     parser.add_argument("--linux-crash-debugger", action="store_true",
                         help="Capture a separate GDB stack after a Linux native signal")
+    parser.add_argument("--macos-crash-debugger", action="store_true",
+                        help="Capture a separate LLDB stack after a macOS native signal")
     parser.add_argument("--debugger-symbols", type=Path, action="append", default=[],
                         help="Local PDB directory for optional Windows crash diagnostics")
     parser.add_argument("--windows-mesa", type=Path,
@@ -472,7 +519,8 @@ def main():
                                                   args.linux_crash_debugger,
                                                   args.windows_crash_debugger,
                                                   args.debugger_symbols,
-                                                  runtime_state=runtime_state)
+                                                  runtime_state=runtime_state,
+                                                  macos_debugger=args.macos_crash_debugger)
         else:
             output += "\nIndependent diagnostics unavailable: executable or fixture source could not be resolved.\n"
     if not runtime_state["safe_to_release"]:
@@ -492,6 +540,18 @@ def main():
             diagnostics = linux_crash_diagnostics(executable, source)
         except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as error:
             diagnostics = f"Native Linux crash diagnostics failed: {type(error).__name__}: {error}\n"
+        report = args.output.with_name(args.output.stem + "-debugger.txt")
+        try:
+            report.write_text(diagnostics, encoding="utf-8")
+        except (OSError, ValueError) as error:
+            diagnostics += f"Could not save native debugger report: {error}\n"
+        print(diagnostics, end="")
+    if (runtime_state["safe_to_release"] and args.macos_crash_debugger and not args.artist_benchmark
+            and sys.platform == "darwin" and native_status is not None and native_status < 0):
+        try:
+            diagnostics = macos_crash_diagnostics(executable, source, runtime_state=runtime_state)
+        except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as error:
+            diagnostics = f"Native macOS crash diagnostics failed: {type(error).__name__}: {error}\n"
         report = args.output.with_name(args.output.stem + "-debugger.txt")
         try:
             report.write_text(diagnostics, encoding="utf-8")

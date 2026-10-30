@@ -209,14 +209,15 @@ jobs:
 
       - name: Test native application integration
         id: ui_integration
-        timeout-minutes: 40
+        # Original 10-minute run plus six bounded isolated/LLDB pairs and setup.
+        timeout-minutes: 45
         env:
           GZ_CAST_WORKFLOW_REPORT: ${{ github.workspace }}/toonz/build/cast-workflow-metrics.json
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: |
           app_libraries="$GITHUB_WORKSPACE/toonz/build/toonz/OpenToonz.app/Contents/MacOS"
           DYLD_LIBRARY_PATH="$app_libraries${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}" \
-            QT_QPA_PLATFORM=cocoa python3 ci-scripts/run_native_ui_test.py "$app_libraries/OpenToonz" stuff --require-function-workflow --require-offline-gl-workflow --require-vector-workflows --require-combined-workflows --output toonz/build/ui-integration-output.txt
+            QT_QPA_PLATFORM=cocoa python3 ci-scripts/run_native_ui_test.py "$app_libraries/OpenToonz" stuff --require-function-workflow --require-offline-gl-workflow --require-vector-workflows --require-combined-workflows --macos-crash-debugger --output toonz/build/ui-integration-output.txt
 
       - name: Report native application integration failure
         if: ${{ failure() && steps.ui_integration.outcome == 'failure' }}

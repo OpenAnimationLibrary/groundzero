@@ -267,32 +267,146 @@ class NativeDiagnosticContracts(unittest.TestCase):
         self.assertIn("function-workflow=FAIL (status -11)", output)
         self.assertNotIn("cast-workflow=PASS", output)
 
-    def test_both_debuggers_launch_the_exact_selected_suite(self):
+    def test_all_debuggers_launch_the_exact_selected_suite(self):
         kits = self.root / "sdk"
         cdb = kits / "Windows Kits" / "10" / "Debuggers" / "x64" / "cdb.exe"
         cdb.parent.mkdir(parents=True)
         cdb.write_bytes(b"mocked debugger; never executed\n")
         result = subprocess.CompletedProcess(["mock-debugger"], 0,
-                                             b"bounded diagnostic stack\n")
+                                             b"bounded diagnostic stack\nnative-lldb-target-cleanup: CONFIRMED\n")
         inherited = {"ProgramFiles(x86)": str(kits),
                      "GROUNDZERO_NATIVE_UI_SUITE": "untrusted-inherited-selector",
                      "GROUNDZERO_ARTIST_BENCHMARK": "1"}
-        for selected in (None, "function-workflow", "cast-workflow", "combined-cast-vector", "vector-renderer"):
-            for debugger_kind in ("linux", "windows"):
+        for selected in (None, *SUITES):
+            for debugger_kind in ("linux", "windows", "macos"):
                 with self.subTest(selected=selected, debugger=debugger_kind), \
                      mock.patch.dict(os.environ, inherited), \
                      mock.patch.object(runner.shutil, "which", return_value="mock-gdb"), \
                      mock.patch.object(runner, "run_captured_process", return_value=result) as launch:
                     if debugger_kind == "linux":
                         runner.linux_crash_diagnostics(self.executable, self.source, selected)
-                    else:
+                    elif debugger_kind == "windows":
                         runner.windows_crash_diagnostics(self.executable, self.source, 0xc0000005,
                                                          (), native_suite=selected)
+                    else:
+                        runner.macos_crash_diagnostics(self.executable, self.source, selected)
+                        command = launch.call_args.args[0]
+                        self.assertIn("--batch", command)
+                        self.assertIn("--no-lldbinit", command)
+                        self.assertIn("--one-line-on-crash", command)
+                        self.assertIn("thread backtrace all -c 40", command)
+                        self.assertEqual(command[-3:], ["--", str(self.executable), "--test-native-ui"])
                     options = launch.call_args.kwargs
                     self.assertEqual(options["environment"].get("GROUNDZERO_NATIVE_UI_SUITE"), selected)
                     self.assertNotIn("GROUNDZERO_ARTIST_BENCHMARK", options["environment"])
                     self.assertEqual(options["timeout"], 120)
                     self.assertFalse(options["cwd"].exists())
+
+    def test_macos_shutdown_crash_after_pass_markers_stays_failed(self):
+        for unsafe_debugger in (False, True):
+            with self.subTest(unsafe_debugger=unsafe_debugger):
+                def response(suite, command, options):
+                    if suite is None:
+                        return subprocess.CompletedProcess(command, 17, "original failure\n")
+                    result = self.passed(suite, command)
+                    if suite == "combined-timing":
+                        result.returncode = -11
+                        result.stdout += "native application cleanup completed\n"
+                    return result
+                def debug(*args, **kwargs):
+                    if unsafe_debugger:
+                        kwargs["runtime_state"]["safe_to_release"] = False
+                    return "LLDB stack; original crash remains failure\n"
+                with mock.patch.object(runner.sys, "platform", "darwin"), \
+                     mock.patch.object(runner, "macos_crash_diagnostics", side_effect=debug) as debugger:
+                    status, calls, output = self.invoke(response,
+                        extra_arguments=("--macos-crash-debugger",))
+                self.assertEqual(status, 1)
+                self.assertIn("combined-timing=FAIL (status -11)", output)
+                expected = [None, *SUITES[:3]] if unsafe_debugger else [None, *SUITES]
+                self.assertEqual([call[0] for call in calls], expected)
+                debugger.assert_called_once_with(self.executable.resolve(), self.source.resolve(),
+                                                 "combined-timing", runtime_state=mock.ANY)
+                report = self.report.with_name(self.report.stem + "-combined-timing-debugger.txt")
+                self.assertIn("LLDB stack", report.read_text(encoding="utf-8"))
+
+    def test_macos_original_signal_gets_separate_report_without_changing_failure(self):
+        def response(suite, command, options):
+            return (subprocess.CompletedProcess(command, -11, "original shutdown crash\n")
+                    if suite is None else self.passed(suite, command))
+        with mock.patch.object(runner.sys, "platform", "darwin"), \
+             mock.patch.object(runner, "macos_crash_diagnostics", return_value="LLDB original stack\n") as debugger:
+            status, calls, output = self.invoke(response,
+                extra_arguments=("--macos-crash-debugger",))
+        self.assertEqual(status, 1)
+        self.assertEqual([call[0] for call in calls], [None, *SUITES])
+        self.assertIn("status -11", output)
+        debugger.assert_called_once_with(self.executable.resolve(), self.source.resolve(), runtime_state=mock.ANY)
+        self.assertIn("LLDB original stack", self.report.with_name(
+            self.report.stem + "-debugger.txt").read_text(encoding="utf-8"))
+
+    def test_macos_unsafe_original_and_benchmark_do_not_launch_debugger(self):
+        for benchmark in (False, True):
+            with self.subTest(benchmark=benchmark):
+                def response(suite, command, options):
+                    if not benchmark:
+                        options["runtime_state"]["safe_to_release"] = False
+                    return subprocess.CompletedProcess(command, -11, "original crash\n")
+                with mock.patch.object(runner.sys, "platform", "darwin"), \
+                     mock.patch.object(runner, "macos_crash_diagnostics") as debugger:
+                    status, calls, _ = self.invoke(response, benchmark=benchmark,
+                        extra_arguments=("--macos-crash-debugger",), retained_count=0 if benchmark else 1)
+                self.assertEqual(status, 1)
+                self.assertEqual([call[0] for call in calls], [None])
+                debugger.assert_not_called()
+
+    def test_macos_unavailable_debugger_is_reported_without_launch(self):
+        with mock.patch.object(runner.shutil, "which", return_value=None), \
+             mock.patch.object(runner, "run_captured_process") as launch:
+            report = runner.macos_crash_diagnostics(self.executable, self.source, "combined-timing")
+        launch.assert_not_called()
+        self.assertIn("unavailable", report)
+        self.assertIn("no debugger process was launched", report)
+        self.assertIn("original native test failure remains authoritative", report)
+
+    def test_macos_cleanup_requires_emitted_line_and_bounds_report(self):
+        marker = b"native-lldb-target-cleanup: CONFIRMED"
+        for result_kind in ("confirmed", "echo-only", "timeout", "launch-error"):
+            with self.subTest(result_kind=result_kind):
+                state = {"safe_to_release": True}
+                directories = []
+                payload = b"beginning\n" + b"x" * (300 * 1024) + b"\nstack tail\n"
+                payload += marker + b"\n" if result_kind == "confirmed" else b"(lldb) script print('" + marker + b"')\n"
+                def launch(command, **options):
+                    directories.append(options["cwd"])
+                    self.assertEqual(options["timeout"], 120)
+                    self.assertEqual(options["environment"]["GROUNDZERO_NATIVE_UI_SUITE"], "combined-timing")
+                    state["output"] = payload
+                    if result_kind == "timeout":
+                        raise subprocess.TimeoutExpired(command, 120, output=payload)
+                    if result_kind == "launch-error":
+                        raise OSError("LLDB launch denied")
+                    return subprocess.CompletedProcess(command, 0, payload)
+                with mock.patch.object(runner.shutil, "which", return_value="mock-lldb"), \
+                     mock.patch.object(runner, "run_captured_process", side_effect=launch):
+                    report = runner.macos_crash_diagnostics(self.executable, self.source,
+                                                          "combined-timing", runtime_state=state)
+                self.assertEqual(state["safe_to_release"], result_kind == "confirmed")
+                self.assertIn("beginning", report)
+                self.assertIn("stack tail", report)
+                self.assertIn("output truncated", report)
+                self.assertLess(len(report.encode("utf-8")), 256 * 1024 + 2048)
+                self.assertEqual(len(directories), 1)
+                if result_kind == "confirmed":
+                    self.assertFalse(directories[0].exists())
+                else:
+                    self.assertTrue(directories[0].exists())
+                    self.addCleanup(runner.shutil.rmtree, directories[0])
+                    self.assertIn("target exit was not confirmed", report)
+                if result_kind == "timeout":
+                    self.assertIn("timed out after 120 seconds", report)
+                if result_kind == "launch-error":
+                    self.assertIn("OSError: LLDB launch denied", report)
 
     def test_unknown_diagnostic_selector_is_rejected(self):
         environment = {}
