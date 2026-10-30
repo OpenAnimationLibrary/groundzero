@@ -37,6 +37,7 @@
 
 class TFilePath;
 class TXshLevel;
+class TXshSimpleLevel;
 class TXsheet;
 class TStageObjectSpline;
 class ToonzScene;
@@ -112,6 +113,14 @@ public:
   // icons from toonz levels
   QPixmap getIcon(TXshLevel *sl, const TFrameId &fid, bool filmStrip = true,
                   bool onDemand = false);
+  // GUI-thread requests share the existing renderer/cache. A nonzero token
+  // identifies one actual generation, not a level/frame key. It completes once
+  // on success, error or cancellation; running cancellations finish normally.
+  quint64 requestIcon(TXshSimpleLevel *sl, const TFrameId &fid,
+                      bool filmStrip = true);
+  // Cache-only query: never queues or decodes a drawing.
+  quint64 pendingIconRequest(TXshSimpleLevel *sl, const TFrameId &fid,
+                             bool filmStrip = true) const;
   QPixmap getSizedIcon(TXshLevel *sl, const TFrameId &fid, std::string newId,
                        TDimension dim = TDimension(0, 0));
   QPixmap getResponsiveIcon(TXshLevel *sl, const TFrameId &fid,
@@ -162,6 +171,7 @@ public:
 signals:
 
   void iconGenerated();
+  void iconRequestFinished(quint64 request, bool generated);
 
 public slots:
 
@@ -180,9 +190,13 @@ private:
                                       //! termination.
 
   Settings m_settings;
+  quint64 m_nextRequest = 0;
+  std::map<std::string, quint64> m_pendingRequests;
 
 private:
   void addTask(const std::string &id, TThread::RunnableP iconRenderer);
+  bool isCurrentRequest(TThread::RunnableP iconRenderer) const;
+  void finishRequest(TThread::RunnableP iconRenderer, bool generated);
 };
 
 //**********************************************************************************

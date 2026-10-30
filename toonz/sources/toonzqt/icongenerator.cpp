@@ -503,6 +503,8 @@ class IconRenderer : public TThread::Runnable {
 
   bool m_started;
   bool m_terminated;
+  quint64 m_request = 0;
+  bool m_completed = false;
 
 public:
   IconRenderer(const std::string &id, const TDimension &iconSize);
@@ -518,6 +520,8 @@ public:
 
   bool &hasStarted() { return m_started; }
   bool &wasTerminated() { return m_terminated; }
+  quint64 &requestId() { return m_request; }
+  bool &completed() { return m_completed; }
 };
 
 //-----------------------------------------------------------------------------
@@ -532,6 +536,8 @@ IconRenderer::IconRenderer(const std::string &id, const TDimension &iconSize)
           &IconGenerator::onStarted);
   connect(this, &IconRenderer::finished, IconGenerator::instance(),
           &IconGenerator::onFinished);
+  connect(this, &IconRenderer::exception, IconGenerator::instance(),
+          &IconGenerator::onException);
   connect(this, &IconRenderer::canceled, IconGenerator::instance(),
           &IconGenerator::onCanceled, Qt::QueuedConnection);
   connect(this, &IconRenderer::terminated, IconGenerator::instance(),
@@ -1463,8 +1469,58 @@ TOfflineGL *IconGenerator::getOfflineGLContext(const TDimension &minSize) {
 
 void IconGenerator::addTask(const std::string &id,
                             TThread::RunnableP iconRenderer) {
-  iconsMap.insert(id);
-  m_executor.addTask(iconRenderer);
+  auto *renderer = static_cast<IconRenderer *>(iconRenderer.getPointer());
+  renderer->requestId() = ++m_nextRequest;
+  bool accepted = false;
+  try {
+    m_pendingRequests[id] = renderer->requestId();
+    iconsMap.insert(id);
+    m_executor.addTask(iconRenderer, accepted);
+  } catch (...) {
+    // Scheduling can throw after queue publication. Withdraw an idle task;
+    // an already running task must keep its token and complete normally.
+    if (accepted && !m_executor.withdrawQueuedTask(iconRenderer)) return;
+    if (isCurrentRequest(iconRenderer)) removeIcon(id);
+    finishRequest(iconRenderer, false);
+    throw;
+  }
+}
+
+quint64 IconGenerator::pendingIconRequest(TXshSimpleLevel *sl,
+                                         const TFrameId &fid, bool filmStrip) const {
+  if (!sl) return 0;
+  const auto id = filmstripIconBaseId(sl, fid) + (filmStrip ? "" : "_small");
+  const auto pending = m_pendingRequests.find(id);
+  return pending == m_pendingRequests.end() ? 0 : pending->second;
+}
+
+quint64 IconGenerator::requestIcon(TXshSimpleLevel *sl, const TFrameId &fid,
+                                  bool filmStrip) {
+  if (!sl) return 0;
+  // The shared cache can evict a completed raster while retaining its key.
+  // Revive that key only for an explicit request, never for a cache probe.
+  if (!pendingIconRequest(sl, fid, filmStrip)) {
+    const auto id = filmstripIconBaseId(sl, fid) + (filmStrip ? "" : "_small");
+    QPixmap image;
+    if (::getIcon(id, image, sl) && image.isNull()) removeIcon(id);
+  }
+  getIcon(sl, fid, filmStrip);
+  return pendingIconRequest(sl, fid, filmStrip);
+}
+
+bool IconGenerator::isCurrentRequest(TThread::RunnableP runnable) const {
+  auto *renderer = static_cast<IconRenderer *>(runnable.getPointer());
+  const auto current = m_pendingRequests.find(renderer->getId());
+  return !renderer->completed() && current != m_pendingRequests.end() &&
+         current->second == renderer->requestId();
+}
+
+void IconGenerator::finishRequest(TThread::RunnableP runnable, bool generated) {
+  auto *renderer = static_cast<IconRenderer *>(runnable.getPointer());
+  if (renderer->completed()) return;
+  if (isCurrentRequest(runnable)) m_pendingRequests.erase(renderer->getId());
+  renderer->completed() = true;
+  emit iconRequestFinished(renderer->requestId(), generated);
 }
 
 //-----------------------------------------------------------------------------
@@ -1493,15 +1549,8 @@ QPixmap IconGenerator::getIcon(TXshLevel *xl, const TFrameId &fid,
   if (TXshSimpleLevel *sl = xl->getSimpleLevel()) {
     // make thumbnails for cleanup preview and cameratest to be the same as
     // normal TLV
-    std::string id;
     int status = sl->getFrameStatus(fid);
-    if (sl->getType() == TZP_XSHLEVEL &&
-        status & TXshSimpleLevel::CleanupPreview) {
-      sl->setFrameStatus(fid, status & ~TXshSimpleLevel::CleanupPreview);
-      id = sl->getIconId(fid);
-      sl->setFrameStatus(fid, status);
-    } else
-      id = sl->getIconId(fid);
+    std::string id = filmstripIconBaseId(sl, fid);
 
     if (!filmStrip) id += "_small";
 
@@ -1510,10 +1559,8 @@ QPixmap IconGenerator::getIcon(TXshLevel *xl, const TFrameId &fid,
 
     if (onDemand) return pix;
 
-    IconGenerator::Settings oldSettings = m_settings;
-
     // Disable transparency check for cast and xsheet icons
-    if (!filmStrip) m_settings = IconGenerator::Settings();
+    const Settings settings = filmStrip ? m_settings : Settings();
 
     TDimension iconSize = filmStrip ? m_iconSize : TDimension(80, 60);
 
@@ -1527,7 +1574,7 @@ QPixmap IconGenerator::getIcon(TXshLevel *xl, const TFrameId &fid,
       break;
     case PLI_XSHLEVEL:
       addTask(id,
-              new VectorImageIconRenderer(id, iconSize, sl, fid, m_settings));
+              new VectorImageIconRenderer(id, iconSize, sl, fid, settings));
       break;
     case TZP_XSHLEVEL:
       // Yep, we could have rasters, due to a cleanupping process
@@ -1535,17 +1582,15 @@ QPixmap IconGenerator::getIcon(TXshLevel *xl, const TFrameId &fid,
         addTask(id, new RasterImageIconRenderer(id, iconSize, sl, fid));
       else
         addTask(id,
-                new ToonzImageIconRenderer(id, iconSize, sl, fid, m_settings));
+                new ToonzImageIconRenderer(id, iconSize, sl, fid, settings));
       break;
     case MESH_XSHLEVEL:
-      addTask(id, new MeshImageIconRenderer(id, iconSize, sl, fid, m_settings));
+      addTask(id, new MeshImageIconRenderer(id, iconSize, sl, fid, settings));
       break;
     default:
       addTask(id, new NoImageIconRenderer(id, iconSize));
       break;
     }
-
-    m_settings = oldSettings;
   }
 
   return QPixmap();
@@ -1923,7 +1968,8 @@ void IconGenerator::onCanceled(TThread::RunnableP iconRenderer) {
   IconRenderer *ir = static_cast<IconRenderer *>(iconRenderer.getPointer());
 
   if (!ir->hasStarted()) {
-    removeIcon(ir->getId());
+    if (isCurrentRequest(iconRenderer)) removeIcon(ir->getId());
+    finishRequest(iconRenderer, false);
   }
 }
 
@@ -1932,12 +1978,21 @@ void IconGenerator::onCanceled(TThread::RunnableP iconRenderer) {
 void IconGenerator::onFinished(TThread::RunnableP iconRenderer) {
   IconRenderer *ir = static_cast<IconRenderer *>(iconRenderer.getPointer());
 
+  // Invalidating a frame may queue a replacement before this result arrives.
+  // Only that latest generation may publish into the shared cache.
+  if (!isCurrentRequest(iconRenderer) || !iconsMap.count(ir->getId())) {
+    finishRequest(iconRenderer, false);
+    if (ir->wasTerminated()) m_iconsTerminationLoop.quit();
+    return;
+  }
+
   // if the icon was generated in TToonzImage format, cache it instead
   ToonzImageIconRenderer *tir = dynamic_cast<ToonzImageIconRenderer *>(ir);
   if (tir) {
     TRasterCM32P timgp = tir->getIcon_TnzImg();
     if (timgp) {
       ::setIcon_TnzImg(ir->getId(), timgp);
+      finishRequest(iconRenderer, true);
       emit iconGenerated();
       if (ir->wasTerminated()) m_iconsTerminationLoop.quit();
       return;
@@ -1947,7 +2002,11 @@ void IconGenerator::onFinished(TThread::RunnableP iconRenderer) {
   // Update the icons map
   if (ir->getIcon()) {
     ::setIcon(ir->getId(), ir->getIcon());
+    finishRequest(iconRenderer, true);
     emit iconGenerated();
+  } else {
+    removeIcon(ir->getId());
+    finishRequest(iconRenderer, false);
   }
 
   if (ir->wasTerminated()) m_iconsTerminationLoop.quit();
@@ -1957,6 +2016,9 @@ void IconGenerator::onFinished(TThread::RunnableP iconRenderer) {
 
 void IconGenerator::onException(TThread::RunnableP iconRenderer) {
   IconRenderer *ir = static_cast<IconRenderer *>(iconRenderer.getPointer());
+
+  if (isCurrentRequest(iconRenderer)) removeIcon(ir->getId());
+  finishRequest(iconRenderer, false);
 
   if (ir->wasTerminated()) m_iconsTerminationLoop.quit();
 }
