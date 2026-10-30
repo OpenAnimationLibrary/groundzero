@@ -1,0 +1,120 @@
+# Artist workflow acceptance ledger
+
+Baseline: `edition` at `aa01975f38d6226156e5b07df7271b8fc199d003` (2026-10-30).
+
+All 60 requested improvements remain tracked. Source implementation, executed CI and physical artist validation are separate states. No item is complete merely because a control or test exists. Builds and tests run in supported CI, not locally. Every PR must be reconciled against the then-current `edition` before publication; passing results must identify its exact final head. No merge is authorized by this work.
+
+## Ownership and publication
+
+| Track | Items | Branch | PR |
+|---|---|---|---|
+| Function Editor | 1–18 | `improve/function-editor-workflow` | [Draft #116](https://github.com/OpenAnimationLibrary/groundzero/pull/116) |
+| Vector editing | 19–36 | `improve/vector-editing-workflow` | Pending |
+| Scene Cast | 37–52 | `improve/scene-cast-workflow` | Pending |
+| Animation workflow and reliability | 53–58 | `improve/animation-workflow-reliability` | [Draft #117](https://github.com/OpenAnimationLibrary/groundzero/pull/117) |
+| Performance and cache management | 59–60 | `improve/artist-workflow-performance` | [Draft #118](https://github.com/OpenAnimationLibrary/groundzero/pull/118) |
+
+Raster Krita/Photoshop brush compatibility is separately owned and excluded. Neural/color-style work in PR #114 is separately owned and excluded. Vector opacity/width/paint modes here operate on native vector artwork, not the external raster brush engine. Reuse existing native SeExpr, particle, collection and UI capabilities. Coordinate common CMake, command registrations, preferences and native integration fixtures explicitly.
+
+## Current progress
+
+No item is CI-qualified yet. Draft publication starts validation and does not
+close the remaining work. The detailed ledgers record implemented source and
+remaining checks separately:
+
+* Function Editor: source and full-application fixtures published, including quantization,
+  marker snapping and preset filtering; exact-head CI is pending.
+  See `doc/function_editor_acceptance.md` in #116.
+* Vector editing: implementation is still being integrated, including versioned
+  opacity envelopes and their native render/export behavior. No draft yet.
+* Scene Cast: initial workflows and fixtures exist; confirmed consolidation,
+  saved preview covers and additional inspector/collection acceptance remain
+  in progress. No draft yet.
+* Animation reliability: source and a review correction preserving untouched storyboard key fields
+  are published, together with full export write/cancel checks. Item 36's compatibility/export findings await vector integration.
+  See `doc/animation_workflow_acceptance.md` in #117.
+* Performance/cache: source and fixtures published, including two deterministic
+  concurrency regressions and actual native-workload correctness checks.
+  See `doc/artist_workload_and_media_cache.md` in #118.
+
+Cross-branch integration must reconcile native UI hooks, CI manifests and
+command registrations, then test their combined behavior. Function Editor
+locks/identities must remain intact through storyboard operations. The new
+vector format must appear in compatibility/export reports. Existing edition
+work remains the base; raster brush and neural changes retain separate owners.
+
+## Acceptance
+
+`Pending` means not yet accepted, including source work in progress. `Source-ready` requires complete implementation and fixtures; `CI-qualified` additionally requires all selected checks to pass on the exact revision. `Already satisfied` requires a source/test citation. `Blocked` requires the exact dependency, action and reason. Each track's detailed ledger supplies baseline evidence and implementation/test links.
+
+| # | Improvement | Acceptance contract | State |
+|---|---|---|---|
+| 1 | Proper Fit Selection | Selected multi-channel keys, single points and constants fit; current/all actions separate. | Source-ready; CI pending |
+| 2 | Searchable channels | Object/FX/parameter matching, clear/expansion restoration, selected curves remain explicit. | Source-ready; CI pending |
+| 3 | Saved channel sets | Stable owner identities; rename/delete, reload and workspace persistence. | Source-ready; CI pending |
+| 4 | Curve solo and edit locks | Every editing command respects locks; visible reference/solo state. | Source-ready; CI pending |
+| 5 | Multi-key numeric editing | Mixed values; absolute/relative operations, collisions, cancel, one undo transaction. | Source-ready; CI pending |
+| 6 | Precise multi-channel retiming | Multiple channels, pivot/range, quantization, collisions, repeat/undo. | Source-ready; CI pending |
+| 7 | Normalized curve display | Display-only normalized coordinates; native values and edits preserved. | Source-ready; CI pending |
+| 8 | Clear curve identification | Stable identities/colors with labels and high-DPI/theme readability. | Source-ready; CI pending |
+| 9 | Visible interpolation controls | Native interpolation/handle actions; multi-selection and keyboard access. | Source-ready; CI pending |
+| 10 | Explicit snapping controls | Frame/neighbor/marker targets; bypass modifier; unchanged default semantics. | Source-ready; CI pending |
+| 11 | Before/after curve overlays | Snapshot comparison, accept/revert, linked/native/SeExpr ownership. | Source-ready; CI pending |
+| 12 | Interactive breakdown slider | Preview/cancel; stage, Plastic and offset channels; driven channels protected. | Source-ready; CI pending |
+| 13 | Controlled key reduction | Independent sampled error bound, protected/held keys and undo. | Source-ready; CI pending |
+| 14 | Bake expressions to keys | Sampling range/step, units and output equivalence; cancellation and undo. | Source-ready; CI pending |
+| 15 | Visual motion-preset browser | Existing curve compatibility; browse/search/preview and amplitude/duration adaptation. | Source-ready; CI pending |
+| 16 | Channel dependency inspector | Sources/dependents, invalid references and owner navigation without second evaluator. | Source-ready; CI pending |
+| 17 | Large-rig graph performance | Large-rig correctness fixture and measured CI report; no unmeasured speed claim. | Source-ready; CI pending |
+| 18 | Keyboard/tablet editing | Focus, accessible targets, keyboard nudges/constraints and tablet manual checklist. | Source-ready; CI pending |
+| 19 | Opacity readback | Single/mixed opacity selection follows context without mutating drawing. | Pending |
+| 20 | Style opacity consistency | Relevant vector style render paths preserve stroke alpha with independent pixel fixtures. | Pending |
+| 21 | SVG stroke opacity | External SVG output carries palette alpha times stroke opacity. | Pending |
+| 22 | Visual width-profile manager | CRUD/import/export/previews, errors, overwrite/cancel and restart persistence. | Pending |
+| 23 | Width profiles across drawings | Selected drawings/level range, repeated exposures once, locked resources and undo. | Pending |
+| 24 | Pressure/profile blending | Zero-strength identity, replace/multiply semantics and pressure preservation. | Pending |
+| 25 | Fill-safe reshaping | Actual region-change preview/recovery in geometry edit flow; fills/undo saved. | Pending |
+| 26 | Persistent morph hints | Stable drawing/stroke identity, edits/deletions, reopen and compatibility. | Pending |
+| 27 | Correspondence preview | Matched/manual/unmatched preview matches committed inbetweens. | Pending |
+| 28 | Unmatched stroke handling | Explicit birth/death policy; endpoint and fill preservation, undo. | Pending |
+| 29 | Cross-frame gradient uniqueness | Single local/shared other-frame style, other drawings unchanged, undo. | Pending |
+| 30 | Animated gradient copying | Copy current vs animated style choice; keyframes, unlinking and reload. | Pending |
+| 31 | Outline stacking preservation | Native overlap/group pixel fidelity through outline conversion and undo. | Pending |
+| 32 | Closed-loop outlines | Inner/outer boundaries, tight loops, holes/winding and undo. | Pending |
+| 33 | Multi-drawing alignment | Explicit frame/reference scope; matching, groups and no index-only assumptions. | Pending |
+| 34 | Paint Inside/Selection | Clipping to region/selection; holes/groups, pressure, undo. | Pending |
+| 35 | Guided Drawing mode consistency | Guided Drawing honors paint mode or provides actionable explicit incompatibility. | Pending |
+| 36 | Along-stroke opacity | Opacity variation survives draw/split/join/morph/deform/render/export and versioned storage. | Pending |
+| 37 | Global Cast search | Name/path, folder/global scope, stable selection. | Pending |
+| 38 | Cast filters | Types and resource status predicates, combined with search. | Pending |
+| 39 | Where Used navigation | All nested occurrences, cycles bounded, exact instance navigation and multiselection. | Pending |
+| 40 | Batch relink preview | Ambiguous matches, explicit preview, identity/exposure preservation and undo. | Pending |
+| 41 | Distinct asset states | New/dirty/missing/external/read-only/cache states truthful without changing artwork. | Pending |
+| 42 | Unused-asset cleanup preview | Review/checklist, keep-spare metadata, undo without deleting source files. | Pending |
+| 43 | Folder undo | Create/rename/delete hierarchy and membership restoration, redo. | Pending |
+| 44 | Asset inspector | Resolution/DPI/frame gaps/palette/storage selection updates. | Pending |
+| 45 | Scrubbable thumbnails | Scrub/choose cover, bounds, persistence and bounded decoding. | Pending |
+| 46 | Audio audition | Native waveform/transport, stop-on-close/selection and no leaked playback. | Pending |
+| 47 | Tags and collections | Stable asset IDs, multi-tag queries and save/reload. | Pending |
+| 48 | Stable refresh state | Identity selection/scroll/expanded folders/sort retained through changes. | Pending |
+| 49 | Large-Cast responsiveness | Large fixture correctness and measured incremental update/ordering. | Pending |
+| 50 | Explicit duplicate consolidation | Content/identity/palette comparisons, explicit confirmation only, exposure-preserving undo. | Pending |
+| 51 | Collection/dependency report | Missing/conflicting dependencies and sizes, exact inclusion and relocated output verification. | Pending |
+| 52 | Linked ownership and local copy | Import vs linked state and explicit local copy with undo/collection preservation. | Pending |
+| 53 | Pose-library undo | Entire pose/base state, import/replace/delete, duplicate names and undo/reload. | Source-ready; CI pending |
+| 54 | Timing-aware storyboard moves | Cells/audio/native animation move as one undo; locked/boundary rules explicit. | Source-ready; CI pending |
+| 55 | Source/playback timing indicators | Clear edit source vs playback drawing, nested/remap/range transitions. | Source-ready; CI pending |
+| 56 | Scene compatibility report | Read-only target-feature inventory, unsupported/lossy semantics and navigation. | Pending vector #36 integration; core source ready |
+| 57 | Export fidelity preflight | Lottie/SVG unsupported-feature inspection before write; cancel and explicit conversion. | Pending vector #36 integration; core source ready |
+| 58 | Recovery completeness status | Current snapshot complete/partial/errors/retry visible without losing pending resources. | Source-ready; CI pending |
+| 59 | Artist-workload benchmarks | Actual native pen/scrub/playback/resource-save/memory metrics, correctness and provenance. | Source-ready; CI pending |
+| 60 | Safe disk-cache management | Usage/budget/manual cleanup, cross-process leases, atomic retirement, cancellation/errors. | Source-ready; CI pending |
+
+## Shared regression gates
+
+- Document edits are one coherent undo operation; repeated commands, cancellation, failed persistence and reload preserve identity and prior data.
+- Multi-selection and nested xsheets use stable owners and exact instance paths; no hidden or stale selection is edited inadvertently.
+- Existing scenes, SeExpr bindings, particle resources and library import/link semantics retain their behavior.
+- Search, previews and analysis do not mutate scene data. Destructive asset operations require a concrete preview and do not silently remove source files.
+- Keyboard focus, translated captions, accessible names, high-DPI hit targets and bounded work are covered where applicable. Automated offscreen/native tests do not establish physical tablet validation.
+

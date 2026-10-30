@@ -169,6 +169,21 @@ int main(int argc, char **argv) {
     MediaCache::testHooks().afterProtectedGeneration = {};
     require(finished && MediaCache::usage(root).generations == 0,
             "background budget lost the final reader-close request");
+    const QString incomplete = generation(root, 'd');
+    const QString partial = incomplete + ".partial-Ab12Cd";
+    require(QDir().rename(incomplete + ".frames", partial), "cannot stage partial extraction");
+    {
+      QLockFile extractor(incomplete + ".lock");
+      extractor.setStaleLockTime(0);
+      require(extractor.tryLock(0), "cannot hold native extraction lock");
+      const auto report = MediaCache::usage(root);
+      require(report.bytes == 4096 && report.activeBytes == 4096,
+              "partial extraction bytes were hidden from usage");
+      require(MediaCache::trim(root, 0).removedGenerations == 0 && QFileInfo::exists(partial),
+              "active partial extraction was removed");
+    }
+    require(MediaCache::trim(root, 0).removedGenerations == 1 && !QFileInfo::exists(partial),
+            "abandoned partial extraction could not be cleaned");
     std::cout << "Media cache leases, cancellation, retirement and budgets passed\n";
     return 0;
   } catch (const std::exception &error) {

@@ -62,8 +62,11 @@ QJsonObject distribution(const std::vector<double> &values) {
   std::sort(sorted.begin(), sorted.end());
   QJsonArray samples;
   for (double value : values) samples.append(value);
+  const size_t middle = sorted.size() / 2;
+  const double median = sorted.size() % 2 ? sorted[middle]
+                                         : (sorted[middle - 1] + sorted[middle]) / 2;
   return {{"unit", "ms"}, {"samples", samples},
-          {"median", sorted[sorted.size() / 2]},
+          {"median", median}, {"percentile_method", "nearest-rank"},
           {"p95", sorted[size_t(std::ceil(sorted.size() * .95)) - 1]}};
 }
 qint64 peakMemoryBytes() {

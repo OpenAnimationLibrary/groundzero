@@ -67,8 +67,10 @@ budget passes cannot evict against stale totals. A reader-close request that
 arrives during an automatic pass causes a fresh pass before the worker exits.
 Interrupted retired directories are counted and retried on later cleanup.
 
-The manager ignores source movies, export scratch files, incomplete extraction
-directories, unknown layouts and symlinks. Startup/shutdown no longer delete
+Partial extraction directories count toward usage and remain protected while
+their reader or extraction worker is alive. Abandoned partial directories are
+eligible for the same atomic retirement after a crash. The manager ignores
+source movies, export scratch files, unknown layouts and symlinks. Startup/shutdown no longer delete
 the shared FFmpeg cache; the generic Clear Cache command routes this category
 to the manager. Disk cleanup is intentionally not document undo: cached frames
 are regenerated from unchanged sources, and active generations are protected.

@@ -75,10 +75,10 @@ public:
 };
 
 struct Entry {
-  QString name;
+  QString name, directory;
   qint64 bytes = 0;
   QDateTime accessed;
-  bool active = false;
+  bool active = false, complete = true;
 };
 struct Report {
   qint64 bytes = 0, activeBytes = 0, removedBytes = 0;
@@ -129,16 +129,22 @@ inline std::vector<Entry> inventory(const QString &root,
   std::vector<Entry> entries;
   const QDir dir(root);
   if (!dir.exists()) return entries;
-  const auto folders = dir.entryInfoList({"import-v2-*.frames"},
+  const auto folders = dir.entryInfoList({"import-v2-*.frames", "import-v2-*.partial-*"},
                                          QDir::Dirs | QDir::NoSymLinks);
+  static const QRegularExpression partial(
+      "^(import-v2-[0-9a-f]{64})\\.partial-[A-Za-z0-9]{6}$");
   for (const auto &folder : folders) {
     if (canceled(cancel)) break;
-    const QString name = folder.fileName().chopped(7);
+    const auto match = partial.match(folder.fileName());
+    const bool complete = folder.fileName().endsWith(".frames");
+    const QString name = complete ? folder.fileName().chopped(7) : match.captured(1);
     if (!generationName(name)) continue;
     Entry entry;
     entry.name = name;
+    entry.directory = folder.fileName();
+    entry.complete = complete;
     entry.bytes = directoryBytes(folder.absoluteFilePath(), cancel);
-    entry.bytes += QFileInfo(dir.filePath(name + ".txt")).size();
+    if (complete) entry.bytes += QFileInfo(dir.filePath(name + ".txt")).size();
     entry.accessed = QFileInfo(dir.filePath(name + ".access")).lastModified();
     if (!entry.accessed.isValid()) entry.accessed = folder.lastModified();
     { Gate gate(root); entry.active = active(root, name); }
@@ -188,7 +194,8 @@ inline bool setBudget(const QString &root, qint64 bytes, QString *error) {
 }
 // Retire under the gate, then delete only the retired directory. A new reader
 // can recreate the original generation while deletion proceeds. Export scratch
-// files, source movies, partial extractions and unknown directories are untouched.
+// files, source movies and unknown directories are untouched. Partial extraction
+// folders use the same base reader/writer locks and become eligible after a crash.
 inline Report trim(const QString &root, qint64 target,
                    const std::atomic<bool> *cancel = nullptr) {
   Report report;
@@ -250,7 +257,7 @@ inline Report trim(const QString &root, qint64 target,
           continue;
         }
         if (report.bytes <= target) continue;
-        const QString source = dir.filePath(entry.name + ".frames");
+        const QString source = dir.filePath(entry.directory);
         if (!QFileInfo(source).isDir() || QFileInfo(source).isSymLink()) continue;
         retired = dir.filePath(".retired-" + entry.name + "-" +
                                QUuid::createUuid().toString(QUuid::WithoutBraces));
@@ -258,10 +265,12 @@ inline Report trim(const QString &root, qint64 target,
           report.errors.append("Cannot retire cached generation " + entry.name);
           continue;
         }
-        for (const QString &suffix : {QString(".txt"), QString(".access")}) {
-          const QString path = dir.filePath(entry.name + suffix);
-          if (QFileInfo::exists(path) && !QFile::remove(path))
-            report.errors.append("Cannot remove cached metadata " + entry.name);
+        if (entry.complete) {
+          for (const QString &suffix : {QString(".txt"), QString(".access")}) {
+            const QString path = dir.filePath(entry.name + suffix);
+            if (QFileInfo::exists(path) && !QFile::remove(path))
+              report.errors.append("Cannot remove cached metadata " + entry.name);
+          }
         }
       }
       // Finish a retirement even if cancellation arrives during deletion. It
