@@ -6,7 +6,9 @@
 #include "tstream.h"
 
 // TnzBase includes
+#include "tdoubleparam.h"
 #include "tparamcontainer.h"
+#include "tparamset.h"
 #include "tfxattributes.h"
 #include "texternfx.h"
 #include "tpassivecachemanager.h"
@@ -14,6 +16,7 @@
 // STD includes
 #include <set>
 #include <memory>  // For std::unique_ptr
+#include <vector>
 
 #include "tfx.h"
 
@@ -33,6 +36,26 @@ TIStream &operator>>(TIStream &in, TFxP &p) {
 //------------------------------------------------------------------------------
 
 namespace {
+
+// Optional Function Editor identities must survive even when an effect omits
+// an unused parameter. Inspect containers as well (for example a tint's red
+// channel), without changing the effect's value-based usage/rendering rules.
+bool hasWorkspaceIdentity(const TParam *param) {
+  std::set<const TParam *> visited;
+  std::vector<const TParam *> pending{param};
+  while (!pending.empty()) {
+    const TParam *current = pending.back();
+    pending.pop_back();
+    if (!current || !visited.insert(current).second) continue;
+    if (const auto *curve = dynamic_cast<const TDoubleParam *>(current)) {
+      if (!curve->getWorkspaceId().empty()) return true;
+    } else if (const auto *set = dynamic_cast<const TParamSet *>(current)) {
+      for (int i = 0; i < set->getParamCount(); ++i)
+        pending.push_back(set->getParam(i).getPointer());
+    }
+  }
+  return false;
+}
 
 class FxPrecisionScope {
   TOStream *m_stream;
@@ -903,8 +926,10 @@ void TFx::saveData(TOStream &os) {
         const TParamVar *paramVar = getParams()->getParamVar(i);
         // Skip saving for obsolete parameters
         if (paramVar->isObsolete()) continue;
-        // Skip saving for parameters that the fx does not want to be saved
-        if (!isParamSaved(paramVar)) continue;
+        // Keep otherwise-unused parameters when their editor identity is saved.
+        if (!isParamSaved(paramVar) &&
+            !hasWorkspaceIdentity(paramVar->getParam()))
+          continue;
         os.openChild(paramName);
         paramVar->getParam()->saveData(os);
         os.closeChild();
