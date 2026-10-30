@@ -474,7 +474,7 @@ class OriginalMacCrashRunnerContracts(unittest.TestCase):
                     self.assertEqual(status, 1)
                     self.assertEqual(collect.call_count, 2)
                     self.assertEqual(retained_path.read_bytes(), observed["before"])
-                    self.assertIn(absent.encode("utf-8"), observed["before"])
+                    self.assertIn(absent.rstrip("\n").encode("utf-8"), observed["before"].splitlines())
                     self.assertFalse(observed["temporary"].exists())
                     self.assertEqual(list(self.root.glob(".*.tmp")), [])
                     self.assertIn("Native application exited with status -11", self.last_console)
