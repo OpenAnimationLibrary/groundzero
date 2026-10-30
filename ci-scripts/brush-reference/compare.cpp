@@ -261,8 +261,8 @@ int main(int argc, char **argv) {
             QJsonObject{{"status", "measured-conversions-not-qualified"},
                         {"records", results}})
             .toJson());
-    std::cout
-        << "Measured five native conversions; source parity is not granted.\n";
+    std::cout << "Measured " << results.size()
+              << " native conversion cases; source parity is not granted.\n";
   } catch (const std::exception &e) {
     std::cerr << "::error::Brush comparison failed: " << e.what() << '\n';
     return 1;

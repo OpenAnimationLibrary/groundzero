@@ -1,11 +1,13 @@
 # Original brush reference fixtures
 
 The `Raster Brush Reference` workflow runs the official pinned Krita 5.3.4.1
-Linux application in an isolated CI profile. It generates 68 original parameter cases across five profiles:
+Linux application in an isolated CI profile. It generates 79 original parameter cases across five profiles:
 Pixel, legacy Smear, legacy Dulling, new Smear and new Dulling. Each includes
 diameter, spacing, opacity, flow and pressure-ramp probes. Wet profiles also
 probe pickup/color-rate endpoints, smear alpha and the smudge-length toggle;
-Dulling adds radius endpoints. These isolate observable parameter relationships
+Dulling adds stored radius values 0, 3, 100 and 300 (not a claim about UI range endpoints).
+Seven dry strokes of lengths 1, 2, 3, 4, 7, 16 and 32 pixels isolate initial-dab,
+spacing-boundary and final-dab behavior without inferring those rules from long strokes. These isolate observable parameter relationships
 for the independent implementation. The generated
 presets and input strip images are dedicated to CC0-1.0. No downloaded brush
 packs or third-party implementation source are included.
@@ -57,3 +59,11 @@ The six-platform package test matrix calibrates the calculation against publishe
 numerical pairs, including neutral colors and hue wrap boundaries, and checks
 black/white D65 conversion. This measurement code is confined to CI; it does not
 change production color management or neural styling.
+
+CI annotations are compact summaries bounded below the observed 4,096-byte
+message truncation and ten-message retention limits. Full-precision metrics,
+all preset controls and complete pixel outputs remain in the artifacts. The
+compact `wet` array is ordered: smudge strength, color rate, radius, strength
+option enabled, new model, mode, smear alpha. A stored value readback alone
+never proves that the source engine consumed that option; differing parameter
+cases must also be evaluated for observable output changes.

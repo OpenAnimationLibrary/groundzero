@@ -566,10 +566,14 @@ struct Stroke::Impl {
         for (int j = 0; j < side; ++j)
           for (int i = 0; i < side; ++i) {
             double u = (i + .5) / side * 2 - 1, v = (j + .5) / side * 2 - 1;
-            int xx =
-                int(std::floor(cx + u * radius * std::max(.01, smudgeRadius)));
-            int yy =
-                int(std::floor(cy + v * radius * std::max(.01, smudgeRadius)));
+            // Reservoir samples use the same local tip frame as deposition.
+            // Keeping this grid in canvas axes makes narrow/rotated tips pick
+            // up pixels outside their footprint and twists transported fields.
+            const double dx = (p.flipX ? -u : u) * radius * smudgeRadius,
+                         dy = (p.flipY ? -v : v) * radius * aspect *
+                              smudgeRadius;
+            int xx  = int(std::floor(cx + dx * c - dy * sn));
+            int yy  = int(std::floor(cy + dx * sn + dy * c));
             Pixel q = (xx >= 0 && yy >= 0 && xx < surface.width() &&
                        yy < surface.height())
                           ? surface.read(xx, yy)

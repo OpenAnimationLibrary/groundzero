@@ -65,6 +65,9 @@ for mode, modern in [("dry", False), ("smear", False), ("dulling", False), ("sme
         ("flow half", {}, 32, .1, [1, 1], 1, .5),
         ("pressure ramp", {"PressureSize": "true", "SizeUseCurve": "true", "SizeUseSameCurve": "true", "SizecommonCurve": "0,0;1,1;", "SizeSensor": '<params id="pressure"><curve>0,0;1,1;</curve></params>'}, 32, .1, [.1, 1], 1, 1),
     ]
+    if mode == "dry":
+        for length in (1, 2, 3, 4, 7, 16, 32):
+            variants.append(("short line " + str(length), {}, 32, .1, [1, 1], 1, 1))
     if mode != "dry":
         for value in ("0", "1"):
             variants.append(("pickup " + value, {"SmudgeRateValue": value}, 32, .1, [1, 1], 1, 1))
@@ -72,11 +75,12 @@ for mode, modern in [("dry", False), ("smear", False), ("dulling", False), ("sme
         variants.append(("smear alpha off", {"SmudgeRateSmearAlpha": "false"}, 32, .1, [1, 1], 1, 1))
         variants.append(("smudge length off", {"PressureSmudgeRate": "false"}, 32, .1, [1, 1], 1, 1))
         if mode == "dulling":
-            for value in ("0", "3"):
+            for value in ("0", "3", "100", "300"):
                 variants.append(("radius " + value, {"SmudgeRadiusValue": value}, 32, .1, [1, 1], 1, 1))
     for label, overrides, diameter, spacing, pressure, opacity, flow in variants:
         name = base if label == "baseline" else base + " " + label
         (resources / "paintoppresets" / (name + ".kpp")).write_bytes(preset(name, mode, modern, overrides, diameter, spacing))
         names.append(name)
-        cases.append({"preset": name, "variant": label, "diameter": diameter, "spacing": spacing, "pressure": pressure, "opacity": opacity, "flow": flow, "start": [256, 1024], "end": [1792, 1024], "overrides": overrides, "allowUnchanged": mode != "dry" and not modern and label == "pickup 0"})
+        end_x = 256 + int(label.rsplit(" ", 1)[1]) if label.startswith("short line ") else 1792
+        cases.append({"preset": name, "variant": label, "diameter": diameter, "spacing": spacing, "pressure": pressure, "opacity": opacity, "flow": flow, "start": [256, 1024], "end": [end_x, 1024], "overrides": overrides, "allowUnchanged": mode != "dry" and not modern and label == "pickup 0"})
 (root / "output" / "fixtures.json").write_text(json.dumps({"version": "5.3.4.1", "presets": names, "cases": cases, "license": "CC0-1.0", "width": 2048, "height": 2048, "input": "Node.paintLine API; not physical tablet delivery"}, indent=2))

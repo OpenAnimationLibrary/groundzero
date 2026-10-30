@@ -195,6 +195,68 @@ void testWetPressure() {
   require(low.read(64, 64).r > .9 && high.read(64, 64).b > .9,
           "wet pressure pickup was ignored");
 }
+void testWetPickupGeometry() {
+  for (auto mode : {Wet::Dulling, Wet::Smear}) {
+    for (double samplingRadius : {0.0, 1.0}) {
+      Canvas horizontal, vertical;
+      for (int y = 0; y < horizontal.h; ++y)
+        for (int x = 0; x < horizontal.w; ++x) {
+          Pixel color =
+              y >= 60 && y < 68 ? Pixel{1, 0, 0, 1} : Pixel{0, 0, 1, 1};
+          horizontal.write(x, y, color);
+          vertical.write(x, y, color);
+        }
+      Preset p;
+      p.wet          = mode;
+      p.size.value   = 32;
+      p.aspect.value = .125;
+      p.pickup       = 1;
+      p.colorRate    = 0;
+      p.smudgeRadius = samplingRadius;
+      Stroke first(horizontal, p);
+      p.angle.value = 90;
+      Stroke second(vertical, p);
+      require(first.add(sample(64.25, 64.25, 0)) &&
+                  second.add(sample(64.25, 64.25, 0)),
+              "rotated wet pickup failed");
+      require(horizontal.read(64, 64).r > .999,
+              "narrow wet tip sampled outside its footprint");
+      if (samplingRadius == 0)
+        require(vertical.read(64, 64).r > .999,
+                "zero pickup radius did not sample the dab center");
+      else
+        require(vertical.read(64, 64).b > .5,
+                "wet pickup ignored tip rotation");
+    }
+    Canvas original, mirrored;
+    for (int y = 0; y < original.h; ++y)
+      for (int x = 0; x < original.w; ++x) {
+        Pixel color = x < 64 ? Pixel{1, 0, 0, 1} : Pixel{0, 0, 1, 1};
+        original.write(x, y, color);
+        mirrored.write(x, y, color);
+      }
+    auto mask    = std::make_shared<Image>();
+    mask->width  = 2;
+    mask->height = 1;
+    mask->pixels = {{0, 0, 0, 1}, {0, 0, 0, 0}};
+    Preset p;
+    p.wet        = mode;
+    p.tip.shape  = Shape::Bitmap;
+    p.tip.images = {mask};
+    p.size.value = 32;
+    p.pickup     = 1;
+    p.colorRate  = 0;
+    Stroke first(original, p);
+    p.flipX = true;
+    Stroke second(mirrored, p);
+    require(first.add(sample(64, 64, 0)) && second.add(sample(64, 64, 0)),
+            "mirrored wet pickup failed");
+    // Bilinear filtering feathers the half-mask: symmetry, rather than an
+    // assumed hard edge, determines the expected channel relationship.
+    require(std::abs(original.read(60, 64).r - mirrored.read(67, 64).b) < 1e-12,
+            "wet pickup did not mirror with its asymmetric tip");
+  }
+}
 void testResourcesAndWet() {
   Preset p;
   p.wet   = Wet::Dulling;
@@ -366,6 +428,7 @@ int main() {
     testWashAndInput();
     testResourcesAndWet();
     testWetPressure();
+    testWetPickupGeometry();
     testStationaryAndBatching();
     testColorDynamics();
     testCubicCurves();

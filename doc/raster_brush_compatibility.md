@@ -303,8 +303,8 @@ two individually valid packages would retain 320 MiB of float image pixels.
 It must reject the excess image before allocation, return no partial records,
 and remain below a separately reported 320 MiB total-parent-RSS qualification
 envelope. The transaction image limit remains 256 MiB. This fixture qualifies
-that failure path only; it is not a universal RSS guarantee. Validation is pending
-until the new CI workload runs.
+that failure path only; it is not a universal RSS guarantee. The passing result
+and measured RSS are recorded below.
 
 Conversion notes are preserved in native packages and exposed by the editor's
 Brush details control, including older KPP conversion reports. The optional
@@ -349,3 +349,33 @@ Original byte fixtures cover typed values, sample IDs, every truncated prefix,
 duplicate keys and aggregate limits. Behavioral adapters and source-parity
 qualification remain required before this ledger's ABR behavioral row closes.
 [Adobe descriptor data layout](https://www.adobe.com/devnet-apps/photoshop/fileformatashtml/).
+
+
+## Current source measurements and installed-package gate
+
+At `50e067b46725bfba3eefada288d81f81dcecb333`, all 68 original source cases
+rendered in Krita 5.3.4.1, effective preset XML was captured, normal application
+shutdown completed, and the comparison process exited successfully. This closes
+the reference harness execution failure, **not** the behavioral parity gates.
+For example, the dry baseline measured premultiplied RGB MAE 0.008499 and alpha
+MAE 0.007807; legacy Smear measured 0.123856 and 0.151572 respectively. Both
+remain outside the required fidelity limits. Every native conversion still
+records source semantic support and source reference verification as false.
+All six OS/Qt brush suites, native metrics and importer fuzzing passed on that
+head; the complete application matrix was not yet finished when recorded.
+
+The installed-package workflow now also invokes the actual raster-brush workload
+from the produced AppImage, macOS application or Windows executable in an isolated
+profile. Its result is separate from the existing installed SeExpr workload;
+a passing expression test alone does not qualify the brush package. These newly
+added package brush checks require their own passing exact-head results.
+
+Native wet pickup uses the tip-local frame, including aspect, rotation and
+mirroring, for pre-deposit samples and transported fields. Radius zero samples
+the dab center exactly. Original regression fixtures check a narrow tip over a
+colored band, its 90-degree rotation, zero radius and an asymmetric mirrored
+mask in both native wet modes. This fixes native geometry handling; it does not
+implement Krita's four smudge equations. Seven short dry reference strokes add
+measurements around the 3.2-pixel spacing boundary, bringing the original source
+workload to 79 cases, including stored radius probes at 0, 3, 100 and 300. Those new geometry and short-stroke checks are pending CI
+until a head containing them is published and passes.
