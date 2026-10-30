@@ -12,6 +12,11 @@ on:
       - 'ci-scripts/brush-reference/annotations.py'
       - '.github/workflows/raster_brush_compatibility.yml'
   workflow_dispatch:
+    inputs:
+      windows_only:
+        description: 'Run only Windows diagnostics; not full PR qualification'
+        type: boolean
+        default: false
 permissions:
   contents: read
 concurrency:
@@ -19,6 +24,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   import-fuzz:
+    if: github.event_name != 'workflow_dispatch' || !inputs.windows_only
     runs-on: ubuntu-22.04
     timeout-minutes: 15
     steps:
@@ -66,7 +72,8 @@ jobs:
       fail-fast: false
       matrix:
         # macOS 14 retirement/brownouts: actions/runner-images#13518.
-        os: [ubuntu-22.04, windows-2022, macos-15]
+        # Pull requests always retain the complete release matrix.
+        os: ${{ github.event_name == 'workflow_dispatch' && inputs.windows_only && fromJSON('["windows-2022"]') || fromJSON('["ubuntu-22.04","windows-2022","macos-15"]') }}
         qt: ['5.15.2', '6.8.3']
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20

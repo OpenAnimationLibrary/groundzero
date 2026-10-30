@@ -1908,9 +1908,14 @@ void testSourcePixelPressureTransfer() {
         control.mappings = {Mapping{}};
         Canvas canvas;
         Stroke stroke(canvas, p);
-        auto first = sample(32, 32, 0), last = sample(48, 32, 1);
+        // The source defers a dab at the final input endpoint. Continue past
+        // x48 so the captured x768/x776 probes translated to x32/x40
+        // receive two/three interior dabs, as in the original long stroke.
+        auto first = sample(32, 32, 0), last = sample(56, 32, 1);
         first.pressure = last.pressure = pressure;
         require(stroke.add(first) && stroke.add(last), stroke.error().c_str());
+        require(stroke.dabCount() == 3,
+                "pressure transfer fixture must emit three interior dabs");
         const bool inactive      = !wash && !opacityControl;
         const bool strokeOpacity = wash && opacityControl;
         const int two            = inactive        ? 255
@@ -1919,10 +1924,20 @@ void testSourcePixelPressureTransfer() {
         const int three          = inactive        ? 255
                                    : strokeOpacity ? two
                                                    : (pressure == .25 ? 84 : 193);
-        require(
-            std::abs(std::lround(canvas.read(32, 32).a * 255) - two) <= 1 &&
-                std::abs(std::lround(canvas.read(40, 32).a * 255) - three) <= 1,
-            "source pressure transfer disagrees with original Node probes");
+        const auto actualTwo     = std::lround(canvas.read(32, 32).a * 255);
+        const auto actualThree   = std::lround(canvas.read(40, 32).a * 255);
+        const std::string diagnostic =
+            "source pressure transfer disagrees with original Node probes: "
+            "wash=" +
+            std::to_string(wash) +
+            " opacity=" + std::to_string(opacityControl) +
+            " pressure=" + std::to_string(pressure) +
+            " expected=" + std::to_string(two) + "," + std::to_string(three) +
+            " actual=" + std::to_string(actualTwo) + "," +
+            std::to_string(actualThree);
+        require(std::abs(actualTwo - two) <= 1 &&
+                    std::abs(actualThree - three) <= 1,
+                diagnostic.c_str());
         control.mappings.front().sensor = Sensor::TiltX;
         require(!validate(p).empty(),
                 "unmeasured Pixel transfer sensor admitted");
@@ -2185,11 +2200,17 @@ void testSourceWetWorkBounds() {
       ++prepared;
       return true;
     }
-    Pixel read(int, int) const override {
+    Pixel read(int x, int y) const override {
+      require(x >= 0 && y >= 0 && x < side && y < side,
+              "source wet read escaped the finite host");
       ++reads;
       return {0, 0, 0, 1};
     }
-    void write(int, int, const Pixel &) override { ++writes; }
+    void write(int x, int y, const Pixel &) override {
+      require(x >= 0 && y >= 0 && x < side && y < side,
+              "source wet write escaped the finite host");
+      ++writes;
+    }
   };
   for (const std::string model :
        {"legacy-smear", "new-smear", "legacy-dulling", "new-dulling"}) {
@@ -2200,10 +2221,10 @@ void testSourceWetWorkBounds() {
     p.size.value   = 4096;
     p.smudgeRadius = p.wet == Wet::Smear ? 0 : model == "new-dulling" ? 3 : 1;
     require(validate(p).empty(), "extreme source geometry eligibility changed");
-    // Smear's unclipped snapshot footprint exceeds the work budget. Dulling's
-    // clipped 4096-square footprint exactly consumes it, so even radius-zero
-    // center pickup must be charged before any host operation. Nonzero-radius
-    // cases additionally cover the real area-scaled physical sample count.
+    // Every model charges its full moving snapshot, including off-canvas
+    // pixels, before any host operation. Large dabs must not bypass the work
+    // budget by clipping to a smaller host. Nonzero-radius cases additionally
+    // cover the real area-scaled physical sample count.
     GuardSurface guard(p.wet == Wet::Smear ? 8192 : 4096);
     auto budget = std::make_shared<MemoryBudget>(1024u * 1024u * 1024u);
     for (double radius : {0.0, p.smudgeRadius}) {
@@ -2220,24 +2241,59 @@ void testSourceWetWorkBounds() {
       denied.finish();
       require(budget->used() == 0, "failed source wet stroke leaked budget");
     }
-    // Charge clipped raster area rather than a theoretical full brush square.
-    // A normal small corner snapshot remains legal and releases its state.
+    // The full D32 moving field is 34x34 for Smear and 35x34 for
+    // Dulling's half-pixel x lattice. At a 1x1 host corner it also needs
+    // four sparse 32x32 outside tiles, each with its charged node allowance.
+    // Host clipping must not hide either allocation from the budget.
     p.size.value   = 32;
     p.smudgeRadius = p.wet == Wet::Smear ? 0 : .5;
     GuardSurface corner(1);
     Stroke clipped(corner, p, 1024 * 1024, budget);
     const size_t settingsBytes = budget->used();
     require(clipped.add(sample(0, 0, 0)), clipped.error().c_str());
+    const size_t snapshotBytes =
+        size_t(p.wet == Wet::Smear ? 34 : 35) * 34 * sizeof(Pixel);
+    const size_t outsideTileBytes = 32 * 32 * sizeof(Pixel) + 128;
     require(
-        corner.prepared == 1 && budget->used() == settingsBytes + sizeof(Pixel),
-        "clipped source wet snapshot charged the wrong raster area");
+        corner.prepared == 1 && budget->used() == settingsBytes +
+                                                      snapshotBytes +
+                                                      4 * outsideTileBytes,
+        "source moving field or sparse outside tiles were not fully charged");
     clipped.finish();
-    require(budget->used() == 0, "clipped source wet snapshot leaked budget");
+    require(budget->used() == 0,
+            "source corner field or outside tiles leaked budget");
+    for (bool denySnapshot : {false, true}) {
+      const size_t cap = settingsBytes + 4 * outsideTileBytes +
+                         (denySnapshot ? snapshotBytes : 0) - 1;
+      auto limited = std::make_shared<MemoryBudget>(cap);
+      GuardSurface untouched(1);
+      Stroke denied(untouched, p, cap, limited);
+      require(
+          !denied.add(sample(0, 0, 0)) &&
+              denied.error() ==
+                  (denySnapshot ? "Source wet snapshot memory limit exceeded"
+                                : "Source off-canvas memory limit exceeded") &&
+              untouched.prepared == 0 && untouched.reads == 0 &&
+              untouched.writes == 0,
+          "source corner memory cap was not enforced before host access");
+      require(limited->used() ==
+                  settingsBytes + (denySnapshot ? 4 * outsideTileBytes : 0),
+              "failed source allocation escaped accounting");
+      denied.finish();
+      require(limited->used() == 0,
+              "denied source corner allocation leaked budget");
+    }
     GuardSurface outside(1);
-    Stroke offCanvas(outside, p);
-    require(offCanvas.add(sample(10000, 10000, 0)) && outside.prepared == 0 &&
-                outside.reads == 0 && outside.writes == 0,
-            "empty clipped source wet footprint touched the host");
+    Stroke offCanvas(outside, p, 1024 * 1024, budget);
+    const size_t outsideSettings = budget->used();
+    require(
+        offCanvas.add(sample(10000, 10000, 0)) && outside.prepared == 0 &&
+            outside.reads == 0 && outside.writes == 0 &&
+            budget->used() ==
+                outsideSettings + snapshotBytes + 9 * outsideTileBytes,
+        "fully outside wet field touched host or escaped memory accounting");
+    offCanvas.finish();
+    require(budget->used() == 0, "fully outside wet field leaked budget");
   }
 }
 void testSourceHardCircleAA() {

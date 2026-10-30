@@ -151,8 +151,9 @@ public:
                    static_cast<unsigned long>(status));
       return false;
     }
-    bool matched     = false;
-    UINT32 inspected = 0;
+    bool matched             = false;
+    UINT32 inspected         = 0;
+    unsigned int diagnostics = 0;
     QElapsedTimer deadline;
     deadline.start();
     for (unsigned int page = 0; page < 32 && deadline.elapsed() < 2000;
@@ -167,7 +168,54 @@ public:
       inspected += count;
       for (UINT32 i = 0; i < count; ++i) {
         const auto &event = *events[i];
-        if (!matches(event, application, package, port, start)) continue;
+        if (!matches(event, application, package, port, start)) {
+          // Bound diagnostics independently of the event scan. Never disclose
+          // application paths, package SIDs, or unrelated network addresses.
+          if (diagnostics++ < 16) {
+            const auto &header = event.header;
+            const bool appMatches =
+                (header.flags & FWPM_NET_EVENT_FLAG_APP_ID_SET) &&
+                header.appId.data && header.appId.size == application->size &&
+                std::memcmp(header.appId.data, application->data,
+                            application->size) == 0;
+            const bool packageMatches =
+                (header.flags & FWPM_NET_EVENT_FLAG_PACKAGE_ID_SET) &&
+                header.packageSid && IsValidSid(header.packageSid) &&
+                EqualSid(header.packageSid, package);
+            int loopback           = -1;
+            unsigned int direction = 0;
+            UINT64 filter          = 0;
+            if (event.type == FWPM_NET_EVENT_TYPE_CLASSIFY_DROP &&
+                event.classifyDrop) {
+              loopback  = event.classifyDrop->isLoopback ? 1 : 0;
+              direction = event.classifyDrop->msFwpDirection;
+              filter    = event.classifyDrop->filterId;
+            } else if (event.type == FWPM_NET_EVENT_TYPE_CAPABILITY_DROP &&
+                       event.capabilityDrop) {
+              loopback = event.capabilityDrop->isLoopback ? 1 : 0;
+              filter   = event.capabilityDrop->filterId;
+            }
+            std::fprintf(
+                stderr,
+                "WFP unmatched event: type=%d flags=0x%lx appMatch=%d "
+                "packageMatch=%d fresh=%d ipVersion=%d protocol=%u "
+                "localPort=%u remotePort=%u expectedPort=%u "
+                "remoteLoopback=%d localLoopback=%d loopback=%d "
+                "direction=%u filter=%llu\n",
+                int(event.type), static_cast<unsigned long>(header.flags),
+                int(appMatches), int(packageMatches),
+                int(CompareFileTime(&header.timeStamp, &start) >= 0),
+                int(header.ipVersion), unsigned(header.ipProtocol),
+                unsigned(header.localPort), unsigned(header.remotePort),
+                unsigned(port),
+                int(header.ipVersion == FWP_IP_VERSION_V4 &&
+                    header.remoteAddrV4 == INADDR_LOOPBACK),
+                int(header.ipVersion == FWP_IP_VERSION_V4 &&
+                    header.localAddrV4 == INADDR_LOOPBACK),
+                loopback, direction, static_cast<unsigned long long>(filter));
+          }
+          continue;
+        }
         const bool classify = event.type == FWPM_NET_EVENT_TYPE_CLASSIFY_DROP;
         const UINT64 filter = classify ? event.classifyDrop->filterId
                                        : event.capabilityDrop->filterId;
