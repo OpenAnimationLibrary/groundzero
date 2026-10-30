@@ -226,11 +226,15 @@ void sceneRetentionChecks() {
   std::cout << "icon-lifecycle-native: scene retention and reinstatement PASS" << std::endl;
 }
 
-bool closeThroughNativePrompt(QMainWindow *window, const QString &choice) {
+bool closeThroughNativePrompt(QMainWindow *window, const QString &choice,
+                              const char *phase) {
   QObject context;
   QTimer poll, deadline;
   bool queued = false, clicked = false;
+  bool dispatched = false, returned = false, closed = false;
+  std::exception_ptr closeFailure;
   QString failure;
+  std::cout << "icon-lifecycle-native: Quit " << phase << " begin" << std::endl;
   QObject::connect(&poll, &QTimer::timeout, &context, [&]() {
     if (queued || clicked || !failure.isEmpty()) return;
     queued = true;
@@ -264,11 +268,35 @@ bool closeThroughNativePrompt(QMainWindow *window, const QString &choice) {
   });
   poll.start(1);
   deadline.start(10000);
-  const bool closed = window->close();
+  // This fixture runs after the application's original exec() has returned.
+  // An accepted real close calls qApp->quit(), setting Qt's thread quit flag.
+  // A second QDialog::exec() outside an application exec boundary would then
+  // return immediately without servicing its decision button. Exercise every
+  // real close inside a fresh public application loop so Qt performs its own
+  // entry/exit cleanup; never reset private Qt state or bypass closeEvent().
+  QTimer::singleShot(0, &context, [&]() {
+    dispatched = true;
+    try {
+      closed = window->close();
+      returned = true;
+    } catch (...) {
+      closeFailure = std::current_exception();
+    }
+    // Cancel leaves the window open and does not quit. Finish only this test
+    // loop after the actual close call returns; accepted Quit has already
+    // performed the product's own terminal shutdown and quit request.
+    QApplication::exit(0);
+  });
+  const int loopResult = QApplication::exec();
   poll.stop();
   deadline.stop();
+  if (closeFailure) std::rethrow_exception(closeFailure);
+  require(loopResult == 0 && dispatched && returned,
+          "Native Quit application loop did not dispatch and complete its actual close");
   require(failure.isEmpty(), qPrintable(failure));
   require(clicked, "Native Quit did not deliver its actual decision button");
+  std::cout << "icon-lifecycle-native: Quit " << phase
+            << " decision returned closed=" << closed << std::endl;
   return closed;
 }
 
@@ -682,7 +710,7 @@ void runIconLifecycleNativeChecks() {
     level->getPalette()->setDirtyFlag(false);
     app->getCurrentScene()->setDirtyFlag(true);
     const int levelCount = source->getLevelSet()->getLevelCount();
-    require(!closeThroughNativePrompt(window, "Cancel") && window && window->isVisible() &&
+    require(!closeThroughNativePrompt(window, "Cancel", "Cancel") && window && window->isVisible() &&
                 !icons->isShutdownComplete() && app->getCurrentScene()->getScene() == source &&
                 source->getLevelSet()->getLevelCount() == levelCount &&
                 source->getLevelSet()->getLevel(level->getName()) == level.getPointer() &&
@@ -885,7 +913,7 @@ void runIconLifecycleNativeChecks() {
       }
     });
     releaseWhenStopping.start(1);
-    const bool closed = closeThroughNativePrompt(window, "Discard Changes");
+    const bool closed = closeThroughNativePrompt(window, "Discard Changes", "Discard with replacement");
     releaseWhenStopping.stop();
     watchdog.stop();
     icons->setTaskTestHook({});
@@ -927,7 +955,7 @@ void runIconLifecycleNativeChecks() {
     replacementLevel->getSimpleLevel()->getProperties()->setDirtyFlag(false);
     replacementLevel->getSimpleLevel()->getPalette()->setDirtyFlag(false);
     window->show();
-    require(closeThroughNativePrompt(window, "Discard Changes") &&
+    require(closeThroughNativePrompt(window, "Discard Changes", "Discard reviewed replacement") &&
                 app->getCurrentScene()->getScene() == replacementDuringDrain &&
                 replacementDuringDrain->getLevelSet()->getLevelCount() == 0 &&
                 !app->getCurrentScene()->getDirtyFlag(),

@@ -116,6 +116,14 @@ native application boundary it exercises:
 
 The test watchdogs release their own barriers and report failure. They do not
 qualify performance or make a timed delay count as successful retirement.
+Each real Quit decision runs in a fresh public `QApplication::exec` boundary
+after the original application loop has returned. An accepted close calls the
+product's `qApp->quit`; Qt's application-loop cleanup must run before another
+native decision dialog can execute. The fixture queues the actual window close,
+catches callback exceptions, and requires both dispatch and return as well as
+the real decision-button witness. Cancel ends only the test loop after the close
+returns false. Repeated accepted closes still exercise actual terminal shutdown,
+source preservation and later explicit clearing; private Qt state is untouched.
 The native runner requires the actual lifecycle PASS and worker-drained output
 lines as well as a zero process status; echoed or missing lines cannot qualify
 the full run, an isolated diagnostic, or the required timing gate. The timing
