@@ -572,7 +572,7 @@ public:
   void onAdd() override { m_newValue = m_param->getValue(); }
   int getSize() const override {
     const size_t bytes=sizeof(*this)+(m_oldValue.capacity()+m_newValue.capacity())*sizeof(wchar_t);
-    return int(std::min(bytes,size_t(std::numeric_limits<int>::max())));
+    return int((std::min)(bytes,size_t((std::numeric_limits<int>::max)())));
   }
 
   void undo() const override {
