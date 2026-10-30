@@ -34,6 +34,9 @@
 
 // Add memory header for smart pointers
 #include <memory>
+#include <cstring>
+#include "shellthumbnail.h"
+#include "toonz/shellthumbnail.h"
 
 using TCli::ArgumentT;
 using TCli::QualifierT;
@@ -454,6 +457,8 @@ void convert(const TFilePath &source, const TFilePath &dest,
 //------------------------------------------------------------------------
 
 int main(int argc, char *argv[]) {
+  if (argc > 1 && std::strcmp(argv[1], ShellThumbnail::Command) == 0)
+    return runShellThumbnail(argc, argv);
   std::string msg;
 
   // Initialize qualifiers

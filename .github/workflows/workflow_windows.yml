@@ -513,11 +513,11 @@ jobs:
           xcopy /Y /E /I recorder-encoder toonz\build\Opentoonz\otdev-recorder
           copy /Y .github\ot-dev\recorder\README.md toonz\build\Opentoonz\otdev-recorder\README.md
 
-      - name: Remove SeExpr test drivers from the package
+      - name: Remove native test drivers from the package
         shell: pwsh
         run: |
           $package = "toonz/build/Opentoonz"
-          $drivers = @("seexpr_plugin_test", "seexpr_animation_test", "seexpr_fx_test", "seexpr_surface_fx_test", "seexpr_native_animcurve_test", "glbsurface_test", "seexpr_editor_test", "seexpr_controls_test", "seexpr_range_test", "seexpr_batch_fixture")
+          $drivers = @("seexpr_plugin_test", "seexpr_animation_test", "seexpr_fx_test", "seexpr_surface_fx_test", "seexpr_native_animcurve_test", "glbsurface_test", "seexpr_editor_test", "seexpr_controls_test", "seexpr_range_test", "seexpr_batch_fixture", "ui_shellthumbnail_test")
           $suffixes = @(".exe", ".lib", ".exp", ".pdb", ".ilk", ".ipdb", ".iobj", ".exe.manifest")
           foreach ($driver in $drivers) {
             foreach ($suffix in $suffixes) {
@@ -526,7 +526,7 @@ jobs:
                 Remove-Item -LiteralPath $path -Force -ErrorAction Stop
               }
               if (Test-Path -LiteralPath $path) {
-                throw "A SeExpr test driver or companion artifact remained in the production package"
+                throw "A native test driver or companion artifact remained in the production package"
               }
             }
           }
@@ -535,7 +535,7 @@ jobs:
         shell: pwsh
         run: |
           foreach ($directory in @("toonz/build/RelWithDebInfo", "toonz/build/Opentoonz")) {
-            foreach ($name in @("opengl32.dll", "libgallium_wgl.dll", "OpenToonz.exe.local", "tcomposer.exe.local", "SeExprSdkFixture.dll", "SeExprInvalidFixture.dll")) {
+            foreach ($name in @("opengl32.dll", "libgallium_wgl.dll", "OpenToonz.exe.local", "tconverter.exe.local", "ui_shellthumbnail_test.exe.local", "tcomposer.exe.local", "SeExprSdkFixture.dll", "SeExprInvalidFixture.dll")) {
               if (Test-Path -LiteralPath (Join-Path $directory $name)) {
                 throw "A test-only renderer or SDK fixture remained in the application runtime or package"
               }
@@ -564,7 +564,7 @@ jobs:
       - name: Verify native UI renderer was removed from package
         shell: pwsh
         run: |
-          foreach ($name in @("opengl32.dll", "libgallium_wgl.dll", "OpenToonz.exe.local")) {
+          foreach ($name in @("opengl32.dll", "libgallium_wgl.dll", "OpenToonz.exe.local", "tconverter.exe.local", "ui_shellthumbnail_test.exe.local")) {
             if (Test-Path -LiteralPath (Join-Path "toonz/build/Opentoonz" $name)) {
               throw "A temporary native UI renderer file remained in the package"
             }

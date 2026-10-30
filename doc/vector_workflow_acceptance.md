@@ -38,7 +38,10 @@ verify raster-only conversion without a GUI platform.
 
 Added CTest names are `ui_vector_opacity`, `ui_vector_profilemanager`,
 `ui_vector_gradientanimation`, `ui_vector_svgopacity`, `ui_vector_pliprofile`,
-`ui_vector_morphworkflow`, and `ui_vector_contour_outline`. The repository's
+`ui_vector_morphworkflow`, and `ui_vector_contour_outline`. Windows additionally
+requires `ui_shellthumbnail`, which exercises the actual installed DLL provider
+and renderer subprocess from a COM worker without a GUI application in the host.
+The repository's
 three-platform CI registration and native-launcher checks remain the authority
 for executed results.
 
@@ -66,3 +69,19 @@ for executed results.
   pixel readback and a bounded spatial lookup. Unverified procedural styles
   capture a full viewport. Performance and memory costs are measured in CI;
   this branch makes no unmeasured speed claim.
+
+## Production caller preservation
+
+The default offscreen backend uses Qt compatibility contexts on every desktop
+platform. Native acceptance covers context nesting, sharing, GUI/background
+creation overlap, release and transfer between render threads, and ordinary and
+profiled PLI command-line conversion. Raster-only `tconverter` retains a
+QCoreApplication path that works without a display plugin.
+
+Windows Explorer's QCore/COM worker environment uses a bounded renderer
+subprocess, described in [Windows Shell Thumbnails](windows_shell_thumbnails.md).
+Its native CTest covers ordinary/profiled PLI and TNZ output through the real
+DLL factory, Unicode paths, small dimensions, cancellation, timeout, malformed
+payloads and temporary-file cleanup. The provider loads only Windows system
+libraries; GUI, GL and image-format dependencies stay in the installed helper.
+All of these execution results remain pending supported CI.

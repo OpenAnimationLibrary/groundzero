@@ -9,6 +9,8 @@ REQUIRED = {
     "ui_vector_svgopacity", "ui_vector_pliprofile", "ui_vector_morphworkflow",
     "ui_vector_contour_outline",
 }
+if sys.platform == "win32":
+    REQUIRED.add("ui_shellthumbnail")
 
 
 def main():
