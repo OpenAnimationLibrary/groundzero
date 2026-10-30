@@ -43,6 +43,7 @@
 #include <QFileDialog>
 #include <QMouseEvent>
 #include <QMetaObject>
+#include <QPointer>
 #include <QColor>
 #include <QApplication>  // for drag&drop
 #include <QDrag>
@@ -629,8 +630,10 @@ bool FunctionTreeModel::Channel::isIgnored() const {
   TDoubleParam *dp = dynamic_cast<TDoubleParam *>(m_param.getPointer());
   if (!dp) return false;
   FunctionTreeView *view = dynamic_cast<FunctionTreeView *>(m_model->m_view);
-  if (!view) return false;
-  return view->getXsheetHandle()->getXsheet()->isReferenceManagementIgnored(dp);
+  // Generic parameter editors and scene transitions need not have an Xsheet.
+  TXsheetHandle *handle = view ? view->getXsheetHandle() : nullptr;
+  TXsheet *xsheet = handle ? handle->getXsheet() : nullptr;
+  return xsheet && xsheet->isReferenceManagementIgnored(dp);
 }
 
 //-----------------------------------------------------------------------------
@@ -665,18 +668,11 @@ QVariant FunctionTreeModel::Channel::data(int role) const {
     return (isCurrent()) ? view->getViewer()->getCurrentTextColor()
                          : view->getTextColor();
   } else if (role == Qt::ToolTipRole) {
-    if (m_param->hasKeyframes()) {
-      TDoubleParam *dp = dynamic_cast<TDoubleParam *>(m_param.getPointer());
-      FunctionTreeView *view =
-          dynamic_cast<FunctionTreeView *>(m_model->m_view);
-      if (dp && view &&
-          view->getXsheetHandle()->getXsheet()->isReferenceManagementIgnored(
-              dp))
-        return tr(
-            "Some key(s) in this parameter loses original reference in "
-            "expression.\nManually changing any keyframe will clear the "
-            "warning.");
-    }
+    if (isIgnored())
+      return tr(
+          "Some key(s) in this parameter loses original reference in "
+          "expression.\nManually changing any keyframe will clear the "
+          "warning.");
     return TreeModel::Item::data(role);
   } else
     return TreeModel::Item::data(role);
@@ -1444,7 +1440,7 @@ void FunctionTreeModel::onChange(const TParamChange &tpc) {
     m_paramsChanged = true;
 
     struct Func final : public TFunctorInvoker::BaseFunctor {
-      FunctionTreeModel *m_obj;
+      QPointer<FunctionTreeModel> m_obj;
       // Use a copy of 'TParamChange' since callers declare
       // and free this value on the stack,
       // so we can't ensure its valid later on when the notifier executes.
@@ -1452,7 +1448,10 @@ void FunctionTreeModel::onChange(const TParamChange &tpc) {
 
       Func(FunctionTreeModel *obj, const TParamChange *tpc)
           : m_obj(obj), m_tpc(*tpc) {}
-      void operator()() override { m_obj->onParamChange(m_tpc.m_dragging); }
+      void operator()() override {
+        // Editors and temporary models may close before the queued update.
+        if (m_obj) m_obj->onParamChange(m_tpc.m_dragging);
+      }
     };
 
     QMetaObject::invokeMethod(TFunctorInvoker::instance(), "invoke",

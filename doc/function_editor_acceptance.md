@@ -59,3 +59,27 @@ The unit/widget manifest now fails if either required suite is missing or skippe
 while preserving every other registered `ui_` test. CI qualification and platform
 runtime staging remain pending. No automated fixture proves the manual
 visual/device checks listed above.
+
+## First CI failure and regression coverage
+
+The initial Linux widget run at `b9df36e8` reported `ui_functionworkflow`
+terminating with a segmentation fault before emitting a test checkpoint. The
+native operation suite passed in that run. Source review found an uninitialized
+Xsheet handle in `FunctionSheet` used by its zoom, show and paint paths,
+and unchecked Xsheet access in tree and spreadsheet reference-warning rendering.
+All optional sheet pointers are now initialized, and both views share the guarded
+`Channel::isIgnored()` query. The widget fixture explicitly constructs an
+unattached sheet and queries/paints both views with an absent Xsheet handle and
+with an empty handle. Flushed phase checkpoints and a targeted Linux debugger
+report preserve further failure evidence without changing the original CTest
+result. These are source-backed fixes; attribution of the original crash and
+runtime qualification remain pending the updated CI run.
+
+The same audit found a separate queued-notification lifetime bug:
+`FunctionTreeModel::onChange` retained a raw model pointer in its deferred
+functor. An edit followed by closing an editor or destroying a temporary model
+could therefore deliver to a deleted model at the next event loop. The functor
+now uses `QPointer`, and the regression explicitly destroys an edited viewer
+before delivering queued notifications, then verifies a live replacement still
+receives one coalesced update. Draining events before destruction is not used to
+hide this failure.
