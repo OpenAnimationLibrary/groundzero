@@ -2,6 +2,7 @@
 #include "castselection.h"
 #include "castbrowseractions.h"
 #include "nativeuiintegrationtest.h"
+#include "nativefiledialogtest.h"
 #include "libraryprovenanceintegrationtest.h"
 #include "tapp.h"
 #include "iocommand.h"
@@ -625,13 +626,7 @@ void runCastWorkflowIntegrationTest(QMainWindow *window) {
     std::cerr << "cast-workflow: relinking saved raster" << std::endl;
     DialogDriver driver([&](QDialog *dialog) {
       if (auto *files = qobject_cast<QFileDialog *>(dialog)) {
-        pickedFolder = true;
-        files->setDirectory(newDir); files->selectFile(newDir);
-        std::cerr << "cast-workflow: relink requested folder: " << newDir.toStdString()
-                  << "; dialog directory: " << files->directory().absolutePath().toStdString()
-                  << "; selected files: " << files->selectedFiles().join(" | ").toStdString()
-                  << "; replacement exists: " << QFileInfo(newDir + "/asset.png").exists() << std::endl;
-        dialog->accept();
+        pickedFolder = NativeUiTest::acceptDirectory(files, newDir);
       } else if (dialog->objectName() == "CastRelinkReview") {
         reviewed = true;
         if (auto *table = dialog->findChild<QTableWidget *>())
@@ -687,7 +682,7 @@ void runCastWorkflowIntegrationTest(QMainWindow *window) {
   {
     DialogDriver driver([&](QDialog *dialog) {
       if (auto *files = qobject_cast<QFileDialog *>(dialog)) {
-        files->setDirectory(oldDir); files->selectFile(oldDir); dialog->accept();
+        NativeUiTest::acceptDirectory(files, oldDir);
       } else if (dialog->objectName() == "CastRelinkReview") {
         dialog->accept();
         showProgressNextTurn("Validating replacement drawings…");
@@ -714,7 +709,7 @@ void runCastWorkflowIntegrationTest(QMainWindow *window) {
   {
     DialogDriver driver([&](QDialog *dialog) {
       if (auto *files = qobject_cast<QFileDialog *>(dialog)) {
-        files->setDirectory(oldDir); files->selectFile(oldDir); dialog->accept();
+        NativeUiTest::acceptDirectory(files, oldDir);
       } else if (dialog->objectName() == "CastRelinkReview") {
         dialog->accept();
         showProgressNextTurn("Validating replacement drawings…");
@@ -755,7 +750,7 @@ void runCastWorkflowIntegrationTest(QMainWindow *window) {
     std::cerr << "cast-workflow: stale local-copy preparation" << std::endl;
     DialogDriver driver([&](QDialog *dialog) {
       if (auto *files = qobject_cast<QFileDialog *>(dialog)) {
-        files->setDirectory(localDir); files->selectFile(localDir); dialog->accept();
+        NativeUiTest::acceptDirectory(files, localDir);
         showProgressNextTurn("Preparing local asset copies…");
       } else if (auto *message = qobject_cast<QMessageBox *>(dialog)) {
         messages << message->text();
@@ -789,7 +784,7 @@ void runCastWorkflowIntegrationTest(QMainWindow *window) {
   {
     DialogDriver driver([&](QDialog *dialog) {
       if (auto *files = qobject_cast<QFileDialog *>(dialog)) {
-        files->setDirectory(localDir); files->selectFile(localDir); dialog->accept();
+        NativeUiTest::acceptDirectory(files, localDir);
         showProgressNextTurn("Preparing local asset copies…");
       } else if (auto *message = qobject_cast<QMessageBox *>(dialog)) {
         if (message->standardButtons().testFlag(QMessageBox::Yes)) message->button(QMessageBox::Yes)->click();
