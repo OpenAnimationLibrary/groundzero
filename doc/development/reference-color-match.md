@@ -259,7 +259,10 @@ One process is leased per bounded inference batch, with at most 120 frames. It
 retains compiled models and one embedding within that batch, then exits; idle
 sessions hold no worker. Cancellation discards partial responses and unpublished
 results. Individual optical-flow calls finish before cancellation is observed.
-Requests have 30-second deadlines. The renderer reserves 800 MiB plus its output
+Active protocol requests have 30-second deadlines. Queue waiting is cancellable
+and uses FIFO admission with at most eight admitted waiters; it does not time out
+merely because a valid long batch is active. Additional callers receive
+cancellable backpressure. The renderer reserves 800 MiB plus its output
 tiles for the worker/history/cache/flow peak; output tiles are capped at 16 MP.
 The worker's measured CI peak must remain below 512 MiB. These are bounded design
 and measured checks, not an OS-enforced memory sandbox.
@@ -275,3 +278,14 @@ The editor, FX, temporal pass and their integration tests are authored but requi
 final-revision application CI and installed-package execution. Operator checks
 already qualify the selected native C API on all four architectures; that alone
 does not qualify this newly added product integration or artistic quality.
+
+Application CI emits `ReferenceStyle-*` artifacts with original synthetic cel and
+painted-background comparisons. Columns are source, independent neural and
+temporal; rows cover a pan, a held exposure and deformation/foreground occlusion.
+They include current-alpha/ink checks and known-motion difference measurements,
+plus an editor screenshot. Those metrics are not an artist approval. The tests
+also save and relocate an actual `.tnz` FX graph after removing its reference
+original, exercise end-to-end masked 8/16-bit and float rendering, and change or
+cancel a reference after real model inference starts. A separate installed-package
+gate verifies the shipped component hashes/notices and executes inference without
+development loader paths or a Python inference library.

@@ -6,6 +6,7 @@
 #include <QString>
 #include <atomic>
 #include <memory>
+#include <functional>
 
 #undef DVAPI
 #ifdef TOONZLIB_EXPORTS
@@ -43,6 +44,7 @@ class DVAPI Session final {
   struct Impl;
   std::unique_ptr<Impl> m_impl;
 public:
+  using Progress = std::function<void(int frame, int count)>;
   // Directory must come from the trusted application/component installer, never
   // a scene or arbitrary downloaded manifest. Checksums detect corruption, not
   // authenticity of an attacker-replaced executable and manifest together.
@@ -54,10 +56,10 @@ public:
   // the caller so preview and final render share the same preprocessing.
   bool style(const QImage &reference256, const QImage &content384,
              QImage &result, QString &error,
-             Cancellation cancel = {});
+             Cancellation cancel = {}, Progress progress = {});
   bool styleBatch(const QImage &reference256, const std::vector<QImage> &content384,
                   std::vector<QImage> &results, QString &error,
-                  Cancellation cancel = {});
+                  Cancellation cancel = {}, Progress progress = {});
   void stop();
 };
 }  // namespace NeuralStyle

@@ -39,6 +39,18 @@ try:
     print(result.stdout, flush=True)
     if result.returncode:
         raise RuntimeError("Neural FX qualification failed: " + result.stderr[-3000:])
+    name = "neuralstyle_editor_test" + (".exe" if os.name == "nt" else "")
+    editors = [p for p in Path("toonz/build").rglob(name)
+               if p.is_file() and "opentoonz" not in {part.lower() for part in p.parts}]
+    if len(editors) != 1:
+        raise RuntimeError("Expected exactly one built neural editor qualification executable")
+    if editors[0].parent != effects[0].parent:
+        shutil.copytree(package, editors[0].parent / "neural-style", dirs_exist_ok=True)
+    result = subprocess.run([str(editors[0].resolve()), str(Path("neural-evaluation/report/artist-review").resolve())],
+                            capture_output=True, text=True, timeout=180, env=environment)
+    print(result.stdout, flush=True)
+    if result.returncode:
+        raise RuntimeError("Neural editor qualification failed: " + result.stderr[-3000:])
     destinations = {"win32": "toonz/build/Opentoonz/neural-style",
                     "darwin": "toonz/build/toonz/OpenToonz.app/Contents/MacOS/neural-style"}
     destination = Path(destinations.get(sys.platform, "toonz/build/bin/neural-style"))

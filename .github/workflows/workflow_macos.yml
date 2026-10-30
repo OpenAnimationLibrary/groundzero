@@ -154,6 +154,14 @@ jobs:
       - name: Qualify native neural host
         run: python ci-scripts/neural-style/host.py
 
+      - name: Retain reference style qualification and visual examples
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ReferenceStyle-${{ runner.os }}-${{ github.sha }}
+          path: neural-evaluation/report
+          if-no-files-found: warn
+
       - name: Test native UI features
         id: ui_tests
         working-directory: toonz/build

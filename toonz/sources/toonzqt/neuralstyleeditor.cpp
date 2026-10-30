@@ -18,6 +18,7 @@
 #include <QSaveFile>
 #include <QTimer>
 #include <QVBoxLayout>
+#include <QVariant>
 #include <chrono>
 #include <future>
 
@@ -38,6 +39,7 @@ class Editor final:public QDialog {
   QDoubleSpinBox *crop[4];
   QPushButton *preview,*apply,*exportProfile;
   bool valid=false,busy=false;
+  quint64 generation=0;
   std::atomic_bool cancelled{false};
   std::future<Preview> task;
   QTimer poll;
@@ -45,7 +47,7 @@ class Editor final:public QDialog {
     view->setPixmap(QPixmap::fromImage(image.scaled(260,220,Qt::KeepAspectRatio,Qt::SmoothTransformation)));
   }
   void invalidate() {
-    cancelled=true;valid=false;apply->setEnabled(false);exportProfile->setEnabled(false);
+    ++generation;cancelled=true;valid=false;apply->setEnabled(false);exportProfile->setEnabled(false);
     after->clear();status->setText(tr("Inputs changed. Preview before using the reference."));
   }
   void load(int kind) {
@@ -84,9 +86,11 @@ class Editor final:public QDialog {
       status->setText(tr("Relink the original reference to change its crop. The embedded look remains available."));return;
     }
     const auto captured=profile;const auto image=source,style=reference,selection=mask;
+    const auto job=++generation;
     cancelled=false;busy=true;preview->setEnabled(false);apply->setEnabled(false);exportProfile->setEnabled(false);
-    status->setText(tr("Styling locally on the CPU. Cancel closes without applying."));
-    task=std::async(std::launch::async,[this,image,style,selection,area,captured]{
+    setProperty("neuralInferenceActive",false);
+    status->setText(tr("Waiting for the CPU worker or styling locally. Cancel closes without applying."));
+    task=std::async(std::launch::async,[this,image,style,selection,area,captured,job]{
       Preview result;result.profile=captured;
       try {
         if(!style.isNull() && !NeuralStyle::capture(style,selection,area,result.profile,result.error))return result;
@@ -94,7 +98,13 @@ class Editor final:public QDialog {
         if(content.isNull())return result;
         NeuralStyle::Session session(QDir(QCoreApplication::applicationDirPath()).filePath("neural-style"));
         QImage styled;
-        if(session.style(result.profile.reference,content,styled,result.error,&cancelled)) {
+        if(session.style(result.profile.reference,content,styled,result.error,&cancelled,[this,job](int,int){
+          QMetaObject::invokeMethod(this,[this,job]{
+            if(job!=generation || cancelled)return;
+            setProperty("neuralInferenceActive",true);
+            if(job==generation && !cancelled)status->setText(tr("Applying the captured texture locally..."));
+          },Qt::QueuedConnection);
+        })) {
           result.result=NeuralStyle::restoreSize(styled,image.size()).convertToFormat(QImage::Format_ARGB32);
           const auto original=image.convertToFormat(QImage::Format_ARGB32);
           for(int y=0;y<image.height();++y) {
@@ -143,7 +153,7 @@ public:
     for(auto view:{before,referenceView,after}){view->setMinimumSize(260,220);row->addWidget(view);}
     auto form=new QFormLayout();layout->addLayout(form);
     const char *names[]={"Source Sample...","Load / Relink Reference...","Reference Sampling Mask..."};
-    for(int i=0;i<3;++i){auto button=new QPushButton(tr(names[i]),this);form->addRow(button);connect(button,&QPushButton::clicked,this,[this,i]{load(i);});}
+    for(int i=0;i<3;++i){auto button=new QPushButton(tr(names[i]),this);button->setObjectName(QString("neuralLoad%1").arg(i));form->addRow(button);connect(button,&QPushButton::clicked,this,[this,i]{load(i);});}
     auto clearMask=new QPushButton(tr("Clear Mask"),this);form->addRow(clearMask);
     connect(clearMask,&QPushButton::clicked,this,[this]{
       if(reference.isNull() && !profile.maskDigest.isEmpty()) {
@@ -159,9 +169,11 @@ public:
     auto actions=new QHBoxLayout();layout->addLayout(actions);
     auto import=new QPushButton(tr("Import Profile..."),this);exportProfile=new QPushButton(tr("Export Profile..."),this);
     preview=new QPushButton(tr("Preview Texture"),this);actions->addWidget(import);actions->addWidget(exportProfile);actions->addWidget(preview);
+    preview->setObjectName("neuralPreview");exportProfile->setObjectName("neuralExport");
     connect(import,&QPushButton::clicked,this,[this]{importProfile();});connect(exportProfile,&QPushButton::clicked,this,[this]{save();});connect(preview,&QPushButton::clicked,this,[this]{start();});
     status=new QLabel(this);status->setWordWrap(true);layout->addWidget(status);
     auto buttons=new QDialogButtonBox(QDialogButtonBox::Cancel,this);apply=buttons->addButton(tr("Use Reference"),QDialogButtonBox::AcceptRole);layout->addWidget(buttons);
+    apply->setObjectName("neuralUseReference");
     connect(buttons,&QDialogButtonBox::rejected,this,&QDialog::reject);
     connect(apply,&QPushButton::clicked,this,[this]{if(valid && !busy)accept();});
     connect(&poll,&QTimer::timeout,this,[this]{

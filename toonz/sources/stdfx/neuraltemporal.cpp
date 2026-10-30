@@ -3,6 +3,7 @@
 #include <opencv2/imgproc.hpp>
 #include <opencv2/video/tracking.hpp>
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <stdexcept>
 
@@ -42,10 +43,16 @@ bool stabilize(const QImage &previous, const QImage &current,
   // the recurrence repeatedly to the same drawing, which would cause drift.
   if(previous==current && previousAlpha==currentAlpha) {result=previousStyled;return true;}
   const cv::Mat a=gray(previous),b=gray(current);
-  cv::Mat difference; cv::absdiff(a,b,difference);
-  // A conservative whole-frame cut guard. Explicit shot boundaries in the FX
-  // are authoritative; ambiguous large changes fall back to fresh inference.
-  if(cv::mean(difference)[0]>76.5) {result=fresh;return true;}
+  // A pan can produce a large pixelwise difference without being a cut. Use
+  // displacement-invariant tonal distributions for the early guard; motion
+  // consistency/residual/coverage checks below reject unrelated spatial content.
+  std::array<int,32> histogramA{},histogramB{};
+  for(int y=0;y<384;++y)for(int x=0;x<384;++x) {
+    ++histogramA[a.at<uchar>(y,x)/8];++histogramB[b.at<uchar>(y,x)/8];
+  }
+  double histogramDistance=0;
+  for(int i=0;i<32;++i)histogramDistance+=std::abs(histogramA[i]-histogramB[i]);
+  if(histogramDistance/(2*384*384)>.8) {result=fresh;return true;}
   cv::Mat forward,backward;
   cv::calcOpticalFlowFarneback(a,b,forward,.5,3,21,3,5,1.2,0);
   if(cancel && *cancel) return false;

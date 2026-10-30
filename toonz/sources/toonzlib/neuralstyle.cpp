@@ -17,6 +17,8 @@
 #include <limits>
 #include <mutex>
 #include <chrono>
+#include <condition_variable>
+#include <deque>
 
 namespace NeuralStyle {
 namespace {
@@ -24,7 +26,11 @@ constexpr quint32 Magic = 0x31535a47;
 constexpr int ContentCount = 384 * 384 * 3;
 constexpr int MaxReply = 16 + ContentCount * 4;
 constexpr int TimeoutMs = 30000;
-std::timed_mutex workerLease;
+std::mutex workerMutex;
+std::condition_variable workerAvailable;
+bool workerBusy = false;
+quint64 nextTicket = 0;
+std::deque<quint64> waiting;
 bool cancelled(Cancellation flag) { return flag(); }
 void appendWord(QByteArray &bytes, quint32 value) {
   const quint32 little = qToLittleEndian(value);
@@ -71,7 +77,10 @@ struct Session::Impl {
     process.readAllStandardError();
     reference.clear();
     sequence = 0;
-    if (ownsLease) { workerLease.unlock(); ownsLease = false; }
+    if (ownsLease) {
+      { std::lock_guard<std::mutex> lock(workerMutex); workerBusy = false; ownsLease = false; }
+      workerAvailable.notify_all();
+    }
   }
   bool fail(QString &error, const QString &message) {
     error = message;
@@ -165,13 +174,30 @@ struct Session::Impl {
         !verify(manifest, "runtime", runtime, error, cancel) ||
         !verify(manifest, "prediction", prediction, error, cancel) ||
         !verify(manifest, "transfer", transfer, error, cancel)) return false;
-    QElapsedTimer queued;
-    queued.start();
-    while (!workerLease.try_lock_for(std::chrono::milliseconds(20))) {
-      if (cancelled(cancel)) return fail(error, "Neural styling cancelled.");
-      if (queued.elapsed() > TimeoutMs) return fail(error, "Neural worker queue timed out.");
+    {
+      std::unique_lock<std::mutex> lock(workerMutex);
+      // At most eight admitted waiters; further callers receive cancellable
+      // backpressure. Queue time is not an inference timeout: valid active
+      // work may take a full shot, and must not make another request fail.
+      while (waiting.size() >= 8) {
+        if (cancelled(cancel)) return fail(error, "Neural styling cancelled.");
+        workerAvailable.wait_for(lock, std::chrono::milliseconds(20));
+      }
+      const quint64 ticket = ++nextTicket;
+      waiting.push_back(ticket);
+      for (;;) {
+        if (cancelled(cancel)) {
+          waiting.erase(std::find(waiting.begin(), waiting.end(), ticket));
+          workerAvailable.notify_all();
+          return fail(error, "Neural styling cancelled.");
+        }
+        if (!workerBusy && waiting.front() == ticket) {
+          waiting.pop_front(); workerBusy = true; ownsLease = true;
+          workerAvailable.notify_all(); break;
+        }
+        workerAvailable.wait_for(lock, std::chrono::milliseconds(20));
+      }
     }
-    ownsLease = true;
     auto environment = QProcessEnvironment::systemEnvironment();
     for (const auto &name : environment.keys())
       if (name.startsWith("PYTHON") || name.startsWith("DYLD_") || name.startsWith("LD_"))
@@ -224,14 +250,14 @@ void Session::stop() {
   if (QThread::currentThread() == m_impl->thread) m_impl->stop();
 }
 bool Session::style(const QImage &reference, const QImage &content, QImage &result,
-                    QString &error, Cancellation cancel) {
+                    QString &error, Cancellation cancel, Progress progress) {
   std::vector<QImage> images;
-  if (!styleBatch(reference, {content}, images, error, cancel)) return false;
+  if (!styleBatch(reference, {content}, images, error, cancel, progress)) return false;
   result = images.front();
   return true;
 }
 bool Session::styleBatch(const QImage &reference, const std::vector<QImage> &contents,
-                         std::vector<QImage> &results, QString &error, Cancellation cancel) {
+                         std::vector<QImage> &results, QString &error, Cancellation cancel, Progress progress) {
   error.clear();
   if (QThread::currentThread() != m_impl->thread) {
     error = "Neural session must remain on its owning thread.";
@@ -267,6 +293,7 @@ bool Session::styleBatch(const QImage &reference, const std::vector<QImage> &con
   complete.reserve(contents.size());
   for (size_t i=0; i<contents.size(); ++i) {
     if (cancelled(cancel)) return m_impl->fail(error, "Neural styling cancelled.");
+    if (progress) progress(int(i),int(contents.size()));
     if (i && contents[i] == contents[i-1]) { complete.push_back(complete.back()); continue; }
     if (!m_impl->request(2, pixels(contents[i]), ContentCount, response, error, cancel)) return false;
     QImage image(384, 384, QImage::Format_RGB32);

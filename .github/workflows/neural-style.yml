@@ -15,6 +15,31 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  temporal:
+    name: Temporal motion and occlusion
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          lfs: false
+          persist-credentials: false
+      - name: Install existing application math dependencies
+        run: |
+          sudo apt-get update -o Acquire::Retries=3
+          sudo apt-get install -y --no-install-recommends qtbase5-dev libopencv-core-dev libopencv-imgproc-dev libopencv-video-dev
+      - name: Build temporal qualification
+        run: |
+          cmake -S toonz/sources/neuralstyle/temporal-tests -B temporal-build -DCMAKE_BUILD_TYPE=Release
+          cmake --build temporal-build --parallel 2 2>&1 | tee temporal-build.log
+      - name: Report temporal compilation failure
+        if: failure()
+        run: |
+          if [ -f temporal-build.log ]; then
+            python -c "from pathlib import Path; print('::error title=Temporal build::' + ' | '.join(Path('temporal-build.log').read_text().splitlines()[-30:]))"
+          fi
+      - name: Check motion, holds, cuts, disocclusion and cancellation
+        run: ./temporal-build/neural-temporal-tests
   runtime:
     name: ${{ matrix.label }}
     runs-on: ${{ matrix.runner }}

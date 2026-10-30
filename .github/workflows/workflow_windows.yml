@@ -350,6 +350,14 @@ jobs:
           set "PATH=%CD%\toonz\build\Opentoonz;%QT_PATH%\bin;%PATH%"
           python ci-scripts/neural-style/host.py
 
+      - name: Retain reference style qualification and visual examples
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ReferenceStyle-${{ runner.os }}-${{ github.sha }}
+          path: neural-evaluation/report
+          if-no-files-found: warn
+
       - name: Test particle cache integration
         id: particle_tests
         shell: cmd
@@ -520,7 +528,7 @@ jobs:
         shell: pwsh
         run: |
           $package = "toonz/build/Opentoonz"
-          $drivers = @("seexpr_plugin_test", "seexpr_animation_test", "seexpr_fx_test", "seexpr_surface_fx_test", "seexpr_native_animcurve_test", "glbsurface_test", "seexpr_editor_test", "seexpr_controls_test", "seexpr_range_test", "seexpr_batch_fixture")
+          $drivers = @("seexpr_plugin_test", "seexpr_animation_test", "seexpr_fx_test", "seexpr_surface_fx_test", "seexpr_native_animcurve_test", "glbsurface_test", "seexpr_editor_test", "seexpr_controls_test", "seexpr_range_test", "seexpr_batch_fixture", "neuralstyle_host_test", "neuralstyle_test", "neuralstyle_editor_test")
           $suffixes = @(".exe", ".lib", ".exp", ".pdb", ".ilk", ".ipdb", ".iobj", ".exe.manifest")
           foreach ($driver in $drivers) {
             foreach ($suffix in $suffixes) {

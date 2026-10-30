@@ -2,6 +2,7 @@
 #include <QCoreApplication>
 #include <QCryptographicHash>
 #include <QDir>
+#include <QElapsedTimer>
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonDocument>
@@ -83,6 +84,10 @@ int fakeWorker(const QString &runtime) {
     if (mode == "stall") { std::this_thread::sleep_for(std::chrono::seconds(35)); return 5; }
     if (mode == "wrong") { reply(99, sequence, 0, false); return 0; }
     if (mode == "oversized") { reply(command, sequence, 384*384*3+1, false); return 0; }
+    if (mode == "slow-batch") {
+      write(runtime+".ready", "ready");
+      if(command==2)std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    }
     std::cerr << std::string(1024*1024, 'x');
     reply(command, sequence, command == 1 ? 100 : 384*384*3, true);
   }
@@ -161,6 +166,29 @@ int main(int argc, char **argv) {
         QImage black(384, 384, QImage::Format_RGB32); black.fill(Qt::black); compare(result, black);
       } else require(!ok && result == sentinel, "Invalid/cancelled worker published pixels");
     }
+    write(runtime,"slow-batch");manifest["runtime"]=entry(runtime);
+    write(fake.filePath("package.json"),QJsonDocument(manifest).toJson());
+    std::vector<QImage> longShot;
+    for(int i=0;i<120;++i){auto frame=content.copy();frame.setPixel(0,0,qRgb(i,0,0));longShot.push_back(frame);}
+    auto batchOwner=std::async(std::launch::async,[&] {
+      NeuralStyle::Session owner(fake.absolutePath());std::vector<QImage> output;QString diagnostic;
+      return owner.styleBatch(reference,longShot,output,diagnostic);
+    });
+    QElapsedTimer ready;ready.start();
+    while(!QFileInfo::exists(runtime+".ready") && ready.elapsed()<10000)
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    require(QFileInfo::exists(runtime+".ready"),"Long batch did not acquire the worker");
+    auto cancelledWaiter=std::async(std::launch::async,[&] {
+      NeuralStyle::Session waiter(fake.absolutePath());QString diagnostic;QImage output=sentinel;
+      std::atomic_bool abort{false};std::thread trigger([&]{std::this_thread::sleep_for(std::chrono::milliseconds(200));abort=true;});
+      QElapsedTimer elapsed;elapsed.start();
+      const bool ok=waiter.style(reference,content,output,diagnostic,&abort);
+      trigger.join();return !ok && output==sentinel && elapsed.elapsed()<5000;
+    });
+    NeuralStyle::Session competitor(fake.absolutePath());QElapsedTimer queued;queued.start();
+    require(competitor.style(reference,content,result,error),"Valid request failed while waiting for a long batch");
+    require(queued.elapsed()>=30000,"Long contention fixture did not cover the former timeout");
+    require(batchOwner.get() && cancelledWaiter.get(),"Long batch or cancelled queue waiter failed");
     auto badEntry = manifest.value("runtime").toObject(); badEntry["bytes"] = 1e300;
     manifest["runtime"] = badEntry;
     write(fake.filePath("package.json"), QJsonDocument(manifest).toJson());
