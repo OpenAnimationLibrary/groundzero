@@ -28,7 +28,8 @@ remaining checks separately:
 
 The original 60-item scope remains authoritative. A subsequent scope audit
 identified missing subdeliverables in items 3, 6, 28, 33, 38, 41, 44, 46, 47 and
-52; those rows are reopened for implementation, not merely awaiting CI. Existing
+52 and incomplete known-extension warnings in item 56; those rows are reopened
+for implementation, not merely awaiting CI. Existing
 core implementations and fixtures remain useful evidence, but do not establish
 completion of a broader original request. The remaining rows have implementation
 source and still require exact-head qualification and scope reconciliation.
@@ -165,7 +166,7 @@ application sequence. CI-only harness contracts are in
 | 53 | Pose-library undo | Entire pose/base state, import/replace/delete, duplicate names and undo/reload. | Source-ready; CI pending |
 | 54 | Timing-aware storyboard moves | Cells/audio/native animation move as one undo; locked/boundary rules explicit. | Source-ready; CI pending |
 | 55 | Source/playback timing indicators | Clear edit source vs playback drawing, nested/remap/range transitions. | Source-ready; CI pending |
-| 56 | Scene compatibility report | Read-only target-feature inventory, unsupported/lossy semantics and navigation. | Source-ready; CI pending |
+| 56 | Scene compatibility report | Read-only known-extension inventory, unsupported/lossy warnings and navigation; no certification of arbitrary historical builds. | Partial: effect IDs and nested numeric-channel warning coverage pending |
 | 57 | Export fidelity preflight | Lottie/SVG unsupported-feature inspection before write; cancel and explicit conversion. | Source-ready; CI pending |
 | 58 | Recovery completeness status | Current snapshot complete/partial/errors/retry visible without losing pending resources. | Source-ready; CI pending |
 | 59 | Artist-workload benchmarks | Actual native pen/scrub/playback/resource-save/memory metrics, correctness and provenance. | Source-ready; CI pending |
