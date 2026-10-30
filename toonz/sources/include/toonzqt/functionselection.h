@@ -107,6 +107,7 @@ public:
   }
 
   void enableCommands() override;
+  bool hasLockedCurves() const;
 
   void doCopy();
   void doPaste();

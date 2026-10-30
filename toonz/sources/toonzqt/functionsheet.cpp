@@ -519,8 +519,7 @@ void FunctionSheetColumnHeadViewer::paintEvent(QPaintEvent *e) {
     painter.drawText(x0 + d, y1, width - d, y3 - y1 + 1, flags, text);
 
     // warning of losing expression reference
-    TXsheet *xsh = m_sheet->getViewer()->getXsheetHandle()->getXsheet();
-    if (xsh->isReferenceManagementIgnored(channel->getParam())) {
+    if (channel->isIgnored()) {
       static QIcon paramIgnoredIcon(":Resources/paramignored_on.svg");
       painter.drawPixmap(QPoint(x0 + 30, y1 + 20),
                          paramIgnoredIcon.pixmap(21, 17));
@@ -563,8 +562,7 @@ void FunctionSheetColumnHeadViewer::mouseMoveEvent(QMouseEvent *e) {
     setToolTip(QString(""));
   } else {
     QString tooltip = channel->getExprRefName();
-    TXsheet *xsh    = m_sheet->getViewer()->getXsheetHandle()->getXsheet();
-    if (xsh->isReferenceManagementIgnored(channel->getParam()))
+    if (channel->isIgnored())
       tooltip +=
           "\n" + tr("Some key(s) in this parameter loses original reference in "
                     "expression.\nManually changing any keyframe will clear "
@@ -809,8 +807,6 @@ void FunctionSheetCellViewer::drawCells(QPainter &painter, int r0, int c0,
   QColor SelectedSceneRangeEmptyColor =
       getViewer()->getSelectedSceneRangeEmptyColor();
 
-  TXsheet *xsh = m_sheet->getViewer()->getXsheetHandle()->getXsheet();
-
   bool simpleView = getViewer()->getFrameZoomFactor() <=
                     Orientations::topToBottom()->dimension(
                         PredefinedDimension::SCALE_THRESHOLD);
@@ -846,7 +842,8 @@ void FunctionSheetCellViewer::drawCells(QPainter &painter, int r0, int c0,
     bool isParamCycled = curve->isCycleEnabled();
     int rowCount       = getViewer()->getRowCount();
 
-    bool isRefMngIgnored = xsh->isReferenceManagementIgnored(curve);
+    const auto *channel = m_sheet->getChannel(c);
+    bool isRefMngIgnored = channel && channel->isIgnored();
 
     // draw each cell
     for (int row = r0; row <= r1; row++) {
@@ -1340,10 +1337,16 @@ public:
 
 FunctionSheet::FunctionSheet(QWidget *parent, bool isFloating)
     : SpreadsheetViewer(parent)
-    , m_selectedCells()
+    , m_rowViewer(nullptr)
+    , m_columnHeadViewer(nullptr)
+    , m_cellViewer(nullptr)
     , m_selection(0)
-    , m_isFloating(isFloating)
-    , m_buttonArea(nullptr) {
+    , m_functionTreeModel(nullptr)
+    , m_functionViewer(nullptr)
+    , m_buttonArea(nullptr)
+    , m_xshHandle(nullptr)
+    , m_selectedCells()
+    , m_isFloating(isFloating) {
   setColumnsPanel(m_columnHeadViewer = new FunctionSheetColumnHeadViewer(this));
   setRowsPanel(m_rowViewer = new FunctionSheetRowViewer(this));
   setCellsPanel(m_cellViewer = new FunctionSheetCellViewer(this));

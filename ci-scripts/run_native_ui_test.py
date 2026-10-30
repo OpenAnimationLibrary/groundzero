@@ -154,6 +154,8 @@ def main():
     parser.add_argument("executable", type=Path)
     parser.add_argument("stuff", type=Path)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--require-function-workflow", action="store_true",
+                        help="Require the real application Function Editor fixture checkpoint")
     parser.add_argument("--windows-crash-debugger", action="store_true",
                         help="Capture a separate CDB stack after a Windows native exception")
     parser.add_argument("--linux-crash-debugger", action="store_true",
@@ -186,6 +188,9 @@ def main():
     except (OSError, RuntimeError, ValueError) as error:
         output += ("\nNative application integration setup, launch or cleanup failed: "
                    f"{type(error).__name__}: {error}\n")
+        status = 1
+    if args.require_function_workflow and status == 0 and "function-workflow-native: PASS" not in output:
+        output += "\nThe required native Function Editor workflow fixture did not run.\n"
         status = 1
     try:
         args.output.parent.mkdir(parents=True, exist_ok=True)

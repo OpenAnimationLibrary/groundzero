@@ -50,6 +50,7 @@
 #include <QMimeData>
 #include <map>
 #include <stdexcept>
+#include <functional>
 
 #include "toonzqt/functiontreeviewer.h"
 
@@ -629,8 +630,10 @@ bool FunctionTreeModel::Channel::isIgnored() const {
   TDoubleParam *dp = dynamic_cast<TDoubleParam *>(m_param.getPointer());
   if (!dp) return false;
   FunctionTreeView *view = dynamic_cast<FunctionTreeView *>(m_model->m_view);
-  if (!view) return false;
-  return view->getXsheetHandle()->getXsheet()->isReferenceManagementIgnored(dp);
+  // Generic parameter editors and scene transitions need not have an Xsheet.
+  TXsheetHandle *handle = view ? view->getXsheetHandle() : nullptr;
+  TXsheet *xsheet = handle ? handle->getXsheet() : nullptr;
+  return xsheet && xsheet->isReferenceManagementIgnored(dp);
 }
 
 //-----------------------------------------------------------------------------
@@ -665,18 +668,11 @@ QVariant FunctionTreeModel::Channel::data(int role) const {
     return (isCurrent()) ? view->getViewer()->getCurrentTextColor()
                          : view->getTextColor();
   } else if (role == Qt::ToolTipRole) {
-    if (m_param->hasKeyframes()) {
-      TDoubleParam *dp = dynamic_cast<TDoubleParam *>(m_param.getPointer());
-      FunctionTreeView *view =
-          dynamic_cast<FunctionTreeView *>(m_model->m_view);
-      if (dp && view &&
-          view->getXsheetHandle()->getXsheet()->isReferenceManagementIgnored(
-              dp))
-        return tr(
-            "Some key(s) in this parameter loses original reference in "
-            "expression.\nManually changing any keyframe will clear the "
-            "warning.");
-    }
+    if (isIgnored())
+      return tr(
+          "Some key(s) in this parameter loses original reference in "
+          "expression.\nManually changing any keyframe will clear the "
+          "warning.");
     return TreeModel::Item::data(role);
   } else
     return TreeModel::Item::data(role);
@@ -898,6 +894,8 @@ FunctionTreeModel::FunctionTreeModel(FunctionTreeView *parent)
     , m_fxs(0)
     , m_currentStageObject(0)
     , m_currentFx(0)
+    , m_fxHandle(nullptr)
+    , m_objectHandle(nullptr)
     , m_paramsChanged(false) {}
 
 //-----------------------------------------------------------------------------
@@ -1356,10 +1354,7 @@ void FunctionTreeModel::addActiveChannels(TreeModel::Item *item) {
 
 void FunctionTreeModel::refreshActiveChannels() {
   m_activeChannels.clear();
-
-  if (m_stageObjects) addActiveChannels(m_stageObjects);
-
-  if (m_fxs) addActiveChannels(m_fxs);
+  if (getRootItem()) addActiveChannels(getRootItem());
 }
 
 //-----------------------------------------------------------------------------
@@ -1445,7 +1440,7 @@ void FunctionTreeModel::onChange(const TParamChange &tpc) {
     m_paramsChanged = true;
 
     struct Func final : public TFunctorInvoker::BaseFunctor {
-    QPointer<FunctionTreeModel> m_obj;
+      QPointer<FunctionTreeModel> m_obj;
       // Use a copy of 'TParamChange' since callers declare
       // and free this value on the stack,
       // so we can't ensure its valid later on when the notifier executes.
@@ -1453,7 +1448,10 @@ void FunctionTreeModel::onChange(const TParamChange &tpc) {
 
       Func(FunctionTreeModel *obj, const TParamChange *tpc)
           : m_obj(obj), m_tpc(*tpc) {}
-    void operator()() override { if (m_obj) m_obj->onParamChange(m_tpc.m_dragging); }
+      void operator()() override {
+        // Editors and temporary models may close before the queued update.
+        if (m_obj) m_obj->onParamChange(m_tpc.m_dragging);
+      }
     };
 
     QMetaObject::invokeMethod(TFunctorInvoker::instance(), "invoke",
@@ -1602,7 +1600,8 @@ FunctionTreeView::FunctionTreeView(FunctionViewer *parent)
     , m_scenePath()
     , m_clickedItem(0)
     , m_draggingChannel(0)
-    , m_viewer(parent) {
+    , m_viewer(parent)
+    , m_xshHandle(nullptr) {
   assert(parent);
 
   setModel(new FunctionTreeModel(this));
@@ -1616,6 +1615,64 @@ FunctionTreeView::FunctionTreeView(FunctionViewer *parent)
   setFocusPolicy(Qt::NoFocus);
   setIndentation(14);
   setAlternatingRowColors(true);
+  connect(model(), &QAbstractItemModel::layoutChanged, this,
+          &FunctionTreeView::refreshSearch);
+}
+
+QList<FunctionTreeModel::Channel *> FunctionTreeView::channels() const {
+  QList<FunctionTreeModel::Channel *> result;
+  std::function<void(const QModelIndex &)> visit = [&](const QModelIndex &p) {
+    for (int r = 0; r < model()->rowCount(p); ++r) {
+      QModelIndex i = model()->index(r, 0, p);
+      auto *item = static_cast<TreeModel::Item *>(i.internalPointer());
+      if (auto *channel = dynamic_cast<FunctionTreeModel::Channel *>(item))
+        result.append(channel);
+      visit(i);
+    }
+  };
+  visit(QModelIndex());
+  return result;
+}
+
+bool FunctionTreeView::applySearch(const QModelIndex &parent,
+                                   const QString &ancestor) {
+  bool any = false;
+  for (int r = 0; r < model()->rowCount(parent); ++r) {
+    QModelIndex index = model()->index(r, 0, parent);
+    auto *item = static_cast<TreeModel::Item *>(index.internalPointer());
+    auto *channel = dynamic_cast<FunctionTreeModel::Channel *>(item);
+    QString names = ancestor + " " + index.data().toString();
+    if (channel) names += " " + channel->getExprRefName();
+    bool match = names.contains(m_searchText, Qt::CaseInsensitive);
+    if (channel) {
+      match = match && !channel->isHidden();
+    } else {
+      if (!m_searchExpansion.contains(index))
+        m_searchExpansion.insert(index, isExpanded(index));
+      match = applySearch(index, names) || match;
+      if (!m_searchText.isEmpty() && match) setExpanded(index, true);
+    }
+    setRowHidden(r, parent, !match);
+    any = any || match;
+  }
+  return any;
+}
+
+void FunctionTreeView::setSearchText(const QString &text) {
+  m_searchText = text.trimmed();
+  refreshSearch();
+}
+
+void FunctionTreeView::refreshSearch() {
+  if (m_applyingSearch) return;
+  m_applyingSearch = true;
+  applySearch(QModelIndex(), QString());
+  if (m_searchText.isEmpty()) {
+    for (auto it = m_searchExpansion.cbegin(); it != m_searchExpansion.cend(); ++it)
+      if (it.key().isValid()) setExpanded(it.key(), it.value());
+    m_searchExpansion.clear();
+  }
+  m_applyingSearch = false;
 }
 
 //-----------------------------------------------------------------------------
@@ -1866,6 +1923,7 @@ void FunctionTreeView::openContextMenu(FunctionTreeModel::ChannelGroup *group,
 
   expand(group->createIndex());
   group->setShowFilter(showFilter);
+  refreshSearch();
 }
 
 //-----------------------------------------------------------------------------
@@ -1876,6 +1934,7 @@ void FunctionTreeView::updateAll() {
   assert(functionTreeModel);
 
   functionTreeModel->applyShowFilters();
+  refreshSearch();
   update();
 }
 
