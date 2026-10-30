@@ -55,6 +55,8 @@
 #include <iostream>
 #include <memory>
 
+void runCastWorkflowIntegrationTest(QMainWindow *window);
+
 namespace {
 QString testRoot;
 
@@ -564,10 +566,13 @@ int runNativeUiIntegrationTest(QMainWindow *window) {
   try {
     require(!testRoot.isEmpty(), "native UI test was not prepared before startup");
     exerciseNativeUi(window);
+    runCastWorkflowIntegrationTest(window);
     std::cout << "native-ui-integration: PASS" << std::endl;
     return 0;
   } catch (const Failure &failure) {
     std::cerr << "native-ui-integration: FAIL: " << failure.message << std::endl;
+  } catch (const std::exception &failure) {
+    std::cerr << "native-ui-integration: FAIL: " << failure.what() << std::endl;
   } catch (...) {
     std::cerr << "native-ui-integration: FAIL: unexpected native exception"
               << std::endl;

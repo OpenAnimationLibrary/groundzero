@@ -4,6 +4,8 @@
 
 // Tnz6 includes
 #include "castselection.h"
+#include "castbrowseractions.h"
+#include "toonz/castworkflow.h"
 #include "tapp.h"
 #include "menubarcommandids.h"
 #include "floatingpanelcommand.h"
@@ -21,6 +23,8 @@
 #include "toonz/txshpalettelevel.h"
 #include "toonz/txshsoundlevel.h"
 #include "toonz/txshleveltypes.h"
+#include "toonz/levelproperties.h"
+#include "tpalette.h"
 
 // TnzQt includes
 #include "toonzqt/dvdialog.h"
@@ -50,6 +54,13 @@
 #include <QUrl>
 #include <QMenu>
 #include <QDir>
+#include <QComboBox>
+#include <QLineEdit>
+#include <QPushButton>
+#include <QTimer>
+#include <QShowEvent>
+#include <QSignalBlocker>
+#include <QScrollBar>
 
 const char *AudioFolderName = "Audio";
 
@@ -63,27 +74,27 @@ namespace {
 // toonzlib.
 class MoveLevelToFolderUndo final : public TUndo {
   TLevelSet *m_levelSet;
-  std::wstring m_levelName;
+  TXshLevelP m_level;
   TFilePath m_oldFolder;
   TFilePath m_newFolder;
 
 public:
   MoveLevelToFolderUndo(TLevelSet *levelSet, std::wstring levelName,
                         TFilePath newFolder)
-      : m_levelSet(levelSet), m_levelName(levelName), m_newFolder(newFolder) {
-    TXshLevel *level = m_levelSet->getLevel(m_levelName);
+      : m_levelSet(levelSet), m_level(levelSet->getLevel(levelName)), m_newFolder(newFolder) {
+    TXshLevel *level = m_level.getPointer();
     m_oldFolder      = m_levelSet->getFolder(level);
   }
 
   void undo() const override {
-    TXshLevel *level = m_levelSet->getLevel(m_levelName);
-    m_levelSet->moveLevelToFolder(m_oldFolder, level);
+    m_levelSet->moveLevelToFolder(m_oldFolder, m_level.getPointer());
+    TApp::instance()->getCurrentScene()->setDirtyFlag(true);
     TApp::instance()->getCurrentScene()->notifyCastChange();
   }
 
   void redo() const override {
-    TXshLevel *level = m_levelSet->getLevel(m_levelName);
-    m_levelSet->moveLevelToFolder(m_newFolder, level);
+    m_levelSet->moveLevelToFolder(m_newFolder, m_level.getPointer());
+    TApp::instance()->getCurrentScene()->setDirtyFlag(true);
     TApp::instance()->getCurrentScene()->notifyCastChange();
   }
 
@@ -92,6 +103,63 @@ public:
   QString getHistoryString() override {
     return QObject::tr("Move Level to Cast Folder");
   }
+};
+
+struct CastFolders {
+  TFilePath root;
+  std::vector<TFilePath> folders;
+  std::vector<std::pair<TXshLevelP, TFilePath>> membership;
+  explicit CastFolders(TLevelSet *set) : root(set->getDefaultFolder()) {
+    std::function<void(TFilePath)> walk = [&](TFilePath path) {
+      std::vector<TFilePath> children;
+      set->listFolders(children, path);
+      for (const auto &child : children) { folders.push_back(child); walk(child); }
+    };
+    walk(TFilePath());
+    std::vector<TXshLevel *> levels;
+    set->listLevels(levels);
+    for (auto *level : levels) membership.emplace_back(TXshLevelP(level), set->getFolder(level));
+  }
+  void apply(TLevelSet *set) const {
+    if (set->getDefaultFolder() != root) {
+      // Keep the default root's position in the native folder ordering.
+      // A previous rename uses a distinct name; remove a conflicting custom
+      // root defensively before restoring the snapshot's default name.
+      set->removeFolder(root);
+      set->renameFolder(set->getDefaultFolder(), root.getWideName());
+    }
+    set->setDefaultFolder(root);
+    std::vector<TFilePath> roots;
+    set->listFolders(roots, TFilePath());
+    for (const auto &folder : roots) {
+      if (folder != root && folder != TFilePath(AudioFolderName)) {
+        set->removeFolder(folder);
+        continue;
+      }
+      std::vector<TFilePath> children;
+      set->listFolders(children, folder);
+      for (const auto &child : children) set->removeFolder(child);
+    }
+    for (const auto &folder : folders)
+      set->createFolder(folder.getParentDir(), folder.getWideName());
+    for (const auto &entry : membership)
+      if (set->getLevel(entry.first->getName()) == entry.first.getPointer())
+        set->moveLevelToFolder(entry.second, entry.first.getPointer());
+    auto *handle = TApp::instance()->getCurrentScene();
+    handle->setDirtyFlag(true);
+    handle->notifyCastChange();
+  }
+};
+class CastFolderUndo final : public TUndo {
+  TLevelSet *m_set;
+  CastFolders m_before, m_after;
+public:
+  CastFolderUndo(TLevelSet *set, const CastFolders &before)
+      : m_set(set), m_before(before), m_after(set) {}
+  void undo() const override { m_before.apply(m_set); }
+  void redo() const override { m_after.apply(m_set); }
+  int getSize() const override { return sizeof(*this) + int(m_before.membership.size()) * 128; }
+  QString getHistoryString() override { return QObject::tr("Organize Scene Cast Folders"); }
 };
 }  // namespace
 
@@ -138,6 +206,8 @@ CastTreeViewer::CastTreeViewer(QWidget *parent)
 
   connect(this->model(), SIGNAL(layoutChanged()), this, SLOT(resizeToConts()));
 
+  connect(TApp::instance()->getCurrentScene(), &TSceneHandle::castChanged,
+          this, &CastTreeViewer::rebuildCastTree);
   rebuildCastTree();
 }
 
@@ -228,6 +298,11 @@ void CastTreeViewer::onCastFolderAdded(const TFilePath &path) {
 //-----------------------------------------------------------------------------
 
 void CastTreeViewer::rebuildCastTree() {
+  const TFilePath current = getCurrentFolder();
+  std::set<QString> expanded;
+  for (QTreeWidgetItemIterator it(this); *it; ++it)
+    if ((*it)->isExpanded()) expanded.insert((*it)->data(1, Qt::DisplayRole).toString());
+  QSignalBlocker blocked(this);
   clear();
   ToonzScene *scene = TApp::instance()->getCurrentScene()->getScene();
   QString rootName  = QString("Root");
@@ -243,6 +318,12 @@ void CastTreeViewer::rebuildCastTree() {
   root->setIcon(0, clapboard);
   insertTopLevelItem(0, root);
   populateFolder(root);
+  for (QTreeWidgetItemIterator it(this); *it; ++it) {
+    QString path = (*it)->data(1, Qt::DisplayRole).toString();
+    if (expanded.count(path)) (*it)->setExpanded(true);
+    if (TFilePath(path) == current) setCurrentItem(*it);
+  }
+
 }
 
 //-----------------------------------------------------------------------------
@@ -350,17 +431,18 @@ void CastTreeViewer::dropEvent(QDropEvent *event) {
   TUndoManager::manager()->beginBlock();
   for (i = 0; i < castItems->getItemCount(); i++) {
     CastItem *item = castItems->getItem(i);
-    if (LevelCastItem *li = dynamic_cast<LevelCastItem *>(item)) {
-      TXshLevel *level       = li->getLevel();
+    if (item->getLevel() && !item->getLevel()->getSoundLevel()) {
+      TXshLevel *level       = item->getLevel();
+      if (levelSet->getFolder(level) == folderPath) continue;
       std::wstring levelName = level->getName();
       MoveLevelToFolderUndo *undo =
           new MoveLevelToFolderUndo(levelSet, levelName, folderPath);
       levelSet->moveLevelToFolder(folderPath, level);
       TUndoManager::manager()->add(undo);
-    } else if (SoundCastItem *si = dynamic_cast<SoundCastItem *>(item)) {
     }
   }
   TUndoManager::manager()->endBlock();
+  TApp::instance()->getCurrentScene()->setDirtyFlag(true);
   emit itemMovedToFolder();
 }
 
@@ -378,9 +460,27 @@ void CastTreeViewer::onItemChanged(QTreeWidgetItem *item, int column) {
   if (column != 0) return;
   if (item->isSelected()) {
     TFilePath oldPath(item->data(1, Qt::DisplayRole).toString().toStdWString());
+    const QString label = item->text(0).trimmed();
+    const TFilePath proposed = oldPath.getParentDir() + label.toStdWString();
+    std::vector<TFilePath> siblings;
+    getLevelSet()->listFolders(siblings, oldPath.getParentDir());
+    if (label.isEmpty() || label == "." || label == ".." ||
+        label.contains('/') || label.contains('\\') ||
+        (proposed != oldPath && std::find(siblings.begin(), siblings.end(), proposed) != siblings.end())) {
+      QSignalBlocker blocked(this);
+      item->setText(0, QString::fromStdWString(oldPath.getWideName()));
+      return;
+    }
+    if (proposed == oldPath) return;
+    CastFolders before(getLevelSet());
     TFilePath newPath =
-        getLevelSet()->renameFolder(oldPath, item->text(0).toStdWString());
+        getLevelSet()->renameFolder(oldPath, label.toStdWString());
     item->setText(1, QString::fromStdWString(newPath.getWideString()));
+    if (newPath != oldPath) {
+      TUndoManager::manager()->add(new CastFolderUndo(getLevelSet(), before));
+      TApp::instance()->getCurrentScene()->setDirtyFlag(true);
+      TApp::instance()->getCurrentScene()->notifyCastChange();
+    }
   }
 }
 
@@ -411,7 +511,12 @@ void CastTreeViewer::newFolder() {
 
   TFilePath parentPath =
       TFilePath(parentItem->data(1, Qt::DisplayRole).toString().toStdWString());
+  CastFolders before(getLevelSet());
   QString childName("New Folder");
+  std::vector<TFilePath> siblings;
+  getLevelSet()->listFolders(siblings, parentPath);
+  for (int suffix = 2; std::find(siblings.begin(), siblings.end(), parentPath + childName.toStdWString()) != siblings.end(); ++suffix)
+    childName = tr("New Folder %1").arg(suffix);
   TFilePath childPath   = parentPath + childName.toStdWString();
   QString childPathQstr = QString::fromStdWString(childPath.getWideString());
   QTreeWidgetItem *childItem =
@@ -423,6 +528,7 @@ void CastTreeViewer::newFolder() {
   TLevelSet *levelSet =
       TApp::instance()->getCurrentScene()->getScene()->getLevelSet();
   levelSet->createFolder(parentPath, childName.toStdWString());
+  TUndoManager::manager()->add(new CastFolderUndo(levelSet, before));
   TApp::instance()->getCurrentScene()->setDirtyFlag(true);
 }
 
@@ -431,6 +537,7 @@ void CastTreeViewer::newFolder() {
 void CastTreeViewer::deleteFolder() {
   QTreeWidgetItem *item = currentItem();
   if (!item || !item->parent()) return;
+  if (getCurrentFolder() == getLevelSet()->getDefaultFolder()) return;
   QString itemName = item->data(0, Qt::DisplayRole).toString();
   if (itemName == AudioFolderName) return;
   int ret = DVGui::MsgBox(tr("Delete folder ") + item->text(0) + "?", tr("Yes"),
@@ -441,7 +548,9 @@ void CastTreeViewer::deleteFolder() {
   TFilePath childPath(item->data(1, Qt::DisplayRole).toString().toStdWString());
   TLevelSet *levelSet =
       TApp::instance()->getCurrentScene()->getScene()->getLevelSet();
+  CastFolders before(levelSet);
   levelSet->removeFolder(childPath);
+  TUndoManager::manager()->add(new CastFolderUndo(levelSet, before));
   TApp::instance()->getCurrentScene()->setDirtyFlag(true);
 
   parentItem->removeChild(item);
@@ -492,6 +601,52 @@ CastBrowser::CastBrowser(QWidget *parent, Qt::WindowFlags flags)
   DvItemViewerButtonBar *buttonBar =
       new DvItemViewerButtonBar(m_itemViewer, box);
 
+  m_search = new QLineEdit(box);
+  m_search->setObjectName("CastSearch");
+  m_search->setPlaceholderText(tr("Search names, paths and tags…"));
+  m_search->setAccessibleName(tr("Search Scene Cast"));
+  m_search->setClearButtonEnabled(true);
+  m_scope = new QComboBox(box);
+  m_scope->setObjectName("CastSearchScope");
+  m_scope->setAccessibleName(tr("Search scope"));
+  m_scope->addItems({tr("Current folder"), tr("All scene folders")});
+  m_type = new QComboBox(box);
+  m_type->setObjectName("CastTypeFilter");
+  m_type->setAccessibleName(tr("Asset type"));
+  m_type->addItem(tr("All types"), 0);
+  m_type->addItem(tr("Vector"), PLI_XSHLEVEL);
+  m_type->addItem(tr("Toonz Raster"), TZP_XSHLEVEL);
+  m_type->addItem(tr("Raster"), OVL_XSHLEVEL);
+  m_type->addItem(tr("Audio"), SND_XSHLEVEL);
+  m_type->addItem(tr("Palette"), PLT_XSHLEVEL);
+  m_type->addItem(tr("Mesh"), MESH_XSHLEVEL);
+  m_status = new QComboBox(box);
+  m_status->setObjectName("CastStatusFilter");
+  m_status->setAccessibleName(tr("Asset status"));
+  m_status->addItems({tr("All statuses"), tr("Used in scene"), tr("Unused"),
+                      tr("Not saved / missing"), tr("External links")});
+  auto *filterRow = new QHBoxLayout;
+  filterRow->addWidget(m_scope); filterRow->addWidget(m_type);
+  filterRow->addWidget(m_status);
+  m_resultCount = new QLabel(box);
+  m_resultCount->setWordWrap(true);
+  m_actions = new QPushButton(tr("Asset Actions…"), box);
+  m_actions->setAccessibleName(tr("Scene Cast asset actions"));
+  connect(m_actions, &QPushButton::clicked, this, &CastBrowser::showActions);
+  m_filterTimer = new QTimer(this);
+  m_filterTimer->setSingleShot(true);
+  m_filterTimer->setInterval(150);
+  connect(m_filterTimer, &QTimer::timeout, this, &CastBrowser::refresh);
+  connect(m_search, &QLineEdit::textChanged, this, [this]() { m_filterTimer->start(); });
+  for (QComboBox *combo : {m_scope, m_type, m_status})
+    connect(combo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, [this](int) { refresh(); });
+  connect(castSelection, &DvItemSelection::itemSelectionChanged,
+          this, &CastBrowser::rememberSelection);
+  boxLayout->addWidget(m_search);
+  boxLayout->addLayout(filterRow);
+  boxLayout->addWidget(m_resultCount);
+  boxLayout->addWidget(m_actions);
   boxLayout->addWidget(m_folderName);
   boxLayout->addWidget(titleBar);
   boxLayout->addWidget(m_itemViewer);
@@ -507,11 +662,18 @@ CastBrowser::CastBrowser(QWidget *parent, Qt::WindowFlags flags)
 
   TSceneHandle *sceneHandle = TApp::instance()->getCurrentScene();
 
-  connect(sceneHandle, SIGNAL(sceneSwitched()), this, SLOT(refresh()));
+  connect(sceneHandle, &TSceneHandle::sceneSwitched, this, [this]() {
+    m_rememberedSelection.clear();
+    QSignalBlocker blocked(m_itemViewer->getPanel()->getSelection());
+    m_itemViewer->getPanel()->getSelection()->selectNone();
+    refresh();
+  });
   connect(sceneHandle, SIGNAL(castChanged()), this, SLOT(refresh()));
 
   TXsheetHandle *xhseetHandle = TApp::instance()->getCurrentXsheet();
-  connect(xhseetHandle, SIGNAL(xsheetChanged()), m_itemViewer, SLOT(update()));
+  connect(xhseetHandle, &TXsheetHandle::xsheetChanged, this, [this]() { m_filterTimer->start(); });
+  connect(TApp::instance()->getCurrentLevel(), &TXshLevelHandle::xshLevelChanged,
+          this, [this]() { m_filterTimer->start(); });
 
   connect(buttonBar, SIGNAL(folderUp()), m_treeViewer, SLOT(folderUp()));
   connect(buttonBar, SIGNAL(newFolder()), m_treeViewer, SLOT(newFolder()));
@@ -529,30 +691,28 @@ CastBrowser::~CastBrowser() {}
 
 //-----------------------------------------------------------------------------
 
-void CastBrowser::sortByDataModel(DataType dataType, bool isDiscendent) {
-  if (dataType != getCurrentOrderType()) {
-    // Sort by another dataType
-    int i;
-    for (i = 1; i < m_castItems->getItemCount(); i++) {
-      int index = i;
-      while (index > 0 && compareData(dataType, index - 1, index) > 0) {
-        m_castItems->swapItem(index - 1, index);
-        index = index - 1;
-      }
+void CastBrowser::sortByDataModel(DataType dataType, bool descending) {
+  if (!m_rebuilding) rememberSelection();
+  ToonzScene *scene = TApp::instance()->getCurrentScene()->getScene();
+  std::map<const CastItem *, QString> keys;
+  if (dataType != FrameCount)
+    for (int i = 0; i < getItemCount(); ++i) {
+      const CastItem *item = m_castItems->getItem(i);
+      keys[item] = dataType == FullPath ? scene->decodeFilePath(item->getLevel()->getPath()).getQString() : item->getName();
     }
-    setIsDiscendentOrder(true);
-    setOrderType(dataType);
-  }
-  // Sort by order (invert current)
-  if (isDiscendentOrder() != isDiscendent) {
-    setIsDiscendentOrder(isDiscendent);
-    std::vector<CastItem *> items;
-    for (int i = 0; i < m_castItems->getItemCount(); i++)
-      items.push_back(m_castItems->getItem(i)->clone());
-    m_castItems->clear();
-    for (int i = items.size() - 1; i >= 0; i--) m_castItems->addItem(items[i]);
-  }
-
+  m_castItems->sort([&](const CastItem *a, const CastItem *b) {
+    int comparison = 0;
+    if (dataType == FrameCount)
+      comparison = (a->getFrameCount() > b->getFrameCount()) -
+                   (a->getFrameCount() < b->getFrameCount());
+    else {
+      comparison = QString::compare(keys.at(a), keys.at(b), Qt::CaseInsensitive);
+    }
+    return descending ? comparison < 0 : comparison > 0;
+  });
+  setOrderType(dataType);
+  setIsDiscendentOrder(descending);
+  restoreSelection();
   m_itemViewer->getPanel()->update();
 }
 
@@ -567,8 +727,10 @@ void CastBrowser::folderChanged(QTreeWidgetItem *current,
 
 void CastBrowser::refresh() {
   if (isHidden()) return;
+  const int position = m_itemViewer->verticalScrollBar()->value();
   refreshData();
   m_itemViewer->refresh();
+  m_itemViewer->verticalScrollBar()->setValue(position);
 }
 
 //-----------------------------------------------------------------------------
@@ -588,29 +750,121 @@ void CastBrowser::getLevels(std::vector<TXshLevel*> &levels) const
 //-----------------------------------------------------------------------------
 
 void CastBrowser::refreshData() {
+  if (m_rebuilding) return;
+  rememberSelection();
+  m_rebuilding = true;
   m_castItems->clear();
-  TLevelSet *levelSet = CastTreeViewer::getLevelSet();
-  TFilePath folder    = m_treeViewer->getCurrentFolder();
-  m_folderName->setText(toQString(folder));
-  std::vector<TXshLevel *> levels;
-  if (folder != TFilePath())
-    levelSet->listLevels(levels, folder);
-  else
-    levelSet->listLevels(levels);
-
-  int i;
-  for (i = 0; i < (int)levels.size(); i++) {
-    if (levels[i]->getSimpleLevel())
-      m_castItems->addItem(new LevelCastItem(
-          levels[i], m_itemViewer->getPanel()->getIconSize()));
-    else if (levels[i]->getPaletteLevel())
-      m_castItems->addItem(
-          new PaletteCastItem(levels[i]->getPaletteLevel(),
-                              m_itemViewer->getPanel()->getIconSize()));
-    else if (levels[i]->getSoundLevel())
-      m_castItems->addItem(new SoundCastItem(
-          levels[i]->getSoundLevel(), m_itemViewer->getPanel()->getIconSize()));
+  m_assetStatus.clear();
+  m_statusBadge.clear();
+  ToonzScene *scene = TApp::instance()->getCurrentScene()->getScene();
+  TLevelSet *levelSet = scene->getLevelSet();
+  TFilePath folder = m_treeViewer->getCurrentFolder();
+  m_folderName->setText(m_scope->currentIndex() == 1 ? tr("All scene folders") : toQString(folder));
+  std::vector<TXshLevel *> all, levels;
+  levelSet->listLevels(all);
+  std::set<TXshLevel *> live(all.begin(), all.end());
+  m_rememberedSelection.erase(std::remove_if(m_rememberedSelection.begin(),
+      m_rememberedSelection.end(), [&](const TXshLevelP &p) { return !live.count(p.getPointer()); }),
+      m_rememberedSelection.end());
+  if (m_scope->currentIndex() == 1 || folder == TFilePath()) levels = all;
+  else levelSet->listLevels(levels, folder);
+  CastWorkflow::Index usage;
+  const int status = m_status->currentIndex();
+  if (status == 1 || status == 2) {
+    CastWorkflow::Limits limits;
+    limits.recordOccurrences = false;
+    limits.expandInstances = false;
+    usage = CastWorkflow::index(scene->getTopXsheet(), {}, {}, limits);
   }
+  const int type = m_type->currentData().toInt();
+  for (TXshLevel *level : levels) {
+    if (type && level->getType() != type &&
+        !(type == OVL_XSHLEVEL && level->getType() == TZI_XSHLEVEL)) continue;
+    if (!CastWorkflow::matches(m_search->text(), QString::fromStdWString(level->getName()),
+          scene->decodeFilePath(level->getPath()).getQString(), level->getCastTags())) continue;
+    if (status == 1 && !usage.used.count(level)) continue;
+    if (status == 2 && (!usage.complete || usage.cycle || usage.used.count(level))) continue;
+    if (status == 3 && !CastBrowserActions::missing(scene, level)) continue;
+    if (status == 4 && !CastBrowserActions::external(scene, level)) continue;
+    m_assetStatus[level] = CastBrowserActions::status(scene, level);
+    auto *simple = level->getSimpleLevel();
+    auto *palette = level->getPaletteLevel();
+    const bool modified = (simple && (simple->getProperties()->getDirtyFlag() ||
+        (simple->getPalette() && simple->getPalette()->getDirtyFlag()))) ||
+        (palette && palette->getPalette() && palette->getPalette()->getDirtyFlag());
+    if (CastBrowserActions::missing(scene, level)) m_statusBadge[level] = '!';
+    else if (modified) m_statusBadge[level] = '*';
+    else if (CastBrowserActions::external(scene, level)) m_statusBadge[level] = 'L';
+    QSize iconSize = m_itemViewer->getPanel()->getIconSize();
+    if (level->getSimpleLevel()) m_castItems->addItem(new LevelCastItem(level, iconSize));
+    else if (level->getPaletteLevel()) m_castItems->addItem(new PaletteCastItem(level->getPaletteLevel(), iconSize));
+    else if (level->getSoundLevel()) m_castItems->addItem(new SoundCastItem(level->getSoundLevel(), iconSize));
+  }
+  sortByDataModel(getCurrentOrderType(), isDiscendentOrder());
+  m_rebuilding = false;
+  QString count = tr("%1 assets shown").arg(getItemCount());
+  if ((status == 1 || status == 2) && (!usage.complete || usage.cycle))
+    count += tr(" — incomplete usage index; unused results are withheld");
+  m_resultCount->setText(count);
+}
+
+std::vector<TXshLevel *> CastBrowser::selectedLevels() const {
+  std::vector<TXshLevel *> levels;
+  for (int i : m_itemViewer->getSelectedIndices())
+    if (i >= 0 && i < getItemCount()) levels.push_back(m_castItems->getItem(i)->getLevel());
+  return levels;
+}
+
+void CastBrowser::rememberSelection() {
+  if (m_rebuilding) return;
+  std::set<TXshLevel *> visible;
+  for (int i = 0; i < getItemCount(); ++i) visible.insert(m_castItems->getItem(i)->getLevel());
+  m_rememberedSelection.erase(std::remove_if(m_rememberedSelection.begin(),
+      m_rememberedSelection.end(), [&](const TXshLevelP &p) { return visible.count(p.getPointer()) != 0; }),
+      m_rememberedSelection.end());
+  for (auto *level : selectedLevels()) m_rememberedSelection.push_back(TXshLevelP(level));
+}
+
+void CastBrowser::restoreSelection() {
+  auto *selection = m_itemViewer->getPanel()->getSelection();
+  QSignalBlocker blocked(selection);
+  selection->selectNone();
+  std::set<TXshLevel *> remembered;
+  for (const auto &level : m_rememberedSelection) remembered.insert(level.getPointer());
+  for (int i = 0; i < getItemCount(); ++i)
+    if (remembered.count(m_castItems->getItem(i)->getLevel())) selection->select(i);
+}
+
+void CastBrowser::showEvent(QShowEvent *event) {
+  QSplitter::showEvent(event);
+  refresh();
+}
+
+void CastBrowser::showActions() {
+  QMenu menu(this);
+  ToonzScene *source = TApp::instance()->getCurrentScene()->getScene();
+  connect(TApp::instance()->getCurrentScene(), &TSceneHandle::sceneSwitched, &menu, &QMenu::close);
+  auto selectedAction = [&](const QString &title, void (*action)(QWidget *, const std::vector<TXshLevel *> &)) {
+    QAction *item = menu.addAction(title, this, [=]() {
+      if (TApp::instance()->getCurrentScene()->getScene() != source) return;
+      // A debounce refresh may have run inside the menu's event loop.
+      const auto levels = selectedLevels();
+      if (!levels.empty()) action(this, levels);
+    });
+    item->setEnabled(!selectedLevels().empty());
+  };
+  selectedAction(tr("Where Used…"), CastBrowserActions::whereUsed);
+  selectedAction(tr("Inspect / Preview / Audition…"), CastBrowserActions::inspect);
+  selectedAction(tr("Edit Tags…"), CastBrowserActions::editTags);
+  selectedAction(tr("Relink Selected…"), CastBrowserActions::relink);
+  selectedAction(tr("Make Local Copy…"), CastBrowserActions::makeLocal);
+  menu.addSeparator();
+  menu.addAction(tr("Review Unused Levels…"), this, [this]() { CastBrowserActions::removeUnused(this); });
+  menu.addAction(tr("Review Duplicate Assets…"), this, [this]() { CastBrowserActions::duplicates(this); });
+  menu.addAction(tr("Collection Report…"), this, [this]() { CastBrowserActions::collectionReport(this); });
+  menu.addSeparator();
+  menu.addAction(tr("Refresh Disk Status"), this, [this]() { refresh(); });
+  menu.exec(m_actions->mapToGlobal(QPoint(0, m_actions->height())));
 }
 
 //-----------------------------------------------------------------------------
@@ -625,10 +879,25 @@ QVariant CastBrowser::getItemData(int index, DataType dataType,
   CastItem *item = m_castItems->getItem(index);
   if (dataType == Name)
     return item->getName();
-  else if (dataType == Thumbnail)
-    return item->getPixmap(isSelected);
+  else if (dataType == Thumbnail) {
+    QPixmap pixmap = item->getPixmap(isSelected);
+    const auto badge = m_statusBadge.find(item->getLevel());
+    if (badge != m_statusBadge.end() && !pixmap.isNull()) {
+      QPainter painter(&pixmap);
+      painter.setRenderHint(QPainter::Antialiasing);
+      QRect area(std::max(0, pixmap.width() - 19), 2, 17, 17);
+      painter.setPen(Qt::black);
+      painter.setBrush(badge->second == '!' ? QColor(255, 180, 100) : QColor(240, 225, 130));
+      painter.drawEllipse(area);
+      painter.drawText(area, Qt::AlignCenter, QString(badge->second));
+    }
+    return pixmap;
+  }
   else if (dataType == ToolTip)
-    return item->getToolTip();
+    return item->getToolTip() + "\n" + m_assetStatus[item->getLevel()] +
+        "\n" + item->getLevel()->getCastTags().join(", ");
+  else if (dataType == PlayAvailable)
+    return item->getSimpleLevel() != nullptr;
   else if (dataType == FrameCount)
     return item->getFrameCount();
   else if (dataType == FullPath) {
@@ -722,7 +991,8 @@ QMenu *CastBrowser::getContextMenu(QWidget *parent, int index) {
   const std::set<int> &indices = m_itemViewer->getSelectedIndices();
   if (indices.empty()) {
     QMenu *menu = new QMenu(parent);
-    menu->addAction(CommandManager::instance()->getAction(MI_RemoveUnused));
+    connect(TApp::instance()->getCurrentScene(), &TSceneHandle::sceneSwitched, menu, &QMenu::close);
+    menu->addAction(tr("Review Unused Levels…"), this, [this]() { CastBrowserActions::removeUnused(this); });
     return menu;
   }
   // controllo cosa c'e' nella selezione.
@@ -758,6 +1028,7 @@ QMenu *CastBrowser::getContextMenu(QWidget *parent, int index) {
       otherFileSelected = true;
   }
   QMenu *menu        = new QMenu(parent);
+  connect(TApp::instance()->getCurrentScene(), &TSceneHandle::sceneSwitched, menu, &QMenu::close);
   CommandManager *cm = CommandManager::instance();
 
   menu->addAction(cm->getAction(MI_LevelSettings));
@@ -781,7 +1052,9 @@ QMenu *CastBrowser::getContextMenu(QWidget *parent, int index) {
       menu->addAction(cm->getAction(MI_ConvertToToonzRaster));
   menu->addSeparator();
   menu->addAction(cm->getAction(MI_RemoveLevel));
-  menu->addAction(cm->getAction(MI_RemoveUnused));
+  menu->addAction(tr("Review Unused Levels…"), this, [this]() { CastBrowserActions::removeUnused(this); });
+  menu->addAction(tr("Where Used…"), this, [this]() { CastBrowserActions::whereUsed(this, selectedLevels()); });
+  menu->addAction(tr("Inspect / Preview / Audition…"), this, [this]() { CastBrowserActions::inspect(this, selectedLevels()); });
 
   return menu;
 }

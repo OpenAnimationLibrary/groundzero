@@ -151,6 +151,20 @@ jobs:
       - name: Verify benchmark harness contracts
         run: python3 -m unittest discover -s ci-scripts/tests -p test_paired_benchmark.py
 
+      - name: Test native interface and Scene Cast workflows
+        id: ui_integration
+        env:
+          GZ_CAST_WORKFLOW_REPORT: ${{ github.workspace }}/toonz/build/cast-workflow-metrics.json
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: |
+          app_libraries="$GITHUB_WORKSPACE/toonz/build/toonz/OpenToonz.app/Contents/MacOS"
+          DYLD_LIBRARY_PATH="$app_libraries${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}" \
+            python3 ci-scripts/run_native_ui_test.py "$app_libraries/OpenToonz" stuff --output toonz/build/ui-integration-output.txt
+
+      - name: Report native application integration failure
+        if: ${{ failure() && steps.ui_integration.outcome == 'failure' }}
+        run: python3 ci-scripts/report_ui_tests.py toonz/build/ui-integration-output.txt
+
       - name: Test SeExpr native integration
         id: seexpr_tests
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
@@ -187,7 +201,7 @@ jobs:
             fi
           done
           export DYLD_LIBRARY_PATH="$runtime_lib_dir"
-          python3 ../../ci-scripts/run_regression_tests.py rasterallocation timagecache levelselection save_transaction movierenderqueue levelupdater_abort trenderer_startup renderoutputbudget executor_submission compressed_stream scenebench fxrender ffmpeg_public tiio_ffmpeg tiio_psd
+          python3 ../../ci-scripts/run_regression_tests.py castworkflow rasterallocation timagecache levelselection save_transaction movierenderqueue levelupdater_abort trenderer_startup renderoutputbudget executor_submission compressed_stream scenebench fxrender ffmpeg_public tiio_ffmpeg tiio_psd
 
       - name: Upload reliability diagnostics
         if: always()
@@ -196,6 +210,8 @@ jobs:
           name: macos-reliability-results
           path: |
             toonz/build/reliability-tests.xml
+            toonz/build/cast-workflow-metrics.json
+            toonz/build/ui-integration-output.txt
             toonz/build/stdfx/fxrender-output
             toonz/build/image/ffmpeg-test-output
           if-no-files-found: ignore

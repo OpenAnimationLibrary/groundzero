@@ -743,3 +743,10 @@ if(BUILD_COMPAT_REGRESSION)
     target_link_libraries(compat_regression PRIVATE toonzlib tnzbase tnzcore tnzext image tnzstdfx colorfx Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
 endif()
 # compat_regression: end
+
+# Native Cast indexing/persistence tests share the UI qualification gate.
+if(BUILD_UI_PORT_TESTS OR BUILD_TESTS)
+    add_executable(castworkflow_test tests/castworkflow_test.cpp)
+    target_link_libraries(castworkflow_test PRIVATE toonzlib tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
+    add_test(NAME castworkflow COMMAND castworkflow_test)
+endif()
