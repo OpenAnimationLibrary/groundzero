@@ -1,0 +1,63 @@
+name: Native process contracts
+
+on:
+  push:
+    branches: [ci/native-process-qualification]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-process-contracts-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    name: Windows original-process capture
+    runs-on: windows-2025
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          lfs: false
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: /ci-scripts/
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Ensure original crash debugger is available
+        timeout-minutes: 12
+        shell: pwsh
+        run: ./ci-scripts/install_windows_debugger.ps1
+      - name: Qualify actionable harness reporting
+        timeout-minutes: 5
+        run: python ci-scripts/run_harness_tests.py --pattern test_harness_reporting.py --report harness-reporting-output.txt
+      - name: Qualify real original-process capture
+        timeout-minutes: 5
+        run: python ci-scripts/run_harness_tests.py --pattern test_windows_process.py --report native-process-contracts-output.txt
+      - name: Retain text evidence
+        id: evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        timeout-minutes: 2
+        continue-on-error: true
+        with:
+          name: native-process-contracts-${{ github.sha }}
+          path: |
+            harness-reporting-output.txt
+            native-process-contracts-output.txt
+          if-no-files-found: warn
+          overwrite: true
+      - name: Retry text evidence delivery
+        if: ${{ !cancelled() && steps.evidence.outcome == 'failure' }}
+        uses: actions/upload-artifact@v6
+        timeout-minutes: 2
+        with:
+          name: native-process-contracts-${{ github.sha }}
+          path: |
+            harness-reporting-output.txt
+            native-process-contracts-output.txt
+          if-no-files-found: warn
+          overwrite: true
