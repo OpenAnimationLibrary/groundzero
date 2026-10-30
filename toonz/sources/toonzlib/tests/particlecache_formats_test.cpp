@@ -12,6 +12,7 @@
 #include <QTemporaryDir>
 
 #include <cstdint>
+#include <cstring>
 #include <iostream>
 #include <limits>
 #include <memory>
@@ -293,6 +294,190 @@ void ptc(const QDir &dir) {
     require(written, "Cannot export PTC roundtrip: " + error.toStdString());
   }
 }
+
+// Big-endian fixtures for the classic Houdini and Maya binary formats.
+void be16(QByteArray &bytes, std::uint16_t value) {
+  bytes.append(char(value >> 8)).append(char(value & 255));
+}
+
+void be32(QByteArray &bytes, std::uint32_t value) {
+  for (int shift = 24; shift >= 0; shift -= 8)
+    bytes.append(char((value >> shift) & 255));
+}
+
+void beFloat(QByteArray &bytes, float value) {
+  std::uint32_t bits;
+  std::memcpy(&bits, &value, sizeof(bits));
+  be32(bytes, bits);
+}
+
+void beDouble(QByteArray &bytes, double value) {
+  std::uint64_t bits;
+  std::memcpy(&bits, &value, sizeof(bits));
+  be32(bytes, std::uint32_t(bits >> 32));
+  be32(bytes, std::uint32_t(bits));
+}
+
+// Both Partio entry points must fail on their own, not only through the
+// adapter's header checks: readHeaders when fullOnly is false, and read.
+void rejectReaders(const QString &path, bool fullOnly = false) {
+  const QByteArray filename = QFile::encodeName(path);
+  const std::string label   = QFileInfo(path).fileName().toStdString();
+  std::ostringstream diagnostics;
+  std::unique_ptr<Partio::ParticlesDataMutable, PartioRelease> data(
+      Partio::read(filename.constData(), true, diagnostics));
+  require(!data, label + ": Partio::read accepted malformed data");
+  if (fullOnly) return;
+  std::unique_ptr<Partio::ParticlesInfo, PartioRelease> headers(
+      Partio::readHeaders(filename.constData(), true, diagnostics));
+  require(!headers, label + ": Partio::readHeaders accepted malformed data");
+  require(!diagnostics.str().empty(),
+          label + ": reader omitted its diagnostic");
+}
+
+void rejectAll(const QString &path, const QByteArray &bytes,
+               bool fullOnly = false) {
+  reject(path, bytes);
+  rejectReaders(path, fullOnly);
+}
+
+const Attribute *attribute(const Snapshot &snapshot, const char *name) {
+  for (const auto &a : snapshot.attributes)
+    if (a.name == name) return &a;
+  return nullptr;
+}
+
+struct BgeoAttr {
+  QByteArray name;
+  std::uint16_t size;
+  int type;
+  QList<QByteArray> strings;  // Index (type 4) dictionaries.
+};
+
+QByteArray bgeoHeader(int points, int prims, int pointAttrs, int primAttrs,
+                      int details) {
+  QByteArray bytes("BgeoV");  // Magic and version character.
+  for (int value : {5, points, prims, 0, 0, pointAttrs, 0, primAttrs, details})
+    be32(bytes, std::uint32_t(value));
+  return bytes;
+}
+
+QByteArray bgeoAttributes(const QList<BgeoAttr> &attributes) {
+  QByteArray bytes;
+  for (const auto &a : attributes) {
+    be16(bytes, std::uint16_t(a.name.size()));
+    bytes += a.name;
+    be16(bytes, a.size);
+    be32(bytes, std::uint32_t(a.type));
+    if (a.type == 4) {
+      be32(bytes, std::uint32_t(a.strings.size()));
+      for (const auto &value : a.strings) {
+        be16(bytes, std::uint16_t(value.size()));
+        bytes += value;
+      }
+    } else {
+      for (int i = 0; i < a.size; ++i) be32(bytes, 0);
+    }
+  }
+  return bytes;
+}
+
+// Two points with an integer id, one particle-system primitive and an
+// integer detail attribute, as classic Houdini writes them.
+QByteArray bgeoFrame(std::uint32_t primitiveType = 0x8000,
+                     std::uint32_t vertices      = 2) {
+  QByteArray bytes =
+      bgeoHeader(2, 1, 1, 0, 1) + bgeoAttributes({{"id", 1, 1, {}}});
+  for (int point = 0; point < 2; ++point) {
+    for (float value : {1.0f + point, 2.0f, 3.0f, 1.0f}) beFloat(bytes, value);
+    be32(bytes, std::uint32_t(40 + point));
+  }
+  be32(bytes, primitiveType);
+  be32(bytes, vertices);
+  be16(bytes, 0);
+  be16(bytes, 1);
+  bytes += bgeoAttributes({{"count", 1, 1, {}}});
+  be32(bytes, 2);
+  return bytes + QByteArray("\0\xff", 2);
+}
+
+void bgeo(const QDir &dir) {
+  QString error;
+  const QString validPath = dir.filePath("valid.bgeo");
+  writeRaw(validPath, bgeoFrame());
+  const auto valid = loadFrame(validPath, Mapping{}, error);
+  require(valid && valid->particles.size() == 2 &&
+              valid->particles[1].id == 41 &&
+              valid->particles[1].position[0] == 2,
+          "Valid BGEO points failed: " + error.toStdString());
+  const auto *count = attribute(*valid, "count");
+  require(
+      count && count->fixed && count->integers == std::vector<std::int32_t>{2},
+      "Valid BGEO detail attribute was not read");
+  // Upstream keeps the points of an unknown primitive and skips detail data.
+  writeRaw(dir.filePath("polygon.bgeo"), bgeoFrame(1));
+  const auto polygon =
+      loadFrame(dir.filePath("polygon.bgeo"), Mapping{}, error);
+  require(
+      polygon && polygon->particles.size() == 2 && !polygon->warnings.isEmpty(),
+      "BGEO with a non-particle primitive lost its points");
+
+  // Unknown and string attribute types: upstream released the particles and
+  // returned them anyway (heap use after free).
+  for (int type : {2, 3, -7})
+    rejectAll(dir.filePath(QString("attr-type-%1.bgeo").arg(type)),
+              bgeoHeader(1, 0, 1, 0, 0) +
+                  bgeoAttributes({{"foo", 1, type, {}}}) +
+                  QByteArray(64, '\0'));
+  // An unknown primitive attribute type released a null particle object.
+  rejectAll(dir.filePath("primitive-attr.bgeo"),
+            bgeoHeader(1, 0, 0, 1, 0) + QByteArray(16, '\0') +
+                bgeoAttributes({{"bar", 1, 3, {}}}) + QByteArray(32, '\0'));
+  // Duplicate names gave an attribute handle with index -1.
+  rejectAll(dir.filePath("duplicate-position.bgeo"),
+            bgeoHeader(1, 0, 1, 0, 0) +
+                bgeoAttributes({{"position", 1, 4, {"a"}}}) +
+                QByteArray(64, '\0'));
+  rejectAll(dir.filePath("duplicate-attr.bgeo"),
+            bgeoHeader(1, 0, 2, 0, 0) +
+                bgeoAttributes({{"foo", 1, 0, {}}, {"foo", 1, 1, {}}}) +
+                QByteArray(64, '\0'));
+  rejectAll(dir.filePath("duplicate-string.bgeo"),
+            bgeoHeader(1, 0, 1, 0, 0) +
+                bgeoAttributes({{"name", 1, 4, {"a", "a"}}}) +
+                QByteArray(20, '\0'),
+            true);
+  // A negative point count was skipped as ~2^64 bytes (hang).
+  for (int points : {-1, -1000, 10000001})
+    rejectAll(dir.filePath(QString("count-%1.bgeo").arg(points)),
+              bgeoHeader(points, 0, 0, 0, 0));
+  QByteArray negativePrims = bgeoHeader(1, -1, 0, 0, 0);
+  rejectAll(dir.filePath("negative-prims.bgeo"),
+            negativePrims + QByteArray(16, '\0'));
+  QByteArray negativeTable = bgeoHeader(1, 0, 1, 0, 0);
+  be16(negativeTable, 4);
+  negativeTable += "name";
+  be16(negativeTable, 1);
+  be32(negativeTable, 4);
+  be32(negativeTable, 0xffffffffu);
+  rejectAll(dir.filePath("negative-table.bgeo"),
+            negativeTable + QByteArray(20, '\0'));
+  rejectAll(dir.filePath("zero-size.bgeo"),
+            bgeoHeader(1, 0, 1, 0, 0) + bgeoAttributes({{"foo", 0, 0, {}}}) +
+                QByteArray(16, '\0'));
+  // Truncation anywhere must fail, never load stale or uninitialized points.
+  const QByteArray frame = bgeoFrame();
+  for (int size : {3, 20, 44, 50, 60, 70, frame.size() - 12, frame.size() - 6,
+                   frame.size() - 3})
+    rejectAll(dir.filePath(QString("truncated-%1.bgeo").arg(size)),
+              frame.left(size));
+  QByteArray shortPoints = bgeoHeader(1000, 0, 0, 0, 0);
+  for (int i = 0; i < 40; ++i) beFloat(shortPoints, 1);
+  rejectAll(dir.filePath("short-points.bhclassic"), shortPoints);
+  for (std::uint32_t vertices : {3u, 0x7fffffffu, 0xffffffffu})
+    rejectAll(dir.filePath(QString("primitive-vertices-%1.bgeo").arg(vertices)),
+              bgeoFrame(0x8000, vertices));
+}
 }  // namespace
 
 int main(int argc, char **argv) {
@@ -304,7 +489,8 @@ int main(int argc, char **argv) {
     geo(dir);
     ptc(dir);
     bin(dir);
-    std::cout << "Particle format readers: long GEO strings and strict GEO/PTC/BIN inputs passed.\n";
+    bgeo(dir);
+    std::cout << "Particle format readers: long GEO strings and strict GEO/PTC/BIN/BGEO inputs passed.\n";
     return 0;
   } catch (const std::exception &error) {
     std::cerr << "Particle format reader failure: " << error.what() << '\n';
