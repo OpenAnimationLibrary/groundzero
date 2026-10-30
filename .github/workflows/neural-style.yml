@@ -3,6 +3,9 @@ name: Neural style evaluation
 on:
   pull_request:
   workflow_dispatch:
+  push:
+    branches:
+      - 'ci/reference-style-*'
 
 permissions:
   contents: read

@@ -23,6 +23,10 @@ MAX_DOWNLOAD = 100 * 1024 * 1024
 MAX_STORAGE = 500 * 1024 * 1024
 MODEL_ROOT = "https://tfhub.dev/google/lite-model/magenta/arbitrary-image-stylization-v1-256/int8/"
 PUBLISHER_ROOT = "https://www.kaggle.com/models/google/arbitrary-image-stylization-v1/tfLite/256-int8-"
+MODEL_PINS = {
+    "prediction": (2828838, "af6ad4b2e7aeba0675f32636082ab915ced5375229a3f8aff7e714c6213f5ed2"),
+    "transfer": (284398, "7a1550643cf034a4d813c0aa276976cd15da4141b4f1ec3631db1d0d9c8e2cd1"),
+}
 
 
 def size(directory):
@@ -38,6 +42,7 @@ def command(args):
         # Include the actual dependency/runtime error in check annotations.
         detail = " | ".join(result.stdout.splitlines()[-15:])
         raise RuntimeError("Evaluation command failed: " + detail[-5000:])
+    return result.stdout
 
 
 def digest(path):
@@ -134,6 +139,8 @@ def main():
         path = MODELS / (kind + ".tflite")
         url = MODEL_ROOT + kind + "/1?lite-format=tflite"
         count = download(url, path, 4 * 1024 * 1024)
+        if (count, digest(path)) != MODEL_PINS[kind]:
+            raise RuntimeError("Official model changed from qualified size/hash: " + kind)
         with path.open("rb") as model:
             header = model.read(8)
         if header[4:8] != b"TFL3":
@@ -156,7 +163,25 @@ def main():
                      "installed_bytes_excludes", "workspace_bytes", "total_download_bytes")}
     measurements["runtime_libraries"] = wheels[0]["native_libraries"]
     print("::notice title=Neural runtime measurements::" + json.dumps(measurements), flush=True)
-    command([python, Path(__file__).with_name("smoke.py"), MODELS, REPORT])
+    native = REPORT / "native-package"
+    native.mkdir()
+    library_names = {"win32": "libLiteRt.dll", "darwin": "libLiteRt.dylib"}
+    library_name = library_names.get(sys.platform, "libLiteRt.so")
+    runtime_wheel = next(p for p in WHEELS.glob("ai_edge_litert-*.whl"))
+    with zipfile.ZipFile(runtime_wheel) as archive:
+        (native / library_name).write_bytes(archive.read("ai_edge_litert/" + library_name))
+    command(["cmake", "-S", "toonz/sources/neuralstyle", "-B", ROOT / "build",
+             "-DCMAKE_BUILD_TYPE=Release"])
+    command(["cmake", "--build", ROOT / "build", "--config", "Release", "--parallel", "2"])
+    executable_name = "groundzero-style-worker" + (".exe" if os.name == "nt" else "")
+    executable = ROOT / "build" / ("Release" if os.name == "nt" else "") / executable_name
+    shutil.copy2(executable, native / executable_name)
+    for model in MODELS.glob("*.tflite"):
+        shutil.copy2(model, native / model.name)
+    shutil.copy2(REPORT / "provenance.json", native / "provenance.json")
+    shutil.copy2(REPORT / "Apache-2.0.txt", native / "Apache-2.0.txt")
+    shutil.copytree(REPORT / "licenses", native / "licenses")
+    command([python, Path(__file__).with_name("smoke.py"), MODELS, REPORT, native.resolve()])
     if size(ROOT) > MAX_STORAGE:
         raise RuntimeError("Final evaluation workspace exceeds the 500 MiB budget")
     shutil.rmtree(WHEELS)

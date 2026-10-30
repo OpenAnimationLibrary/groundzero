@@ -4,6 +4,12 @@ import importlib.metadata
 import json
 from pathlib import Path
 import platform
+import os
+import struct
+import subprocess
+import queue
+import threading
+import re
 import sys
 import time
 
@@ -38,7 +44,7 @@ def invoke(interpreter, arrays):
 
 
 def main():
-    models, report = map(Path, sys.argv[1:])
+    models, report, native = map(Path, sys.argv[1:])
     prediction = make_interpreter(models / "prediction.tflite")
     transfer = make_interpreter(models / "transfer.tflite")
     style_shape = tuple(prediction.get_input_details()[0]["shape"])
@@ -70,18 +76,107 @@ def main():
     content_effect = float(np.mean(np.abs(output - changed_content)))
     if effect <= 1e-4 or reference_effect <= 1e-4 or content_effect <= 1e-4:
         raise AssertionError("Model failed content/style influence checks")
+    inference_seconds = time.monotonic() - started
+    native_result = native_check(native, style, content, embedding, output)
     result = {"runtime": importlib.metadata.version("ai-edge-litert"),
               "platform": platform.system(), "machine": platform.machine(),
               "content_shape": [int(value) for value in content_shape],
               "embedding_shape": [int(value) for value in embedding.shape],
-              "inference_seconds": time.monotonic() - started,
+              "inference_seconds": inference_seconds,
               "timed_operations": "two style predictions and four content transfers; excludes initialization",
               "mean_content_difference": effect, "mean_reference_difference": reference_effect,
               "mean_changed_content_difference": content_effect,
               "repeat_max_difference": float(np.max(np.abs(output - repeated))),
+              "native_worker": native_result,
               "quality_claim": "Operator/numerical smoke only, not artist or temporal validation"}
     (report / "inference.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
     print("::notice title=Neural numerical evaluation::" + json.dumps(result), flush=True)
+
+
+def native_check(directory, style, content, embedding, expected):
+    """Exercise the native C API with Python/developer loader paths removed."""
+    library = {"win32": "libLiteRt.dll", "darwin": "libLiteRt.dylib"}.get(sys.platform, "libLiteRt.so")
+    executable = directory / ("groundzero-style-worker" + (".exe" if os.name == "nt" else ""))
+    args = [str(executable), str(directory / library), str(directory / "prediction.tflite"),
+            str(directory / "transfer.tflite")]
+    magic = 0x31535A47
+    environment = {key: value for key, value in os.environ.items()
+                   if not key.startswith(("PYTHON", "DYLD_", "LD_"))}
+    if os.name == "nt":
+        system = Path(os.environ["SystemRoot"])
+        environment["PATH"] = os.pathsep.join(map(str, [directory, system / "System32", system]))
+    else:
+        environment["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin"
+
+    def request(command, sequence, array):
+        return struct.pack("<IIII", magic, command, sequence, array.size) + array.astype("<f4").tobytes()
+
+    def run(data, success=True):
+        result = subprocess.run(args, input=data, capture_output=True, timeout=60, env=environment)
+        if success and result.returncode:
+            raise AssertionError("Native worker failed: " + result.stderr.decode(errors="replace")[-3000:])
+        if not success and result.returncode == 0:
+            raise AssertionError("Malformed worker request was accepted")
+        return result
+
+    data = request(1, 1, style) + request(2, 2, content) + request(2, 3, content)
+    started = time.monotonic()
+    result = run(data)
+    memory = re.search(rb"peak_memory_bytes=(\d+)", result.stderr)
+    if not memory or int(memory[1]) > 512 * 1024 * 1024:
+        raise AssertionError("Native worker peak memory absent or exceeds 512 MiB")
+    position = 0
+    frames = []
+    for command, sequence, count in [(0, 0, 0), (1, 1, 100), (2, 2, content.size), (2, 3, content.size)]:
+        if len(result.stdout) - position < 16:
+            raise AssertionError("Truncated native reply")
+        header = struct.unpack_from("<IIII", result.stdout, position)
+        if header != (magic, command, sequence, count):
+            raise AssertionError("Native reply identity mismatch")
+        position += 16
+        frame = np.frombuffer(result.stdout[position:position + count * 4], dtype="<f4")
+        if frame.size != count:
+            raise AssertionError("Truncated native pixel payload")
+        frames.append(frame)
+        position += count * 4
+    if position != len(result.stdout):
+        raise AssertionError("Unexpected native reply bytes")
+    np.testing.assert_allclose(frames[1], embedding.ravel(), rtol=0, atol=1e-5)
+    np.testing.assert_allclose(frames[2], expected.ravel(), rtol=0, atol=1e-5)
+    np.testing.assert_array_equal(frames[2], frames[3])
+    malformed = run(struct.pack("<IIII", magic, 2, 9, 0xFFFFFFFF), False)
+    if b"oversized" not in malformed.stderr:
+        raise AssertionError("Oversized request did not fail before allocation")
+    truncated = run(struct.pack("<IIII", magic, 1, 9, style.size), False)
+    if b"Truncated" not in truncated.stderr:
+        raise AssertionError("Truncated request did not fail explicitly")
+    bad_pixels = style.copy();bad_pixels.flat[0] = np.nan
+    nonfinite = run(request(1, 9, bad_pixels), False)
+    if b"finite" not in nonfinite.stderr:
+        raise AssertionError("Nonfinite request did not fail explicitly")
+    # Process termination is the cancellation boundary for synchronous inference.
+    process = subprocess.Popen(args, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                               stderr=subprocess.PIPE, env=environment)
+    ready = queue.Queue()
+    reader = threading.Thread(target=lambda: ready.put(process.stdout.read(16)), daemon=True)
+    reader.start()
+    try:
+        if ready.get(timeout=10) != struct.pack("<IIII", magic, 0, 0, 0):
+            raise AssertionError("Worker did not initialize before cancellation")
+        process.stdin.write(request(1, 10, style));process.stdin.flush()
+        process.terminate();process.wait(timeout=5)
+    finally:
+        if process.poll() is None:
+            process.kill();process.wait(timeout=5)
+        process.stdin.close();process.stdout.close();process.stderr.close()
+        reader.join(timeout=1)
+    restarted = run(data)
+    if restarted.stdout != result.stdout:
+        raise AssertionError("Worker restart changed deterministic results")
+    return {"protocol": 1, "python_api_required": False, "developer_loader_paths_removed": True,
+            "peak_memory_bytes": int(memory[1]), "elapsed_seconds": time.monotonic() - started,
+            "malformed_requests_rejected": True, "termination_and_restart": True,
+            "python_reference_max_difference": float(np.max(np.abs(frames[2] - expected.ravel())))}
 
 
 if __name__ == "__main__":
