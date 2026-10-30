@@ -78,6 +78,32 @@ jobs:
           chmod +x reference-runtime/krita.AppImage
           cd reference-runtime
           ./krita.AppImage --appimage-extract > extraction.log
+      - name: Configure bundled reference Python
+        shell: bash
+        run: |
+          python3 - <<'PYTHONPATHS'
+          import os, shlex, zipfile
+          from pathlib import Path
+          runtime = Path('reference-runtime/squashfs-root').resolve()
+          prefix = runtime / 'usr'
+          libraries = []
+          for candidate in sorted((prefix / 'lib').glob('python*')):
+              if candidate.is_dir() and (candidate / 'encodings' / '__init__.py').is_file():
+                  libraries.extend([candidate, candidate / 'lib-dynload'])
+              elif candidate.suffix == '.zip' and zipfile.is_zipfile(candidate):
+                  with zipfile.ZipFile(candidate) as archive:
+                      if 'encodings/__init__.py' in archive.namelist():
+                          libraries.append(candidate)
+          if not libraries:
+              print('::error::Official AppImage has no discoverable bundled Python standard library')
+              for path in runtime.rglob('*encodings*'):
+                  print('::notice::Bundled Python candidate: ' + str(path.relative_to(runtime)))
+              raise SystemExit(1)
+          with open('reference-runtime/python.env', 'a') as environment:
+              environment.write('export PYTHONHOME=' + shlex.quote(str(prefix)) + '\n')
+              environment.write('export PYTHONPATH=' + shlex.quote(os.pathsep.join(map(str, libraries))) + '\n')
+          print('::notice::Using reference-bundled Python libraries: ' + ', '.join(str(p.relative_to(runtime)) for p in libraries))
+          PYTHONPATHS
       - name: Prepare original brush fixtures
         run: python3 ci-scripts/brush-reference/prepare.py
       - name: Render source application fixtures
@@ -93,6 +119,7 @@ jobs:
           # build-time configuration path on the hosted runner.
           export FONTCONFIG_FILE=/etc/fonts/fonts.conf
           export FONTCONFIG_PATH=/etc/fonts
+          source reference-runtime/python.env
           xvfb-run -a reference-runtime/squashfs-root/AppRun --version 2>&1 | tee "$BRUSH_REFERENCE_ROOT/version.log"
           set +e
           timeout 600 xvfb-run -a -s '-screen 0 2560x2160x24' reference-runtime/squashfs-root/AppRun --nosplash 2>&1 | tee "$BRUSH_REFERENCE_ROOT/runtime.log"
@@ -101,7 +128,7 @@ jobs:
           if test "$runtime_status" -ne 0; then
             echo "::error::Reference application exited with status $runtime_status"
           fi
-          python3 - <<'PY'
+          env -u PYTHONHOME -u PYTHONPATH python3 - <<'PY'
           import json, os
           from pathlib import Path
           path = Path(os.environ['BRUSH_REFERENCE_ROOT']) / 'output' / 'oracle-status.json'

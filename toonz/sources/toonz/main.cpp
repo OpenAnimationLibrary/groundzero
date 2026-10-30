@@ -42,6 +42,7 @@
 
 // TnzLib includes
 #include "toonz/preferences.h"
+#include "toonz/rasterbrushimport.h"
 #include "toonz/toonzfolders.h"
 #include "toonz/tproject.h"
 #include "toonz/studiopalette.h"
@@ -282,6 +283,13 @@ static void script_output(int type, const QString &value) {
 //-----------------------------------------------------------------------------
 
 int main(int argc, char *argv[]) {
+  if (argc > 1 &&
+      QString::fromLocal8Bit(argv[1]) == "--raster-brush-import-worker") {
+    if (argc != 4) return 2;
+    QCoreApplication worker(argc, argv);
+    return RasterBrush::runImportWorker(QString::fromLocal8Bit(argv[2]),
+                                        QString::fromLocal8Bit(argv[3]));
+  }
   bool nativeUiTest = false;
   bool rasterBrushTest = false;
 #ifdef BUILD_UI_PORT_TESTS

@@ -141,7 +141,8 @@ RasterBrush::ImportResult importNativeBrush(const QString &path,
   RasterBrush::ImportResult result;
   std::unique_ptr<QThread> worker(QThread::create([&]() {
     try {
-      result = RasterBrush::importBrushFile(path, error, &cancelled);
+      result = RasterBrush::importBrushProcess(
+          QCoreApplication::applicationFilePath(), path, error, &cancelled);
     } catch (const std::exception &e) {
       error = QString::fromUtf8(e.what());
     } catch (...) {

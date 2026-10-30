@@ -15,4 +15,11 @@ importBrush(const QByteArray &bytes, const QString &format, QString &error,
 RASTERBRUSH_API ImportResult
 importBrushFile(const QString &path, QString &error,
                 const std::atomic_bool *cancelled = nullptr);
+// Worker-process import contains decoder crashes and supports hard
+// cancellation. The worker retains the current user's filesystem privileges.
+RASTERBRUSH_API int runImportWorker(const QString &input,
+                                    const QString &outputDirectory);
+RASTERBRUSH_API ImportResult
+importBrushProcess(const QString &executable, const QString &path,
+                   QString &error, const std::atomic_bool *cancelled = nullptr);
 }  // namespace RasterBrush

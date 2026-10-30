@@ -2,6 +2,8 @@
 #include "toonz/rasterbrushimport.h"
 #include <QCoreApplication>
 #include <QTemporaryDir>
+#include <QThread>
+#include <QElapsedTimer>
 #include <QJsonDocument>
 #include <QJsonArray>
 #include <QFile>
@@ -379,6 +381,56 @@ void testCollection() {
   require(load(paths[0], error).preset.name == first.preset.name,
           "conflicting collection modified another preset");
 }
+void testWorkerProcess() {
+  QTemporaryDir directory;
+  require(directory.isValid(), "worker fixture directory unavailable");
+  QString input = directory.filePath("original.gbr"), error;
+  {
+    QFile file(input);
+    require(file.open(QIODevice::WriteOnly), "cannot write worker input");
+    auto bytes = gbr();
+    require(file.write(bytes) == bytes.size(), "short worker fixture write");
+  }
+  auto result =
+      importBrushProcess(QCoreApplication::applicationFilePath(), input, error);
+  require(error.isEmpty() && result.complete && result.records.size() == 1,
+          "worker-process GBR import failed");
+  require(!result.records[0].referenceVerified && !result.diagnostics.empty(),
+          "worker import lost conversion status");
+  {
+    QFile file(input);
+    require(file.open(QIODevice::WriteOnly | QIODevice::Truncate),
+            "cannot replace worker input");
+    file.write("invalid");
+  }
+  result =
+      importBrushProcess(QCoreApplication::applicationFilePath(), input, error);
+  require(!error.isEmpty() && result.records.empty(),
+          "malformed worker import returned partial records");
+  std::atomic_bool cancelled(true);
+  result = importBrushProcess(QCoreApplication::applicationFilePath(), input,
+                              error, &cancelled);
+  require(result.records.empty() && error.isEmpty(),
+          "cancelled worker import published a result");
+  cancelled.store(false);
+  std::unique_ptr<QThread> cancellation(QThread::create([&cancelled]() {
+    QThread::msleep(250);
+    cancelled.store(true);
+  }));
+  cancellation->start();
+  QElapsedTimer timer;
+  timer.start();
+  result = importBrushProcess(QCoreApplication::applicationFilePath(),
+                              directory.filePath("blocking-worker.fixture"),
+                              error, &cancelled);
+  cancellation->wait();
+  require(result.records.empty() && error.isEmpty() && timer.elapsed() < 10000,
+          "cancellation did not terminate the active import process");
+  result = importBrushProcess(directory.filePath("missing-executable"), input,
+                              error);
+  require(result.records.empty() && !error.isEmpty(),
+          "worker startup failure was ignored");
+}
 void writeCorpus(const QString &directory) {
   require(QDir().mkpath(directory), "cannot create original fuzz corpus");
   auto save = [&](const char *name, int format, const QByteArray &bytes) {
@@ -438,11 +490,20 @@ void writeCorpus(const QString &directory) {
 }  // namespace
 int main(int argc, char **argv) {
   QCoreApplication app(argc, argv);
+  if (argc == 4 &&
+      QString::fromLocal8Bit(argv[1]) == "--raster-brush-import-worker") {
+    // Test-only blocked decoder; the parent must kill it after cancellation.
+    if (QString::fromLocal8Bit(argv[2]).endsWith("blocking-worker.fixture"))
+      QThread::sleep(30);
+    return runImportWorker(QString::fromLocal8Bit(argv[2]),
+                           QString::fromLocal8Bit(argv[3]));
+  }
   try {
     testPackage();
     testImports();
     testBundles();
     testCollection();
+    testWorkerProcess();
     if (argc == 3 && QString::fromLocal8Bit(argv[1]) == "--write-corpus")
       writeCorpus(QString::fromLocal8Bit(argv[2]));
     std::cout << "Native brush package tests passed\n";

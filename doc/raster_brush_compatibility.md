@@ -24,7 +24,7 @@ satisfy the contract. Build and test through CI per CLAUDE.md.
 | Real tilt/rotation capture and normalization | Additive Qt tablet fields and track interpolation implemented | Full app CI and device qualification pending |
 | Actual-engine preview, editor, portable preset export/relink | Native scratchpad, sensor/curve/texture/dual/color editor and embedded-asset export implemented | Cross-platform package CI passes; application workflows pending |
 | Undo/cancel/frame lifecycle/save/reopen | Native path uses raster undo; cancellation rolls back tiles and created frame | Actual-tool undo, redo, cancellation, frame creation and PNG reopen workload added; full application CI pending |
-| Parser isolation/fuzzing/cancel and complete resource budgets | Bounded readers and cancellable worker implemented; libFuzzer target and original corpus added; process isolation and sustained qualification pending | Sanitizers, malformed corpus, cancellation and limits |
+| Parser isolation/fuzzing/cancel and complete resource budgets | Bounded readers and cancellable worker implemented; libFuzzer target and original corpus added; worker-process crash containment implemented; privilege sandboxing and sustained qualification pending | Sanitizers, malformed corpus, cancellation and limits |
 | Packaged Windows/macOS/Linux QA and performance | Planned | Exact-head artifacts and hardware results |
 | Must-have pack parity including any wet/Mixer/bristle/TPL expansion | Unresolved target | Pack revision/preset identity and authorized reference access |
 
@@ -217,8 +217,12 @@ claim that every foreign curve uses the same rule.
 Collection imports let the user select multiple presets, stage all selected
 packages, and publish a complete content-identified directory. Invalid members,
 conflicting installed content and cancellation before publication do not install
-a subset. Parsing and staging run on a worker thread; cancellation is checked
-between bounded resources. This is not yet operating-system process isolation.
+a subset. Parsing runs in a separate process with a 120-second wall-time limit and hard
+cancellation. The application accepts only bounded native packages and a bounded
+result manifest from that worker. Unix workers also have a 60-second CPU limit
+and disabled core dumps. Staging runs on a thread and checks cancellation between
+bounded resources. The worker has the current user's filesystem/network
+privileges: this contains crashes and hangs, but is not a privilege sandbox.
 
 The CI native benchmark records 60-second 240 Hz dry and 120 Hz textured/dual
 and smudge traces, event-to-surface CPU percentiles, tracked active-stroke memory,
@@ -239,7 +243,7 @@ silently truncates the selector at 2,000 installed packages.
 The import fuzz job uses original generated native, KPP, GBR, GIH, bundle and
 ABR inputs and bounded libFuzzer mutations with address/undefined sanitizers.
 A short CI fuzz run is regression evidence, not proof of parser safety or a
-substitute for process isolation. Long native wet traces check repeatability,
+substitute for a privilege sandbox. Long native wet traces check repeatability,
 premultiplied color invariants and memory release through 10,000 dabs; foreign
 smudge drift and cross-platform scalar-reference tolerances remain separate.
 
@@ -255,3 +259,10 @@ All three released tracked allocations after stroke completion. Backing rasters
 are accounted separately (128 MiB dry; 512 MiB heavy). These are CPU measurements
 on a hosted runner, not physical tablet-to-display latency. The native-metrics
 check passed at that commit; subsequent-head results must be checked separately.
+
+The source-reference failure at `22e202a45` is diagnosed as the official
+AppImage's embedded Python failing to locate its `encodings` standard-library
+module, before the reference plugin loads. The harness now locates the bundled
+standard library and supplies its prefix/search path only to the reference
+application. Successful execution and all source-profile comparison gates remain
+pending; no source fidelity claim follows from this harness fix.

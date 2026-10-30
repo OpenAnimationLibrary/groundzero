@@ -56,6 +56,7 @@ find_package(ZLIB REQUIRED)
 add_executable(rasterbrushpreset_test
   "${REPO_ROOT}/toonz/sources/toonzlib/rasterbrushpreset.cpp"
   "${REPO_ROOT}/toonz/sources/toonzlib/rasterbrushimport.cpp"
+  "${REPO_ROOT}/toonz/sources/toonzlib/rasterbrushworker.cpp"
   "${REPO_ROOT}/toonz/sources/toonzlib/rasterbrushpng.cpp"
   "${REPO_ROOT}/toonz/sources/toonzlib/rasterbrusharchive.cpp"
   "${REPO_ROOT}/toonz/sources/toonzlib/abrparser.cpp"

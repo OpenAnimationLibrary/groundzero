@@ -12,7 +12,10 @@
 #include "toonz/txshleveltypes.h"
 #include "toonz/levelproperties.h"
 #include "toonz/levelset.h"
+#include "toonz/txsheet.h"
+#include "toonz/txshcell.h"
 #include "toonz/preferences.h"
+#include "toonz/rasterbrushimport.h"
 #include "tpalette.h"
 #include "tproperty.h"
 #include "trasterimage.h"
@@ -73,6 +76,17 @@ void draw(TTool *tool, bool cancel) {
 
 int runRasterBrushIntegrationTest(QMainWindow *window) {
   try {
+    checkpoint("importing through the packaged application worker");
+    RasterBrush::Record original;
+    QString importError;
+    QString package = QDir::current().filePath("original.gzbrush");
+    require(RasterBrush::save(package, original, importError),
+            "cannot write original native brush fixture");
+    auto imported = RasterBrush::importBrushProcess(
+        QCoreApplication::applicationFilePath(), package, importError);
+    require(importError.isEmpty() && imported.complete &&
+                imported.records.size() == 1,
+            "packaged application brush import worker failed");
     checkpoint("creating disposable full-color level");
     auto app   = TApp::instance();
     auto scene = app->getCurrentScene()->getScene();
@@ -160,6 +174,30 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
             "cannot reopen saved native-painted image");
     require(same(second, TRaster32P(reopened)),
             "saved native-painted pixels changed");
+    checkpoint("saving and reopening scene and raster level");
+    require(scene->getXsheet()->setCell(0, 0, TXshCell(level, TFrameId(1))) &&
+                scene->getXsheet()->setCell(1, 0, TXshCell(level, TFrameId(2))),
+            "cannot expose painted level for scene persistence");
+    level->save();
+    TFilePath scenePath(QDir::current().filePath("native-painted.tnz"));
+    scene->saveCopy(scenePath);
+    {
+      ToonzScene restored;
+      restored.loadTnzFile(scenePath);
+      auto restoredLevel =
+          restored.getLevelSet()->getLevel(L"RasterBrushFixture");
+      require(restoredLevel && restoredLevel->getSimpleLevel(),
+              "scene lost painted raster level");
+      auto restoredRaster = restoredLevel->getSimpleLevel();
+      restoredRaster->load();
+      require(same(after, raster(restoredRaster, 1)) &&
+                  same(second, raster(restoredRaster, 2)),
+              "scene/level reopening changed native-painted pixels");
+      require(restored.getXsheet()->getCell(1, 0).m_frameId == TFrameId(2),
+              "scene reopening lost painted frame exposure");
+      require(!restoredRaster->getFrame(TFrameId(3), false),
+              "scene reopening resurrected cancelled frame");
+    }
     tool->onDeactivate();
     undo->reset();
     app->getCurrentScene()->setDirtyFlag(false);
