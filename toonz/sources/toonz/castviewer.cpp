@@ -687,7 +687,11 @@ CastBrowser::CastBrowser(QWidget *parent, Qt::WindowFlags flags)
 
 //-----------------------------------------------------------------------------
 
-CastBrowser::~CastBrowser() {}
+CastBrowser::~CastBrowser() {
+  // Clear handlers targeting this browser while its model and controls still
+  // exist. The panel subsequently releases the owned selection object.
+  m_itemViewer->getPanel()->enableGlobalSelection(false);
+}
 
 //-----------------------------------------------------------------------------
 
