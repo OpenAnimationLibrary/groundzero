@@ -125,13 +125,19 @@ Smudge numeric drift test: 10,000 dabs over original color strips and alpha ramp
 
 For opaque source RNG, draw **100 independent strokes per fixture per application**, fixed path/settings and separate runs, with randomized order; compare three spatial bands (leading/middle/trailing) independently. Measure coverage fraction, integrated alpha, mean stroke width, occupied-tip count and normalized high-frequency texture energy at fixed spatial scales. For each statistic require the 95% bootstrap confidence interval (10,000 resamples, fixed analysis seed) for the difference of means to lie entirely within ±5% of the reference mean, with an absolute floor of 0.01 for normalized near-zero statistics; also require the candidate/reference standard-deviation ratio in [0.8,1.25] unless both variances are below that floor. All statistics/bands must pass; do not average failures away. Additional visually selected fixtures require blinded artist review. This earns **statistical reference verification**, explicitly different from pixel verification. For native known RNG, test exact seed/output repeatability instead.
 
-### Kyle/wet-media scope decision and remaining user choice
+### Kyle/wet-media scope decision
 
 The practical complete target is **RCP1 dry-media import plus all four specified K5341 smudge profiles plus native wet painting**, including import reports, presets, durability and QA. It is not a generic Kyle pack emulator. A Kyle preset that is an ordinary sampled dry brush and uses only D can qualify after verification; one relying on Mixer Brush, wet edges, bristles, erodible tips, unsupported dual/texture modes or TPL cannot. Native wet conversion is a useful alternative, never advertised as that original preset working correctly.
 
 If broad Kyle compatibility is the required end state, add a separately scoped **W track before declaring the user's outcome complete**: identify exact wet/Mixer/bristle/TPL records in the chosen pack; specify wet/load/mix/flow and clean/load-after-stroke behavior, brush pickup sampling and reservoir lifecycle; model bristle geometry/stiffness/pose and supported sensors; address TPL decoding if needed; establish original authorized reference fixtures; and apply the same import/save/performance/fidelity gates. W is not presently feasible to estimate or promise for every historical pack from the word “Kyle.” Do not replace it with generic native smudge or quietly drop it after implementation. Pack findings may also expand D texture/dual/blend modes without requiring a whole wet engine.
 
-The only missing product information that cannot be inferred is: **Which specific packs/presets and acquisition/version are must-haves, and is approximate artistic conversion acceptable for those, or must their original wet/bristle behavior match?** Names, pack revision/date, preset names and source app version are sufficient for initial scoping; do not request public redistribution of proprietary files. If none are mandatory, recommend accepting RCP1 under its precise name. Users do not need to choose alpha equations, parser limits, ABR subversion guards, testing statistics or the internal engine split.
+Pack selection is resolved for this implementation: use original or openly
+licensed representative fixtures and the complete RCP1 contract, prioritizing
+long-term maintainability. No named paid pack is a prerequisite or an open
+product question. Optional future pack qualification needs a specific pack
+revision, preset identity, source application baseline and authorized reference
+access. It must preserve the distinction between a native artistic conversion
+and verified source behavior; it does not reduce any RCP1 requirement.
 
 M0 now freezes the matrices above and gathers required evidence rather than choosing undefined subversions/modes. M2/M3/M4 exit gates must cover every row and declared combination; missing comparisons remain unverified. The 15–27-week estimate applies only to RCP1 and should be re-estimated once fixture availability and independent source-model measurements are known. W, additional source versions, linear-light profiles and unrelated touch/UI work are excluded from that estimate, with no implication that the broader user goal has been accepted as narrower.
 
