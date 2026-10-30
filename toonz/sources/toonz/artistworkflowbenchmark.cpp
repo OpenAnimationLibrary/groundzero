@@ -10,6 +10,7 @@
 #include "toonz/toonzscene.h"
 #include "toonz/tscenehandle.h"
 #include "toonz/txsheet.h"
+#include "toonz/txshcell.h"
 #include "toonz/txsheethandle.h"
 #include "toonz/txshlevelhandle.h"
 #include "toonz/txshleveltypes.h"
@@ -113,7 +114,7 @@ int runArtistWorkflowBenchmark(QMainWindow *window) {
     }
     require(viewer && viewer->isVisible(), "No visible native scene viewer");
     app->setActiveViewer(viewer);
-    viewer->setFocus();
+    viewer->QWidget::setFocus(Qt::OtherFocusReason);
     QTemporaryDir output;
     require(output.isValid(), "Cannot create disposable benchmark resources");
     const int frameCount = 24, strokesPerDrawing = 96, rasterSize = 512;
