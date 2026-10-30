@@ -142,7 +142,8 @@ template<class P>void maskedFx(const QImage &reference,const QImage &content) {
     if(x<96)selection.setPixel(x,y,qRgb(255,255,255));
     if(x>=48 && x<96)ink.setPixel(x,y,qRgb(255,255,255));
   }
-  NeuralStyleFx fx;auto source=new Source({rgba});configure(fx,reference,source);
+  TSmartPointerT<NeuralStyleFx> owned(new NeuralStyleFx);auto &fx=*owned;
+  auto source=new Source({rgba});configure(fx,reference,source);
   fx.getInputPort(1)->setFx(new Source({selection}));fx.getInputPort(2)->setFx(new Source({ink}));
   TRasterPT<P> original(384,384),styled(384,384);
   TTile before(original,TPointD()),after(styled,TPointD());TRenderSettings info;
@@ -228,7 +229,8 @@ void visualExamples(const QDir &directory) {
       }
       frames.push_back(image);inks.push_back(ink);
     }
-    NeuralStyleFx independent,temporalFx;
+    TSmartPointerT<NeuralStyleFx> independentOwner(new NeuralStyleFx),temporalOwner(new NeuralStyleFx);
+    auto &independent=*independentOwner;auto &temporalFx=*temporalOwner;
     configure(independent,reference,new Source(frames),0);configure(temporalFx,reference,new Source(frames),70);
     independent.getInputPort(2)->setFx(new Source(inks));temporalFx.getInputPort(2)->setFx(new Source(inks));
     QImage sheet(3*384,4*384,QImage::Format_RGB32);sheet.fill(Qt::white);
@@ -293,7 +295,8 @@ int main(int argc,char **argv) {
     std::cerr<<"Neural qualification: scene persistence"<<std::endl;
     scenePersistence(reference,root);
     TRenderSettings info;info.m_cameraBox=TRectD(0,0,384,384);
-    NeuralStyleFx fx;configure(fx,reference,new Source({content}));
+    TSmartPointerT<NeuralStyleFx> fxOwner(new NeuralStyleFx);auto &fx=*fxOwner;
+    configure(fx,reference,new Source({content}));
     const auto complete=render(fx,0,info),expected=fixture(fixtures.filePath("expected.rgb"),384);
     for(int y=0;y<384;++y)for(int x=0;x<384;++x) {
       const auto a=complete.pixel(x,y),b=expected.pixel(x,y);
@@ -313,12 +316,14 @@ int main(int argc,char **argv) {
     QImage red(384,384,QImage::Format_RGB32);red.fill(Qt::red);
     Grid hdrGrid(info);require(composite<TPixelF>(hdr,{},{},red,hdrGrid,TPointD(100,100),.5,nullptr),"HDR blend failed");
     require(std::abs(hdr->pixels(0)[0].r-1.25)<1e-6 && hdr->pixels(0)[0].m==.5,"Partial strength clipped untouched HDR contribution");
-    NeuralStyleFx nested;auto inner=new NeuralStyleFx;
+    TSmartPointerT<NeuralStyleFx> nestedOwner(new NeuralStyleFx);auto &nested=*nestedOwner;
+    auto inner=new NeuralStyleFx;
     configure(*inner,reference,new Source({content}));configure(nested,reference,nullptr);
     nested.getInputPort(0)->setFx(inner);
     require(!renderHost(nested,info,20,20,32,32).isNull(),"Nested worker dependency failed");
     auto changed=content.mirrored(true,false);
-    NeuralStyleFx animation;auto source=new Source({content,changed,changed});configure(animation,reference,source,70);
+    TSmartPointerT<NeuralStyleFx> animationOwner(new NeuralStyleFx);auto &animation=*animationOwner;
+    auto source=new Source({content,changed,changed});configure(animation,reference,source,70);
     const auto frame0=render(animation,0,info),frame1=render(animation,1,info),frame2=render(animation,2,info);
     require(frame1==frame2,"Held exposure drifted");
     {std::lock_guard<std::mutex> lock(cacheMutex);cache.clear();}
