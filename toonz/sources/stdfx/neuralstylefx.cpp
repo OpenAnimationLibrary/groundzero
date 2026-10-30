@@ -114,9 +114,15 @@ class NeuralStyleFx final : public GlobalControllableFx {
   TStringParamP m_profile;
   TDoubleParamP m_strength;
   TIntParamP m_history,m_start,m_end;
+  bool validShot() const {
+    const int start = m_start->getValue(), end = m_end->getValue();
+    return end >= start && end - start < 120;
+  }
   std::vector<double> frames(double frame) const {
     const int start=m_start->getValue()-1,end=m_end->getValue()-1;
-    if(end<start || end-start>=120)throw TException("Neural Style: split shots into ranges of at most 120 frames.");
+    if (!validShot())
+      throw TException(
+          "Neural Style: split shots into ranges of at most 120 frames.");
     if(frame<start || frame>end)return {};
     if(m_history->getValue()==0 || frame!=std::floor(frame))return {frame};
     std::vector<double> result;
@@ -188,7 +194,12 @@ public:
       <<info.m_cameraBox.x0<<','<<info.m_cameraBox.y0<<','<<info.m_cameraBox.x1<<','<<info.m_cameraBox.y1
       <<':'<<m_strength->getValue(frame);
     hash.addData(QByteArray::fromStdString(camera.str()));
-    if(!m_profile->getValue().empty() && m_strength->getValue(frame)>0 && m_source.isConnected())
+    // Previews and histograms ask for aliases on the GUI thread, which cannot
+    // take an exception: an invalid shot gets a fixed alias and fails to render.
+    if (!validShot())
+      hash.addData("invalid-shot-range");
+    else if (!m_profile->getValue().empty() &&
+             m_strength->getValue(frame) > 0 && m_source.isConnected())
       for(const auto f:frames(frame))for(const auto port:{&m_source,&m_mask,&m_ink})
         if(port->isConnected())hash.addData(QByteArray::fromStdString(port->getFx()->getAlias(f,info)));
     return "neural-style-v1:"+hash.result().toHex().toStdString();
