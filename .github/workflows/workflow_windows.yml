@@ -584,7 +584,7 @@ jobs:
         shell: pwsh
         run: |
           $package = "toonz/build/Opentoonz"
-          $drivers = @("seexpr_plugin_test", "seexpr_animation_test", "seexpr_fx_test", "seexpr_surface_fx_test", "seexpr_native_animcurve_test", "glbsurface_test", "seexpr_editor_test", "seexpr_controls_test", "seexpr_range_test", "seexpr_batch_fixture", "ui_shellthumbnail_test", "neuralstyle_host_test", "neuralstyle_test", "neuralstyle_editor_test")
+          $drivers = @("seexpr_plugin_test", "seexpr_animation_test", "seexpr_fx_test", "seexpr_fx_ui_test", "seexpr_surface_fx_test", "seexpr_native_animcurve_test", "glbsurface_test", "seexpr_editor_test", "seexpr_controls_test", "seexpr_range_test", "seexpr_batch_fixture", "ui_shellthumbnail_test", "neuralstyle_host_test", "neuralstyle_test", "neuralstyle_editor_test")
           $suffixes = @(".exe", ".lib", ".exp", ".pdb", ".ilk", ".ipdb", ".iobj", ".exe.manifest")
           foreach ($driver in $drivers) {
             foreach ($suffix in $suffixes) {

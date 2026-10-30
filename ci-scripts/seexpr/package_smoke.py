@@ -100,7 +100,8 @@ def verify_test_artifacts_absent(directory):
     forbidden.update(name + suffix for name in ("seexprsdkfixture", "seexprinvalidfixture")
                      for suffix in (".dll", ".so", ".dylib"))
     drivers = {"seexpr_plugin_test", "seexpr_animation_test", "seexpr_fx_test",
-               "seexpr_surface_fx_test", "seexpr_native_animcurve_test", "glbsurface_test",
+               "seexpr_fx_ui_test", "seexpr_surface_fx_test", "seexpr_native_animcurve_test",
+               "glbsurface_test",
                "seexpr_editor_test", "seexpr_controls_test", "seexpr_range_test",
                "seexpr_batch_fixture", "neuralstyle_host_test", "neuralstyle_test", "neuralstyle_editor_test"}
     suffixes = ("", ".exe", ".lib", ".exp", ".pdb", ".ilk", ".ipdb", ".iobj",
