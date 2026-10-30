@@ -58,7 +58,7 @@ and the component ledgers.
 | Scene Cast `1c2c1a968b263cfde74daa578c0af18759378af5` | Linux compiled the new Cast and icon components, then rejected an unsupported TXsheet constructor in the nested timing fixture. `566e1bc5a` uses the child level's existing owned sheet and retains all assertions. | Native application workflows were not executed on this revision. |
 | Function Editor `ebf078049581c76bfad470cc383563067430c146` | Linux compiled, then the native preset-import widget test timed out in its file chooser. `208f938b8` drives the actual filename and enabled Open control instead of relying on ignored focused-field selection. | The corrected driver and subsequent application checks require fresh execution. |
 | Vector editing `ab7a8f4ee54ca36ef23b57a7ca46164f0c2d5cd1` | Linux passed 17 standalone UI tests; the width manager passed creation/capture/save-retry, then timed out at Import. `4c4ff918d` corrects the same focused-file-chooser driver while preserving overwrite, cancellation and error assertions. | Native vector rendering and the corrected manager workflow did not execute on this revision. |
-| Scene Cast `c7fdf2aecd719fed34b0f34608e1d7019838e152` | Linux compiled and passed the animation workflow, frozen Function comparisons, unkeyed defaults reload and saved-set rename. Fractional retime scene reload then failed its keyframe-field equality check. | The actual mismatched field is under investigation; Cast/Library checks were not reached. |
+| Scene Cast `c7fdf2aecd719fed34b0f34608e1d7019838e152` | Linux compiled and passed the animation workflow, frozen Function comparisons, unkeyed defaults reload and saved-set rename. Fractional retime scene reload then failed its keyframe-field equality check. Source review found interpolation undo omitted the adjacent endpoint; `dbf7ffa38` fixes that defect and a final-key boundary while retaining strict comparisons and adding field diagnostics. | The predicted mismatch and correction require runtime confirmation; Cast/Library checks were not reached. |
 
 Current investigations remain explicit: fractional retime persistence, native
 file-chooser acceptance, Windows SVG/vector-analysis/thumbnail rendering, the
@@ -108,7 +108,7 @@ original report; the CI-only harness verifies isolation and failure retention.
 | 3 | Saved channel sets | Stable owner identities; rename/delete, reload and workspace persistence. | Source-ready; fresh CI pending |
 | 4 | Curve solo and edit locks | Every editing command respects locks; visible reference/solo state. | Source-ready; CI pending |
 | 5 | Multi-key numeric editing | Mixed values; absolute/relative operations, collisions, cancel, one undo transaction. | Source-ready; CI pending |
-| 6 | Precise multi-channel retiming | Multiple channels, explicit target start/end preview, pivot/scale, quantization, collisions, repeat/undo. | Implemented; reload failure under investigation |
+| 6 | Precise multi-channel retiming | Multiple channels, explicit target start/end preview, pivot/scale, quantization, collisions, repeat/undo. | Implemented; endpoint undo correction awaits reload verification |
 | 7 | Normalized curve display | Display-only normalized coordinates; native values and edits preserved. | Source-ready; CI pending |
 | 8 | Clear curve identification | Stable identities/colors with labels and high-DPI/theme readability. | Source-ready; CI pending |
 | 9 | Visible interpolation controls | Native interpolation/handle actions; multi-selection and keyboard access. | Source-ready; CI pending |
