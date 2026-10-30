@@ -4,6 +4,7 @@ Only per-application LocalDumps values are temporarily changed. Raw dumps never
 enter test-report artifacts; the text report records exact executable/PDB hashes.
 """
 import hashlib
+import ctypes
 import os
 from pathlib import Path
 import shutil
@@ -17,6 +18,74 @@ def _sha256(path):
         for block in iter(lambda: stream.read(1024 * 1024), b""):
             digest.update(block)
     return digest.hexdigest()
+
+
+def _wer_service_diagnostic():
+    """Observe the service only; never start it or change its configuration."""
+    manager = service = None
+    api = None
+    try:
+        api = ctypes.WinDLL("advapi32", use_last_error=True)
+        declarations = {
+            "OpenSCManagerW": ([ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_uint32], ctypes.c_void_p),
+            "OpenServiceW": ([ctypes.c_void_p, ctypes.c_wchar_p, ctypes.c_uint32], ctypes.c_void_p),
+            "QueryServiceStatusEx": ([ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p,
+                                      ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint32)], ctypes.c_int32),
+            "CloseServiceHandle": ([ctypes.c_void_p], ctypes.c_int32),
+        }
+        for name, (arguments, result) in declarations.items():
+            function = getattr(api, name)
+            function.argtypes, function.restype = arguments, result
+        manager = api.OpenSCManagerW(None, None, 1)  # SC_MANAGER_CONNECT
+        if not manager:
+            raise ctypes.WinError(ctypes.get_last_error())
+        service = api.OpenServiceW(manager, "WerSvc", 4)  # SERVICE_QUERY_STATUS
+        if not service:
+            raise ctypes.WinError(ctypes.get_last_error())
+        status = (ctypes.c_uint32 * 9)()  # SERVICE_STATUS_PROCESS
+        required = ctypes.c_uint32()
+        if not api.QueryServiceStatusEx(service, 0, status, ctypes.sizeof(status), ctypes.byref(required)):
+            raise ctypes.WinError(ctypes.get_last_error())
+        return f"WerSvc observed state={status[1]} win32_exit={status[3]} service_exit={status[4]}"
+    except (AttributeError, OSError) as error:
+        return f"WerSvc state unavailable ({type(error).__name__}, winerror={getattr(error, 'winerror', None)})"
+    finally:
+        if api is not None:
+            if service:
+                api.CloseServiceHandle(service)
+            if manager:
+                api.CloseServiceHandle(manager)
+
+
+def windows_dump_prerequisites(executable_name, registry):
+    """Bounded scalar witnesses, without private paths or policy mutations."""
+    wer = r"SOFTWARE\Microsoft\Windows\Windows Error Reporting"
+    debugger = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\AeDebug"
+    entries = [
+        ("AeDebug Auto", debugger, "Auto"),
+        ("AeDebug application exclusion", debugger + r"\AutoExclusionList", executable_name),
+        ("WerSvc start mode", r"SYSTEM\CurrentControlSet\Services\WerSvc", "Start"),
+        ("WER Disabled (not by itself a LocalDumps veto)", wer, "Disabled"),
+        ("WER policy Disabled", r"SOFTWARE\Policies\Microsoft\Windows\Windows Error Reporting", "Disabled"),
+        ("LocalDumps application DumpType", wer + "\\LocalDumps\\" + executable_name, "DumpType"),
+        ("LocalDumps application DumpCount", wer + "\\LocalDumps\\" + executable_name, "DumpCount"),
+    ]
+    lines = ["Read-only original-dump prerequisite witnesses:"]
+    for label, path, name in entries:
+        try:
+            access = registry.KEY_QUERY_VALUE | registry.KEY_WOW64_64KEY
+            with registry.OpenKey(registry.HKEY_LOCAL_MACHINE, path, 0, access) as key:
+                value, kind = registry.QueryValueEx(key, name)
+            # Never print arbitrary registry strings (notably debugger paths).
+            scalar = str(value) if isinstance(value, int) and 0 <= value <= 0xFFFFFFFF else (
+                value if isinstance(value, str) and value in ("0", "1") else "non-scalar")
+            lines.append(f"{label}: {scalar} (registry type {kind})")
+        except FileNotFoundError:
+            lines.append(f"{label}: absent")
+        except OSError as error:
+            lines.append(f"{label}: unavailable ({type(error).__name__}, winerror={getattr(error, 'winerror', None)})")
+    lines.append(_wer_service_diagnostic())
+    return "\n".join(lines) + "\n"
 
 
 class OriginalWindowsDump:
@@ -132,7 +201,8 @@ class OriginalWindowsDump:
                       if path.name.casefold() == expected and not path.is_symlink() and path.is_file()]
         if len(candidates) != 1:
             return (f"Original Windows dump unavailable for {self.executable.name}, PID {pid}; "
-                    "WER/custom crash handling may not have produced a dump. No replay was substituted.\n")
+                    "WER/custom crash handling may not have produced a dump. No replay was substituted.\n" +
+                    windows_dump_prerequisites(self.executable.name, self.registry))
         dump = candidates[0]
         metadata = dump.stat()
         if not (32 <= metadata.st_size <= 64 * 1024 * 1024 and
