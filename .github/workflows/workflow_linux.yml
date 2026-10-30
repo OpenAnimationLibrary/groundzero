@@ -40,6 +40,9 @@ jobs:
       with:
         python-version: '3.12'
 
+    - name: Verify native lifecycle harness contracts
+      run: python3 -m unittest discover -s ci-scripts/tests -p test_native_ui_lifecycle.py
+
     - name: Install libraries
       run: |
         # The runner's Azure package mirror stalls in the middle of downloads,

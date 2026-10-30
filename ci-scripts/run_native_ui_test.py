@@ -81,6 +81,19 @@ def decode_output(output):
     return output.decode("utf-8", errors="replace") if isinstance(output, bytes) else output or ""
 
 
+def missing_icon_lifecycle_checkpoints(output):
+    # Match application output lines, never an echoed debugger command or the
+    # earlier fixture's PASS. Process status is checked independently by callers.
+    lines = output.splitlines()
+    marker = "icon-lifecycle-native: PASS"
+    required = {
+        marker: any(line == marker or line.startswith(marker + " (") for line in lines),
+        "native-ui-integration: checkpoint: native icon workers drained":
+            "native-ui-integration: checkpoint: native icon workers drained" in lines,
+    }
+    return [marker for marker, observed in required.items() if not observed]
+
+
 def windows_crash_diagnostics(executable, source, native_status, symbol_directories,
                               mesa_runtime=None):
     kits = os.environ.get("ProgramFiles(x86)")
@@ -192,6 +205,11 @@ def main():
     if args.require_function_workflow and status == 0 and "function-workflow-native: PASS" not in output:
         output += "\nThe required native Function Editor workflow fixture did not run.\n"
         status = 1
+    if status == 0:
+        missing = missing_icon_lifecycle_checkpoints(output)
+        if missing:
+            output += "\nMissing native icon lifecycle checkpoints: " + ", ".join(missing) + "\n"
+            status = 1
     try:
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(output, encoding="utf-8")
