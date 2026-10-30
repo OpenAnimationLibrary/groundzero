@@ -1,6 +1,7 @@
 #include "toonz/scenechecker.h"
 #include "toonz/toonzscene.h"
 #include "toonz/txsheet.h"
+#include "toonz/txshcell.h"
 #include "toonz/txshcolumn.h"
 #include "toonz/txshchildlevel.h"
 #include "toonz/txshlevelcolumn.h"
