@@ -120,6 +120,16 @@ struct Playback {
   EndBehavior end = EndBehavior::Hold;
 };
 
+// The cache frames a sample reads after end, missing-frame and interpolation
+// rules: left alone, or left blended toward right by weight. No file is read.
+struct SamplePlan {
+  bool empty    = false;  // The sample is an empty snapshot.
+  int left      = 0;      // Key of Sequence::frames, read unless empty.
+  int right     = 0;      // Key blended with left when weight > 0.
+  double weight = 0.0;
+  QString rightError;  // Right is missing and missing frames are errors.
+};
+
 struct FormatCapability {
   QString extension;
   QString description;
@@ -154,6 +164,23 @@ DVAPI SnapshotPtr sampleSequence(const Sequence &sequence, double sceneFrame,
                                 QString &error, const Cancel &cancel = {});
 DVAPI SnapshotPtr interpolate(const Snapshot &a, const Snapshot &b, double weight,
                              QString &error);
+DVAPI bool planSample(const Sequence &sequence, double sceneFrame,
+                      const Playback &playback, SamplePlan &plan,
+                      QString &error);
+// Identity of what sampleSequence returns, for render-cache aliases. It is
+// built from file stamps, the plan and the mapping, without decoding frames.
+DVAPI QString sampleIdentity(const Sequence &sequence, double sceneFrame,
+                             const Playback &playback, const Mapping &mapping,
+                             QString &error);
+
+// Identity of a file or directory from its metadata: canonical path, size,
+// modification and status-change times; empty if it does not exist. settled is
+// false while it changed too recently for the times to exclude a same-size
+// rewrite within their resolution; callers then also need its content.
+DVAPI QString fileStamp(const QString &path, bool *settled = nullptr);
+// SHA-256 of a file's content, memoized by fileStamp once the file is settled.
+DVAPI QString fileRevision(const QString &path, QString &error,
+                           const Cancel &cancel = {});
 
 // Writes a new directory containing frames and cache.otpc (or export.json for a
 // write-only format). Existing destinations are never overwritten. Only a fully

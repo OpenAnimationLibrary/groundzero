@@ -6,6 +6,55 @@ import struct
 import subprocess
 import sys
 import tempfile
+import time
+
+
+def startup_evidence(helper, pid, started):
+    """Bound diagnostics to this helper; never dump unrelated crash reports."""
+    commands = [
+        ["/usr/bin/file", str(helper)],
+        ["/usr/bin/codesign", "--verify", "--strict", "--verbose=4", str(helper)],
+        ["/usr/bin/codesign", "--display", "--verbose=4", "--entitlements", "-", str(helper)],
+        ["/usr/bin/otool", "-L", str(helper)],
+        ["/usr/bin/log", "show", "--last", "2m", "--style", "compact",
+         "--predicate", f'processID == {pid} OR (process == "sandboxd" AND eventMessage CONTAINS "{helper.name}")'],
+    ]
+    for command in commands:
+        try:
+            # Disk-backed output prevents a verbose system diagnostic from
+            # allocating an unbounded Python buffer.
+            with tempfile.TemporaryFile() as output:
+                result = subprocess.run(command, stdout=output, stderr=subprocess.STDOUT,
+                                        timeout=10, check=False)
+                output.seek(0)
+                print(f"Startup evidence {command[0]} (exit {result.returncode}):\n"
+                      + output.read(32768).decode(errors="replace"), flush=True)
+        except (OSError, subprocess.TimeoutExpired) as error:
+            print(f"Startup evidence unavailable: {command[0]}: {error}", flush=True)
+    directories = [Path.home() / "Library/Logs/DiagnosticReports",
+                   Path("/Library/Logs/DiagnosticReports")]
+    # ReportCrash may finish after waitpid. Allow ten seconds for its report.
+    deadline = time.monotonic() + 10
+    while True:
+        found = False
+        for directory in directories:
+            for report in sorted(directory.glob(helper.name + "*"))[-8:]:
+                try:
+                    if report.stat().st_mtime < started - 1 or not report.is_file():
+                        continue
+                    with report.open("rb") as stream:
+                        data = stream.read(65536).decode(errors="replace")
+                    # Recent files are scoped to this executable, including a
+                    # crash that happened in libsecinit before entering main.
+                    print(f"Helper crash report {report.name}:\n{data}", flush=True)
+                    found = True
+                except OSError as error:
+                    print(f"Helper crash report unavailable: {error}", flush=True)
+        if found or time.monotonic() >= deadline:
+            if not found:
+                print(f"No crash report produced for helper PID {pid}", flush=True)
+            break
+        time.sleep(0.5)
 
 
 def main():
@@ -17,12 +66,23 @@ def main():
         sentinel.write_bytes(b"private")
         response = Path(temporary) / "response"
         with response.open("wb") as output:
-            result = subprocess.run(
+            started = time.time()
+            with subprocess.Popen(
                 [str(helper), "--raster-brush-import-stream", "probe.gbr", str(sentinel)],
-                input=fixture, stdout=output, stderr=subprocess.PIPE,
-                env={"MallocNanoZone": "0"}, cwd="/", timeout=30, check=False,
-            )
+                stdin=subprocess.PIPE, stdout=output, stderr=subprocess.PIPE,
+                env={"MallocNanoZone": "0"}, cwd="/",
+            ) as process:
+                try:
+                    _, stderr = process.communicate(fixture, timeout=30)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.communicate()
+                    raise
+                result = subprocess.CompletedProcess(process.args, process.returncode,
+                                                     stderr=stderr)
+                pid = process.pid
         if result.returncode:
+            startup_evidence(helper, pid, started)
             with response.open("rb") as wire:
                 startup_diagnostic = wire.read(8192).decode(errors="replace")
             raise RuntimeError(f"Signed helper/denial probe failed: {result.returncode}: "

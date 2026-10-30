@@ -1305,6 +1305,150 @@
       "axis": "column",
       "offset": -6,
       "reason": "Verify retained-sample circle clipping after common candidate sample count"
+    },
+    {
+      "model": "legacy",
+      "diameter": 16,
+      "radiusPercent": 125,
+      "axis": "column",
+      "offset": 0,
+      "dabs": 3,
+      "reason": "Distinguish retained pickup halo from clipped dab feedback after deposition onto transparency"
+    },
+    {
+      "model": "legacy",
+      "diameter": 16,
+      "radiusPercent": 125,
+      "axis": "column",
+      "offset": 0,
+      "dabs": 4,
+      "reason": "Distinguish retained pickup halo from clipped dab feedback after deposition onto transparency"
+    },
+    {
+      "model": "legacy",
+      "diameter": 16,
+      "radiusPercent": 200,
+      "axis": "column",
+      "offset": 0,
+      "dabs": 3,
+      "reason": "Distinguish retained pickup halo from clipped dab feedback after deposition onto transparency"
+    },
+    {
+      "model": "legacy",
+      "diameter": 16,
+      "radiusPercent": 200,
+      "axis": "column",
+      "offset": 0,
+      "dabs": 4,
+      "reason": "Distinguish retained pickup halo from clipped dab feedback after deposition onto transparency"
+    },
+    {
+      "model": "legacy",
+      "diameter": 16,
+      "radiusPercent": 250,
+      "axis": "column",
+      "offset": 0,
+      "dabs": 3,
+      "reason": "Distinguish retained pickup halo from clipped dab feedback after deposition onto transparency"
+    },
+    {
+      "model": "legacy",
+      "diameter": 16,
+      "radiusPercent": 250,
+      "axis": "column",
+      "offset": 0,
+      "dabs": 4,
+      "reason": "Distinguish retained pickup halo from clipped dab feedback after deposition onto transparency"
+    },
+    {
+      "model": "legacy",
+      "diameter": 16,
+      "radiusPercent": 300,
+      "axis": "column",
+      "offset": 0,
+      "dabs": 3,
+      "reason": "Distinguish retained pickup halo from clipped dab feedback after deposition onto transparency"
+    },
+    {
+      "model": "legacy",
+      "diameter": 16,
+      "radiusPercent": 300,
+      "axis": "column",
+      "offset": 0,
+      "dabs": 4,
+      "reason": "Distinguish retained pickup halo from clipped dab feedback after deposition onto transparency"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32,
+      "radiusPercent": 125,
+      "axis": "column",
+      "offset": 0,
+      "dabs": 3,
+      "reason": "Distinguish retained pickup halo from clipped dab feedback after deposition onto transparency"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32,
+      "radiusPercent": 125,
+      "axis": "column",
+      "offset": 0,
+      "dabs": 4,
+      "reason": "Distinguish retained pickup halo from clipped dab feedback after deposition onto transparency"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32,
+      "radiusPercent": 200,
+      "axis": "column",
+      "offset": 0,
+      "dabs": 3,
+      "reason": "Distinguish retained pickup halo from clipped dab feedback after deposition onto transparency"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32,
+      "radiusPercent": 200,
+      "axis": "column",
+      "offset": 0,
+      "dabs": 4,
+      "reason": "Distinguish retained pickup halo from clipped dab feedback after deposition onto transparency"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32,
+      "radiusPercent": 250,
+      "axis": "column",
+      "offset": 0,
+      "dabs": 3,
+      "reason": "Distinguish retained pickup halo from clipped dab feedback after deposition onto transparency"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32,
+      "radiusPercent": 250,
+      "axis": "column",
+      "offset": 0,
+      "dabs": 4,
+      "reason": "Distinguish retained pickup halo from clipped dab feedback after deposition onto transparency"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32,
+      "radiusPercent": 300,
+      "axis": "column",
+      "offset": 0,
+      "dabs": 3,
+      "reason": "Distinguish retained pickup halo from clipped dab feedback after deposition onto transparency"
+    },
+    {
+      "model": "legacy",
+      "diameter": 32,
+      "radiusPercent": 300,
+      "axis": "column",
+      "offset": 0,
+      "dabs": 4,
+      "reason": "Distinguish retained pickup halo from clipped dab feedback after deposition onto transparency"
     }
   ]
 }

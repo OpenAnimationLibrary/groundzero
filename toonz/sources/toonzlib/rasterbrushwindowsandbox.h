@@ -95,7 +95,10 @@ class WindowsImportSandbox final {
     const auto manifest =
         readBoundedRegularFile(runtime.filePath("runtime.files"), 65536, error);
     if (!error.isEmpty()) return false;
-    const auto entries = manifest.split('\n');
+    // CMake file(APPEND) writes native CRLF on Windows. The bounded reader
+    // deliberately returns binary bytes, so normalize only record delimiters;
+    // stray carriage returns, whitespace and all path/hash checks stay strict.
+    const auto entries = QByteArray(manifest).replace("\r\n", "\n").split('\n');
     if (entries.size() > 257) {
       error = "Brush helper runtime has too many files";
       return false;

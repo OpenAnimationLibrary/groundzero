@@ -206,6 +206,61 @@ int main(int argc, char **argv) {
     requireChecked(*restoredMenu, "New");
     require(restored.reload(&error), "saved theme did not restore");
 
+    checkpoint(
+        "falling back at startup from saved styles that fail the checks");
+    write(root + "/Default/Default.qss", "QWidget { color: #445566; }");
+    QSettings startupSettings(root + "/startup.ini", QSettings::IniFormat);
+    int startupSaves = 0;
+    ThemeApplication::Settings startupAdapter{
+        [&]() { return startupSettings.value("theme").toString(); },
+        [&]() { return startupSettings.value("extra").toString(); },
+        [&](const QString &name) {
+          ++startupSaves;
+          startupSettings.setValue("theme", name);
+        },
+        [&](const QString &style) {
+          ++startupSaves;
+          startupSettings.setValue("extra", style);
+        },
+        [](const QString &) {}};
+    {
+      // A theme with a missing image: the Default theme keeps the overrides.
+      startupSettings.setValue("theme", "MissingAsset");
+      startupSettings.setValue("extra", "QLabel#custom { color: #7f1248; }");
+      ThemeApplication startup(root, startupAdapter);
+      require(startup.startup(&error) && !error.isEmpty(),
+              "startup left a failing theme unstyled or unreported");
+      app.processEvents();
+      require(
+          floatingLabel.palette().color(QPalette::WindowText) ==
+                  QColor("#445566") &&
+              customLabel.palette().color(QPalette::WindowText) ==
+                  QColor("#7f1248"),
+          "startup did not fall back to the Default theme with the overrides");
+      require(startupSaves == 0 && startup.currentTheme() == "MissingAsset",
+              "startup fallback replaced the saved theme");
+      const QString fallbackStyle = app.styleSheet();
+      require(!startup.applyTheme("MissingAsset", &error) &&
+                  !startup.reload(&error) &&
+                  app.styleSheet() == fallbackStyle && startupSaves == 0,
+              "an interactive change accepted a theme that fails the checks");
+    }
+    {
+      // A failing additional sheet: the saved theme is kept without it.
+      startupSettings.setValue("theme", "Light");
+      startupSettings.setValue("extra", "QLabel { color: 'broken");
+      ThemeApplication startup(root, startupAdapter);
+      require(startup.startup(&error) && !error.isEmpty(),
+              "startup left a failing additional sheet unstyled or unreported");
+      app.processEvents();
+      require(floatingLabel.palette().color(QPalette::WindowText) ==
+                  QColor("#222222"),
+              "startup did not keep the saved theme without the failing sheet");
+      require(startupSaves == 0 && startupSettings.value("extra").toString() ==
+                                       "QLabel { color: 'broken",
+              "startup fallback replaced the saved additional sheet");
+    }
+
     // CI also supplies the real installed-theme tree. This exercises its QSS
     // and inherited image resources rather than relying only on tiny fixtures.
     if (argc > 1) {

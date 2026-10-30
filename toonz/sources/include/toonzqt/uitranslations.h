@@ -53,6 +53,10 @@ DVAPI void watchCombo(QComboBox *combo);
 DVAPI void watchTabBar(QTabBar *tabs);
 // Used by lifecycle diagnostics and regression coverage.
 DVAPI std::size_t retainedCaptionCount();
+// Properties and retained entries examined so far by caption capture and
+// refresh. Regression coverage bounds it to keep capture cost linear in the
+// widgets that changed, independent of the size of the whole interface.
+DVAPI std::size_t captureWork();
 
 inline QString ownArgument(const char *value) {
   return QString::fromUtf8(value ? value : "");

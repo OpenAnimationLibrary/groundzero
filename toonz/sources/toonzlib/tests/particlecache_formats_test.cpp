@@ -12,6 +12,7 @@
 #include <QTemporaryDir>
 
 #include <cstdint>
+#include <cstring>
 #include <iostream>
 #include <limits>
 #include <memory>
@@ -293,6 +294,397 @@ void ptc(const QDir &dir) {
     require(written, "Cannot export PTC roundtrip: " + error.toStdString());
   }
 }
+
+// Big-endian fixtures for the classic Houdini and Maya binary formats.
+void be16(QByteArray &bytes, std::uint16_t value) {
+  bytes.append(char(value >> 8)).append(char(value & 255));
+}
+
+void be32(QByteArray &bytes, std::uint32_t value) {
+  for (int shift = 24; shift >= 0; shift -= 8)
+    bytes.append(char((value >> shift) & 255));
+}
+
+void beFloat(QByteArray &bytes, float value) {
+  std::uint32_t bits;
+  std::memcpy(&bits, &value, sizeof(bits));
+  be32(bytes, bits);
+}
+
+void beDouble(QByteArray &bytes, double value) {
+  std::uint64_t bits;
+  std::memcpy(&bits, &value, sizeof(bits));
+  be32(bytes, std::uint32_t(bits >> 32));
+  be32(bytes, std::uint32_t(bits));
+}
+
+// Both Partio entry points must fail on their own, not only through the
+// adapter's header checks: readHeaders when fullOnly is false, and read.
+void rejectReaders(const QString &path, bool fullOnly = false) {
+  const QByteArray filename = QFile::encodeName(path);
+  const std::string label   = QFileInfo(path).fileName().toStdString();
+  std::ostringstream diagnostics;
+  std::unique_ptr<Partio::ParticlesDataMutable, PartioRelease> data(
+      Partio::read(filename.constData(), true, diagnostics));
+  require(!data, label + ": Partio::read accepted malformed data");
+  if (fullOnly) return;
+  std::unique_ptr<Partio::ParticlesInfo, PartioRelease> headers(
+      Partio::readHeaders(filename.constData(), true, diagnostics));
+  require(!headers, label + ": Partio::readHeaders accepted malformed data");
+  require(!diagnostics.str().empty(),
+          label + ": reader omitted its diagnostic");
+}
+
+void rejectAll(const QString &path, const QByteArray &bytes,
+               bool fullOnly = false) {
+  reject(path, bytes);
+  rejectReaders(path, fullOnly);
+}
+
+const Attribute *attribute(const Snapshot &snapshot, const char *name) {
+  for (const auto &a : snapshot.attributes)
+    if (a.name == name) return &a;
+  return nullptr;
+}
+
+struct BgeoAttr {
+  QByteArray name;
+  std::uint16_t size;
+  int type;
+  QList<QByteArray> strings;  // Index (type 4) dictionaries.
+};
+
+QByteArray bgeoHeader(int points, int prims, int pointAttrs, int primAttrs,
+                      int details) {
+  QByteArray bytes("BgeoV");  // Magic and version character.
+  for (int value : {5, points, prims, 0, 0, pointAttrs, 0, primAttrs, details})
+    be32(bytes, std::uint32_t(value));
+  return bytes;
+}
+
+QByteArray bgeoAttributes(const QList<BgeoAttr> &attributes) {
+  QByteArray bytes;
+  for (const auto &a : attributes) {
+    be16(bytes, std::uint16_t(a.name.size()));
+    bytes += a.name;
+    be16(bytes, a.size);
+    be32(bytes, std::uint32_t(a.type));
+    if (a.type == 4) {
+      be32(bytes, std::uint32_t(a.strings.size()));
+      for (const auto &value : a.strings) {
+        be16(bytes, std::uint16_t(value.size()));
+        bytes += value;
+      }
+    } else {
+      for (int i = 0; i < a.size; ++i) be32(bytes, 0);
+    }
+  }
+  return bytes;
+}
+
+// Two points with an integer id, one particle-system primitive and an
+// integer detail attribute, as classic Houdini writes them.
+QByteArray bgeoFrame(std::uint32_t primitiveType = 0x8000,
+                     std::uint32_t vertices      = 2) {
+  QByteArray bytes =
+      bgeoHeader(2, 1, 1, 0, 1) + bgeoAttributes({{"id", 1, 1, {}}});
+  for (int point = 0; point < 2; ++point) {
+    for (float value : {1.0f + point, 2.0f, 3.0f, 1.0f}) beFloat(bytes, value);
+    be32(bytes, std::uint32_t(40 + point));
+  }
+  be32(bytes, primitiveType);
+  be32(bytes, vertices);
+  be16(bytes, 0);
+  be16(bytes, 1);
+  bytes += bgeoAttributes({{"count", 1, 1, {}}});
+  be32(bytes, 2);
+  return bytes + QByteArray("\0\xff", 2);
+}
+
+void bgeo(const QDir &dir) {
+  QString error;
+  const QString validPath = dir.filePath("valid.bgeo");
+  writeRaw(validPath, bgeoFrame());
+  const auto valid = loadFrame(validPath, Mapping{}, error);
+  require(valid && valid->particles.size() == 2 &&
+              valid->particles[1].id == 41 &&
+              valid->particles[1].position[0] == 2,
+          "Valid BGEO points failed: " + error.toStdString());
+  const auto *count = attribute(*valid, "count");
+  require(
+      count && count->fixed && count->integers == std::vector<std::int32_t>{2},
+      "Valid BGEO detail attribute was not read");
+  // Upstream keeps the points of an unknown primitive and skips detail data.
+  writeRaw(dir.filePath("polygon.bgeo"), bgeoFrame(1));
+  const auto polygon =
+      loadFrame(dir.filePath("polygon.bgeo"), Mapping{}, error);
+  require(
+      polygon && polygon->particles.size() == 2 && !polygon->warnings.isEmpty(),
+      "BGEO with a non-particle primitive lost its points");
+
+  // Unknown and string attribute types: upstream released the particles and
+  // returned them anyway (heap use after free).
+  for (int type : {2, 3, -7})
+    rejectAll(dir.filePath(QString("attr-type-%1.bgeo").arg(type)),
+              bgeoHeader(1, 0, 1, 0, 0) +
+                  bgeoAttributes({{"foo", 1, type, {}}}) +
+                  QByteArray(64, '\0'));
+  // An unknown primitive attribute type released a null particle object.
+  rejectAll(dir.filePath("primitive-attr.bgeo"),
+            bgeoHeader(1, 0, 0, 1, 0) + QByteArray(16, '\0') +
+                bgeoAttributes({{"bar", 1, 3, {}}}) + QByteArray(32, '\0'));
+  // Duplicate names gave an attribute handle with index -1.
+  rejectAll(dir.filePath("duplicate-position.bgeo"),
+            bgeoHeader(1, 0, 1, 0, 0) +
+                bgeoAttributes({{"position", 1, 4, {"a"}}}) +
+                QByteArray(64, '\0'));
+  rejectAll(dir.filePath("duplicate-attr.bgeo"),
+            bgeoHeader(1, 0, 2, 0, 0) +
+                bgeoAttributes({{"foo", 1, 0, {}}, {"foo", 1, 1, {}}}) +
+                QByteArray(64, '\0'));
+  rejectAll(dir.filePath("duplicate-string.bgeo"),
+            bgeoHeader(1, 0, 1, 0, 0) +
+                bgeoAttributes({{"name", 1, 4, {"a", "a"}}}) +
+                QByteArray(20, '\0'),
+            true);
+  // A negative point count was skipped as ~2^64 bytes (hang).
+  for (int points : {-1, -1000, 10000001})
+    rejectAll(dir.filePath(QString("count-%1.bgeo").arg(points)),
+              bgeoHeader(points, 0, 0, 0, 0));
+  QByteArray negativePrims = bgeoHeader(1, -1, 0, 0, 0);
+  rejectAll(dir.filePath("negative-prims.bgeo"),
+            negativePrims + QByteArray(16, '\0'));
+  QByteArray negativeTable = bgeoHeader(1, 0, 1, 0, 0);
+  be16(negativeTable, 4);
+  negativeTable += "name";
+  be16(negativeTable, 1);
+  be32(negativeTable, 4);
+  be32(negativeTable, 0xffffffffu);
+  rejectAll(dir.filePath("negative-table.bgeo"),
+            negativeTable + QByteArray(20, '\0'));
+  rejectAll(dir.filePath("zero-size.bgeo"),
+            bgeoHeader(1, 0, 1, 0, 0) + bgeoAttributes({{"foo", 0, 0, {}}}) +
+                QByteArray(16, '\0'));
+  // Truncation anywhere must fail, never load stale or uninitialized points.
+  const QByteArray frame = bgeoFrame();
+  for (int size : {3, 20, 44, 50, 60, 70, frame.size() - 12, frame.size() - 6,
+                   frame.size() - 3})
+    rejectAll(dir.filePath(QString("truncated-%1.bgeo").arg(size)),
+              frame.left(size));
+  QByteArray shortPoints = bgeoHeader(1000, 0, 0, 0, 0);
+  for (int i = 0; i < 40; ++i) beFloat(shortPoints, 1);
+  rejectAll(dir.filePath("short-points.bhclassic"), shortPoints);
+  for (std::uint32_t vertices : {3u, 0x7fffffffu, 0xffffffffu})
+    rejectAll(dir.filePath(QString("primitive-vertices-%1.bgeo").arg(vertices)),
+              bgeoFrame(0x8000, vertices));
+}
+
+struct McChannel {
+  QByteArray name;
+  QByteArray type;
+  std::uint32_t count;
+  QByteArray data;
+};
+
+QByteArray mcChannel(const McChannel &c,
+                     std::uint32_t declaredBytes = 0xffffffffu) {
+  QByteArray bytes("CHNM");
+  be32(bytes, std::uint32_t(c.name.size() + 1));
+  QByteArray name = c.name + QByteArray(1, '\0');
+  while (name.size() % 4) name.append('\0');
+  bytes += name + "SIZE";
+  be32(bytes, 4);
+  be32(bytes, c.count);
+  bytes += c.type;
+  be32(bytes, declaredBytes == 0xffffffffu ? std::uint32_t(c.data.size())
+                                           : declaredBytes);
+  return bytes + c.data;
+}
+
+QByteArray mcFile(const QByteArray &channels, int blockAdjust = 0) {
+  QByteArray bytes("FOR4");
+  be32(bytes, 40);
+  bytes += "CACHVRSN";
+  be32(bytes, 4);
+  bytes += QByteArray("0.1\0STIM", 8);
+  be32(bytes, 4);
+  be32(bytes, 250);
+  bytes += "ETIM";
+  be32(bytes, 4);
+  be32(bytes, 250);
+  bytes += "FOR4";
+  be32(bytes, std::uint32_t(channels.size() + 4 + blockAdjust));
+  return bytes + "MYCH" + channels;
+}
+
+QByteArray doubles(std::initializer_list<double> values) {
+  QByteArray bytes;
+  for (double value : values) beDouble(bytes, value);
+  return bytes;
+}
+
+QByteArray floats(std::initializer_list<float> values) {
+  QByteArray bytes;
+  for (float value : values) beFloat(bytes, value);
+  return bytes;
+}
+
+void mc(const QDir &dir) {
+  const McChannel id{"shape_id", "DBLA", 2, doubles({7, 9})};
+  const McChannel count{"shape_count", "DBLA", 1, doubles({2})};
+  const McChannel position{"shape_position", "FVCA", 2,
+                           floats({1, 2, 3, 4, 5, 6})};
+  const QByteArray channels =
+      mcChannel(id) + mcChannel(count) + mcChannel(position);
+  QString error;
+  writeRaw(dir.filePath("valid.mc"), mcFile(channels));
+  const auto valid = loadFrame(dir.filePath("valid.mc"), Mapping{}, error);
+  require(
+      valid && valid->particles.size() == 2 && valid->particles[1].id == 9 &&
+          valid->particles[1].position[2] == 6 && !attribute(*valid, "count"),
+      "Valid MC cache failed: " + error.toStdString());
+
+  // A truncated channel left tellg() at -1 and the scan never terminated.
+  QByteArray truncatedName = mcFile(QByteArray()).left(52);
+  be32(truncatedName, 1000);
+  truncatedName += "MYCHCHNM";
+  be32(truncatedName, 8);
+  rejectAll(dir.filePath("truncated-name.mc"), truncatedName + "a_id");
+  rejectAll(dir.filePath("truncated-size.mc"),
+            truncatedName + QByteArray("a_id\0\0\0\0", 8));
+  for (int size : {6, 30, 56, 70, 90, channels.size() + 50})
+    rejectAll(dir.filePath(QString("truncated-%1.mc").arg(size)),
+              mcFile(channels).left(size));
+  // The name buffer used to be read as an unterminated C string.
+  QByteArray unterminated = QByteArray("CHNM");
+  be32(unterminated, 4);
+  unterminated += "abcd";
+  rejectAll(dir.filePath("unterminated-name.mc"),
+            mcFile(unterminated + mcChannel(id)));
+  rejectAll(dir.filePath("block-overrun.mc"), mcFile(channels, 8));
+  rejectAll(dir.filePath("block-underrun.mc"), mcFile(channels, -8));
+  rejectAll(dir.filePath("negative-block.mc"),
+            mcFile(channels, -int(channels.size()) - 8));
+  rejectAll(dir.filePath("channel-bytes.mc"),
+            mcFile(mcChannel({"shape_id", "DBLA", 2, doubles({7})}) +
+                   mcChannel(position)));
+  rejectAll(dir.filePath("channel-overrun.mc"),
+            mcFile(mcChannel(id) + mcChannel(position, 4000)));
+  rejectAll(dir.filePath("short-channel.mc"),
+            mcFile(mcChannel(id) +
+                   mcChannel({"shape_mass", "DBLA", 3, doubles({1, 2, 3})})));
+  rejectAll(dir.filePath("missing-id.mc"), mcFile(mcChannel(position)));
+  rejectAll(dir.filePath("duplicate.mc"),
+            mcFile(mcChannel(id) + mcChannel(position) +
+                   mcChannel({"other_position", "FVCA", 2,
+                              floats({1, 2, 3, 4, 5, 6})})));
+  rejectAll(dir.filePath("fractional-id.mc"),
+            mcFile(mcChannel({"shape_id", "DBLA", 2, doubles({7, 9.5})}) +
+                   mcChannel(position)),
+            true);
+  rejectAll(dir.filePath("huge-value.mc"),
+            mcFile(channels +
+                   mcChannel({"shape_mass", "DBLA", 2, doubles({1, 1e300})})),
+            true);
+  QByteArray badHeader = mcFile(channels);
+  put32(badHeader, 4,
+        0xfcffffffu);  // Header size -4 (little-endian bytes of 0xfffffffc).
+  rejectAll(dir.filePath("negative-header.mc"), badHeader);
+}
+
+QByteArray pdcHeader(std::uint32_t particles, std::uint32_t attributes) {
+  QByteArray bytes("PDC ");
+  for (std::uint32_t value : {1u, 1u, 0u, 0u, particles, attributes})
+    be32(bytes, value);
+  return bytes;
+}
+
+QByteArray pdcAttribute(const QByteArray &name, int type,
+                        const QByteArray &data) {
+  QByteArray bytes;
+  be32(bytes, std::uint32_t(name.size()));
+  bytes += name;
+  be32(bytes, std::uint32_t(type));
+  return bytes + data;
+}
+
+void pdc(const QDir &dir) {
+  const QByteArray body =
+      pdcAttribute("lifespan", 2, doubles({4})) +
+      pdcAttribute("position", 5, doubles({1, 2, 3, 4, 5, 6})) +
+      pdcAttribute("mass", 3, doubles({0.5, 0.25}));
+  // The attribute loop ran 2^31 times on a failed stream (hang).
+  rejectAll(dir.filePath("many-attributes.pdc"), pdcHeader(1, 0x7fffffffu));
+  rejectAll(dir.filePath("negative-particles.pdc"), pdcHeader(0xffffffffu, 0));
+  rejectAll(dir.filePath("short-header.pdc"), pdcHeader(1, 0).left(20));
+  for (int size : {30, 40, 60, 100, 28 + body.size() - 1})
+    rejectAll(dir.filePath(QString("truncated-%1.pdc").arg(size)),
+              (pdcHeader(2, 3) + body).left(size));
+  QByteArray hugeName = pdcHeader(1, 1);
+  be32(hugeName, 0x7fffffffu);
+  rejectAll(dir.filePath("huge-name.pdc"), hugeName + "abc");
+  rejectAll(dir.filePath("unknown-type.pdc"),
+            pdcHeader(1, 1) + pdcAttribute("x", 9, doubles({1})));
+  rejectAll(dir.filePath("duplicate.pdc"),
+            pdcHeader(1, 2) + pdcAttribute("x", 3, doubles({1})) +
+                pdcAttribute("x", 3, doubles({2})));
+  rejectAll(dir.filePath("huge-value.pdc"),
+            pdcHeader(1, 1) + pdcAttribute("x", 3, doubles({1e300})), true);
+
+  QString error;
+  writeRaw(dir.filePath("valid.pdc"), pdcHeader(2, 3) + body);
+  const auto valid = loadFrame(dir.filePath("valid.pdc"), Mapping{}, error);
+  const auto *mass = valid ? attribute(*valid, "mass") : nullptr;
+  require(valid && valid->particles.size() == 2 &&
+              valid->particles[1].position[0] == 4 && mass &&
+              mass->floats == std::vector<float>{0.5f, 0.25f} &&
+              !attribute(*valid, "lifespan"),
+          "Valid PDC cache failed: " + error.toStdString());
+}
+
+const QByteArray pdaHeader =
+    "ATTRIBUTES\n position id mass\nTYPES\n V I R\nNUMBER_OF_PARTICLES: "
+    "2\nBEGIN DATA\n";
+
+void pda(const QDir &dir) {
+  QString error;
+  writeRaw(dir.filePath("valid.pda"),
+           pdaHeader + "1 2 3 7 0.5\n4 5 6 9 0.25\n");
+  const auto valid = loadFrame(dir.filePath("valid.pda"), Mapping{}, error);
+  require(valid && valid->particles.size() == 2 &&
+              valid->particles[1].id == 9 &&
+              valid->particles[1].position[2] == 6,
+          "Valid PDA cache failed: " + error.toStdString());
+  // Truncated or malformed data used to load uninitialized particles.
+  int index = 0;
+  for (const char *data :
+       {"", "1 2 3 7 0.5\n", "1 2 3 7 0.5\n4 5 6 9",
+        "1 2 3 x 0.5\n4 5 6 9 0.25\n", "1 2 3 7.5 0.5\n4 5 6 9 0.25\n",
+        "1 2 3 7 1e999\n4 5 6 9 0.25\n"})
+    rejectAll(dir.filePath(QString("data-%1.pda").arg(++index)),
+              pdaHeader + data, true);
+  rejectAll(
+      dir.filePath("unknown-type.pda"),
+      "ATTRIBUTES\n position\nTYPES\n Q\nNUMBER_OF_PARTICLES: 0\nBEGIN DATA\n");
+  rejectAll(dir.filePath("missing-type.pda"),
+            "ATTRIBUTES\n position id\nTYPES\n V\nNUMBER_OF_PARTICLES: "
+            "0\nBEGIN DATA\n");
+  rejectAll(dir.filePath("extra-type.pda"),
+            "ATTRIBUTES\n position\nTYPES\n V I\nNUMBER_OF_PARTICLES: 0\nBEGIN "
+            "DATA\n");
+  rejectAll(dir.filePath("duplicate.pda"),
+            "ATTRIBUTES\n position position\nTYPES\n V V\nNUMBER_OF_PARTICLES: "
+            "0\nBEGIN DATA\n");
+  for (const char *count : {"-1", "10000001", "99999999999", "1x"})
+    rejectAll(
+        dir.filePath(QString("count-%1.pda").arg(count)),
+        QByteArray("ATTRIBUTES\n position\nTYPES\n V\nNUMBER_OF_PARTICLES: ") +
+            count + "\nBEGIN DATA\n");
+  rejectAll(dir.filePath("long-token.pda"),
+            "ATTRIBUTES\n " + QByteArray(5000, 'x') + "\nTYPES\n R\n");
+  rejectAll(dir.filePath("no-data.pda"),
+            "ATTRIBUTES\n position\nTYPES\n V\nNUMBER_OF_PARTICLES: 1\n");
+}
 }  // namespace
 
 int main(int argc, char **argv) {
@@ -304,7 +696,11 @@ int main(int argc, char **argv) {
     geo(dir);
     ptc(dir);
     bin(dir);
-    std::cout << "Particle format readers: long GEO strings and strict GEO/PTC/BIN inputs passed.\n";
+    bgeo(dir);
+    mc(dir);
+    pdc(dir);
+    pda(dir);
+    std::cout << "Particle format readers: long GEO strings and strict GEO/PTC/BIN/BGEO/MC/PDC/PDA inputs passed.\n";
     return 0;
   } catch (const std::exception &error) {
     std::cerr << "Particle format reader failure: " << error.what() << '\n';

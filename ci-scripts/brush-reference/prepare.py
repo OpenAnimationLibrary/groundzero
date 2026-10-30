@@ -228,7 +228,7 @@ for mode, modern in profiles:
                     for shape in ("circle", "rect") for hardness in (0, .25, .5, .75, 1) for edge in (0, 1)]
     if group == "pixelaarange":
         variants = [(f"geometry diameter {diameter} antialias 1", {}, diameter, 5, [1, 1], 1, 1)
-                    for diameter in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 16, 24, 32, 64, 128)]
+                    for diameter in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 24, 32, 64, 128)]
     if group == "pixelsoftsize":
         variants = [(f"soft circle hardness {round(hardness * 100):03d} diameter {diameter} antialias 0", {}, diameter, 5, [1, 1], 1, 1)
                     for diameter in (7, 8, 9, 12, 15, 16, 17, 24, 64, 128) for hardness in (0, .25, .5, .75)]
@@ -412,7 +412,7 @@ for mode, modern in profiles:
                                      diameter, 5, [1, 1], 1, 1))
     if group == "wetkernelcount":
         planned = json.loads((source / "wetkernelcount.json").read_text())
-        if planned.get("schema") != 1 or len(planned.get("cases", [])) != 163:
+        if planned.get("schema") != 1 or len(planned.get("cases", [])) != 179:
             raise RuntimeError("Unexpected bounded Dulling probe plan")
         variants = []
         kernel_objectives = {}
@@ -424,7 +424,10 @@ for mode, modern in profiles:
             if not (0 < diameter <= 128 and 0 <= radius <= 300 and
                     axis in ("column", "row") and abs(offset) <= 200):
                 raise RuntimeError("Out-of-bounds Dulling probe")
-            label = f"wet kernel radius {radius} offset {offset} diameter {diameter} axis {axis} dabs 2"
+            dabs = probe.get("dabs", 2)
+            if dabs not in (2, 3, 4):
+                raise RuntimeError("Out-of-bounds Dulling state probe")
+            label = f"wet kernel radius {radius} offset {offset} diameter {diameter} axis {axis} dabs {dabs}"
             if label in kernel_objectives:
                 raise RuntimeError("Duplicate Dulling probe")
             kernel_objectives[label] = probe["reason"]
@@ -504,6 +507,8 @@ for mode, modern in profiles:
                               "wetBoundary": 256 + diameter * spacing * .8,
                               "changeExpectation": "measure Dulling pickup kernel; unqualified until independently implemented"})
         if group == "wetkernelcount":
+            dabs = int(label.rsplit(" ", 1)[1])
+            cases[-1]["probePositions"] = [round(256 + diameter * spacing * i) for i in range(dabs)]
             cases[-1].update({"kernelProbeObjective": kernel_objectives[label],
                               "sourceCandidateGate": float(diameter).is_integer() and
                                   (modern or float(overrides["SmudgeRadiusValue"]) <= 100),

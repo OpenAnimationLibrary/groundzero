@@ -393,9 +393,7 @@ int main(int argc, char **argv) {
              (p.tip.hardness < 1 || p.tip.antialiasEdges)))) ||
           ((fixtures["group"].toString() == "geometry" ||
             fixtures["group"].toString() == "pixelaarange") &&
-           p.tip.antialiasEdges &&
-           (source["diameter"].toDouble() >= 16 ||
-            source["diameter"].toDouble() < 10));
+           p.tip.antialiasEdges);
       if (sourceSoft)
         require(p.profile == (p.tip.shape == Shape::Square
                                   ? "krita-5.3.4.1-default-rect-candidate-1"

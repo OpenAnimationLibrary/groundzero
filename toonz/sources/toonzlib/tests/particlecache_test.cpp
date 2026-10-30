@@ -1,12 +1,14 @@
 #include "toonz/particlecache.h"
 
 #include <QCoreApplication>
+#include <QDateTime>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QTemporaryDir>
+#include <QThread>
 
 #include <algorithm>
 #include <cmath>
@@ -14,6 +16,8 @@
 #include <iostream>
 #include <limits>
 #include <stdexcept>
+#include <utility>
+#include <vector>
 
 namespace {
 using namespace ParticleCache;
@@ -432,6 +436,175 @@ void packages(const QDir &dir) {
   writeJson(dir.filePath("invalid.otpc"), bad);
   require(!openSequence(dir.filePath("invalid.otpc"), raw, error), "duplicate manifest frames rejected");
 }
+
+// Evaluates the call before reading its error (argument order is unspecified).
+void checked(bool ok, const QString &error) { require(ok, qPrintable(error)); }
+
+// A '-' before the digits is a separator unless it follows the start, '.' or
+// '_'.
+void frameNumbering(const QDir &dir) {
+  const std::vector<std::pair<QStringList, std::vector<int>>> cases = {
+      // "rain--0004" belongs to a "rain--" sequence: its second '-' is no sign.
+      {{"rain-0001.bgeo", "rain-0002.bgeo", "rain-0003.bgeo",
+        "rain--0004.bgeo"},
+       {1, 2, 3}},
+      {{"snow.-5.bgeo", "snow.-4.bgeo"}, {-5, -4}},
+      {{"drop_-2.bgeo", "drop_-1.bgeo", "drop_0.bgeo"}, {-2, -1, 0}},
+      {{"-1.bgeo", "1.bgeo"}, {-1, 1}},
+      {{"hail12.bgeo", "hail13.bgeo"}, {12, 13}}};
+  int index = 0;
+  for (const auto &entry : cases) {
+    const QString folder = QString("numbering-%1").arg(++index);
+    require(dir.mkpath(folder), "create numbering folder");
+    const QDir sub(dir.filePath(folder));
+    QString error;
+    for (const auto &name : entry.first)
+      checked(writeFrame(sub.filePath(name), fixture(), WriteOptions(), error),
+              error);
+    Sequence sequence;
+    checked(openSequence(sub.filePath(entry.first.front()), sequence, error),
+            error);
+    std::vector<int> frames;
+    for (const auto &frame : sequence.frames) frames.push_back(frame.first);
+    const QByteArray name = entry.first.front().toUtf8();
+    require(frames == entry.second,
+            ("wrong frame numbers for " + name).constData());
+    require(sequence.metadata.firstFrame == entry.second.front(),
+            "first frame from numbering");
+  }
+}
+
+// Hold Previous with interpolation blends the nearest stored frames around the
+// sample time, weighted by their distance, on a sparse cache.
+void sparseHold(const QDir &dir) {
+  require(dir.mkpath("sparse"), "create sparse folder");
+  const QDir sub(dir.filePath("sparse"));
+  QString error;
+  checked(writeFrame(sub.filePath("a.bgeo"), fixture(0), WriteOptions(), error),
+          error);
+  checked(writeFrame(sub.filePath("e.bgeo"), fixture(4), WriteOptions(), error),
+          error);
+  for (int last : {5, 6}) {
+    writeJson(sub.filePath(QString("sparse-%1.otpc").arg(last)),
+              QJsonObject{
+                  {"format", "opentoonz-particle-cache"},
+                  {"version", 1},
+                  {"fps", 24},
+                  {"firstFrame", 1},
+                  {"lastFrame", last},
+                  {"frames",
+                   QJsonArray{QJsonObject{{"frame", 1}, {"file", "a.bgeo"}},
+                              QJsonObject{{"frame", 5}, {"file", "e.bgeo"}}}}});
+  }
+  Sequence sequence;
+  checked(openSequence(sub.filePath("sparse-5.otpc"), sequence, error), error);
+  Playback playback;
+  playback.missing = MissingFrame::Hold;
+  auto x           = [&](double sceneFrame) {
+    const auto sample =
+        sampleSequence(sequence, sceneFrame, playback, sequence.mapping, error);
+    require(bool(sample), qPrintable(error));
+    return sample->particles.at(0).position[0];
+  };
+  // Source frame = 1 + scene frame; particle 42 moves from x=1 to x=5.
+  nearlyEqual(x(0), 1, "stored frame 1");
+  nearlyEqual(x(1), 2, "integer frame between sparse keys interpolates");
+  nearlyEqual(x(3.5), 4.5, "subframe between sparse keys keeps its timing");
+  nearlyEqual(x(4), 5, "stored frame 5");
+  SamplePlan plan;
+  require(planSample(sequence, 3.5, playback, plan, error) && plan.left == 1 &&
+              plan.right == 5 && std::abs(plan.weight - 0.875) < 1e-12,
+          "sparse hold plan");
+  playback.interpolate = false;
+  nearlyEqual(x(3.5), 1, "hold without interpolation keeps the previous frame");
+  // Past the last stored frame a loop blends toward the first frame.
+  playback.interpolate = true;
+  checked(openSequence(sub.filePath("sparse-6.otpc"), sequence, error), error);
+  nearlyEqual(x(4.5), 5, "hold past the last stored frame");
+  playback.end = EndBehavior::Loop;
+  nearlyEqual(x(4.5), 4, "looped hold blends across the wrap");
+}
+
+void writeInPlace(const QString &path, const QByteArray &bytes) {
+  QFile file(path);
+  require(file.open(QIODevice::ReadWrite) && file.size() == bytes.size() &&
+              file.write(bytes) == bytes.size(),
+          "rewrite fixture in place");
+}
+
+// Stamps replace whole-file hashing for settled files; a rewrite must still be
+// seen, whether or not the file had settled and even if its time is restored.
+void revisions(const QDir &dir) {
+  require(dir.mkpath("revisions"), "create revisions folder");
+  const QDir sub(dir.filePath("revisions"));
+  const QString path = sub.filePath("frame.bgeo");
+  QString error;
+  checked(writeFrame(path, fixture(0), WriteOptions(), error), error);
+  checked(
+      writeFrame(sub.filePath("other.bgeo"), fixture(1), WriteOptions(), error),
+      error);
+  const QByteArray zero = readBytes(path),
+                   one  = readBytes(sub.filePath("other.bgeo"));
+  require(zero.size() == one.size() && zero != one, "same-size fixtures");
+  Sequence sequence;
+  checked(openSequence(path, sequence, error), error);
+  Playback playback;
+  auto identity = [&] {
+    const QString value =
+        sampleIdentity(sequence, 0, playback, sequence.mapping, error);
+    require(!value.isEmpty(), qPrintable(error));
+    return value;
+  };
+  auto x = [&] {
+    const auto frame = loadFrame(path, Mapping{}, error);
+    require(bool(frame), qPrintable(error));
+    return frame->particles.at(0).position[0];
+  };
+  const QString fresh = identity();
+  nearlyEqual(x(), 1, "initial frame");
+  writeInPlace(path, one);
+  require(identity() != fresh,
+          "an unsettled same-size rewrite changes the identity");
+  nearlyEqual(x(), 2, "an unsettled rewrite is reloaded");
+
+  QThread::msleep(2200);
+  bool settled = false;
+  require(!fileStamp(path, &settled).isEmpty() && settled, "file settles");
+  const QString before = identity();
+  require(identity() == before, "a settled identity is stable");
+  nearlyEqual(x(), 2, "settled frame");
+  const QString revision = fileRevision(path, error);
+  require(revision == fileRevision(path, error) && !revision.isEmpty(),
+          "memoized revision");
+  writeInPlace(path, zero);
+  require(identity() != before,
+          "a settled same-size rewrite changes the identity");
+  nearlyEqual(x(), 1, "a settled rewrite is not served from the memory cache");
+  require(fileRevision(path, error) != revision,
+          "a rewrite changes the revision");
+#ifndef _WIN32
+  // Restoring the modification time (cp -p, rsync -t) still changes the
+  // status-change time, which only the system sets.
+  QThread::msleep(2200);
+  const QString settledZero = identity();
+  nearlyEqual(x(), 1, "settled again");
+  const QDateTime modified = QFileInfo(path).lastModified();
+  writeInPlace(path, one);
+  {
+    QFile file(path);
+    require(file.open(QIODevice::ReadWrite) &&
+                file.setFileTime(modified, QFileDevice::FileModificationTime),
+            "restore the modification time");
+  }
+  require(QFileInfo(path).lastModified() == modified,
+          "modification time restored");
+  // Once settled again, size and modification time match the old stamp.
+  QThread::msleep(2200);
+  require(identity() != settledZero,
+          "a rewrite with a restored time changes the identity");
+  nearlyEqual(x(), 2, "a rewrite with a restored time is reloaded");
+#endif
+}
 }  // namespace
 
 int main(int argc, char **argv) {
@@ -445,6 +618,9 @@ int main(int argc, char **argv) {
     roundTrips(QDir(temporary.path()));
     gzipAndRawSchemas(QDir(temporary.path()));
     packages(QDir(temporary.path()));
+    frameNumbering(QDir(temporary.path()));
+    sparseHold(QDir(temporary.path()));
+    revisions(QDir(temporary.path()));
     std::cout << "Particle cache core: format directions, schema, interpolation, IO, metadata, invalidation and atomic packages passed.\n";
     return 0;
   } catch (const std::exception &error) {

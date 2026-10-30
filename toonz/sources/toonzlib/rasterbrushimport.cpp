@@ -402,6 +402,11 @@ void convertTipToMask(Tip &tip, bool legacyTransparentAlpha = false) {
     writable->color = false;
   }
 }
+// Bundle dependency lookup follows manifest resource kinds. Identical PNG
+// bytes registered as a brush do not become a source pattern (or vice versa).
+struct BundleResources {
+  QMap<QString, QByteArray> brushes, patterns;
+};
 Tip resolveTip(const QMap<QString, QByteArray> *resources,
                const QString &filename, const QString &md5,
                QStringList &diagnostics, size_t maximumDecodedBytes,
@@ -770,8 +775,8 @@ bool eligibleFixedSource(const QMap<QString, QString> &fields,
          validate(preset).empty();
 }
 Record convertKpp(const QByteArray &bytes, QStringList &diagnostics,
-                  const QMap<QString, QByteArray> *resources = nullptr,
-                  size_t maximumDecodedBytes = 256u * 1024u * 1024u) {
+                  const BundleResources *resources = nullptr,
+                  size_t maximumDecodedBytes       = 256u * 1024u * 1024u) {
   const int diagnosticStart = diagnostics.size();
   QString error;
   auto png = boundedPng(bytes, error);
@@ -827,7 +832,8 @@ Record convertKpp(const QByteArray &bytes, QStringList &diagnostics,
             application < 0    ? "legacy-unspecified"
             : application == 1 ? "color-image"
                                : "alpha-mask";
-        r.preset.tip = resolveTip(resources, a.value("filename").toString(),
+        r.preset.tip = resolveTip(resources ? &resources->brushes : nullptr,
+                                  a.value("filename").toString(),
                                   a.value("md5sum").toString(), diagnostics,
                                   maximumDecodedBytes, application);
         r.preset.size.value = std::max(r.preset.tip.images[0]->width,
@@ -979,7 +985,8 @@ Record convertKpp(const QByteArray &bytes, QStringList &diagnostics,
       const QByteArray binaryChecksum =
           fields.value("Texture/Pattern/PatternMD5").toLatin1();
       QStringList matches;
-      for (auto i = resources->begin(); i != resources->end(); ++i) {
+      for (auto i = resources->patterns.begin(); i != resources->patterns.end();
+           ++i) {
         const QByteArray hash =
             QCryptographicHash::hash(i.value(), QCryptographicHash::Md5);
         const bool match = !checksum.isEmpty()
@@ -993,7 +1000,7 @@ Record convertKpp(const QByteArray &bytes, QStringList &diagnostics,
       }
       if (matches.size() != 1)
         throw Invalid("Missing or ambiguous KPP texture dependency");
-      pattern = resources->value(matches.front());
+      pattern = resources->patterns.value(matches.front());
     } else
       throw Invalid("KPP texture resource missing; import its resource bundle");
     if (!pattern.startsWith(QByteArray::fromHex("89504e470d0a1a0a")))
@@ -1073,7 +1080,7 @@ Record convertKpp(const QByteArray &bytes, QStringList &diagnostics,
   return r;
 }
 QStringList bundlePresets(const QMap<QString, QByteArray> &members,
-                          QMap<QString, QByteArray> &resources,
+                          BundleResources &resources,
                           QMap<QString, QJsonArray> &tags,
                           QJsonArray &resourceTags) {
   if (members.value("mimetype").trimmed() !=
@@ -1145,8 +1152,8 @@ QStringList bundlePresets(const QMap<QString, QByteArray> &members,
               QCryptographicHash::hash(members[path], QCryptographicHash::Md5)
                   .toHex()) != md5.toLower())
         throw Invalid("Bundle manifest checksum mismatch");
-      if (type == "brushes" || type == "patterns")
-        resources[path] = members[path];
+      if (type == "brushes") resources.brushes[path] = members[path];
+      if (type == "patterns") resources.patterns[path] = members[path];
       if (type == "paintoppresets") {
         if (!path.endsWith(".kpp", Qt::CaseInsensitive))
           throw Invalid("Bundle preset type mismatch");
@@ -1226,7 +1233,7 @@ ImportResult importBrush(const QByteArray &bytes, const QString &format,
     if (kind == "bundle") {
       auto members = brushArchive(bytes, error);
       if (!error.isEmpty()) return {};
-      QMap<QString, QByteArray> resources;
+      BundleResources resources;
       QMap<QString, QJsonArray> tags;
       QJsonArray resourceTags;
       auto presets   = bundlePresets(members, resources, tags, resourceTags);
@@ -1237,12 +1244,21 @@ ImportResult importBrush(const QByteArray &bytes, const QString &format,
         auto r = convertKpp(members[path], diagnostics, &resources,
                             maximumDecodedBytes - decoded);
         check(r);
-        for (const auto &image : r.preset.tip.images) {
-          size_t n = image->pixels.size() * sizeof(Pixel);
-          if (n > maximumDecodedBytes - decoded)
+        // Retained textures and secondary tips consume the same bundle budget
+        // as primary tips. Charge them before the next preset is decoded, and
+        // count a shared image only once within this record.
+        QSet<const Image *> retained;
+        auto account = [&](const std::shared_ptr<const Image> &image) {
+          if (!image || retained.contains(image.get())) return;
+          retained.insert(image.get());
+          if (image->pixels.size() >
+              (maximumDecodedBytes - decoded) / sizeof(Pixel))
             throw Invalid("Bundle decoded image budget exceeded");
-          decoded += n;
-        }
+          decoded += image->pixels.size() * sizeof(Pixel);
+        };
+        for (const auto &image : r.preset.tip.images) account(image);
+        for (const auto &image : r.preset.secondary.tip.images) account(image);
+        account(r.preset.texture.image);
         r.provenance["bundleSha256"] = QString::fromLatin1(
             QCryptographicHash::hash(bytes, QCryptographicHash::Sha256)
                 .toHex());

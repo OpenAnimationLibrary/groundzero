@@ -1041,6 +1041,14 @@ Original captures now establish a strict candidate subset: hard round Pixel
 build-up and legacy Smear/Dulling plus new Smear, Normal composition, opaque
 grayscale PNG, fixed unit scale and zero offsets/rotation, no cutoff or brightness
 adjustments. Wet candidates require alpha transport and zero pickup radius.
+Bundle dependencies retain their declared manifest resource kind: texture lookup
+searches only `patterns`, and tip lookup only `brushes`. Filename and checksum
+matches cannot cross these namespaces; multiple matching resources within the
+requested kind fail explicitly. This follows the pattern-specific resource
+registry in the linked public resource metadata, rather than inferring type from
+a file extension or directory name. Original fixtures cover wrong-kind matches,
+same-hash cross-kind resources and ambiguous pattern matches.
+
 The importer resolves embedded or uniquely identified bundled PNGs, checks declared
 checksums and remaining decoded allocation budget, and preserves grayscale mask
 values, soft-texturing state and resource SHA-256 through portable presets.
@@ -1190,3 +1198,21 @@ Reports retain effective curve metadata, exact API endpoints/pressures and full
 alpha windows. These are acquisition fixtures, not source-support gates; no
 multi-knot candidate is enabled until interpolation and its boundaries are
 independently established and checked against held-out observations.
+
+### Default hard-circle AA transition candidate
+
+Independent complete alpha captures at diameters 10 and 12 identify the
+single-sample squared-distance AA regime with a row-local quantization tail:
+full eight-pixel blocks round to nearest byte, while the remaining pixels
+truncate. The stamp's left edge anchors the blocks. This general rule exactly
+matches both captured masks (zero differing pixels), and the existing formula
+remains exact for captured 16/24/32/64/128 masks. It replaces neither the
+forward 3×3 regime below diameter 10 nor native AA.
+
+The candidate now admits fixed integer hard round AA tips in the 10–15 range.
+Full captured D10/D12 masks are engine regression fixtures; D11/13/14/15 are
+held out for threshold-enforcing source comparison. Fractional/dynamic sizes,
+small soft masks, and small AA rectangles remain outside this eligibility.
+This identifies behavior of the pinned reference build; it does not establish
+all source CPU implementations use identical rounding. Source verification
+flags remain false until the complete required qualification passes.

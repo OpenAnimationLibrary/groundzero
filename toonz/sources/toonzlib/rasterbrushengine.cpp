@@ -275,7 +275,7 @@ std::string validate(const Preset &p) {
         (sourceSoft &&
          ((!sourceRect && !p.tip.antialiasEdges && p.tip.hardness >= 1) ||
           (p.tip.antialiasEdges && p.size.value < 16 &&
-           !(!sourceRect && p.tip.hardness == 1 && p.size.value < 10)) ||
+           !(!sourceRect && p.tip.hardness == 1)) ||
           !p.size.mappings.empty() || !fixed(p.aspect, 1) ||
           !fixed(p.angle, 0))) ||
         (!sourceSoft && p.tip.antialiasEdges) || !p.tip.images.empty() ||
@@ -1371,8 +1371,16 @@ struct Stroke::Impl {
             }
             // Small scalar masks truncate; larger captured masks round to
             // nearest. Fade zero alone uses the one-pixel fallback radius.
-            const double rounding =
-                !p.tip.antialiasEdges && diameter < 16 ? 0 : .5;
+            double rounding = !p.tip.antialiasEdges && diameter < 16 ? 0 : .5;
+            if (p.tip.antialiasEdges && diameter >= 10 && diameter < 16 &&
+                p.profile == "krita-5.3.4.1-default-circle-candidate-1") {
+              // Original D10/D12 complete masks identify round-to-nearest
+              // full eight-pixel row blocks and a truncating remainder.
+              // The tail starts relative to the generated stamp, not canvas
+              // alignment. Fractional/dynamic sizes remain ineligible.
+              const int left = int(std::ceil(cx - .5 - radius));
+              if (x >= left + (int(diameter) / 8) * 8) rounding = 0;
+            }
             a = std::floor(coverage * 255 + rounding) / 255;
             if (p.tip.antialiasEdges && diameter < 10 &&
                 p.profile == "krita-5.3.4.1-default-circle-candidate-1") {

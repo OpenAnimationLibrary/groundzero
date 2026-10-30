@@ -421,6 +421,86 @@ void testBundles() {
                 "paintoppresets/original.kpp",
             "bundle identity lost");
   }
+  // Each procedural preset retains a texture but no bitmap primary tip. The
+  // second decode must receive the budget remaining after the first texture.
+  auto textured = entries;
+  textured[1].second.replace(
+      "</manifest:manifest>",
+      "<manifest:file-entry manifest:full-path=\"paintoppresets/second.kpp\" "
+      "manifest:media-type=\"paintoppresets\"/></manifest:manifest>");
+  textured[2].second = hardPixelKpp("texture-valid");
+  textured.push_back({"paintoppresets/second.kpp", textured[2].second});
+  const size_t texturePixels    = 16 * 16;
+  const size_t oneTextureDecode = texturePixels * (sizeof(Pixel) + 16);
+  const auto texturedBytes      = archive(textured, true);
+  const auto tight =
+      importBrush(texturedBytes, "bundle", error, nullptr, oneTextureDecode);
+  require(!tight.complete && tight.records.empty() && !error.isEmpty(),
+          "bundle reused retained texture memory allowance for next decode");
+  const auto enough =
+      importBrush(texturedBytes, "bundle", error, nullptr,
+                  texturePixels * sizeof(Pixel) + oneTextureDecode);
+  require(enough.complete && enough.records.size() == 2 && error.isEmpty() &&
+              enough.records[0].preset.texture.image &&
+              enough.records[1].preset.texture.image,
+          "bundle rejected correctly budgeted retained textures");
+  // Source pattern lookup is type-scoped, including hash matches. A brush
+  // PNG with identical bytes must neither satisfy nor make a pattern ambiguous.
+  QImage linkedPreset = QImage::fromData(hardPixelKpp("texture-valid"), "PNG");
+  QString linkedXml   = linkedPreset.text("preset");
+  const QString patternStart = "<param name=\"Texture/Pattern/Pattern\">";
+  const int patternAt        = linkedXml.indexOf(patternStart);
+  const int patternEnd       = linkedXml.indexOf("</param>", patternAt);
+  require(patternAt >= 0 && patternEnd > patternAt,
+          "missing original texture fixture");
+  const QByteArray patternBytes = QByteArray::fromBase64(
+      linkedXml
+          .mid(patternAt + patternStart.size(),
+               patternEnd - patternAt - patternStart.size())
+          .toLatin1());
+  linkedXml.remove(patternAt, patternEnd + 8 - patternAt);
+  linkedXml.replace(
+      "</Preset>",
+      "<param "
+      "name=\"Texture/Pattern/PatternFileName\">linked.png</param></Preset>");
+  for (bool useHash : {false, true}) {
+    QString xml = linkedXml;
+    if (!useHash) {
+      const int start =
+          xml.indexOf("<param name=\"Texture/Pattern/PatternMD5Sum\">");
+      const int end = xml.indexOf("</param>", start);
+      require(start >= 0 && end > start, "missing texture checksum fixture");
+      xml.remove(start, end + 8 - start);
+    }
+    linkedPreset.setText("preset", xml);
+    QByteArray presetBytes;
+    QBuffer output(&presetBytes);
+    output.open(QIODevice::WriteOnly);
+    require(linkedPreset.save(&output, "PNG"),
+            "cannot encode linked texture fixture");
+    for (int scenario = 0; scenario < 4; ++scenario) {
+      auto linked      = entries;
+      linked[2].second = presetBytes;
+      auto resource    = [&](const QByteArray &path, const QByteArray &kind) {
+        linked[1].second.replace("</manifest:manifest>",
+                                    "<manifest:file-entry manifest:full-path=\"" +
+                                        path + "\" manifest:media-type=\"" + kind +
+                                        "\"/></manifest:manifest>");
+        linked.push_back({path, patternBytes});
+      };
+      resource("assets/linked.png", scenario == 0 ? "brushes" : "patterns");
+      if (scenario >= 2)
+        resource("other/linked.png", scenario == 2 ? "brushes" : "patterns");
+      const auto result = importBrush(archive(linked, true), "bundle", error);
+      if (scenario == 0 || scenario == 3)
+        require(!error.isEmpty() && result.records.empty(),
+                "wrong-kind or ambiguous pattern dependency accepted");
+      else
+        require(error.isEmpty() && result.records.size() == 1 &&
+                    result.records.front().preset.texture.image,
+                "pattern type lookup confused identical brush resource");
+    }
+  }
   // Original fixture follows Krita's manifest writer: namespaced tags contain
   // text labels on each resource, independently of the brush preset name.
   auto tagged = entries;
@@ -529,6 +609,13 @@ void testBundles() {
       qPrintable(error));
   require(resolved.records[0].preset.tip.images[0]->pixels[0].a == 1,
           "bundle dependency decoded incorrectly");
+  auto wrongTipKind = external;
+  wrongTipKind[1].second.replace("manifest:media-type=\"brushes\"",
+                                 "manifest:media-type=\"patterns\"");
+  const auto wrongTip =
+      importBrush(archive(wrongTipKind, true), "bundle", error);
+  require(!error.isEmpty() && wrongTip.records.empty(),
+          "pattern-only resource satisfied brush-tip dependency");
   auto resourceTagged = external;
   resourceTagged[1].second.replace("manifest:media-type=\"brushes\"/>",
                                    "manifest:media-type=\"brushes\"><manifest:"
