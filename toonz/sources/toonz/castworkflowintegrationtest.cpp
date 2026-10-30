@@ -1,6 +1,7 @@
 #include "castviewer.h"
 #include "castselection.h"
 #include "castbrowseractions.h"
+#include "nativeuiintegrationtest.h"
 #include "tapp.h"
 #include "iocommand.h"
 #include "toonz/levelset.h"
@@ -121,9 +122,8 @@ void selectionLifetime(QMainWindow *window) {
 
 // Runs only in the existing disposable-profile native UI qualification process.
 void runCastWorkflowIntegrationTest(QMainWindow *window) {
-  TApp::instance()->getCurrentScene()->setDirtyFlag(false);
-  TUndoManager::manager()->reset();
-  IoCmd::newScene();
+  QString resetError;
+  require(resetNativeUiIntegrationScene(&resetError), qPrintable(resetError));
   QApplication::processEvents();
   selectionLifetime(window);
   auto *source = TApp::instance()->getCurrentScene()->getScene();
