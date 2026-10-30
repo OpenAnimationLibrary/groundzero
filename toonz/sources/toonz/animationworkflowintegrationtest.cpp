@@ -813,8 +813,9 @@ void exerciseTiming(ToonzScene *scene, QMainWindow *window, const QString &folde
   // and whose remap differs. No column/frame/level change can mask a missing
   // xsheetSwitched subscription here.
   auto *timingChild = new TXshChildLevel(L"TimingReadbackChild");
+  // TXshChildLevel owns a freshly constructed xsheet; setScene associates it
+  // with the parent scene as well as the level itself.
   timingChild->setScene(scene);
-  timingChild->setXsheet(new TXsheet(scene));
   scene->getLevelSet()->insertLevel(timingChild);
   auto *childSheet = timingChild->getXsheet();
   for (int row = 0; row < 6; ++row)
