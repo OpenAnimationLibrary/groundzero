@@ -232,8 +232,29 @@ int main(int argc, char **argv) {
       last.time = 1;
       QElapsedTimer timer;
       timer.start();
-      require(stroke.add(first) && stroke.add(last),
-              QString::fromStdString(stroke.error()));
+      if (source.contains("events")) {
+        auto events = source["events"].toArray();
+        require(!events.empty() && events.size() <= 4096,
+                "Invalid bounded event trace");
+        for (const auto &value : events) {
+          auto event = value.toObject();
+          Sample sample;
+          sample.x = event["x"].toDouble();
+          sample.y = event["y"].toDouble();
+          sample.pressure = event["pressure"].toDouble();
+          sample.tiltX = event["tiltX"].toDouble() / 60;
+          sample.tiltY = event["tiltY"].toDouble() / 60;
+          sample.rotation =
+              event["rotation"].toDouble() * 3.14159265358979323846 / 180;
+          sample.time = event["timeUs"].toDouble() / 1000000;
+          sample.hasPressure = sample.hasTilt = sample.hasRotation = true;
+          require(stroke.add(sample), QString::fromStdString(stroke.error()));
+        }
+      } else {
+        require(stroke.add(first) && stroke.add(last),
+                QString::fromStdString(stroke.error()));
+      }
+      stroke.finish();
       double elapsed = timer.nsecsElapsed() / 1e6;
       QImage candidate = canvas.image();
       QString basename = source["image"].toString();

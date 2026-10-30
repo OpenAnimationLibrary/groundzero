@@ -56,9 +56,9 @@ shutil.copytree(source / "gzbrush_reference", resources / "pykrita" / "gzbrush_r
 (root / "config" / "kritarc").write_text("[General]\nuseOpenGL=false\n[python]\nenable_gzbrush_reference=true\n")
 names, cases = [], []
 group = os.environ.get("BRUSH_REFERENCE_GROUP", "parameters")
-if group not in ("parameters", "geometry"):
+if group not in ("parameters", "geometry", "tablet"):
     raise RuntimeError("Unknown reference fixture group")
-profiles = [("dry", False)] if group == "geometry" else [("dry", False), ("smear", False), ("dulling", False), ("smear", True), ("dulling", True)]
+profiles = [("dry", False)] if group in ("geometry", "tablet") else [("dry", False), ("smear", False), ("dulling", False), ("smear", True), ("dulling", True)]
 for mode, modern in profiles:
     base = "GZ Original " + mode + (" new" if modern else " legacy")
     variants = [
@@ -74,6 +74,8 @@ for mode, modern in profiles:
     if group == "geometry":
         variants = [(f"geometry diameter {diameter} antialias {edge}", {}, diameter, 5, [1, 1], 1, 1)
                     for diameter in (1, 7, 8, 32, 64, 128) for edge in (0, 1)]
+    if group == "tablet":
+        variants = [variant for variant in variants if variant[0] in ("baseline", "pressure ramp")]
     if mode == "dry" and group == "parameters":
         for length in (1, 2, 3, 4, 7, 16, 32):
             variants.append(("short line " + str(length), {}, 32, .1, [1, 1], 1, 1))
@@ -95,4 +97,11 @@ for mode, modern in profiles:
             end_x = 257
         expected_empty = (mode != "dry" and not modern and label == "pickup 0") or (group == "geometry" and diameter == 1 and label.endswith("antialias 0"))
         cases.append({"preset": name, "variant": label, "diameter": diameter, "spacing": spacing, "pressure": pressure, "opacity": opacity, "flow": flow, "start": [256, 1024], "end": [end_x, 1024], "background": "transparent" if group == "geometry" or label.startswith("short line ") else "strips", "overrides": overrides, "expectUnchanged": expected_empty})
-(root / "output" / "fixtures.json").write_text(json.dumps({"version": "5.3.4.1", "group": group, "presets": names, "cases": cases, "license": "CC0-1.0", "width": 2048, "height": 2048, "input": "Node.paintLine API; not physical tablet delivery"}, indent=2))
+        if group == "tablet":
+            case = cases[-1]
+            case.update({"start": [768, 1024], "end": [1280, 1024], "background": "transparent", "delivery": "Qt tablet events"})
+            case["events"] = [{"x": 768 + i * 8, "y": 1024,
+                               "pressure": pressure[0] + (pressure[1] - pressure[0]) * i / 64,
+                               "tiltX": 0, "tiltY": 0, "rotation": 0,
+                               "timeUs": round(i * 1000000 / 240)} for i in range(65)]
+(root / "output" / "fixtures.json").write_text(json.dumps({"version": "5.3.4.1", "group": group, "presets": names, "cases": cases, "license": "CC0-1.0", "width": 2048, "height": 2048, "input": "Qt synthetic tablet events; not physical tablet delivery" if group == "tablet" else "Node.paintLine API; not physical tablet delivery"}, indent=2))

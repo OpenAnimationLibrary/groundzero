@@ -9,9 +9,9 @@ import zlib
 from pathlib import Path
 from krita import Krita, Extension, ManagedColor, Preset
 from xml.etree.ElementTree import fromstring
-from PyQt5.QtCore import QByteArray, QPoint, QTimer
-from PyQt5.QtGui import QColor, QImage
-from PyQt5.QtWidgets import QApplication, QMessageBox
+from PyQt5.QtCore import QByteArray, QPoint, QPointF, QTimer, QEvent, Qt
+from PyQt5.QtGui import QColor, QImage, QTabletEvent
+from PyQt5.QtWidgets import QApplication, QMessageBox, QWidget
 
 
 class Probe(Extension):
@@ -48,6 +48,61 @@ class Probe(Extension):
         except StopIteration:
             return
         QTimer.singleShot(0, self.advance)
+
+    def paint_case(self, app, view, node, case):
+        if case.get("delivery") != "Qt tablet events":
+            node.paintLine(QPoint(*case["start"]), QPoint(*case["end"]), *case["pressure"], "ForegroundColor")
+            return {"mode": "Node.paintLine"}
+        # Public action identifier and View transforms; no engine-private API.
+        action = app.action("KritaShape/KisToolBrush")
+        if action is None:
+            raise RuntimeError("Freehand brush action unavailable")
+        action.trigger()
+        window = app.activeWindow().qwindow()
+        window.showMaximized()
+        yield
+        canvases = [widget for widget in window.findChildren(QWidget)
+                    if widget.isVisible() and widget.metaObject().className() in
+                    ("KisQPainterCanvas", "KisOpenGLCanvas2")]
+        if len(canvases) != 1:
+            raise RuntimeError("Expected exactly one visible source canvas, got " + str(len(canvases)))
+        canvas = canvases[0]
+        image_to_flake, invertible = view.flakeToImageTransform().inverted()
+        if not invertible:
+            raise RuntimeError("Source image transform is singular")
+        flake_to_canvas = view.flakeToCanvasTransform()
+        delivered = []
+
+        def send(row, kind, target, button, buttons, pressure):
+            local = flake_to_canvas.map(image_to_flake.map(QPointF(row["x"], row["y"])))
+            if not canvas.rect().contains(local.toPoint()):
+                raise RuntimeError("Tablet fixture is outside the visible source canvas")
+            global_pos = QPointF(canvas.mapToGlobal(local.toPoint())) + local - QPointF(local.toPoint())
+            event = QTabletEvent(kind, local, global_pos, QTabletEvent.Stylus,
+                                 QTabletEvent.Pen, pressure, row["tiltX"], row["tiltY"],
+                                 0.0, row["rotation"], 0, Qt.NoModifier, 1, button, buttons)
+            event.setTimestamp(round(row["timeUs"] / 1000))
+            QApplication.sendEvent(target, event)
+            delivered.append({"type": int(kind), "local": [local.x(), local.y()],
+                              "timeMs": event.timestamp(), "accepted": event.isAccepted(),
+                              "pressure": event.pressure(), "tilt": [event.xTilt(), event.yTilt()],
+                              "rotation": event.rotation()})
+
+        rows = case["events"]
+        send(rows[0], QEvent.TabletEnterProximity, QApplication.instance(), Qt.NoButton, Qt.NoButton, 0)
+        yield
+        for index, row in enumerate(rows):
+            send(row, QEvent.TabletPress if index == 0 else QEvent.TabletMove,
+                 canvas, Qt.LeftButton if index == 0 else Qt.NoButton,
+                 Qt.LeftButton, row["pressure"])
+            yield
+        send(rows[-1], QEvent.TabletRelease, canvas, Qt.LeftButton, Qt.NoButton, 0)
+        yield
+        send(rows[-1], QEvent.TabletLeaveProximity, QApplication.instance(), Qt.NoButton, Qt.NoButton, 0)
+        yield
+        return {"mode": "Qt tablet events", "canvasClass": canvas.metaObject().className(),
+                "canvasSize": [canvas.width(), canvas.height()], "events": delivered,
+                "timing": "240 Hz event timestamps; Qt event-loop delivery, not physical device timing"}
 
     def render(self, app, output):
         build = app.version()
@@ -133,7 +188,7 @@ class Probe(Extension):
                 checkpoint(name + ": paint line")
                 # The pinned 5.3.4.1 Python binding accepts QPoint, despite the
                 # online C++ API describing QPointF. This fixture is integral.
-                node.paintLine(QPoint(*case["start"]), QPoint(*case["end"]), *case["pressure"], "ForegroundColor")
+                delivery = yield from self.paint_case(app, view, node, case)
                 document.waitForDone()
                 checkpoint(name + ": read painted pixels")
                 raw = bytes(node.pixelData(0, 0, w, h))
@@ -154,7 +209,7 @@ class Probe(Extension):
                         raise RuntimeError("Cannot reset repeated reference raster")
                     document.refreshProjection()
                     document.waitForDone()
-                    node.paintLine(QPoint(*case["start"]), QPoint(*case["end"]), *case["pressure"], "ForegroundColor")
+                    yield from self.paint_case(app, view, node, case)
                     document.waitForDone()
                     repeated = bytes(node.pixelData(0, 0, w, h))
                     repeat_hashes.append(hashlib.sha256(repeated).hexdigest())
@@ -174,7 +229,7 @@ class Probe(Extension):
                     blue, green, red, alpha = raw[offset:offset+4]
                     samples.append([x, red, green, blue, alpha])
                 geometry = None
-                if case.get("background") == "transparent":
+                if case.get("background") == "transparent" and fixtures.get("group") != "tablet":
                     # Exact alpha coverage around all seven short strokes.
                     # This small window is diagnostic; comparison still uses
                     # both full-canvas changed sets and their union.
@@ -191,7 +246,7 @@ class Probe(Extension):
                                   for x in range(left, left + width))
                     geometry = {"rect": rect, "encoding": "zlib-base64-alpha8-row-major",
                                 "data": base64.b64encode(zlib.compress(alpha)).decode("ascii")}
-                report["records"].append({**case, "image": filename, "sha256Pixels": hashlib.sha256(raw).hexdigest(), "repeatSha256Pixels": repeat_hashes, "profile": document.colorProfile(), "input": "Node.paintLine", "changed": raw != initial, "centerlineRGBA8": samples, "geometryProbe": geometry, "effectiveView": effective_view, "effectivePresetXml": effective_name, "effectivePresetSha256": hashlib.sha256(effective_xml.encode()).hexdigest(), "effectiveWetControls": controls})
+                report["records"].append({**case, "image": filename, "sha256Pixels": hashlib.sha256(raw).hexdigest(), "repeatSha256Pixels": repeat_hashes, "profile": document.colorProfile(), "input": delivery["mode"], "deliveryReport": delivery, "changed": raw != initial, "centerlineRGBA8": samples, "geometryProbe": geometry, "effectiveView": effective_view, "effectivePresetXml": effective_name, "effectivePresetSha256": hashlib.sha256(effective_xml.encode()).hexdigest(), "effectiveWetControls": controls})
                 checkpoint(name + ": saved output")
                 # Return to Qt between independent strokes. Calling processEvents
                 # inside paint/document operations reentered native consumers;

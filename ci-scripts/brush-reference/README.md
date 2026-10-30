@@ -20,6 +20,21 @@ public `Node.paintLine` API supplies pressure endpoints but does not reproduce
 physical tablet delivery, rotation, tilt or timed airbrush. Those require separate
 fixtures under the contract in `doc/raster_brush_compatibility.md`.
 
+A separate `tablet` group supplies two original 65-point pressure traces through
+the visible canvas using Qt tablet press/move/release and proximity events.
+Coordinates use the public View image/flake/canvas transforms at zoom 1; every
+point must be inside the unique visible canvas. The public freehand-brush action
+is selected explicitly. Requested event timestamps are rounded from 240 Hz to
+Qt milliseconds, with an event-loop turn between deliveries. Actual event
+acceptance and input values are recorded, and nonempty output is required.
+The comparison renderer consumes the same authored trace, including all pressure
+points. These cases are synthetic input-path measurements, not physical device,
+wall-clock latency, smoothing equivalence, or tilt/rotation qualification.
+The baseline is repeated after resetting the canvas and must match exactly.
+API sources: [Qt tablet event contract](https://doc.qt.io/archives/qt-5.15/qtabletevent.html),
+[Krita View transforms](https://api.kde.org/legacy/krita/html/classView.html), and
+[Krita action dictionary](https://scripting.krita.org/action-dictionary).
+
 The comparison executable renders the same strip canvas through the imported
 native conversions and retains candidate images, full-canvas differences and
 `comparison.json`. Metrics include premultiplied RGB and alpha errors, alpha
