@@ -51,7 +51,11 @@
 //    specified adapters; current tip conversion imports plain stamps.
 //  - Descriptor references ('obj ') and unknown types reject that descriptor
 //    section. No alias or external reference is resolved or executed.
-//  - The 'patt' pattern section and any other section.
+//  - Pattern texture/brush association and unqualified channel encodings.
+//    Version-1 'patt' resources with version-3 VM arrays are structurally
+//    decoded; raw/VM-ZIP 8- and 16-bit channels yield bytes. No color
+//    conversion or mask interpretation is inferred. Unknown sections remain
+//    uninterpreted.
 //  - Versions 3 to 5 and above 10.
 //
 // The pixels of a tip are a coverage mask: 0 is no paint and 255 is full
@@ -93,11 +97,33 @@ struct Tip {
   std::vector<unsigned char> pixels;  // width * height, top row first
 };
 
+// Pattern resource channels retain their documented slot and bounds. Raw and
+// documented VM-ZIP 8/16-bit channels decode; other encodings do not. These are
+// image resources, not a claim about texture blend or brush association.
+struct PatternChannel {
+  bool written = false, decoded = false;
+  int top = 0, left = 0, bottom = 0, right = 0;
+  unsigned depth = 0, compression = 0;
+  std::string encodingProfile;  // Explicit decoding interpretation, not parity.
+  // Exact channel bytes, top-row-first; 16-bit samples retain both big-endian
+  // bytes. No normalization, high-byte truncation or alpha inference.
+  std::vector<unsigned char> pixels;
+};
+struct Pattern {
+  std::string id, name;
+  unsigned mode = 0, pointY = 0, pointX = 0;
+  int top = 0, left = 0, bottom = 0, right = 0;
+  std::vector<unsigned char> palette;
+  std::vector<PatternChannel> channels;
+};
+
 struct Result {
   int version    = 0;
   int subVersion = 0;  // versions 6 and up only
   std::vector<Tip> tips;
   std::vector<DescriptorValue> descriptors;
+  std::vector<Pattern> patterns;
+  bool patternDataComplete = true;  // False after any malformed patt section.
   struct Computed {
     std::string name;
     int spacing = 0, diameter = 0, roundness = 0, angle = 0, hardness = 0;

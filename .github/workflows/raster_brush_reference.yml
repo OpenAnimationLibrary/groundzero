@@ -90,7 +90,7 @@ jobs:
       max-parallel: 2
       fail-fast: false
       matrix:
-        fixture_group: [wetkernel, wettexture3, wetkernelscale, wettransfer, wetpressure, pixelsoftsize, pixelrectsize, pixelsoft, pixelopacitytablet, pixelopacity, pixelpressure, wetstate, wethold, wettexture, pixelaarange, pixelcontrols, pixelsmallpressure, pixelshape, wetswitches, wetcombined, wetsteps, hardpixel, geometry, tablet, parameters]
+        fixture_group: [wettransfer, pixelprecision, pixelcurves, wetkernelscale, wetkernel, wettexture3, wetpressure, pixelsoftsize, pixelrectsize, pixelsoft, pixelopacitytablet, pixelopacity, pixelpressure, wetstate, wethold, wettexture, pixelaarange, pixelcontrols, pixelsmallpressure, pixelshape, wetswitches, wetcombined, wetsteps, hardpixel, geometry, tablet, parameters]
     runs-on: ubuntu-22.04
     timeout-minutes: 20
     env:
@@ -189,13 +189,15 @@ jobs:
                   probe['view'] = [view.get(key) for key in ('diameter', 'opacity', 'flow')]
                   controls = row.get('effectiveWetControls', {})
                   probe['paintOpAction'] = controls.get('PaintOpAction')
+                  if os.environ['BRUSH_REFERENCE_GROUP'] == 'wettransfer':
+                      probe['transfer'] = [controls.get(key) for key in ('PressureColorRate', 'ColorRateUseCurve', 'PressureOpacity', 'OpacityUseCurve', 'PressureFlow', 'FlowUseCurve')]
                   probe['wet'] = [controls.get(key) for key in ('SmudgeRateValue', 'ColorRateValue', 'SmudgeRadiusValue', 'PressureSmudgeRate', 'SmudgeRateUseNewEngine', 'SmudgeRateMode', 'SmudgeRateSmearAlpha')]
                   positions = row.get('probePositions', (256, 416, 576)) if row.get('background') == 'wet-halves' else (256, 384, 512, 640, 768, 896, 1024, 1152)
                   probe['centerlineRGBA8'] = [sample for sample in row.get('centerlineRGBA8', []) if sample[0] in positions]
                   probes.append(probe)
               # The observed check retained only ten annotations per step. Group the
               # bounded 79-case table instead of silently losing later cases.
-              batch = 4 if os.environ['BRUSH_REFERENCE_GROUP'] in ('wettexture', 'wettexture3') else (7 if os.environ['BRUSH_REFERENCE_GROUP'] in ('wetsteps', 'wethold', 'wetstate', 'wetswitches', 'wetcombined') else 8)
+              batch = 4 if os.environ['BRUSH_REFERENCE_GROUP'] in ('wettexture', 'wettexture3', 'wettransfer') else (7 if os.environ['BRUSH_REFERENCE_GROUP'] in ('wetsteps', 'wethold', 'wetstate', 'wetswitches', 'wetcombined') else 8)
               for start in range(0, len(probes), batch):
                   text = json.dumps(probes[start:start + batch], separators=(',', ':'))
                   if len(text.encode()) > 3900:
@@ -284,7 +286,7 @@ jobs:
                   measurement['wetGate'] = row['wetCandidatePassed']
                   measurement['maxRGB'] = round(row['maxRGBError'], 8)
                   measurement['maxAlpha'] = round(row['maxAlphaError'], 8)
-          batch = 4 if os.environ['BRUSH_REFERENCE_GROUP'] in ('wettexture', 'wettexture3') else (7 if os.environ['BRUSH_REFERENCE_GROUP'] in ('wetsteps', 'wethold', 'wetstate', 'wetswitches', 'wetcombined') else 8)
+          batch = 4 if os.environ['BRUSH_REFERENCE_GROUP'] in ('wettexture', 'wettexture3', 'wettransfer') else (7 if os.environ['BRUSH_REFERENCE_GROUP'] in ('wetsteps', 'wethold', 'wetstate', 'wetswitches', 'wetcombined') else 8)
           for start in range(0, len(measurements), batch):
               text = json.dumps(measurements[start:start + batch], separators=(',', ':'))
               if len(text.encode()) > 3900:

@@ -32,6 +32,9 @@ inline QByteArray hardPixelKpp(const QString &mutation = {},
     param("PaintOpAction", mutation == "buildUp" || !model.isEmpty() ? "1"
                            : mutation == "freehandWash"              ? "2"
                                                                      : "0");
+  const bool pressureSize =
+      mutation == "pressure" || mutation == "pressureRange" ||
+      mutation == "pressureSensorRange" || mutation == "pressureSpline";
   for (const QString &key :
        {"EraserMode", "OpacityUseCurve", "FlowUseCurve", "PressureSize",
         "PressureRotation", "PressureRatio", "PressureScatter",
@@ -39,14 +42,20 @@ inline QByteArray hardPixelKpp(const QString &mutation = {},
         "PaintOpSettings/isAirbrushing", "PaintOpSettings/ignoreSpacing",
         "PaintOpSettings/updateSpacingBetweenDabs",
         "KisPrecisionOption/AutoPrecisionEnabled"})
-    param(key,
-          mutation == "pressure" && key == "PressureSize" ? "true" : "false");
-  if (mutation == "pressure") {
+    param(key, pressureSize && key == "PressureSize" ? "true" : "false");
+  if (pressureSize) {
+    const QString curve = mutation == "pressure"         ? "0,0;1,1;"
+                          : mutation == "pressureSpline" ? "0,0;0.5,0.25;1,1;"
+                                                         : "0,0.25;1,0.75;";
     param("SizeUseCurve", "true");
-    param("SizeUseSameCurve", "true");
-    param("SizecommonCurve", "0,0;1,1;");
+    param("SizeUseSameCurve",
+          mutation == "pressureSensorRange" ? "false" : "true");
+    // A deliberately different inactive common curve proves that the
+    // sensor-local serialization does not accidentally use the shared curve.
+    param("SizecommonCurve",
+          mutation == "pressureSensorRange" ? "0,0;1,1;" : curve);
     param("SizeSensor",
-          "<params id=\"pressure\"><curve>0,0;1,1;</curve></params>");
+          "<params id=\"pressure\"><curve>" + curve + "</curve></params>");
   }
   if (mutation != "missing") param("KisPrecisionOption/precisionLevel", "5");
   if (mutation == "unknown") param("UnclassifiedActiveSetting", "true");

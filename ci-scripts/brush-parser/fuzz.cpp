@@ -1,3 +1,4 @@
+#include "../../toonz/sources/toonzlib/rasterbrushresponse.h"
 #include "toonz/rasterbrushimport.h"
 #include <QCoreApplication>
 #include <QCryptographicHash>
@@ -24,7 +25,7 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t *data, size_t size) {
   QString error;
   const QByteArray payload(reinterpret_cast<const char *>(data + 1),
                            int(size - 1));
-  const unsigned kind = data[0] % 8;
+  const unsigned kind = data[0] % 9;
   if (kind >= 6) {
     QTemporaryDir directory;
     if (!directory.isValid())
@@ -39,6 +40,27 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t *data, size_t size) {
         RasterBrush::encodeWorkerRecord(original, directory.path(), error);
     if (!error.isEmpty())
       std::abort();
+    if (kind == 8) {
+      RasterBrush::Detail::RegularResponseDirectory anchored;
+      if (!anchored.open(directory.path(), error))
+        std::abort();
+      auto write = [&](const QString &name, const QByteArray &bytes) {
+        QFile file(directory.filePath(name));
+        return file.open(QIODevice::WriteOnly) &&
+               file.write(bytes) == bytes.size();
+      };
+      if (!write("0.gzbrush", metadata) || !write("result.json", payload))
+        std::abort();
+      const auto result = RasterBrush::readWorkerResponse(anchored, true, 0,
+                                                          error, 1024 * 1024);
+      if (!error.isEmpty() && !result.records.empty())
+        std::abort();
+      for (const auto &record : result.records)
+        if (record.referenceVerified ||
+            !RasterBrush::validate(record.preset).empty())
+          std::abort();
+      return 0;
+    }
     if (kind == 6) {
       metadata = payload;
     } else {

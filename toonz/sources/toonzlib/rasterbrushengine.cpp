@@ -37,6 +37,19 @@ Pixel mix(Pixel p, Pixel q, double t) {
   return {p.r + (q.r - p.r) * t, p.g + (q.g - p.g) * t, p.b + (q.b - p.b) * t,
           p.a + (q.a - p.a) * t};
 }
+Pixel fieldSample(const std::vector<Pixel> &field, int side, double u,
+                  double v) {
+  const double x =
+      std::max(0.0, std::min(double(side - 1), (u * .5 + .5) * side - .5));
+  const double y =
+      std::max(0.0, std::min(double(side - 1), (v * .5 + .5) * side - .5));
+  const int ix = int(std::floor(x)), iy = int(std::floor(y));
+  const int nx = std::min(ix + 1, side - 1), ny = std::min(iy + 1, side - 1);
+  return mix(
+      mix(field[size_t(iy) * side + ix], field[size_t(iy) * side + nx], x - ix),
+      mix(field[size_t(ny) * side + ix], field[size_t(ny) * side + nx], x - ix),
+      y - iy);
+}
 double wrap(double x) { return x - std::floor(x); }
 Pixel hsv(Pixel p, double degrees, double saturation, double brightness) {
   if (p.a == 0) return {};
@@ -91,6 +104,11 @@ Pixel texel(const Image &im, double x, double y, bool repeat) {
     y = wrap(y);
   }
   const double fx = x * im.width - 0.5, fy = y * im.height - 0.5;
+  // A tiny/anisotropic secondary tip can map a valid canvas position far
+  // outside the bitmap. Reject outside bilinear support before converting to
+  // integers; those coordinates need not fit the platform's integer range.
+  if (!repeat && (fx <= -1 || fy <= -1 || fx >= im.width || fy >= im.height))
+    return {};
   const int ix = int(std::floor(fx)), iy = int(std::floor(fy));
   auto at = [&](int a, int b) -> Pixel {
     if (repeat) {
@@ -198,7 +216,18 @@ std::string validate(const Preset &p) {
            mapping.curve[0].y == 0 && mapping.curve[1].x == 1 &&
            mapping.curve[1].y == 1;
   };
-  const bool sourceLinearPressure = sourceHard && linearPressure(p.size);
+  // Two endpoint pressure curves are affine, regardless of the source's
+  // multi-knot spline implementation. Keep wet identity-only qualification
+  // separate from this measured-size candidate region.
+  auto affinePressure = [](const Dynamic &value) {
+    if (value.minimum != 0 || value.mappings.size() != 1) return false;
+    const auto &mapping = value.mappings.front();
+    return mapping.sensor == Sensor::Pressure && mapping.scale == 1 &&
+           mapping.interpolation == Interpolation::Linear &&
+           mapping.curve.size() == 2 && mapping.curve[0].x == 0 &&
+           mapping.curve[1].x == 1;
+  };
+  const bool sourceLinearPressure = sourceHard && affinePressure(p.size);
   if (sourceHard || sourceWet) {
     auto fixed = [](const Dynamic &value, double expected) {
       return value.value == expected && value.mappings.empty();
@@ -324,9 +353,14 @@ std::string validate(const Preset &p) {
   const auto &s = p.secondary;
   if ((!tip(s.tip) || !dynamic(s.size, .01, 10) ||
        !dynamic(s.angle, -36000, 36000) || !dynamic(s.opacity, 0, 1) ||
-       !range(s.aspect, .01, 1) || !range(s.scatter, 0, 5) || s.count < 1 ||
-       s.count > 64))
+       !range(s.aspect, .01, 1) || !range(s.scatter, 0, 5) ||
+       !range(s.spacing, .01, 5) || s.count < 1 || s.count > 64))
     return "Invalid secondary tip";
+  if (s.enabled && s.independentSpacing &&
+      (p.profile != "groundzero-native-1" ||
+       p.size.value * s.size.value > 4096))
+    return "Independent secondary masks require native geometry up to 4096 "
+           "pixels";
   if (!dynamic(p.pickupControl, 0, 1) || !dynamic(p.colorRateControl, 0, 1) ||
       !dynamic(p.radiusControl, 0, 1))
     return "Invalid wet sensor dynamics";
@@ -408,7 +442,7 @@ struct Stroke::Impl {
   const Preset p;
   size_t budget, dabs = 0;
   std::shared_ptr<MemoryBudget> shared;
-  size_t reserved = 0;
+  size_t reserved = 0, inputPixelWork = 0;
   std::string failure;
   Sample previous, first, previousSourceDab;
   bool started = false, finished = false;
@@ -416,7 +450,12 @@ struct Stroke::Impl {
   bool hasInitialDirection   = false;
   double travel = 0, sinceDab = 0, sinceTime = 0, spacing = 1, direction = 0,
          speed = 0, initialDirection = 0;
-  std::uint64_t rng;
+  std::uint64_t rng, secondaryRng;
+  size_t secondaryDabs      = 0;
+  bool secondaryEvaluation  = false;
+  double secondaryRandomDab = 0, sinceSecondary = 0, secondarySpacing = 1;
+  using MaskTile = std::array<double, 1024>;
+  std::map<std::pair<int, int>, std::unique_ptr<MaskTile>> secondaryMask;
   double randomStroke = 0, randomDab = 0;
   Pixel reservoir;
   std::vector<Pixel> smear, sourceField;
@@ -435,6 +474,9 @@ struct Stroke::Impl {
       , shared(memory ? std::move(memory)
                       : std::make_shared<MemoryBudget>(limit))
       , rng(v.seed ? v.seed : 1)
+      , secondaryRng((v.seed ^ UINT64_C(0x9e3779b97f4a7c15))
+                         ? (v.seed ^ UINT64_C(0x9e3779b97f4a7c15))
+                         : 1)
       , reservoir(v.color) {
     failure      = validate(v);
     randomStroke = random();
@@ -487,6 +529,16 @@ struct Stroke::Impl {
     return double((rng * UINT64_C(2685821657736338717)) >> 11) *
            (1.0 / 9007199254740992.0);
   }
+  double secondaryRandom() {
+    secondaryRng ^= secondaryRng >> 12;
+    secondaryRng ^= secondaryRng << 25;
+    secondaryRng ^= secondaryRng >> 27;
+    return double((secondaryRng * UINT64_C(2685821657736338717)) >> 11) *
+           (1.0 / 9007199254740992.0);
+  }
+  bool independentSecondary() const {
+    return p.secondary.enabled && p.secondary.independentSpacing;
+  }
   double sensor(const Mapping &m, const Sample &s) const {
     double v = 0;
     switch (m.sensor) {
@@ -521,7 +573,7 @@ struct Stroke::Impl {
       v = speed;
       break;
     case Sensor::RandomDab:
-      v = randomDab;
+      v = secondaryEvaluation ? secondaryRandomDab : randomDab;
       break;
     case Sensor::RandomStroke:
       v = randomStroke;
@@ -530,7 +582,7 @@ struct Stroke::Impl {
       v = wrap(initialDirection / (2 * pi));
       break;
     case Sensor::DabIndex:
-      v = double(dabs);
+      v = double(secondaryEvaluation ? secondaryDabs : dabs);
       break;
     }
     return unit(v / m.scale);
@@ -591,6 +643,154 @@ struct Stroke::Impl {
     Tile *ptr = value.get();
     tiles.emplace(key, std::move(value));
     return ptr;
+  }
+  static size_t tipWork(const Tip &tip) {
+    return tip.shape == Shape::Bitmap ? 4 : tip.antialiasEdges ? 64 : 1;
+  }
+  bool accountPixelWork(int width, int height, size_t samples = 1) {
+    constexpr size_t limit = 256u * 1024u * 1024u;
+    const size_t pixels    = size_t(width) * size_t(height);
+    if (samples > limit || pixels > (limit - inputPixelWork) / samples) {
+      failure = "Stroke input pixel work limit exceeded";
+      return false;
+    }
+    inputPixelWork += pixels * samples;
+    return true;
+  }
+  bool secondaryDab(const Sample &s) {
+    if (secondaryDabs >= 1000000) {
+      failure = "Secondary stroke dab limit exceeded";
+      return false;
+    }
+    struct EvaluationScope {
+      bool &flag;
+      explicit EvaluationScope(bool &f) : flag(f) { flag = true; }
+      ~EvaluationScope() { flag = false; }
+    } evaluating(secondaryEvaluation);
+    const auto &sec              = p.secondary;
+    secondaryRandomDab           = secondaryRandom();
+    const double primaryDiameter = std::max(.25, eval(p.size, s));
+    const double relativeSize    = std::max(.01, eval(sec.size, s));
+    const double diameter = std::max(.25, primaryDiameter * relativeSize);
+    secondarySpacing      = diameter * sec.spacing;
+    const double radius   = diameter * .5;
+    const double aspect   = std::max(.01, eval(p.aspect, s));
+    const double angle    = eval(p.angle, s) * pi / 180;
+    const double c = std::cos(angle), sn = std::sin(angle);
+    const double secondAngle = eval(sec.angle, s) * pi / 180;
+    const double sc = std::cos(secondAngle), ss = std::sin(secondAngle);
+    const double fu = p.flipX ? -1 : 1, fv = p.flipY ? -1 : 1;
+    const double fx = sec.flipX ? -1 : 1, fy = sec.flipY ? -1 : 1;
+    const double ux = fu * c / radius, uy = fu * sn / radius;
+    const double vx = -fv * sn / (radius * aspect),
+                 vy = fv * c / (radius * aspect);
+    const double ax = fx * (ux * sc + vx * ss), ay = fx * (uy * sc + vy * ss),
+                 bx      = fy * (-ux * ss + vx * sc) / sec.aspect,
+                 by      = fy * (-uy * ss + vy * sc) / sec.aspect;
+    const double opacity = unit(eval(sec.opacity, s));
+    const size_t tipIndex =
+        sec.tip.images.empty() ? 0
+        : sec.tip.randomSequence
+            ? size_t(secondaryRandom() * sec.tip.images.size()) %
+                  sec.tip.images.size()
+            : secondaryDabs % sec.tip.images.size();
+    // Preflight the whole secondary batch, including filtering, before any
+    // mask allocation or sampling. Scattered bounds are conservative.
+    const double extent =
+        std::ceil(radius * 1.415 + 1) + sec.scatter * diameter + 1;
+    const int left   = std::max(0, int(std::floor(s.x - extent))),
+              top    = std::max(0, int(std::floor(s.y - extent))),
+              right  = std::min(surface.width(), int(std::ceil(s.x + extent))),
+              bottom = std::min(surface.height(), int(std::ceil(s.y + extent)));
+    if (right > left && bottom > top &&
+        !accountPixelWork(right - left, bottom - top,
+                          size_t(sec.count) * tipWork(sec.tip)))
+      return false;
+    for (int stamp = 0; stamp < sec.count; ++stamp) {
+      const double cx =
+          s.x + (secondaryRandom() * 2 - 1) * sec.scatter * diameter;
+      const double cy =
+          s.y + (secondaryRandom() * 2 - 1) * sec.scatter * diameter;
+      const int reach = int(std::ceil(radius * 1.415 + 1));
+      const int x0    = std::max(0, int(std::floor(cx)) - reach),
+                y0    = std::max(0, int(std::floor(cy)) - reach),
+                x1    = std::min(surface.width(), int(std::ceil(cx)) + reach),
+                y1    = std::min(surface.height(), int(std::ceil(cy)) + reach);
+      if (x0 >= x1 || y0 >= y1) continue;
+      for (int y = y0; y < y1; ++y)
+        for (int x = x0; x < x1; ++x) {
+          const double dx = x + .5 - cx, dy = y + .5 - cy;
+          const double coverage =
+              filteredTip(sec.tip, tipIndex, ax * dx + ay * dy,
+                          bx * dx + by * dy, ax, ay, bx, by)
+                  .a *
+              opacity;
+          if (coverage <= 0) continue;
+          const auto key = std::make_pair(x / 32, y / 32);
+          auto found     = secondaryMask.find(key);
+          if (found == secondaryMask.end()) {
+            constexpr size_t charge = sizeof(MaskTile) + 128;
+            if (charge > budget - reserved || !shared->reserve(charge)) {
+              failure = "Secondary mask memory limit exceeded";
+              return false;
+            }
+            reserved += charge;
+            found =
+                secondaryMask.emplace(key, std::make_unique<MaskTile>()).first;
+          }
+          double &alpha = (*found->second)[(y % 32) * 32 + x % 32];
+          alpha += (1 - alpha) * coverage;
+        }
+    }
+    ++secondaryDabs;
+    return true;
+  }
+  bool addIndependent(const Sample &from, const Sample &s, double distance,
+                      double dt) {
+    double f      = 0;
+    size_t events = 0;
+    while (f < 1) {
+      const double primaryDistance =
+          distance > 0 ? (spacing - sinceDab) / distance : 2;
+      const double primaryTime = p.airbrushRate > 0 && dt > 0
+                                     ? (1 / p.airbrushRate - sinceTime) / dt
+                                     : 2;
+      const double secondaryDistance =
+          distance > 0 ? (secondarySpacing - sinceSecondary) / distance : 2;
+      const double primary = std::min(primaryDistance, primaryTime);
+      const double step = std::max(0.0, std::min(primary, secondaryDistance));
+      if (f + step > 1 + 1e-12) break;
+      const double advance = std::min(step, 1 - f);
+      travel += advance * distance;
+      sinceDab += advance * distance;
+      sinceTime += advance * dt;
+      sinceSecondary += advance * distance;
+      f += advance;
+      const Sample at = interpolate(from, s, f);
+      // Equal-position secondary stamps are visible to the primary dab.
+      if (secondaryDistance <= step + 1e-12) {
+        if (++events > 65536) {
+          failure = "Stroke input event work limit exceeded";
+          return false;
+        }
+        if (!secondaryDab(at)) return false;
+        sinceSecondary = 0;
+      }
+      if (primary <= step + 1e-12) {
+        if (++events > 65536) {
+          failure = "Stroke input event work limit exceeded";
+          return false;
+        }
+        if (!dab(at)) return false;
+        sinceDab = sinceTime = 0;
+      }
+    }
+    travel += (1 - f) * distance;
+    sinceDab += (1 - f) * distance;
+    sinceTime += (1 - f) * dt;
+    sinceSecondary += (1 - f) * distance;
+    previous = s;
+    return true;
   }
   bool sourceWetDab(const Sample &s) {
     // Independent candidate inferred from original first/second-dab fixtures.
@@ -786,8 +986,9 @@ struct Stroke::Impl {
     if (!dabs) reservoir = foreground;
     const double diameter = std::max(.25, eval(p.size, s)),
                  radius   = diameter * .5;
-    spacing               = std::max(.01, diameter * p.spacing);
-    const double aspect   = std::max(.01, eval(p.aspect, s));
+    spacing = sourceProfile(p.profile) ? std::max(.01, diameter * p.spacing)
+                                       : diameter * p.spacing;
+    const double aspect = std::max(.01, eval(p.aspect, s));
     const double angle = eval(p.angle, s) * pi / 180, c = std::cos(angle),
                  sn      = std::sin(angle);
     const double opacity = unit(eval(p.opacity, s));
@@ -800,7 +1001,9 @@ struct Stroke::Impl {
                  colorRate    = p.colorRate * eval(p.colorRateControl, s);
     const double smudgeRadius = p.smudgeRadius * eval(p.radiusControl, s);
     const size_t primaryIndex = index(p.tip),
-                 secondIndex  = index(p.secondary.tip);
+                 secondIndex  = p.secondary.enabled && !independentSecondary()
+                                    ? index(p.secondary.tip)
+                                    : 0;
     const double scatter      = eval(p.scatter, s) * diameter;
     const int stampCount =
         int(std::floor(p.count * unit(eval(p.countControl, s)) + .5));
@@ -823,6 +1026,13 @@ struct Stroke::Impl {
       int x1          = std::min(surface.width(), int(std::ceil(cx)) + reach),
           y1          = std::min(surface.height(), int(std::ceil(cy)) + reach);
       if (x0 >= x1 || y0 >= y1) continue;
+      const size_t samples =
+          tipWork(p.tip) + (p.texture.image ? 4 : 0) +
+          (p.wet == Wet::Smear ? 4 : 0) +
+          (p.secondary.enabled && !p.secondary.independentSpacing
+               ? size_t(p.secondary.count) * tipWork(p.secondary.tip)
+               : 0);
+      if (!accountPixelWork(x1 - x0, y1 - y0, samples)) return false;
       int halo = p.wet == Wet::Off ? 0 : int(std::ceil(radius * smudgeRadius));
       if (!surface.prepare(std::max(0, x0 - halo), std::max(0, y0 - halo),
                            std::min(surface.width(), x1 + halo),
@@ -835,14 +1045,18 @@ struct Stroke::Impl {
       int side = 0;
       if (p.wet != Wet::Off) {
         // Snapshot all feedback before modifying any destination pixel.
-        side         = std::min(256, std::max(2, int(std::ceil(diameter))));
-        size_t bytes = size_t(side) * side * sizeof(Pixel);
+        side = std::min(256, std::max(2, int(std::ceil(diameter))));
+        if (!accountPixelWork(side, side,
+                              p.wet == Wet::Smear ? 4 : tipWork(p.tip)))
+          return false;
+        const size_t bytes =
+            p.wet == Wet::Smear ? size_t(side) * side * sizeof(Pixel) : 0;
         if (bytes > budget - reserved || !shared->reserve(bytes)) {
           failure = "Wet brush memory limit exceeded";
           return false;
         }
         reserved += bytes;
-        nextSmear.resize(size_t(side) * side);
+        if (p.wet == Wet::Smear) nextSmear.resize(size_t(side) * side);
         Pixel avg;
         double total = 0;
         for (int j = 0; j < side; ++j)
@@ -860,7 +1074,17 @@ struct Stroke::Impl {
                        yy < surface.height())
                           ? surface.read(xx, yy)
                           : Pixel{};
-            nextSmear[size_t(j) * side + i] = q;
+            if (p.wet == Wet::Smear) {
+              // Each transported cell is a reservoir. Pickup and foreground
+              // mixing happen once, rather than blending a global reservoir
+              // with a second raw-canvas history. Resample retained state in
+              // the normalized tip frame when pressure changes grid size.
+              const Pixel prior               = smear.empty()
+                                                    ? foreground
+                                                    : fieldSample(smear, smearSide, u, v);
+              nextSmear[size_t(j) * side + i] = mix(prior, q, pickup);
+              continue;
+            }
             double w = filteredTip(p.tip, primaryIndex, u, v, 2.0 / side, 0, 0,
                                    2.0 / side)
                            .a;
@@ -870,9 +1094,11 @@ struct Stroke::Impl {
             avg.a += q.a * w;
             total += w;
           }
-        if (total > 0) avg = mul(avg, 1 / total);
-        reservoir = mix(reservoir, avg, pickup);
-        paint     = mix(reservoir, foreground, colorRate);
+        if (p.wet == Wet::Dulling) {
+          if (total > 0) avg = mul(avg, 1 / total);
+          reservoir = mix(reservoir, avg, pickup);
+          paint     = mix(reservoir, foreground, colorRate);
+        }
       }
       const auto &t   = p.texture;
       const auto &sec = p.secondary;
@@ -884,7 +1110,7 @@ struct Stroke::Impl {
           sec.enabled ? eval(sec.angle, s) * pi / 180 : 0;
       const double sc = std::cos(secondAngle), ss = std::sin(secondAngle);
       std::array<std::pair<double, double>, 64> secondaryOffsets{};
-      if (sec.enabled)
+      if (sec.enabled && !sec.independentSpacing)
         for (int i = 0; i < sec.count; ++i)
           secondaryOffsets[i] = {(random() * 2 - 1) * sec.scatter,
                                  (random() * 2 - 1) * sec.scatter};
@@ -963,7 +1189,13 @@ struct Stroke::Impl {
                                                   : t.depth * b,
                      t.mode);
           }
-          if (sec.enabled) {
+          if (independentSecondary()) {
+            const auto found = secondaryMask.find({x / 32, y / 32});
+            const double b   = found == secondaryMask.end()
+                                   ? 0
+                                   : (*found->second)[(y % 32) * 32 + x % 32];
+            a                = mask(a, b, sec.mode);
+          } else if (sec.enabled) {
             double b        = 0;
             const double fx = sec.flipX ? -1 : 1, fy = sec.flipY ? -1 : 1;
             // Compose secondary coverage before applying the chosen mask
@@ -991,14 +1223,9 @@ struct Stroke::Impl {
           bool colorTip =
               p.tip.shape == Shape::Bitmap && p.tip.images[primaryIndex]->color;
           if (colorTip) ink = tip.a > 0 ? mul(tip, 1 / tip.a) : Pixel{};
-          if (p.wet == Wet::Smear && !smear.empty()) {
-            int ix = std::max(
-                0, std::min(smearSide - 1, int((u * .5 + .5) * smearSide)));
-            int iy = std::max(
-                0, std::min(smearSide - 1, int((v * .5 + .5) * smearSide)));
-            ink = mix(mix(paint, smear[size_t(iy) * smearSide + ix], pickup),
-                      foreground, colorRate);
-          }
+          if (p.wet == Wet::Smear)
+            ink =
+                mix(fieldSample(nextSmear, side, u, v), foreground, colorRate);
           if (p.wash) {
             Tile *buf = tile(x, y);
             if (!buf) return false;
@@ -1015,7 +1242,11 @@ struct Stroke::Impl {
                           p.blend, p.lockAlpha));
         }
       if (p.wet != Wet::Off) {
-        reservoir            = mix(reservoir, foreground, p.reload);
+        if (p.wet == Wet::Dulling)
+          reservoir = mix(reservoir, foreground, p.reload);
+        else
+          for (Pixel &state : nextSmear)
+            state = mix(state, foreground, p.reload);
         size_t previousBytes = smear.size() * sizeof(Pixel);
         shared->release(previousBytes);
         reserved -= previousBytes;
@@ -1042,9 +1273,11 @@ bool Stroke::add(const Sample &s) {
     return false;
   }
   try {
+    m->inputPixelWork = 0;
     if (!m->started) {
       m->first = m->previous = s;
       m->started             = true;
+      if (m->independentSecondary() && !m->secondaryDab(s)) return false;
       return m->dab(s);
     }
     if (s.time < m->previous.time) {
@@ -1066,17 +1299,25 @@ bool Stroke::add(const Sample &s) {
       }
     }
     m->speed = dt > 0 ? distance / dt : 0;
-    double f = 0;
+    if (m->independentSecondary())
+      return m->addIndependent(from, s, distance, dt);
+    double f      = 0;
+    size_t events = 0;
     while (f < 1) {
-      double fd   = distance > 0 ? (m->spacing - m->sinceDab) / distance : 2;
-      double ft   = m->p.airbrushRate > 0 && dt > 0
-                        ? (1 / m->p.airbrushRate - m->sinceTime) / dt
-                        : 2;
-      double step = std::max(1e-9, std::min(fd, ft));
+      double fd = distance > 0 ? (m->spacing - m->sinceDab) / distance : 2;
+      double ft = m->p.airbrushRate > 0 && dt > 0
+                      ? (1 / m->p.airbrushRate - m->sinceTime) / dt
+                      : 2;
+      double step =
+          std::max(sourceProfile(m->p.profile) ? 1e-9 : 0.0, std::min(fd, ft));
       const double end = f + step;
       const bool sourceEndpoint =
           sourceProfile(m->p.profile) && std::abs(end - 1) <= 1e-12;
       if (end > 1 && !sourceEndpoint) break;
+      if (++events > 65536) {
+        m->failure = "Stroke input event work limit exceeded";
+        return false;
+      }
       m->travel += (sourceEndpoint ? 1 - f : step) * distance;
       f = sourceEndpoint ? 1 : end;
       if (sourceEndpoint) {
@@ -1121,6 +1362,7 @@ void Stroke::finish() {
   m->finished              = true;
   m->pendingSourceEndpoint = false;
   m->tiles.clear();
+  m->secondaryMask.clear();
   m->cubic.clear();
   std::vector<Pixel>().swap(m->smear);
   std::vector<Pixel>().swap(m->sourceField);
@@ -1129,4 +1371,18 @@ void Stroke::finish() {
 }
 const std::string &Stroke::error() const { return m->failure; }
 size_t Stroke::dabCount() const { return m->dabs; }
+bool Stroke::nativeWetState(Pixel &state, double u, double v) const {
+  if (!m->started || m->finished || !m->failure.empty() ||
+      m->p.profile != "groundzero-native-1" || m->p.wet == Wet::Off ||
+      !std::isfinite(u) || !std::isfinite(v) || std::abs(u) > 1 ||
+      std::abs(v) > 1)
+    return false;
+  if (m->p.wet == Wet::Dulling)
+    state = m->reservoir;
+  else {
+    if (m->smear.empty()) return false;
+    state = fieldSample(m->smear, m->smearSide, u, v);
+  }
+  return true;
+}
 }  // namespace RasterBrush

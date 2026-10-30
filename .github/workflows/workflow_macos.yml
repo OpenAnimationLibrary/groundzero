@@ -280,6 +280,7 @@ jobs:
           mkdir -p OpenToonz.app/Contents/Resources/licenses
           cp ../licenses/Partio-LICENSE.txt OpenToonz.app/Contents/Resources/licenses/
           /usr/local/opt/qt@5/bin/macdeployqt OpenToonz.app -verbose=0 -always-overwrite \
+            -executable=OpenToonz.app/Contents/MacOS/rasterbrushimport-helper \
             -executable=OpenToonz.app/Contents/MacOS/lzocompress \
             -executable=OpenToonz.app/Contents/MacOS/lzodecompress \
             -executable=OpenToonz.app/Contents/MacOS/tcleanup \
@@ -298,6 +299,18 @@ jobs:
               fi
             done
           done
+      - name: Sign isolated brush helper after deployment
+        run: |
+          codesign --force --sign - \
+            --identifier org.openanimationlibrary.groundzero.brush-import \
+            --entitlements toonz/sources/toonzlib/resources/rasterbrushimport.entitlements \
+            toonz/build/toonz/OpenToonz.app/Contents/MacOS/rasterbrushimport-helper
+          codesign --verify --strict --verbose=2 \
+            toonz/build/toonz/OpenToonz.app/Contents/MacOS/rasterbrushimport-helper
+
+      - name: Qualify deployed brush helper sandbox
+        run: python3 ci-scripts/brush-parser/qualify_macos_helper.py toonz/build/toonz/OpenToonz.app/Contents/MacOS/rasterbrushimport-helper
+
       - name: Prepare optional benchmark bundle
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.benchmark_bundle }}
         run: |

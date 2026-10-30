@@ -1212,3 +1212,12 @@ if(BUILD_SEEXPR_TESTS)
             --windows-crash-debugger)
     set_tests_properties(seexpr_native_application PROPERTIES TIMEOUT 360)
 endif()
+
+if(APPLE)
+    add_dependencies(OpenToonz rasterbrushimport-helper)
+    add_custom_command(TARGET OpenToonz POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "$<TARGET_FILE:rasterbrushimport-helper>"
+            "$<TARGET_FILE_DIR:OpenToonz>/rasterbrushimport-helper"
+        VERBATIM)
+endif()

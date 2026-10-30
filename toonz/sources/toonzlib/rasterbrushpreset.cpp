@@ -1,5 +1,6 @@
 #include "toonz/rasterbrushpreset.h"
 #include "rasterbrushpng.h"
+#include "rasterbrushresponse.h"
 #include <QColorSpace>
 #include <QBuffer>
 #include <QCryptographicHash>
@@ -137,9 +138,42 @@ QString assetId(const QByteArray &png, bool color) {
   hash.addData(color ? "color" : "mask", color ? 5 : 4);
   return QString::fromLatin1(hash.result().toHex());
 }
+QByteArray canonicalPixels(const Image &im) {
+  QByteArray raw;
+  raw.reserve(8 + int(im.pixels.size() * 4));
+  for (unsigned value : {unsigned(im.width), unsigned(im.height)})
+    for (int shift = 24; shift >= 0; shift -= 8)
+      raw.append(char(value >> shift));
+  for (const Pixel &pixel : im.pixels) {
+    const int alpha = byte(pixel.a);
+    raw.append(char(alpha > 0 && im.color ? byte(pixel.r / pixel.a) : 0));
+    raw.append(char(alpha > 0 && im.color ? byte(pixel.g / pixel.a) : 0));
+    raw.append(char(alpha > 0 && im.color ? byte(pixel.b / pixel.a) : 0));
+    raw.append(char(alpha));
+  }
+  return raw;
+}
+void validateRights(const QJsonObject &rights) {
+  static const QRegularExpression identity("^[0-9a-f]{64}$");
+  if (rights.size() > 512 || QJsonDocument(rights).toJson().size() > 256 * 1024)
+    throw Invalid("Resource declaration budget exceeded");
+  for (auto i = rights.begin(); i != rights.end(); ++i) {
+    if (!identity.match(i.key()).hasMatch())
+      throw Invalid("Invalid resource declaration hash");
+    auto entry = object(i.value());
+    keys(entry, {"redistribution", "license"});
+    const auto permission = text(entry["redistribution"]);
+    if (permission != "unknown" && permission != "permitted" &&
+        permission != "restricted")
+      throw Invalid("Invalid resource redistribution declaration");
+    if (text(entry["license"]).size() > 256)
+      throw Invalid("Resource license declaration is too long");
+  }
+}
 struct Writer {
   QJsonObject assets;
   QString rawDirectory;
+  QMap<QString, std::shared_ptr<const Image>> *images = nullptr;
   QString image(const std::shared_ptr<const Image> &im) {
     if (!im) return {};
     if (!rawDirectory.isEmpty()) {
@@ -175,6 +209,7 @@ struct Writer {
     QString id = assetId(png, im->color);
     assets[id] = QJsonObject{{"png", QString::fromLatin1(png.toBase64())},
                              {"color", im->color}};
+    if (images) (*images)[id] = im;
     return id;
   }
   QJsonObject tip(const Tip &t) {
@@ -187,17 +222,21 @@ struct Writer {
             {"randomSequence", t.randomSequence}};
   }
 };
-std::shared_ptr<const Image> readWorkerImage(const QString &directory,
-                                             const QString &id, bool color,
-                                             size_t remaining) {
+std::shared_ptr<const Image> readWorkerImage(
+    const QString &directory, const QString &id, bool color, size_t remaining,
+    const Detail::RegularResponseDirectory *anchored) {
   static const QRegularExpression identity("^[0-9a-f]{64}$");
   if (!identity.match(id).hasMatch()) throw Invalid("Invalid worker image ID");
-  const QString path = QDir(directory).filePath(id + ".rgba8");
-  QFile file(path);
-  if (QFileInfo(path).isSymLink() || !QFileInfo(path).isFile() ||
-      !file.open(QIODevice::ReadOnly))
-    throw Invalid("Invalid worker image file");
-  const QByteArray header = file.read(8);
+  Detail::RegularResponseDirectory localDirectory;
+  Detail::RegularResponseFile file;
+  QString why;
+  if (!anchored) {
+    if (!localDirectory.open(directory, why)) throw Invalid(why);
+    anchored = &localDirectory;
+  }
+  if (!file.open(*anchored, id + ".rgba8", 8 + 4 * 2 * 1024 * 1024, why))
+    throw Invalid(why);
+  const QByteArray header = file.read(8, why);
   if (header.size() != 8) throw Invalid("Truncated worker image header");
   auto word = [&](int offset) {
     unsigned value = 0;
@@ -215,8 +254,8 @@ std::shared_ptr<const Image> readWorkerImage(const QString &directory,
   const qint64 length = qint64(pixels * 4);
   if (file.size() != length + 8)
     throw Invalid("Invalid worker image byte count");
-  const QByteArray rgba = file.read(length + 1);
-  if (rgba.size() != length || !file.atEnd() ||
+  const QByteArray rgba = file.read(length, why);
+  if (!why.isEmpty() || rgba.size() != length || !file.finish(why) ||
       assetId(header + rgba, color) != id)
     throw Invalid("Worker image checksum mismatch");
   auto image    = std::make_shared<Image>();
@@ -319,10 +358,12 @@ std::shared_ptr<const Image> decodeImage(const QByteArray &bytes, bool color,
   return im;
 }
 
-static QByteArray encodeRecord(const Record &r, QString &error,
-                               const QString &rawDirectory) {
+static QByteArray encodeRecord(
+    const Record &r, QString &error, const QString &rawDirectory,
+    QMap<QString, std::shared_ptr<const Image>> *images = nullptr) {
   error.clear();
   try {
+    validateRights(r.resourceRights);
     std::string why = validate(r.preset);
     if (!why.empty()) throw Invalid(QString::fromStdString(why));
     if (QString::fromStdString(r.preset.name).size() > 4096 ||
@@ -337,6 +378,7 @@ static QByteArray encodeRecord(const Record &r, QString &error,
       if (note.size() > 16384) throw Invalid("Preset diagnostic is too long");
     Writer w;
     w.rawDirectory = rawDirectory;
+    w.images       = images;
     const auto &p  = r.preset;
     const auto &t  = p.texture;
     const auto &s  = p.secondary;
@@ -385,17 +427,20 @@ static QByteArray encodeRecord(const Record &r, QString &error,
                     {"depth", t.depth},           {"contrast", t.contrast},
                     {"brightness", t.brightness}, {"invert", t.invert},
                     {"perDab", t.perDab}};
-    settings["secondary"] = QJsonObject{{"enabled", s.enabled},
-                                        {"tip", w.tip(s.tip)},
-                                        {"mode", masks[int(s.mode)]},
-                                        {"size", dynamicJson(s.size)},
-                                        {"angle", dynamicJson(s.angle)},
-                                        {"opacity", dynamicJson(s.opacity)},
-                                        {"aspect", s.aspect},
-                                        {"count", s.count},
-                                        {"flipX", s.flipX},
-                                        {"flipY", s.flipY},
-                                        {"scatter", s.scatter}};
+    settings["secondary"] =
+        QJsonObject{{"enabled", s.enabled},
+                    {"tip", w.tip(s.tip)},
+                    {"mode", masks[int(s.mode)]},
+                    {"size", dynamicJson(s.size)},
+                    {"angle", dynamicJson(s.angle)},
+                    {"opacity", dynamicJson(s.opacity)},
+                    {"aspect", s.aspect},
+                    {"count", s.count},
+                    {"flipX", s.flipX},
+                    {"flipY", s.flipY},
+                    {"scatter", s.scatter},
+                    {"independentSpacing", s.independentSpacing},
+                    {"spacing", s.spacing}};
     if (w.assets.size() > 512) throw Invalid("Too many resources");
     QByteArray result =
         QJsonDocument(
@@ -407,6 +452,7 @@ static QByteArray encodeRecord(const Record &r, QString &error,
                 {"settings", settings},
                 {"assets", w.assets},
                 {"provenance", r.provenance},
+                {"resourceRights", r.resourceRights},
                 {"diagnostics", QJsonArray::fromStringList(r.diagnostics)}})
             .toJson();
     if (result.size() > maxBytes) throw Invalid("Brush package exceeds 64 MiB");
@@ -417,9 +463,10 @@ static QByteArray encodeRecord(const Record &r, QString &error,
   }
 }
 
-static Record decodeRecord(const QByteArray &bytes, QString &error,
-                           size_t maximumDecodedBytes,
-                           const QString &rawDirectory) {
+static Record decodeRecord(
+    const QByteArray &bytes, QString &error, size_t maximumDecodedBytes,
+    const QString &rawDirectory,
+    const Detail::RegularResponseDirectory *anchored = nullptr) {
   maximumDecodedBytes =
       std::min(maximumDecodedBytes, size_t(256u * 1024u * 1024u));
   Record r;
@@ -433,7 +480,7 @@ static Record decodeRecord(const QByteArray &bytes, QString &error,
       throw Invalid("Invalid brush JSON: " + parse.errorString());
     auto root = doc.object();
     keys(root, {"format", "version", "settings", "assets", "provenance",
-                "diagnostics"});
+                "resourceRights", "diagnostics"});
     if (text(root["format"]) != (rawDirectory.isEmpty()
                                      ? "groundzero-raster-brush"
                                      : "groundzero-brush-worker-record") ||
@@ -461,7 +508,7 @@ static Record decodeRecord(const QByteArray &bytes, QString &error,
         if (text(a["rgba8"]) != i.key())
           throw Invalid("Conflicting worker image ID");
         im = readWorkerImage(rawDirectory, i.key(), boolean(a["color"]),
-                             maximumDecodedBytes - total);
+                             maximumDecodedBytes - total, anchored);
       } else {
         keys(a, {"png", "color"});
         if (!a["png"].isString()) throw Invalid("Invalid image encoding");
@@ -590,7 +637,8 @@ static Record decodeRecord(const QByteArray &bytes, QString &error,
     p.texture.perDab     = boolean(t["perDab"]);
     auto s               = object(o["secondary"]);
     keys(s, {"enabled", "tip", "mode", "size", "angle", "opacity", "aspect",
-             "scatter", "count", "flipX", "flipY"});
+             "scatter", "count", "flipX", "flipY", "independentSpacing",
+             "spacing"});
     p.secondary.enabled = boolean(s["enabled"]);
     p.secondary.tip     = rd.tip(s["tip"]);
     p.secondary.mode    = MaskMode(choice(s["mode"], masks));
@@ -605,8 +653,19 @@ static Record decodeRecord(const QByteArray &bytes, QString &error,
         throw Invalid("Invalid secondary stamp count");
       p.secondary.count = int(count);
     }
+    if (s.contains("independentSpacing"))
+      p.secondary.independentSpacing = boolean(s["independentSpacing"]);
+    if (s.contains("spacing")) {
+      p.secondary.spacing = number(s["spacing"]);
+      if (p.secondary.spacing < .01 || p.secondary.spacing > 5)
+        throw Invalid("Invalid independent secondary spacing");
+    }
     if (s.contains("flipX")) p.secondary.flipX = boolean(s["flipX"]);
     if (s.contains("flipY")) p.secondary.flipY = boolean(s["flipY"]);
+    if (root.contains("resourceRights")) {
+      r.resourceRights = object(root["resourceRights"]);
+      validateRights(r.resourceRights);
+    }
     r.provenance = object(root["provenance"]);
     if (QJsonDocument(r.provenance).toJson().size() > 16384)
       throw Invalid("Provenance budget exceeded");
@@ -622,12 +681,373 @@ static Record decodeRecord(const QByteArray &bytes, QString &error,
   }
 }
 
+QByteArray readBoundedRegularFile(const QString &path, qint64 maximumBytes,
+                                  QString &error) {
+  const QFileInfo info(path);
+  Detail::RegularResponseDirectory directory;
+  if (!directory.open(info.absolutePath(), error)) return {};
+  return Detail::readResponseFile(directory, info.fileName(), maximumBytes,
+                                  error);
+}
+
+namespace {
+QString pixelHash(const Image &image) {
+  return assetId(canonicalPixels(image), image.color);
+}
+std::vector<std::shared_ptr<const Image>> recordImages(const Record &record) {
+  auto images = record.preset.tip.images;
+  images.insert(images.end(), record.preset.secondary.tip.images.begin(),
+                record.preset.secondary.tip.images.end());
+  if (record.preset.texture.image)
+    images.push_back(record.preset.texture.image);
+  return images;
+}
+struct PortableData {
+  QJsonObject root, package, manifest;
+  PortableInfo info;
+};
+PortableData portableData(const QByteArray &bytes) {
+  if (bytes.isEmpty() || bytes.size() > maxBytes)
+    throw Invalid("Portable brush package exceeds 64 MiB");
+  QJsonParseError parse;
+  const auto doc = QJsonDocument::fromJson(bytes, &parse);
+  if (parse.error != QJsonParseError::NoError || !doc.isObject())
+    throw Invalid("Invalid portable brush JSON");
+  PortableData data;
+  data.root = doc.object();
+  if (data.root.value("format") != "groundzero-raster-brush-portable")
+    return PortableData{};
+  keys(data.root, {"format", "version", "package", "resources"});
+  if (number(data.root["version"]) != 1)
+    throw Invalid("Unsupported portable brush version");
+  data.package = object(data.root["package"]);
+  if (text(data.package["format"]) != "groundzero-raster-brush" ||
+      number(data.package["version"]) != 1)
+    throw Invalid("Portable manifest requires a native version-1 package");
+  data.manifest = object(data.root["resources"]);
+  auto assets   = object(data.package["assets"]);
+  if (data.manifest.size() > 512 || assets.size() > data.manifest.size())
+    throw Invalid("Portable resource count exceeds limits");
+  auto settings  = object(data.package["settings"]);
+  data.info.name = text(settings["name"]);
+  QSet<QString> references;
+  auto tipReferences = [&](const QJsonValue &value) {
+    const auto tip = object(value);
+    for (const auto &reference : array(tip["images"], 256)) {
+      const auto id = text(reference);
+      if (id.isEmpty()) throw Invalid("Empty portable tip reference");
+      references.insert(id);
+    }
+  };
+  tipReferences(settings["tip"]);
+  tipReferences(object(settings["secondary"])["tip"]);
+  const auto texture = text(object(settings["texture"])["image"]);
+  if (!texture.isEmpty()) references.insert(texture);
+  if (references.size() != data.manifest.size())
+    throw Invalid("Portable resource manifest does not match its settings");
+  static const QRegularExpression identity("^[0-9a-f]{64}$");
+  size_t pixels = 0;
+  for (auto i = data.manifest.begin(); i != data.manifest.end(); ++i) {
+    if (!identity.match(i.key()).hasMatch() || !references.contains(i.key()))
+      throw Invalid("Invalid portable asset reference");
+    const auto metadata = object(i.value());
+    keys(metadata,
+         {"hash", "width", "height", "color", "redistribution", "license"});
+    ResourceInfo resource;
+    resource.hash = text(metadata["hash"]);
+    if (!identity.match(resource.hash).hasMatch())
+      throw Invalid("Invalid portable pixel hash");
+    const double width  = number(metadata["width"]),
+                 height = number(metadata["height"]);
+    if (width < 1 || width > 8192 || height < 1 || height > 8192 ||
+        width != std::floor(width) || height != std::floor(height) ||
+        width * height > 2 * 1024 * 1024)
+      throw Invalid("Portable resource geometry exceeds limits");
+    resource.width          = int(width);
+    resource.height         = int(height);
+    resource.color          = boolean(metadata["color"]);
+    resource.redistribution = text(metadata["redistribution"]);
+    resource.license        = text(metadata["license"]);
+    validateRights(QJsonObject{
+        {resource.hash, QJsonObject{{"redistribution", resource.redistribution},
+                                    {"license", resource.license}}}});
+    pixels += size_t(resource.width) * resource.height;
+    if (pixels > size_t(256u * 1024u * 1024u) / sizeof(Pixel))
+      throw Invalid("Portable decoded resource budget exceeded");
+    resource.embedded = assets.contains(i.key());
+    if (resource.embedded) {
+      const auto asset = object(assets[i.key()]);
+      keys(asset, {"png", "color"});
+      if (!asset["png"].isString() || boolean(asset["color"]) != resource.color)
+        throw Invalid("Conflicting portable resource metadata");
+      if (assetId(QByteArray::fromBase64(asset["png"].toString().toLatin1()),
+                  resource.color) != i.key()) {
+        // A corrupted embedded copy is repairable from the declared pixel hash.
+        resource.embedded = false;
+        assets.remove(i.key());
+      }
+    }
+    data.info.resources.push_back(resource);
+  }
+  for (auto i = assets.begin(); i != assets.end(); ++i)
+    if (!data.manifest.contains(i.key()))
+      throw Invalid("Unlisted portable resource");
+  data.package["assets"] = assets;
+  data.info.portable     = true;
+  return data;
+}
+QByteArray portableBytes(const PortableData &data) {
+  auto root         = data.root;
+  root["package"]   = data.package;
+  root["resources"] = data.manifest;
+  const auto bytes  = QJsonDocument(root).toJson();
+  if (bytes.size() > maxBytes)
+    throw Invalid("Portable brush package exceeds 64 MiB");
+  return bytes;
+}
+void replaceResourceReference(QJsonObject &package, const QString &oldId,
+                              const QString &newId) {
+  auto settings = package["settings"].toObject();
+  auto tip      = [&](QJsonObject value) {
+    auto refs = value["images"].toArray();
+    for (int i = 0; i < refs.size(); ++i)
+      if (refs[i].toString() == oldId) refs[i] = newId;
+    value["images"] = refs;
+    return value;
+  };
+  settings["tip"]       = tip(settings["tip"].toObject());
+  auto secondary        = settings["secondary"].toObject();
+  secondary["tip"]      = tip(secondary["tip"].toObject());
+  settings["secondary"] = secondary;
+  auto texture          = settings["texture"].toObject();
+  if (texture["image"].toString() == oldId) texture["image"] = newId;
+  settings["texture"] = texture;
+  package["settings"] = settings;
+}
+void verifyPortablePixels(const PortableData &data, Record &record) {
+  QMap<QString, std::shared_ptr<const Image>> images;
+  const auto settings = data.package["settings"].toObject();
+  auto bind           = [&](const QJsonObject &tip,
+                  const std::vector<std::shared_ptr<const Image>> &values) {
+    const auto refs = tip["images"].toArray();
+    if (size_t(refs.size()) != values.size())
+      throw Invalid("Portable tip references changed");
+    for (int i = 0; i < refs.size(); ++i)
+      images[refs[i].toString()] = values[size_t(i)];
+  };
+  bind(settings["tip"].toObject(), record.preset.tip.images);
+  bind(settings["secondary"].toObject()["tip"].toObject(),
+       record.preset.secondary.tip.images);
+  if (record.preset.texture.image)
+    images[settings["texture"].toObject()["image"].toString()] =
+        record.preset.texture.image;
+  record.resourceRights = {};
+  for (auto i = data.manifest.begin(); i != data.manifest.end(); ++i) {
+    const auto metadata = i.value().toObject();
+    const auto image    = images.value(i.key());
+    if (!image || pixelHash(*image) != metadata["hash"].toString() ||
+        image->width != metadata["width"].toInt() ||
+        image->height != metadata["height"].toInt() ||
+        image->color != metadata["color"].toBool())
+      throw Invalid("Portable resource does not match its declared pixel hash");
+    record.resourceRights[metadata["hash"].toString()] =
+        QJsonObject{{"redistribution", metadata["redistribution"]},
+                    {"license", metadata["license"]}};
+  }
+}
+}  // namespace
+
+std::vector<ResourceInfo> resources(const Record &record, QString &error) {
+  error.clear();
+  try {
+    const auto why = validate(record.preset);
+    if (!why.empty()) throw Invalid(QString::fromStdString(why));
+    validateRights(record.resourceRights);
+    QMap<QString, ResourceInfo> unique;
+    for (const auto &image : recordImages(record)) {
+      ResourceInfo info;
+      info.hash     = pixelHash(*image);
+      info.width    = image->width;
+      info.height   = image->height;
+      info.color    = image->color;
+      info.embedded = true;
+      if (record.resourceRights.contains(info.hash)) {
+        const auto rights   = record.resourceRights[info.hash].toObject();
+        info.redistribution = rights["redistribution"].toString();
+        info.license        = rights["license"].toString();
+      }
+      unique[info.hash] = info;
+    }
+    std::vector<ResourceInfo> result;
+    for (auto i = unique.begin(); i != unique.end(); ++i)
+      result.push_back(i.value());
+    return result;
+  } catch (const std::exception &e) {
+    error = QString::fromUtf8(e.what());
+    return {};
+  }
+}
+PortableInfo inspectPortable(const QByteArray &bytes, QString &error) {
+  error.clear();
+  try {
+    return portableData(bytes).info;
+  } catch (const std::exception &e) {
+    error = QString::fromUtf8(e.what());
+    return {};
+  }
+}
+QByteArray preparePortableRepair(const QByteArray &bytes, QString &error) {
+  error.clear();
+  try {
+    auto data = portableData(bytes);
+    if (!data.info.portable) throw Invalid("Not a portable brush manifest");
+    data.package["assets"] = QJsonObject{};
+    return portableBytes(data);
+  } catch (const std::exception &e) {
+    error = QString::fromUtf8(e.what());
+    return {};
+  }
+}
+QByteArray encodePortable(const Record &record, ResourcePackaging mode,
+                          QString &error) {
+  error.clear();
+  try {
+    if (mode != ResourcePackaging::ManifestOnly &&
+        mode != ResourcePackaging::PermittedOnly &&
+        mode != ResourcePackaging::PrivateCopy)
+      throw Invalid("Unknown resource packaging choice");
+    Record exported = record;
+    // Keep portable technical provenance, not source paths or arbitrary private
+    // metadata.
+    exported.provenance = {{"conversion",
+                            "Native portable preset; source reference "
+                            "verification is not established"},
+                           {"sourceReferenceVerified", false},
+                           {"sourceSemanticallySupported", false}};
+    static const QRegularExpression hash("^[0-9a-f]{64}$");
+    for (const QString &key : {"sourceSha256", "bundleSha256"})
+      if (hash.match(record.provenance.value(key).toString()).hasMatch())
+        exported.provenance[key] = record.provenance[key];
+    for (const QString &key : {"containerVersion", "containerSubversion"})
+      if (record.provenance.value(key).isDouble())
+        exported.provenance[key] = record.provenance[key];
+    exported.diagnostics.clear();
+    // Diagnostics can contain arbitrary importer filenames. Do not attempt to
+    // infer which free-form diagnostic text is safe to redistribute.
+    static const QRegularExpression privatePath(
+        R"path([A-Za-z]:[\\/]|\\\\|(?i:file:)|(?:^|[\s="'(,;])(?:[/\\]|~[/\\]))path");
+    QMap<QString, std::shared_ptr<const Image>> images;
+    const auto native = encodeRecord(exported, error, {}, &images);
+    if (!error.isEmpty()) return {};
+    PortableData data;
+    data.root    = {{"format", "groundzero-raster-brush-portable"},
+                    {"version", 1}};
+    data.package = QJsonDocument::fromJson(native).object();
+    auto assets  = data.package["assets"].toObject();
+    QJsonObject rightsInUse;
+    for (auto i = images.begin(); i != images.end(); ++i) {
+      const QString identity = pixelHash(*i.value());
+      auto rights            = record.resourceRights.value(identity).toObject();
+      const QString permission =
+          rights.value("redistribution").toString("unknown");
+      QString license = rights.value("license").toString();
+      if (privatePath.match(license).hasMatch()) license.clear();
+      data.manifest[i.key()] = QJsonObject{{"hash", identity},
+                                           {"width", i.value()->width},
+                                           {"height", i.value()->height},
+                                           {"color", i.value()->color},
+                                           {"redistribution", permission},
+                                           {"license", license}};
+      rightsInUse[identity] =
+          QJsonObject{{"redistribution", permission}, {"license", license}};
+      if (mode == ResourcePackaging::ManifestOnly ||
+          (mode == ResourcePackaging::PermittedOnly &&
+           permission != "permitted"))
+        assets.remove(i.key());
+    }
+    data.package["assets"]         = assets;
+    data.package["resourceRights"] = rightsInUse;
+    return portableBytes(data);
+  } catch (const std::exception &e) {
+    error = QString::fromUtf8(e.what());
+    return {};
+  }
+}
+QByteArray relinkPortable(const QByteArray &bytes,
+                          const std::vector<Record> &copies,
+                          QStringList &matchedHashes, QString &error) {
+  error.clear();
+  matchedHashes.clear();
+  try {
+    auto data = portableData(bytes);
+    if (!data.info.portable) throw Invalid("Not a portable brush manifest");
+    auto assets = data.package["assets"].toObject();
+    for (const auto &copy : copies) {
+      QMap<QString, std::shared_ptr<const Image>> images;
+      const auto encoded = encodeRecord(copy, error, {}, &images);
+      if (!error.isEmpty()) return {};
+      const auto candidates =
+          QJsonDocument::fromJson(encoded).object()["assets"].toObject();
+      for (auto candidate = images.begin(); candidate != images.end();
+           ++candidate) {
+        const QString hash = pixelHash(*candidate.value());
+        for (const QString &oldId : data.manifest.keys()) {
+          const auto metadata = data.manifest[oldId].toObject();
+          if (assets.contains(oldId) || metadata["hash"].toString() != hash)
+            continue;
+          if (metadata["width"].toInt() != candidate.value()->width ||
+              metadata["height"].toInt() != candidate.value()->height ||
+              metadata["color"].toBool() != candidate.value()->color)
+            throw Invalid("Relink resource geometry disagrees with its hash");
+          replaceResourceReference(data.package, oldId, candidate.key());
+          data.manifest.remove(oldId);
+          data.manifest[candidate.key()] = metadata;
+          assets[candidate.key()]        = candidates[candidate.key()];
+          if (!matchedHashes.contains(hash)) matchedHashes << hash;
+        }
+      }
+    }
+    data.package["assets"] = assets;
+    return portableBytes(data);
+  } catch (const std::exception &e) {
+    error = QString::fromUtf8(e.what());
+    return {};
+  }
+}
+bool savePortable(const QString &path, const Record &record,
+                  ResourcePackaging mode, QString &error) {
+  const auto bytes = encodePortable(record, mode, error);
+  if (!error.isEmpty()) return false;
+  QSaveFile file(path);
+  if (!file.open(QIODevice::WriteOnly) || file.write(bytes) != bytes.size() ||
+      !file.commit()) {
+    error = file.errorString();
+    return false;
+  }
+  return true;
+}
+
 QByteArray encode(const Record &record, QString &error) {
   return encodeRecord(record, error, {});
 }
 Record decode(const QByteArray &bytes, QString &error,
               size_t maximumDecodedBytes) {
-  return decodeRecord(bytes, error, maximumDecodedBytes, {});
+  try {
+    const auto portable = portableData(bytes);
+    if (!portable.info.portable)
+      return decodeRecord(bytes, error, maximumDecodedBytes, {});
+    for (const auto &resource : portable.info.resources)
+      if (!resource.embedded)
+        throw Invalid("Missing brush resource: " + resource.hash);
+    auto record = decodeRecord(QJsonDocument(portable.package).toJson(), error,
+                               maximumDecodedBytes, {});
+    if (!error.isEmpty()) return {};
+    verifyPortablePixels(portable, record);
+    return record;
+  } catch (const std::exception &e) {
+    error = QString::fromUtf8(e.what());
+    return {};
+  }
 }
 QByteArray encodeWorkerRecord(const Record &record, const QString &directory,
                               QString &error) {
@@ -644,6 +1064,14 @@ Record decodeWorkerRecord(const QByteArray &bytes, const QString &directory,
     return {};
   }
   return decodeRecord(bytes, error, maximumDecodedBytes, directory);
+}
+
+Record decodeWorkerRecordInDirectory(
+    const QByteArray &bytes, const Detail::RegularResponseDirectory &directory,
+    QString &error, size_t maximumDecodedBytes) {
+  // A nonempty tag selects the private wire format; all resources use the
+  // already-anchored directory rather than looking up this tag as a path.
+  return decodeRecord(bytes, error, maximumDecodedBytes, "worker", &directory);
 }
 
 Record load(const QString &path, QString &error, size_t maximumDecodedBytes) {

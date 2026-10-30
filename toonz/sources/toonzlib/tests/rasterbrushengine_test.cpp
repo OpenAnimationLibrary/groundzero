@@ -1,5 +1,7 @@
 #include "toonz/rasterbrushengine.h"
 #include <cmath>
+#include <array>
+#include <algorithm>
 #include <iostream>
 #include <stdexcept>
 using namespace RasterBrush;
@@ -152,6 +154,110 @@ void testDeterminismAndMasks() {
   line(d, p);
   for (const auto &v : d.pixels) require(v.a == 0, "subtract mask ignored");
 }
+void testDisabledSecondaryAndExtremeTransforms() {
+  Preset p;
+  p.size.value    = 12;
+  p.scatter.value = .4;
+  p.count         = 3;
+  Canvas baseline, disabled;
+  line(baseline, p);
+  auto image   = std::make_shared<Image>();
+  image->width = image->height   = 1;
+  image->pixels                  = {Pixel{0, 0, 0, 1}};
+  p.secondary.tip.shape          = Shape::Bitmap;
+  p.secondary.tip.images         = {image, image};
+  p.secondary.tip.randomSequence = true;
+  require(!p.secondary.enabled, "secondary must remain disabled");
+  line(disabled, p);
+  require(same(baseline, disabled),
+          "disabled secondary consumed primary stroke random sequence");
+
+  p                    = Preset();
+  p.tip.shape          = Shape::Square;
+  p.tip.antialiasEdges = true;
+  p.size.value         = .25;
+  p.aspect.value       = .01;
+  Canvas primary;
+  Stroke first(primary, p);
+  require(first.add(sample(32.5, 32.0625, 0)), first.error().c_str());
+  first.finish();
+  require(primary.read(32, 32).a > 0,
+          "extreme-transform fixture did not cover a primary pixel");
+  auto wide    = std::make_shared<Image>();
+  wide->width  = 8192;
+  wide->height = 1;
+  wide->pixels.assign(8192, Pixel{0, 0, 0, 1});
+  p.secondary.enabled    = true;
+  p.secondary.tip.shape  = Shape::Bitmap;
+  p.secondary.tip.images = {wide};
+  p.secondary.size.value = .01;
+  p.secondary.aspect     = .01;
+  require(validate(p).empty(), "legal tiny secondary fixture rejected");
+  Canvas masked;
+  Stroke second(masked, p);
+  require(second.add(sample(32.5, 32.0625, 0)), second.error().c_str());
+  second.finish();
+  // The sampled secondary coordinate exceeds 32-bit integer range in texels.
+  // It is outside the image, so coverage is zero without an unsafe cast.
+  for (const auto &pixel : masked.pixels)
+    require(pixel.a == 0, "out-of-support secondary bitmap produced coverage");
+}
+
+void testNativeTextureCoverage() {
+  Preset p;
+  p.tip.shape  = Shape::Square;
+  p.size.value = 8;
+  auto image   = std::make_shared<Image>();
+  image->width = image->height = 1;
+  image->pixels                = {Pixel{0, 0, 0, .25}};
+  p.texture.image              = image;
+  p.texture.depth              = .4;
+  p.texture.contrast           = 2;
+  p.texture.brightness         = .1;
+  for (bool invert : {false, true}) {
+    p.texture.invert = invert;
+    for (MaskMode mode : {MaskMode::Multiply, MaskMode::Subtract}) {
+      p.texture.mode = mode;
+      Canvas c;
+      Stroke stroke(c, p);
+      require(stroke.add(sample(32.5, 32.5, 0)), stroke.error().c_str());
+      stroke.finish();
+      // contrast/brightness yield .1; inversion yields .9. Apply depth
+      // before the native mask operation, as specified by RCP1.
+      const double maskValue = invert ? .9 : .1;
+      const double expected =
+          mode == MaskMode::Multiply ? .6 + .4 * maskValue : 1 - .4 * maskValue;
+      require(std::abs(c.read(32, 32).a - expected) < 1e-12,
+              "native texture contrast/invert/depth operation order changed");
+    }
+  }
+  p.texture.depth = 0;
+  Canvas off, baseline;
+  line(off, p);
+  p.texture.image.reset();
+  line(baseline, p);
+  require(same(off, baseline), "zero texture depth changed native painting");
+
+  image           = std::make_shared<Image>();
+  image->width    = 2;
+  image->height   = 1;
+  image->pixels   = {Pixel{}, Pixel{0, 0, 0, 1}};
+  p.texture       = Texture();
+  p.texture.image = image;
+  for (bool perDab : {false, true}) {
+    p.texture.perDab = perDab;
+    for (int x : {32, 33}) {
+      Canvas c;
+      Stroke stroke(c, p);
+      require(stroke.add(sample(x + .5, 32.5, 0)), stroke.error().c_str());
+      stroke.finish();
+      const double expected = perDab ? .5 : double(x % 2);
+      require(c.read(x, 32).a == expected,
+              "fixed/per-dab texture origin or repeat seam changed");
+    }
+  }
+}
+
 void testWashAndInput() {
   Preset p;
   p.wash          = true;
@@ -224,9 +330,17 @@ void testWetPickupGeometry() {
       if (samplingRadius == 0)
         require(vertical.read(64, 64).r > .999,
                 "zero pickup radius did not sample the dab center");
-      else
+      else if (mode == Wet::Dulling)
         require(vertical.read(64, 64).b > .5,
                 "wet pickup ignored tip rotation");
+      else {
+        Pixel horizontalState, verticalState;
+        require(first.nativeWetState(horizontalState, .75, 0) &&
+                    second.nativeWetState(verticalState, .75, 0) &&
+                    horizontalState.r > .999 && verticalState.b > .999 &&
+                    vertical.read(64, 64).r > .999,
+                "native Smear averaged away its rotated local field");
+      }
     }
     Canvas original, mirrored;
     for (int y = 0; y < original.h; ++y)
@@ -381,6 +495,14 @@ void testKritaHardPixelCandidate() {
   risingStroke.finish();
   require(risingStroke.dabCount() == 106,
           "source sparse pressure spacing differs from captured footprints");
+  p.size.mappings.front().curve = {{0, .25}, {1, .75}};
+  FullCanvas minimumPressure;
+  Stroke minimumStroke(minimumPressure, p);
+  require(minimumStroke.add(sample(64, 64, 0, 0)),
+          minimumStroke.error().c_str());
+  minimumStroke.finish();
+  require(same(pressured, minimumPressure),
+          "nonzero source pressure-curve minimum was discarded");
   p.size.mappings.front().curve.insert(
       p.size.mappings.front().curve.begin() + 1, {.5, .25});
   require(!validate(p).empty(),
@@ -578,6 +700,135 @@ void testLongWetTrace() {
     b.finish();
     require(budget->used() == 0, "long wet trace retained reservoir memory");
   }
+}
+void testNativeWetAnalyticalDrift() {
+  // A one-pixel square tip with center pickup makes each field cell uniform,
+  // so the documented reservoir equations have an independent affine oracle.
+  // The canvas still contains color/alpha strips and is revisited in both
+  // directions; pickup reads the oracle's evolving raster, never engine output.
+  using Color     = std::array<long double, 4>;
+  auto components = [](const Pixel &p) -> Color {
+    return {p.r, p.g, p.b, p.a};
+  };
+  auto difference = [&](const Pixel &p, const Color &reference) {
+    const auto actual = components(p);
+    long double error = 0;
+    for (size_t k = 0; k < 4; ++k)
+      error = std::max(error, std::abs(actual[k] - reference[k]));
+    return error;
+  };
+  for (Wet mode : {Wet::Dulling, Wet::Smear})
+    for (double reload : {0.0, .125, 1.0}) {
+      Canvas canvas;
+      canvas.w = 16;
+      canvas.h = 1;
+      canvas.pixels.resize(16);
+      std::vector<Color> reference(16), pickups;
+      for (int x = 0; x < 16; ++x) {
+        const double alpha = (x + 1) / 16.0;
+        canvas.pixels[x]   = (x / 4) % 2 ? Pixel{alpha, 0, alpha * .25, alpha}
+                                         : Pixel{0, alpha * .5, alpha, alpha};
+        reference[x]       = components(canvas.pixels[x]);
+      }
+      const Canvas initial = canvas;
+      Preset p;
+      p.wet                    = mode;
+      p.tip.shape              = Shape::Square;
+      p.tip.hardness           = 1;
+      p.size.value             = 1;
+      p.spacing                = 1;
+      p.smudgeRadius           = 0;
+      p.pickup                 = .375;
+      p.colorRate              = .25;
+      p.reload                 = reload;
+      p.color                  = {.15, .3, .075, .75};
+      p.opacity.value          = .65;
+      p.flow.value             = .7;
+      const Color foreground   = components(p.color);
+      Color state              = foreground, firstState{};
+      const long double uptake = p.pickup, tint = p.colorRate, refill = reload;
+      const long double retain   = (1 - refill) * (1 - uptake);
+      const long double acquire  = (1 - refill) * uptake;
+      const long double oldPaint = (1 - tint) * (1 - uptake);
+      const long double newPaint = (1 - tint) * uptake;
+      const long double deposit =
+          static_cast<long double>(p.opacity.value) * p.flow.value;
+      auto budget = std::make_shared<MemoryBudget>(1024 * 1024);
+      Stroke stroke(canvas, p, 1024 * 1024, budget);
+      Pixel measured;
+      require(!stroke.nativeWetState(measured),
+              "unstarted stroke exposed wet state");
+      const int checkpoints[]   = {1, 10, 100, 1000, 10000};
+      size_t checkpoint         = 0;
+      long double previousError = 0;
+      for (int step = 0; step < 10000; ++step) {
+        const int phase = step % 30, x = phase <= 15 ? phase : 30 - phase;
+        const Color before = reference[x];
+        pickups.push_back(before);
+        Color ink{};
+        for (size_t k = 0; k < 4; ++k)
+          ink[k] =
+              oldPaint * state[k] + newPaint * before[k] + tint * foreground[k];
+        for (size_t k = 0; k < 4; ++k) {
+          reference[x][k] =
+              deposit * ink[k] + (1 - deposit * ink[3]) * before[k];
+          state[k] =
+              retain * state[k] + acquire * before[k] + refill * foreground[k];
+        }
+        if (step == 0) firstState = state;
+        require(stroke.add(sample(x + .5, .5, step / 240.0)),
+                stroke.error().c_str());
+        require(stroke.dabCount() == size_t(step + 1),
+                "analytical wet trace resampled unexpectedly");
+        if (step + 1 != checkpoints[checkpoint]) continue;
+        // Closed-form geometric history sum checks the hidden state without
+        // reproducing the runtime's sequence of mix operations.
+        const long double power = std::pow(retain, step + 1);
+        Color closed{};
+        for (size_t k = 0; k < 4; ++k)
+          closed[k] =
+              (power + refill * (1 - power) / (1 - retain)) * foreground[k];
+        long double weight = acquire;
+        for (size_t j = pickups.size(); j > 0; --j) {
+          for (size_t k = 0; k < 4; ++k)
+            closed[k] += weight * pickups[j - 1][k];
+          weight *= retain;
+        }
+        require(stroke.nativeWetState(measured) &&
+                    difference(measured, closed) <= 1e-6L,
+                "native wet state drifted from its analytical history");
+        long double error = 0;
+        for (size_t x = 0; x < reference.size(); ++x) {
+          error = std::max(error, difference(canvas.pixels[x], reference[x]));
+          const auto actual = components(canvas.pixels[x]);
+          for (size_t k = 0; k < 4; ++k)
+            require(std::abs(std::llround(actual[k] * 255) -
+                             std::llround(reference[x][k] * 255)) <= 1,
+                    "native wet raster exceeds one-byte analytical error");
+        }
+        require(error <= 1e-6L, "native wet raster drifted from affine oracle");
+        if (step + 1 == 1000) previousError = error;
+        if (step + 1 == 10000)
+          require(error <= previousError + 1 / 255.0L,
+                  "native wet drift increased at final checkpoint");
+        ++checkpoint;
+      }
+      stroke.finish();
+      require(!stroke.nativeWetState(measured) && budget->used() == 0,
+              "finished native wet stroke retained observable state or memory");
+      {
+        Canvas restarted = initial;
+        Stroke fresh(restarted, p, 1024 * 1024, budget);
+        require(fresh.add(sample(.5, .5, 0)) &&
+                    fresh.nativeWetState(measured) &&
+                    difference(measured, firstState) <= 1e-6L,
+                "new stroke reused previous wet state");
+        // Destruction models cancellation's stroke-state teardown. The app
+        // transaction suite separately checks raster rollback and undo history.
+      }
+      require(budget->used() == 0,
+              "cancelled native wet stroke retained field memory");
+    }
 }
 void testSourceWetInitialization() {
   for (const auto &model :
@@ -985,6 +1236,168 @@ void testCubicCurves() {
   p.opacity.mappings.front().curve = {{0, 0}, {1e-12, 1}, {1, 0}};
   require(!validate(p).empty(), "numerically unstable cubic knots accepted");
 }
+void testIndependentSecondarySpacing() {
+  Preset p;
+  p.size.value                   = 8;
+  p.spacing                      = .25;
+  p.secondary.enabled            = true;
+  p.secondary.independentSpacing = true;
+  p.secondary.size.value         = .5;
+  p.secondary.spacing            = 2;
+  Canvas whole, split;
+  auto budget = std::make_shared<MemoryBudget>(1024 * 1024);
+  Stroke stroke(whole, p, 1024 * 1024, budget);
+  require(stroke.add(sample(16, 64, 0)), stroke.error().c_str());
+  require(stroke.add(sample(48, 64, 1)), stroke.error().c_str());
+  require(whole.read(16, 64).a == 1 && whole.read(24, 64).a == 1,
+          "secondary origin/tied-position stamp missing");
+  require(whole.read(20, 64).a == 0,
+          "secondary independently spaced gap filled by primary cadence");
+  require(budget->used() > 0, "independent mask not charged to shared budget");
+  stroke.finish();
+  require(budget->used() == 0, "independent mask retained after finish");
+  Stroke partitioned(split, p);
+  for (int i = 0; i <= 16; ++i)
+    require(partitioned.add(sample(16 + 2 * i, 64, i / 16.0)),
+            partitioned.error().c_str());
+  partitioned.finish();
+  require(same(whole, split),
+          "secondary scheduling changed with event partition");
+  p.secondary.independentSpacing = false;
+  Canvas synchronized;
+  line(synchronized, p);
+  require(synchronized.read(20, 64).a == 1,
+          "legacy synchronized secondary behavior changed");
+  p.secondary.independentSpacing = true;
+  p.secondary.mode               = MaskMode::Subtract;
+  Canvas subtract;
+  Stroke inverse(subtract, p);
+  require(inverse.add(sample(16, 64, 0)), inverse.error().c_str());
+  require(inverse.add(sample(48, 64, 1)), inverse.error().c_str());
+  require(subtract.read(16, 64).a == 0 && subtract.read(20, 64).a == 1,
+          "independent subtract mask composition order changed");
+
+  // Count unions each stamp's opacity before masking the primary. A stationary
+  // airbrush event reuses the mask; it must not emit additional secondary dabs.
+  p.secondary.mode          = MaskMode::Multiply;
+  p.secondary.count         = 2;
+  p.secondary.opacity.value = .5;
+  p.airbrushRate            = 1;
+  Canvas stationary;
+  Stroke clock(stationary, p);
+  require(clock.add(sample(32, 64, 0)), clock.error().c_str());
+  require(stationary.read(32, 64).a == .75,
+          "independent secondary count/opacity union incorrect");
+  require(clock.add(sample(32, 64, 1)), clock.error().c_str());
+  require(stationary.read(32, 64).a == .9375,
+          "stationary primary airbrush rescheduled secondary path");
+
+  // A failed mask allocation happens before publishing the first primary dab.
+  Canvas denied;
+  auto tiny = std::make_shared<MemoryBudget>(1);
+  {
+    Stroke bounded(denied, p, 1, tiny);
+    require(!bounded.add(sample(32, 64, 0)), "secondary mask exceeded budget");
+    require(denied.read(32, 64).a == 0, "denied initial mask published paint");
+  }
+  require(tiny->used() == 0, "failed secondary mask leaked memory charge");
+  p.size.value           = 4096;
+  p.secondary.size.value = 2;
+  require(!validate(p).empty(), "oversize independent geometry accepted");
+}
+void testIndependentSecondaryDynamics() {
+  Preset p;
+  p.size.value                   = 16;
+  p.spacing                      = .25;
+  p.secondary.enabled            = true;
+  p.secondary.independentSpacing = true;
+  p.secondary.size.value         = 1;
+  p.secondary.size.mappings      = {{Sensor::Pressure, {{0, 0}, {1, 1}}, 1}};
+  p.secondary.spacing            = 1;
+  p.secondary.opacity.value      = .5;
+  p.secondary.scatter            = .125;
+  p.secondary.count              = 2;
+  p.secondary.angle.mappings     = {{Sensor::RandomDab, {{0, 0}, {1, 1}}, 1}};
+  p.secondary.angle.value        = 90;
+  auto image                     = std::make_shared<Image>();
+  image->width                   = 2;
+  image->height                  = 1;
+  image->pixels                  = {{0, 0, 0, 1}, {}};
+  p.secondary.tip.shape          = Shape::Bitmap;
+  p.secondary.tip.images         = {image};
+  Canvas whole, split, repeated;
+  auto draw = [&](Canvas &canvas, bool subdivide) {
+    Stroke stroke(canvas, p);
+    require(stroke.add(sample(16, 64, 0, .5)), stroke.error().c_str());
+    if (subdivide)
+      require(stroke.add(sample(32, 64, .5, .75)), stroke.error().c_str());
+    require(stroke.add(sample(48, 64, 1, 1)), stroke.error().c_str());
+    stroke.finish();
+  };
+  draw(whole, false);
+  draw(split, true);
+  draw(repeated, false);
+  require(same(whole, split) && same(whole, repeated),
+          "secondary pressure/bitmap/random dynamics depend on event partition "
+          "or history");
+  p.secondary.flipX = true;
+  Canvas flipped;
+  draw(flipped, false);
+  require(!same(whole, flipped), "independent secondary bitmap flip ignored");
+}
+void testNativeSpacingAndWorkLimits() {
+  Preset p;
+  p.size.value = .25;
+  p.spacing    = .01;
+  Canvas canvas;
+  Stroke stroke(canvas, p);
+  require(stroke.add(sample(32, 32, 0)), stroke.error().c_str());
+  require(stroke.add(sample(32.009, 32, 1)), stroke.error().c_str());
+  require(stroke.dabCount() == 4,
+          "native spacing used an absolute .01 pixel floor");
+  // Off-canvas traces exercise scheduler bounds cheaply without raster work.
+  Stroke bounded(canvas, p);
+  require(bounded.add(sample(-1000, -1000, 0)), bounded.error().c_str());
+  require(!bounded.add(sample(-500, -1000, 1)) &&
+              bounded.error() == "Stroke input event work limit exceeded",
+          "tiny-spacing huge input event did not report bounded failure");
+  p.secondary.enabled = p.secondary.independentSpacing = true;
+  Stroke independent(canvas, p);
+  require(independent.add(sample(-1000, -1000, 0)),
+          independent.error().c_str());
+  require(!independent.add(sample(-500, -1000, 1)) &&
+              independent.error() == "Stroke input event work limit exceeded",
+          "independent scheduler did not bound combined event work");
+  struct WorkGuard : Surface {
+    bool touched = false;
+    int width() const override { return 2048; }
+    int height() const override { return 2048; }
+    bool prepare(int, int, int, int) override {
+      touched = true;
+      return true;
+    }
+    Pixel read(int, int) const override { return {}; }
+    void write(int, int, const Pixel &) override { touched = true; }
+  } guard;
+  p.size.value                   = 4096;
+  p.tip.antialiasEdges           = true;
+  p.count                        = 64;
+  p.secondary.independentSpacing = false;
+  p.secondary.count              = 64;
+  p.secondary.tip.antialiasEdges = true;
+  Stroke extreme(guard, p);
+  require(!extreme.add(sample(1024, 1024, 0)) &&
+              extreme.error() == "Stroke input pixel work limit exceeded" &&
+              !guard.touched,
+          "extreme dual/filter work was not rejected before raster access");
+  p.secondary.independentSpacing = true;
+  Stroke extremeIndependent(guard, p);
+  require(!extremeIndependent.add(sample(1024, 1024, 0)) &&
+              extremeIndependent.error() ==
+                  "Stroke input pixel work limit exceeded" &&
+              !guard.touched,
+          "extreme independent mask work was not bounded before raster access");
+}
 }  // namespace
 int main() {
   try {
@@ -992,12 +1405,17 @@ int main() {
     testComposition();
     testAreaCoverage();
     testDeterminismAndMasks();
+    testDisabledSecondaryAndExtremeTransforms();
+    testNativeTextureCoverage();
     testWashAndInput();
     testResourcesAndWet();
     testWetPressure();
     testWetPickupGeometry();
     testCountFadeAndDirection();
     testSecondaryCountAndMirror();
+    testIndependentSecondarySpacing();
+    testIndependentSecondaryDynamics();
+    testNativeSpacingAndWorkLimits();
     testKritaHardPixelCandidate();
     testStationaryAndBatching();
     testColorDynamics();
@@ -1011,6 +1429,7 @@ int main() {
     testSourceRectangle();
     testSourceWetInitialization();
     testLongWetTrace();
+    testNativeWetAnalyticalDrift();
   } catch (const std::exception &e) {
     std::cerr << e.what() << '\n';
     return 1;

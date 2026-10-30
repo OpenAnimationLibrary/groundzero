@@ -1,15 +1,19 @@
 #include "toonz/rasterbrushimport.h"
+#include "rasterbrushresponse.h"
 #include <QCoreApplication>
 #include <QBuffer>
 #include <QImage>
 #include <QDir>
 #include <QElapsedTimer>
+#include <QDateTime>
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QProcess>
 #include <QTemporaryDir>
+#include <QTemporaryFile>
+#include "rasterbrushmacsandbox.h"
 #include <set>
 #include <algorithm>
 #include <cstdio>
@@ -23,7 +27,9 @@
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
+#include <winsock2.h>
 #include <windows.h>
+#include "rasterbrushwindowsandbox.h"
 #endif
 #ifdef __linux__
 #include <cerrno>
@@ -226,6 +232,9 @@ bool prepareWorkerCodecs() {
 
 int runImportWorker(const QString &input, const QString &directory) {
   // Establish restrictions before any untrusted bytes are decoded.
+#ifdef __APPLE__
+  if (!macImportEntitlement()) return 2;
+#endif
 #ifndef _WIN32
   rlimit noCore{0, 0};
   if (setrlimit(RLIMIT_CORE, &noCore) != 0) return 2;
@@ -243,9 +252,10 @@ int runImportWorker(const QString &input, const QString &directory) {
     if (!limitLinuxImportMemory()) return 2;
 #endif
 #ifdef _WIN32
-    if (!limitWindowsImport()) {
-      writeFile(output.filePath("error.txt"),
-                "Cannot establish Windows brush worker resource limits");
+    if (!isWindowsImportContainer() || !limitWindowsImport()) {
+      writeFile(
+          output.filePath("error.txt"),
+          "Cannot establish Windows brush AppContainer and resource limits");
       return 2;
     }
 #endif
@@ -290,7 +300,97 @@ int runImportWorker(const QString &input, const QString &directory) {
   }
 }
 
+#if defined(__APPLE__) && defined(RASTERBRUSH_SANDBOX_TESTING)
+int probeMacWorkerTransport() {
+  auto accepts = [](const QByteArray &bytes) {
+    QTemporaryDir directory;
+    QTemporaryFile wire;
+    QString error;
+    return directory.isValid() && wire.open() &&
+           wire.write(bytes) == bytes.size() && wire.flush() &&
+           unpackMacWorkerResponse(wire, directory.path(), error);
+  };
+  auto number = [](quint32 n) {
+    QByteArray bytes(4, char(0));
+    qToBigEndian<quint32>(n, bytes.data());
+    return bytes;
+  };
+  const QByteArray entry = number(11) + number(2) + "result.json" + "{}";
+  const QByteArray valid = QByteArray("GZBW0001") + number(1) + entry;
+  if (!accepts(valid) || accepts(valid + "trailing") ||
+      accepts(valid.left(valid.size() - 1)) ||
+      accepts(QByteArray("GZBW0001") + number(66001)) ||
+      accepts(QByteArray("GZBW0001") + number(2) + entry + entry) ||
+      accepts(QByteArray("GZBW0001") + number(1) + number(9) + number(1) +
+              "../escape" + "x") ||
+      accepts(QByteArray("GZBW0001") + number(1) + number(11) +
+              number(0xffffffffu) + "result.json"))
+    return 1;
+  return 0;
+}
+#endif
+
 #if defined(_WIN32) && defined(RASTERBRUSH_SANDBOX_TESTING)
+int probeWindowsImportSandboxWorker(const QString &input, const QString &output,
+                                    const QString &forbidden) {
+  if (!isWindowsImportContainer() || !limitWindowsImport()) return 1;
+  if (QFileInfo(input).fileName() == "overlap") {
+    if (!writeFile(QDir(output).filePath("entered"),
+                   QByteArray::number(QDateTime::currentMSecsSinceEpoch())))
+      return 14;
+    Sleep(1000);  // Test-only barrier: keep the first import alive while
+                  // another waits.
+  }
+  QFile permitted(input), denied(forbidden);
+  if (!permitted.open(QIODevice::ReadOnly) ||
+      permitted.readAll() != "allowed" || denied.open(QIODevice::ReadOnly) ||
+      denied.open(QIODevice::WriteOnly))
+    return 2;
+  permitted.close();
+  if (permitted.open(QIODevice::WriteOnly)) return 3;
+  WSADATA data{};
+  if (WSAStartup(MAKEWORD(2, 2), &data) != 0) return 4;
+  SOCKET socketHandle = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+  if (socketHandle == INVALID_SOCKET) return 5;
+  sockaddr_in address{};
+  address.sin_family      = AF_INET;
+  address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+  address.sin_port        = htons(9);
+  const int connected =
+      connect(socketHandle, reinterpret_cast<const sockaddr *>(&address),
+              sizeof(address));
+  const int networkError = WSAGetLastError();
+  closesocket(socketHandle);
+  WSACleanup();
+  // Connection refusal alone is not evidence of isolation. Windows must deny
+  // the capability, independently of whether any service listens at the port.
+  if (connected == 0 || networkError != WSAEACCES) return 6;
+  return writeFile(QDir(output).filePath("sandbox-passed"), "passed") ? 0 : 7;
+}
+int probeWindowsImportSandbox(const QString &executable, const QString &input,
+                              const QString &output, const QString &forbidden) {
+  QString error;
+  WindowsImportSandbox sandbox;
+  if (!prepareWorkerCodecs() ||
+      !sandbox.prepare(executable, input, output, error))
+    return 10;
+  QProcess process;
+  sandbox.configure(process);
+  process.setWorkingDirectory(output);
+  process.setStandardOutputFile(QProcess::nullDevice());
+  process.setStandardErrorFile(QProcess::nullDevice());
+  process.start(executable, {"--test-windows-sandbox-worker", sandbox.input,
+                             output, forbidden});
+  if (!process.waitForFinished(15000)) {
+    process.kill();
+    process.waitForFinished(5000);
+    return 11;
+  }
+  const int status =
+      process.exitStatus() == QProcess::NormalExit ? process.exitCode() : 12;
+  if (!sandbox.close()) return 13;
+  return status;
+}
 int probeWindowsImportLimits() {
   if (!limitWindowsImport()) return 1;
   void *excess = VirtualAlloc(nullptr, SIZE_T(2) * 1024 * 1024 * 1024,
@@ -375,10 +475,46 @@ ImportResult importBrushProcess(const QString &executable, const QString &path,
     error = "Cannot create isolated brush import directory";
     return {};
   }
+  Detail::RegularResponseDirectory responses;
+  if (!responses.open(directory.path(), error)) return {};
+#ifdef _WIN32
+  // Declared before QProcess: on every early return the child is destroyed
+  // before its ephemeral permissions and AppContainer profile are removed.
+  WindowsImportSandbox sandbox;
+  if (!prepareWorkerCodecs() ||
+      !sandbox.prepare(executable, path, directory.path(), error, cancelled)) {
+    if (stopped()) return {};
+    if (error.isEmpty()) error = "Cannot initialize trusted brush codecs";
+    return {};
+  }
+  const QString workerInput = sandbox.input;
+#else
+  const QString workerInput = QFileInfo(path).absoluteFilePath();
+#endif
+#ifdef __APPLE__
+  QTemporaryDir transport;
+  QTemporaryFile staged(transport.filePath("input-XXXXXX"));
+  QTemporaryFile wire(transport.filePath("response-XXXXXX"));
+  QFile sentinel(transport.filePath("private-probe"));
+  auto inputBytes = readBoundedRegularFile(path, 64LL * 1024 * 1024, error);
+  if (!transport.isValid() || !error.isEmpty() || !staged.open() ||
+      staged.write(inputBytes) != inputBytes.size() || !staged.flush() ||
+      !wire.open() ||
+      !sentinel.open(QIODevice::WriteOnly | QIODevice::NewOnly) ||
+      sentinel.write("private") != 7 || !sentinel.flush()) {
+    if (error.isEmpty()) error = "Cannot stage sandboxed brush transport";
+    return {};
+  }
+  sentinel.close();
+  inputBytes.clear();
+#endif
   QProcess process;
+#ifdef _WIN32
+  sandbox.configure(process);
+#endif
   process.setProgram(executable);
-  process.setArguments({"--raster-brush-import-worker",
-                        QFileInfo(path).absoluteFilePath(), directory.path()});
+  process.setArguments(
+      {"--raster-brush-import-worker", workerInput, directory.path()});
   process.setWorkingDirectory(directory.path());
   // Decoder console output is not part of the result protocol. Redirect it
   // at process creation: draining QProcess later still permits its internal
@@ -386,6 +522,28 @@ ImportResult importBrushProcess(const QString &executable, const QString &path,
   // result.json remain the only parent-visible diagnostics.
   process.setStandardOutputFile(QProcess::nullDevice());
   process.setStandardErrorFile(QProcess::nullDevice());
+#ifdef __APPLE__
+  const QFileInfo requested(executable);
+  if (!requested.isExecutable()) {
+    error = "Brush worker application is missing or not executable";
+    return {};
+  }
+  const QString helper =
+      requested.fileName() == "rasterbrushworker_test"
+          ? requested.absoluteFilePath()
+          : requested.dir().filePath("rasterbrushimport-helper");
+  process.setProgram(helper);
+  process.setArguments({"--raster-brush-import-stream",
+                        QFileInfo(path).fileName(), sentinel.fileName()});
+  process.setStandardInputFile(staged.fileName());
+  process.setStandardOutputFile(wire.fileName());
+  process.setWorkingDirectory("/");
+  // Loader paths are established by the helper's build/package rpaths. Do not
+  // pass parent secrets or DYLD injection variables into the sandbox.
+  QProcessEnvironment helperEnvironment;
+  helperEnvironment.insert("MallocNanoZone", "0");
+  process.setProcessEnvironment(helperEnvironment);
+#endif
   process.start();
   if (!process.waitForStarted(5000)) {
     error = "Cannot start brush import worker: " + process.errorString();
@@ -395,6 +553,25 @@ ImportResult importBrushProcess(const QString &executable, const QString &path,
   elapsed.start();
   while (process.state() != QProcess::NotRunning) {
     process.waitForFinished(50);
+#ifdef __APPLE__
+    if (process.state() != QProcess::NotRunning) {
+      uint64_t footprint  = 0;
+      const bool observed = macImportFootprint(process.processId(), footprint);
+      if (!observed || footprint > macFootprintWatchdog) {
+        // Exit can race proc_pid_rusage. Reap once before declaring observation
+        // failure; a still-running child must remain observable or be killed.
+        process.waitForFinished(0);
+        if (process.state() != QProcess::NotRunning) {
+          process.kill();
+          process.waitForFinished(5000);
+          error = observed
+                      ? "Brush helper exceeded its 1 GiB footprint watchdog"
+                      : "Cannot observe sandboxed brush helper memory";
+          return {};
+        }
+      }
+    }
+#endif
     if (stopped() || elapsed.elapsed() > 120000) {
       process.kill();
       process.waitForFinished(5000);
@@ -403,24 +580,62 @@ ImportResult importBrushProcess(const QString &executable, const QString &path,
     }
   }
   if (stopped()) return {};
-  if (process.exitStatus() != QProcess::NormalExit || process.exitCode() != 0) {
-    QFile diagnostic(directory.filePath("error.txt"));
-    if (diagnostic.open(QIODevice::ReadOnly))
-      error = QString::fromUtf8(diagnostic.read(16384));
+#ifdef __APPLE__
+  if (process.exitStatus() != QProcess::NormalExit ||
+      !unpackMacWorkerResponse(wire, directory.path(), error, cancelled,
+                               &elapsed)) {
+    if (stopped()) return {};
+    if (error.isEmpty()) error = "Sandboxed brush helper failed";
+    return {};
+  }
+#endif
+  return readWorkerResponse(
+      responses, process.exitStatus() == QProcess::NormalExit,
+      process.exitCode(), error, maximumDecodedBytes, cancelled, &elapsed);
+}
+
+ImportResult readWorkerResponse(
+    const Detail::RegularResponseDirectory &responses, bool normalExit,
+    int exitCode, QString &error, size_t maximumDecodedBytes,
+    const std::atomic_bool *cancelled, const QElapsedTimer *elapsed) {
+  error.clear();
+  maximumDecodedBytes  = std::min(maximumDecodedBytes, size_t(packageBudget));
+  auto responseStopped = [&] {
+    if (cancelled && cancelled->load(std::memory_order_relaxed)) return true;
+    if (!elapsed || elapsed->elapsed() <= 120000) return false;
+    error = "Brush import exceeded the 120-second limit";
+    return true;
+  };
+  if (responseStopped()) return {};
+  if (!normalExit || exitCode != 0) {
+    QString readError;
+    const auto diagnostic =
+        Detail::readResponseFile(responses, "error.txt", 16384, readError);
+    if (readError.isEmpty()) error = QString::fromUtf8(diagnostic);
     if (error.isEmpty())
-      error = "Brush import worker failed or exceeded its resource limits";
+      error = QString("Brush import worker failed (exit %1): %2")
+                  .arg(exitCode)
+                  .arg(readError.isEmpty()
+                           ? QString("no diagnostic or resource limit exceeded")
+                           : readError);
     return {};
   }
-  QFile manifest(directory.filePath("result.json"));
-  if (!manifest.open(QIODevice::ReadOnly) || manifest.size() > manifestBudget) {
-    error = "Invalid brush import result";
-    return {};
-  }
-  auto json   = QJsonDocument::fromJson(manifest.read(manifestBudget + 1));
-  auto object = json.object();
-  int count   = object.value("count").toInt(-1);
-  if (!json.isObject() || object.value("protocol").toInt() != 2 || count < 1 ||
-      count > 256 || !object.value("diagnostics").isArray()) {
+  const auto manifest =
+      Detail::readResponseFile(responses, "result.json", manifestBudget, error);
+  if (!error.isEmpty()) return {};
+  auto json              = QJsonDocument::fromJson(manifest);
+  auto object            = json.object();
+  int count              = object.value("count").toInt(-1);
+  const auto diagnostics = object.value("diagnostics").toArray();
+  const bool knownFields = object.size() == 3 && object.contains("protocol") &&
+                           object.contains("count") &&
+                           object.contains("diagnostics");
+  if (!json.isObject() || !knownFields ||
+      !object.value("protocol").isDouble() ||
+      object.value("protocol").toDouble() != 2 ||
+      !object.value("count").isDouble() ||
+      object.value("count").toDouble() != count || count < 1 || count > 256 ||
+      !object.value("diagnostics").isArray() || diagnostics.size() > 1024) {
     error = "Invalid brush import result protocol";
     return {};
   }
@@ -428,29 +643,16 @@ ImportResult importBrushProcess(const QString &executable, const QString &path,
   qint64 total  = 0;
   size_t pixels = 0;
   for (int i = 0; i < count; ++i) {
-    if (stopped()) return {};
-    const QString package = directory.filePath(QString::number(i) + ".gzbrush");
-    QFileInfo info(package);
-    total += info.size();
-    if (info.isSymLink() || !info.isFile() || total > packageBudget) {
-      error = "Brush import result exceeded its package budget";
-      return {};
-    }
-    QFile packageFile(package);
-    if (!packageFile.open(QIODevice::ReadOnly) ||
-        packageFile.size() > 64 * 1024 * 1024) {
-      error = "Invalid worker metadata package";
-      return {};
-    }
-    const auto metadata = packageFile.read(64 * 1024 * 1024 + 1);
-    if (!packageFile.atEnd() || packageFile.error() != QFileDevice::NoError) {
-      error = "Cannot read bounded worker metadata";
-      return {};
-    }
-    auto record =
-        decodeWorkerRecord(metadata, directory.path(), error,
-                           maximumDecodedBytes - pixels * sizeof(Pixel));
+    if (responseStopped()) return {};
+    const auto metadata = Detail::readResponseFile(
+        responses, QString::number(i) + ".gzbrush",
+        std::min(qint64(64 * 1024 * 1024), packageBudget - total), error);
     if (!error.isEmpty()) return {};
+    total += metadata.size();
+    auto record = decodeWorkerRecordInDirectory(
+        metadata, responses, error,
+        maximumDecodedBytes - pixels * sizeof(Pixel));
+    if (!error.isEmpty() || responseStopped()) return {};
     std::set<const Image *> resources;
     auto account = [&](const std::shared_ptr<const Image> &image) {
       if (image && resources.insert(image.get()).second)
@@ -465,13 +667,14 @@ ImportResult importBrushProcess(const QString &executable, const QString &path,
     }
     result.records.push_back(std::move(record));
   }
-  for (const auto &message : object.value("diagnostics").toArray()) {
-    if (!message.isString()) {
+  for (const auto &message : diagnostics) {
+    if (!message.isString() || message.toString().size() > 16384) {
       error = "Invalid brush import diagnostic";
       return {};
     }
     result.diagnostics << message.toString();
   }
+  if (responseStopped()) return {};
   result.complete = true;
   return result;
 }

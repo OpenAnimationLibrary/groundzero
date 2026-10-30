@@ -279,7 +279,7 @@ class Probe(Extension):
                 if (effective_fields.get("KisPrecisionOption/precisionLevel") != "5" or
                         effective_fields.get("KisPrecisionOption/AutoPrecisionEnabled") != "false"):
                     raise RuntimeError("Selected source preset lost fixed precision 5")
-                controls = {key: effective_fields.get(key) for key in ("PaintOpAction", "PressureFlow", "SmudgeRateValue", "ColorRateValue", "SmudgeRadiusValue", "PressureSmudgeRate", "SmudgeRateUseNewEngine", "SmudgeRateMode", "SmudgeRateSmearAlpha")}
+                controls = {key: effective_fields.get(key) for key in ("PaintOpAction", "PressureFlow", "FlowUseCurve", "PressureOpacity", "OpacityUseCurve", "PressureColorRate", "ColorRateUseCurve", "SmudgeRateValue", "ColorRateValue", "SmudgeRadiusValue", "PressureSmudgeRate", "SmudgeRateUseNewEngine", "SmudgeRateMode", "SmudgeRateSmearAlpha")}
                 checkpoint(name + ": paint line")
                 # The pinned 5.3.4.1 Python binding accepts QPoint, despite the
                 # online C++ API describing QPointF. This fixture is integral.
@@ -348,7 +348,7 @@ class Probe(Extension):
                     # Exact alpha coverage around all seven short strokes.
                     # This small window is diagnostic; comparison still uses
                     # both full-canvas changed sets and their union.
-                    if fixtures.get("group") in ("geometry", "pixelsoft", "pixelsoftsize", "pixelrectsize", "pixelaarange", "pixelshape"):
+                    if fixtures.get("group") in ("geometry", "pixelsoft", "pixelsoftsize", "pixelrectsize", "pixelaarange", "pixelshape", "pixelprecision", "pixelcurves"):
                         side = math.ceil(case["diameter"]) + 10
                         left = math.floor(case["start"][0] - case["diameter"] / 2) - 4
                         top = math.floor(case["start"][1] - case["diameter"] / 2) - 4

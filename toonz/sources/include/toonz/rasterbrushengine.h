@@ -79,7 +79,11 @@ struct Secondary {
   MaskMode mode = MaskMode::Multiply;
   Dynamic size{1, 0, {}}, angle{0, 0, {}}, opacity{1, 0, {}};
   double aspect = 1, scatter = 0;
-  int count  = 1;
+  // Native accumulated stroke-mask scheduling; false preserves per-primary
+  // dabs.
+  bool independentSpacing = false;
+  double spacing = 0.1;  // fractions of the evaluated secondary diameter
+  int count      = 1;
   bool flipX = false, flipY = false;
 };
 struct Preset {
@@ -180,5 +184,9 @@ public:
   void finish();
   const std::string &error() const;
   size_t dabCount() const;
+  // Read-only qualification/diagnostic state after reload. Smear coordinates
+  // are in the normalized tip frame [-1,1]; Dulling has one uniform reservoir.
+  // Foreign profiles, inactive/finished/failed strokes expose no native state.
+  bool nativeWetState(Pixel &state, double u = 0, double v = 0) const;
 };
 }  // namespace RasterBrush

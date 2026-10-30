@@ -335,6 +335,8 @@ int main(int argc, char **argv) {
           fixtures["group"].toString() == "pixelpressure" ||
           fixtures["group"].toString() == "pixelsmallpressure" ||
           fixtures["group"].toString() == "pixelshape" ||
+          fixtures["group"].toString() == "pixelprecision" ||
+          fixtures["group"].toString() == "pixelcurves" ||
           (fixtures["group"].toString() == "geometry" &&
            name.endsWith("antialias 0"));
       if (sourceHard)
@@ -366,6 +368,8 @@ int main(int argc, char **argv) {
            fixtures["group"].toString() == "wetcombined" ||
            fixtures["group"].toString() == "wetpressure" ||
            (fixtures["group"].toString() == "wettransfer" &&
+            source["wetTransferProbe"].toString("static-flow") ==
+                "static-flow" &&
             source["opacity"].toDouble() == 1) ||
            ((fixtures["group"].toString() == "wetkernel" ||
              fixtures["group"].toString() == "wetkernelscale" ||

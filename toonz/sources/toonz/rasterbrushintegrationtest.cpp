@@ -25,6 +25,10 @@
 #include "trasterimage.h"
 #include "tundo.h"
 #include "timage_io.h"
+#include "tmsgcore.h"
+#include <QApplication>
+#include <QDialog>
+#include <QTimer>
 #include <QMainWindow>
 #include <QCoreApplication>
 #include <QEventLoop>
@@ -342,23 +346,69 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
         p.pickupControl.mappings.push_back(
             {RasterBrush::Sensor::Pressure, {{0, .2}, {1, 1}}, 1});
       } else {
-        p.secondary.enabled       = true;
-        p.secondary.tip.shape     = RasterBrush::Shape::Square;
-        p.secondary.size.value    = .75;
-        p.secondary.opacity.value = .7;
-        p.blend                   = RasterBrush::Blend::Multiply;
+        p.secondary.enabled            = true;
+        p.secondary.independentSpacing = true;
+        p.secondary.spacing            = .6;
+        p.secondary.tip.shape          = RasterBrush::Shape::Square;
+        p.secondary.size.value         = .75;
+        p.secondary.opacity.value      = .7;
+        p.blend                        = RasterBrush::Blend::Multiply;
       }
-      // Export after editing, reload with all resources embedded, then install
-      // through the same portable record path used by the brush selector.
+      // Export an unknown-rights manifest, fail closed on missing resources,
+      // then relink recipient-owned copies through the isolated decoder.
       const QString exported = QDir::current().filePath(
           wet ? "combined-wet.gzbrush" : "combined-dry.gzbrush");
-      require(RasterBrush::save(exported, fixture, importError),
-              "combined preset export failed");
-      fixture = RasterBrush::load(exported, importError);
-      require(importError.isEmpty() && fixture.preset.tip.images.size() == 1 &&
+      const QString ownCopy = QDir::current().filePath(
+          wet ? "original-wet-copy.gzbrush" : "original-dry-copy.gzbrush");
+      require(RasterBrush::save(ownCopy, fixture, importError),
+              "cannot save original recipient resource copy");
+      require(RasterBrush::savePortable(
+                  exported, fixture,
+                  RasterBrush::ResourcePackaging::ManifestOnly, importError),
+              "combined manifest export failed");
+      const auto manifest = RasterBrush::readBoundedRegularFile(
+          exported, 64 * 1024 * 1024, importError);
+      const auto info = RasterBrush::inspectPortable(manifest, importError);
+      require(importError.isEmpty() && info.portable &&
+                  info.resources.size() == 1 &&
+                  !info.resources.front().embedded &&
+                  info.resources.front().redistribution == "unknown",
+              "unknown-rights manifest embedded or lost a shared resource");
+      const TRaster32P beforeRepair = raster(level, 1)->clone();
+      const auto incomplete         = RasterBrush::importBrushProcess(
+          QCoreApplication::applicationFilePath(), exported, importError);
+      require(!importError.isEmpty() && incomplete.records.empty() &&
+                  !incomplete.complete && undo->getHistoryCount() == 0 &&
+                  same(beforeRepair, raster(level, 1)),
+              "missing-resource import changed the document or became usable");
+      const auto copies = RasterBrush::importBrushProcess(
+          QCoreApplication::applicationFilePath(), ownCopy, importError);
+      require(importError.isEmpty() && copies.complete,
+              "recipient copy import failed");
+      QStringList matched;
+      const auto repaired = RasterBrush::relinkPortable(
+          manifest, copies.records, matched, importError);
+      require(importError.isEmpty() && matched.size() == 1,
+              "shared tip/texture hash did not relink exactly once");
+      QFile repairedFile(exported);
+      require(repairedFile.open(QIODevice::WriteOnly | QIODevice::Truncate) &&
+                  repairedFile.write(repaired) == repaired.size(),
+              "cannot stage repaired integration fixture");
+      repairedFile.close();
+      const auto restored = RasterBrush::importBrushProcess(
+          QCoreApplication::applicationFilePath(), exported, importError);
+      require(importError.isEmpty() && restored.complete &&
+                  restored.records.size() == 1,
+              "complete portable resource repair failed worker validation");
+      fixture = restored.records.front();
+      require(fixture.preset.tip.images.size() == 1 &&
                   fixture.preset.texture.image &&
-                  fixture.preset.secondary.enabled == !wet,
-              "combined preset lost embedded resources");
+                  fixture.preset.tip.images.front() ==
+                      fixture.preset.texture.image &&
+                  fixture.preset.secondary.enabled == !wet &&
+                  fixture.preset.secondary.independentSpacing == !wet &&
+                  (wet || fixture.preset.secondary.spacing == .6),
+              "combined preset lost relinked resources or settings");
       const QString folder =
           ToonzFolder::getLibraryFolder().getQString() + "/rasterbrushes";
       const QString installed =
@@ -395,6 +445,70 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
               "combined preset ignored changed tablet input");
       require(undo->undo() && same(baseline, raster(level, 1)),
               "combined preset low-input undo failed");
+      undo->reset();
+    }
+    checkpoint("rolling back actual-tool work-limit failure");
+    {
+      RasterBrush::Record fixture;
+      auto &p                        = fixture.preset;
+      p.name                         = "Original bounded-work rollback fixture";
+      p.size.value                   = 4096;
+      p.tip.antialiasEdges           = true;
+      p.count                        = 64;
+      p.secondary.enabled            = true;
+      p.secondary.count              = 64;
+      p.secondary.tip.antialiasEdges = true;
+      // On this 128-square canvas, early synchronized stamps fit the work
+      // budget and paint; later stamps in the same add exceed it. This checks
+      // actual transaction rollback after partial deposition, not just an
+      // engine's initial preflight rejection.
+      const QString folder =
+          ToonzFolder::getLibraryFolder().getQString() + "/rasterbrushes";
+      const QString installed =
+          RasterBrush::install(folder, fixture, importError);
+      require(!installed.isEmpty() && importError.isEmpty(),
+              "cannot install work-limit rollback fixture");
+      tool->onActivate();
+      property->setValue(
+          QDir(folder).relativeFilePath(installed).toStdWString());
+      require(tool->onPropertyChanged("Native Brush:"),
+              "cannot select work-limit rollback fixture");
+      const TRaster32P baseline = raster(level, 1)->clone();
+      const int history         = undo->getHistoryCount();
+      QStringList warnings;
+      QObject capture;
+      QObject::connect(TMsgCore::instance(), &TMsgCore::sendMessage, &capture,
+                       [&](int type, const QString &message) {
+                         if (type == DVGui::WARNING)
+                           warnings.push_back(message);
+                       });
+      // The app may show warnings in its log panel or in a modal popup. Keep
+      // the production error path intact and acknowledge a modal as a user
+      // would, then assert the emitted reason rather than suppressing errors.
+      QTimer dismiss;
+      QObject::connect(&dismiss, &QTimer::timeout, &capture, [] {
+        if (auto dialog =
+                qobject_cast<QDialog *>(QApplication::activeModalWidget()))
+          dialog->done(0);
+      });
+      dismiss.start(10);
+      tap(tool);
+      dismiss.stop();
+      require(warnings.size() == 1 &&
+                  warnings.front() == "Stroke input pixel work limit exceeded",
+              "actual tool did not report the expected work-limit failure");
+      requireSame(baseline, raster(level, 1),
+                  "work-limit failure raster rollback");
+      require(undo->getHistoryCount() == history,
+              "work-limit failure published partial stroke undo history");
+      // A subsequent valid stroke must not inherit a failed track/mask state.
+      property->setValue(L"<round>");
+      require(tool->onPropertyChanged("Native Brush:"),
+              "cannot restore valid preset after work-limit failure");
+      draw(tool, false);
+      require(!same(baseline, raster(level, 1)) && undo->undo() &&
+                  same(baseline, raster(level, 1)),
+              "work-limit failure poisoned the next stroke transaction");
       undo->reset();
     }
     checkpoint("qualifying pressure, tilt and rotation through tool input");

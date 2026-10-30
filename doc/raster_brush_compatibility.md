@@ -22,9 +22,9 @@ satisfy the contract. Build and test through CI per CLAUDE.md.
 | Independent dry renderer and defined dynamics/combinations | Native CPU renderer and independent fixed hard-circle source candidate implemented | Six isolated and nine long source hard-pixel gates passed; source AA/softness/dynamics remain incomplete |
 | Four Krita smudge profiles and native wet | Native wet/smear plus four separate fixed-tip source candidates implemented | All 48 wet-pressure gates passed at 5423354f; 215 enforced full-image kernel gates passed at 99ca200c, including nonzero-radius legacy/new Dulling. Earlier fixed/control/state gates passed; full dynamics/geometry/texture profiles remain incomplete |
 | Real tilt/rotation capture and normalization | Additive Qt tablet fields and track interpolation implemented | Linux full application CI passes; physical device qualification pending |
-| Actual-engine preview, editor, portable preset export/relink | Native scratchpad, sensor/curve/texture/dual/color editor and embedded-asset export implemented | Six platform/Qt suites passed at `a0ef97ea`; full editor device workflows still require qualification |
+| Actual-engine preview, editor, portable preset export/relink | Native scratchpad, sensor/curve/texture/dual/color editor and private embedded export implemented; provenance-aware manifest-only packaging and hash relink/repair are in progress | Existing native preset checks pass; the approved export/repair workflow remains unfinished until implemented and qualified |
 | Undo/cancel/frame lifecycle/save/reopen | Native path uses raster undo; cancellation rolls back tiles and created frame | Linux actual-tool and installed-package undo, redo, cancellation, frame creation and PNG reopen workloads passed at `31a0bee6`; exact final head and other installed platforms remain gates |
-| Parser isolation/fuzzing/cancel and complete resource budgets | Bounded readers and cancellable worker implemented; libFuzzer target and original corpus added; worker-process crash containment implemented; privilege sandboxing and sustained qualification pending | Sanitizers, malformed corpus, cancellation and limits |
+| Parser isolation/fuzzing/cancel and complete resource budgets | Bounded import/raw-return decoding, Linux privilege confinement, Windows resource limits and cancellation implemented; Windows/macOS privilege isolation and outer-response FIFO/no-follow protection in progress | Six parser suites and fuzz pass at 99ca200c; complete response-file validation and remaining platform boundaries remain release gates |
 | Packaged Windows/macOS/Linux QA and performance | Installed application brush workloads wired on all three platforms; native numeric/performance CI implemented | Linux package workload passed; final Windows/macOS package results and hardware latency remain pending |
 | Optional named-pack parity including any wet/Mixer/bristle/TPL expansion | No named pack required for the chosen RCP1 target | A future expansion needs pack revision/preset identity and authorized reference access; it does not block the original-fixture implementation |
 
@@ -425,9 +425,9 @@ as `b = b + (1-b)*coverage`. Multiply/subtract is applied once to that union.
 A count of one with no flips preserves the prior native result and random draw
 order. Optional package fields default to count one and no flips. Original
 fixtures check two half-opacity stamps, subtraction, asymmetric bitmap mirrors,
-limits and reopening. Independent secondary spacing and source-specific dual
-brush scheduling remain required adapter work; this native primitive does not
-claim that Photoshop or Krita uses the same union/scheduling rules.
+limits and reopening. Optional native independent spacing is specified below;
+source-specific dual scheduling remains required adapter work. Neither native
+mode claims Photoshop or Krita union/scheduling parity.
 
 An experimental `krita-5.3.4.1-hard-pixel-candidate-1` runtime profile implements
 independently measured hard-circle lattice placement and defers an exact
@@ -648,8 +648,8 @@ and [seccomp](https://docs.kernel.org/userspace-api/seccomp_filter.html).
 | K5341 Pixel masks and placement | Hard circle/ellipse, default circle and rectangle candidate equations, versioned import | Corrected rotation and AA size qualification; soft-size, rectangle, wash/flow and near-zero pressure failures remain under investigation |
 | Source dynamics | Identity size pressure and wet strength/color pressure candidate mappings | Other sensors, declared cubic interpolation, combinations, scatter/spacing/color dynamics and timed airbrush need source-specific adapters/qualification |
 | Source resources and blending | PNG/GBR/GIH decoding and native conversion; source strict candidates currently generated tips | Bitmap/color/GIH source sampling, texture/dual masks and required source blend combinations are not completed by native support |
-| Modern Photoshop ABR | Bounded typed descriptor decoder, sampled IDs, native tip conversion | Descriptor-to-resource association, pattern decoding and behavioral adapters remain; Photoshop runtime reference access unavailable |
-| Safe decoder boundary | Shared pre-allocation budgets, bounded package protocol, cancellation/time limits; Linux Landlock/seccomp implementation | Linux denied-access plus successful-import CI pending; Windows/macOS privilege boundaries remain to implement |
+| Modern Photoshop ABR | Bounded typed descriptor decoder, sampled IDs, native tip conversion | Bounded pattern-v1/VM-v3 raw8/raw16 and explicit VM ZIP1 decoding implemented; descriptor-to-resource association and behavioral adapters remain; Photoshop runtime reference access unavailable |
+| Safe decoder boundary | Shared pre-allocation budgets, bounded package protocol, cancellation/time limits; Linux Landlock/seccomp implementation | Windows zero-capability AppContainer and signed macOS App Sandbox helper implemented; anchored no-follow response validation integrated; exact-head platform qualification pending |
 | Tablet portability | Host pressure/tilt/rotation normalization and actual tool tests | Physical-device and platform input qualification still required; synthetic events do not prove hardware behavior |
 | Persistence | Exact application undo/cancel and native/wet PNG round trips; scene/level save/reopen | New combined-presets and pressure-wet lifecycle tests pending CI, plus platform packaging qualification |
 
@@ -801,3 +801,135 @@ of the transport equations. A new 64-case short-stroke transfer matrix enforces
 cases. Opacity remains unimplemented in these candidates until its distinct
 transport/deposit equation is measured and implemented; static-flow acceptance
 does not silently approximate opacity or enabled flow dynamics.
+
+Independent review identified two requirements now implemented together but
+awaiting exact-head qualification. Every worker response uses an anchored,
+no-follow regular-file reader, including manifest and diagnostic files; fake
+FIFO/link/oversized and directory-swap responses have regression coverage.
+Portable export now offers manifest-only (default for unknown or restricted
+resource declarations), permitted-resource packaging and explicit private-copy
+packaging, with canonical pixel-hash relink/repair before installation. See
+`raster_brush_portability.md` and `raster_brush_platform_isolation.md`. Code and
+fixtures alone do not complete their acceptance rows. Neither workflow implies
+that private export is unlawful or independent implementation needs blanket
+permission.
+
+Pixel size candidates now retain explicit two-endpoint pressure curves with
+arbitrary bounded endpoint values, including a nonzero low-pressure diameter.
+Shared and sensor-local curve serialization are resolved independently; an
+inactive shared curve cannot replace an explicitly selected sensor-local curve.
+This is affine interpolation only. Multi-knot source splines remain native
+conversions, and source wet pickup/color eligibility remains identity-only.
+Portable roundtrip and nonzero-minimum regressions accompany twelve original
+source endpoint/serialization gates. They require exact-head CI before any
+reference qualification is claimed.
+
+Twenty-four focused Pixel precision cases separate fractional-pressure mask
+geometry and fractional document placement from the stroke scheduler, and use
+short low-spacing half-opacity strokes to measure a possible spacing floor.
+Existing ramp captures alone do not distinguish a minimum diameter from a
+minimum spacing at spacing 1. No speculative clamp or fixture-specific geometry
+correction is introduced; the full-image gates remain unchanged.
+### Native wet transport and analytical drift qualification
+
+Native Smear now applies the native reservoir recurrence independently to each
+transported field cell: pickup once, foreground mixing once, then reload after
+deposition. Earlier native output mixed the global reservoir with raw previous
+canvas samples a second time and did not reload the transported field. This is
+an intentional native-output correction; the four experimental source profiles
+retain their separate equations. Retained cells are bilinearly resampled in the
+normalized tip frame when the grid size changes. Dulling retains its uniform
+weighted reservoir and no longer allocates an unused transported field.
+
+The native analytical regression follows 10,000 single-pixel dabs across revisited
+color strips and alpha ramps, for both wet modes and reload 0, 0.125 and 1. It
+compares raster output against an independent affine recurrence, and retained
+state against a closed-form geometric pickup-history sum at dabs 1, 10, 100,
+1,000 and 10,000. Component errors must remain within 1e-6 and encoded byte errors
+within one code value. It also checks fresh-stroke initialization, finished-state
+inaccessibility and memory release on finish or active-stroke destruction. The
+existing application transaction tests cover cancellation rollback and undo.
+These assertions require CI qualification; they do not establish foreign-source
+parity or replace the separate source-output drift gates.
+
+
+### Native independently spaced secondary mask, version 1
+
+`groundzero-native-1` now has an opt-in `secondary.independentSpacing` setting
+(default false) and `secondary.spacing` (default 0.1; range 0.01–5). Existing
+packages and synchronized-per-primary masks retain their previous behavior.
+This is an independently defined native capability, not an ABR/KPP adapter
+mapping or a Photoshop/Krita compatibility claim.
+
+With independent spacing enabled, secondary stamps start at the stroke origin
+and follow the underlying sampled path with their own accumulated arc length.
+Spacing is the evaluated secondary diameter times the spacing setting. Diameter
+is primary evaluated diameter times secondary size, with the native 0.25-pixel
+minimum; maximum configured diameter is 4096 pixels. Primary aspect/rotation/
+flips and secondary aspect/rotation/flips transform the mask at each secondary
+event. Pressure and other dynamic sensors are interpolated at that event;
+RandomDab and DabIndex use the secondary sequence, while RandomStroke shares
+the stroke seed. A separate seeded random stream selects bitmap frames and
+scatter, so changing the secondary cadence does not consume primary random
+numbers. Count stamps share the event's dynamic values and bitmap frame;
+each scatter offset spans ±scatter times the secondary diameter in canvas x/y.
+
+Secondary coverage, including opacity, accumulates by alpha-over into a sparse
+canvas-aligned mask for the entire stroke. At a coincident event the secondary
+stamp runs first. Each primary dab samples the mask accumulated *so far*, after
+texture and before selection/ink composition, applying Multiply or Subtract
+once. There is no lookahead or repaint of old primary dabs when the mask later
+grows. Stationary airbrush events emit primary dabs only. These choices make
+causality, corners, revisited positions and event batching explicit.
+
+Each 32×32 double-coverage tile is charged to the shared stroke memory budget
+before allocation, including a conservative node allowance. Finish and
+destruction release all mask state; a new stroke starts empty. Masks never
+read or modify the host raster directly: ordinary primary transactions govern
+undo/redo and cancel. Allocation/work failure returns an explicit stroke error
+so the host can roll back the whole transaction, never silently omit stamps.
+Optional fields survive portable export/reopen; old packages use synchronized
+mode. Source-profile eligibility does not acquire this native scheduling rule.
+
+Native primary spacing now honors diameter × spacing without the previous
+absolute 0.01-pixel floor (0.25 × 0.01 legitimately yields 0.0025 pixels).
+Measured source-profile floors remain unchanged. Every add is limited to 65,536
+scheduler events; independent mode counts both sequences against that limit.
+Native deposition preflights at most 256 million estimated tip samples per
+input event, including secondary count, bitmap bilinear taps, procedural 8×8
+filtering, texture taps and native wet pickup. Independent mask batches
+preflight conservative scattered bounds before sampling or allocating. These
+are explicit resource-failure limits, not promises of interactive speed at
+maximum diameter/count; extreme filtered combinations may require smaller
+settings. Event count, memory and work limits are separate protections.
+
+CI assertions cover origin/tie ordering, gaps distinct from primary spacing,
+Multiply/Subtract, count/opacity union, stationary airbrush behavior, pressure/
+bitmap/random dynamics and event partitioning, deterministic fresh-stroke reset,
+bitmap flips, shared-budget cleanup/denial, the native subpixel spacing ratio,
+and extreme-setting failure before raster access. Portable fields/editor
+integration and host rollback are qualified by their corresponding application
+suites; no foreign dual-brush fidelity is inferred from these native tests.
+
+### Integrated native workflow and decoder-boundary qualification
+
+The current implementation combines native per-cell smear transport, independent
+secondary-mask scheduling, portable resource declarations and hash repair, and
+strict worker response validation in the application workflow. Independent
+secondary spacing remains a native rule, not an inferred Photoshop dual-brush
+mapping. Original fixtures include long-run native wet state, hostile protocol
+files, damaged embedded resources, and shared resource/work limits.
+
+The source-transfer acquisition now separates 128 static/disabled/dynamic control
+cases across four wet models. Pixel acquisitions separately exercise fractional
+geometry and affine pressure endpoints. New acquisitions run first in the CI
+matrix; all existing full-image thresholds remain enforced. Complete job logs
+retain the full bounded probe batches; the truncated annotation summary alone
+is not sufficient evidence of complete acquisition.
+
+Full RCP1 remains incomplete: broad source dynamics, texture/dual-tip and bitmap
+sampling combinations, modern ABR behavioral binding, and physical-device input
+qualification are not established by these native improvements. Windows/macOS
+isolation, packaging, and the combined application lifecycle require passing
+checks at the integrated commit. Do not promote the draft or any preset to a
+reference-verified status merely because its parser or native regression passes.

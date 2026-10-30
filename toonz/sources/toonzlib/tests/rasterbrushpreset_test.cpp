@@ -1,5 +1,6 @@
 #include "toonz/rasterbrushpreset.h"
 #include "rasterbrushfixture.h"
+#include "../rasterbrushresponse.h"
 #include "toonz/rasterbrushimport.h"
 #include <QCoreApplication>
 #include <QProcess>
@@ -14,10 +15,15 @@
 #include <QImage>
 #include <QBuffer>
 #include <QCryptographicHash>
+#ifndef _WIN32
+#include <sys/stat.h>
+#include <unistd.h>
+#endif
 #ifdef __linux__
 #include <sys/resource.h>
 #endif
 #include <iostream>
+#include <algorithm>
 #include <cmath>
 #include <stdexcept>
 #if defined(__linux__) && defined(RASTERBRUSH_SANDBOX_TESTING)
@@ -25,12 +31,21 @@ namespace RasterBrush {
 int probeImportSandbox(const QString &, const QString &, const QString &);
 }
 #endif
+#if defined(__APPLE__) && defined(RASTERBRUSH_SANDBOX_TESTING)
+namespace RasterBrush {
+int probeMacWorkerTransport();
+}
+#endif
 using namespace RasterBrush;
 using RasterBrushTest::hardPixelKpp;
 #if defined(_WIN32) && defined(RASTERBRUSH_SANDBOX_TESTING)
 namespace RasterBrush {
 int probeWindowsImportLimits();
-}
+int probeWindowsImportSandbox(const QString &, const QString &, const QString &,
+                              const QString &);
+int probeWindowsImportSandboxWorker(const QString &, const QString &,
+                                    const QString &);
+}  // namespace RasterBrush
 #endif
 namespace {
 void require(bool value, const char *message) {
@@ -372,6 +387,23 @@ void testImports() {
                   hardRecord.preset.profile &&
               pressure.records.front().preset.size.mappings.size() == 1,
           "explicit linear source pressure curve was not preserved");
+  for (const QString &variant : {"pressureRange", "pressureSensorRange"}) {
+    auto affine = importBrush(hardPixelKpp(variant), "kpp", error);
+    require(affine.complete && affine.records.front().preset.profile ==
+                                   hardRecord.preset.profile,
+            "explicit two-point source pressure curve lost eligibility");
+    auto restored = decode(encode(affine.records.front(), error), error);
+    require(error.isEmpty() && restored.preset.size.mappings.size() == 1 &&
+                restored.preset.size.mappings.front().curve.size() == 2 &&
+                restored.preset.size.mappings.front().curve[0].y == .25 &&
+                restored.preset.size.mappings.front().curve[1].y == .75 &&
+                !restored.provenance["sourceReferenceVerified"].toBool(),
+            "affine source pressure endpoints or qualification lost on reopen");
+  }
+  auto spline = importBrush(hardPixelKpp("pressureSpline"), "kpp", error);
+  require(spline.complete &&
+              spline.records.front().preset.profile == "groundzero-native-1",
+          "unimplemented multi-knot source spline claimed candidate support");
   auto hardRestored = decode(encode(hardRecord, error), error);
   require(error.isEmpty() &&
               hardRestored.preset.profile == hardRecord.preset.profile,
@@ -542,6 +574,259 @@ void testImports() {
   data[8] = 127;
   require(!importBrush(data, "gbr", error).complete, "oversized GBR accepted");
 }
+void testPortability() {
+  Record original;
+  original.preset.name = "Original portable fixture";
+  auto color           = std::make_shared<Image>();
+  color->width         = 2;
+  color->height        = 1;
+  color->color         = true;
+  color->pixels        = {{128.0 / 255, 0, 0, 128.0 / 255}, {0, 1, 0, 1}};
+  auto mask            = std::make_shared<Image>();
+  mask->width = mask->height = 1;
+  mask->pixels               = {{0, 0, 0, 1}};
+  original.preset.tip.shape  = Shape::Bitmap;
+  original.preset.tip.images.push_back(color);
+  original.preset.texture.image = mask;
+  original.provenance = {{"privatePath", "/private-brush-fixture/source"},
+                         {"sourceReferenceVerified", true}};
+  original.diagnostics << "Original conversion has unverified source dynamics."
+                       << "Source /private-brush-fixture/source";
+  QString error;
+  auto inventory = resources(original, error);
+  require(error.isEmpty() && inventory.size() == 2,
+          "portable inventory lost a resource");
+  for (const auto &resource : inventory)
+    require(resource.redistribution == "unknown",
+            "unknown rights were inferred");
+  const auto manifest =
+      encodePortable(original, ResourcePackaging::ManifestOnly, error);
+  auto info = inspectPortable(manifest, error);
+  require(error.isEmpty() && info.portable && info.resources.size() == 2 &&
+              std::none_of(info.resources.begin(), info.resources.end(),
+                           [](const ResourceInfo &r) { return r.embedded; }),
+          "manifest-only export embedded an image");
+  auto missing = importBrush(manifest, "gzbrush", error);
+  require(!error.isEmpty() && missing.records.empty() && !missing.complete,
+          "unresolved manifest became an installable preset");
+  original.resourceRights[inventory[0].hash] =
+      QJsonObject{{"redistribution", "permitted"}, {"license", "CC0-1.0"}};
+  original.resourceRights[inventory[1].hash] =
+      QJsonObject{{"redistribution", "restricted"},
+                  {"license", "Original test declaration"}};
+  const auto permitted =
+      encodePortable(original, ResourcePackaging::PermittedOnly, error);
+  info = inspectPortable(permitted, error);
+  require(
+      error.isEmpty() &&
+          std::count_if(info.resources.begin(), info.resources.end(),
+                        [](const ResourceInfo &r) { return r.embedded; }) == 1,
+      "permitted-only export included restricted resources");
+  const auto backup =
+      encodePortable(original, ResourcePackaging::PrivateCopy, error);
+  auto restored = decode(backup, error);
+  require(error.isEmpty() && !restored.referenceVerified &&
+              restored.resourceRights == original.resourceRights &&
+              !backup.contains("/private-brush-fixture/") &&
+              restored.diagnostics.empty() &&
+              !restored.provenance["sourceReferenceVerified"].toBool(),
+          "private portability lost declarations or exported private metadata");
+
+  for (const QString &note :
+       {QString::fromLatin1(R"(\\server\share\brush.png)"),
+        QString::fromLatin1(R"(source=\\?\C:\brushes\brush.png)"),
+        QString::fromLatin1(R"(source: \\?\UNC\server\share\brush.png)"),
+        QString::fromLatin1(R"(source=C:\brushes\brush.png)"),
+        QString::fromLatin1(R"(source=/private-brush-fixture/source)"),
+        QString::fromLatin1(R"(source=\rooted\brush.png)"),
+        QString::fromLatin1("FILE:///private-brush-fixture/source"),
+        QString::fromLatin1("~/brushes/source")}) {
+    Record privateNote      = original;
+    privateNote.diagnostics = QStringList{note};
+    privateNote.resourceRights[inventory[0].hash] =
+        QJsonObject{{"redistribution", "permitted"}, {"license", note}};
+    const auto filteredBytes =
+        encodePortable(privateNote, ResourcePackaging::PrivateCopy, error);
+    const auto filtered = decode(filteredBytes, error);
+    require(error.isEmpty() && filtered.diagnostics.empty() &&
+                filtered.resourceRights[inventory[0].hash]
+                    .toObject()["license"]
+                    .toString()
+                    .isEmpty(),
+            "portable export disclosed a local path in free-form metadata");
+  }
+  Record licenseLink = original;
+  const QString attribution =
+      "CC0-1.0; https://creativecommons.org/publicdomain/zero/1.0/";
+  licenseLink.resourceRights[inventory[0].hash] =
+      QJsonObject{{"redistribution", "permitted"}, {"license", attribution}};
+  const auto linked =
+      decode(encodePortable(licenseLink, ResourcePackaging::PrivateCopy, error),
+             error);
+  require(error.isEmpty() && linked.resourceRights[inventory[0].hash]
+                                     .toObject()["license"]
+                                     .toString() == attribution,
+          "portable export removed ordinary license attribution or web link");
+  auto native = decode(encode(restored, error), error);
+  require(error.isEmpty() && native.resourceRights == restored.resourceRights,
+          "native save/reopen lost resource declarations");
+  QTemporaryDir worker;
+  auto wire        = encodeWorkerRecord(restored, worker.path(), error);
+  auto transferred = decodeWorkerRecord(wire, worker.path(), error);
+  require(
+      error.isEmpty() && transferred.resourceRights == restored.resourceRights,
+      "worker round trip lost resource declarations");
+  Record wrong;
+  auto wrongImage         = std::make_shared<Image>(*mask);
+  wrongImage->pixels[0].a = .5;
+  wrong.preset.tip.shape  = Shape::Bitmap;
+  wrong.preset.tip.images = {wrongImage};
+  QStringList matched;
+  auto unchanged = relinkPortable(manifest, {wrong}, matched, error);
+  require(error.isEmpty() && matched.isEmpty(),
+          "wrong resource hash was accepted");
+  decode(unchanged, error);
+  require(!error.isEmpty(), "unsuccessful repair produced a usable brush");
+  // An omitted PNG may have a different byte encoding on another platform.
+  // Relink by canonical pixels and rewrite the native byte-hash references.
+  auto root            = QJsonDocument::fromJson(manifest).object();
+  auto package         = root["package"].toObject();
+  auto settings        = package["settings"].toObject();
+  auto tip             = settings["tip"].toObject();
+  auto refs            = tip["images"].toArray();
+  const QString oldId  = refs[0].toString(), alternateId(64, 'a');
+  refs[0]              = alternateId;
+  tip["images"]        = refs;
+  settings["tip"]      = tip;
+  package["settings"]  = settings;
+  root["package"]      = package;
+  auto entries         = root["resources"].toObject();
+  entries[alternateId] = entries.take(oldId);
+  root["resources"]    = entries;
+  auto repaired =
+      relinkPortable(QJsonDocument(root).toJson(), {original}, matched, error);
+  require(error.isEmpty() && matched.size() == 2,
+          "matching copies did not repair all hashes");
+  restored = decode(repaired, error);
+  require(error.isEmpty() && restored.preset.tip.images.size() == 1 &&
+              std::abs(restored.preset.tip.images[0]->pixels[0].a -
+                       128.0 / 255) < 1e-9 &&
+              resources(restored, error).size() == 2,
+          "relinked color or texture resource changed");
+  // Declarations come from the manifest, not a relink donor's permissions.
+  for (auto rights : restored.resourceRights)
+    require(rights.toObject()["redistribution"] == "unknown",
+            "relink donor silently granted redistribution rights");
+  auto damaged             = QJsonDocument::fromJson(backup).object();
+  auto damagedPackage      = damaged["package"].toObject();
+  auto assets              = damagedPackage["assets"].toObject();
+  const auto damagedId     = assets.keys().front();
+  auto asset               = assets[damagedId].toObject();
+  asset["png"]             = "broken embedded bytes";
+  assets[damagedId]        = asset;
+  damagedPackage["assets"] = assets;
+  damaged["package"]       = damagedPackage;
+  info = inspectPortable(QJsonDocument(damaged).toJson(), error);
+  require(
+      error.isEmpty() &&
+          std::count_if(info.resources.begin(), info.resources.end(),
+                        [](const ResourceInfo &r) { return !r.embedded; }) == 1,
+      "corrupted embedded resource was not repairable");
+  repaired = relinkPortable(QJsonDocument(damaged).toJson(), {original},
+                            matched, error);
+  restored = decode(repaired, error);
+  require(error.isEmpty() && matched.size() == 1,
+          "corrupted resource repair failed");
+  damaged              = QJsonDocument::fromJson(backup).object();
+  entries              = damaged["resources"].toObject();
+  const auto id        = entries.keys().front();
+  auto entry           = entries[id].toObject();
+  entry["hash"]        = QString(64, '0');
+  entries[id]          = entry;
+  damaged["resources"] = entries;
+  decode(QJsonDocument(damaged).toJson(), error);
+  require(!error.isEmpty(), "forged pixel hash accepted");
+  const auto retryManifest =
+      preparePortableRepair(QJsonDocument(damaged).toJson(), error);
+  info = inspectPortable(retryManifest, error);
+  require(error.isEmpty() &&
+              std::none_of(info.resources.begin(), info.resources.end(),
+                           [](const ResourceInfo &r) { return r.embedded; }),
+          "worker validation failure could not prepare hash repair");
+  const auto badRepair =
+      relinkPortable(retryManifest, {original}, matched, error);
+  decode(badRepair, error);
+  require(!error.isEmpty(),
+          "repair replaced a forged hash by a different identity");
+  // A valid replacement PNG has a correct byte ID but disagrees with the
+  // original canonical pixel identity. Explicit repair restores originals.
+  Record changedPixels            = original;
+  auto replacement                = std::make_shared<Image>(*color);
+  replacement->pixels[0]          = {0, 0, 1, 1};
+  changedPixels.preset.tip.images = {replacement};
+  const auto donorPackage =
+      QJsonDocument::fromJson(encode(changedPixels, error)).object();
+  const auto donorId = donorPackage["settings"]
+                           .toObject()["tip"]
+                           .toObject()["images"]
+                           .toArray()[0]
+                           .toString();
+  auto substituted       = QJsonDocument::fromJson(backup).object();
+  auto subPackage        = substituted["package"].toObject();
+  auto subSettings       = subPackage["settings"].toObject();
+  auto subTip            = subSettings["tip"].toObject();
+  auto subRefs           = subTip["images"].toArray();
+  const auto originalId  = subRefs[0].toString();
+  subRefs[0]             = donorId;
+  subTip["images"]       = subRefs;
+  subSettings["tip"]     = subTip;
+  subPackage["settings"] = subSettings;
+  auto subAssets         = subPackage["assets"].toObject();
+  subAssets.remove(originalId);
+  subAssets[donorId]          = donorPackage["assets"].toObject()[donorId];
+  subPackage["assets"]        = subAssets;
+  substituted["package"]      = subPackage;
+  auto subManifest            = substituted["resources"].toObject();
+  subManifest[donorId]        = subManifest.take(originalId);
+  substituted["resources"]    = subManifest;
+  const auto substitutedBytes = QJsonDocument(substituted).toJson();
+  info                        = inspectPortable(substitutedBytes, error);
+  require(error.isEmpty() &&
+              std::all_of(info.resources.begin(), info.resources.end(),
+                          [](const ResourceInfo &r) { return r.embedded; }),
+          "valid PNG byte identity was treated as missing");
+  decode(substitutedBytes, error);
+  require(!error.isEmpty(), "pixel hash mismatch escaped worker validation");
+  const auto cleanRetry = preparePortableRepair(substitutedBytes, error);
+  auto cleanRepair = relinkPortable(cleanRetry, {original}, matched, error);
+  auto cleanRecord = decode(cleanRepair, error);
+  require(error.isEmpty() && matched.size() == 2 &&
+              cleanRecord.preset.tip.images[0]->pixels[0].r > 0,
+          "explicit replacement of invalid embedded pixels failed hash repair");
+  entry["width"]       = 100000;
+  entries[id]          = entry;
+  damaged["resources"] = entries;
+  inspectPortable(QJsonDocument(damaged).toJson(), error);
+  require(!error.isEmpty(), "oversized portable geometry accepted");
+  Record transparent            = original;
+  auto faint                    = std::make_shared<Image>(*color);
+  faint->pixels[0]              = {.001, 0, 0, .001};
+  transparent.preset.tip.images = {faint};
+  const auto faintBytes =
+      encodePortable(transparent, ResourcePackaging::PrivateCopy, error);
+  const auto faintRestored = decode(faintBytes, error);
+  require(
+      error.isEmpty() && faintRestored.preset.tip.images[0]->pixels[0].a == 0,
+      "RGBA8 transparent quantization changed portable identity");
+  QTemporaryDir destination;
+  require(savePortable(destination.filePath("manifest.gzbrush"), original,
+                       ResourcePackaging::ManifestOnly, error),
+          qPrintable(error));
+  auto file = load(destination.filePath("manifest.gzbrush"), error);
+  require(!error.isEmpty() && !file.semanticallySupported,
+          "saved unresolved manifest became a drawing preset");
+}
+
 void testPackage() {
   Record r;
   r.preset.name = "Original brush";
@@ -570,8 +855,10 @@ void testPackage() {
       {Sensor::DabIndex, {{0, 1}, {1, 0}}, 20, Interpolation::NaturalCubic});
   r.preset.angle.mappings.push_back(
       {Sensor::InitialDirection, {{0, 0}, {1, 1}}, 1});
-  r.preset.scatterBothAxes = false;
-  r.preset.secondary.count = 3;
+  r.preset.scatterBothAxes              = false;
+  r.preset.secondary.count              = 3;
+  r.preset.secondary.independentSpacing = true;
+  r.preset.secondary.spacing            = .37;
   r.preset.secondary.flipX = r.preset.secondary.flipY = true;
   r.preset.saturation.value                           = .7;
   r.preset.brightness.value                           = 1.2;
@@ -590,6 +877,8 @@ void testPackage() {
           "antialias setting lost on reopen");
   require(!restored.preset.scatterBothAxes &&
               restored.preset.secondary.count == 3 &&
+              restored.preset.secondary.independentSpacing &&
+              restored.preset.secondary.spacing == .37 &&
               restored.preset.secondary.flipX &&
               restored.preset.secondary.flipY &&
               restored.preset.countControl.mappings.front().sensor ==
@@ -613,7 +902,8 @@ void testPackage() {
   olderSettings.remove("countControl");
   olderSettings.remove("scatterBothAxes");
   auto olderSecondary = olderSettings["secondary"].toObject();
-  for (const auto &key : {"count", "flipX", "flipY"})
+  for (const auto &key :
+       {"count", "flipX", "flipY", "independentSpacing", "spacing"})
     olderSecondary.remove(key);
   olderSettings["secondary"] = olderSecondary;
   auto olderTip              = olderSettings["tip"].toObject();
@@ -627,6 +917,8 @@ void testPackage() {
               oldRecord.preset.countControl.value == 1 &&
               oldRecord.preset.countControl.mappings.empty() &&
               oldRecord.preset.secondary.count == 1 &&
+              !oldRecord.preset.secondary.independentSpacing &&
+              oldRecord.preset.secondary.spacing == .1 &&
               !oldRecord.preset.secondary.flipX &&
               !oldRecord.preset.secondary.flipY &&
               !oldRecord.preset.tip.antialiasEdges,
@@ -865,6 +1157,10 @@ QString workerExecutable() {
 }
 void testWorkerPeakBudget() {
   QTemporaryDir directory;
+  QFile placeholder(directory.filePath("oversized-worker.fixture"));
+  require(placeholder.open(QIODevice::WriteOnly),
+          "cannot stage budget fixture");
+  placeholder.close();
   QString error;
   auto result =
       importBrushProcess(workerExecutable(),
@@ -885,7 +1181,261 @@ void testWorkerPeakBudget() {
           "parent import exceeded the qualified 320 MiB total-RSS envelope");
 #endif
 }
+int badResponseFixture(const QString &input, const QString &directory) {
+  const QStringList parts = QFileInfo(input).baseName().split('-');
+  if (parts.size() != 4) return 72;
+  const QString kind = parts[2], member = parts[3];
+  QString error;
+  Record record;
+  auto image   = std::make_shared<Image>();
+  image->width = image->height = 1;
+  image->pixels                = {{0, 0, 0, 1}};
+  record.preset.tip.shape      = Shape::Bitmap;
+  record.preset.tip.images.push_back(image);
+  const auto metadata = encodeWorkerRecord(record, directory, error);
+  if (!error.isEmpty()) return 72;
+  const auto root         = QJsonDocument::fromJson(metadata).object();
+  const auto assets       = root["assets"].toObject();
+  const QString imageName = assets.keys().front() + ".rgba8";
+  auto write              = [&](const QString &name, const QByteArray &bytes) {
+    QFile file(QDir(directory).filePath(name));
+    return file.open(QIODevice::WriteOnly) && file.write(bytes) == bytes.size();
+  };
+  const auto manifest =
+      QJsonDocument(QJsonObject{{"protocol", 2},
+                                {"count", 1},
+                                {"diagnostics", QJsonArray{}}})
+          .toJson();
+  if (!write("result.json", manifest) || !write("0.gzbrush", metadata) ||
+      !write("error.txt", "original test diagnostic"))
+    return 72;
+  const QString name   = member == "error"     ? "error.txt"
+                         : member == "result"  ? "result.json"
+                         : member == "package" ? "0.gzbrush"
+                                               : imageName;
+  const QString path   = QDir(directory).filePath(name);
+  const QString target = QDir(directory).filePath("regular-target");
+  if (!QFile::copy(path, target) || !QFile::remove(path)) return 72;
+  bool made = false;
+#ifndef _WIN32
+  if (kind == "fifo")
+    made = mkfifo(QFile::encodeName(path).constData(), 0600) == 0;
+  if (kind == "symlink") made = QFile::link(target, path);
+  if (kind == "hardlink")
+    made = link(QFile::encodeName(target).constData(),
+                QFile::encodeName(path).constData()) == 0;
+#else
+  if (kind == "hardlink") {
+    const QString nativePath   = QDir::toNativeSeparators(path);
+    const QString nativeTarget = QDir::toNativeSeparators(target);
+    made = CreateHardLinkW(reinterpret_cast<LPCWSTR>(nativePath.utf16()),
+                           reinterpret_cast<LPCWSTR>(nativeTarget.utf16()),
+                           nullptr);
+  }
+#endif
+  if (!made) return 72;
+  return member == "error" ? 71 : 0;
+}
+void runResponseCase(const QString &kind, const QString &member) {
+  QTemporaryDir directory;
+  require(directory.isValid(), "cannot create hostile response input");
+  const QString input =
+      directory.filePath("bad-response-" + kind + "-" + member + ".fixture");
+  QFile placeholder(input);
+  require(placeholder.open(QIODevice::WriteOnly) &&
+              placeholder.write("fixture") == 7,
+          "cannot write hostile response placeholder");
+  placeholder.close();
+  QTemporaryDir output;
+  require(output.isValid(), "cannot create hostile response output");
+  QString error;
+  Detail::RegularResponseDirectory anchored;
+  require(anchored.open(output.path(), error), qPrintable(error));
+  QProcess writer;
+  // The macOS production test helper is sandboxed at exec. Use the ordinary
+  // test executable so this fixture can actually create hostile output in the
+  // parent directory; sandbox rejection would not exercise the response reader.
+  writer.start(QCoreApplication::applicationFilePath(),
+               {"--test-write-response", input, output.path()});
+  const bool wrote = writer.waitForFinished(5000);
+  if (!wrote) {
+    writer.kill();
+    writer.waitForFinished(3000);
+  }
+  require(wrote && writer.exitStatus() == QProcess::NormalExit &&
+              writer.exitCode() == (member == "error" ? 71 : 0),
+          "hostile writer did not create the response fixture");
+  const auto result = readWorkerResponse(anchored, true, writer.exitCode(),
+                                         error, 256u * 1024u * 1024u);
+  require(!error.isEmpty() && result.records.empty() && !result.complete,
+          "hostile worker response accepted");
+  if (member == "error")
+    require(error.contains("exit 71"),
+            "hostile diagnostic fixture did not execute");
+  else
+    require(!error.contains("worker failed"),
+            "hostile result fixture did not execute");
+}
+void testResponseFiles() {
+  // Isolate each attack in a timed outer process: a regression must fail this
+  // check, not hang the suite while QFile waits for a nonexistent FIFO writer.
+  QStringList kinds{"hardlink"};
+#ifndef _WIN32
+  kinds << "fifo" << "symlink";
+#endif
+  for (const auto &kind : kinds)
+    for (const QString &member : {"error", "result", "package", "image"}) {
+      QProcess parent;
+      parent.start(QCoreApplication::applicationFilePath(),
+                   {"--test-response-case", kind, member});
+      const bool finished = parent.waitForFinished(10000);
+      if (!finished) {
+        parent.kill();
+        parent.waitForFinished(3000);
+      }
+      const QString message =
+          QString("Hostile %1 %2 response: finished=%3 exit=%4 stderr=%5")
+              .arg(kind)
+              .arg(member)
+              .arg(finished)
+              .arg(parent.exitCode())
+              .arg(QString::fromUtf8(parent.readAllStandardError()));
+      require(finished && parent.exitStatus() == QProcess::NormalExit &&
+                  parent.exitCode() == 0,
+              qPrintable(message));
+    }
+  QTemporaryDir root;
+  require(root.isValid(), "cannot create directory-anchor fixture");
+  const QString path = root.filePath("responses");
+  require(QDir().mkdir(path), "cannot create anchored directory");
+  QFile file(QDir(path).filePath("probe"));
+  require(file.open(QIODevice::WriteOnly) && file.write("held") == 4,
+          "cannot create anchored file");
+  file.close();
+  QString error;
+  Detail::RegularResponseDirectory anchored;
+  require(anchored.open(path, error), qPrintable(error));
+#ifndef _WIN32
+  require(QDir().rename(path, root.filePath("moved")) && QDir().mkdir(path),
+          "cannot swap response directory fixture");
+  QFile replacement(QDir(path).filePath("probe"));
+  require(
+      replacement.open(QIODevice::WriteOnly) && replacement.write("evil") == 4,
+      "cannot write swapped response fixture");
+  replacement.close();
+#else
+  require(!QDir().rename(path, root.filePath("moved")),
+          "anchored Windows response directory could be replaced");
+#endif
+  require(Detail::readResponseFile(anchored, "probe", 4, error) == "held" &&
+              error.isEmpty(),
+          "response directory swap redirected file read");
+  Detail::readResponseFile(anchored, "probe", 3, error);
+  require(!error.isEmpty(), "regular-file size limit ignored");
+  QTemporaryDir malformed;
+  require(malformed.isValid(), "cannot create outer manifest fixture");
+  Detail::RegularResponseDirectory manifests;
+  require(manifests.open(malformed.path(), error), qPrintable(error));
+  for (int mutation = 0; mutation < 5; ++mutation) {
+    QJsonObject object{
+        {"protocol", 2}, {"count", 1}, {"diagnostics", QJsonArray{}}};
+    if (mutation == 0) object["protocol"] = 2.5;
+    if (mutation == 1) object["count"] = 1.5;
+    if (mutation == 2) object["unknown"] = true;
+    if (mutation == 3) object["diagnostics"] = "not an array";
+    if (mutation == 4) {
+      QJsonArray items;
+      for (int i = 0; i < 1025; ++i) items.append("entry");
+      object["diagnostics"] = items;
+    }
+    QFile file(malformed.filePath("result.json"));
+    const auto bytes = QJsonDocument(object).toJson();
+    require(file.open(QIODevice::WriteOnly | QIODevice::Truncate) &&
+                file.write(bytes) == bytes.size(),
+            "cannot write outer manifest fixture");
+    file.close();
+    const auto rejected = readWorkerResponse(manifests, true, 0, error, 1024);
+    require(!rejected.complete && rejected.records.empty() &&
+                error.contains("protocol"),
+            "malformed outer manifest reached resource decoding");
+  }
+  std::atomic_bool cancelled(true);
+  const auto stopped =
+      readWorkerResponse(manifests, true, 0, error, 1024, &cancelled);
+  require(!stopped.complete && stopped.records.empty() && error.isEmpty(),
+          "cancelled response began parsing files");
+}
 void testWorkerProcess() {
+#if defined(_WIN32) && defined(RASTERBRUSH_SANDBOX_TESTING)
+  {
+    QTemporaryDir privateFiles, firstOutput, secondOutput;
+    QFile input(privateFiles.filePath("overlap"));
+    QFile forbidden(privateFiles.filePath("private"));
+    require(input.open(QIODevice::WriteOnly) && input.write("allowed") == 7 &&
+                forbidden.open(QIODevice::WriteOnly) &&
+                forbidden.write("private") == 7,
+            "overlapping import fixtures failed");
+    input.close();
+    forbidden.close();
+    QProcess first, second;
+    first.start(workerExecutable(),
+                {"--test-windows-sandbox-parent", input.fileName(),
+                 firstOutput.path(), forbidden.fileName()});
+    QElapsedTimer waiting;
+    waiting.start();
+    while (!QFileInfo::exists(firstOutput.filePath("entered")) &&
+           waiting.elapsed() < 15000)
+      QThread::msleep(10);
+    require(QFileInfo::exists(firstOutput.filePath("entered")),
+            "first overlapping sandbox did not start");
+    second.start(workerExecutable(),
+                 {"--test-windows-sandbox-parent", input.fileName(),
+                  secondOutput.path(), forbidden.fileName()});
+    require(first.waitForFinished(15000) && second.waitForFinished(15000) &&
+                first.exitStatus() == QProcess::NormalExit &&
+                first.exitCode() == 0 &&
+                second.exitStatus() == QProcess::NormalExit &&
+                second.exitCode() == 0,
+            "overlapping imports failed or did not clean up their ACLs");
+    QFile firstTime(firstOutput.filePath("entered"));
+    QFile secondTime(secondOutput.filePath("entered"));
+    require(firstTime.open(QIODevice::ReadOnly) &&
+                secondTime.open(QIODevice::ReadOnly) &&
+                secondTime.readAll().toLongLong() -
+                        firstTime.readAll().toLongLong() >=
+                    900,
+            "Windows imports modified shared ACLs concurrently");
+  }
+#endif
+#if defined(__APPLE__) && defined(RASTERBRUSH_SANDBOX_TESTING)
+  require(probeMacWorkerTransport() == 0,
+          "macOS bounded wire validation failed");
+#endif
+#if defined(_WIN32) && defined(RASTERBRUSH_SANDBOX_TESTING)
+  {
+    QTemporaryDir privateFiles, output;
+    require(privateFiles.isValid() && output.isValid(),
+            "sandbox staging failed");
+    QFile input(privateFiles.filePath("input"));
+    QFile forbidden(privateFiles.filePath("private"));
+    require(input.open(QIODevice::WriteOnly) && input.write("allowed") == 7 &&
+                forbidden.open(QIODevice::WriteOnly) &&
+                forbidden.write("private") == 7,
+            "sandbox fixtures failed");
+    input.close();
+    forbidden.close();
+    const int code =
+        probeWindowsImportSandbox(workerExecutable(), input.fileName(),
+                                  output.path(), forbidden.fileName());
+    const auto detail =
+        QString("Windows AppContainer denial probe exit=%1").arg(code);
+    require(code == 0 && QFileInfo::exists(output.filePath("sandbox-passed")),
+            detail.toUtf8().constData());
+    require(
+        forbidden.open(QIODevice::ReadOnly) && forbidden.readAll() == "private",
+        "Windows sandbox modified unrelated data");
+  }
+#endif
 #if defined(_WIN32) && defined(RASTERBRUSH_SANDBOX_TESTING)
   {
     QProcess process;
@@ -987,6 +1537,10 @@ void testWorkerProcess() {
     QThread::msleep(250);
     cancelled.store(true);
   }));
+  QFile placeholder(directory.filePath("blocking-worker.fixture"));
+  require(placeholder.open(QIODevice::WriteOnly),
+          "cannot stage cancellation fixture");
+  placeholder.close();
   cancellation->start();
   QElapsedTimer timer;
   timer.start();
@@ -1034,8 +1588,18 @@ void writeCorpus(const QString &directory) {
     image->pixels                = {{0, 0, 0, 1}};
     record.preset.tip.shape      = Shape::Bitmap;
     record.preset.tip.images.push_back(image);
+    save("portable-manifest", 0,
+         encodePortable(record, ResourcePackaging::ManifestOnly, error));
+    require(error.isEmpty(), "cannot encode manifest corpus");
+    save("portable-embedded", 0,
+         encodePortable(record, ResourcePackaging::PrivateCopy, error));
+    require(error.isEmpty(), "cannot encode embedded portable corpus");
     save("worker-metadata", 6, encodeWorkerRecord(record, wire.path(), error));
     require(error.isEmpty(), "cannot encode worker wire corpus");
+    save("worker-manifest", 8,
+         QByteArray("{\"protocol\":2,\"count\":1,\"diagnostics\":[]}"));
+    save("worker-fractional-count", 8,
+         QByteArray("{\"protocol\":2,\"count\":1.5,\"diagnostics\":[]}"));
     save("worker-rgba8", 7, QByteArray::fromHex("0000000100000001000000ff"));
     save("worker-oversized-header", 7,
          QByteArray::fromHex("ffffffffffffffff000000ff"));
@@ -1087,7 +1651,25 @@ void writeCorpus(const QString &directory) {
 }  // namespace
 int main(int argc, char **argv) {
   QCoreApplication app(argc, argv);
+#ifdef __APPLE__
+  if (argc == 4 && app.arguments().at(1) == "--raster-brush-import-stream")
+    return runMacImportStream(app.arguments().at(2), app.arguments().at(3),
+                              [](const QString &input, const QString &output) {
+                                if (input.endsWith("oversized-worker.fixture"))
+                                  return oversizedWorkerFixture(output);
+                                if (input.endsWith("blocking-worker.fixture"))
+                                  QThread::sleep(30);
+                                return runImportWorker(input, output);
+                              });
+#endif
 #if defined(_WIN32) && defined(RASTERBRUSH_SANDBOX_TESTING)
+  if (argc == 5 && app.arguments().at(1) == "--test-windows-sandbox-parent")
+    return probeWindowsImportSandbox(
+        QCoreApplication::applicationFilePath(), app.arguments().at(2),
+        app.arguments().at(3), app.arguments().at(4));
+  if (argc == 5 && app.arguments().at(1) == "--test-windows-sandbox-worker")
+    return probeWindowsImportSandboxWorker(
+        app.arguments().at(2), app.arguments().at(3), app.arguments().at(4));
   if (argc == 2 && app.arguments().at(1) == "--test-windows-worker-limits")
     return probeWindowsImportLimits();
   if (argc == 2 && app.arguments().at(1) == "--test-worker-ping") return 0;
@@ -1108,16 +1690,24 @@ int main(int argc, char **argv) {
     return runImportWorker(app.arguments().at(2), app.arguments().at(3));
   }
   try {
+    if (argc == 4 && app.arguments().at(1) == "--test-write-response")
+      return badResponseFixture(app.arguments().at(2), app.arguments().at(3));
+    if (argc == 4 && app.arguments().at(1) == "--test-response-case") {
+      runResponseCase(app.arguments().at(2), app.arguments().at(3));
+      return 0;
+    }
     if (argc == 2 && app.arguments().at(1) == "--test-worker-budget") {
       testWorkerPeakBudget();
       return 0;
     }
+    testPortability();
     testPackage();
     testImports();
     testBundles();
     testCollection();
     testWorkerWire();
     testWorkerProcess();
+    testResponseFiles();
     if (argc == 3 && QString::fromLocal8Bit(argv[1]) == "--write-corpus")
       writeCorpus(QString::fromLocal8Bit(argv[2]));
     std::cout << "Native brush package tests passed\n";

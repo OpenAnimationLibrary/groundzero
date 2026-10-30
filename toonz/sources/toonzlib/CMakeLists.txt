@@ -766,3 +766,22 @@ if(BUILD_COMPAT_REGRESSION)
     target_link_libraries(compat_regression PRIVATE toonzlib tnzbase tnzcore tnzext image tnzstdfx colorfx Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
 endif()
 # compat_regression: end
+
+if(WIN32)
+    target_link_libraries(toonzlib userenv advapi32 ws2_32)
+endif()
+
+if(APPLE)
+    find_package(ZLIB REQUIRED)
+    include("${CMAKE_CURRENT_SOURCE_DIR}/rasterbrushhelper.cmake")
+    target_link_libraries(toonzlib "-framework Security" "-framework CoreFoundation")
+    add_rasterbrush_helper(rasterbrushimport-helper ${QT_VERSION_MAJOR}
+        "${CMAKE_CURRENT_SOURCE_DIR}/rasterbrushimporthelper.cpp")
+    if(TARGET rasterbrushpreset_test)
+        add_rasterbrush_helper(rasterbrushworker_test ${QT_VERSION_MAJOR}
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/rasterbrushpreset_test.cpp")
+        target_compile_definitions(rasterbrushworker_test PRIVATE RASTERBRUSH_SANDBOX_TESTING)
+        target_compile_definitions(rasterbrushpreset_test PRIVATE RASTERBRUSH_SEPARATE_WORKER_TEST)
+        add_dependencies(rasterbrushpreset_test rasterbrushworker_test)
+    endif()
+endif()

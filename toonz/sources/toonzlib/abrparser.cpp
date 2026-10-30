@@ -1,6 +1,9 @@
 #include "toonz/abrparser.h"
 
 #include <cstring>
+#include <cstdlib>
+#include <limits>
+#include <zlib.h>
 #include <cmath>
 #include <set>
 #include <stdexcept>
@@ -583,6 +586,176 @@ void parseSamples(Reader &section, int subVersion, Result &out,
   }
 }
 
+// zlib's internal allocations participate in the same live decoded-byte
+// budget as channel output. Allocation headers preserve alignment on all hosts.
+struct alignas(std::max_align_t) InflateAllocation {
+  size_t bytes;
+};
+voidpf patternZalloc(voidpf opaque, uInt count, uInt size) {
+  auto &budget        = *static_cast<Budget *>(opaque);
+  const size_t header = sizeof(InflateAllocation);
+  if (size &&
+      size_t(count) > (std::numeric_limits<size_t>::max() - header) / size)
+    return Z_NULL;
+  const size_t bytes = header + size_t(count) * size;
+  if (!budget.allocate(bytes)) return Z_NULL;
+  auto *allocation = static_cast<InflateAllocation *>(std::calloc(1, bytes));
+  if (!allocation) {
+    budget.decoded -= bytes;
+    return Z_NULL;
+  }
+  allocation->bytes = bytes;
+  return allocation + 1;
+}
+void patternZfree(voidpf opaque, voidpf pointer) {
+  if (!pointer) return;
+  auto &budget     = *static_cast<Budget *>(opaque);
+  auto *allocation = static_cast<InflateAllocation *>(pointer) - 1;
+  budget.decoded -= allocation->bytes;
+  std::free(allocation);
+}
+
+bool inflatePattern(Reader &input, std::vector<unsigned char> &output,
+                    Budget &budget) {
+  if (input.remaining() > std::numeric_limits<uInt>::max() ||
+      output.size() > std::numeric_limits<uInt>::max())
+    return false;
+  z_stream stream{};
+  stream.zalloc   = patternZalloc;
+  stream.zfree    = patternZfree;
+  stream.opaque   = &budget;
+  stream.next_in  = const_cast<Bytef *>(input.ptr());
+  stream.avail_in = uInt(input.remaining());
+  // A one-byte sentinel handles empty channels and checks for output overrun
+  // without expanding the destination to accommodate a decompression bomb.
+  unsigned char sentinel = 0;
+  stream.next_out        = output.empty() ? &sentinel : output.data();
+  stream.avail_out       = output.empty() ? 1 : uInt(output.size());
+  if (inflateInit(&stream) != Z_OK) return false;
+  int status = inflate(&stream, Z_FINISH);
+  if (status == Z_BUF_ERROR && stream.avail_out == 0 &&
+      stream.total_out == output.size()) {
+    stream.next_out  = &sentinel;
+    stream.avail_out = 1;
+    status           = inflate(&stream, Z_FINISH);
+  }
+  const bool valid = status == Z_STREAM_END && stream.avail_in == 0 &&
+                     stream.total_out == output.size();
+  inflateEnd(&stream);
+  return valid;
+}
+
+// Independently implemented from Adobe Photoshop File Formats Specification,
+// "Patterns" and "Virtual memory array list" (November 2019). This decodes
+// resources only: the specification does not define brush texture behavior.
+void parsePatterns(Reader &section, Result &out, Budget &budget) {
+  auto need = [](bool ok) {
+    if (!ok) throw std::runtime_error("Invalid pattern resource layout");
+  };
+  while (section.remaining()) {
+    need(budget.record());
+    uint32_t length, version, mode;
+    need(section.u32(length) && length <= section.remaining());
+    const size_t end = section.pos() + length;
+    Reader r         = section.sub(end);
+    Pattern pattern;
+    need(r.u32(version) && version == 1 && r.u32(mode));
+    need(mode == 0 || mode == 1 || mode == 2 || mode == 3 || mode == 4 ||
+         mode == 7 || mode == 8 || mode == 9);
+    pattern.mode = mode;
+    need(r.u16(pattern.pointY) && r.u16(pattern.pointX));
+    need(readUnicodeName(r, pattern.name, budget));
+    unsigned idLength;
+    need(r.u8(idLength) && idLength && idLength <= r.remaining());
+    budget.descriptorAllocate(sizeof(Pattern) + pattern.name.size() + idLength);
+    pattern.id.assign(reinterpret_cast<const char *>(r.ptr()), idLength);
+    r.skip(idLength);
+    for (const auto &existing : out.patterns)
+      need(existing.id != pattern.id);  // Never resolve ambiguous identities.
+    if (mode == 2) {
+      need(r.remaining() >= 768);
+      need(budget.allocate(768));
+      pattern.palette.assign(r.ptr(), r.ptr() + 768);
+      r.skip(768);
+    }
+    uint32_t vmLength, count;
+    need(r.u32(version) && version == 3 && r.u32(vmLength) &&
+         vmLength <= r.remaining());
+    Reader vm = r.sub(r.pos() + vmLength);
+    need(vm.i32(pattern.top) && vm.i32(pattern.left) &&
+         vm.i32(pattern.bottom) && vm.i32(pattern.right) && vm.u32(count));
+    need(pattern.bottom >= pattern.top && pattern.right >= pattern.left);
+    // The documented channel count excludes the user-mask and sheet-mask slots.
+    need(count <= 64 && count + 2 <= vm.remaining() / 4);
+    budget.descriptorAllocate((size_t(count) + 2) * sizeof(PatternChannel));
+    pattern.channels.reserve(size_t(count) + 2);
+    for (uint32_t i = 0; i < count + 2; ++i) {
+      need(budget.record());
+      PatternChannel channel;
+      uint32_t written, channelLength, depth;
+      need(vm.u32(written) && written <= 1);
+      channel.written = written != 0;
+      if (written) {
+        need(vm.u32(channelLength) && channelLength <= vm.remaining());
+        if (channelLength) {
+          Reader cr = vm.sub(vm.pos() + channelLength);
+          need(cr.u32(depth) && cr.i32(channel.top) && cr.i32(channel.left) &&
+               cr.i32(channel.bottom) && cr.i32(channel.right) &&
+               cr.u16(channel.depth) && cr.u8(channel.compression));
+          need(depth == channel.depth &&
+               (depth == 1 || depth == 8 || depth == 16 || depth == 32));
+          const int64_t width  = int64_t(channel.right) - channel.left;
+          const int64_t height = int64_t(channel.bottom) - channel.top;
+          need(width >= 0 && height >= 0 && width <= c_maxTipSide &&
+               height <= c_maxTipSide && width * height <= c_maxTipPixels);
+          if ((depth == 8 || depth == 16) && channel.compression <= 1) {
+            const size_t bytes = size_t(width * height) * (depth / 8);
+            need(budget.allocate(bytes));
+            if (channel.compression == 0) {
+              need(cr.remaining() == bytes);
+              channel.pixels.assign(cr.ptr(), cr.ptr() + bytes);
+              channel.encodingProfile = "adobe-vm-raw";
+            } else {
+              // VM-array documentation assigns 1 to ZIP. Do not substitute
+              // the PSD image-data enum (1=PackBits, 2=ZIP, 3=prediction),
+              // or try multiple decoders until a malformed input succeeds.
+              channel.pixels.resize(bytes);
+              need(inflatePattern(cr, channel.pixels, budget));
+              channel.encodingProfile = "adobe-vm-zip1";
+              out.warnings.push_back(
+                  "Pattern ZIP decoded under the documented "
+                  "VM-array profile; ABR producer encoding "
+                  "is not reference-verified.");
+            }
+            channel.decoded = true;
+          } else {
+            out.warnings.push_back(
+                "Pattern channel encoding is not decoded; "
+                "texture behavior is unavailable.");
+          }
+          vm.seek(cr.end());
+        }
+      }
+      pattern.channels.push_back(std::move(channel));
+    }
+    need(vm.remaining() == 0);
+    r.seek(vm.end());
+    need(r.remaining() <= 3);
+    while (r.remaining()) {
+      unsigned padding;
+      need(r.u8(padding) && padding == 0);
+    }
+    out.patterns.push_back(std::move(pattern));
+    section.seek(end);
+    // Pattern lengths are padded to a multiple of four in the section.
+    const size_t padding = (4 - (length % 4)) % 4;
+    for (size_t i = 0; i < padding; ++i) {
+      unsigned value;
+      need(section.u8(value) && value == 0);
+    }
+  }
+}
+
 bool isSignatureAt(const Reader &r, size_t offset) {
   return r.remaining() >= offset + 4 &&
          std::memcmp(r.ptr() + offset, "8BIM", 4) == 0;
@@ -613,6 +786,10 @@ void parseV6(const unsigned char *data, size_t size, int subVersion,
     r.u32(length);
     if (length > r.remaining()) {
       out.warnings.push_back("A section is truncated.");
+      if (std::memcmp(tag, "patt", 4) == 0) {
+        out.patternDataComplete = false;
+        out.patterns.clear();
+      }
       length = (uint32_t)r.remaining();
     }
     Reader section = r.sub(r.pos() + length);
@@ -633,9 +810,19 @@ void parseV6(const unsigned char *data, size_t size, int subVersion,
           "Preset descriptors are not interpreted: names, spacing and dynamics "
           "are not applied to these sampled tips.");
     } else if (std::memcmp(tag, "patt", 4) == 0) {
-      out.warnings.push_back(
-          "Pattern resources were not imported: textured brush behavior "
-          "is not reproduced by these sampled tips.");
+      try {
+        if (out.patternDataComplete) parsePatterns(section, out, budget);
+        out.warnings.push_back(
+            "Pattern resources do not imply texture behavior: "
+            "brush association is not source-verified.");
+      } catch (const std::exception &error) {
+        // A malformed section invalidates its identity graph. Keep no partial
+        // pattern binding (including duplicates across separate sections).
+        out.patterns.clear();
+        out.patternDataComplete = false;
+        out.warnings.push_back(std::string("Pattern resources not decoded: ") +
+                               error.what() + ".");
+      }
     }
     r.seek(section.end());
   }

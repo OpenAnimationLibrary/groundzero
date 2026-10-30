@@ -531,6 +531,187 @@ void testTypedDescriptors() {
           "unknown descriptor type guessed");
 }
 
+// Original structural fixtures from the documented Patterns / VM array
+// layouts; these assert decoding and budgets, never Photoshop rendering parity.
+Bytes patternResource(unsigned compression = 0, unsigned channelCount = 1,
+                      unsigned depth       = 8,
+                      const Bytes &payload = Bytes{17, 229}) {
+  Bytes channel;
+  put32(channel, depth);
+  put32(channel, 0);
+  put32(channel, 0);
+  put32(channel, 1);
+  put32(channel, 2);
+  put16(channel, depth);
+  put8(channel, compression);
+  putBytes(channel, payload);
+  Bytes vm;
+  put32(vm, 0);
+  put32(vm, 0);
+  put32(vm, 1);
+  put32(vm, 2);
+  put32(vm, channelCount);
+  put32(vm, 1);
+  put32(vm, unsigned(channel.size()));
+  putBytes(vm, channel);
+  put32(vm, 0);
+  put32(vm, 0);  // Unwritten mask slots, not implicit alpha.
+  Bytes pattern;
+  put32(pattern, 1);
+  put32(pattern, 1);  // version, grayscale
+  put16(pattern, 1);
+  put16(pattern, 2);
+  put32(pattern, 2);
+  put16(pattern, 'P');
+  put16(pattern, 0);
+  put8(pattern, 3);
+  putText(pattern, "id1");
+  put32(pattern, 3);
+  put32(pattern, unsigned(vm.size()));
+  putBytes(pattern, vm);
+  Bytes result;
+  put32(result, unsigned(pattern.size()));
+  putBytes(result, pattern);
+  pad4(result);
+  return result;
+}
+
+// Original RFC 1950 / RFC 1951 fixture: a single stored DEFLATE block.
+// The fixture does not call the decoder's compressor or rely on source assets.
+Bytes storedZip(const Bytes &raw) {
+  require(raw.size() <= 65535, "stored fixture too large");
+  Bytes zip{0x78, 0x01, 0x01};
+  const unsigned length = unsigned(raw.size());
+  put8(zip, length);
+  put8(zip, length >> 8);
+  put8(zip, ~length);
+  put8(zip, (~length) >> 8);
+  putBytes(zip, raw);
+  unsigned a = 1, b = 0;
+  for (auto byte : raw) {
+    a = (a + byte) % 65521;
+    b = (b + a) % 65521;
+  }
+  put32(zip, (b << 16) | a);
+  return zip;
+}
+
+void testPatternEncodings() {
+  AbrParser::Result result;
+  std::string error;
+  for (unsigned depth : {8u, 16u}) {
+    const Bytes raw =
+        depth == 8 ? Bytes{17, 229} : Bytes{0x12, 0x34, 0xab, 0xcd};
+    for (unsigned compression : {0u, 1u}) {
+      const Bytes payload = compression ? storedZip(raw) : raw;
+      auto file           = fileV6(
+          2, section("patt", patternResource(compression, 1, depth, payload)));
+      require(parse(file, result, error) && result.patterns.size() == 1 &&
+                  result.patterns[0].channels[0].decoded &&
+                  result.patterns[0].channels[0].pixels == raw &&
+                  result.patterns[0].channels[0].encodingProfile ==
+                      (compression ? "adobe-vm-zip1" : "adobe-vm-raw"),
+              "raw/ZIP depth or exact sample bytes lost");
+    }
+  }
+  const Bytes good = storedZip(Bytes{17, 229});
+  std::vector<Bytes> invalid;
+  auto checksum = good;
+  checksum.back() ^= 1;
+  invalid.push_back(checksum);
+  auto trailing = good;
+  trailing.push_back(0);
+  invalid.push_back(trailing);
+  invalid.push_back(storedZip(Bytes{17}));
+  invalid.push_back(storedZip(Bytes{17, 229, 30}));
+  for (size_t i = 0; i < good.size(); ++i)
+    invalid.emplace_back(good.begin(), good.begin() + i);
+  for (const auto &payload : invalid) {
+    auto file = fileV6(1, section("patt", patternResource(1, 1, 8, payload)));
+    require(parse(file, result, error) && !result.patternDataComplete &&
+                result.patterns.empty(),
+            "invalid ZIP checksum/length/trailing bytes accepted");
+  }
+  auto file = fileV6(1, section("patt", patternResource(1, 1, 8, good)));
+  AbrParser::Limits limits;
+  limits.maxDecodedBytes = 2;  // Output fits but inflater workspace does not.
+  require(
+      !AbrParser::parseAbr(file.data(), file.size(), result, error, limits) &&
+          result.patterns.empty(),
+      "ZIP workspace escaped decoded budget");
+  // Prediction and PSD's ZIP=2 enum must not be silently applied to VM arrays.
+  for (unsigned compression : {2u, 3u}) {
+    file = fileV6(1, section("patt", patternResource(compression, 1, 8, good)));
+    require(parse(file, result, error) && result.patterns.size() == 1 &&
+                !result.patterns[0].channels[0].decoded,
+            "PSD image compression enum guessed for pattern VM array");
+  }
+}
+
+void testPatternResources() {
+  AbrParser::Result result;
+  std::string error;
+  const Bytes original = patternResource();
+  auto file            = fileV6(1, section("patt", original));
+  require(parse(file, result, error) && result.patternDataComplete &&
+              result.patterns.size() == 1,
+          "pattern resource not decoded");
+  const auto &pattern = result.patterns.front();
+  require(pattern.id == "id1" && pattern.name == "P" && pattern.mode == 1 &&
+              pattern.channels.size() == 3,
+          "pattern identity or channel slots lost");
+  require(pattern.channels[0].decoded &&
+              pattern.channels[0].pixels == Bytes({17, 229}) &&
+              !pattern.channels[1].written && !pattern.channels[2].written,
+          "pattern channel data or mask semantics changed");
+  auto compressed = fileV6(2, section("patt", patternResource(2)));
+  require(parse(compressed, result, error) && result.patterns.size() == 1 &&
+              !result.patterns[0].channels[0].decoded &&
+              result.patterns[0].channels[0].pixels.empty(),
+          "unknown compression was guessed");
+  AbrParser::Limits limits;
+  limits.maxDecodedBytes = 1;
+  require(
+      !AbrParser::parseAbr(file.data(), file.size(), result, error, limits) &&
+          result.patterns.empty(),
+      "pattern allocation escaped global budget");
+  Bytes combined = section("patt", original);
+  putBytes(
+      combined,
+      section("samp", sampleV6(1, boundsAndImage(4, 3, 8, imageRle4x3()))));
+  auto combinedFile      = fileV6(1, combined);
+  limits.maxDecodedBytes = 13;  // 2 pattern + 12 sample bytes, across sections.
+  require(!AbrParser::parseAbr(combinedFile.data(), combinedFile.size(), result,
+                               error, limits) &&
+              result.tips.empty() && result.patterns.empty(),
+          "sample and pattern budgets were independent");
+  limits            = AbrParser::Limits();
+  limits.maxRecords = 3;
+  require(!AbrParser::parseAbr(file.data(), file.size(), result, error, limits),
+          "pattern channels escaped record budget");
+  limits                    = AbrParser::Limits();
+  limits.maxDescriptorBytes = 1;
+  require(!AbrParser::parseAbr(file.data(), file.size(), result, error, limits),
+          "pattern metadata escaped allocation budget");
+  Bytes duplicated = section("patt", original);
+  putBytes(duplicated, section("patt", original));
+  putBytes(duplicated, section("patt", original));
+  require(parse(fileV6(1, duplicated), result, error) &&
+              !result.patternDataComplete && result.patterns.empty(),
+          "duplicate identity was rebound or invalid graph restored");
+  require(parse(fileV6(1, section("patt", patternResource(0, 65))), result,
+                error) &&
+              !result.patternDataComplete && result.patterns.empty(),
+          "excess pattern channel count accepted");
+  // Length-bounded prefixes must never expose partially decoded channels.
+  for (size_t size = 1; size + 3 < original.size(); ++size) {
+    Bytes prefix(original.begin(), original.begin() + size);
+    require(parse(fileV6(1, section("patt", prefix)), result, error) &&
+                !result.patternDataComplete && result.patterns.empty(),
+            "truncated pattern exposed partial resources");
+  }
+}
+
 void testTruncation() {
   // Every prefix of a valid file must be handled without reading past the
   // end; whatever tips come out are complete.
@@ -583,6 +764,8 @@ int main() {
     testBudgetsAndVersions();
     testTruncation();
     testTypedDescriptors();
+    testPatternResources();
+    testPatternEncodings();
   } catch (const std::exception &e) {
     std::cerr << "abrparser_test failed: " << e.what() << std::endl;
     return 1;

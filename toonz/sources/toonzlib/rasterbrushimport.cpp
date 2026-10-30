@@ -349,11 +349,19 @@ bool eligibleFixedSource(const QMap<QString, QString> &fields,
   }
   if (engine == "paintbrush" && fields.value("PressureSize") == "true") {
     if (preset.size.mappings.size() != 1) return false;
-    required["PressureSize"]     = "true";
-    required["SizeUseCurve"]     = "true";
-    required["SizeUseSameCurve"] = "true";
-    required["SizecommonCurve"]  = "0,0;1,1;";
-    required["SizeSensor"]       = fields.value("SizeSensor");
+    required["PressureSize"] = "true";
+    required["SizeUseCurve"] = "true";
+    const QString sameCurve  = fields.value("SizeUseSameCurve");
+    if (sameCurve != "true" && sameCurve != "false") return false;
+    required["SizeUseSameCurve"] = sameCurve;
+    if (sameCurve == "true" && !fields.contains("SizecommonCurve"))
+      return false;
+    if (fields.contains("SizecommonCurve"))
+      required["SizecommonCurve"] = fields["SizecommonCurve"];
+    required["SizeSensor"] = fields.value("SizeSensor");
+    // convertCurve resolves either the shared curve or the sensor-local
+    // curve. validate() admits only two endpoint pressure knots here; a
+    // multi-knot source spline must not silently become linear interpolation.
     if (fields.contains("SizecurveMode")) required["SizecurveMode"] = "0";
   }
   if (engine == "colorsmudge") {
@@ -929,6 +937,11 @@ ImportResult importBrush(const QByteArray &bytes, const QString &format,
       Reader allocator{bytes};
       size_t grayBytes = 0;
       for (const auto &tip : parsed.tips) grayBytes += tip.pixels.size();
+      for (const auto &pattern : parsed.patterns) {
+        grayBytes += pattern.palette.size();
+        for (const auto &channel : pattern.channels)
+          grayBytes += channel.pixels.size();
+      }
       // The parser's byte masks remain alive while native float tips are made.
       // Reserve both representations, not just the final resource graph.
       allocator.limit = maximumDecodedBytes - grayBytes;
@@ -960,6 +973,9 @@ ImportResult importBrush(const QByteArray &bytes, const QString &format,
         r.provenance["containerVersion"]       = parsed.version;
         r.provenance["containerSubversion"]    = parsed.subVersion;
         r.provenance["decodedDescriptorCount"] = int(parsed.descriptors.size());
+        r.provenance["decodedPatternCount"]    = int(parsed.patterns.size());
+        r.provenance["patternDataComplete"]    = parsed.patternDataComplete;
+        r.provenance["sourceTextureSemanticallySupported"] = false;
         if (!tip.sampleId.empty())
           r.provenance["sourceSampleId"] = QString::fromLatin1(
               tip.sampleId.data(), int(tip.sampleId.size()));
