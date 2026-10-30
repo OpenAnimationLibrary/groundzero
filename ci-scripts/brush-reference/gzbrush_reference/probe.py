@@ -4,7 +4,8 @@ import hashlib
 import json
 import os
 from pathlib import Path
-from krita import Krita, Extension, ManagedColor
+from krita import Krita, Extension, ManagedColor, Preset
+from xml.etree.ElementTree import fromstring
 from PyQt5.QtCore import QByteArray, QPoint, QTimer
 from PyQt5.QtGui import QColor, QImage
 from PyQt5.QtWidgets import QApplication
@@ -79,6 +80,19 @@ class Probe(Extension):
                 view.setPaintingFlow(case["flow"])
                 view.setForeGroundColor(ManagedColor.fromQColor(QColor(220, 40, 30, 255), view.canvas()))
                 view.canvas().setZoomLevel(1.0)
+                # Read back the selected source settings through the public API;
+                # handwritten input XML alone does not establish effective state.
+                effective_xml = Preset(view.currentBrushPreset()).toXML()
+                if len(effective_xml) > 1024 * 1024:
+                    raise RuntimeError("Unexpectedly large effective source preset")
+                effective_root = fromstring(effective_xml)
+                expected_engine = "paintbrush" if " dry " in name else "colorsmudge"
+                if effective_root.attrib.get("paintopid") != expected_engine:
+                    raise RuntimeError("Selected source engine differs from fixture")
+                effective_name = name.replace(" ", "_") + ".effective.xml"
+                (output / effective_name).write_text(effective_xml)
+                effective_fields = {field.attrib["name"]: field.text or "" for field in effective_root.findall("param") if "name" in field.attrib}
+                controls = {key: effective_fields.get(key) for key in ("SmudgeRateValue", "ColorRateValue", "SmudgeRadiusValue", "PressureSmudgeRate", "SmudgeRateUseNewEngine", "SmudgeRateMode", "SmudgeRateSmearAlpha")}
                 checkpoint(name + ": paint line")
                 # The pinned 5.3.4.1 Python binding accepts QPoint, despite the
                 # online C++ API describing QPointF. This fixture is integral.
@@ -101,7 +115,7 @@ class Probe(Extension):
                     offset = (1024 * w + x) * 4
                     blue, green, red, alpha = raw[offset:offset+4]
                     samples.append([x, red, green, blue, alpha])
-                report["records"].append({**case, "image": filename, "sha256Pixels": hashlib.sha256(raw).hexdigest(), "profile": document.colorProfile(), "input": "Node.paintLine", "changed": raw != initial, "centerlineRGBA8": samples})
+                report["records"].append({**case, "image": filename, "sha256Pixels": hashlib.sha256(raw).hexdigest(), "profile": document.colorProfile(), "input": "Node.paintLine", "changed": raw != initial, "centerlineRGBA8": samples, "effectivePresetXml": effective_name, "effectivePresetSha256": hashlib.sha256(effective_xml.encode()).hexdigest(), "effectiveWetControls": controls})
                 checkpoint(name + ": saved output")
             report["status"] = "complete"
             (output / "oracle-status.json").write_text(json.dumps(report, indent=2))
@@ -121,4 +135,25 @@ class Probe(Extension):
             # Closing the main window runs Krita's normal document/view cleanup;
             # exit() skips it and left display consumers alive during teardown.
             # CI independently requires a complete status AND a zero exit code.
-            QTimer.singleShot(0, QApplication.closeAllWindows)
+            def verify_closed():
+                visible = [widget.metaObject().className() for widget in QApplication.topLevelWidgets() if widget.isVisible()]
+                remaining = len(app.documents())
+                report["shutdown"] = {"visibleWidgets": visible, "remainingDocuments": remaining}
+                checkpoint("normal window close finished: " + json.dumps(report["shutdown"]))
+                if visible or remaining:
+                    # A dialog or document still owns native state. Keep it
+                    # observable and let CI fail instead of forcing teardown.
+                    report["status"] = "failed"
+                    report["error"] = "Reference window close left live UI or documents"
+                    checkpoint(report["error"])
+                    return
+                # Krita can keep its application event loop alive with no
+                # windows. Quit only after normal view/document destruction.
+                QApplication.quit()
+
+            def close_windows():
+                checkpoint("request normal window close")
+                QApplication.closeAllWindows()
+                QTimer.singleShot(1000, verify_closed)
+
+            QTimer.singleShot(0, close_windows)
