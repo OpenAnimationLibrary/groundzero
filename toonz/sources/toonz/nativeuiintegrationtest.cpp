@@ -1,4 +1,6 @@
 #include "nativeuiintegrationtest.h"
+#include "artistworkflowbenchmark.h"
+#include "mediacacheintegrationtest.h"
 
 #include "columnselection.h"
 #include "commandpalette.h"
@@ -563,6 +565,13 @@ int runNativeUiIntegrationTest(QMainWindow *window) {
   checkpoint("entered native fixture callback");
   try {
     require(!testRoot.isEmpty(), "native UI test was not prepared before startup");
+    if (qEnvironmentVariableIsSet("GROUNDZERO_ARTIST_BENCHMARK"))
+      return runArtistWorkflowBenchmark(window);
+    QString cacheError;
+    if (!runMediaCacheIntegrationTest(window, &cacheError)) {
+      std::cerr << "native-ui-integration: FAIL: " << cacheError.toStdString() << std::endl;
+      return 1;
+    }
     exerciseNativeUi(window);
     std::cout << "native-ui-integration: PASS" << std::endl;
     return 0;

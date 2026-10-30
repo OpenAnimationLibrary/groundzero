@@ -137,6 +137,7 @@ public:
   void onNewToonzRasterLevelButtonPressed();
   void onNewRasterLevelButtonPressed();
   void clearCacheFolder();
+  void manageMediaCache();
   void onNewMetaLevelButtonPressed();
 
   QString getLayoutName() { return m_layoutName; }

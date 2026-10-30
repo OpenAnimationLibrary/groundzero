@@ -185,6 +185,8 @@ bool menuContainsAction(QMenu *menu, QAction *target) {
 }
 
 void ensureParticleCacheActions(QMenu *fileMenu) {
+  QAction *media = CommandManager::instance()->getAction(MI_ManageMediaCache);
+  if (media && !menuContainsAction(fileMenu, media)) fileMenu->addAction(media);
   QMenu *menu = nullptr;
   const QString title = QCoreApplication::translate("MainWindow", "Particle Caches");
   for (QAction *action : fileMenu->actions()) {
@@ -1588,6 +1590,7 @@ QMenuBar *StackedMenuBar::createFullMenuBar() {
   addMenuItem(fileMenu, MI_ShortcutPopup);
   fileMenu->addSeparator();
   addMenuItem(fileMenu, MI_ClearCacheFolder);
+  addMenuItem(fileMenu, MI_ManageMediaCache);
   fileMenu->addSeparator();
   addMenuItem(fileMenu, MI_Quit);
 

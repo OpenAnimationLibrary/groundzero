@@ -1,6 +1,7 @@
 """Launch the native application against a disposable copied data directory."""
 import argparse
 from contextlib import contextmanager
+import json
 import os
 from pathlib import Path
 import shutil
@@ -132,6 +133,8 @@ def main():
     parser.add_argument("executable", type=Path)
     parser.add_argument("stuff", type=Path)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--artist-benchmark", action="store_true",
+                        help="Measure real drawing, native rendering and resource-save workloads")
     parser.add_argument("--windows-crash-debugger", action="store_true",
                         help="Capture a separate CDB stack after a Windows native exception")
     parser.add_argument("--debugger-symbols", type=Path, action="append", default=[],
@@ -145,6 +148,9 @@ def main():
         executable = args.executable.resolve(strict=True)
         source = args.stuff.resolve(strict=True)
         with isolated_fixture(source, executable, args.windows_mesa) as (directory, environment):
+            environment.pop("GROUNDZERO_ARTIST_BENCHMARK", None)
+            if args.artist_benchmark:
+                environment["GROUNDZERO_ARTIST_BENCHMARK"] = "1"
             try:
                 result = subprocess.run([str(executable), "--test-native-ui"],
                                         cwd=directory, env=environment,
@@ -163,6 +169,25 @@ def main():
         output += ("\nNative application integration setup, launch or cleanup failed: "
                    f"{type(error).__name__}: {error}\n")
         status = 1
+    if args.artist_benchmark and status == 0:
+        try:
+            records = [line.removeprefix("artist-workload-json: ")
+                       for line in output.splitlines()
+                       if line.startswith("artist-workload-json: ")]
+            if len(records) != 1 or "artist-workload: PASS" not in output:
+                raise ValueError("Native benchmark did not emit one successful workload report")
+            report = json.loads(records[0])
+            if report.get("schema") != 1 or report.get("fixture") != "native-artist-workload-v1":
+                raise ValueError("Unsupported artist workload report")
+            report["build_revision"] = os.environ.get("GITHUB_SHA", "unspecified")
+            report["ci_run"] = os.environ.get("GITHUB_RUN_ID", "unspecified")
+            report["ci_attempt"] = os.environ.get("GITHUB_RUN_ATTEMPT", "unspecified")
+            args.output.parent.mkdir(parents=True, exist_ok=True)
+            args.output.with_suffix(".json").write_text(json.dumps(report, indent=2) + "\n",
+                                                       encoding="utf-8")
+        except (OSError, ValueError) as error:
+            output += f"\nArtist workload report validation failed: {error}\n"
+            status = 1
     try:
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(output, encoding="utf-8")
@@ -172,7 +197,7 @@ def main():
         print(f"::error title=Native UI report::{message}")
         status = 1
     print(output, end="", flush=True)
-    if (args.windows_crash_debugger and os.name == "nt" and native_status is not None
+    if (args.windows_crash_debugger and not args.artist_benchmark and os.name == "nt" and native_status is not None
             and (native_status & 0xc0000000) == 0xc0000000):
         try:
             diagnostics = windows_crash_diagnostics(executable, source, native_status,

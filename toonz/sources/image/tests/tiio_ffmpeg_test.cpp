@@ -16,6 +16,7 @@
 #include "traster.h"
 #include "trasterimage.h"
 #include "toonz/preferences.h"
+#include "toonz/mediacache.h"
 #include "toonz/toonzfolders.h"
 
 #include <QByteArray>
@@ -317,13 +318,24 @@ void testSharedReaderCache(const QTemporaryDir &directory) {
   auto second = std::make_unique<TLevelReaderMp4>(path);
   require(first->load(1).getPointer(), "First reader did not extract frames");
   require(second->load(1).getPointer(), "Second reader could not share frames");
+  const auto protectedReport = MediaCache::trim(ffmpegCache().absolutePath(), 0);
+  require(protectedReport.errors.isEmpty() && protectedReport.activeGenerations > 0,
+          "Media cleanup did not recognize real FFmpeg readers");
   first.reset();
+  const auto stillProtected = MediaCache::trim(ffmpegCache().absolutePath(), 0);
+  require(stillProtected.errors.isEmpty() && stillProtected.activeGenerations > 0,
+          "Closing one FFmpeg reader released another reader's lease");
   TRasterImageP last = second->load(kFrames);
   require(last.getPointer() && last->getRaster()->getLx() == kLx &&
               last->getRaster()->getLy() == kLy,
           "Closing a reader removed another reader's cached frames");
   second.reset();
-
+  const auto removed = MediaCache::trim(ffmpegCache().absolutePath(), 0);
+  require(removed.errors.isEmpty() && removed.removedGenerations > 0,
+          "Closed FFmpeg generation could not be cleaned");
+  TLevelReaderFFmpeg regenerated(path);
+  require(regenerated.load(kFrames).getPointer(),
+          "Reading after cleanup did not recreate media from its original source");
 }
 
 void expectFailure(const std::function<void()> &operation,

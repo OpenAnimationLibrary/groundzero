@@ -134,12 +134,32 @@ jobs:
       working-directory: toonz/build
       run: |
         set -o pipefail
-        QT_QPA_PLATFORM=xcb LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a ctest --output-on-failure --output-junit ui-tests.xml --no-tests=error -R '^ui_' 2>&1 | tee ui-tests-output.txt
+        QT_QPA_PLATFORM=xcb LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a python3 ../../ci-scripts/run_regression_tests.py --report ui-tests.xml --include-prefix ui_ ui_mediacache ui_commandpalette ui_widgetinspector ui_themeapplication ui_themeproperties ui_uitranslations ui_languagemanager ui_messagehistory ui_diagnosticswriter ui_diagnosticsservice 2>&1 | tee ui-tests-output.txt
 
     - name: Test native application integration
       id: ui_integration
       run: |
         QT_QPA_PLATFORM=xcb xvfb-run -a python3 ci-scripts/run_native_ui_test.py toonz/build/bin/OpenToonz stuff --output toonz/build/ui-integration-output.txt
+
+    - name: Measure native artist workloads
+      id: artist_benchmark
+      run: |
+        QT_QPA_PLATFORM=xcb xvfb-run -a python3 ci-scripts/run_native_ui_test.py toonz/build/bin/OpenToonz stuff --artist-benchmark --output toonz/build/artist-workload-output.txt
+
+    - name: Report artist workload failure
+      if: ${{ failure() && steps.artist_benchmark.outcome == 'failure' }}
+      run: python3 ci-scripts/report_ui_tests.py toonz/build/artist-workload-output.txt
+
+    - name: Upload artist workflow evidence
+      if: always()
+      uses: actions/upload-artifact@v6
+      with:
+        name: artist-workflow-linux-${{ matrix.cxx }}
+        path: |
+          toonz/build/artist-workload-output.*
+          toonz/build/ui-integration-output.txt
+          toonz/build/ui-tests-output.txt
+        if-no-files-found: ignore
 
     - name: Report native application integration failure
       if: ${{ failure() && steps.ui_integration.outcome == 'failure' }}

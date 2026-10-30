@@ -399,7 +399,7 @@ jobs:
           set "QT_PLUGIN_PATH=%QT_PATH%\plugins"
           set "QT_QPA_PLATFORM_PLUGIN_PATH=%QT_PATH%\plugins\platforms"
           cd toonz\build
-          ctest -C RelWithDebInfo --output-on-failure --output-junit ui-tests.xml --no-tests=error -R "^ui_" > ui-tests-output.txt 2>&1
+          python ../../ci-scripts/run_regression_tests.py --config RelWithDebInfo --report ui-tests.xml --include-prefix ui_ ui_mediacache ui_commandpalette ui_widgetinspector ui_themeapplication ui_themeproperties ui_uitranslations ui_languagemanager ui_messagehistory ui_diagnosticswriter ui_diagnosticsservice > ui-tests-output.txt 2>&1
           set "UI_TEST_EXIT=%ERRORLEVEL%"
           type ui-tests-output.txt
           exit /b %UI_TEST_EXIT%
@@ -418,6 +418,32 @@ jobs:
       - name: Report native application integration failure
         if: ${{ failure() && steps.ui_integration.outcome == 'failure' }}
         run: python ci-scripts/report_ui_tests.py toonz/build/ui-integration-output.txt
+
+      - name: Measure native artist workloads
+        id: artist_benchmark
+        if: ${{ !cancelled() && steps.package.outcome == 'success' }}
+        timeout-minutes: 8
+        shell: cmd
+        run: |
+          set "PATH=%CD%\toonz\build\Opentoonz;%QT_PATH%\bin;%PATH%"
+          set "QT_PLUGIN_PATH=%QT_PATH%\plugins"
+          set "QT_QPA_PLATFORM_PLUGIN_PATH=%QT_PATH%\plugins\platforms"
+          python ci-scripts/run_native_ui_test.py toonz/build/Opentoonz/OpenToonz.exe stuff --artist-benchmark --output toonz/build/artist-workload-output.txt --windows-mesa "%NATIVE_UI_MESA_RUNTIME%"
+
+      - name: Report artist workload failure
+        if: ${{ failure() && steps.artist_benchmark.outcome == 'failure' }}
+        run: python ci-scripts/report_ui_tests.py toonz/build/artist-workload-output.txt
+
+      - name: Upload artist workflow evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: artist-workflow-windows
+          path: |
+            toonz/build/artist-workload-output.*
+            toonz/build/ui-integration-output*.txt
+            toonz/build/ui-tests-output.txt
+          if-no-files-found: ignore
 
       - name: Report native application crash stack
         if: ${{ failure() && steps.ui_integration.outcome == 'failure' }}
