@@ -55,6 +55,7 @@ and the component ledgers.
 | Combined diagnostic `f951b9bea7ad16838cae5876b8c48293112f497c` | Five isolated Function/Cast/timing/Cast-vector/export diagnostics passed, including scene reload, interleaved clone/key undo and atomic export cancellation. | The mandatory sequence failed its secondary-color state assertion; later metadata and audit additions are unqualified. |
 | Vector diagnostic `0cc8df85d0d5664ecbbb6ed304bf13cc78bd33b8` | Linux and macOS compiled; macOS passed all 18 standalone UI tests. Both native sequences exposed blank alignment previews. | Renderer state/HDR/timing checks were not reached. |
 | Combined diagnostic `ebac3062ad9e09a5c249db9096dce6bde0371c38` | Linux identified two Qt 5 QStringList assignment ambiguities in Cast fixtures. `f8ab55239` corrects both. | This revision did not reach native renderer acceptance; other platform outcomes remain separately tracked. |
+| Scene Cast `1c2c1a968b263cfde74daa578c0af18759378af5` | Linux compiled the new Cast and icon components, then rejected an unsupported TXsheet constructor in the nested timing fixture. `566e1bc5a` uses the child level's existing owned sheet and retains all assertions. | Native application workflows were not executed on this revision. |
 
 Current investigations remain explicit: Windows SVG/vector-analysis/thumbnail
 rendering, the Windows width-profile manager crash, macOS relinking, and native
