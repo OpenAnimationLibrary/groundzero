@@ -24,6 +24,8 @@
 #include <QPainter>
 #include <QSvgRenderer>
 #include <QOpenGLContext>
+#include <QOpenGLFramebufferObject>
+#include <QOpenGLFunctions>
 #include <QElapsedTimer>
 #include <QThread>
 #include <QLabel>
@@ -34,8 +36,11 @@
 #include <cmath>
 #include <iomanip>
 #include <iostream>
+#include <limits>
 #include <sstream>
 #include <stdexcept>
+#include <utility>
+#include <vector>
 
 namespace {
 void require(bool value, const char *message) { if (!value) throw std::runtime_error(message); }
@@ -147,6 +152,697 @@ void scaledPixels(const TRaster32P &base, const TRaster32P &actual, double scale
     throw std::runtime_error(detail.str());
   }
   require(!requireArtwork || occupied > 20, "opacity style fixture produced no artwork");
+}
+
+constexpr int depthWidth = 256, depthHeight = 128;
+struct DepthAttachments {
+  std::vector<GLfloat> color;
+  std::vector<GLuint> depth, stencil;
+};
+DepthAttachments depthAttachments() {
+  const size_t count = size_t(depthWidth) * depthHeight;
+  DepthAttachments result{std::vector<GLfloat>(count * 4),
+                          std::vector<GLuint>(count), std::vector<GLuint>(count)};
+  glPushClientAttrib(GL_CLIENT_PIXEL_STORE_BIT);
+  glPixelStorei(GL_PACK_ALIGNMENT, 1); glPixelStorei(GL_PACK_ROW_LENGTH, 0);
+  glPixelStorei(GL_PACK_SKIP_PIXELS, 0); glPixelStorei(GL_PACK_SKIP_ROWS, 0);
+  glReadPixels(0,0,depthWidth,depthHeight,GL_RGBA,GL_FLOAT,result.color.data());
+  glReadPixels(0,0,depthWidth,depthHeight,GL_DEPTH_COMPONENT,GL_UNSIGNED_INT,result.depth.data());
+  GLint stencilBits = 0; glGetIntegerv(GL_STENCIL_BITS,&stencilBits);
+  if (stencilBits)
+    glReadPixels(0,0,depthWidth,depthHeight,GL_STENCIL_INDEX,GL_UNSIGNED_INT,result.stencil.data());
+  glPopClientAttrib();
+  require(glGetError() == GL_NO_ERROR, "native depth fixture could not read attachments");
+  return result;
+}
+struct DepthState {
+  std::vector<GLint> integers;
+  std::vector<GLdouble> real;
+  bool operator==(const DepthState &other) const {
+    return integers == other.integers && real == other.real;
+  }
+};
+bool separateFramebuffers() {
+  auto *context = QOpenGLContext::currentContext();
+  return context && (context->format().majorVersion() >= 3 ||
+      context->hasExtension("GL_EXT_framebuffer_blit") || context->hasExtension("GL_ARB_framebuffer_object"));
+}
+bool srgbFramebuffers() {
+  auto *context = QOpenGLContext::currentContext();
+  return context && (context->format().majorVersion() >= 3 ||
+                      context->hasExtension("GL_EXT_framebuffer_sRGB") ||
+                      context->hasExtension("GL_ARB_framebuffer_sRGB"));
+}
+bool floatingColorClamp() {
+  auto *context = QOpenGLContext::currentContext();
+  return context && (context->format().majorVersion() >= 3 ||
+                      context->hasExtension("GL_ARB_color_buffer_float"));
+}
+DepthState depthState() {
+  DepthState result;
+  auto integer = [&](GLenum name, int count = 1) {
+    const size_t offset = result.integers.size(); result.integers.resize(offset + count);
+    glGetIntegerv(name, result.integers.data() + offset);
+  };
+  for (GLenum name : {GL_FRAMEBUFFER_BINDING,GL_READ_BUFFER,GL_DRAW_BUFFER,
+      GL_ATTRIB_STACK_DEPTH,GL_CLIENT_ATTRIB_STACK_DEPTH,GL_MODELVIEW_STACK_DEPTH,
+      GL_PROJECTION_STACK_DEPTH,GL_TEXTURE_STACK_DEPTH,GL_MATRIX_MODE,
+      GL_DEPTH_TEST,GL_DEPTH_FUNC,GL_DEPTH_WRITEMASK,GL_STENCIL_TEST,GL_STENCIL_FUNC,
+      GL_STENCIL_REF,GL_STENCIL_VALUE_MASK,GL_STENCIL_WRITEMASK,GL_STENCIL_FAIL,
+      GL_STENCIL_PASS_DEPTH_FAIL,GL_STENCIL_PASS_DEPTH_PASS,GL_SCISSOR_TEST,
+      GL_BLEND,GL_BLEND_SRC,GL_BLEND_DST,GL_COLOR_SUM,GL_PACK_ALIGNMENT,GL_PACK_ROW_LENGTH,
+      GL_PACK_SKIP_PIXELS,GL_PACK_SKIP_ROWS,GL_UNPACK_ALIGNMENT,GL_UNPACK_ROW_LENGTH,
+      GL_UNPACK_SKIP_PIXELS,GL_UNPACK_SKIP_ROWS}) integer(name);
+  integer(GL_VIEWPORT,4); integer(GL_SCISSOR_BOX,4); integer(GL_COLOR_WRITEMASK,4);
+  if (separateFramebuffers()) integer(GL_READ_FRAMEBUFFER_BINDING);
+  if (srgbFramebuffers()) integer(GL_FRAMEBUFFER_SRGB);
+  if (floatingColorClamp()) { integer(0x891b); integer(0x891c); } // Fragment/read color clamp.
+  auto real = [&](GLenum name, int count) {
+    const size_t offset = result.real.size(); result.real.resize(offset + count);
+    glGetDoublev(name, result.real.data() + offset);
+  };
+  real(GL_MODELVIEW_MATRIX,16); real(GL_PROJECTION_MATRIX,16); real(GL_TEXTURE_MATRIX,16);
+  real(GL_DEPTH_RANGE,2); real(GL_ZOOM_X,1); real(GL_ZOOM_Y,1);
+  real(GL_CURRENT_SECONDARY_COLOR,4);
+  return result;
+}
+void prepareDepthTarget(GLenum function, bool writeDepth = true,
+                        bool restricted = false, double rotation = 25.,
+                        bool highPrecision = false) {
+  glViewport(0,0,depthWidth,depthHeight);
+  glDisable(GL_SCISSOR_TEST); glDisable(GL_STENCIL_TEST); glDisable(GL_BLEND);
+  glDisable(GL_ALPHA_TEST); glDisable(GL_TEXTURE_2D); glDisable(GL_LIGHTING);
+  glColorMask(GL_TRUE,GL_TRUE,GL_TRUE,GL_TRUE);
+  glDepthMask(GL_TRUE); glStencilMask(~GLuint(0)); glClearDepth(1.); glClearStencil(3);
+  glClearColor(0,0,1,1); glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT|GL_STENCIL_BUFFER_BIT);
+  glMatrixMode(GL_PROJECTION); glLoadIdentity(); glOrtho(0,depthWidth,0,depthHeight,-256,256);
+  glMatrixMode(GL_MODELVIEW); glLoadIdentity();
+  glEnable(GL_DEPTH_TEST); glDepthFunc(GL_ALWAYS);
+  if (highPrecision) glColor4d(.121,.233,.477,1.); else glColor4d(0,0,1,1);
+  glBegin(GL_QUADS);
+  glVertex3d(0,0,0); glVertex3d(depthWidth,0,0);
+  glVertex3d(depthWidth,depthHeight,0); glVertex3d(0,depthHeight,0);
+  glEnd();
+  glTranslated(128,64,20); glRotated(rotation,0,1,0);
+  glDepthFunc(function); glDepthMask(writeDepth ? GL_TRUE : GL_FALSE);
+  glColorMask(GL_TRUE, restricted ? GL_FALSE : GL_TRUE,GL_TRUE,GL_FALSE);
+  glPixelStorei(GL_PACK_ALIGNMENT,8); glPixelStorei(GL_PACK_ROW_LENGTH,269);
+  glPixelStorei(GL_PACK_SKIP_PIXELS,1); glPixelStorei(GL_PACK_SKIP_ROWS,2);
+  glPixelStorei(GL_UNPACK_ALIGNMENT,8); glPixelStorei(GL_UNPACK_ROW_LENGTH,271);
+  glPixelStorei(GL_UNPACK_SKIP_PIXELS,2); glPixelStorei(GL_UNPACK_SKIP_ROWS,1);
+  glPixelZoom(1.5f,.75f);
+  if (restricted) {
+    glEnable(GL_SCISSOR_TEST); glScissor(100,32,60,64);
+    glEnable(GL_STENCIL_TEST); glStencilFunc(GL_EQUAL,3,0xff);
+    glStencilMask(0x0f); glStencilOp(GL_KEEP,GL_KEEP,GL_INCR);
+  }
+}
+void drawDepthImage(const TVectorImageP &image) {
+  TVectorRenderData data(TVectorRenderData::ViewerSettings(), TAffine(),
+      TRect(0,0,depthWidth-1,depthHeight-1), image->getPalette());
+  data.m_is3dView = true; data.m_drawRegions = false;
+  tglDraw(data,image.getPointer());
+}
+void requireAttachments(const DepthAttachments &expected,
+                        const DepthAttachments &actual, const char *phase,
+                        double tolerance = 2. / 255.) {
+  size_t mismatches = 0;
+  std::ostringstream detail;
+  for (size_t i = 0; i < expected.depth.size(); ++i) {
+    double delta = 0.;
+    for (int c = 0; c < 4; ++c) {
+      const double value = actual.color[4*i+c];
+      delta = std::isfinite(value) ? std::max(delta,std::abs(double(expected.color[4*i+c])-value))
+                                   : std::numeric_limits<double>::infinity();
+    }
+    if (delta > tolerance || expected.depth[i] != actual.depth[i] ||
+        expected.stencil[i] != actual.stencil[i]) {
+      if (mismatches < 8) {
+        detail << "\npixel(" << i % depthWidth << ',' << i / depthWidth << ") color delta=" << delta
+            << " depth=" << expected.depth[i] << ':' << actual.depth[i]
+            << " stencil=" << expected.stencil[i] << ':' << actual.stencil[i];
+      }
+      ++mismatches;
+    }
+  }
+  if (mismatches)
+    throw std::runtime_error(std::string(phase) + ": attachment mismatches=" +
+        std::to_string(mismatches) + detail.str() + (mismatches > 8 ? "\n[remaining pixels omitted]" : ""));
+}
+DepthAttachments mixedAttachments(const DepthAttachments &before,
+                                  const DepthAttachments &native, double opacity) {
+  DepthAttachments expected = opacity == 0. ? before : native;
+  for (size_t i = 0; i < expected.color.size(); ++i)
+    expected.color[i] = GLfloat(before.color[i] + opacity * (native.color[i] - before.color[i]));
+  return expected;
+}
+
+void nativeDepthTransactions(TPalette *palette, int chainStyle, int solidStyle) {
+  std::cout << "vector-opacity-depth: native color/depth/stencil transactions" << std::endl;
+  require(tglOpacitySnapshotFitsForTest(3840,2160,true) &&
+              !tglOpacitySnapshotFitsForTest(8192,8192,true) &&
+              !tglOpacitySnapshotFitsForTest(0,128,true) &&
+              !tglOpacitySnapshotFitsForTest(256,-1,false),
+          "native snapshot budget rejected 4K or accepted oversized/invalid dimensions");
+  TOfflineGL context(TDimension(depthWidth,depthHeight)); context.makeCurrent(); context.initMatrix();
+  const auto image = imageWith(palette,chainStyle);
+  auto *stroke = image->getStroke(0);
+  auto compareMix = [&](GLenum function, bool writeDepth, bool restricted,
+                        double opacity, bool profile, bool highPrecision = false) {
+    std::cout << "vector-opacity-depth: mix style=" << stroke->getStyle() << " function=" << function
+              << " depth_write=" << writeDepth << " restricted=" << restricted << " opacity=" << opacity
+              << " profile=" << profile << " high_bit=" << highPrecision << std::endl;
+    stroke->setOpacity(1.); stroke->setOpacityProfile({});
+    prepareDepthTarget(function,writeDepth,restricted,25.,highPrecision);
+    const auto before = depthAttachments();
+    drawDepthImage(image); const auto native = depthAttachments();
+    if (restricted)
+      require(native.stencil != before.stencil,
+              "native depth fixture did not exercise stencil writes");
+    prepareDepthTarget(function,writeDepth,restricted,25.,highPrecision);
+    stroke->setOpacity(profile ? 1. : opacity);
+    stroke->setOpacityProfile(profile ? StrokeOpacity::Profile{{0,opacity},{1,opacity}} : StrokeOpacity::Profile{});
+    const auto state = depthState();
+    drawDepthImage(image);
+    require(depthState() == state, "native depth opacity changed caller state or matrix stacks");
+    requireAttachments(mixedAttachments(before,native,opacity),depthAttachments(),
+        "native depth opacity differs from destination-aware color mix", highPrecision ? 1.1/1023. : 2./255.);
+    if (!writeDepth) require(before.depth == native.depth, "depth-mask fixture wrote depth");
+  };
+  for (GLenum function : {GL_LEQUAL,GL_ALWAYS}) {
+    std::cout << "vector-opacity-depth: scalar/profile mix depth function=" << function << std::endl;
+    for (bool profile : {false,true}) {
+      compareMix(function,true,false,.5,profile);
+      compareMix(function,false,false,.5,profile);
+      compareMix(function,true,true,.5,profile);
+    }
+    compareMix(function,true,false,.00001,true);
+    compareMix(function,true,true,0.,true);
+  }
+  {
+    using SecondaryColor = void (QOPENGLF_APIENTRYP)(GLfloat,GLfloat,GLfloat);
+    auto *currentContext = QOpenGLContext::currentContext();
+    auto address = currentContext->getProcAddress("glSecondaryColor3f");
+    if (!address) address = currentContext->getProcAddress("glSecondaryColor3fEXT");
+    require(address,"compatibility context did not expose secondary color");
+    const auto secondary = reinterpret_cast<SecondaryColor>(address);
+    glPushAttrib(GL_ALL_ATTRIB_BITS);
+    struct RestoreAttributes { ~RestoreAttributes() { glPopAttrib(); } } restore;
+    secondary(.2f,.1f,.3f); glEnable(GL_COLOR_SUM);
+    std::cout << "vector-opacity-depth: nonzero secondary color caller state" << std::endl;
+    compareMix(GL_ALWAYS,true,false,.5,true);
+  }
+  {
+    auto *currentContext = QOpenGLContext::currentContext();
+    const bool rectangle = currentContext->format().majorVersion() >= 3 ||
+        currentContext->hasExtension("GL_ARB_texture_rectangle") ||
+        currentContext->hasExtension("GL_EXT_texture_rectangle") ||
+        currentContext->hasExtension("GL_NV_texture_rectangle");
+    if (rectangle) {
+      constexpr GLenum target = 0x84f5; // GL_TEXTURE_RECTANGLE.
+      GLuint texture = 0; glGenTextures(1,&texture); glPushAttrib(GL_ALL_ATTRIB_BITS);
+      struct RestoreTexture {
+        GLuint texture;
+        ~RestoreTexture() { glPopAttrib(); glDeleteTextures(1,&texture); }
+      } restore{texture};
+      glBindTexture(target,texture);
+      glTexParameteri(target,GL_TEXTURE_MIN_FILTER,GL_NEAREST);
+      glTexParameteri(target,GL_TEXTURE_MAG_FILTER,GL_NEAREST);
+      glTexParameteri(target,GL_TEXTURE_WRAP_S,GL_CLAMP_TO_EDGE);
+      glTexParameteri(target,GL_TEXTURE_WRAP_T,GL_CLAMP_TO_EDGE);
+      const unsigned char pixels[] = {64,200,128,255,64,200,128,255,64,200,128,255,64,200,128,255};
+      glPushClientAttrib(GL_CLIENT_PIXEL_STORE_BIT);
+      glPixelStorei(GL_UNPACK_ALIGNMENT,1); glPixelStorei(GL_UNPACK_ROW_LENGTH,0);
+      glPixelStorei(GL_UNPACK_SKIP_PIXELS,0); glPixelStorei(GL_UNPACK_SKIP_ROWS,0);
+      glTexImage2D(target,0,GL_RGBA8,2,2,0,GL_RGBA,GL_UNSIGNED_BYTE,pixels);
+      glPopClientAttrib(); glEnable(target); glTexCoord2f(.5f,.5f);
+      glTexEnvf(GL_TEXTURE_ENV,GL_TEXTURE_ENV_MODE,GL_MODULATE);
+      require(glGetError() == GL_NO_ERROR,"rectangle texture fixture setup failed");
+      std::cout << "vector-opacity-depth: enabled rectangle texture caller state" << std::endl;
+      compareMix(GL_ALWAYS,true,false,.5,true);
+      GLint binding = 0; glGetIntegerv(0x84f6,&binding); // GL_TEXTURE_BINDING_RECTANGLE.
+      require(glIsEnabled(target) && binding == GLint(texture),
+              "opacity replacement did not restore rectangle texture state");
+    } else std::cout << "vector-opacity-depth: rectangle textures unavailable on this driver" << std::endl;
+  }
+
+  // A blue foreground has no color delta on the blue canvas, but must still
+  // write native depth. The zero half of a profile must not occlude a later
+  // green probe placed between that foreground and the original canvas.
+  const int blue = palette->addStyle(TPixel32::Blue);
+  const auto sameColor = imageWith(palette,blue);
+  auto *blueStroke = sameColor->getStroke(0);
+  blueStroke->setOpacityProfile({{0,0},{.5,0},{.5,.5},{1,.5}});
+  prepareDepthTarget(GL_LEQUAL,true,false,0.);
+  const auto background = depthAttachments();
+  drawDepthImage(sameColor); const auto painted = depthAttachments();
+  const size_t left = size_t(64)*depthWidth+104, right = size_t(64)*depthWidth+152;
+  require(painted.depth[left] == background.depth[left] && painted.depth[right] < background.depth[right],
+          "zero profile or same-color foreground used color delta as depth coverage");
+  for (int channel = 0; channel < 4; ++channel)
+    require(painted.color[4*right+channel] == background.color[4*right+channel],
+            "same-color native depth fixture changed canvas color");
+  glMatrixMode(GL_MODELVIEW); glLoadIdentity(); glColor4d(0,1,0,1);
+  glBegin(GL_QUADS); glVertex3d(96,60,10); glVertex3d(160,60,10);
+  glVertex3d(160,68,10); glVertex3d(96,68,10); glEnd();
+  const auto probed = depthAttachments();
+  require(probed.color[4*left+1] > .99f && probed.color[4*left+2] < .01f &&
+              probed.color[4*right+2] > .99f && probed.color[4*right+1] < .01f,
+          "later behind probe was blocked by zero opacity or passed a same-color foreground");
+
+  // Failure after the native draw must restore attachments, not only GL state.
+  // Forced multisample and memory-budget refusals must occur before drawing.
+  stroke->setOpacity(.5); stroke->setOpacityProfile({});
+  for (int stage : {4,5,6}) {
+    std::cout << "vector-opacity-depth: injected refusal/rollback stage=" << stage << std::endl;
+    prepareDepthTarget(GL_LEQUAL,true,true);
+    const auto before = depthAttachments(); const auto state = depthState();
+    tglSetOpacityFramebufferFailureForTest(stage);
+    struct ClearFailure { ~ClearFailure() { tglSetOpacityFramebufferFailureForTest(0); } } clearFailure;
+    bool rejected = false;
+    try { drawDepthImage(image); } catch (const std::runtime_error &) { rejected = true; }
+    tglSetOpacityFramebufferFailureForTest(0);
+    require(rejected && depthState() == state,
+            "depth transaction failure was hidden or leaked caller state");
+    requireAttachments(before,depthAttachments(),"failed depth transaction did not roll back",0.);
+    compareMix(GL_LEQUAL,true,true,.5,false);
+  }
+
+  // Solid-style masking clears stencil bits over the caller's viewport, even
+  // though its colored geometry has bounded extents. A cropped transaction
+  // must not leave those clears outside its geometry snapshot after rollback.
+  stroke->setStyle(solidStyle);
+  compareMix(GL_LEQUAL,true,false,1.,true);
+  compareMix(GL_LEQUAL,true,false,0.,true);
+  prepareDepthTarget(GL_LEQUAL);
+  const auto solidBefore = depthAttachments(); const auto solidState = depthState();
+  stroke->setOpacity(.5); stroke->setOpacityProfile({});
+  bool solidRejected = false;
+  {
+    tglSetOpacityFramebufferFailureForTest(4);
+    struct ClearFailure { ~ClearFailure() { tglSetOpacityFramebufferFailureForTest(0); } } clearFailure;
+    try { drawDepthImage(image); } catch (const std::runtime_error &) { solidRejected = true; }
+  }
+  require(solidRejected && depthState() == solidState,"bounded solid failure leaked caller state");
+  requireAttachments(solidBefore,depthAttachments(),"bounded solid rollback changed attachments outside geometry",0.);
+  // glClear in the native solid mask affects the full 256x128 attachment,
+  // including pixels outside this reduced, offset 128x64 viewport.
+  for (bool failAfterDraw : {false,true}) {
+    std::cout << "vector-opacity-depth: offset viewport solid rollback=" << failAfterDraw << std::endl;
+    prepareDepthTarget(GL_LEQUAL); glViewport(32,16,128,64);
+    const auto before = depthAttachments(); const auto state = depthState();
+    stroke->setOpacity(failAfterDraw ? .5 : 1.);
+    stroke->setOpacityProfile(failAfterDraw ? StrokeOpacity::Profile{} : StrokeOpacity::Profile{{0,0},{1,0}});
+    bool rejected = false;
+    {
+      tglSetOpacityFramebufferFailureForTest(failAfterDraw ? 4 : 0);
+      struct ClearFailure { ~ClearFailure() { tglSetOpacityFramebufferFailureForTest(0); } } clearFailure;
+      try { drawDepthImage(image); } catch (const std::runtime_error &) { rejected = true; }
+    }
+    require(rejected == failAfterDraw && depthState() == state,
+            "offset-viewport solid changed state or failure behavior");
+    requireAttachments(before,depthAttachments(),"offset viewport left changes elsewhere in its attachment",0.);
+  }
+  stroke->setStyle(chainStyle);
+
+  auto *functions = QOpenGLContext::currentContext()->functions();
+  GLint originalFramebuffer = 0; glGetIntegerv(GL_FRAMEBUFFER_BINDING,&originalFramebuffer);
+  {
+    struct RestoreFramebuffer {
+      QOpenGLFunctions *functions; GLint framebuffer;
+      ~RestoreFramebuffer() { functions->glBindFramebuffer(GL_FRAMEBUFFER,GLuint(framebuffer)); }
+    } restore{functions,originalFramebuffer};
+    QOpenGLFramebufferObjectFormat format;
+    format.setAttachment(QOpenGLFramebufferObject::CombinedDepthStencil);
+    format.setInternalTextureFormat(0x8059); // GL_RGB10_A2, available in GL 2.1.
+    QOpenGLFramebufferObject highBit(depthWidth,depthHeight,format);
+    if (highBit.isValid() && highBit.bind()) {
+      GLint redBits = 0; glGetIntegerv(GL_RED_BITS,&redBits);
+      require(redBits >= 10,"requested high-bit fixture silently became RGBA8");
+      compareMix(GL_ALWAYS,true,false,.5,true,true);
+      std::cout << "vector-opacity-depth: RGB10_A2 destination passed" << std::endl;
+    } else {
+      while (glGetError() != GL_NO_ERROR) {}
+      std::cout << "vector-opacity-depth: RGB10_A2 unavailable on this driver" << std::endl;
+    }
+  }
+  if (separateFramebuffers()) {
+    std::cout << "vector-opacity-depth: independent read framebuffer" << std::endl;
+    struct RestoreFramebuffer {
+      QOpenGLFunctions *functions; GLint framebuffer;
+      ~RestoreFramebuffer() { functions->glBindFramebuffer(GL_FRAMEBUFFER,GLuint(framebuffer)); }
+    } restore{functions,originalFramebuffer};
+    QOpenGLFramebufferObjectFormat format;
+    format.setAttachment(QOpenGLFramebufferObject::CombinedDepthStencil);
+    QOpenGLFramebufferObject readTarget(depthWidth,depthHeight,format);
+    require(readTarget.isValid() && readTarget.bind(),"separate read fixture framebuffer unavailable");
+    prepareDepthTarget(GL_ALWAYS); glColorMask(GL_TRUE,GL_TRUE,GL_TRUE,GL_TRUE);
+    glClearColor(0,1,0,1); glClearDepth(.25); glClearStencil(11);
+    glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT|GL_STENCIL_BUFFER_BIT);
+    const auto readBefore = depthAttachments();
+    functions->glBindFramebuffer(GL_FRAMEBUFFER,GLuint(originalFramebuffer));
+    prepareDepthTarget(GL_ALWAYS); const auto before = depthAttachments();
+    stroke->setOpacity(1.); stroke->setOpacityProfile({});
+    drawDepthImage(image); const auto native = depthAttachments();
+    prepareDepthTarget(GL_ALWAYS); stroke->setOpacity(.5);
+    functions->glBindFramebuffer(GL_READ_FRAMEBUFFER,readTarget.handle());
+    const auto state = depthState(); drawDepthImage(image);
+    require(depthState() == state,"opacity changed independently bound read framebuffer state");
+    functions->glBindFramebuffer(GL_READ_FRAMEBUFFER,GLuint(originalFramebuffer));
+    requireAttachments(mixedAttachments(before,native,.5),depthAttachments(),
+                       "opacity read pixels from the separate read target");
+    require(readTarget.bind(),"could not rebind separate read fixture");
+    requireAttachments(readBefore,depthAttachments(),"opacity modified separate read attachments",0.);
+  } else std::cout << "vector-opacity-depth: separate read bindings unavailable on this driver" << std::endl;
+
+  if (srgbFramebuffers()) {
+    struct RestoreFramebuffer {
+      QOpenGLFunctions *functions; GLint framebuffer; GLboolean srgb;
+      ~RestoreFramebuffer() {
+        if (srgb) glEnable(GL_FRAMEBUFFER_SRGB); else glDisable(GL_FRAMEBUFFER_SRGB);
+        functions->glBindFramebuffer(GL_FRAMEBUFFER,GLuint(framebuffer));
+      }
+    } restore{functions,originalFramebuffer,glIsEnabled(GL_FRAMEBUFFER_SRGB)};
+    QOpenGLFramebufferObjectFormat format;
+    format.setAttachment(QOpenGLFramebufferObject::CombinedDepthStencil);
+    format.setInternalTextureFormat(0x8c43); // GL_SRGB8_ALPHA8.
+    QOpenGLFramebufferObject srgb(depthWidth,depthHeight,format);
+    if (srgb.isValid() && srgb.bind()) {
+      auto *currentContext = QOpenGLContext::currentContext();
+      if (currentContext->format().majorVersion() >= 3 ||
+          currentContext->hasExtension("GL_ARB_framebuffer_object")) {
+        GLint encoding = 0;
+        functions->glGetFramebufferAttachmentParameteriv(GL_FRAMEBUFFER,GL_COLOR_ATTACHMENT0,
+            GL_FRAMEBUFFER_ATTACHMENT_COLOR_ENCODING,&encoding);
+        require(encoding == GL_SRGB,"sRGB fixture did not retain its requested color encoding");
+      } else {
+        // EXT_framebuffer_sRGB on GL 2.1 exposes the current target's
+        // capability, not the later core attachment-encoding query.
+        GLboolean capable = GL_FALSE;
+        glGetBooleanv(0x8dba,&capable); // GL_FRAMEBUFFER_SRGB_CAPABLE_EXT.
+        require(capable == GL_TRUE,"EXT sRGB fixture is not an sRGB-capable target");
+      }
+      glEnable(GL_FRAMEBUFFER_SRGB);
+      prepareDepthTarget(GL_ALWAYS,true,true,25.,true);
+      const auto before = depthAttachments();
+      stroke->setOpacity(1.); stroke->setOpacityProfile({});
+      drawDepthImage(image); const auto native = depthAttachments();
+      auto linear = [](double encoded) {
+        return encoded <= .04045 ? encoded/12.92 : std::pow((encoded+.055)/1.055,2.4);
+      };
+      auto encoded = [](double linear) {
+        return linear <= .0031308 ? linear*12.92 : 1.055*std::pow(linear,1./2.4)-.055;
+      };
+      bool distinguishesLinearMix = false;
+      for (bool profile : {false,true}) for (double amount : {1.,.5,0.}) {
+        prepareDepthTarget(GL_ALWAYS,true,true,25.,true);
+        stroke->setOpacity(profile ? 1. : amount);
+        stroke->setOpacityProfile(profile ? StrokeOpacity::Profile{{0,amount},{1,amount}} : StrokeOpacity::Profile{});
+        const auto state = depthState(); drawDepthImage(image);
+        require(depthState() == state,"sRGB opacity leaked caller state");
+        auto expected = mixedAttachments(before,native,amount);
+        for (size_t i = 0; i < expected.color.size(); ++i) {
+          if (i%4 == 3 || before.color[i] == native.color[i] || amount == 0. || amount == 1.) continue;
+          const double mixed = encoded((1.-amount)*linear(before.color[i]) + amount*linear(native.color[i]));
+          distinguishesLinearMix |= std::abs(mixed-expected.color[i]) > 3./255.;
+          expected.color[i] = GLfloat(mixed);
+        }
+        requireAttachments(expected,depthAttachments(),"sRGB opacity mixed encoded values instead of linear light");
+      }
+      require(distinguishesLinearMix,"sRGB fixture did not distinguish linear and encoded mixing");
+      std::cout << "vector-opacity-depth: actual sRGB identity/scalar/profile/zero passed" << std::endl;
+    } else {
+      while (glGetError() != GL_NO_ERROR) {}
+      std::cout << "vector-opacity-depth: sRGB attachment unavailable on this driver" << std::endl;
+    }
+  } else std::cout << "vector-opacity-depth: sRGB framebuffer support unavailable on this driver" << std::endl;
+
+  if (floatingColorClamp()) {
+    using ClampColor = void (QOPENGLF_APIENTRYP)(GLenum,GLenum);
+    auto *currentContext = QOpenGLContext::currentContext();
+    auto address = currentContext->getProcAddress("glClampColor");
+    if (!address) address = currentContext->getProcAddress("glClampColorARB");
+    require(address,"float-color context did not expose glClampColor");
+    const auto clamp = reinterpret_cast<ClampColor>(address);
+    constexpr GLenum fragmentClamp = 0x891b, readClamp = 0x891c;
+    GLint oldFragment = 0, oldRead = 0;
+    glGetIntegerv(fragmentClamp,&oldFragment); glGetIntegerv(readClamp,&oldRead);
+    struct RestoreFloatTarget {
+      QOpenGLFunctions *functions; GLint framebuffer; ClampColor clamp; GLint fragment, read;
+      ~RestoreFloatTarget() {
+        clamp(0x891b,GLenum(fragment)); clamp(0x891c,GLenum(read));
+        functions->glBindFramebuffer(GL_FRAMEBUFFER,GLuint(framebuffer));
+      }
+    } restore{functions,originalFramebuffer,clamp,oldFragment,oldRead};
+    QOpenGLFramebufferObjectFormat format;
+    format.setAttachment(QOpenGLFramebufferObject::CombinedDepthStencil);
+    format.setInternalTextureFormat(0x8814); // GL_RGBA32F.
+    QOpenGLFramebufferObject hdr(depthWidth,depthHeight,format);
+    if (hdr.isValid() && hdr.bind()) {
+      std::cout << "vector-opacity-depth: HDR target with enabled caller color clamps" << std::endl;
+      GLint redBits = 0; glGetIntegerv(GL_RED_BITS,&redBits);
+      require(redBits == 32,"HDR fixture silently changed float component precision");
+      auto readHdr = [&]() {
+        GLint original = 0; glGetIntegerv(readClamp,&original);
+        clamp(readClamp,GL_FALSE);
+        struct RestoreClamp {
+          ClampColor clamp; GLint previous;
+          ~RestoreClamp() { clamp(0x891c,GLenum(previous)); }
+        } restoreClamp{clamp,original};
+        return depthAttachments();
+      };
+      auto prepareHdr = [&]() {
+        clamp(fragmentClamp,GL_FALSE); clamp(readClamp,GL_FALSE);
+        prepareDepthTarget(GL_ALWAYS,true,false,0.);
+        glPushAttrib(GL_ALL_ATTRIB_BITS); glPushClientAttrib(GL_CLIENT_PIXEL_STORE_BIT);
+        glDisable(GL_DEPTH_TEST); glDisable(GL_STENCIL_TEST); glDisable(GL_ALPHA_TEST);
+        glDisable(GL_BLEND); glDisable(GL_SCISSOR_TEST); glDisable(GL_TEXTURE_2D);
+        glColorMask(GL_TRUE,GL_TRUE,GL_TRUE,GL_TRUE); glPixelZoom(1.f,1.f);
+        glPixelStorei(GL_UNPACK_ALIGNMENT,1); glPixelStorei(GL_UNPACK_ROW_LENGTH,0);
+        glPixelStorei(GL_UNPACK_SKIP_PIXELS,0); glPixelStorei(GL_UNPACK_SKIP_ROWS,0);
+        glMatrixMode(GL_PROJECTION); glPushMatrix(); glLoadIdentity();
+        glOrtho(0,depthWidth,0,depthHeight,-1,1);
+        glMatrixMode(GL_MODELVIEW); glPushMatrix(); glLoadIdentity();
+        const GLfloat hdrPixel[] = {2.f,-.5f,.25f,1.f};
+        for (const TPointD &point : {TPointD(8,8),TPointD(104,64)}) {
+          glRasterPos2d(point.x,point.y); glDrawPixels(1,1,GL_RGBA,GL_FLOAT,hdrPixel);
+        }
+        glMatrixMode(GL_MODELVIEW); glPopMatrix(); glMatrixMode(GL_PROJECTION); glPopMatrix();
+        glMatrixMode(GL_MODELVIEW); glPopClientAttrib(); glPopAttrib();
+        const auto seeded = readHdr(); const size_t outside = size_t(8)*depthWidth+8;
+        require(seeded.color[4*outside] == 2.f && seeded.color[4*outside+1] == -.5f,
+                "HDR fixture did not retain values above one and below zero");
+        clamp(fragmentClamp,GL_TRUE); clamp(readClamp,GL_TRUE);
+      };
+      stroke->setStyle(solidStyle); stroke->setOpacity(1.); stroke->setOpacityProfile({});
+      prepareHdr(); const auto before = readHdr(); drawDepthImage(image); const auto native = readHdr();
+      for (bool profile : {false,true}) for (double amount : {1.,.5}) {
+        std::cout << "vector-opacity-depth: HDR opacity=" << amount << " profile=" << profile << std::endl;
+        prepareHdr(); stroke->setOpacity(profile ? 1. : amount);
+        stroke->setOpacityProfile(profile ? StrokeOpacity::Profile{{0,amount},{1,amount}} : StrokeOpacity::Profile{});
+        const auto state = depthState(); drawDepthImage(image);
+        require(depthState() == state,"HDR opacity failed to restore enabled caller color clamps");
+        requireAttachments(mixedAttachments(before,native,amount),readHdr(),
+                           "HDR opacity clamped attachment values",1.e-5);
+      }
+      prepareHdr(); const auto state = depthState(); stroke->setOpacity(.5); stroke->setOpacityProfile({});
+      bool rejected = false;
+      {
+        tglSetOpacityFramebufferFailureForTest(4);
+        struct ClearFailure { ~ClearFailure() { tglSetOpacityFramebufferFailureForTest(0); } } clearFailure;
+        try { drawDepthImage(image); } catch (const std::runtime_error &) { rejected = true; }
+      }
+      require(rejected && depthState() == state,"HDR rollback changed clamp state or hid failure");
+      requireAttachments(before,readHdr(),"HDR rollback clamped original attachment values",0.);
+      stroke->setStyle(chainStyle);
+      std::cout << "vector-opacity-depth: RGBA32F HDR/negative identity/mix/rollback passed" << std::endl;
+    } else {
+      while (glGetError() != GL_NO_ERROR) {}
+      std::cout << "vector-opacity-depth: RGBA32F target unavailable on this driver" << std::endl;
+    }
+  } else std::cout << "vector-opacity-depth: floating color clamp support unavailable on this driver" << std::endl;
+
+  {
+    constexpr int width = 4096, height = 4096;
+    GLint maxTexture = 0, maxRenderbuffer = 0;
+    glGetIntegerv(GL_MAX_TEXTURE_SIZE,&maxTexture); glGetIntegerv(GL_MAX_RENDERBUFFER_SIZE,&maxRenderbuffer);
+    if (maxTexture >= width && maxRenderbuffer >= width) {
+      std::cout << "vector-opacity-depth: preparing actual 4096x4096 budget-refusal target" << std::endl;
+      struct RestoreFramebuffer {
+        QOpenGLFunctions *functions; GLint framebuffer;
+        ~RestoreFramebuffer() { functions->glBindFramebuffer(GL_FRAMEBUFFER,GLuint(framebuffer)); }
+      } restore{functions,originalFramebuffer};
+      QOpenGLFramebufferObjectFormat format;
+      format.setAttachment(QOpenGLFramebufferObject::CombinedDepthStencil);
+      QOpenGLFramebufferObject oversized(width,height,format);
+      if (oversized.isValid() && oversized.bind()) {
+        prepareDepthTarget(GL_ALWAYS); glViewport(0,0,width,height);
+        glEnable(GL_SCISSOR_TEST); glScissor(2000,1000,32,32);
+        glClearColor(.2f,.4f,.6f,1.f); glClearDepth(.375); glClearStencil(13);
+        glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT|GL_STENCIL_BUFFER_BIT); glDisable(GL_SCISSOR_TEST);
+        auto samples = [&]() {
+          std::vector<GLfloat> colors(16); std::vector<GLuint> depth(4),stencil(4);
+          glPushClientAttrib(GL_CLIENT_PIXEL_STORE_BIT);
+          glPixelStorei(GL_PACK_ALIGNMENT,1); glPixelStorei(GL_PACK_ROW_LENGTH,0);
+          glPixelStorei(GL_PACK_SKIP_PIXELS,0); glPixelStorei(GL_PACK_SKIP_ROWS,0);
+          int i = 0;
+          for (const TPointD &point : {TPointD(8,8),TPointD(2010,1010),TPointD(3000,1500),TPointD(width-1,height-1)}) {
+            glReadPixels(int(point.x),int(point.y),1,1,GL_RGBA,GL_FLOAT,colors.data()+4*i);
+            glReadPixels(int(point.x),int(point.y),1,1,GL_DEPTH_COMPONENT,GL_UNSIGNED_INT,depth.data()+i);
+            glReadPixels(int(point.x),int(point.y),1,1,GL_STENCIL_INDEX,GL_UNSIGNED_INT,stencil.data()+i);
+            ++i;
+          }
+          glPopClientAttrib();
+          require(glGetError() == GL_NO_ERROR,"oversized target sentinel read failed");
+          return std::make_pair(colors,std::make_pair(depth,stencil));
+        };
+        const auto before = samples(); const auto state = depthState();
+        stroke->setOpacity(.5); stroke->setOpacityProfile({}); bool rejected = false;
+        try { drawDepthImage(image); }
+        catch (const std::runtime_error &error) {
+          rejected = std::string(error.what()).find("512 MiB snapshot limit") != std::string::npos;
+        }
+        require(rejected && depthState() == state && samples() == before,
+                "actual oversized target did not reject before changing attachments/state");
+        std::cout << "vector-opacity-depth: actual 4096x4096 budget refusal passed; sampled four sentinels" << std::endl;
+      } else {
+        while (glGetError() != GL_NO_ERROR) {}
+        std::cout << "vector-opacity-depth: oversized target unavailable; forced budget refusal checked" << std::endl;
+      }
+    } else std::cout << "vector-opacity-depth: driver target limit below4096; forced budget refusal checked" << std::endl;
+  }
+
+  {
+    // Texture depth attachments expose the same complete-target contract as
+    // renderbuffers, without assuming that a stencil attachment also exists.
+    struct RestoreFramebuffer {
+      QOpenGLFunctions *functions; GLint framebuffer;
+      ~RestoreFramebuffer() { functions->glBindFramebuffer(GL_FRAMEBUFFER,GLuint(framebuffer)); }
+    } restore{functions,originalFramebuffer};
+    QOpenGLFramebufferObject depthTextureTarget(depthWidth,depthHeight);
+    require(depthTextureTarget.isValid() && depthTextureTarget.bind(),"depth-texture color target unavailable");
+    GLint previousTexture = 0; glGetIntegerv(GL_TEXTURE_BINDING_2D,&previousTexture);
+    GLuint texture = 0; glGenTextures(1,&texture); glBindTexture(GL_TEXTURE_2D,texture);
+    struct DeleteTexture {
+      GLuint texture; GLint previous;
+      ~DeleteTexture() { glBindTexture(GL_TEXTURE_2D,GLuint(previous)); glDeleteTextures(1,&texture); }
+    } deleteTexture{texture,previousTexture};
+    glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_NEAREST);
+    glTexImage2D(GL_TEXTURE_2D,0,GL_DEPTH_COMPONENT24,depthWidth,depthHeight,0,GL_DEPTH_COMPONENT,GL_UNSIGNED_INT,nullptr);
+    functions->glFramebufferTexture2D(GL_FRAMEBUFFER,GL_DEPTH_ATTACHMENT,GL_TEXTURE_2D,texture,0);
+    if (functions->glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE) {
+      compareMix(GL_ALWAYS,true,false,1.,true);
+      compareMix(GL_ALWAYS,true,false,.5,false);
+      prepareDepthTarget(GL_ALWAYS); const auto before = depthAttachments();
+      const auto state = depthState(); stroke->setOpacity(.5); stroke->setOpacityProfile({});
+      bool rejected = false;
+      {
+        tglSetOpacityFramebufferFailureForTest(4);
+        struct ClearFailure { ~ClearFailure() { tglSetOpacityFramebufferFailureForTest(0); } } clearFailure;
+        try { drawDepthImage(image); } catch (const std::runtime_error &) { rejected = true; }
+      }
+      require(rejected && depthState() == state,"depth-texture rollback failed or changed state");
+      requireAttachments(before,depthAttachments(),"depth-texture rollback changed attachments",0.);
+      std::cout << "vector-opacity-depth: actual depth-texture identity/mix/rollback passed" << std::endl;
+    } else {
+      while (glGetError() != GL_NO_ERROR) {}
+      std::cout << "vector-opacity-depth: depth-texture target unavailable on this driver" << std::endl;
+    }
+  }
+  {
+    struct RestoreFramebuffer {
+      QOpenGLFunctions *functions; GLint framebuffer;
+      ~RestoreFramebuffer() { functions->glBindFramebuffer(GL_FRAMEBUFFER,GLuint(framebuffer)); }
+    } restore{functions,originalFramebuffer};
+    QOpenGLFramebufferObjectFormat format;
+    format.setAttachment(QOpenGLFramebufferObject::CombinedDepthStencil); format.setSamples(4);
+    QOpenGLFramebufferObject multisample(depthWidth,depthHeight,format);
+    if (multisample.isValid() && multisample.format().samples() > 0 && multisample.bind()) {
+      auto resolvedImage = [&]() {
+        glPushClientAttrib(GL_CLIENT_PIXEL_STORE_BIT);
+        glPixelStorei(GL_PACK_ALIGNMENT,1); glPixelStorei(GL_PACK_ROW_LENGTH,0);
+        glPixelStorei(GL_PACK_SKIP_PIXELS,0); glPixelStorei(GL_PACK_SKIP_ROWS,0);
+        const QImage pixels = multisample.toImage();
+        glPopClientAttrib();
+        return pixels;
+      };
+      prepareDepthTarget(GL_LEQUAL); const QImage before = resolvedImage();
+      require(!before.isNull(),"could not resolve multisample baseline pixels");
+      require(multisample.bind(),"could not rebind multisample target");
+      const auto state = depthState(); bool rejected = false;
+      try { drawDepthImage(image); }
+      catch (const std::runtime_error &error) {
+        rejected = std::string(error.what()).find("multisampl") != std::string::npos;
+      }
+      require(rejected && depthState() == state,
+              "actual multisample target was modified or accepted silently");
+      require(resolvedImage() == before,"multisample refusal changed destination pixels");
+      std::cout << "vector-opacity-depth: actual multisample refusal passed samples="
+                << multisample.format().samples() << std::endl;
+    } else {
+      while (glGetError() != GL_NO_ERROR) {}
+      std::cout << "vector-opacity-depth: actual multisample target unavailable; forced refusal checked" << std::endl;
+    }
+  }
+  // Bounded telemetry is descriptive, never a machine-dependent timing gate.
+  QElapsedTimer elapsed; elapsed.start();
+  for (int repeat = 0; repeat < 3; ++repeat) compareMix(GL_ALWAYS,true,false,.5,true);
+  std::cout << "vector-opacity-depth: repeated opacity_draws=3 reference_draws=3 viewport=" << depthWidth << 'x' << depthHeight
+            << " elapsed_ms=" << elapsed.elapsed() << " fixture_snapshot_bytes="
+            << size_t(depthWidth)*depthHeight*(4*sizeof(GLfloat)+2*sizeof(GLuint))
+            << " (attachment payload, not process peak)" << std::endl;
+  context.doneCurrent();
+}
+
+void nativeDepthTiming(TPalette *palette, int solidStyle) {
+  constexpr int width = 1920, height = 1080, strokes = 8, frames = 3;
+  TOfflineGL context(TDimension(width,height)); context.makeCurrent(); context.initMatrix();
+  TVectorImageP image = new TVectorImage; image->setPalette(palette);
+  for (int i = 0; i < strokes; ++i) {
+    const double y = 100. + i*120.;
+    auto *stroke = new TStroke(std::vector<TThickPoint>{{100.,y,12.},{960.,y,12.},{1820.,y,12.}});
+    stroke->setStyle(solidStyle); image->addStroke(stroke,false);
+  }
+  TVectorRenderData data(TVectorRenderData::ViewerSettings(),TAffine(),
+      TRect(0,0,width-1,height-1),palette);
+  data.m_is3dView = true; data.m_drawRegions = false;
+  auto prepare = [&]() {
+    glViewport(0,0,width,height); glDisable(GL_SCISSOR_TEST); glDisable(GL_STENCIL_TEST);
+    glDisable(GL_BLEND); glDisable(GL_ALPHA_TEST); glDisable(GL_TEXTURE_2D);
+    glColorMask(GL_TRUE,GL_TRUE,GL_TRUE,GL_TRUE); glDepthMask(GL_TRUE); glStencilMask(~GLuint(0));
+    glClearColor(0,0,1,1); glClearDepth(1.); glClearStencil(3);
+    glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT|GL_STENCIL_BUFFER_BIT);
+    glEnable(GL_DEPTH_TEST); glDepthFunc(GL_ALWAYS); glColorMask(GL_TRUE,GL_TRUE,GL_TRUE,GL_FALSE);
+    glMatrixMode(GL_PROJECTION); glLoadIdentity(); glOrtho(0,width,0,height,-256,256);
+    glMatrixMode(GL_MODELVIEW); glLoadIdentity(); glTranslated(0,0,20);
+  };
+  // Initialize native geometry/style caches before measuring comparable work.
+  prepare(); tglDraw(data,image.getPointer()); glFinish();
+  qint64 times[3] = {};
+  for (int mode = 0; mode < 3; ++mode) {
+    for (int i = 0; i < strokes; ++i) {
+      auto *stroke = image->getStroke(i);
+      stroke->setOpacity(mode == 1 ? .5 : 1.);
+      stroke->setOpacityProfile(mode == 2 ? StrokeOpacity::Profile{{0,.2},{1,.8}} : StrokeOpacity::Profile{});
+    }
+    glFinish(); QElapsedTimer elapsed; elapsed.start();
+    for (int frame = 0; frame < frames; ++frame) {
+      prepare(); tglDraw(data,image.getPointer()); glFinish();
+    }
+    times[mode] = elapsed.nsecsElapsed();
+    require(glGetError() == GL_NO_ERROR,"1080p native opacity workload left an OpenGL error");
+  }
+  GLint stencilBits = 0; glGetIntegerv(GL_STENCIL_BITS,&stencilBits);
+  const size_t bytesPerPixel = 2*(4*sizeof(GLfloat)+sizeof(GLuint)+(stencilBits ? sizeof(GLuint) : 0));
+  std::cout << "vector-opacity-depth-workload: viewport=" << width << 'x' << height
+            << " strokes=" << strokes << " frames_per_mode=" << frames
+            << " native_ms=" << times[0]/1.e6 << " scalar_ms=" << times[1]/1.e6
+            << " profile_ms=" << times[2]/1.e6
+            << " snapshot_bytes_per_stroke=" << size_t(width)*height*bytesPerPixel
+            << " bytes_per_pixel=" << bytesPerPixel
+            << " (known renderer attachment payload; not process peak; no timing gate)" << std::endl;
+  context.doneCurrent();
 }
 
 class OpacityFailureViewer final : public PlaneViewer {
@@ -399,6 +1095,8 @@ void runOpacityRenderNativeChecks() {
     scaledPixels(ordinaryDepth, render(image, true), 1.,
         "style opacity identity changed native 3D viewer occlusion");
   }
+  nativeDepthTransactions(palette.getPointer(),styles[1],styles.front());
+  nativeDepthTiming(palette.getPointer(),styles.front());
   // Failures must remain observable and restore every caller GL stack/state.
   {
     auto failing = imageWith(palette.getPointer(), styles.front());

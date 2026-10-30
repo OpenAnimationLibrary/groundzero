@@ -25,6 +25,9 @@
 #include <QOpenGLFramebufferObject>
 #include <QMatrix4x4>
 #include <QVector4D>
+#include <QWindow>
+#include <algorithm>
+#include <cmath>
 #include <stdexcept>
 
 #ifndef _WIN32
@@ -72,6 +75,14 @@ public:
   GLAttributeScope(const GLAttributeScope &) = delete;
   GLAttributeScope &operator=(const GLAttributeScope &) = delete;
 };
+constexpr size_t opacitySnapshotBudget = size_t(512) * 1024 * 1024;
+bool opacitySnapshotFits(int width, int height, bool stencil,
+                         size_t budget = opacitySnapshotBudget) {
+  if (width <= 0 || height <= 0) return false;
+  const size_t bytesPerPixel = 2 * (4 * sizeof(GLfloat) + sizeof(GLuint) +
+                                  (stencil ? sizeof(GLuint) : 0));
+  return size_t(width) <= (budget / bytesPerPixel) / size_t(height);
+}
 #ifdef BUILD_UI_PORT_TESTS
 thread_local int opacityFramebufferFailure = 0;
 thread_local bool opacityFullViewportCapture = false;
@@ -91,6 +102,9 @@ bool TViewerOpacityErrorScope::currentFailed() {
 #ifdef BUILD_UI_PORT_TESTS
 void tglSetOpacityFramebufferFailureForTest(int stage) { opacityFramebufferFailure = stage; }
 void tglSetOpacityViewportCaptureForTest(bool full) { opacityFullViewportCapture = full; }
+bool tglOpacitySnapshotFitsForTest(int width, int height, bool stencil) {
+  return opacitySnapshotFits(width, height, stencil);
+}
 #endif
 
 //-----------------------------------------------------------------------------
@@ -507,6 +521,7 @@ class OpacityFramebuffer {
   Check m_check;
   GLuint m_framebuffer = 0, m_texture = 0, m_depthStencil = 0;
   GLint m_previous = 0;
+public:
   static QFunctionPointer address(const char *name) {
     auto lookup = [](const char *entry) {
       QFunctionPointer result = nullptr;
@@ -526,6 +541,7 @@ class OpacityFramebuffer {
     // Qt's supported compatibility contexts can expose the EXT spellings
     // instead of the OpenGL 3 core entry points. Signatures and enums match.
     if (!result) result = lookup((QByteArray(name) + "EXT").constData());
+    if (!result) result = lookup((QByteArray(name) + "ARB").constData());
     if (!result) throw std::runtime_error("Stroke opacity envelopes require OpenGL framebuffer support");
     return result;
   }
@@ -582,6 +598,362 @@ public:
   }
   ~OpacityFramebuffer() { release(); }
 };
+
+bool opacityExtension(const char *name) {
+  if (auto *context = QOpenGLContext::currentContext())
+    return context->hasExtension(name);
+  const auto *extensions = glGetString(GL_EXTENSIONS);
+  return extensions && QByteArray(reinterpret_cast<const char *>(extensions))
+                           .split(' ').contains(name);
+}
+
+// Read and replace the native target without applying pixel-transfer settings
+// a second time. Every scope ends before native style drawing, which must see
+// the caller's original state. Program/PBO bindings are not attribute-stack
+// state, so preserve those explicitly.
+struct OpacityTransferFunctions {
+  using BindBuffer = void (QOPENGLF_APIENTRYP)(GLenum, GLuint);
+  using UseProgram = void (QOPENGLF_APIENTRYP)(GLuint);
+  using ActiveTexture = void (QOPENGLF_APIENTRYP)(GLenum);
+  using BindFramebuffer = void (QOPENGLF_APIENTRYP)(GLenum, GLuint);
+  using AttachmentParameter = void (QOPENGLF_APIENTRYP)(GLenum, GLenum, GLenum, GLint *);
+  using RenderbufferParameter = void (QOPENGLF_APIENTRYP)(GLenum, GLenum, GLint *);
+  using ClampColor = void (QOPENGLF_APIENTRYP)(GLenum, GLenum);
+  // address() rejects unavailable entry points before this aggregate finishes
+  // construction, before any framebuffer binding or target mutation occurs.
+  BindBuffer bindBuffer = reinterpret_cast<BindBuffer>(OpacityFramebuffer::address("glBindBuffer"));
+  UseProgram useProgram = reinterpret_cast<UseProgram>(OpacityFramebuffer::address("glUseProgram"));
+  ActiveTexture activeTexture = reinterpret_cast<ActiveTexture>(OpacityFramebuffer::address("glActiveTexture"));
+  BindFramebuffer bindFramebuffer = reinterpret_cast<BindFramebuffer>(OpacityFramebuffer::address("glBindFramebuffer"));
+  BindFramebuffer bindRenderbuffer = reinterpret_cast<BindFramebuffer>(OpacityFramebuffer::address("glBindRenderbuffer"));
+  AttachmentParameter attachmentParameter = reinterpret_cast<AttachmentParameter>(OpacityFramebuffer::address("glGetFramebufferAttachmentParameteriv"));
+  RenderbufferParameter renderbufferParameter = reinterpret_cast<RenderbufferParameter>(OpacityFramebuffer::address("glGetRenderbufferParameteriv"));
+  bool imaging = opacityExtension("GL_ARB_imaging");
+  bool modernContext = QOpenGLContext::currentContext() && QOpenGLContext::currentContext()->format().majorVersion() >= 3;
+  bool arbFramebuffer = opacityExtension("GL_ARB_framebuffer_object");
+  bool srgb = modernContext || opacityExtension("GL_EXT_framebuffer_sRGB") || opacityExtension("GL_ARB_framebuffer_sRGB");
+  bool separate = modernContext || opacityExtension("GL_EXT_framebuffer_blit") || arbFramebuffer;
+  bool textureRectangle = modernContext || opacityExtension("GL_ARB_texture_rectangle") ||
+                          opacityExtension("GL_EXT_texture_rectangle") || opacityExtension("GL_NV_texture_rectangle");
+  bool colorBufferFloat = modernContext || opacityExtension("GL_ARB_color_buffer_float");
+  ClampColor clampColor = colorBufferFloat
+      ? reinterpret_cast<ClampColor>(OpacityFramebuffer::address("glClampColor")) : nullptr;
+};
+
+class OpacityPixelTransfer {
+  const OpacityTransferFunctions &m_functions;
+  GLint m_pack = 0, m_unpack = 0, m_program = 0, m_matrixMode = GL_MODELVIEW;
+  GLint m_readFramebuffer = 0;
+  bool m_replace = false;
+public:
+  OpacityPixelTransfer(const OpacityTransferFunctions &functions,
+                       const GLint *viewport, bool replace)
+      : m_functions(functions), m_replace(replace) {
+    glGetIntegerv(GL_PIXEL_PACK_BUFFER_BINDING, &m_pack);
+    glGetIntegerv(GL_PIXEL_UNPACK_BUFFER_BINDING, &m_unpack);
+    glGetIntegerv(GL_CURRENT_PROGRAM, &m_program);
+    glGetIntegerv(GL_MATRIX_MODE, &m_matrixMode);
+    if (m_functions.separate) {
+      GLint draw = 0;
+      glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &m_readFramebuffer);
+      glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &draw);
+      m_functions.bindFramebuffer(GL_READ_FRAMEBUFFER, GLuint(draw));
+    }
+    glPushAttrib(GL_ALL_ATTRIB_BITS);
+    glPushClientAttrib(GL_CLIENT_PIXEL_STORE_BIT);
+    if (m_functions.clampColor) {
+      m_functions.clampColor(GL_CLAMP_READ_COLOR, GL_FALSE);
+      if (replace) m_functions.clampColor(GL_CLAMP_FRAGMENT_COLOR, GL_FALSE);
+    }
+    m_functions.bindBuffer(GL_PIXEL_PACK_BUFFER, 0); m_functions.bindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+    for (GLenum parameter : {GL_PACK_ALIGNMENT, GL_UNPACK_ALIGNMENT}) glPixelStorei(parameter, 1);
+    for (GLenum parameter : {GL_PACK_ROW_LENGTH, GL_PACK_SKIP_ROWS, GL_PACK_SKIP_PIXELS,
+         GL_PACK_SWAP_BYTES, GL_PACK_LSB_FIRST, GL_UNPACK_ROW_LENGTH, GL_UNPACK_SKIP_ROWS,
+         GL_UNPACK_SKIP_PIXELS, GL_UNPACK_SWAP_BYTES, GL_UNPACK_LSB_FIRST})
+      glPixelStorei(parameter, 0);
+    for (GLenum parameter : {GL_RED_SCALE, GL_GREEN_SCALE, GL_BLUE_SCALE, GL_ALPHA_SCALE,
+                             GL_DEPTH_SCALE}) glPixelTransferf(parameter, 1.f);
+    for (GLenum parameter : {GL_RED_BIAS, GL_GREEN_BIAS, GL_BLUE_BIAS, GL_ALPHA_BIAS,
+                             GL_DEPTH_BIAS}) glPixelTransferf(parameter, 0.f);
+    glPixelTransferi(GL_MAP_COLOR, GL_FALSE); glPixelTransferi(GL_MAP_STENCIL, GL_FALSE);
+    glPixelTransferi(GL_INDEX_SHIFT, 0); glPixelTransferi(GL_INDEX_OFFSET, 0);
+    if (m_functions.imaging) {
+      for (GLenum capability : {GL_COLOR_TABLE, GL_POST_CONVOLUTION_COLOR_TABLE,
+           GL_POST_COLOR_MATRIX_COLOR_TABLE, GL_CONVOLUTION_1D, GL_CONVOLUTION_2D,
+           GL_SEPARABLE_2D, GL_HISTOGRAM, GL_MINMAX}) glDisable(capability);
+      for (GLenum parameter : {GL_POST_CONVOLUTION_RED_SCALE, GL_POST_CONVOLUTION_GREEN_SCALE,
+           GL_POST_CONVOLUTION_BLUE_SCALE, GL_POST_CONVOLUTION_ALPHA_SCALE,
+           GL_POST_COLOR_MATRIX_RED_SCALE, GL_POST_COLOR_MATRIX_GREEN_SCALE,
+           GL_POST_COLOR_MATRIX_BLUE_SCALE, GL_POST_COLOR_MATRIX_ALPHA_SCALE})
+        glPixelTransferf(parameter, 1.f);
+      for (GLenum parameter : {GL_POST_CONVOLUTION_RED_BIAS, GL_POST_CONVOLUTION_GREEN_BIAS,
+           GL_POST_CONVOLUTION_BLUE_BIAS, GL_POST_CONVOLUTION_ALPHA_BIAS,
+           GL_POST_COLOR_MATRIX_RED_BIAS, GL_POST_COLOR_MATRIX_GREEN_BIAS,
+           GL_POST_COLOR_MATRIX_BLUE_BIAS, GL_POST_COLOR_MATRIX_ALPHA_BIAS})
+        glPixelTransferf(parameter, 0.f);
+      glMatrixMode(GL_COLOR); glPushMatrix(); glLoadIdentity();
+      glMatrixMode(m_matrixMode);
+    }
+    // Snapshot the actual draw target, then restore its read-buffer state and
+    // the caller's independently bound read FBO when this scope ends.
+    GLint drawBuffer = 0; glGetIntegerv(GL_DRAW_BUFFER, &drawBuffer);
+    glReadBuffer(drawBuffer);
+    if (!replace) return;
+    m_functions.useProgram(0);
+    GLint units = 0; glGetIntegerv(GL_MAX_TEXTURE_UNITS, &units);
+    for (int i = 0; i < units; ++i) {
+      m_functions.activeTexture(GL_TEXTURE0 + i);
+      for (GLenum capability : {GL_TEXTURE_1D, GL_TEXTURE_2D, GL_TEXTURE_3D,
+           GL_TEXTURE_CUBE_MAP, GL_TEXTURE_GEN_S, GL_TEXTURE_GEN_T, GL_TEXTURE_GEN_R,
+           GL_TEXTURE_GEN_Q}) glDisable(capability);
+      if (m_functions.textureRectangle) glDisable(GL_TEXTURE_RECTANGLE);
+    }
+    for (GLenum capability : {GL_ALPHA_TEST, GL_STENCIL_TEST, GL_DEPTH_TEST, GL_BLEND,
+         GL_FOG, GL_LIGHTING, GL_COLOR_SUM, GL_COLOR_LOGIC_OP, GL_DITHER, GL_SCISSOR_TEST})
+      glDisable(capability);
+    if (m_functions.srgb)
+      glDisable(GL_FRAMEBUFFER_SRGB);
+    GLint planes = 0; glGetIntegerv(GL_MAX_CLIP_PLANES, &planes);
+    for (int i = 0; i < planes; ++i) glDisable(GL_CLIP_PLANE0 + i);
+    glPixelZoom(1.f, 1.f);
+    glViewport(viewport[0], viewport[1], viewport[2], viewport[3]);
+    glMatrixMode(GL_PROJECTION); glPushMatrix(); glLoadIdentity();
+    glOrtho(viewport[0], viewport[0] + viewport[2], viewport[1], viewport[1] + viewport[3], -1., 1.);
+    glMatrixMode(GL_MODELVIEW); glPushMatrix(); glLoadIdentity();
+  }
+  ~OpacityPixelTransfer() {
+    if (m_replace) {
+      glMatrixMode(GL_MODELVIEW); glPopMatrix();
+      glMatrixMode(GL_PROJECTION); glPopMatrix();
+    }
+    if (m_functions.imaging) { glMatrixMode(GL_COLOR); glPopMatrix(); }
+    glMatrixMode(m_matrixMode);
+    glPopClientAttrib(); glPopAttrib();
+    if (m_functions.separate)
+      m_functions.bindFramebuffer(GL_READ_FRAMEBUFFER, GLuint(m_readFramebuffer));
+    m_functions.bindBuffer(GL_PIXEL_PACK_BUFFER, m_pack); m_functions.bindBuffer(GL_PIXEL_UNPACK_BUFFER, m_unpack);
+    m_functions.useProgram(m_program);
+  }
+};
+
+TDimension opacityTargetSize(const OpacityTransferFunctions &functions, GLenum &depthType) {
+  GLint framebuffer = 0; glGetIntegerv(GL_FRAMEBUFFER_BINDING, &framebuffer);
+  if (framebuffer) {
+    GLint type = 0, object = 0;
+    functions.attachmentParameter(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_FRAMEBUFFER_ATTACHMENT_OBJECT_TYPE, &type);
+    functions.attachmentParameter(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_FRAMEBUFFER_ATTACHMENT_OBJECT_NAME, &object);
+    if (type == GL_RENDERBUFFER && object) {
+      GLint previous = 0, width = 0, height = 0, format = 0;
+      glGetIntegerv(GL_RENDERBUFFER_BINDING, &previous);
+      functions.bindRenderbuffer(GL_RENDERBUFFER, GLuint(object));
+      functions.renderbufferParameter(GL_RENDERBUFFER, GL_RENDERBUFFER_WIDTH, &width);
+      functions.renderbufferParameter(GL_RENDERBUFFER, GL_RENDERBUFFER_HEIGHT, &height);
+      functions.renderbufferParameter(GL_RENDERBUFFER, GL_RENDERBUFFER_INTERNAL_FORMAT, &format);
+      functions.bindRenderbuffer(GL_RENDERBUFFER, GLuint(previous));
+      if (format == GL_DEPTH_COMPONENT32F || format == GL_DEPTH32F_STENCIL8)
+        depthType = GL_FLOAT;
+      if (width > 0 && height > 0) return TDimension(width, height);
+    } else if (type == GL_TEXTURE && object) {
+      GLint level = 0, face = 0, previous = 0, width = 0, height = 0, format = 0;
+      functions.attachmentParameter(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_FRAMEBUFFER_ATTACHMENT_TEXTURE_LEVEL, &level);
+      functions.attachmentParameter(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_FRAMEBUFFER_ATTACHMENT_TEXTURE_CUBE_MAP_FACE, &face);
+      const GLenum target = face ? GL_TEXTURE_CUBE_MAP : GL_TEXTURE_2D;
+      const GLenum binding = face ? GL_TEXTURE_BINDING_CUBE_MAP : GL_TEXTURE_BINDING_2D;
+      glGetIntegerv(binding, &previous);
+      if (glGetError() != GL_NO_ERROR)
+        throw std::runtime_error("Cannot inspect the native 3D depth attachment");
+      glBindTexture(target, GLuint(object));
+      const GLenum bindError = glGetError();
+      if (bindError == GL_NO_ERROR) {
+        const GLenum image = face ? GLenum(face) : GL_TEXTURE_2D;
+        glGetTexLevelParameteriv(image, level, GL_TEXTURE_WIDTH, &width);
+        glGetTexLevelParameteriv(image, level, GL_TEXTURE_HEIGHT, &height);
+        glGetTexLevelParameteriv(image, level, GL_TEXTURE_INTERNAL_FORMAT, &format);
+      }
+      glBindTexture(target, GLuint(previous));
+      if (bindError != GL_NO_ERROR)
+        throw std::runtime_error("Stroke opacity in a 3D view requires a renderbuffer, 2D texture, or cube-face depth attachment");
+      if (format == GL_DEPTH_COMPONENT32F || format == GL_DEPTH32F_STENCIL8)
+        depthType = GL_FLOAT;
+      if (width > 0 && height > 0) return TDimension(width, height);
+    }
+  } else if (auto *context = QOpenGLContext::currentContext()) {
+    if (functions.modernContext || functions.arbFramebuffer) {
+      GLint component = 0;
+      functions.attachmentParameter(GL_FRAMEBUFFER, GL_DEPTH, GL_FRAMEBUFFER_ATTACHMENT_COMPONENT_TYPE, &component);
+      if (component == GL_FLOAT) depthType = GL_FLOAT;
+    }
+    auto *surface = context->surface();
+    if (surface && surface->surfaceClass() == QSurface::Window) {
+      const auto *window = static_cast<const QWindow *>(surface);
+      const QSize size = window->size() * window->devicePixelRatio();
+      return TDimension(size.width(), size.height());
+    }
+  }
+  // Native stencil masks clear the attachment outside the viewport as well.
+  // Guessing its dimensions would make rollback silently incomplete.
+  throw std::runtime_error("Cannot determine the native 3D opacity framebuffer dimensions");
+}
+
+struct OpacityTargetPixels {
+  static_assert(sizeof(GLfloat) == sizeof(GLuint), "GL attachment storage must preserve 32-bit depth values");
+  std::vector<GLfloat> color;
+  // Raw 32-bit storage: fixed depth uses GL_UNSIGNED_INT, floating depth uses
+  // GL_FLOAT. Copying a saved value never converts or quantizes its bits.
+  std::vector<GLuint> depth, stencil;
+  OpacityTargetPixels(size_t count, bool hasStencil)
+      : color(count * 4), depth(count), stencil(hasStencil ? count : 0) {}
+};
+
+template <typename OpacityAt>
+void drawDepthOpacity(const TVectorRenderData &rd, const TStroke &stroke,
+                      const GLint *viewport,
+                      const OpacityAt &opacityAt) {
+  GLint sampleBuffers = 0, stencilBits = 0;
+  glGetIntegerv(GL_SAMPLE_BUFFERS, &sampleBuffers);
+  glGetIntegerv(GL_STENCIL_BITS, &stencilBits);
+#ifdef BUILD_UI_PORT_TESTS
+  if (opacityFramebufferFailure == 5) sampleBuffers = 1;
+#endif
+  if (sampleBuffers > 0)
+    throw std::runtime_error("Stroke opacity in a 3D view requires a single-sample framebuffer; disable multisampling");
+  const OpacityTransferFunctions functions;
+  GLint originalRead = 0, originalDraw = 0;
+  glGetIntegerv(GL_FRAMEBUFFER_BINDING, &originalDraw);
+  if (functions.separate) glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &originalRead);
+  struct RestoreFramebuffers {
+    const OpacityTransferFunctions &functions;
+    GLint read, draw;
+    ~RestoreFramebuffers() {
+      if (functions.separate) {
+        functions.bindFramebuffer(GL_DRAW_FRAMEBUFFER, GLuint(draw));
+        functions.bindFramebuffer(GL_READ_FRAMEBUFFER, GLuint(read));
+      } else functions.bindFramebuffer(GL_FRAMEBUFFER, GLuint(draw));
+    }
+  } restoreFramebuffers{functions, originalRead, originalDraw};
+  GLenum depthType = GL_UNSIGNED_INT;
+  const TDimension target = opacityTargetSize(functions, depthType);
+  bool srgbColor = false;
+  if (functions.srgb && glIsEnabled(GL_FRAMEBUFFER_SRGB)) {
+    GLint framebuffer = 0, attachment = 0, encoding = 0;
+    glGetIntegerv(GL_FRAMEBUFFER_BINDING, &framebuffer);
+    glGetIntegerv(GL_DRAW_BUFFER, &attachment);
+    if (!framebuffer) {
+      if (attachment == GL_BACK) attachment = GL_BACK_LEFT;
+      if (attachment == GL_FRONT) attachment = GL_FRONT_LEFT;
+    }
+    if (functions.modernContext || functions.arbFramebuffer) {
+      functions.attachmentParameter(GL_FRAMEBUFFER, GLenum(attachment), GL_FRAMEBUFFER_ATTACHMENT_COLOR_ENCODING, &encoding);
+      srgbColor = encoding == GL_SRGB;
+    } else {
+      // EXT_framebuffer_sRGB predates the per-attachment encoding query. Its
+      // capability value follows the currently bound drawable/FBO instead.
+      GLboolean capable = GL_FALSE;
+      glGetBooleanv(GL_FRAMEBUFFER_SRGB_CAPABLE_EXT, &capable);
+      srgbColor = capable;
+    }
+  }
+  // Stencil mask allocation can clear beyond both the stroke and viewport.
+  // Keep the complete attachment so errors and zero envelopes restore it too.
+  const int x0 = 0, y0 = 0, width = target.lx, height = target.ly;
+  const GLint targetViewport[4] = {0, 0, width, height};
+  if (width <= 0 || height <= 0) return;
+  size_t snapshotBudget = opacitySnapshotBudget;
+#ifdef BUILD_UI_PORT_TESTS
+  if (opacityFramebufferFailure == 6) snapshotBudget = 1;
+#endif
+  // Check the aggregate before multiplication and allocation, including both
+  // snapshots. Keep a bounded failure even for a very large valid GL target.
+  if (!opacitySnapshotFits(width, height, stencilBits > 0, snapshotBudget))
+    throw std::runtime_error("Stroke opacity in a 3D view exceeds the 512 MiB snapshot limit; reduce the viewer framebuffer size");
+  const size_t count = size_t(width) * size_t(height);
+  // Allocate everything before touching the target. The opacity field and
+  // transform have already been built; their per-pixel lookup allocates nothing.
+  // Float color preserves 10-bit displays; integer attachment copies retain
+  // native fixed-point depth/stencil values, including zero-opacity holes.
+  OpacityTargetPixels before(count, stencilBits > 0), after(count, stencilBits > 0);
+  TStroke unmodulated(stroke);
+  unmodulated.setOpacityProfile({}); unmodulated.setOpacity(1.);
+  auto read = [&](OpacityTargetPixels &pixels) {
+    OpacityPixelTransfer transfer(functions, viewport, false);
+    glReadPixels(x0, y0, width, height, GL_RGBA, GL_FLOAT, pixels.color.data());
+    glReadPixels(x0, y0, width, height, GL_DEPTH_COMPONENT, depthType, pixels.depth.data());
+    if (!pixels.stencil.empty())
+      glReadPixels(x0, y0, width, height, GL_STENCIL_INDEX, GL_UNSIGNED_INT, pixels.stencil.data());
+    const GLenum error = glGetError();
+    if (error != GL_NO_ERROR)
+      throw std::runtime_error("Cannot read the native 3D opacity target (OpenGL " + std::to_string(error) + ")");
+  };
+  auto replace = [&](const OpacityTargetPixels &pixels) {
+    OpacityPixelTransfer transfer(functions, targetViewport, true);
+    glRasterPos3d(x0, y0, 0.);
+    glDepthMask(GL_FALSE); glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+    glDrawPixels(width, height, GL_RGBA, GL_FLOAT, pixels.color.data());
+    glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+    glEnable(GL_DEPTH_TEST); glDepthFunc(GL_ALWAYS); glDepthMask(GL_TRUE);
+    glDrawPixels(width, height, GL_DEPTH_COMPONENT, depthType, pixels.depth.data());
+    if (!pixels.stencil.empty()) {
+      glStencilMask(~GLuint(0));
+      glDrawPixels(width, height, GL_STENCIL_INDEX, GL_UNSIGNED_INT, pixels.stencil.data());
+    }
+    const GLenum error = glGetError();
+    if (error != GL_NO_ERROR)
+      throw std::runtime_error("Cannot replace the native 3D opacity target (OpenGL " + std::to_string(error) + ")");
+  };
+  read(before);
+  // Preflight the replacement entry points/state before the first native draw.
+  { OpacityPixelTransfer transfer(functions, targetViewport, true); }
+  const GLenum error = glGetError();
+  if (error != GL_NO_ERROR)
+    throw std::runtime_error("Cannot prepare native 3D opacity compositing (OpenGL " + std::to_string(error) + ")");
+  try {
+    // The original context performs all actual depth/stencil decisions,
+    // including antialiased line self-occlusion and native mask operations.
+    SuspendViewerOpacityErrors strict;
+    tglDraw(rd, &unmodulated, true);
+#ifdef BUILD_UI_PORT_TESTS
+    if (opacityFramebufferFailure == 4)
+      throw std::runtime_error("Injected native 3D opacity composite failure");
+#endif
+    read(after);
+    auto linear = [](double value) {
+      return value <= .04045 ? value / 12.92 : std::pow((value + .055) / 1.055, 2.4);
+    };
+    auto encoded = [](double value) {
+      return value <= .0031308 ? value * 12.92 : 1.055 * std::pow(value, 1. / 2.4) - .055;
+    };
+    for (size_t i = 0; i < count; ++i) {
+      // Unchanged attachments need no field lookup. Include depth and stencil,
+      // since invisible color differences alone do not establish coverage.
+      if (before.depth[i] == after.depth[i] &&
+          (after.stencil.empty() || before.stencil[i] == after.stencil[i]) &&
+          std::equal(before.color.begin() + i * 4, before.color.begin() + i * 4 + 4,
+                     after.color.begin() + i * 4)) continue;
+      const double amount = opacityAt(double(i % width) + x0 + .5,
+                                      double(i / width) + y0 + .5);
+      for (int channel = 0; channel < 4; ++channel) {
+        const size_t index = i * 4 + channel;
+        if (amount == 1. || before.color[index] == after.color[index]) continue;
+        if (amount == 0.) after.color[index] = before.color[index];
+        else if (srgbColor && channel < 3) {
+          const double start = linear(before.color[index]);
+          after.color[index] = GLfloat(encoded(start + amount * (linear(after.color[index]) - start)));
+        } else after.color[index] = GLfloat(before.color[index] +
+            amount * (double(after.color[index]) - before.color[index]));
+      }
+      // Do not infer coverage from color differences: same-colored artwork
+      // still writes depth. Any positive opacity retains native attachments.
+      if (amount == 0.) {
+        after.depth[i] = before.depth[i];
+        if (!after.stencil.empty()) after.stencil[i] = before.stencil[i];
+      }
+    }
+    replace(after);
+  } catch (...) {
+    replace(before);
+    throw;
+  }
+}
 
 // Composite the native style once, then modulate its complete premultiplied
 // result. This path applies to solid, procedural, raster and vector patterns
@@ -649,6 +1021,34 @@ void drawOpacityEnvelope(const TVectorRenderData &rd, const TStroke &stroke) {
   }
   if (x1 <= x0 || y1 <= y0) return;
   const int width = x1 - x0, height = y1 - y0;
+  const double projectedScale = std::max(
+      std::hypot(double(mapping(0,0)) * viewport[2], double(mapping(1,0)) * viewport[3]),
+      std::hypot(double(mapping(0,1)) * viewport[2], double(mapping(1,1)) * viewport[3])) * .5;
+  std::unique_ptr<StrokeOpacity::Field> field;
+  if (!stroke.getOpacityProfile().empty())
+    field.reset(new StrokeOpacity::Field(stroke, projectedScale > 0. ? .125 / projectedScale : .05));
+  auto planePoint = [&](double x, double y) {
+    const float nx = float(2. * (x - viewport[0]) / viewport[2] - 1.);
+    const float ny = float(2. * (y - viewport[1]) / viewport[3] - 1.);
+    QVector4D nearPoint = inverse * QVector4D(nx, ny, -1, 1);
+    QVector4D farPoint = inverse * QVector4D(nx, ny, 1, 1);
+    if (nearPoint.w() == 0 || farPoint.w() == 0) return TPointD();
+    nearPoint /= nearPoint.w(); farPoint /= farPoint.w();
+    const double dz = farPoint.z() - nearPoint.z();
+    const double z = std::abs(dz) > 1e-12 ? -nearPoint.z() / dz : 0.;
+    return TPointD(nearPoint.x() + z * (farPoint.x() - nearPoint.x()),
+                   nearPoint.y() + z * (farPoint.y() - nearPoint.y()));
+  };
+  if (glIsEnabled(GL_DEPTH_TEST)) {
+    GLint depthBits = 0; glGetIntegerv(GL_DEPTH_BITS, &depthBits);
+    if (depthBits > 0) {
+      drawDepthOpacity(rd, stroke, viewport,
+          [&](double x, double y) {
+            return stroke.getOpacity() * (field ? field->opacity(planePoint(x, y)) : 1.);
+          });
+      return;
+    }
+  }
   OpacityFramebuffer buffer(width, height);
   const bool hasEnvelope = !stroke.getOpacityProfile().empty();
   std::vector<unsigned char> pixels;
@@ -698,24 +1098,6 @@ void drawOpacityEnvelope(const TVectorRenderData &rd, const TStroke &stroke) {
   }
   restore.restore();
 
-  const double projectedScale = std::max(
-      std::hypot(double(mapping(0,0)) * viewport[2], double(mapping(1,0)) * viewport[3]),
-      std::hypot(double(mapping(0,1)) * viewport[2], double(mapping(1,1)) * viewport[3])) * .5;
-  std::unique_ptr<StrokeOpacity::Field> field;
-  if (!stroke.getOpacityProfile().empty())
-    field.reset(new StrokeOpacity::Field(stroke, projectedScale > 0. ? .125 / projectedScale : .05));
-  auto planePoint = [&](double x, double y) {
-    const float nx = float(2. * (x - viewport[0]) / viewport[2] - 1.);
-    const float ny = float(2. * (y - viewport[1]) / viewport[3] - 1.);
-    QVector4D nearPoint = inverse * QVector4D(nx, ny, -1, 1);
-    QVector4D farPoint = inverse * QVector4D(nx, ny, 1, 1);
-    if (nearPoint.w() == 0 || farPoint.w() == 0) return TPointD();
-    nearPoint /= nearPoint.w(); farPoint /= farPoint.w();
-    const double dz = farPoint.z() - nearPoint.z();
-    const double z = std::abs(dz) > 1e-12 ? -nearPoint.z() / dz : 0.;
-    return TPointD(nearPoint.x() + z * (farPoint.x() - nearPoint.x()),
-                   nearPoint.y() + z * (farPoint.y() - nearPoint.y()));
-  };
   for (int y = 0; hasEnvelope && y < height; ++y) for (int x = 0; x < width; ++x) {
     auto *pixel = &pixels[(size_t(y) * width + x) * 4];
     if (!pixel[3]) continue;

@@ -59,6 +59,7 @@
 #include <QItemSelectionModel>
 #include <QPushButton>
 #include <QTemporaryDir>
+#include <QTextEdit>
 #include <QTimer>
 #include <cmath>
 #include <functional>
@@ -448,6 +449,26 @@ void exportThroughNativeCommand(const char *command, const QString &destination,
                                 const QStringList &choices) {
   int handled = 0;
   bool selectedFile = false, matched = true;
+  QString mismatch;
+  const QString outputName = QFileInfo(destination).fileName();
+  std::cerr << "animation-workflow: exporter " << command << " destination="
+            << outputName.toStdString() << std::endl;
+  auto describe = [&](QDialog *dialog, const QString &expected) {
+    QStringList details;
+    details << QString("dialog=%1 object=%2 title=%3 expected=%4")
+                   .arg(dialog->metaObject()->className(), dialog->objectName(),
+                        dialog->windowTitle(), expected);
+    for (auto *button : dialog->findChildren<QPushButton *>())
+      details << QString("button object=%1 text=%2 visible=%3 enabled=%4")
+                     .arg(button->objectName(), button->text())
+                     .arg(button->isVisible()).arg(button->isEnabled());
+    for (auto *label : dialog->findChildren<QLabel *>())
+      if (!label->text().isEmpty()) details << label->text().left(400);
+    for (auto *text : dialog->findChildren<QTextEdit *>())
+      details << text->toPlainText().left(400);
+    return details.join("; ").replace(QFileInfo(destination).absolutePath(), "<fixture>")
+        .replace('\n', ' ').left(1800);
+  };
   QTimer timer;
   QObject::connect(&timer, &QTimer::timeout, [&]() {
     QWidget *modal = QApplication::activeModalWidget();
@@ -466,7 +487,12 @@ void exportThroughNativeCommand(const char *command, const QString &destination,
     }
     auto *dialog = qobject_cast<QDialog *>(modal);
     if (!dialog) return;
-    if (handled >= choices.size()) { matched = false; dialog->reject(); return; }
+    if (handled >= choices.size()) {
+      matched = false;
+      mismatch = describe(dialog, "no further dialog");
+      dialog->reject();
+      return;
+    }
     const QString choice = choices[handled++];
     for (auto *button : dialog->findChildren<QPushButton *>())
       if (button->isVisible() && (button->objectName() == choice || button->text().remove('&') == choice)) {
@@ -474,12 +500,18 @@ void exportThroughNativeCommand(const char *command, const QString &destination,
         return;
       }
     matched = false;
+    mismatch = describe(dialog, choice);
     dialog->reject();
   });
   timer.start(0);
   CommandManager::instance()->execute(command);
   timer.stop();
-  require(selectedFile && matched && handled == choices.size(), "native exporter workflow controls did not match");
+  if (!selectedFile || !matched || handled != choices.size())
+    throw std::runtime_error(QString(
+        "native exporter workflow controls did not match: command=%1 output=%2 "
+        "fileSelected=%3 choices=%4/%5; %6")
+        .arg(command, outputName).arg(selectedFile).arg(handled).arg(choices.size())
+        .arg(mismatch).toStdString());
 }
 QByteArray fileBytes(const QString &path) {
   QFile file(path);
