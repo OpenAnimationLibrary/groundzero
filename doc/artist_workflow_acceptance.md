@@ -59,6 +59,8 @@ and the component ledgers.
 | Function Editor `ebf078049581c76bfad470cc383563067430c146` | Linux compiled, then the native preset-import widget test timed out in its file chooser. `208f938b8` drives the actual filename and enabled Open control instead of relying on ignored focused-field selection. macOS exposed title-based comparison-confirmation lookup in both Function fixtures; Qt ignores message-box titles there. `a6bbf59aa` matches the exact prompt, viewer owner, Question icon and enabled Yes/No controls instead. | The corrected drivers and subsequent application checks require fresh execution; no restore/cancel/undo assertion was relaxed. |
 | Vector editing `ab7a8f4ee54ca36ef23b57a7ca46164f0c2d5cd1` | Linux passed 17 standalone UI tests; the width manager passed creation/capture/save-retry, then timed out at Import. `4c4ff918d` corrects the same focused-file-chooser driver while preserving overwrite, cancellation and error assertions. | Native vector rendering and the corrected manager workflow did not execute on this revision. |
 | Scene Cast `c7fdf2aecd719fed34b0f34608e1d7019838e152` | Linux compiled and passed the animation workflow, frozen Function comparisons, unkeyed defaults reload and saved-set rename. Fractional retime scene reload then failed its keyframe-field equality check. Source review found interpolation undo omitted the adjacent endpoint; `dbf7ffa38` fixes that defect and a final-key boundary while retaining strict comparisons and adding field diagnostics. | The predicted mismatch and correction require runtime confirmation; Cast/Library checks were not reached. |
+| Animation workflow `169d240ac3fe8a423ba106ed21aaf512140f194c` | Linux application and installed-package jobs passed. Main-job logs confirm both Function component suites, strict fractional retime reload, animation workflows and clean shutdown. The 96-channel/24,576-key graph painted in 31.67–31.85 ms at 1000×960. | The graph timing measures QWidget-to-QImage only. Installed checks exercise the packaged native SeExpr lifecycle; Windows and macOS remain separate gates. |
+| Combined workflow `47dbae4c9a048af1f795179aeaac1c4006fe61c1` | Linux compiled and passed all 19 UI tests, native cache/animation workflows, and independent Function, timing, Cast/vector and export diagnostics. The independent artist workload passed saved-data correctness. Native opacity plane, depth/stencil, secondary-color, sRGB, HDR and rollback checks passed before the 1080p visibility oracle failed. Isolated Cast also failed its final preview-submission check. | The mandatory suite failed and installed checks were skipped. Depth timings are provisional; source review found nonzero stencil-clear setup in the benchmark and missing Cast selection in the scene-switch fixture. Corrections must retain and pass those oracles. |
 
 Current investigations remain explicit: fractional retime persistence, native
 file-chooser acceptance, Windows SVG/vector-analysis/thumbnail rendering, the
@@ -70,7 +72,9 @@ while preserving the ordinary invertible 3D path. The HDR fixture now seeds the
 actual float attachment before testing production rendering. Original pixel,
 depth, stencil, rollback, cancellation and saved-content assertions remain strict.
 
-The representative 1080p depth-rendering measurement has not yet executed.
+The representative 1080p depth-rendering workload executed on `47dbae4c`, but
+failed its visible-stroke oracle. Those timings are not accepted performance
+evidence. The source-backed fixture corrections require a fresh run.
 The approximately 99.5 MB attachment snapshot per 1080p stroke is a resource
 estimate, not measured practical performance. Synthetic native application
 benchmarks and widget-to-image graph timings are distinct from physical tablet
@@ -79,8 +83,9 @@ The depth fixture now records synchronized frame samples, actual GL target and
 renderer provenance, and process peak resident memory before and after each
 mode. The shared memory probe reports a cumulative high-water mark that can
 include earlier fixture allocations; it does not attribute a peak delta to one
-stroke. Neither these prepared probes nor the separate 2D measurements establish
-the practical cost of depth rendering until that workload executes.
+stroke. Neither these probes nor the separate 2D measurements establish the
+practical cost of depth rendering until that workload passes its visibility and
+color-mixing checks.
 
 The component ledgers are `doc/function_editor_acceptance.md`,
 `doc/vector_workflow_acceptance.md`, `doc/scene_cast_acceptance.md`,
