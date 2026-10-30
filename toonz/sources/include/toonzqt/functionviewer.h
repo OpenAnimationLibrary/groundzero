@@ -141,6 +141,8 @@ public:
 signals:
   // Cached previews contain expression grammars owned by the current scene.
   void workflowContextChanged();
+  // Close pending nested workflows before the panel hides or is destroyed.
+  void workflowPanelClosed();
 
   void curveChanged();
   void curveIo(int type, TDoubleParam *curve, const std::string &name);
