@@ -1090,6 +1090,8 @@ if(BUILD_UI_PORT_TESTS)
         animationworkflowintegrationtest.cpp animationworkflowintegrationtest.h
         functionworkflowintegrationtest.cpp functionworkflowintegrationtest.h)
     target_sources(OpenToonz PRIVATE functionrigbenchmarkintegrationtest.cpp functionrigbenchmarkintegrationtest.h)
+    target_sources(OpenToonz PRIVATE offlineglworkflowintegrationtest.cpp offlineglworkflowintegrationtest.h)
+    add_dependencies(OpenToonz tconverter)
     target_compile_definitions(OpenToonz PRIVATE BUILD_UI_PORT_TESTS)
     target_compile_definitions(toonzlib PRIVATE BUILD_UI_PORT_TESTS)
     add_custom_target(ui_port_tests)

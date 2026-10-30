@@ -174,6 +174,10 @@ void run() {
 int main(int argc, char **argv) {
   QApplication application(argc, argv);
   if (!openGLAvailable()) {
+    if (qEnvironmentVariableIsSet("GROUNDZERO_REQUIRE_VECTOR_GL")) {
+      std::cerr << "Required Cadmium vector rendering has no OpenGL context\n";
+      return 1;
+    }
     std::cout << "Cadmium vector adapter checks skipped: no OpenGL context\n";
     return 77;
   }
