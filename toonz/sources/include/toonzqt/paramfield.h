@@ -706,6 +706,8 @@ public:
   // File selection for the scene-owned LUT Bake parameter. Changes use the
   // same undo and preview notifications as edits to the string field.
   void enableLutFileControls();
+  void enableColorMatchControls();
+  void enableNeuralStyleControls();
 
   // Select or clear a GLB reference without opening or validating its data.
   void enableGlbFileControls();
