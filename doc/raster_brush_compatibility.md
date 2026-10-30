@@ -1,6 +1,6 @@
 # Regular-raster brush compatibility contract
 
-Status: proposed acceptance contract for independently implemented brush compatibility.
+Status: implementation in progress against the scoped independent compatibility contract.
 The existing ABR importer extracts sampled tips only. None of the new foreign
 behavior profiles below is implemented or reference-verified by publishing this
 contract. Keep this work separate from vector/touch usability and neural styling.
@@ -26,7 +26,7 @@ satisfy the contract. Build and test through CI per CLAUDE.md.
 | Undo/cancel/frame lifecycle/save/reopen | Native path uses raster undo; cancellation rolls back tiles and created frame | Actual-tool undo, redo, cancellation, frame creation and PNG reopen workload added; full application CI pending |
 | Parser isolation/fuzzing/cancel and complete resource budgets | Bounded readers and cancellable worker implemented; libFuzzer target and original corpus added; worker-process crash containment implemented; privilege sandboxing and sustained qualification pending | Sanitizers, malformed corpus, cancellation and limits |
 | Packaged Windows/macOS/Linux QA and performance | Planned | Exact-head artifacts and hardware results |
-| Must-have pack parity including any wet/Mixer/bristle/TPL expansion | Unresolved target | Pack revision/preset identity and authorized reference access |
+| Optional named-pack parity including any wet/Mixer/bristle/TPL expansion | No named pack required for the chosen RCP1 target | A future expansion needs pack revision/preset identity and authorized reference access; it does not block the original-fixture implementation |
 
 No planned or unresolved row can be counted as completed by passing the current
 ABR tests. Keep every row visible until the full outcome is fulfilled. There is
@@ -35,7 +35,7 @@ public test corpus; proprietary packs are not bundled.
 
 ## Normative RCP1 contract — revision 2
 
-This section governs whenever an earlier overview uses “supported,” “specified,” “subset,” or a provisional metric. It is a proposed complete practical product scope, not an assertion that compatibility already exists. Acceptance of this scope remains a product decision; engineering defaults below do not require further user choices. Touch/UI usability work is separate; only the brush import/editor workflow is included here.
+This section governs whenever an earlier overview uses “supported,” “specified,” “subset,” or a provisional metric. RCP1 is the chosen practical engineering target under the long-term maintainability direction, not an assertion that compatibility already exists. Original fixtures establish the target without waiting for optional named packs. Touch/UI usability work is separate; only the brush import/editor workflow is included here.
 
 ### Three independent status axes
 
@@ -312,3 +312,20 @@ The real Linux application integration workload passed at
 `c2014651285a44deee6f8195861fc413972ccffe`, including native strokes, exact undo/redo,
 frame/level cancellation and save/reopen. Windows/macOS application runs and
 physical tablet-to-display qualification remain separate release gates.
+
+## Typed ABR metadata decoding
+
+The independent ABR reader now decodes bounded version-16 Action Descriptor
+objects/lists and scalar types from Adobe's published data-layout specification.
+It preserves class/key IDs, unit codes and signed 64-bit integers; sampled tips
+retain their explicit IDs. Native conversions retain sample IDs and decoded
+object counts as provenance. Objects are **not** associated by positional guess,
+and descriptor decoding does not mark names/dynamics/patterns as implemented.
+Unknown types and duplicate keys reject their descriptor section with a report;
+node/depth/allocation-limit failures reject the complete import. Limits are
+16,384 nodes, depth 16 and 4 MiB of accounted descriptor allocations, independent
+of image-resource budgets. Alias bytes remain opaque and are never opened.
+Original byte fixtures cover typed values, sample IDs, every truncated prefix,
+duplicate keys and aggregate limits. Behavioral adapters and source-parity
+qualification remain required before this ledger's ABR behavioral row closes.
+[Adobe descriptor data layout](https://www.adobe.com/devnet-apps/photoshop/fileformatashtml/).

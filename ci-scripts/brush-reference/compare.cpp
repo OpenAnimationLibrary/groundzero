@@ -1,3 +1,4 @@
+#include "color_metrics.h"
 #include "toonz/rasterbrushimport.h"
 #include <QCoreApplication>
 #include <QDir>
@@ -87,6 +88,8 @@ QJsonObject compare(const QImage &base, const QImage &reference,
     }
   double rgbError = 0, alphaError = 0, maxRGB = 0, maxAlpha = 0;
   std::vector<double> alphaErrors;
+  std::vector<double> perceptual[2];
+  double perceptualSum[2] = {0, 0};
   QImage diff(w, h, QImage::Format_ARGB32);
   diff.fill(qRgb(0, 0, 0));
   for (int y = 0; y < h; ++y)
@@ -105,9 +108,20 @@ QJsonObject compare(const QImage &base, const QImage &reference,
       maxRGB = std::max(maxRGB, std::max(er, std::max(eg, eb)));
       maxAlpha = std::max(maxAlpha, ea);
       alphaErrors.push_back(ea);
+      for (int background = 0; background <= 1; ++background) {
+        auto lab = [background](Pixel p) {
+          double paper = background * (1 - p.a);
+          return BrushMetrics::srgbLab(p.r + paper, p.g + paper, p.b + paper);
+        };
+        double difference = BrushMetrics::deltaE00(lab(r), lab(c));
+        perceptual[background].push_back(difference);
+        perceptualSum[background] += difference;
+      }
     }
   require(diff.save(diffPath), "Cannot save full-canvas difference");
   std::sort(alphaErrors.begin(), alphaErrors.end());
+  for (auto &errors : perceptual)
+    std::sort(errors.begin(), errors.end());
   const double n = double(alphaErrors.size());
   return {
       {"region", "union of changed sets, square dilation radius 2"},
@@ -122,6 +136,12 @@ QJsonObject compare(const QImage &base, const QImage &reference,
       {"maxRGBError", maxRGB},
       {"maxAlphaError", maxAlpha},
       {"alphaP99", n ? alphaErrors[size_t(std::ceil(.99 * n)) - 1] : 0},
+      {"deltaE00BlackMean", n ? perceptualSum[0] / n : 0},
+      {"deltaE00WhiteMean", n ? perceptualSum[1] / n : 0},
+      {"deltaE00BlackP95",
+       n ? perceptual[0][size_t(std::ceil(.95 * n)) - 1] : 0},
+      {"deltaE00WhiteP95",
+       n ? perceptual[1][size_t(std::ceil(.95 * n)) - 1] : 0},
       {"emptyCandidateFailure", refCount > 0 && candidateCount == 0},
       {"bothEmpty", refCount == 0 && candidateCount == 0}};
 }
@@ -129,6 +149,32 @@ QJsonObject compare(const QImage &base, const QImage &reference,
 int main(int argc, char **argv) {
   QCoreApplication app(argc, argv);
   try {
+    if (app.arguments().size() == 2 &&
+        app.arguments().at(1) == "--test-metrics") {
+      // Published numerical pairs, including neutral and hue-wrap boundaries.
+      // https://www.ece.rochester.edu/~gsharma/ciede2000/
+      const double pairs[][7] = {
+          {50, 2.6772, -79.7751, 50, 0, -82.7485, 2.0425},
+          {50, 3.1571, -77.2803, 50, 0, -82.7485, 2.8615},
+          {50, 0, 0, 50, -1, 2, 2.3669},
+          {50, 2.49, -.001, 50, -2.49, .0009, 7.1792},
+          {50, 2.49, -.001, 50, -2.49, .0011, 7.2195},
+          {50, -.001, 2.49, 50, .0011, -2.49, 4.7461}};
+      for (const auto &p : pairs) {
+        BrushMetrics::Lab a{p[0], p[1], p[2]}, b{p[3], p[4], p[5]};
+        require(std::abs(BrushMetrics::deltaE00(a, b) - p[6]) < .0001 &&
+                    std::abs(BrushMetrics::deltaE00(b, a) - p[6]) < .0001,
+                "CIEDE2000 calibration failed");
+        require(BrushMetrics::deltaE00(a, a) == 0,
+                "Identical colors have nonzero difference");
+      }
+      auto black = BrushMetrics::srgbLab(0, 0, 0);
+      auto white = BrushMetrics::srgbLab(1, 1, 1);
+      require(std::abs(black.l) < 1e-8 && std::abs(white.l - 100) < 1e-4 &&
+                  std::abs(white.a) < 1e-4 && std::abs(white.b) < 1e-4,
+              "sRGB/D65 neutral calibration failed");
+      return 0;
+    }
     require(argc == 2, "Expected reference run directory");
     QDir root(QString::fromLocal8Bit(argv[1]));
     QFile status(root.filePath("output/oracle-status.json"));

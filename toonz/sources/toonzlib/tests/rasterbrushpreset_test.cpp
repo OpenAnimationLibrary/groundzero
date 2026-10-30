@@ -586,6 +586,12 @@ void writeCorpus(const QString &directory) {
                 {"paintoppresets/original.kpp", kpp()}},
                true));
   save("sample-abr", 5, sampledAbr());
+  // Original v6 descriptor-only seed: version 16, Brsh class, enab=true.
+  // No tip is expected; fuzzing still traverses the bounded typed decoder.
+  save("descriptor-abr", 5,
+       QByteArray::fromHex("000600013842494d6465736300000021"
+                           "0000001000000000000000004272736800000001"
+                           "00000000656e6162626f6f6c01"));
 }
 }  // namespace
 int main(int argc, char **argv) {

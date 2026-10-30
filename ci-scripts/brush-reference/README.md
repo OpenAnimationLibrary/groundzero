@@ -41,3 +41,19 @@ References:
 Run through the repository CI workflow; project instructions prohibit local
 builds and tests. A successful workflow only establishes the listed source
 fixtures. It never promotes imported presets to reference-verified status.
+
+At `730269e0`, the legacy Smear zero-length probe produced an unchanged raster.
+This is a meaningful boundary measurement, consistent with the documented old
+algorithm coupling between smudge length and color rate. The two legacy
+zero-length cases therefore record whether pixels change instead of requiring
+nonempty paint. Every other case retains the nonempty-output guard. These empty
+source results still enter the comparison: a nonempty candidate is a difference,
+not a pass or an omitted fixture.
+
+Color differences use an independently written CIEDE2000 calculation after
+encoded-sRGB compositing over both black and white, followed by sRGB-to-D65-Lab
+conversion. Mean and p95 values use the same union region as RGB/alpha errors.
+The six-platform package test matrix calibrates the calculation against published
+numerical pairs, including neutral colors and hue wrap boundaries, and checks
+black/white D65 conversion. This measurement code is confined to CI; it does not
+change production color management or neural styling.

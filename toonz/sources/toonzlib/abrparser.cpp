@@ -1,6 +1,9 @@
 #include "toonz/abrparser.h"
 
 #include <cstring>
+#include <cmath>
+#include <set>
+#include <stdexcept>
 #include <utility>
 
 namespace AbrParser {
@@ -14,6 +17,7 @@ const long long c_maxTipPixels = 64LL * 1024 * 1024;
 struct Budget {
   const Limits &limits;
   size_t decoded = 0, records = 0;
+  size_t descriptorNodes = 0, descriptorBytes = 0;
   std::string error;
   explicit Budget(const Limits &value) : limits(value) {}
   bool record() {
@@ -31,6 +35,27 @@ struct Budget {
     }
     decoded += bytes;
     return true;
+  }
+  void descriptorAllocate(size_t bytes) {
+    if (bytes > limits.maxDescriptorBytes - descriptorBytes) {
+      error = "The ABR descriptor allocation budget was exceeded.";
+      throw std::runtime_error(error);
+    }
+    descriptorBytes += bytes;
+  }
+  void descriptorReserve(size_t count) {
+    if (count > limits.maxDescriptorNodes - descriptorNodes) {
+      error = "The ABR descriptor node budget was exceeded.";
+      throw std::runtime_error(error);
+    }
+    // Include bounded container bookkeeping, including duplicate-key checks.
+    const size_t perNode = sizeof(DescriptorValue) + 64;
+    if (count > (limits.maxDescriptorBytes - descriptorBytes) / perNode) {
+      error = "The ABR descriptor allocation budget was exceeded.";
+      throw std::runtime_error(error);
+    }
+    descriptorAllocate(count * perNode);
+    descriptorNodes += count;
   }
 };
 
@@ -151,6 +176,138 @@ bool readUnicodeName(Reader &r, std::string &name, Budget &budget) {
   }
   return true;
 }
+
+// Independently written reader of Adobe's documented Action Descriptor data
+// layout. Decoding a typed value does not interpret its brush-engine meaning.
+// https://www.adobe.com/devnet-apps/photoshop/fileformatashtml/
+class DescriptorReader {
+  Reader &r;
+  Budget &budget;
+  void need(bool valid) {
+    if (!valid) throw std::runtime_error("truncated or invalid descriptor");
+  }
+  uint32_t word() {
+    uint32_t value;
+    need(r.u32(value));
+    return value;
+  }
+  std::string bytes(size_t count) {
+    need(count <= r.remaining());
+    budget.descriptorAllocate(count);
+    std::string value(reinterpret_cast<const char *>(r.ptr()), count);
+    r.skip(count);
+    return value;
+  }
+  std::string id() {
+    size_t count = word();
+    if (!count) count = 4;
+    need(count <= 4096);
+    return bytes(count);
+  }
+  std::string unicode() {
+    Reader peek = r;
+    uint32_t count;
+    need(peek.u32(count));
+    if (count > budget.limits.maxNameUnits ||
+        count > (budget.limits.maxDescriptorBytes - budget.descriptorBytes) / 8) {
+      budget.error = "The ABR descriptor string budget was exceeded.";
+      throw std::runtime_error(budget.error);
+    }
+    budget.descriptorAllocate(size_t(count) * 8);
+    std::string value;
+    need(readUnicodeName(r, value, budget));
+    return value;
+  }
+  uint64_t wide() {
+    const uint64_t high = word();
+    return (high << 32) | word();
+  }
+  double real() {
+    uint64_t bits = wide();
+    double value;
+    static_assert(sizeof(value) == sizeof(bits), "IEEE binary64 required");
+    std::memcpy(&value, &bits, sizeof(value));
+    need(std::isfinite(value));
+    return value;
+  }
+  void children(DescriptorValue &value, size_t depth, bool keyed) {
+    const size_t count = word();
+    need(count <= r.remaining() / (keyed ? 12 : 4));
+    budget.descriptorReserve(count);
+    value.children.reserve(count);
+    std::set<std::string> keys;
+    for (size_t i = 0; i < count; ++i) {
+      std::string key = keyed ? id() : std::string();
+      if (keyed) budget.descriptorAllocate(key.size());
+      if (keyed && !keys.insert(key).second)
+        throw std::runtime_error("duplicate descriptor key");
+      auto child = item(depth + 1);
+      child.key  = std::move(key);
+      value.children.push_back(std::move(child));
+    }
+  }
+  void object(DescriptorValue &value, size_t depth) {
+    value.name    = unicode();
+    value.classId = id();
+    children(value, depth, true);
+  }
+  DescriptorValue item(size_t depth) {
+    if (depth > budget.limits.maxDescriptorDepth) {
+      budget.error = "The ABR descriptor nesting limit was exceeded.";
+      throw std::runtime_error(budget.error);
+    }
+    DescriptorValue value;
+    value.type = bytes(4);
+    if (value.type == "Objc" || value.type == "GlbO") {
+      object(value, depth);
+    } else if (value.type == "VlLs") {
+      children(value, depth, false);
+    } else if (value.type == "TEXT") {
+      value.text = unicode();
+    } else if (value.type == "enum") {
+      value.classId = id();
+      value.text    = id();
+    } else if (value.type == "long") {
+      uint32_t n    = word();
+      value.integer = n >= 0x80000000u ? int64_t(n) - 0x100000000LL : n;
+    } else if (value.type == "comp") {
+      uint64_t n    = wide();
+      value.integer = n >> 63 ? -int64_t(~n) - 1 : int64_t(n);
+    } else if (value.type == "doub" || value.type == "UntF") {
+      if (value.type == "UntF") value.unit = bytes(4);
+      value.number = real();
+    } else if (value.type == "bool") {
+      unsigned n;
+      need(r.u8(n) && n <= 1);
+      value.boolean = n != 0;
+    } else if (value.type == "type" || value.type == "GlbC") {
+      value.name    = unicode();
+      value.classId = id();
+    } else if (value.type == "tdta" || value.type == "alis") {
+      // Preserve opaque bytes only. Aliases are never opened or resolved.
+      value.text = bytes(word());
+    } else {
+      throw std::runtime_error("unsupported descriptor type: " + value.type);
+    }
+    return value;
+  }
+
+public:
+  DescriptorReader(Reader &reader, Budget &b) : r(reader), budget(b) {}
+  DescriptorValue read() {
+    need(word() == 16);
+    budget.descriptorReserve(1);
+    DescriptorValue value;
+    value.type = "Objc";
+    object(value, 0);
+    need(r.remaining() <= 3);
+    while (r.remaining()) {
+      unsigned padding;
+      need(r.u8(padding) && padding == 0);
+    }
+    return value;
+  }
+};
 
 //-----------------------------------------------------------------------------
 
@@ -287,7 +444,8 @@ std::string defaultName(int index) {
 // Versions 1 and 2
 
 //! \b r ends where the brush ends.
-bool readSampleV12(Reader &r, int version, Tip &tip, std::string &why, Budget &budget) {
+bool readSampleV12(Reader &r, int version, Tip &tip, std::string &why,
+                   Budget &budget) {
   int32_t misc;
   int spacing;
   if (!r.i32(misc) || !r.i16(spacing)) {
@@ -357,19 +515,29 @@ void parseV12(const unsigned char *data, size_t size, int version, int count,
 // Versions 6 and up
 
 //! \b r ends where the sample ends.
-bool readSampleV6(Reader &r, int subVersion, Tip &tip, std::string &why, Budget &budget) {
+bool readSampleV6(Reader &r, int subVersion, Tip &tip, std::string &why,
+                  Budget &budget) {
   // The id of the brush (a pascal string of 36 characters) and some fields
   // which are not used: 47 bytes for sub version 1, 301 for the others.
-  if (!r.skip(subVersion == 1 ? 47 : 301)) {
+  const size_t headerSize = subVersion == 1 ? 47 : 301;
+  if (r.remaining() < headerSize) {
     why = "truncated header";
     return false;
   }
+  const unsigned idSize = r.ptr()[0];
+  if (idSize > 36) {
+    why = "invalid sample identifier";
+    return false;
+  }
+  tip.sampleId.assign(reinterpret_cast<const char *>(r.ptr() + 1), idSize);
+  r.skip(headerSize);
   return readBoundsAndImage(r, tip, why, budget);
 }
 
 //! \b section holds the samples, each one preceded by its length and padded
 //! to a multiple of 4 bytes.
-void parseSamples(Reader &section, int subVersion, Result &out, Budget &budget) {
+void parseSamples(Reader &section, int subVersion, Result &out,
+                  Budget &budget) {
   int index = 0;
   while (section.remaining() >= 4) {
     if (!budget.error.empty() || !budget.record()) return;
@@ -440,8 +608,14 @@ void parseV6(const unsigned char *data, size_t size, int subVersion,
     // A decoded sample is not a decoded preset. Report the skipped behavioral
     // data even if all tip pixels decoded successfully.
     else if (std::memcmp(tag, "desc", 4) == 0) {
+      try {
+        out.descriptors.push_back(DescriptorReader(section, budget).read());
+      } catch (const std::exception &error) {
+        out.warnings.push_back(std::string("Preset descriptors not decoded: ") +
+                               error.what() + ".");
+      }
       out.warnings.push_back(
-          "Preset descriptors were not imported: names, spacing and dynamics "
+          "Preset descriptors are not interpreted: names, spacing and dynamics "
           "are not applied to these sampled tips.");
     } else if (std::memcmp(tag, "patt", 4) == 0) {
       out.warnings.push_back(
@@ -497,7 +671,7 @@ bool parseAbr(const unsigned char *data, size_t size, Result &out,
   }
   if (!budget.error.empty()) {
     error = budget.error;
-    out = Result();
+    out   = Result();
     return false;
   }
   return true;

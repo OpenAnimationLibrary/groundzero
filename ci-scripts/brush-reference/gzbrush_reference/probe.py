@@ -85,13 +85,22 @@ class Probe(Extension):
                 document.waitForDone()
                 checkpoint(name + ": read painted pixels")
                 raw = bytes(node.pixelData(0, 0, w, h))
-                if len(raw) != w * h * 4 or raw == initial:
+                if len(raw) != w * h * 4:
+                    raise RuntimeError("Reference API returned an incomplete raster")
+                if raw == initial and not case.get("allowUnchanged", False):
                     raise RuntimeError("Reference API stroke produced no changed pixels")
                 image = QImage(raw, w, h, w * 4, QImage.Format_ARGB32).copy()
                 filename = name.replace(" ", "_") + ".png"
                 if not image.save(str(output / filename), "PNG"):
                     raise RuntimeError("Cannot save reference fixture")
-                report["records"].append({**case, "image": filename, "sha256Pixels": hashlib.sha256(raw).hexdigest(), "profile": document.colorProfile(), "input": "Node.paintLine"})
+                # Bounded numerical probes expose pickup/drop-off relationships
+                # without requiring a screenshot or access to hidden state.
+                samples = []
+                for x in range(240, 1809, 16):
+                    offset = (1024 * w + x) * 4
+                    blue, green, red, alpha = raw[offset:offset+4]
+                    samples.append([x, red, green, blue, alpha])
+                report["records"].append({**case, "image": filename, "sha256Pixels": hashlib.sha256(raw).hexdigest(), "profile": document.colorProfile(), "input": "Node.paintLine", "changed": raw != initial, "centerlineRGBA8": samples})
                 checkpoint(name + ": saved output")
                 document.setModified(False)
                 document.close()

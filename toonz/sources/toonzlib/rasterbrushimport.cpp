@@ -639,6 +639,10 @@ ImportResult importBrush(const QByteArray &bytes, const QString &format,
         r.diagnostics.append(result.diagnostics);
         r.provenance["containerVersion"]    = parsed.version;
         r.provenance["containerSubversion"] = parsed.subVersion;
+        r.provenance["decodedDescriptorCount"] = int(parsed.descriptors.size());
+        if (!tip.sampleId.empty())
+          r.provenance["sourceSampleId"] = QString::fromLatin1(
+              tip.sampleId.data(), int(tip.sampleId.size()));
         auto im = allocator.allocate(tip.width, tip.height, false);
         for (size_t i = 0; i < tip.pixels.size(); ++i)
           im->pixels[i] = {0, 0, 0, tip.pixels[i] / 255.0};

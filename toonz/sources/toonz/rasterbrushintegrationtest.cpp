@@ -18,6 +18,7 @@
 #include "toonz/txshcell.h"
 #include "toonz/preferences.h"
 #include "toonz/rasterbrushimport.h"
+#include "toonz/toonzfolders.h"
 #include "tpalette.h"
 #include "tproperty.h"
 #include "trasterimage.h"
@@ -53,16 +54,17 @@ TRaster32P raster(TXshSimpleLevel *level, int frame) {
 void checkpoint(const char *stage) {
   std::cerr << "raster-brush-integration: " << stage << std::endl;
 }
-void draw(TTool *tool, bool cancel) {
+void draw(TTool *tool, bool cancel, double pressure = .8, double tiltX = .2,
+          double rotation = .4) {
   require(tool->preLeftButtonDown(), "brush refused prepared raster");
   TMouseEvent event;
   event.m_button   = Qt::LeftButton;
   event.m_buttons  = Qt::LeftButton;
   event.m_isTablet = true;
-  event.m_pressure = .8;
-  event.m_tilt     = TPointD(.2, -.3);
+  event.m_pressure = pressure;
+  event.m_tilt     = TPointD(tiltX, -.3);
   event.m_hasTilt = event.m_hasRotation = true;
-  event.m_rotation                      = .4;
+  event.m_rotation                      = rotation;
   tool->leftButtonDown(TPointD(-30, 0), event);
   for (int i = 1; i <= 20; ++i)
     tool->leftButtonDrag(TPointD(-30 + 3 * i, 0), event);
@@ -133,6 +135,38 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
             "native brush selection failed");
     auto undo = TUndoManager::manager();
     undo->reset();
+    checkpoint("qualifying pressure, tilt and rotation through tool input");
+    for (auto sensor :
+         {RasterBrush::Sensor::Pressure, RasterBrush::Sensor::TiltX,
+          RasterBrush::Sensor::Rotation}) {
+      RasterBrush::Record fixture;
+      fixture.preset.name          = "Original input fixture";
+      fixture.preset.opacity.value = .7;
+      fixture.preset.opacity.mappings.push_back({sensor, {{0, 0}, {1, 1}}, 1});
+      const QString folder =
+          ToonzFolder::getLibraryFolder().getQString() + "/rasterbrushes";
+      QString path = RasterBrush::install(folder, fixture, importError);
+      require(!path.isEmpty() && importError.isEmpty(),
+              "cannot install original sensor fixture");
+      tool->onActivate();
+      property->setValue(QDir(folder).relativeFilePath(path).toStdWString());
+      require(tool->onPropertyChanged("Native Brush:"),
+              "cannot select installed sensor fixture");
+      TRaster32P baseline = raster(level, 1)->clone();
+      draw(tool, false, .2, -.8, 1.5707963267948966);
+      TRaster32P low = raster(level, 1)->clone();
+      require(undo->undo() && same(baseline, raster(level, 1)),
+              "sensor stroke undo did not restore baseline");
+      draw(tool, false, .8, .8, 3.141592653589793);
+      TRaster32P high = raster(level, 1)->clone();
+      require(!same(low, high), "tablet sensor did not affect actual pixels");
+      require(undo->undo() && same(baseline, raster(level, 1)),
+              "second sensor stroke undo did not restore baseline");
+      undo->reset();
+    }
+    property->setValue(L"<round>");
+    require(tool->onPropertyChanged("Native Brush:"),
+            "cannot restore native round brush");
     TRaster32P before = raster(level, 1)->clone();
     checkpoint("drawing through actual brush tool and undo manager");
     draw(tool, false);

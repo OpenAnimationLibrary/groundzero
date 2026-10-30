@@ -173,10 +173,11 @@ void testV6PackBits() {
   require(parse(fileV6(2, sections), r, error), "v6: parse failed");
   require(r.version == 6 && r.subVersion == 2, "v6: version");
   require(r.tips.size() == 1, "v6: tip count");
-  require(r.skippedSamples == 0 && r.warnings.size() == 2,
+  require(r.skippedSamples == 0 && r.warnings.size() == 3,
           "v6: skipped behavioral metadata must be reported");
   require(r.warnings[0].find("descriptors") != std::string::npos &&
-              r.warnings[1].find("Pattern") != std::string::npos,
+              r.warnings[1].find("not interpreted") != std::string::npos &&
+              r.warnings[2].find("Pattern") != std::string::npos,
           "v6: incorrect compatibility diagnostics");
   require(r.tips[0].name == "tip_001", "v6: name");
   require(r.tips[0].depth == 8, "v6: depth");
@@ -341,8 +342,10 @@ void testBudgetsAndVersions() {
   std::string error;
   for (int version = 6; version <= 10; ++version) {
     for (int subversion = 1; subversion <= 2; ++subversion) {
-      Bytes file = fileV6(subversion, section("samp", sampleV6(
-          subversion, boundsAndImage(4, 3, 8, imageRle4x3()))));
+      Bytes file = fileV6(
+          subversion,
+          section("samp", sampleV6(subversion,
+                                   boundsAndImage(4, 3, 8, imageRle4x3()))));
       file[1] = static_cast<unsigned char>(version);
       require(parse(file, r, error), "documented version pair rejected");
       require(r.tips.size() == 1, "documented version pair lost tip");
@@ -361,8 +364,9 @@ void testBudgetsAndVersions() {
   // budget. Separate sections must not reset accounting.
   Bytes sections;
   for (int i = 0; i < 2; ++i)
-    putBytes(sections, section("samp", sampleV6(
-        2, boundsAndImage(4, 3, 8, imageRle4x3()))));
+    putBytes(
+        sections,
+        section("samp", sampleV6(2, boundsAndImage(4, 3, 8, imageRle4x3()))));
   const Bytes file = fileV6(2, sections);
   AbrParser::Limits limits;
   limits.maxDecodedBytes = 23;
@@ -375,19 +379,22 @@ void testBudgetsAndVersions() {
           "exact allocation budget rejected");
   limits.maxRecords = 3;  // Two sections plus two sample records need four.
   require(!AbrParser::parseAbr(file.data(), file.size(), r, error, limits) &&
-              r.tips.empty(), "section records escaped budget");
-  limits = AbrParser::Limits();
+              r.tips.empty(),
+          "section records escaped budget");
+  limits              = AbrParser::Limits();
   limits.maxFileBytes = file.size() - 1;
   require(!AbrParser::parseAbr(file.data(), file.size(), r, error, limits),
           "input byte limit ignored");
 
   Bytes named = fileV12(2, 1);
-  putBrush(named, 2, sampleV12(2, 25, std::vector<unsigned>(5, 'A'),
-                               boundsAndImage(4, 3, 8, imageRle4x3())));
-  limits = AbrParser::Limits();
+  putBrush(named, 2,
+           sampleV12(2, 25, std::vector<unsigned>(5, 'A'),
+                     boundsAndImage(4, 3, 8, imageRle4x3())));
+  limits              = AbrParser::Limits();
   limits.maxNameUnits = 3;
   require(!AbrParser::parseAbr(named.data(), named.size(), r, error, limits) &&
-              r.tips.empty(), "name allocation escaped budget");
+              r.tips.empty(),
+          "name allocation escaped budget");
 
   Bytes withBehavior;
   putBytes(withBehavior, section("desc", Bytes(4, 0)));
@@ -395,8 +402,103 @@ void testBudgetsAndVersions() {
   putBytes(withBehavior, sections);
   require(parse(fileV6(2, withBehavior), r, error) && r.tips.size() == 2,
           "behavioral metadata prevented tip extraction");
-  require(r.warnings.size() == 2,
+  require(r.warnings.size() == 3,
           "tip-only extraction hid unimported behavior");
+}
+
+void testTypedDescriptors() {
+  auto id = [](Bytes &b, const char *text) {
+    put32(b, 0);
+    putText(b, text);
+  };
+  Bytes body;
+  put32(body, 16);
+  put32(body, 0);  // Empty Unicode name.
+  id(body, "Brsh");
+  put32(body, 3);
+  id(body, "enab");
+  putText(body, "bool");
+  put8(body, 1);
+  id(body, "Dmtr");
+  putText(body, "UntF");
+  putText(body, "#Pxl");
+  put32(body, 0x40400000);
+  put32(body, 0);  // IEEE binary64 32.
+  id(body, "list");
+  putText(body, "VlLs");
+  put32(body, 2);
+  putText(body, "long");
+  put32(body, 0xffffffffu);
+  putText(body, "comp");
+  put32(body, 0x80000000u);
+  put32(body, 0);
+  auto file = fileV6(1, section("desc", body));
+  AbrParser::Result result;
+  std::string error;
+  require(parse(file, result, error) && result.descriptors.size() == 1,
+          "typed descriptor was not decoded");
+  const auto &root = result.descriptors[0];
+  require(root.classId == "Brsh" && root.children.size() == 3,
+          "descriptor object identity was lost");
+  require(root.children[0].key == "enab" && root.children[0].boolean,
+          "descriptor boolean was lost");
+  require(root.children[1].number == 32 && root.children[1].unit == "#Pxl",
+          "descriptor unit float was lost");
+  require(
+      root.children[2].children[0].integer == -1 &&
+          root.children[2].children[1].integer == (-9223372036854775807LL - 1),
+      "descriptor signed integers were not preserved");
+  require(!result.warnings.empty(), "decoded metadata claimed brush semantics");
+  AbrParser::Limits limits;
+  limits.maxDescriptorNodes = 5;  // Root, three fields and two list values.
+  require(
+      !AbrParser::parseAbr(file.data(), file.size(), result, error, limits) &&
+          result.descriptors.empty(),
+      "descriptor node limit ignored");
+  limits                    = AbrParser::Limits();
+  limits.maxDescriptorDepth = 1;
+  require(!AbrParser::parseAbr(file.data(), file.size(), result, error, limits),
+          "descriptor nesting limit ignored");
+  limits                    = AbrParser::Limits();
+  limits.maxDescriptorBytes = 1;
+  require(!AbrParser::parseAbr(file.data(), file.size(), result, error, limits),
+          "descriptor byte budget ignored");
+  for (size_t n = 0; n < body.size(); ++n) {
+    Bytes prefix(body.begin(), body.begin() + n);
+    require(parse(fileV6(1, section("desc", prefix)), result, error) &&
+                result.descriptors.empty(),
+            "partial descriptor was accepted");
+  }
+  Bytes sampled = sampleV6(1, boundsAndImage(4, 3, 8, imageRle4x3()));
+  const std::string sampleId = "01234567-89ab-cdef-0123-456789abcdef";
+  sampled[4] = 36;  // Length-prefixed sample header follows the record length.
+  for (size_t n = 0; n < sampleId.size(); ++n) sampled[5 + n] = sampleId[n];
+  require(parse(fileV6(1, section("samp", sampled)), result, error) &&
+              result.tips.size() == 1 && result.tips[0].sampleId == sampleId,
+          "sample identifier lost; descriptor association would be ambiguous");
+  Bytes duplicate;
+  put32(duplicate, 16);
+  put32(duplicate, 0);
+  id(duplicate, "Brsh");
+  put32(duplicate, 2);
+  for (int i = 0; i < 2; ++i) {
+    id(duplicate, "same");
+    putText(duplicate, "bool");
+    put8(duplicate, i);
+  }
+  require(parse(fileV6(1, section("desc", duplicate)), result, error) &&
+              result.descriptors.empty(),
+          "duplicate descriptor keys accepted");
+  Bytes unknown;
+  put32(unknown, 16);
+  put32(unknown, 0);
+  id(unknown, "Brsh");
+  put32(unknown, 1);
+  id(unknown, "test");
+  putText(unknown, "????");
+  require(parse(fileV6(1, section("desc", unknown)), result, error) &&
+              result.descriptors.empty(),
+          "unknown descriptor type guessed");
 }
 
 void testTruncation() {
@@ -449,6 +551,7 @@ int main() {
     testRejected();
     testBudgetsAndVersions();
     testTruncation();
+    testTypedDescriptors();
   } catch (const std::exception &e) {
     std::cerr << "abrparser_test failed: " << e.what() << std::endl;
     return 1;
