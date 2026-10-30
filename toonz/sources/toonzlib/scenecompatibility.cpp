@@ -13,11 +13,40 @@
 #include "toonz/tcolumnfx.h"
 #include "toonz/txshzeraryfxcolumn.h"
 #include "toonz/poselibrary.h"
+#include "toonz/levelset.h"
 #include "tdoubleparam.h"
 #include "tdoublekeyframe.h"
+#include "texpression.h"
 #include "tfx.h"
+#include "tparamcontainer.h"
+#include "tparamset.h"
+#include "ext/plasticskeletondeformation.h"
 #include <QObject>
 #include <set>
+
+namespace {
+bool hasSeExprAnimation(TParam *parameter) {
+  std::vector<TParam *> pending{parameter};
+  std::set<TParam *> visited;
+  while (!pending.empty()) {
+    TParam *item = pending.back();
+    pending.pop_back();
+    if (!item || !visited.insert(item).second) continue;
+    if (auto *curve = dynamic_cast<TDoubleParam *>(item)) {
+      for (int key = 0; key < curve->getKeyframeCount(); ++key) {
+        const auto &frame = curve->getKeyframe(key);
+        if ((frame.m_type == TDoubleKeyframe::Expression ||
+             frame.m_type == TDoubleKeyframe::SimilarShape) &&
+            TExpression::isSeExprText(frame.m_expressionText)) return true;
+      }
+    } else if (auto *set = dynamic_cast<TParamSet *>(item)) {
+      for (int child = 0; child < set->getParamCount(); ++child)
+        pending.push_back(set->getParam(child).getPointer());
+    }
+  }
+  return false;
+}
+}
 
 std::vector<SceneChecker::Issue>
 SceneChecker::compatibilityReport(ToonzScene *scene) {
@@ -25,6 +54,15 @@ SceneChecker::compatibilityReport(ToonzScene *scene) {
   if (!scene) return result;
   std::vector<std::pair<TXsheet *, std::wstring>> pending{{scene->getTopXsheet(), L""}};
   std::set<TXsheet *> visited, scheduled{scene->getTopXsheet()};
+  // Full-scene saving also serializes unused child levels in the Scene Cast.
+  // Their extensions can prevent an older reader opening the whole file.
+  for (int index = 0; index < scene->getLevelSet()->getLevelCount(); ++index) {
+    auto *level = scene->getLevelSet()->getLevel(index);
+    if (!level) continue;
+    if (auto *child = level->getChildLevel())
+      if (scheduled.insert(child->getXsheet()).second)
+        pending.push_back({child->getXsheet(), child->getName()});
+  }
   while (!pending.empty()) {
     const auto next = pending.back();
     pending.pop_back();
@@ -66,12 +104,22 @@ SceneChecker::compatibilityReport(ToonzScene *scene) {
         }
       }
       bool expression = false;
-      for (int channel = 0; channel < TStageObject::T_ChannelCount; ++channel) {
-        TDoubleParam *curve = object->getParam(TStageObject::Channel(channel));
-        if (!curve) continue;
-        for (int key = 0; key < curve->getKeyframeCount(); ++key)
-          if (curve->getKeyframe(key).m_expressionText.find("seexpr1:") == 0)
-            expression = true;
+      for (int channel = 0; channel < TStageObject::T_ChannelCount; ++channel)
+        expression = expression || hasSeExprAnimation(
+            object->getParam(TStageObject::Channel(channel)));
+      for (int layer = 0; layer < object->getOffsetLayerCount(); ++layer) {
+        const auto &offset = object->getOffsetLayer(layer);
+        expression = expression || hasSeExprAnimation(offset.m_weight.getPointer());
+        for (const auto &curve : offset.m_channels)
+          expression = expression || hasSeExprAnimation(curve.getPointer());
+      }
+      if (auto deformation = object->getPlasticSkeletonDeformation()) {
+        expression = expression || hasSeExprAnimation(deformation->skeletonIdsParam().getPointer());
+        SkD::vd_iterator vertex, end;
+        deformation->vertexDeformations(vertex, end);
+        for (; vertex != end; ++vertex)
+          for (const auto &curve : (*vertex).second->m_params)
+            expression = expression || hasSeExprAnimation(curve.getPointer());
       }
       if (expression)
         add(QObject::tr("%1 uses SeExpr animation. A build without the native SeExpr "
@@ -98,17 +146,31 @@ SceneChecker::compatibilityReport(ToonzScene *scene) {
     std::vector<TFx *> effects;
     sheet->getFxDag()->getFxs(effects);
     for (int column = 0; column < sheet->getColumnCount(); ++column)
-      if (auto *track = sheet->getColumn(column))
+      if (auto *track = sheet->getColumn(column)) {
+        effects.push_back(track->getFx());
         if (auto *zerary = track->getZeraryFxColumn())
           effects.push_back(zerary->getZeraryColumnFx()->getZeraryFx());
+      }
     std::set<TFx *> checkedEffects;
     for (TFx *fx : effects) {
       if (!fx || !checkedEffects.insert(fx).second) continue;
       const std::string type = fx->getFxType();
-      if (type.find("seexpr") == 0 || type == "particleCacheFx" ||
-          type == "deformerStackFx")
+      // Built-in factories register names with STD_, unlike the short names
+      // in FX_PLUGIN_IDENTIFIER declarations.
+      const std::string nativeType = type.compare(0, 4, "STD_") == 0 ? type.substr(4) : type;
+      if (nativeType.find("seexpr") == 0 || nativeType == "particleCacheFx" ||
+          nativeType == "deformerStackFx" || nativeType == "transform3DFx" ||
+          nativeType == "lut3DBakeFx" || nativeType == "neuralStyleFx")
         add(QObject::tr("Effect %1 (%2) requires the matching Groundzero effect. "
                         "Older builds may omit it or render differently.")
+                .arg(QString::fromStdWString(fx->getFxId()))
+                .arg(QString::fromStdString(type)));
+      bool expression = false;
+      for (int parameter = 0; parameter < fx->getParams()->getParamCount(); ++parameter)
+        expression = expression || hasSeExprAnimation(fx->getParams()->getParam(parameter));
+      if (expression)
+        add(QObject::tr("Effect %1 (%2) has SeExpr animation in its parameters. "
+                        "A build without native SeExpr integration cannot evaluate it.")
                 .arg(QString::fromStdWString(fx->getFxId()))
                 .arg(QString::fromStdString(type)));
     }
