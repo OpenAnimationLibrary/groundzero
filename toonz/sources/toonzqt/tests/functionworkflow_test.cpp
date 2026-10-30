@@ -4,6 +4,7 @@
 #include "toonzqt/functionsheet.h"
 #include "toonzqt/functionselection.h"
 #include "toonzqt/functioncurveoperations.h"
+#include "toonzqt/menubarcommand.h"
 #include "toonz/doubleparamcmd.h"
 #include "toonz/tscenehandle.h"
 #include "toonz/txsheethandle.h"
@@ -21,14 +22,19 @@
 #include <QImage>
 #include <QKeyEvent>
 #include <QLineEdit>
+#include <QMenu>
 #include <QPushButton>
 #include <QPointer>
 #include <QTemporaryDir>
 #include <QTimer>
 #include <QToolButton>
 #include <cmath>
+#include <algorithm>
 #include <iostream>
+#include <memory>
+#include <new>
 #include <stdexcept>
+#include <type_traits>
 
 namespace {
 void checkpoint(const char *message) {
@@ -176,6 +182,110 @@ void selectionLifetime() {
   }
   require(!TSelection::getCurrent(), "replacement editor retained a dangling selection");
 }
+void commandActionLifetime() {
+  auto *manager = CommandManager::instance();
+  const std::string shortcut = "Ctrl+Alt+F11";
+  require(!manager->getAction("MI_Copy"), "standalone fixture unexpectedly owns a Copy action");
+  for (int cycle = 0; cycle < 2; ++cycle) {
+    Fixture f;
+    auto owner = std::make_unique<QObject>();
+    auto *copy = new QAction("Copy", owner.get());
+    QPointer<QAction> guarded(copy);
+    manager->define("MI_Copy", MenuEditCommandType, shortcut, copy);
+    f.viewer.getSelection()->select(f.a.getPointer(), 1);
+    require(copy->isEnabled(), "real FunctionSelection did not enable registered Copy");
+    require(manager->getActionFromShortcut(shortcut) == copy,
+            "Copy shortcut did not resolve to its registered action");
+    // MainWindow owns actions before it owns room widgets. Reproduce that
+    // destruction order while the real editor and its selection remain alive.
+    owner.reset();
+    require(guarded.isNull(), "action owner did not destroy Copy");
+    require(!manager->getAction("MI_Copy") &&
+                !manager->getActionFromShortcut(shortcut) &&
+                manager->getIdFromAction(copy).empty(),
+            "command registry retained a destroyed Copy action");
+    std::vector<QAction *> actions;
+    manager->getActions(MenuEditCommandType, actions);
+    require(std::find(actions.begin(), actions.end(), copy) == actions.end(),
+            "command enumeration returned a destroyed Copy action");
+    require(TSelection::getCurrent() == f.viewer.getSelection(),
+            "destroying a command action unexpectedly changed editor selection");
+    checkpoint("registered action destroyed before current editor selection");
+  }
+  require(!TSelection::getCurrent(), "action-first teardown retained a current selection");
+
+  class NamedSelection final : public TSelection {
+  public:
+    NamedSelection() { m_alternativeCommandNames["FunctionWorkflowNamedAction"] = "Selected keys"; }
+    ~NamedSelection() override { makeNotCurrent(); }
+    bool isEmpty() const override { return false; }
+    void selectNone() override {}
+  } selection;
+  for (int cycle = 0; cycle < 2; ++cycle) {
+    auto menu = std::make_unique<QMenu>();
+    auto *action = menu->menuAction();
+    action->setText("Default"); action->setIconText("Default");
+    manager->define("FunctionWorkflowNamedAction", MenuEditCommandType,
+                    "Ctrl+Alt+F10", action);
+    selection.makeCurrent();
+    require(action->text() == "Selected keys", "selection did not apply alternative action name");
+    if (cycle == 1) {
+      selection.makeNotCurrent();
+      require(action->text() == "Default", "live action did not restore its default name");
+      selection.makeCurrent();
+    }
+    QPointer<QAction> guarded(action);
+    menu.reset();
+    require(guarded.isNull() && !manager->getAction("FunctionWorkflowNamedAction") &&
+                !manager->getActionFromShortcut("Ctrl+Alt+F10"),
+            "menu destruction retained a registered menu action");
+    selection.makeNotCurrent(); // old selection names may refer to dead actions
+    selection.makeCurrent();    // new selection names may refer to absent actions
+    selection.makeNotCurrent();
+  }
+  checkpoint("menu actions and alternative names survive action-first teardown");
+}
+void pendingShortcutLifetime() {
+  auto *manager = CommandManager::instance();
+  constexpr const char *id = "FunctionWorkflowReusedAction";
+  struct Probe {
+    int count = 0;
+    bool shortcut = false;
+    void invoke() { ++count; shortcut = CommandManager::instance()->executeTriggeredByShortcut(); }
+  } probe;
+  struct HandlerReset {
+    const char *id;
+    ~HandlerReset() { CommandManager::instance()->setHandler(id, nullptr); }
+  } reset{id};
+  // Reuse precisely the same QAction address so a stale pending-shortcut
+  // pointer cannot accidentally pass this regression through allocator luck.
+  std::aligned_storage<sizeof(QAction), alignof(QAction)>::type storage;
+  const auto destroy = [](QAction *action) { action->~QAction(); };
+  std::unique_ptr<QAction, decltype(destroy)> action(nullptr, destroy);
+  action.reset(new (&storage) QAction());
+  manager->define(id, MenuEditCommandType, "Ctrl+Alt+F9", action.get());
+  setCommandHandler(id, &probe, &Probe::invoke);
+  manager->enable(id, false);
+  manager->setPendingShortcutAction(action.get());
+  action.reset();
+  require(!manager->getAction(id), "destroyed pending action remained registered");
+  action.reset(new (&storage) QAction());
+  manager->define(id, MenuEditCommandType, "Ctrl+Alt+F9", action.get());
+  require(!action->isEnabled(), "action replacement discarded retained enabled state");
+  manager->enable(id, true);
+  require(action->isEnabled(), "action replacement discarded the retained handler");
+  manager->execute(action.get());
+  require(probe.count == 1 && !probe.shortcut,
+          "new action inherited the destroyed action's pending shortcut dispatch");
+  manager->setPendingShortcutAction(action.get());
+  manager->execute(action.get());
+  require(probe.count == 2 && probe.shortcut,
+          "live replacement action lost legitimate shortcut dispatch");
+  manager->execute(action.get());
+  require(probe.count == 3 && !probe.shortcut,
+          "shortcut dispatch state leaked into the next command execution");
+  checkpoint("same-address action replacement retained handlers without stale shortcuts");
+}
 void normalizationAndLocks() {
   Fixture f; TDoubleParamP original = new TDoubleParam(*f.a);
   f.graph->setNormalized(true);
@@ -296,6 +406,8 @@ int main(int argc, char **argv) {
     checkpoint("queued model lifetime begins"); queuedModelLifetime();
     checkpoint("fit/search begin"); fitAndSearch();
     checkpoint("selection lifetime begins"); selectionLifetime();
+    checkpoint("command action lifetime begins"); commandActionLifetime();
+    checkpoint("pending shortcut lifetime begins"); pendingShortcutLifetime();
     checkpoint("normalization/locks begin"); normalizationAndLocks();
     checkpoint("batch editing begins"); nativeBatchDialog();
     checkpoint("context cancellation begins"); contextCancellation();
