@@ -156,22 +156,31 @@ QString fidToFrameNumberWithLetter(int f) {
 }
 
 class StripViewportResizeFilter final : public QObject {
-  FilmstripFrames *m_frames;
+  QPointer<FilmstripFrames> m_frames;
   bool m_busy = false;
 
 public:
   StripViewportResizeFilter(FilmstripFrames *frames, QObject *viewport)
-      : QObject(viewport), m_frames(frames) {
+      : QObject(frames), m_frames(frames) {
+    setObjectName("filmstripViewportResizeFilter");
     viewport->installEventFilter(this);
   }
 
   bool eventFilter(QObject *watched, QEvent *event) override {
     if (event->type() == QEvent::Resize && m_frames &&
+        m_frames->parentWidget() == watched &&
         m_frames->isResponsiveThumbnails() && !m_frames->isDragInProgress() &&
         !m_busy) {
       m_busy = true;
+      QPointer<StripViewportResizeFilter> self(this);
+      QPointer<QObject> target(watched);
       m_frames->updateIconLayout();
+      // Updating constraints can synchronously close the strip or viewport.
+      // Do not access this filter after its owner destroys it, and do not
+      // forward an event to a watched object that disappeared during layout.
+      if (!self) return target.isNull();
       m_busy = false;
+      if (!target) return true;
     }
     return QObject::eventFilter(watched, event);
   }
@@ -195,6 +204,7 @@ FilmstripFrames::FilmstripFrames(QScrollArea *parent, Qt::WindowFlags flags)
     , m_level(0)
     , m_selection(new TFilmstripSelection())
     , m_frameHeadGadget(0)
+    , m_viewportResizeFilter(nullptr)
     , m_inbetweenDialog(0)
     , m_pos(0, 0)
     , m_prefIconSize(dimension2QSize(IconGenerator::instance()->getIconSize()))
@@ -236,12 +246,17 @@ FilmstripFrames::FilmstripFrames(QScrollArea *parent, Qt::WindowFlags flags)
   connect(m_responsiveRenderTimer, SIGNAL(timeout()), this,
           SLOT(commitResponsiveRenderSize()));
 
-  new StripViewportResizeFilter(this, m_scrollArea->viewport());
+  m_viewportResizeFilter = new StripViewportResizeFilter(this, m_scrollArea->viewport());
 }
 
 //-----------------------------------------------------------------------------
 
 FilmstripFrames::~FilmstripFrames() {
+  // The viewport survives takeWidget()/replacement. Remove its callback
+  // before selection-detachment signals can synchronously reenter layout,
+  // while every field used by updateIconLayout is still alive.
+  delete m_viewportResizeFilter;
+  m_viewportResizeFilter = nullptr;
   // The selection handle is non-owning. Detach while the concrete selection
   // and its command handlers are still alive, including closing an active strip.
   m_selection->makeNotCurrent();

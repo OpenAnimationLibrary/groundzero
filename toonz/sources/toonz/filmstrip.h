@@ -228,6 +228,7 @@ private:
   TXshSimpleLevel *m_level;
   TFilmstripSelection *m_selection;
   FilmstripFrameHeadGadget *m_frameHeadGadget;
+  QObject *m_viewportResizeFilter;
   InbetweenDialog *m_inbetweenDialog;
   SceneViewer *m_viewer;
   bool m_isActive              = false;
