@@ -37,12 +37,15 @@ per-region opacity is outside this workflow. Matched filled regions remain
 supported. Collections are explicit UUID memberships, and Library attribution
 comes from actual native Library imports rather than external-path inference.
 
-A later source reconciliation reopened items 11, 15, 17 and 60: driven
+A later source reconciliation reopened items 11, 15, 17, 45, 49, 54, 55 and 60: driven
 comparison curves must freeze their evaluated display, the motion browser must
 import existing native `.curve` assets, the graph benchmark needs a genuinely
-multi-channel large-rig fixture, and cache cancellation must be rechecked after
-waiting for the retirement gate. These are implementation gaps being corrected,
-not merely pending CI.
+multi-channel large-rig fixture, inspector scrubbing needs a bounded request
+backlog, Cast updates need incremental ordering evidence, storyboard baking must
+reject invalid driven evaluations, timing labels must follow same-asset column
+switches, and cache cancellation must be rechecked after waiting for the
+retirement gate. These are implementation gaps being corrected, not merely
+pending CI.
 
 Function Editor head `d7c34e6ef2096b255eec7077e51c8074901e6188` passed Linux
 and Windows, including installed applications, both Function test suites and
@@ -194,17 +197,17 @@ application sequence. CI-only harness contracts are in
 | 42 | Unused-asset cleanup preview | Review/checklist, keep-spare metadata, undo without deleting source files. | Source-ready; CI pending |
 | 43 | Folder undo | Create/rename/delete hierarchy and membership restoration, redo. | Source-ready; CI pending |
 | 44 | Docked asset inspector | Resolution/DPI/frame gaps/palette/storage follow selection in a persistent docked panel. | Source-ready; fresh CI pending |
-| 45 | Scrubbable thumbnails | Scrub/choose cover, bounds, persistence and bounded decoding. | Source-ready; CI pending |
+| 45 | Scrubbable thumbnails | Scrub/choose cover, bounds, persistence and bounded decoding. | Pending: coalesced inspector scrub requests |
 | 46 | Audio audition | Native waveform/transport, stop-on-close/selection and no leaked playback. | Source-ready; fresh CI pending |
 | 47 | Tags and collections | Stable asset IDs, multi-tag queries, saved named collections and save/reload. | Source-ready; fresh CI pending |
 | 48 | Stable refresh state | Identity selection/scroll/expanded folders/sort retained through changes. | Source-ready; CI pending |
-| 49 | Large-Cast responsiveness | Large fixture correctness and measured incremental update/ordering. | Source-ready; CI pending |
+| 49 | Large-Cast responsiveness | Large fixture correctness and measured incremental update/ordering. | Pending: incremental update evidence |
 | 50 | Explicit duplicate consolidation | Content/identity/palette comparisons, explicit confirmation only, exposure-preserving undo. | Source-ready; CI pending |
 | 51 | Collection/dependency report | Missing/conflicting dependencies and sizes, exact inclusion and relocated output verification. | Source-ready; CI pending |
 | 52 | Linked ownership and local copy | Actual Library import/link provenance and explicit local copy with undo/collection preservation; external paths alone do not prove linkage. | Source-ready; fresh CI pending |
 | 53 | Pose-library undo | Entire pose/base state, import/replace/delete, duplicate names and undo/reload. | Source-ready; CI pending |
-| 54 | Timing-aware storyboard moves | Cells/audio/native animation move as one undo; locked/boundary rules explicit. | Source-ready; CI pending |
-| 55 | Source/playback timing indicators | Clear edit source vs playback drawing, nested/remap/range transitions. | Source-ready; CI pending |
+| 54 | Timing-aware storyboard moves | Cells/audio/native animation move as one undo; locked/boundary rules explicit. | Pending: invalid driven bake rejection |
+| 55 | Source/playback timing indicators | Clear edit source vs playback drawing, nested/remap/range transitions. | Pending: same-asset column switch refresh |
 | 56 | Scene compatibility report | Read-only known-extension inventory, unsupported/lossy warnings and navigation; no certification of arbitrary historical builds. | Source-ready; fresh CI pending |
 | 57 | Export fidelity preflight | Lottie/SVG unsupported-feature inspection before write; cancel and explicit conversion. | Source-ready; CI pending |
 | 58 | Recovery completeness status | Current snapshot complete/partial/errors/retry visible without losing pending resources. | Source-ready; CI pending |
