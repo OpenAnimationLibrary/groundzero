@@ -48,6 +48,7 @@
 
 #include <QCoreApplication>
 #include <QEvent>
+#include <QTimer>
 #include <algorithm>
 #include <cstdint>
 #include <deque>
@@ -509,6 +510,7 @@ class IconRenderer : public TThread::Runnable {
   bool m_started;
   quint64 m_request = 0;
   bool m_completed = false;
+  std::shared_ptr<void> m_sceneLease;
 #ifdef BUILD_UI_PORT_TESTS
   IconGenerator::TaskTestHook m_testHook;
 #endif
@@ -524,6 +526,10 @@ public:
     runIcon();
   }
   virtual void runIcon() = 0;
+  virtual ToonzScene *sourceScene() const { return nullptr; }
+  void retainSourceScene() {
+    m_sceneLease = TSceneHandle::retainScene(sourceScene());
+  }
 #ifdef BUILD_UI_PORT_TESTS
   void setTestHook(const IconGenerator::TaskTestHook &hook) { m_testHook = hook; }
 #endif
@@ -958,6 +964,9 @@ public:
 
   ~XsheetIconRenderer() {
     if (m_xsheet) m_xsheet->release();
+  }
+  ToonzScene *sourceScene() const override {
+    return m_xsheet ? m_xsheet->getScene() : nullptr;
   }
 
   static std::string getId(TXshChildLevel *level, int row) {
@@ -1399,6 +1408,7 @@ public:
       : IconRenderer(getId(), iconSize), m_toonzScene(scene) {}
 
   static std::string getId() { return "currentScene"; }
+  ToonzScene *sourceScene() const override { return m_toonzScene; }
 
   void runIcon() override;
   TRaster32P generateIcon(const TDimension &iconSize) const;
@@ -1430,9 +1440,16 @@ void SceneIconRenderer::runIcon() { setIcon(generateIcon(getIconSize())); }
 //
 //-----------------------------------
 
-IconGenerator::IconGenerator() : m_iconSize(FilmstripIconSize) {
-  m_executor.setMaxActiveTasks(1);  // Only one thread to render icons...
-  m_executor.setDedicatedThreads(true);
+IconGenerator::IconGenerator()
+    : m_executor(new TThread::Executor)
+    , m_resumeNotification(new QTimer(this))
+    , m_iconSize(FilmstripIconSize) {
+  m_executor->setMaxActiveTasks(1);  // Only one thread to render icons...
+  m_executor->setDedicatedThreads(true);
+  m_resumeNotification->setSingleShot(true);
+  m_resumeNotification->setInterval(0);
+  connect(m_resumeNotification, &QTimer::timeout, this,
+          &IconGenerator::notifyIconGenerated);
 }
 
 //-----------------------------------------------------------------------------
@@ -1495,8 +1512,11 @@ TOfflineGL *IconGenerator::getOfflineGLContext(const TDimension &minSize) {
 
 void IconGenerator::addTask(const std::string &id,
                             TThread::RunnableP iconRenderer) {
-  if (m_shuttingDown) return;
+  if (m_shuttingDown || m_sceneChangePaused) return;
   auto *renderer = static_cast<IconRenderer *>(iconRenderer.getPointer());
+  // Admission occurs on the GUI thread. Synchronous file-icon rendering owns
+  // its detached scene and never enters this registry from a worker.
+  renderer->retainSourceScene();
   renderer->requestId() = ++m_nextRequest;
   bool accepted = false;
   try {
@@ -1506,11 +1526,11 @@ void IconGenerator::addTask(const std::string &id,
     m_admittedRequests.emplace(renderer->requestId(), iconRenderer);
     m_pendingRequests[id] = renderer->requestId();
     iconsMap.insert(id);
-    m_executor.addTask(iconRenderer, accepted);
+    m_executor->addTask(iconRenderer, accepted);
   } catch (...) {
     // Scheduling can throw after queue publication. Withdraw an idle task;
     // an already running task must keep its token and complete normally.
-    if (accepted && !m_executor.withdrawQueuedTask(iconRenderer)) return;
+    if (accepted && !m_executor->withdrawQueuedTask(iconRenderer)) return;
     if (isCurrentRequest(iconRenderer)) removeIcon(id);
     finishRequest(iconRenderer, false);
     throw;
@@ -1527,7 +1547,7 @@ quint64 IconGenerator::pendingIconRequest(TXshSimpleLevel *sl,
 
 quint64 IconGenerator::requestIcon(TXshSimpleLevel *sl, const TFrameId &fid,
                                   bool filmStrip) {
-  if (!sl || m_shuttingDown) return 0;
+  if (!sl || m_shuttingDown || m_sceneChangePaused) return 0;
   // The shared cache can evict a completed raster while retaining its key.
   // Revive that key only for an explicit request, never for a cache probe.
   if (!pendingIconRequest(sl, fid, filmStrip)) {
@@ -1966,18 +1986,24 @@ void IconGenerator::remap(const std::string &newIconId,
 
 //-----------------------------------------------------------------------------
 
-void IconGenerator::clearRequests() { m_executor.cancelAll(); }
+void IconGenerator::clearRequests() { m_executor->cancelAll(); }
 
 void IconGenerator::shutdown() {
   Q_ASSERT(QThread::currentThread() == thread());
   if (m_shutdownComplete) return;
+  m_resumeNotification->stop();
   if (!m_shuttingDown) {
     // Close admission before cancellation can deliver any callbacks. Executor
     // retirement atomically cancels the queue and wakes persistent idle workers.
     m_shuttingDown = true;
-    m_executor.beginRetirement();
+    m_executor->beginRetirement();
   }
-  while (!m_admittedRequests.empty() || !m_executor.isRetired()) {
+  drainExecutor();
+  m_shutdownComplete = true;
+}
+
+void IconGenerator::drainExecutor() {
+  while (!m_admittedRequests.empty() || !m_executor->isRetired()) {
     // QtOfflineGL surface creation uses a blocking GUI invocation. Waiting for
     // the worker without servicing these events would deadlock ordinary exit.
     QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents, 5);
@@ -1986,7 +2012,49 @@ void IconGenerator::shutdown() {
   // Worker QThreadStorage destructors queue offscreen-surface deletion to the
   // GUI. processEvents alone does not guarantee delivery of DeferredDelete.
   QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
-  m_shutdownComplete = true;
+}
+
+bool IconGenerator::pauseForSceneChange() {
+  Q_ASSERT(QThread::currentThread() == thread());
+  if (m_shuttingDown) return false;
+  // A second call during the first drain must not report premature quiescence.
+  if (m_sceneChangePaused) return false;
+  try {
+    // All allocation/configuration precedes cancellation and scene mutation.
+    // Resume can swap this prepared executor without allocating or throwing.
+    auto next = std::unique_ptr<TThread::Executor>(new TThread::Executor);
+    next->setMaxActiveTasks(1);
+    next->setDedicatedThreads(true);
+    m_resumeExecutor = std::move(next);
+    m_resumeNotification->stop();
+    m_sceneChangePaused = true;
+    m_executor->beginRetirement();
+  } catch (...) {
+    m_sceneChangePaused = false;
+    m_resumeExecutor.reset();
+    return false;
+  }
+  drainExecutor();
+  if (m_shuttingDown) {
+    resumeAfterSceneChange();
+    return false;
+  }
+  return true;
+}
+
+void IconGenerator::resumeAfterSceneChange() noexcept {
+  Q_ASSERT(QThread::currentThread() == thread());
+  if (!m_sceneChangePaused) return;
+  // Never reopen the executor if a caller attempts resume inside drain's
+  // event service before the original pause has actually completed.
+  if (!m_admittedRequests.empty() || !m_executor->isRetired()) return;
+  if (!m_shuttingDown) m_executor.swap(m_resumeExecutor);
+  m_resumeExecutor.reset();
+  m_sceneChangePaused = false;
+  // A terminal request made during a pause must never reopen admission.
+  // Use the existing repaint notification, not a fabricated request completion.
+  // Its prepared timer fires after the enclosing scene transition has returned.
+  if (!m_shuttingDown) m_resumeNotification->start();
 }
 
 #ifdef BUILD_UI_PORT_TESTS
@@ -2046,7 +2114,7 @@ void IconGenerator::onFinished(TThread::RunnableP iconRenderer) {
 
   // Invalidating a frame may queue a replacement before this result arrives.
   // Only that latest generation may publish into the shared cache.
-  if (m_shuttingDown || !isCurrentRequest(iconRenderer) ||
+  if (m_shuttingDown || m_sceneChangePaused || !isCurrentRequest(iconRenderer) ||
       !iconsMap.count(ir->getId())) {
     if (isCurrentRequest(iconRenderer)) removeIcon(ir->getId());
     finishRequest(iconRenderer, false);
@@ -2060,7 +2128,7 @@ void IconGenerator::onFinished(TThread::RunnableP iconRenderer) {
     if (timgp) {
       ::setIcon_TnzImg(ir->getId(), timgp);
       finishRequest(iconRenderer, true);
-      if (!m_shuttingDown) emit iconGenerated();
+      if (!m_shuttingDown && !m_sceneChangePaused) emit iconGenerated();
       return;
     }
   }
@@ -2069,7 +2137,7 @@ void IconGenerator::onFinished(TThread::RunnableP iconRenderer) {
   if (ir->getIcon()) {
     ::setIcon(ir->getId(), ir->getIcon());
     finishRequest(iconRenderer, true);
-    if (!m_shuttingDown) emit iconGenerated();
+    if (!m_shuttingDown && !m_sceneChangePaused) emit iconGenerated();
   } else {
     removeIcon(ir->getId());
     finishRequest(iconRenderer, false);

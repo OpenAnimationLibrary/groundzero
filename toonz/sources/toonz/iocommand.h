@@ -4,6 +4,7 @@
 #define IOCOMMAND_H
 
 #include <memory>
+#include <functional>
 
 // TnzLib includes
 #include "toonz/preferences.h"
@@ -48,6 +49,23 @@ using namespace ImageUtils;
 /*! \brief      Contains command functions related to Toonz I/O.          */
 
 namespace IoCmd {
+
+// GUI-thread scene transition boundary. Queued scene replacement/clearing
+// commands refuse entry throughout its prompts, reader drain and mutation.
+// The retained source survives a direct low-level handle replacement.
+class SceneTransitionGuard final {
+  std::shared_ptr<void> m_scene;
+  bool m_admitted = false;
+  bool m_iconsPaused = false;
+public:
+  SceneTransitionGuard();
+  ~SceneTransitionGuard();
+  bool isAdmitted() const { return m_admitted; }
+  bool pauseIcons();
+  SceneTransitionGuard(const SceneTransitionGuard &) = delete;
+  SceneTransitionGuard &operator=(const SceneTransitionGuard &) = delete;
+};
+bool isSceneTransitionInProgress();
 
 /*!
   \brief    Composite data used describing a group of Toonz resources
@@ -309,7 +327,10 @@ bool exposeLevel(TXshSimpleLevel *sl, int row, int col,
 // (save,discard,cancel).
 // Ritorna false se l'utente ha risposto Cancel o se il salvataggio della
 // scena e' fallito per qualche motivo
-bool saveSceneIfNeeded(QString msg);
+// beforeClear runs only after every save/discard decision succeeds, while the
+// scene and its resources are still alive. Cancel and failed saves never run it.
+bool saveSceneIfNeeded(QString msg,
+                       const std::function<void()> &beforeClear = {});
 
 //! Create and expose column with comment in \b commentList.
 bool exposeComment(int row, int &col, QList<QString> commentList,

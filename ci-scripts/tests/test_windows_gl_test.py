@@ -667,6 +667,13 @@ class NativeOffscreenCheckpointTest(unittest.TestCase):
                 combined.assert_not_called()
 
     def invoke(self, result, *, offline=True, function=False, vector=False):
+        if not isinstance(result, Exception):
+            # These cases isolate feature/deadline gates. Supply the separate
+            # terminal-worker contract explicitly; missing/echoed lifecycle
+            # lines are exercised by test_native_ui_lifecycle.py.
+            result = SimpleNamespace(returncode=result.returncode, stdout=result.stdout +
+                b"\nicon-lifecycle-native: PASS (actual workers and Qt TLS retired)\n"
+                b"native-ui-integration: checkpoint: native icon workers drained\n")
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             executable = root / "OpenToonz.exe"
