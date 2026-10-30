@@ -11,6 +11,7 @@
 #include "toonz/tscenehandle.h"
 #include "toonz/sceneproperties.h"
 #include "toonz/txsheet.h"
+#include "toonz/txshcell.h"
 #include "toonz/txsheethandle.h"
 #include "toonz/txshleveltypes.h"
 #include "toonz/txshsimplelevel.h"
