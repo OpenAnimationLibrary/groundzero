@@ -23,9 +23,13 @@ MARKERS = dict(zip(SUITES, ("function-workflow-native: PASS", "cast-native-workf
                           "combined-fidelity-native: PASS",
                           "vector-renderer-native: PASS")))
 ICON_LIFECYCLE_LINES = (
+    "icon-lifecycle-native: terminal replacement PASS",
     "icon-lifecycle-native: PASS (actual workers and Qt TLS retired)",
     "native-ui-integration: checkpoint: native icon workers drained",
+    "native-ui-integration: checkpoint: native application cleanup completed",
 )
+CLEAR_OUTPUT = "\n".join(ICON_LIFECYCLE_LINES).replace(
+    "terminal replacement PASS", "terminal reviewed-clear PASS") + "\n"
 FULL_OUTPUT = "\n".join(("native-ui-integration: PASS", "vector-workflows: PASS",
                           "offline-gl-workflow: PASS", "function-workflow-native: PASS",
                           *MARKERS.values(), *ICON_LIFECYCLE_LINES)) + "\n"
@@ -33,7 +37,6 @@ TIMING_LIFECYCLE_LINES = (
     "function-timing-native: PASS (native locks, undo and scene roundtrip)",
     "native-ui-diagnostic: PASS combined-timing",
     *ICON_LIFECYCLE_LINES,
-    "native-ui-integration: checkpoint: native application cleanup completed",
 )
 TIMING_LIFECYCLE_OUTPUT = "\n".join(TIMING_LIFECYCLE_LINES) + "\n"
 
@@ -51,19 +54,29 @@ class NativeDiagnosticContracts(unittest.TestCase):
         self.report = self.root / "reports" / "ui-integration-output.txt"
 
     def invoke(self, response, benchmark=False, extra_arguments=(), retained_count=0,
-               timing_lifecycle=False):
+               timing_lifecycle=False, clear_response=None):
         calls = []
+        self.clear_calls = []
 
         def launch(command, **options):
             environment, directory = options["environment"], options["cwd"]
             suite = environment.get("GROUNDZERO_NATIVE_UI_SUITE")
-            calls.append((suite, directory, options["timeout"],
-                          environment.get("GROUNDZERO_ARTIST_BENCHMARK")))
-            self.assertEqual(command, [str(self.executable.resolve()), "--test-native-ui"])
             self.assertEqual((directory / "portablestuff" / "pristine.txt").read_text(), "source")
             self.assertFalse((directory / "changed-by-process").exists())
             (directory / "changed-by-process").write_text("isolated", encoding="utf-8")
-            result = response(suite, command, options)
+            if command[-1] == "--test-native-icon-clear":
+                self.assertEqual(command, [str(self.executable.resolve()), "--test-native-icon-clear"])
+                self.assertIsNone(suite)
+                self.assertNotIn("GROUNDZERO_ARTIST_BENCHMARK", environment)
+                self.assertEqual(options["timeout"], 120)
+                self.clear_calls.append((suite, directory, options["timeout"], None))
+                result = (clear_response(command, options) if clear_response else
+                          subprocess.CompletedProcess(command, 0, CLEAR_OUTPUT))
+            else:
+                calls.append((suite, directory, options["timeout"],
+                              environment.get("GROUNDZERO_ARTIST_BENCHMARK")))
+                self.assertEqual(command, [str(self.executable.resolve()), "--test-native-ui"])
+                result = response(suite, command, options)
             # The shared captured-process boundary returns bytes on every OS;
             # the native runner owns UTF-8 decoding and report formatting.
             if isinstance(result.stdout, str):
@@ -84,8 +97,10 @@ class NativeDiagnosticContracts(unittest.TestCase):
              mock.patch.object(runner, "run_captured_process", side_effect=launch), \
              redirect_stdout(io.StringIO()):
             status = runner.main()
-        self.assertEqual(len({call[1] for call in calls}), len(calls))
-        retained = [call[1] for call in calls if call[1].exists()]
+        all_calls = calls + self.clear_calls
+        self.assertEqual(len({call[1] for call in all_calls}), len(all_calls))
+        self.assertLessEqual(len(self.clear_calls), 1)
+        retained = [call[1] for call in all_calls if call[1].exists()]
         for directory in retained:
             # The fake process owns no handles; clean up only after observing
             # whether production respected the unsafe retention boundary.
@@ -120,6 +135,7 @@ class NativeDiagnosticContracts(unittest.TestCase):
                 self.assertEqual([call[0] for call in calls], [None, *SUITES])
                 self.assertEqual([call[2] for call in calls], [600] + [120] * len(SUITES))
                 self.assertTrue(all(call[3] is None for call in calls))
+                self.assertEqual(len(self.clear_calls), 1)
                 for suite in SUITES:
                     self.assertIn(f"{suite}=PASS (status 0)", output)
                     report = self.report.with_name(self.report.stem + f"-{suite}.txt")
@@ -174,11 +190,13 @@ class NativeDiagnosticContracts(unittest.TestCase):
                 for suite in set(SUITES) - {failed_suite}:
                     self.assertIn(f"{suite}=PASS (status 0)", output)
 
-    def test_successful_monolithic_pass_strips_inherited_selector_and_stays_single(self):
+    def test_successful_monolithic_pass_has_one_feature_and_one_clear_process(self):
         status, calls, output = self.invoke(
             lambda suite, command, options: subprocess.CompletedProcess(command, 0, FULL_OUTPUT))
         self.assertEqual(status, 0)
         self.assertEqual([(call[0], call[3]) for call in calls], [(None, None)])
+        self.assertEqual(len(self.clear_calls), 1)
+        self.assertIn("Required reviewed-clear lifecycle: PASS", output)
         self.assertNotIn("Independent diagnostics", output)
 
     def test_required_timing_lifecycle_uses_one_clean_selected_process(self):
@@ -191,6 +209,8 @@ class NativeDiagnosticContracts(unittest.TestCase):
         self.assertEqual([(call[0], call[2], call[3]) for call in calls],
                          [("combined-timing", 120, None)])
         self.assertIn("Required isolated combined-timing lifecycle: PASS", output)
+        self.assertEqual(len(self.clear_calls), 1)
+        self.assertIn("Required reviewed-clear lifecycle: PASS", output)
         self.assertNotIn("Independent diagnostics", output)
         debugger.assert_not_called()
 
@@ -310,6 +330,54 @@ class NativeDiagnosticContracts(unittest.TestCase):
             benchmark=True)
         self.assertEqual(status, 0)
         self.assertEqual([(call[0], call[3]) for call in calls], [(None, "1")])
+        self.assertEqual(self.clear_calls, [])
+
+    def test_clear_failure_fails_full_and_timing_pass_without_unrelated_diagnostics(self):
+        for timing in (False, True):
+            for failure in ("nonzero", "missing-marker", "timeout"):
+                with self.subTest(timing=timing, failure=failure):
+                    def clear(command, options):
+                        if failure == "timeout":
+                            raise subprocess.TimeoutExpired(command, 120, output=CLEAR_OUTPUT.encode("utf-8"))
+                        return subprocess.CompletedProcess(command, 29 if failure == "nonzero" else 0,
+                            CLEAR_OUTPUT if failure == "nonzero" else CLEAR_OUTPUT.replace(
+                                "terminal reviewed-clear PASS", "terminal replacement PASS"))
+                    original = TIMING_LIFECYCLE_OUTPUT if timing else FULL_OUTPUT
+                    status, calls, output = self.invoke(
+                        lambda suite, command, options: subprocess.CompletedProcess(command, 0, original),
+                        timing_lifecycle=timing, clear_response=clear)
+                    self.assertEqual(status, 1)
+                    self.assertEqual(len(calls), 1)
+                    self.assertEqual(len(self.clear_calls), 1)
+                    self.assertTrue(output.startswith(original))
+                    self.assertIn("Required reviewed-clear lifecycle: FAIL", output)
+                    self.assertNotIn("Independent diagnostics", output)
+                    detail = self.report.with_name(self.report.stem + "-icon-clear.txt").read_text()
+                    self.assertIn("Required reviewed-clear lifecycle: FAIL", detail)
+                    if failure == "timeout":
+                        self.assertIn("timed out after 120 seconds", detail)
+                    elif failure == "missing-marker":
+                        self.assertIn("Missing required reviewed-clear lifecycle checkpoints", detail)
+                    else:
+                        self.assertIn("status 29", detail)
+
+    def test_unsafe_clear_preserves_original_crash_and_prevents_diagnostics(self):
+        def clear(command, options):
+            options["runtime_state"].update(safe_to_release=False, output=b"clear crash checkpoint\n")
+            return subprocess.CompletedProcess(command, 23, b"clear crash checkpoint\n")
+        with mock.patch.object(runner.sys, "platform", "linux"), \
+                mock.patch.object(runner, "linux_crash_diagnostics") as debugger:
+            status, calls, output = self.invoke(
+                lambda suite, command, options: subprocess.CompletedProcess(command, -11, b"original crash\n"),
+                clear_response=clear, retained_count=1, extra_arguments=("--linux-crash-debugger",))
+        self.assertEqual(status, 1)
+        self.assertEqual([call[0] for call in calls], [None])
+        self.assertEqual(len(self.clear_calls), 1)
+        self.assertIn("Native application exited with status -11", output)
+        self.assertIn("clear crash checkpoint", output)
+        self.assertIn("retained", output)
+        self.assertNotIn("Independent diagnostics", output)
+        debugger.assert_not_called()
 
     def test_debugger_fixture_also_strips_inherited_selection(self):
         with mock.patch.dict(os.environ, {"GROUNDZERO_NATIVE_UI_SUITE": "combined-fidelity",

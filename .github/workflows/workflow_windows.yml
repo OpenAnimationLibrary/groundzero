@@ -445,7 +445,9 @@ jobs:
         env:
           GZ_CAST_WORKFLOW_REPORT: ${{ github.workspace }}/toonz/build/cast-workflow-metrics.json
         if: ${{ !cancelled() && steps.package.outcome == 'success' }}
-        timeout-minutes: 40
+        # Full run, required reviewed-clear run, six isolated/debugger pairs and
+        # original crash diagnostics; subprocess/cleanup deadlines stay unchanged.
+        timeout-minutes: 45
         shell: cmd
         run: |
           set "PATH=%CD%\toonz\build\Opentoonz;%QT_PATH%\bin;%PATH%"

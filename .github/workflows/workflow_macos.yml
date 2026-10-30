@@ -234,9 +234,9 @@ jobs:
 
       - name: Test isolated timing process lifecycle
         id: timing_lifecycle
-        # Separate required 120-second process and optional 120-second LLDB
-        # diagnostic, plus bounded cleanup and fresh fixture copies.
-        timeout-minutes: 7
+        # Timing (120s), required reviewed-clear (120s), and optional LLDB
+        # (120s), plus existing bounded cleanup and fresh fixture copies.
+        timeout-minutes: 9
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: |
           app_libraries="$GITHUB_WORKSPACE/toonz/build/toonz/OpenToonz.app/Contents/MacOS"
