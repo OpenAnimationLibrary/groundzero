@@ -43,6 +43,9 @@
 #include <QPushButton>
 #include <QMessageBox>
 #include <QFileDialog>
+#include <QComboBox>
+#include <QTemporaryDir>
+#include <QLabel>
 #include <algorithm>
 #include <cstdlib>
 #include <iostream>
@@ -318,14 +321,54 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
       require(same(baseline, raster(level, 1)) && undo->getHistoryCount() == 0,
               "tablet scratchpad changed document or undo");
     }
-    checkpoint("qualifying explicit approximation acceptance and rejection");
+    checkpoint("qualifying invalid installed preset selection isolation");
     {
+      const QString folder =
+          ToonzFolder::getLibraryFolder().getQString() + "/rasterbrushes";
+      const QString brokenPath =
+          QDir(folder).filePath("original-invalid-installed.gzbrush");
+      QFile broken(brokenPath);
+      require(broken.open(QIODevice::WriteOnly) &&
+                  broken.write("invalid JSON") == 12,
+              "cannot stage invalid installed preset");
+      broken.close();
+      tool->onActivate();
+      const auto previousSelection = property->getValue();
+      const auto baseline          = raster(level, 1)->clone();
+      bool warningSeen             = false;
+      QTimer rejectWarning;
+      QObject::connect(&rejectWarning, &QTimer::timeout, [&]() {
+        auto dialog =
+            qobject_cast<QDialog *>(QApplication::activeModalWidget());
+        if (dialog && dialog->windowTitle() != "Import Raster Brush") {
+          warningSeen = true;
+          dialog->accept();
+        }
+      });
+      rejectWarning.start(25);
+      property->setValue(
+          QDir(folder).relativeFilePath(brokenPath).toStdWString());
+      const bool handled = tool->onPropertyChanged("Native Brush:");
+      rejectWarning.stop();
+      require(
+          handled && warningSeen && property->getValue() == previousSelection &&
+              same(baseline, raster(level, 1)) && undo->getHistoryCount() == 0,
+          "invalid installed brush replaced active selection or changed "
+          "document");
+      require(QFile::remove(brokenPath),
+              "cannot remove invalid installed fixture");
+    }
+    checkpoint("qualifying explicit approximation acceptance and rejection");
+    for (const QString &kind :
+         {QString(), QString("tip-only"), QString("static-native"),
+          QString("partial-native")}) {
       const QString sourcePath =
           QDir::current().filePath("original-ui-acceptance.gzbrush");
       QFile source(sourcePath);
       RasterBrush::Record importedFixture;
       importedFixture.preset.name =
-          "Original diagnostic-free conversion fixture";
+          "Original diagnostic-free conversion fixture " + kind.toStdString();
+      if (!kind.isEmpty()) importedFixture.provenance["conversionKind"] = kind;
       importedFixture.provenance["sourceSha256"] = QString(64, 'a');
       const auto bytes                           = RasterBrush::encodePortable(
           importedFixture, RasterBrush::ResourcePackaging::ManifestOnly,
@@ -346,8 +389,8 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
             QApplication::testAttribute(Qt::AA_DontUseNativeDialogs);
         QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, true);
         bool acceptanceSeen = false, defaultCancel = false,
-             pickerSubmitted = false;
-        int attempts         = 0;
+             labelsCorrect = false, pickerSubmitted = false;
+        int attempts = 0;
         QTimer modalDriver;
         QObject::connect(&modalDriver, &QTimer::timeout, [&]() {
           auto modal = QApplication::activeModalWidget();
@@ -364,6 +407,22 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
                                           report->button(QMessageBox::Cancel);
             acceptanceSeen = true;
             if (report) {
+              auto acceptLabel = report->findChild<QPushButton *>(
+                  "nativeBrushAcceptApproximation");
+              labelsCorrect =
+                  kind.isEmpty() ||
+                  (kind == "tip-only" &&
+                   report->text().contains("Tip extraction only") &&
+                   acceptLabel &&
+                   acceptLabel->text() == "Accept extracted tips only") ||
+                  (kind == "static-native" &&
+                   report->text().contains("Static native conversion") &&
+                   acceptLabel &&
+                   acceptLabel->text() == "Accept static native conversions") ||
+                  (kind == "partial-native" &&
+                   report->text().contains("Partial native conversion") &&
+                   acceptLabel &&
+                   acceptLabel->text() == "Accept partial native conversions");
               if (acceptImport) {
                 auto accept = report->findChild<QPushButton *>(
                     "nativeBrushAcceptApproximation");
@@ -384,7 +443,7 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
         modalDriver.stop();
         QApplication::setAttribute(Qt::AA_DontUseNativeDialogs,
                                    nativeDialogsDisabled);
-        require(handled && acceptanceSeen && defaultCancel,
+        require(handled && acceptanceSeen && defaultCancel && labelsCorrect,
                 "foreign import lacked explicit approximation acceptance with "
                 "Cancel default");
         const auto afterFiles =
@@ -395,6 +454,27 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
                     undo->getHistoryCount() == 0,
                 "approximation acceptance did not control installation "
                 "independently of document state");
+        if (acceptImport && !kind.isEmpty()) {
+          bool statusCorrect = false;
+          QTimer::singleShot(0, [&]() {
+            auto editor =
+                qobject_cast<QDialog *>(QApplication::activeModalWidget());
+            if (!editor) return;
+            auto status =
+                editor->findChild<QLabel *>("nativeBrushCompatibilityStatus");
+            statusCorrect =
+                status &&
+                status->text().contains(
+                    kind == "tip-only"         ? "Tip extraction only"
+                    : kind == "partial-native" ? "Partial native conversion"
+                                               : "Static native conversion");
+            editor->reject();
+          });
+          property->setValue(L"<edit>");
+          require(
+              tool->onPropertyChanged("Native Brush:") && statusCorrect,
+              "portable conversion classification was lost in editor status");
+        }
       }
     }
     checkpoint("qualifying source initialization without paint or undo");
@@ -637,6 +717,123 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
           QDir(folder).relativeFilePath(installed).toStdWString());
       require(tool->onPropertyChanged("Native Brush:"),
               "combined preset selection failed");
+      if (!wet) {
+        checkpoint("qualifying export defaults and resource repair through UI");
+        QTemporaryDir uiFiles;
+        require(uiFiles.isValid(), "cannot stage UI export fixture");
+        const QString uiExport = uiFiles.filePath("manifest.gzbrush");
+        const auto beforeUi    = raster(level, 1)->clone();
+        const bool nativeDialogsDisabled =
+            QApplication::testAttribute(Qt::AA_DontUseNativeDialogs);
+        QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, true);
+        bool exportDefault = false;
+        int exportAttempts = 0;
+        QTimer exportDriver;
+        QObject::connect(&exportDriver, &QTimer::timeout, [&]() {
+          auto modal = QApplication::activeModalWidget();
+          if (auto picker = qobject_cast<QFileDialog *>(modal)) {
+            if (!picker->property("fixtureSubmitted").toBool()) {
+              picker->setProperty("fixtureSubmitted", true);
+              picker->selectFile(uiExport);
+              QMetaObject::invokeMethod(picker, "accept", Qt::QueuedConnection);
+            }
+          } else if (modal &&
+                     modal->objectName() == "nativeBrushExportResources") {
+            auto choice =
+                modal->findChild<QComboBox *>("nativeBrushResourcePackaging");
+            exportDefault =
+                choice && choice->currentData().toInt() ==
+                              int(RasterBrush::ResourcePackaging::ManifestOnly);
+            qobject_cast<QDialog *>(modal)->accept();
+          } else if (++exportAttempts > 2400) {
+            if (auto dialog = qobject_cast<QDialog *>(modal)) dialog->reject();
+          }
+        });
+        exportDriver.start(25);
+        property->setValue(L"<export>");
+        const bool exportedUi = tool->onPropertyChanged("Native Brush:");
+        exportDriver.stop();
+        const auto uiBytes = RasterBrush::readBoundedRegularFile(
+            uiExport, 64 * 1024 * 1024, importError);
+        const auto uiInfo = RasterBrush::inspectPortable(uiBytes, importError);
+        require(
+            exportedUi && exportDefault && importError.isEmpty() &&
+                uiInfo.portable && !uiInfo.resources.empty() &&
+                std::none_of(uiInfo.resources.begin(), uiInfo.resources.end(),
+                             [](const RasterBrush::ResourceInfo &r) {
+                               return r.embedded;
+                             }),
+            "unknown-rights export UI did not default to manifest-only");
+        for (bool repairResources : {false, true}) {
+          const QDir library(folder);
+          const auto beforeFiles =
+              library.entryList(QDir::AllEntries | QDir::NoDotAndDotDot);
+          const auto previousSelection = property->getValue();
+          bool relinkSeen = false, unexpectedAcceptance = false;
+          int pickers = 0, attempts = 0;
+          QTimer repairDriver;
+          QObject::connect(&repairDriver, &QTimer::timeout, [&]() {
+            auto modal = QApplication::activeModalWidget();
+            if (auto picker = qobject_cast<QFileDialog *>(modal)) {
+              if (!picker->property("fixtureSubmitted").toBool()) {
+                picker->setProperty("fixtureSubmitted", true);
+                picker->selectFile(pickers++ == 0 ? uiExport : ownCopy);
+                QMetaObject::invokeMethod(picker, "accept",
+                                          Qt::QueuedConnection);
+              }
+            } else if (modal &&
+                       modal->objectName() == "nativeBrushRelinkResources") {
+              relinkSeen  = true;
+              auto repair = qobject_cast<QMessageBox *>(modal);
+              auto choose = modal->findChild<QPushButton *>(
+                  "nativeBrushChooseResourceCopies");
+              if (repairResources && choose)
+                choose->click();
+              else if (repair)
+                repair->reject();
+            } else if (modal && modal->objectName() ==
+                                    "nativeBrushApproximationAcceptance") {
+              unexpectedAcceptance = true;
+              qobject_cast<QDialog *>(modal)->reject();
+            } else if (++attempts > 2400) {
+              if (auto dialog = qobject_cast<QDialog *>(modal))
+                dialog->reject();
+            }
+          });
+          repairDriver.start(25);
+          property->setValue(L"<import>");
+          const bool importedUi = tool->onPropertyChanged("Native Brush:");
+          repairDriver.stop();
+          require(importedUi && relinkSeen && !unexpectedAcceptance &&
+                      same(beforeUi, raster(level, 1)) &&
+                      undo->getHistoryCount() == 0,
+                  "native resource repair UI changed document or claimed "
+                  "foreign conversion");
+          if (!repairResources)
+            require(property->getValue() == previousSelection &&
+                        library.entryList(QDir::AllEntries |
+                                          QDir::NoDotAndDotDot) == beforeFiles,
+                    "cancelled unresolved-resource repair installed or "
+                    "selected a preset");
+          else {
+            const auto selectedPath = QDir(folder).filePath(
+                QString::fromStdWString(property->getValue()));
+            const auto repairedPreset = RasterBrush::importBrushProcess(
+                QCoreApplication::applicationFilePath(), selectedPath,
+                importError);
+            require(
+                importError.isEmpty() && repairedPreset.complete &&
+                    repairedPreset.records.size() == 1 &&
+                    repairedPreset.records.front().preset.tip.images.size() ==
+                        1 &&
+                    repairedPreset.records.front().preset.texture.image,
+                "resource repair UI did not install and select a complete "
+                "portable brush");
+          }
+        }
+        QApplication::setAttribute(Qt::AA_DontUseNativeDialogs,
+                                   nativeDialogsDisabled);
+      }
       const TRaster32P baseline = raster(level, 1)->clone();
       draw(tool, false, .8, .8, 1.5707963267948966);
       const TRaster32P high = raster(level, 1)->clone();

@@ -2,6 +2,14 @@
 get_filename_component(runtime "${HELPER}" DIRECTORY)
 get_filename_component(qt_bin "${QT_LIBRARY}" DIRECTORY)
 find_program(WINDEPLOYQT windeployqt HINTS "${qt_bin}" REQUIRED)
+# This target owns a dedicated runtime directory. Rebuild its deployed DLLs on
+# every link so old third-party binaries cannot shadow upgraded dependencies.
+# Keep the newly linked executable and its debugging symbols intact.
+file(GLOB_RECURSE previous_runtime_dlls "${runtime}/*.dll")
+if(previous_runtime_dlls)
+    file(REMOVE ${previous_runtime_dlls})
+endif()
+file(REMOVE "${runtime}/runtime.files" "${runtime}/qt.conf")
 # Debug runtimes are for the local licensed development/CI machine only. They
 # are not provided by the release VC Redistributable and are not distributed.
 if(BRUSH_CONFIGURATION STREQUAL "Debug")
@@ -94,8 +102,8 @@ foreach(relative IN LISTS runtime_files)
     endif()
     string(TOLOWER "${relative}" lower_name)
     if(NOT BRUSH_CONFIGURATION STREQUAL "Debug" AND
-       (lower_name MATCHES "(^|/)(msvcp|vcruntime|concrt)[0-9_a-z]*d\\.dll$" OR
-        lower_name MATCHES "(^|/)ucrtbased\\.dll$"))
+       (lower_name MATCHES "(^|/)(msvcp|vcruntime|concrt)[0-9_a-z]*d[.]dll$" OR
+        lower_name MATCHES "(^|/)ucrtbased[.]dll$"))
         message(FATAL_ERROR "Non-redistributable Debug CRT found in release brush runtime")
     endif()
     file(SIZE "${runtime}/${relative}" bytes)

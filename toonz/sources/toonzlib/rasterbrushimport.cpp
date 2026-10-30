@@ -187,6 +187,10 @@ void abrStaticPreset(Record &record, const AbrParser::DescriptorValue &preset,
   record.preset.flipX          = abrRequired(brush, "flipX", "bool").boolean;
   record.preset.flipY          = abrRequired(brush, "flipY", "bool").boolean;
   record.provenance["adapter"] = "groundzero-abr6.2-static-1";
+  record.provenance["conversionKind"] = "static-native";
+  record.diagnostics.removeAll(
+      "Tip extraction only: this record does not import the source brush "
+      "preset.");
   record.provenance["sourcePresetOrdinal"]  = ordinal;
   record.provenance["sourceSampleBinding"]  = "abr6.2-brushPreset-sampledData";
   record.provenance["sourceFormatEvidence"] = "author-exported-6.2-corpus-1";
@@ -196,21 +200,72 @@ void abrStaticPreset(Record &record, const AbrParser::DescriptorValue &preset,
                             .toJson(QJsonDocument::Compact));
   if (QJsonDocument(record.provenance).toJson().size() > 16384)
     throw Invalid("ABR preset metadata exceeds portable budget");
-  for (const char *key :
-       {"useTipDynamics", "useScatter", "useTexture", "usePaintDynamics",
-        "useColorDynamics", "Wtdg", "Nose", "Rpt ", "useBrushPose"}) {
+  // Static-native describes a complete static settings conversion, not a
+  // dynamic preset with its active settings silently omitted.
+  QStringList omitted;
+  auto report = [&](const std::string &key) {
+    omitted << QString::fromStdString(key);
+  };
+  auto disabled = [&](const char *key) {
     const auto *value = abrField(preset, key);
-    if (value && (value->type != "bool" || value->boolean))
-      record.diagnostics
-          << QString(
-                 "ABR active/unknown %1 is preserved as metadata; "
-                 "its source behavior is not applied.")
-                 .arg(key);
+    return value && value->type == "bool" && !value->boolean;
+  };
+  const QSet<QString> staticKeys = {"Nm  ", "Brsh"};
+  const QSet<QString> switches   = {
+      "useTipDynamics",   "useScatter",  "useTexture", "usePaintDynamics",
+      "useColorDynamics", "Wtdg",        "Nose",       "Rpt ",
+      "useBrushPose",     "useBrushSize"};
+  const QSet<QString> shapeKeys    = {"flipX",
+                                      "flipY",
+                                      "brushProjection",
+                                      "minimumDiameter",
+                                      "minimumRoundness",
+                                      "tiltScale",
+                                      "szVr",
+                                      "angleDynamics",
+                                      "roundnessDynamics"};
+  const QSet<QString> scatterKeys  = {"Cnt ", "bothAxes", "countDynamics",
+                                      "scatterDynamics"};
+  const QSet<QString> transferKeys = {"prVr", "opVr", "wtVr", "mxVr"};
+  for (const auto &value : preset.children) {
+    const QString key = QString::fromStdString(value.key);
+    if (staticKeys.contains(key)) continue;
+    if (switches.contains(key)) {
+      if (value.type != "bool" || value.boolean) report(value.key);
+    } else if ((shapeKeys.contains(key) && disabled("useTipDynamics")) ||
+               (scatterKeys.contains(key) && disabled("useScatter")) ||
+               (transferKeys.contains(key) && disabled("usePaintDynamics"))) {
+      // Explicitly disabled groups may retain dormant editor values.
+    } else if (key == "dualBrush" || key == "brushGroup") {
+      const auto *enabled = abrField(
+          value, key == "dualBrush" ? "useDualBrush" : "useBrushGroup");
+      if (value.type != "Objc" || value.classId != value.key || !enabled ||
+          enabled->type != "bool" || enabled->boolean)
+        report(value.key);
+    } else {
+      // Includes toolOptions, unknown fields and orphan dynamics whose enabling
+      // switch is absent. Names and plausible defaults are not semantic proof.
+      report(value.key);
+    }
   }
-  if (const auto *dual = abrField(preset, "dualBrush")) {
-    const auto *enabled = abrField(*dual, "useDualBrush");
-    if (dual->type != "Objc" || !enabled || enabled->type != "bool" ||
-        enabled->boolean)
+  const QSet<QString> tipKeys = {"Dmtr",  "Angl",  "Rndn", "Spcn",       "Intr",
+                                 "flipX", "flipY", "Nm  ", "sampledData"};
+  for (const auto &value : brush.children)
+    if (!tipKeys.contains(QString::fromStdString(value.key)))
+      report("Brsh/" + value.key);
+  if (!omitted.empty()) {
+    record.provenance["conversionKind"] = "partial-native";
+    record.diagnostics << "Partial native conversion: active or unknown source "
+                          "settings were not applied. This is not a complete "
+                          "preset conversion.";
+    // The typed descriptor retains the full bounded list; keep diagnostic text
+    // small even for hostile descriptors with many arbitrary keys.
+    record.diagnostics << "Unapplied settings: " +
+                              omitted.mid(0, 32).join(", ").left(4096);
+    if (omitted.size() > 32)
+      record.diagnostics
+          << "Additional unapplied fields remain in internal source metadata.";
+    if (omitted.contains("dualBrush"))
       record.diagnostics
           << "ABR dual brush is not applied; its original mode and "
              "settings are preserved without substituting a mask mode.";
@@ -761,6 +816,10 @@ Record convertKpp(const QByteArray &bytes, QStringList &diagnostics,
     throw Invalid("Unsupported KPP color blending mode");
   if (fields.value("EraserMode") == "true") r.preset.blend = Blend::Erase;
   if (engine == "colorsmudge") {
+    if (r.preset.blend != Blend::Normal)
+      throw Invalid(
+          "KPP Color Smudge supports only Normal blending without "
+          "eraser mode; the requested mode cannot be preserved");
     if (!fields.contains("SmudgeRateUseNewEngine") ||
         !fields.contains("SmudgeRateMode"))
       throw Invalid("KPP smudge model is unidentified");
@@ -771,8 +830,7 @@ Record convertKpp(const QByteArray &bytes, QStringList &diagnostics,
     r.provenance["sourceSmudgeModel"] =
         (model == "true" ? "new-" : "legacy-") +
         QString(mode == "0" ? "smear" : "dulling");
-    r.preset.wet   = mode == "0" ? Wet::Smear : Wet::Dulling;
-    r.preset.blend = Blend::Normal;
+    r.preset.wet = mode == "0" ? Wet::Smear : Wet::Dulling;
     if (fields.contains("SmudgeRateValue"))
       r.preset.pickup = numeric(fields["SmudgeRateValue"]);
     if (fields.contains("ColorRateValue"))
@@ -1149,6 +1207,7 @@ ImportResult importBrush(const QByteArray &bytes, const QString &format,
         r.preset.spacing                 = shape.spacing / 100.0;
         r.provenance["containerVersion"] = parsed.version;
         r.provenance["sourceTipType"]    = "computed-ellipse";
+        r.provenance["conversionKind"]   = "static-native";
         r.diagnostics.append(result.diagnostics);
         r.diagnostics << "Computed ellipse converted to native geometry. "
                          "Source hardness, angle and spacing behavior is "
@@ -1162,8 +1221,11 @@ ImportResult importBrush(const QByteArray &bytes, const QString &format,
         auto r        = converted(bytes, kind);
         r.preset.name = tip.name;
         r.diagnostics.append(result.diagnostics);
-        r.provenance["containerVersion"]       = parsed.version;
-        r.provenance["containerSubversion"]    = parsed.subVersion;
+        r.provenance["containerVersion"]    = parsed.version;
+        r.provenance["containerSubversion"] = parsed.subVersion;
+        r.provenance["conversionKind"]      = "tip-only";
+        r.diagnostics << "Tip extraction only: this record does not import the "
+                         "source brush preset.";
         r.provenance["decodedDescriptorCount"] = int(parsed.descriptors.size());
         r.provenance["decodedPatternCount"]    = int(parsed.patterns.size());
         r.provenance["patternDataComplete"]    = parsed.patternDataComplete;

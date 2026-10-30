@@ -98,10 +98,20 @@ class Probe(Extension):
         if len(canvases) != 1:
             raise RuntimeError("Expected exactly one visible source canvas, got " + str(len(canvases)))
         canvas = canvases[0]
+        if "canvasCenter" in case:
+            view.canvas().setWrapAroundMode(False)
+            view.canvas().setLevelOfDetailMode(False)
+            view.canvas().setPreferredCenter(QPointF(*case["canvasCenter"]))
+            yield
+            if abs(view.canvas().zoomLevel() - 1) > 1e-9 or view.canvas().wrapAroundMode():
+                raise RuntimeError("Boundary source fixture changed zoom or wraparound")
         image_to_flake, invertible = view.flakeToImageTransform().inverted()
         if not invertible:
             raise RuntimeError("Source image transform is singular")
         flake_to_canvas = view.flakeToCanvasTransform()
+        canvas_to_flake, invertible = flake_to_canvas.inverted()
+        if not invertible:
+            raise RuntimeError("Source canvas transform is singular")
         delivered = []
         # Qt timestamps belong to the input device clock, not the individual
         # stroke. Replaying 0..267 ms twice sends time backwards through the
@@ -117,11 +127,16 @@ class Probe(Extension):
             event = QTabletEvent(kind, local, global_pos, QTabletEvent.Stylus,
                                  QTabletEvent.Pen, pressure, row["tiltX"], row["tiltY"],
                                  0.0, row["rotation"], 0, Qt.NoModifier, 1, button, buttons)
+            image_pos = view.flakeToImageTransform().map(canvas_to_flake.map(event.posF()))
+            if max(abs(image_pos.x() - row["x"]), abs(image_pos.y() - row["y"])) > 1e-7:
+                raise RuntimeError("Tablet event lost authored fractional image coordinates")
             event.setTimestamp(timestamp_base + round(row["timeUs"] / 1000))
             self.lastTabletTimeMs = event.timestamp()
             event.setAccepted(False)
             QApplication.sendEvent(target, event)
-            delivered.append({"type": int(kind), "local": [local.x(), local.y()],
+            delivered.append({"type": int(kind), "local": [event.posF().x(), event.posF().y()],
+                              "image": [image_pos.x(), image_pos.y()],
+                              "authoredImage": [row["x"], row["y"]],
                               "timeMs": event.timestamp(), "accepted": event.isAccepted(),
                               "pressure": event.pressure(), "tilt": [event.xTilt(), event.yTilt()],
                               "rotation": event.rotation()})
@@ -163,6 +178,8 @@ class Probe(Extension):
                 "smoothing": combo.currentText(),
                 "stateAfterProximity": after_proximity,
                 "canvasSize": [canvas.width(), canvas.height()], "events": delivered,
+                "zoom": view.canvas().zoomLevel(),
+                "preferredCenter": [view.canvas().preferredCenter().x(), view.canvas().preferredCenter().y()],
                 "timing": "240 Hz event timestamps; Qt event-loop delivery, not physical device timing"}
 
     def render(self, app, output):
@@ -229,6 +246,13 @@ class Probe(Extension):
             node = document.createNode("Original strips", "paintlayer")
             document.rootNode().addChildNode(node, None)
             document.setActiveNode(node)
+            def clear_boundary_margin():
+                # Source paint layers may retain pixels outside document bounds.
+                # Clear a bounded halo before each independent boundary stroke.
+                for x, y, width, height in ((-128, -128, w + 256, 128), (-128, h, w + 256, 128),
+                                             (-128, 0, 128, h), (w, 0, 128, h)):
+                    if not node.setPixelData(QByteArray(bytes(width * height * 4)), x, y, width, height):
+                        raise RuntimeError("Cannot clear source off-document fixture margin")
             report["documentIsolation"] = "full-raster reset before each independent stroke; input mode recorded per case"
             for case in fixtures["cases"]:
                 name = case["preset"]
@@ -270,6 +294,8 @@ class Probe(Extension):
                     white_y = 1024 + case["wetKernelOffset"]
                     initial = dark * white_y + light + dark * (h - white_y - 1)
                 checkpoint(name + ": initialize pixels")
+                if fixtures.get("group") == "wetboundary":
+                    clear_boundary_margin()
                 if not node.setPixelData(QByteArray(initial), 0, 0, w, h):
                     raise RuntimeError("Cannot initialize original reference raster")
                 document.refreshProjection()
@@ -376,12 +402,14 @@ class Probe(Extension):
                 if raw != initial and case.get("expectUnchanged", False):
                     raise RuntimeError("Source no-op boundary case unexpectedly changed pixels")
                 repeat_hashes = [hashlib.sha256(raw).hexdigest()]
-                repetitions = 3 if fixtures.get("group") == "geometry" else (2 if case.get("variant") == "baseline" else 1)
+                repetitions = 3 if fixtures.get("group") == "geometry" else (2 if case.get("variant") == "baseline" or fixtures.get("group") == "wetboundary" else 1)
                 for repetition in range(1, repetitions):
                     # These fixtures disable random dynamics. Independent
                     # strokes must start from the same raster and must not
                     # inherit reservoirs or deferred state from the last one.
                     yield
+                    if fixtures.get("group") == "wetboundary":
+                        clear_boundary_margin()
                     if not node.setPixelData(QByteArray(initial), 0, 0, w, h):
                         raise RuntimeError("Cannot reset repeated reference raster")
                     document.refreshProjection()
@@ -481,7 +509,22 @@ class Probe(Extension):
                     geometry = {"rect": [left, top, width, height],
                                 "encoding": "zlib-base64-bgra8-row-major",
                                 "data": base64.b64encode(zlib.compress(pixels)).decode("ascii")}
-                report["records"].append({**case, "image": filename, "sha256Pixels": hashlib.sha256(raw).hexdigest(), "repeatSha256Pixels": repeat_hashes, "profile": document.colorProfile(), "input": delivery["mode"], "deliveryReport": delivery, "changed": raw != initial, "centerlineRGBA8": samples, "geometryProbe": geometry, "effectiveView": effective_view, "effectivePresetXml": effective_name, "effectivePresetSha256": hashlib.sha256(effective_xml.encode()).hexdigest(), "effectiveWetControls": controls, "effectiveTextureControls": texture_controls, "effectiveKernelGeometry": kernel_geometry})
+                boundary_outside = None
+                if fixtures.get("group") == "wetboundary":
+                    left, top, width, height = case["boundaryProbeRect"]
+                    pixels = b"".join(raw[(y * w + left) * 4:(y * w + left + width) * 4]
+                                      for y in range(top, top + height))
+                    geometry = {"rect": [left, top, width, height],
+                                "encoding": "zlib-base64-bgra8-row-major",
+                                "data": base64.b64encode(zlib.compress(pixels)).decode("ascii")}
+                    outside_rect = case["outsideProbeRect"]
+                    outside = bytes(node.pixelData(*outside_rect))
+                    if len(outside) != outside_rect[2] * outside_rect[3] * 4:
+                        raise RuntimeError("Incomplete source outside-layer probe")
+                    boundary_outside = {"rect": outside_rect, "encoding": "zlib-base64-bgra8-row-major",
+                                        "data": base64.b64encode(zlib.compress(outside)).decode("ascii"),
+                                        "nonzeroAlpha": sum(value != 0 for value in outside[3::4])}
+                report["records"].append({**case, "image": filename, "sha256Pixels": hashlib.sha256(raw).hexdigest(), "repeatSha256Pixels": repeat_hashes, "profile": document.colorProfile(), "input": delivery["mode"], "deliveryReport": delivery, "changed": raw != initial, "centerlineRGBA8": samples, "geometryProbe": geometry, "effectiveView": effective_view, "effectivePresetXml": effective_name, "effectivePresetSha256": hashlib.sha256(effective_xml.encode()).hexdigest(), "effectiveWetControls": controls, "effectiveTextureControls": texture_controls, "effectiveKernelGeometry": kernel_geometry, "boundaryOutsideProbe": boundary_outside})
                 checkpoint(name + ": saved output")
                 # Return to Qt between independent strokes. Calling processEvents
                 # inside paint/document operations reentered native consumers;

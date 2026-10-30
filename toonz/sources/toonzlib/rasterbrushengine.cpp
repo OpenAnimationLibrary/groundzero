@@ -859,6 +859,36 @@ struct Stroke::Impl {
     }
     const double deltaX = previousSourceDab.x - s.x,
                  deltaY = previousSourceDab.y - s.y;
+    const bool modern   = p.profile == "krita-5.3.4.1-new-smear-candidate-1" ||
+                        p.profile == "krita-5.3.4.1-new-dulling-candidate-1";
+    const double pickupExtent =
+        radius * (modern ? std::min(1.0, p.smudgeRadius) : p.smudgeRadius);
+    const double pickupWidth  = 2 * pickupExtent;
+    const double pickupHeight = std::max(0.0, pickupWidth - 1);
+    const unsigned pickupSamples =
+        p.smudgeRadius == 0
+            ? 1
+            : std::max(
+                  80u,
+                  unsigned(std::floor(.02 * pickupWidth * pickupHeight + 20)));
+    // Source wet bypasses native dab deposition. Charge its own worst-case
+    // clipped snapshot/feedback/deposition work before prepare, allocation or
+    // host reads: initialization/store, four-tap transport, tip/selection,
+    // backdrop/feedback reads, quantization and publishing. The first dab uses
+    // the same conservative ceiling; no geometry/semantic setting is reduced.
+    if (!accountPixelWork(x1 - x0, y1 - y0, 16)) return false;
+    if (p.wet == Wet::Dulling) {
+      size_t sampleWork = 1;
+      if (p.smudgeRadius != 0) {
+        // Clipping the canvas does not shorten the physical sample sequence.
+        // Bound both radical-inverse digit loops plus coordinate, tip and
+        // read/accumulate work for every attempted sample, including rejects.
+        sampleWork = 4;
+        for (unsigned n = pickupSamples; n; n /= 2) ++sampleWork;
+        for (unsigned n = pickupSamples; n; n /= 3) ++sampleWork;
+      }
+      if (!accountPixelWork(int(pickupSamples), 1, sampleWork)) return false;
+    }
     if (!surface.prepare(x0, y0, x1, y1)) {
       failure = "Raster transaction refused the source wet region";
       return false;
@@ -879,8 +909,6 @@ struct Stroke::Impl {
                  ? sourceField[size_t(y - sourceY) * sourceW + x - sourceX]
                  : Pixel{};
     };
-    const bool modern = p.profile == "krita-5.3.4.1-new-smear-candidate-1" ||
-                        p.profile == "krita-5.3.4.1-new-dulling-candidate-1";
     // Independent orthogonal impulses identify a base-2/base-3 sequence
     // with an area-scaled sample count and an 80-sample minimum. Its final y
     // coordinate is one pixel below the mathematical bottom edge. New Dulling
@@ -899,13 +927,9 @@ struct Stroke::Impl {
         return result;
       };
       Pixel sum{};
-      const double extent =
-          radius * (modern ? std::min(1.0, p.smudgeRadius) : p.smudgeRadius);
-      const double width = 2 * extent, height = std::max(0.0, width - 1);
-      const unsigned samples =
-          std::max(80u, unsigned(std::floor(.02 * width * height + 20)));
-      unsigned count = 0;
-      for (unsigned i = 1; i <= samples; ++i) {
+      const double extent = pickupExtent;
+      unsigned count      = 0;
+      for (unsigned i = 1; i <= pickupSamples; ++i) {
         const int x = int(
             std::floor(centerX + (2 * radicalInverse(i, 2) - 1) * extent + .5));
         const int y = int(std::floor(

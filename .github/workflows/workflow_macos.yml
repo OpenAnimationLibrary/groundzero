@@ -345,6 +345,10 @@ jobs:
             sleep 5
           done
           echo "DMG created successfully."
+          # The final macdeployqt -dmg invocation is another deployment pass.
+          # Qualify the resulting helper again, not just its earlier signature.
+          codesign --verify --strict --verbose=2 OpenToonz.app/Contents/MacOS/rasterbrushimport-helper
+          python3 ../../../ci-scripts/brush-parser/qualify_macos_helper.py OpenToonz.app/Contents/MacOS/rasterbrushimport-helper
       # A transient artifact-service DNS failure must not throw away a built
       # DMG. Retry only delivery, with bounded backoff; the last attempt is
       # required, so a package that never uploads still fails the job.

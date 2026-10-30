@@ -116,10 +116,24 @@ jobs:
               if not path.is_file():
                   continue
               lines = path.read_text(errors='replace').splitlines()
-              errors = [line for line in lines if re.search(r'error(?:\s+[A-Z]\d+)?[: ]|Undefined symbols|undefined reference|ld: warning', line)]
-              excerpt = '\n'.join(errors[:40] + lines[-30:])[-50000:]
-              excerpt = excerpt.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
-              print('::error title=' + name + '::' + excerpt)
+              # Keep each failed case and its immediate diagnostic visible even
+              # when another case emits a long log. Full output stays in artifacts.
+              matches = [i for i, line in enumerate(lines) if re.search(
+                  r'error(?:\s+[A-Z]\d+)?[: ]|Undefined symbols|undefined reference|'
+                  r'FAILED|Failed|failed|timeout|exception|Segmentation|AddressSanitizer', line)]
+              selected = set(range(max(0, len(lines) - 12), len(lines)))
+              for i in matches:
+                  selected.update(range(max(0, i - 3), min(len(lines), i + 2)))
+              import runpy
+              report_records = runpy.run_path('ci-scripts/brush-reference/annotations.py')['report_records']
+              # Bound individual records before lossless batching. Split long
+              # diagnostic lines instead of truncating away the failure cause.
+              records = []
+              for i in sorted(selected):
+                  line = lines[i]
+                  for start in range(0, max(1, len(line)), 400):
+                      records.append({'line': i + 1, 'message': line[start:start + 400]})
+              report_records(name + ' failure context', records)
           PYREPORT
       - uses: actions/upload-artifact@v4
         if: always()

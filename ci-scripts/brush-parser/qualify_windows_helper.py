@@ -2,6 +2,7 @@
 """Qualify the packaged private-runtime importer without modifying installation ACLs."""
 from pathlib import Path
 import shutil
+import re
 import struct
 import subprocess
 import sys
@@ -11,6 +12,10 @@ import tempfile
 def main():
     runtime = Path(sys.argv[1]).resolve(strict=True)
     helper = runtime / "rasterbrushimport-helper.exe"
+    # This script qualifies release packages, never a development-only runtime.
+    debug_crt = re.compile(r"(?i)(?:(?:msvcp|vcruntime|concrt)[0-9_a-z]*d|ucrtbased)\.dll")
+    assert not any(debug_crt.fullmatch(path.name) for path in runtime.rglob("*.dll")), \
+        "Release brush runtime contains a non-redistributable Debug CRT"
     with tempfile.TemporaryDirectory(prefix="brush-package-") as temporary:
         temporary = Path(temporary)
         fixture = temporary / "original.gbr"

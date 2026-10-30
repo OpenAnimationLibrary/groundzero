@@ -234,10 +234,12 @@ RasterBrush::ImportResult importOrRepairNativeBrush(const QString &path,
                     "matching pixel hashes will be used.")
             .arg(missing.size()),
         QMessageBox::Cancel);
+    repair.setObjectName("nativeBrushRelinkResources");
     repair.setTextFormat(Qt::PlainText);
     repair.setDetailedText(missing.join("\n"));
     auto choose = repair.addButton(QObject::tr("Choose resource copies…"),
                                    QMessageBox::ActionRole);
+    choose->setObjectName("nativeBrushChooseResourceCopies");
     repair.exec();
     if (repair.clickedButton() != choose) return {};
     const auto paths = QFileDialog::getOpenFileNames(
@@ -302,6 +304,7 @@ bool chooseNativeExportResources(RasterBrush::Record &record,
   if (!error.isEmpty()) return false;
   QDialog dialog;
   dialog.setWindowTitle(QObject::tr("Export Brush Resources"));
+  dialog.setObjectName("nativeBrushExportResources");
   auto layout      = new QVBoxLayout(&dialog);
   auto explanation = new QLabel(
       QObject::tr(
@@ -311,6 +314,7 @@ bool chooseNativeExportResources(RasterBrush::Record &record,
   explanation->setWordWrap(true);
   layout->addWidget(explanation);
   auto packaging = new QComboBox(&dialog);
+  packaging->setObjectName("nativeBrushResourcePackaging");
   packaging->addItem(QObject::tr("Manifest only — no image resources"),
                      int(RasterBrush::ResourcePackaging::ManifestOnly));
   packaging->addItem(
@@ -678,22 +682,40 @@ bool editNativeDynamics(QWidget *parent, RasterBrush::Dynamic &dynamic) {
   return dialog.exec() == QDialog::Accepted;
 }
 
+QString nativeBrushCompatibility(const RasterBrush::Record &record) {
+  const QString kind = record.provenance.value("conversionKind").toString();
+  if (kind == "tip-only")
+    return QObject::tr(
+        "Tip extraction only. The image tip is available for a native "
+        "brush; the original preset settings and behavior were not imported.");
+  if (kind == "partial-native")
+    return QObject::tr(
+        "Partial native conversion. Some original settings were not applied. "
+        "Review the conversion details; complete source behavior is not "
+        "verified.");
+  if (kind == "static-native")
+    return QObject::tr(
+        "Static native conversion. Supported fixed settings were "
+        "converted; complete source dynamics and appearance are not verified.");
+  if (record.preset.profile != "groundzero-native-1" ||
+      kind == "source-candidate")
+    return QObject::tr(
+        "Experimental source profile. Complete source brush behavior is not "
+        "verified.");
+  if (record.provenance.contains("sourceSha256"))
+    return QObject::tr(
+        "Native approximation. Source brush behavior is not verified.");
+  return QObject::tr(
+      "Native settings supported. External brush parity is not verified.");
+}
+
 bool editNativeBrush(RasterBrush::Record &record) {
   QDialog dialog;
   dialog.setWindowTitle(QObject::tr("Native Raster Brush"));
   dialog.setObjectName("nativeBrushEditor");
-  auto layout           = new QVBoxLayout(&dialog);
-  const bool conversion = record.provenance.contains("sourceSha256");
-  const bool candidate  = record.preset.profile != "groundzero-native-1";
-  auto status           = new QLabel(
-      candidate ? QObject::tr("Experimental source profile. Complete source "
-                                                  "brush behavior is not verified.")
-      : conversion
-          ? QObject::tr(
-                "Native conversion. Source brush behavior is not verified.")
-          : QObject::tr("Native settings supported. External brush parity is "
-                                            "not verified."),
-      &dialog);
+  auto layout = new QVBoxLayout(&dialog);
+  auto status = new QLabel(nativeBrushCompatibility(record), &dialog);
+  status->setObjectName("nativeBrushCompatibilityStatus");
   status->setWordWrap(true);
   layout->addWidget(status);
   auto details = new QPushButton(QObject::tr("Brush details…"), &dialog);
@@ -1258,16 +1280,18 @@ bool FullColorBrushTool::selectNativePreset() {
       if (selected.empty()) return true;
     }
     QStringList compatibility;
+    bool allTips = true, allStatic = true, allPartial = true, hasTips = false;
     for (const auto &record : selected) {
-      if (!record.provenance.contains("sourceSha256") &&
+      const QString kind = record.provenance.value("conversionKind").toString();
+      allTips            = allTips && kind == "tip-only";
+      allStatic          = allStatic && kind == "static-native";
+      allPartial         = allPartial && kind == "partial-native";
+      hasTips            = hasTips || kind == "tip-only";
+      if (!record.provenance.contains("sourceSha256") && kind.isEmpty() &&
           record.preset.profile == "groundzero-native-1")
         continue;
       compatibility << QString::fromStdString(record.preset.name)
-                    << (record.preset.profile == "groundzero-native-1"
-                            ? tr("Native approximation; original brush "
-                                 "behavior is not verified.")
-                            : tr("Experimental source profile; complete "
-                                 "original brush behavior is not verified."))
+                    << nativeBrushCompatibility(record)
                     << tr("Profile: %1")
                            .arg(QString::fromStdString(record.preset.profile));
       compatibility.append(record.diagnostics);
@@ -1275,17 +1299,40 @@ bool FullColorBrushTool::selectNativePreset() {
     }
     if (!compatibility.isEmpty()) {
       QMessageBox acceptance(
-          QMessageBox::Information, tr("Accept Brush Approximation"),
-          tr("These imported brushes have unverified source behavior. Review "
-             "the "
-             "per-brush details before accepting their native approximations "
-             "or experimental profiles."),
+          QMessageBox::Information,
+          allTips ? tr("Accept Extracted Brush Tips")
+                  : tr("Accept Brush Conversion"),
+          allTips      ? tr("Tip extraction only. These images can be used in "
+                                 "native brushes. "
+                                 "The original preset settings and behavior were not "
+                                 "imported.")
+          : allPartial ? tr("Partial native conversion. Some original settings "
+                            "were not applied. "
+                            "Review each conversion report before accepting "
+                            "these approximations.")
+          : allStatic
+              ? tr("Static native conversion. Supported fixed settings were "
+                   "converted; "
+                   "complete source dynamics and appearance are not verified.")
+          : hasTips ? tr("This selection includes tip extraction only and "
+                         "unverified brush conversions. "
+                         "Review each item's details; extracted tips do not "
+                         "include original preset behavior.")
+                    : tr("These imported brushes have unverified source "
+                         "behavior. Review the "
+                         "per-brush details before accepting their native "
+                         "approximations or experimental profiles."),
           QMessageBox::Cancel);
       acceptance.setObjectName("nativeBrushApproximationAcceptance");
       acceptance.setTextFormat(Qt::PlainText);
       acceptance.setDetailedText(compatibility.join("\n"));
-      auto accept = acceptance.addButton(tr("Accept unverified brushes"),
-                                         QMessageBox::AcceptRole);
+      auto accept = acceptance.addButton(
+          allTips      ? tr("Accept extracted tips only")
+          : allPartial ? tr("Accept partial native conversions")
+          : allStatic  ? tr("Accept static native conversions")
+          : hasTips    ? tr("Accept tips and unverified conversions")
+                       : tr("Accept unverified brushes"),
+          QMessageBox::AcceptRole);
       accept->setObjectName("nativeBrushAcceptApproximation");
       acceptance.setDefaultButton(QMessageBox::Cancel);
       acceptance.exec();
@@ -1355,8 +1402,23 @@ bool FullColorBrushTool::selectNativePreset() {
           {RasterBrush::Sensor::Pressure, {{0, 0}, {1, 1}}, 1});
       record.preset.size.minimum = .05;
       record.decoded = record.semanticallySupported = true;
-    } else
-      record = RasterBrush::load(QDir(nativeBrushFolder()).filePath(id), error);
+    } else {
+      // Installed files remain mutable. Decode image resources in the same
+      // isolated worker used by import, never in the drawing process.
+      auto imported =
+          importNativeBrush(QDir(nativeBrushFolder()).filePath(id), error);
+      if (!imported.complete || imported.records.size() != 1) {
+        m_nativePreset.setValue(previous);
+        if (!error.isEmpty())
+          DVGui::warning(error);
+        else if (!imported.records.empty())
+          DVGui::warning(
+              tr("The selected file must contain exactly one complete native "
+                 "brush."));
+        return true;
+      }
+      record = std::move(imported.records.front());
+    }
     if (!error.isEmpty()) {
       m_nativePreset.setValue(previous);
       DVGui::warning(error);

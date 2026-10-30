@@ -17,14 +17,14 @@ satisfy the contract. Build and test through CI per CLAUDE.md.
 | Existing ABR input and allocation budgets, exact subversion guards | Implemented | CI parser fixtures at the PR head |
 | Collection installation without overwriting or partial writes | Legacy ABR staging and native atomic collection staging implemented | Invalid-member, cancellation, reimport and conflict tests; packaged application fault-injection review pending |
 | Versioned native IR and decoded/supported/verified status separation | Native v1 implemented; foreign semantics remain separate | Package round-trip, missing resource, checksum, enum and version tests in CI |
-| ABR descriptor/computed-tip/pattern behavioral import | Typed descriptor decoding and legacy 1/2 computed-tip native conversion implemented; modern behavioral binding and patterns pending | Every declared version and active setting; decoding is not behavioral support |
+| ABR descriptor/computed-tip/pattern behavioral import | Typed descriptors, bounded pattern decoding, legacy 1/2 computed tips and ABR 6/2 sampled-ID/static native binding implemented; other version bindings and source dynamics pending | Every declared version and active setting; decoding is not behavioral support |
 | KPP/bundle/GBR/GIH import | GBR 1/2 and one-dimensional GIH native conversions; KPP native conversion plus strict fixed-tip source candidate selection; bounded bundle dependency resolution | Unknown/missing active settings retain native conversion; candidate flags do not claim source verification |
 | Independent dry renderer and defined dynamics/combinations | Native CPU renderer and independent fixed hard-circle source candidate implemented | Six isolated and nine long source hard-pixel gates passed; source AA/softness/dynamics remain incomplete |
 | Four Krita smudge profiles and native wet | Native wet/smear plus four separate fixed-tip source candidates implemented | All 48 wet-pressure gates passed at 5423354f; 215 enforced full-image kernel gates passed at 99ca200c, including nonzero-radius legacy/new Dulling. Earlier fixed/control/state gates passed; full dynamics/geometry/texture profiles remain incomplete |
 | Real tilt/rotation capture and normalization | Additive Qt tablet fields and track interpolation implemented | Linux full application CI passes; physical device qualification pending |
-| Actual-engine preview, editor, portable preset export/relink | Native scratchpad, sensor/curve/texture/dual/color editor and private embedded export implemented; provenance-aware manifest-only packaging and hash relink/repair are in progress | Existing native preset checks pass; the approved export/repair workflow remains unfinished until implemented and qualified |
+| Actual-engine preview, editor, portable preset export/relink | Native scratchpad, sensor/curve/texture/dual/color editor, provenance-aware manifest/permitted/private packaging and exact pixel-hash relink/repair implemented | Portable protocol regressions and application workflow fixtures implemented; final-head application export/repair qualification remains open |
 | Undo/cancel/frame lifecycle/save/reopen | Native path uses raster undo; cancellation rolls back tiles and created frame | Linux actual-tool and installed-package undo, redo, cancellation, frame creation and PNG reopen workloads passed at `31a0bee6`; exact final head and other installed platforms remain gates |
-| Parser isolation/fuzzing/cancel and complete resource budgets | Bounded import/raw-return decoding, Linux privilege confinement, Windows resource limits and cancellation implemented; Windows/macOS privilege isolation and outer-response FIFO/no-follow protection in progress | Six parser suites and fuzz pass at 99ca200c; complete response-file validation and remaining platform boundaries remain release gates |
+| Parser isolation/fuzzing/cancel and complete resource budgets | Pre-allocation shared budgets, anchored no-follow response reads, Linux confinement, private Windows AppContainer runtime and signed macOS App Sandbox helper implemented | Historical six-platform parser/fuzz passes do not qualify later isolation changes; exact-head sandbox, malicious-response, cancellation and packaging checks remain release gates |
 | Packaged Windows/macOS/Linux QA and performance | Installed application brush workloads wired on all three platforms; native numeric/performance CI implemented | Linux package workload passed; final Windows/macOS package results and hardware latency remain pending |
 | Optional named-pack parity including any wet/Mixer/bristle/TPL expansion | No named pack required for the chosen RCP1 target | A future expansion needs pack revision/preset identity and authorized reference access; it does not block the original-fixture implementation |
 
@@ -648,7 +648,7 @@ and [seccomp](https://docs.kernel.org/userspace-api/seccomp_filter.html).
 | K5341 Pixel masks and placement | Hard circle/ellipse, default circle and rectangle candidate equations, versioned import | Corrected rotation and AA size qualification; soft-size, rectangle, wash/flow and near-zero pressure failures remain under investigation |
 | Source dynamics | Identity size pressure and wet strength/color pressure candidate mappings | Other sensors, declared cubic interpolation, combinations, scatter/spacing/color dynamics and timed airbrush need source-specific adapters/qualification |
 | Source resources and blending | PNG/GBR/GIH decoding and native conversion; source strict candidates currently generated tips | Bitmap/color/GIH source sampling, texture/dual masks and required source blend combinations are not completed by native support |
-| Modern Photoshop ABR | Bounded typed descriptor decoder, sampled IDs, native tip conversion | Bounded pattern-v1/VM-v3 raw8/raw16 and explicit VM ZIP1 decoding implemented; descriptor-to-resource association and behavioral adapters remain; Photoshop runtime reference access unavailable |
+| Modern Photoshop ABR | Bounded typed descriptor decoder, sampled IDs, native tip conversion | Bounded pattern-v1/VM-v3 raw8/raw16 and explicit VM ZIP1 decoding implemented; ABR 6/2 sampled-ID/static native association implemented; other source versions and dynamic behavioral adapters remain; Photoshop runtime reference access unavailable |
 | Safe decoder boundary | Shared pre-allocation budgets, bounded package protocol, cancellation/time limits; Linux Landlock/seccomp implementation | Windows zero-capability AppContainer and signed macOS App Sandbox helper implemented; anchored no-follow response validation integrated; exact-head platform qualification pending |
 | Tablet portability | Host pressure/tilt/rotation normalization and actual tool tests | Physical-device and platform input qualification still required; synthetic events do not prove hardware behavior |
 | Persistence | Exact application undo/cancel and native/wet PNG round trips; scene/level save/reopen | New combined-presets and pressure-wet lifecycle tests pending CI, plus platform packaging qualification |
@@ -1101,3 +1101,27 @@ these controls, with rejection checks for unmeasured opacity curves or Flow
 sensors. Source-verified provenance remains false and implementation qualification
 awaits CI; constant-pressure measurements do not by themselves establish
 varying-pressure long-stroke source parity.
+
+### Continuous off-document wet-state qualification
+
+Empty source-dab clips currently advance the previous dab position and count but
+retain the earlier field at its old absolute bounds, without pickup/injection.
+Reentry lookup therefore commonly returns transparent feedback; this is a
+potential lost-feedback boundary behavior, not proof that stale ink is replayed.
+The source application's off-document layer storage and transport must be
+measured before changing this recurrence.
+
+The `wetboundary` group contains 96 original cases: four models, four document
+edges, entry/exit/reentry paths and color rate 0/0.25. Each uses one continuous
+Qt tablet press/move/release stream, 8-pixel event steps, 240 Hz timestamps and
+32-pixel tips. The public Canvas preferred-center API positions the document
+edge inside the visible widget at 100% zoom; out-of-widget input is rejected,
+wraparound and instant preview are disabled. Separate line calls are never
+represented as one stroke. Exact-repeat checks reset the full raster and a
+bounded 128-pixel outside margin between independent strokes.
+
+Whole-canvas candidate image gates remain enforced. Compact inside-edge and
+outside-layer RGBA probes distinguish visible clipping from persistent source
+paint beyond the document, without claiming access to hidden reservoirs.
+Boundary recurrence changes remain pending these source measurements; no
+source behavior is inferred from a native-only boundary test.

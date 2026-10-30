@@ -68,10 +68,10 @@ shutil.copytree(source / "gzbrush_reference", resources / "pykrita" / "gzbrush_r
 (root / "config" / "kritarc").write_text("[General]\nuseOpenGL=false\n[python]\nenable_gzbrush_reference=true\n")
 names, cases = [], []
 group = os.environ.get("BRUSH_REFERENCE_GROUP", "parameters")
-if group not in ("parameters", "geometry", "tablet", "hardpixel", "wetsteps", "wethold", "wetstate", "pixelopacity", "pixelopacitytablet", "pixelcontrols", "pixelpressure", "pixelsmallpressure", "wettexture", "wettexture3", "wetswitches", "wetcombined", "wetpressure", "wettransfer", "wetopacitycombo", "texturemasks", "wetkernel", "wetkernelscale", "wetkernelcount", "pixelsoft", "pixelsoftsize", "pixelrectsize", "pixelaarange", "pixelshape", "pixelprecision", "pixelcurves", "pixelblend"):
+if group not in ("parameters", "geometry", "tablet", "hardpixel", "wetsteps", "wethold", "wetstate", "pixelopacity", "pixelopacitytablet", "pixelcontrols", "pixelpressure", "pixelsmallpressure", "wettexture", "wettexture3", "wetswitches", "wetcombined", "wetpressure", "wettransfer", "wetopacitycombo", "wetboundary", "texturemasks", "wetkernel", "wetkernelscale", "wetkernelcount", "pixelsoft", "pixelsoftsize", "pixelrectsize", "pixelaarange", "pixelshape", "pixelprecision", "pixelcurves", "pixelblend"):
     raise RuntimeError("Unknown reference fixture group")
 profiles = [("dry", False)] if group in ("geometry", "tablet", "hardpixel", "pixelopacity", "pixelopacitytablet", "pixelcontrols", "pixelpressure", "pixelsmallpressure", "pixelsoft", "pixelsoftsize", "pixelrectsize", "pixelaarange", "pixelshape", "pixelprecision", "pixelcurves", "pixelblend") else [("dry", False), ("smear", False), ("dulling", False), ("smear", True), ("dulling", True)]
-if group in ("wetsteps", "wethold", "wetstate", "wettexture", "wettexture3", "wetswitches", "wetcombined", "wetpressure", "wettransfer", "wetopacitycombo", "wetkernel", "wetkernelscale", "wetkernelcount"):
+if group in ("wetsteps", "wethold", "wetstate", "wettexture", "wettexture3", "wetswitches", "wetcombined", "wetpressure", "wettransfer", "wetopacitycombo", "wetboundary", "wetkernel", "wetkernelscale", "wetkernelcount"):
     profiles = [("smear", False), ("dulling", False), ("smear", True), ("dulling", True)]
 if group in ("wetkernel", "wetkernelscale", "wetkernelcount"):
     profiles = [("dulling", False), ("dulling", True)]
@@ -283,6 +283,12 @@ for mode, modern in profiles:
                     for dabs in (2, 3):
                         variants.append((f"wet transfer {prefix} curve enabled {int(enabled)} pressure {round(pressure * 100):03d} dabs {dabs}",
                                          overrides, 32, 5, [pressure, pressure], 1, 1))
+    if group == "wetboundary":
+        variants = [(f"wet boundary {edge} trace {trace} color {round(color * 100):03d}",
+                     {"SmudgeRateValue": ".5", "ColorRateValue": str(color), "SmudgeRadiusValue": "0"},
+                     32, .5, [1, 1], 1, 1)
+                    for edge in ("left", "right", "top", "bottom")
+                    for trace in ("entry", "exit", "reentry") for color in (0, .25)]
     if group == "texturemasks":
         variants = []
         settings = [(texturing_mode, soft, invert, strength, 1)
@@ -371,8 +377,14 @@ for mode, modern in profiles:
                                      "SmudgeRadiusValue": str(radius)},
                              diameter, 4, [1, 1], 1, 1))
     for label, overrides, diameter, spacing, pressure, opacity, flow in variants:
-        name = base if label == "baseline" else base + " " + label
-        edge = int(label.rsplit(" ", 1)[1]) if group in ("geometry", "pixelsoft", "pixelsoftsize", "pixelrectsize", "pixelaarange") else (0 if group in ("hardpixel", "wetsteps", "wethold", "wetstate", "pixelopacity", "pixelopacitytablet", "pixelcontrols", "pixelpressure", "pixelsmallpressure", "wettexture", "wettexture3", "wetswitches", "wetcombined", "wetpressure", "wettransfer", "wetopacitycombo", "texturemasks", "wetkernel", "wetkernelscale", "wetkernelcount", "pixelshape", "pixelprecision", "pixelcurves", "pixelblend") else 1)
+        # Resource names also become KPP filenames. The source treats decimal
+        # dot segments as resource versions, so all generated identities use
+        # "p" for dots. Numeric settings and the descriptive variant label stay
+        # unchanged. Reject collisions rather than silently overwrite fixtures.
+        name = (base if label == "baseline" else base + " " + label).replace(".", "p")
+        if name in names:
+            raise RuntimeError("Duplicate generated preset identity: " + name)
+        edge = int(label.rsplit(" ", 1)[1]) if group in ("geometry", "pixelsoft", "pixelsoftsize", "pixelrectsize", "pixelaarange") else (0 if group in ("hardpixel", "wetsteps", "wethold", "wetstate", "pixelopacity", "pixelopacitytablet", "pixelcontrols", "pixelpressure", "pixelsmallpressure", "wettexture", "wettexture3", "wetswitches", "wetcombined", "wetpressure", "wettransfer", "wetopacitycombo", "wetboundary", "texturemasks", "wetkernel", "wetkernelscale", "wetkernelcount", "pixelshape", "pixelprecision", "pixelcurves", "pixelblend") else 1)
         hardness = int(label.split()[3]) / 100 if group in ("pixelsoft", "pixelsoftsize", "pixelrectsize") else 1
         shape = label.split()[1] if group in ("pixelsoft", "pixelsoftsize", "pixelrectsize") else "circle"
         if group == "pixelblend":
@@ -397,9 +409,19 @@ for mode, modern in profiles:
                 "expectUnchanged": opacity == 0 or (overrides["PaintOpAction"] == "0" and flow == 0)})
         if group == "pixelprecision":
             dx, dy, length = precision_positions[label]
-            cases[-1].update({"start": [256 + dx, 1024 + dy],
-                              "end": [256 + dx + length, 1024 + dy],
-                              "probePositions": [256, 257, 258, 259, 260]})
+            # Use the same fractional-capable delivery for every precision
+            # case, including its zero-offset baseline. Node.paintLine accepts
+            # integer QPoint endpoints and cannot measure subpixel geometry.
+            case = cases[-1]
+            case.update({"start": [256 + dx, 1024 + dy],
+                         "end": [256 + dx + length, 1024 + dy],
+                         "probePositions": [256, 257, 258, 259, 260],
+                         "delivery": "Qt tablet events", "canvasCenter": [256, 1024]})
+            case["events"] = [{"x": point[0], "y": point[1],
+                               "pressure": pressure[i], "tiltX": 0,
+                               "tiltY": 0, "rotation": 0,
+                               "timeUs": round(i * 1000000 / 240)}
+                              for i, point in enumerate((case["start"], case["end"]))]
         if group in ("wetsteps", "wethold", "wetstate", "wettexture", "wettexture3", "wetswitches", "wetcombined", "wetpressure", "wettransfer", "wetopacitycombo", "wetkernel", "wetkernelscale", "wetkernelcount"):
             case = cases[-1]
             dabs = 3 if group == "wetstate" else int(label.rsplit(" ", 1)[1])
@@ -431,6 +453,32 @@ for mode, modern in profiles:
                               "changeExpectation": "sample-count/window measurement; full-image gate only within existing candidate eligibility"})
         if group == "wetpressure":
             cases[-1]["changeExpectation"] = "measure pressure-controlled wet equation; candidate gate enforced"
+        if group == "wetboundary":
+            edge, trace = label.split()[2], label.split()[4]
+            paths = {"entry": [(-96, 1024), (128, 1024)],
+                     "exit": [(128, 1024), (-96, 1024)],
+                     "reentry": [(128, 1024), (-96, 1024), (-96, 1088), (128, 1088)]}
+            def transform(point):
+                x, y = point
+                return (x, y) if edge == "left" else (2048 - x, y) if edge == "right" else (y, x) if edge == "top" else (y, 2048 - x)
+            points = [paths[trace][0]]
+            for first, last in zip(paths[trace], paths[trace][1:]):
+                steps = max(abs(last[0] - first[0]), abs(last[1] - first[1])) // 8
+                points.extend((first[0] + (last[0] - first[0]) * i // steps,
+                               first[1] + (last[1] - first[1]) * i // steps) for i in range(1, steps + 1))
+            points = [transform(point) for point in points]
+            row = 1088 if trace == "reentry" else 1024
+            bounds = {"left": [0, row - 8, 64, 16], "right": [1984, row - 8, 64, 16],
+                      "top": [row - 8, 0, 16, 64], "bottom": [row - 8, 1984, 16, 64]}
+            outside = transform((-48, row))
+            cases[-1].update({"start": points[0], "end": points[-1], "background": "wet-halves",
+                              "wetBoundary": 64, "foregroundRGBA8": [0, 255, 0, 255],
+                              "delivery": "Qt tablet events", "canvasCenter": transform((16, 1056 if trace == "reentry" else 1024)),
+                              "boundaryProbeRect": bounds[edge],
+                              "outsideProbeRect": [outside[0] - 8, outside[1] - 8, 16, 16],
+                              "changeExpectation": "continuous off-document state candidate gate; source outside-layer state acquired separately",
+                              "events": [{"x": x, "y": y, "pressure": 1, "tiltX": 0, "tiltY": 0, "rotation": 0,
+                                          "timeUs": round(i * 1000000 / 240)} for i, (x, y) in enumerate(points)]})
         if group == "texturemasks":
             case = cases[-1]
             case.update({"end": [257 if mode == "dry" else 577, 1024],
@@ -458,4 +506,4 @@ for mode, modern in profiles:
                                "pressure": pressure[0] + (pressure[1] - pressure[0]) * i / 64,
                                "tiltX": 0, "tiltY": 0, "rotation": 0,
                                "timeUs": round(i * 1000000 / 240)} for i in range(65)]
-(root / "output" / "fixtures.json").write_text(json.dumps({"version": "5.3.4.1", "group": group, "presets": names, "cases": cases, "license": "CC0-1.0", "width": 2048, "height": 2048, "input": "Qt synthetic tablet events; not physical tablet delivery" if group in ("tablet", "pixelopacitytablet", "pixelcontrols") else "Node.paintLine API; not physical tablet delivery"}, indent=2))
+(root / "output" / "fixtures.json").write_text(json.dumps({"version": "5.3.4.1", "group": group, "presets": names, "cases": cases, "license": "CC0-1.0", "width": 2048, "height": 2048, "input": "Qt synthetic tablet events; not physical tablet delivery" if group in ("tablet", "pixelopacitytablet", "pixelcontrols", "wetboundary", "pixelprecision") else "Node.paintLine API; not physical tablet delivery"}, indent=2))

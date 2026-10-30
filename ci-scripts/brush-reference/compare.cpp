@@ -400,7 +400,8 @@ int main(int argc, char **argv) {
            fixtures["group"].toString() == "wetcombined" ||
            fixtures["group"].toString() == "wetpressure" ||
            fixtures["group"].toString() == "wetopacitycombo" ||
-           kernelCountGate || fixtures["group"].toString() == "wettransfer" ||
+           fixtures["group"].toString() == "wetboundary" || kernelCountGate ||
+           fixtures["group"].toString() == "wettransfer" ||
            ((fixtures["group"].toString() == "wetkernel" ||
              fixtures["group"].toString() == "wetkernelscale" ||
              fixtures["group"].toString() == "wettexture" ||

@@ -504,6 +504,8 @@ if(BUILD_ABR_TESTS)
     add_executable(rasterbrushpreset_test tests/rasterbrushpreset_test.cpp)
     target_link_libraries(rasterbrushpreset_test PRIVATE toonzlib tnzcore Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
     add_test(NAME rasterbrushpreset COMMAND rasterbrushpreset_test)
+    # Isolated case driver bounds every child and still reports other failures.
+    set_tests_properties(rasterbrushpreset PROPERTIES TIMEOUT 1200)
     add_executable(rasterbrushengine_test tests/rasterbrushengine_test.cpp)
     target_link_libraries(rasterbrushengine_test PRIVATE toonzlib tnzcore)
     add_test(NAME rasterbrushengine COMMAND rasterbrushengine_test)

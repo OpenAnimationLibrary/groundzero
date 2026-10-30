@@ -1527,6 +1527,74 @@ void testSourcePixelBlendCandidates() {
             "Pixel blend contract changed source wet eligibility");
   }
 }
+void testSourceWetWorkBounds() {
+  struct GuardSurface : Surface {
+    int side;
+    size_t prepared      = 0;
+    mutable size_t reads = 0;
+    size_t writes        = 0;
+    explicit GuardSurface(int size) : side(size) {}
+    int width() const override { return side; }
+    int height() const override { return side; }
+    bool prepare(int x0, int y0, int x1, int y1) override {
+      require(
+          x0 >= 0 && y0 >= 0 && x1 <= side && y1 <= side && x0 < x1 && y0 < y1,
+          "source wet preflight used unclipped bounds");
+      ++prepared;
+      return true;
+    }
+    Pixel read(int, int) const override {
+      ++reads;
+      return {0, 0, 0, 1};
+    }
+    void write(int, int, const Pixel &) override { ++writes; }
+  };
+  for (const std::string model :
+       {"legacy-smear", "new-smear", "legacy-dulling", "new-dulling"}) {
+    Preset p;
+    p.profile = "krita-5.3.4.1-" + model + "-candidate-1";
+    p.wet =
+        model.find("dulling") == std::string::npos ? Wet::Smear : Wet::Dulling;
+    p.size.value   = 4096;
+    p.smudgeRadius = p.wet == Wet::Smear ? 0 : model == "new-dulling" ? 3 : 1;
+    require(validate(p).empty(), "extreme source geometry eligibility changed");
+    // Smear's unclipped snapshot footprint exceeds the work budget. Dulling's
+    // clipped 4096-square footprint exactly consumes it, so even radius-zero
+    // center pickup must be charged before any host operation. Nonzero-radius
+    // cases additionally cover the real area-scaled physical sample count.
+    GuardSurface guard(p.wet == Wet::Smear ? 8192 : 4096);
+    auto budget = std::make_shared<MemoryBudget>(1024u * 1024u * 1024u);
+    for (double radius : {0.0, p.smudgeRadius}) {
+      p.smudgeRadius = radius;
+      Stroke denied(guard, p, 1024u * 1024u * 1024u, budget);
+      require(!denied.add(sample(guard.side / 2, guard.side / 2, 0)) &&
+                  denied.error() == "Stroke input pixel work limit exceeded",
+              "source wet bypassed the per-add work budget");
+      require(guard.prepared == 0 && guard.reads == 0 && guard.writes == 0 &&
+                  budget->used() == 0,
+              "source wet work failure touched the host or allocated snapshot");
+      require(!denied.add(sample(0, 0, 1)), "failed source wet stroke resumed");
+      denied.finish();
+      require(budget->used() == 0, "failed source wet stroke leaked budget");
+    }
+    // Charge clipped raster area rather than a theoretical full brush square.
+    // A normal small corner snapshot remains legal and releases its state.
+    p.size.value   = 32;
+    p.smudgeRadius = p.wet == Wet::Smear ? 0 : .5;
+    GuardSurface corner(1);
+    Stroke clipped(corner, p, 1024 * 1024, budget);
+    require(clipped.add(sample(0, 0, 0)), clipped.error().c_str());
+    require(corner.prepared == 1 && budget->used() == sizeof(Pixel),
+            "clipped source wet snapshot charged the wrong raster area");
+    clipped.finish();
+    require(budget->used() == 0, "clipped source wet snapshot leaked budget");
+    GuardSurface outside(1);
+    Stroke offCanvas(outside, p);
+    require(offCanvas.add(sample(10000, 10000, 0)) && outside.prepared == 0 &&
+                outside.reads == 0 && outside.writes == 0,
+            "empty clipped source wet footprint touched the host");
+  }
+}
 void testSourceHardCircleAA() {
   Preset p;
   p.profile            = "krita-5.3.4.1-default-circle-candidate-1";
@@ -1777,6 +1845,7 @@ int main() {
     testSourceWashLattice();
     testSourceSmallCircle();
     testSourceHardCircleAA();
+    testSourceWetWorkBounds();
     testSourcePixelBlendCandidates();
     testSourceSmallHardCircleAA();
     testSourceRectangle();

@@ -108,7 +108,9 @@ not claimed to reproduce Photoshop. Typed descriptor metadata is retained in
 `sourceDescriptorTupleV1`, a compact JSON string containing recursive tuples
 `[key,type,name,classId,unit,text,number,integer,bool,children]`; integers use
 lossless decimal strings and opaque bytes use hexadecimal. Allocation and final
-portable metadata budgets apply before returning records.
+internal native metadata budgets apply before returning records. Internal
+`encode`/`decode` save/reopen retains the tuple; `encodePortable` deliberately
+removes it because arbitrary source metadata can contain private alias bytes.
 
 Active dynamics are diagnosed without guessing control-enum values. In
 particular an observed `dualBrush`/`colorBurn` is retained as source metadata and
@@ -121,3 +123,45 @@ All three observed `patt` sections are empty. This acquisition does not establis
 pattern compression, pattern binding, dynamic equations, or Photoshop 27.11
 rendering parity. Those still require appropriately licensed nonempty resources
 and controlled source exports/render traces.
+
+
+### Conversion classification
+
+`conversionKind` is a bounded provenance enum: `tip-only` for unbound ABR sample
+extraction, `static-native` for the 6.2 bound adapter and legacy computed static
+conversion. `source-candidate` is reserved for strict source-profile candidates;
+this ABR adapter never assigns it. The enum does not establish source parity.
+Portable exports preserve these recognized values (and `partial-native`, described
+below) only, while continuing
+to drop raw descriptors and free-form source diagnostics. Consumers should display
+`tip-only` explicitly as **Tip extraction only**, including after portable reopen,
+and must not describe these records as a full source brush preset import.
+
+### Active-setting audit and remaining dynamic adapter work
+
+`static-native` now requires that every observed preset field is either applied
+or belongs to an explicitly disabled recognized group. Active shape, scatter,
+transfer, texture, color, pose, brush-group, dual-brush and unknown settings,
+including tool options, produce `partial-native` with a bounded omission report.
+Orphan dynamics without an explicit disabled switch are also partial. Unknown
+primary-tip fields cannot silently qualify as a complete static conversion.
+The full typed descriptor stays available internally; portable exports retain
+only the safe classification, not arbitrary source field names or alias bytes.
+
+The declared modern ABR dynamic-adapter outcome remains unfinished. Adobe's
+[brush dynamics reference](https://helpx.adobe.com/photoshop/desktop/apply-painting-techniques/fill-objects-selections-layers/brush-dynamics-settings.html)
+establishes UI-level jitter, minimum-diameter and transfer concepts, but it does
+not specify the ABR `bVTy` integer encoding or tie `szVr`, `opVr` and `prVr` to
+controlled UI exports. The inspected author fixtures identify general enabled
+categories but provide no per-setting before/after UI/export correspondence.
+Numeric values and suggestive field names alone do not establish that mapping.
+No control-enum interpretation or random distribution is guessed here.
+
+Needed evidence is precise: original paired exports changing only one shape,
+scatter or transfer control; recorded UI values and exact producer build; all
+control enum choices (Off, Fade and applicable tablet/direction modes); and
+nonzero/minimum/jitter combinations. These pairs can establish a labeled native
+conversion without claiming Photoshop renderer parity. Reference stroke traces
+would additionally be needed to establish source random distributions, sensor
+normalization, fade endpoints and per-dab ordering. No source-code reuse,
+paid pack acquisition or runtime emulation is necessary to obtain such evidence.

@@ -210,7 +210,8 @@ QByteArray sampledAbr() {
 }
 // Original pixels/names and values; observed ABR6.2 typed record layout.
 QByteArray boundAbr(bool missing = false, bool duplicate = false,
-                    int version = 6, bool badUnit = false, bool dual = false) {
+                    int version = 6, bool badUnit = false, bool dual = false,
+                    bool dynamics = true, const char *extraFlag = nullptr) {
   auto be = [](quint64 value, int n = 4) {
     QByteArray out;
     for (int i = n - 1; i >= 0; --i) out.append(char(value >> (i * 8)));
@@ -261,17 +262,21 @@ QByteArray boundAbr(bool missing = false, bool duplicate = false,
             field("Nm  ", "TEXT", text("Original sample")) +
             field("sampledData", "TEXT",
                   text(missing ? "missing" : QString::fromLatin1(sampleId))));
-    auto fields = field("Nm  ", "TEXT",
-                        text(index ? "Original second" : "Original first")) +
-                  field("Brsh", "Objc", shape) +
-                  field("useTipDynamics", "bool", QByteArray(1, char(1)));
+    auto fields =
+        field("Nm  ", "TEXT",
+              text(index ? "Original second" : "Original first")) +
+        field("Brsh", "Objc", shape) +
+        field("useTipDynamics", "bool", QByteArray(1, char(dynamics)));
+    if (extraFlag) fields += field(extraFlag, "bool", QByteArray(1, char(1)));
     if (dual)
       fields += field(
           "dualBrush", "Objc",
           object("dualBrush", 2,
                  field("useDualBrush", "bool", QByteArray(1, char(1))) +
                      field("BlnM", "enum", id("BlnM") + id("colorBurn"))));
-    presets += QByteArray("Objc") + object("brushPreset", dual ? 4 : 3, fields);
+    presets +=
+        QByteArray("Objc") +
+        object("brushPreset", (dual ? 4 : 3) + (extraFlag ? 1 : 0), fields);
   }
   const auto descriptor =
       be(16) + object("null", 1, field("Brsh", "VlLs", be(2) + presets));
@@ -637,13 +642,32 @@ void testImports() {
                 !r.provenance["sourceSemanticallySupported"].toBool() &&
                 !r.provenance["sourceReferenceVerified"].toBool() &&
                 r.provenance["sourcePresetOrdinal"].toInt() == i + 1 &&
+                r.provenance["conversionKind"].toString() == "partial-native" &&
+                !r.diagnostics.join(" ").contains("Tip extraction only") &&
                 r.diagnostics.join(" ").contains("dual brush is not applied"),
             "ABR static conversion or unsupported dual qualification lost");
     const auto restored = decode(encode(r, error), error);
     require(error.isEmpty() && restored.preset.name == r.preset.name &&
                 restored.provenance["sourceDescriptorTupleV1"] ==
                     r.provenance["sourceDescriptorTupleV1"],
-            "ABR typed source settings lost on portable reopen");
+            "ABR typed source settings lost on internal native reopen");
+  }
+  auto staticOnly =
+      importBrush(boundAbr(false, false, 6, false, false, false), "abr", error);
+  require(staticOnly.complete &&
+              staticOnly.records[0].provenance["conversionKind"].toString() ==
+                  "static-native",
+          "Explicitly disabled dynamics prevented static classification");
+  for (const char *flag :
+       {"brushProjection", "toolOptions", "brushGroup", "futureUnknownFlag"}) {
+    const auto active = importBrush(
+        boundAbr(false, false, 6, false, false, true, flag), "abr", error);
+    require(active.complete &&
+                active.records[0].provenance["conversionKind"].toString() ==
+                    "partial-native" &&
+                active.records[0].diagnostics.join(" ").contains(flag),
+            "Unapplied ABR active/unknown field was presented as complete "
+            "static conversion");
   }
   require(!importBrush(boundAbr(true), "abr", error).complete,
           "missing ABR sample binding accepted");
@@ -653,22 +677,49 @@ void testImports() {
           "ABR static units silently reinterpreted");
   auto newer = importBrush(boundAbr(false, false, 7), "abr", error);
   require(newer.complete && newer.records.size() == 1 &&
-              !newer.records[0].provenance.contains("sourceSampleBinding"),
+              !newer.records[0].provenance.contains("sourceSampleBinding") &&
+              newer.records[0].provenance["conversionKind"].toString() ==
+                  "tip-only",
           "ABR6.2 format evidence incorrectly generalized to later versions");
+  // Portable export retains the safe classification, not opaque source data.
+  for (auto original : {bound.records.front(), newer.records.front()}) {
+    original.provenance["sourceDescriptorTupleV1"] =
+        "private source alias bytes";
+    const auto package =
+        encodePortable(original, ResourcePackaging::PrivateCopy, error);
+    require(error.isEmpty(), "ABR portable classification export failed");
+    const auto restored = importBrush(package, "gzbrush", error);
+    require(
+        error.isEmpty() && restored.complete && restored.records.size() == 1 &&
+            restored.records[0].provenance["conversionKind"] ==
+                original.provenance["conversionKind"] &&
+            !restored.records[0].provenance.contains(
+                "sourceDescriptorTupleV1") &&
+            !restored.records[0].provenance["sourceReferenceVerified"].toBool(),
+        "Portable ABR classification lost or private descriptor leaked");
+    original.provenance["conversionKind"] = "arbitrary private classification";
+    const auto unknown                    = importBrush(
+        encodePortable(original, ResourcePackaging::PrivateCopy, error),
+        "gzbrush", error);
+    require(unknown.complete &&
+                !unknown.records[0].provenance.contains("conversionKind"),
+            "Portable export retained an unrecognized classification string");
+  }
   for (int version : {1, 2}) {
     auto geometry = importBrush(computedAbr(version), "abr", error);
     require(geometry.complete && geometry.records.size() == 1,
             "computed ABR could not become a native preset");
     const auto &record = geometry.records.front();
-    require(record.preset.tip.shape == Shape::Round &&
-                record.preset.tip.images.empty() &&
-                record.preset.size.value == 64 &&
-                record.preset.aspect.value == .5 &&
-                record.preset.angle.value == -30 &&
-                record.preset.spacing == .25 &&
-                record.preset.tip.hardness == .75 &&
-                !record.provenance["sourceSemanticallySupported"].toBool(),
-            "computed ABR geometry or qualification was misrepresented");
+    require(
+        record.preset.tip.shape == Shape::Round &&
+            record.preset.tip.images.empty() &&
+            record.preset.size.value == 64 &&
+            record.preset.aspect.value == .5 &&
+            record.preset.angle.value == -30 && record.preset.spacing == .25 &&
+            record.preset.tip.hardness == .75 &&
+            record.provenance["conversionKind"].toString() == "static-native" &&
+            !record.provenance["sourceSemanticallySupported"].toBool(),
+        "computed ABR geometry or qualification was misrepresented");
     auto restored = decode(encode(record, error), error);
     require(error.isEmpty() && restored.semanticallySupported &&
                 restored.preset.tip.images.empty() &&
@@ -753,11 +804,16 @@ void testImports() {
     require(error.isEmpty() &&
                 reopened.preset.blend == dry.records.front().preset.blend,
             "Pixel blend lost on portable round trip");
-    if (mode != "normal") {
-      auto wet = importBrush(hardPixelKpp("blend-" + mode, "legacy-dulling"),
-                             "kpp", error);
+  }
+  for (const QString model :
+       {"legacy-smear", "new-smear", "legacy-dulling", "new-dulling"}) {
+    for (const QString mutation :
+         {"blend-multiply", "blend-screen", "blend-overlay", "erase"}) {
+      auto wet = importBrush(hardPixelKpp(mutation, model), "kpp", error);
       require(!wet.complete && wet.records.empty() && !error.isEmpty(),
               "Pixel blend eligibility leaked into wet source profiles");
+      require(error.contains("Color Smudge supports only Normal"),
+              "unsupported wet blend did not explain the preservation failure");
     }
   }
   auto rect = importBrush(hardPixelKpp("rect"), "kpp", error);
@@ -1419,6 +1475,119 @@ void testCollection() {
           "conflicting collection overwritten");
   require(load(paths[0], error).preset.name == first.preset.name,
           "conflicting collection modified another preset");
+}
+void testImportedStatusClaims() {
+  Record claimed;
+  claimed.referenceVerified = true;
+  claimed.provenance        = {{"sourceReferenceVerified", true},
+                               {"sourceSemanticallySupported", true},
+                               {"conversionKind", "partial-native"}};
+  QString error;
+  const auto bytes = encode(claimed, error);
+  require(error.isEmpty(), qPrintable(error));
+  auto check = [&](const Record &record) {
+    require(
+        error.isEmpty() && record.decoded && record.semanticallySupported &&
+            !record.referenceVerified &&
+            record.provenance["sourceReferenceVerified"] == QJsonValue(false) &&
+            record.provenance["sourceSemanticallySupported"] ==
+                QJsonValue(false),
+        "untrusted source claims became verified state or erased native "
+        "support");
+  };
+  check(decode(bytes, error));
+  QTemporaryDir directory;
+  require(directory.isValid(), "cannot create status wire fixture");
+  const auto wire = encodeWorkerRecord(claimed, directory.path(), error);
+  require(error.isEmpty(), qPrintable(error));
+  check(decodeWorkerRecord(wire, directory.path(), error));
+  const auto portable =
+      encodePortable(claimed, ResourcePackaging::ManifestOnly, error);
+  require(error.isEmpty(), qPrintable(error));
+  const auto reopened = decode(portable, error);
+  check(reopened);
+  require(reopened.provenance["conversionKind"] == "partial-native",
+          "portable roundtrip discarded partial native classification");
+}
+void runLibraryFileCase(const QString &kind, const QString &operation) {
+  QTemporaryDir directory;
+  require(directory.isValid(), "cannot create library reader fixture");
+  Record record;
+  QString error, path;
+  if (operation == "collection") {
+    const auto installed = installCollection(directory.path(), {record}, error);
+    require(error.isEmpty() && installed.size() == 1, qPrintable(error));
+    path = installed.front();
+  } else {
+    path = install(directory.path(), record, error);
+    require(error.isEmpty() && !path.isEmpty(), qPrintable(error));
+  }
+  const auto original  = encode(record, error);
+  const QString target = directory.filePath("regular-target");
+  require(QFile::rename(path, target), "cannot move library fixture");
+  bool made = false;
+#ifndef _WIN32
+  if (kind == "fifo")
+    made = mkfifo(QFile::encodeName(path).constData(), 0600) == 0;
+  if (kind == "symlink") made = QFile::link(target, path);
+  if (kind == "hardlink")
+    made = link(QFile::encodeName(target).constData(),
+                QFile::encodeName(path).constData()) == 0;
+#else
+  if (kind == "hardlink") {
+    const auto nativePath   = QDir::toNativeSeparators(path);
+    const auto nativeTarget = QDir::toNativeSeparators(target);
+    made = CreateHardLinkW(reinterpret_cast<LPCWSTR>(nativePath.utf16()),
+                           reinterpret_cast<LPCWSTR>(nativeTarget.utf16()),
+                           nullptr);
+  }
+#endif
+  require(made, "cannot create hostile library fixture");
+  if (operation == "load") {
+    const auto loaded = load(path, error);
+    require(!error.isEmpty() && !loaded.decoded, "special library file loaded");
+  } else if (operation == "install") {
+    require(
+        install(directory.path(), record, error).isEmpty() && !error.isEmpty(),
+        "special library file reused on installation");
+  } else {
+    require(installCollection(directory.path(), {record}, error).empty() &&
+                !error.isEmpty(),
+            "special collection member reused");
+  }
+  // Test-owned regular target stays unchanged; use QFile here because the
+  // deliberate hardlink fixture is correctly rejected by the public reader.
+  QFile unchanged(target);
+  require(
+      unchanged.open(QIODevice::ReadOnly) && unchanged.readAll() == original,
+      "rejected library member modified its target");
+}
+void testLibraryFileReaders() {
+  QStringList kinds{"hardlink"};
+#ifndef _WIN32
+  kinds << "fifo" << "symlink";
+#endif
+  for (const auto &kind : kinds)
+    for (const QString &operation : {"load", "install", "collection"}) {
+      QProcess child;
+      child.start(QCoreApplication::applicationFilePath(),
+                  {"--test-library-file", kind, operation});
+      const bool finished = child.waitForFinished(10000);
+      if (!finished) {
+        child.kill();
+        child.waitForFinished(3000);
+      }
+      const auto message =
+          QString("Library %1 %2: finished=%3 exit=%4 stderr=%5")
+              .arg(operation)
+              .arg(kind)
+              .arg(finished)
+              .arg(child.exitCode())
+              .arg(QString::fromUtf8(child.readAllStandardError()));
+      require(finished && child.exitStatus() == QProcess::NormalExit &&
+                  child.exitCode() == 0,
+              qPrintable(message));
+    }
 }
 void testWorkerWire() {
   QTemporaryDir directory;
@@ -2136,6 +2305,84 @@ void writeCorpus(const QString &directory) {
                            "0000001000000000000000004272736800000001"
                            "00000000656e6162626f6f6c01"));
 }
+// Each invariant group runs in a fresh copy of this executable. A failed
+// require still aborts that group immediately, while other groups remain
+// observable in the same platform build. Worker/probe CLI modes stay separate.
+struct PresetCase {
+  const char *name;
+  void (*run)();
+  int timeoutMs;
+};
+const PresetCase presetCases[] = {
+    {"portability", testPortability, 90000},
+    {"package", testPackage, 90000},
+    {"imports", testImports, 90000},
+    {"gih-selection-lifecycle", testGihSelectionLifecycle, 90000},
+    {"bundles", testBundles, 90000},
+    {"collection", testCollection, 90000},
+    {"worker-wire", testWorkerWire, 90000},
+    {"imported-status-claims", testImportedStatusClaims, 30000},
+    {"library-file-readers", testLibraryFileReaders, 120000},
+    {"worker-process", testWorkerProcess, 180000},
+    {"response-files", testResponseFiles, 120000}};
+
+int runPresetCases(const QString &corpusDirectory) {
+  int failures = 0, cases = 0, totalBoundMs = 0;
+  for (const auto &test : presetCases) totalBoundMs += test.timeoutMs + 10000;
+  if (!corpusDirectory.isEmpty()) totalBoundMs += 100000;
+  std::cout << "Preset case driver: aggregate deadline bound "
+            << totalBoundMs / 1000 << " seconds\n";
+  auto run = [&](const QString &name, int timeoutMs, const QStringList &extra) {
+    ++cases;
+    std::cout << "[ RUN      ] " << name.toStdString() << std::endl;
+    QProcess child;
+    child.setProcessChannelMode(QProcess::MergedChannels);
+    QStringList arguments{"--preset-case", name};
+    arguments.append(extra);
+    child.start(QCoreApplication::applicationFilePath(), arguments);
+    const bool started = child.waitForStarted(5000);
+    bool finished      = false;
+    if (started) {
+      QElapsedTimer clock;
+      clock.start();
+      while (child.state() != QProcess::NotRunning &&
+             clock.elapsed() < timeoutMs) {
+        child.waitForFinished(int(std::max<qint64>(
+            1, std::min<qint64>(100, timeoutMs - clock.elapsed()))));
+        const auto output = child.readAll();
+        std::cout.write(output.constData(), output.size());
+      }
+      finished = child.state() == QProcess::NotRunning;
+    }
+    if (child.state() != QProcess::NotRunning) {
+      child.kill();
+      child.waitForFinished(5000);
+    }
+    const auto output = child.readAll();
+    std::cout.write(output.constData(), output.size());
+    const bool passed = started && finished &&
+                        child.exitStatus() == QProcess::NormalExit &&
+                        child.exitCode() == 0;
+    if (!passed) ++failures;
+    std::cout << (passed ? "[       OK ] " : "[  FAILED  ] ")
+              << name.toStdString();
+    if (!started)
+      std::cout << " (launch: " << child.errorString().toStdString() << ')';
+    else if (!finished)
+      std::cout << " (timeout after " << timeoutMs / 1000 << " seconds)";
+    else if (child.exitStatus() != QProcess::NormalExit)
+      std::cout << " (crash)";
+    else if (!passed)
+      std::cout << " (exit " << child.exitCode() << ')';
+    std::cout << std::endl;
+  };
+  for (const auto &test : presetCases)
+    run(QString::fromLatin1(test.name), test.timeoutMs, {});
+  if (!corpusDirectory.isEmpty()) run("corpus", 90000, {corpusDirectory});
+  std::cout << "Preset cases: " << cases - failures << " passed, " << failures
+            << " failed, " << cases << " executed\n";
+  return failures ? 1 : 0;
+}
 }  // namespace
 int main(int argc, char **argv) {
   QCoreApplication app(argc, argv);
@@ -2180,6 +2427,10 @@ int main(int argc, char **argv) {
   try {
     if (argc == 4 && app.arguments().at(1) == "--test-write-response")
       return badResponseFixture(app.arguments().at(2), app.arguments().at(3));
+    if (argc == 4 && app.arguments().at(1) == "--test-library-file") {
+      runLibraryFileCase(app.arguments().at(2), app.arguments().at(3));
+      return 0;
+    }
     if (argc == 4 && app.arguments().at(1) == "--test-response-case") {
       runResponseCase(app.arguments().at(2), app.arguments().at(3));
       return 0;
@@ -2188,19 +2439,31 @@ int main(int argc, char **argv) {
       testWorkerPeakBudget();
       return 0;
     }
-    testPortability();
-    testPackage();
-    testImports();
-    testGihSelectionLifecycle();
-    testBundles();
-    testCollection();
-    testWorkerWire();
-    testWorkerProcess();
-    testResponseFiles();
-    if (argc == 3 && QString::fromLocal8Bit(argv[1]) == "--write-corpus")
-      writeCorpus(QString::fromLocal8Bit(argv[2]));
-    std::cout << "Native brush package tests passed\n";
-    return 0;
+    if (argc == 2 && app.arguments().at(1) == "--list-preset-cases") {
+      for (const auto &test : presetCases) std::cout << test.name << '\n';
+      return 0;
+    }
+    if (argc >= 3 && app.arguments().at(1) == "--preset-case") {
+      const auto name = app.arguments().at(2);
+      if (argc == 4 && name == "corpus") {
+        writeCorpus(app.arguments().at(3));
+        return 0;
+      }
+      if (argc == 3)
+        for (const auto &test : presetCases)
+          if (name == QString::fromLatin1(test.name)) {
+            test.run();
+            return 0;
+          }
+      std::cerr << "Unknown preset case or invalid case arguments\n";
+      return 2;
+    }
+    if (argc == 1) return runPresetCases({});
+    if (argc == 3 && app.arguments().at(1) == "--write-corpus" &&
+        !app.arguments().at(2).isEmpty())
+      return runPresetCases(app.arguments().at(2));
+    std::cerr << "Invalid preset test arguments\n";
+    return 2;
   } catch (const std::exception &e) {
     std::cerr << e.what() << '\n';
     return 1;

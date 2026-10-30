@@ -677,6 +677,12 @@ static Record decodeRecord(
       validateRights(r.resourceRights);
     }
     r.provenance = object(root["provenance"]);
+    // Source support and reference verification are evidence produced by this
+    // application, never credentials supplied by an imported JSON document.
+    // Keep native decoded/semanticallySupported separate from source parity.
+    for (const QString &key :
+         {"sourceReferenceVerified", "sourceSemanticallySupported"})
+      if (r.provenance.contains(key)) r.provenance[key] = false;
     if (r.provenance.contains("bundleMetadata")) {
       const auto why =
           Detail::bundleMetadataError(r.provenance["bundleMetadata"]);
@@ -939,6 +945,14 @@ QByteArray encodePortable(const Record &record, ResourcePackaging mode,
                             "verification is not established"},
                            {"sourceReferenceVerified", false},
                            {"sourceSemanticallySupported", false}};
+    // A bounded classification is safe to carry; arbitrary source descriptors
+    // (including aliases and private paths) remain excluded above.
+    const QString conversionKind =
+        record.provenance.value("conversionKind").toString();
+    if (conversionKind == "tip-only" || conversionKind == "static-native" ||
+        conversionKind == "source-candidate" ||
+        conversionKind == "partial-native")
+      exported.provenance["conversionKind"] = conversionKind;
     static const QRegularExpression hash("^[0-9a-f]{64}$");
     for (const QString &key : {"sourceSha256", "bundleSha256"})
       if (hash.match(record.provenance.value(key).toString()).hasMatch())
@@ -1096,20 +1110,8 @@ Record decodeWorkerRecordInDirectory(
 }
 
 Record load(const QString &path, QString &error, size_t maximumDecodedBytes) {
-  QFile f(path);
-  if (!f.open(QIODevice::ReadOnly)) {
-    error = f.errorString();
-    return {};
-  }
-  if (f.size() > maxBytes) {
-    error = "Brush package exceeds 64 MiB";
-    return {};
-  }
-  QByteArray bytes = f.read(maxBytes + 1);
-  if (!f.atEnd() || f.error() != QFile::NoError) {
-    error = "Cannot read brush package";
-    return {};
-  }
+  const auto bytes = readBoundedRegularFile(path, maxBytes, error);
+  if (!error.isEmpty()) return {};
   return decode(bytes, error, maximumDecodedBytes);
 }
 bool save(const QString &path, const Record &r, QString &error) {
@@ -1139,9 +1141,10 @@ QString install(const QString &directory, const Record &r, QString &error) {
     return {};
   }
   QString path = QDir(directory).filePath(name + "-" + id + ".gzbrush");
-  if (QFile::exists(path)) {
-    QFile f(path);
-    if (!f.open(QIODevice::ReadOnly) || f.read(maxBytes + 1) != bytes) {
+  const QFileInfo existing(path);
+  if (existing.exists() || existing.isSymLink()) {
+    const auto saved = readBoundedRegularFile(path, maxBytes, error);
+    if (!error.isEmpty() || saved != bytes) {
       error = "Existing brush resource conflicts with its identity";
       return {};
     }
@@ -1222,6 +1225,10 @@ QStringList installCollection(const QString &directory,
     }
     stage.setAutoRemove(false);
   } else {
+    Detail::RegularResponseDirectory savedDirectory, stagedDirectory;
+    if (!savedDirectory.open(destination, error) ||
+        !stagedDirectory.open(stage.path(), error))
+      return {};
     QDir existing(destination);
     auto actual = existing.entryList(
         QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot | QDir::Hidden,
@@ -1237,11 +1244,12 @@ QStringList installCollection(const QString &directory,
         error = "Brush import cancelled";
         return {};
       }
-      QFile staged(QDir(stage.path()).filePath(name)),
-          saved(existing.filePath(name));
-      if (QFileInfo(saved).isSymLink() || !staged.open(QIODevice::ReadOnly) ||
-          !saved.open(QIODevice::ReadOnly) || saved.size() != staged.size() ||
-          saved.read(maxBytes + 1) != staged.read(maxBytes + 1)) {
+      const auto staged =
+          Detail::readResponseFile(stagedDirectory, name, maxBytes, error);
+      if (!error.isEmpty()) return {};
+      const auto saved =
+          Detail::readResponseFile(savedDirectory, name, maxBytes, error);
+      if (!error.isEmpty() || saved != staged) {
         error = "Existing brush collection content conflicts with its identity";
         return {};
       }

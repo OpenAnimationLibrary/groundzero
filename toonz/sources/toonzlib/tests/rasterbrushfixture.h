@@ -43,7 +43,8 @@ inline QByteArray hardPixelKpp(const QString &mutation = {},
         "PaintOpSettings/isAirbrushing", "PaintOpSettings/ignoreSpacing",
         "PaintOpSettings/updateSpacingBetweenDabs",
         "KisPrecisionOption/AutoPrecisionEnabled"})
-    param(key, (pressureSize && key == "PressureSize") ||
+    param(key, (mutation == "erase" && key == "EraserMode") ||
+                       (pressureSize && key == "PressureSize") ||
                        (mutation == "wetOpacityPressure" &&
                         key == "OpacityUseCurve") ||
                        ((mutation == "wetFlowPressure" ||

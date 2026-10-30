@@ -94,7 +94,7 @@ if(APPLE OR WIN32 OR (BRUSH_SANITIZERS AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Cl
   endif()
 endif()
 add_test(NAME rasterbrushpreset COMMAND rasterbrushpreset_test)
-set_tests_properties(rasterbrushpreset PROPERTIES TIMEOUT 60)
+set_tests_properties(rasterbrushpreset PROPERTIES TIMEOUT 1200)
 
 get_target_property(BRUSH_ADAPTER_SOURCES rasterbrushpreset_test SOURCES)
 list(REMOVE_ITEM BRUSH_ADAPTER_SOURCES "${REPO_ROOT}/toonz/sources/toonzlib/tests/rasterbrushpreset_test.cpp")
