@@ -5,6 +5,7 @@
 #include "tools/strokeselection.h"
 #include "tools/widthprofile.h"
 #include "tools/widthprofilemanager.h"
+#include "tools/vectorimagesnapshot.h"
 #include "tools/levelselection.h"
 #include "tools/artlayer.h"
 #include "vectorselectiontool.h"
@@ -17,10 +18,16 @@
 // TnzQt includes
 #include "toonzqt/selectioncommandids.h"
 #include "toonzqt/dvdialog.h"
+#include "toonzqt/tselectionhandle.h"
 
 // TnzLib includes
 #include "toonz/txshlevelhandle.h"
 #include "toonz/txshsimplelevel.h"
+#include "toonz/tscenehandle.h"
+#include "toonz/tframehandle.h"
+#include "toonz/tcolumnhandle.h"
+#include "toonz/tobjecthandle.h"
+#include "toonz/txsheethandle.h"
 
 // TnzCore includes
 #include "tenv.h"
@@ -36,6 +43,7 @@
 #include <QInputDialog>
 #include <QLineEdit>
 #include <QMutexLocker>
+#include <QPointer>
 #include <QString>
 #include <QStringList>
 
@@ -43,6 +51,7 @@
 #include <algorithm>
 #include <string>
 #include <limits>
+#include <set>
 #include "tregion.h"
 #include <vector>
 
@@ -74,6 +83,129 @@ WidthProfile::Profile profileOfStroke(TStroke *stroke) {
     }
   }
   return WidthProfile::fromSamples(lengths, thickness);
+}
+
+// A manager and its nested naming/import dialogs run an event loop. Bind Apply
+// to the original editing context and drawing contents, never whatever becomes
+// current while that loop is open. Library management remains independent.
+void manageWidthProfiles(StrokeSelection &selection,
+                         const WidthProfile::Profile &captured, bool captureNew) {
+  auto *app = TTool::getApplication();
+  auto *tool = app->getCurrentTool()->getTool();
+  auto *selectionTool = dynamic_cast<VectorSelectionTool *>(tool);
+  const TXshSimpleLevelP level = app->getCurrentLevel()->getSimpleLevel();
+  const auto *scene = app->getCurrentScene()->getScene();
+  const auto frameType = app->getCurrentFrame()->getFrameType();
+  const int frame = app->getCurrentFrame()->getFrame();
+  const TFrameId fid = app->getCurrentFrame()->getFid();
+  const int column = app->getCurrentColumn()->getColumnIndex();
+  const auto object = app->getCurrentObject()->getObjectId();
+  const TVectorImageP selectedImage = selection.getImage();
+  const auto selectedIndexes = selection.getSelection();
+  auto *currentSelection = app->getCurrentSelection()->getSelection();
+  const auto artTarget = ArtLayer::target();
+  const bool levelScope = selectionTool && selectionTool->isLevelType();
+  const bool selectedScope = selectionTool && selectionTool->isSelectedFramesType();
+  const auto framesMode = selectionTool ? selectionTool->levelSelection().framesMode() : LevelSelection::FRAMES_NONE;
+  const auto filter = selectionTool ? selectionTool->levelSelection().filter() : LevelSelection::EMPTY;
+  const auto styles = selectionTool ? selectionTool->levelSelection().styles() : LevelSelection::styles_container();
+  const auto targetFrames = selectionTool ? selectionTool->getTargetFrames() : std::set<TFrameId>();
+  std::vector<TFrameId> frames;
+  if (level && tool) {
+    if (levelScope || selectedScope) {
+      level->getFids(frames);
+      if (selectedScope)
+        frames.erase(std::remove_if(frames.begin(), frames.end(),
+            [&](const TFrameId &id) { return !targetFrames.count(id); }), frames.end());
+    } else frames.push_back(tool->getCurrentFid());
+  }
+  struct Source { TFrameId fid; TVectorImageP live, snapshot; };
+  std::vector<Source> sources;
+  for (const auto &id : frames) {
+    TVectorImageP image = level->getFrame(id, false);
+    if (!image) { sources.push_back({id, image, image}); continue; }
+    QMutexLocker lock(image->getMutex());
+    TVectorImageP snapshot = image->cloneWithGroupContext();
+    if (auto *palette = image->getPalette()) {
+      TPaletteP frozen = palette->clone();
+      snapshot->setPalette(frozen.getPointer());
+    }
+    snapshot->findRegions();
+    sources.push_back({id, image, snapshot});
+  }
+
+  bool invalidated = false;
+  QPointer<QDialog> activeDialog;
+  QObject observer;
+  const auto invalidate = [&] {
+    invalidated = true;
+    if (activeDialog) activeDialog->reject();
+  };
+  // Install before Manager construction and Capture's nested name prompt.
+  QObject::connect(app->getCurrentScene(), &TSceneHandle::sceneSwitched, &observer, invalidate);
+  QObject::connect(app->getCurrentScene(), &TSceneHandle::sceneChanged, &observer, invalidate);
+  QObject::connect(app->getCurrentLevel(), &TXshLevelHandle::xshLevelSwitched, &observer, invalidate);
+  QObject::connect(app->getCurrentLevel(), &TXshLevelHandle::xshLevelChanged, &observer, invalidate);
+  QObject::connect(app->getCurrentFrame(), &TFrameHandle::frameSwitched, &observer, invalidate);
+  QObject::connect(app->getCurrentColumn(), &TColumnHandle::columnIndexSwitched, &observer, invalidate);
+  QObject::connect(app->getCurrentObject(), &TObjectHandle::objectSwitched, &observer, invalidate);
+  QObject::connect(app->getCurrentXsheet(), &TXsheetHandle::xsheetChanged, &observer, invalidate);
+  QObject::connect(app->getCurrentTool(), &ToolHandle::toolSwitched, &observer, invalidate);
+  QObject::connect(app->getCurrentTool(), &ToolHandle::toolChanged, &observer, invalidate);
+  QObject::connect(app->getCurrentSelection(), &TSelectionHandle::selectionSwitched, &observer, invalidate);
+  QObject::connect(app->getCurrentSelection(), &TSelectionHandle::selectionChanged, &observer, invalidate);
+
+  const bool hasTargets = !selectedIndexes.empty() || levelScope || selectedScope;
+  WidthProfile::Manager manager(savedProfilesPath().getQString(), captured,
+      selectedImage && level && tool && hasTargets && selection.isEditable(),
+      QApplication::activeWindow());
+  activeDialog = &manager;
+  if (invalidated) return;
+  if (captureNew) manager.captureNewProfile();
+  if (invalidated || manager.exec() != QDialog::Accepted || !manager.shouldApply()) return;
+  // A queued button may accept a dialog that a context signal just rejected.
+  // The latch cannot be cleared by switching back to the original context.
+  if (invalidated) return;
+  bool valid = app->getCurrentScene()->getScene() == scene &&
+      app->getCurrentLevel()->getSimpleLevel() == level.getPointer() &&
+      app->getCurrentTool()->getTool() == tool && tool && tool->isEnabled() &&
+      app->getCurrentFrame()->getFrameType() == frameType &&
+      app->getCurrentFrame()->getFrame() == frame && app->getCurrentFrame()->getFid() == fid &&
+      app->getCurrentColumn()->getColumnIndex() == column &&
+      app->getCurrentObject()->getObjectId() == object && !app->getCurrentObject()->isSpline() &&
+      app->getCurrentSelection()->getSelection() == currentSelection &&
+      selection.getImage() == selectedImage && selection.getSelection() == selectedIndexes &&
+      TVectorImageP(tool->getImage(false)) == selectedImage && selection.isEditable() &&
+      !tool->isDragging() && ArtLayer::target() == artTarget;
+  if (valid && selectionTool)
+    valid = levelScope == selectionTool->isLevelType() &&
+        selectedScope == selectionTool->isSelectedFramesType() &&
+        framesMode == selectionTool->levelSelection().framesMode() &&
+        filter == selectionTool->levelSelection().filter() &&
+        styles == selectionTool->levelSelection().styles() &&
+        targetFrames == selectionTool->getTargetFrames();
+  if (valid && (levelScope || selectedScope)) {
+    std::vector<TFrameId> currentFrames;
+    level->getFids(currentFrames);
+    if (selectedScope)
+      currentFrames.erase(std::remove_if(currentFrames.begin(), currentFrames.end(),
+          [&](const TFrameId &id) { return !targetFrames.count(id); }), currentFrames.end());
+    valid = currentFrames == frames;
+  }
+  for (const auto &source : sources) {
+    if (!valid) break;
+    TVectorImageP live = level->getFrame(source.fid, false);
+    if (live != source.live || level->isFrameReadOnly(source.fid)) { valid = false; break; }
+    if (!live) continue;
+    QMutexLocker lock(live->getMutex());
+    valid = VectorImageSnapshot::sameContent(live, source.snapshot);
+  }
+  if (!valid) {
+    DVGui::warning(QObject::tr("The drawing, selection or editing context changed. No width profiles were applied. "
+                              "Reopen the profile manager to review the current drawings."));
+    return;
+  }
+  selection.applyWidthProfile(manager.selectedProfile(), manager.strength(), manager.multiply());
 }
 
 }  // namespace
@@ -240,12 +372,7 @@ void StrokeSelection::applySavedWidthProfile() {
     if (index >= 0 && index < int(m_vi->getStrokeCount()))
       captured = profileOfStroke(m_vi->getStroke(index));
   }
-  auto *tool = dynamic_cast<VectorSelectionTool *>(TTool::getApplication()->getCurrentTool()->getTool());
-  const bool hasTargets = !m_indexes.empty() || (tool && (tool->isLevelType() || tool->isSelectedFramesType()));
-  WidthProfile::Manager manager(savedProfilesPath().getQString(), captured,
-      m_vi && hasTargets && isEditable(), QApplication::activeWindow());
-  if (manager.exec() == QDialog::Accepted && manager.shouldApply())
-    applyWidthProfile(manager.selectedProfile(), manager.strength(), manager.multiply());
+  manageWidthProfiles(*this, captured, false);
 }
 
 //-----------------------------------------------------------------------------
@@ -273,9 +400,5 @@ void StrokeSelection::saveWidthProfile() {
   }
 
   profile.name = "From selected stroke";
-  WidthProfile::Manager manager(savedProfilesPath().getQString(), profile,
-      isEditable(), QApplication::activeWindow());
-  manager.captureNewProfile();
-  if (manager.exec() == QDialog::Accepted && manager.shouldApply())
-    applyWidthProfile(manager.selectedProfile(), manager.strength(), manager.multiply());
+  manageWidthProfiles(*this, profile, true);
 }

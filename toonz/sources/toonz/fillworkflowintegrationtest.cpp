@@ -2,12 +2,16 @@
 #include "tapp.h"
 #include "filmstrip.h"
 #include "filmstripcommand.h"
+#include "filmstripselection.h"
+#include "iocommand.h"
+#include "nativeuiintegrationtest.h"
 #include "tools/tool.h"
 #include "tools/toolhandle.h"
 #include "tools/strokeselection.h"
 #include "toonzqt/selectioncommandids.h"
 #include "toonzqt/menubarcommand.h"
 #include "toonzqt/planeviewer.h"
+#include "toonzqt/tselectionhandle.h"
 #include "toonz/toonzscene.h"
 #include "toonz/tscenehandle.h"
 #include "toonz/txshsimplelevel.h"
@@ -24,9 +28,11 @@
 #include "tregion.h"
 #include "tstroke.h"
 #include "tpalette.h"
+#include "tcolorstyles.h"
 #include "tproperty.h"
 #include "tundo.h"
 #include "tlevel_io.h"
+#include "tlevel.h"
 #include <QApplication>
 #include <QDialog>
 #include <QImage>
@@ -40,6 +46,12 @@
 #include <QSlider>
 #include <QTemporaryDir>
 #include <QAction>
+#include <QAbstractButton>
+#include <QEvent>
+#include <QMessageBox>
+#include <QMouseEvent>
+#include <QPointer>
+#include <QScrollArea>
 #include <stdexcept>
 #include <exception>
 #include <cmath>
@@ -111,6 +123,348 @@ void requireFilledCenter(const TVectorImageP &image, const char *phase) {
 void fillCheckpoint(const char *phase) {
   std::cout << "vector-fill-native: " << phase << std::endl;
 }
+
+void morphCallerChecks() {
+  auto *app = TApp::instance();
+  QString resetError;
+  if (!resetNativeUiIntegrationScene(&resetError))
+    throw std::runtime_error(resetError.toStdString());
+  TXshSimpleLevelP level = app->getCurrentScene()->getScene()->createNewLevel(
+      PLI_XSHLEVEL, L"MorphCallerFixture")->getSimpleLevel();
+  TXshSimpleLevelP other = app->getCurrentScene()->getScene()->createNewLevel(
+      PLI_XSHLEVEL, L"MorphCallerOther")->getSimpleLevel();
+  TPaletteP palette = new TPalette;
+  level->setPalette(palette.getPointer()); other->setPalette(palette.getPointer());
+  auto make = [&](double x) {
+    TVectorImageP image = new TVectorImage;
+    image->setPalette(palette.getPointer());
+    auto *stroke = new TStroke(std::vector<TThickPoint>{
+        {x, 0., 2.}, {x + 10., 10., 2.}, {x + 20., 0., 2.}});
+    stroke->setStyle(1);
+    stroke->setOpacityProfile({{0., .3}, {1., .9}});
+    image->addStroke(stroke);
+    return image;
+  };
+  other->setFrame(TFrameId(1), make(100.));
+  other->getProperties()->setDirtyFlag(false);
+  auto *undo = TUndoManager::manager();
+  QScrollArea area;
+  area.resize(260, 480);
+  auto *strip = new FilmstripFrames(&area);
+  area.setWidget(strip);
+  strip->setLevel(level.getPointer()); strip->setActive(true);
+  area.show();
+  QCoreApplication::processEvents();
+
+  auto selectRange = [&]() {
+    strip->select(0, FilmstripFrames::ONLY_SELECT);
+    strip->select(2, FilmstripFrames::SHIFT_SELECT);
+  };
+  auto resetDrawing = [&]() {
+    undo->reset();
+    level->clearFrames();
+    level->setMorphHints({});
+    level->setFrame(TFrameId(1), make(0.));
+    level->setFrame(TFrameId(2), make(50.));
+    level->setFrame(TFrameId(3), make(20.));
+    palette->getStyle(1)->setMainColor(TPixel32::Black);
+    app->getCurrentLevel()->setLevel(level.getPointer());
+    app->getCurrentFrame()->setFid(TFrameId(1));
+    app->getCurrentLevel()->notifyLevelChange();
+    selectRange();
+    QCoreApplication::processEvents();
+    auto *selection = dynamic_cast<TFilmstripSelection *>(TSelection::getCurrent());
+    require(selection && selection->getInbetweenRange() ==
+                TFilmstripSelection::InbetweenRange(TFrameId(1), TFrameId(3)),
+            "actual Filmstrip fixture did not select its three-frame range");
+    level->getProperties()->setDirtyFlag(false);
+    palette->setDirtyFlag(false);
+    app->getCurrentScene()->setDirtyFlag(false);
+  };
+
+  struct Drawing {
+    TFrameId fid;
+    TVectorImageP live, expected;
+  };
+  auto drawings = [&]() {
+    std::vector<Drawing> result;
+    std::vector<TFrameId> fids; level->getFids(fids);
+    for (const auto &fid : fids) {
+      TVectorImageP image = level->getFrame(fid, false);
+      require(image, "morph caller fixture lost a drawing before review");
+      result.push_back({fid, image, image->clone()});
+    }
+    return result;
+  };
+  auto sameAuthoredDrawing = [&](const TVectorImageP &live, const TVectorImageP &expected,
+                                 bool checkIds = true) {
+    if (!live || !expected || !sameGeometry(live, expected)) return false;
+    for (UINT i = 0; i < live->getStrokeCount(); ++i) {
+      const auto *a = live->getStroke(i), *b = expected->getStroke(i);
+      if ((checkIds && a->getId() != b->getId()) || a->getStyle() != b->getStyle() ||
+          a->getOpacity() != b->getOpacity() || a->getOpacityProfile() != b->getOpacityProfile())
+        return false;
+    }
+    return true;
+  };
+  // The caller is entered through the painted inbetween hit target, never by
+  // wiring a standalone dialog's accepted signal to the command under test.
+  auto invoke = [&](int scenario) {
+    bool prepared = false, delivered = false, accepted = false, timedOut = false;
+    bool queuedApplyRequested = false, applyClicked = false;
+    bool warning = false;
+    std::exception_ptr failure;
+    std::vector<Drawing> expected;
+    std::vector<TFrameId> expectedFids;
+    std::string expectedHints;
+    std::set<TFrameId> expectedSelection;
+    TSelection *expectedActiveSelection = nullptr;
+    ToonzScene *expectedScene = nullptr;
+    TXshLevel *expectedCurrentLevel = nullptr;
+    TPixel32 expectedColor;
+    bool expectedDirty = false, expectedLevelDirty = false;
+    int expectedHistory = 0;
+    QObject callbackContext;
+    QTimer driver, deadline;
+    driver.setInterval(20); deadline.setSingleShot(true);
+    QPointer<InbetweenDialog> review;
+    QObject::connect(&deadline, &QTimer::timeout, &callbackContext, [&]() {
+      timedOut = true;
+      if (auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget())) dialog->reject();
+    });
+    QObject::connect(&driver, &QTimer::timeout, &callbackContext, [&]() {
+      auto *modal = qobject_cast<QDialog *>(QApplication::activeModalWidget());
+      auto *dialog = dynamic_cast<InbetweenDialog *>(modal);
+      if (modal && !dialog) {
+        QString text;
+        if (auto *message = qobject_cast<QMessageBox *>(modal)) text = message->text();
+        else for (auto *label : modal->findChildren<QLabel *>()) text += label->text() + '\n';
+        QPushButton *ok = nullptr;
+        for (auto *button : modal->findChildren<QPushButton *>()) {
+          QString caption = button->text(); caption.remove('&');
+          if (caption == "OK" && button->isVisible() && button->isEnabled()) ok = button;
+        }
+        // DVGui::warning uses a DVGui::Dialog popup, not QMessageBox. Dismiss
+        // only this caller's exact stale-source explanation through its button.
+        if (text.contains("The drawings, range or morph hints changed while the preview was open.") &&
+            text.contains("No drawing was overwritten.") && ok) {
+          warning = true; ok->click();
+        } else {
+          failure = std::make_exception_ptr(std::runtime_error(
+              "unexpected modal in morph caller: " + text.toStdString()));
+          modal->reject();
+        }
+        return;
+      }
+      if (!dialog || delivered) return;
+      review = dialog;
+      if (!prepared) {
+        dialog->setValue("Linear"); dialog->setAutoMatch(false);
+        dialog->setUnmatchedPolicy(TInbetween::HoldUnmatched);
+        prepared = true;
+      }
+      auto *table = dialog->findChild<QTableWidget *>("morphCorrespondence");
+      auto *apply = dialog->findChild<QPushButton *>("morphApply");
+      if (!table || !apply || !table->property("previewReady").toBool() || !apply->isEnabled()) return;
+      delivered = true;
+      QObject::connect(apply, &QPushButton::clicked, &callbackContext,
+                       [&]() { applyClicked = true; });
+      // A separate queued callback leaves this repeating timer available for
+      // the real caller's stale-source warning after the preview loop exits.
+      QTimer::singleShot(0, &callbackContext, [&, apply]() {
+        try {
+          require(review, "morph caller review disappeared before queued action");
+          QPointer<QPushButton> queuedApply(apply);
+          if (scenario >= 0)
+            queuedApplyRequested = QMetaObject::invokeMethod(apply, "click", Qt::QueuedConnection);
+          TVectorImageP first = level->getFrame(TFrameId(1), false);
+          TVectorImageP middle = level->getFrame(TFrameId(2), false);
+          TVectorImageP last = level->getFrame(TFrameId(3), false);
+          if (scenario == 0) first->getStroke(0)->transform(TTranslation(4., 3.));
+          else if (scenario == 1) level->setFrame(TFrameId(2), make(75.));
+          else if (scenario == 2) {
+            middle->getStroke(0)->transform(TTranslation(-7., 6.));
+            middle->getStroke(0)->setOpacityProfile({{0., .8}, {1., .1}});
+          } else if (scenario == 3) level->setFrame(TFrameId(2, "A"), make(90.));
+          else if (scenario == 4) {
+            QJsonObject hint{{"kind", "pair"}, {"firstFrame", MorphHints::frame(TFrameId(1))},
+                {"lastFrame", MorphHints::frame(TFrameId(3))},
+                {"first", MorphHints::anchor(first, 0)}, {"last", MorphHints::anchor(last, 0)}};
+            level->setMorphHints(MorphHints::encode({hint}));
+          } else if (scenario == 5) palette->getStyle(1)->setMainColor(TPixel32(70, 140, 210));
+          else if (scenario == 6) strip->select(1, FilmstripFrames::ONLY_SELECT);
+          else if (scenario == 7) {
+            app->getCurrentLevel()->setLevel(other.getPointer());
+            app->getCurrentLevel()->setLevel(level.getPointer());
+            selectRange();
+          } else if (scenario == 8) {
+            strip->select(1, FilmstripFrames::ONLY_SELECT); selectRange();
+          }
+          if (scenario >= 0 && scenario < 6) {
+            level->setDirtyFlag(true); app->getCurrentScene()->setDirtyFlag(true);
+          }
+          expected = drawings();
+          if (scenario == 9) {
+            // New Scene intentionally clears old level frames and schedules
+            // the old scene for deletion. Never reactivate that old pointer.
+            // Hold the actual drawings to verify the canceled caller does not
+            // change their pixels or write into the newly active scene.
+            IoCmd::newScene();
+          } else if (scenario == 10) {
+            TSelection *closingSelection = TSelection::getCurrent();
+            auto *closing = area.takeWidget();
+            strip = nullptr;
+            delete closing;
+            require(TSelection::getCurrent() != closingSelection,
+                    "closing a Filmstrip during preview retained its dead selection");
+          }
+          level->getFids(expectedFids);
+          expectedHints = level->getMorphHints();
+          if (auto *selection = dynamic_cast<TFilmstripSelection *>(TSelection::getCurrent()))
+            expectedSelection = selection->getSelectedFids();
+          expectedActiveSelection = TSelection::getCurrent();
+          expectedScene = app->getCurrentScene()->getScene();
+          expectedCurrentLevel = app->getCurrentLevel()->getLevel();
+          expectedColor = palette->getStyle(1)->getMainColor();
+          expectedDirty = app->getCurrentScene()->getDirtyFlag();
+          expectedLevelDirty = level->getProperties()->getDirtyFlag();
+          expectedHistory = undo->getHistoryCount();
+          if (scenario >= 0) {
+            if (queuedApply) QCoreApplication::sendPostedEvents(queuedApply, QEvent::MetaCall);
+            accepted = review && review->result() == QDialog::Accepted;
+          } else {
+            auto *button = review->findChild<QPushButton *>(
+                scenario == -1 ? "morphCancel" : "morphApply");
+            require(button, "morph caller Apply/Cancel control missing");
+            button->click();
+          }
+        } catch (...) {
+          failure = std::current_exception();
+          if (review) review->reject();
+        }
+      });
+    });
+    const QPoint point(strip->width() - 30,
+        strip->index2y(1) + strip->getOneFrameHeight() / 2);
+    require(strip->rect().contains(point), "morph inbetween hit target is outside its Filmstrip");
+    QMouseEvent press(QEvent::MouseButtonPress, point, Qt::LeftButton,
+                      Qt::LeftButton, Qt::NoModifier);
+    QPointer<FilmstripFrames> target(strip);
+    driver.start(); deadline.start(10000);
+    QApplication::sendEvent(target, &press);
+    driver.stop(); deadline.stop();
+    QMouseEvent release(QEvent::MouseButtonRelease, point, Qt::LeftButton,
+                        Qt::NoButton, Qt::NoModifier);
+    if (target) QApplication::sendEvent(target, &release);
+    if (failure) std::rethrow_exception(failure);
+    require(prepared && delivered && !timedOut, "actual Filmstrip morph caller did not finish its review");
+    if (scenario == -2) return;
+    if (scenario >= 0)
+      require(queuedApplyRequested && (!review || applyClicked),
+              "morph fixture did not deliver its queued native Apply");
+    if (scenario >= 0 && scenario < 6) {
+      require(accepted, "silent-source morph change did not reach the caller's Accepted guard");
+      require(warning, "changed-source morph caller did not explain its rejected Apply");
+    } else if (scenario >= 6) {
+      // A signaled rejection clears the dialog's detached sources. Its real
+      // accept() rechecks the preview and must refuse the queued Apply.
+      require(!review || review->result() == QDialog::Rejected,
+              "queued morph Apply reaccepted a closed context review");
+    }
+    std::vector<TFrameId> actualFids; level->getFids(actualFids);
+    require(actualFids == expectedFids && level->getMorphHints() == expectedHints &&
+            app->getCurrentScene()->getScene() == expectedScene &&
+            app->getCurrentLevel()->getLevel() == expectedCurrentLevel &&
+            TSelection::getCurrent() == expectedActiveSelection &&
+            palette->getStyle(1)->getMainColor() == expectedColor &&
+            undo->getHistoryCount() == expectedHistory &&
+            app->getCurrentScene()->getDirtyFlag() == expectedDirty &&
+            level->getProperties()->getDirtyFlag() == expectedLevelDirty,
+            "rejected actual morph caller changed intervening context/metadata/history/dirty state");
+    if (auto *selection = dynamic_cast<TFilmstripSelection *>(TSelection::getCurrent()))
+      require(selection->getSelectedFids() == expectedSelection,
+              "rejected morph caller restored an obsolete selection");
+    for (const auto &drawing : expected) {
+      require(sameAuthoredDrawing(drawing.live, drawing.expected),
+              "rejected morph caller changed intervening drawing content");
+      if (scenario != 9)
+        require(TVectorImageP(level->getFrame(drawing.fid, false)) == drawing.live,
+                "rejected morph caller replaced an intervening drawing identity");
+    }
+  };
+
+  for (int scenario = 0; scenario < 9; ++scenario) {
+    resetDrawing();
+    std::cout << "vector-morph-caller: stale scenario " << scenario << std::endl;
+    invoke(scenario);
+  }
+  resetDrawing(); invoke(-1);
+  auto before = drawings();
+  TInbetween::MatchOptions options; options.m_unmatchedPolicy = TInbetween::HoldUnmatched;
+  TVectorImageP expectedMiddle = TInbetween(before.front().live, before.back().live, {}, options).tween(.5);
+  auto verifyApplied = [&]() {
+    require(sameAuthoredDrawing(level->getFrame(TFrameId(2), false), expectedMiddle, false),
+            "actual Filmstrip Apply/redo differed from the reviewed interpolation");
+    for (int index : {0, 2}) {
+      const auto &endpoint = before[index];
+      require(TVectorImageP(level->getFrame(endpoint.fid, false)) == endpoint.live &&
+              sameAuthoredDrawing(endpoint.live, endpoint.expected),
+              "actual Filmstrip Apply/redo altered a key drawing");
+    }
+  };
+  invoke(-2);
+  require(undo->getHistoryCount() == 1, "actual Filmstrip Apply did not create one transaction");
+  verifyApplied();
+  for (int repeat = 0; repeat < 3; ++repeat) {
+    undo->undo();
+    for (const auto &drawing : before)
+      require(TVectorImageP(level->getFrame(drawing.fid, false)) == drawing.live &&
+              sameAuthoredDrawing(drawing.live, drawing.expected),
+              "actual Filmstrip undo lost original drawing identity or content");
+    undo->redo();
+    verifyApplied();
+  }
+  QTemporaryDir directory;
+  require(directory.isValid(), "morph caller reload directory unavailable");
+  const TFilePath path(directory.filePath("caller.pli"));
+  { TLevelWriterP writer(path);
+    for (int frame = 1; frame <= 3; ++frame)
+      writer->getFrameWriter(TFrameId(frame))->save(level->getFrame(TFrameId(frame), false));
+  }
+  TLevelReaderP reader(path);
+  TLevelP loaded = reader->loadInfo();
+  require(loaded && loaded->getPalette(), "morph caller reopen lost its palette");
+  TVectorImageP reopened = reader->getFrameReader(TFrameId(2))->load();
+  require(reopened, "morph caller reopen lost the generated middle drawing");
+  reopened->setPalette(loaded->getPalette());
+  require(sameAuthoredDrawing(reopened, expectedMiddle, false) &&
+          reopened->getPalette()->getStyle(1)->getMainColor() == palette->getStyle(1)->getMainColor(),
+          "actual Filmstrip Apply did not persist authored geometry/opacity/palette");
+
+  // Closing an active strip must detach its non-owning selection before the
+  // replacement strip makes a new selection current.
+  TSelection *closingSelection = TSelection::getCurrent();
+  auto *closing = area.takeWidget(); delete closing;
+  require(TSelection::getCurrent() != closingSelection,
+          "closing the active Filmstrip retained a dead current selection");
+  strip = new FilmstripFrames(&area); area.setWidget(strip);
+  strip->setLevel(level.getPointer()); strip->setActive(true); strip->show();
+  resetDrawing();
+  require(dynamic_cast<TFilmstripSelection *>(TSelection::getCurrent()) != nullptr,
+          "replacement Filmstrip did not acquire a live selection");
+  invoke(-1);
+  resetDrawing(); invoke(10);
+  require(!strip, "queued Filmstrip destruction did not run inside the actual preview");
+  strip = new FilmstripFrames(&area); area.setWidget(strip);
+  strip->setLevel(level.getPointer()); strip->setActive(true); strip->show();
+  resetDrawing();
+  auto *oldScene = app->getCurrentScene()->getScene();
+  invoke(9);
+  require(app->getCurrentScene()->getScene() != oldScene &&
+          app->getCurrentLevel()->getLevel() == nullptr && undo->getHistoryCount() == 0,
+          "morph New Scene cancellation restored the discarded scene");
+  std::cout << "vector-morph-caller: PASS" << std::endl;
+}
 }
 
 // Runs in the real application's native UI fixture, with its tool, level,
@@ -132,6 +486,7 @@ void runVectorFillNativeChecks() {
   image->getRegion(TPointD(0,0))->setStyle(1);
   level->setFrame(TFrameId(1), image);
   app->getCurrentXsheet()->getXsheet()->setCell(0, 0, TXshCell(level, TFrameId(1)));
+  app->getCurrentXsheet()->getXsheet()->setCell(1, 0, TXshCell(level, TFrameId(1)));
   app->getCurrentColumn()->setColumnIndex(0);
   app->getCurrentFrame()->setFrame(0);
   app->getCurrentLevel()->setLevel(level);
@@ -175,8 +530,8 @@ void runVectorFillNativeChecks() {
     tool->leftButtonUp(TPointD(20,20), mouse);
     tool->leftButtonDown(TPointD(20,20), mouse);
   };
-  auto edit = [&](bool accept, bool switchTool = false) {
-    bool sawDialog = false, cleanDuringReview = false;
+  auto edit = [&](bool accept, bool switchTool = false, bool switchFrame = false) {
+    bool sawDialog = false, cleanDuringReview = false, queuedAccepted = false;
     app->getCurrentScene()->setDirtyFlag(false);
     pick();
     tool->leftButtonDrag(TPointD(25,25), mouse);
@@ -193,14 +548,26 @@ void runVectorFillNativeChecks() {
           if (dialog->isVisible()) dialog->reject();
           return;
         }
+        if (switchFrame) {
+          // Both rows expose this same drawing. Returning before the queued
+          // Apply preserves all pointer/ID checks but must not revive review.
+          app->getCurrentFrame()->setFrame(1);
+          app->getCurrentFrame()->setFrame(0);
+        }
         auto *button = dialog->findChild<QPushButton *>(accept ? "vectorFillApply" : "vectorFillRestore");
-        if (button) button->click(); else dialog->reject();
+        if (button && switchFrame) {
+          const bool queued = QMetaObject::invokeMethod(button,"click",Qt::QueuedConnection);
+          QCoreApplication::sendPostedEvents(button,QEvent::MetaCall);
+          queuedAccepted = queued && dialog->result() == QDialog::Accepted;
+        } else if (button) button->click(); else dialog->reject();
       } else if (dialog) dialog->reject();
     });
     response.start(0);
     tool->leftButtonUp(TPointD(25,25), mouse);
     require(sawDialog, "native control-point drag did not open fill review");
     require(cleanDuringReview, "review dirtied scene or recorded undo before Apply");
+    require(!switchFrame || queuedAccepted,
+            "fill review did not receive the queued Apply after context rejection");
   };
   fillCheckpoint("control-point Restore Original");
   edit(false);
@@ -208,6 +575,18 @@ void runVectorFillNativeChecks() {
   requireFilledCenter(image, "Restore Original");
   require(undo->getHistoryCount() == 0 && !app->getCurrentScene()->getDirtyFlag(),
           "cancel changed history or dirty state");
+  fillCheckpoint("control-point frame round-trip rejects queued Apply");
+  for (int repeat = 0; repeat < 2; ++repeat) {
+    edit(true, false, true);
+    TVectorImageP restored = level->getFrame(TFrameId(1),false);
+    requireGeometry(restored, original, "frame-switch review did not restore original geometry");
+    requireFilledCenter(restored, "frame-switch review");
+    require(restored->getStroke(0)->getId() == original->getStroke(0)->getId() &&
+            restored->getStroke(0)->getStyle() == original->getStroke(0)->getStyle() &&
+            restored->getStroke(0)->isSelfLoop() == original->getStroke(0)->isSelfLoop() &&
+            undo->getHistoryCount() == 0 && !app->getCurrentScene()->getDirtyFlag(),
+            "queued Apply revived a dismissed fill review or changed history");
+  }
   fillCheckpoint("control-point Apply and undo/redo");
   edit(true);
   require(undo->getHistoryCount() == 1 && !sameGeometry(image, original),
@@ -583,6 +962,7 @@ void runVectorMorphNativeChecks() {
                 painted->getStroke(0)->getOpacity() == 1.,
             "painted Fade failure changed artwork/history/dirty state");
   }
+  morphCallerChecks();
   std::cout << "vector-morph-native: PASS" << std::endl;
 }
 

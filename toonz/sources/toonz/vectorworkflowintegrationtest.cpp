@@ -7,6 +7,9 @@
 #include "tools/gradienthandles.h"
 #include "tools/widthprofilemanager.h"
 #include "tools/vectoralignmentpreview.h"
+#include "tools/vectorimagesnapshot.h"
+#include "toonzqt/tselectionhandle.h"
+#include "iocommand.h"
 #include "filmstripselection.h"
 #include "tproperty.h"
 #include "tenv.h"
@@ -37,17 +40,20 @@
 #include <QAction>
 #include <QApplication>
 #include <QDoubleSpinBox>
+#include <QEvent>
 #include <QTimer>
 #include <QMessageBox>
 #include <QAbstractButton>
 #include <QTemporaryDir>
 #include <QFile>
 #include <QImage>
+#include <QInputDialog>
 #include <QLabel>
 #include <cmath>
 #include <array>
 #include <exception>
 #include <functional>
+#include <iostream>
 #include <memory>
 #include <sstream>
 #include <stdexcept>
@@ -193,6 +199,61 @@ void checkAlignmentOutput(const TVectorImageP &live, const AlignmentObservation 
   swatch.show(); settle();
   require(pixelDifference(swatch.grabFramebuffer(), review.pixels) <= 2,
           "applied alignment pixels differ from the reviewed native output");
+}
+
+void reviewWidthManager(QAction *action, double strength, bool accept,
+                        const std::function<void()> &whileOpen = {},
+                        bool expectSourceWarning = false) {
+  bool visited = false, warned = false;
+  std::exception_ptr failure;
+  QTimer inspect;
+  QObject::connect(&inspect, &QTimer::timeout, [&] {
+    auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
+    if (visited) {
+      if (!dialog || dialog->objectName() == "widthProfileManager") return;
+      QString text;
+      for (auto *label : dialog->findChildren<QLabel *>()) text += label->text();
+      warned = text.contains("editing context changed");
+      if (!expectSourceWarning || !warned)
+        failure = std::make_exception_ptr(std::runtime_error(
+            "width manager opened an unexpected dialog: " + text.toStdString()));
+      dialog->reject();
+      return;
+    }
+    if (!dialog || dialog->objectName() != "widthProfileManager") {
+      failure = std::make_exception_ptr(std::runtime_error("width manager did not open"));
+      if (dialog) dialog->reject();
+      return;
+    }
+    visited = true;
+    try {
+      dialog->findChild<QComboBox *>("widthProfileBlendMode")->setCurrentIndex(1);
+      dialog->findChild<QDoubleSpinBox *>("widthProfileStrength")->setValue(strength);
+      QPushButton *apply = nullptr;
+      for (auto *button : dialog->findChildren<QPushButton *>())
+        if (button->text() == "Save and Apply") apply = button;
+      require(apply && apply->isEnabled(), "width manager Apply unavailable");
+      if (whileOpen) whileOpen();
+      // Deliberately deliver the already-queued click even if the callback
+      // rejected the dialog through a context signal, or switched away/back.
+      if (accept) {
+        require(QMetaObject::invokeMethod(apply,"click",Qt::QueuedConnection),
+                "width manager could not queue the Apply click");
+        QCoreApplication::sendPostedEvents(apply,QEvent::MetaCall);
+        require(dialog->result() == QDialog::Accepted,
+                "width manager did not receive the queued Apply click");
+      } else dialog->reject();
+    } catch (...) {
+      failure = std::current_exception();
+      dialog->reject();
+    }
+  });
+  inspect.start(0);
+  action->trigger();
+  inspect.stop();
+  if (failure) std::rethrow_exception(failure);
+  require(visited, "width profile action bypassed its manager");
+  require(warned == expectSourceWarning, "width manager source invalidation was not reported");
 }
 
 void nestedGroupChecks(TFilmstripSelection &frames) {
@@ -433,14 +494,35 @@ void runVectorWorkflowNativeChecks() {
       if (!question) return;
       visited = true;
       try {
-        require(question->windowTitle() == "Make Unique Gradient", "unexpected native gradient dialog");
+        // QMessageBox intentionally ignores window titles on macOS. Identify
+        // this exact native question and its choices independently of chrome.
+        auto *cancel = question->button(QMessageBox::Cancel);
+        QAbstractButton *animation = nullptr, *appearance = nullptr;
+        for (auto *button : question->buttons()) {
+          if (button->text() == QObject::tr("Copy Animation") &&
+              question->buttonRole(button) == QMessageBox::YesRole) animation = button;
+          if (button->text() == QObject::tr("Current Appearance") &&
+              question->buttonRole(button) == QMessageBox::NoRole) appearance = button;
+        }
+        const bool expected = question->icon() == QMessageBox::Question &&
+            question->text() == QObject::tr(
+                "This gradient is animated. Copy its animation or only its "
+                "appearance at the current frame?") &&
+            question->buttons().size() == 3 && animation && appearance && cancel &&
+            question->buttonRole(cancel) == QMessageBox::RejectRole;
+        if (!expected)
+          throw std::runtime_error(QString(
+              "Unexpected native gradient dialog: icon=%1 title='%2' text='%3' buttons=%4")
+              .arg(int(question->icon())).arg(question->windowTitle().left(120))
+              .arg(question->text().left(240)).arg(question->buttons().size()).toStdString());
         if (whileOpen) whileOpen();
-        QAbstractButton *selected = choice == "Cancel" ? question->button(QMessageBox::Cancel) : nullptr;
-        for (auto *button : question->buttons())
-          if (button->text() == choice) selected = button;
+        QAbstractButton *selected = choice == "Cancel" ? cancel :
+            choice == "Copy Animation" ? animation :
+            choice == "Current Appearance" ? appearance : nullptr;
         require(selected && selected->isEnabled(), "native gradient choice unavailable");
         // Deliver outside the timer callback, including any nested UI work.
-        QMetaObject::invokeMethod(selected,"click",Qt::QueuedConnection);
+        require(QMetaObject::invokeMethod(selected,"click",Qt::QueuedConnection),
+                "native gradient choice could not queue its actual button");
       } catch (...) { failure = std::current_exception(); question->reject(); }
     });
     QObject::connect(&deadline,&QTimer::timeout,[&] {
@@ -596,34 +678,200 @@ void runVectorWorkflowNativeChecks() {
           "native profile fixture library setup failed");
   auto *saved = CommandManager::instance()->getAction(MI_ApplySavedWidthProfile);
   require(saved && saved->isEnabled(), "visual profile command disabled");
-  auto configureManager = [](double strength, bool accept) {
-    QTimer::singleShot(0, [strength, accept] {
-      for (QWidget *widget : QApplication::topLevelWidgets()) {
-        if (widget->objectName() != "widthProfileManager") continue;
-        auto *dialog = qobject_cast<QDialog *>(widget);
-        if (!accept) { dialog->reject(); return; }
-        dialog->findChild<QComboBox *>("widthProfileBlendMode")->setCurrentIndex(1);
-        dialog->findChild<QDoubleSpinBox *>("widthProfileStrength")->setValue(strength);
-        for (auto *button : dialog->findChildren<QPushButton *>())
-          if (button->text() == "Save and Apply") {
-            if (button->isEnabled()) button->click(); else dialog->reject();
-            return;
-          }
-      }
-    });
-  };
   app->getCurrentScene()->setDirtyFlag(false);
-  configureManager(50., false); saved->trigger(); settle();
+  reviewWidthManager(saved, 50., false); settle();
   require(undo->getHistoryCount() == 0 && !app->getCurrentScene()->getDirtyFlag(),
           "canceling visual width manager dirtied artwork");
-  configureManager(0., true); saved->trigger(); settle();
+  const auto freezeWidth = [](const TVectorImageP &image) {
+    TVectorImageP frozen = image->cloneWithGroupContext();
+    if (auto *sourcePalette = image->getPalette()) {
+      TPaletteP copy = sourcePalette->clone(); frozen->setPalette(copy.getPointer());
+    }
+    frozen->findRegions();
+    return frozen;
+  };
+  std::array<TVectorImageP,3> widthSources{{
+      level->getFrame(TFrameId(1), false), level->getFrame(TFrameId(2), false),
+      level->getFrame(TFrameId(3), false)}};
+  std::array<TVectorImageP,3> widthOriginals{{freezeWidth(widthSources[0]),
+      freezeWidth(widthSources[1]), freezeWidth(widthSources[2])}};
+  const auto unchangedWidth = [&] {
+    for (int i = 0; i < 3; ++i)
+      require(VectorImageSnapshot::sameContent(level->getFrame(TFrameId(i+1),false), widthOriginals[i]),
+              "invalidated width manager changed an original drawing");
+    require(undo->getHistoryCount() == 0, "invalidated width manager added undo history");
+  };
+  const auto restoreWidthScope = [&] {
+    app->getCurrentColumn()->setColumnIndex(0);
+    app->getCurrentFrame()->setFrame(0);
+    app->getCurrentLevel()->setLevel(level);
+    app->getCurrentTool()->setTool("T_Selection");
+    tool = app->getCurrentTool()->getTool();
+    mode = dynamic_cast<TEnumProperty *>(tool->getProperties(0)->getProperty("Mode:"));
+    require(mode, "width context recovery lost Selection mode");
+    frames.selectNone(); frames.select(TFrameId(1)); frames.select(TFrameId(2));
+    mode->setValue(L"Selected Frames"); tool->onPropertyChanged("Mode:"); settle();
+  };
+  // A frame switch to a repeated exposure and back still invalidates a
+  // previously queued Apply. The source pointer and drawing ID end unchanged.
+  for (int repeat = 0; repeat < 2; ++repeat) {
+    reviewWidthManager(saved, 50., true, [&] {
+      app->getCurrentFrame()->setFrame(2); app->getCurrentFrame()->setFrame(0);
+    });
+    unchangedWidth(); restoreWidthScope();
+  }
+  reviewWidthManager(saved, 50., true, [&] {
+    app->getCurrentSelection()->setSelection(nullptr);
+  });
+  unchangedWidth(); restoreWidthScope();
+
+  // A real second level/column is a tempting stale target in Whole Level mode.
+  auto *otherLevel = scene->createNewLevel(PLI_XSHLEVEL,L"WidthContextOther")->getSimpleLevel();
+  otherLevel->setPalette(palette.getPointer());
+  TVectorImageP otherDrawing = drawing(palette.getPointer(),gradientId);
+  varyWidths(otherDrawing,9.);
+  otherLevel->setFrame(TFrameId(1),otherDrawing);
+  xsheet->setCell(0,1,TXshCell(otherLevel,TFrameId(1)));
+  app->getCurrentXsheet()->notifyXsheetChanged(); restoreWidthScope();
+  const TVectorImageP otherOriginal = freezeWidth(otherDrawing);
+  mode->setValue(L"Whole Level"); tool->onPropertyChanged("Mode:"); settle();
+  app->getCurrentScene()->setDirtyFlag(false);
+  reviewWidthManager(saved, 50., true, [&] {
+    app->getCurrentColumn()->setColumnIndex(1);
+    app->getCurrentLevel()->setLevel(otherLevel);
+  });
+  unchangedWidth();
+  require(VectorImageSnapshot::sameContent(otherDrawing,otherOriginal),
+          "queued width Apply edited the replacement current level");
+  restoreWidthScope();
+
+  // Save Selected Profile opens a nested naming prompt before the manager's
+  // own event loop. Its context guard must already be active there.
+  mode->setValue(L"Standard"); tool->onPropertyChanged("Mode:"); settle();
+  selection = dynamic_cast<StrokeSelection *>(tool->getSelection());
+  require(selection, "width capture selection unavailable");
+  selection->selectNone(); selection->select(1,true); selection->makeCurrent();
+  auto *captureWidth = CommandManager::instance()->getAction(MI_SaveWidthProfile);
+  require(captureWidth && captureWidth->isEnabled(), "native width capture action unavailable");
+  const QString libraryPath = (TEnv::getConfigDir() + "width_profiles.txt").getQString();
+  QFile libraryBefore(libraryPath); require(libraryBefore.open(QIODevice::ReadOnly), "width library read failed");
+  const QByteArray originalLibrary = libraryBefore.readAll(); libraryBefore.close();
+  bool captureVisited = false;
+  std::exception_ptr captureFailure;
+  QTimer capturePrompt;
+  QObject::connect(&capturePrompt,&QTimer::timeout,[&] {
+    capturePrompt.stop();
+    auto *input = qobject_cast<QInputDialog *>(QApplication::activeModalWidget());
+    try {
+      require(input,"width capture name prompt unavailable"); captureVisited = true;
+      input->setTextValue("Context changed during capture");
+      app->getCurrentFrame()->setFrame(2); app->getCurrentFrame()->setFrame(0);
+      input->accept();
+    } catch (...) { captureFailure = std::current_exception(); if (input) input->reject(); }
+  });
+  capturePrompt.start(0); captureWidth->trigger(); capturePrompt.stop();
+  if (captureFailure) std::rethrow_exception(captureFailure);
+  require(captureVisited,"width capture bypassed naming prompt");
+  QFile libraryAfter(libraryPath); require(libraryAfter.open(QIODevice::ReadOnly), "width library reread failed");
+  require(libraryAfter.readAll() == originalLibrary,
+          "invalidated nested capture committed an unreviewed profile library");
+  unchangedWidth(); restoreWidthScope();
+
+  // Direct same-scene authoring may omit notifications. Compare all selected
+  // drawings, including an off-frame stroke's scalar/profile and fill state.
+  for (int change = 0; change < 4; ++change) {
+    TVectorImageP liveSecond = level->getFrame(TFrameId(2),false);
+    TVectorImageP expectedSecond;
+    reviewWidthManager(saved, 50., true, [&] {
+      if (change == 0) {
+        TStroke previous(*liveSecond->getStroke(1));
+        auto point = liveSecond->getStroke(1)->getControlPoint(1); point.x += 6.;
+        liveSecond->getStroke(1)->setControlPoint(1,point);
+        liveSecond->notifyChangedStrokes(1,&previous);
+      } else if (change == 1) {
+        liveSecond->getStroke(1)->setOpacity(.31);
+        liveSecond->getStroke(1)->setOpacityProfile({{0.,.2},{1.,.8}});
+      } else if (change == 2) {
+        liveSecond->findRegions(); liveSecond->getRegion(TPointD(0,0))->setStyle(1);
+      } else {
+        liveSecond = liveSecond->cloneWithGroupContext();
+        level->setFrame(TFrameId(2),liveSecond);
+      }
+      expectedSecond = freezeWidth(liveSecond);
+      app->getCurrentScene()->setDirtyFlag(true);
+    }, true);
+    require(VectorImageSnapshot::sameContent(level->getFrame(TFrameId(2),false),expectedSecond) &&
+            VectorImageSnapshot::sameContent(level->getFrame(TFrameId(1),false),widthOriginals[0]) &&
+            VectorImageSnapshot::sameContent(level->getFrame(TFrameId(3),false),widthOriginals[2]) &&
+            undo->getHistoryCount() == 0 && app->getCurrentScene()->getDirtyFlag(),
+            "width manager overwrote intervening authoring or added history");
+    level->setFrame(TFrameId(2),widthOriginals[1]->cloneWithGroupContext());
+    // Keep the original live palette; only snapshot palettes are detached.
+    TVectorImageP restored = level->getFrame(TFrameId(2),false);
+    restored->setPalette(palette.getPointer());
+    restoreWidthScope(); app->getCurrentScene()->setDirtyFlag(false);
+  }
+  unchangedWidth();
+  reviewWidthManager(saved, 0., true); settle();
   require(undo->getHistoryCount() == 0, "zero-strength width profile created undo");
-  configureManager(50., true); saved->trigger(); settle();
+  reviewWidthManager(saved, 50., true); settle();
   afterFirst = level->getFrame(TFrameId(1), false); afterSecond = level->getFrame(TFrameId(2), false);
   const double endpoint = WidthProfile::evaluate(taper, 0.);
   require(std::abs(afterFirst->getStroke(1)->getControlPoint(0).thick - (.5 + .5 * endpoint)) < 1e-9 &&
           std::abs(afterSecond->getStroke(1)->getControlPoint(0).thick - (.5 + .5 * endpoint)) < 1e-9 &&
           undo->getHistoryCount() == 1, "native width-pressure blend differs from preview contract");
+  const std::array<TVectorImageP,2> appliedWidths{{freezeWidth(afterFirst),freezeWidth(afterSecond)}};
+  QTemporaryDir widthDirectory;
+  require(widthDirectory.isValid(), "width profile reload directory unavailable");
+  const TFilePath widthPath(widthDirectory.filePath("width-profiles.pli"));
+  {
+    TLevelWriterP writer(widthPath);
+    writer->getFrameWriter(TFrameId(1))->save(afterFirst);
+    writer->getFrameWriter(TFrameId(2))->save(afterSecond);
+  }
+  TLevelReaderP widthReader(widthPath); TLevelP savedWidthLevel = widthReader->loadInfo();
+  require(savedWidthLevel && savedWidthLevel->getPalette(), "saved width level has no palette");
+  for (int i = 0; i < 2; ++i) {
+    TVectorImageP reopened = widthReader->getFrameReader(TFrameId(i+1))->load();
+    require(reopened && reopened->getStrokeCount() == appliedWidths[i]->getStrokeCount(),
+            "saved width blend lost a stroke");
+    reopened->setPalette(savedWidthLevel->getPalette());
+    for (UINT index = 0; index < reopened->getStrokeCount(); ++index) {
+      const auto *actual = reopened->getStroke(index), *expected = appliedWidths[i]->getStroke(index);
+      require(actual->getControlPointCount() == expected->getControlPointCount() &&
+              actual->getStyle() == expected->getStyle() && actual->isSelfLoop() == expected->isSelfLoop() &&
+              actual->getOpacity() == expected->getOpacity() &&
+              actual->getOpacityProfile() == expected->getOpacityProfile(),
+              "saved width blend lost geometry topology, style or authored opacity");
+      double peak = 0.;
+      for (int point = 0; point < expected->getControlPointCount(); ++point)
+        peak = std::max(peak,expected->getControlPoint(point).thick);
+      // Native PLI stores each width as an unsigned byte relative to ceil(peak).
+      // Validate that format's exact quantizer, retaining exact XY coordinates;
+      // in-memory Apply/Undo/Redo comparisons above and below remain exact.
+      const double unit = std::ceil(peak) / 255.;
+      for (int point = 0; point < expected->getControlPointCount(); ++point) {
+        const auto a = actual->getControlPoint(point), b = expected->getControlPoint(point);
+        const double encoded = unit > 0. ? std::floor(b.thick / unit + .5) * unit : 0.;
+        require(a.x == b.x && a.y == b.y && std::abs(a.thick - encoded) < 1e-12,
+                "saved width blend differs from native PLI width encoding");
+      }
+    }
+    reopened->findRegions();
+    require(reopened->getRegion(TPointD(0,0)) &&
+            reopened->getRegion(TPointD(0,0))->getStyle() == appliedWidths[i]->getRegion(TPointD(0,0))->getStyle(),
+            "saved width blend lost its filled region");
+  }
+  for (int repeat = 0; repeat < 2; ++repeat) {
+    undo->undo(); settle();
+    require(VectorImageSnapshot::sameContent(level->getFrame(TFrameId(1),false),widthOriginals[0]) &&
+            VectorImageSnapshot::sameContent(level->getFrame(TFrameId(2),false),widthOriginals[1]),
+            "repeated width undo lost original drawing state");
+    undo->redo(); settle();
+    require(VectorImageSnapshot::sameContent(level->getFrame(TFrameId(1),false),appliedWidths[0]) &&
+            VectorImageSnapshot::sameContent(level->getFrame(TFrameId(2),false),appliedWidths[1]),
+            "repeated width redo did not restore reviewed pressure blend");
+  }
   undo->undo(); settle(); undo->reset();
   // Give alignment an unmistakable translation and unequal object widths;
   // this makes both left/right previews visibly different at native scale.
@@ -758,4 +1006,56 @@ void runVectorWorkflowNativeChecks() {
   undo->undo(); undo->reset();
   mode->setValue(L"Standard"); tool->onPropertyChanged("Mode:");
   nestedGroupChecks(frames);
+
+  // Exercise a genuine scene replacement last: IoCmd owns the old scene's
+  // delayed deletion. Retain only drawing snapshots across that transition.
+  TXshSimpleLevelP sceneSource = app->getCurrentLevel()->getSimpleLevel();
+  require(sceneSource,"scene-switch width fixture has no source level");
+  std::vector<TFrameId> sceneFids; sceneSource->getFids(sceneFids);
+  std::vector<TVectorImageP> sceneDrawings, sceneOriginals;
+  for (const auto &id : sceneFids) {
+    TVectorImageP image = sceneSource->getFrame(id,false);
+    sceneDrawings.push_back(image); sceneOriginals.push_back(freezeWidth(image));
+  }
+  tool = app->getCurrentTool()->getTool();
+  mode = dynamic_cast<TEnumProperty *>(tool->getProperties(0)->getProperty("Mode:"));
+  require(mode,"scene-switch width mode unavailable");
+  mode->setValue(L"Whole Level"); tool->onPropertyChanged("Mode:"); settle();
+  app->getCurrentScene()->setDirtyFlag(false);
+  TVectorImageP replacementDrawing, replacementOriginal;
+  auto *oldScene = app->getCurrentScene()->getScene();
+  reviewWidthManager(saved,50.,true,[&] {
+    IoCmd::newScene();
+    auto *replacementScene = app->getCurrentScene()->getScene();
+    require(replacementScene != oldScene,"native New Scene did not switch context");
+    auto *replacementLevel = replacementScene->createNewLevel(
+        PLI_XSHLEVEL,L"WidthAfterSceneSwitch")->getSimpleLevel();
+    TPaletteP replacementPalette = new TPalette;
+    replacementLevel->setPalette(replacementPalette.getPointer());
+    replacementDrawing = drawing(replacementPalette.getPointer(),1);
+    varyWidths(replacementDrawing,11.);
+    replacementLevel->setFrame(TFrameId(1),replacementDrawing);
+    app->getCurrentXsheet()->getXsheet()->setCell(0,0,TXshCell(replacementLevel,TFrameId(1)));
+    app->getCurrentXsheet()->notifyXsheetChanged();
+    app->getCurrentColumn()->setColumnIndex(0);
+    app->getCurrentFrame()->setFrame(0);
+    app->getCurrentLevel()->setLevel(replacementLevel);
+    app->getCurrentTool()->setTool("T_Selection");
+    auto *replacementTool = app->getCurrentTool()->getTool();
+    auto *replacementMode = dynamic_cast<TEnumProperty *>(replacementTool->getProperties(0)->getProperty("Mode:"));
+    require(replacementMode,"replacement width mode unavailable");
+    replacementMode->setValue(L"Whole Level"); replacementTool->onPropertyChanged("Mode:");
+    replacementOriginal = freezeWidth(replacementDrawing);
+    app->getCurrentScene()->setDirtyFlag(false);
+  });
+  for (size_t i = 0; i < sceneDrawings.size(); ++i)
+    require(VectorImageSnapshot::sameContent(sceneDrawings[i],sceneOriginals[i]),
+            "scene-switch width Apply changed an original drawing");
+  require(replacementDrawing && VectorImageSnapshot::sameContent(replacementDrawing,replacementOriginal) &&
+          undo->getHistoryCount() == 0 && !app->getCurrentScene()->getDirtyFlag(),
+          "queued width Apply edited the replacement scene");
+  tool = app->getCurrentTool()->getTool();
+  mode = dynamic_cast<TEnumProperty *>(tool->getProperties(0)->getProperty("Mode:"));
+  mode->setValue(L"Standard"); tool->onPropertyChanged("Mode:");
+  std::cout << "vector-width-context-native: PASS" << std::endl;
 }

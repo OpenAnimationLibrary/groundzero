@@ -203,6 +203,9 @@ jobs:
       - name: Verify bounded desktop GL launcher
         run: python -m unittest discover -s ci-scripts/tests -p test_windows_gl_test.py -v
 
+      - name: Verify Unicode regression reporting
+        run: python -m unittest discover -s ci-scripts/tests -p test_regression_reporting.py -v
+
       - name: Install SeExpr parser tools
         shell: pwsh
         run: ./ci-scripts/seexpr/install_parser_windows.ps1
