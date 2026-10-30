@@ -64,8 +64,8 @@ inline void run() {
     if(width==32)require(output==fresh,"Wide pan reveal retained a palette seam");
     else {
       require(output.pixel(0,192)==fresh.pixel(0,192),"Narrow reveal inherited history");
-      const int edge=qRed(output.pixel(width,192)),near=qRed(output.pixel(width+5,192)),far=qRed(output.pixel(width+30,192));
-      require(edge>0 && edge<near && near<far && far>150,"Small reveal did not taper while retaining distant history");
+      const int edge=qRed(output.pixel(width,192)),nearContribution=qRed(output.pixel(width+5,192)),distantContribution=qRed(output.pixel(width+30,192));
+      require(edge>0 && edge<nearContribution && nearContribution<distantContribution && distantContribution>150,"Small reveal did not taper while retaining distant history");
     }
   }
   // A broad opaque occluder disappears while alpha stays unchanged. Fresh pixels
