@@ -50,10 +50,16 @@ worker reading `QAction::isChecked` through `StageBuilder::addFrame` while the
 main thread destroys UI actions. Reviewed correction `db83112a9` snapshots the
 GUI Camera Test value and removes that worker-side widget access. Reviewed core
 correction `cd3ee23e0` rejects new icon work, accounts for every admitted task
-including superseded requests, and requires native thread/TLS retirement. The
-common application exit integration is still under review: accepted Quit must
-drain before scene clearing, canceled Quit must retain icon admission, and
-programmatic exits must drain before UI/resources are destroyed.
+including superseded requests, and requires native thread/TLS retirement.
+Reviewed foundation `630acbe34` completes accepted/canceled Quit, programmatic
+exit and ordinary New/Load transitions. Scene/Xsheet readers retain their actual
+source scenes, including already replaced scenes; final releases remain on the
+GUI thread. Destructive scene changes temporarily drain workers and resume on
+a prepared executor, with reentry guards and a deferred repaint. Terminal exit
+never reopens admission. Native fixtures cover the real decisions, source
+retirement, queued operations and resumed rendering. Runner correction
+`d40884741` requires both lifecycle and drain evidence as well as zero exit.
+Details and remaining CI gates: [native icon lifecycle](native_icon_lifecycle.md).
 This is distinct from the Function segment observer defect. Final qualification
 must retain the isolated lifecycle gate, zero exit and bounded LLDB capture;
 the old process remains failed. The separate macOS gradient
@@ -226,8 +232,8 @@ and the component ledgers.
 | Combined workflow `10ad236fa5e0ae91b71fae025a260bb7a070d240` | Linux application and installed-package jobs passed, including the mandatory native sequence, SeExpr, reliability/EXR and GLB checks. Windows passed its full native sequence, artist workload and reliability/EXR gates. | Windows overall failed standalone width-export and old scene-thumbnail checks, followed by retained-renderer preflight refusals; installed checks were skipped. macOS was superseded during compilation. This revision predates the six interrupted-dialog corrections and the standalone scene-thumbnail fix. Later readiness must use the actual final heads. |
 | Windows combined `47dbae4c9a048af1f795179aeaac1c4006fe61c1` | Build, packaging, native neural host, Cadmium adapters, animation workflow and independent Function/timing/Cast-vector/export diagnostics passed. The 2D artist workload passed correctness. | Function and width-profile standalone fixtures crashed on Qt offscreen QMessageBox; the Shell test wrapper could not print UTF-8 to cp1252; Cast reliability exposed an EXR new-asset state defect. The old 1080p and final Cast preview fixtures also failed. Each has a source correction prepared, not a current-head pass. |
 
-Current work remains explicit: complete accepted/canceled Quit and programmatic
-exit integration, execute worker-retirement and Cast-selection corrections,
+Current work remains explicit: execute the reviewed scene-transition,
+worker-retirement, vector owner-lifetime and Cast-selection corrections,
 localize the mandatory vector timeout, and obtain complete final-head platform
 and installed-package results. The macOS shutdown failure has an actual worker
 stack and must pass on the corrected revision; it is not a speculative defect.
@@ -359,7 +365,7 @@ the CI-only harness verifies isolation and failure retention.
 | 42 | Unused-asset cleanup preview | Review/checklist, keep-spare metadata, undo without deleting source files. | Source-ready; Cast panel lifetime and queued confirmation guards await CI |
 | 43 | Folder undo | Create/rename/delete hierarchy and membership restoration, redo. | Source-ready; snapshot/fresh-item validation and interrupted confirmation plus repeated Undo await CI |
 | 44 | Docked asset inspector | Resolution/DPI/frame gaps/palette/storage follow selection in a persistent docked panel. | Source-ready; fresh CI pending |
-| 45 | Scrubbable thumbnails | Scrub/choose cover, bounds, persistence and bounded decoding. | Pending; proven worker/UI teardown race requires complete stop/drain and worker retirement; Camera Test snapshot fix is prepared |
+| 45 | Scrubbable thumbnails | Scrub/choose cover, bounds, persistence and bounded decoding. | Source-ready; reviewed source leases, scene-change pause/resume and terminal worker retirement require fresh exact-head CI, including macOS clean exit |
 | 46 | Audio audition | Native waveform/transport, stop-on-close/selection and no leaked playback. | Source-ready; audio-error prompt guards await CI; physical playback remains separately unqualified |
 | 47 | Tags and collections | Stable asset IDs, multi-tag queries, saved named collections and save/reload. | Source-ready; Cast menu/nested dialog lifetime and late-action guards await CI |
 | 48 | Stable refresh state | Identity selection/scroll/expanded folders/sort retained through changes. | Source-ready; owner hide/delete, context-menu and folder refresh interruption checks await CI |
