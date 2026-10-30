@@ -1,6 +1,9 @@
 #include "animationworkflowintegrationtest.h"
 #include "autosaverecovery.h"
 #include "exportfidelity.h"
+#include "filebrowserpopup.h"
+#include "menubarcommandids.h"
+#include "toonzqt/menubarcommand.h"
 #include "iocommand.h"
 #include "librarycommand.h"
 #include "poselibrarycommand.h"
@@ -11,6 +14,7 @@
 #include "tdoublekeyframe.h"
 #include "tdoubleparam.h"
 #include "tpalette.h"
+#include "tstroke.h"
 #include "tstream.h"
 #include "tsound_io.h"
 #include "tundo.h"
@@ -21,6 +25,7 @@
 #include "toonz/preferences.h"
 #include "toonz/scenechecker.h"
 #include "toonz/tcolumnhandle.h"
+#include "toonz/tcamera.h"
 #include "toonz/tframehandle.h"
 #include "toonz/toonzscene.h"
 #include "toonz/tstageobject.h"
@@ -37,6 +42,12 @@
 #include "toonz/txshsoundlevel.h"
 #include <QApplication>
 #include <QDialog>
+#include <QCheckBox>
+#include <QFile>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonArray>
+#include <QXmlStreamReader>
 #include <QDir>
 #include <QFileInfo>
 #include <QLabel>
@@ -54,6 +65,15 @@ void require(bool value, const char *message) {
 }
 void near(double actual, double expected, const char *message) {
   require(std::abs(actual - expected) < 1e-8, message);
+}
+bool sameKey(const TDoubleKeyframe &a, const TDoubleKeyframe &b) {
+  return a.m_frame == b.m_frame && a.m_value == b.m_value && a.m_type == b.m_type &&
+         a.m_prevType == b.m_prevType && a.m_isKeyframe == b.m_isKeyframe &&
+         a.m_step == b.m_step && a.m_speedIn == b.m_speedIn && a.m_speedOut == b.m_speedOut &&
+         a.m_linkedHandles == b.m_linkedHandles && a.m_expressionText == b.m_expressionText &&
+         a.m_fileParams.m_path == b.m_fileParams.m_path &&
+         a.m_fileParams.m_fieldIndex == b.m_fileParams.m_fieldIndex &&
+         a.m_unitName == b.m_unitName && a.m_similarShapeOffset == b.m_similarShapeOffset;
 }
 // Drive actual native modal controls. No sleeps, screenshots or timing limits.
 void dialogs(const QStringList &choices, const std::function<void()> &operation) {
@@ -214,6 +234,7 @@ void exerciseTiming(ToonzScene *scene, QMainWindow *window, const QString &folde
   app->getCurrentFrame()->setFrame(3);
   QString error;
   require(moveStoryboardTiming(sheet, 0, 1, 6, &error), "native storyboard move failed");
+  require(curve->getKeyframe(0).m_frame == 0, "frame-zero move introduced negative keys");
   const int source[] = {2, 3, 4, 5, 0, 1};
   for (int row = 0; row < 6; ++row) {
     require(sheet->getCell(row, 0).getFrameId().getNumber() == source[row] + 1, "storyboard picture permutation wrong");
@@ -295,6 +316,125 @@ void exerciseTiming(ToonzScene *scene, QMainWindow *window, const QString &folde
   curve->enableCycle(false);
 }
 
+void exportThroughNativeCommand(const char *command, const QString &destination,
+                                const QStringList &choices) {
+  int handled = 0;
+  bool selectedFile = false, matched = true;
+  QTimer timer;
+  QObject::connect(&timer, &QTimer::timeout, [&]() {
+    QWidget *modal = QApplication::activeModalWidget();
+    if (!modal || dynamic_cast<DVGui::ProgressDialog *>(modal)) return;
+    if (auto *file = dynamic_cast<GenericSaveFilePopup *>(modal)) {
+      if (selectedFile) return;
+      selectedFile = true;
+      file->setFolder(TFilePath(QFileInfo(destination).absolutePath()));
+      file->setFilename(TFilePath(QFileInfo(destination).fileName()));
+      if (auto *check = file->findChild<QCheckBox *>("svgRenderScene")) check->setChecked(false);
+      if (auto *check = file->findChild<QCheckBox *>("svgEmbedImages")) check->setChecked(true);
+      if (auto *check = file->findChild<QCheckBox *>("svgOpenBrowser")) check->setChecked(false);
+      if (auto *check = file->findChild<QCheckBox *>("svgRasterizeVectors")) check->setChecked(false);
+      QTimer::singleShot(0, file, &FileBrowserPopup::onOkPressed);
+      return;
+    }
+    auto *dialog = qobject_cast<QDialog *>(modal);
+    if (!dialog) return;
+    if (handled >= choices.size()) { matched = false; dialog->reject(); return; }
+    const QString choice = choices[handled++];
+    for (auto *button : dialog->findChildren<QPushButton *>())
+      if (button->isVisible() && (button->objectName() == choice || button->text().remove('&') == choice)) {
+        button->click();
+        return;
+      }
+    matched = false;
+    dialog->reject();
+  });
+  timer.start(0);
+  CommandManager::instance()->execute(command);
+  timer.stop();
+  require(selectedFile && matched && handled == choices.size(), "native exporter workflow controls did not match");
+}
+QByteArray fileBytes(const QString &path) {
+  QFile file(path);
+  require(file.open(QIODevice::ReadOnly), "native exporter did not write destination");
+  return file.readAll();
+}
+void exerciseExports(ToonzScene *scene, const QString &folder) {
+  scene->getCurrentCamera()->setRes(TDimension(32, 32));
+  auto *level = scene->getXsheet()->getCell(0, 0).m_level->getSimpleLevel();
+  require(level && level->getPalette(), "export fixture vector palette missing");
+  for (const auto &fid : level->getFids()) {
+    TVectorImageP image = level->getFrame(fid, true);
+    require(bool(image), "export fixture drawing missing");
+    image->setPalette(level->getPalette());
+    std::vector<TThickPoint> points{TThickPoint(-8, 0, 2), TThickPoint(0, 0, 2), TThickPoint(8, 0, 2)};
+    auto *stroke = new TStroke(points);
+    stroke->setStyle(1);
+    image->addStroke(stroke);
+  }
+  // The real exporter reports the fixture's sound track as unsupported.
+  const QString cancelJson = QDir(folder).filePath("cancel-export.json");
+  exportThroughNativeCommand(MI_ExportLottie, cancelJson, {"cancelExportFidelity"});
+  require(!QFileInfo::exists(cancelJson) && !QFileInfo::exists(QDir(folder).filePath("cancel-export_images")),
+          "Lottie cancel created output files");
+  const QString json = QDir(folder).filePath("animation.json");
+  exportThroughNativeCommand(MI_ExportLottie, json, {"exportSupportedContent", QObject::tr("OK")});
+  const QByteArray jsonBytes = fileBytes(json);
+  const auto parsed = QJsonDocument::fromJson(jsonBytes);
+  require(parsed.isObject() && !parsed.object().value("layers").toArray().isEmpty(),
+          "Lottie consent did not write animation layers");
+  exportThroughNativeCommand(MI_ExportLottie, json,
+      {QObject::tr("Overwrite"), "cancelExportFidelity"});
+  require(fileBytes(json) == jsonBytes, "Lottie cancellation overwrote an existing destination");
+
+  const QString cancelSvg = QDir(folder).filePath("cancel-export.svg");
+  exportThroughNativeCommand(MI_ExportAnimatedSVG, cancelSvg, {"cancelExportFidelity"});
+  require(!QFileInfo::exists(cancelSvg) && !QFileInfo::exists(QDir(folder).filePath("cancel-export_files")),
+          "SVG cancel created output files");
+  const QString svg = QDir(folder).filePath("rendered-animation.svg");
+  exportThroughNativeCommand(MI_ExportAnimatedSVG, svg, {"renderSceneForExport"});
+  const QByteArray svgBytes = fileBytes(svg);
+  require(svgBytes.contains("data:image/png;base64,"), "rendered SVG fallback did not embed rendered frames");
+  QXmlStreamReader xml(svgBytes);
+  while (!xml.atEnd()) xml.readNext();
+  require(!xml.hasError(), "rendered SVG output is not well-formed XML");
+  const QString assets = QDir(folder).filePath("asset-animation.svg");
+  exportThroughNativeCommand(MI_ExportAnimatedSVG, assets, {"exportSupportedContent"});
+  require(fileBytes(assets).contains("<svg"), "supported SVG asset export did not write animation");
+}
+
+void exerciseNativeTimingBoundaries(ToonzScene *scene) {
+  auto *sheet = scene->getXsheet();
+  auto *curve = sheet->getStageObject(TStageObjectId::CameraId(0))->getParam(TStageObject::T_Y);
+  for (int frame : {-4, -1, 0, 1, 2, 3, 4, 8, 10}) {
+    TDoubleKeyframe key(frame, frame * 3.0);
+    key.m_type = (frame == -4 || frame == -1 || frame == 8 || frame == 10)
+                     ? TDoubleKeyframe::SpeedInOut : TDoubleKeyframe::Linear;
+    key.m_speedIn = TPointD(-0.3, -0.6);
+    key.m_speedOut = TPointD(0.4, 0.8);
+    key.m_linkedHandles = true;
+    curve->setKeyframe(key);
+  }
+  std::vector<TDoubleKeyframe> originals;
+  for (int i = 0; i < curve->getKeyframeCount(); ++i) originals.push_back(curve->getKeyframe(i));
+  const auto outsideBefore = curve->getKeyframeAt(-4);
+  const auto outsideAfter = curve->getKeyframeAt(8);
+  const auto outsideLast = curve->getKeyframeAt(10);
+  const double beforeSample = curve->getValue(-2.5), afterSample = curve->getValue(9.0);
+  QString error;
+  require(moveStoryboardTiming(sheet, 1, 2, 5, &error), "native interior storyboard move failed");
+  require(sameKey(curve->getKeyframeAt(-4), outsideBefore) &&
+          sameKey(curve->getKeyframeAt(8), outsideAfter) &&
+          sameKey(curve->getKeyframeAt(10), outsideLast),
+          "native storyboard move changed untouched keys or handle links");
+  near(curve->getValue(-2.5), beforeSample, "native move changed samples before cut neighbours");
+  near(curve->getValue(9.0), afterSample, "native move changed samples after cut neighbours");
+  require(TUndoManager::manager()->undo(), "interior timing undo failed");
+  require(curve->getKeyframeCount() == int(originals.size()), "interior timing undo changed key count");
+  for (size_t i = 0; i < originals.size(); ++i)
+    require(sameKey(curve->getKeyframe(int(i)), originals[i]), "interior timing undo changed original key fields");
+  curve->clearKeyframes();
+}
+
 void exerciseCompatibility(ToonzScene *scene) {
   auto *child = new TXshChildLevel;
   child->setName(L"CompatibilityChild");
@@ -353,6 +493,8 @@ bool runAnimationWorkflowIntegrationTest(QMainWindow *window, QString *error) {
     exerciseRecovery(scene);
     exercisePoses(scene, temporary.path());
     exerciseTiming(scene, window, temporary.path());
+    exerciseNativeTimingBoundaries(scene);
+    exerciseExports(scene, temporary.path());
     exerciseCompatibility(scene);
     dialogs({"cancelExportFidelity"}, [&]() { require(!ExportFidelity::confirmLottie({"fixture unsupported effect"}), "Lottie cancel accepted export"); });
     dialogs({"exportSupportedContent"}, [&]() { require(ExportFidelity::confirmLottie({"fixture unsupported effect"}), "Lottie explicit consent failed"); });

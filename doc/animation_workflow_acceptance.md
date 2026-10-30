@@ -8,10 +8,10 @@ required before these changes are described as verified.
 | Item | Source status and behavior | Prepared native acceptance |
 | --- | --- | --- |
 | 53 — Undoable pose-library changes | Implemented. `poselibrarycommand.cpp` snapshots the complete ordered library and base pose. Poses Set Base/Add/Delete and Library import/replace use one native undo step. Name-conflict Cancel does not change history; identical imports do not add an undo. | `exercisePoses`: actual `.tposes` file import, conflict Cancel/Replace controls, base preservation, native Delete control, undo/redo, scene save/load. |
-| 54 — Storyboard timing | Implemented with explicit native and bake choices. `storyboardtiming.cpp` moves exposure cells, sound slices, navigation tags, camera/rig/Plastic/offset/FX numeric curves, rig pin ranges and audio gain together. Native curves retain their interpolation where cuts are representable; incompatible curves require opt-in baking. | `exerciseTiming`: exposure/audio offset permutation, camera interpolation, rig holds and pin ranges, cut holds, repeated undo/redo, selected frame/column preservation, locked-track failure, time-remap rebasing, stage cycles and parameter cycles. `exerciseCompatibility` also exercises a nested-sheet timing move and undo without changing parent exposures. |
+| 54 — Storyboard timing | Implemented with explicit native and bake choices. `storyboardtiming.cpp` moves exposure cells, sound slices, navigation tags, camera/rig/Plastic/offset/FX numeric curves, rig pin ranges and audio gain together. Native curves retain their interpolation where cuts are representable; incompatible curves require opt-in baking. | `exerciseTiming`: exposure/audio offset permutation, camera interpolation, rig holds and pin ranges, cut holds, repeated undo/redo, untouched-key field equality and outside-interval samples, selected frame/column preservation, locked-track failure, time-remap rebasing, stage cycles and parameter cycles. `exerciseCompatibility` also exercises a nested-sheet timing move and undo without changing parent exposures. |
 | 55 — Source/playback timing | Implemented. The viewer shows the selected active time-remapped column's editable exposure, output frame, looked-up source row/drawing and original-editing versus preview mode. It updates with frame, column, scene and preview changes and disappears when remapping is disabled. | Actual native viewer label checks, original source-cell invariance, clear-on-disable. |
 | 56 — Older-build compatibility | Implemented as an optional read-only **known-extension inventory** in Scene Check. `scenecompatibility.cpp` visits each referenced sheet once and reports pose libraries, storyboard notes, published channels, offsets, 3D/depth channels, SeExpr animation, selected new effects, time remapping, color effects and data already skipped by this reader. | Nested sheet referenced by 4,000 exposures produces one note report; source notes and history remain unchanged. |
-| 57 — Export fidelity choices | Implemented. Lottie uses the real exporter's loss list before writing output. Animated SVG offers Cancel, supported asset mode, or the existing full-scene renderer. `exportfidelity.cpp` supplies named accessible native controls; closing cancels. | Actual dialogs: Lottie cancel/consent and SVG cancel/rendered fallback. Existing exporters continue to provide content/render regression coverage. |
+| 57 — Export fidelity choices | Implemented. Lottie uses the real exporter's loss list before writing output. Animated SVG offers Cancel, supported asset mode, or the existing full-scene renderer. `exportfidelity.cpp` supplies named accessible native controls; closing cancels. | Actual File > Export commands through their native filename pickers: Lottie cancel leaves no files, consent writes parsed JSON layers, overwrite-then-cancel preserves bytes; SVG cancel leaves no files, rendered fallback embeds PNG frames in valid XML, and supported asset export writes SVG. |
 | 58 — Recovery status/retry | Implemented. File > Recovery Status shows disabled/pending/writing/complete/partial/failed state, attempt/copy times, missing resources, errors, last copy location and retry. Recovery detects unnamed resources, missing external audio/palettes, project-link failures and unsupported full-color palette changes. Partial copies keep automatic retry pending. Disabled mode writes nothing. | Actual status dialog disabled controls, disabled retry, real recovery manifests, missing-resource partial status, resource removal and repeated successful retry with a distinct version folder. |
 
 ## Storyboard boundary contract
@@ -22,8 +22,10 @@ their own local timing. Sound clips crossing a cut split while retaining source
 sample offsets; undo restores the original clips. A native segment moves intact
 when it has exact boundary keys or a linear/constant segment that can be split
 without changing its shape. Each panel's last source frame holds until the next
-panel begins. Native keys outside the affected span are retained, with boundary
-keys to isolate the edit.
+panel begins. Untouched keys retain their complete native fields, including handle links.
+Only moved keys and the immediate cut neighbours are normalized to preserve
+effective handles. Boundary keys isolate the edit; frame-zero moves create no
+negative key unless the source already contains negative timing.
 
 The separate **Bake Unsupported Timing** choice samples otherwise unsupported
 channels before changing any track. Sampling includes expression/file-driven
@@ -65,8 +67,7 @@ requires an empty startup scene and explicitly creates a fresh scene afterward.
 It uses the existing isolated portable profile and real native dialogs/commands;
 it does not reproduce production algorithms in test-only helpers.
 
-Execution remains pending CI. Platform-specific filesystem failures, exporter
-file writes after consent, and preview/render pixel fidelity continue to require
+Execution remains pending CI. Platform-specific filesystem failures and preview/render pixel fidelity continue to require
 the existing integration/render suites and manual acceptance where no fixture is
 present. No passing build, test, or performance timing is asserted by this ledger.
 

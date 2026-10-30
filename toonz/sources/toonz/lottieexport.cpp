@@ -142,6 +142,7 @@ void ExportLottieCommand::execute() {
     toField     = new QSpinBox();
     fpsField    = new QDoubleSpinBox();
     embedImages = new QCheckBox(QObject::tr("Embed Raster Levels as PNG Data"));
+    embedImages->setObjectName("lottieEmbedImages");
     fpsField->setRange(1.0, 240.0);
     fpsField->setDecimals(3);
     embedImages->setChecked(true);
@@ -168,6 +169,7 @@ void ExportLottieCommand::execute() {
 
     savePopup =
         new GenericSaveFilePopup(QObject::tr("Export Lottie"), customWidget);
+    savePopup->setObjectName("lottieExportFilePopup");
     savePopup->addFilterType("json");
     // The save popup is retained between exports. Only captions are bound;
     // frame values, the filename and the selected folder remain user state.

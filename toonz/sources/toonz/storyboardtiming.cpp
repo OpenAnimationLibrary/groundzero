@@ -65,22 +65,25 @@ TDoubleKeyframe cutKey(TDoubleParam *curve, int frame) {
 }
 TDoubleParamP nativeMove(TDoubleParam *curve, int start, const std::vector<int> &source) {
   TDoubleParamP result = new TDoubleParam(*curve);
-  // Freeze the effective Bezier handles before neighbours at cuts change.
-  for (int i = 0; i < result->getKeyframeCount(); ++i) {
+  // Only copied/moved keys and cut neighbours need fixed effective handles.
+  // Keep the destination's untouched keys byte-for-byte in their native state.
+  TDoubleParamP frozen = new TDoubleParam(*curve);
+  for (int i = 0; i < frozen->getKeyframeCount(); ++i) {
     auto key = curve->getKeyframe(i);
     if (i > 0 && curve->getKeyframe(i - 1).m_type == TDoubleKeyframe::SpeedInOut)
       key.m_speedIn = curve->getSpeedIn(i);
     if (key.m_type == TDoubleKeyframe::SpeedInOut) key.m_speedOut = curve->getSpeedOut(i);
     key.m_linkedHandles = false;
-    result->setKeyframe(key);
+    frozen->setKeyframe(key);
   }
-  TDoubleParamP frozen = new TDoubleParam(*result);
   const int end = start + int(source.size());
   for (int i = result->getKeyframeCount() - 1; i >= 0; --i) {
     const double frame = result->getKeyframe(i).m_frame;
     if (frame >= start && frame < end) result->deleteKeyframe(frame);
   }
-  {
+  // Scene frame zero has no preceding editable scene frame. Do not create
+  // negative keys unless the original curve already contains negative timing.
+  if (start > 0 || curve->getKeyframe(0).m_frame < 0) {
     auto key = cutKey(frozen.getPointer(), start - 1);
     key.m_type = TDoubleKeyframe::Constant;
     result->setKeyframe(key);

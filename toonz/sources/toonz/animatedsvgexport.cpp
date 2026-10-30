@@ -332,6 +332,10 @@ void ExportAnimatedSVGCommand::execute() {
         new QCheckBox(QObject::tr("Render Scene Before Export"));
     embedImages   = new QCheckBox(QObject::tr("Embed Images in SVG"));
     openInBrowser = new QCheckBox(QObject::tr("Open in Browser When Complete"));
+    rasterizeVectors->setObjectName("svgRasterizeVectors");
+    renderSceneResult->setObjectName("svgRenderScene");
+    embedImages->setObjectName("svgEmbedImages");
+    openInBrowser->setObjectName("svgOpenBrowser");
     rasterizeVectors->setChecked(true);
     openInBrowser->setChecked(true);
     rasterizeVectors->setToolTip(QObject::tr(
@@ -361,6 +365,7 @@ void ExportAnimatedSVGCommand::execute() {
 
     savePopup = new GenericSaveFilePopup(QObject::tr("Export Animated SVG"),
                                          customWidget);
+    savePopup->setObjectName("animatedSvgExportFilePopup");
     savePopup->addFilterType("svg");
   }
 
