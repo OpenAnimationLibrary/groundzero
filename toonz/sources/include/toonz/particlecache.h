@@ -120,6 +120,16 @@ struct Playback {
   EndBehavior end = EndBehavior::Hold;
 };
 
+// The cache frames a sample reads after end, missing-frame and interpolation
+// rules: left alone, or left blended toward right by weight. No file is read.
+struct SamplePlan {
+  bool empty    = false;  // The sample is an empty snapshot.
+  int left      = 0;      // Key of Sequence::frames, read unless empty.
+  int right     = 0;      // Key blended with left when weight > 0.
+  double weight = 0.0;
+  QString rightError;  // Right is missing and missing frames are errors.
+};
+
 struct FormatCapability {
   QString extension;
   QString description;
@@ -154,6 +164,9 @@ DVAPI SnapshotPtr sampleSequence(const Sequence &sequence, double sceneFrame,
                                 QString &error, const Cancel &cancel = {});
 DVAPI SnapshotPtr interpolate(const Snapshot &a, const Snapshot &b, double weight,
                              QString &error);
+DVAPI bool planSample(const Sequence &sequence, double sceneFrame,
+                      const Playback &playback, SamplePlan &plan,
+                      QString &error);
 
 // Writes a new directory containing frames and cache.otpc (or export.json for a
 // write-only format). Existing destinations are never overwritten. Only a fully

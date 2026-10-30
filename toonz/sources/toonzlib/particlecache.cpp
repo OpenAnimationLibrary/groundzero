@@ -477,20 +477,6 @@ SnapshotPtr attachMetadata(SnapshotPtr snapshot, const Sequence &sequence, int f
   return result;
 }
 
-SnapshotPtr frameAt(const Sequence &s, int frame, const Mapping &mapping,
-                    MissingFrame missing, QString &error, const Cancel &cancel) {
-  auto found = s.frames.find(frame);
-  if (found == s.frames.end()) {
-    if (missing == MissingFrame::Empty) return std::make_shared<Snapshot>();
-    if (missing == MissingFrame::Hold) {
-      found = s.frames.upper_bound(frame);
-      if (found == s.frames.begin()) return std::make_shared<Snapshot>();
-      --found;
-    } else { error = QString("Missing particle cache frame %1.").arg(frame); return {}; }
-  }
-  return attachMetadata(loadFrame(found->second, mapping, error, cancel), s, found->first);
-}
-
 }  // namespace
 
 std::vector<FormatCapability> capabilities() {
@@ -803,36 +789,107 @@ SnapshotPtr interpolate(const Snapshot &a, const Snapshot &b, double weight, QSt
   return result;
 }
 
-SnapshotPtr sampleSequence(const Sequence &sequence, double sceneFrame,
-                           const Playback &playback, const Mapping &mapping,
-                           QString &error, const Cancel &cancel) {
+bool planSample(const Sequence &sequence, double sceneFrame,
+                const Playback &playback, SamplePlan &plan, QString &error) {
   error.clear();
-  if (sequence.frames.empty()) { error = "Particle sequence contains no frames."; return {}; }
-  if (!validMetadata(sequence.metadata, error)) return {};
+  plan = SamplePlan();
+  if (sequence.frames.empty()) {
+    error = "Particle sequence contains no frames.";
+    return false;
+  }
+  if (!validMetadata(sequence.metadata, error)) return false;
   if (!finite(sceneFrame) || !finite(playback.sceneFramesPerSecond) || playback.sceneFramesPerSecond <= 0 ||
       !finite(playback.startFrame) || !finite(playback.offset) || !finite(playback.speed)) {
-    error = "Invalid particle playback timing."; return {};
+    error = "Invalid particle playback timing.";
+    return false;
   }
   const double first = sequence.metadata.firstFrame, last = sequence.metadata.lastFrame;
   double frame = first + (sceneFrame - playback.startFrame) * playback.speed *
       sequence.metadata.framesPerSecond / playback.sceneFramesPerSecond + playback.offset;
-  if (!finite(frame)) { error = "Particle playback time overflow."; return {}; }
+  if (!finite(frame)) {
+    error = "Particle playback time overflow.";
+    return false;
+  }
   if (frame < first || frame > last) {
-    if (playback.end == EndBehavior::Empty) return std::make_shared<Snapshot>();
+    if (playback.end == EndBehavior::Empty) {
+      plan.empty = true;
+      return true;
+    }
     if (playback.end == EndBehavior::Loop) {
       const double length = last - first + 1;
       frame = first + std::fmod(std::fmod(frame - first, length) + length, length);
     } else frame = std::clamp(frame, first, last);
   }
+  const auto &frames = sequence.frames;
   const int left = int(std::floor(frame));
-  const double weight = frame - left;
-  auto a = frameAt(sequence, left, mapping, playback.missing, error, cancel);
-  if (!a || !playback.interpolate || weight < 1e-9 || !a->hasStableIds || a->extra.value("native").toBool()) return a;
+  if (playback.missing == MissingFrame::Hold) {
+    // Interpolate between the nearest stored frames around the sample time,
+    // so a sparse cache keeps its timing instead of jumping at each key.
+    const auto above = frames.upper_bound(left);
+    if (above == frames.begin()) {
+      plan.empty = true;
+      return true;
+    }
+    const auto below = std::prev(above);
+    plan.left = plan.right = below->first;
+    if (!playback.interpolate) return true;
+    double next = 0;
+    if (above != frames.end()) {
+      plan.right = above->first;
+      next       = above->first;
+    } else if (playback.end == EndBehavior::Loop &&
+               frames.begin()->first == first) {
+      plan.right = frames.begin()->first;
+      next       = last + 1;
+    } else
+      return true;
+    plan.weight = (frame - below->first) / (next - below->first);
+    return true;
+  }
+  if (!frames.count(left)) {
+    if (playback.missing == MissingFrame::Empty) {
+      plan.empty = true;
+      return true;
+    }
+    error = QString("Missing particle cache frame %1.").arg(left);
+    return false;
+  }
+  plan.left = plan.right = left;
+  if (!playback.interpolate || frame == left) return true;
   const int right = left >= last
       ? (playback.end == EndBehavior::Loop ? int(first) : int(last)) : left + 1;
-  auto b = frameAt(sequence, right, mapping, playback.missing, error, cancel);
+  // Blending with a transparent missing frame keeps the left sample.
+  if (!frames.count(right) && playback.missing == MissingFrame::Empty)
+    return true;
+  plan.right  = right;
+  plan.weight = frame - left;
+  if (!frames.count(right))
+    plan.rightError = QString("Missing particle cache frame %1.").arg(right);
+  return true;
+}
+
+SnapshotPtr sampleSequence(const Sequence &sequence, double sceneFrame,
+                           const Playback &playback, const Mapping &mapping,
+                           QString &error, const Cancel &cancel) {
+  SamplePlan plan;
+  if (!planSample(sequence, sceneFrame, playback, plan, error)) return {};
+  if (plan.empty) return std::make_shared<Snapshot>();
+  auto load = [&](int frame) {
+    return attachMetadata(
+        loadFrame(sequence.frames.at(frame), mapping, error, cancel), sequence,
+        frame);
+  };
+  auto a = load(plan.left);
+  if (!a || plan.weight < 1e-9 || !a->hasStableIds ||
+      a->extra.value("native").toBool())
+    return a;
+  if (!plan.rightError.isEmpty()) {
+    error = plan.rightError;
+    return {};
+  }
+  auto b = load(plan.right);
   if (!b) return {};
-  return interpolate(*a, *b, weight, error);
+  return interpolate(*a, *b, plan.weight, error);
 }
 
 namespace {

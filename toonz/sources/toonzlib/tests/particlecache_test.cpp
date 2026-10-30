@@ -471,6 +471,57 @@ void frameNumbering(const QDir &dir) {
             "first frame from numbering");
   }
 }
+
+// Hold Previous with interpolation blends the nearest stored frames around the
+// sample time, weighted by their distance, on a sparse cache.
+void sparseHold(const QDir &dir) {
+  require(dir.mkpath("sparse"), "create sparse folder");
+  const QDir sub(dir.filePath("sparse"));
+  QString error;
+  checked(writeFrame(sub.filePath("a.bgeo"), fixture(0), WriteOptions(), error),
+          error);
+  checked(writeFrame(sub.filePath("e.bgeo"), fixture(4), WriteOptions(), error),
+          error);
+  for (int last : {5, 6}) {
+    writeJson(sub.filePath(QString("sparse-%1.otpc").arg(last)),
+              QJsonObject{
+                  {"format", "opentoonz-particle-cache"},
+                  {"version", 1},
+                  {"fps", 24},
+                  {"firstFrame", 1},
+                  {"lastFrame", last},
+                  {"frames",
+                   QJsonArray{QJsonObject{{"frame", 1}, {"file", "a.bgeo"}},
+                              QJsonObject{{"frame", 5}, {"file", "e.bgeo"}}}}});
+  }
+  Sequence sequence;
+  checked(openSequence(sub.filePath("sparse-5.otpc"), sequence, error), error);
+  Playback playback;
+  playback.missing = MissingFrame::Hold;
+  auto x           = [&](double sceneFrame) {
+    const auto sample =
+        sampleSequence(sequence, sceneFrame, playback, sequence.mapping, error);
+    require(bool(sample), qPrintable(error));
+    return sample->particles.at(0).position[0];
+  };
+  // Source frame = 1 + scene frame; particle 42 moves from x=1 to x=5.
+  nearlyEqual(x(0), 1, "stored frame 1");
+  nearlyEqual(x(1), 2, "integer frame between sparse keys interpolates");
+  nearlyEqual(x(3.5), 4.5, "subframe between sparse keys keeps its timing");
+  nearlyEqual(x(4), 5, "stored frame 5");
+  SamplePlan plan;
+  require(planSample(sequence, 3.5, playback, plan, error) && plan.left == 1 &&
+              plan.right == 5 && std::abs(plan.weight - 0.875) < 1e-12,
+          "sparse hold plan");
+  playback.interpolate = false;
+  nearlyEqual(x(3.5), 1, "hold without interpolation keeps the previous frame");
+  // Past the last stored frame a loop blends toward the first frame.
+  playback.interpolate = true;
+  checked(openSequence(sub.filePath("sparse-6.otpc"), sequence, error), error);
+  nearlyEqual(x(4.5), 5, "hold past the last stored frame");
+  playback.end = EndBehavior::Loop;
+  nearlyEqual(x(4.5), 4, "looped hold blends across the wrap");
+}
 }  // namespace
 
 int main(int argc, char **argv) {
@@ -485,6 +536,7 @@ int main(int argc, char **argv) {
     gzipAndRawSchemas(QDir(temporary.path()));
     packages(QDir(temporary.path()));
     frameNumbering(QDir(temporary.path()));
+    sparseHold(QDir(temporary.path()));
     std::cout << "Particle cache core: format directions, schema, interpolation, IO, metadata, invalidation and atomic packages passed.\n";
     return 0;
   } catch (const std::exception &error) {
