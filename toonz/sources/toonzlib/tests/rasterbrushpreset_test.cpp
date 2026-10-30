@@ -105,19 +105,23 @@ QByteArray kpp(const QString &engine = "paintbrush") {
   require(image.save(&buffer, "PNG"), "cannot create original KPP fixture");
   return bytes;
 }
-QByteArray hardPixelKpp(const QString &mutation = {}) {
+QByteArray hardPixelKpp(const QString &mutation = {},
+                        const QString &model    = {}) {
   QImage image(2, 2, QImage::Format_ARGB32);
   image.fill(Qt::transparent);
   image.setText("version", "2.2");
+  const QString engine = model.isEmpty() ? "paintbrush" : "colorsmudge";
   QString xml =
-      "<Preset name=\"Original hard fixture\" paintopid=\"paintbrush\">";
+      "<Preset name=\"Original fixed fixture\" paintopid=\"" + engine + "\">";
   auto param = [&](const QString &name, const QString &value) {
     xml += "<param name=\"" + name + "\">" + value.toHtmlEscaped() + "</param>";
   };
-  param("paintop", "paintbrush");
+  param("paintop", engine);
   param("CompositeOp", "normal");
   for (const QString &key : {"OpacityValue", "FlowValue", "PaintingMode"})
-    param(key, "1");
+    param(key, mutation == "halfOpacity" && key == "OpacityValue" ? "0.5"
+               : mutation == "buildUp" && key == "PaintingMode"   ? "0"
+                                                                  : "1");
   for (const QString &key :
        {"EraserMode", "OpacityUseCurve", "FlowUseCurve", "PressureSize",
         "PressureRotation", "PressureRatio", "PressureScatter",
@@ -128,6 +132,20 @@ QByteArray hardPixelKpp(const QString &mutation = {}) {
     param(key, "false");
   if (mutation != "missing") param("KisPrecisionOption/precisionLevel", "5");
   if (mutation == "unknown") param("UnclassifiedActiveSetting", "true");
+  if (!model.isEmpty()) {
+    for (const QString &key :
+         {"PressureColorRate", "PressureSmudgeRate", "PressureSmudgeRadius"})
+      param(key, "true");
+    for (const QString &key :
+         {"ColorRateUseCurve", "SmudgeRateUseCurve", "SmudgeRadiusUseCurve"})
+      param(key, "false");
+    param("SmudgeRateSmearAlpha", mutation == "alphaOff" ? "false" : "true");
+    param("SmudgeRadiusValue", mutation == "radius" ? "1" : "0");
+    param("SmudgeRateValue", "0.5");
+    param("ColorRateValue", "0.25");
+    param("SmudgeRateMode", model.endsWith("smear") ? "0" : "1");
+    param("SmudgeRateUseNewEngine", model.startsWith("new") ? "true" : "false");
+  }
   QString brush =
       "<Brush type=\"auto_brush\" BrushVersion=\"2\" spacing=\"0.1\" "
       "angle=\"0\" randomness=\"0\" density=\"1\" "
@@ -371,6 +389,18 @@ void testImports() {
               !hardRecord.provenance["sourceSemanticallySupported"].toBool() &&
               !hardRecord.provenance["sourceReferenceVerified"].toBool(),
           "strict hard candidate selection or qualification failed");
+  require(hardRecord.preset.wash, "KPP wash mode was replaced by build-up");
+  auto buildup = importBrush(hardPixelKpp("buildUp"), "kpp", error);
+  require(
+      buildup.complete && !buildup.records.front().preset.wash &&
+          buildup.records.front().preset.profile == hardRecord.preset.profile,
+      "KPP build-up mode was replaced by wash");
+  auto translucent = importBrush(hardPixelKpp("halfOpacity"), "kpp", error);
+  require(translucent.complete &&
+              translucent.records.front().preset.opacity.value == .5 &&
+              translucent.records.front().preset.profile ==
+                  hardRecord.preset.profile,
+          "fixed source opacity failed eligibility");
   auto hardRestored = decode(encode(hardRecord, error), error);
   require(error.isEmpty() &&
               hardRestored.preset.profile == hardRecord.preset.profile,
@@ -380,6 +410,27 @@ void testImports() {
     require(fallback.complete && fallback.records.front().preset.profile ==
                                      "groundzero-native-1",
             "unclassified setting incorrectly selected source candidate");
+  }
+  for (const QString &model :
+       {"legacy-smear", "legacy-dulling", "new-smear", "new-dulling"}) {
+    auto result = importBrush(hardPixelKpp({}, model), "kpp", error);
+    require(result.complete && result.records.size() == 1, qPrintable(error));
+    const auto expected =
+        "krita-5.3.4.1-" + model.toStdString() + "-candidate-1";
+    require(result.records.front().preset.profile == expected &&
+                result.records.front().preset.smudgeRadius == 0,
+            "explicit wet model did not select matching candidate");
+    auto restored = decode(encode(result.records.front(), error), error);
+    require(error.isEmpty() && restored.preset.profile == expected &&
+                !restored.provenance["sourceReferenceVerified"].toBool(),
+            "wet candidate portable qualification mismatch");
+    for (const QString &mutation :
+         {"alphaOff", "radius", "unknown", "missing", "aa"}) {
+      auto fallback = importBrush(hardPixelKpp(mutation, model), "kpp", error);
+      require(fallback.complete && fallback.records.front().preset.profile ==
+                                       "groundzero-native-1",
+              "unimplemented wet setting selected candidate");
+    }
   }
   auto dry = importBrush(kpp(), "kpp", error);
   require(dry.complete, qPrintable(error));

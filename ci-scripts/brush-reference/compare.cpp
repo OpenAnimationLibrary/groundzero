@@ -276,6 +276,7 @@ int main(int argc, char **argv) {
               "Candidate import failed: " + error);
       Preset p = imported.records.front().preset;
       const bool sourceHard = fixtures["group"].toString() == "hardpixel" ||
+                              fixtures["group"].toString() == "pixelopacity" ||
                               (fixtures["group"].toString() == "geometry" &&
                                name.endsWith("antialias 0"));
       if (sourceHard)
@@ -288,9 +289,11 @@ int main(int argc, char **argv) {
       if (sourceWet) {
         const QString model =
             imported.records.front().provenance["sourceSmudgeModel"].toString();
-        p.profile = "krita-5.3.4.1-" + model.toStdString() + "-candidate-1";
-        p.smudgeRadius = 0;
-        p.reload = 0;
+        require(p.profile == "krita-5.3.4.1-" + model.toStdString() +
+                                 "-candidate-1" &&
+                    p.smudgeRadius == 0 && p.reload == 0,
+                "Strict source wet eligibility did not select the matching "
+                "candidate");
       }
       p.size.value = source["diameter"].toDouble();
       p.color = {220 / 255.0, 40 / 255.0, 30 / 255.0, 1};

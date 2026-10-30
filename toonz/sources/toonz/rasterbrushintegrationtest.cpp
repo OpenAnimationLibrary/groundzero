@@ -54,6 +54,18 @@ TRaster32P raster(TXshSimpleLevel *level, int frame) {
 void checkpoint(const char *stage) {
   std::cerr << "raster-brush-integration: " << stage << std::endl;
 }
+void tap(TTool *tool) {
+  require(tool->preLeftButtonDown(), "brush refused tap");
+  TMouseEvent event;
+  event.m_button   = Qt::LeftButton;
+  event.m_buttons  = Qt::LeftButton;
+  event.m_isTablet = true;
+  event.m_pressure = 1;
+  tool->leftButtonDown(TPointD(0, 0), event);
+  event.m_buttons = Qt::NoButton;
+  tool->leftButtonUp(TPointD(0, 0), event);
+  settle();
+}
 void draw(TTool *tool, bool cancel, double pressure = .8, double tiltX = .2,
           double rotation = .4) {
   require(tool->preLeftButtonDown(), "brush refused prepared raster");
@@ -135,6 +147,35 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
             "native brush selection failed");
     auto undo = TUndoManager::manager();
     undo->reset();
+    checkpoint("qualifying source initialization without paint or undo");
+    {
+      RasterBrush::Record fixture;
+      fixture.preset.name         = "Original source initializer";
+      fixture.preset.profile      = "krita-5.3.4.1-legacy-dulling-candidate-1";
+      fixture.preset.wet          = RasterBrush::Wet::Dulling;
+      fixture.preset.smudgeRadius = 0;
+      const QString folder =
+          ToonzFolder::getLibraryFolder().getQString() + "/rasterbrushes";
+      QString path = RasterBrush::install(folder, fixture, importError);
+      require(!path.isEmpty() && importError.isEmpty(),
+              "cannot install source initializer");
+      tool->onActivate();
+      property->setValue(QDir(folder).relativeFilePath(path).toStdWString());
+      require(tool->onPropertyChanged("Native Brush:"),
+              "cannot select source initializer");
+      TRaster32P baseline = raster(level, 1)->clone();
+      tap(tool);
+      require(same(baseline, raster(level, 1)) && undo->getHistoryCount() == 0,
+              "source initialization painted or created an undo entry");
+      app->getCurrentFrame()->setFid(TFrameId(4));
+      settle();
+      tap(tool);
+      require(
+          !level->getFrame(TFrameId(4), false) && undo->getHistoryCount() == 0,
+          "unpainted source initialization retained a created frame");
+      app->getCurrentFrame()->setFid(TFrameId(1));
+      settle();
+    }
     checkpoint("qualifying pressure, tilt and rotation through tool input");
     for (auto sensor :
          {RasterBrush::Sensor::Pressure, RasterBrush::Sensor::TiltX,

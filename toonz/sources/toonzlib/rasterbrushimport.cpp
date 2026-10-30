@@ -298,13 +298,13 @@ Tip resolveTip(const QMap<QString, QByteArray> *resources,
   if (application == 0) convertTipToMask(tip);
   return tip;
 }
-bool eligibleHardPixel(const QMap<QString, QString> &fields,
-                       const QString &engine, const Preset &preset) {
-  if (engine != "paintbrush") return false;
+bool eligibleFixedSource(const QMap<QString, QString> &fields,
+                         const QString &engine, const Preset &preset) {
+  if (engine != "paintbrush" && engine != "colorsmudge") return false;
   // Explicit eligibility, not inference from a partially decoded preset.
   // Missing defaults and unknown settings stay native conversions.
-  const QMap<QString, QString> required = {
-      {"paintop", "paintbrush"},
+  QMap<QString, QString> required = {
+      {"paintop", engine},
       {"CompositeOp", "normal"},
       {"EraserMode", "false"},
       {"OpacityValue", "1"},
@@ -324,6 +324,28 @@ bool eligibleHardPixel(const QMap<QString, QString> &fields,
       {"PaintOpSettings/updateSpacingBetweenDabs", "false"},
       {"KisPrecisionOption/AutoPrecisionEnabled", "false"},
       {"KisPrecisionOption/precisionLevel", "5"}};
+  if (engine == "paintbrush") {
+    for (const QString &key : {"OpacityValue", "FlowValue"}) {
+      if (!fields.contains(key)) return false;
+      required[key] = fields[key];  // Finite 0..1 values checked by validate().
+    }
+    if (fields.value("PaintingMode") != "0" &&
+        fields.value("PaintingMode") != "1")
+      return false;
+    required["PaintingMode"] = fields["PaintingMode"];
+  }
+  if (engine == "colorsmudge") {
+    for (const QString &key : {"PressureColorRate", "PressureSmudgeRate",
+                               "PressureSmudgeRadius", "SmudgeRateSmearAlpha"})
+      required[key] = "true";
+    for (const QString &key :
+         {"ColorRateUseCurve", "SmudgeRateUseCurve", "SmudgeRadiusUseCurve"})
+      required[key] = "false";
+    required["SmudgeRadiusValue"] = "0";
+    for (const QString &key : {"SmudgeRateValue", "ColorRateValue",
+                               "SmudgeRateMode", "SmudgeRateUseNewEngine"})
+      if (!fields.contains(key)) return false;
+  }
   for (auto i = required.begin(); i != required.end(); ++i)
     if (!fields.contains(i.key()) || fields.value(i.key()) != i.value())
       return false;
@@ -381,10 +403,8 @@ bool eligibleHardPixel(const QMap<QString, QString> &fields,
           attribute.name() != variable)
         return false;
   }
-  Preset candidate  = preset;
-  candidate.profile = "krita-5.3.4.1-hard-pixel-candidate-1";
   return !xml.hasError() && brushes == 1 && masks == 1 &&
-         validate(candidate).empty();
+         validate(preset).empty();
 }
 Record convertKpp(const QByteArray &bytes, QStringList &diagnostics,
                   const QMap<QString, QByteArray> *resources = nullptr,
@@ -551,18 +571,28 @@ Record convertKpp(const QByteArray &bytes, QStringList &diagnostics,
          "native definitions; source edge and spacing mathematics may differ.";
   if (!unmapped.isEmpty())
     diagnostics << "Source settings not reproduced: " + unmapped.join(", ");
-  if (eligibleHardPixel(fields, engine, r.preset)) {
-    r.preset.profile = "krita-5.3.4.1-hard-pixel-candidate-1";
+  Preset candidate = r.preset;
+  candidate.profile =
+      engine == "paintbrush"
+          ? "krita-5.3.4.1-hard-pixel-candidate-1"
+          : "krita-5.3.4.1-" +
+                r.provenance["sourceSmudgeModel"].toString().toStdString() +
+                "-candidate-1";
+  if (engine == "colorsmudge")
+    candidate.smudgeRadius = 0;
+  else
+    candidate.wash = fields.value("PaintingMode") == "1";
+  if (eligibleFixedSource(fields, engine, candidate)) {
+    r.preset = std::move(candidate);
     while (diagnostics.size() > diagnosticStart) diagnostics.removeLast();
     r.diagnostics.clear();
-    diagnostics << "Strict hard-circle Pixel candidate selected. Original "
-                   "fixed-precision "
-                   "fixtures pass component gates; arbitrary source presets "
-                   "and complete "
-                   "Pixel engine parity are not verified.";
+    diagnostics
+        << "Strict fixed-tip source candidate selected. Component fixtures "
+           "are tested separately; arbitrary source presets and complete "
+           "source engine parity are not verified.";
     r.provenance["conversion"] = "strict source-profile candidate";
     r.provenance["candidateEligibility"] =
-        "k5341-hard-circle-explicit-settings-1";
+        "k5341-fixed-tip-explicit-settings-1";
   }
   r.provenance["conversionReport"] = diagnostics.join("\n");
   r.diagnostics.append(diagnostics);

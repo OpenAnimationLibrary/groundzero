@@ -187,14 +187,16 @@ std::string validate(const Preset &p) {
     if (p.tip.shape != Shape::Round || p.tip.hardness != 1 ||
         p.tip.antialiasEdges || !p.tip.images.empty() ||
         !p.size.mappings.empty() || p.size.value != std::floor(p.size.value) ||
-        !fixed(p.aspect, 1) || !fixed(p.angle, 0) || !fixed(p.opacity, 1) ||
-        !fixed(p.flow, 1) || !fixed(p.scatter, 0) ||
-        !fixed(p.countControl, 1) || !fixed(p.backgroundMix, 0) ||
-        !fixed(p.hue, 0) || !fixed(p.saturation, 1) ||
-        !fixed(p.brightness, 1) || p.count != 1 || p.airbrushRate != 0 ||
-        p.wash || p.lockAlpha || p.flipX || p.flipY ||
-        p.blend != Blend::Normal || (sourceHard && p.wet != Wet::Off) ||
-        p.texture.image || p.secondary.enabled || p.color.a != 1)
+        !fixed(p.aspect, 1) || !fixed(p.angle, 0) ||
+        !p.opacity.mappings.empty() || !p.flow.mappings.empty() ||
+        (sourceWet && (!fixed(p.opacity, 1) || !fixed(p.flow, 1))) ||
+        !fixed(p.scatter, 0) || !fixed(p.countControl, 1) ||
+        !fixed(p.backgroundMix, 0) || !fixed(p.hue, 0) ||
+        !fixed(p.saturation, 1) || !fixed(p.brightness, 1) || p.count != 1 ||
+        p.airbrushRate != 0 || (sourceWet && p.wash) || p.lockAlpha ||
+        p.flipX || p.flipY || p.blend != Blend::Normal ||
+        (sourceHard && p.wet != Wet::Off) || p.texture.image ||
+        p.secondary.enabled || p.color.a != 1)
       return "Unimplemented setting in the experimental Krita hard-pixel "
              "profile";
   }

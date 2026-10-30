@@ -7,10 +7,12 @@
 class NativeRasterBrushSurface final : public RasterBrush::Surface {
   TRaster32P raster;
   RasterController &controller;
+  bool *changed;
 
 public:
-  NativeRasterBrushSurface(const TRaster32P &r, RasterController &c)
-      : raster(r), controller(c) {}
+  NativeRasterBrushSurface(const TRaster32P &r, RasterController &c,
+                           bool *changedPixels = nullptr)
+      : raster(r), controller(c), changed(changedPixels) {}
   int width() const override { return raster->getLx(); }
   int height() const override { return raster->getLy(); }
   bool prepare(int x0, int y0, int x1, int y1) override {
@@ -26,7 +28,9 @@ public:
       return (TPixel32::Channel)std::max(
           0, std::min(255, int(std::floor(v * 255 + .5))));
     };
-    raster->pixels(height() - 1 - y)[x] =
-        TPixel32(q(p.r), q(p.g), q(p.b), q(p.a));
+    auto &destination = raster->pixels(height() - 1 - y)[x];
+    const TPixel32 value(q(p.r), q(p.g), q(p.b), q(p.a));
+    if (changed && destination != value) *changed = true;
+    destination = value;
   }
 };

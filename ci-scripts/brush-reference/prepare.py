@@ -56,9 +56,9 @@ shutil.copytree(source / "gzbrush_reference", resources / "pykrita" / "gzbrush_r
 (root / "config" / "kritarc").write_text("[General]\nuseOpenGL=false\n[python]\nenable_gzbrush_reference=true\n")
 names, cases = [], []
 group = os.environ.get("BRUSH_REFERENCE_GROUP", "parameters")
-if group not in ("parameters", "geometry", "tablet", "hardpixel", "wetsteps", "wethold", "wetstate"):
+if group not in ("parameters", "geometry", "tablet", "hardpixel", "wetsteps", "wethold", "wetstate", "pixelopacity"):
     raise RuntimeError("Unknown reference fixture group")
-profiles = [("dry", False)] if group in ("geometry", "tablet", "hardpixel") else [("dry", False), ("smear", False), ("dulling", False), ("smear", True), ("dulling", True)]
+profiles = [("dry", False)] if group in ("geometry", "tablet", "hardpixel", "pixelopacity") else [("dry", False), ("smear", False), ("dulling", False), ("smear", True), ("dulling", True)]
 if group in ("wetsteps", "wethold", "wetstate"):
     profiles = [("smear", False), ("dulling", False), ("smear", True), ("dulling", True)]
 for mode, modern in profiles:
@@ -81,6 +81,11 @@ for mode, modern in profiles:
     if group == "hardpixel":
         variants = [(f"hard diameter {diameter} spacing {round(spacing * 100):03d}", {}, diameter, spacing, [1, 1], 1, 1)
                     for diameter in (7, 32, 128) for spacing in (.1, .25, 1)]
+    if group == "pixelopacity":
+        variants = [(f"pixel mode {painting} opacity {round(opacity * 100):03d} flow {round(flow * 100):03d}",
+                     {"PaintingMode": str(painting), "OpacityValue": str(opacity), "FlowValue": str(flow)},
+                     32, .1, [1, 1], opacity, flow)
+                    for painting in (0, 1) for opacity, flow in ((.25, 1), (.5, 1), (1, .25), (1, .5), (.5, .5), (0, 1), (1, 0))]
     if mode == "dry" and group == "parameters":
         for length in (1, 2, 3, 4, 7, 16, 32):
             variants.append(("short line " + str(length), {}, 32, .1, [1, 1], 1, 1))
@@ -113,13 +118,13 @@ for mode, modern in profiles:
                     for third in ("transparent", "yellow")]
     for label, overrides, diameter, spacing, pressure, opacity, flow in variants:
         name = base if label == "baseline" else base + " " + label
-        edge = int(label.rsplit(" ", 1)[1]) if group == "geometry" else (0 if group in ("hardpixel", "wetsteps", "wethold", "wetstate") else 1)
+        edge = int(label.rsplit(" ", 1)[1]) if group == "geometry" else (0 if group in ("hardpixel", "wetsteps", "wethold", "wetstate", "pixelopacity") else 1)
         (resources / "paintoppresets" / (name + ".kpp")).write_bytes(preset(name, mode, modern, overrides, diameter, spacing, edge))
         names.append(name)
         end_x = 256 + int(label.rsplit(" ", 1)[1]) if label.startswith("short line ") else 1792
         if group == "geometry":
             end_x = 257
-        expected_empty = (mode != "dry" and not modern and label == "pickup 0") or (group == "geometry" and diameter == 1 and label.endswith("antialias 0"))
+        expected_empty = (group == "pixelopacity" and (opacity == 0 or flow == 0)) or (mode != "dry" and not modern and label == "pickup 0") or (group == "geometry" and diameter == 1 and label.endswith("antialias 0"))
         cases.append({"preset": name, "variant": label, "diameter": diameter, "spacing": spacing, "pressure": pressure, "opacity": opacity, "flow": flow, "start": [256, 1024], "end": [end_x, 1024], "background": "transparent" if group == "geometry" or label.startswith("short line ") else "strips", "overrides": overrides, "expectUnchanged": expected_empty})
         if group in ("wetsteps", "wethold", "wetstate"):
             case = cases[-1]

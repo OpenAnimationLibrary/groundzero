@@ -192,6 +192,7 @@ protected:
 
   bool m_started;
   bool m_nativeStrokeFailed = false;
+  bool m_nativePixelsChanged = false;
   bool m_nativeCreatedFrame = false, m_nativeCreatedLevel = false;
   TFrameId m_strokeFrameId;
   TXshSimpleLevelP m_strokeLevel;

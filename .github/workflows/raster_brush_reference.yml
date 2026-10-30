@@ -82,7 +82,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        fixture_group: [parameters, geometry, tablet, hardpixel, wetsteps, wethold, wetstate]
+        fixture_group: [parameters, geometry, tablet, hardpixel, wetsteps, wethold, wetstate, pixelopacity]
     runs-on: ubuntu-22.04
     timeout-minutes: 20
     env:

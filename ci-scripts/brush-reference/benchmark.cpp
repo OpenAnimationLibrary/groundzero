@@ -110,6 +110,26 @@ int main(int argc, char **argv) {
     p.secondary.enabled = false;
     p.wet = Wet::Smear;
     measure(out, "heavy-smear", 4096, 120, p);
+    Preset source;
+    source.profile = "krita-5.3.4.1-hard-pixel-candidate-1";
+    source.size.value = 64;
+    source.wash = true;
+    source.opacity.value = .5;
+    source.flow.value = .5;
+    out << ',';
+    measure(out, "source-candidate-hard-wash", 2048, 240, source);
+    for (const auto &model :
+         {"legacy-smear", "legacy-dulling", "new-smear", "new-dulling"}) {
+      source = Preset{};
+      source.profile = std::string("krita-5.3.4.1-") + model + "-candidate-1";
+      source.size.value = 64;
+      source.smudgeRadius = 0;
+      source.wet = std::string(model).find("dulling") != std::string::npos
+                       ? Wet::Dulling
+                       : Wet::Smear;
+      out << ',';
+      measure(out, model, 2048, 240, source);
+    }
     out << "]}\n";
     if (!out)
       throw std::runtime_error("Cannot finish benchmark report");

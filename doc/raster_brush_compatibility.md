@@ -1,9 +1,9 @@
 # Regular-raster brush compatibility contract
 
 Status: implementation in progress against the scoped independent compatibility contract.
-The existing ABR importer extracts sampled tips only. None of the new foreign
-behavior profiles below is implemented or reference-verified by publishing this
-contract. Keep this work separate from vector/touch usability and neural styling.
+ABR decoding includes sampled tips, legacy computed geometry and typed metadata.
+Strict experimental K5341 component profiles are implemented; none of the full
+foreign behavior profiles below is complete or reference-verified. Keep this work separate from vector/touch usability and neural styling.
 
 The implementation preserves legacy MyPaint and TLV/vector behavior. A native
 compatibility renderer, bounded format adapters, portable resource graph and
@@ -18,9 +18,9 @@ satisfy the contract. Build and test through CI per CLAUDE.md.
 | Collection installation without overwriting or partial writes | Legacy ABR staging and native atomic collection staging implemented | Invalid-member, cancellation, reimport and conflict tests; packaged application fault-injection review pending |
 | Versioned native IR and decoded/supported/verified status separation | Native v1 implemented; foreign semantics remain separate | Package round-trip, missing resource, checksum, enum and version tests in CI |
 | ABR descriptor/computed-tip/pattern behavioral import | Typed descriptor decoding and legacy 1/2 computed-tip native conversion implemented; modern behavioral binding and patterns pending | Every declared version and active setting; decoding is not behavioral support |
-| KPP/bundle/GBR/GIH import | GBR 1/2 and one-dimensional GIH native conversions; KPP native conversion with bounded bundle dependency resolution | Original generated fixtures; conversions explicitly do not claim source semantics |
-| Independent dry renderer and defined dynamics/combinations | Native CPU renderer implemented; foreign profiles planned | Numeric native tests; source-reference gates pending |
-| Four Krita smudge profiles and native wet | Native wet/smear implemented; four source models still planned | Native deterministic pickup tests; foreign models must not alias native wet |
+| KPP/bundle/GBR/GIH import | GBR 1/2 and one-dimensional GIH native conversions; KPP native conversion plus strict fixed-tip source candidate selection; bounded bundle dependency resolution | Unknown/missing active settings retain native conversion; candidate flags do not claim source verification |
+| Independent dry renderer and defined dynamics/combinations | Native CPU renderer and independent fixed hard-circle source candidate implemented | Six isolated and nine long source hard-pixel gates passed; source AA/softness/dynamics remain incomplete |
+| Four Krita smudge profiles and native wet | Native wet/smear plus four separate fixed-tip source candidates implemented | Original three-model 64-case gate run passed at edb3e203; expanded feedback/new-Dulling gates pending; full source profiles remain incomplete |
 | Real tilt/rotation capture and normalization | Additive Qt tablet fields and track interpolation implemented | Linux full application CI passes; physical device qualification pending |
 | Actual-engine preview, editor, portable preset export/relink | Native scratchpad, sensor/curve/texture/dual/color editor and embedded-asset export implemented | Six platform/Qt suites passed at `a0ef97ea`; full editor device workflows still require qualification |
 | Undo/cancel/frame lifecycle/save/reopen | Native path uses raster undo; cancellation rolls back tiles and created frame | Linux actual-tool and installed-package undo, redo, cancellation, frame creation and PNG reopen workloads passed at `31a0bee6`; exact final head and other installed platforms remain gates |
@@ -435,8 +435,8 @@ through the importer and enforces fidelity gates. Source support/verification
 flags remain false. The full K5341 Pixel and all four
 smudge profiles remain unfinished; this is an implementation slice toward them.
 
-Three separate experimental source wet profiles now implement legacy Smear,
-legacy Dulling and new Smear state equations inferred from original measurements.
+Four separate experimental source wet profiles now implement legacy/new Smear
+and Dulling state equations inferred from original measurements.
 They initialize without depositing the first dab, snapshot feedback before writes,
 use distinct legacy/new color equations and quantize deposited RGBA8 results.
 The first 64-case comparison matched all 16 legacy Dulling cases exactly; Smear
@@ -444,5 +444,32 @@ exposed a separate pixel-centered footprint, corrected independently of Dulling.
 The 40-case holdout adds third-dab feedback, sizes and unseen strengths. All three
 candidates enforce max RGB <=2/255, alpha <=1/255 and changed IoU >=.98. Candidates
 remain restricted to hard circles, fixed controls and sampling radius zero;
-new Dulling and full S-profile behavior remain incomplete. Runtime support for
+new Dulling uses radius-zero attenuation measured across three tip sizes;
+full S-profile behavior remains incomplete. Runtime support for
 an experimental package is not semantic support or verification of its source.
+
+
+### Arithmetic feedback and application lifecycle continuation
+
+Third-dab probes rule out interpreting smudge strength as source-over opacity.
+The next candidate uses arithmetic interpolation of premultiplied feedback and
+destination, followed by the independently measured old/new color step. The
+32-case `wetstate` workload varies the third destination between transparent and
+opaque yellow to distinguish this equation from carried-ink models that coincide
+on uniform repeated backgrounds. Do not infer complete state fidelity from the
+first/second-dab gates alone.
+
+Strict KPP eligibility is extended to all four fixed-tip wet candidates only
+with explicit model selection, smear-alpha enabled, radius zero, static controls,
+and no unknown settings. Portable-preset tests preserve model identity and false
+source verification flags. The reference harness requires actual importer
+selection. Dry eligibility preserves build-up/wash and static opacity/flow, with
+fourteen additional gated comparisons. The painting-mode enum and user semantics
+are documented by Krita; no paint-engine implementation was copied.
+
+The native host now distinguishes preparing a read/undo region from changing
+quantized raster pixels. Initialization-only strokes must not create undo entries,
+and newly created unpainted frames are rolled back. Installed-application tests
+exercise both cases. Candidate CPU/memory traces cover hard wash and all four wet
+candidates, including release of retained snapshots at stroke end. These added
+checks are pending exact-head CI and are not completed acceptance claims.

@@ -194,3 +194,13 @@ dab centers. This fixes a fixture outside the declared contract rather than
 relaxing runtime validation. Third-dab reference probes reject source-over pickup. A separate varied-third-
 destination workload distinguishes arithmetic interpolation from carried-ink
 models that coincide on repeated uniform destinations. The original 64-case gates passed before this state expansion.
+
+`pixelopacity` exercises fourteen fixed hard-circle combinations of source
+build-up/wash, opacity and flow, including zero-opacity/zero-flow no-ops. The
+adapter maps the explicitly serialized painting mode and static opacity/flow;
+all source gates remain enforced. The user manual distinguishes stroke opacity
+in wash from per-dab opacity in build-up:
+https://docs.krita.org/en/reference_manual/brushes/brush_settings/opacity_and_flow.html
+The enum order (build-up zero, wash one) is documented in the public GUI data
+example, without consulting paint-engine implementation:
+https://docs.krita.org/en/untranslatable_pages/brush_editor_gui_with_lager.html

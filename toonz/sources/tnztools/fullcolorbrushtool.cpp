@@ -1534,6 +1534,7 @@ void FullColorBrushTool::inputSetBusy(bool busy) {
   if (m_started == busy) return;
   if (busy) {
     m_nativeStrokeFailed = false;
+    m_nativePixelsChanged = false;
     m_nativeCreatedFrame = m_isFrameCreated;
     m_nativeCreatedLevel = m_isLevelCreated;
     // begin paint
@@ -1557,7 +1558,7 @@ void FullColorBrushTool::inputSetBusy(bool busy) {
       m_nativeMemory =
           std::make_shared<RasterBrush::MemoryBudget>(256u * 1024u * 1024u);
       auto backing =
-          std::make_shared<NativeRasterBrushSurface>(m_workRaster, *this);
+          std::make_shared<NativeRasterBrushSurface>(m_workRaster, *this, &m_nativePixelsChanged);
       m_nativeSurface = std::make_shared<RasterBrush::BufferedSurface>(
           backing, m_nativeMemory);
     }
@@ -1782,8 +1783,9 @@ void FullColorBrushTool::commitStroke() {
   m_lastRect.empty();
   if (m_workRaster) m_workRaster->unlock();
 
+  const bool nativeNoChange = m_nativeSurface && !m_nativePixelsChanged;
   if (ras && sl && m_tileSet && m_tileSet->getTileCount() > 0 &&
-      !m_nativeStrokeFailed) {
+      !m_nativeStrokeFailed && !nativeNoChange) {
     delete m_tileSaver;
     m_tileSaver     = 0;
     TRasterP subras = ras->extract(m_strokeRect)->clone();
@@ -1795,7 +1797,7 @@ void FullColorBrushTool::commitStroke() {
   } else {
     delete m_tileSaver;
     m_tileSaver = 0;
-    if (m_nativeStrokeFailed && ras && sl && m_tileSet) {
+    if ((m_nativeStrokeFailed || (nativeNoChange && (m_nativeCreatedFrame || m_nativeCreatedLevel))) && ras && sl && m_tileSet) {
       TRect rollbackSample(0, 0, 0, 0);
       rollback.reset(
           new FullColorBrushUndo(m_tileSet, sl, frameId, m_nativeCreatedFrame,
@@ -1816,7 +1818,7 @@ void FullColorBrushTool::commitStroke() {
   if (rollback) {
     rollback->undo();
     setWorkAndBackupImages();
-  } else if (ras && sl)
+  } else if (ras && sl && !nativeNoChange)
     notifyImageChanged(frameId, sl);
 }
 
