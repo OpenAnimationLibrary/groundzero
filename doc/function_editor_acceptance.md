@@ -119,6 +119,27 @@ click. Native file validation, both cancellation points, import/adaptation and
 undo assertions remain unchanged. Fresh CI is required; the full-application
 fixture and installed package were skipped after the original failure.
 
+Combined-workflow Linux head `c7fdf2aec` subsequently reached the real application
+and passed frozen native/SeExpr comparisons, existing graph interactions,
+unkeyed identity persistence and saved-set renaming. The fractional retime scene
+roundtrip then failed its exact authored-key comparison. That original report
+did not identify a field or value, so the same strict predicate now reports the
+channel, key and each differing field at full double precision. Bounded
+failure evidence also includes at most 8 KiB for the numeric channel's expected
+and reopened curve representations, with identities removed and driven/file data excluded;
+whole scenes and temporary asset paths are not retained. Independent
+source review found a native undo defect: switching interpolation to Speed or
+Ease changes both segment endpoints but only recorded the first endpoint.
+Undo therefore retained the other endpoint's changed incoming tangent after
+restoring a Linear segment. The setter now records both changed endpoints,
+and its final-key guard prevents access to a nonexistent following endpoint.
+Prepared regressions cover exact native undo/redo, ease conversions, locks and
+final-key requests; the real editor fixture now checks full-curve equality
+immediately after interpolation undo. This source-proven defect predicts a
+dormant incoming-handle mismatch, but the actual failed field remains
+unobserved until CI. No serialization rule, field predicate or comparison
+tolerance has been changed to accept the original failure.
+
 The initial Linux widget run at `b9df36e8` reported `ui_functionworkflow`
 terminating with a segmentation fault before emitting a test checkpoint. The
 native operation suite passed in that run. Source review found an uninitialized

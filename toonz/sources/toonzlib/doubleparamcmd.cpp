@@ -431,7 +431,7 @@ void KeyframeSetter::setType(int kIndex, TDoubleKeyframe::Type type) {
   if (kIndex + 1 < m_param->getKeyframeCount()) {
     nextKeyframe = m_param->getKeyframe(kIndex + 1);
     segmentWidth = nextKeyframe.m_frame - keyframe.m_frame;
-  } else if (kIndex + 1 > m_param->getKeyframeCount()) {
+  } else {
     // kIndex is the last keyframe. no segment is defined (therefore no segment
     // type)
     type = TDoubleKeyframe::Linear;
@@ -447,6 +447,10 @@ void KeyframeSetter::setType(int kIndex, TDoubleKeyframe::Type type) {
   std::map<int, TDoubleKeyframe> keyframes;
   switch (type) {
   case TDoubleKeyframe::SpeedInOut:
+    // Changing the segment also replaces its other endpoint's incoming
+    // tangent. Capture that endpoint before writing either key so undo and
+    // redo restore the complete authored segment, including dormant handles.
+    m_undo->addKeyframe(kIndex + 1);
     keyframe.m_speedOut    = TPointD(segmentWidth / 3, 0);
     nextKeyframe.m_speedIn = TPointD(-segmentWidth / 3, 0);
     if (nextKeyframe.m_linkedHandles && nextKeyframe.m_speedOut.x > 0.01)
@@ -461,6 +465,7 @@ void KeyframeSetter::setType(int kIndex, TDoubleKeyframe::Type type) {
 
   case TDoubleKeyframe::EaseInOut:
   case TDoubleKeyframe::EaseInOutPercentage:
+    m_undo->addKeyframe(kIndex + 1);
     if (keyframe.m_type == TDoubleKeyframe::EaseInOut) {
       // absolute -> percentage
       ease0 = keyframe.m_speedOut.x * 100.0 / segmentWidth;
