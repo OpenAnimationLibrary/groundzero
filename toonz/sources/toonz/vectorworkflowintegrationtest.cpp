@@ -944,14 +944,24 @@ void runVectorWorkflowNativeChecks() {
   // another selected drawing must invalidate the entire reviewed transaction.
   for (bool replaceIdentity : {false, true}) {
     const double originalOpacity = afterSecond->getStroke(1)->getOpacity();
+    const TVectorImageP originalFirst = freezeWidth(afterFirst);
+    TVectorImageP interveningDrawing, interveningSnapshot;
     reviewAlignment(align, true, 2, [&] {
       if (replaceIdentity) level->setFrame(TFrameId(2), afterSecond->cloneWithGroupContext());
       else afterSecond->getStroke(1)->setOpacity(.61);
+      interveningDrawing = level->getFrame(TFrameId(2),false);
+      interveningSnapshot = freezeWidth(interveningDrawing);
     }, true);
     require(undo->getHistoryCount() == 0 &&
             *afterFirst->getStroke(1) == beforeAlignFirst &&
             *afterSecond->getStroke(1) == beforeAlignSecond,
             "alignment applied a stale review or partially changed earlier drawings");
+    require(TVectorImageP(level->getFrame(TFrameId(2),false)) == interveningDrawing &&
+            VectorImageSnapshot::sameContent(interveningDrawing,interveningSnapshot) &&
+            VectorImageSnapshot::sameContent(afterFirst,originalFirst) &&
+            (replaceIdentity ? interveningDrawing != afterSecond
+                             : interveningDrawing->getStroke(1)->getOpacity() == .61),
+            "rejected alignment erased the intervening opacity edit or drawing replacement");
     if (replaceIdentity) level->setFrame(TFrameId(2), afterSecond);
     else afterSecond->getStroke(1)->setOpacity(originalOpacity);
   }
