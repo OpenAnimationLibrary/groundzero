@@ -190,6 +190,12 @@ jobs:
       - name: Verify native lifecycle harness contracts
         run: python3 -m unittest discover -s ci-scripts/tests -p test_native_ui_lifecycle.py
 
+      - name: Verify bounded desktop GL launcher
+        run: python3 -m unittest discover -s ci-scripts/tests -p test_windows_gl_test.py -v
+
+      - name: Verify Unicode regression reporting
+        run: python3 -m unittest discover -s ci-scripts/tests -p test_regression_reporting.py -v
+
       - name: Test SeExpr native integration
         id: seexpr_tests
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
@@ -212,7 +218,7 @@ jobs:
         run: |
           app_libraries="$GITHUB_WORKSPACE/toonz/build/toonz/OpenToonz.app/Contents/MacOS"
           DYLD_LIBRARY_PATH="$app_libraries${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}" \
-            QT_QPA_PLATFORM=cocoa python3 ci-scripts/run_native_ui_test.py "$app_libraries/OpenToonz" stuff --require-function-workflow --output toonz/build/ui-integration-output.txt
+            QT_QPA_PLATFORM=cocoa python3 ci-scripts/run_native_ui_test.py "$app_libraries/OpenToonz" stuff --require-function-workflow --require-offline-gl-workflow --output toonz/build/ui-integration-output.txt
 
       - name: Report native Function Editor failure
         if: ${{ failure() && steps.function_integration.outcome == 'failure' }}

@@ -1,5 +1,6 @@
 #include "nativeuiintegrationtest.h"
 #include "functionworkflowintegrationtest.h"
+#include "offlineglworkflowintegrationtest.h"
 
 #include "columnselection.h"
 #include "commandpalette.h"
@@ -61,6 +62,7 @@
 #include <QTreeWidget>
 #include <QTranslator>
 
+#include <exception>
 #include <iostream>
 #include <memory>
 #include <vector>
@@ -652,10 +654,13 @@ int runNativeUiIntegrationTest(QMainWindow *window) {
       std::cerr << "native-ui-integration: FAIL: " << functionError.toStdString() << std::endl;
       return 1;
     }
+    runOfflineGLWorkflowNativeChecks();
     std::cout << "native-ui-integration: PASS" << std::endl;
     return 0;
   } catch (const Failure &failure) {
     std::cerr << "native-ui-integration: FAIL: " << failure.message << std::endl;
+  } catch (const std::exception &failure) {
+    std::cerr << "native-ui-integration: FAIL: " << failure.what() << std::endl;
   } catch (...) {
     std::cerr << "native-ui-integration: FAIL: unexpected native exception"
               << std::endl;

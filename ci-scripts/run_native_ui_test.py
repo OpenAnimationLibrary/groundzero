@@ -8,10 +8,11 @@ import signal
 import subprocess
 import sys
 import tempfile
+import time
 
 
 @contextmanager
-def windows_mesa_renderer(executable, runtime):
+def windows_mesa_renderer(executable, runtime, cleanup_allowed=None):
     """Temporarily provide desktop GL for both Qt and native GL imports."""
     if runtime is None:
         yield {}
@@ -22,10 +23,13 @@ def windows_mesa_renderer(executable, runtime):
     names = ("opengl32.dll", "libgallium_wgl.dll")
     sources = [runtime / name for name in names]
     targets = [executable.parent / name for name in names]
-    marker = executable.with_name(executable.name + ".local")
+    markers = [executable.with_name(executable.name + ".local")]
+    converter = executable.with_name("tconverter.exe")
+    if converter.is_file():
+        markers.append(converter.with_name(converter.name + ".local"))
     if not all(source.is_file() for source in sources):
         raise RuntimeError("The verified Mesa runtime is missing a required DLL")
-    if any(path.exists() or path.is_symlink() for path in [*targets, marker]):
+    if any(path.exists() or path.is_symlink() for path in [*targets, *markers]):
         raise RuntimeError("The temporary Mesa renderer would replace a packaged file")
     created = []
     try:
@@ -34,29 +38,152 @@ def windows_mesa_renderer(executable, runtime):
                 created.append(target)
                 with source.open("rb") as original:
                     shutil.copyfileobj(original, destination)
-        with marker.open("xb") as destination:
-            created.append(marker)
-            destination.write(b"native-ui-test-only\n")
+        for marker in markers:
+            with marker.open("xb") as destination:
+                created.append(marker)
+                destination.write(b"native-ui-test-only\n")
         print("native-ui-integration: renderer: Mesa llvmpipe desktop OpenGL", flush=True)
         # The standard DLL name keeps Qt's desktop WGL/GDI dispatch and native
         # opengl32 imports on the same module. Do not load opengl32sw as well.
         yield {"GALLIUM_DRIVER": "llvmpipe", "QT_OPENGL": "desktop",
                "QT_OPENGL_DLL": "opengl32.dll"}
     finally:
+        if cleanup_allowed is not None and not cleanup_allowed():
+            raise RuntimeError(
+                "Temporary Mesa renderer retained: renderer descendants may still be running")
         cleanup_error = None
+        cleanup_details = []
         for path in reversed(created):
             try:
                 path.unlink()
             except OSError as error:
                 cleanup_error = error
+                # The runner reports str(error), not its chained traceback.
+                # Keep bounded OS evidence without exposing the full path.
+                reason = str(error.strerror or type(error).__name__)
+                reason = reason.replace("\r", " ").replace("\n", " ")[:240]
+                cleanup_details.append(
+                    f"{path.name[:128]}: {type(error).__name__} "
+                    f"(errno={error.errno}, winerror={getattr(error, 'winerror', None)}): {reason}")
         if cleanup_error is not None:
-            raise RuntimeError("Temporary Mesa renderer cleanup failed") from cleanup_error
+            raise RuntimeError("Temporary Mesa renderer cleanup failed: " +
+                               "; ".join(cleanup_details)) from cleanup_error
+
+
+def stop_process_tree(process):
+    """Bound the complete tree cleanup to 15 seconds; uncertainty is not success."""
+    deadline = time.monotonic() + 15
+    stopped = False
+    notes = b""
+    try:
+        if os.name == "nt":
+            result = subprocess.run(
+                ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                timeout=12, check=False)
+            notes += result.stdout or b""
+            stopped = result.returncode == 0
+            if not stopped:
+                notes += f"\nProcess-tree cleanup exited with {result.returncode}.\n".encode()
+        else:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass  # This entire process group has already exited.
+            stopped = True
+    except (OSError, subprocess.TimeoutExpired) as error:
+        notes += f"\nProcess-tree cleanup failed: {type(error).__name__}.\n".encode()
+    try:
+        if process.poll() is None:
+            process.kill()
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            if process.poll() is None:
+                raise subprocess.TimeoutExpired("process cleanup", 15)
+        else:
+            process.wait(timeout=remaining)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        stopped = False
+        notes += f"\nParent cleanup failed: {type(error).__name__}.\n".encode()
+    if stopped and os.name != "nt":
+        # Signal delivery is not process exit. Do not release shared files
+        # until the entire group, including converter descendants, is gone.
+        stopped = False
+        while time.monotonic() < deadline:
+            try:
+                os.killpg(process.pid, 0)
+            except ProcessLookupError:
+                stopped = True
+                break
+            except OSError as error:
+                notes += f"\nProcess-group verification failed: {type(error).__name__}.\n".encode()
+                break
+            time.sleep(min(0.05, max(0, deadline - time.monotonic())))
+        if not stopped:
+            notes += b"\nProcess-group exit was not confirmed within the cleanup deadline.\n"
+    return stopped, notes
+
+
+def run_captured_process(command, *, cwd, environment, timeout, runtime_state):
+    """Capture flushed bytes even if a Windows descendant prevents pipe EOF.
+
+    The capture lives in the disposable fixture. An independent bounded read
+    avoids changing the inherited writer's file position. No pipe-reader thread
+    or unbounded close/wait is involved in the timeout path.
+    """
+    descriptor, name = tempfile.mkstemp(prefix="native-process-", suffix=".log", dir=cwd)
+    capture = Path(name)
+    runtime_state["capture_path"] = capture
+    notes = b""
+
+    def captured():
+        with capture.open("rb") as source:
+            output = source.read(16 * 1024 * 1024 + 1)
+        if len(output) > 16 * 1024 * 1024:
+            output = output[:16 * 1024 * 1024] + b"\nCaptured output truncated at 16 MiB.\n"
+        runtime_state["output"] = notes + output
+        return runtime_state["output"]
+
+    try:
+        with os.fdopen(descriptor, "wb", buffering=0) as destination:
+            process = subprocess.Popen(command, cwd=cwd, env=environment,
+                                       stdout=destination, stderr=subprocess.STDOUT,
+                                       start_new_session=os.name != "nt")
+            runtime_state["safe_to_release"] = False
+            try:
+                status = process.wait(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                safe, notes = stop_process_tree(process)
+                runtime_state["safe_to_release"] = safe
+                raise subprocess.TimeoutExpired(command, timeout, output=captured())
+            except BaseException:
+                safe, notes = stop_process_tree(process)
+                runtime_state["safe_to_release"] = safe
+                captured()
+                raise
+            if status != 0:
+                # A crashed parent can leave converter descendants behind even
+                # though wait() returned. Keep its exact status/output, and do
+                # not release shared files unless tree exit is confirmed.
+                safe, notes = stop_process_tree(process)
+                runtime_state["safe_to_release"] = safe
+                if not safe:
+                    notes += (f"\nOriginal process exited with status {status} "
+                              f"(0x{status & 0xffffffff:08X}); descendant exit remains uncertain.\n").encode()
+            else:
+                runtime_state["safe_to_release"] = True
+            return subprocess.CompletedProcess(command, status, stdout=captured())
+    finally:
+        if runtime_state["safe_to_release"]:
+            capture.unlink()
 
 
 @contextmanager
-def isolated_fixture(source, executable, mesa_runtime=None):
+def isolated_fixture(source, executable, mesa_runtime=None, runtime_state=None):
     """Give every launch its own untouched data and identical isolation rules."""
-    with tempfile.TemporaryDirectory(prefix="groundzero-native-ui-") as root:
+    state = runtime_state if runtime_state is not None else {"safe_to_release": True}
+    root = tempfile.mkdtemp(prefix="groundzero-native-ui-")
+    try:
         directory = Path(root).resolve(strict=True)
         shutil.copytree(source, directory / "portablestuff")
         (directory / ".groundzero-native-ui-test").write_bytes(b"groundzero-native-ui-test\n")
@@ -72,9 +199,16 @@ def isolated_fixture(source, executable, mesa_runtime=None):
             path.mkdir()
             environment[key] = str(path)
         environment["LIBGL_ALWAYS_SOFTWARE"] = "1"
-        with windows_mesa_renderer(executable, mesa_runtime) as renderer_environment:
+        with windows_mesa_renderer(executable, mesa_runtime,
+                                   cleanup_allowed=lambda: state["safe_to_release"]) as renderer_environment:
             environment.update(renderer_environment)
             yield directory, environment
+    finally:
+        if not state["safe_to_release"]:
+            raise RuntimeError(
+                "Disposable fixture data and any temporary renderer retained: "
+                "process-tree cleanup could not confirm all descendants stopped")
+        shutil.rmtree(root)
 
 
 def decode_output(output):
@@ -94,8 +228,29 @@ def missing_icon_lifecycle_checkpoints(output):
     return [marker for marker, observed in required.items() if not observed]
 
 
+def capture_debugger(command, executable, source, mesa_runtime=None,
+                     runtime_state=None):
+    state = runtime_state if runtime_state is not None else {"safe_to_release": True}
+    output = b""
+    notes = ""
+    try:
+        with isolated_fixture(source, executable, mesa_runtime, runtime_state=state) as (directory, environment):
+            try:
+                result = run_captured_process(command, cwd=directory, environment=environment,
+                                              timeout=120, runtime_state=state)
+                output = result.stdout
+                notes += f"\nDiagnostic debugger exited with status {result.returncode}.\n"
+            except subprocess.TimeoutExpired as error:
+                output = error.output or b""
+                notes += "\nNative crash debugger timed out after 120 seconds.\n"
+    except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as error:
+        output = output or state.get("output", b"")
+        notes += f"\nDiagnostic launch or cleanup failed: {type(error).__name__}: {error}\n"
+    return decode_output(output) + notes + "The original native test failure remains authoritative.\n"
+
+
 def windows_crash_diagnostics(executable, source, native_status, symbol_directories,
-                              mesa_runtime=None):
+                              mesa_runtime=None, runtime_state=None):
     kits = os.environ.get("ProgramFiles(x86)")
     if not kits:
         return "Windows SDK debugger location is unavailable.\n"
@@ -112,57 +267,23 @@ def windows_crash_diagnostics(executable, source, native_status, symbol_director
                 "lm; ~* kb 8; .ecxr; kv 60; q")
     command = [str(debugger), "-G", "-lines", "-y", ";".join(symbols),
                "-c", commands, str(executable), "--test-native-ui"]
-    with isolated_fixture(source, executable, mesa_runtime) as (directory, environment):
-        process = subprocess.Popen(command, cwd=directory, env=environment,
-                                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-        try:
-            output, _ = process.communicate(timeout=120)
-            return (decode_output(output) +
-                    f"\nDiagnostic debugger exited with status {process.returncode}. "
-                    "The original native test failure remains authoritative.\n")
-        except subprocess.TimeoutExpired as error:
-            # Terminating only CDB can leave the debuggee holding fixture files.
-            # Kill its entire process tree before removing the disposable root.
-            notes = "\nNative crash debugger timed out after 120 seconds.\n"
-            try:
-                subprocess.run(["taskkill", "/PID", str(process.pid), "/T", "/F"],
-                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                               timeout=15, check=False)
-            except (OSError, subprocess.TimeoutExpired) as cleanup_error:
-                notes += f"Debugger process-tree cleanup failed: {type(cleanup_error).__name__}.\n"
-            if process.poll() is None:
-                process.kill()
-            try:
-                output, _ = process.communicate(timeout=15)
-            except subprocess.TimeoutExpired:
-                output = error.output
-                process.stdout.close()
-                notes += "Debugger output did not close after termination.\n"
-            return decode_output(output) + notes
+    return capture_debugger(command, executable, source, mesa_runtime,
+                            runtime_state=runtime_state)
 
 
-def linux_crash_diagnostics(executable, source):
+def linux_crash_diagnostics(executable, source, runtime_state=None):
     debugger = shutil.which("gdb")
     if not debugger:
         return "Linux debugger is unavailable; use the flushed native checkpoints.\n"
     command = [debugger, "--batch", "-ex", "set pagination off", "-ex", "run",
                "-ex", "thread apply all bt 20", "--args", str(executable), "--test-native-ui"]
-    with isolated_fixture(source, executable) as (directory, environment):
-        process = subprocess.Popen(command, cwd=directory, env=environment,
-                                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                   start_new_session=True)
-        try:
-            output, _ = process.communicate(timeout=120)
-            return (decode_output(output) +
-                    "\nDiagnostic debugger completed. The original native failure remains authoritative.\n")
-        except subprocess.TimeoutExpired:
-            # Include the inferior; otherwise it can keep disposable files open.
-            os.killpg(process.pid, signal.SIGKILL)
-            output, _ = process.communicate(timeout=15)
-            return decode_output(output) + "\nNative Linux crash debugger timed out.\n"
+    return capture_debugger(command, executable, source,
+                            runtime_state=runtime_state)
 
 
 def main():
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="backslashreplace")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("executable", type=Path)
     parser.add_argument("stuff", type=Path)
@@ -177,39 +298,49 @@ def main():
                         help="Local PDB directory for optional Windows crash diagnostics")
     parser.add_argument("--windows-mesa", type=Path,
                         help="Verified Mesa x64 runtime for temporary Windows desktop GL")
+    parser.add_argument("--require-offline-gl-workflow", action="store_true",
+                        help="Require native context and actual converter acceptance checkpoints")
     args = parser.parse_args()
+    timeout_seconds = 240 if args.require_offline_gl_workflow else 180
     output, status = "", 1
     native_status = None
+    runtime_state = {"safe_to_release": True}
     try:
         executable = args.executable.resolve(strict=True)
         source = args.stuff.resolve(strict=True)
-        with isolated_fixture(source, executable, args.windows_mesa) as (directory, environment):
+        with isolated_fixture(source, executable, args.windows_mesa,
+                              runtime_state=runtime_state) as (directory, environment):
             try:
-                result = subprocess.run([str(executable), "--test-native-ui"],
-                                        cwd=directory, env=environment,
-                                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                        timeout=180, encoding="utf-8", errors="replace")
-                output, status = result.stdout, result.returncode
+                result = run_captured_process([str(executable), "--test-native-ui"],
+                                              cwd=directory, environment=environment,
+                                              timeout=timeout_seconds, runtime_state=runtime_state)
+                output, status = decode_output(result.stdout), result.returncode
                 native_status = status
                 if status:
                     output += (f"\nNative application exited with status {status} "
                                f"(0x{status & 0xffffffff:08X}).\n")
             except subprocess.TimeoutExpired as error:
                 output = decode_output(error.stdout)
-                output += "\nNative application integration test timed out after 180 seconds.\n"
+                output += f"\nNative application integration test timed out after {timeout_seconds} seconds.\n"
                 status = 1
     except (OSError, RuntimeError, ValueError) as error:
+        output = output or decode_output(runtime_state.get("output", b""))
         output += ("\nNative application integration setup, launch or cleanup failed: "
                    f"{type(error).__name__}: {error}\n")
         status = 1
     if args.require_function_workflow and status == 0 and "function-workflow-native: PASS" not in output:
         output += "\nThe required native Function Editor workflow fixture did not run.\n"
         status = 1
+    if args.require_offline_gl_workflow and status == 0 and "offline-gl-workflow: PASS" not in output:
+        output += "\nThe required native offscreen context/converter fixture did not run.\n"
+        status = 1
     if status == 0:
         missing = missing_icon_lifecycle_checkpoints(output)
         if missing:
             output += "\nMissing native icon lifecycle checkpoints: " + ", ".join(missing) + "\n"
             status = 1
+    if not runtime_state["safe_to_release"]:
+        output += "\nFurther diagnostics were not launched because process-tree exit was not confirmed.\n"
     try:
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(output, encoding="utf-8")
@@ -219,7 +350,7 @@ def main():
         print(f"::error title=Native UI report::{message}")
         status = 1
     print(output, end="", flush=True)
-    if (args.linux_crash_debugger and sys.platform.startswith("linux")
+    if (runtime_state["safe_to_release"] and args.linux_crash_debugger and sys.platform.startswith("linux")
             and native_status is not None and native_status < 0):
         try:
             diagnostics = linux_crash_diagnostics(executable, source)
@@ -231,7 +362,7 @@ def main():
         except (OSError, ValueError) as error:
             diagnostics += f"Could not save native debugger report: {error}\n"
         print(diagnostics, end="")
-    if (args.windows_crash_debugger and os.name == "nt" and native_status is not None
+    if (runtime_state["safe_to_release"] and args.windows_crash_debugger and os.name == "nt" and native_status is not None
             and (native_status & 0xc0000000) == 0xc0000000):
         try:
             diagnostics = windows_crash_diagnostics(executable, source, native_status,
