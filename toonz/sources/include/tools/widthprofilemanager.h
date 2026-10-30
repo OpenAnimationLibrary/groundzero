@@ -16,6 +16,7 @@
 #include <QPainterPath>
 #include <QPushButton>
 #include <QSaveFile>
+#include <QSignalBlocker>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QComboBox>
@@ -141,7 +142,10 @@ class Manager final : public QDialog {
   void error(const QString &message) {
     QMessageBox::warning(this, tr("Width Profiles"), message);
   }
-  int index() const { return m_list->currentRow(); }
+  int index() const {
+    const int row = m_list->currentRow();
+    return row >= 0 && row < int(m_profiles.size()) ? row : -1;
+  }
   QString askName(const QString &initial) {
     bool ok = false;
     QString name = QInputDialog::getText(this, tr("Profile name"), tr("Name:"),
@@ -162,10 +166,15 @@ class Manager final : public QDialog {
         QMessageBox::Yes;
   }
   void refresh(int selected) {
-    m_list->clear();
-    for (const auto &profile : m_profiles)
-      m_list->addItem(QString::fromStdString(profile.name));
-    m_list->setCurrentRow(std::min(selected, int(m_profiles.size()) - 1));
+    {
+      // The draft may already have fewer rows after Delete. Do not let list
+      // reconstruction expose its previous selection to the new draft.
+      const QSignalBlocker blocker(m_list);
+      m_list->clear();
+      for (const auto &profile : m_profiles)
+        m_list->addItem(QString::fromStdString(profile.name));
+      m_list->setCurrentRow(std::min(selected, int(m_profiles.size()) - 1));
+    }
     updatePreview();
   }
   void add(Profile profile) {
