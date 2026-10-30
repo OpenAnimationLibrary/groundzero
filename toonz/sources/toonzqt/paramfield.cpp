@@ -1,3 +1,4 @@
+#include "toonzqt/colormatcheditor.h"
 
 
 #include "toonzqt/uitranslations.h"
@@ -569,6 +570,10 @@ public:
   }
 
   void onAdd() override { m_newValue = m_param->getValue(); }
+  int getSize() const override {
+    const size_t bytes=sizeof(*this)+(m_oldValue.capacity()+m_newValue.capacity())*sizeof(wchar_t);
+    return int((std::min)(bytes,size_t((std::numeric_limits<int>::max)())));
+  }
 
   void undo() const override {
     m_param->setValue(m_oldValue);
@@ -587,6 +592,8 @@ public:
   }
 
   QString getHistoryString() override {
+    if (m_param->getName() == "profile")
+      return UiTranslations::text(QObject::tr("Modify Reference Profile: %1")).arg(m_name);
     if (m_param->getName() == "seexprDocument")
       return UiTranslations::text(QObject::tr("Modify Expression Document: %1")).arg(m_name);
     QString str = UiTranslations::text(QObject::tr("Modify Fx Param : %1 : %2 -> %3"))
@@ -2305,6 +2312,44 @@ StringParamField::StringParamField(QWidget *parent, QString name,
 }
 
 //-----------------------------------------------------------------------------
+
+void StringParamField::enableColorMatchControls() {
+  if (!m_textFld || property("colorMatchControls").toBool()) return;
+  setProperty("colorMatchControls", true);
+  m_textFld->hide();
+  auto edit = new QPushButton(tr("Create / Edit Color Profile..."), this);
+  auto clear = new QPushButton(tr("Clear"), this);
+  m_layout->addWidget(edit);
+  m_layout->addWidget(clear);
+  connect(edit, &QPushButton::clicked, this, [this] {
+    QString profile = m_textFld->text();
+    if (editColorMatchProfile(this, profile)) {
+      m_textFld->setText(profile);
+      onChange();
+    }
+  });
+  connect(clear, &QPushButton::clicked, this, [this] {
+    m_textFld->clear(); onChange();
+  });
+}
+
+void StringParamField::enableNeuralStyleControls() {
+  if (!m_textFld || property("neuralStyleControls").toBool()) return;
+  setProperty("neuralStyleControls", true);
+  // Embedded image profiles exceed QLineEdit's 32767-character default.
+  // Match the parser's explicit bound so an Apply never truncates the image.
+  m_textFld->setMaxLength(400000);
+  if (m_actualParam)m_textFld->setText(QString::fromStdWString(m_actualParam->getValue()));
+  m_textFld->hide();
+  auto edit = new QPushButton(tr("Create / Edit Texture Reference..."), this);
+  auto clear = new QPushButton(tr("Clear"), this);
+  m_layout->addWidget(edit);m_layout->addWidget(clear);
+  connect(edit, &QPushButton::clicked, this, [this] {
+    QString profile = m_textFld->text();
+    if (editNeuralStyleProfile(this, profile)) {m_textFld->setText(profile);onChange();}
+  });
+  connect(clear, &QPushButton::clicked, this, [this] {m_textFld->clear();onChange();});
+}
 
 void StringParamField::enableLutFileControls() {
   if (!m_textFld || m_lutFileControls) return;

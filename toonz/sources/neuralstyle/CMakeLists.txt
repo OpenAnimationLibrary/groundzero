@@ -1,0 +1,15 @@
+cmake_minimum_required(VERSION 3.16)
+project(GroundzeroStyleWorker LANGUAGES CXX)
+
+add_executable(groundzero-style-worker main.cpp)
+target_compile_features(groundzero-style-worker PRIVATE cxx_std_17)
+target_include_directories(groundzero-style-worker PRIVATE ../../../thirdparty/litert/include)
+target_link_libraries(groundzero-style-worker PRIVATE ${CMAKE_DL_LIBS})
+if(MSVC)
+  target_compile_options(groundzero-style-worker PRIVATE /W4 /EHsc)
+  target_link_libraries(groundzero-style-worker PRIVATE Psapi)
+else()
+  target_compile_options(groundzero-style-worker PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+
+install(TARGETS groundzero-style-worker RUNTIME DESTINATION bin)
