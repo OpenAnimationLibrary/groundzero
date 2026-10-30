@@ -336,7 +336,44 @@ struct NativeControl {
   int allocatedKnots = 0;
   std::map<std::string, TDoubleParamP> spectrum;
   std::map<QString, std::array<TDoubleParamP, 6>> animationKeys;
+  // Exact native parameter names, in registration order. Control and key IDs
+  // may contain "__", so a name prefix does not identify its control.
+  std::vector<std::string> parameters;
 };
+
+// The native parameter names a control declaration owns once it is created.
+std::vector<std::string> parameterNames(const SeExprFx::Control &control) {
+  const std::string key =
+      std::string(controlPrefix) + control.id.toStdString() + "__";
+  const QJsonObject &object = control.definition;
+  std::vector<std::string> names;
+  if (control.type == "vector") {
+    for (const char *axis : {"x", "y", "z"}) names.push_back(key + axis);
+  } else if (control.type == "animcurve") {
+    for (const auto value : object.value("nativeKeys").toArray())
+      for (const char *field : animationFields)
+        names.push_back(key + "k" +
+                        value.toObject().value("id").toString().toStdString() +
+                        "_" + field);
+  } else if (object.value("presentation").toString() == "spectrum") {
+    for (const auto &value :
+         spectrumValues(object.value("spectrum").toObject()))
+      names.push_back(key + "s_" + value.first);
+  } else if (control.type == "curve" || control.type == "colorcurve") {
+    const int count =
+        std::min(65, std::max(int(object.value("points").toArray().size()),
+                              object.value("nativeKnots").toInt()));
+    for (int index = 0; index < count; ++index) {
+      names.push_back(key + "p" + std::to_string(index));
+      names.push_back(key + "v" + std::to_string(index));
+    }
+  } else
+    names.push_back(key + "value");
+  return names;
+}
+const char *collidingNames =
+    "two controls declare the same native parameter; rename a control or "
+    "animation key ID";
 
 }  // namespace
 
@@ -427,6 +464,10 @@ Document parseDocumentContents(const std::wstring &text, bool checkIdentity) {
     }
   }
   demand(table.size() <= maxControls, "too many expression controls");
+  std::set<std::string> parameters;
+  for (const auto &entry : table)
+    for (const auto &name : parameterNames(entry.second))
+      demand(parameters.insert(name).second, collidingNames);
   std::set<QString> ordered;
   for (const auto idValue : result.json.value("registry").toArray()) {
     const QString id = idValue.toString();
@@ -466,8 +507,9 @@ protected:
   std::vector<std::unique_ptr<NativeControl>> m_controls;
   std::map<QString, NativeControl *> m_controlMap;
 
-  template <typename Param> void registerControl(const std::string &key, Param &parameter,
-                                                 const std::string &label) {
+  template <typename Param>
+  void registerControl(NativeControl &control, const std::string &key,
+                       Param &parameter, const std::string &label) {
     TFx *linked = this->getLinkedFx();
     if (linked && linked != this) {
       if (TParam *existing = linked->getParams()->getParam(key)) parameter = TParamP(existing);
@@ -480,6 +522,7 @@ protected:
     };
     inheritGrammar(inheritGrammar, parameter.getPointer());
     bindParam(this, key, parameter);
+    control.parameters.push_back(key);
   }
 
   void createControl(NativeControl &control) {
@@ -492,13 +535,13 @@ protected:
     if (spec.type == "scalar") {
       control.scalar = new TDoubleParam(number(object.value("value")));
       control.scalar->setValueRange(minimum, maximum);
-      registerControl(key + "value", control.scalar, label);
+      registerControl(control, key + "value", control.scalar, label);
     } else if (spec.type == "vector") {
       const auto value = triple(object.value("value"));
       for (int index = 0; index < 3; ++index) {
         control.vector[index] = new TDoubleParam(value[index]);
         control.vector[index]->setValueRange(minimum, maximum);
-        registerControl(key + "xyz"[index], control.vector[index],
+        registerControl(control, key + "xyz"[index], control.vector[index],
                         label + " " + "XYZ"[index]);
       }
     } else if (spec.type == "color") {
@@ -509,10 +552,10 @@ protected:
       control.color->getBlue()->setDefaultValue(value[2]);
       control.color->getMatte()->setDefaultValue(1);
       control.color->enableMatte(false);
-      registerControl(key + "value", control.color, label);
+      registerControl(control, key + "value", control.color, label);
     } else if (spec.type == "string") {
       control.text = new TStringParam(object.value("value").toString().toStdWString());
-      registerControl(key + "value", control.text, label);
+      registerControl(control, key + "value", control.text, label);
     } else if (spec.type == "animcurve") {
       allocateAnimationKeys(control);
     } else if (spec.definition.value("presentation").toString() == "spectrum") {
@@ -520,8 +563,8 @@ protected:
       for (const auto &value : values) {
         auto inserted = control.spectrum.emplace(value.first, new TDoubleParam(value.second));
         if (value.first == "resolution") inserted.first->second->setValueRange(1, 20);
-        registerControl(key + "s_" + value.first, inserted.first->second,
-                        label + " " + value.first);
+        registerControl(control, key + "s_" + value.first,
+                        inserted.first->second, label + " " + value.first);
       }
     } else {
       allocateKnots(control);
@@ -541,9 +584,11 @@ protected:
         parameters[field] = new TDoubleParam(values[field]);
         if (field == 2 || field == 3)
           parameters[field]->setValueRange(0, std::numeric_limits<double>::max());
-        registerControl(prefix + id.toStdString() + "_" + animationFields[field],
-                        parameters[field], control.spec.label.toStdString() + " " +
-                            id.toStdString() + " " + animationFields[field]);
+        registerControl(
+            control, prefix + id.toStdString() + "_" + animationFields[field],
+            parameters[field],
+            control.spec.label.toStdString() + " " + id.toStdString() + " " +
+                animationFields[field]);
       }
     }
   }
@@ -557,12 +602,16 @@ protected:
       const auto point = points[std::min(index, int(points.size()) - 1)].toArray();
       control.positions[index] = new TDoubleParam(number(point[0]));
       control.positions[index]->setValueRange(0, 1);
-      registerControl(key + "p" + std::to_string(index), control.positions[index],
-                      control.spec.label.toStdString() + " Position " + std::to_string(index + 1));
+      registerControl(control, key + "p" + std::to_string(index),
+                      control.positions[index],
+                      control.spec.label.toStdString() + " Position " +
+                          std::to_string(index + 1));
       if (control.spec.type == "curve") {
         control.values[index] = new TDoubleParam(number(point[1]));
-        registerControl(key + "v" + std::to_string(index), control.values[index],
-                        control.spec.label.toStdString() + " Value " + std::to_string(index + 1));
+        registerControl(control, key + "v" + std::to_string(index),
+                        control.values[index],
+                        control.spec.label.toStdString() + " Value " +
+                            std::to_string(index + 1));
       } else {
         const auto v = triple(point[1]);
         control.colors[index] = new TPixelParam;
@@ -571,11 +620,26 @@ protected:
         control.colors[index]->getBlue()->setDefaultValue(v[2]);
         control.colors[index]->getMatte()->setDefaultValue(1);
         control.colors[index]->enableMatte(false);
-        registerControl(key + "v" + std::to_string(index), control.colors[index],
-                        control.spec.label.toStdString() + " Color " + std::to_string(index + 1));
+        registerControl(control, key + "v" + std::to_string(index),
+                        control.colors[index],
+                        control.spec.label.toStdString() + " Color " +
+                            std::to_string(index + 1));
       }
       ++control.allocatedKnots;
     }
+  }
+
+  // Parsing rejects collisions within one declaration; archived controls of
+  // earlier declarations keep owning their parameters.
+  void checkParameterOwners(const SeExprFx::Document &document) const {
+    std::map<std::string, QString> owners;
+    for (const auto &control : m_controls)
+      for (const auto &name : control->parameters)
+        owners.emplace(name, control->spec.id);
+    for (const auto &spec : document.controls)
+      for (const auto &name : parameterNames(spec))
+        demand(owners.emplace(name, spec.id).first->second == spec.id,
+               collidingNames);
   }
 
   void synchronizeDocument(bool strict = false) {
@@ -583,6 +647,11 @@ protected:
     m_syncing = true;
     struct Reset { bool &flag; ~Reset() { flag = false; } } reset{m_syncing};
     std::string identityError;
+    // Runs from parameter observers and Qt slots: no exception may escape
+    // unless the caller asked for strict validation.
+    auto fail = [&](const std::string &message) {
+      m_schemaError = identityError.empty() ? message : identityError;
+    };
     try {
       const int oldCount = this->getParams()->getParamCount();
       SeExprFx::Document document;
@@ -603,6 +672,7 @@ protected:
                    (spec.definition.value("presentation").toString() == "spectrum"),
                "spectrum/curve conversion requires a new stable ID");
       }
+      checkParameterOwners(document);
       for (const auto &spec : document.controls) {
         present.insert(spec.id);
         auto found = m_controlMap.find(spec.id);
@@ -682,9 +752,9 @@ protected:
         if (control->allocatedKnots) control->spec.definition.insert("nativeKnots", control->allocatedKnots);
         if (!control->spec.active) archive.append(control->spec.definition);
         const std::string key = std::string(controlPrefix) + control->spec.id.toStdString() + "__";
-        for (int i = 0; i < this->getParams()->getParamCount(); ++i) {
-          const std::string name = this->getParams()->getParamName(i);
-          if (name.compare(0, key.size(), key) != 0) continue;
+        for (const std::string &name : control->parameters) {
+          TParamVar *variable = this->getParams()->getParamVar(name);
+          if (!variable) continue;
           bool hidden = !control->spec.active;
           const std::string suffix = name.substr(key.size());
           if (control->spec.type == "animcurve") {
@@ -699,8 +769,9 @@ protected:
             const int index = std::stoi(suffix.substr(1));
             hidden = hidden || index >= control->spec.definition.value("points").toArray().size();
           }
-          this->getParams()->getParamVar(name)->setIsHidden(hidden);
-          this->getParams()->getParam(i)->setUILabel(control->spec.label.toStdString() +
+          variable->setIsHidden(hidden);
+          variable->getParam()->setUILabel(
+              control->spec.label.toStdString() +
               (suffix == "value" ? "" : " " + suffix));
         }
       }
@@ -719,13 +790,14 @@ protected:
       m_schemaError = identityError;
       if (this->getParams()->getParamCount() != oldCount) this->notify(TFxParamAdded(this));
     } catch (const TException &error) {
-      m_schemaError = identityError.empty()
-                          ? QString::fromStdWString(error.getMessage()).toStdString()
-                          : identityError;
+      fail(QString::fromStdWString(error.getMessage()).toStdString());
       // Loading must retain an unsupported declaration verbatim so it can be
       // inspected and repaired. The recorded error still prevents rendering;
       // only internally constructed declarations require an immediate throw.
       if (strict) throw;
+    } catch (const std::exception &error) {
+      fail(error.what());
+      if (strict) throw TException(std::string("SeExpr: ") + error.what());
     }
   }
 
@@ -969,12 +1041,9 @@ protected:
     for (const auto &control : m_controls) {
       if (!control->spec.active || (control->spec.type != "curve" && control->spec.type != "colorcurve" &&
                                    control->spec.type != "animcurve")) continue;
-      const std::string prefix = std::string(controlPrefix) + control->spec.id.toStdString() + "__";
-      for (int i = 0; i < this->getParams()->getParamCount(); ++i) {
-        TParam *parameter = this->getParams()->getParam(i);
-        if (parameter->getName().compare(0, prefix.size(), prefix) == 0)
-          identity << ',' << parameter->getName() << '=' << parameter->getValueAlias(frame, 17);
-      }
+      for (const auto &name : control->parameters)
+        if (TParam *parameter = this->getParams()->getParam(name))
+          identity << ',' << name << '=' << parameter->getValueAlias(frame, 17);
     }
     const std::string key = identity.str();
     auto found = std::find_if(cache.begin(), cache.end(), [&](const CacheEntry &entry) { return entry.key == key; });
@@ -1090,6 +1159,7 @@ public:
                     (control.definition.value("presentation").toString() == "spectrum")),
                "changing a control type or spectrum kind requires a new stable ID");
       }
+      checkParameterOwners(document);
       const auto variables = variablesFor(document, frame);
       const auto functions = functionsFor(document, frame, nullptr);
       for (int channel = 0; channel < 2; ++channel) {
