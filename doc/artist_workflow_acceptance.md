@@ -41,19 +41,21 @@ requires its own exact-head checks; earlier results do not qualify that merge.
 | #120 Vector editing | 19–36 | `abf80f6554900bd5503a936ffb61cab469eb231c` |
 | #118 Performance/cache and combined acceptance | 59–60 and combined gates | `30363faaff8dcdb90fb6aed08385f008214804ae` |
 
-#116 and #119 passed Linux main and installed-package jobs at the recorded
-heads. Installed checks launch the extracted package's native SeExpr/neural
-smoke fixtures; they do not repeat every artist workflow. Remaining platforms
-must be reported individually, and earlier green revisions do not qualify
-later changes.
+All five recorded heads passed Linux main and installed-package jobs. Installed
+checks launch the extracted package's native SeExpr/neural smoke fixtures; they
+do not repeat every artist workflow. #116 and #119 also passed macOS native
+application, UI and reliability gates. #117 passed Windows native UI and
+application integration. Those partial platform results do not qualify the
+remaining package/platform gates, and earlier green revisions do not qualify
+the newer baseline merge.
 
 Combined Linux at `30363faaf` passed the original full native sequence,
 including the exact Filmstrip PLI-reload oracle, repeated viewport teardown,
 Function/timing/Cast/vector interactions, and both required terminal processes
 with cleanup and zero exit. Standalone UI passed 19/19, reliability 17/17
 including the actual EXR test, SeExpr 16/16 and GLB 6/6. The independent artist
-workload and new original-core/reporting contracts also passed. Its package
-qualification was still pending at this checkpoint.
+workload and new original-core/reporting contracts also passed. Its installed
+package qualification subsequently passed on the same revision.
 [Combined Linux run](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/41119544321).
 
 Earlier combined `6392d44` and vector `64dda5d` passed exact PLI persistence,
