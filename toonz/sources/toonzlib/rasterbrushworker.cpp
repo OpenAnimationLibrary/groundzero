@@ -11,9 +11,19 @@
 #include <QProcess>
 #include <QTemporaryDir>
 #include <set>
+#include <algorithm>
 #include <cstdio>
 #ifndef _WIN32
 #include <sys/resource.h>
+#endif
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
 #endif
 #ifdef __linux__
 #include <cerrno>
@@ -24,6 +34,7 @@
 #include <linux/landlock.h>
 #include <linux/seccomp.h>
 #include <sys/prctl.h>
+#include <sys/mman.h>
 #include <sys/socket.h>
 #include <sys/syscall.h>
 #include <unistd.h>
@@ -43,7 +54,40 @@ bool writeFile(const QString &path, const QByteArray &bytes) {
   return file.open(QIODevice::WriteOnly | QIODevice::NewOnly) &&
          file.write(bytes) == bytes.size() && file.flush();
 }
+#ifdef _WIN32
+bool limitWindowsImport() {
+  HANDLE job = CreateJobObjectW(nullptr, nullptr);
+  if (!job) return false;
+  JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{};
+  limits.BasicLimitInformation.LimitFlags =
+      JOB_OBJECT_LIMIT_PROCESS_MEMORY | JOB_OBJECT_LIMIT_PROCESS_TIME |
+      JOB_OBJECT_LIMIT_ACTIVE_PROCESS |
+      JOB_OBJECT_LIMIT_DIE_ON_UNHANDLED_EXCEPTION;
+  limits.BasicLimitInformation.ActiveProcessLimit = 1;
+  limits.BasicLimitInformation.PerProcessUserTimeLimit.QuadPart =
+      60LL * 10000000;
+  limits.ProcessMemoryLimit = SIZE_T(2) * 1024 * 1024 * 1024;
+  const bool ok =
+      SetInformationJobObject(job, JobObjectExtendedLimitInformation, &limits,
+                              sizeof(limits)) &&
+      AssignProcessToJobObject(job, GetCurrentProcess());
+  // The unnamed job remains alive while this process is a member. Retaining
+  // no handle prevents decoder code from changing its limits. No breakaway
+  // flag is granted, and the limit rejects ordinary CreateProcess children.
+  CloseHandle(job);
+  return ok;
+}
+#endif
 #ifdef __linux__
+bool limitLinuxImportMemory() {
+  // Bound the whole decoder process independently of decoded-resource budgets.
+  // The allowance includes loaded application/Qt libraries and codec scratch.
+  constexpr rlim_t addressLimit = rlim_t(2) * 1024 * 1024 * 1024;
+  rlimit addressSpace{addressLimit, addressLimit};
+  rlimit fileSize{rlim_t(packageBudget), rlim_t(packageBudget)};
+  return setrlimit(RLIMIT_AS, &addressSpace) == 0 &&
+         setrlimit(RLIMIT_FSIZE, &fileSize) == 0;
+}
 bool restrictLinuxImport(const QString &input, const QString &directory) {
 #if defined(SYS_landlock_create_ruleset) && defined(SYS_landlock_add_rule) &&  \
     defined(SYS_landlock_restrict_self) &&                                     \
@@ -195,6 +239,16 @@ int runImportWorker(const QString &input, const QString &directory) {
              .entryList(QDir::AllEntries | QDir::Hidden | QDir::NoDotAndDotDot)
              .empty())
       return 2;
+#ifdef __linux__
+    if (!limitLinuxImportMemory()) return 2;
+#endif
+#ifdef _WIN32
+    if (!limitWindowsImport()) {
+      writeFile(output.filePath("error.txt"),
+                "Cannot establish Windows brush worker resource limits");
+      return 2;
+    }
+#endif
     if (!prepareWorkerCodecs()) return 2;
 #ifdef __linux__
     if (!restrictLinuxImport(input, directory)) {
@@ -236,10 +290,30 @@ int runImportWorker(const QString &input, const QString &directory) {
   }
 }
 
+#if defined(_WIN32) && defined(RASTERBRUSH_SANDBOX_TESTING)
+int probeWindowsImportLimits() {
+  if (!limitWindowsImport()) return 1;
+  void *excess = VirtualAlloc(nullptr, SIZE_T(2) * 1024 * 1024 * 1024,
+                              MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+  if (excess) {
+    VirtualFree(excess, 0, MEM_RELEASE);
+    return 2;
+  }
+  QProcess child;
+  child.start(QCoreApplication::applicationFilePath(), {"--test-worker-ping"});
+  if (child.waitForStarted(5000)) {
+    child.kill();
+    child.waitForFinished(5000);
+    return 3;
+  }
+  return 0;
+}
+#endif
 #if defined(__linux__) && defined(RASTERBRUSH_SANDBOX_TESTING)
 int probeImportSandbox(const QString &input, const QString &directory,
                        const QString &forbidden) {
-  if (!prepareWorkerCodecs() || !restrictLinuxImport(input, directory))
+  if (!limitLinuxImportMemory() || !prepareWorkerCodecs() ||
+      !restrictLinuxImport(input, directory))
     return 1;
   QFile allowed(input), denied(forbidden);
   if (!allowed.open(QIODevice::ReadOnly) || allowed.readAll() != "allowed" ||
@@ -254,6 +328,15 @@ int probeImportSandbox(const QString &input, const QString &directory,
   const int modeError    = errno;
   close(readonly);
   if (changedMode == 0 || modeError != EPERM) return 10;
+  // Reserving the complete address allowance must fail because the process
+  // already maps its executable and libraries; this does not fault in pages.
+  void *excess = mmap(nullptr, size_t(2) * 1024 * 1024 * 1024, PROT_NONE,
+                      MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+  if (excess != MAP_FAILED) {
+    munmap(excess, size_t(2) * 1024 * 1024 * 1024);
+    return 11;
+  }
+  if (errno != ENOMEM) return 12;
   const int network = socket(AF_INET, SOCK_STREAM, 0);
   if (network >= 0) {
     close(network);
@@ -279,7 +362,9 @@ int probeImportSandbox(const QString &input, const QString &directory,
 
 ImportResult importBrushProcess(const QString &executable, const QString &path,
                                 QString &error,
-                                const std::atomic_bool *cancelled) {
+                                const std::atomic_bool *cancelled,
+                                size_t maximumDecodedBytes) {
+  maximumDecodedBytes = std::min(maximumDecodedBytes, size_t(packageBudget));
   error.clear();
   auto stopped = [&] {
     return cancelled && cancelled->load(std::memory_order_relaxed);
@@ -352,7 +437,7 @@ ImportResult importBrushProcess(const QString &executable, const QString &path,
       return {};
     }
     auto record =
-        load(package, error, size_t(packageBudget) - pixels * sizeof(Pixel));
+        load(package, error, maximumDecodedBytes - pixels * sizeof(Pixel));
     if (!error.isEmpty()) return {};
     std::set<const Image *> resources;
     auto account = [&](const std::shared_ptr<const Image> &image) {
@@ -362,7 +447,7 @@ ImportResult importBrushProcess(const QString &executable, const QString &path,
     for (const auto &image : record.preset.tip.images) account(image);
     for (const auto &image : record.preset.secondary.tip.images) account(image);
     account(record.preset.texture.image);
-    if (pixels > size_t(packageBudget) / sizeof(Pixel)) {
+    if (pixels > maximumDecodedBytes / sizeof(Pixel)) {
       error = "Brush import result exceeded its decoded image budget";
       return {};
     }

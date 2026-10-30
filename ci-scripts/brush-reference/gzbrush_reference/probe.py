@@ -227,6 +227,12 @@ class Probe(Extension):
                     boundary = case["wetThirdBoundary"]
                     row = row[:boundary * 4] + bytes((third[2], third[1], third[0], third[3])) * (w - boundary)
                 initial = row * h
+                if case.get("wetPattern") == "opaque-black-white-row":
+                    boundary = math.ceil(case["wetBoundary"])
+                    dark = bytes((0, 0, 0, 255)) * boundary + bytes((0, 0, 0, 0)) * (w - boundary)
+                    light = bytes((255, 255, 255, 255)) * boundary + bytes((0, 0, 0, 0)) * (w - boundary)
+                    white_y = 1024 + case["wetKernelOffset"]
+                    initial = dark * white_y + light + dark * (h - white_y - 1)
                 checkpoint(name + ": initialize pixels")
                 if not node.setPixelData(QByteArray(initial), 0, 0, w, h):
                     raise RuntimeError("Cannot initialize original reference raster")

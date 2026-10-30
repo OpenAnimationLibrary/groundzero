@@ -23,5 +23,6 @@ RASTERBRUSH_API int runImportWorker(const QString &input,
                                     const QString &outputDirectory);
 RASTERBRUSH_API ImportResult
 importBrushProcess(const QString &executable, const QString &path,
-                   QString &error, const std::atomic_bool *cancelled = nullptr);
+                   QString &error, const std::atomic_bool *cancelled = nullptr,
+                   size_t maximumDecodedBytes = 256u * 1024u * 1024u);
 }  // namespace RasterBrush

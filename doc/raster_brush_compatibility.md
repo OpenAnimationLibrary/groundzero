@@ -684,3 +684,44 @@ uninstrumented worker for production-boundary and process-protocol tests.
 No denied operation is allowed for sanitizer convenience. The actual application
 workflow independently exercises the shipped worker. Both this separation and
 the private-output correction await CI.
+
+Linux worker resource isolation additionally caps total virtual address space at
+2 GiB (including loaded libraries and codec scratch), and each staging file at
+256 MiB. These process limits are separate from the stricter shared 256 MiB
+decoded-image allowance and cannot be raised after seccomp installation. A
+child probe reserves the whole address allowance without touching pages and
+requires ENOMEM. This is not an aggregate disk quota; successful protocol output
+still has its own aggregate encoded-byte limit. New process-limit qualification
+is pending CI.
+
+Windows workers now establish an unnamed Job Object before decoding, limiting
+committed memory to 2 GiB, user CPU time to 60 seconds, and active processes to
+one, with no breakaway permission. The setup handle is closed after assignment;
+the job persists for the associated process lifetime. Child probes require an
+over-budget commit and process creation to fail, while ordinary worker imports
+must still succeed. This is resource/process containment, not a filesystem or
+network privilege sandbox; that remaining Windows requirement is unchanged.
+Qualification is pending Windows CI. References: [job lifecycle](https://learn.microsoft.com/en-us/windows/win32/procthread/job-objects),
+[extended limits](https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-jobobject_extended_limit_information).
+
+The editor's PNG resource picker now uses the same worker protocol as foreign
+brush imports instead of decoding selected PNG files in the application process.
+The parent receives a color-preserving embedded tip, then applies the explicitly
+chosen alpha/luminance/color interpretation. It supplies the remaining decoded
+image allowance before loading worker packages, including resources retained for
+editor cancellation. Cancellation installs nothing. Original partial-alpha PNG
+worker tests cover color preservation and rejection when the remaining allowance
+is too small. This editor-path correction awaits full application CI.
+
+Legacy Dulling now has an independent nonzero-radius candidate for fixed hard
+round tips at 0–100% radius. Dense original column impulses at 50% and 100%
+identify an 80-sample base-2 sequence with nearest-pixel lookup exactly across
+both observed diameters of the sampling region. The implementation pairs that
+axis with a base-3 sequence; independent row impulses are mandatory new gates,
+not presumed evidence. It samples premultiplied colors before deposition and
+retains unpainted corner pixels for subsequent pickup. Existing heterogeneous
+third-dab cases now gate this radius path as well. Portable import binds the
+explicit radius percent to the candidate; radius above 100% and new-model
+nonzero radius remain conversions pending their separate implementation. This
+expands the candidate region without changing the full RCP1 target or marking
+it source-verified. Captured column regressions and full-image CI qualify it.

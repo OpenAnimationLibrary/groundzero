@@ -379,6 +379,14 @@ bool eligibleFixedSource(const QMap<QString, QString> &fields,
         required[prefix + "curveMode"] = "0";
     }
     required["SmudgeRadiusValue"] = "0";
+    if (preset.wet == Wet::Dulling &&
+        fields.value("SmudgeRateUseNewEngine") == "false") {
+      bool ok             = false;
+      const double radius = fields.value("SmudgeRadiusValue").toDouble(&ok);
+      if (!ok || !std::isfinite(radius) || radius < 0 || radius > 100)
+        return false;
+      required["SmudgeRadiusValue"] = fields["SmudgeRadiusValue"];
+    }
     if (preset.wet == Wet::Smear) {
       // The public K5341 manual defines radius as Dulling-only. Retain the
       // serialized inactive value as provenance; never apply native radius.
@@ -664,7 +672,10 @@ Record convertKpp(const QByteArray &bytes, QStringList &diagnostics,
                 r.provenance["sourceSmudgeModel"].toString().toStdString() +
                 "-candidate-1";
   if (engine == "colorsmudge") {
-    candidate.smudgeRadius = 0;
+    candidate.smudgeRadius =
+        candidate.profile == "krita-5.3.4.1-legacy-dulling-candidate-1"
+            ? fields.value("SmudgeRadiusValue").toDouble() / 100
+            : 0;
     candidate.sourceSmudgeLengthEnabled =
         fields.value("PressureSmudgeRate") == "true";
     candidate.sourceSmearAlpha = fields.value("SmudgeRateSmearAlpha") == "true";
@@ -776,6 +787,22 @@ ImportResult importBrush(const QByteArray &bytes, const QString &format,
       checkCancelled();
       if (!error.isEmpty()) return {};
       result.records.push_back(r);
+      result.complete = true;
+      return result;
+    }
+    if (kind == "png") {
+      auto image = decodeImage(bytes, true, error, maximumDecodedBytes);
+      if (!image || !error.isEmpty()) return {};
+      Record record;
+      record.decoded          = true;
+      record.preset.name      = "Imported PNG tip";
+      record.preset.tip.shape = Shape::Bitmap;
+      record.preset.tip.images.push_back(image);
+      geometry(record.preset, *image, .1);
+      record.preset.size.value = std::min(4096.0, record.preset.size.value);
+      record.provenance        = {{"format", "png"}, {"resourceOnly", true}};
+      check(record);
+      result.records.push_back(std::move(record));
       result.complete = true;
       return result;
     }

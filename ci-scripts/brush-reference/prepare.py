@@ -194,6 +194,11 @@ for mode, modern in profiles:
                                             (100, range(-20, 21)),
                                             (300, range(-100, 101, 4)))
                     for offset in offsets]
+    if group == "wetkernel":
+        variants.extend((f"wet kernel radius {radius} offset {offset} axis row dabs 2",
+                         {"SmudgeRateValue": "1", "ColorRateValue": "0", "SmudgeRadiusValue": str(radius)},
+                         32, 5, [1, 1], 1, 1)
+                        for radius in (50, 100) for offset in (-16, -8, -4, 0, 4, 8, 16))
     for label, overrides, diameter, spacing, pressure, opacity, flow in variants:
         name = base if label == "baseline" else base + " " + label
         edge = int(label.rsplit(" ", 1)[1]) if group in ("geometry", "pixelsoft", "pixelsoftsize", "pixelrectsize", "pixelaarange") else (0 if group in ("hardpixel", "wetsteps", "wethold", "wetstate", "pixelopacity", "pixelopacitytablet", "pixelcontrols", "pixelpressure", "pixelsmallpressure", "wettexture", "wettexture3", "wetswitches", "wetcombined", "wetpressure", "wetkernel", "pixelshape") else 1)
@@ -231,7 +236,7 @@ for mode, modern in profiles:
                 case["changeExpectation"] = "measure first-dab initialization"
         if group == "wetkernel":
             cases[-1].update({"wetKernelOffset": int(label.split()[5]),
-                              "wetPattern": "opaque-black-white-column",
+                              "wetPattern": "opaque-black-white-row" if "axis row" in label else "opaque-black-white-column",
                               "probePositions": [256, 416], "wetBoundary": 384,
                               "changeExpectation": "measure Dulling pickup kernel; unqualified until independently implemented"})
         if group == "wetpressure":

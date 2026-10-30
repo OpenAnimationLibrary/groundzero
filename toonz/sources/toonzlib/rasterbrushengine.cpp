@@ -231,7 +231,10 @@ std::string validate(const Preset &p) {
                   p.profile == "krita-5.3.4.1-new-dulling-candidate-1")
                      ? Wet::Dulling
                      : Wet::Smear) ||
-       p.smudgeRadius != 0 || p.reload != 0 || p.pickupControl.value != 1 ||
+       (p.profile == "krita-5.3.4.1-legacy-dulling-candidate-1"
+            ? (p.smudgeRadius < 0 || p.smudgeRadius > 1)
+            : p.smudgeRadius != 0) ||
+       p.reload != 0 || p.pickupControl.value != 1 ||
        (!p.pickupControl.mappings.empty() &&
         !linearPressure(p.pickupControl)) ||
        p.colorRateControl.value != 1 ||
@@ -634,24 +637,57 @@ struct Stroke::Impl {
                  ? sourceField[size_t(y - sourceY) * sourceW + x - sourceX]
                  : Pixel{};
     };
+    // Original impulse measurements at 50/100 percent identify an 80-point
+    // base-2 x sequence for legacy Dulling. The paired base-3 y sequence is
+    // independently qualified by row impulses; this remains a candidate.
+    // Keep it independent of native sampling and the new model's tip clipping.
+    auto pickupAt = [&](auto read, double centerX, double centerY) {
+      if (p.smudgeRadius == 0)
+        return read(int(std::floor(centerX)), int(std::floor(centerY)));
+      auto radicalInverse = [](unsigned value, unsigned base) {
+        double result = 0, factor = 1;
+        while (value) {
+          factor /= base;
+          result += factor * (value % base);
+          value /= base;
+        }
+        return result;
+      };
+      Pixel sum{};
+      const double extent = radius * p.smudgeRadius;
+      for (unsigned i = 1; i <= 80; ++i) {
+        const int x = int(
+            std::floor(centerX + (2 * radicalInverse(i, 2) - 1) * extent + .5));
+        const int y = int(
+            std::floor(centerY + (2 * radicalInverse(i, 3) - 1) * extent + .5));
+        const Pixel sample = read(x, y);
+        sum.r += sample.r;
+        sum.g += sample.g;
+        sum.b += sample.b;
+        sum.a += sample.a;
+      }
+      return mul(sum, 1.0 / 80);
+    };
+    auto surfaceAt = [&](int x, int y) {
+      return x >= 0 && y >= 0 && x < surface.width() && y < surface.height()
+                 ? surface.read(x, y)
+                 : Pixel{};
+    };
     // Radius-zero Dulling carries the previous center pickup uniformly.
     // Smear carries a translated field. Heterogeneous third-dab fixtures
     // distinguish these states even when their first two dabs coincide.
-    const int centerX = int(std::floor(s.x)), centerY = int(std::floor(s.y));
-    const Pixel initialCenter = !dabs && centerX >= 0 && centerY >= 0 &&
-                                        centerX < surface.width() &&
-                                        centerY < surface.height()
-                                    ? surface.read(centerX, centerY)
-                                    : Pixel{};
+    const Pixel dullingPickup =
+        p.wet != Wet::Dulling ? Pixel{}
+        : !dabs               ? pickupAt(surfaceAt, s.x, s.y)
+                : pickupAt(at, previousSourceDab.x, previousSourceDab.y);
     for (int y = y0; y < y1; ++y)
       for (int x = x0; x < x1; ++x) {
         const double fx = x + deltaX, fy = y + deltaY;
         const int ix = int(std::floor(fx)), iy = int(std::floor(fy));
         feedback[size_t(y - y0) * (x1 - x0) + x - x0] =
-            !dabs ? (p.wet == Wet::Dulling ? initialCenter : surface.read(x, y))
+            !dabs ? (p.wet == Wet::Dulling ? dullingPickup : surface.read(x, y))
             : p.wet == Wet::Dulling
-                ? at(int(std::floor(previousSourceDab.x)),
-                     int(std::floor(previousSourceDab.y)))
+                ? dullingPickup
                 : mix(mix(at(ix, iy), at(ix + 1, iy), fx - ix),
                       mix(at(ix, iy + 1), at(ix + 1, iy + 1), fx - ix),
                       fy - iy);
@@ -704,10 +740,12 @@ struct Stroke::Impl {
         // Alpha transport disabled retains source-over feedback separately
         // from the displayed arithmetic mix. First-dab initialization above
         // remains unchanged. Three-dab fixtures distinguish the two states.
-        feedback[index] =
-            quantize(p.sourceSmearAlpha
-                         ? paint
-                         : composite(surface.read(x, y), paint, Blend::Normal));
+        feedback[index] = coverage == 0 && p.smudgeRadius > 0
+                              ? surface.read(x, y)
+                              : quantize(p.sourceSmearAlpha
+                                             ? paint
+                                             : composite(surface.read(x, y),
+                                                         paint, Blend::Normal));
         if (coverage > 0)
           surface.write(x, y,
                         quantize(mix(surface.read(x, y), paint, coverage)));

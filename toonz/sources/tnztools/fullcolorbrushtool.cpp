@@ -135,15 +135,18 @@ public:
   }
 };
 
-RasterBrush::ImportResult importNativeBrush(const QString &path,
-                                            QString &error) {
+RasterBrush::ImportResult importNativeBrush(const QString &path, QString &error,
+                                            size_t remainingBytes = 256u *
+                                                                    1024u *
+                                                                    1024u) {
   std::atomic_bool cancelled(false);
   NativeImportProgress dialog(cancelled);
   RasterBrush::ImportResult result;
   std::unique_ptr<QThread> worker(QThread::create([&]() {
     try {
       result = RasterBrush::importBrushProcess(
-          QCoreApplication::applicationFilePath(), path, error, &cancelled);
+          QCoreApplication::applicationFilePath(), path, error, &cancelled,
+          remainingBytes);
     } catch (const std::exception &e) {
       error = QString::fromUtf8(e.what());
     } catch (...) {
@@ -592,15 +595,20 @@ bool editNativeBrush(RasterBrush::Record &record) {
       account(preset->texture.image);
     }
     for (const auto &path : paths) {
-      QFile file(path);
       QString error;
       std::shared_ptr<const RasterBrush::Image> image;
-      if (!file.open(QIODevice::ReadOnly) || file.size() > 64 * 1024 * 1024)
-        error = QObject::tr("Cannot read image within the 64 MiB file limit.");
-      else
-        image = RasterBrush::decodeImage(
-            file.readAll(), mode != 1, error,
-            bytes < 256u * 1024u * 1024u ? 256u * 1024u * 1024u - bytes : 0);
+      auto imported = importNativeBrush(path, error,
+          bytes < 256u * 1024u * 1024u ? 256u * 1024u * 1024u - bytes : 0);
+      if (error.isEmpty() && imported.complete && imported.records.size() == 1 &&
+          imported.records.front().preset.tip.images.size() == 1) {
+        image = imported.records.front().preset.tip.images.front();
+        // Transfer ownership before applying the user's mask interpretation.
+        imported.records.clear();
+      }
+      if (error.isEmpty() && !image) {
+        images.clear();
+        return images;  // Cancelled image import leaves the preset untouched.
+      }
       if (image && bytes + image->pixels.size() * sizeof(RasterBrush::Pixel) >
                        256u * 1024u * 1024u)
         error = QObject::tr("Combined decoded images exceed 256 MiB.");
@@ -610,7 +618,7 @@ bool editNativeBrush(RasterBrush::Record &record) {
         return images;
       }
       bytes += image->pixels.size() * sizeof(RasterBrush::Pixel);
-      if (mode == 0) {
+      if (mode != 2) {
         // Fresh decode results are uniquely owned until this editor publishes
         // them.
         auto mask = std::const_pointer_cast<RasterBrush::Image>(image);
@@ -618,8 +626,10 @@ bool editNativeBrush(RasterBrush::Record &record) {
         mask->color = false;
         for (auto &pixel : mask->pixels)
           pixel = {0, 0, 0,
-                   std::max(0.0, pixel.a - .2126 * pixel.r - .7152 * pixel.g -
-                                     .0722 * pixel.b)};
+                   mode == 1
+                       ? pixel.a
+                       : std::max(0.0, pixel.a - .2126 * pixel.r -
+                                           .7152 * pixel.g - .0722 * pixel.b)};
         image = mask;
       }
       images.push_back(image);

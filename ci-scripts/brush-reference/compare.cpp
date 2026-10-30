@@ -302,6 +302,15 @@ int main(int argc, char **argv) {
                              : x == 256 + source["wetKernelOffset"].toInt()
                                  ? qRgba(255, 255, 255, 255)
                                  : qRgba(0, 0, 0, 255));
+      if (source["wetPattern"].toString() == "opaque-black-white-row")
+        for (int y = 0; y < initial.height(); ++y)
+          for (int x = 0; x < initial.width(); ++x)
+            initial.setPixel(x, y,
+                             x >= source["wetBoundary"].toDouble(384)
+                                 ? qRgba(0, 0, 0, 0)
+                             : y == 1024 + source["wetKernelOffset"].toInt()
+                                 ? qRgba(255, 255, 255, 255)
+                                 : qRgba(0, 0, 0, 255));
       if (source.contains("wetThirdBoundary")) {
         const auto c = source["wetThirdRGBA8"].toArray();
         for (int y = 0; y < initial.height(); ++y)
@@ -356,17 +365,31 @@ int main(int argc, char **argv) {
            fixtures["group"].toString() == "wetswitches" ||
            fixtures["group"].toString() == "wetcombined" ||
            fixtures["group"].toString() == "wetpressure" ||
-           ((fixtures["group"].toString() == "wettexture" ||
+           ((fixtures["group"].toString() == "wetkernel" ||
+             fixtures["group"].toString() == "wettexture" ||
              fixtures["group"].toString() == "wettexture3") &&
             (name.contains(" smear ") ||
              source["overrides"].toObject()["SmudgeRadiusValue"].toString() ==
-                 "0")));
+                 "0" ||
+             (name.contains("dulling legacy") &&
+              source["overrides"]
+                      .toObject()["SmudgeRadiusValue"]
+                      .toString()
+                      .toDouble() <= 100))));
       if (sourceWet) {
         const QString model =
             imported.records.front().provenance["sourceSmudgeModel"].toString();
         require(p.profile == "krita-5.3.4.1-" + model.toStdString() +
                                  "-candidate-1" &&
-                    p.smudgeRadius == 0 && p.reload == 0,
+                    p.smudgeRadius ==
+                        (model == "legacy-dulling"
+                             ? source["overrides"]
+                                       .toObject()["SmudgeRadiusValue"]
+                                       .toString()
+                                       .toDouble() /
+                                   100
+                             : 0) &&
+                    p.reload == 0,
                 "Strict source wet eligibility did not select the matching "
                 "candidate");
       }

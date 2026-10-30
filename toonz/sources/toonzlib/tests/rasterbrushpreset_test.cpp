@@ -27,6 +27,11 @@ int probeImportSandbox(const QString &, const QString &, const QString &);
 #endif
 using namespace RasterBrush;
 using RasterBrushTest::hardPixelKpp;
+#if defined(_WIN32) && defined(RASTERBRUSH_SANDBOX_TESTING)
+namespace RasterBrush {
+int probeWindowsImportLimits();
+}
+#endif
 namespace {
 void require(bool value, const char *message) {
   if (!value) throw std::runtime_error(message);
@@ -458,7 +463,10 @@ void testImports() {
           mutation == "radius" && model.endsWith("smear");
       require(fallback.complete &&
                   fallback.records.front().preset.profile ==
-                      (inactiveRadius ? expected : "groundzero-native-1"),
+                      (inactiveRadius || (mutation == "radius" &&
+                                          model == "legacy-dulling")
+                           ? expected
+                           : "groundzero-native-1"),
               "wet setting eligibility differs from active/inactive contract");
       if (inactiveRadius)
         require(fallback.records.front().preset.smudgeRadius == 0 &&
@@ -791,6 +799,22 @@ void testWorkerPeakBudget() {
 #endif
 }
 void testWorkerProcess() {
+#if defined(_WIN32) && defined(RASTERBRUSH_SANDBOX_TESTING)
+  {
+    QProcess process;
+    process.start(workerExecutable(), {"--test-windows-worker-limits"});
+    const bool finished = process.waitForFinished(15000);
+    const QString detail =
+        QString("Windows worker limits: finished=%1 exit=%2 stderr=%3")
+            .arg(finished)
+            .arg(process.exitCode())
+            .arg(QString::fromUtf8(process.readAllStandardError()).left(2048));
+    require(finished && process.exitStatus() == QProcess::NormalExit &&
+                process.exitCode() == 0,
+            detail.toUtf8().constData());
+  }
+#endif
+
 #if defined(__linux__) && defined(RASTERBRUSH_SANDBOX_TESTING)
   {
     QTemporaryDir root, output;
@@ -832,6 +856,26 @@ void testWorkerProcess() {
     require(file.open(QIODevice::WriteOnly), "cannot write worker input");
     auto bytes = gbr();
     require(file.write(bytes) == bytes.size(), "short worker fixture write");
+  }
+  {
+    const QString pngPath = directory.filePath("editor-tip.png");
+    QImage source(2, 1, QImage::Format_ARGB32);
+    source.setPixel(0, 0, qRgba(255, 0, 0, 128));
+    source.setPixel(1, 0, qRgba(0, 255, 0, 255));
+    require(source.save(pngPath, "PNG"), "cannot save editor tip fixture");
+    auto image = importBrushProcess(workerExecutable(), pngPath, error);
+    require(error.isEmpty() && image.complete && image.records.size() == 1 &&
+                image.records.front().preset.tip.images.size() == 1,
+            "worker PNG tip import failed");
+    const auto tip = image.records.front().preset.tip.images.front();
+    require(tip->color && tip->width == 2 && tip->height == 1 &&
+                std::abs(tip->pixels[0].a - 128 / 255.0) < 1e-12 &&
+                tip->pixels[0].r == tip->pixels[0].a && tip->pixels[1].g == 1,
+            "worker PNG tip lost color or alpha");
+    auto denied = importBrushProcess(workerExecutable(), pngPath, error,
+                                     nullptr, sizeof(Pixel));
+    require(!error.isEmpty() && !denied.complete && denied.records.empty(),
+            "editor remaining budget was not enforced before PNG loading");
   }
   auto result = importBrushProcess(workerExecutable(), input, error);
   require(error.isEmpty() && result.complete && result.records.size() == 1,
@@ -942,6 +986,12 @@ void writeCorpus(const QString &directory) {
 }  // namespace
 int main(int argc, char **argv) {
   QCoreApplication app(argc, argv);
+#if defined(_WIN32) && defined(RASTERBRUSH_SANDBOX_TESTING)
+  if (argc == 2 && app.arguments().at(1) == "--test-windows-worker-limits")
+    return probeWindowsImportLimits();
+  if (argc == 2 && app.arguments().at(1) == "--test-worker-ping") return 0;
+#endif
+
 #if defined(__linux__) && defined(RASTERBRUSH_SANDBOX_TESTING)
   if (argc == 5 && app.arguments().at(1) == "--test-sandbox-worker")
     return probeImportSandbox(app.arguments().at(2), app.arguments().at(3),
