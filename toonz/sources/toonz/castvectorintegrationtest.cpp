@@ -24,7 +24,9 @@
 #include "toonz/txshleveltypes.h"
 #include "toonz/txshsimplelevel.h"
 #include "tlevel_io.h"
+#include "toutputproperties.h"
 #include "tpalette.h"
+#include "tproperty.h"
 #include "tstroke.h"
 #include "tundo.h"
 #include "tvectorimage.h"
@@ -54,6 +56,75 @@ void require(bool ok, const char *message) {
 
 void checkpoint(const char *phase) {
   std::cerr << "cast-vector-native: checkpoint: " << phase << std::endl;
+}
+
+void outputPropertiesOwnership() {
+  TOutputProperties source;
+  auto *sourceFormat = source.getFileFormatProperties("mov");
+  const std::string propertyName = "Cast fixture output quality";
+  sourceFormat->add(new TIntProperty(propertyName, 0, 100, 42));
+  source.syncColorSettings(false);
+  source.setNonlinearBpp(64);
+  source.setFrameRate(30.);
+  source.setAspectMode(TOutputProperties::AspectCrop);
+  source.setAspectRatio(2.39);
+
+  auto extensions = [](const TOutputProperties &properties) {
+    std::vector<std::string> result;
+    properties.getFileFormatPropertiesExtensions(result);
+    return result;
+  };
+  auto quality = [&](TPropertyGroup *format) {
+    auto *value = dynamic_cast<TIntProperty *>(format->getProperty(propertyName));
+    require(value, "Output assignment lost its format property");
+    return value;
+  };
+  auto expectCopy = [&](TOutputProperties &copy) {
+    require(extensions(copy) == std::vector<std::string>{"mov"} &&
+                !copy.isColorSettingsSynced() && copy.getNonlinearBpp() == 64 &&
+                copy.getFrameRate() == 30. &&
+                copy.getAspectMode() == TOutputProperties::AspectCrop &&
+                copy.getAspectRatio() == 2.39,
+            "Output assignment retained old formats or lost copied settings");
+    auto *format = copy.getFileFormatProperties("mov");
+    require(format != sourceFormat && quality(format)->getValue() == 42 &&
+                copy.getBoardSettings() != source.getBoardSettings() &&
+                &copy.getRenderSettings() != &source.getRenderSettings(),
+            "Output copy shares owned settings with its source");
+  };
+
+  TOutputProperties constructed(source);
+  expectCopy(constructed);
+  quality(constructed.getFileFormatProperties("mov"))->setValue(17);
+  require(quality(sourceFormat)->getValue() == 42,
+          "Editing copied output properties changed the source");
+
+  TOutputProperties assigned;
+  assigned.getFileFormatProperties("png");
+  assigned.getFileFormatProperties("tif");
+  TOutputProperties disjoint;
+  disjoint.getFileFormatProperties("jpg");
+  for (int cycle = 0; cycle < 3; ++cycle) {
+    assigned = source;
+    expectCopy(assigned);
+    auto *format = assigned.getFileFormatProperties("mov");
+    const TOutputProperties &same = assigned;
+    assigned = same;
+    require(assigned.getFileFormatProperties("mov") == format &&
+                quality(format)->getValue() == 42 &&
+                !assigned.isColorSettingsSynced() && assigned.getNonlinearBpp() == 64,
+            "Output self-assignment changed or released live settings");
+    assigned = disjoint;
+    require(extensions(assigned) == std::vector<std::string>{"jpg"},
+            "Output assignment retained a format absent from the source");
+    // Scene loading performs two consecutive assignments from defaults. A
+    // format key left behind after the first reset used to be double-deleted.
+    assigned = TOutputProperties();
+    require(extensions(assigned).empty() && assigned.isColorSettingsSynced(),
+            "Output reset retained old format ownership or color state");
+    assigned = TOutputProperties();
+    require(extensions(assigned).empty(), "Repeated output reset restored stale formats");
+  }
 }
 
 class DialogDriver {
@@ -187,6 +258,8 @@ void runCastVectorIntegrationTest(QMainWindow *window) {
     throw std::runtime_error(resetError.toStdString());
   checkpoint("settling clean scene");
   QApplication::processEvents();
+  checkpoint("checking output-setting ownership before scene reload");
+  outputPropertiesOwnership();
   checkpoint("creating native PLI fixtures");
   auto *scene = app->getCurrentScene()->getScene();
   QTemporaryDir temporary;
