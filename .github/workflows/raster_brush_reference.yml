@@ -88,7 +88,7 @@ jobs:
           export XDG_CONFIG_HOME="$BRUSH_REFERENCE_ROOT/config"
           export QT_X11_NO_MITSHM=1
           export LIBGL_ALWAYS_SOFTWARE=1
-          export QT_LOGGING_RULES='krita.*=true'
+          export QT_LOGGING_RULES='krita.scripting=true;krita.python=true;krita.resources=true'
           # The AppImage's bundled fontconfig otherwise searches a nonexistent
           # build-time configuration path on the hosted runner.
           export FONTCONFIG_FILE=/etc/fonts/fonts.conf
@@ -119,14 +119,17 @@ jobs:
           import os
           from pathlib import Path
           root = Path(os.environ['BRUSH_REFERENCE_ROOT'])
-          parts = []
+          import re
           for name in ('version.log', 'output/oracle-status.json', 'output/plugin-startup.log', 'runtime.log', 'data/krita/krita.log', 'data/krita/krita-sysinfo.log'):
               path = root / name
-              if path.is_file():
-                  parts.append(name + ':\n' + '\n'.join(path.read_text(errors='replace').splitlines()[-100:]))
-          message = '\n'.join(parts)[-50000:]
-          message = message.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
-          print('::error title=Reference runtime diagnostics::' + message)
+              if not path.is_file():
+                  print('::notice::Reference diagnostic absent: ' + name)
+                  continue
+              lines = path.read_text(errors='replace').splitlines()
+              relevant = [line for line in lines if re.search(r'error|exception|fail|critical|traceback|python|pykrita|5\.3\.', line, re.I)]
+              message = ('\n'.join(relevant)[-1800:] + '\n--- final output ---\n' + '\n'.join(lines[-20:])[-1600:])
+              message = message.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+              print('::error title=' + name + '::' + message)
           PYREPORT
       - uses: jurplel/install-qt-action@v4
         with:

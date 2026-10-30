@@ -84,6 +84,7 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
     level->setPath(TFilePath(QDir::current().filePath("brush..png")));
     level->getProperties()->setImageRes(TDimension(128, 128));
     level->getProperties()->setDpi(TPointD(72, 72));
+    level->getProperties()->setImageDpi(TPointD(72, 72));
     auto palette = new TPalette;
     level->setPalette(palette);
     TRaster32P initial(128, 128);
