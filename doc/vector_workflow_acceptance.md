@@ -32,6 +32,29 @@ styling are outside this branch.
 
 ## Test integration
 
+### Repeatable morph preview background
+
+Vector checkpoint `c267c4bcf79b9093b72d6aa06c76783db96aa521` passed Linux
+application and installed-package checks. The combined original process at
+`3d4309a9a1a4de181a36577939c6649da175b516` then failed the exact repeated-Fade
+framebuffer comparison; its six fresh isolated processes passed, which does not
+replace the failed original sequence.
+
+Source review found that the morph swatch computed its checkerboard using the
+previous view transform, before establishing the current artwork transform.
+The swatch now resets the checkerboard transform exactly as the alignment
+preview does. This fixes a concrete history-dependent rendering path; it does
+not yet establish the cause of the recorded combined failure. Fade interpolation
+and its authored opacity remain unchanged.
+
+The native regression deliberately changes the previous affine transform and
+requires an identical actual repaint. It retains the exact 50/25/75/50-percent
+pixel sequence, Cancel/Apply and undo checks, and independently inspects generated
+geometry, opacity, profile, style, groups and unchanged source/palette contents.
+Bounded dimensions, pixel differences and transform diagnostics distinguish a
+rendering mismatch from altered artwork. This correction requires fresh CI;
+no comparison or original failure was waived.
+
 ### Original-window lifetime qualification (pending CI)
 
 Rows 22–25, 27–30, 33 and 36 include source-reviewed original-window
