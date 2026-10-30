@@ -382,16 +382,45 @@ void runCastWorkflowIntegrationTest(QMainWindow *window) {
   const bool nativeDialogsDisabled = QApplication::testAttribute(Qt::AA_DontUseNativeDialogs);
   QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, true);
   {
+    bool pickedFolder = false, reviewed = false;
+    QString candidate;
+    QStringList messages;
+    const int history = TUndoManager::manager()->getCurrentHistoryIndex();
+    std::cerr << "cast-workflow: relinking saved raster" << std::endl;
     DialogDriver driver([&](QDialog *dialog) {
       if (auto *files = qobject_cast<QFileDialog *>(dialog)) {
+        pickedFolder = true;
         files->setDirectory(newDir); files->selectFile(newDir); dialog->accept();
       } else if (dialog->objectName() == "CastRelinkReview") {
+        reviewed = true;
+        if (auto *table = dialog->findChild<QTableWidget *>())
+          if (auto *choice = qobject_cast<QComboBox *>(table->cellWidget(0, 2)))
+            candidate = choice->currentData().toString();
+        std::cerr << "cast-workflow: relink candidate: " << candidate.toStdString() << std::endl;
         dialog->accept();
         showProgressNextTurn("Validating replacement drawings…");
-      } else if (qobject_cast<QMessageBox *>(dialog)) dialog->reject();
+      } else if (auto *message = qobject_cast<QMessageBox *>(dialog)) {
+        messages << message->text();
+        std::cerr << "cast-workflow: relink dialog: " << message->text().toStdString() << std::endl;
+        dialog->reject();
+      }
     });
     CastBrowserActions::relink(&browser, {raster});
-    require(!driver.expired && pixel().b == 255, "batch relink did not replace drawing contents");
+    require(!driver.expired, "batch relink native dialog timed out");
+    require(pickedFolder && reviewed, "batch relink did not reach replacement review");
+    require(!candidate.isEmpty(), "batch relink did not discover its replacement drawing");
+    if (!messages.empty())
+      throw std::runtime_error(("batch relink reported: " + messages.join("; ")).toStdString());
+    const auto actual = pixel();
+    const QString path = source->decodeFilePath(raster->getPath()).getQString();
+    if (actual.b != 255 ||
+        TUndoManager::manager()->getCurrentHistoryIndex() != history + 1 ||
+        QFileInfo(path).canonicalFilePath() != QFileInfo(newDir + "/asset.png").canonicalFilePath())
+      throw std::runtime_error(QString("batch relink did not replace drawing contents: "
+          "RGBA=%1,%2,%3,%4; history delta=%5; path=%6; candidate=%7")
+          .arg(int(actual.r)).arg(int(actual.g)).arg(int(actual.b)).arg(int(actual.m))
+          .arg(TUndoManager::manager()->getCurrentHistoryIndex() - history)
+          .arg(path, candidate).toStdString());
   }
   TUndoManager::manager()->undo();
   require(pixel().r == 255, "relink undo did not restore original pixels");
