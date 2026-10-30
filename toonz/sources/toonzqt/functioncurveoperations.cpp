@@ -12,6 +12,7 @@
 #include <cmath>
 #include <limits>
 #include <map>
+#include <memory>
 #include <stdexcept>
 #include <utility>
 
