@@ -248,8 +248,20 @@ void runCombinedFidelityIntegrationTest(QMainWindow *) {
   auto *curve = sheet->getStageObject(TStageObjectId::ColumnId(0))->getParam(TStageObject::T_X);
   curve->setWorkspaceId("combined-fidelity-channel");
   const TFilePath levelPath(output.filePath("drawing.pli"));
-  level->setPath(levelPath); level->save(levelPath);
+  // The level is newly authored in memory. The default setPath behavior
+  // reloads from disk and would discard these drawings before their first save.
+  level->setPath(levelPath, true);
+  level->save(levelPath);
   const auto profile = stroke->getOpacityProfile();
+  require(level->getFrameCount() == 2 && level->isFid(TFrameId(1)) &&
+          level->isFid(TFrameId(2)),
+          "Assigning the fidelity fixture path discarded its native drawings");
+  for (const auto &fid : {TFrameId(1), TFrameId(2)}) {
+    TVectorImageP retained = level->getFrame(fid, false);
+    require(retained && retained->getStrokeCount() == 2 &&
+            retained->getStroke(0)->getOpacityProfile() == profile,
+            "Fidelity fixture save lost authored strokes or opacity profiles");
+  }
   const int history = TUndoManager::manager()->getHistoryCount();
   const bool dirty = app->getCurrentScene()->getDirtyFlag();
   std::cerr << "combined-fidelity: metadata and compatibility" << std::endl;
@@ -260,13 +272,21 @@ void runCombinedFidelityIntegrationTest(QMainWindow *) {
     if (issue.levelName == level->getName() && issue.severity == SceneChecker::Info) ++metadata;
     if (issue.text.contains("channel identities")) ++identityCount;
   }
-  require(format == 1 && metadata == 2 && identityCount == 1, "Combined compatibility report lost format or authoring metadata distinction");
+  if (format != 1 || metadata != 2 || identityCount != 1) {
+    std::cerr << "combined-fidelity: compatibility counts format=" << format
+              << " authoring=" << metadata << " channel-identities="
+              << identityCount << std::endl;
+    throw std::runtime_error("Combined compatibility report lost format or authoring metadata distinction");
+  }
   require(stroke->getOpacityProfile() == profile && history == TUndoManager::manager()->getHistoryCount() && dirty == app->getCurrentScene()->getDirtyFlag(),
           "Compatibility report mutated artwork, undo, or dirty state");
   const TFilePath scenePath(output.filePath("combined.tnz"));
   scene->saveCopy(scenePath);
   {
-    ToonzScene loaded; loaded.loadTnzFile(scenePath);
+    ToonzScene loaded;
+    TProjectManager::instance()->initializeScene(&loaded);
+    loaded.loadTnzFile(scenePath);
+    loaded.loadResources(false);
     auto *restoredLevel = loaded.getLevelSet()->getLevel(L"CombinedFidelity");
     require(restoredLevel, "Combined saved level missing");
     auto *restored = restoredLevel->getSimpleLevel();
