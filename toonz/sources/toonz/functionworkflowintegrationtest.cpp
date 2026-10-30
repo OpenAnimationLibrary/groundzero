@@ -52,6 +52,7 @@
 #include <QToolButton>
 #include <cmath>
 #include <functional>
+#include <sstream>
 #include <stdexcept>
 #include <iostream>
 
@@ -64,12 +65,24 @@ void require(bool value, const char *message) { if (!value) throw std::runtime_e
 void requireNear(double actual, double expected) { require(std::isfinite(actual) && std::abs(actual - expected) < 1.e-7, "Native Function Editor value differs from its oracle"); }
 void requireUnkeyedIdentity(TDoubleParam *curve, const std::string &identity,
                             double value = 0.0) {
-  require(curve && curve->getKeyframeCount() == 0 &&
-              curve->getWorkspaceId() == identity,
-          "Scene roundtrip lost an unkeyed channel identity or added keys");
-  requireNear(curve->getDefaultValue(), value);
-  requireNear(curve->getValue(0), value);
-  requireNear(curve->getValue(10), value);
+  if (!curve) throw std::runtime_error("Unkeyed channel is missing: " + identity);
+  const double defaultValue = curve->getDefaultValue();
+  const double frameZero = curve->getValue(0), frameTen = curve->getValue(10);
+  const auto matchesValue = [value](double actual) {
+    return std::isfinite(actual) && std::abs(actual - value) < 1.e-7;
+  };
+  if (curve->getKeyframeCount() != 0 || curve->getWorkspaceId() != identity ||
+      !matchesValue(defaultValue) || !matchesValue(frameZero) ||
+      !matchesValue(frameTen)) {
+    std::ostringstream detail;
+    detail.precision(17);
+    detail << "Unkeyed channel " << identity << ": expected keys=0, value="
+           << value << "; actual identity=" << curve->getWorkspaceId()
+           << ", keys=" << curve->getKeyframeCount()
+           << ", default=" << defaultValue << ", frame0=" << frameZero
+           << ", frame10=" << frameTen;
+    throw std::runtime_error(detail.str());
+  }
 }
 void settle() { QApplication::sendPostedEvents(); QApplication::processEvents(QEventLoop::ExcludeUserInputEvents); }
 void keys(TDoubleParam *curve, double from, double to, const std::string &formula = {}) {
@@ -257,7 +270,8 @@ bool runFunctionWorkflowIntegrationTest(QMainWindow *, QString *error) {
     require(TUndoManager::manager()->undo(), "Native quantization has no undo"); requireNear(source->keyframeIndexToFrame(1), 10);
     checkpoint("checking scene and channel identity roundtrip");
     source->setWorkspaceId("native-source-stable-id"); offset->setWorkspaceId("native-offset-stable-id"); angle->setWorkspaceId("native-plastic-stable-id");
-    object->getParam(TStageObject::T_Y)->setWorkspaceId("native-unkeyed-stage");
+    // Y retains the authored nearby-key snapping fixture; Z is still untouched.
+    object->getParam(TStageObject::T_Z)->setWorkspaceId("native-unkeyed-stage");
     object->getOffsetParam(0, TStageObject::T_Y)->setWorkspaceId("native-unkeyed-offset");
     vertex->m_params[SkVD::DISTANCE]->setWorkspaceId("native-unkeyed-plastic");
     for (auto channel : {TStageObject::T_RotX, TStageObject::T_RotY,
@@ -285,7 +299,8 @@ bool runFunctionWorkflowIntegrationTest(QMainWindow *, QString *error) {
     xsheet->getFxDag()->assignUniqueId(identityFx.getPointer());
     identityFx->getInputPort(0)->setFx(columnFx);
     xsheet->getFxDag()->getInternalFxs()->addFx(identityFx.getPointer());
-    requireUnkeyedIdentity(object->getParam(TStageObject::T_Y), "native-unkeyed-stage");
+    checkpoint("checking unkeyed defaults before scene save");
+    requireUnkeyedIdentity(object->getParam(TStageObject::T_Z), "native-unkeyed-stage");
     requireUnkeyedIdentity(object->getOffsetParam(0, TStageObject::T_Y), "native-unkeyed-offset");
     requireUnkeyedIdentity(vertex->m_params[SkVD::DISTANCE].getPointer(), "native-unkeyed-plastic");
     object->setName("Renamed rig");
@@ -300,7 +315,8 @@ bool runFunctionWorkflowIntegrationTest(QMainWindow *, QString *error) {
     auto *loadedAngle = loadedVertex->m_params[SkVD::ANGLE].getPointer();
     requireNear(loadedAngle->getValue(10), 60); requireNear(loadedOffset->getValue(10), 3);
     require(loadedObject->getParam(TStageObject::T_X)->getWorkspaceId() == "native-source-stable-id" && loadedOffset->getWorkspaceId() == "native-offset-stable-id" && loadedAngle->getWorkspaceId() == "native-plastic-stable-id", "Scene save/reload lost renamed channel identities");
-    requireUnkeyedIdentity(loadedObject->getParam(TStageObject::T_Y), "native-unkeyed-stage");
+    checkpoint("checking unkeyed defaults after scene reload");
+    requireUnkeyedIdentity(loadedObject->getParam(TStageObject::T_Z), "native-unkeyed-stage");
     requireUnkeyedIdentity(loadedObject->getOffsetParam(0, TStageObject::T_Y), "native-unkeyed-offset");
     requireUnkeyedIdentity(loadedVertex->m_params[SkVD::DISTANCE].getPointer(), "native-unkeyed-plastic");
     for (auto channel : {TStageObject::T_RotX, TStageObject::T_RotY,
@@ -328,6 +344,12 @@ bool runFunctionWorkflowIntegrationTest(QMainWindow *, QString *error) {
     require(loadedFx, "Scene roundtrip lost the unkeyed native effect");
     requireUnkeyedIdentity(dynamic_cast<TDoubleParam *>(loadedFx->getParams()->getParam("value")),
                           "native-unkeyed-fx", fxDefault);
+    auto *loadedNearby = loadedObject->getParam(TStageObject::T_Y);
+    require(nearby->getKeyframeCount() == 2 && loadedNearby->getKeyframeCount() == 2 &&
+                loadedNearby->isKeyframe(13) && loadedNearby->isKeyframe(30),
+            "Scene roundtrip changed authored nearby-key snapping frames");
+    requireNear(loadedNearby->getValue(13), 0);
+    requireNear(loadedNearby->getValue(30), 1);
     auto *loadedNative = reloaded.getXsheet()->getStageObject(TStageObjectId::ColumnId(1))->getParam(TStageObject::T_X);
     auto *loadedSeexpr = reloaded.getXsheet()->getStageObject(TStageObjectId::ColumnId(2))->getParam(TStageObject::T_X);
     require(loadedNative->getKeyframe(0).m_expressionText == nativeText && loadedSeexpr->getKeyframe(0).m_expressionText == seexprText, "Native workflow changed formula source while saving");
