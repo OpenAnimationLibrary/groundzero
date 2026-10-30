@@ -119,6 +119,18 @@ click. Native file validation, both cancellation points, import/adaptation and
 undo assertions remain unchanged. Fresh CI is required; the full-application
 fixture and installed package were skipped after the original failure.
 
+The same head's macOS run `41042351273` passed native curve operations but
+aborted the widget fixture at `Stale comparison confirmation timed out` and
+failed the full application at `Expected comparison restore confirmation was
+not shown`. Both test drivers identified the confirmation by its window title,
+which Qt 5 deliberately ignores on macOS. The corrected drivers require the
+actual Function Editor owner, exact question text, Question icon, exact Yes/No
+button set and enabled answer button. They still click the real button; the
+No/cancel, exact restore, undo/redo and stale-context rejection assertions are
+unchanged. A mismatched widget confirmation now reports the failed identity
+check before its bounded deadline. No production dialog behavior changed;
+fresh supported-platform CI remains required.
+
 Combined-workflow Linux head `c7fdf2aec` subsequently reached the real application
 and passed frozen native/SeExpr comparisons, existing graph interactions,
 unkeyed identity persistence and saved-set renaming. The fractional retime scene
