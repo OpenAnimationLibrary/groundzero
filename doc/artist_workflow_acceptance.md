@@ -37,6 +37,13 @@ per-region opacity is outside this workflow. Matched filled regions remain
 supported. Collections are explicit UUID memberships, and Library attribution
 comes from actual native Library imports rather than external-path inference.
 
+A later source reconciliation reopened items 11, 15, 17 and 60: driven
+comparison curves must freeze their evaluated display, the motion browser must
+import existing native `.curve` assets, the graph benchmark needs a genuinely
+multi-channel large-rig fixture, and cache cancellation must be rechecked after
+waiting for the retirement gate. These are implementation gaps being corrected,
+not merely pending CI.
+
 Function Editor head `d7c34e6ef2096b255eec7077e51c8074901e6188` passed Linux
 and Windows, including installed applications, both Function test suites and
 native unkeyed-channel save/reload. macOS remained pending at this checkpoint.
@@ -54,7 +61,11 @@ choice, cancellation and replacement assertions remain required.
 
 Vector head `913efdb12` passed the stricter Linux color/depth/stencil attachment
 checks before detecting a secondary-color enable-state leak. Correction
-`0cc8df85d` restores that state explicitly; its strict tests are pending.
+`0cc8df85d` restores that state explicitly. Its Linux run stopped earlier at
+the new alignment-preview visual assertion: the preview's flattened-Z matrix
+is singular in 4D, so opacity rendering incorrectly omits its strokes. A
+plane-coordinate correction is in progress; the depth-state and timing checks
+have not yet run on that revision.
 macOS passed D24, rollback, patterned depth, RGB10_A2, separate read targets and
 sRGB checks, then failed the HDR fixture's initial seed before opacity drawing.
 The representative depth-rendering timing has not yet executed; no practical
@@ -121,8 +132,10 @@ workloads and installed-application checks. The combined final revision adds an
 opacity-envelope workload and must be qualified again.
 
 When the mandatory native pass fails with `--require-combined-workflows`, the
-runner also collects independent Function Editor, Cast, timing, Cast/vector and
-export diagnostics.
+runner also collects independent Function Editor, Cast, timing, Cast/vector,
+export and vector-renderer diagnostics. The renderer diagnostic independently
+reaches attachment checks and representative timing when another UI workflow
+fails first; it cannot qualify the original sequence.
 Each group gets a fresh application process and disposable profile, runs
 sequentially, and has a 120-second limit. The original failure remains the CI
 result; isolated completion markers cannot satisfy the mandatory pass. Reports
@@ -147,13 +160,13 @@ application sequence. CI-only harness contracts are in
 | 8 | Clear curve identification | Stable identities/colors with labels and high-DPI/theme readability. | Source-ready; CI pending |
 | 9 | Visible interpolation controls | Native interpolation/handle actions; multi-selection and keyboard access. | Source-ready; CI pending |
 | 10 | Explicit snapping controls | Frame/neighbor/marker targets; bypass modifier; unchanged default semantics. | Source-ready; CI pending |
-| 11 | Before/after curve overlays | Snapshot comparison, accept/revert, linked/native/SeExpr ownership. | Source-ready; CI pending |
+| 11 | Before/after curve overlays | Snapshot comparison, accept/revert, linked/native/SeExpr ownership. | Pending: freeze evaluated driven comparison |
 | 12 | Interactive breakdown slider | Preview/cancel; stage, Plastic and offset channels; driven channels protected. | Source-ready; CI pending |
 | 13 | Controlled key reduction | Independent sampled error bound, protected/held keys and undo. | Source-ready; CI pending |
 | 14 | Bake expressions to keys | Sampling range/step, units and output equivalence; cancellation and undo. | Source-ready; CI pending |
-| 15 | Visual motion-preset browser | Existing curve compatibility; browse/search/preview and amplitude/duration adaptation. | Source-ready; CI pending |
+| 15 | Visual motion-preset browser | Existing curve compatibility; browse/search/preview and amplitude/duration adaptation. | Pending: native curve asset import |
 | 16 | Channel dependency inspector | Sources/dependents, invalid references and owner navigation without second evaluator. | Source-ready; CI pending |
-| 17 | Large-rig graph performance | Large-rig correctness fixture and measured CI report; no unmeasured speed claim. | Source-ready; CI pending |
+| 17 | Large-rig graph performance | Large-rig correctness fixture and measured CI report; no unmeasured speed claim. | Pending: multi-channel rig fixture |
 | 18 | Keyboard/tablet editing | Focus, accessible targets, keyboard nudges/constraints and tablet manual checklist. | Source-ready; CI pending |
 | 19 | Opacity readback | Single/mixed opacity selection follows context without mutating drawing. | Source-ready; CI pending |
 | 20 | Style opacity consistency | Relevant vector style render paths preserve stroke alpha with independent pixel fixtures. | Source-ready; CI pending |
@@ -169,7 +182,7 @@ application sequence. CI-only harness contracts are in
 | 30 | Animated gradient copying | Copy current vs animated style choice; keyframes, unlinking and reload. | Source-ready; CI pending |
 | 31 | Outline stacking preservation | Native overlap/group pixel fidelity through outline conversion and undo. | Source-ready; CI pending |
 | 32 | Closed-loop outlines | Inner/outer boundaries, tight loops, holes/winding and undo. | Source-ready; CI pending |
-| 33 | Multi-drawing alignment | Explicit frame/reference scope, preview/cancel, matching, groups and no index-only assumptions. | Source-ready; fresh CI pending |
+| 33 | Multi-drawing alignment | Explicit frame/reference scope, preview/cancel, matching, groups and no index-only assumptions. | Pending: preview plane rendering correction |
 | 34 | Paint Inside/Selection | Clipping to region/selection; holes/groups, pressure, undo. | Source-ready; CI pending |
 | 35 | Guided Drawing mode consistency | Guided Drawing honors paint mode or provides actionable explicit incompatibility. | Source-ready; CI pending |
 | 36 | Along-stroke opacity | Opacity variation survives draw/split/join/morph/deform/render/export and versioned storage. | Source-ready; CI pending |
@@ -196,7 +209,7 @@ application sequence. CI-only harness contracts are in
 | 57 | Export fidelity preflight | Lottie/SVG unsupported-feature inspection before write; cancel and explicit conversion. | Source-ready; CI pending |
 | 58 | Recovery completeness status | Current snapshot complete/partial/errors/retry visible without losing pending resources. | Source-ready; CI pending |
 | 59 | Artist-workload benchmarks | Native synthetic drawing/scrub/playback/resource-save/memory metrics, correctness and provenance; physical tablet qualification separate. | Source-ready; CI pending |
-| 60 | Safe disk-cache management | Usage/budget/manual cleanup, cross-process leases, atomic retirement, cancellation/errors. | Source-ready; CI pending |
+| 60 | Safe disk-cache management | Usage/budget/manual cleanup, cross-process leases, atomic retirement, cancellation/errors. | Pending: cancellation during retirement gate wait |
 
 ## Shared regression gates
 

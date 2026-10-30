@@ -16,11 +16,12 @@ import run_native_ui_test as runner
 
 
 SUITES = ("function-workflow", "cast-workflow", "combined-timing",
-          "combined-cast-vector", "combined-fidelity")
+          "combined-cast-vector", "combined-fidelity", "vector-renderer")
 MARKERS = dict(zip(SUITES, ("function-workflow-native: PASS", "cast-native-workflow: PASS",
                           "function-timing-native: PASS",
                           "cast-vector-native: PASS",
-                          "combined-fidelity-native: PASS")))
+                          "combined-fidelity-native: PASS",
+                          "vector-renderer-native: PASS")))
 FULL_OUTPUT = "\n".join(("native-ui-integration: PASS", "vector-workflows: PASS",
                           "offline-gl-workflow: PASS", "function-workflow-native: PASS",
                           *MARKERS.values())) + "\n"
@@ -93,7 +94,7 @@ class NativeDiagnosticContracts(unittest.TestCase):
                 status, calls, output = self.invoke(response)
                 self.assertEqual(status, 1)
                 self.assertEqual([call[0] for call in calls], [None, *SUITES])
-                self.assertEqual([call[2] for call in calls], [600, 120, 120, 120, 120, 120])
+                self.assertEqual([call[2] for call in calls], [600] + [120] * len(SUITES))
                 self.assertTrue(all(call[3] is None for call in calls))
                 for suite in SUITES:
                     self.assertIn(f"{suite}=PASS (status 0)", output)
@@ -129,13 +130,13 @@ class NativeDiagnosticContracts(unittest.TestCase):
 
         status, calls, output = self.invoke(response)
         self.assertEqual(status, 1)
-        self.assertEqual(len(calls), 6)
+        self.assertEqual(len(calls), 1 + len(SUITES))
         for suite in SUITES:
             self.assertIn(f"{suite}=FAIL", output)
         self.assertIn("Missing isolated diagnostic checkpoints", output)
 
     def test_component_failure_does_not_hide_later_workflows(self):
-        for failed_suite in ("function-workflow", "cast-workflow"):
+        for failed_suite in ("function-workflow", "cast-workflow", "vector-renderer"):
             with self.subTest(failed_suite=failed_suite):
                 def response(suite, command, options):
                     if suite is None or suite == failed_suite:
@@ -214,7 +215,7 @@ class NativeDiagnosticContracts(unittest.TestCase):
         inherited = {"ProgramFiles(x86)": str(kits),
                      "GROUNDZERO_NATIVE_UI_SUITE": "untrusted-inherited-selector",
                      "GROUNDZERO_ARTIST_BENCHMARK": "1"}
-        for selected in (None, "function-workflow", "cast-workflow", "combined-cast-vector"):
+        for selected in (None, "function-workflow", "cast-workflow", "combined-cast-vector", "vector-renderer"):
             for debugger_kind in ("linux", "windows"):
                 with self.subTest(selected=selected, debugger=debugger_kind), \
                      mock.patch.dict(os.environ, inherited), \

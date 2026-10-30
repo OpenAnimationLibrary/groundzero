@@ -699,6 +699,10 @@ int runNativeUiIntegrationTest(QMainWindow *window) {
         runCastVectorIntegrationTest(window);
       } else if (diagnosticSuite == "combined-fidelity") {
         runCombinedFidelityIntegrationTest(window);
+      } else if (diagnosticSuite == "vector-renderer") {
+        runOpacityRenderNativeChecks();
+        runOfflineGLWorkflowNativeChecks();
+        std::cout << "vector-renderer-native: PASS" << std::endl;
       } else {
         require(false, "Unknown native UI diagnostic suite selector");
       }
