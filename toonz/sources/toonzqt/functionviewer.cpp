@@ -388,6 +388,7 @@ void FunctionViewer::refreshModel() {
     int distance, offset, secDistance;
     scene->getProperties()->getMarkers(distance, offset, secDistance);
     m_numericalColumns->setMarkRow(distance, offset, secDistance);
+    m_functionGraph->setSceneMarkers(distance, offset, secDistance);
   }
 
   m_treeView->updateAll();

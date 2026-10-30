@@ -434,7 +434,7 @@ TDoubleParam *FunctionPanel::findClosestCurve(const QPoint &winPos,
 int FunctionPanel::findClosestGadget(const QPoint &winPos, Handle &handle,
                                      int maxDistance) {
   // search only handles close enough (i.e. distance<maxDistance)
-  int minDistance = maxDistance;
+  int minDistance = std::max(maxDistance, 2 * m_hitRadius);
   int k           = -1;
   for (int i = 0; i < m_gadgets.size(); i++) {
     if (m_gadgets[i].m_hitRegion.contains(winPos)) {
@@ -1341,7 +1341,7 @@ void FunctionPanel::mousePressEvent(QMouseEvent *e) {
           // 2) more than two keys are selected, and
           // 3) clicked key is one of the end of the selection, and
           // 4) all keys between the both end of the selection are selected
-          if (e->modifiers() & Qt::AltModifier) {
+          if ((e->modifiers() & Qt::AltModifier) && !(e->modifiers() & Qt::ShiftModifier)) {
             QList<int> selectedIndices =
                 getSelection()->getSelectedKeyIndices(currentCurve);
             if (selectedIndices.count() >= 3 &&
@@ -1708,8 +1708,16 @@ void FunctionPanel::refreshNormalization() {
 double FunctionPanel::snapFrameDelta(double delta, double anchor, bool bypass) const {
   if (bypass) return std::round(delta);
   double result = std::round(delta / m_snapFrames) * m_snapFrames;
+  double distance = std::abs(xToFrame(8) - xToFrame(0));
+  if (m_snapMarkers) for (int interval : {m_markerDistance, m_secondaryMarkerDistance}) {
+    if (interval <= 0) continue;
+    double target = m_markerOffset + std::round((anchor + delta - m_markerOffset) / interval) * interval;
+    double candidate = target - anchor;
+    if (std::abs(candidate - std::round(candidate)) <= 1.e-8 && std::abs(candidate - delta) < distance) {
+      distance = std::abs(candidate - delta); result = candidate;
+    }
+  }
   if (m_snapKeys && m_functionTreeModel) {
-    double distance = std::abs(xToFrame(8) - xToFrame(0));
     for (int c = 0; c < m_functionTreeModel->getActiveChannelCount(); ++c) {
       auto *curve = m_functionTreeModel->getActiveChannel(c)->getParam();
       int k = curve->getClosestKeyframe(anchor + delta);
@@ -1863,9 +1871,12 @@ void FunctionPanel::openContextMenu(QMouseEvent *e) {
       KeyframeSetter(curve, m_gadgets[highlighted.gIndex].m_kIndex)
           .unlinkHandles();
   } else if (action == &resetHandlesAction) {
-    KeyframeSetter setter(curve, curve->getClosestKeyframe(kf.m_frame));
-    setter.setSpeedIn(TPointD(-5, 0));
-    setter.setSpeedOut(TPointD(5, 0));
+    int index = curve->getClosestKeyframe(kf.m_frame);
+    KeyframeSetter setter(curve, index);
+    if (setter.isSpeedInOut(index - 1)) setter.setSpeedIn(TPointD(-5, 0));
+    else if (setter.isEaseInOut(index - 1)) setter.setEaseIn(5);
+    if (setter.isSpeedInOut(index)) setter.setSpeedOut(TPointD(5, 0));
+    else if (setter.isEaseInOut(index)) setter.setEaseOut(5);
   } else if (action == &deleteKeyframeAction) {
     KeyframeSetter::removeKeyframeAt(curve, kf.m_frame);
   } else if (action == &insertKeyframeAction) {

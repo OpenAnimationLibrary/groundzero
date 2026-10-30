@@ -176,7 +176,7 @@ void appendIfChanged(Plan &plan, const Change &change) {
 }
 
 Plan timePlan(const std::vector<Selection> &input, double pivot, double scale,
-              double offset) {
+              double offset, double quantize = 0) {
   Plan plan;
   if (!finiteFrame(pivot) || !std::isfinite(scale) || scale <= 0 ||
       !std::isfinite(offset)) {
@@ -191,8 +191,10 @@ Plan timePlan(const std::vector<Selection> &input, double pivot, double scale,
     std::map<int, TDoubleKeyframe> keys;
     for (int i = 0; i < source->getKeyframeCount(); ++i) {
       auto key = source->getKeyframe(i);
-      if (selection.indices.count(i))
+      if (selection.indices.count(i)) {
         key.m_frame = pivot + (key.m_frame - pivot) * scale + offset;
+        if (quantize > 0) key.m_frame = pivot + std::round((key.m_frame - pivot) / quantize) * quantize;
+      }
       if (!finiteFrame(key.m_frame) ||
           (i && key.m_frame - keys.at(i - 1).m_frame <= FrameSeparation)) {
         fail(plan, message("The requested timing would collide with or cross another key. No keys were changed."));
@@ -415,6 +417,15 @@ Plan planFrameOffset(const std::vector<Selection> &selection, double frames) {
 
 Plan planRetime(const std::vector<Selection> &selection, double pivot, double scale) {
   return guarded([&] { return timePlan(selection, pivot, scale, 0); });
+}
+
+Plan planQuantize(const std::vector<Selection> &selection, double pivot, double interval) {
+  return guarded([&]() {
+    if (!std::isfinite(interval) || interval <= 0) {
+      Plan plan; fail(plan, message("Enter a positive finite frame-grid interval.")); return plan;
+    }
+    return timePlan(selection, pivot, 1, 0, interval);
+  });
 }
 
 static Plan buildBreakdown(const std::vector<Selection> &input, double frame,

@@ -79,6 +79,8 @@ private:
   std::vector<std::pair<TDoubleParamP, TDoubleParamP>> m_comparison;
   int m_snapFrames = 1;
   bool m_snapKeys = false;
+  bool m_snapMarkers = false;
+  int m_markerDistance = 0, m_markerOffset = 0, m_secondaryMarkerDistance = 0;
   int m_hitRadius = 10;
   double m_valueNudge = 1;
   int m_valueAxisX, m_frameAxisY, m_graphViewportY;
@@ -169,9 +171,12 @@ public:
   void setNormalized(bool enabled);
   bool isNormalized() const { return m_normalized; }
   void refreshNormalization();
+  const std::vector<std::pair<TDoubleParamP, TDoubleParamP>> &comparison() const { return m_comparison; }
   void setComparison(const std::vector<std::pair<TDoubleParamP, TDoubleParamP>> &curves) {
     m_comparison = curves; update();
   }
+  void setSceneMarkers(int distance, int offset, int secondary) { m_markerDistance = distance; m_markerOffset = offset; m_secondaryMarkerDistance = secondary; }
+  void setSnapMarkers(bool enabled) { m_snapMarkers = enabled; }
   void setSnap(int frames, bool keys) { m_snapFrames = std::max(1, frames); m_snapKeys = keys; }
   double snapFrameDelta(double delta, double anchor, bool bypass) const;
   void setHitRadius(int radius) { m_hitRadius = std::max(6, std::min(24, radius)); update(); }

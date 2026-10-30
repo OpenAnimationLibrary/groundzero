@@ -1,4 +1,5 @@
 #include "nativeuiintegrationtest.h"
+#include "functionworkflowintegrationtest.h"
 
 #include "columnselection.h"
 #include "commandpalette.h"
@@ -564,6 +565,11 @@ int runNativeUiIntegrationTest(QMainWindow *window) {
   try {
     require(!testRoot.isEmpty(), "native UI test was not prepared before startup");
     exerciseNativeUi(window);
+    QString functionError;
+    if (!runFunctionWorkflowIntegrationTest(window, &functionError)) {
+      std::cerr << "native-ui-integration: FAIL: " << functionError.toStdString() << std::endl;
+      return 1;
+    }
     std::cout << "native-ui-integration: PASS" << std::endl;
     return 0;
   } catch (const Failure &failure) {

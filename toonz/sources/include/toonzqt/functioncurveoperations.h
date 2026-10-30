@@ -56,6 +56,8 @@ DVAPI Plan planFrameOffset(const std::vector<Selection> &selection,
                           double frames);
 DVAPI Plan planRetime(const std::vector<Selection> &selection, double pivot,
                      double positiveScale);
+DVAPI Plan planQuantize(const std::vector<Selection> &selection, double pivot,
+                       double positiveInterval);
 DVAPI Plan planBreakdown(const std::vector<Selection> &selection, double frame,
                         double favour);
 

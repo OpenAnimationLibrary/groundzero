@@ -88,6 +88,11 @@ void normalizationAndLocks() {
   f.viewer.getSelection()->setSegmentType(TDoubleKeyframe::Constant);
   require(FunctionCurveOperations::matchesSnapshot(f.a.getPointer(), original.getPointer()), "locked curve changed through native command");
   f.a->setEditorLocked(false); f.graph->setNormalized(false);
+  f.graph->fitRegion(0, 0, 24, 20); f.graph->setSnap(4, false);
+  f.graph->setSceneMarkers(6, 1, 0); f.graph->setSnapMarkers(true);
+  near(f.graph->snapFrameDelta(2.9, 10, false), 3);
+  f.graph->setSnapMarkers(false); near(f.graph->snapFrameDelta(2.9, 10, false), 4);
+  near(f.graph->snapFrameDelta(2.9, 10, true), 3);
   QKeyEvent right(QEvent::KeyPress, Qt::Key_Right, Qt::NoModifier); QApplication::sendEvent(f.graph, &right);
   near(f.a->keyframeIndexToFrame(1), 11);
   require(TUndoManager::manager()->undo(), "keyboard edit has no undo");
@@ -97,6 +102,7 @@ void nativeBatchDialog() {
   Fixture f; auto *selection = f.viewer.getSelection();
   selection->select(f.a.getPointer(), 1); selection->select(f.a.getPointer(), 2);
   auto *button = f.viewer.findChild<QToolButton *>("FunctionEditKeys"); require(button, "native batch action missing");
+  TDoubleParamP comparison = new TDoubleParam(*f.a); f.graph->setComparison({{f.a, comparison}});
   QString failure;
   QTimer::singleShot(0, [&]() {
     try {
@@ -118,6 +124,8 @@ void nativeBatchDialog() {
     }
   });
   button->click(); require(failure.isEmpty(), qPrintable(failure));
+  require(f.graph->comparison().size() == 1 && f.graph->comparison()[0].second == comparison, "Modal edit discarded an artist comparison snapshot");
+  near(comparison->getKeyframe(1).m_value, 100);
   near(f.a->getKeyframe(1).m_value, 110);
   require(TUndoManager::manager()->undo(), "native batch undo missing"); near(f.a->getKeyframe(1).m_value, 105);
   require(TUndoManager::manager()->undo(), "second native batch undo missing"); near(f.a->getKeyframe(1).m_value, 100);

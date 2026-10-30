@@ -142,6 +142,14 @@ void timingAndDrivenKeys() {
   near(value->getKeyframe(2).m_speedIn.x, -1);
   require(TUndoManager::manager()->undo(), "retime undo unavailable");
   require(Ops::matchesSnapshot(value.getPointer(), before.getPointer()), "retime undo lost tangent metadata");
+  auto quantized = curve({{0, 0}, {1.2, 3}, {4.8, 7}, {10, 10}});
+  const auto beforeQuantize = TDoubleParamP(new TDoubleParam(*quantized));
+  require(!Ops::planQuantize({all(quantized)}, 0, 0).valid(), "zero quantize grid accepted");
+  require(!Ops::planQuantize({{quantized, {1}}}, 0, 10).valid(), "quantization collided with an unselected key");
+  apply(Ops::planQuantize({{quantized, {1, 2}}}, 0, 2));
+  near(quantized->keyframeIndexToFrame(1), 2); near(quantized->keyframeIndexToFrame(2), 4);
+  near(quantized->keyframeIndexToFrame(0), 0); near(quantized->keyframeIndexToFrame(3), 10);
+  require(TUndoManager::manager()->undo() && Ops::matchesSnapshot(quantized.getPointer(), beforeQuantize.getPointer()), "quantize undo did not restore original timing");
   apply(Ops::planFrameOffset({{value, {1, 2}}}, .25));
   near(value->keyframeIndexToFrame(1), 2.25);
   near(value->keyframeIndexToFrame(2), 4.25);

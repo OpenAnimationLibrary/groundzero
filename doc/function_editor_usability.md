@@ -18,7 +18,9 @@ keys selected when appropriate.
 - Set or offset values uses each channel's current display unit.
 - Offset frames or retime around a pivot preserves relative selected timing.
   Invalid frames, collisions, crossing unselected keys or invalid channel values
-  produce an explanation without a partial edit.
+  produce an explanation without a partial edit. Quantize frame grid rounds
+  selected times to the sample/grid interval relative to the pivot, with the
+  same collision checks and one undo step.
 - Insert breakdown uses the first-frame field and a favour slider. Values below
   0% or above 100% create anticipation or overshoot between surrounding keys.
 - Bake evaluates the inclusive first/last frame range at the chosen interval and
@@ -55,13 +57,16 @@ handle link, unlink and reset operations. **Tools** contains:
   Restore applies that snapshot as one undo after confirmation. Changing the
   scene/Xsheet invalidates comparison buffers and cancels pending previews.
 - **Motion Presets:** browse saved numeric curves, inspect a thumbnail, mark
-  favorites, and preview duration/amplitude/value-offset adaptation before
+  favorites, search by name, and preview duration/amplitude/value-offset adaptation before
   replacing the current channel. Existing preset files are never overwritten.
 - **Dependencies:** inspect actual resolved native/SeExpr bindings, formula
   errors and dependent channels. Double-click a channel to show it.
 
 Frame dragging can snap to a chosen whole-frame increment or nearby unselected
-keys. Alt bypasses those extra snaps; native mouse dragging remains whole-frame.
+keys or the scene's frame markers (including their configured offset). Alt
+bypasses those extra snaps during ordinary moves; native mouse dragging remains
+whole-frame. Alt retains the existing stretch shortcut for contiguous selections
+of three or more keys. Use Shift+Alt for a constrained move with snapping bypassed.
 Use Edit Keys for precise fractional timing. Shift-drag constrains an axis.
 Arrow keys nudge selected keys; Shift uses ten increments. Tools also configures
 the value nudge and handle hit radius in logical pixels.

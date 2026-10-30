@@ -76,6 +76,15 @@ void preview(FunctionPanel *graph, const Ops::Plan &plan, bool before = false) {
     overlay.emplace_back(change.curve, before ? change.before : change.after);
   graph->setComparison(overlay);
 }
+void restoreOverlay(FunctionViewer *viewer, FunctionPanel *graph,
+                    std::vector<std::pair<TDoubleParamP, TDoubleParamP>> saved,
+                    bool contextValid) {
+  if (!contextValid) { graph->setComparison({}); return; }
+  QSet<TDoubleParam *> present;
+  for (auto *channel : viewer->findChild<FunctionTreeView *>()->channels()) present.insert(channel->getParam());
+  saved.erase(std::remove_if(saved.begin(), saved.end(), [&](const std::pair<TDoubleParamP, TDoubleParamP> &entry) { return !present.contains(entry.first.getPointer()); }), saved.end());
+  graph->setComparison(saved);
+}
 QDoubleSpinBox *number(QWidget *parent, double value, double low = -1.e9,
                        double high = 1.e9, int decimals = 6) {
   auto *field = new QDoubleSpinBox(parent);
@@ -84,6 +93,7 @@ QDoubleSpinBox *number(QWidget *parent, double value, double low = -1.e9,
   return field;
 }
 void showEdit(FunctionViewer *viewer, FunctionPanel *graph) {
+  auto savedComparison = graph->comparison();
   auto selection = selected(viewer->getSelection());
   if (selection.empty()) {
     QMessageBox::information(viewer, tr("Edit Function Keys"), tr("Select one or more keys in the graph or spreadsheet first.")); return;
@@ -111,17 +121,21 @@ void showEdit(FunctionViewer *viewer, FunctionPanel *graph) {
   QFormLayout form;
   auto *mode = new QComboBox(&dialog); mode->setObjectName("FunctionEditOperation");
   mode->addItems({tr("Set values"), tr("Offset values"), tr("Offset frames"), tr("Retime around pivot"),
-                  tr("Bake evaluated curves"), tr("Reduce linear keys"), tr("Insert breakdown")});
+                  tr("Bake evaluated curves"), tr("Reduce linear keys"), tr("Insert breakdown"), tr("Quantize frame grid")});
   auto *amount = number(&dialog, 0); amount->setObjectName("FunctionEditAmount");
-  auto *start = number(&dialog, first + 1, 1); auto *end = number(&dialog, last + 1, 1);
-  auto *step = number(&dialog, 1, .001, 1.e6);
-  auto *pivot = number(&dialog, first + 1, 1);
+  auto *start = number(&dialog, first + 1, 1); start->setObjectName("FunctionEditFirstFrame");
+  auto *end = number(&dialog, last + 1, 1); end->setObjectName("FunctionEditLastFrame");
+  auto *step = number(&dialog, 1, .001, 1.e6); step->setObjectName("FunctionEditInterval");
+  auto *pivot = number(&dialog, first + 1, 1); pivot->setObjectName("FunctionEditPivot");
   auto *scale = number(&dialog, 1, .000001, 1.e6);
-  auto *favour = new QSlider(Qt::Horizontal, &dialog); favour->setRange(-100, 200); favour->setValue(50);
+  auto *favour = new QSlider(Qt::Horizontal, &dialog); favour->setRange(-100, 200); favour->setValue(50); favour->setObjectName("FunctionEditFavour");
   auto *favourLabel = new QLabel(tr("50%"));
+  mode->setAccessibleName(tr("Key edit operation")); amount->setAccessibleName(tr("Amount or reduction tolerance"));
+  start->setAccessibleName(tr("First frame or breakdown frame")); end->setAccessibleName(tr("Last frame"));
+  favour->setAccessibleName(tr("Breakdown favour percent"));
   form.addRow(tr("Operation"), mode); form.addRow(tr("Amount / tolerance"), amount);
   form.addRow(tr("First frame / breakdown frame"), start); form.addRow(tr("Last frame"), end);
-  form.addRow(tr("Sample interval (frames)"), step); form.addRow(tr("Pivot frame"), pivot);
+  form.addRow(tr("Sample / grid interval (frames)"), step); form.addRow(tr("Pivot frame"), pivot);
   form.addRow(tr("Time scale"), scale); form.addRow(tr("Breakdown / overshoot"), favour); form.addRow(QString(), favourLabel);
   layout.addLayout(&form);
   auto *note = new QLabel(tr("Values use each channel's display units. Baking replaces driven segments explicitly and is exact at the chosen samples. Reduction preserves holds and driven boundaries. Dashed curves show a preview; nothing changes until Apply."));
@@ -129,13 +143,14 @@ void showEdit(FunctionViewer *viewer, FunctionPanel *graph) {
   auto *status = new QLabel; status->setWordWrap(true); layout.addWidget(status);
   QDialogButtonBox buttons(QDialogButtonBox::Apply | QDialogButtonBox::Close);
   auto *previewButton = buttons.addButton(tr("Preview"), QDialogButtonBox::ActionRole);
+  previewButton->setObjectName("FunctionEditPreview");
   layout.addWidget(&buttons);
   Ops::Plan plan;
   auto updateFields = [&]() {
     int op = mode->currentIndex();
-    amount->setEnabled(op <= 2 || op == 5); start->setEnabled(op >= 4);
-    end->setEnabled(op == 4 || op == 5); step->setEnabled(op == 4 || op == 5);
-    pivot->setEnabled(op == 3); scale->setEnabled(op == 3); favour->setEnabled(op == 6);
+    amount->setEnabled(op <= 2 || op == 5); start->setEnabled(op >= 4 && op <= 6);
+    end->setEnabled(op == 4 || op == 5); step->setEnabled(op == 4 || op == 5 || op == 7);
+    pivot->setEnabled(op == 3 || op == 7); scale->setEnabled(op == 3); favour->setEnabled(op == 6);
     status->setText(QString()); graph->setComparison({});
   };
   auto build = [&]() {
@@ -152,6 +167,7 @@ void showEdit(FunctionViewer *viewer, FunctionPanel *graph) {
     case 4: plan = Ops::planBake(curves(selection), range, cancel); break;
     case 5: plan = Ops::planReduce(selection, range, amount->value(), cancel); break;
     case 6: plan = Ops::planBreakdown(selection, start->value() - 1, favour->value() * .01); break;
+    case 7: plan = Ops::planQuantize(selection, pivot->value() - 1, step->value()); break;
     }
     preview(graph, plan);
     status->setText(plan.cancelled ? tr("Canceled; no keys changed.") : !plan.valid() ? plan.error
@@ -185,6 +201,7 @@ void showEdit(FunctionViewer *viewer, FunctionPanel *graph) {
         for (double frame : frames) {
           if (mode->currentIndex() == 2) frame += amount->value();
           if (mode->currentIndex() == 3) frame = pivot->value() - 1 + (frame - (pivot->value() - 1)) * scale->value();
+          if (mode->currentIndex() == 7) frame = pivot->value() - 1 + std::round((frame - (pivot->value() - 1)) / step->value()) * step->value();
           if (curve->isKeyframe(frame)) keys->select(curve, curve->getClosestKeyframe(frame));
         }
       }
@@ -195,7 +212,7 @@ void showEdit(FunctionViewer *viewer, FunctionPanel *graph) {
     graph->setComparison({});
   });
   QObject::connect(&buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
-  updateFields(); dialog.exec(); graph->setComparison({});
+  updateFields(); dialog.exec(); restoreOverlay(viewer, graph, savedComparison, contextValid);
 }
 
 QString ensureId(TDoubleParam *curve) {
@@ -251,7 +268,7 @@ void showSets(FunctionViewer *viewer, FunctionTreeView *tree) {
 
 void showDependencies(FunctionViewer *viewer, FunctionTreeView *tree) {
   auto *target = viewer->getCurrentChannelCurve(); if (!target) return;
-  QDialog dialog(viewer); dialog.setWindowTitle(tr("Channel Dependencies")); QVBoxLayout layout(&dialog);
+  QDialog dialog(viewer); dialog.setObjectName("FunctionDependenciesDialog"); dialog.setWindowTitle(tr("Channel Dependencies")); QVBoxLayout layout(&dialog);
   bool contextValid = true;
   if (viewer->getSceneHandle()) QObject::connect(viewer->getSceneHandle(), &TSceneHandle::sceneSwitched, &dialog, [&]() { contextValid = false; dialog.reject(); });
   if (viewer->getXsheetHandle()) QObject::connect(viewer->getXsheetHandle(), &TXsheetHandle::xsheetSwitched, &dialog, [&]() { contextValid = false; dialog.reject(); });
@@ -259,7 +276,7 @@ void showDependencies(FunctionViewer *viewer, FunctionTreeView *tree) {
   QObject::connect(tree->model(), &QAbstractItemModel::modelAboutToBeReset, &dialog, [&]() { contextValid = false; dialog.reject(); });
   QObject::connect(tree->model(), &QAbstractItemModel::layoutAboutToBeChanged, &dialog, [&]() { contextValid = false; dialog.reject(); });
   QLabel help(tr("Resolved native and SeExpr channel bindings. Double-click a channel to show it. Formula errors are listed with their frame."));
-  help.setWordWrap(true); layout.addWidget(&help); QListWidget list; layout.addWidget(&list);
+  help.setWordWrap(true); layout.addWidget(&help); QListWidget list; list.setObjectName("FunctionDependenciesList"); layout.addWidget(&list);
   auto all = tree->channels(); QSet<TDoubleParam *> sources;
   for (int k = 0; k < target->getKeyframeCount(); ++k) {
     auto key = target->getKeyframe(k);
@@ -316,6 +333,7 @@ public:
 };
 
 void showPresets(FunctionViewer *viewer, FunctionPanel *graph) {
+  auto savedComparison = graph->comparison();
   auto *target = viewer->getCurrentChannelCurve(); if (!target) return;
   TDoubleParamP keepTarget(target);
   QDialog dialog(viewer); dialog.setWindowTitle(tr("Motion Curve Presets")); QVBoxLayout layout(&dialog);
@@ -328,6 +346,7 @@ void showPresets(FunctionViewer *viewer, FunctionPanel *graph) {
   QDir directory(folder);
   QSettings settings(settingsPath(), QSettings::IniFormat);
   QStringList favorites = settings.value("presetFavorites").toStringList();
+  QLineEdit search; search.setObjectName("FunctionPresetSearch"); search.setPlaceholderText(tr("Search motion presets")); search.setClearButtonEnabled(true); layout.addWidget(&search);
   QListWidget list; layout.addWidget(&list); CurveThumbnail thumbnail(&dialog); layout.addWidget(&thumbnail);
   QCheckBox favorite(tr("Favorite")); layout.addWidget(&favorite);
   QFormLayout form;
@@ -348,11 +367,11 @@ void showPresets(FunctionViewer *viewer, FunctionPanel *graph) {
     std::stable_sort(files.begin(), files.end(), [&](const QString &a, const QString &b) { return favorites.contains(a) > favorites.contains(b); });
     for (const QString &file : files) {
       auto *item = new QListWidgetItem((favorites.contains(file) ? QString::fromUtf8("★ ") : QString()) + QFileInfo(file).completeBaseName(), &list);
-      item->setData(Qt::UserRole, file);
+      item->setData(Qt::UserRole, file); item->setHidden(!QFileInfo(file).completeBaseName().contains(search.text(), Qt::CaseInsensitive));
     }
   };
   QObject::connect(&list, &QListWidget::currentItemChanged, &dialog, [&](QListWidgetItem *item) {
-    preset = TDoubleParamP(); thumbnail.setCurve(preset); if (!item) return;
+    preset = TDoubleParamP(); thumbnail.setCurve(preset); graph->setComparison({}); if (!item) return;
     QString file = item->data(Qt::UserRole).toString(); QSignalBlocker block(&favorite); favorite.setChecked(favorites.contains(file));
     try {
       QString path = directory.filePath(file);
@@ -370,6 +389,13 @@ void showPresets(FunctionViewer *viewer, FunctionPanel *graph) {
       if (count > 1) duration->setValue(preset->keyframeIndexToFrame(count - 1) - preset->keyframeIndexToFrame(0));
       status.setText(tr("Preset loaded. Preview to compare; Apply replaces the current channel's keys."));
     } catch (...) { status.setText(tr("The preset could not be read. The current curve was not changed.")); }
+  });
+  QObject::connect(&search, &QLineEdit::textChanged, &dialog, [&](const QString &text) {
+    for (int row = 0; row < list.count(); ++row) {
+      auto *item = list.item(row);
+      item->setHidden(!QFileInfo(item->data(Qt::UserRole).toString()).completeBaseName().contains(text, Qt::CaseInsensitive));
+    }
+    if (list.currentItem() && list.currentItem()->isHidden()) list.setCurrentRow(-1);
   });
   QObject::connect(&favorite, &QCheckBox::toggled, &dialog, [&](bool enabled) {
     if (!list.currentItem()) return; QString file = list.currentItem()->data(Qt::UserRole).toString();
@@ -411,7 +437,7 @@ void showPresets(FunctionViewer *viewer, FunctionPanel *graph) {
     status.setText(tr("Preset applied as one undo step."));
   });
   QObject::connect(&buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
-  refresh(); dialog.exec(); graph->setComparison({});
+  refresh(); dialog.exec(); restoreOverlay(viewer, graph, savedComparison, contextValid);
 }
 } // namespace
 
@@ -429,7 +455,7 @@ QWidget *createFunctionWorkflowControls(FunctionViewer *viewer, FunctionTreeView
   auto *more = button(tr("Tools")); more->setPopupMode(QToolButton::InstantPopup); auto *menu = new QMenu(more); more->setMenu(menu);
   menu->addAction(tr("Channel Sets…"), widget, [=]() { showSets(viewer, tree); });
   menu->addAction(tr("Motion Presets…"), widget, [=]() { showPresets(viewer, graph); });
-  menu->addAction(tr("Dependencies…"), widget, [=]() { showDependencies(viewer, tree); });
+  menu->addAction(tr("Dependencies…"), widget, [=]() { showDependencies(viewer, tree); })->setObjectName("FunctionDependenciesAction");
   auto *normalize = menu->addAction(tr("Normalize curve display")); normalize->setCheckable(true);
   QObject::connect(normalize, &QAction::toggled, graph, &FunctionPanel::setNormalized);
   menu->addAction(tr("Fit all visible curves"), graph, &FunctionPanel::fitCurve);
@@ -453,29 +479,32 @@ QWidget *createFunctionWorkflowControls(FunctionViewer *viewer, FunctionTreeView
     for (const auto &curve : targets) curve->setEditorLocked(lock);
     graph->update(); tree->update(); viewer->onCurveSelected(viewer->getCurrentChannelCurve());
   });
-  auto *interpolationButton = button(tr("Interpolation"));
+  auto *interpolationButton = button(tr("Interpolation")); interpolationButton->setObjectName("FunctionInterpolation");
   interpolationButton->setPopupMode(QToolButton::InstantPopup);
   auto *interpolation = new QMenu(interpolationButton); interpolationButton->setMenu(interpolation);
   const std::pair<const char *, TDoubleKeyframe::Type> modes[] = {
     {"Constant", TDoubleKeyframe::Constant}, {"Linear", TDoubleKeyframe::Linear},
     {"Speed In / Speed Out", TDoubleKeyframe::SpeedInOut}, {"Ease In / Ease Out", TDoubleKeyframe::EaseInOut},
     {"Ease In / Ease Out %", TDoubleKeyframe::EaseInOutPercentage}, {"Exponential", TDoubleKeyframe::Exponential}};
-  for (auto mode : modes) interpolation->addAction(tr(mode.first), widget, [=]() { viewer->getSelection()->setSegmentType(mode.second); });
+  for (auto mode : modes) interpolation->addAction(tr(mode.first), widget, [=]() { viewer->getSelection()->setSegmentType(mode.second); })->setData(int(mode.second));
   for (bool link : {true, false}) interpolation->addAction(link ? tr("Link selected handles") : tr("Unlink selected handles"), widget, [=]() {
     auto selection = selected(viewer->getSelection()); if (viewer->getSelection()->hasLockedCurves()) return;
     TUndoManager::manager()->beginBlock();
     for (const auto &entry : selection) for (int k : entry.indices) { KeyframeSetter setter(entry.curve.getPointer(), k); if (link) setter.linkHandles(); else setter.unlinkHandles(); }
     TUndoManager::manager()->endBlock(); graph->update();
-  });
+  })->setObjectName(link ? "FunctionLinkHandles" : "FunctionUnlinkHandles");
   interpolation->addAction(tr("Reset selected handles"), widget, [=]() {
     auto selection = selected(viewer->getSelection()); if (viewer->getSelection()->hasLockedCurves()) return;
     TUndoManager::manager()->beginBlock();
     for (const auto &entry : selection) for (int k : entry.indices) {
       KeyframeSetter setter(entry.curve.getPointer(), k);
-      setter.setSpeedIn(TPointD(-5, 0)); setter.setSpeedOut(TPointD(5, 0));
+      if (setter.isSpeedInOut(k - 1)) setter.setSpeedIn(TPointD(-5, 0));
+      else if (setter.isEaseInOut(k - 1)) setter.setEaseIn(5);
+      if (setter.isSpeedInOut(k)) setter.setSpeedOut(TPointD(5, 0));
+      else if (setter.isEaseInOut(k)) setter.setEaseOut(5);
     }
     TUndoManager::manager()->endBlock(); graph->update();
-  });
+  })->setObjectName("FunctionResetHandles");
   auto snapshots = std::make_shared<std::vector<std::pair<TDoubleParamP, TDoubleParamP>>>();
   auto clearContext = [=]() { snapshots->clear(); soloState->clear(); graph->setComparison({}); widget->setProperty("comparisonVisible", false); };
   QObject::connect(viewer, &FunctionViewer::workflowContextChanged, widget, clearContext);
@@ -508,6 +537,9 @@ QWidget *createFunctionWorkflowControls(FunctionViewer *viewer, FunctionTreeView
   auto snap = std::make_shared<int>(settings.value("snapFrames", 1).toInt());
   auto *snapKeys = menu->addAction(tr("Snap near other keys")); snapKeys->setCheckable(true); snapKeys->setChecked(settings.value("snapKeys", false).toBool());
   graph->setSnap(*snap, snapKeys->isChecked());
+  auto *snapMarkers = menu->addAction(tr("Snap near scene frame markers")); snapMarkers->setCheckable(true);
+  snapMarkers->setChecked(settings.value("snapMarkers", false).toBool()); graph->setSnapMarkers(snapMarkers->isChecked());
+  QObject::connect(snapMarkers, &QAction::toggled, widget, [=](bool enabled) { graph->setSnapMarkers(enabled); QSettings s(settingsPath(), QSettings::IniFormat); s.setValue("snapMarkers", enabled); });
   QObject::connect(snapKeys, &QAction::toggled, widget, [=](bool enabled) { graph->setSnap(*snap, enabled); QSettings s(settingsPath(), QSettings::IniFormat); s.setValue("snapKeys", enabled); });
   menu->addAction(tr("Set frame snap increment…"), widget, [=]() {
     bool ok; int n = QInputDialog::getInt(viewer, tr("Frame Snap"), tr("Frames (Alt temporarily bypasses grid/key snapping)"), *snap, 1, 1000, 1, &ok);
@@ -523,6 +555,6 @@ QWidget *createFunctionWorkflowControls(FunctionViewer *viewer, FunctionTreeView
     bool ok; QSettings s(settingsPath(), QSettings::IniFormat); double value = QInputDialog::getDouble(viewer, tr("Keyboard Nudges"), tr("Display units (arrows; Shift multiplies by 10)"), s.value("valueNudge", 1.).toDouble(), .000001, 1.e6, 6, &ok);
     if (ok) { graph->setValueNudge(value); s.setValue("valueNudge", value); }
   });
-  menu->addAction(tr("Graph editing help"), widget, [=]() { QMessageBox::information(viewer, tr("Function Editor"), tr("Arrows nudge selected keys; Shift uses ten increments. Shift-drag constrains one axis. Alt-drag bypasses grid/key snapping. Search filters the browser, keeping active curves visible. Locked channels remain readable; editor writes are rejected. Dashed comparison and normalized display never change animation values.")); });
+  menu->addAction(tr("Graph editing help"), widget, [=]() { QMessageBox::information(viewer, tr("Function Editor"), tr("Arrows nudge selected keys; Shift uses ten increments. Shift-drag constrains one axis. Alt-drag bypasses grid/key/marker snapping for ordinary moves. Alt stretches a contiguous selection of three or more keys; Shift+Alt keeps a constrained move and bypasses snapping. Search filters the browser, keeping active curves visible. Locked channels remain readable; editor writes are rejected. Dashed comparison and normalized display never change animation values.")); });
   return widget;
 }
