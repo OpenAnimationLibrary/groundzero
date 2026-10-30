@@ -168,14 +168,17 @@ mandatory timeout primary and reports isolated failures separately. The original
 failed process and its deadlines remain unchanged.
 
 The full-scope source audit also reopened original-window lifetime handling in
-width-profile, fill, alignment and opacity reviews. These stack dialogs still
-use a deletable active window as their QObject parent; nested width-library and
-file dialogs additionally need sticky cancellation after owner hide/destruction.
-Morph and Make Unique Gradient also need original-owner hide/close cancellation,
+width-profile, fill, alignment and opacity reviews. These stack dialogs used
+a deletable active window as their QObject parent; nested width-library and
+file dialogs additionally needed sticky cancellation after owner hide/destruction.
+Morph and Make Unique Gradient also needed original-owner hide/close cancellation,
 although their existing allocation avoids the stack-parent deletion exposure.
-This is a source exposure, not a reproduced crash. The affected workflows remain
-Pending until independently owned dialogs, guarded nested actions and actual
-owner-interruption regressions are implemented and reviewed.
+This is a source exposure, not a reproduced crash. Reviewed correction `279f6eab2`
+provides independently owned dialogs, sticky original-owner and ancestor
+cancellation, guarded nested library/file actions, and actual queued-delivery
+witnesses with exact source/history/byte preservation. Custom gradient choices
+retain their real button semantics; fresh reusable morph reviews re-enable.
+Source review is complete; supported-platform execution remains pending.
 
 The audited follow-ups include saved-set rename and explicit target-range
 retiming; frozen evaluated comparisons with exact native restoration; native
@@ -333,21 +336,21 @@ the CI-only harness verifies isolation and failure retention.
 | 19 | Opacity readback | Single/mixed opacity selection follows context without mutating drawing. | Source-ready; CI pending |
 | 20 | Style opacity consistency | Relevant vector style render paths preserve stroke alpha with independent pixel fixtures. | Source-ready; focused Linux ROI equivalence passed, final-head/platform CI pending |
 | 21 | SVG stroke opacity | External SVG output carries palette alpha times stroke opacity. | Source-ready; CI pending |
-| 22 | Visual width-profile manager | CRUD/import/export/previews, errors, overwrite/cancel and restart persistence. | Pending; original window and nested dialog lifetime guards under implementation; strict repeated Undo/save qualification remains open |
-| 23 | Width profiles across drawings | Selected drawings/level range, repeated exposures once, locked resources and undo. | Pending; shared manager owner-lifetime correction and strict repeated Undo/save qualification remain open |
-| 24 | Pressure/profile blending | Zero-strength identity, replace/multiply semantics and pressure preservation. | Pending; shared manager owner-lifetime correction and full undo/save invariance remain open |
-| 25 | Fill-safe reshaping | Actual region-change preview/recovery in geometry edit flow; fills/undo saved. | Pending; original window lifetime correction and actual queued Apply coverage remain open |
+| 22 | Visual width-profile manager | CRUD/import/export/previews, errors, overwrite/cancel and restart persistence. | Source-ready; reviewed original-owner/nested cancellation and strict repeated Undo/save qualification await CI |
+| 23 | Width profiles across drawings | Selected drawings/level range, repeated exposures once, locked resources and undo. | Source-ready; shared manager owner-lifetime correction and strict repeated Undo/save qualification await CI |
+| 24 | Pressure/profile blending | Zero-strength identity, replace/multiply semantics and pressure preservation. | Source-ready; shared manager owner-lifetime correction and full undo/save invariance await CI |
+| 25 | Fill-safe reshaping | Actual region-change preview/recovery in geometry edit flow; fills/undo saved. | Source-ready; original-owner cancellation and actual queued Apply coverage await CI |
 | 26 | Persistent morph hints | Stable drawing/stroke identity, edits/deletions, reopen and compatibility. | Source-ready; CI pending |
-| 27 | Correspondence preview | Matched/manual/unmatched preview matches committed inbetweens. | Pending; original Filmstrip hide/close cancellation and actual owner-interruption coverage remain open |
-| 28 | Unmatched stroke handling | Explicit birth/death policy including Fade; endpoint, fill and opacity preservation, undo. | Pending; shared morph original-owner hide/close guard remains open; reviewed-range assertions retained |
-| 29 | Cross-frame gradient uniqueness | Single local/shared other-frame style, other drawings unchanged, undo. | Pending; original-owner cancellation before accepted palette changes remains open |
-| 30 | Animated gradient copying | Copy current vs animated style choice; keyframes, unlinking and reload. | Pending; original-owner cancellation remains open; cancellation/reload passed on Linux baseline |
+| 27 | Correspondence preview | Matched/manual/unmatched preview matches committed inbetweens. | Source-ready; original Filmstrip hide/close cancellation and actual owner-interruption coverage await CI |
+| 28 | Unmatched stroke handling | Explicit birth/death policy including Fade; endpoint, fill and opacity preservation, undo. | Source-ready; shared morph original-owner hide/close guard awaits CI; reviewed-range assertions retained |
+| 29 | Cross-frame gradient uniqueness | Single local/shared other-frame style, other drawings unchanged, undo. | Source-ready; original-owner cancellation before accepted palette changes awaits CI |
+| 30 | Animated gradient copying | Copy current vs animated style choice; keyframes, unlinking and reload. | Source-ready; original-owner cancellation awaits CI; cancellation/reload passed on Linux baseline |
 | 31 | Outline stacking preservation | Native overlap/group pixel fidelity through outline conversion and undo. | Source-ready; CI pending |
 | 32 | Closed-loop outlines | Inner/outer boundaries, tight loops, holes/winding and undo. | Source-ready; CI pending |
-| 33 | Multi-drawing alignment | Explicit frame/reference scope, preview/cancel, matching, groups and no index-only assumptions. | Pending; original window lifetime correction and actual owner hide/delete coverage remain open |
+| 33 | Multi-drawing alignment | Explicit frame/reference scope, preview/cancel, matching, groups and no index-only assumptions. | Source-ready; original window lifetime correction and actual owner hide/delete coverage await CI |
 | 34 | Paint Inside/Selection | Clipping to region/selection; holes/groups, pressure, undo. | Source-ready; CI pending |
 | 35 | Guided Drawing mode consistency | Guided Drawing honors paint mode or provides actionable explicit incompatibility. | Source-ready; CI pending |
-| 36 | Along-stroke opacity | Opacity variation survives draw/split/join/morph/deform/render/export and versioned storage. | Pending; original window lifetime correction and actual owner hide/delete coverage remain open; full converter/render baseline passed on Linux |
+| 36 | Along-stroke opacity | Opacity variation survives draw/split/join/morph/deform/render/export and versioned storage. | Source-ready; original window lifetime correction and actual owner hide/delete coverage await CI; full converter/render baseline passed on Linux |
 | 37 | Global Cast search | Name/path, folder/global scope, stable selection. | Source-ready; CI pending |
 | 38 | Cast filters | Types and resource status predicates including modified assets, combined with search. | Source-ready; fresh CI pending |
 | 39 | Where Used navigation | All nested occurrences, cycles bounded, exact instance navigation and multiselection. | Source-ready; Cast panel lifetime and queued navigation guards await CI |
