@@ -237,6 +237,10 @@ FunctionSelection::FunctionSelection()
     , m_columnToCurveMapper(0) {}
 
 FunctionSelection::~FunctionSelection() {
+  // The application selection handle is non-owning. Detach while the concrete
+  // selection and its command handlers are still alive: switching to the next
+  // editor calls selectNone() on the previous current selection.
+  makeNotCurrent();
   for (int i = 0; i < m_selectedKeyframes.size(); i++)
     if (m_selectedKeyframes[i].first) m_selectedKeyframes[i].first->release();
   m_selectedKeyframes.clear();
