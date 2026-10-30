@@ -70,7 +70,9 @@ Child-side records must match the staged helper application ID, its unique
 AppContainer SID, and the live IPv4/TCP loopback endpoint. Windows can instead
 drop the listener's outbound reply: that record must match the ordinary parent's
 application ID, absent/null package identity, both loopback addresses, listener
-port and the exact child source port obtained with `getsockname`. The parent
+port and the exact child source port obtained with `getsockname` after explicit
+loopback binding (an implicitly bound pending connection has no guaranteed
+local address). The parent
 independently checks the launched child's token against its unique container SID
 and checks its own ordinary token state. A reply record never inherits the
 remote child's identity as its local application/package identity. Enumeration is

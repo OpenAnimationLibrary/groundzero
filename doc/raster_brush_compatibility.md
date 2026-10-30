@@ -5,18 +5,28 @@ ABR decoding includes sampled tips, legacy computed geometry and typed metadata.
 Strict experimental K5341 component profiles are implemented; none of the full
 foreign behavior profiles below is complete or reference-verified. Keep this work separate from vector/touch usability and neural styling.
 
-At published `82f806b58`, Linux and macOS Qt5/Qt6 parser suites and import
-fuzzing passed, including signed macOS helper startup and allocation-refusal
-checks. The macOS mapping-growth limit and sampled footprint watchdog still do
-not establish an absolute OS-enforced resident-memory ceiling. Windows live
-network-denial qualification remains open: its connection attempt stalled, so
-bounded readiness and public OS isolation diagnostics now distinguish a pending
-attempt from an actual denial. Linux/macOS application fixtures stalled in the
-explicit-conversion workflow; Windows application compilation exposed an old
-Qt5 container comparison incompatible with the current compiler. These are open
-qualification failures, not passes or source-parity results. See
+At published `68a4eadbd`, the Linux full build, installed-application workload
+and complete Linux Tests workflow passed. The macOS brush application fixture
+passed, but deployment invalidated relocated dependency signatures before helper
+startup; this batch repairs signatures from dependencies outward and qualifies
+the actual disk image. Windows compilation and package creation passed; its
+application checks are still pending at this checkpoint. The focused Windows
+probe `843e13a3` passed both Qt engine suites; its worker isolation check failed
+because a loopback reply drop carried the listener identity rather than the
+child identity. The corrected bounded correlation checks both process roles,
+the child's exact AppContainer SID, connection ports and attempt interval; it
+still requires fresh CI qualification. No timeout alone counts as denial.
+
+The batch also adds measured source pressure-transfer curves, barrel rotation,
+single-channel HSV candidates and transient off-canvas wet state, with strict
+eligibility and explicit conversion boundaries. New original source acquisitions
+cover held-out HSV combinations, masked brushes, timed dynamics, powered GIH
+selection statistics and unresolved wet pickup neighborhoods. These acquisitions
+are not completed behavioral support or source verification. The macOS
+mapping-growth limit and sampled footprint watchdog do not establish an absolute
+OS-enforced resident-memory ceiling. See
 [platform boundaries](raster_brush_platform_isolation.md). Historical checkpoints
-below never qualify a later head automatically.
+never qualify a later head automatically.
 
 Native preset alpha preservation is combined with the toolbar lock instead of
 being overwritten by an unchecked modifier. The global eraser explicitly clears

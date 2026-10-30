@@ -365,6 +365,36 @@ int probeWindowsImportSandboxWorker(const QString &input, const QString &output,
     WSACleanup();
     return 5;
   }
+  // An implicitly bound pending connection need not expose its local
+  // address through getsockname. Bind explicitly before measuring identity.
+  sockaddr_in localAddress{};
+  localAddress.sin_family      = AF_INET;
+  localAddress.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+  if (bind(socketHandle, reinterpret_cast<const sockaddr *>(&localAddress),
+           sizeof(localAddress))) {
+    std::fprintf(stderr, "Loopback probe bind failed: Winsock=%d\n",
+                 WSAGetLastError());
+    closesocket(socketHandle);
+    WSACleanup();
+    return 20;
+  }
+  int localSize         = sizeof(localAddress);
+  const int localResult = getsockname(
+      socketHandle, reinterpret_cast<sockaddr *>(&localAddress), &localSize);
+  const quint16 sourcePort =
+      !localResult && localSize == sizeof(localAddress) &&
+              localAddress.sin_family == AF_INET &&
+              localAddress.sin_addr.s_addr == htonl(INADDR_LOOPBACK)
+          ? ntohs(localAddress.sin_port)
+          : 0;
+  if (!sourcePort) {
+    std::fprintf(stderr,
+                 "Loopback probe bound identity failed: result=%d Winsock=%d\n",
+                 localResult, localResult ? WSAGetLastError() : 0);
+    closesocket(socketHandle);
+    WSACleanup();
+    return 21;
+  }
   FILETIME attemptStart{}, attemptEnd{};
   GetSystemTimeAsFileTime(&attemptStart);
   int connected =
@@ -386,15 +416,6 @@ int probeWindowsImportSandboxWorker(const QString &input, const QString &output,
       networkError = WSAGetLastError();
     }
   }
-  sockaddr_in localAddress{};
-  int localSize = sizeof(localAddress);
-  const quint16 sourcePort =
-      !getsockname(socketHandle, reinterpret_cast<sockaddr *>(&localAddress),
-                   &localSize) &&
-              localAddress.sin_family == AF_INET &&
-              localAddress.sin_addr.s_addr == htonl(INADDR_LOOPBACK)
-          ? ntohs(localAddress.sin_port)
-          : 0;
   GetSystemTimeAsFileTime(&attemptEnd);
   closesocket(socketHandle);
   WSACleanup();
