@@ -420,6 +420,7 @@ static QByteArray encodeRecord(
         {"sourceSmudgeLengthEnabled", p.sourceSmudgeLengthEnabled},
         {"sourceSmearAlpha", p.sourceSmearAlpha},
         {"sourceColorRateEnabled", p.sourceColorRateEnabled},
+        {"sourceTextureSoftTexturing", p.sourceTextureSoftTexturing},
         {"pickupControl", dynamicJson(p.pickupControl)},
         {"colorRateControl", dynamicJson(p.colorRateControl)},
         {"radiusControl", dynamicJson(p.radiusControl)},
@@ -571,7 +572,8 @@ static Record decodeRecord(
              "scatterBothAxes",
              "sourceSmudgeLengthEnabled",
              "sourceSmearAlpha",
-             "sourceColorRateEnabled"});
+             "sourceColorRateEnabled",
+             "sourceTextureSoftTexturing"});
     auto &p   = r.preset;
     p.name    = text(o["name"]).toStdString();
     p.profile = text(o["profile"]).toStdString();
@@ -594,6 +596,8 @@ static Record decodeRecord(
     p.wash  = boolean(o["wash"]);
     if (o.contains("sourceSmudgeLengthEnabled"))
       p.sourceSmudgeLengthEnabled = boolean(o["sourceSmudgeLengthEnabled"]);
+    if (o.contains("sourceTextureSoftTexturing"))
+      p.sourceTextureSoftTexturing = boolean(o["sourceTextureSoftTexturing"]);
     if (o.contains("sourceColorRateEnabled"))
       p.sourceColorRateEnabled = boolean(o["sourceColorRateEnabled"]);
     if (o.contains("sourceSmearAlpha"))

@@ -373,8 +373,12 @@ int probeWindowsImportSandbox(const QString &executable, const QString &input,
   QString error;
   WindowsImportSandbox sandbox;
   if (!prepareWorkerCodecs() ||
-      !sandbox.prepare(executable, input, output, error))
+      !sandbox.prepare(executable, input, output, error)) {
+    std::fprintf(stderr, "Windows sandbox preparation failed: %s (Win32 %lu)\n",
+                 error.toUtf8().constData(),
+                 static_cast<unsigned long>(GetLastError()));
     return 10;
+  }
   QProcess process;
   sandbox.configure(process);
   process.setWorkingDirectory(output);
@@ -382,6 +386,12 @@ int probeWindowsImportSandbox(const QString &executable, const QString &input,
   process.setStandardErrorFile(QProcess::nullDevice());
   process.start(sandbox.program, {"--test-windows-sandbox-worker",
                                   sandbox.input, output, forbidden});
+  if (!process.waitForStarted(5000)) {
+    std::fprintf(stderr, "Windows sandbox launch failed: %s; modifier=%s\n",
+                 process.errorString().toUtf8().constData(),
+                 sandbox.launchError.toUtf8().constData());
+    return 15;
+  }
   if (!process.waitForFinished(15000)) {
     process.kill();
     process.waitForFinished(5000);
@@ -390,6 +400,9 @@ int probeWindowsImportSandbox(const QString &executable, const QString &input,
   const int status =
       process.exitStatus() == QProcess::NormalExit ? process.exitCode() : 12;
   if (!sandbox.close()) return 13;
+  if (status)
+    std::fprintf(stderr, "Windows sandbox child exit=%d status=%d\n",
+                 process.exitCode(), int(process.exitStatus()));
   return status;
 }
 int probeWindowsImportLimits() {

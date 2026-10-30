@@ -3,6 +3,7 @@
 // Original generated fixture shared by parser and installed-application tests.
 // No third-party brush assets are embedded.
 #include <QBuffer>
+#include <QCryptographicHash>
 #include <QImage>
 #include <QString>
 #include <stdexcept>
@@ -30,9 +31,12 @@ inline QByteArray hardPixelKpp(const QString &mutation = {},
   if (mutation == "wrongModeKey")
     param("PaintingMode", "1");
   else
-    param("PaintOpAction", mutation == "buildUp" || !model.isEmpty() ? "1"
-                           : mutation == "freehandWash"              ? "2"
-                                                                     : "0");
+    param("PaintOpAction", mutation == "buildUp" ||
+                                   mutation.startsWith("texture-") ||
+                                   !model.isEmpty()
+                               ? "1"
+                           : mutation == "freehandWash" ? "2"
+                                                        : "0");
   const bool pressureSize =
       mutation == "pressure" || mutation == "pressureRange" ||
       mutation == "pressureSensorRange" || mutation == "pressureSpline";
@@ -45,6 +49,8 @@ inline QByteArray hardPixelKpp(const QString &mutation = {},
         "KisPrecisionOption/AutoPrecisionEnabled"})
     param(key, (mutation == "erase" && key == "EraserMode") ||
                        (pressureSize && key == "PressureSize") ||
+                       (mutation.startsWith("texture-") &&
+                        key == "Texture/Pattern/Enabled") ||
                        (mutation == "wetOpacityPressure" &&
                         key == "OpacityUseCurve") ||
                        ((mutation == "wetFlowPressure" ||
@@ -52,6 +58,43 @@ inline QByteArray hardPixelKpp(const QString &mutation = {},
                         key == "FlowUseCurve")
                    ? "true"
                    : "false");
+  if (mutation.startsWith("texture-")) {
+    QImage pattern(16, 16, QImage::Format_RGB32);
+    for (int y = 0; y < 16; ++y)
+      for (int x = 0; x < 16; ++x) {
+        const int gray = x / 4 * 85;
+        pattern.setPixel(x, y, qRgb(gray, gray, gray));
+      }
+    QByteArray bytes;
+    QBuffer buffer(&bytes);
+    buffer.open(QIODevice::WriteOnly);
+    if (!pattern.save(&buffer, "PNG"))
+      throw std::runtime_error("texture fixture encoding");
+    param("Texture/Pattern/Pattern",
+          mutation == "texture-invalid"
+              ? "???"
+              : QString::fromLatin1(bytes.toBase64()));
+    param("Texture/Pattern/PatternMD5Sum",
+          mutation == "texture-checksum"
+              ? QString(32, '0')
+              : QString::fromLatin1(
+                    QCryptographicHash::hash(bytes, QCryptographicHash::Md5)
+                        .toHex()));
+    for (const auto &key : {"Scale", "Contrast"})
+      param("Texture/Pattern/" + QString(key), "1");
+    for (const auto &key : {"Brightness", "OffsetX", "OffsetY", "CutoffPolicy",
+                            "CutoffLeft", "TexturingMode"})
+      param("Texture/Pattern/" + QString(key), "0");
+    param("Texture/Pattern/NeutralPoint", ".5");
+    param("Texture/Pattern/CutoffRight", "255");
+    for (const auto &key :
+         {"isRandomOffsetX", "isRandomOffsetY", "AutoInvertOnErase", "Invert"})
+      param("Texture/Pattern/" + QString(key), "false");
+    param("Texture/Pattern/UseSoftTexturing", "true");
+    param("PressureTexture/Strength/", "true");
+    param("Texture/Strength/UseCurve", "false");
+    param("Texture/Strength/Value", ".5");
+  }
   if (mutation == "wetOpacityPressure" || mutation == "wetFlowPressure" ||
       mutation == "wetFlowDisabled") {
     const QString prefix =

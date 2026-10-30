@@ -70,12 +70,16 @@ public:
       return fail("Regular-file protocol requires a local disk path");
     // Retaining every ancestor without delete sharing prevents directory
     // replacement between checking the path and opening a response file.
+    // Attribute-only opens are exempt from share-access checks. Request actual
+    // directory read access so denying FILE_SHARE_DELETE prevents rename.
+    // https://learn.microsoft.com/windows/win32/api/fileapi/nf-fileapi-createfilew
     QString prefix   = absolute.left(3);
     const auto parts = absolute.mid(3).split('/', Qt::SkipEmptyParts);
     for (int i = 0; i <= parts.size(); ++i) {
       const QString native = QDir::toNativeSeparators(prefix);
       HANDLE handle        = CreateFileW(
-          reinterpret_cast<LPCWSTR>(native.utf16()), FILE_READ_ATTRIBUTES,
+          reinterpret_cast<LPCWSTR>(native.utf16()),
+          FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES,
           FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING,
           FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
       if (handle == INVALID_HANDLE_VALUE)

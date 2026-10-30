@@ -734,6 +734,40 @@ void testImports() {
               numericSpelling.records.front().preset.profile ==
                   "krita-5.3.4.1-hard-pixel-candidate-1",
           "equivalent numeric XML spelling changed source eligibility");
+  for (const QString &model :
+       {QString(), QString("legacy-smear"), QString("legacy-dulling"),
+        QString("new-smear")}) {
+    auto texture =
+        importBrush(hardPixelKpp("texture-valid", model), "kpp", error);
+    require(
+        error.isEmpty() && texture.records.size() == 1 &&
+            texture.records.front().preset.profile != "groundzero-native-1" &&
+            texture.records.front().preset.texture.image,
+        "fixed grayscale source texture lost eligibility");
+    const auto &record = texture.records.front();
+    auto restored      = decode(encode(record, error), error);
+    require(error.isEmpty() && restored.preset.sourceTextureSoftTexturing &&
+                restored.preset.texture.image &&
+                restored.preset.texture.image->pixels[4].a == 85 / 255.0 &&
+                restored.provenance["sourceTextureSha256"] ==
+                    record.provenance["sourceTextureSha256"],
+            "source grayscale texture or identity lost portable round trip");
+  }
+  for (const QString &mutation : {"texture-invalid", "texture-checksum"}) {
+    auto invalid = importBrush(hardPixelKpp(mutation), "kpp", error);
+    require(!error.isEmpty() && invalid.records.empty(),
+            "malformed source texture accepted");
+  }
+  auto textureOverBudget = importBrush(hardPixelKpp("texture-valid"), "kpp",
+                                       error, nullptr, 256 * sizeof(Pixel) - 1);
+  require(!error.isEmpty() && textureOverBudget.records.empty(),
+          "source texture decoded beyond remaining allocation budget");
+  auto unknownTextureState =
+      importBrush(hardPixelKpp("texture-valid", "new-dulling"), "kpp", error);
+  require(error.isEmpty() && unknownTextureState.records.size() == 1 &&
+              unknownTextureState.records.front().preset.profile ==
+                  "groundzero-native-1",
+          "unmeasured texture state was labeled source compatible");
   auto hard = importBrush(hardPixelKpp(), "kpp", error);
   require(hard.complete && hard.records.size() == 1, qPrintable(error));
   const auto &hardRecord = hard.records.front();
@@ -776,6 +810,36 @@ void testImports() {
                 restored.preset.size.mappings.front().curve[1].y == .75 &&
                 !restored.provenance["sourceReferenceVerified"].toBool(),
             "affine source pressure endpoints or qualification lost on reopen");
+  }
+  // Unknown source curve declarations must not be qualified merely because
+  // the permissive native decoder can extract an identity point list.
+  for (const QString variant :
+       {"pressure", "wetOpacityPressure", "wetFlowDisabled"}) {
+    const QString model = variant == "pressure" ? "" : "legacy-dulling";
+    for (const QString replacement :
+         {"<curve interpolation=\"unknown\">0,0;1,1;</curve>",
+          "<curve>0,0;1,1;</curve><curve>0,0;1,1;</curve>",
+          "active-setting<curve>0,0;1,1;</curve>"}) {
+      QImage source;
+      require(source.loadFromData(hardPixelKpp(variant, model), "PNG"),
+              "cannot load original sensor eligibility fixture");
+      QString xml = source.text("preset");
+      const QString original =
+          QString("<curve>0,0;1,1;</curve>").toHtmlEscaped();
+      require(xml.contains(original), "sensor fixture has no original curve");
+      xml.replace(original, replacement.toHtmlEscaped());
+      source.setText("preset", xml);
+      QByteArray bytes;
+      QBuffer buffer(&bytes);
+      buffer.open(QIODevice::WriteOnly);
+      require(source.save(&buffer, "PNG"),
+              "cannot encode sensor eligibility fixture");
+      const auto imported = importBrush(bytes, "kpp", error);
+      require(
+          imported.complete && imported.records.size() == 1 &&
+              imported.records.front().preset.profile == "groundzero-native-1",
+          "unknown active sensor declaration entered a source candidate");
+    }
   }
   auto spline = importBrush(hardPixelKpp("pressureSpline"), "kpp", error);
   require(spline.complete &&
@@ -1884,6 +1948,24 @@ void testResponseFiles() {
   require(file.open(QIODevice::WriteOnly) && file.write("held") == 4,
           "cannot create anchored file");
   file.close();
+#ifdef _WIN32
+  auto deletionHandle = [](const QString &directory) {
+    const auto native = QDir::toNativeSeparators(directory);
+    return CreateFileW(
+        reinterpret_cast<LPCWSTR>(native.utf16()), DELETE,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+        OPEN_EXISTING,
+        FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+  };
+  // Establish that the fixture's ACL allows rename/delete before anchoring.
+  // Afterwards the refusal must specifically come from sharing enforcement.
+  for (const auto &directory : {path, root.path()}) {
+    HANDLE handle = deletionHandle(directory);
+    require(handle != INVALID_HANDLE_VALUE,
+            "directory fixture lacks delete access");
+    CloseHandle(handle);
+  }
+#endif
   QString error;
   Detail::RegularResponseDirectory anchored;
   require(anchored.open(path, error), qPrintable(error));
@@ -1896,6 +1978,16 @@ void testResponseFiles() {
       "cannot write swapped response fixture");
   replacement.close();
 #else
+  for (const auto &directory : {path, root.path()}) {
+    HANDLE handle    = deletionHandle(directory);
+    const DWORD code = GetLastError();
+    if (handle != INVALID_HANDLE_VALUE) CloseHandle(handle);
+    const auto message =
+        QString("Windows directory anchor allowed delete access: error=%1")
+            .arg(code);
+    require(handle == INVALID_HANDLE_VALUE && code == ERROR_SHARING_VIOLATION,
+            qPrintable(message));
+  }
   require(!QDir().rename(path, root.filePath("moved")),
           "anchored Windows response directory could be replaced");
 #endif
@@ -2051,13 +2143,26 @@ void testWorkerProcess() {
     first.start(workerExecutable(),
                 {"--test-windows-sandbox-parent", input.fileName(),
                  firstOutput.path(), forbidden.fileName()});
+    require(first.waitForStarted(5000),
+            QString("Cannot start overlapping probe parent: %1")
+                .arg(first.errorString())
+                .toUtf8()
+                .constData());
     QElapsedTimer waiting;
     waiting.start();
     while (!QFileInfo::exists(firstOutput.filePath("entered")) &&
-           waiting.elapsed() < 15000)
-      QThread::msleep(10);
+           first.state() != QProcess::NotRunning && waiting.elapsed() < 15000)
+      first.waitForFinished(10);
+    const QString firstDetail =
+        QString(
+            "First overlapping sandbox did not enter: state=%1 exit=%2 "
+            "status=%3 stderr=%4")
+            .arg(int(first.state()))
+            .arg(first.exitCode())
+            .arg(int(first.exitStatus()))
+            .arg(QString::fromUtf8(first.readAllStandardError()).left(4096));
     require(QFileInfo::exists(firstOutput.filePath("entered")),
-            "first overlapping sandbox did not start");
+            firstDetail.toUtf8().constData());
     second.start(workerExecutable(),
                  {"--test-windows-sandbox-parent", input.fileName(),
                   secondOutput.path(), forbidden.fileName()});
@@ -2171,7 +2276,10 @@ void testWorkerProcess() {
     auto image = importBrushProcess(workerExecutable(), pngPath, error);
     require(error.isEmpty() && image.complete && image.records.size() == 1 &&
                 image.records.front().preset.tip.images.size() == 1,
-            "worker PNG tip import failed");
+            QString("worker PNG tip import failed: %1")
+                .arg(error)
+                .toUtf8()
+                .constData());
     const auto tip = image.records.front().preset.tip.images.front();
     require(tip->color && tip->width == 2 && tip->height == 1 &&
                 std::abs(tip->pixels[0].a - 128 / 255.0) < 1e-12 &&
@@ -2184,7 +2292,10 @@ void testWorkerProcess() {
   }
   auto result = importBrushProcess(workerExecutable(), input, error);
   require(error.isEmpty() && result.complete && result.records.size() == 1,
-          "worker-process GBR import failed");
+          QString("worker-process GBR import failed: %1")
+              .arg(error)
+              .toUtf8()
+              .constData());
   require(!result.records[0].referenceVerified && !result.diagnostics.empty(),
           "worker import lost conversion status");
   {

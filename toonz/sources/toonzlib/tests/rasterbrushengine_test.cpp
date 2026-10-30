@@ -82,6 +82,127 @@ void testFloatTransaction() {
   }
   require(tiny->used() == 0, "denied buffer leaked budget");
 }
+void testSnapshotAndPrepareBudgets() {
+  struct GuardSurface : Surface {
+    int side;
+    int prepares = 0, reads = 0, writes = 0;
+    bool refuse = false;
+    explicit GuardSurface(int size) : side(size) {}
+    int width() const override { return side; }
+    int height() const override { return side; }
+    bool prepare(int, int, int, int) override {
+      ++prepares;
+      return !refuse;
+    }
+    Pixel read(int, int) const override {
+      ++const_cast<GuardSurface *>(this)->reads;
+      return {};
+    }
+    void write(int, int, const Pixel &) override { ++writes; }
+  };
+  for (int size : {2048, std::numeric_limits<int>::max()}) {
+    auto backing = std::make_shared<GuardSurface>(size);
+    auto shared  = std::make_shared<MemoryBudget>(65536);
+    BufferedSurface buffer(backing, shared);
+    require(!buffer.prepare(0, 0, size, size) && backing->prepares == 0 &&
+                backing->reads == 0 && backing->writes == 0 &&
+                shared->used() == 0,
+            "float-cache budget was checked after host undo allocation");
+  }
+  {
+    auto backing = std::make_shared<GuardSurface>(32);
+    auto shared  = std::make_shared<MemoryBudget>(65536);
+    BufferedSurface buffer(backing, shared);
+    backing->refuse = true;
+    require(!buffer.prepare(0, 0, 32, 32) && shared->used() == 0,
+            "host refusal leaked preflight reservation");
+    backing->refuse = false;
+    require(buffer.prepare(0, 0, 32, 32), "valid buffered region rejected");
+    const size_t retained = shared->used();
+    require(retained >= 1024 * sizeof(Pixel) && buffer.prepare(0, 0, 32, 32) &&
+                shared->used() == retained,
+            "existing float tiles charged twice");
+  }
+  {
+    auto backing = std::make_shared<GuardSurface>(2048);
+    auto shared  = std::make_shared<MemoryBudget>(2 * 1024 * 1024);
+    BufferedSurface buffer(backing, shared);
+    Preset wet;
+    wet.wet          = Wet::Smear;
+    wet.size.value   = 4096;
+    wet.smudgeRadius = 3;
+    auto texture     = std::make_shared<Image>();
+    texture->width = texture->height = 1;
+    texture->pixels                  = {{0, 0, 0, 1}};
+    wet.texture.image                = texture;
+    Stroke stroke(buffer, wet, 2 * 1024 * 1024, shared);
+    require(
+        !stroke.add(sample(1024, 1024, 0)) &&
+            stroke.error() == "Raster transaction refused the stroke region" &&
+            backing->prepares == 0 && backing->reads == 0 &&
+            backing->writes == 0,
+        "combined wet texture allocated host undo before shared-budget denial");
+    stroke.finish();
+    require(shared->used() == 0, "failed wet texture retained memory charges");
+  }
+  Preset p;
+  Mapping mapping;
+  mapping.curve.clear();
+  for (int i = 0; i < 1024; ++i)
+    mapping.curve.push_back({double(i) / 1023, double(i) / 1023});
+  p.size.mappings.assign(16, mapping);
+  require(validate(p).empty(), "legal large linear-curve preset rejected");
+  Canvas canvas;
+  auto small = std::make_shared<MemoryBudget>(65536);
+  Stroke refused(canvas, p, 65536, small);
+  require(refused.error() == "Preset snapshot memory limit exceeded" &&
+              !refused.add(sample(32, 32, 0)) && small->used() == 0,
+          "linear settings snapshot bypassed memory budget");
+  auto measured = std::make_shared<MemoryBudget>(1024 * 1024);
+  Stroke measurement(canvas, p, 1024 * 1024, measured);
+  const size_t snapshot = measured->used();
+  require(measurement.error().empty() && snapshot >= 16 * 1024 * sizeof(Knot),
+          "copied linear knots were not charged");
+  measurement.finish();
+  require(measured->used() == 0, "finished settings snapshot retained charge");
+  {
+    Preset cubic = p;
+    for (auto &curve : cubic.size.mappings)
+      curve.interpolation = Interpolation::NaturalCubic;
+    auto exactSnapshot = std::make_shared<MemoryBudget>(snapshot);
+    Stroke deniedCache(canvas, cubic, snapshot, exactSnapshot);
+    require(deniedCache.error() == "Curve memory limit exceeded" &&
+                exactSnapshot->used() == 0,
+            "constructor cache failure retained its copied settings or charge");
+  }
+  auto shared = std::make_shared<MemoryBudget>(2 * snapshot - 1);
+  Stroke first(canvas, p, 1024 * 1024, shared);
+  Stroke second(canvas, p, 1024 * 1024, shared);
+  require(first.error().empty() && !second.error().empty() &&
+              shared->used() == snapshot,
+          "replicated tracks bypassed aggregate settings budget");
+  first.finish();
+  require(shared->used() == 0, "replicated settings snapshot leaked charge");
+  // Finished strokes must drop their resource references as well as reporting
+  // released memory; the caller may replace the installed preset immediately.
+  std::weak_ptr<const Image> lifetime;
+  std::unique_ptr<Stroke> retained;
+  {
+    Preset bitmap;
+    auto image   = std::make_shared<Image>();
+    image->width = image->height = 1;
+    image->pixels                = {{0, 0, 0, 1}};
+    lifetime                     = image;
+    bitmap.tip.shape             = Shape::Bitmap;
+    bitmap.tip.images.push_back(image);
+    bitmap.texture.image = image;
+    retained.reset(new Stroke(canvas, bitmap));
+  }
+  require(!lifetime.expired(), "stroke did not retain its input resource");
+  retained->finish();
+  require(lifetime.expired(),
+          "finished stroke retained snapshot resource storage");
+}
 void testComposition() {
   Pixel a{.2, .1, 0, .5}, b{.1, .3, .2, .5};
   Pixel n = composite(a, b, Blend::Normal);
@@ -830,6 +951,91 @@ void testNativeWetAnalyticalDrift() {
               "cancelled native wet stroke retained field memory");
     }
 }
+void testSourceTextureMasks() {
+  auto mask   = std::make_shared<Image>();
+  mask->width = mask->height = 16;
+  mask->pixels.resize(256);
+  for (int y = 0; y < 16; ++y)
+    for (int x = 0; x < 16; ++x)
+      mask->pixels[y * 16 + x] = {0, 0, 0, (x / 4) / 3.0};
+  // Original K5341 grayscale-band captures. Soft texturing attenuates the
+  // operation; legacy strength instead attenuates the incoming mask.
+  const int captured[2][2][4] = {{{0, 43, 85, 128}, {127, 170, 212, 255}},
+                                 {{128, 43, 0, 0}, {255, 212, 170, 127}}};
+  for (int mode = 0; mode < 2; ++mode)
+    for (int soft = 0; soft < 2; ++soft)
+      for (bool invert : {false, true}) {
+        Canvas canvas;
+        Preset p;
+        p.profile            = "krita-5.3.4.1-hard-pixel-candidate-1";
+        p.tip.antialiasEdges = false;
+        p.size.value         = 64;
+        p.texture.image      = mask;
+        p.texture.depth      = .5;
+        p.texture.mode       = mode ? MaskMode::Subtract : MaskMode::Multiply;
+        p.texture.invert     = invert;
+        p.sourceTextureSoftTexturing = soft;
+        Stroke stroke(canvas, p);
+        require(stroke.add(sample(64, 64, 0)), stroke.error().c_str());
+        for (int band = 0; band < 4; ++band)
+          require(
+              std::abs(canvas.read(64 + 4 * band, 64).a * 255 -
+                       captured[mode][soft][invert ? 3 - band : band]) < 1e-5,
+              "source texture byte-domain strength/polarity changed");
+      }
+  const int wetCaptured[3][4][4] = {{{255, 0, 0, 128},
+                                     {233, 12, 10, 134},
+                                     {193, 24, 38, 146},
+                                     {143, 36, 76, 164}},
+                                    {{255, 0, 0, 128},
+                                     {245, 10, 0, 131},
+                                     {235, 20, 0, 133},
+                                     {225, 30, 0, 136}},
+                                    {{255, 0, 0, 128},
+                                     {231, 12, 12, 134},
+                                     {188, 24, 43, 147},
+                                     {134, 36, 85, 168}}};
+  const char *models[] = {"legacy-smear", "legacy-dulling", "new-smear"};
+  for (int model = 0; model < 3; ++model) {
+    Canvas canvas;
+    for (int y = 0; y < canvas.h; ++y)
+      for (int x = 0; x < canvas.w; ++x)
+        canvas.write(
+            x, y,
+            x < 32 ? Pixel{0, 0, 1, 1} : Pixel{128 / 255.0, 0, 0, 128 / 255.0});
+    Preset p;
+    p.profile = std::string("krita-5.3.4.1-") + models[model] + "-candidate-1";
+    p.wet     = model == 1 ? Wet::Dulling : Wet::Smear;
+    p.tip.antialiasEdges = false;
+    p.size.value         = 32;
+    p.spacing            = 1;
+    p.smudgeRadius       = 0;
+    p.color              = {0, 1, 0, 1};
+    p.texture.image      = mask;
+    Stroke stroke(canvas, p);
+    require(stroke.add(sample(16, 64, 0)) && stroke.add(sample(81, 64, 1)),
+            stroke.error().c_str());
+    require(stroke.dabCount() == 3,
+            "source textured wet trace spacing changed");
+    for (int band = 0; band < 4; ++band) {
+      const Pixel actual  = canvas.read(80 + band * 4, 64);
+      const int *expected = wetCaptured[model][band];
+      require(
+          actual.a > 0 && std::abs(actual.a * 255 - expected[3]) <= 1.000001 &&
+              std::abs(actual.r / actual.a * 255 - expected[0]) <= 1.000001 &&
+              std::abs(actual.g / actual.a * 255 - expected[1]) <= 1.000001 &&
+              std::abs(actual.b / actual.a * 255 - expected[2]) <= 1.000001,
+          "source texture feedback differs from original third-dab capture");
+    }
+  }
+  Preset wet;
+  wet.profile            = "krita-5.3.4.1-new-dulling-candidate-1";
+  wet.wet                = Wet::Dulling;
+  wet.tip.antialiasEdges = false;
+  wet.smudgeRadius       = 0;
+  wet.texture.image      = mask;
+  require(!validate(wet).empty(), "unmeasured new Dulling texture admitted");
+}
 void testSourceWetOpacityTransport() {
   // Original K5341 straight RGBA8 captures, two/three separated dabs over
   // opaque blue then half-alpha red. The third dab distinguishes carried
@@ -1095,13 +1301,17 @@ void testSourceWetInitialization() {
     patchStroke.finish();
     auto widerShared = std::make_shared<MemoryBudget>(1024 * 1024);
     Canvas bounded   = original;
-    Stroke localLimit(bounded, p, 4096, widerShared);
+    Stroke settingsOnly(bounded, p, 1024 * 1024, widerShared);
+    const size_t settingsBytes = widerShared->used();
+    settingsOnly.finish();
+    const size_t localBudget = settingsBytes + 4096;
+    Stroke localLimit(bounded, p, localBudget, widerShared);
     require(localLimit.add(sample(30, 64, 0)),
             "one source snapshot should fit the local budget");
     require(!localLimit.add(sample(71, 64, 1)),
             "replacement source snapshot ignored retained local memory");
     require(
-        widerShared->used() <= 4096,
+        widerShared->used() <= localBudget,
         "source stroke exceeded its local limit inside a wider shared budget");
     localLimit.finish();
     require(widerShared->used() == 0, "failed source stroke retained memory");
@@ -1567,11 +1777,12 @@ void testSourceWetWorkBounds() {
     for (double radius : {0.0, p.smudgeRadius}) {
       p.smudgeRadius = radius;
       Stroke denied(guard, p, 1024u * 1024u * 1024u, budget);
+      const size_t settingsBytes = budget->used();
       require(!denied.add(sample(guard.side / 2, guard.side / 2, 0)) &&
                   denied.error() == "Stroke input pixel work limit exceeded",
               "source wet bypassed the per-add work budget");
       require(guard.prepared == 0 && guard.reads == 0 && guard.writes == 0 &&
-                  budget->used() == 0,
+                  budget->used() == settingsBytes,
               "source wet work failure touched the host or allocated snapshot");
       require(!denied.add(sample(0, 0, 1)), "failed source wet stroke resumed");
       denied.finish();
@@ -1583,9 +1794,11 @@ void testSourceWetWorkBounds() {
     p.smudgeRadius = p.wet == Wet::Smear ? 0 : .5;
     GuardSurface corner(1);
     Stroke clipped(corner, p, 1024 * 1024, budget);
+    const size_t settingsBytes = budget->used();
     require(clipped.add(sample(0, 0, 0)), clipped.error().c_str());
-    require(corner.prepared == 1 && budget->used() == sizeof(Pixel),
-            "clipped source wet snapshot charged the wrong raster area");
+    require(
+        corner.prepared == 1 && budget->used() == settingsBytes + sizeof(Pixel),
+        "clipped source wet snapshot charged the wrong raster area");
     clipped.finish();
     require(budget->used() == 0, "clipped source wet snapshot leaked budget");
     GuardSurface outside(1);
@@ -1821,6 +2034,7 @@ void testNativeSpacingAndWorkLimits() {
 int main() {
   try {
     testFloatTransaction();
+    testSnapshotAndPrepareBudgets();
     testComposition();
     testAreaCoverage();
     testDeterminismAndMasks();
@@ -1850,6 +2064,7 @@ int main() {
     testSourceSmallHardCircleAA();
     testSourceRectangle();
     testSourceWetInitialization();
+    testSourceTextureMasks();
     testSourceWetOpacityTransport();
     testSourceWetDisabledControls();
     testLongWetTrace();

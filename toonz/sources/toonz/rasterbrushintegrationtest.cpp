@@ -44,6 +44,9 @@
 #include <QMessageBox>
 #include <QFileDialog>
 #include <QComboBox>
+#include <QDoubleSpinBox>
+#include <QInputDialog>
+#include <QDialogButtonBox>
 #include <QTemporaryDir>
 #include <QLabel>
 #include <algorithm>
@@ -204,6 +207,74 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
             "native brush selection failed");
     auto undo = TUndoManager::manager();
     undo->reset();
+    auto verifyScenePersistence = [&](const TRaster32P &expected,
+                                      const QString &label) {
+      require(scene->getXsheet()->setCell(0, 0, TXshCell(level, TFrameId(1))),
+              "cannot expose lifecycle fixture for scene save");
+      level->save();
+      const TFilePath scenePath(
+          QDir::current().filePath("lifecycle-" + label + ".tnz"));
+      scene->saveCopy(scenePath);
+      ToonzScene restored;
+      restored.loadTnzFile(scenePath);
+      auto restoredLevel =
+          restored.getLevelSet()->getLevel(L"RasterBrushFixture");
+      require(restoredLevel && restoredLevel->getSimpleLevel(),
+              "lifecycle scene lost its raster level");
+      auto restoredRaster = restoredLevel->getSimpleLevel();
+      restoredRaster->load();
+      requireSame(expected, raster(restoredRaster, 1),
+                  "scene/level lifecycle pixels: " + label);
+      require(restored.getXsheet()->getCell(0, 0).m_frameId == TFrameId(1),
+              "lifecycle scene lost painted frame exposure");
+    };
+    auto verifyMidStrokeFrameSwitch = [&]() {
+      const auto baseline = raster(level, 1)->clone();
+      TRasterImageP secondImage(new TRasterImage(baseline->clone()));
+      secondImage->setDpi(72, 72);
+      level->setFrame(TFrameId(2), secondImage);
+      const auto selected = property->getValue();
+      require(tool->preLeftButtonDown(),
+              "brush refused midstroke lifecycle fixture");
+      TMouseEvent event;
+      event.m_button   = Qt::LeftButton;
+      event.m_buttons  = Qt::LeftButton;
+      event.m_isTablet = true;
+      event.m_pressure = .8;
+      event.m_tilt     = TPointD(.5, -.2);
+      event.m_hasTilt  = true;
+      tool->leftButtonDown(TPointD(-30, 0), event);
+      for (int i = 1; i <= 10; ++i)
+        tool->leftButtonDrag(TPointD(-30 + 3 * i, 0), event);
+      property->setValue(L"<round>");
+      require(tool->onPropertyChanged("Native Brush:") &&
+                  property->getValue() == selected,
+              "midstroke preset change replaced an active stroke's settings");
+      app->getCurrentFrame()->setFid(TFrameId(2));
+      settle();
+      tool->onImageChanged();
+      const auto committed = raster(level, 1)->clone();
+      tool->leftButtonDrag(TPointD(30, 0), event);
+      event.m_buttons = Qt::NoButton;
+      tool->leftButtonUp(TPointD(30, 0), event);
+      settle();
+      require(!same(baseline, committed) && same(baseline, raster(level, 2)) &&
+                  undo->getHistoryCount() == 1,
+              "frame switch lost the original stroke or painted the new frame");
+      require(undo->undo() && same(baseline, raster(level, 1)) &&
+                  same(baseline, raster(level, 2)),
+              "frame-switch undo changed the wrong frame");
+      require(undo->redo() && same(committed, raster(level, 1)) &&
+                  same(baseline, raster(level, 2)),
+              "frame-switch redo did not restore the original target only");
+      require(undo->undo(),
+              "cannot restore lifecycle fixture after frame switch");
+      app->getCurrentFrame()->setFid(TFrameId(1));
+      settle();
+      tool->onImageChanged();
+      level->eraseFrame(TFrameId(2));
+      undo->reset();
+    };
     checkpoint("qualifying native editor scratchpad isolation and cancel");
     {
       const auto baseline = raster(level, 1)->clone();
@@ -382,7 +453,8 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
       const auto baseline = raster(level, 1)->clone();
       const QDir library(ToonzFolder::getLibraryFolder().getQString() +
                          "/rasterbrushes");
-      for (bool acceptImport : {false, true}) {
+      bool alreadyInstalled = false;
+      for (bool acceptImport : {false, true, true}) {
         const auto beforeFiles =
             library.entryList(QDir::AllEntries | QDir::NoDotAndDotDot);
         const bool nativeDialogsDisabled =
@@ -448,12 +520,14 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
                 "Cancel default");
         const auto afterFiles =
             library.entryList(QDir::AllEntries | QDir::NoDotAndDotDot);
-        require((acceptImport ? afterFiles != beforeFiles
-                              : afterFiles == beforeFiles) &&
-                    same(baseline, raster(level, 1)) &&
-                    undo->getHistoryCount() == 0,
-                "approximation acceptance did not control installation "
-                "independently of document state");
+        require(
+            (acceptImport && !alreadyInstalled ? afterFiles != beforeFiles
+                                               : afterFiles == beforeFiles) &&
+                same(baseline, raster(level, 1)) &&
+                undo->getHistoryCount() == 0,
+            "approximation acceptance did not control installation "
+            "independently of document state");
+        if (acceptImport) alreadyInstalled = true;
         if (acceptImport && !kind.isEmpty()) {
           bool statusCorrect = false;
           QTimer::singleShot(0, [&]() {
@@ -595,6 +669,7 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
         requireSame(
             painted, TRaster32P(reopened),
             "source wet save/reopen changed committed pixels: " + model);
+        if (variant == "halfOpacity") verifyScenePersistence(painted, label);
         require(undo->undo() && same(baseline, raster(level, 1)),
                 "source wet second undo failed");
         undo->reset();
@@ -609,6 +684,7 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
         require(undo->undo() && same(baseline, raster(level, 1)),
                 "repeated source wet undo failed");
         undo->reset();
+        if (variant == "halfOpacity") verifyMidStrokeFrameSwitch();
       }
     checkpoint("qualifying combined portable resources and native dynamics");
     for (bool wet : {false, true}) {
@@ -848,6 +924,8 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
       require(TImageReader::load(output, reopened),
               "combined preset painted image did not reopen");
       requireSame(high, TRaster32P(reopened), "combined preset PNG round trip");
+      verifyScenePersistence(high,
+                             wet ? "combined-wet" : "combined-dual-texture");
       require(undo->undo() && same(baseline, raster(level, 1)),
               "combined preset restore failed");
       undo->reset();
@@ -860,6 +938,71 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
       require(undo->undo() && same(baseline, raster(level, 1)),
               "combined preset low-input undo failed");
       undo->reset();
+      verifyMidStrokeFrameSwitch();
+      checkpoint("qualifying same-name preset copies and duplicate saves");
+      const auto originalSelection = property->getValue();
+      const QString originalPath =
+          QDir(folder).filePath(QString::fromStdWString(originalSelection));
+      const auto originalBytes = RasterBrush::readBoundedRegularFile(
+          originalPath, 64 * 1024 * 1024, importError);
+      require(importError.isEmpty(),
+              "cannot capture original preset for copy workflow");
+      std::wstring editedSelection;
+      for (int saveIndex = 0; saveIndex < 2; ++saveIndex) {
+        bool edited = false, named = false;
+        QTimer editorDriver;
+        QObject::connect(&editorDriver, &QTimer::timeout, [&]() {
+          auto modal = QApplication::activeModalWidget();
+          if (modal && modal->objectName() == "nativeBrushEditor") {
+            auto opacity =
+                modal->findChild<QDoubleSpinBox *>("nativeBrushPresetOpacity");
+            auto buttons = modal->findChild<QDialogButtonBox *>();
+            if (opacity && buttons && buttons->button(QDialogButtonBox::Ok)) {
+              opacity->setValue(.333);
+              edited = true;
+              buttons->button(QDialogButtonBox::Ok)->click();
+            } else
+              qobject_cast<QDialog *>(modal)->reject();
+          } else if (auto name = qobject_cast<QInputDialog *>(modal)) {
+            named = name->textValue() ==
+                    QString::fromStdString(fixture.preset.name);
+            name->accept();
+          }
+        });
+        editorDriver.start(25);
+        property->setValue(L"<edit>");
+        const bool handled = tool->onPropertyChanged("Native Brush:");
+        editorDriver.stop();
+        require(
+            handled && edited && named &&
+                property->getValue() != originalSelection,
+            "same-name edit did not create and select a distinct preset copy");
+        if (saveIndex == 0)
+          editedSelection = property->getValue();
+        else
+          require(property->getValue() == editedSelection,
+                  "identical edited preset created a duplicate copy");
+        const auto newPath = QDir(folder).filePath(
+            QString::fromStdWString(property->getValue()));
+        const auto saved = RasterBrush::importBrushProcess(
+            QCoreApplication::applicationFilePath(), newPath, importError);
+        require(
+            importError.isEmpty() && saved.complete &&
+                saved.records.size() == 1 &&
+                saved.records.front().preset.opacity.value == .333 &&
+                saved.records.front().preset.name == fixture.preset.name,
+            "same-name preset copy did not preserve edited settings on reopen");
+        const auto unchanged = RasterBrush::readBoundedRegularFile(
+            originalPath, 64 * 1024 * 1024, importError);
+        require(importError.isEmpty() && unchanged == originalBytes &&
+                    same(baseline, raster(level, 1)) &&
+                    undo->getHistoryCount() == 0,
+                "preset editing overwrote original resource package or changed "
+                "document");
+      }
+      property->setValue(originalSelection);
+      require(tool->onPropertyChanged("Native Brush:"),
+              "cannot restore original preset after copy workflow");
     }
     checkpoint("rolling back actual-tool work-limit failure");
     {

@@ -451,6 +451,37 @@ Tip resolveTip(const QMap<QString, QByteArray> *resources,
   if (application == 0) convertTipToMask(tip);
   return tip;
 }
+// Source qualification cannot inherit the native converter's tolerance for
+// unknown curve attributes or duplicate curve nodes. Those may encode active
+// source behavior even when the final decoded point list looks familiar.
+bool eligiblePressureSensor(const QString &sensorXml) {
+  QXmlStreamReader xml(sensorXml);
+  int depth = 0, roots = 0, curves = 0;
+  while (!xml.atEnd()) {
+    xml.readNext();
+    if (xml.isEntityReference()) return false;
+    if (xml.isDTD() && xml.text().toString().trimmed() != "<!DOCTYPE params>")
+      return false;
+    if (xml.isStartElement()) {
+      ++depth;
+      if (!xml.namespaceUri().isEmpty() || !xml.namespaceDeclarations().empty())
+        return false;
+      if (depth == 1 && xml.name() == QStringLiteral("params")) {
+        if (++roots != 1 || xml.attributes().size() != 1 ||
+            xml.attributes().value("id") != QStringLiteral("pressure"))
+          return false;
+      } else if (depth == 2 && xml.name() == QStringLiteral("curve")) {
+        if (++curves != 1 || !xml.attributes().empty()) return false;
+      } else
+        return false;
+    } else if (xml.isEndElement()) {
+      --depth;
+    } else if (xml.isCharacters() && !xml.isWhitespace() && depth != 2) {
+      return false;
+    }
+  }
+  return !xml.hasError() && depth == 0 && roots == 1 && curves == 1;
+}
 bool eligibleFixedSource(const QMap<QString, QString> &fields,
                          const QString &engine, const Preset &preset) {
   if (engine != "paintbrush" && engine != "colorsmudge") return false;
@@ -477,6 +508,54 @@ bool eligibleFixedSource(const QMap<QString, QString> &fields,
       {"PaintOpSettings/updateSpacingBetweenDabs", "false"},
       {"KisPrecisionOption/AutoPrecisionEnabled", "false"},
       {"KisPrecisionOption/precisionLevel", "5"}};
+  if (fields.value("Texture/Pattern/Enabled") == "true") {
+    if (!preset.texture.image) return false;
+    const QMap<QString, QString> textureFixed = {
+        {"Texture/Pattern/Enabled", "true"},
+        {"Texture/Pattern/Scale", "1"},
+        {"Texture/Pattern/Brightness", "0"},
+        {"Texture/Pattern/Contrast", "1"},
+        {"Texture/Pattern/NeutralPoint", ".5"},
+        {"Texture/Pattern/OffsetX", "0"},
+        {"Texture/Pattern/OffsetY", "0"},
+        {"Texture/Pattern/isRandomOffsetX", "false"},
+        {"Texture/Pattern/isRandomOffsetY", "false"},
+        {"Texture/Pattern/CutoffPolicy", "0"},
+        {"Texture/Pattern/CutoffLeft", "0"},
+        {"Texture/Pattern/CutoffRight", "255"},
+        {"Texture/Pattern/AutoInvertOnErase", "false"},
+        {"PressureTexture/Strength/", "true"},
+        {"Texture/Strength/UseCurve", "false"}};
+    for (auto i = textureFixed.begin(); i != textureFixed.end(); ++i) {
+      const QString actual = fields.value(i.key());
+      bool actualNumeric = false, expectedNumeric = false;
+      const double a = actual.toDouble(&actualNumeric),
+                   b = i.value().toDouble(&expectedNumeric);
+      if (!fields.contains(i.key()) ||
+          (expectedNumeric ? (!actualNumeric || !std::isfinite(a) || a != b)
+                           : actual != i.value()))
+        return false;
+      required[i.key()] = actual;
+    }
+    for (const QString &key :
+         {"Texture/Pattern/Invert", "Texture/Pattern/UseSoftTexturing"}) {
+      if (fields.value(key) != "false" && fields.value(key) != "true")
+        return false;
+      required[key] = fields[key];
+    }
+    if (fields.value("Texture/Pattern/TexturingMode") != "0" &&
+        fields.value("Texture/Pattern/TexturingMode") != "1")
+      return false;
+    required["Texture/Pattern/TexturingMode"] =
+        fields["Texture/Pattern/TexturingMode"];
+    if (!fields.contains("Texture/Strength/Value")) return false;
+    required["Texture/Strength/Value"] = fields["Texture/Strength/Value"];
+    for (const QString &key :
+         {"Texture/Pattern/Name", "Texture/Pattern/PatternFileName",
+          "Texture/Pattern/PatternMD5Sum", "Texture/Pattern/PatternMD5",
+          "Texture/Pattern/Pattern"})
+      if (fields.contains(key)) required[key] = fields[key];
+  }
   // With FlowUseCurve=false the source's static FlowValue is inactive in
   // build-up Pixel and all four measured Color Smudge models. Preserve it.
   if (!fields.contains("FlowValue") || !fields.contains("OpacityValue"))
@@ -596,6 +675,9 @@ bool eligibleFixedSource(const QMap<QString, QString> &fields,
   }
   for (auto i = required.begin(); i != required.end(); ++i)
     if (!fields.contains(i.key()) || fields.value(i.key()) != i.value())
+      return false;
+  for (auto i = required.begin(); i != required.end(); ++i)
+    if (i.key().endsWith("Sensor") && !eligiblePressureSensor(i.value()))
       return false;
   // These serialized properties belong exclusively to Color Smudge. They
   // are inert in Pixel; no wildcard exemptions for other unknown settings.
@@ -880,6 +962,92 @@ Record convertKpp(const QByteArray &bytes, QStringList &diagnostics,
         fields.value("PressureColorRate") == "true";
   } else
     candidate.wash = fields.value("PaintOpAction") != "1";
+  if (fields.value("Texture/Pattern/Enabled") == "true" &&
+      (fields.value("Texture/Pattern/TexturingMode") == "0" ||
+       fields.value("Texture/Pattern/TexturingMode") == "1")) {
+    QByteArray pattern;
+    const QByteArray encoded =
+        fields.value("Texture/Pattern/Pattern").toLatin1();
+    if (!encoded.isEmpty()) {
+      pattern = QByteArray::fromBase64(encoded);
+      if (pattern.isEmpty() || pattern.toBase64() != encoded)
+        throw Invalid("Noncanonical or invalid embedded texture encoding");
+    } else if (resources) {
+      const QString filename = fields.value("Texture/Pattern/PatternFileName");
+      const QString checksum =
+          fields.value("Texture/Pattern/PatternMD5Sum").toLower();
+      const QByteArray binaryChecksum =
+          fields.value("Texture/Pattern/PatternMD5").toLatin1();
+      QStringList matches;
+      for (auto i = resources->begin(); i != resources->end(); ++i) {
+        const QByteArray hash =
+            QCryptographicHash::hash(i.value(), QCryptographicHash::Md5);
+        const bool match = !checksum.isEmpty()
+                               ? QString::fromLatin1(hash.toHex()) == checksum
+                           : !binaryChecksum.isEmpty()
+                               ? hash.toBase64() == binaryChecksum
+                               : (!filename.isEmpty() &&
+                                  (i.key() == filename ||
+                                   QFileInfo(i.key()).fileName() == filename));
+        if (match) matches << i.key();
+      }
+      if (matches.size() != 1)
+        throw Invalid("Missing or ambiguous KPP texture dependency");
+      pattern = resources->value(matches.front());
+    } else
+      throw Invalid("KPP texture resource missing; import its resource bundle");
+    if (!pattern.startsWith(QByteArray::fromHex("89504e470d0a1a0a")))
+      throw Invalid("Source texture candidate requires a PNG pattern");
+    const QString declaredHash =
+        fields.value("Texture/Pattern/PatternMD5Sum").toLower();
+    if (!declaredHash.isEmpty() &&
+        declaredHash !=
+            QString::fromLatin1(
+                QCryptographicHash::hash(pattern, QCryptographicHash::Md5)
+                    .toHex()))
+      throw Invalid("KPP texture checksum mismatch");
+    const QByteArray binaryHash =
+        fields.value("Texture/Pattern/PatternMD5").toLatin1();
+    if (!binaryHash.isEmpty() &&
+        binaryHash != QCryptographicHash::hash(pattern, QCryptographicHash::Md5)
+                          .toBase64())
+      throw Invalid("KPP embedded texture checksum mismatch");
+    size_t used = 0;
+    for (const auto &image : candidate.tip.images) {
+      const size_t bytes = image->pixels.size() * sizeof(Pixel);
+      if (bytes > maximumDecodedBytes - used)
+        throw Invalid("KPP texture aggregate budget exceeded");
+      used += bytes;
+    }
+    auto image = decodeImage(pattern, true, error, maximumDecodedBytes - used);
+    if (!image) throw std::runtime_error(error.toStdString());
+    const bool gray = std::all_of(
+        image->pixels.begin(), image->pixels.end(), [](Pixel pixel) {
+          return pixel.a == 1 && pixel.r == pixel.g && pixel.g == pixel.b;
+        });
+    if (gray) {
+      // Retain source grayscale as mask data, not its uniformly opaque PNG
+      // alpha. Original resource bytes remain identified by provenance.
+      auto mask = std::const_pointer_cast<Image>(image);
+      for (auto &pixel : mask->pixels) pixel = {0, 0, 0, pixel.r};
+      mask->color             = false;
+      candidate.texture.image = std::move(image);
+      candidate.texture.mode =
+          fields.value("Texture/Pattern/TexturingMode") == "0"
+              ? MaskMode::Multiply
+              : MaskMode::Subtract;
+      candidate.texture.depth = numeric(fields.value("Texture/Strength/Value"));
+      candidate.texture.invert =
+          fields.value("Texture/Pattern/Invert") == "true";
+      candidate.sourceTextureSoftTexturing =
+          fields.value("Texture/Pattern/UseSoftTexturing") == "true";
+      r.provenance["sourceTextureSha256"] = QString::fromLatin1(
+          QCryptographicHash::hash(pattern, QCryptographicHash::Sha256)
+              .toHex());
+    } else
+      diagnostics << "Source texture candidate requires opaque grayscale; "
+                     "color/alpha pattern interpretation is unverified.";
+  }
   if (eligibleFixedSource(fields, engine, candidate)) {
     r.preset = std::move(candidate);
     if (engine == "colorsmudge" && fields.value("FlowUseCurve") == "true") {

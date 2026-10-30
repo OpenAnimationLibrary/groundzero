@@ -8,6 +8,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QRegularExpression>
 #include <QTemporaryDir>
 #include <algorithm>
 #include <cmath>
@@ -260,6 +261,15 @@ int main(int argc, char **argv) {
     QFile manifest(root.filePath("output/fixtures.json"));
     require(manifest.open(QIODevice::ReadOnly), "Fixture manifest missing");
     auto fixtures = QJsonDocument::fromJson(manifest.readAll()).object();
+    if (fixtures["group"].toString() == "gihstatistics") {
+      const auto statistics = oracle["resourceStatistics"].toObject();
+      require(statistics["strokes"].toInt() == 100 &&
+                  statistics["sourceSequences"].toArray().size() == 100 &&
+                  statistics["observedDabs"].toInt() > 0 &&
+                  statistics["seedParityClaimed"].isBool() &&
+                  !statistics["seedParityClaimed"].toBool(),
+              "Incomplete or mislabeled random GIH acquisition");
+    }
     auto expected = fixtures["presets"].toArray();
     require(!expected.empty(), "Empty fixture manifest");
     QStringList remaining;
@@ -332,12 +342,27 @@ int main(int argc, char **argv) {
       }
       QString name = source["preset"].toString(), error;
       require(remaining.removeOne(name), "Unexpected or duplicate source case");
-      auto imported = importBrushFile(
-          root.filePath("data/krita/paintoppresets/" + name + ".kpp"), error);
+      const bool resourceCase = fixtures["group"].toString() == "bitmaptips" ||
+                                fixtures["group"].toString() == "gihstatistics";
+      QString package = "data/krita/paintoppresets/" + name + ".kpp";
+      if (resourceCase) {
+        package = source["candidatePackage"].toString();
+        require(QRegularExpression(
+                    "^output/resource-packages/resource-[0-9]{3}\\.bundle$")
+                    .match(package)
+                    .hasMatch(),
+                "Invalid original resource package path");
+        require(source["resourceResolution"].isObject() &&
+                    source["resourceReadback"].isObject(),
+                "Missing actual resource resolution/readback evidence");
+      }
+      auto imported = importBrushFile(root.filePath(package), error);
       require(error.isEmpty() && imported.records.size() == 1,
               "Candidate import failed: " + error);
       Preset p = imported.records.front().preset;
+      const bool textureGate = fixtures["group"].toString() == "texturemasks";
       const bool sourceHard =
+          (textureGate && name.contains("dry legacy")) ||
           fixtures["group"].toString() == "hardpixel" ||
           fixtures["group"].toString() == "pixelopacity" ||
           fixtures["group"].toString() == "pixelopacitytablet" ||
@@ -392,7 +417,12 @@ int main(int argc, char **argv) {
             source["sourceCandidateGate"].isBool() &&
                 source["sourceCandidateGate"].toBool() == kernelCountGate,
             "Kernel probe qualification metadata disagrees with eligibility");
+      if (textureGate && name.contains("dulling new"))
+        require(p.profile == "groundzero-native-1",
+                "Unmeasured new Dulling texture gained source eligibility");
       const bool sourceWet =
+          (textureGate && !name.contains("dry legacy") &&
+           !name.contains("dulling new")) ||
           (fixtures["group"].toString() == "wetsteps" ||
            fixtures["group"].toString() == "wethold" ||
            fixtures["group"].toString() == "wetstate" ||

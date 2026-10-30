@@ -9,6 +9,7 @@ import time
 import zlib
 from pathlib import Path
 from krita import Krita, Extension, ManagedColor, Preset
+from . import resource_probe
 from xml.etree.ElementTree import fromstring
 from PyQt5.QtCore import QByteArray, QPoint, QPointF, QTimer, QEvent, Qt
 from PyQt5.QtGui import QColor, QImage, QTabletEvent
@@ -364,8 +365,25 @@ class Probe(Extension):
                     if (abs(float(kernel_geometry["serializedDiameter"]) - case["diameter"]) > 1e-5 or
                             abs(float(kernel_geometry["serializedRadius"]) - float(case["overrides"]["SmudgeRadiusValue"])) > 1e-9):
                         raise RuntimeError("Source serialized kernel controls differ from requested values")
+                size_curve_controls = None
+                if fixtures.get("group") == "pixelcurveknots":
+                    keys = ("PressureSize", "SizeUseCurve", "SizeUseSameCurve",
+                            "SizecommonCurve", "SizeSensor", "SizecurveMode")
+                    size_curve_controls = {key: effective_fields.get(key) for key in keys}
+                    for key in keys:
+                        if size_curve_controls[key] != case["overrides"][key]:
+                            raise RuntimeError("Source size curve setting did not round trip: " + key)
+                transfer_controls = None
+                if case.get("variant", "").startswith("transfer "):
+                    transfer_controls = {key: effective_fields.get(key)
+                        for prefix in ("Opacity", "Flow")
+                        for key in ("Pressure" + prefix, prefix + "Value", prefix + "UseCurve",
+                                    prefix + "UseSameCurve", prefix + "commonCurve", prefix + "Sensor")}
+                    for key, expected in case["overrides"].items():
+                        if effective_fields.get(key) != expected:
+                            raise RuntimeError("Source transfer setting did not round trip: " + key)
                 texture_controls = None
-                if fixtures.get("group") == "texturemasks":
+                if fixtures.get("group") in ("texturemasks", "texturestate"):
                     texture_controls = {key: value for key, value in effective_fields.items()
                                         if (key.startswith("Texture/") or key.startswith("PressureTexture/"))
                                         and key != "Texture/Pattern/Pattern"}
@@ -388,6 +406,8 @@ class Probe(Extension):
                             pattern.pixelColor(x, 0).getRgb() != ((x // 4) * 85,) * 3 + (255,)
                             for x in range(16)):
                         raise RuntimeError("Source texture resource differs from original grayscale steps")
+                resource_resolution = (resource_probe.resolve(app, output.parent, case, effective_fields)
+                                       if "resourceProbe" in case else None)
                 checkpoint(name + ": paint line")
                 # The pinned 5.3.4.1 Python binding accepts QPoint, despite the
                 # online C++ API describing QPointF. This fixture is integral.
@@ -458,7 +478,7 @@ class Probe(Extension):
                     # Exact alpha coverage around all seven short strokes.
                     # This small window is diagnostic; comparison still uses
                     # both full-canvas changed sets and their union.
-                    if fixtures.get("group") in ("geometry", "pixelsoft", "pixelsoftsize", "pixelrectsize", "pixelaarange", "pixelshape", "pixelprecision", "pixelcurves"):
+                    if fixtures.get("group") in ("geometry", "pixelsoft", "pixelsoftsize", "pixelrectsize", "pixelaarange", "pixelshape", "pixelprecision", "pixelcurves", "pixelcurveknots"):
                         side = math.ceil(case["diameter"]) + 10
                         left = math.floor(case["start"][0] - case["diameter"] / 2) - 4
                         top = math.floor(case["start"][1] - case["diameter"] / 2) - 4
@@ -502,8 +522,8 @@ class Probe(Extension):
                     geometry = {"rect": [left, top, width, height],
                                 "encoding": "zlib-base64-visible-change1-msb-row-major",
                                 "data": base64.b64encode(zlib.compress(packed)).decode("ascii")}
-                if fixtures.get("group") == "texturemasks":
-                    left, top, width, height = (240 if expected_engine == "paintbrush" else 560), 1020, 32, 8
+                if fixtures.get("group") in ("texturemasks", "texturestate"):
+                    left, top, width, height = case.get("textureProbeRect", [(240 if expected_engine == "paintbrush" else 560), 1020, 32, 8])
                     pixels = b"".join(raw[(y * w + left) * 4:(y * w + left + width) * 4]
                                       for y in range(top, top + height))
                     geometry = {"rect": [left, top, width, height],
@@ -524,12 +544,14 @@ class Probe(Extension):
                     boundary_outside = {"rect": outside_rect, "encoding": "zlib-base64-bgra8-row-major",
                                         "data": base64.b64encode(zlib.compress(outside)).decode("ascii"),
                                         "nonzeroAlpha": sum(value != 0 for value in outside[3::4])}
-                report["records"].append({**case, "image": filename, "sha256Pixels": hashlib.sha256(raw).hexdigest(), "repeatSha256Pixels": repeat_hashes, "profile": document.colorProfile(), "input": delivery["mode"], "deliveryReport": delivery, "changed": raw != initial, "centerlineRGBA8": samples, "geometryProbe": geometry, "effectiveView": effective_view, "effectivePresetXml": effective_name, "effectivePresetSha256": hashlib.sha256(effective_xml.encode()).hexdigest(), "effectiveWetControls": controls, "effectiveTextureControls": texture_controls, "effectiveKernelGeometry": kernel_geometry, "boundaryOutsideProbe": boundary_outside})
+                resource_readback = resource_probe.readback(raw, w, case) if "resourceProbe" in case else None
+                report["records"].append({**case, "image": filename, "sha256Pixels": hashlib.sha256(raw).hexdigest(), "repeatSha256Pixels": repeat_hashes, "profile": document.colorProfile(), "input": delivery["mode"], "deliveryReport": delivery, "changed": raw != initial, "centerlineRGBA8": samples, "geometryProbe": geometry, "effectiveView": effective_view, "effectivePresetXml": effective_name, "effectivePresetSha256": hashlib.sha256(effective_xml.encode()).hexdigest(), "effectiveWetControls": controls, "effectiveTextureControls": texture_controls, "effectivePixelTransferControls": transfer_controls, "effectiveSizeCurveControls": size_curve_controls, "effectiveKernelGeometry": kernel_geometry, "boundaryOutsideProbe": boundary_outside, "resourceResolution": resource_resolution, "resourceReadback": resource_readback})
                 checkpoint(name + ": saved output")
                 # Return to Qt between independent strokes. Calling processEvents
                 # inside paint/document operations reentered native consumers;
                 # one monolithic loop instead starved deferred view updates.
                 yield
+            report["resourceStatistics"] = resource_probe.summarize(report["records"])
             report["status"] = "complete"
             (output / "oracle-status.json").write_text(json.dumps(report, indent=2))
         except Exception as error:

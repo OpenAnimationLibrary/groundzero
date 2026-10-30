@@ -23,8 +23,11 @@ def main():
                 env={"MallocNanoZone": "0"}, cwd="/", timeout=30, check=False,
             )
         if result.returncode:
+            with response.open("rb") as wire:
+                startup_diagnostic = wire.read(8192).decode(errors="replace")
             raise RuntimeError(f"Signed helper/denial probe failed: {result.returncode}: "
-                               + result.stderr[:2048].decode(errors="replace"))
+                               + result.stderr[:2048].decode(errors="replace")
+                               + "\nBounded startup response: " + repr(startup_diagnostic))
         assert sentinel.read_bytes() == b"private", "Helper modified unrelated file"
         data = response.read_bytes()
         assert len(data) < 1024 * 1024 and data[:8] == b"GZBW0001"

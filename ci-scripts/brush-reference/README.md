@@ -322,3 +322,50 @@ reset it to zero, explaining the unrotated reference bounds. Synthetic freehand
 opacity still ignored both serialized PaintingMode variants, so public bundled
 setting metadata and isolated PaintOpAction/PressureFlow cases resolve the
 setting keys before further mode claims. They are exploratory and not parity.
+
+### Original bitmap and sequence resource acquisition
+
+`bitmaptips` creates 32 original cases: 8x8 alpha GBR, RGBA PNG as mask or color
+image, and a three-frame color GIH in incremental mode; each exercises diameter
+8/16, rotation 0/90, isolated stamp and spaced stroke. Deterministic cases retain
+independent repeat hashes. `gihstatistics` renders 100 independently reset strokes
+of a three-frame random GIH, with up to 32 observable frame slots each. It does
+not require random strokes or candidate seeds to be pixel-identical.
+
+`resource_fixtures.py` authors all pixels and names. GIH has one dimension,
+rank3, explicit `selection` and fixed spacing; no pressure/angular selection semantics
+are inferred. Source resources are installed in the isolated brush directory.
+Each candidate receives the same bytes in an original bundle with per-entry MD5
+manifest checksums. Acquisition records SHA256 and MD5 of original bytes, exact
+source resource registry resolution, effective brush XML, and a bounded preview
+hash. The API preview is explicitly not treated as the entire tip/sequence.
+Actual painted-tip BGRA rectangles and identified GIH frame colors are retained
+in `resourceReadback`. Authored endpoints and delivered API endpoints accompany
+every stroke; internal dab timestamps and physical tablet delivery are not
+claimed.
+
+The random summary retains all 100 frame sequences, missing slots, marginal
+counts, transitions and descriptive Wilson intervals. Their independence
+assumption is explicit. No uniformity or source/candidate seed parity is assumed.
+These jobs acquire reference evidence; they do not qualify source behavioral
+compatibility. A later candidate distribution comparison must use at least 100
+candidate strokes, match delivered geometry, analyze per-stroke dependence, and
+compare marginal/transition distributions with prespecified equivalence bounds.
+Deterministic candidate parity requires the normal full-image/alpha gates after
+actual source equations are established, not merely successful decoding.
+
+Format/API evidence:
+
+- [GIMP GBR format](https://developer.gimp.org/core/standards/gbr/) and
+  [GIH format](https://developer.gimp.org/core/standards/gih/).
+- [Krita predefined brush modes](https://docs.krita.org/en/reference_manual/brushes/brush_settings/brush_tips.html)
+  and [KPP structure](https://docs.krita.org/en/reference_manual/resource_management/paintoppresets.html).
+- [Resource API](https://api.kde.org/legacy/krita/html/classResource.html):
+  filename/type/name identify resources; `image()` can be a representative icon.
+- Official [RGBA bundle metadata](https://github.com/KDE/krita/blob/master/krita/data/bundles/RGBA_brushes.bundle),
+  independently inspected at Git blob `318d2861adfe3a5eff9f2d4ab5064e944fd8a2ff`:
+  GIH filenames use `gbr_brush`; resource definitions include `BrushVersion=2`,
+  filename, scale, spacing, angle, `ColorAsMask` and `preserveLightness`.
+  Only serialized KPP metadata was inspected; no bundled pixels or engine source
+  were copied into these fixtures. Pinned 5.3.4.1 effective XML/readback remains
+  the authority for actual execution.

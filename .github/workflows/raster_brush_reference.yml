@@ -90,7 +90,7 @@ jobs:
       max-parallel: 2
       fail-fast: false
       matrix:
-        fixture_group: [wetboundary, pixelprecision, texturemasks, pixelblend, wetkernelcount, wetopacitycombo, wettransfer, pixelcurves, wetkernelscale, wetkernel, wettexture3, wetpressure, pixelsoftsize, pixelrectsize, pixelsoft, pixelopacitytablet, pixelopacity, pixelpressure, wetstate, wethold, wettexture, pixelaarange, pixelcontrols, pixelsmallpressure, pixelshape, wetswitches, wetcombined, wetsteps, hardpixel, geometry, tablet, parameters]
+        fixture_group: [bitmaptips, gihstatistics, pixelcurveknots, texturestate, pixeltransfer, wetboundary, pixelprecision, texturemasks, pixelblend, wetkernelcount, wetopacitycombo, wettransfer, pixelcurves, wetkernelscale, wetkernel, wettexture3, wetpressure, pixelsoftsize, pixelrectsize, pixelsoft, pixelopacitytablet, pixelopacity, pixelpressure, wetstate, wethold, wettexture, pixelaarange, pixelcontrols, pixelsmallpressure, pixelshape, wetswitches, wetcombined, wetsteps, hardpixel, geometry, tablet, parameters]
     runs-on: ubuntu-22.04
     timeout-minutes: 20
     env:
@@ -196,11 +196,18 @@ jobs:
                       probe['candidateGate'] = row.get('sourceCandidateGate')
                   if os.environ['BRUSH_REFERENCE_GROUP'] in ('wettransfer', 'wetopacitycombo'):
                       probe['transfer'] = [controls.get(key) for key in ('PressureColorRate', 'ColorRateUseCurve', 'PressureOpacity', 'OpacityUseCurve', 'PressureFlow', 'FlowUseCurve')]
-                  if os.environ['BRUSH_REFERENCE_GROUP'] == 'texturemasks':
+                  if os.environ['BRUSH_REFERENCE_GROUP'] == 'pixelcurveknots':
+                      probe['sizeCurve'] = row.get('effectiveSizeCurveControls')
+                      probe['delivery'] = row.get('deliveryReport', {}).get('events')
+                  if os.environ['BRUSH_REFERENCE_GROUP'] == 'pixeltransfer':
+                      probe['transfer'] = row.get('effectivePixelTransferControls')
+                      probe['input'] = row.get('input')
+                      probe['eventCount'] = len(row.get('deliveryReport', {}).get('events', []))
+                  if os.environ['BRUSH_REFERENCE_GROUP'] in ('texturemasks', 'texturestate'):
                       texture = row.get('effectiveTextureControls', {})
                       probe['texture'] = [texture.get(key) for key in ('Texture/Pattern/TexturingMode', 'Texture/Pattern/UseSoftTexturing', 'Texture/Pattern/Invert', 'Texture/Strength/Value', 'PressureTexture/Strength/', 'Texture/Strength/UseCurve')]
                   probe['wet'] = [controls.get(key) for key in ('SmudgeRateValue', 'ColorRateValue', 'SmudgeRadiusValue', 'PressureSmudgeRate', 'SmudgeRateUseNewEngine', 'SmudgeRateMode', 'SmudgeRateSmearAlpha')]
-                  positions = row.get('probePositions', (256, 416, 576)) if row.get('background') == 'wet-halves' or os.environ['BRUSH_REFERENCE_GROUP'] == 'texturemasks' else (256, 384, 512, 640, 768, 896, 1024, 1152)
+                  positions = row.get('probePositions', (256, 416, 576)) if row.get('background') == 'wet-halves' or os.environ['BRUSH_REFERENCE_GROUP'] in ('texturemasks', 'texturestate') else (256, 384, 512, 640, 768, 896, 1024, 1152)
                   probe['centerlineRGBA8'] = [sample for sample in row.get('centerlineRGBA8', []) if sample[0] in positions]
                   probes.append(probe)
               import runpy

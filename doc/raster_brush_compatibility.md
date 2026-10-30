@@ -1035,9 +1035,30 @@ mode identifiers were checked against public
 [resource metadata](https://raw.githubusercontent.com/KDE/krita/master/plugins/paintops/libpaintop/KisEmbeddedTextureData.cpp)
 and strength option metadata; rendering code was not reused. Effective readback
 in the pinned source application remains mandatory because metadata inspection
-alone is not behavioral evidence. No source texture candidate is admitted by
-this acquisition change. Polarity, depth, ordering and carried-state interaction
-remain implementation dependencies pending those original measurements.
+alone is not behavioral evidence.
+
+Original captures now establish a strict candidate subset: hard round Pixel
+build-up and legacy Smear/Dulling plus new Smear, Normal composition, opaque
+grayscale PNG, fixed unit scale and zero offsets/rotation, no cutoff or brightness
+adjustments. Wet candidates require alpha transport and zero pickup radius.
+The importer resolves embedded or uniquely identified bundled PNGs, checks declared
+checksums and remaining decoded allocation budget, and preserves grayscale mask
+values, soft-texturing state and resource SHA-256 through portable presets.
+Multiply/Subtract use independently derived byte-domain alpha equations; soft
+texturing attenuates removed coverage, while legacy strength attenuates incoming
+coverage. The three admitted wet models carry the masked displayed result into
+the next dab. Analysis of 378 original wet centerline samples differs by at most
+one encoded RGBA byte. Runtime regression fixtures cover polarity, strength and
+third-dab feedback; the reference comparison enforces existing full-region gates
+for all 72 admitted texture cases, rather than counting acquisition as parity.
+
+New Dulling texture remains unimplemented: its retained state differs from these
+three models. The separate `texturestate` acquisition distinguishes phase and
+second/third-dab state before extending eligibility. Transformed/color/alpha
+patterns, texture dynamics and other source texture combinations remain outside
+this measured subset and are still outstanding against the full feature contract.
+All profiles remain candidate/unverified until their complete qualification gates
+pass; no generic source-texture or pack parity is claimed.
 
 ### Pixel blend candidates and reference gate
 
@@ -1125,3 +1146,47 @@ outside-layer RGBA probes distinguish visible clipping from persistent source
 paint beyond the document, without claiming access to hidden reservoirs.
 Boundary recurrence changes remain pending these source measurements; no
 source behavior is inferred from a native-only boundary test.
+
+### Pixel pressure-transfer evidence acquisition
+
+The `pixeltransfer` workload adds 28 original Qt tablet traces: Normal wash and
+build-up, pressure-driven opacity and flow, constant pressure 0.25/0.75 with
+paired static-value and disabled-pressure controls, plus four pressure ramps.
+All use a 32px hard default circle at fixed 0.25 spacing and static control 0.5.
+Each enabled identity curve has explicit sensor and shared-curve metadata;
+the source must retain the authored settings in its effective preset. Reports
+retain every delivered event and effective transfer field. Static controls use
+0.5 times pressure to distinguish multiplication from source-specific transfer
+or stroke-opacity state. Disabled-pressure controls retain the serialized curve
+to distinguish its enable flag from mere curve presence.
+
+This is acquisition, not completion of the K pressure-opacity/flow contract.
+The strict Pixel candidate still accepts pressure-size affine curves only;
+active opacity/flow curves stay native conversion until these observations
+establish their equations and corresponding full-image gates are implemented.
+The existing static Pixel gates are unchanged. The older `pixelcurves` evidence
+contains 12 cases in three report forms (36 records), not 36 distinct curves;
+it establishes two-point pressure-size curves, not nonlinear or transfer curves.
+
+### Multi-knot source curve boundary
+
+The native `NaturalCubic` evaluator solves a natural-boundary spline and clamps
+its response; KPP conversion currently produces explicitly diagnosed linear
+native mappings. Strict source Pixel admits only two endpoint pressure-size
+knots. Neither the native spline implementation nor a serialized `curveMode=0`
+establishes the source's interpolation: curveMode describes sensor combination.
+The [public sensor-curve documentation](https://docs.krita.org/en/user_manual/loading_saving_brushes.html#using-sensor-curves)
+establishes shared versus separate sensor curves and multiplication, but does
+not specify spline boundary conditions or sampled response-table resolution.
+
+`pixelcurveknots` acquires 36 original 64px hard-circle cases, each on the fixed
+integer path (256,1024) to (257,1024). Two four-knot curves have nonuniform knot
+spacing: monotone `(0,.125),(.25,.25),(.75,.75),(1,.875)` and turning
+`(0,.25),(.25,.875),(.75,.125),(1,.75)`. Each is sampled at pressure
+0,.125,.25,.5,.75,.875,1 in shared and sensor-local mode. The unselected curve
+is deliberately different, testing selection rather than two identical copies.
+Eight controls separately disable PressureSize or SizeUseCurve at pressure .5.
+Reports retain effective curve metadata, exact API endpoints/pressures and full
+alpha windows. These are acquisition fixtures, not source-support gates; no
+multi-knot candidate is enabled until interpolation and its boundaries are
+independently established and checked against held-out observations.

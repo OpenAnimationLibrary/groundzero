@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cmath>
 #include <map>
+#include <limits>
 #include <stdexcept>
 
 namespace RasterBrush {
@@ -291,10 +292,20 @@ std::string validate(const Preset &p) {
         p.airbrushRate != 0 || (sourceWet && p.wash) || p.lockAlpha ||
         p.flipX || p.flipY ||
         (sourceWet ? p.blend != Blend::Normal : p.blend == Blend::Erase) ||
-        (sourceHard && p.wet != Wet::Off) || p.texture.image ||
-        p.secondary.enabled || p.color.a != 1)
+        (sourceHard && p.wet != Wet::Off) || p.secondary.enabled ||
+        p.color.a != 1)
       return "Unimplemented setting in the experimental Krita source profile";
   }
+  if ((sourceHard || sourceWet) && p.texture.image &&
+      (p.tip.antialiasEdges || p.tip.hardness != 1 ||
+       p.tip.shape != Shape::Round || p.blend != Blend::Normal || p.wash ||
+       p.texture.scale != 1 || p.texture.angle != 0 || p.texture.offsetX != 0 ||
+       p.texture.offsetY != 0 || p.texture.perDab ||
+       p.texture.brightness != 0 || p.texture.contrast != 1 ||
+       p.texture.image->color ||
+       (sourceWet && (!p.sourceSmearAlpha || p.smudgeRadius != 0 ||
+                      p.profile == "krita-5.3.4.1-new-dulling-candidate-1"))))
+    return "Unimplemented source texture geometry or wet-state combination";
   if (sourceWet &&
       (p.wet != ((p.profile == "krita-5.3.4.1-legacy-dulling-candidate-1" ||
                   p.profile == "krita-5.3.4.1-new-dulling-candidate-1")
@@ -431,7 +442,10 @@ struct BufferedSurface::Impl {
   size_t reserved = 0;
   Impl(std::shared_ptr<Surface> b, std::shared_ptr<MemoryBudget> mem)
       : backing(std::move(b)), budget(std::move(mem)) {}
-  ~Impl() { budget->release(reserved); }
+  ~Impl() {
+    tiles.clear();
+    budget->release(reserved);
+  }
 };
 BufferedSurface::BufferedSurface(std::shared_ptr<Surface> b,
                                  std::shared_ptr<MemoryBudget> mem)
@@ -443,27 +457,53 @@ bool BufferedSurface::prepare(int x0, int y0, int x1, int y1) {
   if (x0 < 0 || y0 < 0 || x1 > width() || y1 > height() || x0 >= x1 || y0 >= y1)
     return false;
   const int left = x0 / 32, top = y0 / 32, right = (x1 - 1) / 32,
-            bottom = (y1 - 1) / 32;
-  if (!m->backing->prepare(left * 32, top * 32,
-                           std::min(width(), (right + 1) * 32),
-                           std::min(height(), (bottom + 1) * 32)))
-    return false;
+            bottom        = (y1 - 1) / 32;
+  constexpr size_t charge = sizeof(Impl::Tile) + 128;
+  // Reserve every missing float tile before the host allocates undo or reads
+  // the enlarged wet-feedback region. Count the rectangle arithmetically so
+  // an enormous request cannot itself create an unbounded preflight loop.
+  std::uint64_t missing =
+      std::uint64_t(right - left + 1) * std::uint64_t(bottom - top + 1);
+  if (missing <= m->tiles.size()) {
+    // Ordinary small dabs must not scan the whole accumulated stroke cache.
+    for (int ty = top; ty <= bottom; ++ty)
+      for (int tx = left; tx <= right; ++tx)
+        if (m->tiles.count({tx, ty})) --missing;
+  } else {
+    for (const auto &tile : m->tiles)
+      if (tile.first.first >= left && tile.first.first <= right &&
+          tile.first.second >= top && tile.first.second <= bottom)
+        --missing;
+  }
+  if (missing > std::numeric_limits<size_t>::max() / charge) return false;
+  size_t pending = size_t(missing) * charge;
+  if (!m->budget->reserve(pending)) return false;
   try {
+    // Avoid overflow when rounding a canvas near INT_MAX to a tile edge.
+    const int endX = right * 32 + std::min(32, width() - right * 32);
+    const int endY = bottom * 32 + std::min(32, height() - bottom * 32);
+    if (!m->backing->prepare(left * 32, top * 32, endX, endY)) {
+      m->budget->release(pending);
+      return false;
+    }
     for (int ty = top; ty <= bottom; ++ty)
       for (int tx = left; tx <= right; ++tx) {
         auto key = std::make_pair(tx, ty);
         if (m->tiles.count(key)) continue;
-        constexpr size_t charge = sizeof(Impl::Tile) + 128;
-        if (!m->budget->reserve(charge)) return false;
-        m->reserved += charge;
         auto tile = std::make_unique<Impl::Tile>();
         for (int y = 0; y < 32 && ty * 32 + y < height(); ++y)
           for (int x = 0; x < 32 && tx * 32 + x < width(); ++x)
             (*tile)[y * 32 + x] = m->backing->read(tx * 32 + x, ty * 32 + y);
         m->tiles.emplace(key, std::move(tile));
+        m->reserved += charge;
+        pending -= charge;
       }
   } catch (const std::bad_alloc &) {
+    m->budget->release(pending);
     return false;
+  } catch (...) {
+    m->budget->release(pending);
+    throw;
   }
   return true;
 }
@@ -480,7 +520,7 @@ double BufferedSurface::coverage(int x, int y) const {
 
 struct Stroke::Impl {
   Surface &surface;
-  const Preset p;
+  Preset p;
   size_t budget, dabs = 0;
   std::shared_ptr<MemoryBudget> shared;
   size_t reserved = 0, inputPixelWork = 0;
@@ -510,7 +550,6 @@ struct Stroke::Impl {
   Impl(Surface &s, const Preset &v, size_t limit,
        std::shared_ptr<MemoryBudget> memory)
       : surface(s)
-      , p(v)
       , budget(limit)
       , shared(memory ? std::move(memory)
                       : std::make_shared<MemoryBudget>(limit))
@@ -523,6 +562,39 @@ struct Stroke::Impl {
     randomStroke = random();
     if (!failure.empty()) return;
     try {
+      // The stroke owns a stable settings snapshot. Charge its copied strings,
+      // mapping arrays, knots and resource-reference arrays before copying;
+      // image pixel storage itself stays shared with the installed preset.
+      size_t snapshot = sizeof(Impl);
+      auto account    = [&](size_t count, size_t element) {
+        if (count > (budget - std::min(budget, snapshot)) / element ||
+            snapshot > budget || budget - snapshot - count * element < 128)
+          return false;
+        snapshot += count * element + 128;
+        return true;
+      };
+      bool fits =
+          account(v.name.size() + 1, 1) && account(v.profile.size() + 1, 1) &&
+          account(v.tip.images.size(), sizeof(std::shared_ptr<const Image>)) &&
+          account(v.secondary.tip.images.size(),
+                  sizeof(std::shared_ptr<const Image>));
+      for (const Dynamic *dynamic :
+           {&v.size, &v.aspect, &v.angle, &v.opacity, &v.flow, &v.scatter,
+            &v.countControl, &v.pickupControl, &v.colorRateControl,
+            &v.radiusControl, &v.backgroundMix, &v.hue, &v.saturation,
+            &v.brightness, &v.secondary.size, &v.secondary.angle,
+            &v.secondary.opacity}) {
+        if (!dynamic->mappings.empty())
+          fits = fits && account(dynamic->mappings.size(), sizeof(Mapping));
+        for (const auto &mapping : dynamic->mappings)
+          fits = fits && account(mapping.curve.size(), sizeof(Knot));
+      }
+      if (!fits || snapshot > budget || !shared->reserve(snapshot)) {
+        failure = "Preset snapshot memory limit exceeded";
+        return;
+      }
+      reserved += snapshot;
+      p = v;
       for (const Dynamic *dynamic :
            {&p.size, &p.aspect, &p.angle, &p.opacity, &p.flow, &p.scatter,
             &p.countControl, &p.pickupControl, &p.colorRateControl,
@@ -535,6 +607,7 @@ struct Stroke::Impl {
                  charge = 2 * n * sizeof(double) + 128;
           if (charge > budget - reserved || !shared->reserve(charge)) {
             failure = "Curve memory limit exceeded";
+            releaseStorage();
             return;
           }
           reserved += charge;
@@ -559,10 +632,35 @@ struct Stroke::Impl {
         }
       }
     } catch (const std::bad_alloc &) {
-      failure = "Curve allocation failed";
+      failure = "Preset or curve allocation failed";
+      releaseStorage();
     }
   }
-  ~Impl() { shared->release(reserved); }
+  void releasePresetStorage() {
+    for (Dynamic *dynamic :
+         {&p.size, &p.aspect, &p.angle, &p.opacity, &p.flow, &p.scatter,
+          &p.countControl, &p.pickupControl, &p.colorRateControl,
+          &p.radiusControl, &p.backgroundMix, &p.hue, &p.saturation,
+          &p.brightness, &p.secondary.size, &p.secondary.angle,
+          &p.secondary.opacity})
+      std::vector<Mapping>().swap(dynamic->mappings);
+    std::vector<std::shared_ptr<const Image>>().swap(p.tip.images);
+    std::vector<std::shared_ptr<const Image>>().swap(p.secondary.tip.images);
+    p.texture.image.reset();
+    std::string().swap(p.name);
+    std::string().swap(p.profile);
+  }
+  void releaseStorage() {
+    tiles.clear();
+    secondaryMask.clear();
+    cubic.clear();
+    releasePresetStorage();
+    std::vector<Pixel>().swap(smear);
+    std::vector<Pixel>().swap(sourceField);
+    shared->release(reserved);
+    reserved = 0;
+  }
+  ~Impl() { releaseStorage(); }
   double random() {
     rng ^= rng >> 12;
     rng ^= rng << 25;
@@ -833,6 +931,32 @@ struct Stroke::Impl {
     previous = s;
     return true;
   }
+  double sourceTextureCoverage(int x, int y, double coverage) const {
+    const auto &t = p.texture;
+    if (!t.image) return coverage;
+    const int width = t.image->width, height = t.image->height;
+    const int tx = (x % width + width) % width,
+              ty = (y % height + height) % height;
+    double gray  = t.image->pixels[size_t(ty) * width + tx].a;
+    if (t.invert) gray = 1 - gray;
+    const double alpha = std::floor(unit(coverage) * 255 + .5);
+    const double value = std::floor(unit(gray) * 255 + .5);
+    // Original grayscale step probes establish byte-domain texture coverage.
+    // Soft texturing attenuates removed coverage; hard texturing attenuates
+    // the incoming mask before the selected operation. Native math differs.
+    double result;
+    if (p.sourceTextureSoftTexturing)
+      result = alpha - std::floor((t.mode == MaskMode::Multiply
+                                       ? alpha * (255 - value) / 255
+                                       : value) *
+                                      t.depth +
+                                  .5);
+    else if (t.mode == MaskMode::Multiply)
+      result = std::floor(alpha * value / 255 * t.depth + .5);
+    else
+      result = std::floor(alpha * t.depth + .5) - value;
+    return unit(result / 255);
+  }
   bool sourceWetDab(const Sample &s) {
     // Independent candidate inferred from original first/second-dab fixtures.
     // Model-specific equations are intentionally separate from native wet
@@ -876,7 +1000,8 @@ struct Stroke::Impl {
     // host reads: initialization/store, four-tap transport, tip/selection,
     // backdrop/feedback reads, quantization and publishing. The first dab uses
     // the same conservative ceiling; no geometry/semantic setting is reduced.
-    if (!accountPixelWork(x1 - x0, y1 - y0, 16)) return false;
+    if (!accountPixelWork(x1 - x0, y1 - y0, p.texture.image ? 17 : 16))
+      return false;
     if (p.wet == Wet::Dulling) {
       size_t sampleWork = 1;
       if (p.smudgeRadius != 0) {
@@ -997,6 +1122,7 @@ struct Stroke::Impl {
         double dx = (x + .5 - cx) / radius, dy = (y + .5 - cy) / radius;
         double coverage =
             tipPixel(p.tip, 0, dx, dy).a * unit(surface.coverage(x, y));
+        coverage           = sourceTextureCoverage(x, y, coverage);
         const size_t index = size_t(y - y0) * (x1 - x0) + x - x0;
         Pixel paint        = feedback[index];
         if (!dabs) {
@@ -1028,12 +1154,14 @@ struct Stroke::Impl {
         // Alpha transport disabled retains source-over feedback separately
         // from the displayed arithmetic mix. First-dab initialization above
         // remains unchanged. Three-dab fixtures distinguish the two states.
-        feedback[index] = coverage == 0 && p.smudgeRadius > 0
-                              ? surface.read(x, y)
-                              : quantize(p.sourceSmearAlpha
-                                             ? paint
-                                             : composite(surface.read(x, y),
-                                                         paint, Blend::Normal));
+        feedback[index] =
+            p.texture.image ? quantize(mix(surface.read(x, y), paint, coverage))
+            : coverage == 0 && p.smudgeRadius > 0
+                ? surface.read(x, y)
+                : quantize(p.sourceSmearAlpha
+                               ? paint
+                               : composite(surface.read(x, y), paint,
+                                           Blend::Normal));
         if (coverage > 0)
           surface.write(x, y,
                         quantize(mix(surface.read(x, y), paint, coverage)));
@@ -1278,7 +1406,9 @@ struct Stroke::Impl {
             a   = tip.a;
           }
           if (a <= 0) continue;
-          if (t.image) {
+          if (t.image && sourcePixelProfile(p.profile))
+            a = sourceTextureCoverage(x, y, a);
+          else if (t.image) {
             double tx = (t.perDab ? x + .5 - cx : x + .5) + t.offsetX,
                    ty = (t.perDab ? y + .5 - cy : y + .5) + t.offsetY;
             double b =
@@ -1469,13 +1599,7 @@ bool Stroke::add(const Sample &s) {
 void Stroke::finish() {
   m->finished              = true;
   m->pendingSourceEndpoint = false;
-  m->tiles.clear();
-  m->secondaryMask.clear();
-  m->cubic.clear();
-  std::vector<Pixel>().swap(m->smear);
-  std::vector<Pixel>().swap(m->sourceField);
-  m->shared->release(m->reserved);
-  m->reserved = 0;
+  m->releaseStorage();
 }
 const std::string &Stroke::error() const { return m->failure; }
 size_t Stroke::dabCount() const { return m->dabs; }

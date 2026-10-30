@@ -30,20 +30,35 @@ constexpr uint64_t macMappingHeadroom = uint64_t(1024) * 1024 * 1024;
 constexpr uint64_t macMaximumTrustedMappings =
     uint64_t(64) * 1024 * 1024 * 1024;
 constexpr uint64_t macFootprintWatchdog = uint64_t(1024) * 1024 * 1024;
-bool limitMacImportMemory() {
+bool limitMacImportMemory(QString &error) {
+  auto failed = [&](const QString &reason) {
+    error = reason;
+    return false;
+  };
   mach_task_basic_info_data_t info{};
   mach_msg_type_number_t count = MACH_TASK_BASIC_INFO_COUNT;
-  if (task_info(mach_task_self(), MACH_TASK_BASIC_INFO,
-                reinterpret_cast<task_info_t>(&info), &count) != KERN_SUCCESS ||
-      info.virtual_size > macMaximumTrustedMappings)
-    return false;
+  const auto infoStatus =
+      task_info(mach_task_self(), MACH_TASK_BASIC_INFO,
+                reinterpret_cast<task_info_t>(&info), &count);
+  if (infoStatus != KERN_SUCCESS)
+    return failed(
+        QString("Cannot inspect trusted virtual mappings: Mach status %1")
+            .arg(infoStatus));
+  if (info.virtual_size > macMaximumTrustedMappings)
+    return failed(
+        QString("Trusted virtual mappings %1 exceed baseline limit %2 bytes")
+            .arg(qulonglong(info.virtual_size))
+            .arg(qulonglong(macMaximumTrustedMappings)));
   const rlim_t cap = rlim_t(info.virtual_size + macMappingHeadroom);
   rlimit addressSpace{cap, cap};
-  if (setrlimit(RLIMIT_AS, &addressSpace)) return false;
+  if (setrlimit(RLIMIT_AS, &addressSpace))
+    return failed(QString("Cannot set RLIMIT_AS: errno %1").arg(errno));
   rlimit raised{cap + 65536, cap + 65536};
   // A privileged host must not silently make this a reversible limit.
-  if (setrlimit(RLIMIT_AS, &raised) == 0) return false;
-  if (errno != EPERM && errno != EACCES) return false;
+  if (setrlimit(RLIMIT_AS, &raised) == 0)
+    return failed("RLIMIT_AS hard ceiling can be raised");
+  if (errno != EPERM && errno != EACCES)
+    return failed(QString("Unexpected hard-limit probe errno %1").arg(errno));
   std::fprintf(stderr, "Brush macOS virtual baseline=%llu cap=%llu bytes\n",
                static_cast<unsigned long long>(info.virtual_size),
                static_cast<unsigned long long>(cap));
@@ -55,25 +70,33 @@ bool limitMacImportMemory() {
   const int mmapError = errno;
   if (excess != MAP_FAILED) {
     munmap(excess, size_t(cap));
-    return false;
+    return failed("mmap exceeded RLIMIT_AS without rejection");
   }
-  if (mmapError != ENOMEM) return false;
+  if (mmapError != ENOMEM)
+    return failed(
+        QString("Unexpected mmap ceiling probe errno %1").arg(mmapError));
   mach_vm_address_t address      = 0;
   const kern_return_t allocation = mach_vm_allocate(
       mach_task_self(), &address, mach_vm_size_t(cap), VM_FLAGS_ANYWHERE);
   if (allocation == KERN_SUCCESS) {
     mach_vm_deallocate(mach_task_self(), address, mach_vm_size_t(cap));
-    return false;
+    return failed("Mach VM allocation exceeded RLIMIT_AS without rejection");
   }
   if (allocation != KERN_NO_SPACE && allocation != KERN_RESOURCE_SHORTAGE)
-    return false;
+    return failed(
+        QString("Unexpected Mach VM ceiling probe status %1").arg(allocation));
   // A normal small allocation must still work. A blanket allocator failure
   // does not qualify an operational importer boundary.
   void *ordinary = mmap(nullptr, 65536, PROT_READ | PROT_WRITE,
                         MAP_PRIVATE | MAP_ANON, -1, 0);
-  if (ordinary == MAP_FAILED) return false;
+  if (ordinary == MAP_FAILED)
+    return failed(
+        QString("Small mapping unavailable after memory limit: errno %1")
+            .arg(errno));
   static_cast<volatile unsigned char *>(ordinary)[0] = 1;
-  return munmap(ordinary, 65536) == 0;
+  if (munmap(ordinary, 65536))
+    return failed("Cannot release ordinary mapping probe");
+  return true;
 }
 bool macImportFootprint(qint64 pid, uint64_t &bytes) {
   rusage_info_v2 usage{};
@@ -157,13 +180,24 @@ bool unpackMacWorkerResponse(QFile &wire, const QString &directory,
   return wire.pos() == wire.size() ? true : invalid();
 }
 
-bool macImportBoundaryProbe(const QString &forbidden) {
-  if (!macImportEntitlement()) return false;
-  QFile file(forbidden);
-  if (file.open(QIODevice::ReadOnly) || file.open(QIODevice::WriteOnly))
+bool macImportBoundaryProbe(const QString &forbidden, QString &error) {
+  auto failed = [&](const QString &reason) {
+    error = reason;
     return false;
+  };
+  if (!macImportEntitlement())
+    return failed("App Sandbox entitlement is absent");
+  QFile file(forbidden);
+  if (file.open(QIODevice::ReadOnly))
+    return failed("App Sandbox allowed private sentinel read");
+  if (file.open(QIODevice::WriteOnly))
+    return failed("App Sandbox allowed private sentinel write");
   const int fd = socket(AF_INET, SOCK_STREAM, 0);
-  if (fd < 0) return errno == EPERM || errno == EACCES;
+  if (fd < 0) {
+    if (errno == EPERM || errno == EACCES) return true;
+    return failed(
+        QString("Unexpected network probe socket errno %1").arg(errno));
+  }
   sockaddr_in address{};
   address.sin_len         = sizeof(address);
   address.sin_family      = AF_INET;
@@ -173,7 +207,32 @@ bool macImportBoundaryProbe(const QString &forbidden) {
       connect(fd, reinterpret_cast<sockaddr *>(&address), sizeof(address));
   const int failure = errno;
   close(fd);
-  return result < 0 && (failure == EPERM || failure == EACCES);
+  if (result < 0 && (failure == EPERM || failure == EACCES)) return true;
+  return failed(
+      QString("Network capability probe was not denied: result %1 errno %2")
+          .arg(result)
+          .arg(failure));
+}
+int macImportStartupFailure(const QString &reason) {
+  // Diagnostics use the same bounded private envelope, including failures
+  // before any sandbox temporary directory can be created. No foreign bytes
+  // have been read or decoded at these failure sites.
+  const QByteArray message =
+      ("macOS brush helper: " + reason).toUtf8().left(4096);
+  QByteArray packet("GZBW0001", 8);
+  char fields[12];
+  qToBigEndian<quint32>(1, fields);
+  qToBigEndian<quint32>(9, fields + 4);
+  qToBigEndian<quint32>(quint32(message.size()), fields + 8);
+  packet.append(fields, 12);
+  packet.append("error.txt", 9);
+  packet.append(message);
+  QFile output;
+  if (output.open(STDOUT_FILENO, QIODevice::WriteOnly)) {
+    output.write(packet);
+    output.flush();
+  }
+  return 2;
 }
 }  // namespace
 
@@ -182,33 +241,40 @@ int runMacImportStream(const QString &name, const QString &forbidden,
   // The independently signed helper enters App Sandbox at exec, before Qt or
   // any decoder runs. These checks additionally fail closed if packaging lost
   // its entitlement or accidentally added broad file/network privileges.
-  if (!macImportBoundaryProbe(forbidden) ||
-      name != QFileInfo(name).fileName() || name.isEmpty() || name == "." ||
+  QString startupError;
+  if (!macImportBoundaryProbe(forbidden, startupError))
+    return macImportStartupFailure(startupError);
+  if (name != QFileInfo(name).fileName() || name.isEmpty() || name == "." ||
       name == "..")
-    return 2;
+    return macImportStartupFailure("Invalid input basename");
   rlimit core{0, 0}, cpu{60, 60},
       outputLimit{rlim_t(macWireLimit), rlim_t(macWireLimit)}, children{0, 0};
   if (setrlimit(RLIMIT_CORE, &core) || setrlimit(RLIMIT_CPU, &cpu) ||
       setrlimit(RLIMIT_FSIZE, &outputLimit) ||
       setrlimit(RLIMIT_NPROC, &children))
-    return 2;
+    return macImportStartupFailure(
+        QString("Cannot establish worker resource limits: errno %1")
+            .arg(errno));
   // Ask Darwin for this sandbox's temporary directory instead of inheriting
   // the unrestricted drawing application's TMPDIR or falling back to /tmp.
   const size_t temporaryLength = confstr(_CS_DARWIN_USER_TEMP_DIR, nullptr, 0);
-  if (!temporaryLength || temporaryLength > 32768) return 2;
+  if (!temporaryLength || temporaryLength > 32768)
+    return macImportStartupFailure("Cannot locate sandbox temporary directory");
   QByteArray temporary(int(temporaryLength), char(0));
   if (confstr(_CS_DARWIN_USER_TEMP_DIR, temporary.data(), temporaryLength) !=
       temporaryLength)
-    return 2;
+    return macImportStartupFailure("Cannot read sandbox temporary directory");
   temporary.chop(1);
   qputenv("TMPDIR", temporary);
-  if (!limitMacImportMemory()) return 2;
+  if (!limitMacImportMemory(startupError))
+    return macImportStartupFailure(startupError);
   QTemporaryDir inputDirectory, outputDirectory;
   QFile input, output;
   if (!inputDirectory.isValid() || !outputDirectory.isValid() ||
       !input.open(STDIN_FILENO, QIODevice::ReadOnly) ||
       !output.open(STDOUT_FILENO, QIODevice::WriteOnly))
-    return 2;
+    return macImportStartupFailure(
+        "Cannot open private staging or inherited transport descriptors");
   const QByteArray bytes = input.read(64LL * 1024 * 1024 + 1);
   if (bytes.size() > 64LL * 1024 * 1024 || !input.atEnd()) return 2;
   const QString path = inputDirectory.filePath(name);

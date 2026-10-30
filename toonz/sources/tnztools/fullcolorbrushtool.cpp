@@ -90,6 +90,7 @@
 #include <QPointingDevice>
 #endif
 #include <QJsonArray>
+#include <QMap>
 #include <QListWidget>
 #include <QSet>
 #include <cmath>
@@ -718,6 +719,11 @@ bool editNativeBrush(RasterBrush::Record &record) {
   status->setObjectName("nativeBrushCompatibilityStatus");
   status->setWordWrap(true);
   layout->addWidget(status);
+  auto saveHint = new QLabel(
+      QObject::tr("Saving creates a preset copy. Existing presets are kept."),
+      &dialog);
+  saveHint->setWordWrap(true);
+  layout->addWidget(saveHint);
   auto details = new QPushButton(QObject::tr("Brush details…"), &dialog);
   layout->addWidget(details);
   QObject::connect(details, &QPushButton::clicked, &dialog, [&]() {
@@ -788,13 +794,15 @@ bool editNativeBrush(RasterBrush::Record &record) {
                        *target = v;
                        refresh();
                      });
+    return box;
   };
   spin(QObject::tr("Size"), p.size.value, .25, 4096);
   spin(QObject::tr("Aspect ratio"), p.aspect.value, .01, 1);
   spin(QObject::tr("Angle"), p.angle.value, -360, 360);
   spin(QObject::tr("Spacing"), p.spacing, .01, 5);
   spin(QObject::tr("Hardness"), p.tip.hardness, 0, 1);
-  spin(QObject::tr("Opacity"), p.opacity.value, 0, 1);
+  spin(QObject::tr("Opacity"), p.opacity.value, 0, 1)
+      ->setObjectName("nativeBrushPresetOpacity");
   spin(QObject::tr("Flow"), p.flow.value, 0, 1);
   spin(QObject::tr("Scatter"), p.scatter.value, 0, 5);
   spin(QObject::tr("Stamp count factor"), p.countControl.value, 0, 1);
@@ -1156,9 +1164,17 @@ void FullColorBrushTool::initNativePresets() {
                         QDirIterator::Subdirectories);
   while (iterator.hasNext()) files << root.relativeFilePath(iterator.next());
   files.sort();
-  for (const auto &file : files) {
+  auto displayName = [](const QString &file) {
     QString name = QFileInfo(file).fileName().section('-', 0, -2);
-    if (name.isEmpty()) name = file;
+    return name.isEmpty() ? file : name;
+  };
+  QMap<QString, int> nameCounts;
+  for (const auto &file : files) ++nameCounts[displayName(file)];
+  for (const auto &file : files) {
+    QString name = displayName(file);
+    if (nameCounts.value(name) > 1)
+      name += " [" +
+              QFileInfo(file).completeBaseName().section('-', -1).left(8) + "]";
     m_nativePreset.addValueWithUIName(file.toStdWString(), name);
   }
   if (!m_nativePreset.isValue(selected)) {
@@ -1361,7 +1377,7 @@ bool FullColorBrushTool::selectNativePreset() {
       if (!editNativeBrush(record)) return true;
       bool ok      = false;
       QString name = QInputDialog::getText(
-          nullptr, tr("Save Native Brush"), tr("Name"), QLineEdit::Normal,
+          nullptr, tr("Save Native Brush Copy"), tr("Name"), QLineEdit::Normal,
           QString::fromStdString(record.preset.name), &ok);
       if (!ok || name.trimmed().isEmpty()) return true;
       record.preset.name = name.trimmed().toStdString();

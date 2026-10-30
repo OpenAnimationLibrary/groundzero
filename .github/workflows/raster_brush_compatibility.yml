@@ -9,6 +9,7 @@ on:
       - 'toonz/sources/toonzlib/rasterbrush*'
       - 'toonz/sources/toonzlib/tests/rasterbrush*'
       - 'ci-scripts/brush-parser/**'
+      - 'ci-scripts/brush-reference/annotations.py'
       - '.github/workflows/raster_brush_compatibility.yml'
   workflow_dispatch:
 permissions:
@@ -95,6 +96,7 @@ jobs:
           fi
           cmake -S ci-scripts/brush-parser -B brush-parser-build -DBRUSH_QT_MAJOR=${{ matrix.qt == '5.15.2' && '5' || '6' }} -DBRUSH_SANITIZERS=${{ matrix.os == 'ubuntu-22.04' && 'ON' || 'OFF' }} "${args[@]}"
       - name: Build parser regression
+        id: build_parser
         shell: bash
         run: |
           set -o pipefail
@@ -104,6 +106,12 @@ jobs:
         run: |
           set -o pipefail
           ctest --test-dir brush-parser-build -C Debug --output-on-failure 2>&1 | tee brush-parser-test.log
+      - name: Qualify signed macOS worker startup
+        if: ${{ !cancelled() && startsWith(matrix.os, 'macos-') && steps.build_parser.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 ci-scripts/brush-parser/qualify_macos_helper.py brush-parser-build/rasterbrushworker_test 2>&1 | tee brush-helper-startup.log
       - name: Report failure evidence
         if: failure()
         shell: bash
@@ -111,7 +119,7 @@ jobs:
           python3 - <<'PYREPORT'
           from pathlib import Path
           import re
-          for name in ('brush-parser-build.log', 'brush-parser-test.log'):
+          for name in ('brush-parser-build.log', 'brush-parser-test.log', 'brush-helper-startup.log'):
               path = Path(name)
               if not path.is_file():
                   continue
@@ -141,4 +149,5 @@ jobs:
           name: brush-parser-${{ matrix.os }}-qt${{ matrix.qt }}-${{ github.sha }}
           path: |
             brush-parser-*.log
+            brush-helper-startup.log
             brush-parser-build/Testing/Temporary/LastTest.log

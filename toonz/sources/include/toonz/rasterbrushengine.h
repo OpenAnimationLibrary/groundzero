@@ -109,7 +109,8 @@ struct Preset {
   double pickup = 0.5, colorRate = 0.25, reload = 0, smudgeRadius = 1;
   // Versioned source-wet state switches; native wet equations do not use them.
   bool sourceSmudgeLengthEnabled = true, sourceSmearAlpha = true,
-       sourceColorRateEnabled = true;
+       sourceColorRateEnabled     = true;
+  bool sourceTextureSoftTexturing = false;
   Dynamic pickupControl{1, 0, {}}, colorRateControl{1, 0, {}},
       radiusControl{1, 0, {}};
   std::uint64_t seed = 1;
