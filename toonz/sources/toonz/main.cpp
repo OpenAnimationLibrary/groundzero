@@ -21,6 +21,7 @@
 #include <QDir>
 #ifdef BUILD_UI_PORT_TESTS
 #include "nativeuiintegrationtest.h"
+#include "rasterbrushintegrationtest.h"
 #endif
 
 // TnzTools includes
@@ -282,6 +283,7 @@ static void script_output(int type, const QString &value) {
 
 int main(int argc, char *argv[]) {
   bool nativeUiTest = false;
+  bool rasterBrushTest = false;
 #ifdef BUILD_UI_PORT_TESTS
   for (int index = 1; index < argc; ++index) {
     if (QString::fromLocal8Bit(argv[index]) == "--test-native-ui") {
@@ -291,6 +293,15 @@ int main(int argc, char *argv[]) {
       }
       nativeUiTest = true;
       argc = 1;
+      break;
+    }
+    if (QString::fromLocal8Bit(argv[index]) == "--test-raster-brush") {
+      if (argc != 2) {
+        std::cerr << "Raster brush test mode accepts no other arguments.\n";
+        return 2;
+      }
+      rasterBrushTest = true;
+      argc            = 1;
       break;
     }
   }
@@ -310,7 +321,8 @@ int main(int argc, char *argv[]) {
     }
   }
 #endif
-  const bool nativeIntegrationTest = nativeUiTest || seexprNativeTest;
+  const bool nativeIntegrationTest =
+      nativeUiTest || seexprNativeTest || rasterBrushTest;
 
   const auto nativeUiCheckpoint = [nativeUiTest](const char *stage) {
     if (nativeUiTest)
@@ -398,7 +410,7 @@ int main(int argc, char *argv[]) {
   QApplication a(argc, argv);
   nativeUiCheckpoint("QApplication constructed");
 #ifdef BUILD_UI_PORT_TESTS
-  if (nativeUiTest) {
+  if (nativeUiTest || rasterBrushTest) {
     QString error;
     if (!prepareNativeUiIntegrationTest(&error)) {
       std::cerr << error.toStdString() << std::endl;
@@ -980,6 +992,9 @@ int main(int argc, char *argv[]) {
     QTimer::singleShot(0, &a, [&a, &w] {
       a.exit(runNativeUiIntegrationTest(&w));
     });
+  if (rasterBrushTest)
+    QTimer::singleShot(0, &a,
+                       [&a, &w] { a.exit(runRasterBrushIntegrationTest(&w)); });
 #endif
   nativeUiCheckpoint("entering native application event loop");
 #ifdef BUILD_SEEXPR_TESTS

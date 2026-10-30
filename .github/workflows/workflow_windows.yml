@@ -441,6 +441,21 @@ jobs:
         if: ${{ failure() && steps.cadmium_tests.outcome == 'failure' }}
         run: python ci-scripts/report_ui_tests.py toonz/build/cadmium-tests-output.txt "Cadmium adapter regression"
 
+      - name: Test native raster brush application
+        id: raster_brush_application
+        if: ${{ !cancelled() && steps.package.outcome == 'success' }}
+        shell: cmd
+        run: |
+          set "PATH=%CD%\toonz\build\Opentoonz;%QT_PATH%\bin;%PATH%"
+          set "QT_PLUGIN_PATH=%QT_PATH%\plugins"
+          set "QT_QPA_PLATFORM_PLUGIN_PATH=%QT_PATH%\plugins\platforms"
+          set "QT_QPA_FONTDIR=%WINDIR%\Fonts"
+          ctest --test-dir toonz/build -C RelWithDebInfo --output-on-failure --no-tests=error -R "^rasterbrush_application$"
+
+      - name: Report raster brush application failure
+        if: ${{ failure() && steps.raster_brush_application.outcome == 'failure' }}
+        run: python ci-scripts/report_ui_tests.py toonz/build/rasterbrush-application-output.txt "Raster brush application"
+
       - name: Test SeExpr native integration
         id: seexpr_tests
         if: ${{ !cancelled() && steps.package.outcome == 'success' }}

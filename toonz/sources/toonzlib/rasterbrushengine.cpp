@@ -249,7 +249,6 @@ struct BufferedSurface::Impl {
   std::shared_ptr<Surface> backing;
   std::shared_ptr<MemoryBudget> budget;
   std::map<std::pair<int, int>, std::unique_ptr<Tile>> tiles;
-  std::map<const Mapping *, std::vector<double>> cubic;
   size_t reserved = 0;
   Impl(std::shared_ptr<Surface> b, std::shared_ptr<MemoryBudget> mem)
       : backing(std::move(b)), budget(std::move(mem)) {}
@@ -316,6 +315,7 @@ struct Stroke::Impl {
   Pixel reservoir;
   std::vector<Pixel> smear;
   int smearSide = 0;
+  std::map<const Mapping *, std::vector<double>> cubic;
   struct Tile {
     std::array<Pixel, 1024> base{}, paint{};
   };

@@ -64,17 +64,19 @@ jobs:
         if: failure()
         shell: bash
         run: |
-          for log in brush-parser-build.log brush-parser-test.log; do
-            if test -f "$log"; then
-              # Include the first linker diagnostic (architecture mismatch),
-              # not only the long tail of secondary undefined symbols.
-              { sed -n '/ld: warning/,+4p; /Undefined symbols/,+4p; /error:/,+3p' "$log"; tail -30 "$log"; } | while IFS= read -r line; do
-                line=${line//'%'/'%25'}
-                line=${line//$'\r'/'%0D'}
-                echo "::error::$line"
-              done
-            fi
-          done
+          python3 - <<'PYREPORT'
+          from pathlib import Path
+          import re
+          for name in ('brush-parser-build.log', 'brush-parser-test.log'):
+              path = Path(name)
+              if not path.is_file():
+                  continue
+              lines = path.read_text(errors='replace').splitlines()
+              errors = [line for line in lines if re.search(r'error(?:\s+[A-Z]\d+)?[: ]|Undefined symbols|undefined reference|ld: warning', line)]
+              excerpt = '\n'.join(errors[:40] + lines[-30:])[-50000:]
+              excerpt = excerpt.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+              print('::error title=' + name + '::' + excerpt)
+          PYREPORT
       - uses: actions/upload-artifact@v4
         if: always()
         with:

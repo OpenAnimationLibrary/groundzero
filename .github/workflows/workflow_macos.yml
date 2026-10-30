@@ -151,6 +151,15 @@ jobs:
       - name: Verify benchmark harness contracts
         run: python3 -m unittest discover -s ci-scripts/tests -p test_paired_benchmark.py
 
+      - name: Test native raster brush application
+        id: raster_brush_application
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: DYLD_LIBRARY_PATH="$PWD/toonz/build/toonz/OpenToonz.app/Contents/MacOS" QT_QPA_PLATFORM=cocoa ctest --test-dir toonz/build --output-on-failure --no-tests=error -R '^rasterbrush_application$'
+
+      - name: Report raster brush application failure
+        if: ${{ failure() && steps.raster_brush_application.outcome == 'failure' }}
+        run: python3 ci-scripts/report_ui_tests.py toonz/build/rasterbrush-application-output.txt "Raster brush application"
+
       - name: Test SeExpr native integration
         id: seexpr_tests
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}

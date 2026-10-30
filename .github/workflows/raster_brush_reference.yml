@@ -115,24 +115,19 @@ jobs:
         if: failure()
         shell: bash
         run: |
-          echo '::error::Reference acquisition or execution failed; inspect the named step and runtime artifact. No source parity is granted.'
-          if test -f "$BRUSH_REFERENCE_ROOT/output/oracle-status.json"; then cat "$BRUSH_REFERENCE_ROOT/output/oracle-status.json"; fi
-          if test -f "$BRUSH_REFERENCE_ROOT/runtime.log"; then
-            tail -60 "$BRUSH_REFERENCE_ROOT/runtime.log" | while IFS= read -r line; do
-              line=${line//'%'/'%25'}
-              line=${line//$'\r'/'%0D'}
-              echo "::error::$line"
-            done
-          fi
-          for log in "$BRUSH_REFERENCE_ROOT/output/plugin-startup.log" "$BRUSH_REFERENCE_ROOT/data/krita/krita.log" "$BRUSH_REFERENCE_ROOT/data/krita/krita-sysinfo.log"; do
-            if test -f "$log"; then
-              tail -40 "$log" | while IFS= read -r line; do
-                line=${line//'%'/'%25'}
-                line=${line//$'\r'/'%0D'}
-                echo "::error::$line"
-              done
-            fi
-          done
+          python3 - <<'PYREPORT'
+          import os
+          from pathlib import Path
+          root = Path(os.environ['BRUSH_REFERENCE_ROOT'])
+          parts = []
+          for name in ('version.log', 'output/oracle-status.json', 'output/plugin-startup.log', 'runtime.log', 'data/krita/krita.log', 'data/krita/krita-sysinfo.log'):
+              path = root / name
+              if path.is_file():
+                  parts.append(name + ':\n' + '\n'.join(path.read_text(errors='replace').splitlines()[-100:]))
+          message = '\n'.join(parts)[-50000:]
+          message = message.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+          print('::error title=Reference runtime diagnostics::' + message)
+          PYREPORT
       - uses: jurplel/install-qt-action@v4
         with:
           version: '6.8.3'
