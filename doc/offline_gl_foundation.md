@@ -15,6 +15,10 @@ conversion retains a core application and works without a display/platform
 plugin. The Explorer thumbnail DLL keeps its host free of Qt GUI state and calls
 the installed converter in a bounded child process. Size, payload, timeout,
 cancellation and temporary-file checks apply before returning a thumbnail.
+Scene thumbnails first use normal project loading. When no project is available
+and the loader has not read a scene, the icon loader reads the standalone TNZ
+using the existing scene-relative asset rules. It does not create a Sandbox or
+write a project just to display a thumbnail.
 
 ## Acceptance
 
@@ -31,7 +35,10 @@ is pending CI. Builds and tests are not run locally.
 - Windows exercises the actual Shell COM provider on a worker thread for Unicode
   PLI and scene paths, compares every pixel with the real converter, verifies the
   host remains a core application, and covers tiny requests, cancellation,
-  deadlines, malformed payloads and temporary-file cleanup.
+  deadlines, malformed payloads and temporary-file cleanup. Saved TNZ inputs
+  independently verify their camera, cell and vector resource; absolute and
+  `$scenefolder` asset paths must render nonwhite artwork at the saved camera's
+  aspect ratio. Standalone-scene correction qualification is pending fresh CI.
 - All three native workflows require `offline-gl-workflow: PASS`. Windows also
   requires the registered Shell fixture. The common Mesa launcher gives the
   renderer and converter the same verified desktop GL and removes temporary DLLs

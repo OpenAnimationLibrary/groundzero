@@ -46,6 +46,7 @@
 
 // STD includes
 #include <map>
+#include <memory>
 #include <set>
 #include <string>
 #include <vector>
@@ -462,7 +463,8 @@ bool LibraryCmd::readPoseSet(const TFilePath &path, PoseLibrary &poses) {
 bool LibraryCmd::savePoseSet() {
   ToonzScene *scene = TApp::instance()->getCurrentScene()->getScene();
   if (!scene) return false;
-  PoseLibrary *poseLibrary = scene->getPoseLibrary();
+  PoseLibraryEditContext context;
+  const PoseLibrary *poseLibrary = &context.before();
   if (poseLibrary->getPoseCount() == 0) {
     DVGui::warning(
         QObject::tr("The scene has no poses to save. Create them in the Poses "
@@ -478,7 +480,7 @@ bool LibraryCmd::savePoseSet() {
   TFilePath folder  = getPosesFolder();
   QString name;
   if (!askItemName(QObject::tr("Save Pose Set to Library"), defaultName, folder,
-                   extension, name))
+                   extension, name) || !context.isCurrent())
     return false;
 
   TFilePath path   = getItemPath(folder, name, extension);
@@ -515,7 +517,8 @@ bool LibraryCmd::loadPoseSet(const TFilePath &path) {
     return false;
   }
 
-  PoseLibrary *poseLibrary = scene->getPoseLibrary();
+  PoseLibraryEditContext context;
+  const PoseLibrary *poseLibrary = &context.before();
   std::vector<PoseLibrary::Pose> existingPoses, incomingPoses;
   std::vector<std::wstring> existingNames, incomingNames;
   for (int i = 0; i < poseLibrary->getPoseCount(); i++) {
@@ -545,9 +548,11 @@ bool LibraryCmd::loadPoseSet(const TFilePath &path) {
             "scene:\n%1\n\nDo you want to replace the poses of the scene with "
             "them? You can undo this change."))
             .arg(names.join(", "));
-    int ret = DVGui::MsgBox(question, QObject::tr("Replace"),
-                            QObject::tr("Keep the Scene Poses"),
-                            QObject::tr("Cancel"), 0);
+    std::unique_ptr<DVGui::Dialog> dialog(DVGui::createMsgBox(
+        DVGui::QUESTION, question, {QObject::tr("Replace"),
+        QObject::tr("Keep the Scene Poses"), QObject::tr("Cancel")}, 0));
+    dialog->setObjectName("importPoseConflictDialog");
+    int ret = context.exec(*dialog);
     if (ret == 1)
       replace = true;
     else if (ret == 2)
@@ -555,6 +560,7 @@ bool LibraryCmd::loadPoseSet(const TFilePath &path) {
     else
       return false;
   }
+  if (!context.isCurrent()) return false;
 
   std::vector<PoseLibrary::Pose> merged =
       LibraryItems::mergeByName(existingPoses, incomingPoses, pairs, replace);

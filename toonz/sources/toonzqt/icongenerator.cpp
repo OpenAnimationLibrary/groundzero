@@ -1249,7 +1249,19 @@ TRaster32P IconGenerator::generateSceneFileIcon(const TFilePath &path,
     ToonzScene scene;
     try {
       scene.load(path);
+      // Headless thumbnail processes need not have an installed Sandbox.
+      // loadNoResources leaves the scene path empty when it cannot resolve a
+      // project, without reading the TNZ. Load that standalone scene using the
+      // existing empty-project asset rules ($scenefolder and relative aliases).
+      // Normal project loading and all thrown parse/project errors stay intact.
+      if (scene.getScenePath().isEmpty()) {
+        scene.setIsLoading(true);
+        scene.loadTnzFile(path);
+        scene.loadResources(false);
+        scene.setIsLoading(false);
+      }
     } catch (...) {
+      scene.setIsLoading(false);
       scene.clear();
       return TRaster32P();
     }
