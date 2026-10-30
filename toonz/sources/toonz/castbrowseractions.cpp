@@ -1,5 +1,6 @@
 #include "castbrowseractions.h"
 #include "castviewer.h"
+#include "castworkflowguard.h"
 #include "toonz/imagemanager.h"
 #include "timagecache.h"
 #include "tapp.h"
@@ -102,10 +103,15 @@ void row(QTableWidget *table, const QStringList &values) {
     table->setItem(r, c, item);
   }
 }
-CastWorkflow::Index uses(QWidget *parent, const std::set<TXshLevel *> &wanted) {
+CastWorkflow::Index uses(CastWorkflowGuard &workflow, const std::set<TXshLevel *> &wanted) {
   QProgressDialog progress(tr("Finding exposed level uses…"), tr("Cancel"),
-                           0, 0, parent);
-  progress.setWindowModality(Qt::WindowModal);
+                           0, 0);
+  workflow.watch(progress);
+  if (!workflow.valid()) {
+    CastWorkflow::Index canceled;
+    canceled.complete = false;
+    return canceled;
+  }
   progress.setMinimumDuration(300);
   ToonzScene *source = scene();
   TXsheetP top(source->getTopXsheet());
@@ -113,7 +119,7 @@ CastWorkflow::Index uses(QWidget *parent, const std::set<TXshLevel *> &wanted) {
   if (wanted.empty()) { limits.recordOccurrences = false; limits.expandInstances = false; }
   return CastWorkflow::index(top.getPointer(), wanted, [&]() {
     QApplication::processEvents();
-    return progress.wasCanceled() || scene() != source;
+    return !workflow.valid() || progress.wasCanceled() || scene() != source;
   }, limits);
 }
 class TagsUndo final : public TUndo {
@@ -298,13 +304,14 @@ QChar AssetStatus::badge() {
 
 void whereUsed(QWidget *parent, const std::vector<TXshLevel *> &levels) {
   if (levels.empty()) return;
+  CastWorkflowGuard workflow(parent);
   ToonzScene *source = scene();
   std::vector<TXshLevelP> retained;
   for (auto *level : levels) retained.emplace_back(level);
   std::set<TXshLevel *> wanted(levels.begin(), levels.end());
-  auto found = uses(parent, wanted);
-  if (scene() != source) return;
-  QDialog dialog(parent);
+  auto found = uses(workflow, wanted);
+  if (!workflow.valid()) return;
+  QDialog dialog;
   QObject::connect(TApp::instance()->getCurrentScene(), &TSceneHandle::sceneSwitched,
                    &dialog, &QDialog::reject);
   dialog.setObjectName("CastWhereUsed");
@@ -333,6 +340,7 @@ void whereUsed(QWidget *parent, const std::vector<TXshLevel *> &levels) {
   QObject::connect(view, &QTableWidget::itemSelectionChanged, &dialog,
                    [=]() { go->setEnabled(view->currentRow() >= 0); });
   auto navigate = [&]() {
+    if (!workflow.canAct(dialog)) return;
     int index = view->currentRow();
     if (scene() != source || index < 0 || index >= int(found.occurrences.size())) return;
     const auto &use = found.occurrences[index];
@@ -345,17 +353,18 @@ void whereUsed(QWidget *parent, const std::vector<TXshLevel *> &levels) {
     if (TSelection::getCurrent()) TSelection::getCurrent()->selectNone();
     TUndoManager::manager()->beginBlock();
     const int depth = source->getChildStack()->getAncestorCount();
-    for (int i = 0; i < depth; ++i)
+    for (int i = 0; i < depth && workflow.valid(); ++i)
       CommandManager::instance()->execute(MI_CloseChild);
-    bool navigated = source->getChildStack()->getAncestorCount() == 0;
+    bool navigated = workflow.valid() && source->getChildStack()->getAncestorCount() == 0;
     for (const auto &step : use.path) {
-      if (!navigated) break;
+      if (!workflow.valid() || !navigated) break;
       app->getCurrentColumn()->setColumnIndex(step.column);
       app->getCurrentFrame()->setFrame(step.row);
       CommandManager::instance()->execute(MI_OpenChild);
       navigated = app->getCurrentXsheet()->getXsheet() == step.child->getXsheet();
     }
     TUndoManager::manager()->endBlock();
+    if (!workflow.valid()) return;
     if (!navigated || app->getCurrentXsheet()->getXsheet() != use.sheet.getPointer()) {
       summary->setText(tr("The requested sheet could not be opened. Close and search again."));
       return;
@@ -371,21 +380,23 @@ void whereUsed(QWidget *parent, const std::vector<TXshLevel *> &levels) {
   QObject::connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
   layout->addWidget(buttons);
   dialog.resize(850, 460);
-  dialog.exec();
+  workflow.exec(dialog);
 }
 
 void editTags(QWidget *parent, const std::vector<TXshLevel *> &levels) {
   if (levels.empty()) return;
+  CastWorkflowGuard workflow(parent);
   ToonzScene *source = scene();
   std::vector<TXshLevelP> retained;
   for (auto *level : levels) retained.emplace_back(level);
-  bool accepted = false;
-  QString input = QInputDialog::getText(parent, tr("Edit Scene Cast Tags"),
-      tr("Comma-separated tags. Replaces tags on every selected level."),
-      QLineEdit::Normal, levels.size() == 1 ? levels.front()->getCastTags().join(", ") : QString(),
-      &accepted);
-  if (!accepted || scene() != source) return;
-  auto tags = CastWorkflow::normalizeTags(input);
+  QInputDialog input;
+  input.setWindowTitle(tr("Edit Scene Cast Tags"));
+  input.setLabelText(tr("Comma-separated tags. Replaces tags on every selected level."));
+  input.setTextValue(levels.size() == 1 ? levels.front()->getCastTags().join(", ") : QString());
+  if (workflow.exec(input) != QDialog::Accepted) return;
+  for (auto *level : levels)
+    if (source->getLevelSet()->getLevel(level->getName()) != level) return;
+  auto tags = CastWorkflow::normalizeTags(input.textValue());
   if (std::all_of(levels.begin(), levels.end(), [&](TXshLevel *level) { return level->getCastTags() == tags; })) return;
   std::vector<QStringList> after(levels.size(), tags);
   auto *undo = new TagsUndo(levels, after);
@@ -404,13 +415,15 @@ void inspect(QWidget *parent, const std::vector<TXshLevel *> &levels) {
 }
 
 void removeUnused(QWidget *parent) {
+  CastWorkflowGuard workflow(parent);
   ToonzScene *source = scene();
-  auto found = uses(parent, {});
-  if (scene() != source || !found.complete || found.cycle) {
-    QMessageBox::warning(parent, tr("Unused Levels"), tr("The scene could not be indexed completely. No levels were removed."));
+  auto found = uses(workflow, {});
+  if (!workflow.valid()) return;
+  if (!found.complete || found.cycle) {
+    workflow.warning(tr("Unused Levels"), tr("The scene could not be indexed completely. No levels were removed."));
     return;
   }
-  QDialog dialog(parent);
+  QDialog dialog;
   dialog.setObjectName("CastUnusedReview");
   QObject::connect(TApp::instance()->getCurrentScene(), &TSceneHandle::sceneSwitched,
                    &dialog, &QDialog::reject);
@@ -436,9 +449,9 @@ void removeUnused(QWidget *parent) {
   QObject::connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
   layout->addWidget(buttons);
   dialog.resize(750, 430);
-  if (dialog.exec() != QDialog::Accepted || scene() != source) return;
-  auto current = uses(parent, {});
-  if (!current.complete || current.cycle || scene() != source) return;
+  if (workflow.exec(dialog) != QDialog::Accepted) return;
+  auto current = uses(workflow, {});
+  if (!workflow.valid() || !current.complete || current.cycle) return;
   TUndoManager::manager()->beginBlock();
   for (int i = 0; i < int(unused.size()); ++i)
     if (view->item(i, 0)->checkState() == Qt::Checked &&

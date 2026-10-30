@@ -4,6 +4,7 @@
 #include "nativeuiintegrationtest.h"
 #include "nativefiledialogtest.h"
 #include "libraryprovenanceintegrationtest.h"
+#include "castinterruptionintegrationtest.h"
 #include "tapp.h"
 #include "iocommand.h"
 #include "toonz/levelset.h"
@@ -1386,5 +1387,6 @@ void runCastWorkflowIntegrationTest(QMainWindow *window) {
           switchInspector->property("PreviewRequests").toInt() == requestsBeforeSwitch,
           "scene switching displayed or requeued an old drawing preview");
   browser.hide();
+  runCastInterruptionIntegrationTest();
   std::cout << "cast-native-workflow: PASS\n";
 }
