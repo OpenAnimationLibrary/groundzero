@@ -41,3 +41,8 @@ ipch/
 
 # generated qm files
 /stuff/config/loc
+# copied there by the CMake configure step for packaging
+/stuff/doc/LICENSE-spdlog.txt
+
+# bytecode of the build's Python helper scripts
+__pycache__/

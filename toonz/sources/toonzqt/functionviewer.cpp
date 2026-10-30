@@ -247,6 +247,7 @@ FunctionViewer::FunctionViewer(QWidget *parent, Qt::WindowFlags flags)
 //-----------------------------------------------------------------------------
 
 FunctionViewer::~FunctionViewer() {
+  emit workflowPanelClosed();
   delete m_selection;
   m_toolbar->setFrameHandle(0);
 }
@@ -326,6 +327,7 @@ void FunctionViewer::showEvent(QShowEvent *) {
 //-----------------------------------------------------------------------------
 
 void FunctionViewer::hideEvent(QHideEvent *) {
+  emit workflowPanelClosed();
   if (m_xshHandle) m_xshHandle->disconnect(this);
   if (m_frameHandle) {
     m_frameHandle->disconnect(this);

@@ -301,3 +301,39 @@ Delete and inclusive Step after selection invalidation. Widget coverage retains
 repeated Apply/no-op assertions across harmless layout refresh. These additions
 are peer-reviewed and await execution at the new CI head; no local builds or
 tests ran. Earlier successful runs do not qualify this added boundary.
+
+## Pending panel lifetime and intervening key edits
+
+A source audit after `efdd9139f` identified two additional boundaries. They were
+not observed crashes in that revision's passing native runs. A stack-owned
+workflow dialog was also a QObject child of its Function panel, so deleting the
+panel during its modal loop could destroy the stack dialog before unwinding.
+Separately, the key editor retained key indices while rebuilding a fresh plan
+for each Apply: another operation inserting or deleting an earlier key could
+make a still-valid index refer to a different key.
+
+The prepared correction keeps stack dialogs independently owned and associates
+their native windows with the panel through a non-owning transient relationship.
+Panel hide/destruction rejects pending Edit, Presets, Sets, Dependencies,
+comparison Restore and preference prompts. Nested Save/Import/name dialogs
+follow that cancellation, and late callbacks cannot change the model or write
+preferences/presets. QPointer checks protect post-modal comparison restoration.
+An ordinary panel hide restores the prior frozen comparison without reevaluation;
+existing show/rebuild behavior still invalidates cached scene context on reopen.
+The key editor checks exact native snapshots from dialog open before planning,
+and advances that baseline only after its own successful Apply, preserving
+repeated edits while rejecting intervening same-owner mutations.
+
+Prepared widget regressions exercise queued Apply after panel hide/destruction,
+and insertion/deletion both before and after Preview for value and target-range
+operations. They retain exact foreign-edit undo/redo, both channels, identities,
+dirty state and history. The full application fixture creates actual
+FunctionViewerPanel instances with application handles and exercises 24
+hide/destruction routes, including nested preset file/name and set-name prompts,
+late dependency navigation, Restore and numeric preferences. It checks preserved
+animation/history, exact preferences and library bytes, and frozen comparison
+samples on hide. A separate real-control Save/Rename/Delete/Reopen channel-set
+cycle verifies preferences persistence and that deleted sets cannot be recalled,
+without introducing animation undo for workspace preferences. These new checks
+are authored and source-reviewed only until fresh exact-head CI executes them;
+no local build or test was run.
