@@ -35,6 +35,51 @@ def invoke(script, arguments):
 
 
 class RegressionReportingTest(unittest.TestCase):
+    def test_cel_report_uses_own_outcome_not_unrelated_native_failure(self):
+        original = ("100% tests passed, 0 tests failed out of 34\n"
+                    "Later native-ui-integration: FAIL: unrelated drawing\n").encode("utf-8")
+        for outcome in ("success", "skipped", "cancelled"):
+            with self.subTest(outcome=outcome), tempfile.TemporaryDirectory() as directory:
+                report = Path(directory) / "cel-output.txt"
+                report.write_bytes(original)
+                status, output = invoke(SCRIPTS / "report_cel_tests.py",
+                                        [report, "--outcome", outcome])
+                self.assertEqual((status, output), (0, b""))
+                self.assertEqual(report.read_bytes(), original)
+                # A skipped command is not required to have produced a report.
+                report.unlink()
+                status, output = invoke(SCRIPTS / "report_cel_tests.py",
+                                        [report, "--outcome", outcome])
+                self.assertEqual((status, output), (0, b""))
+
+    def test_failed_cel_outcome_preserves_unicode_and_successful_test_summary(self):
+        original = ("100% tests passed, 0 tests failed out of 34\n"
+                    "runner failed after tests: 動画 🎨 50%\n").encode("utf-8") + b"invalid: \xff\n"
+        with tempfile.TemporaryDirectory() as directory:
+            report = Path(directory) / "cel-output.txt"
+            report.write_bytes(original)
+            status, output = invoke(SCRIPTS / "report_cel_tests.py",
+                                    [report, "--outcome", "failure"])
+            self.assertEqual(status, 0)  # Keep the original command's failure status.
+            self.assertEqual(report.read_bytes(), original)
+        self.assertTrue(output.startswith(
+            b"::error title=Cel effect regression::Cel test command failed.%0A"))
+        self.assertIn(b"100%25 tests passed, 0 tests failed out of 34", output)
+        self.assertIn("runner failed after tests: 動画 🎨 50%25%0A".encode("utf-8"), output)
+        self.assertIn("invalid: �%0A".encode("utf-8"), output)
+
+    def test_failed_cel_command_without_output_still_has_error_annotation(self):
+        for contents in (None, b""):
+            with self.subTest(contents=contents), tempfile.TemporaryDirectory() as directory:
+                report = Path(directory) / "未作成.txt"
+                if contents is not None:
+                    report.write_bytes(contents)
+                status, output = invoke(SCRIPTS / "report_cel_tests.py",
+                                        [report, "--outcome", "failure"])
+                self.assertEqual(status, 0)
+                self.assertTrue(output.startswith(b"::error title=Cel effect regression::"))
+                self.assertIn(b"unavailable" if contents is None else b"empty output report", output)
+
     def test_failed_ctest_keeps_raw_output_report_and_failure_status(self):
         diagnostic = "thumbnail 動画.pli failed: 🎨 50%\nsecond line"
         raw_child = b"unchanged child bytes: \xff\r\n"
