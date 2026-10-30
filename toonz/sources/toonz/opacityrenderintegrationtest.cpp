@@ -15,6 +15,7 @@
 #include "timage_io.h"
 #include "tproperty.h"
 #include "texception.h"
+#include "toonzqt/planeviewer.h"
 #include <QApplication>
 #include <QTemporaryDir>
 #include <QDir>
@@ -25,6 +26,8 @@
 #include <QOpenGLContext>
 #include <QElapsedTimer>
 #include <QThread>
+#include <QLabel>
+#include <QPaintEvent>
 #include <atomic>
 #include <future>
 #include <cmath>
@@ -78,6 +81,175 @@ void scaledPixels(const TRaster32P &base, const TRaster32P &actual, double scale
   }
   require(!requireArtwork || occupied > 20, "opacity style fixture produced no artwork");
 }
+
+class OpacityFailureViewer final : public PlaneViewer {
+  TVectorImageP m_image;
+public:
+  int failureStage = 1, paintCount = 0;
+  bool productionRejected = false, stateRestored = true, nestedScopeRestored = true;
+  OpacityFailureViewer *nestedViewer = nullptr;
+  explicit OpacityFailureViewer(const TVectorImageP &image)
+      : PlaneViewer(nullptr), m_image(image) { resize(360, 180); }
+protected:
+  void paintGL() override {
+    ++paintCount;
+    productionRejected = false;
+    tglSetOpacityFramebufferFailureForTest(failureStage);
+    struct ResetFailure { ~ResetFailure() { tglSetOpacityFramebufferFailureForTest(0); } } reset;
+    GLint stack = 0, framebuffer = 0, viewport[4], modelStack = 0;
+    glGetIntegerv(GL_ATTRIB_STACK_DEPTH, &stack);
+    glGetIntegerv(GL_MODELVIEW_STACK_DEPTH, &modelStack);
+    glGetIntegerv(GL_FRAMEBUFFER_BINDING, &framebuffer);
+    glGetIntegerv(GL_VIEWPORT, viewport);
+    if (failureStage) {
+      // A file/production render invoked during a widget paint must still fail.
+      TVectorRenderData production(TVectorRenderData::ProductionSettings(),
+          TTranslation(128,64), TRect(), m_image->getPalette());
+      try { tglDraw(production, m_image.getPointer()); }
+      catch (const std::runtime_error &) { productionRejected = true; }
+    }
+    pushGLWorldCoordinates();
+    draw(m_image);  // Actual PlaneViewer draw path under a real Qt paint event.
+    popGLCoordinates();
+    GLint afterStack = 0, afterFramebuffer = 0, afterViewport[4], afterModelStack = 0;
+    glGetIntegerv(GL_ATTRIB_STACK_DEPTH, &afterStack);
+    glGetIntegerv(GL_MODELVIEW_STACK_DEPTH, &afterModelStack);
+    glGetIntegerv(GL_FRAMEBUFFER_BINDING, &afterFramebuffer);
+    glGetIntegerv(GL_VIEWPORT, afterViewport);
+    stateRestored = stateRestored && stack == afterStack && modelStack == afterModelStack && framebuffer == afterFramebuffer &&
+        std::equal(viewport, viewport + 4, afterViewport) && glGetError() == GL_NO_ERROR;
+    if (nestedViewer && failureStage) {
+      QPaintEvent nestedEvent(nestedViewer->QOpenGLWidget::rect());
+      QApplication::sendEvent(nestedViewer, &nestedEvent);
+      makeCurrent();
+      nestedScopeRestored = nestedScopeRestored && TViewerOpacityErrorScope::currentFailed();
+    }
+    // A later opaque layer covers the entire failed drawing. The error must
+    // remain visible above this layer, without being baked into GL output.
+    glDisable(GL_SCISSOR_TEST); glColorMask(GL_TRUE,GL_TRUE,GL_TRUE,GL_TRUE);
+    glClearColor(0, 0, 1, 1); glClear(GL_COLOR_BUFFER_BIT);
+  }
+};
+
+void viewerFailureBoundary(const TVectorImageP &image, const std::vector<int> &stages = {1,2}) {
+  OpacityFailureViewer nested(image);
+  nested.failureStage = 0; nested.show();
+  QApplication::processEvents();
+  OpacityFailureViewer viewer(image);
+  viewer.nestedViewer = &nested;
+  viewer.show();
+  QElapsedTimer initialDeadline; initialDeadline.start();
+  while (viewer.paintCount == 0 && initialDeadline.elapsed() < 5000) {
+    QApplication::processEvents(); QThread::msleep(1);
+  }
+  auto *initialOverlay = viewer.findChild<QLabel *>("vectorOpacityErrorOverlay");
+  require(viewer.paintCount > 0 && initialOverlay && initialOverlay->isVisible(),
+          "first native widget paint lost its opacity failure notice");
+  auto repaint = [&] {
+    const int previous = viewer.paintCount;
+    viewer.update();
+    QElapsedTimer deadline; deadline.start();
+    while (viewer.paintCount == previous && deadline.elapsed() < 5000) {
+      QApplication::processEvents(); QThread::msleep(1);
+    }
+    require(viewer.paintCount > previous, "native opacity viewer did not paint");
+  };
+  QLabel *overlay = nullptr;
+  for (int stage : stages) {
+    viewer.failureStage = stage; repaint();
+    overlay = viewer.findChild<QLabel *>("vectorOpacityErrorOverlay");
+    require(overlay && overlay->isVisible() && overlay->text().contains("Preview incomplete") &&
+                !overlay->accessibleDescription().isEmpty() &&
+                overlay->testAttribute(Qt::WA_TransparentForMouseEvents) &&
+                overlay->focusPolicy() == Qt::NoFocus,
+            "native viewer did not expose a nonblocking accessible opacity error");
+    require(viewer.productionRejected && viewer.stateRestored && viewer.nestedScopeRestored,
+            "viewer boundary swallowed a production error or leaked GL/error state");
+    viewer.makeCurrent();
+    unsigned char background[4] = {};
+    glReadPixels(0,0,1,1,GL_RGBA,GL_UNSIGNED_BYTE,background);
+    viewer.doneCurrent();
+    require(background[2] == 255 && background[0] == 0,
+            "later-layer coverage fixture did not cover the failed drawing");
+    const QImage banner = overlay->grab().toImage();
+    int colored = 0;
+    for (int y = 0; y < banner.height(); ++y) for (int x = 0; x < banner.width(); ++x)
+      if (qRed(banner.pixel(x,y)) > qGreen(banner.pixel(x,y)) * 1.5) ++colored;
+    require(colored > 20, "native overlay did not paint a visible failure notice");
+    repaint();
+    require(viewer.findChildren<QLabel *>("vectorOpacityErrorOverlay").size() == 1,
+            "repainting created duplicate opacity error notices");
+  }
+  viewer.setUpdatesEnabled(false);
+  const int painted = viewer.paintCount;
+  QPaintEvent reused(viewer.QOpenGLWidget::rect());
+  QApplication::sendEvent(&viewer, &reused);
+  require(viewer.paintCount == painted && overlay && !overlay->isHidden(),
+          "reusing an old failed framebuffer incorrectly cleared its notice");
+  bool reusedCaptureRejected = false;
+  try { viewer.grabFramebuffer(); } catch (const std::runtime_error &) { reusedCaptureRejected = true; }
+  require(reusedCaptureRejected, "capture reused a failed framebuffer while updates were disabled");
+  viewer.setUpdatesEnabled(true);
+  // Direct framebuffer capture is strict: finish Qt cleanup, then reject a
+  // partial image outside the paint-event boundary. The same widget recovers.
+  bool captureRejected = false;
+  try { viewer.grabFramebuffer(); } catch (const std::runtime_error &) { captureRejected = true; }
+  require(captureRejected && !TViewerOpacityErrorScope::currentFailed(),
+          "failed framebuffer capture returned partial pixels or leaked its error scope");
+  viewer.failureStage = 0; repaint();
+  require(overlay && !overlay->isVisible(), "opacity error notice survived successful recovery");
+  const QImage recovered = viewer.grabFramebuffer();
+  require(!recovered.isNull() && qBlue(recovered.pixel(0,0)) == 255,
+          "native widget could not render after an opacity failure");
+  viewer.hide();
+  nested.hide();
+}
+
+void nativeOpacityPicking(const TVectorImageP &image) {
+  TOfflineGL context(TDimension(256,128));
+  context.makeCurrent(); context.initMatrix();
+  auto hit = [&](const TPointD &point) {
+    GLuint selection[128] = {};
+    GLint viewport[4]; glGetIntegerv(GL_VIEWPORT, viewport);
+    glSelectBuffer(128, selection); glRenderMode(GL_SELECT);
+    glInitNames(); glPushName(73);
+    glMatrixMode(GL_PROJECTION); glPushMatrix(); glLoadIdentity();
+    gluPickMatrix(point.x + 128, point.y + 64, .5, .5, viewport);
+    gluOrtho2D(0,256,0,128);
+    glMatrixMode(GL_MODELVIEW); glPushMatrix(); glLoadIdentity();
+    struct RestorePicking {
+      bool selected = true;
+      ~RestorePicking() {
+        glMatrixMode(GL_MODELVIEW); glPopMatrix();
+        glMatrixMode(GL_PROJECTION); glPopMatrix(); glMatrixMode(GL_MODELVIEW);
+        if (selected) glRenderMode(GL_RENDER);
+      }
+    } restore;
+    TVectorRenderData data(TVectorRenderData::ViewerSettings(), TTranslation(128,64),
+        TRect(), image->getPalette());
+    data.m_drawRegions = false;
+    tglDraw(data, image.getPointer());
+    const GLint hits = glRenderMode(GL_RENDER); restore.selected = false;
+    require(hits >= 0 && (!hits || (selection[0] == 1 && selection[3] == 73)),
+            "native opacity selection buffer overflowed or lost its object name");
+    return hits > 0;
+  };
+  auto *stroke = image->getStroke(0);
+  stroke->setOpacity(1.); stroke->setOpacityProfile({});
+  require(hit(TPointD()) && !hit(TPointD(54,7)),
+          "native picking fixture did not distinguish stroke from bbox-only corner");
+  tglSetOpacityFramebufferFailureForTest(1);
+  struct ResetFailure { ~ResetFailure() { tglSetOpacityFramebufferFailureForTest(0); } } reset;
+  stroke->setOpacity(.5);
+  require(hit(TPointD()) && !hit(TPointD(54,7)),
+          "scalar opacity replaced native geometric picking with a composite rectangle");
+  stroke->setOpacityProfile({{0,0},{1,1}});
+  require(hit(TPointD()) && !hit(TPointD(54,7)),
+          "opacity envelope altered native selection hits or required a framebuffer");
+  stroke->setOpacity(0.);
+  require(!hit(TPointD()), "native picking changed zero-scalar-opacity semantics");
+  context.doneCurrent();
+}
 }
 
 void runOpacityRenderNativeChecks() {
@@ -96,6 +268,7 @@ void runOpacityRenderNativeChecks() {
     if (tag == 106) { style->setParamValue(1, 35.); style->setParamValue(2, 1.); }
     styles.push_back(palette->addStyle(style));
   }
+  nativeOpacityPicking(imageWith(palette.getPointer(), styles.front()));
   TPaletteP brushPalette = new TPalette;
   const int brushColor = brushPalette->addStyle(TPixel32(220,80,30,192));
   TVectorImageP brush = new TVectorImage; brush->setPalette(brushPalette.getPointer());
@@ -179,6 +352,31 @@ void runOpacityRenderNativeChecks() {
     context.doneCurrent();
     auto success = render(failing);
     require(success->pixels(64)[128].m > 0, "render did not recover after injected framebuffer failure");
+    viewerFailureBoundary(failing);
+  }
+  // A real PLI-backed Vector Trail can fail inside the outer opacity capture.
+  // Its nested matrix and strict production/error-collection scopes must all
+  // unwind before the ordinary widget paint reports an incomplete preview.
+  {
+    const TFilePath oldRoot = TVectorImagePatternStrokeStyle::getRootDir();
+    struct RestoreVectorRoot {
+      TFilePath path;
+      ~RestoreVectorRoot() { TVectorImagePatternStrokeStyle::setRootDir(path.getParentDir()); }
+    } restoreVectorRoot{oldRoot};
+    TVectorImagePatternStrokeStyle::setRootDir(TFilePath(inputs.path()));
+    auto stampImage = imageWith(palette.getPointer(), styles.front());
+    stampImage->getStroke(0)->setOpacityProfile({{0,.5},{1,.5}});
+    const TFilePath stampPath(inputs.filePath("custom styles/OpacityVectorTrail.pli"));
+    {
+      TLevelWriterP writer(stampPath);
+      writer->setPalette(palette.getPointer());
+      writer->getFrameWriter(TFrameId(1))->save(stampImage);
+    }
+    auto *vectorTrail = new TVectorImagePatternStrokeStyle("OpacityVectorTrail");
+    require(vectorTrail->getLevelFrameCount() == 1, "native Vector Trail did not load");
+    auto nestedPattern = imageWith(palette.getPointer(), palette->addStyle(vectorTrail));
+    nestedPattern->getStroke(0)->setOpacity(.5);
+    viewerFailureBoundary(nestedPattern, {3});
   }
   auto image = imageWith(palette.getPointer(), styles.front());
   const auto ordinaryDepth = render(image, true);
