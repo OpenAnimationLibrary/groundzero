@@ -67,12 +67,18 @@
 #include <QMessageBox>
 #include <QUuid>
 #include <QSet>
+#include <QElapsedTimer>
 
 const char *AudioFolderName = "Audio";
 
 using namespace DVGui;
 
 namespace {
+QJsonObject castRefreshMeasurements;
+void addRefreshMeasurements(const QJsonObject &measurements) {
+  for (auto it = measurements.begin(); it != measurements.end(); ++it)
+    castRefreshMeasurements[it.key()] = castRefreshMeasurements[it.key()].toDouble() + it.value().toDouble();
+}
 
 QSet<QString> ambiguousCastIds(const std::vector<TXshLevel *> &levels) {
   QSet<QString> seen, ambiguous;
@@ -802,6 +808,8 @@ void CastBrowser::refresh() {
   m_itemViewer->verticalScrollBar()->setValue(position);
 }
 
+QJsonObject CastBrowser::refreshMeasurements() { return castRefreshMeasurements; }
+
 //-----------------------------------------------------------------------------
 
 /*
@@ -820,7 +828,12 @@ void CastBrowser::getLevels(std::vector<TXshLevel*> &levels) const
 
 void CastBrowser::refreshData() {
   if (m_rebuilding) return;
+  QElapsedTimer total, phase;
+  total.start(); phase.start();
+  QJsonObject measurements{{"refreshes", 1}, {"visibleRefreshes", isVisible() ? 1 : 0}};
   rememberSelection();
+  measurements["selectionCaptureMs"] = phase.nsecsElapsed() / 1e6;
+  phase.restart();
   m_rebuilding = true;
   refreshCollections();
   m_assetStatus.clear();
@@ -846,13 +859,23 @@ void CastBrowser::refreshData() {
     for (const auto &collection : scene->getProperties()->getCastCollections())
       if (collection.id == collectionId)
         for (const QString &member : collection.members) members.insert(member);
+  const int type = m_type->currentData().toInt();
+  const QStringList words = CastWorkflow::queryWords(m_search->text());
+  measurements["queryCompilations"] = 1;
+  measurements["emptyQueryRefreshes"] = words.empty() ? 1 : 0;
+  measurements["setupMs"] = phase.nsecsElapsed() / 1e6;
+  phase.restart();
   if (status == 1 || status == 2) {
     CastWorkflow::Limits limits;
     limits.recordOccurrences = false;
     limits.expandInstances = false;
     usage = CastWorkflow::index(scene->getTopXsheet(), {}, {}, limits);
   }
-  const int type = m_type->currentData().toInt();
+  measurements["usageIndexMs"] = phase.nsecsElapsed() / 1e6;
+  measurements["usageCells"] = double(usage.cells);
+  phase.restart();
+  CastBrowserActions::StatusContext statusContext(scene);
+  quint64 queryChecks = 0;
   std::vector<TXshLevel *> visible;
   std::vector<TXshLevelP> retained;
   for (TXshLevel *level : levels) {
@@ -860,32 +883,50 @@ void CastBrowser::refreshData() {
         (!members.contains(level->getCastId()) || ambiguousIds.contains(level->getCastId()))) continue;
     if (type && level->getType() != type &&
         !(type == OVL_XSHLEVEL && level->getType() == TZI_XSHLEVEL)) continue;
-    if (!CastWorkflow::matches(m_search->text(), QString::fromStdWString(level->getName()),
-          scene->decodeFilePath(level->getPath()).getQString(), level->getCastTags())) continue;
+    CastBrowserActions::AssetStatus asset(statusContext, level);
+    if (!words.empty()) {
+      ++queryChecks;
+      if (!CastWorkflow::matchesWords(words, QString::fromStdWString(level->getName()),
+            asset.path().getQString(), level->getCastTags())) continue;
+    }
     if (status == 1 && !usage.used.count(level)) continue;
     if (status == 2 && (!usage.complete || usage.cycle || usage.used.count(level))) continue;
-    if (status == 3 && !CastBrowserActions::missing(scene, level)) continue;
-    if (status == 4 && !CastBrowserActions::external(scene, level)) continue;
-    if (status == CastBrowserActions::Modified && !CastBrowserActions::modified(level)) continue;
-    if (status == CastBrowserActions::Unsaved && !CastBrowserActions::unsaved(scene, level)) continue;
-    if (status == CastBrowserActions::Missing && (!level->sourceExpectedOnDisk() || !CastBrowserActions::missing(scene, level))) continue;
-    if (status == CastBrowserActions::Cached && !CastBrowserActions::cached(level)) continue;
-    m_assetStatus[level] = CastBrowserActions::status(scene, level);
-    if (CastBrowserActions::unsaved(scene, level)) m_statusBadge[level] = 'N';
-    else if (CastBrowserActions::missing(scene, level)) m_statusBadge[level] = '!';
-    else if (CastBrowserActions::modified(level)) m_statusBadge[level] = '*';
-    else if (CastBrowserActions::external(scene, level)) m_statusBadge[level] = 'L';
-    else if (CastBrowserActions::cached(level)) m_statusBadge[level] = 'C';
+    if (status == CastBrowserActions::Absent && !asset.missing()) continue;
+    if (status == CastBrowserActions::External && !asset.external()) continue;
+    if (status == CastBrowserActions::Modified && !asset.modified()) continue;
+    if (status == CastBrowserActions::Unsaved && !asset.unsaved()) continue;
+    if (status == CastBrowserActions::Missing && (!level->sourceExpectedOnDisk() || !asset.missing())) continue;
+    if (status == CastBrowserActions::Cached && !asset.cached()) continue;
+    m_assetStatus[level] = asset.text();
+    const QChar badge = asset.badge();
+    if (!badge.isNull()) m_statusBadge[level] = badge;
     if (level->getSimpleLevel() || level->getPaletteLevel() || level->getSoundLevel()) {
       visible.push_back(level);
       retained.emplace_back(level);
     }
   }
+  measurements["filterAndStatusMs"] = phase.nsecsElapsed() / 1e6;
+  measurements["candidateAssets"] = double(levels.size());
+  measurements["shownAssets"] = double(visible.size());
+  measurements["queryChecks"] = double(queryChecks);
+  const auto &queries = statusContext.queries;
+  measurements["assetSnapshots"] = double(queries.assets);
+  measurements["statusPathDecodes"] = double(queries.decodedPaths);
+  measurements["diskQueries"] = double(queries.diskQueries);
+  measurements["canonicalPathQueries"] = double(queries.canonicalQueries);
+  measurements["canonicalRootSets"] = double(queries.rootSets);
+  measurements["cacheFrameQueries"] = double(queries.cacheQueries);
+  measurements["libraryRelationshipQueries"] = double(queries.libraryQueries);
+  phase.restart();
   // Native castChanged is coarse: predicates and ordering are recomputed, but
   // unchanged rows retain their identity and no longer require new CastItems.
   // Keep removed levels alive until old items and selection indices are gone.
   m_castItems->reconcile(visible, m_itemViewer->getPanel()->getIconSize());
+  measurements["reconcileMs"] = phase.nsecsElapsed() / 1e6;
+  phase.restart();
   sortByDataModel(getCurrentOrderType(), isDiscendentOrder());
+  measurements["sortAndSelectionMs"] = phase.nsecsElapsed() / 1e6;
+  phase.restart();
   m_displayedLevels = std::move(retained);
   m_rebuilding = false;
   QString count = tr("%1 assets shown").arg(getItemCount());
@@ -904,6 +945,11 @@ void CastBrowser::refreshData() {
     count += tr(" — incomplete usage index; unused results are withheld");
   m_resultCount->setText(count);
   m_inspector->setLevels(selectedLevels());
+  measurements["finalInspectorAndLabelsMs"] = phase.nsecsElapsed() / 1e6;
+  measurements["refreshDataMs"] = total.nsecsElapsed() / 1e6;
+  for (auto it = measurements.begin(); it != measurements.end(); ++it)
+    m_refreshMeasurements[it.key()] = m_refreshMeasurements[it.key()].toDouble() + it.value().toDouble();
+  addRefreshMeasurements(measurements);
 }
 
 std::vector<TXshLevel *> CastBrowser::selectedLevels() const {

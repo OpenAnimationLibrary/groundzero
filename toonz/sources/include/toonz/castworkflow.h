@@ -109,15 +109,21 @@ inline bool validPath(TXsheet *top, const Occurrence &use) {
          sheet->getCell(use.first, use.column).m_level == use.level;
 }
 
-inline bool matches(const QString &query, const QString &name,
-                    const QString &path, const QStringList &tags) {
+inline QStringList queryWords(const QString &query) {
+  return query.simplified().split(QLatin1Char(' '), Qt::SkipEmptyParts);
+}
+inline bool matchesWords(const QStringList &words, const QString &name,
+                         const QString &path, const QStringList &tags) {
+  if (words.empty()) return true;
   const QString haystack = name + QLatin1Char('\n') + path +
                           QLatin1Char('\n') + tags.join(QLatin1Char('\n'));
-  const QStringList words = query.simplified().split(QLatin1Char(' '),
-                                                    Qt::SkipEmptyParts);
   for (const QString &word : words)
     if (!haystack.contains(word, Qt::CaseInsensitive)) return false;
   return true;
+}
+inline bool matches(const QString &query, const QString &name,
+                    const QString &path, const QStringList &tags) {
+  return matchesWords(queryWords(query), name, path, tags);
 }
 
 inline QStringList normalizeTags(const QString &text) {

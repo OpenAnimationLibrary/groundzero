@@ -30,6 +30,7 @@
 #include "trasterimage.h"
 #include "tpalette.h"
 #include "tvectorimage.h"
+#include "timagecache.h"
 #include "tundo.h"
 #include <QApplication>
 #include <QAbstractButton>
@@ -70,6 +71,12 @@
 #include <iostream>
 
 namespace {
+QJsonObject refreshDifference(const QJsonObject &before, const QJsonObject &after) {
+  QJsonObject result;
+  for (auto it = after.begin(); it != after.end(); ++it)
+    result[it.key()] = it.value().toDouble() - before.value(it.key()).toDouble();
+  return result;
+}
 void require(bool value, const char *message) {
   if (!value) throw std::runtime_error(message);
 }
@@ -301,6 +308,64 @@ void runCastWorkflowIntegrationTest(QMainWindow *window) {
   require(browser.getItemCount() == 1, "palette-only modification is absent from modified filter");
   status->setCurrentIndex(status->findData(CastBrowserActions::Cached)); browser.refreshData();
   require(browser.getItemCount() == 1, "resident decoded drawing missing from cache filter");
+  status->setCurrentIndex(0); search->clear(); browser.refreshData();
+
+  // Refresh-local snapshots must observe file/dirty/cache changes made between
+  // refreshes; filtering must not turn the hidden selection into a new identity.
+  {
+    QTemporaryDir files;
+    require(files.isValid(), "no fresh-status fixture directory");
+    const QString path = files.filePath("fresh-status.png");
+    TXshSimpleLevelP fresh = new TXshSimpleLevel(L"Cast fresh status");
+    fresh->setScene(source); fresh->setType(OVL_XSHLEVEL);
+    fresh->setPath(TFilePath(path), true); fresh->setSourceExpectedOnDisk(true);
+    source->getLevelSet()->insertLevel(fresh.getPointer());
+    const QString identity = fresh->getCastId();
+    search->setText("Cast fresh status");
+    status->setCurrentIndex(status->findData(CastBrowserActions::Missing));
+    browser.refreshData();
+    require(browser.getItemCount() == 1, "fresh-status fixture is not initially missing");
+    viewer->getPanel()->getSelection()->selectNone();
+    viewer->getPanel()->getSelection()->select(0);
+    QImage file(8, 8, QImage::Format_ARGB32); file.fill(Qt::red);
+    for (int repeat = 0; repeat < 2; ++repeat) {
+      require(file.save(path), "cannot create fresh-status source");
+      browser.refreshData();
+      require(browser.getItemCount() == 0 && viewer->getSelectedIndices().empty(),
+              "file creation retained a missing asset or actionable hidden selection");
+      status->setCurrentIndex(0); browser.refreshData();
+      require(browser.getItemCount() == 1 &&
+              browser.getItemData(0, DvItemListModel::ToolTip).toString().contains("Saved source exists"),
+              "status tooltip retained stale file absence");
+      selected.clear();
+      static_cast<CastSelection *>(viewer->getPanel()->getSelection())->getSelectedLevels(selected);
+      require(selected.size() == 1 && selected.front() == fresh.getPointer() && fresh->getCastId() == identity,
+              "file creation changed the restored selected asset identity");
+      require(QFile::remove(path), "cannot remove fresh-status source");
+      browser.refreshData();
+      require(browser.getItemData(0, DvItemListModel::ToolTip).toString().contains("Missing on disk"),
+              "status tooltip retained stale file existence");
+      status->setCurrentIndex(status->findData(CastBrowserActions::Missing));
+      browser.refreshData();
+      require(browser.getItemCount() == 1, "file removal did not restore missing status");
+    }
+    viewer->getPanel()->getSelection()->selectNone();
+    fresh->getProperties()->setDirtyFlag(true);
+    status->setCurrentIndex(status->findData(CastBrowserActions::Modified)); browser.refreshData();
+    require(browser.getItemCount() == 1, "refresh snapshot missed a new dirty flag");
+    fresh->getProperties()->setDirtyFlag(false); browser.refreshData();
+    require(browser.getItemCount() == 0, "refresh snapshot retained a cleared dirty flag");
+    TRaster32P pixels(8, 8); pixels->fill(TPixel32::Red);
+    fresh->setFrame(TFrameId(1), TRasterImageP(pixels));
+    const std::string imageId = fresh->getImageId(TFrameId(1));
+    status->setCurrentIndex(status->findData(CastBrowserActions::Cached)); browser.refreshData();
+    require(browser.getItemCount() == 1 && TImageCache::instance()->isCached(imageId),
+            "refresh snapshot missed newly cached drawing data");
+    TImageCache::instance()->remove(imageId); browser.refreshData();
+    require(browser.getItemCount() == 0 && !TImageCache::instance()->isCached(imageId),
+            "refresh retained stale decoded state or decoded a file to inspect the cache");
+    source->getLevelSet()->removeLevel(fresh.getPointer());
+  }
   status->setCurrentIndex(0); search->clear(); browser.refreshData();
 
   auto *collections = browser.findChild<QComboBox *>("CastCollectionFilter");
@@ -1155,11 +1220,36 @@ void runCastWorkflowIntegrationTest(QMainWindow *window) {
   }
   search->clear(); scope->setCurrentIndex(1); type->setCurrentIndex(0); status->setCurrentIndex(0);
   QElapsedTimer measurement;
-  QJsonObject metrics{{"schema", 1}, {"syntheticAssets", largeCount},
-                      {"commit", qEnvironmentVariable("GITHUB_SHA")}};
+  QJsonObject metrics{{"schema", 2}, {"syntheticAssets", largeCount},
+                      {"commit", qEnvironmentVariable("GITHUB_SHA")},
+                      {"timingScope", "Synchronous native mutation and castChanged subscribers; excludes later paint. Initial refresh includes show/event processing plus explicit refresh."},
+                      {"queryScope", "Logical snapshot API calls, not OS syscalls. Includes search/status paths and shared roots; excludes independent inspector snapshots and Library relationship internals."}};
+  QJsonObject allBefore, instanceBefore;
+  const auto captureRefresh = [&]() {
+    allBefore = CastBrowser::refreshMeasurements();
+    instanceBefore = browser.instanceRefreshMeasurements();
+  };
+  const auto recordRefresh = [&](const QString &key, bool emptyQuery) {
+    const auto local = refreshDifference(instanceBefore, browser.instanceRefreshMeasurements());
+    const auto all = refreshDifference(allBefore, CastBrowser::refreshMeasurements());
+    require(local.value("refreshes").toDouble() >= 1 &&
+            all.value("refreshes").toDouble() >= local.value("refreshes").toDouble(),
+            "native Cast edit did not record its actual refresh invocation");
+    require(local.value("canonicalRootSets").toDouble() <= local.value("refreshes").toDouble() &&
+            local.value("diskQueries").toDouble() <= local.value("assetSnapshots").toDouble(),
+            "refresh repeated project-root or per-asset source queries");
+    require(local.value("queryCompilations").toDouble() == local.value("refreshes").toDouble(),
+            "search terms were not prepared once per refresh");
+    if (emptyQuery)
+      require(local.value("queryChecks").toDouble() == 0,
+              "empty Cast search still evaluated every asset haystack");
+    metrics[key] = QJsonObject{{"fixtureBrowser", local}, {"allBrowsers", all}};
+  };
+  captureRefresh();
   measurement.start(); browser.show(); QApplication::processEvents();
   QMetaObject::invokeMethod(&browser, "refresh", Qt::DirectConnection);
   metrics["refreshMs"] = double(measurement.elapsed());
+  recordRefresh("initialRefreshWork", true);
   require(browser.getItemCount() >= largeCount && measurement.elapsed() < 30000, "large Cast refresh incomplete or stalled");
   const int selectedIndex = find(browser, "Cast fixture Hero");
   viewer->getPanel()->getSelection()->selectNone(); viewer->getPanel()->getSelection()->select(selectedIndex);
@@ -1207,32 +1297,38 @@ void runCastWorkflowIntegrationTest(QMainWindow *window) {
   TXshSimpleLevelP added = new TXshSimpleLevel(L"Cast scale added");
   added->setScene(source); added->setType(PLI_XSHLEVEL);
   added->setPath(TFilePath(localDir + "/Cast scale added.pli"), true);
+  captureRefresh();
   measurement.restart(); source->getLevelSet()->insertLevel(added.getPointer());
   TApp::instance()->getCurrentScene()->notifyCastChange();
   metrics["singleAddMs"] = double(measurement.elapsed());
+  recordRefresh("singleAddWork", true);
   verifyDelta(deltaCount + 1);
   require(find(browser, "Cast scale added") >= 0, "native Cast add event did not expose the asset");
-  measurement.restart();
+  captureRefresh(); measurement.restart();
   require(source->getLevelSet()->renameLevel(renamed, L"Cast scale 09999 renamed"), "large Cast rename failed");
   TApp::instance()->getCurrentScene()->notifyCastChange();
   metrics["singleRenameMs"] = double(measurement.elapsed());
+  recordRefresh("singleRenameWork", true);
   verifyDelta(deltaCount + 1);
   require(find(browser, "Cast scale 01234") < 0 && find(browser, "Cast scale 09999 renamed") >= 0,
           "native Cast rename retained stale display data");
-  measurement.restart(); source->getLevelSet()->removeLevel(added.getPointer());
+  captureRefresh(); measurement.restart(); source->getLevelSet()->removeLevel(added.getPointer());
   TApp::instance()->getCurrentScene()->notifyCastChange();
   metrics["singleRemoveMs"] = double(measurement.elapsed());
+  recordRefresh("singleRemoveWork", true);
   verifyDelta(deltaCount);
   require(find(browser, "Cast scale added") < 0, "native Cast remove event retained a deleted asset");
   metrics["survivingItemsRetained"] = true;
   require(source->getLevelSet()->renameLevel(renamed, L"Cast scale 01234"), "large Cast name restoration failed");
   TApp::instance()->getCurrentScene()->notifyCastChange();
-  measurement.restart(); search->setText("Cast scale 01234"); browser.refreshData();
+  captureRefresh(); measurement.restart(); search->setText("Cast scale 01234"); browser.refreshData();
   metrics["searchMs"] = double(measurement.elapsed());
+  recordRefresh("searchWork", false);
   require(browser.getItemCount() == 1 && find(browser, "Cast scale 01234") == 0,
           "large Cast search returned incorrect identities");
-  search->clear(); status->setCurrentIndex(1); measurement.restart(); browser.refreshData();
+  search->clear(); status->setCurrentIndex(1); captureRefresh(); measurement.restart(); browser.refreshData();
   metrics["usageFilterMs"] = double(measurement.elapsed());
+  recordRefresh("usageFilterWork", true);
   require(find(browser, "Cast fixture Hero") >= 0 && find(browser, "Cast scale 01234") < 0,
           "large Cast usage filter is incorrect");
   metrics["correctness"] = "passed";
