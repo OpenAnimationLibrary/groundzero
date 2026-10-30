@@ -7,11 +7,13 @@
 #include "tools/strokeselection.h"
 #include "toonzqt/selectioncommandids.h"
 #include "toonzqt/menubarcommand.h"
+#include "toonzqt/planeviewer.h"
 #include "toonz/toonzscene.h"
 #include "toonz/tscenehandle.h"
 #include "toonz/txshsimplelevel.h"
 #include "toonz/txshleveltypes.h"
 #include "toonz/txshlevelhandle.h"
+#include "toonz/levelproperties.h"
 #include "toonz/morphhints.h"
 #include "toonz/txsheet.h"
 #include "toonz/txshcell.h"
@@ -27,6 +29,7 @@
 #include "tlevel_io.h"
 #include <QApplication>
 #include <QDialog>
+#include <QImage>
 #include <QComboBox>
 #include <QKeyEvent>
 #include <QPushButton>
@@ -34,9 +37,12 @@
 #include <QTableWidget>
 #include <QLabel>
 #include <QTableView>
+#include <QSlider>
 #include <QTemporaryDir>
 #include <QAction>
 #include <stdexcept>
+#include <exception>
+#include <cmath>
 #include <memory>
 #include <iomanip>
 #include <iostream>
@@ -449,6 +455,134 @@ void runVectorMorphNativeChecks() {
               undo->getHistoryCount() == 0 && !app->getCurrentScene()->getDirtyFlag(),
           "failed morph changed artwork, history or dirty state");
   first->getStroke(2)->setOpacityProfile({}); last->getStroke(0)->setOpacityProfile({});
+
+  // Drive the native preview, Apply and Cancel controls for the Fade policy.
+  // The accepted dialog dispatches the same production Filmstrip command as
+  // FilmstripFrames; the generated images and history are checked below.
+  auto fadeFirst = make({0,30}), fadeLast = make({0}), fadeBlank = make({});
+  const StrokeOpacity::Profile fadeProfile{{0.,.2},{.5,.8},{1.,1.}};
+  fadeFirst->getStroke(1)->setOpacity(.6);
+  require(fadeFirst->getStroke(1)->setOpacityProfile(fadeProfile), "native Fade profile fixture invalid");
+  fadeFirst->group(1,1);
+  level->setFrame(TFrameId(1),fadeFirst); level->setFrame(TFrameId(2),fadeBlank);
+  level->setFrame(TFrameId(3),fadeLast);
+  options.m_unmatchedPolicy = TInbetween::FadeUnmatched;
+  app->getCurrentScene()->setDirtyFlag(false); undo->reset();
+  auto fadeDialog = [&](bool apply, bool blocked) {
+    InbetweenDialog review(nullptr);
+    review.setValue("Linear"); review.setAutoMatch(false);
+    review.setUnmatchedPolicy(TInbetween::FadeUnmatched);
+    review.setPreviewSource(level->getFrame(TFrameId(1),false),
+                            level->getFrame(TFrameId(3),false), {}, {});
+    auto *policy = review.findChild<QComboBox *>("morphUnmatchedPolicy");
+    auto *button = review.findChild<QPushButton *>("morphApply");
+    auto *cancel = review.findChild<QPushButton *>("morphCancel");
+    auto *position = review.findChild<QSlider *>("morphPreviewPosition");
+    auto *swatch = review.findChild<PlaneViewer *>("morphResultPreview");
+    auto *table = review.findChild<QTableWidget *>("morphCorrespondence");
+    auto *status = review.findChild<QLabel *>("morphReviewStatus");
+    require(policy && button && cancel && position && swatch && table && status &&
+                policy->currentData().toInt() == TInbetween::FadeUnmatched,
+            "native Fade controls or stable policy value missing");
+    std::exception_ptr failure;
+    QObject::connect(&review, &QDialog::accepted, [&]() {
+      try { FilmstripCmd::inbetween(level,TFrameId(1),TFrameId(3),FilmstripCmd::II_Linear,{},options); }
+      catch (...) { failure = std::current_exception(); }
+    });
+    const int history = undo->getCurrentHistoryIndex();
+    const bool dirty = app->getCurrentScene()->getDirtyFlag();
+    const bool levelDirty = level->getProperties()->getDirtyFlag();
+    TVectorImageP before = level->getFrame(TFrameId(2),false);
+    QTimer drive, deadline; drive.setInterval(30); deadline.setSingleShot(true);
+    int stage = 0; bool finished = false; QImage midpoint, early;
+    QObject::connect(&drive, &QTimer::timeout, [&]() {
+      try {
+        require(undo->getCurrentHistoryIndex() == history &&
+                    app->getCurrentScene()->getDirtyFlag() == dirty &&
+                    level->getProperties()->getDirtyFlag() == levelDirty &&
+                    TVectorImageP(level->getFrame(TFrameId(2),false)) == before,
+                "native Fade preview changed artwork/history/dirty state");
+        if (blocked) {
+          if (!status->text().contains("painted regions")) return;
+          require(!button->isEnabled() && !table->property("previewReady").toBool(),
+                  "painted-boundary Fade still enabled Apply");
+          review.accept(); // Programmatic/keyboard acceptance must revalidate too.
+          require(review.isVisible(), "unsupported Fade bypassed preflight through accept");
+          finished = true; cancel->click(); return;
+        }
+        if (!table->property("previewReady").toBool()) return;
+        require(button->isEnabled(), "supported Fade preview did not enable Apply");
+        const QImage image = swatch->grabFramebuffer();
+        require(!image.isNull(), "native Fade preview framebuffer is empty");
+        if (stage == 0) { midpoint = image; ++stage; position->setValue(25); return; }
+        if (stage == 1) {
+          early = image; require(early != midpoint, "Fade preview did not change visible opacity");
+          ++stage; position->setValue(75); return;
+        }
+        if (stage == 2) {
+          require(image != early && image != midpoint, "Fade preview reused stale opacity");
+          ++stage; position->setValue(50); return;
+        }
+        require(image == midpoint, "repeated Fade preview accumulated opacity changes");
+        finished = true;
+        if (apply) button->click(); else cancel->click();
+      } catch (...) { failure = std::current_exception(); review.reject(); }
+    });
+    QObject::connect(&deadline, &QTimer::timeout, &review, &QDialog::reject);
+    drive.start(); deadline.start(5000); review.exec(); drive.stop(); deadline.stop();
+    if (failure) std::rethrow_exception(failure);
+    require(finished, "native Fade dialog did not finish its preview/preflight workflow");
+  };
+  auto verifyFade = [&]() {
+    TVectorImageP image = level->getFrame(TFrameId(2),false);
+    require(image->getStrokeCount() == 2 && image->getGroupDepth(1) == 1 &&
+                std::abs(image->getStroke(1)->getOpacity() - .3) < 1.e-12 &&
+                image->getStroke(1)->getOpacityProfile() == fadeProfile &&
+                TVectorImageP(level->getFrame(TFrameId(1),false)) == fadeFirst &&
+                TVectorImageP(level->getFrame(TFrameId(3),false)) == fadeLast &&
+                fadeFirst->getStroke(1)->getOpacity() == .6,
+            "native Fade Apply/redo lost authored appearance, groups or endpoints");
+    requireGeometry(image,fadeFirst,"native Fade geometry");
+  };
+  fadeDialog(false,false);
+  require(undo->getHistoryCount() == 0 && !app->getCurrentScene()->getDirtyFlag(),
+          "canceling native Fade changed document/history");
+  fadeDialog(true,false); verifyFade();
+  require(undo->getHistoryCount() == 1, "Fade Apply did not create one undo transaction");
+  undo->undo();
+  require(TVectorImageP(level->getFrame(TFrameId(2),false)) == fadeBlank, "Fade undo lost original drawing identity");
+  undo->redo(); verifyFade();
+  fadeDialog(true,false); verifyFade();
+  require(undo->getHistoryCount() == 2, "repeated Fade Apply changed transaction count");
+  undo->undo(); verifyFade(); undo->undo();
+  require(TVectorImageP(level->getFrame(TFrameId(2),false)) == fadeBlank, "repeated Fade undo lost original drawing");
+  undo->reset();
+
+  TVectorImageP painted = make({});
+  auto *boundary = new TStroke(std::vector<TThickPoint>{{0,0,1},{5,0,1},{10,0,1},
+      {10,5,1},{10,10,1},{5,10,1},{0,10,1},{0,5,1},{0,0,1}});
+  boundary->setStyle(1); boundary->setSelfLoop(); painted->addStroke(boundary);
+  painted->findRegions(); require(painted->getRegionCount() > 0,"native Fade painted fixture lacks region");
+  painted->getRegion(0)->setStyle(1);
+  for (bool appearing : {false,true}) {
+    level->setFrame(TFrameId(1),appearing ? make({}) : painted);
+    level->setFrame(TFrameId(3),appearing ? painted : make({}));
+    app->getCurrentScene()->setDirtyFlag(false);
+    level->getProperties()->setDirtyFlag(false);
+    FilmstripCmd::inbetween(level,TFrameId(1),TFrameId(2),FilmstripCmd::II_Linear,{},options);
+    require(undo->getHistoryCount() == 0 && !app->getCurrentScene()->getDirtyFlag(),
+            "Fade without intermediate drawings created a phantom transaction");
+    fadeDialog(false,true);
+    bool refused = false;
+    try { FilmstripCmd::inbetween(level,TFrameId(1),TFrameId(3),FilmstripCmd::II_Linear,{},options); }
+    catch (...) { refused = true; }
+    require(refused && undo->getHistoryCount() == 0 &&
+                TVectorImageP(level->getFrame(TFrameId(2),false)) == fadeBlank &&
+                !app->getCurrentScene()->getDirtyFlag() && !level->getProperties()->getDirtyFlag() &&
+                painted->getRegion(0)->getStyle() == 1 &&
+                painted->getStroke(0)->getOpacity() == 1.,
+            "painted Fade failure changed artwork/history/dirty state");
+  }
   std::cout << "vector-morph-native: PASS" << std::endl;
 }
 

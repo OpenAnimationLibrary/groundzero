@@ -43,7 +43,9 @@ public:
   //! \b second of the last image.
   typedef std::vector<std::pair<int, int>> StrokeCorrespondence;
 
-  enum UnmatchedPolicy { OmitUnmatched = 0, HoldUnmatched, CollapseUnmatched };
+  // Values are persisted by the native dialog. Append new policies so saved
+  // omit/hold/shrink choices retain their meaning across editions.
+  enum UnmatchedPolicy { OmitUnmatched = 0, HoldUnmatched, CollapseUnmatched, FadeUnmatched };
   enum MatchSource { ManualMatch, ZoneMatch, AutomaticMatch, IndexMatch };
   struct ResolvedPair {
     int first, last;
@@ -78,6 +80,13 @@ public:
   static CorrespondenceReview reviewCorrespondence(
       const TVectorImageP &first, const TVectorImageP &last,
       const StrokeCorrespondence &manual, const MatchOptions &options);
+
+  //! Fade can animate stroke opacity, but not region opacity. Inspect the
+  //! resolved unmatched strokes, including boundaries of painted holes and
+  //! nested regions, without modifying either source drawing.
+  static bool fadeHasPaintedBoundaries(const TVectorImageP &first,
+                                      const TVectorImageP &last,
+                                      const CorrespondenceReview &review);
 
   static double interpolation(double t, enum TweenAlgorithm);
 

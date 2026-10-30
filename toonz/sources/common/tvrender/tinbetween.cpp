@@ -7,7 +7,7 @@
 #include "texception.h"
 #include "tpalette.h"
 //#include "tcolorstyles.h"
-//#include "tregion.h"
+#include "tregion.h"
 #include "tmathutil.h"
 //#include "tstrokeutil.h"
 //#include "tsystem.h"
@@ -791,6 +791,10 @@ public:
         m_unmatchedPolicy(options.m_unmatchedPolicy) {
     m_review = TInbetween::reviewCorrespondence(firstImage, lastImage,
                                                 correspondence, options);
+    if (m_unmatchedPolicy == FadeUnmatched &&
+        TInbetween::fadeHasPaintedBoundaries(firstImage, lastImage, m_review))
+      throw TException("Fade cannot animate unmatched strokes that bound painted regions. "
+                       "Match those boundaries or choose Hold, Shrink/grow, or Omit.");
     for (const auto &pair : m_review.pairs)
       m_strokePairs.emplace_back(pair.first, pair.last);
     computeTransformation();
@@ -844,6 +848,41 @@ TInbetween::StrokeCorrespondence TInbetween::zoneCorrespondence(
 //-------------------------------------------------------------------
 
 TInbetween::~TInbetween() {}
+
+bool TInbetween::fadeHasPaintedBoundaries(
+    const TVectorImageP &first, const TVectorImageP &last,
+    const CorrespondenceReview &review) {
+  auto affected = [](const TVectorImageP &source,
+                     const std::vector<int> &unmatched) {
+    if (!source || unmatched.empty()) return false;
+    // Region rebuilding can update cached topology and colors. Do that only
+    // on a detached image; preflight must not alter the document or its cache.
+    TVectorImageP image = source->clone();
+    image->findRegions();
+    std::vector<bool> fading(image->getStrokeCount(), false);
+    for (int index : unmatched)
+      if (index >= 0 && index < int(fading.size())) fading[index] = true;
+    struct Visit { const TRegion *region; bool parentPainted; };
+    std::vector<Visit> pending;
+    for (UINT i = 0; i < image->getRegionCount(); ++i)
+      pending.push_back({image->getRegion(i), false});
+    while (!pending.empty()) {
+      const Visit visit = pending.back(); pending.pop_back();
+      const bool painted = visit.region->getStyle() != 0;
+      // An unpainted child still bounds a hole in its painted parent.
+      if (painted || visit.parentPainted)
+        for (UINT i = 0; i < visit.region->getEdgeCount(); ++i) {
+          const int index = visit.region->getEdge(i)->m_index;
+          if (index >= 0 && index < int(fading.size()) && fading[index]) return true;
+        }
+      for (UINT i = 0; i < visit.region->getSubregionCount(); ++i)
+        pending.push_back({visit.region->getSubregion(i), painted});
+    }
+    return false;
+  };
+  return affected(first, review.unmatchedFirst) ||
+         affected(last, review.unmatchedLast);
+}
 
 TInbetween::CorrespondenceReview TInbetween::reviewCorrespondence(
     const TVectorImageP &first, const TVectorImageP &last,
@@ -1769,6 +1808,8 @@ TVectorImageP TInbetween::Imp::tween(double t) const {
         }
         copy->invalidate();
       }
+      if (m_unmatchedPolicy == FadeUnmatched)
+        copy->setOpacity(copy->getOpacity() * factor);
       TGroupId group = source->getVIStroke(index)->m_groupId;
       if (!fromFirst) {
         // A new drawing's numeric group IDs are local to that drawing.

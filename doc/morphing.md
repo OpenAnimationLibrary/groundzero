@@ -91,6 +91,16 @@ Choose an explicit policy for unmatched strokes:
 - **Shrink/grow** scales each unmatched stroke around its own bounds center,
   including its thickness: disappearing strokes scale by `1-t`, appearing
   strokes by `t`. It does not pretend that stroke alpha fades a region's fill.
+- **Fade** multiplies the unmatched stroke's authored opacity by `1-t` when
+  disappearing or `t` when appearing. Geometry, width, group membership and
+  the stroke's normalized opacity profile are retained. Repeated previews and
+  generation start from the key drawings, so the multiplier does not accumulate.
+  Fade is unavailable when an unmatched stroke bounds a painted region,
+  including a nested fill or a hole in a painted region. The dialog explains
+  the limitation and disables Inbetween; direct generation rejects the same
+  case before changing drawings or history. Match those boundaries or select
+  another policy. Matched fills and unpainted closed strokes remain supported;
+  independent animated region opacity is not implemented.
 
 The key drawings remain unchanged. Generated drawings retain native strokes,
 groups, styles and transferred region colors. The Filmstrip command generates
@@ -119,4 +129,9 @@ serialization, stale/ambiguous anchors and frame renumbering. It is enabled with
 `BUILD_MORPHWORKFLOW_TESTS`, `BUILD_TESTS`, or `BUILD_UI_PORT_TESTS`. The existing
 UI CI target also drives the native correspondence dialog, Filmstrip Apply and
 undo/redo, lettered drawing bounds, and failure without partial mutation.
+Fade coverage includes actual rendered dialog previews at multiple positions,
+Cancel, repeated Apply/undo/redo, endpoint identity, source opacity/profile and
+group preservation, PLI reload, and rejection of painted unmatched boundaries
+in either direction. Native topology fixtures cover nested fills and painted
+hole boundaries while retaining supported matched fills.
 Source fixtures are not execution results: CI qualification remains required.

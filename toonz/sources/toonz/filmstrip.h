@@ -29,6 +29,7 @@ class QCheckBox;
 class QSlider;
 class QLabel;
 class QTimer;
+class QPushButton;
 class QDragEnterEvent;
 class QDragMoveEvent;
 class QDropEvent;
@@ -354,6 +355,8 @@ class InbetweenDialog final : public DVGui::Dialog {
   QTableWidget *m_reviewTable = nullptr;
   QLabel *m_reviewStatus;
   QTimer *m_previewTimer;
+  QPushButton *m_applyButton = nullptr;
+  bool m_previewValid = false;
   MorphPreviewSwatch *m_firstPreview, *m_resultPreview, *m_lastPreview;
   TVectorImageP m_firstImage, m_lastImage;
   TInbetween::StrokeCorrespondence m_manualPairs;
@@ -392,6 +395,9 @@ public:
   int slowStart() const;
   int slowEnd() const;
   void setEase(int slowStart, int slowEnd);
+
+public slots:
+  void accept() override;
 };
 
 #endif  // FILMSTRIP_H
