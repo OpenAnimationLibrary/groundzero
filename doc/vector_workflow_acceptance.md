@@ -103,3 +103,10 @@ disabled updates, strict capture and recovery. Results remain pending CI.
 Native selection mode uses the original style geometry without an opacity
 framebuffer; its real selection-buffer tests retain hit names, reject points
 inside only the composite rectangle, and retain zero-scalar-opacity behavior.
+
+Clipped Paint Inside/Selection objects are prepared with their fills before
+insertion. They remain directly inside the entered group, above its existing
+children and below any outside layers. Native brush acceptance checks nested
+group ancestry, overlapping siblings and outer layers, and repeated undo/redo.
+Its phase-specific pixel, contour and region diagnostics retain the original
+rendering assertions; execution of this correction is pending CI.
