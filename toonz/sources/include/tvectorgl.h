@@ -85,6 +85,12 @@ void DVAPI tglDraw(const TVectorRenderData &rd, TRegion *r,
 void DVAPI tglSetOpacityFramebufferFailureForTest(int stage);
 void DVAPI tglSetOpacityViewportCaptureForTest(bool full);
 bool DVAPI tglOpacitySnapshotFitsForTest(int width, int height, bool stencil);
+struct TOpacityTransferStats {
+  unsigned long long colorPixels = 0, depthPixels = 0, stencilPixels = 0;
+  unsigned long long peakSnapshotBytes = 0, transactions = 0, croppedTransactions = 0;
+};
+void DVAPI tglResetOpacityTransferStatsForTest();
+TOpacityTransferStats DVAPI tglOpacityTransferStatsForTest();
 #endif
 
 //=============================================================================

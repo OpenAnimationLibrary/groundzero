@@ -91,8 +91,15 @@ sample reports an error instead of silently omitting the stroke. Native checks
 cover widget scalar/profile visibility, sampled fade positions, and projected
 clipping across the near plane; the existing 3D depth oracles remain unchanged.
 
-Snapshots cover the full attachment because native fill-mask clears can affect
-stencil outside both the stroke and viewport. Float color preserves high-bit
+Stencil snapshots cover the full attachment because native fill-mask clears can
+affect pixels outside both the stroke and viewport. Color and depth snapshots
+use a conservative projected rectangle only for the exact solid style with a
+finite, positive-W projection and fixed-pipeline filled polygons. The rectangle
+includes authored miters and the native antialias fringe, and is intersected
+with the target, viewport and existing scissor. The native draw and its scissor
+are unchanged. Other styles, active shader/assembly programs, wide-line or
+non-filled rasterization, and uncertain projections retain full color/depth
+snapshots. Float color preserves high-bit
 targets. Fixed depth of at most 24 bits and native 32-bit floating depth use FLOAT
 transfers to avoid normalized UINT32 sampling loss; exact native depth oracles
 remain mandatory. Fixed or unclassified depth formats above 24 bits are refused
@@ -102,7 +109,8 @@ disable read/fragment clamping during snapshot/replace, preserving untouched
 HDR values while native drawing retains the caller's original clamp policy.
 Pixel transfer, program, texture,
 channel-mask, scissor and separate read-framebuffer state are restored. Field
-lookups are skipped only when every color/depth/stencil value is unchanged.
+lookups are skipped for unchanged color/depth and separately for unchanged
+stencil; zero-opacity stencil restoration still examines the whole attachment.
 
 The supported depth targets are non-multisample Qt windows and FBOs with a depth
 renderbuffer, 2D texture, or cube-map face within those precision limits. Multisample attachments (including a
@@ -113,13 +121,18 @@ unchanged by these depth-specific restrictions. This is not a per-sample GPU
 renderer redesign.
 
 This 3D path adds readback, native drawing and attachment replacement per stroke.
-With stencil present, its two attachment snapshots contain 48 bytes per target
-pixel: 1,572,864 bytes at 256×128 and 99,532,800 bytes at 1920×1080, before the
-stroke/field objects and existing framebuffer storage. Buffers are released
+With stencil present, the full fallback's two snapshots contain 48 bytes per
+target pixel: 1,572,864 bytes at 256×128 and 99,532,800 bytes at 1920×1080. For a
+certified solid crop of A pixels in a target of F pixels, the actual snapshot
+payload is 40×A + 8×F bytes, before stroke/field objects and existing framebuffer
+storage. Full stencil readback, comparison and replacement remain a per-stroke
+cost. Buffers are released
 after each stroke. Aggregate snapshots are capped at 512 MiB before allocation;
 larger targets are refused before drawing with an instruction to reduce the
-viewer framebuffer size. With stencil, this allows up to 11,184,810 target pixels;
-full 3840×2160 depth-tested targets fit (398,131,200 snapshot bytes). This limit does not apply
+viewer framebuffer size. With stencil, the full fallback allows up to 11,184,810 target pixels;
+full 3840×2160 depth-tested targets fit (398,131,200 snapshot bytes). Cropped
+transactions are checked against their actual combined color/depth/stencil
+payload before any allocation or native drawing. This limit does not apply
 to ordinary depth-disabled 2D drawing or export. Acceptance records native, scalar and envelope frame timings
 for bounded small and 1920×1080 multi-stroke workloads; these are descriptive
 measurements rather than a machine-dependent pass threshold. Usable performance
@@ -135,13 +148,27 @@ native/scalar/envelope result. Per-mode memory records use the process peak
 resident set before and after rendering (`PeakWorkingSetSize` on Windows,
 `ru_maxrss` on macOS, `VmHWM` on Linux). This cumulative high-water mark may be
 dominated by earlier fixtures; it is not an isolated allocation delta or
-simultaneous process-tree RSS. The known snapshot payload is reported separately.
+simultaneous process-tree RSS. Actual color/depth/stencil transfer pixel counts
+and the peak snapshot payload are reported separately from the full fallback's
+payload. The earlier valid llvmpipe run measured roughly 8 ms native versus
+382–687 ms scalar/profile per eight-stroke frame across the mandatory and isolated
+samples, with a cumulative process peak
+around 0.8 GB. Those are software-renderer measurements before cropping, not
+hardware-GPU estimates. The cropped path's timing and memory results remain
+pending fresh CI; no latency threshold or responsiveness claim replaces the
+pixel oracles.
 
 The native fixture retains the strict Chain `GL_LEQUAL` comparison and adds the
 scene viewer's `GL_ALWAYS` mode, transparent holes and later layers, same-color
 depth writes, channel/depth/stencil masks, scissor, reduced viewports, independent
 read FBOs, high-bit and sRGB color, supported depth textures, preflight refusal,
 failure rollback and recovery.
+Forced-full versus cropped native transactions compare every color, depth and
+stencil pixel for scalar/profile/zero, tilted and offset views, masks, patterned
+depth and injected rollback. Actual transfer counters require reduced
+color/depth work and unchanged full stencil work; a real shader and Chain style
+require full fallback. The actual oversized-target refusal uses Chain so it
+continues to exercise a genuinely over-budget transaction after optimization.
 
 ## Production caller preservation
 
