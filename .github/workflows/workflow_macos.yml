@@ -98,6 +98,9 @@ jobs:
           python3 -m unittest discover -s ci-scripts/tests -p test_native_macos_crash.py -v
           python3 -m unittest discover -s ci-scripts/tests -p test_windows_process.py -v
 
+      - name: Verify early harness failure reporting
+        run: python3 -m unittest discover -s ci-scripts/tests -p test_harness_reporting.py -v
+
       - name: Select SeExpr parser tools
         run: |
           brew --prefix bison | sed 's|$|/bin|' >> "$GITHUB_PATH"
