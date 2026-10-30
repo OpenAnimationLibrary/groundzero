@@ -173,7 +173,11 @@ void testV6PackBits() {
   require(parse(fileV6(2, sections), r, error), "v6: parse failed");
   require(r.version == 6 && r.subVersion == 2, "v6: version");
   require(r.tips.size() == 1, "v6: tip count");
-  require(r.skippedSamples == 0 && r.warnings.empty(), "v6: warnings");
+  require(r.skippedSamples == 0 && r.warnings.size() == 2,
+          "v6: skipped behavioral metadata must be reported");
+  require(r.warnings[0].find("descriptors") != std::string::npos &&
+              r.warnings[1].find("Pattern") != std::string::npos,
+          "v6: incorrect compatibility diagnostics");
   require(r.tips[0].name == "tip_001", "v6: name");
   require(r.tips[0].depth == 8, "v6: depth");
   requireImage4x3(r.tips[0]);
