@@ -167,6 +167,14 @@ installed application were skipped. Reporting correction `a31e8dcf3` keeps the
 mandatory timeout primary and reports isolated failures separately. The original
 failed process and its deadlines remain unchanged.
 
+The full-scope source audit also reopened original-window lifetime handling in
+width-profile, fill, alignment and opacity reviews. These stack dialogs still
+use a deletable active window as their QObject parent; nested width-library and
+file dialogs additionally need sticky cancellation after owner hide/destruction.
+This is a source exposure, not a reproduced crash. The affected workflows remain
+Pending until independently owned dialogs, guarded nested actions and actual
+owner-interruption regressions are implemented and reviewed.
+
 The audited follow-ups include saved-set rename and explicit target-range
 retiming; frozen evaluated comparisons with exact native restoration; native
 `.curve` import; a real multi-owner graph workload; explicit Fade and alignment
@@ -323,10 +331,10 @@ the CI-only harness verifies isolation and failure retention.
 | 19 | Opacity readback | Single/mixed opacity selection follows context without mutating drawing. | Source-ready; CI pending |
 | 20 | Style opacity consistency | Relevant vector style render paths preserve stroke alpha with independent pixel fixtures. | Source-ready; focused Linux ROI equivalence passed, final-head/platform CI pending |
 | 21 | SVG stroke opacity | External SVG output carries palette alpha times stroke opacity. | Source-ready; CI pending |
-| 22 | Visual width-profile manager | CRUD/import/export/previews, errors, overwrite/cancel and restart persistence. | Source-ready; interrupted checks pass on 3dd; detached-palette save correction and repeated Undo require fresh CI |
-| 23 | Width profiles across drawings | Selected drawings/level range, repeated exposures once, locked resources and undo. | Source-ready; strict repeated Undo and save invariance await CI on the corrected palette writer |
-| 24 | Pressure/profile blending | Zero-strength identity, replace/multiply semantics and pressure preservation. | Source-ready; full undo/save invariance must pass on the corrected writer |
-| 25 | Fill-safe reshaping | Actual region-change preview/recovery in geometry edit flow; fills/undo saved. | Source-ready; sticky frame-switch cancellation and actual queued Apply checks await CI |
+| 22 | Visual width-profile manager | CRUD/import/export/previews, errors, overwrite/cancel and restart persistence. | Pending; original window and nested dialog lifetime guards under implementation; strict repeated Undo/save qualification remains open |
+| 23 | Width profiles across drawings | Selected drawings/level range, repeated exposures once, locked resources and undo. | Pending; shared manager owner-lifetime correction and strict repeated Undo/save qualification remain open |
+| 24 | Pressure/profile blending | Zero-strength identity, replace/multiply semantics and pressure preservation. | Pending; shared manager owner-lifetime correction and full undo/save invariance remain open |
+| 25 | Fill-safe reshaping | Actual region-change preview/recovery in geometry edit flow; fills/undo saved. | Pending; original window lifetime correction and actual queued Apply coverage remain open |
 | 26 | Persistent morph hints | Stable drawing/stroke identity, edits/deletions, reopen and compatibility. | Source-ready; CI pending |
 | 27 | Correspondence preview | Matched/manual/unmatched preview matches committed inbetweens. | Source-ready; full range/hint snapshots, actual caller and panel-lifetime checks await CI |
 | 28 | Unmatched stroke handling | Explicit birth/death policy including Fade; endpoint, fill and opacity preservation, undo. | Source-ready; reviewed-range guards and interrupted native morph checks await CI |
@@ -334,10 +342,10 @@ the CI-only harness verifies isolation and failure retention.
 | 30 | Animated gradient copying | Copy current vs animated style choice; keyframes, unlinking and reload. | Source-ready; cancellation/reload passed on Linux baseline, corrected macOS driver awaits CI |
 | 31 | Outline stacking preservation | Native overlap/group pixel fidelity through outline conversion and undo. | Source-ready; CI pending |
 | 32 | Closed-loop outlines | Inner/outer boundaries, tight loops, holes/winding and undo. | Source-ready; CI pending |
-| 33 | Multi-drawing alignment | Explicit frame/reference scope, preview/cancel, matching, groups and no index-only assumptions. | Source-ready; native preview/cancel/apply passed on Linux baseline, final-head CI pending |
+| 33 | Multi-drawing alignment | Explicit frame/reference scope, preview/cancel, matching, groups and no index-only assumptions. | Pending; original window lifetime correction and actual owner hide/delete coverage remain open |
 | 34 | Paint Inside/Selection | Clipping to region/selection; holes/groups, pressure, undo. | Source-ready; CI pending |
 | 35 | Guided Drawing mode consistency | Guided Drawing honors paint mode or provides actionable explicit incompatibility. | Source-ready; CI pending |
-| 36 | Along-stroke opacity | Opacity variation survives draw/split/join/morph/deform/render/export and versioned storage. | Source-ready; reviewed snapshot/context guards await CI; full converter/render baseline passed on Linux |
+| 36 | Along-stroke opacity | Opacity variation survives draw/split/join/morph/deform/render/export and versioned storage. | Pending; original window lifetime correction and actual owner hide/delete coverage remain open; full converter/render baseline passed on Linux |
 | 37 | Global Cast search | Name/path, folder/global scope, stable selection. | Source-ready; CI pending |
 | 38 | Cast filters | Types and resource status predicates including modified assets, combined with search. | Source-ready; fresh CI pending |
 | 39 | Where Used navigation | All nested occurrences, cycles bounded, exact instance navigation and multiselection. | Source-ready; Cast panel lifetime and queued navigation guards await CI |
