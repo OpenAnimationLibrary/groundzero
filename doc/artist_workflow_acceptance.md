@@ -1,6 +1,8 @@
 # Artist workflow acceptance ledger
 
-Baseline: `edition` at `aa01975f38d6226156e5b07df7271b8fc199d003` (2026-10-30).
+Current baseline: `edition` at `b584755dca36e9cc5da1c325a2f11c8b83cd2aa2` (2026-10-30),
+including the separately owned reference/neural work in #114. Original research
+baseline: `aa01975f38d6226156e5b07df7271b8fc199d003`.
 
 All 60 requested improvements remain tracked. Source implementation, executed CI and physical artist validation are separate states. No item is complete merely because a control or test exists. Builds and tests run in supported CI, not locally. Every PR must be reconciled against the then-current `edition` before publication; passing results must identify its exact final head. Drafts remain open while qualification is pending.
 
@@ -40,6 +42,17 @@ any product correction. The combined clone fixture now uses the active numeric
 parameter API rather than an obsolete no-op setter. Unkeyed identities must
 survive reload without creating artificial animation keys.
 
+Linux validation `3090f9d9d` passed all eight original native 3D style-identity
+comparisons, then exposed a one-depth-step mismatch in the stricter attachment
+transaction fixture. Its independent combined scene roundtrip retained the
+unkeyed channel identity. The nested-export fixture now recalculates its duration
+after removing temporary preflight columns, retaining the exact single-frame
+placement oracle. Clone acceptance materializes and authors the existing source
+stage before counting newly inserted nodes. Production clone redo now retains
+the original inserted stage and curve objects: a later Function Editor undo
+entry must still modify the active curve after undoing and redoing the clone.
+These latest corrections await execution on the updated baseline.
+
 The scene-loading ownership correction `623763b59` has executed successfully on
 Linux: repeated output-properties assignment and scene/PLI reload no longer
 crash. Independent combined diagnostics then reached the identity and clone
@@ -77,11 +90,12 @@ workloads and installed-application checks. The combined final revision adds an
 opacity-envelope workload and must be qualified again.
 
 When the mandatory native pass fails with `--require-combined-workflows`, the
-runner also collects independent timing, Cast/vector and export diagnostics.
+runner also collects independent Function Editor, Cast, timing, Cast/vector and
+export diagnostics.
 Each group gets a fresh application process and disposable profile, runs
 sequentially, and has a 120-second limit. The original failure remains the CI
 result; isolated completion markers cannot satisfy the mandatory pass. Reports
-are retained separately as `ui-integration-output-combined-*.txt` and appended to
+are retained separately as `ui-integration-output-*.txt` and appended to
 the original report. Passing these diagnostics does not qualify the shared
 application sequence. CI-only harness contracts are in
 `ci-scripts/tests/test_native_ui_diagnostics.py`.

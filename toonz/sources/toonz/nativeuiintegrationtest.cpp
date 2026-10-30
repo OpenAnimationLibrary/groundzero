@@ -679,7 +679,16 @@ int runNativeUiIntegrationTest(QMainWindow *window) {
     if (!diagnosticSuite.isEmpty()) {
       require(!qEnvironmentVariableIsSet("GROUNDZERO_ARTIST_BENCHMARK"),
               "Native diagnostic suites cannot select the artist benchmark");
-      if (diagnosticSuite == "combined-timing") {
+      if (diagnosticSuite == "function-workflow") {
+        QString error;
+        if (!runFunctionWorkflowIntegrationTest(window, &error)) {
+          std::cerr << "native-ui-integration: FAIL: function-workflow: "
+                    << error.toStdString() << std::endl;
+          return 1;
+        }
+      } else if (diagnosticSuite == "cast-workflow") {
+        runCastWorkflowIntegrationTest(window);
+      } else if (diagnosticSuite == "combined-timing") {
         QString error;
         if (!runFunctionTimingIntegrationTest(window, &error)) {
           std::cerr << "native-ui-integration: FAIL: combined-timing: "

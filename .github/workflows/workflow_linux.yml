@@ -154,7 +154,7 @@ jobs:
     - name: Test native application integration
       id: ui_integration
       if: ${{ !cancelled() && steps.native_targets.outcome == 'success' }}
-      timeout-minutes: 30
+      timeout-minutes: 40
       env:
         GZ_CAST_WORKFLOW_REPORT: ${{ github.workspace }}/toonz/build/cast-workflow-metrics.json
       run: |

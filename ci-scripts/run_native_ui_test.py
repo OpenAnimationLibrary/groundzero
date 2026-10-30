@@ -93,7 +93,8 @@ def decode_output(output):
 def select_diagnostic_suite(environment, suite):
     if suite is None:
         return
-    if suite not in ("combined-timing", "combined-cast-vector", "combined-fidelity"):
+    if suite not in ("function-workflow", "cast-workflow", "combined-timing",
+                     "combined-cast-vector", "combined-fidelity"):
         raise ValueError("Unknown native UI diagnostic suite")
     environment["GROUNDZERO_NATIVE_UI_SUITE"] = suite
 
@@ -102,7 +103,9 @@ def combined_failure_diagnostics(executable, source, output_path, mesa_runtime=N
                                  linux_debugger=False, windows_debugger=False,
                                  symbol_directories=()):
     """Collect isolated evidence without changing the original failed result."""
-    suites = (("combined-timing", "function-timing-native: PASS"),
+    suites = (("function-workflow", "function-workflow-native: PASS"),
+              ("cast-workflow", "cast-native-workflow: PASS"),
+              ("combined-timing", "function-timing-native: PASS"),
               ("combined-cast-vector", "cast-vector-native: PASS"),
               ("combined-fidelity", "combined-fidelity-native: PASS"))
     timeout_seconds = 120

@@ -15,8 +15,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import run_native_ui_test as runner
 
 
-SUITES = ("combined-timing", "combined-cast-vector", "combined-fidelity")
-MARKERS = dict(zip(SUITES, ("function-timing-native: PASS",
+SUITES = ("function-workflow", "cast-workflow", "combined-timing",
+          "combined-cast-vector", "combined-fidelity")
+MARKERS = dict(zip(SUITES, ("function-workflow-native: PASS", "cast-native-workflow: PASS",
+                          "function-timing-native: PASS",
                           "cast-vector-native: PASS",
                           "combined-fidelity-native: PASS")))
 FULL_OUTPUT = "\n".join(("native-ui-integration: PASS", "vector-workflows: PASS",
@@ -88,7 +90,7 @@ class NativeDiagnosticContracts(unittest.TestCase):
                 status, calls, output = self.invoke(response)
                 self.assertEqual(status, 1)
                 self.assertEqual([call[0] for call in calls], [None, *SUITES])
-                self.assertEqual([call[2] for call in calls], [600, 120, 120, 120])
+                self.assertEqual([call[2] for call in calls], [600, 120, 120, 120, 120, 120])
                 self.assertTrue(all(call[3] is None for call in calls))
                 for suite in SUITES:
                     self.assertIn(f"{suite}=PASS (status 0)", output)
@@ -124,10 +126,25 @@ class NativeDiagnosticContracts(unittest.TestCase):
 
         status, calls, output = self.invoke(response)
         self.assertEqual(status, 1)
-        self.assertEqual(len(calls), 4)
+        self.assertEqual(len(calls), 6)
         for suite in SUITES:
             self.assertIn(f"{suite}=FAIL", output)
         self.assertIn("Missing isolated diagnostic checkpoints", output)
+
+    def test_component_failure_does_not_hide_later_workflows(self):
+        for failed_suite in ("function-workflow", "cast-workflow"):
+            with self.subTest(failed_suite=failed_suite):
+                def response(suite, command, options):
+                    if suite is None or suite == failed_suite:
+                        return subprocess.CompletedProcess(command, 19, "component failure\n")
+                    return self.passed(suite, command)
+
+                status, calls, output = self.invoke(response)
+                self.assertEqual(status, 1)
+                self.assertEqual([call[0] for call in calls], [None, *SUITES])
+                self.assertIn(f"{failed_suite}=FAIL (status 19)", output)
+                for suite in set(SUITES) - {failed_suite}:
+                    self.assertIn(f"{suite}=PASS (status 0)", output)
 
     def test_successful_monolithic_pass_strips_inherited_selector_and_stays_single(self):
         status, calls, output = self.invoke(
@@ -194,7 +211,7 @@ class NativeDiagnosticContracts(unittest.TestCase):
         inherited = {"ProgramFiles(x86)": str(kits),
                      "GROUNDZERO_NATIVE_UI_SUITE": "untrusted-inherited-selector",
                      "GROUNDZERO_ARTIST_BENCHMARK": "1"}
-        for selected in (None, "combined-cast-vector"):
+        for selected in (None, "function-workflow", "cast-workflow", "combined-cast-vector"):
             for debugger_kind in ("linux", "windows"):
                 with self.subTest(selected=selected, debugger=debugger_kind), \
                      mock.patch.dict(os.environ, inherited), \
