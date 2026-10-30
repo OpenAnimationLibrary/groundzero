@@ -37,7 +37,11 @@ void checkpoint(const char *message) {
   std::cerr << "function-workflow: " << message << std::endl;
 }
 void require(bool ok, const char *message) { if (!ok) throw std::runtime_error(message); }
-void near(double a, double b) { require(std::isfinite(a) && std::abs(a - b) < 1.e-8, "unexpected numeric result"); }
+void near(double a, double b) {
+  if (!std::isfinite(a) || std::abs(a - b) >= 1.e-8)
+    throw std::runtime_error(QString("Expected %1, observed %2")
+        .arg(b, 0, 'g', 17).arg(a, 0, 'g', 17).toStdString());
+}
 struct Fixture {
   FunctionViewer viewer;
   FunctionTreeView *tree;
@@ -192,8 +196,13 @@ void normalizationAndLocks() {
   f.graph->setSnapMarkers(false); near(f.graph->snapFrameDelta(2.9, 10, false), 4);
   near(f.graph->snapFrameDelta(2.9, 10, true), 3);
   QKeyEvent right(QEvent::KeyPress, Qt::Key_Right, Qt::NoModifier); QApplication::sendEvent(f.graph, &right);
-  near(f.a->keyframeIndexToFrame(1), 11);
+  near(f.a->keyframeIndexToFrame(1), 14);
   require(TUndoManager::manager()->undo(), "keyboard edit has no undo");
+  near(f.a->keyframeIndexToFrame(1), 10);
+  f.graph->setSnap(1, false);
+  QApplication::sendEvent(f.graph, &right);
+  near(f.a->keyframeIndexToFrame(1), 11);
+  require(TUndoManager::manager()->undo(), "single-frame keyboard edit has no undo");
   near(f.a->keyframeIndexToFrame(1), 10);
 }
 void nativeBatchDialog() {

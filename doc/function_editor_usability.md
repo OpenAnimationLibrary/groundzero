@@ -68,5 +68,6 @@ bypasses those extra snaps during ordinary moves; native mouse dragging remains
 whole-frame. Alt retains the existing stretch shortcut for contiguous selections
 of three or more keys. Use Shift+Alt for a constrained move with snapping bypassed.
 Use Edit Keys for precise fractional timing. Shift-drag constrains an axis.
-Arrow keys nudge selected keys; Shift uses ten increments. Tools also configures
+Left/Right nudge selected keys by the configured frame increment; Shift uses ten
+increments. Up/Down use the value nudge. Tools also configures
 the value nudge and handle hit radius in logical pixels.

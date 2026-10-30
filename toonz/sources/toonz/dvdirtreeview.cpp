@@ -401,6 +401,14 @@ DvDirTreeView::DvDirTreeView(QWidget *parent)
 
 //-----------------------------------------------------------------------------
 
+DvDirTreeView::~DvDirTreeView() {
+  // The selection handle also owns commands targeting this browser. Release
+  // both while the derived selection and its widget are still alive.
+  makeNotCurrent();
+}
+
+//-----------------------------------------------------------------------------
+
 void DvDirTreeView::resizeToConts() { resizeColumnToContents(0); }
 
 //-----------------------------------------------------------------------------
