@@ -141,8 +141,15 @@ jobs:
         shell: pwsh
         run: |
           if (!(Get-Command ffmpeg -ErrorAction SilentlyContinue) -or !(Get-Command ffprobe -ErrorAction SilentlyContinue)) {
-            choco install ffmpeg --yes --no-progress
-            if ($LASTEXITCODE -ne 0) { throw "FFmpeg installation failed" }
+            for ($attempt = 1; $attempt -le 3; $attempt++) {
+              choco install ffmpeg --yes --no-progress
+              if ($LASTEXITCODE -eq 0) { break }
+              if ($attempt -eq 3) {
+                Write-Output "::error title=FFmpeg dependency installation::Chocolatey failed after three attempts; inspect the package-feed response above."
+                throw "FFmpeg installation failed"
+              }
+              Start-Sleep -Seconds (10 * $attempt)
+            }
           }
           Get-Command ffmpeg, ffprobe -ErrorAction Stop
 

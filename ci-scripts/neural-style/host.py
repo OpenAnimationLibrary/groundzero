@@ -38,7 +38,14 @@ try:
                             capture_output=True, text=True, timeout=300, env=environment)
     print(result.stdout, flush=True)
     if result.returncode:
-        raise RuntimeError("Neural FX qualification failed: " + result.stderr[-3000:])
+        if result.returncode < 0 and sys.platform == "linux" and shutil.which("gdb"):
+            trace = subprocess.run(["gdb", "--batch", "-ex", "run", "-ex", "thread apply all backtrace",
+                                    "--args", str(effects[0].resolve()),
+                                    str(Path("neural-evaluation/report/host-fixtures").resolve())],
+                                   capture_output=True, text=True, timeout=300, env=environment)
+            print(trace.stdout[-16000:], trace.stderr[-3000:], flush=True)
+        raise RuntimeError(f"Neural FX qualification failed (exit {result.returncode}): " +
+                           result.stdout[-2000:] + result.stderr[-3000:])
     name = "neuralstyle_editor_test" + (".exe" if os.name == "nt" else "")
     editors = [p for p in Path("toonz/build").rglob(name)
                if p.is_file() and "opentoonz" not in {part.lower() for part in p.parts}]

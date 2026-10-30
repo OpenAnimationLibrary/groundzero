@@ -260,19 +260,24 @@ void visualExamples(const QDir &directory) {
 }
 int main(int argc,char **argv) {
   QCoreApplication app(argc,argv);
+  std::cerr<<"Neural qualification: preferences initialization"<<std::endl;
   QTemporaryDir storage;require(storage.isValid(),"Test storage unavailable");const QDir root(storage.path());
   QDir().mkpath(root.filePath("stuff/profiles/layouts/rooms/Default"));QDir().mkpath(root.filePath("stuff/library"));
   TEnv::setStuffDir(TFilePath(root.filePath("stuff")));TEnv::setApplicationFullName("neuralstyle_test");
   Preferences::instance()->setValue(backupEnabled,false);Preferences::instance()->setValue(compressSceneFiles,false);
+  std::cerr<<"Neural qualification: render services initialization"<<std::endl;
   QDir().mkpath(root.filePath("cache"));TImageCache::instance()->setRootDir(TFilePath(root.filePath("cache")));
   TThread::init();TRenderer::initialize();
   struct Shutdown {~Shutdown(){TThread::shutdown();}} shutdown;
   try {
+    std::cerr<<"Neural qualification: profile, motion and compositing"<<std::endl;
     profiles();temporal();preservation<TPixel32>();preservation<TPixel64>();preservation<TPixelF>();
     require(argc==2,"Expected model fixture directory");const QDir fixtures(app.arguments()[1]);
     const auto reference=fixture(fixtures.filePath("reference.rgb"),256);
     const auto content=fixture(fixtures.filePath("content.rgb"),384);
+    std::cerr<<"Neural qualification: masked FX"<<std::endl;
     maskedFx<TPixel32>(reference,content);maskedFx<TPixel64>(reference,content);maskedFx<TPixelF>(reference,content);
+    std::cerr<<"Neural qualification: scene persistence"<<std::endl;
     scenePersistence(reference,root);
     TRenderSettings info;info.m_cameraBox=TRectD(0,0,384,384);
     NeuralStyleFx fx;configure(fx,reference,new Source({content}));

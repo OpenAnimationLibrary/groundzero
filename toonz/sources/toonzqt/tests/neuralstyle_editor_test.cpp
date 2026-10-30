@@ -1,5 +1,8 @@
 #include "toonzqt/colormatcheditor.h"
 #include "toonz/neuralstyle.h"
+#include "toonzqt/paramfield.h"
+#include "tnotanimatableparam.h"
+#include "tundo.h"
 #include <QApplication>
 #include <QDialog>
 #include <QDir>
@@ -7,6 +10,7 @@
 #include <QDynamicPropertyChangeEvent>
 #include <QFileDialog>
 #include <QPushButton>
+#include <QLineEdit>
 #include <QPixmap>
 #include <QVariant>
 #include <QTemporaryDir>
@@ -36,6 +40,22 @@ int main(int argc,char **argv) {
   QApplication application(argc,argv);
   try {
     require(argc==2,"Expected visual report directory");const QDir report(application.arguments()[1]);QDir().mkpath(report.absolutePath());
+    {
+      NeuralStyle::Profile dense;dense.reference=QImage(256,256,QImage::Format_RGB32);quint32 random=2026;
+      for(int y=0;y<256;++y)for(int x=0;x<256;++x) {
+        random=random*1664525u+1013904223u;dense.reference.setPixel(x,y,qRgb((random>>16)&255,(random>>8)&255,random&255));
+      }
+      const QString document=NeuralStyle::serialize(dense);require(document.size()>32767,"Dense reference did not exercise text limit");
+      TStringParamP param(L"");param->setName("profile");StringParamField field(nullptr,"Texture Reference",param);
+      field.enableNeuralStyleControls();field.setParam(param,param,0);
+      auto text=field.findChild<QLineEdit *>();require(text!=nullptr,"Hidden profile field missing");text->setText(document);
+      require(text->text()==document,"Embedded reference truncated by parameter field");
+      require(QMetaObject::invokeMethod(&field,"onChange",Qt::DirectConnection),"Cannot apply profile parameter");
+      require(param->getValue()==document.toStdWString(),"Profile apply truncated embedded image");
+      TUndoManager::manager()->undo();require(param->getValue().empty(),"Texture profile undo failed");
+      TUndoManager::manager()->redo();require(param->getValue()==document.toStdWString(),"Texture profile redo failed");
+      TUndoManager::manager()->reset();
+    }
     QImage reference(256,256,QImage::Format_RGB32),source(384,384,QImage::Format_RGB32);
     for(int y=0;y<256;++y)for(int x=0;x<256;++x)reference.setPixel(x,y,qRgb(x,y,100));
     for(int y=0;y<384;++y)for(int x=0;x<384;++x)source.setPixel(x,y,qRgb((x/8%2)*160+40,(y/8%2)*120+70,150));
