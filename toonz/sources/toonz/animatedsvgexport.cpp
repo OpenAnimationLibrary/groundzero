@@ -40,6 +40,9 @@
 #include <atomic>
 
 namespace {
+#ifdef BUILD_UI_PORT_TESTS
+ExportFidelity::SvgRenderTestHooks *svgRenderTestHooks = nullptr;
+#endif
 
 struct SvgExportData {
   QJsonArray layers;
@@ -251,7 +254,11 @@ public:
   }
 
   void onRenderFinished(bool isCanceled = false) override {
-    failed   = failed || isCanceled;
+    failed = failed || isCanceled;
+#ifdef BUILD_UI_PORT_TESTS
+    if (svgRenderTestHooks && svgRenderTestHooks->completed)
+      svgRenderTestHooks->completed();
+#endif
     finished = true;
   }
 };
@@ -289,14 +296,20 @@ bool renderScene(ToonzScene *scene, TXsheet *xsheet, const TFilePath &imageDir,
     ~RenderSession() { drain(); renderer.removePort(&port); }
   };
   QObject lifetime;
-  bool contextChanged = false, draining = false;
+  bool contextChanged = false;
   RenderSession session{renderer, port};
   auto cancelRender = [&]() {
+    if (contextChanged) return;
     contextChanged = true;
-    if (draining) return;
-    draining = true;
+#ifdef BUILD_UI_PORT_TESTS
+    if (svgRenderTestHooks && svgRenderTestHooks->cancelStarted)
+      svgRenderTestHooks->cancelStarted(port.finished.load());
+#endif
     session.drain();
-    draining = false;
+#ifdef BUILD_UI_PORT_TESTS
+    if (svgRenderTestHooks && svgRenderTestHooks->cancelDrained)
+      svgRenderTestHooks->cancelDrained(port.finished.load());
+#endif
   };
   QObject::connect(TApp::instance()->getCurrentScene(), &TSceneHandle::sceneSwitched,
                    &lifetime, cancelRender, Qt::DirectConnection);
@@ -314,6 +327,10 @@ bool renderScene(ToonzScene *scene, TXsheet *xsheet, const TFilePath &imageDir,
   session.submitted = true;
   renderer.startRendering(renderData.release());
   progress->setProperty("sceneRenderActive", true);
+#ifdef BUILD_UI_PORT_TESTS
+  if (svgRenderTestHooks && svgRenderTestHooks->queued)
+    svgRenderTestHooks->queued();
+#endif
   while (!port.finished.load()) {
     QCoreApplication::processEvents();
     QThread::msleep(1);
@@ -544,3 +561,9 @@ void ExportAnimatedSVGCommand::execute() {
 ExportAnimatedSVGCommand exportAnimatedSVGCommand;
 
 }  // namespace
+
+#ifdef BUILD_UI_PORT_TESTS
+void ExportFidelity::setSvgRenderTestHooks(SvgRenderTestHooks *hooks) {
+  svgRenderTestHooks = hooks;
+}
+#endif

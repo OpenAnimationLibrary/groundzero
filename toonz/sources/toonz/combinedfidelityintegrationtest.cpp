@@ -18,6 +18,7 @@
 #include "toonz/scenechecker.h"
 #include "toonz/sceneproperties.h"
 #include "toonz/tcamera.h"
+#include "toonz/tproject.h"
 #include "toonz/toonzscene.h"
 #include "toonz/tscenehandle.h"
 #include "toonz/tstageobject.h"
@@ -51,6 +52,7 @@
 #include <cmath>
 #include <functional>
 #include <iostream>
+#include <memory>
 #include <stdexcept>
 #include <vector>
 
@@ -378,30 +380,41 @@ void runCombinedFidelityIntegrationTest(QMainWindow *) {
   exportCommand(MI_ExportAnimatedSVG, external, {"cancelExportFidelity", true, false, false, "full camera canvas"});
   require(readFile(external) == externalBytes && QDir(output.path()).entryList({"external_files_*"}, QDir::Dirs) == folders,
           "Canceled SVG overwrite changed its external image generation");
-  // Hide the real rendering progress dialog and invoke the real New Scene
-  // workflow while the render is queued or active. Cancellation must drain the
-  // renderer before the old scene's deletion timer can be scheduled.
-  std::cerr << "combined-fidelity: scene replacement cancels export" << std::endl;
-  bool switchedDuringRender = false;
-  QString interruptedResetError;
-  QTimer replaceScene;
-  QObject::connect(&replaceScene, &QTimer::timeout, [&]() {
-    if (switchedDuringRender) return;
-    for (QWidget *widget : QApplication::topLevelWidgets()) {
-      if (widget->objectName() != "animatedSvgExportProgress" ||
-          !widget->property("sceneRenderActive").toBool()) continue;
-      switchedDuringRender = true;
-      replaceScene.stop();
-      widget->hide();
-      if (!resetNativeUiIntegrationScene(&interruptedResetError))
-        return;
-      break;
-    }
-  });
-  replaceScene.start(0);
+  // Replace the real scene handle at the exact queued-render checkpoint,
+  // before the exporter dispatches any event. Track cancellation, completion,
+  // and drain separately: a timer that merely sees the progress window could
+  // otherwise pass after rendering had already finished.
+  std::cerr << "combined-fidelity: queued render scene replacement" << std::endl;
+  auto replacement = std::make_unique<ToonzScene>();
+  TProjectManager::instance()->initializeScene(replacement.get());
+  int sequence = 0, queuedOrder = 0, cancelOrder = 0, completedOrder = 0,
+      drainedOrder = 0, returnedOrder = 0;
+  bool cancelledBeforeCompletion = false, finishedWhenDrained = false;
+  ExportFidelity::SvgRenderTestHooks hooks;
+  hooks.queued = [&]() {
+    queuedOrder = ++sequence;
+    app->getCurrentScene()->setScene(replacement.release());
+    returnedOrder = ++sequence;
+  };
+  hooks.cancelStarted = [&](bool finished) {
+    cancelOrder = ++sequence;
+    cancelledBeforeCompletion = !finished && completedOrder == 0;
+  };
+  hooks.completed = [&]() { completedOrder = ++sequence; };
+  hooks.cancelDrained = [&](bool finished) {
+    drainedOrder = ++sequence;
+    finishedWhenDrained = finished;
+  };
+  struct RestoreRenderHooks {
+    ~RestoreRenderHooks() { ExportFidelity::setSvgRenderTestHooks(nullptr); }
+  } restoreHooks;
+  ExportFidelity::setSvgRenderTestHooks(&hooks);
   exportCommand(MI_ExportAnimatedSVG, external, {"", false, false, true, ""});
-  replaceScene.stop();
-  require(switchedDuringRender && interruptedResetError.isEmpty(), "Native scene replacement was not exercised during export");
+  ExportFidelity::setSvgRenderTestHooks(nullptr);
+  require(queuedOrder > 0 && queuedOrder < cancelOrder && cancelOrder < completedOrder &&
+          completedOrder < drainedOrder && drainedOrder < returnedOrder &&
+          cancelledBeforeCompletion && finishedWhenDrained,
+          "Scene replacement did not cancel a queued render and drain completion before returning");
   require(readFile(external) == externalBytes && QDir(output.path()).entryList({"external_files_*"}, QDir::Dirs) == folders,
           "Scene replacement published or replaced an interrupted export");
   if (!resetNativeUiIntegrationScene(&resetError))

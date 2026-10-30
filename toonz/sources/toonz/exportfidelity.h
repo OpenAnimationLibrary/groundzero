@@ -1,5 +1,8 @@
 #pragma once
 #include <QStringList>
+#ifdef BUILD_UI_PORT_TESTS
+#include <functional>
+#endif
 class QWidget;
 class TXsheet;
 namespace ExportFidelity {
@@ -17,4 +20,15 @@ bool confirmLottie(const QStringList &losses, QWidget *parent = nullptr);
 Choice chooseAnimatedSvg(QWidget *parent = nullptr);
 Choice chooseAnimatedSvg(const SvgCapabilities &capabilities,
                          QWidget *parent = nullptr);
+#ifdef BUILD_UI_PORT_TESTS
+// Deterministic lifecycle observation for the disposable native fixture. The
+// queued callback runs before the exporter dispatches the renderer's event.
+struct SvgRenderTestHooks {
+  std::function<void()> queued;
+  std::function<void(bool)> cancelStarted;
+  std::function<void()> completed;
+  std::function<void(bool)> cancelDrained;
+};
+void setSvgRenderTestHooks(SvgRenderTestHooks *hooks);
+#endif
 }
