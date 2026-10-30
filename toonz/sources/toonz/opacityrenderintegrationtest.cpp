@@ -529,6 +529,7 @@ void nativeDepthTransactions(TPalette *palette, int chainStyle, int solidStyle) 
     QOpenGLFramebufferObject srgb(depthWidth,depthHeight,format);
     if (srgb.isValid() && srgb.bind()) {
       auto *currentContext = QOpenGLContext::currentContext();
+      bool convertsSrgb = true;
       if (currentContext->format().majorVersion() >= 3 ||
           currentContext->hasExtension("GL_ARB_framebuffer_object")) {
         GLint encoding = 0;
@@ -538,10 +539,14 @@ void nativeDepthTransactions(TPalette *palette, int chainStyle, int solidStyle) 
       } else {
         // EXT_framebuffer_sRGB on GL 2.1 exposes the current target's
         // capability, not the later core attachment-encoding query.
+        // A valid sRGB texture FBO may legitimately be non-converting:
+        // https://registry.khronos.org/OpenGL/extensions/EXT/EXT_framebuffer_sRGB.txt
         GLboolean capable = GL_FALSE;
         glGetBooleanv(0x8dba,&capable); // GL_FRAMEBUFFER_SRGB_CAPABLE_EXT.
-        require(capable == GL_TRUE,"EXT sRGB fixture is not an sRGB-capable target");
+        convertsSrgb = capable == GL_TRUE;
       }
+      std::cout << "vector-opacity-depth: sRGB rendering capability=" << convertsSrgb
+                << " expected_mix=" << (convertsSrgb ? "linear-light" : "stored-values") << std::endl;
       glEnable(GL_FRAMEBUFFER_SRGB);
       prepareDepthTarget(GL_ALWAYS,true,true,25.,true);
       const auto before = depthAttachments();
@@ -561,15 +566,18 @@ void nativeDepthTransactions(TPalette *palette, int chainStyle, int solidStyle) 
         const auto state = depthState(); drawDepthImage(image);
         require(depthState() == state,"sRGB opacity leaked caller state");
         auto expected = mixedAttachments(before,native,amount);
-        for (size_t i = 0; i < expected.color.size(); ++i) {
+        for (size_t i = 0; convertsSrgb && i < expected.color.size(); ++i) {
           if (i%4 == 3 || before.color[i] == native.color[i] || amount == 0. || amount == 1.) continue;
           const double mixed = encoded((1.-amount)*linear(before.color[i]) + amount*linear(native.color[i]));
           distinguishesLinearMix |= std::abs(mixed-expected.color[i]) > 3./255.;
           expected.color[i] = GLfloat(mixed);
         }
-        requireAttachments(expected,depthAttachments(),"sRGB opacity mixed encoded values instead of linear light");
+        requireAttachments(expected,depthAttachments(),convertsSrgb
+            ? "sRGB opacity mixed encoded values instead of linear light"
+            : "non-converting sRGB target changed native stored-value mixing");
       }
-      require(distinguishesLinearMix,"sRGB fixture did not distinguish linear and encoded mixing");
+      if (convertsSrgb)
+        require(distinguishesLinearMix,"sRGB fixture did not distinguish linear and encoded mixing");
       std::cout << "vector-opacity-depth: actual sRGB identity/scalar/profile/zero passed" << std::endl;
     } else {
       while (glGetError() != GL_NO_ERROR) {}
