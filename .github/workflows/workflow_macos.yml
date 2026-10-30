@@ -223,6 +223,21 @@ jobs:
         if: ${{ failure() && steps.ui_integration.outcome == 'failure' }}
         run: python3 ci-scripts/report_ui_tests.py toonz/build/ui-integration-output.txt
 
+      - name: Test isolated timing process lifecycle
+        id: timing_lifecycle
+        # Separate required 120-second process and optional 120-second LLDB
+        # diagnostic, plus bounded cleanup and fresh fixture copies.
+        timeout-minutes: 7
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: |
+          app_libraries="$GITHUB_WORKSPACE/toonz/build/toonz/OpenToonz.app/Contents/MacOS"
+          DYLD_LIBRARY_PATH="$app_libraries${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}" \
+            QT_QPA_PLATFORM=cocoa python3 ci-scripts/run_native_ui_test.py "$app_libraries/OpenToonz" stuff --isolated-timing-lifecycle --macos-crash-debugger --output toonz/build/ui-integration-output-timing-lifecycle.txt
+
+      - name: Report isolated timing lifecycle failure
+        if: ${{ failure() && steps.timing_lifecycle.outcome == 'failure' }}
+        run: python3 ci-scripts/report_ui_tests.py toonz/build/ui-integration-output-timing-lifecycle.txt
+
       - name: Measure native artist workloads
         id: artist_benchmark
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}

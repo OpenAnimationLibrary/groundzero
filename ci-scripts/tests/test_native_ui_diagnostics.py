@@ -25,6 +25,12 @@ MARKERS = dict(zip(SUITES, ("function-workflow-native: PASS", "cast-native-workf
 FULL_OUTPUT = "\n".join(("native-ui-integration: PASS", "vector-workflows: PASS",
                           "offline-gl-workflow: PASS", "function-workflow-native: PASS",
                           *MARKERS.values())) + "\n"
+TIMING_LIFECYCLE_LINES = (
+    "function-timing-native: PASS (native locks, undo and scene roundtrip)",
+    "native-ui-diagnostic: PASS combined-timing",
+    "native-ui-integration: checkpoint: native application cleanup completed",
+)
+TIMING_LIFECYCLE_OUTPUT = "\n".join(TIMING_LIFECYCLE_LINES) + "\n"
 
 
 class NativeDiagnosticContracts(unittest.TestCase):
@@ -39,7 +45,8 @@ class NativeDiagnosticContracts(unittest.TestCase):
         (self.source / "pristine.txt").write_text("source", encoding="utf-8")
         self.report = self.root / "reports" / "ui-integration-output.txt"
 
-    def invoke(self, response, benchmark=False, extra_arguments=(), retained_count=0):
+    def invoke(self, response, benchmark=False, extra_arguments=(), retained_count=0,
+               timing_lifecycle=False):
         calls = []
 
         def launch(command, **options):
@@ -60,7 +67,8 @@ class NativeDiagnosticContracts(unittest.TestCase):
 
         arguments = ["native-runner", str(self.executable), str(self.source),
                      "--output", str(self.report)]
-        arguments += (["--artist-benchmark"] if benchmark else
+        arguments += (["--isolated-timing-lifecycle"] if timing_lifecycle else
+                      ["--artist-benchmark"] if benchmark else
                       ["--require-function-workflow", "--require-vector-workflows",
                        "--require-combined-workflows"])
         arguments += list(extra_arguments)
@@ -166,6 +174,98 @@ class NativeDiagnosticContracts(unittest.TestCase):
         self.assertEqual(status, 0)
         self.assertEqual([(call[0], call[3]) for call in calls], [(None, None)])
         self.assertNotIn("Independent diagnostics", output)
+
+    def test_required_timing_lifecycle_uses_one_clean_selected_process(self):
+        with mock.patch.object(runner, "macos_crash_diagnostics") as debugger:
+            status, calls, output = self.invoke(
+                lambda suite, command, options: subprocess.CompletedProcess(
+                    command, 0, TIMING_LIFECYCLE_OUTPUT), timing_lifecycle=True,
+                extra_arguments=("--macos-crash-debugger",))
+        self.assertEqual(status, 0)
+        self.assertEqual([(call[0], call[2], call[3]) for call in calls],
+                         [("combined-timing", 120, None)])
+        self.assertIn("Required isolated combined-timing lifecycle: PASS", output)
+        self.assertNotIn("Independent diagnostics", output)
+        debugger.assert_not_called()
+
+    def test_required_timing_lifecycle_rejects_missing_or_only_echoed_checkpoints(self):
+        incomplete = [TIMING_LIFECYCLE_OUTPUT.replace(line + "\n", "")
+                      for line in TIMING_LIFECYCLE_LINES]
+        incomplete += ["\n".join("echo: " + line for line in TIMING_LIFECYCLE_LINES), FULL_OUTPUT]
+        for native_output in incomplete:
+            with self.subTest(native_output=native_output):
+                status, calls, output = self.invoke(
+                    lambda suite, command, options: subprocess.CompletedProcess(command, 0, native_output),
+                    timing_lifecycle=True)
+                self.assertEqual(status, 1)
+                self.assertEqual(len(calls), 1)
+                self.assertIn("Missing required isolated timing lifecycle checkpoints", output)
+                self.assertNotIn("Required isolated combined-timing lifecycle: PASS", output)
+
+    def test_required_timing_lifecycle_nonzero_after_pass_stays_failed(self):
+        for native_status in (17, -11):
+            with self.subTest(native_status=native_status), \
+                    mock.patch.object(runner.sys, "platform", "darwin"), \
+                    mock.patch.object(runner, "macos_crash_diagnostics",
+                        return_value=TIMING_LIFECYCLE_OUTPUT + "LLDB stack only\n") as debugger:
+                status, calls, output = self.invoke(
+                    lambda suite, command, options: subprocess.CompletedProcess(
+                        command, native_status, TIMING_LIFECYCLE_OUTPUT),
+                    timing_lifecycle=True, extra_arguments=("--macos-crash-debugger",))
+                self.assertEqual(status, 1)
+                self.assertEqual(len(calls), 1)
+                self.assertIn(f"Native application exited with status {native_status}", output)
+                self.assertNotIn("Required isolated combined-timing lifecycle: PASS", output)
+                if native_status < 0:
+                    debugger.assert_called_once_with(self.executable.resolve(), self.source.resolve(),
+                        runtime_state=mock.ANY, native_suite="combined-timing")
+                    self.assertIn("LLDB stack only", self.report.with_name(
+                        self.report.stem + "-debugger.txt").read_text(encoding="utf-8"))
+                else:
+                    debugger.assert_not_called()
+
+    def test_required_timing_lifecycle_timeout_keeps_pass_output_but_fails(self):
+        def response(suite, command, options):
+            raise subprocess.TimeoutExpired(command, options["timeout"],
+                                             output=TIMING_LIFECYCLE_OUTPUT.encode("utf-8"))
+        with mock.patch.object(runner.sys, "platform", "darwin"), \
+                mock.patch.object(runner, "macos_crash_diagnostics") as debugger:
+            status, calls, output = self.invoke(response, timing_lifecycle=True,
+                                               extra_arguments=("--macos-crash-debugger",))
+        self.assertEqual(status, 1)
+        self.assertEqual(len(calls), 1)
+        self.assertIn(TIMING_LIFECYCLE_OUTPUT, output)
+        self.assertIn("timed out after 120 seconds", output)
+        self.assertNotIn("Required isolated combined-timing lifecycle: PASS", output)
+        debugger.assert_not_called()
+
+    def test_required_timing_lifecycle_unsafe_crash_retains_fixture_without_debugger(self):
+        def response(suite, command, options):
+            options["runtime_state"]["safe_to_release"] = False
+            return subprocess.CompletedProcess(command, -11, TIMING_LIFECYCLE_OUTPUT)
+        with mock.patch.object(runner.sys, "platform", "darwin"), \
+                mock.patch.object(runner, "macos_crash_diagnostics") as debugger:
+            status, calls, output = self.invoke(response, timing_lifecycle=True, retained_count=1,
+                                               extra_arguments=("--macos-crash-debugger",))
+        self.assertEqual(status, 1)
+        self.assertEqual(len(calls), 1)
+        self.assertIn("status -11", output)
+        self.assertIn("retained", output)
+        self.assertNotIn("Required isolated combined-timing lifecycle: PASS", output)
+        debugger.assert_not_called()
+
+    def test_required_timing_lifecycle_cannot_substitute_for_full_or_benchmark_checks(self):
+        for incompatible in ("--artist-benchmark", "--require-function-workflow",
+                             "--require-offline-gl-workflow", "--require-vector-workflows",
+                             "--require-combined-workflows"):
+            arguments = ["native-runner", str(self.executable), str(self.source),
+                         "--output", str(self.report), "--isolated-timing-lifecycle", incompatible]
+            with self.subTest(incompatible=incompatible), mock.patch.object(sys, "argv", arguments), \
+                    mock.patch.object(runner, "run_captured_process") as launch, \
+                    mock.patch.object(sys, "stderr", io.StringIO()), self.assertRaises(SystemExit) as error:
+                runner.main()
+            self.assertEqual(error.exception.code, 2)
+            launch.assert_not_called()
 
     def test_benchmark_strips_selector_and_never_launches_diagnostics(self):
         payload = {"schema": 1, "fixture": "native-artist-workload-v1"}

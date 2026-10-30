@@ -181,7 +181,7 @@ def isolated_fixture(source, executable, mesa_runtime=None, runtime_state=None):
         (directory / ".groundzero-native-ui-test").write_bytes(b"groundzero-native-ui-test\n")
         environment = os.environ.copy()
         # Every ordinary, benchmark and debugger launch starts unselected.
-        # Only the bounded diagnostic launcher below opts into a known suite.
+        # Only an explicit bounded diagnostic/lifecycle launch selects a suite.
         environment.pop("GROUNDZERO_NATIVE_UI_SUITE", None)
         environment.pop("GROUNDZERO_ARTIST_BENCHMARK", None)
         # Python and Qt/Windows consult temporary-directory variables in
@@ -418,6 +418,8 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--artist-benchmark", action="store_true",
                         help="Measure real drawing, native rendering and resource-save workloads")
+    parser.add_argument("--isolated-timing-lifecycle", action="store_true",
+                        help="Require the isolated combined-timing fixture and clean process exit; does not replace the full suite")
     parser.add_argument("--require-function-workflow", action="store_true",
                         help="Require the real application Function Editor fixture checkpoint")
     parser.add_argument("--windows-crash-debugger", action="store_true",
@@ -437,7 +439,13 @@ def main():
     parser.add_argument("--require-combined-workflows", action="store_true",
                         help="Require cross-feature timing, vector metadata and export acceptance")
     args = parser.parse_args()
-    timeout_seconds = 600 if args.require_vector_workflows else 240 if args.require_offline_gl_workflow else 180
+    if args.isolated_timing_lifecycle and any((args.artist_benchmark,
+            args.require_function_workflow, args.require_offline_gl_workflow,
+            args.require_vector_workflows, args.require_combined_workflows)):
+        parser.error("--isolated-timing-lifecycle must run separately from the full suite and benchmark")
+    selected_suite = "combined-timing" if args.isolated_timing_lifecycle else None
+    timeout_seconds = (120 if selected_suite else 600 if args.require_vector_workflows
+                       else 240 if args.require_offline_gl_workflow else 180)
     output, status = "", 1
     native_status = None
     executable, source = None, None
@@ -447,6 +455,7 @@ def main():
         source = args.stuff.resolve(strict=True)
         with isolated_fixture(source, executable, args.windows_mesa,
                               runtime_state=runtime_state) as (directory, environment):
+            select_diagnostic_suite(environment, selected_suite)
             if args.artist_benchmark:
                 environment["GROUNDZERO_ARTIST_BENCHMARK"] = "1"
             try:
@@ -455,6 +464,21 @@ def main():
                                               timeout=timeout_seconds, runtime_state=runtime_state)
                 output, status = decode_output(result.stdout), result.returncode
                 native_status = status
+                if status == 0 and selected_suite:
+                    lines = output.splitlines()
+                    timing_pass = "function-timing-native: PASS"
+                    required = {
+                        timing_pass: any(line == timing_pass or line.startswith(timing_pass + " (")
+                                         for line in lines),
+                        "native-ui-diagnostic: PASS combined-timing":
+                            "native-ui-diagnostic: PASS combined-timing" in lines,
+                        "native-ui-integration: checkpoint: native application cleanup completed":
+                            "native-ui-integration: checkpoint: native application cleanup completed" in lines,
+                    }
+                    missing = [marker for marker, observed in required.items() if not observed]
+                    if missing:
+                        output += "\nMissing required isolated timing lifecycle checkpoints: " + ", ".join(missing) + "\n"
+                        status = 1
                 if status == 0 and args.require_vector_workflows and not args.artist_benchmark:
                     missing = [marker for marker in ("native-ui-integration: PASS", "vector-workflows: PASS", "offline-gl-workflow: PASS")
                                if marker not in output]
@@ -473,6 +497,8 @@ def main():
         output += ("\nNative application integration setup, launch or cleanup failed: "
                    f"{type(error).__name__}: {error}\n")
         status = 1
+    if selected_suite and status == 0:
+        output += "\nRequired isolated combined-timing lifecycle: PASS (process exited with status 0).\n"
     if args.artist_benchmark and status == 0:
         try:
             records = [line.removeprefix("artist-workload-json: ")
@@ -537,7 +563,8 @@ def main():
     if (runtime_state["safe_to_release"] and args.linux_crash_debugger and not args.artist_benchmark and sys.platform.startswith("linux")
             and native_status is not None and native_status < 0):
         try:
-            diagnostics = linux_crash_diagnostics(executable, source)
+            diagnostics = linux_crash_diagnostics(executable, source,
+                **({"native_suite": selected_suite} if selected_suite else {}))
         except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as error:
             diagnostics = f"Native Linux crash diagnostics failed: {type(error).__name__}: {error}\n"
         report = args.output.with_name(args.output.stem + "-debugger.txt")
@@ -549,7 +576,8 @@ def main():
     if (runtime_state["safe_to_release"] and args.macos_crash_debugger and not args.artist_benchmark
             and sys.platform == "darwin" and native_status is not None and native_status < 0):
         try:
-            diagnostics = macos_crash_diagnostics(executable, source, runtime_state=runtime_state)
+            diagnostics = macos_crash_diagnostics(executable, source, runtime_state=runtime_state,
+                **({"native_suite": selected_suite} if selected_suite else {}))
         except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as error:
             diagnostics = f"Native macOS crash diagnostics failed: {type(error).__name__}: {error}\n"
         report = args.output.with_name(args.output.stem + "-debugger.txt")
@@ -562,7 +590,8 @@ def main():
             and (native_status & 0xc0000000) == 0xc0000000):
         try:
             diagnostics = windows_crash_diagnostics(executable, source, native_status,
-                                                    args.debugger_symbols, args.windows_mesa)
+                                                    args.debugger_symbols, args.windows_mesa,
+                                                    **({"native_suite": selected_suite} if selected_suite else {}))
         except (OSError, RuntimeError, ValueError) as error:
             diagnostics = ("Native crash diagnostics could not complete: "
                            f"{type(error).__name__}: {error}\n")
