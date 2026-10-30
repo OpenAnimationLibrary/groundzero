@@ -138,6 +138,7 @@ jobs:
         if-no-files-found: error
 
     - name: Test cel effects
+      id: cel_tests
       working-directory: toonz/build
       run: |
         set -o pipefail
@@ -207,7 +208,7 @@ jobs:
         if-no-files-found: ignore
 
     - name: Diagnose cel UI crash
-      if: failure()
+      if: ${{ failure() && steps.cel_tests.outcome == 'failure' }}
       working-directory: toonz/build
       run: |
         if [ -f cel-tests-output.txt ] && grep -q 'celfx_colorkeep_ui.*SegFault' cel-tests-output.txt; then
@@ -218,8 +219,8 @@ jobs:
         fi
 
     - name: Report cel test failures
-      if: failure()
-      run: python3 ci-scripts/report_cel_tests.py toonz/build/cel-tests-output.txt
+      if: ${{ failure() && steps.cel_tests.outcome == 'failure' }}
+      run: python3 ci-scripts/report_cel_tests.py toonz/build/cel-tests-output.txt --outcome '${{ steps.cel_tests.outcome }}'
 
     - name: Build application
       id: application_build
