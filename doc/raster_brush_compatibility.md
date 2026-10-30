@@ -649,3 +649,38 @@ and [seccomp](https://docs.kernel.org/userspace-api/seccomp_filter.html).
 
 This audit preserves the full RCP1 target. A native conversion, isolated numerical
 fixture, or green decoder job does not complete a missing foreign-profile row.
+
+The source run at `8379dc99` passes full-image Pixel opacity/flow gates for
+both API-line and synthetic-tablet delivery after sharing the measured pixel
+lattice between wash and build-up. Expanded soft-circle diameters
+7/8/9/12/15/16/17/24/64/128, default rectangle sizes, and the complete fade/AA
+matrix pass. These results qualify the measured cases; broader source dynamics
+and combinations remain unfinished. Six captured action-2 alpha windows equal
+wash/action-0 exactly; the strict adapter now maps that action to the wash
+candidate and subjects it to full comparison gates.
+
+Wet-pressure acquisition passes all modern-model cases. Six legacy cases
+exposed a distinct rule: pressure scales transport, while foreground attenuation
+uses the serialized smudge-length value. The corrected equation matches all
+captured legacy center samples within one byte; full-image requalification is
+pending. The nonzero-radius impulse acquisition succeeded, but comparison
+rejected its spacing-10 fixture outside the native IR range. Revised fixtures
+use spacing 5 with a separated source region and denser impulse offsets; no
+geometry validation limit is relaxed.
+
+Linux confinement probes passed unrelated-file, socket, clone and exec denials
+but failed private output publication through QSaveFile. Worker results now use
+exclusive creation in the private staging directory. The parent only accepts
+files after successful process exit and complete manifest validation; private
+staging does not require atomic per-file publication. The sandbox additionally
+tests that the selected input cannot be opened for writing or chmodded. Qt's
+Linux unnamed-temporary behavior is documented in
+[QTemporaryFile](https://doc.qt.io/qt-6.5/qtemporaryfile.html).
+
+Instrumented child probes also produced invalid-vptr diagnostics when their
+runtime could no longer inspect process memory under confinement. The decoder
+suite remains ASan/UBSan-instrumented; it now invokes a separately built,
+uninstrumented worker for production-boundary and process-protocol tests.
+No denied operation is allowed for sanitizer convenience. The actual application
+workflow independently exercises the shipped worker. Both this separation and
+the private-output correction await CI.

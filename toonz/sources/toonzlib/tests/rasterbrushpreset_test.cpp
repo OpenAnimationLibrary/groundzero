@@ -345,6 +345,11 @@ void testImports() {
               !hardRecord.provenance["sourceReferenceVerified"].toBool(),
           "strict hard candidate selection or qualification failed");
   require(hardRecord.preset.wash, "KPP wash mode was replaced by build-up");
+  auto freehand = importBrush(hardPixelKpp("freehandWash"), "kpp", error);
+  require(
+      freehand.complete && freehand.records.front().preset.wash &&
+          freehand.records.front().preset.profile == hardRecord.preset.profile,
+      "source freehand wash mode lost candidate semantics");
   auto buildup = importBrush(hardPixelKpp("buildUp"), "kpp", error);
   require(
       buildup.complete && !buildup.records.front().preset.wash &&
@@ -748,11 +753,26 @@ int oversizedWorkerFixture(const QString &directory) {
           "cannot write worker budget manifest");
   return 0;
 }
+QString workerExecutable() {
+#ifdef RASTERBRUSH_SEPARATE_WORKER_TEST
+  const QString path = QDir(QCoreApplication::applicationDirPath())
+                           .filePath(
+                               "rasterbrushworker_test"
+#ifdef _WIN32
+                               ".exe"
+#endif
+                           );
+  require(QFileInfo::exists(path), "uninstrumented sandbox worker missing");
+  return path;
+#else
+  return QCoreApplication::applicationFilePath();
+#endif
+}
 void testWorkerPeakBudget() {
   QTemporaryDir directory;
   QString error;
   auto result =
-      importBrushProcess(QCoreApplication::applicationFilePath(),
+      importBrushProcess(workerExecutable(),
                          directory.filePath("oversized-worker.fixture"), error);
   require(
       result.records.empty() && !result.complete &&
@@ -783,7 +803,7 @@ void testWorkerProcess() {
     input.close();
     forbidden.close();
     QProcess process;
-    process.start(QCoreApplication::applicationFilePath(),
+    process.start(workerExecutable(),
                   {"--test-sandbox-worker", input.fileName(), output.path(),
                    forbidden.fileName()});
     const bool finished = process.waitForFinished(10000);
@@ -813,8 +833,7 @@ void testWorkerProcess() {
     auto bytes = gbr();
     require(file.write(bytes) == bytes.size(), "short worker fixture write");
   }
-  auto result =
-      importBrushProcess(QCoreApplication::applicationFilePath(), input, error);
+  auto result = importBrushProcess(workerExecutable(), input, error);
   require(error.isEmpty() && result.complete && result.records.size() == 1,
           "worker-process GBR import failed");
   require(!result.records[0].referenceVerified && !result.diagnostics.empty(),
@@ -825,13 +844,11 @@ void testWorkerProcess() {
             "cannot replace worker input");
     file.write("invalid");
   }
-  result =
-      importBrushProcess(QCoreApplication::applicationFilePath(), input, error);
+  result = importBrushProcess(workerExecutable(), input, error);
   require(!error.isEmpty() && result.records.empty(),
           "malformed worker import returned partial records");
   std::atomic_bool cancelled(true);
-  result = importBrushProcess(QCoreApplication::applicationFilePath(), input,
-                              error, &cancelled);
+  result = importBrushProcess(workerExecutable(), input, error, &cancelled);
   require(result.records.empty() && error.isEmpty(),
           "cancelled worker import published a result");
   cancelled.store(false);
@@ -842,7 +859,7 @@ void testWorkerProcess() {
   cancellation->start();
   QElapsedTimer timer;
   timer.start();
-  result = importBrushProcess(QCoreApplication::applicationFilePath(),
+  result = importBrushProcess(workerExecutable(),
                               directory.filePath("blocking-worker.fixture"),
                               error, &cancelled);
   cancellation->wait();

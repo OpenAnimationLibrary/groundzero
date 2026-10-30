@@ -330,7 +330,8 @@ bool eligibleFixedSource(const QMap<QString, QString> &fields,
       required[key] = fields[key];  // Finite 0..1 values checked by validate().
     }
     if (fields.value("PaintOpAction") != "0" &&
-        fields.value("PaintOpAction") != "1")
+        fields.value("PaintOpAction") != "1" &&
+        fields.value("PaintOpAction") != "2")
       return false;
     required["PaintOpAction"] = fields["PaintOpAction"];
   }
@@ -668,7 +669,7 @@ Record convertKpp(const QByteArray &bytes, QStringList &diagnostics,
         fields.value("PressureSmudgeRate") == "true";
     candidate.sourceSmearAlpha = fields.value("SmudgeRateSmearAlpha") == "true";
   } else
-    candidate.wash = fields.value("PaintOpAction") == "0";
+    candidate.wash = fields.value("PaintOpAction") != "1";
   if (eligibleFixedSource(fields, engine, candidate)) {
     r.preset = std::move(candidate);
     if (r.preset.wet == Wet::Smear)

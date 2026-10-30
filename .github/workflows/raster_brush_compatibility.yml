@@ -37,14 +37,14 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p brush-fuzz-corpus brush-fuzz-artifacts
-          brush-fuzz-build/rasterbrushpreset_test --write-corpus brush-fuzz-corpus
+          brush-fuzz-build/rasterbrushpreset_test --write-corpus brush-fuzz-corpus 2>&1 | tee brush-corpus.log
           brush-fuzz-build/rasterbrushfuzz brush-fuzz-corpus -max_total_time=180 -max_len=65536 -timeout=5 -rss_limit_mb=1024 -malloc_limit_mb=256 -artifact_prefix=brush-fuzz-artifacts/ 2>&1 | tee brush-fuzz.log
       - name: Report fuzz failure
         if: failure()
         run: |
           python3 - <<'PYREPORT'
           from pathlib import Path
-          for name in ('brush-fuzz-build.log', 'brush-fuzz.log'):
+          for name in ('brush-fuzz-build.log', 'brush-corpus.log', 'brush-fuzz.log'):
               path = Path(name)
               if path.is_file():
                   text = path.read_text(errors='replace')[-3500:]
@@ -56,6 +56,7 @@ jobs:
           name: native-brush-fuzz-${{ github.sha }}
           path: |
             brush-fuzz.log
+            brush-corpus.log
             brush-fuzz-build.log
             brush-fuzz-artifacts/
             brush-fuzz-corpus/

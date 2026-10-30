@@ -9,7 +9,6 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QProcess>
-#include <QSaveFile>
 #include <QTemporaryDir>
 #include <set>
 #include <cstdio>
@@ -35,9 +34,14 @@ namespace {
 constexpr qint64 packageBudget  = 256 * 1024 * 1024;
 constexpr qint64 manifestBudget = 1024 * 1024;
 bool writeFile(const QString &path, const QByteArray &bytes) {
-  QSaveFile file(path);
-  return file.open(QIODevice::WriteOnly) && file.write(bytes) == bytes.size() &&
-         file.commit();
+  // Results are private staging files. The parent opens them only after a
+  // successful worker exit and validates the complete manifest. NewOnly
+  // prevents replacing any existing entry, including a symlink. An unnamed
+  // QSaveFile temporary would need linkat outside the deliberately small
+  // syscall interface; no per-file publication occurs inside this protocol.
+  QFile file(path);
+  return file.open(QIODevice::WriteOnly | QIODevice::NewOnly) &&
+         file.write(bytes) == bytes.size() && file.flush();
 }
 #ifdef __linux__
 bool restrictLinuxImport(const QString &input, const QString &directory) {
@@ -241,6 +245,15 @@ int probeImportSandbox(const QString &input, const QString &directory,
   if (!allowed.open(QIODevice::ReadOnly) || allowed.readAll() != "allowed" ||
       denied.open(QIODevice::ReadOnly) || denied.open(QIODevice::WriteOnly))
     return 2;
+  allowed.close();
+  if (allowed.open(QIODevice::WriteOnly)) return 8;
+  const QByteArray inputPath = QFile::encodeName(input);
+  const int readonly = open(inputPath.constData(), O_RDONLY | O_CLOEXEC);
+  if (readonly < 0) return 9;
+  const long changedMode = syscall(SYS_fchmod, readonly, 0600);
+  const int modeError    = errno;
+  close(readonly);
+  if (changedMode == 0 || modeError != EPERM) return 10;
   const int network = socket(AF_INET, SOCK_STREAM, 0);
   if (network >= 0) {
     close(network);
@@ -253,9 +266,9 @@ int probeImportSandbox(const QString &input, const QString &directory,
   const char *argv[] = {"true", nullptr};
   syscall(SYS_execve, "/bin/true", argv, nullptr);
   if (errno != EPERM) return 6;
-  QSaveFile marker(QDir(directory).filePath("sandbox-passed"));
-  if (!marker.open(QIODevice::WriteOnly) || marker.write("passed") != 6 ||
-      !marker.commit()) {
+  QFile marker(QDir(directory).filePath("sandbox-passed"));
+  if (!marker.open(QIODevice::WriteOnly | QIODevice::NewOnly) ||
+      marker.write("passed") != 6 || !marker.flush()) {
     const QByteArray reason = marker.errorString().toUtf8();
     write(STDERR_FILENO, reason.constData(), size_t(reason.size()));
     return 7;

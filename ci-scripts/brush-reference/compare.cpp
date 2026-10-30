@@ -322,8 +322,7 @@ int main(int argc, char **argv) {
           fixtures["group"].toString() == "hardpixel" ||
           fixtures["group"].toString() == "pixelopacity" ||
           fixtures["group"].toString() == "pixelopacitytablet" ||
-          (fixtures["group"].toString() == "pixelcontrols" &&
-           source["overrides"].toObject()["PaintOpAction"].toString() != "2") ||
+          fixtures["group"].toString() == "pixelcontrols" ||
           fixtures["group"].toString() == "pixelpressure" ||
           fixtures["group"].toString() == "pixelsmallpressure" ||
           fixtures["group"].toString() == "pixelshape" ||

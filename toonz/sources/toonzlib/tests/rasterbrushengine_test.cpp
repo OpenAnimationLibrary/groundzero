@@ -770,6 +770,53 @@ void testSourceDefaultCircle() {
     require(!validate(p).empty(), "unqualified small-tip AA sampling accepted");
   }
 }
+void testSourceWetPressureColorAttenuation() {
+  struct WideCanvas : Canvas {
+    WideCanvas() {
+      w = 512;
+      pixels.resize(size_t(w) * h);
+    }
+    double coverage(int, int) const override { return 1; }
+  };
+  const int captured[2][2][4] = {{{199, 7, 49, 144}, {241, 9, 6, 132}},
+                                 {{116, 17, 121, 176}, {181, 27, 47, 150}}};
+  for (const auto &model : {"legacy-smear", "legacy-dulling"})
+    for (int i = 0; i < 2; ++i) {
+      Preset p;
+      p.profile = std::string("krita-5.3.4.1-") + model + "-candidate-1";
+      p.wet = std::string(model) == "legacy-smear" ? Wet::Smear : Wet::Dulling;
+      p.size.value            = 32;
+      p.spacing               = 5;
+      p.tip.antialiasEdges    = false;
+      p.smudgeRadius          = 0;
+      p.pickup                = .5;
+      p.colorRate             = .25;
+      p.color                 = {0, 1, 0, 1};
+      p.pickupControl.minimum = 0;
+      p.pickupControl.mappings.push_back(
+          {Sensor::Pressure, {{0, 0}, {1, 1}}, 1});
+      WideCanvas canvas;
+      for (int y = 0; y < canvas.h; ++y)
+        for (int x = 0; x < canvas.w; ++x)
+          canvas.write(x, y,
+                       x < 112 ? Pixel{0, 0, 1, 1}
+                               : Pixel{128 / 255.0, 0, 0, 128 / 255.0});
+      Stroke stroke(canvas, p);
+      const double pressure = i ? .75 : .25;
+      require(stroke.add(sample(32, 64, 0, pressure)), stroke.error().c_str());
+      require(stroke.add(sample(353, 64, 1, pressure)), stroke.error().c_str());
+      stroke.finish();
+      for (int dab = 0; dab < 2; ++dab) {
+        const Pixel pixel     = canvas.read(192 + 160 * dab, 64);
+        const double actual[] = {pixel.r / pixel.a, pixel.g / pixel.a,
+                                 pixel.b / pixel.a, pixel.a};
+        for (int channel = 0; channel < 4; ++channel)
+          require(
+              std::abs(actual[channel] * 255 - captured[i][dab][channel]) <= 1,
+              "legacy wet pressure changed static color attenuation");
+      }
+    }
+}
 void testSourceWashLattice() {
   Preset p;
   p.profile            = "krita-5.3.4.1-hard-pixel-candidate-1";
@@ -888,6 +935,7 @@ int main() {
     testColorDynamics();
     testCubicCurves();
     testSourceDefaultCircle();
+    testSourceWetPressureColorAttenuation();
     testSourceWashLattice();
     testSourceSmallCircle();
     testSourceHardCircleAA();

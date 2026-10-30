@@ -27,8 +27,9 @@ inline QByteArray hardPixelKpp(const QString &mutation = {},
   if (mutation == "wrongModeKey")
     param("PaintingMode", "1");
   else
-    param("PaintOpAction",
-          mutation == "buildUp" || !model.isEmpty() ? "1" : "0");
+    param("PaintOpAction", mutation == "buildUp" || !model.isEmpty() ? "1"
+                           : mutation == "freehandWash"              ? "2"
+                                                                     : "0");
   for (const QString &key :
        {"EraserMode", "OpacityUseCurve", "FlowUseCurve", "PressureSize",
         "PressureRotation", "PressureRatio", "PressureScatter",

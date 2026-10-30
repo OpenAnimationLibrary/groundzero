@@ -71,6 +71,22 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   target_compile_definitions(rasterbrushpreset_test PRIVATE LINUX)
 endif()
 if(BRUSH_SANITIZERS AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+  # Sanitizer runtimes inspect process memory and spawn diagnostic helpers;
+  # the production privilege boundary deliberately denies those operations.
+  # Keep parser/decoder tests instrumented, and exercise the exact worker
+  # boundary in a separate uninstrumented child, as in the shipped app.
+  get_target_property(BRUSH_WORKER_TEST_SOURCES rasterbrushpreset_test SOURCES)
+  add_executable(rasterbrushworker_test ${BRUSH_WORKER_TEST_SOURCES})
+  target_include_directories(rasterbrushworker_test PRIVATE "${REPO_ROOT}/toonz/sources/include")
+  target_compile_definitions(rasterbrushworker_test PRIVATE TOONZLIB_EXPORTS RASTERBRUSH_SANDBOX_TESTING)
+  target_link_libraries(rasterbrushworker_test PRIVATE Qt${BRUSH_QT_MAJOR}::Core Qt${BRUSH_QT_MAJOR}::Gui ZLIB::ZLIB)
+  if(APPLE)
+    target_compile_definitions(rasterbrushworker_test PRIVATE MACOSX)
+  elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_compile_definitions(rasterbrushworker_test PRIVATE LINUX)
+  endif()
+  target_compile_definitions(rasterbrushpreset_test PRIVATE RASTERBRUSH_SEPARATE_WORKER_TEST)
+  add_dependencies(rasterbrushpreset_test rasterbrushworker_test)
   target_compile_options(rasterbrushpreset_test PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
   target_link_options(rasterbrushpreset_test PRIVATE -fsanitize=address,undefined)
 endif()

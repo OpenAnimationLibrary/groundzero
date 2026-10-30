@@ -691,12 +691,15 @@ struct Stroke::Impl {
           paint = composite(mix(surface.read(x, y), paint, strength),
                             mul(p.color, colorRate * colorRate), Blend::Normal);
         } else {
-          paint =
-              mix(surface.read(x, y),
-                  composite(paint,
-                            mul(p.color, colorRate * std::max(.2, 1 - pickup)),
-                            Blend::Normal),
-                  strength);
+          // Legacy foreground attenuation uses the serialized length setting,
+          // while pressure scales transport strength. Original independent
+          // pickup/color-pressure probes distinguish these two quantities.
+          paint = mix(
+              surface.read(x, y),
+              composite(paint,
+                        mul(p.color, colorRate * std::max(.2, 1 - p.pickup)),
+                        Blend::Normal),
+              strength);
         }
         // Alpha transport disabled retains source-over feedback separately
         // from the displayed arithmetic mix. First-dab initialization above
