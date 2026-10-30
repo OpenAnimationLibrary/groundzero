@@ -54,13 +54,26 @@ int importFile(const QString &abrPath, QStringList &messages) {
     messages << UiTranslations::text(QObject::tr("%1: the file cannot be read.")).arg(fileName);
     return 0;
   }
-  QByteArray bytes = file.readAll();
+  const AbrParser::Limits limits;
+  if (file.size() > static_cast<qint64>(limits.maxFileBytes)) {
+    messages << QObject::tr("%1: the brush file exceeds the 256 MiB import limit.")
+                    .arg(fileName);
+    return 0;
+  }
+  // Bound the read too: the file can grow after the size check.
+  QByteArray bytes = file.read(static_cast<qint64>(limits.maxFileBytes) + 1);
+  if (file.error() != QFile::NoError || !file.atEnd() ||
+      static_cast<size_t>(bytes.size()) > limits.maxFileBytes) {
+    messages << QObject::tr("%1: the brush file could not be read within the import limit.")
+                    .arg(fileName);
+    return 0;
+  }
   file.close();
 
   AbrParser::Result result;
   std::string error;
   if (!AbrParser::parseAbr((const unsigned char *)bytes.constData(),
-                           (size_t)bytes.size(), result, error)) {
+                           (size_t)bytes.size(), result, error, limits)) {
     messages << UiTranslations::text(QObject::tr("%1: %2")).arg(fileName).arg(
         QString::fromStdString(error));
     return 0;

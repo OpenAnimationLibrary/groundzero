@@ -1,6 +1,7 @@
 #include "toonz/abrparser.h"
 
 #include <cstring>
+#include <utility>
 
 namespace AbrParser {
 
@@ -9,6 +10,29 @@ namespace {
 // Limits of what is accepted as a tip: Photoshop tips stay below 2500 pixels.
 const int c_maxTipSide         = 10000;
 const long long c_maxTipPixels = 64LL * 1024 * 1024;
+
+struct Budget {
+  const Limits &limits;
+  size_t decoded = 0, records = 0;
+  std::string error;
+  explicit Budget(const Limits &value) : limits(value) {}
+  bool record() {
+    if (records >= limits.maxRecords) {
+      error = "The ABR record limit was exceeded.";
+      return false;
+    }
+    ++records;
+    return true;
+  }
+  bool allocate(size_t bytes) {
+    if (bytes > limits.maxDecodedBytes - decoded) {
+      error = "The ABR decoded image budget was exceeded.";
+      return false;
+    }
+    decoded += bytes;
+    return true;
+  }
+};
 
 //-----------------------------------------------------------------------------
 // Bounds checked reader of big endian values. It never reads at or past its
@@ -100,10 +124,14 @@ void appendUtf8(std::string &s, unsigned cp) {
 
 //! Reads a version 2 name: the number of UTF-16 units (the final null
 //! included), then the units, big endian.
-bool readUnicodeName(Reader &r, std::string &name) {
+bool readUnicodeName(Reader &r, std::string &name, Budget &budget) {
   int32_t count;
   if (!r.i32(count) || count < 0) return false;
   if ((size_t)count > r.remaining() / 2) return false;
+  if ((size_t)count > budget.limits.maxNameUnits) {
+    budget.error = "The ABR name length limit was exceeded.";
+    return false;
+  }
 
   std::vector<unsigned> units(count);
   for (int32_t i = 0; i < count; ++i) r.u16(units[i]);
@@ -217,7 +245,7 @@ bool decodeImage(Reader &r, int width, int height, int depth,
 
 //! Reads the 32 bit bounds, the depth and the image: the part which versions
 //! 1, 2 and 6 and up have in common.
-bool readBoundsAndImage(Reader &r, Tip &tip, std::string &why) {
+bool readBoundsAndImage(Reader &r, Tip &tip, std::string &why, Budget &budget) {
   int32_t top, left, bottom, right;
   int depth;
   if (!r.i32(top) || !r.i32(left) || !r.i32(bottom) || !r.i32(right) ||
@@ -235,6 +263,10 @@ bool readBoundsAndImage(Reader &r, Tip &tip, std::string &why) {
   }
   if (depth != 8 && depth != 16) {
     why = "unsupported depth " + std::to_string(depth);
+    return false;
+  }
+  if (!budget.allocate((size_t)(width * height))) {
+    why = budget.error;
     return false;
   }
   tip.width  = (int)width;
@@ -255,7 +287,7 @@ std::string defaultName(int index) {
 // Versions 1 and 2
 
 //! \b r ends where the brush ends.
-bool readSampleV12(Reader &r, int version, Tip &tip, std::string &why) {
+bool readSampleV12(Reader &r, int version, Tip &tip, std::string &why, Budget &budget) {
   int32_t misc;
   int spacing;
   if (!r.i32(misc) || !r.i16(spacing)) {
@@ -265,7 +297,7 @@ bool readSampleV12(Reader &r, int version, Tip &tip, std::string &why) {
   tip.spacing = spacing;
   if (version == 2) {
     std::string name;
-    if (!readUnicodeName(r, name)) {
+    if (!readUnicodeName(r, name, budget)) {
       why = "bad name";
       return false;
     }
@@ -277,13 +309,14 @@ bool readSampleV12(Reader &r, int version, Tip &tip, std::string &why) {
     why = "truncated header";
     return false;
   }
-  return readBoundsAndImage(r, tip, why);
+  return readBoundsAndImage(r, tip, why, budget);
 }
 
 void parseV12(const unsigned char *data, size_t size, int version, int count,
-              Result &out) {
+              Result &out, Budget &budget) {
   Reader r(data, size, 4);
   for (int i = 0; i < count; ++i) {
+    if (!budget.record()) return;
     int type;
     int32_t length;
     if (!r.i16(type) || !r.i32(length)) {
@@ -304,8 +337,8 @@ void parseV12(const unsigned char *data, size_t size, int version, int count,
       tip.name      = defaultName(i + 1);
       Reader sample = r.sub(next);
       std::string why;
-      if (readSampleV12(sample, version, tip, why)) {
-        out.tips.push_back(tip);
+      if (readSampleV12(sample, version, tip, why, budget)) {
+        out.tips.push_back(std::move(tip));
       } else {
         ++out.skippedSamples;
         out.warnings.push_back("Brush " + std::to_string(i + 1) +
@@ -324,21 +357,22 @@ void parseV12(const unsigned char *data, size_t size, int version, int count,
 // Versions 6 and up
 
 //! \b r ends where the sample ends.
-bool readSampleV6(Reader &r, int subVersion, Tip &tip, std::string &why) {
+bool readSampleV6(Reader &r, int subVersion, Tip &tip, std::string &why, Budget &budget) {
   // The id of the brush (a pascal string of 36 characters) and some fields
   // which are not used: 47 bytes for sub version 1, 301 for the others.
   if (!r.skip(subVersion == 1 ? 47 : 301)) {
     why = "truncated header";
     return false;
   }
-  return readBoundsAndImage(r, tip, why);
+  return readBoundsAndImage(r, tip, why, budget);
 }
 
 //! \b section holds the samples, each one preceded by its length and padded
 //! to a multiple of 4 bytes.
-void parseSamples(Reader &section, int subVersion, Result &out) {
+void parseSamples(Reader &section, int subVersion, Result &out, Budget &budget) {
   int index = 0;
   while (section.remaining() >= 4) {
+    if (!budget.error.empty() || !budget.record()) return;
     uint32_t length;
     section.u32(length);
     ++index;
@@ -355,8 +389,8 @@ void parseSamples(Reader &section, int subVersion, Result &out) {
     tip.name      = defaultName(index);
     Reader sample = section.sub(start + length);
     std::string why;
-    if (readSampleV6(sample, subVersion, tip, why)) {
-      out.tips.push_back(tip);
+    if (readSampleV6(sample, subVersion, tip, why, budget)) {
+      out.tips.push_back(std::move(tip));
     } else {
       ++out.skippedSamples;
       out.warnings.push_back("Sample " + std::to_string(index) +
@@ -372,10 +406,11 @@ bool isSignatureAt(const Reader &r, size_t offset) {
 }
 
 void parseV6(const unsigned char *data, size_t size, int subVersion,
-             Result &out) {
+             Result &out, Budget &budget) {
   Reader r(data, size, 4);
   bool sawSamples = false;
   while (r.remaining() >= 12) {
+    if (!budget.error.empty() || !budget.record()) return;
     if (!isSignatureAt(r, 0)) {
       // tolerate up to 3 bytes of padding between sections
       size_t pad = 1;
@@ -400,7 +435,7 @@ void parseV6(const unsigned char *data, size_t size, int subVersion,
     Reader section = r.sub(r.pos() + length);
     if (std::memcmp(tag, "samp", 4) == 0) {
       sawSamples = true;
-      parseSamples(section, subVersion, out);
+      parseSamples(section, subVersion, out, budget);
     }
     // 'desc' (names, spacing and dynamics), 'patt' and the others are skipped
     r.seek(section.end());
@@ -415,9 +450,19 @@ void parseV6(const unsigned char *data, size_t size, int subVersion,
 
 bool parseAbr(const unsigned char *data, size_t size, Result &out,
               std::string &error) {
+  return parseAbr(data, size, out, error, Limits());
+}
+
+bool parseAbr(const unsigned char *data, size_t size, Result &out,
+              std::string &error, const Limits &limits) {
   out = Result();
   error.clear();
 
+  if (size > limits.maxFileBytes) {
+    error = "The ABR file size limit was exceeded.";
+    return false;
+  }
+  Budget budget(limits);
   Reader header(data, size, 0);
   unsigned version, second;
   if (!data || !header.u16(version) || !header.u16(second)) {
@@ -427,13 +472,22 @@ bool parseAbr(const unsigned char *data, size_t size, Result &out,
 
   out.version = (int)version;
   if (version == 1 || version == 2) {
-    parseV12(data, size, (int)version, (int)second, out);
+    parseV12(data, size, (int)version, (int)second, out, budget);
   } else if (version >= 6 && version <= 10) {
+    if (second != 1 && second != 2) {
+      error = "Unsupported ABR subversion " + std::to_string(second) + ".";
+      return false;
+    }
     out.subVersion = (int)second;
-    parseV6(data, size, (int)second, out);
+    parseV6(data, size, (int)second, out, budget);
   } else {
     error = "ABR version " + std::to_string(version) +
             " is not supported (versions 1, 2 and 6 to 10 are).";
+    return false;
+  }
+  if (!budget.error.empty()) {
+    error = budget.error;
+    out = Result();
     return false;
   }
   return true;

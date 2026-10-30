@@ -332,6 +332,60 @@ void testRejected() {
   require(r.tips.empty() && r.skippedSamples == 3, "unusable samples: read");
 }
 
+void testBudgetsAndVersions() {
+  AbrParser::Result r;
+  std::string error;
+  for (int version = 6; version <= 10; ++version) {
+    for (int subversion = 1; subversion <= 2; ++subversion) {
+      Bytes file = fileV6(subversion, section("samp", sampleV6(
+          subversion, boundsAndImage(4, 3, 8, imageRle4x3()))));
+      file[1] = static_cast<unsigned char>(version);
+      require(parse(file, r, error), "documented version pair rejected");
+      require(r.tips.size() == 1, "documented version pair lost tip");
+      requireImage4x3(r.tips[0]);
+    }
+    for (unsigned subversion : {0u, 3u, 65535u}) {
+      Bytes file;
+      put16(file, version);
+      put16(file, subversion);
+      require(!parse(file, r, error), "unknown subversion accepted");
+      require(r.tips.empty() && !error.empty(), "rejection retained tips");
+    }
+  }
+
+  // Each sample fits alone; together they exceed the aggregate allocation
+  // budget. Separate sections must not reset accounting.
+  Bytes sections;
+  for (int i = 0; i < 2; ++i)
+    putBytes(sections, section("samp", sampleV6(
+        2, boundsAndImage(4, 3, 8, imageRle4x3()))));
+  const Bytes file = fileV6(2, sections);
+  AbrParser::Limits limits;
+  limits.maxDecodedBytes = 23;
+  require(!AbrParser::parseAbr(file.data(), file.size(), r, error, limits),
+          "aggregate allocation limit ignored");
+  require(r.tips.empty(), "budget failure returned partial import");
+  limits.maxDecodedBytes = 24;
+  require(AbrParser::parseAbr(file.data(), file.size(), r, error, limits) &&
+              r.tips.size() == 2,
+          "exact allocation budget rejected");
+  limits.maxRecords = 3;  // Two sections plus two sample records need four.
+  require(!AbrParser::parseAbr(file.data(), file.size(), r, error, limits) &&
+              r.tips.empty(), "section records escaped budget");
+  limits = AbrParser::Limits();
+  limits.maxFileBytes = file.size() - 1;
+  require(!AbrParser::parseAbr(file.data(), file.size(), r, error, limits),
+          "input byte limit ignored");
+
+  Bytes named = fileV12(2, 1);
+  putBrush(named, 2, sampleV12(2, 25, std::vector<unsigned>(5, 'A'),
+                               boundsAndImage(4, 3, 8, imageRle4x3())));
+  limits = AbrParser::Limits();
+  limits.maxNameUnits = 3;
+  require(!AbrParser::parseAbr(named.data(), named.size(), r, error, limits) &&
+              r.tips.empty(), "name allocation escaped budget");
+}
+
 void testTruncation() {
   // Every prefix of a valid file must be handled without reading past the
   // end; whatever tips come out are complete.
@@ -380,6 +434,7 @@ int main() {
     testV1RawAndUnknownType();
     testBadSampleIsSkipped();
     testRejected();
+    testBudgetsAndVersions();
     testTruncation();
   } catch (const std::exception &e) {
     std::cerr << "abrparser_test failed: " << e.what() << std::endl;

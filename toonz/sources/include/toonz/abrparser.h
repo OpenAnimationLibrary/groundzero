@@ -53,6 +53,15 @@
 
 namespace AbrParser {
 
+// Budgets apply to the entire file, including multiple samp sections and
+// rejected records. Callers can lower them for previews and untrusted imports.
+struct Limits {
+  size_t maxFileBytes = 256u * 1024u * 1024u;
+  size_t maxDecodedBytes = 256u * 1024u * 1024u;
+  size_t maxRecords = 2000;
+  size_t maxNameUnits = 4096;
+};
+
 struct Tip {
   std::string name;  // UTF-8; "tip_001"... when the file has no name
   int width   = 0;
@@ -78,6 +87,10 @@ struct Result {
 //! left out.
 DVAPI bool parseAbr(const unsigned char *data, size_t size, Result &out,
                     std::string &error);
+
+// Limit failures reject the entire import and leave no partial tips.
+DVAPI bool parseAbr(const unsigned char *data, size_t size, Result &out,
+                    std::string &error, const Limits &limits);
 
 }  // namespace AbrParser
 
