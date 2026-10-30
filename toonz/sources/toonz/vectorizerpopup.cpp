@@ -64,6 +64,7 @@
 #include <QGridLayout>
 #include <QScrollArea>
 #include <QAction>
+#include <QMenu>
 #include <QMainWindow>
 #include <QToolButton>
 

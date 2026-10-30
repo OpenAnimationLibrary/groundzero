@@ -313,6 +313,15 @@ if(BUILD_SEEXPR_TESTS)
     set_tests_properties(seexpr_editor seexpr_controls seexpr_range PROPERTIES TIMEOUT 30)
 endif()
 
+if(BUILD_RELIABILITY_TESTS)
+    add_executable(stageobjectspaste_test tests/stageobjectspaste_test.cpp)
+    target_link_libraries(stageobjectspaste_test PRIVATE toonzqt toonzlib tnzbase
+        tnzcore Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui
+        Qt${QT_VERSION_MAJOR}::Widgets)
+    add_test(NAME stageobjectspaste COMMAND stageobjectspaste_test)
+    set_tests_properties(stageobjectspaste PROPERTIES TIMEOUT 60)
+endif()
+
 if(BUILD_LUT3D_TESTS)
     add_executable(neuralstyle_editor_test tests/neuralstyle_editor_test.cpp)
     target_link_libraries(neuralstyle_editor_test PRIVATE toonzqt toonzlib tnzbase tnzcore

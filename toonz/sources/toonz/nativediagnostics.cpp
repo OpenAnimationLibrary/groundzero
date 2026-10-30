@@ -22,8 +22,11 @@ thread_local bool inDiagnosticHandler = false;
 QString redactPaths(QString text, const QStringList &paths) {
   // Preserve useful diagnostic text while avoiding the user's home prefix.
   // Arbitrary message contents are not treated as safe for public submission.
-  for (const QString &path : paths) {
-    if (path.isEmpty()) continue;
+  for (const QString &entry : paths) {
+    const QString path = QDir::cleanPath(QDir::fromNativeSeparators(entry));
+    // A root home directory (a service account or a container) is no private
+    // prefix: replacing it would replace every separator of every path.
+    if (entry.isEmpty() || QDir(path).isRoot()) continue;
     text.replace(path, "[local]", Qt::CaseInsensitive);
     text.replace(QDir::toNativeSeparators(path), "[local]", Qt::CaseInsensitive);
   }

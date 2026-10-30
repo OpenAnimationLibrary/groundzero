@@ -242,5 +242,35 @@ int main(int argc, char **argv) {
   deletePeer.peer = new QWidget;
   UiTranslations::refresh();
   ok &= check(deletePeer.peer.isNull(), "LanguageChange did not dispose its peer safely");
+
+  // Capture cost follows the widgets that changed, not the whole interface.
+  // captureWork() counts the properties and retained entries examined, so
+  // these bounds do not depend on the speed of the machine.
+  QWidget large;
+  for (int i = 0; i < 1500; ++i) {
+    auto *label = new QLabel(translated("Open", "Large"), &large);
+    label->setToolTip(translated("Open", "LargeTip"));
+  }
+  UiTranslations::captureAll();
+  std::size_t work = UiTranslations::captureWork();
+  UiTranslations::captureAll();
+  work = UiTranslations::captureWork() - work;
+  ok &= check(work <= 32 * std::size_t(QApplication::allWidgets().size()),
+              "Caption capture compared each property with every binding");
+  large.show();
+  QCoreApplication::processEvents();
+  QWidget dialog;
+  QLabel shown(translated("Open", "Shown"), &dialog);
+  work = UiTranslations::captureWork();
+  dialog.show();
+  QCoreApplication::processEvents();
+  work = UiTranslations::captureWork() - work;
+  ok &= check(work > 0 && work <= 100,
+              "Showing one window captured every widget of the interface");
+  catalog.language = 1;
+  UiTranslations::refresh();
+  ok &= check(shown.text() == "Shown:1" &&
+                  large.findChild<QLabel *>()->text() == "Large:1",
+              "A shown window's captions were not captured");
   return ok ? 0 : 1;
 }

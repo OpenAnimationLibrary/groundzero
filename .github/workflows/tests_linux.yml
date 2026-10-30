@@ -509,6 +509,13 @@ jobs:
         # Every distinct error in one annotation: a step shows at most 10
         all=$(grep -E ': (fatal )?error:' errors.txt | sed -e "s|$GITHUB_WORKSPACE/||; s|^.*\.\./sources/|toonz/sources/|" | awk -F'error: ' '!seen[$2]++' | head -150 | sed -e 's/%/%25/g' | sed -e ':a;N;$!ba;s/\n/%0A/g')
         [ -n "$all" ] && echo "::error title=Qt 6 errors (all distinct)::${all}"
+        # The objects that failed, and the lines of our sources that led to an
+        # error inside a header (a template instantiated from them): an error
+        # reported in a Qt header alone does not say which file to fix
+        failed=$(grep '^FAILED: ' "$log" | sed -e 's/^FAILED: //' | sort -u | head -40 | sed -e 's/%/%25/g' | sed -e ':a;N;$!ba;s/\n/%0A/g')
+        [ -n "$failed" ] && echo "::error title=Qt 6 failed targets::${failed}"
+        origins=$(grep -E '(\.\./sources/|toonz/sources/)[^:]*:[0-9]+:[0-9]+:   required from' "$log" | sed -e "s|$GITHUB_WORKSPACE/||; s|^.*\.\./sources/|toonz/sources/|" | sort -u | head -40 | sed -e 's/%/%25/g' | sed -e ':a;N;$!ba;s/\n/%0A/g')
+        [ -n "$origins" ] && echo "::error title=Qt 6 errors instantiated from::${origins}"
         prefix="$GITHUB_WORKSPACE/"
         grep -E ': (fatal )?error:' errors.txt | awk -F'error: ' '!seen[$2]++' | head -45 | while IFS= read -r line; do
           file=${line%%:*}; rest=${line#*:}; lineno=${rest%%:*}
