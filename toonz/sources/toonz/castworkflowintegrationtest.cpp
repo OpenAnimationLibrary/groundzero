@@ -1,6 +1,7 @@
 #include "castviewer.h"
 #include "castselection.h"
 #include "castbrowseractions.h"
+#include "nativeuiintegrationtest.h"
 #include "tapp.h"
 #include "iocommand.h"
 #include "toonz/levelset.h"
@@ -52,6 +53,7 @@
 #include <QKeyEvent>
 #include <QMenu>
 #include <QProgressDialog>
+#include <QPointer>
 #include <stdexcept>
 #include <iostream>
 
@@ -88,14 +90,42 @@ void showProgressNextTurn(const QString &label) {
         if (progress->labelText() == label) progress->show();
   });
 }
+void selectionLifetime(QMainWindow *window) {
+  QPointer<DvItemSelection> owned;
+  {
+    CastBrowser current(window);
+    auto *panel = current.findChild<DvItemViewer *>()->getPanel();
+    owned = panel->getSelection();
+    owned->makeCurrent();
+    require(TSelection::getCurrent() == owned.data(), "Cast selection did not become current");
+    {
+      CastBrowser inactive(window);
+    }
+    require(TSelection::getCurrent() == owned.data(), "closing an inactive Cast cleared the active selection");
+    panel->setSelection(new DvItemSelection);
+    require(owned.isNull() && !TSelection::getCurrent(),
+            "replacing a Cast selection retained a stale global handle");
+    owned = panel->getSelection();
+    owned->makeCurrent();
+  }
+  require(owned.isNull() && !TSelection::getCurrent(),
+          "closing Cast retained its selection or command handlers");
+  {
+    CastBrowser reopened(window);
+    auto *selection = reopened.findChild<DvItemViewer *>()->getPanel()->getSelection();
+    selection->makeCurrent();
+    require(TSelection::getCurrent() == selection, "reopened Cast could not acquire selection");
+  }
+  require(!TSelection::getCurrent(), "reopened Cast left a stale global selection");
+}
 }
 
 // Runs only in the existing disposable-profile native UI qualification process.
 void runCastWorkflowIntegrationTest(QMainWindow *window) {
-  TApp::instance()->getCurrentScene()->setDirtyFlag(false);
-  TUndoManager::manager()->reset();
-  IoCmd::newScene();
+  QString resetError;
+  require(resetNativeUiIntegrationScene(&resetError), qPrintable(resetError));
   QApplication::processEvents();
+  selectionLifetime(window);
   auto *source = TApp::instance()->getCurrentScene()->getScene();
   auto *hero = source->createNewLevel(PLI_XSHLEVEL, L"Cast fixture Hero")->getSimpleLevel();
   auto *spare = source->createNewLevel(PLI_XSHLEVEL, L"Cast fixture Spare")->getSimpleLevel();

@@ -1,4 +1,5 @@
 #include "functionworkflowintegrationtest.h"
+#include "nativeuiintegrationtest.h"
 #include "iocommand.h"
 #include "menubarcommandids.h"
 #include "tapp.h"
@@ -48,6 +49,9 @@
 
 namespace {
 namespace Ops = FunctionCurveOperations;
+void checkpoint(const char *message) {
+  std::cerr << "function-workflow-native: " << message << std::endl;
+}
 void require(bool value, const char *message) { if (!value) throw std::runtime_error(message); }
 void near(double actual, double expected) { require(std::isfinite(actual) && std::abs(actual - expected) < 1.e-7, "Native Function Editor value differs from its oracle"); }
 void settle() { QApplication::sendPostedEvents(); QApplication::processEvents(QEventLoop::ExcludeUserInputEvents); }
@@ -78,13 +82,31 @@ void drag(FunctionPanel *graph, const QPoint &from, const QPoint &to, Qt::Keyboa
 void modal(FunctionViewer *viewer, const char *dialogName, const std::function<void(QDialog *)> &inspect,
            const std::function<void()> &open) {
   QString failure; bool visited = false;
-  QTimer::singleShot(0, viewer, [&]() {
+  // A disabled action can return without entering a modal loop. Tie pending
+  // delivery to this call's lifetime rather than leaving its captures queued
+  // against the longer-lived editor.
+  QObject delivery;
+  QTimer deadline;
+  deadline.setSingleShot(true);
+  QObject::connect(&deadline, &QTimer::timeout, &delivery, [dialogName]() {
+    std::cerr << "function-workflow-native: expected modal: " << dialogName << std::endl;
+    if (auto *modal = QApplication::activeModalWidget())
+      std::cerr << "function-workflow-native: blocked modal: "
+                << modal->objectName().toStdString() << " ("
+                << modal->windowTitle().toStdString() << ")" << std::endl;
+    qFatal("function-workflow-native: modal fixture exceeded its 15-second deadline");
+  });
+  QTimer::singleShot(0, &delivery, [&]() {
     auto *dialog = viewer->findChild<QDialog *>(dialogName);
     try { require(dialog, "Native function dialog did not open"); visited = true; inspect(dialog); }
     catch (const std::exception &error) { failure = QString::fromUtf8(error.what()); }
     if (dialog) dialog->reject();
   });
-  open(); require(visited, "Native modal callback was not reached");
+  checkpoint(dialogName);
+  deadline.start(15000);
+  open();
+  deadline.stop();
+  require(visited, "Native modal callback was not reached");
   if (!failure.isEmpty()) throw std::runtime_error(failure.toStdString());
 }
 void dependencies(FunctionViewer *viewer, FunctionTreeView *tree, TDoubleParam *target,
@@ -105,7 +127,11 @@ bool runFunctionWorkflowIntegrationTest(QMainWindow *, QString *error) {
   try {
     // Called only by the isolated native application runner, after its earlier
     // fixture has discarded dirty state. Use the real New Scene command/handles.
-    app->getCurrentScene()->setDirtyFlag(false); IoCmd::newScene(); settle();
+    checkpoint("resetting disposable scene");
+    QString resetError;
+    require(resetNativeUiIntegrationScene(&resetError), qPrintable(resetError));
+    settle();
+    checkpoint("constructing native scene channels");
     auto *scene = app->getCurrentScene()->getScene();
     auto *xsheet = app->getCurrentXsheet()->getXsheet();
     require(scene && xsheet && xsheet->getFrameCount() == 0, "Function fixture requires an empty disposable scene");
@@ -134,6 +160,7 @@ bool runFunctionWorkflowIntegrationTest(QMainWindow *, QString *error) {
     auto *vertex = deformation->vertexDeformation(1, tip); require(vertex, "Native Plastic deformation vertex missing");
     auto *angle = vertex->m_params[SkVD::ANGLE].getPointer(); keys(angle, 0, 40);
     app->getCurrentXsheet()->notifyXsheetChanged(); settle();
+    checkpoint("opening native Function Editor");
     auto *open = CommandManager::instance()->getAction(MI_OpenFunctionEditor); require(open && open->isEnabled(), "Native Function Editor menu action unavailable"); open->trigger(); settle();
     FunctionViewer *viewer = nullptr;
     for (auto *widget : QApplication::allWidgets()) if (auto *candidate = qobject_cast<FunctionViewer *>(widget)) if (candidate->isVisible()) { viewer = candidate; break; }
@@ -141,6 +168,7 @@ bool runFunctionWorkflowIntegrationTest(QMainWindow *, QString *error) {
     auto *tree = viewer->findChild<FunctionTreeView *>(); auto *graph = viewer->findChild<FunctionPanel *>();
     require(tree && graph, "Native Function Editor tree/graph missing"); graph->show(); graph->resize(800, 400); settle();
     find(tree, angle)->setIsActive(true); find(tree, offset)->setIsActive(true);
+    checkpoint("checking native and SeExpr dependency navigation");
     dependencies(viewer, tree, native, source, 1); dependencies(viewer, tree, seexpr, source, 1);
     viewer->getSelection()->selectNone(); viewer->getSelection()->select(angle, 0); viewer->getSelection()->select(offset, 0);
     auto *edit = viewer->findChild<QToolButton *>("FunctionEditKeys"); require(edit, "Native numeric editor action missing");
@@ -155,6 +183,7 @@ bool runFunctionWorkflowIntegrationTest(QMainWindow *, QString *error) {
     }, [&]() { edit->click(); });
     require(TUndoManager::manager()->undo(), "Native rig breakdown has no undo"); require(angle->getKeyframeCount() == 2 && offset->getKeyframeCount() == 2, "Native rig undo missed a channel");
     require(TUndoManager::manager()->redo(), "Native rig breakdown has no redo"); near(angle->getValue(10), 60); near(offset->getValue(10), 3);
+    checkpoint("checking native graph drag and snapping");
     // Native mouse routes use display coordinates and an off-center hit, proving
     // grid/key snapping is anchored to the selected key, not the click pixel.
     for (auto *channel : tree->channels()) channel->setIsActive(channel->getParam() == source);
@@ -179,6 +208,7 @@ bool runFunctionWorkflowIntegrationTest(QMainWindow *, QString *error) {
     require(TUndoManager::manager()->undo(), "Native scene-marker snapping has no undo"); graph->setSnapMarkers(false); paint(graph);
     TDoubleParamP before = new TDoubleParam(*source); source->setEditorLocked(true);
     drag(graph, point(), point() + QPoint(dx, -20)); require(Ops::matchesSnapshot(source, before.getPointer()), "Locked native drag mutated the curve"); source->setEditorLocked(false);
+    checkpoint("checking interpolation and handle routes");
     auto *interpolation = viewer->findChild<QToolButton *>("FunctionInterpolation"); require(interpolation && interpolation->menu(), "Interpolation toolbar unavailable");
     for (auto *action : interpolation->menu()->actions()) if (action->data().isValid() && action->data().toInt() == TDoubleKeyframe::SpeedInOut) { action->trigger(); break; }
     require(source->getKeyframe(1).m_type == TDoubleKeyframe::SpeedInOut, "Native interpolation menu did not edit the selected segment");
@@ -208,6 +238,7 @@ bool runFunctionWorkflowIntegrationTest(QMainWindow *, QString *error) {
       buttons->button(QDialogButtonBox::Apply)->click(); near(source->keyframeIndexToFrame(1), 12);
     }, [&]() { edit->click(); });
     require(TUndoManager::manager()->undo(), "Native quantization has no undo"); near(source->keyframeIndexToFrame(1), 10);
+    checkpoint("checking scene and channel identity roundtrip");
     source->setWorkspaceId("native-source-stable-id"); offset->setWorkspaceId("native-offset-stable-id"); angle->setWorkspaceId("native-plastic-stable-id");
     object->setName("Renamed rig");
     const double nativeValue = native->getValue(7), seexprValue = seexpr->getValue(7);

@@ -308,6 +308,7 @@ private:
 public:
   DvItemViewerPanel(DvItemViewer *viewer, bool noContextMenu,
                     bool multiselectionEnabled, QWidget *parent);
+  ~DvItemViewerPanel() override;
 
   void enableGlobalSelection(bool enabled) {
     if (!enabled) m_selection->makeNotCurrent();
