@@ -2,6 +2,8 @@
 #include "autosaverecovery.h"
 #include "exportfidelity.h"
 #include "filebrowserpopup.h"
+#include "filebrowsermodel.h"
+#include "dvdirtreeview.h"
 #include "menubarcommandids.h"
 #include "toonzqt/menubarcommand.h"
 #include "iocommand.h"
@@ -52,6 +54,8 @@
 #include <QFileInfo>
 #include <QLabel>
 #include <QMainWindow>
+#include <QPersistentModelIndex>
+#include <QItemSelectionModel>
 #include <QPushButton>
 #include <QTemporaryDir>
 #include <QTimer>
@@ -106,6 +110,105 @@ void writePoses(const TFilePath &file, const PoseLibrary &library) {
   library.saveData(stream);
   stream.closeChild();
   require(stream.checkStatus(), "pose import fixture could not be written");
+}
+void exerciseDirectoryRefresh(ToonzScene *scene, const QString &folder) {
+  const QString rootPath = QDir(folder).filePath("browser-refresh");
+  QDir filesystem;
+  require(filesystem.mkpath(rootPath + "/b_keep/nested") &&
+          filesystem.mkpath(rootPath + "/c_remove/deep") &&
+          filesystem.mkpath(rootPath + "/d_tail"), "directory refresh fixture setup");
+  DvDirModel *model = DvDirModel::instance();
+  QPersistentModelIndex root(model->getIndexByPath(TFilePath(rootPath)));
+  require(root.isValid(), "native browser did not find fixture directory");
+  QPersistentModelIndex keep(model->childByName(root, L"b_keep"));
+  QPersistentModelIndex keepChild(model->childByName(keep, L"nested"));
+  QPersistentModelIndex removed(model->childByName(root, L"c_remove"));
+  QPersistentModelIndex removedChild(model->childByName(removed, L"deep"));
+  require(keep.isValid() && keepChild.isValid() && removed.isValid() && removedChild.isValid(),
+          "native browser child fixtures missing");
+  DvDirModelNode *keptNode = model->getNode(keep);
+  DvDirTreeView first, second;
+  first.setRootIndex(root); second.setRootIndex(root);
+  first.expand(keep); second.expand(removed);
+  first.setCurrentIndex(keepChild); second.setCurrentIndex(removedChild);
+  first.show(); second.show();
+  QCoreApplication::processEvents();
+  auto directoryChanged = [&] {
+    // Exercise the real watcher signal and every attached native browser. OS
+    // watcher delivery remains enabled; repeated notifications are intentional.
+    MyFileSystemWatcher::instance()->directoryChanged(rootPath);
+    QCoreApplication::processEvents();
+  };
+  require(QDir(rootPath + "/c_remove").removeRecursively() &&
+          filesystem.mkpath(rootPath + "/a_new"), "directory refresh fixture mutation");
+  directoryChanged();
+  require(!removed.isValid() && !removedChild.isValid(),
+          "directory refresh kept persistent indexes to deleted nodes");
+  require(keep.isValid() && keepChild.isValid() && model->getNode(keep) == keptNode &&
+          keep.row() == 1 && first.currentIndex() == keepChild && first.isExpanded(keep),
+          "directory refresh lost surviving selection, expansion or reordered row");
+  require(model->parent(keepChild) == keep, "directory refresh left an invalid parent index");
+  // The reported crash occurred at the next layoutAboutToBeChanged, when Qt
+  // consulted the stale indexes left behind by the previous refresh.
+  directoryChanged();
+  require(filesystem.mkpath(rootPath + "/c_remove/deep"), "recreate directory fixture");
+  directoryChanged();
+  require(!removed.isValid() && !removedChild.isValid(), "deleted directory indexes revived on recreation");
+
+  auto *handle = TApp::instance()->getCurrentScene();
+  const TFilePath originalPath = scene->getScenePath();
+  const bool wasUntitled = scene->isUntitled();
+  Preferences *preferences = Preferences::instance();
+  const int originalPriority = int(preferences->getPathAliasPriority());
+  struct RestoreSceneLocation {
+    ToonzScene *scene;
+    TSceneHandle *handle;
+    Preferences *preferences;
+    TFilePath path;
+    bool untitled;
+    int priority;
+    ~RestoreSceneLocation() {
+      if (untitled) scene->setUntitled();
+      scene->setScenePath(path, !untitled);
+      preferences->setValue(pathAliasPriority, priority);
+      handle->notifySceneSwitched();
+      handle->notifyPreferenceChanged("PathAliasPriority");
+    }
+  } restore{scene, handle, preferences, originalPath, wasUntitled, originalPriority};
+  const QString sceneA = QDir(folder).filePath("scene-location-a");
+  const QString sceneB = QDir(folder).filePath("scene-location-b");
+  require(filesystem.mkpath(sceneA + "/shared/old") &&
+          filesystem.mkpath(sceneB + "/shared/new"), "scene location fixture setup");
+  preferences->setValue(pathAliasPriority, int(Preferences::SceneFolderAlias));
+  handle->notifyPreferenceChanged("PathAliasPriority");
+  scene->setScenePath(TFilePath(sceneA + "/scene.tnz"));
+  handle->notifySceneSwitched();
+  auto sceneFolderIndex = [&]() {
+    for (int row = 0; row < model->rowCount(); ++row) {
+      const auto index = model->index(row, 0, QModelIndex());
+      if (dynamic_cast<DvDirModelSceneFolderNode *>(model->getNode(index))) return index;
+    }
+    return QModelIndex();
+  };
+  QPersistentModelIndex alias(sceneFolderIndex());
+  QPersistentModelIndex aliasChild(model->childByName(alias, L"shared"));
+  QPersistentModelIndex aliasGrandchild(model->childByName(aliasChild, L"old"));
+  require(alias.isValid() && aliasChild.isValid() && aliasGrandchild.isValid(),
+          "scene alias fixture indexes missing");
+  second.setRootIndex(alias); second.expand(aliasChild); second.setCurrentIndex(aliasGrandchild);
+  scene->setScenePath(TFilePath(sceneB + "/scene.tnz"));
+  handle->notifySceneSwitched();
+  require(!alias.isValid() && !aliasChild.isValid() && !aliasGrandchild.isValid(),
+          "scene location change retained indexes into the old directory");
+  const auto newAlias = sceneFolderIndex();
+  const auto newShared = model->childByName(newAlias, L"shared");
+  auto *newFolder = dynamic_cast<DvDirModelFileFolderNode *>(model->getNode(newShared));
+  require(newFolder && newFolder->getPath() == TFilePath(sceneB + "/shared") &&
+          model->childByName(newShared, L"new").isValid(),
+          "scene location reused a same-named child from the previous directory");
+  directoryChanged();
+  require(keep.isValid() && keepChild.isValid() && first.currentIndex() == keepChild,
+          "scene location update reset unrelated browser selection");
 }
 void exercisePoses(ToonzScene *scene, const QString &folder) {
   PoseLibrary first;
@@ -494,6 +597,8 @@ bool runAnimationWorkflowIntegrationTest(QMainWindow *window, QString *error) {
     require(scene && scene->getXsheet()->getFrameCount() == 0, "animation workflow fixture needs a fresh scene");
     QTemporaryDir temporary;
     require(temporary.isValid(), "animation workflow fixture directory unavailable");
+    checkpoint("directory refresh and persistent indexes");
+    exerciseDirectoryRefresh(scene, temporary.path());
     checkpoint("recovery");
     exerciseRecovery(scene);
     checkpoint("poses");
