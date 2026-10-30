@@ -17,7 +17,7 @@ and invalidate snapshots that contain scene-owned expression grammars.
 |---|---|---|---|
 | 1 | Fit selected keys | `FunctionPanel::selectionBounds` uses actual keys across channels, adjoining selected segments, Bezier hull and sampled expression context; `fitRegion` handles one key/constants. Native widget test checks selected extent versus the rest of the curve. | CI; interactive handle/extrema framing. Expression bounds are sampled framing, not an analytical extremum guarantee. |
 | 2 | Channel search | `FunctionTreeView::setSearchText/applySearch` matches ancestor/channel/reference text and restores expansion. Browser-only filtering keeps active curves and selected keys visible in graph/spreadsheet. Native search/expansion test prepared. | CI; large channel lists and translated labels. |
-| 3 | Named channel sets | Channel Sets stores named UUID lists in user settings. Optional `workspaceId` attribute on existing `default` scene tag survives rename/reload; copy/undo retain owner ID, clones/imports do not inherit it. Missing/duplicate IDs are reported. | CI serialization/copy tests and native whole-scene save/reopen of renamed stage, offset and Plastic IDs. Original `default` reader ignores attributes; no new child tag was added. Opening then saving with an older build may discard IDs and requires resaving sets. |
+| 3 | Named channel sets | Channel Sets stores named UUID lists in user settings. Optional `workspaceId` attribute on existing `default` scene tag survives rename/reload; copy/undo retain owner ID, clones/imports do not inherit it. Missing/duplicate IDs are reported. | CI serialization/copy tests and native whole-scene save/reopen of renamed stage, offset, Plastic and FX IDs, including unkeyed defaults and nested tint channels. Original `default` reader ignores attributes; no new child tag was added. Opening then saving with an older build may discard IDs and requires resaving sets. |
 | 4 | Solo and edit locks | Tools offers solo/restore and locks selected channels. Native `KeyframeSetter`, FunctionSelection commands, numeric plans and Load Curve apply reject locked writes; toolbar/segment fields disable. Context Reset Handles now uses native undo setters. | CI lock routes and undo; manual graph/sheet/context-menu route matrix. Locks are session-only; undo remains able to restore history. |
 | 5 | Numeric multi-key edit | Edit Keys shows mixed value ranges/counts, set/offset values in each channel's display units, preview, repeated Apply and close/cancel. Single-value toolbar directs multiple selections to Edit Keys. | CI native modal repeated Apply/cancel and unit/all-or-nothing oracle tests. Driven endpoints require explicit bake before numeric value edits. |
 | 6 | Precise retiming | Edit Keys offers frame offset, grid quantization and positive time scale around a pivot across selected channels. Plan rejects negative frames, collisions and crossing unselected keys, and scales relevant handle time components. | CI timing/quantization/collision tests and native quantize preview/apply/undo; manual non-integer timing interaction. |
@@ -140,3 +140,22 @@ confirms the action/selection teardown path identified above. The registry fix
 and deterministic regressions are source-reviewed but must still pass CI; the
 original application exit status and every existing acceptance check remain
 authoritative.
+
+
+Combined-workflow CI at `623763b59` exposed a missing serialization boundary:
+a zero-valued channel without keys lost its optional workspace identity because
+Stage Object and Plastic serializers omitted default curves. `isDefault()`
+also controls which 3D channels count towards a full animation keyframe, so its
+value semantics remain unchanged. The separate `hasDataToSave()` predicate now
+retains identities in Stage Object, offset-layer and Plastic serialization.
+FX serialization also retains workspace-identified numeric parameters inside
+otherwise-unused parameter containers; obsolete parameters remain excluded.
+Column time-remap and color-effect activation rules remain value based.
+
+Prepared regressions preserve the strict zero-key combined fixture and add a
+native whole-scene roundtrip for default Stage Object, four 3D channels,
+offset, Plastic, ordinary FX, column time-remap, brightness, alpha and nested
+tint-red identities. They check zero keys, unchanged values and unchanged
+full-keyframe/effect-activation behavior. The direct curve test covers default
+omission, opt-in identity persistence, identity removal and session-only locks.
+These new assertions await execution in CI; no local builds or tests ran.
