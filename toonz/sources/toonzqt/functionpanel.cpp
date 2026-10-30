@@ -33,6 +33,7 @@
 
 #include <cmath>
 #include <limits>
+#include <utility>
 
 namespace {
 
@@ -1158,7 +1159,20 @@ void FunctionPanel::paintEvent(QPaintEvent *e) {
   painter.save();
   painter.setClipRect(m_valueAxisX, m_graphViewportY, width(), height());
   painter.setPen(QPen(palette().color(QPalette::Highlight), 2, Qt::DashLine));
-  for (const auto &entry : m_comparison) {
+  for (const auto &entry : m_comparison.frozen) {
+    QPainterPath path;
+    bool first = true;
+    for (const QPointF &sample : entry.samples) {
+      const QPointF point(frameToX(sample.x()),
+                          valueToY(entry.owner.getPointer(), sample.y()));
+      if (first) path.moveTo(point); else path.lineTo(point);
+      first = false;
+    }
+    painter.drawPath(path);
+  }
+  // Numeric-operation previews may still be live. Artist comparison captures
+  // always use the frozen samples above and never resolve a live dependency.
+  if (m_comparison.intervals == 0) for (const auto &entry : m_comparison.curves) {
     QPainterPath path;
     bool first = true;
     for (int x = m_valueAxisX; x < width(); x += 2) {
@@ -1703,6 +1717,51 @@ void FunctionPanel::refreshNormalization() {
     }
     if (std::isfinite(low)) m_normalization[curve] = QPointF(low, high > low ? high - low : 1.);
   }
+}
+
+bool FunctionPanel::freezeComparison(QString &error) {
+  error.clear();
+  if (m_comparison.curves.empty()) {
+    error = tr("Show at least one channel before capturing a comparison.");
+    return false;
+  }
+  ComparisonState captured = m_comparison;
+  captured.first = xToFrame(m_valueAxisX);
+  captured.last = xToFrame(width());
+  captured.intervals = std::max(64, std::min(4096, (width() - m_valueAxisX) / 2));
+  captured.frozen.clear();
+  if (!std::isfinite(captured.first) || !std::isfinite(captured.last) ||
+      captured.last <= captured.first ||
+      captured.curves.size() > 1000000u / unsigned(captured.intervals + 1)) {
+    error = tr("The visible comparison range is invalid or exceeds one million samples. Show fewer channels and capture again.");
+    return false;
+  }
+  try {
+    for (const auto &entry : captured.curves) {
+      FrozenComparisonCurve curve;
+      curve.owner = entry.first;
+      curve.samples.reserve(captured.intervals + 1);
+      for (int sample = 0; sample <= captured.intervals; ++sample) {
+        const double frame = sample == captured.intervals ? captured.last
+            : captured.first + (captured.last - captured.first) * sample / captured.intervals;
+        double value = 0;
+        std::string detail;
+        if (!entry.second->getValueChecked(frame, value, detail)) {
+          error = tr("A comparison channel could not be evaluated at frame %1: %2. The previous capture was preserved.")
+                      .arg(frame + 1, 0, 'g', 12).arg(QString::fromStdString(detail));
+          return false;
+        }
+        curve.samples.append(QPointF(frame, value));
+      }
+      captured.frozen.push_back(std::move(curve));
+    }
+  } catch (...) {
+    error = tr("A comparison channel could not be evaluated. The previous capture was preserved.");
+    return false;
+  }
+  m_comparison = std::move(captured);
+  update();
+  return true;
 }
 
 double FunctionPanel::snapFrameDelta(double delta, double anchor, bool bypass) const {
