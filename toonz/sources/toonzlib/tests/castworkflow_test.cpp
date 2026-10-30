@@ -32,6 +32,11 @@ void queryAndTags() {
   require(CastWorkflow::matches("HERO café", "run", "/drawings/run.pli", tags), "tag/name search did not match");
   require(CastWorkflow::matches("drawings RUN", "run", "/drawings/run.pli", {}), "path/name tokens did not match");
   require(!CastWorkflow::matches("run missing", "run", "/drawings/run.pli", {}), "search used OR instead of AND");
+  const auto words = CastWorkflow::queryWords(QString::fromUtf8("  HERO\t café \n"));
+  require(words.size() == 2 && CastWorkflow::matchesWords(words, "run", "/drawings/run.pli", tags),
+          "prepared search lost whitespace normalization or Unicode AND matching");
+  require(CastWorkflow::matchesWords(CastWorkflow::queryWords(" \t\n"), {}, {}, {}),
+          "empty prepared search excluded assets");
 }
 void occurrencePaths() {
   ToonzScene scene;
@@ -174,7 +179,10 @@ void ownershipRoundTrip(const QString &directory) {
     }
     source->setLibraryProvenance(origin);
     const QString identity = source->getCastId();
-    require(!identity.isEmpty() && !source->sourceExpectedOnDisk(), "new asset identity/save state is invalid");
+    const std::string typeContext = " (level type " + std::to_string(type) + ")";
+    require(!identity.isEmpty(), ("new asset has no Cast identity" + typeContext).c_str());
+    require(!source->sourceExpectedOnDisk(),
+            ("new asset incorrectly expects a saved source" + typeContext).c_str());
     for (bool expected : {false, true}) {
       source->setSourceExpectedOnDisk(expected);
       const TFilePath path(QDir(directory).filePath(QString("ownership-%1.xml").arg(type)));
@@ -182,9 +190,15 @@ void ownershipRoundTrip(const QString &directory) {
       TPersist *loaded = nullptr;
       { TIStream is(path); is >> loaded; }
       TXshLevelP restored = dynamic_cast<TXshLevel *>(loaded);
-      require(restored && restored->getCastId() == identity &&
-                  restored->getLibraryProvenance() == origin && restored->sourceExpectedOnDisk() == expected,
-              "native ownership metadata did not round-trip on every Cast level type");
+      require(restored, ("native ownership reload lost its level" + typeContext).c_str());
+      require(restored->getCastId() == identity,
+              ("native ownership reload changed Cast identity" + typeContext).c_str());
+      require(restored->getLibraryProvenance() == origin,
+              ("native ownership reload changed Library attribution" + typeContext).c_str());
+      require(restored->sourceExpectedOnDisk() == expected,
+              ("native ownership reload changed expected source state to " +
+               std::to_string(restored->sourceExpectedOnDisk()) + ", expected " +
+               std::to_string(expected) + typeContext).c_str());
       TXshSimpleLevel cloned;
       const QString cloneId = cloned.getCastId();
       cloned.copyCastMetadataFrom(restored.getPointer());

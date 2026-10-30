@@ -7,6 +7,7 @@
 
 #include <QSplitter>
 #include <QTreeWidget>
+#include <QJsonObject>
 
 #include "dvitemview.h"
 #include "tfilepath.h"
@@ -97,6 +98,7 @@ class CastBrowser final : public QSplitter, public DvItemListModel {
   std::vector<TXshLevelP> m_displayedLevels;
   std::map<TXshLevel *, QString> m_assetStatus;
   std::map<TXshLevel *, QChar> m_statusBadge;
+  QJsonObject m_refreshMeasurements;
   bool m_rebuilding = false;
   void rememberSelection();
   void restoreSelection();
@@ -110,6 +112,11 @@ public:
   ~CastBrowser();
 
   CastItems const &getCastItems() const { return *m_castItems; }
+
+  // Cumulative completed refresh work across native Cast instances. CI records
+  // differences around real edit signals; these are not paint-latency timings.
+  static QJsonObject refreshMeasurements();
+  QJsonObject instanceRefreshMeasurements() const { return m_refreshMeasurements; }
 
   void sortByDataModel(DataType dataType, bool isDiscendent) override;
 

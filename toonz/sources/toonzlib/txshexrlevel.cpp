@@ -48,7 +48,6 @@ TXshExrLevel::TXshExrLevel(const std::wstring &name) : TXshSimpleLevel(name) {
   setType(OVL_XSHLEVEL);
   setFloatChannelLevel(true);
   setIsReadOnly(true);
-  setSourceExpectedOnDisk(true);
 }
 
 //-----------------------------------------------------------------------------
@@ -163,7 +162,6 @@ void TXshExrLevel::loadData(TIStream &is) {
   setType(OVL_XSHLEVEL);
   setFloatChannelLevel(true);
   setIsReadOnly(true);
-  setSourceExpectedOnDisk(true);
 }
 
 //-----------------------------------------------------------------------------
@@ -232,6 +230,10 @@ void TXshExrLevel::load() {
   restoreCadmiumReferences(references);
   setFloatChannelLevel(true);
   setIsReadOnly(true);
+  const TFilePath path =
+      getScene() ? getScene()->decodeFilePath(getPath()) : getPath();
+  if (!path.isEmpty() && TSystem::doesExistFileOrLevel(path))
+    setSourceExpectedOnDisk(true);
 }
 
 //-----------------------------------------------------------------------------
@@ -253,6 +255,10 @@ void TXshExrLevel::load(const std::vector<TFrameId> &fIds) {
   restoreCadmiumReferences(references);
   setFloatChannelLevel(true);
   setIsReadOnly(true);
+  const TFilePath path =
+      getScene() ? getScene()->decodeFilePath(getPath()) : getPath();
+  if (!path.isEmpty() && TSystem::doesExistFileOrLevel(path))
+    setSourceExpectedOnDisk(true);
 }
 
 //-----------------------------------------------------------------------------

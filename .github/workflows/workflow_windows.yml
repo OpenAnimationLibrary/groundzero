@@ -426,7 +426,7 @@ jobs:
           set "QT_PLUGIN_PATH=%QT_PATH%\plugins"
           set "QT_QPA_PLATFORM_PLUGIN_PATH=%QT_PATH%\plugins\platforms"
           cd toonz\build
-          python ../../ci-scripts/run_regression_tests.py --config RelWithDebInfo --report ui-tests.xml --include-prefix ui_ ui_vector_opacity ui_vector_profilemanager ui_vector_gradientanimation ui_vector_svgopacity ui_vector_pliprofile ui_vector_morphworkflow ui_vector_contour_outline ui_functioncurveoperations ui_functionworkflow ui_commandpalette ui_widgetinspector ui_themeapplication ui_themeproperties ui_uitranslations ui_languagemanager ui_messagehistory ui_diagnosticswriter ui_diagnosticsservice > ui-tests-output.txt 2>&1
+          python ../../ci-scripts/run_regression_tests.py --config RelWithDebInfo --report ui-tests.xml --include-prefix ui_ ui_shellthumbnail ui_vector_opacity ui_vector_profilemanager ui_vector_gradientanimation ui_vector_svgopacity ui_vector_pliprofile ui_vector_morphworkflow ui_vector_contour_outline ui_functioncurveoperations ui_functionworkflow ui_commandpalette ui_widgetinspector ui_themeapplication ui_themeproperties ui_uitranslations ui_languagemanager ui_messagehistory ui_diagnosticswriter ui_diagnosticsservice > ui-tests-output.txt 2>&1
           set "UI_TEST_EXIT=%ERRORLEVEL%"
           type ui-tests-output.txt
           exit /b %UI_TEST_EXIT%
@@ -442,7 +442,7 @@ jobs:
           set "PATH=%CD%\toonz\build\Opentoonz;%QT_PATH%\bin;%PATH%"
           set "QT_PLUGIN_PATH=%QT_PATH%\plugins"
           set "QT_QPA_PLATFORM_PLUGIN_PATH=%QT_PATH%\plugins\platforms"
-          python ci-scripts/run_native_ui_test.py toonz/build/Opentoonz/OpenToonz.exe stuff --require-function-workflow --require-vector-workflows --output toonz/build/ui-integration-output.txt --windows-crash-debugger --debugger-symbols toonz/build/RelWithDebInfo --windows-mesa "%NATIVE_UI_MESA_RUNTIME%"
+          python ci-scripts/run_native_ui_test.py toonz/build/Opentoonz/OpenToonz.exe stuff --require-function-workflow --require-offline-gl-workflow --require-vector-workflows --output toonz/build/ui-integration-output.txt --windows-crash-debugger --debugger-symbols toonz/build/RelWithDebInfo --windows-mesa "%NATIVE_UI_MESA_RUNTIME%"
 
       - name: Report native application integration failure
         if: ${{ failure() && steps.ui_integration.outcome == 'failure' }}
@@ -465,6 +465,38 @@ jobs:
         timeout-minutes: 3
         shell: pwsh
         run: ./ci-scripts/debug_theme_test_windows.ps1 -BuildDirectory toonz/build -ThemeDirectory stuff/config/qss -TestOutput toonz/build/ui-tests-output.txt -QtDirectory $env:QT_PATH
+
+      - name: Diagnose Function Editor widget crash
+        if: ${{ failure() && steps.ui_tests.outcome == 'failure' }}
+        timeout-minutes: 3
+        shell: pwsh
+        run: python ci-scripts/debug_ui_test_windows.py --build toonz/build --qt "$env:QT_PATH" --test ui_functionworkflow --test-output toonz/build/ui-tests-output.txt --output toonz/build/function-workflow-debugger.txt
+
+      - name: Report Function Editor widget crash stack
+        if: ${{ failure() && hashFiles('toonz/build/function-workflow-debugger.txt') != '' }}
+        run: python ci-scripts/report_ui_tests.py toonz/build/function-workflow-debugger.txt "Function Editor crash stack"
+
+      - name: Diagnose vector profile widget crash
+        if: ${{ failure() && steps.ui_tests.outcome == 'failure' }}
+        timeout-minutes: 3
+        shell: pwsh
+        run: python ci-scripts/debug_ui_test_windows.py --build toonz/build --qt "$env:QT_PATH" --test ui_vector_profilemanager --test-output toonz/build/ui-tests-output.txt --output toonz/build/vector-profile-debugger.txt
+
+      - name: Report vector profile widget crash stack
+        if: ${{ failure() && hashFiles('toonz/build/vector-profile-debugger.txt') != '' }}
+        run: python ci-scripts/report_ui_tests.py toonz/build/vector-profile-debugger.txt "Vector profile crash stack"
+
+      - name: Retain native widget diagnostics
+        if: ${{ !cancelled() && steps.ui_tests.outcome == 'failure' }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: native-widget-crash-windows
+          path: |
+            toonz/build/ui-tests.xml
+            toonz/build/ui-tests-output.txt
+            toonz/build/function-workflow-debugger.txt
+            toonz/build/vector-profile-debugger.txt
+          if-no-files-found: ignore
 
       - name: Report Cadmium adapter failures
         if: ${{ failure() && steps.cadmium_tests.outcome == 'failure' }}
