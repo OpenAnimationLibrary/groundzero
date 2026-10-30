@@ -1181,9 +1181,10 @@ void FullColorBrushTool::commitStroke() {
     delete m_tileSaver;
     m_tileSaver = 0;
     if (m_nativeStrokeFailed && ras && sl && m_tileSet) {
+      TRect rollbackSample(0, 0, 0, 0);
       rollback.reset(
           new FullColorBrushUndo(m_tileSet, sl, frameId, m_nativeCreatedFrame,
-                                 ras->extract(TRect(0, 0, 0, 0))->clone(),
+                                 ras->extract(rollbackSample)->clone(),
                                  TPoint(), m_nativeCreatedLevel));
       m_tileSet = 0;
     }
