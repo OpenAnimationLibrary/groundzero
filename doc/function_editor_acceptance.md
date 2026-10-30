@@ -19,6 +19,26 @@ Windows descendant containment, original crash evidence, and native fixture
 teardown checkpoints. The two historical crash causes remain unproven; passing
 a separate diagnostic process is never substituted for the failed original.
 
+At `9b50bdd4cea040775ae84dd5e2583fb1c37295d0`, Linux main/package checks
+passed, but the original macOS process exited with SIGSEGV between the saved
+preferences and custom-title panel destruction checkpoints. Its initial OS
+report scan found no candidate files; the later LLDB replay passed separately.
+Source review identified unchecked title-bar parent casts during orphaned or
+base-widget teardown callbacks. Paint, Leave and mouse handlers now validate
+their live panel owner before using it; painting checks before creating a
+painter. This closes a concrete lifetime hazard without claiming the uncaptured
+original crash's cause.
+
+The native regression delivers actual orphan/non-panel and owner-destruction
+events, while retaining live float/dock painting, hover/Leave, close and
+maximize behavior. Exact scene, navigation, undo and working-room membership
+remain unchanged. Original-process reporting also retains an immutable PID/time
+identity for one final zero-wait OS report scan after existing diagnostics.
+Atomic report replacement preserves earlier evidence on partial-write or
+replacement failure. These additions need fresh exact-head CI; no original
+failure or existing acceptance assertion was waived.
+[Recorded macOS failure](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/41139721386).
+
 The implementation keeps native curve data and the SeExpr evaluator. The new
 operation layer plans immutable before/after snapshots, checks ranges, units,
 locks and stale previews, then applies one undo transaction. Dialog previews
