@@ -8,6 +8,7 @@
 #include <QSettings>
 #include <QTemporaryDir>
 #include <QTimer>
+#include <algorithm>
 #include <cstdlib>
 #include <functional>
 #include <iostream>
@@ -33,6 +34,39 @@ struct DialogStep {
   std::function<void(QDialog *)> action;
 };
 
+static QString describeDialog(QDialog *dialog) {
+  if (!dialog) return QStringLiteral("no active modal");
+  auto bounded = [](QString text, int limit) {
+    text.replace('\n', ' ');
+    text.replace('\r', ' ');
+    return text.left(limit);
+  };
+  QString result = QStringLiteral("class=%1 title=\"%2\" visible=%3")
+      .arg(bounded(QString::fromLatin1(dialog->metaObject()->className()), 80))
+      .arg(bounded(dialog->windowTitle(), 120)).arg(dialog->isVisible());
+  if (auto *message = qobject_cast<QMessageBox *>(dialog)) {
+    result += QStringLiteral(" icon=%1 text=\"%2\" informative=\"%3\"")
+        .arg(int(message->icon())).arg(bounded(message->text(), 320))
+        .arg(bounded(message->informativeText(), 160));
+    const auto buttons = message->buttons();
+    result += QStringLiteral(" buttons=%1").arg(buttons.size());
+    for (int i = 0; i < std::min(6, int(buttons.size())); ++i)
+      result += QStringLiteral(" [%1 role=%2 standard=%3 enabled=%4]")
+          .arg(bounded(buttons[i]->text(), 80))
+          .arg(int(message->buttonRole(buttons[i])))
+          .arg(int(message->standardButton(buttons[i])))
+          .arg(buttons[i]->isEnabled());
+  } else if (auto *file = qobject_cast<QFileDialog *>(dialog)) {
+    const auto selected = file->selectedFiles();
+    result += QStringLiteral(" acceptMode=%1 fileMode=%2 selected=%3")
+        .arg(int(file->acceptMode())).arg(int(file->fileMode()))
+        .arg(selected.size());
+    for (int i = 0; i < std::min(2, int(selected.size())); ++i)
+      result += QStringLiteral(" [%1]").arg(bounded(selected[i], 200));
+  }
+  return result;
+}
+
 // Queue every modal action on its receiver. A QFileDialog's accept() can itself
 // open the overwrite question; invoking it inside this repeating timer would
 // prevent the timer from driving that nested dialog on Qt 5.
@@ -42,18 +76,32 @@ class DialogScript {
   QPointer<QDialog> m_last;
   QTimer m_timer;
   QElapsedTimer m_elapsed;
+  const char *m_operation;
 public:
-  explicit DialogScript(std::vector<DialogStep> steps) : m_steps(std::move(steps)) {
+  explicit DialogScript(std::vector<DialogStep> steps, const char *operation = nullptr)
+      : m_steps(std::move(steps)), m_operation(operation) {
+    if (m_operation)
+      std::cout << "width-profile-manager: " << m_operation << std::endl;
     m_elapsed.start();
     QObject::connect(&m_timer, &QTimer::timeout, [&] {
       if (m_elapsed.elapsed() > 10000) {
         std::cerr << "width-profile-manager: timed out waiting for "
                   << (m_next < m_steps.size() ? m_steps[m_next].description
                                              : "the operation to return") << '\n';
+        std::cerr << "width-profile-manager: operation="
+                  << (m_operation ? m_operation : "unspecified")
+                  << " completed-steps=" << m_next << '/' << m_steps.size()
+                  << ' ' << describeDialog(qobject_cast<QDialog *>(
+                         QApplication::activeModalWidget())).toStdString() << '\n';
         std::exit(1);
       }
       auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
       if (!dialog || dialog == m_last || dialog->objectName() == "widthProfileManager") return;
+      if (m_operation || m_next >= m_steps.size())
+        std::cerr << "width-profile-manager: operation="
+                  << (m_operation ? m_operation : "unspecified")
+                  << " dialog=" << (m_next + 1) << '/' << m_steps.size()
+                  << ' ' << describeDialog(dialog).toStdString() << '\n';
       require(m_next < m_steps.size(), "unexpected additional native dialog");
       const auto step = m_steps[m_next];
       const bool expected = step.kind == DialogStep::Input ? bool(qobject_cast<QInputDialog *>(dialog))
@@ -61,7 +109,7 @@ public:
                                          : bool(qobject_cast<QMessageBox *>(dialog));
       if (!expected) {
         std::cerr << "width-profile-manager: expected " << step.description
-                  << ", observed " << dialog->windowTitle().toStdString() << '\n';
+                  << ", observed " << describeDialog(dialog).toStdString() << '\n';
         std::exit(1);
       }
       ++m_next;
@@ -144,8 +192,9 @@ static DialogStep messageStep(QMessageBox::StandardButton answer,
   }};
 }
 static void clickWithDialogs(WidthProfile::Manager &manager, const QString &label,
-                             std::vector<DialogStep> steps) {
-  DialogScript script(std::move(steps));
+                             std::vector<DialogStep> steps,
+                             const char *operation = nullptr) {
+  DialogScript script(std::move(steps), operation);
   button(manager, label)->click();
   script.finish();
 }
@@ -308,14 +357,18 @@ static void exportChecks(const QTemporaryDir &temp) {
   WidthProfile::Manager manager(path, {}, false);
   QTimer::singleShot(0, [&] {
     manager.findChild<QListWidget *>("widthProfileList")->setCurrentRow(1);
-    clickWithDialogs(manager, "Export…", {fileStep(canceledOutput, false)});
+    clickWithDialogs(manager, "Export…", {fileStep(canceledOutput, false)},
+                     "export: cancel new destination");
     require(!QFileInfo::exists(canceledOutput), "canceled export created a file");
-    clickWithDialogs(manager, "Export…", {fileStep(output), messageStep(QMessageBox::No), fileStep({}, false)});
+    clickWithDialogs(manager, "Export…", {fileStep(output), messageStep(QMessageBox::No), fileStep({}, false)},
+                     "export: decline overwrite then cancel chooser");
     require(bytes(output) == oldOutput, "declining overwrite changed the destination");
-    clickWithDialogs(manager, "Export…", {fileStep(output), messageStep(QMessageBox::Yes)});
+    clickWithDialogs(manager, "Export…", {fileStep(output), messageStep(QMessageBox::Yes)},
+                     "export: confirm overwrite");
     expectSaved(output, {selected});
     clickWithDialogs(manager, "Export…", {fileStep(path), messageStep(QMessageBox::Yes),
-        messageStep(QMessageBox::Ok, "Use Save Library")});
+        messageStep(QMessageBox::Ok, "Use Save Library")},
+                     "export: reject overwriting the manager library");
     require(bytes(path) == original, "Export overwrote the manager's own library");
 
     require(QDir().mkpath(blockedParent), "cannot prepare export-failure directory");
@@ -328,14 +381,15 @@ static void exportChecks(const QTemporaryDir &temp) {
       QFile blocker(QDir(blockedOutput).filePath("keep.txt"));
       require(blocker.open(QIODevice::WriteOnly), "cannot block the export parent");
       blocker.write("Unrelated existing data\n");
-    }), messageStep(QMessageBox::Ok)});
+    }), messageStep(QMessageBox::Ok)}, "export: accepted destination writer failure");
     require(manager.isVisible() && QFileInfo(blockedOutput).isDir() &&
                 bytes(QDir(blockedOutput).filePath("keep.txt")) == "Unrelated existing data\n",
             "failed export closed the manager or damaged existing data");
     expectDraft(manager, {first,selected});
     require(QFile::remove(QDir(blockedOutput).filePath("keep.txt")) && QDir().rmdir(blockedOutput),
             "cannot restore the export destination for retry");
-    clickWithDialogs(manager, "Export…", {fileStep(blockedOutput)});
+    clickWithDialogs(manager, "Export…", {fileStep(blockedOutput)},
+                     "export: retry restored destination");
     expectSaved(blockedOutput, {selected});
     require(bytes(path) == original, "export or export retry changed the library");
     manager.reject();
