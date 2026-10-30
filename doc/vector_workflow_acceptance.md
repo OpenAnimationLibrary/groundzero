@@ -63,6 +63,23 @@ its initial state, rather than comparing decoded samples to unsaved sine-based
 built-in values. Original byte, queued-action, drawing and history oracles stay
 strict. These fixture corrections still require fresh CI qualification.
 
+Linux qualification at `ed247a3255816f50c6531c4c2cc8e5f67f7dfd90`
+passed the standalone width manager and the complete native width-context
+workflow, including both exact post-save Undo/Redo cycles and alignment.
+The later actual Filmstrip Apply, three Undo/Redo cycles, and live-save
+invariance also passed, but the original full-double PLI reload comparison
+failed: control point `(11.902937812669542, 1.614491414073373, 2)` reopened as
+`(11.8984375, 1.609375, 2)`, with matching style, scalar opacity, envelope and
+palette color. The unchanged native reader calls `findRegions`, which truncates
+new non-point strokes to its 1/128 region grid after PLI's finer 1/16384
+absolute/delta coordinate encoding. This is existing edition behavior, not a
+new morph or opacity data-loss finding. The reload fixture now predicts both
+stages and native byte-width encoding for every control point, compares them
+exactly, and rejects unexpected topology or degenerate-handle repair. Live
+Apply/Undo geometry and persisted scalar/profile/style/palette checks remain
+exact. This corrected persistence oracle still awaits fresh CI execution;
+these component passes do not qualify the full branch.
+
 The existing `BUILD_UI_PORT_TESTS` gate builds the standalone tests and the real
 application fixtures. `nativeuiintegrationtest.cpp` calls the vector, fill,
 contour, brush, morph, opacity editor, renderer, native stroke editing and

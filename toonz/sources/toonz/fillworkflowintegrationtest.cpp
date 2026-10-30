@@ -126,6 +126,65 @@ void fillCheckpoint(const char *phase) {
   std::cout << "vector-fill-native: " << phase << std::endl;
 }
 
+// The caller's live Apply/Undo oracle stays exact. A native PLI reopen also
+// performs legacy region normalization: the writer stores XY at scale 16384
+// (absolute first point, rounded deltas thereafter), then the reader's
+// findRegions truncates new, non-point strokes to the 1/128 region grid.
+// Widths use rounded bytes relative to ceil(maximum width). Predict those
+// documented representations without invoking the production reader/region
+// code on the expected image. Opacity/profile/style fields remain untouched.
+TVectorImageP expectedMorphPliDrawing(const TVectorImageP &source) {
+  TVectorImageP expected = source->clone();
+  constexpr double storedScale = 16384., regionScale = 128.;
+  for (UINT index = 0; index < source->getStrokeCount(); ++index) {
+    const auto *stroke = source->getStroke(index);
+    auto *decoded = expected->getStroke(index);
+    const int count = stroke->getControlPointCount();
+    require(count >= 3 && count % 2 == 1, "morph PLI oracle requires quadratic controls");
+    double peak = 0.;
+    for (int i = 0; i < count; ++i) {
+      const auto p = stroke->getControlPoint(i);
+      require(std::isfinite(p.x) && std::isfinite(p.y) && std::isfinite(p.thick) &&
+                  std::abs(p.x * storedScale) < 2147483647. &&
+                  std::abs(p.y * storedScale) < 2147483647. && p.thick >= 0.,
+              "morph PLI oracle received an unrepresentable fixture control");
+      peak = std::max(peak, p.thick);
+    }
+    require(peak > 0. && peak <= 255., "morph PLI oracle width range changed");
+    const double widthUnit = std::ceil(peak) / 255.;
+    const auto bounds = stroke->getBBox();
+    const double pointThreshold = 2.1 * stroke->getThickPoint(0).thick;
+    require(bounds.getLx() > pointThreshold || bounds.getLy() > pointThreshold,
+            "morph PLI fixture unexpectedly uses the point-stroke region exception");
+    TPointD previousStored;
+    for (int i = 0; i < count; ++i) {
+      const auto p = stroke->getControlPoint(i);
+      TPointD stored;
+      if (!i) stored = TPointD(std::trunc(p.x * storedScale) / storedScale,
+                               std::trunc(p.y * storedScale) / storedScale);
+      else {
+        const auto prior = stroke->getControlPoint(i - 1);
+        const TPointD delta(std::round((p.x - prior.x) * storedScale) / storedScale,
+                            std::round((p.y - prior.y) * storedScale) / storedScale);
+        // The native reader repairs coincident quadratic handles. This
+        // deliberately nondegenerate fixture must not exercise that policy.
+        require(delta != TPointD(), "morph PLI fixture acquired a degenerate stored handle");
+        stored = previousStored + delta;
+      }
+      previousStored = stored;
+      const TThickPoint point(std::trunc(stored.x * regionScale) / regionScale,
+                               std::trunc(stored.y * regionScale) / regionScale,
+                               std::min(255., std::round(p.thick / widthUnit)) * widthUnit);
+      decoded->setControlPoint(i, point);
+      if (i && (i % 2 == 0)) {
+        const auto a = decoded->getControlPoint(i - 2), b = decoded->getControlPoint(i - 1);
+        require(a != b || b != point, "morph PLI fixture acquired a degenerate region quadratic");
+      }
+    }
+  }
+  return expected;
+}
+
 void morphCallerChecks() {
   auto *app = TApp::instance();
   QString resetError;
@@ -204,6 +263,7 @@ void morphCallerChecks() {
     for (UINT i = 0; i < live->getStrokeCount(); ++i) {
       const auto *a = live->getStroke(i), *b = expected->getStroke(i);
       if ((checkIds && a->getId() != b->getId()) || a->getStyle() != b->getStyle() ||
+          a->isSelfLoop() != b->isSelfLoop() ||
           a->getOpacity() != b->getOpacity() || a->getOpacityProfile() != b->getOpacityProfile())
         return false;
     }
@@ -459,7 +519,8 @@ void morphCallerChecks() {
   TVectorImageP reopened = reader->getFrameReader(TFrameId(2))->load();
   require(reopened, "morph caller reopen lost the generated middle drawing");
   reopened->setPalette(loaded->getPalette());
-  const bool drawingMatches = sameAuthoredDrawing(reopened, expectedMiddle, false);
+  const TVectorImageP persistedExpected = expectedMorphPliDrawing(expectedMiddle);
+  const bool drawingMatches = sameAuthoredDrawing(reopened, persistedExpected, false);
   const auto actualColor = reopened->getPalette()->getStyle(1)->getMainColor();
   const auto expectedColor = palette->getStyle(1)->getMainColor();
   if (!drawingMatches || actualColor != expectedColor) {
@@ -469,7 +530,7 @@ void morphCallerChecks() {
     std::ostringstream diagnostic;
     diagnostic << std::setprecision(17)
                << "vector-morph-caller: PLI reload geometry="
-               << geometryDifference(reopened, expectedMiddle)
+               << geometryDifference(reopened, persistedExpected)
                << " palette actual=" << int(actualColor.r) << ',' << int(actualColor.g)
                << ',' << int(actualColor.b) << ',' << int(actualColor.m)
                << " expected=" << int(expectedColor.r) << ',' << int(expectedColor.g)
@@ -492,6 +553,7 @@ void morphCallerChecks() {
   }
   require(drawingMatches && actualColor == expectedColor,
           "actual Filmstrip Apply did not persist authored geometry/opacity/palette");
+  std::cout << "vector-morph-caller: PLI reload matches exact stored/region geometry, width and authored opacity" << std::endl;
 
   // Closing an active strip must detach its non-owning selection before the
   // replacement strip makes a new selection current.
