@@ -44,6 +44,7 @@ QString sanitizedName(const QString &name) {
   // Keep room for numbering and extensions on all supported filesystems.
   result = result.left(120);
   while (result.endsWith('.') || result.endsWith(' ')) result.chop(1);
+  if (result.startsWith('.')) result.prepend('_');
   const QString base = result.section('.', 0, 0).toUpper();
   if (base == "CON" || base == "PRN" || base == "AUX" || base == "NUL" ||
       (base.size() == 4 && (base.startsWith("COM") || base.startsWith("LPT")) &&

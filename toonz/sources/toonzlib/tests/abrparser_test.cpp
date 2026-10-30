@@ -384,6 +384,15 @@ void testBudgetsAndVersions() {
   limits.maxNameUnits = 3;
   require(!AbrParser::parseAbr(named.data(), named.size(), r, error, limits) &&
               r.tips.empty(), "name allocation escaped budget");
+
+  Bytes withBehavior;
+  putBytes(withBehavior, section("desc", Bytes(4, 0)));
+  putBytes(withBehavior, section("patt", Bytes(4, 0)));
+  putBytes(withBehavior, sections);
+  require(parse(fileV6(2, withBehavior), r, error) && r.tips.size() == 2,
+          "behavioral metadata prevented tip extraction");
+  require(r.warnings.size() == 2,
+          "tip-only extraction hid unimported behavior");
 }
 
 void testTruncation() {

@@ -437,7 +437,17 @@ void parseV6(const unsigned char *data, size_t size, int subVersion,
       sawSamples = true;
       parseSamples(section, subVersion, out, budget);
     }
-    // 'desc' (names, spacing and dynamics), 'patt' and the others are skipped
+    // A decoded sample is not a decoded preset. Report the skipped behavioral
+    // data even if all tip pixels decoded successfully.
+    else if (std::memcmp(tag, "desc", 4) == 0) {
+      out.warnings.push_back(
+          "Preset descriptors were not imported: names, spacing and dynamics "
+          "are not applied to these sampled tips.");
+    } else if (std::memcmp(tag, "patt", 4) == 0) {
+      out.warnings.push_back(
+          "Pattern resources were not imported: textured brush behavior "
+          "is not reproduced by these sampled tips.");
+    }
     r.seek(section.end());
   }
   if (!sawSamples)
