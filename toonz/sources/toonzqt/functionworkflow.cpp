@@ -37,6 +37,7 @@
 #include <QPainterPath>
 #include <QPushButton>
 #include <QSettings>
+#include <QShortcut>
 #include <QSignalBlocker>
 #include <QSlider>
 #include <QToolButton>
@@ -121,10 +122,11 @@ void showEdit(FunctionViewer *viewer, FunctionPanel *graph) {
   QFormLayout form;
   auto *mode = new QComboBox(&dialog); mode->setObjectName("FunctionEditOperation");
   mode->addItems({tr("Set values"), tr("Offset values"), tr("Offset frames"), tr("Retime around pivot"),
-                  tr("Bake evaluated curves"), tr("Reduce linear keys"), tr("Insert breakdown"), tr("Quantize frame grid")});
+                  tr("Bake evaluated curves"), tr("Reduce linear keys"), tr("Insert breakdown"), tr("Quantize frame grid"),
+                  tr("Retime to target range")});
   auto *amount = number(&dialog, 0); amount->setObjectName("FunctionEditAmount");
-  auto *start = number(&dialog, first + 1, 1); start->setObjectName("FunctionEditFirstFrame");
-  auto *end = number(&dialog, last + 1, 1); end->setObjectName("FunctionEditLastFrame");
+  auto *start = number(&dialog, first + 1, 1, 1.e9, 9); start->setObjectName("FunctionEditFirstFrame");
+  auto *end = number(&dialog, last + 1, 1, 1.e9, 9); end->setObjectName("FunctionEditLastFrame");
   auto *step = number(&dialog, 1, .001, 1.e6); step->setObjectName("FunctionEditInterval");
   auto *pivot = number(&dialog, first + 1, 1); pivot->setObjectName("FunctionEditPivot");
   auto *scale = number(&dialog, 1, .000001, 1.e6);
@@ -138,9 +140,25 @@ void showEdit(FunctionViewer *viewer, FunctionPanel *graph) {
   form.addRow(tr("Sample / grid interval (frames)"), step); form.addRow(tr("Pivot frame"), pivot);
   form.addRow(tr("Time scale"), scale); form.addRow(tr("Breakdown / overshoot"), favour); form.addRow(QString(), favourLabel);
   layout.addLayout(&form);
+  auto *rangePreview = new QLabel(&dialog);
+  rangePreview->setObjectName("FunctionEditRangePreview");
+  rangePreview->setWordWrap(true); layout.addWidget(rangePreview);
+  auto updateRangePreview = [&]() {
+    double from = 1.e100, to = -from;
+    for (const auto &entry : selection) for (int index : entry.indices) {
+      if (index < 0 || index >= entry.curve->getKeyframeCount()) continue;
+      double frame = entry.curve->keyframeIndexToFrame(index);
+      from = std::min(from, frame); to = std::max(to, frame);
+    }
+    rangePreview->setText(from > to ? tr("No selected source frames are available.")
+        : tr("Selected source range: %1–%2. Target range: %3–%4. Relative timing across all selected channels is preserved.")
+              .arg(from + 1, 0, 'g', 17).arg(to + 1, 0, 'g', 17)
+              .arg(start->value(), 0, 'g', 17).arg(end->value(), 0, 'g', 17));
+  };
   auto *note = new QLabel(tr("Values use each channel's display units. Baking replaces driven segments explicitly and is exact at the chosen samples. Reduction preserves holds and driven boundaries. Dashed curves show a preview; nothing changes until Apply."));
   note->setWordWrap(true); layout.addWidget(note);
-  auto *status = new QLabel; status->setWordWrap(true); layout.addWidget(status);
+  auto *status = new QLabel; status->setObjectName("FunctionEditStatus");
+  status->setWordWrap(true); layout.addWidget(status);
   QDialogButtonBox buttons(QDialogButtonBox::Apply | QDialogButtonBox::Close);
   auto *previewButton = buttons.addButton(tr("Preview"), QDialogButtonBox::ActionRole);
   previewButton->setObjectName("FunctionEditPreview");
@@ -148,9 +166,15 @@ void showEdit(FunctionViewer *viewer, FunctionPanel *graph) {
   Ops::Plan plan;
   auto updateFields = [&]() {
     int op = mode->currentIndex();
-    amount->setEnabled(op <= 2 || op == 5); start->setEnabled(op >= 4 && op <= 6);
-    end->setEnabled(op == 4 || op == 5); step->setEnabled(op == 4 || op == 5 || op == 7);
+    amount->setEnabled(op <= 2 || op == 5); start->setEnabled((op >= 4 && op <= 6) || op == 8);
+    end->setEnabled(op == 4 || op == 5 || op == 8); step->setEnabled(op == 4 || op == 5 || op == 7);
     pivot->setEnabled(op == 3 || op == 7); scale->setEnabled(op == 3); favour->setEnabled(op == 6);
+    const QString firstLabel = op == 8 ? tr("Target first frame") : tr("First frame / breakdown frame");
+    const QString lastLabel = op == 8 ? tr("Target last frame") : tr("Last frame");
+    qobject_cast<QLabel *>(form.labelForField(start))->setText(firstLabel);
+    qobject_cast<QLabel *>(form.labelForField(end))->setText(lastLabel);
+    start->setAccessibleName(firstLabel); end->setAccessibleName(lastLabel);
+    rangePreview->setVisible(op == 8); updateRangePreview();
     status->setText(QString()); graph->setComparison({});
   };
   auto build = [&]() {
@@ -168,6 +192,7 @@ void showEdit(FunctionViewer *viewer, FunctionPanel *graph) {
     case 5: plan = Ops::planReduce(selection, range, amount->value(), cancel); break;
     case 6: plan = Ops::planBreakdown(selection, start->value() - 1, favour->value() * .01); break;
     case 7: plan = Ops::planQuantize(selection, pivot->value() - 1, step->value()); break;
+    case 8: plan = Ops::planRetimeToRange(selection, range.first, range.last); break;
     }
     preview(graph, plan);
     status->setText(plan.cancelled ? tr("Canceled; no keys changed.") : !plan.valid() ? plan.error
@@ -175,6 +200,11 @@ void showEdit(FunctionViewer *viewer, FunctionPanel *graph) {
             .arg(plan.changes.size()).arg(qulonglong(plan.sampleCount)).arg(qulonglong(plan.removedKeys)).arg(plan.maximumError));
   };
   QObject::connect(mode, QOverload<int>::of(&QComboBox::currentIndexChanged), &dialog, updateFields);
+  for (auto *field : {start, end})
+    QObject::connect(field, QOverload<double>::of(&QDoubleSpinBox::valueChanged), &dialog, [&]() {
+      updateRangePreview();
+      if (mode->currentIndex() == 8) { graph->setComparison({}); status->clear(); }
+    });
   QObject::connect(favour, &QSlider::valueChanged, &dialog, [&](int value) { favourLabel->setText(tr("%1%").arg(value)); });
   QObject::connect(favour, &QSlider::sliderReleased, &dialog, [&]() { if (mode->currentIndex() == 6) build(); });
   QObject::connect(previewButton, &QPushButton::clicked, &dialog, build);
@@ -185,12 +215,19 @@ void showEdit(FunctionViewer *viewer, FunctionPanel *graph) {
       selectedFrames[entry.curve.getPointer()].push_back(entry.curve->keyframeIndexToFrame(k));
     QString error;
     if (!Ops::apply(plan, tr("Edit Function Keys"), error)) { status->setText(error); return; }
+    if (plan.changes.empty()) {
+      status->setText(tr("No keys changed.")); graph->setComparison({}); return;
+    }
     auto *keys = viewer->getSelection(); keys->selectNone();
     // Preserve the exact original selection for repeated value/time edits.
     // Baking selects its explicit range; reduction keeps surviving selected keys.
     for (const auto &entry : selection) {
       auto *curve = entry.curve.getPointer();
-      if (mode->currentIndex() == 4) {
+      if (mode->currentIndex() == 8) {
+        // Range retiming preserves ordering/counts, so indices retain the exact
+        // original selection without a second floating-point reconstruction.
+        for (int index : entry.indices) keys->select(curve, index);
+      } else if (mode->currentIndex() == 4) {
         for (int k = 0; k < curve->getKeyframeCount(); ++k) {
           double frame = curve->keyframeIndexToFrame(k);
           if (frame >= start->value() - 1 && frame <= end->value() - 1) keys->select(curve, k);
@@ -207,6 +244,7 @@ void showEdit(FunctionViewer *viewer, FunctionPanel *graph) {
       }
     }
     selection = selected(keys);
+    updateRangePreview();
     viewer->emitCurveChanged(); graph->refreshNormalization(); graph->update();
     status->setText(tr("Applied as one undo step. Selection is preserved for the next operation."));
     graph->setComparison({});
@@ -215,55 +253,148 @@ void showEdit(FunctionViewer *viewer, FunctionPanel *graph) {
   updateFields(); dialog.exec(); restoreOverlay(viewer, graph, savedComparison, contextValid);
 }
 
-QString ensureId(TDoubleParam *curve) {
-  if (curve->getWorkspaceId().empty())
-    curve->setWorkspaceId(QUuid::createUuid().toString(QUuid::WithoutBraces).toStdString());
-  return QString::fromStdString(curve->getWorkspaceId());
-}
 void showSets(FunctionViewer *viewer, FunctionTreeView *tree) {
-  QDialog dialog(viewer); dialog.setWindowTitle(tr("Channel Sets")); QVBoxLayout layout(&dialog);
+  QDialog dialog(viewer); dialog.setObjectName("FunctionChannelSets");
+  dialog.setWindowTitle(tr("Channel Sets")); QVBoxLayout layout(&dialog);
   bool contextValid = true;
   auto rejectContext = [&]() { contextValid = false; dialog.reject(); };
   if (viewer->getSceneHandle()) QObject::connect(viewer->getSceneHandle(), &TSceneHandle::sceneSwitched, &dialog, rejectContext);
   if (viewer->getXsheetHandle()) QObject::connect(viewer->getXsheetHandle(), &TXsheetHandle::xsheetSwitched, &dialog, rejectContext);
   QObject::connect(viewer, &FunctionViewer::workflowContextChanged, &dialog, rejectContext);
-  auto *info = new QLabel(tr("Save the currently visible curves as a named set. Sets use identities stored with the scene, so renaming a channel does not break a set. Deleted or unavailable channels are reported, never matched by a similar name."));
+  QObject::connect(tree->model(), &QAbstractItemModel::modelAboutToBeReset, &dialog, rejectContext);
+  const QString help = tr("Save visible curves as a named set. Select a set to rename it; F2 edits its name and Enter applies the rename. Closing discards an unfinished name. Channel identities survive channel renaming and scene reload.");
+  auto *info = new QLabel(help); info->setObjectName("FunctionChannelSetStatus");
   info->setWordWrap(true); layout.addWidget(info);
-  QListWidget list; layout.addWidget(&list);
+  QListWidget list; list.setObjectName("FunctionChannelSetList");
+  list.setAccessibleName(tr("Saved channel sets")); layout.addWidget(&list);
+  QLineEdit name; name.setObjectName("FunctionChannelSetName");
+  name.setAccessibleName(tr("Selected channel set name"));
+  auto *nameLabel = new QLabel(tr("Set &name")); nameLabel->setBuddy(&name);
+  layout.addWidget(nameLabel); layout.addWidget(&name);
   QSettings settings(settingsPath(), QSettings::IniFormat);
   QJsonArray sets = QJsonDocument::fromJson(settings.value("channelSets").toByteArray()).array();
-  auto refresh = [&]() { list.clear(); for (const auto &v : sets) list.addItem(v.toObject()["name"].toString()); };
-  auto save = [&]() { settings.setValue("channelSets", QJsonDocument(sets).toJson(QJsonDocument::Compact)); settings.sync(); refresh(); };
   QDialogButtonBox buttons(QDialogButtonBox::Close);
-  auto *capture = buttons.addButton(tr("Save visible channels…"), QDialogButtonBox::ActionRole);
-  auto *restore = buttons.addButton(tr("Show set"), QDialogButtonBox::ActionRole);
-  auto *remove = buttons.addButton(tr("Delete set"), QDialogButtonBox::ActionRole); layout.addWidget(&buttons);
+  auto *capture = buttons.addButton(tr("&Save visible channels…"), QDialogButtonBox::ActionRole);
+  auto *restore = buttons.addButton(tr("S&how set"), QDialogButtonBox::ActionRole);
+  auto *rename = buttons.addButton(tr("&Rename set"), QDialogButtonBox::ActionRole);
+  auto *remove = buttons.addButton(tr("&Delete set"), QDialogButtonBox::ActionRole);
+  capture->setObjectName("FunctionChannelSetSave"); restore->setObjectName("FunctionChannelSetShow");
+  rename->setObjectName("FunctionChannelSetRename"); remove->setObjectName("FunctionChannelSetDelete");
+  for (auto *button : {capture, restore, rename, remove, buttons.button(QDialogButtonBox::Close)}) button->setAutoDefault(false);
+  layout.addWidget(&buttons);
+  auto normalizedName = [](const QString &text) { return text.trimmed().normalized(QString::NormalizationForm_C).toCaseFolded(); };
+  auto nameError = [&](const QString &text, int excludedRow) {
+    if (text.trimmed().isEmpty()) return tr("Enter a nonempty set name.");
+    for (int row = 0; row < sets.size(); ++row)
+      if (row != excludedRow && normalizedName(sets[row].toObject()["name"].toString()) == normalizedName(text))
+        return tr("A set already has this name. Choose a different name.");
+    return QString();
+  };
+  auto updateRename = [&]() {
+    const int row = list.currentRow();
+    const bool selected = row >= 0 && row < sets.size();
+    name.setEnabled(selected); restore->setEnabled(selected); remove->setEnabled(selected);
+    if (!selected) { rename->setEnabled(false); info->setText(help); return; }
+    const QString current = sets[row].toObject()["name"].toString();
+    const bool unchanged = name.text().trimmed() == current;
+    const QString error = unchanged ? QString() : nameError(name.text(), row);
+    rename->setEnabled(contextValid && !unchanged && error.isEmpty());
+    info->setText(error.isEmpty() ? help : error);
+  };
+  auto refresh = [&](int selectedRow) {
+    list.clear();
+    for (const auto &value : sets) list.addItem(value.toObject()["name"].toString());
+    if (!sets.isEmpty()) list.setCurrentRow(std::max(0, std::min(selectedRow, int(sets.size()) - 1)));
+    else { name.clear(); updateRename(); }
+  };
+  auto save = [&](const QJsonArray &updated, int selectedRow) {
+    QSettings writer(settingsPath(), QSettings::IniFormat);
+    const QVariant previous = writer.value("channelSets");
+    writer.setValue("channelSets", QJsonDocument(updated).toJson(QJsonDocument::Compact)); writer.sync();
+    if (writer.status() != QSettings::NoError) {
+      if (previous.isValid()) writer.setValue("channelSets", previous);
+      else writer.remove("channelSets");
+      info->setText(tr("The channel sets could not be saved. Check that your preferences folder is writable."));
+      return false;
+    }
+    sets = updated; refresh(selectedRow); return true;
+  };
+  QObject::connect(&list, &QListWidget::currentRowChanged, &dialog, [&](int row) {
+    name.setText(row >= 0 && row < sets.size() ? sets[row].toObject()["name"].toString() : QString());
+    updateRename();
+  });
+  QObject::connect(&name, &QLineEdit::textChanged, &dialog, updateRename);
+  auto renameSelected = [&]() {
+    const int row = list.currentRow();
+    if (!contextValid || row < 0 || row >= sets.size()) return;
+    const QString requested = name.text().trimmed();
+    QJsonObject entry = sets[row].toObject();
+    if (requested == entry["name"].toString()) return;
+    const QString error = nameError(requested, row);
+    if (!error.isEmpty()) { info->setText(error); return; }
+    entry["name"] = requested;
+    QJsonArray updated = sets; updated[row] = entry;
+    if (save(updated, row)) { name.setFocus(); name.selectAll(); }
+  };
+  QObject::connect(rename, &QPushButton::clicked, &dialog, renameSelected);
+  QObject::connect(&name, &QLineEdit::returnPressed, &dialog, renameSelected);
+  auto *editShortcut = new QShortcut(QKeySequence(Qt::Key_F2), &dialog);
+  editShortcut->setContext(Qt::WidgetWithChildrenShortcut);
+  QObject::connect(editShortcut, &QShortcut::activated, &dialog, [&]() {
+    if (name.isEnabled()) { name.setFocus(); name.selectAll(); }
+  });
   QObject::connect(capture, &QPushButton::clicked, &dialog, [&]() {
-    bool ok; QString name = QInputDialog::getText(&dialog, tr("Channel Set"), tr("Name"), QLineEdit::Normal, QString(), &ok).trimmed();
-    if (!ok || name.isEmpty() || !contextValid) return;
-    for (const auto &value : sets) if (value.toObject()["name"].toString() == name) { info->setText(tr("A set already has this name. Choose a different name or delete the previous set.")); return; }
+    bool ok;
+    QString requested = QInputDialog::getText(&dialog, tr("Channel Set"), tr("Name"), QLineEdit::Normal, QString(), &ok).trimmed();
+    if (!ok || !contextValid) return;
+    const QString error = nameError(requested, -1);
+    if (!error.isEmpty()) { info->setText(error); return; }
     QJsonArray ids;
-    for (auto *channel : tree->channels()) if (channel->isActive()) ids.append(ensureId(channel->getParam()));
+    std::vector<std::pair<TDoubleParamP, std::string>> newIdentities;
+    std::map<TDoubleParam *, QString> preparedIdentities;
+    for (auto *channel : tree->channels()) if (channel->isActive()) {
+      auto *curve = channel->getParam();
+      QString id = QString::fromStdString(curve->getWorkspaceId());
+      if (id.isEmpty()) {
+        auto existing = preparedIdentities.find(curve);
+        if (existing != preparedIdentities.end()) id = existing->second;
+        else {
+          id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+          preparedIdentities.emplace(curve, id);
+          newIdentities.emplace_back(curve, id.toStdString());
+        }
+      }
+      ids.append(id);
+    }
     if (ids.isEmpty()) { info->setText(tr("Show some curves before saving a set.")); return; }
-    sets.append(QJsonObject{{"name", name}, {"ids", ids}}); save();
-    if (viewer->getSceneHandle()) viewer->getSceneHandle()->setDirtyFlag(true);
+    QJsonArray updated = sets; updated.append(QJsonObject{{"name", requested}, {"ids", ids}});
+    if (save(updated, int(updated.size()) - 1)) {
+      for (const auto &entry : newIdentities) entry.first->setWorkspaceId(entry.second);
+      if (!newIdentities.empty() && viewer->getSceneHandle()) viewer->getSceneHandle()->setDirtyFlag(true);
+    }
   });
   QObject::connect(restore, &QPushButton::clicked, &dialog, [&]() {
-    int row = list.currentRow(); if (row < 0) return;
-    QSet<QString> ids; for (auto v : sets[row].toObject()["ids"].toArray()) ids.insert(v.toString());
-    QMap<QString, int> occurrences; for (auto *c : tree->channels()) ++occurrences[QString::fromStdString(c->getParam()->getWorkspaceId())];
+    const int row = list.currentRow(); if (!contextValid || row < 0) return;
+    QSet<QString> ids; for (auto value : sets[row].toObject()["ids"].toArray()) ids.insert(value.toString());
+    QMap<QString, int> occurrences; for (auto *channel : tree->channels()) ++occurrences[QString::fromStdString(channel->getParam()->getWorkspaceId())];
     for (auto id : ids) if (occurrences[id] > 1) { info->setText(tr("Duplicate channel identity; the set was not applied.")); return; }
     int found = 0;
     viewer->getSelection()->selectNone();
-    for (auto *c : tree->channels()) {
-      bool included = ids.contains(QString::fromStdString(c->getParam()->getWorkspaceId()));
-      c->setIsActive(included); if (included) ++found;
+    for (auto *channel : tree->channels()) {
+      const bool included = ids.contains(QString::fromStdString(channel->getParam()->getWorkspaceId()));
+      channel->setIsActive(included); if (included) ++found;
     }
     info->setText(tr("Showing %1 channels. %2 saved channels are unavailable in this scene.").arg(found).arg(ids.size() - found));
   });
-  QObject::connect(remove, &QPushButton::clicked, &dialog, [&]() { int row = list.currentRow(); if (row >= 0) { sets.removeAt(row); save(); } });
+  QObject::connect(remove, &QPushButton::clicked, &dialog, [&]() {
+    const int row = list.currentRow(); if (!contextValid || row < 0) return;
+    QJsonArray updated = sets; updated.removeAt(row); save(updated, row);
+  });
   QObject::connect(&buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
-  refresh(); dialog.exec();
+  QWidget::setTabOrder(&list, &name); QWidget::setTabOrder(&name, rename);
+  QWidget::setTabOrder(rename, restore); QWidget::setTabOrder(restore, capture);
+  QWidget::setTabOrder(capture, remove); QWidget::setTabOrder(remove, buttons.button(QDialogButtonBox::Close));
+  refresh(0); list.setFocus(); dialog.exec();
 }
 
 void showDependencies(FunctionViewer *viewer, FunctionTreeView *tree) {
@@ -453,7 +584,7 @@ QWidget *createFunctionWorkflowControls(FunctionViewer *viewer, FunctionTreeView
   QObject::connect(edit, &QToolButton::clicked, widget, [=]() { showEdit(viewer, graph); });
   auto *fit = button(tr("Fit Selected")); QObject::connect(fit, &QToolButton::clicked, graph, &FunctionPanel::fitSelectedPoints);
   auto *more = button(tr("Tools")); more->setPopupMode(QToolButton::InstantPopup); auto *menu = new QMenu(more); more->setMenu(menu);
-  menu->addAction(tr("Channel Sets…"), widget, [=]() { showSets(viewer, tree); });
+  menu->addAction(tr("Channel Sets…"), widget, [=]() { showSets(viewer, tree); })->setObjectName("FunctionChannelSetsAction");
   menu->addAction(tr("Motion Presets…"), widget, [=]() { showPresets(viewer, graph); });
   menu->addAction(tr("Dependencies…"), widget, [=]() { showDependencies(viewer, tree); })->setObjectName("FunctionDependenciesAction");
   auto *normalize = menu->addAction(tr("Normalize curve display")); normalize->setCheckable(true);

@@ -13,6 +13,7 @@
 #include "toonz/doubleparamcmd.h"
 #include "toonz/tstageobjecttree.h"
 #include "toonz/toonzscene.h"
+#include "toonz/toonzfolders.h"
 #include "toonz/tscenehandle.h"
 #include "toonz/sceneproperties.h"
 #include "toonz/txsheet.h"
@@ -41,16 +42,23 @@
 #include <QDoubleSpinBox>
 #include <QEventLoop>
 #include <QImage>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QLabel>
+#include <QLineEdit>
 #include <QListWidget>
 #include <QMainWindow>
 #include <QMenu>
 #include <QMouseEvent>
 #include <QPushButton>
+#include <QSettings>
 #include <QSlider>
 #include <QTemporaryDir>
 #include <QTimer>
 #include <QToolButton>
 #include <cmath>
+#include <algorithm>
 #include <functional>
 #include <sstream>
 #include <stdexcept>
@@ -149,6 +157,151 @@ void dependencies(FunctionViewer *viewer, FunctionTreeView *tree, TDoubleParam *
     list->itemDoubleClicked(list->item(0));
     require(viewer->getCurrentChannelCurve() == source, "Dependency navigation selected a different channel");
   }, [&]() { action->trigger(); });
+}
+void renameNativeSet(FunctionViewer *viewer, FunctionTreeView *tree,
+                     const std::vector<TDoubleParam *> &channels) {
+  checkpoint("renaming saved channel set with native scene identities");
+  const QString path = (ToonzFolder::getMyModuleDir() + TFilePath("function-editor.ini")).getQString();
+  QSettings settings(path, QSettings::IniFormat);
+  const QVariant previous = settings.value("channelSets");
+  struct RestoreSettings {
+    QString path; QVariant previous;
+    ~RestoreSettings() {
+      QSettings restore(path, QSettings::IniFormat);
+      if (previous.isValid()) restore.setValue("channelSets", previous);
+      else restore.remove("channelSets");
+      restore.sync();
+    }
+  } restore{path, previous};
+  QJsonArray ids;
+  for (auto *curve : channels) {
+    require(!curve->getWorkspaceId().empty(), "Native set fixture has an unidentified channel");
+    ids.append(QString::fromStdString(curve->getWorkspaceId()));
+  }
+  QJsonArray expected{QJsonObject{{"name", "Native rig channels"}, {"ids", ids}, {"extension", "preserved"}}};
+  settings.setValue("channelSets", QJsonDocument(expected).toJson(QJsonDocument::Compact)); settings.sync();
+  require(settings.status() == QSettings::NoError, "Cannot prepare native saved set");
+  auto *action = viewer->findChild<QAction *>("FunctionChannelSetsAction");
+  require(action, "Native Channel Sets action missing");
+  auto *sceneHandle = TApp::instance()->getCurrentScene();
+  auto *undo = TUndoManager::manager();
+  const int history = undo->getHistoryCount(), historyIndex = undo->getCurrentHistoryIndex();
+  sceneHandle->setDirtyFlag(false);
+  modal(viewer, "FunctionChannelSets", [&](QDialog *dialog) {
+    auto *name = dialog->findChild<QLineEdit *>("FunctionChannelSetName");
+    auto *rename = dialog->findChild<QPushButton *>("FunctionChannelSetRename");
+    require(name && rename, "Native saved-set rename controls missing");
+    name->setText("Native rig timing"); rename->click();
+    QJsonObject entry = expected[0].toObject(); entry["name"] = "Native rig timing"; expected[0] = entry;
+    QSettings observed(path, QSettings::IniFormat); observed.sync();
+    require(QJsonDocument::fromJson(observed.value("channelSets").toByteArray()).array() == expected,
+            "Native rename changed channel identities or failed to persist");
+    name->setText("Uncommitted native name");
+  }, [&]() { action->trigger(); });
+  QSettings reopened(path, QSettings::IniFormat); reopened.sync();
+  require(QJsonDocument::fromJson(reopened.value("channelSets").toByteArray()).array() == expected &&
+              !sceneHandle->getDirtyFlag() && undo->getHistoryCount() == history &&
+              undo->getCurrentHistoryIndex() == historyIndex,
+          "Native rename cancel changed scene/history or committed the unfinished name");
+  modal(viewer, "FunctionChannelSets", [&](QDialog *dialog) {
+    auto *list = dialog->findChild<QListWidget *>("FunctionChannelSetList");
+    auto *show = dialog->findChild<QPushButton *>("FunctionChannelSetShow");
+    require(list && show && list->count() == 1 && list->item(0)->text() == "Native rig timing",
+            "Renamed native channel set did not reopen");
+    show->click();
+    for (auto *channel : tree->channels()) {
+      bool wanted = std::find(channels.begin(), channels.end(), channel->getParam()) != channels.end();
+      require(channel->isActive() == wanted, "Renamed set recalled the wrong native channel membership");
+    }
+  }, [&]() { action->trigger(); });
+}
+void retimeNativeRange(FunctionViewer *viewer, ToonzScene *scene,
+                       const std::vector<TDoubleParam *> &channels,
+                       const QTemporaryDir &directory) {
+  checkpoint("retiming native multi-channel selection to a fractional target range");
+  auto *selection = viewer->getSelection(); selection->selectNone();
+  std::vector<TDoubleParamP> before;
+  for (auto *curve : channels) {
+    require(curve->getKeyframeCount() == 3, "Native range fixture expected three keys per channel");
+    before.emplace_back(new TDoubleParam(*curve));
+    for (int k = 0; k < curve->getKeyframeCount(); ++k) selection->select(curve, k);
+  }
+  auto *undo = TUndoManager::manager(); undo->reset();
+  const double targetFirst = 1.123456789, targetMiddle = 16.555555555,
+               targetLast = 31.987654321;
+  const auto exactFrame = [](double actual, double expected) {
+    if (!std::isfinite(actual) || std::abs(actual - expected) >= 1.e-11) {
+      std::ostringstream message; message.precision(17);
+      message << "Fractional retime frame: expected " << expected << ", observed " << actual;
+      throw std::runtime_error(message.str());
+    }
+  };
+  auto *edit = viewer->findChild<QToolButton *>("FunctionEditKeys");
+  require(edit, "Native target-range action missing");
+  modal(viewer, "FunctionKeyEditor", [&](QDialog *dialog) {
+    auto *mode = dialog->findChild<QComboBox *>("FunctionEditOperation");
+    auto *first = dialog->findChild<QDoubleSpinBox *>("FunctionEditFirstFrame");
+    auto *last = dialog->findChild<QDoubleSpinBox *>("FunctionEditLastFrame");
+    auto *preview = dialog->findChild<QPushButton *>("FunctionEditPreview");
+    auto *buttons = dialog->findChild<QDialogButtonBox *>();
+    require(mode && first && last && preview && buttons, "Native target-range controls missing");
+    mode->setCurrentIndex(8); first->setValue(targetFirst + 1); last->setValue(targetLast + 1);
+    preview->click();
+    for (size_t i = 0; i < channels.size(); ++i)
+      require(Ops::matchesSnapshot(channels[i], before[i].getPointer()), "Native target preview changed curve data");
+    require(undo->getHistoryCount() == 0, "Native target preview changed undo history");
+    buttons->button(QDialogButtonBox::Apply)->click();
+    for (auto *curve : channels) {
+      exactFrame(curve->keyframeIndexToFrame(0), targetFirst);
+      exactFrame(curve->keyframeIndexToFrame(1), targetMiddle);
+      exactFrame(curve->keyframeIndexToFrame(2), targetLast);
+    }
+    require(undo->getHistoryCount() == 1 && selection->getSelectedKeyframeCount() == 9,
+            "Native target range lost selection or created multiple undo steps");
+    buttons->button(QDialogButtonBox::Apply)->click();
+    require(undo->getHistoryCount() == 1, "Native repeated target range created an extra undo step");
+    first->setValue(4); last->setValue(51); preview->click();
+  }, [&]() { edit->click(); });
+  for (auto *curve : channels) exactFrame(curve->keyframeIndexToFrame(0), targetFirst);
+  for (auto *curve : channels) curve->setEditorLocked(true);
+  require(undo->undo(), "Native target range has no undo");
+  for (size_t i = 0; i < channels.size(); ++i)
+    require(Ops::matchesSnapshot(channels[i], before[i].getPointer()) && channels[i]->isEditorLocked(),
+            "Native target-range undo lost original data or session locks");
+  require(undo->redo(), "Native target range has no redo");
+  for (auto *curve : channels) {
+    require(curve->isEditorLocked(), "Native target-range redo cleared a session lock");
+    exactFrame(curve->keyframeIndexToFrame(2), targetLast);
+  }
+  const TFilePath path(directory.filePath("function-target-range.tnz")); scene->saveCopy(path);
+  ToonzScene loaded; loaded.loadTnzFile(path);
+  auto *object = loaded.getXsheet()->getStageObject(TStageObjectId::ColumnId(0));
+  auto deformation = object->getPlasticSkeletonDeformation();
+  require(deformation && deformation->vertexDeformation("FunctionTip"), "Retime scene lost its Plastic rig");
+  const std::vector<TDoubleParam *> reopened{
+      object->getParam(TStageObject::T_X), object->getOffsetParam(0, TStageObject::T_X),
+      deformation->vertexDeformation("FunctionTip")->m_params[SkVD::ANGLE].getPointer()};
+  for (size_t i = 0; i < reopened.size(); ++i) {
+    require(reopened[i] && reopened[i]->getKeyframeCount() == 3 && !reopened[i]->isEditorLocked() &&
+                reopened[i]->getWorkspaceId() == channels[i]->getWorkspaceId(),
+            "Native retime scene lost channel identity/count or persisted session locks");
+    exactFrame(reopened[i]->keyframeIndexToFrame(0), targetFirst);
+    exactFrame(reopened[i]->keyframeIndexToFrame(1), targetMiddle);
+    exactFrame(reopened[i]->keyframeIndexToFrame(2), targetLast);
+    for (int k = 0; k < 3; ++k) {
+      const auto actual = reopened[i]->getKeyframe(k), expected = channels[i]->getKeyframe(k);
+      require(actual.m_frame == expected.m_frame && actual.m_value == expected.m_value &&
+                  actual.m_type == expected.m_type && actual.m_prevType == expected.m_prevType &&
+                  actual.m_step == expected.m_step && actual.m_speedIn == expected.m_speedIn &&
+                  actual.m_speedOut == expected.m_speedOut && actual.m_linkedHandles == expected.m_linkedHandles &&
+                  actual.m_expressionText == expected.m_expressionText,
+              "Native retime roundtrip changed authored frame/value/handles/interpolation");
+    }
+  }
+  require(undo->undo(), "Native retime cleanup could not restore original curves");
+  for (auto *curve : channels) curve->setEditorLocked(false);
+  undo->reset();
+  checkpoint("native target-range precision, cancel, locked undo/redo and scene reload passed");
 }
 }
 
@@ -354,8 +507,10 @@ bool runFunctionWorkflowIntegrationTest(QMainWindow *, QString *error) {
     auto *loadedSeexpr = reloaded.getXsheet()->getStageObject(TStageObjectId::ColumnId(2))->getParam(TStageObject::T_X);
     require(loadedNative->getKeyframe(0).m_expressionText == nativeText && loadedSeexpr->getKeyframe(0).m_expressionText == seexprText, "Native workflow changed formula source while saving");
     requireNear(loadedNative->getValue(7), nativeValue); requireNear(loadedSeexpr->getValue(7), seexprValue);
+    renameNativeSet(viewer, tree, {source, offset, angle});
+    retimeNativeRange(viewer, scene, {source, offset, angle}, directory);
     app->getCurrentScene()->setDirtyFlag(false); TUndoManager::manager()->reset(); viewer->hide();
-    std::cout << "function-workflow-native: PASS (Plastic, offset, native/SeExpr bindings, preview/undo, mouse routes, scene roundtrip)\n";
+    std::cout << "function-workflow-native: PASS (Plastic, offset, native/SeExpr bindings, preview/undo, mouse routes, saved-set rename, target-range retiming, scene roundtrip)\n";
     return true;
   } catch (const std::exception &problem) { if (error) *error = QString::fromUtf8(problem.what()); }
   catch (...) { if (error) *error = "Unexpected native Function Editor exception"; }

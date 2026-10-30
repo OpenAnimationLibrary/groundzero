@@ -8,6 +8,7 @@
 #include "toonz/doubleparamcmd.h"
 #include "toonz/tscenehandle.h"
 #include "toonz/txsheethandle.h"
+#include "toonz/toonzfolders.h"
 #include "tenv.h"
 #include "tthread.h"
 #include "tfunctorinvoker.h"
@@ -20,23 +21,32 @@
 #include <QDoubleSpinBox>
 #include <QElapsedTimer>
 #include <QImage>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QKeyEvent>
+#include <QLabel>
 #include <QLineEdit>
+#include <QListWidget>
 #include <QMenu>
+#include <QProcess>
 #include <QPushButton>
 #include <QPointer>
+#include <QSettings>
 #include <QTemporaryDir>
 #include <QTimer>
 #include <QToolButton>
 #include <cmath>
 #include <algorithm>
 #include <iostream>
+#include <functional>
 #include <memory>
 #include <new>
 #include <stdexcept>
 #include <type_traits>
 
 namespace {
+namespace Ops = FunctionCurveOperations;
 void checkpoint(const char *message) {
   // Flush before entering native callbacks so a fatal signal retains the last
   // completed phase in CTest's report on every supported platform.
@@ -77,6 +87,193 @@ struct Fixture {
     checkpoint("generic channels activated");
   }
 };
+void key(QWidget *widget, int code, Qt::KeyboardModifiers modifiers = {}) {
+  QKeyEvent press(QEvent::KeyPress, code, modifiers);
+  QKeyEvent release(QEvent::KeyRelease, code, modifiers);
+  QApplication::sendEvent(widget, &press); QApplication::sendEvent(widget, &release);
+}
+void inspectModal(FunctionViewer *viewer, const char *name,
+                  const std::function<void(QDialog *)> &inspect,
+                  const std::function<void()> &open) {
+  QObject delivery;
+  QTimer deadline;
+  deadline.setSingleShot(true);
+  QObject::connect(&deadline, &QTimer::timeout, &delivery, [name]() {
+    std::cerr << "function-workflow: expected modal " << name << std::endl;
+    if (auto *modal = QApplication::activeModalWidget())
+      std::cerr << "function-workflow: blocked modal " << modal->objectName().toStdString()
+                << " (" << modal->windowTitle().toStdString() << ")" << std::endl;
+    qFatal("Function workflow modal exceeded its 15-second deadline");
+  });
+  bool visited = false; QString failure;
+  QTimer::singleShot(0, &delivery, [&]() {
+    QPointer<QDialog> dialog = viewer->findChild<QDialog *>(name);
+    try { require(dialog, "expected Function Editor modal is missing"); visited = true; inspect(dialog); }
+    catch (const std::exception &problem) { failure = QString::fromUtf8(problem.what()); }
+    if (dialog) dialog->reject();
+  });
+  deadline.start(15000); open(); deadline.stop();
+  require(visited, "Function Editor modal callback did not run");
+  if (!failure.isEmpty()) throw std::runtime_error(failure.toStdString());
+}
+QString channelSetPath() {
+  return (ToonzFolder::getMyModuleDir() + TFilePath("function-editor.ini")).getQString();
+}
+QJsonArray savedSets() {
+  QSettings settings(channelSetPath(), QSettings::IniFormat); settings.sync();
+  require(settings.status() == QSettings::NoError, "channel-set settings read failed");
+  return QJsonDocument::fromJson(settings.value("channelSets").toByteArray()).array();
+}
+void persistSets(const QJsonArray &sets) {
+  QSettings settings(channelSetPath(), QSettings::IniFormat);
+  settings.setValue("channelSets", QJsonDocument(sets).toJson(QJsonDocument::Compact)); settings.sync();
+  require(settings.status() == QSettings::NoError, "channel-set fixture could not be written");
+}
+void savedSetRename() {
+  TSceneHandle scene; TXsheetHandle xsheet;
+  Fixture f; f.viewer.setSceneHandle(&scene); f.viewer.setXsheetHandle(&xsheet);
+  f.a->setWorkspaceId("set-fixture-arm"); f.b->setWorkspaceId("set-fixture-head");
+  QJsonArray expected{
+      QJsonObject{{"name", "Body"}, {"ids", QJsonArray{"set-fixture-arm", "missing-channel"}}, {"extra", QJsonObject{{"preserve", 7}}}},
+      QJsonObject{{"name", "Face"}, {"ids", QJsonArray{"set-fixture-head"}}}};
+  persistSets(expected);
+  auto *action = f.viewer.findChild<QAction *>("FunctionChannelSetsAction");
+  require(action, "Channel Sets action is missing");
+  const int history = TUndoManager::manager()->getHistoryCount();
+  const int historyIndex = TUndoManager::manager()->getCurrentHistoryIndex();
+  scene.setDirtyFlag(false);
+  inspectModal(&f.viewer, "FunctionChannelSets", [&](QDialog *dialog) {
+    auto *list = dialog->findChild<QListWidget *>("FunctionChannelSetList");
+    auto *name = dialog->findChild<QLineEdit *>("FunctionChannelSetName");
+    auto *rename = dialog->findChild<QPushButton *>("FunctionChannelSetRename");
+    require(list && name && rename && list->count() == 2, "Channel Sets rename controls are missing");
+    list->setCurrentRow(0); list->setFocus(); QApplication::processEvents();
+    key(list, Qt::Key_Down); require(list->currentRow() == 1, "saved-set list cannot move down with the keyboard");
+    key(list, Qt::Key_Up); require(list->currentRow() == 0, "saved-set list cannot move up with the keyboard");
+    key(list, Qt::Key_F2);
+    require(name->hasFocus() && name->selectedText() == "Body", "F2 did not focus and select the saved-set name");
+    name->setText(" Body "); require(!rename->isEnabled(), "unchanged trimmed name enabled Rename"); key(name, Qt::Key_Return);
+    require(savedSets() == expected, "unchanged name modified persisted sets");
+    name->setText("   "); require(!rename->isEnabled(), "empty saved-set rename was enabled"); key(name, Qt::Key_Return);
+    require(savedSets() == expected, "empty rename changed persisted sets");
+    name->setText(" fAcE "); require(!rename->isEnabled(), "case-insensitive duplicate rename was enabled"); key(name, Qt::Key_Return);
+    require(savedSets() == expected, "duplicate rename changed persisted sets");
+    name->setText(" Body timing "); require(rename->isEnabled(), "valid saved-set rename was disabled");
+    require(savedSets() == expected, "typing a pending name committed it before Rename");
+    key(name, Qt::Key_Return);
+    QJsonObject entry = expected[0].toObject(); entry["name"] = "Body timing"; expected[0] = entry;
+    require(savedSets() == expected && list->count() == 2 && list->currentRow() == 0 &&
+                list->item(0)->text() == "Body timing", "Rename changed set metadata, membership, order or selection");
+    name->setText("Body poses"); rename->click();
+    entry["name"] = "Body poses"; expected[0] = entry;
+    require(savedSets() == expected, "second Rename did not persist");
+    name->setText("Unfinished name");
+  }, [&]() { action->trigger(); });
+  require(savedSets() == expected, "closing Channel Sets committed an unfinished rename");
+  require(!scene.getDirtyFlag() && TUndoManager::manager()->getHistoryCount() == history &&
+              TUndoManager::manager()->getCurrentHistoryIndex() == historyIndex,
+          "workspace set rename modified scene dirty state or animation undo");
+  require(f.a->getWorkspaceId() == "set-fixture-arm" && f.b->getWorkspaceId() == "set-fixture-head",
+          "set rename replaced channel identities");
+  QProcess reader;
+  reader.start(QCoreApplication::applicationFilePath(),
+               {"--verify-channel-sets", channelSetPath(),
+                QString::fromLatin1(QJsonDocument(expected).toJson(QJsonDocument::Compact).toBase64())});
+  require(reader.waitForStarted(10000), "fresh settings reader did not start");
+  const bool finished = reader.waitForFinished(15000);
+  if (!finished) { reader.kill(); reader.waitForFinished(5000); }
+  require(finished && reader.exitStatus() == QProcess::NormalExit && reader.exitCode() == 0,
+          "saved-set rename did not survive a fresh process reading preferences");
+  f.a->setName("renamed native channel");
+  inspectModal(&f.viewer, "FunctionChannelSets", [&](QDialog *dialog) {
+    auto *list = dialog->findChild<QListWidget *>("FunctionChannelSetList");
+    auto *show = dialog->findChild<QPushButton *>("FunctionChannelSetShow");
+    auto *status = dialog->findChild<QLabel *>("FunctionChannelSetStatus");
+    require(list && show && status && list->item(0)->text() == "Body poses", "renamed set did not reopen");
+    list->setCurrentRow(0); show->click();
+    for (auto *channel : f.tree->channels())
+      require(channel->isActive() == (channel->getParam() == f.a.getPointer()),
+              "renamed set matched channel text instead of its saved identity");
+    require(status->text().contains("1 saved channels are unavailable"), "missing set member was not reported");
+  }, [&]() { action->trigger(); });
+  for (int context = 0; context < 3; ++context) {
+    inspectModal(&f.viewer, "FunctionChannelSets", [&](QDialog *dialog) {
+      auto *name = dialog->findChild<QLineEdit *>("FunctionChannelSetName");
+      require(name, "pending rename field disappeared"); name->setText("Canceled context name");
+      if (context == 0) scene.notifySceneSwitched();
+      else if (context == 1) xsheet.notifyXsheetSwitched();
+      else f.model->resetAll();
+      require(!dialog->isVisible(), "context replacement left saved-set rename open");
+    }, [&]() { action->trigger(); });
+    require(savedSets() == expected, "context replacement committed pending set rename");
+  }
+  checkpoint("saved-set rename persisted across process/reopen and canceled across contexts");
+}
+void nativeTargetRangeDialog() {
+  Fixture f;
+  auto *selection = f.viewer.getSelection();
+  selection->select(f.a.getPointer(), 1); selection->select(f.a.getPointer(), 2);
+  selection->select(f.b.getPointer(), 1); selection->select(f.b.getPointer(), 2);
+  TDoubleParamP originalA = new TDoubleParam(*f.a), originalB = new TDoubleParam(*f.b);
+  auto *edit = f.viewer.findChild<QToolButton *>("FunctionEditKeys");
+  require(edit, "native target-range editor action is missing");
+  auto *undo = TUndoManager::manager(); undo->reset();
+  int emitted = 0;
+  QObject listener;
+  QObject::connect(&f.viewer, &FunctionViewer::curveChanged, &listener, [&]() { ++emitted; });
+  inspectModal(&f.viewer, "FunctionKeyEditor", [&](QDialog *dialog) {
+    auto *mode = dialog->findChild<QComboBox *>("FunctionEditOperation");
+    auto *start = dialog->findChild<QDoubleSpinBox *>("FunctionEditFirstFrame");
+    auto *end = dialog->findChild<QDoubleSpinBox *>("FunctionEditLastFrame");
+    auto *preview = dialog->findChild<QPushButton *>("FunctionEditPreview");
+    auto *status = dialog->findChild<QLabel *>("FunctionEditStatus");
+    auto *range = dialog->findChild<QLabel *>("FunctionEditRangePreview");
+    auto *buttons = dialog->findChild<QDialogButtonBox *>();
+    require(mode && start && end && preview && status && range && buttons,
+            "target-range modal controls are missing");
+    mode->setCurrentIndex(8);
+    require(start->isEnabled() && end->isEnabled() && range->isVisible() &&
+                start->accessibleName() == "Target first frame", "target-range labels or inputs are unavailable");
+    auto *apply = buttons->button(QDialogButtonBox::Apply);
+    apply->click();
+    require(undo->getHistoryCount() == 0 && emitted == 0,
+            "unchanged target range created history or an edit notification");
+    start->setValue(9.5); end->setValue(27.5); preview->click();
+    require(Ops::matchesSnapshot(f.a.getPointer(), originalA.getPointer()) &&
+                Ops::matchesSnapshot(f.b.getPointer(), originalB.getPointer()) && undo->getHistoryCount() == 0,
+            "target-range Preview changed native keys/history");
+    require(f.graph->comparison().size() == 2, "target-range Preview omitted a selected channel");
+    apply->click();
+    requireNear(f.a->keyframeIndexToFrame(1), 8.5); requireNear(f.a->keyframeIndexToFrame(2), 20.5);
+    requireNear(f.b->keyframeIndexToFrame(1), 14.5); requireNear(f.b->keyframeIndexToFrame(2), 26.5);
+    require(selection->getSelectedKeyframeCount() == 4 && undo->getHistoryCount() == 1,
+            "target-range Apply changed selection membership or undo transaction count");
+    const int notifications = emitted;
+    apply->click();
+    require(undo->getHistoryCount() == 1 && emitted == notifications,
+            "repeated target-range Apply added history or emitted a false edit");
+    start->setValue(31); end->setValue(11); preview->click(); apply->click();
+    require(!status->text().isEmpty() && f.graph->comparison().empty() && undo->getHistoryCount() == 1,
+            "invalid target range changed keys or retained a misleading preview");
+    requireNear(f.a->keyframeIndexToFrame(1), 8.5); requireNear(f.b->keyframeIndexToFrame(2), 26.5);
+    start->setValue(10.125); end->setValue(25.875); apply->click();
+    requireNear(f.a->keyframeIndexToFrame(1), 9.125); requireNear(f.a->keyframeIndexToFrame(2), 19.625);
+    requireNear(f.b->keyframeIndexToFrame(1), 14.375); requireNear(f.b->keyframeIndexToFrame(2), 24.875);
+    require(undo->getHistoryCount() == 2 && selection->getSelectedKeyframeCount() == 4,
+            "second range retime lost the original selection or undo boundary");
+    start->setValue(13); end->setValue(29); preview->click();
+  }, [&]() { edit->click(); });
+  requireNear(f.a->keyframeIndexToFrame(1), 9.125); requireNear(f.b->keyframeIndexToFrame(2), 24.875);
+  require(undo->undo(), "target-range second Apply has no undo");
+  requireNear(f.a->keyframeIndexToFrame(1), 8.5); requireNear(f.b->keyframeIndexToFrame(2), 26.5);
+  require(undo->undo(), "target-range first Apply has no undo");
+  require(Ops::matchesSnapshot(f.a.getPointer(), originalA.getPointer()) &&
+              Ops::matchesSnapshot(f.b.getPointer(), originalB.getPointer()), "target-range undo did not restore exact original curves");
+  require(undo->redo() && undo->redo(), "target-range redo history is incomplete");
+  requireNear(f.a->keyframeIndexToFrame(1), 9.125); requireNear(f.b->keyframeIndexToFrame(2), 24.875);
+  undo->reset();
+  checkpoint("target-range modal preview, repeat, cancel and undo/redo completed");
+}
 void sceneFreeViews() {
   // Optional handles must be initialized before any caller can query the
   // spreadsheet's zoom or channel state, even without attaching a scene.
@@ -351,27 +548,27 @@ void nativeBatchDialog() {
   require(TUndoManager::manager()->undo(), "second native batch undo missing"); requireNear(f.a->getKeyframe(1).m_value, 100);
 }
 void contextCancellation() {
-  for (int context = 0; context < 3; ++context) {
+  for (int operation : {0, 8}) for (int context = 0; context < 3; ++context) {
     TSceneHandle scene; TXsheetHandle xsheet;
     Fixture f; f.viewer.setSceneHandle(&scene); f.viewer.setXsheetHandle(&xsheet);
     TDoubleParamP original = new TDoubleParam(*f.a);
     f.viewer.getSelection()->select(f.a.getPointer(), 1);
     auto *button = f.viewer.findChild<QToolButton *>("FunctionEditKeys");
-    bool opened = false;
-    QTimer::singleShot(0, [&]() {
-      auto *dialog = f.viewer.findChild<QDialog *>("FunctionKeyEditor");
-      if (!dialog) return;
-      opened = true;
+    require(button, "context cancellation editor action is missing");
+    inspectModal(&f.viewer, "FunctionKeyEditor", [&](QDialog *dialog) {
       checkpoint("context cancellation dialog entered");
-      dialog->findChild<QDoubleSpinBox *>("FunctionEditAmount")->setValue(999);
+      dialog->findChild<QComboBox *>("FunctionEditOperation")->setCurrentIndex(operation);
+      if (operation == 8) {
+        dialog->findChild<QDoubleSpinBox *>("FunctionEditFirstFrame")->setValue(12.25);
+        dialog->findChild<QDoubleSpinBox *>("FunctionEditLastFrame")->setValue(12.25);
+        dialog->findChild<QPushButton *>("FunctionEditPreview")->click();
+      } else dialog->findChild<QDoubleSpinBox *>("FunctionEditAmount")->setValue(999);
       if (context == 0) scene.notifySceneSwitched();
       else if (context == 1) xsheet.notifyXsheetSwitched();
       else f.model->resetAll();
-    });
-    checkpoint("opening context cancellation dialog");
-    button->click();
+      require(!dialog->isVisible(), "context change left a pending curve edit open");
+    }, [&]() { button->click(); });
     checkpoint("context cancellation dialog closed");
-    require(opened, "context cancellation did not enter native dialog");
     require(FunctionCurveOperations::matchesSnapshot(f.a.getPointer(), original.getPointer()), "context change committed a pending edit");
   }
 }
@@ -396,12 +593,30 @@ void denseGraphMeasurement() {
 }
 }
 int main(int argc, char **argv) {
+  if (argc == 4 && std::string(argv[1]) == "--verify-channel-sets") {
+    QCoreApplication reader(argc, argv);
+    const auto arguments = reader.arguments();
+    const QJsonArray expected = QJsonDocument::fromJson(
+        QByteArray::fromBase64(arguments[3].toLatin1())).array();
+    QSettings settings(arguments[2], QSettings::IniFormat); settings.sync();
+    const QJsonArray observed = QJsonDocument::fromJson(settings.value("channelSets").toByteArray()).array();
+    if (expected.isEmpty() || settings.status() != QSettings::NoError || observed != expected) {
+      std::cerr << "Fresh process did not recover the exact saved channel sets\n"; return 1;
+    }
+    return 0;
+  }
   checkpoint("application initialization begins");
   qputenv("QT_QPA_PLATFORM", "offscreen"); QApplication application(argc, argv); TThread::init();
   try {
     QTemporaryDir directory; require(directory.isValid(), "temporary directory unavailable");
     QDir().mkpath(directory.filePath("stuff/config")); QDir().mkpath(directory.filePath("stuff/profiles"));
     TEnv::setStuffDir(TFilePath(directory.filePath("stuff")));
+    require(TEnv::setArgPathValue(TEnv::getSystemVarPrefix() + "PROFILES",
+                                  directory.filePath("stuff/profiles").toStdString()),
+            "cannot isolate Function Editor profile settings");
+    const QString module = QDir::fromNativeSeparators(ToonzFolder::getMyModuleDir().getQString());
+    require(module.startsWith(QDir::fromNativeSeparators(directory.path()) + "/") && QDir().mkpath(module),
+            "Function Editor settings escaped disposable fixture storage");
     checkpoint("scene-free views begin"); sceneFreeViews();
     checkpoint("queued model lifetime begins"); queuedModelLifetime();
     checkpoint("fit/search begin"); fitAndSearch();
@@ -410,6 +625,8 @@ int main(int argc, char **argv) {
     checkpoint("pending shortcut lifetime begins"); pendingShortcutLifetime();
     checkpoint("normalization/locks begin"); normalizationAndLocks();
     checkpoint("batch editing begins"); nativeBatchDialog();
+    checkpoint("saved-set rename begins"); savedSetRename();
+    checkpoint("target-range modal begins"); nativeTargetRangeDialog();
     checkpoint("context cancellation begins"); contextCancellation();
     checkpoint("dense graph measurement begins"); denseGraphMeasurement();
     checkpoint("all workflow checks completed");
