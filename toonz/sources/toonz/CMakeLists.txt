@@ -1094,9 +1094,6 @@ if(BUILD_UI_PORT_TESTS)
         animationworkflowintegrationtest.cpp animationworkflowintegrationtest.h)
     target_sources(OpenToonz PRIVATE artistworkflowbenchmark.cpp artistworkflowbenchmark.h)
     target_sources(OpenToonz PRIVATE mediacacheintegrationtest.cpp mediacacheintegrationtest.h)
-    if(WIN32)
-        target_link_libraries(OpenToonz psapi)
-    endif()
     target_sources(OpenToonz PRIVATE functionworkflowintegrationtest.cpp functionworkflowintegrationtest.h)
     target_sources(OpenToonz PRIVATE functiontimingintegrationtest.cpp functiontimingintegrationtest.h
         castvectorintegrationtest.cpp castvectorintegrationtest.h

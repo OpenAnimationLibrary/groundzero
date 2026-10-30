@@ -75,6 +75,12 @@ The approximately 99.5 MB attachment snapshot per 1080p stroke is a resource
 estimate, not measured practical performance. Synthetic native application
 benchmarks and widget-to-image graph timings are distinct from physical tablet
 latency, playback pacing and artist hardware qualification.
+The depth fixture now records synchronized frame samples, actual GL target and
+renderer provenance, and process peak resident memory before and after each
+mode. The shared memory probe reports a cumulative high-water mark that can
+include earlier fixture allocations; it does not attribute a peak delta to one
+stroke. Neither these prepared probes nor the separate 2D measurements establish
+the practical cost of depth rendering until that workload executes.
 
 The component ledgers are `doc/function_editor_acceptance.md`,
 `doc/vector_workflow_acceptance.md`, `doc/scene_cast_acceptance.md`,

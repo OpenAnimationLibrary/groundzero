@@ -1,4 +1,5 @@
 #include "artistworkflowbenchmark.h"
+#include "nativeprocessmemory.h"
 #include "sceneviewer.h"
 #include "tapp.h"
 #include "tools/tool.h"
@@ -43,12 +44,6 @@
 #include <iostream>
 #include <stdexcept>
 #include <vector>
-#if defined(_WIN32)
-#include <windows.h>
-#include <psapi.h>
-#elif defined(__APPLE__)
-#include <sys/resource.h>
-#endif
 
 namespace {
 void require(bool condition, const char *message) {
@@ -70,27 +65,6 @@ QJsonObject distribution(const std::vector<double> &values) {
   return {{"unit", "ms"}, {"samples", samples},
           {"median", median}, {"percentile_method", "nearest-rank"},
           {"p95", sorted[size_t(std::ceil(sorted.size() * .95)) - 1]}};
-}
-qint64 peakMemoryBytes() {
-#if defined(_WIN32)
-  PROCESS_MEMORY_COUNTERS counters{};
-  counters.cb = sizeof(counters);
-  if (GetProcessMemoryInfo(GetCurrentProcess(), &counters, sizeof(counters)))
-    return qint64(counters.PeakWorkingSetSize);
-#elif defined(__APPLE__)
-  rusage usage{};
-  if (getrusage(RUSAGE_SELF, &usage) == 0) return qint64(usage.ru_maxrss);
-#else
-  QFile status("/proc/self/status");
-  if (status.open(QIODevice::ReadOnly)) {
-    for (const QByteArray &raw : status.readAll().split('\n')) {
-      const QByteArray line = raw.simplified();
-      if (line.startsWith("VmHWM:"))
-        return line.split(' ').value(1).toLongLong() * 1024;
-    }
-  }
-#endif
-  throw std::runtime_error("Cannot measure process peak resident memory");
 }
 void hashImage(QCryptographicHash &hash, const QImage &image) {
   require(!image.isNull(), "The native viewer did not render a framebuffer");
@@ -357,10 +331,11 @@ int runArtistWorkflowBenchmark(QMainWindow *window) {
         {"translucent_vector_frame_render", distribution(translucent)},
         {"opacity_envelope_vector_frame_render", distribution(profiled)},
         {"drawing_resources_and_scene_save", distribution(saves)},
-        {"peak_resident_bytes", QString::number(peakMemoryBytes())},
+        {"peak_resident_bytes", QString::number(nativeProcessPeakResidentBytes())},
+        {"peak_resident_source", nativeProcessPeakResidentSource()},
         {"framebuffer_checksum", QString::fromLatin1(rendered.result().toHex())},
         {"correctness", "all native strokes, saved drawings and exposures verified"},
-        {"limits", "Synthetic tool input excludes device/OS pen latency. Frame stepping measures rendering capacity, not timer pacing. CI hardware and software GL are not artist hardware."}};
+        {"limits", "Synthetic tool input excludes device/OS pen latency. Frame stepping measures rendering capacity, not timer pacing. Peak resident memory is a cumulative process high-water mark, not an isolated workload allocation. CI hardware and software GL are not artist hardware."}};
     app->getCurrentScene()->setDirtyFlag(false);
     TUndoManager::manager()->reset();
     std::cout << "artist-workload-json: " << QJsonDocument(report).toJson(QJsonDocument::Compact).constData()
