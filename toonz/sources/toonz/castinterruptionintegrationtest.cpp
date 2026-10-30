@@ -674,12 +674,17 @@ void normalTagRoundTrip(Fixture &fixture) {
           if (!apply) {
             require(browser.isVisible() && lateOk && lateOk->isEnabled(),
                     "tag cancellation did not retain a visible owner and live queued OK target");
+            bool acceptedAfterCancel = false;
             QObject delivery;
+            QObject::connect(input, &QDialog::accepted, &delivery,
+                             [&]() { acceptedAfterCancel = true; });
             QMetaObject::invokeMethod(&delivery, [&]() {
               canceledLateAttempt = true;
               if (lateOk) lateOk->click();
             }, Qt::QueuedConnection);
             QCoreApplication::sendPostedEvents(&delivery, QEvent::MetaCall);
+            require(acceptedAfterCancel && input->result() == QDialog::Accepted,
+                    "queued native OK did not exercise acceptance after cancellation");
           }
         }
       });
@@ -703,6 +708,43 @@ void normalTagRoundTrip(Fixture &fixture) {
     }
   }
   TUndoManager::manager()->reset();
+}
+
+void activeFolderSelectionLifetime(Fixture &fixture) {
+  const Snapshot before(fixture.root.path());
+  for (int round = 0; round < 3; ++round) {
+    QPointer<QWidget> host = new QWidget(TApp::instance()->getMainWindow(), Qt::Tool);
+    auto *layout = new QVBoxLayout(host);
+    QPointer<CastBrowser> browser = new CastBrowser(host);
+    layout->addWidget(browser); host->resize(900, 600); host->show();
+    QPointer<CastTreeViewer> tree = browser->findChild<CastTreeViewer *>();
+    settle([&]() { return tree && tree->isVisible(); });
+    const auto found = tree->findItems("Interruption folder", Qt::MatchExactly | Qt::MatchRecursive);
+    require(found.size() == 1, "active Cast folder lifetime target is absent");
+    tree->setCurrentItem(found.front());
+    require(TSelection::getCurrent() == static_cast<TSelection *>(tree.data()),
+            "actual folder selection did not become globally current");
+    // Do not clear selection in the fixture: the actual panel teardown owns
+    // detaching the nonowning global handle before the next tree selects.
+    delete host.data();
+    require(!host && !browser && !tree && TSelection::getCurrent() == nullptr,
+            "closing an active Cast folder left its selection globally registered");
+    before.verify(fixture.root.path());
+  }
+  // Also exercise the tree's own destructor independently of CastBrowser's
+  // early detachment while its model and controls are alive.
+  QPointer<CastTreeViewer> tree = new CastTreeViewer;
+  tree->show();
+  settle([&]() { return tree && tree->isVisible(); });
+  const auto found = tree->findItems("Interruption folder", Qt::MatchExactly | Qt::MatchRecursive);
+  require(found.size() == 1, "standalone Cast folder lifetime target is absent");
+  tree->setCurrentItem(found.front());
+  require(TSelection::getCurrent() == static_cast<TSelection *>(tree.data()),
+          "standalone folder selection did not become globally current");
+  delete tree.data();
+  require(!tree && TSelection::getCurrent() == nullptr,
+          "destroying an active folder tree retained a selection or re-registered it during base teardown");
+  before.verify(fixture.root.path());
 }
 
 void folderRefreshRoundTrip(Fixture &fixture) {
@@ -758,6 +800,7 @@ void runCastInterruptionIntegrationTest() {
   } restore{nativeDisabled};
   QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, true);
   Fixture fixture;
+  activeFolderSelectionLifetime(fixture);
   const Case cases[] = {
       {"Edit Tags…", "menu", Interruption::HideShow},
       {"New Collection from Selected…", "menu", Interruption::Destroy, true},
