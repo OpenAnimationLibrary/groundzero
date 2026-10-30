@@ -352,6 +352,14 @@ Record convertKpp(const QByteArray &bytes, QStringList &diagnostics,
       r.preset.aspect.value = numeric(a.value("ratio").toString());
       r.preset.tip.hardness = std::min(numeric(a.value("hfade").toString()),
                                        numeric(a.value("vfade").toString()));
+      if (a.hasAttribute("antialiasEdges")) {
+        auto value = a.value("antialiasEdges").toString();
+        if (value != "0" && value != "1")
+          throw Invalid("Invalid KPP antialias flag");
+        r.preset.tip.antialiasEdges = value == "1";
+        diagnostics << "Generated-tip antialiasing uses native 8x8 area "
+                       "sampling; source edge coverage remains unverified.";
+      }
       if (a.value("spikes").toString() != "2")
         throw Invalid(
             "KPP star-shaped mask requires a separate geometry profile");
@@ -637,8 +645,8 @@ ImportResult importBrush(const QByteArray &bytes, const QString &format,
         auto r        = converted(bytes, kind);
         r.preset.name = tip.name;
         r.diagnostics.append(result.diagnostics);
-        r.provenance["containerVersion"]    = parsed.version;
-        r.provenance["containerSubversion"] = parsed.subVersion;
+        r.provenance["containerVersion"]       = parsed.version;
+        r.provenance["containerSubversion"]    = parsed.subVersion;
         r.provenance["decodedDescriptorCount"] = int(parsed.descriptors.size());
         if (!tip.sampleId.empty())
           r.provenance["sourceSampleId"] = QString::fromLatin1(

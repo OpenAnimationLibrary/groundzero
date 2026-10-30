@@ -656,6 +656,7 @@ bool editNativeBrush(RasterBrush::Record &record) {
                        refresh();
                      });
     check(label + QObject::tr(" random sequence"), tip.randomSequence);
+    check(label + QObject::tr(" antialias edges"), tip.antialiasEdges);
   };
   tipControls(QObject::tr("Primary tip"), p.tip);
   auto secondary = check(QObject::tr("Enable dual tip"), p.secondary.enabled);

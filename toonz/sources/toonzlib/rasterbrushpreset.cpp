@@ -144,6 +144,7 @@ struct Writer {
     for (auto im : t.images) refs.append(image(im));
     return {{"shape", shapes[int(t.shape)]},
             {"hardness", t.hardness},
+            {"antialiasEdges", t.antialiasEdges},
             {"images", refs},
             {"randomSequence", t.randomSequence}};
   }
@@ -158,10 +159,13 @@ struct Reader {
   }
   Tip tip(const QJsonValue &v) {
     auto o = object(v);
-    keys(o, {"shape", "hardness", "images", "randomSequence"});
+    keys(o,
+         {"shape", "hardness", "images", "randomSequence", "antialiasEdges"});
     Tip t;
-    t.shape          = Shape(choice(o["shape"], shapes));
-    t.hardness       = number(o["hardness"]);
+    t.shape    = Shape(choice(o["shape"], shapes));
+    t.hardness = number(o["hardness"]);
+    t.antialiasEdges =
+        o.contains("antialiasEdges") ? boolean(o["antialiasEdges"]) : false;
     t.randomSequence = boolean(o["randomSequence"]);
     for (auto r : array(o["images"], 256)) {
       auto im = image(r);

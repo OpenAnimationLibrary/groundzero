@@ -156,6 +156,16 @@ tracks while the RGBA8 host receives display pixels. The float cache, wash buffe
 and wet reservoirs share a 256 MiB stroke budget; preset image resources and the
 host application's existing backup/undo buffers have separate budgets.
 
+Generated native tips have an explicit antialias switch: an 8×8 fixed area
+sample grid integrates each destination pixel through the tip's rotation and
+aspect transform. Fully covered/outside hard-tip footprints use exact fast
+paths. The same rule applies independently to secondary masks; bitmap tips
+retain bilinear sampling. Missing switches in older native packages mean off,
+preserving their rendering. The editor, package round trip and generated KPP
+conversion carry the choice. This is a native coverage definition, not a claim
+of Krita's antialias kernel. CI fixtures check a one-pixel square split across
+four pixels, a quarter-pixel dab and rotated anisotropic coverage.
+
 Foreign resource adapter v1 is an explicit **converted approximation** path:
 GBR 1/2 mask/RGBA resources, GIH single-dimension incremental/random sequences,
 ABR sampled tips, and KPP 2.2/5.0 Pixel/Color Smudge containers. Native wet pickup, paint mix and radius can use

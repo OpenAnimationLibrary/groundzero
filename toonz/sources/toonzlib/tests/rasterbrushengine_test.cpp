@@ -90,6 +90,42 @@ void testComposition() {
   Pixel z = composite({}, {}, Blend::Overlay);
   require(z.a == 0 && z.r == 0, "transparent color");
 }
+void testAreaCoverage() {
+  Preset p;
+  p.tip.shape          = Shape::Square;
+  p.tip.antialiasEdges = true;
+  p.size.value         = 1;
+  Canvas c;
+  Stroke stroke(c, p);
+  require(stroke.add(sample(32, 32, 0)), stroke.error().c_str());
+  stroke.finish();
+  double area = 0;
+  for (const auto &pixel : c.pixels) area += pixel.a;
+  require(area == 1 && c.read(31, 31).a == .25 && c.read(32, 32).a == .25,
+          "one-pixel square area was not conserved across four pixels");
+  p.size.value = .25;
+  Canvas tiny;
+  Stroke dot(tiny, p);
+  require(dot.add(sample(32, 32, 0)), dot.error().c_str());
+  dot.finish();
+  area = 0;
+  for (const auto &pixel : tiny.pixels) area += pixel.a;
+  require(area == .0625, "subpixel square disappeared or gained coverage");
+  p.size.value   = 4;
+  p.aspect.value = .5;
+  Canvas horizontal, vertical;
+  Stroke a(horizontal, p);
+  require(a.add(sample(32, 32, 0)), a.error().c_str());
+  a.finish();
+  p.angle.value = 90;
+  Stroke b(vertical, p);
+  require(b.add(sample(32, 32, 0)), b.error().c_str());
+  b.finish();
+  for (int y = 28; y < 36; ++y)
+    for (int x = 28; x < 36; ++x)
+      require(horizontal.read(x, y).a == vertical.read(y, x).a,
+              "antialias footprint did not rotate with anisotropic tip");
+}
 void testDeterminismAndMasks() {
   Preset p;
   p.size.value    = 12;
@@ -325,6 +361,7 @@ int main() {
   try {
     testFloatTransaction();
     testComposition();
+    testAreaCoverage();
     testDeterminismAndMasks();
     testWashAndInput();
     testResourcesAndWet();

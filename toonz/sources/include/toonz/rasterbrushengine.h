@@ -58,8 +58,9 @@ struct Image {
   bool color = false;  // false: alpha is coverage, RGB is ignored
 };
 struct Tip {
-  Shape shape     = Shape::Round;
-  double hardness = 1;
+  Shape shape         = Shape::Round;
+  double hardness     = 1;
+  bool antialiasEdges = false;
   std::vector<std::shared_ptr<const Image>> images;
   bool randomSequence = false;
 };

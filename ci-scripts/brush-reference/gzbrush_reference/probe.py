@@ -36,6 +36,17 @@ class Probe(Extension):
         self.faults = (output / "python-stacks.log").open("w")
         faulthandler.enable(file=self.faults)
         faulthandler.dump_traceback_later(60, repeat=True, file=self.faults)
+        self.work = self.render(app, output)
+        self.advance()
+
+    def advance(self):
+        try:
+            next(self.work)
+        except StopIteration:
+            return
+        QTimer.singleShot(0, self.advance)
+
+    def render(self, app, output):
         build = app.version()
         version = build.split()[0] if build.split() else ""
         report = {"status": "running", "version": version, "build": build, "records": []}
@@ -117,6 +128,10 @@ class Probe(Extension):
                     samples.append([x, red, green, blue, alpha])
                 report["records"].append({**case, "image": filename, "sha256Pixels": hashlib.sha256(raw).hexdigest(), "profile": document.colorProfile(), "input": "Node.paintLine", "changed": raw != initial, "centerlineRGBA8": samples, "effectivePresetXml": effective_name, "effectivePresetSha256": hashlib.sha256(effective_xml.encode()).hexdigest(), "effectiveWetControls": controls})
                 checkpoint(name + ": saved output")
+                # Return to Qt between independent strokes. Calling processEvents
+                # inside paint/document operations reentered native consumers;
+                # one monolithic loop instead starved deferred view updates.
+                yield
             report["status"] = "complete"
             (output / "oracle-status.json").write_text(json.dumps(report, indent=2))
         except Exception as error:
@@ -127,7 +142,6 @@ class Probe(Extension):
         finally:
             if document is not None:
                 document.setModified(False)
-            faulthandler.cancel_dump_traceback_later()
             # Keep the native view/document alive until the normal window close.
             # Manually closing Document and pumping events raced queued thumbnail
             # and canvas consumers in the pinned application. Each case instead
@@ -153,7 +167,7 @@ class Probe(Extension):
 
             def close_windows():
                 checkpoint("request normal window close")
-                QApplication.closeAllWindows()
                 QTimer.singleShot(1000, verify_closed)
+                QApplication.closeAllWindows()
 
             QTimer.singleShot(0, close_windows)

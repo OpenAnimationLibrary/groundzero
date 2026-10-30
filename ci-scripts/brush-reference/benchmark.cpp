@@ -92,6 +92,10 @@ int main(int argc, char **argv) {
     p.size.mappings.push_back({Sensor::Pressure, {{0, .2}, {1, 1}}, 1});
     measure(out, "standard-dry", 2048, 240, p);
     out << ',';
+    p.tip.antialiasEdges = true;
+    measure(out, "standard-dry-antialias", 2048, 240, p);
+    out << ',';
+    p.tip.antialiasEdges = false;
     p.size.value = 256;
     auto texture = std::make_shared<Image>();
     texture->width = texture->height = 2;

@@ -160,6 +160,22 @@ jobs:
               raise SystemExit('Incomplete source reference workload: ' + str(result))
           PY
           test "$runtime_status" -eq 0
+      - name: Report source parameter probes
+        if: always()
+        run: |
+          python3 - <<'PYPROBES'
+          import json, os
+          from pathlib import Path
+          path = Path(os.environ['BRUSH_REFERENCE_ROOT']) / 'output' / 'oracle-status.json'
+          if path.is_file():
+              result = json.loads(path.read_text())
+              for row in result.get('records', []):
+                  probe = {key: row.get(key) for key in ('preset', 'changed', 'effectivePresetSha256', 'effectiveWetControls')}
+                  probe['runStatus'] = result.get('status')
+                  probe['centerlineRGBA8'] = [sample for sample in row.get('centerlineRGBA8', []) if sample[0] in (256, 384, 512, 640, 768, 896, 1024, 1152)]
+                  text = json.dumps(probe, separators=(',', ':'))
+                  print('::notice title=Source parameter probe; not parity::' + text.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A'))
+          PYPROBES
       - name: Report reference failure
         if: failure()
         shell: bash

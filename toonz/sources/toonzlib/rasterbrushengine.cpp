@@ -105,6 +105,34 @@ bool finitePixel(const Pixel &p) {
   return std::isfinite(p.r) && std::isfinite(p.g) && std::isfinite(p.b) &&
          std::isfinite(p.a);
 }
+// Integrate procedural coverage on a fixed 8x8 pixel grid in tip coordinates.
+// The Jacobian includes rotation/aspect/secondary transforms. Bitmap sampling
+// keeps its separately defined bilinear rule. Fully opaque/outside footprints
+// avoid supersampling, so large hard dabs pay this cost only at their edges.
+Pixel filteredTip(const Tip &tip, size_t index, double u, double v, double ux,
+                  double uy, double vx, double vy) {
+  if (!tip.antialiasEdges || tip.shape == Shape::Bitmap)
+    return tipPixel(tip, index, u, v);
+  const double hu = .5 * (std::abs(ux) + std::abs(uy));
+  const double hv = .5 * (std::abs(vx) + std::abs(vy));
+  auto distance   = [&](double x, double y) {
+    return tip.shape == Shape::Square ? std::max(x, y) : std::hypot(x, y);
+  };
+  if (distance(std::max(0.0, std::abs(u) - hu),
+               std::max(0.0, std::abs(v) - hv)) >= 1)
+    return {};
+  if (tip.shape != Shape::Gaussian &&
+      distance(std::abs(u) + hu, std::abs(v) + hv) <= tip.hardness)
+    return {0, 0, 0, 1};
+  double coverage = 0;
+  for (int y = 0; y < 8; ++y)
+    for (int x = 0; x < 8; ++x) {
+      double dx = (x + .5) / 8 - .5, dy = (y + .5) / 8 - .5;
+      coverage +=
+          tipPixel(tip, index, u + ux * dx + uy * dy, v + vx * dx + vy * dy).a;
+    }
+  return {0, 0, 0, coverage / 64};
+}
 Sample interpolate(const Sample &a, const Sample &b, double t) {
   Sample s   = b;
   s.x        = a.x + (b.x - a.x) * t;
@@ -547,7 +575,9 @@ struct Stroke::Impl {
                           ? surface.read(xx, yy)
                           : Pixel{};
             nextSmear[size_t(j) * side + i] = q;
-            double w = tipPixel(p.tip, primaryIndex, u, v).a;
+            double w = filteredTip(p.tip, primaryIndex, u, v, 2.0 / side, 0, 0,
+                                   2.0 / side)
+                           .a;
             avg.r += q.r * w;
             avg.g += q.g * w;
             avg.b += q.b * w;
@@ -576,7 +606,11 @@ struct Stroke::Impl {
           double u = (dx * c + dy * sn), v = (-dx * sn + dy * c) / aspect;
           if (p.flipX) u = -u;
           if (p.flipY) v = -v;
-          Pixel tip = tipPixel(p.tip, primaryIndex, u, v);
+          const double fu = p.flipX ? -1 : 1, fv = p.flipY ? -1 : 1;
+          const double ux = fu * c / radius, uy = fu * sn / radius,
+                       vx = -fv * sn / (radius * aspect),
+                       vy = fv * c / (radius * aspect);
+          Pixel tip = filteredTip(p.tip, primaryIndex, u, v, ux, uy, vx, vy);
           double a  = tip.a;
           if (a <= 0) continue;
           if (t.image) {
@@ -596,10 +630,15 @@ struct Stroke::Impl {
           }
           if (sec.enabled) {
             double su = (u - sx) / secondSize, sv = (v - sy) / secondSize;
-            double b = tipPixel(sec.tip, secondIndex, su * sc + sv * ss,
-                                (-su * ss + sv * sc) / sec.aspect)
-                           .a *
-                       secondOpacity;
+            double b =
+                filteredTip(sec.tip, secondIndex, su * sc + sv * ss,
+                            (-su * ss + sv * sc) / sec.aspect,
+                            (ux * sc + vx * ss) / secondSize,
+                            (uy * sc + vy * ss) / secondSize,
+                            (-ux * ss + vx * sc) / (secondSize * sec.aspect),
+                            (-uy * ss + vy * sc) / (secondSize * sec.aspect))
+                    .a *
+                secondOpacity;
             a = mask(a, b, sec.mode);
           }
           a *= unit(surface.coverage(x, y));

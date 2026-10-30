@@ -81,7 +81,8 @@ QByteArray kpp(const QString &engine = "paintbrush") {
           "<param name=\"brush_definition\"><![CDATA[<Brush "
           "type=\"auto_brush\" spacing=\"0.1\" angle=\"0\" density=\"1\">"
           "<MaskGenerator id=\"default\" type=\"circle\" diameter=\"20\" "
-          "ratio=\"1\" hfade=\"1\" vfade=\"1\" spikes=\"2\"/>"
+          "ratio=\"1\" hfade=\"1\" vfade=\"1\" spikes=\"2\" "
+          "antialiasEdges=\"1\"/>"
           "</Brush>]]></param><param name=\"SmudgeRateMode\">1</param>"
           "<param name=\"SmudgeRateUseNewEngine\">true</param></Preset>");
   QByteArray bytes;
@@ -232,6 +233,8 @@ void testImports() {
       "retained ABR byte masks not charged to allocation budget");
   auto dry = importBrush(kpp(), "kpp", error);
   require(dry.complete, qPrintable(error));
+  require(dry.records[0].preset.tip.antialiasEdges,
+          "generated KPP antialias choice was discarded");
   require(!dry.records[0].provenance["sourceSemanticallySupported"].toBool(),
           "KPP approximation claimed exact");
   auto wet = importBrush(kpp("colorsmudge"), "kpp", error);
@@ -291,7 +294,8 @@ void testPackage() {
   image->height = 2;
   image->color  = true;
   image->pixels = {{1, 0, 0, 1}, {0, 1, 0, 1}, {0, 0, 1, 1}, {0, 0, 0, 0}};
-  r.preset.tip.shape = Shape::Bitmap;
+  r.preset.tip.shape          = Shape::Bitmap;
+  r.preset.tip.antialiasEdges = true;
   r.preset.tip.images.push_back(image);
   r.preset.texture.image = image;
   r.preset.texture.depth = .5;
@@ -317,6 +321,8 @@ void testPackage() {
           "cancelled import produced installable records");
   auto restored = decode(bytes, error);
   require(error.isEmpty() && restored.semanticallySupported, qPrintable(error));
+  require(restored.preset.tip.antialiasEdges,
+          "antialias setting lost on reopen");
   decode(bytes, error, 4 * sizeof(Pixel) - 1);
   require(error.contains("before allocation"),
           "remaining package budget checked after allocation");
@@ -328,9 +334,15 @@ void testPackage() {
   require(!error.isEmpty(), "oversized conversion note accepted");
   auto older = QJsonDocument::fromJson(bytes).object();
   older.remove("diagnostics");
-  auto oldRecord = decode(QJsonDocument(older).toJson(), error);
+  auto olderSettings = older["settings"].toObject();
+  auto olderTip      = olderSettings["tip"].toObject();
+  olderTip.remove("antialiasEdges");
+  olderSettings["tip"] = olderTip;
+  older["settings"]    = olderSettings;
+  auto oldRecord       = decode(QJsonDocument(older).toJson(), error);
   require(error.isEmpty() && oldRecord.semanticallySupported &&
-              oldRecord.diagnostics.empty(),
+              oldRecord.diagnostics.empty() &&
+              !oldRecord.preset.tip.antialiasEdges,
           "older native package without notes stopped loading");
   require(restored.preset.pickupControl.mappings.size() == 1,
           "wet dynamics lost in package");
