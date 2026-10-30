@@ -870,16 +870,24 @@ if(WITH_TRANSLATION)
     # translate_update_** projects for lupdate (update .ts files)
     # -------------------------------------------------------------------------
     function(add_translation module)
-        set(translation)
+        # One call per language: Qt 5.15.13 and later name the lupdate stamp
+        # and list files after the .ts file alone, and every language's file
+        # has the same name, so a single call made duplicate custom rules and
+        # configuring with WITH_TRANSLATION failed. Each language gets its own
+        # binary directory for them (the macro reads CMAKE_CURRENT_BINARY_DIR).
+        set(message)
+        set(binary_dir "${CMAKE_CURRENT_BINARY_DIR}")
         foreach(lang ${LANG_CODES})
             set(name "${CMAKE_SOURCE_DIR}/translations/${lang}/${module}.ts")
-            list(APPEND translation ${name})
             set_source_files_properties(${name} PROPERTIES
                 OUTPUT_LOCATION "${CMAKE_BINARY_DIR}/loc/${lang}"
             )
+            set(CMAKE_CURRENT_BINARY_DIR "${binary_dir}/translations/${lang}")
+            file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}${CMAKE_FILES_DIRECTORY}")
+            ot_qt_create_translation(language_message ${name} ${ARGN})
+            list(APPEND message ${language_message})
         endforeach()
-
-        ot_qt_create_translation(message ${translation} ${ARGN})
+        set(CMAKE_CURRENT_BINARY_DIR "${binary_dir}")
 
         add_custom_target("translate_update_${module}" DEPENDS ${message})
         set_target_properties("translate_update_${module}" PROPERTIES
