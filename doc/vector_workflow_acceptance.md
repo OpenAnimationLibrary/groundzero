@@ -1,8 +1,9 @@
 # Vector workflow acceptance
 
 Implementation base: `edition` `aa01975f38d6226156e5b07df7271b8fc199d003`.
-Current integration base: `edition` `dc2592a1e86319c1f9e5334b41f0cdf99c485b36`,
-preserving the merged native UI, particle-cache safety and Qt 6 build fixes.
+Current integration base: `edition` `d510cf089e03e8887f315bb6ff8b88d985687539`,
+preserving the merged native UI, particle-cache safety, Qt 6 build and
+SeExpr/neural state fixes through #126.
 All eighteen rows have implementation and acceptance source. **Execution is
 pending CI**; source review and a clean diff check are not passing test results.
 Builds and tests are not run locally. Raster brush compatibility and neural
