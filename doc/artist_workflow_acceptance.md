@@ -44,8 +44,11 @@ multi-channel large-rig fixture, inspector scrubbing needs a bounded request
 backlog, Cast updates need incremental ordering evidence, storyboard baking must
 reject invalid driven evaluations, timing labels must follow same-asset column
 switches, and cache cancellation must be rechecked after waiting for the
-retirement gate. These are implementation gaps being corrected, not merely
-pending CI.
+retirement gate. Cache correction `5c043b620` now supplies the production
+boundary and deterministic contention/native Cancel/Close fixtures; its new
+checks await execution. The other items remain implementation work. Width
+manager New/Import/Export interaction and pose/recovery acceptance also need
+additional actual-dialog coverage; existing helper tests are not equivalent.
 
 Function Editor head `d7c34e6ef2096b255eec7077e51c8074901e6188` passed Linux
 and Windows, including installed applications, both Function test suites and
@@ -66,9 +69,10 @@ Vector head `913efdb12` passed the stricter Linux color/depth/stencil attachment
 checks before detecting a secondary-color enable-state leak. Correction
 `0cc8df85d` restores that state explicitly. Its Linux run stopped earlier at
 the new alignment-preview visual assertion: the preview's flattened-Z matrix
-is singular in 4D, so opacity rendering incorrectly omits its strokes. A
-plane-coordinate correction is in progress; the depth-state and timing checks
-have not yet run on that revision.
+is singular in 4D, so opacity rendering incorrectly omits its strokes.
+Correction `7d45414f5` preserves the invertible 3D path and uses the projected
+drawing plane only for flattened coordinates, with actual preview, projective
+and degenerate-target checks. The new correction and depth timing await CI.
 macOS passed D24, rollback, patterned depth, RGB10_A2, separate read targets and
 sRGB checks, then failed the HDR fixture's initial seed before opacity drawing.
 The representative depth-rendering timing has not yet executed; no practical
@@ -174,7 +178,7 @@ application sequence. CI-only harness contracts are in
 | 19 | Opacity readback | Single/mixed opacity selection follows context without mutating drawing. | Source-ready; CI pending |
 | 20 | Style opacity consistency | Relevant vector style render paths preserve stroke alpha with independent pixel fixtures. | Source-ready; CI pending |
 | 21 | SVG stroke opacity | External SVG output carries palette alpha times stroke opacity. | Source-ready; CI pending |
-| 22 | Visual width-profile manager | CRUD/import/export/previews, errors, overwrite/cancel and restart persistence. | Pending: Windows native crash investigation |
+| 22 | Visual width-profile manager | CRUD/import/export/previews, errors, overwrite/cancel and restart persistence. | Pending: dialog acceptance coverage and Windows crash verification |
 | 23 | Width profiles across drawings | Selected drawings/level range, repeated exposures once, locked resources and undo. | Source-ready; CI pending |
 | 24 | Pressure/profile blending | Zero-strength identity, replace/multiply semantics and pressure preservation. | Source-ready; CI pending |
 | 25 | Fill-safe reshaping | Actual region-change preview/recovery in geometry edit flow; fills/undo saved. | Source-ready; CI pending |
@@ -185,7 +189,7 @@ application sequence. CI-only harness contracts are in
 | 30 | Animated gradient copying | Copy current vs animated style choice; keyframes, unlinking and reload. | Source-ready; CI pending |
 | 31 | Outline stacking preservation | Native overlap/group pixel fidelity through outline conversion and undo. | Source-ready; CI pending |
 | 32 | Closed-loop outlines | Inner/outer boundaries, tight loops, holes/winding and undo. | Source-ready; CI pending |
-| 33 | Multi-drawing alignment | Explicit frame/reference scope, preview/cancel, matching, groups and no index-only assumptions. | Pending: preview plane rendering correction |
+| 33 | Multi-drawing alignment | Explicit frame/reference scope, preview/cancel, matching, groups and no index-only assumptions. | Source-ready; plane rendering correction awaits CI |
 | 34 | Paint Inside/Selection | Clipping to region/selection; holes/groups, pressure, undo. | Source-ready; CI pending |
 | 35 | Guided Drawing mode consistency | Guided Drawing honors paint mode or provides actionable explicit incompatibility. | Source-ready; CI pending |
 | 36 | Along-stroke opacity | Opacity variation survives draw/split/join/morph/deform/render/export and versioned storage. | Source-ready; CI pending |
@@ -212,7 +216,7 @@ application sequence. CI-only harness contracts are in
 | 57 | Export fidelity preflight | Lottie/SVG unsupported-feature inspection before write; cancel and explicit conversion. | Source-ready; CI pending |
 | 58 | Recovery completeness status | Current snapshot complete/partial/errors/retry visible without losing pending resources. | Source-ready; CI pending |
 | 59 | Artist-workload benchmarks | Native synthetic drawing/scrub/playback/resource-save/memory metrics, correctness and provenance; physical tablet qualification separate. | Source-ready; CI pending |
-| 60 | Safe disk-cache management | Usage/budget/manual cleanup, cross-process leases, atomic retirement, cancellation/errors. | Pending: cancellation during retirement gate wait |
+| 60 | Safe disk-cache management | Usage/budget/manual cleanup, cross-process leases, atomic retirement, cancellation/errors. | Source-ready; under-gate cancellation checks await CI |
 
 ## Shared regression gates
 
