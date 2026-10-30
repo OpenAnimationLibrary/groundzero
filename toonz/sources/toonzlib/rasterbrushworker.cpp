@@ -365,6 +365,8 @@ int probeWindowsImportSandboxWorker(const QString &input, const QString &output,
     WSACleanup();
     return 5;
   }
+  FILETIME attemptStart{}, attemptEnd{};
+  GetSystemTimeAsFileTime(&attemptStart);
   int connected =
       connect(socketHandle, reinterpret_cast<const sockaddr *>(&address),
               sizeof(address));
@@ -384,6 +386,16 @@ int probeWindowsImportSandboxWorker(const QString &input, const QString &output,
       networkError = WSAGetLastError();
     }
   }
+  sockaddr_in localAddress{};
+  int localSize = sizeof(localAddress);
+  const quint16 sourcePort =
+      !getsockname(socketHandle, reinterpret_cast<sockaddr *>(&localAddress),
+                   &localSize) &&
+              localAddress.sin_family == AF_INET &&
+              localAddress.sin_addr.s_addr == htonl(INADDR_LOOPBACK)
+          ? ntohs(localAddress.sin_port)
+          : 0;
+  GetSystemTimeAsFileTime(&attemptEnd);
   closesocket(socketHandle);
   WSACleanup();
   // A pending connection is not proof of a missing capability. Keep the
@@ -413,8 +425,20 @@ int probeWindowsImportSandboxWorker(const QString &input, const QString &output,
     if (connected != 0 && networkError == WSAEWOULDBLOCK && readiness == 0) {
       // Preserve the worker's output-write proof on the pending path. The
       // final success marker belongs to the parent only after kernel proof.
-      return writeFile(QDir(output).filePath("sandbox-network-pending"),
-                       "pending")
+      return writeFile(
+                 QDir(output).filePath("sandbox-network-pending"),
+                 QJsonDocument(
+                     QJsonObject{
+                         {"port", int(sourcePort)},
+                         {"startLow",
+                          QString::number(attemptStart.dwLowDateTime)},
+                         {"startHigh",
+                          QString::number(attemptStart.dwHighDateTime)},
+                         {"endLow", QString::number(attemptEnd.dwLowDateTime)},
+                         {"endHigh",
+                          QString::number(attemptEnd.dwHighDateTime)}})
+                     .toJson(QJsonDocument::Compact)) &&
+                     sourcePort
                  ? 18
                  : 7;
     }
@@ -511,6 +535,8 @@ int probeWindowsImportSandbox(const QString &executable, const QString &input,
                  sandbox.launchError.toUtf8().constData());
     return 15;
   }
+  const bool childIdentity = BrushWfpDropEvidence::childHasPackage(
+      DWORD(process.processId()), sandbox.packageSidForTest());
   if (!process.waitForFinished(15000)) {
     process.kill();
     process.waitForFinished(5000);
@@ -519,10 +545,40 @@ int probeWindowsImportSandbox(const QString &executable, const QString &input,
   int status =
       process.exitStatus() == QProcess::NormalExit ? process.exitCode() : 12;
   const bool endpointAlive = listener.positiveControl();
+  QString evidenceError;
+  const QByteArray pendingEvidence =
+      status == 18 ? readBoundedRegularFile(
+                         QDir(output).filePath("sandbox-network-pending"), 512,
+                         evidenceError)
+                   : QByteArray();
+  const auto evidence  = QJsonDocument::fromJson(pendingEvidence).object();
+  const int parsedPort = evidence.value("port").toInt();
+  FILETIME attemptStart{}, attemptEnd{};
+  auto readTimePart = [&](const char *key, DWORD &part) {
+    bool ok         = false;
+    const auto text = evidence.value(key).toString();
+    part            = text.toUInt(&ok);
+    return ok && text == QString::number(part);
+  };
+  const bool validEvidence =
+      evidenceError.isEmpty() && evidence.size() == 5 && parsedPort > 0 &&
+      parsedPort <= 65535 &&
+      readTimePart("startLow", attemptStart.dwLowDateTime) &&
+      readTimePart("startHigh", attemptStart.dwHighDateTime) &&
+      readTimePart("endLow", attemptEnd.dwLowDateTime) &&
+      readTimePart("endHigh", attemptEnd.dwHighDateTime) &&
+      CompareFileTime(&attemptStart, &attemptEnd) <= 0;
+  if (status == 18)
+    std::fprintf(
+        stderr,
+        "Pending connection identity: child=%d evidence=%d sourcePort=%u\n",
+        int(childIdentity), int(validEvidence), unsigned(parsedPort));
   const bool kernelProvedDenial =
-      status == 18 && endpointAlive && observerReady &&
+      status == 18 && childIdentity && validEvidence && endpointAlive &&
+      observerReady &&
       dropEvidence.dropped(ntohs(listener.address.sin_port),
-                           sandbox.packageSidForTest());
+                           sandbox.packageSidForTest(), quint16(parsedPort),
+                           attemptStart, attemptEnd);
   if (!sandbox.close()) return 13;
   if (!endpointAlive) return 17;
   if (kernelProvedDenial) {
