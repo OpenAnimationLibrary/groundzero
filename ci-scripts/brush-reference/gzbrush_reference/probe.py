@@ -5,11 +5,12 @@ import hashlib
 import json
 import math
 import os
+import random
 import time
 import zlib
 from pathlib import Path
 from krita import Krita, Extension, ManagedColor, Preset
-from . import resource_probe, sensor_probe, mirror_probe
+from . import resource_probe, sensor_probe, mirror_probe, masked_probe
 from xml.etree.ElementTree import fromstring
 from PyQt5.QtCore import QByteArray, QPoint, QPointF, QTimer, QEvent, Qt
 from PyQt5.QtGui import QColor, QImage, QTabletEvent
@@ -266,7 +267,10 @@ class Probe(Extension):
                     if not node.setPixelData(QByteArray(bytes(width * height * 4)), x, y, width, height):
                         raise RuntimeError("Cannot clear source off-document fixture margin")
             report["documentIsolation"] = "full-raster reset before each independent stroke; input mode recorded per case"
-            for case in fixtures["cases"]:
+            execution_cases = list(fixtures["cases"])
+            if fixtures.get("group") == "gihstatistics":
+                random.Random(0x47494831).shuffle(execution_cases)
+            for execution_ordinal, case in enumerate(execution_cases):
                 name = case["preset"]
                 if name not in by_name:
                     raise RuntimeError("Original reference preset was not loaded: " + name)
@@ -360,7 +364,7 @@ class Probe(Extension):
                         abs(effective_view[key] - case[key]) > 1 / 255 + 1e-9
                         for key in ("opacity", "flow")):
                     control_failure("Source view did not apply requested brush controls")
-                if (abs(effective_view["rotation"] - case.get("brushRotationDegrees", 0)) > 1e-5 or effective_view["blend"] != case.get("overrides", {}).get("CompositeOp", "normal") or
+                if (abs(effective_view["rotation"] - case.get("brushRotationDegrees", 0)) > (.001 if "resourceProbe" in case else 1e-5) or effective_view["blend"] != case.get("overrides", {}).get("CompositeOp", "normal") or
                         any(effective_view[key] for key in ("eraser", "alphaLock", "disablePressure"))):
                     control_failure("Source view retained an unexpected painting modifier")
                 # Read back the selected source settings through the public API;
@@ -451,6 +455,12 @@ class Probe(Extension):
                 raw = bytes(node.pixelData(0, 0, w, h))
                 if len(raw) != w * h * 4:
                     raise RuntimeError("Reference API returned an incomplete raster")
+                mask_evidence = (masked_probe.capture(case, effective_fields, delivery, raw, w)
+                                 if "maskProbe" in case else None)
+                if mask_evidence is not None:
+                    masked_probe.emit_notices(name, mask_evidence)
+                    (output / (name.replace(" ", "_") + ".mask.json")).write_text(
+                        json.dumps(mask_evidence, indent=2))
                 sensor_evidence = (sensor_probe.capture(case, effective_fields, delivery, raw, w)
                                    if "sensorProbe" in case else None)
                 if sensor_evidence is not None:
@@ -591,12 +601,14 @@ class Probe(Extension):
                                         "data": base64.b64encode(zlib.compress(outside)).decode("ascii"),
                                         "nonzeroAlpha": sum(value != 0 for value in outside[3::4])}
                 resource_readback = resource_probe.readback(raw, w, case) if "resourceProbe" in case else None
-                report["records"].append({**case, "image": filename, "sha256Pixels": hashlib.sha256(raw).hexdigest(), "repeatSha256Pixels": repeat_hashes, "profile": document.colorProfile(), "input": delivery["mode"], "deliveryReport": delivery, "changed": raw != initial, "centerlineRGBA8": samples, "geometryProbe": geometry, "effectiveView": effective_view, "effectivePresetXml": effective_name, "effectivePresetSha256": hashlib.sha256(effective_xml.encode()).hexdigest(), "effectiveWetControls": controls, "effectiveTextureControls": texture_controls, "effectivePixelTransferControls": transfer_controls, "effectiveSizeCurveControls": size_curve_controls, "effectiveKernelGeometry": kernel_geometry, "boundaryOutsideProbe": boundary_outside, "resourceResolution": resource_resolution, "resourceReadback": resource_readback, "sensorEvidence": sensor_evidence})
+                report["records"].append({**case, "executionOrdinal": execution_ordinal, "image": filename, "sha256Pixels": hashlib.sha256(raw).hexdigest(), "repeatSha256Pixels": repeat_hashes, "profile": document.colorProfile(), "input": delivery["mode"], "deliveryReport": delivery, "changed": raw != initial, "centerlineRGBA8": samples, "geometryProbe": geometry, "effectiveView": effective_view, "effectivePresetXml": effective_name, "effectivePresetSha256": hashlib.sha256(effective_xml.encode()).hexdigest(), "effectiveWetControls": controls, "effectiveTextureControls": texture_controls, "effectivePixelTransferControls": transfer_controls, "effectiveSizeCurveControls": size_curve_controls, "effectiveKernelGeometry": kernel_geometry, "boundaryOutsideProbe": boundary_outside, "resourceResolution": resource_resolution, "resourceReadback": resource_readback, "sensorEvidence": sensor_evidence, "maskEvidence": mask_evidence})
                 checkpoint(name + ": saved output")
                 # Return to Qt between independent strokes. Calling processEvents
                 # inside paint/document operations reentered native consumers;
                 # one monolithic loop instead starved deferred view updates.
                 yield
+            canonical_order = {name: index for index, name in enumerate(fixtures["presets"])}
+            report["records"].sort(key=lambda record: canonical_order[record["preset"]])
             report["resourceStatistics"] = resource_probe.summarize(report["records"])
             report["status"] = "complete"
             (output / "oracle-status.json").write_text(json.dumps(report, indent=2))

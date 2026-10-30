@@ -33,8 +33,11 @@
 #include <QMainWindow>
 #include <QCoreApplication>
 #include <QEventLoop>
+#include <QElapsedTimer>
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
+#include <QLineEdit>
 #include <QKeyEvent>
 #include <QMouseEvent>
 #include <QTabletEvent>
@@ -62,6 +65,30 @@ void require(bool value, const char *message) {
 void settle() {
   QCoreApplication::sendPostedEvents();
   QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents, 20);
+}
+bool submitFileDialog(QFileDialog *picker, const QString &path) {
+  // A visible Qt 5 QFileDialog deliberately leaves a focused filename editor
+  // untouched in selectFile(). Our timer operates after show, so transfer focus
+  // first, then verify the actual selection before invoking the normal accept.
+  if (auto focus = picker->focusWidget()) focus->clearFocus();
+  picker->selectFile(path);
+  const auto selected = picker->selectedFiles();
+  if (selected.size() != 1 || QFileInfo(selected.front()).absoluteFilePath() !=
+                                  QFileInfo(path).absoluteFilePath()) {
+    std::cerr << "raster-brush-integration: file picker did not select fixture"
+              << std::endl;
+    picker->reject();
+    return false;
+  }
+  if (QMetaObject::invokeMethod(picker, "accept", Qt::QueuedConnection))
+    return true;
+  picker->reject();
+  return false;
+}
+bool sameFiles(const QStringList &a, const QStringList &b) {
+  // Qt 5.15's QList equality instantiates removed MSVC stdext iterators.
+  // Compare the same ordered entries without that implementation dependency.
+  return a.size() == b.size() && std::equal(a.cbegin(), a.cend(), b.cbegin());
 }
 bool same(const TRaster32P &a, const TRaster32P &b) {
   if (!a || !b || a->getSize() != b->getSize()) return false;
@@ -648,15 +675,42 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
         QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, true);
         bool acceptanceSeen = false, defaultCancel = false,
              labelsCorrect = false, pickerSubmitted = false;
-        int attempts = 0;
+        bool driverExpired = false;
+        QString previousModal;
+        QElapsedTimer deadline;
+        deadline.start();
+        std::cerr << "raster-brush-integration: import "
+                  << (kind.isEmpty() ? "unclassified" : kind.toStdString())
+                  << " accept=" << acceptImport
+                  << " duplicate=" << alreadyInstalled << std::endl;
         QTimer modalDriver;
         QObject::connect(&modalDriver, &QTimer::timeout, [&]() {
           auto modal = QApplication::activeModalWidget();
+          const QString identity =
+              modal ? QString::fromLatin1(modal->metaObject()->className()) +
+                          ":" + modal->objectName() + ":" + modal->windowTitle()
+                    : QString("no active modal");
+          if (identity != previousModal) {
+            std::cerr << "raster-brush-integration: acceptance modal "
+                      << identity.toStdString() << std::endl;
+            previousModal = identity;
+          }
+          if (deadline.elapsed() > 15000) {
+            driverExpired = true;
+            if (auto dialog = qobject_cast<QDialog *>(modal)) dialog->reject();
+            return;
+          }
           if (auto picker = qobject_cast<QFileDialog *>(modal)) {
             if (!pickerSubmitted) {
               pickerSubmitted = true;
-              picker->selectFile(sourcePath);
-              QMetaObject::invokeMethod(picker, "accept", Qt::QueuedConnection);
+              // Exercise the focused filename condition that previously made
+              // selectFile a no-op and left the real picker open indefinitely.
+              if (auto filename =
+                      picker->findChild<QLineEdit *>("fileNameEdit")) {
+                filename->setFocus();
+                filename->clear();
+              }
+              if (!submitFileDialog(picker, sourcePath)) driverExpired = true;
             }
           } else if (modal && modal->objectName() ==
                                   "nativeBrushApproximationAcceptance") {
@@ -691,8 +745,6 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
               } else
                 report->reject();
             }
-          } else if (++attempts > 2400) {
-            if (auto dialog = qobject_cast<QDialog *>(modal)) dialog->reject();
           }
         });
         modalDriver.start(25);
@@ -701,25 +753,35 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
         modalDriver.stop();
         QApplication::setAttribute(Qt::AA_DontUseNativeDialogs,
                                    nativeDialogsDisabled);
-        require(handled && acceptanceSeen && defaultCancel && labelsCorrect,
+        require(!driverExpired && handled && acceptanceSeen && defaultCancel &&
+                    labelsCorrect,
                 "foreign import lacked explicit approximation acceptance with "
                 "Cancel default");
         const auto afterFiles =
             library.entryList(QDir::AllEntries | QDir::NoDotAndDotDot);
-        require(
-            (acceptImport && !alreadyInstalled ? afterFiles != beforeFiles
-                                               : afterFiles == beforeFiles) &&
-                same(baseline, raster(level, 1)) &&
-                undo->getHistoryCount() == 0,
-            "approximation acceptance did not control installation "
-            "independently of document state");
+        require((acceptImport && !alreadyInstalled
+                     ? !sameFiles(afterFiles, beforeFiles)
+                     : sameFiles(afterFiles, beforeFiles)) &&
+                    same(baseline, raster(level, 1)) &&
+                    undo->getHistoryCount() == 0,
+                "approximation acceptance did not control installation "
+                "independently of document state");
         if (acceptImport) alreadyInstalled = true;
         if (acceptImport && !kind.isEmpty()) {
-          bool statusCorrect = false;
-          QTimer::singleShot(0, [&]() {
+          checkpoint("checking installed approximation editor classification");
+          bool statusCorrect = false, editorExpired = false;
+          QElapsedTimer editorDeadline;
+          editorDeadline.start();
+          QTimer editorDriver;
+          QObject::connect(&editorDriver, &QTimer::timeout, [&]() {
             auto editor =
                 qobject_cast<QDialog *>(QApplication::activeModalWidget());
-            if (!editor) return;
+            if (editorDeadline.elapsed() > 15000) {
+              editorExpired = true;
+              if (editor) editor->reject();
+              return;
+            }
+            if (!editor || editor->objectName() != "nativeBrushEditor") return;
             auto status =
                 editor->findChild<QLabel *>("nativeBrushCompatibilityStatus");
             statusCorrect =
@@ -730,9 +792,12 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
                                                : "Static native conversion");
             editor->reject();
           });
+          editorDriver.start(25);
           property->setValue(L"<edit>");
+          const bool edited = tool->onPropertyChanged("Native Brush:");
+          editorDriver.stop();
           require(
-              tool->onPropertyChanged("Native Brush:") && statusCorrect,
+              edited && statusCorrect && !editorExpired,
               "portable conversion classification was lost in editor status");
         }
       }
@@ -996,8 +1061,7 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
           if (auto picker = qobject_cast<QFileDialog *>(modal)) {
             if (!picker->property("fixtureSubmitted").toBool()) {
               picker->setProperty("fixtureSubmitted", true);
-              picker->selectFile(uiExport);
-              QMetaObject::invokeMethod(picker, "accept", Qt::QueuedConnection);
+              submitFileDialog(picker, uiExport);
             }
           } else if (modal &&
                      modal->objectName() == "nativeBrushExportResources") {
@@ -1039,9 +1103,7 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
             if (auto picker = qobject_cast<QFileDialog *>(modal)) {
               if (!picker->property("fixtureSubmitted").toBool()) {
                 picker->setProperty("fixtureSubmitted", true);
-                picker->selectFile(pickers++ == 0 ? uiExport : ownCopy);
-                QMetaObject::invokeMethod(picker, "accept",
-                                          Qt::QueuedConnection);
+                submitFileDialog(picker, pickers++ == 0 ? uiExport : ownCopy);
               }
             } else if (modal &&
                        modal->objectName() == "nativeBrushRelinkResources") {
@@ -1073,8 +1135,9 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
                   "foreign conversion");
           if (!repairResources)
             require(property->getValue() == previousSelection &&
-                        library.entryList(QDir::AllEntries |
-                                          QDir::NoDotAndDotDot) == beforeFiles,
+                        sameFiles(library.entryList(QDir::AllEntries |
+                                                    QDir::NoDotAndDotDot),
+                                  beforeFiles),
                     "cancelled unresolved-resource repair installed or "
                     "selected a preset");
           else {
@@ -1383,7 +1446,7 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
       require(tool->onPropertyChanged("Native Brush:"),
               "cannot select stationary airbrush fixture");
       const TRaster32P baseline = raster(level, 1)->clone();
-      auto pump           = [](int milliseconds) {
+      auto pump                 = [](int milliseconds) {
         QEventLoop loop;
         QTimer::singleShot(milliseconds, &loop, &QEventLoop::quit);
         loop.exec();

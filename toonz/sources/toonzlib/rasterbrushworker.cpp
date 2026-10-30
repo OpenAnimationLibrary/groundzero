@@ -29,6 +29,7 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <winsock2.h>
+#include <netfw.h>
 #include <windows.h>
 #include "rasterbrushwindowsandbox.h"
 #endif
@@ -357,21 +358,55 @@ int probeWindowsImportSandboxWorker(const QString &input, const QString &output,
   address.sin_family      = AF_INET;
   address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
   address.sin_port        = htons(port);
-  const int connected =
+  u_long nonblocking      = 1;
+  if (ioctlsocket(socketHandle, FIONBIO, &nonblocking)) {
+    closesocket(socketHandle);
+    WSACleanup();
+    return 5;
+  }
+  int connected =
       connect(socketHandle, reinterpret_cast<const sockaddr *>(&address),
               sizeof(address));
-  const int networkError = WSAGetLastError();
+  int networkError = connected == 0 ? 0 : WSAGetLastError();
+  int readiness    = -1;
+  if (connected != 0 && networkError == WSAEWOULDBLOCK) {
+    WSAPOLLFD pending{socketHandle, POLLWRNORM, 0};
+    readiness = WSAPoll(&pending, 1, 3000);
+    if (readiness > 0) {
+      int length = sizeof(networkError);
+      if (getsockopt(socketHandle, SOL_SOCKET, SO_ERROR,
+                     reinterpret_cast<char *>(&networkError), &length))
+        networkError = WSAGetLastError();
+      else if (networkError == 0)
+        connected = 0;
+    } else if (readiness < 0) {
+      networkError = WSAGetLastError();
+    }
+  }
   closesocket(socketHandle);
   WSACleanup();
-  // The parent holds a live listener and proves ordinary connectivity both
-  // before and after this probe. A refused connection is meaningful only with
-  // that control; an unused port would not demonstrate network isolation.
+  // A pending connection is not proof of a missing capability. Keep the
+  // verdict fail-closed and report the public OS capability diagnosis so CI
+  // can distinguish packet filtering from an unrelated connectivity failure.
   if (connected == 0 ||
       (networkError != WSAEACCES && networkError != WSAECONNREFUSED)) {
+    DWORD diagnosticStatus           = ERROR_PROC_NOT_FOUND;
+    NETISO_ERROR_TYPE isolationError = NETISO_ERROR_TYPE_NONE;
+    HMODULE firewall = LoadLibraryExW(L"FirewallAPI.dll", nullptr,
+                                      LOAD_LIBRARY_SEARCH_SYSTEM32);
+    if (firewall) {
+      using Diagnose      = DWORD(WINAPI *)(LPCWSTR, NETISO_ERROR_TYPE *);
+      const auto diagnose = reinterpret_cast<Diagnose>(GetProcAddress(
+          firewall, "NetworkIsolationDiagnoseConnectFailureAndGetInfo"));
+      if (diagnose) diagnosticStatus = diagnose(L"127.0.0.1", &isolationError);
+      FreeLibrary(firewall);
+    }
     std::fprintf(stderr,
-                 "AppContainer loopback denial probe: connect=%d Winsock=%d "
-                 "against live controlled listener\n",
-                 connected, networkError);
+                 "AppContainer live-loopback probe: connect=%d Winsock=%d "
+                 "readiness=%d diagnosticStatus=%lu isolationError=%d\n",
+                 connected, networkError, readiness,
+                 static_cast<unsigned long>(diagnosticStatus),
+                 int(isolationError));
     return 6;
   }
   return writeFile(QDir(output).filePath("sandbox-passed"), "passed") ? 0 : 7;

@@ -101,7 +101,7 @@ jobs:
       max-parallel: 2
       fail-fast: false
       matrix:
-        fixture_group: [hsvdynamics, distancesensors, mirrortips, tabletsensors, spacingdynamics, bitmaptips, gihstatistics, pixelcurveknots, texturestate, pixeltransfer, wetboundary, pixelprecision, texturemasks, pixelblend, wetkernelcount, wetopacitycombo, wettransfer, pixelcurves, wetkernelscale, wetkernel, wettexture3, wetpressure, pixelsoftsize, pixelrectsize, pixelsoft, pixelopacitytablet, pixelopacity, pixelpressure, wetstate, wethold, wettexture, pixelaarange, pixelcontrols, pixelsmallpressure, pixelshape, wetswitches, wetcombined, wetsteps, hardpixel, geometry, tablet, parameters]
+        fixture_group: [maskwash, maskbuildup, hsvdynamics, distancesensors, mirrortips, tabletsensors, spacingdynamics, bitmaptips, gihstatistics, pixelcurveknots, texturestate, pixeltransfer, wetboundary, pixelprecision, texturemasks, pixelblend, wetkernelcount, wetopacitycombo, wettransfer, pixelcurves, wetkernelscale, wetkernel, wettexture3, wetpressure, pixelsoftsize, pixelrectsize, pixelsoft, pixelopacitytablet, pixelopacity, pixelpressure, wetstate, wethold, wettexture, pixelaarange, pixelcontrols, pixelsmallpressure, pixelshape, wetswitches, wetcombined, wetsteps, hardpixel, geometry, tablet, parameters]
     runs-on: ubuntu-22.04
     timeout-minutes: 20
     env:
@@ -317,6 +317,11 @@ jobs:
           cmake -S ci-scripts/brush-parser -B brush-comparison-build -DCMAKE_BUILD_TYPE=Release
           cmake --build brush-comparison-build --target rasterbrushreference --parallel 2 2>&1 | tee "$BRUSH_REFERENCE_ROOT/comparison-build.log"
           brush-comparison-build/rasterbrushreference "$BRUSH_REFERENCE_ROOT" 2>&1 | tee "$BRUSH_REFERENCE_ROOT/comparison.log"
+      - name: Verify stochastic analysis and enforce GIH statistical gates
+        if: matrix.fixture_group == 'gihstatistics'
+        run: |
+          python3 ci-scripts/brush-reference/test_stochastic_gate.py
+          python3 ci-scripts/brush-reference/stochastic_gate.py "$BRUSH_REFERENCE_ROOT"
       - name: Report conversion measurements
         if: always()
         run: |

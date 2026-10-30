@@ -139,7 +139,7 @@ def prepare(root, resources, preset_writer, group):
                     packages = root / "output" / "resource-packages"
                     packages.mkdir(parents=True, exist_ok=True)
                     ns = "urn:oasis:names:tc:opendocument:xmlns:manifest:1.0"
-                    manifest = Element("{" + ns + "}manifest")
+                    manifest = Element("{" + ns + "}manifest", {"{" + ns + "}version": "1.2"})
                     SubElement(manifest, "{" + ns + "}file-entry", {
                         "{" + ns + "}full-path": "/", "{" + ns + "}media-type": "application/x-krita-resourcebundle"})
                     with zipfile.ZipFile(packages / package_name, "w", compression=zipfile.ZIP_DEFLATED) as archive:

@@ -68,6 +68,10 @@ shutil.copytree(source / "gzbrush_reference", resources / "pykrita" / "gzbrush_r
 (root / "config" / "kritarc").write_text("[General]\nuseOpenGL=false\n[python]\nenable_gzbrush_reference=true\n")
 names, cases = [], []
 group = os.environ.get("BRUSH_REFERENCE_GROUP", "parameters")
+if group in ("maskwash", "maskbuildup"):
+    from masked_fixtures import prepare as prepare_masked
+    prepare_masked(root, resources, preset, group)
+    raise SystemExit(0)
 if group in ("hsvdynamics", "distancesensors"):
     from option_fixtures import prepare as prepare_options
     prepare_options(root, resources, preset, group)

@@ -47,6 +47,8 @@ def readback(raw, width, case):
     left, top, w, h = spec["rect"]
     pixels = b"".join(raw[(y * width + left) * 4:(y * width + left + w) * 4]
                       for y in range(top, top + h))
+    if spec["kind"] == "random" and sum(v != 0 for v in pixels[3::4]) != sum(v != 0 for v in raw[3::4]):
+        raise RuntimeError("Source random stroke escaped fixed statistical region")
     result = {"rect": spec["rect"], "encoding": "zlib-base64-bgra8-row-major",
               "data": base64.b64encode(zlib.compress(pixels)).decode("ascii"),
               "actualPaintedTipReadback": True}

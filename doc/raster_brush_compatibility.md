@@ -5,15 +5,18 @@ ABR decoding includes sampled tips, legacy computed geometry and typed metadata.
 Strict experimental K5341 component profiles are implemented; none of the full
 foreign behavior profiles below is complete or reference-verified. Keep this work separate from vector/touch usability and neural styling.
 
-Current platform qualification is incomplete. The signed macOS helper now starts,
-but its prior memory admission used adjusted task accounting instead of Darwin's
-raw mapping size. The replacement enumerates bounded top-level mappings and keeps
-the fixed growth budget and allocation-refusal probes; CI qualification is pending.
-Neither this growth limit nor the separate sampled footprint watchdog establishes
-an absolute OS-enforced resident-memory ceiling. Windows overlap qualification
-also remains pending after correcting an already-exited-child wait race. See
-[platform boundaries](raster_brush_platform_isolation.md) for current mechanisms;
-historical checkpoints below do not qualify the latest boundary.
+At published `82f806b58`, Linux and macOS Qt5/Qt6 parser suites and import
+fuzzing passed, including signed macOS helper startup and allocation-refusal
+checks. The macOS mapping-growth limit and sampled footprint watchdog still do
+not establish an absolute OS-enforced resident-memory ceiling. Windows live
+network-denial qualification remains open: its connection attempt stalled, so
+bounded readiness and public OS isolation diagnostics now distinguish a pending
+attempt from an actual denial. Linux/macOS application fixtures stalled in the
+explicit-conversion workflow; Windows application compilation exposed an old
+Qt5 container comparison incompatible with the current compiler. These are open
+qualification failures, not passes or source-parity results. See
+[platform boundaries](raster_brush_platform_isolation.md). Historical checkpoints
+below never qualify a later head automatically.
 
 Native preset alpha preservation is combined with the toolbar lock instead of
 being overwritten by an unchecked modifier. The global eraser explicitly clears
@@ -39,9 +42,9 @@ satisfy the contract. Build and test through CI per CLAUDE.md.
 | Versioned native IR and decoded/supported/verified status separation | Native v1 implemented; foreign semantics remain separate | Package round-trip, missing resource, checksum, enum and version tests in CI |
 | ABR descriptor/computed-tip/pattern behavioral import | Typed descriptors, bounded pattern decoding, legacy 1/2 computed tips and ABR 6/2 sampled-ID/static native binding implemented; other version bindings and source dynamics pending | Every declared version and active setting; decoding is not behavioral support |
 | KPP/bundle/GBR/GIH import | GBR 1/2 and one-dimensional GIH native conversions; KPP native conversion plus strict fixed-tip source candidate selection; bounded bundle dependency resolution | Unknown/missing active settings retain native conversion; candidate flags do not claim source verification |
-| Independent dry renderer and defined dynamics/combinations | Native CPU renderer and independent fixed hard-circle source candidate implemented | Six isolated and nine long source hard-pixel gates passed; source AA/softness/dynamics remain incomplete |
-| Four Krita smudge profiles and native wet | Native wet/smear plus four separate fixed-tip source candidates implemented | All 48 wet-pressure gates passed at 5423354f; 215 enforced full-image kernel gates passed at 99ca200c, including nonzero-radius legacy/new Dulling. Earlier fixed/control/state gates passed; full dynamics/geometry/texture profiles remain incomplete |
-| Real tilt/rotation capture and normalization | Additive Qt tablet fields and track interpolation implemented | Linux full application CI passes; physical device qualification pending |
+| Independent dry renderer and defined dynamics/combinations | Native CPU renderer and strict source geometry/curve component candidates implemented | Pressure-size natural-cubic fixtures and held-out source curves passed at `82f806b58`; full geometry, sensor and combination scope remains incomplete |
+| Four Krita smudge profiles and native wet | Native wet/smear plus four separate fixed-tip source candidates implemented | Admitted texture gates passed at `82f806b58`; expanded kernel and off-canvas state probes expose unresolved cases. Earlier pressure/kernel passes do not cover the full dynamics/geometry/texture profiles |
+| Real tilt/rotation capture and normalization | Additive Qt tablet fields and track interpolation implemented | Current host fixture corrected to use radians with the radians API; application qualification and physical device checks remain open |
 | Actual-engine preview, editor, portable preset export/relink | Native scratchpad, sensor/curve/texture/dual/color editor, provenance-aware manifest/permitted/private packaging and exact pixel-hash relink/repair implemented | Portable protocol regressions and application workflow fixtures implemented; final-head application export/repair qualification remains open |
 | Undo/cancel/frame lifecycle/save/reopen | Native path uses raster undo; cancellation rolls back tiles and created frame | Linux actual-tool and installed-package undo, redo, cancellation, frame creation and PNG reopen workloads passed at `31a0bee6`; exact final head and other installed platforms remain gates |
 | Parser isolation/fuzzing/cancel and complete resource budgets | Pre-allocation shared budgets, anchored no-follow response reads, Linux confinement, private Windows AppContainer runtime and signed macOS App Sandbox helper implemented | Historical six-platform parser/fuzz passes do not qualify later isolation changes; exact-head sandbox, malicious-response, cancellation and packaging checks remain release gates |

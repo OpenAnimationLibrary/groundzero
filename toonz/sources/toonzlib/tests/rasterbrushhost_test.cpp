@@ -121,9 +121,10 @@ void testRotation() {
   require(
       mid.hasRotation && std::abs(std::remainder(mid.rotation, 2 * pi)) < 1e-10,
       "barrel rotation crossed long arc");
-  a.tilt           = TPointD(.5, .25);
-  a.rotation       = 0;
-  auto transformed = TTrackTransform(TAffine::rotation(90)).apply(a);
+  a.tilt     = TPointD(.5, .25);
+  a.rotation = 0;
+  // TAffine::rotation takes radians; TRotation takes degrees.
+  auto transformed = TTrackTransform(TAffine::rotation(pi / 2)).apply(a);
   require(std::abs(transformed.rotation - pi / 2) < 1e-10,
           "barrel rotation not transformed");
   require(std::abs(transformed.tilt.x + .25) < 1e-10 &&

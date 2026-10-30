@@ -210,6 +210,20 @@ class OracleCacheTest(unittest.TestCase):
             snapshots.append(path.read_bytes())
         self.assertEqual(*snapshots)
 
+    def test_rotation_roundtrip_guard_is_resource_only(self):
+        self.row["effectiveView"]["rotation"] = .0002104591497
+        (self.output / "oracle-status.json").write_bytes(cache.canonical(self.status))
+        with self.assertRaises(ValueError):
+            cache.acquisition(self.output, self.fixtures)
+        self.case["resourceProbe"] = {"kind": "original"}
+        self.row["resourceProbe"] = self.case["resourceProbe"]
+        (self.output / "oracle-status.json").write_bytes(cache.canonical(self.status))
+        cache.acquisition(self.output, self.fixtures)
+        self.row["effectiveView"]["rotation"] = .002
+        (self.output / "oracle-status.json").write_bytes(cache.canonical(self.status))
+        with self.assertRaises(ValueError):
+            cache.acquisition(self.output, self.fixtures)
+
     def test_cache_inventory_bounds(self):
         self.sealed()
         path = self.destination / "manifest.json"

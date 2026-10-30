@@ -287,6 +287,10 @@ int main(int argc, char **argv) {
       require(expected.size() == 72, "Incomplete HSV acquisition matrix");
     if (fixtures["group"].toString() == "distancesensors")
       require(expected.size() == 32, "Incomplete distance acquisition matrix");
+    if (fixtures["group"].toString() == "maskwash" ||
+        fixtures["group"].toString() == "maskbuildup")
+      require(expected.size() == 108,
+              "Incomplete masked-brush acquisition matrix");
     QStringList remaining;
     for (const auto &name : expected)
       remaining.append(name.toString());
@@ -301,6 +305,32 @@ int main(int argc, char **argv) {
     const QImage stripInitial = initial;
     for (const auto &value : oracle["records"].toArray()) {
       auto source = value.toObject();
+      const bool maskCase = fixtures["group"].toString() == "maskwash" ||
+                            fixtures["group"].toString() == "maskbuildup";
+      if (maskCase) {
+        const auto evidence = source["maskEvidence"].toObject();
+        require(
+            evidence["nestedMetadataVerified"].toBool() &&
+                evidence["deliveryVerified"].toBool() &&
+                !evidence["effectiveControls"].toObject().empty() &&
+                evidence["externalResourceDependencies"].isArray() &&
+                evidence["externalResourceDependencies"].toArray().empty() &&
+                evidence["sourceParityQualified"].isBool() &&
+                !evidence["sourceParityQualified"].toBool(),
+            "Missing qualified nested masking metadata or line evidence");
+        const auto controls = evidence["effectiveControls"].toObject();
+        const auto requested = source["overrides"].toObject();
+        for (auto it = requested.begin(); it != requested.end(); ++it)
+          if (!it.key().endsWith("brush_definition"))
+            require(controls[it.key()] == it.value(),
+                    "Masked acquisition effective setting differs");
+        require(!evidence["data"].toString().isEmpty() &&
+                    evidence["rect"].toArray().size() == 4,
+                "Missing masked acquisition region");
+        if (source["maskProbe"].toObject()["mode"].toString() == "off")
+          require(evidence["nonzeroAlphaPixels"].toInt() > 0,
+                  "Unmasked paired source control did not paint");
+      }
       const bool sensorCase =
           fixtures["group"].toString() == "tabletsensors" ||
           fixtures["group"].toString() == "spacingdynamics" ||
@@ -327,7 +357,8 @@ int main(int argc, char **argv) {
         }
         if (fixtures["group"].toString() == "hsvdynamics" ||
             fixtures["group"].toString() == "distancesensors") {
-          const auto foreground = evidence["effectiveForegroundDisplayRGBA8"].toArray();
+          const auto foreground =
+              evidence["effectiveForegroundDisplayRGBA8"].toArray();
           const auto requested = source["foregroundRGBA8"].toArray();
           require(foreground.size() == 4 && requested.size() == 4,
                   "Missing source foreground readback");
@@ -586,8 +617,8 @@ int main(int argc, char **argv) {
                 "Invalid stochastic candidate replicate or sequence");
         // Distinct reproducible native streams, not 100 replays of seed 1.
         // This does not presume any correspondence to the source RNG/seed.
-        p.seed = UINT64_C(0x9e3779b97f4a7c15) *
-                 std::uint64_t(int(replicate) + 1);
+        p.seed =
+            UINT64_C(0x9e3779b97f4a7c15) * std::uint64_t(int(replicate) + 1);
       }
       Canvas canvas(initial);
       Stroke stroke(canvas, p);
@@ -658,6 +689,31 @@ int main(int argc, char **argv) {
       metrics["preset"] = name;
       metrics["inputCase"] = source;
       metrics["candidateProfile"] = QString::fromStdString(p.profile);
+      if (fixtures["group"].toString() == "gihstatistics") {
+        const auto rect = source["resourceProbe"].toObject()["rect"].toArray();
+        require(rect.size() == 4, "Missing stochastic region");
+        const int left = rect[0].toInt(), top = rect[1].toInt(),
+                  width = rect[2].toInt(), height = rect[3].toInt();
+        require(left >= 0 && top >= 0 && width > 0 && width <= 2048 &&
+                    height > 0 && height <= 128 &&
+                    left + width <= candidate.width() &&
+                    top + height <= candidate.height(),
+                "Invalid bounded stochastic region");
+        QByteArray alpha;
+        alpha.reserve(width * height);
+        for (int y = 0; y < candidate.height(); ++y)
+          for (int x = 0; x < candidate.width(); ++x) {
+            const auto a = qAlpha(candidate.pixel(x, y));
+            if (x >= left && x < left + width && y >= top && y < top + height)
+              alpha.append(char(a));
+            else
+              require(a == 0, "Candidate random stroke escaped fixed region");
+          }
+        metrics["stochasticAlpha"] = QJsonObject{
+            {"rect", rect},
+            {"encoding", "zlib-base64-alpha8-row-major"},
+            {"data", QString::fromLatin1(qCompress(alpha).mid(4).toBase64())}};
+      }
       metrics["candidateSeed"] = QString::number(qulonglong(p.seed));
       metrics["sourceSemanticallySupported"] = false;
       metrics["sourceReferenceVerified"] = false;
@@ -702,6 +758,10 @@ int main(int argc, char **argv) {
         metrics["wetCandidatePassed"] = passed;
         if (!passed)
           failedHardCases.append(name);
+      }
+      if (maskCase) {
+        metrics["maskedAcquisitionInputsValidated"] = true;
+        metrics["sourceParityQualified"] = false;
       }
       if (sensorCase) {
         metrics["sensorAcquisitionInputsValidated"] = true;

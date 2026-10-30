@@ -77,7 +77,7 @@ def prepare(root, resources, preset_writer, group):
         preset_data = preset_writer(name, "dry", False, overrides, size, 4, 0)
         (resources / "paintoppresets" / (name + ".kpp")).write_bytes(preset_data)
         ns = "urn:oasis:names:tc:opendocument:xmlns:manifest:1.0"
-        manifest = Element("{" + ns + "}manifest")
+        manifest = Element("{" + ns + "}manifest", {"{" + ns + "}version": "1.2"})
         SubElement(manifest, "{" + ns + "}file-entry", {
             "{" + ns + "}full-path": "/", "{" + ns + "}media-type": "application/x-krita-resourcebundle"})
         package_name = "resource-" + str(index).zfill(3) + ".bundle"

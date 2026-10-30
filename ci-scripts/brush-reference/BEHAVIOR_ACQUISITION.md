@@ -92,3 +92,88 @@ Masked-brush acquisition must include the normative Multiply **and Subtract**
 modes described by the [official manual](https://docs.krita.org/en/reference_manual/brushes/brush_settings/masked_brush.html).
 Existing observed multiply/darken/burn examples do not substitute for Subtract;
 its exact serialized registry identifier still requires metadata evidence.
+
+### Original masked-brush acquisition
+
+`maskwash` and `maskbuildup` each contain108 paired cases: mask off,
+Multiply, Subtract; linked master-size coefficients .5/1 and independent-size;
+mask opacity/flow (1,1), (.5,1), (1,.5), (.5,.5); and independent spacing
+controls (primary,mask) (.25,.5), (.25,2), (2,.5). The24px round primary and
+12px rectangular half-aspect secondary are original embedded procedural tips,
+with no external resource lookup or asset licensing dependency. Each source
+stroke uses the public Node.paintLine API at pressure1. Every case repeats from
+an identical transparent canvas. Full-image output and bounded complete320x64
+BGRA captures are retained, including nested effective metadata and delivered
+line endpoints. Any painted pixels outside the capture fail acquisition.
+
+Pinned metadata sources (only serialization/registry facts used):
+
+- [KisPaintopSettingsIds.cpp](https://github.com/KDE/krita/blob/bd6e8d0/libs/image/brushengine/KisPaintopSettingsIds.cpp)
+  defines `MaskingBrush/Enabled`, `MaskingCompositeOp`, `UseMasterSize`,
+  `MasterSizeCoeff` and the `MaskingBrush/Preset/` nested prefix.
+- [KoCompositeOpRegistry.h](https://github.com/KDE/krita/blob/bd6e8d0/libs/pigment/KoCompositeOpRegistry.h)
+  identifies Multiply as `multiply` and Subtract as `subtract`, resolving the
+  prior Subtract identifier gap.
+- [KisPaintingModeOptionData.cpp](https://github.com/KDE/krita/blob/bd6e8d0/plugins/paintops/libpaintop/KisPaintingModeOptionData.cpp)
+  serializes Wash as2 and Build-up as1; these canonical values are used.
+- [KisMaskingBrushOptionProperties.cpp](https://github.com/KDE/krita/blob/bd6e8d0/plugins/paintops/libpaintop/KisMaskingBrushOptionProperties.cpp)
+  records independent master-size-link and coefficient fields, with nested
+  brush settings. No rendering implementation was used to generate these probes.
+
+All authored nested scalars and procedural geometry attributes must survive
+source effective-setting readback. Off controls must paint. Enabled results,
+including empty output, are explicitly exploratory observations, never accepted
+as parity. Build-up cases diagnose the manual's Wash-only behavior; preserving
+requested metadata does not prove the renderer applies masking in that mode.
+Mask opacity and flow remain independent dimensions; no source representation
+has been collapsed into the native secondary opacity control. These cases cover
+procedural resources only; bitmap secondary resources and broader sensor/dynamic
+interactions still need their own qualified acquisitions.
+
+### GIH statistical qualification gate
+
+`stochastic_gate.py` consumes100 source strokes and100 distinct native RNG seeds.
+Source execution is shuffled with the fixed acquisition-order seed0x47494831;
+records retain executionOrdinal and are then restored to canonical preset order
+for cache completeness. This order seed does not set or claim knowledge of the
+source application's opaque RNG. Each independently initialized native Stroke
+retains the existing distinct seed sequence. No pixel-seed correspondence is
+assumed.
+
+The fixed authored capture region is split into three equal-width spatial bands.
+Both applications must have zero painted alpha outside that region; shifted or
+extra output cannot be hidden by cropping. Each band measures:
+
+- coverage: fraction of nonzero-alpha pixels;
+- integrated alpha: alpha sum divided by255 and band area;
+- mean width: mean nonzero vertical coverage among occupied columns divided by
+  authored tip diameter (empty bands have width0);
+- occupied tips: fraction of authored separated tip cells with nonzero alpha,
+  with cells assigned to bands by their centers (not number of color classes or
+  connected components; original tips may have disconnected islands);
+- high-frequency alpha energy at fixed1,2,4,8px scales: average squared alpha
+  differences over horizontal and vertical pixel pairs within each band.
+
+All metrics are normalized; width is normalized by authored diameter, not canvas
+height, and occupied-tip count by the number of authored cells in the band.
+For each of the24 band/statistic combinations, independent bootstrap samples
+resample100 source and100 candidate strokes10,000 times with fixed analysis seed
+0x52435031. Conservative2.5%/97.5% order-statistic endpoints must lie wholly
+within ±max(.01,.05×abs(reference mean)). The candidate/reference sample-SD
+ratio must also lie within[.8,1.25], except where both sample variances are
+below the normalized .01 floor specified by RCP1. A zero reference variance
+with nonexempt nonzero candidate variance fails. No failed bands are averaged
+away. Reports retain all per-stroke measurements and interval/variance results;
+any failed gate makes CI fail. A pass is statistical verification of this original
+fixture only, not universal GIH fidelity or pixel verification. Artist-selected
+fixture review remains separate.
+
+The stdlib-only decoder caps each region at2048×128, bounds compressed payloads
+and decompression, and rejects trailing/incomplete streams. Bootstrap arrays are
+bounded to100 strokes and10,000 results per metric. CI runs rejection/geometry
+unit checks and the actual source/candidate gate; no local tests were run.
+
+Bitmap source job124326039148 recorded requested90deg as90.0002104591497deg
+while all other view modifiers matched. Resource-only view roundtrip tolerance
+is therefore .001deg (at16px diameter, tip-edge displacement below .00014px).
+Actual readback stays in the report; rendering fidelity tolerances are unchanged.
