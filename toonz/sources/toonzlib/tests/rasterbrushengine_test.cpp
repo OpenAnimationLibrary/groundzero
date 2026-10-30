@@ -770,6 +770,29 @@ void testSourceDefaultCircle() {
     require(!validate(p).empty(), "unqualified small-tip AA sampling accepted");
   }
 }
+void testSourceWashLattice() {
+  Preset p;
+  p.profile            = "krita-5.3.4.1-hard-pixel-candidate-1";
+  p.size.value         = 32;
+  p.tip.hardness       = 1;
+  p.tip.antialiasEdges = false;
+  p.wash               = true;
+  p.flow.value         = .25;
+  p.spacing            = .1;
+  Canvas canvas;
+  Stroke stroke(canvas, p);
+  require(stroke.add(sample(32, 64, 0)), stroke.error().c_str());
+  require(stroke.add(sample(96, 64, 1)), stroke.error().c_str());
+  stroke.finish();
+  // Source tablet alpha window at (768,1024), translated by (-736,-960).
+  // Fixed .1 spacing and quarter flow expose individual overlapping dabs.
+  const int captured[][3] = {{16, 64, 0},   {17, 64, 64},  {20, 64, 112},
+                             {23, 64, 148}, {26, 64, 175}, {29, 64, 195},
+                             {20, 74, 64},  {29, 79, 64}};
+  for (const auto &pixel : captured)
+    require(std::abs(canvas.read(pixel[0], pixel[1]).a * 255 - pixel[2]) <= 1,
+            "source wash dab placement differs from captured tablet alpha");
+}
 void testSourceSmallCircle() {
   Preset p;
   p.profile            = "krita-5.3.4.1-default-circle-candidate-1";
@@ -865,6 +888,7 @@ int main() {
     testColorDynamics();
     testCubicCurves();
     testSourceDefaultCircle();
+    testSourceWashLattice();
     testSourceSmallCircle();
     testSourceHardCircleAA();
     testSourceRectangle();

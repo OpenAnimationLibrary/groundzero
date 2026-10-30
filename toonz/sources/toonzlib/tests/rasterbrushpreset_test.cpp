@@ -786,11 +786,17 @@ void testWorkerProcess() {
     process.start(QCoreApplication::applicationFilePath(),
                   {"--test-sandbox-worker", input.fileName(), output.path(),
                    forbidden.fileName()});
-    require(process.waitForFinished(10000) &&
-                process.exitStatus() == QProcess::NormalExit &&
+    const bool finished = process.waitForFinished(10000);
+    const QString detail =
+        QString("Linux sandbox probe: finished=%1 exit=%2 status=%3 stderr=%4")
+            .arg(finished)
+            .arg(process.exitCode())
+            .arg(int(process.exitStatus()))
+            .arg(QString::fromUtf8(process.readAllStandardError()).left(2048));
+    require(finished && process.exitStatus() == QProcess::NormalExit &&
                 process.exitCode() == 0 &&
                 QFileInfo::exists(output.filePath("sandbox-passed")),
-            "Linux sandbox did not enforce file/network/process isolation");
+            detail.toUtf8().constData());
     require(
         forbidden.open(QIODevice::ReadOnly) && forbidden.readAll() == "private",
         "sandbox modified an unrelated file");

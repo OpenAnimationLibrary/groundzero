@@ -12,6 +12,7 @@
 #include <QSaveFile>
 #include <QTemporaryDir>
 #include <set>
+#include <cstdio>
 #ifndef _WIN32
 #include <sys/resource.h>
 #endif
@@ -43,24 +44,29 @@ bool restrictLinuxImport(const QString &input, const QString &directory) {
 #if defined(SYS_landlock_create_ruleset) && defined(SYS_landlock_add_rule) &&  \
     defined(SYS_landlock_restrict_self) &&                                     \
     (defined(__x86_64__) || defined(__aarch64__))
+  auto failed = [](const char *stage) {
+    std::fprintf(stderr, "Import isolation failed at %s (errno %d)\n", stage,
+                 errno);
+    return false;
+  };
   // Landlock scopes the calling thread and its future children. Refuse a
   // process that already has another thread before applying the restrictions.
   if (QDir("/proc/self/task")
           .entryList(QDir::Dirs | QDir::NoDotAndDotDot)
           .size() != 1)
-    return false;
+    return failed("single-thread precondition");
   // ABI 3 controls truncation as well as ordinary reads/writes. There is no
   // fallback to unrestricted decoding when the kernel lacks this boundary.
   const int abi = int(syscall(SYS_landlock_create_ruleset, nullptr, 0,
                               LANDLOCK_CREATE_RULESET_VERSION));
-  if (abi < 3) return false;
+  if (abi < 3) return failed("Landlock ABI >= 3");
   constexpr uint64_t truncateAccess = uint64_t(1) << 14;
   constexpr uint64_t referAccess    = uint64_t(1) << 13;
   landlock_ruleset_attr attributes{};
   attributes.handled_access_fs = (uint64_t(1) << 15) - 1;
   const int rules              = int(
       syscall(SYS_landlock_create_ruleset, &attributes, sizeof(attributes), 0));
-  if (rules < 0) return false;
+  if (rules < 0) return failed("Landlock ruleset creation");
   auto allow = [&](const QString &path, uint64_t access) {
     const QByteArray native = QFile::encodeName(path);
     const int fd            = open(native.constData(), O_PATH | O_CLOEXEC);
@@ -83,7 +89,7 @@ bool restrictLinuxImport(const QString &input, const QString &directory) {
                           prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) == 0 &&
                           syscall(SYS_landlock_restrict_self, rules, 0) == 0;
   close(rules);
-  if (!restricted) return false;
+  if (!restricted) return failed("Landlock path restrictions");
     // A small syscall allowlist complements Landlock: no sockets, subprocesses,
     // executable loading, ptrace, cross-process memory access or mount changes.
     // All codec initialization happens before this boundary; the worker is a
@@ -153,7 +159,8 @@ bool restrictLinuxImport(const QString &input, const QString &directory) {
   }
   filter.push_back(BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | EPERM));
   sock_fprog program{static_cast<unsigned short>(filter.size()), filter.data()};
-  return prctl(PR_SET_SECCOMP, SECCOMP_MODE_FILTER, &program) == 0;
+  return prctl(PR_SET_SECCOMP, SECCOMP_MODE_FILTER, &program) == 0 ||
+         failed("seccomp installation");
 #else
   return false;
 #endif
@@ -246,8 +253,14 @@ int probeImportSandbox(const QString &input, const QString &directory,
   const char *argv[] = {"true", nullptr};
   syscall(SYS_execve, "/bin/true", argv, nullptr);
   if (errno != EPERM) return 6;
-  return writeFile(QDir(directory).filePath("sandbox-passed"), "passed") ? 0
-                                                                         : 7;
+  QSaveFile marker(QDir(directory).filePath("sandbox-passed"));
+  if (!marker.open(QIODevice::WriteOnly) || marker.write("passed") != 6 ||
+      !marker.commit()) {
+    const QByteArray reason = marker.errorString().toUtf8();
+    write(STDERR_FILENO, reason.constData(), size_t(reason.size()));
+    return 7;
+  }
+  return 0;
 }
 #endif
 

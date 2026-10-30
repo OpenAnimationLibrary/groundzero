@@ -758,9 +758,8 @@ struct Stroke::Impl {
       // Independently measured K5341 hard-circle lattice: integer x and
       // half-integer y distances from an integral API stroke position. The
       // native profile retains its pixel-center convention unchanged.
-      const double sourceOffset =
-          sourcePixelProfile(p.profile) && !p.wash ? .5 : 0;
-      const double cx = s.x + sourceOffset +
+      const double sourceOffset = sourcePixelProfile(p.profile) ? .5 : 0;
+      const double cx           = s.x + sourceOffset +
                         (p.scatterBothAxes ? scatterX
                                            : -std::sin(direction) * scatterX),
                    cy = s.y + (p.scatterBothAxes
