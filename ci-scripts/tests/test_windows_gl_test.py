@@ -1,5 +1,5 @@
 """CI-only contracts for temporary Windows renderer setup and failure handling."""
-from contextlib import contextmanager
+from contextlib import contextmanager, ExitStack
 import io
 import os
 from pathlib import Path
@@ -69,17 +69,62 @@ class CapturedProcessLifecycleTest(unittest.TestCase):
             with self.subTest(status=status):
                 process = Mock(pid=123, returncode=status)
                 process.wait.return_value = status
+                process.poll.return_value = status
                 result, state, invocation, _, cleanup, _ = self.invoke(process, output=output)
                 self.assertIsInstance(result, subprocess.CompletedProcess)
-                self.assertEqual(result.stdout, output)
+                self.assertTrue(result.stdout.endswith(output))
                 self.assertEqual(result.returncode, status)
                 self.assertTrue(state["safe_to_release"])
                 self.assertFalse(invocation["capture_exists_after"])
                 self.assertEqual(invocation["env"], {"TEST_SENTINEL": "preserved"})
                 self.assertEqual(invocation["stderr"], subprocess.STDOUT)
                 self.assertFalse(invocation.get("start_new_session", False))
-                process.wait.assert_called_once_with(timeout=17)
                 process.communicate.assert_not_called()
+                if status == 0:
+                    self.assertEqual(result.stdout, output)
+                    process.wait.assert_called_once_with(timeout=17)
+                    cleanup.assert_not_called()
+                else:
+                    cleanup.assert_called_once()
+                    self.assertEqual(process.wait.call_args_list[0].kwargs, {"timeout": 17})
+                    self.assertLessEqual(process.wait.call_args_list[-1].kwargs["timeout"], 15)
+
+    def test_returned_failure_keeps_original_status_when_tree_cleanup_is_uncertain(self):
+        for status in (23, 0xC0000005):
+            with self.subTest(status=status):
+                process = Mock(pid=123, returncode=status)
+                process.wait.return_value = status
+                process.poll.return_value = status
+                cleanup = Mock(return_value=SimpleNamespace(returncode=128, stdout=b"tree unknown\n"))
+                result, state, invocation, _, _, _ = self.invoke(process, taskkill=cleanup)
+                self.assertIsInstance(result, subprocess.CompletedProcess)
+                self.assertEqual(result.returncode, status)
+                self.assertTrue(result.stdout.endswith(b"captured \xff\n"))
+                self.assertIn(f"status {status} (0x{status & 0xffffffff:08X})".encode(), result.stdout)
+                self.assertFalse(state["safe_to_release"])
+                self.assertTrue(invocation["capture_exists_after"])
+                self.assertEqual(invocation["capture_bytes_after"], b"captured \xff\n")
+                process.kill.assert_not_called()
+                cleanup.assert_called_once()
+
+    def test_returned_posix_signal_requires_whole_group_exit_before_release(self):
+        for survives in (False, True):
+            with self.subTest(descendant_survives=survives):
+                process = Mock(pid=123, returncode=-11)
+                process.wait.return_value = -11
+                process.poll.return_value = -11
+                result, state, invocation, _, cleanup, native_os = self.invoke(
+                    process, platform="posix", group_survives=survives,
+                    monotonic=[0, 0, 0, 15, 16] if survives else None)
+                self.assertIsInstance(result, subprocess.CompletedProcess)
+                self.assertEqual(result.returncode, -11)
+                self.assertTrue(result.stdout.endswith(b"captured \xff\n"))
+                self.assertEqual(state["safe_to_release"], not survives)
+                self.assertEqual(invocation["capture_exists_after"], survives)
+                if survives:
+                    self.assertIn(b"status -11 (0xFFFFFFF5)", result.stdout)
+                native_os.killpg.assert_any_call(123, 9)
+                native_os.killpg.assert_any_call(123, 0)
                 cleanup.assert_not_called()
 
     def test_launch_error_does_not_mark_unstarted_process_unsafe(self):
@@ -195,6 +240,45 @@ class CapturedProcessLifecycleTest(unittest.TestCase):
 
 
 class IsolatedFixtureLifetimeTest(unittest.TestCase):
+    def test_returned_crash_retains_fixture_capture_and_mesa_on_uncertain_tree(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "stuff"; source.mkdir()
+            executable = root / "fixture.exe"; executable.touch()
+            runtime = root / "runtime"; runtime.mkdir()
+            for name in ("opengl32.dll", "libgallium_wgl.dll"):
+                (runtime / name).write_bytes(b"test-only-placeholder")
+            native_os = Mock(wraps=os); native_os.name = "nt"
+            process = Mock(pid=123, returncode=0xC0000005)
+            process.wait.return_value = process.poll.return_value = 0xC0000005
+            raw = b"flushed converter checkpoint \xff\n"
+            def launch(*args, **kwargs):
+                kwargs["stdout"].write(raw); kwargs["stdout"].flush()
+                return process
+            state = {"safe_to_release": True}
+            fixture = result = None
+            try:
+                with patch.object(native, "os", native_os), \
+                        patch.object(native.subprocess, "Popen", side_effect=launch), \
+                        patch.object(native.subprocess, "run", return_value=SimpleNamespace(
+                            returncode=128, stdout=b"descendants unknown\n")):
+                    with self.assertRaisesRegex(RuntimeError, "retained"):
+                        with native.isolated_fixture(source, executable, runtime,
+                                runtime_state=state) as (fixture, environment):
+                            result = native.run_captured_process([str(executable)],
+                                cwd=fixture, environment=environment, timeout=17, runtime_state=state)
+                self.assertIsInstance(result, subprocess.CompletedProcess)
+                self.assertEqual(result.returncode, 0xC0000005)
+                self.assertTrue(result.stdout.endswith(raw))
+                self.assertFalse(state["safe_to_release"])
+                self.assertTrue(fixture.is_dir())
+                self.assertEqual(Path(state["capture_path"]).read_bytes(), raw)
+                for name in ("opengl32.dll", "libgallium_wgl.dll", "fixture.exe.local"):
+                    self.assertTrue((root / name).is_file(), name)
+            finally:
+                if fixture is not None and fixture.exists():
+                    native.shutil.rmtree(fixture)
+
     def test_safe_fixture_is_removed_and_original_data_unchanged(self):
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "stuff"
@@ -378,6 +462,48 @@ class WindowsGlTest(unittest.TestCase):
 
 
 class NativeOffscreenCheckpointTest(unittest.TestCase):
+    def test_unsafe_primary_failure_does_not_launch_any_diagnostics(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            executable = root / "fixture.exe"; executable.touch()
+            source = root / "stuff"; source.mkdir()
+            report = root / "output.txt"
+            raw = b"last native checkpoint \xff\n"
+            @contextmanager
+            def fixture(*args, **kwargs):
+                try:
+                    yield root, {}
+                finally:
+                    if not kwargs["runtime_state"]["safe_to_release"]:
+                        raise RuntimeError("fixture retained")
+            def launch(command, **options):
+                options["runtime_state"].update(safe_to_release=False, output=raw)
+                return subprocess.CompletedProcess(command, 0xC0000005, raw)
+            arguments = ["native-runner", str(executable), str(source),
+                         "--output", str(report), "--windows-crash-debugger"]
+            supports_combined = hasattr(native, "combined_failure_diagnostics")
+            if supports_combined:
+                arguments.append("--require-combined-workflows")
+            native_os = Mock(wraps=os); native_os.name = "nt"
+            with ExitStack() as stack:
+                stack.enter_context(patch.object(native, "os", native_os))
+                stack.enter_context(patch.object(native, "isolated_fixture", fixture))
+                captured = stack.enter_context(patch.object(native, "run_captured_process", side_effect=launch))
+                debugger = stack.enter_context(patch.object(native, "windows_crash_diagnostics"))
+                combined = stack.enter_context(patch.object(native, "combined_failure_diagnostics")) if supports_combined else None
+                stack.enter_context(patch.object(sys, "argv", arguments))
+                stack.enter_context(patch.object(sys, "stdout", io.StringIO()))
+                status = native.main()
+            self.assertEqual(status, 1)
+            output = report.read_text(encoding="utf-8")
+            self.assertIn("last native checkpoint \ufffd", output)
+            self.assertIn("0xC0000005", output)
+            self.assertIn("retained", output)
+            captured.assert_called_once()
+            debugger.assert_not_called()
+            if combined is not None:
+                combined.assert_not_called()
+
     def invoke(self, result, *, offline=True, function=False):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
