@@ -3,6 +3,7 @@ import faulthandler
 import base64
 import hashlib
 import json
+import math
 import os
 import zlib
 from pathlib import Path
@@ -92,8 +93,27 @@ class Probe(Extension):
                 view.setBrushSize(case["diameter"])
                 view.setPaintingOpacity(case["opacity"])
                 view.setPaintingFlow(case["flow"])
+                view.setBrushRotation(0)
+                view.setEraserMode(False)
+                view.setGlobalAlphaLock(False)
+                view.setDisablePressure(False)
                 view.setForeGroundColor(ManagedColor.fromQColor(QColor(220, 40, 30, 255), view.canvas()))
                 view.canvas().setZoomLevel(1.0)
+                effective_view = {"diameter": view.brushSize(), "opacity": view.paintingOpacity(),
+                                  "flow": view.paintingFlow(), "rotation": view.brushRotation(),
+                                  "blend": view.currentBlendingMode(), "eraser": view.eraserMode(),
+                                  "alphaLock": view.globalAlphaLock(), "disablePressure": view.disablePressure()}
+                # The UI may quantize opacity/flow to one byte. Record that
+                # value rather than pretending requested and effective values
+                # are necessarily identical. Do not tune candidate inputs to
+                # this observation: source quantization belongs in its profile.
+                if abs(effective_view["diameter"] - case["diameter"]) > 1e-5 or any(
+                        abs(effective_view[key] - case[key]) > 1 / 255 + 1e-9
+                        for key in ("opacity", "flow")):
+                    raise RuntimeError("Source view did not apply requested brush controls")
+                if (effective_view["rotation"] != 0 or effective_view["blend"] != "normal" or
+                        any(effective_view[key] for key in ("eraser", "alphaLock", "disablePressure"))):
+                    raise RuntimeError("Source view retained an unexpected painting modifier")
                 # Read back the selected source settings through the public API;
                 # handwritten input XML alone does not establish effective state.
                 effective_xml = Preset(view.currentBrushPreset()).toXML()
@@ -134,12 +154,20 @@ class Probe(Extension):
                     # Exact alpha coverage around all seven short strokes.
                     # This small window is diagnostic; comparison still uses
                     # both full-canvas changed sets and their union.
+                    if fixtures.get("group") == "geometry":
+                        side = math.ceil(case["diameter"]) + 10
+                        left = math.floor(case["start"][0] - case["diameter"] / 2) - 4
+                        top = math.floor(case["start"][1] - case["diameter"] / 2) - 4
+                        rect = [left, top, side, side]
+                    else:
+                        rect = [232, 1000, 80, 48]
+                    left, top, width, height = rect
                     alpha = bytes(raw[(y * w + x) * 4 + 3]
-                                  for y in range(1000, 1048)
-                                  for x in range(232, 312))
-                    geometry = {"rect": [232, 1000, 80, 48], "encoding": "zlib-base64-alpha8-row-major",
+                                  for y in range(top, top + height)
+                                  for x in range(left, left + width))
+                    geometry = {"rect": rect, "encoding": "zlib-base64-alpha8-row-major",
                                 "data": base64.b64encode(zlib.compress(alpha)).decode("ascii")}
-                report["records"].append({**case, "image": filename, "sha256Pixels": hashlib.sha256(raw).hexdigest(), "profile": document.colorProfile(), "input": "Node.paintLine", "changed": raw != initial, "centerlineRGBA8": samples, "geometryProbe": geometry, "effectivePresetXml": effective_name, "effectivePresetSha256": hashlib.sha256(effective_xml.encode()).hexdigest(), "effectiveWetControls": controls})
+                report["records"].append({**case, "image": filename, "sha256Pixels": hashlib.sha256(raw).hexdigest(), "profile": document.colorProfile(), "input": "Node.paintLine", "changed": raw != initial, "centerlineRGBA8": samples, "geometryProbe": geometry, "effectiveView": effective_view, "effectivePresetXml": effective_name, "effectivePresetSha256": hashlib.sha256(effective_xml.encode()).hexdigest(), "effectiveWetControls": controls})
                 checkpoint(name + ": saved output")
                 # Return to Qt between independent strokes. Calling processEvents
                 # inside paint/document operations reentered native consumers;

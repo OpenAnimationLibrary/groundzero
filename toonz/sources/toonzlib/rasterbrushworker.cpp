@@ -91,6 +91,12 @@ ImportResult importBrushProcess(const QString &executable, const QString &path,
   process.setArguments({"--raster-brush-import-worker",
                         QFileInfo(path).absoluteFilePath(), directory.path()});
   process.setWorkingDirectory(directory.path());
+  // Decoder console output is not part of the result protocol. Redirect it
+  // at process creation: draining QProcess later still permits its internal
+  // buffers to grow while a noisy decoder is running. Bounded error.txt and
+  // result.json remain the only parent-visible diagnostics.
+  process.setStandardOutputFile(QProcess::nullDevice());
+  process.setStandardErrorFile(QProcess::nullDevice());
   process.start();
   if (!process.waitForStarted(5000)) {
     error = "Cannot start brush import worker: " + process.errorString();
@@ -100,9 +106,6 @@ ImportResult importBrushProcess(const QString &executable, const QString &path,
   elapsed.start();
   while (process.state() != QProcess::NotRunning) {
     process.waitForFinished(50);
-    // Drain diagnostics without retaining unbounded decoder output.
-    process.readAllStandardOutput();
-    process.readAllStandardError();
     if (stopped() || elapsed.elapsed() > 120000) {
       process.kill();
       process.waitForFinished(5000);

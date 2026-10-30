@@ -79,9 +79,14 @@ jobs:
             brush-import-peak-memory.txt
             brush-import-budget.log
   krita:
+    strategy:
+      fail-fast: false
+      matrix:
+        fixture_group: [parameters, geometry]
     runs-on: ubuntu-22.04
     timeout-minutes: 20
     env:
+      BRUSH_REFERENCE_GROUP: ${{ matrix.fixture_group }}
       BRUSH_REFERENCE_ROOT: ${{ github.workspace }}/brush-reference-run
     steps:
       - uses: actions/checkout@v6
@@ -172,6 +177,8 @@ jobs:
               probes = []
               for row in result.get('records', []):
                   probe = {key: row.get(key) for key in ('preset', 'changed', 'effectivePresetSha256')}
+                  view = row.get('effectiveView', {})
+                  probe['view'] = [view.get(key) for key in ('diameter', 'opacity', 'flow')]
                   controls = row.get('effectiveWetControls', {})
                   probe['wet'] = [controls.get(key) for key in ('SmudgeRateValue', 'ColorRateValue', 'SmudgeRadiusValue', 'PressureSmudgeRate', 'SmudgeRateUseNewEngine', 'SmudgeRateMode', 'SmudgeRateSmearAlpha')]
                   probe['centerlineRGBA8'] = [sample for sample in row.get('centerlineRGBA8', []) if sample[0] in (256, 384, 512, 640, 768, 896, 1024, 1152)]
@@ -192,10 +199,9 @@ jobs:
           from pathlib import Path
           path = Path(os.environ['BRUSH_REFERENCE_ROOT']) / 'output' / 'oracle-status.json'
           if path.is_file():
-              for row in json.loads(path.read_text()).get('records', []):
-                  if row.get('geometryProbe') is None:
-                      continue
-                  text = json.dumps({'preset': row['preset'], **row['geometryProbe']}, separators=(',', ':'))
+              probes = [{'preset': row['preset'], **row['geometryProbe']} for row in json.loads(path.read_text()).get('records', []) if row.get('geometryProbe') is not None]
+              for start in range(0, len(probes), 2):
+                  text = json.dumps(probes[start:start + 2], separators=(',', ':'))
                   if len(text.encode()) > 3900:
                       raise RuntimeError('Geometry probe exceeds annotation limit')
                   print('::notice title=Exact source alpha probe; not parity::' + text.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A'))
@@ -259,7 +265,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: krita-reference-${{ github.sha }}
+          name: krita-reference-${{ matrix.fixture_group }}-${{ github.sha }}
           path: |
             brush-reference-run/output/
             brush-reference-run/data/krita/paintoppresets/

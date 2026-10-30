@@ -73,3 +73,13 @@ Short-stroke geometry probes use a transparent canvas and retain an exact
 alpha8 bytes compressed with zlib/base64. The same manifest background is used
 by the candidate renderer. The diagnostic window never replaces the full-canvas
 union comparison or permits cropping away stray paint.
+
+A separate `geometry` job renders twelve original one-dab cases: diameters
+1, 7, 8, 32, 64 and 128, each with antialiasing disabled and enabled. Spacing
+is five diameters and the line length is one pixel, so each case isolates the
+initial dab. These size and edge-mode observations complement the 79-case
+`parameters` group; they do not replace any parameter case. The geometry alpha
+window is sized from the declared diameter. Both jobs retain independent
+artifacts and validate requested diameter, opacity, flow and painting modifiers
+through the public View API; effective UI values are recorded separately from
+requested values, including possible one-byte opacity/flow quantization.
