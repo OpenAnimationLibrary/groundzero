@@ -93,6 +93,13 @@ copied. Earlier runs through `a0ef97ea` omitted these fields and therefore
 measured source defaults, not the fixed-precision contract. They remain useful
 diagnostic evidence but must not be promoted to that contract's reference set.
 
+Each geometry case is rendered three times, and each of the five dry/wet
+baselines twice, after a full reset and a return to the Qt event loop. These
+fixtures disable random dynamics, so full-canvas bytes must match exactly.
+Per-repetition hashes are retained; a mismatch fails the oracle workload and
+records the preset and repetition. This checks source repeatability only, not
+candidate fidelity or stochastic-brush distribution equivalence.
+
 At integrated head `31a0bee6`, the one-pixel, antialias-off, integer-coordinate
 one-dab fixture returned an unchanged transparent raster. Its old nonempty guard
 was invalid for this aliasing boundary. The fixture now requires that exact

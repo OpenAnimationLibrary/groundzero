@@ -143,6 +143,25 @@ class Probe(Extension):
                     raise RuntimeError("Reference API stroke produced no changed pixels")
                 if raw != initial and case.get("expectUnchanged", False):
                     raise RuntimeError("Source no-op boundary case unexpectedly changed pixels")
+                repeat_hashes = [hashlib.sha256(raw).hexdigest()]
+                repetitions = 3 if fixtures.get("group") == "geometry" else (2 if case.get("variant") == "baseline" else 1)
+                for repetition in range(1, repetitions):
+                    # These fixtures disable random dynamics. Independent
+                    # strokes must start from the same raster and must not
+                    # inherit reservoirs or deferred state from the last one.
+                    yield
+                    if not node.setPixelData(QByteArray(initial), 0, 0, w, h):
+                        raise RuntimeError("Cannot reset repeated reference raster")
+                    document.refreshProjection()
+                    document.waitForDone()
+                    node.paintLine(QPoint(*case["start"]), QPoint(*case["end"]), *case["pressure"], "ForegroundColor")
+                    document.waitForDone()
+                    repeated = bytes(node.pixelData(0, 0, w, h))
+                    repeat_hashes.append(hashlib.sha256(repeated).hexdigest())
+                    if repeated != raw:
+                        (output / "repeat-failure.json").write_text(json.dumps({"preset": name, "repetition": repetition, "sha256Pixels": repeat_hashes}, indent=2))
+                        raise RuntimeError("Deterministic source fixture changed across independent strokes: " + name)
+                    del repeated
                 image = QImage(raw, w, h, w * 4, QImage.Format_ARGB32).copy()
                 filename = name.replace(" ", "_") + ".png"
                 if not image.save(str(output / filename), "PNG"):
@@ -172,7 +191,7 @@ class Probe(Extension):
                                   for x in range(left, left + width))
                     geometry = {"rect": rect, "encoding": "zlib-base64-alpha8-row-major",
                                 "data": base64.b64encode(zlib.compress(alpha)).decode("ascii")}
-                report["records"].append({**case, "image": filename, "sha256Pixels": hashlib.sha256(raw).hexdigest(), "profile": document.colorProfile(), "input": "Node.paintLine", "changed": raw != initial, "centerlineRGBA8": samples, "geometryProbe": geometry, "effectiveView": effective_view, "effectivePresetXml": effective_name, "effectivePresetSha256": hashlib.sha256(effective_xml.encode()).hexdigest(), "effectiveWetControls": controls})
+                report["records"].append({**case, "image": filename, "sha256Pixels": hashlib.sha256(raw).hexdigest(), "repeatSha256Pixels": repeat_hashes, "profile": document.colorProfile(), "input": "Node.paintLine", "changed": raw != initial, "centerlineRGBA8": samples, "geometryProbe": geometry, "effectiveView": effective_view, "effectivePresetXml": effective_name, "effectivePresetSha256": hashlib.sha256(effective_xml.encode()).hexdigest(), "effectiveWetControls": controls})
                 checkpoint(name + ": saved output")
                 # Return to Qt between independent strokes. Calling processEvents
                 # inside paint/document operations reentered native consumers;

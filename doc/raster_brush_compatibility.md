@@ -17,15 +17,15 @@ satisfy the contract. Build and test through CI per CLAUDE.md.
 | Existing ABR input and allocation budgets, exact subversion guards | Implemented | CI parser fixtures at the PR head |
 | Collection installation without overwriting or partial writes | Legacy ABR staging and native atomic collection staging implemented | Invalid-member, cancellation, reimport and conflict tests; packaged application fault-injection review pending |
 | Versioned native IR and decoded/supported/verified status separation | Native v1 implemented; foreign semantics remain separate | Package round-trip, missing resource, checksum, enum and version tests in CI |
-| ABR descriptor/computed-tip/pattern behavioral import | Planned | Every declared version and active setting |
+| ABR descriptor/computed-tip/pattern behavioral import | Typed descriptor decoding and legacy 1/2 computed-tip native conversion implemented; modern behavioral binding and patterns pending | Every declared version and active setting; decoding is not behavioral support |
 | KPP/bundle/GBR/GIH import | GBR 1/2 and one-dimensional GIH native conversions; KPP native conversion with bounded bundle dependency resolution | Original generated fixtures; conversions explicitly do not claim source semantics |
 | Independent dry renderer and defined dynamics/combinations | Native CPU renderer implemented; foreign profiles planned | Numeric native tests; source-reference gates pending |
 | Four Krita smudge profiles and native wet | Native wet/smear implemented; four source models still planned | Native deterministic pickup tests; foreign models must not alias native wet |
-| Real tilt/rotation capture and normalization | Additive Qt tablet fields and track interpolation implemented | Full app CI and device qualification pending |
-| Actual-engine preview, editor, portable preset export/relink | Native scratchpad, sensor/curve/texture/dual/color editor and embedded-asset export implemented | Cross-platform package CI passes; application workflows pending |
-| Undo/cancel/frame lifecycle/save/reopen | Native path uses raster undo; cancellation rolls back tiles and created frame | Actual-tool undo, redo, cancellation, frame creation and PNG reopen workload added; full application CI pending |
+| Real tilt/rotation capture and normalization | Additive Qt tablet fields and track interpolation implemented | Linux full application CI passes; physical device qualification pending |
+| Actual-engine preview, editor, portable preset export/relink | Native scratchpad, sensor/curve/texture/dual/color editor and embedded-asset export implemented | Six platform/Qt suites passed at `a0ef97ea`; full editor device workflows still require qualification |
+| Undo/cancel/frame lifecycle/save/reopen | Native path uses raster undo; cancellation rolls back tiles and created frame | Linux actual-tool and installed-package undo, redo, cancellation, frame creation and PNG reopen workloads passed at `31a0bee6`; exact final head and other installed platforms remain gates |
 | Parser isolation/fuzzing/cancel and complete resource budgets | Bounded readers and cancellable worker implemented; libFuzzer target and original corpus added; worker-process crash containment implemented; privilege sandboxing and sustained qualification pending | Sanitizers, malformed corpus, cancellation and limits |
-| Packaged Windows/macOS/Linux QA and performance | Planned | Exact-head artifacts and hardware results |
+| Packaged Windows/macOS/Linux QA and performance | Installed application brush workloads wired on all three platforms; native numeric/performance CI implemented | Linux package workload passed; final Windows/macOS package results and hardware latency remain pending |
 | Optional named-pack parity including any wet/Mixer/bristle/TPL expansion | No named pack required for the chosen RCP1 target | A future expansion needs pack revision/preset identity and authorized reference access; it does not block the original-fixture implementation |
 
 No planned or unresolved row can be counted as completed by passing the current
