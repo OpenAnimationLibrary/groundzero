@@ -41,9 +41,13 @@
 #include <QComboBox>
 #include <QDialog>
 #include <QDialogButtonBox>
+#include <QDir>
 #include <QDoubleSpinBox>
 #include <QEventLoop>
 #include <QFile>
+#include <QFileDialog>
+#include <QFileInfo>
+#include <QInputDialog>
 #include <QImage>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -150,6 +154,168 @@ void modal(FunctionViewer *viewer, const char *dialogName, const std::function<v
   deadline.stop();
   require(visited, "Native modal callback was not reached");
   if (!failure.isEmpty()) throw std::runtime_error(failure.toStdString());
+}
+void ownerRemovalDialogs(FunctionViewer *viewer, FunctionTreeView *tree,
+                         FunctionPanel *graph, TXsheet *sheet,
+                         TXshSimpleLevel *level, TDoubleParam *stable,
+                         const QTemporaryDir &directory) {
+  checkpoint("rejecting pending edits after native column/offset/FX owner removal");
+  auto *app = TApp::instance();
+  auto *undo = TUndoManager::manager();
+  auto *edit = viewer->findChild<QToolButton *>("FunctionEditKeys");
+  auto *presets = viewer->findChild<QAction *>("FunctionMotionPresetsAction");
+  require(edit && presets, "Owner-removal fixture actions are missing");
+  const QString library = (ToonzFolder::getMyModuleDir() + TFilePath("function-presets")).getQString();
+  require(QDir().mkpath(library), "Owner-removal preset fixture folder is unavailable");
+  const QString presetPath = QDir(library).filePath("Owner guard fixture.fcurve");
+  const QString forbiddenPath = QDir(library).filePath("Removed owner must not publish.fcurve");
+  require(!QFileInfo::exists(presetPath) && !QFileInfo::exists(forbiddenPath),
+          "Owner-removal preset names are not isolated");
+  enum Route { Edit, Preset, SaveName, ImportFile, ImportName, EmptyCells };
+  const std::vector<std::pair<int, Route>> cases{{0, Edit}, {1, Edit}, {2, Edit},
+      {0, Preset}, {1, Preset}, {2, Preset}, {2, SaveName}, {0, ImportFile}, {1, ImportName},
+      {0, EmptyCells}, {1, EmptyCells}, {2, EmptyCells}};
+  for (const auto &test : cases) {
+    const int column = sheet->getColumnCount();
+    require(sheet->setCell(0, column, TXshCell(level, TFrameId(1))),
+            "Cannot create disposable owner-removal column");
+    TStageObjectP object = sheet->getStageObject(TStageObjectId::ColumnId(column));
+    TFxP fx;
+    TDoubleParamP target;
+    if (test.first == 0) target = object->getParam(TStageObject::T_X);
+    else if (test.first == 1) {
+      object->insertOffsetLayer(0, object->createOffsetLayer(L"Pending edit owner"));
+      target = object->getOffsetParam(0, TStageObject::T_X);
+    } else {
+      fx = TFx::create("STD_blurFx");
+      require(fx, "Cannot create owner-removal effect");
+      sheet->getFxDag()->assignUniqueId(fx.getPointer());
+      sheet->getFxDag()->getInternalFxs()->addFx(fx.getPointer());
+      target = dynamic_cast<TDoubleParam *>(fx->getParams()->getParam("value"));
+    }
+    require(target, "Owner-removal fixture parameter is missing");
+    keys(target.getPointer(), 1, 9);
+    TDoubleParamP before = new TDoubleParam(*target), stableBefore = new TDoubleParam(*stable);
+    const QString rawPath = directory.filePath("owner-guard.curve");
+    { TOStream output{TFilePath(rawPath)}; before->saveData(output); }
+    { TOStream output{TFilePath(presetPath)};
+      output.openChild("functionPreset", {{"measure", target->getMeasureName()}});
+      before->saveData(output); output.closeChild(); }
+    app->getCurrentXsheet()->notifyXsheetChanged(); settle();
+    auto *channel = find(tree, target.getPointer());
+    channel->setIsActive(true); channel->setIsCurrent(true);
+    viewer->getSelection()->selectNone();
+    viewer->getSelection()->select(target.getPointer(), 0);
+    if (test.second == Edit) viewer->getSelection()->select(stable, 0);
+    if (test.second == EmptyCells) {
+      viewer->getSelection()->selectCells(QRect(0, 5, 1, 2), {target.getPointer()});
+      require(viewer->getSelection()->getSelectedKeyframeCount() == 0 && !viewer->getSelection()->isEmpty(),
+              "Between-key cell fixture did not retain its owner without selected keys");
+    }
+    undo->reset(); app->getCurrentScene()->setDirtyFlag(false);
+    bool removed = false;
+    int historyAfterRemoval = -1, indexAfterRemoval = -1;
+    bool dirtyAfterRemoval = false;
+    auto removeOwner = [&]() {
+      require(!removed, "Native fixture attempted duplicate owner removal");
+      removed = true;
+      if (test.first == 0) sheet->removeColumn(column);
+      else if (test.first == 1) object->removeOffsetLayer(0);
+      else require(sheet->getFxDag()->getInternalFxs()->removeFx(fx.getPointer()),
+                   "Could not remove pending effect owner");
+      app->getCurrentXsheet()->notifyXsheetChanged();
+      for (auto *remaining : tree->channels())
+        require(remaining->getParam() != target.getPointer(), "Removed owner remains in native Function model");
+      require(!viewer->getSelection()->isSelected(target.getPointer(), 0),
+              "Removed owner remains available to selection commands");
+      if (test.second == Edit)
+        require(viewer->getSelection()->isSelected(stable, 0),
+                "Owner removal discarded surviving selected keys");
+      historyAfterRemoval = undo->getHistoryCount(); indexAfterRemoval = undo->getCurrentHistoryIndex();
+      dirtyAfterRemoval = app->getCurrentScene()->getDirtyFlag();
+    };
+    if (test.second == EmptyCells) {
+      removeOwner();
+      require(viewer->getSelection()->isEmpty() && viewer->getSelection()->getSelectedCells().isEmpty(),
+              "Removed owner retained a between-key cell range");
+      viewer->getSelection()->setStep(3, true);
+      viewer->getSelection()->doCut(); viewer->getSelection()->doDelete();
+    } else modal(viewer, test.second == Edit ? "FunctionKeyEditor" : "FunctionMotionPresets",
+          [&](QDialog *dialog) {
+      auto *apply = dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Apply);
+      auto *previewButton = dialog->findChild<QPushButton *>(test.second == Edit ? "FunctionEditPreview" : "FunctionPresetPreview");
+      require(apply && previewButton, "Owner-removal modal controls are missing");
+      if (test.second == Edit) dialog->findChild<QDoubleSpinBox *>("FunctionEditAmount")->setValue(99);
+      else {
+        auto *list = dialog->findChild<QListWidget *>("FunctionPresetList");
+        require(list, "Owner-removal preset browser is missing");
+        int row = -1;
+        for (int i = 0; i < list->count(); ++i)
+          if (list->item(i)->data(Qt::UserRole).toString() == "Owner guard fixture.fcurve") row = i;
+        require(row >= 0, "Owner-removal native preset is missing"); list->setCurrentRow(row);
+        dialog->findChild<QDoubleSpinBox *>("FunctionPresetOffset")->setValue(99);
+      }
+      app->getCurrentXsheet()->notifyXsheetChanged();
+      require(dialog->isVisible(), "Harmless native owner refresh closed an edit dialog");
+      previewButton->click(); require(!graph->comparison().empty(), "Owner-removal preview did not prepare changes");
+      if (test.second == Edit || test.second == Preset) {
+        removeOwner(); require(!dialog->isVisible(), "Removed native owner left its pending dialog open");
+        // Already-queued callbacks must also revalidate, even after rejection.
+        previewButton->click(); apply->click();
+      } else {
+        QTimer driver; QString failure; bool fileChosen = false, nestedVisited = false;
+        QObject::connect(&driver, &QTimer::timeout, dialog, [&]() {
+          try {
+            if (auto *file = qobject_cast<QFileDialog *>(QApplication::activeModalWidget())) {
+              if (fileChosen) return;
+              require(file->objectName() == "FunctionPresetImportFile", "Unexpected owner-removal chooser");
+              fileChosen = true;
+              if (test.second == ImportFile) {
+                nestedVisited = true; removeOwner();
+                require(!file->isVisible() && !dialog->isVisible(), "Owner removal retained the import file chooser");
+                return;
+              }
+              auto *name = file->findChild<QLineEdit *>("fileNameEdit");
+              auto *buttons = file->findChild<QDialogButtonBox *>();
+              auto *open = buttons ? buttons->button(QDialogButtonBox::Open) : nullptr;
+              require(name && open, "Native import chooser controls are missing");
+              name->setText(QFileInfo(rawPath).absoluteFilePath());
+              require(file->selectedFiles().size() == 1 && open->isEnabled() &&
+                          QFileInfo(file->selectedFiles().front()).canonicalFilePath() == QFileInfo(rawPath).canonicalFilePath(),
+                      "Owner-removal chooser did not select its exact native curve");
+              QTimer::singleShot(0, file, [open]() { open->click(); });
+            } else if (auto *name = qobject_cast<QInputDialog *>(QApplication::activeModalWidget())) {
+              if (nestedVisited) return;
+              require(name->objectName() == (test.second == SaveName ? "FunctionPresetSaveName" : "FunctionPresetImportName"),
+                      "Unexpected owner-removal name prompt");
+              nestedVisited = true; name->setTextValue("Removed owner must not publish"); removeOwner();
+              require(!name->isVisible() && !dialog->isVisible(), "Owner removal retained the nested preset name prompt");
+              name->accept(); // Late delivery cannot publish the detached curve.
+            }
+          } catch (const std::exception &problem) {
+            failure = QString::fromUtf8(problem.what());
+            if (auto *active = qobject_cast<QDialog *>(QApplication::activeModalWidget())) active->reject();
+          }
+        });
+        driver.start(5);
+        dialog->findChild<QPushButton *>(test.second == SaveName ? "FunctionPresetSave" : "FunctionPresetImport")->click();
+        driver.stop(); require(failure.isEmpty() && nestedVisited && removed, qPrintable(failure));
+      }
+    }, [&]() { if (test.second == Edit) edit->click(); else presets->trigger(); });
+    require(removed && Ops::matchesSnapshot(target.getPointer(), before.getPointer()) &&
+                Ops::matchesSnapshot(stable, stableBefore.getPointer()),
+            "Owner removal allowed a detached or surviving channel to be edited");
+    require(undo->getHistoryCount() == historyAfterRemoval && undo->getCurrentHistoryIndex() == indexAfterRemoval &&
+                app->getCurrentScene()->getDirtyFlag() == dirtyAfterRemoval && !QFileInfo::exists(forbiddenPath),
+            "Rejected detached target changed history, dirty state or preset library");
+    require(graph->comparison().empty(), "Rejected detached target retained its preview");
+    viewer->getSelection()->selectNone();
+    if (test.first != 0) sheet->removeColumn(column);
+    require(QFile::remove(presetPath), "Owner-removal preset cleanup failed");
+    app->getCurrentXsheet()->notifyXsheetChanged(); settle();
+  }
+  undo->reset(); app->getCurrentScene()->setDirtyFlag(false);
+  checkpoint("native owner removal canceled edit/preset/Save/Import without phantom history or writes");
 }
 void dependencies(FunctionViewer *viewer, FunctionTreeView *tree, TDoubleParam *target,
                   TDoubleParam *source, int expectedCount) {
@@ -659,6 +825,7 @@ bool runFunctionWorkflowIntegrationTest(QMainWindow *, QString *error) {
     requireNear(loadedNative->getValue(7), nativeValue); requireNear(loadedSeexpr->getValue(7), seexprValue);
     renameNativeSet(viewer, tree, {source, offset, angle});
     retimeNativeRange(viewer, scene, {source, offset, angle}, directory);
+    ownerRemovalDialogs(viewer, tree, graph, xsheet, level, source, directory);
     runFunctionRigBenchmarkIntegrationTest(viewer);
     app->getCurrentScene()->setDirtyFlag(false); TUndoManager::manager()->reset(); viewer->hide();
     std::cout << "function-workflow-native: PASS (Plastic, offset, native/SeExpr bindings, preview/undo, mouse routes, saved-set rename, target-range retiming, scene roundtrip)\n";

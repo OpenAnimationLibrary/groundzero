@@ -553,6 +553,8 @@ void nativeBatchDialog() {
       buttons->button(QDialogButtonBox::Apply)->click();
       requireNear(f.a->getKeyframe(1).m_value, 105); requireNear(f.a->getKeyframe(2).m_value, 205);
       require(selection->getSelectedKeyframeCount() == 2, "Apply broadened the original selection");
+      f.model->beginRefresh(); f.model->endRefresh();
+      require(dialog->isVisible(), "harmless layout refresh rejected repeated key editing");
       buttons->button(QDialogButtonBox::Apply)->click();
       requireNear(f.a->getKeyframe(1).m_value, 110); requireNear(f.a->getKeyframe(0).m_value, 0); requireNear(f.a->getKeyframe(3).m_value, 300);
       mode->setCurrentIndex(0); amount->setValue(999); // close is a true cancel
@@ -760,6 +762,8 @@ void nativePresetImport() {
             "native imported preset lost owner/units/history or inherited the destination's cycle flag");
     requireNear(f.a->keyframeIndexToFrame(0), 20); requireNear(f.a->keyframeIndexToFrame(1), 28);
     requireNear(f.a->getKeyframe(0).m_value, 5); requireNear(f.a->getKeyframe(1).m_value, 13);
+    f.model->beginRefresh(); f.model->endRefresh();
+    require(dialog->isVisible(), "harmless layout refresh rejected repeated preset editing");
     apply->click(); require(TUndoManager::manager()->getHistoryCount() == 1, "repeated identical preset Apply added history");
     require(importFile(dialog, cyclicFile, 0, "Imported cyclic") && list->count() == 2 && !f.a->isCycleEnabled(),
             "cyclic preset import changed destination animation before Apply");
