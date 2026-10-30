@@ -178,8 +178,30 @@ DepthAttachments depthAttachments() {
 struct DepthState {
   std::vector<GLint> integers;
   std::vector<GLdouble> real;
+  std::vector<std::pair<GLenum,int>> integerFields, realFields;
   bool operator==(const DepthState &other) const {
     return integers == other.integers && real == other.real;
+  }
+  void requireEqual(const DepthState &actual) const {
+    if (*this == actual) return;
+    std::ostringstream message;
+    message << "native depth opacity changed caller state or matrix stacks:";
+    int differences = 0;
+    for (size_t i = 0; i < integers.size() && differences < 8; ++i)
+      if (integers[i] != actual.integers[i]) {
+        message << " integer 0x" << std::hex << integerFields[i].first << std::dec
+                << '[' << integerFields[i].second << "]=" << integers[i]
+                << "->" << actual.integers[i];
+        ++differences;
+      }
+    for (size_t i = 0; i < real.size() && differences < 8; ++i)
+      if (real[i] != actual.real[i]) {
+        message << " real 0x" << std::hex << realFields[i].first << std::dec
+                << '[' << realFields[i].second << "]=" << std::setprecision(17)
+                << real[i] << "->" << actual.real[i];
+        ++differences;
+      }
+    throw std::runtime_error(message.str());
   }
 };
 bool separateFramebuffers() {
@@ -202,6 +224,7 @@ DepthState depthState() {
   DepthState result;
   auto integer = [&](GLenum name, int count = 1) {
     const size_t offset = result.integers.size(); result.integers.resize(offset + count);
+    for (int i = 0; i < count; ++i) result.integerFields.emplace_back(name, i);
     glGetIntegerv(name, result.integers.data() + offset);
   };
   for (GLenum name : {GL_FRAMEBUFFER_BINDING,GL_READ_BUFFER,GL_DRAW_BUFFER,
@@ -219,6 +242,7 @@ DepthState depthState() {
   if (floatingColorClamp()) { integer(0x891b); integer(0x891c); } // Fragment/read color clamp.
   auto real = [&](GLenum name, int count) {
     const size_t offset = result.real.size(); result.real.resize(offset + count);
+    for (int i = 0; i < count; ++i) result.realFields.emplace_back(name, i);
     glGetDoublev(name, result.real.data() + offset);
   };
   real(GL_MODELVIEW_MATRIX,16); real(GL_PROJECTION_MATRIX,16); real(GL_TEXTURE_MATRIX,16);
@@ -344,7 +368,7 @@ void nativeDepthTransactions(TPalette *palette, int chainStyle, int solidStyle) 
     stroke->setOpacityProfile(profile ? StrokeOpacity::Profile{{0,opacity},{1,opacity}} : StrokeOpacity::Profile{});
     const auto state = depthState();
     drawDepthImage(image);
-    require(depthState() == state, "native depth opacity changed caller state or matrix stacks");
+    state.requireEqual(depthState());
     requireAttachments(mixedAttachments(before,native,opacity),depthAttachments(),
         "native depth opacity differs from destination-aware color mix", highPrecision ? 1.1/1023. : 2./255.);
     if (!writeDepth) require(before.depth == native.depth, "depth-mask fixture wrote depth");
@@ -366,11 +390,32 @@ void nativeDepthTransactions(TPalette *palette, int chainStyle, int solidStyle) 
     if (!address) address = currentContext->getProcAddress("glSecondaryColor3fEXT");
     require(address,"compatibility context did not expose secondary color");
     const auto secondary = reinterpret_cast<SecondaryColor>(address);
+    const GLboolean originalColorSum = glIsEnabled(GL_COLOR_SUM);
     glPushAttrib(GL_ALL_ATTRIB_BITS);
-    struct RestoreAttributes { ~RestoreAttributes() { glPopAttrib(); } } restore;
+    struct RestoreAttributes {
+      GLboolean colorSum;
+      ~RestoreAttributes() {
+        glPopAttrib();
+        if (colorSum) glEnable(GL_COLOR_SUM); else glDisable(GL_COLOR_SUM);
+      }
+    } restore{originalColorSum};
     secondary(.2f,.1f,.3f); glEnable(GL_COLOR_SUM);
     std::cout << "vector-opacity-depth: nonzero secondary color caller state" << std::endl;
     compareMix(GL_ALWAYS,true,false,.5,true);
+    compareMix(GL_ALWAYS,true,false,.5,false);
+    compareMix(GL_ALWAYS,true,false,1.,true);
+    compareMix(GL_ALWAYS,true,true,0.,true);
+    prepareDepthTarget(GL_LEQUAL,true,true);
+    stroke->setOpacity(.5); stroke->setOpacityProfile({});
+    const auto before = depthAttachments(); const auto state = depthState();
+    bool rejected = false;
+    tglSetOpacityFramebufferFailureForTest(4);
+    struct ClearFailure { ~ClearFailure() { tglSetOpacityFramebufferFailureForTest(0); } } clear;
+    try { drawDepthImage(image); } catch (const std::runtime_error &) { rejected = true; }
+    tglSetOpacityFramebufferFailureForTest(0);
+    require(rejected, "secondary-color transaction failure was hidden");
+    state.requireEqual(depthState());
+    requireAttachments(before,depthAttachments(),"secondary-color transaction rollback changed attachments",0.);
   }
   {
     auto *currentContext = QOpenGLContext::currentContext();

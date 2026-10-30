@@ -644,11 +644,13 @@ class OpacityPixelTransfer {
   const OpacityTransferFunctions &m_functions;
   GLint m_pack = 0, m_unpack = 0, m_program = 0, m_matrixMode = GL_MODELVIEW;
   GLint m_readFramebuffer = 0;
+  GLboolean m_colorSum = GL_FALSE;
   bool m_replace = false;
 public:
   OpacityPixelTransfer(const OpacityTransferFunctions &functions,
                        const GLint *viewport, bool replace)
       : m_functions(functions), m_replace(replace) {
+    if (replace) m_colorSum = glIsEnabled(GL_COLOR_SUM);
     glGetIntegerv(GL_PIXEL_PACK_BUFFER_BINDING, &m_pack);
     glGetIntegerv(GL_PIXEL_UNPACK_BUFFER_BINDING, &m_unpack);
     glGetIntegerv(GL_CURRENT_PROGRAM, &m_program);
@@ -732,6 +734,13 @@ public:
     if (m_functions.imaging) { glMatrixMode(GL_COLOR); glPopMatrix(); }
     glMatrixMode(m_matrixMode);
     glPopClientAttrib(); glPopAttrib();
+    // Some compatibility drivers omit COLOR_SUM from PopAttrib's enable/fog
+    // restoration (Mesa 23.2.1 attrib.c). Restore it explicitly, including the
+    // preflight scope, so the following native draw sees the original state.
+    if (m_replace) {
+      if (m_colorSum) glEnable(GL_COLOR_SUM);
+      else glDisable(GL_COLOR_SUM);
+    }
     if (m_functions.separate)
       m_functions.bindFramebuffer(GL_READ_FRAMEBUFFER, GLuint(m_readFramebuffer));
     m_functions.bindBuffer(GL_PIXEL_PACK_BUFFER, m_pack); m_functions.bindBuffer(GL_PIXEL_UNPACK_BUFFER, m_unpack);

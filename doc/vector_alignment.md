@@ -29,8 +29,12 @@ present in a submenu keeps its existing placement and label.
   move together without changing internal positions.
 - First/Last Selected uses click order. Bulk selections have the existing
   deterministic stroke/control-point index order.
-- The displayed vector drawing is edited. Multi-frame and whole-level
-  selections are deliberately excluded; raster drawings are unsupported.
+- Stroke alignment follows the Selection tool's current, selected-drawings or
+  whole-level scope, including its style/boundary filters. Every unique drawing
+  is processed once, including drawings held at multiple scene rows. References
+  are calculated independently in each drawing; first/last follows stacking
+  order in batch scopes and click order in a manual selection. Raster drawings
+  are unsupported. Control-point alignment edits the active drawing only.
 - Camera bounds use the current animated camera and column placement. A
   rotated camera is represented by its axis-aligned bounds in drawing space.
 - Read-only levels/frames, locked columns, and active editing drags are
@@ -44,25 +48,34 @@ Point edits use the existing editor's handle movement and undo implementation;
 selection-preserving undo is enabled only for the new alignment operations.
 Panel state never enables or disables another component's global actions.
 
+## Review before applying
+
+Stroke alignment and distribution open a native before/after preview before
+changing artwork. The drawing selector lists every drawing whose positions
+would change. Both swatches use common bounds so movement remains visible;
+the dialog names the operation, reference and drawing scope. Apply uses the
+displayed positions as one undo step, retaining fills, groups, stroke opacity
+and opacity envelopes. Cancel leaves every drawing and the undo history intact.
+An operation that changes nothing opens no dialog and creates no undo entry.
+
+Switching scene, level, frame, column or tool dismisses review, including a
+different scene row that holds the same drawing. Apply also verifies every
+reviewed source's identity, geometry, groups, fills and palette appearance.
+If a script or asset reload changes another reviewed drawing while the dialog
+is open, the entire operation is rejected; run it again to inspect fresh
+results. Accepted changes use the existing native drawing format and survive
+normal level saves; there is no separate preview state to save.
+
 ## Validation
 
-The standalone numerical regression checks cover all eight operations,
+CI runs the standalone numerical regression checks for all eight operations,
 reference methods, camera distribution with two objects, coincident centers,
-empty/single selections and zero-area control-point bounds. From the repo root:
-
-```sh
-g++ -std=c++17 -DLINUX -Itoonz/sources/include \
-  toonz/sources/tnztools/tests/vectoralignment_test.cpp \
-  -o /tmp/vectoralignment_test
-/tmp/vectoralignment_test
-```
-
-Local validation also includes C++17/Qt 5.15 syntax compilation of all changed
-implementation files, Qt moc/resource generation, XML/resource checks and
-clang-format 14 checks. An offscreen Qt menu-loading check covers saved-menu
-migration, preserved labels/order, nested panel entries, duplicate handling,
-and all seven shipped menus containing a Windows menu. A complete application
-build and interactive Windows testing are separate from these checks.
+empty/single selections and zero-area control-point bounds. The native
+`vectorworkflowintegrationtest.cpp` fixture opens the registered command and
+actual modal swatches, compares preview pixels with applied and reopened PLI
+drawings, and checks cancellation, stale source rejection, drawing scopes,
+repeated no-ops and undo/redo. The new preview checks await execution on the
+supported Linux, Windows and macOS jobs; no local builds or tests were run.
 
 Interactive verification before merging:
 

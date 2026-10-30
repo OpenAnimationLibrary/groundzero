@@ -47,6 +47,7 @@ set(HEADERS
     ../include/tools/rasterselection.h
     ../include/tools/strokeselection.h
     ../include/tools/vectoralignment.h
+    ../include/tools/vectoralignmentpreview.h
     ../include/tools/fluidwidth.h
     ../include/tools/brushpaintmode.h
     ../include/tools/widthprofile.h

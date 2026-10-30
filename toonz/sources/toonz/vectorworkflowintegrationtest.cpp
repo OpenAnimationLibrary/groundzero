@@ -6,6 +6,7 @@
 #include "tools/strokeselection.h"
 #include "tools/gradienthandles.h"
 #include "tools/widthprofilemanager.h"
+#include "tools/vectoralignmentpreview.h"
 #include "filmstripselection.h"
 #include "tproperty.h"
 #include "tenv.h"
@@ -28,14 +29,20 @@
 #include "tpalette.h"
 #include "tcolorstyles.h"
 #include "tundo.h"
+#include "tlevel_io.h"
 #include <QAction>
 #include <QApplication>
 #include <QDoubleSpinBox>
 #include <QTimer>
 #include <QMessageBox>
 #include <QAbstractButton>
+#include <QTemporaryDir>
+#include <QImage>
+#include <QLabel>
 #include <cmath>
 #include <array>
+#include <exception>
+#include <functional>
 #include <stdexcept>
 
 namespace {
@@ -65,6 +72,106 @@ TVectorImageP drawing(TPalette *palette, int style) {
   require(image->getRegion(TPointD(0,0)), "vector fixture region missing");
   image->getRegion(TPointD(0,0))->setStyle(style);
   return image;
+}
+
+struct AlignmentObservation {
+  TVectorImageP before, after;
+  TRectD bounds;
+  QSize size;
+  QImage pixels;
+};
+int pixelDifference(const QImage &a, const QImage &b) {
+  require(!a.isNull() && a.size() == b.size(), "alignment preview capture size differs");
+  const auto x = a.convertToFormat(QImage::Format_RGBA8888);
+  const auto y = b.convertToFormat(QImage::Format_RGBA8888);
+  int result = 0;
+  for (int row = 0; row < x.height(); ++row)
+    for (int col = 0; col < x.width() * 4; ++col)
+      result = std::max(result, std::abs(int(x.constScanLine(row)[col]) -
+                                       int(y.constScanLine(row)[col])));
+  return result;
+}
+std::vector<AlignmentObservation> reviewAlignment(
+    QAction *action, bool accept, int drawingCount,
+    const std::function<void()> &whileOpen = {}, bool expectSourceInvalidation = false) {
+  bool visited = false, sourceWarning = false;
+  std::exception_ptr failure;
+  std::vector<AlignmentObservation> result;
+  QTimer inspect;
+  QObject::connect(&inspect, &QTimer::timeout, [&] {
+    auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
+    if (visited) {
+      if (!dialog || dialog->objectName() == "vectorAlignmentPreview") return;
+      QString text;
+      for (auto *label : dialog->findChildren<QLabel *>()) text += label->text();
+      sourceWarning = text.contains("reviewed drawing or selection changed");
+      if (!expectSourceInvalidation || !sourceWarning)
+        failure = std::make_exception_ptr(std::runtime_error(
+            "alignment opened an unexpected dialog: " + text.toStdString()));
+      dialog->reject();
+      return;
+    }
+    if (!dialog || dialog->objectName() != "vectorAlignmentPreview") {
+      failure = std::make_exception_ptr(std::runtime_error("alignment preview did not open"));
+      if (dialog) dialog->reject();
+      return;
+    }
+    visited = true;
+    try {
+      auto *frames = dialog->findChild<QComboBox *>("vectorAlignmentDrawing");
+      auto *before = dynamic_cast<VectorAlignmentPreview::Swatch *>(
+          dialog->findChild<QWidget *>("vectorAlignmentBefore"));
+      auto *after = dynamic_cast<VectorAlignmentPreview::Swatch *>(
+          dialog->findChild<QWidget *>("vectorAlignmentAfter"));
+      require(frames && frames->count() == drawingCount && before && after,
+              "alignment preview missed a changed drawing or native swatch");
+      for (int i = 0; i < drawingCount; ++i) {
+        frames->setCurrentIndex(i);
+        const QImage original = before->grabFramebuffer();
+        const QImage proposed = after->grabFramebuffer();
+        require(before->bounds() == after->bounds(), "alignment preview uses independent fit scales");
+        require(pixelDifference(original, proposed) > 2,
+                "alignment preview did not visibly display changed positions");
+        result.push_back({before->image()->cloneWithGroupContext(),
+                          after->image()->cloneWithGroupContext(), after->bounds(),
+                          after->size(), proposed});
+      }
+      if (whileOpen) whileOpen();
+      auto *button = dialog->findChild<QPushButton *>(accept ? "vectorAlignmentApply" :
+                                                              "vectorAlignmentCancel");
+      require(button && button->isEnabled(), "alignment preview action unavailable");
+      button->click();
+    } catch (...) {
+      failure = std::current_exception();
+      dialog->reject();
+    }
+  });
+  inspect.start(0);
+  action->trigger();
+  inspect.stop();
+  if (failure) std::rethrow_exception(failure);
+  require(visited, "alignment command bypassed explicit review");
+  require(!expectSourceInvalidation || sourceWarning,
+          "alignment failed to explain that a reviewed source changed");
+  return result;
+}
+void checkAlignmentGeometry(const TVectorImageP &live, const AlignmentObservation &review) {
+  require(live->getStrokeCount() == review.after->getStrokeCount(), "alignment changed stroke count");
+  for (UINT i = 0; i < live->getStrokeCount(); ++i) {
+    const auto *a = live->getStroke(i), *b = review.after->getStroke(i);
+    require(*a == *b && a->getStyle() == b->getStyle() &&
+            a->getOpacity() == b->getOpacity() && a->getOpacityProfile() == b->getOpacityProfile(),
+            "alignment applied a different drawing from the preview");
+  }
+}
+void checkAlignmentOutput(const TVectorImageP &live, const AlignmentObservation &review) {
+  checkAlignmentGeometry(live, review);
+  VectorAlignmentPreview::Swatch swatch(nullptr);
+  swatch.resize(review.size);
+  swatch.setImage(live, review.bounds);
+  swatch.show(); settle();
+  require(pixelDifference(swatch.grabFramebuffer(), review.pixels) <= 2,
+          "applied alignment pixels differ from the reviewed native output");
 }
 
 void nestedGroupChecks(TFilmstripSelection &frames) {
@@ -172,7 +279,7 @@ void nestedGroupChecks(TFilmstripSelection &frames) {
   tool->setAlignMethod(VectorAlignment::SELECT_AREA);
   auto *align = CommandManager::instance()->getAction(MI_AlignLeft);
   require(align && align->isEnabled(),"nested alignment action disabled");
-  align->trigger(); settle();
+  reviewAlignment(align, true, 2); settle();
   require(undo->getHistoryCount() == 1,"nested alignment did not create one undo");
   for (int cycle = 0; cycle < 2; ++cycle) {
     for (int i = 0; i < 3; ++i) {
@@ -371,23 +478,137 @@ void runVectorWorkflowNativeChecks() {
           std::abs(afterSecond->getStroke(1)->getControlPoint(0).thick - (.5 + .5 * endpoint)) < 1e-9 &&
           undo->getHistoryCount() == 1, "native width-pressure blend differs from preview contract");
   undo->undo(); settle(); undo->reset();
+  // Give alignment an unmistakable translation and unequal object widths;
+  // this makes both left/right previews visibly different at native scale.
+  for (int i = 1; i <= 3; ++i) {
+    TVectorImageP image = level->getFrame(TFrameId(i), false);
+    TStroke original(*image->getStroke(1));
+    for (int point = 0; point < image->getStroke(1)->getControlPointCount(); ++point) {
+      auto position = image->getStroke(1)->getControlPoint(point);
+      position.x = position.x * 1.5 + 20.;
+      image->getStroke(1)->setControlPoint(point, position);
+    }
+    image->getStroke(1)->setOpacityProfile({{0., .25}, {1., 1.}});
+    image->notifyChangedStrokes(std::vector<int>{1}, std::vector<TStroke *>{&original});
+  }
+  tool->notifyImageChanged(); settle();
   tool->setAlignMethod(VectorAlignment::SELECT_AREA);
   auto *align = CommandManager::instance()->getAction(MI_AlignLeft);
   require(align && align->isEnabled(), "selected-drawing alignment action disabled");
   afterFirst = level->getFrame(TFrameId(1), false); afterSecond = level->getFrame(TFrameId(2), false);
   const TStroke beforeAlignFirst(*afterFirst->getStroke(1)), beforeAlignSecond(*afterSecond->getStroke(1));
-  align->trigger(); settle();
+  const TVectorImageP untouchedThird = third->cloneWithGroupContext();
+  app->getCurrentScene()->setDirtyFlag(false);
+  reviewAlignment(align, false, 2, [&] {
+    require(*afterFirst->getStroke(1) == beforeAlignFirst &&
+            *afterSecond->getStroke(1) == beforeAlignSecond &&
+            undo->getHistoryCount() == 0 && !app->getCurrentScene()->getDirtyFlag(),
+            "opening alignment preview mutated a drawing or history");
+  }); settle();
+  require(*afterFirst->getStroke(1) == beforeAlignFirst &&
+          *afterSecond->getStroke(1) == beforeAlignSecond &&
+          undo->getHistoryCount() == 0 && !app->getCurrentScene()->getDirtyFlag(),
+          "canceling alignment preview changed artwork or history");
+
+  // Script/reload changes can happen inside a modal event loop. A change in
+  // another selected drawing must invalidate the entire reviewed transaction.
+  for (bool replaceIdentity : {false, true}) {
+    const double originalOpacity = afterSecond->getStroke(1)->getOpacity();
+    reviewAlignment(align, true, 2, [&] {
+      if (replaceIdentity) level->setFrame(TFrameId(2), afterSecond->cloneWithGroupContext());
+      else afterSecond->getStroke(1)->setOpacity(.61);
+    }, true);
+    require(undo->getHistoryCount() == 0 &&
+            *afterFirst->getStroke(1) == beforeAlignFirst &&
+            *afterSecond->getStroke(1) == beforeAlignSecond,
+            "alignment applied a stale review or partially changed earlier drawings");
+    if (replaceIdentity) level->setFrame(TFrameId(2), afterSecond);
+    else afterSecond->getStroke(1)->setOpacity(originalOpacity);
+  }
+  const auto reviewed = reviewAlignment(align, true, 2); settle();
   require(undo->getHistoryCount() == 1, "selected-drawing alignment was not a single undo");
   require(std::abs(afterFirst->getStroke(0)->getBBox().x0 - afterFirst->getStroke(1)->getBBox().x0) < 1e-9 &&
           std::abs(afterSecond->getStroke(0)->getBBox().x0 - afterSecond->getStroke(1)->getBBox().x0) < 1e-9,
           "alignment did not apply independently to both selected drawings");
-  require(third->getStroke(1)->getControlPoint(0).thick == 1., "alignment touched unselected drawing");
-  undo->undo(); settle();
-  require(*afterFirst->getStroke(1) == beforeAlignFirst && *afterSecond->getStroke(1) == beforeAlignSecond,
-          "multidrawing alignment undo lost geometry");
-  undo->redo(); settle(); undo->reset();
+  for (UINT i = 0; i < third->getStrokeCount(); ++i)
+    require(*third->getStroke(i) == *untouchedThird->getStroke(i),
+            "alignment touched an unselected drawing");
+  checkAlignmentOutput(afterFirst, reviewed[0]);
+  checkAlignmentOutput(afterSecond, reviewed[1]);
+  bool noopDialog = false;
+  QTimer guard;
+  QObject::connect(&guard, &QTimer::timeout, [&] {
+    if (auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget())) {
+      noopDialog = true;
+      dialog->reject();
+    }
+  });
+  guard.start(0); align->trigger(); guard.stop();
+  require(!noopDialog && undo->getHistoryCount() == 1,
+          "repeating unchanged alignment opened review or created an empty undo");
+  for (int cycle = 0; cycle < 2; ++cycle) {
+    undo->undo(); settle();
+    require(*afterFirst->getStroke(1) == beforeAlignFirst && *afterSecond->getStroke(1) == beforeAlignSecond,
+            "multidrawing alignment undo lost geometry");
+    undo->redo(); settle();
+    checkAlignmentOutput(afterFirst, reviewed[0]);
+    checkAlignmentOutput(afterSecond, reviewed[1]);
+  }
+  QTemporaryDir directory;
+  require(directory.isValid(), "alignment save/reopen fixture directory");
+  const TFilePath path(directory.filePath("aligned.pli"));
+  {
+    TLevelWriterP writer(path);
+    writer->getFrameWriter(TFrameId(1))->save(afterFirst);
+    writer->getFrameWriter(TFrameId(2))->save(afterSecond);
+  }
+  TLevelReaderP reader(path); reader->loadInfo();
+  for (int i = 0; i < 2; ++i) {
+    TVectorImageP reopened = reader->getFrameReader(TFrameId(i+1))->load();
+    // The level palette is a companion asset in the application; this fixture
+    // writes standalone drawing data and attaches that same reviewed palette.
+    reopened->setPalette(reviewed[i].after->getPalette());
+    checkAlignmentOutput(reopened, reviewed[i]);
+  }
+  undo->reset();
   mode->setValue(L"Standard"); tool->onPropertyChanged("Mode:");
   frames.selectNone();
   app->getCurrentScene()->setDirtyFlag(false);
+  // The same explicit preview is used for a manual stroke selection and a
+  // whole-level operation, with only the drawings that will actually change.
+  selection = dynamic_cast<StrokeSelection *>(tool->getSelection());
+  require(selection, "alignment manual scope selection missing");
+  selection->selectNone(); selection->select(0, true); selection->select(1, true);
+  selection->makeCurrent();
+  auto *alignRight = CommandManager::instance()->getAction(MI_AlignRight);
+  require(alignRight && alignRight->isEnabled(), "manual alignment command disabled");
+  for (int sceneRow : {1, 2}) { // row 2 holds the same drawing as row 0
+    reviewAlignment(alignRight, true, 1, [&] {
+      app->getCurrentFrame()->setFrame(sceneRow);
+      // Simulate a queued Apply after a context switch, including returning
+      // to the original held drawing before that click is delivered.
+      if (sceneRow == 2) app->getCurrentFrame()->setFrame(0);
+    });
+    require(undo->getHistoryCount() == 0, "frame switch applied a dismissed alignment preview");
+    app->getCurrentFrame()->setFrame(0); settle();
+    selection = dynamic_cast<StrokeSelection *>(tool->getSelection());
+    require(selection, "frame switch lost native stroke selection");
+    selection->selectNone(); selection->select(0, true); selection->select(1, true);
+    selection->makeCurrent();
+  }
+  const auto currentReview = reviewAlignment(alignRight, true, 1);
+  require(undo->getHistoryCount() == 1, "manual alignment was not one undo");
+  checkAlignmentOutput(afterFirst, currentReview[0]);
+  checkAlignmentGeometry(afterSecond, reviewed[1]); // frame switches evaluate its animated palette
+  undo->undo(); undo->reset();
+  mode->setValue(L"Whole Level"); tool->onPropertyChanged("Mode:"); settle();
+  reviewAlignment(alignRight, false, 3);
+  require(undo->getHistoryCount() == 0, "canceling whole-level alignment changed history");
+  const auto levelReview = reviewAlignment(alignRight, true, 3);
+  require(undo->getHistoryCount() == 1, "whole-level alignment was not one undo");
+  for (int i = 0; i < 3; ++i)
+    checkAlignmentOutput(level->getFrame(TFrameId(i+1), false), levelReview[i]);
+  undo->undo(); undo->reset();
+  mode->setValue(L"Standard"); tool->onPropertyChanged("Mode:");
   nestedGroupChecks(frames);
 }
