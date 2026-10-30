@@ -13,7 +13,6 @@
 #include <QLineEdit>
 #include <QPixmap>
 #include <QPointer>
-#include <QFileInfo>
 #include <QVariant>
 #include <QTemporaryDir>
 #include <QTimer>
@@ -112,10 +111,16 @@ int main(int argc,char **argv) {
         // Do not restart the Windows filesystem model's directory load on every
         // timer tick. Select once, then let its asynchronous model become ready.
         if(selectedPicker!=file) {
-          selectedPicker=file;file->setDirectory(temporary.path());file->selectFile(QFileInfo(replacementPath).fileName());
-          std::cerr<<"Editor qualification: replacement picker selected"<<std::endl;
+          selectedPicker=file;file->setDirectory(temporary.path());
+          // Qt 5 selectFile intentionally leaves a focused filename editor
+          // untouched. Release its focus before programmatic selection.
+          if(auto focused=file->focusWidget())focused->clearFocus();
+          file->selectFile(replacementPath);
+          std::cerr<<"Editor qualification: replacement picker selected="
+                   <<file->selectedFiles().contains(replacementPath)<<std::endl;
         }
-        QMetaObject::invokeMethod(file,"accept",Qt::QueuedConnection);
+        if(file->selectedFiles().contains(replacementPath))
+          QMetaObject::invokeMethod(file,"accept",Qt::QueuedConnection);
       }
     });
     InferenceObserver replaceObserver;
