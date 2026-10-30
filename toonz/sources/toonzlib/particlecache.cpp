@@ -205,6 +205,42 @@ QString fileDigest(const QString &path, QString &error, const Cancel &cancel) {
   return QString::fromLatin1(hash.result().toHex());
 }
 
+// A rewrite within the timestamp resolution can keep size and times, so
+// stamps are only trusted once a file has been unchanged for this long.
+constexpr qint64 settleMilliseconds = 2000;
+std::mutex digestMutex;
+std::map<QString, QString> digests;  // fileStamp -> SHA-256.
+
+// The content digest of path, memoized by its stamp once the file has settled.
+// stamp/settled describe the file as it was before it was read.
+QString memoizedDigest(const QString &path, QString &stamp, bool &settled,
+                       QString &error, const Cancel &cancel) {
+  stamp = fileStamp(path, &settled);
+  if (stamp.isEmpty()) {
+    error = "Particle cache frame is missing.";
+    return {};
+  }
+  if (settled) {
+    std::lock_guard<std::mutex> lock(digestMutex);
+    const auto found = digests.find(stamp);
+    if (found != digests.end()) return found->second;
+  }
+  const QString digest = fileDigest(path, error, cancel);
+  if (digest.isEmpty() || !settled || fileStamp(path) != stamp) return digest;
+  std::lock_guard<std::mutex> lock(digestMutex);
+  if (digests.size() >= 16384) digests.clear();
+  digests[stamp] = digest;
+  return digest;
+}
+
+// True unless the file read under stamp/digest changed while it was decoded.
+bool unchanged(const QString &path, const QString &stamp, bool settled,
+               const QString &digest, QString &error, const Cancel &cancel) {
+  // A settled file that is rewritten gets a new modification time.
+  if (settled) return fileStamp(path) == stamp;
+  return fileDigest(path, error, cancel) == digest;
+}
+
 void trimCache() {
   while (cacheBytes > cacheLimit && !memoryCache.empty()) {
     auto oldest = std::min_element(memoryCache.begin(), memoryCache.end(),
@@ -479,6 +515,31 @@ SnapshotPtr attachMetadata(SnapshotPtr snapshot, const Sequence &sequence, int f
 
 }  // namespace
 
+QString fileStamp(const QString &path, bool *settled) {
+  if (settled) *settled = false;
+  const QFileInfo info(path);
+  const QString canonical = info.canonicalFilePath();
+  if (canonical.isEmpty() || (!info.isFile() && !info.isDir())) return {};
+  const qint64 modified      = info.lastModified().toMSecsSinceEpoch();
+  const QDateTime changeTime = info.metadataChangeTime();
+  const qint64 changed =
+      changeTime.isValid() ? changeTime.toMSecsSinceEpoch() : modified;
+  if (settled)
+    *settled =
+        QDateTime::currentMSecsSinceEpoch() - std::max(modified, changed) >
+        settleMilliseconds;
+  return canonical + QChar('\n') + QString::number(info.size()) + QChar('\n') +
+         QString::number(modified) + QChar('\n') + QString::number(changed);
+}
+
+QString fileRevision(const QString &path, QString &error,
+                     const Cancel &cancel) {
+  error.clear();
+  QString stamp;
+  bool settled = false;
+  return memoizedDigest(path, stamp, settled, error, cancel);
+}
+
 std::vector<FormatCapability> capabilities() {
   return {{"bgeo", "Houdini classic BGEO v5", true, true},
           {"bhclassic", "Houdini classic binary geometry", true, true},
@@ -653,7 +714,9 @@ SnapshotPtr inspectFrame(const QString &path, QString &error, const Cancel &canc
   if (!supported(path, false)) { error = "Unsupported particle cache reader."; return {}; }
   const QFileInfo info(path);
   if (!info.isFile()) { error = "Particle cache frame is missing."; return {}; }
-  const QString digest = fileDigest(path, error, cancel);
+  QString stamp;
+  bool settled         = false;
+  const QString digest = memoizedDigest(path, stamp, settled, error, cancel);
   if (digest.isEmpty()) return {};
   QTemporaryDir staging;
   QString prepared;
@@ -673,7 +736,7 @@ SnapshotPtr inspectFrame(const QString &path, QString &error, const Cancel &canc
     result->particleCount = std::size_t(data->numParticles());
   }
   if (cancelled(cancel, error)) return {};
-  if (fileDigest(path, error, cancel) != digest) {
+  if (!unchanged(path, stamp, settled, digest, error, cancel)) {
     if (error.isEmpty()) error = "Particle cache changed while being inspected; retry.";
     return {};
   }
@@ -694,7 +757,11 @@ SnapshotPtr loadFrame(const QString &path, const Mapping &mapping, QString &erro
   if (!supported(path, false)) { error = "Unsupported particle cache reader."; return {}; }
   const QFileInfo info(path);
   if (!info.isFile()) { error = "Particle cache frame is missing."; return {}; }
-  const QString digest = fileDigest(path, error, cancel);
+  // A settled file's digest is memoized by its stamp, so a memory-cache hit
+  // costs a stat instead of reading and hashing the whole file.
+  QString stamp;
+  bool settled         = false;
+  const QString digest = memoizedDigest(path, stamp, settled, error, cancel);
   if (digest.isEmpty()) return {};
   const QString key = info.canonicalFilePath() + ':' + digest + ':' +
       QString::fromLatin1(QCryptographicHash::hash(QJsonDocument(mappingToJson(mapping)).toJson(QJsonDocument::Compact),
@@ -722,7 +789,7 @@ SnapshotPtr loadFrame(const QString &path, const Mapping &mapping, QString &erro
         !mapParticles(*result, std::size_t(data->numParticles()), mapping, error)) return {};
   }
   if (cancelled(cancel, error)) return {};
-  if (fileDigest(path, error, cancel) != digest) {
+  if (!unchanged(path, stamp, settled, digest, error, cancel)) {
     if (error.isEmpty()) error = "Particle cache changed while being read; retry the frame.";
     return {};
   }
@@ -890,6 +957,39 @@ SnapshotPtr sampleSequence(const Sequence &sequence, double sceneFrame,
   auto b = load(plan.right);
   if (!b) return {};
   return interpolate(*a, *b, plan.weight, error);
+}
+
+QString sampleIdentity(const Sequence &sequence, double sceneFrame,
+                       const Playback &playback, const Mapping &mapping,
+                       QString &error) {
+  SamplePlan plan;
+  if (!planSample(sequence, sceneFrame, playback, plan, error)) return {};
+  // Content changes within the settle time are not visible in a stamp.
+  auto identity = [](const QString &path) {
+    bool settled   = false;
+    QString result = fileStamp(path, &settled);
+    if (result.isEmpty()) return "missing:" + path;
+    if (!settled) {
+      QString ignored;
+      result += QChar('\n') + fileRevision(path, ignored);
+    }
+    return result;
+  };
+  QString result = "sample-v1";
+  if (!sequence.manifestPath.isEmpty())
+    result += QChar('\n') + identity(sequence.manifestPath);
+  if (plan.empty) return result + "\nempty";
+  result += QString("\n%1\n").arg(plan.left) +
+            identity(sequence.frames.at(plan.left));
+  if (plan.weight > 0) {
+    result +=
+        QString("\n%1\n%2\n").arg(plan.right).arg(plan.weight, 0, 'g', 17) +
+        (plan.rightError.isEmpty() ? identity(sequence.frames.at(plan.right))
+                                   : plan.rightError);
+  }
+  return result + QChar('\n') +
+         QString::fromUtf8(QJsonDocument(mappingToJson(mapping))
+                               .toJson(QJsonDocument::Compact));
 }
 
 namespace {
@@ -1353,6 +1453,10 @@ bool exportFiles(const Sequence &sequence, const QString &directory,
 }
 
 void clearMemoryCache() {
+  {
+    std::lock_guard<std::mutex> lock(digestMutex);
+    digests.clear();
+  }
   std::lock_guard<std::mutex> lock(cacheMutex);
   memoryCache.clear(); cacheBytes = 0;
 }

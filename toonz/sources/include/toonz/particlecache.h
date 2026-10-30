@@ -167,6 +167,20 @@ DVAPI SnapshotPtr interpolate(const Snapshot &a, const Snapshot &b, double weigh
 DVAPI bool planSample(const Sequence &sequence, double sceneFrame,
                       const Playback &playback, SamplePlan &plan,
                       QString &error);
+// Identity of what sampleSequence returns, for render-cache aliases. It is
+// built from file stamps, the plan and the mapping, without decoding frames.
+DVAPI QString sampleIdentity(const Sequence &sequence, double sceneFrame,
+                             const Playback &playback, const Mapping &mapping,
+                             QString &error);
+
+// Identity of a file or directory from its metadata: canonical path, size,
+// modification and status-change times; empty if it does not exist. settled is
+// false while it changed too recently for the times to exclude a same-size
+// rewrite within their resolution; callers then also need its content.
+DVAPI QString fileStamp(const QString &path, bool *settled = nullptr);
+// SHA-256 of a file's content, memoized by fileStamp once the file is settled.
+DVAPI QString fileRevision(const QString &path, QString &error,
+                           const Cancel &cancel = {});
 
 // Writes a new directory containing frames and cache.otpc (or export.json for a
 // write-only format). Existing destinations are never overwritten. Only a fully

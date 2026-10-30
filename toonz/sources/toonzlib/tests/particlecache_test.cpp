@@ -1,12 +1,14 @@
 #include "toonz/particlecache.h"
 
 #include <QCoreApplication>
+#include <QDateTime>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QTemporaryDir>
+#include <QThread>
 
 #include <algorithm>
 #include <cmath>
@@ -522,6 +524,87 @@ void sparseHold(const QDir &dir) {
   playback.end = EndBehavior::Loop;
   nearlyEqual(x(4.5), 4, "looped hold blends across the wrap");
 }
+
+void writeInPlace(const QString &path, const QByteArray &bytes) {
+  QFile file(path);
+  require(file.open(QIODevice::ReadWrite) && file.size() == bytes.size() &&
+              file.write(bytes) == bytes.size(),
+          "rewrite fixture in place");
+}
+
+// Stamps replace whole-file hashing for settled files; a rewrite must still be
+// seen, whether or not the file had settled and even if its time is restored.
+void revisions(const QDir &dir) {
+  require(dir.mkpath("revisions"), "create revisions folder");
+  const QDir sub(dir.filePath("revisions"));
+  const QString path = sub.filePath("frame.bgeo");
+  QString error;
+  checked(writeFrame(path, fixture(0), WriteOptions(), error), error);
+  checked(
+      writeFrame(sub.filePath("other.bgeo"), fixture(1), WriteOptions(), error),
+      error);
+  const QByteArray zero = readBytes(path),
+                   one  = readBytes(sub.filePath("other.bgeo"));
+  require(zero.size() == one.size() && zero != one, "same-size fixtures");
+  Sequence sequence;
+  checked(openSequence(path, sequence, error), error);
+  Playback playback;
+  auto identity = [&] {
+    const QString value =
+        sampleIdentity(sequence, 0, playback, sequence.mapping, error);
+    require(!value.isEmpty(), qPrintable(error));
+    return value;
+  };
+  auto x = [&] {
+    const auto frame = loadFrame(path, Mapping{}, error);
+    require(bool(frame), qPrintable(error));
+    return frame->particles.at(0).position[0];
+  };
+  const QString fresh = identity();
+  nearlyEqual(x(), 1, "initial frame");
+  writeInPlace(path, one);
+  require(identity() != fresh,
+          "an unsettled same-size rewrite changes the identity");
+  nearlyEqual(x(), 2, "an unsettled rewrite is reloaded");
+
+  QThread::msleep(2200);
+  bool settled = false;
+  require(!fileStamp(path, &settled).isEmpty() && settled, "file settles");
+  const QString before = identity();
+  require(identity() == before, "a settled identity is stable");
+  nearlyEqual(x(), 2, "settled frame");
+  const QString revision = fileRevision(path, error);
+  require(revision == fileRevision(path, error) && !revision.isEmpty(),
+          "memoized revision");
+  writeInPlace(path, zero);
+  require(identity() != before,
+          "a settled same-size rewrite changes the identity");
+  nearlyEqual(x(), 1, "a settled rewrite is not served from the memory cache");
+  require(fileRevision(path, error) != revision,
+          "a rewrite changes the revision");
+#ifndef _WIN32
+  // Restoring the modification time (cp -p, rsync -t) still changes the
+  // status-change time, which only the system sets.
+  QThread::msleep(2200);
+  const QString settledZero = identity();
+  nearlyEqual(x(), 1, "settled again");
+  const QDateTime modified = QFileInfo(path).lastModified();
+  writeInPlace(path, one);
+  {
+    QFile file(path);
+    require(file.open(QIODevice::ReadWrite) &&
+                file.setFileTime(modified, QFileDevice::FileModificationTime),
+            "restore the modification time");
+  }
+  require(QFileInfo(path).lastModified() == modified,
+          "modification time restored");
+  // Once settled again, size and modification time match the old stamp.
+  QThread::msleep(2200);
+  require(identity() != settledZero,
+          "a rewrite with a restored time changes the identity");
+  nearlyEqual(x(), 2, "a rewrite with a restored time is reloaded");
+#endif
+}
 }  // namespace
 
 int main(int argc, char **argv) {
@@ -537,6 +620,7 @@ int main(int argc, char **argv) {
     packages(QDir(temporary.path()));
     frameNumbering(QDir(temporary.path()));
     sparseHold(QDir(temporary.path()));
+    revisions(QDir(temporary.path()));
     std::cout << "Particle cache core: format directions, schema, interpolation, IO, metadata, invalidation and atomic packages passed.\n";
     return 0;
   } catch (const std::exception &error) {
