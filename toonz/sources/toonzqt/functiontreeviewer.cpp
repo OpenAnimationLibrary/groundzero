@@ -43,6 +43,7 @@
 #include <QFileDialog>
 #include <QMouseEvent>
 #include <QMetaObject>
+#include <QPointer>
 #include <QColor>
 #include <QApplication>  // for drag&drop
 #include <QDrag>
@@ -1444,7 +1445,7 @@ void FunctionTreeModel::onChange(const TParamChange &tpc) {
     m_paramsChanged = true;
 
     struct Func final : public TFunctorInvoker::BaseFunctor {
-      FunctionTreeModel *m_obj;
+    QPointer<FunctionTreeModel> m_obj;
       // Use a copy of 'TParamChange' since callers declare
       // and free this value on the stack,
       // so we can't ensure its valid later on when the notifier executes.
@@ -1452,7 +1453,7 @@ void FunctionTreeModel::onChange(const TParamChange &tpc) {
 
       Func(FunctionTreeModel *obj, const TParamChange *tpc)
           : m_obj(obj), m_tpc(*tpc) {}
-      void operator()() override { m_obj->onParamChange(m_tpc.m_dragging); }
+    void operator()() override { if (m_obj) m_obj->onParamChange(m_tpc.m_dragging); }
     };
 
     QMetaObject::invokeMethod(TFunctorInvoker::instance(), "invoke",

@@ -57,6 +57,7 @@
 #include <QTimer>
 #include <cmath>
 #include <functional>
+#include <iostream>
 #include <stdexcept>
 
 namespace {
@@ -486,23 +487,34 @@ void cleanup() {
 
 bool runAnimationWorkflowIntegrationTest(QMainWindow *window, QString *error) {
   try {
+    auto checkpoint = [](const char *stage) {
+      std::cerr << "animation-workflow: " << stage << std::endl;
+    };
     auto *scene = TApp::instance()->getCurrentScene()->getScene();
     require(scene && scene->getXsheet()->getFrameCount() == 0, "animation workflow fixture needs a fresh scene");
     QTemporaryDir temporary;
     require(temporary.isValid(), "animation workflow fixture directory unavailable");
+    checkpoint("recovery");
     exerciseRecovery(scene);
+    checkpoint("poses");
     exercisePoses(scene, temporary.path());
+    checkpoint("timing");
     exerciseTiming(scene, window, temporary.path());
+    checkpoint("timing boundaries");
     exerciseNativeTimingBoundaries(scene);
+    checkpoint("export files");
     exerciseExports(scene, temporary.path());
+    checkpoint("compatibility and nested timing");
     exerciseCompatibility(scene);
     dialogs({"cancelExportFidelity"}, [&]() { require(!ExportFidelity::confirmLottie({"fixture unsupported effect"}), "Lottie cancel accepted export"); });
     dialogs({"exportSupportedContent"}, [&]() { require(ExportFidelity::confirmLottie({"fixture unsupported effect"}), "Lottie explicit consent failed"); });
     dialogs({"cancelExportFidelity"}, [&]() { require(ExportFidelity::chooseAnimatedSvg() == ExportFidelity::Cancel, "SVG cancel accepted export"); });
     dialogs({"renderSceneForExport"}, [&]() { require(ExportFidelity::chooseAnimatedSvg() == ExportFidelity::RenderedScene, "SVG rendered fallback choice failed"); });
+    checkpoint("restoring empty scene");
     cleanup();
     require(TApp::instance()->getCurrentScene()->getScene()->getXsheet()->getFrameCount() == 0,
             "animation workflow fixture did not leave a fresh scene");
+    checkpoint("PASS");
     return true;
   } catch (const std::exception &failure) {
     if (error) *error = QString::fromUtf8(failure.what());
