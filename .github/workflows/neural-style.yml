@@ -46,3 +46,37 @@ jobs:
           name: neural-style-${{ runner.os }}-${{ runner.arch }}-${{ github.sha }}
           path: neural-evaluation/report
           if-no-files-found: warn
+      - name: Retain same-revision numerical reference
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v7
+        with:
+          name: neural-style-golden-${{ github.sha }}
+          path: neural-evaluation/report/golden.npz
+          if-no-files-found: error
+
+  macos-intel:
+    name: LiteRT macOS Intel native
+    needs: runtime
+    runs-on: macos-15-intel
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          lfs: false
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v6
+        with:
+          name: neural-style-golden-${{ github.sha }}
+          path: neural-golden
+      - name: Qualify official universal C API on Intel
+        run: python ci-scripts/neural-style/evaluate.py --native-macos neural-golden/golden.npz
+      - name: Retain Intel measurements and notices
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: neural-style-macOS-Intel-${{ github.sha }}
+          path: neural-evaluation/report
+          if-no-files-found: warn

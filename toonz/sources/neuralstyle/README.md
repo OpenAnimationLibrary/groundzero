@@ -34,7 +34,10 @@ This does not yet qualify a product-level queue or active-inference interruption
 The isolated CI evaluation builds this helper, copies only the independent C API
 library beside it, retains license notices/model provenance and tests with
 developer/Python loader paths removed. Deployment still needs dependency-closure
-checks and installed-application validation. The official macOS C API library
-requires macOS 14. Intel macOS needs a separately qualified source build.
+checks and installed-application validation. macOS qualification uses the official
+LiteRT 2.3.0 universal `CLiteRT_mac.xcframework` archive with both arm64 and x86_64
+slices. CI checks both slices' deployment targets against macOS 12 and executes
+the helper on Apple Silicon and Intel runners. The Python wheel is only the
+reference oracle; Intel qualification uses saved Linux oracle fixtures and NumPy.
 
 No local build/test commands are provided: repository policy requires CI.

@@ -14,10 +14,10 @@ import sys
 import time
 
 import numpy as np
-from ai_edge_litert.interpreter import Interpreter
 
 
 def make_interpreter(path):
+    from ai_edge_litert.interpreter import Interpreter
     interpreter = Interpreter(model_path=str(path), num_threads=2)
     interpreter.allocate_tensors()
     return interpreter
@@ -81,6 +81,10 @@ def main():
              (2, 3, content, output), (1, 4, other_style, other_embedding),
              (2, 5, content, other), (1, 6, style, embedding),
              (2, 7, other_content, changed_content)]
+    np.savez_compressed(report / "golden.npz", style=style, content=content,
+                        other_style=other_style, other_content=other_content,
+                        embedding=embedding, other_embedding=other_embedding,
+                        output=output, other=other, changed_content=changed_content)
     native_result = native_check(native, cases)
     result = {"runtime": importlib.metadata.version("ai-edge-litert"),
               "platform": platform.system(), "machine": platform.machine(),
@@ -100,6 +104,8 @@ def main():
 def native_check(directory, cases):
     """Exercise the native C API with Python/developer loader paths removed."""
     library = {"win32": "libLiteRt.dll", "darwin": "libLiteRt.dylib"}.get(sys.platform, "libLiteRt.so")
+    if sys.platform == "darwin" and (directory / "libCLiteRT_mac.dylib").is_file():
+        library = "libCLiteRT_mac.dylib"
     executable = directory / ("groundzero-style-worker" + (".exe" if os.name == "nt" else ""))
     args = [str(executable), str(directory / library), str(directory / "prediction.tflite"),
             str(directory / "transfer.tflite")]
