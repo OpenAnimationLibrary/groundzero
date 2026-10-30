@@ -67,9 +67,19 @@ handle link, unlink and reset operations. **Tools** contains:
 - **Capture / show / hide comparison curves:** compare against a snapshot;
   Restore applies that snapshot as one undo after confirmation. Changing the
   scene/Xsheet invalidates comparison buffers and cancels pending previews.
+  The dashed display freezes evaluated values across the visible frame range,
+  including native and SeExpr channel dependencies. Its caption states the
+  captured range and sampling interval. Between samples the display is an
+  approximation; recapture after zooming to extend its range or increase detail.
+  Restore retains the exact original keys and formulas, independently of the
+  sampled display.
 - **Motion Presets:** browse saved numeric curves, inspect a thumbnail, mark
   favorites, search by name, and preview duration/amplitude/value-offset adaptation before
   replacing the current channel. Existing preset files are never overwritten.
+  **Import existing curve** accepts native `.curve` files and `.fcurve` presets.
+  Native `.curve` files do not store their measure, so import explains that it
+  uses the current channel's measure. Import adds a numeric preset to your
+  library without changing the channel; Preview and Apply remain separate.
 - **Dependencies:** inspect actual resolved native/SeExpr bindings, formula
   errors and dependent channels. Double-click a channel to show it.
 

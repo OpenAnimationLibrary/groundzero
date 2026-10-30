@@ -22,6 +22,7 @@
 #include <QDoubleSpinBox>
 #include <QFileInfo>
 #include <QFile>
+#include <QFileDialog>
 #include <QFormLayout>
 #include <QInputDialog>
 #include <QJsonArray>
@@ -48,6 +49,7 @@
 #include <memory>
 #include <algorithm>
 #include <stdexcept>
+#include <utility>
 
 namespace {
 namespace Ops = FunctionCurveOperations;
@@ -78,13 +80,14 @@ void preview(FunctionPanel *graph, const Ops::Plan &plan, bool before = false) {
   graph->setComparison(overlay);
 }
 void restoreOverlay(FunctionViewer *viewer, FunctionPanel *graph,
-                    std::vector<std::pair<TDoubleParamP, TDoubleParamP>> saved,
+                    FunctionPanel::ComparisonState saved,
                     bool contextValid) {
   if (!contextValid) { graph->setComparison({}); return; }
   QSet<TDoubleParam *> present;
   for (auto *channel : viewer->findChild<FunctionTreeView *>()->channels()) present.insert(channel->getParam());
-  saved.erase(std::remove_if(saved.begin(), saved.end(), [&](const std::pair<TDoubleParamP, TDoubleParamP> &entry) { return !present.contains(entry.first.getPointer()); }), saved.end());
-  graph->setComparison(saved);
+  saved.curves.erase(std::remove_if(saved.curves.begin(), saved.curves.end(), [&](const std::pair<TDoubleParamP, TDoubleParamP> &entry) { return !present.contains(entry.first.getPointer()); }), saved.curves.end());
+  saved.frozen.erase(std::remove_if(saved.frozen.begin(), saved.frozen.end(), [&](const FunctionPanel::FrozenComparisonCurve &entry) { return !present.contains(entry.owner.getPointer()); }), saved.frozen.end());
+  graph->setComparisonState(saved);
 }
 QDoubleSpinBox *number(QWidget *parent, double value, double low = -1.e9,
                        double high = 1.e9, int decimals = 6) {
@@ -94,7 +97,7 @@ QDoubleSpinBox *number(QWidget *parent, double value, double low = -1.e9,
   return field;
 }
 void showEdit(FunctionViewer *viewer, FunctionPanel *graph) {
-  auto savedComparison = graph->comparison();
+  auto savedComparison = graph->comparisonState();
   auto selection = selected(viewer->getSelection());
   if (selection.empty()) {
     QMessageBox::information(viewer, tr("Edit Function Keys"), tr("Select one or more keys in the graph or spreadsheet first.")); return;
@@ -344,9 +347,12 @@ void showSets(FunctionViewer *viewer, FunctionTreeView *tree) {
     if (name.isEnabled()) { name.setFocus(); name.selectAll(); }
   });
   QObject::connect(capture, &QPushButton::clicked, &dialog, [&]() {
-    bool ok;
-    QString requested = QInputDialog::getText(&dialog, tr("Channel Set"), tr("Name"), QLineEdit::Normal, QString(), &ok).trimmed();
-    if (!ok || !contextValid) return;
+    QInputDialog prompt(&dialog); prompt.setObjectName("FunctionChannelSetCaptureName");
+    prompt.setWindowTitle(tr("Channel Set")); prompt.setLabelText(tr("Name"));
+    prompt.setInputMode(QInputDialog::TextInput);
+    QObject::connect(&dialog, &QDialog::finished, &prompt, &QDialog::reject);
+    if (prompt.exec() != QDialog::Accepted || !contextValid) return;
+    const QString requested = prompt.textValue().trimmed();
     const QString error = nameError(requested, -1);
     if (!error.isEmpty()) { info->setText(error); return; }
     QJsonArray ids;
@@ -464,10 +470,10 @@ public:
 };
 
 void showPresets(FunctionViewer *viewer, FunctionPanel *graph) {
-  auto savedComparison = graph->comparison();
+  auto savedComparison = graph->comparisonState();
   auto *target = viewer->getCurrentChannelCurve(); if (!target) return;
   TDoubleParamP keepTarget(target);
-  QDialog dialog(viewer); dialog.setWindowTitle(tr("Motion Curve Presets")); QVBoxLayout layout(&dialog);
+  QDialog dialog(viewer); dialog.setObjectName("FunctionMotionPresets"); dialog.setWindowTitle(tr("Motion Curve Presets")); QVBoxLayout layout(&dialog);
   bool contextValid = true;
   if (viewer->getSceneHandle()) QObject::connect(viewer->getSceneHandle(), &TSceneHandle::sceneSwitched, &dialog, [&]() { contextValid = false; dialog.reject(); });
   if (viewer->getXsheetHandle()) QObject::connect(viewer->getXsheetHandle(), &TXsheetHandle::xsheetSwitched, &dialog, [&]() { contextValid = false; dialog.reject(); });
@@ -478,20 +484,65 @@ void showPresets(FunctionViewer *viewer, FunctionPanel *graph) {
   QSettings settings(settingsPath(), QSettings::IniFormat);
   QStringList favorites = settings.value("presetFavorites").toStringList();
   QLineEdit search; search.setObjectName("FunctionPresetSearch"); search.setPlaceholderText(tr("Search motion presets")); search.setClearButtonEnabled(true); layout.addWidget(&search);
-  QListWidget list; layout.addWidget(&list); CurveThumbnail thumbnail(&dialog); layout.addWidget(&thumbnail);
-  QCheckBox favorite(tr("Favorite")); layout.addWidget(&favorite);
+  QListWidget list; list.setObjectName("FunctionPresetList"); layout.addWidget(&list); CurveThumbnail thumbnail(&dialog); layout.addWidget(&thumbnail);
+  QCheckBox favorite(tr("Favorite")); favorite.setObjectName("FunctionPresetFavorite"); layout.addWidget(&favorite);
   QFormLayout form;
   auto *start = number(&dialog, 1, 1), *duration = number(&dialog, 24, .000001);
   auto *amplitude = number(&dialog, 1), *offset = number(&dialog, 0);
+  start->setObjectName("FunctionPresetFirstFrame"); duration->setObjectName("FunctionPresetDuration");
+  amplitude->setObjectName("FunctionPresetAmplitude"); offset->setObjectName("FunctionPresetOffset");
   form.addRow(tr("First frame"), start); form.addRow(tr("Duration (frames)"), duration);
   form.addRow(tr("Amplitude multiplier"), amplitude); form.addRow(tr("Value offset (display units)"), offset);
   layout.addLayout(&form);
   QLabel status(tr("Applying replaces this channel's keys as one undo step. Formula/file presets must be baked first; foreign references are never imported implicitly."));
+  status.setObjectName("FunctionPresetStatus");
   status.setWordWrap(true); layout.addWidget(&status);
   QDialogButtonBox buttons(QDialogButtonBox::Apply | QDialogButtonBox::Close);
   auto *save = buttons.addButton(tr("Save current curve…"), QDialogButtonBox::ActionRole);
-  auto *previewButton = buttons.addButton(tr("Preview"), QDialogButtonBox::ActionRole); layout.addWidget(&buttons);
+  auto *importButton = buttons.addButton(tr("Import existing curve…"), QDialogButtonBox::ActionRole);
+  importButton->setObjectName("FunctionPresetImport"); save->setObjectName("FunctionPresetSave");
+  auto *previewButton = buttons.addButton(tr("Preview"), QDialogButtonBox::ActionRole);
+  previewButton->setObjectName("FunctionPresetPreview"); layout.addWidget(&buttons);
   TDoubleParamP preset;
+  auto readPreset = [&](const QString &path) {
+    if (QFileInfo(path).size() > 2 * 1024 * 1024) throw std::runtime_error("Preset is larger than 2 MiB");
+    TIStream input{TFilePath(path)};
+    TDoubleParamP loaded;
+    if (QFileInfo(path).suffix().compare("curve", Qt::CaseInsensitive) == 0) {
+      // Native Save Curve stores raw TDoubleParam data without a measure.
+      // Match native Load Curve: retain the destination measure/default, then
+      // validate the candidate before any preview, library write or mutation.
+      loaded = new TDoubleParam(target->getDefaultValue());
+      loaded->setMeasureName(target->getMeasureName());
+      loaded->loadData(input);
+      loaded->setDefaultValue(target->getDefaultValue());
+    } else {
+      loaded = new TDoubleParam;
+      std::string tag;
+      if (!input.matchTag(tag) || tag != "functionPreset") throw std::runtime_error("Invalid curve preset");
+      std::string measure; input.getTagParam("measure", measure); loaded->setMeasureName(measure);
+      loaded->loadData(input); input.closeChild();
+    }
+    loaded->setWorkspaceId(std::string());
+    return loaded;
+  };
+  auto publishPreset = [&](const QString &name, const TDoubleParamP &value) {
+    if (name.isEmpty() || name.contains('/') || name.contains('\\') || name.contains(':') || name.contains("..") || name.size() > 80 || name.contains('*') || name.contains('?') || name.contains('"') || name.contains('<') || name.contains('>') || name.contains('|') || name.endsWith('.')) { status.setText(tr("Use a short file name without path separators.")); return false; }
+    if (!QDir().mkpath(folder)) { status.setText(tr("Cannot create the preset folder.")); return false; }
+    const QString path = directory.filePath(name + ".fcurve");
+    if (QFileInfo::exists(path)) { status.setText(tr("A preset with this name already exists. Choose another name.")); return false; }
+    const QString temporary = path + "." + QUuid::createUuid().toString(QUuid::WithoutBraces) + ".tmp";
+    try {
+      {
+        TOStream output{TFilePath(temporary)};
+        output.openChild("functionPreset", {{"measure", value->getMeasureName()}});
+        TDoubleParamP copy = new TDoubleParam(*value); copy->saveData(output); output.closeChild();
+        if (!output.checkStatus()) throw std::runtime_error("Preset write failed");
+      }
+      if (!QFile::rename(temporary, path)) throw std::runtime_error("Preset publication failed");
+      return true;
+    } catch (...) { QFile::remove(temporary); status.setText(tr("Could not save the preset; existing presets were preserved.")); return false; }
+  };
   auto refresh = [&]() {
     list.clear();
     QStringList files = directory.entryList({"*.fcurve"}, QDir::Files, QDir::Name);
@@ -505,13 +556,7 @@ void showPresets(FunctionViewer *viewer, FunctionPanel *graph) {
     preset = TDoubleParamP(); thumbnail.setCurve(preset); graph->setComparison({}); if (!item) return;
     QString file = item->data(Qt::UserRole).toString(); QSignalBlocker block(&favorite); favorite.setChecked(favorites.contains(file));
     try {
-      QString path = directory.filePath(file);
-      if (QFileInfo(path).size() > 2 * 1024 * 1024) throw std::runtime_error("Preset is larger than 2 MiB");
-      TIStream input{TFilePath(path)}; TDoubleParamP loaded = new TDoubleParam;
-      std::string tag;
-      if (!input.matchTag(tag) || tag != "functionPreset") throw std::runtime_error("Invalid curve preset");
-      std::string measure; input.getTagParam("measure", measure); loaded->setMeasureName(measure);
-      loaded->loadData(input); input.closeChild();
+      TDoubleParamP loaded = readPreset(directory.filePath(file));
       // Use the same numeric-only validation as Apply before evaluating previews.
       auto validation = Ops::planPreset(target, loaded.getPointer(), 0, 24, 1, 0);
       if (!validation.valid()) { status.setText(validation.error); return; }
@@ -534,25 +579,48 @@ void showPresets(FunctionViewer *viewer, FunctionPanel *graph) {
     settings.setValue("presetFavorites", favorites); settings.sync();
   });
   QObject::connect(save, &QPushButton::clicked, &dialog, [&]() {
-    bool ok; QString name = QInputDialog::getText(&dialog, tr("Save Motion Preset"), tr("Name"), QLineEdit::Normal, QString(), &ok).trimmed();
-    if (!ok || name.isEmpty() || !contextValid) return;
+    QInputDialog prompt(&dialog); prompt.setObjectName("FunctionPresetSaveName");
+    prompt.setWindowTitle(tr("Save Motion Preset")); prompt.setLabelText(tr("Name"));
+    prompt.setInputMode(QInputDialog::TextInput);
+    QObject::connect(&dialog, &QDialog::finished, &prompt, &QDialog::reject);
+    if (prompt.exec() != QDialog::Accepted || !contextValid) return;
+    const QString name = prompt.textValue().trimmed();
+    if (name.isEmpty()) return;
     auto validation = Ops::planPreset(target, target, 0, 24, 1, 0);
     if (!validation.valid()) { status.setText(validation.error); return; }
-    if (name.contains('/') || name.contains('\\') || name.contains(':') || name.contains("..") || name.size() > 80 || name.contains('*') || name.contains('?') || name.contains('"') || name.contains('<') || name.contains('>') || name.contains('|') || name.endsWith('.')) { status.setText(tr("Use a short file name without path separators.")); return; }
-    if (!QDir().mkpath(folder)) { status.setText(tr("Cannot create the preset folder.")); return; }
-    QString path = directory.filePath(name + ".fcurve");
-    if (QFileInfo::exists(path)) { status.setText(tr("A preset with this name already exists. Choose another name.")); return; }
-    QString temporary = path + ".tmp";
+    if (publishPreset(name, keepTarget)) { refresh(); status.setText(tr("Preset saved.")); }
+  });
+  QObject::connect(importButton, &QPushButton::clicked, &dialog, [&]() {
+    QFileDialog file(&dialog, tr("Import Existing Motion Curve"));
+    file.setObjectName("FunctionPresetImportFile");
+    file.setOption(QFileDialog::DontUseNativeDialog);
+    file.setFileMode(QFileDialog::ExistingFile);
+    file.setNameFilter(tr("Motion curves (*.curve *.fcurve)"));
+    QObject::connect(&dialog, &QDialog::finished, &file, &QDialog::reject);
+    if (file.exec() != QDialog::Accepted || !contextValid || file.selectedFiles().isEmpty()) return;
+    const QString path = file.selectedFiles().front();
     try {
-      {
-        TOStream output{TFilePath(temporary)};
-        output.openChild("functionPreset", {{"measure", target->getMeasureName()}});
-        TDoubleParamP copy = new TDoubleParam(*target); copy->saveData(output); output.closeChild();
-        if (!output.checkStatus()) throw std::runtime_error("Preset write failed");
+      const TDoubleParamP loaded = readPreset(path);
+      const auto validation = Ops::planPreset(target, loaded.getPointer(), 0, 24, 1, 0);
+      if (!validation.valid()) { status.setText(validation.error); return; }
+      const QString interpretation = QFileInfo(path).suffix().compare("curve", Qt::CaseInsensitive) == 0
+          ? tr("Native .curve files do not store a measure. This curve will use the current channel's %1 measure. Preset name:").arg(QString::fromStdString(target->getMeasureName()).isEmpty() ? tr("unitless") : QString::fromStdString(target->getMeasureName()))
+          : tr("Preset name:");
+      QInputDialog prompt(&dialog); prompt.setObjectName("FunctionPresetImportName");
+      prompt.setWindowTitle(tr("Import Motion Preset")); prompt.setLabelText(interpretation);
+      prompt.setInputMode(QInputDialog::TextInput); prompt.setTextValue(QFileInfo(path).completeBaseName());
+      QObject::connect(&dialog, &QDialog::finished, &prompt, &QDialog::reject);
+      if (prompt.exec() != QDialog::Accepted || !contextValid) return;
+      const QString name = prompt.textValue().trimmed();
+      if (publishPreset(name, loaded)) {
+        // An imported preset becomes current explicitly, so reveal it even
+        // when the previous search would hide its name.
+        search.clear(); refresh();
+        for (int row = 0; row < list.count(); ++row)
+          if (list.item(row)->data(Qt::UserRole).toString() == name + ".fcurve") { list.setCurrentRow(row); break; }
+        status.setText(tr("Imported numeric curve. Preview and Apply to adapt it; the current channel is unchanged."));
       }
-      if (!QFile::rename(temporary, path)) throw std::runtime_error("Preset publication failed");
-      refresh(); status.setText(tr("Preset saved."));
-    } catch (...) { QFile::remove(temporary); status.setText(tr("Could not save the preset; existing presets were preserved.")); }
+    } catch (...) { status.setText(tr("The curve could not be imported. The library and current channel were not changed.")); }
   });
   auto makePlan = [&]() {
     if (!contextValid) { Ops::Plan plan; plan.cancelled = true; return plan; }
@@ -564,6 +632,7 @@ void showPresets(FunctionViewer *viewer, FunctionPanel *graph) {
   QObject::connect(buttons.button(QDialogButtonBox::Apply), &QPushButton::clicked, &dialog, [&]() {
     auto plan = makePlan(); QString error;
     if (!Ops::apply(plan, tr("Apply Motion Preset"), error)) { status.setText(error); return; }
+    if (plan.changes.empty()) { status.setText(tr("No keys changed.")); graph->setComparison({}); return; }
     viewer->getSelection()->selectNone(); viewer->emitCurveChanged(); graph->setComparison({}); graph->refreshNormalization(); graph->update();
     status.setText(tr("Preset applied as one undo step."));
   });
@@ -585,7 +654,7 @@ QWidget *createFunctionWorkflowControls(FunctionViewer *viewer, FunctionTreeView
   auto *fit = button(tr("Fit Selected")); QObject::connect(fit, &QToolButton::clicked, graph, &FunctionPanel::fitSelectedPoints);
   auto *more = button(tr("Tools")); more->setPopupMode(QToolButton::InstantPopup); auto *menu = new QMenu(more); more->setMenu(menu);
   menu->addAction(tr("Channel Sets…"), widget, [=]() { showSets(viewer, tree); })->setObjectName("FunctionChannelSetsAction");
-  menu->addAction(tr("Motion Presets…"), widget, [=]() { showPresets(viewer, graph); });
+  menu->addAction(tr("Motion Presets…"), widget, [=]() { showPresets(viewer, graph); })->setObjectName("FunctionMotionPresetsAction");
   menu->addAction(tr("Dependencies…"), widget, [=]() { showDependencies(viewer, tree); })->setObjectName("FunctionDependenciesAction");
   auto *normalize = menu->addAction(tr("Normalize curve display")); normalize->setCheckable(true);
   QObject::connect(normalize, &QAction::toggled, graph, &FunctionPanel::setNormalized);
@@ -637,33 +706,54 @@ QWidget *createFunctionWorkflowControls(FunctionViewer *viewer, FunctionTreeView
     TUndoManager::manager()->endBlock(); graph->update();
   })->setObjectName("FunctionResetHandles");
   auto snapshots = std::make_shared<std::vector<std::pair<TDoubleParamP, TDoubleParamP>>>();
-  auto clearContext = [=]() { snapshots->clear(); soloState->clear(); graph->setComparison({}); widget->setProperty("comparisonVisible", false); };
+  auto capturedDisplay = std::make_shared<FunctionPanel::ComparisonState>();
+  auto captureGeneration = std::make_shared<unsigned long long>(0);
+  auto *comparisonInfo = new QLabel(widget); comparisonInfo->setObjectName("FunctionComparisonInfo");
+  comparisonInfo->setWordWrap(true); comparisonInfo->hide(); layout->addWidget(comparisonInfo);
+  auto clearContext = [=]() { ++*captureGeneration; snapshots->clear(); *capturedDisplay = FunctionPanel::ComparisonState(); comparisonInfo->clear(); comparisonInfo->hide(); soloState->clear(); graph->setComparison({}); widget->setProperty("comparisonVisible", false); };
   QObject::connect(viewer, &FunctionViewer::workflowContextChanged, widget, clearContext);
   QObject::connect(tree->model(), &QAbstractItemModel::modelAboutToBeReset, widget, clearContext);
   QObject::connect(tree->model(), &QAbstractItemModel::layoutChanged, widget, [=]() {
     QSet<TDoubleParam *> present; for (auto *channel : tree->channels()) present.insert(channel->getParam());
     auto missing = [&](const std::pair<TDoubleParamP, TDoubleParamP> &entry) { return !present.contains(entry.first.getPointer()); };
+    const auto previousCount = snapshots->size();
     snapshots->erase(std::remove_if(snapshots->begin(), snapshots->end(), missing), snapshots->end());
+    if (snapshots->size() != previousCount) ++*captureGeneration;
+    capturedDisplay->curves.erase(std::remove_if(capturedDisplay->curves.begin(), capturedDisplay->curves.end(), missing), capturedDisplay->curves.end());
+    capturedDisplay->frozen.erase(std::remove_if(capturedDisplay->frozen.begin(), capturedDisplay->frozen.end(), [&](const FunctionPanel::FrozenComparisonCurve &entry) { return !present.contains(entry.owner.getPointer()); }), capturedDisplay->frozen.end());
     soloState->erase(std::remove_if(soloState->begin(), soloState->end(), [&](const std::pair<TDoubleParamP, bool> &entry) { return !present.contains(entry.first.getPointer()); }), soloState->end());
-    if (widget->property("comparisonVisible").toBool()) graph->setComparison(*snapshots);
+    if (widget->property("comparisonVisible").toBool()) graph->setComparisonState(*capturedDisplay);
   });
   menu->addAction(tr("Capture comparison curves"), widget, [=]() {
-    snapshots->clear(); for (auto *channel : tree->channels()) if (channel->isActive()) snapshots->emplace_back(channel->getParam(), new TDoubleParam(*channel->getParam()));
-    graph->setComparison(*snapshots); widget->setProperty("comparisonVisible", true);
-  });
+    const auto previous = graph->comparisonState();
+    std::vector<std::pair<TDoubleParamP, TDoubleParamP>> proposed;
+    for (auto *channel : tree->channels()) if (channel->isActive()) proposed.emplace_back(channel->getParam(), new TDoubleParam(*channel->getParam()));
+    graph->setComparison(proposed);
+    QString error;
+    if (!graph->freezeComparison(error)) { graph->setComparisonState(previous); QMessageBox::warning(viewer, tr("Capture Curves"), error); return; }
+    ++*captureGeneration; *snapshots = std::move(proposed); *capturedDisplay = graph->comparisonState(); widget->setProperty("comparisonVisible", true);
+    comparisonInfo->setText(tr("Comparison captured at frames %1–%2 with %3 sample intervals (%4 frames/sample). Display between samples is approximate. Recapture to extend the range or increase detail.")
+        .arg(capturedDisplay->first + 1, 0, 'g', 8).arg(capturedDisplay->last + 1, 0, 'g', 8)
+        .arg(capturedDisplay->intervals).arg((capturedDisplay->last - capturedDisplay->first) / capturedDisplay->intervals, 0, 'g', 6));
+    comparisonInfo->show();
+  })->setObjectName("FunctionCaptureComparison");
   menu->addAction(tr("Show / hide comparison"), widget, [=]() {
     bool visible = widget->property("comparisonVisible").toBool(); widget->setProperty("comparisonVisible", !visible);
-    graph->setComparison(visible ? std::vector<std::pair<TDoubleParamP, TDoubleParamP>>() : *snapshots);
-  });
+    if (visible) graph->setComparison({}); else graph->setComparisonState(*capturedDisplay);
+    comparisonInfo->setVisible(!visible && !capturedDisplay->curves.empty());
+  })->setObjectName("FunctionToggleComparison");
   menu->addAction(tr("Restore captured curves…"), widget, [=]() {
     if (snapshots->empty()) return;
+    const auto generation = *captureGeneration;
     if (QMessageBox::question(viewer, tr("Restore Curves"), tr("Restore all captured channels? Edits since capture will be replaced as one undo step.")) != QMessageBox::Yes) return;
+    if (*captureGeneration != generation || snapshots->empty()) return;
     QSet<TDoubleParam *> present; for (auto *channel : tree->channels()) present.insert(channel->getParam());
     for (const auto &snapshot : *snapshots) if (!present.contains(snapshot.first.getPointer())) { QMessageBox::warning(viewer, tr("Restore Curves"), tr("A captured channel no longer belongs to this scene. Capture a new comparison.")); return; }
     Ops::Plan plan = Ops::planRestore(*snapshots);
     QString error; if (!Ops::apply(plan, tr("Restore Comparison Curves"), error)) QMessageBox::warning(viewer, tr("Restore Curves"), error);
+    else if (plan.changes.empty()) return;
     else { viewer->getSelection()->selectNone(); viewer->emitCurveChanged(); graph->refreshNormalization(); graph->update(); }
-  });
+  })->setObjectName("FunctionRestoreComparison");
   QSettings settings(settingsPath(), QSettings::IniFormat);
   auto snap = std::make_shared<int>(settings.value("snapFrames", 1).toInt());
   auto *snapKeys = menu->addAction(tr("Snap near other keys")); snapKeys->setCheckable(true); snapKeys->setChecked(settings.value("snapKeys", false).toBool());
