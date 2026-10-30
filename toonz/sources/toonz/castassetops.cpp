@@ -1,4 +1,5 @@
 #include "castbrowseractions.h"
+#include "castworkflowguard.h"
 #include "toonz/sceneproperties.h"
 #include "tapp.h"
 #include "toonz/levelset.h"
@@ -219,6 +220,7 @@ public:
 // identifiers, so every existing exposure must still resolve in the replacement.
 PathChange prepare(TXshLevel *level, const TFilePath &path,
                    const std::function<bool()> &cancel = {}, bool identicalCopy = false) {
+  if (cancel && cancel()) throw std::runtime_error("Relink canceled.");
   if (dirty(level)) throw std::runtime_error("Save modified levels before relinking or copying.");
   TFilePath actual = scene()->decodeFilePath(path);
   TFilePath original = level->getPath();
@@ -265,6 +267,7 @@ PathChange prepare(TXshLevel *level, const TFilePath &path,
     change.paletteBefore = change.paletteAfter = simple->getPalette();
     change.framesBefore = std::make_shared<FrameSnapshot>();
     change.framesBefore->capture(simple, oldFrames, cancel);
+    if (cancel && cancel()) throw std::runtime_error("Relink canceled.");
     if (identicalCopy) {
       change.framesAfter = change.framesBefore;
       change.preserveStatus = true;
@@ -399,11 +402,15 @@ void copyAsset(const TFilePath &destination, const TFilePath &source,
   }
 }
 
-void report(QWidget *parent, const QString &title, const QString &explanation,
+void report(CastWorkflowGuard &workflow, const QString &title, const QString &explanation,
             const QStringList &headers, const std::vector<QStringList> &rows,
             const std::function<bool(QWidget *)> &review = {},
-            const QString &actionLabel = tr("Review Consolidation…")) {
-  QDialog dialog(parent); dialog.setWindowTitle(title);
+            const QString &actionLabel = tr("Review Consolidation…"),
+            QWidget *visualOwner = nullptr) {
+  if (!workflow.valid()) return;
+  QDialog dialog; dialog.setWindowTitle(title);
+  if (!visualOwner)
+    QObject::connect(&dialog, &QDialog::rejected, &workflow, [&]() { workflow.cancel(); });
   auto *layout = new QVBoxLayout(&dialog);
   auto *label = new QLabel(explanation, &dialog); label->setWordWrap(true);
   layout->addWidget(label);
@@ -416,25 +423,27 @@ void report(QWidget *parent, const QString &title, const QString &explanation,
     auto *consolidate = buttons->addButton(actionLabel, QDialogButtonBox::ActionRole);
     consolidate->setObjectName("CastReviewConsolidation");
     QObject::connect(consolidate, &QPushButton::clicked, &dialog, [&]() {
-      if (review(&dialog)) dialog.accept();
+      if (workflow.canAct(dialog) && review(&dialog) && workflow.canAct(dialog)) dialog.accept();
     });
   }
   QObject::connect(save, &QPushButton::clicked, &dialog, [&]() {
-    QString path = QFileDialog::getSaveFileName(&dialog, tr("Save Asset Report"), QString(), tr("CSV (*.csv)"));
-    if (path.isEmpty()) return;
+    if (!workflow.canAct(dialog)) return;
+    QString path = workflow.saveFile(tr("Save Asset Report"), tr("CSV (*.csv)"), &dialog);
+    if (!workflow.canAct(dialog) || path.isEmpty()) return;
     auto line = [](QStringList values) {
       for (QString &value : values) { value.replace('"', "\"\""); value = '"' + value + '"'; }
       return values.join(',').toUtf8() + '\n';
     };
     QSaveFile file(path);
-    if (!file.open(QIODevice::WriteOnly)) { QMessageBox::warning(&dialog, title, file.errorString()); return; }
+    if (!file.open(QIODevice::WriteOnly)) { workflow.warning(title, file.errorString(), &dialog); return; }
     QByteArray bytes = line(headers);
     bool ok = file.write(bytes) == bytes.size();
     for (const auto &values : rows) { bytes = line(values); ok = ok && file.write(bytes) == bytes.size(); }
-    if (!ok || !file.commit()) QMessageBox::warning(&dialog, title, file.errorString());
+    if (!workflow.canAct(dialog)) return;
+    if (!ok || !file.commit()) workflow.warning(title, file.errorString(), &dialog);
   });
   QObject::connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
-  layout->addWidget(buttons); dialog.resize(950, 500); dialog.exec();
+  layout->addWidget(buttons); dialog.resize(950, 500); workflow.exec(dialog, visualOwner);
 }
 
 QByteArray nativeMetadata(TXshLevel *level) {
@@ -500,8 +509,10 @@ bool compatible(TXshLevel *a, TXshLevel *b) {
 QByteArray savedDigest(ToonzScene *source, TXshLevel *level, const std::function<bool()> &cancel) {
   if (dirty(level)) return {};
   QStringList files = assetFiles(source->decodeFilePath(level->getPath()), cancel);
+  if (cancel && cancel()) return {};
   if (auto *simple = level->getSimpleLevel())
     if (!simple->getScannedPath().isEmpty()) files += assetFiles(source->decodeFilePath(simple->getScannedPath()), cancel);
+  if (cancel && cancel()) return {};
   if (files.empty()) return {};
   QCryptographicHash hash(QCryptographicHash::Sha256);
   hash.addData(QByteArray::number(level->getType()) + ':' + QByteArray::number(level->getFrameCount()));
@@ -574,10 +585,10 @@ public:
   QString getHistoryString() override { return tr("Consolidate Reviewed Cast Duplicates"); }
 };
 
-bool reviewConsolidation(QWidget *parent, ToonzScene *source,
+bool reviewConsolidation(CastWorkflowGuard &workflow, QWidget *visualOwner, ToonzScene *source,
                          const std::map<QByteArray, std::vector<TXshLevel *>> &groups) {
-  if (scene() != source) return false;
-  QDialog dialog(parent); dialog.setWindowTitle(tr("Review Duplicate Consolidation"));
+  if (!workflow.valid() || scene() != source) return false;
+  QDialog dialog; dialog.setWindowTitle(tr("Review Duplicate Consolidation"));
   dialog.setObjectName("CastConsolidationReview");
   auto *layout = new QVBoxLayout(&dialog);
   auto *label = new QLabel(tr("Check groups explicitly and choose the asset to keep. Every exposure in all scene and nested sheets will keep its frame identifier. Compatible drawing and rig metadata is required. Tags are combined; the chosen asset's name, folder, cover and Library ownership remain. Collection memberships move to the chosen asset. Files stay on disk. Undo restores original assets, memberships and exposures."), &dialog);
@@ -600,11 +611,12 @@ bool reviewConsolidation(QWidget *parent, ToonzScene *source,
   QObject::connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
   QObject::connect(TApp::instance()->getCurrentScene(), &TSceneHandle::sceneSwitched, &dialog, &QDialog::reject);
   layout->addWidget(buttons); dialog.resize(850, 420);
-  if (dialog.exec() != QDialog::Accepted || scene() != source) return false;
+  if (workflow.exec(dialog, visualOwner) != QDialog::Accepted) return false;
   PreparationGuard guard(source);
-  QProgressDialog progress(tr("Validating consolidation and exposure references…"), tr("Cancel"), 0, 0, parent);
-  progress.setWindowModality(Qt::WindowModal);
-  auto cancel = [&]() { QApplication::processEvents(); return progress.wasCanceled() || scene() != source; };
+  QProgressDialog progress(tr("Validating consolidation and exposure references…"), tr("Cancel"), 0, 0);
+  workflow.watch(progress, visualOwner);
+  if (!workflow.valid()) return false;
+  auto cancel = [&]() { QApplication::processEvents(); return !workflow.valid() || progress.wasCanceled(); };
   std::vector<ConsolidationLevel> levels;
   std::map<TXshLevel *, TXshLevel *> replace;
   std::map<TXshLevel *, QByteArray> validated;
@@ -622,8 +634,8 @@ bool reviewConsolidation(QWidget *parent, ToonzScene *source,
       for (auto *level : group.second) {
         if (level->getCastId().isEmpty() || identityCounts[level->getCastId()] != 1)
           throw std::runtime_error("A chosen asset has an ambiguous Cast identity. No assets or collection memberships were changed.");
-        if (source->getLevelSet()->getLevel(level->getName()) != level ||
-            savedDigest(source, level, cancel) != group.first || !compatible(canonical, level))
+        if (!workflow.valid() || source->getLevelSet()->getLevel(level->getName()) != level ||
+            savedDigest(source, level, cancel) != group.first || !workflow.valid() || !compatible(canonical, level))
           throw std::runtime_error("A chosen asset changed or has different drawing, layer, palette, rig, or level metadata. No consolidation was applied.");
         validated[level] = group.first;
         if (level != canonical) {
@@ -667,18 +679,19 @@ bool reviewConsolidation(QWidget *parent, ToonzScene *source,
     }
     if (cancel()) return false;
     progress.reset();
-    if (scene() != source || QMessageBox::question(parent, tr("Confirm Duplicate Consolidation"),
+    if (!workflow.confirm(tr("Confirm Duplicate Consolidation"),
         tr("Replace %1 exposure cells and remove %2 duplicate Cast entries? Files remain on disk; Undo restores the exact assets and exposures.")
-            .arg(qulonglong(cells.size())).arg(qulonglong(levels.size()))) != QMessageBox::Yes) return false;
-    if (scene() != source) return false;
+            .arg(qulonglong(cells.size())).arg(qulonglong(levels.size())), visualOwner)) return false;
+    if (!workflow.valid()) return false;
     progress.setLabelText(tr("Final content verification…")); progress.show();
     for (const auto &entry : validated) {
-      if (!guard.unchanged() || source->getLevelSet()->getLevel(entry.first->getName()) != entry.first ||
+      if (!workflow.valid() || !guard.unchanged() || source->getLevelSet()->getLevel(entry.first->getName()) != entry.first ||
           savedDigest(source, entry.first, cancel) != entry.second)
         throw std::runtime_error("An asset or scene changed during final review. No consolidation was applied.");
     }
-    if (!guard.unchanged()) throw std::runtime_error("The scene changed during final review. No consolidation was applied.");
+    if (!workflow.valid() || !guard.unchanged()) throw std::runtime_error("The scene changed during final review. No consolidation was applied.");
     progress.reset();
+    if (!workflow.valid()) return false;
     for (const auto &cell : cells)
       if (cell.sheet->getCell(cell.row, cell.column) != cell.before)
         throw std::runtime_error("The scene changed while reviewing consolidation. Search again.");
@@ -686,9 +699,9 @@ bool reviewConsolidation(QWidget *parent, ToonzScene *source,
     undo->redo(); TUndoManager::manager()->add(undo);
     return true;
   } catch (const std::exception &error) {
-    progress.reset(); QMessageBox::warning(parent, tr("Consolidation canceled"), QString::fromUtf8(error.what()));
+    progress.reset(); workflow.warning(tr("Consolidation canceled"), QString::fromUtf8(error.what()), visualOwner);
   } catch (...) {
-    progress.reset(); QMessageBox::warning(parent, tr("Consolidation canceled"), tr("A selected asset could not be validated. No changes were applied."));
+    progress.reset(); workflow.warning(tr("Consolidation canceled"), tr("A selected asset could not be validated. No changes were applied."), visualOwner);
   }
   return false;
 }
@@ -698,13 +711,15 @@ bool reviewConsolidation(QWidget *parent, ToonzScene *source,
 namespace CastBrowserActions {
 void relink(QWidget *parent, const std::vector<TXshLevel *> &selected) {
   if (selected.empty()) return;
+  CastWorkflowGuard workflow(parent);
   ToonzScene *source = scene();
   std::vector<TXshLevelP> retained;
   for (auto *level : selected) retained.emplace_back(level);
-  QString folder = QFileDialog::getExistingDirectory(parent, tr("Search for Replacement Assets"));
-  if (folder.isEmpty() || scene() != source) return;
-  QProgressDialog progress(tr("Finding replacement files…"), tr("Cancel"), 0, 0, parent);
-  progress.setWindowModality(Qt::WindowModal);
+  QString folder = workflow.directory(tr("Search for Replacement Assets"));
+  if (!workflow.valid() || folder.isEmpty()) return;
+  QProgressDialog progress(tr("Finding replacement files…"), tr("Cancel"), 0, 0);
+  workflow.watch(progress);
+  if (!workflow.valid()) return;
   std::map<QString, std::set<TFilePath>> matches;
   QDirIterator it(folder, QDir::Files, QDirIterator::Subdirectories);
   int visited = 0;
@@ -713,14 +728,14 @@ void relink(QWidget *parent, const std::vector<TXshLevel *> &selected) {
     matches[QString::fromStdWString(path.getLevelNameW()).toCaseFolded()].insert(path.getParentDir() + TFilePath(path.getLevelNameW()));
     if ((++visited & 255) == 0) {
       QApplication::processEvents();
-      if (progress.wasCanceled() || scene() != source) return;
+      if (!workflow.valid() || progress.wasCanceled()) return;
     }
   }
   QApplication::processEvents();
-  const bool searchCanceled = progress.wasCanceled() || scene() != source;
+  const bool searchCanceled = !workflow.valid() || progress.wasCanceled();
   progress.reset();
   if (searchCanceled) return;
-  QDialog dialog(parent); dialog.setWindowTitle(tr("Review Batch Relink"));
+  QDialog dialog; dialog.setWindowTitle(tr("Review Batch Relink"));
   dialog.setObjectName("CastRelinkReview");
   QObject::connect(TApp::instance()->getCurrentScene(), &TSceneHandle::sceneSwitched, &dialog, &QDialog::reject);
   auto *layout = new QVBoxLayout(&dialog);
@@ -741,9 +756,10 @@ void relink(QWidget *parent, const std::vector<TXshLevel *> &selected) {
     if (combo->count() == 2) combo->setCurrentIndex(1);
     choices.push_back(combo); table->setCellWidget(r, 2, combo);
     auto *browse = new QPushButton(tr("Browse…"), table);
-    QObject::connect(browse, &QPushButton::clicked, &dialog, [=, &dialog]() {
-      QString candidate = QFileDialog::getOpenFileName(&dialog, tr("Choose Replacement"), folder);
-      if (!candidate.isEmpty()) {
+    QObject::connect(browse, &QPushButton::clicked, &dialog, [=, &dialog, &workflow]() {
+      if (!workflow.canAct(dialog)) return;
+      QString candidate = workflow.openFile(tr("Choose Replacement"), folder, {}, &dialog);
+      if (workflow.canAct(dialog) && !candidate.isEmpty()) {
         TFilePath path(candidate); path = path.getParentDir() + TFilePath(path.getLevelNameW());
         combo->addItem(path.getQString(), path.getQString()); combo->setCurrentIndex(combo->count() - 1);
       }
@@ -756,12 +772,13 @@ void relink(QWidget *parent, const std::vector<TXshLevel *> &selected) {
   QObject::connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
   QObject::connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
   layout->addWidget(buttons); dialog.resize(1000, 480);
-  if (dialog.exec() != QDialog::Accepted || scene() != source) return;
+  if (workflow.exec(dialog) != QDialog::Accepted) return;
   std::vector<PathChange> changes;
   PreparationGuard guard(source);
-  QProgressDialog preparing(tr("Validating replacement drawings…"), tr("Cancel"), 0, 0, parent);
-  preparing.setWindowModality(Qt::WindowModal);
-  auto canceled = [&]() { QApplication::processEvents(); return preparing.wasCanceled() || scene() != source; };
+  QProgressDialog preparing(tr("Validating replacement drawings…"), tr("Cancel"), 0, 0);
+  workflow.watch(preparing);
+  if (!workflow.valid()) return;
+  auto canceled = [&]() { QApplication::processEvents(); return !workflow.valid() || preparing.wasCanceled(); };
   try {
     for (int r = 0; r < int(levels.size()); ++r) {
       QString candidate = choices[r]->currentData().toString();
@@ -769,13 +786,13 @@ void relink(QWidget *parent, const std::vector<TXshLevel *> &selected) {
       changes.push_back(prepare(levels[r].getPointer(), TFilePath(candidate), canceled));
     }
   } catch (const std::exception &e) {
-    QMessageBox::warning(parent, tr("Relink canceled"), QString::fromUtf8(e.what())); return;
-  } catch (...) { QMessageBox::warning(parent, tr("Relink canceled"), tr("A replacement could not be read. No paths were changed.")); return; }
+    workflow.warning(tr("Relink canceled"), QString::fromUtf8(e.what())); return;
+  } catch (...) { workflow.warning(tr("Relink canceled"), tr("A replacement could not be read. No paths were changed.")); return; }
   const bool preparationCanceled = canceled();
   preparing.reset();
   if (changes.empty() || preparationCanceled) return;
-  if (!guard.valid(changes)) {
-    QMessageBox::warning(parent, tr("Relink canceled"), tr("An asset changed during preparation. No links were changed; review the selection again."));
+  if (!workflow.valid() || !guard.valid(changes)) {
+    workflow.warning(tr("Relink canceled"), tr("An asset changed during preparation. No links were changed; review the selection again."));
     return;
   }
   auto *undo = new PathsUndo(std::move(changes), tr("Relink Scene Cast Assets"));
@@ -784,31 +801,33 @@ void relink(QWidget *parent, const std::vector<TXshLevel *> &selected) {
 
 void makeLocal(QWidget *parent, const std::vector<TXshLevel *> &levels) {
   if (levels.empty()) return;
+  CastWorkflowGuard workflow(parent);
   ToonzScene *source = scene();
   std::vector<TXshLevelP> retained;
   for (auto *level : levels) retained.emplace_back(level);
   const auto project = source->getProject();
   if (!project) return;
-  QString destination = QFileDialog::getExistingDirectory(parent, tr("Choose a Project Folder for Local Copies"),
+  QString destination = workflow.directory(tr("Choose a Project Folder for Local Copies"),
                                                           project->getProjectFolder().getQString());
-  if (destination.isEmpty() || scene() != source) return;
+  if (!workflow.valid() || destination.isEmpty()) return;
   TFilePath dest(destination);
   TXshSimpleLevelP locationProbe = new TXshSimpleLevel;
   locationProbe->setPath(dest + "cast-copy-probe.pli", true);
   if (external(source, locationProbe.getPointer())) {
-    QMessageBox::warning(parent, tr("Make Local Copy"), tr("Choose a folder inside this project or the saved scene folder."));
+    workflow.warning(tr("Make Local Copy"), tr("Choose a folder inside this project or the saved scene folder."));
     return;
   }
   // Use a dedicated folder. No existing files or assets are overwritten.
   QString leaf = "cast-copy-" + QUuid::createUuid().toString(QUuid::WithoutBraces);
   QTemporaryDir staging(QDir(destination).filePath(".cast-copy-XXXXXX"));
-  if (!staging.isValid()) { QMessageBox::warning(parent, tr("Make Local Copy"), tr("The destination is not writable.")); return; }
+  if (!staging.isValid()) { workflow.warning(tr("Make Local Copy"), tr("The destination is not writable.")); return; }
   std::vector<PathChange> changes;
   PreparationGuard guard(source);
   std::vector<std::pair<TXshLevel *, TFilePath>> copies;
-  QProgressDialog preparing(tr("Preparing local asset copies…"), tr("Cancel"), 0, 0, parent);
-  preparing.setWindowModality(Qt::WindowModal);
-  auto canceled = [&]() { QApplication::processEvents(); return preparing.wasCanceled() || scene() != source; };
+  QProgressDialog preparing(tr("Preparing local asset copies…"), tr("Cancel"), 0, 0);
+  workflow.watch(preparing);
+  if (!workflow.valid()) return;
+  auto canceled = [&]() { QApplication::processEvents(); return !workflow.valid() || preparing.wasCanceled(); };
   try {
     for (auto *level : levels) {
       if (canceled()) return;
@@ -820,14 +839,17 @@ void makeLocal(QWidget *parent, const std::vector<TXshLevel *> &levels) {
       TFilePath relative = TFilePath(std::to_string(index + 1)) + TFilePath(input.getLevelNameW());
       TFilePath temporary = TFilePath(staging.path()) + relative;
       copyAsset(temporary, input, canceled);
+      if (canceled()) return;
       // Validate all copies before any live path is changed.
       PathChange change = prepare(level, temporary, canceled, true);
+      if (canceled()) return;
       change.after = source->codeFilePath(ResourceImporter::buildPsd(dest + TFilePath(leaf) + relative, suffix));
       if (auto *simple = level->getSimpleLevel()) {
         if (!simple->getScannedPath().isEmpty()) {
           TFilePath scan = source->decodeFilePath(simple->getScannedPath());
           TFilePath scanRelative = TFilePath(std::to_string(index + 1)) + "scan" + TFilePath(scan.getLevelNameW());
           copyAsset(TFilePath(staging.path()) + scanRelative, scan, canceled);
+          if (canceled()) return;
           change.scanAfter = source->codeFilePath(dest + TFilePath(leaf) + scanRelative);
         }
       }
@@ -837,43 +859,45 @@ void makeLocal(QWidget *parent, const std::vector<TXshLevel *> &levels) {
     const bool preparationCanceled = canceled();
     preparing.reset();
     if (preparationCanceled) return;
-    if (changes.empty()) { QMessageBox::information(parent, tr("Make Local Copy"), tr("The selection contains no external links.")); return; }
-    if (QMessageBox::question(parent, tr("Make Local Copy"),
+    if (changes.empty()) { workflow.message(QMessageBox::Information, tr("Make Local Copy"), tr("The selection contains no external links.")); return; }
+    if (!workflow.confirm(tr("Make Local Copy"),
          tr("Create %1 local asset copies in %2? Undo restores the original links and retains these copies.")
-             .arg(int(changes.size())).arg(QDir(destination).filePath(leaf))) != QMessageBox::Yes) return;
-    if (!guard.valid(changes)) throw std::runtime_error("An asset changed during preparation. No links were changed; review the selection again.");
+             .arg(int(changes.size())).arg(QDir(destination).filePath(leaf)))) return;
+    if (!workflow.valid() || !guard.valid(changes)) throw std::runtime_error("An asset changed during preparation. No links were changed; review the selection again.");
     if (!QDir().rename(staging.path(), QDir(destination).filePath(leaf)))
       throw std::runtime_error("Could not publish the prepared asset folder.");
     staging.setAutoRemove(false);
-  } catch (const std::exception &e) { QMessageBox::warning(parent, tr("Copy canceled"), QString::fromUtf8(e.what())); return; }
-    catch (...) { QMessageBox::warning(parent, tr("Copy canceled"), tr("A file could not be copied or validated. No links were changed.")); return; }
+  } catch (const std::exception &e) { workflow.warning(tr("Copy canceled"), QString::fromUtf8(e.what())); return; }
+    catch (...) { workflow.warning(tr("Copy canceled"), tr("A file could not be copied or validated. No links were changed.")); return; }
   auto *undo = new PathsUndo(std::move(changes), tr("Make Cast Assets Local"));
   undo->redo(); TUndoManager::manager()->add(undo);
 }
 
 void duplicates(QWidget *parent) {
+  CastWorkflowGuard workflow(parent);
   ToonzScene *source = scene();
   std::vector<TXshLevel *> levels; source->getLevelSet()->listLevels(levels);
   std::vector<TXshLevelP> retained;
   for (auto *level : levels) retained.emplace_back(level);
   std::map<QByteArray, std::vector<TXshLevel *>> groups;
-  QProgressDialog progress(tr("Comparing saved asset contents…"), tr("Cancel"), 0, int(levels.size()), parent);
-  progress.setWindowModality(Qt::WindowModal);
+  QProgressDialog progress(tr("Comparing saved asset contents…"), tr("Cancel"), 0, int(levels.size()));
+  workflow.watch(progress);
+  if (!workflow.valid()) return;
   std::vector<QStringList> rows;
   bool canceled = false;
   for (int i = 0; i < int(levels.size()); ++i) {
     progress.setValue(i); QApplication::processEvents();
-    if (progress.wasCanceled() || scene() != source) { canceled = true; break; }
+    if (!workflow.valid() || progress.wasCanceled()) { canceled = true; break; }
     auto *level = levels[i];
     if (dirty(level)) { rows.push_back({name(level), tr("Skipped: modified in memory"), level->getPath().getQString()}); continue; }
     const QByteArray digest = savedDigest(source, level, [&]() {
-      QApplication::processEvents(); return progress.wasCanceled() || scene() != source;
+      QApplication::processEvents(); return !workflow.valid() || progress.wasCanceled();
     });
-    if (progress.wasCanceled() || scene() != source) { canceled = true; break; }
+    if (!workflow.valid() || progress.wasCanceled()) { canceled = true; break; }
     if (!digest.isEmpty()) groups[digest].push_back(level);
   }
   progress.reset();
-  if (scene() != source) return;
+  if (!workflow.valid()) return;
   int groupNumber = 0;
   for (const auto &group : groups) if (group.second.size() > 1) {
     ++groupNumber;
@@ -881,14 +905,21 @@ void duplicates(QWidget *parent) {
       rows.push_back({name(level), tr("Matching saved content — group %1").arg(groupNumber),
                       source->decodeFilePath(level->getPath()).getQString()});
   }
-  report(parent, tr("Duplicate Asset Review"),
+  report(workflow, tr("Duplicate Asset Review"),
       (canceled ? tr("Comparison canceled; partial results. ") : QString()) +
       tr("Matching saved bytes are candidates for review. Per-level options, palettes, and frame identifiers may differ. No exposures, files, or levels are consolidated automatically. Review Consolidation is a separate explicit action with validation, confirmation and Undo."),
       {tr("Level"), tr("Finding"), tr("Path")}, rows,
-      [&](QWidget *owner) { return reviewConsolidation(owner, source, groups); });
+      [&](QWidget *owner) { return reviewConsolidation(workflow, owner, source, groups); });
+}
+
+namespace {
+void verifyCollectedSceneScoped(CastWorkflowGuard &workflow,
+                                const TFilePath &path, const TFilePath &root,
+                                QWidget *visualOwner = nullptr);
 }
 
 void collectionReport(QWidget *parent) {
+  CastWorkflowGuard workflow(parent);
   ToonzScene *source = scene();
   struct Inventory final : ResourceProcessor {
     std::vector<std::pair<QString, TFilePath>> paths;
@@ -909,16 +940,17 @@ void collectionReport(QWidget *parent) {
   std::map<QString, int> destinationNames;
   for (const auto &entry : inventory.paths)
     ++destinationNames[QString::fromStdWString(entry.second.getLevelNameW()).toCaseFolded()];
-  QProgressDialog progress(tr("Inspecting collection dependencies…"), tr("Cancel"), 0, int(inventory.paths.size()), parent);
-  progress.setWindowModality(Qt::WindowModal);
+  QProgressDialog progress(tr("Inspecting collection dependencies…"), tr("Cancel"), 0, int(inventory.paths.size()));
+  workflow.watch(progress);
+  if (!workflow.valid()) return;
   bool canceled = false;
   for (int i = 0; i < int(inventory.paths.size()); ++i) {
     progress.setValue(i); QApplication::processEvents();
-    if (progress.wasCanceled() || scene() != source) { canceled = true; break; }
+    if (!workflow.valid() || progress.wasCanceled()) { canceled = true; break; }
     const auto &entry = inventory.paths[i];
     TFilePath actual = source->decodeFilePath(entry.second);
-    QStringList files = assetFiles(actual, [&]() { QApplication::processEvents(); return progress.wasCanceled() || scene() != source; });
-    if (progress.wasCanceled() || scene() != source) { canceled = true; break; }
+    QStringList files = assetFiles(actual, [&]() { QApplication::processEvents(); return !workflow.valid() || progress.wasCanceled(); });
+    if (!workflow.valid() || progress.wasCanceled()) { canceled = true; break; }
     qint64 bytes = 0; for (const QString &file : files) bytes += QFileInfo(file).size();
     TFilePath physical = actual; ResourceImporter::extractPsdSuffix(physical);
     const bool missing = !TSystem::doesExistFileOrLevel(physical) ||
@@ -934,25 +966,29 @@ void collectionReport(QWidget *parent) {
                    QString::number(files.size()), QString::number(bytes), state});
   }
   progress.reset();
-  if (scene() != source) return;
-  report(parent, tr("Scene Collection Report"),
+  if (!workflow.valid()) return;
+  report(workflow, tr("Scene Collection Report"),
       (canceled ? tr("Canceled; partial inventory. ") : QString()) +
       tr("Read-only dependency inventory using the scene resource visitor, including FX resources. Sizes include discovered files and level sidecars. Particle cache manifests include their frame files and referenced artwork; use Collect Assets and verify the relocated project. No files or paths were changed."),
       {tr("Resource"), tr("Stored path"), tr("Resolved source"), tr("Files"), tr("Bytes"), tr("Status")}, rows,
-      [](QWidget *owner) {
-        const QString path = QFileDialog::getOpenFileName(owner, tr("Choose Relocated Collected Scene"), QString(), tr("Scene (*.tnz)"));
-        if (path.isEmpty()) return false;
-        const QString root = QFileDialog::getExistingDirectory(owner, tr("Choose the Relocated Project Root"), QFileInfo(path).absolutePath());
-        if (!root.isEmpty()) verifyCollectedScene(owner, TFilePath(path), TFilePath(root));
+      [&](QWidget *owner) {
+        const QString path = workflow.openFile(tr("Choose Relocated Collected Scene"), QString(), tr("Scene (*.tnz)"), owner);
+        if (!workflow.valid() || path.isEmpty()) return false;
+        const QString root = workflow.directory(tr("Choose the Relocated Project Root"), QFileInfo(path).absolutePath(), owner);
+        if (workflow.valid() && !root.isEmpty()) verifyCollectedSceneScoped(workflow, TFilePath(path), TFilePath(root), owner);
         return false;
       }, tr("Verify Relocated Scene…"));
 }
 
-void verifyCollectedScene(QWidget *parent, const TFilePath &path, const TFilePath &root) {
+namespace {
+void verifyCollectedSceneScoped(CastWorkflowGuard &workflow, const TFilePath &path, const TFilePath &root,
+                                QWidget *visualOwner) {
+  if (!workflow.valid()) return;
   std::vector<QStringList> rows;
-  QProgressDialog progress(tr("Verifying relocated scene resources…"), tr("Cancel"), 0, 0, parent);
-  progress.setWindowModality(Qt::WindowModal);
-  auto cancel = [&]() { QApplication::processEvents(); return progress.wasCanceled(); };
+  QProgressDialog progress(tr("Verifying relocated scene resources…"), tr("Cancel"), 0, 0);
+  workflow.watch(progress, visualOwner);
+  if (!workflow.valid()) return;
+  auto cancel = [&]() { QApplication::processEvents(); return !workflow.valid() || progress.wasCanceled(); };
   const QString canonicalRoot = QFileInfo(root.getQString()).canonicalFilePath();
   bool canceled = false;
   try {
@@ -1025,9 +1061,17 @@ void verifyCollectedScene(QWidget *parent, const TFilePath &path, const TFilePat
     rows.push_back({tr("Scene"), QString::fromUtf8(error.what()), path.getQString()});
   } catch (...) { rows.push_back({tr("Scene"), tr("The scene could not be read"), path.getQString()}); }
   progress.reset();
-  report(parent, tr("Relocated Scene Verification"),
+  if (!workflow.valid()) return;
+  report(workflow, tr("Relocated Scene Verification"),
       (canceled ? tr("Canceled; results are partial. ") : QString()) +
       tr("Checks the selected saved scene in a detached scene object. Dependencies must resolve inside the chosen relocated root. Exposed drawings are decoded with native readers. The open working scene and files are unchanged."),
-      {tr("Resource"), tr("Verification"), tr("Resolved path")}, rows);
+      {tr("Resource"), tr("Verification"), tr("Resolved path")}, rows, {},
+      tr("Review Consolidation…"), visualOwner);
+}
+}
+
+void verifyCollectedScene(QWidget *parent, const TFilePath &path, const TFilePath &root) {
+  CastWorkflowGuard workflow(parent);
+  verifyCollectedSceneScoped(workflow, path, root);
 }
 }  // namespace CastBrowserActions

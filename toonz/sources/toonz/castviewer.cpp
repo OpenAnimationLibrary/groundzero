@@ -5,6 +5,7 @@
 // Tnz6 includes
 #include "castselection.h"
 #include "castbrowseractions.h"
+#include "castworkflowguard.h"
 #include "castinspector.h"
 #include "toonz/sceneproperties.h"
 #include "toonz/castworkflow.h"
@@ -582,26 +583,37 @@ void CastTreeViewer::newFolder() {
 //-----------------------------------------------------------------------------
 
 void CastTreeViewer::deleteFolder() {
+  CastWorkflowGuard workflow(this);
   QTreeWidgetItem *item = currentItem();
   if (!item || !item->parent()) return;
   if (getCurrentFolder() == getLevelSet()->getDefaultFolder()) return;
   QString itemName = item->data(0, Qt::DisplayRole).toString();
   if (itemName == AudioFolderName) return;
-  int ret = DVGui::MsgBox(tr("Delete folder ") + item->text(0) + "?", tr("Yes"),
-                          tr("No"), 1);
-  if (ret == 2 || ret == 0) return;
-  QTreeWidgetItem *parentItem = item->parent();
-
-  TFilePath childPath(item->data(1, Qt::DisplayRole).toString().toStdWString());
-  TLevelSet *levelSet =
-      TApp::instance()->getCurrentScene()->getScene()->getLevelSet();
+  const TFilePath childPath(item->data(1, Qt::DisplayRole).toString().toStdWString());
+  TLevelSet *levelSet = getLevelSet();
   CastFolders before(levelSet);
+  if (!workflow.confirm(tr("Delete Cast Folder"), tr("Delete folder ") + itemName + "?")) return;
+  // A Cast refresh can replace every tree item inside the modal event loop.
+  // Compare the reviewed hierarchy/membership and resolve the live tree again.
+  const CastFolders current(levelSet);
+  if (current.root != before.root || current.folders != before.folders ||
+      current.membership != before.membership) return;
+  item = nullptr;
+  for (QTreeWidgetItemIterator it(this); *it; ++it)
+    if (TFilePath((*it)->data(1, Qt::DisplayRole).toString().toStdWString()) == childPath)
+      item = *it;
+  if (!item || !item->parent()) return;
+  const TFilePath parentPath(item->parent()->data(1, Qt::DisplayRole).toString().toStdWString());
   levelSet->removeFolder(childPath);
   TUndoManager::manager()->add(new CastFolderUndo(levelSet, before));
   TApp::instance()->getCurrentScene()->setDirtyFlag(true);
-
-  parentItem->removeChild(item);
-  setCurrentItem(parentItem);
+  if (!workflow.valid()) return;
+  rebuildCastTree();
+  for (QTreeWidgetItemIterator it(this); *it; ++it)
+    if (TFilePath((*it)->data(1, Qt::DisplayRole).toString().toStdWString()) == parentPath) {
+      setCurrentItem(*it);
+      break;
+    }
 }
 
 //=============================================================================
@@ -1005,8 +1017,9 @@ void CastBrowser::refreshCollections() {
 }
 
 void CastBrowser::showCollectionActions() {
+  CastWorkflowGuard workflow(this);
   ToonzScene *source = TApp::instance()->getCurrentScene()->getScene();
-  QMenu menu(this);
+  QMenu menu;
   connect(TApp::instance()->getCurrentScene(), &TSceneHandle::sceneSwitched, &menu, &QMenu::close);
   auto *create = menu.addAction(tr("New Collection from Selected…"));
   auto *add = menu.addAction(tr("Add Selected to Collection…"));
@@ -1019,13 +1032,13 @@ void CastBrowser::showCollectionActions() {
   add->setEnabled(!source->getProperties()->getCastCollections().empty() && !selectedLevels().empty());
   remove->setEnabled(selectedCollection && !selectedLevels().empty());
   rename->setEnabled(selectedCollection); erase->setEnabled(selectedCollection);
-  QAction *action = menu.exec(m_collectionActions->mapToGlobal(QPoint(0, m_collectionActions->height())));
-  if (!action || TApp::instance()->getCurrentScene()->getScene() != source) return;
+  QAction *action = workflow.exec(menu, m_collectionActions->mapToGlobal(QPoint(0, m_collectionActions->height())));
+  if (!workflow.valid() || !action) return;
   if (action == create || action == add || action == remove) {
     std::vector<TXshLevel *> levels; source->getLevelSet()->listLevels(levels);
     const auto ambiguous = ambiguousCastIds(levels);
     for (auto *level : selectedLevels()) if (ambiguous.contains(level->getCastId())) {
-      QMessageBox::warning(this, tr("Asset Collections"),
+      workflow.warning(tr("Asset Collections"),
           tr("Selected assets share an ambiguous identity in this scene. Collection membership was not changed."));
       return;
     }
@@ -1037,7 +1050,7 @@ void CastBrowser::showCollectionActions() {
   for (int i = 0; i < after.size(); ++i) if (after[i].id == collectionId) index = i;
   if (action != create && action != add && index < 0) return;
   if (action == add) {
-    QInputDialog choose(this);
+    QInputDialog choose;
     choose.setObjectName("CastCollectionTarget");
     choose.setWindowTitle(tr("Add Assets to Collection"));
     choose.setLabelText(tr("Collection"));
@@ -1046,25 +1059,25 @@ void CastBrowser::showCollectionActions() {
     choose.setComboBoxItems(names); choose.setComboBoxEditable(false);
     if (index >= 0) choose.setTextValue(after[index].name);
     connect(TApp::instance()->getCurrentScene(), &TSceneHandle::sceneSwitched, &choose, &QInputDialog::reject);
-    if (choose.exec() != QDialog::Accepted || TApp::instance()->getCurrentScene()->getScene() != source) return;
+    if (workflow.exec(choose) != QDialog::Accepted) return;
     index = names.indexOf(choose.textValue());
     if (index < 0) return;
     collectionId = after[index].id;
   }
   if (action == create || action == rename) {
     if (action == create && (selectedLevels().empty() || after.size() >= 128)) return;
-    QInputDialog input(this);
+    QInputDialog input;
     input.setObjectName("CastCollectionName");
     input.setWindowTitle(action == create ? tr("New Asset Collection") : tr("Rename Asset Collection"));
     input.setLabelText(tr("Collection name (up to 80 characters)"));
     if (action == rename) input.setTextValue(after[index].name);
     connect(TApp::instance()->getCurrentScene(), &TSceneHandle::sceneSwitched, &input, &QInputDialog::reject);
-    if (input.exec() != QDialog::Accepted || TApp::instance()->getCurrentScene()->getScene() != source) return;
+    if (workflow.exec(input) != QDialog::Accepted) return;
     const QString name = input.textValue().trimmed();
     bool conflict = name.isEmpty() || name.size() > 80;
     for (int i = 0; i < after.size(); ++i)
       if (!(action == rename && i == index) && after[i].name.compare(name, Qt::CaseInsensitive) == 0) conflict = true;
-    if (conflict) { QMessageBox::warning(this, tr("Asset Collections"), tr("Use a unique, nonempty name of at most 80 characters.")); return; }
+    if (conflict) { workflow.warning(tr("Asset Collections"), tr("Use a unique, nonempty name of at most 80 characters.")); return; }
     if (action == create) {
       TSceneProperties::CastCollection collection;
       collection.id = QUuid::createUuid().toString(QUuid::WithoutBraces); collection.name = name;
@@ -1073,8 +1086,8 @@ void CastBrowser::showCollectionActions() {
       collectionId = collection.id; after.append(collection);
     } else after[index].name = name;
   } else if (action == erase) {
-    if (QMessageBox::question(this, tr("Delete Asset Collection"),
-          tr("Delete collection “%1”? Assets and files will remain unchanged.").arg(after[index].name)) != QMessageBox::Yes) return;
+    if (!workflow.confirm(tr("Delete Asset Collection"),
+          tr("Delete collection “%1”? Assets and files will remain unchanged.").arg(after[index].name))) return;
     after.removeAt(index);
   } else {
     auto &members = after[index].members;
@@ -1083,14 +1096,15 @@ void CastBrowser::showCollectionActions() {
       else if (!members.contains(level->getCastId())) members.append(level->getCastId());
     }
     if (members.size() > 100000) {
-      QMessageBox::warning(this, tr("Asset Collections"), tr("A collection can contain at most 100,000 assets.")); return;
+      workflow.warning(tr("Asset Collections"), tr("A collection can contain at most 100,000 assets.")); return;
     }
   }
   // Another Cast may have edited collections during a native modal dialog.
-  if (TApp::instance()->getCurrentScene()->getScene() != source ||
+  if (!workflow.valid() ||
       source->getProperties()->getCastCollections() != before || before == after) return;
   auto *undo = new CastCollectionsUndo(source, after);
   undo->redo(); TUndoManager::manager()->add(undo);
+  if (!workflow.valid()) return;
   refreshCollections();
   const int at = m_collection->findData(collectionId);
   m_collection->setCurrentIndex(at < 0 ? 0 : at);
@@ -1098,12 +1112,11 @@ void CastBrowser::showCollectionActions() {
 }
 
 void CastBrowser::showActions() {
-  QMenu menu(this);
-  ToonzScene *source = TApp::instance()->getCurrentScene()->getScene();
-  connect(TApp::instance()->getCurrentScene(), &TSceneHandle::sceneSwitched, &menu, &QMenu::close);
+  CastWorkflowGuard workflow(this);
+  QMenu menu;
   auto selectedAction = [&](const QString &title, void (*action)(QWidget *, const std::vector<TXshLevel *> &)) {
-    QAction *item = menu.addAction(title, this, [=]() {
-      if (TApp::instance()->getCurrentScene()->getScene() != source) return;
+    QAction *item = menu.addAction(title, &workflow, [&, action]() {
+      if (!workflow.valid()) return;
       // A debounce refresh may have run inside the menu's event loop.
       const auto levels = selectedLevels();
       if (!levels.empty()) action(this, levels);
@@ -1116,15 +1129,16 @@ void CastBrowser::showActions() {
   selectedAction(tr("Relink Selected…"), CastBrowserActions::relink);
   selectedAction(tr("Make Local Copy…"), CastBrowserActions::makeLocal);
   menu.addSeparator();
-  menu.addAction(tr("Review Unused Levels…"), this, [this]() { CastBrowserActions::removeUnused(this); });
-  menu.addAction(tr("Review Duplicate Assets…"), this, [this]() { CastBrowserActions::duplicates(this); });
-  menu.addAction(tr("Collection Report…"), this, [this]() { CastBrowserActions::collectionReport(this); });
+  menu.addAction(tr("Review Unused Levels…"), &workflow, [&]() { if (workflow.valid()) CastBrowserActions::removeUnused(this); });
+  menu.addAction(tr("Review Duplicate Assets…"), &workflow, [&]() { if (workflow.valid()) CastBrowserActions::duplicates(this); });
+  menu.addAction(tr("Collection Report…"), &workflow, [&]() { if (workflow.valid()) CastBrowserActions::collectionReport(this); });
   menu.addSeparator();
-  menu.addAction(m_inspector->isHidden() ? tr("Show Inspector") : tr("Hide Inspector"), this, [this]() {
+  menu.addAction(m_inspector->isHidden() ? tr("Show Inspector") : tr("Hide Inspector"), &workflow, [&]() {
+    if (!workflow.valid()) return;
     if (m_inspector->isHidden()) showInspector(selectedLevels()); else m_inspector->hide();
   });
-  menu.addAction(tr("Refresh Disk Status"), this, [this]() { refresh(); });
-  menu.exec(m_actions->mapToGlobal(QPoint(0, m_actions->height())));
+  menu.addAction(tr("Refresh Disk Status"), &workflow, [&]() { if (workflow.valid()) refresh(); });
+  workflow.exec(menu, m_actions->mapToGlobal(QPoint(0, m_actions->height())));
 }
 
 //-----------------------------------------------------------------------------
@@ -1250,9 +1264,15 @@ bool CastBrowser::drop(const QMimeData *data) {
 QMenu *CastBrowser::getContextMenu(QWidget *parent, int index) {
   const std::set<int> &indices = m_itemViewer->getSelectedIndices();
   if (indices.empty()) {
-    QMenu *menu = new QMenu(parent);
-    connect(TApp::instance()->getCurrentScene(), &TSceneHandle::sceneSwitched, menu, &QMenu::close);
-    menu->addAction(tr("Review Unused Levels…"), this, [this]() { CastBrowserActions::removeUnused(this); });
+    // DvItemViewerPanel deletes the returned menu after exec(). Keep it alive
+    // independently if its panel is destroyed during that nested event loop.
+    QMenu *menu = new QMenu;
+    auto *workflow = new CastWorkflowGuard(this);
+    workflow->setParent(menu);
+    workflow->watch(*menu);
+    menu->addAction(tr("Review Unused Levels…"), workflow, [this, workflow]() {
+      if (workflow->valid()) CastBrowserActions::removeUnused(this);
+    });
     return menu;
   }
   // controllo cosa c'e' nella selezione.
@@ -1287,8 +1307,10 @@ QMenu *CastBrowser::getContextMenu(QWidget *parent, int index) {
     else
       otherFileSelected = true;
   }
-  QMenu *menu        = new QMenu(parent);
-  connect(TApp::instance()->getCurrentScene(), &TSceneHandle::sceneSwitched, menu, &QMenu::close);
+  QMenu *menu        = new QMenu;
+  auto *workflow = new CastWorkflowGuard(this);
+  workflow->setParent(menu);
+  workflow->watch(*menu);
   CommandManager *cm = CommandManager::instance();
 
   menu->addAction(cm->getAction(MI_LevelSettings));
@@ -1312,9 +1334,9 @@ QMenu *CastBrowser::getContextMenu(QWidget *parent, int index) {
       menu->addAction(cm->getAction(MI_ConvertToToonzRaster));
   menu->addSeparator();
   menu->addAction(cm->getAction(MI_RemoveLevel));
-  menu->addAction(tr("Review Unused Levels…"), this, [this]() { CastBrowserActions::removeUnused(this); });
-  menu->addAction(tr("Where Used…"), this, [this]() { CastBrowserActions::whereUsed(this, selectedLevels()); });
-  menu->addAction(tr("Inspect / Preview / Audition…"), this, [this]() { CastBrowserActions::inspect(this, selectedLevels()); });
+  menu->addAction(tr("Review Unused Levels…"), workflow, [this, workflow]() { if (workflow->valid()) CastBrowserActions::removeUnused(this); });
+  menu->addAction(tr("Where Used…"), workflow, [this, workflow]() { if (workflow->valid()) CastBrowserActions::whereUsed(this, selectedLevels()); });
+  menu->addAction(tr("Inspect / Preview / Audition…"), workflow, [this, workflow]() { if (workflow->valid()) CastBrowserActions::inspect(this, selectedLevels()); });
 
   return menu;
 }

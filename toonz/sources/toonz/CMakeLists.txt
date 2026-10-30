@@ -1093,6 +1093,7 @@ if(BUILD_UI_PORT_TESTS)
         animationworkflowintegrationtest.cpp animationworkflowintegrationtest.h
         functionworkflowintegrationtest.cpp functionworkflowintegrationtest.h
         castworkflowintegrationtest.cpp
+        castinterruptionintegrationtest.cpp castinterruptionintegrationtest.h
         libraryprovenanceintegrationtest.cpp)
     target_sources(OpenToonz PRIVATE functionrigbenchmarkintegrationtest.cpp functionrigbenchmarkintegrationtest.h)
     target_sources(OpenToonz PRIVATE offlineglworkflowintegrationtest.cpp offlineglworkflowintegrationtest.h)
