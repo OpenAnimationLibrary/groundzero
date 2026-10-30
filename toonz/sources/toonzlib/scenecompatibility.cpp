@@ -13,6 +13,7 @@
 #include "toonz/tcolumnfx.h"
 #include "toonz/txshzeraryfxcolumn.h"
 #include "toonz/poselibrary.h"
+#include "toonz/sceneproperties.h"
 #include "toonz/levelset.h"
 #include "toonz/txshsimplelevel.h"
 #include "toonz/txshleveltypes.h"
@@ -242,6 +243,10 @@ SceneChecker::compatibilityReport(ToonzScene *scene) {
       addLevel(Info, QObject::tr("%1 has Scene Cast tags or a saved thumbnail cover. "
           "Older readers may discard this organization metadata when saving; "
           "the drawing geometry and exposure timing remain unchanged.").arg(name));
+    if (level->getLibraryProvenance().relationship != TXshLevel::LibraryProvenance::NotRecorded)
+      addLevel(Info, QObject::tr("%1 has recorded Library source attribution. Older readers "
+          "may discard its item identity, revision and ownership relationship when saving; "
+          "filesystem location alone cannot reconstruct this information.").arg(name));
     auto *simple = level->getSimpleLevel();
     if (!simple || simple->getType() != PLI_XSHLEVEL) continue;
     if (!simple->getMorphHints().empty())
@@ -277,6 +282,24 @@ SceneChecker::compatibilityReport(ToonzScene *scene) {
     issue.text = QObject::tr("Function Editor channel identities are stored with animation parameters. "
         "Older readers may discard these optional identities when saving, which "
         "can disconnect saved channel sets; animation values remain unchanged.");
+    result.push_back(issue);
+  }
+  if (!scene->getProperties()->getCastCollections().isEmpty()) {
+    Issue issue;
+    issue.kind = Compatibility;
+    issue.severity = Warning;
+    issue.text = QObject::tr("The scene contains named Scene Cast collections. Readers without "
+        "the castCollections scene-property extension may refuse to open it. Keep the original "
+        "scene before opening or saving with another build.");
+    result.push_back(issue);
+  }
+  if (scene->getLevelSet()->getLevelCount() > 0) {
+    Issue issue;
+    issue.kind = Compatibility;
+    issue.severity = Info;
+    issue.text = QObject::tr("Scene Cast asset identities and saved-source states are stored as "
+        "level attributes. Older readers may discard them when saving, disconnecting named "
+        "collection membership or losing the distinction between new and missing assets.");
     result.push_back(issue);
   }
   if (!scene->getPoseLibrary()->isEmpty()) {

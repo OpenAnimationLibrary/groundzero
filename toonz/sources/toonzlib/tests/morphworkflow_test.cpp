@@ -108,6 +108,108 @@ void unmatchedAndFills() {
   auto bigger = growFill.tween(.5);
   require(bigger->getRegionCount() > 0 && bigger->getRegion(0)->getStyle() == 1,
           "appearing closed stroke lost its fill");
+
+  options.m_unmatchedPolicy = TInbetween::FadeUnmatched;
+  for (bool appearing : {false, true}) {
+    bool rejected = false;
+    try { TInbetween fadeFill(appearing ? empty : closed,
+                             appearing ? closed : empty, {}, options); }
+    catch (const TException &e) {
+      rejected = e.getMessage().find(L"painted regions") != std::wstring::npos;
+    }
+    require(rejected && closed->getRegion(0)->getStyle() == 1 &&
+                closed->getStroke(0)->getOpacity() == 1.,
+            "Fade accepted an unmatched painted boundary or mutated its source");
+  }
+  auto matched = closed->clone();
+  TInbetween matchedFill(closed, matched, {}, options);
+  auto middle = matchedFill.tween(.5);
+  require(middle->getRegionCount() > 0 && middle->getRegion(0)->getStyle() == 1,
+          "Fade rejected or removed a matched fill");
+  closed->getRegion(0)->setStyle(0);
+  TInbetween unpainted(closed, empty, {}, options);
+  require(unpainted.tween(.5)->getStroke(0)->getOpacity() == .5,
+          "Fade rejected an unpainted closed stroke");
+}
+void nestedFadeBoundaries() {
+  auto rings = drawing({});
+  for (double size : {30.,20.,10.}) {
+    auto *ring = new TStroke(std::vector<TThickPoint>{
+        {-size,-size,1}, {0,-size,1}, {size,-size,1}, {size,0,1},
+        {size,size,1}, {0,size,1}, {-size,size,1}, {-size,0,1}, {-size,-size,1}});
+    ring->setStyle(1); ring->setSelfLoop(); rings->addStroke(ring);
+  }
+  rings->findRegions();
+  require(rings->getRegionCount() == 1 &&
+              rings->getRegion(0)->getSubregionCount() == 1 &&
+              rings->getRegion(0)->getSubregion(0)->getSubregionCount() == 1,
+          "nested Fade fixture did not create nested native regions");
+  auto *outer = rings->getRegion(0);
+  auto *middle = outer->getSubregion(0);
+  auto *inner = middle->getSubregion(0);
+  auto withoutInner = drawing({});
+  withoutInner->addStroke(new TStroke(*rings->getStroke(0)));
+  withoutInner->addStroke(new TStroke(*rings->getStroke(1)));
+  TInbetween::MatchOptions options; options.m_unmatchedPolicy = TInbetween::FadeUnmatched;
+  auto check = [&](bool rejected) {
+    const auto review = TInbetween::reviewCorrespondence(rings, withoutInner, {}, options);
+    require(review.unmatchedFirst == std::vector<int>{2} &&
+                TInbetween::fadeHasPaintedBoundaries(rings, withoutInner, review) == rejected,
+            "Fade preflight missed a nested painted region or its hole boundary");
+    bool threw = false;
+    try { TInbetween tween(rings, withoutInner, {}, options); tween.tween(.5); }
+    catch (const TException &) { threw = true; }
+    require(threw == rejected, "Fade constructor disagreed with native preflight");
+  };
+  inner->setStyle(1); check(true);
+  inner->setStyle(0); middle->setStyle(1); check(true); // Inner ring bounds a painted hole.
+  middle->setStyle(0); outer->setStyle(1); check(false); // Inner ring is inside an unpainted hole.
+  require(outer->getStyle() == 1 && middle->getStyle() == 0 && inner->getStyle() == 0,
+          "Fade preflight mutated source region colors");
+}
+void fadeBirthDeath(const QTemporaryDir &dir) {
+  require(TInbetween::OmitUnmatched == 0 && TInbetween::HoldUnmatched == 1 &&
+              TInbetween::CollapseUnmatched == 2 && TInbetween::FadeUnmatched == 3,
+          "saved unmatched policy values changed");
+  auto first = drawing({0,30}), last = drawing({0});
+  const StrokeOpacity::Profile profile{{0.,.2},{.5,.8},{1.,1.}};
+  auto *source = first->getStroke(1);
+  source->setOpacity(.6);
+  require(source->setOpacityProfile(profile), "fade fixture envelope invalid");
+  first->group(1,1);
+  TInbetween::MatchOptions options; options.m_unmatchedPolicy = TInbetween::FadeUnmatched;
+  TInbetween disappear(first,last,{},options), appear(last,first,{},options);
+  auto verify = [&](const TVectorImageP &result, double expected) {
+    require(result->getStrokeCount() == 2 && result->getGroupDepth(1) == 1,
+            "Fade lost an unmatched stroke or its group");
+    const auto *stroke = result->getStroke(1);
+    require(std::abs(stroke->getOpacity()-expected) < 1.e-12 &&
+                stroke->getOpacityProfile() == profile && stroke->getStyle() == source->getStyle() &&
+                stroke->isSelfLoop() == source->isSelfLoop() &&
+                stroke->getControlPointCount() == source->getControlPointCount(),
+            "Fade changed source appearance beyond the visibility multiplier");
+    for (int i = 0; i < stroke->getControlPointCount(); ++i)
+      require(stroke->getControlPoint(i) == source->getControlPoint(i),
+              "Fade changed unmatched geometry or width");
+    require(result->getStroke(0)->getOpacity() == 1., "Fade changed the matched stroke opacity");
+  };
+  for (double t : {.1,.25,.5,.9}) {
+    verify(disappear.tween(t),.6*(1.-t));
+    verify(appear.tween(t),.6*t);
+  }
+  verify(disappear.tween(.5),.3); verify(disappear.tween(.5),.3);
+  require(first->getStroke(1)->getOpacity() == .6 && source->getOpacityProfile() == profile &&
+              disappear.tween(0)->getStroke(1)->getOpacity() == .6 &&
+              disappear.tween(1)->getStrokeCount() == 1 && appear.tween(0)->getStrokeCount() == 1 &&
+              appear.tween(1)->getStroke(1)->getOpacity() == .6,
+          "Fade mutated its sources or changed endpoint drawings");
+  const TFilePath path(dir.filePath("faded-strokes.pli"));
+  {
+    TLevelWriterP writer(path);
+    writer->getFrameWriter(TFrameId(1))->save(disappear.tween(.5));
+  }
+  TLevelReaderP reader(path); reader->loadInfo();
+  verify(reader->getFrameReader(TFrameId(1))->load(),.3);
 }
 void opacityEnvelopes() {
   auto first = drawing({0}), last = drawing({20});
@@ -214,7 +316,8 @@ int main(int argc, char **argv) {
     TThread::init(); initImageIo();
     require(QDir().mkpath(dir.filePath("cache")), "isolated morph cache");
     TImageCache::instance()->setRootDir(TFilePath(dir.filePath("cache")));
-    correspondence(); unmatchedAndFills(); opacityEnvelopes(); persistence(dir);
+    correspondence(); unmatchedAndFills(); nestedFadeBoundaries(); fadeBirthDeath(dir);
+    opacityEnvelopes(); persistence(dir);
     std::cout << "Native morph workflow contracts passed\n";
     return 0;
   } catch (const TException &e) {

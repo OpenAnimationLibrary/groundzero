@@ -2,6 +2,7 @@
 #include "castselection.h"
 #include "castbrowseractions.h"
 #include "nativeuiintegrationtest.h"
+#include "libraryprovenanceintegrationtest.h"
 #include "tapp.h"
 #include "iocommand.h"
 #include "toonz/levelset.h"
@@ -18,6 +19,8 @@
 #include "toonz/tframehandle.h"
 #include "toonz/tcolumnhandle.h"
 #include "toonz/levelproperties.h"
+#include "toonz/sceneproperties.h"
+#include "toonz/txshsoundlevel.h"
 #include "toonz/sceneresources.h"
 #include "toonz/tproject.h"
 #include "toonzqt/menubarcommand.h"
@@ -31,6 +34,8 @@
 #include <QComboBox>
 #include <QInputDialog>
 #include <QLineEdit>
+#include <QKeyEvent>
+#include <QLabel>
 #include <QMainWindow>
 #include <QTimer>
 #include <QDialogButtonBox>
@@ -45,13 +50,15 @@
 #include <QFileInfo>
 #include <QFile>
 #include <functional>
+#include <cmath>
+#include "tstream.h"
 #include <QElapsedTimer>
+#include <QEventLoop>
 #include <QJsonObject>
 #include <QJsonDocument>
 #include <QSaveFile>
 #include <QScrollBar>
 #include <QDirIterator>
-#include <QKeyEvent>
 #include <QMenu>
 #include <QProgressDialog>
 #include <QPointer>
@@ -95,6 +102,31 @@ void showProgressNextTurn(const QString &label) {
       if (auto *progress = qobject_cast<QProgressDialog *>(widget))
         if (progress->labelText() == label) progress->show();
   });
+}
+void collectionAction(CastBrowser &browser, const QString &actionText,
+                      const QString &value = QString(), bool accept = true) {
+  bool activated = false;
+  QTimer::singleShot(0, [&]() {
+    auto *menu = qobject_cast<QMenu *>(QApplication::activePopupWidget());
+    if (!menu) return;
+    for (auto *action : menu->actions()) if (action->text() == actionText) {
+      activated = true; menu->setActiveAction(action);
+      QKeyEvent enter(QEvent::KeyPress, Qt::Key_Return, Qt::NoModifier);
+      QApplication::sendEvent(menu, &enter); return;
+    }
+    menu->close();
+  });
+  DialogDriver driver([&](QDialog *dialog) {
+    if (auto *input = qobject_cast<QInputDialog *>(dialog)) {
+      if (!value.isNull()) input->setTextValue(value);
+      if (accept) input->accept(); else input->reject();
+    } else if (auto *message = qobject_cast<QMessageBox *>(dialog)) {
+      if (auto *button = message->button(accept ? QMessageBox::Yes : QMessageBox::No)) button->click();
+      else message->reject();
+    }
+  });
+  browser.findChild<QPushButton *>("CastCollectionActions")->click();
+  require(activated && !driver.expired, "native collection action failed to complete");
 }
 void selectionLifetime(QMainWindow *window) {
   QPointer<DvItemSelection> owned;
@@ -167,6 +199,117 @@ void runCastWorkflowIntegrationTest(QMainWindow *window) {
   type->setCurrentIndex(0); status->setCurrentIndex(3); browser.refreshData();
   require(browser.getItemCount() == 1, "unsaved vector is absent from missing-on-disk filter");
   status->setCurrentIndex(0);
+
+  // Status predicates distinguish a new planned path from a lost saved source,
+  // and inspect the image cache without decoding missing drawings.
+  status->setCurrentIndex(status->findData(CastBrowserActions::Unsaved)); browser.refreshData();
+  require(browser.getItemCount() == 1 && !hero->sourceExpectedOnDisk(), "new asset filter lost unsaved artwork");
+  hero->setSourceExpectedOnDisk(true);
+  status->setCurrentIndex(status->findData(CastBrowserActions::Missing)); browser.refreshData();
+  require(browser.getItemCount() == 1 && CastBrowserActions::status(source, hero).contains("Missing on disk"),
+          "saved missing asset was still presented as new");
+  hero->setSourceExpectedOnDisk(false);
+  hero->getProperties()->setDirtyFlag(true);
+  status->setCurrentIndex(status->findData(CastBrowserActions::Modified)); browser.refreshData();
+  require(browser.getItemCount() == 1, "modified artwork is absent from status filter");
+  hero->getProperties()->setDirtyFlag(false); hero->getPalette()->setDirtyFlag(false); browser.refreshData();
+  require(browser.getItemCount() == 0, "clean artwork remains in modified filter");
+  hero->getPalette()->setDirtyFlag(true); browser.refreshData();
+  require(browser.getItemCount() == 1, "palette-only modification is absent from modified filter");
+  status->setCurrentIndex(status->findData(CastBrowserActions::Cached)); browser.refreshData();
+  require(browser.getItemCount() == 1, "resident decoded drawing missing from cache filter");
+  status->setCurrentIndex(0); search->clear(); browser.refreshData();
+
+  auto *collections = browser.findChild<QComboBox *>("CastCollectionFilter");
+  require(collections, "named collection control is absent");
+  viewer->getPanel()->getSelection()->selectNone();
+  viewer->getPanel()->getSelection()->select(find(browser, "Cast fixture Hero"));
+  const int collectionHistory = TUndoManager::manager()->getCurrentHistoryIndex();
+  collectionAction(browser, "New Collection from Selected…", "café & Hero");
+  const auto savedCollection = source->getProperties()->getCastCollections();
+  require(savedCollection.size() == 1 && savedCollection.front().members == QStringList{hero->getCastId()} &&
+          browser.getItemCount() == 1 && TUndoManager::manager()->getCurrentHistoryIndex() == collectionHistory + 1,
+          "creating collection lost selected asset UUID or applied no undo");
+  const QString collectionId = savedCollection.front().id;
+  collectionAction(browser, "New Collection from Selected…", "CAFÉ & HERO");
+  require(source->getProperties()->getCastCollections() == savedCollection &&
+          TUndoManager::manager()->getCurrentHistoryIndex() == collectionHistory + 1,
+          "duplicate collection name while selected created a phantom undo or changed membership");
+  collectionAction(browser, "New Collection from Selected…", "Canceled collection", false);
+  require(source->getProperties()->getCastCollections() == savedCollection &&
+          TUndoManager::manager()->getCurrentHistoryIndex() == collectionHistory + 1,
+          "canceling new collection changed scene metadata/history");
+  collectionAction(browser, "Rename Collection…", "Discarded", false);
+  require(source->getProperties()->getCastCollections() == savedCollection &&
+          TUndoManager::manager()->getCurrentHistoryIndex() == collectionHistory + 1,
+          "canceling collection rename changed metadata/history");
+  collectionAction(browser, "Rename Collection…", "Character assets");
+  require(source->getProperties()->getCastCollections().front().name == "Character assets", "collection rename failed");
+  TUndoManager::manager()->undo();
+  require(source->getProperties()->getCastCollections() == savedCollection, "collection rename undo changed members");
+  TUndoManager::manager()->redo();
+  collections->setCurrentIndex(0); browser.refreshData();
+  viewer->getPanel()->getSelection()->selectNone();
+  viewer->getPanel()->getSelection()->select(find(browser, "Cast fixture Spare"));
+  collectionAction(browser, "Add Selected to Collection…", "Character assets");
+  require(source->getProperties()->getCastCollections().front().members.contains(spare->getCastId()) &&
+          browser.getItemCount() == 2, "adding an asset from outside collection failed");
+  const int membershipHistory = TUndoManager::manager()->getCurrentHistoryIndex();
+  collectionAction(browser, "Add Selected to Collection…", "Character assets");
+  require(TUndoManager::manager()->getCurrentHistoryIndex() == membershipHistory &&
+          source->getProperties()->getCastCollections().front().members.size() == 2,
+          "repeated membership addition duplicated IDs or created a phantom undo");
+  collectionAction(browser, "Remove Selected from Collection");
+  require(source->getProperties()->getCastCollections().front().members == QStringList{hero->getCastId()},
+          "removing selected collection membership removed wrong identity");
+  TUndoManager::manager()->undo();
+  require(source->getProperties()->getCastCollections().front().members.contains(spare->getCastId()),
+          "membership undo did not restore asset UUID");
+  const auto bothMembers = source->getProperties()->getCastCollections();
+  TXshLevelP retainedSpare(spare);
+  source->getLevelSet()->removeLevel(spare); browser.refreshData();
+  require(browser.getItemCount() == 1 && source->getProperties()->getCastCollections() == bothMembers,
+          "asset removal destroyed dormant collection membership");
+  source->getLevelSet()->insertLevel(spare); browser.refreshData();
+  require(browser.getItemCount() == 2, "restoring asset identity did not restore collection membership");
+  collectionAction(browser, "Delete Collection…", QString(), false);
+  require(source->getProperties()->getCastCollections() == bothMembers, "canceling collection delete changed data");
+  collectionAction(browser, "Delete Collection…");
+  require(source->getProperties()->getCastCollections().empty() && source->getLevelSet()->getLevel(hero->getName()) == hero,
+          "deleting collection removed assets or retained collection");
+  TUndoManager::manager()->undo();
+  require(source->getProperties()->getCastCollections() == bothMembers, "collection delete undo lost identity");
+  for (int repeat = 0; repeat < 3; ++repeat) {
+    TUndoManager::manager()->redo();
+    require(source->getProperties()->getCastCollections().empty(), "repeated collection delete redo changed result");
+    TUndoManager::manager()->undo();
+    require(source->getProperties()->getCastCollections() == bothMembers,
+            "repeated collection delete undo lost original membership");
+  }
+  collections->setCurrentIndex(collections->findData(collectionId)); browser.refreshData();
+  require(browser.getItemCount() == 2, "restored collection cannot be selected");
+  {
+    QTemporaryDir malformed; require(malformed.isValid(), "no malformed-ID fixture directory");
+    const TFilePath metadata(malformed.path() + "/duplicate-identity.xml");
+    { TOStream os(metadata); os.openChild("path", hero->getCastAttributes()); os.closeChild(); }
+    TXshSimpleLevelP ambiguous = new TXshSimpleLevel(L"Ambiguous imported identity");
+    ambiguous->setScene(source); ambiguous->setType(PLI_XSHLEVEL);
+    ambiguous->setFrame(TFrameId(1), new TVectorImage);
+    { TIStream is(metadata); std::string tag; require(is.matchTag(tag), "no malformed-ID metadata"); ambiguous->loadCastTags(is); is.closeChild(); }
+    source->getLevelSet()->insertLevel(ambiguous.getPointer()); browser.refreshData();
+    require(find(browser, "Cast fixture Hero") < 0 && find(browser, "Ambiguous imported identity") < 0 &&
+            find(browser, "Cast fixture Spare") >= 0, "collection silently expanded ambiguous imported asset identity");
+    collections->setCurrentIndex(0); browser.refreshData();
+    viewer->getPanel()->getSelection()->selectNone();
+    viewer->getPanel()->getSelection()->select(find(browser, "Ambiguous imported identity"));
+    const int count = TUndoManager::manager()->getCurrentHistoryIndex();
+    collectionAction(browser, "New Collection from Selected…", "Ambiguous members");
+    require(source->getProperties()->getCastCollections() == bothMembers &&
+            TUndoManager::manager()->getCurrentHistoryIndex() == count,
+            "ambiguous identity created actionable collection membership");
+    source->getLevelSet()->removeLevel(ambiguous.getPointer());
+  }
+  collections->setCurrentIndex(0); browser.refreshData();
 
   // A pending search refresh inside a menu must not leave hidden assets
   // actionable through a previously captured raw selection.
@@ -304,39 +447,125 @@ void runCastWorkflowIntegrationTest(QMainWindow *window) {
   CommandManager::instance()->execute(MI_CloseChild);
 
   hero->setFrame(TFrameId(2), new TVectorImage);
+  viewer->getPanel()->getSelection()->selectNone();
+  viewer->getPanel()->getSelection()->select(find(browser, "Cast fixture Hero"));
   {
-    bool scrubbed = false;
-    DialogDriver driver([&](QDialog *dialog) {
-      if (dialog->objectName() != "CastInspector") return;
-      auto *slider = dialog->findChild<QSlider *>();
-      scrubbed = slider && slider->isEnabled() && slider->maximum() == 1;
-      if (slider) slider->setValue(1);
-      dialog->reject();
-    });
     const int count = TUndoManager::manager()->getHistoryCount();
     CastBrowserActions::inspect(&browser, {hero});
-    require(scrubbed && !driver.expired && TUndoManager::manager()->getHistoryCount() == count,
-            "Inspector scrubbing changed the scene or missed drawings");
+    auto *inspector = browser.findChild<QWidget *>("CastInspector");
+    auto *slider = inspector ? inspector->findChild<QSlider *>("CastDrawingPreview") : nullptr;
+    require(inspector && inspector->isVisible() && !qobject_cast<QDialog *>(inspector) &&
+            slider && slider->isEnabled() && slider->maximum() == 1,
+            "docked inspector did not return to editing or missed drawings");
+    slider->setValue(1);
+    require(TUndoManager::manager()->getHistoryCount() == count,
+            "Inspector scrubbing changed the scene");
+    inspector->hide();
+    CastBrowserActions::inspect(&browser, {hero});
+    require(inspector == browser.findChild<QWidget *>("CastInspector") && inspector->isVisible(),
+            "reopening inspector replaced its persistent pane");
   }
   hero->setFrame(TFrameId(5), new TVectorImage);
   {
-    bool details = false;
-    DialogDriver driver([&](QDialog *dialog) {
-      if (dialog->objectName() != "CastInspector") return;
-      auto *slider = dialog->findChild<QSlider *>();
-      auto *view = dialog->findChild<QTableWidget *>();
-      details = view && view->item(0, 3)->text().contains("3–4") && view->item(0, 5)->text().contains("styles");
-      if (slider) slider->setValue(2);
-      if (auto *choose = dialog->findChild<QPushButton *>("CastChooseCover")) choose->click();
-      dialog->reject();
-    });
     CastBrowserActions::inspect(&browser, {hero});
-    require(details && hero->hasCastCover() && hero->getCastCover() == TFrameId(5),
-            "inspector gaps/palette details or cover choice failed");
+    auto *inspector = browser.findChild<QWidget *>("CastInspector");
+    auto *slider = inspector->findChild<QSlider *>("CastDrawingPreview");
+    auto *view = inspector->findChild<QTableWidget *>("CastInspectorDetails");
+    require(view && view->item(0, 3)->text().contains("3–4") && view->item(0, 5)->text().contains("styles"),
+            "inspector omitted drawing gaps or palette details");
+    slider->setValue(2);
+    inspector->findChild<QPushButton *>("CastChooseCover")->click();
+    require(hero->hasCastCover() && hero->getCastCover() == TFrameId(5), "cover choice failed");
     TUndoManager::manager()->undo();
     require(!hero->hasCastCover(), "cover undo did not restore default cover");
     TUndoManager::manager()->redo();
     require(hero->getCastCover() == TFrameId(5), "cover redo failed");
+    viewer->getPanel()->getSelection()->select(find(browser, "Cast fixture Spare"));
+    require(view->rowCount() == 2, "docked inspector did not follow native multi-selection");
+    for (int row = 0; row < view->rowCount(); ++row)
+      if (view->item(row, 0)->text() == "Cast fixture Spare") view->selectRow(row);
+    browser.sortByDataModel(DvItemListModel::Name, true); browser.refreshData();
+    require(view->currentRow() >= 0 && view->item(view->currentRow(), 0)->text() == "Cast fixture Spare",
+            "inspector refresh changed active multi-selection identity");
+    viewer->getPanel()->getSelection()->selectNone();
+    viewer->getPanel()->getSelection()->select(find(browser, "Cast fixture Hero"));
+    search->setText("Spare"); browser.refreshData();
+    require(view->rowCount() == 0 && !slider->isEnabled(), "inspector retained a filtered-out target");
+    search->clear(); browser.refreshData();
+    require(view->rowCount() == 1 && view->item(0, 0)->text() == "Cast fixture Hero",
+            "inspector did not follow restored asset identity");
+  }
+  {
+    // A real stereo PCM impulse must appear in the peak envelope. Replacing
+    // audio and changing selection cancel old computation without exposures.
+    TXshSoundLevelP retainedSound = new TXshSoundLevel(L"Cast waveform audio");
+    auto *sound = retainedSound.getPointer();
+    sound->setScene(source); source->getLevelSet()->insertLevel(sound);
+    std::vector<short> samples(16000, 0);
+    samples[4000] = 24576; samples[4001] = -16384;
+    auto track = TSoundTrack::create(8000, 16, 2, 8000, TSound::INT, samples.data());
+    sound->setSoundTrack(track);
+    browser.refreshData();
+    viewer->getPanel()->getSelection()->selectNone();
+    viewer->getPanel()->getSelection()->select(find(browser, "Cast waveform audio"));
+    const int history = TUndoManager::manager()->getCurrentHistoryIndex();
+    CastBrowserActions::inspect(&browser, {sound});
+    auto *inspector = browser.findChild<QWidget *>("CastInspector");
+    auto *waveform = inspector->findChild<QWidget *>("CastAudioWaveform");
+    auto *seek = inspector->findChild<QSlider *>("CastAudioSeek");
+    QElapsedTimer deadline; deadline.start();
+    while (!waveform->property("WaveformReady").toBool() && deadline.elapsed() < 5000)
+      QApplication::processEvents();
+    require(waveform->property("WaveformReady").toBool() &&
+            waveform->property("WaveformSampleCount").toInt() == 8000 &&
+            std::abs(waveform->property("WaveformPeak").toDouble() - .75) < 1.e-6 && seek->isEnabled(),
+            "native waveform did not reflect source PCM peaks/duration");
+    seek->setValue(5000);
+    require(inspector->findChild<QLabel *>("CastAudioTime")->text().contains("0.50 / 1.00"),
+            "waveform seeking lost audio duration");
+    auto expectPeak = [&](const TSoundTrackP &replacement, double peak) {
+      sound->setSoundTrack(replacement); TApp::instance()->getCurrentScene()->notifyCastChange();
+      CastBrowserActions::inspect(&browser, {sound});
+      deadline.restart();
+      while (!waveform->property("WaveformReady").toBool() && deadline.elapsed() < 5000)
+        QApplication::processEvents();
+      require(waveform->property("WaveformReady").toBool() &&
+              std::abs(waveform->property("WaveformPeak").toDouble() - peak) < 1.e-6,
+              "waveform amplitude differs from actual source sample format");
+    };
+    sound->setSoundTrack(TSoundTrack::create(8000, 16, 1, 131072, TSound::INT));
+    TApp::instance()->getCurrentScene()->notifyCastChange();
+    require(!waveform->property("WaveformReady").toBool() &&
+            waveform->property("WaveformSampleCount").toInt() == 131072,
+            "long waveform fixture did not begin a pending scan");
+    inspector->hide();
+    QEventLoop pause; QTimer::singleShot(30, &pause, &QEventLoop::quit); pause.exec();
+    require(waveform->property("WaveformSamplesProcessed").toInt() == 0,
+            "hiding inspector did not cancel pending waveform work");
+    std::vector<UCHAR> unsigned8(8, 128); unsigned8[2] = 192; unsigned8[3] = 64;
+    expectPeak(TSoundTrack::create(8000, 8, 1, 8, TSound::UINT, unsigned8.data()), .5);
+    std::vector<UCHAR> integer24(24, 0); integer24[5] = 64;
+    expectPeak(TSoundTrack::create(8000, 24, 1, 8, TSound::INT, integer24.data()), .5);
+    std::vector<float> float32(8, 0); float32[2] = .375f; float32[3] = -.25f;
+    expectPeak(TSoundTrack::create(8000, 32, 1, 8, TSound::FLOAT, float32.data()), .375);
+    sound->setSoundTrack(TSoundTrack::create(8000, 16, 1, 16000, TSound::INT));
+    TApp::instance()->getCurrentScene()->notifyCastChange();
+    deadline.restart();
+    while (!waveform->property("WaveformReady").toBool() && deadline.elapsed() < 5000)
+      QApplication::processEvents();
+    require(waveform->property("WaveformSampleCount").toInt() == 16000 &&
+            waveform->property("WaveformPeak").toDouble() == 0., "replacement waveform retained old samples");
+    sound->setSoundTrack(TSoundTrack::create(8000, 16, 1, 131072, TSound::INT));
+    TApp::instance()->getCurrentScene()->notifyCastChange();
+    viewer->getPanel()->getSelection()->selectNone();
+    browser.refreshData();
+    require(!seek->isEnabled() && waveform->property("WaveformSampleCount").toInt() == 0 &&
+            TUndoManager::manager()->getCurrentHistoryIndex() == history,
+            "audio preview changed scene history or retained a stale selection");
+    viewer->getPanel()->getSelection()->select(find(browser, "Cast waveform audio"));
+    source->getLevelSet()->removeLevel(sound); browser.refreshData();
+    require(waveform->property("WaveformSampleCount").toInt() == 0 && !seek->isEnabled(),
+            "deleting an asset retained its pending waveform or audition target");
   }
   {
     bool reviewed = false;
@@ -379,6 +608,13 @@ void runCastWorkflowIntegrationTest(QMainWindow *window) {
     return pixels->pixels(0)[0];
   };
   require(pixel().r == 255, "source fixture pixel is incorrect");
+  TXshLevel::LibraryProvenance origin;
+  origin.itemId = "cast-fixture-library-item"; origin.itemPath = assets.path() + "/fixture.libinfo";
+  origin.kind = "image"; origin.revision = 1; origin.sourceAssetPath = oldDir + "/asset.png";
+  origin.relationship = TXshLevel::LibraryProvenance::Linked;
+  raster->setLibraryProvenance(origin);
+  const QString rasterId = raster->getCastId();
+  const bool expectedOriginal = raster->sourceExpectedOnDisk();
   const bool nativeDialogsDisabled = QApplication::testAttribute(Qt::AA_DontUseNativeDialogs);
   QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, true);
   {
@@ -390,12 +626,21 @@ void runCastWorkflowIntegrationTest(QMainWindow *window) {
     DialogDriver driver([&](QDialog *dialog) {
       if (auto *files = qobject_cast<QFileDialog *>(dialog)) {
         pickedFolder = true;
-        files->setDirectory(newDir); files->selectFile(newDir); dialog->accept();
+        files->setDirectory(newDir); files->selectFile(newDir);
+        std::cerr << "cast-workflow: relink requested folder: " << newDir.toStdString()
+                  << "; dialog directory: " << files->directory().absolutePath().toStdString()
+                  << "; selected files: " << files->selectedFiles().join(" | ").toStdString()
+                  << "; replacement exists: " << QFileInfo(newDir + "/asset.png").exists() << std::endl;
+        dialog->accept();
       } else if (dialog->objectName() == "CastRelinkReview") {
         reviewed = true;
         if (auto *table = dialog->findChild<QTableWidget *>())
-          if (auto *choice = qobject_cast<QComboBox *>(table->cellWidget(0, 2)))
+          if (auto *choice = qobject_cast<QComboBox *>(table->cellWidget(0, 2))) {
             candidate = choice->currentData().toString();
+            std::cerr << "cast-workflow: relink choices: " << choice->count() << std::endl;
+            for (int i = 0; i < choice->count(); ++i)
+              std::cerr << "cast-workflow: replacement option: " << choice->itemData(i).toString().toStdString() << std::endl;
+          }
         std::cerr << "cast-workflow: relink candidate: " << candidate.toStdString() << std::endl;
         dialog->accept();
         showProgressNextTurn("Validating replacement drawings…");
@@ -422,8 +667,13 @@ void runCastWorkflowIntegrationTest(QMainWindow *window) {
           .arg(TUndoManager::manager()->getCurrentHistoryIndex() - history)
           .arg(path, candidate).toStdString());
   }
+  require(raster->getLibraryRelationship() == TXshLevel::LibraryProvenance::Replaced &&
+          raster->getLibraryProvenance().itemId == origin.itemId && raster->getCastId() == rasterId,
+          "relink lost Library origin or asset identity instead of recording replaced source");
   TUndoManager::manager()->undo();
   require(pixel().r == 255, "relink undo did not restore original pixels");
+  require(raster->getLibraryProvenance() == origin && raster->sourceExpectedOnDisk() == expectedOriginal &&
+          raster->getCastId() == rasterId, "relink undo lost exact provenance or asset identity");
   TUndoManager::manager()->redo();
   require(pixel().b == 255, "relink redo did not restore replacement pixels");
   raster->invalidateFrames();
@@ -492,6 +742,10 @@ void runCastWorkflowIntegrationTest(QMainWindow *window) {
   QDir().mkpath(localDir);
   source->setScenePath(TFilePath(localDir + "/fixture.tnz"));
   const TFilePath linked = raster->getPath();
+  origin.sourceAssetPath = source->decodeFilePath(linked).getQString();
+  raster->setLibraryProvenance(origin);
+  require(raster->getLibraryRelationship() == TXshLevel::LibraryProvenance::Linked,
+          "local-copy provenance fixture is not a linked Library source");
   require(CastBrowserActions::external(source, raster), "external asset was classified as project owned");
   {
     const int count = TUndoManager::manager()->getHistoryCount();
@@ -546,10 +800,15 @@ void runCastWorkflowIntegrationTest(QMainWindow *window) {
     require(!driver.expired && !CastBrowserActions::external(source, raster), "make local copy did not change ownership");
   }
   const TFilePath copied = source->decodeFilePath(raster->getPath());
+  require(raster->getLibraryRelationship() == TXshLevel::LibraryProvenance::LocalCopy &&
+          raster->getCastId() == rasterId && raster->sourceExpectedOnDisk(),
+          "making Library source local lost origin or stable identity");
   require(QFileInfo::exists(copied.getQString()) && pixel().b == 255, "local copy is unreadable");
   TUndoManager::manager()->undo();
   require(raster->getPath() == linked && QFileInfo::exists(copied.getQString()) &&
           QFileInfo::exists(newDir + "/asset.png"), "local-copy undo removed files or failed to restore links");
+  require(raster->getLibraryProvenance() == origin && raster->sourceExpectedOnDisk() == expectedOriginal &&
+          raster->getCastId() == rasterId, "local-copy undo lost exact linked provenance");
   TUndoManager::manager()->redo();
   require(source->decodeFilePath(raster->getPath()) == copied, "local-copy redo generated a second folder");
   raster->invalidateFrames();
@@ -586,6 +845,12 @@ void runCastWorkflowIntegrationTest(QMainWindow *window) {
   child->getXsheet()->setCell(8, 4, TXshCell(duplicate, ids.front()));
   unexposed->getXsheet()->setCell(9, 1, TXshCell(duplicate, ids.front()));
   raster->setCastTags({"canonical-tag"}); duplicate->setCastTags({"duplicate-tag"});
+  auto collectionsBeforeConsolidation = source->getProperties()->getCastCollections();
+  TSceneProperties::CastCollection duplicatesCollection;
+  duplicatesCollection.id = "duplicate-fixture-collection"; duplicatesCollection.name = "Duplicate membership";
+  duplicatesCollection.members = {duplicate->getCastId()};
+  collectionsBeforeConsolidation.append(duplicatesCollection);
+  source->getProperties()->setCastCollections(collectionsBeforeConsolidation);
   {
     bool confirmed = false, reviewQueued = false, reviewReturned = false;
     QString failure;
@@ -631,13 +896,19 @@ void runCastWorkflowIntegrationTest(QMainWindow *window) {
           child->getXsheet()->getCell(8, 4) == TXshCell(raster, ids.front()) &&
           unexposed->getXsheet()->getCell(9, 1) == TXshCell(raster, ids.front()) &&
           raster->getCastTags().contains("duplicate-tag"), "consolidation lost nested exposures, drawing IDs or tags");
+  require(source->getProperties()->getCastCollections().back().members == QStringList{rasterId},
+          "consolidation emptied collection instead of remapping to surviving asset identity");
   TUndoManager::manager()->undo();
   require(source->getLevelSet()->getLevel(L"Cast fixture duplicate") == duplicate &&
           top->getCell(7, column + 2) == TXshCell(duplicate, ids.front()) &&
           unexposed->getXsheet()->getCell(9, 1) == TXshCell(duplicate, ids.front()) &&
           !raster->getCastTags().contains("duplicate-tag"), "consolidation undo did not restore asset identity, exposures or metadata");
+  require(source->getProperties()->getCastCollections() == collectionsBeforeConsolidation,
+          "consolidation undo did not restore exact original collection memberships");
   TUndoManager::manager()->redo();
   require(!source->getLevelSet()->getLevel(L"Cast fixture duplicate"), "consolidation redo failed");
+  require(source->getProperties()->getCastCollections().back().members == QStringList{rasterId},
+          "consolidation redo did not repeat collection membership remapping");
   TUndoManager::manager()->undo();
   {
     bool inventoried = false;
@@ -757,6 +1028,20 @@ void runCastWorkflowIntegrationTest(QMainWindow *window) {
   for (const auto &level : large) source->getLevelSet()->removeLevel(level.getPointer());
   browser.refreshData();
   QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, nativeDialogsDisabled);
+  TXshSoundLevelP switchingSound = new TXshSoundLevel(L"Cast scene switch audio");
+  switchingSound->setScene(source);
+  switchingSound->setSoundTrack(TSoundTrack::create(8000, 16, 1, 131072, TSound::INT));
+  source->getLevelSet()->insertLevel(switchingSound.getPointer()); browser.refreshData();
+  viewer->getPanel()->getSelection()->selectNone();
+  viewer->getPanel()->getSelection()->select(find(browser, "Cast scene switch audio"));
+  CastBrowserActions::inspect(&browser, {switchingSound.getPointer()});
+  auto *switchWaveform = browser.findChild<QWidget *>("CastAudioWaveform");
+  require(!switchWaveform->property("WaveformReady").toBool(), "scene-switch fixture has no pending waveform");
+  // The Library fixture begins with the actual native New Scene command.
+  runLibraryProvenanceIntegrationTest();
+  require(switchWaveform->property("WaveformSampleCount").toInt() == 0 &&
+          !browser.findChild<QPushButton *>("CastAudioPlay")->isEnabled(),
+          "scene switching retained a pending waveform or stale audio target");
   browser.hide();
   std::cout << "cast-native-workflow: PASS\n";
 }

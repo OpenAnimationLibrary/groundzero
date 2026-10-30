@@ -26,26 +26,40 @@ No item is CI-qualified yet. Draft publication starts validation and does not
 close the remaining work. The detailed ledgers record implemented source and
 remaining checks separately:
 
-The original 60-item scope remains authoritative. A subsequent scope audit
-identified missing subdeliverables in items 3, 6, 28, 33, 38, 41, 44, 46, 47 and
-52 and incomplete known-extension warnings in item 56; those rows are reopened
-for implementation, not merely awaiting CI. Existing
-core implementations and fixtures remain useful evidence, but do not establish
-completion of a broader original request. The remaining rows have implementation
-source and still require exact-head qualification and scope reconciliation.
-The published Function Editor head `23aa137e0f1baa7f24216f547341dee731a68b26`
-passed Linux, macOS and Windows, including installed-application checks. The
-subsequent unkeyed-channel identity persistence correction `b2f7ad003` needs
-fresh qualification, so those earlier results do not qualify the current source.
+The original 60-item scope remains authoritative. The scope audit reopened
+items 3, 6, 28, 33, 38, 41, 44, 46, 47, 52 and 56 for missing functionality.
+Follow-ups `acf0f5d0c`, `a65fbab01`, `250d78891`, `065b699d8`, `7d83791e0`
+and `351e54bfc` now supply their source and acceptance fixtures. This is not
+an all-60 completion claim: those additions need fresh exact-head CI, and
+the failures below remain open. Fade preserves unmatched stroke appearance
+and rejects unmatched boundaries of painted regions before any edit; native
+per-region opacity is outside this workflow. Matched filled regions remain
+supported. Collections are explicit UUID memberships, and Library attribution
+comes from actual native Library imports rather than external-path inference.
 
-The current unresolved checks are native 3D vector opacity (items 20 and 36),
-macOS batch relink (item 40), Windows exporter interaction (item 57), and combined
-clone/persistence/export acceptance. The depth correction `fa2735198` and the
-Windows contour-test identifier correction `0bbdb8347` are committed for CI.
-Relink and exporter diagnostics retain their original assertions and will guide
-any product correction. The combined clone fixture now uses the active numeric
-parameter API rather than an obsolete no-op setter. Unkeyed identities must
-survive reload without creating artificial animation keys.
+Function Editor head `d7c34e6ef2096b255eec7077e51c8074901e6188` passed Linux
+and Windows, including installed applications, both Function test suites and
+native unkeyed-channel save/reload. macOS remained pending at this checkpoint.
+Those results validate the identity/export corrections but do not qualify the
+later rename, target-range and full-precision serialization additions.
+
+Current unresolved checks include native 3D opacity (items 20 and 36), Windows
+width-profile manager (item 22), macOS batch relink (item 40), rendered SVG
+export on Windows (item 57), and combined clone/persistence/export acceptance.
+Windows vector-analysis and shell-thumbnail rendering are also under investigation.
+The relink diagnostic reached review without a replacement candidate. Windows
+SVG selected the correct controls but failed inside scene rendering; detailed
+native render/write errors now reach the existing diagnostic. Original content,
+choice, cancellation and replacement assertions remain required.
+
+Vector head `913efdb12` passed the stricter Linux color/depth/stencil attachment
+checks before detecting a secondary-color enable-state leak. Correction
+`0cc8df85d` restores that state explicitly; its strict tests are pending.
+macOS passed D24, rollback, patterned depth, RGB10_A2, separate read targets and
+sRGB checks, then failed the HDR fixture's initial seed before opacity drawing.
+The representative depth-rendering timing has not yet executed; no practical
+speed claim follows from the allocation estimate. Synthetic native application
+benchmarks are distinct from physical tablet and artist pacing qualification.
 
 Linux validation `3090f9d9d` passed all eight original native 3D style-identity
 comparisons, then exposed a one-depth-step mismatch in the stricter attachment
@@ -56,6 +70,10 @@ placement oracle. Clone acceptance materializes and authors the existing source
 stage before counting newly inserted nodes. Production clone redo now retains
 the original inserted stage and curve objects: a later Function Editor undo
 entry must still modify the active curve after undoing and redoing the clone.
+The combined `506741eb7` run stopped at a numeric-pointer conversion in its new
+clone fixture; `f951b9bea` corrects that compile error. The current combined
+checks also require UUID/provenance retention, distinct clone identities,
+collection remapping and exact undo, plus native reload of consolidated scenes.
 These latest corrections await execution on the updated baseline.
 
 The scene-loading ownership correction `623763b59` has executed successfully on
@@ -113,10 +131,10 @@ application sequence. CI-only harness contracts are in
 |---|---|---|---|
 | 1 | Proper Fit Selection | Selected multi-channel keys, single points and constants fit; current/all actions separate. | Source-ready; CI pending |
 | 2 | Searchable channels | Object/FX/parameter matching, clear/expansion restoration, selected curves remain explicit. | Source-ready; CI pending |
-| 3 | Saved channel sets | Stable owner identities; rename/delete, reload and workspace persistence. | Partial: saved-set rename pending |
+| 3 | Saved channel sets | Stable owner identities; rename/delete, reload and workspace persistence. | Source-ready; fresh CI pending |
 | 4 | Curve solo and edit locks | Every editing command respects locks; visible reference/solo state. | Source-ready; CI pending |
 | 5 | Multi-key numeric editing | Mixed values; absolute/relative operations, collisions, cancel, one undo transaction. | Source-ready; CI pending |
-| 6 | Precise multi-channel retiming | Multiple channels, explicit target start/end preview, pivot/scale, quantization, collisions, repeat/undo. | Partial: explicit target bounds pending |
+| 6 | Precise multi-channel retiming | Multiple channels, explicit target start/end preview, pivot/scale, quantization, collisions, repeat/undo. | Source-ready; fresh CI pending |
 | 7 | Normalized curve display | Display-only normalized coordinates; native values and edits preserved. | Source-ready; CI pending |
 | 8 | Clear curve identification | Stable identities/colors with labels and high-DPI/theme readability. | Source-ready; CI pending |
 | 9 | Visible interpolation controls | Native interpolation/handle actions; multi-selection and keyboard access. | Source-ready; CI pending |
@@ -132,44 +150,44 @@ application sequence. CI-only harness contracts are in
 | 19 | Opacity readback | Single/mixed opacity selection follows context without mutating drawing. | Source-ready; CI pending |
 | 20 | Style opacity consistency | Relevant vector style render paths preserve stroke alpha with independent pixel fixtures. | Source-ready; CI pending |
 | 21 | SVG stroke opacity | External SVG output carries palette alpha times stroke opacity. | Source-ready; CI pending |
-| 22 | Visual width-profile manager | CRUD/import/export/previews, errors, overwrite/cancel and restart persistence. | Source-ready; CI pending |
+| 22 | Visual width-profile manager | CRUD/import/export/previews, errors, overwrite/cancel and restart persistence. | Pending: Windows native crash investigation |
 | 23 | Width profiles across drawings | Selected drawings/level range, repeated exposures once, locked resources and undo. | Source-ready; CI pending |
 | 24 | Pressure/profile blending | Zero-strength identity, replace/multiply semantics and pressure preservation. | Source-ready; CI pending |
 | 25 | Fill-safe reshaping | Actual region-change preview/recovery in geometry edit flow; fills/undo saved. | Source-ready; CI pending |
 | 26 | Persistent morph hints | Stable drawing/stroke identity, edits/deletions, reopen and compatibility. | Source-ready; CI pending |
 | 27 | Correspondence preview | Matched/manual/unmatched preview matches committed inbetweens. | Source-ready; CI pending |
-| 28 | Unmatched stroke handling | Explicit birth/death policy including Fade; endpoint, fill and opacity preservation, undo. | Partial: Fade policy pending |
+| 28 | Unmatched stroke handling | Explicit birth/death policy including Fade; endpoint, fill and opacity preservation, undo. | Source-ready; fresh CI pending |
 | 29 | Cross-frame gradient uniqueness | Single local/shared other-frame style, other drawings unchanged, undo. | Source-ready; CI pending |
 | 30 | Animated gradient copying | Copy current vs animated style choice; keyframes, unlinking and reload. | Source-ready; CI pending |
 | 31 | Outline stacking preservation | Native overlap/group pixel fidelity through outline conversion and undo. | Source-ready; CI pending |
 | 32 | Closed-loop outlines | Inner/outer boundaries, tight loops, holes/winding and undo. | Source-ready; CI pending |
-| 33 | Multi-drawing alignment | Explicit frame/reference scope, preview/cancel, matching, groups and no index-only assumptions. | Partial: alignment preview pending |
+| 33 | Multi-drawing alignment | Explicit frame/reference scope, preview/cancel, matching, groups and no index-only assumptions. | Source-ready; fresh CI pending |
 | 34 | Paint Inside/Selection | Clipping to region/selection; holes/groups, pressure, undo. | Source-ready; CI pending |
 | 35 | Guided Drawing mode consistency | Guided Drawing honors paint mode or provides actionable explicit incompatibility. | Source-ready; CI pending |
 | 36 | Along-stroke opacity | Opacity variation survives draw/split/join/morph/deform/render/export and versioned storage. | Source-ready; CI pending |
 | 37 | Global Cast search | Name/path, folder/global scope, stable selection. | Source-ready; CI pending |
-| 38 | Cast filters | Types and resource status predicates including modified assets, combined with search. | Partial: modified-assets filter pending |
+| 38 | Cast filters | Types and resource status predicates including modified assets, combined with search. | Source-ready; fresh CI pending |
 | 39 | Where Used navigation | All nested occurrences, cycles bounded, exact instance navigation and multiselection. | Source-ready; CI pending |
 | 40 | Batch relink preview | Ambiguous matches, explicit preview, identity/exposure preservation and undo. | Source-ready; CI pending |
-| 41 | Distinct asset states | New/dirty/missing/external/read-only/cache states truthful without changing artwork. | Partial: new/missing separation and cache state pending |
+| 41 | Distinct asset states | New/dirty/missing/external/read-only/cache states truthful without changing artwork. | Source-ready; fresh CI pending |
 | 42 | Unused-asset cleanup preview | Review/checklist, keep-spare metadata, undo without deleting source files. | Source-ready; CI pending |
 | 43 | Folder undo | Create/rename/delete hierarchy and membership restoration, redo. | Source-ready; CI pending |
-| 44 | Docked asset inspector | Resolution/DPI/frame gaps/palette/storage follow selection in a persistent docked panel. | Partial: docked workflow pending |
+| 44 | Docked asset inspector | Resolution/DPI/frame gaps/palette/storage follow selection in a persistent docked panel. | Source-ready; fresh CI pending |
 | 45 | Scrubbable thumbnails | Scrub/choose cover, bounds, persistence and bounded decoding. | Source-ready; CI pending |
-| 46 | Audio audition | Native waveform/transport, stop-on-close/selection and no leaked playback. | Partial: waveform pending |
-| 47 | Tags and collections | Stable asset IDs, multi-tag queries, saved named collections and save/reload. | Partial: saved collections pending |
+| 46 | Audio audition | Native waveform/transport, stop-on-close/selection and no leaked playback. | Source-ready; fresh CI pending |
+| 47 | Tags and collections | Stable asset IDs, multi-tag queries, saved named collections and save/reload. | Source-ready; fresh CI pending |
 | 48 | Stable refresh state | Identity selection/scroll/expanded folders/sort retained through changes. | Source-ready; CI pending |
 | 49 | Large-Cast responsiveness | Large fixture correctness and measured incremental update/ordering. | Source-ready; CI pending |
 | 50 | Explicit duplicate consolidation | Content/identity/palette comparisons, explicit confirmation only, exposure-preserving undo. | Source-ready; CI pending |
 | 51 | Collection/dependency report | Missing/conflicting dependencies and sizes, exact inclusion and relocated output verification. | Source-ready; CI pending |
-| 52 | Linked ownership and local copy | Actual Library import/link provenance and explicit local copy with undo/collection preservation; external paths alone do not prove linkage. | Partial: actual Library ownership provenance pending |
+| 52 | Linked ownership and local copy | Actual Library import/link provenance and explicit local copy with undo/collection preservation; external paths alone do not prove linkage. | Source-ready; fresh CI pending |
 | 53 | Pose-library undo | Entire pose/base state, import/replace/delete, duplicate names and undo/reload. | Source-ready; CI pending |
 | 54 | Timing-aware storyboard moves | Cells/audio/native animation move as one undo; locked/boundary rules explicit. | Source-ready; CI pending |
 | 55 | Source/playback timing indicators | Clear edit source vs playback drawing, nested/remap/range transitions. | Source-ready; CI pending |
-| 56 | Scene compatibility report | Read-only known-extension inventory, unsupported/lossy warnings and navigation; no certification of arbitrary historical builds. | Partial: effect IDs and nested numeric-channel warning coverage pending |
+| 56 | Scene compatibility report | Read-only known-extension inventory, unsupported/lossy warnings and navigation; no certification of arbitrary historical builds. | Source-ready; fresh CI pending |
 | 57 | Export fidelity preflight | Lottie/SVG unsupported-feature inspection before write; cancel and explicit conversion. | Source-ready; CI pending |
 | 58 | Recovery completeness status | Current snapshot complete/partial/errors/retry visible without losing pending resources. | Source-ready; CI pending |
-| 59 | Artist-workload benchmarks | Actual native pen/scrub/playback/resource-save/memory metrics, correctness and provenance. | Source-ready; CI pending |
+| 59 | Artist-workload benchmarks | Native synthetic drawing/scrub/playback/resource-save/memory metrics, correctness and provenance; physical tablet qualification separate. | Source-ready; CI pending |
 | 60 | Safe disk-cache management | Usage/budget/manual cleanup, cross-process leases, atomic retirement, cancellation/errors. | Source-ready; CI pending |
 
 ## Shared regression gates

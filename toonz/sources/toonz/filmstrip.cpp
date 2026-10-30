@@ -2939,9 +2939,11 @@ InbetweenDialog::InbetweenDialog(QWidget *parent)
 
   m_unmatchedCombo = new QComboBox(this);
   m_unmatchedCombo->setObjectName("morphUnmatchedPolicy");
-  m_unmatchedCombo->addItem(tr("Omit unmatched strokes (legacy)"), 0);
-  m_unmatchedCombo->addItem(tr("Hold unmatched strokes"), 1);
-  m_unmatchedCombo->addItem(tr("Shrink disappearing / grow appearing strokes"), 2);
+  m_unmatchedCombo->addItem(tr("Omit unmatched strokes (legacy)"), TInbetween::OmitUnmatched);
+  m_unmatchedCombo->addItem(tr("Hold unmatched strokes"), TInbetween::HoldUnmatched);
+  m_unmatchedCombo->addItem(tr("Shrink disappearing / grow appearing strokes"), TInbetween::CollapseUnmatched);
+  m_unmatchedCombo->addItem(tr("Fade disappearing / appearing stroke opacity"), TInbetween::FadeUnmatched);
+  m_unmatchedCombo->setToolTip(tr("Fade multiplies each unmatched stroke's existing opacity by its visibility. Unmatched strokes bounding painted regions cannot fade; match them or choose another policy."));
   addWidget(tr("Unmatched strokes:"), m_unmatchedCombo);
 
   QWidget *previews = new QWidget(this);
@@ -2952,6 +2954,9 @@ InbetweenDialog::InbetweenDialog(QWidget *parent)
   m_firstPreview = new MorphPreviewSwatch(previews);
   m_resultPreview = new MorphPreviewSwatch(previews);
   m_lastPreview = new MorphPreviewSwatch(previews);
+  m_firstPreview->setObjectName("morphFirstPreview");
+  m_resultPreview->setObjectName("morphResultPreview");
+  m_lastPreview->setObjectName("morphLastPreview");
   previewLayout->addWidget(m_firstPreview, 1, 0);
   previewLayout->addWidget(m_resultPreview, 1, 1);
   previewLayout->addWidget(m_lastPreview, 1, 2);
@@ -3008,12 +3013,15 @@ InbetweenDialog::InbetweenDialog(QWidget *parent)
             m_lastPreview->highlight(index(1));
           });
 
-  QPushButton *okBtn     = new QPushButton(tr("Inbetween"), this);
+  m_applyButton = new QPushButton(tr("Inbetween"), this);
+  m_applyButton->setObjectName("morphApply");
+  m_applyButton->setEnabled(false);
   QPushButton *cancelBtn = new QPushButton(tr("Cancel"), this);
-  connect(okBtn, SIGNAL(clicked()), this, SLOT(accept()));
+  cancelBtn->setObjectName("morphCancel");
+  connect(m_applyButton, &QPushButton::clicked, this, &InbetweenDialog::accept);
   connect(cancelBtn, SIGNAL(clicked()), this, SLOT(reject()));
 
-  addButtonBarWidget(okBtn, cancelBtn);
+  addButtonBarWidget(m_applyButton, cancelBtn);
 }
 
 void InbetweenDialog::setPreviewSource(
@@ -3028,13 +3036,19 @@ void InbetweenDialog::setPreviewSource(
 }
 int InbetweenDialog::unmatchedPolicy() const { return m_unmatchedCombo->currentData().toInt(); }
 void InbetweenDialog::setUnmatchedPolicy(int policy) {
-  m_unmatchedCombo->setCurrentIndex(std::max(0, std::min(2, policy)));
+  const int index = m_unmatchedCombo->findData(policy);
+  m_unmatchedCombo->setCurrentIndex(index >= 0 ? index : 0);
 }
 void InbetweenDialog::schedulePreview() {
+  m_previewValid = false;
+  if (m_applyButton) m_applyButton->setEnabled(false);
   if (m_reviewTable) m_reviewTable->setProperty("previewReady", false);
   if (m_previewTimer) m_previewTimer->start();
 }
 void InbetweenDialog::refreshPreview() {
+  m_previewValid = false;
+  m_applyButton->setEnabled(false);
+  m_reviewTable->setProperty("previewReady", false);
   if (!m_firstImage || !m_lastImage) return;
   TInbetween::MatchOptions options;
   options.m_autoMatch = autoMatch();
@@ -3062,6 +3076,15 @@ void InbetweenDialog::refreshPreview() {
     for (const auto &p : review.pairs) addRow(p.first, p.last, names[p.source], p.source);
     for (int i : review.unmatchedFirst) addRow(i, -1, tr("Disappearing"), -1);
     for (int i : review.unmatchedLast) addRow(-1, i, tr("Appearing"), -2);
+    const auto bounds = m_firstImage->getBBox() + m_lastImage->getBBox();
+    m_firstPreview->setImage(m_firstImage, bounds);
+    m_lastPreview->setImage(m_lastImage, bounds);
+    if (options.m_unmatchedPolicy == TInbetween::FadeUnmatched &&
+        TInbetween::fadeHasPaintedBoundaries(m_firstImage, m_lastImage, review)) {
+      m_reviewStatus->setText(tr("Fade cannot animate unmatched strokes that bound painted regions, including holes and nested fills. Match those boundaries or choose Hold, Shrink/grow, or Omit. No drawing was changed."));
+      m_resultPreview->setImage(TVectorImageP(), bounds);
+      return;
+    }
     double t = m_previewPosition->value() / 100.0;
     const auto algorithm = static_cast<TInbetween::TweenAlgorithm>(m_comboBox->currentIndex());
     double time = algorithm == TInbetween::CustomEaseInterpolation
@@ -3071,17 +3094,22 @@ void InbetweenDialog::refreshPreview() {
     // Key drawings are never overwritten by the command, including in legacy
     // mode, so display the untouched endpoints at 0% and 100%.
     TVectorImageP result = t <= 0 ? m_firstImage : t >= 1 ? m_lastImage : tween.tween(time);
-    const auto bounds = m_firstImage->getBBox() + m_lastImage->getBBox();
-    m_firstPreview->setImage(m_firstImage, bounds);
     m_resultPreview->setImage(result, bounds);
-    m_lastPreview->setImage(m_lastImage, bounds);
     m_reviewStatus->setText(tr("%1 pairs; %2 disappearing and %3 appearing strokes. Select a row to highlight its source strokes. Preview: %4%.")
         .arg(int(review.pairs.size())).arg(int(review.unmatchedFirst.size())).arg(int(review.unmatchedLast.size())).arg(m_previewPosition->value()));
     m_reviewTable->setProperty("previewReady", true);
+    m_previewValid = true;
+    m_applyButton->setEnabled(true);
   } catch (...) {
     m_reviewStatus->setText(tr("The preview could not be generated. No drawing was changed."));
     m_resultPreview->setImage(TVectorImageP(), m_firstImage->getBBox() + m_lastImage->getBBox());
   }
+}
+
+void InbetweenDialog::accept() {
+  m_previewTimer->stop();
+  refreshPreview();
+  if (m_previewValid) DVGui::Dialog::accept();
 }
 
 //-----------------------------------------------------------------------------

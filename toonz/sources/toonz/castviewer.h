@@ -22,6 +22,7 @@ class QLineEdit;
 class QComboBox;
 class QTimer;
 class QPushButton;
+class CastInspector;
 
 //-----------------------------------------------------------------------------
 
@@ -86,6 +87,9 @@ class CastBrowser final : public QSplitter, public DvItemListModel {
   std::unique_ptr<CastItems> m_castItems;
   QLineEdit *m_search;
   QComboBox *m_scope, *m_type, *m_status;
+  QComboBox *m_collection;
+  QPushButton *m_collectionActions;
+  CastInspector *m_inspector = nullptr;
   QLabel *m_resultCount;
   QTimer *m_filterTimer;
   QPushButton *m_actions;
@@ -97,6 +101,8 @@ class CastBrowser final : public QSplitter, public DvItemListModel {
   void restoreSelection();
   std::vector<TXshLevel *> selectedLevels() const;
   void showActions();
+  void showCollectionActions();
+  void refreshCollections();
 
 public:
   CastBrowser(QWidget *parent = 0, Qt::WindowFlags flags = Qt::WindowFlags());
@@ -120,6 +126,7 @@ public:
   void showFolderContents();
   void viewFile();
   void viewFileInfo();
+  void showInspector(const std::vector<TXshLevel *> &levels);
 
 protected:
   void showEvent(QShowEvent *event) override;

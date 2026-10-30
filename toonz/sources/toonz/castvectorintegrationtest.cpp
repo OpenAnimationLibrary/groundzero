@@ -12,6 +12,8 @@
 #include "toonz/levelset.h"
 #include "toonz/morphhints.h"
 #include "toonz/preferences.h"
+#include "toonz/sceneproperties.h"
+#include "toonz/scenechecker.h"
 #include "toonz/toonzscene.h"
 #include "toonz/tproject.h"
 #include "toonz/tscenehandle.h"
@@ -47,6 +49,7 @@
 #include <QTableWidget>
 #include <QTemporaryDir>
 #include <QTimer>
+#include <QUuid>
 #include <functional>
 #include <iostream>
 #include <stdexcept>
@@ -287,6 +290,26 @@ void runCastVectorIntegrationTest(QMainWindow *window) {
   level->setCastTags(tags);
   level->setCastCover(TFrameId(5));
   level->setMorphHints(storedHints);
+  const QString sourceId = level->getCastId();
+  using Origin = TXshLevel::LibraryProvenance;
+  // Actual Library insertion is covered by libraryprovenanceintegrationtest.
+  // Seed its persisted output here to exercise the subsequent vector commands.
+  Origin sourceOrigin;
+  sourceOrigin.itemId = "combined-vector-origin";
+  sourceOrigin.itemPath = originalDir + "/source-rig.tnz";
+  sourceOrigin.kind = "rig";
+  sourceOrigin.revision = 3;
+  sourceOrigin.sourceAssetPath = originalDir + "/figure.pli";
+  sourceOrigin.relationship = Origin::Linked;
+  level->setLibraryProvenance(sourceOrigin);
+  auto expectSource = [&](Origin::Relationship relation) {
+    Origin expected = sourceOrigin;
+    expected.relationship = relation;
+    require(level->getCastId() == sourceId && level->getLibraryProvenance() == expected &&
+                level->getLibraryRelationship() == relation && level->sourceExpectedOnDisk(),
+            "Cast/vector operation changed asset identity or source ownership");
+  };
+  expectSource(Origin::Linked);
   auto *sheet = scene->getXsheet();
   for (int row = 0; row < 3; ++row)
     sheet->setCell(row, 0, TXshCell(level, TFrameId(1 + row * 2)));
@@ -306,6 +329,9 @@ void runCastVectorIntegrationTest(QMainWindow *window) {
     auto *asset = loaded.getLevelSet()->getLevel(level->getName());
     require(asset && asset->getSimpleLevel(), "Cast/vector scene reload lost level identity");
     auto *reopened = asset->getSimpleLevel();
+    require(reopened->getCastId() == sourceId && reopened->getLibraryProvenance() == sourceOrigin &&
+                reopened->getLibraryRelationship() == Origin::Linked && reopened->sourceExpectedOnDisk(),
+            "Cast/vector scene reload changed asset UUID or Library provenance");
     expectMetadata(reopened, tags, storedHints);
     expectHints(reopened, 1, 3, true);
     expectDrawing(reopened, 1, 0., sourceProfile, .327);
@@ -336,18 +362,22 @@ void runCastVectorIntegrationTest(QMainWindow *window) {
             "Cast/vector native relink did not apply");
   }
   checkpoint("checking relink undo, redo and cache eviction");
+  expectSource(Origin::Replaced);
   expectMetadata(level, tags, storedHints);
   expectDrawing(level, 1, 100., replacementProfile, .7);
   expectHints(level, 1, 3, false);
   TUndoManager::manager()->undo();
+  expectSource(Origin::Linked);
   expectMetadata(level, tags, storedHints);
   expectDrawing(level, 1, 0., sourceProfile, .327);
   expectHints(level, 1, 3, true);
   TUndoManager::manager()->redo();
+  expectSource(Origin::Replaced);
   level->invalidateFrames();
   expectDrawing(level, 5, 140., replacementProfile, .7);
   expectHints(level, 1, 3, false);
   TUndoManager::manager()->undo();
+  expectSource(Origin::Linked);
   level->invalidateFrames();
   expectDrawing(level, 5, 40., sourceProfile, .327);
   expectHints(level, 1, 3, true);
@@ -375,6 +405,7 @@ void runCastVectorIntegrationTest(QMainWindow *window) {
             "Cast/vector native local copy did not apply");
   }
   checkpoint("checking local-copy undo, redo and cache eviction");
+  expectSource(Origin::LocalCopy);
   const TFilePath copied = scene->decodeFilePath(level->getPath());
   require(QFileInfo::exists(copied.getQString()), "Cast/vector copied PLI does not exist");
   expectMetadata(level, tags, storedHints);
@@ -382,10 +413,12 @@ void runCastVectorIntegrationTest(QMainWindow *window) {
   level->invalidateFrames();
   expectDrawing(level, 1, 0., sourceProfile, .327);
   TUndoManager::manager()->undo();
+  expectSource(Origin::Linked);
   require(level->getPath() == original && QFileInfo::exists(copied.getQString()),
           "Cast/vector local-copy undo lost original link or removed copied file");
   expectMetadata(level, tags, storedHints);
   TUndoManager::manager()->redo();
+  expectSource(Origin::LocalCopy);
   require(scene->decodeFilePath(level->getPath()) == copied,
           "Cast/vector local-copy redo created a new destination");
   level->invalidateFrames();
@@ -403,6 +436,33 @@ void runCastVectorIntegrationTest(QMainWindow *window) {
   duplicate->clonePropertiesFrom(level);
   duplicate->setCastTags({"duplicate-tag"});
   duplicate->setCastCover(TFrameId(1));
+  const QString duplicateId = duplicate->getCastId();
+  require(duplicateId != sourceId, "Distinct vector asset reused source UUID");
+  const QList<TSceneProperties::CastCollection> collections{
+      {QUuid::createUuid().toString(QUuid::WithoutBraces), "Duplicate only", {duplicateId}},
+      {QUuid::createUuid().toString(QUuid::WithoutBraces), "Both drawings", {sourceId, duplicateId}}};
+  scene->getProperties()->setCastCollections(collections);
+  {
+    const bool dirty = app->getCurrentScene()->getDirtyFlag();
+    const int history = TUndoManager::manager()->getCurrentHistoryIndex();
+    int collectionWarnings = 0, provenanceNotes = 0, identityNotes = 0;
+    for (const auto &issue : SceneChecker::compatibilityReport(scene)) {
+      if (issue.severity == SceneChecker::Warning && issue.text.contains("castCollections"))
+        ++collectionWarnings;
+      if (issue.severity == SceneChecker::Info && issue.levelName == level->getName() &&
+          issue.text.contains("recorded Library source attribution")) ++provenanceNotes;
+      if (issue.severity == SceneChecker::Info && issue.text.contains("Scene Cast asset identities"))
+        ++identityNotes;
+    }
+    require(collectionWarnings == 1 && provenanceNotes == 1 && identityNotes == 1 &&
+                scene->getProperties()->getCastCollections() == collections &&
+                app->getCurrentScene()->getDirtyFlag() == dirty &&
+                TUndoManager::manager()->getCurrentHistoryIndex() == history,
+            "Compatibility inventory omitted new Cast metadata or modified authoring state");
+  }
+  auto consolidatedCollections = collections;
+  consolidatedCollections[0].members = QStringList{sourceId};
+  consolidatedCollections[1].members = QStringList{sourceId};
   clean(duplicate);
   sheet->setCell(4, 2, TXshCell(duplicate, TFrameId(3)));
   auto consolidate = [&](bool expectRejected) {
@@ -447,30 +507,61 @@ void runCastVectorIntegrationTest(QMainWindow *window) {
   };
   checkpoint("rejecting incompatible consolidation");
   consolidate(true);
+  require(scene->getProperties()->getCastCollections() == collections,
+          "Rejected vector consolidation changed collection membership");
   require(sheet->getCell(4, 2).getSimpleLevel() == duplicate &&
               scene->getLevelSet()->getLevel(duplicate->getName()) == duplicate,
           "Cast/vector incompatible consolidation changed asset identity or exposure");
   duplicate->setMorphHints(storedHints);
   checkpoint("consolidating compatible duplicates");
   consolidate(false);
+  require(scene->getProperties()->getCastCollections() == consolidatedCollections,
+          "Vector consolidation did not migrate and deduplicate collection membership");
+  expectSource(Origin::LocalCopy);
   require(sheet->getCell(4, 2) == TXshCell(level, TFrameId(3)) &&
               !scene->getLevelSet()->getLevel(L"Cast vector duplicate"),
           "Cast/vector consolidation lost exposure frame IDs or retained duplicate");
   expectMetadata(level, QStringList(tags) << "duplicate-tag", storedHints);
   expectHints(level, 1, 3, true);
   expectDrawing(level, 3, 20., sourceProfile, .327);
+  {
+    const TFilePath path(localDir + "/consolidated.tnz");
+    scene->saveCopy(path);
+    ToonzScene restored;
+    TProjectManager::instance()->initializeScene(&restored);
+    restored.loadTnzFile(path);
+    restored.loadResources(false);
+    auto *survivor = restored.getLevelSet()->getLevel(level->getName());
+    require(survivor && survivor->getCastId() == sourceId &&
+                survivor->getLibraryProvenance() == level->getLibraryProvenance() &&
+                restored.getProperties()->getCastCollections() == consolidatedCollections &&
+                !restored.getLevelSet()->getLevel(L"Cast vector duplicate"),
+            "Consolidated vector scene reload changed ownership or collection membership");
+  }
   TUndoManager::manager()->undo();
   expectMetadata(level, tags, storedHints);
+  require(scene->getProperties()->getCastCollections() == collections &&
+              duplicate->getCastId() == duplicateId,
+          "Vector consolidation undo did not restore exact collection membership and identity");
   require(sheet->getCell(4, 2).getSimpleLevel() == duplicate &&
               duplicate->getCastCover() == TFrameId(1) && duplicate->getMorphHints() == storedHints,
           "Cast/vector consolidation undo did not restore duplicate metadata");
   TUndoManager::manager()->redo();
+  require(scene->getProperties()->getCastCollections() == consolidatedCollections,
+          "Vector consolidation redo changed membership mapping");
   expectDrawing(level, 3, 20., sourceProfile, .327);
   TUndoManager::manager()->undo();
 
   // The real Clone Level command must preserve exact-copy metadata and prune
   // subset references only after all selected drawings have been cloned.
   checkpoint("cloning exact and subset levels");
+  const Origin beforeClones = level->getLibraryProvenance();
+  Origin linkedForClones = beforeClones;
+  linkedForClones.sourceAssetPath = copied.getQString();
+  linkedForClones.relationship = Origin::Linked;
+  level->setLibraryProvenance(linkedForClones);
+  require(level->getLibraryRelationship() == Origin::Linked,
+          "Clone fixture must start with a live recorded source link");
   auto clone = [&](int lastRow, const QString &name) {
     const int before = TUndoManager::manager()->getCurrentHistoryIndex();
     bool accepted = false;
@@ -493,6 +584,14 @@ void runCastVectorIntegrationTest(QMainWindow *window) {
     return TXshSimpleLevelP(result);
   };
   auto exact = clone(2, "Cast_vector_exact");
+  const QString exactId = exact->getCastId();
+  Origin copyOrigin = linkedForClones;
+  copyOrigin.relationship = Origin::LocalCopy;
+  require(exactId != sourceId && exactId != duplicateId &&
+              exact->getLibraryProvenance() == copyOrigin &&
+              exact->getLibraryRelationship() == Origin::LocalCopy &&
+              scene->getProperties()->getCastCollections() == collections,
+          "Vector clone reused source identity, claimed a live Library link or joined source collections");
   expectMetadata(exact.getPointer(), tags, storedHints);
   expectHints(exact.getPointer(), 1, 3, true);
   expectDrawing(exact.getPointer(), 5, 40., sourceProfile, .327);
@@ -500,11 +599,15 @@ void runCastVectorIntegrationTest(QMainWindow *window) {
   require(!scene->getLevelSet()->getLevel(exact->getName()) && sheet->getCell(0, 1).isEmpty(),
           "Cast/vector clone undo retained the clone or exposures");
   TUndoManager::manager()->redo();
-  require(sheet->getCell(0, 1).getSimpleLevel() == exact.getPointer(),
+  require(sheet->getCell(0, 1).getSimpleLevel() == exact.getPointer() && exact->getCastId() == exactId &&
+              exact->getLibraryProvenance() == copyOrigin,
           "Cast/vector clone redo changed clone identity");
   expectMetadata(exact.getPointer(), tags, storedHints);
   TUndoManager::manager()->undo();
   auto subset = clone(1, "Cast_vector_subset");
+  require(subset->getCastId() != sourceId && subset->getCastId() != exactId &&
+              subset->getLibraryProvenance() == copyOrigin,
+          "Vector subset clone lost distinct identity or source attribution");
   QJsonArray subsetHints;
   require(subset->getCastTags() == tags && !subset->hasCastCover() && !subset->isFid(TFrameId(5)) &&
               MorphHints::decode(subset->getMorphHints(), subsetHints) && subsetHints.size() == 2,
@@ -597,6 +700,11 @@ void runCastVectorIntegrationTest(QMainWindow *window) {
                 TUndoManager::manager()->getCurrentHistoryIndex() == history + 1,
             "Cast/vector no-save clone did not create one undoable level");
     const auto cloneName = noSave->getName();
+    const QString noSaveId = noSave->getCastId();
+    require(noSaveId != sourceId && noSaveId != exactId &&
+                noSave->getLibraryProvenance() == copyOrigin &&
+                !noSave->sourceExpectedOnDisk(),
+            "Unsaved vector clone reused identity, live linkage or saved-source state");
     const auto clonedColumnName = emptyStage->getName();
     app->getCurrentXsheet()->setXsheet(sheet);
     auto expectNoSave = [&]() {
@@ -611,6 +719,9 @@ void runCastVectorIntegrationTest(QMainWindow *window) {
                   emptyStage->getName() == clonedColumnName,
               "Cast/vector no-save redo changed clone identity, holds or neighboring column");
       expectMetadata(noSave.getPointer(), tags, storedHints);
+      require(noSave->getCastId() == noSaveId && noSave->getLibraryProvenance() == copyOrigin &&
+                  !noSave->sourceExpectedOnDisk(),
+              "Repeated no-save clone redo lost attribution, identity or unsaved state");
       expectHints(noSave.getPointer(), 1, 3, true);
       expectDrawing(noSave.getPointer(), 5, 40., sourceProfile, .327);
     };
@@ -758,6 +869,10 @@ void runCastVectorIntegrationTest(QMainWindow *window) {
 
   // Filmstrip renumber and native undo remap Cast covers, both morph endpoint
   // pairs and zones, and exposures without touching per-stroke envelopes.
+  require(level->getLibraryProvenance() == linkedForClones &&
+              level->getLibraryRelationship() == Origin::Linked,
+          "Cloning detached the original Library source instead of the new drawings");
+  level->setLibraryProvenance(beforeClones);
   checkpoint("renumbering covers, morph hints and exposures");
   FilmstripCmd::renumber(level, {{TFrameId(1), TFrameId(11)},
                                 {TFrameId(3), TFrameId(13)},
@@ -765,6 +880,7 @@ void runCastVectorIntegrationTest(QMainWindow *window) {
   const auto renumberedHints = MorphHints::renumber(storedHints,
       {{TFrameId(1), TFrameId(11)}, {TFrameId(3), TFrameId(13)}, {TFrameId(5), TFrameId(15)}});
   expectMetadata(level, tags, renumberedHints, 15);
+  expectSource(Origin::LocalCopy);
   expectHints(level, 11, 13, true);
   expectDrawing(level, 11, 0., sourceProfile, .327);
   require(sheet->getCell(2, 0) == TXshCell(level, TFrameId(15)),
@@ -773,12 +889,15 @@ void runCastVectorIntegrationTest(QMainWindow *window) {
   expectMetadata(level, tags, storedHints);
   expectHints(level, 1, 3, true);
   expectDrawing(level, 5, 40., sourceProfile, .327);
+  expectSource(Origin::LocalCopy);
   require(sheet->getCell(2, 0) == TXshCell(level, TFrameId(5)),
           "Cast/vector renumber undo lost exposure IDs");
   TUndoManager::manager()->redo();
   expectMetadata(level, tags, renumberedHints, 15);
   expectHints(level, 11, 13, true);
   TUndoManager::manager()->undo();
+  require(scene->getProperties()->getCastCollections() == collections,
+          "Clone or renumber workflows changed saved collection membership");
 
   // Leave no fixture referring to temporary files for the following workflows.
   checkpoint("releasing fixture resources");

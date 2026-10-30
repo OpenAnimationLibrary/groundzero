@@ -48,6 +48,7 @@ TXshExrLevel::TXshExrLevel(const std::wstring &name) : TXshSimpleLevel(name) {
   setType(OVL_XSHLEVEL);
   setFloatChannelLevel(true);
   setIsReadOnly(true);
+  setSourceExpectedOnDisk(true);
 }
 
 //-----------------------------------------------------------------------------
@@ -162,6 +163,7 @@ void TXshExrLevel::loadData(TIStream &is) {
   setType(OVL_XSHLEVEL);
   setFloatChannelLevel(true);
   setIsReadOnly(true);
+  setSourceExpectedOnDisk(true);
 }
 
 //-----------------------------------------------------------------------------

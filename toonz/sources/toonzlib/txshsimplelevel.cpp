@@ -405,6 +405,9 @@ void TXshSimpleLevel::clonePropertiesFrom(const TXshSimpleLevel* oldSl) {
 void TXshSimpleLevel::copyAuthoringMetadataFrom(const TXshSimpleLevel* source) {
   if (!source) return;
   copyCastMetadataFrom(source);
+  // This helper follows drawing duplication into a distinct level. Retain its
+  // source attribution without claiming the new drawing still edits that file.
+  if (source != this) detachLibrarySource(LibraryProvenance::LocalCopy);
   if (hasCastCover() && !isFid(getCastCover())) clearCastCover();
 
   // Scene-owned hints are not part of cloned PLI geometry. Validate them only
@@ -1396,6 +1399,8 @@ void TXshSimpleLevel::load() {
     }
   }
   updateReadOnly();
+  if (TSystem::doesExistFileOrLevel(getScene()->decodeFilePath(m_path)))
+    setSourceExpectedOnDisk(true);
 }
 
 //-----------------------------------------------------------------------------
@@ -1469,6 +1474,7 @@ void TXshSimpleLevel::load(const std::vector<TFrameId>& fIds) {
     }
     setRenumberTable();
   }
+  if (TSystem::doesExistFileOrLevel(path)) setSourceExpectedOnDisk(true);
 }
 
 //-----------------------------------------------------------------------------
@@ -1534,8 +1540,10 @@ void TXshSimpleLevel::save() {
 
   if (getProperties()->getDirtyFlag() == false &&
       getPalette()->getDirtyFlag() == false &&
-      TSystem::doesExistFileOrLevel(path))
+      TSystem::doesExistFileOrLevel(path)) {
+    setSourceExpectedOnDisk(true);
     return;
+  }
 
   if (!TFileStatus(path.getParentDir()).doesExist()) {
     try {
@@ -1682,6 +1690,8 @@ void TXshSimpleLevel::save(const TFilePath& fp, const TFilePath& oldFp,
   }
 
   saveSimpleLevel(dDstPath, overwritePalette);
+  if (TSystem::doesExistFileOrLevel(getScene()->decodeFilePath(m_path)))
+    setSourceExpectedOnDisk(true);
 }
 
 //-----------------------------------------------------------------------------

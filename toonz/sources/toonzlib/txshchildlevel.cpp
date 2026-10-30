@@ -46,6 +46,7 @@ void TXshChildLevel::loadData(TIStream &is) {
   std::string tagName;
   if (is.matchTag(tagName)) {
     if (tagName == "name") {
+      loadCastTags(is);
       std::wstring name;
       is >> name;
       setName(name);
@@ -58,7 +59,9 @@ void TXshChildLevel::loadData(TIStream &is) {
 
 void TXshChildLevel::saveData(TOStream &os) {
   os << m_xsheet;
-  os.child("name") << getName();
+  os.openChild("name", getCastAttributes());
+  os << getName();
+  os.closeChild();
 }
 
 //-----------------------------------------------------------------------------

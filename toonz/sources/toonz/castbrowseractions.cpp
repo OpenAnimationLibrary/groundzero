@@ -1,4 +1,7 @@
 #include "castbrowseractions.h"
+#include "castviewer.h"
+#include "toonz/imagemanager.h"
+#include "timagecache.h"
 #include "tapp.h"
 #include "menubarcommandids.h"
 #include "toonz/childstack.h"
@@ -131,43 +134,6 @@ public:
   int getSize() const override { return sizeof(*this) + int(m_levels.size()) * 1024; }
   QString getHistoryString() override { return tr("Edit Scene Cast Tags"); }
 };
-class CoverUndo final : public TUndo {
-  TXshLevelP m_level;
-  TFrameId m_before, m_after;
-  bool m_hadBefore, m_hasAfter;
-  void apply(bool present, const TFrameId &frame) const {
-    if (present) m_level->setCastCover(frame); else m_level->clearCastCover();
-    changed();
-  }
-public:
-  CoverUndo(TXshLevel *level, bool present, const TFrameId &frame)
-      : m_level(level), m_before(level->getCastCover()), m_after(frame),
-        m_hadBefore(level->hasCastCover()), m_hasAfter(present) {}
-  void undo() const override { apply(m_hadBefore, m_before); }
-  void redo() const override { apply(m_hasAfter, m_after); }
-  int getSize() const override { return sizeof(*this); }
-  QString getHistoryString() override { return tr("Choose Cast Cover Drawing"); }
-};
-QString drawingRange(TXshLevel *level) {
-  std::vector<TFrameId> ids;
-  level->getFids(ids);
-  if (ids.empty()) return tr("No drawing identifiers");
-  if (ids.size() == 1 && ids.front().isNoFrame()) return tr("Single image");
-  QStringList gaps;
-  qint64 previous = ids.front().getNumber();
-  for (const auto &id : ids) {
-    const qint64 current = id.getNumber();
-    if (current > previous + 1) {
-      gaps << (current == previous + 2 ? QString::number(previous + 1)
-                 : QStringLiteral("%1–%2").arg(previous + 1).arg(current - 1));
-      if (gaps.size() == 32) { gaps << tr("… more gaps"); break; }
-    }
-    previous = current;
-  }
-  return QStringLiteral("%1–%2; ").arg(QString::fromStdString(ids.front().expand()),
-                                      QString::fromStdString(ids.back().expand())) +
-      (gaps.empty() ? tr("no numeric gaps") : tr("numeric gaps: %1").arg(gaps.join(", ")));
-}
 class RemoveUndo final : public TUndo {
   TXshLevelP m_level;
   TFilePath m_folder;
@@ -190,6 +156,25 @@ public:
 }
 
 namespace CastBrowserActions {
+bool modified(TXshLevel *level) {
+  auto *simple = level->getSimpleLevel();
+  auto *palette = level->getPaletteLevel();
+  return (simple && (simple->getProperties()->getDirtyFlag() ||
+      (simple->getPalette() && simple->getPalette()->getDirtyFlag()))) ||
+      (palette && palette->getPalette() && palette->getPalette()->getDirtyFlag());
+}
+bool cached(TXshLevel *level) {
+  auto *simple = level->getSimpleLevel();
+  if (!simple) return false;
+  std::vector<TFrameId> frames;
+  simple->getFids(frames);
+  for (const auto &frame : frames)
+    if (TImageCache::instance()->isCached(simple->getImageId(frame))) return true;
+  return false;
+}
+bool unsaved(ToonzScene *source, TXshLevel *level) {
+  return !level->sourceExpectedOnDisk() && missing(source, level);
+}
 bool missing(ToonzScene *source, TXshLevel *level) {
   TFilePath actual = source->decodeFilePath(level->getPath());
   ResourceImporter::extractPsdSuffix(actual);
@@ -210,14 +195,20 @@ bool external(ToonzScene *source, TXshLevel *level) {
 }
 QString status(ToonzScene *source, TXshLevel *level) {
   QStringList labels;
-  if (missing(source, level)) labels << tr("Not saved / missing on disk");
+  if (missing(source, level)) labels << (unsaved(source, level)
+      ? tr("New / not saved") : tr("Missing on disk"));
+  else labels << tr("Saved source exists");
   auto *simple = level->getSimpleLevel();
-  auto *palette = level->getPaletteLevel();
-  if ((simple && (simple->getProperties()->getDirtyFlag() ||
-                  (simple->getPalette() && simple->getPalette()->getDirtyFlag()))) ||
-      (palette && palette->getPalette() && palette->getPalette()->getDirtyFlag()))
-    labels << tr("Modified");
+  if (modified(level)) labels << tr("Modified");
+  if (simple) labels << (cached(level) ? tr("Decoded drawing cached (memory or swap)") : tr("No decoded drawing cached"));
   if (external(source, level)) labels << tr("External link");
+  switch (level->getLibraryRelationship()) {
+  case TXshLevel::LibraryProvenance::Linked: labels << tr("Library-linked file"); break;
+  case TXshLevel::LibraryProvenance::LocalCopy: labels << tr("Local copy from Library"); break;
+  case TXshLevel::LibraryProvenance::Snapshot: labels << tr("Library snapshot"); break;
+  case TXshLevel::LibraryProvenance::Replaced: labels << tr("Library origin; source replaced"); break;
+  default: break;
+  }
   if (simple && simple->isReadOnly()) labels << tr("Read-only");
   if (labels.isEmpty()) labels << tr("Saved in project / scene folders");
   return labels.join(QStringLiteral(" · "));
@@ -321,123 +312,13 @@ void editTags(QWidget *parent, const std::vector<TXshLevel *> &levels) {
 }
 
 void inspect(QWidget *parent, const std::vector<TXshLevel *> &levels) {
-  if (levels.empty()) return;
-  std::vector<TXshLevelP> retained;
-  for (auto *level : levels) retained.emplace_back(level);
-  QDialog dialog(parent);
-  dialog.setObjectName("CastInspector");
-  QObject::connect(TApp::instance()->getCurrentScene(), &TSceneHandle::sceneSwitched,
-                   &dialog, &QDialog::reject);
-  dialog.setWindowTitle(tr("Scene Cast — Asset Inspector"));
-  auto *layout = new QVBoxLayout(&dialog);
-  auto *view = table(dialog, {tr("Level"), tr("Status"), tr("Frames"), tr("Drawing range / gaps"),
-                             tr("Resolution / DPI / depth"), tr("Palette"), tr("Path"), tr("Tags")});
-  for (auto *level : levels) {
-    QString geometry;
-    TPalette *palette = nullptr;
-    if (auto *sl = level->getSimpleLevel()) {
-      palette = sl->getPalette();
-      const auto resolution = sl->getResolution();
-      const auto dpi = sl->getDpi();
-      geometry = tr("%1 × %2 / %3 × %4 DPI / %5 bpp")
-          .arg(resolution.lx).arg(resolution.ly).arg(dpi.x).arg(dpi.y)
-          .arg(sl->getProperties()->getBpp());
+  // Every native entry point belongs to a Cast browser. Keep the inspector
+  // docked to that browser and return immediately to normal editing.
+  for (QWidget *widget = parent; widget; widget = widget->parentWidget())
+    if (auto *browser = qobject_cast<CastBrowser *>(widget)) {
+      browser->showInspector(levels);
+      return;
     }
-    if (auto *pl = level->getPaletteLevel()) palette = pl->getPalette();
-    QString paletteInfo = tr("None");
-    if (palette) {
-      paletteInfo = tr("%1; %2 styles").arg(QString::fromStdWString(palette->getPaletteName()))
-                                         .arg(palette->getStyleCount());
-      if (!palette->getGlobalName().empty())
-        paletteInfo += tr("; studio link: %1").arg(QString::fromStdWString(palette->getGlobalName()));
-      if (palette->getDirtyFlag()) paletteInfo += tr("; modified");
-    }
-    row(view, {name(level), status(scene(), level), QString::number(level->getFrameCount()),
-               level->getSimpleLevel() ? drawingRange(level) : tr("Not a drawing level"),
-               geometry, paletteInfo, scene()->decodeFilePath(level->getPath()).getQString(),
-               level->getCastTags().join(", ")});
-  }
-  layout->addWidget(view);
-  auto *preview = new QLabel(&dialog);
-  preview->setAlignment(Qt::AlignCenter);
-  preview->setMinimumHeight(160);
-  layout->addWidget(preview);
-  auto *slider = new QSlider(Qt::Horizontal, &dialog);
-  slider->setAccessibleName(tr("Preview drawing"));
-  layout->addWidget(slider);
-  auto *cover = new QPushButton(tr("Use Preview Drawing as Cover"), &dialog);
-  cover->setObjectName("CastChooseCover");
-  auto *resetCover = new QPushButton(tr("Use First Drawing as Cover"), &dialog);
-  resetCover->setObjectName("CastResetCover");
-  auto *coverButtons = new QHBoxLayout;
-  coverButtons->addWidget(cover); coverButtons->addWidget(resetCover);
-  layout->addLayout(coverButtons);
-  auto *play = new QPushButton(tr("Audition Audio"), &dialog);
-  auto *stop = new QPushButton(tr("Stop Audio"), &dialog);
-  auto *audioButtons = new QHBoxLayout;
-  audioButtons->addWidget(play); audioButtons->addWidget(stop);
-  layout->addLayout(audioButtons);
-  std::unique_ptr<TSoundOutputDevice> audio;
-  std::vector<TFrameId> frames;
-  auto updatePreview = [&]() {
-    int r = view->currentRow();
-    if (r < 0 || r >= int(levels.size())) return;
-    auto *sl = levels[r]->getSimpleLevel();
-    if (!sl || frames.empty()) { preview->clear(); return; }
-    int frame = std::min(slider->value(), int(frames.size()) - 1);
-    QPixmap image = IconGenerator::instance()->getIcon(sl, frames[frame], false, false);
-    preview->setPixmap(image.scaled(320, 180, Qt::KeepAspectRatio, Qt::SmoothTransformation));
-    preview->setToolTip(tr("Drawing %1").arg(QString::fromStdString(frames[frame].expand())));
-  };
-  QObject::connect(view, &QTableWidget::itemSelectionChanged, &dialog, [&]() {
-    if (audio) audio->stop();
-    frames.clear();
-    int r = view->currentRow();
-    if (r >= 0 && r < int(levels.size())) levels[r]->getFids(frames);
-    slider->setRange(0, std::max(0, int(frames.size()) - 1));
-    slider->setValue(0);
-    slider->setEnabled(r >= 0 && levels[r]->getSimpleLevel() && !frames.empty());
-    cover->setEnabled(slider->isEnabled());
-    resetCover->setEnabled(r >= 0 && levels[r]->getSimpleLevel() && levels[r]->hasCastCover());
-    play->setEnabled(r >= 0 && levels[r]->getSoundLevel());
-    updatePreview();
-  });
-  QObject::connect(IconGenerator::instance(), &IconGenerator::iconGenerated, &dialog, updatePreview);
-  QObject::connect(slider, &QSlider::valueChanged, &dialog, [&](int) { updatePreview(); });
-  auto setCover = [&](bool present) {
-    const int r = view->currentRow();
-    if (r < 0 || r >= int(levels.size()) || frames.empty()) return;
-    auto *level = levels[r];
-    const TFrameId frame = frames[std::min(slider->value(), int(frames.size()) - 1)];
-    if ((present && level->hasCastCover() && level->getCastCover() == frame) ||
-        (!present && !level->hasCastCover())) return;
-    auto *undo = new CoverUndo(level, present, frame);
-    undo->redo(); TUndoManager::manager()->add(undo);
-    resetCover->setEnabled(present);
-  };
-  QObject::connect(cover, &QPushButton::clicked, &dialog, [&]() { setCover(true); });
-  QObject::connect(resetCover, &QPushButton::clicked, &dialog, [&]() { setCover(false); });
-  QObject::connect(play, &QPushButton::clicked, &dialog, [&]() {
-    int r = view->currentRow();
-    if (r < 0 || r >= int(levels.size())) return;
-    auto *sound = levels[r]->getSoundLevel();
-    if (!sound) return;
-    try {
-      auto track = sound->getSoundTrack();
-      if (!track || track->getSampleCount() == 0) throw std::runtime_error("No audio samples");
-      if (!audio) audio.reset(new TSoundOutputDevice);
-      audio->stop();
-      audio->play(track, TINT32(0), TINT32(track->getSampleCount() - 1));
-    } catch (...) { QMessageBox::warning(&dialog, tr("Audition Audio"), tr("This sound could not be played.")); }
-  });
-  QObject::connect(stop, &QPushButton::clicked, &dialog, [&]() { if (audio) audio->stop(); });
-  auto *buttons = new QDialogButtonBox(QDialogButtonBox::Close, &dialog);
-  QObject::connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
-  layout->addWidget(buttons);
-  view->selectRow(0);
-  dialog.resize(950, 580);
-  dialog.exec();
-  if (audio) { audio->stop(); audio->close(); }
 }
 
 void removeUnused(QWidget *parent) {

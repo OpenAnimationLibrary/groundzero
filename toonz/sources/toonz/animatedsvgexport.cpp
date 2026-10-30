@@ -16,6 +16,10 @@
 #include "timage_io.h"
 #include "toutputproperties.h"
 #include "trenderer.h"
+#include "texception.h"
+
+#include <atomic>
+#include <exception>
 
 #include <QCheckBox>
 #include <QCoreApplication>
@@ -30,6 +34,7 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QMap>
+#include <QMutex>
 #include <QTemporaryDir>
 #include <QUrl>
 #include <QEventLoop>
@@ -37,7 +42,6 @@
 #include <memory>
 #include <QXmlStreamWriter>
 #include <stdexcept>
-#include <atomic>
 
 namespace {
 #ifdef BUILD_UI_PORT_TESTS
@@ -193,12 +197,32 @@ class SceneRenderPort final : public TRenderPort {
   TFilePath m_imageDir;
   QMap<QByteArray, QString> m_hashes;
   int m_assetNumber = 0;
+  QMutex m_failureMutex;
+  QString m_failure;
+
+  void recordFailure(const RenderData &renderData, const QString &reason) {
+    QMutexLocker locker(&m_failureMutex);
+    if (!m_failure.isEmpty()) return;
+    const QString detail = reason.isEmpty()
+                               ? QObject::tr("Scene rendering failed without "
+                                             "an error message.")
+                               : reason;
+    m_failure = renderData.m_frames.empty()
+                    ? detail
+                    : QObject::tr("Frame %1: %2")
+                          .arg(renderData.m_frames.front() + 1)
+                          .arg(detail);
+  }
 
 public:
   std::atomic<bool> finished{false};
-  std::atomic<bool> failed{false};
   QMap<int, QString> frameAssets;
   QMap<QString, OCAIo::OCAAsset> assets;
+
+  QString failure() {
+    QMutexLocker locker(&m_failureMutex);
+    return m_failure;
+  }
 
   SceneRenderPort(const TFilePath &imageDir, const TDimension &resolution)
       : m_imageDir(imageDir) {
@@ -209,7 +233,7 @@ public:
 
   void onRenderRasterCompleted(const RenderData &renderData) override {
     if (!renderData.m_rasA) {
-      failed = true;
+      recordFailure(renderData, QObject::tr("The renderer returned no image."));
       return;
     }
 
@@ -223,7 +247,9 @@ public:
 
       QFile file(filePath.getQString());
       if (!file.open(QIODevice::ReadOnly)) {
-        failed = true;
+        recordFailure(renderData,
+                      QObject::tr("Unable to read the rendered PNG: %1")
+                          .arg(file.errorString()));
         return;
       }
       QByteArray hash =
@@ -244,17 +270,28 @@ public:
       }
       for (double frame : renderData.m_frames)
         frameAssets.insert(qRound(frame), fileName);
+    } catch (const TException &error) {
+      recordFailure(renderData,
+                    QObject::tr("Unable to save the rendered PNG: %1")
+                        .arg(QString::fromStdWString(error.getMessage())));
+    } catch (const std::exception &error) {
+      recordFailure(renderData,
+                    QObject::tr("Unable to save the rendered PNG: %1")
+                        .arg(QString::fromUtf8(error.what())));
     } catch (...) {
-      failed = true;
+      recordFailure(
+          renderData,
+          QObject::tr("Unable to save the rendered PNG: unknown error."));
     }
   }
 
-  void onRenderFailure(const RenderData &, TException &) override {
-    failed = true;
+  void onRenderFailure(const RenderData &renderData, TException &error) override {
+    recordFailure(renderData, QString::fromStdWString(error.getMessage()));
   }
 
   void onRenderFinished(bool isCanceled = false) override {
-    failed = failed || isCanceled;
+    if (isCanceled)
+      recordFailure(RenderData(), QObject::tr("Scene rendering was canceled."));
 #ifdef BUILD_UI_PORT_TESTS
     if (svgRenderTestHooks && svgRenderTestHooks->completed)
       svgRenderTestHooks->completed();
@@ -264,14 +301,18 @@ public:
 };
 
 bool renderScene(ToonzScene *scene, TXsheet *xsheet, const TFilePath &imageDir,
-                 SvgExportData &data, DVGui::ProgressDialog *progress) {
+                 SvgExportData &data, DVGui::ProgressDialog *progress,
+                 QString &failure) {
   TOutputProperties *properties = scene->getProperties()->getOutputProperties();
   TRenderSettings settings      = properties->getRenderSettings();
   TDimension cameraRes          = scene->getCurrentCamera()->getRes();
   int shrink                    = qMax(1, settings.m_shrinkX);
   const int frameCount = xsheet->getFrameCount();
   const double frameRate = properties->getFrameRate();
-  if (frameCount <= 0) return false;
+  if (frameCount <= 0) {
+    failure = QObject::tr("The scene contains no frames to render.");
+    return false;
+  }
 
   SceneRenderPort port(imageDir, cameraRes);
   TRenderer renderer(1);
@@ -324,8 +365,9 @@ bool renderScene(ToonzScene *scene, TXsheet *xsheet, const TFilePath &imageDir,
   }
 
   if (contextChanged) return false;
+  renderer.startRendering(renderData.get());
+  renderData.release();
   session.submitted = true;
-  renderer.startRendering(renderData.release());
   progress->setProperty("sceneRenderActive", true);
 #ifdef BUILD_UI_PORT_TESTS
   if (svgRenderTestHooks && svgRenderTestHooks->queued)
@@ -336,9 +378,16 @@ bool renderScene(ToonzScene *scene, TXsheet *xsheet, const TFilePath &imageDir,
     QThread::msleep(1);
   }
   session.drain();
-  if (contextChanged || port.failed.load() || port.frameAssets.isEmpty()) return false;
+  if (contextChanged) return false;
+  failure = port.failure();
+  if (failure.isEmpty() && port.frameAssets.isEmpty())
+    failure = QObject::tr("The renderer produced no scene frames.");
+  if (!failure.isEmpty()) return false;
   for (int frame = 0; frame < frameCount; ++frame)
-    if (!port.frameAssets.contains(frame)) return false;
+    if (!port.frameAssets.contains(frame)) {
+      failure = QObject::tr("The renderer did not produce frame %1.").arg(frame + 1);
+      return false;
+    }
 
   QJsonArray frames;
   for (int frame = 0; frame < frameCount;) {
@@ -498,10 +547,13 @@ void ExportAnimatedSVGCommand::execute() {
     SvgExportData data;
     if (renderSceneResult->isChecked()) {
       progressDialog->setLabelText(QObject::tr("Rendering scene frames..."));
-      const bool rendered = renderScene(scene, xsheet, stagingDir, data, progressDialog);
+      QString failure;
+      const bool rendered = renderScene(scene, xsheet, stagingDir, data, progressDialog, failure);
       progressDialog->setProperty("sceneRenderActive", false);
       if (!currentContext()) { progressDialog->hide(); return; }
-      if (!rendered) throw std::runtime_error("Unable to render the scene for SVG export.");
+      if (!rendered)
+        throw std::runtime_error((QObject::tr("Unable to render the scene for SVG export.") +
+                                  "\n" + failure).toStdString());
     } else {
       OCAIo::OCAData ocaData;
       // Asset conversion is synchronous. Do not let OCA's per-column progress

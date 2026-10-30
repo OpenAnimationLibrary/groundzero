@@ -7,6 +7,7 @@
 #include "tpixel.h"
 #include "toonz/multiplanedepth.h"
 #include <QList>
+#include <QStringList>
 
 #undef DVAPI
 #undef DVVAR
@@ -67,6 +68,17 @@ public:
     }
   };
 
+  // Membership uses level identity, never names or disk paths. Removed assets
+  // retain dormant membership so native level-removal Undo restores it.
+  struct CastCollection {
+    QString id;
+    QString name;
+    QStringList members;
+    bool operator==(const CastCollection &other) const {
+      return id == other.id && name == other.name && members == other.members;
+    }
+  };
+
 private:
   Guides m_hGuides, m_vGuides;
 
@@ -103,6 +115,7 @@ private:
 
   // Depth of field and haze from the Z of the columns
   MultiplaneDepth::Settings m_multiplaneDepth;
+  QList<CastCollection> m_castCollections;
 
 public:
   /*!
@@ -118,6 +131,8 @@ attributes
 ratio, level subsampling, etc....
   */
   TSceneProperties();
+  const QList<CastCollection> &getCastCollections() const { return m_castCollections; }
+  void setCastCollections(const QList<CastCollection> &collections);
   /*!
           Deletes object created in the constructor
           and the pointers to the vector of cameras.
