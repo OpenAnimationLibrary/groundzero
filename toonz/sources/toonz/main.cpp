@@ -833,8 +833,10 @@ int main(int argc, char *argv[]) {
 
   QString themeError;
   nativeUiCheckpoint("applying startup native theme");
-  if (!NativeTheme::instance().reload(&themeError))
-    DVGui::warning(themeError);
+  // A saved theme that fails its checks falls back for this session instead
+  // of leaving the application unstyled; the reason is still reported.
+  NativeTheme::instance().startup(&themeError);
+  if (!themeError.isEmpty()) DVGui::warning(themeError);
   nativeUiCheckpoint("startup native theme applied");
 
   // w.setWindowTitle(QString::fromStdString(TEnv::getApplicationFullName()));
