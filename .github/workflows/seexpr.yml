@@ -169,12 +169,46 @@ jobs:
       - name: Report installed SDK failure
         if: ${{ failure() && steps.installed_sdk.outcome == 'failure' }}
         run: python ci-scripts/seexpr/report.py seexpr-sdk-install.log seexpr-sdk-configure.log seexpr-sdk-build.log seexpr-sdk-tests.log
+      # Preserve a qualified SDK across transient artifact-service DNS failures.
+      # Only delivery is retried; an unsuccessful final attempt still fails CI.
       - name: Upload qualified native SDK
+        id: upload_native_sdk
         uses: actions/upload-artifact@v6
+        timeout-minutes: 5
+        continue-on-error: true
         with:
           name: SeExpr-SDK-${{ runner.os }}-${{ matrix.backend }}-${{ matrix.qt_api || 'pyqt5' }}-${{ github.sha }}
           path: seexpr-sdk/sdk
           if-no-files-found: error
+          overwrite: true
+      - name: Wait before retrying native SDK upload
+        if: ${{ !cancelled() && steps.upload_native_sdk.outcome == 'failure' }}
+        shell: bash
+        run: sleep 10
+      - name: Retry qualified native SDK upload
+        id: upload_native_sdk_retry
+        if: ${{ !cancelled() && steps.upload_native_sdk.outcome == 'failure' }}
+        uses: actions/upload-artifact@v6
+        timeout-minutes: 5
+        continue-on-error: true
+        with:
+          name: SeExpr-SDK-${{ runner.os }}-${{ matrix.backend }}-${{ matrix.qt_api || 'pyqt5' }}-${{ github.sha }}
+          path: seexpr-sdk/sdk
+          if-no-files-found: error
+          overwrite: true
+      - name: Wait before final native SDK upload attempt
+        if: ${{ !cancelled() && steps.upload_native_sdk_retry.outcome == 'failure' }}
+        shell: bash
+        run: sleep 30
+      - name: Final qualified native SDK upload attempt
+        if: ${{ !cancelled() && steps.upload_native_sdk_retry.outcome == 'failure' }}
+        uses: actions/upload-artifact@v6
+        timeout-minutes: 5
+        with:
+          name: SeExpr-SDK-${{ runner.os }}-${{ matrix.backend }}-${{ matrix.qt_api || 'pyqt5' }}-${{ github.sha }}
+          path: seexpr-sdk/sdk
+          if-no-files-found: error
+          overwrite: true
       - name: Package Python SDK notices
         shell: bash
         run: |

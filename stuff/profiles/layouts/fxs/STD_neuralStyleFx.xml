@@ -1,0 +1,9 @@
+<fxlayout>
+  <page name="Neural Texture Style">
+    <control>profile</control>
+    <control>strength</control>
+    <control>temporal</control>
+    <control>shotStart</control>
+    <control>shotEnd</control>
+  </page>
+</fxlayout>

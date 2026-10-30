@@ -33,6 +33,7 @@ jobs:
             /ci-scripts/seexpr/
             /ci-scripts/brush-reference/
             /ci-scripts/run_native_ui_test.py
+            /ci-scripts/neural-style/
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'

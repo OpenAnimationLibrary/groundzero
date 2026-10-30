@@ -45,6 +45,8 @@ set(HEADERS
     imagebuilders.h
     ../include/toonz/txshexrlevel.h
     ../include/toonz/lut3d.h
+    ../include/toonz/colormatch.h
+    ../include/toonz/neuralstyle.h
     ../include/toonz/particlecache.h
     skeletonlut.h
     tcenterlinevectP.h
@@ -239,6 +241,9 @@ set(SOURCES
     levelset.cpp
     levelupdater.cpp
     lut3d.cpp
+    colormatch.cpp
+    neuralstyle.cpp
+    neuralstyleprofile.cpp
     logger.cpp
     motionpreset.cpp
     movierenderer.cpp
