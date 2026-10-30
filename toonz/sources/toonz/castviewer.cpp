@@ -336,6 +336,9 @@ void CastTreeViewer::onSceneNameChanged() {
         (scene->isUntitled()) ? L"Untitled" : scene->getSceneName();
     rootName = rootName.fromStdWString(name);
   }
+  // A scene-title/dirty notification only updates this display label. It must
+  // not enter the user folder-rename transaction when the root is selected.
+  QSignalBlocker blocked(this);
   root->setText(0, rootName);
 }
 
@@ -516,13 +519,15 @@ void CastTreeViewer::dragLeaveEvent(QDragLeaveEvent *event) {
 //-----------------------------------------------------------------------------
 
 void CastTreeViewer::onItemChanged(QTreeWidgetItem *item, int column) {
-  if (column != 0) return;
+  if (column != 0 || !item || !(item->flags() & Qt::ItemIsEditable)) return;
   if (item->isSelected()) {
     TFilePath oldPath(item->data(1, Qt::DisplayRole).toString().toStdWString());
+    if (oldPath.isEmpty()) return;  // The scene root is not a Cast folder.
     const QString label = item->text(0).trimmed();
     const TFilePath proposed = oldPath.getParentDir() + label.toStdWString();
     std::vector<TFilePath> siblings;
     getLevelSet()->listFolders(siblings, oldPath.getParentDir());
+    if (std::find(siblings.begin(), siblings.end(), oldPath) == siblings.end()) return;
     if (label.isEmpty() || label == "." || label == ".." ||
         label.contains('/') || label.contains('\\') ||
         (proposed != oldPath && std::find(siblings.begin(), siblings.end(), proposed) != siblings.end())) {
