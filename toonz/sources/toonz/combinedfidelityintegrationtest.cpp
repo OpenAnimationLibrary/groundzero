@@ -311,6 +311,12 @@ void runCombinedFidelityIntegrationTest(QMainWindow *) {
   require(capabilities.profiledStrokes == 1 && capabilities.profiledDrawings.size() == 1 && capabilities.assetBlockers.isEmpty(),
           "SVG preflight counted unused or repeated drawings incorrectly");
   sheet->removeColumn(1);
+  // Direct fixture column removal does not recalculate the cached duration.
+  // Restore the one-frame export scene after the two-row nested preflight case.
+  sheet->updateFrameCount();
+  require(sheet->getFrameCount() == 1 && sheet->getColumnCount() == 1 &&
+          sheet->getCell(0, 0) == TXshCell(level, TFrameId(1)),
+          "Nested SVG preflight cleanup did not restore the one-frame export fixture");
   std::cerr << "combined-fidelity: Lottie choices and overwrite" << std::endl;
   const auto lottie = LottieExport::exportXsheet(sheet, LottieExport::Options());
   require(lottie.m_skipped.join(' ').contains("opacity envelopes"), "Lottie silently dropped an opacity envelope");
@@ -348,6 +354,10 @@ void runCombinedFidelityIntegrationTest(QMainWindow *) {
   const QString camera = output.filePath("camera.svg");
   exportCommand(MI_ExportAnimatedSVG, camera, {"renderSceneForExport", false, true, false, "PLI 150.1"});
   const auto cameraFrames = embedded(readFile(camera), "image/png");
+  if (cameraFrames.size() != 1)
+    std::cerr << "combined-fidelity: placement reference PNG count="
+              << cameraFrames.size() << " xsheet frame count="
+              << sheet->getFrameCount() << std::endl;
   require(cameraFrames.size() == 1, "Placement reference camera frame missing");
   QImage cameraReference; require(cameraReference.loadFromData(cameraFrames.front(), "PNG"), "Placement reference PNG is unreadable");
   samePlacement(renderFirstVectorAsset(readFile(placed)), cameraReference);
