@@ -111,6 +111,19 @@ auditing all added modal entry points and preparing safe ownership, sticky
 cancellation and actual browser hide/delete regressions. Earlier Cast passes
 do not close this newly identified interruption boundary.
 
+Linux candidate `3dd99b2f6` passed 19 native UI tests and the corrected pose and
+width-interruption cases, but the mandatory sequence failed at repeated width
+Undo. Source diagnosis found that native PLI saving evaluates animation keys on
+the live palette and leaves its displayed frame changed; a detached-palette
+serialization correction is being prepared with unchanged exact Undo oracles.
+The isolated Function process also crashed in `ParamCalculatorNode::onChange`
+from `TDoubleParam::setKeyframe` inside the real panel-lifetime matrix. The
+expression-observer lifetime is under investigation. Original stack-dialog
+ownership review does not substitute for resolving this runtime crash. Other
+five isolated groups and the artist workload passed; reliability, EXR and the
+installed application were skipped. None of these passes replace the failed
+mandatory or isolated Function results.
+
 The audited follow-ups include saved-set rename and explicit target-range
 retiming; frozen evaluated comparisons with exact native restoration; native
 `.curve` import; a real multi-owner graph workload; explicit Fade and alignment
@@ -152,6 +165,7 @@ and the component ledgers.
 | Scene Cast `0b4e5032a34c88198204f38982e1d4d82dd7f919` | Native Cast and actual Library workflows passed on Linux, Windows and macOS. Windows/macOS Cast reliability helpers passed. Matching component-context macOS add/remove/rename measured 318/303/304 ms versus 1559/1714/1558 ms on `4016d693f`; identity/order/scroll and one-refresh checks passed. | Overall jobs failed later inherited converter/Shell paths; this is component evidence, not full platform qualification. Later published Cast revisions require their own final checks. |
 | Combined workflow `b00db72a35be48bf7852cbbc49a113622985761d` | Linux passed native UI checks, all six isolated diagnostics and the independent artist workload. Windows passed corrected Shell/profile thumbnails, 19 of 20 native UI tests, all 16 reliability tests including EXR, and all 16 SeExpr tests. | Both mandatory sequences failed in the old pose modal fixture before new native vector editing guards ran. Windows width export failed its extra-dialog oracle and its artist workload did not execute because retained renderer files blocked setup. Linux reliability and both installed checks were skipped. Passing diagnostics do not replace the failed sequences. |
 | Linux validation `15a4593e2247b37000ef22b8c4bd58474002cc7f` | The corrected pose driver passed the full animation workflow. All six isolated diagnostics and the independent artist workload passed. | The mandatory sequence next failed its exact width drawing comparison because the fixture captured an evaluated palette from a different frame. Reviewed fixture correction `8d2f19c5a` retains exact comparisons and gradient assertions but is unexecuted. Reliability and installed checks were skipped. |
+| Linux validation `3dd99b2f69262dbe7612efc90dc452b6fbc48deb` | All 19 native UI tests passed. The full sequence passed pose context changes and width interruption guards. Five isolated groups and the independent artist workload passed. Native saved-set Save/Rename/Delete/reopen, target-range reload and removed-owner guards passed before the separate Function failure. | Mandatory integration failed repeated width Undo after a native PLI save changed the live evaluated palette. The isolated Function process crashed during the actual panel-lifetime matrix in `ParamCalculatorNode::onChange`; observer lifetime is under investigation. Reliability/EXR and installed checks were skipped. This revision predates the Cast modal-lifetime correction. |
 | Combined workflow `10ad236fa5e0ae91b71fae025a260bb7a070d240` | Linux application and installed-package jobs passed, including the mandatory native sequence, SeExpr, reliability/EXR and GLB checks. Windows passed its full native sequence, artist workload and reliability/EXR gates. | Windows overall failed standalone width-export and old scene-thumbnail checks, followed by retained-renderer preflight refusals; installed checks were skipped. macOS was superseded during compilation. This revision predates the six interrupted-dialog corrections and the standalone scene-thumbnail fix. Later readiness must use the actual final heads. |
 | Windows combined `47dbae4c9a048af1f795179aeaac1c4006fe61c1` | Build, packaging, native neural host, Cadmium adapters, animation workflow and independent Function/timing/Cast-vector/export diagnostics passed. The 2D artist workload passed correctness. | Function and width-profile standalone fixtures crashed on Qt offscreen QMessageBox; the Shell test wrapper could not print UTF-8 to cp1252; Cast reliability exposed an EXR new-asset state defect. The old 1080p and final Cast preview fixtures also failed. Each has a source correction prepared, not a current-head pass. |
 
@@ -263,9 +277,9 @@ the CI-only harness verifies isolation and failure retention.
 | 19 | Opacity readback | Single/mixed opacity selection follows context without mutating drawing. | Source-ready; CI pending |
 | 20 | Style opacity consistency | Relevant vector style render paths preserve stroke alpha with independent pixel fixtures. | Source-ready; focused Linux ROI equivalence passed, final-head/platform CI pending |
 | 21 | SVG stroke opacity | External SVG output carries palette alpha times stroke opacity. | Source-ready; CI pending |
-| 22 | Visual width-profile manager | CRUD/import/export/previews, errors, overwrite/cancel and restart persistence. | Source-ready; frozen targets and actual interrupted-manager acceptance await CI |
-| 23 | Width profiles across drawings | Selected drawings/level range, repeated exposures once, locked resources and undo. | Source-ready; reviewed level/frame/selection and off-frame content guards await CI |
-| 24 | Pressure/profile blending | Zero-strength identity, replace/multiply semantics and pressure preservation. | Source-ready; frozen-target blended Apply and full undo/reload checks await CI |
+| 22 | Visual width-profile manager | CRUD/import/export/previews, errors, overwrite/cancel and restart persistence. | Pending; interrupted-manager checks pass on 3dd, but repeated Undo after native save exposed a palette serialization side effect |
+| 23 | Width profiles across drawings | Selected drawings/level range, repeated exposures once, locked resources and undo. | Pending; exact repeated Undo after native save requires palette serialization correction |
+| 24 | Pressure/profile blending | Zero-strength identity, replace/multiply semantics and pressure preservation. | Pending; full undo/save invariance failed on 3dd and remains under correction |
 | 25 | Fill-safe reshaping | Actual region-change preview/recovery in geometry edit flow; fills/undo saved. | Source-ready; sticky frame-switch cancellation and actual queued Apply checks await CI |
 | 26 | Persistent morph hints | Stable drawing/stroke identity, edits/deletions, reopen and compatibility. | Source-ready; CI pending |
 | 27 | Correspondence preview | Matched/manual/unmatched preview matches committed inbetweens. | Source-ready; full range/hint snapshots, actual caller and panel-lifetime checks await CI |
