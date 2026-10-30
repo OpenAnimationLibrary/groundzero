@@ -318,7 +318,7 @@ bool eligibleFixedSource(const QMap<QString, QString> &fields,
       {"PressureSpacing", "false"},
       {"Texture/Pattern/Enabled", "false"},
       {"MergedPaint", "false"},
-      {"PaintingMode", "1"},
+      {"PaintOpAction", "1"},
       {"PaintOpSettings/isAirbrushing", "false"},
       {"PaintOpSettings/ignoreSpacing", "false"},
       {"PaintOpSettings/updateSpacingBetweenDabs", "false"},
@@ -329,10 +329,18 @@ bool eligibleFixedSource(const QMap<QString, QString> &fields,
       if (!fields.contains(key)) return false;
       required[key] = fields[key];  // Finite 0..1 values checked by validate().
     }
-    if (fields.value("PaintingMode") != "0" &&
-        fields.value("PaintingMode") != "1")
+    if (fields.value("PaintOpAction") != "0" &&
+        fields.value("PaintOpAction") != "1")
       return false;
-    required["PaintingMode"] = fields["PaintingMode"];
+    required["PaintOpAction"] = fields["PaintOpAction"];
+  }
+  if (engine == "paintbrush" && fields.contains("PressureFlow")) {
+    if (fields.value("PressureFlow") != "true" &&
+        fields.value("PressureFlow") != "false")
+      return false;
+    // With FlowUseCurve=false both flag states have identical measured static
+    // behavior.
+    required["PressureFlow"] = fields["PressureFlow"];
   }
   if (engine == "paintbrush" && fields.value("PressureSize") == "true") {
     if (preset.size.mappings.size() != 1) return false;
@@ -420,6 +428,13 @@ bool eligibleFixedSource(const QMap<QString, QString> &fields,
       const QString geometry = brush ? "angle" : "ratio";
       exact.remove(geometry);
       variable << geometry;
+    }
+    if (!brush && engine == "paintbrush" && preset.tip.shape == Shape::Square)
+      exact["type"] = "rect";
+    if (!brush && engine == "paintbrush" && preset.tip.antialiasEdges) {
+      if (attributes.value("antialiasEdges") != QStringLiteral("1"))
+        return false;
+      exact["antialiasEdges"] = "1";
     }
     if (!brush && engine == "paintbrush" && preset.tip.hardness < 1) {
       bool horizontalOk = false, verticalOk = false;
@@ -515,8 +530,10 @@ Record convertKpp(const QByteArray &bytes, QStringList &diagnostics,
       }
       found            = true;
       r.preset.spacing = numeric(a.value("spacing").toString());
+      // KPP positive rotation is counterclockwise in raster coordinates.
+      // Original 16/64px ellipse masks at 45 degrees establish this sign.
       r.preset.angle.value =
-          numeric(a.value("angle").toString()) * 180 / 3.14159265358979323846;
+          -numeric(a.value("angle").toString()) * 180 / 3.14159265358979323846;
       if (a.value("useAutoSpacing") == QStringLiteral("1"))
         diagnostics << "Automatic source spacing is replaced by the stored "
                        "manual spacing.";
@@ -615,7 +632,9 @@ Record convertKpp(const QByteArray &bytes, QStringList &diagnostics,
   Preset candidate = r.preset;
   candidate.profile =
       engine == "paintbrush"
-          ? (candidate.tip.hardness < 1
+          ? (candidate.tip.shape == Shape::Square
+                 ? "krita-5.3.4.1-default-rect-candidate-1"
+             : candidate.tip.hardness < 1 || candidate.tip.antialiasEdges
                  ? "krita-5.3.4.1-default-circle-candidate-1"
                  : "krita-5.3.4.1-hard-pixel-candidate-1")
           : "krita-5.3.4.1-" +
@@ -627,7 +646,7 @@ Record convertKpp(const QByteArray &bytes, QStringList &diagnostics,
         fields.value("PressureSmudgeRate") == "true";
     candidate.sourceSmearAlpha = fields.value("SmudgeRateSmearAlpha") == "true";
   } else
-    candidate.wash = fields.value("PaintingMode") == "1";
+    candidate.wash = fields.value("PaintOpAction") == "0";
   if (eligibleFixedSource(fields, engine, candidate)) {
     r.preset = std::move(candidate);
     if (r.preset.wet == Wet::Smear)

@@ -21,10 +21,14 @@ inline QByteArray hardPixelKpp(const QString &mutation = {},
   };
   param("paintop", engine);
   param("CompositeOp", "normal");
-  for (const QString &key : {"OpacityValue", "FlowValue", "PaintingMode"})
-    param(key, mutation == "halfOpacity" && key == "OpacityValue" ? "0.5"
-               : mutation == "buildUp" && key == "PaintingMode"   ? "0"
-                                                                  : "1");
+  for (const QString &key : {"OpacityValue", "FlowValue"})
+    param(key,
+          mutation == "halfOpacity" && key == "OpacityValue" ? "0.5" : "1");
+  if (mutation == "wrongModeKey")
+    param("PaintingMode", "1");
+  else
+    param("PaintOpAction",
+          mutation == "buildUp" || !model.isEmpty() ? "1" : "0");
   for (const QString &key :
        {"EraserMode", "OpacityUseCurve", "FlowUseCurve", "PressureSize",
         "PressureRotation", "PressureRatio", "PressureScatter",
@@ -69,6 +73,7 @@ inline QByteArray hardPixelKpp(const QString &mutation = {},
     brush.replace("hfade=\"1\"", "hfade=\"0.5\"");
     if (mutation == "soft") brush.replace("vfade=\"1\"", "vfade=\"0.5\"");
   }
+  if (mutation == "rect") brush.replace("type=\"circle\"", "type=\"rect\"");
   if (mutation == "aa")
     brush.replace("antialiasEdges=\"0\"", "antialiasEdges=\"1\"");
   if (mutation == "attribute")

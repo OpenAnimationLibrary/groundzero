@@ -13,9 +13,13 @@ bool sourceWetProfile(const std::string &profile) {
          profile == "krita-5.3.4.1-new-smear-candidate-1" ||
          profile == "krita-5.3.4.1-new-dulling-candidate-1";
 }
+bool sourceDefaultProfile(const std::string &profile) {
+  return profile == "krita-5.3.4.1-default-circle-candidate-1" ||
+         profile == "krita-5.3.4.1-default-rect-candidate-1";
+}
 bool sourcePixelProfile(const std::string &profile) {
   return profile == "krita-5.3.4.1-hard-pixel-candidate-1" ||
-         profile == "krita-5.3.4.1-default-circle-candidate-1";
+         sourceDefaultProfile(profile);
 }
 bool sourceProfile(const std::string &profile) {
   return sourcePixelProfile(profile) || sourceWetProfile(profile);
@@ -180,9 +184,9 @@ Pixel composite(Pixel dst, Pixel src, Blend mode, bool lockAlpha) {
 
 std::string validate(const Preset &p) {
   const bool sourceHard = sourcePixelProfile(p.profile);
-  const bool sourceSoft =
-      p.profile == "krita-5.3.4.1-default-circle-candidate-1";
-  const bool sourceWet = sourceWetProfile(p.profile);
+  const bool sourceSoft = sourceDefaultProfile(p.profile);
+  const bool sourceRect = p.profile == "krita-5.3.4.1-default-rect-candidate-1";
+  const bool sourceWet  = sourceWetProfile(p.profile);
   if (p.profile != "groundzero-native-1" && !sourceHard && !sourceWet)
     return "Unimplemented behavior profile: " + p.profile;
   bool sourceLinearPressure = false;
@@ -199,10 +203,14 @@ std::string validate(const Preset &p) {
     auto fixed = [](const Dynamic &value, double expected) {
       return value.value == expected && value.mappings.empty();
     };
-    if (p.tip.shape != Shape::Round || (!sourceSoft && p.tip.hardness != 1) ||
-        (sourceSoft && (p.tip.hardness >= 1 || !p.size.mappings.empty() ||
-                        !fixed(p.aspect, 1) || !fixed(p.angle, 0))) ||
-        p.tip.antialiasEdges || !p.tip.images.empty() ||
+    if (p.tip.shape != (sourceRect ? Shape::Square : Shape::Round) ||
+        (!sourceSoft && p.tip.hardness != 1) ||
+        (sourceSoft &&
+         ((!sourceRect && !p.tip.antialiasEdges && p.tip.hardness >= 1) ||
+          (p.tip.antialiasEdges && p.size.value < 16) ||
+          !p.size.mappings.empty() || !fixed(p.aspect, 1) ||
+          !fixed(p.angle, 0))) ||
+        (!sourceSoft && p.tip.antialiasEdges) || !p.tip.images.empty() ||
         (!p.size.mappings.empty() && !sourceLinearPressure) ||
         p.size.value != std::floor(p.size.value) ||
         !p.aspect.mappings.empty() || !p.angle.mappings.empty() ||
@@ -746,8 +754,9 @@ struct Stroke::Impl {
       // Independently measured K5341 hard-circle lattice: integer x and
       // half-integer y distances from an integral API stroke position. The
       // native profile retains its pixel-center convention unchanged.
-      const double sourceOffset = sourcePixelProfile(p.profile) ? .5 : 0;
-      const double cx           = s.x + sourceOffset +
+      const double sourceOffset =
+          sourcePixelProfile(p.profile) && !p.wash ? .5 : 0;
+      const double cx = s.x + sourceOffset +
                         (p.scatterBothAxes ? scatterX
                                            : -std::sin(direction) * scatterX),
                    cy = s.y + (p.scatterBothAxes
@@ -835,20 +844,49 @@ struct Stroke::Impl {
           const double ux = fu * c / radius, uy = fu * sn / radius,
                        vx = -fv * sn / (radius * aspect),
                        vy = fv * c / (radius * aspect);
-          Pixel tip = filteredTip(p.tip, primaryIndex, u, v, ux, uy, vx, vy);
-          double a  = tip.a;
-          if (p.profile == "krita-5.3.4.1-default-circle-candidate-1") {
+          Pixel tip;
+          double a = 0;
+          if (sourceDefaultProfile(p.profile)) {
             // Independently recovered from complete alpha masks at five fade
             // values. Default circles fade in squared distance, with a
             // one-pixel minimum inner radius, rather than native linear
             // falloff.
             const double inner =
                 std::min(1.0, std::max(p.tip.hardness, 1 / radius));
-            const double d2       = u * u + v * v;
-            const double coverage = inner == 1
-                                        ? (d2 < 1 ? 1 : 0)
-                                        : unit((1 - d2) / (1 - inner * inner));
-            a                     = std::floor(coverage * 255 + .5) / 255;
+            const double d2 = u * u + v * v;
+            double fade2    = inner * inner;
+            if (p.tip.antialiasEdges) {
+              // Independently measured pixel-axis AA, not a radial blur.
+              // Exact on all five 32px fade masks and 32/64/128px hard masks.
+              // Smaller tips use a separate source sampling regime.
+              const double x = std::abs(u) * radius, y = std::abs(v) * radius;
+              fade2 *=
+                  (x * x + y * y) / ((x + 1) * (x + 1) + (y + 1) * (y + 1));
+            }
+            double coverage =
+                fade2 == 1 ? (d2 < 1 ? 1 : 0) : unit((1 - d2) / (1 - fade2));
+            if (p.profile == "krita-5.3.4.1-default-rect-candidate-1") {
+              const double x = std::abs(u), y = std::abs(v);
+              if (p.tip.antialiasEdges) {
+                const double fx = inner * x * radius / (x * radius + 1),
+                             fy = inner * y * radius / (y * radius + 1);
+                coverage =
+                    unit(std::min((1 - x) / (1 - fx), (1 - y) / (1 - fy)));
+              } else {
+                // Captured non-AA default rectangles include boundary pixels
+                // and an opaque axis when either coordinate is exactly zero.
+                coverage =
+                    x > 1 || y > 1
+                        ? 0
+                        : (inner == 1 || x == 0 || y == 0
+                               ? 1
+                               : unit((1 - std::max(x, y)) / (1 - inner)));
+              }
+            }
+            a = std::floor(coverage * 255 + .5) / 255;
+          } else {
+            tip = filteredTip(p.tip, primaryIndex, u, v, ux, uy, vx, vy);
+            a   = tip.a;
           }
           if (a <= 0) continue;
           if (t.image) {

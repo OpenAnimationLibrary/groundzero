@@ -127,6 +127,13 @@ int main(int argc, char **argv) {
     out << ',';
     passed =
         measure(out, "source-candidate-hard-wash", 2048, 240, source) && passed;
+    source.profile = "krita-5.3.4.1-default-circle-candidate-1";
+    source.tip.hardness = .5;
+    source.tip.antialiasEdges = true;
+    out << ',';
+    passed =
+        measure(out, "source-candidate-default-circle-aa", 2048, 240, source) &&
+        passed;
     for (const auto &model :
          {"legacy-smear", "legacy-dulling", "new-smear", "new-dulling"}) {
       source = Preset{};

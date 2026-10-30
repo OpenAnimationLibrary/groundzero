@@ -130,7 +130,7 @@ class Probe(Extension):
                     "opacity": view.paintingOpacity(), "flow": view.paintingFlow(),
                     "presetSha256": hashlib.sha256(xml.encode()).hexdigest(),
                     "brushDefinition": fields.get("brush_definition"),
-                    "paintingMode": fields.get("PaintingMode"),
+                    "paintOpAction": fields.get("PaintOpAction"),
                     "precision": fields.get("KisPrecisionOption/precisionLevel"),
                     "smoothing": combo.currentText()}
         before_proximity = tool_state()
@@ -268,7 +268,7 @@ class Probe(Extension):
                 if (effective_fields.get("KisPrecisionOption/precisionLevel") != "5" or
                         effective_fields.get("KisPrecisionOption/AutoPrecisionEnabled") != "false"):
                     raise RuntimeError("Selected source preset lost fixed precision 5")
-                controls = {key: effective_fields.get(key) for key in ("SmudgeRateValue", "ColorRateValue", "SmudgeRadiusValue", "PressureSmudgeRate", "SmudgeRateUseNewEngine", "SmudgeRateMode", "SmudgeRateSmearAlpha")}
+                controls = {key: effective_fields.get(key) for key in ("PaintOpAction", "PressureFlow", "SmudgeRateValue", "ColorRateValue", "SmudgeRadiusValue", "PressureSmudgeRate", "SmudgeRateUseNewEngine", "SmudgeRateMode", "SmudgeRateSmearAlpha")}
                 checkpoint(name + ": paint line")
                 # The pinned 5.3.4.1 Python binding accepts QPoint, despite the
                 # online C++ API describing QPointF. This fixture is integral.
@@ -337,13 +337,18 @@ class Probe(Extension):
                     # Exact alpha coverage around all seven short strokes.
                     # This small window is diagnostic; comparison still uses
                     # both full-canvas changed sets and their union.
-                    if fixtures.get("group") in ("geometry", "pixelsoft", "pixelsoftsize", "pixelshape"):
+                    if fixtures.get("group") in ("geometry", "pixelsoft", "pixelsoftsize", "pixelrectsize", "pixelaarange", "pixelshape"):
                         side = math.ceil(case["diameter"]) + 10
                         left = math.floor(case["start"][0] - case["diameter"] / 2) - 4
                         top = math.floor(case["start"][1] - case["diameter"] / 2) - 4
                         rect = [left, top, side, side]
                     else:
-                        rect = [232, 1000, 80, 48]
+                        rect = [math.floor(case["start"][0]) - 24, math.floor(case["start"][1]) - 24, 80, 48]
+                    if fixtures.get("group") in ("pixelsoftsize", "pixelrectsize") and case["diameter"] >= 64:
+                        # Bounded edge diagnostic; full-canvas metric gates and
+                        # retained images still qualify the entire larger mask.
+                        rect = [math.floor(case["start"][0] - case["diameter"] / 2) - 2,
+                                math.floor(case["start"][1]) - 8, 40, 16]
                     left, top, width, height = rect
                     alpha = bytes(raw[(y * w + x) * 4 + 3]
                                   for y in range(top, top + height)

@@ -555,3 +555,51 @@ persistence equality remains exact, with first-pixel and dimension diagnostics
 retained to expose any additional cause. The PNG edit is limited to 8-bit
 straight-alpha encoding; it does not modify TLV, 16-bit conversion, or shared
 pixel utility semantics. Full application and cross-platform CI are pending.
+
+### Default-circle AA continuation
+
+Independent numerical analysis of the complete captured alpha arrays recovered
+the pixel-axis AA rule: with pixel distances x/y, squared radius q=x²+y² and
+qplus=(|x|+1)²+(|y|+1)², replace the squared inner fade by
+max(hardness,1/radius)²*q/qplus before evaluating the squared-distance ramp.
+Nearest-byte quantization reproduces every pixel in all five 32px AA hardness
+fixtures and the 32/64/128px hard AA fixtures exactly. The implementation uses
+this direct expression rather than native supersampling. Source presets require
+unit aspect, zero rotation, fixed integral size and equal fades; AA sizes below
+16 remain explicitly ineligible pending their distinct subpixel sampling rule.
+A 14-size acquisition matrix tests that boundary, existing geometry gates retain
+exact-error requirements, and a ten-case CPU suite now includes this renderer.
+Large soft-mask diagnostics use a bounded edge window to stay within annotation
+limits; all fidelity comparisons still use full rasters. This continuation is
+pending publication and exact-head CI, not a reference-verified claim.
+
+A separate `krita-5.3.4.1-default-rect-candidate-1` now implements the measured
+fixed default-rectangle mask. Non-AA coverage uses the minimum linear axis fade,
+including the source's opaque exact-axis behavior and inclusive hard boundary.
+AA uses independent pixel-axis fade factors and removes that exact-axis special
+case. Complete 32px masks at five fade settings differ by at most one alpha byte;
+most are exact. Captured point regressions and twelve additional size/fade gates
+qualify the renderer. Fixed unit aspect/zero rotation and the same small-AA
+exclusion remain explicit. These are source-candidate profiles, not silent
+changes to native square or round brushes.
+
+### Correct serialized painting action
+
+Public bundled preset metadata and original controlled freehand cases identify
+`PaintOpAction`, not `PaintingMode`, as the operative setting. Action 0 has wash
+semantics (quarter opacity stays alpha 64; quarter flow accumulates; zero flow
+is empty). Action 1 builds opacity per dab and ignores static flow. PressureFlow
+true/false is inactive with FlowUseCurve=false in these cases. Action 2 occurs in
+bundled presets and is now measured separately; it remains ineligible until its
+semantics are established. Strict import now requires the operative field and
+rejects a misleading PaintingMode-only preset. The authored fixtures are corrected
+to explicit actions. Candidate wash uses the pixel-centered footprint inferred
+from its measured bounds, distinct from the build-up lattice; full pixel gates
+will qualify that correction. Tablet diagnostics now follow their actual stroke
+origin rather than capture an empty window near the API-line origin.
+
+The 18 original ellipse masks at 16/64px identify positive KPP rotation as
+counterclockwise in raster coordinates. Negating the imported angle yields
+zero differing alpha pixels for all four formerly failing 45-degree ellipse
+masks; the next source CI run qualifies this adapter change end to end. Native
+angle semantics remain unchanged.

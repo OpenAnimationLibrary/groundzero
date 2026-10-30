@@ -90,7 +90,7 @@ jobs:
       max-parallel: 2
       fail-fast: false
       matrix:
-        fixture_group: [pixelpressure, wettexture3, wetstate, wethold, wettexture, pixelopacitytablet, pixelopacity, pixelsoft, pixelsoftsize, pixelcontrols, pixelsmallpressure, pixelshape, wetswitches, wetcombined, wetsteps, hardpixel, geometry, tablet, parameters]
+        fixture_group: [pixelpressure, wettexture3, wetstate, wethold, wettexture, pixelopacitytablet, pixelopacity, pixelsoft, pixelsoftsize, pixelrectsize, pixelaarange, pixelcontrols, pixelsmallpressure, pixelshape, wetswitches, wetcombined, wetsteps, hardpixel, geometry, tablet, parameters]
     runs-on: ubuntu-22.04
     timeout-minutes: 20
     env:
@@ -188,6 +188,7 @@ jobs:
                   view = row.get('effectiveView', {})
                   probe['view'] = [view.get(key) for key in ('diameter', 'opacity', 'flow')]
                   controls = row.get('effectiveWetControls', {})
+                  probe['paintOpAction'] = controls.get('PaintOpAction')
                   probe['wet'] = [controls.get(key) for key in ('SmudgeRateValue', 'ColorRateValue', 'SmudgeRadiusValue', 'PressureSmudgeRate', 'SmudgeRateUseNewEngine', 'SmudgeRateMode', 'SmudgeRateSmearAlpha')]
                   positions = row.get('probePositions', (256, 416, 576)) if row.get('background') == 'wet-halves' else (256, 384, 512, 640, 768, 896, 1024, 1152)
                   probe['centerlineRGBA8'] = [sample for sample in row.get('centerlineRGBA8', []) if sample[0] in positions]

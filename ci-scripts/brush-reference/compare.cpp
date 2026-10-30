@@ -313,6 +313,8 @@ int main(int argc, char **argv) {
           fixtures["group"].toString() == "hardpixel" ||
           fixtures["group"].toString() == "pixelopacity" ||
           fixtures["group"].toString() == "pixelopacitytablet" ||
+          (fixtures["group"].toString() == "pixelcontrols" &&
+           source["overrides"].toObject()["PaintOpAction"].toString() != "2") ||
           fixtures["group"].toString() == "pixelpressure" ||
           fixtures["group"].toString() == "pixelsmallpressure" ||
           fixtures["group"].toString() == "pixelshape" ||
@@ -323,14 +325,21 @@ int main(int argc, char **argv) {
                 "Strict source hard-pixel eligibility did not select the "
                 "candidate");
       const bool sourceSoft =
-          (fixtures["group"].toString() == "pixelsoft" ||
-           fixtures["group"].toString() == "pixelsoftsize") &&
-          name.contains("soft circle ") && name.endsWith("antialias 0") &&
-          p.tip.hardness < 1;
+          ((fixtures["group"].toString() == "pixelsoft" ||
+            fixtures["group"].toString() == "pixelsoftsize" ||
+            fixtures["group"].toString() == "pixelrectsize") &&
+           (name.contains("soft rect ") ||
+            (name.contains("soft circle ") &&
+             (p.tip.hardness < 1 || p.tip.antialiasEdges)))) ||
+          ((fixtures["group"].toString() == "geometry" ||
+            fixtures["group"].toString() == "pixelaarange") &&
+           p.tip.antialiasEdges && source["diameter"].toDouble() >= 16);
       if (sourceSoft)
-        require(p.profile == "krita-5.3.4.1-default-circle-candidate-1",
-                "Strict source default-circle eligibility did not select "
-                "candidate");
+        require(
+            p.profile == (p.tip.shape == Shape::Square
+                              ? "krita-5.3.4.1-default-rect-candidate-1"
+                              : "krita-5.3.4.1-default-circle-candidate-1"),
+            "Strict source default-mask eligibility did not select candidate");
       const bool sourceWet =
           (fixtures["group"].toString() == "wetsteps" ||
            fixtures["group"].toString() == "wethold" ||

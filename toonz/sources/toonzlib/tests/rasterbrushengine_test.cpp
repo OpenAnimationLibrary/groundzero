@@ -753,9 +753,60 @@ void testSourceDefaultCircle() {
       require(std::abs(canvas.read(xy[j][0], xy[j][1]).a * 255 -
                        measured[i][j]) < 1e-9,
               "default-circle sample differs from captured source alpha");
-    p.tip.antialiasEdges = true;
-    require(!validate(p).empty(), "unqualified default-circle AA accepted");
+    p.tip.antialiasEdges       = true;
+    const int measuredAA[4][4] = {{31, 200, 255, 0},
+                                  {32, 209, 255, 0},
+                                  {39, 246, 255, 0},
+                                  {60, 255, 255, 0}};
+    Canvas aa;
+    Stroke aaStroke(aa, p);
+    require(aaStroke.add(sample(64, 64, 0)), aaStroke.error().c_str());
+    aaStroke.finish();
+    for (int j = 0; j < 4; ++j)
+      require(std::abs(aa.read(xy[j][0], xy[j][1]).a * 255 - measuredAA[i][j]) <
+                  1e-9,
+              "default-circle AA differs from captured alpha");
+    p.size.value = 8;
+    require(!validate(p).empty(), "unqualified small-tip AA sampling accepted");
   }
+}
+void testSourceHardCircleAA() {
+  Preset p;
+  p.profile            = "krita-5.3.4.1-default-circle-candidate-1";
+  p.size.value         = 32;
+  p.tip.hardness       = 1;
+  p.tip.antialiasEdges = true;
+  Canvas canvas;
+  Stroke stroke(canvas, p);
+  require(stroke.add(sample(64, 64, 0)), stroke.error().c_str());
+  stroke.finish();
+  require(std::abs(canvas.read(79, 64).a * 255 - 240) < 1e-9 &&
+              std::abs(canvas.read(77, 56).a * 255 - 191) < 1e-9 &&
+              std::abs(canvas.read(78, 56).a * 255 - 25) < 1e-9,
+          "hard-circle AA lost its pixel-axis edge behavior");
+}
+void testSourceRectangle() {
+  Preset p;
+  p.profile      = "krita-5.3.4.1-default-rect-candidate-1";
+  p.tip.shape    = Shape::Square;
+  p.size.value   = 32;
+  p.tip.hardness = .25;
+  Canvas plain;
+  Stroke stroke(plain, p);
+  require(stroke.add(sample(64, 64, 0)), stroke.error().c_str());
+  stroke.finish();
+  require(std::abs(plain.read(64, 56).a * 255 - 255) < 1e-9 &&
+              std::abs(plain.read(63, 56).a * 255 - 181) <= 1.000001 &&
+              std::abs(plain.read(49, 64).a * 255 - 21) <= 1.000001,
+          "non-AA rectangle source axis/fade behavior changed");
+  p.tip.antialiasEdges = true;
+  Canvas aa;
+  Stroke aaStroke(aa, p);
+  require(aaStroke.add(sample(64, 64, 0)), aaStroke.error().c_str());
+  aaStroke.finish();
+  require(std::abs(aa.read(64, 56).a * 255 - 174) < 1e-9 &&
+              std::abs(aa.read(49, 64).a * 255 - 21) < 1e-9,
+          "AA rectangle source axis/fade behavior changed");
 }
 void testCubicCurves() {
   Preset p;
@@ -797,6 +848,8 @@ int main() {
     testColorDynamics();
     testCubicCurves();
     testSourceDefaultCircle();
+    testSourceHardCircleAA();
+    testSourceRectangle();
     testSourceWetInitialization();
     testLongWetTrace();
   } catch (const std::exception &e) {

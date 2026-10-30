@@ -353,12 +353,25 @@ void testImports() {
   require(error.isEmpty() &&
               hardRestored.preset.profile == hardRecord.preset.profile,
           "hard candidate lost during portable round trip");
-  for (const QString &mutation : {"missing", "unknown", "aa", "attribute"}) {
+  for (const QString &mutation :
+       {"missing", "unknown", "attribute", "wrongModeKey"}) {
     auto fallback = importBrush(hardPixelKpp(mutation), "kpp", error);
     require(fallback.complete && fallback.records.front().preset.profile ==
                                      "groundzero-native-1",
             "unclassified setting incorrectly selected source candidate");
   }
+  auto rect = importBrush(hardPixelKpp("rect"), "kpp", error);
+  require(rect.complete &&
+              rect.records.front().preset.profile ==
+                  "krita-5.3.4.1-default-rect-candidate-1" &&
+              rect.records.front().preset.tip.shape == Shape::Square,
+          "source default rectangle lost explicit geometry");
+  auto aa = importBrush(hardPixelKpp("aa"), "kpp", error);
+  require(aa.complete &&
+              aa.records.front().preset.profile ==
+                  "krita-5.3.4.1-default-circle-candidate-1" &&
+              aa.records.front().preset.tip.antialiasEdges,
+          "source default-circle AA lost explicit eligibility");
   auto soft = importBrush(hardPixelKpp("soft"), "kpp", error);
   require(
       soft.complete &&
@@ -377,7 +390,7 @@ void testImports() {
           ellipse.records.front().preset.profile ==
               "krita-5.3.4.1-hard-pixel-candidate-1" &&
           ellipse.records.front().preset.aspect.value == .5 &&
-          std::abs(ellipse.records.front().preset.angle.value - 45) < 1e-10 &&
+          std::abs(ellipse.records.front().preset.angle.value + 45) < 1e-10 &&
           !ellipse.records.front()
                .provenance["sourceReferenceVerified"]
                .toBool(),
