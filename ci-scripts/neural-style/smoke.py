@@ -77,7 +77,11 @@ def main():
     if effect <= 1e-4 or reference_effect <= 1e-4 or content_effect <= 1e-4:
         raise AssertionError("Model failed content/style influence checks")
     inference_seconds = time.monotonic() - started
-    native_result = native_check(native, style, content, embedding, output)
+    cases = [(1, 1, style, embedding), (2, 2, content, output),
+             (2, 3, content, output), (1, 4, other_style, other_embedding),
+             (2, 5, content, other), (1, 6, style, embedding),
+             (2, 7, other_content, changed_content)]
+    native_result = native_check(native, cases)
     result = {"runtime": importlib.metadata.version("ai-edge-litert"),
               "platform": platform.system(), "machine": platform.machine(),
               "content_shape": [int(value) for value in content_shape],
@@ -93,7 +97,7 @@ def main():
     print("::notice title=Neural numerical evaluation::" + json.dumps(result), flush=True)
 
 
-def native_check(directory, style, content, embedding, expected):
+def native_check(directory, cases):
     """Exercise the native C API with Python/developer loader paths removed."""
     library = {"win32": "libLiteRt.dll", "darwin": "libLiteRt.dylib"}.get(sys.platform, "libLiteRt.so")
     executable = directory / ("groundzero-style-worker" + (".exe" if os.name == "nt" else ""))
@@ -119,7 +123,8 @@ def native_check(directory, style, content, embedding, expected):
             raise AssertionError("Malformed worker request was accepted")
         return result
 
-    data = request(1, 1, style) + request(2, 2, content) + request(2, 3, content)
+    style = cases[0][2]
+    data = b"".join(request(command, sequence, pixels) for command, sequence, pixels, _ in cases)
     started = time.monotonic()
     result = run(data)
     memory = re.search(rb"peak_memory_bytes=(\d+)", result.stderr)
@@ -127,7 +132,11 @@ def native_check(directory, style, content, embedding, expected):
         raise AssertionError("Native worker peak memory absent or exceeds 512 MiB")
     position = 0
     frames = []
-    for command, sequence, count in [(0, 0, 0), (1, 1, 100), (2, 2, content.size), (2, 3, content.size)]:
+    expected_frames = [(0, 0, np.empty(0, dtype=np.float32))] + [
+        (command, sequence, expected) for command, sequence, _, expected in cases]
+    max_difference = 0.0
+    for command, sequence, expected in expected_frames:
+        count = expected.size
         if len(result.stdout) - position < 16:
             raise AssertionError("Truncated native reply")
         header = struct.unpack_from("<IIII", result.stdout, position)
@@ -137,12 +146,13 @@ def native_check(directory, style, content, embedding, expected):
         frame = np.frombuffer(result.stdout[position:position + count * 4], dtype="<f4")
         if frame.size != count:
             raise AssertionError("Truncated native pixel payload")
+        np.testing.assert_allclose(frame, expected.ravel(), rtol=0, atol=1e-5)
+        if count:
+            max_difference = max(max_difference, float(np.max(np.abs(frame - expected.ravel()))))
         frames.append(frame)
         position += count * 4
     if position != len(result.stdout):
         raise AssertionError("Unexpected native reply bytes")
-    np.testing.assert_allclose(frames[1], embedding.ravel(), rtol=0, atol=1e-5)
-    np.testing.assert_allclose(frames[2], expected.ravel(), rtol=0, atol=1e-5)
     np.testing.assert_array_equal(frames[2], frames[3])
     malformed = run(struct.pack("<IIII", magic, 2, 9, 0xFFFFFFFF), False)
     if b"oversized" not in malformed.stderr:
@@ -176,7 +186,7 @@ def native_check(directory, style, content, embedding, expected):
     return {"protocol": 1, "python_api_required": False, "developer_loader_paths_removed": True,
             "peak_memory_bytes": int(memory[1]), "elapsed_seconds": time.monotonic() - started,
             "malformed_requests_rejected": True, "termination_and_restart": True,
-            "python_reference_max_difference": float(np.max(np.abs(frames[2] - expected.ravel())))}
+            "reference_replacement_verified": True, "python_reference_max_difference": max_difference}
 
 
 if __name__ == "__main__":
