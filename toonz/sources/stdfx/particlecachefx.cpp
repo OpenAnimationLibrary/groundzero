@@ -12,7 +12,7 @@
 #include "trop.h"
 
 #include <QDateTime>
-#include <QCryptographicHash>
+#include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonDocument>
@@ -26,7 +26,9 @@
 #include <limits>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <numeric>
+#include <set>
 #include <stdexcept>
 #include <tuple>
 #include <type_traits>
@@ -117,6 +119,32 @@ struct ArtworkMap {
   std::map<ArtworkKey, Artwork> images;
   std::size_t bytes = 0;
 };
+
+// Small bounded memo shared by every instance; aliases are computed on the UI
+// thread for each previewed frame after each edit, so repeated work is cached.
+template <class Value>
+class Memo {
+  std::mutex m_mutex;
+  std::map<QString, Value> m_values;
+  std::size_t m_limit;
+
+public:
+  explicit Memo(std::size_t limit) : m_limit(limit) {}
+  bool find(const QString &key, Value &value) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    const auto found = m_values.find(key);
+    if (found == m_values.end()) return false;
+    value = found->second;
+    return true;
+  }
+  void store(const QString &key, const Value &value) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    if (m_values.size() >= m_limit) m_values.clear();
+    m_values[key] = value;
+  }
+};
+using SequencePtr = std::shared_ptr<const ParticleCache::Sequence>;
+using ArtworkUse  = std::vector<std::pair<int, double>>;
 }  // namespace particlecachefx
 
 class ParticleCacheFx final : public TStandardZeraryFx,
@@ -148,13 +176,31 @@ class ParticleCacheFx final : public TStandardZeraryFx,
     return actual.getQString();
   }
 
-  ParticleCache::Sequence sequence() const {
-    ParticleCache::Sequence result;
+  // Parsed sequences are memoized by the stamps of the path and of the
+  // manifest or directory listing that openSequence reads.
+  particlecachefx::SequencePtr sequence() const {
+    static particlecachefx::Memo<particlecachefx::SequencePtr> memo(64);
+    const QString source = path();
+    const QFileInfo info(source);
+    bool sourceSettled = false, listingSettled = false;
+    const QString key =
+        source + QChar('\n') +
+        ParticleCache::fileStamp(source, &sourceSettled) + QChar('\n') +
+        ParticleCache::fileStamp(info.isDir()
+                                     ? QDir(source).filePath("cache.otpc")
+                                     : info.absolutePath(),
+                                 &listingSettled) +
+        QChar('\n') + QString::number(m_cacheFps->getValue(0), 'g', 17);
+    particlecachefx::SequencePtr cached;
+    if (sourceSettled && listingSettled && memo.find(key, cached))
+      return cached;
+    auto result = std::make_shared<ParticleCache::Sequence>();
     QString error;
-    if (!ParticleCache::openSequence(path(), result, error))
+    if (!ParticleCache::openSequence(source, *result, error))
       throw std::runtime_error(error.toStdString());
     if (m_cacheFps->getValue(0) > 0)
-      result.metadata.framesPerSecond = m_cacheFps->getValue(0);
+      result->metadata.framesPerSecond = m_cacheFps->getValue(0);
+    if (sourceSettled && listingSettled) memo.store(key, result);
     return result;
   }
 
@@ -555,50 +601,107 @@ public:
     return copy;
   }
 
+  QString sampleIdentity(const ParticleCache::Sequence &seq,
+                         double frame) const {
+    QString error;
+    const QString identity = ParticleCache::sampleIdentity(
+        seq, frame, playback(frame), mapping(seq, frame), error);
+    if (identity.isEmpty()) throw std::runtime_error(error.toStdString());
+    return identity;
+  }
+
+  // Artwork sources and drawings a sample uses. Only the cache-drawing and age
+  // modes depend on particle data; that set is memoized by sample identity.
+  particlecachefx::ArtworkUse artworkUse(const ParticleCache::Sequence &seq,
+                                         double frame,
+                                         const QString &identity) const {
+    particlecachefx::ArtworkUse use;
+    const std::vector<int> connected = connectedArtworkSources();
+    if (connected.empty()) return use;
+    const int animation = m_artworkAnimation->getValue();
+    if (animation == 1 || animation == 3) {
+      const double drawing = artworkFrame(ParticleCache::Particle(), frame);
+      for (int source : connected) use.emplace_back(source, drawing);
+      return use;
+    }
+    static particlecachefx::Memo<particlecachefx::ArtworkUse> memo(4096);
+    QString key = identity;
+    for (double value :
+         {double(animation), double(m_assignment->getValue()),
+          double(m_seed->getValue()), m_artworkStart->getValue(frame),
+          m_artworkLength->getValue(frame), m_artworkSpeed->getValue(frame),
+          m_sceneFps->getValue(0), frame})
+      key += QChar('\n') + QString::number(value, 'g', 17);
+    for (int source : connected) key += QChar(' ') + QString::number(source);
+    if (memo.find(key, use)) return use;
+    std::set<std::pair<int, double>> used;
+    for (const auto &p : snapshot(seq, frame)->particles)
+      used.emplace(sourceIndex(p), artworkFrame(p, frame));
+    use.assign(used.begin(), used.end());
+    memo.store(key, use);
+    return use;
+  }
+
+  // Runs on the UI thread for every previewed frame after each edit, so it is
+  // built from file stamps and sample plans: no frame is read or decoded
+  // unless artwork drawings depend on particle data and are not memoized.
   std::string getAlias(double frame, const TRenderSettings &settings) const override {
     QString identity = path();
     if (!m_cacheFile->getValue().empty()) {
       try {
-        const auto seq = sequence();
-        if (!seq.manifestPath.isEmpty()) {
-          QFile manifest(seq.manifestPath);
-          QCryptographicHash hash(QCryptographicHash::Sha256);
-          if (!manifest.open(QIODevice::ReadOnly) || !hash.addData(&manifest))
-            throw std::runtime_error("Cannot read particle cache manifest");
-          identity += QString::fromLatin1(hash.result().toHex());
-        }
-        const auto current = snapshot(seq, frame);
-        if (m_useBakedAppearance->getValue() && current->extra.value("native").toBool()) {
-          QString error;
-          const QString nativeRevision = ParticleBake::frameRevision(*current, error);
+        const auto sequencePtr = sequence();
+        const auto &seq        = *sequencePtr;
+        ParticleCache::SamplePlan plan;
+        QString error;
+        if (!ParticleCache::planSample(seq, frame, playback(frame), plan,
+                                       error))
+          throw std::runtime_error(error.toStdString());
+        const auto metadata = plan.empty ? seq.frameMetadata.end()
+                                         : seq.frameMetadata.find(plan.left);
+        if (m_useBakedAppearance->getValue() &&
+            metadata != seq.frameMetadata.end() &&
+            metadata->second.value("native").toBool()) {
+          // Native frames are never interpolated; describe the left frame as
+          // sampleSequence would, without decoding its particles.
+          ParticleCache::Snapshot description;
+          description.extra = metadata->second;
+          description.sourceDirectory =
+              QFileInfo(seq.manifestPath.isEmpty() ? seq.frames.at(plan.left)
+                                                   : seq.manifestPath)
+                  .absolutePath();
+          const QString nativeRevision =
+              ParticleBake::frameRevision(description, error);
           if (!error.isEmpty()) throw std::runtime_error(error.toStdString());
-          identity += current->revision + nativeRevision;
+          identity += sampleIdentity(seq, frame) + nativeRevision;
         } else {
           // Include only sampled files (and interpolation endpoints through the
-          // snapshot revision), never every file in a potentially long sequence.
+          // sample identity), never every file in a potentially long sequence.
           // Artwork time can differ from scene time and must be in the alias.
-          std::map<std::pair<int, double>, bool> used;
+          std::set<std::pair<int, double>> used;
           const int samples = m_shutter->getValue(frame) > 0 ? m_blurSamples->getValue() : 1;
           for (int sample = 0; sample < samples; ++sample) {
             const double time = frame + (samples == 1 ? 0 :
                 ((sample + .5) / samples - .5) * m_shutter->getValue(frame));
             for (int trail = m_trails->getValue(); trail >= 0; --trail) {
               const double t = time - trail * m_trailStep->getValue(frame);
-              const auto data = t == frame ? current : snapshot(seq, t);
-              identity += data->revision + QString::fromStdString(TRasterFx::getAlias(t, settings));
-              for (const auto &p : data->particles)
-                used[{sourceIndex(p), artworkFrame(p, t)}] = true;
+              const QString sampled = sampleIdentity(seq, t);
+              identity += sampled + QString::fromStdString(
+                                        TRasterFx::getAlias(t, settings));
+              for (const auto &entry : artworkUse(seq, t, sampled))
+                used.insert(entry);
             }
           }
           for (const auto &entry : used)
-            if (auto *port = sourcePort(entry.first.first))
-              identity += QString::fromStdString((*port)->getAlias(entry.first.second, settings));
+            if (auto *port = sourcePort(entry.first))
+              identity += QString::fromStdString(
+                  (*port)->getAlias(entry.second, settings));
         }
       } catch (const std::exception &e) {
         identity += ":error:" + QString::fromUtf8(e.what());
       }
     }
-    return TRasterFx::getAlias(frame, settings) + "[particlecache-v1:" + identity.toStdString() + "]";
+    return TRasterFx::getAlias(frame, settings) +
+           "[particlecache-v2:" + identity.toStdString() + "]";
   }
 
   bool doGetBBox(double, TRectD &box, const TRenderSettings &) override {
@@ -609,7 +712,8 @@ public:
   void doDryCompute(TRectD &, double frame, const TRenderSettings &settings) override {
     if (m_cacheFile->getValue().empty()) return;
     try {
-      const auto seq = sequence();
+      const auto sequencePtr = sequence();
+      const auto &seq        = *sequencePtr;
       const auto current = snapshot(seq, frame);
       if (m_useBakedAppearance->getValue() && current->extra.value("native").toBool()) return;
       const int samples = m_shutter->getValue(frame) > 0 ? m_blurSamples->getValue() : 1;
@@ -655,7 +759,8 @@ public:
     try {
       const std::size_t count = std::size_t(tile.getRaster()->getLx()) * tile.getRaster()->getLy();
       if (count > MaxPixels) throw std::runtime_error("Output tile exceeds particle memory limit");
-      const auto seq = sequence();
+      const auto sequencePtr = sequence();
+      const auto &seq        = *sequencePtr;
       const auto current = snapshot(seq, frame);
       if (m_useBakedAppearance->getValue() && current->extra.value("native").toBool()) {
         renderNative(*current, frame, tile, settings);

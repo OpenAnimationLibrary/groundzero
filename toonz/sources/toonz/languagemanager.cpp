@@ -105,6 +105,27 @@ QStringList UiLanguageManager::availableLanguages() const {
 }
 
 bool UiLanguageManager::setLanguage(const QString &language, QString *error) {
+  if (!apply(language, error)) {
+    if (error && !error->isEmpty())
+      *error += ' ' + tr("The current language was kept.");
+    return false;
+  }
+  emit languageSelected(language);
+  return true;
+}
+
+bool UiLanguageManager::startWithLanguage(const QString &saved,
+                                          QString *error) {
+  if (apply(saved, error)) return true;
+  const QString reason = error ? *error : QString();
+  if (apply(QStringLiteral("English"), nullptr) && error)
+    *error = reason + ' ' +
+             tr("English is used for this session; the saved interface "
+                "language was not changed.");
+  return false;
+}
+
+bool UiLanguageManager::apply(const QString &language, QString *error) {
   if (error) error->clear();
   if (QThread::currentThread() != thread() || m_imp->changing) {
     if (error) *error = tr("The interface language is already being changed.");
@@ -125,10 +146,16 @@ bool UiLanguageManager::setLanguage(const QString &language, QString *error) {
          QString("tnztools"), QString("image")}) {
       auto catalog = std::unique_ptr<QTranslator>(new QTranslator);
       const QString path = directory.filePath(module + ".qm");
-      if (!QFileInfo::exists(path) || !catalog->load(path)) {
-        if (error) *error = tr("The %1 interface catalog for %2 could not be "
-                              "loaded. The current language was kept.")
-                              .arg(module, language);
+      // toonz.qm defines an installed language. Like the original loader,
+      // the other modules may be absent and then show their source text; a
+      // catalog that is present but unreadable is a damaged installation.
+      const bool present = QFileInfo::exists(path);
+      if (!present && module != "toonz") continue;
+      if (!present || !catalog->load(path)) {
+        if (error)
+          *error = tr("The %1 interface catalog for %2 could not be "
+                      "loaded.")
+                       .arg(module, language);
         return false;
       }
       next.push_back(std::move(catalog));
