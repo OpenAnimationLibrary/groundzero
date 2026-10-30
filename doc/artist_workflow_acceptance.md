@@ -26,28 +26,49 @@ Raster Krita/Photoshop brush compatibility is separately owned and excluded. Neu
 ## Execution checkpoint — 2026-10-30
 
 All 60 improvements remain in the acceptance ledger. Product implementations
-and acceptance fixtures are present. The corrected full combined native sequence
-has passed Linux, but full platform qualification remains incomplete. Source
-review, executed CI and physical artist qualification remain separate. The
-following published checkpoints used edition `dc2592a1e86319c1f9e5334b41f0cdf99c485b36`;
-#120 and #118 were updated at 19:58 UTC. Integration of the newer baseline above
-requires its own exact-head checks; earlier results do not qualify that merge.
+and acceptance fixtures are present; full platform qualification remains
+incomplete. The following published checkpoints integrate the current `d510cf0`
+baseline. Source review, executed CI and physical artist qualification remain
+separate; new diagnostic changes require their own exact-head checks.
 
 | PR | Owned items | Published checkpoint head |
 |---|---|---|
-| #116 Function Editor and shared native safety | 1–18 | `6dddd7eaf2bc09f3a915967967fb57b0c328b926` |
-| #117 Animation workflow and reliability | 53–58 | `3608cb1f0b342b33a5677f462880c85bf7ce2a6f` |
-| #119 Scene Cast | 37–52 | `e979d684e453cdb8e8d4bddd686d1b768f674c6b` |
-| #120 Vector editing | 19–36 | `abf80f6554900bd5503a936ffb61cab469eb231c` |
-| #118 Performance/cache and combined acceptance | 59–60 and combined gates | `30363faaff8dcdb90fb6aed08385f008214804ae` |
+| #116 Function Editor and shared native safety | 1–18 | `7285dc93ca16966252c78035542141296fa56128` |
+| #117 Animation workflow and reliability | 53–58 | `c5d5a46cc3e3b3771ddc3259767e69fec0617bea` |
+| #119 Scene Cast | 37–52 | `d0b43bd92b1967a574787d7fba16613c0605db85` |
+| #120 Vector editing | 19–36 | `304715903ceb023493db0355690f6b1d963bcccc` |
+| #118 Performance/cache and combined acceptance | 59–60 and combined gates | `b2a57a326b3a5e07677258a695b97fa60982d428` |
 
-All five recorded heads passed Linux main and installed-package jobs. Installed
-checks launch the extracted package's native SeExpr/neural smoke fixtures; they
-do not repeat every artist workflow. #116 and #119 also passed macOS native
-application, UI and reliability gates. #117 passed Windows native UI and
-application integration. Those partial platform results do not qualify the
-remaining package/platform gates, and earlier green revisions do not qualify
-the newer baseline merge.
+All five recorded heads passed Linux main and installed-package jobs and the
+separate SeExpr/neural checks. Windows main and installed jobs passed for #116,
+#117, #119 and #120. macOS main and installed jobs passed for #119 and #118;
+#118's original isolated timing process also exited zero with all terminal and
+worker-retirement markers. #116 also passed its macOS main and installed jobs.
+Installed checks launch the
+extracted package's native SeExpr/neural smoke fixtures; they do not repeat
+every artist workflow.
+
+Two original process failures remain unexplained. #118 Windows exited
+`0xC0000409` after the second gradient-owner activation; that status alone does
+not identify the fast-fail reason. PID-based cleanup returned 128 after the
+root exited, so descendants remained uncertain, temporary Mesa files were
+retained, and further diagnostic launches were blocked. #117 macOS exited
+SIGSEGV (`-11`) at native fixture-dialog teardown. Its independent reviewed-clear
+process passed, but its older reporter incorrectly chose that pass as the error
+headline. Neither original crash has a captured stack or a proven product/fixture
+cause. Source review and added phase checkpoints do not constitute a fix.
+[Windows failure](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/41124299875),
+[macOS failure](https://github.com/OpenAnimationLibrary/groundzero/actions/runs/41124301182).
+
+Separately, #120's macOS native main and actual installed smoke passed, then the
+diagnostic artifact service timed out with `ETIMEDOUT`. A bounded retry now
+addresses delivery; persistent upload failure still fails the job. The shared
+native runner gains atomic Windows job containment, original-process dump/report
+collection and focused contracts. Original statuses, mandatory terminal cases,
+resource-retirement gates, and all drawing/undo assertions remain authoritative.
+These changes await supported CI; no local builds or tests ran.
+
+The following earlier results remain historical evidence for their named heads.
 
 Combined Linux at `30363faaf` passed the original full native sequence,
 including the exact Filmstrip PLI-reload oracle, repeated viewport teardown,
