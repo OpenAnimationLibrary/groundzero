@@ -11,6 +11,12 @@ name: No PII
 # (an e-mail address, a link in a commit or in a file) still fails.
 
 on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Pull request to scan at this branch commit
+        required: true
+        type: number
   pull_request:
     types: [opened, edited, reopened, synchronize]
 
@@ -21,20 +27,38 @@ permissions:
 jobs:
   scan:
     runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
+      EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
-      - name: Remove session links from the description
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_BODY: ${{ github.event.pull_request.body }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          SAME_REPO: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+      - name: Read pull request metadata
         run: |
           mkdir -p "$RUNNER_TEMP/pii"
-          printf '%s' "$PR_BODY" > "$RUNNER_TEMP/pii/body"
+          gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" > "$RUNNER_TEMP/pii/pull-request.json"
+          python3 - <<'PYCODE'
+          import json, os, pathlib
+          root = pathlib.Path(os.environ["RUNNER_TEMP"]) / "pii"
+          pr = json.loads((root / "pull-request.json").read_text())
+          if pr["head"]["sha"] != os.environ["EXPECTED_HEAD"]:
+              raise SystemExit("The pull request head changed; scan its current commit")
+          for name, value in {
+              "body": pr.get("body") or "",
+              "title": pr["title"],
+              "base": pr["base"]["sha"],
+              "head": pr["head"]["sha"],
+              "same-repo": str(pr["head"]["repo"]["full_name"] == os.environ["GITHUB_REPOSITORY"]).lower(),
+          }.items():
+              (root / name).write_text(value, encoding="utf-8")
+          PYCODE
+
+      - name: Remove session links from the description
+        run: |
+          SAME_REPO="$(cat "$RUNNER_TEMP/pii/same-repo")"
           python3 ci-scripts/no_pii.py clean < "$RUNNER_TEMP/pii/body" > "$RUNNER_TEMP/pii/cleaned"
           if cmp -s "$RUNNER_TEMP/pii/body" "$RUNNER_TEMP/pii/cleaned"; then exit 0; fi
           # A fork's token cannot edit the pull request: the scan then fails
@@ -47,13 +71,11 @@ jobs:
           fi
 
       - name: Scan pull request
-        env:
-          PR_TITLE: ${{ github.event.pull_request.title }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           cd "$RUNNER_TEMP/pii"
-          { printf '%s\n\n' "$PR_TITLE"; cat body; echo; } > description
+          BASE_SHA="$(cat base)"
+          HEAD_SHA="$(cat head)"
+          { cat title; echo; cat body; echo; } > description
           git -C "$GITHUB_WORKSPACE" log --format='%B' "$BASE_SHA..$HEAD_SHA" > commit-messages
           git -C "$GITHUB_WORKSPACE" diff --no-color -U0 "$BASE_SHA...$HEAD_SHA" |
             grep '^+' | grep -v '^+++' | cut -c2- > added-lines || true

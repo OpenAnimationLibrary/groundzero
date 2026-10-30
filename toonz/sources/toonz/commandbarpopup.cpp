@@ -1,5 +1,6 @@
 
 
+#include "toonzqt/uitranslations.h"
 #include "commandbarpopup.h"
 
 // Tnz includes
@@ -152,7 +153,7 @@ CommandListTree::CommandListTree(const QString& dropTargetString,
 
   if (withSeparator) {
     SeparatorItem* sep = new SeparatorItem(nullptr);
-    sep->setToolTip(0, QObject::tr("[Drag&Drop] to copy separator to %1")
+    sep->setToolTip(0, UiTranslations::text(QObject::tr("[Drag&Drop] to copy separator to %1"))
                            .arg(m_dropTargetString));
     addTopLevelItem(sep);
   }
@@ -268,7 +269,7 @@ QTreeWidgetItem* CommandListTree::addFolder(const QString& title,
     }
 
     CommandItem* item = new CommandItem(folder, action);
-    item->setToolTip(0, QObject::tr("[Drag&Drop] to copy command to %1")
+    item->setToolTip(0, UiTranslations::text(QObject::tr("[Drag&Drop] to copy command to %1"))
                             .arg(m_dropTargetString));
   }
   return folder;
@@ -590,7 +591,7 @@ void CommandBarTree::contextMenuEvent(QContextMenuEvent* event) {
 
   if (item) {
     QAction* removeAction =
-        menu.addAction(tr("Remove \"%1\"").arg(item->text(0)));
+        menu.addAction(UiTranslations::text(tr("Remove \"%1\"")).arg(item->text(0)));
     connect(removeAction, &QAction::triggered, this,
             &CommandBarTree::removeItem);
   }

@@ -21,6 +21,7 @@
 #include "toonzqt/planeviewer.h"
 #include "toonzqt/framenavigator.h"
 #include "toonzqt/imageutils.h"
+#include "toonzqt/uitranslations.h"
 
 // TnzLib includes
 #include "toonz/txsheet.h"
@@ -58,6 +59,7 @@
 #include <QToolBar>
 #include <QMessageBox>
 #include <QDesktopServices>
+#include <QSignalBlocker>
 
 using namespace SelectionUtils;
 
@@ -210,6 +212,11 @@ ExportLevelPopup::ExportLevelPopup()
 
   tabBar->addTab(tr("File Browser"));
   tabBar->addTab(tr("Export Options"));
+  UiTranslations::onLanguageChanged(tabBar, [tabBar]() {
+    QSignalBlocker blocker(tabBar);
+    tabBar->setTabText(0, ExportLevelPopup::tr("File Browser"));
+    tabBar->setTabText(1, ExportLevelPopup::tr("Export Options"));
+  });
 
   tabBar->setDrawBase(false);
   tabBar->setExpanding(false);
@@ -558,14 +565,16 @@ void ExportLevelPopup::updateOnSelection() {
     m_nameField->clear();
     return;
   case 1:
-    setWindowTitle(tr("Export Level: %1 Level Selected").arg("1"));
+    setWindowTitle(UiTranslations::text(tr("Export Level: %1 Level Selected"))
+                       .arg("1"));
     m_nameField->setEnabled(true);
     m_nameField->setText(
         QString::fromStdWString(outputLevels.back()->getName()));
     break;
   default:
     setWindowTitle(
-        tr("Export Level: %1 Level Selected").arg(outputLevels.size()));
+        UiTranslations::text(tr("Export Level: %1 Level Selected"))
+            .arg(outputLevels.size()));
     m_nameField->clear();
     m_nameField->setEnabled(false);
   }
@@ -783,6 +792,11 @@ ExportLevelPopup::ExportOptions::ExportOptions(QWidget *parent)
 
       DVGui::Separator *vectorCameraBoxSeparator = new DVGui::Separator;
       vectorCameraBoxSeparator->setName(tr("Vectors Export Box"));
+      UiTranslations::onLanguageChanged(vectorCameraBoxSeparator,
+          [vectorCameraBoxSeparator]() {
+        vectorCameraBoxSeparator->setName(ExportOptions::tr("Vectors Export Box"));
+        vectorCameraBoxSeparator->update();
+      });
       layout->addWidget(vectorCameraBoxSeparator, row++, 0, 1, 4);
 
       QGridLayout *exportBoxLayout = new QGridLayout;
@@ -836,6 +850,11 @@ ExportLevelPopup::ExportOptions::ExportOptions(QWidget *parent)
 
       DVGui::Separator *vectorThicknessSeparator = new DVGui::Separator;
       vectorThicknessSeparator->setName(tr("Vectors Thickness"));
+      UiTranslations::onLanguageChanged(vectorThicknessSeparator,
+          [vectorThicknessSeparator]() {
+        vectorThicknessSeparator->setName(ExportOptions::tr("Vectors Thickness"));
+        vectorThicknessSeparator->update();
+      });
       layout->addWidget(vectorThicknessSeparator, row++, 0, 1, 4);
 
       QGridLayout *thicknessLayout = new QGridLayout;
@@ -852,6 +871,7 @@ ExportLevelPopup::ExportOptions::ExportOptions(QWidget *parent)
           m_thicknessTransformMode->addItems(
               QStringList() << tr("Scale Thickness") << tr("Add Thickness")
                             << tr("Constant Thickness"));
+          UiTranslations::watchCombo(m_thicknessTransformMode);
 
           thicknessModeLayout->addStretch(1);
         }
@@ -959,6 +979,7 @@ ExportLevelPopup::ExportOptions::ExportOptions(QWidget *parent)
 
   updateCameraDefault();  // Default values must be available even
                           // if the widget has not yet been shown
+  UiTranslations::onLanguageChanged(this, [this]() { updateDpi(); });
 }
 
 //-----------------------------------------------------------------------------

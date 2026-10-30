@@ -1,3 +1,4 @@
+#include "toonzqt/uitranslations.h"
 #include "librarycommand.h"
 
 // Tnz6 includes
@@ -349,9 +350,9 @@ bool LibraryCmd::askItemName(const QString &title, const QString &defaultName,
     return true;
 
   QString question =
-      QObject::tr(
+      UiTranslations::text(QObject::tr(
           "The Library already has an item named %1.\nDo you want to "
-          "overwrite it, or to keep both and save this one with a new name?")
+          "overwrite it, or to keep both and save this one with a new name?"))
           .arg(name);
   int ret = DVGui::MsgBox(question, QObject::tr("Overwrite"),
                           QObject::tr("Keep Both"), QObject::tr("Cancel"), 0);
@@ -401,7 +402,7 @@ bool LibraryCmd::saveSymbolToLibrary(TXshChildLevel *symbol) {
   TXsheet *childXsh  = symbol->getXsheet();
   QString symbolName = QString::fromStdWString(symbol->getName());
   if (childXsh->getFrameCount() <= 0) {
-    DVGui::warning(QObject::tr("The symbol %1 is empty.").arg(symbolName));
+    DVGui::warning(UiTranslations::text(QObject::tr("The symbol %1 is empty.")).arg(symbolName));
     return false;
   }
 
@@ -463,13 +464,13 @@ bool LibraryCmd::savePoseSet() {
   TFilePath path   = getItemPath(folder, name, extension);
   bool overwritten = TFileStatus(path).doesExist();
   if (!writePoseSet(path, *poseLibrary)) {
-    DVGui::warning(QObject::tr("Couldn't save %1").arg(toQString(path)));
+    DVGui::warning(UiTranslations::text(QObject::tr("Couldn't save %1")).arg(toQString(path)));
     return false;
   }
   writeItemInfo(path, PoseSetKind, overwritten);
   FileBrowser::refreshFolder(folder);
 
-  DVGui::info(QObject::tr("The %1 poses of the scene have been saved to %2.")
+  DVGui::info(UiTranslations::text(QObject::tr("The %1 poses of the scene have been saved to %2."))
                   .arg(poseLibrary->getPoseCount())
                   .arg(toQString(path)));
   return true;
@@ -485,12 +486,12 @@ bool LibraryCmd::loadPoseSet(const TFilePath &path) {
   PoseLibrary incoming;
   if (!readPoseSet(path, incoming)) {
     DVGui::warning(
-        QObject::tr("The pose set %1 could not be read.").arg(toQString(path)));
+        UiTranslations::text(QObject::tr("The pose set %1 could not be read.")).arg(toQString(path)));
     return false;
   }
   if (incoming.getPoseCount() == 0) {
     DVGui::warning(
-        QObject::tr("The pose set %1 has no poses.").arg(getItemName(path)));
+        UiTranslations::text(QObject::tr("The pose set %1 has no poses.")).arg(getItemName(path)));
     return false;
   }
 
@@ -519,10 +520,10 @@ bool LibraryCmd::loadPoseSet(const TFilePath &path) {
       if (pairs[i] >= 0 && !names.contains(name)) names.append(name);
     }
     QString question =
-        QObject::tr(
+        UiTranslations::text(QObject::tr(
             "These poses of the set have the same names as poses of the "
             "scene:\n%1\n\nDo you want to replace the poses of the scene with "
-            "them? This cannot be undone.")
+            "them? This cannot be undone."))
             .arg(names.join(", "));
     int ret = DVGui::MsgBox(question, QObject::tr("Replace"),
                             QObject::tr("Keep the Scene Poses"),
@@ -550,7 +551,7 @@ bool LibraryCmd::loadPoseSet(const TFilePath &path) {
   PoseLibraryNotifier::instance()->notifyChanged();
 
   int addedCount = (int)incomingPoses.size() - pairedCount;
-  DVGui::info(QObject::tr("Pose set %1: %2 poses added, %3 replaced, %4 kept.")
+  DVGui::info(UiTranslations::text(QObject::tr("Pose set %1: %2 poses added, %3 replaced, %4 kept."))
                   .arg(getItemName(path))
                   .arg(addedCount)
                   .arg(replace ? pairedCount : 0)
@@ -569,7 +570,7 @@ bool LibraryCmd::renameItem(const TFilePath &itemPath, const QString &newName) {
   QString oldName = getItemName(itemPath);
   if (name == oldName) return true;
   if (!QFile::exists(itemPath.getQString())) {
-    DVGui::warning(QObject::tr("The library item %1 does not exist anymore.")
+    DVGui::warning(UiTranslations::text(QObject::tr("The library item %1 does not exist anymore."))
                        .arg(oldName));
     return false;
   }
@@ -583,7 +584,7 @@ bool LibraryCmd::renameItem(const TFilePath &itemPath, const QString &newName) {
                   LibraryItems::foldCase(oldName.toStdWString());
   if (!sameFile && QFile::exists(newPath.getQString())) {
     DVGui::warning(
-        QObject::tr("The Library already has an item named %1.").arg(name));
+        UiTranslations::text(QObject::tr("The Library already has an item named %1.")).arg(name));
     return false;
   }
 
@@ -600,7 +601,7 @@ bool LibraryCmd::renameItem(const TFilePath &itemPath, const QString &newName) {
   }
 
   if (!QFile::rename(itemPath.getQString(), newPath.getQString())) {
-    DVGui::warning(QObject::tr("Couldn't rename %1 to %2.")
+    DVGui::warning(UiTranslations::text(QObject::tr("Couldn't rename %1 to %2."))
                        .arg(toQString(itemPath))
                        .arg(toQString(newPath)));
     return false;
@@ -627,7 +628,7 @@ bool LibraryCmd::deleteItem(const TFilePath &itemPath) {
   if (templ) levelFolder = getUsedLevelFolder(itemPath);
 
   if (!removeFileIfAny(itemPath)) {
-    DVGui::warning(QObject::tr("Couldn't delete %1.").arg(toQString(itemPath)));
+    DVGui::warning(UiTranslations::text(QObject::tr("Couldn't delete %1.")).arg(toQString(itemPath)));
     return false;
   }
   removeFileIfAny(getItemInfoPath(itemPath));
@@ -648,8 +649,8 @@ bool LibraryCmd::deleteItem(const TFilePath &itemPath) {
         TSystem::rmDirTree(levelDir);
       } catch (...) {
         DVGui::warning(
-            QObject::tr("The level files of the item could not be deleted "
-                        "from %1.")
+            UiTranslations::text(QObject::tr("The level files of the item could not be deleted "
+                        "from %1."))
                 .arg(toQString(levelDir)));
       }
     }

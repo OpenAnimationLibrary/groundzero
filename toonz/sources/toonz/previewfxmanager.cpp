@@ -1,6 +1,7 @@
 
 
 // System-core includes
+#include "toonzqt/uitranslations.h"
 #include "tsystem.h"  //Processors count
 #include "timagecache.h"
 #include "tw/stringtable.h"
@@ -496,7 +497,7 @@ void PreviewFxInstance::addFlipbook(FlipBook *&flipbook) {
         /*"Rendered Frames  ::  From " + QString::number(m_start+1) +
             " To " + QString::number(m_end+1) +
      "  ::  Step " + QString::number(m_step)*/
-        QObject::tr("Rendered Frames  ::  From %1 To %2  ::  Step %3")
+        UiTranslations::text(QObject::tr("Rendered Frames  ::  From %1 To %2  ::  Step %3"))
             .arg(QString::number(m_start + 1))
             .arg(QString::number(m_end + 1))
             .arg(QString::number(m_step)));
@@ -509,7 +510,7 @@ void PreviewFxInstance::addFlipbook(FlipBook *&flipbook) {
 
   } else
     flipbook->setTitle(
-        QObject::tr("Preview FX :: %1 ").arg(QString::fromStdWString(fxId)));
+        UiTranslations::text(QObject::tr("Preview FX :: %1 ")).arg(QString::fromStdWString(fxId)));
 
   // In case the render is a full preview, add the soundtrack
 
@@ -639,7 +640,7 @@ void PreviewFxInstance::updateFlipbookTitles() {
           /*"Rendered Frames  ::  From " + QString::number(start) +
         " To " + QString::number(end) +
  "  ::  Step " + QString::number(m_step)*/
-          QObject::tr("Rendered Frames  ::  From %1 To %2  ::  Step %3")
+          UiTranslations::text(QObject::tr("Rendered Frames  ::  From %1 To %2  ::  Step %3"))
               .arg(QString::number(start))
               .arg(QString::number(end))
               .arg(QString::number(m_step)));

@@ -1,5 +1,6 @@
 
 
+#include "toonzqt/uitranslations.h"
 #include "svnlockframerangedialog.h"
 
 // Tnz6 includes
@@ -175,7 +176,7 @@ void SVNLockFrameRangeDialog::onPropGetDone(const QString &xmlResponse) {
       for (int i = 0; i < m_lockInfos.size(); i++) {
         if (i != 0) temp.append("\n\n");
         SVNPartialLockInfo lock = m_lockInfos.at(i);
-        temp.append(tr("%1 on %2 is editing frames from %3 to %4.")
+        temp.append(UiTranslations::text(tr("%1 on %2 is editing frames from %3 to %4."))
                         .arg(lock.m_userName)
                         .arg(lock.m_hostName)
                         .arg(lock.m_from)
@@ -514,7 +515,7 @@ void SVNLockMultiFrameRangeDialog::onStatusRetrieved(
     for (int i = 0; i < m_lockInfos.size(); i++) {
       if (i != 0) temp.append("\n\n");
       SVNPartialLockInfo lock = m_lockInfos.at(i);
-      temp.append(tr("%1 is editing frames from %2 to %3")
+      temp.append(UiTranslations::text(tr("%1 is editing frames from %2 to %3"))
                       .arg(lock.m_userName)
                       .arg(lock.m_from)
                       .arg(lock.m_to));
@@ -589,7 +590,7 @@ void SVNLockMultiFrameRangeDialog::onLockButtonClicked() {
   m_commentLabel->hide();
   m_commentTextEdit->hide();
 
-  m_textLabel->setText(tr("Editing %1 items...").arg(m_filesToLock.size()));
+  m_textLabel->setText(UiTranslations::text(tr("Editing %1 items...")).arg(m_filesToLock.size()));
 
   QStringList args;
   args << "lock";
@@ -932,7 +933,7 @@ void SVNUnlockMultiFrameRangeDialog::onUnlockButtonClicked() {
 
   int fileCount = m_filesToUnlock.size();
 
-  m_textLabel->setText(tr("Unlocking %1 items...").arg(fileCount));
+  m_textLabel->setText(UiTranslations::text(tr("Unlocking %1 items...")).arg(fileCount));
 
   QStringList args;
   args << "unlock";
@@ -969,7 +970,7 @@ void SVNUnlockMultiFrameRangeDialog::onStatusRetrieved(
     switchToCloseButton();
   } else {
     m_waitingLabel->hide();
-    m_textLabel->setText(tr("%1 items to unlock.").arg(filesToUnlockCount));
+    m_textLabel->setText(UiTranslations::text(tr("%1 items to unlock.")).arg(filesToUnlockCount));
     m_unlockButton->show();
   }
 }
@@ -1091,7 +1092,7 @@ void SVNFrameRangeLockInfoDialog::onPropGetDone(const QString &xmlResponse) {
       for (int i = 0; i < lockInfos.size(); i++) {
         if (i != 0) temp.append("\n\n");
         SVNPartialLockInfo lock = lockInfos.at(i);
-        temp.append(tr("%1 on %2 is editing frames from %3 to %4.")
+        temp.append(UiTranslations::text(tr("%1 on %2 is editing frames from %3 to %4."))
                         .arg(lock.m_userName)
                         .arg(lock.m_hostName)
                         .arg(lock.m_from)
@@ -1204,7 +1205,7 @@ void SVNMultiFrameRangeLockInfoDialog::onStatusRetrieved(
     for (int i = 0; i < lockInfos.size(); i++) {
       if (i != 0) temp.append("\n\n");
       SVNPartialLockInfo lock = lockInfos.at(i);
-      temp.append(tr("%1 is editing frames from %2 to %3")
+      temp.append(UiTranslations::text(tr("%1 is editing frames from %2 to %3"))
                       .arg(lock.m_userName)
                       .arg(lock.m_from)
                       .arg(lock.m_to));

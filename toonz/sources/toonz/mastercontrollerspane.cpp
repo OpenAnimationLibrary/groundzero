@@ -1,3 +1,4 @@
+#include "toonzqt/uitranslations.h"
 #include "mastercontrollerspane.h"
 
 // Tnz6 includes
@@ -555,6 +556,7 @@ void MasterControllersPane::rebuild() {
     QWidget *row           = new QWidget(this);
     QLabel *nameLabel      = new QLabel(shortName, row);
     QComboBox *modeCombo         = new QComboBox(row);
+    UiTranslations::watchCombo(modeCombo);
     QSlider *slider        = new QSlider(Qt::Horizontal, row);
     QDoubleSpinBox *field  = new QDoubleSpinBox(row);
     QPushButton *keyButton = new QPushButton(tr("Key"), row);
@@ -563,7 +565,7 @@ void MasterControllersPane::rebuild() {
     QWidget *padYBox             = new QWidget(row);
     QComboBox *padYCombo         = new QComboBox(padYBox);
 
-    nameLabel->setToolTip(tr("%1\nReference it in expressions as %2")
+    nameLabel->setToolTip(UiTranslations::text(tr("%1\nReference it in expressions as %2"))
                               .arg(name)
                               .arg(getControllerRef(id)));
     modeCombo->addItem(tr("Slider"));
@@ -881,7 +883,7 @@ void MasterControllersPane::onNewController() {
     if (QString::fromStdString(controller.second)
             .compare(name, Qt::CaseInsensitive) == 0) {
       DVGui::warning(
-          tr("A master controller named %1 already exists.").arg(name));
+          UiTranslations::text(tr("A master controller named %1 already exists.")).arg(name));
       return;
     }
   }
@@ -895,7 +897,7 @@ void MasterControllersPane::onNewController() {
 
   // The controller is an unparented pegbar with no children: it moves
   // nothing on its own.
-  QString undoName = tr("New Master Controller  %1").arg(name);
+  QString undoName = UiTranslations::text(tr("New Master Controller  %1")).arg(name);
   beginUndoBlock(undoName);
   TStageObjectCmd::addNewPegbar(xshHandle, app->getCurrentObject());
   TStageObjectCmd::rename(id, name.toStdString(), xshHandle);
@@ -967,8 +969,8 @@ void MasterControllersPane::onBindChannel() {
   formLayout->addRow(tr("Expression:"), expressionLabel);
 
   QLabel *noteLabel = new QLabel(
-      tr("The expression replaces the interpolation of every segment of the "
-         "channel over the scene frames. The result is read in %1.")
+      UiTranslations::text(tr("The expression replaces the interpolation of every segment of the "
+         "channel over the scene frames. The result is read in %1."))
           .arg(unitName.empty() ? tr("the channel's unit")
                                 : QString::fromStdString(unitName)),
       &dialog);
@@ -1024,7 +1026,7 @@ void MasterControllersPane::onBindChannel() {
   }
 
   QString undoName =
-      tr("Bind to Master Controller  %1")
+      UiTranslations::text(tr("Bind to Master Controller  %1"))
           .arg(QString::fromStdString(controllers[index].second));
   beginUndoBlock(undoName);
   bindCurveToExpression(curve, text, unitName);
@@ -1149,7 +1151,7 @@ void MasterControllersPane::bindPoses(const TStageObjectId &preselected) {
   TStageObjectTree *tree   = xsh->getStageObjectTree();
 
   QString undoName =
-      tr("Bind Poses to Master Controller  %1").arg(controllerName);
+      UiTranslations::text(tr("Bind Poses to Master Controller  %1")).arg(controllerName);
   beginUndoBlock(undoName);
   // Start from new layers, on every object any of the poses changes
   for (const TStageObjectId &id : ids) {
@@ -1237,7 +1239,7 @@ void MasterControllersPane::onBakeDrawingSwap() {
     TStageObject *obj =
         xsh->getStageObject(TStageObjectId::ColumnId(info.m_index));
     columnCombo->addItem(
-        tr("%1 (%2, %3 drawings)")
+        UiTranslations::text(tr("%1 (%2, %3 drawings)"))
             .arg(QString::fromStdString(obj->getName()))
             .arg(QString::fromStdWString(info.m_level->getName()))
             .arg((int)info.m_fids.size()));
@@ -1251,12 +1253,12 @@ void MasterControllersPane::onBakeDrawingSwap() {
   formLayout->addRow(tr("Column:"), columnCombo);
 
   QLabel *noteLabel = new QLabel(
-      tr("No channel can select the drawing of a column, so the cells of the "
+      UiTranslations::text(tr("No channel can select the drawing of a column, so the cells of the "
          "column are written once for the frames 1 to %1 of the scene: the "
          "drawing number is round(value * (n - 1)) of the n drawings of the "
          "level, in their order, with the value of the controller limited to "
          "0..1. The existing cells of these frames are replaced. Bake again "
-         "after changing the controller.")
+         "after changing the controller."))
           .arg(frameCount),
       &dialog);
   noteLabel->setWordWrap(true);
@@ -1299,7 +1301,7 @@ void MasterControllersPane::onBakeDrawingSwap() {
   if (!changed) return;
 
   QString undoName =
-      tr("Bake Drawing Swap  %1")
+      UiTranslations::text(tr("Bake Drawing Swap  %1"))
           .arg(QString::fromStdString(controllers[controllerIndex].second));
   beginUndoBlock(undoName);
   BakeDrawingSwapUndo *undo =

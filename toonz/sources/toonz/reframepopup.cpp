@@ -1,3 +1,4 @@
+#include "toonzqt/uitranslations.h"
 #include "reframepopup.h"
 
 // Tnz includes
@@ -82,7 +83,7 @@ ReframePopup::ReframePopup()
 
 void ReframePopup::updateBlankCellCount() {
   int blankCellCount = m_step->getValue() * m_blank->getValue();
-  m_blankCellCountLbl->setText(tr("(%1 blank cells will be inserted.)")
+  m_blankCellCountLbl->setText(UiTranslations::text(tr("(%1 blank cells will be inserted.)"))
                                    .arg(QString::number(blankCellCount)));
   m_blankCellCountContainer->setVisible(m_blankFieldContainer->isVisible() &&
                                         blankCellCount != 0);

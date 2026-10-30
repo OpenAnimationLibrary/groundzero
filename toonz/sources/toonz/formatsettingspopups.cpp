@@ -1,6 +1,7 @@
 
 
 #include "formatsettingspopups.h"
+#include "toonzqt/uitranslations.h"
 
 // Tnz6 includes
 #include "tapp.h"
@@ -36,6 +37,24 @@
 #include <QGroupBox>
 
 namespace {
+void translatePropertyCaptions(TPropertyGroup *properties) {
+  if (!properties) return;
+  for (int index = 0; index < properties->getPropertyCount(); ++index) {
+    TProperty *property = properties->getProperty(index);
+    if (!property) continue;
+    if (auto translate = UiTranslations::recipe(property->getQStringName()))
+      property->setQStringName(UiTranslations::remember(translate(), translate));
+    if (auto *choice = dynamic_cast<TEnumProperty *>(property)) {
+      const auto range = choice->getRange();
+      const auto items = choice->getItems();
+      for (int item = 0; item < int(range.size()) && item < int(items.size()); ++item)
+        if (auto translate = UiTranslations::recipe(items[item].UIName))
+          choice->setItemUIName(range[item],
+              UiTranslations::remember(translate(), translate));
+    }
+  }
+}
+
 bool checkForSeqNum(QString type) {
   TFileType::Type typeInfo = TFileType::getInfoFromExtension(type);
   if ((typeInfo & TFileType::IMAGE) && !(typeInfo & TFileType::LEVEL))
@@ -65,6 +84,12 @@ FormatSettingsPopup::FormatSettingsPopup(QWidget *parent,
     , m_sepCharCB(nullptr)
     , m_paddingCB(nullptr)
     , m_tmplFId(tmplFrameId) {
+  translatePropertyCaptions(m_props);
+  UiTranslations::onLanguageChanged(this, [this]() {
+    // Writer option groups are clones owned by the output/scene settings.
+    // Refresh presentation metadata without changing values or rebuilding fields.
+    translatePropertyCaptions(m_props);
+  });
   setWindowTitle(tr("File Settings"));
 
   setWindowFlags(Qt::Dialog | Qt::WindowStaysOnTopHint);
@@ -182,6 +207,7 @@ void FormatSettingsPopup::setFormatProperties(TPropertyGroup *props) {
   if (props == m_props) return;
 
   m_props = props;
+  translatePropertyCaptions(m_props);
 
   for (int i = 0; i < m_props->getPropertyCount(); i++) {
     if (TProperty *prop = m_props->getProperty(i))
@@ -198,6 +224,7 @@ void FormatSettingsPopup::buildPropertyComboBox(int index,
   assert(prop);
 
   DVGui::PropertyComboBox *comboBox = new DVGui::PropertyComboBox(this, prop);
+  UiTranslations::watchCombo(comboBox);
   m_widgets[prop->getName()]        = comboBox;
 
 #ifdef _WIN32
@@ -227,7 +254,7 @@ break;*/
   if (currIndex >= 0) comboBox->setCurrentIndex(currIndex);
 
   int row = m_mainLayout->rowCount();
-  m_mainLayout->addWidget(new QLabel(prop->getQStringName() + ":", this), row,
+  m_mainLayout->addWidget(new QLabel(UiTranslations::text(prop->getQStringName()).appended(":"), this), row,
                           0, Qt::AlignRight | Qt::AlignVCenter);
   m_mainLayout->addWidget(comboBox, row, 1);
 
@@ -246,7 +273,7 @@ void FormatSettingsPopup::buildValueField(int index, TPropertyGroup *props) {
   m_widgets[prop->getName()] = v;
 
   int row = m_mainLayout->rowCount();
-  m_mainLayout->addWidget(new QLabel(prop->getQStringName() + ":", this), row,
+  m_mainLayout->addWidget(new QLabel(UiTranslations::text(prop->getQStringName()).appended(":"), this), row,
                           0, Qt::AlignRight | Qt::AlignVCenter);
   m_mainLayout->addWidget(v, row, 1);
   // get value here - bug loses value if the range doesn't start with 0
@@ -268,7 +295,7 @@ void FormatSettingsPopup::buildDoubleField(int index, TPropertyGroup *props) {
   m_widgets[prop->getName()]    = v;
 
   int row = m_mainLayout->rowCount();
-  m_mainLayout->addWidget(new QLabel(prop->getQStringName() + ":", this), row,
+  m_mainLayout->addWidget(new QLabel(UiTranslations::text(prop->getQStringName()).appended(":"), this), row,
                           0, Qt::AlignRight | Qt::AlignVCenter);
   m_mainLayout->addWidget(v, row, 1);
   // get value here - bug loses value if the range doesn't start with 0
@@ -308,7 +335,7 @@ void FormatSettingsPopup::buildPropertyLineEdit(int index,
   lineEdit->setText(tr(::to_string(prop->getValue()).c_str()));
 
   int row = m_mainLayout->rowCount();
-  m_mainLayout->addWidget(new QLabel(prop->getQStringName() + ":", this), row,
+  m_mainLayout->addWidget(new QLabel(UiTranslations::text(prop->getQStringName()).appended(":"), this), row,
                           0, Qt::AlignRight | Qt::AlignVCenter);
   m_mainLayout->addWidget(lineEdit, row, 1);
 }

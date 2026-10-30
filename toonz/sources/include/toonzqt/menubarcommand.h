@@ -199,6 +199,7 @@ public:
 
   // load user defined shortcuts
   void loadShortcuts();
+  void retranslate();
 };
 
 //-----------------------------------------------------------------------------

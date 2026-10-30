@@ -1,4 +1,5 @@
 #include "custompanelmanager.h"
+#include "toonzqt/uitranslations.h"
 
 #include "menubarcommandids.h"
 #include "floatingpanelcommand.h"
@@ -275,7 +276,7 @@ TPanel* CustomPanelManager::createCustomPanel(const QString panelName,
 
   initializeControl(customWidget);
 
-  panel->setWindowTitle(
+  UiTranslations::setLiteral(panel, "windowTitle",
       QFileInfo(customPanelsFp.getQString()).completeBaseName());
   panel->setWidget(customWidget);
 

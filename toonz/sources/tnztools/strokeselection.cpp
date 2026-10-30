@@ -1,5 +1,6 @@
 
 
+#include "toonzqt/uitranslations.h"
 #include "tools/strokeselection.h"
 #include "vectorselectiontool.h"
 #include "toonz/tcolumnhandle.h"
@@ -453,8 +454,8 @@ public:
   ~OrderStrokesUndo() {}
 
   QString getHistoryString() {
-    return QObject::tr(
-               "Sort Vector Strokes With Palette Order Level : %1 Frame : %2")
+    return UiTranslations::text(QObject::tr(
+               "Sort Vector Strokes With Palette Order Level : %1 Frame : %2"))
         .arg(QString::fromStdWString(m_level->getName()))
         .arg(m_frameId.getNumber());
   }
@@ -976,9 +977,9 @@ void StrokeSelection::pairStrokesForInbetween() {
     data.m_markedImage = m_vi.getPointer();
     data.m_markedIds   = ids;
     DVGui::info(
-        QObject::tr("%1 stroke(s) marked for Inbetween. Select the matching "
+        UiTranslations::text(QObject::tr("%1 stroke(s) marked for Inbetween. Select the matching "
                     "strokes in the other key drawing, in the same order, "
-                    "and use Pair Strokes for Inbetween again.")
+                    "and use Pair Strokes for Inbetween again."))
             .arg((int)ids.size()));
     return;
   }
@@ -986,8 +987,8 @@ void StrokeSelection::pairStrokesForInbetween() {
   // second step: pair them with the strokes selected in this key drawing
   if (ids.size() != data.m_markedIds.size()) {
     DVGui::warning(
-        QObject::tr("The number of selected strokes (%1) does not match the "
-                    "number of marked strokes (%2).")
+        UiTranslations::text(QObject::tr("The number of selected strokes (%1) does not match the "
+                    "number of marked strokes (%2)."))
             .arg((int)ids.size())
             .arg((int)data.m_markedIds.size()));
     return;
@@ -1009,7 +1010,7 @@ void StrokeSelection::pairStrokesForInbetween() {
   data.m_markedIds.clear();
 
   DVGui::info(
-      QObject::tr("%1 stroke pair(s) set for Inbetween.").arg((int)ids.size()));
+      UiTranslations::text(QObject::tr("%1 stroke pair(s) set for Inbetween.")).arg((int)ids.size()));
 }
 
 //-----------------------------------------------------------------------------
@@ -1100,7 +1101,7 @@ void StrokeSelection::addInbetweenZoneHint() {
   data.m_markedImage = nullptr;
   data.m_markedRect  = TRectD();
 
-  DVGui::info(QObject::tr("%1 zone hint(s) set for Inbetween.")
+  DVGui::info(UiTranslations::text(QObject::tr("%1 zone hint(s) set for Inbetween."))
                   .arg((int)data.m_hints.size()));
 }
 
@@ -1299,9 +1300,9 @@ void StrokeSelection::saveSelectedVectors(bool chooseDestination) {
   if (TFileStatus(destination).doesExist()) {
     const QString question =
         chooseDestination
-            ? QObject::tr("The file '%1' already exists.")
+            ? UiTranslations::text(QObject::tr("The file '%1' already exists."))
                   .arg(destination.getQString())
-            : QObject::tr("The custom vector brush '%1' already exists.")
+            : UiTranslations::text(QObject::tr("The custom vector brush '%1' already exists."))
                   .arg(QString::fromStdWString(destination.getWideName()));
     const int choice =
         DVGui::MsgBox(question, QObject::tr("Overwrite"), QObject::tr("Append"),
@@ -1332,10 +1333,10 @@ void StrokeSelection::saveSelectedVectors(bool chooseDestination) {
       prepared.serializedBytes > RecommendedCustomVectorBrushBytes) {
     const TINT64 sizeInKilobytes = (prepared.serializedBytes + 1023) / 1024;
     const QString question =
-        QObject::tr(
+        UiTranslations::text(QObject::tr(
             "This custom vector brush is %1 KB, above the recommended size "
             "of 32 KB. Large vector brushes may reduce drawing and rendering "
-            "performance. Continue?")
+            "performance. Continue?"))
             .arg(sizeInKilobytes);
     if (DVGui::MsgBox(question, QObject::tr("Continue"), QObject::tr("Cancel"),
                       1, parent) != 1) {

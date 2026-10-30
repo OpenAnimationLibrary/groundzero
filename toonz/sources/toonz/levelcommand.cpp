@@ -1,4 +1,5 @@
 
+#include "toonzqt/uitranslations.h"
 #include "levelcommand.h"
 #include "toonzqt/menubarcommand.h"
 #include "menubarcommandids.h"
@@ -59,7 +60,7 @@ public:
   int getSize() const override { return sizeof *this + 100; }
 
   QString getHistoryString() override {
-    return QObject::tr("Delete Level  : %1")
+    return UiTranslations::text(QObject::tr("Delete Level  : %1"))
         .arg(QString::fromStdWString(m_xl->getName()));
   }
 };
@@ -108,7 +109,7 @@ bool LevelCmd::removeLevelFromCast(TXshLevel *level, ToonzScene *scene,
   if (scene->getChildStack()->getTopXsheet()->isLevelUsed(level)) {
     if (showMessage) {
       DVGui::error(
-          QObject::tr("It is not possible to delete the used level %1.")
+          UiTranslations::text(QObject::tr("It is not possible to delete the used level %1."))
               .arg(QString::fromStdWString(
                   level->getName())));  //"E_CantDeleteUsedLevel_%1"
     }
@@ -365,7 +366,7 @@ public:
   }
 
   QString getHistoryString() override {
-    return QObject::tr("Revert To %1  : Level %2")
+    return UiTranslations::text(QObject::tr("Revert To %1  : Level %2"))
         .arg((m_isCleanedUp) ? QString("Cleaned Up") : QString("Last Saved"))
         .arg(QString::fromStdWString(m_sl->getName()));
   }
@@ -527,7 +528,7 @@ public:
   int getSize() const override { return sizeof *this + 100; }
 
   QString getHistoryString() override {
-    return QObject::tr("Add Level to Scene Cast : %1")
+    return UiTranslations::text(QObject::tr("Add Level to Scene Cast : %1"))
         .arg(QString::fromStdWString(m_xl->getName()));
   }
 };
@@ -608,8 +609,8 @@ void LevelCmd::addMissingLevelsToCast(std::set<TXshLevel *> &levels) {
                      existingLevel,
                      TApp::instance()->getCurrentScene()->getScene(), false)) {
           DVGui::info(
-              QObject::tr("Removed unused level %1 from the scene cast. (This "
-                          "behavior can be disabled in Preferences.)")
+              UiTranslations::text(QObject::tr("Removed unused level %1 from the scene cast. (This "
+                          "behavior can be disabled in Preferences.)"))
                   .arg(QString::fromStdWString(levelName)));
           break;
         }

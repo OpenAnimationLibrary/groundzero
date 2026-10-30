@@ -1,3 +1,4 @@
+#include "toonzqt/uitranslations.h"
 #include "exportlayeredpsdpopup.h"
 
 // Tnz6 includes
@@ -406,7 +407,7 @@ void ExportLayeredPsdPopup::onExport() {
       TFilePath(m_folderField->getPath().trimmed().toStdWString()));
   if (!QDir().mkpath(folder.getQString())) {
     DVGui::error(
-        tr("Unable to create the folder %1.").arg(folder.getQString()));
+        UiTranslations::text(tr("Unable to create the folder %1.")).arg(folder.getQString()));
     return;
   }
 
@@ -414,8 +415,8 @@ void ExportLayeredPsdPopup::onExport() {
   const int r0 = m_fromField->getValue() - 1;
   const int r1 = m_toField->getValue() - 1;
   if (r0 < 0 || r1 < r0 || r1 >= xsh->getFrameCount()) {
-    DVGui::error(tr("The frame range must be inside the xsheet, which has %1 "
-                    "frames.")
+    DVGui::error(UiTranslations::text(tr("The frame range must be inside the xsheet, which has %1 "
+                    "frames."))
                      .arg(xsh->getFrameCount()));
     return;
   }
@@ -452,7 +453,7 @@ void ExportLayeredPsdPopup::onExport() {
     std::vector<QString> buttons = {tr("Cancel"), tr("Overwrite")};
     if (DVGui::MsgBox(
             DVGui::WARNING,
-            tr("%1 of the files already exist. Overwrite them?").arg(existing),
+            UiTranslations::text(tr("%1 of the files already exist. Overwrite them?")).arg(existing),
             buttons) != 2)
       return;
   }
@@ -527,7 +528,7 @@ void ExportLayeredPsdPopup::onExport() {
       }
       progress.setLabelText(
           j == 0 ? tr("Rendering the scene...")
-                 : tr("Rendering layer: %1").arg(jobs[j - 1].m_name));
+                 : UiTranslations::text(tr("Rendering layer: %1")).arg(jobs[j - 1].m_name));
       QCoreApplication::processEvents();
 
       auto *renderData = new std::vector<TRenderer::RenderData>;
@@ -582,7 +583,7 @@ void ExportLayeredPsdPopup::onExport() {
         QCoreApplication::processEvents();
       }
     } catch (const TException &e) {
-      errorMessage = tr("Unable to save the PSD file: %1")
+      errorMessage = UiTranslations::text(tr("Unable to save the PSD file: %1"))
                          .arg(QString::fromStdWString(e.getMessage()));
     }
   }
@@ -593,7 +594,7 @@ void ExportLayeredPsdPopup::onExport() {
   if (!errorMessage.isEmpty())
     DVGui::error(errorMessage);
   else if (!canceled)
-    DVGui::info(tr("%1 layered PSD file(s) exported to %2.")
+    DVGui::info(UiTranslations::text(tr("%1 layered PSD file(s) exported to %2."))
                     .arg(frameCount)
                     .arg(folder.getQString()));
 }

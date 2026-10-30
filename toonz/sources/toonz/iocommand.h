@@ -18,6 +18,7 @@
 // TnzQt includes
 #include "toonzqt/dvdialog.h"
 #include "toonzqt/imageutils.h"
+#include "toonzqt/uitranslations.h"
 
 // boost includes
 #include <boost/optional.hpp>
@@ -194,8 +195,8 @@ private:
 
 public:
   ConvertingPopup(QWidget *parent, TFilePath fp)
-      : ProgressDialog(QString(QObject::tr("Converting %1 to tlv format...")
-                                   .arg(fp.getQString())),
+      : ProgressDialog(UiTranslations::text(QObject::tr("Converting %1 to tlv format..."))
+                                   .arg(fp.getQString()),
                        "Cancel", 0, 1, parent)
       , m_path(fp) {};
   ConvertingPopup(QWidget *parent, QString str)
@@ -204,7 +205,7 @@ public:
     if (m_notifier) delete m_notifier;
   };
   void setPath(TFilePath filePath) {
-    ProgressDialog::setLabelText(QObject::tr("Converting %1 to tlv format...")
+    ProgressDialog::setLabelText(UiTranslations::text(QObject::tr("Converting %1 to tlv format..."))
                                      .arg(filePath.getQString()));
   };
   FrameTaskNotifier *getNotifier() {

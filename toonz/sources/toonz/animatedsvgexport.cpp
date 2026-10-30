@@ -1,3 +1,4 @@
+#include "toonzqt/uitranslations.h"
 #include "ocaio.h"
 
 #include "toonz/tcamera.h"
@@ -376,9 +377,9 @@ void ExportAnimatedSVGCommand::execute() {
                        xsheet->getFrameCount() * 4.0 * 4.0 / 3.0 /
                        (1024.0 * 1024.0);
   if (embedImages->isChecked() && estimatedMb >= 64.0) {
-    QString warning = QObject::tr(
+    QString warning = UiTranslations::text(QObject::tr(
                           "Embedding this animation may create an SVG as large "
-                          "as approximately %1 MB. Continue?")
+                          "as approximately %1 MB. Continue?"))
                           .arg(qRound64(estimatedMb));
     std::vector<QString> buttons = {QObject::tr("Cancel"),
                                     QObject::tr("Export")};

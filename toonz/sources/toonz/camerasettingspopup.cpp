@@ -1,6 +1,7 @@
 
 
 // Tnz6 includes
+#include "toonzqt/uitranslations.h"
 #include "menubarcommandids.h"
 #include "tapp.h"
 #include "camerasettingspopup.h"
@@ -209,7 +210,7 @@ TCamera *CameraSettingsPopup::getCamera() {
 
 void CameraSettingsPopup::updateWindowTitle() {
   if (m_cameraId.isCamera()) {
-    setWindowTitle(tr("Camera#%1 Settings")
+    setWindowTitle(UiTranslations::text(tr("Camera#%1 Settings"))
                        .arg(QString::number(1 + m_cameraId.getIndex())));
   } else {
     setWindowTitle(tr("Current Camera Settings"));

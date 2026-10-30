@@ -1,5 +1,6 @@
 
 
+#include "toonzqt/uitranslations.h"
 #include "tasksviewer.h"
 
 // Tnz6 includes
@@ -857,16 +858,19 @@ TaskSheet::TaskSheet(TasksViewer *owner) : QScrollArea(owner) {
   multimediaTypes << tr("None") << tr("Fx Schematic Flows")
                   << tr("Fx Schematic Terminal Nodes");
   m_multimedia->addItems(multimediaTypes);
+  UiTranslations::watchCombo(m_multimedia);
 
   ::create(m_threadsCombo, layout1, tr("Dedicated CPUs:"), row1++, 3);
   QStringList threadsTypes;
   threadsTypes << tr("Single") << tr("Half") << tr("All");
   m_threadsCombo->addItems(threadsTypes);
+  UiTranslations::watchCombo(m_threadsCombo);
 
   ::create(m_rasterGranularityCombo, layout1, tr("Render Tile:"), row1++, 3);
   QStringList granularityTypes;
   granularityTypes << tr("None") << tr("Large") << tr("Medium") << tr("Small");
   m_rasterGranularityCombo->addItems(granularityTypes);
+  UiTranslations::watchCombo(m_rasterGranularityCombo);
 
   layout1->addWidget(new QWidget(), 0, 5);
 
@@ -892,6 +896,7 @@ TaskSheet::TaskSheet(TasksViewer *owner) : QScrollArea(owner) {
   QStringList overwriteOptions;
   overwriteOptions << tr("All") << tr("NoPaint") << tr("Off");
   m_overwrite->addItems(overwriteOptions);
+  UiTranslations::watchCombo(m_overwrite);
   m_overwrite->setCurrentIndex(2);  // do not overwrite by default
 
   layout2->setColumnStretch(0, 0);

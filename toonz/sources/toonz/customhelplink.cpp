@@ -1,3 +1,4 @@
+#include "toonzqt/uitranslations.h"
 #include "customhelplink.h"
 
 // TnzQt includes
@@ -81,8 +82,8 @@ void open() {
   }
 
   if (url.isLocalFile() && !QFileInfo::exists(url.toLocalFile())) {
-    DVGui::warning(QCoreApplication::translate(
-                       "MainWindow", "Could not find the help file \"%1\".")
+    DVGui::warning(UiTranslations::text(QCoreApplication::translate(
+                       "MainWindow", "Could not find the help file \"%1\"."))
                        .arg(link));
     return;
   }

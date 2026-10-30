@@ -15,6 +15,7 @@ public:
   std::vector<TLogger::Message> m_messages;
   std::set<TLogger::Listener *> m_listeners;
   TThread::Mutex m_mutex;
+  TLogger::DiagnosticSink m_diagnosticSink;
 
   class ListenerNotifier final : public TThread::Message {
     Imp *m_imp;
@@ -57,9 +58,21 @@ TLogger::Message::Message(MessageType type, std::string text)
 }
 
 void TLogger::addMessage(const Message &msg) {
+  DiagnosticSink sink;
+  {
+    QMutexLocker sl(&m_imp->m_mutex);
+    m_imp->m_messages.push_back(msg);
+    sink = m_imp->m_diagnosticSink;
+    m_imp->notify();
+  }
+  if (sink) {
+    try { sink(msg); } catch (...) {}
+  }
+}
+
+void TLogger::setDiagnosticSink(DiagnosticSink sink) {
   QMutexLocker sl(&m_imp->m_mutex);
-  m_imp->m_messages.push_back(msg);
-  m_imp->notify();
+  m_imp->m_diagnosticSink = std::move(sink);
 }
 
 void TLogger::clearMessages() {

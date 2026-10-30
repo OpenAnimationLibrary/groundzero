@@ -51,6 +51,7 @@ class PosesPane final : public QFrame {
   QVBoxLayout *m_poseListLayout;
   QCheckBox *m_asLayerCheck;
   QLineEdit *m_layerNameEdit;
+  int m_baseChannelCount = -1;
 
 public:
   PosesPane(QWidget *parent = 0, Qt::WindowFlags flags = Qt::WindowFlags());
@@ -77,6 +78,7 @@ public:
 private:
   void getTargetObjects(std::vector<TStageObjectId> &ids) const;
   void deletePose(int index);
+  void retranslateUi();
 
 protected:
   void showEvent(QShowEvent *) override;

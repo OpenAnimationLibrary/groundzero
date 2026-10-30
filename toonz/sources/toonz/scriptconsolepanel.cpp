@@ -1,5 +1,6 @@
 
 
+#include "toonzqt/uitranslations.h"
 #include "scriptconsolepanel.h"
 #include "toonzqt/scriptconsole.h"
 #include "toonz/scriptengine.h"
@@ -94,7 +95,7 @@ QVariantMap getCurrentSceneInfo() {
 
 QString setCurrentSceneFrame(int frame) {
   if (frame < 0)
-    return QObject::tr("Bad frame (%1): expected an integer >= 0").arg(frame);
+    return UiTranslations::text(QObject::tr("Bad frame (%1): expected an integer >= 0")).arg(frame);
   TApp::instance()->getCurrentFrame()->setFrame(frame);
   return "";
 }
@@ -104,7 +105,7 @@ QString setCurrentSceneColumn(int column) {
   TXsheet *xsh = app->getCurrentXsheet()->getXsheet();
   int count    = xsh ? xsh->getColumnCount() : 0;
   if (column < 0 || column >= count)
-    return QObject::tr("Bad column (%1): the xsheet has %2 columns")
+    return UiTranslations::text(QObject::tr("Bad column (%1): the xsheet has %2 columns"))
         .arg(column)
         .arg(count);
   app->getCurrentColumn()->setColumnIndex(column);

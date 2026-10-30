@@ -150,6 +150,9 @@ def audit_target(target):
     runs = (gh(f"repos/{rp}/commits/{sha}/check-runs?per_page=100") or {}).get(
         "check_runs", [])
     print(f"CI audit of {what}, {len(runs)} checks\n")
+    if not runs:
+        print("No checks have reported for this commit; validation is pending.")
+        return 1
     bad = [r for r in runs if r["conclusion"] not in ("success", "skipped",
                                                       "neutral")]
     pending = [r for r in bad if r["status"] != "completed"]

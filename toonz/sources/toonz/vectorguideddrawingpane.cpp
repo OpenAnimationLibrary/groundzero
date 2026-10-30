@@ -1,3 +1,4 @@
+#include "toonzqt/uitranslations.h"
 #include "vectorguideddrawingpane.h"
 #include "menubarcommandids.h"
 #include "tapp.h"
@@ -25,6 +26,7 @@ VectorGuidedDrawingPane::VectorGuidedDrawingPane(QWidget *parent,
   setObjectName("VectorGuidedDrawingToolbar");
 
   m_guidedTypeCB = new QComboBox();
+  UiTranslations::watchCombo(m_guidedTypeCB);
   QStringList inputs;
   inputs << tr("Off") << tr("Closest") << tr("Farthest") << tr("All");
   m_guidedTypeCB->addItems(inputs);
@@ -39,6 +41,7 @@ VectorGuidedDrawingPane::VectorGuidedDrawingPane(QWidget *parent,
           SLOT(onAutoInbetweenChanged()));
 
   m_interpolationTypeCB = new QComboBox();
+  UiTranslations::watchCombo(m_interpolationTypeCB);
   inputs.clear();
   inputs << tr("Linear") << tr("Ease In") << tr("Ease Out") << tr("EaseIn/Out");
   m_interpolationTypeCB->addItems(inputs);

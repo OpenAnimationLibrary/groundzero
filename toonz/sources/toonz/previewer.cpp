@@ -1,6 +1,7 @@
 
 
 // System-core includes
+#include "toonzqt/uitranslations.h"
 #include "tsystem.h"
 #include "tthreadmessage.h"
 #include "timagecache.h"
@@ -902,13 +903,13 @@ bool Previewer::Imp::doSaveRenderedFrames(const TFilePath &fp) {
       TSystem::mkDir(parent);
       DvDirModel::instance()->refreshFolder(parent.getParentDir());
     } catch (TException &e) {
-      error(QObject::tr("Cannot create %1 : %2",
-                        "Previewer warning %1:path %2:message")
+      error(UiTranslations::text(QObject::tr("Cannot create %1 : %2",
+                        "Previewer warning %1:path %2:message"))
                 .arg(toQString(decodedFp.getParentDir()))
                 .arg(QString(::to_string(e.getMessage()).c_str())));
       return false;
     } catch (...) {
-      error(QObject::tr("Cannot create %1", "Previewer warning %1:path")
+      error(UiTranslations::text(QObject::tr("Cannot create %1", "Previewer warning %1:path"))
                 .arg(toQString(decodedFp.getParentDir())));
       return false;
     }
@@ -916,7 +917,7 @@ bool Previewer::Imp::doSaveRenderedFrames(const TFilePath &fp) {
 
   if (TSystem::doesExistFileOrLevel(decodedFp)) {
     QString question =
-        QObject::tr("File %1 already exists.\nDo you want to overwrite it?")
+        UiTranslations::text(QObject::tr("File %1 already exists.\nDo you want to overwrite it?"))
             .arg(toQString(decodedFp));
     int ret = DVGui::MsgBox(question, QObject::tr("Overwrite"),
                             QObject::tr("Cancel"), 0);
@@ -984,8 +985,8 @@ void Previewer::Imp::saveFrame() {
 
   // Output the save result
   QString str =
-      QObject::tr("Saved %1 frames out of %2 in %3",
-                  "Previewer %1:savedframes %2:framecount %3:filepath")
+      UiTranslations::text(QObject::tr("Saved %1 frames out of %2 in %3",
+                  "Previewer %1:savedframes %2:framecount %3:filepath"))
           .arg(QString::number(savedFrames))
           .arg(QString::number(frameCount))
           .arg(toQString(m_lw->getFilePath()));

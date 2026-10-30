@@ -1,5 +1,6 @@
 
 
+#include "toonzqt/uitranslations.h"
 #include "filebrowserpopup.h"
 
 // Tnz6 includes
@@ -485,7 +486,7 @@ bool GenericSaveFilePopup::execute() {
   // Ask for user permission to overwrite if necessary
   if (!m_isDirectoryOnly && TFileStatus(path).doesExist()) {
     const QString &question =
-        QObject::tr("File %1 already exists.\nDo you want to overwrite it?")
+        UiTranslations::text(QObject::tr("File %1 already exists.\nDo you want to overwrite it?"))
             .arg(toQString(path));
 
     int ret = DVGui::MsgBox(question, QObject::tr("Overwrite"),
@@ -689,6 +690,7 @@ LoadLevelPopup::LoadLevelPopup()
   QLabel *cacheBehaviorLabel =
       new QLabel(tr("Raster Level Caching Behavior"), this);
   m_rasterCacheBehaviorComboBox = new QComboBox(this);
+  UiTranslations::watchCombo(m_rasterCacheBehaviorComboBox);
 
   //----Load Subsequence Level
   QPushButton *showSubsequenceButton = createShowButton(this);
@@ -715,6 +717,7 @@ LoadLevelPopup::LoadLevelPopup()
   m_levelName            = new DVGui::LineEdit(this);
   m_dpiWidget            = new QWidget(this);
   m_dpiPolicy            = new QComboBox(this);
+  UiTranslations::watchCombo(m_dpiPolicy);
   m_dpi                  = new DVGui::DoubleLineEdit(this);
   m_subsampling          = new DVGui::IntLineEdit(this, 1, 1);
   m_antialias            = new DVGui::IntLineEdit(this, 10, 0, 100);
@@ -1898,8 +1901,8 @@ bool SavePaletteAsPopup::execute() {
 
   if (TFileStatus(fp).doesExist()) {
     const QString &question =
-        QObject::tr(
-            "The palette %1 already exists.\nDo you want to overwrite it?")
+        UiTranslations::text(QObject::tr(
+            "The palette %1 already exists.\nDo you want to overwrite it?"))
             .arg(toQString(fp));
     int ret = DVGui::MsgBox(question, QObject::tr("Overwrite"),
                             QObject::tr("Cancel"), 0);
@@ -2205,9 +2208,9 @@ bool ReplaceParentDirectoryPopup::execute() {
     QString msg = tr("The level paths have been replaced as follows:\n\n");
     for (auto info : levelPathInfos) {
       if (info.depth == -1)
-        msg += tr("%1 : No change was made.\n").arg(info.levelName);
+        msg += UiTranslations::text(tr("%1 : No change was made.\n")).arg(info.levelName);
       else
-        msg += tr("%1 : %2 -> %3\n")
+        msg += UiTranslations::text(tr("%1 : %2 -> %3\n"))
                    .arg(info.levelName)
                    .arg(info.oldPath.getQString())
                    .arg(info.newPath.getQString());
@@ -2243,7 +2246,7 @@ bool ImportMagpieFilePopup::execute() {
   const TFilePath &fp = *m_selectedPaths.begin();
 
   if (!TSystem::doesExistFileOrLevel(fp)) {
-    DVGui::error(tr("%1 does not exist.").arg(toQString(fp)));
+    DVGui::error(UiTranslations::text(tr("%1 does not exist.")).arg(toQString(fp)));
     return false;
   }
 
@@ -2281,7 +2284,7 @@ bool BrowserPopup::execute() {
   const TFilePath &fp = *m_selectedPaths.begin();
 
   if (!TSystem::doesExistFileOrLevel(fp)) {
-    const QString &msg = tr("Path %1 doesn't exists.").arg(toQString(fp));
+    const QString &msg = UiTranslations::text(tr("Path %1 doesn't exists.")).arg(toQString(fp));
     DVGui::info(msg);
 
     return false;

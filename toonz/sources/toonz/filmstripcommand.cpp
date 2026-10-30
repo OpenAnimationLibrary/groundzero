@@ -1,5 +1,6 @@
 
 
+#include "toonzqt/uitranslations.h"
 #include "filmstripcommand.h"
 
 // Tnz6 includes
@@ -651,7 +652,7 @@ public:
   }
 
   QString getHistoryString() override {
-    QString str = QObject::tr("Paste  : Level %1 : Frame ")
+    QString str = UiTranslations::text(QObject::tr("Paste  : Level %1 : Frame "))
                       .arg(QString::fromStdWString(m_level->getName()));
     bool first = true;
     for (const TFrameId &fid : m_frames) {
@@ -756,7 +757,7 @@ public:
   int getSize() const override { return sizeof(*this) + sizeof(*m_data); }
 
   QString getHistoryString() override {
-    QString str = QObject::tr("Paste  : Level %1 : Frame ")
+    QString str = UiTranslations::text(QObject::tr("Paste  : Level %1 : Frame "))
                       .arg(QString::fromStdWString(m_level->getName()));
     bool first = true;
     for (const TFrameId &fid : m_frames) {
@@ -883,7 +884,7 @@ public:
   int getSize() const override { return sizeof(*this); }
 
   QString getHistoryString() override {
-    QString str = QObject::tr("Paste  : Level %1 : Frame ")
+    QString str = UiTranslations::text(QObject::tr("Paste  : Level %1 : Frame "))
                       .arg(QString::fromStdWString(m_sl->getName()));
     bool first = true;
     for (const TFrameId &fid : m_frames) {
@@ -939,7 +940,7 @@ public:
   int getSize() const override { return sizeof(*this); }
 
   QString getHistoryString() override {
-    QString str = QObject::tr("Delete Frames  : Level %1 : Frame ")
+    QString str = UiTranslations::text(QObject::tr("Delete Frames  : Level %1 : Frame "))
                       .arg(QString::fromStdWString(m_sl->getName()));
     bool first = true;
     for (const TFrameId &fid : m_frames) {
@@ -997,7 +998,7 @@ public:
   int getSize() const override { return sizeof(*this); }
 
   QString getHistoryString() override {
-    QString str = QObject::tr("Cut Frames  : Level %1 : Frame ")
+    QString str = UiTranslations::text(QObject::tr("Cut Frames  : Level %1 : Frame "))
                       .arg(QString::fromStdWString(m_sl->getName()));
     bool first = true;
     for (const TFrameId &fid : m_framesCutted) {
@@ -1043,7 +1044,7 @@ public:
   int getSize() const override { return sizeof(*this); }
 
   QString getHistoryString() override {
-    QString str = QObject::tr("Remove Frames  : Level %1 : Frame ")
+    QString str = UiTranslations::text(QObject::tr("Remove Frames  : Level %1 : Frame "))
                       .arg(QString::fromStdWString(m_sl->getName()));
     bool first = true;
     for (const TFrameId &fid : m_framesRemoved) {
@@ -1116,7 +1117,7 @@ public:
   int getSize() const override { return sizeof(*this); }
 
   QString getHistoryString() override {
-    QString str = QObject::tr("Add Frames  : Level %1 : Frame ")
+    QString str = UiTranslations::text(QObject::tr("Add Frames  : Level %1 : Frame "))
                       .arg(QString::fromStdWString(m_level->getName()));
     bool first = true;
     for (const TFrameId &fid : m_insertedFids) {
@@ -1233,7 +1234,7 @@ public:
   }
 
   QString getHistoryString() override {
-    return QObject::tr("Renumber  : Level %1")
+    return UiTranslations::text(QObject::tr("Renumber  : Level %1"))
         .arg(QString::fromStdWString(m_level->getName()));
   }
   int getHistoryType() override { return HistoryType::FilmStrip; }
@@ -1822,7 +1823,7 @@ public:
   int getSize() const override { return sizeof(*this); }
 
   QString getHistoryString() override {
-    return QObject::tr("Insert  : Level %1")
+    return UiTranslations::text(QObject::tr("Insert  : Level %1"))
         .arg(QString::fromStdWString(m_level->getName()));
   }
   int getHistoryType() override { return HistoryType::FilmStrip; }
@@ -1894,7 +1895,7 @@ public:
   int getSize() const override { return sizeof(*this); }
 
   QString getHistoryString() override {
-    return QObject::tr("Reverse  : Level %1")
+    return UiTranslations::text(QObject::tr("Reverse  : Level %1"))
         .arg(QString::fromStdWString(m_level->getName()));
   }
   int getHistoryType() override { return HistoryType::FilmStrip; }
@@ -1979,7 +1980,7 @@ public:
   int getSize() const override { return sizeof(*this); }
 
   QString getHistoryString() override {
-    return QObject::tr("Swing  : Level %1")
+    return UiTranslations::text(QObject::tr("Swing  : Level %1"))
         .arg(QString::fromStdWString(m_level->getName()));
   }
   int getHistoryType() override { return HistoryType::FilmStrip; }
@@ -2091,7 +2092,7 @@ public:
   int getSize() const override { return sizeof(*this); }
 
   QString getHistoryString() override {
-    return QObject::tr("Step %1  : Level %2")
+    return UiTranslations::text(QObject::tr("Step %1  : Level %2"))
         .arg(QString::number(m_step))
         .arg(QString::fromStdWString(m_level->getName()));
   }
@@ -2182,7 +2183,7 @@ public:
   int getSize() const override { return sizeof(*this); }
 
   QString getHistoryString() override {
-    return QObject::tr("Each %1  : Level %2")
+    return UiTranslations::text(QObject::tr("Each %1  : Level %2"))
         .arg(QString::number(m_each))
         .arg(QString::fromStdWString(m_level->getName()));
   }
@@ -2253,7 +2254,7 @@ public:
   int getSize() const override { return sizeof(*this); }
 
   QString getHistoryString() override {
-    return QObject::tr("Duplicate  : Level %1")
+    return UiTranslations::text(QObject::tr("Duplicate  : Level %1"))
         .arg(QString::fromStdWString(m_level->getName()));
   }
   int getHistoryType() override { return HistoryType::FilmStrip; }
@@ -2373,7 +2374,7 @@ public:
   int getSize() const override { return sizeof(*this); }
 
   QString getHistoryString() override {
-    return QObject::tr("Move Level to Scene  : Level %1")
+    return UiTranslations::text(QObject::tr("Move Level to Scene  : Level %1"))
         .arg(QString::fromStdWString(m_levelName));
   }
   int getHistoryType() override { return HistoryType::FilmStrip; }
@@ -2500,7 +2501,7 @@ public:
   }
 
   QString getHistoryString() override {
-    QString str = QObject::tr("Inbetween  : Level %1,  ")
+    QString str = UiTranslations::text(QObject::tr("Inbetween  : Level %1,  "))
                       .arg(QString::fromStdWString(m_level->getName()));
     switch (m_interpolation) {
     case FilmstripCmd::II_Linear:

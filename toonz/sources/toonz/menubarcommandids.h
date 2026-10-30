@@ -102,6 +102,8 @@
 #define MI_OpenStyleControl "MI_OpenStyleControl"
 #define MI_OpenToolbar "MI_OpenToolbar"
 #define MI_OpenCommandToolbar "MI_OpenCommandToolbar"
+#define MI_OpenCommandPalette "MI_OpenCommandPalette"
+#define MI_OpenWidgetInspector "MI_OpenWidgetInspector"
 #define MI_OpenToolOptionBar "MI_OpenToolOptionBar"
 #define MI_OpenLevelView "MI_OpenLevelView"
 #define MI_OpenStopMotionPanel "MI_OpenStopMotionPanel"

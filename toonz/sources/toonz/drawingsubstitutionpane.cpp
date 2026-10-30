@@ -10,6 +10,7 @@
 #include "toonzqt/icongenerator.h"
 #include "toonzqt/menubarcommand.h"
 #include "toonzqt/tselectionhandle.h"
+#include "toonzqt/uitranslations.h"
 
 // TnzLib includes
 #include "toonz/txsheet.h"
@@ -48,6 +49,7 @@ DrawingSubstitutionPane::DrawingSubstitutionPane(QWidget *parent,
   setObjectName("DrawingSubstitutionPane");
 
   m_levelLabel = new QLabel(this);
+  m_levelLabel->setObjectName("drawingSubstitutionLevelName");
 
   m_drawingList = new QListWidget(this);
   m_drawingList->setViewMode(QListView::IconMode);
@@ -174,10 +176,12 @@ void DrawingSubstitutionPane::rebuildList() {
   m_drawingList->clear();
 
   if (!m_level) {
-    m_levelLabel->setText(tr("No level in the current cell"));
+    UiTranslations::setCaption(m_levelLabel, "text",
+                                tr("No level in the current cell"));
     return;
   }
-  m_levelLabel->setText(QString::fromStdWString(m_level->getName()));
+  UiTranslations::setLiteral(m_levelLabel, "text",
+                              QString::fromStdWString(m_level->getName()));
 
   // Thumbnails are generated for drawing levels only: rendering every frame
   // of a sub-xsheet would be too expensive.

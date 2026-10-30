@@ -1,3 +1,4 @@
+#include "toonzqt/uitranslations.h"
 #include "navtageditorpopup.h"
 
 #include "../toonz/tapp.h"
@@ -30,7 +31,7 @@ NavTagEditorPopup::NavTagEditorPopup(int frame, QString label, QColor color)
 
   m_labelFld = new DVGui::LineEdit(m_label);
   m_labelFld->setMaximumHeight(DVGui::WidgetHeight);
-  addWidget(tr("Frame %1 Label:").arg(frame + 1), m_labelFld);
+  addWidget(UiTranslations::text(tr("Frame %1 Label:")).arg(frame + 1), m_labelFld);
 
   m_colorCB = new QComboBox(this);
   m_colorCB->addItem(getColorChipIcon(Qt::magenta), tr("Magenta"),

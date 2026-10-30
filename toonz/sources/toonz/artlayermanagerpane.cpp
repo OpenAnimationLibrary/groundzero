@@ -1,3 +1,4 @@
+#include "toonzqt/uitranslations.h"
 #include "artlayermanagerpane.h"
 
 // Tnz6 includes
@@ -186,7 +187,7 @@ void ArtLayerManagerPane::refresh() {
   ArtLayer::countRoles(*vi, counts);
 
   m_drawingLabel->setText(
-      tr("%1 strokes in the current drawing").arg(vi->getStrokeCount()));
+      UiTranslations::text(tr("%1 strokes in the current drawing")).arg(vi->getStrokeCount()));
   for (Row &row : m_rows)
     row.m_count->setText(QString::number(counts[row.m_role]));
 }

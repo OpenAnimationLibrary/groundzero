@@ -20,6 +20,7 @@
 #include "toonzqt/colorfield.h"
 #include "toonzqt/checkbox.h"
 #include "toonzqt/gutil.h"
+#include "toonzqt/uitranslations.h"
 
 // TnzLib includes
 #include "toonz/namebuilder.h"
@@ -77,9 +78,12 @@ namespace {
 
 struct Param {
   QString m_name;
+  UiTranslations::Recipe m_caption;
   int m_bit;
 
-  Param(const QString &name, int bit) : m_name(name), m_bit(bit) {}
+  Param(const QString &name, int bit)
+      : m_name(name), m_caption(UiTranslations::recipe(name)), m_bit(bit) {}
+  QString caption() const { return m_caption ? m_caption() : m_name; }
 };
 
 struct ParamGroup {
@@ -478,6 +482,7 @@ VectorizerPopup::VectorizerPopup(QWidget *parent, Qt::WindowFlags flags)
   QStringList formats;
   formats << tr("Centerline") << tr("Outline");
   m_typeMenu->addItems(formats);
+  UiTranslations::watchCombo(m_typeMenu);
   m_typeMenu->setMinimumHeight(WidgetHeight);
   bool isOutline = m_sceneHandle->getScene()
                        ->getProperties()
@@ -567,7 +572,7 @@ paramsLayout->addWidget(m_cThicknessRatio, row++, 1);*/
 
   // Checkboxes
   {
-    static const QString name = tr("Preserve Painted Areas");
+    const QString name = tr("Preserve Painted Areas");
     locals.addParameter(l_centerlineParamGroups, name);
 
     m_cPaintFill = new CheckBox(name, this);
@@ -576,7 +581,7 @@ paramsLayout->addWidget(m_cThicknessRatio, row++, 1);*/
   }
 
   {
-    static const QString name = tr("Align Boundary Strokes Direction");
+    const QString name = tr("Align Boundary Strokes Direction");
     locals.addParameter(l_centerlineParamGroups, name);
 
     m_cAlignBoundaryStrokesDirection = new CheckBox(name, this);
@@ -588,7 +593,7 @@ paramsLayout->addWidget(m_cThicknessRatio, row++, 1);*/
   }
 
   {
-    static const QString name = tr("Add Border");
+    const QString name = tr("Add Border");
     locals.addParameter(l_centerlineParamGroups, name);
 
     m_cMakeFrame = new CheckBox(name, this);
@@ -602,7 +607,7 @@ paramsLayout->addWidget(m_cThicknessRatio, row++, 1);*/
   m_paramsLayout->addWidget(m_cNaaSourceSeparator, row++, 0, 1, 2);
 
   {
-    static const QString name = tr("Enhanced ink recognition");
+    const QString name = tr("Enhanced ink recognition");
     locals.addParameter(l_centerlineParamGroups, name);
 
     m_cNaaSource = new CheckBox(name, this);
@@ -635,7 +640,7 @@ paramsLayout->addWidget(m_cThicknessRatio, row++, 1);*/
 
   // Paint Fill
   {
-    static const QString name = tr("Preserve Painted Areas");
+    const QString name = tr("Preserve Painted Areas");
     locals.addParameter(l_outlineParamGroups, name);
 
     m_oPaintFill = new CheckBox(name, this);
@@ -644,7 +649,7 @@ paramsLayout->addWidget(m_cThicknessRatio, row++, 1);*/
   }
 
   {
-    static const QString name = tr("Align Boundary Strokes Direction");
+    const QString name = tr("Align Boundary Strokes Direction");
     locals.addParameter(l_outlineParamGroups, name);
 
     m_oAlignBoundaryStrokesDirection = new CheckBox(name, this);
@@ -838,6 +843,16 @@ paramsLayout->addWidget(m_cThicknessRatio, row++, 1);*/
 
   refreshPopup();
 
+  UiTranslations::onLanguageChanged(this, [this]() {
+    m_cNaaSourceSeparator->setName(tr("Full color non-AA images"));
+    m_oCornersSeparator->setName(tr("Corners"));
+    m_oFullColorSeparator->setName(tr("Raster Levels"));
+    m_oTlvSeparator->setName(tr("TLV Levels"));
+    for (Separator *separator : {m_cNaaSourceSeparator, m_oCornersSeparator,
+                                  m_oFullColorSeparator, m_oTlvSeparator})
+      separator->update();
+  });
+
   // Non e' corretto: manca la possibilita' di aggiornare la selezione del
   // livello corrente
   //  connect(TApp::instance()->getCurrentLevel(), SIGNAL(xshLevelChanged()),
@@ -946,7 +961,7 @@ bool VectorizerPopup::apply() {
   for (auto const level : levels) {
     TXshSimpleLevel *sl = dynamic_cast<TXshSimpleLevel *>(level);
     if (!sl || !sl->getSimpleLevel() || !isLevelToConvert(sl)) {
-      QString levelName = tr(::to_string(sl->getName()).c_str());
+      QString levelName = QString::fromStdWString(sl->getName());
       QString errorMsg =
           tr("Cannot convert to vector the current selection.") + levelName;
       error(errorMsg);
@@ -1041,7 +1056,10 @@ void VectorizerPopup::onFinished() { l_quitLoop = true; }
 //-----------------------------------------------------------------------------
 
 void VectorizerPopup::onFrameName(QString frameName) {
-  QString label = tr("Conversion in progress: ") + frameName;
+  const auto caption = [frameName]() {
+    return VectorizerPopup::tr("Conversion in progress: ") + frameName;
+  };
+  QString label = UiTranslations::remember(caption(), caption);
   m_progressDialog->setLabelText(label);
 }
 
@@ -1369,7 +1387,7 @@ void VectorizerPopup::populateVisibilityMenu() {
 
         std::vector<Param>::const_iterator pt, pEnd = gt->m_params.end();
         for (pt = gt->m_params.begin(); pt != pEnd; ++pt) {
-          QAction *visibleParam = menu->addAction(pt->m_name);
+          QAction *visibleParam = menu->addAction(pt->caption());
           visibleParam->setCheckable(true);
           visibleParam->setChecked(visibilityBits & (1 << pt->m_bit));
           visibleParam->setData(pt->m_bit);

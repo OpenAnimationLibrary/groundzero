@@ -1,5 +1,6 @@
 
 
+#include "toonzqt/uitranslations.h"
 #include "svnlockdialog.h"
 
 // Tnz6 includes
@@ -195,12 +196,12 @@ void SVNLockDialog::onStatusRetrieved(const QString &xmlResponse) {
 
     if (m_lock)
       m_textLabel->setText(
-          tr("%1 items to edit.")
+          UiTranslations::text(tr("%1 items to edit."))
               .arg(m_filesToEdit.size() == 1 ? 1 : m_filesToEdit.size() -
                                                        m_sceneIconAdded));
     else
       m_textLabel->setText(
-          tr("%1 items to unlock.")
+          UiTranslations::text(tr("%1 items to unlock."))
               .arg(m_filesToEdit.size() == 1 ? 1 : m_filesToEdit.size() -
                                                        m_sceneIconAdded));
 
@@ -270,12 +271,12 @@ void SVNLockDialog::onLockButtonClicked() {
 void SVNLockDialog::executeCommand() {
   if (m_lock)
     m_textLabel->setText(
-        tr("Editing %1 items...")
+        UiTranslations::text(tr("Editing %1 items..."))
             .arg(m_filesToEdit.size() == 1 ? 1 : m_filesToEdit.size() -
                                                      m_sceneIconAdded));
   else
     m_textLabel->setText(
-        tr("Unlocking %1 items...")
+        UiTranslations::text(tr("Unlocking %1 items..."))
             .arg(m_filesToEdit.size() == 1 ? 1 : m_filesToEdit.size() -
                                                      m_sceneIconAdded));
 
@@ -426,14 +427,14 @@ void SVNLockDialog::onEditSceneContentsToggled(bool checked) {
 
   if (m_lock)
     m_textLabel->setText(
-        tr("%1 items to edit.")
+        UiTranslations::text(tr("%1 items to edit."))
             .arg(m_filesToEdit.size() + m_sceneResources.size() == 1
                      ? 1
                      : m_filesToEdit.size() + m_sceneResources.size() -
                            m_sceneIconAdded));
   else
     m_textLabel->setText(
-        tr("%1 items to unlock.")
+        UiTranslations::text(tr("%1 items to unlock."))
             .arg(m_filesToEdit.size() + m_sceneResources.size() == 1
                      ? 1
                      : m_filesToEdit.size() + m_sceneResources.size() -

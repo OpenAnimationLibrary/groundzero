@@ -70,6 +70,7 @@ private:
   void addPresets(const TFilePath &folder, bool userPresets,
                   const QString &title);
   void updateWatchedFolders();
+  void retranslateUi();
   const MotionPreset *getCurrentPreset(bool *userPreset = 0,
                                        QString *path    = 0) const;
   void applyItem(QListWidgetItem *item);

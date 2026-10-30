@@ -1,3 +1,4 @@
+#include "toonzqt/uitranslations.h"
 #include "autoinputcellnumberpopup.h"
 
 // Tnz includes
@@ -60,7 +61,7 @@ public:
   int getSize() const override { return sizeof(*this); }
 
   QString getHistoryString() override {
-    return QObject::tr("Auto Input Cell Numbers : %1")
+    return UiTranslations::text(QObject::tr("Auto Input Cell Numbers : %1"))
         .arg((m_isOverwrite) ? QObject::tr("Overwrite")
                              : QObject::tr("Insert"));
   }

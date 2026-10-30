@@ -1,5 +1,8 @@
 
 
+#include <QAbstractItemModel>
+#include <QSignalBlocker>
+#include "toonzqt/uitranslations.h"
 #include "toonzqt/camerasettingswidget.h"
 
 // TnzQt includes
@@ -210,6 +213,13 @@ CameraSettingsWidget::CameraSettingsWidget(bool forCleanup)
   m_useLevelSettingsBtn = new QPushButton(tr("Use Current Level Settings"));
 
   m_presetListOm    = new QComboBox();
+  UiTranslations::onLanguageChanged(m_presetListOm, [this] {
+    const int custom = m_presetListOm->findData(-1);
+    if (custom < 0) return;
+    const QSignalBlocker block(m_presetListOm), modelBlock(m_presetListOm->model());
+    m_presetListOm->setItemText(custom, tr("<custom>"));
+    m_presetListOm->update();
+  });
   m_addPresetBtn    = new QPushButton(tr("Add"));
   m_removePresetBtn = new QPushButton(tr("Remove"));
 
@@ -417,7 +427,7 @@ void CameraSettingsWidget::showEvent(QShowEvent *e) {
 void CameraSettingsWidget::loadPresetList() {
   if (m_presetListFile.isEmpty()) return;
   m_presetListOm->clear();
-  m_presetListOm->addItem(tr("<custom>"));
+  m_presetListOm->addItem(tr("<custom>"), -1);
 
   QFile file(m_presetListFile);
   if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
@@ -891,8 +901,8 @@ void CameraSettingsWidget::onPresetSelected(const QString &str) {
     emit changed();
   } else {
     QMessageBox::warning(this, tr("Bad camera preset"),
-                         tr("'%1' doesn't seem a well formed camera preset. \n"
-                            "Possibly the preset file has been corrupted")
+                         UiTranslations::text(tr("'%1' doesn't seem a well formed camera preset. \n"
+                            "Possibly the preset file has been corrupted"))
                              .arg(str));
   }
 }
@@ -931,7 +941,7 @@ void CameraSettingsWidget::addPreset() {
   QString qs;
   while (true) {
     qs = DVGui::getText(tr("Preset name"),
-                        tr("Enter the name for %1").arg(presetString), "", &ok);
+                        UiTranslations::text(tr("Enter the name for %1")).arg(presetString), "", &ok);
 
     if (!ok) return;
 
@@ -956,7 +966,7 @@ void CameraSettingsWidget::removePreset() {
 
   // confirmation dialog
   int ret = DVGui::MsgBox(
-      tr("Deleting \"%1\".\nAre you sure?").arg(m_presetListOm->currentText()),
+      UiTranslations::text(tr("Deleting \"%1\".\nAre you sure?")).arg(m_presetListOm->currentText()),
       tr("Delete"), tr("Cancel"));
   if (ret == 0 || ret == 2) return;
 

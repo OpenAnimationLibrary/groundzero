@@ -1,5 +1,6 @@
 
 
+#include "toonzqt/uitranslations.h"
 #include "tcolorstyles.h"
 
 #include <QVBoxLayout>
@@ -526,6 +527,7 @@ Histogram::Histogram(QWidget *parent) : QWidget(parent) {
   mainLayout->addLayout(upperLayout);
 
   m_channelsListBox = new QComboBox(this);
+  UiTranslations::watchCombo(m_channelsListBox);
   m_channelsListBox->setFixedSize(100, 20);
 
   upperLayout->addSpacing(HistogramGraph::drawMargin);

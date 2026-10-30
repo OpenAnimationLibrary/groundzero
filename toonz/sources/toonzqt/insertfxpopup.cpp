@@ -1,5 +1,6 @@
 
 
+#include "toonzqt/uitranslations.h"
 #include "toonzqt/insertfxpopup.h"
 
 // TnzQt includes
@@ -728,14 +729,14 @@ void InsertFxPopup::removePreset() {
   TFilePath path = TFilePath(itemRole.toStdWString());
 
   QString question = QString(
-      tr("Are you sure you want to delete %1?").arg(path.getName().c_str()));
+      UiTranslations::text(tr("Are you sure you want to delete %1?")).arg(path.getName().c_str()));
   int ret = DVGui::MsgBox(question, tr("Yes"), tr("No"), 1);
   if (ret == 2 || ret == 0) return;
 
   try {
     TSystem::deleteFile(path);
   } catch (...) {
-    error(QString(tr("It is not possible to delete %1.").arg(toQString(path))));
+    error(QString(UiTranslations::text(tr("It is not possible to delete %1.")).arg(toQString(path))));
     return;
   }
   m_fxTree->removeItemWidget(item, 0);

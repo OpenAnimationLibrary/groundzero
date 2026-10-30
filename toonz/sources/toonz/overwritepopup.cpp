@@ -1,5 +1,6 @@
 
 
+#include "toonzqt/uitranslations.h"
 #include "overwritepopup.h"
 
 // Tnz6 includes
@@ -32,8 +33,8 @@
 
 QString OverwriteDialog::DecodeFileExistsFunc::conflictString(
     const TFilePath &fp) const {
-  return OverwriteDialog::tr(
-             "File \"%1\" already exists.\nWhat do you want to do?")
+  return UiTranslations::text(OverwriteDialog::tr(
+             "File \"%1\" already exists.\nWhat do you want to do?"))
       .arg(toQString(fp));
 }
 
@@ -249,7 +250,7 @@ std::wstring OverwriteDialog::execute(ToonzScene *scene,
       return levelPath.getWideName();
   }
 
-  m_label->setText(tr("File %1 already exists.\nWhat do you want to do?")
+  m_label->setText(UiTranslations::text(tr("File %1 already exists.\nWhat do you want to do?"))
                        .arg(toQString(levelPath)));
   // find a compatible suffix
   if (TSystem::doesExistFileOrLevel(actualLevelPath)) {
@@ -280,7 +281,7 @@ std::wstring OverwriteDialog::execute(ToonzScene *scene,
     actualLevelPath = scene->decodeFilePath(levelPath);
     if (TSystem::doesExistFileOrLevel(actualLevelPath)) {
       DVGui::warning(
-          tr("File %1 exists as well; please choose a different suffix.")
+          UiTranslations::text(tr("File %1 exists as well; please choose a different suffix."))
               .arg(toQString(levelPath)));
       return execute(scene, srcLevelPath, multiload);
     }

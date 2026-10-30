@@ -1,5 +1,6 @@
 
 
+#include "toonzqt/uitranslations.h"
 #include "menubarpopup.h"
 
 // Tnz includes
@@ -272,7 +273,7 @@ void MenuBarTree::contextMenuEvent(QContextMenuEvent* event) {
   connect(action, &QAction::triggered, this, [this] { insertMenu(); });
 
   if (item) {
-    action = menu.addAction(tr("Remove \"%1\"").arg(item->text(0)));
+    action = menu.addAction(UiTranslations::text(tr("Remove \"%1\"")).arg(item->text(0)));
     connect(action, &QAction::triggered, this, [this] { removeItem(); });
   }
 
@@ -322,14 +323,14 @@ void MenuBarTree::onItemChanged(QTreeWidgetItem* item, int column) {
 MenuBarPopup::MenuBarPopup(Room* room)
     : Dialog(TApp::instance()->getMainWindow(), true, false,
              "CustomizeMenuBar") {
-  setWindowTitle(tr("Customize Menu Bar of Room \"%1\"").arg(room->getName()));
+  setWindowTitle(UiTranslations::text(tr("Customize Menu Bar of Room \"%1\"")).arg(room->getName()));
 
   /*- Get menubar setting file path -*/
   std::string mbFileName = room->getPath().getName() + "_menubar.xml";
   TFilePath mbPath       = ToonzFolder::getMyRoomsDir() + mbFileName;
 
   QLabel* menuBarLabel =
-      new QLabel(tr("%1 Menu Bar").arg(room->getName()), this);
+      new QLabel(UiTranslations::text(tr("%1 Menu Bar")).arg(room->getName()), this);
   QLabel* menuItemListLabel = new QLabel(tr("Menu Items"), this);
 
   m_commandListTree = new CommandListTree(menuBarLabel->text(), this);

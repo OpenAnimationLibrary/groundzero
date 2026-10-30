@@ -1,5 +1,6 @@
 
 
+#include "toonzqt/uitranslations.h"
 #include "autolipsyncpopup.h"
 
 // Tnz6 includes
@@ -1021,8 +1022,8 @@ void AutoLipSyncPopup::onApplyButton() {
   if (rhubarbTimeout > 0) {
     QTimer::singleShot(rhubarbTimeout * 1000, this, [this, rhubarbTimeout]() {
       if (m_processRunning) {
-        DVGui::warning(tr("Rhubarb process timed out after %1 seconds. The "
-                          "process may be stuck.")
+        DVGui::warning(UiTranslations::text(tr("Rhubarb process timed out after %1 seconds. The "
+                          "process may be stuck."))
                            .arg(rhubarbTimeout));
         onAnalysisCancelled();
       }

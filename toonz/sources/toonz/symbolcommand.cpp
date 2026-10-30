@@ -1,3 +1,4 @@
+#include "toonzqt/uitranslations.h"
 #include "symbolcommand.h"
 
 // Tnz6 includes
@@ -168,7 +169,7 @@ public:
   int getSize() const override { return sizeof(*this); }
 
   QString getHistoryString() override {
-    return QObject::tr("Insert Symbol Instance : %1")
+    return UiTranslations::text(QObject::tr("Insert Symbol Instance : %1"))
         .arg(QString::fromStdWString(m_symbol->getName()));
   }
   int getHistoryType() override { return HistoryType::Xsheet; }
@@ -201,7 +202,7 @@ public:
   int getSize() const override { return sizeof(*this); }
 
   QString getHistoryString() override {
-    return QObject::tr("Rename Symbol : %1 > %2")
+    return UiTranslations::text(QObject::tr("Rename Symbol : %1 > %2"))
         .arg(QString::fromStdWString(m_oldName))
         .arg(QString::fromStdWString(m_newName));
   }
@@ -279,8 +280,8 @@ bool SymbolCmd::insertInstance(TXshChildLevel *symbol, int row, int &col,
   TXsheet *xsh = currentXsheet();
   if (xsh->checkCircularReferences(TXshCell(symbol, TFrameId(1)))) {
     DVGui::warning(
-        QObject::tr("The symbol %1 cannot be inserted here, because it "
-                    "contains the current xsheet.")
+        UiTranslations::text(QObject::tr("The symbol %1 cannot be inserted here, because it "
+                    "contains the current xsheet."))
             .arg(QString::fromStdWString(symbol->getName())));
     return false;
   }
@@ -311,8 +312,8 @@ void SymbolCmd::editSymbol(TXshChildLevel *symbol) {
   int col      = findInstanceColumn(xsh, symbol, row, false);
   if (col < 0) {
     DVGui::warning(
-        QObject::tr("The symbol %1 has no instance in the current xsheet. "
-                    "Insert an instance of it to edit it from here.")
+        UiTranslations::text(QObject::tr("The symbol %1 has no instance in the current xsheet. "
+                    "Insert an instance of it to edit it from here."))
             .arg(QString::fromStdWString(symbol->getName())));
     return;
   }
@@ -338,8 +339,8 @@ void SymbolCmd::duplicateSymbol(TXshChildLevel *symbol) {
   int col      = findInstanceColumn(xsh, symbol, row, true);
   if (col < 0) {
     DVGui::warning(
-        QObject::tr("To duplicate the symbol %1, the current xsheet needs a "
-                    "column exposing only this symbol.")
+        UiTranslations::text(QObject::tr("To duplicate the symbol %1, the current xsheet needs a "
+                    "column exposing only this symbol."))
             .arg(QString::fromStdWString(symbol->getName())));
     return;
   }

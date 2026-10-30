@@ -1,5 +1,6 @@
 
 
+#include "toonzqt/uitranslations.h"
 //#include "tw/mainshell.h"
 
 #include "tools/tool.h"
@@ -896,7 +897,7 @@ class TypeToolTextHistoryPopup final : public DVGui::Dialog {
     if (!saveTextSource(dialog.selectedFiles().first(), m_editor->toPlainText(),
                         error))
       QMessageBox::warning(this, tr("Save Text Source"),
-                           tr("The text could not be saved.\n%1").arg(error));
+                           UiTranslations::text(tr("The text could not be saved.\n%1")).arg(error));
   }
 
   void saveCurrentTextToHistory() {
@@ -925,7 +926,7 @@ class TypeToolTextHistoryPopup final : public DVGui::Dialog {
     if (!saveTextSource(dialog.selectedFiles().first(), json, error))
       QMessageBox::warning(
           this, tr("Save Text History"),
-          tr("The history could not be saved.\n%1").arg(error));
+          UiTranslations::text(tr("The history could not be saved.\n%1")).arg(error));
   }
 
   void loadTextHistory() {
@@ -936,7 +937,7 @@ class TypeToolTextHistoryPopup final : public DVGui::Dialog {
     QFile file(fileName);
     if (!file.open(QIODevice::ReadOnly)) {
       QMessageBox::warning(this, tr("Load Text History"),
-                           tr("The history file could not be opened.\n%1")
+                           UiTranslations::text(tr("The history file could not be opened.\n%1"))
                                .arg(file.errorString()));
       return;
     }
@@ -954,8 +955,8 @@ class TypeToolTextHistoryPopup final : public DVGui::Dialog {
           tr("Merge the loaded entries into Recent Text, or replace the saved "
              "listing?"));
       question.setInformativeText(
-          tr("Merge puts loaded entries first and keeps up to %1 entries. Your "
-             "current text is kept.")
+          UiTranslations::text(tr("Merge puts loaded entries first and keeps up to %1 entries. Your "
+             "current text is kept."))
               .arg(cTextHistoryLimit));
       QPushButton *merge =
           question.addButton(tr("Merge"), QMessageBox::AcceptRole);
@@ -1098,6 +1099,7 @@ public:
     previewArea->setWidgetResizable(false);
     m_textTabs->addTab(m_editor, tr("Source"));
     m_textTabs->addTab(previewArea, tr("Preview"));
+    UiTranslations::watchTabBar(m_textTabs->tabBar());
     setEditorEntry(m_history.draft(), false);
 
     QVBoxLayout *layout = new QVBoxLayout;
@@ -1126,7 +1128,7 @@ public:
     markdownNote->setWordWrap(true);
     layout->addWidget(markdownNote);
     layout->addWidget(
-        new QLabel(tr("Recent Text (last %1)").arg(cTextHistoryLimit), this));
+        new QLabel(UiTranslations::text(tr("Recent Text (last %1)")).arg(cTextHistoryLimit), this));
     layout->addWidget(m_historyList, 1);
 
     QPushButton *importButton   = new QPushButton(tr("Import Text..."), this);

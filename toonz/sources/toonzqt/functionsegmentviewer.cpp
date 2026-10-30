@@ -1,5 +1,6 @@
 
 
+#include "toonzqt/uitranslations.h"
 #include "toonzqt/functionsegmentviewer.h"
 
 // TnzQt includes
@@ -1050,6 +1051,7 @@ FunctionSegmentViewer::FunctionSegmentViewer(QWidget *parent,
   m_typeId[8] = TDoubleKeyframe::SimilarShape;
 
   m_typeCombo = new QComboBox;
+  UiTranslations::watchCombo(m_typeCombo);
   m_typeCombo->addItem(tr("Linear"));
   m_typeCombo->addItem(tr("Speed In / Speed Out"));
   m_typeCombo->addItem(tr("Ease In / Ease Out"));

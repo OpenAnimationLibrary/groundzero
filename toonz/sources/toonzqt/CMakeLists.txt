@@ -115,6 +115,8 @@ set(HEADERS
 set(SOURCES
     colormatcheditor.cpp
     neuralstyleeditor.cpp
+
+    uitranslations.cpp
     ../tnztools/cursormanager.cpp
     checkbox.cpp
     colorfield.cpp

@@ -1,5 +1,6 @@
 
 
+#include "toonzqt/uitranslations.h"
 #include "toonzqt/studiopaletteviewer.h"
 
 // TnzQt includes
@@ -489,9 +490,9 @@ void StudioPaletteTreeViewer::onCurrentItemChanged(QTreeWidgetItem *current,
     if (oldPath == newPath) return;
     std::wstring gname = m_currentPalette->getGlobalName();
     QString question =
-        tr("The current palette %1\nin the studio palette has been modified. "
+        UiTranslations::text(tr("The current palette %1\nin the studio palette has been modified. "
            "Do you want to "
-           "save your changes?")
+           "save your changes?"))
             .arg(QString::fromStdWString(oldPath.getWideString()));
     int ret =
         DVGui::MsgBox(question, tr("Save"), tr("Discard"), tr("Cancel"), 0);
@@ -590,7 +591,7 @@ void StudioPaletteTreeViewer::convertToStudioPalette() {
     }
 
     QString question =
-        tr("Convert %1 to Studio Palette and Overwrite. \nAre you sure ?")
+        UiTranslations::text(tr("Convert %1 to Studio Palette and Overwrite. \nAre you sure ?"))
             .arg(QString::fromStdWString(path.getWideString()));
     int ret = DVGui::MsgBox(question, tr("Convert"), tr("Cancel"));
     if (ret == 0 || ret == 2) return;
@@ -954,15 +955,15 @@ void StudioPaletteTreeViewer::replaceCurrentPalette() {
 
   QString label;
   if (count != 1)  // replacing to multiple palettes
-    label = tr("Replacing all selected palettes with the palette \"%1\". \nAre "
-               "you sure ?")
+    label = UiTranslations::text(tr("Replacing all selected palettes with the palette \"%1\". \nAre "
+               "you sure ?"))
                 .arg(QString::fromStdWString(current->getPaletteName()));
   else {
     TPalette *dstPalette =
         StudioPalette::instance()->getPalette(getItemPath(items[0]));
     if (!dstPalette) return;
-    label = tr("Replacing the palette \"%1\" with the palette \"%2\". \nAre "
-               "you sure ?")
+    label = UiTranslations::text(tr("Replacing the palette \"%1\" with the palette \"%2\". \nAre "
+               "you sure ?"))
                 .arg(QString::fromStdWString(dstPalette->getPaletteName()))
                 .arg(QString::fromStdWString(current->getPaletteName()));
   }
@@ -1302,14 +1303,14 @@ void StudioPaletteTreeViewer::dropEvent(QDropEvent *event) {
   // open the confirmation dialog in order to prevent unintended move
   QString pltName;
   if (palettePaths.size() == 1)
-    pltName = tr("the palette \"%1\"")
+    pltName = UiTranslations::text(tr("the palette \"%1\""))
                   .arg(QString::fromStdWString(palettePaths[0].getWideName()));
   else
     pltName = tr("the selected palettes");
   QString dstName = QString::fromStdWString(newPath.getWideName());
 
   QString question =
-      tr("Move %1 to \"%2\". Are you sure ?").arg(pltName).arg(dstName);
+      UiTranslations::text(tr("Move %1 to \"%2\". Are you sure ?")).arg(pltName).arg(dstName);
   int ret = DVGui::MsgBox(question, tr("Move"), tr("Cancel"));
   if (ret == 0 || ret == 2) return;
 

@@ -63,6 +63,8 @@ class ShortcutTree final : public QTreeWidget {
   QString m_lastSearchTerm;
   QSet<QString> m_userCollapsedDuringSearch;  // Track folders user manually closed during search
 
+  void retranslateUi();
+
 public:
   ShortcutTree(QWidget *parent = 0);
   ~ShortcutTree();
@@ -75,7 +77,7 @@ public:
 protected:
   // adds a block of QActions. commandType is a
   // CommandType::MenubarCommandType
-  void addFolder(const QString &title, int commandType,
+  void addFolder(const char *title, int commandType,
                  QTreeWidgetItem *folder = 0);
   QStringList collectExpandedState() const;
   void applyExpandedState(const QStringList &expandedFolders,

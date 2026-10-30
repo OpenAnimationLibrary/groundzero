@@ -1,5 +1,6 @@
 
 
+#include "toonzqt/uitranslations.h"
 #include "psdsettingspopup.h"
 
 // Tnz6 includes
@@ -156,6 +157,7 @@ PsdSettingsPopup::PsdSettingsPopup()
   addSeparator();
 
   m_loadMode = new QComboBox();
+  UiTranslations::watchCombo(m_loadMode);
   m_loadMode->addItem(tr("Single Image"), QString("Single Image"));
   m_loadMode->addItem(tr("Frames"), QString("Frames"));
   m_loadMode->addItem(tr("Columns"), QString("Columns"));
@@ -171,6 +173,7 @@ PsdSettingsPopup::PsdSettingsPopup()
   m_createSubXSheet->setEnabled(false);
 
   m_levelNameType = new QComboBox();
+  UiTranslations::watchCombo(m_levelNameType);
   QStringList types;
   types << tr("FileName#LayerName") << tr("LayerName");
   m_levelNameType->addItems(types);

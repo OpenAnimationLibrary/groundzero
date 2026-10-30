@@ -1,7 +1,7 @@
 name: Windows Build
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.head.repo.full_name || github.repository }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: ${{ github.head_ref != '' }}
 
 on:
@@ -155,6 +155,30 @@ jobs:
           move Qt5.15.2_wintab\5.15.2_wintab thirdparty\qt
         shell: cmd
 
+      - name: Prepare pinned Mesa renderer for native UI fixture
+        timeout-minutes: 5
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $root = Join-Path $env:RUNNER_TEMP "groundzero-native-mesa-26.2.4"
+          New-Item -ItemType Directory -Path $root -Force | Out-Null
+          $archive = Join-Path $root "mesa3d-26.2.4-release-msvc.7z"
+          curl.exe -fSL --retry 2 --retry-delay 2 --max-time 90 -o $archive https://github.com/pal1000/mesa-dist-win/releases/download/26.2.4/mesa3d-26.2.4-release-msvc.7z
+          if ($LASTEXITCODE -ne 0) { throw "Could not download the pinned native UI renderer" }
+          $expected = "351fc8c8b695878ffb3eaa044b3ead08672a48b1a045e3c3e3975811df0f6695"
+          if ((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash -ne $expected) {
+            throw "Native UI renderer archive checksum does not match"
+          }
+          7z x $archive "x64/opengl32.dll" "x64/libgallium_wgl.dll" "-o$root" -y
+          if ($LASTEXITCODE -ne 0) { throw "Could not extract the native UI renderer" }
+          $runtime = Join-Path $root "x64"
+          foreach ($name in @("opengl32.dll", "libgallium_wgl.dll")) {
+            if (-not (Test-Path -LiteralPath (Join-Path $runtime $name) -PathType Leaf)) {
+              throw "The pinned native UI renderer is missing a required DLL"
+            }
+          }
+          Add-Content -LiteralPath $env:GITHUB_ENV -Value "NATIVE_UI_MESA_RUNTIME=$runtime" -Encoding utf8
+
       - name: Install third-party prebuilt libs (LFS workaround)
         run: |
           @echo on
@@ -194,22 +218,70 @@ jobs:
           mkdir build
           cd build
 
-          cmake ..\sources -G "%MSVCVERSION%" -Ax64 -DQT_PATH="%QT_PATH%" -DBOOST_ROOT="%BOOST_ROOT%" -DOpenCV_DIR="%OpenCV_DIR%" -DWITH_WINTAB=Y -DBUILD_CELFX_TESTS=ON -DBUILD_CADMIUM_TESTS=ON -DBUILD_LUT3D_TESTS=ON -DBUILD_PARTICLE_CACHE_TESTS=ON -DBUILD_RELIABILITY_TESTS=ON -DBUILD_STREAM_TESTS=ON -DBUILD_SCENEBENCH_TESTS=ON -DBUILD_FXRENDER_TESTS=ON -DBUILD_PSD_TESTS=ON -DBUILD_FFMPEG_TESTS=ON -DBUILD_SEEXPR_TESTS=ON -DBUILD_SEEXPR_PYTHON=ON -DPython3_EXECUTABLE="%pythonLocation%\python.exe" > cmake-output.log 2>&1
-          set "SEEXPR_CONFIGURE_EXIT=%ERRORLEVEL%"
-          type cmake-output.log
-          exit /b %SEEXPR_CONFIGURE_EXIT%
+          cmake ..\sources -G "%MSVCVERSION%" -Ax64 -DQT_PATH="%QT_PATH%" -DBOOST_ROOT="%BOOST_ROOT%" -DOpenCV_DIR="%OpenCV_DIR%" -DWITH_WINTAB=Y -DBUILD_CELFX_TESTS=ON -DBUILD_CADMIUM_TESTS=ON -DBUILD_UI_PORT_TESTS=ON -DBUILD_LUT3D_TESTS=ON -DBUILD_PARTICLE_CACHE_TESTS=ON -DBUILD_RELIABILITY_TESTS=ON -DBUILD_STREAM_TESTS=ON -DBUILD_SCENEBENCH_TESTS=ON -DBUILD_FXRENDER_TESTS=ON -DBUILD_PSD_TESTS=ON -DBUILD_FFMPEG_TESTS=ON -DBUILD_SEEXPR_TESTS=ON -DBUILD_SEEXPR_PYTHON=ON -DPython3_EXECUTABLE="%pythonLocation%\python.exe" > cmake-config.log 2>&1
+          set "CONFIGURE_EXIT=%ERRORLEVEL%"
+          type cmake-config.log
+          exit /b %CONFIGURE_EXIT%
         shell: cmd
 
       - name: Report SeExpr configuration failure
         if: ${{ failure() && steps.seexpr_configure.outcome == 'failure' }}
-        run: python ci-scripts/seexpr/report.py toonz/build/cmake-output.log
+        run: python ci-scripts/seexpr/report.py toonz/build/cmake-config.log
+
+      # Qt 5's Windows offscreen plugin uses FreeType without system font
+      # discovery. Give image-based UI regressions the installed font directory.
+      - name: Configure offscreen fonts
+        shell: pwsh
+        run: |
+          $fontDirectory = Join-Path $env:WINDIR "Fonts"
+          if (-not (Test-Path -LiteralPath $fontDirectory -PathType Container)) {
+            throw "System font directory is unavailable for offscreen UI tests."
+          }
+          "QT_QPA_FONTDIR=$fontDirectory" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      # Compile independent UI targets first so Qt/toolchain failures are
+      # reported before the much longer native application build.
+      - name: Build standalone UI targets
+        shell: cmd
+        run: |
+          @echo on
+          cd toonz\build
+          msbuild /p:Configuration=RelWithDebInfo /m /verbosity:minimal "/flp:logfile=ui-preflight.log;verbosity=minimal" toonz\ui_commandpalette_test.vcxproj
+          if errorlevel 1 exit /b %ERRORLEVEL%
+          msbuild /p:Configuration=RelWithDebInfo /m /verbosity:minimal "/flp:logfile=ui-preflight.log;verbosity=minimal;append" toonz\ui_themeapplication_test.vcxproj
+          if errorlevel 1 exit /b %ERRORLEVEL%
+
+      # Check the standalone toolkit runtime early; the full UI suite below
+      # also verifies the completed application package.
+      - name: Test standalone UI targets
+        id: ui_preflight
+        shell: cmd
+        run: |
+          set "PATH=%QT_PATH%\bin;%PATH%"
+          set "QT_PLUGIN_PATH=%QT_PATH%\plugins"
+          set "QT_QPA_PLATFORM_PLUGIN_PATH=%QT_PATH%\plugins\platforms"
+          cd toonz\build
+          ctest -C RelWithDebInfo --output-on-failure --output-junit ui-preflight-tests.xml --no-tests=error -R "^ui_(commandpalette|themeapplication)$" > ui-preflight-tests-output.txt 2>&1
+          set "UI_TEST_EXIT=%ERRORLEVEL%"
+          type ui-preflight-tests-output.txt
+          exit /b %UI_TEST_EXIT%
+
+      - name: Report standalone UI failures
+        if: ${{ failure() && steps.ui_preflight.outcome == 'failure' }}
+        run: python ci-scripts/report_ui_tests.py toonz/build/ui-preflight-tests-output.txt "Standalone UI regression"
+
+      - name: Diagnose standalone theme crash
+        if: ${{ failure() && steps.ui_preflight.outcome == 'failure' }}
+        timeout-minutes: 3
+        shell: pwsh
+        run: ./ci-scripts/debug_theme_test_windows.ps1 -BuildDirectory toonz/build -ThemeDirectory stuff/config/qss -TestOutput toonz/build/ui-preflight-tests-output.txt -QtDirectory $env:QT_PATH
 
       # Build Opentoonz using MSBuild
       - name: Build Opentoonz
         run: |
           @echo on
           cd toonz\build
-          msbuild /p:Configuration=RelWithDebInfo /m /verbosity:minimal "/flp:logfile=msbuild-errors.log;errorsonly" ALL_BUILD.vcxproj
+          msbuild /p:Configuration=RelWithDebInfo /m /verbosity:minimal "/flp:logfile=msbuild-errors.log;verbosity=minimal" ALL_BUILD.vcxproj
         shell: cmd
 
       - name: Verify benchmark harness contracts
@@ -221,9 +293,9 @@ jobs:
         if: failure()
         shell: bash
         run: |
-          log=toonz/build/msbuild-errors.log
-          [ -f "$log" ] || exit 0
-          sort -u "$log" | grep -E ': (fatal )?error ' | head -60 > errors.txt || true
+          cat toonz/build/cmake-config.log toonz/build/ui-preflight.log toonz/build/msbuild-errors.log 2>/dev/null > combined-build-errors.log || true
+          [ -s combined-build-errors.log ] || exit 0
+          grep -E -A5 'CMake Error|Could NOT find|lrelease error|: (fatal )?error ' combined-build-errors.log | head -120 > errors.txt || true
           echo "::notice title=Windows build::$(wc -l < errors.txt) distinct errors"
           all=$(sed -e 's/%/%25/g' errors.txt | sed -e 's/\r//' | sed -e ':a;N;$!ba;s/\n/%0A/g')
           [ -n "$all" ] && echo "::error title=Windows build errors::${all}"
@@ -266,6 +338,7 @@ jobs:
         shell: cmd
 
       - name: Install optional Cadmium worker
+        id: install_worker
         uses: actions/download-artifact@v6
         with:
           name: cadmium-runtime-windows-x64
@@ -295,6 +368,8 @@ jobs:
         run: python ci-scripts/report_particle_tests.py toonz/build/particle-tests-output.txt
 
       - name: Test cel effects
+        id: cel_tests
+        if: ${{ !cancelled() && steps.package.outcome == 'success' }}
         shell: cmd
         run: |
           set "PATH=%CD%\toonz\build\Opentoonz;%QT_PATH%\bin;%PATH%"
@@ -308,13 +383,69 @@ jobs:
           exit /b %CEL_TEST_EXIT%
 
       - name: Test Cadmium adapters
+        id: cadmium_tests
+        if: ${{ !cancelled() && steps.package.outcome == 'success' }}
         shell: cmd
         run: |
           set "PATH=%CD%\toonz\build\Opentoonz;%QT_PATH%\bin;%PATH%"
           set "QT_PLUGIN_PATH=%QT_PATH%\plugins"
           set "QT_QPA_PLATFORM_PLUGIN_PATH=%QT_PATH%\plugins\platforms"
           cd toonz\build
-          ctest -C RelWithDebInfo --output-on-failure --no-tests=error -R "^cadmium_"
+          ctest -C RelWithDebInfo --output-on-failure --no-tests=error -R "^cadmium_" > cadmium-tests-output.txt 2>&1
+          set "CADMIUM_TEST_EXIT=%ERRORLEVEL%"
+          type cadmium-tests-output.txt
+          exit /b %CADMIUM_TEST_EXIT%
+
+      - name: Test native UI features
+        id: ui_tests
+        if: ${{ !cancelled() && steps.package.outcome == 'success' }}
+        shell: cmd
+        run: |
+          set "PATH=%CD%\toonz\build\Opentoonz;%QT_PATH%\bin;%PATH%"
+          set "QT_PLUGIN_PATH=%QT_PATH%\plugins"
+          set "QT_QPA_PLATFORM_PLUGIN_PATH=%QT_PATH%\plugins\platforms"
+          cd toonz\build
+          ctest -C RelWithDebInfo --output-on-failure --output-junit ui-tests.xml --no-tests=error -R "^ui_" > ui-tests-output.txt 2>&1
+          set "UI_TEST_EXIT=%ERRORLEVEL%"
+          type ui-tests-output.txt
+          exit /b %UI_TEST_EXIT%
+
+      - name: Test native application integration
+        id: ui_integration
+        if: ${{ !cancelled() && steps.package.outcome == 'success' }}
+        timeout-minutes: 8
+        shell: cmd
+        run: |
+          set "PATH=%CD%\toonz\build\Opentoonz;%QT_PATH%\bin;%PATH%"
+          set "QT_PLUGIN_PATH=%QT_PATH%\plugins"
+          set "QT_QPA_PLATFORM_PLUGIN_PATH=%QT_PATH%\plugins\platforms"
+          python ci-scripts/run_native_ui_test.py toonz/build/Opentoonz/OpenToonz.exe stuff --output toonz/build/ui-integration-output.txt --windows-crash-debugger --debugger-symbols toonz/build/RelWithDebInfo --windows-mesa "%NATIVE_UI_MESA_RUNTIME%"
+
+      - name: Report native application integration failure
+        if: ${{ failure() && steps.ui_integration.outcome == 'failure' }}
+        run: python ci-scripts/report_ui_tests.py toonz/build/ui-integration-output.txt
+
+      - name: Report native application crash stack
+        if: ${{ failure() && steps.ui_integration.outcome == 'failure' }}
+        shell: pwsh
+        run: |
+          if (Test-Path -LiteralPath toonz/build/ui-integration-output-debugger.txt) {
+            python ci-scripts/report_ui_tests.py toonz/build/ui-integration-output-debugger.txt "Native application crash stack"
+          }
+
+      - name: Report native UI failures
+        if: ${{ failure() && steps.ui_tests.outcome == 'failure' }}
+        run: python ci-scripts/report_ui_tests.py toonz/build/ui-tests-output.txt
+
+      - name: Diagnose packaged theme crash
+        if: ${{ failure() && steps.ui_tests.outcome == 'failure' }}
+        timeout-minutes: 3
+        shell: pwsh
+        run: ./ci-scripts/debug_theme_test_windows.ps1 -BuildDirectory toonz/build -ThemeDirectory stuff/config/qss -TestOutput toonz/build/ui-tests-output.txt -QtDirectory $env:QT_PATH
+
+      - name: Report Cadmium adapter failures
+        if: ${{ failure() && steps.cadmium_tests.outcome == 'failure' }}
+        run: python ci-scripts/report_ui_tests.py toonz/build/cadmium-tests-output.txt "Cadmium adapter regression"
 
       - name: Test SeExpr native integration
         id: seexpr_tests
@@ -365,6 +496,7 @@ jobs:
           if-no-files-found: ignore
 
       - name: Verify models and exercise native painting pipelines
+        if: ${{ !cancelled() && steps.package.outcome == 'success' && steps.install_worker.outcome == 'success' }}
         shell: cmd
         run: |
           set "PATH=%CD%\toonz\build\Opentoonz;%QT_PATH%\bin;%PATH%"
@@ -375,7 +507,7 @@ jobs:
           toonz\build\RelWithDebInfo\cadmium_pipeline_test.exe "%CD%\toonz\build\Opentoonz\cadmium-sidecar.exe" "%CD%\models"
 
       - name: Report cel test failures
-        if: failure()
+        if: ${{ failure() && steps.cel_tests.outcome == 'failure' }}
         run: python ci-scripts/report_cel_tests.py toonz/build/cel-tests-output.txt
 
       - name: Add the recorder encoder to the package
@@ -432,6 +564,15 @@ jobs:
           if-no-files-found: error
 
       # Create artifact from the build
+      - name: Verify native UI renderer was removed from package
+        shell: pwsh
+        run: |
+          foreach ($name in @("opengl32.dll", "libgallium_wgl.dll", "OpenToonz.exe.local")) {
+            if (Test-Path -LiteralPath (Join-Path "toonz/build/Opentoonz" $name)) {
+              throw "A temporary native UI renderer file remained in the package"
+            }
+          }
+
       - name: Create Artifact
         run: |
           mkdir artifact

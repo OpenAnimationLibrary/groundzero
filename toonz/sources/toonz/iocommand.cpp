@@ -1,3 +1,4 @@
+#include "toonzqt/uitranslations.h"
 #include <memory>
 #include <cwctype>
 #include <exception>
@@ -185,12 +186,12 @@ public:
       m_importQuestionAsked = true;
 
       QString label =
-          QObject::tr(
+          UiTranslations::text(QObject::tr(
               "File %1 doesn't belong to the current project.\n"
-              "Do you want to import it or load it from its original location?")
+              "Do you want to import it or load it from its original location?"))
               .arg(QString::fromStdWString(path.getWideString()));
       QString checkBoxLabel =
-          QObject::tr("Always do this action.")
+          UiTranslations::text(QObject::tr("Always do this action."))
               .arg(QString::fromStdWString(path.getWideString()));
       QString addSeparatorLabel = QObject::tr("Add separator for Frames");
       QStringList buttons;
@@ -468,8 +469,8 @@ void removeSameNamedUnusedLevel(ToonzScene *scene, const TFilePath actualPath,
     // try if the existing level is unused in the xsheet and remove from the
     // cast
     else if (LevelCmd::removeLevelFromCast(existingLevel, scene, false)) {
-      DVGui::info(QObject::tr("Removed unused level %1 from the scene cast. "
-                              "(This behavior can be disabled in Preferences.)")
+      DVGui::info(UiTranslations::text(QObject::tr("Removed unused level %1 from the scene cast. "
+                              "(This behavior can be disabled in Preferences.)"))
                       .arg(QString::fromStdWString(levelName)));
       return;
     }
@@ -574,7 +575,7 @@ public:
            sizeof(TXshLevel);
   }
   QString getHistoryString() override {
-    return QObject::tr("Load Level  %1")
+    return UiTranslations::text(QObject::tr("Load Level  %1"))
         .arg(QString::fromStdWString(m_level->getName()));
   }
 };
@@ -640,7 +641,7 @@ public:
 
   int getSize() const override { return sizeof(*this); }
   QString getHistoryString() override {
-    return QObject::tr("Load and Replace Level  %1")
+    return UiTranslations::text(QObject::tr("Load and Replace Level  %1"))
         .arg(QString::fromStdWString(m_level->getName()));
   }
 };
@@ -1154,7 +1155,7 @@ public:
   }
 
   QString getHistoryString() override {
-    return QObject::tr("Load Sub-xsheet  %1")
+    return UiTranslations::text(QObject::tr("Load Sub-xsheet  %1"))
         .arg(QString::fromStdWString(m_levelName));
   }
   int getHistoryType() override { return HistoryType::Xsheet; }
@@ -1484,8 +1485,8 @@ TXshLevel *loadExrBinding(
       scene->getLevelSet()->moveLevelToFolder(castFolder, exrLevel);
 
     if (exrLevel->getProperties()->isForbidden()) {
-      error(QObject::tr("It is not possible to load the level %1 because its "
-                        "version is not supported.")
+      error(UiTranslations::text(QObject::tr("It is not possible to load the level %1 because its "
+                        "version is not supported."))
                 .arg(toQString(actualPath)));
       scene->getLevelSet()->removeLevel(exrLevel);
       return nullptr;
@@ -1633,7 +1634,7 @@ public:
   int getSize() const override { return sizeof *this; }
 
   QString getHistoryString() override {
-    return QObject::tr("Expose Level  %1")
+    return UiTranslations::text(QObject::tr("Expose Level  %1"))
         .arg(QString::fromStdWString(m_sl->getName()));
   }
 };
@@ -1723,9 +1724,9 @@ bool IoCmd::saveSceneIfNeeded(QString msg) {
 
   if (app->getCurrentScene()->getDirtyFlag()) {
     QString question;
-    question = QObject::tr(
+    question = UiTranslations::text(QObject::tr(
                    "%1: the current scene has been modified.\n"
-                   "What would you like to do?")
+                   "What would you like to do?"))
                    .arg(msg);
     int ret = DVGui::MsgBox(
         question, QObject::tr("Save All"), QObject::tr("Save Scene Only"),
@@ -1761,7 +1762,7 @@ bool IoCmd::saveSceneIfNeeded(QString msg) {
       if (extraCount > 0) {
         dirtyResources = dirtyResources.mid(0, 5);
         dirtyResources.append(
-            QObject::tr("and %1 more item(s).").arg(extraCount));
+            UiTranslations::text(QObject::tr("and %1 more item(s).")).arg(extraCount));
       }
 
       QString question;
@@ -1921,14 +1922,14 @@ bool IoCmd::saveScene(const TFilePath &path, int flags) {
   if (scenePath.getType() == "") scenePath = scenePath.withType("tnz");
   if (scenePath.getType() != "tnz") {
     if (!isAutosave)
-      error(QObject::tr("%1 has an invalid file extension.")
+      error(UiTranslations::text(QObject::tr("%1 has an invalid file extension."))
                 .arg(toQString(path)));
     return false;
   }
   TFileStatus dirStatus(scenePath.getParentDir());
   if (!(dirStatus.doesExist() && dirStatus.isWritable())) {
     if (!isAutosave)
-      error(QObject::tr("%1 is an invalid path.")
+      error(UiTranslations::text(QObject::tr("%1 is an invalid path."))
                 .arg(toQString(scenePath.getParentDir())));
     return false;
   }
@@ -1942,8 +1943,8 @@ bool IoCmd::saveScene(const TFilePath &path, int flags) {
 
   if (!overwrite && TFileStatus(scenePath).doesExist()) {
     QString question;
-    question = QObject::tr(
-                   "The scene %1 already exists.\nDo you want to overwrite it?")
+    question = UiTranslations::text(QObject::tr(
+                   "The scene %1 already exists.\nDo you want to overwrite it?"))
                    .arg(QString::fromStdString(scenePath.getName()));
 
     int ret = DVGui::MsgBox(question, QObject::tr("Overwrite"),
@@ -2040,7 +2041,7 @@ bool IoCmd::saveScene(const TFilePath &path, int flags) {
     saveSucceeded = false;
   } catch (...) {
     if (!isAutosave)
-      DVGui::error(QObject::tr("Couldn't save %1").arg(toQString(scenePath)));
+      DVGui::error(UiTranslations::text(QObject::tr("Couldn't save %1")).arg(toQString(scenePath)));
     saveSucceeded = false;
   }
 
@@ -2187,8 +2188,8 @@ bool IoCmd::saveLevel(const TFilePath &fp, TXshSimpleLevel *sl,
   bool fileDoesExist = TSystem::doesExistFileOrLevel(fp);
   if (!overwrite && fileDoesExist) {
     QString question;
-    question = QObject::tr(
-                   "The level %1 already exists.\nDo you want to overwrite it?")
+    question = UiTranslations::text(QObject::tr(
+                   "The level %1 already exists.\nDo you want to overwrite it?"))
                    .arg(toQString(fp));
     int ret = DVGui::MsgBox(question, QObject::tr("Overwrite"),
                             QObject::tr("Cancel"), 0);
@@ -2227,7 +2228,7 @@ bool IoCmd::saveLevel(const TFilePath &fp, TXshSimpleLevel *sl,
     return false;
   } catch (...) {
     QApplication::restoreOverrideCursor();
-    DVGui::error(QObject::tr("Couldn't save %1").arg(toQString(fp)));
+    DVGui::error(UiTranslations::text(QObject::tr("Couldn't save %1")).arg(toQString(fp)));
     return false;
   }
   IconGenerator::instance()->invalidate(fp);
@@ -2351,8 +2352,8 @@ bool IoCmd::saveSound(const TFilePath &fp, TXshSoundLevel *sl, bool overwrite) {
   if (!overwrite && TSystem::doesExistFileOrLevel(fp)) {
     QString question;
     question =
-        QObject::tr(
-            "The soundtrack %1 already exists.\nDo you want to overwrite it?")
+        UiTranslations::text(QObject::tr(
+            "The soundtrack %1 already exists.\nDo you want to overwrite it?"))
             .arg(toQString(fp));
     int ret = DVGui::MsgBox(question, QObject::tr("Overwrite"),
                             QObject::tr("Cancel"), 0);
@@ -2361,7 +2362,7 @@ bool IoCmd::saveSound(const TFilePath &fp, TXshSoundLevel *sl, bool overwrite) {
   try {
     sl->save(fp);
   } catch (...) {
-    DVGui::error(QObject::tr("Couldn't save %1").arg(toQString(fp)));
+    DVGui::error(UiTranslations::text(QObject::tr("Couldn't save %1")).arg(toQString(fp)));
     return false;
   }
   QApplication::setOverrideCursor(Qt::WaitCursor);
@@ -2423,7 +2424,7 @@ bool IoCmd::loadScene(const TFilePath &path, bool updateRecentFile,
   if (scenePath.getType() == "") scenePath = scenePath.withType("tnz");
   if (scenePath.getType() != "tnz" && !isXdts && !isSxf) {
     QString msg;
-    msg = QObject::tr("File %1 doesn't look like a TOONZ Scene")
+    msg = UiTranslations::text(QObject::tr("File %1 doesn't look like a TOONZ Scene"))
               .arg(QString::fromStdWString(scenePath.getWideString()));
     DVGui::error(msg);
     return false;
@@ -2435,10 +2436,10 @@ bool IoCmd::loadScene(const TFilePath &path, bool updateRecentFile,
                           QString(".tmp").toStdWString());
   if (TSystem::doesExistFileOrLevel(scenePathTemp)) {
     QString question =
-        QObject::tr(
+        UiTranslations::text(QObject::tr(
             "A prior save of Scene '%1' was critically interrupted. \n\
 \nA partial save file was generated and changes may be manually salvaged from '%2'.\n\
-\nDo you wish to continue loading the last good save or stop and try to salvage the prior save?")
+\nDo you wish to continue loading the last good save or stop and try to salvage the prior save?"))
             .arg(QString::fromStdWString(scenePath.getWideString()))
             .arg(QString::fromStdWString(scenePathTemp.getWideString()));
     QString continueAnswer = QObject::tr("Continue");
@@ -2457,11 +2458,11 @@ bool IoCmd::loadScene(const TFilePath &path, bool updateRecentFile,
   auto sceneProject   = pm->loadSceneProject(scenePath);
   if (!sceneProject) {
     QString msg;
-    msg = QObject::tr(
+    msg = UiTranslations::text(QObject::tr(
               "It is not possible to load the scene %1 because it does not "
               "belong to any project.\n"
               "Please delete scenes.xml if this scene dones't belong to any "
-              "project.")
+              "project."))
               .arg(QString::fromStdWString(scenePath.getWideString()));
     DVGui::warning(msg);
   }
@@ -2470,8 +2471,8 @@ bool IoCmd::loadScene(const TFilePath &path, bool updateRecentFile,
         QString::fromStdWString(sceneProject->getName().getWideString());
 
     QString question =
-        QObject::tr(
-            "The Scene '%1' belongs to project '%2'.\nWhat do you want to do?")
+        UiTranslations::text(QObject::tr(
+            "The Scene '%1' belongs to project '%2'.\nWhat do you want to do?"))
             .arg(QString::fromStdWString(scenePath.getWideString()))
             .arg(sceneProjectName);
     QString importAnswer        = QObject::tr("Import Scene");
@@ -2545,7 +2546,7 @@ bool IoCmd::loadScene(const TFilePath &path, bool updateRecentFile,
     QString detailMsg = QString::fromStdWString(e.getMessage());
 
     QString msg =
-        QObject::tr("There were problems loading the scene %1.\nDetails:\n\n%2")
+        UiTranslations::text(QObject::tr("There were problems loading the scene %1.\nDetails:\n\n%2"))
             .arg(QString::fromStdWString(scenePath.getWideString()))
             .arg(detailMsg);
 
@@ -2553,9 +2554,9 @@ bool IoCmd::loadScene(const TFilePath &path, bool updateRecentFile,
   } catch (...) {
     printf("%s:%s Exception ...:\n", __FILE__, __FUNCTION__);
     QString msg;
-    msg = QObject::tr(
+    msg = UiTranslations::text(QObject::tr(
               "There were problems loading the scene %1.\n Some files may be "
-              "missing.")
+              "missing."))
               .arg(QString::fromStdWString(scenePath.getWideString()));
     DVGui::warning(msg);
   }
@@ -2612,9 +2613,9 @@ bool IoCmd::loadScene(const TFilePath &path, bool updateRecentFile,
   }
   if (forbiddenLevelCount > 0) {
     QString msg;
-    msg = QObject::tr(
+    msg = UiTranslations::text(QObject::tr(
               "There were problems loading the scene %1.\nSome levels have not "
-              "been loaded because their version is not supported")
+              "been loaded because their version is not supported"))
               .arg(QString::fromStdWString(scenePath.getWideString()));
     DVGui::warning(msg);
   }
@@ -2670,9 +2671,9 @@ bool IoCmd::loadScene(const TFilePath &path, bool updateRecentFile,
       }
     }
     if (!modifiedPNGLevelNames.isEmpty()) {
-      DVGui::info(QObject::tr("The Premultiply options in the following levels "
+      DVGui::info(UiTranslations::text(QObject::tr("The Premultiply options in the following levels "
                               "are disabled, since PNG files are premultiplied "
-                              "on loading in the current version: %1")
+                              "on loading in the current version: %1"))
                       .arg(modifiedPNGLevelNames.join(", ")));
       app->getCurrentScene()->setDirtyFlag(true);
     }
@@ -3055,9 +3056,9 @@ int IoCmd::loadResources(LoadResourceArguments &args, bool updateRecentFile,
     if (std::find_if(rds.begin(), rds.end(), isDuplicate) != rds.end()) {
       if (!all) {
         QString question =
-            QObject::tr(
+            UiTranslations::text(QObject::tr(
                 "File '%1' will reload level '%2' as a duplicate column in the "
-                "xsheet.\n\nAllow duplicate?")
+                "xsheet.\n\nAllow duplicate?"))
                 .arg(origName)
                 .arg(QString::fromStdString(path.getName()));
         QString Yes    = QObject::tr("Allow");
@@ -3084,7 +3085,7 @@ int IoCmd::loadResources(LoadResourceArguments &args, bool updateRecentFile,
         break;
       else {
         progressDialog->setLabelText(
-            DVGui::ProgressDialog::tr("Importing \"%1\"...")
+            UiTranslations::text(DVGui::ProgressDialog::tr("Importing \"%1\"..."))
                 .arg(path.getQString()));
         progressDialog->setValue(r);
 
@@ -3177,7 +3178,7 @@ int IoCmd::loadResources(LoadResourceArguments &args, bool updateRecentFile,
         break;
       else {
         progressDialog->setLabelText(
-            DVGui::ProgressDialog::tr("Loading \"%1\"...")
+            UiTranslations::text(DVGui::ProgressDialog::tr("Loading \"%1\"..."))
                 .arg(path.getQString()));
         progressDialog->setValue(i);
 
@@ -3228,9 +3229,9 @@ int IoCmd::loadResources(LoadResourceArguments &args, bool updateRecentFile,
 
       if (bindings.size() > 1) {
         const QString question =
-            QObject::tr(
+            UiTranslations::text(QObject::tr(
                 "OpenEXR file '%1' contains %2 displayable images.\n"
-                "How would you like to load it?")
+                "How would you like to load it?"))
                 .arg(path.withoutParentDir().getQString())
                 .arg(static_cast<int>(bindings.size()));
         QList<QString> choices;
@@ -3432,7 +3433,7 @@ bool IoCmd::importLipSync(TFilePath levelPath, QList<TFrameId> frameList,
   args.expose = false;
 
   if (!IoCmd::loadResources(args, false, &sb)) {
-    DVGui::error(QObject::tr("It is not possible to load the level %1")
+    DVGui::error(UiTranslations::text(QObject::tr("It is not possible to load the level %1"))
                      .arg(toQString(levelPath)));
     return false;
   }
@@ -3445,7 +3446,7 @@ bool IoCmd::importLipSync(TFilePath levelPath, QList<TFrameId> frameList,
   for (int i = 0; i < frameList.size(); i++) fids.push_back(frameList.at(i));
 
   if (!IoCmd::exposeLevel(loadedLevel->getSimpleLevel(), row, col, fids)) {
-    DVGui::error(QObject::tr("It is not possible to load the level %1")
+    DVGui::error(UiTranslations::text(QObject::tr("It is not possible to load the level %1"))
                      .arg(toQString(levelPath)));
     return false;
   }
@@ -3468,10 +3469,10 @@ void IoCmd::convertNAARaster2TLV(
         return false;  // Never convert
       }
 
-      QString label = QObject::tr(
+      QString label = UiTranslations::text(QObject::tr(
                           "%1\n\nis an image sequence that can be converted "
                           "into a TLV format "
-                          "\nWould you like to convert it?")
+                          "\nWould you like to convert it?"))
                           .arg(path.getQString());
 
       QString checkBoxLabel = QObject::tr("Always do this action.");
@@ -3621,7 +3622,7 @@ void IoCmd::renameResources(
       case 2:
         return false;
       }
-      QString label = QObject::tr(
+      QString label = UiTranslations::text(QObject::tr(
                           "Image sequence detected, but the filenames are "
                           "missing a separator: \n"
                           "OpenToonz requires a separator (such as an "
@@ -3631,7 +3632,7 @@ void IoCmd::renameResources(
                           "Example: A0001.png → A.0001.png\n"
                           "\nWould you like OpenToonz to automatically add a "
                           "dot to fix the sequence format?\n"
-                          "\n%1 (and similar files)")
+                          "\n%1 (and similar files)"))
                           .arg(path.getQString());
 
       QString checkBoxLabel = QObject::tr("Always do this action.");
@@ -3801,7 +3802,7 @@ bool IoCmd::takeCareSceneFolderItemsOnSaveSceneAs(
   }
   // list maximum 10 levels
   if (count > 10)
-    str.append(QObject::tr("    + %1 more level(s) \n").arg(count - 10));
+    str.append(UiTranslations::text(QObject::tr("    + %1 more level(s) \n")).arg(count - 10));
 
   // in case there is no items with $scenefolder
   if (sceneFolderLevels.isEmpty()) return true;
@@ -3830,8 +3831,8 @@ bool IoCmd::takeCareSceneFolderItemsOnSaveSceneAs(
         bool overwrite = (policy == YES_FOR_ALL);
         if (policy == ASK) {
           QString question =
-              QObject::tr(
-                  "File %1 already exists.\nDo you want to overwrite it?")
+              UiTranslations::text(QObject::tr(
+                  "File %1 already exists.\nDo you want to overwrite it?"))
                   .arg(fp.getQString());
           int ret_overwrite = DVGui::MsgBox(
               question, QObject::tr("Overwrite"),
@@ -3851,12 +3852,12 @@ bool IoCmd::takeCareSceneFolderItemsOnSaveSceneAs(
 
       TFilePath srcFp = scene->decodeFilePath(level->getPath());
       if (!TSystem::copyFileOrLevel(fp, srcFp))
-        warning(QObject::tr("Failed to overwrite %1").arg(fp.getQString()));
+        warning(UiTranslations::text(QObject::tr("Failed to overwrite %1")).arg(fp.getQString()));
       // copy the palette as well
       if (level->getType() == TZP_XSHLEVEL) {
         if (!TSystem::copyFileOrLevel(fp.withType("tpl"),
                                       srcFp.withType("tpl")))
-          warning(QObject::tr("Failed to overwrite %1")
+          warning(UiTranslations::text(QObject::tr("Failed to overwrite %1"))
                       .arg(fp.withType("tpl").getQString()));
       }
     }
@@ -3981,7 +3982,7 @@ public:
     RecentFiles::instance()->moveFilePath(index, 0, RecentFiles::Level);
     if (args.loadedLevels.empty()) {
       QString msg;
-      msg = QObject::tr("It is not possible to load the %1 level.").arg(path);
+      msg = UiTranslations::text(QObject::tr("It is not possible to load the %1 level.")).arg(path);
       DVGui::error(msg);
     }
   }
@@ -4021,7 +4022,7 @@ public:
     TFilePath path       = scene->getScenePath();
     TFilePath decodePath = scene->decodeFilePath(scene->getScenePath());
     if (!TSystem::doesExistFileOrLevel(decodePath)) {
-      DVGui::warning(QObject::tr("The scene %1 doesn't exist.")
+      DVGui::warning(UiTranslations::text(QObject::tr("The scene %1 doesn't exist."))
                          .arg(toQString(decodePath)));
       return;
     }
@@ -4126,7 +4127,7 @@ public:
       else
         StudioPalette::instance()->save(palettePath, palette);
     } catch (const TException &e) {
-      DVGui::warning(QObject::tr("Could not save the palette.\n%1")
+      DVGui::warning(UiTranslations::text(QObject::tr("Could not save the palette.\n%1"))
                          .arg(QString::fromStdWString(e.getMessage())));
       return;
     }
@@ -4177,7 +4178,7 @@ public:
                 "Projects with their own raster palette will keep using it.");
     if (TSystem::doesExistFileOrLevel(path))
       question +=
-          QObject::tr("\n\nThis will overwrite %1.").arg(path.getQString());
+          UiTranslations::text(QObject::tr("\n\nThis will overwrite %1.")).arg(path.getQString());
     if (DVGui::MsgBox(question, QObject::tr("Save"), QObject::tr("Cancel"),
                       0) != 1)
       return;
@@ -4187,7 +4188,7 @@ public:
       StudioPalette::instance()->notifyTreeChange();
     } catch (const TException &e) {
       DVGui::warning(
-          QObject::tr("Could not save the default raster palette.\n%1")
+          UiTranslations::text(QObject::tr("Could not save the default raster palette.\n%1"))
               .arg(QString::fromStdWString(e.getMessage())));
     } catch (...) {
       DVGui::warning(QObject::tr("Could not save the default raster palette."));

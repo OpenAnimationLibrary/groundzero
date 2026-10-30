@@ -1,5 +1,6 @@
 #include "cadmiumruntime.h"
 #include "cadmiumcodec.h"
+#include "toonzqt/uitranslations.h"
 
 #include <QBuffer>
 #include <QCoreApplication>
@@ -126,6 +127,12 @@ CadmiumRuntime *CadmiumRuntime::instance() {
 CadmiumRuntime::CadmiumRuntime(QObject *parent)
     : QObject(parent), m_process(new QProcess(this)),
       m_network(new QNetworkAccessManager(this)), m_status(tr("Stopped")) {
+  UiTranslations::onLanguageChanged(this, [this]() {
+    if (auto translate = UiTranslations::recipe(m_status)) {
+      m_status = UiTranslations::remember(translate(), translate);
+      emit statusChanged();
+    }
+  });
   m_network->setProxy(QNetworkProxy::NoProxy);
   m_process->setProcessChannelMode(QProcess::SeparateChannels);
   m_healthTimer.setInterval(250);

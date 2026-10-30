@@ -1,5 +1,6 @@
 
 
+#include "toonzqt/uitranslations.h"
 #include "convertpopup.h"
 
 // Tnz6 includes
@@ -130,13 +131,13 @@ void ConvertPopup::Converter::run() {
     m_saveToNopaintOnlyFlag = false;
 
     if (dstFilePath == sourceLevelPath) {
-      DVGui::info(tr("Level %1 converting to same file format; skipped.")
+      DVGui::info(UiTranslations::text(tr("Level %1 converting to same file format; skipped."))
                       .arg(levelName));
       m_skippedCount++;
       continue;
     } else if (TSystem::doesExistFileOrLevel(dstFilePath)) {
       if (m_parent->m_skip->isChecked()) {
-        DVGui::info(tr("Level %1 already exists; skipped.").arg(levelName));
+        DVGui::info(UiTranslations::text(tr("Level %1 already exists; skipped.")).arg(levelName));
         m_skippedCount++;
         continue;
       } else {
@@ -162,9 +163,9 @@ void ConvertPopup::Converter::run() {
     }
 
     if (m_parent->m_srcFilePaths.size() == 1) {
-      progressDialog->setLabelText(QString(tr("Converting %1").arg(levelName)));
+      progressDialog->setLabelText(QString(UiTranslations::text(tr("Converting %1")).arg(levelName)));
     } else {
-      progressDialog->setLabelText(QString(tr("Converting level %1 of %2: %3")
+      progressDialog->setLabelText(QString(UiTranslations::text(tr("Converting level %1 of %2: %3"))
                                                .arg(i + 1)
                                                .arg(levelCount)
                                                .arg(levelName)));
@@ -195,7 +196,7 @@ void ConvertPopup::Converter::convertLevel(
     popup->getFrameRange(sourceFileFullPath, from, to);
 
     if (from == TFrameId() || to == TFrameId()) {
-      DVGui::warning(tr("Level %1 has no frame; skipped.").arg(levelName));
+      DVGui::warning(UiTranslations::text(tr("Level %1 has no frame; skipped.")).arg(levelName));
       popup->m_notifier->notifyError();
 
       return;
@@ -496,7 +497,7 @@ ConvertPopup::ConvertPopup(bool specifyInput)
   ret      = ret &&
         connect(m_tlvMode, QOverload<int>::of(&QComboBox::currentIndexChanged),
                 this, [this, combo = m_tlvMode](int index) {
-                  onTlvModeSelected(combo->itemText(index));
+                  onTlvModeSelected(combo->itemData(index).toString());
                 });
   ret = ret && connect(m_fromFld, SIGNAL(editingFinished()), this,
                        SLOT(onRangeChanged()));
@@ -525,7 +526,7 @@ ConvertPopup::ConvertPopup(bool specifyInput)
   // resize the dialog
   onFormatSelected(m_fileFormat->currentText());
   // update unable/enable of checkboxes
-  onTlvModeSelected(m_tlvMode->currentText());
+  onTlvModeSelected(getTlvMode());
 
   assert(ret);
 }
@@ -546,7 +547,9 @@ QString ConvertPopup::getDestinationType() const {
 
 //-----------------------------------------------------------------------------
 
-QString ConvertPopup::getTlvMode() const { return m_tlvMode->currentText(); }
+QString ConvertPopup::getTlvMode() const {
+  return m_tlvMode->currentData().toString();
+}
 
 //-----------------------------------------------------------------------------
 
@@ -564,7 +567,8 @@ QFrame *ConvertPopup::createSvgSettings() {
 
   QStringList items;
   items << tr("Centerline") << tr("Outline");
-  m_tlvMode->addItems(items);
+  for (const QString &caption : items) m_tlvMode->addItem(caption, caption);
+  UiTranslations::watchCombo(m_tlvMode);
 
   hLayout->addStretch();
   vLayout->addLayout(hLayout);
@@ -587,6 +591,7 @@ QFrame *ConvertPopup::createTlvSettings() {
       new QCheckBox(tr("Save Backup to \"nopaint\" Folder"));
   m_appendDefaultPalette = new QCheckBox(tr("Append Default Palette"));
   m_antialias            = new QComboBox();
+  UiTranslations::watchCombo(m_antialias);
   m_antialiasIntensity   = new DVGui::IntLineEdit(0, 50, 0, 100);
   m_palettePath =
       new DVGui::FileField(0, QString(CreateNewPalette), true, true);
@@ -596,6 +601,7 @@ QFrame *ConvertPopup::createTlvSettings() {
       new QCheckBox(tr("Remove Unused Styles from Input Palette"));
 
   m_dpiMode = new QComboBox();
+  UiTranslations::watchCombo(m_dpiMode);
   m_dpiFld  = new DVGui::DoubleLineEdit();
 
   m_allowOnlyWhiteBG = new QCheckBox(tr(
@@ -613,7 +619,8 @@ QFrame *ConvertPopup::createTlvSettings() {
   QStringList items;
   items << TlvMode_Unpainted << TlvMode_UnpaintedFromNonAA
         << TlvMode_PaintedFromTwoImages << TlvMode_PaintedFromNonAA;
-  m_tlvMode->addItems(items);
+  for (const QString &caption : items) m_tlvMode->addItem(caption, caption);
+  UiTranslations::watchCombo(m_tlvMode);
   m_antialiasIntensity->setEnabled(false);
 
   m_appendDefaultPalette->setToolTip(
@@ -780,15 +787,15 @@ void ConvertPopup::onFormatSelected(const QString &format) {
   // m_svgFrame->setVisible(isPli);
 
   if (isTlv) {
-    bool isPainted = m_tlvMode->currentText() == TlvMode_PaintedFromTwoImages;
+    bool isPainted = getTlvMode() == TlvMode_PaintedFromTwoImages;
     m_unpaintedFolderLabel->setEnabled(isPainted);
     m_unpaintedFolder->setEnabled(isPainted);
     m_suffixLabel->setEnabled(isPainted);
     m_unpaintedSuffix->setEnabled(isPainted);
 
-    m_saveBackupToNopaint->setEnabled(m_tlvMode->currentText() ==
+    m_saveBackupToNopaint->setEnabled(getTlvMode() ==
                                       TlvMode_Unpainted);
-    m_allowOnlyWhiteBG->setEnabled(m_tlvMode->currentText() ==
+    m_allowOnlyWhiteBG->setEnabled(getTlvMode() ==
                                    TlvMode_PaintedFromNonAA);
   }
   // For unknown reasons, calling adjustSize twice is needed to
@@ -859,7 +866,7 @@ void ConvertPopup::setFiles(const std::vector<TFilePath> &fps) {
   m_imageDpi = 0.0;
 
   if (m_srcFilePaths.size() == 1) {
-    setWindowTitle(tr("Convert 1 Level : %1")
+    setWindowTitle(UiTranslations::text(tr("Convert 1 Level : %1"))
                        .arg(QString::fromStdString(fps[0].getName())));
     m_fileNameFld->setEnabled(true);
 
@@ -893,7 +900,7 @@ void ConvertPopup::setFiles(const std::vector<TFilePath> &fps) {
 
     m_fileNameFld->setText(QString::fromStdString(fps[0].getName()));
   } else {
-    setWindowTitle(tr("Convert %1 Levels").arg(m_srcFilePaths.size()));
+    setWindowTitle(UiTranslations::text(tr("Convert %1 Levels")).arg(m_srcFilePaths.size()));
     m_fromFld->setText("");
     m_toFld->setText("");
     m_fileNameFld->setText("");
@@ -922,7 +929,7 @@ void ConvertPopup::setFormat(QString format) {
 Convert2Tlv *ConvertPopup::makeTlvConverter(const TFilePath &sourceFilePath) {
   ToonzScene *sc = TApp::instance()->getCurrentScene()->getScene();
   TFilePath unpaintedfilePath;
-  if (m_tlvMode->currentText() == TlvMode_PaintedFromTwoImages) {
+  if (getTlvMode() == TlvMode_PaintedFromTwoImages) {
     QString suffixString = m_unpaintedSuffix->text();
 
     TFilePath unpaintedFolder;
@@ -1054,17 +1061,17 @@ void ConvertPopup::convertToTlv(bool toPainted) {
   if (m_srcFilePaths.size() == 1) {
     if (skipped == 0)
       DVGui::info(
-          tr("Level %1 converted to TLV Format")
+          UiTranslations::text(tr("Level %1 converted to TLV Format"))
               .arg(QString::fromStdWString(
                   m_srcFilePaths[0].withoutParentDir().getWideString())));
     else
       DVGui::warning(
-          tr("Warning: Level %1 NOT converted to TLV Format")
+          UiTranslations::text(tr("Warning: Level %1 NOT converted to TLV Format"))
               .arg(QString::fromStdWString(
                   m_srcFilePaths[0].withoutParentDir().getWideString())));
   } else
     DVGui::MsgBox(skipped == 0 ? DVGui::INFORMATION : DVGui::WARNING,
-                  tr("Converted %1 out of %2 Levels to TLV Format")
+                  UiTranslations::text(tr("Converted %1 out of %2 Levels to TLV Format"))
                       .arg(QString::number(m_srcFilePaths.size() - skipped))
                       .arg(QString::number(m_srcFilePaths.size())));
 
@@ -1125,7 +1132,7 @@ TPalette *ConvertPopup::readUserProvidedPalette() const {
     // note! refCount==0
   } catch (...) {
     DVGui::warning(
-        tr("Warning: Can't read palette '%1' ").arg(m_palettePath->getPath()));
+        UiTranslations::text(tr("Warning: Can't read palette '%1' ")).arg(m_palettePath->getPath()));
     if (palette) {
       delete palette;
       palette = 0;
@@ -1174,7 +1181,7 @@ bool ConvertPopup::checkParameters() const {
   }
 
   if (m_fileFormat->currentText() == TlvExtension) {
-    if (m_tlvMode->currentText() == TlvMode_PaintedFromTwoImages) {
+    if (getTlvMode() == TlvMode_PaintedFromTwoImages) {
       if (m_unpaintedSuffix->text() == "") {
         DVGui::warning(tr("No unpainted suffix specified: cannot convert."));
         return false;
@@ -1233,7 +1240,7 @@ void ConvertPopup::apply() {
 
   // TODO: salvare il vecchio stato
   if (m_fileFormat->currentText() == TlvExtension &&
-      m_tlvMode->currentText() == TlvMode_PaintedFromTwoImages) {
+      getTlvMode() == TlvMode_PaintedFromTwoImages) {
     if (!m_unpaintedSuffix->text().contains('_'))
       TFilePath::setUnderscoreFormatAllowed(true);
   }
@@ -1258,13 +1265,13 @@ void ConvertPopup::onConvertFinished() {
   if (errorCount > 0) {
     if (skippedCount > 0)
       DVGui::error(
-          tr("Convert completed with %1 error(s) and %2 level(s) skipped")
+          UiTranslations::text(tr("Convert completed with %1 error(s) and %2 level(s) skipped"))
               .arg(errorCount)
               .arg(skippedCount));
     else
-      DVGui::error(tr("Convert completed with %1 error(s) ").arg(errorCount));
+      DVGui::error(UiTranslations::text(tr("Convert completed with %1 error(s) ")).arg(errorCount));
   } else if (skippedCount > 0) {
-    DVGui::warning(tr("%1 level(s) skipped").arg(skippedCount));
+    DVGui::warning(UiTranslations::text(tr("%1 level(s) skipped")).arg(skippedCount));
   }
   /*
 if (m_srcFilePaths.size()==1)
@@ -1336,7 +1343,7 @@ void ConvertPopup::onFormatChanged(const QString &ext) {
 
 void ConvertPopup::onPalettePathChanged() {
   m_removeUnusedStyles->setEnabled(
-      m_tlvMode->currentText() == TlvMode_PaintedFromNonAA &&
+      getTlvMode() == TlvMode_PaintedFromNonAA &&
       m_palettePath->getPath() != CreateNewPalette);
 }
 
@@ -1345,7 +1352,7 @@ void ConvertPopup::onPalettePathChanged() {
 bool ConvertPopup::isSaveTlvBackupToNopaintActive() {
   return m_fileFormat->currentText() ==
              TlvExtension /*-- tlvが選択されている --*/
-         && m_tlvMode->currentText() ==
+         && getTlvMode() ==
                 TlvMode_Unpainted /*-- Unpainted Tlvが選択されている --*/
          && m_saveBackupToNopaint->isChecked(); /*-- Save Backup to "nopaint"
                                                    Folder オプションが有効 --*/

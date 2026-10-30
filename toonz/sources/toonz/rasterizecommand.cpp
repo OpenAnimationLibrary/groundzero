@@ -1,5 +1,6 @@
 
 // Tnz6 includes
+#include "toonzqt/uitranslations.h"
 #include "tapp.h"
 #include "menubarcommandids.h"
 #include "selectionutils.h"
@@ -129,7 +130,7 @@ namespace {
 
         int getSize() const override { return sizeof * this; }
         QString getHistoryString() override {
-            return QObject::tr("Create Level %1  at Column %2")
+            return UiTranslations::text(QObject::tr("Create Level %1  at Column %2"))
                 .arg(QString::fromStdWString(m_sl->getName()))
                 .arg(QString::number(m_columnIndex + 1));
         }
