@@ -12,7 +12,9 @@
 #include <QLabel>
 #include <QMenu>
 #include <QMetaProperty>
+#include <QPair>
 #include <QPointer>
+#include <QSet>
 #include <QSignalBlocker>
 #include <QStandardItemModel>
 #include <QTabBar>
@@ -37,6 +39,9 @@ struct Binding {
   Recipe translate;
   bool explicitSource = false;
   unsigned long long revision = 0;
+  // Refresh applies bindings in this order: a property keeps its place when
+  // it is captured again and moves to the end when it is assigned anew.
+  unsigned long long order = 0;
 };
 struct LiteralProperty {
   QPointer<QObject> object;
@@ -60,18 +65,24 @@ struct TabBinding {
   QString assigned;
   Recipe translate;
 };
+// One owner per (object, property). An entry whose object is gone is stale:
+// its address may already belong to a new object, so lookups compare the
+// guarded pointer as well as the key.
+using PropertyKey = QPair<const QObject *, QByteArray>;
 struct State {
   std::map<const QChar *, Caption> captions;
   QHash<QString, const QChar *> literals;
-  std::vector<Binding> bindings;
-  std::vector<LiteralProperty> literalProperties;
+  QHash<PropertyKey, Binding> bindings;
+  QHash<PropertyKey, LiteralProperty> literalProperties;
   std::vector<Callback> callbacks;
-  std::vector<ItemBinding> items;
-  std::vector<TabBinding> tabs;
+  QHash<const QObject *, std::vector<ItemBinding>> items;
+  QHash<const QObject *, std::vector<TabBinding>> tabs;
   bool capturing = false;
   bool refreshing = false;
-  unsigned allocations = 0;
+  std::size_t allocations        = 0;
+  std::size_t nextCollection     = 128;
   unsigned long long nextBinding = 0;
+  std::size_t captureWork        = 0;
 };
 State &state() {
   static State instance;
@@ -81,42 +92,76 @@ bool guiThread() {
   return qApp && QThread::currentThread() == qApp->thread();
 }
 
+PropertyKey propertyKey(const QObject *object, const char *property) {
+  return PropertyKey(object, QByteArray(property));
+}
+
+// The binding owning a live object's property, or end() when there is none.
+QHash<PropertyKey, Binding>::iterator findBinding(const PropertyKey &key) {
+  auto &s = state();
+  ++s.captureWork;
+  auto found = s.bindings.find(key);
+  if (found != s.bindings.end() && found->object != key.first) {
+    s.bindings.erase(found);  // Stale: the address now names another object.
+    return s.bindings.end();
+  }
+  return found;
+}
+
 void erasePropertyOwners(QObject *object, const char *property) {
   auto &s = state();
-  s.bindings.erase(std::remove_if(s.bindings.begin(), s.bindings.end(),
-      [&](const Binding &entry) {
-        return entry.object == object && entry.property == property;
-      }), s.bindings.end());
-  s.literalProperties.erase(std::remove_if(s.literalProperties.begin(),
-      s.literalProperties.end(), [&](const LiteralProperty &entry) {
-        return !entry.object ||
-            (entry.object == object && entry.property == property);
-      }), s.literalProperties.end());
+  const PropertyKey key = propertyKey(object, property);
+  s.bindings.remove(key);
+  s.literalProperties.remove(key);
+}
+
+template <typename Entries, typename Stale>
+void eraseIf(Entries &entries, Stale stale) {
+  for (auto it = entries.begin(); it != entries.end();) {
+    if (stale(it.value()))
+      it = entries.erase(it);
+    else
+      ++it;
+  }
+}
+
+template <typename Entry>
+bool reassigned(const Entry &entry) {
+  return !entry.object || entry.object->property(entry.property.constData())
+                                  .toString()
+                                  .constData() != entry.assigned.constData();
 }
 
 void collectLiteralProperties() {
-  auto &entries = state().literalProperties;
-  entries.erase(std::remove_if(entries.begin(), entries.end(),
-      [](const LiteralProperty &entry) {
-        return !entry.object ||
-            entry.object->property(entry.property.constData()).toString()
-                .constData() != entry.assigned.constData();
-      }), entries.end());
+  eraseIf(state().literalProperties,
+          [](const LiteralProperty &entry) { return reassigned(entry); });
+}
+
+std::size_t retainedEntries() {
+  const auto &s = state();
+  return s.captions.size() + s.bindings.size() + s.literalProperties.size() +
+         s.callbacks.size() + s.items.size() + s.tabs.size();
 }
 
 void collect() {
   auto &s = state();
-  if (++s.allocations % 128 != 0) return;
+  // Sweep after as many new identities as were retained after the last
+  // sweep: each record() then costs constant amortized time however large the
+  // interface is, and retained metadata stays within twice the live amount.
+  if (++s.allocations < s.nextCollection) return;
+  s.allocations = 0;
   collectLiteralProperties();
-  s.bindings.erase(std::remove_if(s.bindings.begin(), s.bindings.end(),
-      [](const Binding &binding) {
-        return !binding.object ||
-            binding.object->property(binding.property.constData()).toString()
-                .constData() != binding.assigned.constData();
-      }), s.bindings.end());
+  eraseIf(s.bindings,
+          [](const Binding &binding) { return reassigned(binding); });
   s.callbacks.erase(std::remove_if(s.callbacks.begin(), s.callbacks.end(),
       [](const Callback &callback) { return callback.owner.isNull(); }),
       s.callbacks.end());
+  eraseIf(s.items, [](const std::vector<ItemBinding> &items) {
+    return items.empty() || !items.front().combo;
+  });
+  eraseIf(s.tabs, [](const std::vector<TabBinding> &tabs) {
+    return tabs.empty() || !tabs.front().tabs;
+  });
   // QString's implicit sharing is also our lifetime token. Sole ownership
   // means no widget, application value or binding can still use this identity.
   // Unlike a text->source dictionary this retains no discarded label history.
@@ -127,31 +172,42 @@ void collect() {
       it = s.captions.erase(it);
     } else ++it;
   }
+  s.nextCollection = std::max<std::size_t>(128, retainedEntries());
 }
 
 void captureProperty(QObject *object, const char *property) {
+  auto &s = state();
+  ++s.captureWork;
   if (!object || object->metaObject()->indexOfProperty(property) < 0) return;
   QString value = object->property(property).toString();
-  for (const LiteralProperty &entry : state().literalProperties)
-    if (entry.object == object && entry.property == property &&
-        entry.assigned.constData() == value.constData()) return;
+  const PropertyKey key = propertyKey(object, property);
+  auto existing         = findBinding(key);
   Recipe translate = recipe(value);
-  auto &bindings = state().bindings;
-  auto existing = std::find_if(bindings.begin(), bindings.end(),
-      [&](const Binding &binding) {
-        return binding.object == object && binding.property == property;
-      });
-  if (existing != bindings.end() && existing->explicitSource &&
-      existing->assigned.constData() == value.constData()) return;
-  if (translate) {
-    Binding binding{object, property, value, std::move(translate)};
-    binding.revision = ++state().nextBinding;
-    if (existing == bindings.end()) bindings.push_back(std::move(binding));
-    else *existing = std::move(binding);
-  } else if (existing != bindings.end() &&
-             existing->assigned.constData() != value.constData()) {
-    // A runtime label now represents user data or another unbound value.
-    bindings.erase(existing);
+  if (!translate) {
+    // Most properties hold neither a caption nor a binding: nothing to do.
+    // A runtime label that replaced a bound caption is user data or another
+    // unbound value now.
+    if (existing != s.bindings.end() &&
+        existing->assigned.constData() != value.constData())
+      s.bindings.erase(existing);
+    return;
+  }
+  ++s.captureWork;
+  const auto literal = s.literalProperties.constFind(key);
+  if (literal != s.literalProperties.constEnd() && literal->object == object &&
+      literal->assigned.constData() == value.constData())
+    return;
+  if (existing != s.bindings.end() && existing->explicitSource &&
+      existing->assigned.constData() == value.constData())
+    return;
+  Binding binding{object, property, value, std::move(translate)};
+  binding.revision = ++s.nextBinding;
+  if (existing == s.bindings.end()) {
+    binding.order = binding.revision;
+    s.bindings.insert(key, std::move(binding));
+  } else {
+    binding.order = existing->order;
+    *existing     = std::move(binding);
   }
 }
 
@@ -172,41 +228,99 @@ void captureObject(QObject *object) {
   if (qobject_cast<QGroupBox *>(widget) || qobject_cast<QMenu *>(widget))
     captureProperty(widget, "title");
   if (auto *tabs = qobject_cast<QTabBar *>(widget)) {
-    if (tabs->property("_ot_caption_tabs").toBool())
+    state().tabs.remove(tabs);
+    if (tabs->property("_ot_caption_tabs").toBool()) {
+      std::vector<TabBinding> captions;
       for (int i = 0; i < tabs->count(); ++i) {
         QString value = tabs->tabText(i);
         Recipe translate = recipe(value);
         if (translate)
-          state().tabs.push_back({tabs, i, value, std::move(translate)});
+          captions.push_back({tabs, i, value, std::move(translate)});
       }
+      if (!captions.empty()) state().tabs.insert(tabs, std::move(captions));
+    }
   }
   // Editable values (line edits, text edits, editable combos and item views)
   // are deliberately outside automatic caption capture.
   QComboBox *combo = qobject_cast<QComboBox *>(widget);
-  if (!combo || combo->isEditable() ||
-      !combo->property("_ot_caption_items").toBool()) return;
+  if (!combo) return;
+  state().items.remove(combo);
+  if (combo->isEditable() || !combo->property("_ot_caption_items").toBool())
+    return;
   auto *model = qobject_cast<QStandardItemModel *>(combo->model());
   if (!model || model->parent() != combo) return;
+  std::vector<ItemBinding> captions;
   for (int i = 0; i < combo->count(); ++i) {
     QString value = combo->itemText(i);
     Recipe translate = recipe(value);
     if (translate)
-      state().items.push_back({combo, i, combo->itemData(i), value,
-                               std::move(translate)});
+      captions.push_back(
+          {combo, i, combo->itemData(i), value, std::move(translate)});
   }
+  if (!captions.empty()) state().items.insert(combo, std::move(captions));
+}
+
+// A widget, its actions and the actions it owns. Menus and toolbars share
+// actions, so each object is captured once per pass.
+void captureWidget(QWidget *widget, QSet<QObject *> &seen) {
+  captureObject(widget);
+  auto captureAction = [&seen](QAction *action) {
+    if (seen.contains(action)) return;
+    seen.insert(action);
+    captureObject(action);
+  };
+  for (QAction *action : widget->actions()) captureAction(action);
+  for (QAction *action :
+       widget->findChildren<QAction *>(QString(), Qt::FindDirectChildrenOnly))
+    captureAction(action);
+}
+
+// Captures the widgets shown or polished since the last pass. A widget shown
+// with its window is captured with the window's subtree, not on its own; the
+// rest of the interface is unchanged by these events and is not walked again.
+void captureSubtrees(const QList<QWidget *> &roots) {
+  auto &s = state();
+  if (!guiThread() || s.capturing || s.refreshing) return;
+  s.capturing = true;
+  QSet<QWidget *> pending;
+  for (QWidget *root : roots) pending.insert(root);
+  QSet<QObject *> seen;
+  for (QWidget *root : roots) {
+    bool covered = false;
+    for (QWidget *parent = root->parentWidget(); parent && !covered;
+         parent          = parent->parentWidget())
+      covered = pending.contains(parent);
+    if (covered) continue;
+    captureWidget(root, seen);
+    for (QWidget *child : root->findChildren<QWidget *>())
+      captureWidget(child, seen);
+  }
+  s.capturing = false;
 }
 
 class CaptureEvents final : public QObject {
-  bool m_pending = false;
+  QHash<QWidget *, QPointer<QWidget>> m_pending;
+  bool m_scheduled = false;
+
 public:
   explicit CaptureEvents(QObject *parent) : QObject(parent) {}
-  bool eventFilter(QObject *, QEvent *event) override {
-    if (!m_pending && (event->type() == QEvent::Polish ||
-                       event->type() == QEvent::Show)) {
-      m_pending = true;
+  bool eventFilter(QObject *object, QEvent *event) override {
+    if ((event->type() != QEvent::Polish && event->type() != QEvent::Show) ||
+        !object->isWidgetType())
+      return false;
+    QWidget *widget = static_cast<QWidget *>(object);
+    auto found      = m_pending.find(widget);
+    if (found != m_pending.end() && *found) return false;
+    m_pending.insert(widget, widget);
+    if (!m_scheduled) {
+      m_scheduled = true;
       QTimer::singleShot(0, this, [this]() {
-        m_pending = false;
-        captureAll();
+        m_scheduled = false;
+        QList<QWidget *> roots;
+        for (const QPointer<QWidget> &widget : m_pending)
+          if (widget) roots.append(widget);
+        m_pending.clear();
+        captureSubtrees(roots);
       });
     }
     return false;
@@ -285,7 +399,8 @@ void setLiteral(QObject *object, const char *property, const QString &text) {
   erasePropertyOwners(object, property);
   object->setProperty(property, text);
   if (guard)
-    state().literalProperties.push_back(
+    state().literalProperties.insert(
+        propertyKey(object, property),
         {object, property, object->property(property).toString()});
 }
 
@@ -299,10 +414,12 @@ void setCaption(QObject *object, const char *property, const QString &text) {
   const QPointer<QObject> guard(object);
   erasePropertyOwners(object, property);
   object->setProperty(property, text);
-  if (guard)
-    state().bindings.push_back({object, property,
-        object->property(property).toString(), std::move(translate), true,
-        ++state().nextBinding});
+  if (!guard) return;
+  const unsigned long long revision = ++state().nextBinding;
+  state().bindings.insert(
+      propertyKey(object, property),
+      {object, property, object->property(property).toString(),
+       std::move(translate), true, revision, revision});
 }
 
 void bind(QObject *object, const char *property, const char *context,
@@ -319,15 +436,13 @@ void bind(QObject *object, const char *property, const char *context,
   erasePropertyOwners(object, property);
   object->setProperty(property, value);
   if (!guard) return;
-  auto &bindings = state().bindings;
-  auto existing = std::find_if(bindings.begin(), bindings.end(),
-      [&](const Binding &binding) {
-        return binding.object == object && binding.property == property;
-      });
+  const PropertyKey key = propertyKey(object, property);
+  auto existing         = findBinding(key);
   Binding binding{object, property, object->property(property).toString(),
                   std::move(translate), true, ++state().nextBinding};
-  if (existing == bindings.end()) bindings.push_back(std::move(binding));
-  else *existing = std::move(binding);
+  binding.order =
+      existing == state().bindings.end() ? binding.revision : existing->order;
+  state().bindings.insert(key, std::move(binding));
 }
 
 void onLanguageChanged(QObject *owner, std::function<void()> callback) {
@@ -347,6 +462,8 @@ void watchTabBar(QTabBar *tabs) {
 
 std::size_t retainedCaptionCount() { return state().captions.size(); }
 
+std::size_t captureWork() { return state().captureWork; }
+
 void captureAll() {
   if (!guiThread() || state().capturing || state().refreshing) return;
   auto &s = state();
@@ -354,17 +471,11 @@ void captureAll() {
   collectLiteralProperties();
   s.items.clear();
   s.tabs.clear();
-  s.bindings.erase(std::remove_if(s.bindings.begin(), s.bindings.end(),
-      [](const Binding &binding) { return binding.object.isNull(); }),
-      s.bindings.end());
+  eraseIf(s.bindings,
+          [](const Binding &binding) { return binding.object.isNull(); });
+  QSet<QObject *> seen;
   const auto widgets = QApplication::allWidgets();
-  for (QWidget *widget : widgets) {
-    captureObject(widget);
-    for (QAction *action : widget->actions()) captureObject(action);
-    for (QAction *action : widget->findChildren<QAction *>(QString(),
-                                   Qt::FindDirectChildrenOnly))
-      captureObject(action);
-  }
+  for (QWidget *widget : widgets) captureWidget(widget, seen);
   s.capturing = false;
 }
 
@@ -372,47 +483,56 @@ void refresh() {
   if (!guiThread() || state().refreshing) return;
   auto &s = state();
   s.refreshing = true;
-  const auto bindings = s.bindings;
+  std::vector<Binding> bindings;
+  bindings.reserve(s.bindings.size());
+  for (const Binding &binding : s.bindings) bindings.push_back(binding);
+  std::sort(
+      bindings.begin(), bindings.end(),
+      [](const Binding &a, const Binding &b) { return a.order < b.order; });
   for (const Binding &binding : bindings) {
+    if (!binding.object) continue;
     // A presentation observer may have assigned literal data or a new source
     // to a later target while this snapshot was being applied.
-    const bool stillOwned = std::any_of(s.bindings.begin(), s.bindings.end(),
-        [&](const Binding &live) { return live.revision == binding.revision; });
-    if (!stillOwned || !binding.object ||
-        binding.object->property(binding.property.constData()).toString()
-            .constData() != binding.assigned.constData())
+    const PropertyKey key(binding.object.data(), binding.property);
+    auto live = findBinding(key);
+    if (live == s.bindings.end() || live->revision != binding.revision ||
+        binding.object->property(binding.property.constData())
+                .toString()
+                .constData() != binding.assigned.constData())
       continue;
     // Presentation changes must not execute model/scene editing callbacks.
     // QAction::changed is presentation notification used by menus and command
     // browsers. It must remain enabled; none of these setters emits triggered.
     QString value = remember(binding.translate(), binding.translate);
     binding.object->setProperty(binding.property.constData(), value);
-    for (Binding &live : s.bindings)
-      if (live.object && live.object == binding.object &&
-          live.property == binding.property && live.revision == binding.revision) {
-        live.assigned = live.object->property(live.property.constData()).toString();
-        break;
-      }
+    if (!binding.object) continue;
+    live = findBinding(key);
+    if (live != s.bindings.end() && live->revision == binding.revision)
+      live->assigned =
+          binding.object->property(binding.property.constData()).toString();
   }
   const auto items = s.items;
-  for (const ItemBinding &item : items) {
-    if (!item.combo || item.index >= item.combo->count() ||
-        item.combo->itemText(item.index).constData() != item.assigned.constData() ||
-        item.combo->itemData(item.index) != item.identity)
-      continue;
-    QSignalBlocker block(item.combo);
-    QSignalBlocker modelBlock(item.combo->model());
-    item.combo->setItemText(item.index,
-                           remember(item.translate(), item.translate));
-  }
+  for (const std::vector<ItemBinding> &captions : items)
+    for (const ItemBinding &item : captions) {
+      if (!item.combo || item.index >= item.combo->count() ||
+          item.combo->itemText(item.index).constData() !=
+              item.assigned.constData() ||
+          item.combo->itemData(item.index) != item.identity)
+        continue;
+      QSignalBlocker block(item.combo);
+      QSignalBlocker modelBlock(item.combo->model());
+      item.combo->setItemText(item.index,
+                              remember(item.translate(), item.translate));
+    }
   const auto tabs = s.tabs;
-  for (const TabBinding &tab : tabs) {
-    if (!tab.tabs || tab.index >= tab.tabs->count() ||
-        tab.tabs->tabText(tab.index).constData() != tab.assigned.constData())
-      continue;
-    const QSignalBlocker blocker(tab.tabs);
-    tab.tabs->setTabText(tab.index, remember(tab.translate(), tab.translate));
-  }
+  for (const std::vector<TabBinding> &captions : tabs)
+    for (const TabBinding &tab : captions) {
+      if (!tab.tabs || tab.index >= tab.tabs->count() ||
+          tab.tabs->tabText(tab.index).constData() != tab.assigned.constData())
+        continue;
+      const QSignalBlocker blocker(tab.tabs);
+      tab.tabs->setTabText(tab.index, remember(tab.translate(), tab.translate));
+    }
   s.callbacks.erase(std::remove_if(s.callbacks.begin(), s.callbacks.end(),
       [](const Callback &callback) { return callback.owner.isNull(); }),
       s.callbacks.end());

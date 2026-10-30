@@ -164,6 +164,22 @@ void setGrammerToParams(const ParamCont *cont,
   }
 }
 
+//------------------------------------------------------
+
+// Whether the fx is part of the xsheet: an internal fx of its dag, the fx of
+// one of its columns, or the effect of one of its zerary columns.
+bool belongsTo(TFx *fx, TXsheet *xsh) {
+  if (xsh->getFxDag()->getInternalFxs()->containsFx(fx)) return true;
+  for (int c = 0; c < xsh->getColumnCount(); ++c) {
+    TXshColumn *column = xsh->getColumn(c);
+    if (!column) continue;
+    if (column->getFx() == fx) return true;
+    TXshZeraryFxColumn *zerary = column->getZeraryFxColumn();
+    if (zerary && zerary->getZeraryColumnFx()->getZeraryFx() == fx) return true;
+  }
+  return false;
+}
+
 }  // namespace
 
 //********************************************************************************
@@ -1184,9 +1200,12 @@ std::vector<TStageObjectId> StageObjectsData::restoreObjects(
 
     bool isLinked = (fxOrig->getLinkedFx() != fxOrig);
     if (isLinked) {
-      if (m_fxs.find(fxOrig->getLinkedFx()) == m_fxs.end())
-        fx->linkParams(fxOrig->getLinkedFx());
-      else {
+      if (m_fxs.find(fxOrig->getLinkedFx()) == m_fxs.end()) {
+        // A pasted copy links to an fx outside the selection only when that
+        // fx is in the destination xsheet; see the parameter links below.
+        if (!doClone || belongsTo(fxOrig->getLinkedFx(), xsh))
+          fx->linkParams(fxOrig->getLinkedFx());
+      } else {
         TFx *linkedFx, *oldLinkedFx = fxOrig->getLinkedFx();
         if (doClone) {
           // Clone the linked fx too
@@ -1242,8 +1261,19 @@ std::vector<TStageObjectId> StageObjectsData::restoreObjects(
     // it already belongs to that ring, so replaying saved group membership
     // cannot split a ring or leave earlier members on stale parameter objects.
     restored->unlinkParams();
+    const bool external = !fxTable.contains(entry.second.getPointer());
+    // Linked parameters are shared objects with one grammar, owned by the
+    // stage object tree of one xsheet and deleted with it. A pasted copy keeps
+    // the link to an fx outside the selection only when that fx is in the
+    // destination xsheet, whose grammar it gets below. Linked to an fx of
+    // another xsheet or scene, it would keep that grammar, and evaluate its
+    // expressions through freed memory once that scene is closed: the copy
+    // keeps its own parameters instead, like every other pasted fx.
+    if (external && doClone && !belongsTo(representative, xsh)) continue;
     restored->linkParams(representative);
-    if (!fxTable.contains(entry.second.getPointer())) externallyLinked.insert(restored);
+    // Moves without cloning keep the fx objects, and the expression context,
+    // of their source.
+    if (external && !doClone) externallyLinked.insert(restored);
   }
 
   // Paste any associated spline (not stored im m_splines)
@@ -1336,8 +1366,8 @@ std::vector<TStageObjectId> StageObjectsData::restoreObjects(
   }
   QMap<TFx *, TFx *>::const_iterator it;
   for (it = fxTable.constBegin(); it != fxTable.constEnd(); ++it) {
-    // An intentionally retained link to an uncopied FX also retains that FX's
-    // expression context, including when pasted in another xsheet.
+    // A link retained by a move without cloning also retains its expression
+    // context, including in another xsheet.
     if (externallyLinked.contains(it.value())) continue;
     setGrammerToParams(it.value()->getParams(), grammer);
   }

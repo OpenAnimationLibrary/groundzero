@@ -19,6 +19,8 @@
 #include <limits>
 #include <map>
 #include <stdexcept>
+#include <utility>
+#include <vector>
 
 namespace ParticleBake {
 namespace {
@@ -403,9 +405,46 @@ bool loadFrame(const ParticleCache::Snapshot &snapshot, Frame &result,
   }
 }
 
+namespace {
+// Native frame revisions are memoized with the stamps of every file they read,
+// so a repeated alias costs a stat per file instead of hashing every sprite.
+struct Revision {
+  QString value;
+  std::vector<std::pair<QString, QString>> stamps;  // Path and fileStamp.
+};
+QMutex revisionMutex;
+std::map<QString, Revision> revisions;
+}  // namespace
+
 QString frameRevision(const ParticleCache::Snapshot &snapshot, QString &error) {
   error.clear();
+  const QString key =
+      QString::fromUtf8(
+          QJsonDocument(snapshot.extra).toJson(QJsonDocument::Compact)) +
+      QChar('\n') + snapshot.sourceDirectory;
+  {
+    QMutexLocker lock(&revisionMutex);
+    const auto found = revisions.find(key);
+    if (found != revisions.end() &&
+        std::all_of(found->second.stamps.begin(), found->second.stamps.end(),
+                    [](const std::pair<QString, QString> &file) {
+                      return ParticleCache::fileStamp(file.first) ==
+                             file.second;
+                    }))
+      return found->second.value;
+  }
   try {
+    Revision revision;
+    bool settled = true;
+    auto stamp   = [&](const QString &path) {
+      bool current = false;
+      revision.stamps.emplace_back(path,
+                                     ParticleCache::fileStamp(path, &current));
+      settled = settled && current;
+    };
+    if (snapshot.extra.contains("drawFile"))
+      stamp(QDir(snapshot.sourceDirectory)
+                .filePath(snapshot.extra.value("drawFile").toString()));
     const QJsonObject metadata = nativeMetadata(snapshot);
     require(metadata.value("native").toBool() && metadata.value("draws").isArray(),
             "Invalid native particle metadata");
@@ -426,6 +465,7 @@ QString frameRevision(const ParticleCache::Snapshot &snapshot, QString &error) {
       require(info.isFile() && info.canonicalFilePath().startsWith(root + '/') &&
                   info.size() >= 21 && quint64(info.size()) <= maxSpriteBytes + 21,
               "Invalid native particle artwork asset");
+      stamp(info.canonicalFilePath());
       QFile file(info.canonicalFilePath());
       require(file.open(QIODevice::ReadOnly), "Cannot read native particle artwork");
       QCryptographicHash content(QCryptographicHash::Sha256);
@@ -442,7 +482,13 @@ QString frameRevision(const ParticleCache::Snapshot &snapshot, QString &error) {
               "Particle artwork checksum mismatch");
       hash.addData(digest);
     }
-    return QString::fromLatin1(hash.result().toHex());
+    revision.value = QString::fromLatin1(hash.result().toHex());
+    if (settled) {
+      QMutexLocker lock(&revisionMutex);
+      if (revisions.size() >= 4096) revisions.clear();
+      revisions[key] = revision;
+    }
+    return revision.value;
   } catch (const TException &e) {
     error = QString::fromStdWString(e.getMessage());
   } catch (const std::exception &e) {
