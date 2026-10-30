@@ -2954,8 +2954,14 @@ public:
     m_bounds = bounds;
     update();
   }
+#ifdef BUILD_UI_PORT_TESTS
+  TVectorImageP imageForTest() const { return m_image; }
+#endif
   void highlight(int index) { m_highlight = index; update(); }
   void paintGL() override {
+    // The checkerboard is in widget coordinates. Neither the previous image
+    // fit nor PlaneViewer's first-draw fit may change its next-frame extent.
+    viewAff() = TAffine();
     drawBackground();
     if (!m_image) return;
     const double sx = (width() - 20.0) / std::max(1.0, m_bounds.getLx());
@@ -3160,6 +3166,11 @@ void InbetweenDialog::setPreviewSource(
   m_zones = zones;
   schedulePreview();
 }
+#ifdef BUILD_UI_PORT_TESTS
+TVectorImageP InbetweenDialog::previewImageForTest() const {
+  return m_resultPreview->imageForTest();
+}
+#endif
 int InbetweenDialog::unmatchedPolicy() const { return m_unmatchedCombo->currentData().toInt(); }
 void InbetweenDialog::setUnmatchedPolicy(int policy) {
   const int index = m_unmatchedCombo->findData(policy);

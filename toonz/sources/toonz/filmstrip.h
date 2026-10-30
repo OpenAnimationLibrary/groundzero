@@ -374,6 +374,10 @@ public:
                         const std::vector<std::pair<TRectD, TRectD>> &zones);
   int unmatchedPolicy() const;
   void setUnmatchedPolicy(int policy);
+#ifdef BUILD_UI_PORT_TESTS
+  // Inspect the actual generated preview, independently of framebuffer state.
+  TVectorImageP previewImageForTest() const;
+#endif
 
   void setValue(const QString &value);
   QString getValue();
