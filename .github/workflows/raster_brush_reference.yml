@@ -1,0 +1,67 @@
+name: Raster Brush Reference
+on:
+  pull_request:
+    paths:
+      - 'ci-scripts/brush-reference/**'
+      - '.github/workflows/raster_brush_reference.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: brush-reference-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  krita:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    env:
+      BRUSH_REFERENCE_ROOT: ${{ github.workspace }}/brush-reference-run
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install reference runtime dependencies
+        run: sudo apt-get update && sudo apt-get install -y xvfb libopengl0 libegl1 libxcb-xinerama0 libxcb-cursor0 libxkbcommon-x11-0
+      - name: Download pinned official reference application
+        shell: bash
+        run: |
+          mkdir -p reference-runtime
+          curl --fail --location --retry 3 --max-time 300 'https://download.kde.org/stable/krita/5.3.4.1/krita-5.3.4.1-x86_64.AppImage' -o reference-runtime/krita.AppImage
+          sha256sum reference-runtime/krita.AppImage > reference-runtime/application-sha256.txt
+          chmod +x reference-runtime/krita.AppImage
+          cd reference-runtime
+          ./krita.AppImage --appimage-extract > extraction.log
+      - name: Prepare original brush fixtures
+        run: python3 ci-scripts/brush-reference/prepare.py
+      - name: Render source application fixtures
+        shell: bash
+        run: |
+          set -o pipefail
+          export XDG_DATA_HOME="$BRUSH_REFERENCE_ROOT/data"
+          export XDG_CONFIG_HOME="$BRUSH_REFERENCE_ROOT/config"
+          export QT_X11_NO_MITSHM=1
+          export LIBGL_ALWAYS_SOFTWARE=1
+          timeout 600 xvfb-run -a -s '-screen 0 2560x2160x24' reference-runtime/squashfs-root/AppRun --nosplash 2>&1 | tee "$BRUSH_REFERENCE_ROOT/runtime.log"
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          path = Path(os.environ['BRUSH_REFERENCE_ROOT']) / 'output' / 'oracle-status.json'
+          if not path.exists():
+              raise SystemExit('Reference plugin produced no status; this is not a passing comparison')
+          result = json.loads(path.read_text())
+          if result['status'] != 'complete' or len(result['records']) != 5:
+              raise SystemExit('Incomplete source reference workload: ' + str(result))
+          PY
+      - name: Report reference failure
+        if: failure()
+        shell: bash
+        run: |
+          echo '::error::Reference acquisition or execution failed; inspect the named step and runtime artifact. No source parity is granted.'
+          if test -f "$BRUSH_REFERENCE_ROOT/output/oracle-status.json"; then cat "$BRUSH_REFERENCE_ROOT/output/oracle-status.json"; fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: krita-reference-${{ github.sha }}
+          path: |
+            brush-reference-run/output/
+            brush-reference-run/data/krita/paintoppresets/
+            brush-reference-run/runtime.log
+            reference-runtime/application-sha256.txt
