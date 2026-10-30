@@ -211,7 +211,7 @@ void morphCallerChecks() {
   // wiring a standalone dialog's accepted signal to the command under test.
   auto invoke = [&](int scenario) {
     bool prepared = false, delivered = false, accepted = false, timedOut = false;
-    bool queuedApplyRequested = false, applyClicked = false;
+    bool queuedApplyRequested = false, queuedApplyDelivered = false, applyClicked = false;
     bool warning = false;
     std::exception_ptr failure;
     std::vector<Drawing> expected;
@@ -276,7 +276,9 @@ void morphCallerChecks() {
           require(review, "morph caller review disappeared before queued action");
           QPointer<QPushButton> queuedApply(apply);
           if (scenario >= 0)
-            queuedApplyRequested = QMetaObject::invokeMethod(apply, "click", Qt::QueuedConnection);
+            queuedApplyRequested = QMetaObject::invokeMethod(apply, [&, apply] {
+              queuedApplyDelivered = true; apply->click();
+            }, Qt::QueuedConnection);
           TVectorImageP first = level->getFrame(TFrameId(1), false);
           TVectorImageP middle = level->getFrame(TFrameId(2), false);
           TVectorImageP last = level->getFrame(TFrameId(3), false);
@@ -317,6 +319,10 @@ void morphCallerChecks() {
             delete closing;
             require(TSelection::getCurrent() != closingSelection,
                     "closing a Filmstrip during preview retained its dead selection");
+          } else if (scenario == 11) {
+            strip->hide(); strip->show();
+          } else if (scenario == 12) {
+            area.hide(); area.show();
           }
           level->getFids(expectedFids);
           expectedHints = level->getMorphHints();
@@ -360,7 +366,8 @@ void morphCallerChecks() {
     require(prepared && delivered && !timedOut, "actual Filmstrip morph caller did not finish its review");
     if (scenario == -2) return;
     if (scenario >= 0)
-      require(queuedApplyRequested && (!review || applyClicked),
+      require(queuedApplyRequested && (!review || (queuedApplyDelivered &&
+                  (scenario >= 10 ? !applyClicked : applyClicked))),
               "morph fixture did not deliver its queued native Apply");
     if (scenario >= 0 && scenario < 6) {
       require(accepted, "silent-source morph change did not reach the caller's Accepted guard");
@@ -396,6 +403,11 @@ void morphCallerChecks() {
   for (int scenario = 0; scenario < 9; ++scenario) {
     resetDrawing();
     std::cout << "vector-morph-caller: stale scenario " << scenario << std::endl;
+    invoke(scenario);
+  }
+  for (int scenario : {11,12}) {
+    resetDrawing();
+    std::cout << "vector-morph-caller: owner hide/show scenario " << scenario << std::endl;
     invoke(scenario);
   }
   resetDrawing(); invoke(-1);
@@ -530,11 +542,19 @@ void runVectorFillNativeChecks() {
     tool->leftButtonUp(TPointD(20,20), mouse);
     tool->leftButtonDown(TPointD(20,20), mouse);
   };
-  auto edit = [&](bool accept, bool switchTool = false, bool switchFrame = false) {
-    bool sawDialog = false, cleanDuringReview = false, queuedAccepted = false;
+  auto edit = [&](bool accept, bool switchTool = false, bool switchFrame = false,
+                  int ownerMode = -1) {
+    bool sawDialog = false, cleanDuringReview = false, queuedAccepted = false, ownerCancelled = false;
     app->getCurrentScene()->setDirtyFlag(false);
     pick();
     tool->leftButtonDrag(TPointD(25,25), mouse);
+    QPointer<QWidget> previous = QApplication::activeWindow();
+    std::unique_ptr<QWidget> owner;
+    if (ownerMode >= 0) {
+      owner.reset(new QWidget); owner->resize(320,200); owner->show();
+      QApplication::setActiveWindow(owner.get()); QCoreApplication::processEvents();
+      require(QApplication::activeWindow() == owner.get(), "fill fixture original owner unavailable");
+    }
     QTimer response;
     response.setSingleShot(true);
     QObject::connect(&response, &QTimer::timeout, [&]() {
@@ -555,7 +575,16 @@ void runVectorFillNativeChecks() {
           app->getCurrentFrame()->setFrame(0);
         }
         auto *button = dialog->findChild<QPushButton *>(accept ? "vectorFillApply" : "vectorFillRestore");
-        if (button && switchFrame) {
+        if (button && ownerMode >= 0) {
+          const bool parentless = !dialog->parentWidget();
+          if (ownerMode == 1) owner.reset(); else { owner->hide(); owner->show(); }
+          bool delivered = false;
+          const bool queued = QMetaObject::invokeMethod(button,[&] { delivered = true; button->click(); },
+                                                       Qt::QueuedConnection);
+          QCoreApplication::sendPostedEvents(button,QEvent::MetaCall);
+          ownerCancelled = parentless && queued && delivered && !button->isEnabled() &&
+                           dialog->result() == QDialog::Rejected;
+        } else if (button && switchFrame) {
           const bool queued = QMetaObject::invokeMethod(button,"click",Qt::QueuedConnection);
           QCoreApplication::sendPostedEvents(button,QEvent::MetaCall);
           queuedAccepted = queued && dialog->result() == QDialog::Accepted;
@@ -568,6 +597,9 @@ void runVectorFillNativeChecks() {
     require(cleanDuringReview, "review dirtied scene or recorded undo before Apply");
     require(!switchFrame || queuedAccepted,
             "fill review did not receive the queued Apply after context rejection");
+    require(ownerMode < 0 || ownerCancelled,
+            "queued Apply revived a fill review after its original owner closed");
+    owner.reset(); if (previous) QApplication::setActiveWindow(previous);
   };
   fillCheckpoint("control-point Restore Original");
   edit(false);
@@ -586,6 +618,20 @@ void runVectorFillNativeChecks() {
             restored->getStroke(0)->isSelfLoop() == original->getStroke(0)->isSelfLoop() &&
             undo->getHistoryCount() == 0 && !app->getCurrentScene()->getDirtyFlag(),
             "queued Apply revived a dismissed fill review or changed history");
+  }
+  fillCheckpoint("control-point original owner hide/delete restores fill review");
+  for (int destroy = 0; destroy < 2; ++destroy) {
+    edit(true,false,false,destroy);
+    TVectorImageP restored = level->getFrame(TFrameId(1),false);
+    requireGeometry(restored, original, "owner-cancelled fill review lost original geometry");
+    requireFilledCenter(restored, "owner-cancelled fill review");
+    require(restored->getStroke(0)->getId() == original->getStroke(0)->getId() &&
+                restored->getStroke(0)->getStyle() == original->getStroke(0)->getStyle() &&
+                restored->getStroke(0)->isSelfLoop() == original->getStroke(0)->isSelfLoop() &&
+                restored->getStroke(0)->getOpacity() == original->getStroke(0)->getOpacity() &&
+                restored->getStroke(0)->getOpacityProfile() == original->getStroke(0)->getOpacityProfile() &&
+                undo->getHistoryCount() == 0 && !app->getCurrentScene()->getDirtyFlag(),
+            "owner-cancelled fill review changed authored properties/history/dirty state");
   }
   fillCheckpoint("control-point Apply and undo/redo");
   edit(true);

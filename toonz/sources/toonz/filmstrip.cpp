@@ -33,6 +33,7 @@
 // TnzTools includes
 #include "tools/strokeselection.h"
 #include "tools/vectorimagesnapshot.h"
+#include "tools/vectormodalguard.h"
 
 // TnzLib includes
 #include "toonz/txshlevelhandle.h"
@@ -2158,6 +2159,7 @@ void FilmstripFrames::inbetween() {
     return;
   }
   QPointer<FilmstripFrames> self(this);
+  VectorModalGuard owner(this);
   bool invalidated = false;
   bool reviewing = true;
   QObject dialogContext;
@@ -2247,9 +2249,9 @@ void FilmstripFrames::inbetween() {
     m_inbetweenDialog->setPreviewSource(img0, img1, strokePairs, zoneHints);
 
     QPointer<InbetweenDialog> dialog(m_inbetweenDialog);
-    int ret = dialog->exec();
+    int ret = owner.exec(*dialog);
     reviewing = false;
-    if (!self || !dialog || !ret || invalidated) return;
+    if (!self || !dialog || !ret || invalidated || !owner.valid()) return;
     bool unchanged = false;
     try { unchanged = sameSource(); } catch (...) { }
     if (!unchanged) {

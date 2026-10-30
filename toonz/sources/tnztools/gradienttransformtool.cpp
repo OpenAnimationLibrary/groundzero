@@ -57,6 +57,8 @@
 #include <QPushButton>
 #include <QString>
 #include <QMessageBox>
+#include <QApplication>
+#include "tools/vectormodalguard.h"
 
 // STD includes
 #include <algorithm>
@@ -1015,13 +1017,15 @@ bool GradientTransformTool::makeUniqueStyle(QString &reason) {
 
   bool copyAnimation = false;
   if (pl->getKeyframeCount(oldStyleId)) {
+    VectorModalGuard owner(QApplication::activeWindow());
     QMessageBox question(QMessageBox::Question, QObject::tr("Make Unique Gradient"),
         QObject::tr("This gradient is animated. Copy its animation or only its "
                     "appearance at the current frame?"), QMessageBox::Cancel);
     auto *animation = question.addButton(QObject::tr("Copy Animation"), QMessageBox::YesRole);
     auto *appearance = question.addButton(QObject::tr("Current Appearance"), QMessageBox::NoRole);
-    question.exec();
-    if (question.clickedButton() != animation && question.clickedButton() != appearance)
+    owner.exec(question);  // QMessageBox custom choices are not QDialog result codes.
+    if (!owner.valid() ||
+        (question.clickedButton() != animation && question.clickedButton() != appearance))
       return false;
     copyAnimation = question.clickedButton() == animation;
   }

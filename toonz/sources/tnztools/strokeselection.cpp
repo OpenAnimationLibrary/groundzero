@@ -866,7 +866,8 @@ void StrokeSelection::editOpacityProfile() {
   QObject::connect(app->getCurrentTool(), &ToolHandle::toolSwitched, &editor, invalidate);
   QObject::connect(app->getCurrentSelection(), &TSelectionHandle::selectionSwitched, &editor, invalidate);
   QObject::connect(app->getCurrentSelection(), &TSelectionHandle::selectionChanged, &editor, invalidate);
-  if (editor.exec() != QDialog::Accepted || invalidated) return;
+  if (!editor.reviewValid() || editor.exec() != QDialog::Accepted ||
+      invalidated || !editor.reviewValid()) return;
   if (app->getCurrentScene()->getScene() != scene ||
       app->getCurrentXsheet()->getXsheet() != xsheet ||
       app->getCurrentLevel()->getSimpleLevel() != level.getPointer() ||

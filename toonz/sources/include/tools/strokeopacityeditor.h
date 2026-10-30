@@ -132,6 +132,7 @@ public:
 };
 
 class Dialog final : public QDialog {
+  VectorModalGuard m_owner;
   Model *m_model;
   QTableView *m_table;
   Curve *m_curve;
@@ -182,7 +183,7 @@ class Dialog final : public QDialog {
   }
 public:
   Dialog(const TVectorImageP &image, const std::set<int> &selection, QWidget *parent = nullptr)
-      : QDialog(parent), m_source(image->clone()), m_selection(selection) {
+      : QDialog(nullptr), m_owner(parent), m_source(image->clone()), m_selection(selection) {
     setObjectName("strokeOpacityEditor"); setWindowTitle(tr("Edit Stroke Opacity Envelope"));
     auto *layout = new QGridLayout(this);
     m_model = new Model(this);
@@ -242,7 +243,9 @@ public:
     updateState();
     m_preview->setImage(m_source,m_source->getBBox());
     resize(720,600);
+    m_owner.watch(*this);
   }
+  bool reviewValid() const { return m_owner.accepted(*this); }
   const StrokeOpacity::Profile &profile() const { return m_model->profile(); }
 };
 }  // namespace StrokeOpacityEditor
