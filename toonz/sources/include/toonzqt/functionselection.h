@@ -84,6 +84,9 @@ public:
 
   bool isEmpty() const override { return m_selectedKeyframes.empty(); }
   void selectNone() override;
+  // Remove detached owners, including cell ranges with no selected keys.
+  // A changed rectangular cell domain is canceled; surviving keys are retained.
+  void retainCurves(const QSet<TDoubleParam *> &present);
   void select(TDoubleParam *curve, int k);
   bool isSelected(TDoubleParam *curve, int k) const;
   void selectSegment(TDoubleParam *, int k,
