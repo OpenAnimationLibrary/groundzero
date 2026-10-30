@@ -17,10 +17,10 @@ and invalidate snapshots that contain scene-owned expression grammars.
 |---|---|---|---|
 | 1 | Fit selected keys | `FunctionPanel::selectionBounds` uses actual keys across channels, adjoining selected segments, Bezier hull and sampled expression context; `fitRegion` handles one key/constants. Native widget test checks selected extent versus the rest of the curve. | CI; interactive handle/extrema framing. Expression bounds are sampled framing, not an analytical extremum guarantee. |
 | 2 | Channel search | `FunctionTreeView::setSearchText/applySearch` matches ancestor/channel/reference text and restores expansion. Browser-only filtering keeps active curves and selected keys visible in graph/spreadsheet. Native search/expansion test prepared. | CI; large channel lists and translated labels. |
-| 3 | Named channel sets | Channel Sets stores named UUID lists in user settings. Optional `workspaceId` attribute on existing `default` scene tag survives rename/reload; copy/undo retain owner ID, clones/imports do not inherit it. Missing/duplicate IDs are reported. | CI serialization/copy tests and native whole-scene save/reopen of renamed stage, offset, Plastic and FX IDs, including unkeyed defaults and nested tint channels. Original `default` reader ignores attributes; no new child tag was added. Opening then saving with an older build may discard IDs and requires resaving sets. |
+| 3 | Named channel sets | Channel Sets stores named UUID lists in user settings. Rename/F2/Enter preserves IDs, order and additional set metadata, rejects empty/duplicate names, and cancels unfinished text on close/context replacement. Workspace renames preserve animation undo/dirty state. Optional `workspaceId` attribute on existing `default` scene tag survives rename/reload; copy/undo retain owner ID, clones/imports do not inherit it. Missing/duplicate IDs are reported. | New rename fixtures require exact-head CI: keyboard/modal controls, fresh-process preferences read, recall after channel rename, native scene membership and cancellation. Existing serialization tests cover stage, offset, Plastic and FX IDs, including unkeyed/nested defaults. Original `default` reader ignores attributes; no new child tag was added. Older builds may discard IDs on save. |
 | 4 | Solo and edit locks | Tools offers solo/restore and locks selected channels. Native `KeyframeSetter`, FunctionSelection commands, numeric plans and Load Curve apply reject locked writes; toolbar/segment fields disable. Context Reset Handles now uses native undo setters. | CI lock routes and undo; manual graph/sheet/context-menu route matrix. Locks are session-only; undo remains able to restore history. |
 | 5 | Numeric multi-key edit | Edit Keys shows mixed value ranges/counts, set/offset values in each channel's display units, preview, repeated Apply and close/cancel. Single-value toolbar directs multiple selections to Edit Keys. | CI native modal repeated Apply/cancel and unit/all-or-nothing oracle tests. Driven endpoints require explicit bake before numeric value edits. |
-| 6 | Precise retiming | Edit Keys offers frame offset, grid quantization and positive time scale around a pivot across selected channels. Plan rejects negative frames, collisions and crossing unselected keys, and scales relevant handle time components. | CI timing/quantization/collision tests and native quantize preview/apply/undo; manual non-integer timing interaction. |
+| 6 | Precise retiming | Edit Keys offers frame offset, grid quantization, pivot scaling and explicit target first/last frames. Target-range mapping uses the whole multi-channel selection, exact endpoints, relative interior timing and segment handle scaling. It rejects negative/reversed/colliding ranges; point selections require a point destination. Exact repeat is a no-op. Native curve serialization uses full double precision while preserving the caller's stream mode. | New target-range fixtures require exact-head CI: numeric/handle/SeExpr oracles, locked/stale atomic rejection, widget preview/repeat/cancel/context replacement, native Stage/offset/Plastic undo/redo and fractional scene roundtrip. Manual tablet/fractional visual review remains. |
 | 7 | Normalized display | Tools normalization maps each curve's sampled display range to 0–1, with inverse mouse coordinate mapping. No stored key values change. Recomputed after finished edits. | CI roundtrip/unchanged snapshot; manual constant/driven curves and multi-channel drag. |
 | 8 | Curve identification | Deterministic per-channel colors, visible long-name legend, current/locked annotations; names elide within the graph. Stable UUID colors apply after a set is saved; otherwise structural reference/name hash. | Light/dark themes, 100/150/200% DPI and color-vision accessibility. Color is accompanied by names, not the sole identifier. |
 | 9 | Interpolation/handles toolbar | Dedicated Interpolation menu exposes native Constant/Linear/Speed/Ease/%/Exponential and selected handle link/unlink/reset. Multi-key handle commands form one undo block. | CI native type/lock tests and full-application interpolation, handle drag/reset/locked-reset undo. Remaining manual handle route matrix. |
@@ -45,7 +45,9 @@ ordinary `ui_port_tests` target. CTest names use the existing `ui_` selection:
   and failures, cancellation, overshoot, presets, restore and identity persistence.
 - `ui_functionworkflow` (`ui_functionworkflow_test`): actual FunctionViewer tree,
   graph, modal controls, repeated Apply/close, fit/search/normalization, native
-  lock commands, keyboard undo, scene/Xsheet/model cancellation and dense paints.
+  lock commands, keyboard undo, saved-set keyboard rename/reopen/fresh-process
+  persistence, target-range preview/repeat/undo, scene/Xsheet/model cancellation
+  and dense paints.
 
 `functionworkflowintegrationtest.cpp` also runs after the existing native UI
 fixture inside the real application. It opens the registered Function Editor
@@ -59,6 +61,31 @@ The unit/widget manifest now fails if either required suite is missing or skippe
 while preserving every other registered `ui_` test. CI qualification and platform
 runtime staging remain pending. No automated fixture proves the manual
 visual/device checks listed above.
+
+## Saved-set rename and explicit target ranges
+
+The follow-up for items 3 and 6 is source-complete and requires a new CI run.
+Saved-set renaming changes the stored entry's name while preserving its member
+IDs, ordering and other metadata. Its widget fixture drives Up/Down, F2 and
+Enter, rejects empty/case-insensitive duplicates, verifies uncommitted text is
+discarded on Close or context replacement, and launches a fresh process to read
+the persisted preferences. The real-application fixture renames and recalls
+Stage, offset and Plastic channels without changing document dirty state or
+animation history. Workspace set names remain preferences, outside animation
+undo; assigning new identities while capturing a set only happens after its
+preferences write succeeds.
+
+Target-range retiming uses shared selected bounds across channels and retains
+exact destination endpoints, relative interior timing and native handle data.
+The helper fixture covers invalid/colliding ranges, stale/locked atomic
+rejection, driven-source retention, point selections, one undo transaction and
+repeat no-ops. Widget and native application fixtures cover Preview, repeated
+Apply, pending-edit cancellation and undo/redo; the native fixture saves and
+reloads nine-decimal Stage/offset/Plastic timing with identities intact and
+session locks absent. A scoped full-precision writer in `TDoubleParam::saveData`
+prevents truncation of those frames, values and handles and restores the caller's
+precision mode. Helper assertions check exact numeric roundtrips with both
+incoming precision modes. No local builds or tests were run for this follow-up.
 
 ## First CI failure and regression coverage
 
