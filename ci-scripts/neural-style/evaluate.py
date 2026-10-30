@@ -99,6 +99,10 @@ def main():
         wheels.append({"file": path.name, "bytes": path.stat().st_size,
                        "sha256": digest(path)})
         with zipfile.ZipFile(path) as archive:
+            wheels[-1]["native_libraries"] = [
+                {"file": info.filename, "bytes": info.file_size}
+                for info in archive.infolist()
+                if info.filename.endswith((".so", ".dll", ".dylib"))]
             for info in archive.infolist():
                 if info.is_dir():
                     continue

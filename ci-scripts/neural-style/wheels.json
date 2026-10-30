@@ -105,14 +105,14 @@
   },
   {
     "name": "backports.strenum",
-    "version": "1.3.1",
+    "version": "1.2.8",
     "only_windows": false,
     "files": [
       {
-        "filename": "backports_strenum-1.3.1-py3-none-any.whl",
-        "bytes": 8304,
-        "sha256": "cdcfe36dc897e2615dc793b7d3097f54d359918fc448754a517e6f23044ccf83",
-        "url": "https://files.pythonhosted.org/packages/d6/50/56cf20e2ee5127b603b81d5a69580a1a325083e2b921aa8f067da83927c0/backports_strenum-1.3.1-py3-none-any.whl"
+        "filename": "backports_strenum-1.2.8-py3-none-any.whl",
+        "bytes": 7862,
+        "sha256": "fc297cb26971f7d5e15a478a06a78575197f81daea47975771b1aae996dcccf4",
+        "url": "https://files.pythonhosted.org/packages/bd/d0/a70b2e038cdab32ed2dbbf06d292d010fc208508bb187714306a87384c54/backports_strenum-1.2.8-py3-none-any.whl"
       }
     ]
   },
