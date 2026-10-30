@@ -1,6 +1,6 @@
 """Launch the native application against a disposable copied data directory."""
 import argparse
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 import json
 import os
 from pathlib import Path
@@ -150,6 +150,9 @@ def run_captured_process(command, *, cwd, environment, timeout, runtime_state):
             process = subprocess.Popen(command, cwd=cwd, env=environment,
                                        stdout=destination, stderr=subprocess.STDOUT,
                                        start_new_session=os.name != "nt")
+            # This is the directly launched OpenToonz PID. xvfb-run wraps this
+            # Python runner outside it; no shell or GL wrapper owns this PID.
+            runtime_state["pid"] = process.pid
             runtime_state["safe_to_release"] = False
             try:
                 status = process.wait(timeout=timeout)
@@ -505,6 +508,8 @@ def main():
                         help="Capture a separate CDB stack after a Windows native exception")
     parser.add_argument("--linux-crash-debugger", action="store_true",
                         help="Capture a separate GDB stack after a Linux native signal")
+    parser.add_argument("--linux-original-core-directory", type=Path,
+                        help="Collect a bounded postmortem of the original Linux process; no replay")
     parser.add_argument("--macos-crash-debugger", action="store_true",
                         help="Capture a separate LLDB stack after a macOS native signal")
     parser.add_argument("--debugger-symbols", type=Path, action="append", default=[],
@@ -518,6 +523,8 @@ def main():
     parser.add_argument("--require-combined-workflows", action="store_true",
                         help="Require cross-feature timing, vector metadata and export acceptance")
     args = parser.parse_args()
+    if args.linux_original_core_directory and (not sys.platform.startswith("linux") or args.artist_benchmark):
+        parser.error("--linux-original-core-directory requires the Linux native qualification run")
     if args.isolated_timing_lifecycle and any((args.artist_benchmark,
             args.require_function_workflow, args.require_offline_gl_workflow,
             args.require_vector_workflows, args.require_combined_workflows)):
@@ -538,11 +545,30 @@ def main():
             if args.artist_benchmark:
                 environment["GROUNDZERO_ARTIST_BENCHMARK"] = "1"
             try:
-                result = run_captured_process([str(executable), "--test-native-ui"],
-                                              cwd=directory, environment=environment,
-                                              timeout=timeout_seconds, runtime_state=runtime_state)
-                output, status = decode_output(result.stdout), result.returncode
-                native_status = status
+                core_limit = nullcontext()
+                if args.linux_original_core_directory:
+                    from native_ui_core import original_core_limit
+                    core_limit = original_core_limit(args.linux_original_core_directory)
+                with core_limit:
+                    result = run_captured_process([str(executable), "--test-native-ui"],
+                                                  cwd=directory, environment=environment,
+                                                  timeout=timeout_seconds, runtime_state=runtime_state)
+                    output, status = decode_output(result.stdout), result.returncode
+                    native_status = status
+                    if status:
+                        output += (f"\nNative application exited with status {status} "
+                                   f"(0x{status & 0xffffffff:08X}).\n")
+                if args.linux_original_core_directory and native_status < 0:
+                    from native_ui_core import collect_original_core
+                    core_output = collect_original_core(executable,
+                        args.linux_original_core_directory, runtime_state.get("pid"))
+                    output += "\n--- Original native process core (no replay) ---\n" + core_output
+                    try:
+                        report = args.output.with_name(args.output.stem + "-original-core.txt")
+                        report.parent.mkdir(parents=True, exist_ok=True)
+                        report.write_text(core_output, encoding="utf-8")
+                    except (OSError, ValueError) as error:
+                        output += f"Could not save original core diagnostic report: {error}\n"
                 if status == 0 and selected_suite:
                     lines = output.splitlines()
                     timing_pass = "function-timing-native: PASS"
@@ -570,7 +596,7 @@ def main():
                     if missing:
                         output += "\nMissing required native acceptance checkpoints: " + ", ".join(missing) + "\n"
                         status = 1
-                if status:
+                if status and native_status == 0:
                     output += (f"\nNative application exited with status {status} "
                                f"(0x{status & 0xffffffff:08X}).\n")
             except subprocess.TimeoutExpired as error:
@@ -658,7 +684,8 @@ def main():
         print(f"::error title=Native UI report::{message}")
         status = 1
     print(output, end="", flush=True)
-    if (runtime_state["safe_to_release"] and args.linux_crash_debugger and not args.artist_benchmark and sys.platform.startswith("linux")
+    if (runtime_state["safe_to_release"] and args.linux_crash_debugger and not args.linux_original_core_directory
+            and not args.artist_benchmark and sys.platform.startswith("linux")
             and native_status is not None and native_status < 0):
         try:
             diagnostics = linux_crash_diagnostics(executable, source,
