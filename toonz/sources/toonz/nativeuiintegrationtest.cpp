@@ -1,4 +1,6 @@
 #include "nativeuiintegrationtest.h"
+#include "animationworkflowintegrationtest.h"
+#include "functionworkflowintegrationtest.h"
 
 #include "columnselection.h"
 #include "commandpalette.h"
@@ -565,7 +567,18 @@ int runNativeUiIntegrationTest(QMainWindow *window) {
   checkpoint("entered native fixture callback");
   try {
     require(!testRoot.isEmpty(), "native UI test was not prepared before startup");
+    QString animationError;
+    if (!runAnimationWorkflowIntegrationTest(window, &animationError)) {
+      std::cerr << "native-ui-integration: animation workflow: "
+                << animationError.toStdString() << std::endl;
+      return 1;
+    }
     exerciseNativeUi(window);
+    QString functionError;
+    if (!runFunctionWorkflowIntegrationTest(window, &functionError)) {
+      std::cerr << "native-ui-integration: FAIL: " << functionError.toStdString() << std::endl;
+      return 1;
+    }
     runCastWorkflowIntegrationTest(window);
     std::cout << "native-ui-integration: PASS" << std::endl;
     return 0;

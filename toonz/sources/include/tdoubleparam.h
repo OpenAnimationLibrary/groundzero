@@ -68,6 +68,13 @@ public:
   TParam *clone() const override { return new TDoubleParam(*this); }
   void copy(TParam *src) override;
 
+  // Opt-in workspace identity for named Function Editor channel sets. Animation
+  // copies keep the destination identity; a newly cloned curve has none.
+  std::string getWorkspaceId() const;
+  void setWorkspaceId(const std::string &id);
+  bool isEditorLocked() const;
+  void setEditorLocked(bool locked);
+
   std::string getMeasureName() const;
   void setMeasureName(std::string name);
   TMeasure *getMeasure() const;

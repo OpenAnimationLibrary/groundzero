@@ -20,6 +20,9 @@
 #include <QDir>
 #include <QDirIterator>
 #include <QRegularExpression>
+#include <QHash>
+#include <atomic>
+#include <functional>
 
 #ifdef _WIN32
 #include <shlobj.h>
@@ -34,6 +37,8 @@
 #endif
 
 namespace {
+std::atomic<quint64> nextDirectoryNodeGeneration{1};
+
 TFilePath getMyDocumentsPath() {
 #ifdef _WIN32
   WCHAR szPath[MAX_PATH];
@@ -122,12 +127,13 @@ QString DvDirModelNode::getDisplayName() const {
 
 DvDirModelNode::DvDirModelNode(DvDirModelNode *parent, std::wstring name)
     : m_parent(parent)
+    , m_row(-1)
+    , m_renameEnabled(false)
+    , m_generation(nextDirectoryNodeGeneration.fetch_add(1, std::memory_order_relaxed))
     , m_name(name)
     , m_oldName()
-    , m_row(-1)
-    , m_childrenValid(false)
-    , m_renameEnabled(false)
-    , m_nodeType("") {}
+    , m_nodeType("")
+    , m_childrenValid(false) {}
 
 DvDirModelNode::~DvDirModelNode() { clearPointerContainer(m_children); }
 
@@ -1127,6 +1133,9 @@ DvDirModelNode *DvDirModelRootNode::getNodeByPath(const TFilePath &path) {
 
 void DvDirModelRootNode::setSceneLocation(const TFilePath &path) {
   if (path == m_sceneFolderNode->getPath()) return;
+  // Invalidate indexes to the old scene directory and all descendants before
+  // setPath deletes them. Other browser locations retain their indexes/state.
+  updateSceneFolderNodeVisibility(true);
   m_sceneFolderNode->setPath(path);
 
   Preferences::PathAliasPriority priority =
@@ -1148,6 +1157,8 @@ void DvDirModelRootNode::updateSceneFolderNodeVisibility(bool forceHide) {
     DvDirModel::instance()->notifyBeginRemoveRows(QModelIndex(), row, row);
     // remove the last child of the root node
     m_children.erase(m_children.begin() + row, m_children.begin() + row + 1);
+    for (int i = row; i < static_cast<int>(m_children.size()); ++i)
+      m_children[i]->setRow(i);
     DvDirModel::instance()->notifyEndRemoveRows();
     m_sceneFolderNode->setRow(-1);
   }
@@ -1184,7 +1195,31 @@ void DvDirModel::refresh(const QModelIndex &index) {
 
   emit layoutAboutToBeChanged();
 
+  // Views create persistent indexes in layoutAboutToBeChanged, so capture
+  // them after that signal and before refreshChildren can delete their nodes.
+  const QModelIndexList before = persistentIndexList();
+  std::vector<quint64> generations;
+  generations.reserve(before.size());
+  for (const QModelIndex &oldIndex : before)
+    generations.push_back(getNode(oldIndex)->m_generation);
+
   node->refreshChildren();
+
+  QHash<quint64, DvDirModelNode *> liveNodes;
+  std::function<void(DvDirModelNode *)> collect = [&](DvDirModelNode *current) {
+    liveNodes.insert(current->m_generation, current);
+    // Never traverse through getChildCount(): a refresh must not enumerate
+    // unopened filesystem/network branches merely to update view indexes.
+    for (DvDirModelNode *child : current->m_children) collect(child);
+  };
+  collect(m_root);
+  QModelIndexList after;
+  after.reserve(before.size());
+  for (quint64 generation : generations) {
+    DvDirModelNode *survivor = liveNodes.value(generation, nullptr);
+    after.push_back(survivor ? getIndexByNode(survivor) : QModelIndex());
+  }
+  changePersistentIndexList(before, after);
 
   emit layoutChanged();
 }

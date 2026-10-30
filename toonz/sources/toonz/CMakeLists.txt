@@ -396,12 +396,14 @@ set(SOURCES
     timestretchpopup.cpp
     trackerpopup.cpp
     alignmentpane.cpp
+    poselibrarycommand.cpp
     posespane.cpp
     referencepanel.cpp
     purerefboard.cpp
     drawingsubstitutionpane.cpp
     drawingsubstitutionundo.cpp
     substitutionsliderpane.cpp
+    storyboardtiming.cpp
     storyboardpane.cpp
     mastercontrollerspane.cpp
     offsetlayerspane.cpp
@@ -498,6 +500,7 @@ set(SOURCES
     importpdf.cpp
     importpdf.h
     animatedsvgexport.cpp
+    exportfidelity.cpp
     lottieexport.cpp
     xdtsimportpopup.cpp
     expressionreferencemanager.cpp
@@ -1081,11 +1084,14 @@ if(WIN32)
 endif()
 
 if(BUILD_UI_PORT_TESTS)
-    target_sources(OpenToonz PRIVATE nativeuiintegrationtest.cpp nativeuiintegrationtest.h castworkflowintegrationtest.cpp)
+    target_sources(OpenToonz PRIVATE nativeuiintegrationtest.cpp nativeuiintegrationtest.h
+        animationworkflowintegrationtest.cpp animationworkflowintegrationtest.h
+        functionworkflowintegrationtest.cpp functionworkflowintegrationtest.h
+        castworkflowintegrationtest.cpp)
     target_compile_definitions(OpenToonz PRIVATE BUILD_UI_PORT_TESTS)
     target_compile_definitions(toonzlib PRIVATE BUILD_UI_PORT_TESTS)
     add_custom_target(ui_port_tests)
-    add_dependencies(ui_port_tests castworkflow_test)
+    add_dependencies(ui_port_tests ui_functionworkflow_test ui_functioncurveoperations_test castworkflow_test)
     function(add_ui_port_test name)
         add_executable(ui_${name}_test ${ARGN})
         target_include_directories(ui_${name}_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})

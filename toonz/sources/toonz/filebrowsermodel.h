@@ -18,6 +18,7 @@ class DvDirVersionControlRootNode;
 //-----------------------------------------------------------------------------
 
 class DvDirModelNode {
+  friend class DvDirModel;
 public:
   enum class DisplayLocation {
     None,
@@ -37,6 +38,9 @@ private:
   bool m_renameEnabled;
   DisplayLocation m_displayLocation = DisplayLocation::None;
   QString m_displayDetail;
+  // Addresses can be reused when refreshed nodes are destroyed and rebuilt.
+  // A generation identifies the same item across a model layout change.
+  const quint64 m_generation;
 
 protected:
   std::wstring m_name;
@@ -169,6 +173,9 @@ public:
                             const TFilePath &localPath)
       : DvDirModelSpecialFileFolderNode(parent, name, localPath) {}
   void setPath(const TFilePath &path) {
+    // The scene-folder row must be detached from its model first. Children
+    // with matching names under a different directory are different items.
+    removeChildren(0, static_cast<int>(m_children.size()));
     m_path = path;
     refreshChildren();
   }

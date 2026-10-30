@@ -1,3 +1,4 @@
+#include "poselibrarycommand.h"
 #include "toonzqt/uitranslations.h"
 #include "librarycommand.h"
 
@@ -511,7 +512,7 @@ bool LibraryCmd::loadPoseSet(const TFilePath &path) {
       LibraryItems::pairByName(existingNames, incomingNames);
   int pairedCount = LibraryItems::countPaired(pairs);
 
-  // The pose library has no undo: ask before replacing poses
+  // Resolve name conflicts before committing one undoable library change.
   bool replace = true;
   if (pairedCount > 0) {
     QStringList names;
@@ -523,7 +524,7 @@ bool LibraryCmd::loadPoseSet(const TFilePath &path) {
         UiTranslations::text(QObject::tr(
             "These poses of the set have the same names as poses of the "
             "scene:\n%1\n\nDo you want to replace the poses of the scene with "
-            "them? This cannot be undone."))
+            "them? You can undo this change."))
             .arg(names.join(", "));
     int ret = DVGui::MsgBox(question, QObject::tr("Replace"),
                             QObject::tr("Keep the Scene Poses"),
@@ -543,12 +544,10 @@ bool LibraryCmd::loadPoseSet(const TFilePath &path) {
   std::vector<PoseLibrary::Entry> base = poseLibrary->getBase();
   if (base.empty()) base = incoming.getBase();
 
-  poseLibrary->clear();
-  poseLibrary->setBase(base);
-  for (const PoseLibrary::Pose &pose : merged) poseLibrary->addPose(pose);
-
-  app->getCurrentScene()->setDirtyFlag(true);
-  PoseLibraryNotifier::instance()->notifyChanged();
+  PoseLibrary next;
+  next.setBase(base);
+  for (const PoseLibrary::Pose &pose : merged) next.addPose(pose);
+  replacePoseLibrary(scene, next, QObject::tr("Load Pose Set"));
 
   int addedCount = (int)incomingPoses.size() - pairedCount;
   DVGui::info(UiTranslations::text(QObject::tr("Pose set %1: %2 poses added, %3 replaced, %4 kept."))
