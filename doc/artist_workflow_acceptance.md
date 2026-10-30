@@ -74,7 +74,15 @@ The combined `506741eb7` run stopped at a numeric-pointer conversion in its new
 clone fixture; `f951b9bea` corrects that compile error. The current combined
 checks also require UUID/provenance retention, distinct clone identities,
 collection remapping and exact undo, plus native reload of consolidated scenes.
-These latest corrections await execution on the updated baseline.
+The subsequent `f951b9bea` Linux run passed all five isolated diagnostics:
+Function Editor, Cast, timing, Cast/vector and export fidelity, including native
+scene reload, interleaved clone/key undo, atomic image publication and queued
+render cancellation. Its mandatory sequence still failed at the known
+secondary-color state assertion. These diagnostic passes neither replace that
+sequence nor qualify the later collections/provenance and reopened workflows.
+The Windows profile-manager review found an unchecked transient row index;
+`2d1282055` validates it and blocks selection signals during list rebuilding.
+The relationship to the observed crash remains pending fresh execution.
 
 The scene-loading ownership correction `623763b59` has executed successfully on
 Linux: repeated output-properties assignment and scene/PLI reload no longer
