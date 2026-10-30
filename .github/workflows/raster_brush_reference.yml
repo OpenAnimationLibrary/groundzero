@@ -3,6 +3,9 @@ on:
   pull_request:
     paths:
       - 'ci-scripts/brush-reference/**'
+      - 'ci-scripts/brush-parser/**'
+      - 'toonz/sources/include/toonz/rasterbrush*'
+      - 'toonz/sources/toonzlib/rasterbrush*'
       - '.github/workflows/raster_brush_reference.yml'
   workflow_dispatch:
 permissions:
@@ -56,6 +59,35 @@ jobs:
         run: |
           echo '::error::Reference acquisition or execution failed; inspect the named step and runtime artifact. No source parity is granted.'
           if test -f "$BRUSH_REFERENCE_ROOT/output/oracle-status.json"; then cat "$BRUSH_REFERENCE_ROOT/output/oracle-status.json"; fi
+          if test -f "$BRUSH_REFERENCE_ROOT/runtime.log"; then
+            tail -60 "$BRUSH_REFERENCE_ROOT/runtime.log" | while IFS= read -r line; do
+              line=${line//'%'/'%25'}
+              line=${line//$'\r'/'%0D'}
+              echo "::error::$line"
+            done
+          fi
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.3'
+          cache: true
+      - name: Build and measure native conversion differences
+        shell: bash
+        run: |
+          set -o pipefail
+          cmake -S ci-scripts/brush-parser -B brush-comparison-build -DCMAKE_BUILD_TYPE=Release
+          cmake --build brush-comparison-build --target rasterbrushreference --parallel 2 2>&1 | tee "$BRUSH_REFERENCE_ROOT/comparison-build.log"
+          brush-comparison-build/rasterbrushreference "$BRUSH_REFERENCE_ROOT" 2>&1 | tee "$BRUSH_REFERENCE_ROOT/comparison.log"
+      - name: Report comparison build failure
+        if: failure()
+        shell: bash
+        run: |
+          if test -f "$BRUSH_REFERENCE_ROOT/comparison-build.log"; then
+            tail -40 "$BRUSH_REFERENCE_ROOT/comparison-build.log" | while IFS= read -r line; do
+              line=${line//'%'/'%25'}
+              line=${line//$'\r'/'%0D'}
+              echo "::error::$line"
+            done
+          fi
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -64,4 +96,5 @@ jobs:
             brush-reference-run/output/
             brush-reference-run/data/krita/paintoppresets/
             brush-reference-run/runtime.log
+            brush-reference-run/comparison*.log
             reference-runtime/application-sha256.txt

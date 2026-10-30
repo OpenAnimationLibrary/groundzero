@@ -14,6 +14,15 @@ public `Node.paintLine` API supplies pressure endpoints but does not reproduce
 physical tablet delivery, rotation, tilt or timed airbrush. Those require separate
 fixtures under the contract in `doc/raster_brush_compatibility.md`.
 
+The comparison executable renders the same strip canvas through the imported
+native conversions and retains candidate images, full-canvas differences and
+`comparison.json`. Metrics include premultiplied RGB and alpha errors, alpha
+p99, changed-pixel IoU and both extents, using the union of changed pixels dilated
+by two pixels. Missing output fails the workload. Numerical differences are
+reported without a parity pass: the imports remain explicitly converted and
+unverified. This five-fixture workload is initial measurement, not the full
+diameter/spacing/pressure/long-stroke qualification matrix.
+
 The application is fetched from the official versioned HTTPS download location;
 its recorded hash is evidence of the executed binary, not a prevalidated hash
 allowlist. CI publishes the original fixtures and outputs, not the application.
