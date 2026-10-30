@@ -1,4 +1,5 @@
 #include "functiontimingintegrationtest.h"
+#include "nativeuiintegrationtest.h"
 #include "storyboardtiming.h"
 #include "iocommand.h"
 #include "tapp.h"
@@ -121,8 +122,9 @@ bool runFunctionTimingIntegrationTest(QMainWindow *, QString *error) {
   if (error) error->clear();
   try {
     checkpoint("setup begins");
-    app->getCurrentScene()->setDirtyFlag(false);
-    IoCmd::newScene();
+    QString resetError;
+    if (!resetNativeUiIntegrationScene(&resetError))
+      throw std::runtime_error(resetError.toStdString());
     settle();
     auto *scene = app->getCurrentScene()->getScene();
     auto *sheet = app->getCurrentXsheet()->getXsheet();
