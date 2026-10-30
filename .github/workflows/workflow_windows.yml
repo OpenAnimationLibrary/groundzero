@@ -197,6 +197,9 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Verify bounded desktop GL launcher
+        run: python -m unittest discover -s ci-scripts/tests -p test_windows_gl_test.py -v
+
       - name: Install SeExpr parser tools
         shell: pwsh
         run: ./ci-scripts/seexpr/install_parser_windows.ps1
@@ -409,7 +412,7 @@ jobs:
           set "QT_PLUGIN_PATH=%QT_PATH%\plugins"
           set "QT_QPA_PLATFORM_PLUGIN_PATH=%QT_PATH%\plugins\platforms"
           cd toonz\build
-          ctest -C RelWithDebInfo --output-on-failure --no-tests=error -R "^cadmium_" > cadmium-tests-output.txt 2>&1
+          python ../../ci-scripts/run_windows_gl_test.py --runtime "%NATIVE_UI_MESA_RUNTIME%" --renderer-executable "%CD%\RelWithDebInfo\cadmium_vector_test.exe" --timeout 600 -- ctest -C RelWithDebInfo --output-on-failure --no-tests=error -R "^cadmium_" > cadmium-tests-output.txt 2>&1
           set "CADMIUM_TEST_EXIT=%ERRORLEVEL%"
           type cadmium-tests-output.txt
           exit /b %CADMIUM_TEST_EXIT%
@@ -525,7 +528,7 @@ jobs:
           set "QT_QPA_PLATFORM_PLUGIN_PATH=%QT_PATH%\plugins\platforms"
           toonz\build\RelWithDebInfo\cadmium_installer_test.exe --download models
           if errorlevel 1 exit /b 1
-          toonz\build\RelWithDebInfo\cadmium_pipeline_test.exe "%CD%\toonz\build\Opentoonz\cadmium-sidecar.exe" "%CD%\models"
+          python ci-scripts/run_windows_gl_test.py --runtime "%NATIVE_UI_MESA_RUNTIME%" --renderer-executable "%CD%\toonz\build\RelWithDebInfo\cadmium_pipeline_test.exe" --timeout 600 -- toonz\build\RelWithDebInfo\cadmium_pipeline_test.exe "%CD%\toonz\build\Opentoonz\cadmium-sidecar.exe" "%CD%\models"
 
       - name: Report cel test failures
         if: ${{ failure() && steps.cel_tests.outcome == 'failure' }}
@@ -559,7 +562,7 @@ jobs:
         shell: pwsh
         run: |
           foreach ($directory in @("toonz/build/RelWithDebInfo", "toonz/build/Opentoonz")) {
-            foreach ($name in @("opengl32.dll", "libgallium_wgl.dll", "OpenToonz.exe.local", "tconverter.exe.local", "ui_shellthumbnail_test.exe.local", "tcomposer.exe.local", "SeExprSdkFixture.dll", "SeExprInvalidFixture.dll")) {
+            foreach ($name in @("opengl32.dll", "libgallium_wgl.dll", "OpenToonz.exe.local", "tconverter.exe.local", "ui_shellthumbnail_test.exe.local", "cadmium_vector_test.exe.local", "cadmium_pipeline_test.exe.local", "tcomposer.exe.local", "SeExprSdkFixture.dll", "SeExprInvalidFixture.dll")) {
               if (Test-Path -LiteralPath (Join-Path $directory $name)) {
                 throw "A test-only renderer or SDK fixture remained in the application runtime or package"
               }
@@ -588,7 +591,7 @@ jobs:
       - name: Verify native UI renderer was removed from package
         shell: pwsh
         run: |
-          foreach ($name in @("opengl32.dll", "libgallium_wgl.dll", "OpenToonz.exe.local", "tconverter.exe.local", "ui_shellthumbnail_test.exe.local")) {
+          foreach ($name in @("opengl32.dll", "libgallium_wgl.dll", "OpenToonz.exe.local", "tconverter.exe.local", "ui_shellthumbnail_test.exe.local", "cadmium_vector_test.exe.local", "cadmium_pipeline_test.exe.local")) {
             if (Test-Path -LiteralPath (Join-Path "toonz/build/Opentoonz" $name)) {
               throw "A temporary native UI renderer file remained in the package"
             }

@@ -11,7 +11,7 @@ import tempfile
 
 
 @contextmanager
-def windows_mesa_renderer(executable, runtime):
+def windows_mesa_renderer(executable, runtime, cleanup_allowed=None):
     """Temporarily provide desktop GL for both Qt and native GL imports."""
     if runtime is None:
         yield {}
@@ -47,6 +47,9 @@ def windows_mesa_renderer(executable, runtime):
         yield {"GALLIUM_DRIVER": "llvmpipe", "QT_OPENGL": "desktop",
                "QT_OPENGL_DLL": "opengl32.dll"}
     finally:
+        if cleanup_allowed is not None and not cleanup_allowed():
+            raise RuntimeError(
+                "Temporary Mesa renderer retained: renderer descendants may still be running")
         cleanup_error = None
         for path in reversed(created):
             try:

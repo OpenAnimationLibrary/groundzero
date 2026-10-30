@@ -17,6 +17,7 @@ args = parser.parse_args()
 mesa = os.environ.get("NATIVE_UI_MESA_RUNTIME")
 with isolated_fixture(args.stuff.resolve(), args.fixture.resolve(),
                       Path(mesa) if mesa else None) as (directory, environment):
+    environment["GROUNDZERO_OFFSCREEN_GL_DIAGNOSTICS"] = "1"
     process = subprocess.Popen([str(args.fixture.resolve()), str(args.converter.resolve()),
                                 str(args.provider.resolve())], cwd=directory, env=environment,
                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT)

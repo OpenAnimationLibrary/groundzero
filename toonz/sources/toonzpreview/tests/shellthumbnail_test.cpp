@@ -26,6 +26,7 @@
 #include <QProcess>
 #include <QTemporaryDir>
 #include <array>
+#include <algorithm>
 #include <iostream>
 #include <stdexcept>
 #include <exception>
@@ -65,10 +66,19 @@ Pixels bitmap(HBITMAP handle) {
   return result;
 }
 void artwork(const Pixels &pixels) {
-  int ink = 0;
-  for (size_t i = 0; i < pixels.bytes.size(); i += 4)
+  int ink = 0, visible = 0;
+  unsigned minAlpha = 255, maxAlpha = 0;
+  for (size_t i = 0; i < pixels.bytes.size(); i += 4) {
+    if (pixels.bytes[i+3]) ++visible;
+    minAlpha = (std::min)(minAlpha, unsigned(pixels.bytes[i+3]));
+    maxAlpha = (std::max)(maxAlpha, unsigned(pixels.bytes[i+3]));
     if (pixels.bytes[i] < 200 && pixels.bytes[i+1] < 200 &&
         pixels.bytes[i+2] < 200 && pixels.bytes[i+3] > 0) ++ink;
+  }
+  if (ink <= 20)
+    std::cerr << "shell-thumbnail: pixels=" << pixels.width << 'x' << pixels.height
+              << " visible=" << visible << " ink=" << ink << " alpha="
+              << minAlpha << ".." << maxAlpha << std::endl;
   require(ink > 20, "thumbnail contains no rendered vector artwork");
 }
 Pixels cli(const QString &converter, const QString &input, const QString &output,
@@ -86,6 +96,9 @@ Pixels cli(const QString &converter, const QString &input, const QString &output
               << process.readAllStandardOutput().constData();
     throw std::runtime_error("actual thumbnail CLI renderer failed");
   }
+  if (qEnvironmentVariableIsSet("GROUNDZERO_OFFSCREEN_GL_DIAGNOSTICS"))
+    std::cerr << process.readAllStandardError().constData()
+              << process.readAllStandardOutput().constData();
   auto result = payload(output);
   require(result.width <= size && result.height <= size, "CLI exceeded requested thumbnail size");
   return result;
@@ -198,6 +211,7 @@ int main(int argc, char **argv) {
     std::vector<Pixels> rendered;
     int index = 0;
     for (const QString &input : {ordinary,envelope,ordinaryScene,envelopeScene}) {
+      std::cout << "shell-thumbnail: rendering " << QFileInfo(input).fileName().toStdString() << std::endl;
       auto expected = cli(args.at(1),input,root.filePath(QString("render-%1.bin").arg(index++)));
       artwork(expected); same(expected, comWorker(getClass,input)); rendered.push_back(expected);
       require(!qobject_cast<QGuiApplication *>(QCoreApplication::instance()),
