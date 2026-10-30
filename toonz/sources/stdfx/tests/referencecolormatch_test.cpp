@@ -151,9 +151,9 @@ int main(int argc,char **argv) {
   try {
     mathAndProfiles();sampling();rendering<TPixel32>();rendering<TPixel64>();rendering<TPixelF>();paletteUndo();
     QTemporaryDir dir;require(dir.isValid(),"Temporary directory");QString error;
-    QImage small(32,16,QImage::Format_ARGB32);small.fill(qRgb(100,100,100));
-    require(small.save(dir.filePath("small.png")),"Sample fixture save");
-    require(ColorMatch::loadSample(dir.filePath("small.png"),error).size()==small.size(),
+    QImage smallSample(32,16,QImage::Format_ARGB32);smallSample.fill(qRgb(100,100,100));
+    require(smallSample.save(dir.filePath("small.png")),"Sample fixture save");
+    require(ColorMatch::loadSample(dir.filePath("small.png"),error).size()==smallSample.size(),
             "Small references/masks must not be upsampled");
     require(ColorMatch::exportCube(dir.filePath("look.cube"),fixture(),error),"LUT export");
     Lut3D lut;require(lut.load(dir.filePath("look.cube"),&error),"Existing LUT parser rejected export");
