@@ -53,13 +53,22 @@ def windows_mesa_renderer(executable, runtime, cleanup_allowed=None):
             raise RuntimeError(
                 "Temporary Mesa renderer retained: renderer descendants may still be running")
         cleanup_error = None
+        cleanup_details = []
         for path in reversed(created):
             try:
                 path.unlink()
             except OSError as error:
                 cleanup_error = error
+                # The runner reports str(error), not its chained traceback.
+                # Keep bounded OS evidence without exposing the full path.
+                reason = str(error.strerror or type(error).__name__)
+                reason = reason.replace("\r", " ").replace("\n", " ")[:240]
+                cleanup_details.append(
+                    f"{path.name[:128]}: {type(error).__name__} "
+                    f"(errno={error.errno}, winerror={getattr(error, 'winerror', None)}): {reason}")
         if cleanup_error is not None:
-            raise RuntimeError("Temporary Mesa renderer cleanup failed") from cleanup_error
+            raise RuntimeError("Temporary Mesa renderer cleanup failed: " +
+                               "; ".join(cleanup_details)) from cleanup_error
 
 
 def stop_process_tree(process):
