@@ -8,8 +8,22 @@ import argparse
 import os
 from pathlib import Path
 import subprocess
+import sys
 
-from run_native_ui_test import windows_mesa_renderer
+from run_native_ui_test import stop_process_tree, windows_mesa_renderer
+
+
+def emit_output(output):
+    """Preserve cleanup bytes even when Windows redirects a cp1252 stream."""
+    if not output:
+        return
+    sys.stdout.flush()
+    if hasattr(sys.stdout, "buffer"):
+        sys.stdout.buffer.write(output)
+        sys.stdout.buffer.flush()
+    else:
+        sys.stdout.write(output.decode("utf-8", errors="backslashreplace"))
+        sys.stdout.flush()
 
 
 def run_command(command, environment, timeout, runtime_state):
@@ -17,32 +31,28 @@ def run_command(command, environment, timeout, runtime_state):
     runtime_state["safe_to_release"] = False
     try:
         result = process.wait(timeout=timeout)
-        runtime_state["safe_to_release"] = True
-        return result
     except subprocess.TimeoutExpired:
-        # CTest and painting tests can own renderer/model worker processes.
-        # Terminate the entire tree before releasing DLLs used by descendants.
-        tree_stopped = False
-        try:
-            cleanup = subprocess.run(
-                ["taskkill", "/PID", str(process.pid), "/T", "/F"],
-                check=False, timeout=20)
-            if cleanup.returncode:
-                print(f"Windows renderer process-tree cleanup exited with {cleanup.returncode}",
-                      flush=True)
-            else:
-                tree_stopped = True
-        except (OSError, subprocess.TimeoutExpired) as error:
-            print(f"Windows renderer process-tree cleanup failed: {type(error).__name__}",
-                  flush=True)
-        if process.poll() is None:
-            process.kill()
-        try:
-            process.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            raise RuntimeError("Timed-out Windows OpenGL process did not terminate")
-        runtime_state["safe_to_release"] = tree_stopped
+        safe, output = stop_process_tree(process)
+        runtime_state["safe_to_release"] = safe
+        emit_output(output)
         raise RuntimeError("Windows OpenGL test command exceeded its deadline")
+    except BaseException:
+        safe, output = stop_process_tree(process)
+        runtime_state["safe_to_release"] = safe
+        emit_output(output)
+        raise
+    runtime_state["returncode"] = result
+    if result != 0:
+        # A returned failure can leave descendants alive after the parent is
+        # reaped. Apply the same bounded confirmation as the captured runner.
+        emit_output((f"Windows OpenGL test command exited with status {result} "
+                     f"(0x{result & 0xffffffff:08X}).\n").encode("utf-8"))
+        safe, output = stop_process_tree(process)
+        runtime_state["safe_to_release"] = safe
+        emit_output(output)
+    else:
+        runtime_state["safe_to_release"] = True
+    return result
 
 
 def main(argv=None):
@@ -59,14 +69,23 @@ def main(argv=None):
     if not executable.is_file():
         parser.error("The renderer executable must be an existing file")
     runtime_state = {"safe_to_release": True}
-    with windows_mesa_renderer(
-            executable, args.runtime,
-            cleanup_allowed=lambda: runtime_state["safe_to_release"]) as renderer:
-        environment = os.environ.copy()
-        environment.update(renderer)
-        environment["GROUNDZERO_REQUIRE_VECTOR_GL"] = "1"
-        environment["GROUNDZERO_OFFSCREEN_GL_DIAGNOSTICS"] = "1"
-        return run_command(command, environment, args.timeout, runtime_state)
+    try:
+        with windows_mesa_renderer(
+                executable, args.runtime,
+                cleanup_allowed=lambda: runtime_state["safe_to_release"]) as renderer:
+            environment = os.environ.copy()
+            environment.update(renderer)
+            environment["GROUNDZERO_REQUIRE_VECTOR_GL"] = "1"
+            environment["GROUNDZERO_OFFSCREEN_GL_DIAGNOSTICS"] = "1"
+            return run_command(command, environment, args.timeout, runtime_state)
+    except RuntimeError as error:
+        # Retention/cleanup diagnostics must not replace a real returned native
+        # failure with a generic exit code. A successful command with failed
+        # cleanup still raises, and therefore can never qualify as a pass.
+        if runtime_state.get("returncode", 0) != 0:
+            emit_output((f"Windows renderer cleanup: {error}\n").encode("utf-8", errors="backslashreplace"))
+            return runtime_state["returncode"]
+        raise
 
 
 if __name__ == "__main__":

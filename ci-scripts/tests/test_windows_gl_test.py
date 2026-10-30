@@ -335,7 +335,8 @@ class IsolatedFixtureLifetimeTest(unittest.TestCase):
 
 
 class WindowsGlTest(unittest.TestCase):
-    def invoke(self, process, *, taskkill=None, launch_error=None, events=None):
+    def invoke(self, process, *, taskkill=None, launch_error=None, events=None,
+               renderer_error=None):
         events = [] if events is None else events
 
         @contextmanager
@@ -349,38 +350,97 @@ class WindowsGlTest(unittest.TestCase):
                 if not cleanup_allowed():
                     events.append("retained")
                     raise RuntimeError("Renderer descendants may still be running")
+                if renderer_error is not None:
+                    events.append("cleanup-failed")
+                    raise renderer_error
                 events.append("released")
 
+        raw = io.BytesIO()
+        stream = io.TextIOWrapper(raw, encoding="cp1252", errors="strict", write_through=True)
+        native_os = Mock(wraps=os)
+        native_os.name = "nt"
+        cleanup = taskkill or Mock(return_value=SimpleNamespace(returncode=0, stdout=b"tree stopped\n"))
         with tempfile.TemporaryDirectory() as directory:
             executable = Path(directory) / "renderer.exe"
             executable.touch()
             with patch.object(launcher, "windows_mesa_renderer", renderer), \
+                    patch.object(native, "os", native_os), \
+                    patch.object(sys, "stdout", stream), \
                     patch.object(launcher.subprocess, "Popen", return_value=process,
                                  side_effect=launch_error) as popen, \
-                    patch.object(launcher.subprocess, "run", taskkill or Mock(return_value=Mock(returncode=0))):
+                    patch.object(native.subprocess, "run", cleanup):
                 try:
                     result = launcher.main([
                         "--runtime", "verified-runtime", "--renderer-executable", str(executable),
                         "--timeout", "17", "--", "ctest", "--output-on-failure"])
                 except Exception as error:
                     result = error
-        return result, popen, events
+            stream.flush()
+            output = raw.getvalue()
+        stream.detach()
+        return result, popen, events, output, cleanup
 
     def test_command_status_and_required_renderer_environment_are_preserved(self):
-        process = Mock()
-        process.wait.return_value = 19
-        with patch.dict(os.environ, {"QT_OPENGL": "angle", "TEST_SENTINEL": "kept"}):
-            result, popen, events = self.invoke(process)
-        self.assertEqual(result, 19)
-        self.assertEqual(popen.call_args.args, (["ctest", "--output-on-failure"],))
-        environment = popen.call_args.kwargs["env"]
-        self.assertEqual(environment["QT_OPENGL"], "desktop")
-        self.assertEqual(environment["QT_OPENGL_DLL"], "opengl32.dll")
-        self.assertEqual(environment["GROUNDZERO_REQUIRE_VECTOR_GL"], "1")
-        self.assertEqual(environment["GROUNDZERO_OFFSCREEN_GL_DIAGNOSTICS"], "1")
-        self.assertEqual(environment["TEST_SENTINEL"], "kept")
-        process.wait.assert_called_once_with(timeout=17)
-        self.assertEqual(events, ["installed", "released"])
+        for status in (0, 19, 0xC0000005):
+            with self.subTest(status=status):
+                process = Mock(pid=123, returncode=status)
+                process.wait.return_value = process.poll.return_value = status
+                with patch.dict(os.environ, {"QT_OPENGL": "angle", "TEST_SENTINEL": "kept"}):
+                    result, popen, events, output, cleanup = self.invoke(process)
+                self.assertEqual(result, status)
+                self.assertEqual(popen.call_args.args, (["ctest", "--output-on-failure"],))
+                self.assertEqual(set(popen.call_args.kwargs), {"env"},
+                                 "the child must retain its inherited raw stdout/stderr")
+                environment = popen.call_args.kwargs["env"]
+                self.assertEqual(environment["QT_OPENGL"], "desktop")
+                self.assertEqual(environment["QT_OPENGL_DLL"], "opengl32.dll")
+                self.assertEqual(environment["GROUNDZERO_REQUIRE_VECTOR_GL"], "1")
+                self.assertEqual(environment["GROUNDZERO_OFFSCREEN_GL_DIAGNOSTICS"], "1")
+                self.assertEqual(environment["TEST_SENTINEL"], "kept")
+                self.assertEqual(events, ["installed", "released"])
+                if status == 0:
+                    process.wait.assert_called_once_with(timeout=17)
+                    cleanup.assert_not_called()
+                    self.assertEqual(output, b"")
+                else:
+                    cleanup.assert_called_once()
+                    self.assertEqual(process.wait.call_args_list[0].kwargs, {"timeout": 17})
+                    self.assertGreater(process.wait.call_args_list[-1].kwargs["timeout"], 0)
+                    self.assertLessEqual(process.wait.call_args_list[-1].kwargs["timeout"], 15)
+                    self.assertIn(f"status {status} (0x{status:08X})".encode(), output)
+                    self.assertIn(b"tree stopped\n", output)
+
+    def test_returned_failure_preserves_status_and_raw_cleanup_when_tree_is_uncertain(self):
+        for status in (19, 0xC0000005):
+            with self.subTest(status=status):
+                process = Mock(pid=123, returncode=status)
+                process.wait.return_value = process.poll.return_value = status
+                raw_cleanup = b"taskkill: process \x96 still unknown\r\n\xff"
+                cleanup = Mock(return_value=SimpleNamespace(returncode=128, stdout=raw_cleanup))
+                result, _, events, output, _ = self.invoke(process, taskkill=cleanup)
+                self.assertEqual(result, status)
+                self.assertEqual(events, ["installed", "retained"])
+                self.assertIn(f"status {status} (0x{status:08X})".encode(), output)
+                self.assertIn(raw_cleanup, output)
+                self.assertIn(b"Renderer descendants may still be running", output)
+                cleanup.assert_called_once()
+                process.kill.assert_not_called()
+
+    def test_cleanup_error_cannot_replace_returned_failure_or_turn_zero_into_success(self):
+        for status in (0, 19, 0xC0000005):
+            with self.subTest(status=status):
+                process = Mock(pid=123, returncode=status)
+                process.wait.return_value = process.poll.return_value = status
+                failure = RuntimeError("Mesa cleanup failed: opengl32.dll PermissionError")
+                result, _, events, output, cleanup = self.invoke(process, renderer_error=failure)
+                self.assertEqual(events, ["installed", "cleanup-failed"])
+                if status == 0:
+                    self.assertIs(result, failure)
+                    cleanup.assert_not_called()
+                else:
+                    self.assertEqual(result, status)
+                    self.assertIn(b"Mesa cleanup failed: opengl32.dll PermissionError", output)
+                    self.assertIn(f"status {status} (0x{status:08X})".encode(), output)
 
     def test_timeout_terminates_tree_then_parent_before_releasing_runtime(self):
         process = Mock(pid=123)
@@ -388,40 +448,101 @@ class WindowsGlTest(unittest.TestCase):
         process.poll.return_value = None
         order = []
         process.kill.side_effect = lambda: order.append("kill-parent")
-        taskkill = Mock(side_effect=lambda *args, **kwargs: (order.append("kill-tree") or Mock(returncode=0)))
-        result, _, events = self.invoke(process, taskkill=taskkill, events=order)
+        taskkill = Mock(side_effect=lambda *args, **kwargs: (
+            order.append("kill-tree") or SimpleNamespace(returncode=0, stdout=b"stopped \xff\n")))
+        result, _, events, output, _ = self.invoke(process, taskkill=taskkill, events=order)
         self.assertIsInstance(result, RuntimeError)
         self.assertIn("deadline", str(result))
-        taskkill.assert_called_once_with(["taskkill", "/PID", "123", "/T", "/F"],
-                                        check=False, timeout=20)
+        taskkill.assert_called_once()
+        self.assertEqual(taskkill.call_args.args[0], ["taskkill", "/PID", "123", "/T", "/F"])
+        self.assertFalse(taskkill.call_args.kwargs["check"])
+        self.assertEqual(taskkill.call_args.kwargs["stdout"], subprocess.PIPE)
+        self.assertEqual(taskkill.call_args.kwargs["stderr"], subprocess.STDOUT)
+        self.assertGreater(taskkill.call_args.kwargs["timeout"], 0)
+        self.assertLessEqual(taskkill.call_args.kwargs["timeout"], 12)
         self.assertEqual(order, ["installed", "kill-tree", "kill-parent", "released"])
-        self.assertEqual(process.wait.call_args_list[-1].kwargs, {"timeout": 10})
+        self.assertGreater(process.wait.call_args_list[-1].kwargs["timeout"], 0)
+        self.assertLessEqual(process.wait.call_args_list[-1].kwargs["timeout"], 15)
+        self.assertIn(b"stopped \xff\n", output)
         self.assertIs(events, order)
 
     def test_failed_tree_cleanup_still_kills_parent_and_remains_failure(self):
         process = Mock(pid=123)
         process.wait.side_effect = [subprocess.TimeoutExpired("ctest", 17), 1]
         process.poll.return_value = None
-        result, _, events = self.invoke(process, taskkill=Mock(side_effect=OSError("unavailable")))
+        result, _, events, output, _ = self.invoke(
+            process, taskkill=Mock(side_effect=OSError("unavailable")))
         self.assertIsInstance(result, RuntimeError)
         self.assertIn("descendants", str(result))
         process.kill.assert_called_once_with()
         self.assertEqual(events, ["installed", "retained"])
+        self.assertIn(b"Process-tree cleanup failed: OSError", output)
+
+    def test_cleanup_deadline_retains_runtime_if_parent_cannot_be_reaped(self):
+        process = Mock(pid=123, returncode=None)
+        process.wait.side_effect = [subprocess.TimeoutExpired("ctest", 17),
+                                    subprocess.TimeoutExpired("cleanup", 15)]
+        process.poll.return_value = None
+        result, _, events, output, cleanup = self.invoke(process)
+        self.assertIsInstance(result, RuntimeError)
+        self.assertIn("descendants", str(result))
+        cleanup.assert_called_once()
+        process.kill.assert_called_once_with()
+        self.assertEqual(events, ["installed", "retained"])
+        self.assertIn(b"Parent cleanup failed: TimeoutExpired", output)
 
     def test_launch_error_releases_runtime_and_does_not_report_success(self):
         process = Mock()
-        result, _, events = self.invoke(process, launch_error=OSError("process unavailable"))
+        result, _, events, _, cleanup = self.invoke(process, launch_error=OSError("process unavailable"))
         self.assertIsInstance(result, OSError)
         process.wait.assert_not_called()
+        cleanup.assert_not_called()
         self.assertEqual(events, ["installed", "released"])
 
-    def test_unexpected_wait_error_retains_runtime_for_running_process(self):
-        process = Mock()
-        process.wait.side_effect = OSError("wait unavailable")
-        result, _, events = self.invoke(process)
-        self.assertIsInstance(result, RuntimeError)
-        self.assertIn("descendants", str(result))
-        self.assertEqual(events, ["installed", "retained"])
+    def test_unexpected_wait_error_stops_tree_before_release_or_retention(self):
+        for safe in (True, False):
+            with self.subTest(confirmed_tree_exit=safe):
+                order = []
+                process = Mock(pid=123, returncode=1)
+                failure = OSError("wait unavailable")
+                process.wait.side_effect = [failure, 1]
+                process.poll.return_value = None
+                process.kill.side_effect = lambda: order.append("kill-parent")
+                cleanup = Mock(side_effect=lambda *args, **kwargs: (
+                    order.append("kill-tree") or SimpleNamespace(
+                        returncode=0 if safe else 128, stdout=b"cleanup \x96 result\n")))
+                result, _, _, output, _ = self.invoke(process, taskkill=cleanup, events=order)
+                if safe:
+                    self.assertIs(result, failure)
+                else:
+                    self.assertIsInstance(result, RuntimeError)
+                    self.assertIn("descendants", str(result))
+                self.assertEqual(order, ["installed", "kill-tree", "kill-parent",
+                                         "released" if safe else "retained"])
+                self.assertIn(b"cleanup \x96 result\n", output)
+
+    def test_real_wrapper_returned_failure_retains_created_runtime_files(self):
+        for status in (19, 0xC0000005):
+            with self.subTest(status=status), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                runtime = root / "runtime"; runtime.mkdir()
+                for name in ("opengl32.dll", "libgallium_wgl.dll"):
+                    (runtime / name).write_bytes(b"test-only-placeholder")
+                executable = root / "renderer.exe"; executable.touch()
+                (root / "tconverter.exe").touch()
+                process = Mock(pid=123, returncode=status)
+                process.wait.return_value = process.poll.return_value = status
+                native_os = Mock(wraps=os); native_os.name = "nt"
+                with patch.object(native, "os", native_os), \
+                        patch.object(launcher.subprocess, "Popen", return_value=process), \
+                        patch.object(native.subprocess, "run", return_value=SimpleNamespace(
+                            returncode=128, stdout=b"descendants unconfirmed\n")), \
+                        patch.object(sys, "stdout", io.StringIO()):
+                    result = launcher.main(["--runtime", str(runtime),
+                        "--renderer-executable", str(executable), "--", "ctest"])
+                self.assertEqual(result, status)
+                for name in ("opengl32.dll", "libgallium_wgl.dll", "renderer.exe.local", "tconverter.exe.local"):
+                    self.assertTrue((root / name).is_file(), name)
 
     def test_real_runtime_helper_retains_files_when_cleanup_is_unsafe(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -457,6 +578,47 @@ class WindowsGlTest(unittest.TestCase):
                     self.assertTrue((root / "opengl32.dll").is_file())
                     self.assertTrue((root / "tconverter.exe.local").is_file())
             for name in ("opengl32.dll", "libgallium_wgl.dll", "renderer.exe.local", "tconverter.exe.local"):
+                self.assertFalse((root / name).exists(), name)
+
+    def test_real_runtime_cleanup_failure_reports_bounded_os_evidence_and_continues(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            runtime = root / "runtime"; runtime.mkdir()
+            for name in ("opengl32.dll", "libgallium_wgl.dll"):
+                (runtime / name).write_bytes(b"test-only-placeholder")
+            executable = root / "renderer.exe"; executable.touch()
+            (root / "tconverter.exe").touch()
+            failed = root / "opengl32.dll"
+            failure = PermissionError(13, "locked\r\n" + "x" * 400, str(failed))
+            failure.winerror = 32
+            original_unlink = Path.unlink
+            attempted = []
+
+            def remove(path, *args, **kwargs):
+                attempted.append(path.name)
+                if path == failed:
+                    raise failure
+                return original_unlink(path, *args, **kwargs)
+
+            with patch.object(native, "os", SimpleNamespace(name="nt")), \
+                    patch.object(Path, "unlink", remove), \
+                    self.assertRaises(RuntimeError) as raised:
+                with native.windows_mesa_renderer(executable, runtime, cleanup_allowed=lambda: True):
+                    self.assertTrue(failed.is_file())
+            message = str(raised.exception)
+            self.assertIn("opengl32.dll: PermissionError", message)
+            self.assertIn("errno=13", message)
+            self.assertIn("winerror=32", message)
+            self.assertIn("locked", message)
+            self.assertNotIn(str(root), message)
+            self.assertNotIn("\r", message)
+            self.assertNotIn("\n", message)
+            self.assertLess(len(message), 500)
+            self.assertIs(raised.exception.__cause__, failure)
+            self.assertCountEqual(attempted, ["opengl32.dll", "libgallium_wgl.dll",
+                                              "renderer.exe.local", "tconverter.exe.local"])
+            self.assertTrue(failed.is_file())
+            for name in ("libgallium_wgl.dll", "renderer.exe.local", "tconverter.exe.local"):
                 self.assertFalse((root / name).exists(), name)
 
 
