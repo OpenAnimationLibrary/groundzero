@@ -676,13 +676,14 @@ void drawOpacityEnvelope(const TVectorRenderData &rd, const TStroke &stroke) {
   auto planePoint = [&](double x, double y) {
     const float nx = float(2. * (x - viewport[0]) / viewport[2] - 1.);
     const float ny = float(2. * (y - viewport[1]) / viewport[3] - 1.);
-    QVector4D near = inverse * QVector4D(nx, ny, -1, 1);
-    QVector4D far = inverse * QVector4D(nx, ny, 1, 1);
-    if (near.w() == 0 || far.w() == 0) return TPointD();
-    near /= near.w(); far /= far.w();
-    const double dz = far.z() - near.z();
-    const double z = std::abs(dz) > 1e-12 ? -near.z() / dz : 0.;
-    return TPointD(near.x() + z * (far.x() - near.x()), near.y() + z * (far.y() - near.y()));
+    QVector4D nearPoint = inverse * QVector4D(nx, ny, -1, 1);
+    QVector4D farPoint = inverse * QVector4D(nx, ny, 1, 1);
+    if (nearPoint.w() == 0 || farPoint.w() == 0) return TPointD();
+    nearPoint /= nearPoint.w(); farPoint /= farPoint.w();
+    const double dz = farPoint.z() - nearPoint.z();
+    const double z = std::abs(dz) > 1e-12 ? -nearPoint.z() / dz : 0.;
+    return TPointD(nearPoint.x() + z * (farPoint.x() - nearPoint.x()),
+                   nearPoint.y() + z * (farPoint.y() - nearPoint.y()));
   };
   for (int y = 0; hasEnvelope && y < height; ++y) for (int x = 0; x < width; ++x) {
     auto *pixel = &pixels[(size_t(y) * width + x) * 4];

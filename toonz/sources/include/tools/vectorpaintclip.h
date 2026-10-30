@@ -2,6 +2,7 @@
 
 #include "tvectorimage.h"
 #include "tstroke.h"
+#include "tcurves.h"
 #include "tregion.h"
 #include "tools/artlayer.h"
 #include "toonz/contouroutline.h"
