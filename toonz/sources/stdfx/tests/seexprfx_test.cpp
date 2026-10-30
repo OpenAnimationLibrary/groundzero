@@ -2,7 +2,9 @@
 #include "tmacrofx.h"
 #include <QCoreApplication>
 #include <QTemporaryDir>
+#include <atomic>
 #include <future>
+#include <thread>
 #include <chrono>
 #include <cstdint>
 #include <cstring>
@@ -617,6 +619,61 @@ void checkDoubleUnderscoreIds(const QString &directory) {
       "a control colliding with an archived control was not a schema error");
 }
 
+// The swatch renders a clone on a worker thread while field edits apply new
+// declarations to it on the GUI thread. Every new curve adds controls and
+// native parameters; a render must never read them while they change.
+void editWhileRendering() {
+  SeExprGeneratorFx fx;
+  set(fx, "width", 4);
+  set(fx, "height", 4);
+  document(fx, "[$c,0,0]", "1", {scalar("c", .5)});
+  std::atomic<bool> done(false);
+  std::atomic<int> renders(0);
+  auto worker = std::async(std::launch::async, [&]() {
+    // A failed render ends the loop; get() below rethrows it.
+    struct Stop {
+      std::atomic<bool> &done;
+      ~Stop() { done = true; }
+    } stop{done};
+    while (!done.load()) {
+      require(!fx.getAlias(0, TRenderSettings()).empty(),
+              "concurrent alias is empty");
+      const auto image = rendered<TPixelF>(fx, 4, 4, TPointD(-2, -2));
+      require(std::abs(image->pixels(3)[3].r - .5) < 1e-6,
+              "a render read a torn declaration");
+      ++renders;
+    }
+  });
+  struct Join {
+    std::atomic<bool> &done;
+    std::future<void> &worker;
+    ~Join() {
+      done = true;
+      if (worker.valid()) worker.wait();
+    }
+  } join{done, worker};
+  while (renders.load() == 0 && !done.load()) std::this_thread::yield();
+  for (int edit = 0; edit < 100 && !done.load(); ++edit) {
+    const QString id = QString("ramp_%1").arg(edit);
+    QJsonObject ramp{
+        {"id", id},
+        {"name", id},
+        {"type", "curve"},
+        {"points", QJsonArray{QJsonArray{0, .5, 1}, QJsonArray{1, .5, 1}}}};
+    document(fx, QString("[%1(0.25)+$c-1,0,0]").arg(id), "1",
+             {scalar("c", 1), ramp});
+    document(fx, "[$c-0.5,0,0]", "1", {scalar("c", 1)});
+  }
+  const int concurrent = renders.load();
+  done                 = true;
+  worker.get();
+  require(concurrent > 1, "the render did not run during the edits");
+}
+void checkConcurrentDocumentEdits() {
+  // Each effect accepts about a hundred new controls; repeat to catch races.
+  for (int round = 0; round < 8; ++round) editWhileRendering();
+}
+
 void expectUnsupportedDocument(TFx &fx, const std::wstring &source,
                                const char *diagnostic) {
   auto *native = dynamic_cast<TFxSeExprSource *>(&fx);
@@ -956,6 +1013,7 @@ int main(int argc, char **argv) {
     checkNamedControlsAndPersistence(temporary.path());
     checkUnsupportedDocumentPersistence(temporary.path()); checkFailuresAndWorkers();
     checkDoubleUnderscoreIds(temporary.path());
+    checkConcurrentDocumentEdits();
     std::cout << "seexpr-fx: PASS\n"; return 0;
   } catch (const TException &error) {
     std::cerr << QString::fromStdWString(error.getMessage()).toStdString() << '\n';

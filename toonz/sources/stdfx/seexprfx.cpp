@@ -22,6 +22,7 @@
 #include <list>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <set>
 #include <sstream>
 #include <stdexcept>
@@ -506,6 +507,24 @@ protected:
   std::string m_schemaError;
   std::vector<std::unique_ptr<NativeControl>> m_controls;
   std::map<QString, NativeControl *> m_controlMap;
+  // Render workers (the swatch renders a clone while its fields are edited)
+  // read the controls, their parameters and the declaration while the GUI
+  // thread synchronizes a new declaration. Both sides hold this lock, and
+  // readers use m_documentText, the declaration the controls were built
+  // from, because the document parameter itself changes before they are.
+  // Workers hold it only to read that state, never while calling another
+  // effect, so no worker ever waits for a lock while holding one.
+  mutable std::recursive_mutex m_stateMutex;
+  std::wstring m_documentText;
+
+  std::wstring documentText() const {
+    std::lock_guard<std::recursive_mutex> state(m_stateMutex);
+    return m_documentText;
+  }
+  std::string schemaError() const {
+    std::lock_guard<std::recursive_mutex> state(m_stateMutex);
+    return m_schemaError;
+  }
 
   template <typename Param>
   void registerControl(NativeControl &control, const std::string &key,
@@ -646,11 +665,14 @@ protected:
     if (m_syncing) return;
     m_syncing = true;
     struct Reset { bool &flag; ~Reset() { flag = false; } } reset{m_syncing};
+    std::unique_lock<std::recursive_mutex> state(m_stateMutex);
     std::string identityError;
     // Runs from parameter observers and Qt slots: no exception may escape
     // unless the caller asked for strict validation.
     auto fail = [&](const std::string &message) {
+      if (!state.owns_lock()) state.lock();
       m_schemaError = identityError.empty() ? message : identityError;
+      m_documentText = m_document->getValue();
     };
     try {
       const int oldCount = this->getParams()->getParamCount();
@@ -775,6 +797,7 @@ protected:
               (suffix == "value" ? "" : " " + suffix));
         }
       }
+      std::wstring canonical = m_document->getValue();
       if (identityError.empty()) {
         for (const auto item : document.json.value("controls").toArray())
           active.append(m_controlMap.at(item.toObject().value("id").toString())->spec.definition);
@@ -783,12 +806,21 @@ protected:
         document.json.insert("registry", registry);
         document.json.insert("engine", QString::fromStdString(TSeExpr::Program::engineVersion()));
         document.json.insert("functionPolicy", int(TSeExpr::Program::functionPolicyVersion()));
-        m_document->setValue(QString::fromUtf8(QJsonDocument(document.json).toJson(QJsonDocument::Compact)).toStdWString(), false);
+        canonical =
+            QString::fromUtf8(
+                QJsonDocument(document.json).toJson(QJsonDocument::Compact))
+                .toStdWString();
       }
       // Native storage can be recognized without granting permission to run
       // its source. Never replace an unsupported document's identity or JSON.
       m_schemaError = identityError;
-      if (this->getParams()->getParamCount() != oldCount) this->notify(TFxParamAdded(this));
+      m_documentText   = canonical;
+      const bool added = this->getParams()->getParamCount() != oldCount;
+      // Observers, including linked effects that synchronize in turn, run
+      // after the state is complete and unlocked.
+      state.unlock();
+      m_document->setValue(canonical, false);
+      if (added) this->notify(TFxParamAdded(this));
     } catch (const TException &error) {
       fail(QString::fromStdWString(error.getMessage()).toStdString());
       // Loading must retain an unsupported declaration verbatim so it can be
@@ -999,7 +1031,7 @@ protected:
   double support(double frame, const TRenderSettings &settings) const {
     const double radius = finite(m_radius->getValue(frame), "sampling radius must be finite");
     demand(radius >= 0 && radius <= 4096, "sampling radius must be within zero to 4096 pixels");
-    const auto document = SeExprFx::parseDocument(m_document->getValue());
+    const auto document = SeExprFx::parseDocument(documentText());
     // Conservative token scan: comments between a function name and '(' must
     // not shrink its required halo. Mentions in comments may over-request.
     static const QRegularExpression calls(QStringLiteral("\\bsample_(rgb|alpha)\\b"));
@@ -1019,7 +1051,8 @@ protected:
   template <typename Pixel>
   void render(const TRasterPT<Pixel> &output, const TPointD &position, double frame,
               const TRenderSettings &settings, InputSampler &sampler, const TTile &mask) {
-    const auto document = SeExprFx::parseDocument(m_document->getValue());
+    std::unique_lock<std::recursive_mutex> state(m_stateMutex);
+    const auto document = SeExprFx::parseDocument(m_documentText);
     auto variables = variablesFor(document, frame, settings.m_linearColorSpace, settings.m_colorSpaceGamma);
     const auto attributes = TSeExprAttributes::snapshot(settings);
     TSeExprAttributes::appendVariables(variables, attributes,
@@ -1033,9 +1066,9 @@ protected:
     static thread_local std::list<CacheEntry> cache;
     std::ostringstream identity;
     identity.imbue(std::locale::classic()); identity << std::setprecision(17);
-    identity << QString::fromStdWString(m_document->getValue()).toUtf8().constData()
-             << ',' << settings.m_linearColorSpace << ',' << settings.m_colorSpaceGamma
-             << ',' << attributes.identity();
+    identity << QString::fromStdWString(m_documentText).toUtf8().constData()
+             << ',' << settings.m_linearColorSpace << ','
+             << settings.m_colorSpaceGamma << ',' << attributes.identity();
     // Scalar/vector values are updated without recompiling. Curves contain
     // frame-dependent native stop constants and therefore qualify the cache.
     for (const auto &control : m_controls) {
@@ -1052,6 +1085,7 @@ protected:
       entry->sampler = sampler; entry->cancelFlag = settings.m_isCanceled;
       const auto functions = functionsFor(document, frame, &entry->sampler,
                                            settings.m_linearColorSpace, settings.m_colorSpaceGamma);
+      state.unlock();
       TSeExpr::Options options;
       options.cancelled = [owned = entry.get()]() { return canceled(owned->cancelFlag); };
       options.backend = document.backend == "llvm" ? TSeExpr::Backend::LLVM : TSeExpr::Backend::Interpreter;
@@ -1063,6 +1097,7 @@ protected:
       cache.push_front({key, std::move(entry)});
       if (cache.size() > 8) cache.pop_back();
     } else cache.splice(cache.begin(), cache, found);
+    if (state.owns_lock()) state.unlock();
     Prepared &prepared = *cache.front().prepared;
     prepared.sampler = sampler; prepared.cancelFlag = settings.m_isCanceled;
     struct ReleaseInput {
@@ -1149,6 +1184,7 @@ public:
   const TSyntax::Grammar *seExprGrammar() const override { return m_fps->getGrammar(); }
   bool validateSeExprDocument(const std::wstring &text, double frame, std::string &error,
                               std::vector<TSeExpr::Error> *diagnostics = nullptr) const override {
+    std::lock_guard<std::recursive_mutex> state(m_stateMutex);
     try {
       const auto document = SeExprFx::parseDocument(text);
       for (const auto &control : document.controls) {
@@ -1177,15 +1213,19 @@ public:
     catch (const std::exception &failure) { error = failure.what(); return false; }
   }
   std::vector<TSeExpr::Variable> seExprVariables(double frame) const override {
-    return variablesFor(SeExprFx::parseDocument(m_document->getValue()), frame);
+    std::lock_guard<std::recursive_mutex> state(m_stateMutex);
+    return variablesFor(SeExprFx::parseDocument(m_documentText), frame);
   }
   std::vector<TSeExpr::Function> seExprFunctions(double frame) const override {
-    return functionsFor(SeExprFx::parseDocument(m_document->getValue()), frame, nullptr);
+    std::lock_guard<std::recursive_mutex> state(m_stateMutex);
+    return functionsFor(SeExprFx::parseDocument(m_documentText), frame,
+                        nullptr);
   }
   bool sampleSeExprDocument(const std::wstring &text, double frame,
                             TSeExpr::Value &rgbValue, double &alphaResult,
                             std::string &error) const override {
     if (!validateSeExprDocument(text, frame, error)) return false;
+    std::lock_guard<std::recursive_mutex> state(m_stateMutex);
     try {
       const auto document = SeExprFx::parseDocument(text);
       auto variables = variablesFor(document, frame);
@@ -1235,6 +1275,7 @@ public:
     std::unique_ptr<TFx> copy(TFx::create(this->getFxType()));
     auto *native = dynamic_cast<SeExprNativeFx *>(copy.get());
     demand(native != nullptr, "effect factory did not preserve its native type");
+    std::unique_lock<std::recursive_mutex> state(m_stateMutex);
     // An invalid declaration can follow an otherwise valid, animated schema.
     // Recreate the already registered native controls independently of that
     // declaration, then retain the original source and its diagnostic. This
@@ -1257,6 +1298,7 @@ public:
       native->getParams()->getParamVar(name)->setIsHidden(this->getParams()->isParamHidden(i));
     }
     native->getParams()->reorder(order);
+    state.unlock();
     TFx *result = this->TFx::clone(copy.get(), recursive);
     copy.release(); return result;
   }
@@ -1287,6 +1329,8 @@ public:
                "unsupported linked expressions have incompatible native parameter types");
         order.push_back(name);
       }
+      std::lock_guard<std::recursive_mutex> state(m_stateMutex);
+      std::lock_guard<std::recursive_mutex> sourceState(source->m_stateMutex);
       this->getParams()->reorder(order);
       const auto diagnostic = QString::fromStdWString(error.getMessage()).toStdString();
       m_schemaError = source->m_schemaError = diagnostic;
@@ -1326,6 +1370,7 @@ public:
     synchronizeDocument(true);
     std::vector<std::string> order;
     for (int i = 0; i < source->getParams()->getParamCount(); ++i) order.push_back(source->getParams()->getParamName(i));
+    std::lock_guard<std::recursive_mutex> state(m_stateMutex);
     this->getParams()->reorder(order);
     Base::linkParams(other);
   }
@@ -1362,21 +1407,31 @@ public:
            "predicted Source and Mask exceed the working-buffer limit");
     return int(std::ceil(total / (1024 * 1024)));
   }
-  std::string getAlias(double frame, const TRenderSettings &settings) const override {
-    std::ostringstream alias;
-    alias.imbue(std::locale::classic()); alias << std::setprecision(17);
-    alias << this->getFxType() << "[seexpr-fx-v1," << TSeExpr::Program::engineVersion() << ','
-          << TSeExpr::Program::functionPolicyVersion() << ',' << frame << ','
-          << settings.m_linearColorSpace << ',' << settings.m_colorSpaceGamma << ','
-          << TSeExprAttributes::snapshot(settings).identity();
+  // Input aliases are taken without the state lock: they call other effects.
+  std::string inputAliases(double frame,
+                           const TRenderSettings &settings) const {
+    std::string result;
     for (int index = 0; index < this->getInputPortCount(); ++index) {
       const TFxPort *port = this->getInputPort(index);
-      if (port->isConnected()) alias << ',' << TRasterFxP(port->getFx())->getAlias(frame, settings);
+      if (port->isConnected())
+        result += ',' + TRasterFxP(port->getFx())->getAlias(frame, settings);
     }
+    return result;
+  }
+  // Requires m_stateMutex.
+  std::string stateAlias(double frame, const TRenderSettings &settings,
+                         const std::string &inputs) const {
+    std::ostringstream alias;
+    alias.imbue(std::locale::classic()); alias << std::setprecision(17);
+    alias << this->getFxType() << "[seexpr-fx-v1,"
+          << TSeExpr::Program::engineVersion() << ','
+          << TSeExpr::Program::functionPolicyVersion() << ',' << frame << ','
+          << settings.m_linearColorSpace << ',' << settings.m_colorSpaceGamma
+          << ',' << TSeExprAttributes::snapshot(settings).identity() << inputs;
     for (int index = 0; index < this->getParams()->getParamCount(); ++index) {
       TParam *param = this->getParams()->getParam(index);
       if (param == m_document.getPointer()) {
-        const auto bytes = QString::fromStdWString(m_document->getValue()).toUtf8();
+        const auto bytes = QString::fromStdWString(m_documentText).toUtf8();
         alias << ",document=" << QCryptographicHash::hash(bytes, QCryptographicHash::Sha256).toHex().constData();
       } else alias << ',' << param->getName() << '=' << param->getValueAlias(frame, 17);
     }
@@ -1384,10 +1439,17 @@ public:
                          settings.m_affine.a21, settings.m_affine.a22, settings.m_affine.a23}) alias << ',' << value;
     alias << ']'; return alias.str();
   }
+  std::string getAlias(double frame,
+                       const TRenderSettings &settings) const override {
+    const std::string inputs = inputAliases(frame, settings);
+    std::lock_guard<std::recursive_mutex> state(m_stateMutex);
+    return stateAlias(frame, settings, inputs);
+  }
   void doCompute(TTile &tile, double frame, const TRenderSettings &settings) override {
     tile.getRaster()->clear();
     if (canceled(settings.m_isCanceled)) return;
-    demand(m_schemaError.empty(), m_schemaError.c_str());
+    const std::string schema = schemaError();
+    demand(schema.empty(), schema.c_str());
     demand(std::isfinite(settings.m_affine.det()) && std::abs(settings.m_affine.det()) > 1e-12,
            "cannot evaluate a singular coordinate transform");
     demand(!settings.m_linearColorSpace ||
