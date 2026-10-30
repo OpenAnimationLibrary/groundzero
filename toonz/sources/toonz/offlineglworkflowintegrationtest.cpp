@@ -13,6 +13,7 @@
 #include <QImage>
 #include <QProcess>
 #include <QProcessEnvironment>
+#include <QStringList>
 #include <QTemporaryDir>
 #include <QThread>
 #include <algorithm>
@@ -129,7 +130,8 @@ QString converterPath() {
 }
 
 QImage convert(const QString &executable, const QString &source,
-               const QString &destination, bool rasterOnly = false) {
+               const QString &destination, bool rasterOnly = false,
+               int outputWidth = 0) {
   QProcess process;
   process.setProcessChannelMode(QProcess::MergedChannels);
   auto environment = QProcessEnvironment::systemEnvironment();
@@ -139,7 +141,9 @@ QImage convert(const QString &executable, const QString &source,
     environment.remove("DISPLAY"); environment.remove("WAYLAND_DISPLAY");
   }
   process.setProcessEnvironment(environment);
-  process.start(executable, {source, destination});
+  QStringList arguments{source, destination};
+  if (outputWidth > 0) arguments << "-w" << QString::number(outputWidth);
+  process.start(executable, arguments);
   require(process.waitForStarted(10000), "could not start native converter");
   if (!process.waitForFinished(30000)) {
     process.kill(); process.waitForFinished(5000);
@@ -211,6 +215,10 @@ void commandLineConversion() {
     for (int point = 0; point < stroke->getControlPointCount(); ++point)
       require(saved->getStroke(0)->getControlPoint(point) == stroke->getControlPoint(point),
               "saved PLI fixture changed its authored geometry");
+    saved->setPalette(savedPalette);
+    const TRectD bounds = saved->getBBox();
+    require(bounds.getLx() > 96. && bounds.getLy() >= 16.,
+            "saved PLI fixture lost its style-dependent drawing bounds");
     checkpoint("saved PLI palette, geometry and opacity verified before conversion");
   };
   const QString ordinaryPath = directory.filePath("ordinary.pli");
@@ -224,6 +232,12 @@ void commandLineConversion() {
   require(ordinary.width() > 40 && ordinary.height() > 8 &&
               columnAlpha(ordinary, ordinary.width() / 2) == 255,
           "ordinary PLI command-line conversion lost opaque artwork");
+  checkpoint("explicit-width PLI command-line conversion begins");
+  const QImage wide = convert(executable, ordinaryPath,
+                             directory.filePath("opaque-wide.png"), false, 232);
+  require(wide.width() == 232 && wide.height() > ordinary.height() &&
+              columnAlpha(wide, wide.width() / 2) == 255,
+          "explicit-width PLI conversion lost dimensions or opaque artwork");
   stroke->setOpacityProfile({{0., 0.}, {1., 1.}});
   const QString envelopePath = directory.filePath("envelope.pli");
   {

@@ -206,6 +206,10 @@ void convertFromVI(const TLevelReaderP &lr, const TPaletteP &plt,
     try {
       TImageReaderP ir  = lr->getFrameReader(frames[i]);
       TVectorImageP img = ir->load();
+      // PLI frame readers return geometry separately from the level palette.
+      // Bounds depend on each stroke's style; without this palette every
+      // stroke is skipped and the empty bounds produce a one-pixel output.
+      img->setPalette(plt.getPointer());
       images.push_back(img);
       maxBbox += img->getBBox();
     } catch (...) {
