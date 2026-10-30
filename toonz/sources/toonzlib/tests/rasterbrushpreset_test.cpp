@@ -263,7 +263,14 @@ void testPackage() {
   r.preset.size.mappings.push_back({Sensor::Rotation, {{0, .2}, {1, 1}}, 1});
   r.preset.pickupControl.mappings.push_back(
       {Sensor::Pressure, {{0, 0}, {1, 1}}, 1});
-  r.preset.seed = UINT64_C(18446744073709551615);
+  r.preset.background          = {.2, .1, 0, .5};
+  r.preset.backgroundMix.value = .25;
+  r.preset.hue.value           = 180;
+  r.preset.hue.mappings.push_back(
+      {Sensor::RandomStroke, {{0, .2}, {1, .8}}, 1});
+  r.preset.saturation.value = .7;
+  r.preset.brightness.value = 1.2;
+  r.preset.seed             = UINT64_C(18446744073709551615);
   QString error;
   auto bytes = encode(r, error);
   require(!bytes.isEmpty(), qPrintable(error));
@@ -271,6 +278,10 @@ void testPackage() {
   require(error.isEmpty() && restored.semanticallySupported, qPrintable(error));
   require(restored.preset.pickupControl.mappings.size() == 1,
           "wet dynamics lost in package");
+  require(restored.preset.hue.mappings.size() == 1 &&
+              restored.preset.background.a == .5 &&
+              restored.preset.brightness.value == 1.2,
+          "color dynamics lost in package");
   require(!restored.referenceVerified, "unearned reference verification");
   require(restored.preset.seed == r.preset.seed, "seed precision lost");
   require(restored.preset.tip.images[0]->pixels[0].r == 1, "image lost");

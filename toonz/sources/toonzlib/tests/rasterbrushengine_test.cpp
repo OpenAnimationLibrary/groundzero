@@ -207,6 +207,46 @@ void testStationaryAndBatching() {
   require(sa.dabCount() >= 10 && sa.dabCount() <= 11,
           "airbrush timer did not schedule stationary dabs");
 }
+void testColorDynamics() {
+  auto deposit = [](Preset p, double pressure) {
+    Canvas canvas;
+    Stroke stroke(canvas, p);
+    require(stroke.add(sample(32, 32, 0, pressure)), stroke.error().c_str());
+    return canvas.read(32, 32);
+  };
+  Preset p;
+  p.color     = {1, 0, 0, 1};
+  p.hue.value = 120;
+  Pixel green = deposit(p, 1);
+  require(green.r == 0 && green.g == 1 && green.b == 0 && green.a == 1,
+          "HSV hue did not rotate red to green");
+  p.hue.mappings.push_back({Sensor::Pressure, {{0, 0}, {1, 1}}, 1});
+  Pixel yellow = deposit(p, .5);
+  require(yellow.r == 1 && yellow.g == 1 && yellow.b == 0,
+          "pressure color curve not evaluated at dab");
+  p.hue.value        = 0;
+  p.saturation.value = 0;
+  p.brightness.value = .5;
+  Pixel gray         = deposit(p, 1);
+  require(gray.r == .5 && gray.g == .5 && gray.b == .5 && gray.a == 1,
+          "HSV saturation/value changed alpha");
+  p.saturation.value = p.brightness.value = 1;
+  p.color                                 = {.5, 0, 0, .5};
+  p.background                            = {0, 0, 0, 0};
+  p.backgroundMix.value                   = .5;
+  Pixel transparent                       = deposit(p, 1);
+  require(transparent.r == .25 && transparent.a == .25 && transparent.g == 0,
+          "background mix did not preserve premultiplied alpha");
+  p.color        = {1, 0, 0, 1};
+  p.hue.value    = 360;
+  p.hue.mappings = {{Sensor::RandomDab, {{0, 0}, {1, 1}}, 1}};
+  Canvas a, b;
+  line(a, p);
+  line(b, p);
+  require(same(a, b), "seeded color variation is not repeatable");
+  p.background.r = 1;
+  require(!validate(p).empty(), "non-premultiplied background accepted");
+}
 }  // namespace
 int main() {
   try {
@@ -217,6 +257,7 @@ int main() {
     testResourcesAndWet();
     testWetPressure();
     testStationaryAndBatching();
+    testColorDynamics();
   } catch (const std::exception &e) {
     std::cerr << e.what() << '\n';
     return 1;

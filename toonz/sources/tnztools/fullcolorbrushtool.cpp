@@ -76,6 +76,12 @@
 #include <QMouseEvent>
 #include <QPushButton>
 #include <QTimer>
+#include <QFile>
+#include <QSpinBox>
+#include <QTableWidget>
+#include <QHeaderView>
+#include <QColorDialog>
+#include <cmath>
 
 //----------------------------------------------------------------------------------
 
@@ -176,6 +182,121 @@ protected:
   }
 };
 
+bool editNativeDynamics(QWidget *parent, RasterBrush::Dynamic &dynamic) {
+  QDialog dialog(parent);
+  dialog.setWindowTitle(QObject::tr("Brush Dynamics"));
+  auto layout = new QVBoxLayout(&dialog);
+  auto help   = new QLabel(
+      QObject::tr(
+          "Sensor curves multiply together. Curve points use input:output "
+            "pairs between 0 and 1, in increasing input order. Scale normalizes "
+            "distance, time and speed before the curve."),
+      &dialog);
+  help->setWordWrap(true);
+  layout->addWidget(help);
+  auto minimum = new QDoubleSpinBox(&dialog);
+  minimum->setRange(0, 1);
+  minimum->setDecimals(4);
+  minimum->setValue(dynamic.minimum);
+  auto form = new QFormLayout;
+  form->addRow(QObject::tr("Minimum fraction"), minimum);
+  layout->addLayout(form);
+  auto table = new QTableWidget(0, 3, &dialog);
+  table->setHorizontalHeaderLabels({QObject::tr("Sensor"), QObject::tr("Scale"),
+                                    QObject::tr("Curve points")});
+  table->horizontalHeader()->setStretchLastSection(true);
+  layout->addWidget(table);
+  const QStringList sensors = {QObject::tr("Pressure"),
+                               QObject::tr("Tilt X"),
+                               QObject::tr("Tilt Y"),
+                               QObject::tr("Tilt elevation"),
+                               QObject::tr("Tilt direction"),
+                               QObject::tr("Barrel rotation"),
+                               QObject::tr("Stroke direction"),
+                               QObject::tr("Distance"),
+                               QObject::tr("Time"),
+                               QObject::tr("Speed"),
+                               QObject::tr("Random per dab"),
+                               QObject::tr("Random per stroke")};
+  auto add                  = [&](const RasterBrush::Mapping &mapping) {
+    int row = table->rowCount();
+    table->insertRow(row);
+    auto sensor = new QComboBox(table);
+    sensor->addItems(sensors);
+    sensor->setCurrentIndex(int(mapping.sensor));
+    table->setCellWidget(row, 0, sensor);
+    table->setItem(
+        row, 1, new QTableWidgetItem(QString::number(mapping.scale, 'g', 17)));
+    QStringList points;
+    for (const auto &k : mapping.curve)
+      points << QString::number(k.x, 'g', 17) + ":" +
+                    QString::number(k.y, 'g', 17);
+    table->setItem(row, 2, new QTableWidgetItem(points.join(", ")));
+  };
+  for (const auto &mapping : dynamic.mappings) add(mapping);
+  auto actions = new QHBoxLayout;
+  auto plus    = new QPushButton(QObject::tr("Add sensor"), &dialog);
+  auto minus = new QPushButton(QObject::tr("Remove selected sensor"), &dialog);
+  actions->addWidget(plus);
+  actions->addWidget(minus);
+  layout->addLayout(actions);
+  QObject::connect(plus, &QPushButton::clicked, &dialog, [&]() {
+    if (table->rowCount() < 16) add(RasterBrush::Mapping());
+  });
+  QObject::connect(minus, &QPushButton::clicked, &dialog, [&]() {
+    if (table->currentRow() >= 0) table->removeRow(table->currentRow());
+  });
+  auto buttons = new QDialogButtonBox(
+      QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+  layout->addWidget(buttons);
+  QObject::connect(buttons, &QDialogButtonBox::rejected, &dialog,
+                   &QDialog::reject);
+  QObject::connect(buttons, &QDialogButtonBox::accepted, &dialog, [&]() {
+    std::vector<RasterBrush::Mapping> mappings;
+    bool valid = true;
+    for (int row = 0; row < table->rowCount(); ++row) {
+      RasterBrush::Mapping m;
+      m.sensor = RasterBrush::Sensor(
+          static_cast<QComboBox *>(table->cellWidget(row, 0))->currentIndex());
+      bool ok = false;
+      m.scale = table->item(row, 1)->text().toDouble(&ok);
+      valid &=
+          ok && std::isfinite(m.scale) && m.scale >= 1e-9 && m.scale <= 1e9;
+      m.curve.clear();
+      double last = -1;
+      for (const auto &point : table->item(row, 2)->text().split(',')) {
+        auto pair = point.split(':');
+        if (pair.size() != 2) {
+          valid = false;
+          break;
+        }
+        bool xok = false, yok = false;
+        double x = pair[0].trimmed().toDouble(&xok),
+               y = pair[1].trimmed().toDouble(&yok);
+        valid &= xok && yok && std::isfinite(x) && std::isfinite(y) &&
+                 x > last && x >= 0 && x <= 1 && y >= 0 && y <= 1;
+        last = x;
+        m.curve.push_back({x, y});
+      }
+      valid &= !m.curve.empty() && m.curve.size() <= 1024;
+      mappings.push_back(std::move(m));
+    }
+    if (!valid) {
+      QMessageBox::warning(
+          &dialog, QObject::tr("Invalid curve"),
+          QObject::tr(
+              "Use increasing input:output pairs in the range 0 to 1 and a "
+              "positive finite scale. Each sensor allows up to 1024 points."));
+      return;
+    }
+    dynamic.minimum  = minimum->value();
+    dynamic.mappings = std::move(mappings);
+    dialog.accept();
+  });
+  dialog.resize(720, 440);
+  return dialog.exec() == QDialog::Accepted;
+}
+
 bool editNativeBrush(RasterBrush::Record &record) {
   QDialog dialog;
   dialog.setWindowTitle(QObject::tr("Native Raster Brush"));
@@ -219,35 +340,230 @@ bool editNativeBrush(RasterBrush::Record &record) {
   spin(QObject::tr("Foreground paint mix"), p.colorRate, 0, 1);
   spin(QObject::tr("Paint reload"), p.reload, 0, 1);
   spin(QObject::tr("Smudge sampling radius"), p.smudgeRadius, 0, 3);
-  auto pressure = [&](const QString &label, RasterBrush::Dynamic &dynamic) {
-    auto box     = new QCheckBox(&dialog);
+  spin(QObject::tr("Background color mix"), p.backgroundMix.value, 0, 1);
+  spin(QObject::tr("Hue rotation"), p.hue.value, -360, 360);
+  spin(QObject::tr("Saturation multiplier"), p.saturation.value, 0, 2);
+  spin(QObject::tr("Brightness multiplier"), p.brightness.value, 0, 2);
+  auto background =
+      new QPushButton(QObject::tr("Choose background color…"), &dialog);
+  form->addRow(QObject::tr("Color dynamics"), background);
+  QObject::connect(background, &QPushButton::clicked, &dialog, [&]() {
+    const auto &b = p.background;
+    QColor initial =
+        QColor::fromRgbF(b.a > 0 ? b.r / b.a : 0, b.a > 0 ? b.g / b.a : 0,
+                         b.a > 0 ? b.b / b.a : 0, b.a);
+    QColor color = QColorDialog::getColor(initial, &dialog,
+                                          QObject::tr("Background paint color"),
+                                          QColorDialog::ShowAlphaChannel);
+    if (!color.isValid()) return;
+    double a     = color.alphaF();
+    p.background = {color.redF() * a, color.greenF() * a, color.blueF() * a, a};
+    refresh();
+  });
+  auto dynamics = [&](const QString &label, RasterBrush::Dynamic &dynamic) {
+    auto button = new QPushButton(QObject::tr("Edit sensor curves…"), &dialog);
     auto *target = &dynamic;
-    box->setChecked(
-        std::any_of(dynamic.mappings.begin(), dynamic.mappings.end(),
-                    [](const RasterBrush::Mapping &m) {
-                      return m.sensor == RasterBrush::Sensor::Pressure;
-                    }));
+    form->addRow(label, button);
+    QObject::connect(button, &QPushButton::clicked, &dialog, [&, target]() {
+      if (editNativeDynamics(&dialog, *target)) refresh();
+    });
+  };
+  dynamics(QObject::tr("Size dynamics"), p.size);
+  dynamics(QObject::tr("Aspect dynamics"), p.aspect);
+  dynamics(QObject::tr("Angle dynamics"), p.angle);
+  dynamics(QObject::tr("Opacity dynamics"), p.opacity);
+  dynamics(QObject::tr("Flow dynamics"), p.flow);
+  dynamics(QObject::tr("Scatter dynamics"), p.scatter);
+  dynamics(QObject::tr("Pickup dynamics"), p.pickupControl);
+  dynamics(QObject::tr("Paint mix dynamics"), p.colorRateControl);
+  dynamics(QObject::tr("Smudge radius dynamics"), p.radiusControl);
+  dynamics(QObject::tr("Background mix dynamics"), p.backgroundMix);
+  dynamics(QObject::tr("Hue dynamics"), p.hue);
+  dynamics(QObject::tr("Saturation dynamics"), p.saturation);
+  dynamics(QObject::tr("Brightness dynamics"), p.brightness);
+  auto check = [&](const QString &label, bool &value) {
+    auto box = new QCheckBox(&dialog);
+    box->setChecked(value);
+    bool *target = &value;
+    form->addRow(label, box);
+    QObject::connect(box, &QCheckBox::toggled, &dialog, [&, target](bool v) {
+      *target = v;
+      refresh();
+    });
+    return box;
+  };
+  check(QObject::tr("Flip tip horizontally"), p.flipX);
+  check(QObject::tr("Flip tip vertically"), p.flipY);
+  check(QObject::tr("Preserve alpha"), p.lockAlpha);
+  auto count = new QSpinBox(&dialog);
+  count->setRange(1, 64);
+  count->setValue(p.count);
+  form->addRow(QObject::tr("Dabs per step"), count);
+  QObject::connect(
+      count, static_cast<void (QSpinBox::*)(int)>(&QSpinBox::valueChanged),
+      &dialog, [&](int n) {
+        p.count = n;
+        refresh();
+      });
+  auto seed = new QLineEdit(QString::number(qulonglong(p.seed)), &dialog);
+  form->addRow(QObject::tr("Random seed"), seed);
+  auto blend = new QComboBox(&dialog);
+  blend->addItems({QObject::tr("Normal"), QObject::tr("Multiply"),
+                   QObject::tr("Screen"), QObject::tr("Overlay"),
+                   QObject::tr("Erase")});
+  blend->setCurrentIndex(int(p.blend));
+  form->addRow(QObject::tr("Blend"), blend);
+  QObject::connect(
+      blend,
+      static_cast<void (QComboBox::*)(int)>(&QComboBox::currentIndexChanged),
+      &dialog, [&](int n) {
+        p.blend = RasterBrush::Blend(n);
+        refresh();
+      });
+
+  auto readImages = [&](bool sequence) {
+    std::vector<std::shared_ptr<const RasterBrush::Image>> images;
+    QStringList paths = QFileDialog::getOpenFileNames(
+        &dialog, QObject::tr("Choose PNG brush images"), QString(),
+        QObject::tr("PNG images (*.png)"));
+    if (paths.isEmpty()) return images;
+    if ((!sequence && paths.size() != 1) || paths.size() > 256) {
+      QMessageBox::warning(&dialog, QObject::tr("Brush images"),
+                           sequence ? QObject::tr("Select at most 256 images.")
+                                    : QObject::tr("Select one texture image."));
+      return images;
+    }
+    bool ok           = false;
+    QStringList modes = {QObject::tr("Dark pixels form the mask"),
+                         QObject::tr("Alpha channel forms the mask"),
+                         QObject::tr("Preserve image colors")};
+    QString selected  = QInputDialog::getItem(
+        &dialog, QObject::tr("Image coverage"), QObject::tr("Interpretation"),
+        modes, 0, false, &ok);
+    if (!ok) return images;
+    int mode     = modes.indexOf(selected);
+    size_t bytes = 0;
+    for (const auto &path : paths) {
+      QFile file(path);
+      QString error;
+      std::shared_ptr<const RasterBrush::Image> image;
+      if (!file.open(QIODevice::ReadOnly) || file.size() > 64 * 1024 * 1024)
+        error = QObject::tr("Cannot read image within the 64 MiB file limit.");
+      else
+        image = RasterBrush::decodeImage(file.readAll(), mode != 1, error);
+      if (image && bytes + image->pixels.size() * sizeof(RasterBrush::Pixel) >
+                       256u * 1024u * 1024u)
+        error = QObject::tr("Combined decoded images exceed 256 MiB.");
+      if (!error.isEmpty() || !image) {
+        QMessageBox::warning(&dialog, QObject::tr("Brush images"), error);
+        images.clear();
+        return images;
+      }
+      bytes += image->pixels.size() * sizeof(RasterBrush::Pixel);
+      if (mode == 0) {
+        auto mask   = std::make_shared<RasterBrush::Image>(*image);
+        mask->color = false;
+        for (auto &pixel : mask->pixels)
+          pixel = {0, 0, 0,
+                   std::max(0.0, pixel.a - .2126 * pixel.r - .7152 * pixel.g -
+                                     .0722 * pixel.b)};
+        image = mask;
+      }
+      images.push_back(image);
+    }
+    return images;
+  };
+  auto tipControls = [&](const QString &label, RasterBrush::Tip &tip) {
+    auto *target = &tip;
+    auto shape   = new QComboBox(&dialog);
+    shape->addItems({QObject::tr("Round"), QObject::tr("Square"),
+                     QObject::tr("Gaussian"), QObject::tr("Image sequence")});
+    shape->setCurrentIndex(int(tip.shape));
+    form->addRow(label, shape);
+    QObject::connect(
+        shape,
+        static_cast<void (QComboBox::*)(int)>(&QComboBox::currentIndexChanged),
+        &dialog, [&, target](int n) {
+          target->shape = RasterBrush::Shape(n);
+          refresh();
+        });
+    auto images = new QPushButton(QObject::tr("Load image sequence…"), &dialog);
+    form->addRow(label + QObject::tr(" images"), images);
+    QObject::connect(images, &QPushButton::clicked, &dialog,
+                     [&, target, shape]() {
+                       auto loaded = readImages(true);
+                       if (loaded.empty()) return;
+                       target->images = std::move(loaded);
+                       target->shape  = RasterBrush::Shape::Bitmap;
+                       shape->setCurrentIndex(int(target->shape));
+                       refresh();
+                     });
+    auto clear =
+        new QPushButton(QObject::tr("Remove embedded images"), &dialog);
+    form->addRow(clear);
+    QObject::connect(clear, &QPushButton::clicked, &dialog,
+                     [&, target, shape]() {
+                       target->images.clear();
+                       if (target->shape == RasterBrush::Shape::Bitmap) {
+                         target->shape = RasterBrush::Shape::Round;
+                         shape->setCurrentIndex(0);
+                       }
+                       refresh();
+                     });
+    check(label + QObject::tr(" random sequence"), tip.randomSequence);
+  };
+  tipControls(QObject::tr("Primary tip"), p.tip);
+  auto secondary = check(QObject::tr("Enable dual tip"), p.secondary.enabled);
+  tipControls(QObject::tr("Secondary tip"), p.secondary.tip);
+  spin(QObject::tr("Secondary hardness"), p.secondary.tip.hardness, 0, 1);
+  spin(QObject::tr("Secondary relative size"), p.secondary.size.value, .01, 10);
+  spin(QObject::tr("Secondary angle"), p.secondary.angle.value, -360, 360);
+  spin(QObject::tr("Secondary opacity"), p.secondary.opacity.value, 0, 1);
+  spin(QObject::tr("Secondary aspect"), p.secondary.aspect, .01, 1);
+  spin(QObject::tr("Secondary scatter"), p.secondary.scatter, 0, 5);
+  dynamics(QObject::tr("Secondary size dynamics"), p.secondary.size);
+  dynamics(QObject::tr("Secondary angle dynamics"), p.secondary.angle);
+  dynamics(QObject::tr("Secondary opacity dynamics"), p.secondary.opacity);
+  auto maskMode = [&](const QString &label, RasterBrush::MaskMode &mode) {
+    auto box = new QComboBox(&dialog);
+    box->addItems({QObject::tr("Multiply"), QObject::tr("Subtract")});
+    box->setCurrentIndex(int(mode));
+    auto *target = &mode;
     form->addRow(label, box);
     QObject::connect(
-        box, &QCheckBox::toggled, &dialog, [&, target](bool enabled) {
-          auto &m = target->mappings;
-          m.erase(std::remove_if(m.begin(), m.end(),
-                                 [](const RasterBrush::Mapping &v) {
-                                   return v.sensor ==
-                                          RasterBrush::Sensor::Pressure;
-                                 }),
-                  m.end());
-          if (enabled)
-            m.push_back({RasterBrush::Sensor::Pressure, {{0, 0}, {1, 1}}, 1});
+        box,
+        static_cast<void (QComboBox::*)(int)>(&QComboBox::currentIndexChanged),
+        &dialog, [&, target](int n) {
+          *target = RasterBrush::MaskMode(n);
           refresh();
         });
   };
-  pressure(QObject::tr("Pressure controls size"), p.size);
-  pressure(QObject::tr("Pressure controls opacity"), p.opacity);
-  pressure(QObject::tr("Pressure controls flow"), p.flow);
-  pressure(QObject::tr("Pressure controls pickup"), p.pickupControl);
-  pressure(QObject::tr("Pressure controls paint mix"), p.colorRateControl);
-  pressure(QObject::tr("Pressure controls smudge radius"), p.radiusControl);
+  maskMode(QObject::tr("Dual tip mask"), p.secondary.mode);
+  auto texture = new QPushButton(QObject::tr("Load texture PNG…"), &dialog);
+  form->addRow(QObject::tr("Texture"), texture);
+  QObject::connect(texture, &QPushButton::clicked, &dialog, [&]() {
+    auto images = readImages(false);
+    if (!images.empty()) {
+      p.texture.image = images.front();
+      refresh();
+    }
+  });
+  auto clearTexture = new QPushButton(QObject::tr("Remove texture"), &dialog);
+  form->addRow(clearTexture);
+  QObject::connect(clearTexture, &QPushButton::clicked, &dialog, [&]() {
+    p.texture.image.reset();
+    refresh();
+  });
+  maskMode(QObject::tr("Texture mask"), p.texture.mode);
+  spin(QObject::tr("Texture scale"), p.texture.scale, .01, 4096);
+  spin(QObject::tr("Texture angle"), p.texture.angle, -360, 360);
+  spin(QObject::tr("Texture offset X"), p.texture.offsetX, -1e9, 1e9);
+  spin(QObject::tr("Texture offset Y"), p.texture.offsetY, -1e9, 1e9);
+  spin(QObject::tr("Texture depth"), p.texture.depth, 0, 1);
+  spin(QObject::tr("Texture contrast"), p.texture.contrast, 0, 10);
+  spin(QObject::tr("Texture brightness"), p.texture.brightness, -1, 1);
+  check(QObject::tr("Invert texture"), p.texture.invert);
+  check(QObject::tr("Texture follows each dab"), p.texture.perDab);
   auto wet = new QComboBox(&dialog);
   wet->addItems(
       {QObject::tr("Dry"), QObject::tr("Wet mix"), QObject::tr("Smear")});
@@ -263,10 +579,14 @@ bool editNativeBrush(RasterBrush::Record &record) {
         p.wet = RasterBrush::Wet(n);
         if (n) {
           wash->setChecked(false);
+          blend->setCurrentIndex(0);
+          secondary->setChecked(false);
           p.wash              = false;
           p.blend             = RasterBrush::Blend::Normal;
           p.secondary.enabled = false;
         }
+        blend->setEnabled(!n);
+        secondary->setEnabled(!n);
         refresh();
       });
 
@@ -281,8 +601,23 @@ bool editNativeBrush(RasterBrush::Record &record) {
   auto buttons = new QDialogButtonBox(
       QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
   layout->addWidget(buttons);
-  QObject::connect(buttons, &QDialogButtonBox::accepted, &dialog,
-                   &QDialog::accept);
+  blend->setEnabled(p.wet == RasterBrush::Wet::Off);
+  secondary->setEnabled(p.wet == RasterBrush::Wet::Off);
+  QObject::connect(buttons, &QDialogButtonBox::accepted, &dialog, [&]() {
+    bool validSeed = false;
+    auto number    = seed->text().toULongLong(&validSeed);
+    auto why       = RasterBrush::validate(p);
+    if (!validSeed || !why.empty()) {
+      QMessageBox::warning(
+          &dialog, QObject::tr("Invalid brush"),
+          validSeed
+              ? QString::fromStdString(why)
+              : QObject::tr("Random seed must be an unsigned 64-bit integer."));
+      return;
+    }
+    p.seed = number;
+    dialog.accept();
+  });
   QObject::connect(buttons, &QDialogButtonBox::rejected, &dialog,
                    &QDialog::reject);
   refresh();

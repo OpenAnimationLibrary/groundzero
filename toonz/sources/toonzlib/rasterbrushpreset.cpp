@@ -244,6 +244,12 @@ QByteArray encode(const Record &r, QString &error) {
         {"flipY", p.flipY},
         {"blend", blends[int(p.blend)]},
         {"color", QJsonArray{p.color.r, p.color.g, p.color.b, p.color.a}},
+        {"background", QJsonArray{p.background.r, p.background.g,
+                                  p.background.b, p.background.a}},
+        {"backgroundMix", dynamicJson(p.backgroundMix)},
+        {"hue", dynamicJson(p.hue)},
+        {"saturation", dynamicJson(p.saturation)},
+        {"brightness", dynamicJson(p.brightness)},
         {"wet", wets[int(p.wet)]},
         {"pickup", p.pickup},
         {"pickupControl", dynamicJson(p.pickupControl)},
@@ -320,14 +326,15 @@ Record decode(const QByteArray &bytes, QString &error) {
       rd.assets[i.key()] = im;
     }
     auto o = object(root["settings"]);
-    keys(o, {"name",         "profile",   "tip",           "size",
-             "aspect",       "angle",     "opacity",       "flow",
-             "scatter",      "spacing",   "airbrushRate",  "count",
-             "wash",         "lockAlpha", "flipX",         "flipY",
-             "blend",        "color",     "wet",           "pickup",
-             "colorRate",    "reload",    "smudgeRadius",  "seed",
-             "texture",      "secondary", "pickupControl", "colorRateControl",
-             "radiusControl"});
+    keys(o, {"name",          "profile",    "tip",           "size",
+             "aspect",        "angle",      "opacity",       "flow",
+             "scatter",       "spacing",    "airbrushRate",  "count",
+             "wash",          "lockAlpha",  "flipX",         "flipY",
+             "blend",         "color",      "wet",           "pickup",
+             "colorRate",     "reload",     "smudgeRadius",  "seed",
+             "texture",       "secondary",  "pickupControl", "colorRateControl",
+             "radiusControl", "background", "backgroundMix", "hue",
+             "saturation",    "brightness"});
     auto &p        = r.preset;
     p.name         = text(o["name"]).toStdString();
     p.profile      = text(o["profile"]).toStdString();
@@ -351,8 +358,19 @@ Record decode(const QByteArray &bytes, QString &error) {
     p.blend     = Blend(choice(o["blend"], blends));
     auto color  = array(o["color"], 4);
     if (color.size() != 4) throw Invalid("Invalid color");
-    p.color        = {number(color[0]), number(color[1]), number(color[2]),
-                      number(color[3])};
+    p.color = {number(color[0]), number(color[1]), number(color[2]),
+               number(color[3])};
+    if (o.contains("background")) {
+      auto background = array(o["background"], 4);
+      if (background.size() != 4) throw Invalid("Invalid background color");
+      p.background = {number(background[0]), number(background[1]),
+                      number(background[2]), number(background[3])};
+    }
+    if (o.contains("backgroundMix"))
+      p.backgroundMix = dynamic(o["backgroundMix"]);
+    if (o.contains("hue")) p.hue = dynamic(o["hue"]);
+    if (o.contains("saturation")) p.saturation = dynamic(o["saturation"]);
+    if (o.contains("brightness")) p.brightness = dynamic(o["brightness"]);
     p.wet          = Wet(choice(o["wet"], wets));
     p.pickup       = number(o["pickup"]);
     p.colorRate    = number(o["colorRate"]);

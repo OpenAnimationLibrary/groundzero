@@ -21,6 +21,49 @@ Pixel mix(Pixel p, Pixel q, double t) {
           p.a + (q.a - p.a) * t};
 }
 double wrap(double x) { return x - std::floor(x); }
+Pixel hsv(Pixel p, double degrees, double saturation, double brightness) {
+  if (p.a == 0) return {};
+  if (degrees == 0 && saturation == 1 && brightness == 1) return p;
+  const double r = p.r / p.a, g = p.g / p.a, b = p.b / p.a;
+  const double maximum = std::max(r, std::max(g, b));
+  const double delta   = maximum - std::min(r, std::min(g, b));
+  double h             = 0;
+  if (delta > 0) {
+    if (maximum == r)
+      h = (g - b) / delta;
+    else if (maximum == g)
+      h = 2 + (b - r) / delta;
+    else
+      h = 4 + (r - g) / delta;
+  }
+  h              = 6 * wrap(h / 6 + degrees / 360);
+  const double v = unit(maximum * brightness);
+  const double s = maximum > 0 ? unit(delta / maximum * saturation) : 0;
+  const double c = v * s, x = c * (1 - std::abs(std::fmod(h, 2.0) - 1)),
+               m = v - c;
+  Pixel out;
+  switch (int(h)) {
+  case 0:
+    out = {c, x, 0, 1};
+    break;
+  case 1:
+    out = {x, c, 0, 1};
+    break;
+  case 2:
+    out = {0, c, x, 1};
+    break;
+  case 3:
+    out = {0, x, c, 1};
+    break;
+  case 4:
+    out = {x, 0, c, 1};
+    break;
+  default:
+    out = {c, 0, x, 1};
+    break;
+  }
+  return {(out.r + m) * p.a, (out.g + m) * p.a, (out.b + m) * p.a, p.a};
+}
 double arc(double x) { return std::remainder(x, 2 * pi); }
 double mask(double a, double b, MaskMode mode) {
   return mode == MaskMode::Multiply ? a * b : std::max(0.0, a - b);
@@ -110,6 +153,11 @@ std::string validate(const Preset &p) {
       p.color.r < 0 || p.color.g < 0 || p.color.b < 0 ||
       p.color.r > p.color.a || p.color.g > p.color.a || p.color.b > p.color.a)
     return "Invalid premultiplied brush color";
+  if (!finitePixel(p.background) || p.background.a < 0 || p.background.a > 1 ||
+      p.background.r < 0 || p.background.g < 0 || p.background.b < 0 ||
+      p.background.r > p.background.a || p.background.g > p.background.a ||
+      p.background.b > p.background.a)
+    return "Invalid premultiplied background color";
   auto dynamic = [&](const Dynamic &d, double lo, double hi) {
     if (!range(d.value, lo, hi) || !range(d.minimum, 0, 1) ||
         d.mappings.size() > 16)
@@ -174,6 +222,9 @@ std::string validate(const Preset &p) {
   if (!dynamic(p.pickupControl, 0, 1) || !dynamic(p.colorRateControl, 0, 1) ||
       !dynamic(p.radiusControl, 0, 1))
     return "Invalid wet sensor dynamics";
+  if (!dynamic(p.backgroundMix, 0, 1) || !dynamic(p.hue, -36000, 36000) ||
+      !dynamic(p.saturation, 0, 2) || !dynamic(p.brightness, 0, 2))
+    return "Invalid color dynamics";
   if (!range(p.pickup, 0, 1) || !range(p.colorRate, 0, 1) ||
       !range(p.reload, 0, 1) || !range(p.smudgeRadius, 0, 3))
     return "Invalid wet brush settings";
@@ -373,7 +424,11 @@ struct Stroke::Impl {
       failure = "Stroke dab limit exceeded";
       return false;
     }
-    randomDab             = random();
+    randomDab = random();
+    const Pixel foreground =
+        hsv(mix(p.color, p.background, eval(p.backgroundMix, s)),
+            eval(p.hue, s), eval(p.saturation, s), eval(p.brightness, s));
+    if (!dabs) reservoir = foreground;
     const double diameter = std::max(.25, eval(p.size, s)),
                  radius   = diameter * .5;
     spacing               = std::max(.01, diameter * p.spacing);
@@ -404,7 +459,7 @@ struct Stroke::Impl {
         failure = "Raster transaction refused the stroke region";
         return false;
       }
-      Pixel paint = p.color;
+      Pixel paint = foreground;
       std::vector<Pixel> nextSmear;
       int side = 0;
       if (p.wet != Wet::Off) {
@@ -440,7 +495,7 @@ struct Stroke::Impl {
           }
         if (total > 0) avg = mul(avg, 1 / total);
         reservoir = mix(reservoir, avg, pickup);
-        paint     = mix(reservoir, p.color, colorRate);
+        paint     = mix(reservoir, foreground, colorRate);
       }
       const auto &t   = p.texture;
       const auto &sec = p.secondary;
@@ -497,7 +552,7 @@ struct Stroke::Impl {
             int iy = std::max(
                 0, std::min(smearSide - 1, int((v * .5 + .5) * smearSide)));
             ink = mix(mix(paint, smear[size_t(iy) * smearSide + ix], pickup),
-                      p.color, colorRate);
+                      foreground, colorRate);
           }
           if (p.wash) {
             Tile *buf = tile(x, y);
@@ -515,7 +570,7 @@ struct Stroke::Impl {
                           p.blend, p.lockAlpha));
         }
       if (p.wet != Wet::Off) {
-        reservoir            = mix(reservoir, p.color, p.reload);
+        reservoir            = mix(reservoir, foreground, p.reload);
         size_t previousBytes = smear.size() * sizeof(Pixel);
         shared->release(previousBytes);
         reserved -= previousBytes;

@@ -41,7 +41,15 @@ jobs:
           echo "CMAKE_PREFIX_PATH=$VCPKG_INSTALLATION_ROOT/installed/x64-windows;$QT_ROOT_DIR" >> "$GITHUB_ENV"
       - name: Configure
         shell: bash
-        run: cmake -S ci-scripts/brush-parser -B brush-parser-build -DBRUSH_QT_MAJOR=${{ matrix.qt == '5.15.2' && '5' || '6' }} -DBRUSH_SANITIZERS=${{ matrix.os == 'ubuntu-22.04' && 'ON' || 'OFF' }}
+        run: |
+          args=()
+          # Qt 5.15.2's official macOS package is Intel-only. macos-14 runs on
+          # Apple silicon; target Intel explicitly and execute through Rosetta.
+          if [[ '${{ matrix.os }}' == 'macos-14' && '${{ matrix.qt }}' == '5.15.2' ]]; then
+            file "$QT_ROOT_DIR/lib/QtCore.framework/QtCore"
+            args+=('-DCMAKE_OSX_ARCHITECTURES=x86_64')
+          fi
+          cmake -S ci-scripts/brush-parser -B brush-parser-build -DBRUSH_QT_MAJOR=${{ matrix.qt == '5.15.2' && '5' || '6' }} -DBRUSH_SANITIZERS=${{ matrix.os == 'ubuntu-22.04' && 'ON' || 'OFF' }} "${args[@]}"
       - name: Build parser regression
         shell: bash
         run: |
@@ -58,7 +66,9 @@ jobs:
         run: |
           for log in brush-parser-build.log brush-parser-test.log; do
             if test -f "$log"; then
-              tail -50 "$log" | while IFS= read -r line; do
+              # Include the first linker diagnostic (architecture mismatch),
+              # not only the long tail of secondary undefined symbols.
+              { sed -n '/ld: warning/,+4p; /Undefined symbols/,+4p; /error:/,+3p' "$log"; tail -30 "$log"; } | while IFS= read -r line; do
                 line=${line//'%'/'%25'}
                 line=${line//$'\r'/'%0D'}
                 echo "::error::$line"

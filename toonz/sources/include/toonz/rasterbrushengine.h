@@ -85,6 +85,11 @@ struct Preset {
   bool wash = false, lockAlpha = false, flipX = false, flipY = false;
   Blend blend = Blend::Normal;
   Pixel color{0, 0, 0, 1};
+  Pixel background{1, 1, 1, 1};
+  // Mix premultiplied foreground/background, then rotate HSV hue (degrees)
+  // and multiply saturation/value in straight encoded sRGB. Alpha is retained.
+  Dynamic backgroundMix{0, 0, {}}, hue{0, 0, {}}, saturation{1, 0, {}},
+      brightness{1, 0, {}};
   Texture texture;
   Secondary secondary;
   Wet wet       = Wet::Off;
