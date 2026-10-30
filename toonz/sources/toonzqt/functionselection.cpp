@@ -295,6 +295,26 @@ void FunctionSelection::selectNone() {
   emit selectionChanged();
 }
 
+void FunctionSelection::retainCurves(const QSet<TDoubleParam *> &present) {
+  bool missing = false;
+  for (const auto &entry : m_selectedKeyframes)
+    if (entry.first && !present.contains(entry.first)) { missing = true; break; }
+  if (!missing) return;
+  // The old rectangle can map to different channels after owner deletion.
+  // Preserve its surviving explicit keys as a graph selection, not a stale
+  // spreadsheet range that could move surrounding or newly inserted keys.
+  m_selectedCells = QRect();
+  m_selectedSegment = -1;
+  for (int i = m_selectedKeyframes.size() - 1; i >= 0; --i) {
+    const auto &entry = m_selectedKeyframes[i];
+    if (entry.first && present.contains(entry.first) && !entry.second.isEmpty()) continue;
+    TDoubleParam *curve = entry.first;
+    m_selectedKeyframes.removeAt(i);
+    if (curve) curve->release();
+  }
+  emit selectionChanged();
+}
+
 // called from FunctionSheet::selectCells
 void FunctionSelection::selectCells(const QRect &selectedCells,
                                     const QList<TDoubleParam *> &curves) {

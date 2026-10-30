@@ -159,7 +159,8 @@ QString levelFile(const QDir &directory, bool envelope) {
   writer->getFrameWriter(TFrameId(1))->save(image);
   return path;
 }
-QString sceneFile(const QDir &directory, const QString &levelPath, const QString &name) {
+QString sceneFile(const QDir &directory, const QString &levelPath, const QString &name,
+                  bool sceneRelative = false) {
   const QString path = directory.filePath(name + ".tnz");
   ToonzScene scene;
   TProjectManager::instance()->initializeScene(&scene);
@@ -168,9 +169,33 @@ QString sceneFile(const QDir &directory, const QString &levelPath, const QString
   scene.getCurrentCamera()->setRes(TDimension(160,120));
   scene.getProperties()->setBgColor(TPixel32::White);
   auto *level = scene.createNewLevel(PLI_XSHLEVEL,L"thumbnail drawing")->getSimpleLevel();
-  level->setPath(TFilePath(levelPath), true); level->load();
+  const TFilePath assetPath = sceneRelative
+      ? TFilePath("$scenefolder") + TFilePath(levelPath).getLevelNameW()
+      : TFilePath(levelPath);
+  level->setPath(assetPath, true); level->load();
   scene.getXsheet()->setCell(0,0,TXshCell(level,TFrameId(1)));
   scene.saveCopy(TFilePath(path));
+  // Validate persisted input independently of the icon loader and its project
+  // discovery. A default-sized white thumbnail must never count as a scene.
+  ToonzScene reopened;
+  reopened.loadTnzFile(TFilePath(path));
+  reopened.loadResources(false);
+  const TXshCell cell = reopened.getXsheet()->getCell(0,0);
+  auto *savedLevel = cell.getSimpleLevel();
+  require(reopened.getCurrentCamera()->getRes() == TDimension(160,120) &&
+          reopened.getCurrentCamera()->getSize() == TDimensionD(2.,1.5) &&
+          savedLevel && cell.m_frameId == TFrameId(1) &&
+          savedLevel->getPath() == assetPath &&
+          reopened.decodeFilePath(savedLevel->getPath()) == TFilePath(levelPath),
+          "saved thumbnail scene lost camera, cell or resource path");
+  const TVectorImageP savedImage = savedLevel->getFrame(TFrameId(1),false);
+  require(savedImage && savedImage->getPalette() && savedImage->getStrokeCount() == 1 &&
+          savedImage->getStroke(0)->getStyle() == 1 &&
+          savedImage->getPalette()->getStyle(1)->getMainColor() == TPixel32::Black &&
+          savedImage->getBBox().getLx() > 100.,
+          "saved thumbnail scene lost its native vector resource");
+  std::cout << "shell-thumbnail: verified saved scene camera160x120/cell/resource; relative="
+            << sceneRelative << std::endl;
   return path;
 }
 int cancelPoll = 0;
@@ -208,11 +233,17 @@ int main(int argc, char **argv) {
     const QString ordinary = levelFile(root,false), envelope = levelFile(root,true);
     const QString ordinaryScene = sceneFile(root,ordinary,"ordinary scene");
     const QString envelopeScene = sceneFile(root,envelope,"envelope scene");
+    const QString relativeScene = sceneFile(root,ordinary,"relative scene",true);
+    const QString relativeEnvelopeScene = sceneFile(root,envelope,"relative envelope scene",true);
     std::vector<Pixels> rendered;
     int index = 0;
-    for (const QString &input : {ordinary,envelope,ordinaryScene,envelopeScene}) {
+    for (const QString &input : {ordinary,envelope,ordinaryScene,envelopeScene,
+                                relativeScene,relativeEnvelopeScene}) {
       std::cout << "shell-thumbnail: rendering " << QFileInfo(input).fileName().toStdString() << std::endl;
       auto expected = cli(args.at(1),input,root.filePath(QString("render-%1.bin").arg(index++)));
+      if (QFileInfo(input).suffix() == "tnz")
+        require(expected.width == 128 && expected.height == 96,
+                "scene thumbnail did not retain the saved camera aspect ratio");
       artwork(expected); same(expected, comWorker(getClass,input)); rendered.push_back(expected);
       require(!qobject_cast<QGuiApplication *>(QCoreApplication::instance()),
               "COM provider upgraded the host to a GUI application");
@@ -221,6 +252,8 @@ int main(int argc, char **argv) {
     }
     require(rendered[0].bytes != rendered[1].bytes && rendered[2].bytes != rendered[3].bytes,
             "PLI or TNZ thumbnails lost the stroke opacity envelope");
+    require(rendered[4].bytes != rendered[5].bytes,
+            "scene-relative TNZ thumbnails lost the stroke opacity envelope");
     const auto tiny = comWorker(getClass,envelope,1);
     require(tiny.width == 1 && tiny.height == 1, "tiny Shell request exceeded dimensions");
     const auto executable = QCoreApplication::applicationFilePath().toStdWString();

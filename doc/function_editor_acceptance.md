@@ -274,3 +274,30 @@ tint-red identities. They check zero keys, unchanged values and unchanged
 full-keyframe/effect-activation behavior. The direct curve test covers default
 omission, opt-in identity persistence, identity removal and session-only locks.
 These new assertions await execution in CI; no local builds or tests ran.
+
+
+A final source audit reopened the same-sheet owner-removal boundary. Ordinary
+model refresh emits layout signals, while the key and preset dialogs previously
+watched only scene/xsheet replacement and model reset. Their retained parameter
+references could therefore authorize edits to a removed column, offset layer or
+FX owner. The dialogs now check full-model membership after layout refresh and
+before preview, Apply, Save and Import, including nested file/name prompts and
+sampling cancellation. A harmless refresh leaves the dialog open for repeated
+Apply. This is a source-proven boundary defect; no runtime crash is attributed
+to it.
+
+Selection pruning now belongs to FunctionSelection, which can inspect every
+owned curve, including spreadsheet ranges between keys. Removing an owner
+invalidates the old cell rectangle and segment domain, releases detached/empty
+references, and preserves surviving explicitly selected keys. This prevents a
+rejected dialog from leaving detached curves accessible to later commands.
+
+Prepared native application coverage removes real column, offset and FX owners
+in twelve cases: key/preset dialogs, nested Save/import file/import name routes,
+and all three owner types with a cell range containing no keys. It verifies
+unchanged detached and surviving curves, history/index, dirty state and library
+publication, rejects late callbacks, clears stale previews, and exercises Cut,
+Delete and inclusive Step after selection invalidation. Widget coverage retains
+repeated Apply/no-op assertions across harmless layout refresh. These additions
+are peer-reviewed and await execution at the new CI head; no local builds or
+tests ran. Earlier successful runs do not qualify this added boundary.

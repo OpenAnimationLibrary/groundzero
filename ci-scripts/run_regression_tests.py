@@ -63,6 +63,10 @@ def main():
 
 
 if __name__ == "__main__":
+    # Redirected Windows stdout otherwise uses the ANSI code page. A Unicode
+    # test path must not replace the actual failure with an encoding exception.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="backslashreplace")
     try:
         sys.exit(main())
     except (OSError, ValueError, KeyError, ET.ParseError, subprocess.SubprocessError) as exc:

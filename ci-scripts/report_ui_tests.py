@@ -36,6 +36,10 @@ def failure_excerpt(output):
     # failure past the checks API's annotation limit.
     return "\n\n".join(sections).encode("utf-8")[:3500].decode("utf-8", errors="ignore")
 
+# CI redirects stdout on Windows, where its default encoding can be cp1252.
+# Preserve Unicode diagnostics in the UTF-8 annotation consumed by GitHub.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="backslashreplace")
 
 report = pathlib.Path(sys.argv[1])
 title = sys.argv[2] if len(sys.argv) > 2 else "Native UI regression"
