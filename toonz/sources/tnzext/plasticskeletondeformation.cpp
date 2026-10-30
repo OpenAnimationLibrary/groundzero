@@ -145,7 +145,7 @@ void SkVD::deleteKeyframe(double frame) {
 
 void SkVD::saveData(TOStream &os) {
   for (int p = 0; p < PARAMS_COUNT; ++p)
-    if (!m_params[p]->isDefault()) os.child(::parNames[p]) << *m_params[p];
+    if (m_params[p]->hasDataToSave()) os.child(::parNames[p]) << *m_params[p];
 }
 
 //------------------------------------------------------------------

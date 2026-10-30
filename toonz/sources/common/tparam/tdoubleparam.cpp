@@ -937,6 +937,12 @@ bool TDoubleParam::isDefault() const {
 
 //---------------------------------------------------------
 
+bool TDoubleParam::hasDataToSave() const {
+  return !isDefault() || !m_imp->m_workspaceId.empty();
+}
+
+//---------------------------------------------------------
+
 int TDoubleParam::getKeyframeCount() const { return m_imp->m_keyframes.size(); }
 
 //---------------------------------------------------------
