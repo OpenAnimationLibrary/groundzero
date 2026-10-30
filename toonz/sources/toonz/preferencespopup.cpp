@@ -1284,7 +1284,15 @@ QString PreferencesPopup::getUIString(PreferencesItemId id) {
     return str;
   };
 
-  const QMap<PreferencesItemId, QString> uiStringTable = {
+  // Built once per interface language: hundreds of captions are translated
+  // for the table, and the Preferences popup asks for one per control.
+  static QString tableLanguage;
+  static QMap<PreferencesItemId, QString> uiStringTable;
+  const QString language = UiLanguageManager::instance()->currentLanguage();
+  if (!uiStringTable.isEmpty() && tableLanguage == language)
+    return uiStringTable.value(id, QString());
+  tableLanguage = language;
+  uiStringTable = {
       // General
       {rasterOptimizedMemory, tr("Minimize Raster Memory Fragmentation*")},
       {autosaveEnabled, tr("Save Automatically")},
@@ -1570,7 +1578,14 @@ QString PreferencesPopup::getUIString(PreferencesItemId id) {
 
 QList<ComboBoxItem> PreferencesPopup::getComboItemList(
     PreferencesItemId id) const {
-  const QMap<PreferencesItemId, QList<ComboBoxItem>> comboItemsTable = {
+  // Built once per interface language, like the caption table above.
+  static QString tableLanguage;
+  static QMap<PreferencesItemId, QList<ComboBoxItem>> comboItemsTable;
+  const QString language = UiLanguageManager::instance()->currentLanguage();
+  if (!comboItemsTable.isEmpty() && tableLanguage == language)
+    return comboItemsTable.value(id, QList<ComboBoxItem>());
+  tableLanguage   = language;
+  comboItemsTable = {
       {pathAliasPriority,
        {{tr("Project Folder Aliases (+drawings, +scenes, etc.)"),
          Preferences::ProjectFolderAliases},
