@@ -397,7 +397,7 @@ bool eligibleFixedSource(const QMap<QString, QString> &fields,
       ++brushes;
     else
       ++masks;
-    const QMap<QString, QString> exact =
+    QMap<QString, QString> exact =
         brush
             ? QMap<QString, QString>{{"type", "auto_brush"},
                                      {"BrushVersion", "2"},
@@ -410,15 +410,21 @@ bool eligibleFixedSource(const QMap<QString, QString> &fields,
                                      {"vfade", "1"},    {"antialiasEdges", "0"},
                                      {"spikes", "2"}};
     const auto attributes = xml.attributes();
+    QStringList variable  = {brush ? "spacing" : "diameter"};
+    if (engine == "paintbrush") {
+      const QString geometry = brush ? "angle" : "ratio";
+      exact.remove(geometry);
+      variable << geometry;
+    }
     for (auto i = exact.begin(); i != exact.end(); ++i)
       if (!attributes.hasAttribute(i.key()) ||
           attributes.value(i.key()) != i.value())
         return false;
-    const QString variable = brush ? "spacing" : "diameter";
-    if (!attributes.hasAttribute(variable)) return false;
+    for (const QString &name : variable)
+      if (!attributes.hasAttribute(name)) return false;
     for (const auto &attribute : attributes)
       if (!exact.contains(attribute.name().toString()) &&
-          attribute.name() != variable)
+          !variable.contains(attribute.name().toString()))
         return false;
   }
   return !xml.hasError() && brushes == 1 && masks == 1 &&

@@ -319,7 +319,7 @@ class Probe(Extension):
                     # Exact alpha coverage around all seven short strokes.
                     # This small window is diagnostic; comparison still uses
                     # both full-canvas changed sets and their union.
-                    if fixtures.get("group") in ("geometry", "pixelsoft"):
+                    if fixtures.get("group") in ("geometry", "pixelsoft", "pixelshape"):
                         side = math.ceil(case["diameter"]) + 10
                         left = math.floor(case["start"][0] - case["diameter"] / 2) - 4
                         top = math.floor(case["start"][1] - case["diameter"] / 2) - 4
@@ -332,6 +332,15 @@ class Probe(Extension):
                                   for x in range(left, left + width))
                     geometry = {"rect": rect, "encoding": "zlib-base64-alpha8-row-major",
                                 "data": base64.b64encode(zlib.compress(alpha)).decode("ascii")}
+                if fixtures.get("group") == "wethold" and case["diameter"] == 7 and case["variant"].endswith("dabs 2"):
+                    # Exact second-dab RGBA resolves odd-size Smear placement;
+                    # bounding boxes alone cannot identify its mask lattice.
+                    left, top, width, height = 284, 1016, 16, 16
+                    pixels = b"".join(raw[(y * w + left) * 4:(y * w + left + width) * 4]
+                                      for y in range(top, top + height))
+                    geometry = {"rect": [left, top, width, height],
+                                "encoding": "zlib-base64-bgra8-row-major",
+                                "data": base64.b64encode(zlib.compress(pixels)).decode("ascii")}
                 if fixtures.get("group") == "pixelpressure" and case["spacing"] == 1:
                     # Sparse pressure ramps expose individual footprint spacing.
                     # Preserve exact visible-change bits, including transparent

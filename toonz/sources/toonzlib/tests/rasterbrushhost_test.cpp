@@ -129,6 +129,14 @@ void testRotation() {
   require(std::abs(transformed.tilt.x + .25) < 1e-10 &&
               std::abs(transformed.tilt.y - .5) < 1e-10,
           "tilt not transformed");
+  transformed = TTrackTransform(TAffine(-2, 0, 0, 0, 1, 0)).apply(a);
+  require(std::abs(std::abs(transformed.rotation) - pi) < 1e-10 &&
+              std::abs(transformed.tilt.x + .5) < 1e-10 &&
+              std::abs(transformed.tilt.y - .125) < 1e-10,
+          "mirrored anisotropic transform lost tablet orientation");
+  transformed = TTrackTransform(TAffine(0, 0, 0, 0, 0, 0)).apply(a);
+  require(std::isfinite(transformed.rotation) && transformed.tilt == TPointD(),
+          "degenerate transform generated invalid tablet values");
 }
 }  // namespace
 int main(int argc, char **argv) {

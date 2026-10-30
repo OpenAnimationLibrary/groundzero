@@ -1,4 +1,5 @@
 #include "rasterbrushintegrationtest.h"
+#include "../toonzlib/tests/rasterbrushfixture.h"
 #include "tapp.h"
 #include "sceneviewer.h"
 #include "tools/tool.h"
@@ -28,6 +29,7 @@
 #include <QCoreApplication>
 #include <QEventLoop>
 #include <QDir>
+#include <QFile>
 #include <QKeyEvent>
 #include <iostream>
 #include <stdexcept>
@@ -175,6 +177,67 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
           "unpainted source initialization retained a created frame");
       app->getCurrentFrame()->setFid(TFrameId(1));
       settle();
+    }
+    checkpoint("qualifying source wet stroke transactions and persistence");
+    for (const QString &model :
+         {"legacy-smear", "legacy-dulling", "new-smear", "new-dulling"}) {
+      const QString sourcePath =
+          QDir::current().filePath("original-source-" + model + ".kpp");
+      QFile sourceFile(sourcePath);
+      const QByteArray sourceBytes = RasterBrushTest::hardPixelKpp({}, model);
+      require(sourceFile.open(QIODevice::WriteOnly) &&
+                  sourceFile.write(sourceBytes) == sourceBytes.size(),
+              "cannot write original KPP transaction fixture");
+      sourceFile.close();
+      const auto sourceImport = RasterBrush::importBrushProcess(
+          QCoreApplication::applicationFilePath(), sourcePath, importError);
+      require(importError.isEmpty() && sourceImport.complete &&
+                  sourceImport.records.size() == 1,
+              "packaged application KPP import failed");
+      auto fixture = sourceImport.records.front();
+      require(fixture.preset.profile ==
+                      "krita-5.3.4.1-" + model.toStdString() + "-candidate-1" &&
+                  !fixture.provenance["sourceReferenceVerified"].toBool(),
+              "KPP worker lost strict candidate identity or qualification");
+      fixture.preset.name =
+          "Original source transaction " + model.toStdString();
+      const QString folder =
+          ToonzFolder::getLibraryFolder().getQString() + "/rasterbrushes";
+      const QString path = RasterBrush::install(folder, fixture, importError);
+      require(!path.isEmpty() && importError.isEmpty(),
+              "cannot install source transaction fixture");
+      tool->onActivate();
+      property->setValue(QDir(folder).relativeFilePath(path).toStdWString());
+      require(tool->onPropertyChanged("Native Brush:"),
+              "cannot select source transaction fixture");
+      const TRaster32P baseline = raster(level, 1)->clone();
+      draw(tool, false);
+      const TRaster32P painted = raster(level, 1)->clone();
+      require(!same(baseline, painted) && undo->getHistoryCount() == 1,
+              "source wet stroke did not create one painted transaction");
+      require(undo->undo() && same(baseline, raster(level, 1)),
+              "source wet undo did not restore original pixels");
+      require(undo->redo() && same(painted, raster(level, 1)),
+              "source wet redo did not restore exact pixels");
+      const TFilePath output(
+          QDir::current().filePath("source-" + model + ".png"));
+      TImageWriter::save(output, TRasterP(painted));
+      TRasterP reopened;
+      require(TImageReader::load(output, reopened) &&
+                  same(painted, TRaster32P(reopened)),
+              "source wet save/reopen changed committed pixels");
+      require(undo->undo() && same(baseline, raster(level, 1)),
+              "source wet second undo failed");
+      undo->reset();
+      draw(tool, true);
+      require(same(baseline, raster(level, 1)) && undo->getHistoryCount() == 0,
+              "cancelled source wet stroke left pixels or undo history");
+      draw(tool, false);
+      require(same(painted, raster(level, 1)),
+              "source wet state leaked across completed or cancelled strokes");
+      require(undo->undo() && same(baseline, raster(level, 1)),
+              "repeated source wet undo failed");
+      undo->reset();
     }
     checkpoint("qualifying pressure, tilt and rotation through tool input");
     for (auto sensor :

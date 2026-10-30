@@ -372,6 +372,15 @@ void testKritaHardPixelCandidate() {
   for (const auto &pixel : pressured.pixels) pressureCount += pixel.a == 1;
   require(pressureCount == 48,
           "linear source pressure changed measured eight-pixel geometry");
+  p.spacing = 1;
+  FullCanvas rising;
+  Stroke risingStroke(rising, p);
+  require(risingStroke.add(sample(0, 64, 0, .25)) &&
+              risingStroke.add(sample(1536, 64, 1, .75)),
+          risingStroke.error().c_str());
+  risingStroke.finish();
+  require(risingStroke.dabCount() == 106,
+          "source sparse pressure spacing differs from captured footprints");
   p.size.mappings.front().curve.insert(
       p.size.mappings.front().curve.begin() + 1, {.5, .25});
   require(!validate(p).empty(),
@@ -639,6 +648,24 @@ void testSourceWetInitialization() {
               "source feedback differs on a changed third destination");
       sequence.finish();
     }
+    Canvas patch = original;
+    for (int y = 0; y < patch.h; ++y)
+      for (int x = 50; x < patch.w; ++x)
+        if (((x - 50) / 2) % 2) patch.write(x, y, {1, 1, 0, 1});
+    Stroke patchStroke(patch, p);
+    require(patchStroke.add(sample(10, 64, 0)) &&
+                patchStroke.add(sample(91, 64, 1)),
+            patchStroke.error().c_str());
+    const Pixel yellow = patch.read(92, 64);
+    const bool dulling = p.wet == Wet::Dulling;
+    const double expectedAlpha =
+        (dulling ? (newDulling ? 225 : 223) : 255) / 255.0;
+    const double expectedGreen =
+        (dulling ? (newDulling ? 174 : 146) : 191) / 255.0;
+    require(std::abs(yellow.a - expectedAlpha) <= 1 / 255.0 &&
+                std::abs(yellow.g / yellow.a - expectedGreen) <= 2 / 255.0,
+            "Dulling center pickup was confused with Smear field feedback");
+    patchStroke.finish();
     auto widerShared = std::make_shared<MemoryBudget>(1024 * 1024);
     Canvas bounded   = original;
     Stroke localLimit(bounded, p, 4096, widerShared);

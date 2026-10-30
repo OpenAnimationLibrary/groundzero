@@ -309,11 +309,14 @@ int main(int argc, char **argv) {
       require(error.isEmpty() && imported.records.size() == 1,
               "Candidate import failed: " + error);
       Preset p = imported.records.front().preset;
-      const bool sourceHard = fixtures["group"].toString() == "hardpixel" ||
-                              fixtures["group"].toString() == "pixelopacity" ||
-                              fixtures["group"].toString() == "pixelpressure" ||
-                              (fixtures["group"].toString() == "geometry" &&
-                               name.endsWith("antialias 0"));
+      const bool sourceHard =
+          fixtures["group"].toString() == "hardpixel" ||
+          fixtures["group"].toString() == "pixelopacity" ||
+          fixtures["group"].toString() == "pixelopacitytablet" ||
+          fixtures["group"].toString() == "pixelpressure" ||
+          fixtures["group"].toString() == "pixelshape" ||
+          (fixtures["group"].toString() == "geometry" &&
+           name.endsWith("antialias 0"));
       if (sourceHard)
         require(p.profile == "krita-5.3.4.1-hard-pixel-candidate-1",
                 "Strict source hard-pixel eligibility did not select the "

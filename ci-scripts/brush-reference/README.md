@@ -264,3 +264,44 @@ with changing pressure. Constant-pressure cases match exactly. The next run
 exposes exact packed visible-change masks for the six sparse ramps so spacing
 can be inferred from full footprints. The failing fidelity gates stay enabled;
 linear sensor decoding alone does not establish source scheduling parity.
+
+The hard Pixel candidate now accepts fixed ellipse aspect and angle through its
+independently written analytic geometry. KPP angle radians are converted to the
+runtime degree unit; dynamic angle/aspect and wet ellipse geometry remain outside
+this candidate. `pixelshape` enforces the existing dry gates on eighteen original
+16/64-pixel ellipses at ratios .25/.5/1 and angles 0/45/90 degrees. This is an
+experimental extension awaiting measured qualification, not a verified source
+profile. Four additional constant fractional-pressure cases separate tip-size
+rasterization from varying-pressure scheduling in the pressure workload.
+
+At `997ba9b3`, heterogeneous third-dab Smear passes all sixteen gated cases,
+including inactive radii 0/50/100/300. The four radius-zero Dulling cases fail and
+establish its different state rule: use the previous center pickup uniformly,
+then mix against each current destination pixel. The independent Dulling path
+now samples that center instead of translating Smear's field; a two-color
+third-dab regression distinguishes both states. Full reference requalification
+is required for the correction and all prior wet gates remain enabled.
+
+The six exact sparse-pressure masks at `997ba9b3` expose the sampling rule:
+size pressure is evaluated at the next integer path-distance step while dab
+positions remain fractional. This predicts rising and falling dab centers within
+the half-pixel uncertainty of raster plateau centers; direct continuous pressure
+has accumulating displacement. The experimental scheduler now uses accumulated
+path distance for this sample, bounded by the current input event, and leaves
+native scheduling unchanged. The captured .25-to-.75 ramp has 106 dabs, now a
+numeric regression. All eighteen source gates and additional fractional-size
+cases remain required; tablet-delivery equivalence is still a separate gate.
+
+`wetswitches` measures 48 first/second/third-dab cases with smear-alpha disabled
+or smudge-length disabled, across all four models and two color rates. These
+active settings remain native conversions until independently implemented; their
+measurements cannot count as parity. Isolated state transitions are needed before
+assigning meanings to disabled toggles from long-stroke appearance alone.
+
+The opacity matrix now records both `Node.paintLine` and synthetic Qt freehand
+delivery. At the prior measured head, the line API accumulated opacity and ignored
+static flow for both serialized painting modes; that evidence does not qualify
+stroke-level wash behavior. The zero-flow API expectation was corrected to the
+observed behavior, while candidate pixel thresholds remain enforced. The new
+freehand group distinguishes delivery from settings semantics. Odd-size Smear
+failures retain their gates and now publish exact second-dab BGRA footprints.

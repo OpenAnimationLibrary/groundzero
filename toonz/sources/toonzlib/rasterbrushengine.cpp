@@ -197,9 +197,10 @@ std::string validate(const Preset &p) {
     if (p.tip.shape != Shape::Round || p.tip.hardness != 1 ||
         p.tip.antialiasEdges || !p.tip.images.empty() ||
         (!p.size.mappings.empty() && !sourceLinearPressure) ||
-        p.size.value != std::floor(p.size.value) || !fixed(p.aspect, 1) ||
-        !fixed(p.angle, 0) || !p.opacity.mappings.empty() ||
-        !p.flow.mappings.empty() ||
+        p.size.value != std::floor(p.size.value) ||
+        !p.aspect.mappings.empty() || !p.angle.mappings.empty() ||
+        (sourceWet && (!fixed(p.aspect, 1) || !fixed(p.angle, 0))) ||
+        !p.opacity.mappings.empty() || !p.flow.mappings.empty() ||
         (sourceWet && (!fixed(p.opacity, 1) || !fixed(p.flow, 1))) ||
         !fixed(p.scatter, 0) || !fixed(p.countControl, 1) ||
         !fixed(p.backgroundMix, 0) || !fixed(p.hue, 0) ||
@@ -611,6 +612,9 @@ struct Stroke::Impl {
                  ? sourceField[size_t(y - sourceY) * sourceW + x - sourceX]
                  : Pixel{};
     };
+    // Radius-zero Dulling carries the previous center pickup uniformly.
+    // Smear carries a translated field. Heterogeneous third-dab fixtures
+    // distinguish these states even when their first two dabs coincide.
     const int centerX = int(std::floor(s.x)), centerY = int(std::floor(s.y));
     const Pixel initialCenter = !dabs && centerX >= 0 && centerY >= 0 &&
                                         centerX < surface.width() &&
@@ -623,9 +627,12 @@ struct Stroke::Impl {
         const int ix = int(std::floor(fx)), iy = int(std::floor(fy));
         feedback[size_t(y - y0) * (x1 - x0) + x - x0] =
             !dabs ? (p.wet == Wet::Dulling ? initialCenter : surface.read(x, y))
-                  : mix(mix(at(ix, iy), at(ix + 1, iy), fx - ix),
-                        mix(at(ix, iy + 1), at(ix + 1, iy + 1), fx - ix),
-                        fy - iy);
+            : p.wet == Wet::Dulling
+                ? at(int(std::floor(previousSourceDab.x)),
+                     int(std::floor(previousSourceDab.y)))
+                : mix(mix(at(ix, iy), at(ix + 1, iy), fx - ix),
+                      mix(at(ix, iy + 1), at(ix + 1, iy + 1), fx - ix),
+                      fy - iy);
       }
     auto quantize = [](Pixel v) {
       if (v.a <= 0) return Pixel{};
@@ -954,7 +961,20 @@ bool Stroke::add(const Sample &s) {
         m->sinceDab = m->sinceTime = 0;
         break;
       }
-      if (!m->dab(interpolate(from, s, f))) return false;
+      Sample dabSample = interpolate(from, s, f);
+      if (m->p.profile == "krita-5.3.4.1-hard-pixel-candidate-1" &&
+          !m->p.size.mappings.empty() && distance > 0) {
+        // Original sparse K5341 pressure footprints establish a one-pixel
+        // distance step for size sampling, independent of fractional dab
+        // placement. Use accumulated path distance, not a canvas-axis snap.
+        // The current event bounds interpolation; no future input is invented.
+        const double nextDistance = std::ceil(m->travel - 1e-12);
+        const double pressureFraction =
+            std::min(1.0, f + (nextDistance - m->travel) / distance);
+        dabSample.pressure =
+            interpolate(from, s, std::max(f, pressureFraction)).pressure;
+      }
+      if (!m->dab(dabSample)) return false;
       m->sinceDab  = 0;
       m->sinceTime = 0;
     }
