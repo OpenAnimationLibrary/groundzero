@@ -6,6 +6,10 @@
 #include "ext/plasticskeleton.h"
 #include "ext/plasticskeletondeformation.h"
 #include "toonz/tstageobject.h"
+#include "toonz/tcolumnfx.h"
+#include "toonz/tcolumnfxset.h"
+#include "toonz/columncoloreffect.h"
+#include "toonz/fxdag.h"
 #include "toonz/doubleparamcmd.h"
 #include "toonz/tstageobjecttree.h"
 #include "toonz/toonzscene.h"
@@ -13,6 +17,7 @@
 #include "toonz/sceneproperties.h"
 #include "toonz/txsheet.h"
 #include "toonz/txshcell.h"
+#include "toonz/txshcolumn.h"
 #include "toonz/txsheethandle.h"
 #include "toonz/txshleveltypes.h"
 #include "toonz/txshsimplelevel.h"
@@ -23,6 +28,9 @@
 #include "toonzqt/functionviewer.h"
 #include "toonzqt/menubarcommand.h"
 #include "texpression.h"
+#include "tfx.h"
+#include "tparamcontainer.h"
+#include "tparamset.h"
 #include "tundo.h"
 #include "tvectorimage.h"
 #include <QAction>
@@ -54,6 +62,15 @@ void checkpoint(const char *message) {
 }
 void require(bool value, const char *message) { if (!value) throw std::runtime_error(message); }
 void requireNear(double actual, double expected) { require(std::isfinite(actual) && std::abs(actual - expected) < 1.e-7, "Native Function Editor value differs from its oracle"); }
+void requireUnkeyedIdentity(TDoubleParam *curve, const std::string &identity,
+                            double value = 0.0) {
+  require(curve && curve->getKeyframeCount() == 0 &&
+              curve->getWorkspaceId() == identity,
+          "Scene roundtrip lost an unkeyed channel identity or added keys");
+  requireNear(curve->getDefaultValue(), value);
+  requireNear(curve->getValue(0), value);
+  requireNear(curve->getValue(10), value);
+}
 void settle() { QApplication::sendPostedEvents(); QApplication::processEvents(QEventLoop::ExcludeUserInputEvents); }
 void keys(TDoubleParam *curve, double from, double to, const std::string &formula = {}) {
   curve->clearKeyframes();
@@ -240,6 +257,37 @@ bool runFunctionWorkflowIntegrationTest(QMainWindow *, QString *error) {
     require(TUndoManager::manager()->undo(), "Native quantization has no undo"); requireNear(source->keyframeIndexToFrame(1), 10);
     checkpoint("checking scene and channel identity roundtrip");
     source->setWorkspaceId("native-source-stable-id"); offset->setWorkspaceId("native-offset-stable-id"); angle->setWorkspaceId("native-plastic-stable-id");
+    object->getParam(TStageObject::T_Y)->setWorkspaceId("native-unkeyed-stage");
+    object->getOffsetParam(0, TStageObject::T_Y)->setWorkspaceId("native-unkeyed-offset");
+    vertex->m_params[SkVD::DISTANCE]->setWorkspaceId("native-unkeyed-plastic");
+    for (auto channel : {TStageObject::T_RotX, TStageObject::T_RotY,
+                         TStageObject::T_FocusZ, TStageObject::T_Aperture}) {
+      auto *curve = object->getParam(channel);
+      curve->setWorkspaceId("native-unkeyed-3d-" + std::to_string(int(channel)));
+      require(curve->isDefault() && !object->isFullKeyframeChannel(channel),
+              "Editor identity activated an unused 3D animation channel");
+    }
+    auto *columnFx = dynamic_cast<TLevelColumnFx *>(xsheet->getColumn(0)->getFx());
+    require(columnFx, "Native identity fixture has no column effect");
+    columnFx->getTimeRemapParam()->setWorkspaceId("native-unkeyed-remap");
+    columnFx->getColorEffectParam(ColumnColorEffect::Brightness)->setWorkspaceId("native-unkeyed-brightness");
+    columnFx->getColorEffectParam(ColumnColorEffect::Alpha)->setWorkspaceId("native-unkeyed-alpha");
+    columnFx->getTintColorParam()->getRed()->setWorkspaceId("native-unkeyed-tint-red");
+    require(!columnFx->isTimeRemapUsed() && !columnFx->isTimeRemapActive() &&
+                !columnFx->isColorEffectUsed(),
+            "Editor identity activated untouched column effects");
+    TFxP identityFx(TFx::create("STD_blurFx"));
+    require(identityFx, "Cannot create native identity effect fixture");
+    auto *fxCurve = dynamic_cast<TDoubleParam *>(identityFx->getParams()->getParam("value"));
+    require(fxCurve && !fxCurve->hasKeyframes(), "Native effect fixture is not unkeyed");
+    const double fxDefault = fxCurve->getDefaultValue();
+    fxCurve->setWorkspaceId("native-unkeyed-fx");
+    xsheet->getFxDag()->assignUniqueId(identityFx.getPointer());
+    identityFx->getInputPort(0)->setFx(columnFx);
+    xsheet->getFxDag()->getInternalFxs()->addFx(identityFx.getPointer());
+    requireUnkeyedIdentity(object->getParam(TStageObject::T_Y), "native-unkeyed-stage");
+    requireUnkeyedIdentity(object->getOffsetParam(0, TStageObject::T_Y), "native-unkeyed-offset");
+    requireUnkeyedIdentity(vertex->m_params[SkVD::DISTANCE].getPointer(), "native-unkeyed-plastic");
     object->setName("Renamed rig");
     const double nativeValue = native->getValue(7), seexprValue = seexpr->getValue(7);
     const TFilePath scenePath(directory.filePath("function-workflow.tnz")); scene->saveCopy(scenePath);
@@ -252,6 +300,34 @@ bool runFunctionWorkflowIntegrationTest(QMainWindow *, QString *error) {
     auto *loadedAngle = loadedVertex->m_params[SkVD::ANGLE].getPointer();
     requireNear(loadedAngle->getValue(10), 60); requireNear(loadedOffset->getValue(10), 3);
     require(loadedObject->getParam(TStageObject::T_X)->getWorkspaceId() == "native-source-stable-id" && loadedOffset->getWorkspaceId() == "native-offset-stable-id" && loadedAngle->getWorkspaceId() == "native-plastic-stable-id", "Scene save/reload lost renamed channel identities");
+    requireUnkeyedIdentity(loadedObject->getParam(TStageObject::T_Y), "native-unkeyed-stage");
+    requireUnkeyedIdentity(loadedObject->getOffsetParam(0, TStageObject::T_Y), "native-unkeyed-offset");
+    requireUnkeyedIdentity(loadedVertex->m_params[SkVD::DISTANCE].getPointer(), "native-unkeyed-plastic");
+    for (auto channel : {TStageObject::T_RotX, TStageObject::T_RotY,
+                         TStageObject::T_FocusZ, TStageObject::T_Aperture}) {
+      requireUnkeyedIdentity(loadedObject->getParam(channel),
+                            "native-unkeyed-3d-" + std::to_string(int(channel)));
+      require(!loadedObject->isFullKeyframeChannel(channel),
+              "Reloaded editor identity activated an unused 3D animation channel");
+    }
+    auto *loadedColumnFx = dynamic_cast<TLevelColumnFx *>(reloaded.getXsheet()->getColumn(0)->getFx());
+    require(loadedColumnFx, "Reloaded identity fixture has no column effect");
+    requireUnkeyedIdentity(loadedColumnFx->getTimeRemapParam(), "native-unkeyed-remap", 1.0);
+    requireUnkeyedIdentity(loadedColumnFx->getColorEffectParam(ColumnColorEffect::Brightness), "native-unkeyed-brightness");
+    requireUnkeyedIdentity(loadedColumnFx->getColorEffectParam(ColumnColorEffect::Alpha), "native-unkeyed-alpha", 100.0);
+    requireUnkeyedIdentity(loadedColumnFx->getTintColorParam()->getRed().getPointer(), "native-unkeyed-tint-red");
+    require(!loadedColumnFx->isTimeRemapUsed() && !loadedColumnFx->isTimeRemapActive() &&
+                !loadedColumnFx->isColorEffectUsed(),
+            "Reloaded editor identity activated untouched column effects");
+    TFx *loadedFx = nullptr;
+    auto *loadedFxs = reloaded.getXsheet()->getFxDag()->getInternalFxs();
+    for (int i = 0; i < loadedFxs->getFxCount(); ++i) {
+      TFx *candidate = loadedFxs->getFx(i);
+      if (candidate->getFxId() == identityFx->getFxId()) loadedFx = candidate;
+    }
+    require(loadedFx, "Scene roundtrip lost the unkeyed native effect");
+    requireUnkeyedIdentity(dynamic_cast<TDoubleParam *>(loadedFx->getParams()->getParam("value")),
+                          "native-unkeyed-fx", fxDefault);
     auto *loadedNative = reloaded.getXsheet()->getStageObject(TStageObjectId::ColumnId(1))->getParam(TStageObject::T_X);
     auto *loadedSeexpr = reloaded.getXsheet()->getStageObject(TStageObjectId::ColumnId(2))->getParam(TStageObject::T_X);
     require(loadedNative->getKeyframe(0).m_expressionText == nativeText && loadedSeexpr->getKeyframe(0).m_expressionText == seexprText, "Native workflow changed formula source while saving");

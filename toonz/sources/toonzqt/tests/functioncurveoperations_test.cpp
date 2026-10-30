@@ -282,6 +282,31 @@ void presetAndBreakdown() {
 }
 
 void identityAndPersistence(const QString &directory) {
+  TDoubleParamP untouched = new TDoubleParam;
+  require(untouched->isDefault() && !untouched->hasDataToSave(),
+          "untouched default curve acquired persistent data");
+  untouched->setEditorLocked(true);
+  require(!untouched->hasDataToSave(), "session-only lock changed serialization");
+  untouched->setWorkspaceId("fixture-unkeyed-channel");
+  require(untouched->isDefault() && untouched->hasDataToSave(),
+          "workspace metadata changed value semantics or was omitted from persistence");
+  const TFilePath unkeyedPath((directory + "/unkeyed-curve.xml").toStdWString());
+  {
+    TOStream output(unkeyedPath);
+    untouched->saveData(output);
+  }
+  TDoubleParamP unkeyedReopened = new TDoubleParam;
+  {
+    TIStream input(unkeyedPath);
+    unkeyedReopened->loadData(input);
+  }
+  require(unkeyedReopened->isDefault() &&
+              unkeyedReopened->getKeyframeCount() == 0 &&
+              unkeyedReopened->getWorkspaceId() == "fixture-unkeyed-channel" &&
+              !unkeyedReopened->isEditorLocked(),
+          "unkeyed identity roundtrip changed values, keys, identity or session lock");
+  untouched->setWorkspaceId("");
+  require(!untouched->hasDataToSave(), "cleared identity retained serialization data");
   auto value = curve({{0, 2}, {4, 8}});
   value->setWorkspaceId("fixture-stable-channel");
   TDoubleParamP duplicate = new TDoubleParam(*value);

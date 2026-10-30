@@ -170,6 +170,10 @@ public:
   //! no keyframes, default value not changed
   bool isDefault() const;
 
+  //! Serialization must retain optional editor identity even at a default value.
+  //! This does not change animation/default-value semantics or persist locks.
+  bool hasDataToSave() const;
+
   void loadData(TIStream &is) override;
   void saveData(TOStream &os) override;
   std::string getStreamTag() const;
