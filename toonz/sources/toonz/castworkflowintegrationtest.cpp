@@ -27,6 +27,7 @@
 #include "tvectorimage.h"
 #include "tundo.h"
 #include <QApplication>
+#include <QAbstractButton>
 #include <QComboBox>
 #include <QInputDialog>
 #include <QLineEdit>
@@ -481,7 +482,8 @@ void runCastWorkflowIntegrationTest(QMainWindow *window) {
           mutated = true;
           raster->getProperties()->setDirtyFlag(true);
           TApp::instance()->getCurrentLevel()->notifyLevelChange();
-          message->done(QMessageBox::Yes);
+          // Static QMessageBox::question reads clickedButton(), not result().
+          message->button(QMessageBox::Yes)->click();
         } else { rejected = message->text().contains("changed during preparation"); message->reject(); }
       }
     });
@@ -507,7 +509,7 @@ void runCastWorkflowIntegrationTest(QMainWindow *window) {
         files->setDirectory(localDir); files->selectFile(localDir); dialog->accept();
         showProgressNextTurn("Preparing local asset copies…");
       } else if (auto *message = qobject_cast<QMessageBox *>(dialog)) {
-        if (message->standardButtons().testFlag(QMessageBox::Yes)) message->done(QMessageBox::Yes);
+        if (message->standardButtons().testFlag(QMessageBox::Yes)) message->button(QMessageBox::Yes)->click();
         else message->reject();
       }
     });
@@ -588,7 +590,7 @@ void runCastWorkflowIntegrationTest(QMainWindow *window) {
         dialog->accept();
       } else if (auto *message = qobject_cast<QMessageBox *>(dialog)) {
         if (message->standardButtons().testFlag(QMessageBox::Yes)) {
-          confirmed = true; message->done(QMessageBox::Yes);
+          confirmed = true; message->button(QMessageBox::Yes)->click();
         } else { failure = message->text(); message->reject(); }
       }
     });
