@@ -220,6 +220,48 @@ class RegressionReportingTest(unittest.TestCase):
         self.assertNotIn(b"timed out", annotations[0])
         self.assertIn(b"secondary diagnostic: cast-workflow::Failure: Isolated diagnostic timed out after 120 seconds.", annotations[1])
 
+    def test_native_exit_status_outranks_audio_xcb_and_passing_lifecycle_noise(self):
+        for native_status in (-11, 17, 3221225477):
+            with self.subTest(native_status=native_status), tempfile.TemporaryDirectory() as directory:
+                failure = (f"Native application exited with status {native_status} "
+                           f"(0x{native_status & 0xffffffff:08X}).")
+                original = ("PulseAudioService: pa_context_connect() failed\n"
+                    "vector-morph-caller: PLI reload matches exact stored geometry\n" + failure + "\n"
+                    "\n--- Required reviewed-clear lifecycle (fresh process) ---\n"
+                    "PulseAudioService: pa_context_connect() failed\n"
+                    "qt.qpa.xcb: QXcbConnection: XCB error: 8 (BadMatch)\n"
+                    "icon-lifecycle-native: terminal reviewed-clear PASS\n"
+                    "Required reviewed-clear lifecycle: PASS (status 0).\n" + "描画 🎨 noise\n" * 1500).encode()
+                report = Path(directory) / "native-output.txt"
+                report.write_bytes(original)
+                status, output = invoke(SCRIPTS / "report_ui_tests.py", [report])
+                self.assertEqual(status, 0)
+                self.assertEqual(report.read_bytes(), original)
+                annotations = output.splitlines()
+                self.assertEqual(len(annotations), 1)
+                self.assertTrue(annotations[0].startswith(
+                    ("::error title=Native UI regression::Failure: " + failure).encode()))
+                body = unquote_to_bytes(annotations[0].split(b"::", 2)[2])
+                self.assertLessEqual(len(body), 3500)
+                body.decode("utf-8", errors="strict")
+
+    def test_actual_signal_outranks_routine_errors_but_not_first_native_assertion(self):
+        for assertion in (False, True):
+            with self.subTest(assertion=assertion), tempfile.TemporaryDirectory() as directory:
+                first = "native-ui-integration: FAIL: original drawing assertion\n" if assertion else ""
+                original = (first + "Thread 1 received signal SIGSEGV, Segmentation fault.\n"
+                    "Native application exited with status -11 (0xFFFFFFF5).\n"
+                    "qt.qpa.xcb: QXcbConnection: XCB error: 8 (BadMatch)\n"
+                    "PulseAudioService: pa_context_connect() failed\n").encode()
+                report = Path(directory) / "native-output.txt"
+                report.write_bytes(original)
+                status, output = invoke(SCRIPTS / "report_ui_tests.py", [report])
+                self.assertEqual(status, 0)
+                self.assertEqual(report.read_bytes(), original)
+                expected = first.strip() if assertion else "Thread 1 received signal SIGSEGV, Segmentation fault."
+                self.assertTrue(output.startswith(
+                    ("::error title=Native UI regression::Failure: " + expected).encode()))
+
     def test_first_native_assertion_precedes_lifecycle_and_isolated_failures(self):
         original = (
             "native-ui-integration: checkpoint: checking gradient owner\n"

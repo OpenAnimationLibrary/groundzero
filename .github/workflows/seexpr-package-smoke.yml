@@ -64,8 +64,11 @@ jobs:
         if: failure()
         run: python ci-scripts/seexpr/report.py seexpr-package-setup.log seexpr-package-launch.log
       - name: Retain installed application diagnostics
+        id: upload_diagnostics
         if: always()
         uses: actions/upload-artifact@v6
+        timeout-minutes: 3
+        continue-on-error: true
         with:
           name: SeExpr-package-smoke-${{ inputs.artifact_name }}
           path: |
@@ -73,3 +76,22 @@ jobs:
             seexpr-package-launch.log
             seexpr-packaged-native.log
           if-no-files-found: warn
+          overwrite: true
+      # The artifact service can time out after a successful native lifecycle.
+      # Retry delivery only; the final attempt remains a required job result.
+      - name: Wait before retrying installed diagnostics upload
+        if: ${{ !cancelled() && steps.upload_diagnostics.outcome == 'failure' }}
+        shell: bash
+        run: sleep 10
+      - name: Retry installed application diagnostics upload
+        if: ${{ !cancelled() && steps.upload_diagnostics.outcome == 'failure' }}
+        uses: actions/upload-artifact@v6
+        timeout-minutes: 3
+        with:
+          name: SeExpr-package-smoke-${{ inputs.artifact_name }}
+          path: |
+            seexpr-package-setup.log
+            seexpr-package-launch.log
+            seexpr-packaged-native.log
+          if-no-files-found: warn
+          overwrite: true

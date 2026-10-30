@@ -40,6 +40,17 @@ jobs:
       with:
         python-version: '3.12'
 
+    - name: Verify native diagnostic isolation
+      run: python3 -m unittest discover -s ci-scripts/tests -p test_native_ui_diagnostics.py
+
+    - name: Verify original native crash identity and process contracts
+      run: |
+        python3 -m unittest discover -s ci-scripts/tests -p test_native_macos_crash.py -v
+        python3 -m unittest discover -s ci-scripts/tests -p test_windows_process.py -v
+
+    - name: Verify original native core capture contracts
+      run: python3 -m unittest discover -s ci-scripts/tests -p test_native_ui_core.py -v
+
     - name: Verify native lifecycle harness contracts
       run: python3 -m unittest discover -s ci-scripts/tests -p test_native_ui_lifecycle.py
 
@@ -160,7 +171,44 @@ jobs:
     - name: Test native application integration
       id: ui_integration
       run: |
-        QT_QPA_PLATFORM=xcb xvfb-run -a python3 ci-scripts/run_native_ui_test.py toonz/build/bin/OpenToonz stuff --require-function-workflow --require-offline-gl-workflow --output toonz/build/ui-integration-output.txt --linux-crash-debugger
+        set -euo pipefail
+        native_core_directory=$(mktemp -d "$GITHUB_WORKSPACE/toonz/build/native-ui-cores.XXXXXX")
+        native_core_report="$GITHUB_WORKSPACE/toonz/build/ui-integration-output-original-core.txt"
+        native_core_pattern_recorded=0
+        restore_native_core_state() {
+          native_status=$?
+          trap - EXIT
+          set +e
+          ulimit -S -c 0
+          cleanup_status=0
+          if [ "$native_core_pattern_recorded" = 1 ]; then
+            timeout --kill-after=2s 8s sudo -n sysctl -w "kernel.core_pattern=$native_core_previous_pattern" >/dev/null
+            if [ "$?" -ne 0 ]; then
+              printf 'Original core kernel-pattern restoration failed.\n' >> "$native_core_report"
+              cleanup_status=1
+            fi
+          fi
+          # Raw cores are never uploaded, including when collection/setup fails.
+          rm -f -- "$native_core_directory"/core.*
+          if [ "$?" -ne 0 ] || ! rmdir -- "$native_core_directory"; then
+            printf 'Original raw core directory cleanup failed.\n' >> "$native_core_report"
+            cleanup_status=1
+          fi
+          if [ "$native_status" -eq 0 ] && [ "$cleanup_status" -ne 0 ]; then
+            native_status=$cleanup_status
+          fi
+          exit "$native_status"
+        }
+        trap restore_native_core_state EXIT
+        trap 'exit 143' TERM
+        trap 'exit 130' INT
+        native_core_previous_pattern=$(sysctl -n kernel.core_pattern)
+        native_core_pattern_recorded=1
+        timeout --kill-after=2s 8s sudo -n sysctl -w "kernel.core_pattern=$native_core_directory/core.%p" >/dev/null
+        # The runner enables a per-core soft cap for its original OpenToonz
+        # launch tree, then restores zero before clear/diagnostic processes.
+        ulimit -S -c 0
+        QT_QPA_PLATFORM=xcb xvfb-run -a python3 ci-scripts/run_native_ui_test.py toonz/build/bin/OpenToonz stuff --require-function-workflow --require-offline-gl-workflow --linux-crash-debugger --linux-original-core-directory "$native_core_directory" --output toonz/build/ui-integration-output.txt
 
     - name: Report native application integration failure
       if: ${{ failure() && steps.ui_integration.outcome == 'failure' }}
