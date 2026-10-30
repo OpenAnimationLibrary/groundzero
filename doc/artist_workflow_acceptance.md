@@ -124,6 +124,13 @@ five isolated groups and the artist workload passed; reliability, EXR and the
 installed application were skipped. None of these passes replace the failed
 mandatory or isolated Function results.
 
+Source diagnosis identified a missing observer removal in
+`FunctionSegmentViewer` destruction: both setters register the widget with its
+curve, but destruction only releases that curve. A later source-key update can
+reach the freed dependent-channel widget. Symmetric removal and deterministic
+post-close source/dependent mutation regressions are being prepared. This does
+not establish the cause of the separate historical macOS shutdown failure.
+
 The audited follow-ups include saved-set rename and explicit target-range
 retiming; frozen evaluated comparisons with exact native restoration; native
 `.curve` import; a real multi-owner graph workload; explicit Fade and alignment
@@ -298,12 +305,12 @@ the CI-only harness verifies isolation and failure retention.
 | 40 | Batch relink preview | Ambiguous matches, explicit preview, identity/exposure preservation and undo. | Pending; Cast modal ownership and interrupted asset preparation under review |
 | 41 | Distinct asset states | New/dirty/missing/external/read-only/cache states truthful without changing artwork. | Source-ready; fresh CI pending |
 | 42 | Unused-asset cleanup preview | Review/checklist, keep-spare metadata, undo without deleting source files. | Pending; Cast panel lifetime and queued confirmation guard under review |
-| 43 | Folder undo | Create/rename/delete hierarchy and membership restoration, redo. | Source-ready; CI pending |
+| 43 | Folder undo | Create/rename/delete hierarchy and membership restoration, redo. | Pending; folder-delete confirmation retains a raw tree item across nested events and needs fresh-item/context validation |
 | 44 | Docked asset inspector | Resolution/DPI/frame gaps/palette/storage follow selection in a persistent docked panel. | Source-ready; fresh CI pending |
 | 45 | Scrubbable thumbnails | Scrub/choose cover, bounds, persistence and bounded decoding. | Source-ready; fresh CI pending |
-| 46 | Audio audition | Native waveform/transport, stop-on-close/selection and no leaked playback. | Source-ready; fresh CI pending |
+| 46 | Audio audition | Native waveform/transport, stop-on-close/selection and no leaked playback. | Pending; audio-error prompt owner lifetime is included in the Cast guard correction; physical playback remains separately unqualified |
 | 47 | Tags and collections | Stable asset IDs, multi-tag queries, saved named collections and save/reload. | Pending; Cast menu/nested dialog lifetime and late-action guards under review |
-| 48 | Stable refresh state | Identity selection/scroll/expanded folders/sort retained through changes. | Source-ready; CI pending |
+| 48 | Stable refresh state | Identity selection/scroll/expanded folders/sort retained through changes. | Pending; added menu lifetime and queued actions must remain safe during owner hide/delete |
 | 49 | Large-Cast responsiveness | Large fixture correctness and measured incremental update/ordering. | Source-ready; focused Linux measured improvement, final-head/platform qualification pending |
 | 50 | Explicit duplicate consolidation | Content/identity/palette comparisons, explicit confirmation only, exposure-preserving undo. | Pending; Cast modal ownership and interrupted review under review |
 | 51 | Collection/dependency report | Missing/conflicting dependencies and sizes, exact inclusion and relocated output verification. | Pending; Cast modal ownership and interrupted report actions under review |
