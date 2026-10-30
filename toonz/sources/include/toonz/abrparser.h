@@ -24,13 +24,15 @@
 // Reader of Photoshop brush files (.abr): sampled tips and typed metadata.
 //
 // The parser works on a byte buffer and does not depend on Qt or on any
-// other part of Toonz: it turns the file into a list of 8-bit grayscale tip
-// images.
+// other part of Toonz: it returns 8-bit grayscale tip images, legacy computed
+// geometry and typed descriptor metadata as separate data.
 //
 // Supported:
 //  - ABR versions 1 and 2 (type 2, "sampled" brushes, 8 or 16 bit, raw or
 //    PackBits compressed; the name is read for version 2 and the spacing
 //    for both).
+//  - ABR 1/2 fixed type-1 computed ellipse records, retained as signed
+//    diameter, roundness, angle, hardness and spacing fields without pixels.
 //  - ABR versions 6 to 10 (Photoshop CS2 and later): the '8BIM' 'samp'
 //    section, sub versions 1 and 2, 8 or 16 bit, raw or PackBits compressed.
 //    The tips are named "tip_001", "tip_002", ... as the names live in the
@@ -40,8 +42,8 @@
 //    units; it does not implement the brush settings described by the values.
 //
 // Not interpreted (reported explicitly; never implied by decoded metadata):
-//  - Computed brushes of versions 1 and 2 (type 1, an ellipse described by
-//    diameter, hardness, angle, roundness and spacing): they have no image.
+//  - Computed brush geometry is decoded separately from sampled images; its
+//    source rasterization/spacing behavior is not implemented by this reader.
 //  - Brush behavior in 'desc' descriptors of versions 6 and up: the dynamics of
 //  the
 //    presets (shape dynamics, scattering, textures, dual brush, color
@@ -96,7 +98,12 @@ struct Result {
   int subVersion = 0;  // versions 6 and up only
   std::vector<Tip> tips;
   std::vector<DescriptorValue> descriptors;
-  int computedBrushes = 0;  // type 1 brushes of versions 1 and 2, skipped
+  struct Computed {
+    std::string name;
+    int spacing = 0, diameter = 0, roundness = 0, angle = 0, hardness = 0;
+  };
+  std::vector<Computed> computed;
+  int computedBrushes = 0;  // all type-1 records, including malformed entries
   int skippedSamples  = 0;  // sampled brushes which could not be decoded
   std::vector<std::string> warnings;
 };

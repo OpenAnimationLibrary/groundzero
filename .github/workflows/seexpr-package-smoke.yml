@@ -29,7 +29,10 @@ jobs:
           lfs: false
           persist-credentials: false
           sparse-checkout-cone-mode: false
-          sparse-checkout: /ci-scripts/seexpr/
+          sparse-checkout: |
+            /ci-scripts/seexpr/
+            /ci-scripts/brush-reference/
+            /ci-scripts/run_native_ui_test.py
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
@@ -58,9 +61,18 @@ jobs:
           else
             python ci-scripts/seexpr/package_smoke.py --platform "$SMOKE_PLATFORM" --artifact "$GITHUB_WORKSPACE/package-artifact" --output "$GITHUB_WORKSPACE/seexpr-packaged-native.log" 2>&1 | tee seexpr-package-launch.log
           fi
+      - name: Run the installed raster brush lifecycle
+        shell: bash
+        run: |
+          set -o pipefail
+          if [ "$SMOKE_PLATFORM" = linux ]; then
+            xvfb-run -a -s '-screen 0 1280x1024x24' python ci-scripts/brush-reference/package_test.py --platform "$SMOKE_PLATFORM" --artifact "$GITHUB_WORKSPACE/package-artifact" --output "$GITHUB_WORKSPACE/brush-packaged-native.log" 2>&1 | tee brush-package-launch.log
+          else
+            python ci-scripts/brush-reference/package_test.py --platform "$SMOKE_PLATFORM" --artifact "$GITHUB_WORKSPACE/package-artifact" --output "$GITHUB_WORKSPACE/brush-packaged-native.log" 2>&1 | tee brush-package-launch.log
+          fi
       - name: Report installed application failure
         if: failure()
-        run: python ci-scripts/seexpr/report.py seexpr-package-setup.log seexpr-package-launch.log
+        run: python ci-scripts/seexpr/report.py seexpr-package-setup.log seexpr-package-launch.log brush-package-launch.log
       - name: Retain installed application diagnostics
         if: always()
         uses: actions/upload-artifact@v6
@@ -70,4 +82,6 @@ jobs:
             seexpr-package-setup.log
             seexpr-package-launch.log
             seexpr-packaged-native.log
+            brush-package-launch.log
+            brush-packaged-native.log
           if-no-files-found: warn

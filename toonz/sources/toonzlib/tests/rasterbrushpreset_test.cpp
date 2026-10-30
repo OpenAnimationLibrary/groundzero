@@ -70,6 +70,19 @@ QByteArray sampledAbr() {
   abr += sample;
   return abr;
 }
+QByteArray computedAbr(int version, int spacing = 25) {
+  QByteArray bytes;
+  auto be = [&](unsigned value, int count) {
+    for (int i = count - 1; i >= 0; --i) bytes.append(char(value >> (8 * i)));
+  };
+  be(version, 2);
+  be(1, 2);
+  be(1, 2);
+  be(14, 4);
+  be(0, 4);
+  for (int value : {spacing, 64, 50, -30, 75}) be(unsigned(value), 2);
+  return bytes;
+}
 QByteArray kpp(const QString &engine = "paintbrush") {
   QImage image(2, 2, QImage::Format_ARGB32);
   image.fill(Qt::transparent);
@@ -231,6 +244,28 @@ void testImports() {
   require(
       !importBrush(sampledAbr(), "abr", error, nullptr, abrBytes - 1).complete,
       "retained ABR byte masks not charged to allocation budget");
+  for (int version : {1, 2}) {
+    auto geometry = importBrush(computedAbr(version), "abr", error);
+    require(geometry.complete && geometry.records.size() == 1,
+            "computed ABR could not become a native preset");
+    const auto &record = geometry.records.front();
+    require(record.preset.tip.shape == Shape::Round &&
+                record.preset.tip.images.empty() &&
+                record.preset.size.value == 64 &&
+                record.preset.aspect.value == .5 &&
+                record.preset.angle.value == -30 &&
+                record.preset.spacing == .25 &&
+                record.preset.tip.hardness == .75 &&
+                !record.provenance["sourceSemanticallySupported"].toBool(),
+            "computed ABR geometry or qualification was misrepresented");
+    auto restored = decode(encode(record, error), error);
+    require(error.isEmpty() && restored.semanticallySupported &&
+                restored.preset.tip.images.empty() &&
+                restored.preset.aspect.value == .5,
+            "computed native preset did not survive portable save/reopen");
+    require(!importBrush(computedAbr(version, 0), "abr", error).complete,
+            "unimplemented zero spacing was silently approximated");
+  }
   auto dry = importBrush(kpp(), "kpp", error);
   require(dry.complete, qPrintable(error));
   require(dry.records[0].preset.tip.antialiasEdges,
@@ -598,6 +633,8 @@ void writeCorpus(const QString &directory) {
                 {"paintoppresets/original.kpp", kpp()}},
                true));
   save("sample-abr", 5, sampledAbr());
+  save("computed-abr-v1", 5, computedAbr(1));
+  save("computed-abr-v2", 5, computedAbr(2));
   // Original v6 descriptor-only seed: version 16, Brsh class, enab=true.
   // No tip is expected; fuzzing still traverses the bounded typed decoder.
   save("descriptor-abr", 5,

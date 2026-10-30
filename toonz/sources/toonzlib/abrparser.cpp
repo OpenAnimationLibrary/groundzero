@@ -209,7 +209,8 @@ class DescriptorReader {
     uint32_t count;
     need(peek.u32(count));
     if (count > budget.limits.maxNameUnits ||
-        count > (budget.limits.maxDescriptorBytes - budget.descriptorBytes) / 8) {
+        count >
+            (budget.limits.maxDescriptorBytes - budget.descriptorBytes) / 8) {
       budget.error = "The ABR descriptor string budget was exceeded.";
       throw std::runtime_error(budget.error);
     }
@@ -490,6 +491,20 @@ void parseV12(const unsigned char *data, size_t size, int version, int count,
     size_t next = r.pos() + (size_t)length;
     if (type == 1) {
       ++out.computedBrushes;
+      // Adobe Photoshop 6 file-format specification, fixed 14-byte record.
+      // Decode the signed geometry without inventing a bitmap or source model.
+      Reader shape = r.sub(next);
+      int32_t miscellaneous;
+      Result::Computed value;
+      value.name = "computed_" + std::to_string(i + 1);
+      if (length == 14 && shape.i32(miscellaneous) &&
+          shape.i16(value.spacing) && shape.i16(value.diameter) &&
+          shape.i16(value.roundness) && shape.i16(value.angle) &&
+          shape.i16(value.hardness))
+        out.computed.push_back(std::move(value));
+      else
+        out.warnings.push_back("Computed brush " + std::to_string(i + 1) +
+                               " has an invalid fixed record length.");
     } else if (type == 2) {
       Tip tip;
       tip.name      = defaultName(i + 1);

@@ -169,12 +169,17 @@ jobs:
           path = Path(os.environ['BRUSH_REFERENCE_ROOT']) / 'output' / 'oracle-status.json'
           if path.is_file():
               result = json.loads(path.read_text())
+              probes = []
               for row in result.get('records', []):
                   probe = {key: row.get(key) for key in ('preset', 'changed', 'effectivePresetSha256', 'effectiveWetControls')}
                   probe['runStatus'] = result.get('status')
                   probe['centerlineRGBA8'] = [sample for sample in row.get('centerlineRGBA8', []) if sample[0] in (256, 384, 512, 640, 768, 896, 1024, 1152)]
-                  text = json.dumps(probe, separators=(',', ':'))
-                  print('::notice title=Source parameter probe; not parity::' + text.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A'))
+                  probes.append(probe)
+              # The observed check retained only ten annotations per step. Group the
+              # bounded 68-case table instead of silently losing later cases.
+              for start in range(0, len(probes), 8):
+                  text = json.dumps(probes[start:start + 8], separators=(',', ':'))
+                  print('::notice title=Source parameter probes; not parity::' + text.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A'))
           PYPROBES
       - name: Report reference failure
         if: failure()
@@ -213,10 +218,10 @@ jobs:
           import json, os
           from pathlib import Path
           report = json.loads((Path(os.environ['BRUSH_REFERENCE_ROOT']) / 'output' / 'comparison.json').read_text())
-          for row in report['records']:
-              measurement = {key: value for key, value in row.items() if key != 'diagnostics'}
-              text = json.dumps(measurement, separators=(',', ':'))
-              print('::notice title=Unqualified conversion measurement::' + text.replace('%', '%25').replace('\n', '%0A').replace('\r', '%0D'))
+          measurements = [{key: value for key, value in row.items() if key not in ('diagnostics', 'inputCase')} for row in report['records']]
+          for start in range(0, len(measurements), 8):
+              text = json.dumps(measurements[start:start + 8], separators=(',', ':'))
+              print('::notice title=Unqualified conversion measurements::' + text.replace('%', '%25').replace('\n', '%0A').replace('\r', '%0D'))
           PYMETRICS
       - name: Report comparison build failure
         if: failure()

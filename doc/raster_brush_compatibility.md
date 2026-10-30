@@ -168,7 +168,7 @@ four pixels, a quarter-pixel dab and rotated anisotropic coverage.
 
 Foreign resource adapter v1 is an explicit **converted approximation** path:
 GBR 1/2 mask/RGBA resources, GIH single-dimension incremental/random sequences,
-ABR sampled tips, and KPP 2.2/5.0 Pixel/Color Smudge containers. Native wet pickup, paint mix and radius can use
+ABR sampled tips and legacy v1/v2 computed ellipses, and KPP 2.2/5.0 Pixel/Color Smudge containers. Native wet pickup, paint mix and radius can use
 sensor curves; mapped KPP curves are explicitly converted to linear native curves.
 KPP source model identifiers are retained, but native wet never stands in for
 implemented Krita smudge semantics. Unmapped KPP fields are listed in the import
@@ -177,6 +177,16 @@ unsupported selectors remain unimplemented. Bundle manifest v1.2 resolves declar
 PNG/GBR/GIH tip assets by explicit path/name or checksum; archive parsing never
 extracts files. Missing, ambiguous or malformed dependencies reject the import.
 These conversions do not satisfy the foreign-profile acceptance rows above.
+
+Legacy computed ABR records use the fixed 14-byte geometry layout described in
+Adobe's [Photoshop 6 format specification](https://oldschoolprg.x10.mx/downloads/ps6ffspecsv2.pdf).
+The reader retains signed spacing, diameter, roundness, angle and hardness
+separately from sampled pixels. Native conversion uses an antialiased ellipse;
+its edge falloff and angle/spacing behavior remain unverified against Photoshop.
+Zero spacing and geometry outside the native envelope reject conversion rather
+than silently clamping. Original v1/v2 fixtures cover field order, signed angles,
+every short record length, extra bytes, portable preset reopening and fuzz seeds.
+The legacy MyPaint sampled-tip importer still reports computed records as skipped.
 
 PNG chunk CRC/framing and metadata decompression are bounded before Qt decoding.
 Native assets are embedded by content hash; no asset path is extracted from a

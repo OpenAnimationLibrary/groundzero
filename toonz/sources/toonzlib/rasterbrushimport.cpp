@@ -629,8 +629,8 @@ ImportResult importBrush(const QByteArray &bytes, const QString &format,
         throw std::runtime_error(why);
       for (const auto &w : parsed.warnings)
         result.diagnostics << QString::fromStdString(w);
-      if (parsed.computedBrushes || parsed.skippedSamples ||
-          !parsed.warnings.empty())
+      if (parsed.computedBrushes != int(parsed.computed.size()) ||
+          parsed.skippedSamples || !parsed.warnings.empty())
         result.diagnostics
             << "The ABR contains behavior or records that are not represented "
                "by these native tip conversions.";
@@ -640,6 +640,26 @@ ImportResult importBrush(const QByteArray &bytes, const QString &format,
       // The parser's byte masks remain alive while native float tips are made.
       // Reserve both representations, not just the final resource graph.
       allocator.limit = maximumDecodedBytes - grayBytes;
+      for (const auto &shape : parsed.computed) {
+        checkCancelled();
+        auto r                           = converted(bytes, kind);
+        r.preset.name                    = shape.name;
+        r.preset.tip.shape               = Shape::Round;
+        r.preset.tip.hardness            = shape.hardness / 100.0;
+        r.preset.tip.antialiasEdges      = true;
+        r.preset.size.value              = shape.diameter;
+        r.preset.aspect.value            = shape.roundness / 100.0;
+        r.preset.angle.value             = shape.angle;
+        r.preset.spacing                 = shape.spacing / 100.0;
+        r.provenance["containerVersion"] = parsed.version;
+        r.provenance["sourceTipType"]    = "computed-ellipse";
+        r.diagnostics.append(result.diagnostics);
+        r.diagnostics << "Computed ellipse converted to native geometry. "
+                         "Source hardness, angle and spacing behavior is "
+                         "not reference-verified; zero spacing is unsupported.";
+        check(r);
+        result.records.push_back(r);
+      }
       for (const auto &tip : parsed.tips) {
         checkCancelled();
         auto r        = converted(bytes, kind);
@@ -661,7 +681,7 @@ ImportResult importBrush(const QByteArray &bytes, const QString &format,
         result.records.push_back(r);
       }
       if (result.records.empty())
-        throw Invalid("No decodable sampled tips in this ABR");
+        throw Invalid("No decodable sampled or computed tips in this ABR");
     } else
       throw Invalid("Unsupported brush format");
     checkCancelled();

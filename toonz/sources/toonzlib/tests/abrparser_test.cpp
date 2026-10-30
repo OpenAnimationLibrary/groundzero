@@ -238,7 +238,7 @@ void testV6SixteenBit() {
 void testV2ComputedAndNamed() {
   Bytes file = fileV12(2, 2);
 
-  // computed brush (type 1): skipped
+  // Fixed geometry is decoded separately; no bitmap is synthesized.
   putBrush(file, 1, Bytes(14, 0x11));
 
   // sampled brush named "Rn" + e acute + a U+1F600 surrogate pair + null
@@ -261,6 +261,36 @@ void testV2ComputedAndNamed() {
   require(r.tips[0].name == "Rn\xC3\xA9\xF0\x9F\x98\x80", "v2: name");
   require(r.tips[0].spacing == 25, "v2: spacing");
   requireImage4x3(r.tips[0]);
+}
+
+void testComputedGeometry() {
+  Bytes body;
+  put32(body, 0);
+  for (int value : {25, 64, 50, -30, 75}) put16(body, unsigned(value));
+  for (int version : {1, 2}) {
+    Bytes file = fileV12(version, 1);
+    putBrush(file, 1, body);
+    AbrParser::Result result;
+    std::string error;
+    require(parse(file, result, error) && result.computed.size() == 1 &&
+                result.tips.empty() && result.warnings.empty(),
+            "computed geometry was not decoded independently");
+    auto value = result.computed.front();
+    require(value.spacing == 25 && value.diameter == 64 &&
+                value.roundness == 50 && value.angle == -30 &&
+                value.hardness == 75,
+            "computed geometry field order or signed angle changed");
+    for (size_t length = 0; length <= 15; ++length) {
+      if (length == 14) continue;
+      Bytes malformed = body;
+      malformed.resize(length);
+      file = fileV12(version, 1);
+      putBrush(file, 1, malformed);
+      require(parse(file, result, error) && result.computed.empty() &&
+                  result.computedBrushes == 1 && !result.warnings.empty(),
+              "malformed computed record was silently interpreted");
+    }
+  }
 }
 
 void testV1RawAndUnknownType() {
@@ -546,6 +576,7 @@ int main() {
     testV6RawPaddedSamples();
     testV6SixteenBit();
     testV2ComputedAndNamed();
+    testComputedGeometry();
     testV1RawAndUnknownType();
     testBadSampleIsSkipped();
     testRejected();
