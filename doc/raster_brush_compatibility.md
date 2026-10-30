@@ -791,3 +791,13 @@ the measured radius implementation for those fixtures without claiming general
 source compatibility or completion of the full RCP1 contract. The next head adds
 combined radius/pressure application transactions, broader scale acquisition and
 worker-response fuzzing; those additions require their own exact-head CI.
+
+All four source wet adapters now preserve static FlowValue in 0–1 with
+FlowUseCurve disabled, instead of rejecting values other than one. Acquired
+long-stroke source probes show identical centerline outputs for unit and half
+flow in each model; the runtime intentionally leaves that inactive setting out
+of the transport equations. A new 64-case short-stroke transfer matrix enforces
+32 static-flow candidate gates and separately acquires 32 non-unit-opacity
+cases. Opacity remains unimplemented in these candidates until its distinct
+transport/deposit equation is measured and implemented; static-flow acceptance
+does not silently approximate opacity or enabled flow dynamics.

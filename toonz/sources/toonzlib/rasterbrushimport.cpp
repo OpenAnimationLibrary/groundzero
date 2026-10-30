@@ -324,6 +324,10 @@ bool eligibleFixedSource(const QMap<QString, QString> &fields,
       {"PaintOpSettings/updateSpacingBetweenDabs", "false"},
       {"KisPrecisionOption/AutoPrecisionEnabled", "false"},
       {"KisPrecisionOption/precisionLevel", "5"}};
+  // With FlowUseCurve=false the source's static FlowValue is inactive in
+  // build-up Pixel and all four measured Color Smudge models. Preserve it.
+  if (!fields.contains("FlowValue")) return false;
+  required["FlowValue"] = fields["FlowValue"];
   if (engine == "paintbrush") {
     for (const QString &key : {"OpacityValue", "FlowValue"}) {
       if (!fields.contains(key)) return false;
@@ -335,7 +339,7 @@ bool eligibleFixedSource(const QMap<QString, QString> &fields,
       return false;
     required["PaintOpAction"] = fields["PaintOpAction"];
   }
-  if (engine == "paintbrush" && fields.contains("PressureFlow")) {
+  if (fields.contains("PressureFlow")) {
     if (fields.value("PressureFlow") != "true" &&
         fields.value("PressureFlow") != "false")
       return false;

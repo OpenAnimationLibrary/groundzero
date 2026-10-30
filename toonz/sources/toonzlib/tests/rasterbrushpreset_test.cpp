@@ -431,6 +431,14 @@ void testImports() {
     require(error.isEmpty() && restored.preset.profile == expected &&
                 !restored.provenance["sourceReferenceVerified"].toBool(),
             "wet candidate portable qualification mismatch");
+    for (const QString &flow : {"zeroFlow", "halfFlow"}) {
+      auto inactive = importBrush(hardPixelKpp(flow, model), "kpp", error);
+      require(inactive.complete &&
+                  inactive.records.front().preset.profile == expected &&
+                  inactive.records.front().preset.flow.value ==
+                      (flow == "zeroFlow" ? 0 : .5),
+              "static source wet flow lost its value or candidate identity");
+    }
     auto pressure =
         importBrush(hardPixelKpp("wetPressure", model), "kpp", error);
     require(pressure.complete &&

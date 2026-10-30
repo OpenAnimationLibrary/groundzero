@@ -365,6 +365,8 @@ int main(int argc, char **argv) {
            fixtures["group"].toString() == "wetswitches" ||
            fixtures["group"].toString() == "wetcombined" ||
            fixtures["group"].toString() == "wetpressure" ||
+           (fixtures["group"].toString() == "wettransfer" &&
+            source["opacity"].toDouble() == 1) ||
            ((fixtures["group"].toString() == "wetkernel" ||
              fixtures["group"].toString() == "wetkernelscale" ||
              fixtures["group"].toString() == "wettexture" ||

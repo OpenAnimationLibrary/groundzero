@@ -22,8 +22,10 @@ inline QByteArray hardPixelKpp(const QString &mutation = {},
   param("paintop", engine);
   param("CompositeOp", "normal");
   for (const QString &key : {"OpacityValue", "FlowValue"})
-    param(key,
-          mutation == "halfOpacity" && key == "OpacityValue" ? "0.5" : "1");
+    param(key, mutation == "halfOpacity" && key == "OpacityValue" ? "0.5"
+               : mutation == "zeroFlow" && key == "FlowValue"     ? "0"
+               : mutation == "halfFlow" && key == "FlowValue"     ? "0.5"
+                                                                  : "1");
   if (mutation == "wrongModeKey")
     param("PaintingMode", "1");
   else

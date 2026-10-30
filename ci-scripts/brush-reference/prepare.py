@@ -58,10 +58,10 @@ shutil.copytree(source / "gzbrush_reference", resources / "pykrita" / "gzbrush_r
 (root / "config" / "kritarc").write_text("[General]\nuseOpenGL=false\n[python]\nenable_gzbrush_reference=true\n")
 names, cases = [], []
 group = os.environ.get("BRUSH_REFERENCE_GROUP", "parameters")
-if group not in ("parameters", "geometry", "tablet", "hardpixel", "wetsteps", "wethold", "wetstate", "pixelopacity", "pixelopacitytablet", "pixelcontrols", "pixelpressure", "pixelsmallpressure", "wettexture", "wettexture3", "wetswitches", "wetcombined", "wetpressure", "wetkernel", "wetkernelscale", "pixelsoft", "pixelsoftsize", "pixelrectsize", "pixelaarange", "pixelshape"):
+if group not in ("parameters", "geometry", "tablet", "hardpixel", "wetsteps", "wethold", "wetstate", "pixelopacity", "pixelopacitytablet", "pixelcontrols", "pixelpressure", "pixelsmallpressure", "wettexture", "wettexture3", "wetswitches", "wetcombined", "wetpressure", "wettransfer", "wetkernel", "wetkernelscale", "pixelsoft", "pixelsoftsize", "pixelrectsize", "pixelaarange", "pixelshape"):
     raise RuntimeError("Unknown reference fixture group")
 profiles = [("dry", False)] if group in ("geometry", "tablet", "hardpixel", "pixelopacity", "pixelopacitytablet", "pixelcontrols", "pixelpressure", "pixelsmallpressure", "pixelsoft", "pixelsoftsize", "pixelrectsize", "pixelaarange", "pixelshape") else [("dry", False), ("smear", False), ("dulling", False), ("smear", True), ("dulling", True)]
-if group in ("wetsteps", "wethold", "wetstate", "wettexture", "wettexture3", "wetswitches", "wetcombined", "wetpressure", "wetkernel", "wetkernelscale"):
+if group in ("wetsteps", "wethold", "wetstate", "wettexture", "wettexture3", "wetswitches", "wetcombined", "wetpressure", "wettransfer", "wetkernel", "wetkernelscale"):
     profiles = [("smear", False), ("dulling", False), ("smear", True), ("dulling", True)]
 if group in ("wetkernel", "wetkernelscale"):
     profiles = [("dulling", False), ("dulling", True)]
@@ -138,7 +138,7 @@ for mode, modern in profiles:
         if mode == "dulling":
             for value in ("0", "3", "100", "300"):
                 variants.append(("radius " + value, {"SmudgeRadiusValue": value}, 32, .1, [1, 1], 1, 1))
-    if group in ("wetsteps", "wethold", "wetstate", "wettexture", "wettexture3", "wetswitches", "wetcombined", "wetpressure", "wetkernel", "wetkernelscale"):
+    if group in ("wetsteps", "wethold", "wetstate", "wettexture", "wettexture3", "wetswitches", "wetcombined", "wetpressure", "wettransfer", "wetkernel", "wetkernelscale"):
         variants = [(f"wet step pickup {round(pickup * 100):03d} color {round(color * 100):03d} dabs {dabs}",
                      {"SmudgeRateValue": str(pickup), "ColorRateValue": str(color), "SmudgeRadiusValue": "0"},
                      32, 5, [1, 1], 1, 1)
@@ -199,6 +199,15 @@ for mode, modern in profiles:
                          {"SmudgeRateValue": "1", "ColorRateValue": "0", "SmudgeRadiusValue": str(radius)},
                          32, 5, [1, 1], 1, 1)
                         for radius in (50, 100) for offset in (-16, -8, -4, 0, 4, 8, 16))
+    if group == "wettransfer":
+        variants = []
+        for opacity, flow in ((1, 0), (1, .25), (1, .5), (1, 1),
+                              (0, 1), (.25, 1), (.5, 1), (.75, 1)):
+            for dabs in (2, 3):
+                variants.append((f"wet transfer opacity {round(opacity * 100):03d} flow {round(flow * 100):03d} dabs {dabs}",
+                                 {"SmudgeRateValue": ".5", "ColorRateValue": ".25", "SmudgeRadiusValue": "0",
+                                  "OpacityValue": str(opacity), "FlowValue": str(flow)},
+                                 32, 5, [1, 1], opacity, flow))
     if group == "wetkernelscale":
         variants = []
         regions = ((16, 100), (64, 100)) if modern else (
@@ -216,7 +225,7 @@ for mode, modern in profiles:
                                      diameter, 5, [1, 1], 1, 1))
     for label, overrides, diameter, spacing, pressure, opacity, flow in variants:
         name = base if label == "baseline" else base + " " + label
-        edge = int(label.rsplit(" ", 1)[1]) if group in ("geometry", "pixelsoft", "pixelsoftsize", "pixelrectsize", "pixelaarange") else (0 if group in ("hardpixel", "wetsteps", "wethold", "wetstate", "pixelopacity", "pixelopacitytablet", "pixelcontrols", "pixelpressure", "pixelsmallpressure", "wettexture", "wettexture3", "wetswitches", "wetcombined", "wetpressure", "wetkernel", "wetkernelscale", "pixelshape") else 1)
+        edge = int(label.rsplit(" ", 1)[1]) if group in ("geometry", "pixelsoft", "pixelsoftsize", "pixelrectsize", "pixelaarange") else (0 if group in ("hardpixel", "wetsteps", "wethold", "wetstate", "pixelopacity", "pixelopacitytablet", "pixelcontrols", "pixelpressure", "pixelsmallpressure", "wettexture", "wettexture3", "wetswitches", "wetcombined", "wetpressure", "wettransfer", "wetkernel", "wetkernelscale", "pixelshape") else 1)
         hardness = int(label.split()[3]) / 100 if group in ("pixelsoft", "pixelsoftsize", "pixelrectsize") else 1
         shape = label.split()[1] if group in ("pixelsoft", "pixelsoftsize", "pixelrectsize") else "circle"
         (resources / "paintoppresets" / (name + ".kpp")).write_bytes(preset(name, mode, modern, overrides, diameter, spacing, edge, hardness, shape,
@@ -231,7 +240,7 @@ for mode, modern in profiles:
         # behavior for this correctly serialized setting.
         expected_empty = (group in ("pixelopacity", "pixelopacitytablet") and (opacity == 0 or (overrides.get("PaintOpAction") == "0" and flow == 0))) or (mode != "dry" and not modern and label == "pickup 0") or (group == "geometry" and diameter == 1 and label.endswith("antialias 0"))
         cases.append({"preset": name, "variant": label, "diameter": diameter, "spacing": spacing, "pressure": pressure, "opacity": opacity, "flow": flow, "start": [256, 1024], "end": [end_x, 1024], "brushRotationDegrees": float(label.split()[6]) if group == "pixelshape" else 0, "background": "transparent" if group in ("geometry", "pixelsoft", "pixelsoftsize", "pixelrectsize", "pixelaarange", "pixelshape") or label.startswith("short line ") else "strips", "overrides": overrides, "expectUnchanged": expected_empty})
-        if group in ("wetsteps", "wethold", "wetstate", "wettexture", "wettexture3", "wetswitches", "wetcombined", "wetpressure", "wetkernel", "wetkernelscale"):
+        if group in ("wetsteps", "wethold", "wetstate", "wettexture", "wettexture3", "wetswitches", "wetcombined", "wetpressure", "wettransfer", "wetkernel", "wetkernelscale"):
             case = cases[-1]
             dabs = 3 if group == "wetstate" else int(label.rsplit(" ", 1)[1])
             step = diameter * spacing
@@ -257,6 +266,9 @@ for mode, modern in profiles:
                               "changeExpectation": "measure Dulling pickup kernel; unqualified until independently implemented"})
         if group == "wetpressure":
             cases[-1]["changeExpectation"] = "measure pressure-controlled wet equation; candidate gate enforced"
+        if group == "wettransfer":
+            cases[-1]["expectUnchanged"] = opacity == 0
+            cases[-1]["changeExpectation"] = "static flow candidate gate; non-unit opacity equation acquisition"
         if group in ("pixelopacitytablet", "pixelcontrols") and flow == 0:
             cases[-1]["changeExpectation"] = "measure freehand zero-flow boundary; candidate gate remains enforced"
         if group in ("tablet", "pixelopacitytablet", "pixelcontrols"):
