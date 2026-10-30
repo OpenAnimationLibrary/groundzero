@@ -53,6 +53,21 @@ inline void run() {
       require(output==fresh,"Temporal processing moved an already stable translated texture");
     }
   }
+  // Exact pans still need reveal handling when the exposed strip is visible.
+  // A wide strip resets global palette history; a narrow one tapers smoothly.
+  for(int width:{4,32}) {
+    changed.fill(Qt::white);
+    for(int y=0;y<384;++y)for(int x=width;x<384;++x)
+      changed.setPixel(x,y,source.pixel(x-width,y));
+    history.fill(Qt::red);fresh.fill(Qt::blue);
+    require(NeuralTemporal::stabilize(source,changed,alpha,alpha,history,fresh,.7,output),"Pan reveal processing failed");
+    if(width==32)require(output==fresh,"Wide pan reveal retained a palette seam");
+    else {
+      require(output.pixel(0,192)==fresh.pixel(0,192),"Narrow reveal inherited history");
+      const int edge=qRed(output.pixel(width,192)),near=qRed(output.pixel(width+5,192)),far=qRed(output.pixel(width+30,192));
+      require(edge>0 && edge<near && near<far && far>150,"Small reveal did not taper while retaining distant history");
+    }
+  }
   // A broad opaque occluder disappears while alpha stays unchanged. Fresh pixels
   // only inside its rectangle would leave a palette seam against retained history.
   for(int y=0;y<384;++y)for(int x=0;x<384;++x)
