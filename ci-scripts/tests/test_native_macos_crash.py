@@ -314,7 +314,8 @@ class OriginalMacCrashRunnerContracts(unittest.TestCase):
         self.source.mkdir()
         self.output = self.root / "native-output.txt"
 
-    def invoke(self, status, safe=True):
+    def invoke(self, status, safe=True, *, collector=None, clear_hook=None,
+               diagnostic_hook=None, debugger_hook=None):
         markers = "\n".join((
             "native-ui-integration: PASS",
             "icon-lifecycle-native: terminal replacement PASS",
@@ -326,15 +327,35 @@ class OriginalMacCrashRunnerContracts(unittest.TestCase):
                 pid=63307, started_at=1000.25, finished_at=1040.5, safe_to_release=safe)
             return subprocess.CompletedProcess(command, status, markers.encode())
         evidence = "original-macos-crash: MATCHED original PID 63307; no replay.\nThread 0 CRASHED\n"
-        with mock.patch.object(sys, "argv", ["native-runner", str(self.executable),
-                                            str(self.source), "--output", str(self.output)]), \
+        def clear(*arguments):
+            if clear_hook is not None:
+                clear_hook(arguments[-1])
+            return "independent clear completed\n", 0
+        def diagnose(*arguments, **options):
+            diagnostic_hook(options["runtime_state"])
+            return "independent diagnostics completed\n"
+        def debug(*arguments, **options):
+            debugger_hook(options["runtime_state"])
+            return "independent debugger exited with status 0\n"
+        arguments = ["native-runner", str(self.executable), str(self.source),
+                     "--output", str(self.output)]
+        if diagnostic_hook is not None:
+            arguments.append("--require-combined-workflows")
+        if debugger_hook is not None:
+            arguments.append("--macos-crash-debugger")
+        console = io.StringIO()
+        with mock.patch.object(sys, "argv", arguments), \
                 mock.patch.object(sys, "platform", "darwin"), \
                 mock.patch.object(self.runner, "isolated_fixture", return_value=nullcontext((self.root, {}))), \
                 mock.patch.object(self.runner, "run_captured_process", side_effect=launch) as process, \
-                mock.patch.object(self.runner, "required_icon_clear", return_value=("independent clear completed\n", 0)), \
-                mock.patch.object(reports, "collect_original_macos_crash", return_value=evidence) as collect, \
-                redirect_stdout(io.StringIO()):
+                mock.patch.object(self.runner, "required_icon_clear", side_effect=clear), \
+                mock.patch.object(self.runner, "combined_failure_diagnostics", side_effect=diagnose), \
+                mock.patch.object(self.runner, "macos_crash_diagnostics", side_effect=debug), \
+                mock.patch.object(reports, "collect_original_macos_crash", side_effect=collector,
+                                  return_value=evidence) as collect, \
+                redirect_stdout(console):
             result = self.runner.main()
+        self.last_console = console.getvalue()
         self.assertEqual(process.call_count, 1)
         return result, collect, evidence
 
@@ -343,11 +364,167 @@ class OriginalMacCrashRunnerContracts(unittest.TestCase):
         self.assertEqual(status, 1)
         collect.assert_called_once_with(self.executable.resolve(), 63307, 1000.25, 1040.5)
         sidecar = self.output.with_name("native-output-original-macos-crash.txt")
-        self.assertEqual(sidecar.read_text(encoding="utf-8"), evidence)
+        saved = sidecar.read_text(encoding="utf-8")
+        self.assertEqual(saved, "Original macOS identity: pid=63307 status=-11 "
+                               "started_at=1000.25 finished_at=1040.5\n" + evidence)
         output = self.output.read_text(encoding="utf-8")
         self.assertIn("Native application exited with status -11", output)
         self.assertIn("Original macOS process crash report (no replay)", output)
         self.assertLess(output.index(evidence), output.index("independent clear completed"))
+        self.assertNotIn("Final zero-wait scan", output)
+
+    def test_final_scan_keeps_original_identity_after_all_diagnostics_overwrite_state(self):
+        absent = "original-macos-crash: UNAVAILABLE (initial report not yet present).\n"
+        matched = "original-macos-crash: MATCHED original PID 63307; no replay.\noriginal stack\n"
+        events = []
+        def collect(*identity, **options):
+            events.append(("scan", identity, options))
+            return absent if len(events) == 1 else matched
+        def overwrite(label, pid):
+            def change(state):
+                events.append((label,))
+                state.update(pid=pid, started_at=2000., finished_at=2040., output=b"replay PASS",
+                             safe_to_release=True)
+            return change
+        status, collector, _ = self.invoke(-11, collector=collect,
+            clear_hook=overwrite("clear", 70001), diagnostic_hook=overwrite("diagnostics", 70002),
+            debugger_hook=overwrite("debugger", 70003))
+        self.assertEqual(status, 1)
+        self.assertEqual([event[0] for event in events], ["scan", "clear", "diagnostics", "debugger", "scan"])
+        identity = (self.executable.resolve(), 63307, 1000.25, 1040.5)
+        self.assertEqual(collector.call_args_list, [mock.call(*identity), mock.call(*identity, timeout=0)])
+        saved = self.output.with_name("native-output-original-macos-crash.txt").read_text(encoding="utf-8")
+        output = self.output.read_text(encoding="utf-8")
+        for retained in (saved, output, self.last_console):
+            self.assertIn("pid=63307 status=-11 started_at=1000.25 finished_at=1040.5", retained)
+            self.assertLess(retained.index(absent), retained.index("Final zero-wait scan"))
+            self.assertIn(matched, retained)
+            self.assertNotIn("70003", retained)
+        self.assertIn("Native application exited with status -11", output)
+
+    def test_initial_match_skips_final_scan_even_after_debugger_identity_changes(self):
+        def overwrite(state):
+            state.update(pid=70003, started_at=2000., finished_at=2040.)
+        status, collect, _ = self.invoke(-11, debugger_hook=overwrite)
+        self.assertEqual(status, 1)
+        collect.assert_called_once_with(self.executable.resolve(), 63307, 1000.25, 1040.5)
+        self.assertNotIn("Final zero-wait scan", self.last_console)
+
+    def test_unavailable_final_scan_retains_both_absence_results_and_failure(self):
+        absent = "original-macos-crash: UNAVAILABLE (no matching report).\n"
+        status, collect, _ = self.invoke(-11, collector=lambda *args, **kwargs: absent)
+        self.assertEqual(status, 1)
+        self.assertEqual(collect.call_count, 2)
+        self.assertEqual(collect.call_args.kwargs, {"timeout": 0})
+        for path in (self.output, self.output.with_name("native-output-original-macos-crash.txt")):
+            text = path.read_text(encoding="utf-8")
+            self.assertEqual(text.count(absent), 2)
+            self.assertEqual(text.count("Final zero-wait scan"), 1)
+
+    def test_final_scan_error_is_bounded_and_keeps_original_failure(self):
+        absent = "original-macos-crash: UNAVAILABLE (initial report not yet present).\n"
+        error = PermissionError(13, "Permission denied", "/Users/private person/My Project/report.ips")
+        status, collect, _ = self.invoke(-11, collector=[absent, error])
+        self.assertEqual(status, 1)
+        self.assertEqual(collect.call_count, 2)
+        for path in (self.output, self.output.with_name("native-output-original-macos-crash.txt")):
+            retained = path.read_text(encoding="utf-8")
+            self.assertIn(absent, retained)
+            self.assertIn("final original-process scan failed: PermissionError", retained)
+            self.assertNotIn("/Users/", retained)
+            self.assertNotIn("My Project", retained)
+        self.assertIn("Native application exited with status -11", self.last_console)
+
+    def test_partial_write_and_replace_failures_preserve_exact_original_report_bytes(self):
+        absent = "original-macos-crash: UNAVAILABLE (initial report not yet present).\n"
+        matched = "original-macos-crash: MATCHED original PID 63307; no replay.\noriginal stack\n"
+        create_temporary = self.runner.tempfile.NamedTemporaryFile
+        replace = self.runner.os.replace
+        for target in (self.output.name, "native-output-original-macos-crash.txt"):
+            for failure in ("partial-write", "replace"):
+                with self.subTest(target=target, failure=failure):
+                    retained_path = self.output.parent / target
+                    observed = {}
+                    def temporary(*args, **kwargs):
+                        stream = create_temporary(*args, **kwargs)
+                        write = stream.write
+                        def partial(content):
+                            if (failure == "partial-write" and kwargs["prefix"] == f".{target}." and
+                                    "Final zero-wait scan" in content):
+                                observed["before"] = retained_path.read_bytes()
+                                observed["temporary"] = Path(stream.name)
+                                write(content[:32])
+                                stream.flush()
+                                self.assertEqual(Path(stream.name).read_bytes(), content[:32].encode("utf-8"))
+                                raise OSError(28, "No space left", "/Users/private person/My Project/report.txt")
+                            return write(content)
+                        stream.write = partial
+                        return stream
+                    def fail_replace(source, destination):
+                        if (failure == "replace" and Path(destination).name == target and
+                                "Final zero-wait scan" in Path(source).read_text(encoding="utf-8")):
+                            observed["before"] = retained_path.read_bytes()
+                            observed["temporary"] = Path(source)
+                            self.assertIn(matched, Path(source).read_text(encoding="utf-8"))
+                            raise PermissionError(13, "Permission denied", "/Users/private person/My Project/report.txt")
+                        return replace(source, destination)
+                    with mock.patch.object(self.runner.tempfile, "NamedTemporaryFile", side_effect=temporary), \
+                            mock.patch.object(self.runner.os, "replace", side_effect=fail_replace):
+                        status, collect, _ = self.invoke(-11, collector=[absent, matched])
+                    self.assertEqual(status, 1)
+                    self.assertEqual(collect.call_count, 2)
+                    self.assertEqual(retained_path.read_bytes(), observed["before"])
+                    self.assertIn(absent.encode("utf-8"), observed["before"])
+                    self.assertFalse(observed["temporary"].exists())
+                    self.assertEqual(list(self.root.glob(".*.tmp")), [])
+                    self.assertIn("Native application exited with status -11", self.last_console)
+                    self.assertIn(absent, self.last_console)
+                    self.assertIn(matched, self.last_console)
+                    self.assertIn("errno=28" if failure == "partial-write" else "errno=13", self.last_console)
+                    self.assertNotIn("/Users/", self.last_console)
+                    self.assertNotIn("My Project", self.last_console)
+
+    def test_final_real_report_scan_never_substitutes_a_delayed_replay_report(self):
+        reader = reports.collect_original_macos_crash
+        # OS report paths are macOS identities even when these reader/runner
+        # contracts execute on another host. Assert the runner's real binary
+        # argument before translating only the fixture's pathname for parsing.
+        report_executable = PurePosixPath("/Applications/fixture-app")
+        for include_original in (False, True):
+            with self.subTest(include_original=include_original):
+                directory = self.root / ("reports-original" if include_original else "reports-replay")
+                directory.mkdir()
+                def write_report(name, pid, start, finish, mtime):
+                    stamp = lambda epoch: datetime.fromtimestamp(epoch, timezone.utc).isoformat()
+                    payload = {"pid": pid, "procName": report_executable.name,
+                               "procPath": str(report_executable), "procLaunch": stamp(start),
+                               "captureTime": stamp(finish), "exception": {"type": "EXC_BAD_ACCESS"},
+                               "faultingThread": 0, "threads": [{"frames": [{"symbol": name}]}],
+                               "usedImages": []}
+                    path = directory / ("fixture-app-" + name + ".ips")
+                    path.write_text(json.dumps({"bug_type": "309"}) + "\n" + json.dumps(payload), encoding="utf-8")
+                    os.utime(path, (mtime, mtime))
+                def delayed(state):
+                    state.update(pid=70003, started_at=2000., finished_at=2040.)
+                    write_report("replay_stack", 70003, 2000., 2039., 3001.)
+                    if include_original:
+                        write_report("original_stack", 63307, 1000.5, 1040., 3000.)
+                def collect(executable, pid, start, finish, **options):
+                    self.assertEqual(executable, self.executable.resolve())
+                    return reader(report_executable, pid, start, finish,
+                                  report_directories=[directory], timeout=options.get("timeout", 0))
+                with mock.patch.object(reports.time, "sleep", side_effect=AssertionError("zero-wait fixture must not sleep")):
+                    status, collect_call, _ = self.invoke(-11, collector=collect, debugger_hook=delayed)
+                self.assertEqual(status, 1)
+                self.assertEqual(collect_call.call_count, 2)
+                output = self.output.read_text(encoding="utf-8")
+                self.assertIn("examined=0", output)
+                self.assertNotIn("replay_stack", output)
+                if include_original:
+                    self.assertIn("MATCHED original PID 63307", output)
+                    self.assertIn("original_stack", output)
+                else:
+                    self.assertEqual(output.count("original-macos-crash: UNAVAILABLE"), 2)
 
     def test_success_does_not_collect_original_crash(self):
         status, collect, _ = self.invoke(0)
@@ -362,12 +539,12 @@ class OriginalMacCrashRunnerContracts(unittest.TestCase):
         self.assertIn("status -11", self.output.read_text(encoding="utf-8"))
 
     def test_sidecar_write_failure_keeps_original_status_and_hides_private_path(self):
-        original_write = Path.write_text
-        def write(path, content, *args, **kwargs):
-            if path.name.endswith("-original-macos-crash.txt"):
+        original_replace = self.runner.os.replace
+        def replace(source, destination):
+            if Path(destination).name.endswith("-original-macos-crash.txt"):
                 raise PermissionError(13, "Permission denied", "/Users/private person/My Project/report.txt")
-            return original_write(path, content, *args, **kwargs)
-        with mock.patch.object(Path, "write_text", new=write):
+            return original_replace(source, destination)
+        with mock.patch.object(self.runner.os, "replace", side_effect=replace):
             status, collect, _ = self.invoke(-11)
         self.assertEqual(status, 1)
         collect.assert_called_once()
