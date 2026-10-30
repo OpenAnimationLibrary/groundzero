@@ -44,10 +44,17 @@ Apply/Cancel, repeated undo/redo and persistence where relevant. Their execution
 is pending; source review alone does not close these acceptance items.
 
 Historical macOS isolated combined-timing execution exited with SIGSEGV after
-its assertions and cleanup checkpoints. Its native teardown cause is not yet
-localized. The next combined qualification must exercise that isolated lifecycle
-even if the main sequence passes, with zero exit required and bounded LLDB
-capture on failure. The old process remains failed. The separate macOS gradient
+its assertions and cleanup checkpoints. The mandatory isolated gate at
+`b00db72a` reproduced it and both LLDB captures identify an active thumbnail
+worker reading `QAction::isChecked` through `StageBuilder::addFrame` while the
+main thread destroys UI actions. Reviewed correction `db83112a9` snapshots the
+GUI Camera Test value and removes that worker-side widget access. A separate
+stop/drain correction is in progress: reject new icon work, account for every
+admitted task and retire workers before UI/resources are destroyed. The common
+application exit path must cover exits that bypass the window close event.
+This is distinct from the Function segment observer defect. Final qualification
+must retain the isolated lifecycle gate, zero exit and bounded LLDB capture;
+the old process remains failed. The separate macOS gradient
 fixture title check was corrected using the actual prompt and button roles;
 Qt ignores QMessageBox titles on that platform. No product workaround or
 weakened pixel, state, undo or persistence oracle substitutes for either check.
@@ -312,7 +319,7 @@ the CI-only harness verifies isolation and failure retention.
 | 42 | Unused-asset cleanup preview | Review/checklist, keep-spare metadata, undo without deleting source files. | Source-ready; Cast panel lifetime and queued confirmation guards await CI |
 | 43 | Folder undo | Create/rename/delete hierarchy and membership restoration, redo. | Source-ready; snapshot/fresh-item validation and interrupted confirmation plus repeated Undo await CI |
 | 44 | Docked asset inspector | Resolution/DPI/frame gaps/palette/storage follow selection in a persistent docked panel. | Source-ready; fresh CI pending |
-| 45 | Scrubbable thumbnails | Scrub/choose cover, bounds, persistence and bounded decoding. | Source-ready; fresh CI pending |
+| 45 | Scrubbable thumbnails | Scrub/choose cover, bounds, persistence and bounded decoding. | Pending; proven worker/UI teardown race requires complete stop/drain and worker retirement; Camera Test snapshot fix is prepared |
 | 46 | Audio audition | Native waveform/transport, stop-on-close/selection and no leaked playback. | Source-ready; audio-error prompt guards await CI; physical playback remains separately unqualified |
 | 47 | Tags and collections | Stable asset IDs, multi-tag queries, saved named collections and save/reload. | Source-ready; Cast menu/nested dialog lifetime and late-action guards await CI |
 | 48 | Stable refresh state | Identity selection/scroll/expanded folders/sort retained through changes. | Source-ready; owner hide/delete, context-menu and folder refresh interruption checks await CI |
