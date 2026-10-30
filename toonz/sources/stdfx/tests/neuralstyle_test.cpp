@@ -175,8 +175,10 @@ void scenePersistence(const QImage &reference,const QDir &root) {
   require(QDir().mkpath(root.filePath("moved")),"Cannot create portable scene directory");
   const QString moved=root.filePath("moved/portable.tnz");require(QFile::rename(path.getQString(),moved),"Cannot move saved scene");
   ToonzScene reopened;reopened.loadTnzFile(TFilePath(moved));
-  auto restored=dynamic_cast<NeuralStyleFx *>(reopened.getXsheet()->getFxDag()->getFxById(L"NeuralPortable1"));
+  // FxDag indexes loaded IDs in lowercase; the persisted display ID keeps case.
+  auto restored=dynamic_cast<NeuralStyleFx *>(reopened.getXsheet()->getFxDag()->getFxById(L"neuralportable1"));
   require(restored && restored->getInputPort(0)->isConnected(),"Saved scene lost neural FX/source graph");
+  require(restored->getFxId()==L"NeuralPortable1","Saved scene changed FX identity");
   require(render(*restored,37,info,0,0,64,64)==expected,"Moved scene with missing original reference changed output");
 }
 void visualExamples(const QDir &directory) {
