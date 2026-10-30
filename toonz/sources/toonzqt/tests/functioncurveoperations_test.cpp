@@ -2,12 +2,15 @@
 #include "tdoublekeyframe.h"
 #include "tenv.h"
 #include "texpression.h"
+#include "tgrammar.h"
+#include "tseexpr.h"
 #include "tstream.h"
 #include "tthread.h"
 #include "tundo.h"
 #include "tunit.h"
 #include "toonz/txsheet.h"
 #include "toonz/tstageobjecttree.h"
+#include "toonz/tstageobject.h"
 
 #include <QApplication>
 #include <QDir>
@@ -15,9 +18,12 @@
 #include <QTemporaryDir>
 
 #include <cmath>
+#include <algorithm>
+#include <functional>
 #include <iostream>
 #include <limits>
 #include <stdexcept>
+#include <thread>
 
 namespace Ops = FunctionCurveOperations;
 namespace {
@@ -401,6 +407,232 @@ void bakeSamplesCancellationAndFailures() {
   TUndoManager::manager()->reset();
 }
 
+class SampleCallbackNode final : public TSyntax::CalculatorNode {
+  const std::function<double()> *m_callback;
+ public:
+  SampleCallbackNode(TSyntax::Calculator *calculator,
+                     const std::function<double()> *callback)
+      : CalculatorNode(calculator), m_callback(callback) {}
+  double compute(double[3]) const override { return (*m_callback)(); }
+  void accept(TSyntax::CalculatorNodeVisitor &) override {}
+};
+class EmptyThrowingConverter final : public TUnitConverter {
+ public:
+  TUnitConverter *clone() const override { return new EmptyThrowingConverter; }
+  double convertTo(double value) const override { return value; }
+  double convertFrom(double) const override { throw std::runtime_error(""); }
+};
+class SampleCallbackPattern final : public TSyntax::Pattern {
+  const std::function<double()> *m_callback;
+ public:
+  explicit SampleCallbackPattern(const std::function<double()> *callback)
+      : m_callback(callback) {}
+  std::string getFirstKeyword() const override { return "samplecallback"; }
+  bool matchToken(const std::vector<TSyntax::Token> &previous,
+                  const TSyntax::Token &token) const override {
+    return previous.empty() && token.getText() == "samplecallback";
+  }
+  bool isFinished(const std::vector<TSyntax::Token> &,
+                  const TSyntax::Token &) const override { return true; }
+  TSyntax::TokenType getTokenType(const std::vector<TSyntax::Token> &,
+                                  const TSyntax::Token &) const override {
+    return TSyntax::Variable;
+  }
+  void createNode(TSyntax::Calculator *calculator,
+                  std::vector<TSyntax::CalculatorNode *> &stack,
+                  const std::vector<TSyntax::Token> &) const override {
+    stack.push_back(new SampleCallbackNode(calculator, m_callback));
+  }
+};
+
+void checkedNativeEvaluation(const QString &directory) {
+  TXsheet sheet;
+  auto *object = sheet.getStageObject(TStageObjectId::ColumnId(0));
+  auto *source = object->getParam(TStageObject::T_X);
+  source->setMeasureName("");
+  auto consumer = curve({{0, 0}, {4, 0}});
+  consumer->setGrammar(sheet.getStageObjectTree()->getGrammar());
+  auto expression = [](TDoubleParam *parameter, const std::string &text) {
+    parameter->clearKeyframes();
+    TDoubleKeyframe first(0, 0), last(4, 0);
+    first.m_type = TDoubleKeyframe::Expression;
+    first.m_expressionText = text;
+    parameter->setKeyframe(first);
+    parameter->setKeyframe(last);
+  };
+  TUndoManager::manager()->reset();
+  for (const auto &invalid : {std::string("sin("),
+           TExpression::makeSeExprText("unknown_function(frame)")}) {
+    expression(source, invalid);
+    for (const auto &reference : {std::string("col1.x+7"),
+             TExpression::makeSeExprText("channel(\"col1.x\")+7")}) {
+      expression(consumer.getPointer(), reference);
+      // Warm the native calculator/SeExpr caches through the safe GUI path.
+      require(std::isfinite(consumer->getValue(1)), "GUI fallback became unsafe");
+      const auto before = TDoubleParamP(new TDoubleParam(*source));
+      const auto consumerBefore = TDoubleParamP(new TDoubleParam(*consumer));
+      for (int repeat = 0; repeat < 2; ++repeat) {
+        double value = 12345;
+        std::string error;
+        require(!consumer->getValueChecked(1, value, error) && !error.empty() &&
+                    value == 12345, "cached invalid dependency passed checked sampling");
+        require(!Ops::planBake({consumer}, {0, 4, 1}).valid(),
+                "bake accepted a referenced expression's finite fallback");
+      }
+      require(Ops::matchesSnapshot(source, before.getPointer()) &&
+                  Ops::matchesSnapshot(consumer.getPointer(), consumerBefore.getPointer()) &&
+                  TUndoManager::manager()->getHistoryCount() == 0,
+              "failed checked sampling changed sources or undo history");
+      require(std::isfinite(consumer->getValue(1)), "checked scope leaked into GUI evaluation");
+    }
+  }
+  for (const auto &runtime : {std::string("1/(f-3)"),
+           TExpression::makeSeExprText("1/(frame-3)")}) {
+    expression(source, runtime);
+    expression(consumer.getPointer(),
+               TExpression::makeSeExprText("channel(\"col1.x\",frame+1)+7"));
+    double value = 0;
+    std::string error;
+    require(consumer->getValueChecked(0, value, error), "valid shifted dependency failed");
+    requireNear(value, 6);
+    require(!consumer->getValueChecked(1, value, error) && !error.empty(),
+            "runtime failure at referenced shifted frame was accepted");
+    require(consumer->getValueChecked(2, value, error) && error.empty(),
+            "checked evaluation did not recover after a runtime error");
+    requireNear(value, 8);
+  }
+  expression(source, "f*2");
+  expression(consumer.getPointer(), "col1.x(f+1)+7");
+  auto valid = Ops::planBake({consumer}, {0, 4, 1});
+  require(valid.valid(), qPrintable(valid.error));
+  for (int frame = 0; frame <= 4; ++frame)
+    requireNear(valid.changes.front().after->getValue(frame),
+                2 * (std::min(frame + 1, 4) + 1) + 7);
+
+  // Checked evaluation resolves display units without authoring a previously
+  // empty key unit name, including inside a live referenced stage channel.
+  source->setMeasureName("function_test_affine");
+  const auto unitBefore = TDoubleParamP(new TDoubleParam(*source));
+  double sampled = 0;
+  std::string error;
+  require(consumer->getValueChecked(1, sampled, error), "unit-aware reference failed");
+  require(Ops::matchesSnapshot(source, unitBefore.getPointer()),
+          "checked reference authored a key's unit metadata");
+  source->setMeasureName("");
+
+  object->insertOffsetLayer(0, object->createOffsetLayer(L"Checked offset"));
+  auto *offset = object->getOffsetParam(0, TStageObject::T_X);
+  expression(offset, "sin(");
+  require(!consumer->getValueChecked(1, sampled, error),
+          "invalid native offset-layer dependency was accepted");
+  offset->clearKeyframes();
+  expression(consumer.getPointer(), "f*2");
+  consumer->enableCycle(true);
+  require(consumer->getValueChecked(6, sampled, error), "valid native cycle was rejected");
+  requireNear(sampled, 6);
+  consumer->enableCycle(false);
+  auto similar = consumer->getKeyframe(0);
+  similar.m_type = TDoubleKeyframe::SimilarShape;
+  similar.m_expressionText = "f*f";
+  similar.m_similarShapeOffset = .25;
+  consumer->setKeyframe(0, similar);
+  auto similarEnd = consumer->getKeyframe(1);
+  similarEnd.m_value = 10;
+  consumer->setKeyframe(1, similarEnd);
+  const double nativeSimilar = consumer->getValue(1.5);
+  require(consumer->getValueChecked(1.5, sampled, error), "valid Similar Shape was rejected");
+  requireNear(sampled, nativeSimilar);
+  similar.m_expressionText = TExpression::makeSeExprText("1/(frame-3)");
+  similar.m_similarShapeOffset = 2;
+  consumer->setKeyframe(0, similar);
+  require(!consumer->getValueChecked(1.5, sampled, error),
+          "Similar Shape endpoint failure was accepted");
+
+  std::function<double()> callback;
+  TSyntax::Grammar grammar;
+  grammar.addPattern(new SampleCallbackPattern(&callback));
+  auto outer = curve({{0, 0}, {4, 0}});
+  outer->setGrammar(&grammar);
+  expression(outer.getPointer(), "samplecallback");
+  expression(source, "sin(");
+  callback = [&]() {
+    double nested = 91;
+    std::string nestedError;
+    require(!source->getValueChecked(1, nested, nestedError), "nested invalid sample passed");
+    auto numeric = curve({{0, 2}, {4, 6}});
+    require(numeric->getValueChecked(1, nested, nestedError), "nested valid sample failed");
+    return 42.0;  // Caller intentionally ignores the inner error.
+  };
+  require(!outer->getValueChecked(1, sampled, error), "nested success erased outer sticky failure");
+  requireNear(outer->getValue(1), 42);  // No enclosing checked scope here.
+  callback = []() -> double { throw std::runtime_error("fixture sample failure"); };
+  require(!outer->getValueChecked(1, sampled, error), "sample exception was accepted");
+  callback = [] { return 19.0; };
+  require(outer->getValueChecked(1, sampled, error) && error.empty(),
+          "exception or nested scope leaked failure state");
+  requireNear(sampled, 19);
+  TMeasureManager::instance()->add(new TMeasure("checked_empty_exception",
+      new TUnit(L"emptyexception", new EmptyThrowingConverter)));
+  outer->setMeasureName("checked_empty_exception");
+  sampled = 12345;
+  require(!outer->getValueChecked(1, sampled, error) && !error.empty() && sampled == 12345,
+          "empty conversion exception was reported as a successful zero sample");
+  outer->setMeasureName("");
+  callback = [] {
+    // A different renderer/host can report a failure concurrently. Its global
+    // diagnostic counter must not poison this successful thread-local sample.
+    std::thread unrelated([] { TSeExpr::reportFailure(); });
+    unrelated.join();
+    return 19.0;
+  };
+  require(Ops::planBake({outer}, {0, 4, 1}).valid(),
+          "unrelated worker failure rejected valid bake samples");
+  require(Ops::planReduce({all(outer)}, {0, 4, 1}, 0).valid(),
+          "unrelated worker failure rejected valid reduction samples");
+
+  const QString path = directory + "/checked-data.txt";
+  auto fileCurve = curve({{0, 0}, {4, 0}});
+  fileCurve->setDefaultValue(23);
+  auto data = fileCurve->getKeyframe(0);
+  data.m_type = TDoubleKeyframe::File;
+  data.m_fileParams.m_path = TFilePath(path.toStdWString());
+  data.m_fileParams.m_fieldIndex = 1;
+  auto writeData = [&](const QByteArray &bytes) {
+    QFile file(path);
+    require(file.open(QIODevice::WriteOnly | QIODevice::Truncate), "cannot create data fixture");
+    require(file.write(bytes) == bytes.size(), "cannot write data fixture");
+    file.close();
+    fileCurve->setKeyframe(0, data);
+  };
+  writeData("# sample table\r\n0,2\r\n1,5\r\n");
+  require(fileCurve->getValueChecked(1, sampled, error), "valid file sample failed");
+  requireNear(sampled, 5);
+  require(fileCurve->getValueChecked(4, sampled, error), "native file default extrapolation was rejected");
+  requireNear(sampled, 23);
+  for (const QByteArray &bad : {QByteArray("0,2\n1\n"), QByteArray("0,2\nbad\n"),
+                               QByteArray("0,2\n1,1.0e+\n"), QByteArray("0,2\n1,1.0e\n"),
+                               QByteArray("0,2\n1,1.0e999\n"), QByteArray()}) {
+    writeData(bad);
+    if (bad.contains("bad"))
+      requireNear(fileCurve->getValue(1), 0);  // Keep unscoped legacy fallback.
+    else if (bad.endsWith("e+\n") || bad.endsWith("e\n"))
+      requireNear(fileCurve->getValue(1), 1);  // Preserve legacy prefix parsing.
+    for (int repeat = 0; repeat < 2; ++repeat)
+      require(!fileCurve->getValueChecked(0, sampled, error) && !error.empty(),
+              "malformed or cached partially-read file was accepted");
+  }
+  writeData("0,2\n1,5\n");
+  require(fileCurve->getValueChecked(0, sampled, error), "corrected file did not recover");
+  data.m_fileParams.m_fieldIndex = -1;
+  fileCurve->setKeyframe(0, data);
+  require(!fileCurve->getValueChecked(0, sampled, error), "invalid file field was accepted");
+  data.m_fileParams.m_fieldIndex = 1;
+  fileCurve->setKeyframe(0, data);
+  require(QFile::remove(path), "cannot remove missing-file fixture");
+  require(!fileCurve->getValueChecked(0, sampled, error), "missing cached file was accepted");
+  TUndoManager::manager()->reset();
+}
+
 void reductionOracleAndPreservedBoundaries() {
   auto value = curve({{0, 0}, {1, 1}, {2, 2}, {3, 3}, {4, 4}, {5, 4}, {6, 4}, {7, 9}});
   auto key = value->getKeyframe(4);
@@ -537,6 +769,7 @@ int main(int argc, char **argv) {
     timingAndDrivenKeys();
     targetRangeTiming(temporary.path());
     bakeSamplesCancellationAndFailures();
+    checkedNativeEvaluation(temporary.path());
     reductionOracleAndPreservedBoundaries();
     presetAndBreakdown();
     identityAndPersistence(temporary.path());

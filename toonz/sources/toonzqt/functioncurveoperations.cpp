@@ -3,19 +3,15 @@
 #include "toonz/doubleparamcmd.h"
 
 #include "tdoublekeyframe.h"
-#include "texpression.h"
-#include "tseexpr.h"
 #include "tundo.h"
 #include "tunit.h"
 
 #include <QObject>
 #include <QCoreApplication>
-#include <QFileInfo>
 #include <algorithm>
 #include <cmath>
 #include <limits>
 #include <map>
-#include <memory>
 #include <stdexcept>
 #include <utility>
 
@@ -236,82 +232,6 @@ Plan timePlan(const std::vector<Selection> &input, double pivot, double scale,
   });
 }
 
-// TDoubleParam::getValue deliberately uses a safe fallback for invalid SeExpr
-// during GUI painting. A bake must reject that failure instead of keying the
-// fallback. Validate and evaluate the expressions independently with the same
-// owner, grammar, units and native segment coordinates before using getValue.
-bool validateExpressions(TDoubleParam *curve, double frame, QString &error,
-                         std::map<int, std::unique_ptr<TExpression>> &cache) {
-  const int count = curve->getKeyframeCount();
-  if (count < 2) return true;
-  double sample = frame;
-  const double first = curve->keyframeIndexToFrame(0);
-  const double last = curve->keyframeIndexToFrame(count - 1);
-  if (sample < first) sample = first;
-  if (curve->isCycleEnabled() && sample >= last && last > first)
-    sample = first + std::fmod(sample - first, last - first);
-  else if (sample > last)
-    sample = last;
-  int index = curve->getPrevKeyframe(sample);
-  if (curve->isKeyframe(sample)) ++index;
-  index = std::max(0, std::min(index, count - 2));
-  const auto &key = curve->getKeyframe(index);
-  if (key.m_type == TDoubleKeyframe::File) {
-    QFileInfo file(key.m_fileParams.m_path.getQString());
-    if (!file.isFile() || !file.isReadable() || key.m_fileParams.m_fieldIndex < 0) {
-      error = message("The sampled file channel has no readable data file or valid field.");
-      return false;
-    }
-    return true;
-  }
-  if (key.m_type != TDoubleKeyframe::Expression &&
-      key.m_type != TDoubleKeyframe::SimilarShape)
-    return true;
-  auto &cached = cache[index];
-  if (!cached) {
-    cached = std::make_unique<TExpression>();
-    cached->setGrammar(curve->getGrammar());
-    cached->setOwnerParameter(curve);
-    cached->setText(key.m_expressionText);
-  }
-  TExpression &expression = *cached;
-  if (!expression.isValid()) {
-    error = message("An expression cannot be baked: %1")
-                .arg(QString::fromStdString(expression.getError()));
-    return false;
-  }
-  const TMeasure *measure = curve->getMeasure();
-  const TUnit *evaluationUnit = measure && !key.m_unitName.empty()
-                                   ? measure->getUnit(QString::fromStdString(key.m_unitName)
-                                                          .toStdWString())
-                                   : nullptr;
-  if (!evaluationUnit) evaluationUnit = unit(curve);
-  const double end = curve->keyframeIndexToFrame(index + 1);
-  if (key.m_type == TDoubleKeyframe::SimilarShape)
-    sample += key.m_similarShapeOffset;
-  const double t = (sample - key.m_frame) / (end - key.m_frame);
-  double value = 0;
-  if (!expression.evaluate(t, sample + 1, sample - key.m_frame + 1,
-                           evaluationUnit, value) || !std::isfinite(value)) {
-    error = message("Expression evaluation failed at frame %1: %2")
-                .arg(sample + 1)
-                .arg(QString::fromStdString(expression.getError()));
-    return false;
-  }
-  if (key.m_type == TDoubleKeyframe::SimilarShape) {
-    for (double endpoint : {key.m_frame + key.m_similarShapeOffset,
-                             end + key.m_similarShapeOffset}) {
-      if (!expression.evaluate((endpoint - key.m_frame) / (end - key.m_frame), endpoint + 1,
-                               endpoint - key.m_frame + 1, evaluationUnit, value) ||
-          !std::isfinite(value)) {
-        error = message("A Similar Shape endpoint cannot be evaluated.");
-        return false;
-      }
-    }
-  }
-  return true;
-}
-
 class CurveUndo final : public TUndo {
   std::vector<Change> m_changes;
   QString m_history;
@@ -528,7 +448,6 @@ static Plan buildBake(const std::vector<TDoubleParamP> &input, const Range &rang
     }
     Change change = snapshot(curve.getPointer());
     TDoubleParamP evaluation = new TDoubleParam(*curve);
-    std::map<int, std::unique_ptr<TExpression>> expressions;
     const int count = curve->getKeyframeCount();
     if (count) {
       const double first = curve->keyframeIndexToFrame(0);
@@ -546,15 +465,11 @@ static Plan buildBake(const std::vector<TDoubleParamP> &input, const Range &rang
     std::vector<TDoubleKeyframe> baked;
     for (double frame : frames) {
       if (cancelled(plan, cancel)) return plan;
-      QString error;
-      const auto failures = TSeExpr::failureCount();
-      if (!validateExpressions(evaluation.getPointer(), frame, error, expressions)) {
-        fail(plan, error);
-        return plan;
-      }
-      const double value = evaluation->getValue(frame);
-      if (TSeExpr::failureCount() != failures) {
-        fail(plan, message("A referenced expression failed during sampling. Its fallback value was not baked."));
+      std::string error;
+      double value = 0;
+      if (!evaluation->getValueChecked(frame, value, error)) {
+        fail(plan, message("A sample at frame %1 failed: %2")
+                       .arg(frame + 1).arg(QString::fromStdString(error)));
         return plan;
       }
       if (!validValue(curve.getPointer(), value)) {
@@ -696,18 +611,19 @@ static Plan buildReduce(const std::vector<Selection> &input, const Range &range,
       fail(plan, message("The reduction exceeds one million validation samples. Select fewer channels."));
       return plan;
     }
-    std::map<int, std::unique_ptr<TExpression>> expressions;
     for (double frame : oracle) {
       if (cancelled(plan, cancel)) return plan;
-      const auto failures = TSeExpr::failureCount();
-      QString errorText;
-      if (!validateExpressions(source, frame, errorText, expressions)) {
-        fail(plan, errorText);
+      std::string errorText;
+      double beforeValue = 0, afterValue = 0;
+      if (!source->getValueChecked(frame, beforeValue, errorText) ||
+          !change.after->getValueChecked(frame, afterValue, errorText)) {
+        fail(plan, message("A sample at frame %1 failed: %2")
+                       .arg(frame + 1).arg(QString::fromStdString(errorText)));
         return plan;
       }
-      const double error = std::abs(displayValue(source, source->getValue(frame)) -
-                                    displayValue(source, change.after->getValue(frame)));
-      if (TSeExpr::failureCount() != failures || !std::isfinite(error) || error > tolerance) {
+      const double error = std::abs(displayValue(source, beforeValue) -
+                                    displayValue(source, afterValue));
+      if (!std::isfinite(error) || error > tolerance) {
         fail(plan, message("The reduced curve exceeds the requested error tolerance. No keys were changed."));
         return plan;
       }
