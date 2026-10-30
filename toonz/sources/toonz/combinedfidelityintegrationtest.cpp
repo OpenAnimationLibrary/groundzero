@@ -246,6 +246,8 @@ void runCombinedFidelityIntegrationTest(QMainWindow *) {
   level->setMorphHints(MorphHints::encode(QJsonArray{hint}));
   require(sheet->setCell(0, 0, TXshCell(level, TFrameId(1))), "Cannot expose fidelity fixture");
   auto *curve = sheet->getStageObject(TStageObjectId::ColumnId(0))->getParam(TStageObject::T_X);
+  require(curve->getKeyframeCount() == 0 && curve->getDefaultValue() == 0.0,
+          "Fidelity identity fixture must start with an unkeyed zero-valued channel");
   curve->setWorkspaceId("combined-fidelity-channel");
   const TFilePath levelPath(output.filePath("drawing.pli"));
   // The level is newly authored in memory. The default setPath behavior
@@ -295,8 +297,11 @@ void runCombinedFidelityIntegrationTest(QMainWindow *) {
             "Combined save/reload lost Cast metadata or morph hints");
     TVectorImageP image = restored->getFrame(TFrameId(1), false);
     require(image && image->getStroke(0)->getOpacityProfile() == profile, "Combined reload lost native opacity profile");
-    require(loaded.getXsheet()->getStageObject(TStageObjectId::ColumnId(0))->getParam(TStageObject::T_X)->getWorkspaceId() == "combined-fidelity-channel",
+    auto *restoredCurve = loaded.getXsheet()->getStageObject(TStageObjectId::ColumnId(0))->getParam(TStageObject::T_X);
+    require(restoredCurve->getWorkspaceId() == "combined-fidelity-channel",
             "Combined reload lost stable Function Editor identity");
+    require(restoredCurve->getKeyframeCount() == 0 && restoredCurve->getDefaultValue() == 0.0,
+            "Preserving a channel identity changed its unkeyed animation value");
   }
   auto *child = scene->createNewLevel(CHILD_XSHLEVEL, L"FidelityNested")->getChildLevel();
   child->getXsheet()->setCell(0, 0, TXshCell(level, TFrameId(1)));
