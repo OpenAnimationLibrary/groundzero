@@ -7,6 +7,11 @@ def escape(value):
     return value.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
 
 
+# CI redirects stdout on Windows, where its default encoding can be cp1252.
+# Preserve Unicode diagnostics in the UTF-8 annotation consumed by GitHub.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="backslashreplace")
+
 report = pathlib.Path(sys.argv[1])
 title = sys.argv[2] if len(sys.argv) > 2 else "Native UI regression"
 annotation = "::error title=" + escape(title).replace(",", "%2C") + "::"
