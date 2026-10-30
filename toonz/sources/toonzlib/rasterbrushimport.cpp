@@ -363,6 +363,20 @@ bool eligibleFixedSource(const QMap<QString, QString> &fields,
     for (const QString &key :
          {"ColorRateUseCurve", "SmudgeRateUseCurve", "SmudgeRadiusUseCurve"})
       required[key] = "false";
+    for (const QString &prefix : {"SmudgeRate", "ColorRate"}) {
+      if (fields.value(prefix + "UseCurve") != "true") continue;
+      const Dynamic &control = prefix == "SmudgeRate" ? preset.pickupControl
+                                                      : preset.colorRateControl;
+      if (fields.value("Pressure" + prefix) != "true" ||
+          control.mappings.size() != 1)
+        return false;
+      required[prefix + "UseCurve"]     = "true";
+      required[prefix + "UseSameCurve"] = "true";
+      required[prefix + "commonCurve"]  = "0,0;1,1;";
+      required[prefix + "Sensor"]       = fields.value(prefix + "Sensor");
+      if (fields.contains(prefix + "curveMode"))
+        required[prefix + "curveMode"] = "0";
+    }
     required["SmudgeRadiusValue"] = "0";
     if (preset.wet == Wet::Smear) {
       // The public K5341 manual defines radius as Dulling-only. Retain the
@@ -448,10 +462,18 @@ bool eligibleFixedSource(const QMap<QString, QString> &fields,
       exact.remove("vfade");
       variable << "hfade" << "vfade";
     }
-    for (auto i = exact.begin(); i != exact.end(); ++i)
-      if (!attributes.hasAttribute(i.key()) ||
-          attributes.value(i.key()) != i.value())
+    const QSet<QString> numericAttributes = {
+        "angle", "ratio", "hfade", "vfade", "randomness", "density", "spikes"};
+    for (auto i = exact.begin(); i != exact.end(); ++i) {
+      if (!attributes.hasAttribute(i.key())) return false;
+      if (numericAttributes.contains(i.key())) {
+        bool ok            = false;
+        const double value = attributes.value(i.key()).toDouble(&ok);
+        if (!ok || !std::isfinite(value) || value != i.value().toDouble())
+          return false;
+      } else if (attributes.value(i.key()) != i.value())
         return false;
+    }
     for (const QString &name : variable)
       if (!attributes.hasAttribute(name)) return false;
     for (const auto &attribute : attributes)

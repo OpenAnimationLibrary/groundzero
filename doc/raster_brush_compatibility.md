@@ -603,3 +603,49 @@ counterclockwise in raster coordinates. Negating the imported angle yields
 zero differing alpha pixels for all four formerly failing 45-degree ellipse
 masks; the next source CI run qualifies this adapter change end to end. Native
 angle semantics remain unchanged.
+
+The four wet source candidates now evaluate explicit identity pressure curves
+for smudge strength and color rate at each dab, before the model-specific
+mixing equation. Import eligibility requires the active flag, an explicit
+single pressure sensor, identity endpoints, and a successfully decoded mapping;
+unknown/nonlinear/multiple sensors remain native conversions. Portable round-trip
+checks preserve both controls. A 48-case source matrix covers each control and
+both together at pressure 0/.25/.75/1 over three dabs. This new behavior is pending
+reference qualification and does not change source-verified labels.
+
+Nonzero Dulling radius is not inferred from the radius-zero equation. The
+heterogeneous three-dab observations distinguish legacy and new sampling areas.
+An original 48-case black/white column-impulse acquisition isolates the initial
+pickup kernel at radius 0/50/100/300 and offsets 0/4/8/16/24/48, using an opaque
+source and transparent second-dab destination. These are measurements, not
+parity gates, until the independent kernel is established and implemented.
+
+Linux worker isolation implementation now requires Landlock ABI 3 before
+parsing and grants only read access to the selected input and read/write access
+to the private result directory. PNG codecs are initialized before the boundary;
+a syscall allowlist then denies networking, executable loading, process creation,
+ptrace and cross-process memory access. Failure to establish the boundary fails
+the import explicitly, rather than silently decoding with ambient privileges.
+Original child-process tests attempt unrelated-file read/write, socket creation,
+clone and exec, then verify the private output and unchanged unrelated file.
+These checks and successful worker imports are pending CI. Other platforms still
+need equivalent privilege isolation; CPU/time/allocation limits alone do not
+satisfy it. Architecture references: [Landlock](https://docs.kernel.org/userspace-api/landlock.html)
+and [seccomp](https://docs.kernel.org/userspace-api/seccomp_filter.html).
+
+### Full-contract integration audit (implementation continues)
+
+| Requirement | Current runtime/import path | Remaining acceptance work |
+|---|---|---|
+| Native combined resource/dynamics workflows | Embedded primary tip + texture + dry dual mask/wash/multiply, or native Dulling + pressure pickup; pressure/tilt/rotation controls | New real-application export/reload/install/paint/undo/redo/cancel/PNG tests pending CI; this proves native combinations only |
+| Four source wet workflows | Strict KPP candidate selection, worker import, portable install, actual tool transactions; fixed controls passed | Pressure-controlled variants now added to the same application transaction suite; nonzero radius and broader geometry/dynamics/texture still need source implementation |
+| K5341 Pixel masks and placement | Hard circle/ellipse, default circle and rectangle candidate equations, versioned import | Corrected rotation and AA size qualification; soft-size, rectangle, wash/flow and near-zero pressure failures remain under investigation |
+| Source dynamics | Identity size pressure and wet strength/color pressure candidate mappings | Other sensors, declared cubic interpolation, combinations, scatter/spacing/color dynamics and timed airbrush need source-specific adapters/qualification |
+| Source resources and blending | PNG/GBR/GIH decoding and native conversion; source strict candidates currently generated tips | Bitmap/color/GIH source sampling, texture/dual masks and required source blend combinations are not completed by native support |
+| Modern Photoshop ABR | Bounded typed descriptor decoder, sampled IDs, native tip conversion | Descriptor-to-resource association, pattern decoding and behavioral adapters remain; Photoshop runtime reference access unavailable |
+| Safe decoder boundary | Shared pre-allocation budgets, bounded package protocol, cancellation/time limits; Linux Landlock/seccomp implementation | Linux denied-access plus successful-import CI pending; Windows/macOS privilege boundaries remain to implement |
+| Tablet portability | Host pressure/tilt/rotation normalization and actual tool tests | Physical-device and platform input qualification still required; synthetic events do not prove hardware behavior |
+| Persistence | Exact application undo/cancel and native/wet PNG round trips; scene/level save/reopen | New combined-presets and pressure-wet lifecycle tests pending CI, plus platform packaging qualification |
+
+This audit preserves the full RCP1 target. A native conversion, isolated numerical
+fixture, or green decoder job does not complete a missing foreign-profile row.

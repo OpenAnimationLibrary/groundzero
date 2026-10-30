@@ -2,12 +2,14 @@
 #include "rasterbrushfixture.h"
 #include "toonz/rasterbrushimport.h"
 #include <QCoreApplication>
+#include <QProcess>
 #include <QTemporaryDir>
 #include <QThread>
 #include <QElapsedTimer>
 #include <QJsonDocument>
 #include <QJsonArray>
 #include <QFile>
+#include <QFileInfo>
 #include <QDir>
 #include <QImage>
 #include <QBuffer>
@@ -18,6 +20,11 @@
 #include <iostream>
 #include <cmath>
 #include <stdexcept>
+#if defined(__linux__) && defined(RASTERBRUSH_SANDBOX_TESTING)
+namespace RasterBrush {
+int probeImportSandbox(const QString &, const QString &, const QString &);
+}
+#endif
 using namespace RasterBrush;
 using RasterBrushTest::hardPixelKpp;
 namespace {
@@ -324,6 +331,12 @@ void testImports() {
     require(!importBrush(computedAbr(version, 0), "abr", error).complete,
             "unimplemented zero spacing was silently approximated");
   }
+  auto numericSpelling =
+      importBrush(hardPixelKpp("numericSpelling"), "kpp", error);
+  require(numericSpelling.complete &&
+              numericSpelling.records.front().preset.profile ==
+                  "krita-5.3.4.1-hard-pixel-candidate-1",
+          "equivalent numeric XML spelling changed source eligibility");
   auto hard = importBrush(hardPixelKpp(), "kpp", error);
   require(hard.complete && hard.records.size() == 1, qPrintable(error));
   const auto &hardRecord = hard.records.front();
@@ -408,6 +421,17 @@ void testImports() {
     require(error.isEmpty() && restored.preset.profile == expected &&
                 !restored.provenance["sourceReferenceVerified"].toBool(),
             "wet candidate portable qualification mismatch");
+    auto pressure =
+        importBrush(hardPixelKpp("wetPressure", model), "kpp", error);
+    require(pressure.complete &&
+                pressure.records.front().preset.profile == expected,
+            "linear wet pressure controls lost strict eligibility");
+    auto pressureRoundTrip =
+        decode(encode(pressure.records.front(), error), error);
+    require(error.isEmpty() &&
+                pressureRoundTrip.preset.pickupControl.mappings.size() == 1 &&
+                pressureRoundTrip.preset.colorRateControl.mappings.size() == 1,
+            "wet pressure controls lost portable round trip");
     for (const QString &mutation : {"alphaOff", "lengthOff"}) {
       auto flags = importBrush(hardPixelKpp(mutation, model), "kpp", error);
       require(flags.complete &&
@@ -747,6 +771,31 @@ void testWorkerPeakBudget() {
 #endif
 }
 void testWorkerProcess() {
+#if defined(__linux__) && defined(RASTERBRUSH_SANDBOX_TESTING)
+  {
+    QTemporaryDir root, output;
+    require(root.isValid() && output.isValid(), "sandbox fixture unavailable");
+    QFile input(root.filePath("input")), forbidden(root.filePath("private"));
+    require(input.open(QIODevice::WriteOnly) && input.write("allowed") == 7 &&
+                forbidden.open(QIODevice::WriteOnly) &&
+                forbidden.write("private") == 7,
+            "sandbox fixture write failed");
+    input.close();
+    forbidden.close();
+    QProcess process;
+    process.start(QCoreApplication::applicationFilePath(),
+                  {"--test-sandbox-worker", input.fileName(), output.path(),
+                   forbidden.fileName()});
+    require(process.waitForFinished(10000) &&
+                process.exitStatus() == QProcess::NormalExit &&
+                process.exitCode() == 0 &&
+                QFileInfo::exists(output.filePath("sandbox-passed")),
+            "Linux sandbox did not enforce file/network/process isolation");
+    require(
+        forbidden.open(QIODevice::ReadOnly) && forbidden.readAll() == "private",
+        "sandbox modified an unrelated file");
+  }
+#endif
   QTemporaryDir directory;
   require(directory.isValid(), "worker fixture directory unavailable");
   QString input = directory.filePath(
@@ -870,6 +919,11 @@ void writeCorpus(const QString &directory) {
 }  // namespace
 int main(int argc, char **argv) {
   QCoreApplication app(argc, argv);
+#if defined(__linux__) && defined(RASTERBRUSH_SANDBOX_TESTING)
+  if (argc == 5 && app.arguments().at(1) == "--test-sandbox-worker")
+    return probeImportSandbox(app.arguments().at(2), app.arguments().at(3),
+                              app.arguments().at(4));
+#endif
   if (argc == 4 &&
       QString::fromLocal8Bit(argv[1]) == "--raster-brush-import-worker") {
     if (app.arguments().at(2).endsWith("oversized-worker.fixture"))

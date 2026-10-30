@@ -293,6 +293,15 @@ int main(int argc, char **argv) {
             initial.setPixel(x, y,
                              (x / 2) % 2 == 0 ? qRgba(255, 0, 0, 128)
                                               : qRgba(255, 255, 0, 255));
+      if (source["wetPattern"].toString() == "opaque-black-white-column")
+        for (int y = 0; y < initial.height(); ++y)
+          for (int x = 0; x < initial.width(); ++x)
+            initial.setPixel(x, y,
+                             x >= source["wetBoundary"].toDouble(416)
+                                 ? qRgba(0, 0, 0, 0)
+                             : x == 256 + source["wetKernelOffset"].toInt()
+                                 ? qRgba(255, 255, 255, 255)
+                                 : qRgba(0, 0, 0, 255));
       if (source.contains("wetThirdBoundary")) {
         const auto c = source["wetThirdRGBA8"].toArray();
         for (int y = 0; y < initial.height(); ++y)
@@ -335,17 +344,19 @@ int main(int argc, char **argv) {
             fixtures["group"].toString() == "pixelaarange") &&
            p.tip.antialiasEdges && source["diameter"].toDouble() >= 16);
       if (sourceSoft)
-        require(
-            p.profile == (p.tip.shape == Shape::Square
-                              ? "krita-5.3.4.1-default-rect-candidate-1"
-                              : "krita-5.3.4.1-default-circle-candidate-1"),
-            "Strict source default-mask eligibility did not select candidate");
+        require(p.profile == (p.tip.shape == Shape::Square
+                                  ? "krita-5.3.4.1-default-rect-candidate-1"
+                                  : "krita-5.3.4.1-default-circle-candidate-1"),
+                "Strict source default-mask eligibility did not select "
+                "candidate: " +
+                    name);
       const bool sourceWet =
           (fixtures["group"].toString() == "wetsteps" ||
            fixtures["group"].toString() == "wethold" ||
            fixtures["group"].toString() == "wetstate" ||
            fixtures["group"].toString() == "wetswitches" ||
            fixtures["group"].toString() == "wetcombined" ||
+           fixtures["group"].toString() == "wetpressure" ||
            ((fixtures["group"].toString() == "wettexture" ||
              fixtures["group"].toString() == "wettexture3") &&
             (name.contains(" smear ") ||

@@ -234,64 +234,160 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
     }
     checkpoint("qualifying source wet stroke transactions and persistence");
     for (const QString &model :
-         {"legacy-smear", "legacy-dulling", "new-smear", "new-dulling"}) {
-      const QString sourcePath =
-          QDir::current().filePath("original-source-" + model + ".kpp");
-      QFile sourceFile(sourcePath);
-      const QByteArray sourceBytes = RasterBrushTest::hardPixelKpp({}, model);
-      require(sourceFile.open(QIODevice::WriteOnly) &&
-                  sourceFile.write(sourceBytes) == sourceBytes.size(),
-              "cannot write original KPP transaction fixture");
-      sourceFile.close();
-      const auto sourceImport = RasterBrush::importBrushProcess(
-          QCoreApplication::applicationFilePath(), sourcePath, importError);
-      require(importError.isEmpty() && sourceImport.complete &&
-                  sourceImport.records.size() == 1,
-              "packaged application KPP import failed");
-      auto fixture = sourceImport.records.front();
-      require(fixture.preset.profile ==
-                      "krita-5.3.4.1-" + model.toStdString() + "-candidate-1" &&
-                  !fixture.provenance["sourceReferenceVerified"].toBool(),
-              "KPP worker lost strict candidate identity or qualification");
-      fixture.preset.name =
-          "Original source transaction " + model.toStdString();
+         {"legacy-smear", "legacy-dulling", "new-smear", "new-dulling"})
+      for (const QString &variant : {QString(), QString("wetPressure")}) {
+        const QString label =
+            model + (variant.isEmpty() ? "-fixed" : "-pressure");
+        const QString sourcePath =
+            QDir::current().filePath("original-source-" + label + ".kpp");
+        QFile sourceFile(sourcePath);
+        const QByteArray sourceBytes =
+            RasterBrushTest::hardPixelKpp(variant, model);
+        require(sourceFile.open(QIODevice::WriteOnly) &&
+                    sourceFile.write(sourceBytes) == sourceBytes.size(),
+                "cannot write original KPP transaction fixture");
+        sourceFile.close();
+        const auto sourceImport = RasterBrush::importBrushProcess(
+            QCoreApplication::applicationFilePath(), sourcePath, importError);
+        require(importError.isEmpty() && sourceImport.complete &&
+                    sourceImport.records.size() == 1,
+                "packaged application KPP import failed");
+        auto fixture = sourceImport.records.front();
+        require(
+            fixture.preset.profile ==
+                    "krita-5.3.4.1-" + model.toStdString() + "-candidate-1" &&
+                !fixture.provenance["sourceReferenceVerified"].toBool(),
+            "KPP worker lost strict candidate identity or qualification");
+        fixture.preset.name =
+            "Original source transaction " + label.toStdString();
+        const QString folder =
+            ToonzFolder::getLibraryFolder().getQString() + "/rasterbrushes";
+        const QString path = RasterBrush::install(folder, fixture, importError);
+        require(!path.isEmpty() && importError.isEmpty(),
+                "cannot install source transaction fixture");
+        tool->onActivate();
+        property->setValue(QDir(folder).relativeFilePath(path).toStdWString());
+        require(tool->onPropertyChanged("Native Brush:"),
+                "cannot select source transaction fixture");
+        const TRaster32P baseline = raster(level, 1)->clone();
+        draw(tool, false);
+        const TRaster32P painted = raster(level, 1)->clone();
+        require(!same(baseline, painted) && undo->getHistoryCount() == 1,
+                "source wet stroke did not create one painted transaction");
+        require(undo->undo() && same(baseline, raster(level, 1)),
+                "source wet undo did not restore original pixels");
+        require(undo->redo() && same(painted, raster(level, 1)),
+                "source wet redo did not restore exact pixels");
+        const TFilePath output(
+            QDir::current().filePath("source-" + label + ".png"));
+        TImageWriter::save(output, TRasterP(painted));
+        TRasterP reopened;
+        require(TImageReader::load(output, reopened),
+                "source wet PNG could not reopen");
+        requireSame(
+            painted, TRaster32P(reopened),
+            "source wet save/reopen changed committed pixels: " + model);
+        require(undo->undo() && same(baseline, raster(level, 1)),
+                "source wet second undo failed");
+        undo->reset();
+        draw(tool, true);
+        require(
+            same(baseline, raster(level, 1)) && undo->getHistoryCount() == 0,
+            "cancelled source wet stroke left pixels or undo history");
+        draw(tool, false);
+        require(
+            same(painted, raster(level, 1)),
+            "source wet state leaked across completed or cancelled strokes");
+        require(undo->undo() && same(baseline, raster(level, 1)),
+                "repeated source wet undo failed");
+        undo->reset();
+      }
+    checkpoint("qualifying combined portable resources and native dynamics");
+    for (bool wet : {false, true}) {
+      RasterBrush::Record fixture;
+      auto mask   = std::make_shared<RasterBrush::Image>();
+      mask->width = mask->height = 4;
+      for (int i = 0; i < 16; ++i)
+        mask->pixels.push_back({0, 0, 0, (i + i / 4) % 2 ? .25 : 1});
+      auto &p = fixture.preset;
+      p.name =
+          wet ? "Original combined native wet" : "Original combined native dry";
+      p.tip.shape = RasterBrush::Shape::Bitmap;
+      p.tip.images.push_back(mask);
+      p.texture.image = mask;
+      p.texture.scale = 2;
+      p.texture.depth = .7;
+      p.size.value    = 24;
+      p.size.mappings.push_back(
+          {RasterBrush::Sensor::Pressure, {{0, .2}, {1, 1}}, 1});
+      p.aspect.value = .6;
+      p.angle.value  = 90;
+      p.angle.mappings.push_back(
+          {RasterBrush::Sensor::Rotation, {{0, 0}, {1, 1}}, 1});
+      p.opacity.value = .8;
+      p.opacity.mappings.push_back(
+          {RasterBrush::Sensor::TiltX, {{0, .3}, {1, 1}}, 1});
+      p.flow.value          = .3;
+      p.backgroundMix.value = .2;
+      p.wash                = !wet;
+      if (wet) {
+        p.wet = RasterBrush::Wet::Dulling;
+        p.pickupControl.mappings.push_back(
+            {RasterBrush::Sensor::Pressure, {{0, .2}, {1, 1}}, 1});
+      } else {
+        p.secondary.enabled       = true;
+        p.secondary.tip.shape     = RasterBrush::Shape::Square;
+        p.secondary.size.value    = .75;
+        p.secondary.opacity.value = .7;
+        p.blend                   = RasterBrush::Blend::Multiply;
+      }
+      // Export after editing, reload with all resources embedded, then install
+      // through the same portable record path used by the brush selector.
+      const QString exported = QDir::current().filePath(
+          wet ? "combined-wet.gzbrush" : "combined-dry.gzbrush");
+      require(RasterBrush::save(exported, fixture, importError),
+              "combined preset export failed");
+      fixture = RasterBrush::load(exported, importError);
+      require(importError.isEmpty() && fixture.preset.tip.images.size() == 1 &&
+                  fixture.preset.texture.image &&
+                  fixture.preset.secondary.enabled == !wet,
+              "combined preset lost embedded resources");
       const QString folder =
           ToonzFolder::getLibraryFolder().getQString() + "/rasterbrushes";
-      const QString path = RasterBrush::install(folder, fixture, importError);
-      require(!path.isEmpty() && importError.isEmpty(),
-              "cannot install source transaction fixture");
+      const QString installed =
+          RasterBrush::install(folder, fixture, importError);
+      require(!installed.isEmpty() && importError.isEmpty(),
+              "combined preset install failed");
       tool->onActivate();
-      property->setValue(QDir(folder).relativeFilePath(path).toStdWString());
+      property->setValue(
+          QDir(folder).relativeFilePath(installed).toStdWString());
       require(tool->onPropertyChanged("Native Brush:"),
-              "cannot select source transaction fixture");
+              "combined preset selection failed");
       const TRaster32P baseline = raster(level, 1)->clone();
-      draw(tool, false);
-      const TRaster32P painted = raster(level, 1)->clone();
-      require(!same(baseline, painted) && undo->getHistoryCount() == 1,
-              "source wet stroke did not create one painted transaction");
-      require(undo->undo() && same(baseline, raster(level, 1)),
-              "source wet undo did not restore original pixels");
-      require(undo->redo() && same(painted, raster(level, 1)),
-              "source wet redo did not restore exact pixels");
-      const TFilePath output(
-          QDir::current().filePath("source-" + model + ".png"));
-      TImageWriter::save(output, TRasterP(painted));
+      draw(tool, false, .8, .8, 1.5707963267948966);
+      const TRaster32P high = raster(level, 1)->clone();
+      require(!same(baseline, high) && undo->getHistoryCount() == 1 &&
+                  undo->undo() && same(baseline, raster(level, 1)) &&
+                  undo->redo() && same(high, raster(level, 1)),
+              "combined preset paint/undo/redo transaction failed");
+      const TFilePath output(QDir::current().filePath(
+          wet ? "combined-wet.png" : "combined-dry.png"));
+      TImageWriter::save(output, TRasterP(high));
       TRasterP reopened;
       require(TImageReader::load(output, reopened),
-              "source wet PNG could not reopen");
-      requireSame(painted, TRaster32P(reopened),
-                  "source wet save/reopen changed committed pixels: " + model);
+              "combined preset painted image did not reopen");
+      requireSame(high, TRaster32P(reopened), "combined preset PNG round trip");
       require(undo->undo() && same(baseline, raster(level, 1)),
-              "source wet second undo failed");
+              "combined preset restore failed");
       undo->reset();
-      draw(tool, true);
+      draw(tool, true, .8, .8, 1.5707963267948966);
       require(same(baseline, raster(level, 1)) && undo->getHistoryCount() == 0,
-              "cancelled source wet stroke left pixels or undo history");
-      draw(tool, false);
-      require(same(painted, raster(level, 1)),
-              "source wet state leaked across completed or cancelled strokes");
+              "combined preset cancellation left pixels or history");
+      draw(tool, false, .2, -.8, .4);
+      require(!same(high, raster(level, 1)),
+              "combined preset ignored changed tablet input");
       require(undo->undo() && same(baseline, raster(level, 1)),
-              "repeated source wet undo failed");
+              "combined preset low-input undo failed");
       undo->reset();
     }
     checkpoint("qualifying pressure, tilt and rotation through tool input");

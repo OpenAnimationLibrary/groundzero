@@ -770,6 +770,23 @@ void testSourceDefaultCircle() {
     require(!validate(p).empty(), "unqualified small-tip AA sampling accepted");
   }
 }
+void testSourceSmallCircle() {
+  Preset p;
+  p.profile            = "krita-5.3.4.1-default-circle-candidate-1";
+  p.size.value         = 7;
+  p.tip.hardness       = .25;
+  p.tip.antialiasEdges = false;
+  Canvas canvas;
+  Stroke stroke(canvas, p);
+  require(stroke.add(sample(64, 64, 0)), stroke.error().c_str());
+  stroke.finish();
+  // Original source-rendered D7 fade .25 pixels, translated from (256,1024).
+  const int captured[][3] = {
+      {61, 62, 22}, {64, 62, 222}, {62, 63, 177}, {63, 63, 244}};
+  for (const auto &pixel : captured)
+    require(std::abs(canvas.read(pixel[0], pixel[1]).a * 255 - pixel[2]) < 1e-9,
+            "small-circle fade or scalar quantization differs from source");
+}
 void testSourceHardCircleAA() {
   Preset p;
   p.profile            = "krita-5.3.4.1-default-circle-candidate-1";
@@ -848,6 +865,7 @@ int main() {
     testColorDynamics();
     testCubicCurves();
     testSourceDefaultCircle();
+    testSourceSmallCircle();
     testSourceHardCircleAA();
     testSourceRectangle();
     testSourceWetInitialization();

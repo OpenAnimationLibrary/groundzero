@@ -55,7 +55,17 @@ inline QByteArray hardPixelKpp(const QString &mutation = {},
                      : "true");
     for (const QString &key :
          {"ColorRateUseCurve", "SmudgeRateUseCurve", "SmudgeRadiusUseCurve"})
-      param(key, "false");
+      param(key, mutation == "wetPressure" && key != "SmudgeRadiusUseCurve"
+                     ? "true"
+                     : "false");
+    if (mutation == "wetPressure") {
+      for (const QString &prefix : {"SmudgeRate", "ColorRate"}) {
+        param(prefix + "UseSameCurve", "true");
+        param(prefix + "commonCurve", "0,0;1,1;");
+        param(prefix + "Sensor",
+              "<params id=\"pressure\"><curve>0,0;1,1;</curve></params>");
+      }
+    }
     param("SmudgeRateSmearAlpha", mutation == "alphaOff" ? "false" : "true");
     param("SmudgeRadiusValue", mutation == "radius" ? "1" : "0");
     param("SmudgeRateValue", "0.5");
@@ -81,6 +91,12 @@ inline QByteArray hardPixelKpp(const QString &mutation = {},
   if (mutation == "ellipse") {
     brush.replace("ratio=\"1\"", "ratio=\"0.5\"");
     brush.replace("angle=\"0\"", "angle=\"0.7853981633974483\"");
+  }
+  if (mutation == "numericSpelling") {
+    brush.replace("hfade=\"1\"", "hfade=\"1.0\"");
+    brush.replace("vfade=\"1\"", "vfade=\"1e0\"");
+    brush.replace("angle=\"0\"", "angle=\"-0.0\"");
+    brush.replace("ratio=\"1\"", "ratio=\"1.00\"");
   }
   param("brush_definition", brush);
   xml += "</Preset>";

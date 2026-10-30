@@ -217,6 +217,11 @@ class Probe(Extension):
                 if case.get("wetPattern") == "two-pixel-red-yellow":
                     boundary = math.ceil(case.get("wetBoundary", 336))
                     row = row[:boundary * 4] + b"".join(bytes((0, 0, 255, 128) if (x // 2) % 2 == 0 else (0, 255, 255, 255)) for x in range(boundary, w))
+                if case.get("wetPattern") == "opaque-black-white-column":
+                    boundary = math.ceil(case.get("wetBoundary", 416))
+                    column = 256 + case["wetKernelOffset"]
+                    row = b"".join(bytes((255, 255, 255, 255) if x == column else (0, 0, 0, 255))
+                                   for x in range(boundary)) + bytes((0, 0, 0, 0)) * (w - boundary)
                 if "wetThirdBoundary" in case:
                     third = case["wetThirdRGBA8"]
                     boundary = case["wetThirdBoundary"]

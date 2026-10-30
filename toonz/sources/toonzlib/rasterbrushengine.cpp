@@ -189,16 +189,16 @@ std::string validate(const Preset &p) {
   const bool sourceWet  = sourceWetProfile(p.profile);
   if (p.profile != "groundzero-native-1" && !sourceHard && !sourceWet)
     return "Unimplemented behavior profile: " + p.profile;
-  bool sourceLinearPressure = false;
-  if (sourceHard && p.size.minimum == 0 && p.size.mappings.size() == 1) {
-    const auto &mapping  = p.size.mappings.front();
-    sourceLinearPressure = mapping.sensor == Sensor::Pressure &&
-                           mapping.scale == 1 &&
-                           mapping.interpolation == Interpolation::Linear &&
-                           mapping.curve.size() == 2 &&
-                           mapping.curve[0].x == 0 && mapping.curve[0].y == 0 &&
-                           mapping.curve[1].x == 1 && mapping.curve[1].y == 1;
-  }
+  auto linearPressure = [](const Dynamic &value) {
+    if (value.minimum != 0 || value.mappings.size() != 1) return false;
+    const auto &mapping = value.mappings.front();
+    return mapping.sensor == Sensor::Pressure && mapping.scale == 1 &&
+           mapping.interpolation == Interpolation::Linear &&
+           mapping.curve.size() == 2 && mapping.curve[0].x == 0 &&
+           mapping.curve[0].y == 0 && mapping.curve[1].x == 1 &&
+           mapping.curve[1].y == 1;
+  };
+  const bool sourceLinearPressure = sourceHard && linearPressure(p.size);
   if (sourceHard || sourceWet) {
     auto fixed = [](const Dynamic &value, double expected) {
       return value.value == expected && value.mappings.empty();
@@ -232,9 +232,12 @@ std::string validate(const Preset &p) {
                      ? Wet::Dulling
                      : Wet::Smear) ||
        p.smudgeRadius != 0 || p.reload != 0 || p.pickupControl.value != 1 ||
-       !p.pickupControl.mappings.empty() || p.colorRateControl.value != 1 ||
-       !p.colorRateControl.mappings.empty() || p.radiusControl.value != 1 ||
-       !p.radiusControl.mappings.empty()))
+       (!p.pickupControl.mappings.empty() &&
+        !linearPressure(p.pickupControl)) ||
+       p.colorRateControl.value != 1 ||
+       (!p.colorRateControl.mappings.empty() &&
+        !linearPressure(p.colorRateControl)) ||
+       p.radiusControl.value != 1 || !p.radiusControl.mappings.empty()))
     return "Unimplemented setting in the experimental Krita wet profile";
   auto range = [](double v, double lo, double hi) {
     return std::isfinite(v) && v >= lo && v <= hi;
@@ -664,7 +667,9 @@ struct Stroke::Impl {
                         p.profile == "krita-5.3.4.1-new-dulling-candidate-1";
     // Radius-zero new Dulling attenuation measured across 7/32/128-pixel
     // tips and independent strengths. Nonzero radius remains rejected.
-    const double strength = (p.sourceSmudgeLengthEnabled ? p.pickup : 1) *
+    const double pickup    = p.pickup * eval(p.pickupControl, s);
+    const double colorRate = p.colorRate * eval(p.colorRateControl, s);
+    const double strength  = (p.sourceSmudgeLengthEnabled ? pickup : 1) *
                             (modern && p.wet == Wet::Dulling ? .8 : 1);
     for (int y = y0; y < y1; ++y)
       for (int x = x0; x < x1; ++x) {
@@ -679,20 +684,19 @@ struct Stroke::Impl {
         }
         if (modern && p.wet == Wet::Dulling && !p.sourceSmearAlpha) {
           paint = mix(surface.read(x, y),
-                      composite(paint, mul(p.color, p.colorRate * p.colorRate),
+                      composite(paint, mul(p.color, colorRate * colorRate),
                                 Blend::Normal),
                       strength);
         } else if (modern) {
-          paint =
-              composite(mix(surface.read(x, y), paint, strength),
-                        mul(p.color, p.colorRate * p.colorRate), Blend::Normal);
+          paint = composite(mix(surface.read(x, y), paint, strength),
+                            mul(p.color, colorRate * colorRate), Blend::Normal);
         } else {
-          paint = mix(
-              surface.read(x, y),
-              composite(paint,
-                        mul(p.color, p.colorRate * std::max(.2, 1 - p.pickup)),
-                        Blend::Normal),
-              strength);
+          paint =
+              mix(surface.read(x, y),
+                  composite(paint,
+                            mul(p.color, colorRate * std::max(.2, 1 - pickup)),
+                            Blend::Normal),
+                  strength);
         }
         // Alpha transport disabled retains source-over feedback separately
         // from the displayed arithmetic mix. First-dab initialization above
@@ -849,10 +853,10 @@ struct Stroke::Impl {
           if (sourceDefaultProfile(p.profile)) {
             // Independently recovered from complete alpha masks at five fade
             // values. Default circles fade in squared distance, with a
-            // one-pixel minimum inner radius, rather than native linear
+            // one-pixel inner radius at zero fade, rather than native linear
             // falloff.
-            const double inner =
-                std::min(1.0, std::max(p.tip.hardness, 1 / radius));
+            const double inner = std::min(
+                1.0, p.tip.hardness == 0 ? 1 / radius : p.tip.hardness);
             const double d2 = u * u + v * v;
             double fade2    = inner * inner;
             if (p.tip.antialiasEdges) {
@@ -883,7 +887,11 @@ struct Stroke::Impl {
                                : unit((1 - std::max(x, y)) / (1 - inner)));
               }
             }
-            a = std::floor(coverage * 255 + .5) / 255;
+            // Small scalar masks truncate; larger captured masks round to
+            // nearest. Fade zero alone uses the one-pixel fallback radius.
+            const double rounding =
+                !p.tip.antialiasEdges && diameter < 16 ? 0 : .5;
+            a = std::floor(coverage * 255 + rounding) / 255;
           } else {
             tip = filteredTip(p.tip, primaryIndex, u, v, ux, uy, vx, vy);
             a   = tip.a;

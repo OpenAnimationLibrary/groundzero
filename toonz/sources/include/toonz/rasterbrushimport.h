@@ -17,7 +17,8 @@ RASTERBRUSH_API ImportResult
 importBrushFile(const QString &path, QString &error,
                 const std::atomic_bool *cancelled = nullptr);
 // Worker-process import contains decoder crashes and supports hard
-// cancellation. The worker retains the current user's filesystem privileges.
+// cancellation. Linux workers require Landlock ABI 3 and seccomp; other
+// platforms currently retain the user's filesystem privileges.
 RASTERBRUSH_API int runImportWorker(const QString &input,
                                     const QString &outputDirectory);
 RASTERBRUSH_API ImportResult

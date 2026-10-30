@@ -63,7 +63,7 @@ add_executable(rasterbrushpreset_test
   "${REPO_ROOT}/toonz/sources/toonzlib/rasterbrushengine.cpp"
   "${REPO_ROOT}/toonz/sources/toonzlib/tests/rasterbrushpreset_test.cpp")
 target_include_directories(rasterbrushpreset_test PRIVATE "${REPO_ROOT}/toonz/sources/include")
-target_compile_definitions(rasterbrushpreset_test PRIVATE TOONZLIB_EXPORTS)
+target_compile_definitions(rasterbrushpreset_test PRIVATE TOONZLIB_EXPORTS RASTERBRUSH_SANDBOX_TESTING)
 target_link_libraries(rasterbrushpreset_test PRIVATE Qt${BRUSH_QT_MAJOR}::Core Qt${BRUSH_QT_MAJOR}::Gui ZLIB::ZLIB)
 if(APPLE)
   target_compile_definitions(rasterbrushpreset_test PRIVATE MACOSX)
