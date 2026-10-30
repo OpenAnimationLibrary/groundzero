@@ -1,4 +1,5 @@
 #include "vectorworkflowintegrationtest.h"
+#include "vectormodaltest.h"
 #include "tapp.h"
 #include "menubarcommandids.h"
 #include "tools/tool.h"
@@ -614,10 +615,11 @@ void runVectorWorkflowNativeChecks() {
     QPointer<QWidget> previous = QApplication::activeWindow();
     std::unique_ptr<QWidget> owner;
     if (repeat >= 2) {
-      owner.reset(new QWidget); owner->resize(320,200); owner->show();
-      QApplication::setActiveWindow(owner.get()); settle();
-      require(QApplication::activeWindow() == owner.get(), "gradient fixture original owner unavailable");
+      owner.reset(new QWidget);
+      VectorModalTest::activateOwner(*owner, "gradient");
       chooseUnique(repeat == 2 ? "Copy Animation" : "Current Appearance", [&] {
+        require(VectorModalTest::hasReviewOwner(QApplication::activeModalWidget(), owner.get()),
+                "gradient review did not capture its actual native owner");
         if (repeat == 2) { owner->hide(); owner->show(); } else owner.reset();
       },true);
     } else chooseUnique("Cancel");
@@ -829,11 +831,11 @@ void runVectorWorkflowNativeChecks() {
     std::cout << "vector-width-context-native: original owner " << (destroy ? "delete" : "hide/show") << std::endl;
     QPointer<QWidget> previous = QApplication::activeWindow();
     std::unique_ptr<QWidget> owner(new QWidget);
-    owner->resize(320,200); owner->show(); QApplication::setActiveWindow(owner.get()); settle();
-    require(QApplication::activeWindow() == owner.get(), "width fixture failed to activate its original owner");
+    VectorModalTest::activateOwner(*owner, "width");
     const QByteArray libraryBefore = readBytes(profilePath);
     reviewWidthManager(saved,50.,true,[&] {
-      require(!QApplication::activeModalWidget()->parentWidget(), "width review retained QObject owner");
+      require(VectorModalTest::hasReviewOwner(QApplication::activeModalWidget(), owner.get()),
+              "width review did not capture its actual native owner");
       if (destroy) owner.reset(); else { owner->hide(); owner->show(); }
     });
     unchangedWidth("original owner cancelled");
@@ -1081,9 +1083,10 @@ void runVectorWorkflowNativeChecks() {
     const int history = undo->getHistoryCount();
     QPointer<QWidget> previous = QApplication::activeWindow();
     std::unique_ptr<QWidget> owner(new QWidget);
-    owner->resize(320,200); owner->show(); QApplication::setActiveWindow(owner.get()); settle();
-    require(QApplication::activeWindow() == owner.get(), "alignment fixture failed to activate its original owner");
+    VectorModalTest::activateOwner(*owner, "alignment");
     reviewAlignment(align,true,2,[&] {
+      require(VectorModalTest::hasReviewOwner(QApplication::activeModalWidget(), owner.get()),
+              "alignment review did not capture its actual native owner");
       if (destroy) owner.reset(); else { owner->hide(); owner->show(); }
     },false,true);
     for (int i = 0; i < 3; ++i)

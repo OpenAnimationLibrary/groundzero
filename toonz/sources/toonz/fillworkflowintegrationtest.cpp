@@ -1,4 +1,5 @@
 #include "fillworkflowintegrationtest.h"
+#include "vectormodaltest.h"
 #include "tapp.h"
 #include "filmstrip.h"
 #include "filmstripcommand.h"
@@ -551,9 +552,8 @@ void runVectorFillNativeChecks() {
     QPointer<QWidget> previous = QApplication::activeWindow();
     std::unique_ptr<QWidget> owner;
     if (ownerMode >= 0) {
-      owner.reset(new QWidget); owner->resize(320,200); owner->show();
-      QApplication::setActiveWindow(owner.get()); QCoreApplication::processEvents();
-      require(QApplication::activeWindow() == owner.get(), "fill fixture original owner unavailable");
+      owner.reset(new QWidget);
+      VectorModalTest::activateOwner(*owner, "fill");
     }
     QTimer response;
     response.setSingleShot(true);
@@ -576,13 +576,13 @@ void runVectorFillNativeChecks() {
         }
         auto *button = dialog->findChild<QPushButton *>(accept ? "vectorFillApply" : "vectorFillRestore");
         if (button && ownerMode >= 0) {
-          const bool parentless = !dialog->parentWidget();
+          const bool exactOwner = VectorModalTest::hasReviewOwner(dialog, owner.get());
           if (ownerMode == 1) owner.reset(); else { owner->hide(); owner->show(); }
           bool delivered = false;
           const bool queued = QMetaObject::invokeMethod(button,[&] { delivered = true; button->click(); },
                                                        Qt::QueuedConnection);
           QCoreApplication::sendPostedEvents(button,QEvent::MetaCall);
-          ownerCancelled = parentless && queued && delivered && !button->isEnabled() &&
+          ownerCancelled = exactOwner && queued && delivered && !button->isEnabled() &&
                            dialog->result() == QDialog::Rejected;
         } else if (button && switchFrame) {
           const bool queued = QMetaObject::invokeMethod(button,"click",Qt::QueuedConnection);

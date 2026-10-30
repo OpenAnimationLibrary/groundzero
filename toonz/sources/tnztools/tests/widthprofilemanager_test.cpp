@@ -440,6 +440,13 @@ static void ownerLifetimeChecks(const QTemporaryDir &temp) {
     owner->resize(300,200); owner->show(); QApplication::setActiveWindow(owner.get());
     WidthProfile::Manager manager(path, profile, true, owner.get());
     require(!manager.parentWidget(), "stack manager still belongs to its disposable owner");
+    // The library stores five significant digits. The sin-based built-in is
+    // not an exact decoded draft; cancellation must preserve the loaded draft
+    // bit for bit, as well as the original library/export bytes below.
+    const auto loadedProfile = manager.selectedProfile();
+    require(WidthProfile::toText(loadedProfile) == WidthProfile::toText(profile),
+            "owner fixture did not load the authored profile representation");
+    expectDraft(manager, {loadedProfile});
     bool invalidated = false, delivered = false, expired = false;
     auto invalidate = [&](QDialog *dialog, QAbstractButton *choice) {
       require(dialog && choice && choice->isEnabled(), "owner cancellation lacks an actionable native choice");
@@ -495,9 +502,9 @@ static void ownerLifetimeChecks(const QTemporaryDir &temp) {
     require(!expired && invalidated && delivered && result == QDialog::Rejected &&
                 !manager.shouldApply() && bytes(path) == original && bytes(destination) == exported,
             "owner cancellation changed library/export bytes or missed the real nested choice");
-    if (scenario == 0) require(manager.selectedProfile().name == "Unsaved draft",
-                              "owner cancellation changed the already prepared draft");
-    else expectProfile(manager.selectedProfile(),profile);
+    auto expectedDraft = loadedProfile;
+    if (scenario == 0) expectedDraft.name = "Unsaved draft";
+    expectDraft(manager, {expectedDraft});
   }
 }
 
