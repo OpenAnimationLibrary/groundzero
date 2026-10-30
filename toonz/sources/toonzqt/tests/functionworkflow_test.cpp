@@ -44,6 +44,7 @@
 #include <QTemporaryDir>
 #include <QTimer>
 #include <QToolButton>
+#include <QWindow>
 #include <cmath>
 #include <algorithm>
 #include <iostream>
@@ -115,8 +116,14 @@ void inspectModal(FunctionViewer *viewer, const char *name,
   });
   bool visited = false; QString failure;
   QTimer::singleShot(0, &delivery, [&]() {
-    QPointer<QDialog> dialog = viewer->findChild<QDialog *>(name);
-    try { require(dialog, "expected Function Editor modal is missing"); visited = true; inspect(dialog); }
+    QPointer<QDialog> dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
+    try {
+      require(dialog && dialog->objectName() == name, "expected Function Editor modal is missing");
+      require(!dialog->parentWidget() && dialog->windowHandle() &&
+                  dialog->windowHandle()->transientParent() == viewer->window()->windowHandle(),
+              "Function Editor modal lost its non-owning native window relationship");
+      visited = true; inspect(dialog);
+    }
     catch (const std::exception &problem) { failure = QString::fromUtf8(problem.what()); }
     if (dialog) dialog->reject();
   });
@@ -544,7 +551,8 @@ void nativeBatchDialog() {
   QString failure;
   QTimer::singleShot(0, [&]() {
     try {
-      auto *dialog = f.viewer.findChild<QDialog *>("FunctionKeyEditor"); require(dialog, "batch dialog did not open");
+      auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
+      require(dialog && dialog->objectName() == "FunctionKeyEditor", "batch dialog did not open");
       checkpoint("batch dialog entered");
       auto *mode = dialog->findChild<QComboBox *>("FunctionEditOperation");
       auto *amount = dialog->findChild<QDoubleSpinBox *>("FunctionEditAmount");
@@ -561,7 +569,7 @@ void nativeBatchDialog() {
       dialog->reject();
     } catch (const std::exception &error) {
       failure = QString::fromUtf8(error.what());
-      if (auto *dialog = f.viewer.findChild<QDialog *>("FunctionKeyEditor")) dialog->reject();
+      if (auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget())) dialog->reject();
     }
   });
   checkpoint("opening batch dialog");
@@ -575,6 +583,149 @@ void nativeBatchDialog() {
   requireNear(f.a->getKeyframe(1).m_value, 110);
   require(TUndoManager::manager()->undo(), "native batch undo missing"); requireNear(f.a->getKeyframe(1).m_value, 105);
   require(TUndoManager::manager()->undo(), "second native batch undo missing"); requireNear(f.a->getKeyframe(1).m_value, 100);
+}
+void sameOwnerKeyDrift() {
+  for (int operation : {0, 8}) for (bool eraseEarlier : {false, true})
+      for (bool previewFirst : {false, true}) {
+    TSceneHandle scene;
+    Fixture f; f.viewer.setSceneHandle(&scene);
+    f.a->setWorkspaceId("key-drift-a"); f.b->setWorkspaceId("key-drift-b");
+    auto *selection = f.viewer.getSelection();
+    selection->select(f.a.getPointer(), 1); selection->select(f.b.getPointer(), 1);
+    TDoubleParamP originalA = new TDoubleParam(*f.a), originalB = new TDoubleParam(*f.b);
+    f.graph->setComparison({{f.a, originalA}, {f.b, originalB}});
+    QString captureError;
+    require(f.graph->freezeComparison(captureError), qPrintable(captureError));
+    const auto frozenComparison = f.graph->comparisonState();
+    require(frozenComparison.frozen.size() == 2 &&
+                !frozenComparison.frozen[0].samples.empty() && !frozenComparison.frozen[1].samples.empty(),
+            "same-owner drift fixture did not capture both reference curves");
+    TDoubleParamP changedA;
+    auto *undo = TUndoManager::manager(); undo->reset();
+    auto *edit = f.viewer.findChild<QToolButton *>("FunctionEditKeys");
+    require(edit, "same-owner drift editor action missing");
+    int notifications = 0;
+    QObject listener;
+    QObject::connect(&f.viewer, &FunctionViewer::curveChanged, &listener, [&]() { ++notifications; });
+    inspectModal(&f.viewer, "FunctionKeyEditor", [&](QDialog *dialog) {
+      auto *mode = dialog->findChild<QComboBox *>("FunctionEditOperation");
+      auto *preview = dialog->findChild<QPushButton *>("FunctionEditPreview");
+      auto *buttons = dialog->findChild<QDialogButtonBox *>();
+      require(mode && preview && buttons, "same-owner drift controls missing");
+      mode->setCurrentIndex(operation);
+      if (operation == 8) {
+        dialog->findChild<QDoubleSpinBox *>("FunctionEditFirstFrame")->setValue(12);
+        dialog->findChild<QDoubleSpinBox *>("FunctionEditLastFrame")->setValue(17);
+      } else dialog->findChild<QDoubleSpinBox *>("FunctionEditAmount")->setValue(999);
+      if (previewFirst) {
+        preview->click();
+        require(f.graph->comparison().size() == 2 &&
+                    Ops::matchesSnapshot(f.a.getPointer(), originalA.getPointer()) &&
+                    Ops::matchesSnapshot(f.b.getPointer(), originalB.getPointer()),
+                "same-owner drift preview did not retain both original channels");
+      }
+      auto *apply = buttons->button(QDialogButtonBox::Apply);
+      bool clicked = false;
+      QObject::connect(apply, &QPushButton::clicked, dialog, [&]() { clicked = true; });
+      require(QMetaObject::invokeMethod(apply, "click", Qt::QueuedConnection),
+              "could not queue same-owner drift Apply");
+      // Both edits leave captured index 1 valid, but it now names a different
+      // key. A bounds-only selection check cannot protect the original frame10.
+      if (eraseEarlier) KeyframeSetter::removeKeyframeAt(f.a.getPointer(), 0);
+      else KeyframeSetter::setValue(f.a.getPointer(), 5, 55);
+      requireNear(f.a->keyframeIndexToFrame(1), eraseEarlier ? 20 : 5);
+      changedA = new TDoubleParam(*f.a);
+      scene.setDirtyFlag(true);
+      const int history = undo->getHistoryCount(), historyIndex = undo->getCurrentHistoryIndex();
+      const int foreignNotifications = notifications;
+      require(history == 1, "same-owner fixture edit did not create one native undo step");
+      if (!previewFirst) preview->click();
+      QCoreApplication::sendPostedEvents(apply, QEvent::MetaCall);
+      require(clicked && !dialog->isVisible(),
+              "same-owner key edit did not reject the real queued Apply");
+      require(Ops::matchesSnapshot(f.a.getPointer(), changedA.getPointer()) &&
+                  Ops::matchesSnapshot(f.b.getPointer(), originalB.getPointer()) &&
+                  undo->getHistoryCount() == history && undo->getCurrentHistoryIndex() == historyIndex &&
+                  notifications == foreignNotifications && scene.getDirtyFlag() && f.graph->comparison().empty(),
+              "stale index editing changed intervening keys, another channel, history, dirty state or preview");
+    }, [&]() { edit->click(); });
+    const auto restoredComparison = f.graph->comparisonState();
+    require(restoredComparison.curves == frozenComparison.curves &&
+                restoredComparison.frozen.size() == frozenComparison.frozen.size() &&
+                restoredComparison.first == frozenComparison.first &&
+                restoredComparison.last == frozenComparison.last &&
+                restoredComparison.intervals == frozenComparison.intervals,
+            "same-owner rejection discarded or replaced the artist's comparison capture");
+    for (size_t i = 0; i < frozenComparison.frozen.size(); ++i)
+      require(restoredComparison.frozen[i].owner == frozenComparison.frozen[i].owner &&
+                  restoredComparison.frozen[i].samples == frozenComparison.frozen[i].samples,
+              "same-owner rejection rebound or reevaluated the artist's frozen reference");
+    require(f.a->getWorkspaceId() == "key-drift-a" && f.b->getWorkspaceId() == "key-drift-b",
+            "same-owner rejection changed stable channel identities");
+    require(undo->undo() && Ops::matchesSnapshot(f.a.getPointer(), originalA.getPointer()) &&
+                Ops::matchesSnapshot(f.b.getPointer(), originalB.getPointer()),
+            "rejected stale edit displaced the intervening edit's native undo");
+    require(undo->redo() && Ops::matchesSnapshot(f.a.getPointer(), changedA.getPointer()),
+            "rejected stale edit displaced the intervening edit's native redo");
+    undo->reset();
+  }
+  checkpoint("same-owner insertion/deletion rejected before Preview and after captured Preview");
+}
+void modalPanelLifetime() {
+  for (bool destroy : {false, true}) {
+    TSceneHandle scene;
+    auto fixture = std::make_unique<Fixture>();
+    fixture->viewer.setSceneHandle(&scene);
+    fixture->viewer.show(); QApplication::processEvents();
+    require(fixture->viewer.isVisible(), "panel lifetime fixture was not shown");
+    auto *viewer = &fixture->viewer;
+    QPointer<FunctionViewer> survivingViewer(viewer);
+    const TDoubleParamP curve = fixture->a, other = fixture->b;
+    TDoubleParamP original = new TDoubleParam(*curve), otherOriginal = new TDoubleParam(*other);
+    fixture->graph->setComparison({{curve, original}});
+    QString captureError;
+    require(fixture->graph->freezeComparison(captureError), qPrintable(captureError));
+    const auto capturedSamples = fixture->graph->comparisonState().frozen.front().samples;
+    viewer->getSelection()->select(curve.getPointer(), 1);
+    auto *edit = viewer->findChild<QToolButton *>("FunctionEditKeys");
+    require(edit, "panel lifetime editor action missing");
+    auto *undo = TUndoManager::manager(); undo->reset(); scene.setDirtyFlag(false);
+    inspectModal(viewer, "FunctionKeyEditor", [&](QDialog *dialog) {
+      QPointer<QDialog> pending(dialog);
+      auto *amount = dialog->findChild<QDoubleSpinBox *>("FunctionEditAmount");
+      auto *preview = dialog->findChild<QPushButton *>("FunctionEditPreview");
+      auto *buttons = dialog->findChild<QDialogButtonBox *>();
+      require(amount && preview && buttons, "panel lifetime controls missing");
+      amount->setValue(999); preview->click();
+      auto *apply = buttons->button(QDialogButtonBox::Apply);
+      bool clicked = false;
+      QObject::connect(apply, &QPushButton::clicked, dialog, [&]() { clicked = true; });
+      require(QMetaObject::invokeMethod(apply, "click", Qt::QueuedConnection),
+              "could not queue panel lifetime Apply");
+      if (destroy) fixture.reset();
+      else viewer->hide();
+      require(pending && !pending->isVisible(),
+              "closing the editor destroyed its stack dialog or left it active");
+      require(bool(survivingViewer) == !destroy, "panel lifetime fixture did not close its intended owner");
+      QCoreApplication::sendPostedEvents(apply, QEvent::MetaCall);
+      require(clicked && Ops::matchesSnapshot(curve.getPointer(), original.getPointer()) &&
+                  Ops::matchesSnapshot(other.getPointer(), otherOriginal.getPointer()) &&
+                  undo->getHistoryCount() == 0 && !scene.getDirtyFlag(),
+              "queued Apply after panel closure changed retained curves, history or dirty state");
+    }, [&]() { edit->click(); });
+    if (!destroy) {
+      require(fixture->graph->comparison().size() == 1 &&
+                  fixture->graph->comparison()[0].second == original &&
+                  fixture->graph->comparisonState().frozen.size() == 1 &&
+                  fixture->graph->comparisonState().frozen.front().samples == capturedSamples,
+              "hiding an editor discarded or reevaluated its captured artist comparison");
+      fixture.reset();
+    }
+    QApplication::sendPostedEvents(TFunctorInvoker::instance(), QEvent::MetaCall);
+    require(!survivingViewer && !TSelection::getCurrent(),
+            "closed modal editor retained a viewer or current selection");
+  }
+  checkpoint("hidden/deleted panel rejected queued writes and safely unwound independent dialogs");
 }
 void contextCancellation() {
   for (int operation : {0, 8}) for (int context = 0; context < 3; ++context) {
@@ -624,7 +775,9 @@ void contextCancellation() {
     try {
       // QMessageBox window titles are intentionally ignored on macOS.
       require(box, "Expected stale comparison message box was not shown");
-      require(box->parentWidget() == &f.viewer, "Stale comparison confirmation has the wrong owner");
+      require(!box->parentWidget() && box->windowHandle() &&
+                  box->windowHandle()->transientParent() == f.viewer.window()->windowHandle(),
+              "Stale comparison confirmation has the wrong native window relationship");
       require(box->icon() == QMessageBox::Question && box->text() ==
                   "Restore all captured channels? Edits since capture will be replaced as one undo step.",
               "Stale comparison confirmation has the wrong question");
@@ -875,6 +1028,8 @@ int main(int argc, char **argv) {
     checkpoint("pending shortcut lifetime begins"); pendingShortcutLifetime();
     checkpoint("normalization/locks begin"); normalizationAndLocks();
     checkpoint("batch editing begins"); nativeBatchDialog();
+    checkpoint("same-owner key drift begins"); sameOwnerKeyDrift();
+    checkpoint("modal panel lifetime begins"); modalPanelLifetime();
     checkpoint("saved-set rename begins"); savedSetRename();
     checkpoint("target-range modal begins"); nativeTargetRangeDialog();
     checkpoint("context cancellation begins"); contextCancellation();
