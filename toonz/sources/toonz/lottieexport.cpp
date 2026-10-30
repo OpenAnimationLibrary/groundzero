@@ -116,6 +116,16 @@ void ExportLottieCommand::execute() {
   ToonzScene *scene = TApp::instance()->getCurrentScene()->getScene();
   TXsheet *xsh      = TApp::instance()->getCurrentXsheet()->getXsheet();
   TFilePath fp      = scene->getScenePath().withType("json");
+  QObject contextLifetime;
+  bool contextChanged = false;
+  QObject::connect(TApp::instance()->getCurrentScene(), &TSceneHandle::sceneSwitched,
+                   &contextLifetime, [&]() { contextChanged = true; }, Qt::DirectConnection);
+  QObject::connect(TApp::instance()->getCurrentXsheet(), &TXsheetHandle::xsheetSwitched,
+                   &contextLifetime, [&]() { contextChanged = true; }, Qt::DirectConnection);
+  auto currentContext = [&]() {
+    return !contextChanged && TApp::instance()->getCurrentScene()->getScene() == scene &&
+           TApp::instance()->getCurrentXsheet()->getXsheet() == xsh;
+  };
 
   int frameCount = xsh->getFrameCount();
   if (frameCount <= 0) {
@@ -200,7 +210,7 @@ void ExportLottieCommand::execute() {
         TProjectManager::instance()->getCurrentProject()->getScenesPath());
   savePopup->setFilename(fp.withoutParentDir());
   fp = savePopup->getPath();
-  if (fp.isEmpty()) return;
+  if (fp.isEmpty() || !currentContext()) return;
   fp = fp.withType("json");
 
   LottieExport::Options options;
@@ -216,6 +226,7 @@ void ExportLottieCommand::execute() {
   QApplication::setOverrideCursor(Qt::WaitCursor);
   LottieExport::Result result = LottieExport::exportXsheet(xsh, options);
   QApplication::restoreOverrideCursor();
+  if (!currentContext()) return;
 
   if (result.m_contentLayers == 0) {
     DVGui::error(QObject::tr("No columns can be exported."));
@@ -224,7 +235,7 @@ void ExportLottieCommand::execute() {
 
   // The renderer has only prepared memory buffers so far. Confirm fidelity
   // losses before creating any output directory or replacing destination files.
-  if (!ExportFidelity::confirmLottie(result.m_skipped)) return;
+  if (!ExportFidelity::confirmLottie(result.m_skipped) || !currentContext()) return;
 
   // Publish external assets under a fresh generation. Until the atomic JSON
   // commit succeeds, an existing animation and its linked images stay intact.

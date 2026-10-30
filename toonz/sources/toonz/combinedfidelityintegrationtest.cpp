@@ -1,4 +1,5 @@
 #include "combinedfidelityintegrationtest.h"
+#include "nativeuiintegrationtest.h"
 #include "exportfidelity.h"
 #include "filebrowserpopup.h"
 #include "iocommand.h"
@@ -35,6 +36,8 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QImage>
+#include <QMap>
+#include <QRectF>
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QJsonDocument>
@@ -151,14 +154,69 @@ QImage renderSvg(const QByteArray &bytes) {
   require(alphaSum(image) > 1000, "Independent SVG renderer produced blank artwork");
   return image;
 }
+QImage renderFirstVectorAsset(const QByteArray &document) {
+  struct Asset { QByteArray bytes; QRectF rect; };
+  QMap<QString, Asset> assets;
+  QSize size;
+  QString used;
+  double opacity = 1.;
+  QXmlStreamReader xml(document);
+  while (!xml.atEnd()) {
+    xml.readNext();
+    if (!xml.isStartElement()) continue;
+    const auto attrs = xml.attributes();
+    if (xml.name() == "svg") size = QSize(attrs.value("width").toInt(), attrs.value("height").toInt());
+    if (xml.name() == "image") {
+      const QString href = attrs.value("href").toString();
+      const QString prefix = "data:image/svg+xml;base64,";
+      if (href.startsWith(prefix)) assets.insert(attrs.value("id").toString(),
+          {QByteArray::fromBase64(href.mid(prefix.size()).toLatin1()),
+           QRectF(attrs.value("x").toDouble(), attrs.value("y").toDouble(),
+                  attrs.value("width").toDouble(), attrs.value("height").toDouble())});
+    }
+    if (xml.name() == "use" && used.isEmpty()) {
+      used = attrs.value("href").toString().mid(1);
+      opacity = attrs.value("opacity").toDouble();
+    }
+  }
+  require(!xml.hasError() && size == QSize(256, 128) && assets.contains(used),
+          "Animated SVG does not identify its first vector asset and viewport");
+  const auto &asset = assets[used];
+  QSvgRenderer renderer(asset.bytes);
+  require(renderer.isValid(), "Independent renderer rejected the camera-aligned asset");
+  QImage result(size, QImage::Format_ARGB32_Premultiplied); result.fill(Qt::transparent);
+  QPainter painter(&result); painter.setOpacity(opacity); renderer.render(&painter, asset.rect); painter.end();
+  return result;
+}
+void samePlacement(const QImage &asset, const QImage &reference) {
+  struct Extent { QRect bounds; double x = 0, y = 0; qint64 alpha = 0; };
+  auto extent = [](const QImage &image) {
+    Extent result;
+    for (int y = 0; y < image.height(); ++y) for (int x = 0; x < image.width(); ++x) {
+      const int alpha = qAlpha(image.pixel(x, y));
+      if (alpha > 16) result.bounds |= QRect(x, y, 1, 1);
+      result.alpha += alpha; result.x += x * alpha; result.y += y * alpha;
+    }
+    require(result.alpha > 1000, "Placement oracle produced blank artwork");
+    result.x /= result.alpha; result.y /= result.alpha;
+    return result;
+  };
+  require(asset.size() == reference.size(), "Vector asset changed the camera resolution");
+  const auto a = extent(asset), b = extent(reference);
+  require(std::abs(a.bounds.x() - b.bounds.x()) <= 2 && std::abs(a.bounds.y() - b.bounds.y()) <= 2 &&
+          std::abs(a.bounds.width() - b.bounds.width()) <= 3 && std::abs(a.bounds.height() - b.bounds.height()) <= 3 &&
+          std::abs(a.x - b.x) <= 1.5 && std::abs(a.y - b.y) <= 1.5 &&
+          std::abs(double(a.alpha) / b.alpha - 1.) < 0.1,
+          "Cropped vector asset was stretched or moved relative to the native camera render");
+}
+
 }
 
 void runCombinedFidelityIntegrationTest(QMainWindow *) {
   auto *app = TApp::instance();
-  app->getCurrentScene()->setDirtyFlag(false);
-  TUndoManager::manager()->reset();
-  IoCmd::newScene();
-  QCoreApplication::processEvents();
+  QString resetError;
+  if (!resetNativeUiIntegrationScene(&resetError))
+    throw std::runtime_error(resetError.toStdString());
   QTemporaryDir output;
   require(output.isValid(), "Combined fidelity fixture directory unavailable");
   auto *scene = app->getCurrentScene()->getScene();
@@ -170,11 +228,11 @@ void runCombinedFidelityIntegrationTest(QMainWindow *) {
   TVectorImageP drawing = new TVectorImage;
   drawing->setPalette(level->getPalette());
   const int color = level->getPalette()->addStyle(TPixel32(220, 40, 20, 255));
-  auto *stroke = new TStroke(std::vector<TThickPoint>{{-48, 0, 8}, {0, 0, 8}, {48, 0, 8}});
+  auto *stroke = new TStroke(std::vector<TThickPoint>{{-8, -18, 3}, {16, -18, 3}, {40, -18, 3}});
   stroke->setStyle(color);
   require(stroke->setOpacityProfile({{0, 0.25}, {1, 0.25}}), "Cannot assign fidelity opacity profile");
   drawing->addStroke(stroke, false);
-  auto *ordinary = new TStroke(std::vector<TThickPoint>{{-40, 23, 2}, {0, 23, 2}, {40, 23, 2}});
+  auto *ordinary = new TStroke(std::vector<TThickPoint>{{16, 4, 1}, {22, 4, 1}, {28, 4, 1}});
   ordinary->setStyle(color); drawing->addStroke(ordinary, false);
   level->setFrame(TFrameId(1), drawing);
   level->setFrame(TFrameId(2), drawing->cloneImage());
@@ -194,13 +252,13 @@ void runCombinedFidelityIntegrationTest(QMainWindow *) {
   const bool dirty = app->getCurrentScene()->getDirtyFlag();
   std::cerr << "combined-fidelity: metadata and compatibility" << std::endl;
   const auto issues = SceneChecker::compatibilityReport(scene);
-  int format = 0, metadata = 0, identity = 0;
+  int format = 0, metadata = 0, identityCount = 0;
   for (const auto &issue : issues) {
     if (issue.text.contains("PLI 150.1")) { ++format; require(issue.severity == SceneChecker::Warning, "PLI reader requirement has wrong severity"); }
     if (issue.levelName == level->getName() && issue.severity == SceneChecker::Info) ++metadata;
-    if (issue.text.contains("channel identities")) ++identity;
+    if (issue.text.contains("channel identities")) ++identityCount;
   }
-  require(format == 1 && metadata == 2 && identity == 1, "Combined compatibility report lost format or authoring metadata distinction");
+  require(format == 1 && metadata == 2 && identityCount == 1, "Combined compatibility report lost format or authoring metadata distinction");
   require(stroke->getOpacityProfile() == profile && history == TUndoManager::manager()->getHistoryCount() && dirty == app->getCurrentScene()->getDirtyFlag(),
           "Compatibility report mutated artwork, undo, or dirty state");
   const TFilePath scenePath(output.filePath("combined.tnz"));
@@ -252,6 +310,21 @@ void runCombinedFidelityIntegrationTest(QMainWindow *) {
   exportCommand(MI_ExportAnimatedSVG, mixed, {"cancelExportFidelity", false, true, false, "PLI 150.1"});
   require(readFile(mixed) == mixedBytes, "Canceled SVG overwrite replaced its document");
 
+  // Reconstruct the first displayed asset from the actual animated document's
+  // image rectangle and href, then compare off-center, unequal-aspect artwork
+  // with the independent full-camera native renderer. Identity envelopes must
+  // not change placement merely because the native SVG crop gained padding.
+  stroke->setOpacityProfile({{0, 1}, {1, 1}});
+  level->getFrame(TFrameId(1), true); app->getCurrentXsheet()->notifyXsheetChanged();
+  const QString placed = output.filePath("placed.svg");
+  exportCommand(MI_ExportAnimatedSVG, placed, {"exportSupportedContent", false, true, false, "embedded PNG"});
+  const QString camera = output.filePath("camera.svg");
+  exportCommand(MI_ExportAnimatedSVG, camera, {"renderSceneForExport", false, true, false, "PLI 150.1"});
+  const auto cameraFrames = embedded(readFile(camera), "image/png");
+  require(cameraFrames.size() == 1, "Placement reference camera frame missing");
+  QImage cameraReference; require(cameraReference.loadFromData(cameraFrames.front(), "PNG"), "Placement reference PNG is unreadable");
+  samePlacement(renderFirstVectorAsset(readFile(placed)), cameraReference);
+
   // An unbounded procedural style must offer the full-camera route, which
   // renders the native envelope. Compare decoded PNG alpha against the same
   // native style with an identity envelope, not a second SVG implementation.
@@ -276,9 +349,9 @@ void runCombinedFidelityIntegrationTest(QMainWindow *) {
   QImage half; require(half.loadFromData(halfFrames.front(), "PNG"), "Rendered fallback PNG could not be decoded");
   stroke->setOpacityProfile({{0, 1}, {1, 1}});
   level->getFrame(TFrameId(1), true); app->getCurrentXsheet()->notifyXsheetChanged();
-  const QString identity = output.filePath("identity.svg");
-  exportCommand(MI_ExportAnimatedSVG, identity, {"renderSceneForExport", true, true, false, "full camera canvas"});
-  const auto fullFrames = embedded(readFile(identity), "image/png");
+  const QString identityPath = output.filePath("identity.svg");
+  exportCommand(MI_ExportAnimatedSVG, identityPath, {"renderSceneForExport", true, true, false, "full camera canvas"});
+  const auto fullFrames = embedded(readFile(identityPath), "image/png");
   require(fullFrames.size() == 1, "Identity rendered SVG frame missing");
   QImage full; require(full.loadFromData(fullFrames.front(), "PNG"), "Identity PNG could not be decoded");
   const qint64 total = alphaSum(full), faded = alphaSum(half);
@@ -305,6 +378,33 @@ void runCombinedFidelityIntegrationTest(QMainWindow *) {
   exportCommand(MI_ExportAnimatedSVG, external, {"cancelExportFidelity", true, false, false, "full camera canvas"});
   require(readFile(external) == externalBytes && QDir(output.path()).entryList({"external_files_*"}, QDir::Dirs) == folders,
           "Canceled SVG overwrite changed its external image generation");
-  app->getCurrentScene()->setDirtyFlag(false); TUndoManager::manager()->reset(); IoCmd::newScene();
+  // Hide the real rendering progress dialog and invoke the real New Scene
+  // workflow while the render is queued or active. Cancellation must drain the
+  // renderer before the old scene's deletion timer can be scheduled.
+  std::cerr << "combined-fidelity: scene replacement cancels export" << std::endl;
+  bool switchedDuringRender = false;
+  QString interruptedResetError;
+  QTimer replaceScene;
+  QObject::connect(&replaceScene, &QTimer::timeout, [&]() {
+    if (switchedDuringRender) return;
+    for (QWidget *widget : QApplication::topLevelWidgets()) {
+      if (widget->objectName() != "animatedSvgExportProgress" ||
+          !widget->property("sceneRenderActive").toBool()) continue;
+      switchedDuringRender = true;
+      replaceScene.stop();
+      widget->hide();
+      if (!resetNativeUiIntegrationScene(&interruptedResetError))
+        return;
+      break;
+    }
+  });
+  replaceScene.start(0);
+  exportCommand(MI_ExportAnimatedSVG, external, {"", false, false, true, ""});
+  replaceScene.stop();
+  require(switchedDuringRender && interruptedResetError.isEmpty(), "Native scene replacement was not exercised during export");
+  require(readFile(external) == externalBytes && QDir(output.path()).entryList({"external_files_*"}, QDir::Dirs) == folders,
+          "Scene replacement published or replaced an interrupted export");
+  if (!resetNativeUiIntegrationScene(&resetError))
+    throw std::runtime_error(resetError.toStdString());
   std::cout << "combined-fidelity-native: PASS" << std::endl;
 }
