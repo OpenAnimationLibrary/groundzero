@@ -83,3 +83,14 @@ now uses `QPointer`, and the regression explicitly destroys an edited viewer
 before delivering queued notifications, then verifies a live replacement still
 receives one coalesced update. Draining events before destruction is not used to
 hide this failure.
+
+The updated Linux run at `ae113c73e` completed the scene-free and queued-model
+regressions and the fit/search test. Its debugger then located a crash in
+`TSelectionHandle::setSelection`, reached when the next editor selected a key.
+The previous viewer had destroyed its `FunctionSelection` while leaving the
+non-owning application selection handle pointing at it. `FunctionSelection`
+now detaches itself while its concrete implementation and command handlers are
+still alive. The widget regression checks that closing a current editor clears
+the handle, selecting in a replacement editor works, and closing an inactive
+editor preserves another editor's selection. The original tests and debugger
+diagnostic remain enabled; qualification of this fix awaits the next CI run.

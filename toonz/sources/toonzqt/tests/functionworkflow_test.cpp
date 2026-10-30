@@ -140,6 +140,38 @@ void fitAndSearch() {
   selection->selectNone(); selection->select(f.a.getPointer(), 0);
   f.graph->fitSelectedPoints(); require(std::isfinite(f.graph->getViewTransform().m11()), "single key fit invalid");
 }
+void selectionLifetime() {
+  require(!TSelection::getCurrent(), "a closed editor retained the current selection");
+  QPointer<FunctionSelection> closed;
+  {
+    Fixture first;
+    closed = first.viewer.getSelection();
+    closed->select(first.a.getPointer(), 1);
+    require(TSelection::getCurrent() == closed.data(),
+            "native key selection did not become current");
+  }
+  require(closed.isNull(), "closed editor retained its selection object");
+  require(!TSelection::getCurrent(), "closed editor left a dangling current selection");
+  checkpoint("current selection released with editor");
+  {
+    Fixture current;
+    auto *selection = current.viewer.getSelection();
+    selection->select(current.a.getPointer(), 1);
+    {
+      // Closing an inactive editor must not clear another editor's selection.
+      Fixture inactive;
+      require(TSelection::getCurrent() == selection,
+              "constructing another editor changed the current selection");
+    }
+    require(TSelection::getCurrent() == selection &&
+                selection->isSelected(current.a.getPointer(), 1),
+            "closing an inactive editor cleared the current selection");
+    selection->select(current.b.getPointer(), 1);
+    require(selection->getSelectedKeyframeCount() == 2,
+            "replacement editor could not retain a multi-channel selection");
+  }
+  require(!TSelection::getCurrent(), "replacement editor retained a dangling selection");
+}
 void normalizationAndLocks() {
   Fixture f; TDoubleParamP original = new TDoubleParam(*f.a);
   f.graph->setNormalized(true);
@@ -254,6 +286,7 @@ int main(int argc, char **argv) {
     checkpoint("scene-free views begin"); sceneFreeViews();
     checkpoint("queued model lifetime begins"); queuedModelLifetime();
     checkpoint("fit/search begin"); fitAndSearch();
+    checkpoint("selection lifetime begins"); selectionLifetime();
     checkpoint("normalization/locks begin"); normalizationAndLocks();
     checkpoint("batch editing begins"); nativeBatchDialog();
     checkpoint("context cancellation begins"); contextCancellation();
