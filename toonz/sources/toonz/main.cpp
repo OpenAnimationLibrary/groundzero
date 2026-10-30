@@ -686,20 +686,24 @@ int main(int argc, char *argv[]) {
   languageManager->setCatalogDirectory(
       QString::fromStdString(::to_string(TEnv::getConfigDir() + "loc")));
   QObject::connect(languageManager, &UiLanguageManager::languageChanged, &a,
+                   []() {
+                     TTool::updateToolsPropertiesTranslation();
+                     Tiio::updateFileWritersPropertiesTranslation();
+                   });
+  // Only a choice of the user is saved: a language that cannot be loaded at
+  // startup falls back to English for this session and stays saved.
+  QObject::connect(languageManager, &UiLanguageManager::languageSelected, &a,
                    [](const QString &language) {
-    Preferences::instance()->setValue(CurrentLanguageName, language);
-    TTool::updateToolsPropertiesTranslation();
-    Tiio::updateFileWritersPropertiesTranslation();
-  });
+                     Preferences::instance()->setValue(CurrentLanguageName,
+                                                       language);
+                   });
   UiTranslations::onLanguageChanged(&a, []() {
     CommandManager::instance()->retranslate();
   });
   QString languageError;
-  if (!languageManager->setLanguage(
-          Preferences::instance()->getCurrentLanguage(), &languageError)) {
-    languageManager->setLanguage("English");
+  if (!languageManager->startWithLanguage(
+          Preferences::instance()->getCurrentLanguage(), &languageError))
     DVGui::warning(languageError);
-  }
 
   // Force to have left-to-right layout direction in any language environment.
   // This function has to be called after installTranslator().
@@ -829,8 +833,10 @@ int main(int argc, char *argv[]) {
 
   QString themeError;
   nativeUiCheckpoint("applying startup native theme");
-  if (!NativeTheme::instance().reload(&themeError))
-    DVGui::warning(themeError);
+  // A saved theme that fails its checks falls back for this session instead
+  // of leaving the application unstyled; the reason is still reported.
+  NativeTheme::instance().startup(&themeError);
+  if (!themeError.isEmpty()) DVGui::warning(themeError);
   nativeUiCheckpoint("startup native theme applied");
 
   // w.setWindowTitle(QString::fromStdString(TEnv::getApplicationFullName()));
