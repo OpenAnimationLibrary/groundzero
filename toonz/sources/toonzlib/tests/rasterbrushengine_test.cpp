@@ -622,6 +622,88 @@ void testCountFadeAndDirection() {
     }
   require(outsideCenter, "one-axis scatter did not disperse stamps");
 }
+void testKritaFixedHsvCandidate() {
+  // Independently acquired K5341 opaque center pixels, two foreground colors,
+  // controls 0,.2,.4,.6,.8,1. No expected values come from candidate equations.
+  const int colors[2][3]         = {{173, 91, 47}, {59, 137, 191}};
+  const int observed[3][2][6][3] = {{{{47, 129, 173},
+                                      {116, 47, 173},
+                                      {173, 47, 79},
+                                      {173, 167, 47},
+                                      {47, 173, 66},
+                                      {47, 129, 173}},
+                                     {{191, 113, 59},
+                                      {111, 191, 59},
+                                      {59, 191, 166},
+                                      {60, 59, 191},
+                                      {191, 59, 163},
+                                      {191, 113, 59}}},
+                                    {{{173, 173, 173},
+                                      {173, 140, 123},
+                                      {173, 107, 72},
+                                      {173, 68, 12},
+                                      {173, 60, 0},
+                                      {173, 60, 0}},
+                                     {{191, 191, 191},
+                                      {138, 169, 191},
+                                      {85, 148, 191},
+                                      {22, 122, 191},
+                                      {0, 113, 191},
+                                      {0, 113, 191}}},
+                                    {{{0, 0, 0},
+                                      {69, 36, 19},
+                                      {138, 73, 38},
+                                      {189, 124, 89},
+                                      {222, 189, 172},
+                                      {255, 255, 255}},
+                                     {{0, 0, 0},
+                                      {24, 55, 76},
+                                      {47, 110, 153},
+                                      {98, 161, 204},
+                                      {177, 208, 229},
+                                      {255, 255, 255}}}};
+  for (int channel = 0; channel < 3; ++channel)
+    for (int color = 0; color < 2; ++color)
+      for (int control = 0; control < 6; ++control)
+        for (bool enabled : {false, true}) {
+          Preset p;
+          p.profile    = "krita-5.3.4.1-hard-pixel-candidate-1";
+          p.size.value = 24;
+          p.color      = {colors[color][0] / 255., colors[color][1] / 255.,
+                          colors[color][2] / 255., 1};
+          p.sourceHsvChannel =
+              enabled ? SourceHsvChannel(channel + 1) : SourceHsvChannel::Off;
+          p.sourceHsvValue = control / 5.;
+          Canvas canvas;
+          Stroke stroke(canvas, p);
+          require(stroke.add(sample(64, 64, 0)), stroke.error().c_str());
+          stroke.finish();
+          const Pixel pixel      = canvas.read(64, 64);
+          const double actual[3] = {pixel.r, pixel.g, pixel.b};
+          require(pixel.a == 1, "source HSV changed opaque dab alpha");
+          for (int c = 0; c < 3; ++c) {
+            const int expected = enabled ? observed[channel][color][control][c]
+                                         : colors[color][c];
+            // Saturation has a measured one-byte residual; it remains a
+            // candidate, not byte-exact source verification.
+            const int tolerance = enabled && channel == 1 ? 1 : 0;
+            require(std::abs(int(std::floor(actual[c] * 255 + .5)) -
+                             expected) <= tolerance,
+                    "source HSV differs from independently captured RGB");
+          }
+        }
+  Preset invalid;
+  invalid.sourceHsvChannel = SourceHsvChannel::Hue;
+  require(!validate(invalid).empty(), "native profile admitted source HSV");
+  invalid.profile = "krita-5.3.4.1-hard-pixel-candidate-1";
+  invalid.wash    = true;
+  require(!validate(invalid).empty(), "unqualified source HSV wash admitted");
+  invalid.wash       = false;
+  invalid.flow.value = .5;
+  require(!validate(invalid).empty(),
+          "unqualified source HSV transfer admitted");
+}
+
 void testKritaHardPixelCandidate() {
   struct FullCanvas : Canvas {
     double coverage(int, int) const override { return 1; }
@@ -802,6 +884,26 @@ void testStationaryAndBatching() {
           "delivery batching changed stroke");
   require(sa.dabCount() >= 10 && sa.dabCount() <= 11,
           "airbrush timer did not schedule stationary dabs");
+}
+void testNativePressureDeliveryBatches() {
+  // Batching preserves every authored sample. This does NOT resample a source
+  // path or assert invariance under a changed sequence of tablet events.
+  Preset p;
+  p.size.value    = 24;
+  p.spacing       = .1;
+  p.size.mappings = {Mapping{}};
+  p.opacity.value = .5;
+  Canvas direct, batched;
+  Stroke a(direct, p), b(batched, p);
+  std::vector<Sample> events;
+  for (int i = 0; i <= 32; ++i)
+    events.push_back(sample(32 + i * .5, 32, i / 32.0, .25 + .5 * i / 32.0));
+  for (const auto &event : events) require(a.add(event), a.error().c_str());
+  for (size_t offset = 0; offset < events.size(); offset += 7)
+    for (size_t i = offset; i < std::min(offset + 7, events.size()); ++i)
+      require(b.add(events[i]), b.error().c_str());
+  require(same(direct, batched) && a.dabCount() == b.dabCount(),
+          "native identical pressure events changed when delivered in batches");
 }
 void testColorDynamics() {
   auto deposit = [](Preset p, double pressure) {
@@ -1023,6 +1125,78 @@ void testNativeWetAnalyticalDrift() {
               "cancelled native wet stroke retained field memory");
     }
 }
+void testSourceWetOffCanvasState() {
+  struct UnselectedCanvas : Canvas {
+    double coverage(int, int) const override { return 1; }
+  };
+  // Cropping the host raster must not alter a continuous stroke's transient
+  // off-canvas transport. A larger transparent canvas is an independent
+  // boundary oracle; only the finite host writes are compared.
+  for (const char *model :
+       {"legacy-smear", "new-smear", "legacy-dulling", "new-dulling"})
+    for (double colorRate : {0.0, .25})
+      for (double pickupRadius : {0.0, 1.0, 3.0}) {
+        UnselectedCanvas finite, padded;
+        padded.w = 512;
+        padded.h = 256;
+        padded.pixels.assign(size_t(padded.w) * padded.h, {});
+        for (int y = 0; y < finite.h; ++y)
+          for (int x = 0; x < finite.w; ++x) {
+            Pixel pixel = x < 64 ? Pixel{0, 0, 1, 1}
+                                 : Pixel{128 / 255.0, 0, 0, 128 / 255.0};
+            finite.write(x, y, pixel);
+            padded.write(x + 192, y + 64, pixel);
+          }
+        Preset p;
+        p.profile = std::string("krita-5.3.4.1-") + model + "-candidate-1";
+        p.wet     = std::string(model).find("dulling") != std::string::npos
+                        ? Wet::Dulling
+                        : Wet::Smear;
+        if ((p.wet == Wet::Smear && pickupRadius != 0) ||
+            (std::string(model) == "legacy-dulling" && pickupRadius > 1))
+          continue;
+        p.tip.antialiasEdges = false;
+        p.size.value         = 16;
+        p.spacing            = .5;
+        p.smudgeRadius       = pickupRadius;
+        p.color              = {0, 1, 0, 1};
+        p.colorRate          = colorRate;
+        auto shared          = std::make_shared<MemoryBudget>(8 * 1024 * 1024);
+        Stroke clipped(finite, p, 8 * 1024 * 1024, shared), full(padded, p);
+        const std::pair<int, int> path[] = {
+            {64, 48}, {-64, 48}, {-64, 80}, {64, 80}};
+        double time = 0;
+        for (int segment = 0; segment < 3; ++segment) {
+          const auto a = path[segment], b = path[segment + 1];
+          const int steps = std::max(std::abs(a.first - b.first),
+                                     std::abs(a.second - b.second)) /
+                            4;
+          for (int i = segment ? 1 : 0; i <= steps; ++i) {
+            const double x = a.first + (b.first - a.first) * double(i) / steps,
+                         y = a.second +
+                             (b.second - a.second) * double(i) / steps;
+            require(clipped.add(sample(x, y, time)), clipped.error().c_str());
+            require(full.add(sample(x + 192, y + 64, time)),
+                    full.error().c_str());
+            time += 1 / 240.0;
+          }
+        }
+        for (int y = 0; y < finite.h; ++y)
+          for (int x = 0; x < finite.w; ++x) {
+            const Pixel a = finite.read(x, y), b = padded.read(x + 192, y + 64);
+            require(
+                std::abs(a.r - b.r) < 1e-12 && std::abs(a.g - b.g) < 1e-12 &&
+                    std::abs(a.b - b.b) < 1e-12 && std::abs(a.a - b.a) < 1e-12,
+                "off-canvas wet state differs from transparent padded canvas");
+          }
+        require(shared->used() > 0,
+                "off-canvas state escaped memory accounting");
+        clipped.finish();
+        full.finish();
+        require(shared->used() == 0,
+                "finished off-canvas wet state retained memory");
+      }
+}
 void testSourceTextureMasks() {
   auto mask   = std::make_shared<Image>();
   mask->width = mask->height = 16;
@@ -1107,6 +1281,85 @@ void testSourceTextureMasks() {
   wet.smudgeRadius       = 0;
   wet.texture.image      = mask;
   require(!validate(wet).empty(), "unmeasured new Dulling texture admitted");
+}
+void testSourceWetForegroundTransformPlumbing() {
+  // Original Pixel RGB captures establish the foreground transform separately
+  // from wet transport. Feed the rendered foreground into each existing wet
+  // equation and compare with those captured colors injected directly. This
+  // qualifies composition plumbing, not unmeasured imported wet HSV support.
+  const int captured[3][2][3] = {{{116, 47, 173}, {47, 173, 66}},
+                                 {{173, 140, 123}, {173, 60, 0}},
+                                 {{69, 36, 19}, {222, 189, 172}}};
+  const Pixel original{173 / 255.0, 91 / 255.0, 47 / 255.0, 1};
+  for (const char *model :
+       {"legacy-smear", "new-smear", "legacy-dulling", "new-dulling"})
+    for (int channel = 0; channel < 3; ++channel)
+      for (int setting = 0; setting < 2; ++setting)
+        for (bool enabled : {false, true})
+          for (bool smearAlpha : {false, true}) {
+            Preset dry;
+            dry.profile    = "krita-5.3.4.1-hard-pixel-candidate-1";
+            dry.size.value = 24;
+            dry.color      = original;
+            dry.sourceHsvChannel =
+                enabled ? SourceHsvChannel(channel + 1) : SourceHsvChannel::Off;
+            dry.sourceHsvValue = setting ? .8 : .2;
+            Canvas swatch;
+            Stroke transform(swatch, dry);
+            require(transform.add(sample(64, 64, 0)),
+                    transform.error().c_str());
+            transform.finish();
+            Canvas candidate, expected;
+            for (int y = 0; y < candidate.h; ++y)
+              for (int x = 0; x < candidate.w; ++x) {
+                const Pixel background =
+                    x < 40 ? Pixel{0, 0, 1, 1}
+                           : Pixel{128 / 255.0, 0, 0, 128 / 255.0};
+                candidate.write(x, y, background);
+                expected.write(x, y, background);
+              }
+            Preset wet;
+            wet.profile =
+                std::string("krita-5.3.4.1-") + model + "-candidate-1";
+            wet.wet = std::string(model).find("dulling") != std::string::npos
+                          ? Wet::Dulling
+                          : Wet::Smear;
+            wet.size.value         = 8;
+            wet.spacing            = 5;
+            wet.smudgeRadius       = 0;
+            wet.tip.antialiasEdges = false;
+            wet.sourceSmearAlpha   = smearAlpha;
+            wet.color              = swatch.read(64, 64);
+            wet.sourceHsvValue =
+                dry.sourceHsvValue;  // Disabled source value is inert.
+            Preset direct   = wet;
+            const auto &rgb = captured[channel][setting];
+            direct.color    = enabled ? Pixel{rgb[0] / 255.0, rgb[1] / 255.0,
+                                           rgb[2] / 255.0, 1}
+                                      : original;
+            Stroke actualStroke(candidate, wet),
+                expectedStroke(expected, direct);
+            for (const auto &input : {sample(10, 64, 0), sample(91, 64, 1)}) {
+              require(actualStroke.add(input), actualStroke.error().c_str());
+              require(expectedStroke.add(input),
+                      expectedStroke.error().c_str());
+            }
+            actualStroke.finish();
+            expectedStroke.finish();
+            const double tolerance =
+                enabled && channel == 1 ? 1 / 255.0 + 1e-12 : 1e-12;
+            for (size_t i = 0; i < candidate.pixels.size(); ++i) {
+              const Pixel a = candidate.pixels[i], b = expected.pixels[i];
+              require(std::abs(a.r - b.r) <= tolerance &&
+                          std::abs(a.g - b.g) <= tolerance &&
+                          std::abs(a.b - b.b) <= tolerance && a.a == b.a,
+                      "shared source foreground differs from direct wet color "
+                      "injection");
+            }
+            wet.sourceHsvChannel = SourceHsvChannel(channel + 1);
+            require(!validate(wet).empty(),
+                    "unqualified active wet HSV gained eligibility");
+          }
 }
 void testSourceWetOpacityTransport() {
   // Original K5341 straight RGBA8 captures, two/three separated dabs over
@@ -1679,6 +1932,184 @@ void testSourceSmallCircle() {
     require(std::abs(canvas.read(pixel[0], pixel[1]).a * 255 - pixel[2]) < 1e-9,
             "small-circle fade or scalar quantization differs from source");
 }
+void testSourceBarrelGeometry() {
+  // Original static ellipse masks plus the independently captured positive
+  // barrel sign: raw315 degrees matches serialized static+45 degrees.
+  struct Capture {
+    int diameter;
+    double aspect, barrel;
+    int x, y, w, h;
+    uint64_t hash;
+  };
+  const Capture captures[] = {
+      {16, 0.25, 0, -12, -12, 26, 26, 5110072451055542885ull},
+      {16, 0.25, 315, -12, -12, 26, 26, 17554875013171802149ull},
+      {16, 0.25, 270, -12, -12, 26, 26, 15888210921076884757ull},
+      {16, 0.5, 0, -12, -12, 26, 26, 6985544762035993973ull},
+      {16, 0.5, 315, -12, -12, 26, 26, 11519218464571737365ull},
+      {16, 0.5, 270, -12, -12, 26, 26, 6572898940333968981ull},
+      {16, 1, 0, -12, -12, 26, 26, 15671155680365188181ull},
+      {16, 1, 315, -12, -12, 26, 26, 15671155680365188181ull},
+      {16, 1, 270, -12, -12, 26, 26, 15671155680365188181ull},
+      {64, 0.25, 0, -36, -36, 74, 74, 7286171426856152085ull},
+      {64, 0.25, 315, -36, -36, 74, 74, 15881757145890768269ull},
+      {64, 0.25, 270, -36, -36, 74, 74, 6522406809041249397ull},
+      {64, 0.5, 0, -36, -36, 74, 74, 4417048127223711637ull},
+      {64, 0.5, 315, -36, -36, 74, 74, 18082161390857717109ull},
+      {64, 0.5, 270, -36, -36, 74, 74, 11746254902137415701ull},
+      {64, 1, 0, -36, -36, 74, 74, 4871573068758355349ull},
+      {64, 1, 315, -36, -36, 74, 74, 4871573068758355349ull},
+      {64, 1, 270, -36, -36, 74, 74, 4871573068758355349ull}};
+  for (const auto &capture : captures) {
+    Preset p;
+    p.profile      = "krita-5.3.4.1-hard-pixel-candidate-1";
+    p.size.value   = capture.diameter;
+    p.aspect.value = capture.aspect;
+    p.angle.value  = 360;
+    Mapping mapping;
+    mapping.sensor   = Sensor::Rotation;
+    p.angle.mappings = {mapping};
+    Canvas canvas;
+    Stroke stroke(canvas, p);
+    auto input        = sample(64, 64, 0);
+    input.hasRotation = true;
+    input.rotation    = capture.barrel * 3.14159265358979323846 / 180;
+    require(stroke.add(input), stroke.error().c_str());
+    uint64_t hash = 14695981039346656037ull;
+    for (int y = 0; y < capture.h; ++y)
+      for (int x = 0; x < capture.w; ++x)
+        hash =
+            (hash ^ uint64_t(std::lround(
+                        canvas.read(64 + capture.x + x, 64 + capture.y + y).a *
+                        255))) *
+            1099511628211ull;
+    require(hash == capture.hash,
+            "source barrel mask disagrees with original ellipse capture");
+    p.opacity.value = .5;
+    require(!validate(p).empty(),
+            "unmeasured barrel/transfer combination admitted");
+  }
+}
+void testSourceSymmetricTiltRotation() {
+  // Original off-grid rectangle observations identify these orientations
+  // modulo180: both signs of10/20 degree tilt yield60/120 degree rotation.
+  // Only symmetric hard ellipses are admitted; asymmetric tips need evidence.
+  for (Sensor sensor : {Sensor::TiltX, Sensor::TiltY})
+    for (double degrees : {-20., -10., 10., 20.}) {
+      Preset p;
+      p.profile      = "krita-5.3.4.1-hard-pixel-candidate-1";
+      p.size.value   = 24;
+      p.aspect.value = .5;
+      p.angle.value  = 360;
+      Mapping mapping;
+      mapping.sensor   = sensor;
+      p.angle.mappings = {mapping};
+      Canvas tilted, barrel;
+      Stroke a(tilted, p);
+      auto input    = sample(64, 64, 0);
+      input.hasTilt = true;
+      input.tiltX   = sensor == Sensor::TiltX ? degrees / 60 : 0;
+      input.tiltY   = sensor == Sensor::TiltY ? degrees / 60 : 0;
+      require(a.add(input), a.error().c_str());
+      p.angle.mappings.front().sensor = Sensor::Rotation;
+      Stroke b(barrel, p);
+      input.hasRotation = true;
+      input.rotation    = std::abs(degrees) * 6 * 3.14159265358979323846 / 180;
+      require(b.add(input), b.error().c_str());
+      require(same(tilted, barrel),
+              "source tilt normalization disagrees with measured orientation "
+              "class");
+      p.angle.mappings.front().sensor = sensor;
+      p.tip.shape                     = Shape::Square;
+      require(!validate(p).empty(), "unqualified source tilt shape admitted");
+    }
+}
+void testSourcePixelPressureTransfer() {
+  // Original constant-pressure Node observations: wash opacity scales the
+  // stroke, wash flow and build-up opacity accumulate per dab, build-up flow
+  // is inactive. Source byte rounding is allowed one byte at these probes.
+  for (bool wash : {false, true})
+    for (bool opacityControl : {false, true})
+      for (double pressure : {.25, .75}) {
+        Preset p;
+        p.profile        = "krita-5.3.4.1-hard-pixel-candidate-1";
+        p.size.value     = 32;
+        p.spacing        = .25;
+        p.wash           = wash;
+        Dynamic &control = opacityControl ? p.opacity : p.flow;
+        control.value    = .5;
+        control.mappings = {Mapping{}};
+        Canvas canvas;
+        Stroke stroke(canvas, p);
+        // The source defers a dab at the final input endpoint. Continue past
+        // x48 so the captured x768/x776 probes translated to x32/x40
+        // receive two/three interior dabs, as in the original long stroke.
+        auto first = sample(32, 32, 0), last = sample(56, 32, 1);
+        first.pressure = last.pressure = pressure;
+        require(stroke.add(first) && stroke.add(last), stroke.error().c_str());
+        require(stroke.dabCount() == 3,
+                "pressure transfer fixture must emit three interior dabs");
+        const bool inactive      = !wash && !opacityControl;
+        const bool strokeOpacity = wash && opacityControl;
+        const int two            = inactive        ? 255
+                                   : strokeOpacity ? (pressure == .25 ? 32 : 96)
+                                                   : (pressure == .25 ? 60 : 156);
+        const int three          = inactive        ? 255
+                                   : strokeOpacity ? two
+                                                   : (pressure == .25 ? 84 : 193);
+        const auto actualTwo     = std::lround(canvas.read(32, 32).a * 255);
+        const auto actualThree   = std::lround(canvas.read(40, 32).a * 255);
+        const std::string diagnostic =
+            "source pressure transfer disagrees with original Node probes: "
+            "wash=" +
+            std::to_string(wash) +
+            " opacity=" + std::to_string(opacityControl) +
+            " pressure=" + std::to_string(pressure) +
+            " expected=" + std::to_string(two) + "," + std::to_string(three) +
+            " actual=" + std::to_string(actualTwo) + "," +
+            std::to_string(actualThree);
+        require(std::abs(actualTwo - two) <= 1 &&
+                    std::abs(actualThree - three) <= 1,
+                diagnostic.c_str());
+        control.mappings.front().sensor = Sensor::TiltX;
+        require(!validate(p).empty(),
+                "unmeasured Pixel transfer sensor admitted");
+      }
+}
+void testSourceTransferCurves() {
+  // Independent natural-spline solution for (0,0),(.5,1),(1,0):
+  // on [0,.5], f(x)=3*x-4*x^3; f(.25)=.6875.
+  // This verifies the candidate composition, not foreign transfer parity.
+  for (bool wash : {false, true})
+    for (bool opacity : {false, true}) {
+      Preset p;
+      p.profile     = "krita-5.3.4.1-hard-pixel-candidate-1";
+      p.size.value  = 32;
+      p.wash        = wash;
+      auto &control = opacity ? p.opacity : p.flow;
+      control.value = .5;
+      Mapping curve;
+      curve.interpolation = Interpolation::NaturalCubic;
+      curve.curve         = {{0, 0}, {.5, 1}, {1, 0}};
+      control.mappings    = {curve};
+      Canvas canvas;
+      Stroke stroke(canvas, p);
+      auto input     = sample(32, 32, 0);
+      input.pressure = .25;
+      require(stroke.add(input), stroke.error().c_str());
+      const double expected = !wash && !opacity ? 1 : .34375;
+      require(std::abs(canvas.read(32, 32).a - expected) <= 1.0 / 255,
+              "source candidate cubic transfer composition changed");
+      control.mappings.front().interpolation = Interpolation::Linear;
+      require(!validate(p).empty(),
+              "source multi-knot transfer admitted linear interpolation");
+      control.mappings.front().interpolation = Interpolation::NaturalCubic;
+      p.profile = "krita-5.3.4.1-legacy-smear-candidate-1";
+      p.wet     = Wet::Smear;
+      require(!validate(p).empty(),
+              "Pixel cubic transfer broadened wet qualification");
+    }
+}
 void testSourceNaturalCubicSize() {
   // Complete original source alpha windows, independent of this evaluator.
   struct Capture {
@@ -1902,11 +2333,17 @@ void testSourceWetWorkBounds() {
       ++prepared;
       return true;
     }
-    Pixel read(int, int) const override {
+    Pixel read(int x, int y) const override {
+      require(x >= 0 && y >= 0 && x < side && y < side,
+              "source wet read escaped the finite host");
       ++reads;
       return {0, 0, 0, 1};
     }
-    void write(int, int, const Pixel &) override { ++writes; }
+    void write(int x, int y, const Pixel &) override {
+      require(x >= 0 && y >= 0 && x < side && y < side,
+              "source wet write escaped the finite host");
+      ++writes;
+    }
   };
   for (const std::string model :
        {"legacy-smear", "new-smear", "legacy-dulling", "new-dulling"}) {
@@ -1917,10 +2354,10 @@ void testSourceWetWorkBounds() {
     p.size.value   = 4096;
     p.smudgeRadius = p.wet == Wet::Smear ? 0 : model == "new-dulling" ? 3 : 1;
     require(validate(p).empty(), "extreme source geometry eligibility changed");
-    // Smear's unclipped snapshot footprint exceeds the work budget. Dulling's
-    // clipped 4096-square footprint exactly consumes it, so even radius-zero
-    // center pickup must be charged before any host operation. Nonzero-radius
-    // cases additionally cover the real area-scaled physical sample count.
+    // Every model charges its full moving snapshot, including off-canvas
+    // pixels, before any host operation. Large dabs must not bypass the work
+    // budget by clipping to a smaller host. Nonzero-radius cases additionally
+    // cover the real area-scaled physical sample count.
     GuardSurface guard(p.wet == Wet::Smear ? 8192 : 4096);
     auto budget = std::make_shared<MemoryBudget>(1024u * 1024u * 1024u);
     for (double radius : {0.0, p.smudgeRadius}) {
@@ -1937,24 +2374,59 @@ void testSourceWetWorkBounds() {
       denied.finish();
       require(budget->used() == 0, "failed source wet stroke leaked budget");
     }
-    // Charge clipped raster area rather than a theoretical full brush square.
-    // A normal small corner snapshot remains legal and releases its state.
+    // The full D32 moving field is 34x34 for Smear and 35x34 for
+    // Dulling's half-pixel x lattice. At a 1x1 host corner it also needs
+    // four sparse 32x32 outside tiles, each with its charged node allowance.
+    // Host clipping must not hide either allocation from the budget.
     p.size.value   = 32;
     p.smudgeRadius = p.wet == Wet::Smear ? 0 : .5;
     GuardSurface corner(1);
     Stroke clipped(corner, p, 1024 * 1024, budget);
     const size_t settingsBytes = budget->used();
     require(clipped.add(sample(0, 0, 0)), clipped.error().c_str());
+    const size_t snapshotBytes =
+        size_t(p.wet == Wet::Smear ? 34 : 35) * 34 * sizeof(Pixel);
+    const size_t outsideTileBytes = 32 * 32 * sizeof(Pixel) + 128;
     require(
-        corner.prepared == 1 && budget->used() == settingsBytes + sizeof(Pixel),
-        "clipped source wet snapshot charged the wrong raster area");
+        corner.prepared == 1 && budget->used() == settingsBytes +
+                                                      snapshotBytes +
+                                                      4 * outsideTileBytes,
+        "source moving field or sparse outside tiles were not fully charged");
     clipped.finish();
-    require(budget->used() == 0, "clipped source wet snapshot leaked budget");
+    require(budget->used() == 0,
+            "source corner field or outside tiles leaked budget");
+    for (bool denySnapshot : {false, true}) {
+      const size_t cap = settingsBytes + 4 * outsideTileBytes +
+                         (denySnapshot ? snapshotBytes : 0) - 1;
+      auto limited = std::make_shared<MemoryBudget>(cap);
+      GuardSurface untouched(1);
+      Stroke denied(untouched, p, cap, limited);
+      require(
+          !denied.add(sample(0, 0, 0)) &&
+              denied.error() ==
+                  (denySnapshot ? "Source wet snapshot memory limit exceeded"
+                                : "Source off-canvas memory limit exceeded") &&
+              untouched.prepared == 0 && untouched.reads == 0 &&
+              untouched.writes == 0,
+          "source corner memory cap was not enforced before host access");
+      require(limited->used() ==
+                  settingsBytes + (denySnapshot ? 4 * outsideTileBytes : 0),
+              "failed source allocation escaped accounting");
+      denied.finish();
+      require(limited->used() == 0,
+              "denied source corner allocation leaked budget");
+    }
     GuardSurface outside(1);
-    Stroke offCanvas(outside, p);
-    require(offCanvas.add(sample(10000, 10000, 0)) && outside.prepared == 0 &&
-                outside.reads == 0 && outside.writes == 0,
-            "empty clipped source wet footprint touched the host");
+    Stroke offCanvas(outside, p, 1024 * 1024, budget);
+    const size_t outsideSettings = budget->used();
+    require(
+        offCanvas.add(sample(10000, 10000, 0)) && outside.prepared == 0 &&
+            outside.reads == 0 && outside.writes == 0 &&
+            budget->used() ==
+                outsideSettings + snapshotBytes + 9 * outsideTileBytes,
+        "fully outside wet field touched host or escaped memory accounting");
+    offCanvas.finish();
+    require(budget->used() == 0, "fully outside wet field leaked budget");
   }
 }
 void testSourceHardCircleAA() {
@@ -2205,7 +2677,9 @@ int main() {
       {"testIndependentSecondaryDynamics", testIndependentSecondaryDynamics},
       {"testNativeSpacingAndWorkLimits", testNativeSpacingAndWorkLimits},
       {"testKritaHardPixelCandidate", testKritaHardPixelCandidate},
+      {"testKritaFixedHsvCandidate", testKritaFixedHsvCandidate},
       {"testStationaryAndBatching", testStationaryAndBatching},
+      {"testNativePressureDeliveryBatches", testNativePressureDeliveryBatches},
       {"testColorDynamics", testColorDynamics},
       {"testCubicCurves", testCubicCurves},
       {"testSourceDefaultCircle", testSourceDefaultCircle},
@@ -2219,9 +2693,16 @@ int main() {
       {"testSourcePixelBlendCandidates", testSourcePixelBlendCandidates},
       {"testSourceSmallHardCircleAA", testSourceSmallHardCircleAA},
       {"testSourceNaturalCubicSize", testSourceNaturalCubicSize},
+      {"testSourceBarrelGeometry", testSourceBarrelGeometry},
+      {"testSourceSymmetricTiltRotation", testSourceSymmetricTiltRotation},
+      {"testSourcePixelPressureTransfer", testSourcePixelPressureTransfer},
+      {"testSourceTransferCurves", testSourceTransferCurves},
       {"testSourceRectangle", testSourceRectangle},
       {"testSourceWetInitialization", testSourceWetInitialization},
+      {"testSourceWetOffCanvasState", testSourceWetOffCanvasState},
       {"testSourceTextureMasks", testSourceTextureMasks},
+      {"testSourceWetForegroundTransformPlumbing",
+       testSourceWetForegroundTransformPlumbing},
       {"testSourceWetOpacityTransport", testSourceWetOpacityTransport},
       {"testSourceWetDisabledControls", testSourceWetDisabledControls},
       {"testLongWetTrace", testLongWetTrace},

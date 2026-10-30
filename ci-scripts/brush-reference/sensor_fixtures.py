@@ -80,12 +80,36 @@ def prepare(root, resources, preset_writer, group):
                     label = "sparse " + str(spacing) + " " + direction + " " + label
                     plans.append(("Spacing", "pressure", label, trace(direction, pressure=pressure)))
                     details[label] = {"spacing": spacing}
+    if group == "tabletsensors":
+        for angle in (0, 30, 75, 135, 270, 315):
+            label = "qualified ellipse barrel " + str(angle)
+            plans.append(("Rotation", "rotation", label, trace("east", rotation=angle)))
+            details[label] = {"spacing": 4, "sourceBarrel": True}
+        label = "qualified ellipse barrel wrap ramp"
+        plans.append(("Rotation", "rotation", label,
+                      trace("east", rotation=lambda t: (315 + 90 * t) % 360)))
+        details[label] = {"spacing": 4, "sourceBarrel": True}
+    if group == "tabletsensors":
+        for sensor, axis in (("xtilt", 0), ("ytilt", 1)):
+            for value in (-20, -10, 10, 20):
+                label = "qualified ellipse " + sensor + " " + str(value)
+                events = trace("east", tilt=(value, 0) if axis == 0 else (0, value))
+                plans.append(("Rotation", sensor, label, events))
+                details[label] = {"spacing": 4, "sourceBarrel": True}
+            # Rectangle evidence only identifies orientation modulo180. The
+            # original arrow distinguishes otherwise identical sensor models.
+            for value in (-20, -10, 0, 10, 20):
+                label = "asymmetric " + sensor + " " + str(value)
+                plans.append(("Rotation", sensor, label,
+                              trace("east", tilt=(value, 0) if axis == 0 else (0, value))))
+                details[label] = {"spacing": 4, "asymmetric": True}
     names, cases = [], []
     for target, sensor, label, events in plans:
         spacing = details.get(label, {}).get("spacing", 1)
         asymmetric = details.get(label, {}).get("asymmetric", False)
+        source_barrel = details.get(label, {}).get("sourceBarrel", False)
         for enabled in (False, True):
-            for isotropic in ((False, True) if target == "Spacing" else (False,)):
+            for isotropic in ((True,) if source_barrel else (False, True) if target == "Spacing" else (False,)):
                 name = "GZ Original dry sensor " + group + " " + str(len(cases)).zfill(3)
                 sensor_xml = Element("params", id=sensor)
                 if sensor == "drawingangle":
@@ -116,7 +140,8 @@ def prepare(root, resources, preset_writer, group):
                                      "md5": hashlib.md5(brush_data).hexdigest(), "bytes": len(brush_data),
                                      "originalDimensions": [8, 8], "rect": [864, 864, 320, 320],
                                      "qualification": "original asymmetric tip, source sensor evidence only"}
-                data = preset_writer(name, "dry", False, overrides, 24, spacing, 0, 1, "rect", .3, 0)
+                data = preset_writer(name, "dry", False, overrides, 24, spacing, 0, 1,
+                                     "circle" if source_barrel else "rect", .5 if source_barrel else .3, 0)
                 (resources / "paintoppresets" / (name + ".kpp")).write_bytes(data)
                 names.append(name)
                 # K5341 bd6e8d0 acquisition: enabled identity declination at
@@ -134,6 +159,7 @@ def prepare(root, resources, preset_writer, group):
                                               "serializationEvidence": "provisional barrel sensor identity; enabled/control output must establish recognition"
                                               if sensor == "rotation" else "observed official bundled KPP sensor/option metadata",
                                               "qualification": "source acquisition only; normalization, sign and event-to-dab semantics unqualified"}})
+                cases[-1]["sourceBarrelCandidate"] = source_barrel and enabled
                 if resource_spec is not None:
                     package_name = "resource-" + str(len(cases) - 1).zfill(3) + ".bundle"
                     packages = root / "output" / "resource-packages"

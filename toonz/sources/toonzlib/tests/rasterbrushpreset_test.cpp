@@ -159,7 +159,7 @@ void testGihSelectionLifecycle() {
                 selected == render(record.preset, false),
             "GIH selection changed after reopen, restart or event partition");
     if (random) {
-      Preset resolved = restored.preset;
+      Preset resolved            = restored.preset;
       resolved.varySeedPerStroke = true;
       require(selected == render(resolved, false) &&
                   selected == render(resolved, true),
@@ -820,6 +820,55 @@ void testImports() {
     require(!importBrush(computedAbr(version, 0), "abr", error).complete,
             "unimplemented zero spacing was silently approximated");
   }
+  // Original fixed-channel source metadata, with disabled and unsupported
+  // variants exercising eligibility rather than merely round-tripping fields.
+  for (const QString &target : {QString("h"), QString("s"), QString("v")})
+    for (int variant = 0; variant < 4; ++variant) {
+      QImage image = QImage::fromData(hardPixelKpp("buildUp"), "PNG");
+      QString xml  = image.text("preset"), extra;
+      auto param   = [&](const QString &key, const QString &value) {
+        extra +=
+            "<param name=\"" + key + "\">" + value.toHtmlEscaped() + "</param>";
+      };
+      for (const QString &key : {QString("h"), QString("s"), QString("v")})
+        param("Pressure" + key,
+              key == target && variant != 1 ? "true" : "false");
+      const QString curve = variant == 2 ? "0,0.2;1,0.8;" : "0,0.6;1,0.6;";
+      param(target + "UseCurve", "true");
+      param(target + "UseSameCurve", "true");
+      param(target + "Value", "1");
+      param(target + "curveMode", "0");
+      param(target + "commonCurve", curve);
+      param(target + "Sensor",
+            "<params id=\"" + QString(variant == 3 ? "rotation" : "pressure") +
+                "\"><curve>" + curve + "</curve></params>");
+      xml.replace("</Preset>", extra + "</Preset>");
+      image.setText("preset", xml);
+      QByteArray bytes;
+      QBuffer buffer(&bytes);
+      buffer.open(QIODevice::WriteOnly);
+      require(image.save(&buffer, "PNG"), "source HSV fixture encoding failed");
+      const auto imported = importBrush(bytes, "kpp", error);
+      require(imported.records.size() == 1, "source HSV import lost preset");
+      const auto &record = imported.records.front();
+      const bool candidate =
+          record.preset.profile == "krita-5.3.4.1-hard-pixel-candidate-1";
+      require(candidate == (variant < 2),
+              "source HSV eligibility admitted unsupported controls");
+      if (candidate) {
+        const auto expected = variant == 1    ? SourceHsvChannel::Off
+                              : target == "h" ? SourceHsvChannel::Hue
+                              : target == "s" ? SourceHsvChannel::Saturation
+                                              : SourceHsvChannel::Value;
+        require(record.preset.sourceHsvChannel == expected,
+                "source HSV enabled state lost");
+        const auto restored = decode(encode(record, error), error);
+        require(
+            error.isEmpty() && restored.preset.sourceHsvChannel == expected &&
+                restored.preset.sourceHsvValue == record.preset.sourceHsvValue,
+            "source HSV portable lifecycle lost versioned settings");
+      }
+    }
   auto numericSpelling =
       importBrush(hardPixelKpp("numericSpelling"), "kpp", error);
   require(numericSpelling.complete &&
@@ -933,6 +982,97 @@ void testImports() {
           "unknown active sensor declaration entered a source candidate");
     }
   }
+  for (const QString variant :
+       {"wetOpacityPressure", "wetFlowPressure", "wetFlowDisabled"}) {
+    auto transfer = importBrush(hardPixelKpp(variant), "kpp", error);
+    require(
+        transfer.complete && transfer.records.size() == 1 &&
+            transfer.records.front().preset.profile ==
+                "krita-5.3.4.1-hard-pixel-candidate-1",
+        "measured Pixel identity pressure transfer lost candidate eligibility");
+    const auto &preset = transfer.records.front().preset;
+    const auto &control =
+        variant == "wetOpacityPressure" ? preset.opacity : preset.flow;
+    require(control.mappings.size() == (variant == "wetFlowDisabled" ? 0u : 1u),
+            "Pixel pressure enable flag not preserved");
+    const auto restored =
+        decode(encode(transfer.records.front(), error), error);
+    require(
+        error.isEmpty() && restored.preset.profile == preset.profile &&
+            restored.preset.opacity.mappings.size() ==
+                preset.opacity.mappings.size() &&
+            restored.preset.flow.mappings.size() == preset.flow.mappings.size(),
+        "Pixel pressure transfer lost on portable round trip");
+  }
+  for (const QString target : {"Opacity", "Flow"})
+    for (bool local : {false, true}) {
+      QImage image =
+          QImage::fromData(hardPixelKpp("wet" + target + "Pressure"), "PNG");
+      QString xml = image.text("preset");
+      xml.replace("0,0;1,1;", "0,0;.5,1;1,0;");
+      if (local)
+        xml.replace("<param name=\"" + target + "UseSameCurve\">true</param>",
+                    "<param name=\"" + target + "UseSameCurve\">false</param>");
+      image.setText("preset", xml);
+      QByteArray bytes;
+      QBuffer buffer(&bytes);
+      buffer.open(QIODevice::WriteOnly);
+      require(image.save(&buffer, "PNG"),
+              "cannot encode transfer curve fixture");
+      auto imported = importBrush(bytes, "kpp", error);
+      require(imported.complete && imported.records.size() == 1 &&
+                  imported.records.front().preset.profile ==
+                      "krita-5.3.4.1-hard-pixel-candidate-1",
+              "source pressure spline lost candidate eligibility");
+      auto restored = decode(encode(imported.records.front(), error), error);
+      const auto &control =
+          target == "Opacity" ? restored.preset.opacity : restored.preset.flow;
+      require(
+          error.isEmpty() && control.mappings.size() == 1 &&
+              control.mappings.front().interpolation ==
+                  Interpolation::NaturalCubic &&
+              control.mappings.front().curve.size() == 3,
+          "source pressure spline lost interpolation on portable round trip");
+    }
+  for (const QString axis : {"xtilt", "ytilt"}) {
+    QImage image = QImage::fromData(hardPixelKpp("barrel"), "PNG");
+    QString xml  = image.text("preset");
+    xml.replace("id=&quot;rotation&quot;", "id=&quot;" + axis + "&quot;");
+    image.setText("preset", xml);
+    QByteArray bytes;
+    QBuffer buffer(&bytes);
+    buffer.open(QIODevice::WriteOnly);
+    require(image.save(&buffer, "PNG"), "cannot encode tilt sensor fixture");
+    auto imported = importBrush(bytes, "kpp", error);
+    require(imported.complete && imported.records.size() == 1 &&
+                imported.records.front().preset.profile ==
+                    "krita-5.3.4.1-hard-pixel-candidate-1",
+            "symmetric tilt sensor lost candidate eligibility");
+    auto restored = decode(encode(imported.records.front(), error), error);
+    require(error.isEmpty() && restored.preset.angle.mappings.size() == 1 &&
+                restored.preset.angle.mappings.front().sensor ==
+                    (axis == "xtilt" ? Sensor::TiltX : Sensor::TiltY),
+            "symmetric tilt sensor lost portable identity");
+  }
+  auto barrel = importBrush(hardPixelKpp("barrel"), "kpp", error);
+  require(barrel.complete &&
+              barrel.records.front().preset.profile ==
+                  "krita-5.3.4.1-hard-pixel-candidate-1" &&
+              barrel.records.front().preset.angle.value == 360 &&
+              barrel.records.front().preset.angle.mappings.size() == 1 &&
+              barrel.records.front().preset.angle.mappings.front().sensor ==
+                  Sensor::Rotation,
+          "source barrel identity mapping lost eligibility or units");
+  auto barrelCopy = decode(encode(barrel.records.front(), error), error);
+  require(
+      error.isEmpty() && barrelCopy.preset.angle.value == 360 &&
+          barrelCopy.preset.angle.mappings.front().sensor == Sensor::Rotation,
+      "portable source barrel mapping lost units");
+  auto anisotropic =
+      importBrush(hardPixelKpp("barrelAnisotropic"), "kpp", error);
+  require(anisotropic.complete && anisotropic.records.front().preset.profile ==
+                                      "groundzero-native-1",
+          "unmeasured rotating anisotropic spacing entered source candidate");
   auto spline = importBrush(hardPixelKpp("pressureSpline"), "kpp", error);
   require(
       spline.complete &&
@@ -1487,7 +1627,7 @@ void testPackage() {
   r.preset.secondary.flipX = r.preset.secondary.flipY = true;
   r.preset.saturation.value                           = .7;
   r.preset.brightness.value                           = 1.2;
-  r.preset.seed = UINT64_C(18446744073709551615);
+  r.preset.seed              = UINT64_C(18446744073709551615);
   r.preset.varySeedPerStroke = true;
   QString error;
   auto bytes = encode(r, error);
@@ -1617,7 +1757,9 @@ void testPackage() {
   r.preset.color     = {1, 0, 0, .5};
   require(encode(r, error).isEmpty(), "invalid premultiplication accepted");
 }
+void testLongCollectionPaths();
 void testCollection() {
+  testLongCollectionPaths();
   QTemporaryDir directory;
   require(directory.isValid(), "temporary collection directory unavailable");
   Record first, second;
@@ -1658,6 +1800,81 @@ void testCollection() {
           "conflicting collection overwritten");
   require(load(paths[0], error).preset.name == first.preset.name,
           "conflicting collection modified another preset");
+}
+// Exercise long names without shortening the library or preset identity.
+// Qt writes/renames already use extended paths on Windows; our raw no-follow
+// reads must accept the same files while retaining their security contract.
+void testLongCollectionPaths() {
+  QTemporaryDir temporary;
+  require(temporary.isValid(), "cannot create long collection fixture");
+  QString directory = temporary.path();
+  while (directory.size() < 280)
+    directory = QDir(directory).filePath(QString(48, 'l'));
+  Record record;
+  record.preset.name = std::string(40, 'p');
+  QString error;
+  const auto paths = installCollection(directory, {record}, error);
+  require(error.isEmpty() && paths.size() == 1, qPrintable(error));
+  require(paths.front().size() > 400, "long collection fixture is too short");
+  const auto restored = load(paths.front(), error);
+  require(error.isEmpty() && restored.preset.name == record.preset.name,
+          qPrintable("long collection load: " + error));
+  const auto duplicate = installCollection(directory, {record}, error);
+  require(error.isEmpty() && duplicate.size() == 1 &&
+              duplicate.front() == paths.front(),
+          qPrintable("long collection reimport: " + error));
+  {
+    Detail::RegularResponseDirectory anchored;
+    require(anchored.open(QFileInfo(paths.front()).absolutePath(), error),
+            qPrintable(error));
+    Detail::readResponseFile(anchored, "../escape", 1024, error);
+    require(!error.isEmpty(), "long-path reader accepted traversal");
+    Detail::readResponseFile(anchored, QFileInfo(paths.front()).fileName(), 1,
+                             error);
+    require(!error.isEmpty(), "long-path reader ignored byte budget");
+#ifdef _WIN32
+    const QString native =
+        QStringLiteral("\\\\?\\") +
+        QDir::toNativeSeparators(QFileInfo(paths.front()).absolutePath());
+    HANDLE deletion = CreateFileW(
+        reinterpret_cast<LPCWSTR>(native.utf16()), DELETE,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+        OPEN_EXISTING,
+        FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+    const DWORD code = GetLastError();
+    if (deletion != INVALID_HANDLE_VALUE) CloseHandle(deletion);
+    require(deletion == INVALID_HANDLE_VALUE && code == ERROR_SHARING_VIOLATION,
+            "long directory anchor did not prevent replacement");
+#endif
+  }
+#ifdef _WIN32
+  for (const QString &unsupported :
+       {QString("//server/share"), QString("//?/") + directory}) {
+    Detail::RegularResponseDirectory rejected;
+    require(
+        !rejected.open(unsupported, error) && error.contains("local disk path"),
+        "long-path support admitted UNC or device-path input");
+  }
+  const QString alias = QDir(directory).filePath("hardlink.gzbrush");
+  const QString nativeAlias =
+      QStringLiteral("\\\\?\\") + QDir::toNativeSeparators(alias);
+  const QString nativeTarget =
+      QStringLiteral("\\\\?\\") + QDir::toNativeSeparators(paths.front());
+  require(
+      CreateHardLinkW(reinterpret_cast<LPCWSTR>(nativeAlias.utf16()),
+                      reinterpret_cast<LPCWSTR>(nativeTarget.utf16()), nullptr),
+      "cannot create long-path hardlink fixture");
+  readBoundedRegularFile(paths.front(), 1024 * 1024, error);
+  require(!error.isEmpty(), "long-path reader accepted a hardlink");
+  require(QFile::remove(alias), "cannot remove long-path hardlink fixture");
+#endif
+  QFile damaged(paths.front());
+  require(damaged.open(QIODevice::WriteOnly) && damaged.write("damaged") == 7,
+          "cannot damage long collection fixture");
+  damaged.close();
+  require(
+      installCollection(directory, {record}, error).empty() && !error.isEmpty(),
+      "long collection reimport overwrote conflicting content");
 }
 void testImportedStatusClaims() {
   Record claimed;

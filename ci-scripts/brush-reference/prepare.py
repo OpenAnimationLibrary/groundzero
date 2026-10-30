@@ -66,27 +66,69 @@ source = Path(__file__).resolve().parent
 shutil.copytree(source / "gzbrush_reference", resources / "pykrita" / "gzbrush_reference", dirs_exist_ok=True)
 (resources / "pykrita" / "gzbrush_reference.desktop").write_text("[Desktop Entry]\nType=Service\nServiceTypes=Krita/PythonPlugin\nX-KDE-Library=gzbrush_reference\nX-Python-2-Compatible=false\nName=Brush Reference Fixtures\nComment=Render original API-line fixtures for brush qualification\n")
 (root / "config" / "kritarc").write_text("[General]\nuseOpenGL=false\n[python]\nenable_gzbrush_reference=true\n")
+def finalize_input_contract():
+    """Pin the source input flag explicitly for every generator's cases."""
+    path = root / "output" / "fixtures.json"
+    fixture = json.loads(path.read_text())
+    for case in fixture["cases"]:
+        diagnostic = case.get("variant", "").endswith(" pressure-flag false control")
+        case["sourcePressureFlag"] = case.get("delivery") == "Qt tablet events" and not diagnostic
+        if diagnostic:
+            case["sourceInputDiagnosticOnly"] = True
+    path.write_text(json.dumps(fixture, indent=2))
+
+
 names, cases = [], []
 group = os.environ.get("BRUSH_REFERENCE_GROUP", "parameters")
+if group == "texturepickup":
+    from texture_pickup_fixtures import prepare as prepare_texture_pickup
+    prepare_texture_pickup(root, resources, preset)
+    finalize_input_contract()
+    raise SystemExit(0)
 if group in ("maskwash", "maskbuildup"):
     from masked_fixtures import prepare as prepare_masked
     prepare_masked(root, resources, preset, group)
+    finalize_input_contract()
+    raise SystemExit(0)
+if group in ("airbrushtimed", "timedsensors"):
+    from timed_fixtures import prepare as prepare_timed
+    prepare_timed(root, resources, preset, group)
+    finalize_input_contract()
+    raise SystemExit(0)
+if group == "wethsv":
+    from wet_hsv_fixtures import prepare as prepare_wet_hsv
+    prepare_wet_hsv(root, resources, preset)
+    finalize_input_contract()
+    raise SystemExit(0)
+if group == "hsvjoint":
+    from hsv_joint_fixtures import prepare as prepare_hsv_joint
+    prepare_hsv_joint(root, resources, preset)
+    finalize_input_contract()
+    raise SystemExit(0)
+if group == "hsvheldout":
+    from hsv_heldout_fixtures import prepare as prepare_hsv_heldout
+    prepare_hsv_heldout(root, resources, preset)
+    finalize_input_contract()
     raise SystemExit(0)
 if group in ("hsvdynamics", "distancesensors"):
     from option_fixtures import prepare as prepare_options
     prepare_options(root, resources, preset, group)
+    finalize_input_contract()
     raise SystemExit(0)
 if group == "mirrortips":
     from mirror_fixtures import prepare as prepare_mirrors
     prepare_mirrors(root, resources, preset)
+    finalize_input_contract()
     raise SystemExit(0)
 if group in ("tabletsensors", "spacingdynamics"):
     from sensor_fixtures import prepare as prepare_sensors
     prepare_sensors(root, resources, preset, group)
+    finalize_input_contract()
     raise SystemExit(0)
-if group in ("bitmaptips", "gihstatistics"):
+if group in ("bitmaptips", "gihstatistics", "gihlabels"):
     from resource_fixtures import prepare as prepare_resources
     prepare_resources(root, resources, preset, group)
+    finalize_input_contract()
     raise SystemExit(0)
 if group not in ("parameters", "geometry", "tablet", "hardpixel", "wetsteps", "wethold", "wetstate", "pixelopacity", "pixelopacitytablet", "pixelcontrols", "pixeltransfer", "pixelpressure", "pixelsmallpressure", "wettexture", "wettexture3", "wetswitches", "wetcombined", "wetpressure", "wettransfer", "wetopacitycombo", "wetboundary", "texturemasks", "texturestate", "wetkernel", "wetkernelscale", "wetkernelcount", "pixelsoft", "pixelsoftsize", "pixelrectsize", "pixelaarange", "pixelshape", "pixelprecision", "pixelcurves", "pixelcurveknots", "pixelblend"):
     raise RuntimeError("Unknown reference fixture group")
@@ -179,6 +221,7 @@ for mode, modern in profiles:
                             "OpacityValue": str(opacity), "FlowValue": str(flow)},
                             32, .25, [1, 1], opacity, flow))
     precision_positions = {}
+    precision_partitions = {}
     if group == "pixelprecision":
         pressure_curve = {"PressureSize": "true", "SizeUseCurve": "true", "SizeUseSameCurve": "true", "SizecommonCurve": "0,0;1,1;", "SizeSensor": '<params id="pressure"><curve>0,0;1,1;</curve></params>'}
         variants = []
@@ -195,6 +238,18 @@ for mode, modern in profiles:
                 label = f"precision spacing ppm {round(spacing * 1000000):06d} length {length}"
                 variants.append((label, {**pressure_curve, "OpacityValue": ".5"}, 32, spacing, [1, 1], .5, 1))
                 precision_positions[label] = (0, 0, length)
+    if group == "pixelprecision":
+        # Identical linear pressure path, different authored event partitions.
+        # Preserve each delivered trace; no source subdivision invariance is
+        # presumed. The .8px event lands exactly on the first dynamic dab.
+        for label, positions in (("coarse", [0, 16]),
+                                 ("dab boundary", [0, .8, 16]),
+                                 ("integer lookahead", [0, 1, 16]),
+                                 ("dense", [i / 2 for i in range(33)])):
+            label = "pressure partition " + label
+            variants.append((label, pressure_curve, 32, .1, [.25, .75], 1, 1))
+            precision_positions[label] = (0, 0, 16)
+            precision_partitions[label] = positions
     if group == "pixelcurveknots":
         variants = []
         # Nonuniform knots, interior extrema and between-knot probes separate
@@ -438,7 +493,7 @@ for mode, modern in profiles:
                                      diameter, 5, [1, 1], 1, 1))
     if group == "wetkernelcount":
         planned = json.loads((source / "wetkernelcount.json").read_text())
-        if planned.get("schema") != 1 or len(planned.get("cases", [])) != 179:
+        if planned.get("schema") != 1 or len(planned.get("cases", [])) != 185:
             raise RuntimeError("Unexpected bounded Dulling probe plan")
         variants = []
         kernel_objectives = {}
@@ -448,12 +503,14 @@ for mode, modern in profiles:
             diameter, radius = probe["diameter"], probe["radiusPercent"]
             axis, offset = probe["axis"], probe["offset"]
             if not (0 < diameter <= 128 and 0 <= radius <= 300 and
-                    axis in ("column", "row") and abs(offset) <= 200):
+                    axis in ("column", "row", "point") and abs(offset) <= 200 and
+                    (axis != "point" or (isinstance(probe.get("offsetY"), int) and abs(probe["offsetY"]) <= 200))):
                 raise RuntimeError("Out-of-bounds Dulling probe")
             dabs = probe.get("dabs", 2)
             if dabs not in (2, 3, 4):
                 raise RuntimeError("Out-of-bounds Dulling state probe")
-            label = f"wet kernel radius {radius} offset {offset} diameter {diameter} axis {axis} dabs {dabs}"
+            point_y = f" y {probe['offsetY']}" if axis == "point" else ""
+            label = f"wet kernel radius {radius} offset {offset} diameter {diameter} axis {axis}{point_y} dabs {dabs}"
             if label in kernel_objectives:
                 raise RuntimeError("Duplicate Dulling probe")
             kernel_objectives[label] = probe["reason"]
@@ -474,6 +531,30 @@ for mode, modern in profiles:
                 if group == "pixelprecision":
                     precision_positions[node_label] = precision_positions[label]
         variants.extend(paired)
+    if group == "pixeltransfer":
+        variants.extend((variant[0] + " pressure-flag false control", *variant[1:])
+                        for variant in list(variants)
+                        if " action 0 dynamic pressure " in variant[0] and
+                           not variant[0].endswith(" Node control"))
+    if group == "pixeltransfer":
+        # Shared option serialization uses the same pressure spline as Size;
+        # these independent Node controls qualify transfer composition itself.
+        for action in (0, 1):
+            for control in ("Opacity", "Flow"):
+                for shape, curve in (("turning", "0,0;.5,1;1,0;"),
+                                     ("nonuniform", "0,.1;.2,.9;.7,.15;1,.8;")):
+                    for mode in ("shared", "local", "disabled"):
+                        overrides = {"PaintOpAction": str(action), control + "Value": ".5",
+                            "Pressure" + control: str(mode != "disabled").lower(),
+                            control + "UseCurve": "true",
+                            control + "UseSameCurve": str(mode != "local").lower(),
+                            control + "commonCurve": curve if mode != "local" else "0,1;1,1;",
+                            control + "Sensor": '<params id="pressure"><curve>' +
+                                (curve if mode == "local" else "0,0;1,1;") + '</curve></params>'}
+                        label = f"transfer spline {control} action {action} {shape} {mode} Node control"
+                        variants.append((label, overrides, 32, .25, [.25, .25],
+                                         .5 if control == "Opacity" else 1,
+                                         .5 if control == "Flow" else 1))
     for label, overrides, diameter, spacing, pressure, opacity, flow in variants:
         # Resource names also become KPP filenames. The source treats decimal
         # dot segments as resource versions, so all generated identities use
@@ -522,6 +603,16 @@ for mode, modern in profiles:
                                "tiltY": 0, "rotation": 0,
                                "timeUs": round(i * 1000000 / 240)}
                               for i, point in enumerate((case["start"], case["end"]))]
+        if group == "pixelprecision" and label in precision_partitions:
+            case = cases[-1]
+            case["events"] = [{"x": 256 + distance, "y": 1024,
+                               "pressure": .25 + .5 * distance / 16,
+                               "tiltX": 0, "tiltY": 0, "rotation": 0,
+                               "timeUs": round(distance * 1000000 / 16)}
+                              for distance in precision_partitions[label]]
+            case["partitionProbe"] = {"path": "linear16-pressure-quarter-to-threequarters",
+                                      "partition": label,
+                                      "expectation": "measure source event partition semantics; invariance unverified"}
         if group in ("wetsteps", "wethold", "wetstate", "wettexture", "wettexture3", "wetswitches", "wetcombined", "wetpressure", "wettransfer", "wetopacitycombo", "wetkernel", "wetkernelscale", "wetkernelcount"):
             case = cases[-1]
             dabs = 3 if group == "wetstate" else int(label.rsplit(" ", 1)[1])
@@ -547,6 +638,9 @@ for mode, modern in profiles:
                               "wetBoundary": 256 + diameter * spacing * .8,
                               "changeExpectation": "measure Dulling pickup kernel; unqualified until independently implemented"})
         if group == "wetkernelcount":
+            if "axis point" in label:
+                cases[-1]["wetPattern"] = "opaque-black-white-point"
+                cases[-1]["wetKernelOffsetY"] = int(label.split(" y ")[1].split()[0])
             dabs = int(label.rsplit(" ", 1)[1])
             cases[-1]["probePositions"] = [round(256 + diameter * spacing * i) for i in range(dabs)]
             cases[-1].update({"kernelProbeObjective": kernel_objectives[label],
@@ -620,5 +714,8 @@ for mode, modern in profiles:
             # interface. Never round the fractional Qt precision cases.
             cases[-1]["delivery"] = "Node.paintLine"
             cases[-1].pop("events", None)
-            cases[-1]["pairedQtVariant"] = label.removesuffix(" Node control")
+            if not label.startswith("transfer spline"):
+                cases[-1]["pairedQtVariant"] = label.removesuffix(" Node control")
 (root / "output" / "fixtures.json").write_text(json.dumps({"version": "5.3.4.1", "group": group, "presets": names, "cases": cases, "license": "CC0-1.0", "width": 2048, "height": 2048, "input": "Qt synthetic tablet events plus paired Node.paintLine controls; not physical tablet delivery" if group in ("pixeltransfer", "pixelprecision") else "Qt synthetic tablet events; not physical tablet delivery" if group in ("tablet", "pixelopacitytablet", "pixelcontrols", "pixeltransfer", "wetboundary", "pixelprecision") else "Node.paintLine API; not physical tablet delivery"}, indent=2))
+
+finalize_input_contract()

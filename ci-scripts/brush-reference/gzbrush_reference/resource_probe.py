@@ -43,6 +43,9 @@ def resolve(app, root, case, effective_fields):
 
 
 def readback(raw, width, case):
+    if "labelProbe" in case:
+        from . import label_probe
+        return label_probe.capture(raw, width, case)
     spec = case["resourceProbe"]
     left, top, w, h = spec["rect"]
     pixels = b"".join(raw[(y * width + left) * 4:(y * width + left + w) * 4]

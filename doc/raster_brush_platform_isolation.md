@@ -63,7 +63,25 @@ to fail, and loopback connection to a parent-held live listener to fail with
 `WSAEACCES` or `WSAECONNREFUSED`. Ordinary parent connections must succeed before
 and after the worker probe; refusal from an unused port is not evidence. The
 parent listener is not inherited by the worker, and positive-control waits are
-bounded. Regular PNG/GBR import and cancellation run through the
+bounded. A pending connection is a distinct failure outcome, never sufficient
+by itself. Test-only read-only WFP enumeration requires a kernel drop within
+that worker's connection-attempt interval, ending before its socket closes.
+Child-side records must match the staged helper application ID, its unique
+AppContainer SID, and the live IPv4/TCP loopback endpoint. Windows can instead
+drop the listener's outbound reply: that record must match the ordinary parent's
+application ID, absent/null package identity, both loopback addresses, listener
+port and the exact child source port obtained with `getsockname` after explicit
+loopback binding (an implicitly bound pending connection has no guaranteed
+local address). The parent
+independently checks the launched child's token against its unique container SID
+and checks its own ordinary token state. A reply record never inherits the
+remote child's identity as its local application/package identity. Enumeration is
+capped at 4,096 events and two seconds. Missing event access, disabled event
+collection or no matching drop keeps the test failed; the observer never changes
+firewall policy or event-collection settings. Matcher negative fixtures reject
+wrong applications, SIDs, ports, stale timestamps, allow events and nonloopback
+events. This observer is absent from production builds.
+Regular PNG/GBR import and cancellation run through the
 same boundary. The packaged-runtime smoke imports an original fixture, compares
 installed runtime ACLs before/after, and rejects a changed manifest-listed file.
 CI must qualify Windows loader/Qt deployment and profile cleanup.

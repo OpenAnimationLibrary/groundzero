@@ -38,6 +38,13 @@ add_executable(rasterbrushengine_test
   "${REPO_ROOT}/toonz/sources/toonzlib/tests/rasterbrushengine_test.cpp")
 target_include_directories(rasterbrushengine_test PRIVATE "${REPO_ROOT}/toonz/sources/include")
 target_compile_definitions(rasterbrushengine_test PRIVATE TOONZLIB_EXPORTS)
+# A compiled test omitted from the named registry must fail CI, not silently
+# disappear from coverage. Keep this warning local to the test translation unit.
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+  set_source_files_properties(
+    "${REPO_ROOT}/toonz/sources/toonzlib/tests/rasterbrushengine_test.cpp"
+    PROPERTIES COMPILE_OPTIONS "-Werror=unused-function")
+endif()
 if(APPLE)
   target_compile_definitions(rasterbrushengine_test PRIVATE MACOSX)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")

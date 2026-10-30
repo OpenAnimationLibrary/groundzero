@@ -57,6 +57,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <stdexcept>
+#include <vector>
 
 namespace {
 void require(bool value, const char *message) {
@@ -458,16 +459,25 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
               "cannot remove invalid installed fixture");
     }
     checkpoint("qualifying explicit source-to-native copy conversion");
-    for (bool wetConversion : {false, true}) {
+    for (int conversionKind : {0, 1, 2}) {
+      const bool wetConversion = conversionKind == 1;
+      const bool hsvConversion = conversionKind == 2;
       RasterBrush::Record fixture;
       fixture.preset.name    = wetConversion ? "Original wet conversion fixture"
-                                             : "Original pixel conversion fixture";
+                               : hsvConversion
+                                   ? "Original HSV conversion fixture"
+                                   : "Original pixel conversion fixture";
       fixture.preset.profile = wetConversion
                                    ? "krita-5.3.4.1-legacy-dulling-candidate-1"
                                    : "krita-5.3.4.1-hard-pixel-candidate-1";
       fixture.preset.wet =
           wetConversion ? RasterBrush::Wet::Dulling : RasterBrush::Wet::Off;
       fixture.preset.smudgeRadius = 0;
+      if (hsvConversion) {
+        fixture.preset.sourceHsvChannel =
+            RasterBrush::SourceHsvChannel::Saturation;
+        fixture.preset.sourceHsvValue = .75;
+      }
       // A forged classification must not hide the actual source runtime in
       // the editor; the explicit conversion action is still required.
       fixture.provenance["conversionKind"] = "native-reinterpretation";
@@ -478,12 +488,17 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
       auto texture   = std::make_shared<RasterBrush::Image>();
       texture->width = texture->height = 1;
       texture->pixels                  = {{0, 0, 0, 1}};
-      fixture.preset.texture.image     = texture;
+      // The experimental source HSV profile excludes texture resources
+      // entirely. Pixel/wet cases retain the resource-rights preservation
+      // coverage.
+      if (!hsvConversion) fixture.preset.texture.image = texture;
       const auto assets = RasterBrush::resources(fixture, importError);
-      require(importError.isEmpty() && assets.size() == 1,
-              "source conversion resource fixture invalid");
-      fixture.resourceRights[assets.front().hash] = QJsonObject{
-          {"redistribution", "restricted"}, {"license", "Original fixture"}};
+      require(
+          importError.isEmpty() && assets.size() == (hsvConversion ? 0u : 1u),
+          "source conversion resource fixture invalid");
+      if (!hsvConversion)
+        fixture.resourceRights[assets.front().hash] = QJsonObject{
+            {"redistribution", "restricted"}, {"license", "Original fixture"}};
       const QString folder =
           ToonzFolder::getLibraryFolder().getQString() + "/rasterbrushes";
       const QString originalPath =
@@ -523,12 +538,17 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
                 if (!confirmation || confirmation->objectName() !=
                                          "nativeBrushConfirmNativeConversion")
                   return;
-                confirmed = confirmation->defaultButton() ==
-                                confirmation->button(QMessageBox::Cancel) &&
-                            confirmation->text().contains(
-                                "original remains unchanged") &&
-                            (!wetConversion || confirmation->text().contains(
-                                                   "native wet mixing"));
+                confirmed =
+                    confirmation->defaultButton() ==
+                        confirmation->button(QMessageBox::Cancel) &&
+                    confirmation->text().contains(
+                        "original remains unchanged") &&
+                    (!wetConversion ||
+                     confirmation->text().contains("native wet mixing")) &&
+                    (!hsvConversion ||
+                     (confirmation->text().contains(
+                          "HSV color adjustment will be removed") &&
+                      confirmation->text().contains("different equations")));
                 if (outcome == 0)
                   confirmation->reject();
                 else {
@@ -606,7 +626,10 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
           require(
               converted.preset.profile == "groundzero-native-1" &&
                   converted.preset.size.value == 32.5 &&
-                  converted.preset.texture.image &&
+                  converted.preset.sourceHsvChannel ==
+                      RasterBrush::SourceHsvChannel::Off &&
+                  converted.preset.sourceHsvValue == .5 &&
+                  bool(converted.preset.texture.image) == !hsvConversion &&
                   converted.resourceRights == fixture.resourceRights &&
                   converted.provenance["sourceProfileBeforeNativeConversion"]
                           .toString() ==
@@ -618,8 +641,9 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
               "native conversion lost assets, declarations, edited values or "
               "reset semantics");
           const QString portable = QDir::current().filePath(
-              wetConversion ? "converted-wet.gzbrush"
-                            : "converted-pixel.gzbrush");
+              wetConversion   ? "converted-wet.gzbrush"
+              : hsvConversion ? "converted-hsv.gzbrush"
+                              : "converted-pixel.gzbrush");
           require(RasterBrush::savePortable(
                       portable, converted,
                       RasterBrush::ResourcePackaging::PrivateCopy, importError),
@@ -629,6 +653,9 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
           require(
               importError.isEmpty() && reopened.complete &&
                   reopened.records.size() == 1 &&
+                  reopened.records.front().preset.sourceHsvChannel ==
+                      RasterBrush::SourceHsvChannel::Off &&
+                  reopened.records.front().preset.sourceHsvValue == .5 &&
                   reopened.records.front().provenance["conversionKind"] ==
                       "native-reinterpretation" &&
                   reopened.records.front()
@@ -676,7 +703,7 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
         bool acceptanceSeen = false, defaultCancel = false,
              labelsCorrect = false, pickerSubmitted = false;
         bool driverExpired = false;
-        QString previousModal;
+        QString previousModal, unexpectedWarning;
         QElapsedTimer deadline;
         deadline.start();
         std::cerr << "raster-brush-integration: import "
@@ -694,6 +721,18 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
             std::cerr << "raster-brush-integration: acceptance modal "
                       << identity.toStdString() << std::endl;
             previousModal = identity;
+            if (modal && identity.startsWith("DVGui::Dialog:")) {
+              QStringList body;
+              for (auto label : modal->findChildren<QLabel *>())
+                if (!label->text().isEmpty()) body << label->text();
+              unexpectedWarning = identity + " | " + body.join(" | ");
+              std::cerr
+                  << "raster-brush-integration: unexpected import warning "
+                  << unexpectedWarning.toStdString() << std::endl;
+              if (auto dialog = qobject_cast<QDialog *>(modal))
+                dialog->reject();
+              return;
+            }
           }
           if (deadline.elapsed() > 15000) {
             driverExpired = true;
@@ -753,8 +792,11 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
         modalDriver.stop();
         QApplication::setAttribute(Qt::AA_DontUseNativeDialogs,
                                    nativeDialogsDisabled);
-        require(!driverExpired && handled && acceptanceSeen && defaultCancel &&
-                    labelsCorrect,
+        require(unexpectedWarning.isEmpty(),
+                qPrintable("Import failed after conversion decision: " +
+                           unexpectedWarning));
+        require(!driverExpired, "conversion import modal driver exceeded 15s");
+        require(handled && acceptanceSeen && defaultCancel && labelsCorrect,
                 "foreign import lacked explicit approximation acceptance with "
                 "Cancel default");
         const auto afterFiles =
@@ -936,6 +978,85 @@ int runRasterBrushIntegrationTest(QMainWindow *window) {
                 "repeated source wet undo failed");
         undo->reset();
         if (variant == "halfOpacity") verifyMidStrokeFrameSwitch();
+        if (variant.isEmpty() &&
+            (model == "legacy-smear" || model == "new-dulling")) {
+          checkpoint("qualifying actual source wet canvas exit and reentry");
+          auto boundaryStroke = [&](bool cancel, bool outsideOnly) {
+            TMouseEvent event;
+            event.m_button   = Qt::LeftButton;
+            event.m_buttons  = Qt::LeftButton;
+            event.m_isTablet = true;
+            event.m_pressure = 1;
+            // Existing fixture is128px wide, centered at tool coordinate0.
+            // x=160 is fully outside, including the source pickup footprint.
+            // The separate new-frame case uses10000 to remain outside even
+            // if automatic creation adopts the scene camera dimensions.
+            const std::vector<TPointD> points =
+                outsideOnly ? std::vector<TPointD>{{10000, 0},
+                                                   {10016, 0},
+                                                   {10016, 24},
+                                                   {10000, 24}}
+                            : std::vector<TPointD>{
+                                  {-20, 0}, {160, 0}, {160, 24}, {-20, 24}};
+            require(tool->preLeftButtonDown(), "source boundary input refused");
+            tool->leftButtonDown(points.front(), event);
+            for (size_t segment = 1; segment < points.size(); ++segment) {
+              const auto from = points[segment - 1], to = points[segment];
+              for (int sample = 1; sample <= 24; ++sample)
+                tool->leftButtonDrag(from + (to - from) * (sample / 24.0),
+                                     event);
+            }
+            if (cancel) {
+              require(!same(baseline, raster(level, 1)),
+                      "source boundary cancel fixture did not paint first");
+              QKeyEvent escape(QEvent::KeyPress, Qt::Key_Escape,
+                               Qt::NoModifier);
+              require(tool->keyDown(&escape), "source boundary Escape failed");
+            }
+            event.m_buttons = Qt::NoButton;
+            tool->leftButtonUp(points.back(), event);
+            settle();
+          };
+          boundaryStroke(false, false);
+          const TRaster32P boundaryPixels = raster(level, 1)->clone();
+          bool changedAtEdge              = false;
+          for (int y = 0; y < baseline->getLy(); ++y)
+            for (int x = baseline->getLx() - 4; x < baseline->getLx(); ++x)
+              changedAtEdge = changedAtEdge || baseline->pixels(y)[x] !=
+                                                   boundaryPixels->pixels(y)[x];
+          require(changedAtEdge && undo->getHistoryCount() == 1,
+                  "source exit/reentry failed to paint the actual canvas edge");
+          verifyScenePersistence(boundaryPixels, label + "-boundary");
+          require(undo->undo() && same(baseline, raster(level, 1)),
+                  "source boundary undo did not restore original pixels");
+          require(undo->redo() && same(boundaryPixels, raster(level, 1)),
+                  "source boundary redo rerendered or lost committed pixels");
+          require(undo->undo(), "source boundary second undo failed");
+          undo->reset();
+          boundaryStroke(true, false);
+          require(
+              same(baseline, raster(level, 1)) && undo->getHistoryCount() == 0,
+              "source boundary cancel left paint or undo history");
+          boundaryStroke(false, false);
+          requireSame(
+              boundaryPixels, raster(level, 1),
+              "source outside feedback leaked across cancelled strokes");
+          require(undo->undo() && same(baseline, raster(level, 1)),
+                  "source boundary repeated undo failed");
+          undo->reset();
+          require(!level->getFrame(TFrameId(5), false),
+                  "outside-only source fixture frame already exists");
+          app->getCurrentFrame()->setFid(TFrameId(5));
+          settle();
+          boundaryStroke(false, true);
+          require(!level->getFrame(TFrameId(5), false) &&
+                      undo->getHistoryCount() == 0,
+                  "outside-only source stroke retained an empty created frame");
+          app->getCurrentFrame()->setFid(TFrameId(1));
+          settle();
+          requireSame(baseline, raster(level, 1),
+                      "outside-only source stroke changed the previous frame");
+        }
       }
     checkpoint("qualifying combined portable resources and native dynamics");
     for (bool wet : {false, true}) {

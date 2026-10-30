@@ -1,0 +1,57 @@
+"""Original paced timer acquisitions from pinned serialization metadata only."""
+import json
+from sensor_fixtures import trace
+
+
+def prepare(root, resources, preset_writer, group):
+    plans = []
+    if group == 'airbrushtimed':
+        for rate in (5, 20):
+            for ignore in (False, True):
+                for moving in (False, True):
+                    for duration in (250000, 1000000):
+                        for enabled in (False, True):
+                            plans.append((duration, moving, {
+                                'PaintOpSettings/isAirbrushing': str(enabled).lower(),
+                                'PaintOpSettings/rate': str(rate),
+                                'PaintOpSettings/ignoreSpacing': str(ignore).lower()}, 'airbrush'))
+    elif group == 'timedsensors':
+        for sensor in ('time', 'speed'):
+            for duration in (250000, 1000000):
+                for periodic in ((False, True) if sensor == 'time' else (False,)):
+                    for enabled in (False, True):
+                        curve = '0,0.25;1,1;'
+                        attrs = (' duration="1000" periodic="' + str(int(periodic)) + '"') if sensor == 'time' else ''
+                        plans.append((duration, True, {
+                            'PressureSize': str(enabled).lower(), 'SizeUseCurve': 'true',
+                            'SizeUseSameCurve': 'true', 'SizeValue': '1', 'SizecurveMode': '0',
+                            'SizecommonCurve': curve,
+                            'SizeSensor': '<params id="' + sensor + '"' + attrs + '><curve>' + curve + '</curve></params>'}, sensor))
+    else:
+        raise RuntimeError('Unknown paced acquisition group')
+    names, cases = [], []
+    for duration, moving, options, target in plans:
+        name = 'GZ Original dry ' + group + ' ' + str(len(cases)).zfill(3)
+        events = trace('east') if moving else trace('east')[:1]
+        for i, event in enumerate(events):
+            event['timeUs'] = round(i * duration / (len(events) - 1)) if moving else 0
+        overrides = {'PaintOpAction': '1', 'OpacityValue': '0.1', 'FlowValue': '1',
+                     'PressureFlow': 'false', 'FlowUseCurve': 'false',
+                     'PaintOpSettings/isAirbrushing': 'false', 'PaintOpSettings/rate': '20',
+                     'PaintOpSettings/ignoreSpacing': 'false',
+                     'PaintOpSettings/updateSpacingBetweenDabs': 'false', **options}
+        (resources / 'paintoppresets' / (name + '.kpp')).write_bytes(
+            preset_writer(name, 'dry', False, overrides, 16, 1, 0))
+        names.append(name)
+        cases.append({'preset': name, 'variant': 'paced acquisition', 'diameter': 16, 'spacing': 1,
+                      'pressure': [1, 1], 'opacity': .1, 'flow': 1, 'start': [events[0]['x'], events[0]['y']],
+                      'end': [events[-1]['x'], events[-1]['y']], 'background': 'transparent',
+                      'overrides': overrides, 'expectUnchanged': False, 'delivery': 'Qt tablet events',
+                      'canvasCenter': [1024, 1024], 'events': events,
+                      'timedProbe': {'durationUs': duration, 'moving': moving, 'target': target,
+                                     'rect': [864, 992, 320, 64], 'maxLatenessUs': 250000,
+                                     'qualification': 'paced source acquisition; no physical tablet or source parity claim'}})
+    (root / 'output' / 'fixtures.json').write_text(json.dumps({
+        'version': '5.3.4.1', 'group': group, 'presets': names, 'cases': cases,
+        'license': 'CC0-1.0', 'width': 2048, 'height': 2048,
+        'input': 'Qt5 tablet events paced by real monotonic elapsed time; timers remain serviced'}, indent=2))

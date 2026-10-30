@@ -77,8 +77,9 @@ const QStringList sensors = {"pressure",
 const QStringList shapes  = {"round", "square", "gaussian", "bitmap"};
 const QStringList blends = {"normal", "multiply", "screen", "overlay", "erase"};
 const QStringList masks  = {"multiply", "subtract"};
-const QStringList wets   = {"off", "dulling", "smear"};
-const QStringList interpolations = {"linear", "natural-cubic"};
+const QStringList sourceHsvChannels = {"off", "hue", "saturation", "value"};
+const QStringList wets              = {"off", "dulling", "smear"};
+const QStringList interpolations    = {"linear", "natural-cubic"};
 QJsonObject dynamicJson(const Dynamic &d) {
   QJsonArray maps;
   for (const auto &m : d.mappings) {
@@ -421,6 +422,8 @@ static QByteArray encodeRecord(
         {"sourceSmearAlpha", p.sourceSmearAlpha},
         {"sourceColorRateEnabled", p.sourceColorRateEnabled},
         {"sourceTextureSoftTexturing", p.sourceTextureSoftTexturing},
+        {"sourceHsvChannelV1", sourceHsvChannels[int(p.sourceHsvChannel)]},
+        {"sourceHsvValueV1", p.sourceHsvValue},
         {"pickupControl", dynamicJson(p.pickupControl)},
         {"colorRateControl", dynamicJson(p.colorRateControl)},
         {"radiusControl", dynamicJson(p.radiusControl)},
@@ -575,7 +578,9 @@ static Record decodeRecord(
              "sourceSmudgeLengthEnabled",
              "sourceSmearAlpha",
              "sourceColorRateEnabled",
-             "sourceTextureSoftTexturing"});
+             "sourceTextureSoftTexturing",
+             "sourceHsvChannelV1",
+             "sourceHsvValueV1"});
     auto &p   = r.preset;
     p.name    = text(o["name"]).toStdString();
     p.profile = text(o["profile"]).toStdString();
@@ -598,6 +603,13 @@ static Record decodeRecord(
     p.wash  = boolean(o["wash"]);
     if (o.contains("sourceSmudgeLengthEnabled"))
       p.sourceSmudgeLengthEnabled = boolean(o["sourceSmudgeLengthEnabled"]);
+    if (o.contains("sourceHsvChannelV1") != o.contains("sourceHsvValueV1"))
+      throw Invalid("Incomplete versioned source HSV settings");
+    if (o.contains("sourceHsvChannelV1")) {
+      p.sourceHsvChannel =
+          SourceHsvChannel(choice(o["sourceHsvChannelV1"], sourceHsvChannels));
+      p.sourceHsvValue = number(o["sourceHsvValueV1"]);
+    }
     if (o.contains("sourceTextureSoftTexturing"))
       p.sourceTextureSoftTexturing = boolean(o["sourceTextureSoftTexturing"]);
     if (o.contains("sourceColorRateEnabled"))
@@ -637,8 +649,8 @@ static Record decodeRecord(
     p.varySeedPerStroke = o.contains("varySeedPerStroke")
                               ? boolean(o["varySeedPerStroke"])
                               : false;
-    bool ok = false;
-    p.seed  = text(o["seed"]).toULongLong(&ok);
+    bool ok             = false;
+    p.seed              = text(o["seed"]).toULongLong(&ok);
     if (!ok) throw Invalid("Invalid random seed");
     auto t = object(o["texture"]);
     keys(t, {"image", "mode", "scale", "angle", "offsetX", "offsetY", "depth",

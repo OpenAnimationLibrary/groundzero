@@ -3,9 +3,11 @@ import json
 from sensor_fixtures import trace
 
 
-def prepare(root, resources, preset_writer, group):
-    plans = []
-    if group == "hsvdynamics":
+def prepare(root, resources, preset_writer, group, supplied_plans=None):
+    plans = [] if supplied_plans is None else supplied_plans
+    if supplied_plans is not None:
+        pass
+    elif group == "hsvdynamics":
         for target in ("h", "s", "v"):
             for color in ([173, 91, 47, 255], [59, 137, 191, 255]):
                 # Constant curves avoid assuming synthetic tablet pressure is
@@ -43,7 +45,7 @@ def prepare(root, resources, preset_writer, group):
                           "delivery": "Qt tablet events", "canvasCenter": [1024, 1024], "events": events,
                           "sensorProbe": {"target": target, "sensor": sensor, "enabled": enabled,
                                           "rect": [864, 864, 320, 320], "isotropic": False,
-                                          "verifyCurve": True, "captureColorNotices": group == "hsvdynamics",
+                                          "verifyCurve": True, "captureColorNotices": group in ("hsvdynamics", "hsvheldout"),
                                           "verifyForeground": True,
                                           "qualification": "Metadata-verified acquisition; no source behavioral parity"}})
     (root / "output" / "fixtures.json").write_text(json.dumps({

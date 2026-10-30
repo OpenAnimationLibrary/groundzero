@@ -532,6 +532,70 @@ void testTypedDescriptors() {
           "unknown descriptor type guessed");
 }
 
+void testDescriptorReferences() {
+  auto id = [](Bytes &b, const char *value) {
+    put32(b, 0);
+    putText(b, value);
+  };
+  auto make = [&](const char *unsupported = nullptr) {
+    Bytes body;
+    put32(body, 16);
+    put32(body, 0);
+    id(body, "Brsh");
+    put32(body, 1);
+    id(body, "refs");
+    putText(body, "obj ");
+    put32(body, unsupported ? 1 : 4);
+    if (unsupported)
+      putText(body, unsupported);
+    else
+      for (const char *type : {"prop", "Clss", "Enmr", "rele"}) {
+        putText(body, type);
+        put32(body, 0);  // Empty display name; no external asset path.
+        id(body, "Brsh");
+        if (std::string(type) == "prop") id(body, "Dmtr");
+        if (std::string(type) == "Enmr") {
+          id(body, "Ordn");
+          id(body, "Trgt");
+        }
+        if (std::string(type) == "rele") put32(body, 0xfffffffeu);
+      }
+    return body;
+  };
+  auto body = make();
+  auto file = fileV6(2, section("desc", body));
+  AbrParser::Result result;
+  std::string error;
+  require(parse(file, result, error) && result.descriptors.size() == 1,
+          "documented descriptor references not decoded");
+  const auto &refs = result.descriptors[0].children[0];
+  require(
+      refs.type == "obj " && refs.children.size() == 4 &&
+          refs.children[0].type == "prop" && refs.children[0].text == "Dmtr" &&
+          refs.children[1].classId == "Brsh" &&
+          refs.children[2].unit == "Ordn" && refs.children[2].text == "Trgt" &&
+          refs.children[3].integer == 4294967294LL,
+      "reference identity or raw offset bits lost");
+  for (const char *unknown : {"Idnt", "indx", "name", "????"})
+    require(parse(fileV6(2, section("desc", make(unknown))), result, error) &&
+                result.descriptors.empty(),
+            "undocumented reference payload guessed");
+  for (size_t n = 0; n < body.size(); ++n)
+    require(
+        parse(fileV6(2, section("desc", Bytes(body.begin(), body.begin() + n))),
+              result, error) &&
+            result.descriptors.empty(),
+        "truncated reference accepted");
+  AbrParser::Limits limits;
+  limits.maxDescriptorNodes = 5;  // Root, reference field, four items need6.
+  require(!AbrParser::parseAbr(file.data(), file.size(), result, error, limits),
+          "reference node allocation escaped bound");
+  limits                    = AbrParser::Limits();
+  limits.maxDescriptorDepth = 1;
+  require(!AbrParser::parseAbr(file.data(), file.size(), result, error, limits),
+          "reference child depth escaped bound");
+}
+
 // Original structural fixtures from the documented Patterns / VM array
 // layouts; these assert decoding and budgets, never Photoshop rendering parity.
 Bytes patternResource(unsigned compression = 0, unsigned channelCount = 1,
@@ -765,6 +829,7 @@ int main() {
     testBudgetsAndVersions();
     testTruncation();
     testTypedDescriptors();
+    testDescriptorReferences();
     testPatternResources();
     testPatternEncodings();
   } catch (const std::exception &e) {

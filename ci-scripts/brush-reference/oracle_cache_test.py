@@ -169,6 +169,29 @@ class OracleCacheTest(unittest.TestCase):
                 cache.seal(self.root, self.destination, self.expected)
             self.assertFalse(self.destination.exists())
 
+    def test_explicit_source_pressure_mode_is_retained(self):
+        self.case["sourcePressureFlag"] = True
+        self.row["sourcePressureFlag"] = True
+        self.row["effectiveView"]["disablePressure"] = True
+        (self.output / "fixtures.json").write_bytes(cache.canonical(self.fixtures))
+        (self.output / "oracle-status.json").write_bytes(cache.canonical(self.status))
+        self.sealed()
+        cache.restore(self.root, self.destination, self.expected)
+        restored = cache.parse((self.output / "oracle-status.json").read_bytes())
+        self.assertIs(restored["records"][0]["effectiveView"]["disablePressure"], True)
+
+    def test_pressure_mode_mismatch_and_nonbool_are_rejected(self):
+        for requested, observed in ((True, False), (False, True),
+                                    (True, 1), (False, 0), ("true", True), (1, True)):
+            self.case["sourcePressureFlag"] = requested
+            self.row["sourcePressureFlag"] = requested
+            self.row["effectiveView"]["disablePressure"] = observed
+            (self.output / "fixtures.json").write_bytes(cache.canonical(self.fixtures))
+            (self.output / "oracle-status.json").write_bytes(cache.canonical(self.status))
+            with self.assertRaises(ValueError):
+                cache.seal(self.root, self.destination, self.expected)
+            self.assertFalse(self.destination.exists())
+
     def test_rehashed_partial_status_still_rejected(self):
         self.sealed()
         path = self.destination / "oracle-status.json"

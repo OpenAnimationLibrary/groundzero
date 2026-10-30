@@ -31,12 +31,12 @@ inline QByteArray hardPixelKpp(const QString &mutation = {},
   if (mutation == "wrongModeKey")
     param("PaintingMode", "1");
   else
-    param("PaintOpAction", mutation == "buildUp" ||
-                                   mutation.startsWith("texture-") ||
-                                   !model.isEmpty()
-                               ? "1"
-                           : mutation == "freehandWash" ? "2"
-                                                        : "0");
+    param("PaintOpAction",
+          mutation == "buildUp" || mutation.startsWith("barrel") ||
+                  mutation.startsWith("texture-") || !model.isEmpty()
+              ? "1"
+          : mutation == "freehandWash" ? "2"
+                                       : "0");
   const bool pressureSize =
       mutation == "pressure" || mutation == "pressureRange" ||
       mutation == "pressureSensorRange" || mutation == "pressureSpline";
@@ -47,7 +47,8 @@ inline QByteArray hardPixelKpp(const QString &mutation = {},
         "PaintOpSettings/isAirbrushing", "PaintOpSettings/ignoreSpacing",
         "PaintOpSettings/updateSpacingBetweenDabs",
         "KisPrecisionOption/AutoPrecisionEnabled"})
-    param(key, (mutation == "erase" && key == "EraserMode") ||
+    param(key, (mutation.startsWith("barrel") && key == "PressureRotation") ||
+                       (mutation == "erase" && key == "EraserMode") ||
                        (pressureSize && key == "PressureSize") ||
                        (mutation.startsWith("texture-") &&
                         key == "Texture/Pattern/Enabled") ||
@@ -105,6 +106,17 @@ inline QByteArray hardPixelKpp(const QString &mutation = {},
     param(prefix + "commonCurve", "0,0;1,1;");
     param(prefix + "Sensor",
           "<params id=\"pressure\"><curve>0,0;1,1;</curve></params>");
+  }
+  if (mutation.startsWith("barrel")) {
+    param("RotationUseCurve", "true");
+    param("RotationUseSameCurve", "true");
+    param("RotationValue", "1");
+    param("RotationcurveMode", "0");
+    param("RotationcommonCurve", "0,0;1,1;");
+    param("RotationSensor",
+          "<params id=\"rotation\"><curve>0,0;1,1;</curve></params>");
+    param("Spacing/Isotropic",
+          mutation == "barrelAnisotropic" ? "false" : "true");
   }
   if (pressureSize) {
     const QString curve = mutation == "pressure"         ? "0,0;1,1;"

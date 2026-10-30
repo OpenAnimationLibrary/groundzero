@@ -95,6 +95,33 @@ Pixel hsv(Pixel p, double degrees, double saturation, double brightness) {
   }
   return {(out.r + m) * p.a, (out.g + m) * p.a, (out.b + m) * p.a, p.a};
 }
+Pixel sourceHsvColor(Pixel color, SourceHsvChannel channel, double value) {
+  if (channel == SourceHsvChannel::Off) return color;
+  // Independently derived from original opaque RGB source captures. A neutral
+  // control is .5. Value lightens toward white rather than multiplying V;
+  // saturation increases additively above neutral, multiplicatively below it.
+  if (channel == SourceHsvChannel::Hue)
+    color = hsv(color, 360 * (value - .5), 1, 1);
+  else if (channel == SourceHsvChannel::Value) {
+    auto adjust = [value](double c) {
+      return value <= .5 ? c * (2 * value) : c + (1 - c) * (2 * value - 1);
+    };
+    color = {adjust(color.r), adjust(color.g), adjust(color.b), 1};
+  } else {
+    const double high       = std::max({color.r, color.g, color.b});
+    const double low        = std::min({color.r, color.g, color.b});
+    const double saturation = high > 0 ? (high - low) / high : 0;
+    const double adjusted   = value <= .5 ? saturation * (2 * value)
+                                          : unit(saturation + 2 * value - 1);
+    if (saturation > 0)
+      color = hsv(color, 0, adjusted / saturation, 1);
+    else
+      color = {high, high * (1 - adjusted), high * (1 - adjusted), 1};
+  }
+  auto byte = [](double c) { return std::floor(unit(c) * 255 + .5) / 255; };
+  return {byte(color.r), byte(color.g), byte(color.b), 1};
+}
+
 double arc(double x) { return std::remainder(x, 2 * pi); }
 double mask(double a, double b, MaskMode mode) {
   return mode == MaskMode::Multiply ? a * b : std::max(0.0, a - b);
@@ -259,7 +286,7 @@ std::string validate(const Preset &p) {
   // Independently captured nonuniform monotone/turning pressure-size masks
   // establish natural cubic interpolation beyond the affine two-knot case.
   // Wet pressure qualification remains the separate identity-only predicate.
-  auto sourceSizePressure = [](const Dynamic &value) {
+  auto sourcePressureCurve = [](const Dynamic &value) {
     if (value.minimum != 0 || value.mappings.size() != 1) return false;
     const auto &mapping = value.mappings.front();
     return mapping.sensor == Sensor::Pressure && mapping.scale == 1 &&
@@ -270,7 +297,36 @@ std::string validate(const Preset &p) {
             (mapping.curve.size() > 2 &&
              mapping.interpolation == Interpolation::NaturalCubic));
   };
-  const bool sourcePressureSize = sourceHard && sourceSizePressure(p.size);
+  const bool sourcePressureSize = sourceHard && sourcePressureCurve(p.size);
+  const bool sourceBarrel =
+      sourceHard && !sourceSoft && p.angle.value == 360 &&
+      p.angle.minimum == 0 && p.angle.mappings.size() == 1 &&
+      (p.angle.mappings.front().sensor == Sensor::Rotation ||
+       p.angle.mappings.front().sensor == Sensor::TiltX ||
+       p.angle.mappings.front().sensor == Sensor::TiltY) &&
+      p.angle.mappings.front().scale == 1 &&
+      p.angle.mappings.front().interpolation == Interpolation::Linear &&
+      p.angle.mappings.front().curve.size() == 2 &&
+      p.angle.mappings.front().curve[0].x == 0 &&
+      p.angle.mappings.front().curve[0].y == 0 &&
+      p.angle.mappings.front().curve[1].x == 1 &&
+      p.angle.mappings.front().curve[1].y == 1;
+  if (sourceBarrel && (p.wash || p.blend != Blend::Normal || p.texture.image ||
+                       !p.size.mappings.empty() || p.opacity.value != 1 ||
+                       !p.opacity.mappings.empty() || p.flow.value != 1 ||
+                       !p.flow.mappings.empty()))
+    return "Unimplemented source barrel rotation combination";
+  const bool extendedTransfer =
+      sourceHard &&
+      ((!p.opacity.mappings.empty() && !linearPressure(p.opacity)) ||
+       (!p.flow.mappings.empty() && !linearPressure(p.flow)));
+  if (extendedTransfer &&
+      (p.blend != Blend::Normal || p.texture.image ||
+       !p.size.mappings.empty() || !p.angle.mappings.empty() ||
+       (!p.opacity.mappings.empty() &&
+        (p.flow.value != 1 || !p.flow.mappings.empty())) ||
+       (!p.flow.mappings.empty() && p.opacity.value != 1)))
+    return "Unimplemented source transfer curve combination";
   if (sourceHard || sourceWet) {
     auto fixed = [](const Dynamic &value, double expected) {
       return value.value == expected && value.mappings.empty();
@@ -286,11 +342,15 @@ std::string validate(const Preset &p) {
         (!sourceSoft && p.tip.antialiasEdges) || !p.tip.images.empty() ||
         (!p.size.mappings.empty() && !sourcePressureSize) ||
         p.size.value != std::floor(p.size.value) ||
-        !p.aspect.mappings.empty() || !p.angle.mappings.empty() ||
+        !p.aspect.mappings.empty() ||
+        (!p.angle.mappings.empty() && !sourceBarrel) ||
         (sourceWet && (!fixed(p.aspect, 1) || !fixed(p.angle, 0))) ||
         (!p.opacity.mappings.empty() &&
-         !(sourceWet && linearPressure(p.opacity))) ||
-        (!p.flow.mappings.empty() && !(sourceWet && linearPressure(p.flow))) ||
+         !((sourceWet && linearPressure(p.opacity)) ||
+           (sourceHard && !sourceSoft && sourcePressureCurve(p.opacity)))) ||
+        (!p.flow.mappings.empty() &&
+         !((sourceWet && linearPressure(p.flow)) ||
+           (sourceHard && !sourceSoft && sourcePressureCurve(p.flow)))) ||
         !fixed(p.scatter, 0) || !fixed(p.countControl, 1) ||
         !fixed(p.backgroundMix, 0) || !fixed(p.hue, 0) ||
         !fixed(p.saturation, 1) || !fixed(p.brightness, 1) || p.count != 1 ||
@@ -301,6 +361,18 @@ std::string validate(const Preset &p) {
         p.color.a != 1)
       return "Unimplemented setting in the experimental Krita source profile";
   }
+  if (int(p.sourceHsvChannel) < 0 || int(p.sourceHsvChannel) > 3 ||
+      !std::isfinite(p.sourceHsvValue) || p.sourceHsvValue < 0 ||
+      p.sourceHsvValue > 1)
+    return "Invalid source HSV setting";
+  if (p.sourceHsvChannel != SourceHsvChannel::Off &&
+      (p.profile != "krita-5.3.4.1-hard-pixel-candidate-1" || p.texture.image ||
+       p.wash || p.tip.shape != Shape::Round || p.tip.hardness != 1 ||
+       p.tip.antialiasEdges || p.blend != Blend::Normal ||
+       p.opacity.value != 1 || !p.opacity.mappings.empty() ||
+       p.flow.value != 1 || !p.flow.mappings.empty() ||
+       !p.size.mappings.empty() || p.aspect.value != 1 || p.angle.value != 0))
+    return "Unimplemented source HSV setting combination";
   if ((sourceHard || sourceWet) && p.texture.image &&
       (p.tip.antialiasEdges || p.tip.hardness != 1 ||
        p.tip.shape != Shape::Round || p.blend != Blend::Normal || p.wash ||
@@ -545,6 +617,8 @@ struct Stroke::Impl {
   double randomStroke = 0, randomDab = 0;
   Pixel reservoir;
   std::vector<Pixel> smear, sourceField;
+  using SourceTile = std::array<Pixel, 1024>;
+  std::map<std::pair<int, int>, std::unique_ptr<SourceTile>> sourceOutside;
   int sourceX = 0, sourceY = 0, sourceW = 0, sourceH = 0;
   int smearSide = 0;
   std::map<const Mapping *, std::vector<double>> cubic;
@@ -658,6 +732,7 @@ struct Stroke::Impl {
   void releaseStorage() {
     tiles.clear();
     secondaryMask.clear();
+    sourceOutside.clear();
     cubic.clear();
     releasePresetStorage();
     std::vector<Pixel>().swap(smear);
@@ -690,10 +765,12 @@ struct Stroke::Impl {
       v = s.hasPressure ? s.pressure : 1;
       break;
     case Sensor::TiltX:
-      v = s.hasTilt ? (s.tiltX + 1) * .5 : .5;
+      v = sourcePixelProfile(p.profile) ? (s.hasTilt ? std::abs(s.tiltX) : 0)
+                                        : (s.hasTilt ? (s.tiltX + 1) * .5 : .5);
       break;
     case Sensor::TiltY:
-      v = s.hasTilt ? (s.tiltY + 1) * .5 : .5;
+      v = sourcePixelProfile(p.profile) ? (s.hasTilt ? std::abs(s.tiltY) : 0)
+                                        : (s.hasTilt ? (s.tiltY + 1) * .5 : .5);
       break;
     case Sensor::TiltElevation:
       v = s.hasTilt ? unit(std::hypot(s.tiltX, s.tiltY)) : 0;
@@ -962,10 +1039,69 @@ struct Stroke::Impl {
       result = std::floor(alpha * t.depth + .5) - value;
     return unit(result / 255);
   }
+  bool sourceInside(int x, int y) const {
+    return x >= 0 && y >= 0 && x < surface.width() && y < surface.height();
+  }
+  static int sourceTileCoordinate(int x) {
+    return x < 0 ? (x - 31) / 32 : x / 32;
+  }
+  Pixel sourceRead(int x, int y) const {
+    if (sourceInside(x, y)) return surface.read(x, y);
+    const int tx = sourceTileCoordinate(x), ty = sourceTileCoordinate(y);
+    const auto found = sourceOutside.find({tx, ty});
+    return found == sourceOutside.end()
+               ? Pixel{}
+               : (*found->second)[size_t(y - ty * 32) * 32 + (x - tx * 32)];
+  }
+  bool prepareSourceOutside(int x0, int y0, int x1, int y1) {
+    const int tx0 = sourceTileCoordinate(x0), ty0 = sourceTileCoordinate(y0),
+              tx1     = sourceTileCoordinate(x1 - 1),
+              ty1     = sourceTileCoordinate(y1 - 1);
+    const auto needed = [&](int tx, int ty) {
+      return (tx * 32 < 0 || ty * 32 < 0 || (tx + 1) * 32 > surface.width() ||
+              (ty + 1) * 32 > surface.height()) &&
+             !sourceOutside.count({tx, ty});
+    };
+    constexpr size_t charge = sizeof(SourceTile) + 128;
+    size_t count            = 0;
+    for (int ty = ty0; ty <= ty1; ++ty)
+      for (int tx = tx0; tx <= tx1; ++tx)
+        if (needed(tx, ty)) ++count;
+    if (count > (budget - reserved) / charge ||
+        !shared->reserve(count * charge)) {
+      failure = "Source off-canvas memory limit exceeded";
+      return false;
+    }
+    reserved += count * charge;
+    // All pixels and map nodes are charged before allocation or host writes.
+    // On allocation failure the owning stroke retains the charge until its
+    // partially allocated map is freed by finish/destruction.
+    for (int ty = ty0; ty <= ty1; ++ty)
+      for (int tx = tx0; tx <= tx1; ++tx)
+        if (needed(tx, ty))
+          sourceOutside[{tx, ty}] =
+              std::unique_ptr<SourceTile>(new SourceTile{});
+    return true;
+  }
+  void sourceWrite(int x, int y, Pixel pixel) {
+    if (sourceInside(x, y)) {
+      surface.write(x, y, pixel);
+      return;
+    }
+    const int tx = sourceTileCoordinate(x), ty = sourceTileCoordinate(y);
+    (*sourceOutside.at({tx, ty}))[size_t(y - ty * 32) * 32 + (x - tx * 32)] =
+        pixel;
+  }
   bool sourceWetDab(const Sample &s) {
     // Independent candidate inferred from original first/second-dab fixtures.
     // Model-specific equations are intentionally separate from native wet
     // paint.
+    // Shared source foreground adjustment precedes the model-specific color
+    // injection. Admission remains separate: active wet HSV combinations are
+    // rejected until their original reference interaction has been qualified.
+    // Off is an exact identity, preserving existing wet rounding and alpha.
+    const Pixel foreground =
+        sourceHsvColor(p.color, p.sourceHsvChannel, p.sourceHsvValue);
     const double radius = p.size.value * .5;
     spacing             = std::max(.01, p.size.value * p.spacing);
     // Measured model distinction: Dulling retains the hard Pixel lattice;
@@ -976,22 +1112,25 @@ struct Stroke::Impl {
     const double oddOffset = (int(p.size.value) & 1) ? .5 : 0;
     const double cx        = s.x + (p.wet == Wet::Dulling ? .5 : oddOffset),
                  cy        = s.y - (p.wet == Wet::Smear ? oddOffset : 0);
-    const int reach        = int(std::ceil(radius + 1));
-    const int x0           = std::max(0, int(std::floor(cx)) - reach),
-              y0           = std::max(0, int(std::floor(cy)) - reach),
-              x1 = std::min(surface.width(), int(std::ceil(cx)) + reach),
-              y1 = std::min(surface.height(), int(std::ceil(cy)) + reach);
-    if (x0 >= x1 || y0 >= y1) {
-      previousSourceDab = s;
-      ++dabs;
-      return true;
-    }
-    const double deltaX = previousSourceDab.x - s.x,
-                 deltaY = previousSourceDab.y - s.y;
-    const bool modern   = p.profile == "krita-5.3.4.1-new-smear-candidate-1" ||
+    const bool modern = p.profile == "krita-5.3.4.1-new-smear-candidate-1" ||
                         p.profile == "krita-5.3.4.1-new-dulling-candidate-1";
     const double pickupExtent =
         radius * (modern ? std::min(1.0, p.smudgeRadius) : p.smudgeRadius);
+    // Keep the full moving field even outside the host raster. Original
+    // continuous entry/exit/reentry captures show paint accumulating there
+    // and influencing later in-canvas dabs. It is transient stroke state.
+    // Retain the complete pickup rectangle, including untouched backdrop
+    // outside the paint footprint. Original 3/4-dab large-radius captures
+    // distinguish that halo from transparent padding or a uniform reservoir.
+    // Eligibility remains independently constrained by sampler qualification.
+    const double fieldExtent =
+        p.wet == Wet::Dulling ? std::max(radius, pickupExtent) : radius;
+    const int reach = int(std::ceil(fieldExtent + 1));
+    const int x0    = int(std::floor(cx)) - reach,
+              y0 = int(std::floor(cy)) - reach, x1 = int(std::ceil(cx)) + reach,
+              y1              = int(std::ceil(cy)) + reach;
+    const double deltaX       = previousSourceDab.x - s.x,
+                 deltaY       = previousSourceDab.y - s.y;
     const double pickupWidth  = 2 * pickupExtent;
     const double pickupHeight = std::max(0.0, pickupWidth - 1);
     const unsigned pickupSamples =
@@ -1019,16 +1158,21 @@ struct Stroke::Impl {
       }
       if (!accountPixelWork(int(pickupSamples), 1, sampleWork)) return false;
     }
-    if (!surface.prepare(x0, y0, x1, y1)) {
-      failure = "Raster transaction refused the source wet region";
-      return false;
-    }
+    if (!prepareSourceOutside(x0, y0, x1, y1)) return false;
     const size_t bytes = size_t(x1 - x0) * (y1 - y0) * sizeof(Pixel);
     if (bytes > budget - reserved || !shared->reserve(bytes)) {
       failure = "Source wet snapshot memory limit exceeded";
       return false;
     }
     reserved += bytes;
+    const int clipX0 = std::max(0, x0), clipY0 = std::max(0, y0),
+              clipX1 = std::min(surface.width(), x1),
+              clipY1 = std::min(surface.height(), y1);
+    if (clipX0 < clipX1 && clipY0 < clipY1 &&
+        !surface.prepare(clipX0, clipY0, clipX1, clipY1)) {
+      failure = "Raster transaction refused the source wet region";
+      return false;
+    }
     // Snapshot feedback before destination writes. Smear-alpha uses arithmetic
     // interpolation of premultiplied channels, not source-over opacity. These
     // coincide for an opaque initial pickup but diverge on later dabs.
@@ -1079,11 +1223,7 @@ struct Stroke::Impl {
       }
       return count ? mul(sum, 1.0 / count) : Pixel{};
     };
-    auto surfaceAt = [&](int x, int y) {
-      return x >= 0 && y >= 0 && x < surface.width() && y < surface.height()
-                 ? surface.read(x, y)
-                 : Pixel{};
-    };
+    auto surfaceAt = [&](int x, int y) { return sourceRead(x, y); };
     // Radius-zero Dulling carries the previous center pickup uniformly.
     // Smear carries a translated field. Heterogeneous third-dab fixtures
     // distinguish these states even when their first two dabs coincide.
@@ -1096,7 +1236,7 @@ struct Stroke::Impl {
         const double fx = x + deltaX, fy = y + deltaY;
         const int ix = int(std::floor(fx)), iy = int(std::floor(fy));
         feedback[size_t(y - y0) * (x1 - x0) + x - x0] =
-            !dabs ? (p.wet == Wet::Dulling ? dullingPickup : surface.read(x, y))
+            !dabs ? (p.wet == Wet::Dulling ? dullingPickup : sourceRead(x, y))
             : p.wet == Wet::Dulling
                 ? dullingPickup
                 : mix(mix(at(ix, iy), at(ix + 1, iy), fx - ix),
@@ -1126,7 +1266,8 @@ struct Stroke::Impl {
       for (int x = x0; x < x1; ++x) {
         double dx = (x + .5 - cx) / radius, dy = (y + .5 - cy) / radius;
         double coverage =
-            tipPixel(p.tip, 0, dx, dy).a * unit(surface.coverage(x, y));
+            tipPixel(p.tip, 0, dx, dy).a *
+            (sourceInside(x, y) ? unit(surface.coverage(x, y)) : 1);
         coverage           = sourceTextureCoverage(x, y, coverage);
         const size_t index = size_t(y - y0) * (x1 - x0) + x - x0;
         Pixel paint        = feedback[index];
@@ -1136,22 +1277,22 @@ struct Stroke::Impl {
         }
         if (modern && p.wet == Wet::Dulling && !p.sourceSmearAlpha) {
           paint = mix(
-              surface.read(x, y),
-              composite(paint, mul(p.color, colorRate * colorRate * opacity),
+              sourceRead(x, y),
+              composite(paint, mul(foreground, colorRate * colorRate * opacity),
                         Blend::Normal),
               strength);
         } else if (modern) {
-          paint = composite(mix(surface.read(x, y), paint, strength),
-                            mul(p.color, colorRate * colorRate * opacity),
+          paint = composite(mix(sourceRead(x, y), paint, strength),
+                            mul(foreground, colorRate * colorRate * opacity),
                             Blend::Normal);
         } else {
           // Legacy foreground attenuation uses the serialized length setting,
           // while pressure scales transport strength. Original independent
           // pickup/color-pressure probes distinguish these two quantities.
           paint = mix(
-              surface.read(x, y),
+              sourceRead(x, y),
               composite(paint,
-                        mul(p.color,
+                        mul(foreground,
                             colorRate * std::max(.2, 1 - p.pickup) * opacity),
                         Blend::Normal),
               strength);
@@ -1159,22 +1300,22 @@ struct Stroke::Impl {
         // Alpha transport disabled retains source-over feedback separately
         // from the displayed arithmetic mix. First-dab initialization above
         // remains unchanged. Three-dab fixtures distinguish the two states.
-        feedback[index] =
-            p.texture.image ? quantize(mix(surface.read(x, y), paint, coverage))
-            : coverage == 0 && p.smudgeRadius > 0
-                ? surface.read(x, y)
-                : quantize(p.sourceSmearAlpha
-                               ? paint
-                               : composite(surface.read(x, y), paint,
-                                           Blend::Normal));
+        feedback[index] = p.texture.image
+                              ? quantize(mix(sourceRead(x, y), paint, coverage))
+                          : coverage == 0 && p.smudgeRadius > 0
+                              ? sourceRead(x, y)
+                              : quantize(p.sourceSmearAlpha
+                                             ? paint
+                                             : composite(sourceRead(x, y),
+                                                         paint, Blend::Normal));
         if (coverage > 0)
-          surface.write(x, y,
-                        quantize(mix(surface.read(x, y), paint, coverage)));
+          sourceWrite(x, y, quantize(mix(sourceRead(x, y), paint, coverage)));
       }
     const size_t oldBytes = sourceField.size() * sizeof(Pixel);
+    sourceField.swap(feedback);
+    std::vector<Pixel>().swap(feedback);
     shared->release(oldBytes);
     reserved -= oldBytes;
-    sourceField       = std::move(feedback);
     sourceX           = x0;
     sourceY           = y0;
     sourceW           = x1 - x0;
@@ -1189,18 +1330,26 @@ struct Stroke::Impl {
       return false;
     }
     if (sourceWetProfile(p.profile)) return sourceWetDab(s);
-    randomDab = random();
-    const Pixel foreground =
+    randomDab              = random();
+    const Pixel foreground = sourceHsvColor(
         hsv(mix(p.color, p.background, eval(p.backgroundMix, s)),
-            eval(p.hue, s), eval(p.saturation, s), eval(p.brightness, s));
+            eval(p.hue, s), eval(p.saturation, s), eval(p.brightness, s)),
+        p.sourceHsvChannel, p.sourceHsvValue);
     if (!dabs) reservoir = foreground;
     const double diameter = std::max(.25, eval(p.size, s)),
                  radius   = diameter * .5;
     spacing = sourceProfile(p.profile) ? std::max(.01, diameter * p.spacing)
                                        : diameter * p.spacing;
-    const double aspect = std::max(.01, eval(p.aspect, s));
-    const double angle = eval(p.angle, s) * pi / 180, c = std::cos(angle),
-                 sn      = std::sin(angle);
+    const double aspect       = std::max(.01, eval(p.aspect, s));
+    const double angleDegrees = eval(p.angle, s);
+    // The measured barrel mapping is periodic; evaluate equivalent angles in
+    // a common range so 315 and -45 degrees share the same mask boundary math.
+    const double angle =
+                     (sourcePixelProfile(p.profile) && !p.angle.mappings.empty()
+                          ? std::remainder(angleDegrees, 360.0)
+                          : angleDegrees) *
+                     pi / 180,
+                 c = std::cos(angle), sn = std::sin(angle);
     const double opacity = unit(eval(p.opacity, s));
     // K5341 build-up uses opacity as dab transparency; static flow is
     // inactive. Original zero/quarter/half-flow fixtures establish this

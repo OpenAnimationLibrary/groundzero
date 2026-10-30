@@ -5,18 +5,31 @@ ABR decoding includes sampled tips, legacy computed geometry and typed metadata.
 Strict experimental K5341 component profiles are implemented; none of the full
 foreign behavior profiles below is complete or reference-verified. Keep this work separate from vector/touch usability and neural styling.
 
-At published `82f806b58`, Linux and macOS Qt5/Qt6 parser suites and import
-fuzzing passed, including signed macOS helper startup and allocation-refusal
-checks. The macOS mapping-growth limit and sampled footprint watchdog still do
-not establish an absolute OS-enforced resident-memory ceiling. Windows live
-network-denial qualification remains open: its connection attempt stalled, so
-bounded readiness and public OS isolation diagnostics now distinguish a pending
-attempt from an actual denial. Linux/macOS application fixtures stalled in the
-explicit-conversion workflow; Windows application compilation exposed an old
-Qt5 container comparison incompatible with the current compiler. These are open
-qualification failures, not passes or source-parity results. See
+At published `68a4eadbd`, the Linux full build, installed-application workload
+and complete Linux Tests workflow passed. The macOS brush application fixture
+passed, but deployment invalidated relocated dependency signatures before helper
+startup; this batch repairs signatures from dependencies outward and qualifies
+the actual disk image. Windows compilation and package creation passed, but the brush application
+fixture failed after accepting a conversion and displaying a warning. A concrete
+long-path gap in protected Windows reads is corrected, with collection lifecycle
+and security cases beyond 400 characters; the application now reports the actual
+warning text. The old warning body was not available, so that correction is not
+yet proof of the original failure's cause. Probe `65bd426f` passed both Windows
+Qt parser/runtime suites including worker isolation. The bounded kernel-drop
+correlation checks listener identity, the child's exact AppContainer SID,
+explicitly bound connection ports and attempt interval. No timeout alone counts
+as denial. Later code and full deployment still require fresh qualification.
+
+The batch also adds measured source pressure-transfer curves, barrel rotation,
+single-channel HSV candidates and transient off-canvas wet state, with strict
+eligibility and explicit conversion boundaries. New original source acquisitions
+cover held-out HSV combinations, masked brushes, timed dynamics, powered GIH
+selection statistics and unresolved wet pickup neighborhoods. These acquisitions
+are not completed behavioral support or source verification. The macOS
+mapping-growth limit and sampled footprint watchdog do not establish an absolute
+OS-enforced resident-memory ceiling. See
 [platform boundaries](raster_brush_platform_isolation.md). Historical checkpoints
-below never qualify a later head automatically.
+never qualify a later head automatically.
 
 Native preset alpha preservation is combined with the toolbar lock instead of
 being overwritten by an unchecked modifier. The global eraser explicitly clears
@@ -1156,12 +1169,14 @@ varying-pressure long-stroke source parity.
 
 ### Continuous off-document wet-state qualification
 
-Empty source-dab clips currently advance the previous dab position and count but
-retain the earlier field at its old absolute bounds, without pickup/injection.
-Reentry lookup therefore commonly returns transparent feedback; this is a
-potential lost-feedback boundary behavior, not proof that stale ink is replayed.
-The source application's off-document layer storage and transport must be
-measured before changing this recurrence.
+Original source captures establish off-document paint storage during a continuous
+stroke: the outside probes retain alpha after exit, accumulate injected color
+before entry, and carry residual paint around the reentry path. The candidate
+therefore advances the complete moving wet field outside the finite host raster
+and retains painted outside pixels in budgeted sparse transient tiles. Host
+reads/writes and undo preparation stay clipped; the outside state is released
+on finish/cancel. This models within-stroke transport only. Groundzero does not
+persist an infinite outside layer across strokes or through save/reopen.
 
 The `wetboundary` group contains 96 original cases: four models, four document
 edges, entry/exit/reentry paths and color rate 0/0.25. Each uses one continuous
@@ -1175,8 +1190,12 @@ bounded 128-pixel outside margin between independent strokes.
 Whole-canvas candidate image gates remain enforced. Compact inside-edge and
 outside-layer RGBA probes distinguish visible clipping from persistent source
 paint beyond the document, without claiming access to hidden reservoirs.
-Boundary recurrence changes remain pending these source measurements; no
-source behavior is inferred from a native-only boundary test.
+The measured state correction is independently checked against a transparent
+padded-canvas crop invariant for all four models and both color-rate settings.
+A host test exhausts the outside allocation budget after earlier paint and
+checks pre-write refusal, storage release and exact tile-undo recovery. Final
+source-region fidelity still requires the unchanged reference gates; input and
+sampling discrepancies are not hidden by the new transient storage.
 
 ### Pixel pressure-transfer evidence acquisition
 
@@ -1261,3 +1280,204 @@ nonuniform and overshooting curves exercise additional pressure positions,
 output clamping, shared/local selection and disabled settings. Those cases
 require CI qualification; source verification flags remain false, and this is
 not completion of the full K dynamics contract.
+
+### Measured Pixel identity pressure transfer
+
+Paired Node controls now distinguish source behavior from the unresolved Qt
+pressure-delivery discrepancy. With static control 0.5, pressure 0.25/0.75
+produces wash opacity alpha 32/96. Wash flow and build-up opacity accumulate
+like static values 0.125/0.375: the recorded two-/three-dab overlaps are
+60/84 and 156/193. Build-up flow is inactive even with its pressure curve active.
+Strict hard Pixel candidates now admit explicit identity pressure curves for
+opacity/flow (or explicitly disabled retained identity curves). Other transfer
+curve shapes and sensor combinations remain outside this qualification.
+Portable presets retain the mappings and enable semantics; paired Node cases
+now enforce existing full-image source gates.
+
+Qt captures preserve active pressure settings before proximity, after proximity
+and immediately before contact, with `disablePressure=false` and the authored
+QTabletEvent pressure. Nevertheless, their rendered response remains at full
+pressure. The paired integer Node precision controls match pressure-sized masks
+exactly, including 1.6/16/30.8/31.4px effective diameters. Thus preset activation
+is established, while consumed Qt pressure is not. Existing Qt fidelity gates
+remain unchanged and failing; native or Node results do not substitute for that
+missing delivery qualification. No pressure-insensitive source equation is
+inferred from these synthetic Qt traces.
+
+### Pinned tablet pressure flag contract
+
+Inspection of the public K5341 input adapter identifies the delivery discrepancy:
+its flag starts false, is assigned directly from the `DisablePressure` canvas
+resource, and chooses constant full pressure when false versus calibrated event
+pressure when true. See the pinned
+[input adapter initialization and resource read](https://github.com/KDE/krita/blob/bd6e8d0/libs/ui/tool/kis_painting_information_builder.cpp#L31)
+and [input normalization branch](https://github.com/KDE/krita/blob/bd6e8d0/libs/ui/tool/kis_painting_information_builder.cpp#L131).
+This is an input-interface observation, not a copied paint algorithm, and must
+not be generalized to other application versions from the API name.
+
+Every generated case now records the explicit boolean `sourcePressureFlag`:
+true for authored Qt tablet delivery and false for Node controls. The harness
+sets and checks the exact value before proximity, after proximity, and before
+contact. Four additional wash opacity/flow probes retain false as diagnostic
+controls with unchanged authored pressures. Existing Node controls and Qt source
+gates remain; a successful future capture must demonstrate actual pressure-sized
+masks and pressure transfer rather than merely recording event pressure. Cached
+source controls must match this explicit flag. No runtime input equation is
+changed to compensate for the former harness setting.
+
+### New Dulling texture pickup discriminators
+
+The 128 phase/deposit captures rule out simple center-only pickup. A proposed
+coverage-aware neighborhood matches their sampled third-dab colors within two
+bytes, but that does not uniquely establish its threshold, filtering or empty
+neighborhood fallback. The separate `texturepickup` workload contains 64 original
+held-outs: asymmetric masks differing only at center bytes 127/128/129, an
+isolated off-axis pixel, holes of radius two/four, an asymmetric ramp and a
+sparse diagonal. Each has two/three-dab traces, zero/nonzero color injection and
+uniform versus nonuniform RGBA backdrops. Exact per-case pattern pixels and
+32×32 result regions are captured. These are discriminating acquisitions, not
+source-candidate admission or relaxed fidelity gates.
+
+The existing kernel workload now also includes six isolated off-axis impulses:
+legacy D56 at the disputed index-81 coordinate, legacy D32 at the independently
+observed index-80 coordinate, and legacy/new D64 at both neighboring coordinates
+for index 100. These distinguish joint sample weights from row/column marginal
+coincidences without assuming a count correction or changing fidelity gates.
+
+### Measured barrel rotation candidate
+
+Original tablet barrel captures distinguish a positive runtime rotation from
+the negative rotation used by serialized fixed brush angles. Left-of-start
+regions at 45/135/359 degrees isolate this orientation from later stamps.
+Eighteen independently captured fixed ellipse masks also match the equivalent
+barrel orientations exactly (including raw315 versus serialized+45 degrees).
+The hard Pixel candidate now maps an explicit identity barrel sensor to a
+periodic 360-degree angle, normalized before trigonometric evaluation. The
+mapping and its units survive portable serialization.
+
+This candidate requires a generated hard ellipse, zero serialized base angle,
+explicit isotropic spacing, Normal build-up, and full fixed opacity/flow.
+Pressure-size/transfer, HSV, texture and other joint combinations are excluded
+until their interactions are qualified. Anisotropic rotating spacing remains a
+required K-contract feature, not silently replaced by isotropic behavior.
+Fourteen appended source fixtures provide enabled/control hard ellipses at
+held-out constant angles and a wraparound ramp; enabled cases enforce existing
+full-image gates. Existing sensor cases and IDs are unchanged. The complete K
+profile and this expanded dynamic region still require source CI qualification.
+
+### General pressure transfer curve candidate
+
+The hard Pixel candidate now shares its independently measured natural-cubic
+pressure evaluator between size, opacity and flow. Two-knot curves remain affine;
+multiple knots use natural endpoint conditions and clamp the evaluated output.
+The source adapter resolves either shared or sensor-local pressure curves, keeps
+disabled curves inactive, and preserves the interpolation in portable presets.
+This extends candidate implementation, not the source-reference-verified claim:
+identity transfer equations and size spline evidence establish the components,
+while 24 original Node transfer captures exercise their composition independently.
+Those captures cover wash/build-up, opacity/flow, turning/nonuniform curves and
+shared/local/disabled states, using the existing full-image comparison thresholds.
+
+Nonidentity transfer is currently restricted to Normal blending, fixed size and
+angle, no texture and one active transfer control with the other at one. Wet
+curves remain identity-only. Combined HSV, multiple sensors and joint dynamic
+controls remain required future work and are not admitted by this extension.
+
+## D/K adapter audit after timed and long-GIH acquisition
+
+This audit keeps format decoding, native conversion, source semantics and source
+verification distinct. Acquiring source output is not an implemented adapter.
+
+| Declared requirement | Current concrete implementation | Remaining dependency/work |
+|---|---|---|
+| ABR1/2 sampled/computed | Bounded raw/PackBits8/16 sampled decoding; computed diameter/roundness/angle/hardness/spacing retained and converted to native geometry | Original producer/version fixtures and controlled P2711 rendering for source fidelity; native conversion must retain its label |
+| ABR6/2 sampled preset association | Author-exported corpus establishes unique sampledData binding; names, diameter, angle, roundness, spacing and static flips converted with explicit native semantics | Dynamic settings still partial; observed records do not establish event equations |
+| ABR6/1 and7–10/1–2 | Exact header/subversion guards and bounded sampled decoding; typed metadata separately decoded | Independent original exports for each declared producer layout and binding graph; do not promote6/2 binding by changing a header |
+| Modern primary computed tips | A computedBrush is observed only inside an enabled dualBrush in the author corpus | An original primary-computed export must establish its surrounding graph before a primary adapter; geometry/layout presence inside dual does not establish primary equivalence |
+| Shape/scatter/transfer | Native runtime controls exist; source descriptor values retained; active/unrecognized controls cause partial-native classification | Controlled one-setting exports needed for bVTy enums, enable relationships, minimums and units; acquired source stroke traces needed for each declared input combination |
+| Static toolOptions | Typed Opct/flow scalar fields retained in observed PbTl object | Source export pairs linking exact brush UI percentages to encoded values; observed100 alone cannot establish a scale. Native partial conversion must not assume unrelated layer-opacity encoding |
+| Texture/patterns | Bounded pattern identity/channel decoding, raw8/raw16 and explicitly named VM-ZIP profile | Nonempty original pattern corpus tying descriptor IDs to resource graph; common ABR compression provenance, texture parameter fields and rendering math still need evidence |
+| Dual tips | Enabled/class/mode metadata preserved; unknown active state explicitly diagnosed | Original Multiply/Subtract author exports, sampled/generated secondary association, spacing/scatter/count/flip controls and P2711 traces; observed colorBurn cannot be substituted with Multiply |
+| Color/airbrush/fade/direction controls | Independent native mechanisms exist; ABR active fields remain unverified | Exact serialized control mapping and source traces; unsupported hidden state must not be guessed from brush names |
+| K5341 bitmap/GIH | Original resource resolution/readback acquisition; native resource conversion | Actual source-profile bitmap geometry and sequence adapters, plus separate24-alpha/39-high-sample-label gates; long-path acquisition is not a parity result |
+| K5341 masked/timed inputs | Original Multiply/Subtract/Wash/Build-up and real-clock airbrush/time/speed acquisitions wired | Measured equations and source-specific representation, including distinct secondary opacity/flow; acquisition does not justify collapsing them |
+
+The externally unavailable requirement is controlled Photoshop export/reference
+execution (including exact27.11 build identification), not permission to independently
+implement functionality. Independent native implementation, original fixtures,
+metadata decoding and Krita acquisition remain unblocked. Source-format facts
+can also be supplied by openly licensed original exports without Photoshop
+renderer access; renderer access is then still necessary for parity assertions.
+No paid packs, copied engine implementations or inferred redistribution rights
+are required by the work completed here.
+
+Primary evidence:
+
+- [Adobe brush dynamics reference](https://helpx.adobe.com/photoshop/desktop/apply-painting-techniques/fill-objects-selections-layers/brush-dynamics-settings.html)
+  describes jitter percentages, control modes and minimums, but does not define
+  ABR bVTy numeric values or versioned descriptor paths.
+- [Adobe paint-tool options](https://helpx.adobe.com/photoshop/desktop/apply-painting-techniques/brushes-presets/paint-with-brush-or-pencil-tool.html)
+  describes user-facing opacity, flow and stationary airbrush behavior; it does
+  not specify their ABR serialized scalar representations.
+- [Adobe Action API](https://developer.adobe.com/photoshop/uxp/ps_reference/media/batchplay/)
+  shows that scalar opacity values are context-dependent; a documented layer
+  example uses255. That cannot be used as a brush-tool encoding rule either.
+- The previously cited author-exported6/2 corpus is unchanged; no additional
+  primary-computed, nonempty-pattern or alternative-version evidence was acquired.
+
+### Documented Action Descriptor references
+
+The independent typed decoder now retains `obj ` references containing the
+Property, Class, Enumerated Reference and Offset forms explicitly laid out in
+[Adobe's published format tables](https://www.adobe.com/devnet-apps/photoshop/fileformatashtml/).
+Each child preserves its type, display name and class ID; property key IDs and
+enumerated values remain text, the enum TypeID uses the typed node's unit slot,
+and offsets preserve raw32-bit bits in the integer slot without resolving an
+index. Nothing opens an asset, follows a path, executes an action, or grants
+source semantic support. Idnt/indx/name payloads and unknown forms still reject
+the descriptor section because the consulted table names them without giving
+complete payload layouts. Existing global byte/node/depth budgets cover every
+reference child before allocation. Original structural fixtures check all four
+forms, exact raw offset preservation, unsupported kinds, every truncation,
+node exhaustion and nesting limits. These are decoder tests, not brush behavior
+fixtures; CI execution remains required.
+### Symmetric tilt rotation candidate
+
+Original off-grid X-tilt and Y-tilt captures at both signs of 10 and 20 degrees
+identify hard symmetric tip rotations of 60 and 120 degrees modulo 180. All eight
+first-dab left-half masks exactly match those orientation classes, while signed
+native tilt normalization does not. The hard-ellipse source candidate therefore
+uses the magnitude of the normalized tilt for its identity rotation curve;
+native presets retain their signed tilt mapping. This is only an orientation
+class for symmetric tips, not proof of a signed asymmetric-tip sensor equation.
+The existing fixed-base-angle/isotropic-spacing/Normal/full-transfer restrictions
+remain. Sixteen ellipse source comparisons and twenty original asymmetric-tip
+controls extend the acquisition ledger; asymmetric source admission stays closed.
+
+### Open source pressure resampling contract
+
+Same-event batching is independently checked for moving native pressure strokes.
+That guarantee does not mean changing the event sequence preserves a source
+stroke. The current source size scheduler samples pressure at the next integer
+path distance, bounded by the current event. A 32px diameter at 0.1 spacing and a
+linear pressure ramp from 0.25 to 0.75 over 16px illustrates the gap: an unsplit first
+dab at 0.8px samples pressure at 1px, while an event ending at 0.8px defers the dab
+and currently consumes that endpoint pressure when movement resumes. Those
+pressures are 0.28125 and 0.275, respectively. Four original Qt captures compare
+coarse, exact-dab-boundary, integer-lookahead and dense partitions of the identical
+path with exact delivered samples retained. Source event-resampling acceptance
+remains open; no renderer fix or source invariance claim is inferred before those
+captures establish the actual reference behavior.
+
+### Shared wet foreground transform plumbing
+
+All four source wet deposition equations now use the same foreground transform
+as the measured Pixel HSV candidate, before their model-specific Color Rate
+attenuation. The disabled transform is an exact identity. Synthetic composition
+regressions compare Pixel-transformed foregrounds with independently captured
+RGB values injected directly into each wet model, with smear-alpha on/off.
+These tests qualify wiring and preserve existing transport behavior; they do not
+establish source wet HSV interactions. Strict wet HSV eligibility remains closed
+until original enabled/disabled wet captures qualify those interactions. The
+public Color Smudge manual describes the shared foreground-transform order,
+but documentation alone is not treated as complete numerical parity evidence.

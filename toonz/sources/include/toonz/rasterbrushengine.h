@@ -24,6 +24,10 @@ enum class Blend { Normal, Multiply, Screen, Overlay, Erase };
 enum class Shape { Round, Square, Gaussian, Bitmap };
 enum class MaskMode { Multiply, Subtract };
 enum class Wet { Off, Dulling, Smear };
+// Version 1: one fixed source HSV channel; dynamic/multiple channels require
+// separate acquisition. Native hue/saturation/brightness retain their
+// semantics.
+enum class SourceHsvChannel { Off, Hue, Saturation, Value };
 enum class Sensor {
   Pressure,
   TiltX,
@@ -109,13 +113,15 @@ struct Preset {
   double pickup = 0.5, colorRate = 0.25, reload = 0, smudgeRadius = 1;
   // Versioned source-wet state switches; native wet equations do not use them.
   bool sourceSmudgeLengthEnabled = true, sourceSmearAlpha = true,
-       sourceColorRateEnabled     = true;
-  bool sourceTextureSoftTexturing = false;
+       sourceColorRateEnabled       = true;
+  bool sourceTextureSoftTexturing   = false;
+  SourceHsvChannel sourceHsvChannel = SourceHsvChannel::Off;
+  double sourceHsvValue             = .5;
   Dynamic pickupControl{1, 0, {}}, colorRateControl{1, 0, {}},
       radiusControl{1, 0, {}};
   // Host policy only: Stroke always renders the explicit resolved seed.
   bool varySeedPerStroke = false;
-  std::uint64_t seed = 1;
+  std::uint64_t seed     = 1;
 };
 // Canvas coordinates: origin at upper-left, +y down; positive rotation is
 // clockwise.

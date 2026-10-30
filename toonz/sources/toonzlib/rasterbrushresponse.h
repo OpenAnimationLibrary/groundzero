@@ -76,8 +76,12 @@ public:
     QString prefix   = absolute.left(3);
     const auto parts = absolute.mid(3).split('/', Qt::SkipEmptyParts);
     for (int i = 0; i <= parts.size(); ++i) {
-      const QString native = QDir::toNativeSeparators(prefix);
-      HANDLE handle        = CreateFileW(
+      // Qt file APIs already add the extended-length prefix; raw Win32
+      // opens must do so too. Only the validated local disk path above is
+      // eligible: this does not admit UNC or caller-supplied device paths.
+      const QString native =
+          QStringLiteral("\\\\?\\") + QDir::toNativeSeparators(prefix);
+      HANDLE handle = CreateFileW(
           reinterpret_cast<LPCWSTR>(native.utf16()),
           FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES,
           FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING,
@@ -149,6 +153,7 @@ public:
       return fail(error, "Invalid response file name");
 #ifdef _WIN32
     const QString native =
+        QStringLiteral("\\\\?\\") +
         QDir::toNativeSeparators(QDir(directory.path_).filePath(name));
     handle_ = CreateFileW(
         reinterpret_cast<LPCWSTR>(native.utf16()), GENERIC_READ,

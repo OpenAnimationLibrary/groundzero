@@ -264,7 +264,8 @@ int main(int argc, char **argv) {
     QFile manifest(root.filePath("output/fixtures.json"));
     require(manifest.open(QIODevice::ReadOnly), "Fixture manifest missing");
     auto fixtures = QJsonDocument::fromJson(manifest.readAll()).object();
-    if (fixtures["group"].toString() == "gihstatistics") {
+    if (fixtures["group"].toString() == "gihstatistics" ||
+        fixtures["group"].toString() == "gihlabels") {
       const auto statistics = oracle["resourceStatistics"].toObject();
       require(statistics["strokes"].toInt() == 100 &&
                   statistics["sourceSequences"].toArray().size() == 100 &&
@@ -283,6 +284,13 @@ int main(int argc, char **argv) {
               "Incomplete spacing sensor fixture matrix");
     if (fixtures["group"].toString() == "mirrortips")
       require(expected.size() == 42, "Incomplete mirror fixture matrix");
+    if (fixtures["group"].toString() == "wethsv")
+      require(expected.size() == 96, "Incomplete wet HSV acquisition matrix");
+    if (fixtures["group"].toString() == "hsvjoint")
+      require(expected.size() == 36, "Incomplete joint HSV acquisition matrix");
+    if (fixtures["group"].toString() == "hsvheldout")
+      require(expected.size() == 54,
+              "Incomplete heldout HSV acquisition matrix");
     if (fixtures["group"].toString() == "hsvdynamics")
       require(expected.size() == 72, "Incomplete HSV acquisition matrix");
     if (fixtures["group"].toString() == "distancesensors")
@@ -291,6 +299,10 @@ int main(int argc, char **argv) {
         fixtures["group"].toString() == "maskbuildup")
       require(expected.size() == 108,
               "Incomplete masked-brush acquisition matrix");
+    if (fixtures["group"].toString() == "airbrushtimed")
+      require(expected.size() == 32, "Incomplete paced airbrush workload");
+    if (fixtures["group"].toString() == "timedsensors")
+      require(expected.size() == 12, "Incomplete paced sensor workload");
     QStringList remaining;
     for (const auto &name : expected)
       remaining.append(name.toString());
@@ -305,6 +317,70 @@ int main(int argc, char **argv) {
     const QImage stripInitial = initial;
     for (const auto &value : oracle["records"].toArray()) {
       auto source = value.toObject();
+      if (fixtures["group"].toString() == "hsvjoint") {
+        const auto evidence = source["sensorEvidence"].toObject();
+        require(evidence["deliveryValuesMatchAuthored"].toBool() &&
+                    evidence["deliveryInterface"].toString() ==
+                        "Node.paintLine" &&
+                    evidence["deliveredContactEvents"].toArray().size() == 2 &&
+                    source["jointHsvProbe"]
+                        .toObject()["operationOrderAssumed"]
+                        .isBool() &&
+                    !source["jointHsvProbe"]
+                         .toObject()["operationOrderAssumed"]
+                         .toBool(),
+                "Missing independent joint HSV acquisition evidence");
+        const auto controls = evidence["effectiveControls"].toObject();
+        const auto requested = source["overrides"].toObject();
+        for (const QString &channel :
+             {QString("h"), QString("s"), QString("v")})
+          for (const QString &suffix :
+               {QString("UseCurve"), QString("UseSameCurve"), QString("Value"),
+                QString("curveMode"), QString("commonCurve")})
+            require(controls[channel + suffix] == requested[channel + suffix],
+                    "Joint HSV control readback differs");
+        const auto foreground =
+            evidence["effectiveForegroundDisplayRGBA8"].toArray();
+        const auto authored = source["foregroundRGBA8"].toArray();
+        require(foreground.size() == 4 && authored.size() == 4,
+                "Missing joint HSV foreground readback");
+        for (int c = 0; c < 4; ++c)
+          require(std::abs(foreground[c].toInt() - authored[c].toInt()) <= 1,
+                  "Joint HSV foreground readback differs");
+      }
+      const bool wetHsvCase = fixtures["group"].toString() == "wethsv";
+      if (wetHsvCase) {
+        const auto evidence = source["sensorEvidence"].toObject();
+        const auto controls = evidence["effectiveControls"].toObject();
+        const auto spec = source["wetHsvProbe"].toObject();
+        const auto requested = source["overrides"].toObject();
+        require(evidence["deliveryValuesMatchAuthored"].toBool() &&
+                    evidence["deliveryInterface"].toString() ==
+                        "Node.paintLine" &&
+                    evidence["deliveredContactEvents"].toArray().size() == 2 &&
+                    spec["colorRate"].toDouble() == .25 &&
+                    requested["ColorRateValue"].toString() == "0.25",
+                "Missing wet HSV input/control evidence");
+        const QString target = spec["channel"].toString();
+        require(target == "h" || target == "s" || target == "v",
+                "Invalid wet HSV channel");
+        for (const QString &channel :
+             {QString("h"), QString("s"), QString("v")})
+          require(controls["Pressure" + channel] ==
+                      requested["Pressure" + channel],
+                  "Wet HSV enabled state differs");
+        require(controls[target + "commonCurve"] ==
+                    requested[target + "commonCurve"],
+                "Wet HSV fixed curve differs");
+        const auto foreground =
+            evidence["effectiveForegroundDisplayRGBA8"].toArray();
+        const auto authored = source["foregroundRGBA8"].toArray();
+        require(foreground.size() == 4 && authored.size() == 4,
+                "Missing wet HSV foreground readback");
+        for (int c = 0; c < 4; ++c)
+          require(std::abs(foreground[c].toInt() - authored[c].toInt()) <= 1,
+                  "Wet HSV foreground readback differs");
+      }
       const bool maskCase = fixtures["group"].toString() == "maskwash" ||
                             fixtures["group"].toString() == "maskbuildup";
       if (maskCase) {
@@ -336,6 +412,7 @@ int main(int argc, char **argv) {
           fixtures["group"].toString() == "spacingdynamics" ||
           fixtures["group"].toString() == "mirrortips" ||
           fixtures["group"].toString() == "hsvdynamics" ||
+          fixtures["group"].toString() == "hsvheldout" ||
           fixtures["group"].toString() == "distancesensors";
       QJsonArray deliveredSensorEvents;
       if (sensorCase) {
@@ -356,6 +433,7 @@ int main(int argc, char **argv) {
                   "Missing effective Mirror-axis evidence");
         }
         if (fixtures["group"].toString() == "hsvdynamics" ||
+            fixtures["group"].toString() == "hsvheldout" ||
             fixtures["group"].toString() == "distancesensors") {
           const auto foreground =
               evidence["effectiveForegroundDisplayRGBA8"].toArray();
@@ -464,6 +542,17 @@ int main(int argc, char **argv) {
                              : y == 1024 + source["wetKernelOffset"].toInt()
                                  ? qRgba(255, 255, 255, 255)
                                  : qRgba(0, 0, 0, 255));
+      if (source["wetPattern"].toString() == "opaque-black-white-point") {
+        const int pointX = 256 + source["wetKernelOffset"].toInt(),
+                  pointY = 1024 + source["wetKernelOffsetY"].toInt();
+        for (int y = 0; y < initial.height(); ++y)
+          for (int x = 0; x < initial.width(); ++x)
+            initial.setPixel(
+                x, y,
+                x >= source["wetBoundary"].toDouble() ? qRgba(0, 0, 0, 0)
+                : x == pointX && y == pointY ? qRgba(255, 255, 255, 255)
+                                             : qRgba(0, 0, 0, 255));
+      }
       if (source.contains("wetThirdBoundary")) {
         const auto c = source["wetThirdRGBA8"].toArray();
         for (int y = 0; y < initial.height(); ++y)
@@ -478,6 +567,7 @@ int main(int argc, char **argv) {
       const bool resourceCase =
           fixtures["group"].toString() == "bitmaptips" ||
           fixtures["group"].toString() == "gihstatistics" ||
+          fixtures["group"].toString() == "gihlabels" ||
           (sensorCase && source["resourceProbe"].isObject());
       QString package = "data/krita/paintoppresets/" + name + ".kpp";
       if (resourceCase) {
@@ -496,7 +586,10 @@ int main(int argc, char **argv) {
               "Candidate import failed: " + error);
       Preset p = imported.records.front().preset;
       const bool textureGate = fixtures["group"].toString() == "texturemasks";
+      const bool sourceHsv = fixtures["group"].toString() == "hsvdynamics" ||
+                             fixtures["group"].toString() == "hsvheldout";
       const bool sourceHard =
+          source["sourceBarrelCandidate"].toBool(false) || sourceHsv ||
           (textureGate && name.contains("dry legacy")) ||
           fixtures["group"].toString() == "hardpixel" ||
           fixtures["group"].toString() == "pixelopacity" ||
@@ -507,6 +600,8 @@ int main(int argc, char **argv) {
           fixtures["group"].toString() == "pixelshape" ||
           fixtures["group"].toString() == "pixelprecision" ||
           fixtures["group"].toString() == "pixelcurves" ||
+          (fixtures["group"].toString() == "pixeltransfer" &&
+           source["variant"].toString().endsWith("Node control")) ||
           (fixtures["group"].toString() == "pixelcurveknots" &&
            !source["variant"].toString().contains("disabled")) ||
           (fixtures["group"].toString() == "pixelblend" &&
@@ -518,6 +613,26 @@ int main(int argc, char **argv) {
         require(p.profile == "krita-5.3.4.1-hard-pixel-candidate-1",
                 "Strict source hard-pixel eligibility did not select the "
                 "candidate");
+      if (sourceHsv) {
+        const auto probe = source["sensorProbe"].toObject();
+        const QString target = probe["target"].toString();
+        require(target == "h" || target == "s" || target == "v",
+                "Invalid source HSV fixture channel");
+        const auto expectedChannel =
+            !probe["enabled"].toBool() ? SourceHsvChannel::Off
+            : target == "h"            ? SourceHsvChannel::Hue
+            : target == "s"            ? SourceHsvChannel::Saturation
+                                       : SourceHsvChannel::Value;
+        const QString curve =
+            source["overrides"].toObject()[target + "commonCurve"].toString();
+        bool ok = false;
+        const double expectedValue =
+            curve.section(';', 0, 0).section(',', 1, 1).toDouble(&ok);
+        require(ok && p.sourceHsvChannel == expectedChannel &&
+                    (expectedChannel == SourceHsvChannel::Off ||
+                     p.sourceHsvValue == expectedValue),
+                "Source HSV import did not preserve fixed channel control");
+      }
       const bool sourceSoft =
           (fixtures["group"].toString() == "pixelblend" &&
            (p.tip.shape == Shape::Square || p.tip.hardness < 1 ||
@@ -607,7 +722,8 @@ int main(int argc, char **argv) {
       }
       p.opacity.value = source["opacity"].toDouble();
       p.flow.value = source["flow"].toDouble();
-      if (fixtures["group"].toString() == "gihstatistics") {
+      if (fixtures["group"].toString() == "gihstatistics" ||
+          fixtures["group"].toString() == "gihlabels") {
         const auto probe = source["resourceProbe"].toObject();
         const double replicate = probe["replicate"].toDouble(-1);
         require(replicate >= 0 && replicate < 100 &&
@@ -634,7 +750,28 @@ int main(int argc, char **argv) {
       last.time = 1;
       QElapsedTimer timer;
       timer.start();
-      if (source.contains("events")) {
+      if (fixtures["group"].toString() == "gihlabels") {
+        const auto path = source["sourcePath"].toArray();
+        const auto delivery = source["deliveryReport"].toObject();
+        require(path.size() == 96 && delivery["vertices"].toArray() == path &&
+                    delivery["mode"].toString() == "Node.paintPath" &&
+                    delivery["singleContinuousStroke"].toBool(),
+                "Missing bounded continuous source path evidence");
+        for (int i = 0; i < 96; ++i) {
+          const int row = i / 2;
+          const int x = ((row % 2 == 0) == (i % 2 == 0)) ? 16 : 2032;
+          const int y = 16 + row * 32;
+          const auto point = path[i].toArray();
+          require(point.size() == 2 && point[0].toInt() == x &&
+                      point[1].toInt() == y,
+                  "Source path geometry differs from fixed label fixture");
+          Sample sample = first;
+          sample.x = x;
+          sample.y = y;
+          sample.time = i / 240.0;
+          require(stroke.add(sample), QString::fromStdString(stroke.error()));
+        }
+      } else if (source.contains("events")) {
         auto events = source["events"].toArray();
         if (sensorCase) {
           events = {};
@@ -653,6 +790,54 @@ int main(int argc, char **argv) {
                 {"rotation", delivered["rotation"]},
                 {"timeUs",
                  (delivered["timeMs"].toDouble() - timeBase) * 1000}});
+          }
+        }
+        if (source.contains("timedProbe")) {
+          const auto evidence = source["timedEvidence"].toObject();
+          require(evidence["actualTimingVerified"].toBool() &&
+                      evidence["sourceParityQualified"].isBool() &&
+                      !evidence["sourceParityQualified"].toBool(),
+                  "Missing measured paced source timing");
+          auto contacts = evidence["deliveredContacts"].toArray();
+          require(contacts.size() == source["events"].toArray().size() &&
+                      (contacts.size() == 1 || contacts.size() == 33),
+                  "Incomplete paced source contacts");
+          const auto spec = source["timedProbe"].toObject();
+          const double duration = spec["durationUs"].toDouble();
+          require(duration == 250000 || duration == 1000000,
+                  "Unexpected paced duration");
+          const double origin =
+              contacts[0].toObject()["monotonicUs"].toDouble();
+          const auto authored = source["events"].toArray();
+          for (int i = 0; i < contacts.size(); ++i) {
+            const auto contact = contacts[i].toObject();
+            const double elapsed = contact["monotonicUs"].toDouble() - origin;
+            const double planned = authored[i].toObject()["timeUs"].toDouble();
+            require(std::isfinite(elapsed) && elapsed >= planned - 2000 &&
+                        elapsed <= planned + 250000 &&
+                        contact["pressure"].toDouble() == 1,
+                    "Paced contact failed actual elapsed-time bounds");
+          }
+          auto release = evidence["release"].toObject();
+          const double held = release["monotonicUs"].toDouble() - origin;
+          require(std::isfinite(held) && held >= duration - 2000 &&
+                      held <= duration + 250000,
+                  "Paced release failed actual elapsed-time bounds");
+          release["pressure"] = 1;
+          contacts.append(release);
+          events = QJsonArray();
+          for (const auto &value : contacts) {
+            const auto delivered = value.toObject();
+            const auto image = delivered["image"].toArray();
+            require(image.size() == 2, "Incomplete paced source coordinates");
+            events.append(QJsonObject{
+                {"x", image[0]},
+                {"y", image[1]},
+                {"pressure", delivered["pressure"]},
+                {"tiltX", 0},
+                {"tiltY", 0},
+                {"rotation", 0},
+                {"timeUs", delivered["monotonicUs"].toDouble() - origin}});
           }
         }
         require(!events.empty() && events.size() <= 4096,
@@ -688,6 +873,13 @@ int main(int argc, char **argv) {
                   candidate, root.filePath("output/diff-" + basename));
       metrics["preset"] = name;
       metrics["inputCase"] = source;
+      if (source.contains("timedProbe")) {
+        metrics["timedAcquisitionInputsValidated"] = true;
+        metrics["sourceParityQualified"] = false;
+        metrics["candidateTimingConvention"] =
+            "Actual monotonic source contacts plus held final position until "
+            "measured release; native conversion only";
+      }
       metrics["candidateProfile"] = QString::fromStdString(p.profile);
       if (fixtures["group"].toString() == "gihstatistics") {
         const auto rect = source["resourceProbe"].toObject()["rect"].toArray();
@@ -709,10 +901,66 @@ int main(int argc, char **argv) {
             else
               require(a == 0, "Candidate random stroke escaped fixed region");
           }
+        const int slotCount =
+            source["resourceProbe"].toObject()["expectedSlots"].toInt();
+        const int diameter = source["diameter"].toInt();
+        require(slotCount == 32 && diameter == 8,
+                "Unexpected stochastic frame-label fixture geometry");
+        QJsonArray selections;
+        const int radius = diameter / 2 + 2;
+        for (int slot = 0; slot < slotCount; ++slot) {
+          const int cx = 256 + slot * diameter * 4;
+          quint64 sums[3] = {0, 0, 0};
+          for (int y = 1024 - radius; y <= 1024 + radius; ++y)
+            for (int x = cx - radius; x <= cx + radius; ++x) {
+              const auto color = candidate.pixel(x, y);
+              const auto alphaValue = qAlpha(color);
+              sums[0] += qRed(color) * alphaValue;
+              sums[1] += qGreen(color) * alphaValue;
+              sums[2] += qBlue(color) * alphaValue;
+            }
+          const int winner = int(std::max_element(sums, sums + 3) - sums);
+          if (!sums[winner]) {
+            selections.append(QJsonValue(QJsonValue::Null));
+          } else {
+            for (int channel = 0; channel < 3; ++channel)
+              require(
+                  channel == winner || sums[channel] == 0,
+                  "Candidate GIH frame is not an original primary-color tip");
+            selections.append(winner);
+          }
+        }
+        metrics["stochasticFrameSelections"] = selections;
         metrics["stochasticAlpha"] = QJsonObject{
             {"rect", rect},
             {"encoding", "zlib-base64-alpha8-row-major"},
             {"data", QString::fromLatin1(qCompress(alpha).mid(4).toBase64())}};
+      }
+      if (fixtures["group"].toString() == "gihlabels") {
+        QJsonArray labels;
+        for (int row = 0; row < 48; ++row)
+          for (int col = 0; col < 64; ++col) {
+            const int cx = 16 + 32 * (row % 2 == 0 ? col : 63 - col);
+            const int cy = 16 + 32 * row;
+            quint64 sums[3] = {0, 0, 0};
+            for (int y = cy - 6; y <= cy + 6; ++y)
+              for (int x = cx - 6; x <= cx + 6; ++x) {
+                const auto c = candidate.pixel(x, y);
+                sums[0] += qRed(c) * qAlpha(c);
+                sums[1] += qGreen(c) * qAlpha(c);
+                sums[2] += qBlue(c) * qAlpha(c);
+              }
+            const int winner = int(std::max_element(sums, sums + 3) - sums);
+            if (!sums[winner])
+              labels.append(QJsonValue(QJsonValue::Null));
+            else {
+              for (int c = 0; c < 3; ++c)
+                require(c == winner || sums[c] == 0,
+                        "Long candidate label cell mixes primary colors");
+              labels.append(winner);
+            }
+          }
+        metrics["stochasticFrameSelections"] = labels;
       }
       metrics["candidateSeed"] = QString::number(qulonglong(p.seed));
       metrics["sourceSemanticallySupported"] = false;
@@ -749,6 +997,48 @@ int main(int argc, char **argv) {
         if (!passed)
           failedHardCases.append(name);
       }
+      if (sourceHsv) {
+        // Full-canvas union-region metrics, including alpha and missing paint;
+        // no center-pixel-only qualification or dilution by empty canvas.
+        const double colorTolerance =
+            p.sourceHsvChannel == SourceHsvChannel::Saturation ? 1 / 255.0 : 0;
+        const bool passed =
+            metrics["hardPixelCandidatePassed"].toBool() &&
+            metrics["maxRGBError"].toDouble() <= colorTolerance &&
+            metrics["maxAlphaError"].toDouble() == 0;
+        metrics["fixedHsvCandidatePassed"] = passed;
+        metrics["fixedHsvMaxRGBTolerance"] = colorTolerance;
+        if (!passed && !failedHardCases.contains(name))
+          failedHardCases.append(name);
+      }
+      if (wetHsvCase) {
+        const auto spec = source["wetHsvProbe"].toObject();
+        const QString channel = spec["channel"].toString();
+        const auto expectedChannel =
+            !spec["enabled"].toBool() ? SourceHsvChannel::Off
+            : channel == "h"          ? SourceHsvChannel::Hue
+            : channel == "s"          ? SourceHsvChannel::Saturation
+                                      : SourceHsvChannel::Value;
+        const bool eligible =
+            p.profile ==
+                ("krita-5.3.4.1-" + spec["model"].toString() + "-candidate-1")
+                    .toStdString() &&
+            p.sourceHsvChannel == expectedChannel &&
+            (expectedChannel == SourceHsvChannel::Off ||
+             p.sourceHsvValue == spec["value"].toDouble());
+        const bool passed =
+            eligible && metrics["maxRGBError"].toDouble() <= 2 / 255.0 &&
+            metrics["maxAlphaError"].toDouble() <= 1 / 255.0 &&
+            metrics["visibleChangedPixelIoU"].toDouble() >= .98 &&
+            !metrics["emptyCandidateFailure"].toBool();
+        metrics["wetHsvSourceEligible"] = eligible;
+        metrics["wetHsvCandidatePassed"] = passed;
+        metrics["wetHsvQualification"] =
+            "Full union-region RGBA and source eligibility; native conversion "
+            "cannot pass";
+        if (!passed && !failedHardCases.contains(name))
+          failedHardCases.append(name);
+      }
       if (sourceWet) {
         const bool passed =
             metrics["maxRGBError"].toDouble() <= 2 / 255.0 &&
@@ -779,7 +1069,8 @@ int main(int argc, char **argv) {
     }
     require(remaining.empty() && results.size() == expected.size(),
             "Incomplete comparison workload");
-    require(fixtures["group"].toString() != "gihstatistics" ||
+    require((fixtures["group"].toString() != "gihstatistics" &&
+             fixtures["group"].toString() != "gihlabels") ||
                 stochasticReplicates.size() == 100,
             "Incomplete independent stochastic candidate workload");
     QFile report(root.filePath("output/comparison.json"));

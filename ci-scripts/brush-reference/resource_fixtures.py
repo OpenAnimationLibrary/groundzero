@@ -58,7 +58,7 @@ def prepare(root, resources, preset_writer, group):
     for filename, data in assets.items():
         (resources / "brushes" / filename).write_bytes(data)
     specifications = ([("random", 8, 0, "sequence", i) for i in range(100)]
-                      if group == "gihstatistics" else
+                      if group in ("gihstatistics", "gihlabels") else
                       [(kind, size, angle, path, 0) for kind in ("alpha", "color-mask", "color-image", "incremental")
                        for size in (8, 16) for angle in (0, 90) for path in ("stamp", "sequence")])
     names, cases = [], []
@@ -104,7 +104,19 @@ def prepare(root, resources, preset_writer, group):
                                         "rect": [232, 1000, end - 232 + 25, 48],
                                         "qualification": "100 independent strokes; distribution acquisition, not seed parity"
                                         if kind == "random" else "deterministic source repeat; candidate rendering exploratory"}})
+    if group == "gihlabels":
+        from pathlib import Path
+        import runpy
+        vertices = runpy.run_path(str(Path(__file__).parent / "gzbrush_reference" / "label_probe.py"))["vertices"]
+        for case in cases:
+            case["labelProbe"] = {"slots": 3072, "bands": 3, "slotsPerBand": 1024}
+            case["sourcePath"] = vertices()
+            case["start"], case["end"] = case["sourcePath"][0], case["sourcePath"][-1]
+            case["resourceProbe"]["expectedSlots"] = 3072
+            case["resourceProbe"]["rect"] = [0, 0, 2048, 1536]
     (root / "output" / "fixtures.json").write_text(json.dumps({
         "version": "5.3.4.1", "group": group, "presets": names, "cases": cases,
         "license": "CC0-1.0", "width": 2048, "height": 2048,
-        "input": "Node.paintLine API; authored and delivered endpoints recorded; no physical tablet claim"}, indent=2))
+        "input": ("Node.paintPath API; one continuous authored path; no physical tablet claim"
+                  if group == "gihlabels" else
+                  "Node.paintLine API; authored and delivered endpoints recorded; no physical tablet claim")}, indent=2))

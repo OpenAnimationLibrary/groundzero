@@ -200,9 +200,12 @@ def acquisition(output, fixtures):
         # 90.0002104591497 degrees for a requested 90. Preserve that readback;
         # match the bounded resource-only acquisition guard, not pixel parity.
         rotation_tolerance = .001 if "resourceProbe" in case else 1e-5
+        pressure_flag = case.get("sourcePressureFlag", False)
+        require(type(pressure_flag) is bool and view["disablePressure"] is pressure_flag,
+                "source pressure mode mismatch")
         require(abs(view["rotation"] - case.get("brushRotationDegrees", 0)) <= rotation_tolerance
                 and view["blend"] == case.get("overrides", {}).get("CompositeOp", "normal")
-                and all(view[k] is False for k in ("eraser", "alphaLock", "disablePressure")),
+                and all(view[k] is False for k in ("eraser", "alphaLock")),
                 "source modifier mismatch")
         require(row["profile"] == "sRGB-elle-V2-srgbtrc.icc", "source color profile mismatch")
         if case.get("expectUnchanged", False):

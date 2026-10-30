@@ -23,7 +23,9 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: Reject corrupt, stale, incomplete and unsafe source caches
-        run: python3 ci-scripts/brush-reference/oracle_cache_test.py
+        run: |
+          python3 ci-scripts/brush-reference/oracle_cache_test.py
+          python3 ci-scripts/brush-reference/hsv_joint_test.py
   native-metrics:
     runs-on: ubuntu-22.04
     timeout-minutes: 15
@@ -98,10 +100,10 @@ jobs:
     strategy:
       # Bound full-application reference runs independently of parser CI.
       # Every matrix member still runs; one mismatch cannot cancel peers.
-      max-parallel: 2
+      max-parallel: 4
       fail-fast: false
       matrix:
-        fixture_group: [maskwash, maskbuildup, hsvdynamics, distancesensors, mirrortips, tabletsensors, spacingdynamics, bitmaptips, gihstatistics, pixelcurveknots, texturestate, pixeltransfer, wetboundary, pixelprecision, texturemasks, pixelblend, wetkernelcount, wetopacitycombo, wettransfer, pixelcurves, wetkernelscale, wetkernel, wettexture3, wetpressure, pixelsoftsize, pixelrectsize, pixelsoft, pixelopacitytablet, pixelopacity, pixelpressure, wetstate, wethold, wettexture, pixelaarange, pixelcontrols, pixelsmallpressure, pixelshape, wetswitches, wetcombined, wetsteps, hardpixel, geometry, tablet, parameters]
+        fixture_group: [wethsv, texturepickup, wetkernelcount, pixelprecision, tabletsensors, hsvjoint, hsvheldout, airbrushtimed, timedsensors, maskwash, maskbuildup, hsvdynamics, distancesensors, mirrortips, spacingdynamics, bitmaptips, gihlabels, gihstatistics, pixelcurveknots, texturestate, pixeltransfer, wetboundary, texturemasks, pixelblend, wetopacitycombo, wettransfer, pixelcurves, wetkernelscale, wetkernel, wettexture3, wetpressure, pixelsoftsize, pixelrectsize, pixelsoft, pixelopacitytablet, pixelopacity, pixelpressure, wetstate, wethold, wettexture, pixelaarange, pixelcontrols, pixelsmallpressure, pixelshape, wetswitches, wetcombined, wetsteps, hardpixel, geometry, tablet, parameters]
     runs-on: ubuntu-22.04
     timeout-minutes: 20
     env:
@@ -247,11 +249,11 @@ jobs:
                       probe['transfer'] = row.get('effectivePixelTransferControls')
                       probe['input'] = row.get('input')
                       probe['eventCount'] = len(row.get('deliveryReport', {}).get('events', []))
-                  if os.environ['BRUSH_REFERENCE_GROUP'] in ('texturemasks', 'texturestate'):
+                  if os.environ['BRUSH_REFERENCE_GROUP'] in ('texturemasks', 'texturestate', 'texturepickup'):
                       texture = row.get('effectiveTextureControls', {})
                       probe['texture'] = [texture.get(key) for key in ('Texture/Pattern/TexturingMode', 'Texture/Pattern/UseSoftTexturing', 'Texture/Pattern/Invert', 'Texture/Strength/Value', 'PressureTexture/Strength/', 'Texture/Strength/UseCurve')]
                   probe['wet'] = [controls.get(key) for key in ('SmudgeRateValue', 'ColorRateValue', 'SmudgeRadiusValue', 'PressureSmudgeRate', 'SmudgeRateUseNewEngine', 'SmudgeRateMode', 'SmudgeRateSmearAlpha')]
-                  positions = row.get('probePositions', (256, 416, 576)) if row.get('background') == 'wet-halves' or os.environ['BRUSH_REFERENCE_GROUP'] in ('texturemasks', 'texturestate') else (256, 384, 512, 640, 768, 896, 1024, 1152)
+                  positions = row.get('probePositions', (256, 416, 576)) if row.get('background') == 'wet-halves' or os.environ['BRUSH_REFERENCE_GROUP'] in ('texturemasks', 'texturestate', 'texturepickup') else (256, 384, 512, 640, 768, 896, 1024, 1152)
                   probe['centerlineRGBA8'] = [sample for sample in row.get('centerlineRGBA8', []) if sample[0] in positions]
                   probes.append(probe)
               import runpy
@@ -318,7 +320,7 @@ jobs:
           cmake --build brush-comparison-build --target rasterbrushreference --parallel 2 2>&1 | tee "$BRUSH_REFERENCE_ROOT/comparison-build.log"
           brush-comparison-build/rasterbrushreference "$BRUSH_REFERENCE_ROOT" 2>&1 | tee "$BRUSH_REFERENCE_ROOT/comparison.log"
       - name: Verify stochastic analysis and enforce GIH statistical gates
-        if: matrix.fixture_group == 'gihstatistics'
+        if: matrix.fixture_group == 'gihstatistics' || matrix.fixture_group == 'gihlabels'
         run: |
           python3 ci-scripts/brush-reference/test_stochastic_gate.py
           python3 ci-scripts/brush-reference/stochastic_gate.py "$BRUSH_REFERENCE_ROOT"
