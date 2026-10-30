@@ -94,3 +94,17 @@ still alive. The widget regression checks that closing a current editor clears
 the handle, selecting in a replacement editor works, and closing an inactive
 editor preserves another editor's selection. The original tests and debugger
 diagnostic remain enabled; qualification of this fix awaits the next CI run.
+
+At `6f593dee6`, Linux passed both Function Editor suites, including the native
+widget fixture in 0.27 seconds. The full-application run then reached the end
+of the preceding appearance fixture and timed out before a Function Editor
+checkpoint. Source inspection found that this preceding fixture leaves an
+unsaved dirty PLI resource, whereas clearing the scene dirty flag alone does
+not suppress New Scene's separate modified-resource prompt. The test-only
+`resetNativeUiIntegrationScene` now verifies prepared portable storage, discards
+disposable fixture level/palette dirty flags and selection/history, checks the
+actual dirty-resource inventory, then calls native New Scene and verifies an
+empty clean scene. It never accepts an unexpected modal. Bounded reset/modal
+deadlines and flushed full-application checkpoints report further blocking
+dialogs instead of silently waiting for the outer runner timeout. Execution
+qualification of this boundary fix remains pending CI.
