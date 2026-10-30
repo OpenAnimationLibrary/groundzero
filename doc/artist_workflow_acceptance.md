@@ -1,8 +1,8 @@
 # Artist workflow acceptance ledger
 
-Current baseline: `edition` at `866ac70038cb43ea3ec084f44bbb065ffd5630e2` (2026-10-30),
+Current baseline: `edition` at `5fc674f1edefc0a45d377951b8d064ba8b202f44` (2026-10-30),
 including the separately owned reference/neural work in #114 and build-artifact
-ignore rules in #121. Original research
+ignore rules in #121, plus the Qt translation configuration correction in #122. Original research
 baseline: `aa01975f38d6226156e5b07df7271b8fc199d003`.
 
 All 60 requested improvements remain tracked. Source implementation, executed CI and physical artist validation are separate states. No item is complete merely because a control or test exists. Builds and tests run in supported CI, not locally. Every PR must be reconciled against the then-current `edition` before publication; passing results must identify its exact final head. Drafts remain open while qualification is pending.
@@ -106,19 +106,23 @@ Source review also reopened Cast panel lifetime handling. The new Collections
 and Actions menus and several asset dialogs are stack objects parented to the
 browser, with raw browser accesses after nested event loops. Browser deletion
 can destroy those stack objects; hiding does not consistently cancel queued
-actions. This is a source exposure, not a reproduced crash. The Cast owner is
-auditing all added modal entry points and preparing safe ownership, sticky
-cancellation and actual browser hide/delete regressions. Earlier Cast passes
-do not close this newly identified interruption boundary.
+actions. This is a source exposure, not a reproduced crash. Reviewed correction
+`aee66fbed` shares sticky browser/ancestor/scene invalidation across nested
+dialogs, progress, confirmations and publication. It also guards source accesses
+after event-pumping scans and resolves folder items again after confirmation.
+Thirty-three actual interruption boundaries, repeated cancellation and exact
+state/file/navigation/history checks are prepared. Earlier Cast passes do not
+qualify these new guards; fresh supported-platform execution is required.
 
 Linux candidate `3dd99b2f6` passed 19 native UI tests and the corrected pose and
 width-interruption cases, but the mandatory sequence failed at repeated width
 Undo. Source diagnosis found that native PLI saving evaluates animation keys on
-the live palette and leaves its displayed frame changed; a detached-palette
-serialization correction is being prepared with unchanged exact Undo oracles.
+the live palette and leaves its displayed frame changed. Reviewed correction
+`6a505c932` serializes a detached palette, with unchanged exact Undo oracles,
+source/palette binding and byte invariance, and independent animation reload.
 The isolated Function process also crashed in `ParamCalculatorNode::onChange`
 from `TDoubleParam::setKeyframe` inside the real panel-lifetime matrix. The
-expression-observer lifetime is under investigation. Original stack-dialog
+expression-observer lifetime was subsequently diagnosed below. Original stack-dialog
 ownership review does not substitute for resolving this runtime crash. Other
 five isolated groups and the artist workload passed; reliability, EXR and the
 installed application were skipped. None of these passes replace the failed
@@ -127,8 +131,9 @@ mandatory or isolated Function results.
 Source diagnosis identified a missing observer removal in
 `FunctionSegmentViewer` destruction: both setters register the widget with its
 curve, but destruction only releases that curve. A later source-key update can
-reach the freed dependent-channel widget. Symmetric removal and deterministic
-post-close source/dependent mutation regressions are being prepared. This does
+reach the freed dependent-channel widget. Reviewed correction `83dcde0e7`
+adds symmetric removal and deterministic post-close source/dependent mutation
+regressions while preserving all 24 original panel routes. This does
 not establish the cause of the separate historical macOS shutdown failure.
 
 The audited follow-ups include saved-set rename and explicit target-range
@@ -284,9 +289,9 @@ the CI-only harness verifies isolation and failure retention.
 | 19 | Opacity readback | Single/mixed opacity selection follows context without mutating drawing. | Source-ready; CI pending |
 | 20 | Style opacity consistency | Relevant vector style render paths preserve stroke alpha with independent pixel fixtures. | Source-ready; focused Linux ROI equivalence passed, final-head/platform CI pending |
 | 21 | SVG stroke opacity | External SVG output carries palette alpha times stroke opacity. | Source-ready; CI pending |
-| 22 | Visual width-profile manager | CRUD/import/export/previews, errors, overwrite/cancel and restart persistence. | Pending; interrupted-manager checks pass on 3dd, but repeated Undo after native save exposed a palette serialization side effect |
-| 23 | Width profiles across drawings | Selected drawings/level range, repeated exposures once, locked resources and undo. | Pending; exact repeated Undo after native save requires palette serialization correction |
-| 24 | Pressure/profile blending | Zero-strength identity, replace/multiply semantics and pressure preservation. | Pending; full undo/save invariance failed on 3dd and remains under correction |
+| 22 | Visual width-profile manager | CRUD/import/export/previews, errors, overwrite/cancel and restart persistence. | Source-ready; interrupted checks pass on 3dd; detached-palette save correction and repeated Undo require fresh CI |
+| 23 | Width profiles across drawings | Selected drawings/level range, repeated exposures once, locked resources and undo. | Source-ready; strict repeated Undo and save invariance await CI on the corrected palette writer |
+| 24 | Pressure/profile blending | Zero-strength identity, replace/multiply semantics and pressure preservation. | Source-ready; full undo/save invariance must pass on the corrected writer |
 | 25 | Fill-safe reshaping | Actual region-change preview/recovery in geometry edit flow; fills/undo saved. | Source-ready; sticky frame-switch cancellation and actual queued Apply checks await CI |
 | 26 | Persistent morph hints | Stable drawing/stroke identity, edits/deletions, reopen and compatibility. | Source-ready; CI pending |
 | 27 | Correspondence preview | Matched/manual/unmatched preview matches committed inbetweens. | Source-ready; full range/hint snapshots, actual caller and panel-lifetime checks await CI |
@@ -301,20 +306,20 @@ the CI-only harness verifies isolation and failure retention.
 | 36 | Along-stroke opacity | Opacity variation survives draw/split/join/morph/deform/render/export and versioned storage. | Source-ready; reviewed snapshot/context guards await CI; full converter/render baseline passed on Linux |
 | 37 | Global Cast search | Name/path, folder/global scope, stable selection. | Source-ready; CI pending |
 | 38 | Cast filters | Types and resource status predicates including modified assets, combined with search. | Source-ready; fresh CI pending |
-| 39 | Where Used navigation | All nested occurrences, cycles bounded, exact instance navigation and multiselection. | Pending; Cast panel lifetime and queued navigation guard under review |
-| 40 | Batch relink preview | Ambiguous matches, explicit preview, identity/exposure preservation and undo. | Pending; Cast modal ownership and interrupted asset preparation under review |
+| 39 | Where Used navigation | All nested occurrences, cycles bounded, exact instance navigation and multiselection. | Source-ready; Cast panel lifetime and queued navigation guards await CI |
+| 40 | Batch relink preview | Ambiguous matches, explicit preview, identity/exposure preservation and undo. | Source-ready; original operation scope and interrupted preparation guards await CI |
 | 41 | Distinct asset states | New/dirty/missing/external/read-only/cache states truthful without changing artwork. | Source-ready; fresh CI pending |
-| 42 | Unused-asset cleanup preview | Review/checklist, keep-spare metadata, undo without deleting source files. | Pending; Cast panel lifetime and queued confirmation guard under review |
-| 43 | Folder undo | Create/rename/delete hierarchy and membership restoration, redo. | Pending; folder-delete confirmation retains a raw tree item across nested events and needs fresh-item/context validation |
+| 42 | Unused-asset cleanup preview | Review/checklist, keep-spare metadata, undo without deleting source files. | Source-ready; Cast panel lifetime and queued confirmation guards await CI |
+| 43 | Folder undo | Create/rename/delete hierarchy and membership restoration, redo. | Source-ready; snapshot/fresh-item validation and interrupted confirmation plus repeated Undo await CI |
 | 44 | Docked asset inspector | Resolution/DPI/frame gaps/palette/storage follow selection in a persistent docked panel. | Source-ready; fresh CI pending |
 | 45 | Scrubbable thumbnails | Scrub/choose cover, bounds, persistence and bounded decoding. | Source-ready; fresh CI pending |
-| 46 | Audio audition | Native waveform/transport, stop-on-close/selection and no leaked playback. | Pending; audio-error prompt owner lifetime is included in the Cast guard correction; physical playback remains separately unqualified |
-| 47 | Tags and collections | Stable asset IDs, multi-tag queries, saved named collections and save/reload. | Pending; Cast menu/nested dialog lifetime and late-action guards under review |
-| 48 | Stable refresh state | Identity selection/scroll/expanded folders/sort retained through changes. | Pending; added menu lifetime and queued actions must remain safe during owner hide/delete |
+| 46 | Audio audition | Native waveform/transport, stop-on-close/selection and no leaked playback. | Source-ready; audio-error prompt guards await CI; physical playback remains separately unqualified |
+| 47 | Tags and collections | Stable asset IDs, multi-tag queries, saved named collections and save/reload. | Source-ready; Cast menu/nested dialog lifetime and late-action guards await CI |
+| 48 | Stable refresh state | Identity selection/scroll/expanded folders/sort retained through changes. | Source-ready; owner hide/delete, context-menu and folder refresh interruption checks await CI |
 | 49 | Large-Cast responsiveness | Large fixture correctness and measured incremental update/ordering. | Source-ready; focused Linux measured improvement, final-head/platform qualification pending |
-| 50 | Explicit duplicate consolidation | Content/identity/palette comparisons, explicit confirmation only, exposure-preserving undo. | Pending; Cast modal ownership and interrupted review under review |
-| 51 | Collection/dependency report | Missing/conflicting dependencies and sizes, exact inclusion and relocated output verification. | Pending; Cast modal ownership and interrupted report actions under review |
-| 52 | Linked ownership and local copy | Actual Library import/link provenance and explicit local copy with undo/collection preservation; external paths alone do not prove linkage. | Pending; Cast modal ownership and interrupted asset preparation under review |
+| 50 | Explicit duplicate consolidation | Content/identity/palette comparisons, explicit confirmation only, exposure-preserving undo. | Source-ready; modal/digest/publication guards and actual interruption checks await CI |
+| 51 | Collection/dependency report | Missing/conflicting dependencies and sizes, exact inclusion and relocated output verification. | Source-ready; nested report/chooser/original-context guards await CI |
+| 52 | Linked ownership and local copy | Actual Library import/link provenance and explicit local copy with undo/collection preservation; external paths alone do not prove linkage. | Source-ready; interrupted preparation/publication and retained user-file checks await CI |
 | 53 | Pose-library undo | Entire pose/base state, import/replace/delete, duplicate names and undo/reload. | Source-ready; detached scene/library context guards and native interruption checks await CI |
 | 54 | Timing-aware storyboard moves | Cells/audio/native animation move as one undo; locked/boundary rules explicit. | Source-ready; fresh CI pending |
 | 55 | Source/playback timing indicators | Clear edit source vs playback drawing, nested/remap/range transitions. | Source-ready; fresh CI pending |
