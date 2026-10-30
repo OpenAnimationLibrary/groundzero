@@ -747,7 +747,11 @@ static bool addPaintModeShape(TTool::Application *application,
     const QPainterPath clipped = VectorPaintClip::outline(stroke).intersected(mask);
     if (clipped.isEmpty()) return true;
     const auto polygons = clipped.toSubpathPolygons();
-    TVectorImageP before = cloneWithEnteredGroup(vi);
+    // Build an independent paint object before inserting it. Grouping newly
+    // added strokes in the live image wraps their inherited ancestors in a
+    // new outer group, moving them out of the group the artist is editing.
+    TVectorImageP paint = new TVectorImage;
+    paint->setPalette(vi->getPalette());
     int firstIndex = -1, count = 0;
     for (const QPolygonF &polygon : polygons) {
       if (polygon.size() < 3) continue;
@@ -764,26 +768,31 @@ static bool addPaintModeShape(TTool::Application *application,
       auto *contour = new TStroke(points);
       contour->setStyle(stroke.getStyle()); contour->setSelfLoop(true);
       const int id = contour->getId();
-      vi->addStroke(contour, false);
-      if (firstIndex < 0) firstIndex = vi->getStrokeIndexById(id);
+      paint->addStroke(contour, false);
+      if (firstIndex < 0) firstIndex = paint->getStrokeIndexById(id);
       ++count;
     }
     if (!count) return true;
     // All clipping contours form one independent paint object, so holes do
     // not fill and intersections do not recolor pre-existing regions.
-    vi->group(firstIndex, count);
-    vi->findRegions();
+    paint->group(firstIndex, count);
+    paint->findRegions();
     std::vector<TRegion *> regions;
-    for (UINT i = 0; i < vi->getRegionCount(); ++i) regions.push_back(vi->getRegion(i));
+    for (UINT i = 0; i < paint->getRegionCount(); ++i) regions.push_back(paint->getRegion(i));
     while (!regions.empty()) {
       auto *region = regions.back(); regions.pop_back();
       for (UINT i = 0; i < region->getSubregionCount(); ++i) regions.push_back(region->getSubregion(i));
-      const int index = regionStrokeIndex(*vi, *region);
-      if (index < 0 || !vi->sameGroup(index, firstIndex)) continue;
+      const int index = regionStrokeIndex(*paint, *region);
+      if (index < 0 || !paint->sameGroup(index, firstIndex)) continue;
       TPointD point;
       region->setStyle(region->getInternalPoint(point) && clipped.contains(QPointF(point.x, point.y))
                            ? stroke.getStyle() : 0);
     }
+    TVectorImageP before = cloneWithEnteredGroup(vi);
+    // This overload uses the entered group itself, even when its last object
+    // is a more deeply nested sibling. It retains the prepared region fills
+    // and inserts above that group's artwork without crossing outer layers.
+    vi->mergeImage(std::vector<const TVectorImage *>{paint.getPointer()});
     TUndoManager::manager()->add(new UndoVectorAutoOptions(level, fid, frameCreated,
         levelCreated, before, cloneWithEnteredGroup(vi)));
     application->getCurrentTool()->getTool()->notifyImageChanged(fid, level);
