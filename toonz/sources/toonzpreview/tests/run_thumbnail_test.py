@@ -23,8 +23,24 @@ with isolated_fixture(args.stuff.resolve(), args.fixture.resolve(),
     try:
         output, _ = process.communicate(timeout=180)
     except subprocess.TimeoutExpired:
-        process.kill()
-        output, _ = process.communicate(timeout=10)
+        # The real CLI comparisons also spawn renderers directly, outside the
+        # provider's production Job. Stop that complete tree before releasing
+        # the temporary Mesa runtime or disposable user settings.
+        try:
+            cleanup = subprocess.run(
+                ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                timeout=15, check=False)
+            print(cleanup.stdout.decode("utf-8", errors="replace"), flush=True)
+        except (OSError, subprocess.TimeoutExpired) as error:
+            print(f"Shell fixture process-tree cleanup failed: {type(error).__name__}", flush=True)
+        if process.poll() is None:
+            process.kill()
+        try:
+            output, _ = process.communicate(timeout=10)
+        except subprocess.TimeoutExpired as error:
+            output = error.output or b""
+            process.stdout.close()
         print(output.decode("utf-8", errors="replace"), flush=True)
         raise RuntimeError("Shell thumbnail fixture exceeded its deadline")
     print(output.decode("utf-8", errors="replace"), flush=True)
