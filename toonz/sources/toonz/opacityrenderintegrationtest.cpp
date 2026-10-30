@@ -708,24 +708,47 @@ void nativeDepthTransactions(TPalette *palette, int chainStyle, int solidStyle) 
       auto prepareHdr = [&]() {
         clamp(fragmentClamp,GL_FALSE); clamp(readClamp,GL_FALSE);
         prepareDepthTarget(GL_ALWAYS,true,false,0.);
+        // Seed the float attachment independently of DrawPixels, which is the
+        // production replacement path under test. ARB_texture_float permits
+        // out-of-range components in uploads to a floating internal format:
+        // https://registry.khronos.org/OpenGL/extensions/ARB/ARB_texture_float.txt
+        require(glGetError() == GL_NO_ERROR,"GL error before HDR texture seed");
         glPushAttrib(GL_ALL_ATTRIB_BITS); glPushClientAttrib(GL_CLIENT_PIXEL_STORE_BIT);
-        glDisable(GL_DEPTH_TEST); glDisable(GL_STENCIL_TEST); glDisable(GL_ALPHA_TEST);
-        glDisable(GL_BLEND); glDisable(GL_SCISSOR_TEST); glDisable(GL_TEXTURE_2D);
-        glColorMask(GL_TRUE,GL_TRUE,GL_TRUE,GL_TRUE); glPixelZoom(1.f,1.f);
+        GLint unpackBuffer = 0;
+        glGetIntegerv(GL_PIXEL_UNPACK_BUFFER_BINDING,&unpackBuffer);
+        functions->glBindBuffer(GL_PIXEL_UNPACK_BUFFER,0);
+        glBindTexture(GL_TEXTURE_2D,hdr.texture());
         glPixelStorei(GL_UNPACK_ALIGNMENT,1); glPixelStorei(GL_UNPACK_ROW_LENGTH,0);
         glPixelStorei(GL_UNPACK_SKIP_PIXELS,0); glPixelStorei(GL_UNPACK_SKIP_ROWS,0);
-        glMatrixMode(GL_PROJECTION); glPushMatrix(); glLoadIdentity();
-        glOrtho(0,depthWidth,0,depthHeight,-1,1);
-        glMatrixMode(GL_MODELVIEW); glPushMatrix(); glLoadIdentity();
+        glPixelStorei(GL_UNPACK_SWAP_BYTES,GL_FALSE);
+        glPixelTransferi(GL_MAP_COLOR,GL_FALSE);
+        for (GLenum parameter : {GL_RED_SCALE,GL_GREEN_SCALE,GL_BLUE_SCALE,GL_ALPHA_SCALE})
+          glPixelTransferf(parameter,1.f);
+        for (GLenum parameter : {GL_RED_BIAS,GL_GREEN_BIAS,GL_BLUE_BIAS,GL_ALPHA_BIAS})
+          glPixelTransferf(parameter,0.f);
+        GLint internalFormat = 0;
+        glGetTexLevelParameteriv(GL_TEXTURE_2D,0,GL_TEXTURE_INTERNAL_FORMAT,&internalFormat);
         const GLfloat hdrPixel[] = {2.f,-.5f,.25f,1.f};
-        for (const TPointD &point : {TPointD(8,8),TPointD(104,64)}) {
-          glRasterPos2d(point.x,point.y); glDrawPixels(1,1,GL_RGBA,GL_FLOAT,hdrPixel);
+        for (const TPoint &point : {TPoint(8,8),TPoint(104,64)}) {
+          glTexSubImage2D(GL_TEXTURE_2D,0,point.x,point.y,1,1,GL_RGBA,GL_FLOAT,hdrPixel);
         }
-        glMatrixMode(GL_MODELVIEW); glPopMatrix(); glMatrixMode(GL_PROJECTION); glPopMatrix();
-        glMatrixMode(GL_MODELVIEW); glPopClientAttrib(); glPopAttrib();
-        const auto seeded = readHdr(); const size_t outside = size_t(8)*depthWidth+8;
-        require(seeded.color[4*outside] == 2.f && seeded.color[4*outside+1] == -.5f,
-                "HDR fixture did not retain values above one and below zero");
+        const GLenum seedError = glGetError();
+        functions->glBindBuffer(GL_PIXEL_UNPACK_BUFFER,GLuint(unpackBuffer));
+        glPopClientAttrib(); glPopAttrib();
+        const auto seeded = readHdr();
+        for (const TPoint &point : {TPoint(8,8),TPoint(104,64)}) {
+          const size_t pixel = size_t(point.y)*depthWidth+point.x;
+          if (seedError != GL_NO_ERROR || internalFormat != 0x8814 ||
+              !std::equal(hdrPixel,hdrPixel+4,seeded.color.begin()+4*pixel)) {
+            std::ostringstream detail;
+            detail << "HDR fixture did not retain values above one and below zero"
+                << ": texture_format=" << internalFormat << " GL_error=" << seedError
+                << " pixel(" << point.x << ',' << point.y << ")=";
+            for (int channel = 0; channel < 4; ++channel)
+              detail << seeded.color[4*pixel+channel] << ',';
+            throw std::runtime_error(detail.str());
+          }
+        }
         clamp(fragmentClamp,GL_TRUE); clamp(readClamp,GL_TRUE);
       };
       stroke->setStyle(solidStyle); stroke->setOpacity(1.); stroke->setOpacityProfile({});
