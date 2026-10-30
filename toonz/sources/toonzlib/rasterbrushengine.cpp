@@ -10,7 +10,8 @@ constexpr double pi = 3.14159265358979323846;
 bool sourceWetProfile(const std::string &profile) {
   return profile == "krita-5.3.4.1-legacy-smear-candidate-1" ||
          profile == "krita-5.3.4.1-legacy-dulling-candidate-1" ||
-         profile == "krita-5.3.4.1-new-smear-candidate-1";
+         profile == "krita-5.3.4.1-new-smear-candidate-1" ||
+         profile == "krita-5.3.4.1-new-dulling-candidate-1";
 }
 bool sourceProfile(const std::string &profile) {
   return profile == "krita-5.3.4.1-hard-pixel-candidate-1" ||
@@ -198,7 +199,8 @@ std::string validate(const Preset &p) {
              "profile";
   }
   if (sourceWet &&
-      (p.wet != (p.profile == "krita-5.3.4.1-legacy-dulling-candidate-1"
+      (p.wet != ((p.profile == "krita-5.3.4.1-legacy-dulling-candidate-1" ||
+                  p.profile == "krita-5.3.4.1-new-dulling-candidate-1")
                      ? Wet::Dulling
                      : Wet::Smear) ||
        p.smudgeRadius != 0 || p.reload != 0 || p.pickupControl.value != 1 ||
@@ -382,7 +384,8 @@ struct Stroke::Impl {
   std::uint64_t rng;
   double randomStroke = 0, randomDab = 0;
   Pixel reservoir;
-  std::vector<Pixel> smear;
+  std::vector<Pixel> smear, sourceField;
+  int sourceX = 0, sourceY = 0, sourceW = 0, sourceH = 0;
   int smearSide = 0;
   std::map<const Mapping *, std::vector<double>> cubic;
   struct Tile {
@@ -562,11 +565,6 @@ struct Stroke::Impl {
     // paint.
     const double radius = p.size.value * .5;
     spacing             = std::max(.01, p.size.value * p.spacing);
-    if (!dabs) {
-      previousSourceDab = s;
-      ++dabs;
-      return true;
-    }
     // Measured model distinction: Dulling retains the hard Pixel lattice;
     // Smear transports a pixel-centered footprint instead.
     const double cx = s.x + (p.wet == Wet::Dulling ? .5 : 0), cy = s.y;
@@ -582,21 +580,8 @@ struct Stroke::Impl {
     }
     const double deltaX = previousSourceDab.x - s.x,
                  deltaY = previousSourceDab.y - s.y;
-    int sx0             = std::max(0, int(std::floor(x0 + deltaX))),
-        sy0             = std::max(0, int(std::floor(y0 + deltaY))),
-        sx1 = std::min(surface.width(), int(std::ceil(x1 + deltaX)) + 1),
-        sy1 = std::min(surface.height(), int(std::ceil(y1 + deltaY)) + 1);
-    if (!surface.prepare(x0, y0, x1, y1) ||
-        (sx0 < sx1 && sy0 < sy1 && !surface.prepare(sx0, sy0, sx1, sy1))) {
+    if (!surface.prepare(x0, y0, x1, y1)) {
       failure = "Raster transaction refused the source wet region";
-      return false;
-    }
-    const int centerX = int(std::floor(previousSourceDab.x)),
-              centerY = int(std::floor(previousSourceDab.y));
-    if (p.wet == Wet::Dulling && centerX >= 0 && centerY >= 0 &&
-        centerX < surface.width() && centerY < surface.height() &&
-        !surface.prepare(centerX, centerY, centerX + 1, centerY + 1)) {
-      failure = "Raster transaction refused the source wet sample";
       return false;
     }
     const size_t bytes = size_t(x1 - x0) * (y1 - y0) * sizeof(Pixel);
@@ -605,25 +590,31 @@ struct Stroke::Impl {
       return false;
     }
     reserved += bytes;
-    // Snapshot before writes, including overlapping dabs. The next dab reads
-    // the deposited surface, not the native pre-deposition reservoir.
+    // Snapshot feedback before destination writes. Smear-alpha uses arithmetic
+    // interpolation of premultiplied channels, not source-over opacity. These
+    // coincide for an opaque initial pickup but diverge on later dabs.
     std::vector<Pixel> feedback(size_t(x1 - x0) * (y1 - y0));
     auto at = [&](int x, int y) -> Pixel {
-      return x >= 0 && y >= 0 && x < surface.width() && y < surface.height()
-                 ? surface.read(x, y)
+      return x >= sourceX && y >= sourceY && x < sourceX + sourceW &&
+                     y < sourceY + sourceH
+                 ? sourceField[size_t(y - sourceY) * sourceW + x - sourceX]
                  : Pixel{};
     };
-    const Pixel center = p.wet == Wet::Dulling ? at(centerX, centerY) : Pixel{};
+    const int centerX = int(std::floor(s.x)), centerY = int(std::floor(s.y));
+    const Pixel initialCenter = !dabs && centerX >= 0 && centerY >= 0 &&
+                                        centerX < surface.width() &&
+                                        centerY < surface.height()
+                                    ? surface.read(centerX, centerY)
+                                    : Pixel{};
     for (int y = y0; y < y1; ++y)
       for (int x = x0; x < x1; ++x) {
         const double fx = x + deltaX, fy = y + deltaY;
         const int ix = int(std::floor(fx)), iy = int(std::floor(fy));
         feedback[size_t(y - y0) * (x1 - x0) + x - x0] =
-            p.wet == Wet::Dulling
-                ? center
-                : mix(mix(at(ix, iy), at(ix + 1, iy), fx - ix),
-                      mix(at(ix, iy + 1), at(ix + 1, iy + 1), fx - ix),
-                      fy - iy);
+            !dabs ? (p.wet == Wet::Dulling ? initialCenter : surface.read(x, y))
+                  : mix(mix(at(ix, iy), at(ix + 1, iy), fx - ix),
+                        mix(at(ix, iy + 1), at(ix + 1, iy + 1), fx - ix),
+                        fy - iy);
       }
     auto quantize = [](Pixel v) {
       if (v.a <= 0) return Pixel{};
@@ -632,30 +623,48 @@ struct Stroke::Impl {
                    std::floor(unit(v.g / v.a) * 255 + .5) / 255 * a,
                    std::floor(unit(v.b / v.a) * 255 + .5) / 255 * a, a};
     };
-    const bool modern = p.profile == "krita-5.3.4.1-new-smear-candidate-1";
+    const bool modern = p.profile == "krita-5.3.4.1-new-smear-candidate-1" ||
+                        p.profile == "krita-5.3.4.1-new-dulling-candidate-1";
+    // Radius-zero new Dulling attenuation measured across 7/32/128-pixel
+    // tips and independent strengths. Nonzero radius remains rejected.
+    const double strength =
+        p.pickup * (modern && p.wet == Wet::Dulling ? .8 : 1);
     for (int y = y0; y < y1; ++y)
       for (int x = x0; x < x1; ++x) {
         double dx = (x + .5 - cx) / radius, dy = (y + .5 - cy) / radius;
         double coverage =
             tipPixel(p.tip, 0, dx, dy).a * unit(surface.coverage(x, y));
-        if (coverage <= 0) continue;
-        Pixel paint = feedback[size_t(y - y0) * (x1 - x0) + x - x0];
-        Pixel out   = surface.read(x, y);
-        if (modern) {
-          out = composite(out, mul(paint, p.pickup * coverage), Blend::Normal);
-          out =
-              composite(out, mul(p.color, p.colorRate * p.colorRate * coverage),
-                        Blend::Normal);
-        } else {
-          paint = composite(
-              paint, mul(p.color, p.colorRate * std::max(.2, 1 - p.pickup)),
-              Blend::Normal);
-          out = composite(out, mul(paint, p.pickup * coverage), Blend::Normal);
+        const size_t index = size_t(y - y0) * (x1 - x0) + x - x0;
+        Pixel paint        = feedback[index];
+        if (!dabs) {
+          feedback[index] = paint;
+          continue;
         }
-        surface.write(x, y, quantize(out));
+        if (modern) {
+          paint =
+              composite(mix(surface.read(x, y), paint, strength),
+                        mul(p.color, p.colorRate * p.colorRate), Blend::Normal);
+        } else {
+          paint = mix(
+              surface.read(x, y),
+              composite(paint,
+                        mul(p.color, p.colorRate * std::max(.2, 1 - p.pickup)),
+                        Blend::Normal),
+              strength);
+        }
+        feedback[index] = quantize(paint);
+        if (coverage > 0)
+          surface.write(x, y,
+                        quantize(mix(surface.read(x, y), paint, coverage)));
       }
-    shared->release(bytes);
-    reserved -= bytes;
+    const size_t oldBytes = sourceField.size() * sizeof(Pixel);
+    shared->release(oldBytes);
+    reserved -= oldBytes;
+    sourceField       = std::move(feedback);
+    sourceX           = x0;
+    sourceY           = y0;
+    sourceW           = x1 - x0;
+    sourceH           = y1 - y0;
     previousSourceDab = s;
     ++dabs;
     return true;
@@ -948,6 +957,7 @@ void Stroke::finish() {
   m->tiles.clear();
   m->cubic.clear();
   std::vector<Pixel>().swap(m->smear);
+  std::vector<Pixel>().swap(m->sourceField);
   m->shared->release(m->reserved);
   m->reserved = 0;
 }

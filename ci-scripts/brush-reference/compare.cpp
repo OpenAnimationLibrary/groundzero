@@ -255,8 +255,19 @@ int main(int argc, char **argv) {
       if (source["background"].toString() == "wet-halves")
         for (int y = 0; y < initial.height(); ++y)
           for (int x = 0; x < initial.width(); ++x)
+            initial.setPixel(x, y,
+                             x < source["wetBoundary"].toDouble(336)
+                                 ? qRgba(0, 0, 255, 255)
+                                 : qRgba(255, 0, 0, 128));
+      if (source.contains("wetThirdBoundary")) {
+        const auto c = source["wetThirdRGBA8"].toArray();
+        for (int y = 0; y < initial.height(); ++y)
+          for (int x = source["wetThirdBoundary"].toInt(); x < initial.width();
+               ++x)
             initial.setPixel(
-                x, y, x < 336 ? qRgba(0, 0, 255, 255) : qRgba(255, 0, 0, 128));
+                x, y,
+                qRgba(c[0].toInt(), c[1].toInt(), c[2].toInt(), c[3].toInt()));
+      }
       QString name = source["preset"].toString(), error;
       require(remaining.removeOne(name), "Unexpected or duplicate source case");
       auto imported = importBrushFile(
@@ -272,8 +283,8 @@ int main(int argc, char **argv) {
                 "Strict source hard-pixel eligibility did not select the "
                 "candidate");
       const bool sourceWet = (fixtures["group"].toString() == "wetsteps" ||
-                              fixtures["group"].toString() == "wethold") &&
-                             !name.startsWith("GZ Original dulling new");
+                              fixtures["group"].toString() == "wethold" ||
+                              fixtures["group"].toString() == "wetstate");
       if (sourceWet) {
         const QString model =
             imported.records.front().provenance["sourceSmudgeModel"].toString();

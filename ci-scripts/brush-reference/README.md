@@ -168,20 +168,29 @@ full rasters and center/edge probes at each dab are retained. This data is for
 independently deriving each model's state equations, not validation of the
 existing native wet conversion. No source implementation is read or copied.
 
-Three independent experimental wet candidates now separate legacy Smear,
-legacy Dulling and new Smear from native wet painting. They initialize without
-painting the first dab and snapshot the previous dab's deposited region before
-writing overlapping destinations. Legacy color loading and modern two-stage
+Four independent experimental wet candidates now separate legacy/new Smear
+and Dulling from native wet painting. They initialize without
+painting the first dab and retain a feedback snapshot and use arithmetic interpolation of premultiplied
+channels; third-dab measurements distinguish this from source-over opacity. Legacy color loading and modern two-stage
 compositing are distinct equations; RGBA8 quantization occurs after deposition.
 Only fixed hard circles with radius zero and no sensors are accepted. Snapshot
-allocation is charged before allocation and released after each dab. These
+allocation is charged before allocation; the previous snapshot is released after
+replacement and the final carried field is released at stroke end. These
 models are inferred from original fixtures, not copied source implementation.
 
 `wetsteps` enforces max premultiplied-channel error <= 2/255, max alpha error
-<= 1/255, changed-pixel IoU >= .98 and no empty-candidate failure on all three
-implemented candidates. New Dulling remains a measured native conversion;
-its apparent attenuation is not assumed to be a universal constant. `wethold`
+<= 1/255, changed-pixel IoU >= .98 and no empty-candidate failure on all four
+implemented candidates. New Dulling uses radius-zero attenuation measured at
+three tip sizes and independent strengths; nonzero radius remains rejected. `wethold`
 adds 40 cases with second/third dabs, diameters 7/32/128 and previously unseen
 strength/color-rate values. Its source candidates use the same gates. Passing
 two-dab examples alone cannot establish feedback state, general sensor behavior,
 nonzero sampling radius, antialiasing, or complete source-engine compatibility.
+
+The initial `wethold` source capture succeeded, but candidate import correctly
+rejected the 7-pixel fixture's spacing above the runtime maximum. The fixture now
+caps spacing at five diameters and moves its background boundary/probes with the
+dab centers. This fixes a fixture outside the declared contract rather than
+relaxing runtime validation. Third-dab reference probes reject source-over pickup. A separate varied-third-
+destination workload distinguishes arithmetic interpolation from carried-ink
+models that coincide on repeated uniform destinations. The original 64-case gates passed before this state expansion.

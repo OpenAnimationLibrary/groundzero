@@ -543,13 +543,16 @@ void testLongWetTrace() {
   }
 }
 void testSourceWetInitialization() {
-  for (const auto &model : {"legacy-smear", "legacy-dulling", "new-smear"}) {
+  for (const auto &model :
+       {"legacy-smear", "legacy-dulling", "new-smear", "new-dulling"}) {
     Preset p;
     p.profile = std::string("krita-5.3.4.1-") + model + "-candidate-1";
     p.tip.antialiasEdges = false;
     p.size.value         = 8;
     p.spacing            = 5;
-    p.wet = std::string(model) == "legacy-dulling" ? Wet::Dulling : Wet::Smear;
+    p.wet          = std::string(model).find("dulling") != std::string::npos
+                         ? Wet::Dulling
+                         : Wet::Smear;
     p.smudgeRadius = 0;
     p.color        = {0, 1, 0, 1};
     Canvas canvas;
@@ -564,18 +567,30 @@ void testSourceWetInitialization() {
     require(stroke.add(sample(30, 64, 0)), stroke.error().c_str());
     require(same(canvas, original), "source wet first dab deposited paint");
     require(stroke.add(sample(71, 64, 1)), stroke.error().c_str());
-    Pixel center      = canvas.read(70, 64);
-    const bool modern = std::string(model) == "new-smear";
-    const double a    = (modern ? 195 : 192) / 255.0;
+    Pixel center          = canvas.read(70, 64);
+    const bool modern     = std::string(model).find("new-") == 0;
+    const bool newDulling = std::string(model) == "new-dulling";
+    const double a        = (newDulling ? 184 : modern ? 195 : 192) / 255.0;
     require(std::abs(center.a - a) < 1e-12, "source wet alpha equation");
-    require(std::abs(center.g / center.a - 21 / 255.0) < 1e-12,
-            "source wet color equation");
+    require(
+        std::abs(center.g / center.a - (newDulling ? 22 : 21) / 255.0) < 1e-12,
+        "source wet color equation");
     stroke.finish();
     require(budget->used() == 0, "source wet snapshot retained memory");
+    Canvas carried = original;
+    p.colorRate    = 0;
+    Stroke three(carried, p);
+    require(three.add(sample(10, 64, 0)) && three.add(sample(91, 64, 1)),
+            three.error().c_str());
+    Pixel third = carried.read(90, 64);
+    require(std::abs(third.a - (newDulling ? 148 : 160) / 255.0) < 1e-12 &&
+                std::abs(third.b / third.a - (newDulling ? 70 : 102) / 255.0) <
+                    2 / 255.0,
+            "source carried paint was replaced by composited canvas feedback");
+    three.finish();
     Stroke denied(original, p, 1);
-    require(denied.add(sample(30, 64, 0)),
-            "source first dab allocated a snapshot");
-    require(!denied.add(sample(71, 64, 1)), "source snapshot bypassed budget");
+    require(!denied.add(sample(30, 64, 0)),
+            "source initial snapshot bypassed budget");
     p.smudgeRadius = 1;
     require(!validate(p).empty(), "unmeasured source wet radius accepted");
   }

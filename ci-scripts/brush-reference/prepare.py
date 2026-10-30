@@ -56,10 +56,10 @@ shutil.copytree(source / "gzbrush_reference", resources / "pykrita" / "gzbrush_r
 (root / "config" / "kritarc").write_text("[General]\nuseOpenGL=false\n[python]\nenable_gzbrush_reference=true\n")
 names, cases = [], []
 group = os.environ.get("BRUSH_REFERENCE_GROUP", "parameters")
-if group not in ("parameters", "geometry", "tablet", "hardpixel", "wetsteps", "wethold"):
+if group not in ("parameters", "geometry", "tablet", "hardpixel", "wetsteps", "wethold", "wetstate"):
     raise RuntimeError("Unknown reference fixture group")
 profiles = [("dry", False)] if group in ("geometry", "tablet", "hardpixel") else [("dry", False), ("smear", False), ("dulling", False), ("smear", True), ("dulling", True)]
-if group in ("wetsteps", "wethold"):
+if group in ("wetsteps", "wethold", "wetstate"):
     profiles = [("smear", False), ("dulling", False), ("smear", True), ("dulling", True)]
 for mode, modern in profiles:
     base = "GZ Original " + mode + (" new" if modern else " legacy")
@@ -93,7 +93,7 @@ for mode, modern in profiles:
         if mode == "dulling":
             for value in ("0", "3", "100", "300"):
                 variants.append(("radius " + value, {"SmudgeRadiusValue": value}, 32, .1, [1, 1], 1, 1))
-    if group in ("wetsteps", "wethold"):
+    if group in ("wetsteps", "wethold", "wetstate"):
         variants = [(f"wet step pickup {round(pickup * 100):03d} color {round(color * 100):03d} dabs {dabs}",
                      {"SmudgeRateValue": str(pickup), "ColorRateValue": str(color), "SmudgeRadiusValue": "0"},
                      32, 5, [1, 1], 1, 1)
@@ -102,12 +102,18 @@ for mode, modern in profiles:
     if group == "wethold":
         variants = [(f"wet hold diameter {diameter} pickup {round(pickup * 100):03d} color {round(color * 1000):03d} dabs {dabs}",
                      {"SmudgeRateValue": str(pickup), "ColorRateValue": str(color), "SmudgeRadiusValue": "0"},
-                     diameter, 160 / diameter, [1, 1], 1, 1)
+                     diameter, min(5, 160 / diameter), [1, 1], 1, 1)
                     for diameter, pickup, color in ((7, .5, 0), (32, .5, 0), (128, .5, 0), (32, .25, .125), (32, .75, .75))
                     for dabs in (2, 3)]
+    if group == "wetstate":
+        variants = [(f"wet state pickup {round(pickup * 100):03d} color {round(color * 1000):03d} third {third}",
+                     {"SmudgeRateValue": str(pickup), "ColorRateValue": str(color), "SmudgeRadiusValue": "0"},
+                     32, 5, [1, 1], 1, 1)
+                    for pickup, color in ((.5, 0), (.5, .25), (1, 0), (.25, .125))
+                    for third in ("transparent", "yellow")]
     for label, overrides, diameter, spacing, pressure, opacity, flow in variants:
         name = base if label == "baseline" else base + " " + label
-        edge = int(label.rsplit(" ", 1)[1]) if group == "geometry" else (0 if group in ("hardpixel", "wetsteps", "wethold") else 1)
+        edge = int(label.rsplit(" ", 1)[1]) if group == "geometry" else (0 if group in ("hardpixel", "wetsteps", "wethold", "wetstate") else 1)
         (resources / "paintoppresets" / (name + ".kpp")).write_bytes(preset(name, mode, modern, overrides, diameter, spacing, edge))
         names.append(name)
         end_x = 256 + int(label.rsplit(" ", 1)[1]) if label.startswith("short line ") else 1792
@@ -115,13 +121,19 @@ for mode, modern in profiles:
             end_x = 257
         expected_empty = (mode != "dry" and not modern and label == "pickup 0") or (group == "geometry" and diameter == 1 and label.endswith("antialias 0"))
         cases.append({"preset": name, "variant": label, "diameter": diameter, "spacing": spacing, "pressure": pressure, "opacity": opacity, "flow": flow, "start": [256, 1024], "end": [end_x, 1024], "background": "transparent" if group == "geometry" or label.startswith("short line ") else "strips", "overrides": overrides, "expectUnchanged": expected_empty})
-        if group in ("wetsteps", "wethold"):
+        if group in ("wetsteps", "wethold", "wetstate"):
             case = cases[-1]
-            dabs = int(label.rsplit(" ", 1)[1])
-            case.update({"end": [257 + 160 * (dabs - 1), 1024], "background": "wet-halves",
+            dabs = 3 if group == "wetstate" else int(label.rsplit(" ", 1)[1])
+            step = diameter * spacing
+            case.update({"end": [257 + step * (dabs - 1), 1024], "background": "wet-halves",
+                         "wetBoundary": 256 + step / 2,
+                         "probePositions": [256, round(256 + step), round(256 + 2 * step)],
                          "foregroundRGBA8": [0, 255, 0, 255],
                          "expectUnchanged": (not modern and float(overrides["SmudgeRateValue"]) == 0) or
                                             (float(overrides["SmudgeRateValue"]) == 0 and float(overrides["ColorRateValue"]) == 0)})
+            if group == "wetstate":
+                case.update({"wetThirdBoundary": 496,
+                             "wetThirdRGBA8": [0, 0, 0, 0] if label.endswith("transparent") else [255, 255, 0, 255]})
             if dabs == 1:
                 case["changeExpectation"] = "measure first-dab initialization"
         if group == "tablet":

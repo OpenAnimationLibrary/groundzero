@@ -188,7 +188,12 @@ class Probe(Extension):
                 row = (bytes(w * 4) if case.get("background") == "transparent" else
                        b"".join(bytes(colors[(x // 128) % 4]) for x in range(w)))
                 if case.get("background") == "wet-halves":
-                    row = bytes((255, 0, 0, 255)) * 336 + bytes((0, 0, 255, 128)) * (w - 336)
+                    boundary = math.ceil(case.get("wetBoundary", 336))
+                    row = bytes((255, 0, 0, 255)) * boundary + bytes((0, 0, 255, 128)) * (w - boundary)
+                if "wetThirdBoundary" in case:
+                    third = case["wetThirdRGBA8"]
+                    boundary = case["wetThirdBoundary"]
+                    row = row[:boundary * 4] + bytes((third[2], third[1], third[0], third[3])) * (w - boundary)
                 initial = row * h
                 checkpoint(name + ": initialize pixels")
                 if not node.setPixelData(QByteArray(initial), 0, 0, w, h):
@@ -296,7 +301,7 @@ class Probe(Extension):
                 # Bounded numerical probes expose pickup/drop-off relationships
                 # without requiring a screenshot or access to hidden state.
                 samples = []
-                for x in range(240, 1809, 16):
+                for x in sorted(set(range(240, 1809, 16)) | set(case.get("probePositions", []))):
                     offset = (1024 * w + x) * 4
                     blue, green, red, alpha = raw[offset:offset+4]
                     samples.append([x, red, green, blue, alpha])
