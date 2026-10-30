@@ -152,7 +152,17 @@ def run_captured_process(command, *, cwd, environment, timeout, runtime_state):
                 runtime_state["safe_to_release"] = safe
                 captured()
                 raise
-            runtime_state["safe_to_release"] = True
+            if status != 0:
+                # A crashed parent can leave converter descendants behind even
+                # though wait() returned. Keep its exact status/output, and do
+                # not release shared files unless tree exit is confirmed.
+                safe, notes = stop_process_tree(process)
+                runtime_state["safe_to_release"] = safe
+                if not safe:
+                    notes += (f"\nOriginal process exited with status {status} "
+                              f"(0x{status & 0xffffffff:08X}); descendant exit remains uncertain.\n").encode()
+            else:
+                runtime_state["safe_to_release"] = True
             return subprocess.CompletedProcess(command, status, stdout=captured())
     finally:
         if runtime_state["safe_to_release"]:
@@ -196,8 +206,9 @@ def decode_output(output):
     return output.decode("utf-8", errors="replace") if isinstance(output, bytes) else output or ""
 
 
-def capture_debugger(command, executable, source, mesa_runtime=None):
-    state = {"safe_to_release": True}
+def capture_debugger(command, executable, source, mesa_runtime=None,
+                     runtime_state=None):
+    state = runtime_state if runtime_state is not None else {"safe_to_release": True}
     output = b""
     notes = ""
     try:
@@ -217,7 +228,7 @@ def capture_debugger(command, executable, source, mesa_runtime=None):
 
 
 def windows_crash_diagnostics(executable, source, native_status, symbol_directories,
-                              mesa_runtime=None):
+                              mesa_runtime=None, runtime_state=None):
     kits = os.environ.get("ProgramFiles(x86)")
     if not kits:
         return "Windows SDK debugger location is unavailable.\n"
@@ -234,16 +245,18 @@ def windows_crash_diagnostics(executable, source, native_status, symbol_director
                 "lm; ~* kb 8; .ecxr; kv 60; q")
     command = [str(debugger), "-G", "-lines", "-y", ";".join(symbols),
                "-c", commands, str(executable), "--test-native-ui"]
-    return capture_debugger(command, executable, source, mesa_runtime)
+    return capture_debugger(command, executable, source, mesa_runtime,
+                            runtime_state=runtime_state)
 
 
-def linux_crash_diagnostics(executable, source):
+def linux_crash_diagnostics(executable, source, runtime_state=None):
     debugger = shutil.which("gdb")
     if not debugger:
         return "Linux debugger is unavailable; use the flushed native checkpoints.\n"
     command = [debugger, "--batch", "-ex", "set pagination off", "-ex", "run",
                "-ex", "thread apply all bt 20", "--args", str(executable), "--test-native-ui"]
-    return capture_debugger(command, executable, source)
+    return capture_debugger(command, executable, source,
+                            runtime_state=runtime_state)
 
 
 def main():
@@ -307,6 +320,8 @@ def main():
     if args.require_offline_gl_workflow and status == 0 and "offline-gl-workflow: PASS" not in output:
         output += "\nThe required native offscreen context/converter fixture did not run.\n"
         status = 1
+    if not runtime_state["safe_to_release"]:
+        output += "\nFurther diagnostics were not launched because process-tree exit was not confirmed.\n"
     try:
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(output, encoding="utf-8")
@@ -316,7 +331,7 @@ def main():
         print(f"::error title=Native UI report::{message}")
         status = 1
     print(output, end="", flush=True)
-    if (args.linux_crash_debugger and sys.platform.startswith("linux")
+    if (runtime_state["safe_to_release"] and args.linux_crash_debugger and sys.platform.startswith("linux")
             and native_status is not None and native_status < 0):
         try:
             diagnostics = linux_crash_diagnostics(executable, source)
@@ -328,7 +343,7 @@ def main():
         except (OSError, ValueError) as error:
             diagnostics += f"Could not save native debugger report: {error}\n"
         print(diagnostics, end="")
-    if (args.windows_crash_debugger and os.name == "nt" and native_status is not None
+    if (runtime_state["safe_to_release"] and args.windows_crash_debugger and os.name == "nt" and native_status is not None
             and (native_status & 0xc0000000) == 0xc0000000):
         try:
             diagnostics = windows_crash_diagnostics(executable, source, native_status,
