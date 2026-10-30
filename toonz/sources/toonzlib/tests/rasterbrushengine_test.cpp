@@ -351,6 +351,16 @@ void testKritaHardPixelCandidate() {
   b.finish();
   require(a.dabCount() == 2 && b.dabCount() == 2 && same(sparse, divided),
           "source endpoint scheduling depends on event subdivision");
+  p.size.value = 32;
+  p.spacing    = .1;
+  FullCanvas longCanvas;
+  Stroke longStroke(longCanvas, p);
+  require(
+      longStroke.add(sample(0, 64, 0)) && longStroke.add(sample(1536, 64, 1)),
+      "source long decimal-spacing path failed");
+  longStroke.finish();
+  require(longStroke.dabCount() == 480,
+          "decimal spacing emitted a spurious final source dab");
   p.tip.antialiasEdges = true;
   require(!validate(p).empty(), "unimplemented source edge model accepted");
 }

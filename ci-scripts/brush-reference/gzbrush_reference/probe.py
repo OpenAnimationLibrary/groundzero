@@ -134,6 +134,11 @@ class Probe(Extension):
         print("::notice title=Tablet source state::" + json.dumps(
             {"beforeProximity": before_proximity, "afterProximity": after_proximity},
             separators=(",", ":")).replace("%", "%25").replace("\n", "%0A").replace("\r", "%0D"), flush=True)
+        # Establish the hover position before contact, as a real tablet does.
+        # This also initializes the source input manager's pointer state before
+        # its first pressure sample rather than inheriting the mouse position.
+        send(rows[0], QEvent.TabletMove, canvas, Qt.NoButton, Qt.NoButton, 0)
+        yield
         for index, row in enumerate(rows):
             send(row, QEvent.TabletPress if index == 0 else QEvent.TabletMove,
                  canvas, Qt.LeftButton if index == 0 else Qt.NoButton,
@@ -182,6 +187,8 @@ class Probe(Extension):
                 colors = [(255, 0, 0, 255), (0, 255, 0, 128), (0, 0, 255, 255), (0, 0, 0, 0)]
                 row = (bytes(w * 4) if case.get("background") == "transparent" else
                        b"".join(bytes(colors[(x // 128) % 4]) for x in range(w)))
+                if case.get("background") == "wet-halves":
+                    row = bytes((255, 0, 0, 255)) * 336 + bytes((0, 0, 255, 128)) * (w - 336)
                 initial = row * h
                 checkpoint(name + ": initialize pixels")
                 if not node.setPixelData(QByteArray(initial), 0, 0, w, h):
@@ -197,7 +204,7 @@ class Probe(Extension):
                 view.setEraserMode(False)
                 view.setGlobalAlphaLock(False)
                 view.setDisablePressure(False)
-                view.setForeGroundColor(ManagedColor.fromQColor(QColor(220, 40, 30, 255), view.canvas()))
+                view.setForeGroundColor(ManagedColor.fromQColor(QColor(*case.get("foregroundRGBA8", [220, 40, 30, 255])), view.canvas()))
                 view.canvas().setZoomLevel(1.0)
                 effective_view = {"diameter": view.brushSize(), "opacity": view.paintingOpacity(),
                                   "flow": view.paintingFlow(), "rotation": view.brushRotation(),
@@ -239,7 +246,7 @@ class Probe(Extension):
                 raw = bytes(node.pixelData(0, 0, w, h))
                 if len(raw) != w * h * 4:
                     raise RuntimeError("Reference API returned an incomplete raster")
-                if raw == initial and not case.get("expectUnchanged", False):
+                if raw == initial and not case.get("expectUnchanged", False) and "changeExpectation" not in case:
                     raise RuntimeError("Reference API stroke produced no changed pixels")
                 if raw != initial and case.get("expectUnchanged", False):
                     raise RuntimeError("Source no-op boundary case unexpectedly changed pixels")
@@ -269,8 +276,8 @@ class Probe(Extension):
                                 first_differences.append([offset // 4 % w, offset // 4 // w,
                                                           list(raw[offset:offset+4]), list(repeated[offset:offset+4])])
                         def endpoints(value):
-                            events = value.get("events", [])
-                            return [events[1], events[-2]] if events else []
+                            return [event for event in value.get("events", [])
+                                    if event["type"] in (int(QEvent.TabletPress), int(QEvent.TabletRelease))]
                         detail = {"preset": name, "repetition": repetition, "sha256Pixels": repeat_hashes,
                                   "changedPixels": changed_pixels, "firstDifferencesBGRA8": first_differences,
                                   "firstToolState": delivery.get("stateAfterProximity"),

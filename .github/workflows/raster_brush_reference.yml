@@ -82,7 +82,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        fixture_group: [parameters, geometry, tablet, hardpixel]
+        fixture_group: [parameters, geometry, tablet, hardpixel, wetsteps]
     runs-on: ubuntu-22.04
     timeout-minutes: 20
     env:
@@ -181,12 +181,14 @@ jobs:
                   probe['view'] = [view.get(key) for key in ('diameter', 'opacity', 'flow')]
                   controls = row.get('effectiveWetControls', {})
                   probe['wet'] = [controls.get(key) for key in ('SmudgeRateValue', 'ColorRateValue', 'SmudgeRadiusValue', 'PressureSmudgeRate', 'SmudgeRateUseNewEngine', 'SmudgeRateMode', 'SmudgeRateSmearAlpha')]
-                  probe['centerlineRGBA8'] = [sample for sample in row.get('centerlineRGBA8', []) if sample[0] in (256, 384, 512, 640, 768, 896, 1024, 1152)]
+                  positions = (240, 256, 272, 400, 416, 432) if row.get('background') == 'wet-halves' else (256, 384, 512, 640, 768, 896, 1024, 1152)
+                  probe['centerlineRGBA8'] = [sample for sample in row.get('centerlineRGBA8', []) if sample[0] in positions]
                   probes.append(probe)
               # The observed check retained only ten annotations per step. Group the
               # bounded 79-case table instead of silently losing later cases.
-              for start in range(0, len(probes), 8):
-                  text = json.dumps(probes[start:start + 8], separators=(',', ':'))
+              batch = 7 if os.environ['BRUSH_REFERENCE_GROUP'] == 'wetsteps' else 8
+              for start in range(0, len(probes), batch):
+                  text = json.dumps(probes[start:start + batch], separators=(',', ':'))
                   if len(text.encode()) > 3900:
                       raise RuntimeError('Source probe annotation exceeds the observed 4096-byte limit')
                   print('::notice title=Source parameter probes; not parity::' + text.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A'))
@@ -254,8 +256,9 @@ jobs:
               if 'hardPixelCandidatePassed' in row:
                   measurement['hardGate'] = row['hardPixelCandidatePassed']
                   measurement['alphaIoU'] = round(row['alphaCoverageIoU'], 8)
-          for start in range(0, len(measurements), 8):
-              text = json.dumps(measurements[start:start + 8], separators=(',', ':'))
+          batch = 7 if os.environ['BRUSH_REFERENCE_GROUP'] == 'wetsteps' else 8
+          for start in range(0, len(measurements), batch):
+              text = json.dumps(measurements[start:start + batch], separators=(',', ':'))
               if len(text.encode()) > 3900:
                   raise RuntimeError('Measurement annotation exceeds the observed 4096-byte limit')
               print('::notice title=Unqualified conversion measurements::' + text.replace('%', '%25').replace('\n', '%0A').replace('\r', '%0D'))

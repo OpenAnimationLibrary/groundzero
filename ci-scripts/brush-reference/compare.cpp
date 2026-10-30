@@ -252,6 +252,11 @@ int main(int argc, char **argv) {
       initial = stripInitial;
       if (source["background"].toString() == "transparent")
         initial.fill(Qt::transparent);
+      if (source["background"].toString() == "wet-halves")
+        for (int y = 0; y < initial.height(); ++y)
+          for (int x = 0; x < initial.width(); ++x)
+            initial.setPixel(
+                x, y, x < 336 ? qRgba(0, 0, 255, 255) : qRgba(255, 0, 0, 128));
       QString name = source["preset"].toString(), error;
       require(remaining.removeOne(name), "Unexpected or duplicate source case");
       auto imported = importBrushFile(
@@ -266,6 +271,12 @@ int main(int argc, char **argv) {
         p.profile = "krita-5.3.4.1-hard-pixel-candidate-1";
       p.size.value = source["diameter"].toDouble();
       p.color = {220 / 255.0, 40 / 255.0, 30 / 255.0, 1};
+      if (source.contains("foregroundRGBA8")) {
+        auto color = source["foregroundRGBA8"].toArray();
+        require(color.size() == 4, "Invalid fixture foreground");
+        p.color = pixel(qRgba(color[0].toInt(), color[1].toInt(),
+                              color[2].toInt(), color[3].toInt()));
+      }
       p.opacity.value = source["opacity"].toDouble();
       p.flow.value = source["flow"].toDouble();
       Canvas canvas(initial);

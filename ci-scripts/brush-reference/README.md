@@ -151,3 +151,14 @@ in alpha-zero pixels, so raw channel differences are not equivalent to painted
 coverage. The comparison retains the union of raw changed sets for error regions
 and reports both alpha and changed-pixel bounds. Original numeric tests require
 hidden RGB to leave coverage unchanged while still catching stray visible paint.
+
+`wetsteps` isolates state transitions with 64 original cases across all four
+smudge models. A hard 32-pixel tip starts on opaque blue; a second dab, when
+present, lands on half-transparent red. Foreground is opaque green, spacing is
+five diameters, and Dulling sampling radius is explicitly zero. Eight
+strength/color-rate combinations each run with one or two dabs. The first-dab
+change/no-op outcome is measured because model initialization is not yet
+established; known zero-strength legacy no-ops still remain assertions. Both
+full rasters and center/edge probes at each dab are retained. This data is for
+independently deriving each model's state equations, not validation of the
+existing native wet conversion. No source implementation is read or copied.

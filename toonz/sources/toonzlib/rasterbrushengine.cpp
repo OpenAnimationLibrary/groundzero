@@ -787,13 +787,20 @@ bool Stroke::add(const Sample &s) {
                         ? (1 / m->p.airbrushRate - m->sinceTime) / dt
                         : 2;
       double step = std::max(1e-9, std::min(fd, ft));
-      if (f + step > 1) break;
-      f += step;
-      m->travel += step * distance;
-      if (f == 1 && m->p.profile == "krita-5.3.4.1-hard-pixel-candidate-1") {
+      const double end = f + step;
+      const bool sourceEndpoint =
+          m->p.profile == "krita-5.3.4.1-hard-pixel-candidate-1" &&
+          std::abs(end - 1) <= 1e-12;
+      if (end > 1 && !sourceEndpoint) break;
+      m->travel += (sourceEndpoint ? 1 - f : step) * distance;
+      f = sourceEndpoint ? 1 : end;
+      if (sourceEndpoint) {
         // The measured source omits a dab exactly at the final endpoint.
         // Defer it until further movement so splitting the same path into
         // input events does not lose interior spacing-boundary dabs.
+        // Decimal spacing accumulates roundoff over hundreds of dabs. Treat
+        // a normalized endpoint within 1e-12 as the exact boundary, without
+        // altering the native scheduler or snapping interior dab positions.
         m->pendingSourceEndpoint = true;
         m->sinceDab = m->sinceTime = 0;
         break;
