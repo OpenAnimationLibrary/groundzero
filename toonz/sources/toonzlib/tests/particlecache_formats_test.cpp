@@ -478,6 +478,119 @@ void bgeo(const QDir &dir) {
     rejectAll(dir.filePath(QString("primitive-vertices-%1.bgeo").arg(vertices)),
               bgeoFrame(0x8000, vertices));
 }
+
+struct McChannel {
+  QByteArray name;
+  QByteArray type;
+  std::uint32_t count;
+  QByteArray data;
+};
+
+QByteArray mcChannel(const McChannel &c,
+                     std::uint32_t declaredBytes = 0xffffffffu) {
+  QByteArray bytes("CHNM");
+  be32(bytes, std::uint32_t(c.name.size() + 1));
+  QByteArray name = c.name + QByteArray(1, '\0');
+  while (name.size() % 4) name.append('\0');
+  bytes += name + "SIZE";
+  be32(bytes, 4);
+  be32(bytes, c.count);
+  bytes += c.type;
+  be32(bytes, declaredBytes == 0xffffffffu ? std::uint32_t(c.data.size())
+                                           : declaredBytes);
+  return bytes + c.data;
+}
+
+QByteArray mcFile(const QByteArray &channels, int blockAdjust = 0) {
+  QByteArray bytes("FOR4");
+  be32(bytes, 40);
+  bytes += "CACHVRSN";
+  be32(bytes, 4);
+  bytes += QByteArray("0.1\0STIM", 8);
+  be32(bytes, 4);
+  be32(bytes, 250);
+  bytes += "ETIM";
+  be32(bytes, 4);
+  be32(bytes, 250);
+  bytes += "FOR4";
+  be32(bytes, std::uint32_t(channels.size() + 4 + blockAdjust));
+  return bytes + "MYCH" + channels;
+}
+
+QByteArray doubles(std::initializer_list<double> values) {
+  QByteArray bytes;
+  for (double value : values) beDouble(bytes, value);
+  return bytes;
+}
+
+QByteArray floats(std::initializer_list<float> values) {
+  QByteArray bytes;
+  for (float value : values) beFloat(bytes, value);
+  return bytes;
+}
+
+void mc(const QDir &dir) {
+  const McChannel id{"shape_id", "DBLA", 2, doubles({7, 9})};
+  const McChannel count{"shape_count", "DBLA", 1, doubles({2})};
+  const McChannel position{"shape_position", "FVCA", 2,
+                           floats({1, 2, 3, 4, 5, 6})};
+  const QByteArray channels =
+      mcChannel(id) + mcChannel(count) + mcChannel(position);
+  QString error;
+  writeRaw(dir.filePath("valid.mc"), mcFile(channels));
+  const auto valid = loadFrame(dir.filePath("valid.mc"), Mapping{}, error);
+  require(
+      valid && valid->particles.size() == 2 && valid->particles[1].id == 9 &&
+          valid->particles[1].position[2] == 6 && !attribute(*valid, "count"),
+      "Valid MC cache failed: " + error.toStdString());
+
+  // A truncated channel left tellg() at -1 and the scan never terminated.
+  QByteArray truncatedName = mcFile(QByteArray()).left(52);
+  be32(truncatedName, 1000);
+  truncatedName += "MYCHCHNM";
+  be32(truncatedName, 8);
+  rejectAll(dir.filePath("truncated-name.mc"), truncatedName + "a_id");
+  rejectAll(dir.filePath("truncated-size.mc"),
+            truncatedName + QByteArray("a_id\0\0\0\0", 8));
+  for (int size : {6, 30, 56, 70, 90, channels.size() + 50})
+    rejectAll(dir.filePath(QString("truncated-%1.mc").arg(size)),
+              mcFile(channels).left(size));
+  // The name buffer used to be read as an unterminated C string.
+  QByteArray unterminated = QByteArray("CHNM");
+  be32(unterminated, 4);
+  unterminated += "abcd";
+  rejectAll(dir.filePath("unterminated-name.mc"),
+            mcFile(unterminated + mcChannel(id)));
+  rejectAll(dir.filePath("block-overrun.mc"), mcFile(channels, 8));
+  rejectAll(dir.filePath("block-underrun.mc"), mcFile(channels, -8));
+  rejectAll(dir.filePath("negative-block.mc"),
+            mcFile(channels, -int(channels.size()) - 8));
+  rejectAll(dir.filePath("channel-bytes.mc"),
+            mcFile(mcChannel({"shape_id", "DBLA", 2, doubles({7})}) +
+                   mcChannel(position)));
+  rejectAll(dir.filePath("channel-overrun.mc"),
+            mcFile(mcChannel(id) + mcChannel(position, 4000)));
+  rejectAll(dir.filePath("short-channel.mc"),
+            mcFile(mcChannel(id) +
+                   mcChannel({"shape_mass", "DBLA", 3, doubles({1, 2, 3})})));
+  rejectAll(dir.filePath("missing-id.mc"), mcFile(mcChannel(position)));
+  rejectAll(dir.filePath("duplicate.mc"),
+            mcFile(mcChannel(id) + mcChannel(position) +
+                   mcChannel({"other_position", "FVCA", 2,
+                              floats({1, 2, 3, 4, 5, 6})})));
+  rejectAll(dir.filePath("fractional-id.mc"),
+            mcFile(mcChannel({"shape_id", "DBLA", 2, doubles({7, 9.5})}) +
+                   mcChannel(position)),
+            true);
+  rejectAll(dir.filePath("huge-value.mc"),
+            mcFile(channels +
+                   mcChannel({"shape_mass", "DBLA", 2, doubles({1, 1e300})})),
+            true);
+  QByteArray badHeader = mcFile(channels);
+  put32(badHeader, 4,
+        0xfcffffffu);  // Header size -4 (little-endian bytes of 0xfffffffc).
+  rejectAll(dir.filePath("negative-header.mc"), badHeader);
+}
 }  // namespace
 
 int main(int argc, char **argv) {
@@ -490,7 +603,8 @@ int main(int argc, char **argv) {
     ptc(dir);
     bin(dir);
     bgeo(dir);
-    std::cout << "Particle format readers: long GEO strings and strict GEO/PTC/BIN/BGEO inputs passed.\n";
+    mc(dir);
+    std::cout << "Particle format readers: long GEO strings and strict GEO/PTC/BIN/BGEO/MC inputs passed.\n";
     return 0;
   } catch (const std::exception &error) {
     std::cerr << "Particle format reader failure: " << error.what() << '\n';
