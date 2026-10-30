@@ -22,6 +22,7 @@
 #include "tdoublekeyframe.h"
 #include "texpression.h"
 #include "tfx.h"
+#include "tmacrofx.h"
 #include "tparamcontainer.h"
 #include "tparamset.h"
 #include "ext/plasticskeletondeformation.h"
@@ -182,11 +183,26 @@ SceneChecker::compatibilityReport(ToonzScene *scene) {
           effects.push_back(zerary->getZeraryColumnFx()->getZeraryFx());
       }
     std::set<TFx *> checkedEffects;
-    for (TFx *fx : effects) {
+    std::vector<std::pair<TFx *, QString>> pendingEffects;
+    for (TFx *fx : effects) pendingEffects.push_back({fx, QString()});
+    for (size_t index = 0; index < pendingEffects.size(); ++index) {
+      TFx *fx = pendingEffects[index].first;
+      const QString macroPath = pendingEffects[index].second;
       if (!fx || !checkedEffects.insert(fx).second) continue;
       for (int parameter = 0; parameter < fx->getParams()->getParamCount(); ++parameter)
         hasChannelIdentity = hasChannelIdentity || hasWorkspaceIdentity(fx->getParams()->getParam(parameter));
       const std::string type = fx->getFxType();
+      QString name = QString::fromStdWString(fx->getFxId());
+      if (name.isEmpty()) name = QString::fromStdWString(fx->getName());
+      if (auto *macro = dynamic_cast<TMacroFx *>(fx)) {
+        const QString childPath = macroPath.isEmpty() ? name : macroPath + " / " + name;
+        for (const auto &child : macro->getFxs())
+          pendingEffects.push_back({child.getPointer(), childPath});
+        // Macro parameters alias their member parameters. Report the actual
+        // owning effect once, with its macro path, instead of duplicate copies.
+        continue;
+      }
+      if (!macroPath.isEmpty()) name += QObject::tr(" [macro %1]").arg(macroPath);
       // Built-in factories register names with STD_, unlike the short names
       // in FX_PLUGIN_IDENTIFIER declarations.
       const std::string nativeType = type.compare(0, 4, "STD_") == 0 ? type.substr(4) : type;
@@ -195,7 +211,7 @@ SceneChecker::compatibilityReport(ToonzScene *scene) {
           nativeType == "lut3DBakeFx" || nativeType == "neuralStyleFx")
         add(QObject::tr("Effect %1 (%2) requires the matching Groundzero effect. "
                         "Older builds may omit it or render differently.")
-                .arg(QString::fromStdWString(fx->getFxId()))
+                .arg(name)
                 .arg(QString::fromStdString(type)));
       bool expression = false;
       for (int parameter = 0; parameter < fx->getParams()->getParamCount(); ++parameter)
@@ -203,7 +219,7 @@ SceneChecker::compatibilityReport(ToonzScene *scene) {
       if (expression)
         add(QObject::tr("Effect %1 (%2) has SeExpr animation in its parameters. "
                         "A build without native SeExpr integration cannot evaluate it.")
-                .arg(QString::fromStdWString(fx->getFxId()))
+                .arg(name)
                 .arg(QString::fromStdString(type)));
     }
   }

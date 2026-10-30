@@ -17,6 +17,7 @@
 #include "tdoublekeyframe.h"
 #include "tdoubleparam.h"
 #include "tfx.h"
+#include "tmacrofx.h"
 #include "tparamcontainer.h"
 #include "tparamset.h"
 #include "ext/plasticskeleton.h"
@@ -729,6 +730,55 @@ void exerciseCompatibility(ToonzScene *scene) {
           issue.text.contains("requires the matching Groundzero effect")) ++found;
     require(found == 1, (std::string("compatibility omitted or duplicated registered FX: ") + type).c_str());
   }
+
+  TFxP generator(TFx::create("STD_seexprGeneratorFx"));
+  TFxP color(TFx::create("STD_seexprColorFx"));
+  TFxP blur(TFx::create("STD_blurFx"));
+  require(generator && color && blur, "compatibility nested macro FX factory failed");
+  generator->setFxId(L"MacroCompatibilitySource");
+  color->setFxId(L"MacroCompatibilityColor");
+  blur->setFxId(L"MacroCompatibilityBlur");
+  color->connect("Source", generator.getPointer());
+  TFxP innerMacro(TMacroFx::create({generator, color}));
+  require(bool(innerMacro), "compatibility inner native macro creation failed");
+  innerMacro->setFxId(L"InnerCompatibilityMacro");
+  blur->connect("Source", innerMacro.getPointer());
+  TFxP outerMacro(TMacroFx::create({innerMacro, blur}));
+  require(bool(outerMacro), "compatibility outer native macro creation failed");
+  outerMacro->setFxId(L"OuterCompatibilityMacro");
+  auto *macroCurve = dynamic_cast<TDoubleParam *>(blur->getParams()->getParam("value"));
+  require(macroCurve, "compatibility nested macro numeric parameter missing");
+  macroCurve->setGrammar(nested->getStageObjectTree()->getGrammar());
+  TDoubleKeyframe macroFirst(0, 1), macroLast(3, 1);
+  macroFirst.m_type = TDoubleKeyframe::Expression;
+  macroFirst.m_expressionText = "seexpr1:1";
+  macroLast.m_prevType = TDoubleKeyframe::Expression;
+  macroLast.m_type = TDoubleKeyframe::Linear;
+  macroCurve->setKeyframe(macroFirst);
+  macroCurve->setKeyframe(macroLast);
+  nested->getFxDag()->getInternalFxs()->addFx(outerMacro.getPointer());
+  const auto beforeMacroKey = macroCurve->getKeyframe(0);
+  const int beforeMacroHistory = TUndoManager::manager()->getHistoryCount();
+  const bool beforeMacroDirty = TApp::instance()->getCurrentScene()->getDirtyFlag();
+  int nestedSource = 0, nestedColor = 0, macroExpression = 0;
+  for (const auto &issue : SceneChecker::compatibilityReport(scene)) {
+    if (issue.xsheet != nested.getPointer() || !issue.text.contains("OuterCompatibilityMacro")) continue;
+    if (issue.text.contains("requires the matching Groundzero effect")) {
+      require(issue.text.contains("InnerCompatibilityMacro"), "compatibility lost nested macro ownership");
+      if (issue.text.contains("MacroCompatibilitySource")) ++nestedSource;
+      if (issue.text.contains("MacroCompatibilityColor")) ++nestedColor;
+    }
+    if (issue.text.contains("SeExpr animation")) {
+      require(issue.text.contains("MacroCompatibilityBlur"), "compatibility expression owner is ambiguous");
+      ++macroExpression;
+    }
+  }
+  require(nestedSource == 1 && nestedColor == 1 && macroExpression == 1,
+          "compatibility nested macros omitted or duplicated actual effect warnings");
+  require(sameKey(beforeMacroKey, macroCurve->getKeyframe(0)) &&
+              beforeMacroHistory == TUndoManager::manager()->getHistoryCount() &&
+              beforeMacroDirty == TApp::instance()->getCurrentScene()->getDirtyFlag(),
+          "compatibility nested macro inspection changed animation or authoring state");
 
   SceneCheckPane pane;
   auto *compatibility = pane.findChild<QCheckBox *>("sceneCompatibilityCheck");
