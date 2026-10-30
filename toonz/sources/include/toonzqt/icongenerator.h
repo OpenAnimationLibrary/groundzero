@@ -21,6 +21,7 @@
 #include <vector>
 #include <set>
 #include <functional>
+#include <memory>
 
 #undef DVAPI
 #undef DVVAR
@@ -43,6 +44,7 @@ class TXsheet;
 class TStageObjectSpline;
 class ToonzScene;
 class TOfflineGL;
+class QTimer;
 
 //==============================================================
 
@@ -156,11 +158,18 @@ public:
   // requests and their workers, including worker-local OpenGL resources.
   void shutdown();
   bool isShutdownComplete() const { return m_shutdownComplete; }
+  // GUI-thread nonterminal scene transition. Prepare a replacement executor
+  // before closing admission. Preparation failure preserves the existing
+  // executor; an already-paused or terminal generator also refuses (false).
+  bool pauseForSceneChange();
+  void resumeAfterSceneChange() noexcept;
 
 #ifdef BUILD_UI_PORT_TESTS
   using TaskTestHook = std::function<void(quint64)>;
   void setTaskTestHook(TaskTestHook hook);
   std::vector<TThread::RunnableP> lifecycleTestTasks() const;
+  bool lifecycleTestStopping() const { return m_shuttingDown; }
+  bool lifecycleTestPaused() const { return m_sceneChangePaused; }
 #endif
 
   static TRaster32P generateVectorFileIcon(const TFilePath &path,
@@ -181,7 +190,7 @@ public:
   // raster levels. In such case it doesn't need to re-compute icons but needs
   // to let panels to update. See TApp::onLevelColorStyleChanged() for details.
   void notifyIconGenerated() {
-    if (!m_shuttingDown) emit iconGenerated();
+    if (!m_shuttingDown && !m_sceneChangePaused) emit iconGenerated();
   }
 signals:
 
@@ -197,7 +206,9 @@ public slots:
   void onTerminated(TThread::RunnableP iconRenderer);
 
 private:
-  TThread::Executor m_executor;
+  std::unique_ptr<TThread::Executor> m_executor;
+  std::unique_ptr<TThread::Executor> m_resumeExecutor;
+  QTimer *m_resumeNotification;
   QThreadStorage<TOfflineGL *> m_contexts;
   TDimension m_iconSize;
 
@@ -208,11 +219,13 @@ private:
   std::map<quint64, TThread::RunnableP> m_admittedRequests;
   bool m_shuttingDown = false;
   bool m_shutdownComplete = false;
+  bool m_sceneChangePaused = false;
 
 private:
   void addTask(const std::string &id, TThread::RunnableP iconRenderer);
   bool isCurrentRequest(TThread::RunnableP iconRenderer) const;
   void finishRequest(TThread::RunnableP iconRenderer, bool generated);
+  void drainExecutor();
 };
 
 //**********************************************************************************
