@@ -134,12 +134,12 @@ jobs:
       working-directory: toonz/build
       run: |
         set -o pipefail
-        QT_QPA_PLATFORM=xcb LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a python3 ../../ci-scripts/run_regression_tests.py --report ui-tests.xml --include-prefix ui_ ui_mediacache ui_commandpalette ui_widgetinspector ui_themeapplication ui_themeproperties ui_uitranslations ui_languagemanager ui_messagehistory ui_diagnosticswriter ui_diagnosticsservice 2>&1 | tee ui-tests-output.txt
+        QT_QPA_PLATFORM=xcb LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a python3 ../../ci-scripts/run_regression_tests.py --report ui-tests.xml --include-prefix ui_ ui_mediacache ui_functioncurveoperations ui_functionworkflow ui_commandpalette ui_widgetinspector ui_themeapplication ui_themeproperties ui_uitranslations ui_languagemanager ui_messagehistory ui_diagnosticswriter ui_diagnosticsservice 2>&1 | tee ui-tests-output.txt
 
     - name: Test native application integration
       id: ui_integration
       run: |
-        QT_QPA_PLATFORM=xcb xvfb-run -a python3 ci-scripts/run_native_ui_test.py toonz/build/bin/OpenToonz stuff --output toonz/build/ui-integration-output.txt
+        QT_QPA_PLATFORM=xcb xvfb-run -a python3 ci-scripts/run_native_ui_test.py toonz/build/bin/OpenToonz stuff --require-function-workflow --output toonz/build/ui-integration-output.txt
 
     - name: Measure native artist workloads
       id: artist_benchmark
@@ -168,6 +168,36 @@ jobs:
     - name: Report native UI failures
       if: ${{ failure() && steps.ui_tests.outcome == 'failure' }}
       run: python3 ci-scripts/report_ui_tests.py toonz/build/ui-tests-output.txt
+
+    - name: Diagnose Function Editor crash
+      if: ${{ failure() && steps.ui_tests.outcome == 'failure' }}
+      working-directory: toonz/build
+      run: |
+        # Diagnostic only: the original CTest failure remains authoritative.
+        # Run only this crashed fixture, not the complete failed test suite.
+        if grep -Eq 'ui_functionworkflow[[:space:]].*(SegFault|Exception)' ui-tests-output.txt; then
+          set -o pipefail
+          QT_QPA_PLATFORM=offscreen timeout --kill-after=5s 60s gdb --batch \
+            -ex 'set pagination off' -ex 'set print frame-arguments none' \
+            -ex run -ex 'thread apply all backtrace 30' \
+            --args bin/ui_functionworkflow_test 2>&1 | tee function-workflow-debugger.txt
+        fi
+
+    - name: Report Function Editor crash stack
+      if: ${{ failure() && hashFiles('toonz/build/function-workflow-debugger.txt') != '' }}
+      run: python3 ci-scripts/report_ui_tests.py toonz/build/function-workflow-debugger.txt 'Function Editor crash stack'
+
+    - name: Retain native UI diagnostics
+      if: always()
+      uses: actions/upload-artifact@v6
+      with:
+        name: Native-UI-${{ runner.os }}-${{ matrix.compiler }}-${{ github.sha }}
+        path: |
+          toonz/build/ui-tests.xml
+          toonz/build/ui-tests-output.txt
+          toonz/build/ui-integration-output.txt
+          toonz/build/function-workflow-debugger.txt
+        if-no-files-found: ignore
 
     - name: Diagnose cel UI crash
       if: failure()

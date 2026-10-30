@@ -38,7 +38,6 @@ def main():
         return 1
     expected.update(name for name in available
                     if any(name.startswith(prefix) for prefix in args.include_prefix))
-
     report = Path(args.report)
     report.unlink(missing_ok=True)
     pattern = "^(" + "|".join(re.escape(name) for name in sorted(expected)) + ")$"

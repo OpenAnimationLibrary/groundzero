@@ -8,6 +8,7 @@
 #include "toonzqt/imageutils.h"
 #include "functionpaneltools.h"
 #include "toonzqt/gutil.h"
+#include "toonzqt/functioncurveoperations.h"
 
 // TnzLib includes
 #include "toonz/tframehandle.h"
@@ -31,6 +32,7 @@
 #include <QSettings>
 
 #include <cmath>
+#include <limits>
 
 namespace {
 
@@ -53,6 +55,12 @@ void drawRoundedSquare(QPainter &painter, const QPointF &p, double r) {
 }
 
 double norm2(const QPointF &p) { return p.x() * p.x() + p.y() * p.y(); }
+
+QColor channelColor(FunctionTreeModel::Channel *channel) {
+  QString id = QString::fromStdString(channel->getParam()->getWorkspaceId());
+  if (id.isEmpty()) id = channel->getChannelGroup()->getIdName() + "/" + channel->getExprRefName() + "/" + QString::fromStdString(channel->getParam()->getName());
+  return QColor::fromHsv(int(qHash(id) % 360), 155, 220);
+}
 
 class FunctionPanelZoomer final : public ImageUtils::ShortcutZoomer {
   FunctionPanel *m_panel;
@@ -318,6 +326,10 @@ double FunctionPanel::valueToY(TDoubleParam *curve, double v) const {
     const TUnit *unit = m->getCurrentUnit();
     v                 = unit->convertTo(v);
   }
+  if (m_normalized && m_normalization.contains(curve)) {
+    QPointF range = m_normalization.value(curve);
+    v = (v - range.x()) / range.y();
+  }
   return tcrop(m_viewTransform.m22() * v + m_viewTransform.dy(), -bigNumber,
                bigNumber);
 }
@@ -326,6 +338,10 @@ double FunctionPanel::valueToY(TDoubleParam *curve, double v) const {
 
 double FunctionPanel::yToValue(TDoubleParam *curve, double y) const {
   double v    = (y - m_viewTransform.dy()) / m_viewTransform.m22();
+  if (m_normalized && m_normalization.contains(curve)) {
+    QPointF range = m_normalization.value(curve);
+    v = range.x() + v * range.y();
+  }
   TMeasure *m = curve->getMeasure();
   if (m) {
     const TUnit *unit = m->getCurrentUnit();
@@ -418,7 +434,7 @@ TDoubleParam *FunctionPanel::findClosestCurve(const QPoint &winPos,
 int FunctionPanel::findClosestGadget(const QPoint &winPos, Handle &handle,
                                      int maxDistance) {
   // search only handles close enough (i.e. distance<maxDistance)
-  int minDistance = maxDistance;
+  int minDistance = std::max(maxDistance, 2 * m_hitRadius);
   int k           = -1;
   for (int i = 0; i < m_gadgets.size(); i++) {
     if (m_gadgets[i].m_hitRegion.contains(winPos)) {
@@ -643,8 +659,7 @@ void FunctionPanel::drawOtherCurves(QPainter &painter) {
         m_functionTreeModel->getActiveChannel(i);
     if (channel->isCurrent()) continue;
     TDoubleParam *curve = channel->getParam();
-    QColor color =
-        curve == m_curveLabel.curve ? m_selectedColor : getOtherCurvesColor();
+    QColor color = curve == m_curveLabel.curve ? m_selectedColor : channelColor(channel);
     solidPen.setColor(color);
     dashedPen.setColor(color);
     painter.setBrush(Qt::NoBrush);
@@ -657,13 +672,16 @@ void FunctionPanel::drawOtherCurves(QPainter &painter) {
     }
     // draw control points and handles
     else {
-      for (int k = -1; k < kCount; k++) {
+      int begin = std::max(-1, curve->getPrevKeyframe(xToFrame(x0)));
+      int end = curve->getNextKeyframe(xToFrame(x1));
+      if (end < 0) end = kCount;
+      for (int k = begin; k < end; k++) {
         painter.setPen((k < 0 || k >= kCount - 1) ? dashedPen : solidPen);
         painter.drawPath(getSegmentPainterPath(curve, k, x0, x1));
       }
       painter.setPen(m_textColor);
       painter.setBrush(m_subColor);
-      for (int k = 0; k < kCount; k++) {
+      for (int k = std::max(0, begin); k < std::min(kCount, end + 1); k++) {
         double frame = curve->keyframeIndexToFrame(k);
         QPointF p    = getWinPos(curve, frame, curve->getValue(frame));
         painter.drawRect(p.x() - 2, p.y() - 2, 5, 5);
@@ -692,8 +710,17 @@ void FunctionPanel::updateGadgets(TDoubleParam *curve) {
 
   int keyframeCount = curve->getKeyframeCount();
 
-  for (int i = 0; i != keyframeCount; ++i) {
-    const int pointHitRadius = 10, handleHitRadius = 6;
+  int visibleFirst = std::max(0, curve->getPrevKeyframe(xToFrame(m_valueAxisX - 24)));
+  int visibleLast = curve->getNextKeyframe(xToFrame(width() + 24));
+  if (visibleLast < 0) visibleLast = keyframeCount - 1;
+  std::set<int> visibleKeys;
+  for (int i = visibleFirst; i <= visibleLast && i < keyframeCount; ++i) visibleKeys.insert(i);
+  for (int i : m_selection->getSelectedKeyIndices(curve)) visibleKeys.insert(i);
+  for (int i : visibleKeys) {
+    if (i < 0 || i >= keyframeCount) continue;
+    oldKf = i > 0 ? curve->getKeyframe(i - 1) : TDoubleKeyframe();
+    if (!i) oldKf.m_type = TDoubleKeyframe::None;
+    const int pointHitRadius = m_hitRadius, handleHitRadius = std::max(6, m_hitRadius - 4);
 
     TDoubleKeyframe kf = curve->getKeyframe(i);
     kf.m_value         = curve->getValue(
@@ -817,7 +844,10 @@ void FunctionPanel::updateGadgets(TDoubleParam *curve) {
     if (!channel) continue;
 
     TDoubleParam *curve = channel->getParam();
-    for (int j = 0; j != curve->getKeyframeCount(); ++j) {
+    int firstVisible = std::max(0, curve->getPrevKeyframe(xToFrame(m_valueAxisX - 24)));
+    int lastVisible = curve->getNextKeyframe(xToFrame(width() + 24));
+    if (lastVisible < 0) lastVisible = curve->getKeyframeCount() - 1;
+    for (int j = firstVisible; j <= lastVisible && j < curve->getKeyframeCount(); ++j) {
       TDoubleKeyframe kf = curve->getKeyframe(
           j);  // Well... this stuff gets called upon *painting*  o_o'
       keyframes[kf.m_frame].push_back(
@@ -895,7 +925,7 @@ void FunctionPanel::drawCurrentCurve(QPainter &painter) {
   TDoubleParam *curve = channel->getParam();
 
   painter.setRenderHint(QPainter::Antialiasing, true);
-  QColor color = Qt::red;
+  QColor color = channelColor(channel);
   QPen solidPen(color);
   QPen dashedPen(color);
   QVector<qreal> dashes;
@@ -913,17 +943,20 @@ void FunctionPanel::drawCurrentCurve(QPainter &painter) {
     painter.setPen(dashedPen);
     painter.drawPath(getSegmentPainterPath(curve, 0, x0, x1));
   } else {
-    for (int k = -1; k < kCount; k++) {
+    int begin = std::max(-1, curve->getPrevKeyframe(xToFrame(x0)));
+    int end = curve->getNextKeyframe(xToFrame(x1));
+    if (end < 0) end = kCount;
+    for (int k = begin; k < end; k++) {
       if (k < 0 || k >= kCount - 1) {
         painter.setPen(dashedPen);
         painter.drawPath(getSegmentPainterPath(curve, k, x0, x1));
       } else {
         TDoubleKeyframe::Type segmentType = curve->getKeyframe(k).m_type;
-        QColor color                      = Qt::red;
+        QColor color                      = channelColor(channel);
         if (segmentType == TDoubleKeyframe::Expression ||
             segmentType == TDoubleKeyframe::SimilarShape ||
             segmentType == TDoubleKeyframe::File)
-          color = QColor(185, 0, 0);
+          color = color.darker(120);
         if (getSelection()->isSegmentSelected(curve, k))
           solidPen.setWidth(2);
         else
@@ -1122,6 +1155,34 @@ void FunctionPanel::paintEvent(QPaintEvent *e) {
   painter.setClipRect(ox + 1, oy0 + 1, width() - ox - 1, height() - oy0 - 1);
   drawOtherCurves(painter);
   drawCurrentCurve(painter);
+  painter.save();
+  painter.setClipRect(m_valueAxisX, m_graphViewportY, width(), height());
+  painter.setPen(QPen(palette().color(QPalette::Highlight), 2, Qt::DashLine));
+  for (const auto &entry : m_comparison) {
+    QPainterPath path;
+    bool first = true;
+    for (int x = m_valueAxisX; x < width(); x += 2) {
+      double frame = xToFrame(x);
+      double value = entry.second->getValue(frame);
+      if (!std::isfinite(value)) { first = true; continue; }
+      QPointF point(x, valueToY(entry.first.getPointer(), value));
+      if (first) path.moveTo(point); else path.lineTo(point);
+      first = false;
+    }
+    painter.drawPath(path);
+  }
+  painter.restore();
+  int labelY = m_graphViewportY + fontMetrics().height();
+  for (int c = 0; m_functionTreeModel && c < m_functionTreeModel->getActiveChannelCount(); ++c) {
+    auto *channel = m_functionTreeModel->getActiveChannel(c);
+    if (labelY > height() - 20) break;
+    painter.setPen(channelColor(channel));
+    QString label = channel->getLongName();
+    if (channel->getParam()->isEditorLocked()) label += tr(" [locked]");
+    if (channel->isCurrent()) label.prepend(tr("Current: "));
+    painter.drawText(m_valueAxisX + 8, labelY, fontMetrics().elidedText(label, Qt::ElideRight, width() / 2));
+    labelY += fontMetrics().height();
+  }
 
   painter.setClipping(false);
   painter.setClipRect(ox + 1, oy1 + 1, width() - ox - 1, oy0 - oy1 - 1);
@@ -1280,7 +1341,7 @@ void FunctionPanel::mousePressEvent(QMouseEvent *e) {
           // 2) more than two keys are selected, and
           // 3) clicked key is one of the end of the selection, and
           // 4) all keys between the both end of the selection are selected
-          if (e->modifiers() & Qt::AltModifier) {
+          if ((e->modifiers() & Qt::AltModifier) && !(e->modifiers() & Qt::ShiftModifier)) {
             QList<int> selectedIndices =
                 getSelection()->getSelectedKeyIndices(currentCurve);
             if (selectedIndices.count() >= 3 &&
@@ -1446,6 +1507,27 @@ void FunctionPanel::mouseMoveEvent(QMouseEvent *e) {
 //-----------------------------------------------------------------------------
 
 void FunctionPanel::keyPressEvent(QKeyEvent *e) {
+  if ((e->key() == Qt::Key_Left || e->key() == Qt::Key_Right ||
+       e->key() == Qt::Key_Up || e->key() == Qt::Key_Down) &&
+      m_selection && m_selection->getSelectedKeyframeCount()) {
+    std::map<TDoubleParam *, std::set<int>> grouped;
+    for (int i = 0; i < m_selection->getSelectedKeyframeCount(); ++i) {
+      auto key = m_selection->getSelectedKeyframe(i);
+      grouped[key.first].insert(key.second);
+    }
+    std::vector<FunctionCurveOperations::Selection> selected;
+    for (const auto &entry : grouped) selected.push_back({entry.first, entry.second});
+    double factor = e->modifiers().testFlag(Qt::ShiftModifier) ? 10 : 1;
+    auto plan = (e->key() == Qt::Key_Left || e->key() == Qt::Key_Right)
+        ? FunctionCurveOperations::planFrameOffset(selected, factor * m_snapFrames * (e->key() == Qt::Key_Left ? -1 : 1))
+        : FunctionCurveOperations::planValues(selected, FunctionCurveOperations::ValueMode::Offset,
+                                              factor * m_valueNudge * (e->key() == Qt::Key_Down ? -1 : 1));
+    QString error;
+    if (!FunctionCurveOperations::apply(plan, tr("Nudge Function Keys"), error))
+      setToolTip(error);
+    else { setToolTip(QString()); update(); }
+    e->accept(); return;
+  }
   FunctionPanelZoomer(this).exec(e);
 }
 
@@ -1519,6 +1601,7 @@ void FunctionPanel::fitGraphToWindow(bool currentCurveOnly) {
       }
     }
   }
+  if (m_normalized) { v0 = 0; v1 = 1; }
   if (f0 >= f1 || v0 >= v1) {
     m_viewTransform = QTransform();
     m_viewTransform.translate(m_valueAxisX, 200);
@@ -1535,7 +1618,51 @@ void FunctionPanel::fitGraphToWindow(bool currentCurveOnly) {
 
 //-----------------------------------------------------------------------------
 
-void FunctionPanel::fitSelectedPoints() { fitGraphToWindow(true); }
+QRectF FunctionPanel::selectionBounds() const {
+  double f0 = std::numeric_limits<double>::infinity(), f1 = -f0;
+  double v0 = f0, v1 = f1;
+  auto add = [&](TDoubleParam *curve, double frame, double value) {
+    value = FunctionCurveOperations::displayValue(curve, value);
+    if (m_normalized && m_normalization.contains(curve)) {
+      QPointF r = m_normalization.value(curve);
+      value = (value - r.x()) / r.y();
+    }
+    if (!std::isfinite(frame) || !std::isfinite(value)) return;
+    f0 = std::min(f0, frame); f1 = std::max(f1, frame);
+    v0 = std::min(v0, value); v1 = std::max(v1, value);
+  };
+  for (int i = 0; m_selection && i < m_selection->getSelectedKeyframeCount(); ++i) {
+    auto key = m_selection->getSelectedKeyframe(i);
+    TDoubleParam *curve = key.first;
+    int k = key.second;
+    if (!curve || k < 0 || k >= curve->getKeyframeCount()) continue;
+    double frame = curve->keyframeIndexToFrame(k);
+    add(curve, frame, curve->getValue(frame));
+    add(curve, frame, curve->getValue(frame, true));
+    if (k + 1 < curve->getKeyframeCount() && m_selection->isSelected(curve, k + 1)) {
+      double last = curve->keyframeIndexToFrame(k + 1);
+      // Bound the selected segment's Bezier hull as well as its sampled curve.
+      // Expressions are sampled for framing only, never modified.
+      auto left = curve->getKeyframe(k), right = curve->getKeyframe(k + 1);
+      if (left.m_type == TDoubleKeyframe::SpeedInOut) {
+        add(curve, frame, left.m_value + curve->getSpeedOut(k).y);
+        add(curve, last, right.m_value + curve->getSpeedIn(k + 1).y);
+      }
+      for (int s = 1; s < 64; ++s) {
+        double t = frame + (last - frame) * s / 64.;
+        add(curve, t, curve->getValue(t));
+      }
+    }
+  }
+  if (!std::isfinite(f0)) return QRectF();
+  return QRectF(QPointF(f0, v0), QPointF(f1, v1));
+}
+
+void FunctionPanel::fitSelectedPoints() {
+  if (!m_selection || !m_selection->getSelectedKeyframeCount()) return;
+  QRectF bounds = selectionBounds();
+  fitRegion(bounds.left(), bounds.top(), bounds.right(), bounds.bottom());
+}
 
 //-----------------------------------------------------------------------------
 
@@ -1543,7 +1670,70 @@ void FunctionPanel::fitCurve() { fitGraphToWindow(); }
 
 //-----------------------------------------------------------------------------
 
-void FunctionPanel::fitRegion(double f0, double v0, double f1, double v1) {}
+void FunctionPanel::fitRegion(double f0, double v0, double f1, double v1) {
+  if (!std::isfinite(f0) || !std::isfinite(f1) || !std::isfinite(v0) || !std::isfinite(v1)) return;
+  if (f1 <= f0) { f0 -= 1; f1 += 1; }
+  if (v1 <= v0) { double pad = std::max(1., std::abs(v0) * .05); v0 -= pad; v1 += pad; }
+  double mx = std::max(1, width() - m_valueAxisX - 40) / (f1 - f0);
+  double my = -std::max(1, height() - m_graphViewportY - 40) / (v1 - v0);
+  m_viewTransform = QTransform(mx, 0, 0, my, m_valueAxisX + 20 - f0 * mx,
+                               m_graphViewportY + 20 - v1 * my);
+  update();
+}
+
+void FunctionPanel::setNormalized(bool enabled) {
+  m_normalized = enabled;
+  refreshNormalization();
+  fitGraphToWindow();
+  if (enabled) fitRegion(xToFrame(m_valueAxisX), 0, xToFrame(width()), 1);
+}
+
+void FunctionPanel::refreshNormalization() {
+  m_normalization.clear();
+  if (!m_normalized || !m_functionTreeModel) return;
+  for (int c = 0; c < m_functionTreeModel->getActiveChannelCount(); ++c) {
+    auto *curve = m_functionTreeModel->getActiveChannel(c)->getParam();
+    int count = curve->getKeyframeCount();
+    double first = count ? curve->keyframeIndexToFrame(0) : 0;
+    double last = count ? curve->keyframeIndexToFrame(count - 1) : first;
+    double low = std::numeric_limits<double>::infinity(), high = -low;
+    for (int s = 0; s <= 128; ++s) {
+      double value = FunctionCurveOperations::displayValue(curve, curve->getValue(first + (last - first) * s / 128.));
+      if (std::isfinite(value)) { low = std::min(low, value); high = std::max(high, value); }
+    }
+    if (std::isfinite(low)) m_normalization[curve] = QPointF(low, high > low ? high - low : 1.);
+  }
+}
+
+double FunctionPanel::snapFrameDelta(double delta, double anchor, bool bypass) const {
+  if (bypass) return std::round(delta);
+  double result = std::round(delta / m_snapFrames) * m_snapFrames;
+  double distance = std::abs(xToFrame(8) - xToFrame(0));
+  if (m_snapMarkers) for (int interval : {m_markerDistance, m_secondaryMarkerDistance}) {
+    if (interval <= 0) continue;
+    double target = m_markerOffset + std::round((anchor + delta - m_markerOffset) / interval) * interval;
+    double candidate = target - anchor;
+    if (std::abs(candidate - std::round(candidate)) <= 1.e-8 && std::abs(candidate - delta) < distance) {
+      distance = std::abs(candidate - delta); result = candidate;
+    }
+  }
+  if (m_snapKeys && m_functionTreeModel) {
+    for (int c = 0; c < m_functionTreeModel->getActiveChannelCount(); ++c) {
+      auto *curve = m_functionTreeModel->getActiveChannel(c)->getParam();
+      int k = curve->getClosestKeyframe(anchor + delta);
+      if (k >= 0 && !m_selection->isSelected(curve, k)) {
+        double candidate = curve->keyframeIndexToFrame(k) - anchor;
+        // Native mouse drags move whole frames; fractional timing is available
+        // in Edit Keys. Never truncate a fractional snap into a different key.
+        if (std::abs(candidate - std::round(candidate)) > 1.e-8) continue;
+        if (std::abs(candidate - delta) < distance) {
+          distance = std::abs(candidate - delta); result = candidate;
+        }
+      }
+    }
+  }
+  return result;
+}
 
 //-----------------------------------------------------------------------------
 
@@ -1681,9 +1871,12 @@ void FunctionPanel::openContextMenu(QMouseEvent *e) {
       KeyframeSetter(curve, m_gadgets[highlighted.gIndex].m_kIndex)
           .unlinkHandles();
   } else if (action == &resetHandlesAction) {
-    kf.m_speedIn  = TPointD(-5, 0);
-    kf.m_speedOut = -kf.m_speedIn;
-    curve->setKeyframe(kf);
+    int index = curve->getClosestKeyframe(kf.m_frame);
+    KeyframeSetter setter(curve, index);
+    if (setter.isSpeedInOut(index - 1)) setter.setSpeedIn(TPointD(-5, 0));
+    else if (setter.isEaseInOut(index - 1)) setter.setEaseIn(5);
+    if (setter.isSpeedInOut(index)) setter.setSpeedOut(TPointD(5, 0));
+    else if (setter.isEaseInOut(index)) setter.setEaseOut(5);
   } else if (action == &deleteKeyframeAction) {
     KeyframeSetter::removeKeyframeAt(curve, kf.m_frame);
   } else if (action == &insertKeyframeAction) {

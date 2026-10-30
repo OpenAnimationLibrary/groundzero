@@ -1,3 +1,5 @@
+#include <limits>
+#include <cmath>
 
 
 #include "functionpaneltools.h"
@@ -191,11 +193,20 @@ void MovePointDragTool::click(QMouseEvent *e) {
   m_startPos = m_oldPos = e->pos();
   m_deltaFrame          = 0;
   double frame          = m_panel->xToFrame(e->pos().x());
+  m_anchorFrame = std::round(frame);
+  double anchorDistance = std::numeric_limits<double>::infinity();
 
   for (int i = 0; i < (int)m_setters.size(); i++) {
     KeyframeSetter *setter = m_setters[i];
     TDoubleParam *curve    = setter->getCurve();
     setter->setPixelRatio(m_panel->getPixelRatio(curve));
+    int nearest = curve->getClosestKeyframe(frame);
+    if (nearest >= 0 && setter->isSelected(nearest)) {
+      double keyFrame = curve->keyframeIndexToFrame(nearest);
+      if (std::abs(keyFrame - frame) < anchorDistance) {
+        anchorDistance = std::abs(keyFrame - frame); m_anchorFrame = keyFrame;
+      }
+    }
     if (!m_groupEnabled) {
       int kIndex = curve->getClosestKeyframe(frame);
       if (kIndex >= 0) {
@@ -228,7 +239,8 @@ void MovePointDragTool::drag(QMouseEvent *e) {
 
   // compute frame increment. it must be an integer
   double totalDFrame =
-      tround(m_panel->xToFrame(pos.x()) - m_panel->xToFrame(m_startPos.x()));
+      m_panel->snapFrameDelta(m_panel->xToFrame(pos.x()) - m_panel->xToFrame(m_startPos.x()),
+                             m_anchorFrame, e->modifiers().testFlag(Qt::AltModifier));
   double dFrame = totalDFrame - m_deltaFrame;
   m_deltaFrame  = totalDFrame;
 

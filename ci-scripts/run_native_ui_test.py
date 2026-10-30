@@ -135,6 +135,8 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--artist-benchmark", action="store_true",
                         help="Measure real drawing, native rendering and resource-save workloads")
+    parser.add_argument("--require-function-workflow", action="store_true",
+                        help="Require the real application Function Editor fixture checkpoint")
     parser.add_argument("--windows-crash-debugger", action="store_true",
                         help="Capture a separate CDB stack after a Windows native exception")
     parser.add_argument("--debugger-symbols", type=Path, action="append", default=[],
@@ -188,6 +190,9 @@ def main():
         except (OSError, ValueError) as error:
             output += f"\nArtist workload report validation failed: {error}\n"
             status = 1
+    if args.require_function_workflow and not args.artist_benchmark and status == 0 and "function-workflow-native: PASS" not in output:
+        output += "\nThe required native Function Editor workflow fixture did not run.\n"
+        status = 1
     try:
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(output, encoding="utf-8")
