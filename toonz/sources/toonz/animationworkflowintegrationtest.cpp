@@ -39,6 +39,7 @@
 #include "toonz/tcolumnfxset.h"
 #include "toonz/tcamera.h"
 #include "toonz/tframehandle.h"
+#include "toonz/tobjecthandle.h"
 #include "toonz/toonzscene.h"
 #include "toonz/toonzfolders.h"
 #include "toonz/tstageobject.h"
@@ -290,6 +291,113 @@ void exercisePoses(ToonzScene *scene, const QString &folder) {
   loaded.load(sceneFile);
   require(loaded.getPoseLibrary()->getPoseCount() == 1, "pose library did not persist");
   requireNear(loaded.getPoseLibrary()->getBase().front().m_value, 3.0, "base did not persist");
+
+  // Exercise the pane's authoring controls independently of Library import.
+  // Native serialization compares the whole ordered base/library on undo and
+  // reload, including channels other than the two changed below.
+  const TFilePath stateFile(QDir(folder).filePath("pose-state.tposes"));
+  auto serialized = [&](const PoseLibrary &library) {
+    writePoses(stateFile, library);
+    QFile input(stateFile.getQString());
+    require(input.open(QIODevice::ReadOnly), "cannot read native pose state");
+    return input.readAll();
+  };
+  auto *app = TApp::instance();
+  auto *undo = TUndoManager::manager();
+  const auto previousObject = app->getCurrentObject()->getObjectId();
+  const auto target = TStageObjectId::CameraId(0);
+  auto *object = scene->getXsheet()->getStageObject(target);
+  auto *x = object->getParam(TStageObject::T_X);
+  auto *y = object->getParam(TStageObject::T_Y);
+  require(x->getKeyframeCount() == 0 && y->getKeyframeCount() == 0,
+          "pose authoring fixture requires unkeyed camera channels");
+  const double originalX = x->getDefaultValue(), originalY = y->getDefaultValue();
+  struct RestorePoseTarget {
+    TObjectHandle *handle;
+    TStageObjectId id;
+    TDoubleParam *x, *y;
+    double originalX, originalY;
+    ~RestorePoseTarget() {
+      x->setDefaultValue(originalX); y->setDefaultValue(originalY);
+      handle->setObjectId(id);
+    }
+  } restore{app->getCurrentObject(), previousObject, x, y, originalX, originalY};
+  TSelection::setCurrent(nullptr);
+  app->getCurrentObject()->setObjectId(target);
+  x->setDefaultValue(10.0); y->setDefaultValue(-4.0);
+  pane.show();
+  auto button = [&](const QString &caption) {
+    for (auto *candidate : pane.findChildren<QPushButton *>())
+      if (candidate->isVisible() && candidate->text() == caption) return candidate;
+    return static_cast<QPushButton *>(nullptr);
+  };
+  auto *setBase = button(PosesPane::tr("Set Base"));
+  auto *add = button(PosesPane::tr("Add Pose..."));
+  require(setBase && add, "native Set Base/Add Pose controls missing");
+  const QByteArray beforeBase = serialized(*scene->getPoseLibrary());
+  const int beforeBaseIndex = undo->getCurrentHistoryIndex();
+  setBase->click();
+  require(undo->getCurrentHistoryIndex() == beforeBaseIndex + 1,
+          "Set Base was not one undo operation");
+  auto entryValue = [&](const std::vector<PoseLibrary::Entry> &entries,
+                        const std::string &channel) {
+    for (const auto &entry : entries)
+      if (entry.m_objectId == target && entry.m_channel == channel) return entry.m_value;
+    throw std::runtime_error("authored pose channel is missing");
+  };
+  requireNear(entryValue(scene->getPoseLibrary()->getBase(), "x"), 10.0, "Set Base lost X");
+  requireNear(entryValue(scene->getPoseLibrary()->getBase(), "y"), -4.0, "Set Base lost Y");
+  require(scene->getPoseLibrary()->getPoseCount() == 1 &&
+              scene->getPoseLibrary()->getPose(0).m_name == "Turn",
+          "Set Base replaced existing ordered poses");
+  const QByteArray capturedBase = serialized(*scene->getPoseLibrary());
+  require(undo->undo() && serialized(*scene->getPoseLibrary()) == beforeBase,
+          "Set Base undo lost the previous full library/base");
+  require(undo->redo() && serialized(*scene->getPoseLibrary()) == capturedBase,
+          "Set Base redo changed captured channels");
+  const int baseHistory = undo->getHistoryCount();
+  setBase->click();
+  require(undo->getHistoryCount() == baseHistory &&
+              serialized(*scene->getPoseLibrary()) == capturedBase,
+          "repeated identical Set Base changed history or state");
+  x->setDefaultValue(15.0); y->setDefaultValue(-2.0);
+  dialogs({QObject::tr("Cancel")}, [&]() { add->click(); });
+  require(undo->getHistoryCount() == baseHistory &&
+              serialized(*scene->getPoseLibrary()) == capturedBase,
+          "canceled Add Pose changed history or state");
+  const int beforeAddIndex = undo->getCurrentHistoryIndex();
+  dialogs({QObject::tr("OK")}, [&]() { add->click(); });
+  require(undo->getCurrentHistoryIndex() == beforeAddIndex + 1 &&
+              scene->getPoseLibrary()->getPoseCount() == 2,
+          "Add Pose was not one undo operation");
+  const auto &added = scene->getPoseLibrary()->getPose(1);
+  require(added.m_name == PosesPane::tr("Pose %1").arg(2) && added.m_entries.size() == 2,
+          "Add Pose did not preserve order/name or omitted unchanged channels");
+  requireNear(entryValue(added.m_entries, "x"), 5.0, "Add Pose stored absolute X instead of offset");
+  requireNear(entryValue(added.m_entries, "y"), 2.0, "Add Pose stored absolute Y instead of offset");
+  const QByteArray authored = serialized(*scene->getPoseLibrary());
+  require(undo->undo() && serialized(*scene->getPoseLibrary()) == capturedBase,
+          "Add Pose undo changed the base or existing poses");
+  require(undo->redo() && serialized(*scene->getPoseLibrary()) == authored,
+          "Add Pose redo did not restore the full authored state");
+  const int identicalHistory = undo->getHistoryCount();
+  const int identicalIndex = undo->getCurrentHistoryIndex();
+  app->getCurrentScene()->setDirtyFlag(false);
+  dialogs({QObject::tr("Replace")}, [&]() {
+    require(LibraryCmd::loadPoseSet(stateFile), "identical pose import failed");
+  });
+  require(undo->getHistoryCount() == identicalHistory &&
+              undo->getCurrentHistoryIndex() == identicalIndex &&
+              !app->getCurrentScene()->getDirtyFlag() &&
+              serialized(*scene->getPoseLibrary()) == authored,
+          "identical import changed native library/history/dirty state");
+  scene->saveCopy(sceneFile);
+  ToonzScene authoredReload;
+  authoredReload.setProject(scene->getProject());
+  authoredReload.load(sceneFile);
+  require(serialized(*authoredReload.getPoseLibrary()) == authored,
+          "directly authored base and poses did not survive scene reload");
+  pane.hide();
 }
 
 void exerciseRecovery(ToonzScene *scene) {
@@ -307,7 +415,8 @@ void exerciseRecovery(ToonzScene *scene) {
   require(AutosaveRecovery::status().state == AutosaveRecovery::State::Disabled, "disabled recovery status wrong");
   require(!AutosaveRecovery::retryRecoveryCopy(), "retry wrote while recovery disabled");
   bool inspected = false;
-  QTimer::singleShot(0, [&]() {
+  QObject disabledContext;
+  QTimer::singleShot(0, &disabledContext, [&]() {
     auto *dialog = QApplication::activeModalWidget();
     if (dialog) {
       auto *retry = dialog->findChild<QPushButton *>("retryRecovery");
@@ -320,6 +429,57 @@ void exerciseRecovery(ToonzScene *scene) {
   require(inspected, "native recovery status controls missing or disabled state wrong");
   preferences->setValue(autosaveToRecoveryFolder, true);
   preferences->setValue(autosaveEnabled, true);
+  auto statusText = [](AutosaveRecovery::State state) {
+    if (state == AutosaveRecovery::State::Complete)
+      return QObject::tr("Complete: the scene and unsaved supported assets were copied. Unchanged assets still use their original files.");
+    if (state == AutosaveRecovery::State::Partial)
+      return QObject::tr("Incomplete: the scene was copied, but resources below are missing. Automatic recovery will retry even without new edits.");
+    return QObject::tr("Recovery failed. Your current scene remains open.");
+  };
+  auto retryInDialog = [&](AutosaveRecovery::State before,
+                           const std::function<void()> &repair,
+                           AutosaveRecovery::State after) {
+    QString failure;
+    bool clicked = false;
+    QObject retryContext;
+    QTimer::singleShot(0, &retryContext, [&]() {
+      auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
+      try {
+        require(dialog && dialog->objectName() == "recoveryStatusDialog",
+                "native recovery status dialog did not open");
+        auto *retry = dialog->findChild<QPushButton *>("retryRecovery");
+        auto *details = dialog->findChild<QLabel *>("recoveryStatusDetails");
+        const auto previous = AutosaveRecovery::status();
+        require(previous.state == before && retry && retry->isEnabled() && details &&
+                    details->text().contains(statusText(before)),
+                "native recovery state text or enabled Retry is missing");
+        for (const auto &resource : previous.missingResources)
+          require(details->text().contains(resource), "recovery dialog omitted a missing resource");
+        if (!previous.error.isEmpty())
+          require(details->text().contains(previous.error), "recovery dialog omitted the failure reason");
+        repair();
+        retry->click();
+        clicked = true;
+        const auto next = AutosaveRecovery::status();
+        require(next.state == after && retry->isEnabled() &&
+                    details->text().contains(statusText(after)),
+                "native Retry did not refresh the resulting recovery state");
+        require(next.attemptedAt.isValid() && next.savedAt.isValid() &&
+                    next.folder != previous.folder &&
+                    QFileInfo::exists(QDir(next.folder).filePath("recovery.ini")),
+                "native Retry did not publish a distinct recovery version");
+        if (after == AutosaveRecovery::State::Complete)
+          require(next.error.isEmpty() && next.missingResources.isEmpty(),
+                  "successful Retry retained stale errors or missing resources");
+      } catch (const std::exception &error) {
+        failure = QString::fromUtf8(error.what());
+      }
+      if (dialog) dialog->close();
+    });
+    AutosaveRecovery::showStatusDialog();
+    if (!failure.isEmpty()) throw std::runtime_error(failure.toStdString());
+    require(clicked, "native enabled Retry was not clicked");
+  };
   require(AutosaveRecovery::retryRecoveryCopy(), "empty scene recovery failed");
   auto complete = AutosaveRecovery::status();
   require(complete.state == AutosaveRecovery::State::Complete &&
@@ -331,9 +491,54 @@ void exerciseRecovery(ToonzScene *scene) {
   require(!AutosaveRecovery::retryRecoveryCopy(), "missing recovery resource claimed complete");
   auto partial = AutosaveRecovery::status();
   require(partial.state == AutosaveRecovery::State::Partial && !partial.missingResources.isEmpty(), "partial recovery details missing");
-  scene->getLevelSet()->removeLevel(sound);
-  require(AutosaveRecovery::retryRecoveryCopy(), "recovery retry did not complete after resource fix");
+  const TFilePath originalScenePath = scene->getScenePath();
+  const int originalHistory = TUndoManager::manager()->getHistoryCount();
+  const bool originalDirty = TApp::instance()->getCurrentScene()->getDirtyFlag();
+  retryInDialog(AutosaveRecovery::State::Partial, []() {}, AutosaveRecovery::State::Partial);
+  require(scene->getLevelSet()->getLevel(sound->getName()) == sound && sound->getPath().isEmpty(),
+          "partial Retry removed or relocated the unsaved resource");
+  retryInDialog(AutosaveRecovery::State::Partial,
+                [&]() { scene->getLevelSet()->removeLevel(sound); },
+                AutosaveRecovery::State::Complete);
   require(AutosaveRecovery::status().folder != complete.folder, "repeated recovery overwrote its previous version");
+
+  // A file occupying the recovery root is a portable filesystem failure; it
+  // does not rely on permissions that an elevated CI process could bypass.
+  AutosaveRecovery::endSession();
+  const QString root = (ToonzFolder::getMyModuleDir() + "recovery").getQString();
+  const QString held = root + ".native-workflow-held";
+  require(!QFileInfo::exists(held) && QDir().rename(root, held),
+          "cannot stage the disposable recovery root failure");
+  struct RestoreRecoveryRoot {
+    QString root, held;
+    bool pending = true;
+    bool restore() {
+      if (!pending) return true;
+      if (QFileInfo::exists(root) && !QFile::remove(root)) return false;
+      if (!QDir().rename(held, root)) return false;
+      pending = false;
+      return true;
+    }
+    ~RestoreRecoveryRoot() { restore(); }
+  } restoreRoot{root, held};
+  QFile obstruction(root);
+  require(obstruction.open(QIODevice::WriteOnly) && obstruction.write("fixture") == 7,
+          "cannot obstruct the disposable recovery root");
+  obstruction.close();
+  const auto previousComplete = AutosaveRecovery::status();
+  require(!AutosaveRecovery::retryRecoveryCopy(), "obstructed recovery root claimed success");
+  const auto failed = AutosaveRecovery::status();
+  require(failed.state == AutosaveRecovery::State::Failed && !failed.error.isEmpty() &&
+              failed.folder == previousComplete.folder && failed.savedAt == previousComplete.savedAt,
+          "failed recovery lost the last complete-copy status or error");
+  retryInDialog(AutosaveRecovery::State::Failed, [&]() {
+    require(restoreRoot.restore(), "cannot restore the disposable recovery root");
+  }, AutosaveRecovery::State::Complete);
+  require(TApp::instance()->getCurrentScene()->getScene() == scene &&
+              scene->getScenePath() == originalScenePath &&
+              TApp::instance()->getCurrentScene()->getDirtyFlag() == originalDirty &&
+              TUndoManager::manager()->getHistoryCount() == originalHistory,
+          "recovery Retry changed the open scene, source path, dirty state or undo history");
 }
 
 void exerciseTiming(ToonzScene *scene, QMainWindow *window, const QString &folder) {
