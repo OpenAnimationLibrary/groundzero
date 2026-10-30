@@ -12,11 +12,20 @@
 #include "tsimplecolorstyles.h"
 #include "tthreadmessage.h"
 #include "tstrokeprop.h"
+#include "tstrokeopacityfield.h"
+#include "tstrokeopacitybounds.h"
+#include "tstencilcontrol.h"
 
 #include "tconvert.h"
 #include "tcurves.h"
 #include "tstrokeoutline.h"
 #include <QTime>
+#include <QOpenGLContext>
+#include <QOpenGLFunctions>
+#include <QOpenGLFramebufferObject>
+#include <QMatrix4x4>
+#include <QVector4D>
+#include <stdexcept>
 
 #ifndef _WIN32
 #define CALLBACK
@@ -38,6 +47,28 @@
 
 #undef checkErrorsByGL
 #define checkErrorsByGL
+
+namespace {
+class OpacityRenderError : public std::runtime_error {
+public:
+  using std::runtime_error::runtime_error;
+};
+class GLAttributeScope {
+public:
+  explicit GLAttributeScope(GLbitfield bits = GL_ALL_ATTRIB_BITS) { glPushAttrib(bits); }
+  ~GLAttributeScope() { glPopAttrib(); }
+  GLAttributeScope(const GLAttributeScope &) = delete;
+  GLAttributeScope &operator=(const GLAttributeScope &) = delete;
+};
+#ifdef BUILD_UI_PORT_TESTS
+thread_local int opacityFramebufferFailure = 0;
+thread_local bool opacityFullViewportCapture = false;
+#endif
+}
+#ifdef BUILD_UI_PORT_TESTS
+void tglSetOpacityFramebufferFailureForTest(int stage) { opacityFramebufferFailure = stage; }
+void tglSetOpacityViewportCaptureForTest(bool full) { opacityFullViewportCapture = full; }
+#endif
 
 //-----------------------------------------------------------------------------
 /*
@@ -410,7 +441,7 @@ void tglDrawMask(const TVectorRenderData &rd1, const TVectorImage *vim) {
   if (!vim) return;
   TVectorRenderData rd(rd1);
 
-  glPushAttrib(GL_ALL_ATTRIB_BITS);
+  GLAttributeScope attributes;
 
   if (!rd.m_palette) {
     TPalette *vPalette = vim->getPalette();
@@ -420,7 +451,6 @@ void tglDrawMask(const TVectorRenderData &rd1, const TVectorImage *vim) {
   for (i = 0; i < vim->getRegionCount(); i++)
     tglDraw(rd, vim->getRegion(i), false);
 
-  glPopAttrib();
 }
 
 //-----------------------------------------------------------------------------
@@ -434,9 +464,283 @@ bool isOThick(const TStroke *s) {
 }
 }  // namespace
 
+namespace {
+// Viewer and production contexts share this framebuffer adapter. The native
+// address fallback also supports externally supplied WGL contexts.
+class OpacityFramebuffer {
+  using Gen = void (QOPENGLF_APIENTRYP)(GLsizei, GLuint *);
+  using Delete = void (QOPENGLF_APIENTRYP)(GLsizei, const GLuint *);
+  using Bind = void (QOPENGLF_APIENTRYP)(GLenum, GLuint);
+  using AttachTexture = void (QOPENGLF_APIENTRYP)(GLenum, GLenum, GLenum, GLuint, GLint);
+  using Storage = void (QOPENGLF_APIENTRYP)(GLenum, GLenum, GLsizei, GLsizei);
+  using AttachRenderbuffer = void (QOPENGLF_APIENTRYP)(GLenum, GLenum, GLenum, GLuint);
+  using Check = GLenum (QOPENGLF_APIENTRYP)(GLenum);
+  Gen m_genBuffers, m_genRenderbuffers;
+  Delete m_deleteBuffers, m_deleteRenderbuffers;
+  Bind m_bindBuffer, m_bindRenderbuffer;
+  AttachTexture m_attachTexture;
+  Storage m_storage;
+  AttachRenderbuffer m_attachRenderbuffer;
+  Check m_check;
+  GLuint m_framebuffer = 0, m_texture = 0, m_depthStencil = 0;
+  GLint m_previous = 0;
+  static QFunctionPointer address(const char *name) {
+    QFunctionPointer result = nullptr;
+    if (auto *context = QOpenGLContext::currentContext()) result = context->getProcAddress(name);
+#ifdef _WIN32
+    if (!result) {
+      auto pointer = wglGetProcAddress(name);
+      if (pointer && pointer != reinterpret_cast<PROC>(1) && pointer != reinterpret_cast<PROC>(2) &&
+          pointer != reinterpret_cast<PROC>(3) && pointer != reinterpret_cast<PROC>(-1))
+        result = reinterpret_cast<QFunctionPointer>(pointer);
+    }
+#endif
+    if (!result) throw std::runtime_error("Stroke opacity envelopes require OpenGL framebuffer support");
+    return result;
+  }
+public:
+  OpacityFramebuffer(int width, int height) {
+#ifdef BUILD_UI_PORT_TESTS
+    if (opacityFramebufferFailure == 1)
+      throw std::runtime_error("Stroke opacity envelopes require OpenGL framebuffer support");
+#endif
+    m_genBuffers = reinterpret_cast<Gen>(address("glGenFramebuffers"));
+    m_deleteBuffers = reinterpret_cast<Delete>(address("glDeleteFramebuffers"));
+    m_bindBuffer = reinterpret_cast<Bind>(address("glBindFramebuffer"));
+    m_attachTexture = reinterpret_cast<AttachTexture>(address("glFramebufferTexture2D"));
+    m_genRenderbuffers = reinterpret_cast<Gen>(address("glGenRenderbuffers"));
+    m_deleteRenderbuffers = reinterpret_cast<Delete>(address("glDeleteRenderbuffers"));
+    m_bindRenderbuffer = reinterpret_cast<Bind>(address("glBindRenderbuffer"));
+    m_storage = reinterpret_cast<Storage>(address("glRenderbufferStorage"));
+    m_attachRenderbuffer = reinterpret_cast<AttachRenderbuffer>(address("glFramebufferRenderbuffer"));
+    m_check = reinterpret_cast<Check>(address("glCheckFramebufferStatus"));
+    GLint texture = 0, renderbuffer = 0;
+    glGetIntegerv(GL_FRAMEBUFFER_BINDING, &m_previous);
+    glGetIntegerv(GL_TEXTURE_BINDING_2D, &texture);
+    glGetIntegerv(GL_RENDERBUFFER_BINDING, &renderbuffer);
+    m_genBuffers(1, &m_framebuffer); m_bindBuffer(GL_FRAMEBUFFER, m_framebuffer);
+    glGenTextures(1, &m_texture); glBindTexture(GL_TEXTURE_2D, m_texture);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    m_attachTexture(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, m_texture, 0);
+    m_genRenderbuffers(1, &m_depthStencil); m_bindRenderbuffer(GL_RENDERBUFFER, m_depthStencil);
+    m_storage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, width, height);
+    m_attachRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, m_depthStencil);
+    m_attachRenderbuffer(GL_FRAMEBUFFER, GL_STENCIL_ATTACHMENT, GL_RENDERBUFFER, m_depthStencil);
+    bool complete = m_check(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
+#ifdef BUILD_UI_PORT_TESTS
+    if (opacityFramebufferFailure == 2) complete = false;
+#endif
+    glBindTexture(GL_TEXTURE_2D, texture); m_bindRenderbuffer(GL_RENDERBUFFER, renderbuffer);
+    restore();
+    if (!complete) {
+      release();
+      throw std::runtime_error("Cannot allocate stroke opacity framebuffer");
+    }
+  }
+  GLuint texture() const { return m_texture; }
+  void bind() { m_bindBuffer(GL_FRAMEBUFFER, m_framebuffer); }
+  void restore() { m_bindBuffer(GL_FRAMEBUFFER, m_previous); }
+  void release() {
+    if (m_texture) glDeleteTextures(1, &m_texture), m_texture = 0;
+    if (m_depthStencil) m_deleteRenderbuffers(1, &m_depthStencil), m_depthStencil = 0;
+    if (m_framebuffer) m_deleteBuffers(1, &m_framebuffer), m_framebuffer = 0;
+  }
+  ~OpacityFramebuffer() { release(); }
+};
+
+// Composite the native style once, then modulate its complete premultiplied
+// result. This path applies to solid, procedural, raster and vector patterns
+// equally; splitting the geometry into translucent sub-strokes would alter
+// pattern spacing and darken overlapping joins.
+void drawOpacityEnvelope(const TVectorRenderData &rd, const TStroke &stroke) {
+  GLint viewport[4];
+  glGetIntegerv(GL_VIEWPORT, viewport);
+  if (viewport[2] <= 0 || viewport[3] <= 0) return;
+  GLdouble model[16], projection[16];
+  glPushMatrix();
+  tglMultMatrix(rd.m_aff);
+  glGetDoublev(GL_MODELVIEW_MATRIX, model);
+  glGetDoublev(GL_PROJECTION_MATRIX, projection);
+  glPopMatrix();
+  QMatrix4x4 modelMatrix, projectionMatrix;
+  for (int i = 0; i < 16; ++i) {
+    modelMatrix.data()[i] = float(model[i]);
+    projectionMatrix.data()[i] = float(projection[i]);
+  }
+  const QMatrix4x4 mapping = projectionMatrix * modelMatrix;
+  bool invertible = false;
+  const QMatrix4x4 inverse = mapping.inverted(&invertible);
+  if (!invertible) return;
+  // Unknown procedural styles can draw outside their legacy geometry bbox.
+  // Their fallback is the full output viewport, never a guessed crop.
+  const auto *style = rd.m_palette->getStyle(stroke.getStyle());
+  TRectD box;
+  int x0 = viewport[0], y0 = viewport[1];
+  int x1 = viewport[0] + viewport[2], y1 = viewport[1] + viewport[3];
+  bool bounded = style && StrokeOpacity::renderBounds(*style, stroke, box);
+#ifdef BUILD_UI_PORT_TESTS
+  bounded = bounded && !opacityFullViewportCapture;
+#endif
+  if (bounded) {
+    double left = x1, right = x0, bottom = y1, top = y0;
+    bool finiteProjection = true;
+    double firstW = 0.;
+    for (const TPointD &point : {box.getP00(), box.getP01(), box.getP10(), box.getP11()}) {
+      QVector4D projected = mapping * QVector4D(float(point.x), float(point.y), 0.f, 1.f);
+      if (std::abs(projected.w()) < 1e-10 || (firstW && firstW * projected.w() < 0.)) {
+        finiteProjection = false; break;
+      }
+      firstW = projected.w();
+      const double x = viewport[0] + (.5 + .5 * projected.x() / projected.w()) * viewport[2];
+      const double y = viewport[1] + (.5 + .5 * projected.y() / projected.w()) * viewport[3];
+      if (!std::isfinite(x) || !std::isfinite(y)) { finiteProjection = false; break; }
+      left = std::min(left, x); right = std::max(right, x);
+      bottom = std::min(bottom, y); top = std::max(top, y);
+    }
+    if (finiteProjection) {
+      // Circlets have a minimum screen-space radius; the pad also contains
+      // line antialiasing at any viewer zoom.
+      const double pad = style->getTagId() == 106 ? 4. : 2.;
+      x0 = int(std::clamp(std::floor(left) - pad, double(viewport[0]), double(x1)));
+      y0 = int(std::clamp(std::floor(bottom) - pad, double(viewport[1]), double(y1)));
+      x1 = int(std::clamp(std::ceil(right) + pad, double(viewport[0]), double(x1)));
+      y1 = int(std::clamp(std::ceil(top) + pad, double(viewport[1]), double(y1)));
+    }
+  }
+  if (glIsEnabled(GL_SCISSOR_TEST)) {
+    GLint scissor[4]; glGetIntegerv(GL_SCISSOR_BOX, scissor);
+    x0 = std::max(x0, scissor[0]); y0 = std::max(y0, scissor[1]);
+    x1 = std::min(x1, scissor[0] + scissor[2]); y1 = std::min(y1, scissor[1] + scissor[3]);
+  }
+  if (x1 <= x0 || y1 <= y0) return;
+  const int width = x1 - x0, height = y1 - y0;
+  OpacityFramebuffer buffer(width, height);
+  const bool hasEnvelope = !stroke.getOpacityProfile().empty();
+  std::vector<unsigned char> pixels;
+  if (hasEnvelope) pixels.resize(size_t(width) * size_t(height) * 4);
+  glPushAttrib(GL_ALL_ATTRIB_BITS);
+  glPushClientAttrib(GL_CLIENT_PIXEL_STORE_BIT);
+  struct Restore {
+    OpacityFramebuffer &buffer;
+    bool active = true;
+    void restore() {
+      if (!active) return;
+      buffer.restore();
+      glPopClientAttrib(); glPopAttrib(); active = false;
+    }
+    ~Restore() { restore(); }
+  } restore{buffer};
+  buffer.bind();
+  glViewport(viewport[0] - x0, viewport[1] - y0, viewport[2], viewport[3]);
+  glDisable(GL_SCISSOR_TEST); glDisable(GL_STENCIL_TEST); glDisable(GL_DEPTH_TEST);
+  glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+  glDepthMask(GL_TRUE); glStencilMask(~GLuint(0));
+  glClearColor(0, 0, 0, 0); glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+  TStroke unmodulated(stroke);
+  unmodulated.setOpacityProfile({});
+  unmodulated.setOpacity(1.);
+  TVectorRenderData data(rd);
+  data.m_alphaChannel = true;
+  // Legacy procedural bounds may exclude ornaments. The FBO/viewport already
+  // clips actual pixels, so do not discard a style using its geometry bbox.
+  data.m_clippingRect = TRect();
+  {
+    TStencilControl::FramebufferScope stencilScope;
+    tglDraw(data, &unmodulated, true);
+  }
+  if (hasEnvelope) {
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    glPixelStorei(GL_PACK_ROW_LENGTH, 0);
+    glPixelStorei(GL_PACK_SKIP_ROWS, 0); glPixelStorei(GL_PACK_SKIP_PIXELS, 0);
+    glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+  }
+  restore.restore();
+
+  const double projectedScale = std::max(
+      std::hypot(double(mapping(0,0)) * viewport[2], double(mapping(1,0)) * viewport[3]),
+      std::hypot(double(mapping(0,1)) * viewport[2], double(mapping(1,1)) * viewport[3])) * .5;
+  std::unique_ptr<StrokeOpacity::Field> field;
+  if (!stroke.getOpacityProfile().empty())
+    field.reset(new StrokeOpacity::Field(stroke, projectedScale > 0. ? .125 / projectedScale : .05));
+  auto planePoint = [&](double x, double y) {
+    const float nx = float(2. * (x - viewport[0]) / viewport[2] - 1.);
+    const float ny = float(2. * (y - viewport[1]) / viewport[3] - 1.);
+    QVector4D near = inverse * QVector4D(nx, ny, -1, 1);
+    QVector4D far = inverse * QVector4D(nx, ny, 1, 1);
+    if (near.w() == 0 || far.w() == 0) return TPointD();
+    near /= near.w(); far /= far.w();
+    const double dz = far.z() - near.z();
+    const double z = std::abs(dz) > 1e-12 ? -near.z() / dz : 0.;
+    return TPointD(near.x() + z * (far.x() - near.x()), near.y() + z * (far.y() - near.y()));
+  };
+  for (int y = 0; hasEnvelope && y < height; ++y) for (int x = 0; x < width; ++x) {
+    auto *pixel = &pixels[(size_t(y) * width + x) * 4];
+    if (!pixel[3]) continue;
+    const double opacity = stroke.getOpacity() * (field ? field->opacity(planePoint(x + x0 + .5, y + y0 + .5)) : 1.);
+    for (int channel = 0; channel < 4; ++channel)
+      pixel[channel] = static_cast<unsigned char>(std::lround(pixel[channel] * opacity));
+  }
+  // The parent stencil, scissor and write masks apply to the final composite.
+  glPushAttrib(GL_ALL_ATTRIB_BITS);
+  glPushClientAttrib(GL_CLIENT_PIXEL_STORE_BIT);
+  glMatrixMode(GL_PROJECTION); glPushMatrix(); glLoadIdentity();
+  glOrtho(viewport[0], viewport[0] + viewport[2], viewport[1], viewport[1] + viewport[3], -1, 1);
+  glMatrixMode(GL_MODELVIEW); glPushMatrix(); glLoadIdentity();
+  glMatrixMode(GL_TEXTURE); glPushMatrix(); glLoadIdentity();
+  glMatrixMode(GL_MODELVIEW);
+  glDisable(GL_TEXTURE_GEN_S); glDisable(GL_TEXTURE_GEN_T);
+  glDisable(GL_LIGHTING);
+  glEnable(GL_BLEND); glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+  if (!glIsEnabled(GL_ALPHA_TEST)) { glEnable(GL_ALPHA_TEST); glAlphaFunc(GL_GREATER, 0); }
+  glEnable(GL_TEXTURE_2D); glBindTexture(GL_TEXTURE_2D, buffer.texture());
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+  if (hasEnvelope) {
+    glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1); glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+    glPixelStorei(GL_UNPACK_SKIP_ROWS, 0); glPixelStorei(GL_UNPACK_SKIP_PIXELS, 0);
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+  } else {
+    // Uniform opacity stays entirely on the GPU: no readback, field lookup or
+    // texture re-upload for ordinary translucent pencil/brush drawings.
+    glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+    const double opacity = stroke.getOpacity();
+    glColor4d(opacity, opacity, opacity, opacity);
+  }
+  glDisable(GL_CULL_FACE); glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+  // A plane's projected depth is linear in screen coordinates. Reconstruct
+  // each corner depth so 3D viewer occlusion remains identical to the original
+  // stroke; a constant raster Z would incorrectly place it at the near plane.
+  auto vertex = [&](double x, double y, double u, double v) {
+    const TPointD point = planePoint(x, y);
+    const QVector4D projected = mapping * QVector4D(float(point.x), float(point.y), 0, 1);
+    const double depth = projected.w() != 0 ? projected.z() / projected.w() : 0.;
+    glTexCoord2d(u, v); glVertex3d(x, y, -depth);
+  };
+  glBegin(GL_QUADS);
+  vertex(x0,y0,0,0); vertex(x1,y0,1,0); vertex(x1,y1,1,1); vertex(x0,y1,0,1);
+  glEnd();
+  glPopClientAttrib();
+  glMatrixMode(GL_TEXTURE); glPopMatrix();
+  glMatrixMode(GL_MODELVIEW); glPopMatrix(); glMatrixMode(GL_PROJECTION); glPopMatrix(); glMatrixMode(GL_MODELVIEW);
+  glPopAttrib();
+}
+} // namespace
+
 void tglDraw(const TVectorRenderData &rd, const TStroke *s, bool pushAttribs) {
   assert(s);
   if (!s) return;
+  if (s->getOpacity() <= 0.) return;
+  if (s->getOpacity() < 1. || !s->getOpacityProfile().empty()) {
+    try { drawOpacityEnvelope(rd, *s); }
+    catch (const OpacityRenderError &) { throw; }
+    catch (const std::exception &error) {
+      throw OpacityRenderError(std::string("Cannot render stroke opacity: ") + error.what());
+    }
+    return;
+  }
 
   TStrokeProp *prop  = 0;
   bool pushedAttribs = false;
@@ -535,6 +839,12 @@ void tglDraw(const TVectorRenderData &rd, const TStroke *s, bool pushAttribs) {
 
     prop->getMutex()->unlock();
     //---------------------
+  } catch (const OpacityRenderError &) {
+    // Nested vector brush rendering must preserve the actionable opacity
+    // failure instead of exporting a partially painted brush silently.
+    if (prop) prop->getMutex()->unlock();
+    if (pushedAttribs) glPopAttrib();
+    throw;
   } catch (...) {
     if (prop) prop->getMutex()->unlock();
     if (pushedAttribs) glPopAttrib();
@@ -596,10 +906,8 @@ static bool tglDoDraw(const TVectorRenderData &rd, const TStroke *s) {
   if (visible) {
     // Change stroke color to blue if guided drawing
     if (rd.m_showGuidedDrawing && rd.m_highLightNow) {
-      TVectorRenderData *newRd = new TVectorRenderData(
-          rd, rd.m_aff, rd.m_clippingRect, rd.m_palette, rd.m_guidedCf);
-      tglDraw(*newRd, s, false);
-      delete newRd;
+      TVectorRenderData newRd(rd, rd.m_aff, rd.m_clippingRect, rd.m_palette, rd.m_guidedCf);
+      tglDraw(newRd, s, false);
       TStroke *new_s = (TStroke *)s;
       drawFirstControlPoint(rd, new_s);
       ret = rd.m_animatedGuidedDrawing;
@@ -726,7 +1034,7 @@ void tglDraw(const TVectorRenderData &rd, const TVectorImage *vim,
   checkErrorsByGL;
   checkErrorsByGL;
 
-  glPushAttrib(GL_ALL_ATTRIB_BITS);
+  GLAttributeScope attributes;
 
   // if(!rd.m_palette) rd.m_palette = vim->getPalette();
   // mylog("tglDraw start; mutex=" + toString((unsigned long)&vim->getMutex()));
@@ -740,7 +1048,6 @@ void tglDraw(const TVectorRenderData &rd, const TVectorImage *vim,
 
   glDisable(GL_ALPHA_TEST);
 
-  glPopAttrib();
 
 #ifdef _DEBUG
   vim->drawAutocloses(rd);

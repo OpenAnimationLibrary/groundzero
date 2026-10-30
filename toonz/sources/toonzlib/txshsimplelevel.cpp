@@ -1,6 +1,7 @@
 
 
 #include "toonz/txshsimplelevel.h"
+#include "toonz/morphhints.h"
 #include "imagebuilders.h"
 
 // TnzLib includes
@@ -899,6 +900,9 @@ void TXshSimpleLevel::clearFrames() {
 
   m_frames.clear();
   m_cadmiumReferences.clear();
+  // Morph hints are scene authoring metadata, not cached image state. Keep
+  // them through relink/reload; frame/geometry validation makes stale hints
+  // inactive, and loading another scene resets them in loadData().
   m_editableRange.clear();
   m_editableRangeUserInfo.clear();
   m_renumberTable.clear();
@@ -969,6 +973,7 @@ void TXshSimpleLevel::saveCadmiumInfo(
 
 void TXshSimpleLevel::loadData(TIStream& is) {
   resetCadmiumInfo();
+  m_morphHints.clear();
   std::string tagName;
   bool flag = false;
 
@@ -985,6 +990,7 @@ void TXshSimpleLevel::loadData(TIStream& is) {
         is.matchEndTag();
       } else if (tagName == "info") {
         std::string v;
+        is.getTagParam("morphHintsV1", m_morphHints);
         loadCadmiumInfo(is);
         double xdpi = 0, ydpi = 0;
         int subsampling        = 1;
@@ -1466,6 +1472,7 @@ void TXshSimpleLevel::saveData(TOStream& os) {
 
   if (m_type == TZI_XSHLEVEL) attr["type"] = "s";
   saveCadmiumInfo(attr);
+  if (!m_morphHints.empty()) attr["morphHintsV1"] = m_morphHints;
 
   os.openCloseChild("info", attr);
 
@@ -2210,6 +2217,7 @@ void TXshSimpleLevel::renumber(const std::vector<TFrameId>& fids) {
     if (found != table.end()) references.insert(found->second);
   }
   m_cadmiumReferences.swap(references);
+  m_morphHints = MorphHints::renumber(m_morphHints, table);
 
   m_frames.clear();
   for (int i = 0; i < n; ++i) {

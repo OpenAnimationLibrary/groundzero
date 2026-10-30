@@ -57,6 +57,13 @@ void DVAPI tglDraw(const TVectorRenderData &rd, const TStroke *stroke,
 void DVAPI tglDraw(const TVectorRenderData &rd, TRegion *r,
                    bool pushAttribs = true);
 
+#ifdef BUILD_UI_PORT_TESTS
+// Native acceptance fault injection, absent from production builds. 0 resets,
+// 1 simulates missing FBO entry points, 2 fails after resource allocation.
+void DVAPI tglSetOpacityFramebufferFailureForTest(int stage);
+void DVAPI tglSetOpacityViewportCaptureForTest(bool full);
+#endif
+
 //=============================================================================
 
 #endif

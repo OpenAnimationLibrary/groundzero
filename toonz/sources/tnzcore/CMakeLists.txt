@@ -270,6 +270,9 @@ endif()
 ot_qt_wrap_cpp(SOURCES ${MOC_HEADERS})
 
 add_library(tnzcore SHARED ${HEADERS} ${SOURCES})
+if(BUILD_UI_PORT_TESTS)
+    target_compile_definitions(tnzcore PRIVATE BUILD_UI_PORT_TESTS)
+endif()
 
 if(WITH_TRANSLATION)
     add_translation(tnzcore ${HEADERS} ${SOURCES})

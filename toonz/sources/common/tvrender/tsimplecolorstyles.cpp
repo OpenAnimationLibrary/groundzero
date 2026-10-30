@@ -1444,6 +1444,8 @@ void TRasterImagePatternStrokeStyle::computeTransformations(
 void TRasterImagePatternStrokeStyle::drawStroke(
     const TVectorRenderData &rd, const std::vector<TAffine> &transformations,
     const TStroke *stroke) const {
+  const double opacity = stroke->getOpacity();
+  if (opacity <= 0.0) return;
   TStopWatch sw;
   sw.start();
   CHECK_GL_ERROR
@@ -1460,7 +1462,10 @@ void TRasterImagePatternStrokeStyle::drawStroke(
 
   // TRop's indexed-color conversion is premultiplied. Apply its alpha once;
   // retain the legacy blend mode for pre-existing full-color Trail sources.
-  glBlendFunc(m_toonzRasterSource ? GL_ONE : GL_SRC_ALPHA,
+  GLboolean colorMask[4];
+  glGetBooleanv(GL_COLOR_WRITEMASK, colorMask);
+  const bool mattePass = !colorMask[0] && !colorMask[1] && !colorMask[2] && colorMask[3];
+  glBlendFunc(m_toonzRasterSource || mattePass ? GL_ONE : GL_SRC_ALPHA,
               GL_ONE_MINUS_SRC_ALPHA);
 
   GLuint texId;
@@ -1512,7 +1517,8 @@ void TRasterImagePatternStrokeStyle::drawStroke(
       double rx = ras->getLx();
       double ry = ras->getLy();
 
-      glColor4d(1, 1, 1, 1);
+      const double rgbScale = m_toonzRasterSource ? opacity : 1.0;
+      glColor4d(rgbScale, rgbScale, rgbScale, opacity);
 
       glBegin(QUAD_PRIMITIVE);
       glTexCoord2d(0, 0);
@@ -2061,6 +2067,7 @@ void TVectorImagePatternStrokeStyle::drawStroke(
     } else
       averageColor = TPixel32::Black;
 
+    if (rd.m_cf) averageColor = (*rd.m_cf)(averageColor);
     tglColor(averageColor);
 
     glLineStipple(2, 0xAAAA);

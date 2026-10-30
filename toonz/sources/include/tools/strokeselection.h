@@ -34,6 +34,8 @@
 
 class TGroupCommand;
 class TSceneHandle;
+class TXshSimpleLevel;
+class TFrameId;
 namespace WidthProfile {
 struct Profile;
 }
@@ -107,6 +109,7 @@ public:
   //! Replaces the selected variable-width strokes by closed zero-thickness
   //! strokes with their outline (see ContourOutline).
   void convertToOutlineShapes();
+  void editOpacityProfile();
 
   //! Width profiles (see tools/widthprofile.h, widthprofilecommands.cpp):
   //! gives the selected strokes the thickness profile along them, keeping
@@ -117,27 +120,27 @@ public:
   //! Saves the width profile of the selected stroke under a name.
   void saveWidthProfile();
   //! Returns false (and changes nothing) if no selected stroke has thickness.
-  bool applyWidthProfile(const WidthProfile::Profile &profile);
+  bool applyWidthProfile(const WidthProfile::Profile &profile,
+                         double strength = 1.0, bool multiply = false);
   void enableWidthProfileCommands();
 
-  // Stroke pairing hints for the Inbetween command. They are kept in memory
-  // only, by stroke id, and are never saved with the level.
+  // Stroke pairing hints for the Inbetween command, stored
+  // in versioned scene metadata, scoped to this level and its drawings.
   void pairStrokesForInbetween();
   void clearInbetweenStrokePairs();
   static bool hasInbetweenStrokePairs();
   //! Returns the hinted (first image index, last image index) stroke pairs
   //! that can be found in the specified images, for use with TInbetween.
   static std::vector<std::pair<int, int>> getInbetweenStrokePairs(
-      const TVectorImageP &firstImage, const TVectorImageP &lastImage);
+      TXshSimpleLevel *level, const TFrameId &first, const TFrameId &last);
   //! Zone hints for the Inbetween command: the first call records the
   //! bounding box of the selection on the first key drawing, the second call
-  //! (on the other key drawing) records the target box. Also kept in memory
-  //! only, and cleared by clearInbetweenStrokePairs().
+  //! (on the other key drawing) records the target box, saved with the scene.
   void addInbetweenZoneHint();
   //! Returns the hinted (rect in first image, rect in last image) pairs that
   //! can be found in the specified images, for use with TInbetween.
   static std::vector<std::pair<TRectD, TRectD>> getInbetweenZoneHints(
-      const TVectorImageP &firstImage, const TVectorImageP &lastImage);
+      TXshSimpleLevel *level, const TFrameId &first, const TFrameId &last);
 
   void enableCommands() override;
 

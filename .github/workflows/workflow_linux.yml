@@ -85,7 +85,7 @@ jobs:
         set -o pipefail
         cmake ../sources -G Ninja -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER=${{ matrix.cxx }} -DCMAKE_C_COMPILER=${{ matrix.cc }} -DWITH_TRANSLATION=ON -DBUILD_UI_PORT_TESTS=ON -DBUILD_CELFX_TESTS=ON -DBUILD_CADMIUM_TESTS=ON -DBUILD_PARTICLE_CACHE_TESTS=ON -DBUILD_RELIABILITY_TESTS=ON -DBUILD_STREAM_TESTS=ON -DBUILD_SCENEBENCH_TESTS=ON -DBUILD_FXRENDER_TESTS=ON -DBUILD_FFMPEG_TESTS=ON -DBUILD_PSD_TESTS=ON -DBUILD_SEEXPR_TESTS=ON -DBUILD_SEEXPR_PYTHON=ON -DPython3_EXECUTABLE="$(command -v python)" -DCMAKE_CXX_FLAGS=-Werror=return-type 2>&1 | tee "$GITHUB_WORKSPACE/build.log"
         # -k 0: keep going, so one run reports every file that fails
-        ninja -k 0 OpenToonz celfx_tests cadmium_tests ui_port_tests particlecache_tests 2>&1 | tee -a "$GITHUB_WORKSPACE/build.log"
+        ninja -k 0 OpenToonz tconverter celfx_tests cadmium_tests ui_port_tests particlecache_tests 2>&1 | tee -a "$GITHUB_WORKSPACE/build.log"
 
     - name: Test particle cache integration
       id: particle_tests
@@ -134,14 +134,14 @@ jobs:
       working-directory: toonz/build
       run: |
         set -o pipefail
-        QT_QPA_PLATFORM=xcb LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a python3 ../../ci-scripts/run_regression_tests.py --report ui-tests.xml --include-prefix ui_ ui_mediacache ui_functioncurveoperations ui_functionworkflow ui_commandpalette ui_widgetinspector ui_themeapplication ui_themeproperties ui_uitranslations ui_languagemanager ui_messagehistory ui_diagnosticswriter ui_diagnosticsservice 2>&1 | tee ui-tests-output.txt
+        QT_QPA_PLATFORM=xcb LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a python3 ../../ci-scripts/run_regression_tests.py --report ui-tests.xml --include-prefix ui_ ui_vector_opacity ui_vector_profilemanager ui_vector_gradientanimation ui_vector_svgopacity ui_vector_pliprofile ui_vector_morphworkflow ui_vector_contour_outline ui_mediacache ui_functioncurveoperations ui_functionworkflow ui_commandpalette ui_widgetinspector ui_themeapplication ui_themeproperties ui_uitranslations ui_languagemanager ui_messagehistory ui_diagnosticswriter ui_diagnosticsservice 2>&1 | tee ui-tests-output.txt
 
     - name: Test native application integration
       id: ui_integration
       env:
         GZ_CAST_WORKFLOW_REPORT: ${{ github.workspace }}/toonz/build/cast-workflow-metrics.json
       run: |
-        QT_QPA_PLATFORM=xcb xvfb-run -a python3 ci-scripts/run_native_ui_test.py toonz/build/bin/OpenToonz stuff --require-function-workflow --linux-crash-debugger --output toonz/build/ui-integration-output.txt
+        QT_QPA_PLATFORM=xcb xvfb-run -a python3 ci-scripts/run_native_ui_test.py toonz/build/bin/OpenToonz stuff --require-function-workflow --require-vector-workflows --linux-crash-debugger --output toonz/build/ui-integration-output.txt
 
     - name: Measure native artist workloads
       id: artist_benchmark

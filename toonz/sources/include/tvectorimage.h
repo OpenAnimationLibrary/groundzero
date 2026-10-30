@@ -88,6 +88,10 @@ public:
   //! Return a clone of image
   TVectorImageP clone() const;
 
+  //! Clone an editor snapshot while retaining the entered nested group.
+  //! Unlike clone(), this preserves editing context without changing source.
+  TVectorImageP cloneWithGroupContext() const;
+
   //! Create a new \b TImage
   TImage *cloneImage() const override;
 
@@ -357,6 +361,10 @@ get the stroke nearest at point
           Information on fill colors are maintened, as much as possible. */
   void splitStroke(int strokeIndex,
                    const std::vector<DoublePair> &sortedWRanges);
+  // Prepare/validate the complete split without changing strokes or regions.
+  // Tools use this to preflight every affected stroke before a batch edit.
+  void validateStrokeSplit(int strokeIndex,
+                           const std::vector<DoublePair> &sortedWRanges) const;
   VIStroke *joinStroke(int index1, int index2, int cpIndex1, int cpIndex2,
                        bool isSmooth);
   VIStroke *extendStroke(int index, const TThickPoint &p, int cpIndex,

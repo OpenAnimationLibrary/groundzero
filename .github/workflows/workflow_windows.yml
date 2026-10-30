@@ -399,7 +399,7 @@ jobs:
           set "QT_PLUGIN_PATH=%QT_PATH%\plugins"
           set "QT_QPA_PLATFORM_PLUGIN_PATH=%QT_PATH%\plugins\platforms"
           cd toonz\build
-          python ../../ci-scripts/run_regression_tests.py --config RelWithDebInfo --report ui-tests.xml --include-prefix ui_ ui_mediacache ui_functioncurveoperations ui_functionworkflow ui_commandpalette ui_widgetinspector ui_themeapplication ui_themeproperties ui_uitranslations ui_languagemanager ui_messagehistory ui_diagnosticswriter ui_diagnosticsservice > ui-tests-output.txt 2>&1
+          python ../../ci-scripts/run_regression_tests.py --config RelWithDebInfo --report ui-tests.xml --include-prefix ui_ ui_vector_opacity ui_vector_profilemanager ui_vector_gradientanimation ui_vector_svgopacity ui_vector_pliprofile ui_vector_morphworkflow ui_vector_contour_outline ui_mediacache ui_functioncurveoperations ui_functionworkflow ui_commandpalette ui_widgetinspector ui_themeapplication ui_themeproperties ui_uitranslations ui_languagemanager ui_messagehistory ui_diagnosticswriter ui_diagnosticsservice > ui-tests-output.txt 2>&1
           set "UI_TEST_EXIT=%ERRORLEVEL%"
           type ui-tests-output.txt
           exit /b %UI_TEST_EXIT%
@@ -409,13 +409,13 @@ jobs:
         env:
           GZ_CAST_WORKFLOW_REPORT: ${{ github.workspace }}/toonz/build/cast-workflow-metrics.json
         if: ${{ !cancelled() && steps.package.outcome == 'success' }}
-        timeout-minutes: 8
+        timeout-minutes: 14
         shell: cmd
         run: |
           set "PATH=%CD%\toonz\build\Opentoonz;%QT_PATH%\bin;%PATH%"
           set "QT_PLUGIN_PATH=%QT_PATH%\plugins"
           set "QT_QPA_PLATFORM_PLUGIN_PATH=%QT_PATH%\plugins\platforms"
-          python ci-scripts/run_native_ui_test.py toonz/build/Opentoonz/OpenToonz.exe stuff --require-function-workflow --output toonz/build/ui-integration-output.txt --windows-crash-debugger --debugger-symbols toonz/build/RelWithDebInfo --windows-mesa "%NATIVE_UI_MESA_RUNTIME%"
+          python ci-scripts/run_native_ui_test.py toonz/build/Opentoonz/OpenToonz.exe stuff --require-function-workflow --require-vector-workflows --output toonz/build/ui-integration-output.txt --windows-crash-debugger --debugger-symbols toonz/build/RelWithDebInfo --windows-mesa "%NATIVE_UI_MESA_RUNTIME%"
 
       - name: Report native application integration failure
         if: ${{ failure() && steps.ui_integration.outcome == 'failure' }}

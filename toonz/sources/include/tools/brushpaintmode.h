@@ -24,8 +24,8 @@
 namespace BrushPaintMode {
 
 //! Values of the option, in the order of its menu.
-enum Mode { MODE_NORMAL = 0, MODE_PAINT_FILLS, MODE_PAINT_BEHIND };
-const int kModeCount = 3;
+enum Mode { MODE_NORMAL = 0, MODE_PAINT_FILLS, MODE_PAINT_BEHIND, MODE_PAINT_INSIDE, MODE_PAINT_SELECTION };
+const int kModeCount = 5;
 
 //! Values of the Brush's Draw Order option, which only the Normal mode uses.
 enum DrawOrder { ORDER_OVER_ALL = 0, ORDER_UNDER_ALL, ORDER_PALETTE };
@@ -48,6 +48,10 @@ inline const char *toString(Mode mode) {
     return "PaintFills";
   case MODE_PAINT_BEHIND:
     return "PaintBehind";
+  case MODE_PAINT_INSIDE:
+    return "PaintInside";
+  case MODE_PAINT_SELECTION:
+    return "PaintSelection";
   default:
     return "Normal";
   }
@@ -63,7 +67,7 @@ inline Mode fromString(const std::string &name) {
 
 //! Whether the mode replaces the stroke with its filled outline shape.
 inline bool makesShape(Mode mode) {
-  return mode == MODE_PAINT_FILLS || mode == MODE_PAINT_BEHIND;
+  return mode != MODE_NORMAL && modeFromIndex(mode) != MODE_NORMAL;
 }
 
 //! A stroke with some thickness is Line Art; a stroke whose control points

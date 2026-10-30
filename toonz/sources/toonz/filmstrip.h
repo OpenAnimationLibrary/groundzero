@@ -8,6 +8,8 @@
 #include "toonzqt/selection.h"
 #include "toonzqt/qtcompat.h"
 #include "saveloadqsettings.h"
+#include "tinbetween.h"
+#include "tvectorimage.h"
 
 // Qt includes
 #include <QScrollArea>
@@ -33,6 +35,8 @@ class QDropEvent;
 class InbetweenDialog;
 class TXshLevel;
 class SceneViewer;
+class QTableWidget;
+class MorphPreviewSwatch;
 
 const int fs_leftMargin       = 2;
 const int fs_rightMargin      = 3;
@@ -345,11 +349,27 @@ class InbetweenDialog final : public DVGui::Dialog {
   QWidget *m_customEaseWidget;  // shown with the Custom interpolation only
   QSlider *m_slowStartSlider, *m_slowEndSlider;
   QLabel *m_slowStartLabel, *m_slowEndLabel;
+  QComboBox *m_unmatchedCombo;
+  QSlider *m_previewPosition;
+  QTableWidget *m_reviewTable = nullptr;
+  QLabel *m_reviewStatus;
+  QTimer *m_previewTimer;
+  MorphPreviewSwatch *m_firstPreview, *m_resultPreview, *m_lastPreview;
+  TVectorImageP m_firstImage, m_lastImage;
+  TInbetween::StrokeCorrespondence m_manualPairs;
+  std::vector<std::pair<TRectD, TRectD>> m_zones;
+  void refreshPreview();
+  void schedulePreview();
 
   void updateCustomEaseVisibility();
 
 public:
   InbetweenDialog(QWidget *parent);
+  void setPreviewSource(const TVectorImageP &first, const TVectorImageP &last,
+                        const TInbetween::StrokeCorrespondence &pairs,
+                        const std::vector<std::pair<TRectD, TRectD>> &zones);
+  int unmatchedPolicy() const;
+  void setUnmatchedPolicy(int policy);
 
   void setValue(const QString &value);
   QString getValue();
