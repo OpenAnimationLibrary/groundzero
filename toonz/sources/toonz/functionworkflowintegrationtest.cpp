@@ -4,6 +4,7 @@
 #include "iocommand.h"
 #include "menubarcommandids.h"
 #include "tapp.h"
+#include "tpanels.h"
 #include "ext/plasticskeleton.h"
 #include "ext/plasticskeletondeformation.h"
 #include "toonz/tstageobject.h"
@@ -60,11 +61,13 @@
 #include <QMouseEvent>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QPointer>
 #include <QSettings>
 #include <QSlider>
 #include <QTemporaryDir>
 #include <QTimer>
 #include <QToolButton>
+#include <QWindow>
 #include <cmath>
 #include <algorithm>
 #include <functional>
@@ -143,7 +146,8 @@ void modal(FunctionViewer *viewer, const char *dialogName, const std::function<v
     qFatal("function-workflow-native: modal fixture exceeded its 15-second deadline");
   });
   QTimer::singleShot(0, &delivery, [&]() {
-    auto *dialog = viewer->findChild<QDialog *>(dialogName);
+    QPointer<QDialog> dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
+    if (dialog && dialog->objectName() != QString::fromLatin1(dialogName)) dialog.clear();
     try { require(dialog, "Native function dialog did not open"); visited = true; inspect(dialog); }
     catch (const std::exception &error) { failure = QString::fromUtf8(error.what()); }
     if (dialog) dialog->reject();
@@ -393,7 +397,9 @@ void frozenComparison(FunctionViewer *viewer, FunctionTreeView *tree,
         // QMessageBox deliberately ignores window titles on macOS. Identify
         // this native confirmation by its owner, prompt and real answer buttons.
         require(box, "Expected comparison restore message box was not shown");
-        require(box->parentWidget() == viewer, "Comparison confirmation has the wrong owner");
+        require(!box->parentWidget() && box->windowHandle() &&
+                    box->windowHandle()->transientParent() == viewer->window()->windowHandle(),
+                "Comparison confirmation lost its non-owning native panel relationship");
         require(box->icon() == QMessageBox::Question && box->text() ==
                     "Restore all captured channels? Edits since capture will be replaced as one undo step.",
                 "Comparison confirmation has the wrong question");
@@ -477,6 +483,220 @@ void renameNativeSet(FunctionViewer *viewer, FunctionTreeView *tree,
       require(channel->isActive() == wanted, "Renamed set recalled the wrong native channel membership");
     }
   }, [&]() { action->trigger(); });
+  std::vector<TDoubleParamP> before;
+  for (auto *curve : channels) before.emplace_back(new TDoubleParam(*curve));
+  modal(viewer, "FunctionChannelSets", [&](QDialog *dialog) {
+    auto *save = dialog->findChild<QPushButton *>("FunctionChannelSetSave");
+    auto *list = dialog->findChild<QListWidget *>("FunctionChannelSetList");
+    require(save && list, "Native set capture controls missing");
+    QObject delivery; bool named = false; QString failure;
+    QTimer::singleShot(0, &delivery, [&]() {
+      auto *prompt = qobject_cast<QInputDialog *>(QApplication::activeModalWidget());
+      try {
+        require(prompt && prompt->objectName() == "FunctionChannelSetCaptureName", "Native set capture name did not open");
+        prompt->setTextValue("Captured native rig"); named = true; prompt->accept();
+      } catch (const std::exception &error) { failure = QString::fromUtf8(error.what()); if (prompt) prompt->reject(); }
+    });
+    save->click(); require(named && failure.isEmpty(), qPrintable(failure));
+    require(list->count() == 2 && list->currentItem()->text() == "Captured native rig", "Native save did not select its new set");
+    QSettings captured(path, QSettings::IniFormat); captured.sync();
+    const auto saved = QJsonDocument::fromJson(captured.value("channelSets").toByteArray()).array();
+    QSet<QString> actualIds, wantedIds;
+    for (const auto &id : saved[1].toObject()["ids"].toArray()) actualIds.insert(id.toString());
+    for (const auto &id : ids) wantedIds.insert(id.toString());
+    require(actualIds == wantedIds, "Native capture persisted the wrong visible channel identities");
+    dialog->findChild<QLineEdit *>("FunctionChannelSetName")->setText("Deleted native rig");
+    dialog->findChild<QPushButton *>("FunctionChannelSetRename")->click();
+    require(list->currentItem()->text() == "Deleted native rig", "Native captured set rename did not apply");
+    auto *remove = dialog->findChild<QPushButton *>("FunctionChannelSetDelete");
+    require(remove && remove->isEnabled(), "Native Delete set control is unavailable"); remove->click();
+    QSettings deleted(path, QSettings::IniFormat); deleted.sync();
+    require(list->count() == 1 && QJsonDocument::fromJson(deleted.value("channelSets").toByteArray()).array() == expected,
+            "Native Delete set did not persist or changed the surviving set");
+  }, [&]() { action->trigger(); });
+  modal(viewer, "FunctionChannelSets", [&](QDialog *dialog) {
+    auto *list = dialog->findChild<QListWidget *>("FunctionChannelSetList");
+    require(list && list->count() == 1 && list->item(0)->text() == "Native rig timing",
+            "Deleted native set remained recallable after reopening");
+    dialog->findChild<QPushButton *>("FunctionChannelSetShow")->click();
+    for (auto *channel : tree->channels())
+      require(channel->isActive() == (std::find(channels.begin(), channels.end(), channel->getParam()) != channels.end()),
+              "Surviving set recall changed after deletion");
+  }, [&]() { action->trigger(); });
+  for (size_t i = 0; i < channels.size(); ++i)
+    require(Ops::matchesSnapshot(channels[i], before[i].getPointer()), "Workspace set cycle edited native animation");
+  require(!sceneHandle->getDirtyFlag() && undo->getHistoryCount() == history && undo->getCurrentHistoryIndex() == historyIndex,
+          "Workspace save/rename/delete cycle changed scene or animation history");
+  checkpoint("native channel set save/rename/delete/reopen preserves animation and preferences membership");
+}
+void panelLifetimeDialogs(TDoubleParam *target, TDoubleParam *dependent,
+                          const QTemporaryDir &directory) {
+  checkpoint("interrupting native Function panels during nested workflows");
+  auto *app = TApp::instance(); auto *undo = TUndoManager::manager();
+  const QString preferences = (ToonzFolder::getMyModuleDir() + TFilePath("function-editor.ini")).getQString();
+  const QString library = (ToonzFolder::getMyModuleDir() + TFilePath("function-presets")).getQString();
+  QSettings settings(preferences, QSettings::IniFormat);
+  const QVariant previousSets = settings.value("channelSets");
+  struct RestoreSets {
+    QString path; QVariant value;
+    ~RestoreSets() { QSettings s(path, QSettings::IniFormat); if (value.isValid()) s.setValue("channelSets", value); else s.remove("channelSets"); s.sync(); }
+  } restoreSets{preferences, previousSets};
+  require(!target->getWorkspaceId().empty(), "Lifetime fixture needs a persisted channel identity");
+  settings.setValue("channelSets", QJsonDocument(QJsonArray{QJsonObject{{"name", "Panel lifetime set"}, {"ids", QJsonArray{QString::fromStdString(target->getWorkspaceId())}}}}).toJson(QJsonDocument::Compact));
+  settings.sync(); require(settings.status() == QSettings::NoError, "Lifetime fixture preferences unavailable");
+  require(QDir().mkpath(library), "Panel lifetime library fixture unavailable");
+  const QString presetPath = QDir(library).filePath("Panel lifetime fixture.fcurve");
+  const QString rawPath = directory.filePath("panel-lifetime.curve");
+  { TOStream out{TFilePath(presetPath)}; out.openChild("functionPreset", {{"measure", target->getMeasureName()}}); target->saveData(out); out.closeChild(); }
+  { TOStream out{TFilePath(rawPath)}; target->saveData(out); }
+  auto bytes = [](const QString &path) { QFile file(path); return file.open(QIODevice::ReadOnly) ? file.readAll() : QByteArray(); };
+  const auto libraryFiles = QDir(library).entryList(QDir::Files, QDir::Name);
+  std::map<QString, QByteArray> libraryBytes;
+  for (const auto &file : libraryFiles) libraryBytes.emplace(file, bytes(QDir(library).filePath(file)));
+  enum Route { Edit, Preset, SaveName, ImportFile, ImportName, Sets, SetName, Dependencies, Restore, Snap, HitSize, Nudge };
+  const std::vector<Route> routes{Edit, Preset, SaveName, ImportFile, ImportName, Sets, SetName, Dependencies, Restore, Snap, HitSize, Nudge};
+  for (bool destroy : {false, true}) for (Route route : routes) {
+    QPointer<FunctionViewerPanel> panel = new FunctionViewerPanel;
+    panel->resize(1000, 650); panel->show(); settle();
+    QPointer<FunctionViewer> viewer = panel->findChild<FunctionViewer *>();
+    require(viewer && viewer->isVisible() && viewer->getXsheetHandle() == app->getCurrentXsheet(),
+            "Lifetime fixture did not open the native panel with real handles");
+    QPointer<FunctionPanel> graph = viewer->findChild<FunctionPanel *>();
+    auto *tree = viewer->findChild<FunctionTreeView *>();
+    require(graph && tree, "Lifetime fixture native graph/tree missing");
+    graph->show(); graph->resize(800, 400); settle();
+    for (auto *channel : tree->channels()) channel->setIsActive(channel->getParam() == target);
+    find(tree, target)->setIsCurrent(true);
+    viewer->getSelection()->selectNone(); viewer->getSelection()->select(target, 0);
+    graph->fitRegion(0, Ops::displayValue(target, 0), 24, Ops::displayValue(target, 20));
+    TDoubleParamP capturedTarget = new TDoubleParam(*target);
+    viewer->findChild<QAction *>("FunctionCaptureComparison")->trigger();
+    const auto comparison = graph->comparisonState();
+    require(comparison.frozen.size() == 1, "Lifetime fixture comparison was not captured");
+    if (route == Dependencies || route == Sets) find(tree, dependent)->setIsCurrent(true);
+    if (route == Sets) find(tree, target)->setIsActive(false);
+    if (route == Restore) {
+      auto edited = target->getKeyframe(0); edited.m_value += 7; target->setKeyframe(edited);
+      require(!Ops::matchesSnapshot(target, capturedTarget.getPointer()), "Lifetime Restore fixture must contain a real edit after capture");
+    }
+    const TDoubleParamP currentBefore = viewer->getCurrentChannelCurve();
+    QSet<TDoubleParam *> activeBefore;
+    for (auto *channel : tree->channels()) if (channel->isActive()) activeBefore.insert(channel->getParam());
+    TDoubleParamP before = new TDoubleParam(*target), dependentBefore = new TDoubleParam(*dependent);
+    undo->reset(); app->getCurrentScene()->setDirtyFlag(false);
+    const QByteArray settingsBefore = bytes(preferences);
+    const char *dialogName = route == Edit ? "FunctionKeyEditor" :
+        route <= ImportName ? "FunctionMotionPresets" : route <= SetName ? "FunctionChannelSets" :
+        route == Dependencies ? "FunctionDependenciesDialog" : route == Restore ? "FunctionWorkflowMessage" :
+        route == Snap ? "FunctionFrameSnap" : route == HitSize ? "FunctionHandleSize" : "FunctionValueNudge";
+    const char *actionName = route <= ImportName ? "FunctionMotionPresetsAction" : route <= SetName ? "FunctionChannelSetsAction" :
+        route == Dependencies ? "FunctionDependenciesAction" : route == Restore ? "FunctionRestoreComparison" :
+        route == Snap ? "FunctionFrameSnapAction" : route == HitSize ? "FunctionHandleSizeAction" : "FunctionValueNudgeAction";
+    auto *action = route == Edit ? nullptr : viewer->findChild<QAction *>(actionName);
+    auto *edit = viewer->findChild<QToolButton *>("FunctionEditKeys");
+    require(route == Edit ? bool(edit) : bool(action), "Lifetime fixture command missing");
+    bool interrupted = false;
+    modal(viewer, dialogName, [&](QDialog *dialog) {
+      require(!dialog->parentWidget() && dialog->windowHandle() &&
+                  dialog->windowHandle()->transientParent() == panel->window()->windowHandle(),
+              "Workflow dialog is owned by its panel instead of transiently associated");
+      auto closePanel = [&]() {
+        interrupted = true;
+        if (destroy) { delete panel.data(); require(!panel && !viewer && !graph, "Native panel deletion retained its editor"); }
+        else { require(panel->close() && !panel->isVisible(), "Native panel close did not hide its editor"); }
+        require(!dialog->isVisible(), "Closing native panel left its workflow dialog open");
+      };
+      if (route <= ImportName) {
+        auto *preview = dialog->findChild<QPushButton *>(route == Edit ? "FunctionEditPreview" : "FunctionPresetPreview");
+        auto *apply = dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Apply);
+        if (route == Edit) dialog->findChild<QDoubleSpinBox *>("FunctionEditAmount")->setValue(777);
+        else {
+          auto *list = dialog->findChild<QListWidget *>("FunctionPresetList"); int row = -1;
+          for (int i = 0; i < list->count(); ++i) if (list->item(i)->data(Qt::UserRole).toString() == "Panel lifetime fixture.fcurve") row = i;
+          require(row >= 0, "Lifetime fixture preset missing"); list->setCurrentRow(row);
+          dialog->findChild<QDoubleSpinBox *>("FunctionPresetOffset")->setValue(777);
+        }
+        preview->click(); require(!graph->comparison().empty() && graph->comparisonState().intervals == 0, "Lifetime preview was not displayed");
+        if (route == Edit || route == Preset) {
+          bool delivered = false;
+          QMetaObject::invokeMethod(dialog, [&]() { delivered = true; preview->click(); apply->click(); }, Qt::QueuedConnection);
+          closePanel(); QCoreApplication::sendPostedEvents(dialog, QEvent::MetaCall);
+          require(delivered, "Closed-panel queued edit was not delivered for validation");
+        }
+      }
+      if (route == SaveName || route == ImportFile || route == ImportName || route == SetName) {
+        QObject delivery; QTimer driver; QString failure; bool chosen = false, nested = false;
+        QObject::connect(&driver, &QTimer::timeout, &delivery, [&]() {
+          try {
+            if (auto *file = qobject_cast<QFileDialog *>(QApplication::activeModalWidget())) {
+              if (chosen) return; chosen = true;
+              require(file->objectName() == "FunctionPresetImportFile", "Unexpected lifetime import chooser");
+              if (route == ImportFile) { nested = true; closePanel(); require(!file->isVisible(), "Panel close retained nested file chooser"); return; }
+              auto *field = file->findChild<QLineEdit *>("fileNameEdit");
+              auto *open = file->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Open);
+              require(field && open, "Lifetime chooser controls missing"); field->setText(QFileInfo(rawPath).absoluteFilePath());
+              require(open->isEnabled() && file->selectedFiles().size() == 1 &&
+                          QFileInfo(file->selectedFiles().front()).canonicalFilePath() == QFileInfo(rawPath).canonicalFilePath(),
+                      "Lifetime chooser did not validate the native file");
+              QTimer::singleShot(0, file, [open]() { open->click(); });
+            } else if (auto *prompt = qobject_cast<QInputDialog *>(QApplication::activeModalWidget())) {
+              if (nested) return; nested = true;
+              require(prompt->objectName() == (route == SaveName ? "FunctionPresetSaveName" : route == SetName ? "FunctionChannelSetCaptureName" : "FunctionPresetImportName"),
+                      "Unexpected lifetime name prompt");
+              prompt->setTextValue("Closed panel must not save"); closePanel();
+              require(!prompt->isVisible(), "Panel close retained nested name prompt"); prompt->accept();
+            }
+          } catch (const std::exception &error) { failure = QString::fromUtf8(error.what()); if (auto *active = qobject_cast<QDialog *>(QApplication::activeModalWidget())) active->reject(); }
+        });
+        driver.start(5);
+        dialog->findChild<QPushButton *>(route == SaveName ? "FunctionPresetSave" : route == SetName ? "FunctionChannelSetSave" : "FunctionPresetImport")->click();
+        driver.stop(); require(nested && failure.isEmpty(), qPrintable(failure));
+      } else if (route >= Sets) {
+        if (auto *prompt = qobject_cast<QInputDialog *>(dialog)) {
+          if (route == Nudge) prompt->setDoubleValue(prompt->doubleValue() == 777 ? 778 : 777);
+          else prompt->setIntValue(prompt->intValue() == 20 ? 19 : 20);
+        }
+        if (route == Sets) {
+          dialog->findChild<QLineEdit *>("FunctionChannelSetName")->setText("Closed panel must not rename");
+          for (const char *name : {"FunctionChannelSetDelete", "FunctionChannelSetShow", "FunctionChannelSetRename"})
+            require(dialog->findChild<QPushButton *>(name)->isEnabled(), "Late set action fixture is not actionable");
+        }
+        closePanel();
+        if (route == Sets) {
+          for (const char *name : {"FunctionChannelSetShow", "FunctionChannelSetRename", "FunctionChannelSetDelete"})
+            dialog->findChild<QPushButton *>(name)->click();
+        } else if (route == Dependencies) {
+          auto *list = dialog->findChild<QListWidget *>("FunctionDependenciesList");
+          require(list && list->count() && list->item(0)->data(Qt::UserRole).isValid(), "Lifetime dependency navigation fixture missing");
+          list->itemDoubleClicked(list->item(0));
+        } else if (auto *message = qobject_cast<QMessageBox *>(dialog)) message->button(QMessageBox::Yes)->click();
+        else dialog->accept();
+      }
+    }, [&]() { if (route == Edit) edit->click(); else action->trigger(); });
+    require(interrupted && Ops::matchesSnapshot(target, before.getPointer()) && Ops::matchesSnapshot(dependent, dependentBefore.getPointer()),
+            "Panel interruption edited captured animation");
+    require(undo->getHistoryCount() == 0 && !app->getCurrentScene()->getDirtyFlag() && bytes(preferences) == settingsBefore,
+            "Panel interruption changed animation history, scene dirty state or preferences");
+    require(QDir(library).entryList(QDir::Files, QDir::Name) == libraryFiles, "Panel interruption published a preset");
+    for (const auto &entry : libraryBytes) require(bytes(QDir(library).filePath(entry.first)) == entry.second, "Panel interruption rewrote an existing preset");
+    if (!destroy) {
+      QSet<TDoubleParam *> activeAfter;
+      for (auto *channel : tree->channels()) if (channel->isActive()) activeAfter.insert(channel->getParam());
+      require(viewer->getCurrentChannelCurve() == currentBefore.getPointer() && activeAfter == activeBefore,
+              "Closed panel allowed late set/dependency navigation to change current or active channels");
+      const auto restored = graph->comparisonState();
+      require(restored.first == comparison.first && restored.last == comparison.last && restored.intervals == comparison.intervals && restored.frozen.size() == comparison.frozen.size(),
+              "Closing panel failed to restore its prior comparison display");
+      for (size_t i = 0; i < comparison.frozen.size(); ++i)
+        require(restored.frozen[i].owner == comparison.frozen[i].owner && restored.frozen[i].samples == comparison.frozen[i].samples,
+                "Closing panel reevaluated the captured comparison");
+      delete panel.data();
+    }
+    if (route == Restore) target->copy(capturedTarget.getPointer());
+    settle();
+  }
+  require(QFile::remove(presetPath), "Lifetime fixture preset cleanup failed");
+  checkpoint("native panel hide/delete cancels edits, sets, dependencies, restore, preferences and nested Save/Import");
 }
 void reportNumericRetimeCurve(TDoubleParam *curve, const QTemporaryDir &directory,
                              const char *phase) {
@@ -827,6 +1047,7 @@ bool runFunctionWorkflowIntegrationTest(QMainWindow *, QString *error) {
     retimeNativeRange(viewer, scene, {source, offset, angle}, directory);
     ownerRemovalDialogs(viewer, tree, graph, xsheet, level, source, directory);
     runFunctionRigBenchmarkIntegrationTest(viewer);
+    panelLifetimeDialogs(source, native, directory);
     app->getCurrentScene()->setDirtyFlag(false); TUndoManager::manager()->reset(); viewer->hide();
     std::cout << "function-workflow-native: PASS (Plastic, offset, native/SeExpr bindings, preview/undo, mouse routes, saved-set rename, target-range retiming, scene roundtrip)\n";
     return true;

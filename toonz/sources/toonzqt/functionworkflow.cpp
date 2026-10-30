@@ -34,6 +34,8 @@
 #include <QMenu>
 #include <QMessageBox>
 #include <QProgressDialog>
+#include <QPointer>
+#include <QWindow>
 #include <QPainter>
 #include <QPainterPath>
 #include <QPushButton>
@@ -54,6 +56,40 @@
 namespace {
 namespace Ops = FunctionCurveOperations;
 QString tr(const char *text) { return QObject::tr(text); }
+// These dialogs run nested event loops. They must not be QObject children of
+// the panel: deleting that panel would otherwise delete a stack dialog (and its
+// stack-owned controls) before exec() unwinds. A transient window relationship
+// preserves native placement/stacking without transferring ownership.
+template <class Dialog> class WorkflowDialog final : public Dialog {
+  QPointer<FunctionViewer> m_viewer;
+  bool m_valid = true;
+  bool m_finished = false;
+public:
+  explicit WorkflowDialog(FunctionViewer *viewer) : Dialog(nullptr), m_viewer(viewer) {
+    this->setWindowIcon(viewer->windowIcon());
+    this->winId();
+    QWidget *window = viewer->window();
+    window->winId();
+    this->windowHandle()->setTransientParent(window->windowHandle());
+    auto invalidate = [this]() { m_valid = false; this->reject(); };
+    QObject::connect(viewer, &FunctionViewer::workflowPanelClosed, this, invalidate);
+    QObject::connect(viewer, &FunctionViewer::workflowContextChanged, this, invalidate);
+    QObject::connect(viewer, &QObject::destroyed, this, invalidate);
+    QObject::connect(this, &QDialog::finished, this, [this]() { m_finished = true; });
+  }
+  bool validContext() const { return m_valid && m_viewer; }
+  bool canAct() const { return validContext() && !m_finished; }
+};
+int workflowMessage(FunctionViewer *viewer, QMessageBox::Icon icon,
+                    const QString &title, const QString &text,
+                    QMessageBox::StandardButtons buttons = QMessageBox::Ok) {
+  WorkflowDialog<QMessageBox> message(viewer);
+  message.setObjectName("FunctionWorkflowMessage");
+  message.setIcon(icon); message.setWindowTitle(title); message.setText(text);
+  message.setStandardButtons(buttons);
+  const int result = message.exec();
+  return message.validContext() ? result : QMessageBox::NoButton;
+}
 QString settingsPath() {
   return (ToonzFolder::getMyModuleDir() + TFilePath("function-editor.ini")).getQString();
 }
@@ -75,6 +111,7 @@ std::vector<TDoubleParamP> curves(const std::vector<Ops::Selection> &selection) 
 }
 bool containsTargets(FunctionViewer *viewer,
                      const std::vector<TDoubleParamP> &targets) {
+  if (!viewer) return false;
   auto *tree = viewer->findChild<FunctionTreeView *>();
   if (!tree) return false;
   QSet<TDoubleParam *> present;
@@ -89,12 +126,15 @@ void preview(FunctionPanel *graph, const Ops::Plan &plan, bool before = false) {
     overlay.emplace_back(change.curve, before ? change.before : change.after);
   graph->setComparison(overlay);
 }
-void restoreOverlay(FunctionViewer *viewer, FunctionPanel *graph,
+void restoreOverlay(QPointer<FunctionViewer> viewer, QPointer<FunctionPanel> graph,
                     FunctionPanel::ComparisonState saved,
                     bool contextValid) {
+  if (!viewer || !graph) return;
   if (!contextValid) { graph->setComparison({}); return; }
   QSet<TDoubleParam *> present;
-  for (auto *channel : viewer->findChild<FunctionTreeView *>()->channels()) present.insert(channel->getParam());
+  auto *tree = viewer->findChild<FunctionTreeView *>();
+  if (!tree) return;
+  for (auto *channel : tree->channels()) present.insert(channel->getParam());
   saved.curves.erase(std::remove_if(saved.curves.begin(), saved.curves.end(), [&](const std::pair<TDoubleParamP, TDoubleParamP> &entry) { return !present.contains(entry.first.getPointer()); }), saved.curves.end());
   saved.frozen.erase(std::remove_if(saved.frozen.begin(), saved.frozen.end(), [&](const FunctionPanel::FrozenComparisonCurve &entry) { return !present.contains(entry.owner.getPointer()); }), saved.frozen.end());
   graph->setComparisonState(saved);
@@ -107,22 +147,37 @@ QDoubleSpinBox *number(QWidget *parent, double value, double low = -1.e9,
   return field;
 }
 void showEdit(FunctionViewer *viewer, FunctionPanel *graph) {
+  const QPointer<FunctionViewer> guardedViewer(viewer);
+  const QPointer<FunctionPanel> guardedGraph(graph);
   auto savedComparison = graph->comparisonState();
   auto selection = selected(viewer->getSelection());
   if (selection.empty()) {
-    QMessageBox::information(viewer, tr("Edit Function Keys"), tr("Select one or more keys in the graph or spreadsheet first.")); return;
+    workflowMessage(viewer, QMessageBox::Information, tr("Edit Function Keys"), tr("Select one or more keys in the graph or spreadsheet first.")); return;
   }
-  QDialog dialog(viewer); dialog.setWindowTitle(tr("Edit Function Keys"));
+  WorkflowDialog<QDialog> dialog(viewer); dialog.setWindowTitle(tr("Edit Function Keys"));
   bool contextValid = true;
   if (viewer->getSceneHandle()) QObject::connect(viewer->getSceneHandle(), &TSceneHandle::sceneSwitched, &dialog, [&]() { contextValid = false; dialog.reject(); });
   if (viewer->getXsheetHandle()) QObject::connect(viewer->getXsheetHandle(), &TXsheetHandle::xsheetSwitched, &dialog, [&]() { contextValid = false; dialog.reject(); });
   QObject::connect(viewer, &FunctionViewer::workflowContextChanged, &dialog, [&]() { contextValid = false; dialog.reject(); });
   QObject::connect(graph->getModel(), &QAbstractItemModel::modelAboutToBeReset, &dialog, [&]() { contextValid = false; dialog.reject(); });
   const auto targets = curves(selection);
+  std::vector<TDoubleParamP> reviewed;
+  auto captureReviewed = [&]() {
+    reviewed.clear();
+    for (const auto &target : targets) reviewed.emplace_back(new TDoubleParam(*target));
+  };
+  captureReviewed();
+  bool applying = false;
   auto validateTargets = [&]() {
-    if (!contextValid) return false;
-    if (containsTargets(viewer, targets)) return true;
-    contextValid = false;
+    if (!contextValid || !dialog.canAct()) return false;
+    const bool present = containsTargets(viewer, targets);
+    bool unchanged = present;
+    for (size_t i = 0; unchanged && i < targets.size(); ++i)
+      unchanged = applying || Ops::matchesSnapshot(targets[i].getPointer(), reviewed[i].getPointer());
+    if (unchanged) return true;
+    // Foreign key edits invalidate this operation's indices, but a frozen
+    // comparison still belongs to its live scene and should survive Cancel.
+    if (!present) contextValid = false;
     graph->setComparison({});
     dialog.reject();
     return false;
@@ -171,6 +226,7 @@ void showEdit(FunctionViewer *viewer, FunctionPanel *graph) {
   rangePreview->setObjectName("FunctionEditRangePreview");
   rangePreview->setWordWrap(true); layout.addWidget(rangePreview);
   auto updateRangePreview = [&]() {
+    if (!dialog.canAct()) return;
     double from = 1.e100, to = -from;
     for (const auto &entry : selection) for (int index : entry.indices) {
       if (index < 0 || index >= entry.curve->getKeyframeCount()) continue;
@@ -192,6 +248,7 @@ void showEdit(FunctionViewer *viewer, FunctionPanel *graph) {
   layout.addWidget(&buttons);
   Ops::Plan plan;
   auto updateFields = [&]() {
+    if (!dialog.canAct()) return;
     int op = mode->currentIndex();
     amount->setEnabled(op <= 2 || op == 5); start->setEnabled((op >= 4 && op <= 6) || op == 8);
     end->setEnabled(op == 4 || op == 5 || op == 8); step->setEnabled(op == 4 || op == 5 || op == 7);
@@ -230,6 +287,7 @@ void showEdit(FunctionViewer *viewer, FunctionPanel *graph) {
   QObject::connect(mode, QOverload<int>::of(&QComboBox::currentIndexChanged), &dialog, updateFields);
   for (auto *field : {start, end})
     QObject::connect(field, QOverload<double>::of(&QDoubleSpinBox::valueChanged), &dialog, [&]() {
+      if (!dialog.canAct()) return;
       updateRangePreview();
       if (mode->currentIndex() == 8) { graph->setComparison({}); status->clear(); }
     });
@@ -242,7 +300,12 @@ void showEdit(FunctionViewer *viewer, FunctionPanel *graph) {
     for (const auto &entry : selection) for (int k : entry.indices)
       selectedFrames[entry.curve.getPointer()].push_back(entry.curve->keyframeIndexToFrame(k));
     QString error;
-    if (!Ops::apply(plan, tr("Edit Function Keys"), error)) { status->setText(error); return; }
+    applying = true;
+    const bool applied = Ops::apply(plan, tr("Edit Function Keys"), error);
+    applying = false;
+    if (!applied) { status->setText(error); return; }
+    captureReviewed();
+    if (!validateTargets()) return;
     if (plan.changes.empty()) {
       status->setText(tr("No keys changed.")); graph->setComparison({}); return;
     }
@@ -278,11 +341,11 @@ void showEdit(FunctionViewer *viewer, FunctionPanel *graph) {
     graph->setComparison({});
   });
   QObject::connect(&buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
-  updateFields(); dialog.exec(); restoreOverlay(viewer, graph, savedComparison, contextValid);
+  updateFields(); dialog.exec(); restoreOverlay(guardedViewer, guardedGraph, savedComparison, contextValid);
 }
 
 void showSets(FunctionViewer *viewer, FunctionTreeView *tree) {
-  QDialog dialog(viewer); dialog.setObjectName("FunctionChannelSets");
+  WorkflowDialog<QDialog> dialog(viewer); dialog.setObjectName("FunctionChannelSets");
   dialog.setWindowTitle(tr("Channel Sets")); QVBoxLayout layout(&dialog);
   bool contextValid = true;
   auto rejectContext = [&]() { contextValid = false; dialog.reject(); };
@@ -354,7 +417,7 @@ void showSets(FunctionViewer *viewer, FunctionTreeView *tree) {
   QObject::connect(&name, &QLineEdit::textChanged, &dialog, updateRename);
   auto renameSelected = [&]() {
     const int row = list.currentRow();
-    if (!contextValid || row < 0 || row >= sets.size()) return;
+    if (!contextValid || !dialog.canAct() || row < 0 || row >= sets.size()) return;
     const QString requested = name.text().trimmed();
     QJsonObject entry = sets[row].toObject();
     if (requested == entry["name"].toString()) return;
@@ -372,11 +435,12 @@ void showSets(FunctionViewer *viewer, FunctionTreeView *tree) {
     if (name.isEnabled()) { name.setFocus(); name.selectAll(); }
   });
   QObject::connect(capture, &QPushButton::clicked, &dialog, [&]() {
+    if (!contextValid || !dialog.canAct()) return;
     QInputDialog prompt(&dialog); prompt.setObjectName("FunctionChannelSetCaptureName");
     prompt.setWindowTitle(tr("Channel Set")); prompt.setLabelText(tr("Name"));
     prompt.setInputMode(QInputDialog::TextInput);
     QObject::connect(&dialog, &QDialog::finished, &prompt, &QDialog::reject);
-    if (prompt.exec() != QDialog::Accepted || !contextValid) return;
+    if (prompt.exec() != QDialog::Accepted || !contextValid || !dialog.canAct()) return;
     const QString requested = prompt.textValue().trimmed();
     const QString error = nameError(requested, -1);
     if (!error.isEmpty()) { info->setText(error); return; }
@@ -405,7 +469,7 @@ void showSets(FunctionViewer *viewer, FunctionTreeView *tree) {
     }
   });
   QObject::connect(restore, &QPushButton::clicked, &dialog, [&]() {
-    const int row = list.currentRow(); if (!contextValid || row < 0) return;
+    const int row = list.currentRow(); if (!contextValid || !dialog.canAct() || row < 0) return;
     QSet<QString> ids; for (auto value : sets[row].toObject()["ids"].toArray()) ids.insert(value.toString());
     QMap<QString, int> occurrences; for (auto *channel : tree->channels()) ++occurrences[QString::fromStdString(channel->getParam()->getWorkspaceId())];
     for (auto id : ids) if (occurrences[id] > 1) { info->setText(tr("Duplicate channel identity; the set was not applied.")); return; }
@@ -418,7 +482,7 @@ void showSets(FunctionViewer *viewer, FunctionTreeView *tree) {
     info->setText(tr("Showing %1 channels. %2 saved channels are unavailable in this scene.").arg(found).arg(ids.size() - found));
   });
   QObject::connect(remove, &QPushButton::clicked, &dialog, [&]() {
-    const int row = list.currentRow(); if (!contextValid || row < 0) return;
+    const int row = list.currentRow(); if (!contextValid || !dialog.canAct() || row < 0) return;
     QJsonArray updated = sets; updated.removeAt(row); save(updated, row);
   });
   QObject::connect(&buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
@@ -430,7 +494,7 @@ void showSets(FunctionViewer *viewer, FunctionTreeView *tree) {
 
 void showDependencies(FunctionViewer *viewer, FunctionTreeView *tree) {
   auto *target = viewer->getCurrentChannelCurve(); if (!target) return;
-  QDialog dialog(viewer); dialog.setObjectName("FunctionDependenciesDialog"); dialog.setWindowTitle(tr("Channel Dependencies")); QVBoxLayout layout(&dialog);
+  WorkflowDialog<QDialog> dialog(viewer); dialog.setObjectName("FunctionDependenciesDialog"); dialog.setWindowTitle(tr("Channel Dependencies")); QVBoxLayout layout(&dialog);
   bool contextValid = true;
   if (viewer->getSceneHandle()) QObject::connect(viewer->getSceneHandle(), &TSceneHandle::sceneSwitched, &dialog, [&]() { contextValid = false; dialog.reject(); });
   if (viewer->getXsheetHandle()) QObject::connect(viewer->getXsheetHandle(), &TXsheetHandle::xsheetSwitched, &dialog, [&]() { contextValid = false; dialog.reject(); });
@@ -459,7 +523,7 @@ void showDependencies(FunctionViewer *viewer, FunctionTreeView *tree) {
   if (!sources.isEmpty()) list.addItem(tr("%1 resolved source channels are outside this editor's visible model.").arg(sources.size()));
   if (!list.count()) list.addItem(tr("No expression dependencies."));
   QObject::connect(&list, &QListWidget::itemDoubleClicked, &dialog, [&](QListWidgetItem *item) {
-    if (!contextValid || !item->data(Qt::UserRole).isValid()) return;
+    if (!contextValid || !dialog.canAct() || !item->data(Qt::UserRole).isValid()) return;
     auto *channel = all[item->data(Qt::UserRole).toInt()]; channel->setIsActive(true); channel->setIsCurrent(true);
     tree->scrollTo(channel->createIndex()); dialog.accept();
   });
@@ -495,10 +559,12 @@ public:
 };
 
 void showPresets(FunctionViewer *viewer, FunctionPanel *graph) {
+  const QPointer<FunctionViewer> guardedViewer(viewer);
+  const QPointer<FunctionPanel> guardedGraph(graph);
   auto savedComparison = graph->comparisonState();
   auto *target = viewer->getCurrentChannelCurve(); if (!target) return;
   TDoubleParamP keepTarget(target);
-  QDialog dialog(viewer); dialog.setObjectName("FunctionMotionPresets"); dialog.setWindowTitle(tr("Motion Curve Presets")); QVBoxLayout layout(&dialog);
+  WorkflowDialog<QDialog> dialog(viewer); dialog.setObjectName("FunctionMotionPresets"); dialog.setWindowTitle(tr("Motion Curve Presets")); QVBoxLayout layout(&dialog);
   bool contextValid = true;
   if (viewer->getSceneHandle()) QObject::connect(viewer->getSceneHandle(), &TSceneHandle::sceneSwitched, &dialog, [&]() { contextValid = false; dialog.reject(); });
   if (viewer->getXsheetHandle()) QObject::connect(viewer->getXsheetHandle(), &TXsheetHandle::xsheetSwitched, &dialog, [&]() { contextValid = false; dialog.reject(); });
@@ -506,7 +572,7 @@ void showPresets(FunctionViewer *viewer, FunctionPanel *graph) {
   QObject::connect(graph->getModel(), &QAbstractItemModel::modelAboutToBeReset, &dialog, [&]() { contextValid = false; dialog.reject(); });
   const std::vector<TDoubleParamP> targets{keepTarget};
   auto validateTargets = [&]() {
-    if (!contextValid) return false;
+    if (!contextValid || !dialog.canAct()) return false;
     if (containsTargets(viewer, targets)) return true;
     contextValid = false;
     graph->setComparison({});
@@ -589,8 +655,9 @@ void showPresets(FunctionViewer *viewer, FunctionPanel *graph) {
     }
   };
   QObject::connect(&list, &QListWidget::currentItemChanged, &dialog, [&](QListWidgetItem *item) {
+    if (!validateTargets()) return;
     preset = TDoubleParamP(); thumbnail.setCurve(preset); graph->setComparison({});
-    if (!item || !validateTargets()) return;
+    if (!item) return;
     QString file = item->data(Qt::UserRole).toString(); QSignalBlocker block(&favorite); favorite.setChecked(favorites.contains(file));
     try {
       TDoubleParamP loaded = readPreset(directory.filePath(file));
@@ -611,7 +678,7 @@ void showPresets(FunctionViewer *viewer, FunctionPanel *graph) {
     if (list.currentItem() && list.currentItem()->isHidden()) list.setCurrentRow(-1);
   });
   QObject::connect(&favorite, &QCheckBox::toggled, &dialog, [&](bool enabled) {
-    if (!list.currentItem()) return; QString file = list.currentItem()->data(Qt::UserRole).toString();
+    if (!validateTargets() || !list.currentItem()) return; QString file = list.currentItem()->data(Qt::UserRole).toString();
     favorites.removeAll(file); if (enabled) favorites.append(file);
     settings.setValue("presetFavorites", favorites); settings.sync();
   });
@@ -666,7 +733,7 @@ void showPresets(FunctionViewer *viewer, FunctionPanel *graph) {
     return Ops::planPreset(target, preset.getPointer(), start->value() - 1, duration->value(), amplitude->value(), offset->value());
   };
   QObject::connect(previewButton, &QPushButton::clicked, &dialog, [&]() {
-    auto plan = makePlan(); preview(graph, plan); status.setText(plan.valid() ? tr("Dashed curve is the proposed result.") : plan.error);
+    auto plan = makePlan(); if (!validateTargets()) return; preview(graph, plan); status.setText(plan.valid() ? tr("Dashed curve is the proposed result.") : plan.error);
   });
   QObject::connect(buttons.button(QDialogButtonBox::Apply), &QPushButton::clicked, &dialog, [&]() {
     auto plan = makePlan(); QString error;
@@ -677,7 +744,7 @@ void showPresets(FunctionViewer *viewer, FunctionPanel *graph) {
     status.setText(tr("Preset applied as one undo step."));
   });
   QObject::connect(&buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
-  refresh(); dialog.exec(); restoreOverlay(viewer, graph, savedComparison, contextValid);
+  refresh(); dialog.exec(); restoreOverlay(guardedViewer, guardedGraph, savedComparison, contextValid);
 }
 } // namespace
 
@@ -772,7 +839,7 @@ QWidget *createFunctionWorkflowControls(FunctionViewer *viewer, FunctionTreeView
     for (auto *channel : tree->channels()) if (channel->isActive()) proposed.emplace_back(channel->getParam(), new TDoubleParam(*channel->getParam()));
     graph->setComparison(proposed);
     QString error;
-    if (!graph->freezeComparison(error)) { graph->setComparisonState(previous); QMessageBox::warning(viewer, tr("Capture Curves"), error); return; }
+    if (!graph->freezeComparison(error)) { graph->setComparisonState(previous); workflowMessage(viewer, QMessageBox::Warning, tr("Capture Curves"), error); return; }
     ++*captureGeneration; *snapshots = std::move(proposed); *capturedDisplay = graph->comparisonState(); widget->setProperty("comparisonVisible", true);
     comparisonInfo->setText(tr("Comparison captured at frames %1–%2 with %3 sample intervals (%4 frames/sample). Display between samples is approximate. Recapture to extend the range or increase detail.")
         .arg(capturedDisplay->first + 1, 0, 'g', 8).arg(capturedDisplay->last + 1, 0, 'g', 8)
@@ -785,14 +852,17 @@ QWidget *createFunctionWorkflowControls(FunctionViewer *viewer, FunctionTreeView
     comparisonInfo->setVisible(!visible && !capturedDisplay->curves.empty());
   })->setObjectName("FunctionToggleComparison");
   menu->addAction(tr("Restore captured curves…"), widget, [=]() {
+    const QPointer<FunctionViewer> liveViewer(viewer);
+    const QPointer<FunctionPanel> liveGraph(graph);
+    const QPointer<FunctionTreeView> liveTree(tree);
     if (snapshots->empty()) return;
     const auto generation = *captureGeneration;
-    if (QMessageBox::question(viewer, tr("Restore Curves"), tr("Restore all captured channels? Edits since capture will be replaced as one undo step.")) != QMessageBox::Yes) return;
-    if (*captureGeneration != generation || snapshots->empty()) return;
+    if (workflowMessage(viewer, QMessageBox::Question, tr("Restore Curves"), tr("Restore all captured channels? Edits since capture will be replaced as one undo step."), QMessageBox::Yes | QMessageBox::No) != QMessageBox::Yes) return;
+    if (!liveViewer || !liveGraph || !liveTree || *captureGeneration != generation || snapshots->empty()) return;
     QSet<TDoubleParam *> present; for (auto *channel : tree->channels()) present.insert(channel->getParam());
-    for (const auto &snapshot : *snapshots) if (!present.contains(snapshot.first.getPointer())) { QMessageBox::warning(viewer, tr("Restore Curves"), tr("A captured channel no longer belongs to this scene. Capture a new comparison.")); return; }
+    for (const auto &snapshot : *snapshots) if (!present.contains(snapshot.first.getPointer())) { workflowMessage(viewer, QMessageBox::Warning, tr("Restore Curves"), tr("A captured channel no longer belongs to this scene. Capture a new comparison.")); return; }
     Ops::Plan plan = Ops::planRestore(*snapshots);
-    QString error; if (!Ops::apply(plan, tr("Restore Comparison Curves"), error)) QMessageBox::warning(viewer, tr("Restore Curves"), error);
+    QString error; if (!Ops::apply(plan, tr("Restore Comparison Curves"), error)) workflowMessage(viewer, QMessageBox::Warning, tr("Restore Curves"), error);
     else if (plan.changes.empty()) return;
     else { viewer->getSelection()->selectNone(); viewer->emitCurveChanged(); graph->refreshNormalization(); graph->update(); }
   })->setObjectName("FunctionRestoreComparison");
@@ -805,19 +875,35 @@ QWidget *createFunctionWorkflowControls(FunctionViewer *viewer, FunctionTreeView
   QObject::connect(snapMarkers, &QAction::toggled, widget, [=](bool enabled) { graph->setSnapMarkers(enabled); QSettings s(settingsPath(), QSettings::IniFormat); s.setValue("snapMarkers", enabled); });
   QObject::connect(snapKeys, &QAction::toggled, widget, [=](bool enabled) { graph->setSnap(*snap, enabled); QSettings s(settingsPath(), QSettings::IniFormat); s.setValue("snapKeys", enabled); });
   menu->addAction(tr("Set frame snap increment…"), widget, [=]() {
-    bool ok; int n = QInputDialog::getInt(viewer, tr("Frame Snap"), tr("Frames (Alt temporarily bypasses grid/key snapping)"), *snap, 1, 1000, 1, &ok);
-    if (ok) { *snap = n; graph->setSnap(n, snapKeys->isChecked()); QSettings s(settingsPath(), QSettings::IniFormat); s.setValue("snapFrames", n); }
-  });
+    WorkflowDialog<QInputDialog> prompt(viewer); prompt.setObjectName("FunctionFrameSnap");
+    prompt.setWindowTitle(tr("Frame Snap")); prompt.setLabelText(tr("Frames (Alt temporarily bypasses grid/key snapping)"));
+    prompt.setInputMode(QInputDialog::IntInput); prompt.setIntRange(1, 1000); prompt.setIntValue(*snap);
+    if (prompt.exec() == QDialog::Accepted && prompt.validContext()) {
+      *snap = prompt.intValue(); graph->setSnap(*snap, snapKeys->isChecked());
+      QSettings s(settingsPath(), QSettings::IniFormat); s.setValue("snapFrames", *snap);
+    }
+  })->setObjectName("FunctionFrameSnapAction");
   graph->setHitRadius(settings.value("hitRadius", 10).toInt());
   menu->addAction(tr("Set handle hit size…"), widget, [=]() {
-    bool ok; QSettings s(settingsPath(), QSettings::IniFormat); int radius = QInputDialog::getInt(viewer, tr("Graph Handles"), tr("Hit radius (logical pixels)"), s.value("hitRadius", 10).toInt(), 6, 24, 1, &ok);
-    if (ok) { graph->setHitRadius(radius); s.setValue("hitRadius", radius); }
-  });
+    QSettings s(settingsPath(), QSettings::IniFormat);
+    WorkflowDialog<QInputDialog> prompt(viewer); prompt.setObjectName("FunctionHandleSize");
+    prompt.setWindowTitle(tr("Graph Handles")); prompt.setLabelText(tr("Hit radius (logical pixels)"));
+    prompt.setInputMode(QInputDialog::IntInput); prompt.setIntRange(6, 24); prompt.setIntValue(s.value("hitRadius", 10).toInt());
+    if (prompt.exec() == QDialog::Accepted && prompt.validContext()) {
+      graph->setHitRadius(prompt.intValue()); s.setValue("hitRadius", prompt.intValue());
+    }
+  })->setObjectName("FunctionHandleSizeAction");
   graph->setValueNudge(settings.value("valueNudge", 1.).toDouble());
   menu->addAction(tr("Set keyboard value increment…"), widget, [=]() {
-    bool ok; QSettings s(settingsPath(), QSettings::IniFormat); double value = QInputDialog::getDouble(viewer, tr("Keyboard Nudges"), tr("Display units (arrows; Shift multiplies by 10)"), s.value("valueNudge", 1.).toDouble(), .000001, 1.e6, 6, &ok);
-    if (ok) { graph->setValueNudge(value); s.setValue("valueNudge", value); }
-  });
-  menu->addAction(tr("Graph editing help"), widget, [=]() { QMessageBox::information(viewer, tr("Function Editor"), tr("Arrows nudge selected keys; Shift uses ten increments. Shift-drag constrains one axis. Alt-drag bypasses grid/key/marker snapping for ordinary moves. Alt stretches a contiguous selection of three or more keys; Shift+Alt keeps a constrained move and bypasses snapping. Search filters the browser, keeping active curves visible. Locked channels remain readable; editor writes are rejected. Dashed comparison and normalized display never change animation values.")); });
+    QSettings s(settingsPath(), QSettings::IniFormat);
+    WorkflowDialog<QInputDialog> prompt(viewer); prompt.setObjectName("FunctionValueNudge");
+    prompt.setWindowTitle(tr("Keyboard Nudges")); prompt.setLabelText(tr("Display units (arrows; Shift multiplies by 10)"));
+    prompt.setInputMode(QInputDialog::DoubleInput); prompt.setDoubleDecimals(6);
+    prompt.setDoubleRange(.000001, 1.e6); prompt.setDoubleValue(s.value("valueNudge", 1.).toDouble());
+    if (prompt.exec() == QDialog::Accepted && prompt.validContext()) {
+      graph->setValueNudge(prompt.doubleValue()); s.setValue("valueNudge", prompt.doubleValue());
+    }
+  })->setObjectName("FunctionValueNudgeAction");
+  menu->addAction(tr("Graph editing help"), widget, [=]() { workflowMessage(viewer, QMessageBox::Information, tr("Function Editor"), tr("Arrows nudge selected keys; Shift uses ten increments. Shift-drag constrains one axis. Alt-drag bypasses grid/key/marker snapping for ordinary moves. Alt stretches a contiguous selection of three or more keys; Shift+Alt keeps a constrained move and bypasses snapping. Search filters the browser, keeping active curves visible. Locked channels remain readable; editor writes are rejected. Dashed comparison and normalized display never change animation values.")); });
   return widget;
 }
