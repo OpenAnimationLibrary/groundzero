@@ -114,6 +114,9 @@ inline void captureSelection(const TVectorImageP &image, const std::set<int> &in
   // indices but not these identities.
   for (int index : editable) {
     mask.strokes.emplace_back(new TStroke(*image->getStroke(index)));
+    // TStroke copies receive fresh identities. A detached mask anchor must
+    // retain the source identity so validation can find it after insertions.
+    mask.strokes.back()->setId(image->getStroke(index)->getId());
     mask.depths.push_back(image->getGroupDepth(index));
   }
 }
