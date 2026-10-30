@@ -150,9 +150,21 @@ QImage convert(const QString &executable, const QString &source,
     throw std::runtime_error("native converter timed out");
   }
   const QByteArray output = process.readAll();
-  std::cerr << output.constData() << std::flush;
-  require(process.exitStatus() == QProcess::NormalExit && process.exitCode() == 0,
-          "native converter failed or crashed");
+  constexpr int maximumLoggedBytes = 64 * 1024;
+  std::cerr << output.left(maximumLoggedBytes).constData() << std::flush;
+  if (output.size() > maximumLoggedBytes)
+    std::cerr << "\noffline-gl-workflow: converter output truncated after "
+              << maximumLoggedBytes << " bytes (total " << output.size()
+              << ")" << std::endl;
+  if (process.exitStatus() != QProcess::NormalExit || process.exitCode() != 0) {
+    const QString failure =
+        QString("native converter failed: exit_status=%1 exit_code=%2 "
+                "process_error=%3 detail=%4 requested_width=%5 output_bytes=%6")
+            .arg(process.exitStatus() == QProcess::NormalExit ? "normal" : "crashed")
+            .arg(process.exitCode()).arg(static_cast<int>(process.error()))
+            .arg(process.errorString()).arg(outputWidth).arg(output.size());
+    throw std::runtime_error(failure.toStdString());
+  }
   require(!output.toLower().contains("conversion failed"),
           "native converter reported a frame conversion failure");
   const QFileInfo target(destination);
