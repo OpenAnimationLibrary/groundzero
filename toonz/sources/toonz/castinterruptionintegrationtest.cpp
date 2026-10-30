@@ -52,6 +52,7 @@
 #include <QTimer>
 #include <QVBoxLayout>
 #include <QWindow>
+#include <algorithm>
 #include <functional>
 #include <iostream>
 #include <map>
@@ -653,6 +654,9 @@ void normalTagRoundTrip(Fixture &fixture) {
     for (bool apply : {false, true}) {
       const Snapshot before(fixture.root.path());
       bool menuChosen = false, inputSeen = false, canceledLateAttempt = false;
+      bool accepted = false, rejected = false;
+      int dialogResult = -1;
+      QString dialogText;
       Driver *active = nullptr;
       Driver driver([&]() {
         if (auto *menu = qobject_cast<QMenu *>(QApplication::activePopupWidget())) {
@@ -670,22 +674,27 @@ void normalTagRoundTrip(Fixture &fixture) {
           auto *button = box->button(apply ? QDialogButtonBox::Ok : QDialogButtonBox::Cancel);
           require(button && button->isEnabled(), "normal tag recovery button is disabled");
           QPointer<QPushButton> lateOk = box->button(QDialogButtonBox::Ok);
+          QObject delivery;
+          QObject::connect(input, &QDialog::accepted, &delivery, [&]() { accepted = true; });
           button->click();
           if (!apply) {
             require(browser.isVisible() && lateOk && lateOk->isEnabled(),
                     "tag cancellation did not retain a visible owner and live queued OK target");
             bool acceptedAfterCancel = false;
-            QObject delivery;
-            QObject::connect(input, &QDialog::accepted, &delivery,
+            QObject cancelDelivery;
+            QObject::connect(input, &QDialog::accepted, &cancelDelivery,
                              [&]() { acceptedAfterCancel = true; });
-            QMetaObject::invokeMethod(&delivery, [&]() {
+            QMetaObject::invokeMethod(&cancelDelivery, [&]() {
               canceledLateAttempt = true;
               if (lateOk) lateOk->click();
             }, Qt::QueuedConnection);
-            QCoreApplication::sendPostedEvents(&delivery, QEvent::MetaCall);
+            QCoreApplication::sendPostedEvents(&cancelDelivery, QEvent::MetaCall);
             require(acceptedAfterCancel && input->result() == QDialog::Accepted,
                     "queued native OK did not exercise acceptance after cancellation");
           }
+          dialogResult = input->result();
+          dialogText = input->textValue();
+          rejected = input->property("CastWorkflowRejected").toBool();
         }
       });
       active = &driver; driver.enqueue(); launch->click();
@@ -696,6 +705,32 @@ void normalTagRoundTrip(Fixture &fixture) {
         before.verify(fixture.root.path());
       }
       else {
+        auto *undo = TUndoManager::manager();
+        const bool correct = accepted && dialogResult == QDialog::Accepted && !rejected &&
+            fixture.drawing->getCastTags() == QStringList{"Recovered tags"} &&
+            undo->getCurrentHistoryIndex() == before.history + 1;
+        if (!correct) {
+          std::cerr << "cast-tag-native: round=" << round << " accepted=" << accepted
+                    << " result=" << dialogResult << " rejected=" << rejected
+                    << " input=" << dialogText.toStdString()
+                    << " tags=" << fixture.drawing->getCastTags().join(", ").toStdString()
+                    << " history=" << before.history << "->" << undo->getCurrentHistoryIndex()
+                    << " count=" << before.historyCount << "->" << undo->getHistoryCount()
+                    << " foldersUnchanged=" << (foldersOf(scene()->getLevelSet()) == before.folders)
+                    << '\n';
+          std::vector<TXshLevel *> selected;
+          static_cast<CastSelection *>(viewer->getPanel()->getSelection())->getSelectedLevels(selected);
+          for (size_t i = 0; i < selected.size() && i < 8; ++i)
+            std::cerr << "cast-tag-native: selected=" << selected[i]->getCastId().toStdString()
+                      << " target=" << (selected[i] == fixture.drawing.getPointer()) << '\n';
+          for (int i = std::max(1, undo->getCurrentHistoryIndex() - 7);
+               i <= undo->getCurrentHistoryIndex(); ++i)
+            if (auto *item = undo->getUndoItem(i))
+              std::cerr << "cast-tag-native: history[" << i << "]="
+                        << item->getHistoryString().toStdString() << '\n';
+        }
+        require(accepted && dialogResult == QDialog::Accepted && !rejected,
+                "fresh Cast tag dialog did not deliver an uncanceled native acceptance");
         require(fixture.drawing->getCastTags() == QStringList{"Recovered tags"} &&
                     TUndoManager::manager()->getCurrentHistoryIndex() == before.history + 1,
                 "fresh Cast tag acceptance did not apply one undoable edit");
@@ -708,6 +743,46 @@ void normalTagRoundTrip(Fixture &fixture) {
     }
   }
   TUndoManager::manager()->reset();
+}
+
+void sceneRootDisplayRoundTrip(Fixture &fixture) {
+  auto *handle = TApp::instance()->getCurrentScene();
+  const Snapshot before(fixture.root.path());
+  const TFilePath originalPath = scene()->getScenePath();
+  CastTreeViewer tree;
+  for (bool hidden : {false, true}) {
+    if (hidden) tree.hide();
+    else { tree.show(); settle([&]() { return tree.isVisible(); }); }
+    auto *root = tree.topLevelItem(0);
+    require(root && !(root->flags() & Qt::ItemIsEditable) &&
+                root->data(1, Qt::DisplayRole).toString().isEmpty(),
+            "Cast scene-title fixture is not the noneditable scene root");
+    tree.setCurrentItem(root); root->setSelected(true);
+    // A programmatic label change is not a folder edit, even for a selected
+    // root. This also checks the rename handler independently of notification.
+    root->setText(0, "Display-only scene label");
+    before.verify(fixture.root.path());
+    handle->notifyNameSceneChange();
+    require(tree.topLevelItem(0)->text(0) == QString::fromStdWString(scene()->getSceneName()),
+            "Cast scene root did not follow the native scene-name notification");
+    before.verify(fixture.root.path());
+
+    // Saving/titling changes the scene path before the next dirty/name signal.
+    // A hidden Cast remains subscribed and must not rename its empty root path.
+    scene()->setScenePath(TFilePath(fixture.localFolder +
+        (hidden ? "/hidden-title.tnz" : "/visible-title.tnz")));
+    handle->setDirtyFlag(!before.dirty);
+    require(TUndoManager::manager()->getCurrentHistoryIndex() == before.history &&
+                TUndoManager::manager()->getHistoryCount() == before.historyCount &&
+                foldersOf(scene()->getLevelSet()) == before.folders,
+            "selected scene-root relabel created folder changes or phantom undo");
+    require(tree.topLevelItem(0)->text(0) == QString::fromStdWString(scene()->getSceneName()) &&
+                tree.topLevelItem(0)->data(1, Qt::DisplayRole).toString().isEmpty(),
+            "dirty/name notification changed scene-root identity or left a stale label");
+    scene()->setScenePath(originalPath);
+    handle->setDirtyFlag(before.dirty);
+    before.verify(fixture.root.path());
+  }
 }
 
 void activeFolderSelectionLifetime(Fixture &fixture) {
@@ -801,6 +876,7 @@ void runCastInterruptionIntegrationTest() {
   QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, true);
   Fixture fixture;
   activeFolderSelectionLifetime(fixture);
+  sceneRootDisplayRoundTrip(fixture);
   const Case cases[] = {
       {"Edit Tags…", "menu", Interruption::HideShow},
       {"New Collection from Selected…", "menu", Interruption::Destroy, true},
