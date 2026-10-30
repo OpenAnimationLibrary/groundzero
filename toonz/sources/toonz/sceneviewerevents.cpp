@@ -72,6 +72,10 @@
 // definito - per ora - in tapp.cpp
 extern QString updateToolEnableStatus(TTool *tool);
 
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+#include <QPointingDevice>
+#endif
+
 //-----------------------------------------------------------------------------
 namespace {
 //-----------------------------------------------------------------------------
@@ -82,6 +86,9 @@ void initToonzEvent(TMouseEvent &toonzEvent, QMouseEvent *event,
                                   widgetHeight - 1 - event->pos().y() * devPixRatio);
   toonzEvent.m_mousePos = event->pos();
   toonzEvent.m_pressure = 1.0;
+  toonzEvent.m_tilt = TPointD();
+  toonzEvent.m_rotation = 0;
+  toonzEvent.m_hasTilt = toonzEvent.m_hasRotation = false;
 
   toonzEvent.setModifiers(event->modifiers() & Qt::ShiftModifier,
                           event->modifiers() & Qt::AltModifier,
@@ -102,6 +109,19 @@ void initToonzEvent(TMouseEvent &toonzEvent, QTabletEvent *event,
       (float)widgetHeight - 1.0f - event->posF().y() * (float)devPixRatio);
   toonzEvent.m_mousePos = event->posF();
   toonzEvent.m_pressure = pressure;
+  toonzEvent.m_tilt = TPointD(event->xTilt()/60.0, -event->yTilt()/60.0);
+  toonzEvent.m_rotation = -event->rotation()*3.14159265358979323846/180.0;
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+  toonzEvent.m_hasTilt = event->pointingDevice()->hasCapability(QInputDevice::Capability::XTilt) ||
+                        event->pointingDevice()->hasCapability(QInputDevice::Capability::YTilt);
+  toonzEvent.m_hasRotation = event->pointingDevice()->hasCapability(QInputDevice::Capability::Rotation);
+#else
+  // Qt 5 lacks per-axis capability flags. Nonzero reports establish the
+  // channel; a zero report is treated neutrally, not as invented tilt.
+  toonzEvent.m_hasTilt = event->xTilt()!=0 || event->yTilt()!=0;
+  toonzEvent.m_hasRotation = event->deviceType()==QTabletEvent::RotationStylus;
+#endif
+
 
   toonzEvent.setModifiers(event->modifiers() & Qt::ShiftModifier,
                           event->modifiers() & Qt::AltModifier,

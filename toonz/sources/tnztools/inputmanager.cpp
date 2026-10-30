@@ -362,7 +362,7 @@ TInputManager::addTrackPoint(
   double pressure,
   const TPointD &tilt,
   double time,
-  bool final )
+  bool final, double rotation, bool hasRotation )
 {
   track->push_back(
     TTrackPoint(
@@ -372,7 +372,7 @@ TInputManager::addTrackPoint(
       (double)track->size(),
       time,
       0.0, // length will calculated inside of TTrack::push_back
-      final ),
+      final, rotation, hasRotation ),
     true );
 }
 
@@ -382,7 +382,7 @@ TInputManager::touchTracks(bool finish) {
   for(TTrackList::const_iterator i = m_tracks.front().begin(); i != m_tracks.front().end(); ++i) {
     if (!(*i)->finished() && (*i)->size() > 0) {
       const TTrackPoint &p = (*i)->back();
-      addTrackPoint(*i, p.position, p.pressure, p.tilt, fixTicks(m_lastTicks)*TToolTimer::step, finish);
+      addTrackPoint(*i, p.position, p.pressure, p.tilt, fixTicks(m_lastTicks)*TToolTimer::step, finish, p.rotation, p.hasRotation);
     }
   }
 }
@@ -491,7 +491,7 @@ TInputManager::trackEvent(
   bool hasPressure,
   bool hasTilt,
   bool final,
-  TTimerTicks ticks )
+  TTimerTicks ticks, double rotation, bool hasRotation )
 {
   ticks = fixTicks(ticks);
   TTrackP track = getTrack(deviceId, touchId, ticks, hasPressure, hasTilt);
@@ -504,7 +504,7 @@ TInputManager::trackEvent(
       pressure,
       tilt,
       time,
-      final );
+      final, rotation, hasRotation );
   }
 }
 

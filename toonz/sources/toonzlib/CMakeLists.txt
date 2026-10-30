@@ -77,6 +77,7 @@ set(HEADERS
     ../include/toonz/Naa2TlvConverter.h
     ../include/toonz/abrparser.h
     ../include/toonz/rasterbrushengine.h
+    ../include/toonz/rasterbrushpreset.h
     ../include/toonz/autoclose.h
     ../include/toonz/boardsettings.h
     ../include/toonz/captureparameters.h
@@ -198,6 +199,7 @@ set(SOURCES
     particlecache.cpp
     abrparser.cpp
     rasterbrushengine.cpp
+    rasterbrushpreset.cpp
     autoadjust.cpp
     autoclose.cpp
     autopos.cpp
@@ -486,6 +488,9 @@ endif()
 # Optional regression target for the Photoshop brush (ABR) reader.
 option(BUILD_ABR_TESTS "Build the ABR brush reader test" ${BUILD_TESTS})
 if(BUILD_ABR_TESTS)
+    add_executable(rasterbrushpreset_test tests/rasterbrushpreset_test.cpp)
+    target_link_libraries(rasterbrushpreset_test PRIVATE toonzlib tnzcore Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
+    add_test(NAME rasterbrushpreset COMMAND rasterbrushpreset_test)
     add_executable(rasterbrushengine_test tests/rasterbrushengine_test.cpp)
     target_link_libraries(rasterbrushengine_test PRIVATE toonzlib tnzcore)
     add_test(NAME rasterbrushengine COMMAND rasterbrushengine_test)

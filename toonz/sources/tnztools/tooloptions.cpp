@@ -2003,6 +2003,12 @@ BrushToolOptionsBox::BrushToolOptionsBox(QWidget *parent, TTool *tool,
             SLOT(reloadComboBoxList(std::string)));
   }
 
+  ToolOptionCombo *nativeCombo =
+      dynamic_cast<ToolOptionCombo *>(m_controls.value("Native Brush:"));
+  if (nativeCombo && toolHandle)
+    connect(toolHandle, SIGNAL(toolComboBoxListChanged(std::string)), nativeCombo,
+            SLOT(reloadComboBoxList(std::string)));
+
   // Preset +/- buttons
   m_addPresetButton    = new QPushButton(QString("+"));
   m_removePresetButton = new QPushButton(QString("-"));
@@ -2085,7 +2091,7 @@ void BrushToolOptionsBox::filterControls() {
   if (m_tool->getTargetType() & TTool::RasterImage) {
     FullColorBrushTool *fullColorBrushTool =
         dynamic_cast<FullColorBrushTool *>(m_tool);
-    showModifiers = fullColorBrushTool->getBrushStyle();
+    showModifiers = fullColorBrushTool->getBrushStyle() || fullColorBrushTool->isNativeBrushActive();
   } else if (m_tool->getTargetType() & TTool::ToonzImage) {
     ToonzRasterBrushTool *toonzRasterBrushTool =
         dynamic_cast<ToonzRasterBrushTool *>(m_tool);
@@ -2108,7 +2114,7 @@ void BrushToolOptionsBox::filterControls() {
     bool isModifier = (it.key().substr(0, 8) == "Modifier");
     bool isCommon   = (it.key() == "Lock Alpha" || it.key() == "Pressure" ||
                      it.key() == "Assistants" || it.key() == "Preset:" ||
-                     it.key() == "Tip:" || it.key() == "Smooth:");
+                     it.key() == "Tip:" || it.key() == "Native Brush:" || it.key() == "Smooth:");
     bool visible    = isCommon || (isModifier == showModifiers);
     it.value()->setVisible(visible);
   }
@@ -2118,7 +2124,7 @@ void BrushToolOptionsBox::filterControls() {
     bool isModifier = (it.key().substr(0, 8) == "Modifier");
     bool isCommon   = (it.key() == "Lock Alpha" || it.key() == "Pressure" ||
                      it.key() == "Assistants" || it.key() == "Preset:" ||
-                     it.key() == "Tip:" || it.key() == "Smooth:");
+                     it.key() == "Tip:" || it.key() == "Native Brush:" || it.key() == "Smooth:");
     bool visible    = isCommon || (isModifier == showModifiers);
     if (QWidget *widget = dynamic_cast<QWidget *>(it.value()))
       widget->setVisible(visible);

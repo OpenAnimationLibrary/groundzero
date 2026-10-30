@@ -189,7 +189,8 @@ private:
     double pressure,
     const TPointD &tilt,
     double time,
-    bool final );
+    bool final,
+    double rotation = 0, bool hasRotation = false );
   void touchTracks(bool finish = false);
 
   void modifierActivate(const TInputModifierP &modifier);
@@ -240,7 +241,8 @@ public:
     bool hasPressure,
     bool hasTilt,
     bool final,
-    TTimerTicks ticks );
+    TTimerTicks ticks,
+    double rotation = 0, bool hasRotation = false );
   bool keyEvent(
     bool press,
     TInputState::Key key,

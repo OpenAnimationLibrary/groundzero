@@ -38,3 +38,23 @@ if(BRUSH_SANITIZERS AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
 endif()
 add_test(NAME rasterbrushengine COMMAND rasterbrushengine_test)
 set_tests_properties(rasterbrushengine PROPERTIES TIMEOUT 60)
+
+find_package(Qt6 REQUIRED COMPONENTS Core Gui)
+add_executable(rasterbrushpreset_test
+  "${REPO_ROOT}/toonz/sources/toonzlib/rasterbrushpreset.cpp"
+  "${REPO_ROOT}/toonz/sources/toonzlib/rasterbrushengine.cpp"
+  "${REPO_ROOT}/toonz/sources/toonzlib/tests/rasterbrushpreset_test.cpp")
+target_include_directories(rasterbrushpreset_test PRIVATE "${REPO_ROOT}/toonz/sources/include")
+target_compile_definitions(rasterbrushpreset_test PRIVATE TOONZLIB_EXPORTS)
+target_link_libraries(rasterbrushpreset_test PRIVATE Qt6::Core Qt6::Gui)
+if(APPLE)
+  target_compile_definitions(rasterbrushpreset_test PRIVATE MACOSX)
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  target_compile_definitions(rasterbrushpreset_test PRIVATE LINUX)
+endif()
+if(BRUSH_SANITIZERS AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+  target_compile_options(rasterbrushpreset_test PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
+  target_link_options(rasterbrushpreset_test PRIVATE -fsanitize=address,undefined)
+endif()
+add_test(NAME rasterbrushpreset COMMAND rasterbrushpreset_test)
+set_tests_properties(rasterbrushpreset PROPERTIES TIMEOUT 60)

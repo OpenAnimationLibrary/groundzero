@@ -84,6 +84,8 @@ public:
   double length;
 
   bool final;
+  double rotation = 0;
+  bool hasRotation = false;
 
   explicit TTrackPoint(
     const TPointD &position = TPointD(),
@@ -92,7 +94,9 @@ public:
     double originalIndex = 0.0,
     double time = 0.0,
     double length = 0.0,
-    bool final = false
+    bool final = false,
+    double rotation = 0,
+    bool hasRotation = false
   ):
     position(position),
     pressure(pressure),
@@ -100,7 +104,7 @@ public:
     originalIndex(originalIndex),
     time(time),
     length(length),
-    final(final)
+    final(final), rotation(rotation), hasRotation(hasRotation)
   { }
 };
 
@@ -172,6 +176,10 @@ public:
     TPointD t = tiltTransform * p.tilt;
     p.tilt.x = t.x > -1 ? (t.x < 1 ? t.x : 1) : -1;
     p.tilt.y = t.y > -1 ? (t.y < 1 ? t.y : 1) : -1;
+    if (p.hasRotation) {
+      TPointD direction = tiltTransform * TPointD(std::cos(p.rotation), std::sin(p.rotation));
+      p.rotation = std::atan2(direction.y, direction.x);
+    }
     
     double pr = p.pressure*pressureScale + pressureOffset;
     p.pressure = pr > 0 ? (pr < 1 ? pr : 1) : 0;
@@ -470,7 +478,9 @@ public:
       interpolationLinear(p0.originalIndex , p1.originalIndex , l),
       interpolationLinear(p0.time          , p1.time          , l),
       interpolationLinear(p0.length        , p1.length        , l),
-      p0.final && p1.final );
+      p0.final && p1.final,
+      p0.rotation + std::remainder(p1.rotation-p0.rotation, 6.283185307179586)*l,
+      p0.hasRotation && p1.hasRotation );
   }
 
   static inline TTrackPoint interpolationSpline(
@@ -491,7 +501,9 @@ public:
       interpolationLinear(p0.originalIndex , p1.originalIndex , l),
       interpolationLinear(p0.time          , p1.time          , l),
       interpolationLinear(p0.length        , p1.length        , l),
-      p0.final && p1.final );
+      p0.final && p1.final,
+      p0.rotation + std::remainder(p1.rotation-p0.rotation, 6.283185307179586)*l,
+      p0.hasRotation && p1.hasRotation );
   }
 };
 

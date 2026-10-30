@@ -82,10 +82,18 @@ Pixel composite(Pixel dst, Pixel src, Blend mode, bool lockAlpha) {
 std::string validate(const Preset &p) {
   if (p.profile != "groundzero-native-1") return "Unimplemented behavior profile: "+p.profile;
   auto range=[](double v,double lo,double hi){return std::isfinite(v)&&v>=lo&&v<=hi;};
+  if(int(p.blend)<0||int(p.blend)>int(Blend::Erase)||
+     int(p.wet)<0||int(p.wet)>int(Wet::Smear)||
+     int(p.texture.mode)<0||int(p.texture.mode)>int(MaskMode::Subtract)||
+     int(p.secondary.mode)<0||int(p.secondary.mode)>int(MaskMode::Subtract))
+    return "Invalid brush mode";
+  if(!finitePixel(p.color)||p.color.a<0||p.color.a>1||p.color.r<0||
+     p.color.g<0||p.color.b<0||p.color.r>p.color.a||p.color.g>p.color.a||p.color.b>p.color.a)
+    return "Invalid premultiplied brush color";
   auto dynamic=[&](const Dynamic &d,double lo,double hi) {
     if(!range(d.value,lo,hi)||!range(d.minimum,0,1)||d.mappings.size()>16) return false;
     for(const auto &m:d.mappings) {
-      if(!range(m.scale,1e-9,1e9)||m.curve.empty()||m.curve.size()>1024) return false;
+      if(int(m.sensor)<0||int(m.sensor)>int(Sensor::RandomStroke)||!range(m.scale,1e-9,1e9)||m.curve.empty()||m.curve.size()>1024) return false;
       double last=-1;
       for(const auto &k:m.curve) {
         if(!range(k.x,0,1)||!range(k.y,0,1)||k.x<=last) return false;
@@ -107,7 +115,7 @@ std::string validate(const Preset &p) {
     return true;
   };
   auto tip=[&](const Tip &t) {
-    if(!range(t.hardness,0,1)||t.images.size()>256) return false;
+    if(int(t.shape)<0||int(t.shape)>int(Shape::Bitmap)||!range(t.hardness,0,1)||t.images.size()>256) return false;
     if(t.shape==Shape::Bitmap&&t.images.empty()) return false;
     for(const auto &im:t.images) if(!image(im)) return false;
     return true;
@@ -122,7 +130,7 @@ std::string validate(const Preset &p) {
      !range(t.depth,0,1)||!range(t.contrast,0,10)||!range(t.brightness,-1,1)||
      !range(t.offsetX,-1e9,1e9)||!range(t.offsetY,-1e9,1e9))) return "Invalid texture";
   const auto &s=p.secondary;
-  if(s.enabled&&(!tip(s.tip)||!dynamic(s.size,.01,10)||!dynamic(s.angle,-36000,36000)||
+  if((!tip(s.tip)||!dynamic(s.size,.01,10)||!dynamic(s.angle,-36000,36000)||
      !dynamic(s.opacity,0,1)||!range(s.aspect,.01,1)||!range(s.scatter,0,5))) return "Invalid secondary tip";
   if(!range(p.pickup,0,1)||!range(p.colorRate,0,1)||!range(p.reload,0,1)||
      !range(p.smudgeRadius,0,3)) return "Invalid wet brush settings";

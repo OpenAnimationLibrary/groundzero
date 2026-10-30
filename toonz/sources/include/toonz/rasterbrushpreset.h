@@ -1,0 +1,27 @@
+#pragma once
+#include "toonz/rasterbrushengine.h"
+#include <QByteArray>
+#include <QString>
+#include <QStringList>
+#include <QJsonObject>
+
+namespace RasterBrush {
+struct Record {
+  Preset preset;
+  QJsonObject provenance;
+  QStringList diagnostics;
+  bool decoded = false;
+  bool semanticallySupported = false;
+  // Verification is never granted by a field in an imported file.
+  bool referenceVerified = false;
+};
+RASTERBRUSH_API QByteArray encode(const Record &record, QString &error);
+RASTERBRUSH_API Record decode(const QByteArray &bytes, QString &error);
+RASTERBRUSH_API Record load(const QString &path, QString &error);
+RASTERBRUSH_API bool save(const QString &path, const Record &record, QString &error);
+RASTERBRUSH_API QString install(const QString &directory, const Record &record, QString &error);
+// Converts a bounded bitmap into a native mask or colored stamp. PNG resources
+// inside a package have no filenames and cannot escape their resource graph.
+RASTERBRUSH_API std::shared_ptr<const Image> decodeImage(const QByteArray &bytes,
+                                                       bool color, QString &error);
+}  // namespace RasterBrush
