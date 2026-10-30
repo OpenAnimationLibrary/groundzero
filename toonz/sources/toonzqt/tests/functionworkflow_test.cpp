@@ -842,7 +842,17 @@ int main(int argc, char **argv) {
     return 0;
   }
   checkpoint("application initialization begins");
-  qputenv("QT_QPA_PLATFORM", "offscreen"); QApplication application(argc, argv); TThread::init();
+#ifdef Q_OS_WIN
+  // The Windows QMessageBox implementation dereferences the platform native
+  // interface, which the Qt 5 offscreen plugin does not implement.
+  qputenv("QT_QPA_PLATFORM", "windows");
+#else
+  qputenv("QT_QPA_PLATFORM", "offscreen");
+#endif
+  QApplication application(argc, argv); TThread::init();
+  std::cerr << "function-workflow: qt=" << qVersion()
+            << " platform=" << QApplication::platformName().toStdString()
+            << " native-interface=" << bool(QApplication::platformNativeInterface()) << std::endl;
   try {
     QTemporaryDir directory; require(directory.isValid(), "temporary directory unavailable");
     QDir().mkpath(directory.filePath("stuff/config")); QDir().mkpath(directory.filePath("stuff/profiles"));

@@ -141,6 +141,21 @@ Windows CDB capture now distinguish capture, modal setup, model reset and the
 actual Yes click. The original failed result remains authoritative; no product
 behavior or assertion was changed without a stack establishing the cause.
 
+Further source review identified an incompatible test platform in the pinned
+Windows Qt 5.15.2: `QMessageBox::showEvent` calls
+[`qt_getWindowsSystemMenu`](https://github.com/qt/qtbase/blob/v5.15.2/src/widgets/dialogs/qmessagebox.cpp#L73-L79),
+which dereferences the platform native interface. The
+[`offscreen` integration](https://github.com/qt/qtbase/blob/v5.15.2/src/plugins/platforms/offscreen/qoffscreenintegration.h#L49-L80)
+does not implement that interface and inherits the base
+[`nullptr` result](https://github.com/qt/qtbase/blob/v5.15.2/src/gui/kernel/qplatformintegration.cpp#L108-L111).
+The failing widget sequence reaches its first actual message box here, while
+the completed same-Qt full-application run passed both comparison answers and
+the strict retime/rig assertions using the `windows` platform. The widget suite
+and its diagnostic rerun now use that native Windows platform; Linux/macOS
+settings, product code and every modal/state assertion are unchanged. Runtime
+platform provenance is printed. The original crash stack was not captured;
+fresh CI must qualify this source-backed fixture correction.
+
 Combined-workflow Linux head `c7fdf2aec` subsequently reached the real application
 and passed frozen native/SeExpr comparisons, existing graph interactions,
 unkeyed identity persistence and saved-set renaming. The fractional retime scene

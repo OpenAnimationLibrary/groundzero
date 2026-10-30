@@ -1,7 +1,7 @@
 """Collect a bounded stack for an already-failed native widget test.
 
 This diagnostic never replaces the original CTest result. It reruns only the
-crashed fixture, with the same offscreen Qt platform and packaged libraries.
+crashed fixture, with the same Windows Qt platform and packaged libraries.
 """
 import argparse
 import os
@@ -36,7 +36,7 @@ def collect(build, qt, test_name):
     environment["PATH"] = os.pathsep.join((str(package), str(qt / "bin"), environment.get("PATH", "")))
     environment["QT_PLUGIN_PATH"] = str(qt / "plugins")
     environment["QT_QPA_PLATFORM_PLUGIN_PATH"] = str(qt / "plugins" / "platforms")
-    environment["QT_QPA_PLATFORM"] = "offscreen"
+    environment["QT_QPA_PLATFORM"] = "windows"
     # Restrict symbols to this build. Stop at the actual access violation (or
     # heap/stack corruption), before a handler can replace the original stack.
     commands = ("sxe av; sxe 0xc0000374; sxe 0xc0000409; g; "
