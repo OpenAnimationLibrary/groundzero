@@ -14,6 +14,7 @@ from unittest.mock import Mock, patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import windows_process as process_support
 import run_native_ui_test as runner
+import native_ui_windows_dump as dump_support
 from native_ui_windows_dump import OriginalWindowsDump
 
 
@@ -154,6 +155,34 @@ class OriginalDumpContracts(unittest.TestCase):
         self.root = Path(self.storage.name)
         self.executable = self.root / "Fixture.exe"
         self.executable.write_bytes(b"synthetic executable identity")
+
+    def test_missing_dump_witnesses_are_read_only_and_do_not_print_registry_paths(self):
+        registry = FakeRegistry({"Auto": ("1", 1), "Start": (4, 4),
+                                 "Disabled": ("private\\account\\value", 1),
+                                 "Fixture.exe": (1, 4)})
+        old = dict(registry.values)
+        with patch.object(dump_support, "_wer_service_diagnostic", return_value="WerSvc observed state=1"):
+            text = dump_support.windows_dump_prerequisites("Fixture.exe", registry)
+        self.assertIn("AeDebug Auto: 1 (registry type 1)", text)
+        self.assertIn("AeDebug application exclusion: 1", text)
+        self.assertIn("WerSvc start mode: 4", text)
+        self.assertIn("WER policy Disabled: non-scalar", text)
+        self.assertIn("LocalDumps application DumpType: absent", text)
+        self.assertIn("WerSvc observed state=1", text)
+        self.assertNotIn("private", text)
+        self.assertEqual(registry.values, old)
+        self.assertFalse(registry.deleted)
+
+    def test_prerequisite_read_failure_is_bounded_and_does_not_hide_missing_dump(self):
+        registry = FakeRegistry()
+        with OriginalWindowsDump(self.executable, self.root, registry=registry) as capture:
+            registry.OpenKey = Mock(side_effect=PermissionError("private path must not be printed"))
+            with patch.object(dump_support, "_wer_service_diagnostic", return_value="WerSvc state unavailable"):
+                text = capture.collect(123, 10, 11, [], Mock(side_effect=AssertionError("no replay")))
+            self.assertIn("Original Windows dump unavailable", text)
+            self.assertIn("PermissionError", text)
+            self.assertNotIn("private path", text)
+            self.assertLess(len(text), 4096)
 
     def test_existing_values_types_and_unrelated_data_survive_exception(self):
         old = {"DumpFolder": ("old folder", 1), "DumpType": (2, 4), "Unrelated": (b"keep", 3)}
@@ -364,6 +393,17 @@ class NativeWindowsProcessContracts(unittest.TestCase):
         script = r'''import ctypes, os, pathlib, subprocess, sys, time
 sys.stdout.reconfigure(encoding='utf-8')
 root = pathlib.Path(sys.argv[1])
+kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+kernel.GetErrorMode.argtypes = []
+kernel.GetErrorMode.restype = ctypes.c_uint32
+mode = kernel.GetErrorMode()
+print('original child GetErrorMode=' + hex(mode), flush=True)
+assert mode & 2 == 0, 'child inherited SEM_NOGPFAULTERRORBOX suppression'
+folder_probe = pathlib.Path(sys.argv[2]) / 'child-write-probe'
+folder_probe.write_bytes(b'capture folder access')
+assert folder_probe.read_bytes() == b'capture folder access'
+folder_probe.unlink()
+print('original child private dump folder write/read/delete PASS', flush=True)
 child_script = "import pathlib,sys,time; pathlib.Path(sys.argv[1]).write_text(str(__import__('os').getpid())); time.sleep(120)"
 child = subprocess.Popen([sys.executable, '-c', child_script, str(root / 'child-ready')])
 deadline = time.monotonic() + 15
@@ -371,7 +411,7 @@ while not (root / 'child-ready').exists():
     if time.monotonic() >= deadline: raise RuntimeError('child did not start')
     time.sleep(.01)
 print('original failfast with live child', child.pid, os.environ['GZ_WINDOWS_JOB_PROBE'], flush=True)
-failfast = ctypes.WinDLL('kernel32').RaiseFailFastException
+failfast = kernel.RaiseFailFastException
 failfast.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_uint32]
 failfast.restype = None
 failfast(None, None, 0)
@@ -385,16 +425,35 @@ raise RuntimeError('failfast unexpectedly returned')
             environment["GZ_WINDOWS_JOB_PROBE"] = "描画 frame"
             with OriginalWindowsDump(executable, root, runtime_state=state) as capture:
                 self.assertTrue(capture.enabled, "\n".join(capture.notes))
-                result = runner.run_captured_process([str(executable), "-c", script, str(root)],
-                    cwd=root, environment=environment, timeout=60, runtime_state=state)
+                kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+                kernel.GetErrorMode.argtypes = []
+                kernel.GetErrorMode.restype = ctypes.c_uint32
+                kernel.SetErrorMode.argtypes = [ctypes.c_uint32]
+                kernel.SetErrorMode.restype = ctypes.c_uint32
+                parent_mode = kernel.GetErrorMode()
+                print(f"Windows probe parent GetErrorMode before controlled suppression={parent_mode:#x}", flush=True)
+                # Qualify creation-time normalization with a known suppressed
+                # parent, without changing any machine policy/service setting.
+                try:
+                    kernel.SetErrorMode(parent_mode | 2)
+                    self.assertEqual(kernel.GetErrorMode() & 2, 2)
+                    result = runner.run_captured_process([str(executable), "-c", script, str(root), str(capture.folder)],
+                        cwd=root, environment=environment, timeout=60, runtime_state=state)
+                finally:
+                    kernel.SetErrorMode(parent_mode)
+                self.assertEqual(kernel.GetErrorMode(), parent_mode)
                 self.assertEqual(result.returncode, 0xC0000602)  # STATUS_FAIL_FAST_EXCEPTION
+                mode_lines = [line for line in result.stdout.decode("utf-8", errors="replace").splitlines()
+                              if line.startswith("original child GetErrorMode=")]
+                self.assertEqual(len(mode_lines), 1)
+                self.assertEqual(int(mode_lines[0].split("=", 1)[1], 16) & 2, 0)
+                self.assertIn(b"original child private dump folder write/read/delete PASS", result.stdout)
                 self.assertIn(b"original failfast with live child", result.stdout)
                 self.assertIn("描画 frame".encode("utf-8"), result.stdout)
                 self.assertTrue(state["safe_to_release"], result.stdout.decode(errors="replace"))
                 self.assertIn(b"zero active processes", result.stdout)
                 self.assertFalse(Path(state["capture_path"]).exists())
                 child_pid = int((root / "child-ready").read_text())
-                kernel = ctypes.WinDLL("kernel32", use_last_error=True)
                 kernel.OpenProcess.argtypes = [ctypes.c_uint32, ctypes.c_int32, ctypes.c_uint32]
                 kernel.OpenProcess.restype = ctypes.c_void_p
                 kernel.WaitForSingleObject.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
@@ -411,7 +470,8 @@ raise RuntimeError('failfast unexpectedly returned')
                     self.assertEqual(ctypes.get_last_error(), 87)  # PID already retired
                 report = capture.collect(state["pid"], state["started_at"], state["finished_at"],
                                          [], runner.run_captured_process)
-                self.assertIn("Original dump CDB exited with status 0.", report)
+                self.assertIn("Original dump CDB exited with status 0.", report,
+                              report + "\nOriginal probe output:\n" + result.stdout.decode("utf-8", errors="replace"))
                 self.assertIn("c0000602", report.lower())
                 self.assertIn("Executable SHA256:", report)
             self.assertFalse(capture.restore_failed, "\n".join(capture.notes))

@@ -90,6 +90,9 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Verify early harness failure reporting
+        run: python3 -m unittest discover -s ci-scripts/tests -p test_harness_reporting.py -v
+
       - name: Select SeExpr parser tools
         run: |
           brew --prefix bison | sed 's|$|/bin|' >> "$GITHUB_PATH"

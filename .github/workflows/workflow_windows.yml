@@ -204,7 +204,10 @@ jobs:
 
       - name: Verify original Windows process containment and crash capture
         timeout-minutes: 5
-        run: python -m unittest discover -s ci-scripts/tests -p test_windows_process.py -v
+        run: python ci-scripts/run_harness_tests.py --pattern test_windows_process.py --report native-process-contracts-output.txt
+
+      - name: Verify early harness failure reporting
+        run: python -m unittest discover -s ci-scripts/tests -p test_harness_reporting.py -v
 
       - name: Verify native diagnostic isolation
         run: python -m unittest discover -s ci-scripts/tests -p test_native_ui_diagnostics.py
@@ -566,6 +569,7 @@ jobs:
         with:
           name: windows-reliability-results
           path: |
+            native-process-contracts-output.txt
             toonz/build/reliability-tests.xml
             toonz/build/cast-workflow-metrics.json
             toonz/build/stdfx/fxrender-output

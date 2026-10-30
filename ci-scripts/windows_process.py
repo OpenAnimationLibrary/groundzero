@@ -143,9 +143,12 @@ class _Win32:
                     raise ValueError("Invalid Windows process environment entry")
                 entries.append(key + "=" + value)
             environment_block = ctypes.create_unicode_buffer("\0".join(entries) + "\0\0")
+            # A shell/test host may suppress WER with SEM_NOGPFAULTERRORBOX.
+            # Start with the documented default mode rather than inheriting
+            # that suppression; this changes no host-wide error-report policy.
             self.check(self.kernel.CreateProcessW(command[0], command_line, None, None, True,
-                0x80000 | 0x400, environment_block, str(cwd), ctypes.byref(startup.startup),
-                ctypes.byref(info)))  # EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT
+                0x80000 | 0x400 | 0x04000000, environment_block, str(cwd), ctypes.byref(startup.startup),
+                ctypes.byref(info)))  # EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT | CREATE_DEFAULT_ERROR_MODE
             result = job, info.process, int(info.pid)
             job, info.process = None, None  # Ownership transfers only on success.
             return result
