@@ -2,6 +2,7 @@
 #include <QApplication>
 #include <QElapsedTimer>
 #include <QImage>
+#include <QLineEdit>
 #include <QPixmap>
 #include <QPointer>
 #include <QSettings>
@@ -91,15 +92,43 @@ static DialogStep fileStep(const QString &path, bool accept = true,
                 QApplication::testAttribute(Qt::AA_DontUseNativeDialogs),
             "file chooser must expose its real Qt controls to the test");
     if (!path.isEmpty()) {
-      file->setDirectory(QFileInfo(path).absolutePath());
-      file->selectFile(path);
+      const QFileInfo requested(path);
+      file->setDirectory(requested.absolutePath());
+      auto *filename = file->findChild<QLineEdit *>("fileNameEdit");
+      require(filename, "profile file chooser filename control is missing");
+      // Qt's selectFile() deliberately leaves a visible, focused filename
+      // field unchanged. Enter the exact path through the real control so
+      // both ExistingFile and Save keep their ordinary native validation.
+      filename->setFocus();
+      filename->setText(requested.absoluteFilePath());
+      const QStringList selected = file->selectedFiles();
+      auto exactPath = [](const QFileInfo &info) {
+        const QString canonical = info.canonicalFilePath();
+        if (!canonical.isEmpty()) return canonical;
+        // A new export has no canonical file yet. Resolve its existing
+        // parent so platform aliases still identify the same destination.
+        const QString parent = info.absoluteDir().canonicalPath();
+        return parent.isEmpty() ? QDir::cleanPath(info.absoluteFilePath())
+            : QDir(parent).filePath(info.fileName());
+      };
+      require(selected.size() == 1 &&
+                  exactPath(QFileInfo(selected.front())) == exactPath(requested),
+              "profile file chooser did not select the exact requested path");
+      if (file->acceptMode() == QFileDialog::AcceptOpen)
+        require(requested.isFile(), "profile import source file is missing");
     }
     if (afterAccepted)
       QObject::connect(file, &QDialog::accepted, file, afterAccepted);
-    if (accept)
-      require(QMetaObject::invokeMethod(file, "accept", Qt::QueuedConnection),
-              "cannot accept native file chooser");
-    else file->reject();
+    if (accept) {
+      require(!path.isEmpty(), "accepted profile file chooser needs an exact path");
+      auto *buttons = file->findChild<QDialogButtonBox *>();
+      const auto role = file->acceptMode() == QFileDialog::AcceptOpen
+          ? QDialogButtonBox::Open : QDialogButtonBox::Save;
+      auto *commit = buttons ? buttons->button(role) : nullptr;
+      require(commit && commit->isEnabled(),
+              "profile file chooser Open or Save action is unavailable");
+      QTimer::singleShot(0, file, [commit] { commit->click(); });
+    } else file->reject();
   }};
 }
 static DialogStep messageStep(QMessageBox::StandardButton answer,
