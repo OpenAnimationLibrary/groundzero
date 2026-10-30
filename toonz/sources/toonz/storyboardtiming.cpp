@@ -7,6 +7,7 @@
 #include "toonz/tstageobject.h"
 #include "toonz/tstageobjecttree.h"
 #include "toonz/tpinnedrangeset.h"
+#include "toonz/timeremap.h"
 #include "toonz/tscenehandle.h"
 #include "toonz/txsheet.h"
 #include "toonz/txsheethandle.h"
@@ -175,12 +176,24 @@ public:
         double sample = original;
         auto owner = cycleOwners.find(parameter);
         if (owner != cycleOwners.end()) sample = owner->second->paramsTime(original);
-        double value = parameter->getValue(sample);
+        double value = 0;
+        std::string sampleError;
+        // Batch sampling must reject a driven channel's GUI-safe fallback,
+        // including errors in time-shifted or offset-layer references. Use the
+        // shared native evaluator against our immutable source snapshot before
+        // any exposure, audio, curve or undo entry is changed.
+        if (!state.before->getValueChecked(sample, value, sampleError))
+          throw std::runtime_error(QObject::tr("Frame %1: %2")
+              .arg(sample + 1).arg(QString::fromStdString(sampleError)).toStdString());
         auto remap = remapped.find(parameter);
         if (remap != remapped.end()) {
           // Keep exposure editing and remapped playback in sync: translate
           // each looked-up source row through the same exposure permutation.
-          int sourceRow = remap->second->getRemappedRow(original);
+          const int keys = state.before->getKeyframeCount();
+          int sourceRow = TimeRemap::remapRow(original, keys,
+              state.before->keyframeIndexToFrame(0),
+              state.before->keyframeIndexToFrame(keys - 1),
+              state.before->isCycleEnabled(), value);
           if (sourceRow >= start && sourceRow < start + count)
             sourceRow = destination[sourceRow - start];
           value = sourceRow + 1.0;
@@ -358,6 +371,9 @@ bool moveStoryboardTiming(TXsheet *sheet, int first, int last, int insertion,
   StoryboardTimingUndo *undo;
   try {
     undo = new StoryboardTimingUndo(sheet, start, source, curves, sampleStart, sampleEnd, baked, cycleOwners, remapped, cycledObjects);
+  } catch (const std::exception &failure) {
+    return reject(QObject::tr("A timing sample could not be prepared: %1. Correct the affected expression or data file, then retry. No tracks were moved.")
+                      .arg(QString::fromUtf8(failure.what())));
   } catch (...) {
     return reject(QObject::tr("A timing sample could not be prepared. Resolve invalid expressions or reduce the scene size, then retry. No tracks were moved."));
   }

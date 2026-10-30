@@ -94,6 +94,7 @@ class CastBrowser final : public QSplitter, public DvItemListModel {
   QTimer *m_filterTimer;
   QPushButton *m_actions;
   std::vector<TXshLevelP> m_rememberedSelection;
+  std::vector<TXshLevelP> m_displayedLevels;
   std::map<TXshLevel *, QString> m_assetStatus;
   std::map<TXshLevel *, QChar> m_statusBadge;
   bool m_rebuilding = false;

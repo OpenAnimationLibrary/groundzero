@@ -2,6 +2,7 @@
 #include "castselection.h"
 #include "castbrowseractions.h"
 #include "nativeuiintegrationtest.h"
+#include "nativefiledialogtest.h"
 #include "libraryprovenanceintegrationtest.h"
 #include "tapp.h"
 #include "iocommand.h"
@@ -24,6 +25,7 @@
 #include "toonz/sceneresources.h"
 #include "toonz/tproject.h"
 #include "toonzqt/menubarcommand.h"
+#include "toonzqt/icongenerator.h"
 #include "menubarcommandids.h"
 #include "trasterimage.h"
 #include "tpalette.h"
@@ -32,6 +34,7 @@
 #include <QApplication>
 #include <QAbstractButton>
 #include <QComboBox>
+#include <QColor>
 #include <QInputDialog>
 #include <QLineEdit>
 #include <QKeyEvent>
@@ -45,6 +48,7 @@
 #include <QFileDialog>
 #include <QMessageBox>
 #include <QImage>
+#include <QPixmap>
 #include <QTemporaryDir>
 #include <QDir>
 #include <QFileInfo>
@@ -68,6 +72,25 @@
 namespace {
 void require(bool value, const char *message) {
   if (!value) throw std::runtime_error(message);
+}
+void waitUntil(const std::function<bool()> &done, const char *message) {
+  QElapsedTimer deadline; deadline.start();
+  while (!done() && deadline.elapsed() < 5000)
+    QApplication::processEvents(QEventLoop::AllEvents, 20);
+  require(done(), message);
+}
+void nextPreviewRequest(QWidget *inspector) {
+  auto *delay = inspector->findChild<QTimer *>("CastPreviewDelay");
+  require(delay, "inspector has no preview coalescing timer");
+  QEventLoop loop; QTimer deadline; deadline.setSingleShot(true);
+  bool submitted = false;
+  QObject::connect(delay, &QTimer::timeout, &loop, [&]() {
+    submitted = inspector->property("PreviewPending").toBool(); loop.quit();
+  });
+  QObject::connect(&deadline, &QTimer::timeout, &loop, &QEventLoop::quit);
+  deadline.start(5000); loop.exec();
+  // Return at the actual timer boundary, before the queued worker completion.
+  require(submitted, "native inspector failed to submit its desired preview");
 }
 int find(CastBrowser &browser, const QString &name) {
   for (int i = 0; i < browser.getItemCount(); ++i)
@@ -496,6 +519,87 @@ void runCastWorkflowIntegrationTest(QMainWindow *window) {
             "inspector did not follow restored asset identity");
   }
   {
+    // Different solid drawings make final-frame verification independent of
+    // the request counters. The browser may share first-drawing thumbnails.
+    TXshSimpleLevelP scrub = new TXshSimpleLevel(L"Cast scrub raster");
+    scrub->setScene(source); scrub->setType(OVL_XSHLEVEL);
+    for (int frame = 1; frame <= 12; ++frame) {
+      TRaster32P raster(80, 60); raster->fill(TPixel32(frame * 15, 30, 220 - frame * 10));
+      scrub->setFrame(TFrameId(frame), TRasterImageP(raster));
+    }
+    source->getLevelSet()->insertLevel(scrub.getPointer()); browser.refreshData();
+    viewer->getPanel()->getSelection()->selectNone();
+    viewer->getPanel()->getSelection()->select(find(browser, "Cast scrub raster"));
+    CastBrowserActions::inspect(&browser, {scrub.getPointer()});
+    auto *inspector = browser.findChild<QWidget *>("CastInspector");
+    auto *slider = inspector->findChild<QSlider *>("CastDrawingPreview");
+    auto *image = inspector->findChild<QLabel *>("CastDrawingImage");
+    auto *icons = IconGenerator::instance();
+    const auto displayed = [&](int frame) {
+      if (inspector->property("PreviewFrame").toString() != QString::fromStdString(TFrameId(frame).expand())) return false;
+      const QImage rendered = qvariant_cast<QPixmap>(image->property("pixmap")).toImage();
+      return !rendered.isNull() && rendered.pixelColor(rendered.width() / 2, rendered.height() / 2) ==
+          QColor(frame * 15, 30, 220 - frame * 10);
+    };
+    const int before = inspector->property("PreviewRequests").toInt();
+    for (int index = 1; index < 12; ++index) slider->setValue(index);
+    require(inspector->property("PreviewRequests").toInt() == before,
+            "rapid scrub queued work before the coalescing window");
+    waitUntil([&]() { return displayed(12); }, "rapid scrub did not display the actual latest drawing");
+    require(inspector->property("PreviewRequests").toInt() == before + 1,
+            "rapid scrub queued intermediate drawings");
+
+    slider->setValue(1); nextPreviewRequest(inspector);
+    const int inFlight = inspector->property("PreviewRequests").toInt();
+    inspector->hide(); inspector->show();
+    require(inspector->property("PreviewRequests").toInt() == inFlight &&
+            inspector->property("PreviewPending").toBool(),
+            "hide/show duplicated a pending same-frame request");
+    for (int index = 2; index <= 9; ++index) slider->setValue(index);
+    require(inspector->property("PreviewRequests").toInt() == inFlight,
+            "scrubbing queued more work while one preview was pending");
+    waitUntil([&]() { return displayed(10); }, "late preview completion replaced the latest scrubbed drawing");
+    require(inspector->property("PreviewRequests").toInt() == inFlight + 1,
+            "pending scrub did not coalesce to one latest request");
+
+    // Native generation identity survives cancellation and a same-key requeue.
+    // Even a worker that already finished cannot publish its queued old result.
+    std::map<quint64, std::pair<int, bool>> completions;
+    QObject completionContext;
+    const auto completion = QObject::connect(icons, &IconGenerator::iconRequestFinished, &completionContext,
+        [&](quint64 token, bool generated) { ++completions[token].first; completions[token].second = generated; });
+    const auto older = icons->requestIcon(scrub.getPointer(), TFrameId(6), false);
+    icons->clearRequests(); icons->remove(scrub.getPointer(), TFrameId(6));
+    const auto newer = icons->requestIcon(scrub.getPointer(), TFrameId(6), false);
+    require(older && newer && older != newer && icons->pendingIconRequest(scrub.getPointer(), TFrameId(6), false) == newer,
+            "requeued icon reused an old generation token");
+    waitUntil([&]() { return completions.count(older) && completions.count(newer); },
+              "canceled/replaced icon request never completed");
+    require(completions[older] == std::make_pair(1, false) && completions[newer] == std::make_pair(1, true) &&
+            !icons->getIcon(scrub.getPointer(), TFrameId(6), false, true).isNull(),
+            "late canceled icon retired or overwrote its replacement");
+    icons->getIcon(scrub.getPointer(), TFrameId(7), false, true);
+    require(!icons->pendingIconRequest(scrub.getPointer(), TFrameId(7), false), "cache probe queued a drawing");
+    const auto unavailable = icons->requestIcon(scrub.getPointer(), TFrameId(99), false);
+    waitUntil([&]() { return completions.count(unavailable) != 0; }, "failed icon request remained pending");
+    require(unavailable && completions[unavailable] == std::make_pair(1, false) &&
+            !icons->pendingIconRequest(scrub.getPointer(), TFrameId(99), false),
+            "failed icon request did not retire exactly once");
+    QObject::disconnect(completion);
+
+    slider->setValue(2); nextPreviewRequest(inspector);
+    const int beforeRemoval = inspector->property("PreviewRequests").toInt();
+    source->getLevelSet()->removeLevel(scrub.getPointer());
+    TApp::instance()->getCurrentScene()->notifyCastChange();
+    waitUntil([&]() { return !inspector->property("PreviewPending").toBool(); },
+              "removed asset retained a pending inspector request");
+    require(inspector->property("PreviewFrame").toString().isEmpty() &&
+            inspector->findChild<QTableWidget *>("CastInspectorDetails")->rowCount() == 0 &&
+            inspector->property("PreviewRequests").toInt() == beforeRemoval,
+            "late preview for removed asset changed the inspector or queued more work");
+    viewer->getPanel()->getSelection()->select(find(browser, "Cast fixture Hero"));
+  }
+  {
     // A real stereo PCM impulse must appear in the peak envelope. Replacing
     // audio and changing selection cancel old computation without exposures.
     TXshSoundLevelP retainedSound = new TXshSoundLevel(L"Cast waveform audio");
@@ -625,13 +729,7 @@ void runCastWorkflowIntegrationTest(QMainWindow *window) {
     std::cerr << "cast-workflow: relinking saved raster" << std::endl;
     DialogDriver driver([&](QDialog *dialog) {
       if (auto *files = qobject_cast<QFileDialog *>(dialog)) {
-        pickedFolder = true;
-        files->setDirectory(newDir); files->selectFile(newDir);
-        std::cerr << "cast-workflow: relink requested folder: " << newDir.toStdString()
-                  << "; dialog directory: " << files->directory().absolutePath().toStdString()
-                  << "; selected files: " << files->selectedFiles().join(" | ").toStdString()
-                  << "; replacement exists: " << QFileInfo(newDir + "/asset.png").exists() << std::endl;
-        dialog->accept();
+        pickedFolder = NativeUiTest::acceptDirectory(files, newDir);
       } else if (dialog->objectName() == "CastRelinkReview") {
         reviewed = true;
         if (auto *table = dialog->findChild<QTableWidget *>())
@@ -687,7 +785,7 @@ void runCastWorkflowIntegrationTest(QMainWindow *window) {
   {
     DialogDriver driver([&](QDialog *dialog) {
       if (auto *files = qobject_cast<QFileDialog *>(dialog)) {
-        files->setDirectory(oldDir); files->selectFile(oldDir); dialog->accept();
+        NativeUiTest::acceptDirectory(files, oldDir);
       } else if (dialog->objectName() == "CastRelinkReview") {
         dialog->accept();
         showProgressNextTurn("Validating replacement drawings…");
@@ -714,7 +812,7 @@ void runCastWorkflowIntegrationTest(QMainWindow *window) {
   {
     DialogDriver driver([&](QDialog *dialog) {
       if (auto *files = qobject_cast<QFileDialog *>(dialog)) {
-        files->setDirectory(oldDir); files->selectFile(oldDir); dialog->accept();
+        NativeUiTest::acceptDirectory(files, oldDir);
       } else if (dialog->objectName() == "CastRelinkReview") {
         dialog->accept();
         showProgressNextTurn("Validating replacement drawings…");
@@ -755,7 +853,7 @@ void runCastWorkflowIntegrationTest(QMainWindow *window) {
     std::cerr << "cast-workflow: stale local-copy preparation" << std::endl;
     DialogDriver driver([&](QDialog *dialog) {
       if (auto *files = qobject_cast<QFileDialog *>(dialog)) {
-        files->setDirectory(localDir); files->selectFile(localDir); dialog->accept();
+        NativeUiTest::acceptDirectory(files, localDir);
         showProgressNextTurn("Preparing local asset copies…");
       } else if (auto *message = qobject_cast<QMessageBox *>(dialog)) {
         messages << message->text();
@@ -789,7 +887,7 @@ void runCastWorkflowIntegrationTest(QMainWindow *window) {
   {
     DialogDriver driver([&](QDialog *dialog) {
       if (auto *files = qobject_cast<QFileDialog *>(dialog)) {
-        files->setDirectory(localDir); files->selectFile(localDir); dialog->accept();
+        NativeUiTest::acceptDirectory(files, localDir);
         showProgressNextTurn("Preparing local asset copies…");
       } else if (auto *message = qobject_cast<QMessageBox *>(dialog)) {
         if (message->standardButtons().testFlag(QMessageBox::Yes)) message->button(QMessageBox::Yes)->click();
@@ -848,7 +946,7 @@ void runCastWorkflowIntegrationTest(QMainWindow *window) {
   auto collectionsBeforeConsolidation = source->getProperties()->getCastCollections();
   TSceneProperties::CastCollection duplicatesCollection;
   duplicatesCollection.id = "duplicate-fixture-collection"; duplicatesCollection.name = "Duplicate membership";
-  duplicatesCollection.members = {duplicate->getCastId()};
+  duplicatesCollection.members = QStringList{duplicate->getCastId()};
   collectionsBeforeConsolidation.append(duplicatesCollection);
   source->getProperties()->setCastCollections(collectionsBeforeConsolidation);
   {
@@ -1007,6 +1105,58 @@ void runCastWorkflowIntegrationTest(QMainWindow *window) {
   QMetaObject::invokeMethod(&browser, "refresh", Qt::DirectConnection);
   require(scroll->value() == scrollBefore, "refresh lost Cast scroll position");
   metrics["scrollPreserved"] = true;
+  browser.sortByDataModel(DvItemListModel::Name, true);
+  std::map<TXshLevel *, const CastItem *> survivingItems;
+  for (int index = 0; index < browser.getItemCount(); ++index) {
+    const auto *item = browser.getCastItems().getItem(index);
+    survivingItems[item->getLevel()] = item;
+  }
+  auto *renamed = large[1234].getPointer();
+  viewer->getPanel()->getSelection()->selectNone();
+  viewer->getPanel()->getSelection()->select(find(browser, "Cast scale 01234"));
+  const int deltaCount = browser.getItemCount();
+  const auto verifyDelta = [&](int expectedCount) {
+    require(browser.getItemCount() == expectedCount, "native Cast delta lost or duplicated assets");
+    QString previous;
+    for (int index = 0; index < browser.getItemCount(); ++index) {
+      const auto *item = browser.getCastItems().getItem(index);
+      const auto old = survivingItems.find(item->getLevel());
+      require(old == survivingItems.end() || old->second == item,
+              "native Cast delta rebuilt a surviving asset item");
+      const QString name = item->getName();
+      require(index == 0 || QString::compare(previous, name, Qt::CaseInsensitive) <= 0,
+              "native Cast delta did not restore name ordering");
+      previous = name;
+    }
+    selected.clear();
+    static_cast<CastSelection *>(viewer->getPanel()->getSelection())->getSelectedLevels(selected);
+    require(selected.size() == 1 && selected.front() == renamed,
+            "native Cast delta changed selected asset identity");
+    require(scroll->value() == scrollBefore, "native Cast delta lost scroll position");
+  };
+  TXshSimpleLevelP added = new TXshSimpleLevel(L"Cast scale added");
+  added->setScene(source); added->setType(PLI_XSHLEVEL);
+  added->setPath(TFilePath(localDir + "/Cast scale added.pli"), true);
+  measurement.restart(); source->getLevelSet()->insertLevel(added.getPointer());
+  TApp::instance()->getCurrentScene()->notifyCastChange();
+  metrics["singleAddMs"] = double(measurement.elapsed());
+  verifyDelta(deltaCount + 1);
+  require(find(browser, "Cast scale added") >= 0, "native Cast add event did not expose the asset");
+  measurement.restart();
+  require(source->getLevelSet()->renameLevel(renamed, L"Cast scale 09999 renamed"), "large Cast rename failed");
+  TApp::instance()->getCurrentScene()->notifyCastChange();
+  metrics["singleRenameMs"] = double(measurement.elapsed());
+  verifyDelta(deltaCount + 1);
+  require(find(browser, "Cast scale 01234") < 0 && find(browser, "Cast scale 09999 renamed") >= 0,
+          "native Cast rename retained stale display data");
+  measurement.restart(); source->getLevelSet()->removeLevel(added.getPointer());
+  TApp::instance()->getCurrentScene()->notifyCastChange();
+  metrics["singleRemoveMs"] = double(measurement.elapsed());
+  verifyDelta(deltaCount);
+  require(find(browser, "Cast scale added") < 0, "native Cast remove event retained a deleted asset");
+  metrics["survivingItemsRetained"] = true;
+  require(source->getLevelSet()->renameLevel(renamed, L"Cast scale 01234"), "large Cast name restoration failed");
+  TApp::instance()->getCurrentScene()->notifyCastChange();
   measurement.restart(); search->setText("Cast scale 01234"); browser.refreshData();
   metrics["searchMs"] = double(measurement.elapsed());
   require(browser.getItemCount() == 1 && find(browser, "Cast scale 01234") == 0,
@@ -1028,6 +1178,16 @@ void runCastWorkflowIntegrationTest(QMainWindow *window) {
   for (const auto &level : large) source->getLevelSet()->removeLevel(level.getPointer());
   browser.refreshData();
   QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, nativeDialogsDisabled);
+  TXshSimpleLevelP switchingDrawing = new TXshSimpleLevel(L"Cast scene switch drawing");
+  switchingDrawing->setScene(source); switchingDrawing->setType(OVL_XSHLEVEL);
+  TRaster32P switchingRaster(80, 60); switchingRaster->fill(TPixel32(70, 110, 180));
+  switchingDrawing->setFrame(TFrameId(1), TRasterImageP(switchingRaster));
+  switchingDrawing->setFrame(TFrameId(2), TRasterImageP(switchingRaster->clone()));
+  source->getLevelSet()->insertLevel(switchingDrawing.getPointer()); browser.refreshData();
+  CastBrowserActions::inspect(&browser, {switchingDrawing.getPointer()});
+  auto *switchInspector = browser.findChild<QWidget *>("CastInspector");
+  switchInspector->findChild<QSlider *>("CastDrawingPreview")->setValue(1);
+  nextPreviewRequest(switchInspector);
   TXshSoundLevelP switchingSound = new TXshSoundLevel(L"Cast scene switch audio");
   switchingSound->setScene(source);
   switchingSound->setSoundTrack(TSoundTrack::create(8000, 16, 1, 131072, TSound::INT));
@@ -1037,11 +1197,18 @@ void runCastWorkflowIntegrationTest(QMainWindow *window) {
   CastBrowserActions::inspect(&browser, {switchingSound.getPointer()});
   auto *switchWaveform = browser.findChild<QWidget *>("CastAudioWaveform");
   require(!switchWaveform->property("WaveformReady").toBool(), "scene-switch fixture has no pending waveform");
+  require(switchInspector->property("PreviewPending").toBool(), "scene-switch fixture has no pending drawing");
+  const int requestsBeforeSwitch = switchInspector->property("PreviewRequests").toInt();
   // The Library fixture begins with the actual native New Scene command.
   runLibraryProvenanceIntegrationTest();
   require(switchWaveform->property("WaveformSampleCount").toInt() == 0 &&
           !browser.findChild<QPushButton *>("CastAudioPlay")->isEnabled(),
           "scene switching retained a pending waveform or stale audio target");
+  waitUntil([&]() { return !switchInspector->property("PreviewPending").toBool(); },
+            "scene switching retained a pending drawing request");
+  require(switchInspector->property("PreviewFrame").toString().isEmpty() &&
+          switchInspector->property("PreviewRequests").toInt() == requestsBeforeSwitch,
+          "scene switching displayed or requeued an old drawing preview");
   browser.hide();
   std::cout << "cast-native-workflow: PASS\n";
 }

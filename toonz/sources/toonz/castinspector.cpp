@@ -15,6 +15,7 @@
 #include <QElapsedTimer>
 #include <QHeaderView>
 #include <QHideEvent>
+#include <QShowEvent>
 #include <QLabel>
 #include <QMessageBox>
 #include <QMouseEvent>
@@ -188,6 +189,10 @@ struct CastInspector::State {
   TSoundTrackP track;
   std::unique_ptr<TSoundOutputDevice> audio;
   QTimer playback;
+  QTimer previewDelay;
+  quint64 pendingPreview = 0;
+  TXshLevelP pendingLevel, failedLevel;
+  TFrameId pendingFrame, failedFrame;
   QElapsedTimer elapsed;
   double start = 0;
   bool rebuilding = false;
@@ -222,6 +227,11 @@ CastInspector::CastInspector(QWidget *parent) : QWidget(parent), m(new State) {
   m->table->horizontalHeader()->setStretchLastSection(true);
   layout->addWidget(m->table, 1);
   m->preview = new QLabel(this); m->preview->setAlignment(Qt::AlignCenter);
+  m->preview->setObjectName("CastDrawingImage");
+  setProperty("PreviewRequests", 0);
+  setProperty("PreviewPending", false);
+  m->previewDelay.setSingleShot(true); m->previewDelay.setInterval(40);
+  m->previewDelay.setObjectName("CastPreviewDelay"); m->previewDelay.setParent(this);
   m->preview->setMinimumHeight(120); layout->addWidget(m->preview);
   m->drawing = new QSlider(Qt::Horizontal, this);
   m->drawing->setObjectName("CastDrawingPreview"); m->drawing->setAccessibleName(tr("Preview drawing"));
@@ -242,7 +252,20 @@ CastInspector::CastInspector(QWidget *parent) : QWidget(parent), m(new State) {
   audioButtons->addWidget(m->play); audioButtons->addWidget(m->stop); layout->addLayout(audioButtons);
   connect(m->table, &QTableWidget::itemSelectionChanged, this, [this]() { if (!m->rebuilding) selectRow(); });
   connect(m->drawing, &QSlider::valueChanged, this, [this](int) { preview(); });
+  connect(&m->previewDelay, &QTimer::timeout, this, [this]() { requestPreview(); });
   connect(IconGenerator::instance(), &IconGenerator::iconGenerated, this, [this]() { if (isVisible()) preview(); });
+  connect(IconGenerator::instance(), &IconGenerator::iconRequestFinished, this,
+          [this](quint64 request, bool generated) {
+    if (request != m->pendingPreview) return;
+    auto *simple = m->pendingLevel ? m->pendingLevel->getSimpleLevel() : nullptr;
+    if (!generated && simple &&
+        !IconGenerator::instance()->pendingIconRequest(simple, m->pendingFrame, false)) {
+      m->failedLevel = m->pendingLevel; m->failedFrame = m->pendingFrame;
+    }
+    m->pendingPreview = 0; m->pendingLevel = TXshLevelP();
+    setProperty("PreviewPending", false);
+    if (isVisible()) preview();
+  });
   connect(m->cover, &QPushButton::clicked, this, [this]() { setCover(true); });
   connect(m->resetCover, &QPushButton::clicked, this, [this]() { setCover(false); });
   connect(m->stop, &QPushButton::clicked, this, [this]() { stopAudio(); });
@@ -277,7 +300,16 @@ CastInspector::CastInspector(QWidget *parent) : QWidget(parent), m(new State) {
 }
 
 CastInspector::~CastInspector() { stopAudio(); if (m->audio) m->audio->close(); }
-void CastInspector::hideEvent(QHideEvent *event) { stopAudio(); QWidget::hideEvent(event); }
+void CastInspector::hideEvent(QHideEvent *event) {
+  stopAudio(); m->previewDelay.stop(); m->preview->clear();
+  setProperty("PreviewFrame", QString());
+  // The single shared request may still finish for another icon consumer.
+  // Keep its token until completion; never cancel the global icon queue.
+  QWidget::hideEvent(event);
+}
+void CastInspector::showEvent(QShowEvent *event) {
+  QWidget::showEvent(event); preview();
+}
 void CastInspector::stopAudio() {
   m->playback.stop(); if (m->audio) m->audio->stop(); m->stop->setEnabled(false);
 }
@@ -345,7 +377,8 @@ void CastInspector::refreshRows() {
   m->rebuilding = false;
 }
 void CastInspector::selectRow() {
-  stopAudio(); m->frames.clear(); m->track = TSoundTrackP();
+  stopAudio(); m->previewDelay.stop(); m->failedLevel = TXshLevelP();
+  m->frames.clear(); m->track = TSoundTrackP();
   auto *level = m->current();
   if (level && level->getSimpleLevel()) level->getFids(m->frames);
   if (level && level->getSoundLevel()) m->track = level->getSoundLevel()->getSoundTrack();
@@ -360,12 +393,49 @@ void CastInspector::selectRow() {
   preview();
 }
 void CastInspector::preview() {
+  if (!isVisible()) return;
   auto *level = m->current();
-  if (!level || !level->getSimpleLevel() || m->frames.empty()) { m->preview->clear(); return; }
+  m->preview->clear(); setProperty("PreviewFrame", QString());
+  if (!level || !level->getSimpleLevel() || m->frames.empty()) { m->previewDelay.stop(); return; }
   const auto frame = m->frames[std::min(m->drawing->value(), int(m->frames.size()) - 1)];
-  const QPixmap image = IconGenerator::instance()->getIcon(level->getSimpleLevel(), frame, false, false);
-  m->preview->setPixmap(image.scaled(320, 180, Qt::KeepAspectRatio, Qt::SmoothTransformation));
+  auto *simple = level->getSimpleLevel();
+  if (!simple->isFid(frame)) { m->previewDelay.stop(); return; }
+  auto *icons = IconGenerator::instance();
+  // Probing may convert an existing icon, but never loads a drawing or queues.
+  const QPixmap image = icons->pendingIconRequest(simple, frame, false) ? QPixmap()
+      : icons->getIcon(simple, frame, false, true);
   m->preview->setToolTip(tr("Drawing %1").arg(QString::fromStdString(frame.expand())));
+  if (!image.isNull()) {
+    m->previewDelay.stop();
+    m->preview->setPixmap(image.scaled(320, 180, Qt::KeepAspectRatio, Qt::SmoothTransformation));
+    setProperty("PreviewFrame", QString::fromStdString(frame.expand()));
+  } else if (m->failedLevel.getPointer() == level && m->failedFrame == frame) {
+    m->previewDelay.stop(); m->preview->setText(tr("Drawing preview unavailable"));
+  } else if (!m->pendingPreview) {
+    // Repeated scrubs replace the desired frame (the slider value). Only one
+    // generation is in flight; completion schedules the latest desired frame.
+    m->preview->setText(tr("Loading drawing preview…"));
+    if (!m->previewDelay.isActive()) m->previewDelay.start();
+  }
+}
+void CastInspector::requestPreview() {
+  if (!isVisible() || m->pendingPreview) return;
+  auto *level = m->current();
+  if (!level || !level->getSimpleLevel() || m->frames.empty()) return;
+  const auto frame = m->frames[std::min(m->drawing->value(), int(m->frames.size()) - 1)];
+  if (!level->getSimpleLevel()->isFid(frame)) return;
+  m->pendingLevel = TXshLevelP(level); m->pendingFrame = frame;
+  try {
+    m->pendingPreview = IconGenerator::instance()->requestIcon(level->getSimpleLevel(), frame, false);
+  } catch (...) {
+    m->failedLevel = m->pendingLevel; m->failedFrame = frame;
+  }
+  if (m->pendingPreview) {
+    setProperty("PreviewRequests", property("PreviewRequests").toInt() + 1);
+    setProperty("PreviewPending", true);
+  } else {
+    m->pendingLevel = TXshLevelP(); preview();
+  }
 }
 void CastInspector::setCover(bool present) {
   auto *level = m->current(); if (!level || m->frames.empty()) return;

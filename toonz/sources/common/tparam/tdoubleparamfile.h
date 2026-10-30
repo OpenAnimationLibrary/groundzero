@@ -19,6 +19,7 @@ class DVAPI TDoubleParamFileData {
   TDoubleKeyframe::FileParams m_params;
   std::vector<double> m_values;
   bool m_dirtyFlag;
+  std::string m_readError;
 
   void read();
 
@@ -32,6 +33,8 @@ public:
   void invalidate();
 
   double getValue(double frame, double defaultValue = 0);
+  bool getValueChecked(double frame, double defaultValue, double &value,
+                       std::string &error);
 };
 
 #endif

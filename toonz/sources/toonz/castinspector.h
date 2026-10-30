@@ -13,10 +13,12 @@ class CastInspector final : public QWidget {
   void refreshRows();
   void selectRow();
   void preview();
+  void requestPreview();
   void stopAudio();
   void setCover(bool present);
 protected:
   void hideEvent(QHideEvent *event) override;
+  void showEvent(QShowEvent *event) override;
 public:
   explicit CastInspector(QWidget *parent);
   ~CastInspector();

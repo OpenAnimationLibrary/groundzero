@@ -103,6 +103,15 @@ public:
   // (e.g. expression and linear) then getValue(frame,true) can be !=
   // getValue(frame,false)
 
+  // Batch sampling uses the native evaluator, including referenced channels,
+  // but rejects preview fallbacks and nonfinite results. Does not change value
+  // on failure. Nested checks retain their enclosing failure state; ordinary
+  // unscoped getValue() keeps its existing interactive preview behavior.
+  // File curves reject read/parse/field failures but retain their intentional
+  // parameter-default values outside a valid data table's frame range.
+  bool getValueChecked(double frame, double &value, std::string &error,
+                       bool leftmost = false) const;
+
   bool setValue(double frame, double value);
 
   // returns the incoming speed vector for keyframe kIndex. kIndex-1 must be

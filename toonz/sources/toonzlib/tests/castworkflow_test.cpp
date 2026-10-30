@@ -125,7 +125,7 @@ void collectionsRoundTrip(const QString &directory) {
   TSceneProperties::CastCollection collection;
   collection.id = "collection-fixture";
   collection.name = QString::fromUtf8("café <&\" collection");
-  collection.members = {aId, bId};
+  collection.members = QStringList{aId, bId};
   scene.getProperties()->setCastCollections({collection});
   TXshSimpleLevel clone;
   clone.copyCastMetadataFrom(a);

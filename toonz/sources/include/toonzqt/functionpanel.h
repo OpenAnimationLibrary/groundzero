@@ -11,6 +11,7 @@
 #include <set>
 #include <cmath>
 #include <QMap>
+#include <QVector>
 #include "tdoubleparam.h"
 
 #undef DVAPI
@@ -72,11 +73,22 @@ public:
     EaseOutPercentage
   };
 
+  struct FrozenComparisonCurve {
+    TDoubleParamP owner;
+    QVector<QPointF> samples;  // frame/native value, evaluated only at capture
+  };
+  struct ComparisonState {
+    std::vector<std::pair<TDoubleParamP, TDoubleParamP>> curves;
+    std::vector<FrozenComparisonCurve> frozen;
+    double first = 0, last = 0;
+    int intervals = 0;
+  };
+
 private:
   QTransform m_viewTransform;  // world -> window
   bool m_normalized = false;
   QMap<TDoubleParam *, QPointF> m_normalization;
-  std::vector<std::pair<TDoubleParamP, TDoubleParamP>> m_comparison;
+  ComparisonState m_comparison;
   int m_snapFrames = 1;
   bool m_snapKeys = false;
   bool m_snapMarkers = false;
@@ -171,9 +183,12 @@ public:
   void setNormalized(bool enabled);
   bool isNormalized() const { return m_normalized; }
   void refreshNormalization();
-  const std::vector<std::pair<TDoubleParamP, TDoubleParamP>> &comparison() const { return m_comparison; }
+  const std::vector<std::pair<TDoubleParamP, TDoubleParamP>> &comparison() const { return m_comparison.curves; }
+  ComparisonState comparisonState() const { return m_comparison; }
+  void setComparisonState(const ComparisonState &state) { m_comparison = state; update(); }
+  bool freezeComparison(QString &error);
   void setComparison(const std::vector<std::pair<TDoubleParamP, TDoubleParamP>> &curves) {
-    m_comparison = curves; update();
+    m_comparison = ComparisonState(); m_comparison.curves = curves; update();
   }
   void setSceneMarkers(int distance, int offset, int secondary) { m_markerDistance = distance; m_markerOffset = offset; m_secondaryMarkerDistance = secondary; }
   void setSnapMarkers(bool enabled) { m_snapMarkers = enabled; }

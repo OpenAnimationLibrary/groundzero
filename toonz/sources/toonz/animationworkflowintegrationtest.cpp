@@ -16,6 +16,8 @@
 #include "viewerpane.h"
 #include "tdoublekeyframe.h"
 #include "tdoubleparam.h"
+#include "texpression.h"
+#include "tunit.h"
 #include "tfx.h"
 #include "tmacrofx.h"
 #include "tparamcontainer.h"
@@ -29,6 +31,7 @@
 #include "tundo.h"
 #include "tvectorimage.h"
 #include "toonz/levelproperties.h"
+#include "toonz/childstack.h"
 #include "toonz/levelset.h"
 #include "toonz/fxdag.h"
 #include "toonz/navigationtags.h"
@@ -39,6 +42,7 @@
 #include "toonz/tcolumnfxset.h"
 #include "toonz/tcamera.h"
 #include "toonz/tframehandle.h"
+#include "toonz/tobjecthandle.h"
 #include "toonz/toonzscene.h"
 #include "toonz/toonzfolders.h"
 #include "toonz/tstageobject.h"
@@ -290,6 +294,113 @@ void exercisePoses(ToonzScene *scene, const QString &folder) {
   loaded.load(sceneFile);
   require(loaded.getPoseLibrary()->getPoseCount() == 1, "pose library did not persist");
   requireNear(loaded.getPoseLibrary()->getBase().front().m_value, 3.0, "base did not persist");
+
+  // Exercise the pane's authoring controls independently of Library import.
+  // Native serialization compares the whole ordered base/library on undo and
+  // reload, including channels other than the two changed below.
+  const TFilePath stateFile(QDir(folder).filePath("pose-state.tposes"));
+  auto serialized = [&](const PoseLibrary &library) {
+    writePoses(stateFile, library);
+    QFile input(stateFile.getQString());
+    require(input.open(QIODevice::ReadOnly), "cannot read native pose state");
+    return input.readAll();
+  };
+  auto *app = TApp::instance();
+  auto *undo = TUndoManager::manager();
+  const auto previousObject = app->getCurrentObject()->getObjectId();
+  const auto target = TStageObjectId::CameraId(0);
+  auto *object = scene->getXsheet()->getStageObject(target);
+  auto *x = object->getParam(TStageObject::T_X);
+  auto *y = object->getParam(TStageObject::T_Y);
+  require(x->getKeyframeCount() == 0 && y->getKeyframeCount() == 0,
+          "pose authoring fixture requires unkeyed camera channels");
+  const double originalX = x->getDefaultValue(), originalY = y->getDefaultValue();
+  struct RestorePoseTarget {
+    TObjectHandle *handle;
+    TStageObjectId id;
+    TDoubleParam *x, *y;
+    double originalX, originalY;
+    ~RestorePoseTarget() {
+      x->setDefaultValue(originalX); y->setDefaultValue(originalY);
+      handle->setObjectId(id);
+    }
+  } restore{app->getCurrentObject(), previousObject, x, y, originalX, originalY};
+  TSelection::setCurrent(nullptr);
+  app->getCurrentObject()->setObjectId(target);
+  x->setDefaultValue(10.0); y->setDefaultValue(-4.0);
+  pane.show();
+  auto button = [&](const QString &caption) {
+    for (auto *candidate : pane.findChildren<QPushButton *>())
+      if (candidate->isVisible() && candidate->text() == caption) return candidate;
+    return static_cast<QPushButton *>(nullptr);
+  };
+  auto *setBase = button(PosesPane::tr("Set Base"));
+  auto *add = button(PosesPane::tr("Add Pose..."));
+  require(setBase && add, "native Set Base/Add Pose controls missing");
+  const QByteArray beforeBase = serialized(*scene->getPoseLibrary());
+  const int beforeBaseIndex = undo->getCurrentHistoryIndex();
+  setBase->click();
+  require(undo->getCurrentHistoryIndex() == beforeBaseIndex + 1,
+          "Set Base was not one undo operation");
+  auto entryValue = [&](const std::vector<PoseLibrary::Entry> &entries,
+                        const std::string &channel) {
+    for (const auto &entry : entries)
+      if (entry.m_objectId == target && entry.m_channel == channel) return entry.m_value;
+    throw std::runtime_error("authored pose channel is missing");
+  };
+  requireNear(entryValue(scene->getPoseLibrary()->getBase(), "x"), 10.0, "Set Base lost X");
+  requireNear(entryValue(scene->getPoseLibrary()->getBase(), "y"), -4.0, "Set Base lost Y");
+  require(scene->getPoseLibrary()->getPoseCount() == 1 &&
+              scene->getPoseLibrary()->getPose(0).m_name == "Turn",
+          "Set Base replaced existing ordered poses");
+  const QByteArray capturedBase = serialized(*scene->getPoseLibrary());
+  require(undo->undo() && serialized(*scene->getPoseLibrary()) == beforeBase,
+          "Set Base undo lost the previous full library/base");
+  require(undo->redo() && serialized(*scene->getPoseLibrary()) == capturedBase,
+          "Set Base redo changed captured channels");
+  const int baseHistory = undo->getHistoryCount();
+  setBase->click();
+  require(undo->getHistoryCount() == baseHistory &&
+              serialized(*scene->getPoseLibrary()) == capturedBase,
+          "repeated identical Set Base changed history or state");
+  x->setDefaultValue(15.0); y->setDefaultValue(-2.0);
+  dialogs({QObject::tr("Cancel")}, [&]() { add->click(); });
+  require(undo->getHistoryCount() == baseHistory &&
+              serialized(*scene->getPoseLibrary()) == capturedBase,
+          "canceled Add Pose changed history or state");
+  const int beforeAddIndex = undo->getCurrentHistoryIndex();
+  dialogs({QObject::tr("OK")}, [&]() { add->click(); });
+  require(undo->getCurrentHistoryIndex() == beforeAddIndex + 1 &&
+              scene->getPoseLibrary()->getPoseCount() == 2,
+          "Add Pose was not one undo operation");
+  const auto &added = scene->getPoseLibrary()->getPose(1);
+  require(added.m_name == PosesPane::tr("Pose %1").arg(2) && added.m_entries.size() == 2,
+          "Add Pose did not preserve order/name or omitted unchanged channels");
+  requireNear(entryValue(added.m_entries, "x"), 5.0, "Add Pose stored absolute X instead of offset");
+  requireNear(entryValue(added.m_entries, "y"), 2.0, "Add Pose stored absolute Y instead of offset");
+  const QByteArray authored = serialized(*scene->getPoseLibrary());
+  require(undo->undo() && serialized(*scene->getPoseLibrary()) == capturedBase,
+          "Add Pose undo changed the base or existing poses");
+  require(undo->redo() && serialized(*scene->getPoseLibrary()) == authored,
+          "Add Pose redo did not restore the full authored state");
+  const int identicalHistory = undo->getHistoryCount();
+  const int identicalIndex = undo->getCurrentHistoryIndex();
+  app->getCurrentScene()->setDirtyFlag(false);
+  dialogs({QObject::tr("Replace")}, [&]() {
+    require(LibraryCmd::loadPoseSet(stateFile), "identical pose import failed");
+  });
+  require(undo->getHistoryCount() == identicalHistory &&
+              undo->getCurrentHistoryIndex() == identicalIndex &&
+              !app->getCurrentScene()->getDirtyFlag() &&
+              serialized(*scene->getPoseLibrary()) == authored,
+          "identical import changed native library/history/dirty state");
+  scene->saveCopy(sceneFile);
+  ToonzScene authoredReload;
+  authoredReload.setProject(scene->getProject());
+  authoredReload.load(sceneFile);
+  require(serialized(*authoredReload.getPoseLibrary()) == authored,
+          "directly authored base and poses did not survive scene reload");
+  pane.hide();
 }
 
 void exerciseRecovery(ToonzScene *scene) {
@@ -307,7 +418,8 @@ void exerciseRecovery(ToonzScene *scene) {
   require(AutosaveRecovery::status().state == AutosaveRecovery::State::Disabled, "disabled recovery status wrong");
   require(!AutosaveRecovery::retryRecoveryCopy(), "retry wrote while recovery disabled");
   bool inspected = false;
-  QTimer::singleShot(0, [&]() {
+  QObject disabledContext;
+  QTimer::singleShot(0, &disabledContext, [&]() {
     auto *dialog = QApplication::activeModalWidget();
     if (dialog) {
       auto *retry = dialog->findChild<QPushButton *>("retryRecovery");
@@ -320,6 +432,57 @@ void exerciseRecovery(ToonzScene *scene) {
   require(inspected, "native recovery status controls missing or disabled state wrong");
   preferences->setValue(autosaveToRecoveryFolder, true);
   preferences->setValue(autosaveEnabled, true);
+  auto statusText = [](AutosaveRecovery::State state) {
+    if (state == AutosaveRecovery::State::Complete)
+      return QObject::tr("Complete: the scene and unsaved supported assets were copied. Unchanged assets still use their original files.");
+    if (state == AutosaveRecovery::State::Partial)
+      return QObject::tr("Incomplete: the scene was copied, but resources below are missing. Automatic recovery will retry even without new edits.");
+    return QObject::tr("Recovery failed. Your current scene remains open.");
+  };
+  auto retryInDialog = [&](AutosaveRecovery::State before,
+                           const std::function<void()> &repair,
+                           AutosaveRecovery::State after) {
+    QString failure;
+    bool clicked = false;
+    QObject retryContext;
+    QTimer::singleShot(0, &retryContext, [&]() {
+      auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
+      try {
+        require(dialog && dialog->objectName() == "recoveryStatusDialog",
+                "native recovery status dialog did not open");
+        auto *retry = dialog->findChild<QPushButton *>("retryRecovery");
+        auto *details = dialog->findChild<QLabel *>("recoveryStatusDetails");
+        const auto previous = AutosaveRecovery::status();
+        require(previous.state == before && retry && retry->isEnabled() && details &&
+                    details->text().contains(statusText(before)),
+                "native recovery state text or enabled Retry is missing");
+        for (const auto &resource : previous.missingResources)
+          require(details->text().contains(resource), "recovery dialog omitted a missing resource");
+        if (!previous.error.isEmpty())
+          require(details->text().contains(previous.error), "recovery dialog omitted the failure reason");
+        repair();
+        retry->click();
+        clicked = true;
+        const auto next = AutosaveRecovery::status();
+        require(next.state == after && retry->isEnabled() &&
+                    details->text().contains(statusText(after)),
+                "native Retry did not refresh the resulting recovery state");
+        require(next.attemptedAt.isValid() && next.savedAt.isValid() &&
+                    next.folder != previous.folder &&
+                    QFileInfo::exists(QDir(next.folder).filePath("recovery.ini")),
+                "native Retry did not publish a distinct recovery version");
+        if (after == AutosaveRecovery::State::Complete)
+          require(next.error.isEmpty() && next.missingResources.isEmpty(),
+                  "successful Retry retained stale errors or missing resources");
+      } catch (const std::exception &error) {
+        failure = QString::fromUtf8(error.what());
+      }
+      if (dialog) dialog->close();
+    });
+    AutosaveRecovery::showStatusDialog();
+    if (!failure.isEmpty()) throw std::runtime_error(failure.toStdString());
+    require(clicked, "native enabled Retry was not clicked");
+  };
   require(AutosaveRecovery::retryRecoveryCopy(), "empty scene recovery failed");
   auto complete = AutosaveRecovery::status();
   require(complete.state == AutosaveRecovery::State::Complete &&
@@ -331,9 +494,54 @@ void exerciseRecovery(ToonzScene *scene) {
   require(!AutosaveRecovery::retryRecoveryCopy(), "missing recovery resource claimed complete");
   auto partial = AutosaveRecovery::status();
   require(partial.state == AutosaveRecovery::State::Partial && !partial.missingResources.isEmpty(), "partial recovery details missing");
-  scene->getLevelSet()->removeLevel(sound);
-  require(AutosaveRecovery::retryRecoveryCopy(), "recovery retry did not complete after resource fix");
+  const TFilePath originalScenePath = scene->getScenePath();
+  const int originalHistory = TUndoManager::manager()->getHistoryCount();
+  const bool originalDirty = TApp::instance()->getCurrentScene()->getDirtyFlag();
+  retryInDialog(AutosaveRecovery::State::Partial, []() {}, AutosaveRecovery::State::Partial);
+  require(scene->getLevelSet()->getLevel(sound->getName()) == sound && sound->getPath().isEmpty(),
+          "partial Retry removed or relocated the unsaved resource");
+  retryInDialog(AutosaveRecovery::State::Partial,
+                [&]() { scene->getLevelSet()->removeLevel(sound); },
+                AutosaveRecovery::State::Complete);
   require(AutosaveRecovery::status().folder != complete.folder, "repeated recovery overwrote its previous version");
+
+  // A file occupying the recovery root is a portable filesystem failure; it
+  // does not rely on permissions that an elevated CI process could bypass.
+  AutosaveRecovery::endSession();
+  const QString root = (ToonzFolder::getMyModuleDir() + "recovery").getQString();
+  const QString held = root + ".native-workflow-held";
+  require(!QFileInfo::exists(held) && QDir().rename(root, held),
+          "cannot stage the disposable recovery root failure");
+  struct RestoreRecoveryRoot {
+    QString root, held;
+    bool pending = true;
+    bool restore() {
+      if (!pending) return true;
+      if (QFileInfo::exists(root) && !QFile::remove(root)) return false;
+      if (!QDir().rename(held, root)) return false;
+      pending = false;
+      return true;
+    }
+    ~RestoreRecoveryRoot() { restore(); }
+  } restoreRoot{root, held};
+  QFile obstruction(root);
+  require(obstruction.open(QIODevice::WriteOnly) && obstruction.write("fixture") == 7,
+          "cannot obstruct the disposable recovery root");
+  obstruction.close();
+  const auto previousComplete = AutosaveRecovery::status();
+  require(!AutosaveRecovery::retryRecoveryCopy(), "obstructed recovery root claimed success");
+  const auto failed = AutosaveRecovery::status();
+  require(failed.state == AutosaveRecovery::State::Failed && !failed.error.isEmpty() &&
+              failed.folder == previousComplete.folder && failed.savedAt == previousComplete.savedAt,
+          "failed recovery lost the last complete-copy status or error");
+  retryInDialog(AutosaveRecovery::State::Failed, [&]() {
+    require(restoreRoot.restore(), "cannot restore the disposable recovery root");
+  }, AutosaveRecovery::State::Complete);
+  require(TApp::instance()->getCurrentScene()->getScene() == scene &&
+              scene->getScenePath() == originalScenePath &&
+              TApp::instance()->getCurrentScene()->getDirtyFlag() == originalDirty &&
+              TUndoManager::manager()->getHistoryCount() == originalHistory,
+          "recovery Retry changed the open scene, source path, dirty state or undo history");
 }
 
 void exerciseTiming(ToonzScene *scene, QMainWindow *window, const QString &folder) {
@@ -403,18 +611,233 @@ void exerciseTiming(ToonzScene *scene, QMainWindow *window, const QString &folde
   require(TUndoManager::manager()->getCurrentHistoryIndex() == history, "failed move changed history");
   sheet->getColumn(0)->lock(false);
 
+  // Invalid driven samples must fail before the undo transaction, even when
+  // the interactive preview returned a finite fallback or earlier rows were
+  // already sampled successfully. Preserve picture/audio cells and authored
+  // curve fields, pin/tag state, dirty flag, selection and the full history.
+  const TDoubleParamP numericBefore = new TDoubleParam(*curve);
+  auto setDriven = [&](const std::string &text) {
+    curve->copy(numericBefore.getPointer());
+    auto driven = curve->getKeyframe(0);
+    driven.m_type = TDoubleKeyframe::Expression;
+    driven.m_expressionText = text;
+    curve->setKeyframe(0, driven);
+  };
+  for (const auto &text : {std::string("sin("),
+           TExpression::makeSeExprText("unknown_function(frame)"),
+           std::string("1/(f-4)"), TExpression::makeSeExprText("1/(frame-4)")}) {
+    setDriven(text);
+    const TDoubleParamP before = new TDoubleParam(*curve);
+    const TDoubleParamP rigBefore = new TDoubleParam(*rig);
+    const int beforeIndex = TUndoManager::manager()->getCurrentHistoryIndex();
+    const int beforeCount = TUndoManager::manager()->getHistoryCount();
+    app->getCurrentScene()->setDirtyFlag(false);
+    for (int repeat = 0; repeat < 2; ++repeat) {
+      require(!moveStoryboardTiming(sheet, 0, 1, 6, &error, true) && !error.isEmpty(),
+              "invalid expression fallback was baked into storyboard timing");
+      require(TUndoManager::manager()->getCurrentHistoryIndex() == beforeIndex &&
+                  TUndoManager::manager()->getHistoryCount() == beforeCount &&
+                  !app->getCurrentScene()->getDirtyFlag(),
+              "rejected storyboard bake changed history or dirty state");
+      require(curve->getKeyframeCount() == before->getKeyframeCount() &&
+                  rig->getKeyframeCount() == rigBefore->getKeyframeCount(),
+              "rejected storyboard bake changed source key count");
+      for (int key = 0; key < curve->getKeyframeCount(); ++key)
+        require(sameKey(curve->getKeyframe(key), before->getKeyframe(key)),
+                "rejected storyboard bake changed expression source or metadata");
+      for (int key = 0; key < rig->getKeyframeCount(); ++key)
+        require(sameKey(rig->getKeyframe(key), rigBefore->getKeyframe(key)),
+                "rejected storyboard bake changed another animation track");
+      for (int row = 0; row < 6; ++row) {
+        require(sheet->getCell(row, 0) == TXshCell(level, TFrameId(row + 1)),
+                "rejected storyboard bake moved an exposure");
+        require(sheet->getCell(row, 1) == TXshCell(sound, TFrameId(row)),
+                "rejected storyboard bake moved an audio slice");
+      }
+      require(rigObject->getPinnedRangeSet()->isPinned(0) &&
+                  !rigObject->getPinnedRangeSet()->isPinned(4) &&
+                  sheet->getNavigationTags()->getTagLabel(0) == "First" &&
+                  sheet->getNavigationTags()->getTagLabel(2) == "Second" &&
+                  app->getCurrentFrame()->getFrame() == 3 &&
+                  app->getCurrentColumn()->getColumnIndex() == 0,
+              "rejected storyboard bake changed pins, tags or editing context");
+    }
+  }
+  for (const auto &text : {std::string("f*2"), TExpression::makeSeExprText("frame*2")}) {
+    setDriven(text);
+    // Native undo notifications redraw the camera and may resolve its display
+    // unit. Establish that ordinary valid preview state before the snapshot.
+    (void)curve->getValue(0);
+    const TDoubleParamP before = new TDoubleParam(*curve);
+    const int beforeIndex = TUndoManager::manager()->getCurrentHistoryIndex();
+    require(moveStoryboardTiming(sheet, 0, 1, 6, &error, true),
+            "valid driven storyboard bake failed");
+    require(TUndoManager::manager()->getCurrentHistoryIndex() == beforeIndex + 1,
+            "driven storyboard bake was not one undo transaction");
+    const TUnit *unit = curve->getMeasure() ? curve->getMeasure()->getCurrentUnit() : nullptr;
+    for (int row = 0; row < 6; ++row) {
+      const double expressionValue = (source[row] + 1) * 2.0;
+      requireNear(curve->getValue(row), unit ? unit->convertFrom(expressionValue) : expressionValue,
+                  "valid storyboard expression bake changed sampled output");
+      require(sheet->getCell(row, 0) == TXshCell(level, TFrameId(source[row] + 1)) &&
+                  sheet->getCell(row, 1) == TXshCell(sound, TFrameId(source[row])),
+              "valid driven bake lost picture/audio correspondence");
+    }
+    require(TUndoManager::manager()->undo() && TUndoManager::manager()->redo() &&
+                TUndoManager::manager()->undo(), "driven storyboard repeated undo/redo failed");
+    require(curve->getKeyframeCount() == before->getKeyframeCount(),
+            "driven storyboard undo lost source keys");
+    for (int key = 0; key < curve->getKeyframeCount(); ++key)
+      require(sameKey(curve->getKeyframe(key), before->getKeyframe(key)),
+              "driven storyboard undo lost original expression metadata");
+  }
+  curve->copy(numericBefore.getPointer());
+
   auto *column = sheet->getColumn(0)->getLevelColumn();
+  auto *remapCurve = column->getTimeRemapParam();
+  auto *tree = sheet->getStageObjectTree();
+  int referenceIndex = 0;
+  while (tree->getStageObject(TStageObjectId::PegbarId(referenceIndex), false)) ++referenceIndex;
+  const auto referenceId = TStageObjectId::PegbarId(referenceIndex);
+  auto *referenceOwner = tree->getStageObject(referenceId, true);
+  auto *referenceSource = referenceOwner->getParam(TStageObject::T_X);
+  const std::string referenceMeasure = referenceSource->getMeasureName();
+  auto setReference = [&](const std::string &text) {
+    referenceSource->clearKeyframes();
+    referenceSource->setMeasureName("");
+    TDoubleKeyframe first(0, 0), last(5, 0);
+    first.m_type = TDoubleKeyframe::Expression;
+    first.m_expressionText = text;
+    referenceSource->setKeyframe(first);
+    referenceSource->setKeyframe(last);
+    referenceSource->setMeasureName(referenceMeasure);
+  };
+  // An unused pegbar and selected sound column isolate this batch-only cold
+  // unit check from interactive camera placement and remap-label reads during
+  // successful undo notifications. No active column is parented to the pegbar.
+  app->getCurrentColumn()->setColumnIndex(1);
+  setReference("f");
+  TDoubleKeyframe remapReference(0, 0), remapEnd(5, 0);
+  remapReference.m_type = TDoubleKeyframe::Expression;
+  remapReference.m_expressionText = "peg" + std::to_string(referenceIndex + 1) + ".x";
+  remapCurve->setKeyframe(remapReference);
+  remapCurve->setKeyframe(remapEnd);
+  column->setTimeRemapEnabled(true);
+  const TDoubleParamP remapBefore = new TDoubleParam(*remapCurve);
+  const TDoubleParamP referenceBefore = new TDoubleParam(*referenceSource);
+  require(referenceSource->getKeyframe(0).m_unitName.empty(), "remap reference fixture unit was already authored");
+  require(moveStoryboardTiming(sheet, 0, 1, 6, &error, true), "valid referenced remap bake failed");
+  for (int row = 0; row < 6; ++row)
+    require(column->getRemappedCell(row) == TXshCell(level, TFrameId(source[row] + 1)),
+            "checked remap sample lost original drawing correspondence");
+  require(TUndoManager::manager()->undo(), "referenced remap undo missing");
+  require(referenceSource->getKeyframeCount() == referenceBefore->getKeyframeCount() &&
+              remapCurve->getKeyframeCount() == remapBefore->getKeyframeCount(),
+          "referenced remap undo lost source keys");
+  for (int key = 0; key < referenceSource->getKeyframeCount(); ++key)
+    require(sameKey(referenceSource->getKeyframe(key), referenceBefore->getKeyframe(key)),
+            "remap sampling authored source unit metadata or lost reference data");
+  for (int key = 0; key < remapCurve->getKeyframeCount(); ++key)
+    require(sameKey(remapCurve->getKeyframe(key), remapBefore->getKeyframe(key)),
+            "referenced remap undo changed its original keys");
+  setReference("sin(");
+  const TDoubleParamP invalidReferenceBefore = new TDoubleParam(*referenceSource);
+  const int remapHistory = TUndoManager::manager()->getCurrentHistoryIndex();
+  const int remapCount = TUndoManager::manager()->getHistoryCount();
+  app->getCurrentScene()->setDirtyFlag(false);
+  require(!moveStoryboardTiming(sheet, 0, 1, 6, &error, true) && !error.isEmpty(),
+          "referenced remap failure was accepted");
+  require(TUndoManager::manager()->getCurrentHistoryIndex() == remapHistory &&
+              TUndoManager::manager()->getHistoryCount() == remapCount &&
+              !app->getCurrentScene()->getDirtyFlag(), "failed remap bake changed transaction state");
+  require(referenceSource->getKeyframeCount() == invalidReferenceBefore->getKeyframeCount() &&
+              remapCurve->getKeyframeCount() == remapBefore->getKeyframeCount(),
+          "failed remap bake changed source key counts");
+  for (int key = 0; key < referenceSource->getKeyframeCount(); ++key)
+    require(sameKey(referenceSource->getKeyframe(key), invalidReferenceBefore->getKeyframe(key)),
+            "failed remap bake changed referenced source metadata");
+  for (int key = 0; key < remapCurve->getKeyframeCount(); ++key)
+    require(sameKey(remapCurve->getKeyframe(key), remapBefore->getKeyframe(key)),
+            "failed remap bake changed reference source");
+  for (int row = 0; row < 6; ++row)
+    require(sheet->getCell(row, 0) == TXshCell(level, TFrameId(row + 1)) &&
+                sheet->getCell(row, 1) == TXshCell(sound, TFrameId(row)),
+            "failed remap bake changed picture/audio cells");
+  remapCurve->clearKeyframes();
+  referenceSource->clearKeyframes();
+  tree->removeStageObject(referenceId);
+  app->getCurrentColumn()->setColumnIndex(0);
   column->setTimeRemapEnabled(true);
   column->getTimeRemapParam()->setValue(0, 6);
   column->getTimeRemapParam()->setValue(5, 1);
   app->getCurrentFrame()->setFrame(0);
   app->getCurrentXsheet()->notifyXsheetChanged();
-  const auto viewers = window->findChildren<BaseViewerPanel *>();
-  require(!viewers.isEmpty(), "native viewer is missing");
-  viewers.front()->changeWindowTitle();
-  auto *label = viewers.front()->findChild<QLabel *>("viewerTimeRemapStatus");
+  BaseViewerPanel *viewer = nullptr;
+  for (auto *candidate : window->findChildren<BaseViewerPanel *>())
+    if (candidate->isVisible()) { viewer = candidate; break; }
+  require(viewer, "visible native viewer is missing");
+  auto *label = viewer->findChild<QLabel *>("viewerTimeRemapStatus");
   require(label && !label->isHidden() && label->text().contains("6"), "source/playback timing readback missing");
   require(sheet->getCell(0, 0).getFrameId() == TFrameId(1), "timing readback changed editable source");
+
+  // Drive context signals, never the title-refresh slot. The two columns use
+  // the identical level and drawing, suppressing the incidental level-switch
+  // signal that previously hid this stale-readback bug.
+  const QString originalTiming = label->text();
+  for (int row = 0; row < 6; ++row)
+    require(sheet->setCell(row, 2, TXshCell(level, TFrameId(row + 1))),
+            "same-level timing column fixture failed");
+  app->getCurrentColumn()->setColumnIndex(2);
+  require(label->isHidden(), "same-level column switch retained another column's remap label");
+  auto *otherColumn = sheet->getColumn(2)->getLevelColumn();
+  otherColumn->getTimeRemapParam()->setValue(0, 2);
+  otherColumn->getTimeRemapParam()->setValue(5, 2);
+  otherColumn->setTimeRemapEnabled(true);
+  app->getCurrentXsheet()->notifyXsheetChanged();
+  require(!label->isHidden() && label->text() != originalTiming &&
+              label->text().contains("source row 2"),
+          "active same-level column timing was not displayed");
+  app->getCurrentColumn()->setColumnIndex(0);
+  require(label->text() == originalTiming, "same-level return did not restore original timing readback");
+  app->getCurrentFrame()->setFrame(5);
+  require(label->text().contains("Output frame 6") && label->text().contains("source row 1"),
+          "frame transition retained stale source/playback timing");
+  app->getCurrentFrame()->setFrame(0);
+  viewer->enableFullPreview(true);
+  require(label->text().contains("Previewing remapped timing"), "preview transition did not update timing mode");
+  viewer->enableFullPreview(false);
+  require(label->text() == originalTiming, "preview exit did not restore editing timing mode");
+  sheet->removeColumn(2);
+
+  // Enter an actual child stack whose selected cell still uses the same asset
+  // and whose remap differs. No column/frame/level change can mask a missing
+  // xsheetSwitched subscription here.
+  auto *timingChild = new TXshChildLevel(L"TimingReadbackChild");
+  timingChild->setScene(scene);
+  timingChild->setXsheet(new TXsheet(scene));
+  scene->getLevelSet()->insertLevel(timingChild);
+  auto *childSheet = timingChild->getXsheet();
+  for (int row = 0; row < 6; ++row)
+    require(childSheet->setCell(row, 0, TXshCell(level, TFrameId(row + 1))),
+            "nested timing readback fixture failed");
+  auto *childColumn = childSheet->getColumn(0)->getLevelColumn();
+  childColumn->getTimeRemapParam()->setValue(0, 4);
+  childColumn->getTimeRemapParam()->setValue(5, 4);
+  childColumn->setTimeRemapEnabled(true);
+  require(sheet->setCell(0, 2, TXshCell(timingChild, TFrameId(1))), "nested timing exposure failed");
+  require(scene->getChildStack()->openChild(0, 2), "cannot enter timing child");
+  app->getCurrentXsheet()->setXsheet(scene->getXsheet());
+  require(app->getCurrentXsheet()->getXsheet() == childSheet &&
+              !label->isHidden() && label->text().contains("source row 4"),
+          "same-level child entry retained parent source/playback timing");
+  int parentRow = -1, parentColumn = -1;
+  require(scene->getChildStack()->closeChild(parentRow, parentColumn), "cannot leave timing child");
+  app->getCurrentXsheet()->setXsheet(scene->getXsheet());
+  require(app->getCurrentXsheet()->getXsheet() == sheet && label->text() == originalTiming,
+          "same-level child exit retained child source/playback timing");
+  sheet->removeColumn(2);
+  scene->getLevelSet()->removeLevel(timingChild);
+
   require(!moveStoryboardTiming(sheet, 0, 1, 6, &error), "native mode silently baked remapped timing");
   std::vector<TFrameId> playback;
   for (int row = 0; row < 6; ++row) playback.push_back(column->getRemappedCell(row).getFrameId());
@@ -427,7 +850,7 @@ void exerciseTiming(ToonzScene *scene, QMainWindow *window, const QString &folde
   require(column->isTimeRemapEnabled() && column->getTimeRemapParam()->getKeyframeCount() == 2,
           "remapped timing undo lost original curve");
   column->setTimeRemapEnabled(false);
-  viewers.front()->changeWindowTitle();
+  app->getCurrentXsheet()->notifyXsheetChanged();
   require(label->isHidden(), "timing readback remains after remap disabled");
 
   curve->deleteKeyframe(5);
