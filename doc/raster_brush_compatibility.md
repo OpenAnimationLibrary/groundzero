@@ -1,0 +1,137 @@
+# Regular-raster brush compatibility contract
+
+Status: proposed acceptance contract for independently implemented brush compatibility.
+The existing ABR importer extracts sampled tips only. None of the new foreign
+behavior profiles below is implemented or reference-verified by publishing this
+contract. Keep this work separate from vector/touch usability and neural styling.
+
+The implementation preserves legacy MyPaint and TLV/vector behavior. A native
+compatibility renderer, bounded format adapters, portable resource graph and
+raster transactions are required for completion; tip extraction alone does not
+satisfy the contract. Build and test through CI per CLAUDE.md.
+
+## Acceptance ledger
+
+| Requirement | Implementation | Validation / release gate |
+|---|---|---|
+| Existing ABR input and allocation budgets, exact subversion guards | Implemented | CI parser fixtures at the PR head |
+| Existing ABR collection installation without overwriting or partial writes | Implemented | Packaged application fault-injection review pending |
+| Versioned IR and decoded/supported/verified status separation | Planned | Format/resource round-trip corpus |
+| ABR descriptor/computed-tip/pattern behavioral import | Planned | Every declared version and active setting |
+| KPP/bundle/GBR/GIH import | Planned | Safe parsing and resource association corpus |
+| Independent dry renderer and defined dynamics/combinations | Planned | Numeric and source-reference comparison gates |
+| Four Krita smudge profiles and native wet | Planned | Long-stroke drift, transparency and pickup fixtures |
+| Real tilt/rotation capture and normalization | Planned | Driver/device and canonical trace evidence |
+| Actual-engine preview, editor, portable preset export/relink | Planned | Artist workflow and resource portability |
+| Undo/cancel/frame lifecycle/save/reopen | Planned | Exact restored pixels and regression scenes |
+| Parser isolation/fuzzing/cancel and complete resource budgets | Planned | Sanitizers, malformed corpus and limits |
+| Packaged Windows/macOS/Linux QA and performance | Planned | Exact-head artifacts and hardware results |
+| Must-have pack parity including any wet/Mixer/bristle/TPL expansion | Unresolved target | Pack revision/preset identity and authorized reference access |
+
+No planned or unresolved row can be counted as completed by passing the current
+ABR tests. Keep every row visible until the full outcome is fulfilled. There is
+no general Kyle compatibility claim. Original redistributable fixtures are the
+public test corpus; proprietary packs are not bundled.
+
+## Normative RCP1 contract — revision 2
+
+This section governs whenever an earlier overview uses “supported,” “specified,” “subset,” or a provisional metric. It is a proposed complete practical product scope, not an assertion that compatibility already exists. Acceptance of this scope remains a product decision; engineering defaults below do not require further user choices. Touch/UI usability work is separate; only the brush import/editor workflow is included here.
+
+### Three independent status axes
+
+Store these per preset, per importer version and per profile version; display them separately:
+
+* **Decoded:** the container and all referenced resources were read with validation. Values may still describe an unsupported engine. “Partially decoded” lists missing/unknown records; it is not successful preset import.
+* **Semantically supported:** every active setting, dependency, numeric range and combination belongs to the selected profile and has an implemented mapping. Parsing an unknown field into an opaque blob does not qualify. Inactive settings may be preserved only when their disabled state is provable. An unrecognized enable flag is conservatively active/unknown. A preset needing conversion is labeled **converted approximation**, with source and replacement semantics shown.
+* **Reference-verified:** a specific preset or explicitly bounded equivalence class passed the comparison suite against the stated source application build, document settings and asset hashes. Record date, evidence and confidence scope. A supported preset can remain unverified; a verified tip decoder does not verify dynamics. Verification does not automatically cover another pack revision or app patch.
+
+At present, the repository supplies existing decoder code and tests, not these new semantic/verification statuses. All new profiles below are planned, and reference verification is pending. Commercial/readme language must say “imports the listed brush settings” until reference evidence exists. Never label RCP1 generically “Kyle-compatible,” “Photoshop engine compatible,” or “all Krita brushes.”
+
+### Source-version × engine × active-setting matrix
+
+Use **K534** = Krita 5.3.4, **P270** = Photoshop desktop 27.0, as fixed behavioral baselines. These are the current stable application versions identified by the primary release sources on 30 October 2026. Krita 6.0.4 shares the 5.3.4 source but remains a separate Qt6 tablet/platform verification target; behavioral verification does not transfer automatically. K534 has an official release record; Adobe release notes mention 27.0. Installer availability and authorized reference execution remain execution prerequisites; do not replace either version silently. Record executable hash/platform and retain reference images legally. A different available version requires a new profile ID and explicit baseline revision. [Krita release](https://krita.org/en/posts/2026/krita-5.3.4-released/), [Adobe release notes](https://helpx.adobe.com/ee/photoshop/desktop/whats-new/photoshop-on-desktop-release-notes.html).
+
+ABR container version does not identify the Photoshop build that last painted a stroke. The ABR rows target files as interpreted by P270, not historical Photoshop parity. Likewise KPP without producer metadata is not proof of a source version: load it in K534 and record that interpretation for verification.
+
+| Container/version | Engine/profile | Required active setting set | Not included in that profile |
+|---|---|---|---|
+| ABR 1 and 2, separately | P270 dry legacy | Sampled 8/16-bit raw/PackBits tips; computed ellipse diameter, hardness, angle, aspect and spacing; any absent setting retains explicit legacy default | Descriptor dynamics not present in these records must not be inferred from a name. |
+| ABR 6/1, 6/2 | P270 dry modern | D set below; samp/desc/patt association | Wet/Mixer, bristle, erodible and unsupported descriptor types |
+| ABR 7/1, 7/2 | P270 dry modern | Same D set; separate version fixtures | Same exclusions; do not assume v6 byte layout without validation |
+| ABR 8/1, 8/2 | P270 dry modern | Same D set; separate version fixtures | Same |
+| ABR 9/1, 9/2 | P270 dry modern | Same D set; separate version fixtures | Same |
+| ABR 10/1, 10/2 | P270 dry modern | Same D set; separate version fixtures | Same |
+| ABR 3–5, >10, or v6–10 subversion other than 1/2 | None | Header identification/error only | No preset installation, and no “try nearest version” fallback |
+| KPP interpreted by K534; standalone or bundle member | K534 Pixel | K set below; build-up and wash as separate modes | Other engine IDs; inactive/unknown engine selection cannot default to Pixel |
+| KPP interpreted by K534; new-smudge flag off, Smear | K534 Smudge Legacy Smear | S set, old-model parameter relationships | Not a claim of fidelity to pre-5.0 application versions |
+| KPP interpreted by K534; new-smudge flag off, Dulling | K534 Smudge Legacy Dulling | S set, old-model parameter relationships | Same |
+| KPP interpreted by K534; new-smudge flag on, Smear | K534 Smudge New Smear | S set, new-model parameter relationships | Lightness/height-map and gradient tips excluded |
+| KPP interpreted by K534; new-smudge flag on, Dulling | K534 Smudge New Dulling | S set, new-model parameter relationships | Same |
+| KPP lacking sufficient model information | None until resolved | Decode metadata and request re-export via K534 or known version manifest | Never choose old/new model by visual guess |
+| KPP created by other Krita versions | Unverified import candidate | Decode known fields, validate K/S set, preserve producer metadata | No source-version equivalence claim; verification requires K534 interpretation or a new profile |
+| Bundle exported by K534 | Resource container, not engine | Manifest, tags and dependencies of the above K534 profiles | No automatic support for every member engine; archive version alone does not imply brush support |
+| GIH consumed by K534 | Resource of Pixel profile | One selection dimension; ordered/incremental or random selection; finite grayscale/RGBA sequence | Multidimensional rank/select, angular/velocity/pressure/tilt selectors excluded from import parity |
+| Native RCP1 package | Groundzero dry/native-wet | Versioned settings defined here | Not a portable ABR/KPP exporter or source-app fidelity claim |
+
+The existing ABR parse entry accepts versions 6–10 and forwards the second header word; its sample reader distinguishes subversion 1 from a longer-offset branch. New parsing must reject unknown subversions explicitly, even if a permissive legacy path happened to accept them. Do not treat a header accepted by current code as evidence of an independently validated format variant.
+
+**D — Photoshop dry active-setting whitelist:** grayscale sampled or generated ellipse tip; diameter, roundness, hardness, spacing, fixed angle; shape dynamics size/angle/roundness with minimums; pressure, tilt, barrel rotation, direction, initial direction, fade and seeded jitter controls where the source exposes them; one-/two-axis scattering, count and count jitter; transfer opacity and flow; color dynamics foreground/background mix and hue/saturation/brightness jitter; flip X/Y; timed airbrush; texture pattern with scale/depth/invert/contrast/brightness, fixed origin or texture-each-tip; dual sampled/generated mask with its own size/spacing/scatter/count and flip. Global source smoothing, wet edges, build-up variants not represented by these controls, protect-texture cross-preset state, noise extras, brush-pose override and undocumented active descriptor extensions are unsupported. Disabled unknown controls require evidence that they are disabled. Modes are restricted by the combination table below.
+
+**K — Krita Pixel active-setting whitelist:** generated default/soft/Gaussian circle or square, including fade/softness and aspect; PNG/GBR alpha masks or RGBA color images; GIH modes above; diameter/spacing, fixed versus auto spacing, fixed precision 5, antialiasing on/off, angle, ratio, flip/mirror, scatter; size, opacity, flow and rotation dynamics driven by pressure, speed, distance, time, drawing angle, tilt axes/elevation/direction, rotation, fuzzy-dab or fuzzy-stroke; independently mapped sensor curves and multiplication of enabled sensor responses. Source curves use their declared interpolation, not an assumed linear conversion; the IR supports piecewise-linear and cubic curves. Additive/max/min sensor combiners, automatic precision reduction, spikes, lightness/gradient tips, texture height maps and gradient color sources are excluded. Foreground color with HSV dynamics, bounded texture masks, airbrush and wash/build-up are required. Masked brush is Pixel/wash only.
+
+**S — all four Krita smudge active-setting whitelists:** K's single alpha-mask tip/geometry/spacing and applicable pressure/distance/time/tilt/rotation dynamics; opacity/flow, color rate, smudge length/strength, smear-alpha on/off, HSV foreground dynamics and texture multiply/subtract masks. Dulling additionally supports smudge radius 0–300% in K534 units; Smear records the radius as inactive rather than using it. Both enabled and disabled smudge-length toggles must preserve K534 meaning; disabling a toggle must not be guessed to mean zero. Overlay sampling must be off (current raster only); no masked/dual brush, color-image/gradient/lightness tip, height map, Paint Thickness, cross-layer sampling or non-normal color blend in S. The four profiles are required, not one representative that stands in for the others. The manual documents different old/new relationships and distinct smear/dulling behavior; the narrowed S contract is our choice. [Smudge behavior](https://docs.krita.org/en/reference_manual/brushes/brush_engines/color_smudge_engine.html).
+
+Numeric envelope for new profiles: diameter 0.25–4,096 document pixels; normalized pressure/opacity/flow and mask depths 0–1; aspect 0.01–1; angles modulo 360 degrees; scatter up to 5 tip diameters; count 1–64; manual spacing 0.01–5 diameters; timed airbrush 1–120 dabs/second; curves within resource limits. Imports outside this envelope are unsupported, never silently clamped. These are semantic acceptance limits, not promises of 60 Hz at every extreme. A source's valid zero spacing is supported only by a documented profile-specific zero-spacing rule measured against the baseline; until implemented/tested that specific preset remains unsupported. Do not substitute 0.01 and report parity.
+
+### Explicit combination table and operation order
+
+| Profile | Color blend modes | Secondary-mask modes | Texture-mask modes | Sequence/color constraints |
+|---|---|---|---|---|
+| P270 dry D | Normal, Multiply, Screen, Overlay; Erase and Lock Alpha are Groundzero modifiers verified separately | Off or Multiply only | Multiply or Subtract; invert/depth applied before combination | Single grayscale tip; no GIH; foreground/background mixing uses selected source colors |
+| K534 Pixel build-up | Normal, Multiply, Screen, Overlay | Off; masked brush in build-up is unsupported | Multiply or Subtract | Alpha masks and RGBA color images; GIH ordered/random allowed |
+| K534 Pixel wash | Normal, Multiply, Screen, Overlay | Off, Multiply, Subtract | Multiply or Subtract | Same; secondary tip must be single alpha mask, not nested GIH/dual masks |
+| Four K534 Smudge S models | Normal only | Off | Multiply or Subtract | Single alpha mask; current raster only |
+| Groundzero native wet | Normal only, Erase/Lock Alpha separately defined | Off | Multiply or Subtract | Single alpha mask; explicit native formula below |
+
+All Cartesian combinations within a row are required unless that row states a restriction. Source settings outside the row produce a converted/unsupported result, not a nearest mode. The native mask definitions are Multiply(a,b)=a*b and Subtract(a,b)=max(0,a-b), for coverage a,b in [0,1]. Foreign adapters must account for source mask polarity and depth evaluation; identical dropdown labels are not proof of identical math. For source subtraction or depth behavior that differs, implement its profile-specific equation and test it rather than relabel the native operation.
+
+Required conceptual evaluation order: normalize samples → evaluate sensors/curves at the dab position/time → compute spacing/tip index and seeded variation → transform/sample primary tip → evaluate texture → compute/evaluate secondary mask if enabled → combine coverage → evaluate color/flow → blend into either the stroke buffer (wash) or destination (build-up) → apply stroke opacity → apply selection/alpha policy → publish dirty tiles. For smudge, sample the pre-deposit raster and update the model state before deposition; never accidentally sample this dab's partly written tiles. Source-specific departures from this order are recorded as profile rules with tests, not hidden importer tweaks. Krita explicitly limits masked brush to wash; preserving that is a correctness condition, not an arbitrary missing feature. [Masked brush](https://docs.krita.org/en/reference_manual/brushes/brush_settings/masked_brush.html).
+
+GIH native ordered sequence increments once per emitted primary dab, starts at index zero each stroke, wraps modulo frame count; random selection is uniform over frames from a stroke-local deterministic PRNG. Do not increment for preview sampling, skipped display frames or cancelled speculative dabs. These are native rules; K534 equivalence must be verified on original GIH fixtures because consuming applications may differ. GIMP describes multiple selectors, and Krita notes it does not support all GIH parameters. [GIMP animated brushes](https://docs.gimp.org/3.0/en/gimp-using-animated-brushes.html), [Krita tip modes](https://docs.krita.org/en/reference_manual/brushes/brush_settings/brush_tips.html).
+
+### Color and native wet mathematics
+
+RCP1 chooses **encoded sRGB arithmetic** for all foreign profiles and Groundzero native wet, with an sRGB IEC61966-2.1 RGBA8 document. Source application's linear-light blending options must be off in reference fixtures. No runtime toggle silently changes a verified profile into linear-light mode. A future linear profile has a separate engine ID and fixture set. Load colored tip assets through an explicit sRGB conversion; alpha/gray mask data is coverage, not gamma-transformed color. Reject unsupported document color spaces/depths from this mode without changing the document. Display conversion is presentation only and is excluded from saved-pixel comparison.
+
+Internally store premultiplied color C and alpha A in [0,1]. Unpremultiply only when A>0; define straight RGB as zero at A=0, never divide by epsilon and invent hidden color. For straight source Cs, backdrop Cb, source alpha As, backdrop Ab and separable blend B, use Co = As*(1-Ab)*Cs + As*Ab*B(Cb,Cs) + (1-As)*Ab*Cb and Ao=As+Ab*(1-As). B is source for Normal, Cs*Cb for Multiply, 1-(1-Cs)*(1-Cb) for Screen, and Overlay branches on Cb≤0.5. This is the reference native composition definition; source profiles may require documented rounding variants for parity. [W3C compositing/blending](https://www.w3.org/TR/compositing-1/)
+
+Quantize to RGBA8 only at specified raster commit boundaries: clamp 0–1, round half up using floor(255*x+0.5). Keep stroke buffers at float32 minimum; the deterministic reference path uses float64 scalar arithmetic with fixed operation ordering and no fast-math. Erase multiplies destination premultiplied RGB and alpha by (1-coverage*flow); alpha lock preserves destination alpha and confines color deposition to existing coverage. Store hidden RGB at zero when alpha is zero. The adapter must explicitly reconcile the actual host raster convention; it must not assume that normalization alone establishes premultiplication.
+
+Native wet is an original Groundzero brush, not an assertion of Photoshop Mixer or Krita algorithm parity. State R is a premultiplied RGBA reservoir, initially selected foreground at configured load alpha. At each dab sample premultiplied Q from the pre-deposit raster using the normalized tip weights (transparent samples contribute alpha zero). Update R1=(1-p)*R+p*Q for pickup p∈[0,1]; form paint P=(1-c)*R1+c*F for color rate c; deposit P through mask/flow/opacity using Normal composition; then set R=(1-d)*R1+d*F for reload d. Smear native mode uses a transported previous-dab tile field in place of uniform Q/R; Dulling native mode uses a weighted average reservoir. Native wet defaults are p=0.5,c=0.25,d=0, and all state resets on stroke end/cancel. These settings are editable/native presets only. The four K534 profiles need their own measured parameter relationships; this formula is not used to conceal a missing emulation.
+
+### Exact parity measurement protocol
+
+Use fixed 2,048×2,048 RGBA8 sRGB canvases for fidelity, document zoom 100%, no view rotation, no export resizing, no image registration/alignment and no post-hoc gamma or contrast matching. Diameter fixtures: 1, 8, 64 and 256 document pixels; spacing 0.01, 0.1, 0.5 and 1 where valid; opacity/flow 0.1, 0.5 and 1. Texture origin, source color, initial pixels, random policy, source smoothing and profile ID are recorded. Separate off-canvas fixtures deliberately cross boundaries; normal strokes start sufficiently far from boundaries to avoid clipping. Performance canvases remain separate.
+
+Let B be the initial raster, R reference output and C candidate. A pixel is changed if any RGBA8 channel differs from B by at least one code value. Define E as the **union** of changed pixel sets in R and C, dilated by a fixed two-pixel radius and clipped to the canvas. All error/coverage summaries use E (including unchanged gaps), never only candidate bounds or intersection. Report bounding-box extents separately, changed-pixel counts, maximum error and the entire full-canvas diff to reveal stray marks. An empty candidate against a nonempty reference is failure, not zero error; both empty is a separate no-op test.
+
+Compare premultiplied RGB and alpha separately. Dry-media mean absolute premultiplied RGB error over E ≤2/255; alpha MAE ≤1/255 and alpha p99 absolute error ≤4/255. Coverage IoU ≥0.98 using alpha coverage ≥1/255 for painting on transparent backgrounds; on opaque backgrounds use the changed-pixel sets instead. Report both versions when applicable. Endpoint/width displacement ≤1 document pixel for 1/8-pixel brushes and ≤2% diameter for larger brushes; spacing error ≤2%. Test alpha-lock/erase against exact alpha invariants. No ΔE comparison on undefined transparent RGB: composite both images over fixed black and white backgrounds and score both; source color accuracy is measured only after the specified conversion.
+
+Canonical input traces store integer microsecond timestamps, document x/y, pressure, tilt and rotation/capabilities at 240 Hz, with exact pen-down/up and taps. The engine test consumes those raw events; dab scheduling resamples by profile spacing/time, using linear interpolation of position/pressure/tilt and shortest-arc interpolation for rotation. Preserve endpoints; no event-rate-dependent random reseeding. Test alternate delivery at 60/120/240 Hz, batches of 1/4/16, duplicate timestamps and a 50 ms pause. Compare identical underlying paths separately from intentionally sparse curves; do not demand identical output after deleting path information. Native scheduler output must be identical under batching when sample content/timestamps are identical.
+
+For external references record delivered events, not merely intended OS injections. Disable source stabilizers/smoothing, capture pressure normalization and tablet driver settings, and use equivalent document transforms. If a source interface cannot deliver tilt or the same timing, mark those fixture dimensions unverified; an image-only comparison cannot validate tablet feel or event semantics. Device-in-the-loop latency tests stay separate from deterministic engine traces. No claim of verified timing behavior follows from a synthetic screenshot.
+
+Smudge numeric drift test: 10,000 dabs over original color strips and alpha ramps, compare checkpoints at dabs 1,10,100,1,000,10,000. Same-platform repeat must hash exactly; cross-platform scalar reference checkpoint RGBA errors ≤1/255 per channel and reservoir component absolute error ≤1e-6 against the saved reference state (native engine only). Foreign source output at every checkpoint must have premultiplied RGB MAE ≤3/255, alpha MAE ≤2/255, mean ΔE00 ≤3 and p95 ΔE00 ≤6 on both black/white composites. No monotonic increase of MAE by more than 1/255 from checkpoint 1,000 to 10,000. Also require pickup/deposit transition position within 5% of stroke length and no inverted pickup direction, dark/bright halo or lost transparent-edge character. Do not claim access to another app's hidden reservoir state; foreign drift is output-based.
+
+For opaque source RNG, draw **100 independent strokes per fixture per application**, fixed path/settings and separate runs, with randomized order; compare three spatial bands (leading/middle/trailing) independently. Measure coverage fraction, integrated alpha, mean stroke width, occupied-tip count and normalized high-frequency texture energy at fixed spatial scales. For each statistic require the 95% bootstrap confidence interval (10,000 resamples, fixed analysis seed) for the difference of means to lie entirely within ±5% of the reference mean, with an absolute floor of 0.01 for normalized near-zero statistics; also require the candidate/reference standard-deviation ratio in [0.8,1.25] unless both variances are below that floor. All statistics/bands must pass; do not average failures away. Additional visually selected fixtures require blinded artist review. This earns **statistical reference verification**, explicitly different from pixel verification. For native known RNG, test exact seed/output repeatability instead.
+
+### Kyle/wet-media scope decision and remaining user choice
+
+The practical complete target is **RCP1 dry-media import plus all four specified K534 smudge profiles plus native wet painting**, including import reports, presets, durability and QA. It is not a generic Kyle pack emulator. A Kyle preset that is an ordinary sampled dry brush and uses only D can qualify after verification; one relying on Mixer Brush, wet edges, bristles, erodible tips, unsupported dual/texture modes or TPL cannot. Native wet conversion is a useful alternative, never advertised as that original preset working correctly.
+
+If broad Kyle compatibility is the required end state, add a separately scoped **W track before declaring the user's outcome complete**: identify exact wet/Mixer/bristle/TPL records in the chosen pack; specify wet/load/mix/flow and clean/load-after-stroke behavior, brush pickup sampling and reservoir lifecycle; model bristle geometry/stiffness/pose and supported sensors; address TPL decoding if needed; establish original authorized reference fixtures; and apply the same import/save/performance/fidelity gates. W is not presently feasible to estimate or promise for every historical pack from the word “Kyle.” Do not replace it with generic native smudge or quietly drop it after implementation. Pack findings may also expand D texture/dual/blend modes without requiring a whole wet engine.
+
+The only missing product information that cannot be inferred is: **Which specific packs/presets and acquisition/version are must-haves, and is approximate artistic conversion acceptable for those, or must their original wet/bristle behavior match?** Names, pack revision/date, preset names and source app version are sufficient for initial scoping; do not request public redistribution of proprietary files. If none are mandatory, recommend accepting RCP1 under its precise name. Users do not need to choose alpha equations, parser limits, ABR subversion guards, testing statistics or the internal engine split.
+
+M0 now freezes the matrices above and gathers required evidence rather than choosing undefined subversions/modes. M2/M3/M4 exit gates must cover every row and declared combination; missing comparisons remain unverified. The 15–27-week estimate applies only to RCP1 and should be re-estimated once fixture availability and independent source-model measurements are known. W, additional source versions, linear-light profiles and unrelated touch/UI work are excluded from that estimate, with no implication that the broader user goal has been accepted as narrower.
+
