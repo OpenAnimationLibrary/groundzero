@@ -720,7 +720,7 @@ int runNativeUiIntegrationTest(QMainWindow *window) {
     }
     QString animationError;
     if (!runAnimationWorkflowIntegrationTest(window, &animationError)) {
-      std::cerr << "native-ui-integration: animation workflow: "
+      std::cerr << "native-ui-integration: FAIL: animation workflow: "
                 << animationError.toStdString() << std::endl;
       return 1;
     }

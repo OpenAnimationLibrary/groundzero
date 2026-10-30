@@ -61,6 +61,7 @@
 #include <QApplication>
 #include <QDialog>
 #include <QEvent>
+#include <QEventLoop>
 #include <QFileDialog>
 #include <QCheckBox>
 #include <QFile>
@@ -102,14 +103,37 @@ bool sameKey(const TDoubleKeyframe &a, const TDoubleKeyframe &b) {
          a.m_fileParams.m_fieldIndex == b.m_fileParams.m_fieldIndex &&
          a.m_unitName == b.m_unitName && a.m_similarShapeOffset == b.m_similarShapeOffset;
 }
-// Drive actual native modal controls. No sleeps, screenshots or timing limits.
-void dialogs(const QStringList &choices, const std::function<void()> &operation) {
+QString modalDescription(QDialog *dialog) {
+  if (!dialog) return "no active modal";
+  auto bounded = [](QString text, int limit) {
+    return text.replace('\n', ' ').replace('\r', ' ').left(limit);
+  };
+  QString result = QString("class=%1 object=%2 title=%3")
+      .arg(QString::fromLatin1(dialog->metaObject()->className()).left(80))
+      .arg(bounded(dialog->objectName(), 100))
+      .arg(bounded(dialog->windowTitle(), 120));
+  const auto buttons = dialog->findChildren<QPushButton *>();
+  result += QString(" buttons=%1").arg(buttons.size());
+  for (int i = 0; i < buttons.size() && i < 8; ++i)
+    result += QString(" [%1 object=%2 visible=%3 enabled=%4]")
+        .arg(bounded(buttons[i]->text(), 100))
+        .arg(bounded(buttons[i]->objectName(), 100))
+        .arg(buttons[i]->isVisible()).arg(buttons[i]->isEnabled());
+  return result;
+}
+// Drive actual native modal controls. Preserve the exact requested choices.
+void dialogs(const QStringList &choices, const std::function<void()> &operation,
+             const char *phase = "native workflow") {
   int handled = 0;
   bool matched = true;
+  QString observed = "no modal observed";
+  std::cerr << "animation-workflow: modal phase=" << phase
+            << " expected=" << choices.join(" | ").left(240).toStdString() << std::endl;
   QTimer timer;
   QObject::connect(&timer, &QTimer::timeout, [&]() {
     auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
     if (!dialog) return;
+    observed = modalDescription(dialog);
     if (handled >= choices.size()) { matched = false; dialog->reject(); return; }
     const QString choice = choices[handled++];
     for (auto *button : dialog->findChildren<QPushButton *>())
@@ -124,7 +148,49 @@ void dialogs(const QStringList &choices, const std::function<void()> &operation)
   timer.start(0);
   operation();
   timer.stop();
+  if (!matched || handled != choices.size())
+    std::cerr << "animation-workflow: modal mismatch phase=" << phase
+              << " handled=" << handled << '/' << choices.size()
+              << " matched=" << matched << ' ' << observed.toStdString() << std::endl;
   require(matched && handled == choices.size(), "native modal choices did not match fixture");
+}
+
+QPushButton *visiblePoseButton(PosesPane &pane, const QString &name) {
+  QPointer<PosesPane> target(&pane);
+  QPointer<QPushButton> found;
+  auto inspect = [&]() {
+    if (!target) return;
+    for (auto *button : target->findChildren<QPushButton *>())
+      if (button->isVisible() && button->isEnabled() &&
+          (button->objectName() == name || button->text() == name)) {
+        found = button;
+        return;
+      }
+  };
+  inspect();
+  if (!found) {
+    // showEvent()/refresh() add real rows to an already visible layout. Qt
+    // queues their _q_showIfNotHidden delivery; clicking before that delivery
+    // correctly hits the production stale-row guard. Wait for the actual
+    // visible control instead of forcing a row visible or bypassing the click.
+    QEventLoop ready;
+    QTimer poll, deadline;
+    QObject::connect(&poll, &QTimer::timeout, &ready, [&]() {
+      inspect();
+      if (found || !target) ready.quit();
+    });
+    QObject::connect(&deadline, &QTimer::timeout, &ready, &QEventLoop::quit);
+    deadline.setSingleShot(true);
+    poll.start(1);
+    deadline.start(10000);
+    ready.exec();
+  }
+  if (!found)
+    std::cerr << "animation-workflow: pose control not ready name="
+              << name.left(100).toStdString() << " pane-visible="
+              << (target && target->isVisible()) << std::endl;
+  require(found, "visible enabled native pose control missing");
+  return found;
 }
 void writePoses(const TFilePath &file, const PoseLibrary &library) {
   TOStream stream(file);
@@ -343,16 +409,16 @@ void exercisePoses(ToonzScene *scene, const QString &folder) {
   replacement.addPose({"Turn", {{TStageObjectId::ColumnId(0), "x", 8.0}}});
   writePoses(file, replacement);
   const int history = TUndoManager::manager()->getHistoryCount();
-  dialogs({QObject::tr("Cancel")}, [&]() { require(!LibraryCmd::loadPoseSet(file), "cancelled pose import succeeded"); });
+  dialogs({QObject::tr("Cancel")}, [&]() { require(!LibraryCmd::loadPoseSet(file), "cancelled pose import succeeded"); }, "pose import Cancel");
   require(TUndoManager::manager()->getHistoryCount() == history, "cancelled pose import changed undo history");
   dialogs({QObject::tr("Keep the Scene Poses")}, [&]() {
     require(LibraryCmd::loadPoseSet(file), "keeping existing pose conflict failed");
-  });
+  }, "pose import Keep");
   require(TUndoManager::manager()->getHistoryCount() == history &&
               scene->getPoseLibrary()->getPose(0).m_entries.front().m_value == 2.0 &&
               scene->getPoseLibrary()->getBase().front().m_value == 3.0,
           "keeping existing poses changed their authored values/base/history");
-  dialogs({QObject::tr("Replace")}, [&]() { require(LibraryCmd::loadPoseSet(file), "pose replace failed"); });
+  dialogs({QObject::tr("Replace")}, [&]() { require(LibraryCmd::loadPoseSet(file), "pose replace failed"); }, "pose import Replace");
   requireNear(scene->getPoseLibrary()->getPose(0).m_entries.front().m_value, 8.0, "pose replace value missing");
   requireNear(scene->getPoseLibrary()->getBase().front().m_value, 3.0, "replace changed existing base");
   require(TUndoManager::manager()->undo(), "replace undo missing");
@@ -361,9 +427,9 @@ void exercisePoses(ToonzScene *scene, const QString &folder) {
 
   PosesPane pane;
   pane.show();
-  auto *remove = pane.findChild<QPushButton *>("deletePose0");
+  auto *remove = visiblePoseButton(pane, "deletePose0");
   require(remove, "native pose delete control missing");
-  dialogs({PosesPane::tr("Delete")}, [&]() { remove->click(); });
+  dialogs({PosesPane::tr("Delete")}, [&]() { remove->click(); }, "pose Delete");
   require(scene->getPoseLibrary()->getPoseCount() == 0, "native delete left pose");
   require(TUndoManager::manager()->undo(), "pose deletion undo missing");
   require(scene->getPoseLibrary()->getPoseCount() == 1, "pose deletion undo lost pose");
@@ -446,12 +512,12 @@ void exercisePoses(ToonzScene *scene, const QString &folder) {
               serialized(*scene->getPoseLibrary()) == capturedBase,
           "repeated identical Set Base changed history or state");
   x->setDefaultValue(15.0); y->setDefaultValue(-2.0);
-  dialogs({QObject::tr("Cancel")}, [&]() { add->click(); });
+  dialogs({QObject::tr("Cancel")}, [&]() { add->click(); }, "pose Add Cancel");
   require(undo->getHistoryCount() == baseHistory &&
               serialized(*scene->getPoseLibrary()) == capturedBase,
           "canceled Add Pose changed history or state");
   const int beforeAddIndex = undo->getCurrentHistoryIndex();
-  dialogs({QObject::tr("OK")}, [&]() { add->click(); });
+  dialogs({QObject::tr("OK")}, [&]() { add->click(); }, "pose Add accept");
   require(undo->getCurrentHistoryIndex() == beforeAddIndex + 1 &&
               scene->getPoseLibrary()->getPoseCount() == 2,
           "Add Pose was not one undo operation");
@@ -470,7 +536,7 @@ void exercisePoses(ToonzScene *scene, const QString &folder) {
   app->getCurrentScene()->setDirtyFlag(false);
   dialogs({QObject::tr("Replace")}, [&]() {
     require(LibraryCmd::loadPoseSet(stateFile), "identical pose import failed");
-  });
+  }, "pose identical import");
   require(undo->getHistoryCount() == identicalHistory &&
               undo->getCurrentHistoryIndex() == identicalIndex &&
               !app->getCurrentScene()->getDirtyFlag() &&
@@ -486,17 +552,16 @@ void exercisePoses(ToonzScene *scene, const QString &folder) {
   // The visible weight control previews the requested amount without writing
   // keys; Apply commits that amount once and its native undo restores curves.
   QSlider *weight = nullptr;
-  QPushButton *apply = nullptr, *cancelDelete = nullptr;
+  QPushButton *apply = nullptr;
+  auto *cancelDelete = visiblePoseButton(pane, "deletePose1");
   for (auto *candidate : pane.findChildren<QSlider *>("poseWeight1"))
     if (candidate->isVisible()) weight = candidate;
   for (auto *candidate : pane.findChildren<QPushButton *>("applyPose1"))
     if (candidate->isVisible()) apply = candidate;
-  for (auto *candidate : pane.findChildren<QPushButton *>("deletePose1"))
-    if (candidate->isVisible()) cancelDelete = candidate;
   require(weight && apply && cancelDelete, "native authored pose controls missing");
   const int applyIndex = undo->getCurrentHistoryIndex();
   const int applyHistory = undo->getHistoryCount();
-  dialogs({QObject::tr("Cancel")}, [&]() { cancelDelete->click(); });
+  dialogs({QObject::tr("Cancel")}, [&]() { cancelDelete->click(); }, "pose Delete Cancel");
   require(!app->getCurrentScene()->getDirtyFlag() &&
               undo->getCurrentHistoryIndex() == applyIndex &&
               undo->getHistoryCount() == applyHistory &&
@@ -548,12 +613,6 @@ void exercisePoseDialogContexts(const QString &folder) {
     return input.readAll();
   };
   const QByteArray originalBytes = serialized(original), editedBytes = serialized(edited);
-  auto findVisible = [](PosesPane &pane, const QString &name) {
-    for (auto *button : pane.findChildren<QPushButton *>())
-      if (button->isVisible() &&
-          (button->objectName() == name || button->text() == name)) return button;
-    throw std::runtime_error("pose context native control missing");
-  };
   auto initialize = [&]() {
     auto *scene = handle->getScene();
     require(scene && scene->getLevelSet()->getLevelCount() == 0,
@@ -584,8 +643,8 @@ void exercisePoseDialogContexts(const QString &folder) {
         command == 1 ? PosesPane::tr("Delete") : QObject::tr("Replace");
     bool imported = false;
     const int index = undo->getCurrentHistoryIndex(), count = undo->getHistoryCount();
-    QPointer<QPushButton> staleApply(findVisible(pane, "applyPose0"));
-    QPointer<QPushButton> staleDelete(findVisible(pane, "deletePose0"));
+    QPointer<QPushButton> staleApply(visiblePoseButton(pane, "applyPose0"));
+    QPointer<QPushButton> staleDelete(visiblePoseButton(pane, "deletePose0"));
     interruptPoseDialog(objectName, choice, notify, [&]() {
       if (notify) {
         require(replacePoseLibrary(scene, edited, "Concurrent pose edit"),
@@ -601,7 +660,7 @@ void exercisePoseDialogContexts(const QString &folder) {
         *scene->getPoseLibrary() = edited;
     }, [&]() {
       if (command == 2) imported = LibraryCmd::loadPoseSet(importPath);
-      else findVisible(pane, command == 0 ? PosesPane::tr("Add Pose...") :
+      else visiblePoseButton(pane, command == 0 ? PosesPane::tr("Add Pose...") :
                                            QString("deletePose0"))->click();
     });
     require(!imported && serialized(*scene->getPoseLibrary()) == expectedBytes &&
@@ -665,7 +724,7 @@ void exercisePoseDialogContexts(const QString &folder) {
     }, [&]() {
       if (command == 2) importedOrSaved = LibraryCmd::loadPoseSet(importPath);
       else if (command == 4) importedOrSaved = LibraryCmd::savePoseSet();
-      else findVisible(pane, command == 0 ? PosesPane::tr("Add Pose...") :
+      else visiblePoseButton(pane, command == 0 ? PosesPane::tr("Add Pose...") :
           command == 1 ? QString("deletePose0") : PosesPane::tr("Load Pose Set..."))->click();
     }, [&](QDialog *dialog) {
       if (command == 4) {
