@@ -662,6 +662,8 @@ class NativeOffscreenCheckpointTest(unittest.TestCase):
             self.assertIn("0xC0000005", output)
             self.assertIn("retained", output)
             captured.assert_called_once()
+            self.assertEqual(captured.call_args.args[0],
+                             [str(executable.resolve()), "--test-native-ui"])
             debugger.assert_not_called()
             if combined is not None:
                 combined.assert_not_called()
@@ -672,8 +674,10 @@ class NativeOffscreenCheckpointTest(unittest.TestCase):
             # terminal-worker contract explicitly; missing/echoed lifecycle
             # lines are exercised by test_native_ui_lifecycle.py.
             result = SimpleNamespace(returncode=result.returncode, stdout=result.stdout +
-                b"\nicon-lifecycle-native: PASS (actual workers and Qt TLS retired)\n"
-                b"native-ui-integration: checkpoint: native icon workers drained\n")
+                b"\nicon-lifecycle-native: terminal replacement PASS\n"
+                b"icon-lifecycle-native: PASS (actual workers and Qt TLS retired)\n"
+                b"native-ui-integration: checkpoint: native icon workers drained\n"
+                b"native-ui-integration: checkpoint: native application cleanup completed\n")
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             executable = root / "OpenToonz.exe"
@@ -696,8 +700,15 @@ class NativeOffscreenCheckpointTest(unittest.TestCase):
             with patch.object(native, "isolated_fixture", fixture), \
                     patch.object(native, "run_captured_process", return_value=result,
                                  side_effect=result if isinstance(result, Exception) else None) as run, \
+                    patch.object(native, "required_icon_clear", return_value=(
+                        "\nSeparate reviewed-clear fixture result supplied by this feature-gate test.\n", 0)) as clear, \
                     patch.object(sys, "argv", arguments), patch.object(sys, "stdout", io.StringIO()):
                 status = native.main()
+            # The real two-process marker/status/isolation contract is covered
+            # by test_native_ui_lifecycle.py. These cases retain the original
+            # feature/deadline oracle, independent of a successful second case.
+            clear.assert_called_once()
+            run.assert_called_once()
             return status, report.read_text(encoding="utf-8"), run.call_args
 
     def test_success_requires_real_offscreen_completion_marker(self):

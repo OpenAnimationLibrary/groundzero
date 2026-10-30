@@ -96,8 +96,10 @@ native application boundary it exercises:
   expires while the worker is held; rendering must finish before its source
   is destroyed.
 - Queued New, checked/unchecked Load, direct save-and-clear, and reentrant close
-  during accepted Quit. A direct replacement survives until its own later
-  explicit Discard decision.
+  during accepted Quit. A valid initialized direct replacement stays intact
+  when that Quit did not review it. A separate fresh-process case explicitly
+  reviews its current scene and verifies that Discard clears it only after
+  active readers and thread-local state have retired.
 - Canceled New and checked Load keep a real active Xsheet renderer and queued
   level renderer usable. Accepted New, checked Load, and unchecked Load retire
   those old readers before mutation, preserve saved source bytes, and generate
@@ -116,16 +118,34 @@ native application boundary it exercises:
 
 The test watchdogs release their own barriers and report failure. They do not
 qualify performance or make a timed delay count as successful retirement.
-Each real Quit decision runs in a fresh public `QApplication::exec` boundary
-after the original application loop has returned. An accepted close calls the
-product's `qApp->quit`; Qt's application-loop cleanup must run before another
-native decision dialog can execute. The fixture queues the actual window close,
-catches callback exceptions, and requires both dispatch and return as well as
-the real decision-button witness. Cancel ends only the test loop after the close
-returns false. Repeated accepted closes still exercise actual terminal shutdown,
-source preservation and later explicit clearing; private Qt state is untouched.
-The native runner requires the actual lifecycle PASS and worker-drained output
-lines as well as a zero process status; echoed or missing lines cannot qualify
-the full run, an isolated diagnostic, or the required timing gate. The timing
+Each process exercises real Cancel followed by exactly one accepted Quit. The
+default native process preserves an unreviewed replacement; the additional
+`--test-native-icon-clear` process exercises reviewed same-scene clearing with
+the same active, superseded and queued reader checks. Both use the strict
+disposable native profile preparation. The latter does not repeat artist
+feature suites or emit their PASS marker. It is an independently required
+terminal acceptance process, including for the isolated timing gate.
+
+The fixture queues each actual window close inside a public
+`QApplication::exec`, transfers callback exceptions outside Qt dispatch, and
+requires dispatch, return and the real decision button. Cancel ends only that
+test loop after the close returns false. Accepted Quit also terminates the
+global thread executor and deletes the image-cache directory. The fixture never
+reopens that terminal application or resets its globals. Rendering/settings
+probes run before acceptance; only completion and idempotent shutdown checks
+follow. Bounded Toonz exception details retain the phase of future failures.
+
+The old repeated-close Linux failure did not capture its exception type.
+Source review identified that `TImageCache::clear(true)` leaves its removed
+directory path recorded, so a second complete shutdown attempts to delete the
+same directory and can throw a non-standard `TSystemException`. Separating the
+two real terminal scenarios corrects that invalid fixture lifecycle; it does
+not claim a reproduced product defect or make product shutdown reusable.
+
+The native runner requires distinct `terminal replacement PASS` and
+`terminal reviewed-clear PASS` evidence from the respective processes, plus
+each actual lifecycle PASS, worker-drained and cleanup lines and zero exit.
+Echoed, wrong-mode or missing lines cannot qualify the full run, an isolated
+diagnostic, or the required timing gate. The timing
 gate also retains its original fixture and cleanup checkpoints. No local build or test was run. These corrections and new
 acceptance cases require fresh exact-head CI on every supported platform.

@@ -188,6 +188,8 @@ def isolated_fixture(source, executable, mesa_runtime=None, runtime_state=None):
         shutil.copytree(source, directory / "portablestuff")
         (directory / ".groundzero-native-ui-test").write_bytes(b"groundzero-native-ui-test\n")
         environment = os.environ.copy()
+        environment.pop("GROUNDZERO_NATIVE_UI_SUITE", None)
+        environment.pop("GROUNDZERO_ARTIST_BENCHMARK", None)
         # Python and Qt/Windows consult temporary-directory variables in
         # different orders. Preserve the native strict-descendant check.
         for key in ("TMPDIR", "TEMP", "TMP"):
@@ -215,17 +217,73 @@ def decode_output(output):
     return output.decode("utf-8", errors="replace") if isinstance(output, bytes) else output or ""
 
 
-def missing_icon_lifecycle_checkpoints(output):
+def missing_icon_lifecycle_checkpoints(output, terminal="replacement"):
     # Match application output lines, never an echoed debugger command or the
     # earlier fixture's PASS. Process status is checked independently by callers.
     lines = output.splitlines()
     marker = "icon-lifecycle-native: PASS"
     required = {
+        f"icon-lifecycle-native: terminal {terminal} PASS":
+            f"icon-lifecycle-native: terminal {terminal} PASS" in lines,
         marker: any(line == marker or line.startswith(marker + " (") for line in lines),
         "native-ui-integration: checkpoint: native icon workers drained":
             "native-ui-integration: checkpoint: native icon workers drained" in lines,
+        "native-ui-integration: checkpoint: native application cleanup completed":
+            "native-ui-integration: checkpoint: native application cleanup completed" in lines,
     }
     return [marker for marker, observed in required.items() if not observed]
+
+def required_icon_clear(executable, source, output_path, mesa_runtime=None,
+                        runtime_state=None):
+    """Require the other terminal Quit case in its own disposable process."""
+    if runtime_state is not None and not runtime_state["safe_to_release"]:
+        return ("\nRequired reviewed-clear lifecycle was not launched: "
+                "process-tree exit was not confirmed.\n", 1)
+    state = {"safe_to_release": True}
+    output, status = "", 1
+    try:
+        with isolated_fixture(source, executable, mesa_runtime,
+                              runtime_state=state) as (directory, environment):
+            # This mode runs only the lifecycle fixture. Never inherit a
+            # feature-suite selector or the independent benchmark bypass.
+            environment.pop("GROUNDZERO_NATIVE_UI_SUITE", None)
+            environment.pop("GROUNDZERO_ARTIST_BENCHMARK", None)
+            try:
+                result = run_captured_process([str(executable), "--test-native-icon-clear"],
+                                              cwd=directory, environment=environment,
+                                              timeout=120, runtime_state=state)
+                output, status = decode_output(result.stdout), result.returncode
+                if status:
+                    output += (f"\nReviewed-clear native process exited with status {status} "
+                               f"(0x{status & 0xffffffff:08X}).\n")
+                if status == 0:
+                    missing = missing_icon_lifecycle_checkpoints(output, "reviewed-clear")
+                    if missing:
+                        output += ("\nMissing required reviewed-clear lifecycle checkpoints: " +
+                                   ", ".join(missing) + "\n")
+                        status = 1
+            except subprocess.TimeoutExpired as error:
+                output = decode_output(error.stdout)
+                output += "\nRequired reviewed-clear lifecycle timed out after 120 seconds.\n"
+                status = 1
+    except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as error:
+        output = output or decode_output(state.get("output", b""))
+        output += ("\nRequired reviewed-clear lifecycle setup, launch or cleanup failed: "
+                   f"{type(error).__name__}: {error}\n")
+        status = 1
+    if not state["safe_to_release"] and runtime_state is not None:
+        runtime_state["safe_to_release"] = False
+    output = ("\n--- Required reviewed-clear lifecycle (fresh process) ---\n" + output +
+              f"\nRequired reviewed-clear lifecycle: {'PASS' if status == 0 else 'FAIL'} "
+              f"(status {status}).\n")
+    report = output_path.with_name(output_path.stem + "-icon-clear.txt")
+    try:
+        report.parent.mkdir(parents=True, exist_ok=True)
+        report.write_text(output, encoding="utf-8")
+    except (OSError, ValueError) as error:
+        output += f"Could not save required reviewed-clear lifecycle report: {error}\n"
+        status = 1
+    return output, 0 if status == 0 else 1
 
 
 def capture_debugger(command, executable, source, mesa_runtime=None,
@@ -306,6 +364,7 @@ def main():
     timeout_seconds = 600 if args.require_vector_workflows else 240 if args.require_offline_gl_workflow else 180
     output, status = "", 1
     native_status = None
+    executable, source = None, None
     runtime_state = {"safe_to_release": True}
     try:
         executable = args.executable.resolve(strict=True)
@@ -347,6 +406,17 @@ def main():
         if missing:
             output += "\nMissing native icon lifecycle checkpoints: " + ", ".join(missing) + "\n"
             status = 1
+    # Qualify the original output before adding any separate process markers.
+    # A successful reviewed-clear case can never repair the original result.
+    if executable is not None and source is not None:
+        clear_output, clear_status = required_icon_clear(
+            executable, source, args.output, args.windows_mesa, runtime_state)
+        output += clear_output
+        if clear_status:
+            status = 1
+    else:
+        output += "\nRequired reviewed-clear lifecycle unavailable: executable or fixture source could not be resolved.\n"
+        status = 1
     if not runtime_state["safe_to_release"]:
         output += "\nFurther diagnostics were not launched because process-tree exit was not confirmed.\n"
     try:

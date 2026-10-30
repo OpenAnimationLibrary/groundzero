@@ -214,7 +214,9 @@ jobs:
 
       - name: Test native application integration
         id: ui_integration
-        timeout-minutes: 14
+        # Full run (600s), required reviewed-clear run (120s), optional debugger
+        # (120s), and existing bounded cleanup/fixture-copy overhead.
+        timeout-minutes: 16
         env:
           GZ_CAST_WORKFLOW_REPORT: ${{ github.workspace }}/toonz/build/cast-workflow-metrics.json
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
