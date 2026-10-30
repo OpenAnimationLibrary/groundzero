@@ -28,6 +28,7 @@
 #include <QOpenGLContext>
 #include <QOpenGLFramebufferObject>
 #include <QOpenGLFunctions>
+#include <QOpenGLShaderProgram>
 #include <QElapsedTimer>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -233,7 +234,7 @@ DepthState depthState() {
     for (int i = 0; i < count; ++i) result.integerFields.emplace_back(name, i);
     glGetIntegerv(name, result.integers.data() + offset);
   };
-  for (GLenum name : {GL_FRAMEBUFFER_BINDING,GL_READ_BUFFER,GL_DRAW_BUFFER,
+  for (GLenum name : {GL_FRAMEBUFFER_BINDING,GL_READ_BUFFER,GL_DRAW_BUFFER,GL_CURRENT_PROGRAM,
       GL_ATTRIB_STACK_DEPTH,GL_CLIENT_ATTRIB_STACK_DEPTH,GL_MODELVIEW_STACK_DEPTH,
       GL_PROJECTION_STACK_DEPTH,GL_TEXTURE_STACK_DEPTH,GL_MATRIX_MODE,
       GL_DEPTH_TEST,GL_DEPTH_FUNC,GL_DEPTH_WRITEMASK,GL_STENCIL_TEST,GL_STENCIL_FUNC,
@@ -347,6 +348,98 @@ DepthAttachments mixedAttachments(const DepthAttachments &before,
   return expected;
 }
 
+void nativeDepthCropTransactions(TPalette *palette, int solidStyle, int chainStyle) {
+  const auto image = imageWith(palette,solidStyle);
+  auto *stroke = image->getStroke(0);
+  struct ResetCapture {
+    ~ResetCapture() {
+      tglSetOpacityViewportCaptureForTest(false);
+      tglSetOpacityFramebufferFailureForTest(0);
+    }
+  } reset;
+  const unsigned long long targetPixels = size_t(depthWidth)*depthHeight;
+  // Read every attachment after both production paths. The native draw keeps
+  // its original scissor, including scratch-mask clears outside the color ROI.
+  auto equivalent = [&](int scenario, bool expectCrop) {
+    auto prepare = [&] {
+      prepareDepthTarget(scenario == 1 ? GL_ALWAYS : GL_LEQUAL,
+                         scenario != 2, scenario == 3, scenario == 4 ? 0. : 25.);
+      glClearStencil(0); // Native scratch clear policy, on a nonzero sentinel.
+      if (scenario == 4) glViewport(32,16,128,64);
+      if (scenario == 5 || scenario == 6) drawPatternedDepth();
+      if (scenario == 7) { glEnable(GL_SCISSOR_TEST); glScissor(0,0,8,8); }
+    };
+    DepthAttachments reference;
+    TOpacityTransferStats stats[2];
+    for (int mode = 0; mode < 2; ++mode) {
+      prepare();
+      const auto before = depthAttachments();
+      const auto state = depthState();
+      tglSetOpacityViewportCaptureForTest(mode == 0);
+      tglSetOpacityFramebufferFailureForTest(scenario == 6 ? 4 : 0);
+      tglResetOpacityTransferStatsForTest();
+      bool rejected = false;
+      try { drawDepthImage(image); } catch (const std::runtime_error &) { rejected = true; }
+      require(rejected == (scenario == 6),"cropped/full transaction changed failure behavior");
+      stats[mode] = tglOpacityTransferStatsForTest();
+      state.requireEqual(depthState());
+      const auto result = depthAttachments();
+      if (scenario == 6)
+        requireAttachments(before,result,"cropped/full rollback changed complete attachments",0.);
+      if (!mode) reference = result;
+      else requireAttachments(reference,result,"cropped transaction differs from forced-full capture",0.);
+    }
+    const unsigned long long transfers = scenario == 6 ? 2 : 3;
+    require(stats[0].transactions == 1 && stats[1].transactions == 1 &&
+                stats[0].croppedTransactions == 0 &&
+                stats[0].colorPixels == transfers*targetPixels &&
+                stats[0].depthPixels == stats[0].colorPixels &&
+                stats[1].depthPixels == stats[1].colorPixels &&
+                stats[0].stencilPixels == transfers*targetPixels &&
+                stats[1].stencilPixels == stats[0].stencilPixels,
+            "actual transfer counters omitted color/depth or full stencil work");
+    require(expectCrop ? stats[1].croppedTransactions == 1 &&
+                            stats[1].colorPixels < stats[0].colorPixels &&
+                            stats[1].peakSnapshotBytes < stats[0].peakSnapshotBytes
+                       : stats[1].croppedTransactions == 0 &&
+                            stats[1].colorPixels == stats[0].colorPixels &&
+                            stats[1].peakSnapshotBytes == stats[0].peakSnapshotBytes,
+            "certified ROI did not reduce actual transfers, or fallback was cropped");
+    std::cout << "vector-opacity-depth-roi: scenario=" << scenario
+              << " style=" << stroke->getStyle() << " crop=" << expectCrop
+              << " full_color_pixels=" << stats[0].colorPixels
+              << " actual_color_pixels=" << stats[1].colorPixels
+              << " stencil_pixels=" << stats[1].stencilPixels
+              << " snapshot_bytes=" << stats[1].peakSnapshotBytes << std::endl;
+  };
+  for (int scenario = 0; scenario <= 7; ++scenario) {
+    stroke->setOpacity(.5); stroke->setOpacityProfile({});
+    equivalent(scenario,true);
+    for (const StrokeOpacity::Profile &profile : {
+        StrokeOpacity::Profile{{0,0},{.5,0},{.5,.5},{1,.5}},
+        StrokeOpacity::Profile{{0,0},{1,0}}, StrokeOpacity::Profile{{0,1},{1,1}}}) {
+      stroke->setOpacity(1.); stroke->setOpacityProfile(profile);
+      equivalent(scenario,true);
+    }
+  }
+  // An uncertified procedural style and an actual GLSL caller both retain the
+  // previous full-target transaction, even when their visible artwork is small.
+  stroke->setStyle(chainStyle); stroke->setOpacity(.5); stroke->setOpacityProfile({});
+  equivalent(0,false);
+  stroke->setStyle(solidStyle);
+  QOpenGLShaderProgram program;
+  require(program.addShaderFromSourceCode(QOpenGLShader::Vertex,
+              "#version 120\nvoid main(){gl_Position=ftransform();gl_FrontColor=gl_Color;}") &&
+              program.addShaderFromSourceCode(QOpenGLShader::Fragment,
+              "#version 120\nvoid main(){gl_FragColor=gl_Color;}") && program.link() && program.bind(),
+          "native shader fallback fixture could not create a compatibility program");
+  struct ReleaseProgram {
+    QOpenGLShaderProgram &program;
+    ~ReleaseProgram() { program.release(); }
+  } release{program};
+  equivalent(0,false);
+}
+
 void nativeDepthTransactions(TPalette *palette, int chainStyle, int solidStyle) {
   std::cout << "vector-opacity-depth: native color/depth/stencil transactions" << std::endl;
   require(tglOpacitySnapshotFitsForTest(3840,2160,true) &&
@@ -355,6 +448,7 @@ void nativeDepthTransactions(TPalette *palette, int chainStyle, int solidStyle) 
               !tglOpacitySnapshotFitsForTest(256,-1,false),
           "native snapshot budget rejected 4K or accepted oversized/invalid dimensions");
   TOfflineGL context(TDimension(depthWidth,depthHeight)); context.makeCurrent(); context.initMatrix();
+  nativeDepthCropTransactions(palette,solidStyle,chainStyle);
   const auto image = imageWith(palette,chainStyle);
   auto *stroke = image->getStroke(0);
   auto compareMix = [&](GLenum function, bool writeDepth, bool restricted,
@@ -820,6 +914,9 @@ void nativeDepthTransactions(TPalette *palette, int chainStyle, int solidStyle) 
           return std::make_pair(colors,std::make_pair(depth,stencil));
         };
         const auto before = samples(); const auto state = depthState();
+        // This remains a genuine full-fallback workload after solid ROI
+        // optimization; a small certified solid no longer needs 48*F bytes.
+        stroke->setStyle(chainStyle);
         stroke->setOpacity(.5); stroke->setOpacityProfile({}); bool rejected = false;
         try { drawDepthImage(image); }
         catch (const std::runtime_error &error) {
@@ -1000,14 +1097,15 @@ void nativeDepthTiming(TPalette *palette, int solidStyle) {
       {"color_bits",QJsonArray{colorBits[0],colorBits[1],colorBits[2],colorBits[3]}},
       {"sample_buffers",sampleBuffers}, {"samples",samples}, {"depth_function","GL_ALWAYS"},
       {"strokes",strokes}, {"frames_per_mode",frames},
-      {"snapshot_bytes_per_modulated_stroke",QString::number(qulonglong(size_t(width)*height*bytesPerPixel))},
+      {"full_fallback_snapshot_bytes_per_stroke",QString::number(qulonglong(size_t(width)*height*bytesPerPixel))},
       {"peak_resident_source",nativeProcessPeakResidentSource()},
       {"measurement","Default TOfflineGL; per-frame clear, native vector draw and glFinish; includes allocation, synchronous readback and replacement for modulated strokes"},
-      {"memory_scope","Cumulative process peak before/after each mode; earlier fixtures may dominate. Not isolated workload RSS or process-tree memory. Snapshot bytes are a separate known buffer payload."}};
+      {"memory_scope","Cumulative process peak before/after each mode; earlier fixtures may dominate. Not isolated workload RSS or process-tree memory. Actual snapshot payload and transferred pixels are recorded per mode separately from full-fallback payload."}};
   require(glGetError() == GL_NO_ERROR,"1080p opacity workload target query failed");
   std::cout << "vector-opacity-depth-workload-provenance: "
             << QJsonDocument(provenance).toJson(QJsonDocument::Compact).constData() << std::endl;
   qint64 times[3] = {};
+  TOpacityTransferStats transferStats[3];
   std::vector<std::vector<GLubyte>> witnesses(3,std::vector<GLubyte>(strokes*4));
   for (int mode = 0; mode < 3; ++mode) {
     const char *name = mode == 0 ? "native" : mode == 1 ? "scalar" : "profile";
@@ -1018,6 +1116,7 @@ void nativeDepthTiming(TPalette *palette, int solidStyle) {
     }
     glFinish();
     const qint64 peakBefore = nativeProcessPeakResidentBytes();
+    tglResetOpacityTransferStatsForTest();
     std::cout << "vector-opacity-depth-workload-mode: begin " << name << std::endl;
     QJsonArray frameMilliseconds;
     for (int frame = 0; frame < frames; ++frame) {
@@ -1028,6 +1127,15 @@ void nativeDepthTiming(TPalette *palette, int solidStyle) {
       frameMilliseconds.append(frameNanoseconds/1.e6);
     }
     const qint64 peakAfter = nativeProcessPeakResidentBytes();
+    transferStats[mode] = tglOpacityTransferStatsForTest();
+    const auto &transfers = transferStats[mode];
+    require(mode == 0 ? transfers.transactions == 0
+                     : transfers.transactions == strokes*frames &&
+                       transfers.croppedTransactions == transfers.transactions &&
+                       transfers.colorPixels < size_t(width)*height*3*strokes*frames &&
+                       transfers.depthPixels == transfers.colorPixels &&
+                       transfers.stencilPixels == size_t(width)*height*3*strokes*frames,
+            "1080p workload did not retain full stencil and reduce actual solid color/depth transfers");
     // These untimed witnesses verify that each measured stroke actually drew;
     // scalar/profile at its midpoint must halve the native destination change.
     for (int i = 0; i < strokes; ++i)
@@ -1035,6 +1143,11 @@ void nativeDepthTiming(TPalette *palette, int solidStyle) {
     require(glGetError() == GL_NO_ERROR,"1080p native opacity workload left an OpenGL error");
     const QJsonObject measurement{
         {"mode",name}, {"frame_ms",frameMilliseconds}, {"total_ms",times[mode]/1.e6},
+        {"color_pixels_transferred",QString::number(transfers.colorPixels)},
+        {"depth_pixels_transferred",QString::number(transfers.depthPixels)},
+        {"stencil_pixels_transferred",QString::number(transfers.stencilPixels)},
+        {"peak_snapshot_payload_bytes",QString::number(transfers.peakSnapshotBytes)},
+        {"cropped_transactions",QString::number(transfers.croppedTransactions)},
         {"process_peak_resident_before_bytes",QString::number(peakBefore)},
         {"process_peak_resident_after_bytes",QString::number(peakAfter)}};
     std::cout << "vector-opacity-depth-workload-mode: "
@@ -1064,9 +1177,10 @@ void nativeDepthTiming(TPalette *palette, int solidStyle) {
             << " strokes=" << strokes << " frames_per_mode=" << frames
             << " native_ms=" << times[0]/1.e6 << " scalar_ms=" << times[1]/1.e6
             << " profile_ms=" << times[2]/1.e6
-            << " snapshot_bytes_per_stroke=" << size_t(width)*height*bytesPerPixel
-            << " bytes_per_pixel=" << bytesPerPixel
-            << " (known renderer attachment payload; not process peak; no timing gate)" << std::endl;
+            << " scalar_peak_snapshot_bytes=" << transferStats[1].peakSnapshotBytes
+            << " profile_peak_snapshot_bytes=" << transferStats[2].peakSnapshotBytes
+            << " full_fallback_snapshot_bytes=" << size_t(width)*height*bytesPerPixel
+            << " (known renderer attachment payloads; not process peak; no timing gate)" << std::endl;
   context.doneCurrent();
 }
 

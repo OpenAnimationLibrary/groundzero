@@ -28,6 +28,7 @@
 #include <QWindow>
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <stdexcept>
 
 #ifndef _WIN32
@@ -76,17 +77,30 @@ public:
   GLAttributeScope &operator=(const GLAttributeScope &) = delete;
 };
 constexpr size_t opacitySnapshotBudget = size_t(512) * 1024 * 1024;
+bool opacitySnapshotFits(int width, int height, int stencilWidth, int stencilHeight,
+                         size_t budget) {
+  if (width < 0 || height < 0 || stencilWidth < 0 || stencilHeight < 0) return false;
+  // Both snapshots: cropped FLOAT RGBA/depth, complete UINT stencil. Check
+  // each product against the remaining budget before multiplying it.
+  constexpr size_t stencilBytes = 2 * sizeof(GLuint);
+  if (stencilHeight) {
+    if (size_t(stencilWidth) > (budget / stencilBytes) / size_t(stencilHeight)) return false;
+    budget -= size_t(stencilWidth) * size_t(stencilHeight) * stencilBytes;
+  }
+  constexpr size_t colorDepthBytes = 2 * (4 * sizeof(GLfloat) + sizeof(GLuint));
+  return !height || size_t(width) <= (budget / colorDepthBytes) / size_t(height);
+}
 bool opacitySnapshotFits(int width, int height, bool stencil,
                          size_t budget = opacitySnapshotBudget) {
   if (width <= 0 || height <= 0) return false;
-  const size_t bytesPerPixel = 2 * (4 * sizeof(GLfloat) + sizeof(GLuint) +
-                                  (stencil ? sizeof(GLuint) : 0));
-  return size_t(width) <= (budget / bytesPerPixel) / size_t(height);
+  return opacitySnapshotFits(width, height, stencil ? width : 0,
+                             stencil ? height : 0, budget);
 }
 #ifdef BUILD_UI_PORT_TESTS
 thread_local int opacityFramebufferFailure = 0;
 thread_local bool opacityFullViewportCapture = false;
 thread_local int opacityCaptureDepth = 0;
+thread_local TOpacityTransferStats opacityTransferStats;
 #endif
 }
 
@@ -105,6 +119,8 @@ void tglSetOpacityViewportCaptureForTest(bool full) { opacityFullViewportCapture
 bool tglOpacitySnapshotFitsForTest(int width, int height, bool stencil) {
   return opacitySnapshotFits(width, height, stencil);
 }
+void tglResetOpacityTransferStatsForTest() { opacityTransferStats = {}; }
+TOpacityTransferStats tglOpacityTransferStatsForTest() { return opacityTransferStats; }
 #endif
 
 //-----------------------------------------------------------------------------
@@ -607,6 +623,71 @@ bool opacityExtension(const char *name) {
                            .split(' ').contains(name);
 }
 
+struct OpacityRectangle { GLint x = 0, y = 0, width = 0, height = 0; };
+
+bool opacityDepthRectangle(const TVectorRenderData &rd, const TStroke &stroke,
+                           const GLint *viewport, const GLdouble *model,
+                           const GLdouble *projection, OpacityRectangle &rectangle) {
+  // Only the exact solid implementation has certified native color/depth
+  // bounds here. Procedural styles and programmable geometry retain the full
+  // attachment transaction, independently of their 2D capture optimization.
+  const auto *style = rd.m_palette->getStyle(stroke.getStyle());
+  TRectD box;
+  if (!style || style->getTagId() != 3 ||
+      !StrokeOpacity::renderBounds(*style, stroke, box)) return false;
+#ifdef BUILD_UI_PORT_TESTS
+  if (opacityFullViewportCapture) return false;
+#endif
+  GLint program = 0, polygonMode[2] = {};
+  GLfloat lineWidth = 0.f;
+  glGetIntegerv(GL_CURRENT_PROGRAM, &program);
+  glGetIntegerv(GL_POLYGON_MODE, polygonMode);
+  glGetFloatv(GL_LINE_WIDTH, &lineWidth);
+  if (program || polygonMode[0] != GL_FILL || polygonMode[1] != GL_FILL ||
+      lineWidth > 1.f) return false;
+  if ((opacityExtension("GL_ARB_vertex_program") || opacityExtension("GL_NV_vertex_program")) &&
+      glIsEnabled(0x8620)) return false; // GL_VERTEX_PROGRAM_ARB/NV.
+  if (opacityExtension("GL_ARB_fragment_program") && glIsEnabled(0x8804)) return false;
+  if (opacityExtension("GL_NV_fragment_program") && glIsEnabled(0x8870)) return false;
+  double left = std::numeric_limits<double>::infinity(), bottom = left;
+  double right = -left, top = -left;
+  for (const TPointD &point : {box.getP00(), box.getP01(), box.getP10(), box.getP11()}) {
+    // Use the original double matrices, not the float inverse used for field
+    // lookup: a distant drawing may cancel large world-coordinate offsets.
+    GLdouble eye[4], clip[4];
+    for (int i = 0; i < 4; ++i)
+      eye[i] = model[i] * point.x + model[i+4] * point.y + model[i+12];
+    for (int i = 0; i < 4; ++i)
+      clip[i] = projection[i]*eye[0] + projection[i+4]*eye[1] +
+                projection[i+8]*eye[2] + projection[i+12]*eye[3];
+    // A positive W at every corner proves no drawing-plane horizon crosses
+    // this convex bound. Uncertain or behind-eye projections use full capture.
+    if (!std::isfinite(clip[3]) || clip[3] <= 1.e-10) return false;
+    const double x = viewport[0] + (.5 + .5 * clip[0] / clip[3]) * viewport[2];
+    const double y = viewport[1] + (.5 + .5 * clip[1] / clip[3]) * viewport[3];
+    if (!std::isfinite(x) || !std::isfinite(y)) return false;
+    left = std::min(left, x); right = std::max(right, x);
+    bottom = std::min(bottom, y); top = std::max(top, y);
+  }
+  // Native OutlineBuilder expands one screen pixel with a miter factor at
+  // most four (sqrt(17) total displacement); six contains that fringe and
+  // pixel rasterization. Authored outline miters are already in renderBounds.
+  constexpr double pad = 6.;
+  const double vx1 = double(viewport[0]) + viewport[2];
+  const double vy1 = double(viewport[1]) + viewport[3];
+  int x0 = int(std::clamp(std::floor(left) - pad, double(viewport[0]), vx1));
+  int y0 = int(std::clamp(std::floor(bottom) - pad, double(viewport[1]), vy1));
+  int x1 = int(std::clamp(std::ceil(right) + pad, double(viewport[0]), vx1));
+  int y1 = int(std::clamp(std::ceil(top) + pad, double(viewport[1]), vy1));
+  if (glIsEnabled(GL_SCISSOR_TEST)) {
+    GLint scissor[4]; glGetIntegerv(GL_SCISSOR_BOX, scissor);
+    x0 = std::max(x0, scissor[0]); y0 = std::max(y0, scissor[1]);
+    x1 = std::min(x1, scissor[0] + scissor[2]); y1 = std::min(y1, scissor[1] + scissor[3]);
+  }
+  rectangle = {x0, y0, std::max(0, x1-x0), std::max(0, y1-y0)};
+  return true;
+}
+
 // Read and replace the native target without applying pixel-transfer settings
 // a second time. Every scope ends before native style drawing, which must see
 // the caller's original state. Program/PBO bindings are not attribute-stack
@@ -813,13 +894,13 @@ struct OpacityTargetPixels {
   // Raw 32-bit FLOAT storage in the integer vector. Native float depth and
   // fixed depth up to 24 bits are transferred without a UINT32 texture stage.
   std::vector<GLuint> depth, stencil;
-  OpacityTargetPixels(size_t count, bool hasStencil)
-      : color(count * 4), depth(count), stencil(hasStencil ? count : 0) {}
+  OpacityTargetPixels(size_t count, size_t stencilCount)
+      : color(count * 4), depth(count), stencil(stencilCount) {}
 };
 
 template <typename OpacityAt>
 void drawDepthOpacity(const TVectorRenderData &rd, const TStroke &stroke,
-                      const GLint *viewport,
+                      const GLint *viewport, const OpacityRectangle *bounds,
                       const OpacityAt &opacityAt) {
   GLint sampleBuffers = 0, stencilBits = 0;
   glGetIntegerv(GL_SAMPLE_BUFFERS, &sampleBuffers);
@@ -872,50 +953,77 @@ void drawDepthOpacity(const TVectorRenderData &rd, const TStroke &stroke,
       srgbColor = capable;
     }
   }
-  // Stencil mask allocation can clear beyond both the stroke and viewport.
-  // Keep the complete attachment so errors and zero envelopes restore it too.
-  const int x0 = 0, y0 = 0, width = target.lx, height = target.ly;
-  const GLint targetViewport[4] = {0, 0, width, height};
-  if (width <= 0 || height <= 0) return;
+  if (target.lx <= 0 || target.ly <= 0) return;
+  const GLint targetViewport[4] = {0, 0, target.lx, target.ly};
+  const int x0 = bounds ? std::clamp(bounds->x, 0, target.lx) : 0;
+  const int y0 = bounds ? std::clamp(bounds->y, 0, target.ly) : 0;
+  const int x1 = bounds ? std::clamp(bounds->x + bounds->width, x0, target.lx) : target.lx;
+  const int y1 = bounds ? std::clamp(bounds->y + bounds->height, y0, target.ly) : target.ly;
+  const int width = x1-x0, height = y1-y0;
   size_t snapshotBudget = opacitySnapshotBudget;
 #ifdef BUILD_UI_PORT_TESTS
   if (opacityFramebufferFailure == 6) snapshotBudget = 1;
 #endif
   // Check the aggregate before multiplication and allocation, including both
   // snapshots. Keep a bounded failure even for a very large valid GL target.
-  if (!opacitySnapshotFits(width, height, stencilBits > 0, snapshotBudget))
+  if (!opacitySnapshotFits(width, height, stencilBits > 0 ? target.lx : 0,
+                           stencilBits > 0 ? target.ly : 0, snapshotBudget))
     throw std::runtime_error("Stroke opacity in a 3D view exceeds the 512 MiB snapshot limit; reduce the viewer framebuffer size");
   const size_t count = size_t(width) * size_t(height);
+  const size_t stencilCount = stencilBits > 0 ? size_t(target.lx) * size_t(target.ly) : 0;
   // Allocate everything before touching the target. The opacity field and
   // transform have already been built; their per-pixel lookup allocates nothing.
   // Float color preserves 10-bit displays. Native-compatible depth transfers
   // and integer stencil copies retain zero-opacity holes without a UINT32
   // normalized depth texture between readback and replacement.
-  OpacityTargetPixels before(count, stencilBits > 0), after(count, stencilBits > 0);
+  OpacityTargetPixels before(count, stencilCount), after(count, stencilCount);
+#ifdef BUILD_UI_PORT_TESTS
+  ++opacityTransferStats.transactions;
+  if (bounds) ++opacityTransferStats.croppedTransactions;
+  opacityTransferStats.peakSnapshotBytes = std::max(opacityTransferStats.peakSnapshotBytes,
+      static_cast<unsigned long long>(2 * (count * (4*sizeof(GLfloat)+sizeof(GLuint)) +
+                                          stencilCount*sizeof(GLuint))));
+#endif
   TStroke unmodulated(stroke);
   unmodulated.setOpacityProfile({}); unmodulated.setOpacity(1.);
   auto read = [&](OpacityTargetPixels &pixels) {
     OpacityPixelTransfer transfer(functions, viewport, false);
-    glReadPixels(x0, y0, width, height, GL_RGBA, GL_FLOAT, pixels.color.data());
-    glReadPixels(x0, y0, width, height, GL_DEPTH_COMPONENT, depthType, pixels.depth.data());
+    if (count) {
+      glReadPixels(x0, y0, width, height, GL_RGBA, GL_FLOAT, pixels.color.data());
+      glReadPixels(x0, y0, width, height, GL_DEPTH_COMPONENT, depthType, pixels.depth.data());
+    }
     if (!pixels.stencil.empty())
-      glReadPixels(x0, y0, width, height, GL_STENCIL_INDEX, GL_UNSIGNED_INT, pixels.stencil.data());
+      glReadPixels(0, 0, target.lx, target.ly, GL_STENCIL_INDEX, GL_UNSIGNED_INT, pixels.stencil.data());
+#ifdef BUILD_UI_PORT_TESTS
+    opacityTransferStats.colorPixels += count;
+    opacityTransferStats.depthPixels += count;
+    opacityTransferStats.stencilPixels += stencilCount;
+#endif
     const GLenum error = glGetError();
     if (error != GL_NO_ERROR)
       throw std::runtime_error("Cannot read the native 3D opacity target (OpenGL " + std::to_string(error) + ")");
   };
   auto replace = [&](const OpacityTargetPixels &pixels) {
     OpacityPixelTransfer transfer(functions, targetViewport, true);
-    glRasterPos3d(x0, y0, 0.);
-    glDepthMask(GL_FALSE); glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
-    glDrawPixels(width, height, GL_RGBA, GL_FLOAT, pixels.color.data());
-    glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
-    glEnable(GL_DEPTH_TEST); glDepthFunc(GL_ALWAYS); glDepthMask(GL_TRUE);
-    glDrawPixels(width, height, GL_DEPTH_COMPONENT, depthType, pixels.depth.data());
-    if (!pixels.stencil.empty()) {
-      glStencilMask(~GLuint(0));
-      glDrawPixels(width, height, GL_STENCIL_INDEX, GL_UNSIGNED_INT, pixels.stencil.data());
+    if (count) {
+      glRasterPos3d(x0, y0, 0.);
+      glDepthMask(GL_FALSE); glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+      glDrawPixels(width, height, GL_RGBA, GL_FLOAT, pixels.color.data());
+      glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+      glEnable(GL_DEPTH_TEST); glDepthFunc(GL_ALWAYS); glDepthMask(GL_TRUE);
+      glDrawPixels(width, height, GL_DEPTH_COMPONENT, depthType, pixels.depth.data());
     }
+    glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+    if (!pixels.stencil.empty()) {
+      glRasterPos3d(0, 0, 0.);
+      glStencilMask(~GLuint(0));
+      glDrawPixels(target.lx, target.ly, GL_STENCIL_INDEX, GL_UNSIGNED_INT, pixels.stencil.data());
+    }
+#ifdef BUILD_UI_PORT_TESTS
+    opacityTransferStats.colorPixels += count;
+    opacityTransferStats.depthPixels += count;
+    opacityTransferStats.stencilPixels += stencilCount;
+#endif
     const GLenum error = glGetError();
     if (error != GL_NO_ERROR)
       throw std::runtime_error("Cannot replace the native 3D opacity target (OpenGL " + std::to_string(error) + ")");
@@ -943,10 +1051,9 @@ void drawDepthOpacity(const TVectorRenderData &rd, const TStroke &stroke,
       return value <= .0031308 ? value * 12.92 : 1.055 * std::pow(value, 1. / 2.4) - .055;
     };
     for (size_t i = 0; i < count; ++i) {
-      // Unchanged attachments need no field lookup. Include depth and stencil,
-      // since invisible color differences alone do not establish coverage.
+      // Unchanged color/depth needs no field lookup. Stencil is handled over
+      // the complete attachment below, including native clears outside bounds.
       if (before.depth[i] == after.depth[i] &&
-          (after.stencil.empty() || before.stencil[i] == after.stencil[i]) &&
           std::equal(before.color.begin() + i * 4, before.color.begin() + i * 4 + 4,
                      after.color.begin() + i * 4)) continue;
       const double amount = opacityAt(double(i % width) + x0 + .5,
@@ -965,9 +1072,15 @@ void drawDepthOpacity(const TVectorRenderData &rd, const TStroke &stroke,
       // still writes depth. Any positive opacity retains native attachments.
       if (amount == 0.) {
         after.depth[i] = before.depth[i];
-        if (!after.stencil.empty()) after.stencil[i] = before.stencil[i];
       }
     }
+    // Native mask allocation can clear anywhere in the target, even outside
+    // the viewport. Do not change its scissor or draw behavior to fit the ROI.
+    // Exact-zero opacity restores those stencil effects everywhere as before.
+    for (size_t i = 0; i < stencilCount; ++i)
+      if (before.stencil[i] != after.stencil[i] &&
+          opacityAt(double(i % target.lx) + .5, double(i / target.lx) + .5) == 0.)
+        after.stencil[i] = before.stencil[i];
     replace(after);
   } catch (...) {
     replace(before);
@@ -983,6 +1096,8 @@ void drawOpacityEnvelope(const TVectorRenderData &rd, const TStroke &stroke) {
   GLint viewport[4];
   glGetIntegerv(GL_VIEWPORT, viewport);
   if (viewport[2] <= 0 || viewport[3] <= 0) return;
+  GLint depthBits = 0;
+  if (glIsEnabled(GL_DEPTH_TEST)) glGetIntegerv(GL_DEPTH_BITS, &depthBits);
   GLdouble model[16], projection[16];
   glPushMatrix();
   tglMultMatrix(rd.m_aff);
@@ -1057,7 +1172,7 @@ void drawOpacityEnvelope(const TVectorRenderData &rd, const TStroke &stroke) {
     x0 = std::max(x0, scissor[0]); y0 = std::max(y0, scissor[1]);
     x1 = std::min(x1, scissor[0] + scissor[2]); y1 = std::min(y1, scissor[1] + scissor[3]);
   }
-  if (x1 <= x0 || y1 <= y0) return;
+  if (!depthBits && (x1 <= x0 || y1 <= y0)) return;
   const int width = x1 - x0, height = y1 - y0;
   const double projectedScale = std::max(
       std::hypot(double(mapping(0,0)) * viewport[2], double(mapping(1,0)) * viewport[3]),
@@ -1087,15 +1202,14 @@ void drawOpacityEnvelope(const TVectorRenderData &rd, const TStroke &stroke) {
     return TPointD(nearPoint.x() + z * (farPoint.x() - nearPoint.x()),
                    nearPoint.y() + z * (farPoint.y() - nearPoint.y()));
   };
-  if (glIsEnabled(GL_DEPTH_TEST)) {
-    GLint depthBits = 0; glGetIntegerv(GL_DEPTH_BITS, &depthBits);
-    if (depthBits > 0) {
-      drawDepthOpacity(rd, stroke, viewport,
-          [&](double x, double y) {
-            return stroke.getOpacity() * (field ? field->opacity(planePoint(x, y)) : 1.);
-          });
-      return;
-    }
+  if (depthBits > 0) {
+    OpacityRectangle rectangle;
+    const bool certified = opacityDepthRectangle(rd, stroke, viewport, model, projection, rectangle);
+    drawDepthOpacity(rd, stroke, viewport, certified ? &rectangle : nullptr,
+        [&](double x, double y) {
+          return stroke.getOpacity() * (field ? field->opacity(planePoint(x, y)) : 1.);
+        });
+    return;
   }
   OpacityFramebuffer buffer(width, height);
   const bool hasEnvelope = !stroke.getOpacityProfile().empty();

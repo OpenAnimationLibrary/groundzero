@@ -39,7 +39,13 @@ add_executable(widthprofilemanager_test widthprofilemanager_test.cpp)
 target_include_directories(widthprofilemanager_test PRIVATE ../../include)
 target_link_libraries(widthprofilemanager_test PRIVATE Qt${QT_VERSION_MAJOR}::Widgets)
 add_test(NAME ui_vector_profilemanager COMMAND widthprofilemanager_test)
-set_tests_properties(ui_vector_profilemanager PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+if(WIN32)
+    # Qt 5.15 QMessageBox queries the Windows native interface when shown;
+    # the offscreen plugin has no such interface. Exercise the real backend.
+    set_tests_properties(ui_vector_profilemanager PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=windows")
+else()
+    set_tests_properties(ui_vector_profilemanager PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endif()
 
 add_executable(tinbetweenmatch_test tinbetweenmatch_test.cpp)
 target_include_directories(tinbetweenmatch_test PRIVATE ../../include)

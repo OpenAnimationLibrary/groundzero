@@ -5,6 +5,7 @@
 #include "tsimplecolorstyles.h"
 #include "tvectorimage.h"
 #include "tlevel_io.h"
+#include "tlevel.h"
 #include <QApplication>
 #include <QDir>
 #include <QEvent>
@@ -156,7 +157,20 @@ QImage convert(const QString &executable, const QString &source,
   require(files.size() == 1, "native converter did not create exactly one PNG frame");
   QImage pixels(target.dir().filePath(files.front()));
   require(!pixels.isNull(), "independent PNG reader rejected converter output");
-  return pixels.convertToFormat(QImage::Format_ARGB32);
+  pixels = pixels.convertToFormat(QImage::Format_ARGB32);
+  int visible = 0, maximumAlpha = 0, centerAlpha = 0;
+  for (int y = 0; y < pixels.height(); ++y)
+    for (int x = 0; x < pixels.width(); ++x) {
+      const int alpha = qAlpha(pixels.pixel(x,y));
+      if (alpha) ++visible;
+      maximumAlpha = std::max(maximumAlpha,alpha);
+      if (x == pixels.width()/2) centerAlpha = std::max(centerAlpha,alpha);
+    }
+  std::cerr << "offline-gl-workflow: decoded " << target.fileName().toStdString()
+            << " size=" << pixels.width() << 'x' << pixels.height()
+            << " visible=" << visible << " max_alpha=" << maximumAlpha
+            << " center_column_alpha=" << centerAlpha << std::endl;
+  return pixels;
 }
 
 int columnAlpha(const QImage &image, int x) {
@@ -172,15 +186,39 @@ void commandLineConversion() {
   require(directory.isValid(), "native converter fixture directory unavailable");
   TPaletteP palette = new TPalette;
   const int style = palette->addStyle(new TSolidColorStyle(TPixel32(80, 160, 220, 255)));
+  // Native PLI writes displayed palette pages. A detached style slot alone
+  // does not describe a persisted authored style, even if in-memory GL draws it.
+  palette->getPage(0)->addStyle(style);
   TVectorImageP image = new TVectorImage;
   image->setPalette(palette.getPointer());
   auto *stroke = new TStroke(std::vector<TThickPoint>{{-48, 0, 8}, {0, 0, 8}, {48, 0, 8}});
   stroke->setStyle(style); image->addStroke(stroke, false);
+  const auto verifySavedInput = [&](const QString &path) {
+    TLevelReaderP reader{TFilePath(path)};
+    const TLevelP level = reader->loadInfo();
+    TPalette *savedPalette = level ? level->getPalette() : nullptr;
+    require(savedPalette && savedPalette->getStyleCount() > style &&
+                savedPalette->getStylePage(style) &&
+                savedPalette->getStyle(style)->getMainColor() == TPixel32(80,160,220,255),
+            "saved PLI fixture lost its authored opaque palette style");
+    const TVectorImageP saved = reader->getFrameReader(TFrameId(1))->load();
+    require(saved && saved->getStrokeCount() == 1 &&
+                saved->getStroke(0)->getControlPointCount() == stroke->getControlPointCount() &&
+                saved->getStroke(0)->getStyle() == style &&
+                saved->getStroke(0)->getOpacity() == stroke->getOpacity() &&
+                saved->getStroke(0)->getOpacityProfile() == stroke->getOpacityProfile(),
+            "saved PLI fixture lost its authored stroke or opacity");
+    for (int point = 0; point < stroke->getControlPointCount(); ++point)
+      require(saved->getStroke(0)->getControlPoint(point) == stroke->getControlPoint(point),
+              "saved PLI fixture changed its authored geometry");
+    checkpoint("saved PLI palette, geometry and opacity verified before conversion");
+  };
   const QString ordinaryPath = directory.filePath("ordinary.pli");
   {
     TLevelWriterP writer{TFilePath(ordinaryPath)};
     writer->getFrameWriter(TFrameId(1))->save(image);
   }
+  verifySavedInput(ordinaryPath);
   checkpoint("ordinary PLI command-line conversion begins");
   const QImage ordinary = convert(executable, ordinaryPath, directory.filePath("opaque.png"));
   require(ordinary.width() > 40 && ordinary.height() > 8 &&
@@ -192,6 +230,7 @@ void commandLineConversion() {
     TLevelWriterP writer{TFilePath(envelopePath)};
     writer->getFrameWriter(TFrameId(1))->save(image);
   }
+  verifySavedInput(envelopePath);
   checkpoint("opacity-envelope PLI command-line conversion begins");
   const QImage envelope = convert(executable, envelopePath, directory.filePath("fade.png"));
   require(envelope.size() == ordinary.size(), "envelope conversion changed native drawing bounds");

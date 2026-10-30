@@ -1,7 +1,9 @@
 """CI-only contracts for temporary Windows renderer setup and failure handling."""
 from contextlib import contextmanager
+import io
 import os
 from pathlib import Path
+import runpy
 import subprocess
 import sys
 import tempfile
@@ -135,6 +137,68 @@ class WindowsGlTest(unittest.TestCase):
                     self.assertTrue((root / "opengl32.dll").is_file())
             for name in ("opengl32.dll", "libgallium_wgl.dll", "renderer.exe.local"):
                 self.assertFalse((root / name).exists(), name)
+
+
+class ShellThumbnailOutputTest(unittest.TestCase):
+    def invoke(self, process, cleanup=None):
+        script = (Path(__file__).resolve().parents[2] / "toonz" / "sources" /
+                  "toonzpreview" / "tests" / "run_thumbnail_test.py")
+        raw = io.BytesIO()
+        console = io.TextIOWrapper(raw, encoding="cp1252", errors="strict")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+
+            @contextmanager
+            def fixture(*args):
+                yield root, {}
+
+            arguments = [str(script)] + [str(root / name) for name in
+                         ("fixture.exe", "converter.exe", "provider.dll", "stuff")]
+            with patch.object(native, "isolated_fixture", fixture), \
+                    patch.object(subprocess, "Popen", return_value=process), \
+                    patch.object(subprocess, "run", cleanup or Mock()), \
+                    patch.object(sys, "argv", arguments), patch.object(sys, "path", list(sys.path)), \
+                    patch.object(sys, "stdout", console):
+                try:
+                    runpy.run_path(str(script), run_name="__main__")
+                    outcome = None
+                except (Exception, SystemExit) as error:
+                    outcome = error
+        console.flush()
+        emitted = raw.getvalue()
+        console.detach()
+        return outcome, emitted
+
+    def test_raw_unicode_and_invalid_bytes_do_not_mask_child_status(self):
+        output = "Shell fixture: 描画 🎨\n".encode("utf-8") + b"raw diagnostic: \xff\n"
+        for status in (0, 23):
+            with self.subTest(status=status):
+                process = Mock(returncode=status)
+                process.communicate.return_value = (output, None)
+                outcome, emitted = self.invoke(process)
+                self.assertEqual(emitted, output)
+                if status:
+                    self.assertIsInstance(outcome, SystemExit)
+                    self.assertEqual(outcome.code, status)
+                else:
+                    self.assertIsNone(outcome)
+                process.communicate.assert_called_once_with(timeout=180)
+
+    def test_timeout_keeps_cleanup_and_child_diagnostics_without_encoding_error(self):
+        output = "Timed-out renderer: 描画 🎨".encode("utf-8")
+        cleanup_output = "Terminated process: 描画\n".encode("utf-8")
+        process = Mock(pid=123, returncode=9)
+        process.communicate.side_effect = [subprocess.TimeoutExpired("fixture", 180), (output, None)]
+        process.poll.return_value = 9
+        cleanup = Mock(return_value=SimpleNamespace(stdout=cleanup_output, returncode=0))
+        outcome, emitted = self.invoke(process, cleanup)
+        self.assertIsInstance(outcome, RuntimeError)
+        self.assertIn("deadline", str(outcome))
+        self.assertEqual(emitted, cleanup_output + output + b"\n")
+        cleanup.assert_called_once_with(["taskkill", "/PID", "123", "/T", "/F"],
+                                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                        timeout=15, check=False)
+        self.assertEqual(process.communicate.call_args_list[-1].kwargs, {"timeout": 10})
 
 
 if __name__ == "__main__":

@@ -349,6 +349,9 @@ int main(int argc, char **argv) {
   // Keep the platform's real Qt file chooser and overwrite path observable.
   QApplication::setAttribute(Qt::AA_DontUseNativeDialogs);
   QApplication app(argc, argv);
+  std::cout << "width-profile-manager: qt=" << qVersion()
+            << " platform=" << QApplication::platformName().toStdString()
+            << " native-interface=" << bool(QApplication::platformNativeInterface()) << std::endl;
   QTemporaryDir temp;
   require(temp.isValid(), "temporary directory");
   QSettings::setDefaultFormat(QSettings::IniFormat);
@@ -401,10 +404,15 @@ int main(int argc, char **argv) {
     WidthProfile::Manager manager(path, profile, false);
     QTimer::singleShot(0, [&] {
       QTimer::singleShot(0, [] {
+        std::cout << "width-profile-manager: delete confirmation driver entered" << std::endl;
         auto *dialog = qobject_cast<QMessageBox *>(QApplication::activeModalWidget());
         require(dialog, "delete asks confirmation");
-        dialog->button(QMessageBox::Yes)->click();
+        auto *confirm = dialog->button(QMessageBox::Yes);
+        require(confirm, "delete confirmation exposes its Yes action");
+        std::cout << "width-profile-manager: accepting delete confirmation" << std::endl;
+        confirm->click();
       });
+      std::cout << "width-profile-manager: opening delete confirmation" << std::endl;
       button(manager, "Delete…")->click();
       require(manager.selectedProfile().empty(), "delete draft");
       std::cout << "width-profile-manager: final profile deleted" << std::endl;
