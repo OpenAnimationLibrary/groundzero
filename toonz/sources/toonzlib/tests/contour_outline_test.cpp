@@ -316,11 +316,11 @@ void testWavy() {
   // a tight bound relaxes the fit
   ContourOutline::Options tight;
   tight.m_maxControlPoints = 120;
-  std::vector<TThickPoint> small;
-  require(ContourOutline::makeOutlineControlPoints(stroke, small, tight),
+  std::vector<TThickPoint> tightOutline;
+  require(ContourOutline::makeOutlineControlPoints(stroke, tightOutline, tight),
           "wavy: no tight outline");
-  require(small.size() <= (size_t)tight.m_maxControlPoints ||
-              small.size() <= first.size(),
+  require(tightOutline.size() <= (size_t)tight.m_maxControlPoints ||
+              tightOutline.size() <= first.size(),
           "wavy: the bound did not help");
 }
 
