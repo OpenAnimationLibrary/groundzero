@@ -234,6 +234,70 @@ void invalidShotRanges() {
             "Valid shot range kept the invalid alias");
   }
 }
+// Each temporal frame depends on the whole shot before it. A sequential render
+// must infer each frame once, and a frame whose checkpoint is cached must not
+// re-infer an evicted prefix.
+void temporalInferenceCount() {
+  constexpr int count = 40;
+  std::vector<QImage> frames;
+  for (int f = 0; f < count; ++f) {
+    QImage image(384, 384, QImage::Format_ARGB32);
+    image.fill(qRgba(40 + 4 * f, 200 - 3 * f, 90, 255));
+    frames.push_back(image);
+  }
+  int inferences    = 0;
+  inferenceForTests = [&](const QImage &, const std::vector<QImage> &content,
+                          std::vector<QImage> &result, QString &) {
+    inferences += int(content.size());
+    for (const auto &image : content) {
+      auto styled = image.convertToFormat(QImage::Format_RGB32);
+      styled.invertPixels();
+      result.push_back(styled);
+    }
+    return true;
+  };
+  struct Reset {
+    ~Reset() {
+      inferenceForTests = nullptr;
+      std::lock_guard<std::mutex> lock(cacheMutex);
+      cache.clear();
+    }
+  } reset;
+  {
+    std::lock_guard<std::mutex> lock(cacheMutex);
+    cache.clear();
+    require(cache.maxCost() >= 120 * checkpointCost,
+            "Checkpoint cache cannot hold a 120-frame shot");
+  }
+  TSmartPointerT<NeuralStyleFx> owner(new NeuralStyleFx);
+  auto &fx = *owner;
+  configure(fx, solidReference(), new Source(frames), 70);
+  TRenderSettings info;
+  info.m_cameraBox = TRectD(0, 0, 384, 384);
+  std::vector<QImage> sequential;
+  for (int f = 0; f < count; ++f)
+    sequential.push_back(render(fx, f, info, 0, 0, 24, 24));
+  require(inferences == count,
+          "Sequential temporal render re-inferred earlier frames");
+  // Evict the older half of the shot; the later checkpoints stay cached.
+  {
+    std::lock_guard<std::mutex> lock(cacheMutex);
+    const int maximum = cache.maxCost();
+    cache.setMaxCost(count / 2 * checkpointCost);
+    cache.setMaxCost(maximum);
+  }
+  require(render(fx, count - 1, info, 0, 0, 24, 24) == sequential[count - 1] &&
+              inferences == count,
+          "Cached checkpoint re-inferred its evicted prefix");
+  require(render(fx, 5, info, 0, 0, 24, 24) == sequential[5] &&
+              inferences == count + 6,
+          "Evicted frame did not resume from the shot start");
+  for (int f = count; f-- > 0;)
+    require(render(fx, f, info, 0, 0, 24, 24) == sequential[f],
+            "Seeking changed the temporal result");
+  require(inferences == count + count / 2,
+          "Reverse seek did not resume from the latest checkpoint");
+}
 QJsonObject longSequence(const QDir &directory,const QString &name,const QImage &base,
                         const QImage &baseInk,const QImage &reference) {
   const QDir folder(directory.filePath(name+"-sequence"));require(QDir().mkpath(folder.absolutePath()),"Cannot create sequence directory");
@@ -421,8 +485,10 @@ int main(int argc,char **argv) {
       require(strength->getValue(0)==35,"Texture default should preserve most source detail");}
     std::cerr<<"Neural qualification: profile, motion and compositing"<<std::endl;
     profiles();temporal();preservation<TPixel32>();preservation<TPixel64>();preservation<TPixelF>();
-    std::cerr << "Neural qualification: shot ranges" << std::endl;
+    std::cerr << "Neural qualification: shot ranges and temporal checkpoints"
+              << std::endl;
     invalidShotRanges();
+    temporalInferenceCount();
     require(argc==2,"Expected model fixture directory");const QDir fixtures(app.arguments()[1]);
     const auto reference=fixture(fixtures.filePath("reference.rgb"),256);
     const auto content=fixture(fixtures.filePath("content.rgb"),384);
