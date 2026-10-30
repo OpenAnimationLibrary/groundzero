@@ -285,6 +285,11 @@ if(BUILD_UI_PORT_TESTS)
     target_link_libraries(ui_functionworkflow_test PRIVATE toonzqt toonzlib tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Widgets)
     add_test(NAME ui_functionworkflow COMMAND ui_functionworkflow_test)
     set_tests_properties(ui_functioncurveoperations ui_functionworkflow PROPERTIES TIMEOUT 180 ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+    if(WIN32)
+        # Qt 5.15's Windows QMessageBox requires a native platform interface;
+        # its offscreen plugin does not provide one. Exercise real Windows UI.
+        set_tests_properties(ui_functionworkflow PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=windows")
+    endif()
 endif()
 
 if(BUILD_SEEXPR_TESTS)
