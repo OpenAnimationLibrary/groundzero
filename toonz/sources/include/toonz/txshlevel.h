@@ -7,6 +7,7 @@
 #include "tpersist.h"
 #include "tsmartpointer.h"
 #include <QObject>
+#include <QStringList>
 
 #undef DVAPI
 #undef DVVAR
@@ -59,6 +60,9 @@ Identify level types defined in \b txshleveltypes.h
   int m_type;
   HookSet *m_hookSet;
   ToonzScene *m_scene;
+  QStringList m_castTags;
+  TFrameId m_castCover;
+  bool m_castCoverSet = false;
 
   //! create shortname from the level name
   void updateShortName();
@@ -75,6 +79,19 @@ Destroys the TXshLevel object.
   virtual ~TXshLevel();
 
   void setName(std::wstring name);
+  const QStringList &getCastTags() const { return m_castTags; }
+  void setCastTags(const QStringList &tags) { m_castTags = tags; }
+  bool hasCastCover() const { return m_castCoverSet; }
+  TFrameId getCastCover() const { return m_castCover; }
+  void setCastCover(const TFrameId &frame) { m_castCover = frame; m_castCoverSet = true; }
+  void clearCastCover() { m_castCoverSet = false; }
+  void copyCastMetadataFrom(const TXshLevel *source) {
+    m_castTags = source->m_castTags;
+    m_castCover = source->m_castCover;
+    m_castCoverSet = source->m_castCoverSet;
+  }
+  void loadCastTags(TIStream &is);
+  void saveCastPath(TOStream &os, const TFilePath &path) const;
 
   //! return the level type (types are defined in \b txshleveltypes.h); \sa
   //! setType()

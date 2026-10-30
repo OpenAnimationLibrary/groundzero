@@ -311,6 +311,8 @@ set(SOURCES
     tapp.cpp
     toolbar.cpp
     batchserversviewer.cpp
+    castassetops.cpp
+    castbrowseractions.cpp
     castviewer.cpp
     exportlevelpopup.cpp
     exportalllevelspopup.cpp
@@ -1094,7 +1096,8 @@ if(BUILD_UI_PORT_TESTS)
     target_compile_definitions(OpenToonz PRIVATE BUILD_UI_PORT_TESTS)
     target_compile_definitions(toonzlib PRIVATE BUILD_UI_PORT_TESTS)
     add_custom_target(ui_port_tests)
-    add_dependencies(ui_port_tests ui_functionworkflow_test ui_functioncurveoperations_test)
+    target_sources(OpenToonz PRIVATE castworkflowintegrationtest.cpp)
+    add_dependencies(ui_port_tests ui_functionworkflow_test ui_functioncurveoperations_test castworkflow_test)
     function(add_ui_port_test name)
         add_executable(ui_${name}_test ${ARGN})
         target_include_directories(ui_${name}_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})

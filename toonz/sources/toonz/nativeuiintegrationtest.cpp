@@ -59,6 +59,8 @@
 #include <iostream>
 #include <memory>
 
+void runCastWorkflowIntegrationTest(QMainWindow *window);
+
 namespace {
 QString testRoot;
 
@@ -586,10 +588,13 @@ int runNativeUiIntegrationTest(QMainWindow *window) {
       std::cerr << "native-ui-integration: FAIL: " << functionError.toStdString() << std::endl;
       return 1;
     }
+    runCastWorkflowIntegrationTest(window);
     std::cout << "native-ui-integration: PASS" << std::endl;
     return 0;
   } catch (const Failure &failure) {
     std::cerr << "native-ui-integration: FAIL: " << failure.message << std::endl;
+  } catch (const std::exception &failure) {
+    std::cerr << "native-ui-integration: FAIL: " << failure.what() << std::endl;
   } catch (...) {
     std::cerr << "native-ui-integration: FAIL: unexpected native exception"
               << std::endl;
