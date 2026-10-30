@@ -6,6 +6,7 @@
 #include "matchline.h"
 #include "nativeuiintegrationtest.h"
 #include "tapp.h"
+#include "tdoubleparam.h"
 #include "tools/strokeselection.h"
 #include "toonz/levelproperties.h"
 #include "toonz/levelset.h"
@@ -553,7 +554,10 @@ void runCastVectorIntegrationTest(QMainWindow *window) {
     auto *emptyColumn = nested->getColumn(2);
     emptyColumn->setOpacity(73);
     auto *emptyStage = nested->getStageObject(TStageObjectId::ColumnId(2));
-    emptyStage->setParam(TStageObject::T_X, 6., 42.);
+    auto *emptyX = emptyStage->getParam(TStageObject::T_X);
+    require(emptyX->setValue(6., 42.) && emptyX->isKeyframe(6.) &&
+                emptyStage->getParam(TStageObject::T_X, 6.) == 42.,
+            "Cast/vector destination key fixture was not created");
     emptyStage->setName("Existing destination keys");
     nested->setCell(0, 3, TXshCell(duplicate, TFrameId(3)));
     auto *guardColumn = nested->getColumn(3);
@@ -610,13 +614,23 @@ void runCastVectorIntegrationTest(QMainWindow *window) {
       expectDrawing(noSave.getPointer(), 5, 40., sourceProfile, .327);
     };
     auto expectSourceAndEmptyColumn = [&]() {
-      require(sheet->getCell(0, 0) == parentCell &&
-                  nested->getCell(0, 0) == TXshCell(level, TFrameId(1)) &&
-                  nested->getColumn(2) == emptyColumn && emptyColumn->getOpacity() == 73 &&
-                  nested->getStageObject(TStageObjectId::ColumnId(2)) == emptyStage &&
-                  emptyStage->getParam(TStageObject::T_X, 6.) == 42. &&
-                  !level->getProperties()->getDirtyFlag(),
-              "Cast/vector no-save clone changed source or reused-column authoring state");
+      require(sheet->getCell(0, 0) == parentCell,
+              "Cast/vector no-save clone changed the parent-sheet exposure");
+      require(nested->getCell(0, 0) == TXshCell(level, TFrameId(1)),
+              "Cast/vector no-save clone changed the nested source exposure");
+      require(nested->getColumn(2) == emptyColumn,
+              "Cast/vector no-save clone replaced the reused destination column");
+      require(emptyColumn->getOpacity() == 73,
+              "Cast/vector no-save clone changed destination column opacity");
+      require(nested->getStageObject(TStageObjectId::ColumnId(2)) == emptyStage,
+              "Cast/vector no-save clone replaced the destination stage object");
+      require(emptyStage->getParam(TStageObject::T_X) == emptyX &&
+                  emptyX->getKeyframeCount() == 1 && emptyX->isKeyframe(6.),
+              "Cast/vector no-save clone changed the destination X key identity or frame");
+      require(emptyStage->getParam(TStageObject::T_X, 6.) == 42.,
+              "Cast/vector no-save clone changed the destination X key value");
+      require(!level->getProperties()->getDirtyFlag(),
+              "Cast/vector no-save clone marked the source drawings dirty");
       expectMetadata(level, tags, storedHints);
       expectDrawing(level, 1, 0., sourceProfile, .327);
     };
