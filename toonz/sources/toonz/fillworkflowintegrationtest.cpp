@@ -628,62 +628,111 @@ void runVectorFillNativeChecks() {
   auto deform = [&](bool envelope, bool accept, bool switchTool = false) {
     setBool(tool, "Envelope", envelope);
     bool sawDialog = false, clean = false, stagedBoth = false;
+    bool expired = false;
+    std::exception_ptr responseFailure;
     app->getCurrentScene()->setDirtyFlag(false);
     TMouseEvent cornerEvent = mouse;
     cornerEvent.m_modifiersMask = TMouseEvent::CTRL_KEY;
     const TPointD corner = image->getBBox().getP11();
     const TPointD moved = corner + TPointD(8, 5);
+    fillCheckpoint("deformation gesture begins");
     tool->mouseMove(corner, cornerEvent);
     tool->leftButtonDown(corner, cornerEvent);
     tool->leftButtonDrag(moved, cornerEvent);
-    QTimer response;
-    response.setSingleShot(true);
+    fillCheckpoint("deformation drag completed");
+    QTimer response, deadline;
+    response.setInterval(10);
+    deadline.setSingleShot(true);
+    auto reportModal = [&]() {
+      QWidget *modal = QApplication::activeModalWidget();
+      std::cout << "vector-fill-native: active modal class="
+                << (modal ? modal->metaObject()->className() : "none")
+                << " name=" << (modal ? modal->objectName().left(120).toStdString() : "")
+                << " title=" << (modal ? modal->windowTitle().left(160).toStdString() : "")
+                << std::endl;
+    };
     QObject::connect(&response, &QTimer::timeout, [&]() {
-      auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
-      sawDialog = dialog && dialog->objectName() == "vectorFillReview";
-      if (!sawDialog) { if (dialog) dialog->reject(); return; }
-      auto *frames = dialog->findChild<QComboBox *>("vectorFillFrame");
-      stagedBoth = frames && frames->count() == 2 &&
-                   !sameGeometry(image, original) && !sameGeometry(second, original);
-      if (frames) frames->setCurrentIndex(1);
-      clean = !app->getCurrentScene()->getDirtyFlag() && undo->getHistoryCount() == 0;
-      if (switchTool) {
-        app->getCurrentTool()->setTool("T_ControlPointEditor");
-        if (dialog->isVisible()) dialog->reject();
-        return;
+      QPointer<QDialog> dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
+      if (!dialog || dialog->objectName() != "vectorFillReview") return;
+      try {
+        auto *button = dialog->findChild<QPushButton *>(accept ? "vectorFillApply" : "vectorFillRestore");
+        if (!button || !button->isVisible() || !button->isEnabled()) return;
+        response.stop();
+        sawDialog = true;
+        fillCheckpoint("deformation review received");
+        auto *frames = dialog->findChild<QComboBox *>("vectorFillFrame");
+        stagedBoth = frames && frames->count() == 2 &&
+                     !sameGeometry(image, original) && !sameGeometry(second, original);
+        if (frames) frames->setCurrentIndex(1);
+        clean = !app->getCurrentScene()->getDirtyFlag() && undo->getHistoryCount() == 0;
+        if (switchTool) {
+          fillCheckpoint("deformation review switches tool");
+          app->getCurrentTool()->setTool("T_ControlPointEditor");
+          if (dialog && dialog->isVisible()) dialog->reject();
+          return;
+        }
+        fillCheckpoint("deformation review button click begins");
+        button->click();
+        fillCheckpoint("deformation review button click returned");
+      } catch (...) {
+        responseFailure = std::current_exception();
+        response.stop();
+        reportModal();
+        if (dialog) dialog->reject();
       }
-      auto *button = dialog->findChild<QPushButton *>(accept ? "vectorFillApply" : "vectorFillRestore");
-      if (button) button->click(); else dialog->reject();
     });
-    response.start(0);
+    QObject::connect(&deadline, &QTimer::timeout, [&]() {
+      expired = true;
+      response.stop();
+      fillCheckpoint("deformation review deadline expired");
+      reportModal();
+      if (auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget()))
+        dialog->reject();
+    });
+    response.start(); deadline.start(10000);
+    fillCheckpoint("deformation leftButtonUp begins");
     tool->leftButtonUp(moved, cornerEvent);
+    fillCheckpoint("deformation leftButtonUp returned");
+    response.stop(); deadline.stop();
+    if (responseFailure) std::rethrow_exception(responseFailure);
+    require(!expired, "deformation review did not finish within its 10-second deadline");
     require(sawDialog && stagedBoth, "deformation did not review both staged drawings");
     require(clean, "multi-drawing review dirtied history before Apply");
   };
   for (bool envelope : {false, true}) {
     fillCheckpoint(envelope ? "Envelope Restore Original" : "Free Deform Restore Original");
     deform(envelope, false);
+    fillCheckpoint("deformation cancellation geometry checks");
     requireGeometry(image, original, "deformation cancellation drawing 1");
     requireGeometry(second, original, "deformation cancellation drawing 2");
     require(undo->getHistoryCount() == 0 && !app->getCurrentScene()->getDirtyFlag(),
             "multi-drawing deformation cancel did not restore all drawings");
+    fillCheckpoint("deformation cancellation pixel checks");
     requireFilledCenter(image, "deformation cancellation drawing 1");
     requireFilledCenter(second, "deformation cancellation drawing 2");
     fillCheckpoint(envelope ? "Envelope Apply and undo/redo" : "Free Deform Apply and undo/redo");
     deform(envelope, true);
     require(undo->getHistoryCount() == 1, "deformation did not create one undo transaction");
     TVectorImageP changedFirst = image->clone(), changedSecond = second->clone();
+    fillCheckpoint("deformation undo begins");
     undo->undo();
+    fillCheckpoint("deformation undo returned; geometry checks");
     requireGeometry(image, original, "deformation undo drawing 1");
     requireGeometry(second, original, "deformation undo drawing 2");
+    fillCheckpoint("deformation undo pixel checks");
     requireFilledCenter(image, "deformation undo drawing 1");
     requireFilledCenter(second, "deformation undo drawing 2");
+    fillCheckpoint("deformation redo begins");
     undo->redo();
+    fillCheckpoint("deformation redo returned; geometry checks");
     requireGeometry(image, changedFirst, "deformation redo drawing 1");
     requireGeometry(second, changedSecond, "deformation redo drawing 2");
+    fillCheckpoint("deformation redo pixel checks");
     requireFilledCenter(image, "deformation redo drawing 1");
     requireFilledCenter(second, "deformation redo drawing 2");
+    fillCheckpoint("deformation final undo begins");
     undo->undo(); undo->reset();
+    fillCheckpoint("deformation final undo completed");
   }
   fillCheckpoint("Free Deform tool-switch cancellation");
   deform(false, false, true);
