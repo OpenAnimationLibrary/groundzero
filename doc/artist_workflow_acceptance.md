@@ -171,6 +171,8 @@ The full-scope source audit also reopened original-window lifetime handling in
 width-profile, fill, alignment and opacity reviews. These stack dialogs still
 use a deletable active window as their QObject parent; nested width-library and
 file dialogs additionally need sticky cancellation after owner hide/destruction.
+Morph and Make Unique Gradient also need original-owner hide/close cancellation,
+although their existing allocation avoids the stack-parent deletion exposure.
 This is a source exposure, not a reproduced crash. The affected workflows remain
 Pending until independently owned dialogs, guarded nested actions and actual
 owner-interruption regressions are implemented and reviewed.
@@ -336,10 +338,10 @@ the CI-only harness verifies isolation and failure retention.
 | 24 | Pressure/profile blending | Zero-strength identity, replace/multiply semantics and pressure preservation. | Pending; shared manager owner-lifetime correction and full undo/save invariance remain open |
 | 25 | Fill-safe reshaping | Actual region-change preview/recovery in geometry edit flow; fills/undo saved. | Pending; original window lifetime correction and actual queued Apply coverage remain open |
 | 26 | Persistent morph hints | Stable drawing/stroke identity, edits/deletions, reopen and compatibility. | Source-ready; CI pending |
-| 27 | Correspondence preview | Matched/manual/unmatched preview matches committed inbetweens. | Source-ready; full range/hint snapshots, actual caller and panel-lifetime checks await CI |
-| 28 | Unmatched stroke handling | Explicit birth/death policy including Fade; endpoint, fill and opacity preservation, undo. | Source-ready; reviewed-range guards and interrupted native morph checks await CI |
-| 29 | Cross-frame gradient uniqueness | Single local/shared other-frame style, other drawings unchanged, undo. | Source-ready; CI pending |
-| 30 | Animated gradient copying | Copy current vs animated style choice; keyframes, unlinking and reload. | Source-ready; cancellation/reload passed on Linux baseline, corrected macOS driver awaits CI |
+| 27 | Correspondence preview | Matched/manual/unmatched preview matches committed inbetweens. | Pending; original Filmstrip hide/close cancellation and actual owner-interruption coverage remain open |
+| 28 | Unmatched stroke handling | Explicit birth/death policy including Fade; endpoint, fill and opacity preservation, undo. | Pending; shared morph original-owner hide/close guard remains open; reviewed-range assertions retained |
+| 29 | Cross-frame gradient uniqueness | Single local/shared other-frame style, other drawings unchanged, undo. | Pending; original-owner cancellation before accepted palette changes remains open |
+| 30 | Animated gradient copying | Copy current vs animated style choice; keyframes, unlinking and reload. | Pending; original-owner cancellation remains open; cancellation/reload passed on Linux baseline |
 | 31 | Outline stacking preservation | Native overlap/group pixel fidelity through outline conversion and undo. | Source-ready; CI pending |
 | 32 | Closed-loop outlines | Inner/outer boundaries, tight loops, holes/winding and undo. | Source-ready; CI pending |
 | 33 | Multi-drawing alignment | Explicit frame/reference scope, preview/cancel, matching, groups and no index-only assumptions. | Pending; original window lifetime correction and actual owner hide/delete coverage remain open |
