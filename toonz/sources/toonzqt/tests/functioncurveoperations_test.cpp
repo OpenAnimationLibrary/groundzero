@@ -24,7 +24,7 @@ namespace {
 void require(bool condition, const char *message) {
   if (!condition) throw std::runtime_error(message);
 }
-void near(double actual, double expected, double tolerance = 1e-10) {
+void requireNear(double actual, double expected, double tolerance = 1e-10) {
   require(std::isfinite(actual) && std::abs(actual - expected) <= tolerance,
           "native curve differs from independent expected value");
 }
@@ -64,26 +64,26 @@ void numericUnitsAndTransactions() {
   require(Ops::matchesSnapshot(a.getPointer(), beforeA.getPointer()), "planning changed first source");
   require(Ops::matchesSnapshot(b.getPointer(), beforeB.getPointer()), "planning changed second source");
   apply(offset);
-  near(a->getKeyframe(0).m_value, 7);
-  near(a->getKeyframe(1).m_value, 9);
-  near(a->getKeyframe(2).m_value, 16);
-  near(b->getKeyframe(1).m_value, 9);
+  requireNear(a->getKeyframe(0).m_value, 7);
+  requireNear(a->getKeyframe(1).m_value, 9);
+  requireNear(a->getKeyframe(2).m_value, 16);
+  requireNear(b->getKeyframe(1).m_value, 9);
   require(TUndoManager::manager()->getHistoryCount() == 1, "one operation produced multiple undo entries");
   require(TUndoManager::manager()->undo(), "batch undo unavailable");
   require(Ops::matchesSnapshot(a.getPointer(), beforeA.getPointer()) &&
               Ops::matchesSnapshot(b.getPointer(), beforeB.getPointer()),
           "undo did not restore every channel");
   require(TUndoManager::manager()->redo(), "batch redo unavailable");
-  near(a->getKeyframe(0).m_value, 7);
+  requireNear(a->getKeyframe(0).m_value, 7);
   // Preview buffers belong to the caller; later UI reuse must not alter redo.
   for (const auto &change : offset.changes)
     if (change.curve.getPointer() == a.getPointer()) change.after->setValue(0, 999);
   require(TUndoManager::manager()->undo() && TUndoManager::manager()->redo(),
           "snapshot isolation undo/redo unavailable");
-  near(a->getKeyframe(0).m_value, 7);
+  requireNear(a->getKeyframe(0).m_value, 7);
   apply(Ops::planValues({{a, {0, 2}}}, Ops::ValueMode::Set, 28));
-  near(a->getKeyframe(0).m_value, 9);
-  near(a->getKeyframe(2).m_value, 9);
+  requireNear(a->getKeyframe(0).m_value, 9);
+  requireNear(a->getKeyframe(2).m_value, 9);
   const int histories = TUndoManager::manager()->getHistoryCount();
   apply(Ops::planValues({{a, {0, 2}}}, Ops::ValueMode::Set, 28));
   require(TUndoManager::manager()->getHistoryCount() == histories, "unchanged Apply added an undo");
@@ -135,11 +135,11 @@ void timingAndDrivenKeys() {
   require(!Ops::planRetime({all(value)}, 0, 0).valid(), "zero time scale accepted");
   auto plan = Ops::planRetime({{value, {1, 2}}}, 2, 2);
   apply(plan);
-  near(value->keyframeIndexToFrame(1), 2);
-  near(value->keyframeIndexToFrame(2), 6);
-  near(value->keyframeIndexToFrame(3), 10);
-  near(value->getKeyframe(1).m_speedOut.x, 1);
-  near(value->getKeyframe(2).m_speedIn.x, -1);
+  requireNear(value->keyframeIndexToFrame(1), 2);
+  requireNear(value->keyframeIndexToFrame(2), 6);
+  requireNear(value->keyframeIndexToFrame(3), 10);
+  requireNear(value->getKeyframe(1).m_speedOut.x, 1);
+  requireNear(value->getKeyframe(2).m_speedIn.x, -1);
   require(TUndoManager::manager()->undo(), "retime undo unavailable");
   require(Ops::matchesSnapshot(value.getPointer(), before.getPointer()), "retime undo lost tangent metadata");
   auto quantized = curve({{0, 0}, {1.2, 3}, {4.8, 7}, {10, 10}});
@@ -147,12 +147,12 @@ void timingAndDrivenKeys() {
   require(!Ops::planQuantize({all(quantized)}, 0, 0).valid(), "zero quantize grid accepted");
   require(!Ops::planQuantize({{quantized, {1}}}, 0, 10).valid(), "quantization collided with an unselected key");
   apply(Ops::planQuantize({{quantized, {1, 2}}}, 0, 2));
-  near(quantized->keyframeIndexToFrame(1), 2); near(quantized->keyframeIndexToFrame(2), 4);
-  near(quantized->keyframeIndexToFrame(0), 0); near(quantized->keyframeIndexToFrame(3), 10);
+  requireNear(quantized->keyframeIndexToFrame(1), 2); requireNear(quantized->keyframeIndexToFrame(2), 4);
+  requireNear(quantized->keyframeIndexToFrame(0), 0); requireNear(quantized->keyframeIndexToFrame(3), 10);
   require(TUndoManager::manager()->undo() && Ops::matchesSnapshot(quantized.getPointer(), beforeQuantize.getPointer()), "quantize undo did not restore original timing");
   apply(Ops::planFrameOffset({{value, {1, 2}}}, .25));
-  near(value->keyframeIndexToFrame(1), 2.25);
-  near(value->keyframeIndexToFrame(2), 4.25);
+  requireNear(value->keyframeIndexToFrame(1), 2.25);
+  requireNear(value->keyframeIndexToFrame(2), 4.25);
 
   auto formula = curve({{0, 0}, {4, 8}});
   formula->setGrammar(sheet.getStageObjectTree()->getGrammar());
@@ -186,9 +186,9 @@ void bakeSamplesCancellationAndFailures() {
   require(Ops::matchesSnapshot(formula.getPointer(), before.getPointer()), "bake preview changed formula source");
   auto baked = plan.changes.front().after;
   require(baked->getKeyframeCount() == 4, "inclusive terminal sample missing");
-  for (double frame : {0.0, 1.5, 3.0, 4.0}) near(baked->getValue(frame), (frame + 1) * 2);
+  for (double frame : {0.0, 1.5, 3.0, 4.0}) requireNear(baked->getValue(frame), (frame + 1) * 2);
   apply(plan);
-  near(formula->getValue(1.5), 5);
+  requireNear(formula->getValue(1.5), 5);
   require(TUndoManager::manager()->undo(), "bake undo unavailable");
   require(Ops::matchesSnapshot(formula.getPointer(), before.getPointer()), "bake undo lost source or metadata");
   int calls = 0;
@@ -206,8 +206,8 @@ void bakeSamplesCancellationAndFailures() {
   auto bounded = Ops::planBake({outside}, {2, 4, .5});
   require(bounded.valid(), qPrintable(bounded.error));
   auto candidate = bounded.changes.front().after;
-  near(candidate->getValue(1), 2);
-  near(candidate->getValue(6), 4);
+  requireNear(candidate->getValue(1), 2);
+  requireNear(candidate->getValue(6), 4);
   require(candidate->getKeyframe(0).m_frame == 0 &&
               candidate->getKeyframe(candidate->getKeyframeCount() - 1).m_frame == 8,
           "partial bake removed out-of-range keys");
@@ -228,7 +228,7 @@ void reductionOracleAndPreservedBoundaries() {
   require(plan.valid() && plan.removedKeys > 0, qPrintable(plan.error));
   auto after = plan.changes.front().after;
   require(after->isKeyframe(4) && after->isKeyframe(5), "hold boundary removed");
-  for (int i = 0; i <= 28; ++i) near(after->getValue(i * .25), before->getValue(i * .25), 0);
+  for (int i = 0; i <= 28; ++i) requireNear(after->getValue(i * .25), before->getValue(i * .25), 0);
   require(Ops::matchesSnapshot(value.getPointer(), before.getPointer()), "key reduction preview changed source");
   apply(plan);
   require(TUndoManager::manager()->undo(), "key reduction undo unavailable");
@@ -256,21 +256,21 @@ void presetAndBreakdown() {
   auto plan = Ops::planPreset(target.getPointer(), preset.getPointer(), 20, 8, 2, 3);
   require(plan.valid(), qPrintable(plan.error));
   auto adapted = plan.changes.front().after;
-  near(adapted->getKeyframe(0).m_frame, 20);
-  near(adapted->getKeyframe(1).m_frame, 24);
-  near(adapted->getKeyframe(2).m_frame, 28);
-  near(adapted->getKeyframe(0).m_value, 13);
-  near(adapted->getKeyframe(1).m_value, 33);
-  near(target->getKeyframe(0).m_frame, 8);
+  requireNear(adapted->getKeyframe(0).m_frame, 20);
+  requireNear(adapted->getKeyframe(1).m_frame, 24);
+  requireNear(adapted->getKeyframe(2).m_frame, 28);
+  requireNear(adapted->getKeyframe(0).m_value, 13);
+  requireNear(adapted->getKeyframe(1).m_value, 33);
+  requireNear(target->getKeyframe(0).m_frame, 8);
   auto source = curve({{0, 0}, {10, 10}});
   const int histories = TUndoManager::manager()->getHistoryCount();
   auto breakdown = Ops::planBreakdown({all(source)}, 5, 1.5);
   require(breakdown.valid(), qPrintable(breakdown.error));
   require(source->getKeyframeCount() == 2, "breakdown preview inserted source key");
-  near(breakdown.changes.front().after->getValue(5), 15);
+  requireNear(breakdown.changes.front().after->getValue(5), 15);
   require(TUndoManager::manager()->getHistoryCount() == histories, "breakdown preview polluted undo");
   apply(breakdown);
-  near(source->getValue(5), 15);
+  requireNear(source->getValue(5), 15);
   require(!Ops::planBreakdown({all(source)}, 5, .5).valid(), "occupied breakdown frame accepted");
   auto key = preset->getKeyframe(0);
   key.m_type = TDoubleKeyframe::Expression;
@@ -309,7 +309,7 @@ void identityAndPersistence(const QString &directory) {
   TDoubleParamP legacy = new TDoubleParam;
   TIStream input(TFilePath((directory + "/old.xml").toStdWString()));
   legacy->loadData(input);
-  near(legacy->getDefaultValue(), 3);
+  requireNear(legacy->getDefaultValue(), 3);
   require(legacy->getWorkspaceId().empty(), "legacy default invented an identity");
 }
 }  // namespace
