@@ -181,6 +181,9 @@ cancellation/restart, malformed requests and a measured 512 MiB peak memory boun
 macOS native qualification uses the publisher's universal C API framework and
 checks its ARM/Intel slices and deployment targets. Intel uses saved same-revision
 Linux numerical fixtures, avoiding a dependency on an unavailable Python wheel.
+The full macOS application and installed-package jobs currently use Intel runners.
+ARM64 operator/worker results do not establish native Apple Silicon Qt application
+or installed-package qualification; those remain unverified here.
 
 Product integration uses a separate native helper, following existing
 helper packaging in `toonz/sources/toonz/CMakeLists.txt` and QProcess lifecycle
@@ -190,27 +193,31 @@ Python evaluation does not establish that native helper's packaging.
 
 The application transport and FX have these validation gates:
 
-- Handshake: protocol version, worker/runtime versions, supported tensor formats,
-  model manifest hashes, supported dimensions and resource limits. Reject
-  unsupported combinations before submitting artwork.
-- Request: job identifier, content/reference/mask digests, cropped reference,
-  straight RGBA buffers, frame dimensions, shot identifier and immutable settings.
-  Use bounded local pipes or a private job directory; no network inference.
-- Result: matching job/settings digests, complete image dimensions, pixels,
-  timing and status. Publish only complete, current results. Restore original
-  alpha and explicitly protected ink; never interpret model-provided executable
-  code or Python pickle data.
+- Trust and initialization: the host validates the packaged manifest, component
+  hashes and model pins before launch. The native worker validates model tensor
+  types/shapes and fixed dimensions. These checks are outside the wire handshake;
+  the ready packet carries the protocol magic/version, command, sequence and count.
+- Request/result wire: bounded GZS1 packets carry command, sequence and float
+  count. Style prediction accepts 256-square RGB and produces a 100-value
+  embedding; content transfer accepts that embedding plus 384-square RGB and
+  returns 384-square RGB. The host checks sequence/count, complete reads and
+  finite output. The protocol does not carry RGBA, shot IDs, digests or timing.
+- Host/FX state: generation guards reject stale previews; embedded profiles and
+  render aliases retain settings/reference identity. Source alpha, masks and
+  protected ink stay in the host/FX layer and are restored after inference.
+  Only complete results are published. No model-supplied code or Python pickle
+  data is executed, and local pipes carry no network inference requests.
 - Scheduling: one inference worker per bounded queue, cancellation acknowledged
   or worker terminated, temporary output discarded, no partial render committed.
-  Cache style embeddings by reference/model/preprocessing digest. Cache images by
-  source, mask, settings, runtime/model and temporal dependency digests.
+  A batch retains its reference embedding; bounded frame checkpoints are keyed
+  by the reference/settings and canonical upstream temporal dependencies.
 - Temporal mode: establish shot boundaries and canonical frame dependencies;
   reuse held drawings; estimate motion and occlusion; reject unreliable warped
   history; invalidate dependent results after edits. Random seeking must reproduce
   ordered rendering. A fixed reference or blending the previous image alone is
   not temporal consistency.
 
-Before product integration is complete, qualify native packaging on every target
+Before product integration is complete, qualify native packaging on every claimed shipping
 architecture, bounded peak memory, worker crash/cancellation recovery, alpha and
 ink edges, large-frame strategy, color-space conversion, held drawings, motion,
 cuts, occlusions and random seeking. Compare temporal stability against both
