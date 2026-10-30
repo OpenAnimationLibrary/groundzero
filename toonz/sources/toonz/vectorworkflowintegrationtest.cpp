@@ -633,6 +633,15 @@ void runVectorWorkflowNativeChecks() {
   checkCopy(palette.getPointer(),animatedCopy,true); reopenCopy(animatedCopy,true);
   undo->reset();
 
+  // The gradient oracle deliberately sampled through frame 10. Return its
+  // shared palette to the actual editing frame before freezing width baselines:
+  // PaletteViewer evaluates this same frame after a native frame round trip.
+  const int widthFrame = app->getCurrentFrame()->getFrameIndex();
+  std::cout << "vector-width-context-native: palette baseline frame=" << widthFrame
+            << " previous-evaluation=" << palette->getFrame() << std::endl;
+  palette->setFrame(widthFrame);
+  checkCopy(palette.getPointer(),animatedCopy,true);
+
   // Select two unique drawing IDs through the same Filmstrip selection API
   // that the native UI uses. A third drawing and repeated exposure stay intact.
   TVectorImageP third = drawing(palette.getPointer(), gradientId);
@@ -695,12 +704,32 @@ void runVectorWorkflowNativeChecks() {
       level->getFrame(TFrameId(3), false)}};
   std::array<TVectorImageP,3> widthOriginals{{freezeWidth(widthSources[0]),
       freezeWidth(widthSources[1]), freezeWidth(widthSources[2])}};
-  const auto unchangedWidth = [&] {
-    for (int i = 0; i < 3; ++i)
-      require(VectorImageSnapshot::sameContent(level->getFrame(TFrameId(i+1),false), widthOriginals[i]),
-              "invalidated width manager changed an original drawing");
+  const auto unchangedWidth = [&](const char *phase) {
+    for (int i = 0; i < 3; ++i) {
+      const TVectorImageP live = level->getFrame(TFrameId(i+1),false);
+      const auto &expected = widthOriginals[i];
+      if (!VectorImageSnapshot::sameContent(live, expected)) {
+        const TPalette *actualPalette = live ? live->getPalette() : nullptr;
+        const TPalette *expectedPalette = expected->getPalette();
+        int differentStyle = -1;
+        if (actualPalette && expectedPalette)
+          for (int style = 0; style < std::min(actualPalette->getStyleCount(),
+                                              expectedPalette->getStyleCount()); ++style)
+            if (!(*actualPalette->getStyle(style) == *expectedPalette->getStyle(style))) {
+              differentStyle = style; break;
+            }
+        std::cerr << "vector-width-context-native: phase=" << phase << " drawing=" << (i+1)
+                  << " strokes=" << (live ? int(live->getStrokeCount()) : -1)
+                  << '/' << expected->getStrokeCount()
+                  << " palette-frame=" << (actualPalette ? actualPalette->getFrame() : -1)
+                  << '/' << (expectedPalette ? expectedPalette->getFrame() : -1)
+                  << " first-different-style=" << differentStyle << std::endl;
+        throw std::runtime_error("invalidated width manager changed an original drawing");
+      }
+    }
     require(undo->getHistoryCount() == 0, "invalidated width manager added undo history");
   };
+  unchangedWidth("baseline");
   const auto restoreWidthScope = [&] {
     app->getCurrentColumn()->setColumnIndex(0);
     app->getCurrentFrame()->setFrame(0);
@@ -715,15 +744,17 @@ void runVectorWorkflowNativeChecks() {
   // A frame switch to a repeated exposure and back still invalidates a
   // previously queued Apply. The source pointer and drawing ID end unchanged.
   for (int repeat = 0; repeat < 2; ++repeat) {
+    std::cout << "vector-width-context-native: held-frame round trip " << repeat << std::endl;
     reviewWidthManager(saved, 50., true, [&] {
       app->getCurrentFrame()->setFrame(2); app->getCurrentFrame()->setFrame(0);
     });
-    unchangedWidth(); restoreWidthScope();
+    unchangedWidth("held-frame round trip"); restoreWidthScope();
   }
+  std::cout << "vector-width-context-native: selection replacement" << std::endl;
   reviewWidthManager(saved, 50., true, [&] {
     app->getCurrentSelection()->setSelection(nullptr);
   });
-  unchangedWidth(); restoreWidthScope();
+  unchangedWidth("selection replacement"); restoreWidthScope();
 
   // A real second level/column is a tempting stale target in Whole Level mode.
   auto *otherLevel = scene->createNewLevel(PLI_XSHLEVEL,L"WidthContextOther")->getSimpleLevel();
@@ -736,11 +767,12 @@ void runVectorWorkflowNativeChecks() {
   const TVectorImageP otherOriginal = freezeWidth(otherDrawing);
   mode->setValue(L"Whole Level"); tool->onPropertyChanged("Mode:"); settle();
   app->getCurrentScene()->setDirtyFlag(false);
+  std::cout << "vector-width-context-native: level replacement" << std::endl;
   reviewWidthManager(saved, 50., true, [&] {
     app->getCurrentColumn()->setColumnIndex(1);
     app->getCurrentLevel()->setLevel(otherLevel);
   });
-  unchangedWidth();
+  unchangedWidth("level replacement");
   require(VectorImageSnapshot::sameContent(otherDrawing,otherOriginal),
           "queued width Apply edited the replacement current level");
   restoreWidthScope();
@@ -757,6 +789,7 @@ void runVectorWorkflowNativeChecks() {
   QFile libraryBefore(libraryPath); require(libraryBefore.open(QIODevice::ReadOnly), "width library read failed");
   const QByteArray originalLibrary = libraryBefore.readAll(); libraryBefore.close();
   bool captureVisited = false;
+  std::cout << "vector-width-context-native: nested capture frame round trip" << std::endl;
   std::exception_ptr captureFailure;
   QTimer capturePrompt;
   QObject::connect(&capturePrompt,&QTimer::timeout,[&] {
@@ -775,11 +808,12 @@ void runVectorWorkflowNativeChecks() {
   QFile libraryAfter(libraryPath); require(libraryAfter.open(QIODevice::ReadOnly), "width library reread failed");
   require(libraryAfter.readAll() == originalLibrary,
           "invalidated nested capture committed an unreviewed profile library");
-  unchangedWidth(); restoreWidthScope();
+  unchangedWidth("nested capture frame round trip"); restoreWidthScope();
 
   // Direct same-scene authoring may omit notifications. Compare all selected
   // drawings, including an off-frame stroke's scalar/profile and fill state.
   for (int change = 0; change < 4; ++change) {
+    std::cout << "vector-width-context-native: intervening authoring " << change << std::endl;
     TVectorImageP liveSecond = level->getFrame(TFrameId(2),false);
     TVectorImageP expectedSecond;
     reviewWidthManager(saved, 50., true, [&] {
@@ -811,7 +845,8 @@ void runVectorWorkflowNativeChecks() {
     restored->setPalette(palette.getPointer());
     restoreWidthScope(); app->getCurrentScene()->setDirtyFlag(false);
   }
-  unchangedWidth();
+  unchangedWidth("intervening authoring restored");
+  std::cout << "vector-width-context-native: fresh zero-strength and blend Apply" << std::endl;
   reviewWidthManager(saved, 0., true); settle();
   require(undo->getHistoryCount() == 0, "zero-strength width profile created undo");
   reviewWidthManager(saved, 50., true); settle();
